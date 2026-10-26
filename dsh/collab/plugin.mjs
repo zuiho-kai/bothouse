@@ -101,7 +101,7 @@ export async function apply(ctx, rawConfig) {
 
   const store = new Store(join(config.dataDir, 'collab.sqlite3'));
   for (const room of config.rooms) {
-    store.ensureRoom(room.id, room.name.trim(), room.workspacePath);
+    store.ensureRoom(room.id, store.room(room.id)?.name ?? room.name.trim(), room.workspacePath);
     store.ensureRoomSettings(room.id);
   }
   store.migrateMemberRooms();
@@ -243,6 +243,17 @@ export async function apply(ctx, rawConfig) {
       const rows = after !== null ? store.since(roomId, Number(after), url.searchParams.get('limit'))
         : store.page(roomId, before === null ? undefined : Number(before), url.searchParams.get('limit'));
       return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
+    }
+    const renamed = /^\/collab\/api\/rooms\/(\d+)$/.exec(path);
+    if (renamed !== null && req.method === 'PATCH') {
+      const roomId = Number(renamed[1]);
+      if (store.room(roomId) === undefined) return json(res, 404, { error: 'room not found' });
+      return withBody(req, res, async body => {
+        const room = store.renameRoom(roomId, body?.name);
+        hub.emit({ type: 'rooms', rooms: store.roomsView() });
+        await dsh.refreshRoomTitles(roomId);
+        return { room };
+      });
     }
     const mode = /^\/collab\/api\/rooms\/(\d+)\/mode$/.exec(path);
     if (mode !== null && req.method === 'GET') {

@@ -276,7 +276,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, renameRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
   const [editing, setEditing] = useState<{ id: number; text: string } | undefined>(undefined)
@@ -330,6 +330,11 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [modeError, setModeError] = useState<string | undefined>(undefined)
   const [leadSaving, setLeadSaving] = useState(false)
   const [leadOpen, setLeadOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [channelName, setChannelName] = useState('')
+  const [nameSaving, setNameSaving] = useState(false)
+  const [nameError, setNameError] = useState<string | undefined>(undefined)
+  useEffect(() => { setSettingsOpen(false); setNameError(undefined) }, [state.roomId])
   const [capabilitiesDismissed, setCapabilitiesDismissed] = useState(false)
   useEffect(() => { setCapabilitiesDismissed(false) }, [state.roomId])
   const composerRef = useRef<HTMLDivElement>(null)
@@ -515,6 +520,18 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     }).finally(() => { setLeadSaving(false) })
   }
 
+  const changeMode = (mode: 'solo' | 'team' | 'mixed'): void => {
+    if (state.roomId === undefined || modeSaving) return
+    setModeSaving(true); setModeError(undefined)
+    setDispatchMode(state.roomId, mode).catch((error: unknown) => { setModeError(error instanceof Error ? error.message : String(error)) }).finally(() => { setModeSaving(false) })
+  }
+
+  const saveName = (): void => {
+    if (state.roomId === undefined || nameSaving) return
+    setNameSaving(true); setNameError(undefined)
+    renameRoom(state.roomId, channelName).catch((error: unknown) => { setNameError(error instanceof Error ? error.message : String(error)) }).finally(() => { setNameSaving(false) })
+  }
+
   const openPicker = (): void => {
     const before = draft.slice(0, caret)
     const insert = before === '' || /\s$/.test(before) ? '@' : ' @'
@@ -651,6 +668,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           <button type="button" className={css.mobileButton} aria-label={t('showRooms')} aria-expanded={drawer === 'rooms'} onClick={() => setDrawer(drawer === 'rooms' ? undefined : 'rooms')}>☰</button>
           <button type="button" className={css.panelToggle} title={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-label={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-expanded={!roomsHidden} onClick={() => { setRoomsHidden(!roomsHidden) }}>{roomsHidden ? '»' : '«'}</button>
           <span className={css.hash} aria-hidden>#</span><span className={css.roomName}>{room?.name}</span>
+          <button type="button" className={css.panelToggle} title={t('channelSettings')} aria-label={t('channelSettings')} disabled={room === undefined} onClick={() => { setChannelName(room?.name ?? ''); setNameError(undefined); setSettingsOpen(true) }}>⚙</button>
           <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
           <button type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
         </header>
@@ -834,13 +852,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           {(['solo', 'team', 'mixed'] as const).map(mode => <label key={mode} style={{ display: 'block' }}>
             <input type="radio" name="dispatch-mode" value={mode}
               checked={(state.rooms.find(r => r.id === state.roomId)?.dispatch_mode ?? 'mixed') === mode}
-              onChange={() => {}}
-              onClick={() => {
-                const roomId = state.roomId
-                if (roomId === undefined) return
-                setModeSaving(true); setModeError(undefined)
-                setDispatchMode(roomId, mode).catch((error: unknown) => { setModeError(error instanceof Error ? error.message : String(error)) }).finally(() => { setModeSaving(false) })
-              }} />
+              onChange={() => { changeMode(mode) }} />
             {t(mode === 'solo' ? 'dispatchSolo' : mode === 'team' ? 'dispatchTeam' : 'dispatchMixed')}
           </label>)}
         </fieldset>
@@ -850,6 +862,35 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         <MemberGroup title={t('agents', { count: String(visibleMembers.filter(m => m.kind !== 'human').length) })} members={visibleMembers.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
         <MemberGroup title={t('humans', { count: String(visibleMembers.filter(m => m.kind === 'human').length) })} members={visibleMembers.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
       </aside>
+      {settingsOpen && <div className={css.dialogBackdrop} onClick={() => { setSettingsOpen(false) }}>
+        <section className={css.dialog} role="dialog" aria-modal="true" aria-label={t('channelSettings')} onClick={event => { event.stopPropagation() }} onKeyDown={event => { if (event.key === 'Escape') setSettingsOpen(false) }}>
+          <h2>{t('channelSettings')}</h2>
+          <fieldset disabled={modeSaving || state.roomId === undefined}>
+            <legend>{t('dispatchMode')}</legend>
+            {(['solo', 'team', 'mixed'] as const).map(mode => <label key={mode} style={{ display: 'block' }}>
+              <input type="radio" name="settings-dispatch-mode" checked={(room?.dispatch_mode ?? 'mixed') === mode} onChange={() => { changeMode(mode) }} />
+              {t(mode === 'solo' ? 'dispatchSolo' : mode === 'team' ? 'dispatchTeam' : 'dispatchMixed')}
+            </label>)}
+          </fieldset>
+          {modeError !== undefined && <div role="alert">{modeError}</div>}
+          <label className={css.fieldLabel}>{t('channelLead')}
+            <select className={css.fieldInput} aria-label={t('channelLead')} value={state.effectiveLeadId ?? state.leadId ?? ''} disabled={leadSaving} onChange={event => { changeLead(event.target.value) }}>
+              <option value="" disabled>{t('leadNone')}</option>
+              {state.members.filter(m => m.kind !== 'human').map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </label>
+          {memberError !== undefined && <div role="alert">{memberError}</div>}
+          <form onSubmit={event => { event.preventDefault(); saveName() }}>
+            <label className={css.fieldLabel}>{t('channelName')}
+              <input autoFocus className={css.fieldInput} aria-label={t('channelName')} value={channelName} disabled={nameSaving || room?.kind === 'workspace'} onChange={event => { setChannelName(event.target.value) }} onKeyDown={event => { if (event.key === 'Enter' && isImeEnter(event)) event.preventDefault() }} />
+            </label>
+            <p>{t(room?.kind === 'workspace' ? 'workspaceNameFixed' : 'channelNameHint')}</p>
+            <button type="submit" className={css.primaryButton} disabled={nameSaving || room?.kind === 'workspace' || !channelName || channelName.length > 32 || /\s/.test(channelName) || channelName === room?.name}>{t('messageSave')}</button>
+            {nameError !== undefined && <div role="alert">{nameError}</div>}
+          </form>
+          <button type="button" className={css.secondaryButton} onClick={() => { setSettingsOpen(false) }}>{t('close')}</button>
+        </section>
+      </div>}
       {modelsOpen && <div className={css.dialogBackdrop} onClick={() => { setModelsOpen(false) }}>
         <section className={css.dialog} role="dialog" aria-modal="true" aria-label={t('configureModel')} onClick={event => { event.stopPropagation() }}>
           <button type="button" className={css.secondaryButton} onClick={() => { setModelsOpen(false) }}>{t('close')}</button>

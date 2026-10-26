@@ -802,6 +802,25 @@ export class DshMembers {
     return agent ?? this.createAgent(member, room);
   }
 
+  sessionTitle(room, member) {
+    const parent = room.kind === 'workspace' ? this.store.room(room.parent_id) : undefined;
+    return `#${parent?.name ?? room.name} · ${member.name}`;
+  }
+
+  /** Refresh persisted bindings too, including sessions not currently loaded by DSH. */
+  async refreshRoomTitles(roomId) {
+    const rooms = this.store.roomsView().filter(r => r.id === roomId || r.parent_id === roomId);
+    for (const room of rooms) {
+      for (const member of this.config.values()) {
+        if (member.cli !== undefined) continue;
+        const binding = this.store.binding(member.id, room.id);
+        if (binding === undefined) continue;
+        const agent = await this.boundAgent(binding.session_id, member);
+        if (agent !== undefined) this.rt.ctx.sessionTitle.rename(agent.session, this.sessionTitle(room, member));
+      }
+    }
+  }
+
   /** The bound Session's Agent, or undefined when the Session can no longer serve the channel. */
   async boundAgent(sessionId, member) {
     const { ctx } = this.rt;
@@ -850,7 +869,7 @@ export class DshMembers {
     // setup ran before the Agent existed, so record it here: liveAgent must not hook it again.
     this.hooked.add(handle.agent);
     if (member.permissionPreset !== undefined) ctx.permissionPresets.set(handle.agent.session, member.permissionPreset);
-    ctx.sessionTitle.rename(handle.agent.session, `#${room.name} · ${member.name}`);
+    ctx.sessionTitle.rename(handle.agent.session, this.sessionTitle(this.store.room(room.id), member));
     if (this.store.binding(member.id, room.id) === undefined) this.store.bind(member.id, room.id, sessionId);
     else this.store.rebind(member.id, room.id, sessionId);
     return handle.agent;
