@@ -2,386 +2,244 @@
 
 # bothouse
 
+<img src="docs/assets/bothouse-team-hero.png" alt="The bothouse team: G-ge, C-chan, Feiyu and Dadoubao working together" width="960">
+
 English | [中文](README.zh-CN.md)
 
-**Tell it before bed. Collect the result when you wake up.**
-bothouse puts a crew of AIs on the night shift: several jobs moving at once, all night long, and none of them drifting off script.
+Using Claude Code, Codex and DeepSeek together used to mean switching between terminals and copying messages back and forth. Close a window and the context is gone; step away from the computer and the work stops.
 
-> While everyone else is making wishes at a chat box, you're running a team that never clocks out.
+So we built **bothouse**: a hub that brings your local CLIs and models into one group, gives them a shared memory, and connects your computer, phone, browser and even desktop companion hardware.
 
-**All night, many jobs at once, still on script.**
-Every handoff carries your own words down the line, so whoever picks the job up, at whatever stage, works from what you actually said. The people who do the work don't sign it off — a fresh AI checks it instead. When a sub-agent runs out of context it writes a handoff first; a session that has sat idle too long gets a handoff and a fresh start too. No slow slide into confusion. And the team shares one memory, so what was settled today still counts tomorrow.
+**Send a task from your phone and your home computer gets to work. Leave instructions before bed, let the AI team work through the night, and collect the results in the morning.**
 
-**You sleep. It works.**
-Scheduled jobs and long jobs sit in the background and keep moving overnight. In the morning the channel has your report: what got done, how it was checked, what's still stuck.
+## Why we built it
 
-**Several jobs in parallel, still under control.**
-The primary role breaks the job up and spreads it across workspaces, one owner per job. Who's on what, how far along, where it's stuck — all on the same task card, readable at a glance.
-
-**Expensive models, only where the work is hard.**
-Chat and small chores go to a cheap model; the hard jobs get the expensive one. Which channel uses which model is fixed in config, so the money goes where it counts.
-
-**Control it from anywhere.**
-Discord gets the full team, Feishu starts with a single role, and the self-hosted web channel runs on your own machine. Add a line from your phone and Claude Code or Codex picks it up mid-task, as do ACP roles like DSH that support it; other CLIs such as codex exec take it next turn.
+- **No more copying messages between tools; one shared memory.** Your existing Claude Code, Codex, Gemini CLI and DSH installations become permanent members, without another account or subscription. They share a local Markdown Wiki, so the next member can look up what the previous one learned instead of asking you to repeat the background.
+- **Keep long tasks on course, with a separate reviewer.** Every handoff carries your original request. Another AI with a fresh context checks the finished work. Child agents write a handoff before their context fills; idle sessions also restart with a handoff to keep accumulated context manageable.
+- **Keep conversation and execution separate.** The lead sends substantial work to independent workspaces while chat stays available. One task card shows who is working, what is done and what is blocked.
+- **Background work and nightly reflection (Autodream).** Scheduled and long tasks run in the background. At night, the system reviews conversations, corrects and deduplicates memory, and proposes rules based on your repeated corrections. Every quotation is checked against your original words, and new rules require your approval. A report is ready in the morning.
+- **Spend tokens where they help.** Cheap or local models handle chat and routine work; stronger models take difficult tasks. Configuration determines which model each channel uses.
 
 ## What it looks like
 
-<img src="docs/assets/demo-team.en.gif" alt="Real channel footage: the chat channel hands work to workspaces, tasks are dispatched, accepted and handed back there, the task board groups them, and chat carries on" width="760">
+<img src="docs/assets/demo-team.en.gif" alt="Real channel footage: chat hands work to workspaces; members accept and return tasks; the board groups progress by workspace while chat continues" width="760">
 
-Real channel footage: chat hands work to a workspace, the workspace dispatches it, the task board shows it all at a glance, and chat carries on.
+Real channel footage: the main channel hands work to a workspace → members split, accept and return tasks → the task board updates while the main conversation continues.
 
-## How you use it
+### Everyday use
 
-**One, you say it once.**
-In the channel you tell the primary role: build me a dashboard — I want to see what each role spent today.
+1. **Give a task in plain language:** “Build a dashboard showing how many tokens each role used today.”
+2. **Split the work:** the lead assigns pieces such as statistics, a menu bar icon, the role list and the desktop companion interface to different AI members with `@` mentions. Progress appears on one task card.
+3. **Steer and review:** add instructions while work is running. Claude Code, Codex app-server and DSH backends with ACP steering support receive them during the active task; CLIs such as `codex exec` read them on the next turn. When the work and the lead's checks are complete, you get a report of changes, validation and remaining work.
 
-**Two, it splits the work and hands it out.**
-The primary role breaks the job into pieces — a stats page, a menu-bar icon, a roles panel, and an interface for plugging in desktop pets later — and gives them to several AIs at once. Who took what, which piece they're on, where they're stuck — all on one task card, in the channel. You don't go window to window asking "how's it going".
+## One CLI or one model can still power a team
 
-**Three, you come back for the result.**
-Each piece goes back to the primary role when it's done. The primary role checks it, then sends you one reply: what changed, how it was verified, what didn't get done.
+Even with just one installed Codex CLI or one DeepSeek API account, you can create several independent members. They share the underlying account but have separate names, personas, responsibilities and sessions. Three DeepSeek members, for example, can plan, implement and review code, assigning and returning work through mentions in the shared channel.
 
-You can cut in at any point. On Claude Code and Codex (app-server), what you add while an AI is working lands in the task it's already holding; ACP agents such as DSH do the same when they report support at handshake. Other CLIs, such as codex exec, queue it instead: the AI picks it up after the current turn ends.
+In DSH web, open **Channels → Add member**, select the same model or local CLI, and save each member with a different name and responsibility. Set the channel's dispatch mode to **Full team**. Session contexts are independent; account quotas and rate limits remain shared. See [a team from one CLI](docs/single-cli-team.md).
 
-## Why not just another chat window
-
-In a one-to-one chat, you are the one holding the context: how far this got, why it was changed last time, what's still untouched. Close the window and it's gone.
-
-bothouse gives that to the primary role: every task has an owner, a source, and a result; the AIs share one memory, so what was decided today is still there tomorrow; the task card shows who's busy with what.
-
-The AIs are the ones you already have. Your local Claude Code, Codex and Gemini become roles as they are — same account, same subscription.
-
-## One CLI can power a whole team
-
-**Install one CLI, or configure one model in DSH, and add several independent members.** Each member has its own name, persona and conversation context. They can all use DeepSeek, or the same installed Codex CLI.
-
-For example, three DeepSeek members can split planning, implementation and review. Each keeps its own conversation and exchanges tasks and results through @-mentions in the public channel.
-
-In DSH web, open **Channels → Add member**, choose **DSH model** and the same DeepSeek model, then save a different name and responsibility for each of the three members. For several Codex members, choose **Local CLI → Codex** instead. Select a primary role and set the channel's **Dispatch mode** to **Full team** to assign work among these members.
-
-**The conversations are separate; the machine and account are not.** Public channel messages are supplied to members. Configured shared wiki pages and shared workspace files can also carry information between them. Members using the same account remain subject to that account's usage limits.
-
-See [one CLI / one model, multiple independent members](docs/single-cli-team.en.md) for steps, platform differences and the boundaries between conversations and shared memory.
+---
 
 ## Quick start
 
-### Core install
+### 1. Install
 
-Download the `.dmg` (macOS) or `.exe` (Windows) from [Releases](https://github.com/zuiho-kai/bothouse/releases), or use the commands below. Section 1 of [Getting started](docs/GETTING_STARTED.md) (Chinese) covers fixed versions and checksums.
+Download your platform's package from [Releases](https://github.com/zuiho-kai/bothouse/releases). No Go or Node installation is needed:
 
-```sh
+- **macOS:** `bothouse-mac.dmg` for Apple Silicon and Intel. Drag it into Applications; because it is unsigned, **right-click → Open** on first launch.
+- **Windows:** `bothouse-windows.exe` for x64 and ARM64 Windows. If SmartScreen blocks it, choose **More info → Run anyway**.
+- **Linux:** `bothouse-linux-x64` or `bothouse-linux-arm64`. Run `chmod +x` on the file, then launch it.
+
+Or install the latest release, including prereleases, with one command. SHA256 verification is included; set `BOTHOUSE_VERSION=<tag>` to pin a version.
+
+~~~sh
 # macOS / Linux
 curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh && bothouse
-```
+~~~
 
-```powershell
+~~~powershell
 # Windows (PowerShell)
 irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex; bothouse
-```
+~~~
 
-Installs the newest release, pre-releases included. The installer verifies SHA256SUMS; set BOTHOUSE_VERSION=<tag> to pin a version.
+### 2. Configure and start
 
-The command is `bothouse`. No Go or Node required.
+You'll need a Discord server or Feishu workspace and at least one installed, logged-in AI CLI: Claude Code, Codex or Gemini CLI.
 
-On macOS and Windows, desktop launches show an icon in the menu bar or system tray.
-Use `bothouse --headless` or `BOTHOUSE_TRAY=off` to hide it. The default
-`BOTHOUSE_TRAY=auto` also hides it over SSH and when HOME differs from the OS
-account's home (preview/test instances). `BOTHOUSE_TRAY=on` enables it for an
-isolated desktop instance; CLI commands and `--headless` still hide it.
-Tray Exit stops the supervising service as well as the bridge. Its startup
-registration stays installed for the next login or a manual start.
+1. **Open the wizard:** run `bothouse`; the wizard opens in your browser.
+2. **Connect roles:** choose a platform → connect bots → select a local CLI and persona for each role → save. New roles default to fully automatic YOLO permissions; you can change this in the dashboard's project settings. You can also tell your local Claude Code or Codex: “Set up bothouse and connect it to Discord.” It will ask for the required configuration.
+3. **Start working:** click **Restart to apply**, then mention your roles in the channel.
 
-`bothouse daemon install` installs the background service and starts it now. Start at login is off by default; turn it on in the panel under Settings → Start at login. Switching it does not stop the running service.
+For background operation, run `bothouse daemon install` to register and immediately start the service. Start at login is off by default; enable it in **Settings → Start at login** without interrupting active tasks.
 
+To let a small model decide who should answer, or enable shared memory, install the optional dispatcher and Wiki components. See [dispatcher and team memory](docs/ccm-and-wiki.md) and [Getting started](docs/GETTING_STARTED.md).
 
-Release downloads: `bothouse-mac.dmg` (universal Bothouse.app for Apple Silicon and Intel), `bothouse-windows.exe` (x64, also runs on ARM64 Windows; double-click), and `bothouse-linux-x64` / `bothouse-linux-arm64` (`chmod +x`, then run). First launch opens the browser setup wizard. Verify downloads with `SHA256SUMS`.
+<details>
+<summary><b>DSH channel setup (experimental)</b></summary>
 
-The packages are unsigned. macOS: drag **Bothouse.app** into Applications, then **right-click → Open the first time**. Windows: if SmartScreen warns, click **More info → Run anyway**.
+You need DSH `>= 0.2.1-rc.2`, `pnpm` on PATH, and Node `>= 22.12.0`. Choose DSH in the first wizard step, then detect dsh → install plugins → run the returned command to open DSH web. Configure bots, CLIs and personas in DSH afterwards. Set `BOTHOUSE_DSH_DIR` for development or to override the directory.
+The equivalent CLI command is `bothouse setup dsh install --lang en`. You can also install the plugin directly from GitHub:
 
-**You'll need:** a Discord server (or a Feishu workspace) and at least one AI CLI you're already logged into (Claude Code, Codex or Gemini CLI). The wizard walks you through creating the bot.
-
-1. **Install**: download and open the app, or run the one-liner above.
-2. **Configure**: run `bothouse`. The wizard opens in your browser: pick a platform → connect the bots → pick a local CLI per role → persona → save (new roles default to YOLO / auto-approve permission mode, adjustable in project settings).
-   Or tell your Claude Code / Codex "set up bothouse and connect it to Discord"; it asks for everything once.
-3. **Use**: after saving, click "Restart to apply", then @ a role in your channel.
-
-Several roles can use the same CLI with different personas. The wizard gives each
-new role its own working directory, persona, hooks and memory index. When calling
-`setup apply` with an explicit `work_dir`, use a separate directory for each role;
-a directory already assigned to another project is rejected.
-
-To let an AI decide who should answer (a small component we call the gate, think of it as a dispatcher), or to add the team memory, install two more pieces: see [the dispatcher and the team memory](docs/ccm-and-wiki.md) (Chinese).
-The full walkthrough is in [Getting started](docs/GETTING_STARTED.md) (Chinese). English docs are on the way.
-
-### DSH channel (experimental)
-
-DSH setup: choose **DSH** in the first wizard step, then detect dsh → install plugins → run the returned command to open DSH web. Bots, CLIs, personas and models are configured in DSH afterwards. The wizard passes Chinese or English to the installer. The installer already bundles the DSH files it needs, so it works after install; use `BOTHOUSE_DSH_DIR` when developing or to override them. CLI equivalent: `bothouse setup dsh install --lang zh`.
-
-You need an existing DSH (`>= 0.2.1-rc.2`) and `pnpm`; without `pnpm` on PATH the plugin command fails with exit 127. The plugin package requires Node `>= 22.12.0`.
-
-The channel plugin can also be installed straight from GitHub:
-
-```sh
+~~~sh
 dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plugin-pkg'
-```
+~~~
 
-## Platform support
+</details>
 
-| Platform | Status | What works today |
+## Platforms and integrations
+
+Discord and Feishu already provide phone and desktop clients, so there is no extra wrapper app to build. On DSH, guardrails and tools use its native plugin system.
+
+| Platform | Status | Supported capabilities |
 | --- | --- | --- |
-| Discord | Full | The full team: call by name, handoffs, teammate status, log channel; slash commands in servers and bot DMs |
-| Self-hosted channel | Team mode | A Discord-like web channel you can start on your own machine; several roles, call by name, handoffs |
-| Feishu (Lark) | Single role | One role chatting, for now |
-| DSH web | Experimental | A Channels page inside DSH web, see [DSH channels](dsh/collab/README.md) |
+| Discord | Full support | Multiple roles, mentions, task handoffs, teammate status and log channels; slash commands in servers and direct messages |
+| Self-hosted web | Team mode | A local, Discord-like web interface with multiple roles, mentions and task handoffs |
+| Feishu (Lark) | Single role | Conversation with one connected role |
+| DSH web | Experimental | A Channels page inside DSH web; see [DSH channels](dsh/collab/README.md) |
 
-Connect to Discord or Feishu and you get phone, desktop and browser for free. No extra app to install.
-Plug into DSH and our guardrails and tools install through DSH's own plugin system. We don't rebuild it.
+Already logged-in Claude Code, Codex, Gemini CLI and OpenCode installations run directly. Agents such as DSH connect through ACP. You can also configure CLIs with third-party APIs, including SiliconFlow, OpenRouter, DeepSeek, MiniMax, local models and other OpenAI-compatible endpoints. See [connection setup](docs/connect-discord-feishu.md).
 
-On the AI side: Claude Code, Codex, Gemini CLI, OpenCode and other CLIs you're already logged into work directly; agents like DSH connect over a standard protocol (ACP).
-You can also point a CLI at a third-party API (SiliconFlow, OpenRouter, DeepSeek, MiniMax, a local model, any OpenAI-compatible endpoint); see the [matrix](docs/connect-discord-feishu.md#4-第三方-api--本机-cli) (Chinese).
+## Remote access from your phone with Tailscale
 
-## Anywhere access (Tailscale)
+bothouse runs on your home computer and includes a web management dashboard. Tailscale lets your phone reach it without renting a server or exposing public ports. Check team progress and token usage, or add instructions while away from your desk.
 
-bothouse runs on your own machine, and its control panel is a web page. Install Tailscale and your phone, tablet
-or another laptop opens that same page: see how the team is doing, what each role spent today, and drop a line
-or hand over a new job right in the chat page. No extra app, no moving the machine into someone else's cloud.
+### 1. Connect your devices
 
-### 1. Install Tailscale
+Install Tailscale on the computer running bothouse and on your phone or laptop. Sign in with the same account so they join the same tailnet:
 
-Install and sign in on the machine running bothouse, then install the same client and sign in with the same
-account on your phone or the other computer. Once both ends are in the same tailnet they can reach each other.
-
-```sh
+~~~sh
 # macOS
 brew install --cask tailscale
 # Linux
 curl -fsSL https://tailscale.com/install.sh | sh
-```
+~~~
 
-Then get this machine's Tailscale address — note the `100.x.y.z` it prints:
+Run `tailscale ip -4` and note the computer's `100.x.y.z` address.
 
-```sh
-tailscale ip -4
-```
+### 2. Enable the dashboard and live bridge
 
-### 2. Point the panel at the Tailscale address
+Send `/web setup` to the bot, or run `bothouse web`. It configures the dashboard and live conversation channel and generates a login token. Restart once as instructed.
 
-The easy way is to let bothouse do it: send `/web setup` to the bot in a channel, or run `bothouse web` on the
-machine running bothouse. Either one turns on both the panel and the channel the chat page talks over, generates
-a token, and asks you to restart once.
+For manual configuration, edit `~/.bothouse/config.toml`. A configuration file with the same name in the current directory takes precedence.
 
-To write the config yourself, edit `config.toml`. The default file is `~/.bothouse/config.toml`; if there is a
-`config.toml` in the current directory, that one wins.
-
-When startup selects the default `~/.bothouse` data directory, missing cron and timer stores
-are copied from `~/.cc-connect`. Missing usage JSON files are copied individually by filename, even when the new directory
-already contains recent usage. Existing files are never overwritten or merged, and the originals
-are kept. Migrated one-shot timers already past due are recorded as skipped instead of
-running together after the upgrade; future timers keep their scheduled times. Custom
-`data_dir` locations are not migrated. A file migration failure logs a warning without
-blocking other files or bot startup.
-
-```toml
+~~~toml
 [management]
 enabled = true
-host = "100.x.y.z"        # the output of tailscale ip -4 above
-port = 9820               # panel port, 9820 by default
-token = "replace-with-a-long-random-secret"
+host = "100.x.y.z"        # Your Tailscale address from the previous step
+port = 9820               # Default port
+token = "replace-with-a-long-random-password"
 
 [bridge]
-enabled = true            # the chat page needs this; without it you can look but not talk
-```
+enabled = true            # Required for sending messages, not just viewing data
+~~~
 
-With `host` set to this machine's Tailscale address, the panel waits for you on that address only. Leave `host`
-empty and a normally running bothouse listens on every interface; only setup mode, before any platform is
-configured, defaults to loopback `127.0.0.1`. So set `host` explicitly for remote access — don't count on the
-default.
+Network and migration notes:
 
-The chat page also needs `[bridge]` on: the panel alone does not carry its live connection, and only with
-`[bridge] enabled = true` does it connect. With it on, that channel is reachable both through the panel port and
-separately on port 9810 across every interface, outside the `host` setting above — so if you want only your tailnet
-to reach it, cover 9810 in your firewall or Tailscale access rules too.
+- Start Tailscale before bothouse. Without an explicit `host`, normal operation listens on all interfaces. Only the initial wizard, before any platform is configured, binds to `127.0.0.1`. Specify `host` for remote access.
+- When enabled, the bridge is available on the dashboard port and also listens on port 9810 on all interfaces. To restrict access to the tailnet, restrict port 9810 in your firewall or Tailscale ACL as well.
+- On first use of the default `~/.bothouse` directory, scheduled-task and usage JSON data is incrementally copied from `~/.cc-connect`. Expired one-shot tasks are marked as skipped to prevent a burst of executions; existing files are not overwritten.
 
-Tailscale has to be up before bothouse starts, including after a reboot. Save the config and restart bothouse.
+### 3. Sign in and use it
 
-### 3. Where the panel token comes from
+Get your token through `/web setup`, `bothouse web --no-browser`, or `config.toml`. Open `http://100.x.y.z:9820/` on your phone and enter the token. The dashboard adapts to mobile screens and remembers your credentials.
 
-Signing in takes a token: the `token` in `[management]`. Three ways to get it:
+- **Status and usage:** view uptime and today's or this month's token usage by role and model, with daily and hourly heatmaps.
+- **Configuration:** add roles, edit personas and change models from the Roles, Projects, Skills and System pages. Restart to apply changes.
+- **Conversation:** open a project to see its context and add instructions to its active task, through the same conversation flow used by Discord.
 
-- **Ask in the channel.** Send `/web setup` to the bot; it replies with the panel URL and the token, generating
-  one if the panel was never enabled.
-- **Read it in the terminal.** On the machine running bothouse, run `bothouse web --no-browser`: it prints the URL
-  and the token without opening a browser. If the panel was never enabled, that command turns it on first and asks
-  you to restart once.
-- **Open the config.** The `token` line under `[management]` in `config.toml`.
+## How the team works
 
-With the token in hand, open `http://100.x.y.z:9820/` on your phone. The first field is the token; the second,
-"server URL", is optional and already points at the address you opened the page from. Fill it in once and the
-browser remembers it.
+### 1. Separate chat from workspaces
 
-### 4. What you can do from a phone
+- **Keep chat available:** the lead moves a substantial task into Workspace 1 while remaining available in chat. Additional workspaces open when needed.
+- **Return results to one place:** the workspace lead splits work and mentions teammates; members accept and return assignments. Decisions needing your input come back to the main channel, so you only need to follow one conversation.
+- **See assignments:** the task board groups work by chat channel → workspace → role. Before assigning work, the lead checks whether teammates are already busy. Each channel supports single-model/multiprocess, full-team or mixed dispatch modes.
 
-Everything is in the sidebar once you are signed in:
+### 2. Team rules and the small-model dispatcher (jev)
 
-- **Dashboard and usage**: version, uptime, which platforms are connected, how many projects; tokens spent today
-  and this month, split by role and by model, plus a heatmap by day and hour.
-- **Roles, projects, skills, providers, devices**: add a role, edit a persona, switch a model from the phone, then
-  restart on the system page.
-- **Chat**: pick a project, read the whole conversation, and keep talking. What you type goes in as a message to the
-  role in the middle of its job, exactly like speaking to it in Discord.
-- **Cron, library, system**: see scheduled jobs, browse the library, change global settings.
+- **Speak when called:** the lead answers by default. Other roles follow the conversation and respond when mentioned or named. Ask another role to take the lead, or switch back to opus, in plain language.
+- **Choose who answers:** the lightweight jev dispatcher, or Gate, decides whether opus, another member or nobody should respond to an unaddressed message. It can use a free small model on SiliconFlow or a local model such as Qwen 0.6B.
 
-The page ships a mobile viewport, so a phone browser works as-is. On a narrow screen, tap the arrow at the bottom of
-the sidebar to collapse it to icons only and give the content the full width.
+### 3. Shared memory built on llm-wiki
 
-Hand over a job between meetings, or check how far the night shift got on the way home — it is all in your pocket.
+We extended our open-source llm-wiki into a shared memory for multiple roles. Memory lives in local Markdown files you can read and edit. Git history records what the team learned.
 
-### 5. Same thing from another computer
+- **Retrieve before responding:** each incoming message triggers a Wiki search. Relevant pages about current state, facts, decisions, lessons and pending work are attached before the role responds.
+- **Share across models:** opus running Claude, a DSH member and a Codex member all read and write the same knowledge base.
 
-No reinstall on the other laptop: install Tailscale, join the same tailnet, open the same URL, and you can chat,
-hand over work and read usage there too. One always-on machine is the brain; laptops and phones are windows onto
-the same team.
+### 4. Nightly review and Autodream
 
-## Features
+- **Capture during the day; refine at night:** when a session ends, has been idle for 30 minutes or encounters an error, a fast model records progress in the Wiki. At night, a slower, more thorough free model compares it with original conversations to correct errors, fill gaps and remove duplication. A full Wiki review runs on Sundays.
+- **Autodream:** the final nightly step reviews your original messages, turns repeated corrections into candidate rules and writes a daily reflection.
+- **Check quotations:** code compares every quoted instruction with your actual words and rejects invented quotations. Proposed rules are sent to the group for review and require your approval before taking effect.
 
-### Chat channel + workspaces: the chat never gets blocked
+### 5. Guardrails and tools
 
-- Ask for something big in the chat channel and the primary role hands the whole job to Workspace 1, then comes back to keep chatting with you. When Workspace 1 is busy, Workspace 2 opens on its own.
-- Inside a workspace the primary role splits the job and @s teammates; they reply 【接】 (taking it) and 【交回】 (handing it back). Anything that needs your decision comes back to the chat channel, so you only watch one place.
-- The task board groups work by chat channel → workspace → role: who is on what, and how much is done. Before handing off, the primary role checks whether that teammate is busy in another workspace.
-- Dispatch mode is per channel: single model with several processes (the role's own subtasks), full team (other channel members, which may all use the same model), or mixed (default). This controls where work goes, not whether members use different models.
-- In the DSH channel page, type "/" to see every capability and how to use it.
-
-### A team, not a pile of chatbots
-
-- **Speaks only when called.** One primary role answers by default. The others hear every message but speak only when @-ed or named. Several AIs in one group don't all answer at once.
-- **Hand off, report back.** The primary role @s a teammate with a task. The teammate's final answer @s the primary role automatically, and the primary role wraps up.
-- Teammate status is an optional switch: turn it on and the primary role starts every turn knowing who's busy in which channel.
-- Add a message while an AI is working and it picks it up mid-task, no waiting.
-- To swap the primary role, just say "Whale, you lead now" or "Back to opus"; the default responder changes on the spot.
-- Each role has its own session per channel; recovery after restart depends on the backend's capabilities. Messages posted while a role was offline are handed to it through the configured history-recovery path before it answers.
-
-### jev, the dispatcher: a small model decides who answers
-
-With several AIs in one group, who should answer a message? bothouse brings in a small model as the dispatcher. We call it jev.
-It answers one multiple-choice question: should opus answer this, or Whale, or nobody? A message that names someone goes to them; everything else goes to jev.
-
-- **A free SiliconFlow model is enough.** No thinking mode needed. Fill in three boxes: base URL, key, model name.
-- **Or run a small model locally**, such as Qwen 0.6B, and dispatch without going online.
-- Set it up right in the install wizard. It tests the model as soon as you fill it in.
-
-### One team memory that grows
-
-Memory is a directory of markdown files you can open and edit. The team shares one main memory; each role keeps its own.
-
-- Each page holds current state, key facts, decisions and pitfalls, open items. The git log is literally "what the AI remembered today"; if it got something wrong, edit the file.
-- **Pages come to the role; it doesn't have to go looking.** Every incoming message is first searched against the wiki, and the matching pages are placed in front of it.
-  Whatever the group is talking about, the role has the right page in hand, mid-session too.
-- **Model-agnostic.** opus on Claude, Whale on DSH, Writer on Codex: all three read the same memory.
-
-The memory layer is the open [llm-wiki](https://github.com/zuiho-kai/llm-wiki). It remembers one person and one assistant. bothouse shares it across several roles, records what Claude, Codex and DSH each did, hands the relevant pages to a role with every message, and reviews it nightly.
-
-### Guardrails and small tools included
-
-- **Guardrails:** dangerous commands are stopped first. If an AI says "fixed" with no proof, it gets sent back. If it promises to "check back later" without setting a timer, same thing. Claude Code and DSH share one set.
-- **Small tools:** see what each teammate is doing right now, turn a video into text and frames, free web search.
-- Don't want one? Tell the bot in the chat: "turn the checks off."
-
-### A review every night
-
-- **Day, a cheap fast model.** When a session ends, sits idle for 30 minutes, or hits a problem mid-session, the new content is distilled into the wiki.
-- **Night, a free, slow model that reads carefully.** It checks every batch written during the day against the original transcript: fixes errors, fills gaps, removes duplicates. On Sundays it reads the whole wiki for a check-up.
-- The last step each night is the dream: it reads only what you said during the day, turns the things you kept correcting into rule candidates, and writes a short "today's reflection".
-- Every quote in a candidate is checked word for word against what you actually said, so nothing made up gets in. A candidate becomes a rule only when you say yes; it never changes your rules behind your back.
-- After the dream, the primary role gets a turn in the channel, so the next morning you can see what the team learned yesterday.
+- **Require evidence:** dangerous commands are blocked. Claims that a problem is fixed need verification evidence; promises to check later need a timer. You can ask in chat to turn checks off.
+- **Built-in tools:** inspect teammate progress, extract video frames and transcripts, search the web, and view child-agent durations and status. Child status supports Codex and DSH with the status-forwarding integration. `bothouse voice-desk` can announce progress on demand.
 
 ## How it compares
 
-| You may be looking at | What it solves | How bothouse differs |
+| Alternative | Approach | bothouse's approach |
 | --- | --- | --- |
-| Orca and other multi-agent IDEs | One person watching several coding tasks at once | It's a workbench; we're a team. Agents there are opened per task and closed after. Here they're resident colleagues who live in your group chat and remember yesterday: you can assign work from your phone in a chat, instead of babysitting an IDE |
-| ai-memory, agentmemory, TencentDB Agent Memory | Giving an agent a memory store | They're databases; we're a wiki. You can read and edit it; matching pages reach the role before every message; it's reviewed every night |
-| llm-wiki | Memory for one person and one assistant | It's our memory layer. bothouse shares it across several roles, records what Claude, Codex and DSH each did, hands pages to a role with every message, and reviews it nightly |
-| Claude Code agent teams, CrewAI, MetaGPT | Spinning up a crew for one task | They spin up a fresh crew per project, and every crew re-reads the background, so you pay for the same understanding again and again. Ours stay: one generalist reads the knowledge base and takes any project, and spins off temporary sub-agents when needed, with long-lived specialists on the roadmap. By design, you don't pay for the same background on every project (we haven't measured how much it saves yet) |
+| Orca / multi-agent IDEs | Several coding windows at your desk | Permanent roles stay in a group, remember previous work and accept tasks from your phone. |
+| ai-memory / vector memory stores | A database attached to an agent | An editable Markdown Wiki, retrieved before each message and reviewed and deduplicated at night. |
+| CrewAI / MetaGPT / Claude Teams | A temporary team assembled for each task | Persistent roles carry the shared knowledge base between projects, reducing repeated background explanation. |
 
-```
-traditional agent team                       bothouse
-project A ─ temp PM ─ temp coder ─ temp QA    you ─@─ opus   (resident, own session and wiki)
-project B ─ temp PM ─ temp coder ─ temp QA           ├─ @Whale  (resident, DSH) ─ spawns sub-agents when needed
-(disbands after the task, context rebuilt)           └─ @Writer (resident, Codex)
-                                              projects A/B/C all flow through the same few people
-```
+~~~text
+Temporary agent team                    bothouse
+Project A → PM → developer → tester      You → @opus (persistent session + shared Wiki)
+Project B → PM → developer → tester             ├─ @DSH member → children as needed
+(Rebuild context for each project)              └─ @Codex member
+                                         The same team works across projects A/B/C.
+~~~
+
+## Architecture and data flow
+
+~~~text
+Discord / Feishu / self-hosted channels
+        │
+Platform adapters → Core engine → Role adapters → Local CLI or ACP agent
+        ▲           │     ▲
+        │           ▼     │
+        │       Dispatcher gate
+        │           │     │
+        └─ Responses┘     Shared Wiki
+                          (retrieval before messages, nightly review)
+~~~
+
+See [Architecture](docs/ARCHITECTURE.md) for module responsibilities.
 
 ## Roadmap
 
-What works today is step one: one group, several AIs, one shared memory. What we want next:
+The first step is working: one group, persistent AI members and a shared memory. The following work is still in progress; watch the repository for updates:
 
-- **No double-grabbing.** The primary role already checks whether a teammate is busy in another workspace before handing off; next, a role claims a task before touching it, so two roles never collide.
-- **Roles that grow roles.** Say "we need to ship to the App Store", and the primary role spins up a release specialist who reads your past decisions, does the job, and retires. You don't create them one by one.
-- Hiring a role should work like hiring a person: role packs bundle persona, memory template and tools, one click into the group.
-- The library should grow plugins and a market: packs that carry code plugins, plus an online market to browse and install personas and avatars others made.
-- A memory you can take with you: new machine, new model, same team, same memory.
-- Resident roles shouldn't re-read the project for every task, which saves the repeated background. We'll publish numbers when we have a real comparison.
-- Team features should reach more platforms: DSH web channels first, then Telegram, Slack, QQ, WeCom (single-role connections already ship with bothouse).
-- DSH channel: send images and quote replies.
-- A workspace that closes its last task clears its own context, so the next job starts fresh.
-- Memory should get smarter: semantic search next to keyword search, so a different wording still finds the page.
+- **Claim tasks before starting:** lock assignments so multiple members do not start the same task.
+- **Create specialists as needed:** a request such as publishing to the App Store could create a specialist that reads prior decisions, completes the assignment and exits without manual setup.
+- **Role packs and a plugin marketplace:** bundle personas, memory templates and tools for one-step installation, and browse community roles.
+- **Portable memory and semantic search:** carry the Wiki between computers and models, and add semantic retrieval alongside keyword search.
+- **Automatic workspace cleanup:** clear context after the last assignment so the next task starts fresh.
+- **More group-chat platforms:** extend full team mode to DSH web channels, Telegram, Slack, QQ and WeCom.
 
-None of this is built yet. Watch the repo to follow along.
+## Documentation
 
-## How it works
+Most guides below are currently in Chinese; the self-hosted platform protocol is in English.
 
-```
-Discord / Feishu / self-hosted web channel
-        │
-  platform adapter ──► engine (channel sessions, queue, handoffs) ──► agent adapter ──► local CLI or ACP agent
-        ▲                      │          ▲
-        │                      ▼          │
-        │        dispatcher / gate (who answers) ◄──┤
-        │                      │          │
-        └──── replies ◄────────┘   shared wiki (searched per message, reviewed at night)
-```
-
-Modules and data flow: [Architecture](docs/ARCHITECTURE.md) (Chinese).
-
-## Docs
-
-| Doc | What's in it |
+| Guide | Contents |
 | --- | --- |
-| [Getting started](docs/GETTING_STARTED.md) | Install, wizard, check it's online (Chinese) |
-| [One CLI / one model, multiple members](docs/single-cli-team.en.md) | Configure three DeepSeek or several Codex members; dispatch and context boundaries |
-| [Connect Discord or Feishu](docs/connect-discord-feishu.md) | Every wizard step, let an AI configure it, third-party APIs (Chinese) |
-| [The dispatcher and the team memory](docs/ccm-and-wiki.md) | The gate (who answers) and the shared wiki memory (Chinese) |
-| [Persona library and packs](docs/persona-packs.md) | Pick personas and avatars, make your own, install packs (Chinese) |
-| [Per-role wiki and nightly review](bridge/contrib/wiki/README.md) | One wiki per role, scheduled distilling, the review (Chinese) |
-| [Guardrails and tools](bridge/contrib/hooks/README.md) | Hook rules, how to switch them off, [small tools](bridge/contrib/tools/README.md) |
-| [Self-hosted channel protocol](bridge/docs/cloud-web.md) | The interface between the channel and the plugin |
-| [Architecture](docs/ARCHITECTURE.md) | Modules and data flow (Chinese) |
+| [Getting started](docs/GETTING_STARTED.md) | Installation, wizard and first run |
+| [A team from one CLI](docs/single-cli-team.md) | Multiple roles from one DeepSeek or Codex account, with configuration and session boundaries |
+| [Discord and Feishu setup](docs/connect-discord-feishu.md) | Platform connections, AI-assisted setup and third-party APIs |
+| [Dispatcher and team memory](docs/ccm-and-wiki.md) | jev and the shared Wiki |
+| [Role packs](docs/persona-packs.md) | Choose, build and import personas and avatars |
+| [Per-role Wiki and nightly reflection](bridge/contrib/wiki/README.md) | Wiki isolation, maintenance and Autodream |
+| [Guardrails and tools](bridge/contrib/hooks/README.md) | Hook rules, switches and built-in utilities |
+| [Self-hosted platform protocol](bridge/docs/cloud-web.md) | Communication between the web platform and plugins |
+| [Architecture](docs/ARCHITECTURE.md) | Module responsibilities and data flow |
 
-Contributors: start with [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
+To contribute, read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
 
-Source builds with the web management dashboard must build the frontend before
-Go compilation and omit `no_web`. See [dashboard builds and private remote
-access](docs/dashboard-source-build.md).
+## License and community
 
-### Collaboration helper scripts
-
-The setup wizard automatically installs the packaged task board, timer, handoff and
-primary role helpers for a newly created primary role. Other roles do not receive them.
-To install them explicitly for an existing role, use
-`bothouse setup lead install --work-dir /path/to/role --agent codex`.
-See [configuration and requirements](bridge/contrib/lead/README.md).
-
-## License
-
-bothouse is licensed under [Apache-2.0](LICENSE). See [LICENSING.md](LICENSING.md) (Chinese) for details.
-
-The bundled upstream bridge retains its MIT notice in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Thanks to its authors and contributors. See [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md) for dependency licenses.
-
-### Local token usage
-
-The management API exposes daily, hourly, role, and model usage totals, with optional configured price estimates. Accounting starts from installation; backends without complete billing usage remain explicitly unknown. See [usage API and pricing](docs/api/usage.md).
-
-## Community
-
-- [linux.do](https://linux.do) - A thriving developer community.
+- **License:** Apache-2.0; see [LICENSING.md](LICENSING.md). The bundled bridge retains its upstream MIT notice in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Third-party dependencies are listed in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
+- **Community:** linux.do
