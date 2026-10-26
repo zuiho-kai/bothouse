@@ -156,7 +156,7 @@ export async function installDSHPlugin(lang: string, onEvent: (e: DSHInstallEven
   }
 }
 
-export interface DSHMember { name: string; cli?: 'claude' | 'codex' | 'gemini'; persona?: string }
+export interface DSHMember { name: string; cli?: 'claude' | 'codex' | 'gemini'; persona?: string; name_customized?: boolean }
 export const configureDSH = (body: { deepseek_api_key?: string; members: DSHMember[] }) =>
   api.post<{ key_saved: boolean; members_file: string; members: number }>('/setup/dsh/configure', body);
 export const openDSHWeb = () => api.post<{ url: string; pid: number; log: string }>('/setup/dsh/open', {});
