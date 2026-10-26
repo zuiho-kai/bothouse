@@ -456,7 +456,7 @@ func teamBoardMembers(files []teamFile, chat string, members []teamTaskMember) (
 			}
 		}
 		line := "💤 空闲"
-		lineLive := rank >= 3
+		lineLive := rank == 4 // busy in another channel is not busy here
 		if best != nil {
 			task := boardTask(best.Task)
 			switch rank {
@@ -467,7 +467,8 @@ func teamBoardMembers(files []teamFile, chat string, members []teamTaskMember) (
 				if best.Chat != "" {
 					where = "#" + best.Chat
 				}
-				line = fmt.Sprintf("🔧 在%s忙（%s 起）", where, best.Since.Local().Format("15:04"))
+				// Not 🔧: that icon means busy here (TeamBoardActive).
+				line = fmt.Sprintf("↗️ 在%s忙（%s 起）%s", where, best.Since.Local().Format("15:04"), teamElsewhereNote)
 			case 2:
 				switch best.Outcome {
 				case teamWorkFailed:

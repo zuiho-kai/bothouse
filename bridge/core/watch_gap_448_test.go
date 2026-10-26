@@ -118,10 +118,7 @@ func TestRelayWatchRestartInterruptionWakesLead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := NewTimerStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := settledTimerStore(t)
 	source.timerScheduler = NewTimerScheduler(store)
 	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
 	if err != nil {
@@ -152,10 +149,7 @@ func TestTaskRelayDrainResultWakesLead(t *testing.T) {
 	var starts atomic.Int32
 	sent, release := make(chan struct{}), make(chan struct{})
 	rm, s := taskRelayManager(t, p, platform, func(string) { close(sent); <-release }, &starts)
-	store, err := NewTimerStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := settledTimerStore(t)
 	rm.engines["source"].timerScheduler = NewTimerScheduler(store)
 	s.events <- Event{Type: EventText, Content: "halfway there"}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -183,10 +177,7 @@ func TestTaskRelayDrainResultAndWatchStopWakeLeadOnce(t *testing.T) {
 	var starts atomic.Int32
 	sent, release := make(chan struct{}), make(chan struct{})
 	rm, s := taskRelayManager(t, p, platform, func(string) { close(sent); <-release }, &starts)
-	store, err := NewTimerStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := settledTimerStore(t)
 	rm.engines["source"].timerScheduler = NewTimerScheduler(store)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := relayWatchSend(rm, ctx, id)

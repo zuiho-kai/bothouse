@@ -627,6 +627,32 @@ var memoryFileOfAgent = map[string]string{
 	"qoder": "AGENTS.md", "kimi": "AGENTS.md", "pi": "AGENTS.md", "dsh": "AGENTS.md",
 }
 
+// canonicalAgentType maps a CLI binary name the caller may send (claude, agy, cursor-agent,
+// qodercli …, from cliSpecs) to the agent's registered name, and rejects names no agent is
+// registered under — the bridge would otherwise write the config and then fail to start with
+// `unknown agent`.
+func canonicalAgentType(t string) (string, error) {
+	t = strings.TrimSpace(t)
+	if _, ok := agentFactories[t]; !ok {
+		for _, s := range cliSpecs {
+			if s.agentType == "" {
+				continue
+			}
+			for _, bin := range s.bins {
+				if bin == t {
+					t = s.agentType
+				}
+			}
+		}
+	}
+	if _, ok := agentFactories[t]; !ok {
+		names := ListRegisteredAgents()
+		sort.Strings(names)
+		return "", fmt.Errorf("unknown agent type %q, available: %v", t, names)
+	}
+	return t, nil
+}
+
 // PersonaFilePath is the agent's project instruction file in workDir — the same
 // file each agent's ProjectMemoryFile() returns (agent/*/…go), so the wizard,
 // the project page, `/memory` in chat and editing the folder all touch one file.
@@ -712,6 +738,13 @@ type wizardPlan struct {
 	soloShared bool
 	// bots whose allow_from was set to AllowFromUnset (nobody known to allow)
 	allowFromUnset []string
+}
+
+// makeRoleDir creates a role's work_dir with its notes/: the lead writes handoff files to
+// notes/<name>.md there (PLAYBOOK, ws-handoff), and a missing notes/ made its first write fail
+// (#597 G38, v0.1.25 web check).
+func makeRoleDir(workDir string) error {
+	return os.MkdirAll(filepath.Join(workDir, "notes"), 0o755)
 }
 
 // ApplyWizard validates, fills defaults and (unless DryRun) writes everything.
@@ -1074,7 +1107,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 				if err != nil && !os.IsNotExist(err) {
 					return fail(step, err) // unreadable: don't overwrite the persona with just the language line
 				}
-				if err := os.MkdirAll(r.workDir, 0o755); err != nil {
+				if err := makeRoleDir(r.workDir); err != nil {
 					return fail(step, err)
 				}
 				if err := AtomicWriteFile(path, []byte(WithReplyLanguage(string(b), r.ReplyLanguage)), 0o644); err != nil {
@@ -1087,7 +1120,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			addStep(res, step, nil, stepPersonaKept(req.Language, r.project))
 			continue
 		}
-		if err := os.MkdirAll(r.workDir, 0o755); err != nil {
+		if err := makeRoleDir(r.workDir); err != nil {
 			return fail(step, err)
 		}
 		path := PersonaFilePath(r.AgentType, r.workDir)
@@ -1458,6 +1491,11 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		if r.AgentType == "" {
 			return nil, fmt.Errorf("no supported agent CLI found on this machine (install claude / codex / gemini / opencode / dsh …)")
 		}
+		agentType, err := canonicalAgentType(r.AgentType)
+		if err != nil {
+			return nil, fmt.Errorf("role %q: %w", r.project, err)
+		}
+		r.AgentType = agentType
 		if r.Provider != nil && protocolOfAgent[r.AgentType] == "" {
 			return nil, fmt.Errorf("%s can't take a third-party API in bothouse; use one of %v", r.AgentType, AttachableAgents)
 		}

@@ -371,6 +371,10 @@ type RateLimitCfg struct {
 
 // Engine routes messages between platforms and the agent for a single project.
 type Engine struct {
+	// #618 K1: running-turn journal (turn_journal.go), opened on first use.
+	turnJournal     *TurnJournal
+	turnJournalOnce sync.Once
+
 	name                  string
 	agent                 Agent
 	platforms             []Platform
@@ -595,6 +599,7 @@ type workspaceInitFlow struct {
 // The message is NOT sent to agent stdin at queue time; the event loop
 // sends it after the current turn completes to avoid mid-turn interference.
 type queuedMessage struct {
+	turnTrigger       string // #618 K1: Message.turnTrigger, kept across the queue
 	messageID         string
 	platform          Platform
 	replyCtx          any
@@ -1812,6 +1817,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	}
 
 	msg := &Message{
+		turnTrigger:  TurnTriggerCron,
 		SessionKey:   sessionKey,
 		Platform:     platformName,
 		UserID:       "cron",
@@ -2111,6 +2117,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	}
 
 	msg := &Message{
+		turnTrigger:  timerTurnTrigger(job),
 		SessionKey:   sessionKey,
 		Platform:     platformName,
 		UserID:       timerTurnUser(job),
@@ -2879,15 +2886,18 @@ func (e *Engine) Stop() error {
 	}
 	e.interactiveMu.Unlock()
 
+	sessions := make(map[string]AgentSession, len(states))
 	for key, state := range states {
 		state.mu.Lock()
 		as := state.agentSession
 		state.mu.Unlock()
 		if as != nil {
-			slog.Debug("engine.Stop: closing agent session", "session", key)
-			as.Close()
+			sessions[key] = as
 		}
 	}
+	// Close in parallel under one budget; stragglers get their process group
+	// SIGKILLed so no agent survives the bridge (#618 K3).
+	closeSessionsWithBudget(sessions, engineStopCloseBudget)
 
 	if e.rateLimiter != nil {
 		e.rateLimiter.Stop()
@@ -3793,6 +3803,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		turnCtxQuery:        msg.TurnCtxQuery,
 		modeOverride:        msg.ModeOverride,
 		scheduledFrom:       scheduledFrom,
+		turnTrigger:         msg.turnTrigger,
 		scheduledBackfilled: msg.scheduledBackfilled,
 		msgPlatform:         msg.Platform,
 		msgSessionKey:       msg.SessionKey,
@@ -4438,6 +4449,10 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	// assistant reply don't lose it (the assistant-side Save below depends
 	// on the turn completing without a process crash).
 	sessions.Save()
+	// #618 K1: record the running turn right after its user message is saved,
+	// before the agent (cold) starts; a bridge killed mid-turn leaves it on disk.
+	journalTurnID := e.journalTurnBegin(msg, interactiveKey, workspaceDir, session)
+	defer e.journalTurnEnd(journalTurnID)
 
 	// Use the agent override when available (multi-workspace mode)
 	var agentOverride Agent
@@ -4492,6 +4507,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		e.reply(inputOutputPlatform(p, msg.inputTurn), msg.ReplyCtx, text)
 		return
 	}
+	e.journalTurnAgent(journalTurnID, state.agentSession) // #618 K1
 	e.cancelAgentSessionIdleClose(state)
 
 	if workspaceDir != "" && e.workspacePool != nil {
@@ -5708,6 +5724,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		input.finish(inputTurnResult{err: fmt.Errorf("turn stopped, stream closed, or reply delivery failed before completion")})
 	}()
 	var chainedQueued *queuedMessage // maomao fork: queued message chained into this loop, if any
+	// #618 K1: entry begun for a chained queued message when no outer turn had
+	// one (e.g. after a local API turn, which is not journaled); ended here.
+	var chainedJournalID string
+	defer func() { e.journalTurnEnd(chainedJournalID) }()
 	if msgID != "" {
 		state.mu.Lock()
 		state.currentMessageID = msgID
@@ -7110,6 +7130,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				state.mu.Unlock()
 				// The previous turn's mode ends with that turn; this one runs in its own.
 				e.setTurnMode(state, as, queued.modeOverride)
+				// #618 K1: the running turn's entry now describes this queued message.
+				if id, owned := e.journalQueuedTurn(chainedQueued, sessionKey, workspaceDir, as); owned { // raw text, before the turn blocks
+					if chainedJournalID != "" && chainedJournalID != id {
+						e.journalTurnEnd(chainedJournalID)
+					}
+					chainedJournalID = id
+				}
 
 				nextSend := make(chan error, 1)
 				go func() {
@@ -7585,6 +7612,9 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		drainEvents(as.Events())
 
 		session.AddHistory("user", queued.content)
+		// #618 K1: chained into a running turn -> update its entry; a drain with
+		// no outer turn (orphaned queue, after /compress) owns one per message.
+		journalID, journalOwned := e.journalQueuedTurn(&rawQueued, sessionKey, queuedWorkspace, as) // raw text, before the turn blocks
 
 		var stopTyping func()
 		if ti, ok := queued.platform.(TypingIndicator); ok {
@@ -7610,6 +7640,9 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 			func(wait time.Duration) {
 				e.deferForCapacity(queued.platform, queuedToMessage(rawQueued), state.agent, sessions, sessionKey, state.workspaceDir, wait, false)
 			})
+		if journalOwned {
+			e.journalTurnEnd(journalID)
+		}
 		// maomao fork: the provider refused the prompt as too long; re-run on a fresh session.
 		if errMsg, q := state.takePromptTooLong(); errMsg != "" {
 			if q != nil {

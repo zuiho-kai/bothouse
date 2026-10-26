@@ -42,10 +42,10 @@ export function dshTeamModeRules(mode) {
 }
 /** Opening brief for a new workspace: the rules of the chat channel's mode. */
 export function workspaceInstructions(mode) { return teamModeRules(mode); }
-export function memberStatus(hub, tasks = hub?.tasks) {
+export function memberStatus(hub, tasks = hub?.tasks, roomId) {
   const thinking = new Set([...(hub?.thinking?.values() ?? [])].flatMap(s => [...s]));
   const busyMap = tasks?.busyMap?.() ?? new Map();
-  return '【队友状态】\n' + hub.routable().map(m => {
+  return '【队友状态】\n' + (roomId === undefined ? hub.routable() : hub.routableIn(roomId)).map(m => {
     if (m.online === false || m.error) return `${m.name} (${m.id})：离线`;
     const taskBusy = busyMap.get(m.id);
     if (taskBusy) {
@@ -148,6 +148,7 @@ export function describeReason(reason) {
 const INTERRUPTED = Symbol('interrupted');
 
 export function friendlyFailure(raw) {
+  if (raw?.code === 'COLLAB_CLI_START') return raw.message;
   const text = String(raw);
   if (/no.{0,12}(api.?key|key)|missing.{0,12}(key|credential)|api.?key.{0,12}(missing|not set|required)|未配置.*key/i.test(text)) return '还没有配置模型的 API Key，请先去配置模型。';
   if (/model.{0,30}(not found|unavailable|not available|unsupported)|unknown model|模型.*不可用|404/i.test(text)) return '这个模型暂时不可用，请检查模型名称或换一个模型。';
@@ -319,12 +320,12 @@ export class DshMembers {
   }
 
   publish(m) {
-    this.hub.setMember({ id: m.id, name: m.name, kind: 'dsh', online: true, model: m.model, ...(m.cli ? { cli: m.cli, ...(m.permissionPreset ? { permissionPreset: m.permissionPreset } : {}) } : {}), persona: m.persona ?? '', ...(m.avatar ? { avatar: m.avatar } : {}), source: m.source ?? 'config' });
+    this.hub.setMember({ id: m.id, name: m.name, rooms: m.rooms, kind: 'dsh', online: true, model: m.model, ...(m.cli ? { cli: m.cli, ...(m.permissionPreset ? { permissionPreset: m.permissionPreset } : {}) } : {}), persona: m.persona ?? '', ...(m.avatar ? { avatar: m.avatar } : {}), source: m.source ?? 'config' });
   }
 
   /** Add or replace a member at runtime; its bound Sessions pick up the new model on their next request. */
   putMember(m) {
-    if (this.cliAgents.get(m.id)?.cli !== m.cli) this.dropCli(m.id);
+    if (this.config.get(m.id)?.cli !== m.cli) this.dropCli(m.id);
     this.config.set(m.id, m);
     this.publish(m);
   }
@@ -444,15 +445,16 @@ export class DshMembers {
     if (mode === 'solo' && msg.author_kind === 'role') return undefined;
     // An owner text reply that decides (or is withheld from) a member's permission card is not a new ask for it.
     const answered = this.approvals.answerByText(msg);
-    const hit = mentions(msg.text, this.hub.routable());
+    const hit = mentions(msg.text, this.hub.routableIn(msg.room_id));
     const only = this.hub.replyRoute(msg);
     const leadID = this.hub.selectedPrimaryMember()?.id;
     const leadTarget = msg.author_kind === 'user' && leadID !== undefined && target === undefined && only === null && hit.size === 0;
-    const targets = [...this.config.keys()].filter(id => id !== msg.author && !answered.has(id) && (!target || target === id)
+    const visible = new Set(this.hub.routableIn(msg.room_id).map(m => m.id));
+    const targets = [...this.config.keys()].filter(id => visible.has(id) && id !== msg.author && !answered.has(id) && (!target || target === id)
       && (only !== null ? only.has(id) : hit.has(id) || (leadTarget && id === leadID) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name, [...this.config.keys()].filter(o => o !== id).map(o => this.config.get(o).name)))));
     if (targets.length === 0) return undefined;
     // /new goes to the members the message reaches, as on Discord where only the addressed bot handles it.
-    if (msg.author_kind === 'user' && isNewCommand(msg.text, this.hub.routable())) {
+    if (msg.author_kind === 'user' && isNewCommand(msg.text, this.hub.routableIn(msg.room_id))) {
       return () => {
         for (const id of targets) this.enqueue({ member_id: id, room_id: msg.room_id }, () => this.renew(id, msg));
       };
@@ -475,7 +477,7 @@ export class DshMembers {
    * Returns false when the id is not a DSH member.
    */
   nudge(memberId, msg) {
-    if (!this.config.has(memberId)) return false;
+    if (!this.config.has(memberId) || !this.hub.routableIn(msg.room_id).some(m => m.id === memberId)) return false;
     const job = this.store.addJob(memberId, msg.room_id, msg.id);
     if (job) this.enqueue(job, () => this.run(job.id));
     return true;
@@ -486,7 +488,7 @@ export class DshMembers {
    * Wakes the member with the original trigger message and resets its job.
    */
   retry(memberId, msg) {
-    if (!this.config.has(memberId)) return false;
+    if (!this.config.has(memberId) || !this.hub.routableIn(msg.room_id).some(m => m.id === memberId)) return false;
     const job = this.store.retryJob(memberId, msg.room_id, msg.id);
     if (job) {
       this.hub.setError(memberId, undefined);
@@ -501,7 +503,7 @@ export class DshMembers {
     const key = `${job.member_id}\u0000${job.room_id}`;
     const tail = (this.queues.get(key) ?? Promise.resolve()).then(() => (this.closed ? undefined : task())).catch((error) => {
       this.rt.logger.warn('collab: DSH job %d failed: %s', job.id, error?.stack ?? error);
-      if (!this.closed) this.fail(job.id, `出错了：${error?.message ?? error}`);
+      if (!this.closed) this.fail(job.id, error?.code === 'COLLAB_CLI_START' ? error : `出错了：${error?.message ?? error}`);
     });
     this.queues.set(key, tail);
     return tail;
@@ -529,7 +531,7 @@ export class DshMembers {
     const dropped = refused.map(d => `\n\n[${d.name}: 附件未送达（${undeliveredReasonZh(d)}）]`).join('');
     const wiki = await this.turnContext(member, room, agent.session.id, unseen);
     if (this.closed) return;
-    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, withBlock(memberStatus(this.hub), wiki.block), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id) }, ...media], source: { kind: 'user' } });
+    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id) }, ...media], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
     if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
     wiki.commit();
@@ -561,11 +563,13 @@ export class DshMembers {
     const wiki = await this.turnContext(member, room, undefined, unseen);
     if (this.closed) return;
     if (!this.store.markSent(job.id, sessionId, 0, undefined)) return;
-    let entry = this.cliAgents.get(member.id);
+    const cwd = this.store.workspacePath(room.id, this.rt.workspacePath);
+    const cliKey = JSON.stringify([member.id, cwd]);
+    let entry = this.cliAgents.get(cliKey);
     if (entry === undefined) {
       // Persona goes through promptText every turn, so an edit applies without restarting the CLI.
-      entry = { cli: member.cli, agent: this.rt.createCliMember({ cli: member.cli, cwd: this.rt.workspacePath, persona: '' }) };
-      this.cliAgents.set(member.id, entry);
+      entry = { memberId: member.id, cli: member.cli, agent: this.rt.createCliMember({ cli: member.cli, cwd, persona: '' }) };
+      this.cliAgents.set(cliKey, entry);
     }
     this.hub.setError(member.id, undefined);
     this.hub.setThinking(job.room_id, member.id, true);
@@ -639,7 +643,7 @@ export class DshMembers {
           });
         }
       };
-      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub), wiki.block), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id);
+      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id);
       wiki.commit();
       const text = (await entry.agent.ask(prompt, String(room.id), onText, onTool, { resumeId, onSession, onPermission, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
       if (this.closed) return;
@@ -650,6 +654,13 @@ export class DshMembers {
       const message = committed ?? this.hub.post(job.room_id, { authorKind: 'role', author: member.id, name: member.name, clientKey, text: reply }).message;
       done = true;
       this.store.finishJob(job.id, 'done', message.id);
+    } catch (error) {
+      if (error?.code === 'COLLAB_CLI_START') {
+        throw Object.assign(new Error(`频道 #${room.name} ${error.message}`, { cause: error }), {
+          code: error.code, cwd: error.cwd, cli: error.cli,
+        });
+      }
+      throw error;
     } finally {
       turnOver.abort();
       latest = '';
@@ -685,8 +696,11 @@ export class DshMembers {
   }
 
   dropCli(id) {
-    this.cliAgents.get(id)?.agent.close();
-    this.cliAgents.delete(id);
+    for (const [key, entry] of this.cliAgents) {
+      if (entry.memberId !== id) continue;
+      entry.agent.close();
+      this.cliAgents.delete(key);
+    }
   }
 
   /** Watch for the consuming turn, admit the input, and post the outcome. */
@@ -742,7 +756,7 @@ export class DshMembers {
     if (trigger === undefined) return undefined;
     if (trigger.author_kind === 'role') return trigger.author === lead.id ? lead : undefined;
     if (trigger.author_kind !== 'user') return undefined;
-    return mentions(trigger.text, this.hub.routable()).has(lead.id) ? lead : undefined;
+    return mentions(trigger.text, this.hub.routableIn(job.room_id)).has(lead.id) ? lead : undefined;
   }
 
   /**
@@ -752,7 +766,7 @@ export class DshMembers {
    */
   returnToLead(job, member, text) {
     const lead = this.dispatchedBy(job, member);
-    if (lead === undefined || !text.trim() || mentions(text, this.hub.routable()).has(lead.id)) return text;
+    if (lead === undefined || !text.trim() || mentions(text, this.hub.routableIn(job.room_id)).has(lead.id)) return text;
     return `@${lead.name} ${text}`;
   }
 
@@ -814,7 +828,12 @@ export class DshMembers {
     let handle;
     let workspace;
     try {
-      workspace = await ctx.workspaceRegistry.create(this.rt.workspacePath);
+      const path = this.store.workspacePath(room.id, this.rt.workspacePath);
+      try {
+        workspace = await ctx.workspaceRegistry.create(path);
+      } catch (error) {
+        throw new Error(`频道 #${room.name} 的工作目录 ${path} 无法打开：${error.message}`, { cause: error });
+      }
       handle = await ctx.agents.create({
         sessionId,
         meta: { cwd: workspace.path, agentPreset: preset.id, origin: 'subagent' },
@@ -850,9 +869,11 @@ export class DshMembers {
     if (member.cli !== undefined) {
       // Drop the live and the persisted ACP session and point the binding back at
       // runCli's placeholder, so the next turn has no resumeId to session/load.
-      const agent = this.cliAgents.get(member.id)?.agent;
-      agent?.sessions?.delete(String(room.id));
-      agent?.saved?.delete(String(room.id));
+      for (const entry of this.cliAgents.values()) {
+        if (entry.memberId !== member.id) continue;
+        entry.agent.sessions?.delete(String(room.id));
+        entry.agent.saved?.delete(String(room.id));
+      }
       if (this.store.binding(member.id, room.id) !== undefined) this.store.rebind(member.id, room.id, `cli:${member.cli}:${member.id}:${room.id}`);
       // runCli keys a CLI member's context records by (member, room) alone, so clear them here:
       // the fresh ACP context gets its MEMORY.md, task board and wiki pages again.
@@ -986,7 +1007,8 @@ export class DshMembers {
     this.closed = true;
     for (const w of this.watching.values()) w.resolve(INTERRUPTED);
     this.watching.clear();
-    for (const id of [...this.cliAgents.keys()]) this.dropCli(id);
+    for (const { agent } of this.cliAgents.values()) agent.close();
+    this.cliAgents.clear();
     // A queue still waiting on the host (for example a resume during shutdown) must not block unload forever.
     let timer;
     const limit = new Promise((resolve) => { timer = setTimeout(resolve, CLOSE_TIMEOUT_MS); });

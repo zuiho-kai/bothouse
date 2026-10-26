@@ -1,6 +1,7 @@
 // CLI 成员：把本机 claude / codex / gemini 通过 ACP 适配器接成群成员。
 // 每个（成员, 房间）一个 ACP session；ask(text) 返回该轮 agent_message_chunk 拼接文本。
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { Readable, Writable } from 'node:stream'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -109,7 +110,16 @@ export class CliMember {
     const stream = acp.ndJsonStream(Writable.toWeb(proc.stdin), Readable.toWeb(proc.stdout))
     this.conn = new acp.ClientSideConnection(() => client, stream)
     const exited = new Promise((_, rej) => {
-      proc.once('error', rej)
+      proc.once('error', cause => {
+        this.ready = null
+        this.exited = null
+        if (existsSync(this.cwd)) return rej(cause)
+        const error = new Error(`CLI ${this.cli} 在目录 ${this.cwd} 无法启动：${cause.message}`, { cause })
+        error.code = 'COLLAB_CLI_START'
+        error.cwd = this.cwd
+        error.cli = this.cli
+        rej(error)
+      })
       proc.once('exit', (code) => {
         this.ready = null
         // 会话 id 留到 saved，新进程起来后用 loadSession 续上（不支持时由调用方提示频道）。

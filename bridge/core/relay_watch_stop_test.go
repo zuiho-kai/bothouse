@@ -174,10 +174,7 @@ func TestTaskRelayDrainOutlivesSafetyLimitAndWakesLead(t *testing.T) {
 	sent, release := make(chan struct{}), make(chan struct{})
 	t.Cleanup(func() { close(release) })
 	rm, s := taskRelayManager(t, p, platform, func(string) { close(sent); <-release }, &starts)
-	store, err := NewTimerStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := settledTimerStore(t)
 	rm.engines["source"].timerScheduler = NewTimerScheduler(store)
 	s.events <- Event{Type: EventText, Content: "halfway there"}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -226,4 +223,29 @@ func TestPlainRelayDrainKeepsSafetyLimit(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("plain relay drain ignored its safety limit")
 	}
+}
+
+// settledTimerStore returns a timer store in a temp dir. A wake job is due at once, so the
+// scheduler fires it on its own goroutine and saves the store again (MarkFired). Cleanup waits
+// for every job to be marked fired before the temp dir is removed; MarkFired saves while it
+// holds the store lock, so a fired flag seen under that lock means the write is done.
+func settledTimerStore(t *testing.T) *TimerStore {
+	t.Helper()
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		relayWatchWait(t, "timer jobs fired", func() bool {
+			store.mu.Lock()
+			defer store.mu.Unlock()
+			for _, j := range store.jobs {
+				if !j.Fired {
+					return false
+				}
+			}
+			return true
+		})
+	})
+	return store
 }

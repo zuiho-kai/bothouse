@@ -1262,6 +1262,15 @@ func TestApplyWizardCloudWebGateToggle(t *testing.T) {
 
 	// 1. old request, no gate field: on
 	res := run(nil)
+	if len(res.Roles) != 2 {
+		t.Fatalf("roles = %+v", res.Roles)
+	}
+	// #597 G38: each new role's work_dir comes with notes/ for the lead's handoff files
+	for _, r := range res.Roles {
+		if st, err := os.Stat(filepath.Join(r.WorkDir, "notes")); err != nil || !st.IsDir() {
+			t.Errorf("role %s: no notes/ in work_dir %q: %v", r.Name, r.WorkDir, err)
+		}
+	}
 	ju, whale := store.projects["juzi"], store.projects["whale"]
 	if ju == nil || whale == nil {
 		t.Fatalf("projects = %v", store.order)

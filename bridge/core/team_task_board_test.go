@@ -46,12 +46,12 @@ not json
 	}
 	now := time.Now()
 	got := renderTeamTaskBoard(items, nil, "feishu:oc_a", now, nil)
-	want := "**任务板**\n#1 修登录 ‹＠123›｜龙娘｜在做｜10-26 02:00\n\n**工作区1**\n#3 交接｜工作区1橘｜已交接｜10-26 02:02\n\n**工作区2**\n#5 老交接｜工作区2橘｜在做｜10-26 02:04\n\n**暂停**\n#4 停着｜橘｜x｜10-26 02:03｜暂停：等用户"
+	want := "**任务板**\n#1 修登录 ‹＠123›｜龙娘｜在做｜10-26 02:00\n\n**工作区1**\n#3 交接｜橘｜已交接｜10-26 02:02\n\n**工作区2**\n#5 老交接｜橘｜在做｜10-26 02:04\n\n**暂停**\n#4 停着｜橘｜x｜10-26 02:03｜暂停：等用户"
 	if got != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
 	// The workspace's own board lists its item without a block header.
-	if ws := renderTeamTaskBoard(items, nil, "feishu:oc_ws", now, nil); ws != "**任务板**\n#3 交接｜工作区1橘｜已交接｜10-26 02:02" {
+	if ws := renderTeamTaskBoard(items, nil, "feishu:oc_ws", now, nil); ws != "**任务板**\n#3 交接｜橘｜已交接｜10-26 02:02" {
 		t.Fatalf("workspace board = %q", ws)
 	}
 	if renderTeamTaskBoard(items, nil, "feishu:none", now, nil) != "" {
@@ -168,7 +168,7 @@ func TestTeamTaskBoardDoneToday(t *testing.T) {
 		t.Fatalf("done today = %d", len(done))
 	}
 	got := renderTeamTaskBoard(nil, done, "feishu:oc_a", now, nil)
-	want := "**任务板**\n现在没有进行中的事。\n\n**今天做完**\n- 龙娘：乙\n- 龙娘：甲\n- 工作区1·工作区1橘：交接活\n- …另 1 件"
+	want := "**任务板**\n现在没有进行中的事。\n\n**今天做完**\n- 龙娘：乙\n- 龙娘：甲\n- 工作区1·橘：交接活\n- …另 1 件"
 	if got != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
@@ -296,7 +296,7 @@ func TestTeamBoardMembersLive(t *testing.T) {
 		{"idle", idle, nil, false},
 		{"done here", teamFile{Project: "a", Name: "橘", Sessions: []teamEntry{{Key: "cloud_web:room-1", Worked: true, DoneAt: now}}}, nil, false},
 		{"busy here", teamFile{Project: "a", Name: "橘", Sessions: []teamEntry{{Key: "cloud_web:room-1", Worked: true, Busy: true, Since: now}}}, nil, true},
-		{"busy elsewhere", teamFile{Project: "a", Name: "橘", Sessions: []teamEntry{{Key: "cloud_web:room-2", Worked: true, Busy: true, Since: now}}}, nil, true},
+		{"busy elsewhere", teamFile{Project: "a", Name: "橘", Sessions: []teamEntry{{Key: "cloud_web:room-2", Worked: true, Busy: true, Since: now}}}, nil, false}, // not busy here
 		{"task card running", idle, []teamTaskMember{{Name: "橘", Status: "running", UpdatedAt: now}}, true},
 		{"task card waiting", idle, []teamTaskMember{{Name: "橘", Status: "waiting", UpdatedAt: now}}, true},
 		{"task card completed", idle, []teamTaskMember{{Name: "橘", Status: "completed", UpdatedAt: now}}, false},

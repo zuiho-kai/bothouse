@@ -8,7 +8,7 @@
 // waker can reach the owner (cloud-web bot offline, or not reconnected yet after
 // a restart) the reminder stays pending and is delivered once when it comes online.
 import { CollabError, MAX_TEXT } from './store.mjs';
-import { mentions, nameCalled, split } from './mentions.mjs';
+import { mentions, nameCalled, split, withoutLeadingMentions } from './mentions.mjs';
 import { NOTICE_PREFIXES } from './cloudweb.mjs';
 import { exitMark } from './team-exit.mjs';
 
@@ -24,6 +24,11 @@ const STANCE_WORDS = { accept: '接', ask: '问', decline: '退', escalate: '升
 export const WORKING = ['assigned', 'accepted', 'asked', 'rework'];
 /** Waiting for the lead: review may close or send back. */
 const REVIEWABLE = ['returned', 'declined', 'escalated'];
+/** The owner delivered: handed back, or the lead accepted it (fromChat reads the next call as an answer). */
+const DELIVERED = ['returned', 'done'];
+// #597 r12: how long a bare-name call after a delivery waits for the owner's stance (Tasks.pendingCalls).
+// Source: 聊天频道橘 10-26「超过 30 分钟没回也丢弃」.
+const PENDING_CALL_S = 30 * 60;
 // Default check time after dispatch or rework. Source: user 2026-10-23「这10分钟之内搞不完就滚蛋」.
 export const CHECK_AFTER_S = 10 * 60;
 // Workspace watch (#574 B2, same rule as contrib/lead/d10-fire MAX_RENEW, 0 = no cap): at the
@@ -91,6 +96,11 @@ export class Tasks {
     this.wakers = [];
     /** released(roomId) -> a workspace finished its last task and went back to the pool. */
     this.releasers = [];
+    /**
+     * #597 r12: bare-name calls after a delivery, waiting for the owner's stance line, keyed
+     * `room\0owner`: { roomId, owner, lead, title, messageId, at }. In memory only: a restart drops them.
+     */
+    this.pendingCalls = new Map();
     const cols = new Set(this.db.prepare('PRAGMA table_info(rooms)').all().map(c => c.name));
     // rooms.kind/parent_id come with team mode A (#134); without them every room is its own chat channel.
     this.tree = cols.has('parent_id') && cols.has('kind');
@@ -126,6 +136,8 @@ export class Tasks {
       allBusy: this.db.prepare(`SELECT * FROM tasks WHERE ${LIVE} ORDER BY updated_at DESC`),
       // A stance line without #id only answers a dispatch the owner has not answered yet.
       latestAssigned: this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND status = 'assigned' ORDER BY id DESC LIMIT 1"),
+      // The owner's newest task in a room, whatever its status (fromChat: did she just deliver?).
+      latestOf: this.db.prepare('SELECT * FROM tasks WHERE room_id = ? AND owner = ? ORDER BY id DESC LIMIT 1'),
       // Chat-side tasks (source 'mention' / 'card'): opened from the lead's @ or the bridge task card.
       setSource: this.db.prepare('UPDATE tasks SET source = ? WHERE id = ?'),
       openChat: this.db.prepare(`SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND created_by = ? AND source IS NOT NULL
@@ -271,6 +283,7 @@ export class Tasks {
     const text = String(title ?? '').trim();
     if (!text || text.length > MAX_TEXT) throw new CollabError('invalid', 'task title is empty or too long');
     this.member(owner);
+    if (!this.hub.membersInRoom(roomId).some(m => m.id === owner)) throw new CollabError('member-missing', `member ${owner} does not belong to room ${roomId}`);
     this.member(actor);
     if (parentTask != null && this.task(parentTask) === undefined) throw new CollabError('task-missing', `task ${parentTask} does not exist`);
     if (messageId != null && this.store.message(messageId) === undefined) throw new CollabError('invalid', `message ${messageId} does not exist`);
@@ -422,6 +435,7 @@ export class Tasks {
   fromMessage(msg) {
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
     this.verdictsOf(msg);
+    this.settleCall(msg);
     const stance = this.stanceOf(msg);
     const dsh = this.hub.members.get(msg.author)?.kind === 'dsh';
     const dshWorkspace = dsh && this.inWorkspace(msg.room_id);
@@ -431,12 +445,15 @@ export class Tasks {
       // first line or the turn's last part) hands its task back; a 【接】 alone (accepted, waiting) and an
       // [ask] (a question, forwarded by TeamExit) leave the task in work with its 10-minute watch.
       // Only the hand-back changes here: the lead's dispatch below (fromChat) goes on as before.
-      const mark = exitMark(msg.text, { lastLine: true });
+      const mark = exitMark(msg.text, { lastLine: true, team: this.hub.routable() });
       // A stance line naming #id speaks for that task only (gone or done: nothing to hand back).
       const named = STANCE_LINE.exec(withoutLeadingMentions(String(msg.text), this.hub.routable()).split('\n', 1)[0])?.[2] !== undefined;
       const task = stance ?? (named ? undefined : this.openOf(msg.room_id, msg.author));
       if (mark?.kind === 'report' && (stance === undefined || stance.status === 'accepted') && task !== undefined && WORKING.includes(task.status)) {
-        return this.handBack(task.id, { actor: msg.author, messageId: msg.id });
+        // #597 G37: the hand-back does not end it: a lead's [report] @-ing a teammate dispatches too.
+        const handed = this.handBack(task.id, { actor: msg.author, messageId: msg.id });
+        this.fromChat(msg, { handBack: false });
+        return handed;
       }
     } else if (stance?.status === 'accepted' && dsh) {
       // In a chat channel a DSH member's 【接】 is still its delivery (no [report] convention there).
@@ -447,7 +464,7 @@ export class Tasks {
     // A stance naming a task of another room speaks about that task: it hands back nothing here either.
     if (this.foreignStance(msg)) return undefined;
     // A 【问】【退】【升】 reply with no task to answer is a question or a pushback, never a hand-back.
-    if (/^【(问|退|升)】/.test(withoutLeadingMentions(String(msg.text), this.hub.routable()).trimStart())) return undefined;
+    if (/^【(问|退|升)】/.test(withoutLeadingMentions(String(msg.text), this.hub.routableIn(msg.room_id)).trimStart())) return undefined;
     if (NOTICE_PREFIXES.some(p => String(msg.text).trimStart().startsWith(p))) return undefined;
     return this.fromChat(msg, { handBack: !dshWorkspace });
   }
@@ -481,7 +498,7 @@ export class Tasks {
     if (this.hub.members.get(task.owner)?.kind !== 'dsh' || this.store.binding(task.owner, task.room_id) !== undefined) return '';
     const handoff = task.assign_msg_id == null ? undefined : this.store.message(task.assign_msg_id);
     const result = task.result_msg_id == null ? undefined : this.store.message(task.result_msg_id);
-    const report = result === undefined ? '' : (exitMark(result.text, { lastLine: true })?.body ?? String(result.text));
+    const report = result === undefined ? '' : (exitMark(result.text, { lastLine: true, team: this.hub.routable() })?.body ?? String(result.text));
     const cut = (t, n) => { const v = String(t ?? '').trim(); return v.length > n ? `${v.slice(0, n)}…` : v; };
     const parts = [];
     if (handoff !== undefined) parts.push(`原交接：\n${cut(handoff.text, BRIEF_HANDOFF)}`);
@@ -507,7 +524,7 @@ export class Tasks {
 
   stanceOf(msg) {
     // A bridge final reply opens with the lead's @ (lead_return.go), so skip leading mentions.
-    const first = withoutLeadingMentions(String(msg.text), this.hub.routable()).split('\n', 1)[0];
+    const first = withoutLeadingMentions(String(msg.text), this.hub.routableIn(msg.room_id)).split('\n', 1)[0];
     const m = STANCE_LINE.exec(first);
     if (m === null) return undefined;
     // Members open every reply with a stance, so without #id only a not-yet-answered
@@ -530,7 +547,7 @@ export class Tasks {
    */
   fromChat(msg, { handBack = true } = {}) {
     const lead = this.hub.primaryMember();
-    const team = this.hub.routable();
+    const team = this.hub.routableIn(msg.room_id);
     const text = String(msg.text);
     if (lead !== undefined && msg.author === lead.id) {
       // Its next message after a chat-side hand-back accepts it. Workspace tasks need its explicit
@@ -538,13 +555,27 @@ export class Tasks {
       for (const t of this.q.returnedChat.all(msg.room_id, lead.id)) {
         try { this.review(t.id, { actor: lead.id, verdict: 'done' }); } catch { /* changed meanwhile */ }
       }
-      const called = mentions(text, team);
+      const explicit = mentions(text, team);
+      const called = new Set(explicit);
       const names = team.map(m => m.name);
       for (const m of team) if (nameCalled(text, m.name, names)) called.add(m.id);
       called.delete(lead.id);
       const title = taskTitle(text, team);
       if (!title) return undefined;
-      for (const owner of called) this.openFromChat({ roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, source: 'mention' });
+      for (const owner of called) {
+        // #597 r12: structure, not wording. Once the owner's newest task here is handed back or
+        // accepted, a bare name may be talk about the delivery (praise) or a send-back: the task
+        // opens only when her next message here opens with a stance line (settleCall). An explicit
+        // @, a first call, or one while her task is in work dispatches at once, as before.
+        const key = `${msg.room_id}\0${owner}`;
+        this.pendingCalls.delete(key);
+        const latest = this.q.latestOf.get(msg.room_id, owner);
+        if (DELIVERED.includes(latest?.status) && !explicit.has(owner)) {
+          this.pendingCalls.set(key, { roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, at: this.now() });
+          continue;
+        }
+        this.openFromChat({ roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, source: 'mention' });
+      }
       return undefined;
     }
     // handBack false: a DSH reply in a workspace, which hands back only with [report] (fromMessage).
@@ -554,6 +585,27 @@ export class Tasks {
     const open = this.q.openChat.get(msg.room_id, msg.author, lead.id, ...WORKING);
     if (open === undefined) return undefined;
     return this.handBack(open.id, { actor: msg.author, messageId: msg.id });
+  }
+
+  /**
+   * #597 r12: the owner's next message in a room settles the lead's bare-name call waiting there
+   * (fromChat). A first line 【接】【问】【退】【升】 without #id opens the task, which stanceOf then
+   * answers with that stance; anything else (thanks, chat), a stance naming #id, or a reply after
+   * PENDING_CALL_S drops it.
+   */
+  settleCall(msg) {
+    const key = `${msg.room_id}\0${msg.author}`;
+    const call = this.pendingCalls.get(key);
+    if (call === undefined) return;
+    this.pendingCalls.delete(key);
+    if (this.now() - call.at > PENDING_CALL_S) return;
+    const m = STANCE_LINE.exec(withoutLeadingMentions(String(msg.text), this.hub.routable()).split('\n', 1)[0]);
+    if (m === null || m[2] !== undefined) return;
+    try {
+      this.openFromChat({ ...call, source: 'mention' });
+    } catch (error) {
+      this.hub.logger?.warn?.('collab: pending call failed: %s', error?.message ?? error);
+    }
   }
 
   /**
@@ -577,7 +629,7 @@ export class Tasks {
    */
   fromCard(roomId, lead, messageId, members) {
     if (!Array.isArray(members) || !this.hub.members.has(lead)) return;
-    const team = this.hub.routable();
+    const team = this.hub.routableIn(roomId);
     for (const m of members) {
       if (m === null || typeof m !== 'object' || m.parent_id) continue;
       const project = String(m.reporter_project ?? '');
@@ -696,7 +748,7 @@ export class Tasks {
   progressed(task, since) {
     return this.q.ownerSaid.all(task.room_id, task.owner, since).some(({ text, card }) => {
       if (card != null) return true;
-      const lines = withoutLeadingMentions(String(text ?? ''), this.hub.routable()).trim().split('\n');
+      const lines = withoutLeadingMentions(String(text ?? ''), this.hub.routableIn(task.room_id)).trim().split('\n');
       if (STANCE_LINE.test(lines[0])) lines.shift();
       const body = lines.join('\n').trim();
       return body !== '' && !NOTICE_PREFIXES.some(p => body.startsWith(p));
@@ -850,18 +902,20 @@ export class Tasks {
   }
 }
 
-/** First non-empty line of a dispatch with the @-mentions taken out (the task title). */
+/**
+ * First non-empty line of a dispatch with the @-mentions taken out (the task title). A stance line
+ * and an [ask]/[report] mark are not content (#597 G37: a lead's [report] opening 【接】#id dispatches too);
+ * the line calling the teammate comes first.
+ */
 function taskTitle(text, team) {
-  const plain = split(text, team).map(([seg, id]) => (id ? '' : seg)).join('');
-  const line = plain.split('\n').map(l => l.replace(/^[\s，,：:、]+/, '').trim()).find(Boolean) ?? '';
+  const clean = l => l.replace(/^[\s，,：:、]+/, '').replace(/^\[(?:ask|report)\]/i, '').replace(/^[\s，,：:、]+/, '').trim();
+  const lines = String(text).split('\n').map(l => {
+    const segs = split(l, team);
+    return { called: segs.some(([, id]) => id), text: clean(segs.map(([seg, id]) => (id ? '' : seg)).join('')) };
+  }).filter(l => l.text !== '' && !STANCE_LINE.test(l.text));
+  // The line that calls the teammate says what the task is; else the first line of content.
+  const line = (lines.find(l => l.called) ?? lines[0])?.text ?? '';
   return line.slice(0, MAX_TEXT);
-}
-
-function withoutLeadingMentions(text, team) {
-  const parts = split(text, team);
-  let i = 0;
-  while (i < parts.length && (parts[i][1] !== null || !parts[i][0].trim())) i++;
-  return parts.slice(i).map(([seg]) => seg).join('').trimStart();
 }
 
 /** When a workspace task's watch is due: its check time, or CHECK_AFTER_S after its last change. */

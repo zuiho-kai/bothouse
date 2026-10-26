@@ -446,3 +446,48 @@ func expandUsageHome(p string) string {
 	}
 	return p
 }
+
+// FindDSHSessionLog returns the log of session id under <home>/sessions/<cwd
+// slug>/<id>/ ("" when there is none). Session ids are UUIDs, so the cwd slug
+// is not needed to find it.
+func FindDSHSessionLog(home, id string) string {
+	if home == "" || id == "" || strings.ContainsAny(id, `/\*?[`) {
+		return ""
+	}
+	for _, name := range dshLogNames {
+		if m, _ := filepath.Glob(filepath.Join(home, "sessions", "*", id, name)); len(m) > 0 {
+			return m[0]
+		}
+	}
+	return ""
+}
+
+// ReadDSHLog returns the text of a DSH session log: a plain .jsonl as is, a
+// .zstd one decoded frame by frame (one frame per append batch). A last frame
+// still being written, or a broken one, ends the text without an error.
+func ReadDSHLog(path string) ([]byte, error) {
+	b, err := os.ReadFile(path)
+	if err != nil || !strings.HasSuffix(path, ".zstd") {
+		return b, err
+	}
+	dec, err := dshDecoder()
+	if err != nil {
+		return nil, err
+	}
+	var out []byte
+	for p := 0; p < len(b); {
+		n, skip, err := zstdFrameLen(b[p:])
+		if err != nil || n == 0 {
+			break
+		}
+		if !skip {
+			next, err := dec.DecodeAll(b[p:p+n], out)
+			if err != nil {
+				break
+			}
+			out = next
+		}
+		p += n
+	}
+	return out, nil
+}
