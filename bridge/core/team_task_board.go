@@ -335,6 +335,58 @@ func renderTeamTaskBoardFit(items, done []teamTaskBoardItem, chat string, now ti
 	return out
 }
 
+// renderWorkspaceTaskBoardFit: renderTeamTaskBoardFit for a workspace's board, with a section
+// 「其他频道」 after it listing the running items of every other channel (user, 2026-10-26: 「谁在干
+// 啥卡关联其他频道角色情况」). "" when neither has anything.
+func renderWorkspaceTaskBoardFit(items, done []teamTaskBoardItem, chat string, now time.Time, pending []*TimerJob, budget int) string {
+	var out string
+	for _, st := range teamTaskBoardStages {
+		var parts []string
+		for _, sec := range []string{renderTeamTaskBoardStage(items, done, chat, now, pending, st), renderTeamOtherChannels(items, chat, st)} {
+			if sec != "" {
+				parts = append(parts, sec)
+			}
+		}
+		out = strings.Join(parts, "\n\n")
+		if len([]rune(out)) <= budget {
+			break
+		}
+	}
+	return out
+}
+
+// renderTeamOtherChannels: the 「其他频道」 section of chat's board: one row per running (not
+// paused) item not on chat's board, led by a link to the channel it is worked in; "" when none.
+func renderTeamOtherChannels(items []teamTaskBoardItem, chat string, st teamTaskBoardStage) string {
+	var rows []string
+	for _, it := range items {
+		if it.own == "" || it.shownIn(chat) || it.Paused != "" {
+			continue
+		}
+		rows = append(rows, fmt.Sprintf("- %s #%d %s｜%s｜%s", teamChatRef(it.own, ""), it.ID, shortLabel(it.What, st.whatCap), boardLabel(it.Who), shortLabel(it.Status, st.statusCap)))
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	return strings.Join(append([]string{"**其他频道**"}, rows...), "\n")
+}
+
+// teamChatRef: how a board names another channel (a chat key or session key): on Discord the
+// channel mention <#id>, which shows as a clickable 「#频道名」; elsewhere #name (the channel name
+// the status file recorded), else #id.
+func teamChatRef(chat, name string) string {
+	plat, id, _ := strings.Cut(chatOf(chat), ":")
+	switch {
+	case plat == "discord" && id != "":
+		return "<#" + id + ">"
+	case strings.TrimSpace(name) != "":
+		return "#" + taskIndexLabel(name, teamBoardTaskRunes)
+	case id != "":
+		return "#" + id
+	}
+	return "别的频道"
+}
+
 // renderTeamTaskBoardStage renders the section at one stage.
 // Items must be placed (placeTeamTaskBoard). Running: the chat's own items first, then one block
 // per workspace of the chat; then paused; then done today (workspace items marked "<name>·").

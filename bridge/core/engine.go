@@ -581,10 +581,11 @@ type Engine struct {
 	webStatusFunc func() (url string)
 
 	// Data directory for socket path injection
-	dataDir        string
-	publicProgress *PublicProgress
-	productPyBin   atomic.Value // string: bin dir holding the product python3, resolved once in Start (role_env.go)
-	productPyWG    sync.WaitGroup // the Start-time lookup above; Stop waits for it (role_env.go)
+	dataDir              string
+	publicProgress       *PublicProgress
+	workspaceChatForTest func(session string) bool
+	productPyBin         atomic.Value   // string: bin dir holding the product python3, resolved once in Start (role_env.go)
+	productPyWG          sync.WaitGroup // the Start-time lookup above; Stop waits for it (role_env.go)
 
 	// Team mode (#139 C): workspace -> chat channel exit and the asks waiting for an answer.
 	teamExit     teamExitState
@@ -5897,7 +5898,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// maomao fork: sub-agent table, and the progress card kept alive while the
 	// turn waits for a foreground sub-agent (refreshed at the card's own edit
 	// interval).
-	e.ensureSubTaskTable(state)
+	e.ensureSubTaskTable(state, sessionKey)
 	var subWaitTick <-chan time.Time
 	subReporter, hasSubReporter := state.agentSession.(SubTaskReporter)
 	if hasSubReporter && cp.Active() && cp.minUpdateInterval > 0 {

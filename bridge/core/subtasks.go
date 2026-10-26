@@ -141,7 +141,13 @@ func subAgentWaitText(zh bool, t SubTask) string {
 // ensureSubTaskTable starts the table updater for the state's current agent
 // session once. It runs until the session's change channel closes, so updates
 // from background sub-agents after the main turn still reach the channel.
-func (e *Engine) ensureSubTaskTable(state *interactiveState) {
+//
+// The table is a big card: only in workspace channels (isTeamWorkspaceChat; user, 2026-10-26
+// 10:43: 「那个任务卡只在工作区显示，任何非其他工作区都不要显示太大，太占位置了」).
+func (e *Engine) ensureSubTaskTable(state *interactiveState, sessionKey string) {
+	if !e.isTeamWorkspaceChat(sessionKey) {
+		return
+	}
 	state.mu.Lock()
 	as := state.agentSession
 	p := state.platform

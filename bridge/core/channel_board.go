@@ -557,7 +557,7 @@ func (h *channelBoardHub) sync(ctx context.Context, ch string, override func(*Ch
 	}
 	content := BuildChannelBoardPayload(payload)
 	h.mu.Lock()
-	poster := h.poster
+	poster, writer := h.poster, h.writer
 	c := h.channels[ch]
 	if poster == nil || c == nil || content == "" || content == c.lastSent {
 		h.mu.Unlock()
@@ -565,6 +565,11 @@ func (h *channelBoardHub) sync(ctx context.Context, ch string, override func(*Ch
 	}
 	id, pinned, pinRetried := c.MessageID, c.Pinned, c.pinRetried
 	h.mu.Unlock()
+	// A pinned overview, like the team board: only in a workspace or a team chat channel
+	// (teamBoardKindOf), never in a side chat channel (user, 2026-10-26 10:43).
+	if writer != nil && writer.teamBoardKindOf(ch) == teamBoardNone {
+		return true
+	}
 
 	if id == "" {
 		found, foundPinned, err := poster.FindChannelBoard(ctx, ch)

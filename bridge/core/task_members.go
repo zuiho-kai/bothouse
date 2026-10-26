@@ -150,6 +150,9 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 	if err := checkAssignRef(req); err != nil {
 		return nil, err
 	}
+	if err := p.checkWorkspaceCard(req.SessionKey); err != nil {
+		return nil, err
+	}
 	p.transitionMu.Lock()
 	defer p.transitionMu.Unlock()
 	r, key, resume, err := p.lockAssignmentRun(req)
