@@ -146,6 +146,25 @@ class Base(unittest.TestCase):
                 for b in gate.lead.KEYS}
 
 
+class QuietLead(Base):
+    def test_other_addressee_attachments_are_context(self):
+        me = gate.lead.KEYS[0]
+        other = gate.lead.KEYS[1]
+        for content in ('<@123456789012345678> 看这张图', gate.lead.NAME[other] + '，看这份文件'):
+            with self.subTest(content=content):
+                action, _, _ = gate._decide_lead({'content': content, 'has_images': True, 'has_files': True}, me)
+                self.assertEqual(action, 'context')
+
+    def test_buffer_count_does_not_force_a_reply(self):
+        gate.tasks[gate.lead.KEYS[0]] = types.SimpleNamespace(score=lambda *a, **k: SC(0, 4))
+        action, _, _ = gate._decide_lead({'content': '随手记下', 'buffered': ['随手记下'] * 10}, gate.lead.KEYS[0])
+        self.assertEqual(action, 'silent')
+
+    def test_link_count_does_not_force_a_reply(self):
+        action, _, _ = gate._decide_lead({'content': 'https://example.org/1 https://example.org/2 https://example.org/3'}, gate.lead.KEYS[0])
+        self.assertEqual(action, 'silent')
+
+
 class Symptom(Base):
     """验收第一条：用户没 @ 鲸鱼娘（主角色）、正在和另一个角色对话时，鲸鱼娘不开口，归正在对话的那位。"""
 

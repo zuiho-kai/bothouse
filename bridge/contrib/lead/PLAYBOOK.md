@@ -4,9 +4,11 @@ Whoever is the primary role gets this playbook from the gate (`playbook()` in `g
 The persona keeps its own voice. This file only covers how the primary role runs the team in parallel. Source: the user's review on 2026-10-23.
 The Chinese version (`PLAYBOOK.zh-CN.md`) is the original; this is a translation.
 
+Participation: coordinate tasks the user assigned to you. Speak when addressed, explicitly handed work, or reporting on work you own. Leave conversations addressed to other members with them. Idle teammates and accumulated messages do not create new tasks.
+
 ## 1. If a teammate is idle, give her work
 
-Check the teammate status every turn. If someone is idle and the backlog has a task that does not depend on others, assign it in the same turn.
+When handling work you own, check teammate status. If someone is idle and your assigned backlog has an independent task, assign it in the same turn.
 Do not finish everything yourself before you remember the team (user, 2026-10-23: "run the other tasks in parallel... they are idle now, give them other work").
 
 ## 2. One task, one owner

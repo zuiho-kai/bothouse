@@ -32,6 +32,10 @@
   <a href="https://www.bilibili.com/video/BV15msZ6XEYq"><img src="docs/assets/readme/promo-cover.zh.jpg" width="760" alt="bothouse 宣传片：AI 角色组队干活，点击在 B 站播放"></a>
 </p>
 
+安装向导可选**仅被点名时回复**，无需运行路由小模型，减少主控插话。智能分流可接本地 0.6B，但需提供 logprobs，向导不会自动下载。详见[参与方式与成本](docs/connect-discord-feishu.md#5-jev-和主角色)。
+
+## 用起来是什么样
+
 以前同时用 Claude Code、Codex 和 DeepSeek，得在几个终端之间切来切去，把消息复制过去。窗口一关上下文就没了，人一离开电脑活就停。
 
 所以我们做了 **bothouse**：一个把本地 CLI 和模型拉进同一个群的中枢。它们共用一份记忆，你在电脑、手机和浏览器上都能指挥。不用另开账号，不用另买订阅。

@@ -116,7 +116,7 @@ export default function SetupWizard() {
   const [chats, setChats] = useState<{ chat_id: string; name: string }[] | null>(null);
   const [chatID, setChatID] = useState('');
   const [fallback, setFallback] = useState('');
-  const [gateEnabled, setGateEnabled] = useState(true);
+  const [gateMode, setGateMode] = useState<'smart' | 'addressed' | 'off'>('smart');
   const [jev, setJev] = useState({ base_url: '', api_key: '', model: '' });
   // jevTest: the gate-style test (nothing written); jevSave: what 下一步 / 跳过 did to jev.json
   const [jevTest, setJevTest] = useState<{ running: boolean; usable?: boolean; reason?: string; hint?: string }>({ running: false });
@@ -134,11 +134,17 @@ export default function SetupWizard() {
 
   useEffect(() => {
     // the routing checkbox starts from the saved choice (off stays off); no value = on
-    getSetupState(lang).then((s) => { setState(s); if (s.gate_enabled === false) setGateEnabled(false); }).catch(() => {});
+    getSetupState(lang).then((s) => { setState(s); }).catch(() => {});
     getCLIs().then((r) => setClis(r.clis)).catch(() => setClis([]));
     getMatrix().then((r) => { setVendors(r.vendors); setMatrix(r.matrix); }).catch(() => {});
     getExistingBots().then((r) => setExisting(r.bots)).catch(() => {});
   }, [lang]);
+  const restoredGatePlatform = useRef('');
+  useEffect(() => {
+    if (!state || restoredGatePlatform.current === platform) return;
+    restoredGatePlatform.current = platform;
+    setGateMode(state.gate_modes?.[platform] || (state.gate_enabled === false && !state.gate_modes ? 'off' : 'smart'));
+  }, [platform, state]);
   // refresh the jev hint with the fallback bot's name when reaching the jev step
   useEffect(() => { if (step === 5) getSetupState(lang, fallbackName).then(setState).catch(() => {}); }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -389,7 +395,7 @@ export default function SetupWizard() {
     }
     if (maskSecrets && jev.base_url) req.jev = { base_url: jev.base_url, api_key: mask(jev.api_key, '<JEV_KEY>'), model: jev.model };
     // the submitted request and the copyable AI command carry the same routing setting
-    const gate = wizardGate(visibleSteps.includes(4), gateEnabled);
+    const gate = wizardGate(visibleSteps.includes(4), gateMode !== 'off', gateMode);
     if (gate) req.gate = gate;
     return req;
   };
@@ -450,10 +456,8 @@ export default function SetupWizard() {
     // jev: empty (= skip), the one already in use, or tested usable; a failing one is never written — try another or skip
     !jevTest.running && !jevSave.saving && (!jev.base_url ? true : !jev.model ? false : jevUnchanged || jevTest.usable === true), true,
   ];
-  // 自建平台 with one role: no one to pick between, so no fallback / jev step
-  // adding a role (addMode): the lead stays as it is, so no fallback step either
-  const visibleSteps = platform === 'feishu' ? [0, 1, 2, 3, 5, 6]
-    : platform === 'cloud_web' && roles.length === 1 ? [0, 1, 2, 3, 6] : addMode ? [0, 1, 2, 3, 5, 6] : [0, 1, 2, 3, 4, 5, 6];
+  // Adding roles preserves participation; every initial install offers the choice.
+  const visibleSteps = (addMode ? [0, 1, 2, 3, 5, 6] : [0, 1, 2, 3, 4, 5, 6]).filter((s) => s !== 5 || gateMode !== 'addressed');
   const pos = visibleSteps.indexOf(step);
   const go = (d: number) => setStep(visibleSteps[Math.min(Math.max(pos + d, 0), visibleSteps.length - 1)]);
 
@@ -838,12 +842,16 @@ export default function SetupWizard() {
         {/* 4 routing and primary role */}
         {step === 4 && (
           <div className="space-y-3">
-            <label className="flex items-start gap-2 text-sm font-medium text-gray-900 dark:text-white">
-              <input type="checkbox" className="mt-0.5" data-testid="gate-enabled" checked={gateEnabled} onChange={(e) => setGateEnabled(e.target.checked)} />
-              {T.gateEnabled}
+            <label className="block text-sm font-medium text-gray-900 dark:text-white">
+              {T.participation}
+              <select className="mt-2 block w-full rounded border p-2 bg-white dark:bg-gray-900" data-testid="gate-mode" value={gateMode} onChange={(e) => setGateMode(e.target.value as typeof gateMode)}>
+                <option value="smart">{T.gateEnabled}</option>
+                <option value="addressed">{T.addressedMode}</option>
+                <option value="off">{T.legacyMode}</option>
+              </select>
             </label>
-            <p className="text-xs text-gray-600 dark:text-gray-400">{gateEnabled ? T.gateOnHint : T.gateOffHint}</p>
-            <p className="text-sm text-gray-700 dark:text-gray-300">{T.fallbackQ}</p>
+            <p className="text-xs text-gray-600 dark:text-gray-400">{gateMode === 'addressed' ? T.addressedHint : gateMode === 'smart' ? T.gateOnHint : T.gateOffHint}</p>
+            <p className="text-sm text-gray-700 dark:text-gray-300">{gateMode === 'addressed' ? T.addressedLeadQ : T.fallbackQ}</p>
             <div className="space-y-1.5">
               {roles.map((r) => (
                 <label key={r.key} className="flex items-center gap-2 text-sm" data-testid={`fallback-${projectOf(r)}`}>
@@ -860,8 +868,8 @@ export default function SetupWizard() {
           <div className="space-y-3">
             <p className="text-sm font-medium text-gray-900 dark:text-white">{T.jevTitle}</p>
             <p className="text-xs text-gray-600 dark:text-gray-400">{T.jevQ}</p>
-            <p className="text-xs text-gray-500">{T.jevNoClaude}</p>
-            {roles.length > 1 && platform !== 'feishu' && !jevUnchanged && jevTest.usable !== true && (
+            <p className="text-xs text-gray-500">{gateMode === 'addressed' ? T.addressedHint : T.jevNoClaude}</p>
+            {gateMode === 'smart' && roles.length > 1 && platform !== 'feishu' && !jevUnchanged && jevTest.usable !== true && (
               <p className="text-xs text-amber-600" data-testid="jev-recommend">{T.jevRecommend.replace('{name}', fallbackName)}</p>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
