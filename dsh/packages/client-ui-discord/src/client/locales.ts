@@ -9,7 +9,7 @@ export const zh = {
   copiedCode: '已复制',
   footnotes: '脚注',
   panel: '频道',
-  channelSettings: '频道设定',
+  channelSettings: '频道设置',
   channelLead: '谁当家（主角色）',
   channelName: '频道名称',
   channelNameHint: '1–32 个字符，不能含空白。',

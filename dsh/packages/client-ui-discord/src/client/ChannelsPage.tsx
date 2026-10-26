@@ -668,7 +668,6 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
           <button type="button" className={css.mobileButton} aria-label={t('showRooms')} aria-expanded={drawer === 'rooms'} onClick={() => setDrawer(drawer === 'rooms' ? undefined : 'rooms')}>☰</button>
           <button type="button" className={css.panelToggle} title={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-label={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-expanded={!roomsHidden} onClick={() => { setRoomsHidden(!roomsHidden) }}>{roomsHidden ? '»' : '«'}</button>
           <span className={css.hash} aria-hidden>#</span><span className={css.roomName}>{room?.name}</span>
-          <button type="button" className={css.panelToggle} title={t('channelSettings')} aria-label={t('channelSettings')} disabled={room === undefined} onClick={() => { setChannelName(room?.name ?? ''); setNameError(undefined); setSettingsOpen(true) }}>⚙</button>
           <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
           <button type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
         </header>
@@ -751,26 +750,26 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
               <div className={css.mentionHint}>{t('mentionHint')}</div>
             </div>
           )}
-          {replying !== undefined && (
-            <div className={css.replyBar}>
-              <span className={css.replyBarText}>
-                {t('replyingTo', { name: replying.name })}
-                {state.messages.some(m => m.id === replying.id) ? '' : ` · ${t('replyDeleted')}`}
-              </span>
-              <button type="button" className={css.replyCancel} title={t('cancelReply')} aria-label={t('cancelReply')} onClick={cancelReply}>×</button>
-            </div>
-          )}
-          {state.roomId !== undefined && (
-            <PendingAttachments
-              files={pendingFiles[state.roomId] ?? []}
-              removeLabel={t('removeAttachment')}
-              onRemove={(index) => {
-                const roomId = state.roomId as number
-                setPendingFiles(previous => ({ ...previous, [roomId]: (previous[roomId] ?? []).filter((_, i) => i !== index) }))
-              }}
-            />
-          )}
-          <div className={css.composerRow}>
+          <div className={css.composerBox}>
+            {replying !== undefined && (
+              <div className={css.replyBar}>
+                <span className={css.replyBarText}>
+                  {t('replyingTo', { name: replying.name })}
+                  {state.messages.some(m => m.id === replying.id) ? '' : ` · ${t('replyDeleted')}`}
+                </span>
+                <button type="button" className={css.replyCancel} title={t('cancelReply')} aria-label={t('cancelReply')} onClick={cancelReply}>×</button>
+              </div>
+            )}
+            {state.roomId !== undefined && (
+              <PendingAttachments
+                files={pendingFiles[state.roomId] ?? []}
+                removeLabel={t('removeAttachment')}
+                onRemove={(index) => {
+                  const roomId = state.roomId as number
+                  setPendingFiles(previous => ({ ...previous, [roomId]: (previous[roomId] ?? []).filter((_, i) => i !== index) }))
+                }}
+              />
+            )}
             <textarea
               ref={inputRef}
               className={css.input}
@@ -798,31 +797,33 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
               onDragOver={attach.onDragOver}
               onDrop={attach.onDrop}
             />
-            {attach.button(t('attachButton'), state.roomId === undefined || sending[state.roomId] === true)}
-            <button
-              type="button"
-              className={css.mentionButton}
-              title={t('mentionButton')}
-              aria-label={t('mentionButton')}
-              disabled={state.roomId === undefined || sending[state.roomId] === true}
-              onClick={openPicker}
-            >
-              @
-            </button>
-            {/* Touch keyboards may not send Enter (or insert a newline instead), so the composer always
-                has a send button, as the desktop chat does; it runs the same submit as Enter. */}
-            <button
-              type="button"
-              className={css.sendButton}
-              title={t('sendButton')}
-              aria-label={t('sendButton')}
-              disabled={state.roomId === undefined || sending[state.roomId] === true || (draft.trim() === '' && (pendingFiles[state.roomId] ?? []).length === 0)}
-              // Keep focus (and the soft keyboard) in the textarea when tapped.
-              onMouseDown={(event) => { event.preventDefault() }}
-              onClick={submit}
-            >
-              {t('sendButton')}
-            </button>
+            <div className={css.composerToolbar}>
+              {attach.button(t('attachButton'), state.roomId === undefined || sending[state.roomId] === true)}
+              <button
+                type="button"
+                className={css.mentionButton}
+                title={t('mentionButton')}
+                aria-label={t('mentionButton')}
+                disabled={state.roomId === undefined || sending[state.roomId] === true}
+                onClick={openPicker}
+              >
+                @
+              </button>
+              {/* Touch keyboards may not send Enter (or insert a newline instead), so the composer always
+                  has a send button, as the desktop chat does; it runs the same submit as Enter. */}
+              <button
+                type="button"
+                className={css.sendButton}
+                title={t('sendButton')}
+                aria-label={t('sendButton')}
+                disabled={state.roomId === undefined || sending[state.roomId] === true || (draft.trim() === '' && (pendingFiles[state.roomId] ?? []).length === 0)}
+                // Keep focus (and the soft keyboard) in the textarea when tapped.
+                onMouseDown={(event) => { event.preventDefault() }}
+                onClick={submit}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg>
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -857,6 +858,11 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
           </label>)}
         </fieldset>
         {modeError !== undefined && <div role="alert">{modeError}</div>}
+        <hr className={css.settingsDivider} />
+        <button type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { setDrawer(undefined); setChannelName(room?.name ?? ''); setNameError(undefined); setSettingsOpen(true) }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9.5 3-.7 2.3-2 .9-2.2-.6-2.5 4.3 1.6 1.7v2.3l-1.6 1.7 2.5 4.3 2.2-.6 2 .9.7 2.3h5l.7-2.3 2-.9 2.2.6 2.5-4.3-1.6-1.7v-2.3l1.6-1.7-2.5-4.3-2.2.6-2-.9L14.5 3Z" /><circle cx="12" cy="12.75" r="3" /></svg>
+          {t('channelSettings')}
+        </button>
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
         <MemberGroup title={t('agents', { count: String(visibleMembers.filter(m => m.kind !== 'human').length) })} members={visibleMembers.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
@@ -864,7 +870,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
       </aside>
       {settingsOpen && <div className={css.dialogBackdrop} onClick={() => { setSettingsOpen(false) }}>
         <section className={css.dialog} role="dialog" aria-modal="true" aria-label={t('channelSettings')} onClick={event => { event.stopPropagation() }} onKeyDown={event => { if (event.key === 'Escape') setSettingsOpen(false) }}>
-          <h2>{t('channelSettings')}</h2>
+          <h2 className={css.dialogTitle}>{t('channelSettings')}</h2>
           <fieldset disabled={modeSaving || state.roomId === undefined}>
             <legend>{t('dispatchMode')}</legend>
             {(['solo', 'team', 'mixed'] as const).map(mode => <label key={mode} style={{ display: 'block' }}>
@@ -873,7 +879,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
             </label>)}
           </fieldset>
           {modeError !== undefined && <div role="alert">{modeError}</div>}
-          <label className={css.fieldLabel}>{t('channelLead')}
+          <label className={css.field}>{t('channelLead')}
             <select className={css.fieldInput} aria-label={t('channelLead')} value={state.effectiveLeadId ?? state.leadId ?? ''} disabled={leadSaving} onChange={event => { changeLead(event.target.value) }}>
               <option value="" disabled>{t('leadNone')}</option>
               {state.members.filter(m => m.kind !== 'human').map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -881,7 +887,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
           </label>
           {memberError !== undefined && <div role="alert">{memberError}</div>}
           <form onSubmit={event => { event.preventDefault(); saveName() }}>
-            <label className={css.fieldLabel}>{t('channelName')}
+            <label className={css.field}>{t('channelName')}
               <input autoFocus className={css.fieldInput} aria-label={t('channelName')} value={channelName} disabled={nameSaving || room?.kind === 'workspace'} onChange={event => { setChannelName(event.target.value) }} onKeyDown={event => { if (event.key === 'Enter' && isImeEnter(event)) event.preventDefault() }} />
             </label>
             <p>{t(room?.kind === 'workspace' ? 'workspaceNameFixed' : 'channelNameHint')}</p>
