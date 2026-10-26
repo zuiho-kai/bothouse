@@ -3,7 +3,8 @@
 # 用法：d10-fire <队友id> <简称> <派活epoch> <session_key> <发消息的 cc-connect project> [--renew N] [--dry-run]（d10 填好参数）
 # 续期：没交回时再看最近 10 分钟她有没有动静（团队文件里她的 "wt" 目录下有新提交；
 #   或她在频道里发了非表态消息；频道消息经桥的 GET /channel/history 读，见 fetch_messages），
-#   有就再挂一个 10 分钟的 d10-fire（--renew 计数），最多续 MAX_RENEW 次；续到上限仍没交回、或续期定时没挂上，照发暂停。
+#   有就再挂一个 10 分钟的 d10-fire（--renew 计数），有进展就一直续（MAX_RENEW 0 = 不设上限）；
+#   没动静、或续期定时没挂上，照发暂停。
 # 来源：用户 2026-10-23「复盘一下现在的工作流程，看看怎么样更好的就是我们并行的团队模式的去搞」；
 #   事故：2026-10-23 上午 d10 计时 4 次在队友早已交回后白发「暂停」（03:46、10:39 彩虹猫，10:47 前后），
 #   还打断了队友手上的下一件活。规则靠自觉管不住，改成到点自动判断。
@@ -27,8 +28,9 @@ LEADING_MENTION_RE = re.compile(r"^((<@!?\d+>|@[^\s【@]+)\s*)+")
 # 桥给回复加的前缀「[回复 X：被回复正文前 40 字…] 」（discord.go ChannelHistory）；只看她自己写的正文（审查 PR #377）
 REPLY_PREFIX_RE = re.compile(r"^\[回复 [^：\n]{1,100}：(?:.{40}…|.{0,40}?)\] ", re.S)
 PAUSE_MARK = "暂停（「"  # d10-fire 自己发的暂停消息，不算新派活
-# 续期上限 2 次：续期也要有新进展，最多 30 分钟（用户 2026-10-23「这10分钟之内搞不完就滚蛋」）
-MAX_RENEW = 2
+# 续期上限：0 = 不设上限，有进展就一直续（用户 2026-10-26「有进展就一直续，没进展才停」#429）；
+# 续期也必须有新进展，否则照发暂停。
+MAX_RENEW = 0
 STANCE_PREFIXES = ("【接】", "【问】", "【退】", "【升】")
 WINDOW = 600  # 看「最近 10 分钟」有没有动静，和 d10 的 10 分钟一致
 
@@ -132,9 +134,9 @@ def renew(tid, what, since, skey, proj, n, dry):
     argv = [cc, "timer", "add", "-p", proj, "-s", skey, "--delay", "10m",
             "--desc", f"10分钟砍活:{what}(续{n})", "--exec", cmd]
     if dry:
-        print(f"有新动静，会续 10 分钟（第 {n}/{MAX_RENEW} 次）：{' '.join(argv)}")
+        print(f"有新动静，会续 10 分钟（第 {n} 次）：{' '.join(argv)}")
         return 0
-    print(f"有新动静，续 10 分钟（第 {n}/{MAX_RENEW} 次）")
+    print(f"有新动静，续 10 分钟（第 {n} 次）")
     try:
         return subprocess.run(argv).returncode
     except OSError as e:
@@ -186,7 +188,7 @@ def main(argv):
     if done:
         print("已交回，跳过暂停")
         return 0
-    if n < MAX_RENEW and (active or last_commit_epoch(tid) >= max(since, time.time() - WINDOW)):
+    if (MAX_RENEW <= 0 or n < MAX_RENEW) and (active or last_commit_epoch(tid) >= max(since, time.time() - WINDOW)):
         # 续期失败（timer 没挂上）就退回发暂停，不吞掉打断（同上面读不到频道的约定）
         if renew(tid, what, since, skey, proj, n + 1, dry) == 0:
             return 0

@@ -4671,9 +4671,9 @@ test('G35: while a DSH [ask] waits on the user the watch wakes nobody and keeps 
 
 test('G35: an unanswered [ask] the owner moved on from (hand-back, rework) does not hold the watch', async () => {
   const { hub, tasks, clock, woken, ws, assign, say } = g34Setup();
-  // say() posts at the real time; run the clock from there so those rows fall in the first
-  // window only and later windows are quiet (with no renewal cap, #429, a later stamp would
-  // read as progress in every window).
+  // say() stamps at the real wall clock, which is before base (= now + 5s): the report/rework
+  // rows land before the first watch window and never count as progress in any window. This
+  // case covers a stale [ask] not holding the watch, not owner messages as progress.
   const base = Math.ceil(Date.now() / 1000) + 5;
   clock.t = base;
   const t = assign();
