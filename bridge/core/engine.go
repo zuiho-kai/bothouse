@@ -579,6 +579,8 @@ type Engine struct {
 	// Data directory for socket path injection
 	dataDir        string
 	publicProgress *PublicProgress
+	// workspaceChatForTest replaces isTeamWorkspaceChat's registry lookup in tests (nil = the registry).
+	workspaceChatForTest func(session string) bool
 	productPyBin   atomic.Value // string: bin dir holding the product python3, resolved once in Start (role_env.go)
 	productPyWG    sync.WaitGroup // the Start-time lookup above; Stop waits for it (role_env.go)
 

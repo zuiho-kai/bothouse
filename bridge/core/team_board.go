@@ -258,6 +258,16 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			}
 		}
 	}
+	// Boards only in workspace channels (isTeamWorkspaceChat); looked up once per chat per pass.
+	wsChat := map[string]bool{}
+	isWS := func(chat string) bool {
+		ws, ok := wsChat[chat]
+		if !ok {
+			ws = e.isTeamWorkspaceChat(chat)
+			wsChat[chat] = ws
+		}
+		return ws
+	}
 	var items, done []teamTaskBoardItem
 	var pending []*TimerJob
 	now := time.Now()
@@ -271,7 +281,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	}
 	for _, it := range items { // a chat with task-board items gets a board too (board.py no longer posts its own card)
 		for _, key := range it.chats() {
-			if boards[key] == nil {
+			if boards[key] == nil && isWS(key) {
 				boards[key] = &boardChat{SessionKey: key}
 			}
 		}
@@ -282,7 +292,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 				continue
 			}
 			chat := chatOf(task.SessionKey)
-			if boards[chat] == nil {
+			if boards[chat] == nil && isWS(chat) {
 				boards[chat] = &boardChat{SessionKey: task.SessionKey}
 			}
 			noteActive(chat, task.UpdatedAt)
@@ -295,7 +305,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 				continue
 			}
 			chat := chatOf(s.Key)
-			if _, ok := boards[chat]; !ok {
+			if _, ok := boards[chat]; !ok && isWS(chat) {
 				boards[chat] = &boardChat{SessionKey: s.Key}
 			}
 			noteActive(chat, s.Since, s.DoneAt)
@@ -303,6 +313,14 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	}
 	changed := false
 	for chat, b := range boards {
+		if !isWS(chat) {
+			// A board posted before boards were limited to workspaces: delete it.
+			if e.removeTeamBoard(chat, b) {
+				delete(boards, chat)
+				changed = true
+			}
+			continue
+		}
 		if !b.GaveUpAt.IsZero() {
 			if !lastActive[chat].After(b.GaveUpAt) {
 				continue
@@ -353,6 +371,32 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 		changed = true
 	}
 	return changed
+}
+
+// removeTeamBoard deletes chat's board message (BoardRemover); it reports whether the board is
+// gone or can never be removed, so the caller forgets it. A temporary error keeps it for a retry.
+func (e *Engine) removeTeamBoard(chat string, b *boardChat) bool {
+	if b.MessageID == "" {
+		return true
+	}
+	platform, _, _ := strings.Cut(chat, ":")
+	remover, ok := e.platformForName(platform).(BoardRemover)
+	if !ok {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(e.ctx, 15*time.Second)
+	err := remover.RemoveBoard(ctx, b.SessionKey, b.MessageID)
+	cancel()
+	switch {
+	case errors.Is(err, ErrDeliveryUnrecoverable):
+		slog.Warn("team board: board outside a workspace cannot be removed, giving up", "chat", chat, "error", err)
+	case err != nil:
+		slog.Warn("team board: remove board outside a workspace failed, will retry", "chat", chat, "error", err)
+		return false
+	default:
+		slog.Info("team board: removed board outside a workspace", "chat", chat)
+	}
+	return true
 }
 
 // readTeamFiles loads every fresh status file in dir, sorted by project.
