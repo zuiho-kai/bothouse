@@ -329,7 +329,6 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
   const [modeSaving, setModeSaving] = useState(false)
   const [modeError, setModeError] = useState<string | undefined>(undefined)
   const [leadSaving, setLeadSaving] = useState(false)
-  const [leadOpen, setLeadOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [channelName, setChannelName] = useState('')
   const [nameSaving, setNameSaving] = useState(false)
@@ -511,7 +510,6 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
   }
 
   const changeLead = (id: string): void => {
-    setLeadOpen(false)
     if (!id || id === state.leadId || leadSaving) return
     setMemberError(undefined)
     setLeadSaving(true)
@@ -829,35 +827,6 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
       </section>
       <aside className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}>
         <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} />
-        <div className={css.leadControl}>
-          <span className={css.fieldLabel}>{t('lead')}</span>
-          <button
-            type="button"
-            className={css.fieldInput}
-            aria-haspopup="listbox"
-            aria-expanded={leadOpen}
-            aria-label={t('lead')}
-            disabled={leadSaving || visibleMembers.every(m => m.kind === 'human')}
-            onClick={() => { setLeadOpen(!leadOpen) }}
-          >
-            {visibleMembers.find(m => m.id === (state.effectiveLeadId ?? state.leadId))?.name ?? t('leadNone')}
-          </button>
-          {leadOpen && <div className={css.leadMenu} role="listbox" aria-label={t('lead')}>
-            {visibleMembers.filter(m => m.kind !== 'human').map(m => (
-              <button key={m.id} type="button" role="option" aria-selected={m.id === state.leadId} className={css.leadOption} onClick={() => { changeLead(m.id) }}>{m.name}</button>
-            ))}
-          </div>}
-        </div>
-        <fieldset disabled={modeSaving || state.roomId === undefined}>
-          <legend>{t('dispatchMode')}</legend>
-          {(['solo', 'team', 'mixed'] as const).map(mode => <label key={mode} style={{ display: 'block' }}>
-            <input type="radio" name="dispatch-mode" value={mode}
-              checked={(state.rooms.find(r => r.id === state.roomId)?.dispatch_mode ?? 'mixed') === mode}
-              onChange={() => { changeMode(mode) }} />
-            {t(mode === 'solo' ? 'dispatchSolo' : mode === 'team' ? 'dispatchTeam' : 'dispatchMixed')}
-          </label>)}
-        </fieldset>
-        {modeError !== undefined && <div role="alert">{modeError}</div>}
         <hr className={css.settingsDivider} />
         <button type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { setDrawer(undefined); setChannelName(room?.name ?? ''); setNameError(undefined); setSettingsOpen(true) }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9.5 3-.7 2.3-2 .9-2.2-.6-2.5 4.3 1.6 1.7v2.3l-1.6 1.7 2.5 4.3 2.2-.6 2 .9.7 2.3h5l.7-2.3 2-.9 2.2.6 2.5-4.3-1.6-1.7v-2.3l1.6-1.7-2.5-4.3-2.2.6-2-.9L14.5 3Z" /><circle cx="12" cy="12.75" r="3" /></svg>

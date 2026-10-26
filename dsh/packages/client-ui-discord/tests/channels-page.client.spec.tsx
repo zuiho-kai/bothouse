@@ -42,7 +42,9 @@ describe('channels page', () => {
     const member = screen.getByTitle(zh.mentionPick.replace('{name}', '橘'))
     expect(member.parentElement?.classList.contains(css.offline)).toBe(true)
     expect(member.textContent).toContain(zh.offline)
-    expect(screen.getByRole('button', { name: zh.lead }).textContent).toContain('橘')
+    fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
+    const lead = screen.getByLabelText(zh.channelLead) as HTMLSelectElement
+    expect(lead.selectedOptions[0].textContent).toContain('橘')
   })
 
   it('keeps offline channel members in the legacy roster and dims them', () => {
@@ -93,7 +95,13 @@ describe('channels page', () => {
     const p = props({ ...ready, members: [...ready.members, { id: 'ds', name: '鲸鱼娘', kind: 'dsh', online: true }] })
     const renameRoom = vi.fn(async () => { throw Error('rename failed') })
     render(<ChannelsPage {...p} renameRoom={renameRoom} />)
-    fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
+    const sidebar = within(screen.getByRole('complementary'))
+    expect(sidebar.queryByRole('button', { name: zh.lead })).toBeNull()
+    expect(sidebar.queryByRole('group', { name: zh.dispatchMode })).toBeNull()
+    expect(sidebar.getByRole('button', { name: zh.channelSettings })).toBeTruthy()
+    expect(sidebar.getByRole('button', { name: `+ ${zh.addMember}` })).toBeTruthy()
+    expect(sidebar.getByTitle(zh.mentionPick.replace('{name}', '橘'))).toBeTruthy()
+    fireEvent.click(sidebar.getByRole('button', { name: zh.channelSettings }))
     const dialog = within(screen.getByRole('dialog', { name: zh.channelSettings }))
     await act(async () => { fireEvent.click(dialog.getByRole('radio', { name: zh.dispatchTeam })) })
     expect(p.setDispatchMode).toHaveBeenCalledWith(1, 'team')
@@ -172,6 +180,7 @@ describe('channels page', () => {
   it('selects dispatch mode and reports a failed save', async () => {
     const save = vi.fn(async () => { throw Error('save failed') })
     render(<ChannelsPage {...props(ready)} setDispatchMode={save} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
     const selector = screen.getByRole('radio', { name: zh.dispatchMixed })
     expect((selector as HTMLInputElement).checked).toBe(true)
     expect(screen.getByText(zh.dispatchSolo)).toBeTruthy()
@@ -204,10 +213,10 @@ describe('channels page', () => {
       { id: 'ds', name: '鲸鱼娘', kind: 'dsh', online: true },
     ] }
     render(<ChannelsPage {...props(state)} setLead={setLead} />)
-    const trigger = screen.getByRole('button', { name: zh.lead })
-    expect(trigger.textContent).toContain('橘')
-    fireEvent.click(trigger)
-    await act(async () => { fireEvent.click(screen.getByRole('option', { name: '鲸鱼娘' })) })
+    fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
+    const lead = screen.getByLabelText(zh.channelLead) as HTMLSelectElement
+    expect(lead.selectedOptions[0].textContent).toContain('橘')
+    await act(async () => { fireEvent.change(lead, { target: { value: 'ds' } }) })
     expect(setLead).toHaveBeenCalledExactlyOnceWith('ds')
   })
 
@@ -215,8 +224,9 @@ describe('channels page', () => {
     const setLead = vi.fn(async () => {})
     const state: ChannelSnapshot = { ...ready, leadId: null, effectiveLeadId: 'ju' }
     render(<ChannelsPage {...props(state)} setLead={setLead} />)
-    fireEvent.click(screen.getByRole('button', { name: zh.lead }))
-    await act(async () => { fireEvent.click(screen.getByRole('option', { name: '橘' })) })
+    fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
+    const lead = screen.getByLabelText(zh.channelLead) as HTMLSelectElement
+    await act(async () => { fireEvent.change(lead, { target: { value: 'ju' } }) })
     expect(setLead).toHaveBeenCalledExactlyOnceWith('ju')
   })
 
