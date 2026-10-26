@@ -90,7 +90,7 @@ func taskCommand(args []string, out io.Writer) error {
 	parent := f.String("parent", "", "parent member id for a child agent (assign only)")
 	ref := f.String("ref", "", "reference implementation to follow, path:line; non-code work writes 无（新建） (assign only, required)")
 	base := f.String("base", "", "branch to start from; required when the title or ref says 多人改/共改文件 (assign only)")
-	workspace := f.String("workspace", "", "another workspace of the same chat channel where the member executes (assign only)")
+	workspace := f.String("workspace", "", "a workspace of the source chat channel where the member executes (assign only)")
 	limit := f.Int("limit", 10, "how many tasks to list")
 	dataDir := f.String("data-dir", "", "bridge data directory")
 	if err := f.Parse(rest); err != nil {

@@ -617,7 +617,10 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 			continue
 		}
 		if ev.IsKeyFact {
-			publisher, err := p.taskReporter(ev.ReporterProject, platform, task.ChannelID, r.publisher)
+			// Facts go to the channel that holds the card: the execution
+			// workspace for a chat-channel source, else the source session.
+			// ChannelID is a platform channel ID, not a session key.
+			publisher, err := p.taskReporter(ev.ReporterProject, platform, task.cardSessionKey(), r.publisher)
 			if err == nil {
 				err = publisher.PublishTaskFact(ctx, task, ev, lang)
 			}

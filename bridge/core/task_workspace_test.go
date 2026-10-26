@@ -15,6 +15,19 @@ import (
 	"time"
 )
 
+// rawDestinationPlatform models Discord's TaskCardDestination: it returns the
+// platform channel ID, not a session key. Facts must therefore use the card's
+// session key (Task.CardSession), never its channel ID.
+type rawDestinationPlatform struct{ *progressTestPlatform }
+
+func (p *rawDestinationPlatform) TaskCardDestination(session string) (string, error) {
+	_, chat, err := parseSessionKeyParts(session)
+	if err != nil {
+		return "", err
+	}
+	return chat, nil
+}
+
 // A task workspace is an execution location, not a new task identity: it must
 // belong to the source chat and have room for the work.
 func TestResolveTaskWorkspaceChecksOwnershipAndOccupancy(t *testing.T) {
@@ -723,19 +736,26 @@ func TestCrossWorkspaceDispatchThroughWorkspaceCardGate(t *testing.T) {
 // Facts of a chat-source task are posted through the bot bound in the card's
 // execution workspace, not in the chat channel that owns the task.
 func TestChatSourceCardFactsUseExecutionWorkspace(t *testing.T) {
-	p, platform, _, _, _ := crossWorkspaceGateFixture(t)
+	p, platform, e, _, _ := crossWorkspaceGateFixture(t)
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws3", "工作区3"); err != nil {
+		t.Fatal(err)
+	}
+	raw := &rawDestinationPlatform{progressTestPlatform: platform}
 	var sessions []string
 	p.resolveReporter = func(project, platformName, session string) (TaskCardPublisher, error) {
 		sessions = append(sessions, session)
-		return platform, nil
+		return raw, nil
 	}
 	lobby := "discord:lobby:user"
-	lobbyRun := p.begin(platform, lobby, LangChinese, nil)
+	lobbyRun := p.begin(raw, lobby, LangChinese, nil)
 	req := taskWorkspaceAssignment("", lobbyRun, "m1", "ws1")
 	req.SessionKey, req.BatchID = lobby, "chat-batch"
 	grant, err := p.AssignMember(req)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(sessions) != 1 || sessions[0] != "discord:ws1" {
+		t.Fatalf("first member reporter sessions = %v, want only discord:ws1", sessions)
 	}
 	p.mu.Lock()
 	r := p.records[grant.TaskID]
@@ -743,6 +763,24 @@ func TestChatSourceCardFactsUseExecutionWorkspace(t *testing.T) {
 	if r == nil {
 		t.Fatal("chat-source card missing")
 	}
+	r.mu.Lock()
+	if r.record.Task.ChannelID != "ws1" || r.record.Task.CardSession != "discord:ws1" {
+		r.mu.Unlock()
+		t.Fatalf("card destination = channel %q, session %q", r.record.Task.ChannelID, r.record.Task.CardSession)
+	}
+	r.mu.Unlock()
+	// A second member in another workspace of the same chat still reports to
+	// the workspace holding the card, not to its own execution workspace.
+	sessions = nil
+	second := taskWorkspaceAssignment(grant.TaskID, lobbyRun, "m2", "ws3")
+	second.SessionKey = lobby
+	if _, err := p.AssignMember(second); err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 2 || sessions[0] != "discord:ws1" || sessions[1] != "discord:ws3" {
+		t.Fatalf("second member reporter sessions = %v, want card ws1 then execution ws3", sessions)
+	}
+	sessions = nil
 	r.mu.Lock()
 	p.appendEvent(r, TaskEventProgress, "member fact", true)
 	r.record.Task.Events[len(r.record.Task.Events)-1].ReporterProject = "target"

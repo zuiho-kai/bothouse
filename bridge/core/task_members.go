@@ -225,10 +225,10 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		}
 	}
 	// The member executes in execSession, but its facts are delivered on the
-	// card's channel (the source workspace, or the execution workspace for a
-	// chat-channel source): the bot must be bound there, or its facts would
-	// degrade to a creator-posted "reporter muted" note.
-	for _, session := range taskReporterSessions(p.cardSession(req.SessionKey, execSession), execSession) {
+	// card's channel (the source workspace, or the workspace holding a
+	// chat-channel source's card): the bot must be bound there, or its facts
+	// would degrade to a creator-posted "reporter muted" note.
+	for _, session := range taskReporterSessions(r.record.Task.cardSessionKey(), execSession) {
 		if _, err := p.taskReporter(req.ReporterProject, r.record.Platform, session, r.publisher); err != nil {
 			// Unbound teammate: the command says what to do, and so does the channel (#587).
 			var nb *notBoundError
@@ -349,7 +349,9 @@ func (p *PublicProgress) lockAssignmentRun(req TaskMemberAssignment, cardSession
 	if target == nil && req.TaskID == "" {
 		t := source.record.Task
 		channel := t.ChannelID
+		card := ""
 		if cardSession != "" && cardSession != req.SessionKey {
+			card = cardSession
 			var err error
 			channel, err = source.publisher.TaskCardDestination(cardSession)
 			if err != nil {
@@ -358,7 +360,7 @@ func (p *PublicProgress) lockAssignmentRun(req TaskMemberAssignment, cardSession
 			}
 		}
 		// Source: task id entropy follows PublicProgress.begin.
-		target = &publicRun{publisher: source.publisher, stopped: source.stopped, record: progressRecord{Platform: source.record.Platform, Lang: source.record.Lang, Reports: map[int64]string{}, Task: &Task{ID: "task-" + randomProgressID(8), SessionKey: req.SessionKey, ChannelID: channel, Origin: t.Origin}}}
+		target = &publicRun{publisher: source.publisher, stopped: source.stopped, record: progressRecord{Platform: source.record.Platform, Lang: source.record.Lang, Reports: map[int64]string{}, Task: &Task{ID: "task-" + randomProgressID(8), SessionKey: req.SessionKey, ChannelID: channel, CardSession: card, Origin: t.Origin}}}
 		owned = true
 	}
 	resume := req.TaskID != "" && target != nil && target == source.candidate && source.record.Task.Seq == 0
