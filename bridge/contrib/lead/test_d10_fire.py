@@ -50,8 +50,9 @@ class T(unittest.TestCase):
     def test_renew_second(self):
         self.assertRenewed(2, messages=[], now=SINCE + 1200, commit=SINCE + 1100, extra=("--renew", "1"))
 
-    def test_renew_cap_pauses(self):
-        self.assertSent([], now=SINCE + 1800, commit=SINCE + 1700, extra=("--renew", str(d.MAX_RENEW)))
+    def test_renew_has_no_cap(self):
+        # 有进展就一直续（MAX_RENEW 0 = 不设上限）：第 11 次仍然续。
+        self.assertRenewed(11, messages=[], now=SINCE + 12000, commit=SINCE + 11900, extra=("--renew", "10"))
 
     def test_renew_window_ignores_first_period(self):
         # 第二次到点只看最近 10 分钟：第一段里的提交不再算
@@ -200,7 +201,7 @@ class T(unittest.TestCase):
 
     def test_dry_run_shows_renew(self):
         _, pr = self.run_fire([], commit=SINCE + 300, extra=("--dry-run",))
-        self.assertIn("会续 10 分钟（第 1/2 次）", pr.call_args[0][0])
+        self.assertIn("会续 10 分钟（第 1 次）", pr.call_args[0][0])
 
 
 class BridgeHistoryTest(unittest.TestCase):

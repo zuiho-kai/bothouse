@@ -245,11 +245,12 @@ type TeamHandoff struct {
 	Title string `json:"title,omitempty"`
 	// Name: the workspace's name at the claim (「工作区n」). The Parents record goes at the release,
 	// this stays, so the task board still names the workspace of a finished task (TeamWorkspaceName).
-	Name      string    `json:"name,omitempty"`
-	Due       time.Time `json:"due,omitzero"`
-	Renewed   int       `json:"renewed,omitempty"`
-	Nudged    bool      `json:"nudged,omitempty"`
-	ParkFails int       `json:"park_fails,omitempty"`
+	Name        string    `json:"name,omitempty"`
+	Due         time.Time `json:"due,omitzero"`
+	Renewed     int       `json:"renewed,omitempty"`
+	BusyRenewed int       `json:"busy_renewed,omitempty"` // renewals given only because a session was busy
+	Nudged      bool      `json:"nudged,omitempty"`
+	ParkFails   int       `json:"park_fails,omitempty"`
 	// ReadFails: checks whose progress signal could not be read (the channel history request
 	// failed); retried like ParkFails, then counted as no progress. Since: the start of the
 	// window being checked, kept while a read is retried (a retry moves Due, not the window;

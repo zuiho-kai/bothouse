@@ -78,13 +78,20 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	if err != nil || cached != nil {
 		return cached, err
 	}
-	source.publicProgress.ensureRelayWatch(source.ctx)
+	watchStarted := source.publicProgress.ensureRelayWatch(source.ctx)
+	// No watch can start when the source engine is stopping: leave stop nil so
+	// drainRelaySession keeps its fixed safety limit instead of waiting forever
+	// on a stop channel nobody will close (#448 P2).
+	var relayStop <-chan struct{}
+	if watchStarted {
+		relayStop = d.stop
+	}
 	relayCtx, cancel := rm.relayContext(ctx)
 	defer cancel()
 	// Distinct request sessions prevent concurrent dispatches from sharing a
 	// conversation. This is routing, not a tool/filesystem sandbox.
 	scope := req.TaskID + ":" + fmt.Sprintf("%x", sha256.Sum256([]byte(req.RequestID)))
-	response, runErr := target.handleRelay(relayCtx, req.From, req.SessionKey, d.req.Workspace, d.prompt()+req.Message, scope, d.stop, func(response string, runErr error) {
+	response, runErr := target.handleRelay(relayCtx, req.From, req.SessionKey, d.req.Workspace, d.prompt()+req.Message, scope, relayStop, func(response string, runErr error) {
 		if err := d.finish(response, runErr); err != nil {
 			slog.Error("relay: background result checkpoint failed", "task_id", req.TaskID, "error", err)
 		}
@@ -94,7 +101,11 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	})
 	var draining *relayDrainingError
 	if errors.As(runErr, &draining) {
-		return nil, fmt.Errorf("relay: wait ended; execution continues under the ten-minute watch and its outcome will wake this session, do not redispatch: %w", runErr)
+		continuation := "under the ten-minute watch and its outcome will wake this session"
+		if !watchStarted {
+			continuation = "in the background; the source engine is stopping, so the drain's safety limit will end it"
+		}
+		return nil, fmt.Errorf("relay: wait ended; execution continues %s, do not redispatch: %w", continuation, runErr)
 	}
 	if err := d.finish(response, runErr); err != nil {
 		return nil, fmt.Errorf("relay: result checkpoint failed; do not repeat tools: %w", err)
@@ -376,7 +387,9 @@ func (e *Engine) wakeRelayLead(req RelayRequest, worker, response string, runErr
 	outcome := "已交回结果"
 	switch {
 	case errors.Is(runErr, errRelayWatchStopped):
-		outcome = "被十分钟看门停下（没有进展或续期用完），会话已关"
+		outcome = "被十分钟看门停下（到点没有交回结果），会话已关"
+	case errors.Is(runErr, errRelayWatchInterrupted):
+		outcome = "因桥重启中断（运行已丢失，没有结果）"
 	case runErr != nil:
 		outcome = "后台执行结束但没有确认结果（" + runErr.Error() + "）"
 	}

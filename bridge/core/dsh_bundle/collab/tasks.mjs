@@ -31,11 +31,11 @@ const DELIVERED = ['returned', 'done'];
 const PENDING_CALL_S = 30 * 60;
 // Default check time after dispatch or rework. Source: user 2026-10-23「这10分钟之内搞不完就滚蛋」.
 export const CHECK_AFTER_S = 10 * 60;
-// Workspace watch (#574 B2, same rule as contrib/lead/d10-fire MAX_RENEW): at the check time a
-// workspace task with new role messages since its window opened gets another CHECK_AFTER_S, at
-// most MAX_RENEWALS times (0 = no cap); otherwise it is parked (paused queue). Replaces the old
-// one-hour park. Source: user 2026-10-26 agreed「有进展就一直续，没进展才停」(#429), replacing
-// 橘 10-25 15:19「最多续 2 次」; same as Go watchMaxRenew.
+// Workspace watch (#574 B2, same rule as contrib/lead/d10-fire MAX_RENEW, 0 = no cap): at the
+// check time a workspace task with new role messages since its window opened gets another
+// CHECK_AFTER_S, renewing while there is progress; otherwise it is parked (paused queue).
+// Replaces the old one-hour park. Source: user 2026-10-26 agreed「有进展就一直续，没进展才停」(#429),
+// replacing 橘 10-25 15:19「最多续 2 次」; same as Go watchMaxRenew.
 export const MAX_RENEWALS = 0;
 // setTimeout's own maximum delay (Node clamps anything larger to 1 ms).
 const MAX_TIMER_MS = 2 ** 31 - 1;
