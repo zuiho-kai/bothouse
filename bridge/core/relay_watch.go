@@ -13,8 +13,10 @@ import (
 // handed back (status not running), LastSeq grew, or the worker's own member
 // row on the card was updated since the window began; a busy session is not
 // progress (a relay turn is busy until it returns). Cadence and renew limit are
-// team_watch's (watchCheckAfter, watchMaxRenew). A stop closes the worker's
-// session at once (handleTrackedRelay's stop channel), not the relay drain.
+// team_watch's (watchCheckAfter, watchMaxRenew). At the first quiet check the
+// watch injects one reminder (once per dispatch) into the running turn and
+// grants one more window; only a second quiet check stops the run. A stop closes
+// the worker's session at once (handleTrackedRelay's stop channel), not the relay drain.
 // The gate is the receipt alone (running, not yet nudged, run still known),
 // never the card: a relay sent in the background keeps running after the lead's
 // turn closes the card (finishRun), and after the card turns failed/cancelled
@@ -23,19 +25,50 @@ import (
 // watch's notes go to the thread without moving the card's summary.
 
 // errRelayWatchStopped marks a run the watch stopped, like d10 stopping a turn.
-var errRelayWatchStopped = errors.New("十分钟看门停止：到点没有交回结果，会话已关，做到的部分作为部分结果交回")
+var errRelayWatchStopped = errors.New("十分钟看门停止：提醒后仍没有交回结果，会话已关，做到的部分作为部分结果交回")
 
 // errRelayWatchInterrupted marks a run lost to a bridge restart; the watch reports it once
 // and wakes the lead (relayWatchRun, d == nil).
 var errRelayWatchInterrupted = errors.New("桥重启，这次派活的执行已中断")
 
 const (
-	relayWatchNudge       = "十分钟看门：到点还没交回结果。这一轮已停下，做到的部分作为部分结果交回；请看结果再决定是否重派。"
+	// relayWatchReminder is the one reminder injected into the worker's running turn
+	// before the watch grants its last window (taskRelayRecord.WatchNudged).
+	relayWatchReminder = "十分钟看门提醒：这一轮到点还没在任务卡上报进展。请按任务说明里的 progress 命令报一条 update，写清进度或卡在哪；下一个检查点仍然没有回报，就会停下这一轮，只交回已做的部分。"
+	// relayWatchStopNote is the card note when the reminder window also passed without a report.
+	relayWatchStopNote    = "十分钟看门：提醒过仍没有回报，这一轮已停下，做到的部分作为部分结果交回；请看结果再决定是否重派。"
+	relayWatchCapNote     = "十分钟看门：续期次数已用尽，这一轮已停下，做到的部分作为部分结果交回；请看结果再决定是否重派。"
 	relayWatchInterrupted = "十分钟看门：这次派活的执行已中断（桥重启过），请重派。"
 )
 
 // stopWatch closes the run's stop channel once; handleTrackedRelay closes the session.
 func (d *taskRelay) stopWatch() { d.stopOnce.Do(func() { close(d.stop) }) }
+
+// injectRelayReminder folds the watch reminder into the running relay turn. It
+// follows gate.injectIntoRunningTurn's capability rules: an AgentSession with
+// SendMidTurn (ACP, codex app-server) must use it; agents whose plain Send folds
+// into the running turn (claudecode) use Send. A plain Send for any other agent
+// would start a second turn whose EventResult the relay would mistake for the
+// assignment's result, so it is dropped.
+func injectRelayReminder(agent Agent, as AgentSession, content string) {
+	if sender, ok := as.(MidTurnSender); ok {
+		if err := sender.SendMidTurn(content, "", nil, nil); err != nil {
+			slog.Warn("relay watch: reminder injection failed", "error", err)
+			return
+		}
+		slog.Info("relay watch: reminder injected into the running turn")
+		return
+	}
+	if !injectAllowed(midTurnInjectCaps(agent)) {
+		slog.Warn("relay watch: agent does not fold mid-turn input; reminder dropped")
+		return
+	}
+	if err := as.Send(content, "", nil, nil); err != nil {
+		slog.Warn("relay watch: reminder send failed", "error", err)
+		return
+	}
+	slog.Info("relay watch: reminder sent into the running turn")
+}
 
 // ensureRelayWatch runs the receipt watch loop for p unless it is running. It
 // is started by every task dispatch and at engine start (resumeRelayWatch), so
@@ -157,7 +190,7 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var next time.Time
-	var stop []*taskRelay
+	var stop, nudges []*taskRelay
 	var wakes []RelayRequest
 	changed := false
 	old := snapshotTaskRelay(r)
@@ -174,12 +207,13 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 		}
 		d := live[r.record.Task.ID+"\x00"+id]
 		changed = true
+		progressed := rc.LastSeq > rc.WatchSeq || relayMemberProgress(r.record.Task, rc.Target, rc.WatchFrom)
 		switch {
 		case d == nil: // restart: the run is gone; report and wake once, no nudge, no retry
 			rc.WatchDone = true
 			p.appendEvent(r, TaskEventProgress, relayWatchInterrupted, true)
 			wakes = append(wakes, RelayRequest{From: p.project, To: rc.Target, SessionKey: r.record.Task.SessionKey, TaskID: r.record.Task.ID, RequestID: id})
-		case (rc.LastSeq > rc.WatchSeq || relayMemberProgress(r.record.Task, rc.Target, rc.WatchFrom)) && watchCanRenew(rc.WatchRenewed):
+		case progressed && watchCanRenew(rc.WatchRenewed):
 			rc.WatchRenewed++
 			rc.WatchSeq = rc.LastSeq
 			rc.WatchFrom = now
@@ -187,9 +221,23 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 			if next.IsZero() || rc.WatchDue.Before(next) {
 				next = rc.WatchDue
 			}
-		default: // no progress (or a renewal cap reached): nudge in the thread, tell the card, stop
+		case progressed: // renewals used up: stop as before; the reminder is for a quiet window
 			rc.WatchDone = true
-			p.appendEvent(r, TaskEventProgress, relayWatchNudge+"（"+d.name+"）", true)
+			p.appendEvent(r, TaskEventProgress, relayWatchCapNote+"（"+d.name+"）", true)
+			stop = append(stop, d)
+		case !rc.WatchNudged: // first quiet check: one reminder, then one more window
+			rc.WatchNudged = true
+			rc.WatchSeq = rc.LastSeq
+			rc.WatchFrom = now
+			rc.WatchDue = now.Add(watchCheckAfter())
+			p.appendEvent(r, TaskEventProgress, relayWatchReminder+"（"+d.name+"）", true)
+			nudges = append(nudges, d)
+			if next.IsZero() || rc.WatchDue.Before(next) {
+				next = rc.WatchDue
+			}
+		default: // reminded and still quiet: stop
+			rc.WatchDone = true
+			p.appendEvent(r, TaskEventProgress, relayWatchStopNote+"（"+d.name+"）", true)
 			stop = append(stop, d)
 		}
 		r.record.Relays[id] = rc
@@ -213,6 +261,13 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 			continue
 		}
 		p.wakeLead(req, req.To, "", errRelayWatchInterrupted)
+	}
+	for _, d := range nudges {
+		select {
+		case d.nudge <- relayWatchReminder:
+		default:
+			slog.Warn("relay watch: reminder already queued", "task_id", r.record.Task.ID, "request_id", d.req.RequestID)
+		}
 	}
 	for _, d := range stop {
 		d.stopWatch()

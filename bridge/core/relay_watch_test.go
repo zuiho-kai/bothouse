@@ -52,26 +52,76 @@ func relayWatchReport(t *testing.T, p *PublicProgress, d *taskRelay, seq int64) 
 
 func TestRelayWatchNoProgressNudgesAndStops(t *testing.T) {
 	p, d, now := relayWatchFixture(t)
-	if n := p.relayWatchTick(now.Add(time.Minute)); !n.Equal(now.Add(watchCheckAfter())) || relayWatchStopped(d) != 0 {
+	due := now.Add(watchCheckAfter())
+	if n := p.relayWatchTick(now.Add(time.Minute)); !n.Equal(due) || relayWatchStopped(d) != 0 {
 		t.Fatalf("before due: next=%v cancels=%d", n, relayWatchStopped(d))
 	}
-	p.relayWatchTick(now.Add(watchCheckAfter()))
-	if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone {
-		t.Fatalf("not stopped: cancels=%d", relayWatchStopped(d))
+	p.relayWatchTick(due)
+	rc := relayWatchReceipt(d)
+	if relayWatchStopped(d) != 0 || rc.WatchDone || !rc.WatchNudged {
+		t.Fatalf("first quiet check did not grant a reminder window: cancels=%d rc=%+v", relayWatchStopped(d), rc)
 	}
-	if !strings.Contains(relayWatchLastEvent(d), "十分钟看门") {
+	select {
+	case msg := <-d.nudge:
+		if !strings.Contains(msg, "回报") || !strings.Contains(msg, "卡") {
+			t.Fatalf("reminder does not ask for progress or a blocker: %q", msg)
+		}
+	default:
+		t.Fatal("first quiet check did not queue a reminder")
+	}
+	if !rc.WatchDue.Equal(due.Add(watchCheckAfter())) {
+		t.Fatalf("reminder window due %v, want %v", rc.WatchDue, due.Add(watchCheckAfter()))
+	}
+	if !strings.Contains(relayWatchLastEvent(d), "十分钟看门提醒") {
 		t.Fatalf("no nudge in thread: %q", relayWatchLastEvent(d))
+	}
+	second := rc.WatchDue
+	p.relayWatchTick(second)
+	if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone {
+		t.Fatalf("second quiet check did not stop: cancels=%d rc=%+v", relayWatchStopped(d), relayWatchReceipt(d))
+	}
+	if !strings.Contains(relayWatchLastEvent(d), "提醒过") {
+		t.Fatalf("stop note does not mention the reminder: %q", relayWatchLastEvent(d))
 	}
 	if err := d.finish("partial text", errRelayWatchStopped); err != nil {
 		t.Fatal(err)
 	}
-	rc := relayWatchReceipt(d)
+	rc = relayWatchReceipt(d)
 	if rc.Status != "failed" || rc.Response != "partial text" || !strings.Contains(rc.Error, "十分钟看门停止") {
 		t.Fatalf("receipt %+v", rc)
 	}
-	p.relayWatchTick(now.Add(time.Hour)) // handed back: skipped
+	p.relayWatchTick(second.Add(time.Hour)) // handed back: skipped
 	if relayWatchStopped(d) != 1 {
 		t.Fatal("watched a finished receipt again")
+	}
+}
+
+func TestRelayWatchProgressAfterReminderRenewsThenStops(t *testing.T) {
+	p, d, now := relayWatchFixture(t)
+	due := now.Add(watchCheckAfter())
+	p.relayWatchTick(due)
+	if !relayWatchReceipt(d).WatchNudged {
+		t.Fatal("no reminder at the first quiet check")
+	}
+	select {
+	case <-d.nudge:
+	default:
+		t.Fatal("no reminder queued")
+	}
+	reminderDue := relayWatchReceipt(d).WatchDue
+	relayWatchReport(t, p, d, 1)
+	next := p.relayWatchTick(reminderDue)
+	if relayWatchStopped(d) != 0 || relayWatchReceipt(d).WatchRenewed != 1 || !next.Equal(reminderDue.Add(watchCheckAfter())) {
+		t.Fatalf("progress in the reminder window did not renew: cancels=%d rc=%+v next=%v", relayWatchStopped(d), relayWatchReceipt(d), next)
+	}
+	p.relayWatchTick(next)
+	if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone {
+		t.Fatalf("quiet window after the reminder did not stop: cancels=%d rc=%+v", relayWatchStopped(d), relayWatchReceipt(d))
+	}
+	select {
+	case extra := <-d.nudge:
+		t.Fatalf("second reminder injected: %q", extra)
+	default:
 	}
 }
 
@@ -155,8 +205,12 @@ func TestRelayWatchSurvivesLeadTurnEnd(t *testing.T) {
 				t.Fatalf("not renewed: cancels=%d rc=%+v next=%v", relayWatchStopped(d), relayWatchReceipt(d), next)
 			}
 			p.relayWatchTick(next) // no progress in the second window
-			if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone || !strings.Contains(relayWatchLastEvent(d), "十分钟看门") {
+			if relayWatchStopped(d) != 0 || relayWatchReceipt(d).WatchDone || !relayWatchReceipt(d).WatchNudged {
 				t.Fatalf("not nudged: cancels=%d event=%q", relayWatchStopped(d), relayWatchLastEvent(d))
+			}
+			p.relayWatchTick(relayWatchReceipt(d).WatchDue) // the reminder window is also quiet
+			if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone || !strings.Contains(relayWatchLastEvent(d), "提醒过") {
+				t.Fatalf("not stopped after the reminder: cancels=%d event=%q", relayWatchStopped(d), relayWatchLastEvent(d))
 			}
 			if err := d.finish("partial", errRelayWatchStopped); err != nil {
 				t.Fatal(err)
@@ -222,8 +276,12 @@ func TestRelayWatchKeepsRunningRelayOnEndedCard(t *testing.T) {
 				t.Fatalf("not renewed on progress: cancels=%d rc=%+v next=%v", relayWatchStopped(d), relayWatchReceipt(d), next)
 			}
 			p.relayWatchTick(next) // no progress in the second window
-			if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone || !strings.Contains(relayWatchLastEvent(d), "十分钟看门") {
-				t.Fatalf("not nudged and stopped: cancels=%d event=%q", relayWatchStopped(d), relayWatchLastEvent(d))
+			if relayWatchStopped(d) != 0 || relayWatchReceipt(d).WatchDone || !relayWatchReceipt(d).WatchNudged {
+				t.Fatalf("not nudged: cancels=%d event=%q", relayWatchStopped(d), relayWatchLastEvent(d))
+			}
+			p.relayWatchTick(relayWatchReceipt(d).WatchDue) // the reminder window is also quiet
+			if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone || !strings.Contains(relayWatchLastEvent(d), "提醒过") {
+				t.Fatalf("not stopped after the reminder: cancels=%d event=%q", relayWatchStopped(d), relayWatchLastEvent(d))
 			}
 			after, _ := p.Task(id)
 			if after.State != before.State || after.LatestProgress != before.LatestProgress {
@@ -330,6 +388,10 @@ func TestRelayWatchRenewsWhileProgressByDefault(t *testing.T) {
 		if relayWatchStopped(d) != 0 || relayWatchReceipt(d).WatchRenewed != i {
 			t.Fatalf("check %d with progress: cancels=%d receipt=%+v", i, relayWatchStopped(d), relayWatchReceipt(d))
 		}
+	}
+	p.relayWatchTick(relayWatchReceipt(d).WatchDue)
+	if relayWatchStopped(d) != 0 || relayWatchReceipt(d).WatchDone || !relayWatchReceipt(d).WatchNudged {
+		t.Fatalf("quiet window not reminded: cancels=%d receipt=%+v", relayWatchStopped(d), relayWatchReceipt(d))
 	}
 	p.relayWatchTick(relayWatchReceipt(d).WatchDue)
 	if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone {

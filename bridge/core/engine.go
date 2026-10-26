@@ -17527,7 +17527,7 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 	if err != nil {
 		return "", err
 	}
-	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, relaySessionKey, false, nil)
+	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, relaySessionKey, false, nil, nil)
 }
 
 // relayGateQuery is the text the gate searches the wiki with: the assignment
@@ -17548,7 +17548,9 @@ func relayGateQuery(message string) string {
 // Closing stop (task relays' ten-minute watch; nil = never) closes the session
 // at once, unlike the wait timeout: a result already received is returned as
 // done, otherwise the text so far comes back with errRelayWatchStopped.
-func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, stop <-chan struct{}, completion ...func(string, error)) (string, error) {
+// A value on nudge (nil = never) is folded into the running turn by
+// injectRelayReminder; the watch uses it once before its last window.
+func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, stop <-chan struct{}, nudge <-chan string, completion ...func(string, error)) (string, error) {
 	if e.IsPaused() {
 		return "", fmt.Errorf("engine %q is paused", e.name)
 	}
@@ -17664,7 +17666,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 			// Only the wait timed out. The drain now owns both outstanding
 			// Send completion and events; team work stays busy until it ends.
 			draining = true
-			go e.drainRelaySession(agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, completion)
+			go e.drainRelaySession(agent, agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, nudge, completion)
 			if quiet {
 				return strings.Join(textParts, ""), &relayDrainingError{ctx.Err()}
 			}
@@ -17672,6 +17674,15 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 		case <-e.ctx.Done():
 			agentSession.Close()
 			return "", e.ctx.Err()
+		case content, ok := <-nudge:
+			if !ok {
+				nudge = nil
+				continue
+			}
+			if resultReceived { // the turn already answered; do not start another one
+				continue
+			}
+			injectRelayReminder(agent, agentSession, content)
 		case <-stop:
 			textParts, response, resultReceived = relayTakeBuffered(events, textParts, response, resultReceived)
 			agentSession.Close()
@@ -17823,8 +17834,8 @@ var relayDrainSafety = 10 * time.Minute
 // agent finish its current turn (saving the session ID for future resumption),
 // auto-approves any permission requests, and then closes the session. A 10-minute
 // safety timeout prevents the goroutine from leaking if the agent hangs; task
-// relays leave that to the ten-minute watch (stop).
-func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, completion []func(string, error)) {
+// relays leave that to the ten-minute watch (stop and nudge).
+func (e *Engine) drainRelaySession(agent Agent, agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, nudge <-chan string, completion []func(string, error)) {
 	teamOutcome := teamWorkUnconfirmed
 	completionErr := fmt.Errorf("relay: background execution ended without a confirmed result")
 	defer func() {
@@ -17868,6 +17879,15 @@ func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, 
 				agentSession.Close()
 				return
 			}
+		case content, ok := <-nudge:
+			if !ok {
+				nudge = nil
+				continue
+			}
+			if resultReceived { // the turn already answered; do not start another one
+				continue
+			}
+			injectRelayReminder(agent, agentSession, content)
 		case ev, ok := <-events:
 			if !ok {
 				// Keep observing Send: channel closure cannot hide a send error.

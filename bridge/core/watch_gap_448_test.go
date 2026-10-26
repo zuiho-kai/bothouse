@@ -191,7 +191,12 @@ func TestTaskRelayDrainResultAndWatchStopWakeLeadOnce(t *testing.T) {
 	// branch takes it and completes once.
 	s.events <- Event{Type: EventResult, Content: "final result"}
 	rc, _ := relayWatchRecord(p, id)
-	p.relayWatchTick(rc.WatchDue)
+	p.relayWatchTick(rc.WatchDue) // first quiet check: one reminder, still running
+	rc, _ = relayWatchRecord(p, id)
+	if rc.WatchDone || !rc.WatchNudged {
+		t.Fatalf("first quiet check did not grant the reminder window: %+v", rc)
+	}
+	p.relayWatchTick(rc.WatchDue) // reminder window also quiet: stop
 	close(release)
 	relayWatchWait(t, "lead woken", func() bool { return len(store.List()) > 0 })
 	time.Sleep(100 * time.Millisecond)
