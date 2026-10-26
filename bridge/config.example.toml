@@ -717,8 +717,8 @@ level = "info" # debug, info, warn, error
 [[projects]]
 name = "my-backend"
 # public_progress = false  # Optional opt-out: public task cards are on by default; restart required. See docs/PUBLIC_PROGRESS.md.
-# public_progress_thread_archive_mins = 1440  # Archive a finished task card's Discord thread after this many minutes (default 1440, the thread auto-archive duration used at creation; 0 disables). Restart required. See docs/PUBLIC_PROGRESS.md.
-# public_progress_result_ready_archive_mins = 4320  # Archive a result_ready card's Discord thread after this many minutes (default 4320 = 3 days, C酱's PR #498 review suggestion; 0 disables; the card state is left as result_ready). Restart required. See docs/PUBLIC_PROGRESS.md.
+# public_progress_thread_archive_mins = 1440  # Archive a finished task card's Discord thread after this many minutes (default 1440; 0 disables). The thread itself is created with Discord's 10080-minute (max) auto-archive, so the bridge scan decides the actual time. Restart required. See docs/PUBLIC_PROGRESS.md.
+# public_progress_result_ready_archive_mins = 4320  # Archive a result_ready card's Discord thread after this many minutes (default 4320 = 3 days, C酱's PR #498 review suggestion; 0 disables; the card state is left as result_ready). Keep it below the thread's 10080-minute Discord auto-archive. Restart required. See docs/PUBLIC_PROGRESS.md.
 #
 # ---- maomao fork: gate / main + subs / team status (see docs/ccm-and-wiki.md) ----
 # ---- maomao 分支：快脑闸门、一主多 sub、队友状态（说明见仓库根目录 docs/ccm-and-wiki.md）----

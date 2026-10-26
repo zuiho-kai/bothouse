@@ -36,10 +36,25 @@ type TaskThreadArchiver interface {
 	ArchiveTaskThread(context.Context, *Task) error
 }
 
+// TaskThreadReopener is an optional platform capability: unarchive a task
+// thread so a later key fact can be posted. The bridge only calls it when its
+// own archived marker is set and a key fact is still pending.
+type TaskThreadReopener interface {
+	ReopenTaskThread(context.Context, *Task) error
+}
+
+// TaskThreadActivityReader is an optional platform capability: return when the
+// thread last saw activity (a message or a reopen). The archive sweep waits
+// from the later of this and the card's UpdatedAt, so a fresh reply is not
+// hidden by the same sweep.
+type TaskThreadActivityReader interface {
+	TaskThreadLastActivity(context.Context, *Task) (time.Time, error)
+}
+
 // defaultTaskThreadArchiveAfter is how long a finished task's thread stays
-// visible before the sweep archives it. Source: 1440 minutes is the thread
-// auto-archive duration the bridge already passes to MessageThreadStart
-// (Discord's default), used below in platform/discord/public_progress.go.
+// visible before the sweep archives it. Source: 1440 minutes (24 hours) is the
+// wait this sweep has used for terminal cards; the thread itself is created
+// with a longer Discord auto-archive (10080), so the sweep decides this time.
 const defaultTaskThreadArchiveAfter = 1440 * time.Minute
 
 // defaultResultReadyThreadArchiveAfter is how long a result_ready card's
@@ -676,6 +691,20 @@ func (p *PublicProgress) archiveFinishedThreads(ctx context.Context, now time.Ti
 		if !ok {
 			continue
 		}
+		if reader, ok := r.publisher.(TaskThreadActivityReader); ok {
+			callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			activity, err := reader.TaskThreadLastActivity(callCtx, snapshot)
+			cancel()
+			if err != nil {
+				slog.Warn("public progress: read task thread activity failed", "task_id", snapshot.ID, "thread", snapshot.ThreadID, "error", err)
+				continue
+			}
+			// A reply or reopen after the card's last progress event restarts
+			// the wait, so the same sweep does not hide the fresh discussion.
+			if activity.After(snapshot.UpdatedAt) && now.Sub(activity) < wait {
+				continue
+			}
+		}
 		// The 10s bound matches flushRun's delivery deadline, so one slow
 		// Discord call cannot stall the sweep for every remaining task.
 		callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -698,6 +727,16 @@ func (p *PublicProgress) archiveFinishedThreads(ctx context.Context, now time.Ti
 	}
 }
 
+// hasPendingKeyFact reports whether any accepted key fact is still undelivered.
+func hasPendingKeyFact(task *Task, factSeq int64) bool {
+	for _, ev := range task.Events {
+		if ev.Seq > factSeq && ev.IsKeyFact {
+			return true
+		}
+	}
+	return false
+}
+
 // flushRun delivers r's pending card state and facts. attempted is the task
 // sequence this delivery read: facts accepted while it was in flight are not
 // part of it.
@@ -717,6 +756,25 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 	p.displayNames(task)
 	if err != nil {
 		return attempted, err
+	}
+	// A key fact accepted after the sweep archived this thread (acceptance is
+	// the common case) would be refused with 50083. Reopen before delivering,
+	// and clear the marker so the thread is not left permanently unmanaged.
+	wasArchived := task.ThreadArchivedAt != nil
+	if wasArchived && hasPendingKeyFact(task, factSeq) {
+		if reopener, ok := r.publisher.(TaskThreadReopener); ok {
+			if err := reopener.ReopenTaskThread(ctx, task); err != nil {
+				return attempted, err
+			}
+			r.mu.Lock()
+			r.record.Task.ThreadArchivedAt = nil
+			err = p.save(r)
+			r.mu.Unlock()
+			if err != nil {
+				return attempted, err
+			}
+			task.ThreadArchivedAt = nil
+		}
 	}
 	if cardSeq < task.Seq {
 		deliveryErr := r.publisher.EnsureTaskCard(ctx, task, lang)
@@ -772,6 +830,11 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 		}
 		r.mu.Lock()
 		r.record.FactSeq = ev.Seq
+		if wasArchived && ev.IsKeyFact {
+			// A platform without ReopenTaskThread may reopen on its own when
+			// accepting the fact; either way the thread is active again.
+			r.record.Task.ThreadArchivedAt = nil
+		}
 		err = p.save(r)
 		r.mu.Unlock()
 		if err != nil {

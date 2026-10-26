@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -13,13 +14,17 @@ import (
 // delivery paths stay the real ones.
 type threadArchiveTestPlatform struct {
 	*progressTestPlatform
-	mu       sync.Mutex
-	archived []string
-	err      error
+	mu             sync.Mutex
+	archived       []string
+	err            error
+	activity       time.Time
+	activityErr    error
+	threadArchived map[string]bool
+	reopened       []string
 }
 
 func newThreadArchivePlatform() *threadArchiveTestPlatform {
-	return &threadArchiveTestPlatform{progressTestPlatform: newProgressPlatform()}
+	return &threadArchiveTestPlatform{progressTestPlatform: newProgressPlatform(), threadArchived: map[string]bool{}}
 }
 
 func (p *threadArchiveTestPlatform) ArchiveTaskThread(_ context.Context, task *Task) error {
@@ -29,7 +34,32 @@ func (p *threadArchiveTestPlatform) ArchiveTaskThread(_ context.Context, task *T
 		return p.err
 	}
 	p.archived = append(p.archived, task.ID)
+	p.threadArchived[task.ID] = true
 	return nil
+}
+
+func (p *threadArchiveTestPlatform) ReopenTaskThread(_ context.Context, task *Task) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.reopened = append(p.reopened, task.ID)
+	p.threadArchived[task.ID] = false
+	return nil
+}
+
+func (p *threadArchiveTestPlatform) TaskThreadLastActivity(_ context.Context, _ *Task) (time.Time, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.activity, p.activityErr
+}
+
+func (p *threadArchiveTestPlatform) PublishTaskFact(ctx context.Context, task *Task, ev TaskEvent, lang Language) error {
+	p.mu.Lock()
+	archived := p.threadArchived[task.ID]
+	p.mu.Unlock()
+	if archived {
+		return fmt.Errorf("%w: %w", ErrTaskFactUndeliverable, ErrDeliveryUnrecoverable)
+	}
+	return p.progressTestPlatform.PublishTaskFact(ctx, task, ev, lang)
 }
 
 func (p *threadArchiveTestPlatform) archivedTasks() []string {
@@ -42,6 +72,28 @@ func (p *threadArchiveTestPlatform) setArchiveError(err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.err = err
+}
+
+func (p *threadArchiveTestPlatform) setActivity(at time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.activity = at
+}
+
+func (p *threadArchiveTestPlatform) reopenedTasks() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.reopened...)
+}
+
+func (p *threadArchiveTestPlatform) recordedFacts() map[string]TaskEvent {
+	p.pm.Lock()
+	defer p.pm.Unlock()
+	out := make(map[string]TaskEvent, len(p.facts))
+	for id, ev := range p.facts {
+		out[id] = ev
+	}
+	return out
 }
 
 func newArchiveProgress(t *testing.T) (*PublicProgress, *threadArchiveTestPlatform) {
@@ -356,5 +408,66 @@ func TestTaskThreadArchiveMarkerSurvivesRestart(t *testing.T) {
 	task, ok := restored.Task(id)
 	if !ok || task.ThreadArchivedAt == nil {
 		t.Fatal("restart lost thread_archived_at")
+	}
+}
+
+// A reply or reopen after the card's last progress event restarts the wait;
+// the same sweep must not hide the thread it just reopened.
+func TestTaskThreadArchiveWaitsForThreadActivityAfterReopen(t *testing.T) {
+	p, platform := newArchiveProgress(t)
+	id := makeCardInState(t, p, platform, "result_ready")
+	at := time.Now().UTC()
+	setTaskUpdatedAt(t, p, id, at)
+	activity := at.Add(2 * time.Hour)
+	platform.setActivity(activity)
+
+	p.archiveFinishedThreads(context.Background(), at.Add(defaultResultReadyThreadArchiveAfter))
+	if got := platform.archivedTasks(); len(got) != 0 {
+		t.Fatalf("archived a thread active after the card update: %v", got)
+	}
+
+	p.archiveFinishedThreads(context.Background(), activity.Add(defaultResultReadyThreadArchiveAfter))
+	if got := platform.archivedTasks(); len(got) != 1 || got[0] != id {
+		t.Fatalf("archived after activity+wait = %v, want [%s]", got, id)
+	}
+}
+
+// Accept is the common key fact that arrives after the sweep archived the
+// thread. It must reopen the thread, deliver the acceptance, and clear the
+// archived marker so the thread can be managed again.
+func TestTaskThreadAcceptAfterArchiveReopensAndDeliversFact(t *testing.T) {
+	p, platform := newArchiveProgress(t)
+	id := makeCardInState(t, p, platform, "result_ready")
+	at := time.Now().UTC()
+	setTaskUpdatedAt(t, p, id, at)
+	p.archiveFinishedThreads(context.Background(), at.Add(defaultResultReadyThreadArchiveAfter))
+	before, ok := p.Task(id)
+	if !ok || before.ThreadArchivedAt == nil {
+		t.Fatal("thread marker not set after archive")
+	}
+
+	if _, err := p.Accept(id, "主人"); err != nil {
+		t.Fatalf("accept after archive: %v", err)
+	}
+	p.Flush(context.Background())
+
+	after, ok := p.Task(id)
+	if !ok || after.State != TaskStateCompleted {
+		t.Fatalf("state after accept = %+v, want completed", after)
+	}
+	if after.ThreadArchivedAt != nil {
+		t.Fatal("thread_archived_at not cleared after acceptance delivery")
+	}
+	if got := platform.reopenedTasks(); len(got) != 1 || got[0] != id {
+		t.Fatalf("reopened = %v, want [%s]", got, id)
+	}
+	accepted := false
+	for _, ev := range platform.recordedFacts() {
+		if ev.Kind == TaskEventCompleted && ev.IsKeyFact {
+			accepted = true
+		}
+	}
+	if !accepted {
+		t.Fatal("acceptance fact was not delivered after reopening the thread")
 	}
 }

@@ -502,14 +502,17 @@ type ProjectConfig struct {
 	PublicProgress *bool `toml:"public_progress,omitempty"`
 	// PublicProgressThreadArchiveMins is how many minutes after a task card
 	// reaches completed/failed/cancelled its Discord thread is archived. nil
-	// uses 1440, the thread archive duration the bridge already passes to
-	// MessageThreadStart (Discord's default); 0 disables automatic archiving.
+	// uses 1440; 0 disables automatic archiving. The thread itself is created
+	// with Discord's maximum auto-archive duration (10080 minutes), so Discord
+	// does not hide it before this scan runs.
 	PublicProgressThreadArchiveMins *int `toml:"public_progress_thread_archive_mins,omitempty"`
 	// PublicProgressResultReadyArchiveMins is how many minutes after a task
 	// card reaches result_ready its Discord thread is archived, without
 	// changing the card state. nil uses 4320 (3 days), the wait C酱 suggested
 	// in the PR #498 review: result_ready cards rarely get accepted and would
 	// otherwise keep their threads active forever. 0 disables this archive.
+	// Keep it below the thread's 10080-minute Discord auto-archive so the
+	// bridge scan, not Discord, decides when the thread is hidden.
 	PublicProgressResultReadyArchiveMins *int   `toml:"public_progress_result_ready_archive_mins,omitempty"`
 	Name                                 string `toml:"name"`
 	Mode                                 string `toml:"mode,omitempty"`     // "" or "multi-workspace"

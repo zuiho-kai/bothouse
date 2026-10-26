@@ -39,7 +39,7 @@ CLI 的 recorded 回执表示本地持久化成功，不表示 Discord 已收到
 
 ## 结束任务的子区自动归档
 
-任务卡进入 `completed`（真人验收）、`failed` 或 `cancelled` 后，bridge 会在 `public_progress_thread_archive_mins` 配置的等待时间过去后归档它对应的 Discord 讨论串。`received`、`in_progress`、`waiting_user` 不归档。`result_ready`（已有结果、等真人验收）不是终态，另按 `public_progress_result_ready_archive_mins` 的等待时间处理；到点只归档讨论串、不改卡片状态：卡片仍是 `result_ready`，仍然可以验收。归档只是把讨论串收进 Discord 的“已归档”列表：消息、附件和卡片链接都保留，不删除任何内容；有人往讨论串发新消息时，Discord 会自动重新展开。
+任务卡进入 `completed`（真人验收）、`failed` 或 `cancelled` 后，bridge 会在 `public_progress_thread_archive_mins` 配置的等待时间过去后归档它对应的 Discord 讨论串。`received`、`in_progress`、`waiting_user` 不归档。`result_ready`（已有结果、等真人验收）不是终态，另按 `public_progress_result_ready_archive_mins` 的等待时间处理；到点只归档讨论串、不改卡片状态：卡片仍是 `result_ready`，仍然可以验收。归档只是把讨论串收进 Discord 的“已归档”列表：消息、附件和卡片链接都保留，不删除任何内容；有人往讨论串发新消息时，Discord 会自动重新展开。创建任务子区时 `auto_archive_duration` 传 10080 分钟（Discord 允许的最大值，7 天），高于下面两项扫描等待，Discord 不会在 bridge 扫描前先把子区自动收起；实际归档时间由两项配置决定。
 
 配置写在项目块：
 
@@ -51,9 +51,9 @@ public_progress_result_ready_archive_mins = 4320     # result_ready 卡
 # 两项都写 0 = 分别关闭对应的自动归档
 ~~~
 
-终态默认 1440 分钟（24 小时）。来源：Discord 默认的子区自动归档时长就是 1440 分钟，本仓库创建任务子区时也传 1440；不是另取的数。`result_ready` 默认 4320 分钟（3 天）。来源：C酱 在 PR #498 的审核建议——主 bot 很少走验收这一步，这些卡若沿用 24 小时，子区数量基本降不下来。两项等待时间都从卡片最近一次更新时间算起；bridge 重启后会从 data_dir 里的任务记录恢复扫描，已有历史卡也按同一规则处理。
+终态默认 1440 分钟（24 小时），沿用本 PR 之前的等待时间。`result_ready` 默认 4320 分钟（3 天）。来源：C酱 在 PR #498 的审核建议——主 bot 很少走验收这一步，这些卡若沿用 24 小时，子区数量基本降不下来。两项等待时间都从卡片最近一次更新时间和子区最近活动（最后一条消息或重新展开时间）中较晚者算起；有人刚回复或刚展开的讨论不会被同一轮收起。bridge 重启后会从 data_dir 里的任务记录恢复扫描，已有历史卡也按同一规则处理。
 
-只归档 bridge 为任务卡创建的子区；如果卡片本来就在用户自己的讨论串里（`ThreadID == ChannelID`），不会归档。归档前要求卡片和最后一条公开事实已经投递完成，避免把最后一条消息挡在归档后。成功归档会写 `thread_archived_at`，之后扫描不重复调用；失败只记日志并在下一轮重试，不删除、不改任务状态（包括 `result_ready` 状态）。机器人需要“管理讨论串”权限，缺权限时归档会失败并重试，不影响任务卡本身。
+只归档 bridge 为任务卡创建的子区；如果卡片本来就在用户自己的讨论串里（`ThreadID == ChannelID`），不会归档。归档前要求卡片和最后一条公开事实已经投递完成，避免把最后一条消息挡在归档后。成功归档会写 `thread_archived_at`，之后扫描不重复调用；失败只记日志并在下一轮重试，不删除、不改任务状态（包括 `result_ready` 状态）。归档后如果又产生需要投递的关键事实（例如验收），bridge 先展开子区再投递，成功后清掉 `thread_archived_at`，让子区按新活动重新计时。改标题只改名，不会为了改名展开已归档子区。机器人需要“管理讨论串”权限，缺权限时归档会失败并重试，不影响任务卡本身。
 
 ## 自动开卡
 
