@@ -177,6 +177,7 @@ func TestWatchIgnoresOldHandoffs(t *testing.T) {
 }
 
 func TestWatchRenewsOnProgressAtMostTwice(t *testing.T) {
+	withWatchMaxRenew(t, 2)
 	e, p, w, h := watchFixture(t, "u1", "")
 	w.progress = func(string, TeamHandoff, time.Time) (bool, error) { return true, nil }
 	now := h.Due
@@ -608,6 +609,7 @@ func TestWatchStanceAndOtherPostsAreNoProgress(t *testing.T) {
 
 // Progress every time: renewed at most twice (30 minutes in all), then nudged and parked.
 func TestWatchOwnerPostsRenewAtMostTwice(t *testing.T) {
+	withWatchMaxRenew(t, 2)
 	e, p, w, h := progressFixture(t, k5aOwner)
 	now := h.Due
 	for i := 1; i <= watchMaxRenew; i++ {
@@ -649,6 +651,7 @@ func TestWatchNoSignalStops(t *testing.T) {
 // without any post and with no owner named: renewed, not stopped. Renewals used up: stopped
 // anyway.
 func TestWatchBusySessionIsNotStopped(t *testing.T) {
+	withWatchMaxRenew(t, 2)
 	e, p, w, h := progressFixture(t, "")
 	s := e.sessions.GetOrCreateActive("discord:ws1:u1")
 	if !s.TryLock() {
@@ -796,5 +799,37 @@ func TestWatchOwnerID(t *testing.T) {
 		if got := watchOwnerID(in); got != want {
 			t.Fatalf("watchOwnerID(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// withWatchMaxRenew sets a renewal cap for one test (the default is no cap).
+func withWatchMaxRenew(t *testing.T, n int) {
+	t.Helper()
+	old := watchMaxRenew
+	watchMaxRenew = n
+	t.Cleanup(func() { watchMaxRenew = old })
+}
+
+// #429: by default progress keeps renewing past the old cap of two; a quiet window parks.
+func TestWatchRenewsWhileProgressByDefault(t *testing.T) {
+	if watchMaxRenew != 0 {
+		t.Fatalf("default watchMaxRenew = %d, want 0 (no cap)", watchMaxRenew)
+	}
+	e, p, w, h := watchFixture(t, "u1", "")
+	progress := true
+	w.progress = func(string, TeamHandoff, time.Time) (bool, error) { return progress, nil }
+	now := h.Due
+	for i := 1; i <= 5; i++ {
+		next := w.tick(now)
+		got := handoffsOf(e, "discord:ws1")[0]
+		if got.Renewed != i || !got.Parked.IsZero() || len(p.out) != 0 {
+			t.Fatalf("check %d with progress: renewed silently, got %+v, sent %v", i, got, p.out)
+		}
+		now = next
+	}
+	progress = false
+	w.tick(now)
+	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("quiet window: nudged once and parked, got %+v, sent %v", got, p.out)
 	}
 }

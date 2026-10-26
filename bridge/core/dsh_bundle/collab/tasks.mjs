@@ -28,9 +28,10 @@ const REVIEWABLE = ['returned', 'declined', 'escalated'];
 export const CHECK_AFTER_S = 10 * 60;
 // Workspace watch (#574 B2, same rule as contrib/lead/d10-fire MAX_RENEW): at the check time a
 // workspace task with new role messages since its window opened gets another CHECK_AFTER_S, at
-// most MAX_RENEWALS times; otherwise it is parked (paused queue). Replaces the old one-hour park.
-// Source: 聊天频道橘 10-25 15:19 「有新进展续 10 分钟，最多续 2 次，没有就暂停」.
-export const MAX_RENEWALS = 2;
+// most MAX_RENEWALS times (0 = no cap); otherwise it is parked (paused queue). Replaces the old
+// one-hour park. Source: user 2026-10-26 agreed「有进展就一直续，没进展才停」(#429), replacing
+// 橘 10-25 15:19「最多续 2 次」; same as Go watchMaxRenew.
+export const MAX_RENEWALS = 0;
 // setTimeout's own maximum delay (Node clamps anything larger to 1 ms).
 const MAX_TIMER_MS = 2 ** 31 - 1;
 const STANCE_LINE = /^\s*【(接|问|退|升)】\s*(?:#(\d+))?\s*(.*)$/;
@@ -75,8 +76,9 @@ export class Tasks {
    *   start: false defers the timer and pending deliveries until start() (the plugin
    *   starts after DSH recovery, so a reminder job is never mistaken for a leftover).
    */
-  constructor(hub, { now = () => Date.now() / 1000, setTimer = setTimeout, clearTimer = clearTimeout, start = true } = {}) {
+  constructor(hub, { now = () => Date.now() / 1000, setTimer = setTimeout, clearTimer = clearTimeout, start = true, maxRenewals = MAX_RENEWALS } = {}) {
     this.hub = hub;
+    this.maxRenewals = maxRenewals;
     this.store = hub.store;
     this.db = hub.store.db;
     this.now = now;
@@ -646,11 +648,11 @@ export class Tasks {
       if (this.q.renew.get(now + CHECK_AFTER_S, renewals, task.id, ...WORKING) !== undefined) this.changed(task.id);
       return;
     }
-    if (renewals < MAX_RENEWALS && this.progressed(task, watchDue(task) - CHECK_AFTER_S)) {
+    if ((this.maxRenewals <= 0 || renewals < this.maxRenewals) && this.progressed(task, watchDue(task) - CHECK_AFTER_S)) {
       if (this.q.renew.get(now + CHECK_AFTER_S, renewals + 1, task.id, ...WORKING) !== undefined) this.changed(task.id);
       return;
     }
-    const why = renewals >= MAX_RENEWALS ? `已续期 ${MAX_RENEWALS} 次` : `${CHECK_AFTER_S / 60} 分钟内没有新进展`;
+    const why = this.maxRenewals > 0 && renewals >= this.maxRenewals ? `已续期 ${this.maxRenewals} 次` : `${CHECK_AFTER_S / 60} 分钟内没有新进展`;
     // The owner is woken on this record, often in a fresh session (the pause released the
     // workspace): it says what to answer, as the bridge's watch reminder does (core/team_watch.go).
     const message = this.record(task, 'pause', `@${this.nameOf(task.owner)} #${task.id}「${task.title}」${why}，已暂停。`
