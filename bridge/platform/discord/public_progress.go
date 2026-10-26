@@ -12,6 +12,7 @@ import (
 )
 
 var _ core.TaskCardPublisher = (*Platform)(nil)
+var _ core.TaskThreadArchiver = (*Platform)(nil)
 
 func (p *Platform) TaskCardDestination(sessionKey string) (string, error) {
 	return parseDiscordSessionKeyChannelID(sessionKey)
@@ -164,6 +165,38 @@ func (p *Platform) syncTaskThreadName(ctx context.Context, task *core.Task) {
 	if _, err := p.session.ChannelEdit(task.ThreadID, &discordgo.ChannelEdit{Name: name, Archived: &unarchive}, discordgo.WithContext(ctx), discordgo.WithRetryOnRatelimit(false)); err != nil {
 		slog.Warn("discord: task thread rename failed", "task_id", task.ID, "thread", task.ThreadID, "error", err)
 	}
+}
+
+// ArchiveTaskThread hides a finished task's thread. Archiving keeps every
+// message and Discord reopens a public thread automatically when someone posts
+// in it again. A thread the card merely lives in is the user's own and is left
+// alone.
+func (p *Platform) ArchiveTaskThread(ctx context.Context, task *core.Task) error {
+	if p.session == nil || p.botID == "" {
+		return errors.New("discord session is not ready")
+	}
+	if task.ThreadID == "" || task.ThreadID == task.ChannelID {
+		return nil
+	}
+	thread, err := p.session.Channel(task.ThreadID, discordgo.WithContext(ctx))
+	if err != nil {
+		var rest *discordgo.RESTError
+		if errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == 404 {
+			return nil // the thread is already gone; nothing left to archive
+		}
+		return fmt.Errorf("discord: read task thread: %w", err)
+	}
+	if !isThreadChannelType(thread.Type) {
+		return fmt.Errorf("discord: task thread %s is not a thread", task.ThreadID)
+	}
+	if thread.ThreadMetadata != nil && thread.ThreadMetadata.Archived {
+		return nil
+	}
+	archived := true
+	if _, err := p.session.ChannelEdit(task.ThreadID, &discordgo.ChannelEdit{Archived: &archived}, discordgo.WithContext(ctx)); err != nil {
+		return fmt.Errorf("discord: archive task thread: %w", err)
+	}
+	return nil
 }
 
 func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core.TaskEvent, lang core.Language) error {

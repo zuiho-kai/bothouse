@@ -32,6 +32,9 @@ type progressREST struct {
 	anyMentions bool     // accept sends that do not suppress mentions (preview cards)
 	renames     []string // raw body of each channel PATCH (thread rename)
 	renameCode  int      // non-zero: reply to a channel PATCH with this HTTP status
+	// threadArchived makes GET /channels/<id> report an already archived thread.
+	threadArchived bool
+	archives       []string // channel IDs PATCHed with archived=true
 }
 
 func (r *progressREST) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -89,6 +92,13 @@ func (r *progressREST) RoundTrip(req *http.Request) (*http.Response, error) {
 	case req.Method == "PATCH" && !strings.Contains(req.URL.Path, "/messages/"):
 		raw, _ := io.ReadAll(req.Body)
 		r.renames = append(r.renames, string(raw))
+		var patch struct {
+			Archived *bool `json:"archived"`
+		}
+		_ = json.Unmarshal(raw, &patch)
+		if patch.Archived != nil && *patch.Archived {
+			r.archives = append(r.archives, channel)
+		}
 		if r.renameCode != 0 {
 			h := http.Header{"Content-Type": []string{"application/json"}}
 			b, _ := json.Marshal(map[string]any{"code": 50083, "message": "Thread is archived"})
@@ -117,7 +127,11 @@ func (r *progressREST) RoundTrip(req *http.Request) (*http.Response, error) {
 			code = 404
 			body = map[string]any{"code": 10003, "message": "Unknown Channel"}
 		} else {
-			body = &discordgo.Channel{ID: channel, Type: r.channelType, GuildID: r.guild}
+			ch := &discordgo.Channel{ID: channel, Type: r.channelType, GuildID: r.guild}
+			if r.threadArchived {
+				ch.ThreadMetadata = &discordgo.ThreadMetadata{Archived: true}
+			}
+			body = ch
 		}
 	default:
 		return nil, fmt.Errorf("unexpected API request %s %s", req.Method, req.URL.Path)
@@ -404,5 +418,42 @@ func TestPublicTaskFactsOfCardsSharingUserThread(t *testing.T) {
 	}
 	if e := messages[0].Embeds[0]; e.Title != "" || e.Footer == nil || e.Footer.Text != "#task-b:1" {
 		t.Fatalf("untidy shared-thread fact: title=%q footer=%+v", e.Title, e.Footer)
+	}
+}
+
+// A finished card's thread is archived in place. Archiving keeps every
+// message; Discord reopens a public thread when someone posts again, so the
+// bridge never deletes or unarchives on its own.
+func TestArchiveTaskThreadArchivesOnceAndSkipsUserThread(t *testing.T) {
+	transport := &progressREST{messages: map[string][]*discordgo.Message{}, botID: "bot", channelType: discordgo.ChannelTypeGuildPublicThread}
+	session, _ := discordgo.New("Bot fixture")
+	session.Client = &http.Client{Transport: transport}
+	session.MaxRestRetries = 0
+	p := &Platform{session: session, botID: "bot"}
+	task := &core.Task{ID: "task-a", ChannelID: "room", ThreadID: "thread-a"}
+
+	if err := p.ArchiveTaskThread(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	if len(transport.archives) != 1 || transport.archives[0] != "thread-a" {
+		t.Fatalf("archives = %v, want [thread-a]", transport.archives)
+	}
+
+	// A thread Discord already archived is success, not a second PATCH.
+	transport.threadArchived = true
+	if err := p.ArchiveTaskThread(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	if len(transport.archives) != 1 {
+		t.Fatalf("already archived thread patched again: %v", transport.archives)
+	}
+
+	// The card may live in the user's own thread; that thread is not ours.
+	task.ThreadID = task.ChannelID
+	if err := p.ArchiveTaskThread(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	if len(transport.archives) != 1 {
+		t.Fatalf("archived the user's own thread: %v", transport.archives)
 	}
 }

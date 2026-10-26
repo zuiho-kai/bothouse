@@ -499,11 +499,16 @@ type ReferenceConfig struct {
 type ProjectConfig struct {
 	// PublicProgress is enabled when omitted so a main bot's first delegation
 	// can create its task card automatically. Set it to false to opt out.
-	PublicProgress *bool  `toml:"public_progress,omitempty"`
-	Name           string `toml:"name"`
-	Mode           string `toml:"mode,omitempty"`     // "" or "multi-workspace"
-	BaseDir        string `toml:"base_dir,omitempty"` // parent dir for workspaces
-	SkipGit        *bool  `toml:"skip_git,omitempty"`
+	PublicProgress *bool `toml:"public_progress,omitempty"`
+	// PublicProgressThreadArchiveMins is how many minutes after a task card
+	// reaches completed/failed/cancelled its Discord thread is archived. nil
+	// uses 1440, the thread archive duration the bridge already passes to
+	// MessageThreadStart (Discord's default); 0 disables automatic archiving.
+	PublicProgressThreadArchiveMins *int   `toml:"public_progress_thread_archive_mins,omitempty"`
+	Name                            string `toml:"name"`
+	Mode                            string `toml:"mode,omitempty"`     // "" or "multi-workspace"
+	BaseDir                         string `toml:"base_dir,omitempty"` // parent dir for workspaces
+	SkipGit                         *bool  `toml:"skip_git,omitempty"`
 	// WorkspaceInitAllowLocalPaths allows /workspace init and the conversational
 	// init flow to bind existing local directories. Default false keeps init
 	// limited to git URLs; use /workspace bind or /workspace route for explicit
