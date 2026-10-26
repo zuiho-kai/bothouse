@@ -1117,7 +1117,9 @@ func (s *appServerSession) Close() error {
 	s.procMu.Lock()
 	// Stop the tree before EOF lets the parent exit and orphan its workers.
 	if s.cmd != nil && s.cmd.Process != nil {
-		_ = forceKillCmd(s.cmd)
+		if err := forceKillCmd(s.cmd); err != nil {
+			slog.Warn("codex app-server: close process tree failed", "error", err)
+		}
 	}
 	if s.stdin != nil {
 		_ = s.stdin.Close()
@@ -2051,7 +2053,9 @@ func (s *appServerSession) abortTransport() {
 
 	s.procMu.Lock()
 	if s.cmd != nil && s.cmd.Process != nil {
-		_ = forceKillCmd(s.cmd)
+		if err := forceKillCmd(s.cmd); err != nil {
+			slog.Warn("codex app-server: abort process tree failed", "error", err)
+		}
 	}
 	if s.stdin != nil {
 		_ = s.stdin.Close()
