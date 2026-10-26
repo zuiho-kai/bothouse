@@ -115,6 +115,7 @@ func assertExistingRelayBoard(t *testing.T, files []teamFile) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}
 	lead := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangEnglish)
 	defer lead.cancel()
+	allChatsAreWorkspaces(lead)
 	boards := map[string]*boardChat{"discord:room": {SessionKey: "discord:room", MessageID: "existing-pin"}}
 	if !lead.updateTeamBoards(files, boards) || p.content["discord:room"] != renderTeamBoard(files, "discord:room") || boards["discord:room"].MessageID != "existing-pin" {
 		t.Fatalf("existing pinned board was not updated: %+v, %v", boards, p.content)

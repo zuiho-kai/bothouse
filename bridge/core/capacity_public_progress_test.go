@@ -15,6 +15,7 @@ func TestCapacityRetry_ResendGetsLivePublicProgressToken(t *testing.T) {
 	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"cap", "hold:second"}, release: make(chan struct{})}
 	p := newProgressPlatform()
 	e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangEnglish)
+	allChatsAreWorkspaces(e)
 	e.SetDataDir(t.TempDir())
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)

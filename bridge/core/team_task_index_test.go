@@ -25,6 +25,7 @@ func (p *indexedProgressPlatform) UpsertBoard(ctx context.Context, key, id, text
 // updater. Only the model process and message transport are fixtures.
 func TestCUJ_Progress2_PinnedIndexLifecycle(t *testing.T) {
 	_, e, a, _, session := inputFixture(t)
+	allChatsAreWorkspaces(e)
 	p := &indexedProgressPlatform{progressTestPlatform: newProgressPlatform()}
 	e.platforms = []Platform{p}
 	e.SetDataDir(t.TempDir())
@@ -192,6 +193,7 @@ func TestTaskIndexScopesSortsAndBoundsLinks(t *testing.T) {
 func TestTaskIndexCreatesBoardWithoutToolActivityAndKeepsHistory(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
+	allChatsAreWorkspaces(e)
 	defer e.cancel()
 	boards := map[string]*boardChat{}
 	files := []teamFile{{Project: "fish", Name: "肥鱼", Tasks: []teamTaskLink{{ID: "t1", SessionKey: "discord:111", Title: "验证语音", URL: "https://example.test/card/1", State: TaskStateWaitingUser}}}}
