@@ -277,7 +277,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, renameRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
   const [editing, setEditing] = useState<{ id: number; text: string } | undefined>(undefined)
@@ -332,6 +332,11 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [modeError, setModeError] = useState<string | undefined>(undefined)
   const [leadSaving, setLeadSaving] = useState(false)
   const [leadOpen, setLeadOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [channelName, setChannelName] = useState('')
+  const [nameSaving, setNameSaving] = useState(false)
+  const [nameError, setNameError] = useState<string | undefined>(undefined)
+  useEffect(() => { setSettingsOpen(false); setNameError(undefined) }, [state.roomId])
   const [capabilitiesDismissed, setCapabilitiesDismissed] = useState(false)
   useEffect(() => { setCapabilitiesDismissed(false) }, [state.roomId])
   const composerRef = useRef<HTMLDivElement>(null)
@@ -515,6 +520,18 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
     setLead(id).catch((error: unknown) => {
       setMemberError(error instanceof Error ? error.message : String(error))
     }).finally(() => { setLeadSaving(false) })
+  }
+
+  const changeMode = (mode: 'solo' | 'team' | 'mixed'): void => {
+    if (state.roomId === undefined || modeSaving) return
+    setModeSaving(true); setModeError(undefined)
+    setDispatchMode(state.roomId, mode).catch((error: unknown) => { setModeError(error instanceof Error ? error.message : String(error)) }).finally(() => { setModeSaving(false) })
+  }
+
+  const saveName = (): void => {
+    if (state.roomId === undefined || nameSaving) return
+    setNameSaving(true); setNameError(undefined)
+    renameRoom(state.roomId, channelName).catch((error: unknown) => { setNameError(error instanceof Error ? error.message : String(error)) }).finally(() => { setNameSaving(false) })
   }
 
   const openPicker = (): void => {
@@ -736,26 +753,26 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
               <div className={css.mentionHint}>{t('mentionHint')}</div>
             </div>
           )}
-          {replying !== undefined && (
-            <div className={css.replyBar}>
-              <span className={css.replyBarText}>
-                {t('replyingTo', { name: replying.name })}
-                {state.messages.some(m => m.id === replying.id) ? '' : ` · ${t('replyDeleted')}`}
-              </span>
-              <button type="button" className={css.replyCancel} title={t('cancelReply')} aria-label={t('cancelReply')} onClick={cancelReply}>×</button>
-            </div>
-          )}
-          {state.roomId !== undefined && (
-            <PendingAttachments
-              files={pendingFiles[state.roomId] ?? []}
-              removeLabel={t('removeAttachment')}
-              onRemove={(index) => {
-                const roomId = state.roomId as number
-                setPendingFiles(previous => ({ ...previous, [roomId]: (previous[roomId] ?? []).filter((_, i) => i !== index) }))
-              }}
-            />
-          )}
-          <div className={css.composerRow}>
+          <div className={css.composerBox}>
+            {replying !== undefined && (
+              <div className={css.replyBar}>
+                <span className={css.replyBarText}>
+                  {t('replyingTo', { name: replying.name })}
+                  {state.messages.some(m => m.id === replying.id) ? '' : ` · ${t('replyDeleted')}`}
+                </span>
+                <button type="button" className={css.replyCancel} title={t('cancelReply')} aria-label={t('cancelReply')} onClick={cancelReply}>×</button>
+              </div>
+            )}
+            {state.roomId !== undefined && (
+              <PendingAttachments
+                files={pendingFiles[state.roomId] ?? []}
+                removeLabel={t('removeAttachment')}
+                onRemove={(index) => {
+                  const roomId = state.roomId as number
+                  setPendingFiles(previous => ({ ...previous, [roomId]: (previous[roomId] ?? []).filter((_, i) => i !== index) }))
+                }}
+              />
+            )}
             <textarea
               ref={inputRef}
               className={css.input}
@@ -783,31 +800,33 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
               onDragOver={attach.onDragOver}
               onDrop={attach.onDrop}
             />
-            {attach.button(t('attachButton'), state.roomId === undefined || sending[state.roomId] === true)}
-            <button
-              type="button"
-              className={css.mentionButton}
-              title={t('mentionButton')}
-              aria-label={t('mentionButton')}
-              disabled={state.roomId === undefined || sending[state.roomId] === true}
-              onClick={openPicker}
-            >
-              @
-            </button>
-            {/* Touch keyboards may not send Enter (or insert a newline instead), so the composer always
-                has a send button, as the desktop chat does; it runs the same submit as Enter. */}
-            <button
-              type="button"
-              className={css.sendButton}
-              title={t('sendButton')}
-              aria-label={t('sendButton')}
-              disabled={state.roomId === undefined || sending[state.roomId] === true || (draft.trim() === '' && (pendingFiles[state.roomId] ?? []).length === 0)}
-              // Keep focus (and the soft keyboard) in the textarea when tapped.
-              onMouseDown={(event) => { event.preventDefault() }}
-              onClick={submit}
-            >
-              {t('sendButton')}
-            </button>
+            <div className={css.composerToolbar}>
+              {attach.button(t('attachButton'), state.roomId === undefined || sending[state.roomId] === true)}
+              <button
+                type="button"
+                className={css.mentionButton}
+                title={t('mentionButton')}
+                aria-label={t('mentionButton')}
+                disabled={state.roomId === undefined || sending[state.roomId] === true}
+                onClick={openPicker}
+              >
+                @
+              </button>
+              {/* Touch keyboards may not send Enter (or insert a newline instead), so the composer always
+                  has a send button, as the desktop chat does; it runs the same submit as Enter. */}
+              <button
+                type="button"
+                className={css.sendButton}
+                title={t('sendButton')}
+                aria-label={t('sendButton')}
+                disabled={state.roomId === undefined || sending[state.roomId] === true || (draft.trim() === '' && (pendingFiles[state.roomId] ?? []).length === 0)}
+                // Keep focus (and the soft keyboard) in the textarea when tapped.
+                onMouseDown={(event) => { event.preventDefault() }}
+                onClick={submit}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg>
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -837,22 +856,50 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           {(['solo', 'team', 'mixed'] as const).map(mode => <label key={mode} style={{ display: 'block' }}>
             <input type="radio" name="dispatch-mode" value={mode}
               checked={(state.rooms.find(r => r.id === state.roomId)?.dispatch_mode ?? 'mixed') === mode}
-              onChange={() => {}}
-              onClick={() => {
-                const roomId = state.roomId
-                if (roomId === undefined) return
-                setModeSaving(true); setModeError(undefined)
-                setDispatchMode(roomId, mode).catch((error: unknown) => { setModeError(error instanceof Error ? error.message : String(error)) }).finally(() => { setModeSaving(false) })
-              }} />
+              onChange={() => { changeMode(mode) }} />
             {t(mode === 'solo' ? 'dispatchSolo' : mode === 'team' ? 'dispatchTeam' : 'dispatchMixed')}
           </label>)}
         </fieldset>
         {modeError !== undefined && <div role="alert">{modeError}</div>}
+        <hr className={css.settingsDivider} />
+        <button type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { setDrawer(undefined); setChannelName(room?.name ?? ''); setNameError(undefined); setSettingsOpen(true) }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9.5 3-.7 2.3-2 .9-2.2-.6-2.5 4.3 1.6 1.7v2.3l-1.6 1.7 2.5 4.3 2.2-.6 2 .9.7 2.3h5l.7-2.3 2-.9 2.2.6 2.5-4.3-1.6-1.7v-2.3l1.6-1.7-2.5-4.3-2.2.6-2-.9L14.5 3Z" /><circle cx="12" cy="12.75" r="3" /></svg>
+          {t('channelSettings')}
+        </button>
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
         <MemberGroup title={t('agents', { count: String(visibleMembers.filter(m => m.kind !== 'human').length) })} members={visibleMembers.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
         <MemberGroup title={t('humans', { count: String(visibleMembers.filter(m => m.kind === 'human').length) })} members={visibleMembers.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
       </aside>
+      {settingsOpen && <div className={css.dialogBackdrop} onClick={() => { setSettingsOpen(false) }}>
+        <section className={css.dialog} role="dialog" aria-modal="true" aria-label={t('channelSettings')} onClick={event => { event.stopPropagation() }} onKeyDown={event => { if (event.key === 'Escape') setSettingsOpen(false) }}>
+          <h2 className={css.dialogTitle}>{t('channelSettings')}</h2>
+          <fieldset disabled={modeSaving || state.roomId === undefined}>
+            <legend>{t('dispatchMode')}</legend>
+            {(['solo', 'team', 'mixed'] as const).map(mode => <label key={mode} style={{ display: 'block' }}>
+              <input type="radio" name="settings-dispatch-mode" checked={(room?.dispatch_mode ?? 'mixed') === mode} onChange={() => { changeMode(mode) }} />
+              {t(mode === 'solo' ? 'dispatchSolo' : mode === 'team' ? 'dispatchTeam' : 'dispatchMixed')}
+            </label>)}
+          </fieldset>
+          {modeError !== undefined && <div role="alert">{modeError}</div>}
+          <label className={css.field}>{t('channelLead')}
+            <select className={css.fieldInput} aria-label={t('channelLead')} value={state.effectiveLeadId ?? state.leadId ?? ''} disabled={leadSaving} onChange={event => { changeLead(event.target.value) }}>
+              <option value="" disabled>{t('leadNone')}</option>
+              {visibleMembers.filter(m => m.kind !== 'human').map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </label>
+          {memberError !== undefined && <div role="alert">{memberError}</div>}
+          <form onSubmit={event => { event.preventDefault(); saveName() }}>
+            <label className={css.field}>{t('channelName')}
+              <input autoFocus className={css.fieldInput} aria-label={t('channelName')} value={channelName} disabled={nameSaving || room?.kind === 'workspace'} onChange={event => { setChannelName(event.target.value) }} onKeyDown={event => { if (event.key === 'Enter' && isImeEnter(event)) event.preventDefault() }} />
+            </label>
+            <p>{t(room?.kind === 'workspace' ? 'workspaceNameFixed' : 'channelNameHint')}</p>
+            <button type="submit" className={css.primaryButton} disabled={nameSaving || room?.kind === 'workspace' || !channelName || channelName.length > 32 || /\s/.test(channelName) || channelName === room?.name}>{t('messageSave')}</button>
+            {nameError !== undefined && <div role="alert">{nameError}</div>}
+          </form>
+          <button type="button" className={css.secondaryButton} onClick={() => { setSettingsOpen(false) }}>{t('close')}</button>
+        </section>
+      </div>}
       {modelsOpen && <div className={css.dialogBackdrop} onClick={() => { setModelsOpen(false) }}>
         <section className={css.dialog} role="dialog" aria-modal="true" aria-label={t('configureModel')} onClick={event => { event.stopPropagation() }}>
           <button type="button" className={css.secondaryButton} onClick={() => { setModelsOpen(false) }}>{t('close')}</button>
