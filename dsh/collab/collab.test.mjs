@@ -4781,57 +4781,17 @@ test('G37: the lead\'s [report] in a workspace hands back its task and its @ sti
 });
 
 // #597 r12 (K10 r12 msg 41): after 副's task was accepted, the lead's 「副，返工完成得很好！…」 opened task #2.
-// A call that follows a delivery opens a task only when it asks for more work.
-test('r12: praise or thanks after a delivery opens no task; a request after it does', async () => {
-  const { tasks, ws, assign, say } = g34Setup();
-  const t = assign();
-  say(ws.id, '@主 [report]\n已完成，测试 27 个通过');
-  await settle();
-  assert.equal(tasks.task(t.id).status, 'returned');
-  const fuTasks = () => tasks.list(ws.id).filter(r => r.owner === 'fu');
-  say(ws.id, '副，辛苦了，谢谢！', 'zhu');
-  await settle();
-  assert.equal(fuTasks().length, 1, 'thanks after a hand-back opens nothing');
-  tasks.review(t.id, { actor: 'zhu', verdict: 'done' });
-  say(ws.id, '副，返工完成得很好！\n\n幂运算功能已验收通过：\n- pow 函数实现正确，支持正数、负数和浮点数运算\n- 测试覆盖完整（27个用例全过）\n- README 文档已更新\n\n做得不错，继续保持。\n\n——主·松针', 'zhu');
-  say(ws.id, '副，做得很扎实。\n\n计算器项目功能已经完备，代码质量也达标。\n\n等待新任务。', 'zhu');
-  await settle();
-  assert.equal(fuTasks().length, 1, 'praise after acceptance opens nothing');
-  say(ws.id, '副，做得很好！接下来把 sqrt 子命令也加上', 'zhu');
-  await settle();
-  const next = fuTasks().find(r => r.id !== t.id);
-  assert.ok(next, 'a request after the praise dispatches');
-  assert.equal(tasks.task(next.id).source, 'mention');
-});
-
-test('r12: a first call 「副，把 X 改一下」 dispatches; after a delivery a bare work verb still does', async () => {
-  const { tasks, ws, say } = g34Setup();
-  say(ws.id, '副，把 README 的用法一节改一下', 'zhu');
-  await settle();
-  const first = tasks.list(ws.id).find(r => r.owner === 'fu');
-  assert.ok(first, 'a first call dispatches');
-  assert.equal(tasks.task(first.id).title, '副，把 README 的用法一节改一下');
-  say(ws.id, '[report]\n改好了', 'fu');
-  await settle();
-  assert.equal(tasks.task(first.id).status, 'returned');
-  tasks.review(first.id, { actor: 'zhu', verdict: 'done' });
-  say(ws.id, '副，很好。再写个 sqrt 的测试', 'zhu');
-  await settle();
-  assert.equal(tasks.list(ws.id).filter(r => r.owner === 'fu').length, 2, 'a work verb after 再 asks for work');
-});
-
-// #597 r12 review: the gate is turned around — after a delivery a call opens a task unless the
-// whole call only accepts it. Every case, with the task handed back and with it accepted.
-const R12_OPENS = ['副，返工：第 2 条没改', '@副 返工：测试没跑', '副，重做', '副，重新跑一遍', '副，开始 K2', '副，继续',
-  '副，看下 CI 为什么红', '副，你看下', '副，sqrt 也加上', '副，K2 也做了吧', '副，再来一个 sqrt', '副，还差 README',
-  '副，测试没过', '副，CI 红了', '副，PR 没开', '副，sqrt 呢？', '副，下一个：K2', '副，接下来是 K2', '副，sqrt 还没写',
-  '副，接着做 K2', '副，这块你负责', '副，做得很好！接下来把 sqrt 子命令也加上'];
-const R12_ACKS = ['副，返工完成得很好！', '副，辛苦了，先这样', '副，好的收到', '副，完美，可以合了', '副，做得很好',
-  '副，修复得不错', '副，确认无误', '副，看看就行，不用改', '副，完成得很好，继续保持'];
+// Structure, not wording: once her newest task here is handed back or accepted, only an explicit @
+// opens a new one; review goes by the 【验收】/【返工】 lines. Both states.
+const R12_REPORT = '副，返工完成得很好！\n\n幂运算功能已验收通过：\n- pow 函数实现正确，支持正数、负数和浮点数运算\n- 测试覆盖完整（27个用例全过）\n- README 文档已更新\n\n做得不错，继续保持。\n\n——主·松针';
+const R12_NONE = [R12_REPORT, '副，修复了除零报错，未发现问题'];
+const R12_OPENS = ['@副 把 sqrt 加上', '@副 返工：第 2 条没改'];
+const r12Hints = (hub, room, id) => hub.store.page(room, undefined, 200)
+  .filter(m => m.author_kind === 'system' && m.text === `#${id} 待验收：通过写【验收】#${id}，打回写【返工】#${id} 原因；派新活请 @她`).length;
 for (const state of ['returned', 'done']) {
-  test(`r12: after a delivery (${state}) a rework, defect or next piece opens a task; a pure ack does not`, async () => {
+  test(`r12: after a delivery (${state}) a bare name opens no task, an explicit @ does`, async () => {
     const run = async text => {
-      const { tasks, ws, assign, say } = g34Setup();
+      const { hub, tasks, ws, assign, say } = g34Setup();
       const t = assign();
       say(ws.id, '@主 [report]\n已完成');
       await settle();
@@ -4839,12 +4799,47 @@ for (const state of ['returned', 'done']) {
       if (state === 'done') tasks.review(t.id, { actor: 'zhu', verdict: 'done' });
       say(ws.id, text, 'zhu');
       await settle();
-      return tasks.list(ws.id).filter(r => r.owner === 'fu' && r.id !== t.id).length;
+      return { opened: tasks.list(ws.id).filter(r => r.owner === 'fu' && r.id !== t.id).length, hints: r12Hints(hub, ws.id, t.id) };
     };
-    for (const text of R12_OPENS) assert.equal(await run(text), 1, `opens a task: ${text}`);
-    for (const text of R12_ACKS) assert.equal(await run(text), 0, `opens nothing: ${text}`);
+    for (const text of R12_NONE) {
+      const { opened, hints } = await run(text);
+      assert.equal(opened, 0, `opens nothing: ${text}`);
+      assert.equal(hints, state === 'returned' ? 1 : 0, `review hint only while it waits for review: ${text}`);
+    }
+    for (const text of R12_OPENS) {
+      const { opened, hints } = await run(text);
+      assert.equal(opened, 1, `opens a task: ${text}`);
+      assert.equal(hints, 0, `no hint for an explicit @: ${text}`);
+    }
   });
 }
+
+test('r12: 【返工】#id sends the handed-back task to rework and restarts its watch; no new task', async () => {
+  const { tasks, clock, ws, assign, say } = g34Setup();
+  const t = assign();
+  say(ws.id, '@主 [report]\n已完成');
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned');
+  const t0 = clock.t = Math.ceil(Date.now() / 1000) + 100;
+  say(1, `【返工】#${t.id} 第 2 条没改`, 'zhu');
+  await settle();
+  const row = tasks.task(t.id);
+  assert.equal(row.status, 'rework');
+  assert.equal(row.note, '第 2 条没改');
+  assert.equal(row.next_check_at, t0 + CHECK_AFTER_S, 'the watch starts again from the send-back');
+  assert.equal(row.renewals, 0);
+  assert.equal(tasks.list(ws.id).filter(r => r.owner === 'fu').length, 1, 'the same task, no new one');
+});
+
+test('r12: a first call 「副，把 README 改一下」 dispatches as before', async () => {
+  const { tasks, ws, say } = g34Setup();
+  say(ws.id, '副，把 README 改一下', 'zhu');
+  await settle();
+  const first = tasks.list(ws.id).find(r => r.owner === 'fu');
+  assert.ok(first, 'a first call dispatches');
+  assert.equal(tasks.task(first.id).title, '副，把 README 改一下');
+  assert.equal(tasks.task(first.id).source, 'mention');
+});
 
 test('G37: an [ask] answer reaches the workspace @-ing the member by name, not by id', async () => {
   const { hub, tasks, ws, assign } = g34Setup();
