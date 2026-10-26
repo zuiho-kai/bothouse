@@ -72,10 +72,15 @@ type Session struct {
 // to another conversation, or the agent compacts. A --resume that only forks a
 // new id keeps it.
 type TurnCtxSent struct {
-	Wiki           []string  `json:"wiki,omitempty"`
-	ReferenceSince time.Time `json:"-"`              // deliberately unknown after a bridge restart
-	ReferenceIDs map[string]bool `json:"-"` // agent output sent by this context only
-	Team           string    `json:"team,omitempty"` // teammate status key (without elapsed times)
+	Wiki           []string        `json:"wiki,omitempty"`
+	ReferenceSince time.Time       `json:"-"`              // deliberately unknown after a bridge restart
+	ReferenceIDs   map[string]bool `json:"-"`              // agent output sent by this context only
+	Team           string          `json:"team,omitempty"` // teammate status key (without elapsed times)
+	// LeadHandoff is the switch record this agent context already received, and
+	// LeadHandoffAt is the time of its last update block (#274). Both are reset
+	// with the rest of TurnCtx when the agent context is replaced.
+	LeadHandoff   string    `json:"lead_handoff,omitempty"`
+	LeadHandoffAt time.Time `json:"lead_handoff_at,omitempty"`
 }
 
 func (s *Session) TryLock() bool {

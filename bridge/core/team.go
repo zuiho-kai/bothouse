@@ -48,6 +48,8 @@ type teamState struct {
 // configured wizard fallback remains in effect.
 type leadSelection struct {
 	Lead string `json:"lead"`
+	Name string `json:"name,omitempty"`
+	At   string `json:"at,omitempty"`
 }
 
 func (e *Engine) leadStatePath() string {

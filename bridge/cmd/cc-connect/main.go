@@ -218,6 +218,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"send":         runSend,
 	"progress":     runProgress,
 	"task":         runTask,
+	"handoff":      runHandoff,
 	"cron":         runCron,
 	"model":        runModel,
 	"workspace":    runWorkspace,
