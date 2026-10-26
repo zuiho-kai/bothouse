@@ -1,52 +1,104 @@
 // Wrap tsdown's CJS lib/client.js into DSH's browser plugin format and inline lib/style.css.
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { join, relative, sep } from 'node:path'
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 const root = join(import.meta.dirname, '..')
-const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const file = join(root, 'lib/client.js')
-const body = readFileSync(file, 'utf8')
-if (body.includes('window.__ModuleLoader__.load(')) process.exit(0)
 const cssFile = join(root, 'lib/style.css')
+const manifestFile = join(root, 'lib/build.json')
 
-// The embedded copy under bridge/core/dsh_bundle ships this file as-is; a source
-// change that skips a rebuild would otherwise stay invisible. Record a digest of
-// src/ at build time so bridge/core/dsh_bundle_sync_test.go can tell whether the
-// mirror was rebuilt after the last source edit (#521).
-function sourceDigest(dir) {
-  const hash = createHash('sha256')
-  const walk = (current, base) => {
-    const entries = readdirSync(current, { withFileTypes: true })
-      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-    for (const entry of entries) {
-      const full = join(current, entry.name)
-      if (entry.isDirectory()) {
-        walk(full, base)
-        continue
-      }
-      const rel = relative(base, full).split(sep).join('/')
-      hash.update(rel)
-      hash.update('\0')
-      hash.update(readFileSync(full))
-      hash.update('\0')
-    }
+// Everything that changes the generated bundle. bridge/core/dsh_bundle_sync_test.go
+// computes the same list and must stay in sync with it.
+const fixedInputs = ['package.json', 'tsdown.config.ts', 'scripts/wrap-client.mjs', 'pnpm-lock.yaml']
+
+function walk(dir, prefix, files) {
+  const entries = readdirSync(dir, { withFileTypes: true })
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+  for (const entry of entries) {
+    const rel = `${prefix}/${entry.name}`
+    if (entry.isDirectory()) walk(join(dir, entry.name), rel, files)
+    else files.push(rel)
   }
-  walk(dir, dir)
+}
+
+function buildInputs() {
+  const files = []
+  walk(join(root, 'src'), 'src', files)
+  files.push(...fixedInputs)
+  return files.sort()
+}
+
+function sourceDigest() {
+  const hash = createHash('sha256')
+  for (const rel of buildInputs()) {
+    hash.update(rel)
+    hash.update('\0')
+    hash.update(readFileSync(join(root, rel)))
+    hash.update('\0')
+  }
   return hash.digest('hex')
 }
+
+function styleDigest() {
+  return createHash('sha256').update(readFileSync(cssFile)).digest('hex')
+}
+
+function bundleStamps() {
+  const lines = readFileSync(file, 'utf8').split('\n', 3)
+  const sourcePrefix = '// dsh-client-source-sha256: '
+  const stylePrefix = '// dsh-style-sha256: '
+  if (!lines[0]?.startsWith(sourcePrefix) || !lines[1]?.startsWith(stylePrefix)) {
+    throw new Error(`${file}: missing build stamps`)
+  }
+  return { source: lines[0].slice(sourcePrefix.length), style: lines[1].slice(stylePrefix.length) }
+}
+
+const mode = process.argv[2]
+if (mode === '--print-source-digest') {
+  console.log(sourceDigest())
+  process.exit(0)
+}
+if (mode === '--check') {
+  try {
+    const stamps = bundleStamps()
+    const source = sourceDigest()
+    const style = styleDigest()
+    if (stamps.source !== source || stamps.style !== style) {
+      console.error(`bundle is stale: source ${stamps.source} (want ${source}), style ${stamps.style} (want ${style})`)
+      process.exit(1)
+    }
+    console.log('bundle matches source')
+    process.exit(0)
+  } catch (err) {
+    console.error(String(err.message || err))
+    process.exit(1)
+  }
+}
+
+const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+let body = readFileSync(file, 'utf8')
+if (body.includes('window.__ModuleLoader__.load(')) process.exit(0)
+// tsdown/rolldown labels each bundled dependency with its source path. When the package
+// is installed through a hoisted node_modules, that label leaks the checkout location and
+// makes byte-identical rebuilds impossible. The labels are diagnostics only.
+body = body.replace(/^\/\/ .*node_modules\/.*(?:\r?\n|$)/gm, '')
+
+const css = readFileSync(cssFile, 'utf8')
+const source = sourceDigest()
+const style = styleDigest()
 const tag = pkg.name.replace(/^@[^/]+\//, '')
-const css = existsSync(cssFile)
-  ? `(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',${JSON.stringify(tag)});s.textContent=${JSON.stringify(readFileSync(cssFile, 'utf8'))};document.head.appendChild(s)})();\n`
-  : ''
-writeFileSync(file, `// dsh-client-source-sha256: ${sourceDigest(join(root, 'src'))}
+writeFileSync(file, `// dsh-client-source-sha256: ${source}
+// dsh-style-sha256: ${style}
 window.__ModuleLoader__.load({
  id: ${JSON.stringify(pkg.name)},
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-${css}${body}
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',${JSON.stringify(tag)});s.textContent=${JSON.stringify(css)};document.head.appendChild(s)})();
+${body}
  return module.exports;
  }
 });
 `)
+writeFileSync(manifestFile, JSON.stringify({ format: 1, sourceDigest: source, styleSha256: style }, null, 2) + '\n')

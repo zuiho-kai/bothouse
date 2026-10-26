@@ -1,10 +1,11 @@
-// dsh-client-source-sha256: b083e4d1bbde5445ccace973f85ca0c1720d22bd86b8859df33fb97c75b5a7a7
+// dsh-client-source-sha256: db453527f2764687eef5bbbf04d4b3559cb2f2b4b6bb3723681147399f736765
+// dsh-style-sha256: 54606d75829e7b5cc82cb6d1a237559fda2720589571919f0b9032681f6fd599
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".kVbGEq_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.kVbGEq_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.kVbGEq_rooms, .kVbGEq_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.kVbGEq_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.kVbGEq_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.kVbGEq_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.kVbGEq_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.kVbGEq_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.kVbGEq_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.kVbGEq_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.kVbGEq_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.kVbGEq_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.kVbGEq_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.kVbGEq_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.kVbGEq_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.kVbGEq_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.kVbGEq_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.kVbGEq_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.kVbGEq_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.kVbGEq_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.kVbGEq_system .kVbGEq_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.kVbGEq_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.kVbGEq_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.kVbGEq_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.kVbGEq_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.kVbGEq_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.kVbGEq_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.kVbGEq_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.kVbGEq_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.kVbGEq_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.kVbGEq_messageBody {\n  min-width: 0;\n}\n\n.kVbGEq_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.kVbGEq_author {\n  font-weight: 600;\n}\n\n.kVbGEq_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.kVbGEq_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.kVbGEq_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.kVbGEq_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.kVbGEq_message:hover .kVbGEq_ownActions, .kVbGEq_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .kVbGEq_ownActions {\n    opacity: 1;\n  }\n}\n\n.kVbGEq_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.kVbGEq_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.kVbGEq_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.kVbGEq_editBar .kVbGEq_time {\n  margin-right: auto;\n}\n\n.kVbGEq_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.kVbGEq_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.kVbGEq_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.kVbGEq_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.kVbGEq_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.kVbGEq_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.kVbGEq_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.kVbGEq_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.kVbGEq_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.kVbGEq_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.kVbGEq_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.kVbGEq_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.kVbGEq_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.kVbGEq_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.kVbGEq_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.kVbGEq_quoteDeleted {\n  font-style: italic;\n}\n\n.kVbGEq_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.kVbGEq_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.kVbGEq_message:hover .kVbGEq_replyButton, .kVbGEq_message:focus-within .kVbGEq_replyButton, .kVbGEq_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .kVbGEq_replyButton {\n    opacity: 1;\n  }\n}\n\n.kVbGEq_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.kVbGEq_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.kVbGEq_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.kVbGEq_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.kVbGEq_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.kVbGEq_composerBox {\n  border: 1px solid var(--dsw-alias-border-l1);\n  border-radius: var(--dsw-radius-xl);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  box-shadow: var(--dsw-shadow-lv1-blur);\n  flex-direction: column;\n  display: flex;\n  overflow: hidden;\n}\n\n.kVbGEq_composerBox:focus-within {\n  border-color: var(--dsw-alias-label-tertiary);\n}\n\n.kVbGEq_composerToolbar {\n  flex: none;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 10px 10px;\n  display: flex;\n}\n\n.kVbGEq_composerBox > .kVbGEq_replyBar, .kVbGEq_composerBox > .kVbGEq_attachments {\n  margin: 10px 14px 0;\n}\n\n.kVbGEq_mentionButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  font-size: 18px;\n  display: inline-flex;\n}\n\n.kVbGEq_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.kVbGEq_sendButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: auto;\n  padding: 0;\n  display: inline-flex;\n}\n\n.kVbGEq_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.kVbGEq_sendButton:focus-visible, .kVbGEq_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.kVbGEq_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.kVbGEq_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.kVbGEq_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.kVbGEq_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.kVbGEq_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.kVbGEq_mentionName {\n  font-weight: 600;\n}\n\n.kVbGEq_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.kVbGEq_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.kVbGEq_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.kVbGEq_input {\n  box-sizing: border-box;\n  width: 100%;\n  min-height: 52px;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  background: none;\n  border: 0;\n  border-radius: 0;\n  flex: 1;\n  min-width: 0;\n  padding: 14px 16px 8px;\n  line-height: 1.5;\n}\n\n.kVbGEq_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .kVbGEq_composer {\n    padding: 0 8px 8px;\n  }\n\n  .kVbGEq_composerToolbar {\n    padding: 4px 8px 8px;\n  }\n\n  .kVbGEq_input {\n    padding: 12px 14px 8px;\n  }\n}\n\n.kVbGEq_input:focus-visible {\n  outline: none;\n}\n\n.kVbGEq_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.kVbGEq_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.kVbGEq_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.kVbGEq_offline {\n  opacity: .5;\n}\n\n.kVbGEq_memberAvatar {\n  position: relative;\n}\n\n.kVbGEq_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.kVbGEq_offline .kVbGEq_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.kVbGEq_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.kVbGEq_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.kVbGEq_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .kVbGEq_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .kVbGEq_rooms, .kVbGEq_members {\n    display: none;\n  }\n}\n\n.kVbGEq_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.kVbGEq_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.kVbGEq_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.kVbGEq_roomInput, .kVbGEq_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.kVbGEq_roomInput {\n  margin: 2px 0 6px;\n}\n\n.kVbGEq_roomInput:focus-visible, .kVbGEq_fieldInput:focus-visible, .kVbGEq_iconButton:focus-visible, .kVbGEq_linkButton:focus-visible, .kVbGEq_addMemberButton:focus-visible, .kVbGEq_primaryButton:focus-visible, .kVbGEq_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.kVbGEq_addMemberButton {\n  box-sizing: border-box;\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.kVbGEq_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.kVbGEq_settingsDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: 100%;\n  margin: 8px 0 4px;\n}\n\n.kVbGEq_settingsButton {\n  text-align: left;\n  border-style: solid;\n  border-color: #0000;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.kVbGEq_settingsButton svg {\n  flex: none;\n}\n\n.kVbGEq_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.kVbGEq_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.kVbGEq_memberRow .kVbGEq_member:hover {\n  background: none;\n}\n\n.kVbGEq_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.kVbGEq_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.kVbGEq_memberRow:hover .kVbGEq_memberActions, .kVbGEq_memberRow:focus-within .kVbGEq_memberActions {\n  opacity: 1;\n}\n\n.kVbGEq_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.kVbGEq_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.kVbGEq_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.kVbGEq_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.kVbGEq_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.kVbGEq_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.kVbGEq_field textarea {\n  resize: vertical;\n}\n\n.kVbGEq_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.kVbGEq_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.kVbGEq_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.kVbGEq_primaryButton, .kVbGEq_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.kVbGEq_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.kVbGEq_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.kVbGEq_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.kVbGEq_memberFailed .kVbGEq_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.kVbGEq_memberFailed .kVbGEq_presence {\n  background: #ed4245;\n}\n\n.kVbGEq_mobileButton, .kVbGEq_drawerBackdrop {\n  display: none;\n}\n\n.kVbGEq_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.kVbGEq_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.kVbGEq_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.kVbGEq_panelToggleEnd {\n  margin-left: auto;\n}\n\n.kVbGEq_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.kVbGEq_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.kVbGEq_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.kVbGEq_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.kVbGEq_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .kVbGEq_page.kVbGEq_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .kVbGEq_page.kVbGEq_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .kVbGEq_page.kVbGEq_roomsHidden.kVbGEq_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .kVbGEq_roomsHidden > .kVbGEq_rooms, .kVbGEq_membersHidden > .kVbGEq_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .kVbGEq_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .kVbGEq_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .kVbGEq_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .kVbGEq_panelToggle {\n    display: none;\n  }\n\n  .kVbGEq_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .kVbGEq_rooms.kVbGEq_drawerOpen, .kVbGEq_members.kVbGEq_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .kVbGEq_rooms.kVbGEq_drawerOpen {\n    left: 0;\n  }\n\n  .kVbGEq_members.kVbGEq_drawerOpen {\n    right: 0;\n  }\n\n  .kVbGEq_memberActions {\n    opacity: 1;\n  }\n\n  .kVbGEq_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.kVbGEq_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.kVbGEq_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.kVbGEq_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.kVbGEq_taskBoardTrigger {\n  border: 0;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  height: 40px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  flex: none;\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 8px;\n  padding: 7px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.kVbGEq_taskBoardTrigger:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.kVbGEq_taskBoardTrigger:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.kVbGEq_taskBoardSummary {\n  color: var(--dsw-alias-label-secondary);\n  text-align: right;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: 1;\n  overflow: hidden;\n}\n\n.kVbGEq_taskBoardDialog {\n  width: min(920px, 100%);\n  height: min(70vh, 100dvh - 32px);\n  overflow: hidden;\n}\n\n.kVbGEq_taskBoardBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.kVbGEq_taskBoardDialog > :not(.kVbGEq_taskBoardBody) {\n  flex-shrink: 0;\n}\n\n.kVbGEq_boardTabs {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  gap: 4px;\n  padding-bottom: 8px;\n  display: flex;\n  overflow-x: auto;\n}\n\n.kVbGEq_boardTabs button {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  padding: 7px 10px;\n  font-size: 13px;\n}\n\n.kVbGEq_boardTabs button:hover, .kVbGEq_boardTabs button[aria-selected=\"true\"] {\n  color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.kVbGEq_boardTabCount {\n  font-variant-numeric: tabular-nums;\n  margin-left: 4px;\n}\n\n.kVbGEq_boardCardGrid {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 12px;\n  margin: 6px 0 16px;\n  padding: 2px;\n  list-style: none;\n  display: grid;\n}\n\n.kVbGEq_boardTaskCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  border-radius: 12px;\n  flex-direction: column;\n  gap: 10px;\n  min-width: 0;\n  padding: 14px;\n  transition: transform .14s, box-shadow .14s;\n  display: flex;\n}\n\n.kVbGEq_boardTaskCard[data-working=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n}\n\n.kVbGEq_boardTaskCard[data-status=\"done\"] {\n  filter: saturate(.25);\n  color: var(--dsw-alias-label-secondary);\n}\n\n.kVbGEq_boardTaskCard:hover {\n  transform: translateY(-2px);\n  box-shadow: 0 4px 12px #00000014;\n}\n\n.kVbGEq_boardTaskHeader {\n  align-items: flex-start;\n  gap: 8px;\n  display: flex;\n}\n\n.kVbGEq_boardTaskTitle {\n  overflow-wrap: anywhere;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  flex: 1;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.5;\n  display: -webkit-box;\n  overflow: hidden;\n}\n\n.kVbGEq_boardTaskHeader .kVbGEq_taskStatus {\n  border-radius: 999px;\n  padding: 3px 7px;\n  font-size: 11px;\n}\n\n.kVbGEq_boardTaskCard .kVbGEq_taskLinks {\n  justify-content: flex-end;\n  margin-top: auto;\n}\n\n.kVbGEq_boardTabEmpty {\n  min-height: 240px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  justify-content: center;\n  align-items: center;\n  padding: 40px 16px;\n  display: flex;\n}\n\n@media (width <= 640px) {\n  .kVbGEq_boardCardGrid {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .kVbGEq_boardTaskCard {\n    transition: none;\n  }\n\n  .kVbGEq_boardTaskCard:hover {\n    transform: none;\n  }\n}\n\n.kVbGEq_taskBoardScope {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n}\n\n.kVbGEq_taskSection + .kVbGEq_taskSection {\n  margin-top: 8px;\n}\n\n.kVbGEq_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.kVbGEq_taskOwnerGroup + .kVbGEq_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.kVbGEq_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.kVbGEq_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.kVbGEq_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.kVbGEq_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.kVbGEq_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.kVbGEq_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.kVbGEq_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.kVbGEq_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.kVbGEq_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.kVbGEq_taskDone summary {\n  cursor: pointer;\n}\n\n.kVbGEq_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.kVbGEq_taskStatus[data-status=\"asked\"], .kVbGEq_taskStatus[data-status=\"escalated\"], .kVbGEq_taskStatus[data-status=\"declined\"], .kVbGEq_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.kVbGEq_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.kVbGEq_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.kVbGEq_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.kVbGEq_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.kVbGEq_taskMemberName {\n  font-weight: 600;\n}\n\n.kVbGEq_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.kVbGEq_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.kVbGEq_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.kVbGEq_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.kVbGEq_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.kVbGEq_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.kVbGEq_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.kVbGEq_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.kVbGEq_attachmentAudio audio {\n  width: 100%;\n}\n\n.kVbGEq_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.kVbGEq_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.kVbGEq_chatHead button, .kVbGEq_chatHead input, .kVbGEq_chatHead select, .kVbGEq_chatHead a, .kVbGEq_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.kVbGEq_text pre, .kVbGEq_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".dshc_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.dshc_rooms, .dshc_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.dshc_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.dshc_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.dshc_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.dshc_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.dshc_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.dshc_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.dshc_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_system .dshc_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.dshc_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.dshc_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.dshc_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.dshc_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.dshc_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.dshc_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.dshc_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.dshc_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_messageBody {\n  min-width: 0;\n}\n\n.dshc_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_author {\n  font-weight: 600;\n}\n\n.dshc_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.dshc_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.dshc_message:hover .dshc_ownActions, .dshc_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_ownActions {\n    opacity: 1;\n  }\n}\n\n.dshc_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.dshc_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.dshc_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_editBar .dshc_time {\n  margin-right: auto;\n}\n\n.dshc_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.dshc_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.dshc_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.dshc_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.dshc_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.dshc_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.dshc_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_quoteDeleted {\n  font-style: italic;\n}\n\n.dshc_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.dshc_message:hover .dshc_replyButton, .dshc_message:focus-within .dshc_replyButton, .dshc_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_replyButton {\n    opacity: 1;\n  }\n}\n\n.dshc_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.dshc_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.dshc_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.dshc_composerBox {\n  border: 1px solid var(--dsw-alias-border-l1);\n  border-radius: var(--dsw-radius-xl);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  box-shadow: var(--dsw-shadow-lv1-blur);\n  flex-direction: column;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_composerBox:focus-within {\n  border-color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_composerToolbar {\n  flex: none;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 10px 10px;\n  display: flex;\n}\n\n.dshc_composerBox > .dshc_replyBar, .dshc_composerBox > .dshc_attachments {\n  margin: 10px 14px 0;\n}\n\n.dshc_mentionButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  font-size: 18px;\n  display: inline-flex;\n}\n\n.dshc_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_sendButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: auto;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.dshc_sendButton:focus-visible, .dshc_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.dshc_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_mentionName {\n  font-weight: 600;\n}\n\n.dshc_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.dshc_input {\n  box-sizing: border-box;\n  width: 100%;\n  min-height: 52px;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  background: none;\n  border: 0;\n  border-radius: 0;\n  flex: 1;\n  min-width: 0;\n  padding: 14px 16px 8px;\n  line-height: 1.5;\n}\n\n.dshc_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .dshc_composer {\n    padding: 0 8px 8px;\n  }\n\n  .dshc_composerToolbar {\n    padding: 4px 8px 8px;\n  }\n\n  .dshc_input {\n    padding: 12px 14px 8px;\n  }\n}\n\n.dshc_input:focus-visible {\n  outline: none;\n}\n\n.dshc_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_offline {\n  opacity: .5;\n}\n\n.dshc_memberAvatar {\n  position: relative;\n}\n\n.dshc_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_offline .dshc_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_rooms, .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.dshc_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.dshc_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_roomInput, .dshc_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.dshc_roomInput {\n  margin: 2px 0 6px;\n}\n\n.dshc_roomInput:focus-visible, .dshc_fieldInput:focus-visible, .dshc_iconButton:focus-visible, .dshc_linkButton:focus-visible, .dshc_addMemberButton:focus-visible, .dshc_primaryButton:focus-visible, .dshc_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_addMemberButton {\n  box-sizing: border-box;\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.dshc_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_settingsDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: 100%;\n  margin: 8px 0 4px;\n}\n\n.dshc_settingsButton {\n  text-align: left;\n  border-style: solid;\n  border-color: #0000;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_settingsButton svg {\n  flex: none;\n}\n\n.dshc_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.dshc_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_memberRow .dshc_member:hover {\n  background: none;\n}\n\n.dshc_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_memberRow:hover .dshc_memberActions, .dshc_memberRow:focus-within .dshc_memberActions {\n  opacity: 1;\n}\n\n.dshc_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.dshc_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.dshc_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.dshc_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.dshc_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_field textarea {\n  resize: vertical;\n}\n\n.dshc_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.dshc_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_primaryButton, .dshc_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.dshc_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.dshc_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.dshc_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.dshc_memberFailed .dshc_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.dshc_memberFailed .dshc_presence {\n  background: #ed4245;\n}\n\n.dshc_mobileButton, .dshc_drawerBackdrop {\n  display: none;\n}\n\n.dshc_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_panelToggleEnd {\n  margin-left: auto;\n}\n\n.dshc_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.dshc_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.dshc_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_roomsHidden > .dshc_rooms, .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .dshc_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .dshc_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .dshc_panelToggle {\n    display: none;\n  }\n\n  .dshc_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .dshc_rooms.dshc_drawerOpen, .dshc_members.dshc_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .dshc_rooms.dshc_drawerOpen {\n    left: 0;\n  }\n\n  .dshc_members.dshc_drawerOpen {\n    right: 0;\n  }\n\n  .dshc_memberActions {\n    opacity: 1;\n  }\n\n  .dshc_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.dshc_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.dshc_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.dshc_taskBoardTrigger {\n  border: 0;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  height: 40px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  flex: none;\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 8px;\n  padding: 7px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskBoardTrigger:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskBoardTrigger:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_taskBoardSummary {\n  color: var(--dsw-alias-label-secondary);\n  text-align: right;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: 1;\n  overflow: hidden;\n}\n\n.dshc_taskBoardDialog {\n  width: min(920px, 100%);\n  height: min(70vh, 100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_taskBoardBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_taskBoardDialog > :not(.dshc_taskBoardBody) {\n  flex-shrink: 0;\n}\n\n.dshc_boardTabs {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  gap: 4px;\n  padding-bottom: 8px;\n  display: flex;\n  overflow-x: auto;\n}\n\n.dshc_boardTabs button {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  padding: 7px 10px;\n  font-size: 13px;\n}\n\n.dshc_boardTabs button:hover, .dshc_boardTabs button[aria-selected=\"true\"] {\n  color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_boardTabCount {\n  font-variant-numeric: tabular-nums;\n  margin-left: 4px;\n}\n\n.dshc_boardCardGrid {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 12px;\n  margin: 6px 0 16px;\n  padding: 2px;\n  list-style: none;\n  display: grid;\n}\n\n.dshc_boardTaskCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  border-radius: 12px;\n  flex-direction: column;\n  gap: 10px;\n  min-width: 0;\n  padding: 14px;\n  transition: transform .14s, box-shadow .14s;\n  display: flex;\n}\n\n.dshc_boardTaskCard[data-working=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n}\n\n.dshc_boardTaskCard[data-status=\"done\"] {\n  filter: saturate(.25);\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_boardTaskCard:hover {\n  transform: translateY(-2px);\n  box-shadow: 0 4px 12px #00000014;\n}\n\n.dshc_boardTaskHeader {\n  align-items: flex-start;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_boardTaskTitle {\n  overflow-wrap: anywhere;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  flex: 1;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.5;\n  display: -webkit-box;\n  overflow: hidden;\n}\n\n.dshc_boardTaskHeader .dshc_taskStatus {\n  border-radius: 999px;\n  padding: 3px 7px;\n  font-size: 11px;\n}\n\n.dshc_boardTaskCard .dshc_taskLinks {\n  justify-content: flex-end;\n  margin-top: auto;\n}\n\n.dshc_boardTabEmpty {\n  min-height: 240px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  justify-content: center;\n  align-items: center;\n  padding: 40px 16px;\n  display: flex;\n}\n\n@media (width <= 640px) {\n  .dshc_boardCardGrid {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardTaskCard {\n    transition: none;\n  }\n\n  .dshc_boardTaskCard:hover {\n    transform: none;\n  }\n}\n\n.dshc_taskBoardScope {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n}\n\n.dshc_taskSection + .dshc_taskSection {\n  margin-top: 8px;\n}\n\n.dshc_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_taskOwnerGroup + .dshc_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.dshc_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.dshc_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.dshc_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskDone summary {\n  cursor: pointer;\n}\n\n.dshc_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.dshc_taskStatus[data-status=\"asked\"], .dshc_taskStatus[data-status=\"escalated\"], .dshc_taskStatus[data-status=\"declined\"], .dshc_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.dshc_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.dshc_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_taskMemberName {\n  font-weight: 600;\n}\n\n.dshc_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.dshc_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.dshc_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.dshc_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.dshc_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.dshc_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.dshc_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.dshc_attachmentAudio audio {\n  width: 100%;\n}\n\n.dshc_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.dshc_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.dshc_chatHead button, .dshc_chatHead input, .dshc_chatHead select, .dshc_chatHead a, .dshc_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.dshc_text pre, .dshc_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 // \0rolldown/runtime.js
 var __defProp = Object.defineProperty;
@@ -699,7 +700,6 @@ function createChannelSource(transport) {
 function ChannelsIcon({ size }) {
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconUsersOutlineRegular, { size });
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/mdast-util-to-string/lib/index.js
 /**
 * @typedef {import('mdast').Nodes} Nodes
 *
@@ -780,7 +780,6 @@ function all(values, includeImageAlt, includeHtml) {
 function node(value) {
 	return Boolean(value && typeof value === "object");
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/character-entities/index.js
 /**
 * Map of named character references.
 *
@@ -2913,7 +2912,6 @@ const characterEntities = {
 	zwj: "‍",
 	zwnj: "‌"
 };
-// ../../../../bothouse-116-118-verified/dsh/node_modules/decode-named-character-reference/index.js
 const own$1 = {}.hasOwnProperty;
 /**
 * Decode a single character reference (without the `&` or `;`).
@@ -2929,7 +2927,6 @@ const own$1 = {}.hasOwnProperty;
 function decodeNamedCharacterReference(value) {
 	return own$1.call(characterEntities, value) ? characterEntities[value] : false;
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-util-chunked/index.js
 /**
 * Like `Array#splice`, but smarter for giant arrays.
 *
@@ -2998,7 +2995,6 @@ function push(list, items) {
 	}
 	return items;
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-util-combine-extensions/index.js
 /**
 * @import {
 *   Extension,
@@ -3068,7 +3064,6 @@ function constructs(existing, list) {
 	while (++index < list.length) (list[index].add === "after" ? existing : before).push(list[index]);
 	splice(existing, 0, 0, before);
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-util-decode-numeric-character-reference/index.js
 /**
 * Turn the number (in string form as either hexa- or plain decimal) coming from
 * a numeric character reference into a character.
@@ -3088,7 +3083,6 @@ function decodeNumericCharacterReference(value, base) {
 	if (code < 9 || code === 11 || code > 13 && code < 32 || code > 126 && code < 160 || code > 55295 && code < 57344 || code > 64975 && code < 65008 || (code & 65535) === 65535 || (code & 65535) === 65534 || code > 1114111) return "�";
 	return String.fromCodePoint(code);
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-util-normalize-identifier/index.js
 /**
 * Normalize an identifier (as found in references, definitions).
 *
@@ -3111,7 +3105,6 @@ function decodeNumericCharacterReference(value, base) {
 function normalizeIdentifier(value) {
 	return value.replace(/[\t\n\r ]+/g, " ").replace(/^ | $/g, "").toLowerCase().toUpperCase();
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-util-character/index.js
 /**
 * @import {Code} from 'micromark-util-types'
 */
@@ -3338,7 +3331,6 @@ function regexCheck(regex) {
 		return code !== null && code > -1 && regex.test(String.fromCharCode(code));
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-factory-space/index.js
 /**
 * @import {Effects, State, TokenType} from 'micromark-util-types'
 */
@@ -3444,7 +3436,6 @@ function factorySpaceMinMax(effects, ok, nok, type, min, max) {
 		return size >= min ? ok(code) : nok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark/lib/initialize/content.js
 /**
 * @import {
 *   InitialConstruct,
@@ -3510,7 +3501,6 @@ function initializeContent(effects) {
 		return data;
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-util-edit-map/index.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -3655,7 +3645,6 @@ function addImplementation$1(editMap, at, remove, add, before) {
 	editMap.map.push(change);
 	editMap.index.set(at, change);
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark/lib/initialize/document.js
 /**
 * @import {
 *   Construct,
@@ -3874,7 +3863,6 @@ function initializeDocument(effects) {
 function tokenizeContainer(effects, ok, nok) {
 	return factorySpace(effects, effects.attempt(this.parser.constructs.document, ok, nok), "linePrefix", this.parser.constructs.disable.null.includes("codeIndented") ? void 0 : 4);
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-util-classify-character/index.js
 /**
 * @import {Code} from 'micromark-util-types'
 */
@@ -3896,7 +3884,6 @@ function classifyCharacter(code) {
 	if (code === null || markdownLineEndingOrSpace(code) || unicodeWhitespace(code)) return 1;
 	if (unicodePunctuation(code)) return 2;
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-util-resolve-all/index.js
 /**
 * @import {Event, Resolver, TokenizeContext} from 'micromark-util-types'
 */
@@ -3925,7 +3912,6 @@ function resolveAll(constructs, events, context) {
 	}
 	return events;
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/attention.js
 /**
 * @import {
 *   Code,
@@ -4132,7 +4118,6 @@ function movePoint(point, offset) {
 	point.offset += offset;
 	point._bufferIndex += offset;
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/autolink.js
 /**
 * @import {
 *   Construct,
@@ -4342,7 +4327,6 @@ function tokenizeAutolink(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/blank-line.js
 /**
 * @import {
 *   Construct,
@@ -4398,7 +4382,6 @@ function tokenizeBlankLine(effects, ok, nok) {
 		return code === null || markdownLineEnding(code) ? ok(code) : nok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/block-quote.js
 /**
 * @import {
 *   Construct,
@@ -4524,7 +4507,6 @@ function tokenizeBlockQuoteContinuation(effects, ok, nok) {
 function exit$1(effects) {
 	effects.exit("blockQuote");
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/character-escape.js
 /**
 * @import {
 *   Construct,
@@ -4583,7 +4565,6 @@ function tokenizeCharacterEscape(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/character-reference.js
 /**
 * @import {
 *   Code,
@@ -4720,7 +4701,6 @@ function tokenizeCharacterReference(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/partial-non-lazy-continuation.js
 /** @type {Construct} */
 const nonLazyContinuation$2 = {
 	partial: true,
@@ -4767,7 +4747,6 @@ function tokenizeNonLazyContinuation$2(effects, ok, nok) {
 		return self.parser.lazy[self.now().line] ? nok(code) : ok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/code-fenced.js
 /**
 * @import {
 *   Code,
@@ -5147,7 +5126,6 @@ function tokenizeCodeFenced(effects, ok, nok) {
 		}
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/code-indented.js
 /**
 * @import {
 *   Construct,
@@ -5278,7 +5256,6 @@ function tokenizeFurtherStart(effects, ok, nok) {
 		return markdownLineEnding(code) ? furtherStart(code) : nok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/code-text.js
 /**
 * @import {
 *   Construct,
@@ -5462,7 +5439,6 @@ function tokenizeCodeText(effects, ok, nok) {
 		return data(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-util-subtokenize/lib/splice-buffer.js
 /**
 * Some of the internal operations of micromark do lots of editing
 * operations on very large arrays. This runs into problems with two
@@ -5691,7 +5667,6 @@ function chunkedPush(list, right) {
 		chunkStart += 1e4;
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-util-subtokenize/index.js
 /**
 * @import {Chunk, Event, Token} from 'micromark-util-types'
 */
@@ -5845,7 +5820,6 @@ function subcontent(events, eventIndex) {
 	}
 	return gaps;
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/content.js
 /**
 * @import {
 *   Construct,
@@ -5977,7 +5951,6 @@ function tokenizeContinuation(effects, ok, nok) {
 		return effects.interrupt(self.parser.constructs.flow, nok, ok)(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-factory-destination/index.js
 /**
 * @import {Effects, State, TokenType} from 'micromark-util-types'
 */
@@ -6160,7 +6133,6 @@ function factoryDestination(effects, ok, nok, type, literalType, literalMarkerTy
 		return raw(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-factory-label/index.js
 /**
 * @import {
 *   Effects,
@@ -6293,7 +6265,6 @@ function factoryLabel(effects, ok, nok, type, markerType, stringType) {
 		return labelInside(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-factory-title/index.js
 /**
 * @import {
 *   Code,
@@ -6437,7 +6408,6 @@ function factoryTitle(effects, ok, nok, type, markerType, stringType) {
 		return inside(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-factory-whitespace/index.js
 /**
 * @import {Effects, State} from 'micromark-util-types'
 */
@@ -6476,7 +6446,6 @@ function factoryWhitespace(effects, ok) {
 		return ok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/definition.js
 /**
 * @import {
 *   Construct,
@@ -6690,7 +6659,6 @@ function tokenizeTitleBefore(effects, ok, nok) {
 		return code === null || markdownLineEnding(code) ? ok(code) : nok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/hard-break-escape.js
 /**
 * @import {
 *   Construct,
@@ -6746,7 +6714,6 @@ function tokenizeHardBreakEscape(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/heading-atx.js
 /**
 * @import {
 *   Construct,
@@ -6926,7 +6893,6 @@ function tokenizeHeadingAtx(effects, ok, nok) {
 		return data;
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-util-html-tag-name/index.js
 /**
 * List of lowercase HTML “block” tag names.
 *
@@ -7024,7 +6990,6 @@ const htmlRawNames = [
 	"style",
 	"textarea"
 ];
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/html-flow.js
 /**
 * @import {
 *   Code,
@@ -7749,7 +7714,6 @@ function tokenizeBlankLineBefore(effects, ok, nok) {
 		return effects.attempt(blankLine, ok, nok);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/html-text.js
 /**
 * @import {
 *   Code,
@@ -8362,7 +8326,6 @@ function tokenizeHtmlText(effects, ok, nok) {
 		return returnState(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/label-end.js
 /**
 * @import {
 *   Construct,
@@ -8830,7 +8793,6 @@ function tokenizeReferenceCollapsed(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/label-start-image.js
 /**
 * @import {
 *   Construct,
@@ -8928,7 +8890,6 @@ function tokenizeLabelStartImage(effects, ok, nok) {
 		return ok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/label-start-link.js
 /**
 * @import {
 *   Construct,
@@ -8981,7 +8942,6 @@ function tokenizeLabelStartLink(effects, ok, nok) {
 		return ok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/line-ending.js
 /**
 * @import {
 *   Construct,
@@ -9010,7 +8970,6 @@ function tokenizeLineEnding(effects, ok) {
 		return factorySpace(effects, ok, "linePrefix");
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/thematic-break.js
 /**
 * @import {
 *   Code,
@@ -9104,7 +9063,6 @@ function tokenizeThematicBreak(effects, ok, nok) {
 		return markdownSpace(code) ? factorySpace(effects, atBreak, "whitespace")(code) : atBreak(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/list.js
 /**
 * @import {
 *   Code,
@@ -9275,7 +9233,6 @@ function tokenizeListItemPrefixWhitespace(effects, ok, nok) {
 		return !markdownSpace(code) && tail && tail[1].type === "listItemPrefixWhitespace" ? ok(code) : nok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-core-commonmark/lib/setext-underline.js
 /**
 * @import {
 *   Code,
@@ -9428,7 +9385,6 @@ function tokenizeSetextUnderline(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark/lib/initialize/flow.js
 /**
 * @import {
 *   InitialConstruct,
@@ -9474,7 +9430,6 @@ function initializeFlow(effects) {
 		return initial;
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark/lib/initialize/text.js
 /**
 * @import {
 *   Code,
@@ -9649,7 +9604,6 @@ function resolveAllLineSuffixes(events, context) {
 	editMap.consume(events);
 	return events;
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark/lib/constructs.js
 /**
 * @import {Extension} from 'micromark-util-types'
 */
@@ -9726,7 +9680,6 @@ const insideSpan = { null: [attention, resolver] };
 const attentionMarkers = { null: [42, 95] };
 /** @satisfies {Extension['disable']} */
 const disable = { null: [] };
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark/lib/create-tokenizer.js
 /**
 * @import {
 *   Chunk,
@@ -10192,7 +10145,6 @@ function serializeChunks(chunks, expandTabs) {
 	}
 	return result.join("");
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark/lib/parse.js
 /**
 * @import {
 *   Create,
@@ -10235,7 +10187,6 @@ function parse(options) {
 		}
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark/lib/postprocess.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -10249,7 +10200,6 @@ function postprocess(events) {
 	while (!subtokenize(events));
 	return events;
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark/lib/preprocess.js
 /**
 * @import {Chunk, Code, Encoding, Value} from 'micromark-util-types'
 */
@@ -10340,7 +10290,6 @@ function preprocess() {
 		return chunks;
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-util-decode-string/index.js
 const characterEscapeOrReference = /\\([!-/:-@[-`{-~])|&(#(?:\d{1,7}|x[\da-f]{1,6})|[\da-z]{1,31});/gi;
 /**
 * Decode markdown strings (which occur in places such as fenced code info
@@ -10376,7 +10325,6 @@ function decode($0, $1, $2) {
 	}
 	return decodeNamedCharacterReference($2) || $0;
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/unist-util-stringify-position/lib/index.js
 /**
 * @typedef {import('unist').Node} Node
 * @typedef {import('unist').Point} Point
@@ -10439,7 +10387,6 @@ function position(pos) {
 function index(value) {
 	return value && typeof value === "number" ? value : 1;
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/mdast-util-from-markdown/lib/index.js
 /**
 * @import {
 *   Break,
@@ -11485,7 +11432,6 @@ function defaultOnError(left, right) {
 		end: right.end
 	}) + ") is still open");
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/ccount/index.js
 /**
 * Count how often a character (or substring) is used in a string.
 *
@@ -11507,12 +11453,10 @@ function ccount(value, character) {
 	}
 	return count;
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/escape-string-regexp/index.js
 function escapeStringRegexp(string) {
 	if (typeof string !== "string") throw new TypeError("Expected a string");
 	return string.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&").replace(/-/g, "\\x2d");
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/unist-util-is/lib/index.js
 /**
 * Generate an assertion from a test.
 *
@@ -11625,15 +11569,17 @@ function ok() {
 function looksLikeANode(value) {
 	return value !== null && typeof value === "object" && "type" in value;
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/unist-util-visit-parents/lib/color.node.js
 /**
+* Color a string.
+*
 * @param {string} d
+*   Value.
 * @returns {string}
+*   Colored value.
 */
 function color$1(d) {
 	return "\x1B[33m" + d + "\x1B[39m";
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/unist-util-visit-parents/lib/index.js
 /**
 * @import {Node as UnistNode, Parent as UnistParent} from 'unist'
 */
@@ -11791,43 +11737,93 @@ function color$1(d) {
 *   List with one or two values, the first an action, the second an index.
 *
 * @typedef {Action | ActionTuple | Index | null | undefined | void} VisitorResult
-*   Any value that can be returned from a visitor.
+*   Any value that can be returned from an enter visitor.
+*
+*   Like `VisitorResultExit`,
+*   but `SKIP` can also be returned,
+*   to not walk the children of the node,
+*   and `ActionTuple` can be used to combine an action with an index.
+*
+* @typedef {Index | boolean | null | undefined | void} VisitorResultExit
+*   Any value that can be returned from an exit visitor.
 */
 /**
 * @callback Visitor
-*   Handle a node (matching `test`, if given).
+*   Handle a node (matching `test`, if given) before its children.
 *
-*   Visitors are free to transform `node`.
-*   They can also transform the parent of node (the last of `ancestors`).
-*
-*   Replacing `node` itself, if `SKIP` is not returned, still causes its
-*   descendants to be walked (which is a bug).
-*
-*   When adding or removing previous siblings of `node` (or next siblings, in
-*   case of reverse), the `Visitor` should return a new `Index` to specify the
-*   sibling to traverse after `node` is traversed.
-*   Adding or removing next siblings of `node` (or previous siblings, in case
-*   of reverse) is handled as expected without needing to return a new `Index`.
-*
-*   Removing the children property of an ancestor still results in them being
-*   traversed.
+*   Changes inside `node` are walked next.
+*   Replacing or removing it is easier in `exit`.
+*   When replacing or removing it here,
+*   return `SKIP` (as otherwise its old children are walked),
+*   or `[SKIP, index]` to continue with the node now at `index`.
+*   Changing next siblings (in walk order) is fine;
+*   changing previous siblings needs a new `Index`.
+*   Removing an ancestor or changing its previous siblings is not supported.
 * @param {Visited} node
 *   Found node.
 * @param {Array<VisitedParents>} ancestors
 *   Ancestors of `node`.
+* @param {number | undefined} index
+*   Index of `node` in its parent (the last of `ancestors`),
+*   or `undefined` for the tree itself.
 * @returns {VisitorResult}
 *   What to do next.
 *
-*   An `Index` is treated as a tuple of `[CONTINUE, Index]`.
-*   An `Action` is treated as a tuple of `[Action]`.
-*
-*   Passing a tuple back only makes sense if the `Action` is `SKIP`.
-*   When the `Action` is `EXIT`, that action can be returned.
-*   When the `Action` is `CONTINUE`, `Index` can be returned.
+*   Like `VisitorExit`,
+*   but `SKIP` can also be returned,
+*   to not walk the children of `node`.
+*   Passing a tuple back (`ActionTuple`) only makes sense as `[SKIP, Index]`.
 * @template {UnistNode} [Visited=UnistNode]
 *   Visited node type.
 * @template {UnistParent} [VisitedParents=UnistParent]
 *   Ancestor type.
+*/
+/**
+* @callback VisitorExit
+*   Handle a node (matching `test`, if given) after its children.
+*
+*   Changes inside `node` are not walked,
+*   which makes this a good place to change `node` based on its children,
+*   or to replace or remove it.
+*   When removing `node` or changing previous siblings (in walk order),
+*   return a new `Index`.
+*   Removing an ancestor or changing its previous siblings is not supported.
+* @param {Visited} node
+*   Found node.
+* @param {Array<VisitedParents>} ancestors
+*   Ancestors of `node`.
+* @param {number | undefined} index
+*   Index of `node` in its parent (the last of `ancestors`),
+*   or `undefined` for the tree itself.
+* @returns {VisitorResultExit}
+*   What to do next.
+*
+*   `CONTINUE` (`true`, nothing) continues as normal,
+*   `EXIT` (`false`) stops traversing,
+*   and `Index` continues at that sibling.
+* @template {UnistNode} [Visited=UnistNode]
+*   Visited node type.
+* @template {UnistParent} [VisitedParents=UnistParent]
+*   Ancestor type.
+*/
+/**
+* @template {UnistNode} [Visited=UnistNode]
+*   Visited node type.
+* @template {UnistParent} [VisitedParents=UnistParent]
+*   Ancestor type.
+* @typedef Visitors
+*   Handle nodes when entering and exiting them.
+*   The `enter` visitor is optional while `exit` is required.
+*
+*   Pass an `enter` visitor directly to only handle nodes when entering them.
+*
+*   `enter` is called before children (if any) are walked and `exit` after that.
+*   `exit` is still called when `enter` returns `SKIP`.
+*   Both `enter` and `exit` are only called for nodes that match an optional `test`.
+* @property {Visitor<Visited, VisitedParents> | null | undefined} [enter]
+*   Handle a node before its children (optional).
+* @property {VisitorExit<Visited, VisitedParents>} exit
+*   Handle a node after its children.
 */
 /**
 * @typedef {Visitor<Matches<InclusiveDescendant<Tree>, Check>, Ancestor<Tree, Matches<InclusiveDescendant<Tree>, Check>>>} BuildVisitor
@@ -11839,16 +11835,34 @@ function color$1(d) {
 * @template {Test} [Check=Test]
 *   Test type.
 */
+/**
+* @typedef {Visitors<Matches<InclusiveDescendant<Tree>, Check>, Ancestor<Tree, Matches<InclusiveDescendant<Tree>, Check>>>} BuildVisitors
+*   Build typed `Visitors` from a tree and a test.
+*
+*   It will infer which values are passed as `node` and which as `parents`.
+* @template {UnistNode} [Tree=UnistNode]
+*   Tree type.
+* @template {Test} [Check=Test]
+*   Test type.
+*/
 /** @type {Readonly<ActionTuple>} */
 const empty = [];
+/**
+* Do not traverse this node’s children.
+* Only works when entering a node.
+*/
+const SKIP = "skip";
 /**
 * Visit nodes, with ancestral information.
 *
 * This algorithm performs *depth-first* *tree traversal* in *preorder*
-* (**NLR**) or if `reverse` is given, in *reverse preorder* (**NRL**).
+* (**NLR**) or if `reverse` is given,
+* in *reverse preorder* (**NRL**).
+* An `exit` visitor is called in *postorder* (**LRN**)
+* or if `reverse` is given, in *reverse postorder* (**RLN**).
 *
-* You can choose for which nodes `visitor` is called by passing a `test`.
-* For complex tests, you should test yourself in `visitor`, as it will be
+* You can choose which nodes are visited by passing a `test`.
+* For complex tests, you should test yourself in a visitor, as it will be
 * faster and will have improved type information.
 *
 * Walking the tree is an intensive task.
@@ -11857,29 +11871,72 @@ const empty = [];
 * to check if a node matches, and then perform different operations.
 *
 * You can change the tree.
-* See `Visitor` for more info.
+* Changes inside a node made when entering it are walked,
+* changes made when exiting it are not.
+* See `Visitor` and `VisitorExit` for more info.
 *
 * @overload
 * @param {Tree} tree
+*   Tree to traverse.
 * @param {Check} check
-* @param {BuildVisitor<Tree, Check>} visitor
+*   `unist-util-is`-compatible test.
+* @param {BuildVisitor<Tree, Check>} enter
+*   Handle each node when entering it.
 * @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
 * @returns {undefined}
+*   Nothing.
 *
 * @overload
 * @param {Tree} tree
-* @param {BuildVisitor<Tree>} visitor
+*   Tree to traverse.
+* @param {Check} check
+*   `unist-util-is`-compatible test.
+* @param {BuildVisitors<Tree, Check>} visitors
+*   Handle each node when exiting it, and optionally when entering it.
 * @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
 * @returns {undefined}
+*   Nothing.
+*
+* @overload
+* @param {Tree} tree
+*   Tree to traverse.
+* @param {BuildVisitor<Tree>} enter
+*   Handle each node when entering it.
+* @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
+* @returns {undefined}
+*   Nothing.
+*
+* @overload
+* @param {Tree} tree
+*   Tree to traverse.
+* @param {BuildVisitors<Tree>} visitors
+*   Handle each node when exiting it, and optionally when entering it.
+* @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
+* @returns {undefined}
+*   Nothing.
 *
 * @param {UnistNode} tree
 *   Tree to traverse.
-* @param {Visitor | Test} test
-*   `unist-util-is`-compatible test
-* @param {Visitor | boolean | null | undefined} [visitor]
-*   Handle each node.
+* @param {Visitor | Visitors | Test} testOrEnterOrVisitors
+*   `unist-util-is`-compatible test, `enter`, or `visitors`.
+* @param {Visitor | Visitors | boolean | null | undefined} [enterOrVisitorsOrReverse]
+*   `enter`, `visitors`, or `reverse` after a test.
 * @param {boolean | null | undefined} [reverse]
-*   Traverse in reverse preorder (NRL) instead of the default preorder (NLR).
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
 * @returns {undefined}
 *   Nothing.
 *
@@ -11888,20 +11945,46 @@ const empty = [];
 * @template {Test} Check
 *   `unist-util-is`-compatible test.
 */
-function visitParents(tree, test, visitor, reverse) {
+function visitParents(tree, testOrEnterOrVisitors, enterOrVisitorsOrReverse, reverse) {
+	if (!tree || typeof tree !== "object") throw new Error("Unexpected value `" + tree + "` for `tree`, expected node");
+	let preorder = true;
 	/** @type {Test} */
 	let check;
-	if (typeof test === "function" && typeof visitor !== "function") {
-		reverse = visitor;
-		visitor = test;
-	} else check = test;
+	/** @type {Visitors | Visitor} */
+	let visitors;
+	/** @type {Visitor | null | undefined} */
+	let enter;
+	/** @type {VisitorExit | null | undefined} */
+	let exit;
+	if (typeof enterOrVisitorsOrReverse === "function" || enterOrVisitorsOrReverse && typeof enterOrVisitorsOrReverse === "object") {
+		check = testOrEnterOrVisitors;
+		visitors = enterOrVisitorsOrReverse;
+		if (reverse) preorder = false;
+	} else {
+		visitors = testOrEnterOrVisitors;
+		if (enterOrVisitorsOrReverse) preorder = false;
+	}
+	if (typeof visitors === "function") enter = visitors;
+	else if (visitors && typeof visitors === "object") {
+		if (visitors.enter === null || visitors.enter === void 0) {} else if (typeof visitors.enter === "function") enter = visitors.enter;
+		else throw new Error("Unexpected value `" + visitors.enter + "` for `visitors.enter`, expected optional visitor");
+		if (typeof visitors.exit === "function") exit = visitors.exit;
+		else throw new Error("Unexpected value `" + visitors.exit + "` for `visitors.exit`, expected visitor (pass a visitor directly if you only want an enter visitor)");
+	} else throw new Error("Unexpected value `" + visitors + "` for `enter` or `visitors`, expected visitor or object with visitors");
 	const is = convert(check);
-	const step = reverse ? -1 : 1;
+	const step = preorder ? 1 : -1;
 	factory(tree, void 0, [])();
 	/**
+	* Create a function to visit a node.
+	*
 	* @param {UnistNode} node
+	*   Node to visit.
 	* @param {number | undefined} index
+	*   Index of `node` in its parent.
 	* @param {Array<UnistParent>} parents
+	*   Ancestors of `node`.
+	* @returns {() => Readonly<ActionTuple>}
+	*   Visit `node`.
 	*/
 	function factory(node, index, parents) {
 		const value = node && typeof node === "object" ? node : {};
@@ -11911,30 +11994,30 @@ function visitParents(tree, test, visitor, reverse) {
 		}
 		return visit;
 		function visit() {
+			const matches = !check || is(node, index, parents[parents.length - 1] || void 0);
 			/** @type {Readonly<ActionTuple>} */
 			let result = empty;
-			/** @type {Readonly<ActionTuple>} */
-			let subresult;
-			/** @type {number} */
-			let offset;
-			/** @type {Array<UnistParent>} */
-			let grandparents;
-			if (!test || is(node, index, parents[parents.length - 1] || void 0)) {
-				result = toResult(visitor(node, parents));
+			if (enter && matches) {
+				result = toResult(enter(node, parents, index));
 				if (result[0] === false) return result;
 			}
 			if ("children" in node && node.children) {
 				const nodeAsParent = node;
 				if (nodeAsParent.children && result[0] !== "skip") {
-					offset = (reverse ? nodeAsParent.children.length : -1) + step;
-					grandparents = parents.concat(nodeAsParent);
+					let offset = (preorder ? -1 : nodeAsParent.children.length) + step;
+					const grandparents = [...parents, nodeAsParent];
 					while (offset > -1 && offset < nodeAsParent.children.length) {
 						const child = nodeAsParent.children[offset];
-						subresult = factory(child, offset, grandparents)();
+						const subresult = factory(child, offset, grandparents)();
 						if (subresult[0] === false) return subresult;
 						offset = typeof subresult[1] === "number" ? subresult[1] : offset + step;
 					}
 				}
+			}
+			if (exit && matches) {
+				const exitResult = toResult(exit(node, parents, index));
+				if (exitResult[0] === "skip") throw new Error("Unexpected value `" + exitResult[0] + "` from `exit`, expected `CONTINUE`, `EXIT`, index, or nothing");
+				if (exitResult[0] === false || typeof exitResult[1] === "number") return exitResult;
 			}
 			return result;
 		}
@@ -11953,7 +12036,6 @@ function toResult(value) {
 	if (typeof value === "number") return [true, value];
 	return value === null || value === void 0 ? empty : [value];
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/mdast-util-find-and-replace/lib/index.js
 /**
 * @import {Nodes, Parents, PhrasingContent, Root, Text} from 'mdast'
 * @import {BuildVisitor, Test, VisitorResult} from 'unist-util-visit-parents'
@@ -12021,7 +12103,7 @@ function toResult(value) {
 * @param {FindAndReplaceList | FindAndReplaceTuple} list
 *   Patterns to find.
 * @param {Options | null | undefined} [options]
-*   Configuration (when `find` is not `Find`).
+*   Configuration (optional).
 * @returns {undefined}
 *   Nothing.
 */
@@ -12029,24 +12111,15 @@ function findAndReplace(tree, list, options) {
 	const ignored = convert((options || {}).ignore || []);
 	const pairs = toPairs(list);
 	let pairIndex = -1;
-	while (++pairIndex < pairs.length) visitParents(tree, "text", visitor);
+	while (++pairIndex < pairs.length) visitParents(tree, visitor);
 	/**
-	* Visit a text node, and handle it if it is not in an ignored parent.
+	* Handle text nodes and skip ignored nodes.
 	*
-	* @type {BuildVisitor<Root, 'text'>}
+	* @type {BuildVisitor<Root>}
 	*/
-	function visitor(node, parents) {
-		let index = -1;
-		/** @type {Parents | undefined} */
-		let grandparent;
-		while (++index < parents.length) {
-			const parent = parents[index];
-			/** @type {Array<Nodes> | undefined} */
-			const siblings = grandparent ? grandparent.children : void 0;
-			if (ignored(parent, siblings ? siblings.indexOf(parent) : void 0, grandparent)) return;
-			grandparent = parent;
-		}
-		if (grandparent) return handler(node, parents);
+	function visitor(node, parents, index) {
+		if (node.type === "text" && typeof index === "number") return handler(node, parents, index);
+		if (ignored(node, index, parents[parents.length - 1])) return SKIP;
 	}
 	/**
 	* Handle a text node which is not in an ignored parent.
@@ -12055,15 +12128,16 @@ function findAndReplace(tree, list, options) {
 	*   Text node to search in.
 	* @param {Array<Parents>} parents
 	*   Ancestors of `node`.
+	* @param {number} index
+	*   Index of `node` in its parent.
 	* @returns {VisitorResult}
 	*   Where to continue visiting.
 	*/
-	function handler(node, parents) {
+	function handler(node, parents, index) {
 		const parent = parents[parents.length - 1];
 		const find = pairs[pairIndex][0];
 		const replace = pairs[pairIndex][1];
 		let start = 0;
-		const index = parent.children.indexOf(node);
 		let change = false;
 		/** @type {Array<PhrasingContent>} */
 		let nodes = [];
@@ -12131,7 +12205,6 @@ function toPairs(tupleOrList) {
 	if (!Array.isArray(tupleOrList)) throw new TypeError("Expected find and replace tuple or list of tuples");
 	/** @type {Pairs} */
 	const result = [];
-	/** @type {FindAndReplaceList} */
 	const list = !tupleOrList[0] || Array.isArray(tupleOrList[0]) ? tupleOrList : [tupleOrList];
 	let index = -1;
 	while (++index < list.length) {
@@ -12164,7 +12237,6 @@ function toFunction(replace) {
 		return replace;
 	};
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/mdast-util-gfm-autolink-literal/lib/index.js
 /**
 * @import {RegExpMatchObject, ReplaceFunction} from 'mdast-util-find-and-replace'
 * @import {CompileContext, Extension as FromMarkdownExtension, Handle as FromMarkdownHandle, Transform as FromMarkdownTransform} from 'mdast-util-from-markdown'
@@ -12343,7 +12415,6 @@ function previous$1(match, email) {
 	const code = match.input.charCodeAt(match.index - 1);
 	return (match.index === 0 || unicodeWhitespace(code) || unicodePunctuation(code)) && (!email || code !== 47);
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/mdast-util-gfm-footnote/lib/index.js
 /**
 * @import {
 *   CompileContext,
@@ -12477,7 +12548,6 @@ function gfmFootnoteFromMarkdown() {
 		}
 	};
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/mdast-util-gfm-strikethrough/lib/index.js
 handleDelete.attention = attentionDelete;
 handleDelete.peek = peekDelete;
 /**
@@ -12557,7 +12627,6 @@ function attentionDelete() {
 function peekDelete() {
 	return "~";
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/mdast-util-gfm-table/lib/index.js
 /**
 * @typedef {import('mdast').InlineCode} InlineCode
 * @typedef {import('mdast').Table} Table
@@ -12681,7 +12750,6 @@ function exitCodeText(token) {
 function replace($0, $1) {
 	return $1 === "|" ? $1 : $0;
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/mdast-util-gfm-task-list-item/lib/index.js
 /**
 * @typedef {import('mdast').ListItem} ListItem
 * @typedef {import('mdast').Paragraph} Paragraph
@@ -12749,7 +12817,6 @@ function exitParagraphWithTaskListItem(token) {
 	}
 	this.exit(token);
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/mdast-util-gfm/lib/index.js
 /**
 * @import {Extension as FromMarkdownExtension} from 'mdast-util-from-markdown'
 * @import {Options} from 'mdast-util-gfm'
@@ -12772,7 +12839,6 @@ function gfmFromMarkdown() {
 		gfmTaskListItemFromMarkdown()
 	];
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/mdast-util-math/lib/index.js
 /**
 * @typedef {import('hast').Element} HastElement
 * @typedef {import('hast').ElementContent} HastElementContent
@@ -12920,7 +12986,6 @@ function mathFromMarkdown() {
 		this.config.exit.data.call(this, token);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-extension-gfm-autolink-literal/lib/syntax.js
 /**
 * @import {Code, ConstructRecord, Event, Extension, Previous, State, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -13620,7 +13685,6 @@ function previousUnbalanced(events) {
 	if (events.length > 0 && !result) events[events.length - 1][1]._gfmAutolinkLiteralWalkedInto = true;
 	return result;
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-extension-gfm-footnote/lib/syntax.js
 /**
 * @import {Event, Exiter, Extension, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -14038,7 +14102,6 @@ function tokenizeIndent(effects, ok, nok) {
 		return tail && tail[1].type === "gfmFootnoteDefinitionIndent" && tail[2].sliceSerialize(tail[1], true).length === 4 ? ok(code) : nok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-extension-gfm-strikethrough/lib/syntax.js
 /**
 * @import {Options} from 'micromark-extension-gfm-strikethrough'
 * @import {Event, Extension, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
@@ -14178,7 +14241,6 @@ function gfmStrikethrough(options) {
 		}
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-extension-gfm-table/lib/edit-map.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -14288,7 +14350,6 @@ function addImplementation(editMap, at, remove, add) {
 	editMap.map.push(change);
 	editMap.index.set(at, change);
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-extension-gfm-table/lib/infer.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -14325,7 +14386,6 @@ function gfmTableAlign(events, index) {
 	}
 	return align;
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-extension-gfm-table/lib/syntax.js
 /**
 * @import {Event, Extension, Point, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -15041,7 +15101,6 @@ function getPoint(events, index) {
 	const side = event[0] === "enter" ? "start" : "end";
 	return event[1][side];
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-extension-gfm-task-list-item/lib/syntax.js
 /**
 * @import {Extension, State, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -15159,7 +15218,6 @@ function spaceThenNonSpace(effects, ok, nok) {
 		return code === null ? nok(code) : ok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-extension-gfm/index.js
 /**
 * @typedef {import('micromark-extension-gfm-footnote').HtmlOptions} HtmlOptions
 * @typedef {import('micromark-extension-gfm-strikethrough').Options} Options
@@ -15186,7 +15244,6 @@ function gfm(options) {
 		gfmTaskListItem()
 	]);
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-extension-math/lib/math-flow.js
 /**
 * @import {Construct, State, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -15490,7 +15547,6 @@ function tokenizeNonLazyContinuation$1(effects, ok, nok) {
 		return self.parser.lazy[self.now().line] ? nok(code) : ok(code);
 	}
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-extension-math/lib/math-text.js
 /**
 * @import {Options} from 'micromark-extension-math'
 * @import {Construct, Previous, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
@@ -15675,7 +15731,6 @@ function resolveMathText(events) {
 function previous(code) {
 	return code !== 36 || this.events[this.events.length - 1][1].type === "characterEscape";
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-extension-math/lib/syntax.js
 /**
 * @import {Options} from 'micromark-extension-math'
 * @import {Extension} from 'micromark-util-types'
@@ -15695,7 +15750,6 @@ function math(options) {
 		text: { [36]: mathText(options) }
 	};
 }
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-util-symbol/lib/codes.js
 /**
 * Character codes.
 *
@@ -15852,7 +15906,6 @@ const codes = {
 	byteOrderMarker: 65279,
 	replacementCharacter: 65533
 };
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-util-symbol/lib/constants.js
 /**
 * This module is compiled away!
 *
@@ -15897,7 +15950,6 @@ const constants = {
 	thematicBreakMarkerCountMin: 3,
 	v8MaxSafeChunkSize: 1e4
 };
-// ../../../../bothouse-116-118-verified/dsh/node_modules/micromark-util-symbol/lib/types.js
 /**
 * This module is compiled away!
 *
@@ -16318,152 +16370,152 @@ function softBreaksToHard(text) {
 }
 // src/client/ChannelsPage.module.css
 var ChannelsPage_module_default = {
-	"activeBusy": "kVbGEq_activeBusy",
-	"activeCount": "kVbGEq_activeCount",
-	"addMemberButton": "kVbGEq_addMemberButton",
-	"attachmentAudio": "kVbGEq_attachmentAudio",
-	"attachmentFile": "kVbGEq_attachmentFile",
-	"attachmentImage": "kVbGEq_attachmentImage",
-	"attachments": "kVbGEq_attachments",
-	"attachmentSize": "kVbGEq_attachmentSize",
-	"attachmentThumb": "kVbGEq_attachmentThumb",
-	"author": "kVbGEq_author",
-	"avatar": "kVbGEq_avatar",
-	"avatarAnchor": "kVbGEq_avatarAnchor",
-	"avatarButton": "kVbGEq_avatarButton",
-	"avatarImage": "kVbGEq_avatarImage",
-	"avatarMenu": "kVbGEq_avatarMenu",
-	"avatarMenuItem": "kVbGEq_avatarMenuItem",
-	"avatarMenuTitle": "kVbGEq_avatarMenuTitle",
-	"avatarOption": "kVbGEq_avatarOption",
-	"avatarPicker": "kVbGEq_avatarPicker",
-	"avatarSmall": "kVbGEq_avatarSmall",
-	"boardCardGrid": "kVbGEq_boardCardGrid",
-	"boardTabCount": "kVbGEq_boardTabCount",
-	"boardTabEmpty": "kVbGEq_boardTabEmpty",
-	"boardTabs": "kVbGEq_boardTabs",
-	"boardTaskCard": "kVbGEq_boardTaskCard",
-	"boardTaskHeader": "kVbGEq_boardTaskHeader",
-	"boardTaskTitle": "kVbGEq_boardTaskTitle",
-	"capabilityHelp": "kVbGEq_capabilityHelp",
-	"capabilityItem": "kVbGEq_capabilityItem",
-	"capabilityMenu": "kVbGEq_capabilityMenu",
-	"card": "kVbGEq_card",
-	"cardButtons": "kVbGEq_cardButtons",
-	"cardHead": "kVbGEq_cardHead",
-	"cardTitle": "kVbGEq_cardTitle",
-	"cardViewButton": "kVbGEq_cardViewButton",
-	"cardViews": "kVbGEq_cardViews",
-	"chat": "kVbGEq_chat",
-	"chatHead": "kVbGEq_chatHead",
-	"choice": "kVbGEq_choice",
-	"choiceRow": "kVbGEq_choiceRow",
-	"composer": "kVbGEq_composer",
-	"composerBox": "kVbGEq_composerBox",
-	"composerToolbar": "kVbGEq_composerToolbar",
-	"dialog": "kVbGEq_dialog",
-	"dialogActions": "kVbGEq_dialogActions",
-	"dialogBackdrop": "kVbGEq_dialogBackdrop",
-	"dialogTitle": "kVbGEq_dialogTitle",
-	"drawerBackdrop": "kVbGEq_drawerBackdrop",
-	"drawerOpen": "kVbGEq_drawerOpen",
-	"editBar": "kVbGEq_editBar",
-	"editBox": "kVbGEq_editBox",
-	"edited": "kVbGEq_edited",
-	"editInput": "kVbGEq_editInput",
-	"empty": "kVbGEq_empty",
-	"field": "kVbGEq_field",
-	"fieldInput": "kVbGEq_fieldInput",
-	"focused": "kVbGEq_focused",
-	"groupHead": "kVbGEq_groupHead",
-	"groupTitle": "kVbGEq_groupTitle",
-	"guide": "kVbGEq_guide",
-	"hash": "kVbGEq_hash",
-	"iconButton": "kVbGEq_iconButton",
-	"input": "kVbGEq_input",
-	"linkButton": "kVbGEq_linkButton",
-	"log": "kVbGEq_log",
-	"member": "kVbGEq_member",
-	"memberActions": "kVbGEq_memberActions",
-	"memberAvatar": "kVbGEq_memberAvatar",
-	"memberFailed": "kVbGEq_memberFailed",
-	"memberModel": "kVbGEq_memberModel",
-	"memberName": "kVbGEq_memberName",
-	"memberRow": "kVbGEq_memberRow",
-	"members": "kVbGEq_members",
-	"membersHidden": "kVbGEq_membersHidden",
-	"memberStatus": "kVbGEq_memberStatus",
-	"memberText": "kVbGEq_memberText",
-	"mentionActive": "kVbGEq_mentionActive",
-	"mentionButton": "kVbGEq_mentionButton",
-	"mentionHint": "kVbGEq_mentionHint",
-	"mentionItem": "kVbGEq_mentionItem",
-	"mentionMeta": "kVbGEq_mentionMeta",
-	"mentionName": "kVbGEq_mentionName",
-	"mentionPopup": "kVbGEq_mentionPopup",
-	"mentionTitle": "kVbGEq_mentionTitle",
-	"message": "kVbGEq_message",
-	"messageBody": "kVbGEq_messageBody",
-	"messageHead": "kVbGEq_messageHead",
-	"mobileButton": "kVbGEq_mobileButton",
-	"notice": "kVbGEq_notice",
-	"offline": "kVbGEq_offline",
-	"ownActions": "kVbGEq_ownActions",
-	"page": "kVbGEq_page",
-	"panelToggle": "kVbGEq_panelToggle",
-	"panelToggleEnd": "kVbGEq_panelToggleEnd",
-	"permActions": "kVbGEq_permActions",
-	"permScope": "kVbGEq_permScope",
-	"permStatus": "kVbGEq_permStatus",
-	"presence": "kVbGEq_presence",
-	"primaryButton": "kVbGEq_primaryButton",
-	"quote": "kVbGEq_quote",
-	"quoteAuthor": "kVbGEq_quoteAuthor",
-	"quoteDeleted": "kVbGEq_quoteDeleted",
-	"replyBar": "kVbGEq_replyBar",
-	"replyBarText": "kVbGEq_replyBarText",
-	"replyButton": "kVbGEq_replyButton",
-	"replyCancel": "kVbGEq_replyCancel",
-	"room": "kVbGEq_room",
-	"roomActive": "kVbGEq_roomActive",
-	"roomInput": "kVbGEq_roomInput",
-	"roomLabel": "kVbGEq_roomLabel",
-	"rooms": "kVbGEq_rooms",
-	"roomsHidden": "kVbGEq_roomsHidden",
-	"secondaryButton": "kVbGEq_secondaryButton",
-	"sendButton": "kVbGEq_sendButton",
-	"sendError": "kVbGEq_sendError",
-	"settingsButton": "kVbGEq_settingsButton",
-	"settingsDivider": "kVbGEq_settingsDivider",
-	"system": "kVbGEq_system",
-	"tag": "kVbGEq_tag",
-	"taskBoardBody": "kVbGEq_taskBoardBody",
-	"taskBoardDialog": "kVbGEq_taskBoardDialog",
-	"taskBoardScope": "kVbGEq_taskBoardScope",
-	"taskBoardSummary": "kVbGEq_taskBoardSummary",
-	"taskBoardTrigger": "kVbGEq_taskBoardTrigger",
-	"taskCard": "kVbGEq_taskCard",
-	"taskDone": "kVbGEq_taskDone",
-	"taskEmpty": "kVbGEq_taskEmpty",
-	"taskLine": "kVbGEq_taskLine",
-	"taskLinks": "kVbGEq_taskLinks",
-	"taskList": "kVbGEq_taskList",
-	"taskMember": "kVbGEq_taskMember",
-	"taskMemberName": "kVbGEq_taskMemberName",
-	"taskMembers": "kVbGEq_taskMembers",
-	"taskMeta": "kVbGEq_taskMeta",
-	"taskOwnerGroup": "kVbGEq_taskOwnerGroup",
-	"taskOwnerName": "kVbGEq_taskOwnerName",
-	"taskRow": "kVbGEq_taskRow",
-	"taskSection": "kVbGEq_taskSection",
-	"taskSectionTitle": "kVbGEq_taskSectionTitle",
-	"taskStatus": "kVbGEq_taskStatus",
-	"taskSub": "kVbGEq_taskSub",
-	"taskTitle": "kVbGEq_taskTitle",
-	"text": "kVbGEq_text",
-	"time": "kVbGEq_time",
-	"working": "kVbGEq_working",
-	"workspace": "kVbGEq_workspace"
+	"activeBusy": "dshc_activeBusy",
+	"activeCount": "dshc_activeCount",
+	"addMemberButton": "dshc_addMemberButton",
+	"attachmentAudio": "dshc_attachmentAudio",
+	"attachmentFile": "dshc_attachmentFile",
+	"attachmentImage": "dshc_attachmentImage",
+	"attachments": "dshc_attachments",
+	"attachmentSize": "dshc_attachmentSize",
+	"attachmentThumb": "dshc_attachmentThumb",
+	"author": "dshc_author",
+	"avatar": "dshc_avatar",
+	"avatarAnchor": "dshc_avatarAnchor",
+	"avatarButton": "dshc_avatarButton",
+	"avatarImage": "dshc_avatarImage",
+	"avatarMenu": "dshc_avatarMenu",
+	"avatarMenuItem": "dshc_avatarMenuItem",
+	"avatarMenuTitle": "dshc_avatarMenuTitle",
+	"avatarOption": "dshc_avatarOption",
+	"avatarPicker": "dshc_avatarPicker",
+	"avatarSmall": "dshc_avatarSmall",
+	"boardCardGrid": "dshc_boardCardGrid",
+	"boardTabCount": "dshc_boardTabCount",
+	"boardTabEmpty": "dshc_boardTabEmpty",
+	"boardTabs": "dshc_boardTabs",
+	"boardTaskCard": "dshc_boardTaskCard",
+	"boardTaskHeader": "dshc_boardTaskHeader",
+	"boardTaskTitle": "dshc_boardTaskTitle",
+	"capabilityHelp": "dshc_capabilityHelp",
+	"capabilityItem": "dshc_capabilityItem",
+	"capabilityMenu": "dshc_capabilityMenu",
+	"card": "dshc_card",
+	"cardButtons": "dshc_cardButtons",
+	"cardHead": "dshc_cardHead",
+	"cardTitle": "dshc_cardTitle",
+	"cardViewButton": "dshc_cardViewButton",
+	"cardViews": "dshc_cardViews",
+	"chat": "dshc_chat",
+	"chatHead": "dshc_chatHead",
+	"choice": "dshc_choice",
+	"choiceRow": "dshc_choiceRow",
+	"composer": "dshc_composer",
+	"composerBox": "dshc_composerBox",
+	"composerToolbar": "dshc_composerToolbar",
+	"dialog": "dshc_dialog",
+	"dialogActions": "dshc_dialogActions",
+	"dialogBackdrop": "dshc_dialogBackdrop",
+	"dialogTitle": "dshc_dialogTitle",
+	"drawerBackdrop": "dshc_drawerBackdrop",
+	"drawerOpen": "dshc_drawerOpen",
+	"editBar": "dshc_editBar",
+	"editBox": "dshc_editBox",
+	"edited": "dshc_edited",
+	"editInput": "dshc_editInput",
+	"empty": "dshc_empty",
+	"field": "dshc_field",
+	"fieldInput": "dshc_fieldInput",
+	"focused": "dshc_focused",
+	"groupHead": "dshc_groupHead",
+	"groupTitle": "dshc_groupTitle",
+	"guide": "dshc_guide",
+	"hash": "dshc_hash",
+	"iconButton": "dshc_iconButton",
+	"input": "dshc_input",
+	"linkButton": "dshc_linkButton",
+	"log": "dshc_log",
+	"member": "dshc_member",
+	"memberActions": "dshc_memberActions",
+	"memberAvatar": "dshc_memberAvatar",
+	"memberFailed": "dshc_memberFailed",
+	"memberModel": "dshc_memberModel",
+	"memberName": "dshc_memberName",
+	"memberRow": "dshc_memberRow",
+	"members": "dshc_members",
+	"membersHidden": "dshc_membersHidden",
+	"memberStatus": "dshc_memberStatus",
+	"memberText": "dshc_memberText",
+	"mentionActive": "dshc_mentionActive",
+	"mentionButton": "dshc_mentionButton",
+	"mentionHint": "dshc_mentionHint",
+	"mentionItem": "dshc_mentionItem",
+	"mentionMeta": "dshc_mentionMeta",
+	"mentionName": "dshc_mentionName",
+	"mentionPopup": "dshc_mentionPopup",
+	"mentionTitle": "dshc_mentionTitle",
+	"message": "dshc_message",
+	"messageBody": "dshc_messageBody",
+	"messageHead": "dshc_messageHead",
+	"mobileButton": "dshc_mobileButton",
+	"notice": "dshc_notice",
+	"offline": "dshc_offline",
+	"ownActions": "dshc_ownActions",
+	"page": "dshc_page",
+	"panelToggle": "dshc_panelToggle",
+	"panelToggleEnd": "dshc_panelToggleEnd",
+	"permActions": "dshc_permActions",
+	"permScope": "dshc_permScope",
+	"permStatus": "dshc_permStatus",
+	"presence": "dshc_presence",
+	"primaryButton": "dshc_primaryButton",
+	"quote": "dshc_quote",
+	"quoteAuthor": "dshc_quoteAuthor",
+	"quoteDeleted": "dshc_quoteDeleted",
+	"replyBar": "dshc_replyBar",
+	"replyBarText": "dshc_replyBarText",
+	"replyButton": "dshc_replyButton",
+	"replyCancel": "dshc_replyCancel",
+	"room": "dshc_room",
+	"roomActive": "dshc_roomActive",
+	"roomInput": "dshc_roomInput",
+	"roomLabel": "dshc_roomLabel",
+	"rooms": "dshc_rooms",
+	"roomsHidden": "dshc_roomsHidden",
+	"secondaryButton": "dshc_secondaryButton",
+	"sendButton": "dshc_sendButton",
+	"sendError": "dshc_sendError",
+	"settingsButton": "dshc_settingsButton",
+	"settingsDivider": "dshc_settingsDivider",
+	"system": "dshc_system",
+	"tag": "dshc_tag",
+	"taskBoardBody": "dshc_taskBoardBody",
+	"taskBoardDialog": "dshc_taskBoardDialog",
+	"taskBoardScope": "dshc_taskBoardScope",
+	"taskBoardSummary": "dshc_taskBoardSummary",
+	"taskBoardTrigger": "dshc_taskBoardTrigger",
+	"taskCard": "dshc_taskCard",
+	"taskDone": "dshc_taskDone",
+	"taskEmpty": "dshc_taskEmpty",
+	"taskLine": "dshc_taskLine",
+	"taskLinks": "dshc_taskLinks",
+	"taskList": "dshc_taskList",
+	"taskMember": "dshc_taskMember",
+	"taskMemberName": "dshc_taskMemberName",
+	"taskMembers": "dshc_taskMembers",
+	"taskMeta": "dshc_taskMeta",
+	"taskOwnerGroup": "dshc_taskOwnerGroup",
+	"taskOwnerName": "dshc_taskOwnerName",
+	"taskRow": "dshc_taskRow",
+	"taskSection": "dshc_taskSection",
+	"taskSectionTitle": "dshc_taskSectionTitle",
+	"taskStatus": "dshc_taskStatus",
+	"taskSub": "dshc_taskSub",
+	"taskTitle": "dshc_taskTitle",
+	"text": "dshc_text",
+	"time": "dshc_time",
+	"working": "dshc_working",
+	"workspace": "dshc_workspace"
 };
 // src/client/Attachments.tsx
 const isImage = (mime) => /^image\/(png|jpeg|gif|webp)$/.test(mime);
