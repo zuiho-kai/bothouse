@@ -56,12 +56,8 @@ func TestRoleIdentitySwitchPreservesCustomNameAndPersona(t *testing.T) {
 				t.Fatalf("name=%s backend=%s", got.TeamName, got.Agent.Type)
 			}
 			b, err := os.ReadFile(core.PersonaFilePath("claudecode", work))
-			if tc.customized == nil {
-				if !os.IsNotExist(err) {
-					t.Fatal("legacy persona migrated")
-				}
-			} else if err != nil || string(b) != persona {
-				t.Fatalf("persona=%q err=%v", b, err)
+			if err != nil || string(b) != persona {
+				t.Fatalf("persona not preserved for %s: %q err=%v", tc.name, b, err)
 			}
 			details := GetProjectConfigDetails("coder")
 			if tc.customized == nil {
@@ -75,3 +71,39 @@ func TestRoleIdentitySwitchPreservesCustomNameAndPersona(t *testing.T) {
 	}
 }
 func boolValue(v bool) *bool { return &v }
+
+func TestRoleIdentitySwitchRenamesPersonaIdentity(t *testing.T) {
+	dir := t.TempDir()
+	old := ConfigPath
+	ConfigPath = filepath.Join(dir, "config.toml")
+	t.Cleanup(func() { ConfigPath = old })
+	if err := os.WriteFile(ConfigPath, []byte("[log]\nlevel='info'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(dir, "work")
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	persona := "# 角色：Codex\n\n你是「Codex」——橘色长发、白橘黑礼裙。\n"
+	if err := os.WriteFile(core.PersonaFilePath("codex", work), []byte(persona), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertWizardProject(WizardProjectOptions{Name: "coder", AgentType: "codex", WorkDir: work, DisplayName: "Codex", NameCustomized: boolValue(false)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertWizardProject(WizardProjectOptions{Name: "taken", AgentType: "claudecode", DisplayName: "Claude Code"}); err != nil {
+		t.Fatal(err)
+	}
+	backend := "claudecode"
+	if err := SaveProjectSettings("coder", ProjectSettingsUpdate{AgentType: &backend}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(core.PersonaFilePath("claudecode", work))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# 角色：Claude Code-2\n\n你是「Claude Code-2」——橘色长发、白橘黑礼裙。\n"
+	if string(b) != want {
+		t.Fatalf("persona identity not renamed:\n%s", b)
+	}
+}

@@ -11,6 +11,7 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChannelMember, LocalCli, MemberInput, MemberPersona, ModelRoute, PermissionPreset } from './channel-source.ts'
 import type { NS } from './locales.ts'
 import { Avatar } from './Avatar.tsx'
+import { renamePersonaIdentity } from './persona.ts'
 import { AVATARS } from './avatars.ts'
 import css from './ChannelsPage.module.css'
 
@@ -76,8 +77,10 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
     const used = new Set(members.filter(m => m.id !== member?.id).map(m => m.name.toLowerCase()))
     let next = backend
     for (let n = 2; used.has(next.toLowerCase()); n++) next = `${backend}-${n}`
+    if (next === name) return
+    if (keepName && persona) setPersona(text => renamePersonaIdentity(text, name, next))
     setName(next)
-  }, [backend, nameCustomized, members, member?.id])
+  }, [backend, nameCustomized, members, member?.id, name, keepName, persona])
   useEffect(() => {
     if (listPersonas) listPersonas().then(setPersonas).catch(reason => setError(String(reason)))
   }, [listPersonas])
@@ -142,7 +145,7 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
           <span>{t('memberName')}</span>
           <input className={css.fieldInput} value={name} maxLength={32} onChange={(event) => {
             const next = event.target.value
-            if (personaSlug && keepName && name) setPersona(persona.split(name).join(next))
+            if (personaSlug && keepName && name) setPersona(renamePersonaIdentity(persona, name, next))
             setName(next)
             setNameCustomized(true)
           }} />
@@ -170,7 +173,7 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
         <select className={css.fieldInput} aria-label={t('memberPersonaLibrary')} value={personaSlug} onChange={e => {
           setPersonaSlug(e.target.value)
           const p = personas.find(p => p.slug === e.target.value)
-          setPersona(p ? (keepName ? p.text.split(p.name).join(name) : p.text) : '')
+          setPersona(p ? (keepName ? renamePersonaIdentity(p.text, p.name, name) : p.text) : '')
           if (p) { setAvatar(p.avatar || ''); if (!keepName) { setName(p.name); setNameCustomized(true) } }
         }}><option value="">{t('memberPersonaNone')}</option>{personas.map(p => <option key={p.slug} value={p.slug}>{p.name}</option>)}</select>
         <label className={css.field}><span>{t('memberPersona')}</span><textarea className={css.fieldInput} rows={4} value={persona} maxLength={4000} onChange={e => setPersona(e.target.value)} /></label>

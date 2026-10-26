@@ -692,8 +692,8 @@ func ApplyPersonaToRoles(dataDir string, store WizardStore, slug, text string) (
 			lib := LoadLibrary(dataDir, "zh", st)
 			english := LoadLibrary(dataDir, "en", st)
 			for _, preset := range append(lib.Personas, english.Personas...) {
-				if preset.Slug == slug && preset.Name != "" && strings.Contains(text, preset.Name) {
-					roleText = strings.ReplaceAll(text, preset.Name, name)
+				if preset.Slug == slug {
+					roleText = RenamePersonaIdentity(text, preset.Name, name)
 					break
 				}
 			}

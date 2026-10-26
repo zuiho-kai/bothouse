@@ -26,10 +26,11 @@ import (
 
 // DSHMember is one role the wizard adds to the DSH channels (collab dsh/collab/roster.mjs fields).
 type DSHMember struct {
-	Name    string `json:"name"`
-	CLI     string `json:"cli,omitempty"` // claude | codex | gemini (collab roster.mjs CLIS); empty = DSH model
-	Persona string `json:"persona,omitempty"`
-	Avatar  string `json:"avatar,omitempty"`
+	Name           string `json:"name"`
+	CLI            string `json:"cli,omitempty"` // claude | codex | gemini (collab roster.mjs CLIS); empty = DSH model
+	Persona        string `json:"persona,omitempty"`
+	Avatar         string `json:"avatar,omitempty"`
+	NameCustomized *bool  `json:"name_customized,omitempty"`
 }
 
 // DSHConfigureRequest is the body of POST /setup/dsh/configure.
@@ -49,6 +50,16 @@ type DSHConfigureResult struct {
 var dshCLIs = map[string]bool{"claude": true, "codex": true, "gemini": true}
 
 var dshMemberName = regexp.MustCompile(`^[^\s@<>]{1,32}$`) // collab roster.mjs validate(): 1-32, no spaces, @ or <>
+var dshClaudeName = regexp.MustCompile(`^Claude Code(?:-\d+)?$`)
+
+// validDSHMemberName mirrors the DSH roster's exception for the automatic
+// Claude Code name; ordinary names still may not contain spaces.
+func validDSHMemberName(name string) bool {
+	if dshClaudeName.MatchString(name) {
+		return len(name) <= 32
+	}
+	return dshMemberName.MatchString(name)
+}
 
 // collabDataDir mirrors dsh/collab/cordis.patch.yml: $CONEST_COLLAB_DATA, else ~/.conest-collab.
 func collabDataDir() string {
@@ -79,8 +90,8 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 	seen := map[string]bool{}
 	for i, m := range req.Members {
 		m.Name = strings.TrimSpace(m.Name)
-		if !dshMemberName.MatchString(m.Name) {
-			return res, fmt.Errorf("角色名「%s」不能为空、不能超过 32 个字，也不能有空格、@ 或 <>", m.Name)
+		if !validDSHMemberName(m.Name) {
+			return res, fmt.Errorf("角色名「%s」不能为空、不能超过 32 个字，也不能有空格（Claude Code 自动名除外）、@ 或 <>", m.Name)
 		}
 		if seen[strings.ToLower(m.Name)] {
 			return res, fmt.Errorf("角色名「%s」重复了", m.Name)

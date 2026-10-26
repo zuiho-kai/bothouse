@@ -14,5 +14,15 @@ export function roleLabel(name: string, backend: string) {
   const label = backendLabel(backend);
   return !label || name === label ? name : `${name}·${label}`;
 }
-export const personaWithName = (text: string, presetName: string, name: string) =>
-  presetName ? text.split(presetName).join(name) : text;
+export function personaWithName(text: string, presetName: string, name: string) {
+  if (!presetName || presetName === name) return text;
+  let out = text;
+  for (const [from, to] of [
+    [`「${presetName}」`, `「${name}」`],
+    [`"${presetName}"`, `"${name}"`],
+    [`“${presetName}”`, `“${name}”`],
+    [`# 角色：${presetName}`, `# 角色：${name}`],
+    [`# Character: ${presetName}`, `# Character: ${name}`],
+  ]) out = out.split(from).join(to);
+  return out;
+}

@@ -307,6 +307,12 @@ export default function ProjectDetail() {
     return <div className="flex items-center justify-center h-64 text-gray-400 animate-pulse">Loading...</div>;
   }
 
+  const headerName = nameTouched
+    ? displayName
+    : project?.name_customized === false && selectedAgentType !== project.agent_type
+      ? backendLabel(selectedAgentType)
+      : shownName(project) || name || '';
+
   return (
     <div className="space-y-6 animate-fade-in ">
       {/* Back + title */}
@@ -314,8 +320,7 @@ export default function ProjectDetail() {
         <Link to="/projects" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
           <ArrowLeft size={18} className="text-gray-400" />
         </Link>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white">{roleLabel(shownName(project) || name || '', project?.agent_type || '')}</h2>
-        {project && <Badge variant="info">{project.agent_type}</Badge>}
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white">{roleLabel(headerName, selectedAgentType || project?.agent_type || '')}</h2>
       </div>
 
       {/* Tabs */}
