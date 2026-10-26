@@ -652,7 +652,11 @@ export class DshMembers {
       done = true;
       this.store.finishJob(job.id, 'done', message.id);
     } catch (error) {
-      if (error?.code === 'COLLAB_CLI_START') error.message = `频道 #${room.name} ${error.message}`;
+      if (error?.code === 'COLLAB_CLI_START') {
+        throw Object.assign(new Error(`频道 #${room.name} ${error.message}`, { cause: error }), {
+          code: error.code, cwd: error.cwd, cli: error.cli,
+        });
+      }
       throw error;
     } finally {
       turnOver.abort();

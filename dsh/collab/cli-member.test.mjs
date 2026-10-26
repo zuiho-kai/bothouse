@@ -1,8 +1,37 @@
 // CliMember session persistence: resume a stored ACP sessionId with session/load,
-// or open a new session and report lost when the CLI cannot load it. No CLI is spawned.
+// or open a new session and report lost when the CLI cannot load it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CliMember, cleanEnv } from './cli-member.mjs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+test('spawn failure retries after the missing directory is created', { timeout: 5000 }, async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'cli-retry-'));
+  const cwd = join(dir, 'workspace');
+  writeFileSync(join(dir, 'gemini'), `#!${process.execPath}
+const { createInterface } = require('node:readline');
+const send = frame => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...frame }) + '\\n');
+createInterface({ input: process.stdin }).on('line', line => {
+  const request = JSON.parse(line);
+  if (request.method === 'initialize') send({ id: request.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+  if (request.method === 'session/new') send({ id: request.id, result: { sessionId: 'recovered' } });
+  if (request.method === 'session/prompt') {
+    send({ method: 'session/update', params: { sessionId: 'recovered', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'ready again' } } } });
+    send({ id: request.id, result: { stopReason: 'end_turn' } });
+  }
+});
+`, { mode: 0o755 });
+  const m = new CliMember({ cli: 'gemini', cwd, env: { PATH: dir } });
+  t.after(() => m.close());
+  await assert.rejects(m.ask('first', 'r1'), { code: 'COLLAB_CLI_START' });
+  const failedProcess = m.proc;
+  mkdirSync(cwd);
+  assert.equal(await m.ask('second', 'r1'), 'ready again');
+  assert.notEqual(m.proc, failedProcess, 'the next ask starts a fresh process');
+  assert.equal(m.sessions.get('r1').sessionId, 'recovered');
+});
 
 /** A CliMember whose ACP connection is a fake; canLoad mirrors agentCapabilities.loadSession. */
 function fakeMember({ canLoad, loadFails = false, persona = 'P' } = {}) {

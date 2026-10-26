@@ -1277,6 +1277,36 @@ function cliMembers(hub, ask) {
     [{ id: 'cc', name: 'CC', cli: 'claude' }, { id: 'ds', name: 'DeepSeek' }]);
 }
 
+test('CLI directory errors add one channel prefix without mutating a reused cause', async () => {
+  const hub = makeHub();
+  const cause = Object.assign(new Error('CLI gemini cannot start: ENOENT'), {
+    code: 'COLLAB_CLI_START', cwd: '/missing', cli: 'gemini',
+  });
+  const members = cliMembers(hub, async () => { throw cause; });
+  const errors = [];
+  const runCli = members.runCli.bind(members);
+  members.runCli = async (...args) => {
+    try { return await runCli(...args); }
+    catch (error) { errors.push(error); throw error; }
+  };
+  try {
+    for (const text of ['@CC first try', '@CC second try']) {
+      hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text });
+      await settle();
+      assert.equal(hub.members.get('cc').error.match(/频道 #general/g)?.length, 1);
+    }
+    assert.equal(errors.length, 2);
+    for (const error of errors) {
+      assert.notEqual(error, cause);
+      assert.equal(error.cause, cause);
+      assert.equal(error.code, cause.code);
+      assert.equal(error.cwd, cause.cwd);
+      assert.equal(error.cli, cause.cli);
+    }
+    assert.equal(cause.message, 'CLI gemini cannot start: ENOENT');
+  } finally { await members.close(); hub.store.close(); }
+});
+
 test('CLI member streams: first chunk opens a draft, later chunks edit it, the reply commits the same row and hands off', async () => {
   const hub = makeHub();
   let release; const gate = new Promise(r => { release = r; });

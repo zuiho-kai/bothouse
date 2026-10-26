@@ -111,6 +111,8 @@ export class CliMember {
     this.conn = new acp.ClientSideConnection(() => client, stream)
     const exited = new Promise((_, rej) => {
       proc.once('error', cause => {
+        this.ready = null
+        this.exited = null
         if (existsSync(this.cwd)) return rej(cause)
         const error = new Error(`CLI ${this.cli} 在目录 ${this.cwd} 无法启动：${cause.message}`, { cause })
         error.code = 'COLLAB_CLI_START'
