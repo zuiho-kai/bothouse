@@ -50,7 +50,7 @@
 
 ### 1. 安装
 
-直接从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载对应系统的包（无需预装 Go 或 Node）。手动下载后，先按[完整指南中的校验步骤](docs/GETTING_STARTED.md)对照同一发布的 SHA256SUMS 核验文件，再按下述方式首次打开；也可使用下方自带 SHA256 校验的一行安装命令。
+直接从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载对应系统的包（无需预装 Go 或 Node）。推荐使用下方自带 SHA256 校验的一行安装命令。手动下载时，先将文件的 SHA256 与同一发布的 SHA256SUMS 对照核验，再按下述方式首次打开。安装详情见[完整指南](docs/GETTING_STARTED.md)。
 
 - **macOS**：`bothouse-mac.dmg`（Apple Silicon / Intel 通用。因未签名，拖入 Applications 后**首次打开请「右键 → 打开」**）
 - **Windows**：`bothouse-windows.exe`（x64 / ARM64 通用。若弹出 SmartScreen 拦截，点「更多信息 → 仍要运行」）

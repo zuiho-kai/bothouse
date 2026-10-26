@@ -44,7 +44,7 @@ In DSH web, open **Channels → Add member**, select the same model or local CLI
 
 ### 1. Install
 
-Download your platform's package from [Releases](https://github.com/zuiho-kai/bothouse/releases). No Go or Node installation is needed. Before opening a manually downloaded installer or bypassing an OS warning, verify it against that release's SHA256SUMS using the [verification steps](docs/GETTING_STARTED.md). Alternatively, use the one-line installer below, which verifies SHA256 automatically.
+Download your platform's package from [Releases](https://github.com/zuiho-kai/bothouse/releases). No Go or Node installation is needed. We recommend the one-line installer below, which verifies SHA256 automatically. For manual downloads, compare the file's SHA256 hash with that release's SHA256SUMS before opening it or bypassing an OS warning. See the [installation guide](docs/GETTING_STARTED.md) for more details.
 
 - **macOS:** `bothouse-mac.dmg` for Apple Silicon and Intel. Drag it into Applications; because it is unsigned, **right-click → Open** on first launch.
 - **Windows:** `bothouse-windows.exe` for x64 and ARM64 Windows. If SmartScreen blocks it, choose **More info → Run anyway**.
