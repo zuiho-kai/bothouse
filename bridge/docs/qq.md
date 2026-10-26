@@ -136,6 +136,53 @@ Both need the roles to run in one process: each `qq` platform registers itself b
 
 `http_url` is NapCat's HTTP API endpoint (e.g. `http://127.0.0.1:3000`). With it set, receiving a file re-resolves an expiring CDN link via `get_group_file_url` / `get_file`, and sending a file goes over HTTP instead of the WebSocket, avoiding large frames and cross-container path issues.
 
+## 接到 DSH 频道 / Bridging into DSH channels
+
+DSH（`dsh/`）的频道要接 QQ，**不需要写 QQ 插件**：DSH 的外部 bot 一律走 `cloud_web` 协议（`dsh/collab/README.md`「接入 cc-connect 成员」），QQ 则由 cc-connect 当平台接进来。一个项目同时挂这两个平台，QQ 群和 DSH 频道就是同一个 agent 的两个入口。
+
+There is **no QQ plugin to write** for DSH channels: DSH takes external bots over the `cloud_web` protocol (`dsh/collab/README.md`), and QQ is a cc-connect platform. One project mounting both platforms makes a QQ group and a DSH channel two doors into the same agent.
+
+```
+QQ 群 ←→ NapCat ←WebSocket→ cc-connect ⟨qq 平台⟩
+                                    ↕ 同一个 agent / 同一份记忆
+DSH 频道 ←WebSocket→ cc-connect ⟨cloud_web 平台⟩
+```
+
+```toml
+[[projects]]
+name = "ju"
+
+[[projects.platforms]]
+type = "qq"
+[projects.platforms.options]
+ws_url = "ws://127.0.0.1:3001"
+allow_from = "*"
+share_session_in_channel = true
+
+[[projects.platforms]]
+type = "cloud_web"
+[projects.platforms.options]
+transport = "websocket"
+base_url = "http://127.0.0.1:<DSH 端口>"
+ws_url = "ws://127.0.0.1:<DSH 端口>/cloud-web/ws?bot=ju&name=%E6%A9%98"
+token = "${CONEST_COLLAB_BOT_TOKEN}"
+allow_from = "*"
+share_session_in_channel = true
+group_reply_all = false
+```
+
+两边各自是一个会话（`qq:<群号>`、`cloud_web:<频道>`），共用同一个 agent 和工作目录，所以在 QQ 群里交代的事，DSH 频道里接着问也记得。
+
+Each side is its own session (`qq:<group id>`, `cloud_web:<channel>`), shared agent and working directory: work started in a QQ group is still there when you ask from the DSH channel.
+
+`share_session_in_channel = true` 两边都要开，否则群里每人一个会话，@ 谁都不像一个群。
+
+Set `share_session_in_channel = true` on both, otherwise each person in the group gets their own session and the group does not behave like one channel.
+
+> 这条链路目前**没有真机验过**：QQ 侧和 `cloud_web` 侧各自的收发都有测试，但「QQ 群 → cc-connect → DSH 频道 → 回复回 QQ 群」这个完整来回还没在真实环境跑过。#345 的第 4 部分就是这件事。
+>
+> This path is **not verified end to end yet**: each side has its own tests, but a full QQ group → cc-connect → DSH channel → reply round trip has not run against real services. That is the fourth part of #345.
+
 ## 常见问题 / FAQ
 
 **Q: 连接失败？/ Connection failed?**
