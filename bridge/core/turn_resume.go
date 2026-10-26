@@ -225,12 +225,14 @@ func (e *Engine) ResumeInterruptedTurns() {
 	if j == nil {
 		return
 	}
+	// M1: agent processes an earlier bridge left behind (parent gone) first,
+	// journal or not: a failed write, a deleted entry or a turn that ended
+	// during the downtime still leaves orphans. Once per dataDir.
+	reapStrayAgentProcesses(e.dataDir, StartTime)
 	entries := j.Inherited()
 	if len(entries) == 0 {
 		return
 	}
-	// M1: agent processes an earlier bridge left behind (parent gone) first.
-	reapStrayAgentProcesses(e.dataDir, StartTime)
 
 	plans := planTurnResumes(entries, turnResumeEnv{
 		now:            time.Now(),
@@ -356,7 +358,12 @@ func (e *Engine) deliverTurnResume(en TurnJournalEntry) {
 	}
 	if err := reap(en); err != nil {
 		// Two processes on one agent session would corrupt it: do not resume.
+		// The entry stays (not abandoned): once the process is gone the next
+		// start can still resume it. Say so in the channel (K4 #13).
 		slog.Error("turn resume: old agent process still alive, not resuming", "turn", en.TurnID, "pgid", en.AgentPGID, "error", err)
+		if nerr := e.turnResumeNotify(en, "重启前的进程还没退出，这件活没有自动续做，需要人看"); nerr != nil {
+			slog.Warn("turn resume: stuck notice failed", "turn", en.TurnID, "error", nerr)
+		}
 		return
 	}
 	resumable := agentResumesSessions(en.AgentType) && e.restoreResumeSession(en)
@@ -415,7 +422,16 @@ func (e *Engine) restoreResumeSession(en TurnJournalEntry) bool {
 		return en.AgentSessionID != ""
 	}
 	s := sessions.GetOrCreateActive(en.SessionKey)
-	if s.GetAgentSessionID() != "" {
+	if cur := s.GetAgentSessionID(); cur != "" {
+		// Delivery reuses the channel's main session. When the turn ran on a
+		// different agent session (e.g. a new_per_run timer side session),
+		// resuming the main id would continue the wrong conversation: fall back
+		// to re-sending the original text instead.
+		if en.AgentSessionID != "" && en.AgentSessionID != cur {
+			slog.Info("turn resume: not resumable, agent session differs from main session",
+				"turn", en.TurnID, "journal_session", en.AgentSessionID, "main_session", cur)
+			return false
+		}
 		return true
 	}
 	if en.AgentSessionID == "" {

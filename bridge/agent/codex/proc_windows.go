@@ -52,3 +52,6 @@ func processKillOutput(output []byte) string {
 	}
 	return trimmed
 }
+
+// codexOwnProcessGroup: no Unix process groups on Windows.
+const codexOwnProcessGroup = false

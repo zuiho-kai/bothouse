@@ -374,6 +374,10 @@ type Engine struct {
 	// #618 K1: running-turn journal (turn_journal.go), opened on first use.
 	turnJournal     *TurnJournal
 	turnJournalOnce sync.Once
+	// #624 K4: resume interrupted turns once, after the first platform is ready.
+	turnResumeOnce  sync.Once
+	turnResumeHooks turnResumeHooks
+	relaySessions   relaySessionSet
 
 	name                  string
 	agent                 Agent
@@ -2097,7 +2101,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	}
 
 	// Notify user unless muted or silent
-	if !job.Mute {
+	if !job.Mute && job.resume == nil { // #624 K4: a resume posts its own notice
 		silent := false
 		if e.timerScheduler != nil {
 			silent = e.timerScheduler.IsSilent(job)
@@ -2140,6 +2144,17 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		ReplyCtx:     replyCtx,
 		ModeOverride: job.Mode,
 		boardLabel:   "⏰ " + boardJobDesc(job.Description, job.Prompt, job.Exec), // maomao fork: channel task board
+		timerJobID:   job.ID,
+	}
+	// #624 K4: a resume delivered through a timer job is the interrupted turn
+	// carried on, not a scheduled run.
+	if r := job.resume; r != nil {
+		msg.turnTrigger = r.trigger
+		msg.resumedFrom = r.resumedFrom
+		msg.timerJobID = r.timerJobID
+		msg.resumeNoProgress = r.noProgress
+		msg.resumeFallback = r.fallback
+		msg.boardLabel = "♻️ " + boardJobDesc(job.Description, job.Prompt, job.Exec)
 	}
 
 	agent := e.agent
@@ -2227,8 +2242,10 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		return fmt.Errorf("session %q is busy", sessionKey)
 	}
 	// maomao fork: scheduled turns show on the team status board too, and see the channel.
-	msg.scheduledFrom = targetPlatform
-	e.startScheduledTurn(msg, session)
+	if job.resume == nil {
+		msg.scheduledFrom = targetPlatform
+		e.startScheduledTurn(msg, session)
+	}
 
 	e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, sessionKey)
 	return nil
@@ -2909,6 +2926,10 @@ func (e *Engine) Stop() error {
 			sessions[key] = as
 		}
 	}
+	// #624 K4: agent sessions relays started themselves are not in states.
+	for i, as := range e.takeLiveRelaySessions() {
+		sessions[fmt.Sprintf("relay#%d", i)] = as
+	}
 	// Close in parallel under one budget; stragglers get their process group
 	// SIGKILLed so no agent survives the bridge (#618 K3).
 	closeSessionsWithBudget(sessions, engineStopCloseBudget)
@@ -2969,6 +2990,8 @@ func (e *Engine) onPlatformReady(p Platform) {
 	}
 	slog.Info("platform ready", "project", e.name, "platform", p.Name())
 	e.initPlatformCapabilities(p)
+	// #624 K4: scan the turn journal once; each entry waits for its own platform.
+	e.turnResumeOnce.Do(func() { go e.ResumeInterruptedTurns() })
 }
 
 func (e *Engine) markPlatformReady(p Platform) bool {
@@ -6511,6 +6534,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			if event.SessionID != "" {
 				e.journalSessionID(sessionKey, event.SessionID) // #618 K4
+				e.journalAgentProcess(sessionKey, state) // #618 K4: codex exec pid starts inside Send
 				wasEmpty := session.GetAgentSessionID() == ""
 				if session.GetAgentSessionID() != event.SessionID {
 					session.SetAgentSessionID(event.SessionID, e.agent.Name())
@@ -17545,6 +17569,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 			return "", fmt.Errorf("start relay session: %w", err)
 		}
 	}
+	e.trackRelaySession(agentSession) // #624 K4: Stop closes relay sessions too
 	if startedFresh {
 		// maomao fork: a relay context started without resume gets the target's MEMORY.md
 		// on its first turn too (memoryBlock), like the channel path (startInteractive).

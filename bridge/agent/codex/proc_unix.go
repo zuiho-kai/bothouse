@@ -28,3 +28,6 @@ func forceKillCmd(cmd *exec.Cmd) error {
 	}
 	return nil
 }
+
+// codexOwnProcessGroup: exec cmds lead their own process group (Setpgid).
+const codexOwnProcessGroup = true
