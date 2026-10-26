@@ -63,6 +63,8 @@ export class Store {
   constructor(path) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
+    /** fn(roomId) when a workspace's sessions are dropped for a new claim (resetSessions). */
+    this.sessionResets = [];
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     let version = this.db.prepare('PRAGMA user_version').get().user_version;
     if (version > SCHEMA_VERSION) throw Error(`collab: store schema ${version} is newer than ${SCHEMA_VERSION}`);
@@ -357,6 +359,7 @@ export class Store {
       const num = w => Number(re.exec(w.name)?.[1] ?? 0);
       const free = all.filter(w => w.free && num(w) > 0 && this.activeTasks(w.id) === 0).sort((a, b) => num(a) - num(b))[0];
       if (free !== undefined) {
+        this.resetSessions(free.id);
         return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
           claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
           .get(parent, bridge ? 1 : 0, free.id, free.id);
@@ -387,6 +390,11 @@ export class Store {
       if (owner != null && owner !== parent) {
         throw new CollabError('workspace-owned', `workspace ${ws.name} belongs to room ${owner} until it finishes its last task`);
       }
+      // #597 G35: a released workspace keeps its sessions until a new claim. Claimed back for a task of
+      // its last claim (rework, a paused task resumed: Tasks.reworkClaim/resumeClaim; claim_task stays
+      // after the release), the members go on in the same sessions; any other claim starts fresh.
+      const last = this.db.prepare('SELECT claim_task FROM rooms WHERE id = ?').get(ws.id).claim_task;
+      if (owner == null && !(handoff != null && last != null && Number(handoff) > last)) this.resetSessions(ws.id);
       return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
         claim_task = COALESCE(?, (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?)) WHERE id = ? RETURNING id, name, kind, parent_id`)
         .get(parent, bridge ? 1 : 0, handoff == null ? null : Number(handoff) - 1, ws.id, ws.id);
@@ -435,8 +443,8 @@ export class Store {
 
   /**
    * Release workspace roomId after its last task: it goes back to the pool (free) for any chat
-   * channel, and its sessions are cleared (bindings dropped; fresh ones start reading after the
-   * room's last message, room_resets). Refused with 'busy' while tasks are in work there.
+   * channel. Its sessions stay until a new claim takes it (resetSessions), so a rework or a resumed
+   * task goes on in them (#597 G35). Refused with 'busy' while tasks are in work there.
    * Returns false if roomId is no owned workspace (already free, or a chat channel). claim (from
    * the bridge's op release): the claim being ended; refused with 'stale-claim' once the
    * workspace was claimed again, so a late release never frees the new claim. null = any claim.
@@ -450,13 +458,26 @@ export class Store {
         throw new CollabError('stale-claim', `workspace ${ws.name} was claimed again since claim ${claim}`);
       }
       if (this.activeTasks(ws.id) > 0) throw new CollabError('busy', `workspace ${ws.name} has tasks in work`);
-      this.db.prepare('UPDATE rooms SET free = 1, claim_task = NULL, claim_bridge = 0 WHERE id = ?').run(ws.id);
-      this.db.prepare('DELETE FROM bindings WHERE room_id = ?').run(ws.id);
-      const last = this.db.prepare('SELECT MAX(id) AS id FROM messages WHERE room_id = ?').get(ws.id).id ?? 0;
-      this.db.prepare(`INSERT INTO room_resets (room_id, message_id) VALUES (?, ?)
-        ON CONFLICT (room_id) DO UPDATE SET message_id = excluded.message_id`).run(ws.id, last);
+      // claim_task stays: it tells a claim back for this claim's own task from a new one (claimWorkspace).
+      this.db.prepare('UPDATE rooms SET free = 1, claim_bridge = 0 WHERE id = ?').run(ws.id);
       return true;
     });
+  }
+
+  /** Register fn(roomId), called when a workspace's sessions are dropped (resetSessions). */
+  onSessionsReset(fn) { this.sessionResets.push(fn); }
+
+  /**
+   * A free workspace taken by a new claim starts over: its sessions are cleared (bindings dropped;
+   * fresh ones start reading after the room's last message, room_resets) and the listeners drop
+   * what they keep per conversation (dsh-member resetRoom).
+   */
+  resetSessions(roomId) {
+    this.db.prepare('DELETE FROM bindings WHERE room_id = ?').run(roomId);
+    const last = this.db.prepare('SELECT MAX(id) AS id FROM messages WHERE room_id = ?').get(roomId).id ?? 0;
+    this.db.prepare(`INSERT INTO room_resets (room_id, message_id) VALUES (?, ?)
+      ON CONFLICT (room_id) DO UPDATE SET message_id = excluded.message_id`).run(roomId, last);
+    for (const fn of this.sessionResets) { try { fn(roomId); } catch { /* in-memory only: the store is already reset */ } }
   }
 
   ensureRoomSettings(roomId) {

@@ -241,8 +241,11 @@ type TeamHandoff struct {
 	// name for the nudge. Due: the next check time (zero: not watched, e.g. a handoff recorded
 	// before the watch existed). Renewed: renewals given for progress. Nudged: the nudge was
 	// sent. ParkFails: parks that failed at the check time (retried, then reported). ReadFails: below.
-	Owner     string    `json:"owner,omitempty"`
-	Title     string    `json:"title,omitempty"`
+	Owner string `json:"owner,omitempty"`
+	Title string `json:"title,omitempty"`
+	// Name: the workspace's name at the claim (「工作区n」). The Parents record goes at the release,
+	// this stays, so the task board still names the workspace of a finished task (TeamWorkspaceName).
+	Name      string    `json:"name,omitempty"`
 	Due       time.Time `json:"due,omitzero"`
 	Renewed   int       `json:"renewed,omitempty"`
 	Nudged    bool      `json:"nudged,omitempty"`
@@ -386,6 +389,31 @@ func (e *Engine) TeamWorkspacesOf(channel string) []TeamWorkspace {
 	defer teamWorkspaceStore.mu.Unlock()
 	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
 	return append([]TeamWorkspace(nil), st.Parents[teamChatKey(channel)]...)
+}
+
+// TeamWorkspaceName returns the name (「工作区n」) of workspace ws ("<platform>:<id>"): its record
+// under the chat that owns it now, else the name at its latest handoff (a released workspace, e.g.
+// one whose last task is done today); "" when none is recorded. Only names, never the id: the
+// task board shows it to users (#597 G36).
+func (e *Engine) TeamWorkspaceName(ws string) string {
+	if e == nil || e.dataDir == "" || ws == "" {
+		return ""
+	}
+	key := teamChatKey(ws)
+	plat, id, _ := strings.Cut(key, ":")
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if owner, w := teamWorkspaceOwnerLocked(st, plat, id); owner != "" && w.Name != "" {
+		return w.Name
+	}
+	hs := st.Handoffs[key]
+	for i := len(hs) - 1; i >= 0; i-- {
+		if hs[i].Name != "" {
+			return hs[i].Name
+		}
+	}
+	return ""
 }
 
 // SetTeamWorkspaces turns team mode D on or off. It only acts on the primary role
@@ -940,7 +968,7 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 	}
 	wk := plat + ":" + wsID
 	now := time.Now()
-	h := TeamHandoff{Chat: chat, At: now, Owner: taskOwner, Title: title}
+	h := TeamHandoff{Chat: chat, At: now, Owner: taskOwner, Title: title, Name: w.Name}
 	if e.handoffWatchOn.Load() {
 		h.Due = now.Add(watchCheckAfter())
 	}

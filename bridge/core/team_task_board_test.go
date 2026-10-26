@@ -25,11 +25,8 @@ func testTaskBoardPlacer() teamTaskBoardPlacer {
 			}
 			return "", false
 		},
-		workspaces: func(chat string) []TeamWorkspace {
-			if chat == "feishu:oc_a" {
-				return []TeamWorkspace{{ID: "oc_ws", Name: "工作区1"}, {ID: "oc_ws2", Name: "工作区2"}}
-			}
-			return nil
+		wsName: func(ws string) string {
+			return map[string]string{"feishu:oc_ws": "工作区1", "feishu:oc_ws2": "工作区2"}[ws]
 		},
 	}
 }

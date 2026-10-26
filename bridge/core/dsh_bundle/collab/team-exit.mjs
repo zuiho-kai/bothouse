@@ -110,6 +110,8 @@ export class TeamExit {
         clientKey: `team-answer:${answer.member_id}:${answer.id}`,
       });
       this.db.prepare('UPDATE team_exit_asks SET answered = 1, answer_source_id = ? WHERE id = ?').run(msg.id, answer.id);
+      // #597 G35: the watch waited on the user (Tasks.watch awaitingUser); it starts again from here.
+      this.hub.tasks?.rewatch?.(answer.workspace_id, answer.member_id);
       return message;
     }
     if (msg.author_kind !== 'role') return;
@@ -134,7 +136,9 @@ export class TeamExit {
     if (ask) {
       this.db.prepare('UPDATE team_exit_asks SET forwarded_id = ? WHERE id = ?').run(message.id, record.id);
       const tasks = this.hub.tasks;
-      if (tasks) {
+      // #597 G35: a DSH member's [ask] keeps its task in work and watched (and its workspace, so the
+      // answer reaches the same session); a bridge bot's [ask] parks it as before (#280).
+      if (tasks && !this.markOpts(msg).lastLine) {
         const taskId = /任务\s*#(\d+)\b/.exec(mark.body)?.[1];
         const inRoom = tasks.q.allBusy.all('assigned', 'accepted', 'asked', 'rework')
           .filter(t => t.room_id === room.id);
