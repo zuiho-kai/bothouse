@@ -714,6 +714,13 @@ type wizardPlan struct {
 	allowFromUnset []string
 }
 
+// makeRoleDir creates a role's work_dir with its notes/: the lead writes handoff files to
+// notes/<name>.md there (PLAYBOOK, ws-handoff), and a missing notes/ made its first write fail
+// (#597 G38, v0.1.25 web check).
+func makeRoleDir(workDir string) error {
+	return os.MkdirAll(filepath.Join(workDir, "notes"), 0o755)
+}
+
 // ApplyWizard validates, fills defaults and (unless DryRun) writes everything.
 func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardResult {
 	res := &WizardResult{DryRun: req.DryRun, Roles: []WizardRoleResult{}, Steps: []WizardStep{}, Warnings: []WizardWarning{}, dataDir: env.DataDir}
@@ -1074,7 +1081,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 				if err != nil && !os.IsNotExist(err) {
 					return fail(step, err) // unreadable: don't overwrite the persona with just the language line
 				}
-				if err := os.MkdirAll(r.workDir, 0o755); err != nil {
+				if err := makeRoleDir(r.workDir); err != nil {
 					return fail(step, err)
 				}
 				if err := AtomicWriteFile(path, []byte(WithReplyLanguage(string(b), r.ReplyLanguage)), 0o644); err != nil {
@@ -1087,7 +1094,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			addStep(res, step, nil, stepPersonaKept(req.Language, r.project))
 			continue
 		}
-		if err := os.MkdirAll(r.workDir, 0o755); err != nil {
+		if err := makeRoleDir(r.workDir); err != nil {
 			return fail(step, err)
 		}
 		path := PersonaFilePath(r.AgentType, r.workDir)

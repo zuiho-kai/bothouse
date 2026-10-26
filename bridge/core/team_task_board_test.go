@@ -168,7 +168,7 @@ func TestTeamTaskBoardDoneToday(t *testing.T) {
 		t.Fatalf("done today = %d", len(done))
 	}
 	got := renderTeamTaskBoard(nil, done, "feishu:oc_a", now, nil)
-	want := "**任务板**\n现在没有进行中的事。\n\n**今天做完**\n- 龙娘：乙\n- 龙娘：甲\n- 工作区1·工作区1橘：交接活\n- …另 1 件"
+	want := "**任务板**\n现在没有进行中的事。\n\n**今天做完**\n- 龙娘：乙\n- 龙娘：甲\n- 工作区1·橘：交接活\n- …另 1 件"
 	if got != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}

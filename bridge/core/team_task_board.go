@@ -361,11 +361,20 @@ func renderTeamTaskBoardStage(items, done []teamTaskBoardItem, chat string, now 
 		if !in(it) {
 			continue
 		}
-		ws := ""
+		ws, who := "", boardLabel(it.Who)
 		if it.parent == chat && it.own != chat {
 			ws = boardLabel(it.wsName) + "·"
+			// ws-handoff writes who as 「<workspace name><lead name>」 (board.py WS_NAME_RE): name the
+			// workspace once, 「工作区1·橘」 not 「工作区1·工作区1橘」 (#597 G38, v0.1.25 web check).
+			if rest, ok := strings.CutPrefix(it.Who, it.wsName); ok && it.wsName != "" {
+				if strings.TrimSpace(rest) == "" {
+					ws, who = boardLabel(it.wsName), ""
+				} else {
+					who = boardLabel(rest)
+				}
+			}
 		}
-		key := "- " + ws + boardLabel(it.Who) + "：" + boardLabel(it.What)
+		key := "- " + ws + who + "：" + boardLabel(it.What)
 		if r := seen[key]; r != nil {
 			r.n, r.last = r.n+1, k
 			continue
