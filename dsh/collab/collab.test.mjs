@@ -444,14 +444,7 @@ function fakeDsh() {
     agentPresets: { released: 0, async resolve() { return { id: 'default' }; }, async acquireScope() { const p = this; return { async [Symbol.asyncDispose]() { p.released++; } }; }, async mount(agentCtx) { agentCtx.tools?.push('bash', 'read', 'edit'); } },
     permissionPresets: { sets: [], set(session, preset) { this.sets.push([session.id, preset]); } },
     sessionTitle: { renamed: [], rename(s, t) { this.renamed.push(t); } },
-    workspaceRegistry: {
-      archivedSessionIds: [], archiveCalls: [],
-      async archiveSession(id, options) {
-        this.archiveCalls.push([id, options]);
-        if (!this.archivedSessionIds.includes(id)) this.archivedSessionIds = [...this.archivedSessionIds, id];
-      },
-      async create(path) { return { path, async attachSession() {} }; },
-    },
+    workspaceRegistry: { archivedSessionIds: [], async create(path) { return { path, async attachSession() {} }; } },
     sessionPersistence: { async stat(id) { return deleted.has(id) ? undefined : { header: { id } }; } },
   };
   /** A process restart: every Session is persisted but none is loaded. */
@@ -520,16 +513,15 @@ test('DSH member: @ admits one prompt, its turn posts the reply, duplicates neve
   assert.doesNotMatch(agent.prompts[1].content[0].text, /先说一句/, 'only unseen messages are sent');
 });
 
-test('DSH member: a new Session is visible in its DSH workspace', async () => {
+test('DSH member: a new Session is held by the plugin, out of the DSH conversation list', async () => {
   const hub = makeHub();
   const dsh = fakeDsh();
   dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 你好' });
   await settle();
   assert.equal(dsh.ctx.agents.created.length, 1);
-  // Omitting origin makes this a normal Session in DSH's workspace list.
-  assert.equal(Object.hasOwn(dsh.ctx.agents.created[0].meta, 'origin'), false);
-  assert.equal(dsh.ctx.agents.created[0].meta.cwd, '/w');
+  // DSH's list hides origin "subagent" Sessions (dsh-client-ui-workspace sessionVisible).
+  assert.equal(dsh.ctx.agents.created[0].meta.origin, 'subagent');
 });
 
 /** Bind ds in room 1 with one answered turn; returns the bound agent. */
@@ -556,7 +548,7 @@ for (const [label, lose] of [
   ['archived', (dsh, id) => dsh.ctx.workspaceRegistry.archivedSessionIds.push(id)],
   ['deleted', (dsh, id) => dsh.remove(id)],
 ]) {
-  test(`DSH member: a bound Session that was ${label} is replaced by a new visible one and the @ is answered`, async () => {
+  test(`DSH member: a bound Session that was ${label} is replaced by a new hidden one and the @ is answered`, async () => {
     const hub = makeHub();
     const dsh = fakeDsh();
     dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
@@ -565,7 +557,7 @@ for (const [label, lose] of [
     const agent = await askAgain(hub, dsh, '@DeepSeek 第二次');
     assert.notEqual(agent.session.id, old.session.id, 'a new Session is bound');
     assert.equal(old.prompts.length, 1, 'nothing goes to the lost Session');
-    assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, undefined);
+    assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, 'subagent');
     assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 第二次');
     assert.equal(hub.store.openJobs().length, 0);
     assert.ok(!hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system'), 'no failure card');
@@ -637,11 +629,11 @@ test('DSH member: after a restart a bound hidden Session is resumed, and one del
   dsh.remove(old.session.id);
   const fresh = await askAgain(hub, dsh, '@DeepSeek 删了以后');
   assert.notEqual(fresh.session.id, old.session.id);
-  assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, undefined);
+  assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, 'subagent');
   assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 删了以后');
 });
 
-test('DSH member: /new gives the addressed member a new visible Session that reads on from /new', async () => {
+test('DSH member: /new gives the addressed member a new hidden Session that reads on from /new', async () => {
   const hub = makeHub();
   const dsh = fakeDsh();
   dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }, { id: 'qw', name: 'Qwen' }]);
@@ -651,9 +643,7 @@ test('DSH member: /new gives the addressed member a new visible Session that rea
   await settle();
   const fresh = hub.store.binding('ds', 1);
   assert.notEqual(fresh.session_id, old.session.id, '/new rebinds');
-  assert.deepEqual(dsh.ctx.workspaceRegistry.archivedSessionIds, [old.session.id], 'the replaced Session is archived');
-  assert.deepEqual(dsh.ctx.workspaceRegistry.archiveCalls, [[old.session.id, { stopActivity: true }]]);
-  assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, undefined);
+  assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, 'subagent');
   assert.equal(fresh.context_cursor, cmd.id, 'the new Session starts after /new');
   assert.equal(old.prompts.length, 1, '/new is not sent to the model');
   assert.equal(hub.store.binding('qw', 1), undefined, 'a member not addressed is left alone');
@@ -661,38 +651,6 @@ test('DSH member: /new gives the addressed member a new visible Session that rea
   const agent = await askAgain(hub, dsh, '@DeepSeek 新话题');
   assert.equal(agent.session.id, fresh.session_id);
   assert.doesNotMatch(agent.prompts[0].content[0].text, /旧话题/);
-});
-
-test('DSH member: /new preserves existing archives and other member and room Sessions', async () => {
-  const hub = makeHub();
-  const dsh = fakeDsh();
-  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }, { id: 'qw', name: 'Qwen' }]);
-  const old = await boundOnce(hub, dsh);
-  hub.store.ensureRoom(2, 'other');
-  const otherMember = await members.ensureAgent(members.config.get('qw'), hub.store.room(1));
-  const otherRoom = await members.ensureAgent(members.config.get('ds'), hub.store.room(2));
-  const registry = dsh.ctx.workspaceRegistry;
-  registry.archivedSessionIds = ['already-archived'];
-  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek /new' });
-  await settle();
-  assert.deepEqual(registry.archivedSessionIds, ['already-archived', old.session.id]);
-  assert.deepEqual(registry.archiveCalls, [[old.session.id, { stopActivity: true }]]);
-  assert.equal(hub.store.binding('qw', 1).session_id, otherMember.session.id);
-  assert.equal(hub.store.binding('ds', 2).session_id, otherRoom.session.id);
-});
-
-test('DSH member: an archive failure keeps the previous binding and reports /new failure', async () => {
-  const hub = makeHub();
-  const dsh = fakeDsh();
-  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
-  const old = await boundOnce(hub, dsh);
-  dsh.ctx.workspaceRegistry.archiveSession = async () => { throw new Error('archive write failed'); };
-  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek /new' });
-  await settle();
-  assert.equal(hub.store.binding('ds', 1).session_id, old.session.id);
-  assert.deepEqual(dsh.ctx.workspaceRegistry.archivedSessionIds, []);
-  assert.ok(hub.store.page(1, undefined, 10).some(m => m.author_kind === 'system' && m.text.includes('archive write failed')));
-  assert.ok(!hub.store.page(1, undefined, 10).some(m => m.text === '✅ DeepSeek 的新会话已创建'));
 });
 
 test('DSH member: a turn started from the DSH Web UI is never posted to the channel', async () => {
