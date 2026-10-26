@@ -4446,6 +4446,10 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	// assistant reply don't lose it (the assistant-side Save below depends
 	// on the turn completing without a process crash).
 	sessions.Save()
+	// #618 K1: record the running turn right after its user message is saved,
+	// before the agent (cold) starts; a bridge killed mid-turn leaves it on disk.
+	journalTurnID := e.journalTurnBegin(msg, interactiveKey, workspaceDir, session)
+	defer e.journalTurnEnd(journalTurnID)
 
 	// Use the agent override when available (multi-workspace mode)
 	var agentOverride Agent
@@ -4500,9 +4504,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		e.reply(inputOutputPlatform(p, msg.inputTurn), msg.ReplyCtx, text)
 		return
 	}
-	// #618 K1: record the running turn; a bridge killed mid-turn leaves it on disk.
-	journalTurnID := e.journalTurnBegin(msg, interactiveKey, workspaceDir, session, state.agentSession)
-	defer e.journalTurnEnd(interactiveKey, journalTurnID)
+	e.journalTurnAgent(journalTurnID, state.agentSession) // #618 K1
 	e.cancelAgentSessionIdleClose(state)
 
 	if workspaceDir != "" && e.workspacePool != nil {
@@ -7121,6 +7123,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				state.mu.Unlock()
 				// The previous turn's mode ends with that turn; this one runs in its own.
 				e.setTurnMode(state, as, queued.modeOverride)
+				// #618 K1: the running turn's entry now describes this queued message.
+				e.journalQueuedTurn(chainedQueued, sessionKey, workspaceDir, as) // raw text, before the turn blocks
 
 				nextSend := make(chan error, 1)
 				go func() {
@@ -7596,6 +7600,9 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		drainEvents(as.Events())
 
 		session.AddHistory("user", queued.content)
+		// #618 K1: chained into a running turn -> update its entry; a drain with
+		// no outer turn (orphaned queue, after /compress) owns one per message.
+		journalID, journalOwned := e.journalQueuedTurn(&rawQueued, sessionKey, queuedWorkspace, as) // raw text, before the turn blocks
 
 		var stopTyping func()
 		if ti, ok := queued.platform.(TypingIndicator); ok {
@@ -7621,6 +7628,9 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 			func(wait time.Duration) {
 				e.deferForCapacity(queued.platform, queuedToMessage(rawQueued), state.agent, sessions, sessionKey, state.workspaceDir, wait, false)
 			})
+		if journalOwned {
+			e.journalTurnEnd(journalID)
+		}
 		// maomao fork: the provider refused the prompt as too long; re-run on a fresh session.
 		if errMsg, q := state.takePromptTooLong(); errMsg != "" {
 			if q != nil {
