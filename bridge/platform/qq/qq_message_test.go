@@ -662,3 +662,48 @@ func TestGroupAtTeammate_CQString(t *testing.T) {
 		t.Error("Mentioned = true, want false")
 	}
 }
+
+// The model writes "@123456" as text; OneBot needs an at segment or the person
+// only sees the literal text. Mirrors what two public OneBot bridges do.
+func TestSend_PlainAtBecomesCQCode(t *testing.T) {
+	f := newFakeOneBot(t)
+	p, _ := startTestPlatform(t, f)
+
+	if err := p.Send(context.Background(), &replyContext{messageType: "group", groupID: 111},
+		"@123456 你看一下"); err != nil {
+		t.Fatalf("Send failed: %v", err)
+	}
+	if got, _ := f.paramsOf("send_group_msg", 0)["message"].(string); got != "[CQ:at,qq=123456] 你看一下" {
+		t.Errorf("message = %q, want the @ turned into a CQ at code", got)
+	}
+}
+
+func TestSend_PlainAtAllBecomesCQCode(t *testing.T) {
+	f := newFakeOneBot(t)
+	p, _ := startTestPlatform(t, f)
+
+	if err := p.Send(context.Background(), &replyContext{messageType: "group", groupID: 111},
+		"@all 开会了"); err != nil {
+		t.Fatalf("Send failed: %v", err)
+	}
+	if got, _ := f.paramsOf("send_group_msg", 0)["message"].(string); got != "[CQ:at,qq=all] 开会了" {
+		t.Errorf("message = %q, want qq=all", got)
+	}
+}
+
+// An existing CQ code must not be rewritten twice, and "@" inside a mail address
+// or a short number is not a QQ mention.
+func TestPlainAtToCQ_LeavesOtherTextAlone(t *testing.T) {
+	cases := map[string]string{
+		"[CQ:at,qq=123456] 你好": "[CQ:at,qq=123456] 你好", // already a CQ code
+		"写给 a@example.com":     "写给 a@example.com",     // not a QQ number
+		"@123 太短":              "@123 太短",              // below 6 digits
+		"没有 at 的消息":            "没有 at 的消息",
+		"@1234567 你好":          "[CQ:at,qq=1234567] 你好",
+	}
+	for in, want := range cases {
+		if got := plainAtToCQ(in); got != want {
+			t.Errorf("plainAtToCQ(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

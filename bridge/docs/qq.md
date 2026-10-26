@@ -136,6 +136,26 @@ Both need the roles to run in one process: each `qq` platform registers itself b
 
 `http_url` is NapCat's HTTP API endpoint (e.g. `http://127.0.0.1:3000`). With it set, receiving a file re-resolves an expiring CDN link via `get_group_file_url` / `get_file`, and sending a file goes over HTTP instead of the WebSocket, avoiding large frames and cross-container path issues.
 
+### 消息上报格式必须是 array / The report format must be array
+
+NapCat 的 OneBot 配置里，每个 server 都要设 `"messagePostFormat": "array"`。设成 `string` 时消息以 CQ 码字符串上报，图片、文件、@ 这些 segment 都拿不到结构化字段，图片尤其会直接解析失败。这是接 NapCat 最容易踩的一个坑。
+
+Set `"messagePostFormat": "array"` on every server in NapCat's OneBot config. With `string`, messages arrive as one CQ-code string: images, files and @ lose their structured fields, and images in particular fail to parse. This is the easiest trap when wiring up NapCat.
+
+（这条来自公开实现 [openclaw-napcat-qq](https://github.com/Gu-Heping/openclaw-napcat-qq) 的踩坑记录，不是我们自己试出来的。）
+
+(From the notes of the public [openclaw-napcat-qq](https://github.com/Gu-Heping/openclaw-napcat-qq) project, not something we hit ourselves.)
+
+### 模型写出纯文本 @ 时 / When the model writes a plain @
+
+模型常常把 `@123456` 当普通文字输出。直接发出去，对方只会看到「@123456」这几个字，不会收到提醒。所以发送前会把纯文本的 `@数字` 转成 `[CQ:at,qq=数字]`（`@all` → `qq=all`），已经是 CQ 码的不动。
+
+Models often emit `@123456` as plain text. Sent as-is, the person just sees the literal characters and gets no notification. Outgoing messages therefore turn a plain `@digits` into `[CQ:at,qq=digits]` (`@all` → `qq=all`), leaving existing CQ codes alone.
+
+两个公开的 OneBot 桥接都做了同一件事，我们是照它们做的：[openclaw-napcat-qq](https://github.com/Gu-Heping/openclaw-napcat-qq) 的 `convertPlainAtToCq`、[qqbot-claude](https://github.com/foggyww/qqbot-claude) 的 `normalizeOutgoingMessage`。两边也都只把它当作「模型没按格式输出」的兜底，而不是主路径。
+
+Two public OneBot bridges do exactly this, and ours follows them: `convertPlainAtToCq` in [openclaw-napcat-qq](https://github.com/Gu-Heping/openclaw-napcat-qq) and `normalizeOutgoingMessage` in [qqbot-claude](https://github.com/foggyww/qqbot-claude). Both treat it as a safety net for a model that ignored the format, not as the main path.
+
 ## 接到 DSH 频道 / Bridging into DSH channels
 
 DSH（`dsh/`）的频道要接 QQ，**不需要写 QQ 插件**：DSH 的外部 bot 一律走 `cloud_web` 协议（`dsh/collab/README.md`「接入 cc-connect 成员」），QQ 则由 cc-connect 当平台接进来。一个项目同时挂这两个平台，QQ 群和 DSH 频道就是同一个 agent 的两个入口。
