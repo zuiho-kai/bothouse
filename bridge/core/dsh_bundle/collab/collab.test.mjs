@@ -4755,6 +4755,19 @@ test('G37: a DSH reply 「@主 [report]」 hands back and its result is copied t
   assert.equal(g.tasks.task(t2.id).status, 'returned', 'with a stance line too');
 });
 
+test('G40: a later part of the turn opening 「@主 [report]」 hands back; [report] inside a sentence does not', async () => {
+  const { tasks, ws, assign, say } = g34Setup();
+  const t = assign();
+  say(ws.id, `@主 【接】#${t.id}\n先看了代码\n@主 [report]\n做完了，测试 3 个通过`);
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned', 'the turn\'s last part is the hand-back');
+  const g = g34Setup();
+  const t2 = g.assign();
+  g.say(g.ws.id, `@主 【接】#${t2.id}\n@主 我在看 [report] 的格式`);
+  await settle();
+  assert.notEqual(g.tasks.task(t2.id).status, 'returned', 'a [report] mid-sentence is not a mark');
+});
+
 test('G37: the lead\'s [report] in a workspace hands back its task and its @ still dispatches', async () => {
   const { tasks, ws, assign, say } = g34Setup();
   const t = assign('zhu');

@@ -44,22 +44,26 @@ export function askBounceText(problems) {
 }
 
 const FIRST_MARK = /^\[(ask|report)\][ \t]*\n?([\s\S]*\S[\s\S]*)$/i;
-const LINE_MARK = /(?:^|\n)[ \t]*\[(ask|report)\][ \t]*/gi;
+const LINE_MARK = /^[ \t]*\[(ask|report)\]/i;
 
 /**
  * The [ask] / [report] mark of a role reply: { kind, body } or undefined. Marked on the first
  * line, as the bridge reads it (core/team_exit.go parseExitKind, first line only). lastLine (a
  * DSH member, whose reply is one row for the whole turn: first line 【接】#id, then everything it
  * said) also takes the line starting the turn's last part: the last line that opens with the mark.
- * team (the routable members): @-mentions the reply opens with are not part of it (#597 G37: a DSH
- * reply comes back as 「@主 [report]…」, dsh-member.mjs returnToLead), as for its stance line.
+ * team (the routable members): @-mentions a reply or a part opens with are not part of it (#597 G37:
+ * a DSH reply comes back as 「@主 [report]…」, dsh-member.mjs returnToLead, also as a later part of
+ * the turn's row, #597 G40), as for its stance line.
  */
 export function exitMark(text, { lastLine = false, team = [] } = {}) {
   const t = withoutLeadingMentions(String(text ?? ''), team).trim();
   let m = FIRST_MARK.exec(t);
   if (m === null && lastLine) {
-    const last = [...t.matchAll(LINE_MARK)].at(-1);
-    if (last !== undefined) m = FIRST_MARK.exec(`[${last[1]}]${t.slice(last.index + last[0].length)}`);
+    const lines = t.split('\n');
+    for (let i = lines.length - 1; i > 0 && m === null; i--) {
+      const line = withoutLeadingMentions(lines[i], team);
+      if (LINE_MARK.test(line)) m = FIRST_MARK.exec([line.trimStart(), ...lines.slice(i + 1)].join('\n'));
+    }
   }
   return m === null ? undefined : { kind: m[1].toLowerCase(), body: m[2] };
 }
