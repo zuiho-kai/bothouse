@@ -461,7 +461,7 @@ func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) 
 		e.interactiveMu.Lock()
 		var states []*interactiveState
 		for k, state := range e.interactiveStates {
-			if chatOf(k) == key {
+			if _, ok := interactiveSessionInWorkspace(k, key); ok {
 				states = append(states, state)
 			}
 		}
@@ -561,10 +561,30 @@ func (w *handoffWatch) workspaceBusy(key string) bool {
 	return busy
 }
 
-// workspaceEventActive: a session of workspace key received an agent event at or after since.
-// interactiveState.lastEventAt is bumped on every event from the agent (tool call/result, text
-// stream) and when a turn starts. A turn that only holds its session lock without events leaves it
-// older than the window, so the busy cap still applies.
+// interactiveSessionInWorkspace: the session key of an interactiveStates entry when it belongs to
+// workspace key. A multi-workspace engine keys the map "<workspace path>:<session key>"
+// (interactiveKeyForSessionKey); a single-workspace engine keys the session directly. A shared
+// channel session and a per-user session "<workspace>:<user>" both belong to the workspace.
+func interactiveSessionInWorkspace(stateKey, workspaceKey string) (string, bool) {
+	if stateKey == workspaceKey || strings.HasPrefix(stateKey, workspaceKey+":") {
+		return stateKey, true
+	}
+	i := strings.LastIndex(stateKey, ":"+workspaceKey)
+	if i > 0 && strings.ContainsAny(stateKey[:i], `/\`) {
+		session := stateKey[i+1:]
+		if session == workspaceKey || strings.HasPrefix(session, workspaceKey+":") {
+			return session, true
+		}
+	}
+	return "", false
+}
+
+// workspaceEventActive: any session of workspace key received an agent event at or after since.
+// Any session of the workspace counts (Issue #518's wording), so a sibling session can keep a
+// stuck task alive and hold its workspace slot; per-task isolation is a separate requirement and
+// not part of this fix. interactiveState.lastEventAt is bumped on every event from the agent
+// (tool call/result, text stream) and when a turn starts. A turn that only holds its session lock
+// without events leaves it older than the window, so the busy cap applies.
 func (w *handoffWatch) workspaceEventActive(key string, since time.Time) bool {
 	for _, e := range w.engines() {
 		if e == nil {
@@ -573,9 +593,10 @@ func (w *handoffWatch) workspaceEventActive(key string, since time.Time) bool {
 		e.interactiveMu.Lock()
 		var states []*interactiveState
 		for k, state := range e.interactiveStates {
-			if chatOf(k) == key {
-				states = append(states, state)
+			if _, ok := interactiveSessionInWorkspace(k, key); !ok {
+				continue
 			}
+			states = append(states, state)
 		}
 		e.interactiveMu.Unlock()
 		for _, state := range states {
