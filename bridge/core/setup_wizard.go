@@ -48,8 +48,8 @@ type WizardRequest struct {
 	FallbackRole  string          `json:"fallback_role,omitempty"`   // project name; default = first role
 	FallbackBotID string          `json:"fallback_bot_id,omitempty"` // or the Discord bot ID (wins; the web wizard sends this)
 	Jev           *WizardJev      `json:"jev,omitempty"`
-	// Gate: one primary role routes the team's messages (the gate, core/gate_proc.go). nil = on, so a
-	// request without it (AI, curl, `setup apply`) gets the default.
+	// Gate controls participation. nil keeps this platform's saved choice; a fresh install
+	// defaults to routing through the primary role (core/gate_proc.go).
 	Gate *WizardGate `json:"gate,omitempty"`
 	// AllowFrom: Discord user IDs (comma-separated) the bots take orders from; "*" = anyone in the server.
 	// Not given = the owner of each bot's Discord application (looked up with the token).
@@ -68,11 +68,16 @@ type WizardRequest struct {
 // "context") and gate-team.json, and bothouse starts the gate when python and a jev are there;
 // without them core/gate.go fallbackFor still lets only the lead answer what names no one.
 // false = no gate: the wizard's own gate_url / gate_fallback are cleared, hand-written ones kept.
+// mode addressed also turns off unaddressed group delivery; smart explicitly enables it.
+// An omitted mode preserves the legacy enabled/disabled behavior.
 type WizardGate struct {
-	Enabled bool `json:"enabled"`
+	Enabled bool   `json:"enabled"`
+	Mode    string `json:"mode,omitempty"`
 }
 
-func (r WizardRequest) gateOn() bool { return r.Gate == nil || r.Gate.Enabled }
+func (r WizardRequest) gateOn() bool {
+	return r.Gate == nil || r.Gate.Enabled && r.Gate.Mode != "addressed"
+}
 
 type WizardFeishu struct {
 	AppID        string `json:"app_id"`
@@ -343,10 +348,10 @@ type SetupState struct {
 	CloudWebURL      string           `json:"cloud_web_url,omitempty"`
 	CloudWebFallback string           `json:"cloud_web_fallback,omitempty"`
 	CloudWebTeam     []SetupTeamEntry `json:"cloud_web_team,omitempty"`
-	// GateOff: the user turned the gate off in the wizard (gate.enabled false). A later run without a
-	// gate field (add role, flows that show no gate checkbox, AI) keeps it off; one with the field records the new choice.
-	GateOff   bool   `json:"gate_off,omitempty"`
-	UpdatedAt string `json:"updated_at,omitempty"`
+	// GateModes records explicit choices per platform; GateOff is retained for old clients/state.
+	GateModes map[string]string `json:"gate_modes,omitempty"`
+	GateOff   bool              `json:"gate_off,omitempty"`
+	UpdatedAt string            `json:"updated_at,omitempty"`
 }
 
 type SetupTeamEntry struct {
@@ -993,8 +998,21 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	}
 
 	state := LoadSetupState(env.DataDir)
-	if req.Gate == nil && state.GateOff { // no gate field: keep the user's earlier "off"
-		req.Gate = &WizardGate{Enabled: false}
+	if req.Gate != nil && req.Gate.Mode != "" && !req.Gate.Enabled {
+		return fail("gate", fmt.Errorf("gate.enabled must be true when gate.mode is set"))
+	}
+	if req.Gate != nil && req.Gate.Mode != "" && req.Gate.Mode != "smart" && req.Gate.Mode != "addressed" {
+		return fail("gate", fmt.Errorf("gate.mode must be smart or addressed"))
+	}
+	if req.Gate == nil {
+		if mode := state.GateModes[req.Platform]; mode != "" {
+			req.Gate = &WizardGate{Enabled: mode != "off", Mode: mode}
+			if mode == "off" {
+				req.Gate.Mode = ""
+			}
+		} else if len(state.GateModes) == 0 && state.GateOff {
+			req.Gate = &WizardGate{Enabled: false}
+		}
 	}
 	// 2. plan against a config snapshot: names, work dirs, team merge. It runs again
 	//    inside the lock against the config as it is then (H3.4).
@@ -1286,6 +1304,21 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		st.CloudWebURL, st.CloudWebFallback, st.CloudWebTeam = cwBase, pl.fallback, pl.team
 	}
 	st.GateOff = !req.gateOn()
+	st.GateModes = state.GateModes
+	if st.GateModes == nil {
+		st.GateModes = map[string]string{}
+		if state.GateOff && state.Platform != "" {
+			st.GateModes[state.Platform] = "off"
+		}
+	}
+	// Only an explicit participation mode may override existing platform delivery settings.
+	if req.Gate != nil && req.Gate.Mode != "" {
+		st.GateModes[req.Platform] = req.Gate.Mode
+	} else if !req.gateOn() {
+		st.GateModes[req.Platform] = "off"
+	} else {
+		delete(st.GateModes, req.Platform)
+	}
 	if err := writeJSONFile(filepath.Join(env.DataDir, setupStateFile), st, 0o644); err != nil {
 		return fail("state", err)
 	}
@@ -1747,6 +1780,38 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 	pl.soloShared = len(pl.team) == 1 && otherWizardTeam(s, state, pl.team[0].Project)
 	if (req.Platform == "discord" || cloudWeb || isFeishuPlatform(req.Platform)) && len(pl.team) == 1 && !pl.soloShared {
 		pl.writes = soloGateWrites(pl.writes, pl.team[0].Project, req.Platform, s, req.gateOn())
+	}
+	// Apply participation at the platform boundary, before unaddressed messages reach a model.
+	if req.Gate != nil && (req.Gate.Mode == "addressed" || req.Gate.Mode == "smart") {
+		addressed := req.Gate.Mode == "addressed"
+		for _, member := range pl.team {
+			i := -1
+			for n := range pl.writes {
+				if pl.writes[n].Name == member.Project {
+					i = n
+					break
+				}
+			}
+			if i < 0 {
+				pl.writes = append(pl.writes, WizardProjectWrite{Name: member.Project, PlatformType: req.Platform, Options: map[string]any{}})
+				i = len(pl.writes) - 1
+			}
+			w := &pl.writes[i]
+			if w.PlatformType == "" {
+				w.PlatformType = req.Platform
+			}
+			w.Options["group_reply_all"] = !addressed
+			if isFeishuPlatform(req.Platform) {
+				w.Options["require_mention"] = addressed
+			}
+			if req.Platform == "discord" && addressed {
+				w.Options["group_reply_all_guilds"] = ""
+			}
+			// GateURL is project-wide. Keep it when another platform still needs routing.
+			if ex, ok := s.project(member.Project); addressed && ok && len(ex.Platforms) > 1 {
+				w.GateURL, w.GateFallback = nil, nil
+			}
+		}
 	}
 	return pl, nil
 }
@@ -2224,6 +2289,7 @@ func (m *ManagementServer) handleSetupState(w http.ResponseWriter, r *http.Reque
 	out := map[string]any{"system_language": SystemLanguage(), "hardware": HardwarePresent(), "data_dir": m.wizardDataDir}
 	st := LoadSetupState(m.wizardDataDir)
 	out["setup"] = st
+	out["gate_modes"] = st.GateModes
 	out["gate_enabled"] = !st.GateOff // the wizard's gate checkbox starts from this
 	if j, ok := LoadJevConfig(m.wizardDataDir); ok {
 		out["jev"] = map[string]any{"url": j.URL, "model": j.Model, "has_key": j.APIKey != "", "logprobs": j.Logprobs}
