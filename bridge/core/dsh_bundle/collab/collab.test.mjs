@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { fileURLToPath } from 'node:url';
 import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
@@ -3835,6 +3836,29 @@ test('block B: ACP prompt actually includes image/resource blocks', async () => 
   assert.deepEqual(prompt.prompt, [{ type: 'text', text: 'read' }, ...media]);
 });
 
+// Shared by both subprocess tests so the Unicode regression exercises their path conversion.
+const scriptPath = url => fileURLToPath(url);
+
+test('reminder subprocess path decodes Chinese, spaces and literal percent signs', async () => {
+  const { copyFileSync, realpathSync } = await import('node:fs');
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), '提醒 测试%-')));
+  for (const name of ['later.mjs', 'store.mjs']) copyFileSync(new URL(`./${name}`, import.meta.url), join(dir, name));
+  // pathToFileURL also escapes literal percent signs in filesystem paths.
+  const { pathToFileURL } = await import('node:url');
+  const expected = join(dir, 'later.mjs');
+  const script = scriptPath(pathToFileURL(expected));
+  assert.equal(script, expected, 'filesystem characters must survive URL conversion exactly');
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script]);
+    let stderr = '';
+    child.stderr.on('data', data => { stderr += data; });
+    child.on('error', reject);
+    child.on('close', status => resolve({ status, stderr }));
+  });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /usage: later\.mjs/);
+});
+
 test('block B: local later command registers through the ticketed HTTP route, not the database', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'blockb-command-'));
   const path = join(dir, 'collab.sqlite3');
@@ -3849,7 +3873,7 @@ test('block B: local later command registers through the ticketed HTTP route, no
   try {
   later.origin = `http://127.0.0.1:${server.address().port}`;
   assert.match(later.instructions('cli', 1), new RegExp(later.ticket('cli', 1).replace(/[.]/g, '\\.')));
-  const run = args => new Promise(resolve => { const child = spawn(process.execPath, [new URL('./later.mjs', import.meta.url).pathname, ...args]); let out = ''; child.stdout.on('data', d => { out += d; }); child.on('close', status => resolve({ status, out })); });
+  const run = args => new Promise(resolve => { const child = spawn(process.execPath, [scriptPath(new URL('./later.mjs', import.meta.url)), ...args]); let out = ''; child.stdout.on('data', d => { out += d; }); child.on('close', status => resolve({ status, out })); });
   assert.notEqual((await run([later.origin, 'forged.ticket', '1s', 'check', 'read results'])).status, 0);
   assert.notEqual((await run([later.origin, later.ticket('cli', 1).slice(0, -2) + 'xx', '1s', 'check', 'read results'])).status, 0, 'tampered ticket rejected');
   const result = await run([later.origin, later.ticket('cli', 1), '1s', 'check', 'read results']);
@@ -4387,7 +4411,7 @@ test('G24: the local workspace command carries a reason into the owner\'s turn i
     assert.match(later.workspaceInstructions('cc', 1), /交接说明[\s\S]*用户原话[\s\S]*参照[\s\S]*分支[\s\S]*验收标准/);
     const reason = '用户原话：登录页点了没反应。参照 auth/legacy.mjs，以 main 为底，验收：点登录跳到首页';
     const out = await new Promise(resolve => {
-      const child = spawn(process.execPath, [new URL('./later.mjs', import.meta.url).pathname, 'workspace', later.origin, later.ticket('cc', 1), '修登录页', '', reason]);
+      const child = spawn(process.execPath, [scriptPath(new URL('./later.mjs', import.meta.url)), 'workspace', later.origin, later.ticket('cc', 1), '修登录页', '', reason]);
       let text = ''; child.stdout.on('data', d => { text += d; }); child.stderr.on('data', d => { text += d; });
       child.on('close', status => resolve({ status, text }));
     });
