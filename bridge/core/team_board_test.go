@@ -60,16 +60,34 @@ func TestRenderTeamBoard(t *testing.T) {
 	got := renderTeamBoard(boardFiles(now), "discord:111")
 	for _, want := range []string{
 		"**G哥**　🔧 预解码原型",
-		"**大豆包**　↗️ 在#dev忙（",
-		"**Grok**　💤 空闲",      // a chat reply without tools is not work
-		"**C酱**　✅ 做完：审 #139", // per-user key of the same channel
+		"**大豆包**　↗️ 在<#222>忙：私密的活（", // busy elsewhere: that channel (a link) and its task (#613)
+		"**Grok**　💤 空闲",             // a chat reply without tools is not work
+		"**C酱**　✅ 做完：审 #139",        // per-user key of the same channel
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("board missing %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "私密的活") || strings.Contains(got, "随便聊聊") {
-		t.Errorf("board leaked another channel's task or a chat reply:\n%s", got)
+	if strings.Contains(got, "随便聊聊") {
+		t.Errorf("board shows a chat reply:\n%s", got)
+	}
+}
+
+// A DM session (ChatName empty, or the bare channel id a DM falls back to) shows 「在私聊忙」:
+// no task text (private) and no <#id> link, which Discord would render as an unknown channel.
+func TestTeamBoardBusyInDMHidesTask(t *testing.T) {
+	now := time.Now()
+	for _, chat := range []string{"", "333"} {
+		files := []teamFile{{Project: "e", Name: "小橙", Updated: now, Sessions: []teamEntry{
+			{Key: "discord:333:u", Chat: chat, Task: "私聊里的秘密", Busy: true, Worked: true, Since: now},
+		}}}
+		got, _ := teamBoardMembers(files, "discord:111", nil)
+		if !strings.Contains(got, "**小橙**　↗️ 在私聊忙（") || !strings.Contains(got, teamElsewhereNote) {
+			t.Errorf("chat %q: want 在私聊忙 line:\n%s", chat, got)
+		}
+		if strings.Contains(got, "私聊里的秘密") || strings.Contains(got, "<#333>") {
+			t.Errorf("chat %q: DM leaks task or channel link:\n%s", chat, got)
+		}
 	}
 }
 
@@ -87,8 +105,8 @@ func TestTeamBoardBusyElsewhereNotBusyHere(t *testing.T) {
 	}
 	got, live := teamBoardMembers(files, "discord:111", nil)
 	for _, want := range []string{
-		"**大豆包**　↗️ 在#外出忙（",
-		"**小橙**　↗️ 在别的频道忙（",
+		"**大豆包**　↗️ 在<#222>忙：外出巡逻（",
+		"**小橙**　↗️ 在私聊忙（", // a DM: no task text, no channel link
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("board missing %q:\n%s", want, got)
@@ -128,6 +146,7 @@ func TestRenderTeamBoardStableOverTime(t *testing.T) {
 func TestUpdateTeamBoards(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}
 	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	allChatsAreWorkspaces(e)
 	now := time.Now()
 	boards := map[string]*boardChat{}
 
@@ -162,6 +181,7 @@ func TestUpdateTeamBoards(t *testing.T) {
 func TestUpdateTeamBoardsKeepsStateOnFailure(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}, fail: true}
 	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	allChatsAreWorkspaces(e)
 	boards := map[string]*boardChat{}
 	if e.updateTeamBoards(boardFiles(time.Now()), boards) {
 		t.Fatal("failed posts must not count as changes")
@@ -399,6 +419,7 @@ func TestTeamBoardEditGivesUp(t *testing.T) {
 			p := &stubBoardEditFails{stubBoardPlatform: stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}},
 				failFor: "discord:111", editErr: tc.editErr}
 			e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+			allChatsAreWorkspaces(e)
 			boards := map[string]*boardChat{"discord:111": {SessionKey: "discord:111", MessageID: tc.messageID, Content: "old"}}
 			before := time.Now().Add(-time.Minute)
 			logs, restore := captureSlog(t)
@@ -472,6 +493,7 @@ func TestTeamBoardGaveUpSurvivesRestart(t *testing.T) {
 	p := &stubBoardEditFails{stubBoardPlatform: stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}},
 		failFor: "discord:111", editErr: fmt.Errorf("discord: edit board: %w: 50083", ErrBoardUnremovable)}
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	allChatsAreWorkspaces(e)
 	dir := t.TempDir()
 	e.team = &teamState{dir: dir, board: true, inject: true}
 	gaveUp := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
@@ -580,3 +602,7 @@ func TestRetireBoardPyCards(t *testing.T) {
 		t.Fatal("no file should be done")
 	}
 }
+
+// allChatsAreWorkspaces: boards are only for workspace channels (isTeamWorkspaceChat); tests
+// written before that rule treat every chat as a workspace.
+func allChatsAreWorkspaces(e *Engine) { e.workspaceChatForTest = func(string) bool { return true } }
