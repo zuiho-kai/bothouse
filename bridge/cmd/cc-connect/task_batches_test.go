@@ -32,6 +32,10 @@ func TestTaskBatchesCLI(t *testing.T) {
 	a := &progressCLIAgent{session: &progressCLISession{events: make(chan core.Event, 10), prompts: make(chan string, 10)}}
 	e := core.NewEngine("fish", a, []core.Platform{p}, "", core.LangEnglish)
 	e.SetDataDir(dir)
+	// Task cards are only created in workspace channels (#453); make test:room one.
+	if err := e.ClaimTeamWorkspace("test:chat", "room", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}

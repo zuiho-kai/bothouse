@@ -90,6 +90,7 @@ func taskCommand(args []string, out io.Writer) error {
 	parent := f.String("parent", "", "parent member id for a child agent (assign only)")
 	ref := f.String("ref", "", "reference implementation to follow, path:line; non-code work writes 无（新建） (assign only, required)")
 	base := f.String("base", "", "branch to start from; required when the title or ref says 多人改/共改文件 (assign only)")
+	workspace := f.String("workspace", "", "another workspace of the same chat channel where the member executes (assign only)")
 	limit := f.Int("limit", 10, "how many tasks to list")
 	dataDir := f.String("data-dir", "", "bridge data directory")
 	if err := f.Parse(rest); err != nil {
@@ -106,7 +107,7 @@ func taskCommand(args []string, out io.Writer) error {
 
 	switch action {
 	case "assign":
-		body, err := json.Marshal(core.TaskMemberAssignment{ReporterProject: *reporter, Project: *project, SessionKey: *session, Run: *run, TaskID: *id, BatchID: *batch, MemberID: *member, ParentID: *parent, Name: *name, Title: *title, Ref: *ref, Base: *base})
+		body, err := json.Marshal(core.TaskMemberAssignment{ReporterProject: *reporter, Project: *project, SessionKey: *session, Run: *run, TaskID: *id, BatchID: *batch, MemberID: *member, ParentID: *parent, Name: *name, Title: *title, Ref: *ref, Base: *base, Workspace: *workspace})
 		if err != nil {
 			return err
 		}

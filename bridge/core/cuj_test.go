@@ -2738,6 +2738,7 @@ func TestCUJ_Progress1_QuietQueueAndFailure(t *testing.T) {
 // Assertions cover the card, its fact thread and the shared board together.
 func TestCUJ_Progress3_ContinueAndAcceptSameCard(t *testing.T) {
 	_, e, a, _, session := inputFixture(t)
+	allChatsAreWorkspaces(e)
 	p := &indexedProgressPlatform{progressTestPlatform: newProgressPlatform()}
 	e.platforms = []Platform{p}
 	e.SetDataDir(t.TempDir())

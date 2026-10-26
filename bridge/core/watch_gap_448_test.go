@@ -102,6 +102,7 @@ func TestTaskRelayDrainKeepsSafetyLimitWithoutWatch(t *testing.T) {
 func TestRelayWatchRestartInterruptionWakesLead(t *testing.T) {
 	platform := newProgressPlatform()
 	source := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangEnglish)
+	allChatsAreWorkspaces(source)
 	source.dataDir = t.TempDir()
 	if err := source.EnablePublicProgress(); err != nil {
 		t.Fatal(err)

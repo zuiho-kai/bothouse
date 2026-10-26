@@ -34,13 +34,13 @@ func runRelaySend(args []string) {
 }
 
 func relaySendCommand(args []string, out io.Writer) error {
-	var from, to, sessionKey, message, dataDir, taskID, requestID string
+	var from, to, sessionKey, message, dataDir, taskID, requestID, workspace string
 
 	var positional []string
 	for i := 0; i < len(args); i++ {
 		// Every value flag must have an argument; never silently drop task scope.
 		switch args[i] {
-		case "--from", "-f", "--to", "-t", "--session-key", "--session", "-s", "--message", "-m", "--data-dir", "--task", "--request-id":
+		case "--from", "-f", "--to", "-t", "--session-key", "--session", "-s", "--message", "-m", "--data-dir", "--task", "--request-id", "--workspace":
 			if i+1 >= len(args) {
 				return fmt.Errorf("%s requires a value", args[i])
 			}
@@ -83,6 +83,12 @@ func relaySendCommand(args []string, out io.Writer) error {
 			if strings.TrimSpace(requestID) == "" {
 				return fmt.Errorf("--request-id must not be empty")
 			}
+		case "--workspace":
+			i++
+			workspace = args[i]
+			if strings.TrimSpace(workspace) == "" {
+				return fmt.Errorf("--workspace must not be empty")
+			}
 		case "--help", "-h":
 			printRelaySendUsage()
 			return nil
@@ -118,6 +124,9 @@ func relaySendCommand(args []string, out io.Writer) error {
 	if (taskID == "") != (requestID == "") {
 		return fmt.Errorf("--task and --request-id must be provided together")
 	}
+	if workspace != "" && taskID == "" {
+		return fmt.Errorf("--workspace requires --task and --request-id")
+	}
 
 	sockPath := resolveSocketPath(dataDir)
 	if _, err := os.Stat(sockPath); err != nil {
@@ -131,6 +140,7 @@ func relaySendCommand(args []string, out io.Writer) error {
 		"message":     message,
 		"task_id":     taskID,
 		"request_id":  requestID,
+		"workspace":   workspace,
 	})
 
 	resp, err := apiPost(sockPath, "/relay/send", payload)
@@ -192,6 +202,7 @@ Options:
       --data-dir <path>      Data directory (default: ~/.bothouse)
       --task <id>            Existing source task; details go to its thread
       --request-id <id>      Stable dispatch ID (required with --task)
+      --workspace <id>       Execute the task in this sibling workspace (same chat channel)
   -h, --help                 Show this help
 
 Examples:

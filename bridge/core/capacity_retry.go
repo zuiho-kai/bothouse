@@ -213,6 +213,10 @@ func queuedToMessage(q queuedMessage) Message {
 		// maomao fork: a queued cron/timer turn stays one through a capacity re-delivery.
 		scheduledFrom:       q.scheduledFrom,
 		turnTrigger:         q.turnTrigger,
+		resumedFrom:         q.resumedFrom,
+		timerJobID:          q.timerJobID,
+		resumeNoProgress:    q.resumeNoProgress,
+		resumeFallback:      q.resumeFallback,
 		scheduledBackfilled: q.scheduledBackfilled,
 		boardLabel:          q.boardDesc, // maomao fork: keeps the board text through a re-delivery
 	}

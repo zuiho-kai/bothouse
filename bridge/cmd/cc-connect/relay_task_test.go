@@ -71,6 +71,10 @@ func TestQuietCLI(t *testing.T) {
 	source := core.NewEngine("source", &progressCLIAgent{session: sourceSession}, []core.Platform{p}, "", core.LangChinese)
 	target := core.NewEngine("target", &progressCLIAgent{session: targetSession}, []core.Platform{p}, "", core.LangChinese)
 	source.SetDataDir(dir)
+	// Task cards are only created in workspace channels (#453); make test:room one.
+	if err := source.ClaimTeamWorkspace("test:chat", "room", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
 	if err := source.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +201,7 @@ func TestQuietCLI(t *testing.T) {
 func TestRelayTaskCLIRejectsLostScope(t *testing.T) {
 	t.Setenv("CC_PROJECT", "source")
 	t.Setenv("CC_SESSION_KEY", "test:room:user")
-	for _, suffix := range [][]string{{"--task"}, {"--task", ""}, {"--task", "task-one"}, {"--request-id", "one"}, {"--task", "task-one", "--request-id"}, {"--unknown", "value"}} {
+	for _, suffix := range [][]string{{"--task"}, {"--task", ""}, {"--task", "task-one"}, {"--request-id", "one"}, {"--task", "task-one", "--request-id"}, {"--workspace", "ws1"}, {"--unknown", "value"}} {
 		args := append([]string{"--to", "target", "--message", "body"}, suffix...)
 		if err := relaySendCommand(args, &bytes.Buffer{}); err == nil {
 			t.Fatal("bad task scope accepted", suffix)

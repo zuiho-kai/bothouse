@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".vkiakq_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.vkiakq_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.vkiakq_rooms, .vkiakq_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.vkiakq_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.vkiakq_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.vkiakq_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.vkiakq_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.vkiakq_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.vkiakq_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.vkiakq_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.vkiakq_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.vkiakq_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.vkiakq_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.vkiakq_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.vkiakq_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.vkiakq_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.vkiakq_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.vkiakq_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_system .vkiakq_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.vkiakq_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.vkiakq_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.vkiakq_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.vkiakq_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.vkiakq_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.vkiakq_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.vkiakq_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.vkiakq_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.vkiakq_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_messageBody {\n  min-width: 0;\n}\n\n.vkiakq_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.vkiakq_author {\n  font-weight: 600;\n}\n\n.vkiakq_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.vkiakq_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.vkiakq_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.vkiakq_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.vkiakq_message:hover .vkiakq_ownActions, .vkiakq_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .vkiakq_ownActions {\n    opacity: 1;\n  }\n}\n\n.vkiakq_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.vkiakq_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.vkiakq_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.vkiakq_editBar .vkiakq_time {\n  margin-right: auto;\n}\n\n.vkiakq_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.vkiakq_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.vkiakq_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.vkiakq_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.vkiakq_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.vkiakq_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.vkiakq_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.vkiakq_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.vkiakq_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.vkiakq_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.vkiakq_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.vkiakq_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.vkiakq_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.vkiakq_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.vkiakq_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.vkiakq_quoteDeleted {\n  font-style: italic;\n}\n\n.vkiakq_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.vkiakq_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.vkiakq_message:hover .vkiakq_replyButton, .vkiakq_message:focus-within .vkiakq_replyButton, .vkiakq_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .vkiakq_replyButton {\n    opacity: 1;\n  }\n}\n\n.vkiakq_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.vkiakq_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.vkiakq_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.vkiakq_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.vkiakq_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.vkiakq_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.vkiakq_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.vkiakq_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_sendButton {\n  border-radius: var(--dsw-radius-md);\n  height: 40px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  padding: 0 14px;\n  font-weight: 600;\n}\n\n.vkiakq_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.vkiakq_sendButton:focus-visible, .vkiakq_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.vkiakq_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.vkiakq_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.vkiakq_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.vkiakq_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.vkiakq_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_mentionName {\n  font-weight: 600;\n}\n\n.vkiakq_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.vkiakq_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.vkiakq_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.vkiakq_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  flex: 1;\n  min-width: 0;\n  padding: 10px 14px;\n}\n\n.vkiakq_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .vkiakq_composer {\n    padding: 0 8px 8px;\n  }\n\n  .vkiakq_composerRow {\n    gap: 4px;\n  }\n\n  .vkiakq_composerRow .vkiakq_mentionButton {\n    width: 36px;\n    height: 36px;\n    font-size: 16px;\n  }\n\n  .vkiakq_composerRow .vkiakq_sendButton {\n    height: 36px;\n    padding: 0 10px;\n  }\n\n  .vkiakq_input {\n    padding: 8px 10px;\n  }\n}\n\n.vkiakq_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.vkiakq_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.vkiakq_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.vkiakq_offline {\n  opacity: .5;\n}\n\n.vkiakq_memberAvatar {\n  position: relative;\n}\n\n.vkiakq_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.vkiakq_offline .vkiakq_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.vkiakq_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.vkiakq_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.vkiakq_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .vkiakq_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .vkiakq_rooms, .vkiakq_members {\n    display: none;\n  }\n}\n\n.vkiakq_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.vkiakq_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.vkiakq_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_roomInput, .vkiakq_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.vkiakq_roomInput {\n  margin: 2px 0 6px;\n}\n\n.vkiakq_roomInput:focus-visible, .vkiakq_fieldInput:focus-visible, .vkiakq_iconButton:focus-visible, .vkiakq_linkButton:focus-visible, .vkiakq_addMemberButton:focus-visible, .vkiakq_primaryButton:focus-visible, .vkiakq_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.vkiakq_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.vkiakq_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.vkiakq_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_memberRow .vkiakq_member:hover {\n  background: none;\n}\n\n.vkiakq_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.vkiakq_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.vkiakq_memberRow:hover .vkiakq_memberActions, .vkiakq_memberRow:focus-within .vkiakq_memberActions {\n  opacity: 1;\n}\n\n.vkiakq_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.vkiakq_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.vkiakq_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.vkiakq_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.vkiakq_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.vkiakq_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.vkiakq_field textarea {\n  resize: vertical;\n}\n\n.vkiakq_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.vkiakq_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.vkiakq_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.vkiakq_primaryButton, .vkiakq_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.vkiakq_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.vkiakq_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.vkiakq_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.vkiakq_memberFailed .vkiakq_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.vkiakq_memberFailed .vkiakq_presence {\n  background: #ed4245;\n}\n\n.vkiakq_mobileButton, .vkiakq_drawerBackdrop {\n  display: none;\n}\n\n.vkiakq_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.vkiakq_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.vkiakq_panelToggleEnd {\n  margin-left: auto;\n}\n\n.vkiakq_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.vkiakq_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.vkiakq_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.vkiakq_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .vkiakq_page.vkiakq_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .vkiakq_page.vkiakq_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .vkiakq_page.vkiakq_roomsHidden.vkiakq_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .vkiakq_roomsHidden > .vkiakq_rooms, .vkiakq_membersHidden > .vkiakq_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .vkiakq_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .vkiakq_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .vkiakq_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .vkiakq_panelToggle {\n    display: none;\n  }\n\n  .vkiakq_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .vkiakq_rooms.vkiakq_drawerOpen, .vkiakq_members.vkiakq_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .vkiakq_rooms.vkiakq_drawerOpen {\n    left: 0;\n  }\n\n  .vkiakq_members.vkiakq_drawerOpen {\n    right: 0;\n  }\n\n  .vkiakq_memberActions {\n    opacity: 1;\n  }\n\n  .vkiakq_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.vkiakq_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.vkiakq_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.vkiakq_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.vkiakq_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.vkiakq_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.vkiakq_leadControl .vkiakq_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.vkiakq_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.vkiakq_leadControl .vkiakq_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.vkiakq_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.vkiakq_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.vkiakq_leadOption:hover, .vkiakq_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_taskSection + .vkiakq_taskSection {\n  margin-top: 8px;\n}\n\n.vkiakq_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.vkiakq_taskOwnerGroup + .vkiakq_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.vkiakq_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.vkiakq_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.vkiakq_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.vkiakq_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.vkiakq_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.vkiakq_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.vkiakq_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.vkiakq_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.vkiakq_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.vkiakq_taskDone summary {\n  cursor: pointer;\n}\n\n.vkiakq_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.vkiakq_taskStatus[data-status=\"asked\"], .vkiakq_taskStatus[data-status=\"escalated\"], .vkiakq_taskStatus[data-status=\"declined\"], .vkiakq_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.vkiakq_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.vkiakq_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.vkiakq_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.vkiakq_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.vkiakq_taskMemberName {\n  font-weight: 600;\n}\n\n.vkiakq_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.vkiakq_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.vkiakq_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.vkiakq_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.vkiakq_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.vkiakq_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.vkiakq_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.vkiakq_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.vkiakq_attachmentAudio audio {\n  width: 100%;\n}\n\n.vkiakq_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.vkiakq_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.vkiakq_chatHead button, .vkiakq_chatHead input, .vkiakq_chatHead select, .vkiakq_chatHead a, .vkiakq_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.vkiakq_text pre, .vkiakq_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent="._8thCeG_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n._8thCeG_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n._8thCeG_rooms, ._8thCeG_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n._8thCeG_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n._8thCeG_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n._8thCeG_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n._8thCeG_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n._8thCeG_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n._8thCeG_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n._8thCeG_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n._8thCeG_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n._8thCeG_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n._8thCeG_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n._8thCeG_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n._8thCeG_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n._8thCeG_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n._8thCeG_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_system ._8thCeG_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n._8thCeG_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n._8thCeG_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n._8thCeG_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n._8thCeG_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n._8thCeG_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n._8thCeG_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n._8thCeG_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n._8thCeG_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n._8thCeG_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_messageBody {\n  min-width: 0;\n}\n\n._8thCeG_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n._8thCeG_author {\n  font-weight: 600;\n}\n\n._8thCeG_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n._8thCeG_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n._8thCeG_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n._8thCeG_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n._8thCeG_message:hover ._8thCeG_ownActions, ._8thCeG_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  ._8thCeG_ownActions {\n    opacity: 1;\n  }\n}\n\n._8thCeG_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n._8thCeG_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n._8thCeG_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n._8thCeG_editBar ._8thCeG_time {\n  margin-right: auto;\n}\n\n._8thCeG_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n._8thCeG_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n._8thCeG_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n._8thCeG_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n._8thCeG_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n._8thCeG_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n._8thCeG_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n._8thCeG_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n._8thCeG_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n._8thCeG_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n._8thCeG_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n._8thCeG_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n._8thCeG_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n._8thCeG_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n._8thCeG_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n._8thCeG_quoteDeleted {\n  font-style: italic;\n}\n\n._8thCeG_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n._8thCeG_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n._8thCeG_message:hover ._8thCeG_replyButton, ._8thCeG_message:focus-within ._8thCeG_replyButton, ._8thCeG_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  ._8thCeG_replyButton {\n    opacity: 1;\n  }\n}\n\n._8thCeG_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n._8thCeG_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n._8thCeG_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n._8thCeG_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n._8thCeG_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n._8thCeG_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n._8thCeG_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n._8thCeG_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_sendButton {\n  border-radius: var(--dsw-radius-md);\n  height: 40px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  padding: 0 14px;\n  font-weight: 600;\n}\n\n._8thCeG_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n._8thCeG_sendButton:focus-visible, ._8thCeG_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n._8thCeG_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n._8thCeG_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n._8thCeG_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n._8thCeG_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_mentionName {\n  font-weight: 600;\n}\n\n._8thCeG_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n._8thCeG_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n._8thCeG_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n._8thCeG_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  flex: 1;\n  min-width: 0;\n  padding: 10px 14px;\n}\n\n._8thCeG_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  ._8thCeG_composer {\n    padding: 0 8px 8px;\n  }\n\n  ._8thCeG_composerRow {\n    gap: 4px;\n  }\n\n  ._8thCeG_composerRow ._8thCeG_mentionButton {\n    width: 36px;\n    height: 36px;\n    font-size: 16px;\n  }\n\n  ._8thCeG_composerRow ._8thCeG_sendButton {\n    height: 36px;\n    padding: 0 10px;\n  }\n\n  ._8thCeG_input {\n    padding: 8px 10px;\n  }\n}\n\n._8thCeG_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n._8thCeG_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_offline {\n  opacity: .5;\n}\n\n._8thCeG_memberAvatar {\n  position: relative;\n}\n\n._8thCeG_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n._8thCeG_offline ._8thCeG_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n._8thCeG_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n._8thCeG_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n._8thCeG_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  ._8thCeG_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  ._8thCeG_rooms, ._8thCeG_members {\n    display: none;\n  }\n}\n\n._8thCeG_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n._8thCeG_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n._8thCeG_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_roomInput, ._8thCeG_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n._8thCeG_roomInput {\n  margin: 2px 0 6px;\n}\n\n._8thCeG_roomInput:focus-visible, ._8thCeG_fieldInput:focus-visible, ._8thCeG_iconButton:focus-visible, ._8thCeG_linkButton:focus-visible, ._8thCeG_addMemberButton:focus-visible, ._8thCeG_primaryButton:focus-visible, ._8thCeG_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n._8thCeG_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n._8thCeG_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_memberRow ._8thCeG_member:hover {\n  background: none;\n}\n\n._8thCeG_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n._8thCeG_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n._8thCeG_memberRow:hover ._8thCeG_memberActions, ._8thCeG_memberRow:focus-within ._8thCeG_memberActions {\n  opacity: 1;\n}\n\n._8thCeG_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n._8thCeG_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n._8thCeG_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n._8thCeG_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n._8thCeG_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n._8thCeG_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n._8thCeG_field textarea {\n  resize: vertical;\n}\n\n._8thCeG_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n._8thCeG_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n._8thCeG_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n._8thCeG_primaryButton, ._8thCeG_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n._8thCeG_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n._8thCeG_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n._8thCeG_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n._8thCeG_memberFailed ._8thCeG_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n._8thCeG_memberFailed ._8thCeG_presence {\n  background: #ed4245;\n}\n\n._8thCeG_mobileButton, ._8thCeG_drawerBackdrop {\n  display: none;\n}\n\n._8thCeG_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n._8thCeG_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_panelToggleEnd {\n  margin-left: auto;\n}\n\n._8thCeG_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n._8thCeG_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n._8thCeG_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  ._8thCeG_page._8thCeG_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  ._8thCeG_page._8thCeG_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  ._8thCeG_page._8thCeG_roomsHidden._8thCeG_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  ._8thCeG_roomsHidden > ._8thCeG_rooms, ._8thCeG_membersHidden > ._8thCeG_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  ._8thCeG_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  ._8thCeG_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  ._8thCeG_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  ._8thCeG_panelToggle {\n    display: none;\n  }\n\n  ._8thCeG_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  ._8thCeG_rooms._8thCeG_drawerOpen, ._8thCeG_members._8thCeG_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  ._8thCeG_rooms._8thCeG_drawerOpen {\n    left: 0;\n  }\n\n  ._8thCeG_members._8thCeG_drawerOpen {\n    right: 0;\n  }\n\n  ._8thCeG_memberActions {\n    opacity: 1;\n  }\n\n  ._8thCeG_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n._8thCeG_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n._8thCeG_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n._8thCeG_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n._8thCeG_taskBoardTrigger {\n  border: 0;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  height: 40px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  flex: none;\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 8px;\n  padding: 7px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n._8thCeG_taskBoardTrigger:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_taskBoardTrigger:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_taskBoardSummary {\n  color: var(--dsw-alias-label-secondary);\n  text-align: right;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: 1;\n  overflow: hidden;\n}\n\n._8thCeG_taskBoardDialog {\n  width: min(640px, 100%);\n  max-height: min(70vh, 100dvh - 32px);\n  overflow: hidden;\n}\n\n._8thCeG_taskBoardBody {\n  overscroll-behavior: contain;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n._8thCeG_taskBoardDialog > :not(._8thCeG_taskBoardBody) {\n  flex-shrink: 0;\n}\n\n._8thCeG_taskBoardScope {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n}\n\n._8thCeG_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n._8thCeG_leadControl ._8thCeG_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n._8thCeG_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n._8thCeG_leadControl ._8thCeG_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n._8thCeG_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n._8thCeG_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n._8thCeG_leadOption:hover, ._8thCeG_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_taskSection + ._8thCeG_taskSection {\n  margin-top: 8px;\n}\n\n._8thCeG_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n._8thCeG_taskOwnerGroup + ._8thCeG_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n._8thCeG_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n._8thCeG_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n._8thCeG_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n._8thCeG_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n._8thCeG_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n._8thCeG_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n._8thCeG_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n._8thCeG_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n._8thCeG_taskDone summary {\n  cursor: pointer;\n}\n\n._8thCeG_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n._8thCeG_taskStatus[data-status=\"asked\"], ._8thCeG_taskStatus[data-status=\"escalated\"], ._8thCeG_taskStatus[data-status=\"declined\"], ._8thCeG_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n._8thCeG_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n._8thCeG_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n._8thCeG_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n._8thCeG_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n._8thCeG_taskMemberName {\n  font-weight: 600;\n}\n\n._8thCeG_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n._8thCeG_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n._8thCeG_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n._8thCeG_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n._8thCeG_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n._8thCeG_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n._8thCeG_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n._8thCeG_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n._8thCeG_attachmentAudio audio {\n  width: 100%;\n}\n\n._8thCeG_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n._8thCeG_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n._8thCeG_chatHead button, ._8thCeG_chatHead input, ._8thCeG_chatHead select, ._8thCeG_chatHead a, ._8thCeG_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n._8thCeG_text pre, ._8thCeG_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 // \0rolldown/runtime.js
 var __defProp = Object.defineProperty;
@@ -19,6 +19,7 @@ var __exportAll = (all, no_symbols) => {
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
 let react = require("react");
+let react_dom = require("react-dom");
 // src/client/uuid.ts
 /**
 * v4 UUID that also works outside a secure context. `crypto.randomUUID` exists only
@@ -566,9 +567,6 @@ function createChannelSource(transport) {
 				const { routes } = await request("collab/api/models");
 				return routes;
 			},
-			async listPersonas() {
-				return await request("collab/api/personas");
-			},
 			async listClis() {
 				return await request("collab/api/clis");
 			},
@@ -684,7 +682,7 @@ function createChannelSource(transport) {
 function ChannelsIcon({ size }) {
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconUsersOutlineRegular, { size });
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-to-string/lib/index.js
+// node_modules/.pnpm/mdast-util-to-string@4.0.0/node_modules/mdast-util-to-string/lib/index.js
 /**
 * @typedef {import('mdast').Nodes} Nodes
 *
@@ -765,7 +763,7 @@ function all(values, includeImageAlt, includeHtml) {
 function node(value) {
 	return Boolean(value && typeof value === "object");
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/character-entities/index.js
+// node_modules/.pnpm/character-entities@2.0.2/node_modules/character-entities/index.js
 /**
 * Map of named character references.
 *
@@ -2898,7 +2896,7 @@ const characterEntities = {
 	zwj: "‍",
 	zwnj: "‌"
 };
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/decode-named-character-reference/index.js
+// node_modules/.pnpm/decode-named-character-reference@1.3.0/node_modules/decode-named-character-reference/index.js
 const own$1 = {}.hasOwnProperty;
 /**
 * Decode a single character reference (without the `&` or `;`).
@@ -2914,7 +2912,7 @@ const own$1 = {}.hasOwnProperty;
 function decodeNamedCharacterReference(value) {
 	return own$1.call(characterEntities, value) ? characterEntities[value] : false;
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-chunked/index.js
+// node_modules/.pnpm/micromark-util-chunked@2.0.1/node_modules/micromark-util-chunked/index.js
 /**
 * Like `Array#splice`, but smarter for giant arrays.
 *
@@ -2983,7 +2981,7 @@ function push(list, items) {
 	}
 	return items;
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-combine-extensions/index.js
+// node_modules/.pnpm/micromark-util-combine-extensions@2.0.1/node_modules/micromark-util-combine-extensions/index.js
 /**
 * @import {
 *   Extension,
@@ -3053,7 +3051,7 @@ function constructs(existing, list) {
 	while (++index < list.length) (list[index].add === "after" ? existing : before).push(list[index]);
 	splice(existing, 0, 0, before);
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-decode-numeric-character-reference/index.js
+// node_modules/.pnpm/micromark-util-decode-numeric-character-reference@2.0.2/node_modules/micromark-util-decode-numeric-character-reference/index.js
 /**
 * Turn the number (in string form as either hexa- or plain decimal) coming from
 * a numeric character reference into a character.
@@ -3073,7 +3071,7 @@ function decodeNumericCharacterReference(value, base) {
 	if (code < 9 || code === 11 || code > 13 && code < 32 || code > 126 && code < 160 || code > 55295 && code < 57344 || code > 64975 && code < 65008 || (code & 65535) === 65535 || (code & 65535) === 65534 || code > 1114111) return "�";
 	return String.fromCodePoint(code);
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-normalize-identifier/index.js
+// node_modules/.pnpm/micromark-util-normalize-identifier@2.0.1/node_modules/micromark-util-normalize-identifier/index.js
 /**
 * Normalize an identifier (as found in references, definitions).
 *
@@ -3096,7 +3094,7 @@ function decodeNumericCharacterReference(value, base) {
 function normalizeIdentifier(value) {
 	return value.replace(/[\t\n\r ]+/g, " ").replace(/^ | $/g, "").toLowerCase().toUpperCase();
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-character/index.js
+// node_modules/.pnpm/micromark-util-character@2.1.1/node_modules/micromark-util-character/index.js
 /**
 * @import {Code} from 'micromark-util-types'
 */
@@ -3323,7 +3321,7 @@ function regexCheck(regex) {
 		return code !== null && code > -1 && regex.test(String.fromCharCode(code));
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-factory-space/index.js
+// node_modules/.pnpm/micromark-factory-space@2.1.0/node_modules/micromark-factory-space/index.js
 /**
 * @import {Effects, State, TokenType} from 'micromark-util-types'
 */
@@ -3429,7 +3427,7 @@ function factorySpaceMinMax(effects, ok, nok, type, min, max) {
 		return size >= min ? ok(code) : nok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/initialize/content.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/initialize/content.js
 /**
 * @import {
 *   InitialConstruct,
@@ -3495,7 +3493,7 @@ function initializeContent(effects) {
 		return data;
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-edit-map/index.js
+// node_modules/.pnpm/micromark-util-edit-map@1.0.0/node_modules/micromark-util-edit-map/index.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -3640,7 +3638,7 @@ function addImplementation$1(editMap, at, remove, add, before) {
 	editMap.map.push(change);
 	editMap.index.set(at, change);
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/initialize/document.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/initialize/document.js
 /**
 * @import {
 *   Construct,
@@ -3859,7 +3857,7 @@ function initializeDocument(effects) {
 function tokenizeContainer(effects, ok, nok) {
 	return factorySpace(effects, effects.attempt(this.parser.constructs.document, ok, nok), "linePrefix", this.parser.constructs.disable.null.includes("codeIndented") ? void 0 : 4);
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-classify-character/index.js
+// node_modules/.pnpm/micromark-util-classify-character@2.0.1/node_modules/micromark-util-classify-character/index.js
 /**
 * @import {Code} from 'micromark-util-types'
 */
@@ -3881,7 +3879,7 @@ function classifyCharacter(code) {
 	if (code === null || markdownLineEndingOrSpace(code) || unicodeWhitespace(code)) return 1;
 	if (unicodePunctuation(code)) return 2;
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-resolve-all/index.js
+// node_modules/.pnpm/micromark-util-resolve-all@2.0.1/node_modules/micromark-util-resolve-all/index.js
 /**
 * @import {Event, Resolver, TokenizeContext} from 'micromark-util-types'
 */
@@ -3910,7 +3908,7 @@ function resolveAll(constructs, events, context) {
 	}
 	return events;
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/attention.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/attention.js
 /**
 * @import {
 *   Code,
@@ -4117,7 +4115,7 @@ function movePoint(point, offset) {
 	point.offset += offset;
 	point._bufferIndex += offset;
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/autolink.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/autolink.js
 /**
 * @import {
 *   Construct,
@@ -4327,7 +4325,7 @@ function tokenizeAutolink(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/blank-line.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/blank-line.js
 /**
 * @import {
 *   Construct,
@@ -4383,7 +4381,7 @@ function tokenizeBlankLine(effects, ok, nok) {
 		return code === null || markdownLineEnding(code) ? ok(code) : nok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/block-quote.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/block-quote.js
 /**
 * @import {
 *   Construct,
@@ -4509,7 +4507,7 @@ function tokenizeBlockQuoteContinuation(effects, ok, nok) {
 function exit$1(effects) {
 	effects.exit("blockQuote");
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/character-escape.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/character-escape.js
 /**
 * @import {
 *   Construct,
@@ -4568,7 +4566,7 @@ function tokenizeCharacterEscape(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/character-reference.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/character-reference.js
 /**
 * @import {
 *   Code,
@@ -4705,7 +4703,7 @@ function tokenizeCharacterReference(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/partial-non-lazy-continuation.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/partial-non-lazy-continuation.js
 /** @type {Construct} */
 const nonLazyContinuation$2 = {
 	partial: true,
@@ -4752,7 +4750,7 @@ function tokenizeNonLazyContinuation$2(effects, ok, nok) {
 		return self.parser.lazy[self.now().line] ? nok(code) : ok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/code-fenced.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/code-fenced.js
 /**
 * @import {
 *   Code,
@@ -5132,7 +5130,7 @@ function tokenizeCodeFenced(effects, ok, nok) {
 		}
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/code-indented.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/code-indented.js
 /**
 * @import {
 *   Construct,
@@ -5263,7 +5261,7 @@ function tokenizeFurtherStart(effects, ok, nok) {
 		return markdownLineEnding(code) ? furtherStart(code) : nok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/code-text.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/code-text.js
 /**
 * @import {
 *   Construct,
@@ -5447,7 +5445,7 @@ function tokenizeCodeText(effects, ok, nok) {
 		return data(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-subtokenize/lib/splice-buffer.js
+// node_modules/.pnpm/micromark-util-subtokenize@2.1.0/node_modules/micromark-util-subtokenize/lib/splice-buffer.js
 /**
 * Some of the internal operations of micromark do lots of editing
 * operations on very large arrays. This runs into problems with two
@@ -5676,7 +5674,7 @@ function chunkedPush(list, right) {
 		chunkStart += 1e4;
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-subtokenize/index.js
+// node_modules/.pnpm/micromark-util-subtokenize@2.1.0/node_modules/micromark-util-subtokenize/index.js
 /**
 * @import {Chunk, Event, Token} from 'micromark-util-types'
 */
@@ -5830,7 +5828,7 @@ function subcontent(events, eventIndex) {
 	}
 	return gaps;
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/content.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/content.js
 /**
 * @import {
 *   Construct,
@@ -5962,7 +5960,7 @@ function tokenizeContinuation(effects, ok, nok) {
 		return effects.interrupt(self.parser.constructs.flow, nok, ok)(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-factory-destination/index.js
+// node_modules/.pnpm/micromark-factory-destination@2.0.1/node_modules/micromark-factory-destination/index.js
 /**
 * @import {Effects, State, TokenType} from 'micromark-util-types'
 */
@@ -6145,7 +6143,7 @@ function factoryDestination(effects, ok, nok, type, literalType, literalMarkerTy
 		return raw(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-factory-label/index.js
+// node_modules/.pnpm/micromark-factory-label@2.0.1/node_modules/micromark-factory-label/index.js
 /**
 * @import {
 *   Effects,
@@ -6278,7 +6276,7 @@ function factoryLabel(effects, ok, nok, type, markerType, stringType) {
 		return labelInside(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-factory-title/index.js
+// node_modules/.pnpm/micromark-factory-title@2.0.1/node_modules/micromark-factory-title/index.js
 /**
 * @import {
 *   Code,
@@ -6422,7 +6420,7 @@ function factoryTitle(effects, ok, nok, type, markerType, stringType) {
 		return inside(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-factory-whitespace/index.js
+// node_modules/.pnpm/micromark-factory-whitespace@2.0.1/node_modules/micromark-factory-whitespace/index.js
 /**
 * @import {Effects, State} from 'micromark-util-types'
 */
@@ -6461,7 +6459,7 @@ function factoryWhitespace(effects, ok) {
 		return ok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/definition.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/definition.js
 /**
 * @import {
 *   Construct,
@@ -6675,7 +6673,7 @@ function tokenizeTitleBefore(effects, ok, nok) {
 		return code === null || markdownLineEnding(code) ? ok(code) : nok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/hard-break-escape.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/hard-break-escape.js
 /**
 * @import {
 *   Construct,
@@ -6731,7 +6729,7 @@ function tokenizeHardBreakEscape(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/heading-atx.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/heading-atx.js
 /**
 * @import {
 *   Construct,
@@ -6911,7 +6909,7 @@ function tokenizeHeadingAtx(effects, ok, nok) {
 		return data;
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-html-tag-name/index.js
+// node_modules/.pnpm/micromark-util-html-tag-name@2.0.1/node_modules/micromark-util-html-tag-name/index.js
 /**
 * List of lowercase HTML “block” tag names.
 *
@@ -7009,7 +7007,7 @@ const htmlRawNames = [
 	"style",
 	"textarea"
 ];
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/html-flow.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/html-flow.js
 /**
 * @import {
 *   Code,
@@ -7734,7 +7732,7 @@ function tokenizeBlankLineBefore(effects, ok, nok) {
 		return effects.attempt(blankLine, ok, nok);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/html-text.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/html-text.js
 /**
 * @import {
 *   Code,
@@ -8347,7 +8345,7 @@ function tokenizeHtmlText(effects, ok, nok) {
 		return returnState(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/label-end.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/label-end.js
 /**
 * @import {
 *   Construct,
@@ -8815,7 +8813,7 @@ function tokenizeReferenceCollapsed(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/label-start-image.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/label-start-image.js
 /**
 * @import {
 *   Construct,
@@ -8913,7 +8911,7 @@ function tokenizeLabelStartImage(effects, ok, nok) {
 		return ok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/label-start-link.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/label-start-link.js
 /**
 * @import {
 *   Construct,
@@ -8966,7 +8964,7 @@ function tokenizeLabelStartLink(effects, ok, nok) {
 		return ok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/line-ending.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/line-ending.js
 /**
 * @import {
 *   Construct,
@@ -8995,7 +8993,7 @@ function tokenizeLineEnding(effects, ok) {
 		return factorySpace(effects, ok, "linePrefix");
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/thematic-break.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/thematic-break.js
 /**
 * @import {
 *   Code,
@@ -9089,7 +9087,7 @@ function tokenizeThematicBreak(effects, ok, nok) {
 		return markdownSpace(code) ? factorySpace(effects, atBreak, "whitespace")(code) : atBreak(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/list.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/list.js
 /**
 * @import {
 *   Code,
@@ -9260,7 +9258,7 @@ function tokenizeListItemPrefixWhitespace(effects, ok, nok) {
 		return !markdownSpace(code) && tail && tail[1].type === "listItemPrefixWhitespace" ? ok(code) : nok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-core-commonmark/lib/setext-underline.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/setext-underline.js
 /**
 * @import {
 *   Code,
@@ -9413,7 +9411,7 @@ function tokenizeSetextUnderline(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/initialize/flow.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/initialize/flow.js
 /**
 * @import {
 *   InitialConstruct,
@@ -9459,7 +9457,7 @@ function initializeFlow(effects) {
 		return initial;
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/initialize/text.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/initialize/text.js
 /**
 * @import {
 *   Code,
@@ -9634,7 +9632,7 @@ function resolveAllLineSuffixes(events, context) {
 	editMap.consume(events);
 	return events;
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/constructs.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/constructs.js
 /**
 * @import {Extension} from 'micromark-util-types'
 */
@@ -9711,7 +9709,7 @@ const insideSpan = { null: [attention, resolver] };
 const attentionMarkers = { null: [42, 95] };
 /** @satisfies {Extension['disable']} */
 const disable = { null: [] };
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/create-tokenizer.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/create-tokenizer.js
 /**
 * @import {
 *   Chunk,
@@ -10177,7 +10175,7 @@ function serializeChunks(chunks, expandTabs) {
 	}
 	return result.join("");
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/parse.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/parse.js
 /**
 * @import {
 *   Create,
@@ -10220,7 +10218,7 @@ function parse(options) {
 		}
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/postprocess.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/postprocess.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -10234,7 +10232,7 @@ function postprocess(events) {
 	while (!subtokenize(events));
 	return events;
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark/lib/preprocess.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/preprocess.js
 /**
 * @import {Chunk, Code, Encoding, Value} from 'micromark-util-types'
 */
@@ -10325,7 +10323,7 @@ function preprocess() {
 		return chunks;
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-decode-string/index.js
+// node_modules/.pnpm/micromark-util-decode-string@2.0.1/node_modules/micromark-util-decode-string/index.js
 const characterEscapeOrReference = /\\([!-/:-@[-`{-~])|&(#(?:\d{1,7}|x[\da-f]{1,6})|[\da-z]{1,31});/gi;
 /**
 * Decode markdown strings (which occur in places such as fenced code info
@@ -10361,7 +10359,7 @@ function decode($0, $1, $2) {
 	}
 	return decodeNamedCharacterReference($2) || $0;
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/unist-util-stringify-position/lib/index.js
+// node_modules/.pnpm/unist-util-stringify-position@4.0.0/node_modules/unist-util-stringify-position/lib/index.js
 /**
 * @typedef {import('unist').Node} Node
 * @typedef {import('unist').Point} Point
@@ -10424,7 +10422,7 @@ function position(pos) {
 function index(value) {
 	return value && typeof value === "number" ? value : 1;
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-from-markdown/lib/index.js
+// node_modules/.pnpm/mdast-util-from-markdown@2.1.0/node_modules/mdast-util-from-markdown/lib/index.js
 /**
 * @import {
 *   Break,
@@ -11470,7 +11468,7 @@ function defaultOnError(left, right) {
 		end: right.end
 	}) + ") is still open");
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/ccount/index.js
+// node_modules/.pnpm/ccount@2.0.1/node_modules/ccount/index.js
 /**
 * Count how often a character (or substring) is used in a string.
 *
@@ -11492,12 +11490,12 @@ function ccount(value, character) {
 	}
 	return count;
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/escape-string-regexp/index.js
+// node_modules/.pnpm/escape-string-regexp@5.0.0/node_modules/escape-string-regexp/index.js
 function escapeStringRegexp(string) {
 	if (typeof string !== "string") throw new TypeError("Expected a string");
 	return string.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&").replace(/-/g, "\\x2d");
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/unist-util-is/lib/index.js
+// node_modules/.pnpm/unist-util-is@6.0.1/node_modules/unist-util-is/lib/index.js
 /**
 * Generate an assertion from a test.
 *
@@ -11610,7 +11608,7 @@ function ok() {
 function looksLikeANode(value) {
 	return value !== null && typeof value === "object" && "type" in value;
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/unist-util-visit-parents/lib/color.node.js
+// node_modules/.pnpm/unist-util-visit-parents@6.1.0/node_modules/unist-util-visit-parents/lib/color.node.js
 /**
 * Color a string.
 *
@@ -11622,7 +11620,7 @@ function looksLikeANode(value) {
 function color$1(d) {
 	return "\x1B[33m" + d + "\x1B[39m";
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/unist-util-visit-parents/lib/index.js
+// node_modules/.pnpm/unist-util-visit-parents@6.1.0/node_modules/unist-util-visit-parents/lib/index.js
 /**
 * @import {Node as UnistNode, Parent as UnistParent} from 'unist'
 */
@@ -12079,7 +12077,7 @@ function toResult(value) {
 	if (typeof value === "number") return [true, value];
 	return value === null || value === void 0 ? empty : [value];
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-find-and-replace/lib/index.js
+// node_modules/.pnpm/mdast-util-find-and-replace@3.0.4/node_modules/mdast-util-find-and-replace/lib/index.js
 /**
 * @import {Nodes, Parents, PhrasingContent, Root, Text} from 'mdast'
 * @import {BuildVisitor, Test, VisitorResult} from 'unist-util-visit-parents'
@@ -12281,7 +12279,7 @@ function toFunction(replace) {
 		return replace;
 	};
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-gfm-autolink-literal/lib/index.js
+// node_modules/.pnpm/mdast-util-gfm-autolink-literal@2.0.1/node_modules/mdast-util-gfm-autolink-literal/lib/index.js
 /**
 * @import {RegExpMatchObject, ReplaceFunction} from 'mdast-util-find-and-replace'
 * @import {CompileContext, Extension as FromMarkdownExtension, Handle as FromMarkdownHandle, Transform as FromMarkdownTransform} from 'mdast-util-from-markdown'
@@ -12460,7 +12458,7 @@ function previous$1(match, email) {
 	const code = match.input.charCodeAt(match.index - 1);
 	return (match.index === 0 || unicodeWhitespace(code) || unicodePunctuation(code)) && (!email || code !== 47);
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-gfm-footnote/lib/index.js
+// node_modules/.pnpm/mdast-util-gfm-footnote@2.1.0/node_modules/mdast-util-gfm-footnote/lib/index.js
 /**
 * @import {
 *   CompileContext,
@@ -12594,7 +12592,7 @@ function gfmFootnoteFromMarkdown() {
 		}
 	};
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-gfm-strikethrough/lib/index.js
+// node_modules/.pnpm/mdast-util-gfm-strikethrough@2.0.1/node_modules/mdast-util-gfm-strikethrough/lib/index.js
 handleDelete.attention = attentionDelete;
 handleDelete.peek = peekDelete;
 /**
@@ -12674,7 +12672,7 @@ function attentionDelete() {
 function peekDelete() {
 	return "~";
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-gfm-table/lib/index.js
+// node_modules/.pnpm/mdast-util-gfm-table@2.0.0/node_modules/mdast-util-gfm-table/lib/index.js
 /**
 * @typedef {import('mdast').InlineCode} InlineCode
 * @typedef {import('mdast').Table} Table
@@ -12798,7 +12796,7 @@ function exitCodeText(token) {
 function replace($0, $1) {
 	return $1 === "|" ? $1 : $0;
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-gfm-task-list-item/lib/index.js
+// node_modules/.pnpm/mdast-util-gfm-task-list-item@2.0.0/node_modules/mdast-util-gfm-task-list-item/lib/index.js
 /**
 * @typedef {import('mdast').ListItem} ListItem
 * @typedef {import('mdast').Paragraph} Paragraph
@@ -12866,7 +12864,7 @@ function exitParagraphWithTaskListItem(token) {
 	}
 	this.exit(token);
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-gfm/lib/index.js
+// node_modules/.pnpm/mdast-util-gfm@3.1.0/node_modules/mdast-util-gfm/lib/index.js
 /**
 * @import {Extension as FromMarkdownExtension} from 'mdast-util-from-markdown'
 * @import {Options} from 'mdast-util-gfm'
@@ -12889,7 +12887,7 @@ function gfmFromMarkdown() {
 		gfmTaskListItemFromMarkdown()
 	];
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/mdast-util-math/lib/index.js
+// node_modules/.pnpm/mdast-util-math@3.0.0/node_modules/mdast-util-math/lib/index.js
 /**
 * @typedef {import('hast').Element} HastElement
 * @typedef {import('hast').ElementContent} HastElementContent
@@ -13037,7 +13035,7 @@ function mathFromMarkdown() {
 		this.config.exit.data.call(this, token);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm-autolink-literal/lib/syntax.js
+// node_modules/.pnpm/micromark-extension-gfm-autolink-literal@2.1.0/node_modules/micromark-extension-gfm-autolink-literal/lib/syntax.js
 /**
 * @import {Code, ConstructRecord, Event, Extension, Previous, State, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -13737,7 +13735,7 @@ function previousUnbalanced(events) {
 	if (events.length > 0 && !result) events[events.length - 1][1]._gfmAutolinkLiteralWalkedInto = true;
 	return result;
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm-footnote/lib/syntax.js
+// node_modules/.pnpm/micromark-extension-gfm-footnote@2.1.0/node_modules/micromark-extension-gfm-footnote/lib/syntax.js
 /**
 * @import {Event, Exiter, Extension, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -14155,7 +14153,7 @@ function tokenizeIndent(effects, ok, nok) {
 		return tail && tail[1].type === "gfmFootnoteDefinitionIndent" && tail[2].sliceSerialize(tail[1], true).length === 4 ? ok(code) : nok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm-strikethrough/lib/syntax.js
+// node_modules/.pnpm/micromark-extension-gfm-strikethrough@2.1.0/node_modules/micromark-extension-gfm-strikethrough/lib/syntax.js
 /**
 * @import {Options} from 'micromark-extension-gfm-strikethrough'
 * @import {Event, Extension, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
@@ -14295,7 +14293,7 @@ function gfmStrikethrough(options) {
 		}
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm-table/lib/edit-map.js
+// node_modules/.pnpm/micromark-extension-gfm-table@2.1.2/node_modules/micromark-extension-gfm-table/lib/edit-map.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -14405,7 +14403,7 @@ function addImplementation(editMap, at, remove, add) {
 	editMap.map.push(change);
 	editMap.index.set(at, change);
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm-table/lib/infer.js
+// node_modules/.pnpm/micromark-extension-gfm-table@2.1.2/node_modules/micromark-extension-gfm-table/lib/infer.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -14442,7 +14440,7 @@ function gfmTableAlign(events, index) {
 	}
 	return align;
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm-table/lib/syntax.js
+// node_modules/.pnpm/micromark-extension-gfm-table@2.1.2/node_modules/micromark-extension-gfm-table/lib/syntax.js
 /**
 * @import {Event, Extension, Point, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -15158,7 +15156,7 @@ function getPoint(events, index) {
 	const side = event[0] === "enter" ? "start" : "end";
 	return event[1][side];
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm-task-list-item/lib/syntax.js
+// node_modules/.pnpm/micromark-extension-gfm-task-list-item@2.1.0/node_modules/micromark-extension-gfm-task-list-item/lib/syntax.js
 /**
 * @import {Extension, State, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -15276,7 +15274,7 @@ function spaceThenNonSpace(effects, ok, nok) {
 		return code === null ? nok(code) : ok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-gfm/index.js
+// node_modules/.pnpm/micromark-extension-gfm@3.0.0/node_modules/micromark-extension-gfm/index.js
 /**
 * @typedef {import('micromark-extension-gfm-footnote').HtmlOptions} HtmlOptions
 * @typedef {import('micromark-extension-gfm-strikethrough').Options} Options
@@ -15303,7 +15301,7 @@ function gfm(options) {
 		gfmTaskListItem()
 	]);
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-math/lib/math-flow.js
+// node_modules/.pnpm/micromark-extension-math@3.1.0/node_modules/micromark-extension-math/lib/math-flow.js
 /**
 * @import {Construct, State, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -15607,7 +15605,7 @@ function tokenizeNonLazyContinuation$1(effects, ok, nok) {
 		return self.parser.lazy[self.now().line] ? nok(code) : ok(code);
 	}
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-math/lib/math-text.js
+// node_modules/.pnpm/micromark-extension-math@3.1.0/node_modules/micromark-extension-math/lib/math-text.js
 /**
 * @import {Options} from 'micromark-extension-math'
 * @import {Construct, Previous, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
@@ -15792,7 +15790,7 @@ function resolveMathText(events) {
 function previous(code) {
 	return code !== 36 || this.events[this.events.length - 1][1].type === "characterEscape";
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-extension-math/lib/syntax.js
+// node_modules/.pnpm/micromark-extension-math@3.1.0/node_modules/micromark-extension-math/lib/syntax.js
 /**
 * @import {Options} from 'micromark-extension-math'
 * @import {Extension} from 'micromark-util-types'
@@ -15812,7 +15810,7 @@ function math(options) {
 		text: { [36]: mathText(options) }
 	};
 }
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-symbol/lib/codes.js
+// node_modules/.pnpm/micromark-util-symbol@2.0.1/node_modules/micromark-util-symbol/lib/codes.js
 /**
 * Character codes.
 *
@@ -15969,7 +15967,7 @@ const codes = {
 	byteOrderMarker: 65279,
 	replacementCharacter: 65533
 };
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-symbol/lib/constants.js
+// node_modules/.pnpm/micromark-util-symbol@2.0.1/node_modules/micromark-util-symbol/lib/constants.js
 /**
 * This module is compiled away!
 *
@@ -16014,7 +16012,7 @@ const constants = {
 	thematicBreakMarkerCountMin: 3,
 	v8MaxSafeChunkSize: 1e4
 };
-// ../../../../../../../../../private/tmp/iso.i0nNGd/dsh-ui-deps/node_modules/micromark-util-symbol/lib/types.js
+// node_modules/.pnpm/micromark-util-symbol@2.0.1/node_modules/micromark-util-symbol/lib/types.js
 /**
 * This module is compiled away!
 *
@@ -16435,142 +16433,146 @@ function softBreaksToHard(text) {
 }
 // src/client/ChannelsPage.module.css
 var ChannelsPage_module_default = {
-	"activeBusy": "vkiakq_activeBusy",
-	"activeCount": "vkiakq_activeCount",
-	"addMemberButton": "vkiakq_addMemberButton",
-	"attachmentAudio": "vkiakq_attachmentAudio",
-	"attachmentFile": "vkiakq_attachmentFile",
-	"attachmentImage": "vkiakq_attachmentImage",
-	"attachments": "vkiakq_attachments",
-	"attachmentSize": "vkiakq_attachmentSize",
-	"attachmentThumb": "vkiakq_attachmentThumb",
-	"author": "vkiakq_author",
-	"avatar": "vkiakq_avatar",
-	"avatarAnchor": "vkiakq_avatarAnchor",
-	"avatarButton": "vkiakq_avatarButton",
-	"avatarImage": "vkiakq_avatarImage",
-	"avatarMenu": "vkiakq_avatarMenu",
-	"avatarMenuItem": "vkiakq_avatarMenuItem",
-	"avatarMenuTitle": "vkiakq_avatarMenuTitle",
-	"avatarOption": "vkiakq_avatarOption",
-	"avatarPicker": "vkiakq_avatarPicker",
-	"avatarSmall": "vkiakq_avatarSmall",
-	"capabilityHelp": "vkiakq_capabilityHelp",
-	"capabilityItem": "vkiakq_capabilityItem",
-	"capabilityMenu": "vkiakq_capabilityMenu",
-	"card": "vkiakq_card",
-	"cardButtons": "vkiakq_cardButtons",
-	"cardHead": "vkiakq_cardHead",
-	"cardTitle": "vkiakq_cardTitle",
-	"cardViewButton": "vkiakq_cardViewButton",
-	"cardViews": "vkiakq_cardViews",
-	"chat": "vkiakq_chat",
-	"chatHead": "vkiakq_chatHead",
-	"choice": "vkiakq_choice",
-	"choiceRow": "vkiakq_choiceRow",
-	"composer": "vkiakq_composer",
-	"composerRow": "vkiakq_composerRow",
-	"dialog": "vkiakq_dialog",
-	"dialogActions": "vkiakq_dialogActions",
-	"dialogBackdrop": "vkiakq_dialogBackdrop",
-	"dialogTitle": "vkiakq_dialogTitle",
-	"drawerBackdrop": "vkiakq_drawerBackdrop",
-	"drawerOpen": "vkiakq_drawerOpen",
-	"editBar": "vkiakq_editBar",
-	"editBox": "vkiakq_editBox",
-	"edited": "vkiakq_edited",
-	"editInput": "vkiakq_editInput",
-	"empty": "vkiakq_empty",
-	"field": "vkiakq_field",
-	"fieldInput": "vkiakq_fieldInput",
-	"fieldLabel": "vkiakq_fieldLabel",
-	"focused": "vkiakq_focused",
-	"groupHead": "vkiakq_groupHead",
-	"groupTitle": "vkiakq_groupTitle",
-	"guide": "vkiakq_guide",
-	"hash": "vkiakq_hash",
-	"iconButton": "vkiakq_iconButton",
-	"input": "vkiakq_input",
-	"leadControl": "vkiakq_leadControl",
-	"leadMenu": "vkiakq_leadMenu",
-	"leadOption": "vkiakq_leadOption",
-	"linkButton": "vkiakq_linkButton",
-	"log": "vkiakq_log",
-	"member": "vkiakq_member",
-	"memberActions": "vkiakq_memberActions",
-	"memberAvatar": "vkiakq_memberAvatar",
-	"memberFailed": "vkiakq_memberFailed",
-	"memberModel": "vkiakq_memberModel",
-	"memberName": "vkiakq_memberName",
-	"memberRow": "vkiakq_memberRow",
-	"members": "vkiakq_members",
-	"membersHidden": "vkiakq_membersHidden",
-	"memberStatus": "vkiakq_memberStatus",
-	"memberText": "vkiakq_memberText",
-	"mentionActive": "vkiakq_mentionActive",
-	"mentionButton": "vkiakq_mentionButton",
-	"mentionHint": "vkiakq_mentionHint",
-	"mentionItem": "vkiakq_mentionItem",
-	"mentionMeta": "vkiakq_mentionMeta",
-	"mentionName": "vkiakq_mentionName",
-	"mentionPopup": "vkiakq_mentionPopup",
-	"mentionTitle": "vkiakq_mentionTitle",
-	"message": "vkiakq_message",
-	"messageBody": "vkiakq_messageBody",
-	"messageHead": "vkiakq_messageHead",
-	"mobileButton": "vkiakq_mobileButton",
-	"notice": "vkiakq_notice",
-	"offline": "vkiakq_offline",
-	"ownActions": "vkiakq_ownActions",
-	"page": "vkiakq_page",
-	"panelToggle": "vkiakq_panelToggle",
-	"panelToggleEnd": "vkiakq_panelToggleEnd",
-	"permActions": "vkiakq_permActions",
-	"permScope": "vkiakq_permScope",
-	"permStatus": "vkiakq_permStatus",
-	"presence": "vkiakq_presence",
-	"primaryButton": "vkiakq_primaryButton",
-	"quote": "vkiakq_quote",
-	"quoteAuthor": "vkiakq_quoteAuthor",
-	"quoteDeleted": "vkiakq_quoteDeleted",
-	"replyBar": "vkiakq_replyBar",
-	"replyBarText": "vkiakq_replyBarText",
-	"replyButton": "vkiakq_replyButton",
-	"replyCancel": "vkiakq_replyCancel",
-	"room": "vkiakq_room",
-	"roomActive": "vkiakq_roomActive",
-	"roomInput": "vkiakq_roomInput",
-	"roomLabel": "vkiakq_roomLabel",
-	"rooms": "vkiakq_rooms",
-	"roomsHidden": "vkiakq_roomsHidden",
-	"secondaryButton": "vkiakq_secondaryButton",
-	"sendButton": "vkiakq_sendButton",
-	"sendError": "vkiakq_sendError",
-	"system": "vkiakq_system",
-	"tag": "vkiakq_tag",
-	"taskBoard": "vkiakq_taskBoard",
-	"taskCard": "vkiakq_taskCard",
-	"taskDone": "vkiakq_taskDone",
-	"taskEmpty": "vkiakq_taskEmpty",
-	"taskLine": "vkiakq_taskLine",
-	"taskLinks": "vkiakq_taskLinks",
-	"taskList": "vkiakq_taskList",
-	"taskMember": "vkiakq_taskMember",
-	"taskMemberName": "vkiakq_taskMemberName",
-	"taskMembers": "vkiakq_taskMembers",
-	"taskMeta": "vkiakq_taskMeta",
-	"taskOwnerGroup": "vkiakq_taskOwnerGroup",
-	"taskOwnerName": "vkiakq_taskOwnerName",
-	"taskRow": "vkiakq_taskRow",
-	"taskSection": "vkiakq_taskSection",
-	"taskSectionTitle": "vkiakq_taskSectionTitle",
-	"taskStatus": "vkiakq_taskStatus",
-	"taskSub": "vkiakq_taskSub",
-	"taskTitle": "vkiakq_taskTitle",
-	"text": "vkiakq_text",
-	"time": "vkiakq_time",
-	"working": "vkiakq_working",
-	"workspace": "vkiakq_workspace"
+	"activeBusy": "_8thCeG_activeBusy",
+	"activeCount": "_8thCeG_activeCount",
+	"addMemberButton": "_8thCeG_addMemberButton",
+	"attachmentAudio": "_8thCeG_attachmentAudio",
+	"attachmentFile": "_8thCeG_attachmentFile",
+	"attachmentImage": "_8thCeG_attachmentImage",
+	"attachments": "_8thCeG_attachments",
+	"attachmentSize": "_8thCeG_attachmentSize",
+	"attachmentThumb": "_8thCeG_attachmentThumb",
+	"author": "_8thCeG_author",
+	"avatar": "_8thCeG_avatar",
+	"avatarAnchor": "_8thCeG_avatarAnchor",
+	"avatarButton": "_8thCeG_avatarButton",
+	"avatarImage": "_8thCeG_avatarImage",
+	"avatarMenu": "_8thCeG_avatarMenu",
+	"avatarMenuItem": "_8thCeG_avatarMenuItem",
+	"avatarMenuTitle": "_8thCeG_avatarMenuTitle",
+	"avatarOption": "_8thCeG_avatarOption",
+	"avatarPicker": "_8thCeG_avatarPicker",
+	"avatarSmall": "_8thCeG_avatarSmall",
+	"capabilityHelp": "_8thCeG_capabilityHelp",
+	"capabilityItem": "_8thCeG_capabilityItem",
+	"capabilityMenu": "_8thCeG_capabilityMenu",
+	"card": "_8thCeG_card",
+	"cardButtons": "_8thCeG_cardButtons",
+	"cardHead": "_8thCeG_cardHead",
+	"cardTitle": "_8thCeG_cardTitle",
+	"cardViewButton": "_8thCeG_cardViewButton",
+	"cardViews": "_8thCeG_cardViews",
+	"chat": "_8thCeG_chat",
+	"chatHead": "_8thCeG_chatHead",
+	"choice": "_8thCeG_choice",
+	"choiceRow": "_8thCeG_choiceRow",
+	"composer": "_8thCeG_composer",
+	"composerRow": "_8thCeG_composerRow",
+	"dialog": "_8thCeG_dialog",
+	"dialogActions": "_8thCeG_dialogActions",
+	"dialogBackdrop": "_8thCeG_dialogBackdrop",
+	"dialogTitle": "_8thCeG_dialogTitle",
+	"drawerBackdrop": "_8thCeG_drawerBackdrop",
+	"drawerOpen": "_8thCeG_drawerOpen",
+	"editBar": "_8thCeG_editBar",
+	"editBox": "_8thCeG_editBox",
+	"edited": "_8thCeG_edited",
+	"editInput": "_8thCeG_editInput",
+	"empty": "_8thCeG_empty",
+	"field": "_8thCeG_field",
+	"fieldInput": "_8thCeG_fieldInput",
+	"fieldLabel": "_8thCeG_fieldLabel",
+	"focused": "_8thCeG_focused",
+	"groupHead": "_8thCeG_groupHead",
+	"groupTitle": "_8thCeG_groupTitle",
+	"guide": "_8thCeG_guide",
+	"hash": "_8thCeG_hash",
+	"iconButton": "_8thCeG_iconButton",
+	"input": "_8thCeG_input",
+	"leadControl": "_8thCeG_leadControl",
+	"leadMenu": "_8thCeG_leadMenu",
+	"leadOption": "_8thCeG_leadOption",
+	"linkButton": "_8thCeG_linkButton",
+	"log": "_8thCeG_log",
+	"member": "_8thCeG_member",
+	"memberActions": "_8thCeG_memberActions",
+	"memberAvatar": "_8thCeG_memberAvatar",
+	"memberFailed": "_8thCeG_memberFailed",
+	"memberModel": "_8thCeG_memberModel",
+	"memberName": "_8thCeG_memberName",
+	"memberRow": "_8thCeG_memberRow",
+	"members": "_8thCeG_members",
+	"membersHidden": "_8thCeG_membersHidden",
+	"memberStatus": "_8thCeG_memberStatus",
+	"memberText": "_8thCeG_memberText",
+	"mentionActive": "_8thCeG_mentionActive",
+	"mentionButton": "_8thCeG_mentionButton",
+	"mentionHint": "_8thCeG_mentionHint",
+	"mentionItem": "_8thCeG_mentionItem",
+	"mentionMeta": "_8thCeG_mentionMeta",
+	"mentionName": "_8thCeG_mentionName",
+	"mentionPopup": "_8thCeG_mentionPopup",
+	"mentionTitle": "_8thCeG_mentionTitle",
+	"message": "_8thCeG_message",
+	"messageBody": "_8thCeG_messageBody",
+	"messageHead": "_8thCeG_messageHead",
+	"mobileButton": "_8thCeG_mobileButton",
+	"notice": "_8thCeG_notice",
+	"offline": "_8thCeG_offline",
+	"ownActions": "_8thCeG_ownActions",
+	"page": "_8thCeG_page",
+	"panelToggle": "_8thCeG_panelToggle",
+	"panelToggleEnd": "_8thCeG_panelToggleEnd",
+	"permActions": "_8thCeG_permActions",
+	"permScope": "_8thCeG_permScope",
+	"permStatus": "_8thCeG_permStatus",
+	"presence": "_8thCeG_presence",
+	"primaryButton": "_8thCeG_primaryButton",
+	"quote": "_8thCeG_quote",
+	"quoteAuthor": "_8thCeG_quoteAuthor",
+	"quoteDeleted": "_8thCeG_quoteDeleted",
+	"replyBar": "_8thCeG_replyBar",
+	"replyBarText": "_8thCeG_replyBarText",
+	"replyButton": "_8thCeG_replyButton",
+	"replyCancel": "_8thCeG_replyCancel",
+	"room": "_8thCeG_room",
+	"roomActive": "_8thCeG_roomActive",
+	"roomInput": "_8thCeG_roomInput",
+	"roomLabel": "_8thCeG_roomLabel",
+	"rooms": "_8thCeG_rooms",
+	"roomsHidden": "_8thCeG_roomsHidden",
+	"secondaryButton": "_8thCeG_secondaryButton",
+	"sendButton": "_8thCeG_sendButton",
+	"sendError": "_8thCeG_sendError",
+	"system": "_8thCeG_system",
+	"tag": "_8thCeG_tag",
+	"taskBoardBody": "_8thCeG_taskBoardBody",
+	"taskBoardDialog": "_8thCeG_taskBoardDialog",
+	"taskBoardScope": "_8thCeG_taskBoardScope",
+	"taskBoardSummary": "_8thCeG_taskBoardSummary",
+	"taskBoardTrigger": "_8thCeG_taskBoardTrigger",
+	"taskCard": "_8thCeG_taskCard",
+	"taskDone": "_8thCeG_taskDone",
+	"taskEmpty": "_8thCeG_taskEmpty",
+	"taskLine": "_8thCeG_taskLine",
+	"taskLinks": "_8thCeG_taskLinks",
+	"taskList": "_8thCeG_taskList",
+	"taskMember": "_8thCeG_taskMember",
+	"taskMemberName": "_8thCeG_taskMemberName",
+	"taskMembers": "_8thCeG_taskMembers",
+	"taskMeta": "_8thCeG_taskMeta",
+	"taskOwnerGroup": "_8thCeG_taskOwnerGroup",
+	"taskOwnerName": "_8thCeG_taskOwnerName",
+	"taskRow": "_8thCeG_taskRow",
+	"taskSection": "_8thCeG_taskSection",
+	"taskSectionTitle": "_8thCeG_taskSectionTitle",
+	"taskStatus": "_8thCeG_taskStatus",
+	"taskSub": "_8thCeG_taskSub",
+	"taskTitle": "_8thCeG_taskTitle",
+	"text": "_8thCeG_text",
+	"time": "_8thCeG_time",
+	"working": "_8thCeG_working",
+	"workspace": "_8thCeG_workspace"
 };
 // src/client/Attachments.tsx
 const isImage = (mime) => /^image\/(png|jpeg|gif|webp)$/.test(mime);
@@ -16826,6 +16828,12 @@ function boardSections(tasks, rooms, chatId, roomId) {
 	return sections;
 }
 // src/client/TaskBoard.tsx
+/**
+* Team mode B (#139): the task board beside the channel (who, what, status,
+* when it is next checked) and the task card shown for task records in the
+* message stream (one row per member: the task owner and its sub-tasks, each
+* with its elapsed time). Data comes from the snapshot's `tasks`.
+*/
 function clock(seconds) {
 	return (/* @__PURE__ */ new Date(seconds * 1e3)).toLocaleTimeString([], {
 		hour: "2-digit",
@@ -16844,8 +16852,32 @@ function Status({ status, t }) {
 * @param onOpen - jump to a message in a room (dispatch or delivery).
 */
 function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }) {
+	const [opened, setOpened] = (0, react.useState)(false);
+	const dialog = (0, react.useRef)(null);
+	const titleId = (0, react.useId)();
 	const now = Date.now() / 1e3;
 	const sections = boardSections(tasks, rooms, chatId, roomId);
+	const roomName = rooms.find((room) => room.id === roomId)?.name ?? rooms.find((room) => room.id === chatId)?.name ?? "";
+	const channelTotal = sections.filter((section) => section.chat).reduce((n, section) => n + section.open + section.done, 0);
+	const workspaceTotal = sections.filter((section) => !section.chat).reduce((n, section) => n + section.open + section.done, 0);
+	const close = () => {
+		setOpened(false);
+	};
+	(0, react.useEffect)(() => {
+		setOpened(false);
+	}, [roomId]);
+	(0, react.useEffect)(() => {
+		if (!opened) return;
+		const previous = document.activeElement;
+		dialog.current?.focus();
+		return () => {
+			previous?.focus();
+		};
+	}, [opened]);
+	const jump = (targetRoomId, messageId) => {
+		close();
+		onOpen(targetRoomId, messageId);
+	};
 	const openTotal = sections.reduce((n, s) => n + s.open, 0);
 	const all = sections.reduce((n, s) => n + s.open + s.done, 0);
 	const row = (task) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
@@ -16877,65 +16909,140 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }) {
 					type: "button",
 					className: ChannelsPage_module_default.linkButton,
 					onClick: () => {
-						onOpen(task.room_id, task.assign_msg_id);
+						jump(task.room_id, task.assign_msg_id);
 					},
 					children: t("taskOpenAssign")
 				}), task.result_msg_id !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 					type: "button",
 					className: ChannelsPage_module_default.linkButton,
 					onClick: () => {
-						onOpen(task.room_id, task.result_msg_id);
+						jump(task.room_id, task.result_msg_id);
 					},
 					children: t("taskOpenResult")
 				})]
 			})
 		]
 	}, task.id);
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
-		className: ChannelsPage_module_default.taskBoard,
-		"aria-label": t("taskBoard"),
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+		type: "button",
+		className: ChannelsPage_module_default.taskBoardTrigger,
+		"aria-label": t("taskBoardOpen"),
+		"aria-haspopup": "dialog",
+		"aria-expanded": opened,
+		onClick: () => {
+			setOpened(true);
+		},
 		children: [
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
-				className: ChannelsPage_module_default.groupTitle,
-				children: t("taskBoardTitle", { count: String(openTotal) })
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("taskBoard") }),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: ChannelsPage_module_default.taskBoardSummary,
+				children: all === 0 ? t("taskBoardNoTasks") : t("taskBoardSummary", {
+					open: String(openTotal),
+					done: String(all - openTotal)
+				})
 			}),
-			all === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-				className: ChannelsPage_module_default.taskEmpty,
-				children: t("taskBoardEmpty")
-			}),
-			sections.map((section) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: ChannelsPage_module_default.taskSection,
-				"data-room-id": section.roomId,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
-					className: ChannelsPage_module_default.taskSectionTitle,
-					children: sectionTitle(section, t)
-				}), section.owners.map((group) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					className: ChannelsPage_module_default.taskOwnerGroup,
-					"data-owner": group.owner,
-					children: [
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-							className: ChannelsPage_module_default.taskOwnerName,
-							children: t("taskBoardOwner", { name: group.ownerName })
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
-							className: ChannelsPage_module_default.taskList,
-							children: group.open.map(row)
-						}),
-						group.done.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", {
-							className: ChannelsPage_module_default.taskDone,
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("summary", {
-								className: ChannelsPage_module_default.groupTitle,
-								children: t("taskDoneGroup", { count: String(group.done.length) })
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
-								className: ChannelsPage_module_default.taskList,
-								children: group.done.map(row)
-							})]
-						})
-					]
-				}, group.owner))]
-			}, section.roomId))
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				"aria-hidden": "true",
+				children: "›"
+			})
 		]
-	});
+	}), opened && (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+		className: ChannelsPage_module_default.dialogBackdrop,
+		onMouseDown: (event) => {
+			if (event.target === event.currentTarget) close();
+		},
+		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+			ref: dialog,
+			className: `${ChannelsPage_module_default.dialog} ${ChannelsPage_module_default.taskBoardDialog}`,
+			role: "dialog",
+			"aria-modal": "true",
+			"aria-labelledby": titleId,
+			tabIndex: -1,
+			onKeyDown: (event) => {
+				if (event.key === "Escape") {
+					event.stopPropagation();
+					close();
+				}
+				if (event.key === "Tab") {
+					const focusable = Array.from(event.currentTarget.querySelectorAll("button, summary")).filter((element) => !element.closest("details:not([open])") || element.tagName === "SUMMARY");
+					const first = focusable[0];
+					const last = focusable[focusable.length - 1];
+					if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) {
+						event.preventDefault();
+						last?.focus();
+					} else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) {
+						event.preventDefault();
+						first?.focus();
+					}
+				}
+			},
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("h2", {
+					id: titleId,
+					className: ChannelsPage_module_default.dialogTitle,
+					children: [
+						t("taskBoard"),
+						" · ",
+						roomName
+					]
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: ChannelsPage_module_default.taskBoardScope,
+					children: t("taskBoardScope", {
+						room: rooms.find((room) => room.id === chatId)?.name ?? roomName,
+						channel: String(channelTotal),
+						workspaces: String(workspaceTotal)
+					})
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: ChannelsPage_module_default.taskBoardBody,
+					children: [all === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: ChannelsPage_module_default.taskEmpty,
+						children: t("taskBoardEmptyInModal")
+					}), sections.map((section) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: ChannelsPage_module_default.taskSection,
+						"data-room-id": section.roomId,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
+							className: ChannelsPage_module_default.taskSectionTitle,
+							children: sectionTitle(section, t)
+						}), section.owners.map((group) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: ChannelsPage_module_default.taskOwnerGroup,
+							"data-owner": group.owner,
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: ChannelsPage_module_default.taskOwnerName,
+									children: t("taskBoardOwner", { name: group.ownerName })
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+									className: ChannelsPage_module_default.taskList,
+									children: group.open.map(row)
+								}),
+								group.done.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", {
+									className: ChannelsPage_module_default.taskDone,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("summary", {
+										className: ChannelsPage_module_default.groupTitle,
+										children: t("taskDoneGroup", { count: String(group.done.length) })
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+										className: ChannelsPage_module_default.taskList,
+										children: group.done.map(row)
+									})]
+								})
+							]
+						}, group.owner))]
+					}, section.roomId))]
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: ChannelsPage_module_default.dialogActions,
+					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ChannelsPage_module_default.secondaryButton,
+						onClick: close,
+						children: t("close")
+					})
+				})
+			]
+		})
+	}), document.body)] });
 }
 /**
 * Card for a task record in the message stream: the task and one row per
@@ -17084,7 +17191,7 @@ function rankMembers(members, query) {
 	return members.map((m) => ({
 		m,
 		s: score(m)
-	})).filter((x) => x.s !== void 0).sort((a, b) => Number(a.m.kind === "human") - Number(b.m.kind === "human") || a.s - b.s || Number(!a.m.online) - Number(!b.m.online) || a.m.name.localeCompare(b.m.name)).map((x) => x.m);
+	})).filter((x) => x.s !== void 0).sort((a, b) => Number(a.m.kind === "human") - Number(b.m.kind === "human") || a.s - b.s || Number(!a.m.online) - Number(!b.m.online) || a.m.name.localeCompare(b.m.name, "en")).map((x) => x.m);
 }
 /**
 * Replace the active `@query` with `@name ` and put the caret after it.
@@ -17200,7 +17307,6 @@ const CLI_CHOICES = [
 		label: "Gemini"
 	}
 ];
-const NO_MEMBERS = [];
 /** DSH's built-in permission presets in DSH's own order; default = DSH default workspace-write (collab/cli-member.mjs DEFAULT_PERMISSION_PRESET). */
 const PRESETS = [
 	{
@@ -17221,33 +17327,12 @@ const PRESETS = [
 ];
 const DEFAULT_PRESET = "workspace-write";
 /**
-* Rewrite only the identity references in a persona text. Replacing every
-* occurrence also changes ordinary prose such as 橘色长发, 女仆长制服 or
-* 一只渡鸦 when the persona name happens to be a common word.
-*/
-function renamePersonaIdentity(text, oldName, newName) {
-	if (!oldName || oldName === newName) return text;
-	let out = text;
-	for (const [from, to] of [
-		[`「${oldName}」`, `「${newName}」`],
-		[`"${oldName}"`, `"${newName}"`],
-		[`“${oldName}”`, `“${newName}”`],
-		[`# 角色：${oldName}`, `# 角色：${newName}`],
-		[`# Character: ${oldName}`, `# Character: ${newName}`]
-	]) out = out.split(from).join(to);
-	return out;
-}
-/**
 * Render the member dialog.
 * @param props - target member, actions, and copy.
 * @returns a modal form.
 */
-function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, listPersonas, onSubmit, onClose, t }) {
-	const [name, setName] = (0, react.useState)(member?.name ?? "DSH");
-	const [nameCustomized, setNameCustomized] = (0, react.useState)(member === void 0 ? false : member.nameCustomized);
-	const [keepName, setKeepName] = (0, react.useState)(true);
-	const [personas, setPersonas] = (0, react.useState)([]);
-	const [personaSlug, setPersonaSlug] = (0, react.useState)("");
+function MemberDialog({ member, listModels, listClis, onSubmit, onClose, t }) {
+	const [name, setName] = (0, react.useState)(member?.name ?? "");
 	const [persona, setPersona] = (0, react.useState)(member?.persona ?? "");
 	const [modelKey, setModelKey] = (0, react.useState)(member?.model ? member.model.provider + SEP + member.model.model : "");
 	const [routes, setRoutes] = (0, react.useState)(void 0);
@@ -17258,27 +17343,6 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 	const [cli, setCli] = (0, react.useState)(member?.cli ?? "");
 	const [preset, setPreset] = (0, react.useState)(member?.permissionPreset ?? DEFAULT_PRESET);
 	const [avatar, setAvatar] = (0, react.useState)(member?.avatar !== void 0 && AVATARS.includes(member.avatar) ? member.avatar : "");
-	const backend = type === "cli" ? CLI_CHOICES.find((c) => c.cli === cli)?.label ?? "" : "DSH";
-	(0, react.useEffect)(() => {
-		if (nameCustomized !== false || !backend) return;
-		const used = new Set(members.filter((m) => m.id !== member?.id).map((m) => m.name.toLowerCase()));
-		let next = backend;
-		for (let n = 2; used.has(next.toLowerCase()); n++) next = `${backend}-${n}`;
-		if (next === name) return;
-		if (keepName && persona) setPersona((text) => renamePersonaIdentity(text, name, next));
-		setName(next);
-	}, [
-		backend,
-		nameCustomized,
-		members,
-		member?.id,
-		name,
-		keepName,
-		persona
-	]);
-	(0, react.useEffect)(() => {
-		if (listPersonas) listPersonas().then(setPersonas).catch((reason) => setError(String(reason)));
-	}, [listPersonas]);
 	(0, react.useEffect)(() => {
 		let live = true;
 		listModels().then((list) => {
@@ -17317,17 +17381,14 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 		const [provider, model] = modelKey === "" ? [] : modelKey.split(SEP);
 		setBusy(true);
 		setError(void 0);
-		const identity = nameCustomized === void 0 ? {} : { nameCustomized };
 		onSubmit(type === "cli" ? {
 			name: name.trim(),
-			...identity,
 			persona,
 			avatar,
 			cli,
 			permissionPreset: preset
 		} : {
 			name: name.trim(),
-			...identity,
 			persona,
 			avatar,
 			model: provider !== void 0 && model !== void 0 ? {
@@ -17361,93 +17422,44 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 					className: ChannelsPage_module_default.dialogTitle,
 					children: member === void 0 ? t("memberDialogAdd") : t("memberDialogEdit", { name: member.name })
 				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: name === backend ? name : `${name}·${backend}` }),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("memberNoPersona") }),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", { children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("summary", { children: t("memberOptional") }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-						className: ChannelsPage_module_default.field,
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("memberName") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-							className: ChannelsPage_module_default.fieldInput,
-							value: name,
-							maxLength: 32,
-							onChange: (event) => {
-								const next = event.target.value;
-								if (personaSlug && keepName && name) setPersona(renamePersonaIdentity(persona, name, next));
-								setName(next);
-								setNameCustomized(true);
-							}
-						})]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-						className: ChannelsPage_module_default.field,
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							id: "member-avatar-label",
-							children: t("memberAvatar")
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: ChannelsPage_module_default.avatarPicker,
-							role: "radiogroup",
-							"aria-labelledby": "member-avatar-label",
-							children: ["", ...AVATARS].map((slug) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-								type: "button",
-								role: "radio",
-								"aria-checked": avatar === slug,
-								className: ChannelsPage_module_default.avatarOption,
-								title: slug === "" ? t("memberAvatarNone") : slug,
-								onClick: () => {
-									setAvatar(slug);
-								},
-								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
-									id: member?.id ?? (name.trim() || "new"),
-									name: name.trim() || "?",
-									avatar: slug
-								})
-							}, slug === "" ? "none" : slug))
-						})]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("label", {
-						className: ChannelsPage_module_default.field,
-						children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-							type: "checkbox",
-							checked: keepName,
-							onChange: (e) => setKeepName(e.target.checked)
-						}), t("memberKeepName")] })
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+					className: ChannelsPage_module_default.field,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("memberName") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
 						className: ChannelsPage_module_default.fieldInput,
-						"aria-label": t("memberPersonaLibrary"),
-						value: personaSlug,
-						onChange: (e) => {
-							setPersonaSlug(e.target.value);
-							const p = personas.find((p) => p.slug === e.target.value);
-							setPersona(p ? keepName ? renamePersonaIdentity(p.text, p.name, name) : p.text : "");
-							if (p) {
-								setAvatar(p.avatar || "");
-								if (!keepName) {
-									setName(p.name);
-									setNameCustomized(true);
-								}
-							}
-						},
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-							value: "",
-							children: t("memberPersonaNone")
-						}), personas.map((p) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-							value: p.slug,
-							children: p.name
-						}, p.slug))]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-						className: ChannelsPage_module_default.field,
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("memberPersona") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
-							className: ChannelsPage_module_default.fieldInput,
-							rows: 4,
-							value: persona,
-							maxLength: 4e3,
-							onChange: (e) => setPersona(e.target.value)
-						})]
-					})
-				] }),
+						value: name,
+						maxLength: 32,
+						autoFocus: true,
+						onChange: (event) => {
+							setName(event.target.value);
+						}
+					})]
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: ChannelsPage_module_default.field,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						id: "member-avatar-label",
+						children: t("memberAvatar")
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ChannelsPage_module_default.avatarPicker,
+						role: "radiogroup",
+						"aria-labelledby": "member-avatar-label",
+						children: ["", ...AVATARS].map((slug) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							role: "radio",
+							"aria-checked": avatar === slug,
+							className: ChannelsPage_module_default.avatarOption,
+							title: slug === "" ? t("memberAvatarNone") : slug,
+							onClick: () => {
+								setAvatar(slug);
+							},
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+								id: member?.id ?? (name.trim() || "new"),
+								name: name.trim() || "?",
+								avatar: slug
+							})
+						}, slug === "" ? "none" : slug))
+					})]
+				}),
 				member === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 					className: ChannelsPage_module_default.field,
 					role: "radiogroup",
@@ -17544,6 +17556,18 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 						]
 					})]
 				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+					className: ChannelsPage_module_default.field,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("memberPersona") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
+						className: ChannelsPage_module_default.fieldInput,
+						rows: 4,
+						value: persona,
+						maxLength: 4e3,
+						onChange: (event) => {
+							setPersona(event.target.value);
+						}
+					})]
+				}),
 				error !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 					className: ChannelsPage_module_default.sendError,
 					role: "alert",
@@ -17633,14 +17657,11 @@ const CLI_TAG = {
 	codex: "kindCodex",
 	gemini: "kindGemini"
 };
-function KindTag({ kind, cli, name, t }) {
-	if (cli !== void 0) {
-		const label = t(CLI_TAG[cli]);
-		return name === label ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-			className: ChannelsPage_module_default.tag,
-			children: ["·", label]
-		});
-	}
+function KindTag({ kind, cli, t }) {
+	if (cli !== void 0) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+		className: ChannelsPage_module_default.tag,
+		children: t(CLI_TAG[cli])
+	});
 	if (kind === "dsh") return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 		className: ChannelsPage_module_default.tag,
 		children: t("kindDsh")
@@ -17765,7 +17786,6 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 								children: message.name
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(KindTag, {
-								name: message.name,
 								kind: member?.kind,
 								cli: member?.cli,
 								t
@@ -17944,7 +17964,6 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 						className: ChannelsPage_module_default.memberName,
 						children: [m.name, /* @__PURE__ */ (0, react_jsx_runtime.jsx)(KindTag, {
-							name: m.name,
 							kind: m.kind,
 							cli: m.cli,
 							t
@@ -17989,7 +18008,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }) {
 	const state = useChannels((snapshot) => snapshot);
 	const [editing, setEditing] = (0, react.useState)(void 0);
 	const [ownNotice, setOwnNotice] = (0, react.useState)(void 0);
@@ -18131,6 +18150,8 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 		});
 	}
 	const room = state.rooms.find((r) => r.id === state.roomId);
+	const channelId = room?.parent_id ?? room?.id;
+	const visibleMembers = state.members.filter((m) => !m.rooms?.length || channelId !== void 0 && m.rooms.includes(channelId));
 	const openTaskOwners = new Set((state.tasks ?? []).filter((t) => [
 		"assigned",
 		"accepted",
@@ -18138,10 +18159,10 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 		"rework"
 	].includes(t.status)).map((t) => t.owner));
 	const busy = /* @__PURE__ */ new Set([...state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? [], ...openTaskOwners]);
-	const byId = new Map(state.members.map((m) => [m.id, m]));
+	const byId = new Map(visibleMembers.map((m) => [m.id, m]));
 	const typingNames = (state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? []).map((id) => byId.get(id)?.name ?? id);
 	const mention = activeMention(draft, caret);
-	const candidates = mention === void 0 || mention.start === dismissedAt ? [] : rankMembers(state.members, mention.query);
+	const candidates = mention === void 0 || mention.start === dismissedAt ? [] : rankMembers(visibleMembers, mention.query);
 	const popupOpen = mention !== void 0 && candidates.length > 0;
 	openMentionAt.current = popupOpen ? mention.start : void 0;
 	const selected = Math.min(highlight, Math.max(candidates.length - 1, 0));
@@ -18528,7 +18549,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 							const el = event.currentTarget;
 							stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
 						},
-						children: [!state.members.some((m) => m.kind !== "human") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						children: [!visibleMembers.some((m) => m.kind !== "human") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 							className: ChannelsPage_module_default.guide,
 							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", { children: t("guideNoMembers") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
@@ -18632,7 +18653,6 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 													children: m.name
 												}),
 												/* @__PURE__ */ (0, react_jsx_runtime.jsx)(KindTag, {
-													name: m.name,
 													kind: m.kind,
 													cli: m.cli,
 													t
@@ -18762,17 +18782,17 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 								"aria-haspopup": "listbox",
 								"aria-expanded": leadOpen,
 								"aria-label": t("lead"),
-								disabled: leadSaving || state.members.every((m) => m.kind === "human"),
+								disabled: leadSaving || visibleMembers.every((m) => m.kind === "human"),
 								onClick: () => {
 									setLeadOpen(!leadOpen);
 								},
-								children: state.members.find((m) => m.id === (state.effectiveLeadId ?? state.leadId))?.name ?? t("leadNone")
+								children: visibleMembers.find((m) => m.id === (state.effectiveLeadId ?? state.leadId))?.name ?? t("leadNone")
 							}),
 							leadOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 								className: ChannelsPage_module_default.leadMenu,
 								role: "listbox",
 								"aria-label": t("lead"),
-								children: state.members.filter((m) => m.kind !== "human").map((m) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								children: visibleMembers.filter((m) => m.kind !== "human").map((m) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 									type: "button",
 									role: "option",
 									"aria-selected": m.id === state.leadId,
@@ -18832,8 +18852,8 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 						children: memberError
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(MemberGroup, {
-						title: t("agents", { count: String(state.members.filter((m) => m.kind !== "human").length) }),
-						members: state.members.filter((m) => m.kind !== "human"),
+						title: t("agents", { count: String(visibleMembers.filter((m) => m.kind !== "human").length) }),
+						members: visibleMembers.filter((m) => m.kind !== "human"),
 						busy,
 						onPick: pickFromList,
 						onEdit: setDialog,
@@ -18841,8 +18861,8 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 						t
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(MemberGroup, {
-						title: t("humans", { count: String(state.members.filter((m) => m.kind === "human").length) }),
-						members: state.members.filter((m) => m.kind === "human"),
+						title: t("humans", { count: String(visibleMembers.filter((m) => m.kind === "human").length) }),
+						members: visibleMembers.filter((m) => m.kind === "human"),
 						busy,
 						onPick: pickFromList,
 						onEdit: setDialog,
@@ -18878,8 +18898,6 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 				member: dialog ?? void 0,
 				listModels,
 				listClis,
-				listPersonas,
-				members: state.members,
 				onSubmit: (input) => dialog === null ? addMember(input) : updateMember(dialog.id, input),
 				onClose: () => {
 					setDialog(void 0);
@@ -18908,13 +18926,18 @@ const zh = {
 	capabilityWorkspace: "工作区",
 	capabilityLead: "换主角色",
 	capabilityDm: "私信",
-	capabilityTaskBoardHelp: "在右侧任务板查看负责人、状态和下次查看时间，点「派工消息」或「交回消息」回到对应记录。",
+	capabilityTaskBoardHelp: "点击右侧「任务板」统计行，在弹窗里查看负责人、状态和下次查看时间，点「派工消息」或「交回消息」回到对应记录。",
 	capabilityLaterHelp: "三类成员都可登记一次性回查：告诉角色何时回来、回来做什么。登记后频道显示下次回查时间，服务重启后仍会在原房间叫醒原成员。",
 	capabilityReminderHelp: "通过任务分发派出的任务，到点会自动催办一次；负责人交回结果或说明卡在哪里。",
 	capabilityWorkspaceHelp: "在聊天频道把任务交给角色，需要时由角色创建工作区。工作区的问题和阶段结果会送回聊天频道。",
 	capabilityLeadHelp: "在成员栏的「主角色」里选择角色。切换后，没有点名的消息由新的主角色接收。",
 	capabilityDmHelp: "在支持私信的平台打开与角色的私聊。角色也可向配置中的用户发送私信；DSH 频道页目前没有私信入口。",
 	taskBoard: "任务板",
+	taskBoardSummary: "进行中 {open} · 已完成 {done}",
+	taskBoardOpen: "打开任务板",
+	taskBoardNoTasks: "暂无任务",
+	taskBoardEmptyInModal: "还没有派出的任务",
+	taskBoardScope: "{room} {channel} · 工作区合计 {workspaces}",
 	taskBoardTitle: "任务板 — 进行中 {count}",
 	taskBoardEmpty: "还没有派出的任务",
 	taskDoneGroup: "已完成 — {count}",
@@ -19013,12 +19036,7 @@ const zh = {
 	withdrawRunning: "已撤回；{names} 已经在处理这条，没能停下",
 	memberDialogAdd: "添加 DSH 成员",
 	memberDialogEdit: "编辑成员「{name}」",
-	memberName: "名字（@ 时用）",
-	memberOptional: "可选：自定义名字、性格与说话风格、职责",
-	memberNoPersona: "默认不附加角色人设，可以直接开始工作。",
-	memberKeepName: "保留我的名字",
-	memberPersonaNone: "不使用人设",
-	memberPersonaLibrary: "从人设库选择",
+	memberName: "名字（@ 时用，不能有空格）",
 	memberModel: "模型",
 	memberModelDefault: "跟随 DSH 默认模型",
 	memberModelLoading: "正在读取可用模型…",
@@ -19061,6 +19079,11 @@ const en = {
 	copiedCode: "Copied",
 	footnotes: "Footnotes",
 	taskBoard: "Task board",
+	taskBoardSummary: "In progress {open} · Done {done}",
+	taskBoardOpen: "Open task board",
+	taskBoardNoTasks: "No tasks",
+	taskBoardEmptyInModal: "No tasks dispatched yet",
+	taskBoardScope: "{room} {channel} · Workspaces total {workspaces}",
 	taskBoardTitle: "Tasks — {count} in progress",
 	taskBoardEmpty: "No tasks dispatched yet",
 	taskDoneGroup: "Done — {count}",
@@ -19095,7 +19118,7 @@ const en = {
 	capabilityWorkspace: "Workspaces",
 	capabilityLead: "Primary role",
 	capabilityDm: "Direct messages",
-	capabilityTaskBoardHelp: "View owners, status and next-check times in the task board on the right. Open Dispatch or Delivery to jump to its message.",
+	capabilityTaskBoardHelp: "Click the Task board summary on the right to view owners, status and next-check times in a dialog. Open Dispatch or Delivery to jump to its message.",
 	capabilityLaterHelp: "All three member types can schedule one-shot follow-ups. Tell the role when to return and what to do. Registration appears in the channel, and wakes the original member in the original room after restart.",
 	capabilityReminderHelp: "Dispatched tasks receive one reminder when due. The owner returns a result or explains the blocker.",
 	capabilityWorkspaceHelp: "Assign work to a role in the chat channel. Roles create workspaces when needed; questions and progress return to the chat channel.",
@@ -19171,12 +19194,7 @@ const en = {
 	withdrawRunning: "Withdrawn; {names} had already started on it and could not be stopped",
 	memberDialogAdd: "Add a DSH member",
 	memberDialogEdit: "Edit member \"{name}\"",
-	memberName: "Name (used for @)",
-	memberOptional: "Optional: name, personality, speaking style and responsibilities",
-	memberNoPersona: "Ready to work without a persona.",
-	memberKeepName: "Keep my name",
-	memberPersonaNone: "No persona",
-	memberPersonaLibrary: "Choose from persona library",
+	memberName: "Name (used for @, no spaces)",
 	memberModel: "Model",
 	memberModelDefault: "Follow the DSH default model",
 	memberModelLoading: "Loading available models…",
@@ -19240,7 +19258,6 @@ function apply(ctx) {
 		createRoom: channels.actions.createRoom,
 		listModels: channels.actions.listModels,
 		listClis: channels.actions.listClis,
-		listPersonas: channels.actions.listPersonas,
 		addMember: channels.actions.addMember,
 		updateMember: channels.actions.updateMember,
 		removeMember: channels.actions.removeMember,

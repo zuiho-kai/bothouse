@@ -39,6 +39,9 @@ type TimerJob struct {
 	Fired        bool      `json:"fired"`
 	FiredAt      time.Time `json:"fired_at,omitempty"`
 	LastError    string    `json:"last_error,omitempty"`
+
+	// resume: set (in memory only) when the job delivers a #624 K4 turn resume.
+	resume *turnResumeDelivery
 }
 
 // IsShellJob returns true if the job runs a shell command directly.

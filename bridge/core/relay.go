@@ -241,7 +241,11 @@ type RelayRequest struct {
 	From       string `json:"from"`        // source project name
 	To         string `json:"to"`          // target project name
 	SessionKey string `json:"session_key"` // source session key (contains platform + chatID)
-	Message    string `json:"message"`
+	// Workspace is the explicit execution channel for a task relay: a workspace
+	// of the same chat channel as the source workspace. Empty keeps the
+	// target in the source session.
+	Workspace string `json:"workspace,omitempty"`
+	Message   string `json:"message"`
 	// UserText (voice mode) is the speaker's own words without the entry prompt in Message.
 	UserText string `json:"user_text,omitempty"`
 	// Stream enables early public speech for this private voice request.
@@ -264,6 +268,9 @@ type RelayResponse struct {
 func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayResponse, error) {
 	if (req.TaskID == "") != (req.RequestID == "") {
 		return nil, fmt.Errorf("relay: task_id and request_id must be provided together")
+	}
+	if req.Workspace != "" && req.TaskID == "" {
+		return nil, fmt.Errorf("relay: workspace requires a task dispatch (task_id and request_id)")
 	}
 	platform, chatID, err := parseSessionKeyParts(req.SessionKey)
 	if err != nil {

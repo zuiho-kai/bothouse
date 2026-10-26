@@ -44,7 +44,7 @@ not json
 	if len(items) != 5 {
 		t.Fatalf("items = %d", len(items))
 	}
-	now := time.Now()
+	now := time.Date(2026, 10, 26, 2, 30, 0, 0, time.Local) // #4 paused 27 minutes: no "等你" yet
 	got := renderTeamTaskBoard(items, nil, "feishu:oc_a", now, nil)
 	want := "**任务板**\n#1 修登录 ‹＠123›｜龙娘｜在做｜10-26 02:00\n\n**工作区1**\n#3 交接｜橘｜已交接｜10-26 02:02\n\n**工作区2**\n#5 老交接｜橘｜在做｜10-26 02:04\n\n**暂停**\n#4 停着｜橘｜x｜10-26 02:03｜暂停：等用户"
 	if got != want {
@@ -207,6 +207,7 @@ func TestTeamTaskBoardNextOverdue(t *testing.T) {
 func TestUpdateTeamBoardsPostsTaskBoard(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "feishu"}}
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
+	allChatsAreWorkspaces(e)
 	defer e.cancel()
 	dir := t.TempDir()
 	e.team = &teamState{dir: dir, board: true}
@@ -257,6 +258,7 @@ func TestTeamTaskBoardUnplacedMainChatOnly(t *testing.T) {
 func TestCloudWebSingleRoleBoardOnce(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "cloud_web"}}
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
+	allChatsAreWorkspaces(e)
 	defer e.cancel()
 	dir := t.TempDir()
 	e.team = &teamState{dir: dir, board: true}
@@ -315,6 +317,7 @@ func TestTeamBoardMembersLive(t *testing.T) {
 func TestTeamBoardLiveFollowsWorkspaceHandoff(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "cloud_web"}}
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
+	allChatsAreWorkspaces(e)
 	defer e.cancel()
 	dataDir := t.TempDir()
 	e.SetDataDir(dataDir)
@@ -366,5 +369,52 @@ func TestBoardListsURLLessTaskCards(t *testing.T) {
 	text := renderTeamBoardWithTasks(files, "cloud_web:room-1", LangChinese)
 	if !strings.Contains(text, "• 网页任务 · 橘") || strings.Contains(text, "坏链接") {
 		t.Fatalf("board:\n%s", text)
+	}
+}
+
+// A pause that waits on the user shows how long ("等你 N 小时", whole hours, from one hour);
+// same match as board.py WAIT_USER_RE. Paused has no year: one written last December is last year's.
+func TestTeamTaskBoardWaitHours(t *testing.T) {
+	now := time.Date(2026, 10, 26, 10, 53, 0, 0, time.Local)
+	for _, c := range []struct {
+		paused, why string
+		want        int
+	}{
+		{"10-26 10:32", "等用户[看片] 三版稿已交", 0},
+		{"10-26 07:40", "等用户[看片] 三版稿已交", 3},
+		{"10-26 02:38", "等待用户答复：默认名用什么", 8},
+		{"10-25 13:27", "等用户/外部，收敛工作区", 21},
+		{"10-25 20:42", "今晚收尾：不开新活", 0},
+		{"10-25 20:42", "", 0},
+		{"bad", "等用户", 0},
+	} {
+		if got := teamTaskBoardWaitHours(teamTaskBoardItem{Paused: c.paused, PauseWhy: c.why}, now); got != c.want {
+			t.Errorf("%s %q: got %d, want %d", c.paused, c.why, got, c.want)
+		}
+	}
+	newYear := time.Date(2027, 1, 1, 1, 30, 0, 0, time.Local)
+	if got := teamTaskBoardWaitHours(teamTaskBoardItem{Paused: "12-31 23:00", PauseWhy: "等待用户确认"}, newYear); got != 2 {
+		t.Errorf("across new year: got %d, want 2", got)
+	}
+	items := []teamTaskBoardItem{
+		{ID: 600, What: "宣传稿返工", Who: "橘", At: "10-26 07:40", Paused: "10-26 07:40", PauseWhy: "等用户[看片]", own: "discord:1"},
+		{ID: 591, What: "英文版", Who: "橘", At: "10-26 07:40", Paused: "10-26 07:40", PauseWhy: "片源未定", own: "discord:1"},
+	}
+	got := renderTeamTaskBoard(items, nil, "discord:1", now, nil)
+	if !strings.Contains(got, "#600 宣传稿返工｜橘｜-｜10-26 07:40｜暂停：等用户［看片］｜等你 3 小时") || strings.Count(got, "等你") != 1 {
+		t.Fatalf("got\n%s", got)
+	}
+}
+
+// Items board.py auto_prune moved to board-done.jsonl are not "done today".
+func TestTeamTaskBoardDoneTodaySkipsAutoPruned(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.Local)
+	writeTaskBoard(t, dir, teamTaskBoardDoneFile, `{"id":1,"what":"做完的","who":"橘","sk":"feishu:oc_a","done_at":"10-26 10:00"}
+{"id":2,"what":"收起的","who":"橘","sk":"feishu:oc_a","done_at":"10-26 10:53","paused":"10-25 20:42","auto_pruned":"暂停后 14 小时没汇报没更新"}
+`)
+	done := readTeamTaskBoardDoneToday(dir, now)
+	if len(done) != 1 || done[0].ID != 1 {
+		t.Fatalf("done today = %+v", done)
 	}
 }

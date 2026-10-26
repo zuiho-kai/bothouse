@@ -21,6 +21,7 @@ type TaskMember struct {
 	ParentID        string    `json:"parent_id,omitempty"`
 	Name            string    `json:"name"`
 	Title           string    `json:"title"`
+	Workspace       string    `json:"workspace,omitempty"` // execution workspace channel, "" = source workspace
 	Status          string    `json:"status"`
 	Summary         string    `json:"summary,omitempty"`
 	AssignedAt      time.Time `json:"assigned_at"`
@@ -44,6 +45,9 @@ type TaskMemberAssignment struct {
 	ParentID        string `json:"parent_id,omitempty"`
 	Name            string `json:"name"`
 	Title           string `json:"title"`
+	// Workspace is the channel the member executes in; empty keeps the source
+	// workspace. It must be another workspace of the source workspace's chat.
+	Workspace string `json:"workspace,omitempty"`
 	// Ref names the existing implementation the member should follow (path:line), or
 	// 「无（新建）」 for non-code work. Base is the branch to start from; required when the
 	// assignment says several members edit the same files (多人改/共改文件).
@@ -100,13 +104,14 @@ type TaskMemberGrant struct {
 }
 
 type taskMemberRun struct {
-	r           *publicRun
-	id          string
-	assignment  TaskMemberAssignment
-	token       string
-	reports     map[int64]string
-	lastSeq     int64
-	leadNextSeq int64 // lead sequence when assigned; stable on assignment retry
+	r                *publicRun
+	id               string
+	assignment       TaskMemberAssignment
+	reportSessionKey string // execution workspace when the member executes there, else the source session
+	token            string
+	reports          map[int64]string
+	lastSeq          int64
+	leadNextSeq      int64 // lead sequence when assigned; stable on assignment retry
 }
 
 func memberIndex(t *Task, id string) int {
@@ -139,10 +144,13 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		utf8.RuneCountInString(req.BatchID) > 60 ||
 		strings.TrimSpace(req.MemberID) == "" || utf8.RuneCountInString(req.MemberID) > 60 ||
 		((req.ReporterProject == "" || req.ParentID != "") && strings.TrimSpace(req.Name) == "") || utf8.RuneCountInString(req.Name) > 60 || utf8.RuneCountInString(req.ReporterProject) > 60 ||
-		strings.TrimSpace(req.Title) == "" || utf8.RuneCountInString(req.Title) > 60 {
+		strings.TrimSpace(req.Title) == "" || utf8.RuneCountInString(req.Title) > 60 || utf8.RuneCountInString(req.Workspace) > 100 {
 		return nil, errors.New("project, session, active run, batch or task, member, name and title required (1..60 characters)")
 	}
 	if err := checkAssignRef(req); err != nil {
+		return nil, err
+	}
+	if err := p.checkWorkspaceCard(req.SessionKey); err != nil {
 		return nil, err
 	}
 	p.transitionMu.Lock()
@@ -154,6 +162,20 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 	defer r.mu.Unlock()
 	// Normalize selectors so retrying by the returned id is also idempotent.
 	req.TaskID, req.BatchID = r.record.Task.ID, ""
+	// A member may execute in another workspace of the same chat channel; the
+	// source workspace, card and run stay the same, only the execution channel
+	// changes. Canonicalize the selector first (no live checks) so a retry of a
+	// committed assignment matches its grant after the workspace changes hands
+	// or fills up; ownership and occupancy are checked below for new work only.
+	execSession := req.SessionKey
+	if req.Workspace != "" {
+		platform, wsID, err := taskWorkspaceChannelKey(req.SessionKey, req.Workspace)
+		if err != nil {
+			return nil, fmt.Errorf("workspace: %w", err)
+		}
+		req.Workspace = platform + ":" + wsID
+		execSession = req.Workspace
+	}
 	if req.ParentID != "" && memberIndex(r.record.Task, req.ParentID) < 0 {
 		return nil, errors.New("unknown parent member")
 	}
@@ -173,24 +195,13 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		// Show the bot's channel name (C酱), not its project id (cjiang).
 		req.Name = req.ReporterProject
 		if p.reporterName != nil {
-			if name := p.reporterName(req.ReporterProject, req.SessionKey); name != "" {
+			if name := p.reporterName(req.ReporterProject, execSession); name != "" {
 				req.Name = name
 			}
 		}
 	}
 	if req.ReporterProject == "" {
 		req.ReporterProject = p.project
-	}
-	if _, err := p.taskReporter(req.ReporterProject, r.record.Platform, req.SessionKey, r.publisher); err != nil {
-		// Unbound teammate: the command says what to do, and so does the channel (#587).
-		var nb *notBoundError
-		if errors.As(err, &nb) && p.notBound != nil {
-			p.notBound(req.SessionKey, nb.project, false)
-		}
-		return nil, err
-	}
-	if p.notBound != nil {
-		p.notBound(req.SessionKey, req.ReporterProject, true)
 	}
 	if memberIndex(r.record.Task, req.MemberID) >= 0 {
 		p.mu.Lock()
@@ -201,6 +212,30 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 			}
 		}
 		return nil, errors.New("member id already used; use a new id for new work")
+	}
+	if req.Workspace != "" {
+		if p.resolveWorkspace == nil {
+			return nil, errors.New("workspace routing is not enabled")
+		}
+		if _, err := p.resolveWorkspace(req.SessionKey, req.Workspace); err != nil {
+			return nil, fmt.Errorf("workspace: %w", err)
+		}
+	}
+	// The member executes in execSession, but its facts are delivered on the
+	// source card (task.SessionKey): the bot must be bound in both channels, or
+	// its facts would degrade to a creator-posted "reporter muted" note.
+	for _, session := range taskReporterSessions(req.SessionKey, execSession) {
+		if _, err := p.taskReporter(req.ReporterProject, r.record.Platform, session, r.publisher); err != nil {
+			// Unbound teammate: the command says what to do, and so does the channel (#587).
+			var nb *notBoundError
+			if errors.As(err, &nb) && p.notBound != nil {
+				p.notBound(session, nb.project, false)
+			}
+			return nil, err
+		}
+		if p.notBound != nil {
+			p.notBound(session, req.ReporterProject, true)
+		}
 	}
 	old := r.record
 	old.Task = r.record.Task.Clone()
@@ -225,6 +260,7 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		m.ID = req.MemberID
 		m.ParentID = req.ParentID
 		m.Title = req.Title
+		m.Workspace = req.Workspace
 		m.Status = "queued"
 		m.Summary = ""
 		m.StartedAt = time.Time{}
@@ -232,14 +268,14 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		m.AssignedAt = now
 		m.UpdatedAt = now
 	} else {
-		r.record.Task.Members = append(r.record.Task.Members, TaskMember{ReporterProject: req.ReporterProject, ID: req.MemberID, ParentID: req.ParentID, Name: req.Name, Title: req.Title, Status: "queued", AssignedAt: now, UpdatedAt: now})
+		r.record.Task.Members = append(r.record.Task.Members, TaskMember{ReporterProject: req.ReporterProject, ID: req.MemberID, ParentID: req.ParentID, Name: req.Name, Title: req.Title, Workspace: req.Workspace, Status: "queued", AssignedAt: now, UpdatedAt: now})
 	}
 	p.memberEvent(r, req.Name+": "+req.Title, false)
 	if err := p.save(r); err != nil {
 		r.record = old
 		return nil, err
 	}
-	g := &taskMemberRun{r: r, id: req.MemberID, assignment: req, token: randomProgressID(32), reports: map[int64]string{}, leadNextSeq: r.record.LastSeq + 1}
+	g := &taskMemberRun{r: r, id: req.MemberID, assignment: req, reportSessionKey: execSession, token: randomProgressID(32), reports: map[int64]string{}, leadNextSeq: r.record.LastSeq + 1}
 	p.mu.Lock()
 	if old.Closed {
 		r.stopped = p.runs[req.Run].stopped
@@ -345,7 +381,7 @@ func (p *PublicProgress) memberReportCommand(g *taskMemberRun) string {
 		command = path
 	}
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
-	return quote(command) + " progress --project " + quote(p.project) + " --session " + quote(g.assignment.SessionKey) + " --data-dir " + quote(p.dataDir) + " --run " + g.token
+	return quote(command) + " progress --project " + quote(p.project) + " --session " + quote(g.reportSessionKey) + " --data-dir " + quote(p.dataDir) + " --run " + g.token
 }
 
 // relayMemberCommands returns report commands for live members of r owned by
@@ -389,7 +425,7 @@ func (p *PublicProgress) reportMember(g *taskMemberRun, req PublicProgressReques
 	// Not gated on r.stopped(): the lead's turn ending (idle timeout, recycle,
 	// stop) must not orphan members. The grant itself is the lifetime; it is
 	// revoked on terminal state, acceptance and restart.
-	if req.SessionKey != g.assignment.SessionKey || (req.TaskID != "" && req.TaskID != r.record.Task.ID) || r.record.Accepted ||
+	if req.SessionKey != g.reportSessionKey || (req.TaskID != "" && req.TaskID != r.record.Task.ID) || r.record.Accepted ||
 		IsTerminalState(r.record.Task.State) {
 		return "", errors.New("member report is not active for this task and session")
 	}
