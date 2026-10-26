@@ -65,7 +65,33 @@ type TurnJournalEntry struct {
 	NoProgressCount int       `json:"no_progress_count,omitempty"`
 	Interrupted     bool      `json:"interrupted,omitempty"`
 	InterruptedAt   time.Time `json:"interrupted_at,omitempty"`
+
+	// #618 K4 (turn_resume.go). AgentType is Agent.Name() of the agent that
+	// ran the turn (picks how its leftover process is recognised and how the
+	// turn resumes); AgentSeenAt is when its process was recorded.
+	AgentType   string    `json:"agent_type,omitempty"`
+	AgentSeenAt time.Time `json:"agent_seen_at,omitempty"`
+	// TimerJobID names the timer job a timer/workspace turn came from, so a
+	// resume can leave it to the timer when the timer will re-run it.
+	TimerJobID string `json:"timer_job_id,omitempty"`
+	// LastStep/LastText: the turn's latest tool step and text, for the resume
+	// prompt; ProgressAt is when either last changed.
+	LastStep   string    `json:"last_step,omitempty"`
+	LastText   string    `json:"last_text,omitempty"`
+	ProgressAt time.Time `json:"progress_at,omitempty"`
+	// QueuedMessages are the messages waiting behind this turn (in memory
+	// only otherwise); a resume folds them into its turn.
+	QueuedMessages []string `json:"queued_messages,omitempty"`
+	// ResumedAt is set when a resume of this entry was handed off; an entry
+	// still on disk with it set at the next start was not resumed to the end.
+	ResumedAt time.Time `json:"resumed_at,omitempty"`
+	// Abandoned: resuming stopped (no progress / too old) and the channel was
+	// told; the next start removes it.
+	Abandoned bool `json:"abandoned,omitempty"`
 }
+
+// source: K4 scope review item 10 (notes/restart-k4-resume.md): tool-step writes throttled to >= 5 s.
+const turnJournalProgressSave = 5 * time.Second
 
 // TurnJournal stores the entries of one project, keyed by turn id. Entries
 // loaded from disk (left by an earlier process) are never replaced by a new
@@ -78,6 +104,11 @@ type TurnJournal struct {
 	path    string
 	entries map[string]*TurnJournalEntry // by TurnID
 	active  map[string]string            // interactive key -> TurnID (this process)
+	// inherited: TurnIDs that were on disk when the journal was opened (left
+	// by an earlier process); only these are resumed (K4).
+	inherited map[string]bool
+	// progressSaved: when Progress last wrote each entry (writes are throttled).
+	progressSaved map[string]time.Time
 }
 
 // TurnJournalPath is where a project's journal lives under the data dir.
@@ -103,7 +134,8 @@ func OpenTurnJournal(path string) (*TurnJournal, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
-	j := &TurnJournal{path: path, entries: map[string]*TurnJournalEntry{}, active: map[string]string{}}
+	j := &TurnJournal{path: path, entries: map[string]*TurnJournalEntry{}, active: map[string]string{},
+		inherited: map[string]bool{}, progressSaved: map[string]time.Time{}}
 	data, err := os.ReadFile(path)
 	if err == nil && len(data) > 0 {
 		var list []*TurnJournalEntry
@@ -113,6 +145,7 @@ func OpenTurnJournal(path string) (*TurnJournal, error) {
 			for _, en := range list {
 				if en != nil && en.TurnID != "" {
 					j.entries[en.TurnID] = en
+					j.inherited[en.TurnID] = true
 				}
 			}
 		}
@@ -216,8 +249,87 @@ func (j *TurnJournal) Delete(turnID string) error {
 		return nil
 	}
 	delete(j.entries, turnID)
+	delete(j.progressSaved, turnID)
 	j.clearActiveLocked(en.InteractiveKey, turnID)
 	return j.saveLocked()
+}
+
+// Progress records that turnID made progress: a tool step and/or text (either
+// may be empty). clearCount (real progress: a tool step or a finished answer)
+// resets NoProgressCount. Writes are throttled to one per
+// turnJournalProgressSave unless the count changes.
+func (j *TurnJournal) Progress(turnID, step, text string, clearCount bool) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	en, ok := j.entries[turnID]
+	if !ok {
+		return nil
+	}
+	now := time.Now()
+	if step != "" {
+		en.LastStep = truncateRunes(step, turnJournalMaxUserMessage)
+	}
+	if text != "" {
+		en.LastText = truncateRunes(text, turnJournalMaxUserMessage)
+	}
+	en.ProgressAt = now
+	countChanged := clearCount && en.NoProgressCount != 0
+	if clearCount {
+		en.NoProgressCount = 0
+	}
+	if !countChanged && now.Sub(j.progressSaved[turnID]) < turnJournalProgressSave {
+		return nil
+	}
+	j.progressSaved[turnID] = now
+	return j.saveLocked()
+}
+
+// SetQueued replaces the queued messages recorded on turnID.
+func (j *TurnJournal) SetQueued(turnID string, msgs []string) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	en, ok := j.entries[turnID]
+	if !ok {
+		return nil
+	}
+	if len(msgs) == 0 && len(en.QueuedMessages) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, truncateRunes(m, turnJournalMaxUserMessage))
+	}
+	if len(out) == 0 {
+		out = nil
+	}
+	en.QueuedMessages = out
+	return j.saveLocked()
+}
+
+// Inherited returns copies of the entries that were on disk when the journal
+// was opened and are still there, oldest first.
+func (j *TurnJournal) Inherited() []TurnJournalEntry {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	out := make([]TurnJournalEntry, 0, len(j.inherited))
+	for id := range j.inherited {
+		if en, ok := j.entries[id]; ok {
+			out = append(out, *en)
+		}
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].StartedAt.Before(out[b].StartedAt) })
+	return out
+}
+
+// Get returns a copy of the entry turnID.
+func (j *TurnJournal) Get(turnID string) (TurnJournalEntry, bool) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	en, ok := j.entries[turnID]
+	if !ok {
+		return TurnJournalEntry{}, false
+	}
+	return *en, true
 }
 
 func (j *TurnJournal) clearActiveLocked(key, turnID string) {
@@ -316,6 +428,9 @@ func (e *Engine) journalTurnBegin(msg *Message, interactiveKey, workspaceDir str
 		LastUserMessage: msg.Content,
 		ResumedFrom:     msg.resumedFrom,
 		Supersedes:      msg.journalSupersedes,
+		AgentType:       e.agentTypeName(),
+		TimerJobID:      msg.timerJobID,
+		NoProgressCount: msg.resumeNoProgress,
 	}
 	if session != nil {
 		en.AgentSessionID = session.GetAgentSessionID()
@@ -336,9 +451,20 @@ func journalAgentFields(en *TurnJournalEntry, as AgentSession) {
 		en.AgentSessionID = id
 	}
 	if pi, ok := as.(AgentProcessInfo); ok {
-		en.AgentPID = pi.ProcessID()
-		en.AgentPGID = pi.ProcessGroupID()
+		pid, pgid := pi.ProcessID(), pi.ProcessGroupID()
+		if pid != en.AgentPID || pgid != en.AgentPGID || en.AgentSeenAt.IsZero() {
+			en.AgentSeenAt = time.Now()
+		}
+		en.AgentPID = pid
+		en.AgentPGID = pgid
 	}
+}
+
+func (e *Engine) agentTypeName() string {
+	if e.agent == nil {
+		return ""
+	}
+	return e.agent.Name()
 }
 
 // journalTurnAgent records the started agent's session id and process.
@@ -370,12 +496,25 @@ func (e *Engine) journalQueuedTurn(q *queuedMessage, interactiveKey, workspaceDi
 			en.Trigger = queuedTurnTrigger(q)
 			en.SessionKey = q.msgSessionKey
 			en.Platform = q.msgPlatform
+			// #618 K4: the chained message is a new turn on this entry.
+			en.ResumedFrom = q.resumedFrom
+			en.TimerJobID = q.timerJobID
+			en.NoProgressCount = q.resumeNoProgress
+			en.LastStep, en.LastText, en.ProgressAt = "", "", time.Time{}
+			en.Interrupted, en.InterruptedAt = false, time.Time{}
 			journalAgentFields(en, as)
 		})
 		if err != nil {
 			slog.Warn("turn journal: update failed", "turn", id, "error", err)
 		}
 		if ok {
+			// #618 K4 S4: a resume that waited in the queue kept the entry it
+			// continues on disk until now; this entry takes over from it.
+			if q.resumedFrom != "" && q.resumedFrom != id {
+				if err := j.Delete(q.resumedFrom); err != nil {
+					slog.Warn("turn journal: delete resumed entry failed", "turn", q.resumedFrom, "error", err)
+				}
+			}
 			return id, false
 		}
 	}
@@ -388,6 +527,10 @@ func (e *Engine) journalQueuedTurn(q *queuedMessage, interactiveKey, workspaceDi
 		Trigger:         queuedTurnTrigger(q),
 		LastUserMessage: q.content,
 		StartedAt:       now,
+		ResumedFrom:     q.resumedFrom, // Begin removes the entry it continues (S4)
+		AgentType:       e.agentTypeName(),
+		TimerJobID:      q.timerJobID,
+		NoProgressCount: q.resumeNoProgress,
 	}
 	journalAgentFields(&en, as)
 	out, err := j.Begin(en)
@@ -424,4 +567,66 @@ func (e *Engine) isStoppingForJournal() bool {
 	stopping := e.stopping
 	e.platformLifecycleMu.Unlock()
 	return stopping || (e.ctx != nil && e.ctx.Err() != nil)
+}
+
+// journalProgress records progress on the turn running on interactiveKey
+// (K4 M4/#10): a tool step or text; clearCount for real progress.
+func (e *Engine) journalProgress(interactiveKey, step, text string, clearCount bool) {
+	j := e.turnJournalStore()
+	if j == nil {
+		return
+	}
+	id := j.Active(interactiveKey)
+	if id == "" {
+		return
+	}
+	if err := j.Progress(id, step, text, clearCount); err != nil {
+		slog.Warn("turn journal: progress failed", "turn", id, "error", err)
+	}
+}
+
+// journalSessionID writes the agent session id the running turn on
+// interactiveKey got (a fresh session learns it during its first turn), so a
+// turn cut off before it ends can still resume that session (K4 #10).
+func (e *Engine) journalSessionID(interactiveKey, sessionID string) {
+	j := e.turnJournalStore()
+	if j == nil || sessionID == "" {
+		return
+	}
+	id := j.Active(interactiveKey)
+	if id == "" {
+		return
+	}
+	en, ok := j.Get(id)
+	if !ok || en.AgentSessionID == sessionID {
+		return
+	}
+	if _, err := j.Update(id, func(en *TurnJournalEntry) { en.AgentSessionID = sessionID }); err != nil {
+		slog.Warn("turn journal: session id update failed", "turn", id, "error", err)
+	}
+}
+
+// journalSyncQueued writes the messages queued on state onto the turn running
+// on interactiveKey (K4 #12). A resume waiting in the queue is left out: the
+// entry it continues is still on disk. Must be called without state.mu.
+func (e *Engine) journalSyncQueued(state *interactiveState, interactiveKey string) {
+	j := e.turnJournalStore()
+	if j == nil || state == nil {
+		return
+	}
+	id := j.Active(interactiveKey)
+	if id == "" {
+		return
+	}
+	state.mu.Lock()
+	msgs := make([]string, 0, len(state.pendingMessages))
+	for _, q := range state.pendingMessages {
+		if q.resumedFrom == "" {
+			msgs = append(msgs, q.content)
+		}
+	}
+	state.mu.Unlock()
+	if err := j.SetQueued(id, msgs); err != nil {
+		slog.Warn("turn journal: queued update failed", "turn", id, "error", err)
+	}
 }

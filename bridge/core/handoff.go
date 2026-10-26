@@ -174,7 +174,14 @@ func (e *Engine) retryFreshOnPromptTooLong(p Platform, msg Message, errMsg strin
 	}
 	sessions.Save()
 	e.send(p, markSystemNotice(p, msg.ReplyCtx), notice)
+	return e.rerunOnFreshSession(p, msg, old, session, sessions, agent, interactiveKey, workspaceDir, ccSessionKey)
+}
 
+// rerunOnFreshSession runs msg again, once, after the session's agent session
+// ID was cleared: the old agent process is recycled and the queue waiting
+// behind the failed turn moves to the new state. Must be called with the
+// session locked; it always takes over the lock (returns true).
+func (e *Engine) rerunOnFreshSession(p Platform, msg Message, old *interactiveState, session *Session, sessions *SessionManager, agent Agent, interactiveKey, workspaceDir, ccSessionKey string) bool {
 	var agentOverride Agent
 	if agent != e.agent {
 		agentOverride = agent

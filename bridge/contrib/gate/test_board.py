@@ -133,6 +133,7 @@ class Increments(unittest.TestCase):
         fake.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\necho '{{\"freed\":true}}'\n")
         fake.chmod(0o755)
         os.environ["CC_BIN"] = str(fake)
+        board.set_prune_conf(on=False)  # 这里只看 park；暂停挂的自动收起定时见 test_board_prune.py
         try:
             board.add("交来的活", "n.md", "已交接", "工作区1主角色", ws="feishu:oc_1", chat="feishu:oc_chat:u1")
             os.environ["CC_SESSION_KEY"] = "feishu:oc_1:u1"

@@ -269,8 +269,10 @@ func TestBareStopWeixinPrivateChatReachesAgent(t *testing.T) {
 	p := &stubPlatformEngine{n: "weixin"}
 	a := &startRecordingAgent{started: make(chan string, 1)}
 	e := NewEngine("bot-a", a, []Platform{p}, "", LangEnglish)
-	t.Cleanup(func() { _ = e.Stop() })
 	e.SetDataDir(t.TempDir())
+	// Register after t.TempDir: cleanup runs LIFO, so Stop (which joins the
+	// turn worker and its journal write) completes before the dir is removed.
+	t.Cleanup(func() { _ = e.Stop() })
 	msg := &Message{SessionKey: "weixin:u1:u1", Platform: "weixin", MessageID: "m1",
 		UserID: "u1", UserName: "user", Content: "停", ReplyCtx: "ctx"}
 	if e.isUnaddressedStop(msg) {

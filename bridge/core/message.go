@@ -442,6 +442,12 @@ type Message struct {
 	// #618 K1: the journal TurnID this turn replaces (a prompt-too-long re-run
 	// supersedes the failed turn's entry); removed in the same write as Begin.
 	journalSupersedes string
+	// #618 K4: the timer job this turn runs (TurnJournalEntry.TimerJobID); for
+	// a resumed turn, the no-progress count it carries on and the prompt to
+	// re-run on a fresh session if the resumed session errors at once (S1).
+	timerJobID       string
+	resumeNoProgress int
+	resumeFallback   string
 }
 
 // EventType distinguishes different kinds of agent output.
@@ -496,6 +502,12 @@ type Event struct {
 	Metadata                 map[string]any // optional metadata from agent (e.g. compaction_continue)
 	Synthetic                bool           // true if this is a synthetic/generated message (not from real user)
 }
+
+// MetaResultIsError marks a turn-ending EventResult (Metadata key, bool) that the
+// agent reported as an error (Claude: result is_error, e.g. an API 400 on a
+// resumed session with a dangling tool_use). #618 K4 S1 re-runs a resumed turn
+// on a fresh session when its first result is one.
+const MetaResultIsError = "result_is_error"
 
 // MetaContextCompacted marks an Event (Metadata key, bool) reporting that the
 // agent compacted its context (maomao fork).

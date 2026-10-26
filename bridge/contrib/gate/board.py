@@ -23,7 +23,9 @@
                                          #   （恢复后重新 ws-handoff，先复用空着的工作区，不保证回原号）
   board resume <编号>                     # 恢复：回到「在做」
   board link <编号> <卡片链接>             # 给这件事挂一张公开任务卡（Discord 消息链接），board 列表那行末尾出「卡 链接」
-  board refresh                          # 把一小时没进展的工作区条目转暂停（停滞检查定时调用）
+  board refresh                          # 把一小时没进展的工作区条目转暂停（停滞检查定时调用），再自动收起没用的暂停条目
+  board prune [--dry-run]                # 只做自动收起（--dry-run 只列不动）；收起的条目 board resume <编号> 能找回
+  board prune --off | --on | --idle <小时> # 整块板子关掉 / 打开自动收起、改闲置门槛（默认开、24 小时），打印当前设定
   add 拒绝纯回看条目：事情以「#编号」开头指向板上另一条，或状态以「等着」开头且没有 PR 号/路径；
     改用完成通知，或在原条目上 board update / later <编号>（later 在原条目上记「下次看」，不新建回看条目）。
   --next / board next：下次几点回来看这件事（如 14:30），显示在板上，让用户知道后面还会不会处理。
@@ -35,8 +37,18 @@
   <BOARD_DIR>/board.jsonl，在每个条目所在频道（add 时记的 sk；工作区交接的条目也上交活的聊天频道 chat）的团队板里
   出一节「任务板」（在做按本频道 + 名下各工作区分块、暂停、今天做完；「下次看」到点且定时已不在标「已过」；没记频道的老条目按 ch 归频道，都没有就出在主聊天频道），四平台都走桥的 BoardPoster。要出板，BOARD_DIR 和 team_status_dir 须是同一个目录。
   done 之后若设了 BOARD_PR_REPO（owner/name），用 gh 列出自己在该仓库还开着的 PR 作提醒；不设、gh 不在或失败都静默跳过。
+
+暂停条目自动收起（已经没用的暂停条目不再要人手动清）：暂停条目满足任一条就移进 board-done.jsonl（带 auto_pruned=原因，不删数据，board resume 能找回）：
+  ① 「分支/PR/路径」（where）里的 PR 全部已合或已关，且合/关超过 2 小时（要设 BOARD_PR_REPO；gh 查不到就不按这条收）；
+  ② 状态或暂停原因写了「并入 #N」/「并入主线 #N」，且 #N 还在板上；
+  ③ 暂停后闲置门槛小时（默认 24，`board prune --idle <小时>` 改）没汇报、没改；闲置从暂停时刻起算。暂停原因含「等用户」「等待用户」的、事情写了「主线」的不按③收。
+  提问暂停（ws-up --ask，原因以「等待用户答复」开头）一律不收。等用户的条目团队板暂停行标「等你 N 小时」（core/team_task_board.go）。
+  触发：每个 board 命令顺带跑（不查 gh）、board refresh / board prune（查 gh）、暂停时挂两个定时（2 小时、闲置门槛）跑 refresh。
+  开关和门槛是整块板子的设定（多个角色共用一块板）：只存在 <BOARD_DIR>/board-prune.json，只有 board prune --off / --on /
+  --idle <小时> 写它；所有角色的命令和桥跑的定时都只读它。文件没有 = 开、24 小时；文件坏了 = 不收并警告一行。
+  返工汇总和团队板「今天做完」都不算自动收起的记录。
 """
-import fcntl, json, os, re, shutil, subprocess, sys, time
+import fcntl, json, os, re, shlex, shutil, subprocess, sys, time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -259,6 +271,7 @@ def pause(nid, why=None):
         if hit is None:
             return False
         hit["paused"] = hit["at"] = _now()
+        hit.pop("unpruned", None)  # 重新暂停：自动收起按新的暂停重新判（见 prune_why）
         ws = hit.pop("ws", None)  # 交接已放回桥（main 里 park）；ws_was 留着，resume 时向桥收回（reoccupy）
         if ws:
             hit["ws_was"] = ws
@@ -330,14 +343,23 @@ def pause_stale(now=None):
         hit = pause(it["id"], "一小时无进展，转待办")
         if hit:
             park_workspace(hit)
+            schedule_prune_check(hit)
             changed.append(hit)
     return changed
+
+
+def _timer_command():
+    """定时跑的 board refresh：桥用自己的环境跑，钉住板子目录和 PR 仓库（开关、门槛在板子目录里，见 prune_conf）。"""
+    env = [f"BOARD_DIR={shlex.quote(str(DIR))}"]
+    if os.environ.get("BOARD_PR_REPO"):
+        env.append(f"BOARD_PR_REPO={shlex.quote(os.environ['BOARD_PR_REPO'])}")
+    return f"env {' '.join(env)} {shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve()))} refresh"
 
 
 def schedule_stale_check(it):
     if not it.get("ws") or not _cc_bin() or not it.get("sk"):
         return
-    command = f'{sys.executable} "{Path(__file__).resolve()}" refresh'
+    command = _timer_command()
     r = subprocess.run([_cc_bin(), "timer", "add", "--session-key", it["sk"], "--delay", "60m",
                         "--exec", command, "--mute", "--desc", f"检查任务 #{it['id']} 是否停滞"],
                        capture_output=True, text=True)
@@ -449,7 +471,8 @@ def _done_time(s):
 
 def rework_report(days=REWORK_DAYS):
     since = time.time() - days * 86400
-    recs = [r for r in _read("board-done.jsonl") if (_done_time(r.get("done_at")) or 0) >= since]
+    recs = [r for r in _read("board-done.jsonl")
+            if (_done_time(r.get("done_at")) or 0) >= since and not r.get("auto_pruned")]  # 自动收起不是做完，不算返工
     by, clean, unset = {}, [], []
     for r in recs:
         n = r.get("rework")
@@ -463,6 +486,280 @@ def rework_report(days=REWORK_DAYS):
     for why, rs in sorted(by.items(), key=lambda kv: -sum(r["rework"] for r in kv[1])):
         out.append(f"{why}：{sum(r['rework'] for r in rs)} 次｜" + "，".join(f"#{r['id']} {r['what']}（{r['rework']}）" for r in rs))
     return "\n".join(out)
+
+
+# ---- 暂停条目自动收起（规则见文件头「暂停条目自动收起」）----
+# 照本机任务板已验收的实现。10-26 手动清的 8 条回放：24 小时档选中 4 条，8 小时档选中 6 条（#583 #584 当时才暂停 22 分钟，
+# 闲置从暂停时刻算后不收）；6 条保护项不误收。产品侧改动：闲置门槛默认 24 小时可调、
+# 等用户只认「等用户/等待用户」、PR 仓库来自 BOARD_PR_REPO、去掉本机的「用户点名只提醒」子规则。
+PRUNE_PR_AFTER = 2 * 3600  # 秒：规则「PR 已合或已关，且超过 2 小时」；按 PR 的 mergedAt/closedAt 算（方案二审第 3 条）
+# 小时：闲置门槛默认 24 小时，board prune --idle 改
+PRUNE_IDLE_DEFAULT_H = 24
+PR_FINAL_RECHECK = 30 * 60  # 秒：沿用本机 board.py PR_FINAL_RECHECK；开着/查不到的 PR 半小时内不再问 gh，终态缓存后不再问
+ASK_WHY = "等待用户答复"  # ws-up --ask 暂停时写的原因（contrib/lead/ws-up）
+# 等用户：和 core/team_task_board.go teamTaskBoardWaitUser 是同一条，两边改要一起改（方案二审第 D 条）
+WAIT_USER_RE = re.compile(r"等待?用户")
+_MERGED_INTO = re.compile(r"并入(?:主线)?\s*#(\d+)")
+
+
+# 开关和门槛是板子级设定（PR #457 二审）：多个角色共用一块板，按角色环境变量设会互相冲掉；桥跑定时用桥自己的环境，
+# 也读不到角色环境。所以只存在 <BOARD_DIR>/board-prune.json，只有 board prune --off/--on/--idle 写；谁跑都只读它。
+PRUNE_CONF = "board-prune.json"
+_conf_warned = set()
+
+
+def prune_conf():
+    """{"on": 开关, "idle_hours": ③ 的门槛小时}。文件没有 = 默认（开、24 小时）；文件坏了 = 关并在 stderr 警告一次（宁可少收）。"""
+    try:
+        raw = _path(PRUNE_CONF).read_text()
+    except FileNotFoundError:
+        return {"on": True, "idle_hours": PRUNE_IDLE_DEFAULT_H}
+    except OSError as e:
+        raw, err = None, str(e)
+    conf = None
+    if raw is not None:
+        try:
+            got = json.loads(raw)
+            on, h = got.get("on", True), got.get("idle_hours", PRUNE_IDLE_DEFAULT_H)
+            if isinstance(on, bool) and isinstance(h, (int, float)) and not isinstance(h, bool) and h > 0:
+                conf = {"on": on, "idle_hours": float(h)}
+            err = "内容不对"
+        except (ValueError, AttributeError):
+            err = "不是 JSON 对象"
+    if conf is None:
+        if str(DIR) not in _conf_warned:
+            _conf_warned.add(str(DIR))
+            print(f"board: {_path(PRUNE_CONF)} 读不了（{err}），这次不自动收起；用 board prune --on / --idle 重写", file=sys.stderr)
+        conf = {"on": False, "idle_hours": PRUNE_IDLE_DEFAULT_H, "broken": True}
+    return conf
+
+
+def set_prune_conf(on=None, idle_hours=None):
+    """board prune --off/--on/--idle：改板子级设定（文件坏了从默认起），返回新设定。"""
+    with _locked():
+        conf = prune_conf()
+        conf = {"on": True, "idle_hours": PRUNE_IDLE_DEFAULT_H} if conf.get("broken") else conf
+        if on is not None:
+            conf["on"] = on
+        if idle_hours is not None:
+            conf["idle_hours"] = float(idle_hours)
+        tmp = _path(f"{PRUNE_CONF}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(conf))
+        os.replace(tmp, _path(PRUNE_CONF))
+    return conf
+
+
+def prune_on():
+    return prune_conf()["on"]
+
+
+def prune_idle_after():
+    """③ 的闲置门槛（秒），见 prune_conf。"""
+    return prune_conf()["idle_hours"] * 3600
+
+
+def _ts(s, now):
+    """「MM-DD HH:MM」（没写年）→ epoch：按 now 那年算，比 now 晚一天以上就是去年的（同 _done_time 的跨年处理）。"""
+    lt = time.localtime(now)
+    try:
+        ts = time.mktime(time.strptime(f"{lt.tm_year}-{s}", "%Y-%m-%d %H:%M"))
+        if ts > now + 86400:  # 同 _done_time
+            ts = time.mktime(time.strptime(f"{lt.tm_year - 1}-{s}", "%Y-%m-%d %H:%M"))
+    except (TypeError, ValueError):
+        return None
+    return ts
+
+
+def _asking(i):
+    return (i.get("pause_why") or "").startswith(ASK_WHY)
+
+
+def _waiting_user(i):
+    return bool(WAIT_USER_RE.search(i.get("pause_why") or ""))
+
+
+def _pr_ref_re(repo):
+    """BOARD_PR_REPO 仓库的 PR 写法（同本机 board.py _PR_REF）：PR297 / PR#297、<name>#297 / <owner>/<name>#297、
+    github.com/<owner>/<name>/pull/297。不认裸 #N（和任务板编号混）。边界用 ASCII：Python 的 \\w 含汉字，「已合PR297」也要认。"""
+    owner, name = (re.escape(x) for x in repo.split("/", 1))
+    return re.compile(r"(?<![A-Za-z0-9_])PR#?([1-9]\d*)(?!\d)"
+                      rf"|(?<![A-Za-z0-9_/.-])(?:{owner}/)?{name}#([1-9]\d*)(?!\d)"
+                      rf"|github\.com/{owner}/{name}/pull/([1-9]\d*)(?!\d)", re.IGNORECASE)
+
+
+def _repo():
+    r = (os.environ.get("BOARD_PR_REPO") or "").strip()
+    return r if re.fullmatch(r"[\w.-]+/[\w.-]+", r) else None
+
+
+def _where_prs(i, repo=None):
+    """只认「分支/PR/路径」（where）里的 PR：状态里提到的 PR 常是中间一步（本机样本「PR341已合」后面还有活）。"""
+    repo = repo or _repo()
+    if not repo:
+        return set()
+    return {int(next(g for g in m if g)) for m in _pr_ref_re(repo).findall(i.get("where") or "")}
+
+
+def _idle_since(i, now):
+    """暂停条目闲置的起点：暂停时刻、ws-up 上报（progress_at）、暂停之后的手改（at）取最晚的。
+    不早于暂停时刻（PR #457 审查第 1 条）：progress_at 只在没暂停时写，总在暂停之前；只看它，刚暂停的会因为暂停前
+    久没汇报被当场收走。"""
+    ts = [t for t in (_ts(i.get("paused"), now), i.get("progress_at"), _ts(i.get("at"), now))
+          if isinstance(t, (int, float))]
+    return max(ts) if ts else None
+
+
+def pr_final(numbers, now=None, repo=None):
+    """{编号: {"state": MERGED/CLOSED/OPEN/None, "closed_at": epoch}}；缓存 board-prs-final.state，终态不再查，
+    查不到（没 gh、失败、超时）的 state=None。"""
+    now = time.time() if now is None else now
+    repo = repo or _repo()
+    if not repo or not numbers:
+        return {}
+    try:
+        cache = json.loads(_path("board-prs-final.state").read_text())
+        cache = cache if isinstance(cache, dict) and cache.get("repo") == repo else {"repo": repo}
+    except (OSError, ValueError):
+        cache = {"repo": repo}
+    prs = cache.setdefault("prs", {})
+    need = sorted(n for n in set(numbers) if not (str(n) in prs and (
+        prs[str(n)].get("state") in ("MERGED", "CLOSED") or now - prs[str(n)].get("checked_at", 0) < PR_FINAL_RECHECK)))
+    if need:
+        owner, name = repo.split("/", 1)
+        fields = " ".join(f"pr{n}:pullRequest(number:{n}){{number state mergedAt closedAt}}" for n in need)
+        got = None
+        try:
+            p = subprocess.run(["gh", "api", "graphql", "-f", f'query=query{{repository(owner:"{owner}",name:"{name}"){{{fields}}}}}'],
+                               capture_output=True, text=True, timeout=GH_TIMEOUT)
+            got = json.loads(p.stdout)["data"]["repository"]
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+            pass
+        for n in need:
+            pr = got.get(f"pr{n}") if isinstance(got, dict) else None
+            rec = {"state": None, "checked_at": now}
+            if isinstance(pr, dict) and pr.get("state") in ("MERGED", "CLOSED", "OPEN"):
+                rec["state"] = pr["state"]
+                raw = pr.get("mergedAt") if pr["state"] == "MERGED" else pr.get("closedAt")
+                if raw:
+                    rec["closed_at"] = datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+            prs[str(n)] = rec
+        try:
+            DIR.mkdir(parents=True, exist_ok=True)
+            tmp = _path(f"board-prs-final.state.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(cache))
+            os.replace(tmp, _path("board-prs-final.state"))
+        except OSError:
+            pass
+    return {n: prs.get(str(n), {}) for n in numbers}
+
+
+def prune_why(i, its, now, prs, idle_after=None):
+    """暂停条目该自动收起返回原因；不收返回 None。prs = pr_final 的结果（{} = 不按 PR 判）。"""
+    if not i.get("paused") or _asking(i):
+        return None  # 提问等答复的一律不收
+    if i.get("unpruned"):
+        prs, its = {}, []  # 手动找回过（resume 被拒仍暂停）：①② 的事实不会变，不再按它们收；③从找回时刻重新计，再暂停时清掉
+    nums = _where_prs(i)
+    if nums and prs:
+        st = [prs.get(n) or {} for n in nums]
+        if all(s.get("state") in ("MERGED", "CLOSED") and s.get("closed_at") and now - s["closed_at"] >= PRUNE_PR_AFTER for s in st):
+            return "PR " + "、".join(f"#{n}{'已合' if prs[n]['state'] == 'MERGED' else '已关'}" for n in sorted(nums)) + "超过 2 小时"
+    live = {x.get("id") for x in its}
+    for field in ("pause_why", "status"):
+        m = _MERGED_INTO.search(i.get(field) or "")
+        if m and int(m.group(1)) in live and int(m.group(1)) != i.get("id"):
+            return f"已并入 #{m.group(1)}"
+    if _waiting_user(i) or "主线" in (i.get("what") or ""):
+        return None  # 等用户：只免③（PR 已合/已并入时等的事已过，照①②收）；主线条目闲着也不收
+    idle_after = prune_idle_after() if idle_after is None else idle_after
+    idle = _idle_since(i, now)
+    if idle is not None and now - idle >= idle_after:
+        return f"暂停后 {int((now - idle) // 3600)} 小时没汇报没更新"
+    return None
+
+
+def prune_candidates(its=None, now=None, prs=None, check_pr=True):
+    """[(条目, 原因)]。prs 不给时 check_pr=True 就问 gh（pr_final），False 不按 PR 判。"""
+    now = time.time() if now is None else now
+    its = _read() if its is None else its
+    paused = [i for i in its if i.get("paused")]
+    if prs is None:
+        prs = pr_final({n for i in paused for n in _where_prs(i)}, now) if check_pr else {}
+    return [(i, w) for i in paused for w in [prune_why(i, its, now, prs)] if w]
+
+
+def auto_prune(dry=False, now=None, check_pr=True, skip=()):
+    """把该收的暂停条目移进 board-done.jsonl（带 auto_pruned=原因），返回 [(条目, 原因)]。dry=True 只列不动。
+    skip：这次命令正要操作的编号，先不收。板子设定关掉时什么都不做。"""
+    if not prune_on():
+        return []
+    now = time.time() if now is None else now
+    its = _read()
+    paused = [i for i in its if i.get("paused")]
+    prs = pr_final({n for i in paused for n in _where_prs(i)}, now) if check_pr else {}  # gh 在锁外查
+    picks = [(i, w) for i, w in prune_candidates(its, now, prs) if i["id"] not in skip]
+    if dry or not picks:
+        return picks
+    out = []
+    with _locked():
+        cur = _read()  # 锁外查 gh 时可能有人改过（update、改暂停原因）：重读，用同一份 PR 结果重判，只收仍该收的
+        ids = {i["id"] for i, _ in picks}
+        why = {i["id"]: w for i in cur if i["id"] in ids for w in [prune_why(i, cur, now, prs)] if w}
+        hits = [i for i in cur if i["id"] in why]
+        if not hits:
+            return []
+        with open(_path("board-done.jsonl"), "a") as f:
+            for i in hits:
+                f.write(json.dumps({**i, "done_at": _now(), "auto_pruned": why[i["id"]]}, ensure_ascii=False) + "\n")
+                out.append((i, why[i["id"]]))
+        _write([i for i in cur if i not in hits])
+    return out
+
+
+def unprune(nid):
+    """resume 找回自动收起的条目：board-done.jsonl 里这个编号最后一条是 auto_pruned 的，拿回板上（照旧暂停着）。
+    手动 done 的不找回。返回放回的条目，没有返回 None。"""
+    with _locked():
+        if any(i.get("id") == nid for i in _read()):
+            return None
+        recs = _read("board-done.jsonl")
+        k = next((k for k in range(len(recs) - 1, -1, -1) if recs[k].get("id") == nid), None)
+        if k is None or not recs[k].get("auto_pruned"):
+            return None
+        rec = {x: v for x, v in recs.pop(k).items() if x not in ("done_at", "auto_pruned")}
+        # 找回算一次更新（PR #457 审查第 4 条）：resume 接着被 reoccupy 拒绝时条目留在板上暂停着，不能下一条命令又按③收走
+        rec["at"] = _now()
+        rec["unpruned"] = True
+        tmp = _path("board-done.jsonl.tmp")
+        tmp.write_text("".join(json.dumps(i, ensure_ascii=False) + "\n" for i in recs))
+        os.replace(tmp, _path("board-done.jsonl"))
+        _write(_read() + [rec])
+    return rec
+
+
+def schedule_prune_check(it):
+    """暂停时挂两个定时跑 board refresh：PR 合/关满 PRUNE_PR_AFTER、闲置满门槛（③）各一个，没人动板也会收（方案二审第 C 条）。
+    不要求条目绑工作区（schedule_stale_check 要 ws，暂停时 ws 已解绑）；只要有桥和条目所在频道的会话 key（sk），
+    没有就跳过，靠每次 board 命令顺带清理兜底。挂失败只写 stderr，不拦 pause。到点晚一分钟跑，免得正好卡在门槛前。"""
+    cc, sk = _cc_bin(), it.get("sk")
+    if not prune_on() or not cc or not sk or _asking(it):
+        return
+    command = _timer_command()
+    for minutes in sorted({PRUNE_PR_AFTER // 60 + 1, int(prune_idle_after() // 60) + 1}):  # +1：见上「晚一分钟」
+        try:
+            r = subprocess.run([cc, "timer", "add", "--session-key", sk, "--delay", f"{minutes}m",
+                                "--exec", command, "--mute", "--desc", f"检查暂停的任务 #{it['id']} 要不要自动收起"],
+                               capture_output=True, text=True, timeout=WS_TIMEOUT)
+        except (OSError, subprocess.SubprocessError) as e:
+            print(f"board: #{it['id']} 自动收起检查未安排：{e}", file=sys.stderr)
+            return
+        if r.returncode:
+            print(f"board: #{it['id']} 自动收起检查未安排：{r.stderr.strip()[:200]}", file=sys.stderr)
+
+
+def _say_pruned(out):
+    for i, w in out:
+        print(f"board: 自动收起 #{i['id']} {i.get('what', '')[:40]}（{w}），board resume {i['id']} 能找回", file=sys.stderr)
 
 
 def _cc_bin():  # 同 ../lead/later：CC_BIN，否则 PATH 里的 bothouse / cc-connect
@@ -505,6 +802,9 @@ def open_pr_hint():
 def main(argv):
     argv, nxt = _split_next(argv)
     cmd = argv[0] if argv else "list"
+    if cmd not in ("refresh", "prune"):  # 每个命令顺带收一次（不查 gh，不拖慢命令）；这次要操作的编号先不收
+        nid = argv[1].lstrip("#") if len(argv) > 1 else ""
+        _say_pruned(auto_prune(check_pr=False, skip={int(nid)} if nid.isdigit() else set()))
     try:
         if cmd in ("list", "ls"):
             print("\n".join(lines()) or "（任务板是空的）")
@@ -571,11 +871,14 @@ def main(argv):
             if not hit:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
             print("已暂停")
+            schedule_prune_check(hit)
             freed = park_workspace(hit)
             if freed is not None:
                 print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
         elif cmd == "resume" and len(argv) == 2:
             nid = int(argv[1].lstrip("#"))
+            if unprune(nid):  # 自动收起的：先从完成记录拿回板上（还暂停着），再照常恢复
+                print(f"#{nid} 已从自动收起里找回")
             cur = next((i for i in items() if i["id"] == nid), None)
             back = cur.get("ws_was") if cur and cur.get("paused") and WS_NAME_RE.match(cur.get("who") or "") else None
             why = reoccupy(cur, back) if back else None
@@ -598,6 +901,27 @@ def main(argv):
             print("已挂卡")
         elif cmd == "refresh" and len(argv) == 1:
             pause_stale()
+            _say_pruned(auto_prune())
+        elif cmd == "prune" and argv[1:2] in (["--off"], ["--on"], ["--idle"]):
+            on, h = {"--off": False, "--on": True}.get(argv[1]), None
+            if argv[1] == "--idle":
+                try:
+                    h = float(argv[2].lower().rstrip("h")) if len(argv) == 3 else 0
+                except ValueError:
+                    h = 0
+                if not h > 0:
+                    sys.exit("--idle 后面写小时数，比如 board prune --idle 24")
+            elif len(argv) != 2:
+                sys.exit("用法：board prune --off | --on | --idle <小时>")
+            c = set_prune_conf(on, h)
+            print(f"自动收起：{'开' if c['on'] else '关'}，闲置门槛 {c['idle_hours']:g} 小时（整块板子生效）")
+        elif cmd == "prune" and argv[1:] in ([], ["--dry-run"]):
+            dry = argv[1:] == ["--dry-run"]
+            out = auto_prune(dry=dry)
+            for i, w in out:
+                print(f"{'会收' if dry else '已收起'} #{i['id']} {i.get('what', '')}（{w}）")
+            if not out:
+                print("没有要收起的暂停条目" if prune_on() else "自动收起已关（board prune --on 打开）")
         elif cmd == "rework" and len(argv) <= 2:
             print(rework_report(int(argv[1]) if len(argv) > 1 else REWORK_DAYS))
         else:

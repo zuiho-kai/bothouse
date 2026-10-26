@@ -106,9 +106,15 @@ type PublicProgress struct {
 	dataDir         string
 	project         string
 	resolveReporter func(project, platform, session string) (TaskCardPublisher, error)
+	// resolveWorkspace validates an explicit task workspace and returns its
+	// "<platform>:<id>" channel key; nil when workspace routing is off.
+	resolveWorkspace func(sourceSession, workspace string) (string, error)
 	// notBound tells the channel once that project must be /bind-ed there (bound=false), or
 	// forgets that notice once it is bound (team_hints.go).
 	notBound func(session, project string, bound bool)
+	// workspaceChat: the session is a workspace channel (Engine.isTeamWorkspaceChat); cards only
+	// open there. nil = everywhere (tests, PublicProgress without an engine).
+	workspaceChat func(session string) bool
 	// reporterName is a bound bot's display name in a session's channel ("" if unknown).
 	reporterName func(project, session string) string
 	// projectName is a configured project's name for people (team_name, e.g. 橘 for
@@ -292,6 +298,11 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	}
 	if child != nil {
 		return p.reportTaskRelay(child, req)
+	}
+	if req.Kind == "start" {
+		if err := p.checkWorkspaceCard(req.SessionKey); err != nil {
+			return "", err
+		}
 	}
 	if (req.Kind == "failed" || req.Kind == "cancelled") && req.TaskID == "" {
 		return "", errors.New("kind is only available for member reports")
@@ -645,6 +656,19 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 	return attempted, nil
 }
 
+// errCardOutsideWorkspace: a task card was asked for outside a workspace channel (user, 2026-10-26
+// 10:43: 「那个任务卡只在工作区显示，任何非其他工作区都不要显示太大，太占位置了」).
+var errCardOutsideWorkspace = errors.New("task cards are only shown in workspace channels; this channel is not a workspace, so no card was opened: reply in plain text here, or hand the work to a workspace")
+
+// checkWorkspaceCard refuses a new card (progress start, task assign, task relay) for a session
+// outside a workspace channel.
+func (p *PublicProgress) checkWorkspaceCard(session string) error {
+	if p.workspaceChat != nil && !p.workspaceChat(session) {
+		return errCardOutsideWorkspace
+	}
+	return nil
+}
+
 func (e *Engine) EnablePublicProgress() error {
 	p, err := NewPublicProgress(e.dataDir, e.name, e.platforms)
 	if err != nil {
@@ -652,15 +676,22 @@ func (e *Engine) EnablePublicProgress() error {
 	}
 	e.publicProgress = p
 	p.resolveReporter = e.resolveTaskReporter
+	p.resolveWorkspace = e.resolveTaskWorkspace
 	p.wakeLead = e.wakeRelayLead
 	p.reporterName = e.taskReporterName
 	p.notBound = e.noteBound
+	p.workspaceChat = e.isTeamWorkspaceChat
 	p.projectName = e.projectDisplayName
 	return nil
 }
 
 func (e *Engine) withPublicProgress(prompt string, state *interactiveState, session string, fromBot, fromVoice bool) string {
 	if e.publicProgress == nil || fromBot {
+		return prompt
+	}
+	// Task cards only in workspace channels (isTeamWorkspaceChat): elsewhere no card prompt and
+	// no turn token, so neither the agent nor the bridge opens a card there.
+	if !e.isTeamWorkspaceChat(session) {
 		return prompt
 	}
 	state.mu.Lock()
@@ -674,11 +705,9 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	state.publicProgressRun = token
 	desc, scheduled := state.turnDesc, state.turnScheduled
 	state.mu.Unlock()
-	// Automatic cards only in workspace channels: in a chat channel they take too much room
-	// (user, 2026-10-26: 「聊天频道不要自动任务卡，太占位置」). Voice turns and private chats are
-	// not workspaces. The agent's own progress start works everywhere.
-	_, workspace := e.WorkspaceParent(session)
-	e.publicProgress.armAuto(token, desc, scheduled || fromVoice || !workspace)
+	// Automatic cards only in workspace channels (user, 2026-10-26: 「聊天频道不要自动任务卡，太占
+	// 位置」); non-workspace channels returned above. Voice turns get no automatic card.
+	e.publicProgress.armAuto(token, desc, scheduled || fromVoice)
 	return e.publicProgressInstructions(token, session) + prompt
 }
 
@@ -732,9 +761,9 @@ func (e *Engine) progressInstructions(token, session, instructions string) strin
 	).Replace(instructions)
 }
 
-const publicTaskMembersPrompt = "[Task card members]\nWhen delegation is already authorized, open each new delegation batch with ASSIGN_COMMAND --run RUN_TOKEN --batch STABLE_BATCH_ID --member UNIQUE_ID --name 'display name' --title 'short assignment' --ref 'path:line of the existing implementation to follow' (for a configured bot, use --reporter-project EXACT_BOUND_PROJECT_ID; its name comes from that project, never from --name). Native children use --name 'explicit child name' and optional --parent existing-member-id; they inherit their owning bot account. --ref is required: name the existing implementation (path:line); for non-code work write --ref '无（新建）'. When several members edit the same files, put 多人改 in the title and add --base BRANCH; the member that changes the shared interface merges first. Omit --id for new work: the batch automatically opens a fresh shared card, even if this turn already reported on another card. Use the SAME batch for all participants in that delegation and on retries; use a DIFFERENT batch for independent parallel work. Batch ids are scoped to this turn. To explicitly continue a known card, replace --batch with --id TASK_ID. Overall reports for a delegation use COMMAND --run RUN_TOKEN --task TASK_ID --seq N --kind KIND --message 'public status'; each card has its own lead sequence, beginning at 1 for a new batch; the grant returns lead_next_seq for explicit continuation. Assignment does not consume a lead sequence. A first update can follow assignment without a separate start. Pass only the returned report_command to that participant. A --reporter-project member gets no report_command (report_via is set instead): dispatch it with the task relay and that bot receives its own member report command there. The participant itself reports immediately with --seq 1 --kind update --message 'started', then increments its own sequence only for meaningful progress, waiting, result, failed or cancelled. Use the same sequence/content on retry. Member results update only that row, not the overall task or acceptance. Ending the lead turn does not finish other delegation batches; report each batch's overall result separately. No raw tools, credentials or reasoning. A member's first report starts its clock; result/failed/cancelled ends it. Do not register a member unless actually dispatching; registration grants no permission to delegate.\n[/Task card members]\n\n"
+const publicTaskMembersPrompt = "[Task card members]\nWhen delegation is already authorized, open each new delegation batch with ASSIGN_COMMAND --run RUN_TOKEN --batch STABLE_BATCH_ID --member UNIQUE_ID --name 'display name' --title 'short assignment' --ref 'path:line of the existing implementation to follow' (for a configured bot, use --reporter-project EXACT_BOUND_PROJECT_ID; its name comes from that project, never from --name; when it executes in another workspace of the same chat channel, add --workspace WORKSPACE_ID and pass the same workspace to the task relay that dispatches it). Native children use --name 'explicit child name' and optional --parent existing-member-id; they inherit their owning bot account. --ref is required: name the existing implementation (path:line); for non-code work write --ref '无（新建）'. When several members edit the same files, put 多人改 in the title and add --base BRANCH; the member that changes the shared interface merges first. Omit --id for new work: the batch automatically opens a fresh shared card, even if this turn already reported on another card. Use the SAME batch for all participants in that delegation and on retries; use a DIFFERENT batch for independent parallel work. Batch ids are scoped to this turn. To explicitly continue a known card, replace --batch with --id TASK_ID. Overall reports for a delegation use COMMAND --run RUN_TOKEN --task TASK_ID --seq N --kind KIND --message 'public status'; each card has its own lead sequence, beginning at 1 for a new batch; the grant returns lead_next_seq for explicit continuation. Assignment does not consume a lead sequence. A first update can follow assignment without a separate start. Pass only the returned report_command to that participant. A --reporter-project member gets no report_command (report_via is set instead): dispatch it with the task relay and that bot receives its own member report command there. The participant itself reports immediately with --seq 1 --kind update --message 'started', then increments its own sequence only for meaningful progress, waiting, result, failed or cancelled. Use the same sequence/content on retry. Member results update only that row, not the overall task or acceptance. Ending the lead turn does not finish other delegation batches; report each batch's overall result separately. No raw tools, credentials or reasoning. A member's first report starts its clock; result/failed/cancelled ends it. Do not register a member unless actually dispatching; registration grants no permission to delegate.\n[/Task card members]\n\n"
 
-const publicProgressPrompt = "[Public progress channel]\nFor an accepted multi-step task only, use the shell tool to report short PUBLIC status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'one short public sentence'. The first report must use --seq 1 --kind start --title 'short task title'.RESUME_NOTE Then increase seq by one for each report: update for routine progress; milestone for a verified key finding; waiting for a decision the human must make; result for the final concise result and remaining work. Report at start and meaningful changes only (max 64 reports). Do not open cards for casual chat, questions or status queries. Do not put reasoning, tool output, credentials or full conversations in these reports. Never claim merge, deployment or human verification without evidence. A result is not project acceptance. Keep final spoken replies short; details belong in the card. Retries reuse exactly the same seq and content; never repeat task tools because delivery failed. This run token applies ONLY to this turn; never reuse a token from history. When delegation is authorized, dispatch quietly using RELAY_COMMAND --task TASK_ID --request-id STABLE_DISPATCH_ID --to EXACT_BOUND_PROJECT_ID --message 'bounded assignment'. Use the card returned by task assign; keep assignment text and report grants out of public facts. Retries reuse the same request ID and content. Worker progress and results appear under its own bot account in that task thread; the creator updates the aggregate card. Do not also send public channel mentions or forward the worker response.\n[/Public progress channel]\n\n"
+const publicProgressPrompt = "[Public progress channel]\nFor an accepted multi-step task only, use the shell tool to report short PUBLIC status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'one short public sentence'. The first report must use --seq 1 --kind start --title 'short task title'.RESUME_NOTE Then increase seq by one for each report: update for routine progress; milestone for a verified key finding; waiting for a decision the human must make; result for the final concise result and remaining work. Report at start and meaningful changes only (max 64 reports). Do not open cards for casual chat, questions or status queries. Do not put reasoning, tool output, credentials or full conversations in these reports. Never claim merge, deployment or human verification without evidence. A result is not project acceptance. Keep final spoken replies short; details belong in the card. Retries reuse exactly the same seq and content; never repeat task tools because delivery failed. This run token applies ONLY to this turn; never reuse a token from history. When delegation is authorized, dispatch quietly using RELAY_COMMAND --task TASK_ID --request-id STABLE_DISPATCH_ID --to EXACT_BOUND_PROJECT_ID --message 'bounded assignment'; when the member executes in another workspace of the same chat channel, add --workspace WORKSPACE_ID (the claimed workspace channel, same value as its task assign) so the receipt, progress and result stay in this task thread. Use the card returned by task assign; keep assignment text and report grants out of public facts. Retries reuse the same request ID and content. Worker progress and results appear under its own bot account in that task thread; the creator updates the aggregate card. Do not also send public channel mentions or forward the worker response.\n[/Public progress channel]\n\n"
 
 func (e *Engine) finishPublicProgress(state *interactiveState, outcome string) {
 	if e.publicProgress == nil {

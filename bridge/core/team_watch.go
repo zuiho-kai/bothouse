@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -58,6 +59,9 @@ var watchMaxRenew = 0
 // holds the session renews forever under watchMaxRenew = 0 (PR #430 review P1). Two checks =
 // 30 minutes, the old cap. Source: the pre-#429 watchMaxRenew default of 2.
 const watchBusyMaxRenew = 2
+
+// Live native background work retains its six-renewal budget.
+const watchMaxBackgroundRenew = 6
 
 // watchCanRenew: a watch renewed n times may renew again on progress.
 func watchCanRenew(n int) bool { return watchMaxRenew <= 0 || n < watchMaxRenew }
@@ -276,7 +280,8 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		// drop the check.
 		return now.Add(watchRetryDelay)
 	}
-	if h.ParkFails == 0 && watchCanRenew(h.Renewed) && w.progress != nil {
+	background, _ := w.workspaceBackgroundProgress(key, h.Due.Add(-watchCheckAfter()))
+	if h.ParkFails == 0 && (watchCanRenew(h.Renewed) || background && h.Renewed < watchMaxBackgroundRenew) && w.progress != nil {
 		since := h.Since
 		if since.IsZero() {
 			since = h.Due.Add(-watchCheckAfter())
@@ -408,7 +413,11 @@ var watchFeishuMention = regexp.MustCompile(`user_id="([^"]+)"`)
 // workspace ended a turn since then (Session.UpdatedAt; B9 plan 9b item 2). An error: the history
 // request failed (check retries it).
 func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.Time) (watchProgress, error) {
-	if w.workspaceBusy(key) {
+	running, pushed := w.workspaceBackgroundProgress(key, since)
+	if pushed || running && h.Renewed < watchMaxBackgroundRenew {
+		return watchProgressReal, nil
+	}
+	if !running && w.workspaceBusy(key) {
 		if h.BusyRenewed < watchBusyMaxRenew {
 			slog.Info("team watch: a session of the workspace is running a turn", "workspace", key, "chat", h.Chat, "busy_renew", h.BusyRenewed)
 			return watchProgressBusy, nil
@@ -429,6 +438,71 @@ func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.T
 		return watchProgressReal, nil
 	}
 	return watchProgressNone, nil
+}
+
+// workspaceBackgroundProgress reads the same native task state used by idle
+// cleanup and the child table. Inspect active agent processes even after the
+// parent turn unlocks; Session.Busy alone cannot describe their lifetime.
+func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) (running, pushed bool) {
+	dirs := make(map[string]bool)
+	for _, e := range w.engines() {
+		if e == nil {
+			continue
+		}
+		e.interactiveMu.Lock()
+		var states []*interactiveState
+		for k, state := range e.interactiveStates {
+			if chatOf(k) == key {
+				states = append(states, state)
+			}
+		}
+		e.interactiveMu.Unlock()
+		for _, state := range states {
+			state.mu.Lock()
+			as, dir := state.agentSession, state.workspaceDir
+			state.mu.Unlock()
+			if dir != "" {
+				dirs[dir] = true
+			}
+			if as == nil || !as.Alive() {
+				continue
+			}
+			if r, ok := as.(BackgroundTaskReporter); ok {
+				running, _ := r.BackgroundTasks()
+				if running > 0 {
+					return true, false
+				}
+			}
+			if r, ok := as.(SubTaskReporter); ok {
+				_, tasks, _ := r.SubTasks()
+				for _, task := range tasks {
+					if task.Live() {
+						return true, false
+					}
+				}
+			}
+		}
+	}
+	// Successful pushes update remote-tracking reflogs with "update by push".
+	// Use the local observation time, not a commit's author/committer timestamp;
+	// a freshly pushed older commit still represents progress in this window.
+	for dir := range dirs {
+		ctx, cancel := context.WithTimeout(w.e.ctx, 3*time.Second)
+		cmd := exec.CommandContext(ctx, "git", "-C", dir, "reflog", "show", "@{upstream}", "--grep-reflog=^update by push$", "-1", "--date=unix", "--format=%gD")
+		out, err := cmd.Output()
+		cancel()
+		if err != nil { // no repository, upstream or readable push history
+			continue
+		}
+		ref := strings.TrimSpace(string(out))
+		if _, at, ok := strings.Cut(ref, "@{"); ok {
+			seconds, err := strconv.ParseInt(strings.TrimSuffix(at, "}"), 10, 64)
+			if err == nil && seconds >= since.Unix() {
+				return false, true
+			}
+		}
+	}
+	return false, false
 }
 
 // errWatchNoHistory: the platform cannot read channel history (no ChannelHistoryReader).

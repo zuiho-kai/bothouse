@@ -258,6 +258,19 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			}
 		}
 	}
+	// The full board (who is doing what, task board, other channels) only in workspace channels
+	// (isTeamWorkspaceChat); a team chat channel (isTeamChat) with task-board items keeps its pinned summary
+	// alone; any other channel gets no board. Looked up once per chat per pass.
+	kinds := map[string]teamBoardKind{}
+	kindOf := func(chat string) teamBoardKind {
+		k, ok := kinds[chat]
+		if !ok {
+			k = e.teamBoardKindOf(chat)
+			kinds[chat] = k
+		}
+		return k
+	}
+	isWS := func(chat string) bool { return kindOf(chat) == teamBoardFull }
 	var items, done []teamTaskBoardItem
 	var pending []*TimerJob
 	now := time.Now()
@@ -271,7 +284,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	}
 	for _, it := range items { // a chat with task-board items gets a board too (board.py no longer posts its own card)
 		for _, key := range it.chats() {
-			if boards[key] == nil {
+			if boards[key] == nil && kindOf(key) != teamBoardNone {
 				boards[key] = &boardChat{SessionKey: key}
 			}
 		}
@@ -282,7 +295,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 				continue
 			}
 			chat := chatOf(task.SessionKey)
-			if boards[chat] == nil {
+			if boards[chat] == nil && isWS(chat) {
 				boards[chat] = &boardChat{SessionKey: task.SessionKey}
 			}
 			noteActive(chat, task.UpdatedAt)
@@ -295,7 +308,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 				continue
 			}
 			chat := chatOf(s.Key)
-			if _, ok := boards[chat]; !ok {
+			if _, ok := boards[chat]; !ok && isWS(chat) {
 				boards[chat] = &boardChat{SessionKey: s.Key}
 			}
 			noteActive(chat, s.Since, s.DoneAt)
@@ -303,6 +316,20 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	}
 	changed := false
 	for chat, b := range boards {
+		kind := kindOf(chat)
+		if kind == teamBoardSummary && !teamTaskBoardHasEntries(items, done, chat) {
+			// A team chat shows its summary only while it has task-board items here: no empty
+			// board (a side chat that handed off once is a team chat too); an old one is deleted.
+			kind = teamBoardNone
+		}
+		if kind == teamBoardNone {
+			// A board posted before boards were limited to workspaces and team chats with items: delete it.
+			if e.removeTeamBoard(chat, b) {
+				delete(boards, chat)
+				changed = true
+			}
+			continue
+		}
 		if !b.GaveUpAt.IsZero() {
 			if !lastActive[chat].After(b.GaveUpAt) {
 				continue
@@ -311,10 +338,19 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			b.GaveUpAt = time.Time{}
 			changed = true
 		}
-		members, live := teamBoardWithTasks(files, chat, e.i18n.CurrentLang())
-		content := withTeamTaskBoard(members, func(budget int) string {
-			return renderTeamTaskBoardFit(items, done, chat, now, pending, budget)
-		})
+		var content string
+		var live bool
+		if kind == teamBoardFull {
+			var members string
+			members, live = teamBoardWithTasks(files, chat, e.i18n.CurrentLang())
+			content = withTeamTaskBoard(members, func(budget int) string {
+				return renderWorkspaceTaskBoardFit(items, done, chat, now, pending, budget)
+			})
+		} else {
+			// Team chat: the task-board summary only, no 谁在干啥 lines (not a big card here).
+			content = renderTeamTaskBoardFit(items, done, chat, now, pending, backfillMaxMsgRunes)
+			content = cutTeamBoardLines(content, backfillMaxMsgRunes, "")
+		}
 		// The card state comes from the same data as the text: someone shown working, a relay
 		// task in the index, or a task-board item still in work (#597 G33).
 		live = live || teamTaskBoardLive(items, chat)
@@ -355,6 +391,76 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	return changed
 }
 
+// teamTaskBoardHasEntries: chat's task board has an open or done-today item.
+func teamTaskBoardHasEntries(items, done []teamTaskBoardItem, chat string) bool {
+	for _, list := range [][]teamTaskBoardItem{items, done} {
+		for _, it := range list {
+			if it.shownIn(chat) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// teamEntryIsDM: the session is a direct message. A DM channel has no name, so the platform's
+// ChatName is empty or falls back to the channel id (Discord ResolveChannelName).
+func teamEntryIsDM(s *teamEntry) bool {
+	name := strings.TrimSpace(s.Chat)
+	if name == "" {
+		return true
+	}
+	_, id, _ := strings.Cut(chatOf(s.Key), ":")
+	return id != "" && name == id
+}
+
+// teamBoardKind: what board a channel gets.
+type teamBoardKind int
+
+const (
+	teamBoardNone    teamBoardKind = iota // no board; an old one is deleted
+	teamBoardSummary                      // team chat: the pinned task-board summary only, while it has items
+	teamBoardFull                         // workspace: who is doing what, task board, other channels
+)
+
+// teamBoardKindOf: the board chat gets (isTeamWorkspaceChat, else isTeamChat).
+func (e *Engine) teamBoardKindOf(chat string) teamBoardKind {
+	switch {
+	case e.isTeamWorkspaceChat(chat):
+		return teamBoardFull
+	case e.isTeamChat(chat):
+		return teamBoardSummary
+	}
+	return teamBoardNone
+}
+
+// removeTeamBoard deletes chat's board message (BoardRemover); it reports whether the board is
+// gone or can never be removed, so the caller forgets it. A temporary error keeps it for a retry.
+func (e *Engine) removeTeamBoard(chat string, b *boardChat) bool {
+	if b.MessageID == "" {
+		return true
+	}
+	platform, _, _ := strings.Cut(chat, ":")
+	remover, ok := e.platformForName(platform).(BoardRemover)
+	if !ok {
+		slog.Warn("team board: platform cannot remove boards, board outside a workspace left", "chat", chat)
+		return false
+	}
+	ctx, cancel := context.WithTimeout(e.ctx, 15*time.Second)
+	err := remover.RemoveBoard(ctx, b.SessionKey, b.MessageID)
+	cancel()
+	switch {
+	case errors.Is(err, ErrDeliveryUnrecoverable):
+		slog.Warn("team board: board outside a workspace cannot be removed, giving up", "chat", chat, "error", err)
+	case err != nil:
+		slog.Warn("team board: remove board outside a workspace failed, will retry", "chat", chat, "error", err)
+		return false
+	default:
+		slog.Info("team board: removed board outside a workspace", "chat", chat)
+	}
+	return true
+}
+
 // readTeamFiles loads every fresh status file in dir, sorted by project.
 func readTeamFiles(dir string, now time.Time) []teamFile {
 	paths, _ := filepath.Glob(filepath.Join(dir, "*"+teamStatusFileExt))
@@ -376,7 +482,7 @@ func readTeamFiles(dir string, now time.Time) []teamFile {
 
 // renderTeamBoard renders one line per teammate for the board in chat. Times are wall-clock
 // ("10:42 起") rather than elapsed, so the text only changes when someone's state changes.
-// Task text from another channel is never shown here; only that the teammate is busy elsewhere.
+// A teammate busy in another channel shows that channel (a link, teamChatRef) and its task.
 func renderTeamBoard(files []teamFile, chat string) string {
 	return renderTeamBoardMembers(files, chat, nil)
 }
@@ -463,12 +569,14 @@ func teamBoardMembers(files []teamFile, chat string, members []teamTaskMember) (
 			case 4:
 				line = fmt.Sprintf("🔧 %s（%s 起）", task, best.Since.Local().Format("15:04"))
 			case 3:
-				where := "别的频道"
-				if best.Chat != "" {
-					where = "#" + best.Chat
+				// Busy in another channel: which one (a link), on what (user, 2026-10-26: 「谁在干啥卡
+				// 关联其他频道角色情况」). Not 🔧: that icon means busy here (TeamBoardActive).
+				// A DM: no task text (private) and no channel link (it would show as an unknown channel).
+				if teamEntryIsDM(best) {
+					line = fmt.Sprintf("↗️ 在私聊忙（%s 起）%s", best.Since.Local().Format("15:04"), teamElsewhereNote)
+				} else {
+					line = fmt.Sprintf("↗️ 在%s忙：%s（%s 起）%s", teamChatRef(best.Key, best.Chat), task, best.Since.Local().Format("15:04"), teamElsewhereNote)
 				}
-				// Not 🔧: that icon means busy here (TeamBoardActive).
-				line = fmt.Sprintf("↗️ 在%s忙（%s 起）%s", where, best.Since.Local().Format("15:04"), teamElsewhereNote)
 			case 2:
 				switch best.Outcome {
 				case teamWorkFailed:

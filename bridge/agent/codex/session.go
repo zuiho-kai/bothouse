@@ -47,6 +47,7 @@ type codexSession struct {
 	cmdMu            sync.Mutex
 	readerDone       chan struct{} // guarded by cmdMu; closed after all per-turn reader work
 	cmds             map[*exec.Cmd]struct{}
+	lastCmd          *exec.Cmd // guarded by cmdMu; most recently started exec cmd (#618 K4)
 
 	pendingMsgs []string // buffered agent_message texts awaiting classification
 
@@ -1044,12 +1045,37 @@ func (cs *codexSession) addCmd(cmd *exec.Cmd) {
 	cs.cmdMu.Lock()
 	defer cs.cmdMu.Unlock()
 	cs.cmds[cmd] = struct{}{}
+	cs.lastCmd = cmd
 }
 
 func (cs *codexSession) removeCmd(cmd *exec.Cmd) {
 	cs.cmdMu.Lock()
 	defer cs.cmdMu.Unlock()
 	delete(cs.cmds, cmd)
+	if cs.lastCmd == cmd {
+		cs.lastCmd = nil
+	}
+}
+
+// ProcessID implements core.AgentProcessInfo (#618 K4): the pid of the
+// running `codex exec`, 0 when none runs. The app_server backend has no exec
+// cmd here and stays in the bridge's process group (launchd reaps it).
+func (cs *codexSession) ProcessID() int {
+	cs.cmdMu.Lock()
+	defer cs.cmdMu.Unlock()
+	if cs.lastCmd == nil || cs.lastCmd.Process == nil {
+		return 0
+	}
+	return cs.lastCmd.Process.Pid
+}
+
+// ProcessGroupID implements core.AgentProcessInfo: exec cmds start with
+// Setpgid (proc_unix.go), so the group id is the pid. 0 on Windows.
+func (cs *codexSession) ProcessGroupID() int {
+	if !codexOwnProcessGroup {
+		return 0
+	}
+	return cs.ProcessID()
 }
 
 func (cs *codexSession) activeCmds() []*exec.Cmd {

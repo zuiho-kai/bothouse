@@ -381,6 +381,28 @@ func (e *Engine) WorkspaceParent(channelID string) (parentID string, ok bool) {
 	return "", false
 }
 
+// WorkspaceLastChat returns the chat channel of the latest handoff to workspace channelID
+// (same id form as WorkspaceParent). It covers a workspace that is no longer owned because
+// its task was parked or closed while a turn there was still running: that turn's late
+// [report]/[ask] still belongs to that chat (10-26 工作区6 事故).
+func (e *Engine) WorkspaceLastChat(channelID string) (parentID string, ok bool) {
+	if e == nil || e.dataDir == "" || channelID == "" {
+		return "", false
+	}
+	key := teamChatKey(channelID)
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	hs := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]
+	if len(hs) == 0 || hs[len(hs)-1].Chat == "" {
+		return "", false
+	}
+	parent := hs[len(hs)-1].Chat
+	if strings.Contains(channelID, ":") {
+		return parent, true
+	}
+	return teamChannelID(parent), true
+}
+
 // TeamWorkspacesOf returns the recorded workspaces of a chat channel (bare ID or session key).
 func (e *Engine) TeamWorkspacesOf(channel string) []TeamWorkspace {
 	if e == nil || e.dataDir == "" {
@@ -390,6 +412,57 @@ func (e *Engine) TeamWorkspacesOf(channel string) []TeamWorkspace {
 	defer teamWorkspaceStore.mu.Unlock()
 	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
 	return append([]TeamWorkspace(nil), st.Parents[teamChatKey(channel)]...)
+}
+
+// isTeamWorkspaceChat: session (a session key, chat key or bare channel ID) is a workspace
+// channel in the team_workspaces.json record: a chat owns it now (WorkspaceParent) or it was
+// handed a task before (Handoffs; a released workspace leaves Parents but is still a workspace).
+// Big cards (who-is-doing-what board, progress card, 📋 task card) only go to workspace channels
+// (user, 2026-10-26: 「那个任务卡只在工作区显示，任何非其他工作区都不要显示太大，太占位置了」).
+func (e *Engine) isTeamWorkspaceChat(session string) bool {
+	if e != nil && e.workspaceChatForTest != nil {
+		return e.workspaceChatForTest(session)
+	}
+	if _, ok := e.WorkspaceParent(session); ok {
+		return true
+	}
+	if e == nil || e.dataDir == "" || session == "" {
+		return false
+	}
+	key := teamChatKey(session)
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	return len(loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]) > 0
+}
+
+// isTeamChat: session (a session key, chat key or bare channel ID) is a team chat channel: one
+// that owns workspaces now (Parents), that handed a task to a workspace before (Handoffs' chat;
+// kept after its last workspace is released, so the answer does not flip), or the main chat the
+// setup wizard bound the roles to (teamMainChat). Its pinned task-board summary stays (user chose
+// A, 2026-10-26 10:47: 聊天频道置顶的任务板总表保留), but it gets no other big card. A channel that
+// is neither this nor a workspace (isTeamWorkspaceChat), e.g. a side chat channel, gets none.
+func (e *Engine) isTeamChat(session string) bool {
+	if e == nil || e.dataDir == "" || session == "" {
+		return false
+	}
+	key := teamChatKey(session)
+	if teamMainChat(e.dataDir) == key {
+		return true
+	}
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if _, ok := st.Parents[key]; ok {
+		return true
+	}
+	for _, list := range st.Handoffs {
+		for _, h := range list {
+			if h.Chat != "" && teamChatKey(h.Chat) == key {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // TeamWorkspaceName returns the name (「工作区n」) of workspace ws ("<platform>:<id>"): its record

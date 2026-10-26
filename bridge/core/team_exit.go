@@ -67,7 +67,21 @@ func (e *Engine) SetWorkspaceParentResolver(r WorkspaceParentResolver) {
 	e.teamExit.mu.Unlock()
 }
 
+// workspaceParent is the chat a workspace's [ask]/[report] goes to: its current owner, else
+// the chat of its latest handoff (a parked/closed workspace whose turn was still running).
 func (e *Engine) workspaceParent(channelID string) (string, bool) {
+	if parent, ok := e.workspaceOwner(channelID); ok {
+		return parent, true
+	}
+	parent, ok := e.WorkspaceLastChat(channelID)
+	if !ok || parent == "" || parent == channelID {
+		return "", false
+	}
+	return parent, true
+}
+
+// workspaceOwner is the chat that owns workspace channelID right now.
+func (e *Engine) workspaceOwner(channelID string) (string, bool) {
 	e.teamExit.mu.Lock()
 	r := e.teamExit.resolver
 	e.teamExit.mu.Unlock()
@@ -214,7 +228,7 @@ func (e *Engine) routeWorkspaceAnswer(p Platform, msg *Message) bool {
 	if ch == "" {
 		ch = sessionChannel(msg.SessionKey)
 	}
-	if _, inWorkspace := e.workspaceParent(ch); inWorkspace {
+	if _, inWorkspace := e.workspaceOwner(ch); inWorkspace {
 		return false
 	}
 	var ask *teamAsk

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,6 +43,9 @@ type teamTaskBoardItem struct {
 	Paused   string `json:"paused"`
 	PauseWhy string `json:"pause_why"`
 	DoneAt   string `json:"done_at"` // board-done.jsonl: "MM-DD HH:MM", local time
+	// AutoPruned: board.py auto_prune moved this paused item to board-done.jsonl (the reason); not
+	// work done, so it stays out of "done today" (board resume brings it back).
+	AutoPruned string `json:"auto_pruned"`
 	// SK: the chat the item was added in ("<platform>:<id>"); for a handoff, the workspace.
 	SK string `json:"sk"`
 	// WS: the workspace a handoff item is bound to; dropped when the item leaves it (pause).
@@ -94,11 +98,33 @@ func readTeamTaskBoardDoneToday(dir string, now time.Time) []teamTaskBoardItem {
 	today := now.Format("01-02")
 	var out []teamTaskBoardItem
 	for _, it := range readTeamTaskBoardFile(dir, teamTaskBoardDoneFile) {
-		if strings.HasPrefix(it.DoneAt, today) {
+		if strings.HasPrefix(it.DoneAt, today) && it.AutoPruned == "" {
 			out = append(out, it)
 		}
 	}
 	return out
+}
+
+// teamTaskBoardWaitUser: a pause reason that waits on the user ("等用户", "等待用户", ws-up --ask's
+// "等待用户答复"). Same pattern as board.py WAIT_USER_RE (those items are kept by auto_prune's idle
+// rule); change both together.
+var teamTaskBoardWaitUser = regexp.MustCompile(`等待?用户`)
+
+// teamTaskBoardWaitHours: whole hours a paused item has waited on the user, 0 below one hour or
+// when it does not wait on the user. Paused is "MM-DD HH:MM" local without a year: this year,
+// or last year when that is more than a day ahead (board.py _done_time).
+func teamTaskBoardWaitHours(it teamTaskBoardItem, now time.Time) int {
+	if it.Paused == "" || !teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
+		return 0
+	}
+	at, err := time.ParseInLocation("2006-01-02 15:04", fmt.Sprintf("%d-%s", now.Year(), it.Paused), now.Location())
+	if err != nil {
+		return 0
+	}
+	if at.After(now.Add(24 * time.Hour)) {
+		at = at.AddDate(-1, 0, 0)
+	}
+	return int(now.Sub(at) / time.Hour)
 }
 
 // teamTaskBoardPlacer tells where items go: which chat a workspace belongs to and its name.
@@ -309,6 +335,58 @@ func renderTeamTaskBoardFit(items, done []teamTaskBoardItem, chat string, now ti
 	return out
 }
 
+// renderWorkspaceTaskBoardFit: renderTeamTaskBoardFit for a workspace's board, with a section
+// 「其他频道」 after it listing the running items of every other channel (user, 2026-10-26: 「谁在干
+// 啥卡关联其他频道角色情况」). "" when neither has anything.
+func renderWorkspaceTaskBoardFit(items, done []teamTaskBoardItem, chat string, now time.Time, pending []*TimerJob, budget int) string {
+	var out string
+	for _, st := range teamTaskBoardStages {
+		var parts []string
+		for _, sec := range []string{renderTeamTaskBoardStage(items, done, chat, now, pending, st), renderTeamOtherChannels(items, chat, st)} {
+			if sec != "" {
+				parts = append(parts, sec)
+			}
+		}
+		out = strings.Join(parts, "\n\n")
+		if len([]rune(out)) <= budget {
+			break
+		}
+	}
+	return out
+}
+
+// renderTeamOtherChannels: the 「其他频道」 section of chat's board: one row per running (not
+// paused) item not on chat's board, led by a link to the channel it is worked in; "" when none.
+func renderTeamOtherChannels(items []teamTaskBoardItem, chat string, st teamTaskBoardStage) string {
+	var rows []string
+	for _, it := range items {
+		if it.own == "" || it.shownIn(chat) || it.Paused != "" {
+			continue
+		}
+		rows = append(rows, fmt.Sprintf("- %s #%d %s｜%s｜%s", teamChatRef(it.own, ""), it.ID, shortLabel(it.What, st.whatCap), boardLabel(it.Who), shortLabel(it.Status, st.statusCap)))
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	return strings.Join(append([]string{"**其他频道**"}, rows...), "\n")
+}
+
+// teamChatRef: how a board names another channel (a chat key or session key): on Discord the
+// channel mention <#id>, which shows as a clickable 「#频道名」; elsewhere #name (the channel name
+// the status file recorded), else #id.
+func teamChatRef(chat, name string) string {
+	plat, id, _ := strings.Cut(chatOf(chat), ":")
+	switch {
+	case plat == "discord" && id != "":
+		return "<#" + id + ">"
+	case strings.TrimSpace(name) != "":
+		return "#" + taskIndexLabel(name, teamBoardTaskRunes)
+	case id != "":
+		return "#" + id
+	}
+	return "别的频道"
+}
+
 // renderTeamTaskBoardStage renders the section at one stage.
 // Items must be placed (placeTeamTaskBoard). Running: the chat's own items first, then one block
 // per workspace of the chat; then paused; then done today (workspace items marked "<name>·").
@@ -319,6 +397,9 @@ func renderTeamTaskBoardStage(items, done []teamTaskBoardItem, chat string, now 
 		if it.Paused != "" {
 			if it.PauseWhy != "" {
 				line += "｜暂停：" + shortLabel(it.PauseWhy, st.statusCap)
+			}
+			if h := teamTaskBoardWaitHours(it, now); h > 0 {
+				line += fmt.Sprintf("｜等你 %d 小时", h)
 			}
 			return line
 		}

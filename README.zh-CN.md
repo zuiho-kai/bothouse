@@ -30,6 +30,8 @@ Discord 上是一整套团队，飞书先接一个角色，自建网页频道跑
 
 真实频道记录：聊天里交给工作区，工作区里派活，任务板一眼看清，聊天照常。
 
+DSH 频道页的成员栏只显示任务统计，点击「任务板」打开可滚动弹窗，按频道、工作区和负责人查看详情。已完成任务默认折叠，点击「派工消息」「交回消息」可跳转到原消息。
+
 ## 怎么用
 
 **一，你说一句。**
@@ -346,7 +348,7 @@ Discord / 飞书 / 自建网页频道
 
 bothouse 按 [Apache-2.0](LICENSE) 授权，详见[许可说明](LICENSING.md)。
 
-随附桥接组件的上游 MIT 声明保留在 [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream)，感谢原作者和贡献者。第三方依赖许可见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。
+bothouse 的桥接组件基于 [cc-connect](https://github.com/chenhg5/cc-connect)，并保留了它的完整提交历史，所以贡献者列表里也有 cc-connect 的作者和贡献者。感谢 [@chenhg5](https://github.com/chenhg5) 和所有 cc-connect 贡献者。上游 MIT 声明保留在 [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream)。第三方依赖许可见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。
 
 ## 社区
 
