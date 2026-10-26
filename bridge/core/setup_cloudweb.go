@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -369,20 +370,40 @@ func GetLocalHubStatus(ctx context.Context, dataDir, lang string) LocalHubStatus
 		}
 	}
 	if !st.Running {
-		st.CanStart, st.Missing = localHubCanStart()
+		st.CanStart, st.Missing = localHubCanStart(dataDir)
 	}
 	st.Hint = localHubHint(lang, st)
 	return st
 }
 
-func localHubCanStart() (bool, string) {
+// localHubCanStart only looks (the page polls it): a uv that is missing but can be downloaded counts, and
+// startHubProcess downloads it.
+func localHubCanStart(dataDir string) (bool, string) {
 	if !hubSourceAvailable() {
 		return false, "source"
 	}
-	if _, _, err := lookPath("uv"); err != nil {
+	if _, err := localHubUV(dataDir, false); err != nil {
 		return false, "uv"
 	}
 	return true, ""
+}
+
+// localHubUV: uv on PATH or in the usual bin dirs (lookPath), else ensureUV's (PATH, <dataDir>/tools/uv,
+// downloaded there). download=false only says whether one is there or can be downloaded.
+func localHubUV(dataDir string, download bool) (string, error) {
+	if uv, _, err := lookPath("uv"); err == nil {
+		return uv, nil
+	}
+	if !download {
+		if _, err := os.Stat(ownUV(dataDir)); err == nil {
+			return ownUV(dataDir), nil
+		}
+		if uvAsset(runtime.GOOS, runtime.GOARCH) == "" {
+			return "", fmt.Errorf("no uv build for %s/%s", runtime.GOOS, runtime.GOARCH)
+		}
+		return "", nil
+	}
+	return ensureUV(dataDir)
 }
 
 func localHubHint(lang string, st LocalHubStatus) string {
@@ -399,13 +420,13 @@ func localHubHint(lang string, st LocalHubStatus) string {
 			"以前ウィザードで起動したこのマシンのプラットフォームが今は動いていません。「このマシンで起動」で再起動できます（アドレスと token はそのまま）。",
 			"The platform this wizard started earlier is not running: click \"Start on this machine\" to start it again (same address and token).")
 	case st.CanStart:
-		return tr3(lang, "本机还没有自建平台：点「在本机启动」，向导在这台电脑上起一个（只有本机能访问），地址和 token 自动填。第一次要联网下载 Python 依赖，约半分钟。",
-			"このマシンにはまだプラットフォームがありません。「このマシンで起動」を押すと、ウィザードがこのコンピューターに 1 つ立てます（このマシンからのみアクセス可）。アドレスと token は自動で入ります。初回は Python の依存をダウンロードするので 30 秒ほどかかります。",
-			"No platform on this machine yet: click \"Start on this machine\" and the wizard starts one here (this computer only), with address and token filled in. The first start downloads Python packages (about half a minute).")
+		return tr3(lang, "本机还没有自建平台：点「在本机启动」，向导在这台电脑上起一个（只有本机能访问），地址和 token 自动填。第一次要联网下载 uv、Python 和依赖，约一两分钟。",
+			"このマシンにはまだプラットフォームがありません。「このマシンで起動」を押すと、ウィザードがこのコンピューターに 1 つ立てます（このマシンからのみアクセス可）。アドレスと token は自動で入ります。初回は uv・Python・依存をダウンロードするので 1〜2 分ほどかかります。",
+			"No platform on this machine yet: click \"Start on this machine\" and the wizard starts one here (this computer only), with address and token filled in. The first start downloads uv, Python and packages (a minute or two).")
 	case st.Missing == "uv":
-		return tr3(lang, "要在本机启动自建平台，需要先装 uv（Python 的运行工具，装一次就行）。装好后点「重新检测」。也可以在下面填别人的平台。",
-			"このマシンでプラットフォームを起動するには、先に uv（Python の実行ツール、1 回入れるだけ）が必要です。入れたら「再検出」を押してください。下で他の人のプラットフォームを入れることもできます。",
-			"Starting the platform here needs uv (a Python runner, installed once). Install it, then click \"Detect again\". Or enter someone else's platform below.")
+		return tr3(lang, "这台电脑的系统没有能自动下载的 uv（Python 的运行工具）：自己装好 uv 后点「重新检测」。也可以在下面填别人的平台。",
+			"このマシンの OS 向けには自動でダウンロードできる uv（Python の実行ツール）がありません。uv を自分で入れてから「再検出」を押してください。下で他の人のプラットフォームを入れることもできます。",
+			"There is no uv (a Python runner) this wizard can download for this system: install uv yourself, then click \"Detect again\". Or enter someone else's platform below.")
 	default:
 		return tr3(lang, "这个 bothouse 安装包里没带自建平台程序，不能在本机一键启动：请连别人的平台（下面填地址和 token），或者用 conest 仓库里的 role-household 自己起一个。",
 			"この bothouse のパッケージにはプラットフォーム本体が入っていないため、ここでは起動できません。他の人のプラットフォームにつなぐか（下にアドレスと token）、conest リポジトリの role-household で自分で起動してください。",
@@ -427,7 +448,7 @@ var localHubStartWait = 90 * time.Second
 // in <data_dir>/hub/hub.json (an earlier start's are reused), data in <data_dir>/hub/hub.sqlite3,
 // log in <data_dir>/hub/hub.log. The process is detached, so restarting cc-connect does not stop it.
 func StartLocalHub(ctx context.Context, dataDir, lang string) (LocalHubStatus, error) {
-	if ok, missing := localHubCanStart(); !ok {
+	if ok, missing := localHubCanStart(dataDir); !ok {
 		st := LocalHubStatus{Missing: missing}
 		return st, errors.New(localHubHint(lang, st))
 	}
@@ -443,11 +464,26 @@ func StartLocalHub(ctx context.Context, dataDir, lang string) (LocalHubStatus, e
 		// another port (config.toml's ws_url points at this one): find out who holds it.
 		return localHubPortTaken(ctx, dataDir, lang, s)
 	}
-	if err := startHubProcess(dataDir, &s); err != nil {
+	// uv is downloaded first when there is none: the wait below starts after that.
+	uv, err := localHubUV(dataDir, true)
+	if err != nil {
+		return LocalHubStatus{Missing: "uv"}, fmt.Errorf("%s %v", tr3(lang,
+			"下载 uv（Python 的运行工具）失败：检查网络后再点「在本机启动」，或者自己装好 uv 后点「重新检测」。原始报错：",
+			"uv（Python の実行ツール）のダウンロードに失敗しました。ネットワークを確認して「このマシンで起動」をもう一度押すか、uv を自分で入れてから「再検出」を押してください。元のエラー：",
+			"Downloading uv (a Python runner) failed: check the network and click \"Start on this machine\" again, or install uv yourself and click \"Detect again\". Original error:"), err)
+	}
+	if err := startHubProcess(dataDir, uv, &s); err != nil {
 		return LocalHubStatus{}, err
 	}
+	wait := localHubStartWait
+	if uv == ownUV(dataDir) {
+		// our own uv: the first start also downloads Python into <data_dir>/tools/python (the hint says a
+		// minute or two). 来源：实现者定，放宽到 3 倍
+		wait *= 3
+	}
+	secs := strconv.Itoa(int(wait.Round(time.Second) / time.Second))
 	base, _ := cloudWebWSBase(localHubURL(s.Port))
-	deadline := time.Now().Add(localHubStartWait)
+	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		if code, _, err := cloudWebHandshake(ctx, base, s.BotToken); err == nil && code == http.StatusSwitchingProtocols {
 			return GetLocalHubStatus(ctx, dataDir, lang), nil
@@ -459,8 +495,8 @@ func StartLocalHub(ctx context.Context, dataDir, lang string) (LocalHubStatus, e
 		}
 	}
 	logFile := filepath.Join(localHubDir(dataDir), "hub.log")
-	return LocalHubStatus{LogFile: logFile}, fmt.Errorf("%s %s", tr3(lang, "自建平台没在 90 秒内起来，看日志：", "プラットフォームが 90 秒以内に起動しませんでした。ログ：",
-		"The platform did not come up within 90 seconds; see the log:"), logFile+tailFile(logFile, 600))
+	return LocalHubStatus{LogFile: logFile}, fmt.Errorf("%s %s", tr3(lang, "自建平台没在 "+secs+" 秒内起来，看日志：", "プラットフォームが "+secs+" 秒以内に起動しませんでした。ログ：",
+		"The platform did not come up within "+secs+" seconds; see the log:"), logFile+tailFile(logFile, 600))
 }
 
 // localHubPortTaken: hub.json's port is in use. Asked with our bot token:
@@ -510,7 +546,7 @@ func EnsureLocalHub(ctx context.Context, dataDir string) {
 	if code, _, err := cloudWebHandshake(ctx, base, s.BotToken); err == nil && code == http.StatusSwitchingProtocols {
 		return
 	}
-	if ok, missing := localHubCanStart(); !ok {
+	if ok, missing := localHubCanStart(dataDir); !ok {
 		slog.Warn("local hub: not running and cannot be started", "missing", missing)
 		return
 	}
@@ -518,14 +554,20 @@ func EnsureLocalHub(ctx context.Context, dataDir string) {
 		slog.Warn("local hub: its port is taken by something else", "port", s.Port)
 		return
 	}
-	if err := startHubProcess(dataDir, &s); err != nil {
+	uv, err := localHubUV(dataDir, true)
+	if err != nil {
+		slog.Warn("local hub: no uv", "error", err)
+		return
+	}
+	if err := startHubProcess(dataDir, uv, &s); err != nil {
 		slog.Warn("local hub: start failed", "error", err)
 		return
 	}
 	slog.Info("local hub: started", "url", localHubURL(s.Port))
 }
 
-func startHubProcess(dataDir string, s *localHubState) error {
+// startHubProcess runs uv (localHubUV's) on the unpacked hub source.
+func startHubProcess(dataDir, uv string, s *localHubState) error {
 	dir := localHubDir(dataDir)
 	src := filepath.Join(dir, "src")
 	if err := extractHubSource(src); err != nil {
@@ -533,10 +575,6 @@ func startHubProcess(dataDir string, s *localHubState) error {
 	}
 	s.StartedAt = time.Now().Format(time.RFC3339)
 	if err := writeJSONFile(filepath.Join(dir, "hub.json"), s, 0o600); err != nil {
-		return err
-	}
-	uv, _, err := lookPath("uv")
-	if err != nil {
 		return err
 	}
 	logf, err := os.OpenFile(filepath.Join(dir, "hub.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
@@ -549,7 +587,13 @@ func startHubProcess(dataDir string, s *localHubState) error {
 	cmd := exec.Command(uv, args...)
 	cmd.Dir = src
 	// PYTHONIOENCODING：stdout 接到日志文件时 Windows 的 Python 默认按 cp1252 写，hub 打印中文启动行就崩（PR #5 Windows 实测）
-	cmd.Env = append(os.Environ(), "RH_HUB_TOKEN="+s.WebToken, "RH_BOT_TOKEN="+s.BotToken, "PYTHONIOENCODING=utf-8")
+	env := []string{"RH_HUB_TOKEN=" + s.WebToken, "RH_BOT_TOKEN=" + s.BotToken, "PYTHONIOENCODING=utf-8"}
+	if uv == ownUV(dataDir) {
+		// uvOwnEnv, only for the uv we downloaded：only-managed，uv 不去跑 PATH 上的 /usr/bin/python3（干净 Mac 上是
+		// 装开发工具的桩）；Python 装在 <data_dir>/tools/python，和 gate 共用。用户自己的 uv 照旧用用户的 Python 和 uv.toml（镜像）。
+		env = append(uvOwnEnv(dataDir), env...)
+	}
+	cmd.Env = MergeEnv(os.Environ(), env)
 	cmd.Stdout, cmd.Stderr = logf, logf
 	detachProcess(cmd)
 	if err := cmd.Start(); err != nil {
@@ -581,23 +625,31 @@ func extractHubSource(dir string) error {
 	})
 }
 
+// portFree: nothing listens on port. Both the wildcard and 127.0.0.1 are tried: a listener on
+// *:port does not stop a bind on 127.0.0.1:port (macOS), and the reverse, so either failing = taken.
 func portFree(port int) bool {
-	l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
-	if err != nil {
-		return false
+	for _, host := range []string{"", "127.0.0.1"} {
+		l, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+		if err != nil {
+			return false
+		}
+		l.Close()
 	}
-	l.Close()
 	return true
 }
 
 // pickHubPort: the hub's own default port when free, else one the OS hands out.
-func pickHubPort() int {
-	if portFree(localHubPort) {
-		return localHubPort
+func pickHubPort() int { return PickFreePort(localHubPort) }
+
+// PickFreePort: preferred when nothing listens on it, else a free port the OS hands out (the
+// hub, the setup wizard's 9820 and the gate's 9930 all pick this way).
+func PickFreePort(preferred int) int {
+	if preferred > 0 && portFree(preferred) {
+		return preferred
 	}
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return localHubPort
+		return preferred
 	}
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port

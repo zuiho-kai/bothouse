@@ -2,18 +2,22 @@ package core
 
 // Team mode: the ten-minute watch on workspace handoffs (#574 B9). Every claim of a pool
 // workspace records a check time (TeamHandoff.Due = claim + watchCheckAfter). At the check time
-// a handoff still in work either shows progress (renewed by watchCheckAfter, at most
-// watchMaxRenew times, silently) or is nudged once in the workspace channel and parked
-// (ParkTeamWorkspaceFor, the same path as `bothouse workspace park`). Same rule as the DSH
+// a handoff still in work either shows progress (renewed by watchCheckAfter, silently,
+// while it shows real progress; watchMaxRenew 0 = no cap) or is nudged once in the workspace
+// channel and parked (ParkTeamWorkspaceFor, the same path as `bothouse workspace park`). A
+// renewal justified only by a session still being busy is capped at watchBusyMaxRenew, so a
+// stuck turn cannot hold the workspace forever (PR #430 review P1). Same rule as the DSH
 // gateway's task watch (dsh/collab/tasks.mjs CHECK_AFTER_S, MAX_RENEWALS) and the lead's
 // d10-fire script. One watcher per bridge on the team workspace engine; the state lives in the
 // team workspace file, so a restart re-arms it and a check missed while down fires on start.
 //
-// B9a: the watcher, its tick and the claim fields. Nothing starts it yet (startHandoffWatch is
-// called from B9b, together with the progress signals), so the bridge behaves as before: until
-// the watch is started on an engine (Engine.handoffWatchOn) a claim records no check time and the
-// list shows no watch_due, so the team workspace file is exactly as before. Handoffs recorded
-// before the start are old records and are not watched.
+// B9a: the watcher, its tick and the claim fields. B9b part 1 (#597 K5a): the progress signals
+// (workspaceProgress). B9b part 2 (#597 K5b): APIServer.Start starts it (startHandoffWatch), and
+// a hot load or removal moves it when another engine owns the team workspaces now. Until the
+// watch is started on an engine (Engine.handoffWatchOn) a claim records no check time and the
+// list shows no watch_due. Handoffs recorded before the start are old records and are not
+// watched. The DSH gateway leaves bridge-claimed rooms to this watch (tasks.mjs tick), so one
+// handoff has one watcher.
 
 import (
 	"context"
@@ -21,8 +25,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -40,9 +46,31 @@ func init() { watchCheckAfterNs.Store(int64(watchCheckAfterDefault)) }
 // watchCheckAfter is the current check time after a claim (see watchCheckAfterNs).
 func watchCheckAfter() time.Duration { return time.Duration(watchCheckAfterNs.Load()) }
 
-// Var only so tests can change it; not configurable.
-// Source: d10-fire MAX_RENEW = 2 (lead ruling 2026-10-25, at most 30 minutes); same as tasks.mjs MAX_RENEWALS.
-var watchMaxRenew = 2
+// watchMaxRenew caps renewals on progress; 0 means no cap (renew while there is progress).
+// Var only so tests can change it; not configurable. This cap counts all renewals; a
+// busy-only renewal is additionally capped by watchBusyMaxRenew.
+// Source: user 2026-10-26 agreed「有进展就一直续，没进展才停」(#429), replacing the earlier cap of 2;
+// same as tasks.mjs MAX_RENEWALS.
+var watchMaxRenew = 0
+
+// watchBusyMaxRenew caps renewals granted only because a session of the workspace is still in
+// a turn (no owner post and no finished turn in the window). Without it a stuck turn that
+// holds the session renews forever under watchMaxRenew = 0 (PR #430 review P1). Two checks =
+// 30 minutes, the old cap. Source: the pre-#429 watchMaxRenew default of 2.
+const watchBusyMaxRenew = 2
+
+// watchCanRenew: a watch renewed n times may renew again on progress.
+func watchCanRenew(n int) bool { return watchMaxRenew <= 0 || n < watchMaxRenew }
+
+// watchProgress says why a check found progress. A busy-only renewal has its own budget;
+// real progress (a post, a finished turn on Feishu) is unlimited and resets that budget.
+type watchProgress int
+
+const (
+	watchProgressNone watchProgress = iota
+	watchProgressBusy
+	watchProgressReal
+)
 
 const (
 	// Source: B9 plan v3「park 返回其他错误…Due 推后 1 分钟重试，最多 3 次」.
@@ -67,24 +95,55 @@ type handoffWatch struct {
 	// park pauses the handoff (chat, at) of workspace key and frees the workspace when it was the
 	// last task there (APIServer.parkAndReset: also resets the teammates' sessions).
 	park func(key, chat string, at time.Time) (bool, error)
-	// progress: the workspace showed progress since `since` (B9b; nil = none).
-	progress func(key string, h TeamHandoff, since time.Time) bool
+	// progress: why the workspace showed progress since `since` (workspaceProgress; nil =
+	// none). An error: the signal could not be read this time (retried, see check).
+	progress func(key string, h TeamHandoff, since time.Time) (watchProgress, error)
+	// engines: the role engines whose sessions in the workspace count as work in progress (all
+	// engines of the bridge once started; the watch's own engine before).
+	engines func() []*Engine
 }
 
 func newHandoffWatch(e *Engine) *handoffWatch {
-	return &handoffWatch{
-		e:    e,
-		now:  time.Now,
-		park: e.ParkTeamWorkspaceFor,
+	w := &handoffWatch{
+		e:       e,
+		now:     time.Now,
+		park:    e.ParkTeamWorkspaceFor,
+		engines: func() []*Engine { return []*Engine{e} },
 	}
+	w.progress = w.workspaceProgress
+	return w
+}
+
+// handoffWatchRun: the one watch an API server runs (all engines share the data dir, so one
+// team workspace file and one watcher for it).
+type handoffWatchRun struct {
+	mu      sync.Mutex
+	serving bool               // Start ran: register/unregister re-pick the engine
+	e       *Engine            // the engine it runs on; nil = none
+	stop    context.CancelFunc // ends it
+	done    chan struct{}      // closed when its goroutine returned
 }
 
 // startHandoffWatch runs the watch on the team workspace engine until the bridge stops.
 // BOTHOUSE_WATCH_TEST_SECONDS (seconds, only for checking the watch end to end) shortens the
-// check time. Called once, after the platforms are added and before the API starts serving
-// (B9b); claims are watched from then on.
+// check time. Called when the API server starts (after the platforms are added, before it
+// serves) and after a project is hot-loaded or removed: when teamWorkspaceEngine() is another
+// engine now, the old watch is stopped and waited for first, so one handoff is never checked by
+// two watchers.
 func (s *APIServer) startHandoffWatch() {
 	e := s.teamWorkspaceEngine()
+	r := &s.watch
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if e == r.e {
+		return // already running there (or no engine, none before)
+	}
+	if r.e != nil {
+		r.stop()
+		<-r.done
+		r.e.handoffWatchOn.Store(false)
+		r.e, r.stop, r.done = nil, nil, nil
+	}
 	if e == nil {
 		return
 	}
@@ -98,7 +157,34 @@ func (s *APIServer) startHandoffWatch() {
 	}
 	w := newHandoffWatch(e)
 	w.park = func(key, chat string, at time.Time) (bool, error) { return s.parkAndReset(e, key, chat, at) }
-	go w.run(e.ctx)
+	w.engines = func() []*Engine {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		out := make([]*Engine, 0, len(s.engines))
+		for _, x := range s.engines {
+			out = append(out, x)
+		}
+		return out
+	}
+	ctx, stop := context.WithCancel(e.ctx)
+	done := make(chan struct{})
+	r.e, r.stop, r.done = e, stop, done
+	go func() {
+		defer close(done)
+		w.run(ctx)
+	}()
+	slog.Info("team workspace watch started", "project", e.name, "check_after", watchCheckAfter())
+}
+
+// rewatchIfServing re-picks the watch engine after the engine set changed (hot load, removal);
+// before Start the call in Start does it once.
+func (s *APIServer) rewatchIfServing() {
+	s.watch.mu.Lock()
+	serving := s.watch.serving
+	s.watch.mu.Unlock()
+	if serving {
+		s.startHandoffWatch()
+	}
 }
 
 func (w *handoffWatch) run(ctx context.Context) {
@@ -190,22 +276,57 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		// drop the check.
 		return now.Add(watchRetryDelay)
 	}
-	if h.ParkFails == 0 && h.Renewed < watchMaxRenew && w.progress != nil {
-		since := h.Due.Add(-watchCheckAfter())
-		if h.At.After(since) {
-			since = h.At
+	if h.ParkFails == 0 && watchCanRenew(h.Renewed) && w.progress != nil {
+		since := h.Since
+		if since.IsZero() {
+			since = h.Due.Add(-watchCheckAfter())
+			if h.At.After(since) {
+				since = h.At
+			}
 		}
-		if w.progress(key, h, since) {
+		progressed, perr := w.progress(key, h, since)
+		if perr != nil {
+			// A failed read (network, Discord 5xx/429) is not a verdict: retry after
+			// watchRetryDelay, like a failed park; only when the retries are used up is it no
+			// progress (B9 plan「读信号失败…当作无进展」). The retry keeps this window's start
+			// (Since): moving Due must not push a post at the window's start out of it.
+			fails := h.ReadFails + 1
+			if fails < watchParkRetries {
+				due := now.Add(watchRetryDelay)
+				slog.Warn("team watch: cannot read the progress signal; retrying", "workspace", key, "attempt", fails, "error", perr)
+				ok, serr := w.updateHandoff(key, h, func(x *TeamHandoff) { x.ReadFails = fails; x.Due = due; x.Since = since })
+				if !ok && serr == nil {
+					return time.Time{}
+				}
+				if serr == nil {
+					return due
+				}
+				slog.Warn("team watch: save read retry failed; counted as no progress", "workspace", key, "error", serr)
+			} else {
+				slog.Warn("team watch: cannot read the progress signal; counted as no progress", "workspace", key, "attempts", fails, "error", perr)
+			}
+		}
+		if progressed != watchProgressNone {
 			due := h.Due.Add(watchCheckAfter())
 			if !due.After(now) {
 				due = now.Add(watchCheckAfter())
 			}
-			ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) { x.Due = due; x.Renewed++ })
+			ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) {
+				x.Due = due
+				x.Renewed++
+				x.ReadFails = 0
+				x.Since = time.Time{}
+				if progressed == watchProgressBusy {
+					x.BusyRenewed++
+				} else {
+					x.BusyRenewed = 0
+				}
+			})
 			if !ok && err == nil {
 				return time.Time{}
 			}
 			if err == nil {
-				slog.Info("team watch: progress, renewed", "workspace", key, "chat", h.Chat, "renew", h.Renewed+1, "max", watchMaxRenew)
+				slog.Info("team watch: progress, renewed", "workspace", key, "chat", h.Chat, "renew", h.Renewed+1, "max", watchMaxRenew, "busy", progressed == watchProgressBusy)
 				return due
 			}
 			slog.Warn("team watch: save renewal failed; parking instead", "workspace", key, "error", err)
@@ -254,6 +375,166 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		slog.Warn("team watch: report park failure failed", "chat", h.Chat, "error", serr)
 	}
 	return time.Time{}
+}
+
+// watchHistoryLimit: how many recent posts of the workspace channel a check reads (one request;
+// Discord's maximum per request).
+const watchHistoryLimit = 100
+
+// watchStatusPrefixes: status lines the bridge and the gate post (e.g. "⏳ 模型满载冷却中",
+// capacity_retry.go), not work done. The union of the lead's d10-fire STATUS_PREFIXES and the DSH
+// gateway's NOTICE_PREFIXES (dsh/collab/cloudweb.mjs); TestWatchConstantsMatchDSH keeps them in step.
+var watchStatusPrefixes = []string{"↪", "⏹", "📬", "✅", "⏳", "🔄", "⏸"}
+
+// watchStancePrefixes: the stance a teammate opens with (taking, asking, declining, escalating,
+// not work done). Same list as d10-fire STANCE_PREFIXES (#315 review).
+var watchStancePrefixes = []string{"【接】", "【问】", "【退】", "【升】"}
+
+// watchNoProgressPrefixes: posts that are not progress (status and stance lines).
+var watchNoProgressPrefixes = append(append([]string(nil), watchStatusPrefixes...), watchStancePrefixes...)
+
+// watchLeadingMentions: what a post opens with before its own text: mentions ("<@id>" live,
+// "@name" as channel history renders them; d10-fire LEADING_MENTION_RE) and the reply quote
+// Discord's history puts first ("[回复 name：…] "). "@name" stops at 【 and [: "<@橘>【接】…" with no
+// space renders as "@橘【接】…" and the stance line must stay visible.
+var watchLeadingMentions = regexp.MustCompile(`^(?:(?:<@[!&]?\d+>|@[^\s【\[]+|\[回复 [^\]]*\])\s*)+`)
+
+var watchFeishuMention = regexp.MustCompile(`user_id="([^"]+)"`)
+
+// workspaceProgress: the task in workspace key showed progress since `since`. Either a session of
+// the workspace is running a turn now (Session.Busy, checked first: a long turn is not stopped), or
+// the owner posted in the workspace channel since then, not counting status and stance lines. A
+// platform that cannot read channel history (Feishu) uses the sessions instead: a session of the
+// workspace ended a turn since then (Session.UpdatedAt; B9 plan 9b item 2). An error: the history
+// request failed (check retries it).
+func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.Time) (watchProgress, error) {
+	if w.workspaceBusy(key) {
+		if h.BusyRenewed < watchBusyMaxRenew {
+			slog.Info("team watch: a session of the workspace is running a turn", "workspace", key, "chat", h.Chat, "busy_renew", h.BusyRenewed)
+			return watchProgressBusy, nil
+		}
+		slog.Info("team watch: the workspace is still busy but its busy renewals are used up; checking for real progress", "workspace", key, "chat", h.Chat)
+	}
+	spoke, err := w.ownerSpoke(key, h.Owner, since)
+	if errors.Is(err, errWatchNoHistory) {
+		if w.workspaceTurnSince(key, since) {
+			return watchProgressReal, nil
+		}
+		return watchProgressNone, nil
+	}
+	if err != nil {
+		return watchProgressNone, err
+	}
+	if spoke {
+		return watchProgressReal, nil
+	}
+	return watchProgressNone, nil
+}
+
+// errWatchNoHistory: the platform cannot read channel history (no ChannelHistoryReader).
+var errWatchNoHistory = errors.New("platform cannot read channel history")
+
+// sessionsOf calls f on every existing session of workspace key on any role engine (ListSessions,
+// never creates one); f returns true to stop.
+func (w *handoffWatch) sessionsOf(key string, f func(*Session) bool) {
+	if w.engines == nil {
+		return
+	}
+	for _, x := range w.engines() {
+		if x == nil || x.sessions == nil {
+			continue
+		}
+		for _, k := range x.sessions.UserKeys() {
+			if chatOf(k) != key {
+				continue
+			}
+			for _, s := range x.sessions.ListSessions(k) {
+				if f(s) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// workspaceTurnSince: a session of workspace key ended a turn at or after since (local, no network).
+func (w *handoffWatch) workspaceTurnSince(key string, since time.Time) bool {
+	found := false
+	w.sessionsOf(key, func(s *Session) bool {
+		found = !s.GetUpdatedAt().Before(since)
+		return found
+	})
+	return found
+}
+
+// workspaceBusy: a session of workspace key ("<platform>:<id>") on any role engine is locked for a
+// turn. Lists the existing sessions only (ListSessions, never creates one).
+func (w *handoffWatch) workspaceBusy(key string) bool {
+	busy := false
+	w.sessionsOf(key, func(s *Session) bool {
+		busy = s.Busy()
+		return busy
+	})
+	return busy
+}
+
+// ownerSpoke: owner posted progress in the channel of workspace key at or after since. No owner
+// (the claim named none): the posts of this bot count (IsSelf) — the main role that took the
+// handoff in the workspace channel is this bridge's bot (ws-handoff). The platform not connected
+// or without channel history: an error.
+func (w *handoffWatch) ownerSpoke(key, owner string, since time.Time) (bool, error) {
+	id := watchOwnerID(owner)
+	plat, ch, _ := strings.Cut(key, ":")
+	p := w.e.lookupReadyPlatform(plat)
+	if p == nil {
+		return false, fmt.Errorf("platform %s not connected", plat)
+	}
+	r, ok := p.(ChannelHistoryReader)
+	if !ok {
+		return false, fmt.Errorf("%s: %w", plat, errWatchNoHistory)
+	}
+	msgs, err := r.ChannelHistory(ch, "", watchHistoryLimit)
+	if err != nil {
+		return false, err
+	}
+	for _, m := range msgs {
+		mine := m.IsSelf
+		if id != "" {
+			mine = m.AuthorID == id
+		}
+		if mine && !m.Time.Before(since) && watchIsProgressText(m.Content) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// watchOwnerID: the platform id in a claim's owner (a bare id, "<@id>", "@id" or a Feishu
+// <at user_id="id"></at>).
+func watchOwnerID(owner string) string {
+	o := strings.TrimSpace(owner)
+	if m := watchFeishuMention.FindStringSubmatch(o); m != nil {
+		return m[1]
+	}
+	o = strings.TrimPrefix(o, "<@")
+	o = strings.TrimPrefix(o, "!")
+	o = strings.TrimSuffix(o, ">")
+	return strings.TrimSpace(strings.TrimPrefix(o, "@"))
+}
+
+// watchIsProgressText: a post that counts as progress: not empty once the leading mentions are
+// dropped, and not a status or stance line (d10-fire chat_active).
+func watchIsProgressText(content string) bool {
+	c := strings.TrimSpace(watchLeadingMentions.ReplaceAllString(strings.TrimSpace(content), ""))
+	if c == "" {
+		return false
+	}
+	for _, pre := range watchNoProgressPrefixes {
+		if strings.HasPrefix(c, pre) {
+			return false
+		}
+	}
+	return true
 }
 
 // send posts text to channel key ("<platform>:<channel id>") on p.

@@ -65,17 +65,24 @@ type DiscordBotInfo struct {
 	InviteURL      string         `json:"invite_url"`
 }
 
-// discordInvitePermissions — 来源：docs/connect-discord-feishu.md 第 1 步「权限至少勾查看频道、发消息、读消息历史、加反应」
-// = View Channels(1<<10) + Send Messages(1<<11) + Read Message History(1<<16) + Add Reactions(1<<6)；
-// cc-connect 回复会发文件、链接预览、线程，所以再加 Attach Files(1<<15) + Embed Links(1<<14) + Send Messages in Threads(1<<38)。
-const discordInvitePermissions = 1<<10 | 1<<11 | 1<<14 | 1<<15 | 1<<16 | 1<<6 | 1<<38
+// DiscordInvitePermissions is the one permission set for every Discord invite link (wizard
+// invite and the re-invite links in errors). 来源：docs/connect-discord-feishu.md 第 1 步 plus
+// what bothouse itself calls:
+//   - basics: View Channels(1<<10), Send Messages(1<<11), Read Message History(1<<16),
+//     Embed Links(1<<14), Attach Files(1<<15), Add Reactions(1<<6)
+//   - team mode: Manage Channels(1<<4) creates 「工作区n」, Pin Messages(1<<51) pins the board
+//     (Discord split pinning out of Manage Messages(1<<13); both are kept)
+//   - slash commands: Use Application Commands(1<<31)
+//   - threads: Manage Threads(1<<34), Create Public Threads(1<<35), Send Messages in Threads(1<<38)
+const DiscordInvitePermissions int64 = 1<<10 | 1<<11 | 1<<16 | 1<<14 | 1<<15 | 1<<6 |
+	1<<4 | 1<<13 | 1<<51 | 1<<31 | 1<<34 | 1<<35 | 1<<38 // = 2252128378809424
 
 // DiscordInviteURL builds the "add bot to server" link.
 func DiscordInviteURL(appID, guildID string) string {
 	q := url.Values{}
 	q.Set("client_id", appID)
 	q.Set("scope", "bot applications.commands")
-	q.Set("permissions", fmt.Sprint(int64(discordInvitePermissions)))
+	q.Set("permissions", fmt.Sprint(DiscordInvitePermissions))
 	if guildID != "" {
 		q.Set("guild_id", guildID)
 	}
@@ -256,31 +263,14 @@ type FeishuChat struct {
 // ListFeishuChats lists the group chats the bot has been added to (first page;
 // page_size 100 = 飞书 im/v1/chats 接口的上限，来源：飞书开放平台文档).
 func ListFeishuChats(ctx context.Context, appID, appSecret, platformType string) ([]FeishuChat, error) {
-	base := feishuOpenBase
-	if platformType == "lark" {
-		base = larkOpenBase
-	}
-	client := &http.Client{Timeout: setupHTTPTimeout}
-	body, _ := json.Marshal(map[string]string{"app_id": appID, "app_secret": appSecret})
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, base+"/open-apis/auth/v3/tenant_access_token/internal", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
+	base, client := feishuBase(platformType), &http.Client{Timeout: setupHTTPTimeout}
+	tok, err := feishuTenantToken(ctx, client, base, appID, appSecret)
 	if err != nil {
-		return nil, fmt.Errorf("feishu token: %w", err)
+		return nil, err
 	}
-	var tok struct {
-		Code  int    `json:"code"`
-		Msg   string `json:"msg"`
-		Token string `json:"tenant_access_token"`
-	}
-	err = json.NewDecoder(resp.Body).Decode(&tok)
-	resp.Body.Close()
-	if err != nil || tok.Code != 0 || tok.Token == "" {
-		return nil, fmt.Errorf("feishu token: code=%d %s", tok.Code, tok.Msg)
-	}
-	req, _ = http.NewRequestWithContext(ctx, http.MethodGet, base+"/open-apis/im/v1/chats?page_size=100", nil)
-	req.Header.Set("Authorization", "Bearer "+tok.Token)
-	resp, err = client.Do(req)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, base+"/open-apis/im/v1/chats?page_size=100", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("feishu chats: %w", err)
 	}
@@ -299,6 +289,61 @@ func ListFeishuChats(ctx context.Context, appID, appSecret, platformType string)
 		r.Data.Items = []FeishuChat{}
 	}
 	return r.Data.Items, nil
+}
+
+func feishuBase(platformType string) string {
+	if platformType == "lark" {
+		return larkOpenBase
+	}
+	return feishuOpenBase
+}
+
+func feishuTenantToken(ctx context.Context, client *http.Client, base, appID, appSecret string) (string, error) {
+	body, _ := json.Marshal(map[string]string{"app_id": appID, "app_secret": appSecret})
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, base+"/open-apis/auth/v3/tenant_access_token/internal", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("feishu token: %w", err)
+	}
+	defer resp.Body.Close()
+	var tok struct {
+		Code  int    `json:"code"`
+		Msg   string `json:"msg"`
+		Token string `json:"tenant_access_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tok); err != nil || tok.Code != 0 || tok.Token == "" {
+		return "", fmt.Errorf("feishu token: code=%d %s", tok.Code, tok.Msg)
+	}
+	return tok.Token, nil
+}
+
+// FeishuBotOpenID is the bot's open_id (飞书 bot/v3/info, the call platform/feishu makes at start):
+// the id other members @ it by, written to gate-team.json.
+func FeishuBotOpenID(ctx context.Context, appID, appSecret, platformType string) (string, error) {
+	base, client := feishuBase(platformType), &http.Client{Timeout: setupHTTPTimeout}
+	tok, err := feishuTenantToken(ctx, client, base, appID, appSecret)
+	if err != nil {
+		return "", err
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, base+"/open-apis/bot/v3/info", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("feishu bot info: %w", err)
+	}
+	defer resp.Body.Close()
+	var r struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Bot  struct {
+			OpenID string `json:"open_id"`
+		} `json:"bot"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil || r.Code != 0 || r.Bot.OpenID == "" {
+		return "", fmt.Errorf("feishu bot info: code=%d %s", r.Code, r.Msg)
+	}
+	return r.Bot.OpenID, nil
 }
 
 // ── jev: test once whether the gate could use the model ─────

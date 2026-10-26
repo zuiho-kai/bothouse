@@ -1,6 +1,7 @@
 // CLI 成员：把本机 claude / codex / gemini 通过 ACP 适配器接成群成员。
 // 每个（成员, 房间）一个 ACP session；ask(text) 返回该轮 agent_message_chunk 拼接文本。
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { Readable, Writable } from 'node:stream'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -45,8 +46,11 @@ function resolveBin(pkg) {
   return { cmd: 'npx', args: ['-y', pkg] }
 }
 
-function cleanEnv(env = process.env) {
-  return Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith('CLAUDECODE') && !k.startsWith('CLAUDE_CODE_')))
+// 去掉外层 Claude Code 会话的标记（CLAUDECODE、CLAUDE_CODE_ENTRYPOINT…），成员的 claude 才不会当成嵌套会话；
+// 登录用的 CLAUDE_CODE_OAUTH_TOKEN 留着（ANTHROPIC_API_KEY 本来就不在过滤范围），只靠环境变量登录的用户才登得上。
+const KEEP_ENV = new Set(['CLAUDE_CODE_OAUTH_TOKEN'])
+export function cleanEnv(env = process.env) {
+  return Object.fromEntries(Object.entries(env).filter(([k]) => KEEP_ENV.has(k) || (!k.startsWith('CLAUDECODE') && !k.startsWith('CLAUDE_CODE_'))))
 }
 
 export class CliMember {
@@ -59,6 +63,7 @@ export class CliMember {
     this.sessions = new Map() // room -> { sessionId }（当前 ACP 进程里活着的会话）
     this.saved = new Map() // room -> sessionId：进程退出后留着，下次用 loadSession 续上
     this.buffers = new Map() // sessionId -> string
+    this.toolSince = new Set() // sessionId：上一段话之后有过工具调用
     this.onText = new Map() // sessionId -> (textSoFar) => void（#121 流式）
     this.onTool = new Map() // sessionId -> (update) => void：tool_call / tool_call_update / agent_thought_chunk，给进度卡
     this.onPermission = new Map() // sessionId -> async (request) => ACP outcome：本轮的审批处理器
@@ -77,10 +82,15 @@ export class CliMember {
       sessionUpdate: async (n) => {
         const u = n.update
         if (u?.sessionUpdate === 'agent_message_chunk' && u.content?.type === 'text' && this.buffers.has(n.sessionId)) {
-          const full = this.buffers.get(n.sessionId) + u.content.text
+          // 工具调用隔开的两段话是两条消息：另起一段，[report]/[ask] 这类首行标记才落在行首（team-exit.mjs exitMark）。
+          const prev = this.buffers.get(n.sessionId)
+          const gap = this.toolSince.has(n.sessionId) && prev.trim() && !/\n\s*$/.test(prev) ? '\n\n' : ''
+          this.toolSince.delete(n.sessionId)
+          const full = prev + gap + u.content.text
           this.buffers.set(n.sessionId, full)
           this.onText.get(n.sessionId)?.(full)
         }
+        if (u?.sessionUpdate === 'tool_call' && this.buffers.has(n.sessionId)) this.toolSince.add(n.sessionId)
         if ((u?.sessionUpdate === 'tool_call' || u?.sessionUpdate === 'tool_call_update' || u?.sessionUpdate === 'agent_thought_chunk') && this.buffers.has(n.sessionId)) this.onTool.get(n.sessionId)?.(u)
       },
     }
@@ -100,7 +110,16 @@ export class CliMember {
     const stream = acp.ndJsonStream(Writable.toWeb(proc.stdin), Readable.toWeb(proc.stdout))
     this.conn = new acp.ClientSideConnection(() => client, stream)
     const exited = new Promise((_, rej) => {
-      proc.once('error', rej)
+      proc.once('error', cause => {
+        this.ready = null
+        this.exited = null
+        if (existsSync(this.cwd)) return rej(cause)
+        const error = new Error(`CLI ${this.cli} 在目录 ${this.cwd} 无法启动：${cause.message}`, { cause })
+        error.code = 'COLLAB_CLI_START'
+        error.cwd = this.cwd
+        error.cli = this.cli
+        rej(error)
+      })
       proc.once('exit', (code) => {
         this.ready = null
         // 会话 id 留到 saved，新进程起来后用 loadSession 续上（不支持时由调用方提示频道）。
@@ -164,6 +183,7 @@ export class CliMember {
     // persona 每轮都拼：续上的或新开的会话都不会丢人设。
     const body = this.persona ? `${this.persona}\n\n${text}` : text
     this.buffers.set(s.sessionId, '')
+    this.toolSince.delete(s.sessionId)
     if (onText) this.onText.set(s.sessionId, onText)
     if (onTool) this.onTool.set(s.sessionId, onTool)
     if (onPermission) this.onPermission.set(s.sessionId, onPermission)
@@ -175,6 +195,7 @@ export class CliMember {
       return this.buffers.get(s.sessionId)
     } finally {
       this.buffers.delete(s.sessionId)
+      this.toolSince.delete(s.sessionId)
       this.onText.delete(s.sessionId)
       this.onTool.delete(s.sessionId)
       this.onPermission.delete(s.sessionId)

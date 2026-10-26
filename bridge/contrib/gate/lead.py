@@ -28,7 +28,7 @@ if os.environ.get("GATE_LEAD_FILE"):
 else:
     LEAD_FILE = _PRODUCT_DATA / "lead.json"
 
-KEYS, NAME, ID, ALIASES = [], {}, {}, {}
+KEYS, NAME, ID, ALIASES, DSH = [], {}, {}, {}, set()  # DSH = kind=dsh 的键（DSH 原生成员）
 _alias, _WHO, PATTERNS = [], "", []
 
 
@@ -43,9 +43,11 @@ def configure(team):
     global _alias, _WHO, PATTERNS
     members = {"": team["lead"], **team["subs"]}
     KEYS[:] = list(members)
-    NAME.clear(); ID.clear(); ALIASES.clear()
+    NAME.clear(); ID.clear(); ALIASES.clear(); DSH.clear()
     for k, m in members.items():
         NAME[k] = m["name"]
+        if m.get("kind") == "dsh":
+            DSH.add(k)
         if m.get("id"):
             ID[k] = str(m["id"])
         ALIASES[k] = list(dict.fromkeys([m["name"], *m.get("aliases", [])]))
@@ -121,7 +123,8 @@ _lock = threading.Lock()
 
 
 def state():
-    """→ {"lead": key, "at": 切换时间 或 ""}；没切过 / 文件坏了 = 橘（现状）。"""
+    """→ {"lead": key, "at": 切换时间 或 "", "auto": bool}；没切过 / 文件坏了 = 橘（现状）。
+    auto = 安装时自动选的（bridge/core/setup_dsh_team.go selectDSHLeadIfUnset 写 "auto": true），不是用户切换。"""
     def canonical(value):
         value = str(value or "").strip()
         if value in KEYS:
@@ -137,12 +140,12 @@ def state():
         except (OSError, ValueError):
             return None
         key = canonical(raw.get("lead"))
-        return None if key is None else {"lead": key, "at": raw.get("at", "")}
+        return None if key is None else {"lead": key, "at": raw.get("at", ""), "auto": raw.get("auto") is True}
 
     # Once the product file exists it is the sole source of truth. This also
     # prevents a stale legacy choice from overriding an explicit fallback.
     if LEAD_FILE.exists():
-        return read(LEAD_FILE) or {"lead": "", "at": ""}
+        return read(LEAD_FILE) or {"lead": "", "at": "", "auto": False}
 
     # Migrate the first valid legacy selection once, so bridge and DSH read it.
     for path in _LEGACY_LEAD_FILES:
@@ -158,7 +161,7 @@ def state():
         tmp.write_text(json.dumps(payload, ensure_ascii=False))
         tmp.replace(LEAD_FILE)
         return selected
-    return {"lead": "", "at": ""}
+    return {"lead": "", "at": "", "auto": False}
 
 
 def current():
@@ -182,9 +185,11 @@ def resolve(who):
 
 
 def set_lead(key):
-    """四个 bot 会同时为同一条消息问 gate：已经是它就不动（时间戳不变，身份段不重复推）。"""
+    """四个 bot 会同时为同一条消息问 gate：已经是它就不动（时间戳不变，身份段不重复推）。
+    安装时自动选的（auto）照写：用户这句才是真切换，写完不带 auto，身份段出现。"""
     with _lock:
-        if state()["lead"] == key and LEAD_FILE.exists():
+        s = state()
+        if s["lead"] == key and LEAD_FILE.exists() and not s["auto"]:
             return False
         LEAD_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp = LEAD_FILE.with_suffix(".tmp")
@@ -193,13 +198,25 @@ def set_lead(key):
         return True
 
 
+def member(bot):
+    """/context 的 bot → 团队文件里的键。DSH 成员带 bot=dsh:<成员 id>（dsh/collab/gate-context.mjs），
+    只在 kind=dsh 的条目里按 id 找（只装 DSH 时主角色是 lead 段、键为 ""）；桥 bot 带的是键，原样返回。
+    两边名字空间分开：DSH 成员 id 和桥的项目键同名（都叫 claude）也不会认错。"""
+    bot = str(bot or "")
+    if bot.startswith("dsh:"):
+        mid = bot[4:]
+        return next((k for k in KEYS if k in DSH and ID.get(k) == mid), bot)
+    return bot
+
+
 def identity(bot):
     """给 bot 这一轮附的主/次身份段（ctxsvc 拼进上下文）。没切换过 → None：人设文件现在写的就是橘为主。
+    安装时自动选的（auto，#597 G32）也 → None：用户没切换过，不说「用户切换」。
     第一步只改 gate；bridge 的交接回报/升级/仲裁仍发给 team_lead_bot（橘），第二步改成读这里。"""
     s = state()
-    if not s["at"]:
+    if not s["at"] or s["auto"]:
         return None
-    L, me = s["lead"], bot
+    L, me = s["lead"], member(bot)
     lead = f"{NAME[L]}（<@{ID[L]}>）" if L in ID else NAME[L]
     if L == "":
         text = f"主角色已换回{NAME['']}，按人设里原来的主/次分工。" + (f"如果用户这句是在切换主角色，用一句话确认：现在主角色是{NAME['']}。" if me == "" else "")
@@ -215,18 +232,34 @@ def identity(bot):
 
 
 # 主角色工作手册：只附给当前主角色，当次的不附（用户 2026-10-23「方便任意人当主角色，并且也能放到仓库」）。
-# GATE_PLAYBOOK=<文件> 可换成英文版 ../lead/PLAYBOOK.md 或自己的；设成空或 off = 不附。
-_pb = os.environ.get("GATE_PLAYBOOK", str(Path(__file__).resolve().parent.parent / "lead" / "PLAYBOOK.zh-CN.md")).strip()
+# 默认读 <数据目录>/collaboration/lead/（lead 工具装在那；装包后 gate 从 <数据目录>/gate 跑，../lead 不存在），
+# 那里没有再用本文件旁的 ../lead/（仓库里直跑）；两处都没有仍指向数据目录那份，之后装上 lead 工具即生效。
+# GATE_PLAYBOOK=<文件> 可换成英文版 PLAYBOOK.md 或自己的；设成空或 off = 不附。
+def _default_playbook():
+    name = "PLAYBOOK.zh-CN.md"
+    installed = _PRODUCT_DATA / "collaboration" / "lead" / name
+    beside = Path(__file__).resolve().parent.parent / "lead" / name
+    return beside if not installed.is_file() and beside.is_file() else installed
+
+
+_pb = os.environ.get("GATE_PLAYBOOK", str(_default_playbook())).strip()
 PLAYBOOK = None if _pb.lower() in ("", "off") else Path(_pb).expanduser()
+
+
+DSH_PLAYBOOK = "PLAYBOOK.dsh.zh-CN.md"
 
 
 def playbook(bot):
     """bot 是当前主角色 → 手册段（ctxsvc 拼进上下文），否则 None。
     path 里带切换时间：cc-connect 按 path 每个会话只推一次，换主后新主的下一轮收到一次。"""
     s = state()
-    if bot != s["lead"] or PLAYBOOK is None or not PLAYBOOK.is_file():
+    if member(bot) != s["lead"] or PLAYBOOK is None or not PLAYBOOK.is_file():
         return None
-    return {"path": f"【主角色工作手册：{PLAYBOOK}，{s['at'] or '默认主角色'}】",
-            "desc": PLAYBOOK.read_text(encoding="utf-8").strip()}
+    book = PLAYBOOK
+    # DSH 成员没有桥会话：ws-handoff、bothouse workspace new 用不了，给同目录的短版（#597 G24）。
+    if str(bot or "").startswith("dsh:") and (PLAYBOOK.parent / DSH_PLAYBOOK).is_file():
+        book = PLAYBOOK.parent / DSH_PLAYBOOK
+    return {"path": f"【主角色工作手册：{book}，{s['at'] or '默认主角色'}】",
+            "desc": book.read_text(encoding="utf-8").strip()}
 
 configure(_default_team())

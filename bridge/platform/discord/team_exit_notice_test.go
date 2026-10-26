@@ -49,6 +49,7 @@ func TestForwardedWorkspaceExitGatewayWakesNoBot(t *testing.T) {
 				p.botRoleIDs.Store("guild", "role-200")
 				p.channelNameCache.Store("chat", "chat")
 				p.handler = func(_ core.Platform, msg *core.Message) { delivered = append(delivered, msg) }
+				t.Cleanup(func() { stopBotBursts(p) })
 				p.handleMessageCreate(nil, &discordgo.MessageCreate{Message: &discordgo.Message{
 					ID: "fwd-" + tc.name, GuildID: "guild", ChannelID: "chat",
 					Author: &discordgo.User{ID: "100", Bot: true}, Timestamp: time.Now(), Content: tc.content,

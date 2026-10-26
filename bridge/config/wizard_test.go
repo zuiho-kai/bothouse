@@ -324,3 +324,45 @@ type = "codex"
 		t.Fatalf("config after removal:\n%s", got)
 	}
 }
+
+func TestSetWizardMemoryIndex(t *testing.T) {
+	dir := t.TempDir()
+	old := ConfigPath
+	ConfigPath = filepath.Join(dir, "config.toml")
+	defer func() { ConfigPath = old }()
+	orig := `[[projects]]
+name = "a"
+gate_url = "http://x"
+[projects.agent]
+type = "codex"
+[[projects.platforms]]
+type = "discord"
+[[projects]]
+name = "b"
+memory_index = "~/wiki/MEMORY.md"
+[projects.agent]
+type = "claudecode"
+[[projects.platforms]]
+type = "discord"
+`
+	if err := os.WriteFile(ConfigPath, []byte(orig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	win := `C:\Users\me\roles\a\wiki\MEMORY.md`
+	if set, err := SetWizardMemoryIndex("a", win); err != nil || !set {
+		t.Fatalf("a: %v %v", set, err)
+	}
+	if set, err := SetWizardMemoryIndex("b", "/other/MEMORY.md"); err != nil || set {
+		t.Fatalf("b overwritten: %v %v", set, err)
+	}
+	if _, err := SetWizardMemoryIndex("c", "/x"); err == nil {
+		t.Fatal("missing project: no error")
+	}
+	cfg, err := Load(ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Projects[0].MemoryIndex != win || cfg.Projects[0].GateURL != "http://x" || cfg.Projects[1].MemoryIndex != "~/wiki/MEMORY.md" {
+		t.Fatalf("projects = %+v", cfg.Projects)
+	}
+}

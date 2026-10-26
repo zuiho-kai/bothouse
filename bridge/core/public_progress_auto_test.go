@@ -279,6 +279,7 @@ func TestAutoProgress_ScheduledAndBotTurnsGetNoAutoCard(t *testing.T) {
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}
+	markWorkspace(t, e, "room:one", "room:two", "room:three") // only workspaces open cards by themselves
 	cron := &interactiveState{platform: platform, turnDesc: "⏰ 每日检查", turnScheduled: true}
 	e.withPublicProgress("prompt", cron, "room:one", false, false)
 	if cron.publicProgressRun == "" {
@@ -362,5 +363,77 @@ func TestAutoProgress_ConcurrentTriggersOpenOneCard(t *testing.T) {
 	}
 	if n := len(p.Tasks("room:one", 100)); n != 20 {
 		t.Fatalf("tasks = %d, want one per turn", n)
+	}
+}
+
+// markWorkspace records sessions' channels as team workspaces of one chat channel.
+func markWorkspace(t *testing.T, e *Engine, sessions ...string) {
+	t.Helper()
+	var list []TeamWorkspace
+	for i, s := range sessions {
+		list = append(list, TeamWorkspace{Name: "工作区" + string(rune('1'+i)), ID: teamChannelID(teamChatKey(s))})
+	}
+	if err := teamWorkspaceStoreList(teamWorkspacePath(e.dataDir), "room:chat", list); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// User 2026-10-26: 「聊天频道不要自动任务卡，太占位置」. Automatic cards open only in workspace
+// channels; a chat channel, a voice turn or a private chat gets none, and the agent's own start
+// still opens a card anywhere.
+func TestAutoProgress_OnlyWorkspaceChannelsGetAutoCard(t *testing.T) {
+	platform := newProgressPlatform()
+	e := NewEngine("fish", &stubAgent{}, []Platform{platform}, "", LangChinese)
+	t.Cleanup(e.cancel)
+	e.SetDataDir(t.TempDir())
+	if err := e.EnablePublicProgress(); err != nil {
+		t.Fatal(err)
+	}
+	markWorkspace(t, e, "room:ws", "room:wsvoice")
+	turn := func(session string, voice bool) *interactiveState {
+		st := &interactiveState{platform: platform, turnDesc: "帮我查一下"}
+		e.withPublicProgress("prompt", st, session, false, voice)
+		e.notePublicProgressTool(st, "ls")
+		e.notePublicProgressTool(st, "cat")
+		return st
+	}
+	ws := turn("room:ws", false)
+	if tasks := e.publicProgress.Tasks("room:ws", 10); len(tasks) != 1 || tasks[0].Title != "帮我查一下" {
+		t.Fatalf("workspace cards = %+v", tasks)
+	}
+	e.finishPublicProgress(ws, "result")
+	for _, s := range []string{"room:chat", "room:dm"} {
+		e.finishPublicProgress(turn(s, false), "result")
+		if n := len(e.publicProgress.Tasks(s, 10)); n != 0 {
+			t.Fatalf("%s opened %d automatic cards", s, n)
+		}
+	}
+	e.finishPublicProgress(turn("room:wsvoice", true), "result")
+	if n := len(e.publicProgress.Tasks("room:wsvoice", 10)); n != 0 {
+		t.Fatalf("voice turn opened %d automatic cards", n)
+	}
+	// The agent's own start in a chat channel still opens its card.
+	chat := &interactiveState{platform: platform, turnDesc: "改动画"}
+	e.withPublicProgress("prompt", chat, "room:chat2", false, false)
+	if _, err := e.publicProgress.Report(PublicProgressRequest{Project: "fish", SessionKey: "room:chat2", Run: chat.publicProgressRun, Seq: 1, Kind: "start", Title: "改动画", Summary: "开始"}); err != nil {
+		t.Fatal(err)
+	}
+	if tasks := e.publicProgress.Tasks("room:chat2", 10); len(tasks) != 1 || tasks[0].Title != "改动画" {
+		t.Fatalf("agent card in chat channel = %+v", tasks)
+	}
+}
+
+// #597 G25: a ws-handoff wake-up timer is handed-over work, not a routine timer:
+// its turn runs as "handoff", which is not a scheduled user, so the card opens.
+func TestTimerTurnUserHandoffOpensCard(t *testing.T) {
+	if got := timerTurnUser(&TimerJob{}); got != "timer" || !scheduledTurnUser(got) {
+		t.Fatalf("plain timer = %q, want routine \"timer\"", got)
+	}
+	got := timerTurnUser(&TimerJob{Handoff: true})
+	if got != "handoff" || scheduledTurnUser(got) {
+		t.Fatalf("handoff timer = %q (scheduled=%v), want non-routine \"handoff\"", got, scheduledTurnUser(got))
+	}
+	if !strings.Contains(withSubagentPolicy("x", got, false), "automated") {
+		t.Fatal("handoff turn must still be treated as automated for subagent policy")
 	}
 }

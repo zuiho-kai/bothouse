@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,12 @@ type taskRelayRecord struct {
 	Error    string           `json:"error,omitempty"`
 	LastSeq  int64            `json:"last_seq,omitempty"`
 	Reports  map[int64]string `json:"reports,omitempty"`
+	// Ten-minute watch (relay_watch.go); kept with the receipt, never a workspace handoff.
+	WatchDue     time.Time `json:"watch_due,omitempty"`
+	WatchFrom    time.Time `json:"watch_from,omitempty"` // this window began (member row updates after it count)
+	WatchSeq     int64     `json:"watch_seq,omitempty"`  // LastSeq at the last check
+	WatchRenewed int       `json:"watch_renewed,omitempty"`
+	WatchDone    bool      `json:"watch_done,omitempty"` // nudged+stopped, or interrupted reported once
 }
 
 type taskRelay struct {
@@ -29,12 +36,14 @@ type taskRelay struct {
 	r           *publicRun
 	req         RelayRequest
 	name, token string
-	started     time.Time // when this dispatch was accepted
+	started     time.Time     // when this dispatch was accepted
+	stop        chan struct{} // closed by the watch (stopWatch): close the session now
+	stopOnce    sync.Once
 }
 
 // Task relays share execution tracking with ordinary relays, but keep each
 // dispatch in a distinct conversation and exclude raw tools from public facts.
-func (e *Engine) handleRelay(ctx context.Context, fromProject, sourceSessionKey, message, taskScope string, complete func(string, error)) (string, error) {
+func (e *Engine) handleRelay(ctx context.Context, fromProject, sourceSessionKey, message, taskScope string, stop <-chan struct{}, complete func(string, error)) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -45,7 +54,7 @@ func (e *Engine) handleRelay(ctx context.Context, fromProject, sourceSessionKey,
 	if taskScope != "" {
 		key += ":task:" + taskScope
 	}
-	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, key, taskScope != "", complete)
+	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, key, taskScope != "", stop, complete)
 }
 
 func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, target *Engine, name string) (*RelayResponse, error) {
@@ -59,22 +68,40 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	if err != nil || cached != nil {
 		return cached, err
 	}
+	watchStarted := source.publicProgress.ensureRelayWatch(source.ctx)
+	// No watch can start when the source engine is stopping: leave stop nil so
+	// drainRelaySession keeps its fixed safety limit instead of waiting forever
+	// on a stop channel nobody will close (#448 P2).
+	var relayStop <-chan struct{}
+	if watchStarted {
+		relayStop = d.stop
+	}
 	relayCtx, cancel := rm.relayContext(ctx)
 	defer cancel()
 	// Distinct request sessions prevent concurrent dispatches from sharing a
 	// conversation. This is routing, not a tool/filesystem sandbox.
 	scope := req.TaskID + ":" + fmt.Sprintf("%x", sha256.Sum256([]byte(req.RequestID)))
-	response, runErr := target.handleRelay(relayCtx, req.From, req.SessionKey, d.prompt()+req.Message, scope, func(response string, runErr error) {
+	response, runErr := target.handleRelay(relayCtx, req.From, req.SessionKey, d.prompt()+req.Message, scope, relayStop, func(response string, runErr error) {
 		if err := d.finish(response, runErr); err != nil {
 			slog.Error("relay: background result checkpoint failed", "task_id", req.TaskID, "error", err)
 		}
+		// Only the drain calls this: the lead stopped waiting, so nobody would
+		// read the outcome unless the lead is woken (#429).
+		source.wakeRelayLead(req, name, response, runErr)
 	})
 	var draining *relayDrainingError
 	if errors.As(runErr, &draining) {
-		return nil, fmt.Errorf("relay: wait ended; execution continues, do not redispatch: %w", runErr)
+		continuation := "under the ten-minute watch and its outcome will wake this session"
+		if !watchStarted {
+			continuation = "in the background; the source engine is stopping, so the drain's safety limit will end it"
+		}
+		return nil, fmt.Errorf("relay: wait ended; execution continues %s, do not redispatch: %w", continuation, runErr)
 	}
 	if err := d.finish(response, runErr); err != nil {
 		return nil, fmt.Errorf("relay: result checkpoint failed; do not repeat tools: %w", err)
+	}
+	if errors.Is(runErr, errRelayWatchStopped) && strings.TrimSpace(response) != "" {
+		return nil, fmt.Errorf("relay: %w\n\n部分结果：\n%s", runErr, response)
 	}
 	if runErr != nil {
 		return nil, fmt.Errorf("relay: %w", runErr)
@@ -82,15 +109,20 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	return &RelayResponse{Response: response}, nil
 }
 
+// taskRelayActive: the lead's turn still holds the card, so a new dispatch may
+// start on it and relay results may move its summary.
 func taskRelayActive(r *publicRun) bool {
-	if r.record.Closed || r.record.Accepted || (r.stopped != nil && r.stopped()) {
+	if r.record.Closed || (r.stopped != nil && r.stopped()) {
 		return false
 	}
-	switch r.record.Task.State {
-	case TaskStateCompleted, TaskStateCancelled, TaskStateFailed:
-		return false
-	}
-	return true
+	return taskRelayLive(r)
+}
+
+// taskRelayLive: the card is neither accepted nor terminal. Relay progress
+// and the ten-minute watch are not gated on the card at all: they follow the
+// running receipt (reportTaskRelay, relayWatchRun).
+func taskRelayLive(r *publicRun) bool {
+	return !r.record.Accepted && !IsTerminalState(r.record.Task.State)
 }
 
 // Caller holds transitionMu. Copy mutable journal pieces before changing them
@@ -146,14 +178,15 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 		return nil, nil, fmt.Errorf("relay: reporter: %w", err)
 	}
 	old := snapshotTaskRelay(r)
-	r.record.Relays[req.RequestID] = taskRelayRecord{Hash: hash, Target: req.To, Status: "running"}
+	now := time.Now().UTC()
+	r.record.Relays[req.RequestID] = taskRelayRecord{Hash: hash, Target: req.To, Status: "running", WatchFrom: now, WatchDue: now.Add(watchCheckAfter())}
 	p.appendEvent(r, TaskEventProgress, NewI18n(r.record.Lang).Tf(MsgTaskRelayAssigned, name), true)
 	// Assignment text may contain a private report grant; never publish it.
 	if err := p.save(r); err != nil {
 		r.record = old
 		return nil, nil, err
 	}
-	d := &taskRelay{p: p, r: r, req: req, name: name, token: randomProgressID(32), started: time.Now().UTC()} // source: existing public progress token size
+	d := &taskRelay{p: p, r: r, req: req, name: name, token: randomProgressID(32), started: now, stop: make(chan struct{})} // source: existing public progress token size
 	p.mu.Lock()
 	if p.relayRuns == nil {
 		p.relayRuns = map[string]*taskRelay{}
@@ -170,7 +203,9 @@ func (p *PublicProgress) reportTaskRelay(d *taskRelay, req PublicProgressRequest
 	r := d.r
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if req.SessionKey != d.req.SessionKey || !taskRelayActive(r) {
+	// Gated on the receipt alone (below): a running dispatch keeps reporting
+	// after the card ends, so the watch can renew on its progress.
+	if req.SessionKey != d.req.SessionKey {
 		return "", errors.New("relay progress is not active for this session")
 	}
 	receipt := r.record.Relays[d.req.RequestID]
@@ -196,7 +231,11 @@ func (p *PublicProgress) reportTaskRelay(d *taskRelay, req PublicProgressRequest
 	}
 	receipt.Reports[req.Seq], receipt.LastSeq = hash, req.Seq
 	r.record.Relays[d.req.RequestID] = receipt
+	previousSummary := r.record.Task.LatestProgress
 	p.appendEvent(r, TaskEventProgress, NewI18n(r.record.Lang).Tf(MsgTaskRelayProgress, d.name), true)
+	if !taskRelayActive(r) {
+		r.record.Task.LatestProgress = previousSummary // as finish: a closed card keeps its summary
+	}
 	r.record.Task.Events[len(r.record.Task.Events)-1].Detail = req.Summary
 	r.record.Task.Events[len(r.record.Task.Events)-1].Pointer = true
 	r.record.Task.Events[len(r.record.Task.Events)-1].ReporterProject = d.req.To
@@ -261,7 +300,7 @@ func (d *taskRelay) prompt() string {
 		command = exe
 	}
 	prefix := shellQuoteRelay(command) + " progress --project " + shellQuoteRelay(d.p.project) + " --session " + shellQuoteRelay(d.req.SessionKey) + " --data-dir " + shellQuoteRelay(d.p.dataDir) + " --run " + d.token
-	return "[Task relay " + d.req.TaskID + "]\nThis assignment belongs to an existing task thread. Do not send public channel messages or @ mentions. For meaningful, deliberately public progress, use the shell tool: " + prefix + " --seq N --kind update --message 'short progress'. Start at --seq 1, increase by one, reuse identical seq/content on delivery retry. milestone/waiting/result are also allowed; do not use start. Progress and your final response go to the task thread; only brief status labels update its card. Never include credentials, private reasoning or raw tool logs. Return your result here, do not forward it with send/relay. This token is only for this request and cannot accept or finish the parent task." + d.memberNote() + "\n[/Task relay]\n\n"
+	return "[Task relay " + d.req.TaskID + "]\nThis assignment belongs to an existing task thread. Do not send public channel messages or @ mentions. For meaningful, deliberately public progress, use the shell tool: " + prefix + " --seq N --kind update --message 'short progress'. Start at --seq 1, increase by one, reuse identical seq/content on delivery retry. milestone/waiting/result are also allowed; do not use start. Progress and your final response go to the task thread; only brief status labels update its card. Report progress with --seq every few minutes (an update on your own row on this card counts too): a run with no progress for ten minutes is stopped, its session closed, and the text so far handed back as a partial result. Never include credentials, private reasoning or raw tool logs. Return your result here, do not forward it with send/relay. This token is only for this request and cannot accept or finish the parent task." + d.memberNote() + "\n[/Task relay]\n\n"
 }
 
 // Member rows bound to this target publish under its account; their tokens
@@ -285,4 +324,48 @@ func memberReported(t *Task, project string, since time.Time) bool {
 		}
 	}
 	return false
+}
+
+// relayLeadWakeLimit caps the worker output quoted in the wake prompt.
+// 来源：沿用 relayVisibilityResponseLabel 的 2000 字截断。
+const relayLeadWakeLimit = 2000
+
+// wakeRelayLead queues one turn in the dispatching session once a task relay
+// that outlived the lead's wait ends, so a result, a watch stop or a lost run
+// is picked up instead of sitting on the card (#429). It goes through the timer
+// scheduler like other wakes, injecting into the session's turn when busy.
+func (e *Engine) wakeRelayLead(req RelayRequest, worker, response string, runErr error) {
+	if e.timerScheduler == nil {
+		slog.Warn("relay: no timer scheduler; lead not woken for background outcome", "task_id", req.TaskID, "request_id", req.RequestID)
+		return
+	}
+	outcome := "已交回结果"
+	switch {
+	case errors.Is(runErr, errRelayWatchStopped):
+		outcome = "被十分钟看门停下（到点没有交回结果），会话已关"
+	case errors.Is(runErr, errRelayWatchInterrupted):
+		outcome = "因桥重启中断（运行已丢失，没有结果）"
+	case runErr != nil:
+		outcome = "后台执行结束但没有确认结果（" + runErr.Error() + "）"
+	}
+	prompt := fmt.Sprintf("[派工回执] 任务 %s 派给%s的活（请求 %s）%s。先核对实际产物（分支、提交、工作树、PR），再决定验收、续派（同一任务、新的请求号，从检查点接着做）或收口；不要重复已经成功的操作。",
+		req.TaskID, worker, req.RequestID, outcome)
+	if out := strings.TrimSpace(response); out != "" {
+		prompt += "\n\n" + worker + "交回的内容：\n" + truncateRelay(out, relayLeadWakeLimit)
+	}
+	silent := true
+	job := &TimerJob{
+		ID:           GenerateTimerID(),
+		Project:      e.name,
+		SessionKey:   req.SessionKey,
+		ScheduledAt:  time.Now(),
+		Prompt:       prompt,
+		Description:  "派工回执 " + req.TaskID,
+		Silent:       &silent,
+		InjectIfBusy: true,
+		CreatedAt:    time.Now(),
+	}
+	if err := e.timerScheduler.AddJob(job); err != nil {
+		slog.Error("relay: wake lead for background outcome failed", "task_id", req.TaskID, "request_id", req.RequestID, "error", err)
+	}
 }

@@ -54,9 +54,19 @@ func scheduledTurnUser(userID string) bool {
 	return false
 }
 
-// armAuto prepares the automatic card for a freshly issued run. scheduled runs
-// never open one automatically.
-func (p *PublicProgress) armAuto(token, desc string, scheduled bool) {
+// timerTurnUser is the sender of a timer turn: "handoff" for a ws-handoff wake-up
+// (handed-over work, so it gets the automatic card), else the routine "timer".
+func timerTurnUser(job *TimerJob) string {
+	if job != nil && job.Handoff {
+		return "handoff"
+	}
+	return "timer"
+}
+
+// armAuto prepares the automatic card for a freshly issued run. With off (a
+// scheduled turn, or not a workspace channel; see withPublicProgress) the run
+// never opens one automatically.
+func (p *PublicProgress) armAuto(token, desc string, off bool) {
 	p.mu.Lock()
 	r := p.runs[token]
 	p.mu.Unlock()
@@ -65,7 +75,7 @@ func (p *PublicProgress) armAuto(token, desc string, scheduled bool) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if scheduled {
+	if off {
 		r.autoOff = true
 		return
 	}

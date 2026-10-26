@@ -61,9 +61,10 @@ func (rm *RelayManager) UnregisterEngine(name string) {
 
 func (s *APIServer) UnregisterEngine(name string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	delete(s.engines, name)
 	if s.relay != nil {
 		s.relay.UnregisterEngine(name)
 	}
+	s.mu.Unlock()
+	s.rewatchIfServing() // the removed project may have owned the team workspaces
 }

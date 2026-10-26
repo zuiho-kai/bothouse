@@ -1845,9 +1845,9 @@ func platformOptsByType(ps []config.PlatformConfig) map[string]map[string]any {
 // started is the project's platform options as the engine was built with; options a platform
 // cannot take while running are reported in result.RestartKeys.
 // projectTeamStatus is the team status setup (SetTeam) of proj: what config.toml says, or, when it
-// sets no team_status_dir, the defaults of a multi-role team made by the setup wizard
+// sets no team_status_dir, the defaults of a team made by the setup wizard
 // (core.WizardTeamDefaults), so that team's lead gets the team board and workspaces on install and
-// on upgrade without editing config.toml (#587). A single-role install keeps no team status.
+// on upgrade without editing config.toml (#587). A single role is its own lead.
 func projectTeamStatus(dataDir string, proj config.ProjectConfig) (dir, name string, inject bool) {
 	if proj.TeamStatusDir != "" {
 		return proj.TeamStatusDir, proj.TeamName, proj.TeamStatusInject
@@ -1872,6 +1872,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	result := &core.ConfigReloadResult{}
 
 	// Re-apply process-global hot-reloadable settings.
+	core.SetLocalGatePort(cfg.Gate.Port)
 	if globalAPIServer != nil {
 		globalAPIServer.SetMaxAttachmentSize(resolveMaxAttachmentSize(cfg))
 	}
@@ -2289,7 +2290,25 @@ func wireColdCacheFresh(engine *core.Engine, proj config.ProjectConfig) {
 		slog.Warn("cold_cache_fresh: idle_mins is below agent_session_idle_timeout_mins; a still-running process is reused without the check",
 			"project", proj.Name, "idle_mins", idle, "agent_session_idle_timeout_mins", *t)
 	}
+	warnColdCacheFreshUnsupported(engine.GetAgent(), proj)
 	engine.SetColdCacheFresh(true, time.Duration(idle)*time.Minute, minTokens)
+}
+
+// warnColdCacheFreshUnsupported logs a role whose agent cannot read its session
+// logs: core.Engine.freshOnColdCache then resumes every idle session without a
+// word. jingyu's move from codex to a DSH launcher under type = "acp" on
+// 2026-10-21 lost the feature that way for 5 days
+// (~/.claude/reviews/idle-fresh-plan-1026.md section 2).
+func warnColdCacheFreshUnsupported(agent core.Agent, proj config.ProjectConfig) bool {
+	if agent == nil {
+		return false
+	}
+	if _, ok := agent.(core.SessionHandoffReader); ok {
+		return false
+	}
+	slog.Warn("cold_cache_fresh: this agent cannot read its session logs, so idle sessions are always resumed, never started fresh",
+		"project", proj.Name, "agent", proj.Agent.Type, "agent_name", agent.Name())
+	return true
 }
 
 // pluginUsageLogSources holds sources of agents compiled in by build tag.

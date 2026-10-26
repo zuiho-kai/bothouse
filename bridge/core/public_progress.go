@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -126,6 +127,10 @@ type PublicProgress struct {
 	open    map[string]*publicRun
 	pending map[string]*publicRun
 	listed  map[string]*publicRun // live tasks and durable requests awaiting a human
+	watchOn atomic.Bool           // the task relay watch loop runs (relay_watch.go)
+	// wakeLead queues a turn in the dispatching session for a background task outcome
+	// (Engine.wakeRelayLead); nil when no engine has enabled public progress.
+	wakeLead func(req RelayRequest, worker, response string, runErr error)
 }
 
 func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicProgress, error) {
@@ -647,6 +652,7 @@ func (e *Engine) EnablePublicProgress() error {
 	}
 	e.publicProgress = p
 	p.resolveReporter = e.resolveTaskReporter
+	p.wakeLead = e.wakeRelayLead
 	p.reporterName = e.taskReporterName
 	p.notBound = e.noteBound
 	p.projectName = e.projectDisplayName
@@ -668,7 +674,11 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	state.publicProgressRun = token
 	desc, scheduled := state.turnDesc, state.turnScheduled
 	state.mu.Unlock()
-	e.publicProgress.armAuto(token, desc, scheduled)
+	// Automatic cards only in workspace channels: in a chat channel they take too much room
+	// (user, 2026-10-26: 「聊天频道不要自动任务卡，太占位置」). Voice turns and private chats are
+	// not workspaces. The agent's own progress start works everywhere.
+	_, workspace := e.WorkspaceParent(session)
+	e.publicProgress.armAuto(token, desc, scheduled || fromVoice || !workspace)
 	return e.publicProgressInstructions(token, session) + prompt
 }
 
@@ -773,6 +783,10 @@ func (e *Engine) startPublicProgress() {
 	if e.publicProgress == nil || !e.beginMessageWork() {
 		return
 	}
+	// Receipts still running from before a restart get their watch now, not at
+	// the next dispatch. Its notes are queued (pending) and delivered by the
+	// Flush loop below, which retries until the platform is connected.
+	e.publicProgress.resumeRelayWatch(e.ctx)
 	go func() {
 		defer e.messageWorkers.Done()
 		ticker := time.NewTicker(time.Second)

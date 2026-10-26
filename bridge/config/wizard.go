@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -399,6 +400,21 @@ func EnsureManagementToken(token string) error {
 	return patchSectionField("management", "token", quoteTomlString(token))
 }
 
+// SetManagementPort writes [management] port (comments kept): the setup wizard moved off a taken 9820.
+func SetManagementPort(port int) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	return patchSectionField("management", "port", strconv.Itoa(port))
+}
+
+// SetGatePort writes [gate] port (comments kept): the wizard or the gate supervisor moved off a port
+// another install's gate holds.
+func SetGatePort(port int) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	return patchSectionField("gate", "port", strconv.Itoa(port))
+}
+
 func atomicWrite(path string, data []byte, perm os.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".bak-*.tmp")
 	if err != nil {
@@ -419,6 +435,41 @@ func atomicWrite(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	return os.Rename(name, path)
+}
+
+// SetWizardMemoryIndex sets the project's memory_index (its own wiki MEMORY.md, core/memoryindex.go) when it has
+// none; a value already there (set by hand or an earlier run) is kept. One locked read-modify-write on the TOML
+// document, like ApplyWizardProjects, so unknown keys survive.
+func SetWizardMemoryIndex(project, path string) (set bool, err error) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	if ConfigPath == "" {
+		return false, fmt.Errorf("config path not set")
+	}
+	raw, err := os.ReadFile(ConfigPath)
+	if err != nil {
+		return false, fmt.Errorf("read config: %w", err)
+	}
+	doc := map[string]any{}
+	if err := toml.Unmarshal(raw, &doc); err != nil {
+		return false, fmt.Errorf("parse config: %w", err)
+	}
+	projects, err := tableList(doc, "projects")
+	if err != nil {
+		return false, err
+	}
+	for _, p := range projects {
+		if p["name"] != project {
+			continue
+		}
+		if v, _ := p["memory_index"].(string); strings.TrimSpace(v) != "" {
+			return false, nil
+		}
+		p["memory_index"] = path
+		doc["projects"] = projects
+		return true, saveConfig(doc)
+	}
+	return false, fmt.Errorf("project %q not in config", project)
 }
 
 // EnsureWizardHook adds a global [[hooks]] entry of type command unless one with the same event and command is there.

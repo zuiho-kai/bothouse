@@ -1,5 +1,5 @@
 """gate.py 的 /context 路由和团队文件（不加载模型：用假 scorer 顶替）：python3 -I contrib/gate/test_gate_context.py"""
-import importlib, json, os, sys, tempfile, threading, types, unittest, urllib.request
+import importlib, json, os, sys, tempfile, threading, types, unittest, urllib.error, urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -7,7 +7,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 
-def load_gate(team=None, wiki=None):
+def load_gate(team=None, wiki=None, model="fake"):
     fake = types.ModuleType("scorer")
 
     class Scorer:
@@ -21,7 +21,10 @@ def load_gate(team=None, wiki=None):
     sys.modules["scorer"] = fake
     os.environ["GATE_SETUP_DIR"] = tempfile.mkdtemp()  # 不读本机 ~/.cc-connect 里向导写的文件
     os.environ.pop("GATE_JEV", None)
-    os.environ["GATE_MODEL"] = "fake"  # 没有 jev 时 gate 要显式的本机模型才肯启动；拿到的是上面的假 scorer
+    if model:
+        os.environ["GATE_MODEL"] = model  # 没有 jev 时用显式的本机模型打分；拿到的是上面的假 scorer
+    else:
+        os.environ.pop("GATE_MODEL", None)  # 没 jev 也没本机模型：不打分，只供 /context、/lead
     for k, v in (("GATE_TEAM", team), ("GATE_WIKI", wiki)):
         if v is None:
             os.environ.pop(k, None)
@@ -71,6 +74,65 @@ class T(unittest.TestCase):
         self.assertEqual(d("暂停", True, True), "abort")
         self.assertEqual(d(g.NAMES[me][0] + " 暂停", False, True), "abort")
         self.assertEqual(d("暂停", True, False), "reply")
+
+    def test_single_role_decide_always_replies(self):
+        """单角色（gate-team.json 没有 subs）：不打分；忙时被 @ 叫停/改做回 abort，其余 reply，没 jev 也一样。"""
+        d = Path(tempfile.mkdtemp())
+        (d / "team.json").write_text(json.dumps({"lead": {"name": "C酱"}, "subs": {}}))
+        g = load_gate(team=str(d / "team.json"))
+        g.route = lambda *a, **k: self.fail("single role /decide must not judge")
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), g.H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            cases = [({"content": "好的", "mentioned": False, "busy": False}, "reply"),
+                     ({"content": "你好", "mentioned": True, "busy": True}, "reply"),
+                     ({"content": "暂停", "mentioned": True, "busy": True}, "abort"),  # 忙时 @ 叫停：打断
+                     ({"content": "停", "mentioned": True, "busy": True}, "abort"),
+                     ({"content": "别做了，改做Y", "mentioned": True, "busy": True}, "abort"),
+                     ({"content": "暂停", "mentioned": False, "busy": True}, "reply")]  # 没 @：照旧回
+            for no_jev in (False, True):  # 没装 jev 也要能打断
+                if no_jev:
+                    g.SCORER_KIND = "none"
+                for body, want in cases:
+                    req = urllib.request.Request(f"http://127.0.0.1:{srv.server_port}/decide", json.dumps(body).encode(),
+                                                 {"Content-Type": "application/json"})
+                    r = urllib.request.urlopen(req, timeout=5)
+                    self.assertEqual((r.status, json.loads(r.read())["action"]), (200, want), (no_jev, body))
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_no_jev_serves_context_and_lead_not_decide(self):
+        """干净机器没填 jev：gate 照样起，/context 有 wiki，/lead 能用，/decide 回 503 让 cc-connect 按 gate_fallback 兜底。"""
+        d = Path(tempfile.mkdtemp())
+        w = d / "wiki"
+        (w / "infra").mkdir(parents=True)
+        (w / "infra" / "README.md").write_text("x", encoding="utf-8")
+        (w / "infra" / "vps.md").write_text("---\ndescription: VPS 一览\n---\n- 代理端口 7890\n", encoding="utf-8")
+        g = load_gate(wiki=str(w), model="")
+        self.assertEqual(g.SCORER_KIND, "none")
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), g.H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+        def post(path, body):
+            req = urllib.request.Request(f"http://127.0.0.1:{srv.server_port}{path}", json.dumps(body).encode(),
+                                         {"Content-Type": "application/json"})
+            try:
+                r = urllib.request.urlopen(req, timeout=5)
+                return r.status, json.loads(r.read())
+            except urllib.error.HTTPError as e:
+                return e.code, json.loads(e.read() or b"{}")
+        try:
+            code, ctx = post("/context", {"key": "discord:1", "text": "代理端口多少"})
+            self.assertEqual(code, 200)
+            self.assertEqual([x["path"] for x in ctx["wiki"]], [(w / "infra/vps.md").as_posix()])
+            code, ld = post("/lead", {"action": "get"})
+            self.assertEqual((code, ld["ok"]), (200, True))
+            code, _ = post("/decide", {"content": "你好", "mentioned": False, "busy": False})
+            self.assertEqual(code, 503)
+        finally:
+            srv.shutdown()
+            srv.server_close()
 
 
 if __name__ == "__main__":

@@ -17,18 +17,21 @@ type stubBoardPlatform struct {
 	stubPlatformEngine
 	posts   int
 	content map[string]string // session key → last board
+	live    map[string]bool   // session key → last board's state
 	fail    bool
 }
 
-func (p *stubBoardPlatform) UpsertBoard(_ context.Context, sessionKey, messageID, content string) (string, error) {
+func (p *stubBoardPlatform) UpsertBoard(_ context.Context, sessionKey, messageID, content string, live bool) (string, error) {
 	if p.fail {
 		return "", errors.New("boom")
 	}
 	p.posts++
 	if p.content == nil {
 		p.content = map[string]string{}
+		p.live = map[string]bool{}
 	}
 	p.content[sessionKey] = content
+	p.live[sessionKey] = live
 	if messageID == "" {
 		messageID = "m-" + sessionKey
 	}
@@ -57,7 +60,7 @@ func TestRenderTeamBoard(t *testing.T) {
 	got := renderTeamBoard(boardFiles(now), "discord:111")
 	for _, want := range []string{
 		"**G哥**　🔧 预解码原型",
-		"**大豆包**　🔧 在#dev忙",
+		"**大豆包**　↗️ 在#dev忙（",
 		"**Grok**　💤 空闲",      // a chat reply without tools is not work
 		"**C酱**　✅ 做完：审 #139", // per-user key of the same channel
 	} {
@@ -67,6 +70,45 @@ func TestRenderTeamBoard(t *testing.T) {
 	}
 	if strings.Contains(got, "私密的活") || strings.Contains(got, "随便聊聊") {
 		t.Errorf("board leaked another channel's task or a chat reply:\n%s", got)
+	}
+}
+
+// Busy in another channel is listed but is not busy here: the line says it does not block work
+// here, and neither the member lines nor the card state count it as live.
+func TestTeamBoardBusyElsewhereNotBusyHere(t *testing.T) {
+	now := time.Now()
+	files := []teamFile{
+		{Project: "b", Name: "大豆包", Updated: now, Sessions: []teamEntry{
+			{Key: "discord:222", Chat: "外出", Task: "外出巡逻", Busy: true, Worked: true, Since: now},
+		}},
+		{Project: "e", Name: "小橙", Updated: now, Sessions: []teamEntry{
+			{Key: "discord:333", Task: "私聊里的活", Busy: true, Worked: true, Since: now},
+		}},
+	}
+	got, live := teamBoardMembers(files, "discord:111", nil)
+	for _, want := range []string{
+		"**大豆包**　↗️ 在#外出忙（",
+		"**小橙**　↗️ 在别的频道忙（",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("board missing %q:\n%s", want, got)
+		}
+	}
+	if n := strings.Count(got, teamElsewhereNote); n != 2 {
+		t.Errorf("want %q on both lines, got %d:\n%s", teamElsewhereNote, n, got)
+	}
+	if live {
+		t.Errorf("busy only in other channels must not count as live here:\n%s", got)
+	}
+	if strings.Contains(got, "🔧") {
+		t.Errorf("🔧 is for busy in this channel:\n%s", got)
+	}
+
+	// The same teammate busy in this channel too: that is busy here.
+	files[0].Sessions = append(files[0].Sessions, teamEntry{Key: "discord:111", Chat: "general", Task: "修 bug", Busy: true, Worked: true, Since: now})
+	got, live = teamBoardMembers(files, "discord:111", nil)
+	if !strings.Contains(got, "**大豆包**　🔧 修 bug") || !live {
+		t.Errorf("busy in this channel should be live 🔧 (live=%t):\n%s", live, got)
 	}
 }
 
@@ -141,6 +183,22 @@ func TestTeamNoteWorkResetsOnFreshTurn(t *testing.T) {
 	e.teamNoteTurn(msg, &Session{})
 	if e.team.seen["discord:111"].worked {
 		t.Fatal("a fresh turn should start as not-yet-work")
+	}
+}
+
+// #597 G36: a timer turn (ws-handoff wake-up) shows its job label on 谁在干啥, not the prompt the
+// bridge sends the agent (v0.1.24 web check: 「✅ 做完：你是工作区频道里的主角色，从主频道接手…」).
+func TestTeamNoteTurnTimerUsesJobLabel(t *testing.T) {
+	e := newTestEngine()
+	e.team = &teamState{dir: t.TempDir(), name: "C酱", seen: map[string]*teamSession{}}
+	e.teamNoteTurn(&Message{SessionKey: "cloud_web:room-2", Content: "你是工作区频道里的主角色，从主频道接手一整块大活：写脚本。先读交接 /x.md",
+		boardLabel: "⏰ " + boardJobDesc("工作区接手：写脚本", "你是工作区频道里的主角色…", "")}, nil)
+	if got := e.team.seen["cloud_web:room-2"].task; got != "⏰ 工作区接手：写脚本" {
+		t.Fatalf("task = %q", got)
+	}
+	e.teamNoteTurn(&Message{SessionKey: "discord:111", Content: "  跑\n测试 "}, nil)
+	if got := e.team.seen["discord:111"].task; got != "跑 测试" {
+		t.Fatalf("user turn task = %q", got)
 	}
 }
 
@@ -305,14 +363,14 @@ type stubBoardEditFails struct {
 	tries   int
 }
 
-func (p *stubBoardEditFails) UpsertBoard(ctx context.Context, sessionKey, messageID, content string) (string, error) {
+func (p *stubBoardEditFails) UpsertBoard(ctx context.Context, sessionKey, messageID, content string, live bool) (string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if sessionKey == p.failFor {
 		p.tries++
 		return messageID, p.editErr
 	}
-	return p.stubBoardPlatform.UpsertBoard(ctx, sessionKey, messageID, content)
+	return p.stubBoardPlatform.UpsertBoard(ctx, sessionKey, messageID, content, live)
 }
 
 func (p *stubBoardEditFails) triesSoFar() int {
@@ -488,5 +546,37 @@ func TestTeamBoardGaveUpSurvivesRestart(t *testing.T) {
 	}
 	if saved["discord:111"].MessageID != "m1" || saved["discord:111"].Content != "old" {
 		t.Fatalf("state after retry = %s; want the old board kept", raw)
+	}
+}
+
+// PR #377 review: board.py's old pinned cards are deleted on takeover, so a channel has one task
+// board; a card that fails stays for the next try, the file goes once empty.
+func TestRetireBoardPyCards(t *testing.T) {
+	p := &stubBoardRemover{stubBoardPlatform: stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}, failFor: "m2"}
+	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	dir := t.TempDir()
+	path := filepath.Join(dir, boardPyCardsFile)
+	if err := os.WriteFile(path, []byte(`{"111":"m1","222":"m2"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if e.retireBoardPyCards(dir) {
+		t.Fatal("reported done with a card left")
+	}
+	raw, _ := os.ReadFile(path)
+	if string(raw) != `{"222":"m2"}` {
+		t.Fatalf("state = %s, want only the failed card", raw)
+	}
+	p.failFor = ""
+	if !e.retireBoardPyCards(dir) {
+		t.Fatal("not done after all removed")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("state file kept")
+	}
+	if strings.Join(p.removed, ",") != "m1,m2" {
+		t.Fatalf("removed = %v", p.removed)
+	}
+	if !e.retireBoardPyCards(dir) { // no file: nothing to do
+		t.Fatal("no file should be done")
 	}
 }

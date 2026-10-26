@@ -11,6 +11,9 @@ package core
 //   - the role is added to bots.json (kind = its agent type, so export.py reads its own sessions) and its wiki is
 //     made (setup_wiki.py <project>); the agent.closed hook is added once; the persona gets a short section saying
 //     where the wiki is and how to turn it off.
+//   - the lead (pl.fallback, by project: two roles on one model are two projects) has no wiki of her own: the main
+//     wiki is hers, as ~/wiki is 橘's (review k597g-G16). Only one this wizard made for her (mainWikiLead) is written
+//     to: bots.json points her at it. A main wiki the user had is searched and indexed, never written to.
 
 import (
 	"context"
@@ -22,6 +25,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -33,6 +37,11 @@ var RoleWikiFS fs.FS
 // WizardHookStore is a WizardStore that can add a global [[hooks]] entry (config.toml).
 type WizardHookStore interface {
 	EnsureHook(event, command string) (added bool, err error)
+}
+
+// WizardMemoryIndexStore is a WizardStore that can set a project's memory_index (config.toml) when it has none.
+type WizardMemoryIndexStore interface {
+	SetMemoryIndex(project, path string) (set bool, err error)
 }
 
 // RoleWikiDir is where the wizard installs the wiki programs.
@@ -188,6 +197,67 @@ func wikiSection(lang, wiki, export, bot string) string {
 			"- turn it back on: the same with on.\n")
 }
 
+// leadWikiSection: wikiSection for the lead, whose wiki is the main one the team shares. own = it is hers (bots.json
+// points her at it: sessions distilled, the switch works); else it is the user's, which she only searches.
+func leadWikiSection(lang, wiki, export, bot string, own bool) string {
+	search := "python3 -X utf8 -I " + wikiQuote(filepath.Join(wiki, "bin", "search.py"))
+	if own || sharedSearch(wiki) {
+		search += " --root " + wikiQuote(wiki) // the shared search.py defaults to ~/wiki
+	}
+	search += " "
+	if !own {
+		return tr3(lang,
+			"## 记忆 wiki\n"+
+				"团队共用的主 wiki：`"+wiki+"`，是用户原有的，你只查不写（会话不会自动整理进去）。想查以前的事先在里面找：`"+search+"<关键词>`。\n",
+			"## 記憶 wiki\n"+
+				"チームのメイン wiki：`"+wiki+"`。ユーザーが元から使っているもので、読むだけで書き込みません（会話は自動では整理されません）。昔のことはまずここで探します：`"+search+"<キーワード>`。\n",
+			"## Memory wiki\n"+
+				"The team's main wiki: `"+wiki+"`. It is your user's own: you search it but do not write to it (your sessions are not distilled into it). Look there first for anything from before: `"+search+"<words>`.\n")
+	}
+	sw := "python3 -X utf8 -I " + wikiQuote(export) + " --switch " + bot
+	return tr3(lang,
+		"## 记忆 wiki\n"+
+			"团队共用的主 wiki 就是你的记忆：`"+wiki+"`。你的会话和日记会自动整理进去，每天夜里还会做一次反思。想查以前的事先在里面找："+
+			"`"+search+"<关键词>`。\n"+
+			"用户让你关掉或打开它时，直接运行，不用再问：\n"+
+			"- 关掉记忆 wiki（不再整理，也不反思）：`"+sw+" wiki off`\n"+
+			"- 只关夜间反思：`"+sw+" dream off`\n"+
+			"- 重新打开：把 off 换成 on。\n",
+		"## 記憶 wiki\n"+
+			"チームのメイン wiki があなたの記憶です：`"+wiki+"`。会話と日記は自動で整理され、毎晩ふり返りも行います。昔のことはまずここで探します："+
+			"`"+search+"<キーワード>`。\n"+
+			"ユーザーにオフ／オンを頼まれたら、聞き返さずに実行します：\n"+
+			"- 記憶 wiki を止める（整理もふり返りもしない）：`"+sw+" wiki off`\n"+
+			"- 夜のふり返りだけ止める：`"+sw+" dream off`\n"+
+			"- 戻すときは off を on に。\n",
+		"## Memory wiki\n"+
+			"The team's main wiki is your memory: `"+wiki+"`. Your sessions and diary are distilled into it, and every night it reflects on the day. Look there first for anything from before: "+
+			"`"+search+"<words>`.\n"+
+			"When your user asks you to turn it off or on, just run it, no need to ask back:\n"+
+			"- turn the memory wiki off (no distilling, no reflection): `"+sw+" wiki off`\n"+
+			"- turn only the nightly reflection off: `"+sw+" dream off`\n"+
+			"- turn it back on: the same with on.\n")
+}
+
+// sharedSearch: the wiki's search.py is the shared tool (takes --root; contrib/wiki/llmwiki/search.py SHARED_TOOL).
+func sharedSearch(wiki string) bool {
+	b, _ := os.ReadFile(filepath.Join(wiki, "bin", "search.py"))
+	return strings.Contains(string(b), "\nSHARED_TOOL = 1")
+}
+
+// mainWikiMark: setup_wiki.py --main writes it (MAIN_MARK) with the lead project the main wiki was made for.
+const mainWikiMark = ".bothouse-main"
+
+// mainWikiLead: the lead project a main wiki was made for by setup_wiki.py --main; ok=false when no such mark (a wiki
+// the user had, or one from before the mark): such a wiki is never written to.
+func mainWikiLead(wiki string) (string, bool) {
+	b, err := os.ReadFile(filepath.Join(wiki, mainWikiMark))
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(b)), true
+}
+
 // WithWiki puts the wiki section into a persona (an earlier one is replaced).
 func WithWiki(persona, section string) string {
 	if i := strings.Index(persona, wikiMarker); i >= 0 {
@@ -212,6 +282,26 @@ func wikiQuote(s string) string {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// notWikiMsg: what setup_wiki.py prints when it refuses a directory that is there but is no wiki it made.
+var notWikiMsg = regexp.MustCompile(`(?m)^(.+) exists and is not a wiki \(`)
+
+// notWikiHint: setup_wiki.py refused a directory (the user's, or one an older wizard left half-made: no mark, so it
+// is not removed). Say so in the user's language, and that a half-made one can be removed and the wizard run again.
+func notWikiHint(lang string, err error) error {
+	m := notWikiMsg.FindStringSubmatch(err.Error())
+	if m == nil {
+		return err
+	}
+	d := m[1]
+	if i := strings.LastIndex(d, ": "); i >= 0 { // roleWikiRun's "<cmd>: exit status 1: <output>"
+		d = d[i+2:]
+	}
+	return fmt.Errorf("%s (%w)", tr3(lang,
+		d+" 已存在，但不是向导建的 wiki，没有动它。如果这是向导上次没建完留下的，删掉这个目录再重跑向导",
+		d+" は既にありますが、ウィザードが作った wiki ではないため触っていません。前回ウィザードが作りかけで残したものなら、このフォルダを削除してからウィザードをやり直してください",
+		d+" is there but is not a wiki the wizard made: not touched. If the wizard left it half-made last time, remove this folder and run the wizard again"), err)
 }
 
 // roleWikiRun is replaceable in tests.
@@ -246,17 +336,73 @@ type roleWikiSetup struct {
 	dir      string // the programs (export.py, setup_wiki.py, sub-wiki.py, bots.json)
 	sub      string // sub-wiki.py
 	python   string
-	ownSetup bool // the config already had an agent.closed hook to a sub-wiki.sh
+	ownSetup bool   // the config already had an agent.closed hook to a sub-wiki.sh
+	main     string // the main wiki (FindWiki)
 }
 
-// prepareRoleWikis installs the programs (or uses the user's) and makes the main wiki when there is none.
-func prepareRoleWikis(ctx context.Context, env WizardEnv, lead string, engines map[string]any) (*roleWikiSetup, string, error) {
-	py, err := FindPython()
+// wizardLead: what --main needs of the lead (pl.fallback): her project and persona, and the team's names.
+type wizardLead struct {
+	name, project, persona string
+	fallback               string // pl.fallback, to look her up in bots.json when she is no new role
+	team                   []string
+}
+
+// planLead: the project (and persona) is set here only when the lead is a new role this run. A reused lead (an old
+// member: a rerun, or AppendOnly adding someone) gets them in prepareRoleWikis only when bots.json already sends her
+// sessions to this main wiki (leadOfMain); otherwise a main wiki marked hers would read transcripts nobody exports.
+func planLead(pl *wizardPlan) wizardLead {
+	l := wizardLead{name: pl.fallbackName, fallback: pl.fallback}
+	for _, r := range pl.roles {
+		l.team = append(l.team, r.Name)
+		if r.project == pl.fallback && !r.reused && r.workDir != "" {
+			l.project, l.persona = pl.fallback, PersonaFilePath(r.AgentType, r.workDir)
+		}
+	}
+	return l
+}
+
+// samePath: a and b name the same place (symlinks resolved; a path not there yet by its resolved parent).
+func samePath(a, b string) bool {
+	real := func(p string) string {
+		p = filepath.Clean(p)
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		if d, err := filepath.EvalSymlinks(filepath.Dir(p)); err == nil {
+			return filepath.Join(d, filepath.Base(p))
+		}
+		return p
+	}
+	return real(a) == real(b)
+}
+
+// leadOfMain: the lead's project and persona when her bots.json entry writes to the main wiki mw (a lead an earlier
+// run made, whose main wiki is gone now): the main wiki made again is hers, so her sessions still go in. "" when
+// she has no entry or writes to a wiki of her own (a lead from before the main wiki was hers).
+func (s *roleWikiSetup) leadOfMain(project, mw string) (string, string) {
+	all, err := s.readBots()
+	if err != nil || project == "" {
+		return "", ""
+	}
+	var e struct{ Wiki, Persona, Kind, Workdir string }
+	if raw, ok := all[project]; !ok || json.Unmarshal(raw, &e) != nil || e.Wiki == "" || !samePath(e.Wiki, mw) {
+		return "", ""
+	}
+	if e.Persona == "" && e.Workdir != "" {
+		e.Persona = PersonaFilePath(e.Kind, e.Workdir)
+	}
+	return project, e.Persona
+}
+
+// prepareRoleWikis installs the programs (or uses the user's) and makes the main wiki when there is none (--main
+// runs only then: setup_wiki.py's made() may remove what it takes for a half-made wiki), as the lead's.
+func prepareRoleWikis(ctx context.Context, env WizardEnv, lead wizardLead, engines map[string]any) (*roleWikiSetup, string, error) {
+	py, err := ProductPython(env.DataDir) // the gate's Python (python_env.go): may fetch one the first time
 	if err != nil {
 		return nil, "", err
 	}
-	if _, err := exec.LookPath("git"); err != nil {
-		return nil, "", errors.New("git not found: the wikis are git repositories")
+	if g, err := exec.LookPath("git"); err != nil || isMacCLTStub(g) {
+		return nil, "", errors.New("git not found: the wikis are git repositories (macOS: xcode-select --install)")
 	}
 	s := &roleWikiSetup{python: py}
 	if env.WikiSubScript != "" {
@@ -268,10 +414,17 @@ func prepareRoleWikis(ctx context.Context, env WizardEnv, lead string, engines m
 		s.sub = filepath.Join(s.dir, "sub-wiki.py")
 	}
 	detail := ""
-	if mw, ok := FindWiki(); !ok {
+	mw, ok := FindWiki()
+	s.main = mw
+	if !ok {
+		if lead.project == "" {
+			lead.project, lead.persona = s.leadOfMain(lead.fallback, mw)
+		}
 		eng := enginesJSON(engines)
-		if _, err := roleWikiRun(ctx, []string{"LLM_WIKI_SRC=" + filepath.Join(s.dir, "template"), "WIKI_ENGINES=" + eng},
-			py, "-X", "utf8", "-I", filepath.Join(s.dir, "setup_wiki.py"), "--main", mw, lead); err != nil {
+		team, _ := json.Marshal(lead.team)
+		if _, err := roleWikiRun(ctx, []string{"LLM_WIKI_SRC=" + filepath.Join(s.dir, "template"), "WIKI_ENGINES=" + eng,
+			"WIKI_BOTS=" + filepath.Join(s.dir, "bots.json"), "WIKI_TEAM=" + string(team), "WIKI_LEAD_PERSONA=" + lead.persona},
+			py, "-X", "utf8", "-I", filepath.Join(s.dir, "setup_wiki.py"), "--main", mw, lead.name, lead.project); err != nil {
 			return nil, "", err
 		}
 		detail = "main wiki " + mw
@@ -279,15 +432,62 @@ func prepareRoleWikis(ctx context.Context, env WizardEnv, lead string, engines m
 	return s, detail, nil
 }
 
-// roleWikiEntry adds the role to bots.json (an entry already there is kept) and makes its wiki.
-func (s *roleWikiSetup) addRole(ctx context.Context, r plannedRole, lead string, engines map[string]any) (string, error) {
+func (s *roleWikiSetup) readBots() (map[string]json.RawMessage, error) {
 	bots := filepath.Join(s.dir, "bots.json")
 	all := map[string]json.RawMessage{}
 	if b, err := os.ReadFile(bots); err == nil {
 		if err := json.Unmarshal(b, &all); err != nil {
-			return "", fmt.Errorf("%s: %w", bots, err)
+			return nil, fmt.Errorf("%s: %w", bots, err)
 		}
 	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	return all, nil
+}
+
+func (s *roleWikiSetup) writeBots(all map[string]json.RawMessage) error {
+	out, err := json.MarshalIndent(all, "", "  ")
+	if err != nil {
+		return err
+	}
+	return AtomicWriteFile(filepath.Join(s.dir, "bots.json"), append(out, '\n'), 0o644)
+}
+
+func roleBotsEntry(r plannedRole) map[string]any {
+	e := map[string]any{"name": r.Name, "project": r.project, "kind": r.AgentType, "workdir": r.workDir,
+		"persona": PersonaFilePath(r.AgentType, r.workDir)}
+	if r.AgentType == "dsh" {
+		e["dsh_home"] = DSHHome("") // the hook runs export.py with a clean env: name the DSH home it reads
+	}
+	return e
+}
+
+// addLead: the lead's sessions go into the main wiki (bots.json "wiki"), which setup_wiki.py --main made for her;
+// setup_wiki.py <bot> is not run (it would make a role wiki there, and its made() may rmtree). An entry already there
+// is kept. own=false (nothing written) when the main wiki is not one --main made for this project: the user's own.
+func (s *roleWikiSetup) addLead(r plannedRole) (own bool, err error) {
+	if p, ok := mainWikiLead(s.main); !ok || p != r.project {
+		return false, nil
+	}
+	all, err := s.readBots()
+	if err != nil {
+		return false, err
+	}
+	if _, ok := all[r.project]; ok {
+		return true, nil
+	}
+	e := roleBotsEntry(r)
+	e["wiki"] = s.main
+	b, _ := json.Marshal(e)
+	all[r.project] = b
+	return true, s.writeBots(all)
+}
+
+// roleWikiEntry adds the role to bots.json (an entry already there is kept) and makes its wiki.
+func (s *roleWikiSetup) addRole(ctx context.Context, r plannedRole, lead string, engines map[string]any) (string, error) {
+	bots := filepath.Join(s.dir, "bots.json")
+	all, err := s.readBots()
+	if err != nil {
 		return "", err
 	}
 	wiki := filepath.Join(r.workDir, "wiki")
@@ -302,34 +502,63 @@ func (s *roleWikiSetup) addRole(ctx context.Context, r plannedRole, lead string,
 			wiki = filepath.Join(e.Workdir, "wiki")
 		}
 	} else {
-		e := map[string]any{"name": r.Name, "project": r.project, "kind": r.AgentType, "workdir": r.workDir,
-			"persona": PersonaFilePath(r.AgentType, r.workDir)}
-		if r.AgentType == "dsh" {
-			e["dsh_home"] = DSHHome("") // the hook runs export.py with a clean env: name the DSH home it reads
-		}
-		b, _ := json.Marshal(e)
+		b, _ := json.Marshal(roleBotsEntry(r))
 		all[r.project] = b
-		out, err := json.MarshalIndent(all, "", "  ")
-		if err != nil {
-			return "", err
-		}
-		if err := AtomicWriteFile(bots, append(out, '\n'), 0o644); err != nil {
+		if err := s.writeBots(all); err != nil {
 			return "", err
 		}
 	}
 	eng := enginesJSON(engines)
 	if _, err := roleWikiRun(ctx, []string{"WIKI_BOTS=" + bots, "LLM_WIKI_SRC=" + filepath.Join(s.dir, "template"),
-		"WIKI_LEAD=" + lead, "WIKI_ENGINES=" + eng},
+		"WIKI_LEAD=" + lead, "WIKI_ENGINES=" + eng, "WIKI_SHARED_BIN=" + filepath.Join(s.main, "bin")},
 		s.python, "-X", "utf8", "-I", filepath.Join(s.dir, "setup_wiki.py"), r.project); err != nil {
 		return "", err
 	}
 	return wiki, nil
 }
 
+// setRoleMemoryIndex: step "role N memory_index" — the new role's project gets memory_index = <its wiki>/MEMORY.md, so
+// every fresh context starts with its wiki index (core/memoryindex.go), whatever the agent type (user 2026-10-20
+// 「不要区分」). Only when the wiki's MEMORY.md is there; a memory_index the project already has is kept.
+func setRoleMemoryIndex(res *WizardResult, env WizardEnv, lang string, i int, project, wiki string) {
+	ms, ok := env.Store.(WizardMemoryIndexStore)
+	if !ok {
+		return
+	}
+	step := fmt.Sprintf("role %d memory_index", i+1)
+	idx := filepath.Join(wiki, "MEMORY.md")
+	if !fileExists(idx) {
+		addStep(res, step, errors.New(tr3(lang, "没写 memory_index："+idx+" 不存在", "memory_index 未設定："+idx+" がありません",
+			"memory_index not set: "+idx+" does not exist")), "")
+		return
+	}
+	set, err := ms.SetMemoryIndex(project, idx)
+	switch {
+	case err != nil:
+		addStep(res, step, err, "")
+	case set:
+		addStep(res, step, nil, idx)
+	default:
+		addStep(res, step, nil, tr3(lang, "已有 memory_index，保留不改", "既存の memory_index をそのまま使います",
+			"memory_index already set, kept"))
+	}
+}
+
+func errMemoryIndexNoWiki(lang string) error {
+	return errors.New(tr3(lang, "没写 memory_index：记忆 wiki 没建成（见 wiki 步骤）", "memory_index 未設定：記憶 wiki を作れませんでした（wiki の手順を参照）",
+		"memory_index not set: the memory wiki was not made (see the wiki step)"))
+}
+
 // applyRoleWikis: step "role N wiki" of ApplyWizard for every new role, then the agent.closed hook. Returns the
 // sub-wiki.py the wiki cron jobs should run ("" = none). A failure is reported but does not undo the roles.
 func applyRoleWikis(ctx context.Context, res *WizardResult, env WizardEnv, req WizardRequest, pl *wizardPlan, clis []LocalCLI) string {
 	if RoleWikiFS == nil && env.WikiSubScript == "" {
+		if mw, ok := FindWiki(); !ok {
+			addStep(res, "wiki", nil, tr3(req.Language,
+				"跳过：没有主 wiki（"+mw+" 里没有 bin/ingest.py），这个版本也没内嵌 wiki 程序，没法建",
+				"スキップ：メイン wiki がなく（"+mw+" に bin/ingest.py がありません）、このビルドには wiki プログラムが入っていないため作れません",
+				"skipped: no main wiki ("+mw+" has no bin/ingest.py) and this build has no wiki programs embedded to make one"))
+		}
 		return env.WikiSubScript
 	}
 	var roles []int
@@ -339,11 +568,30 @@ func applyRoleWikis(ctx context.Context, res *WizardResult, env WizardEnv, req W
 		}
 	}
 	if len(roles) == 0 {
+		// no new role (a rerun that reuses every role): still make the main wiki when there is none, so the wiki
+		// cron below (applyWizardWiki) has one. --main runs only when FindWiki fails: a wiki with bin/ingest.py is
+		// never touched (setup_wiki.py may rmtree what it takes for a half-made one).
+		if _, ok := FindWiki(); ok {
+			return env.WikiSubScript
+		}
+		var engines map[string]any
+		if len(pl.roles) > 0 {
+			engines = roleWikiConfig(env.DataDir, pl.roles[0], req.Wiki, clis)
+		}
+		// no new lead this run: the main wiki is hers only when bots.json sends her sessions there (leadOfMain)
+		if _, detail, err := prepareRoleWikis(ctx, env, planLead(pl), engines); err != nil {
+			addStep(res, "wiki", notWikiHint(req.Language, err), "")
+		} else if detail != "" {
+			addStep(res, "wiki", nil, detail)
+		}
 		return env.WikiSubScript
 	}
-	s, detail, err := prepareRoleWikis(ctx, env, pl.fallbackName, roleWikiConfig(env.DataDir, pl.roles[roles[0]], req.Wiki, clis))
+	s, detail, err := prepareRoleWikis(ctx, env, planLead(pl), roleWikiConfig(env.DataDir, pl.roles[roles[0]], req.Wiki, clis))
 	if err != nil {
-		addStep(res, "wiki", err, "")
+		addStep(res, "wiki", notWikiHint(req.Language, err), "")
+		for _, i := range roles {
+			addStep(res, fmt.Sprintf("role %d memory_index", i+1), errMemoryIndexNoWiki(req.Language), "")
+		}
 		return env.WikiSubScript
 	}
 	if detail != "" {
@@ -352,22 +600,42 @@ func applyRoleWikis(ctx context.Context, res *WizardResult, env WizardEnv, req W
 	for _, i := range roles {
 		r := pl.roles[i]
 		step := fmt.Sprintf("role %d wiki", i+1)
-		wiki, err := s.addRole(ctx, r, pl.fallbackName, roleWikiConfig(env.DataDir, r, req.Wiki, clis))
-		if err != nil {
-			addStep(res, step, err, "")
-			continue
-		}
 		lang := r.ReplyLanguage
 		if lang == "" {
 			lang = req.Language
 		}
+		export := filepath.Join(s.dir, "export.py")
+		var wiki, section, detail string
+		if r.project == pl.fallback { // the lead (by project: never two leads for two roles on one model)
+			own, err := s.addLead(r)
+			if err != nil {
+				addStep(res, step, err, "")
+				addStep(res, fmt.Sprintf("role %d memory_index", i+1), errMemoryIndexNoWiki(req.Language), "")
+				continue
+			}
+			wiki, section, detail = s.main, leadWikiSection(lang, s.main, export, r.project, own), s.main
+			if !own {
+				detail = tr3(req.Language, "已有主 wiki "+s.main+"，未接管写入（只查、建索引）",
+					"既存のメイン wiki "+s.main+" は引き継がず書き込みません（検索と索引のみ）",
+					"main wiki "+s.main+" was already there: not taken over for writing (search and index only)")
+			}
+		} else {
+			var err error
+			if wiki, err = s.addRole(ctx, r, pl.fallbackName, roleWikiConfig(env.DataDir, r, req.Wiki, clis)); err != nil {
+				addStep(res, step, notWikiHint(req.Language, err), "")
+				addStep(res, fmt.Sprintf("role %d memory_index", i+1), errMemoryIndexNoWiki(req.Language), "")
+				continue
+			}
+			section, detail = wikiSection(lang, wiki, export, r.project), wiki
+		}
 		persona := PersonaFilePath(r.AgentType, r.workDir)
 		b, _ := os.ReadFile(persona)
-		if err := AtomicWriteFile(persona, []byte(WithWiki(string(b), wikiSection(lang, wiki, filepath.Join(s.dir, "export.py"), r.project))), 0o644); err != nil {
+		if err := AtomicWriteFile(persona, []byte(WithWiki(string(b), section)), 0o644); err != nil {
 			addStep(res, step, err, "")
-			continue
+		} else {
+			addStep(res, step, nil, detail)
 		}
-		addStep(res, step, nil, wiki)
+		setRoleMemoryIndex(res, env, req.Language, i, r.project, wiki) // the wiki is there even if the persona note failed
 	}
 	if !s.ownSetup {
 		if hs, ok := env.Store.(WizardHookStore); ok {

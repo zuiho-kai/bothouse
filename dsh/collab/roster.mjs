@@ -2,7 +2,7 @@
 // in the UI), UI members are created, edited and removed here. Names must be
 // unique across every channel member (DSH members and cc-connect bots alike)
 // because @-mentions are matched by name.
-import { existsSync, readFileSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { CollabError } from './store.mjs';
 import { checkAvatar } from './avatars.mjs';
 import { PERMISSION_PRESETS } from './cli-member.mjs';
@@ -25,6 +25,7 @@ export function rowToMember(row) {
     ...(row.cli && row.permission_preset ? { permissionPreset: row.permission_preset } : {}),
     persona: row.persona ?? '',
     ...(row.avatar ? { avatar: row.avatar } : {}),
+    ...(row.rooms && row.rooms !== '[]' ? { rooms: JSON.parse(row.rooms) } : {}),
     source: row.source,
   };
 }
@@ -56,8 +57,9 @@ export class Roster {
 
   /**
    * Add the roles the setup wizard wrote (bridge core/setup_dsh_configure.go: {"members":[{name,cli?,persona?}]})
-   * as UI members, once: names already in the channel are skipped, then the file becomes *.imported.json.
-   * Returns the names added.
+   * as UI members, once: names already in the channel are skipped, then the file becomes *.imported.json with
+   * each role's member id (the new one, or the one already holding the name), so bothouse names the role's wiki
+   * after the id the member really has (bridge core/setup_dsh_wiki.go). Returns the names added.
    */
   async importWizard(path, logger) {
     if (!existsSync(path)) return [];
@@ -69,18 +71,26 @@ export class Roster {
       return [];
     }
     const added = [];
+    const imported = [];
     for (const m of Array.isArray(members) ? members : []) {
       const name = String(m?.name ?? '').trim();
-      if (this.hub.memberList().some(x => x.name.toLowerCase() === name.toLowerCase())) continue;
+      const same = this.hub.memberList().find(x => x.name.toLowerCase() === name.toLowerCase());
+      if (same !== undefined) {
+        imported.push({ ...m, id: same.id });
+        continue;
+      }
       try {
         const avatar = m?.avatar && ['orange', 'whale', 'dragon', 'rainbow', 'lanxi'].includes(m.avatar) ? m.avatar : undefined;
-        await this.create({ name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(avatar ? { avatar } : {}) });
+        const member = await this.create({ name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(avatar ? { avatar } : {}) });
+        imported.push({ ...m, id: member.id });
         added.push(name);
       } catch (error) {
+        imported.push(m);
         logger?.warn?.('conest-collab: wizard member %s not added: %s', name, error?.message ?? error);
       }
     }
-    renameSync(path, path.replace(/\.json$/, '') + '.imported.json');
+    writeFileSync(path.replace(/\.json$/, '') + '.imported.json', JSON.stringify({ members: imported }, null, 2), { mode: 0o600 });
+    unlinkSync(path);
     return added;
   }
 
@@ -111,7 +121,7 @@ export class Roster {
     const existing = this.store.member(id);
     if (existing === undefined || existing.removed) throw new CollabError('member-missing', `member ${id} does not exist`);
     if (existing.source !== 'ui') throw new CollabError('read-only', `member ${id} comes from the config file and cannot be edited here`);
-    const m = await this.validate(input, id);
+    const m = await this.validate({ ...input, rooms: input?.rooms === undefined ? JSON.parse(existing.rooms ?? '[]') : input.rooms }, id);
     if (input?.nameCustomized === undefined && existing.name_customized != null) m.nameCustomized = Boolean(existing.name_customized);
     // An edit that leaves out the approval tier keeps the stored one instead of falling back to the default.
     if (m.cli !== undefined && input?.permissionPreset === undefined && existing.cli && existing.permission_preset) {
@@ -145,7 +155,11 @@ export class Roster {
     if (!name || name.length > MAX_NAME || /[@<>\r\n\t]/.test(name) || (/\s/.test(name) && !/^Claude Code(?:-\d+)?$/.test(name))) {
       throw new CollabError('invalid', `name must be 1-${MAX_NAME} characters without spaces, @ or <>`);
     }
-    const clash = this.hub.memberList().find(m => m.id !== selfId && (m.name.toLowerCase() === name.toLowerCase() || m.id.toLowerCase() === name.toLowerCase()));
+    const rooms = input?.rooms ?? [];
+    if (!Array.isArray(rooms) || rooms.some(id => !Number.isSafeInteger(id) || this.store.room(id)?.kind !== 'chat')) {
+      throw new CollabError('invalid', 'rooms must contain existing chat channel ids');
+    }
+    const clash = this.hub.memberList().find(m => m.id !== selfId && (!rooms.length || !m.rooms?.length || rooms.some(id => m.rooms.includes(id))) && (m.name.toLowerCase() === name.toLowerCase() || m.id.toLowerCase() === name.toLowerCase()));
     if (clash !== undefined) throw new CollabError('conflict', `name ${name} is already used by ${clash.name}`);
     const persona = String(input?.persona ?? '');
     if (persona.length > MAX_PERSONA) throw new CollabError('invalid', `persona exceeds ${MAX_PERSONA} characters`);
@@ -158,7 +172,7 @@ export class Roster {
       // Tool approval tier: one of DSH's permission presets; absent = DSH's default (cli-member.mjs).
       const preset = input.permissionPreset == null || input.permissionPreset === '' ? undefined : String(input.permissionPreset);
       if (preset !== undefined && !PERMISSION_PRESETS.includes(preset)) throw new CollabError('invalid', `permissionPreset must be one of ${PERMISSION_PRESETS.join(', ')}`);
-      return { name, persona, avatar, nameCustomized, cli, ...(preset === undefined ? {} : { permissionPreset: preset }) };
+      return { name, persona, avatar, nameCustomized, rooms, cli, ...(preset === undefined ? {} : { permissionPreset: preset }) };
     }
     let model;
     if (input?.model != null) {
@@ -174,7 +188,7 @@ export class Roster {
       }
       model = { provider, model: id };
     }
-    return { name, persona, avatar, nameCustomized, ...(model === undefined ? {} : { model }) };
+    return { name, persona, avatar, nameCustomized, rooms, ...(model === undefined ? {} : { model }) };
   }
 
   /** A stable, unused member id derived from the name (ASCII) or a short random suffix. */

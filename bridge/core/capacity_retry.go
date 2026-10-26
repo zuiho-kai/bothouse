@@ -212,6 +212,7 @@ func queuedToMessage(q queuedMessage) Message {
 		ModeOverride: q.modeOverride,
 		// maomao fork: a queued cron/timer turn stays one through a capacity re-delivery.
 		scheduledFrom:       q.scheduledFrom,
+		turnTrigger:         q.turnTrigger,
 		scheduledBackfilled: q.scheduledBackfilled,
 		boardLabel:          q.boardDesc, // maomao fork: keeps the board text through a re-delivery
 	}

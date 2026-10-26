@@ -47,9 +47,14 @@
    # command = "& python -X utf8 -I '<本目录>\\sub-wiki.py' hook"           # Windows（PowerShell）
    ```
 
-4. 定时：向导（网页或 `cc-connect setup apply`）发现 `~/wiki/bin/ingest.py`（或 `$WIKI_DIR`）时已自动加好下面三条
-   静音任务（挂在主角色和默认频道上，重跑不会重复），三项模型也在向导里选。手动加法如下
-   （`--exec` 的输出默认会发到该会话，`--mute` 什么都不发）：
+4. 定时：向导（网页或 `cc-connect setup apply`）只在主 wiki（`~/wiki` 或 `$WIKI_DIR`）是向导自己建的、
+   里面有 `.bothouse-main` 标记时，才自动加好下面三条静音任务（跑 `ingest.py` 和 sub 角色的整理），
+   向导里选的三项模型也只写进这本 wiki 的 `config.json`。任务挂在主角色上：Discord / 飞书挂默认频道，
+   cloud_web 没有固定房间，挂在 `cloud_web:wiki` 这个会话上（静音任务不发消息，所以不需要真房间）。
+   重跑不会重复；同名任务已经有了就不动。
+   主 wiki 是你自己原有的（没有 `.bothouse-main`）时，向导只查不写：不写它的 `config.json`，不挂 `ingest.py`；
+   有 sub 角色 wiki 时只挂 sub 角色那部分（`sub-wiki.py`），没有就一条都不挂。这时要整理你自己的 wiki，
+   按下面的命令手动加（`--exec` 的输出默认会发到该会话，`--mute` 什么都不发）：
 
    ```sh
    S="--project <主角色项目> --session-key <会话 key> --mute"

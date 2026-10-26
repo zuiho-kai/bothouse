@@ -52,6 +52,9 @@ func TestTeamSummary(t *testing.T) {
 	if strings.Contains(got, "鲸鱼娘") {
 		t.Errorf("stale file should be ignored:\n%s", got)
 	}
+	if strings.Contains(got, teamElsewhereNote) {
+		t.Errorf("work in this channel or finished work is not marked as elsewhere:\n%s", got)
+	}
 	if strings.Count(got, "\n") != 2 {
 		t.Errorf("own file should be skipped:\n%s", got)
 	}
@@ -59,6 +62,37 @@ func TestTeamSummary(t *testing.T) {
 	e.team.inject = false
 	if got, _ := e.teamSummary("discord:111"); got != "" {
 		t.Error("inject off should give no summary")
+	}
+}
+
+// Busy only counts in the channel the work goes to: a teammate busy in another channel or a DM
+// is still listed, marked as not blocking work here.
+func TestTeamSummaryBusyElsewhereDoesNotBlock(t *testing.T) {
+	dir := t.TempDir()
+	e := newTestEngine()
+	e.name = "maomao"
+	e.team = &teamState{dir: dir, name: "橘", inject: true, seen: map[string]*teamSession{}}
+	now := time.Now()
+	writeTeamFile(t, dir, teamFile{Project: "longniang", Name: "龙娘", Updated: now, Sessions: []teamEntry{
+		{Key: "discord:222", Chat: "外出", Task: "外出巡逻", Busy: true, Since: now.Add(-5 * time.Minute)},
+		{Key: "discord:333", Task: "定时任务", Busy: true, Since: now.Add(-4 * time.Minute)},
+	}})
+	writeTeamFile(t, dir, teamFile{Project: "jingyu", Name: "鲸鱼娘", Updated: now, Sessions: []teamEntry{
+		{Key: "discord:111", Chat: "general", Task: "润色", Busy: true, Since: now.Add(-3 * time.Minute)},
+	}})
+
+	got, _ := e.teamSummary("discord:111:727")
+	for _, want := range []string{
+		"龙娘：在#外出忙了 5 分钟 「外出巡逻」" + teamElsewhereNote,
+		"龙娘：在私聊/别处忙了 4 分钟 「定时任务」" + teamElsewhereNote,
+		"鲸鱼娘：在本频道忙了 3 分钟 「润色」",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("summary missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "「润色」"+teamElsewhereNote) {
+		t.Errorf("busy in this channel must still read as busy:\n%s", got)
 	}
 }
 

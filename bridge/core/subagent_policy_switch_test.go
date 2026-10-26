@@ -44,3 +44,12 @@ func TestSubagentPolicySwitch_DefaultOnAndToggle(t *testing.T) {
 		t.Fatalf("policy back on: got %q", got)
 	}
 }
+
+// #597 G27: the per-turn policy said "do the task yourself … no bot handoffs", so a lead never ran the
+// team rules' ws-handoff for a big task. The policy now names ws-handoff as allowed routing.
+func TestSubagentPolicy_AllowsTeamWorkspaceHandoff(t *testing.T) {
+	got := withSubagentPolicy("hi", "human", false)
+	if !strings.Contains(got, "`ws-handoff`") || !strings.Contains(got, "not a subagent") {
+		t.Fatalf("policy does not let the lead use ws-handoff: %q", got)
+	}
+}

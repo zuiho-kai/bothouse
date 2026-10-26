@@ -18,12 +18,12 @@
   board next <编号> <几点> | --restore <JSON>  # 只改「下次看」（later 专用，要 BOARD_LATER=1）；打印改前记录和事情
   board done <编号> <返工次数> [原因]      # 结束：移出任务板，记进 board-done.jsonl；返工次数必填，大于 0 时原因必填
   board rework [天数]                    # 最近 14 天的返工次数和原因
-  board pause <编号> [原因]               # 暂停：留在板上、卡片单列「暂停」块，不算做完、不进 board-done.jsonl；
+  board pause <编号> [原因]               # 暂停：留在板上、团队板单列「暂停」块，不算做完、不进 board-done.jsonl；
                                          #   条目在工作区里时同时 <桥> workspace park：那里没别的活就放回池子、清会话
                                          #   （恢复后重新 ws-handoff，先复用空着的工作区，不保证回原号）
   board resume <编号>                     # 恢复：回到「在做」
-  board link <编号> <卡片链接>             # 给这件事挂一张公开任务卡（Discord 消息链接），卡片那行末尾出「[卡](链接)」
-  board refresh                          # 只重画所有已有的置顶卡（让「已过」到点就出现，可由定时调用）
+  board link <编号> <卡片链接>             # 给这件事挂一张公开任务卡（Discord 消息链接），board 列表那行末尾出「卡 链接」
+  board refresh                          # 把一小时没进展的工作区条目转暂停（停滞检查定时调用）
   add 拒绝纯回看条目：事情以「#编号」开头指向板上另一条，或状态以「等着」开头且没有 PR 号/路径；
     改用完成通知，或在原条目上 board update / later <编号>（later 在原条目上记「下次看」，不新建回看条目）。
   --next / board next：下次几点回来看这件事（如 14:30），显示在板上，让用户知道后面还会不会处理。
@@ -31,16 +31,12 @@
     板上写了「下次看」却没挂定时，就没人兑现（2026-10-23 PR #81 审查）。
 
 频道卡片（用户 2026-10-23「我这根本感知不到你后面还可以去处理……也没看到有任何sub表」）：
-  每次 add/update/done/pause/resume/link 后，在条目所在频道把任务板（在做 + 暂停 + 今天做完）编辑进同一条置顶消息（不刷屏）。
-  「下次看」到点后，桥里对应的定时（later 挂的，描述 = 事情）也不在了，就标「已过」：说明到点没人回来看。
+  本脚本不再自己发置顶卡、不读平台 token（#597 K9）：桥的原生团队板（core/team_task_board.go）读同一个
+  <BOARD_DIR>/board.jsonl，在每个条目所在频道（add 时记的 sk；工作区交接的条目也上交活的聊天频道 chat）的团队板里
+  出一节「任务板」（在做按本频道 + 名下各工作区分块、暂停、今天做完；「下次看」到点且定时已不在标「已过」；没记频道的老条目按 ch 归频道，都没有就出在主聊天频道），四平台都走桥的 BoardPoster。要出板，BOARD_DIR 和 team_status_dir 须是同一个目录。
   done 之后若设了 BOARD_PR_REPO（owner/name），用 gh 列出自己在该仓库还开着的 PR 作提醒；不设、gh 不在或失败都静默跳过。
-  工作区归属来自桥的注册表（<桥> workspace list --session-key discord:<频道> --json）：聊天频道的卡按「本频道 + 名下各工作区」
-  分块，工作区里的条目变了也改它所属聊天频道的卡；问不到桥就只列本频道的条目。
-  条目的频道 = 加它时的 CC_SESSION_KEY；旧条目没记频道的，被 update 时记成当时的频道，没被碰过的在每张卡上都列。
-  Discord token：环境变量 DISCORD_BOT_TOKEN，否则 <GATE_SETUP_DIR>/secrets.env 里的同名变量；读不到就跳过卡片。
-  消息 id 存 <BOARD_DIR>/board-cards.state（不叫 .json，理由同上）；消息被删就重发并置顶。失败只打警告，不影响板子本身。
 """
-import fcntl, json, os, re, shutil, subprocess, sys, time, urllib.error, urllib.request
+import fcntl, json, os, re, shutil, subprocess, sys, time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -165,6 +161,12 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None):
     return nid
 
 
+def unadd(nid):
+    """撤掉刚 add 的条目（ws-handoff 叫醒失败时用）：不进 board-done，不算返工。"""
+    with _locked():
+        _write([i for i in _read() if i.get("id") != nid])
+
+
 # 纯回看条目：见文件头「add 拒绝纯回看条目」
 def _lookback_reason(what, where, status):
     m = re.match(r"\s*#(\d+)", what)
@@ -249,7 +251,7 @@ def link(nid, url):
     return True
 
 
-# 暂停：条目留在 board.jsonl（不写 board-done.jsonl，不算完成），带 paused（暂停时刻）和 pause_why；卡片上单列「暂停」块。
+# 暂停：条目留在 board.jsonl（不写 board-done.jsonl，不算完成），带 paused（暂停时刻）和 pause_why；团队板上单列「暂停」块。
 def pause(nid, why=None):
     with _locked():
         cur = _read()
@@ -420,7 +422,7 @@ def done(nid, rework=None, why=None):
             return False
         _write([i for i in cur if i["id"] != nid])
         with open(_path("board-done.jsonl"), "a") as f:
-            rec = {**hit, "done_at": _now()}
+            rec = {**hit, "status": "已完成", "done_at": _now()}  # #597 N3：结束记录不带着原来的「进行中」
             if rework is not None:  # 不填就不写这两项，汇总时算「未填」
                 rec["rework"] = rework
                 if why:
@@ -463,244 +465,11 @@ def rework_report(days=REWORK_DAYS):
     return "\n".join(out)
 
 
-# ---- 频道卡片 ----
-API = "https://discord.com/api/v10"
-LIMIT = 2000  # Discord 单条消息内容上限 2000 字符（API 文档 Create Message: content up to 2000 characters）
-
-
-def _token():  # 同 ../lead/_team.py：环境变量或 secrets.env，不落盘不打印
-    tok = os.environ.get("DISCORD_BOT_TOKEN")
-    if tok:
-        return tok
-    env = SETUP / "secrets.env"
-    if not env.is_file():
-        return ""
-    return subprocess.run(["/bin/sh", "-c", 'set -a; . "$1"; printf %s "$DISCORD_BOT_TOKEN"', "sh", str(env)],
-                          capture_output=True, text=True).stdout.strip()
-
-
-def api(method, path, body=None):
-    tok = _token()
-    if not tok:
-        raise RuntimeError("读不到 DISCORD_BOT_TOKEN")
-    req = urllib.request.Request(API + path, method=method,
-                                 data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Authorization": f"Bot {tok}",
-                                          "User-Agent": "DiscordBot (bothouse, 1)",
-                                          "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=20) as r:
-        raw = r.read()
-    return json.loads(raw) if raw else {}
-
-
-# 「今天做完」只列最新几件，其余写「…另 N 件」：一天做完上百件会把 2000 字的卡撑爆，在做的要优先放得下。
-DONE_PER_BLOCK = 3
-TIMER_TIMEOUT = 5  # 秒：本机 socket 调用，正常 1 秒内；超时就当不知道定时在不在，「下次看」照原样显示
-_AUTO = object()
-_TIMER_LINE = re.compile(r"^\s*\S+\s+[0-9a-f]+\s+(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?(Z|[+-]\d\d:\d\d)?\s+(.*?)\s*$")
-
-
 def _cc_bin():  # 同 ../lead/later：CC_BIN，否则 PATH 里的 bothouse / cc-connect
     return os.environ.get("CC_BIN") or shutil.which("bothouse") or shutil.which("cc-connect")
 
 
-def _timers():
-    """桥里还没到点的定时 [(epoch, 描述)]（cc-connect timer list）；拿不到返回 None。
-    later 挂定时用 --desc "<事情>"，和任务板条目的 what 一样，靠它对上。"""
-    cc = _cc_bin()
-    if not cc:
-        return None
-    try:
-        p = subprocess.run([cc, "timer", "list"], capture_output=True, text=True, timeout=TIMER_TIMEOUT)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    out = p.stdout or ""
-    if p.returncode != 0:
-        return None
-    if out.strip().startswith("No pending timers"):
-        return []
-    if not out.lstrip().startswith("Pending timers"):
-        return None
-    from datetime import datetime
-    res = []
-    for ln in out.splitlines():
-        m = _TIMER_LINE.match(ln)
-        if m:
-            tz = m.group(2) or ""
-            try:
-                ts = datetime.fromisoformat(m.group(1) + ("+00:00" if tz == "Z" else tz)).timestamp()
-            except ValueError:
-                continue
-            res.append((ts, m.group(3)))
-    return res
-
-
-def _next_live(i, timers, now=None):
-    """「下次看」还作不作数：True 还没到点（或定时还挂着），False 已过（到点了、定时也不在了），None 不知道（照原样显示）。
-    later 先记板再挂定时，刚记上的那一下定时还查不到，所以先看时间（next_ts，记板时算好）。"""
-    now = time.time() if now is None else now
-    ts = i.get("next_ts")
-    if ts and ts > now - NEXT_GRACE:
-        return True
-    if timers is None:  # 问不到桥（挂了、超时、在重启）：定时可能还等着桥起来再发
-        return None
-    try:
-        h, m = (int(x) for x in i["next"].split(":"))
-    except (KeyError, AttributeError, ValueError):
-        return None
-    def gap(t):
-        lt = time.localtime(t)
-        d = abs(lt.tm_hour * 60 + lt.tm_min - h * 60 - m) % 1440
-        return min(d, 1440 - d) * 60
-    return any(d == i.get("what") and gap(t) <= NEXT_GRACE for t, d in timers)
-
-
-WS_TIMEOUT = 5  # 秒：问桥工作区注册表的上限，同 TIMER_TIMEOUT 的用意（桥卡住时不拖住 board 命令）
-
-
-def _ws_reg(ch):
-    """产品的工作区注册表（<桥> workspace list --session-key discord:<ch> --json，core/team_workspace_api.go）：
-    返回 (聊天频道 id, [(工作区名, 工作区频道 id)])；ch 是工作区时返回它所属的聊天频道。拿不到（没桥、团队工作区关着、
-    不是团队频道）返回 None，调用方退回只按条目频道过滤。"""
-    cc = _cc_bin()
-    if not cc or not ch:
-        return None
-    try:
-        p = subprocess.run([cc, "workspace", "list", "--session-key", f"discord:{ch}", "--json"],
-                           capture_output=True, text=True, timeout=WS_TIMEOUT)
-        r = json.loads(p.stdout) if p.returncode == 0 else None
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return None
-    if not isinstance(r, dict):
-        return None
-    parent = str(r.get("parent") or "").split(":")
-    pid = parent[1] if len(parent) > 1 else parent[0]
-    if not pid:
-        return None
-    ws = [(str(w.get("name") or w.get("id")), str(w["id"])) for w in r.get("workspaces") or []
-          if isinstance(w, dict) and w.get("id") and str(w["id"]) != pid]
-    return pid, ws
-
-
-def card_text(its, done=(), timers=_AUTO, blocks=None):
-    """在做 / 暂停 / 今天做完 三块。整卡保证 <= LIMIT：先少列做完的，再截短状态；在做的一件都不丢。
-    blocks=[(块名, 频道 id), ...]：聊天频道的卡按「本频道 + 名下各工作区」分块列在做的事（第一块是本频道，
-    没记频道的旧条目也算它）；今天做完的不分块，工作区的条目前面标工作区名。None 时不分块。"""
-    if timers is _AUTO:
-        timers = _timers() if any(i.get("next") for i in its) else None
-    live = {i.get("id"): _next_live(i, timers) for i in its if i.get("next")}
-    names = {cid: name for name, cid in (blocks or [])[1:]}
-    def row(i, cap):
-        st = i.get("status") or "-"
-        if cap is not None and len(st) > cap:
-            st = st[:cap] + "…"
-        nxt = ""
-        if i.get("paused"):  # 暂停的不显示「下次看」，改写暂停时刻和原因
-            why = i.get("pause_why") or ""
-            nxt = f"｜{i['paused']} 暂停{'：' + why if why else ''}"
-        elif i.get("next"):
-            nxt = f"｜下次看 {i['next']}" + ("（已过）" if live.get(i.get("id")) is False else "")
-        card = f" [卡]({i['card']})" if i.get("card") else ""  # 链接整段追加，不会被截在中间
-        return f"#{i['id']} {i['what']}｜{i.get('who') or '-'}｜{st}｜{i.get('at', '')}{nxt}{card}"
-    seen = {}  # 同一件事分几次上板（如等 CI 回来看了几趟）只列一行；最近做完的排前面
-    for k, i in enumerate(done):
-        ws = names.get(i.get("ch"))
-        key = f"- {ws + '·' if ws else ''}{i.get('who') or '-'}：{i.get('what')}"
-        n, _ = seen.get(key, (0, 0))
-        seen[key] = (n + 1, k)
-    done_rows = [key + (f"（{n} 趟）" if n > 1 else "") for key, (n, _) in sorted(seen.items(), key=lambda kv: -kv[1][1])]
-    def tail(n):
-        if not done_rows:
-            return []
-        if n is None:  # 最后一招：做完的只写件数
-            return ["", f"**今天做完** {len(done_rows)} 件"]
-        more = [f"- …另 {len(done_rows) - n} 件"] if len(done_rows) > n else []
-        return ["", "**今天做完**"] + done_rows[:n] + more
-    head = f"**任务板**（{_now()} 更新；板子一变这条就改）"
-    longest = max([len(i.get("status") or "") for i in its] + [0])
-    caps = [None] + list(range(longest - 10, -1, -10)) + [0]
-    stages = [(n, None) for n in range(DONE_PER_BLOCK, -1, -1)] + [(None, c) for c in caps]
-    for n, cap in stages:
-        live_its = [i for i in its if not i.get("paused")]
-        if blocks:
-            own = blocks[0][1]
-            body = []
-            for k, (name, cid) in enumerate(blocks):
-                rs = [row(i, cap) for i in live_its if i.get("ch") == cid or (k == 0 and i.get("ch") in (None, own))]
-                if k == 0:
-                    body += rs
-                elif rs:
-                    body += ["", f"**{name}**"] + rs
-            body = body or ["现在没有进行中的事。"]
-        else:
-            body = [row(i, cap) for i in live_its] or ["现在没有进行中的事。"]
-        held = [row(i, cap) for i in its if i.get("paused")]
-        text = "\n".join([head] + body + (["", "**暂停**"] + held if held else []) + tail(n))
-        if len(text) <= LIMIT:
-            return text
-    return text[:LIMIT]
-
-
-def _today_done():
-    today = time.strftime("%m-%d")
-    return [i for i in _read("board-done.jsonl") if str(i.get("done_at", "")).startswith(today)]
-
-
-def _post_pinned(ch, text):
-    m = api("POST", f"/channels/{ch}/messages", {"content": text, "allowed_mentions": {"parse": []}})
-    try:
-        api("PUT", f"/channels/{ch}/pins/{m['id']}")
-    except urllib.error.HTTPError as e:
-        print(f"board: 卡片已发但置顶失败（HTTP {e.code}）", file=sys.stderr)
-    return m["id"]
-
-
-def refresh(chans):
-    """把这些频道和已有卡片的频道都改成当前板子（没记频道的旧条目在每张卡上都列，所以都要改）；返回 {频道: 消息id}。"""
-    out = {}
-    with _locked():
-        try:
-            state = json.loads(_path("board-cards.state").read_text())
-        except (FileNotFoundError, ValueError):
-            state = {}
-        its, today = _read(), _today_done()
-        timers = _timers() if any(i.get("next") for i in its) else None  # 每次刷新只问一次桥
-        todo = {c for c in set(chans) | set(state) if c}
-        regs = {c: _ws_reg(c) for c in todo}
-        for r in list(regs.values()):  # 工作区的条目变了，它所属聊天频道的卡也要改
-            if r and r[0] not in regs:
-                regs[r[0]] = _ws_reg(r[0])
-        for ch in sorted(regs):
-            r = regs[ch]
-            blocks = [("", ch)] + r[1] if r and r[0] == ch and r[1] else None
-            ids = {cid for _, cid in blocks} if blocks else {ch}
-            mine = lambda xs: [i for i in xs if i.get("ch") is None or i.get("ch") in ids]
-            text = card_text(mine(its), mine(today), timers, blocks)
-            mid = state.get(ch)
-            try:
-                if mid:
-                    try:
-                        api("PATCH", f"/channels/{ch}/messages/{mid}", {"content": text, "allowed_mentions": {"parse": []}})
-                    except urllib.error.HTTPError as e:
-                        if e.code != 404:  # 只有消息被删了才重发
-                            raise
-                        mid = None
-                if not mid:
-                    mid = _post_pinned(ch, text)
-                state[ch] = out[ch] = mid
-            except Exception as e:  # 卡片失败不影响板子本身
-                print(f"board: 频道 {ch} 卡片没更新：{type(e).__name__} {getattr(e, 'code', '') or e}", file=sys.stderr)
-        tmp = _path("board-cards.state.tmp")
-        tmp.write_text(json.dumps(state))
-        os.replace(tmp, _path("board-cards.state"))
-    return out
-
-
-def _chan_of(nid):
-    for i in _read() + _read("board-done.jsonl"):
-        if i["id"] == nid:
-            return i.get("ch")
-    return None
+WS_TIMEOUT = 5  # 秒：问桥工作区注册表的上限（本机 socket 调用，正常 1 秒内；桥卡住时不拖住 board 命令）
 
 
 def _split_next(argv):
@@ -745,7 +514,6 @@ def main(argv):
                 sys.exit(f"不加：{why}。用完成通知，或在原条目上 board update / later <编号>")
             nid = add(*argv[1:5], nxt=nxt)
             print(f"#{nid}")
-            refresh({_chan_of(nid), _cur_channel()})
         elif cmd == "next" and len(argv) in (3, 4):
             if os.environ.get("BOARD_LATER") != "1":
                 sys.exit("「下次看」只能由 later 写（它会同时挂定时）：later <编号> 10m \"<到点要做什么>\"")
@@ -760,7 +528,6 @@ def main(argv):
                 sys.exit(f"没有 #{nid}：later 只能挂在任务板已有的条目上，先 board add 正经条目（事情、分支/PR/路径、状态、谁）")
             print(json.dumps(r[0], ensure_ascii=False))
             print(str(r[1]).replace("\n", " "))
-            refresh({_chan_of(nid), _cur_channel()})
         elif cmd == "update" and 3 <= len(argv) <= 5:
             nid = int(argv[1].lstrip("#"))
             cur = next((i for i in items() if i["id"] == nid), None)
@@ -781,7 +548,6 @@ def main(argv):
                 freed = park_workspace(before)  # 「谁」改走了：它在工作区的那件交接放回桥
                 if freed:
                     print("工作区已放回池子，会话已清")
-            refresh({_chan_of(nid), _cur_channel()})
         elif cmd == "done" and 2 <= len(argv) <= 4:
             # 返工次数必填、>0 时原因必填：不填就没法统计哪条规矩起了作用（board rework 汇总里的「未填」）
             nid = int(argv[1].lstrip("#"))
@@ -796,7 +562,6 @@ def main(argv):
             if not done(nid, rework, why or None):
                 sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
             print("已结束")
-            refresh({_chan_of(nid), _cur_channel()})
             hint = open_pr_hint()
             if hint:
                 print(hint)
@@ -809,7 +574,6 @@ def main(argv):
             freed = park_workspace(hit)
             if freed is not None:
                 print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
-            refresh({_chan_of(nid), _cur_channel()})
         elif cmd == "resume" and len(argv) == 2:
             nid = int(argv[1].lstrip("#"))
             cur = next((i for i in items() if i["id"] == nid), None)
@@ -823,8 +587,6 @@ def main(argv):
             if r is None:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
             print("已恢复" if r else f"#{nid} 没在暂停")
-            if r:
-                refresh({_chan_of(nid), _cur_channel()})
         elif cmd == "link" and len(argv) == 3:
             nid = int(argv[1].lstrip("#"))
             try:
@@ -834,10 +596,8 @@ def main(argv):
             if not ok:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
             print("已挂卡")
-            refresh({_chan_of(nid), _cur_channel()})
         elif cmd == "refresh" and len(argv) == 1:
             pause_stale()
-            refresh(set())  # 改所有已有卡片的频道（board-cards.state 里的）
         elif cmd == "rework" and len(argv) <= 2:
             print(rework_report(int(argv[1]) if len(argv) > 1 else REWORK_DAYS))
         else:

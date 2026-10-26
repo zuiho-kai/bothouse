@@ -113,6 +113,7 @@ type Config struct {
 	Webhook            WebhookConfig           `toml:"webhook"`
 	Bridge             BridgeConfig            `toml:"bridge"`
 	Management         ManagementConfig        `toml:"management"`
+	Gate               GateConfig              `toml:"gate"`
 	Hooks              []HookConfig            `toml:"hooks"`
 	IdleTimeoutMins    *int                    `toml:"idle_timeout_mins,omitempty"`  // max minutes between consecutive agent events; 0 = no timeout; default 120
 	MaxTurnTimeMins    *int                    `toml:"max_turn_time_mins,omitempty"` // absolute wall-clock cap per turn in minutes; 0 = disabled (default)
@@ -185,6 +186,11 @@ type ManagementConfig struct {
 	Host        string   `toml:"host,omitempty"`         // listen address; "" = all interfaces (upstream default), "127.0.0.1" = this machine only
 	Token       string   `toml:"token,omitempty"`        // shared secret for authentication; required
 	CORSOrigins []string `toml:"cors_origins,omitempty"` // allowed CORS origins; empty = no CORS
+}
+
+// GateConfig: the local gate bothouse runs (core/gate_proc.go).
+type GateConfig struct {
+	Port int `toml:"port,omitempty"` // 127.0.0.1 port of this data dir's gate; default 9930 (contrib/gate/gate.py); the wizard picks another when 9930 belongs to another install
 }
 
 // Display mode constants.

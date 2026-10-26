@@ -20,7 +20,7 @@ TEAM = {"lead": {"name": "橘", "aliases": ["猫猫", "Claude橘", "maomao"], "i
 CHAT = "discord:999"
 
 
-def load_gate(config_toml=None):
+def load_gate(config_toml=None, team=None):
     """临时 GATE_SETUP_DIR（不读本机 ~/.cc-connect）+ 假 scorer（GATE_MODEL=fake 走本机打分器那条路，拿到的是假的）。"""
     fake = types.ModuleType("scorer")
 
@@ -34,7 +34,7 @@ def load_gate(config_toml=None):
     fake.Scorer = Scorer
     sys.modules["scorer"] = fake
     d = Path(tempfile.mkdtemp())
-    (d / "gate-team.json").write_text(json.dumps(TEAM, ensure_ascii=False), encoding="utf-8")
+    (d / "gate-team.json").write_text(json.dumps(team or TEAM, ensure_ascii=False), encoding="utf-8")
     if config_toml is not None:
         (d / "config.toml").write_text(config_toml, encoding="utf-8")
     os.environ["GATE_SETUP_DIR"] = str(d)
@@ -55,6 +55,32 @@ def load_gate(config_toml=None):
 
 
 gate = load_gate()
+
+
+class DSHMembersNotRouted(unittest.TestCase):
+    """安装向导登记的 DSH 成员（kind=dsh）不是 Discord 队友：不进 SUBS/NAMES/队友表，lead.py 仍认得她们。"""
+
+    def test_dsh_member_kept_out_of_routing(self):
+        saved = {m: sys.modules.get(m) for m in ("gate", "lead", "ctxsvc")}
+        team = {"lead": TEAM["lead"], "subs": {**TEAM["subs"], "dsh-claude": {
+            "name": "DSH克劳德", "aliases": ["claude"], "id": "claude", "kind": "dsh"}}}
+        try:
+            g = load_gate(team=team)
+            self.assertNotIn("dsh-claude", g.SUBS)
+            self.assertNotIn("dsh-claude", g.NAMES)
+            self.assertNotIn("DSH克劳德", g.SUB_LIST)
+            self.assertEqual(set(g.SUBS), set(TEAM["subs"]))
+            self.assertIn("dsh-claude", g.lead.KEYS)
+            self.assertEqual(g.lead.member("dsh:claude"), "dsh-claude")
+            # 只有一个桥 bot、另有 DSH 成员：仍是「没有队友可让」
+            solo = load_gate(team={"lead": TEAM["lead"], "subs": {"dsh-claude": team["subs"]["dsh-claude"]}})
+            self.assertEqual(solo.SUBS, {})
+        finally:
+            for m, mod in saved.items():
+                if mod is None:
+                    sys.modules.pop(m, None)
+                else:
+                    sys.modules[m] = mod
 SC = lambda choice, n: types.SimpleNamespace(choice=choice, probs=[0] * n)
 
 
