@@ -5728,6 +5728,17 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// one (e.g. after a local API turn, which is not journaled); ended here.
 	var chainedJournalID string
 	defer func() { e.journalTurnEnd(chainedJournalID) }()
+	// keepLeadHandoffForRetry is set when runTurnWithCapacityRetry re-sends
+	// this exact prompt; the successful retry then confirms the handoff.
+	var keepLeadHandoffForRetry bool
+	defer func() {
+		// maomao fork: a lead handoff block assembled into this turn becomes
+		// active only on a successful terminal result (#274). Any other exit
+		// drops the taken mark so the next turn gets the complete record again.
+		if !keepLeadHandoffForRetry {
+			session.rollbackLeadHandoff()
+		}
+	}()
 	if msgID != "" {
 		state.mu.Lock()
 		state.currentMessageID = msgID
@@ -6678,6 +6689,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				input.finish(inputTurnResult{err: fmt.Errorf("agent completed without an answer")})
 				return
 			}
+			// maomao fork: only now, with a successful terminal result, has the
+			// turn carrying the lead handoff really taken over (#274). Send
+			// errors, EventError, quota exhaustion and stops leave it pending
+			// for a complete retry next turn.
+			if event.Error == nil && !state.isStopped() {
+				if _, exhausted := QuotaExhaustedReset(event); !exhausted {
+					e.confirmLeadHandoff(session)
+				}
+			}
 			if fullResponse == "" {
 				fullResponse = e.i18n.T(MsgEmptyResponse)
 			}
@@ -7318,6 +7338,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						state.pendingMessages = append([]queuedMessage{*chainedQueued}, state.pendingMessages...)
 					} else {
 						state.capacityFailed = true
+						keepLeadHandoffForRetry = true
 					}
 					state.mu.Unlock()
 				} else if input == nil && isPromptTooLongError(errMsg) {
@@ -7604,6 +7625,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		state.mu.Unlock()
 		if as == nil || !as.Alive() {
 			session.SettleHandoff(false)
+			session.rollbackLeadHandoff()
 			e.send(queued.platform, queued.replyCtx, fmt.Sprintf(e.i18n.T(MsgError), "agent session ended"))
 			e.notifyDroppedQueuedMessages(state, fmt.Errorf("agent session ended"))
 			return false

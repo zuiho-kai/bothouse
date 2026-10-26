@@ -145,15 +145,26 @@ func TestLeadHandoffInjectsDurableRecordAndDelta(t *testing.T) {
 		t.Fatal("the original user message must remain after the handoff block")
 	}
 
+	// Assembling the prompt only carries the record. It becomes active after
+	// the turn returns a successful result (the event loop calls
+	// confirmLeadHandoff then).
 	st, err := ReadLeadHandoffState(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Pending == nil || st.Pending.Status != LeadHandoffActive || st.Pending.AckedAt.IsZero() {
-		t.Fatalf("handoff not acknowledged: %+v", st.Pending)
+	if st.Pending == nil || st.Pending.Status != LeadHandoffPending || !st.Pending.AckedAt.IsZero() {
+		t.Fatalf("handoff was acknowledged while only assembling the prompt: %+v", st.Pending)
 	}
 	if st.Pending.From != "lead-a" || st.Pending.To != "lead-d" {
 		t.Fatalf("wrong switch endpoints: %+v", st.Pending)
+	}
+	d.confirmLeadHandoff(session)
+	st, err = ReadLeadHandoffState(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Pending == nil || st.Pending.Status != LeadHandoffActive || st.Pending.AckedAt.IsZero() {
+		t.Fatalf("successful turn did not acknowledge the handoff: %+v", st.Pending)
 	}
 
 	// Same context, nothing new: no repeated block.
@@ -243,13 +254,19 @@ func TestHandoffAPIRepeatedFailureAndLateLead(t *testing.T) {
 	}
 	// The new lead's next turn gets the record even though the switch came
 	// through the API rather than a hand-written lead.json.
-	content := d.withTurnBlocks(d.sessions.GetOrCreateActive("discord:room"), "discord:room", "", "接手", true)
+	session := d.sessions.GetOrCreateActive("discord:room")
+	content := d.withTurnBlocks(session, "discord:room", "", "接手", true)
 	if !strings.Contains(content, "主角色交接") || !strings.Contains(content, "Lead A") || !strings.Contains(content, "lead-a") {
 		t.Fatalf("API switch did not reach the new lead:\n%s", content)
 	}
 	st, _ = ReadLeadHandoffState(dir)
+	if st.Pending.Status != LeadHandoffPending || !st.Pending.AckedAt.IsZero() {
+		t.Fatalf("assembling the prompt acknowledged the API switch: %+v", st.Pending)
+	}
+	d.confirmLeadHandoff(session)
+	st, _ = ReadLeadHandoffState(dir)
 	if st.Pending.Status != LeadHandoffActive {
-		t.Fatalf("API switch was not acknowledged: %+v", st.Pending)
+		t.Fatalf("API switch was not acknowledged after a successful turn: %+v", st.Pending)
 	}
 
 	// Old lead may still report results, but must not dispatch new work.

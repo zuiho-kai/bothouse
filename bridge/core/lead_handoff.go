@@ -723,10 +723,10 @@ func (e *Engine) leadHandoffBlock(session *Session, sessionKey string) string {
 		if delta := buildLeadHandoffDelta(e.dataDir, e.name, h.From, snap.GeneratedAt, e.handoffKnownProjects(h.From, e.name), e.handoffChats()); delta != "" {
 			text += "\n\n" + delta
 		}
-		e.ackLeadHandoff(h.ID, snap)
-		session.UpdateTurnCtx(func(t *TurnCtxSent) {
-			t.LeadHandoff, t.LeadHandoffAt = h.ID, now
-		})
+		// Assembling the prompt is not taking over: the switch stays pending
+		// until the model returns a successful result. A failed or unsent
+		// turn drops this mark and the next turn gets the full record again.
+		session.takeLeadHandoff(h, snap)
 		return text
 	}
 	delta := buildLeadHandoffDelta(e.dataDir, e.name, h.From, sentAt, e.handoffKnownProjects(h.From, e.name), e.handoffChats())
@@ -765,6 +765,50 @@ func (s *Session) leadHandoffSent() (string, time.Time) {
 	return s.TurnCtx.LeadHandoff, s.TurnCtx.LeadHandoffAt
 }
 
+// takeLeadHandoff records the block carried by the turn being assembled. It
+// stays out of TurnCtxSent until the turn succeeds, so a failed turn can send
+// the complete record again instead of a post-switch delta.
+func (s *Session) takeLeadHandoff(h *LeadHandoff, snap *LeadHandoffSnapshot) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.leadHandoffTaken, s.leadHandoffTakenAt, s.leadHandoffTakenSnap = h.ID, time.Now().UTC(), snap
+}
+
+// confirmLeadHandoff consumes the taken block for the caller to persist as
+// active. It returns an empty id when this turn carried no block.
+func (s *Session) confirmLeadHandoff() (string, time.Time, *LeadHandoffSnapshot) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id, at, snap := s.leadHandoffTaken, s.leadHandoffTakenAt, s.leadHandoffTakenSnap
+	s.leadHandoffTaken, s.leadHandoffTakenAt, s.leadHandoffTakenSnap = "", time.Time{}, nil
+	return id, at, snap
+}
+
+// rollbackLeadHandoff drops a taken block whose turn failed before a
+// successful result, so the next turn receives the complete record again.
+func (s *Session) rollbackLeadHandoff() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.leadHandoffTaken, s.leadHandoffTakenAt, s.leadHandoffTakenSnap = "", time.Time{}, nil
+}
+
+// confirmLeadHandoff marks the switch active only after the turn carrying its
+// block returned a successful terminal result. A failed or unsent turn keeps
+// the record pending and leaves the complete block for the next attempt.
+func (e *Engine) confirmLeadHandoff(session *Session) {
+	if e == nil || session == nil {
+		return
+	}
+	id, at, snap := session.confirmLeadHandoff()
+	if id == "" {
+		return
+	}
+	e.ackLeadHandoff(id, snap)
+	session.UpdateTurnCtx(func(t *TurnCtxSent) {
+		t.LeadHandoff, t.LeadHandoffAt = id, at
+	})
+}
+
 func (e *Engine) ackLeadHandoff(id string, snap *LeadHandoffSnapshot) {
 	now := time.Now().UTC()
 	leadHandoffMu.Lock()
@@ -775,8 +819,10 @@ func (e *Engine) ackLeadHandoff(id string, snap *LeadHandoffSnapshot) {
 	}
 	st.Pending.Status = LeadHandoffActive
 	st.Pending.AckedAt = now
-	st.Pending.Snapshot = snap
-	st.Pending.SnapshotAt = snap.GeneratedAt
+	if snap != nil {
+		st.Pending.Snapshot = snap
+		st.Pending.SnapshotAt = snap.GeneratedAt
+	}
 	leadHandoffSetHistoryStatus(st, id, LeadHandoffActive, now)
 	if err := saveLeadHandoffStateLocked(e.dataDir, st); err != nil {
 		slog.Warn("lead handoff: save acknowledgement", "error", err)

@@ -55,10 +55,17 @@ type Session struct {
 	mu           sync.Mutex `json:"-"`
 	busy         bool       `json:"-"`
 	handoffTaken [2]string  // taken by a turn not yet sent (maomao fork)
-	freshCtx     bool       // maomao fork: agent started without resume; see freshContextImages
-	freshTaken   bool       // freshCtx taken by a turn not yet sent
-	memCtx       bool       // maomao fork: give the next turn the bot's MEMORY.md (memoryBlock)
-	memTaken     bool       // memCtx taken by a turn not yet sent
+	// maomao fork: the lead handoff block assembled into a turn that has not
+	// yet returned a successful result (#274). It becomes part of TurnCtxSent
+	// only when the turn succeeds; a failed turn drops it so the next turn
+	// gets the complete record again.
+	leadHandoffTaken     string
+	leadHandoffTakenAt   time.Time
+	leadHandoffTakenSnap *LeadHandoffSnapshot
+	freshCtx             bool // maomao fork: agent started without resume; see freshContextImages
+	freshTaken           bool // freshCtx taken by a turn not yet sent
+	memCtx               bool // maomao fork: give the next turn the bot's MEMORY.md (memoryBlock)
+	memTaken             bool // memCtx taken by a turn not yet sent
 	// maomao fork: posts up to freshDoneUpTo already went to an earlier fresh context
 	// (freshContextImages); freshDonePending replaces it once the turn is sent.
 	freshDoneUpTo, freshDonePending string
