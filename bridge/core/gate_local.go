@@ -19,7 +19,8 @@ package core
 //
 // "Calls the bot" comes from the platform: Message.Mentioned (an @ or a reply to the bot) and
 // Message.Direct (a private chat). Set by discord, telegram, cloud-web, feishu, slack, webex
-// (both) and wecom, dingtalk (Direct only).
+// (both), wecom and dingtalk (Direct only) and qq, qqbot (both: an @ or a reply to the bot in a
+// group, a DM for Direct).
 
 import (
 	"log/slog"

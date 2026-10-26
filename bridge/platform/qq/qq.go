@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/chenhg5/cc-connect/core"
 	"github.com/gorilla/websocket"
@@ -40,8 +41,39 @@ type Platform struct {
 	selfID                int64
 	dedup                 core.MessageDedup
 	groupNameCache        sync.Map // groupID -> group name
-	httpURL            string   // OneBot HTTP API URL, e.g. "http://127.0.0.1:3000"
+	groupNamePending      sync.Map // groupID -> struct{}: a lookup is already running
+	httpURL               string   // OneBot HTTP API URL, e.g. "http://127.0.0.1:3000"
+
+	// quoteCache holds recent messages by OneBot message ID. A reply segment
+	// carries only that ID, so without this the model sees "继续" with no idea
+	// what it continues (core.Message.ExtraContent).
+	quoteCache sync.Map // message ID string -> quoteEntry
 }
+
+// quoteEntry is one message kept for reply quoting.
+type quoteEntry struct {
+	content string
+	self    bool // this bot sent it, so a reply to it calls the bot
+	at      time.Time
+}
+
+// quoteCacheTTL bounds quoteCache. Source: 沿用 platform/qqbot messageCacheTTL,
+// the same "a quote this old is not worth resolving" bound the official adapter
+// uses.
+const quoteCacheTTL = 7 * 24 * time.Hour
+
+// quoteCacheMaxItems bounds quoteCache. Source: 沿用 platform/qqbot
+// messageCacheMaxItems, so an always-on group cannot grow this map for a week.
+const quoteCacheMaxItems = 1000
+
+// quotedTextMaxRunes bounds one cached quote. Source: 沿用 platform/qqbot
+// quotedTextMaxRunes, the same "a quote is context, not a transcript" bound.
+const quotedTextMaxRunes = 800
+
+// bareMentionPlaceholder starts a turn when a person @-ed the bot without
+// saying anything. Source: 沿用 platform/discord, the same words its bare-@
+// path uses, so the model reads the situation the same way on both platforms.
+const bareMentionPlaceholder = "（用户 @ 了你，在等你回复：看上面的频道消息判断要你做什么；看不出来就问）"
 
 func New(opts map[string]any) (core.Platform, error) {
 	wsURL, _ := opts["ws_url"].(string)
@@ -62,7 +94,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		token:                 token,
 		allowFrom:             allowFrom,
 		shareSessionInChannel: shareSessionInChannel,
-		httpURL:            httpURL,
+		httpURL:               httpURL,
 	}, nil
 }
 
@@ -95,8 +127,8 @@ func (p *Platform) Start(handler core.MessageHandler) error {
 
 	// Get bot self info
 	if info, err := p.callAPI("get_login_info", nil); err == nil {
-		if uid, ok := info["user_id"].(float64); ok {
-			p.selfID = int64(uid)
+		if uid := jsonInt64(info, "user_id"); uid != 0 {
+			p.selfID = uid
 		}
 		nick, _ := info["nickname"].(string)
 		slog.Info("qq: logged in", "qq", p.selfID, "nickname", nick)
@@ -143,7 +175,10 @@ func (p *Platform) readLoop(ctx context.Context) {
 		// Otherwise it's an event
 		postType, _ := payload["post_type"].(string)
 		if postType == "message" {
-			p.handleMessage(payload)
+			// Dispatch in its own goroutine: callAPI resolves responses through
+			// this loop, so running the handler here would make every send from
+			// a turn wait for that turn to finish (same as platform/wecom).
+			go p.handleMessage(payload)
 		}
 	}
 }
@@ -209,10 +244,33 @@ func (p *Platform) handleMessage(payload map[string]any) {
 	}
 
 	// Parse message content from CQ message array or raw_message
-	text, images, files, audio := p.parseMessage(payload, msgType, groupID)
-	if text == "" && len(images) == 0 && len(files) == 0 && audio == nil {
+	parsed := p.parseMessage(payload, msgType, groupID)
+
+	// A bare @ is a person calling the bot with nothing to say yet; dropping it
+	// as empty would look like the bot ignored them (platform/discord does the
+	// same).
+	content := parsed.text
+	if content == "" && len(parsed.images) == 0 && len(parsed.files) == 0 && parsed.audio == nil && !parsed.mentioned {
 		return
 	}
+	if content == "" && len(parsed.images) == 0 && len(parsed.files) == 0 && parsed.audio == nil {
+		content = bareMentionPlaceholder
+	}
+
+	// A reply to one of this bot's messages calls the bot just like an @ does
+	// (core/gate_local.go: "an @, a reply to it"). Everyone else's message is
+	// context only.
+	mentioned := parsed.mentioned
+	var quoted []string
+	if id := parsed.replyTo; id != "" {
+		if entry, ok := p.loadQuote(id); ok {
+			quoted = append(quoted, entry.content)
+			mentioned = mentioned || entry.self
+		}
+	}
+	// Store the person's own words, not the bare-@ placeholder: a later reply to
+	// a poke should not quote the placeholder back as if they had said it.
+	p.storeQuote(strconv.FormatInt(messageID, 10), parsed.text, false)
 
 	var sessionKey string
 	if msgType == "group" {
@@ -232,9 +290,17 @@ func (p *Platform) handleMessage(payload map[string]any) {
 		messageID:   int32(messageID),
 	}
 
-	var chatName string
+	// ChannelKey is the raw chat id; core adds the platform prefix when it
+	// binds a workspace (core/engine.go effectiveChannelID).
+	var channelKey, chatName string
 	if msgType == "group" {
-		chatName = p.resolveGroupName(groupID)
+		channelKey = strconv.FormatInt(groupID, 10)
+		// Cold cache returns the id and looks the name up in the background: the
+		// round trip can take 15s and the name is cosmetic.
+		chatName = p.cachedGroupName(groupID)
+		p.warmGroupName(groupID)
+	} else {
+		channelKey = strconv.FormatInt(userID, 10)
 	}
 
 	msg := &core.Message{
@@ -244,22 +310,36 @@ func (p *Platform) handleMessage(payload map[string]any) {
 		UserID:     strconv.FormatInt(userID, 10),
 		UserName:   userName,
 		ChatName:   chatName,
-		Content:    text,
-		Images:     images,
-		Files:      files,
-		Audio:      audio,
+		ChannelKey: channelKey,
+		Content:    content,
+		Images:     parsed.images,
+		Files:      parsed.files,
+		Audio:      parsed.audio,
 		ReplyCtx:   rctx,
+		Mentioned:  mentioned,
+		Direct:     msgType != "group",
+	}
+	if len(quoted) > 0 {
+		msg.ExtraContent = "[引用消息]\n" + strings.Join(quoted, "\n")
 	}
 
-	slog.Debug("qq: message received", "type", msgType, "user", userID, "text_len", len(text))
+	slog.Debug("qq: message received", "type", msgType, "user", userID, "text_len", len(content), "mentioned", mentioned)
 	p.handler(p, msg)
 }
 
-func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID int64) (string, []core.ImageAttachment, []core.FileAttachment, *core.AudioAttachment) {
+// parsedMessage is one OneBot message event, split into what core.Message needs.
+type parsedMessage struct {
+	text      string
+	images    []core.ImageAttachment
+	files     []core.FileAttachment
+	audio     *core.AudioAttachment
+	mentioned bool   // an "at" segment addressed this bot
+	replyTo   string // message ID of the "reply" segment, empty when not a reply
+}
+
+func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID int64) parsedMessage {
+	var out parsedMessage
 	var textParts []string
-	var images []core.ImageAttachment
-	var files []core.FileAttachment
-	var audio *core.AudioAttachment
 
 	// OneBot message can be array of segments or a string
 	switch msg := payload["message"].(type) {
@@ -287,7 +367,7 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 						slog.Warn("qq: download image failed", "error", err)
 						continue
 					}
-					images = append(images, core.ImageAttachment{
+					out.images = append(out.images, core.ImageAttachment{
 						MimeType: mime,
 						Data:     imgData,
 					})
@@ -307,7 +387,7 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 							format = "mp3"
 						}
 					}
-					audio = &core.AudioAttachment{
+					out.audio = &core.AudioAttachment{
 						Data:   audioData,
 						Format: format,
 					}
@@ -333,7 +413,7 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 					if err != nil {
 						slog.Warn("qq: [step1] download file via segment URL failed", "error", err)
 					} else {
-						files = append(files, core.FileAttachment{
+						out.files = append(out.files, core.FileAttachment{
 							MimeType: mime,
 							Data:     fileData,
 							FileName: name,
@@ -374,7 +454,7 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 					if freshURL != "" {
 						fileData, mime, err := downloadLargeFile(freshURL)
 						if err == nil {
-							files = append(files, core.FileAttachment{
+							out.files = append(out.files, core.FileAttachment{
 								MimeType: mime,
 								Data:     fileData,
 								FileName: name,
@@ -395,7 +475,7 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 						if fileURL, ok := result["url"].(string); ok && fileURL != "" {
 							fileData, mime, err := downloadLargeFile(fileURL)
 							if err == nil {
-								files = append(files, core.FileAttachment{
+								out.files = append(out.files, core.FileAttachment{
 									MimeType: mime,
 									Data:     fileData,
 									FileName: name,
@@ -406,7 +486,7 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 						if !downloaded {
 							if b64Str, ok := result["base64"].(string); ok && b64Str != "" {
 								if decoded, err := base64.StdEncoding.DecodeString(b64Str); err == nil {
-									files = append(files, core.FileAttachment{
+									out.files = append(out.files, core.FileAttachment{
 										MimeType: http.DetectContentType(decoded),
 										Data:     decoded,
 										FileName: name,
@@ -424,18 +504,113 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 					slog.Warn("qq: file segment could not be downloaded", "name", name)
 				}
 			case "at":
-				// Ignore @mentions in parsed text
+				// The bot's own @ is the call itself (Message.Mentioned), so it
+				// must not reach the model as text. Someone else's stays in the
+				// text: the model needs to know who was addressed.
+				if qq, _ := data["qq"].(string); qq == strconv.FormatInt(p.selfID, 10) {
+					out.mentioned = true
+					continue
+				}
+				// OneBot puts the separating space in the following text
+				// segment ("[CQ:at,qq=2] 你看一下"), so none is added here.
+				name, _ := data["name"].(string)
+				if name == "" {
+					name, _ = data["qq"].(string)
+				}
+				textParts = append(textParts, "@"+name)
+			case "reply":
+				out.replyTo, _ = data["id"].(string)
 			}
 		}
 	default:
-		// raw_message fallback (string with CQ codes)
-		if raw, ok := payload["raw_message"].(string); ok {
-			textParts = append(textParts, stripCQCodes(raw))
+		// String message (message_format=string): CQ codes, with raw_message as
+		// the same text when the OneBot side includes it.
+		raw, _ := payload["message"].(string)
+		if raw == "" {
+			raw, _ = payload["raw_message"].(string)
 		}
+		out.mentioned = p.parseCQString(raw, &textParts)
 	}
 
-	return strings.TrimSpace(strings.Join(textParts, "")), images, files, audio
+	out.text = strings.TrimSpace(strings.Join(textParts, ""))
+	return out
 }
+
+// parseCQString splits a raw CQ-string message ("[CQ:at,qq=10000] 你好") into
+// text, reporting whether one of the at codes is this bot. Used when the
+// OneBot side sends message_format=string instead of a segment array.
+func (p *Platform) parseCQString(raw string, textParts *[]string) bool {
+	mentioned := false
+	for len(raw) > 0 {
+		idx := strings.Index(raw, "[CQ:")
+		if idx < 0 {
+			*textParts = append(*textParts, unescapeCQText(raw))
+			break
+		}
+		*textParts = append(*textParts, unescapeCQText(raw[:idx]))
+		end := strings.Index(raw[idx:], "]")
+		if end < 0 {
+			break
+		}
+		fields := strings.Split(raw[idx+len("[CQ:"):idx+end], ",")
+		raw = raw[idx+end+1:]
+
+		switch fields[0] {
+		case "at":
+			params := parseCQParams(fields[1:])
+			if params["qq"] == strconv.FormatInt(p.selfID, 10) {
+				mentioned = true
+				continue
+			}
+			name := params["name"]
+			if name == "" {
+				name = params["qq"]
+			}
+			*textParts = append(*textParts, "@"+name)
+		case "reply":
+			// Reply targets are ignored here: the same event normally carries a
+			// "reply" only in segment form, and Message.ExtraContent already
+			// covers the quote for that shape.
+		}
+	}
+	return mentioned
+}
+
+// parseCQParams reads the "key=value" parameters of one CQ code.
+func parseCQParams(fields []string) map[string]string {
+	params := make(map[string]string, len(fields))
+	for _, f := range fields {
+		k, v, ok := strings.Cut(f, "=")
+		if !ok {
+			continue
+		}
+		params[k] = unescapeCQText(v)
+	}
+	return params
+}
+
+// truncateRunes cuts s to max runes. Source: 沿用 platform/qqbot truncateRunes.
+func truncateRunes(s string, max int) string {
+	if max <= 0 || utf8.RuneCountInString(s) <= max {
+		return s
+	}
+	return string([]rune(s)[:max])
+}
+
+// unescapeCQText reverses the four escapes OneBot applies inside CQ codes.
+func unescapeCQText(s string) string {
+	if !strings.Contains(s, "&") {
+		return s
+	}
+	return cqUnescaper.Replace(s)
+}
+
+var cqUnescaper = strings.NewReplacer(
+	"&#91;", "[",
+	"&#93;", "]",
+	"&#44;", ",",
+	"&amp;", "&",
+)
 
 // Reply sends a message as a reply to an incoming message.
 func (p *Platform) Reply(ctx context.Context, replyCtx any, content string) error {
@@ -455,13 +630,70 @@ func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error
 
 	if rctx.messageType == "group" {
 		params["group_id"] = rctx.groupID
-		_, err := p.callAPI("send_group_msg", params)
-		return err
+		result, err := p.callAPI("send_group_msg", params)
+		if err != nil {
+			return err
+		}
+		p.recordSent(result, content)
+		return nil
 	}
 
 	params["user_id"] = rctx.userID
-	_, err := p.callAPI("send_private_msg", params)
-	return err
+	result, err := p.callAPI("send_private_msg", params)
+	if err != nil {
+		return err
+	}
+	p.recordSent(result, content)
+	return nil
+}
+
+// ReplyWithAt sends content with real OneBot at segments, so the mentioned
+// people get a notification instead of a literal "@name".
+// Implements core.AtMentionSender.
+func (p *Platform) ReplyWithAt(ctx context.Context, replyCtx any, content string, atUsers []string, atAll bool) error {
+	rctx, ok := replyCtx.(*replyContext)
+	if !ok {
+		return fmt.Errorf("qq: ReplyWithAt: invalid reply context type %T", replyCtx)
+	}
+
+	segments := make([]map[string]any, 0, len(atUsers)+2)
+	if atAll {
+		// OneBot spells @全体成员 as qq=all.
+		segments = append(segments, map[string]any{"type": "at", "data": map[string]any{"qq": "all"}})
+	}
+	for _, uid := range atUsers {
+		segments = append(segments, map[string]any{"type": "at", "data": map[string]any{"qq": uid}})
+	}
+	// OneBot joins segments verbatim, so the separating space has to be part of
+	// the text segment or the mention would run into the message.
+	segments = append(segments, map[string]any{"type": "text", "data": map[string]any{"text": " " + content}})
+
+	params := map[string]any{"message": segments}
+	action := "send_private_msg"
+	if rctx.messageType == "group" {
+		params["group_id"] = rctx.groupID
+		action = "send_group_msg"
+	} else {
+		params["user_id"] = rctx.userID
+	}
+
+	result, err := p.callAPI(action, params)
+	if err != nil {
+		return fmt.Errorf("qq: ReplyWithAt: %w", err)
+	}
+	p.recordSent(result, content)
+	return nil
+}
+
+var _ core.AtMentionSender = (*Platform)(nil)
+
+// recordSent remembers a message this bot sent. A reply to one of them calls
+// the bot just like an @ (core/gate_local.go), and the text is what the quote
+// shows to the model.
+func (p *Platform) recordSent(result map[string]any, text string) {
+	if id := jsonInt64(result, "message_id"); id != 0 {
+		p.storeQuote(strconv.FormatInt(id, 10), text, true)
+	}
 }
 
 // SendImage sends an image to the conversation.
@@ -510,7 +742,10 @@ func (p *Platform) Stop() error {
 	return nil
 }
 
-func (p *Platform) resolveGroupName(groupID int64) string {
+// cachedGroupName returns the group name when it is already known, otherwise
+// the raw group id. It never blocks: get_group_info is a 15s round trip when
+// the OneBot side does not answer, and the name is only cosmetic.
+func (p *Platform) cachedGroupName(groupID int64) string {
 	if groupID == 0 {
 		return ""
 	}
@@ -518,17 +753,84 @@ func (p *Platform) resolveGroupName(groupID int64) string {
 	if cached, ok := p.groupNameCache.Load(fallback); ok {
 		return cached.(string)
 	}
-	result, err := p.callAPI("get_group_info", map[string]any{"group_id": groupID})
-	if err != nil {
-		slog.Debug("qq: resolve group name failed", "group_id", groupID, "error", err)
-		return fallback
-	}
-	name, _ := result["group_name"].(string)
-	if name != "" {
-		p.groupNameCache.Store(fallback, name)
-		return name
-	}
 	return fallback
+}
+
+// warmGroupName looks up a group name in the background, once per group, so
+// later messages carry the real name instead of the id.
+func (p *Platform) warmGroupName(groupID int64) {
+	if groupID == 0 {
+		return
+	}
+	key := strconv.FormatInt(groupID, 10)
+	if _, ok := p.groupNameCache.Load(key); ok {
+		return
+	}
+	if _, loaded := p.groupNamePending.LoadOrStore(key, struct{}{}); loaded {
+		return
+	}
+	go func() {
+		defer p.groupNamePending.Delete(key)
+		result, err := p.callAPI("get_group_info", map[string]any{"group_id": groupID})
+		if err != nil {
+			slog.Debug("qq: resolve group name failed", "group_id", groupID, "error", err)
+			return
+		}
+		if name, _ := result["group_name"].(string); name != "" {
+			p.groupNameCache.Store(key, name)
+		}
+	}()
+}
+
+// storeQuote remembers a message for reply quoting, dropping entries that are
+// too old or when the cache is full.
+func (p *Platform) storeQuote(messageID, content string, self bool) {
+	content = strings.TrimSpace(content)
+	if messageID == "" || content == "" {
+		return
+	}
+	p.quoteCache.Store(messageID, quoteEntry{content: truncateRunes(content, quotedTextMaxRunes), self: self, at: time.Now()})
+
+	now := time.Now()
+	var expired, total int
+	p.quoteCache.Range(func(k, v any) bool {
+		total++
+		if now.Sub(v.(quoteEntry).at) > quoteCacheTTL {
+			p.quoteCache.Delete(k)
+			expired++
+		}
+		return true
+	})
+	// Only pay for eviction when the cache actually overflows; the scan above is
+	// cheap but this keeps the common path single-pass.
+	if total-expired <= quoteCacheMaxItems {
+		return
+	}
+	var oldestKey string
+	var oldestAt time.Time
+	p.quoteCache.Range(func(k, v any) bool {
+		if at := v.(quoteEntry).at; oldestKey == "" || at.Before(oldestAt) {
+			oldestKey, oldestAt = k.(string), at
+		}
+		return true
+	})
+	if oldestKey != "" {
+		p.quoteCache.Delete(oldestKey)
+	}
+}
+
+// loadQuote returns the cached message for a reply segment.
+func (p *Platform) loadQuote(messageID string) (quoteEntry, bool) {
+	v, ok := p.quoteCache.Load(messageID)
+	if !ok {
+		return quoteEntry{}, false
+	}
+	entry := v.(quoteEntry)
+	if time.Since(entry.at) > quoteCacheTTL {
+		p.quoteCache.Delete(messageID)
+		return quoteEntry{}, false
+	}
+	return entry, true
 }
 
 // ── OneBot API call via WebSocket ───────────────────────────────
@@ -683,24 +985,6 @@ func jsonInt64(m map[string]any, key string) int64 {
 		return n
 	}
 	return 0
-}
-
-func stripCQCodes(s string) string {
-	var result strings.Builder
-	for len(s) > 0 {
-		idx := strings.Index(s, "[CQ:")
-		if idx < 0 {
-			result.WriteString(s)
-			break
-		}
-		result.WriteString(s[:idx])
-		end := strings.Index(s[idx:], "]")
-		if end < 0 {
-			break
-		}
-		s = s[idx+end+1:]
-	}
-	return result.String()
 }
 
 func downloadLargeFile(url string) ([]byte, string, error) {

@@ -89,18 +89,34 @@ Now you can chat with the bot via QQ private or group messages!
 
 ## 群聊使用 / Group Chat
 
-支持群聊消息。在群中发送消息时，机器人会以独立的会话（按用户区分）处理每个人的请求。
+支持群聊消息。默认每个用户在群里各有独立会话；配置 `share_session_in_channel = true` 后，整个群共用一个会话（多人协作、团队模式需要这个）。
 
-Group chat is supported. Each user gets their own independent session, even in group chats.
+Group chat is supported. By default each user gets an independent session in the group; set `share_session_in_channel = true` to share one session per group, which multi-person and team-mode use needs.
+
+群聊里 @ 机器人、或**引用回复机器人的某条消息**都算叫到它：消息会带上"被叫到"的标记进入引擎，团队模式下不会当作旁听消息丢掉。@ 别人的消息保留 `@昵称` 原文，模型能看到点的是谁。只发一个 @ 不带文字也会起一轮，交给模型自己看上文判断要做什么。
+
+In a group, @-mentioning the bot or **replying to one of its messages** counts as calling it: the engine marks the message as addressed, so team mode does not drop it as background chatter. An @ of somebody else stays in the text as `@nickname`, so the model can see who was addressed. A bare @ with no text still starts a turn; the model reads the context to decide what to do.
+
+## 团队模式 / Team Mode
+
+同一平台可以挂多个角色（多个 QQ 号），配合 `share_session_in_channel` 使用。群里没有 @ 任何机器人的消息只作背景，不触发回复；@ 了谁、引用了谁，就由谁回答。
+
+Several roles (QQ accounts) can run on the same platform together with `share_session_in_channel`. Group messages that @ nobody are background only; whoever was @-ed or quoted answers.
 
 ## 支持的消息类型 / Supported Message Types
 
 | 类型 / Type | 接收 / Receive | 发送 / Send |
 |------------|----------------|-------------|
 | 文字 / Text | ✅ | ✅ |
-| 图片 / Image | ✅ | ❌ (文本描述) |
+| 图片 / Image | ✅ | ✅ |
+| 文件 / File | ✅ | ✅（需配 `http_url`，群文件走 `upload_group_file`） |
 | 语音 / Voice | ✅ (需配置 STT) | ❌ |
-| @提及 / @mention | ✅ (忽略) | — |
+| @提及 / @mention | ✅ (识别为"叫到机器人") | ✅（`ReplyWithAt`，真 @ 提醒） |
+| 引用回复 / Quote reply | ✅（引用内容作为上下文） | ❌ |
+
+`http_url` 是 NapCat 的 HTTP API 地址（如 `http://127.0.0.1:3000`），配了之后收文件会走 `get_group_file_url` / `get_file` 拿新链接，发文件走 HTTP，避免 WebSocket 大包和跨容器路径问题。
+
+`http_url` is NapCat's HTTP API endpoint (e.g. `http://127.0.0.1:3000`). With it set, receiving a file re-resolves an expiring CDN link via `get_group_file_url` / `get_file`, and sending a file goes over HTTP instead of the WebSocket, avoiding large frames and cross-container path issues.
 
 ## 常见问题 / FAQ
 
