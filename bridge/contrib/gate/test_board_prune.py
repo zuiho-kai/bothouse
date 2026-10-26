@@ -1,7 +1,7 @@
 """暂停条目自动收起（board.auto_prune）回放 + 单测：python3 -I test_board_prune.py
 回放样本：2026-10-26 10:53 橘在本机任务板手动清掉的 8 条（还原成暂停态）和当时板上 6 条不该收的，
 原样取自本机 ~/im-bridge/team/board-done.jsonl / board.jsonl（字段裁到判据用得上的）；#597 是 #557 #574 并入的主线条目。"""
-import json, os, shutil, subprocess, sys, tempfile, unittest
+import json, os, shutil, subprocess, sys, tempfile, time, unittest
 from datetime import datetime
 from pathlib import Path
 
@@ -39,6 +39,9 @@ def tearDownModule():
     board.DIR = _SAVED["dir"]
 
 SAMPLES = [341, 462, 467, 557, 574, 575, 583, 584]
+# 闲置起点不早于暂停时刻（PR #457 审查第 1 条）后，#583 #584 是 10-26 10:31 才暂停的（手动清时只暂停了 22 分钟），
+# 8 小时档也不再按③收；它们当时被清靠的是暂停前很久没汇报，那正是审查指出的误收。照实不收，不为凑样本放宽。
+PAUSED_JUST_NOW = {583, 584}
 KEEP = [589, 591, 600, 602, 607, 609]
 NOW = datetime(2026, 10, 26, 10, 53).timestamp()  # 手动清的时刻（本机时区）
 # PR259 / PR297 的真实合并时刻（gh pr view --json mergedAt）
@@ -94,16 +97,16 @@ class Replay(unittest.TestCase):
         os.environ["BOARD_PRUNE_IDLE_HOURS"] = "8"
         got = picks()
         self.show("8 小时", got)
-        self.assertEqual(set(got), set(SAMPLES))  # 8 条全收，6 条保护项（含闲 13 小时的主线 #589）不收
+        self.assertEqual(set(got), set(SAMPLES) - PAUSED_JUST_NOW)  # 收 6 条；6 条保护项（含闲 13 小时的主线 #589）不收
 
     def test_prune_and_resume_back(self):
         os.environ["BOARD_PRUNE_IDLE_HOURS"] = "8"
         out = board.auto_prune(now=NOW)
         ids = {i["id"] for i, _ in out}
-        self.assertEqual(ids, set(SAMPLES))
+        self.assertEqual(ids, set(SAMPLES) - PAUSED_JUST_NOW)
         self.assertFalse(ids & {i["id"] for i in board._read()})
         recs = [r for r in board._read("board-done.jsonl") if r["id"] in ids]
-        self.assertEqual(len(recs), 8)
+        self.assertEqual(len(recs), 6)
         self.assertTrue(all(r["auto_pruned"] and r["paused"] and r["done_at"] for r in recs))
         self.assertIn("最近 14 天结束 0 件", board.rework_report())  # 自动收起不进返工统计
         board.done(591, 0)  # 手动 done 的不能用 resume 找回
@@ -159,6 +162,42 @@ class Replay(unittest.TestCase):
         finally:
             os.environ.pop("BOARD_AUTO_PRUNE")
 
+    def test_just_paused_with_old_progress_kept(self):
+        """暂停前很久没汇报（progress_at 旧）、刚暂停的不收：闲置从暂停时刻算（审查第 1 条）。"""
+        old = NOW - 3 * 86400
+        it = {"id": 1, "what": "x", "where": "-", "status": "s", "who": "工作区1橘", "at": "10-26 10:50",
+              "paused": "10-26 10:50", "pause_why": "等 CI", "progress_at": old}
+        self.assertIsNone(board.prune_why(it, [it], NOW, {}))
+        self.assertIsNotNone(board.prune_why(it, [it], NOW + 25 * 3600, {}))  # 暂停满 24 小时照收
+
+    def test_rejudge_inside_lock(self):
+        """查 gh 期间有人把暂停原因改成等用户：进锁后重判，不按旧原因收（审查第 3 条）。"""
+        os.environ["BOARD_PRUNE_IDLE_HOURS"] = "8"
+        real = board.pr_final
+
+        def slow_gh(*a, **kw):
+            cur = board._read()
+            next(i for i in cur if i["id"] == 341)["pause_why"] = "等用户[定方向]"
+            board._write(cur)
+            return real(*a, **kw)
+        board.pr_final = slow_gh
+        try:
+            ids = {i["id"] for i, _ in board.auto_prune(now=NOW)}
+        finally:
+            board.pr_final = real
+        self.assertNotIn(341, ids)
+        self.assertIn(462, ids)
+        self.assertIn(341, {i["id"] for i in board._read()})
+
+    def test_resume_refused_not_pruned_again(self):
+        """找回后（resume 接着被拒、条目还暂停着）下一条命令不按③马上又收（审查第 4 条）。"""
+        os.environ["BOARD_PRUNE_IDLE_HOURS"] = "8"
+        board.auto_prune(now=NOW)
+        self.assertIsNotNone(board.unprune(341))
+        it = next(i for i in board._read() if i["id"] == 341)
+        self.assertTrue(it.get("paused"))
+        self.assertNotIn(341, {i["id"] for i, _ in board.auto_prune(check_pr=False)})
+
     def test_every_command_prunes_without_gh(self):
         """每个 board 命令顺带收（不查 gh）；这次要操作的编号先不收。"""
         os.environ["BOARD_PRUNE_IDLE_HOURS"] = "0.001"
@@ -204,6 +243,7 @@ class Timers(unittest.TestCase):
             cmd = c[c.index("--exec") + 1]
             self.assertTrue(cmd.endswith("board.py refresh"), cmd)
             self.assertIn(f"BOARD_DIR={TMP}", cmd)
+            self.assertIn("BOARD_TIMER=1", cmd)
             self.assertIn("BOARD_PR_REPO=zuiho-kai/bothouse", cmd)
         os.environ["BOARD_PRUNE_IDLE_HOURS"] = "2"
         self.log.write_text("")
@@ -221,6 +261,32 @@ class Timers(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("自动收起 #1", r.stderr)
         self.assertEqual([i["id"] for i in board._read()], [2])
+
+    def test_timer_reads_role_switch_and_hours(self):
+        """定时由桥用自己的环境跑（BOARD_TIMER=1）：读角色侧记下的开关和门槛，不看自己的环境（审查第 2 条）。"""
+        p = time.strftime("%m-%d %H:%M", time.localtime(time.time() - 3 * 86400))  # 暂停 3 天：桥默认 24 小时会收
+        item = [{"id": 1, "what": "a", "where": "-", "status": "s", "who": "橘", "at": p, "paused": p, "pause_why": "主线外暂停"}]
+        board._write(item)
+        bridge_env = {k: v for k, v in os.environ.items() if k not in ("BOARD_AUTO_PRUNE", "BOARD_PRUNE_IDLE_HOURS")}
+
+        def role(**env):
+            subprocess.run([sys.executable, str(HERE / "board.py")], capture_output=True, text=True,
+                           env={**bridge_env, "BOARD_AUTO_PRUNE": "0", **env})
+
+        def timer():
+            return subprocess.run([sys.executable, str(HERE / "board.py"), "refresh"], capture_output=True, text=True,
+                                  env={**bridge_env, "BOARD_TIMER": "1", "FAKE_GH_OUT": ""})
+        role(BOARD_AUTO_PRUNE="0")  # 角色侧关掉开关
+        timer()
+        self.assertEqual([i["id"] for i in board._read()], [1])
+        role(BOARD_AUTO_PRUNE="1", BOARD_PRUNE_IDLE_HOURS="100000")  # 开着，门槛设得很高
+        timer()
+        self.assertEqual([i["id"] for i in board._read()], [1])
+        role(BOARD_AUTO_PRUNE="1", BOARD_PRUNE_IDLE_HOURS="0.001")  # 角色侧这条命令自己也会收，收完再放回去给定时收
+        board._write(item)
+        r = timer()
+        self.assertIn("自动收起 #1", r.stderr)
+        self.assertEqual(board._read(), [])
 
     def test_no_sk_no_timer(self):
         board.add("顺手", "-", "s", "橘")

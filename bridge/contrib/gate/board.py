@@ -44,7 +44,8 @@
   ③ 暂停后 BOARD_PRUNE_IDLE_HOURS 小时（默认 24）没汇报、没改。暂停原因含「等用户」「等待用户」的、事情写了「主线」的不按③收。
   提问暂停（ws-up --ask，原因以「等待用户答复」开头）一律不收。等用户的条目团队板暂停行标「等你 N 小时」（core/team_task_board.go）。
   触发：每个 board 命令顺带跑（不查 gh）、board refresh / board prune（查 gh）、暂停时挂两个定时（2 小时、闲置门槛）跑 refresh。
-  BOARD_AUTO_PRUNE=0 关掉（默认开）。返工汇总和团队板「今天做完」都不算自动收起的记录。
+  BOARD_AUTO_PRUNE=0 关掉（默认开）。开关和门槛每次 board 命令记进 <BOARD_DIR>/board-prune.json，桥跑的定时（BOARD_TIMER=1）
+  读这个文件，不读桥自己的环境。闲置起点不早于暂停时刻。返工汇总和团队板「今天做完」都不算自动收起的记录。
 """
 import fcntl, json, os, re, shlex, shutil, subprocess, sys, time
 from contextlib import contextmanager
@@ -345,10 +346,19 @@ def pause_stale(now=None):
     return changed
 
 
+def _timer_command():
+    """定时跑的 board refresh：桥用自己的环境跑，钉住板子目录和 PR 仓库；BOARD_TIMER=1 让开关、门槛读 PRUNE_CONF（见 prune_conf）。"""
+    prune_conf()  # 挂定时这一刻也记一次当前开关和门槛
+    env = [f"BOARD_DIR={shlex.quote(str(DIR))}", "BOARD_TIMER=1"]
+    if os.environ.get("BOARD_PR_REPO"):
+        env.append(f"BOARD_PR_REPO={shlex.quote(os.environ['BOARD_PR_REPO'])}")
+    return f"env {' '.join(env)} {shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve()))} refresh"
+
+
 def schedule_stale_check(it):
     if not it.get("ws") or not _cc_bin() or not it.get("sk"):
         return
-    command = f'{sys.executable} "{Path(__file__).resolve()}" refresh'
+    command = _timer_command()
     r = subprocess.run([_cc_bin(), "timer", "add", "--session-key", it["sk"], "--delay", "60m",
                         "--exec", command, "--mute", "--desc", f"检查任务 #{it['id']} 是否停滞"],
                        capture_output=True, text=True)
@@ -490,17 +500,62 @@ WAIT_USER_RE = re.compile(r"等待?用户")
 _MERGED_INTO = re.compile(r"并入(?:主线)?\s*#(\d+)")
 
 
-def prune_on():
-    return os.environ.get("BOARD_AUTO_PRUNE", "1").strip() != "0"
+# 开关和门槛两边共读（PR #457 审查第 2 条）：定时（停滞检查、自动收起检查）由桥用它自己的环境跑，读不到角色环境里的
+# BOARD_AUTO_PRUNE / BOARD_PRUNE_IDLE_HOURS。所以角色侧每次跑 board 都把生效值写进 <BOARD_DIR>/board-prune.json，
+# 定时命令带 BOARD_TIMER=1，只读这个文件、不看自己的环境；文件没有按默认。角色环境关掉开关后，下一条 board 命令起定时也不收。
+PRUNE_CONF = "board-prune.json"
+_conf_cache = {}  # 同一进程内按（目录、BOARD_TIMER、两个环境变量）缓存，免得每判一条都读写文件
 
 
-def prune_idle_after():
-    """③ 的闲置门槛（秒）：BOARD_PRUNE_IDLE_HOURS，默认 PRUNE_IDLE_DEFAULT_H；写错或不是正数按默认。"""
+def _env_conf():
+    on = os.environ.get("BOARD_AUTO_PRUNE", "1").strip() != "0"
     try:
         h = float(os.environ.get("BOARD_PRUNE_IDLE_HOURS") or PRUNE_IDLE_DEFAULT_H)
     except ValueError:
         h = PRUNE_IDLE_DEFAULT_H
-    return (h if h > 0 else PRUNE_IDLE_DEFAULT_H) * 3600
+    return {"on": on, "idle_hours": h if h > 0 else PRUNE_IDLE_DEFAULT_H}
+
+
+def prune_conf():
+    """{"on": 开关, "idle_hours": ③ 的门槛小时}。角色侧：读环境并记进 PRUNE_CONF；定时（BOARD_TIMER=1）：读 PRUNE_CONF。"""
+    key = (str(DIR), os.environ.get("BOARD_TIMER"), os.environ.get("BOARD_AUTO_PRUNE"), os.environ.get("BOARD_PRUNE_IDLE_HOURS"))
+    if key in _conf_cache:
+        return _conf_cache[key]
+    conf = {"on": True, "idle_hours": PRUNE_IDLE_DEFAULT_H}
+    if os.environ.get("BOARD_TIMER") == "1":
+        try:
+            got = json.loads(_path(PRUNE_CONF).read_text())
+            conf["on"] = got.get("on") is not False
+            h = got.get("idle_hours")
+            if isinstance(h, (int, float)) and not isinstance(h, bool) and h > 0:
+                conf["idle_hours"] = float(h)
+        except (OSError, ValueError, AttributeError):
+            pass
+    else:
+        conf = _env_conf()
+        try:
+            old = json.loads(_path(PRUNE_CONF).read_text())
+        except (OSError, ValueError):
+            old = None
+        if old != conf:
+            try:
+                DIR.mkdir(parents=True, exist_ok=True)
+                tmp = _path(f"{PRUNE_CONF}.{os.getpid()}.tmp")
+                tmp.write_text(json.dumps(conf))
+                os.replace(tmp, _path(PRUNE_CONF))
+            except OSError:
+                pass
+    _conf_cache[key] = conf
+    return conf
+
+
+def prune_on():
+    return prune_conf()["on"]
+
+
+def prune_idle_after():
+    """③ 的闲置门槛（秒）：BOARD_PRUNE_IDLE_HOURS，默认 PRUNE_IDLE_DEFAULT_H；写错或不是正数按默认。"""
+    return prune_conf()["idle_hours"] * 3600
 
 
 def _ts(s, now):
@@ -546,11 +601,12 @@ def _where_prs(i, repo=None):
 
 
 def _idle_since(i, now):
-    """暂停条目最后一次有人动它：ws-up 上报（progress_at）、暂停之后的手改（at 晚于暂停时刻）取晚的；都没有按暂停时刻。
-    pause 本身把 at 设成暂停时刻，不算一次更新。"""
-    p, a = _ts(i.get("paused"), now), _ts(i.get("at"), now)
-    ts = [t for t in (i.get("progress_at"), a if a and a != p else None) if isinstance(t, (int, float))]
-    return max(ts) if ts else p
+    """暂停条目闲置的起点：暂停时刻、ws-up 上报（progress_at）、暂停之后的手改（at）取最晚的。
+    不早于暂停时刻（PR #457 审查第 1 条）：progress_at 只在没暂停时写，总在暂停之前；只看它，刚暂停的会因为暂停前
+    久没汇报被当场收走。"""
+    ts = [t for t in (_ts(i.get("paused"), now), i.get("progress_at"), _ts(i.get("at"), now))
+          if isinstance(t, (int, float))]
+    return max(ts) if ts else None
 
 
 def pr_final(numbers, now=None, repo=None):
@@ -635,14 +691,19 @@ def auto_prune(dry=False, now=None, check_pr=True, skip=()):
     skip：这次命令正要操作的编号，先不收。BOARD_AUTO_PRUNE=0 时什么都不做。"""
     if not prune_on():
         return []
-    picks = [(i, w) for i, w in prune_candidates(now=now, check_pr=check_pr) if i["id"] not in skip]  # gh 在锁外查
+    now = time.time() if now is None else now
+    its = _read()
+    paused = [i for i in its if i.get("paused")]
+    prs = pr_final({n for i in paused for n in _where_prs(i)}, now) if check_pr else {}  # gh 在锁外查
+    picks = [(i, w) for i, w in prune_candidates(its, now, prs) if i["id"] not in skip]
     if dry or not picks:
         return picks
     out = []
     with _locked():
-        cur = _read()  # 锁外查完可能有人改过：重读，只收还在板上、还在暂停的
-        why = {i["id"]: w for i, w in picks}
-        hits = [i for i in cur if i["id"] in why and i.get("paused")]
+        cur = _read()  # 锁外查 gh 时可能有人改过（update、改暂停原因）：重读，用同一份 PR 结果重判，只收仍该收的
+        ids = {i["id"] for i, _ in picks}
+        why = {i["id"]: w for i in cur if i["id"] in ids for w in [prune_why(i, cur, now, prs)] if w}
+        hits = [i for i in cur if i["id"] in why]
         if not hits:
             return []
         with open(_path("board-done.jsonl"), "a") as f:
@@ -664,6 +725,8 @@ def unprune(nid):
         if k is None or not recs[k].get("auto_pruned"):
             return None
         rec = {x: v for x, v in recs.pop(k).items() if x not in ("done_at", "auto_pruned")}
+        # 找回算一次更新（PR #457 审查第 4 条）：resume 接着被 reoccupy 拒绝时条目留在板上暂停着，不能下一条命令又按③收走
+        rec["at"] = _now()
         tmp = _path("board-done.jsonl.tmp")
         tmp.write_text("".join(json.dumps(i, ensure_ascii=False) + "\n" for i in recs))
         os.replace(tmp, _path("board-done.jsonl"))
@@ -678,9 +741,7 @@ def schedule_prune_check(it):
     cc, sk = _cc_bin(), it.get("sk")
     if not prune_on() or not cc or not sk or _asking(it):
         return
-    keep = [k for k in ("BOARD_PR_REPO", "BOARD_PRUNE_IDLE_HOURS") if os.environ.get(k)]
-    env = " ".join([f"BOARD_DIR={shlex.quote(str(DIR))}"] + [f"{k}={shlex.quote(os.environ[k])}" for k in keep])
-    command = f"env {env} {shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve()))} refresh"
+    command = _timer_command()
     for minutes in sorted({PRUNE_PR_AFTER // 60 + 1, int(prune_idle_after() // 60) + 1}):  # +1：见上「晚一分钟」
         try:
             r = subprocess.run([cc, "timer", "add", "--session-key", sk, "--delay", f"{minutes}m",
