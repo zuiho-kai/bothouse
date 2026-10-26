@@ -1225,6 +1225,51 @@ test('hub: a draft is shown but never fanned out; commit writes the full text an
   again.store.close();
 });
 
+test('CLI missing executable: existing directory keeps installation and login advice', async () => {
+  const hub = makeHub();
+  const dir = mkdtempSync(join(tmpdir(), 'cli-not-installed-'));
+  const dsh = fakeDsh();
+  const members = new DshMembers(hub, {
+    ctx: dsh.ctx, createUserMessage: m => m, workspacePath: dir, logger: quiet,
+    createCliMember: options => new CliMember({ ...options, env: { PATH: dir } }),
+  }, [{ id: 'cc', name: 'CC', cli: 'gemini' }]);
+  try {
+    hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@CC inspect directory' });
+    for (let i = 0; i < 100 && !hub.members.get('cc').error; i++) await tick();
+    const error = hub.members.get('cc').error ?? '';
+    assert.match(error, /请检查安装和登录状态/);
+    assert.ok(hub.store.page(1, undefined, 20).some(m =>
+      m.author_kind === 'system' && m.text.includes('请检查安装和登录状态')));
+  } finally { await members.close(); hub.store.close(); }
+});
+
+test('CLI directory error: real spawn failure reports channel, cwd and cause without creating a session', async () => {
+  const hub = makeHub();
+  const dir = mkdtempSync(join(tmpdir(), 'cli-directory-'));
+  const missing = join(dir, 'does-not-exist');
+  const dsh = fakeDsh();
+  let cli;
+  const members = new DshMembers(hub, {
+    ctx: dsh.ctx, createUserMessage: m => m, workspacePath: missing, logger: quiet,
+    createCliMember: options => (cli = new CliMember(options)),
+  }, [{ id: 'cc', name: 'CC', cli: 'gemini' }]);
+  try {
+    hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@CC inspect directory' });
+    for (let i = 0; i < 100 && !hub.members.get('cc').error; i++) await tick();
+    const error = hub.members.get('cc').error ?? '';
+    assert.ok(error.includes('#general'), error);
+    assert.ok(error.includes(missing), error);
+    assert.match(error, /ENOENT/, 'underlying spawn error is preserved');
+    const notice = hub.store.page(1, undefined, 20).find(m => m.author_kind === 'system' && m.text.includes(missing));
+    assert.ok(notice, 'the channel receives the same directory diagnostic');
+    assert.equal(cli.cwd, missing, 'no fallback directory is selected');
+    assert.equal(cli.sessions.size, 0);
+    assert.equal(cli.saved.size, 0);
+    assert.equal(dsh.ctx.agents.created.length, 0);
+    assert.match(hub.store.binding('cc', 1).session_id, /^cli:/, 'no ACP session id was bound');
+  } finally { await members.close(); hub.store.close(); }
+});
+
 function cliMembers(hub, ask) {
   const dsh = fakeDsh();
   const agent = { ask, close() {} };

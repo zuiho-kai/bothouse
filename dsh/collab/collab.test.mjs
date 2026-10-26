@@ -1225,6 +1225,24 @@ test('hub: a draft is shown but never fanned out; commit writes the full text an
   again.store.close();
 });
 
+test('CLI missing executable: existing directory keeps installation and login advice', async () => {
+  const hub = makeHub();
+  const dir = mkdtempSync(join(tmpdir(), 'cli-not-installed-'));
+  const dsh = fakeDsh();
+  const members = new DshMembers(hub, {
+    ctx: dsh.ctx, createUserMessage: m => m, workspacePath: dir, logger: quiet,
+    createCliMember: options => new CliMember({ ...options, env: { PATH: dir } }),
+  }, [{ id: 'cc', name: 'CC', cli: 'gemini' }]);
+  try {
+    hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@CC inspect directory' });
+    for (let i = 0; i < 100 && !hub.members.get('cc').error; i++) await tick();
+    const error = hub.members.get('cc').error ?? '';
+    assert.match(error, /请检查安装和登录状态/);
+    assert.ok(hub.store.page(1, undefined, 20).some(m =>
+      m.author_kind === 'system' && m.text.includes('请检查安装和登录状态')));
+  } finally { await members.close(); hub.store.close(); }
+});
+
 test('CLI directory error: real spawn failure reports channel, cwd and cause without creating a session', async () => {
   const hub = makeHub();
   const dir = mkdtempSync(join(tmpdir(), 'cli-directory-'));
