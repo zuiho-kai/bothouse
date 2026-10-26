@@ -38,7 +38,7 @@ func TestIsTeamWorkspaceChat(t *testing.T) {
 	recordWorkspaces(t, e, "discord:chat", []string{"ws1"}, "ws2")
 	for in, want := range map[string]bool{
 		"discord:ws1": true, "discord:ws1:user": true, "ws1": true, // owned now
-		"discord:ws2": true, // released, handed a task before
+		"discord:ws2":  true, // released, handed a task before
 		"discord:chat": false, "discord:other": false, "": false,
 	} {
 		if got := e.isTeamWorkspaceChat(in); got != want {

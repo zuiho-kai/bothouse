@@ -437,6 +437,7 @@ func TestPublicProgressCronTurnGetsRunToken(t *testing.T) {
 	e := NewEngine("test", &resultAgent{session: agentSession}, []Platform{platform}, "", LangEnglish)
 	defer e.cancel()
 	e.SetDataDir(t.TempDir())
+	allChatsAreWorkspaces(e)
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}

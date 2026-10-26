@@ -109,6 +109,9 @@ type PublicProgress struct {
 	// notBound tells the channel once that project must be /bind-ed there (bound=false), or
 	// forgets that notice once it is bound (team_hints.go).
 	notBound func(session, project string, bound bool)
+	// workspaceChat: the session is a workspace channel (Engine.isTeamWorkspaceChat); cards only
+	// open there. nil = everywhere (tests, PublicProgress without an engine).
+	workspaceChat func(session string) bool
 	// reporterName is a bound bot's display name in a session's channel ("" if unknown).
 	reporterName func(project, session string) string
 	// projectName is a configured project's name for people (team_name, e.g. 橘 for
@@ -289,6 +292,11 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	}
 	if child != nil {
 		return p.reportTaskRelay(child, req)
+	}
+	if req.Kind == "start" {
+		if err := p.checkWorkspaceCard(req.SessionKey); err != nil {
+			return "", err
+		}
 	}
 	if (req.Kind == "failed" || req.Kind == "cancelled") && req.TaskID == "" {
 		return "", errors.New("kind is only available for member reports")
@@ -642,6 +650,19 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 	return attempted, nil
 }
 
+// errCardOutsideWorkspace: a task card was asked for outside a workspace channel (user, 2026-10-26
+// 10:43: 「那个任务卡只在工作区显示，任何非其他工作区都不要显示太大，太占位置了」).
+var errCardOutsideWorkspace = errors.New("task cards are only shown in workspace channels; this channel is not a workspace, so no card was opened: reply in plain text here, or hand the work to a workspace")
+
+// checkWorkspaceCard refuses a new card (progress start, task assign, task relay) for a session
+// outside a workspace channel.
+func (p *PublicProgress) checkWorkspaceCard(session string) error {
+	if p.workspaceChat != nil && !p.workspaceChat(session) {
+		return errCardOutsideWorkspace
+	}
+	return nil
+}
+
 func (e *Engine) EnablePublicProgress() error {
 	p, err := NewPublicProgress(e.dataDir, e.name, e.platforms)
 	if err != nil {
@@ -651,12 +672,18 @@ func (e *Engine) EnablePublicProgress() error {
 	p.resolveReporter = e.resolveTaskReporter
 	p.reporterName = e.taskReporterName
 	p.notBound = e.noteBound
+	p.workspaceChat = e.isTeamWorkspaceChat
 	p.projectName = e.projectDisplayName
 	return nil
 }
 
 func (e *Engine) withPublicProgress(prompt string, state *interactiveState, session string, fromBot, fromVoice bool) string {
 	if e.publicProgress == nil || fromBot {
+		return prompt
+	}
+	// Task cards only in workspace channels (isTeamWorkspaceChat): elsewhere no card prompt and
+	// no turn token, so neither the agent nor the bridge opens a card there.
+	if !e.isTeamWorkspaceChat(session) {
 		return prompt
 	}
 	state.mu.Lock()
@@ -670,11 +697,9 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	state.publicProgressRun = token
 	desc, scheduled := state.turnDesc, state.turnScheduled
 	state.mu.Unlock()
-	// Automatic cards only in workspace channels: in a chat channel they take too much room
-	// (user, 2026-10-26: 「聊天频道不要自动任务卡，太占位置」). Voice turns and private chats are
-	// not workspaces. The agent's own progress start works everywhere.
-	_, workspace := e.WorkspaceParent(session)
-	e.publicProgress.armAuto(token, desc, scheduled || fromVoice || !workspace)
+	// Automatic cards only in workspace channels (user, 2026-10-26: 「聊天频道不要自动任务卡，太占
+	// 位置」); non-workspace channels returned above. Voice turns get no automatic card.
+	e.publicProgress.armAuto(token, desc, scheduled || fromVoice)
 	return e.publicProgressInstructions(token, session) + prompt
 }
 

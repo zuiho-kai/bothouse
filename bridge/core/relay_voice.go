@@ -531,8 +531,8 @@ func (s *APIServer) handleVoiceRelay(w http.ResponseWriter, r *http.Request) {
 }
 
 func (e *Engine) voicePublicProgress(ctx context.Context, sessionKey string) string {
-	if e.publicProgress == nil {
-		return ""
+	if e.publicProgress == nil || !e.isTeamWorkspaceChat(sessionKey) {
+		return "" // task cards only in workspace channels
 	}
 	name, _, ok := strings.Cut(sessionKey, ":")
 	if !ok {

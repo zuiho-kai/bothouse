@@ -64,6 +64,9 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	if source.publicProgress == nil {
 		return nil, errors.New("relay: task cards are not enabled on source")
 	}
+	if err := source.publicProgress.checkWorkspaceCard(req.SessionKey); err != nil {
+		return nil, err
+	}
 	d, cached, err := source.publicProgress.beginTaskRelay(req, name)
 	if err != nil || cached != nil {
 		return cached, err
