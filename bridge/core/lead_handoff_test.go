@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -445,5 +446,61 @@ func TestLeadHandoffCompletedResultIsNotLabeledPending(t *testing.T) {
 	}
 	if !strings.Contains(text, "结果：已验收") {
 		t.Fatalf("completed result missing:\n%s", text)
+	}
+}
+
+// TestLeadHandoffDeltaKeepsTaskOutsideTop12 is the regression test for the
+// delta path: the injected snapshot is capped at the same 12-item board as the
+// public task card, but a result on the 13th (older) card must still reach the
+// new lead with its original task ID.
+func TestLeadHandoffDeltaKeepsTaskOutsideTop12(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now().UTC()
+	taskDir := filepath.Join(dir, "public-progress", "abc123")
+	if err := os.MkdirAll(taskDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeRecord := func(task *Task) {
+		t.Helper()
+		b, err := json.Marshal(progressRecord{Task: task, Platform: "discord", Lang: LangChinese})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(taskDir, task.ID+".json"), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Twelve newer in-progress cards fill the injected top 12.
+	for i := 0; i < leadHandoffMaxTasks; i++ {
+		writeRecord(&Task{
+			ID: fmt.Sprintf("task-new-%02d", i), Title: "新任务",
+			Agent: "lead-a", State: TaskStateInProgress, FactStage: FactStageCodeModified,
+			LatestProgress: "进行中", UpdatedAt: now.Add(-time.Duration(i+1) * time.Minute),
+		})
+	}
+	// The older completed card ranks 13th, so it is outside the capped picture;
+	// its result event still arrives after the switch and must be in the delta.
+	writeRecord(&Task{
+		ID: "task-old-result", Title: "旧任务结果",
+		Agent: "lead-a", State: TaskStateCompleted, FactStage: FactStageVerified,
+		ResultSummary: "已验收", UpdatedAt: now.Add(-2 * time.Hour),
+		Events: []TaskEvent{{
+			ID: "evt-old", TaskID: "task-old-result", Kind: TaskEventResultReady,
+			Summary: "成员结果：旧任务完成", Timestamp: now.Add(-5 * time.Minute),
+		}},
+	})
+
+	snap := buildLeadHandoffSnapshot(dir, "lead-d", "lead-a", nil, nil)
+	if snap.TaskTotal != leadHandoffMaxTasks+1 || len(snap.Tasks) != leadHandoffMaxTasks {
+		t.Fatalf("snapshot cap: total=%d shown=%d", snap.TaskTotal, len(snap.Tasks))
+	}
+	for _, task := range snap.Tasks {
+		if task.TaskID == "task-old-result" {
+			t.Fatal("the 13th task should not be in the capped snapshot")
+		}
+	}
+	delta := buildLeadHandoffDelta(dir, "lead-d", "lead-a", now.Add(-10*time.Minute), nil, nil)
+	if !strings.Contains(delta, "task-old-result") || !strings.Contains(delta, "成员结果：旧任务完成") {
+		t.Fatalf("delta dropped the 13th task's result:\n%s", delta)
 	}
 }
