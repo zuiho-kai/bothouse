@@ -970,6 +970,9 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 		if proj.PublicProgressThreadArchiveMins != nil {
 			engine.SetPublicProgressThreadArchiveAfter(time.Duration(*proj.PublicProgressThreadArchiveMins) * time.Minute)
 		}
+		if proj.PublicProgressResultReadyArchiveMins != nil {
+			engine.SetPublicProgressResultReadyThreadArchiveAfter(time.Duration(*proj.PublicProgressResultReadyArchiveMins) * time.Minute)
+		}
 	}
 
 	// Wire multi-workspace mode

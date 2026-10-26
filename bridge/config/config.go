@@ -504,11 +504,17 @@ type ProjectConfig struct {
 	// reaches completed/failed/cancelled its Discord thread is archived. nil
 	// uses 1440, the thread archive duration the bridge already passes to
 	// MessageThreadStart (Discord's default); 0 disables automatic archiving.
-	PublicProgressThreadArchiveMins *int   `toml:"public_progress_thread_archive_mins,omitempty"`
-	Name                            string `toml:"name"`
-	Mode                            string `toml:"mode,omitempty"`     // "" or "multi-workspace"
-	BaseDir                         string `toml:"base_dir,omitempty"` // parent dir for workspaces
-	SkipGit                         *bool  `toml:"skip_git,omitempty"`
+	PublicProgressThreadArchiveMins *int `toml:"public_progress_thread_archive_mins,omitempty"`
+	// PublicProgressResultReadyArchiveMins is how many minutes after a task
+	// card reaches result_ready its Discord thread is archived, without
+	// changing the card state. nil uses 4320 (3 days), the wait C酱 suggested
+	// in the PR #498 review: result_ready cards rarely get accepted and would
+	// otherwise keep their threads active forever. 0 disables this archive.
+	PublicProgressResultReadyArchiveMins *int   `toml:"public_progress_result_ready_archive_mins,omitempty"`
+	Name                                 string `toml:"name"`
+	Mode                                 string `toml:"mode,omitempty"`     // "" or "multi-workspace"
+	BaseDir                              string `toml:"base_dir,omitempty"` // parent dir for workspaces
+	SkipGit                              *bool  `toml:"skip_git,omitempty"`
 	// WorkspaceInitAllowLocalPaths allows /workspace init and the conversational
 	// init flow to bind existing local directories. Default false keeps init
 	// limited to git URLs; use /workspace bind or /workspace route for explicit
