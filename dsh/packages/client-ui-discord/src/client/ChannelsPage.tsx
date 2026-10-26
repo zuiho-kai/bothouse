@@ -882,7 +882,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
           <label className={css.field}>{t('channelLead')}
             <select className={css.fieldInput} aria-label={t('channelLead')} value={state.effectiveLeadId ?? state.leadId ?? ''} disabled={leadSaving} onChange={event => { changeLead(event.target.value) }}>
               <option value="" disabled>{t('leadNone')}</option>
-              {state.members.filter(m => m.kind !== 'human').map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              {visibleMembers.filter(m => m.kind !== 'human').map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </label>
           {memberError !== undefined && <div role="alert">{memberError}</div>}

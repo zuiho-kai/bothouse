@@ -83,6 +83,11 @@ describe('channels page', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: '@' } })
     expect(screen.getAllByRole('option').some(o => o.textContent?.includes('OfficeOnly'))).toBe(true)
     expect(screen.getAllByRole('option').some(o => o.textContent?.includes('GameOnly'))).toBe(false)
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' })
+    fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
+    const lead = within(screen.getByRole('combobox', { name: zh.channelLead }))
+    expect(lead.queryByRole('option', { name: 'GameOnly' })).toBeNull()
+    expect(lead.getByRole('option', { name: 'OfficeOnly' })).toBeTruthy()
   })
   it('edits the three channel settings through shared actions and shows rename failures', async () => {
     const p = props({ ...ready, members: [...ready.members, { id: 'ds', name: '鲸鱼娘', kind: 'dsh', online: true }] })

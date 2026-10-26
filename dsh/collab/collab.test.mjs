@@ -94,11 +94,12 @@ test('channel rename API: emits fresh rooms and returns HTTP 400 for invalid nam
   hub.store.close();
 });
 
-test('channel rename: preserves ids, messages, bindings, members and dispatch settings', () => {
+test('channel rename: preserves ids, messages, bindings, members, dispatch settings and workspace paths', () => {
   const hub = makeHub();
   const s = hub.store;
+  s.ensureRoom(1, 'general', '/channel-project');
   const ws = s.createWorkspace(1);
-  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true, rooms: [1] });
   const message = s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek hello' }).message;
   s.bind('ds', 1, 'session-1');
   s.setDispatchMode(1, 'team');
@@ -110,6 +111,9 @@ test('channel rename: preserves ids, messages, bindings, members and dispatch se
   assert.deepEqual(s.binding('ds', 1), binding);
   assert.deepEqual(hub.memberView(), members);
   assert.equal(s.dispatchMode(1), 'team');
+  assert.equal(s.workspacePath(1, '/fallback'), '/channel-project');
+  assert.equal(s.workspacePath(ws.id, '/fallback'), '/channel-project');
+  assert.deepEqual(hub.routableIn(ws.id).map(m => m.id), ['ds']);
   assert.equal(s.room(ws.id).parent_id, 1);
   for (const name of ['', 'x'.repeat(33), 'two words', ' name', 'name\n', null, 4]) {
     assert.throws(() => s.renameRoom(1, name), /1-32 characters/);
@@ -129,6 +133,11 @@ test('channel rename: the persisted name survives reopening the database', async
   s.close();
   const reopened = new Store(path);
   assert.equal(reopened.room(1).name, '新频道');
+  // Startup preserves the saved name while reapplying the configured directory.
+  const config = resolveConfig({ dataDir: '/data', workspacePath: '/fallback', rooms: [{ id: 1, name: 'general', workspacePath: '/changed' }] });
+  for (const room of config.rooms) reopened.ensureRoom(room.id, reopened.room(room.id)?.name ?? room.name.trim(), room.workspacePath);
+  assert.equal(reopened.room(1).name, '新频道');
+  assert.equal(reopened.workspacePath(1, '/fallback'), '/changed');
   reopened.close();
 });
 
