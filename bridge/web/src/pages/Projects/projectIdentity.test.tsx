@@ -74,6 +74,7 @@ describe('project detail settings naming', () => {
     const agent = [...container.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'claudecode'))!;
     await setSelect(agent, 'claudecode');
     expect([...container.querySelectorAll('input')].some((i) => i.value === 'Claude Code')).toBe(true);
+    expect(container.querySelector('h2')?.textContent).toBe('Claude Code');
     await clickText('common.save');
     expect(updateProject).toHaveBeenCalledWith('coder', expect.objectContaining({ agent_type: 'claudecode' }));
     const body = updateProject.mock.calls[0]![1] as Record<string, unknown>;
@@ -89,6 +90,7 @@ describe('project detail settings naming', () => {
     const agent = [...container.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'claudecode'))!;
     await setSelect(agent, 'claudecode');
     expect(name.value).toBe('小码');
+    expect(container.querySelector('h2')?.textContent).toBe('小码·Claude Code');
     await clickText('common.save');
     expect(updateProject).toHaveBeenCalledWith('coder', expect.objectContaining({ display_name: '小码', name_customized: true, agent_type: 'claudecode' }));
   });

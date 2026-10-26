@@ -89,6 +89,11 @@ export default function SetupWizard() {
     () => shownNames((state?.projects || []).map((name, i) => ({ name, display_name: state?.project_display_names?.[i] }))),
     [state],
   );
+  // Display names already in use; a project id whose team_name differs is not one of them.
+  const configuredNames = useMemo(
+    () => (state?.projects || []).map((name, i) => state?.project_display_names?.[i] || name).filter(Boolean),
+    [state],
+  );
   const [clis, setClis] = useState<LocalCLI[] | null>(null);
   const [vendors, setVendors] = useState<WizardVendor[]>([]);
   const [matrix, setMatrix] = useState<MatrixCell[]>([]);
@@ -145,7 +150,7 @@ export default function SetupWizard() {
   useEffect(() => {
     if (!defaultAgent) return;
     setRoles((rs) => {
-      const used = new Set([...(state?.projects || []), ...(state?.project_display_names || [])].filter(Boolean));
+      const used = new Set(configuredNames);
       return rs.map((r) => {
         if (r.nameCustomized || r.reuse_project) {
           if (r.name) used.add(r.name);
@@ -156,12 +161,12 @@ export default function SetupWizard() {
         return { ...r, agent_type: r.agent_type || defaultAgent, name };
       });
     });
-  }, [defaultAgent, state]);
+  }, [defaultAgent, configuredNames]);
 
   const patchRole = (key: number, p: Partial<RoleDraft>) => setRoles((rs) => rs.map((r) => {
     if (r.key !== key) return r;
     const next = { ...r, ...p };
-    const taken = [...(state?.projects || []), ...(state?.project_display_names || []), ...rs.filter((x) => x.key !== key).map((x) => x.name || '')];
+    const taken = [...configuredNames, ...rs.filter((x) => x.key !== key).map((x) => x.name || '')];
     if (p.agent_type && p.agent_type !== r.agent_type && !r.nameCustomized && !r.reuse_project && p.name === undefined) {
       next.name = nextRoleName(p.agent_type, taken);
     }
@@ -171,7 +176,7 @@ export default function SetupWizard() {
     return next;
   }));
   const addRole = () => setRoles(rs => [...rs, { ...newRole(), agent_type: defaultAgent,
-    name: nextRoleName(defaultAgent, [...(state?.projects || []), ...(state?.project_display_names || []), ...rs.map(r => r.name || '')]) }]);
+    name: nextRoleName(defaultAgent, [...configuredNames, ...rs.map(r => r.name || '')]) }]);
   // Same rule as core ApplyWizard: an existing bot keeps its project name as is; a new bot's
   // name is cleaned, then falls back to role-N, then gets -N if taken.
   const projectNames = useMemo(() => {
