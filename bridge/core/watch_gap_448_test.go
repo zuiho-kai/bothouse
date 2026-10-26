@@ -132,6 +132,7 @@ func TestRelayWatchRestartInterruptionWakesLead(t *testing.T) {
 	delete(p.relayRuns, d.token)
 	p.mu.Unlock()
 	p.relayWatchTick(relayWatchReceipt(d).WatchDue)
+	p.relayWatchTick(relayWatchReceipt(d).WatchDue) // WatchDone stays true: never a second wake
 
 	jobs := store.List()
 	if len(jobs) != 1 {

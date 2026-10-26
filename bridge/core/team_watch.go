@@ -54,9 +54,9 @@ func watchCheckAfter() time.Duration { return time.Duration(watchCheckAfterNs.Lo
 var watchMaxRenew = 0
 
 // watchBusyMaxRenew caps renewals granted only because a session of the workspace is still in
-// a turn (no post, commit or receipt). Without it a stuck turn that holds the session renews
-// forever under watchMaxRenew = 0 (PR #430 review P1). Two checks = 30 minutes, the old cap.
-// Source: the pre-#429 watchMaxRenew default of 2.
+// a turn (no owner post and no finished turn in the window). Without it a stuck turn that
+// holds the session renews forever under watchMaxRenew = 0 (PR #430 review P1). Two checks =
+// 30 minutes, the old cap. Source: the pre-#429 watchMaxRenew default of 2.
 const watchBusyMaxRenew = 2
 
 // watchCanRenew: a watch renewed n times may renew again on progress.
