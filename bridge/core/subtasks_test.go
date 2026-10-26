@@ -26,10 +26,13 @@ func newSubTaskSession() *subTaskSession {
 	}
 }
 
-// subTaskTableWorkspace makes every session count as a workspace channel: since
-// #469 the table only opens in workspaces, and these tests are about the table
-// itself, not about which channels get one.
-func subTaskTableWorkspace(e *Engine) { e.workspaceChatForTest = func(string) bool { return true } }
+// allChatsAreWorkspaces makes every session count as a workspace channel: since #469 the
+// task table, progress card and team board only open in workspaces, and these tests are about
+// the card itself, not about which channels get one.
+func allChatsAreWorkspaces(e *Engine) { e.workspaceChatForTest = func(string) bool { return true } }
+
+// subTaskTableWorkspace is allChatsAreWorkspaces for the sub-task table tests (#486).
+func subTaskTableWorkspace(e *Engine) { allChatsAreWorkspaces(e) }
 
 func (s *subTaskSession) SubTasks() (uint64, []SubTask, []SubTask) {
 	s.mu.Lock()
