@@ -1046,10 +1046,62 @@
 }
 
 /* #139 team mode B: task board (right column) and task cards in the stream */
-.taskBoard {
+.taskBoardTrigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  width: 100%;
+  height: 40px;
   margin-bottom: 8px;
-  padding-bottom: 8px;
+  padding: 7px 8px;
+  border: 0;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.taskBoardTrigger:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.taskBoardTrigger:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);
+}
+
+.taskBoardSummary {
+  flex: 1;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskBoardDialog {
+  width: min(640px, 100%);
+  max-height: min(70vh, calc(100dvh - 32px));
+  overflow: hidden;
+}
+
+.taskBoardBody {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.taskBoardDialog > :not(.taskBoardBody) {
+  flex-shrink: 0;
+}
+
+.taskBoardScope {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
 }
 
 .leadControl {
