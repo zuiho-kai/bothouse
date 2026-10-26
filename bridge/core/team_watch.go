@@ -2,8 +2,8 @@ package core
 
 // Team mode: the ten-minute watch on workspace handoffs (#574 B9). Every claim of a pool
 // workspace records a check time (TeamHandoff.Due = claim + watchCheckAfter). At the check time
-// a handoff still in work either shows progress (renewed by watchCheckAfter, at most
-// watchMaxRenew times, silently) or is nudged once in the workspace channel and parked
+// a handoff still in work either shows progress (renewed by watchCheckAfter, silently,
+// while it shows progress; watchMaxRenew 0 = no cap) or is nudged once in the workspace channel and parked
 // (ParkTeamWorkspaceFor, the same path as `bothouse workspace park`). Same rule as the DSH
 // gateway's task watch (dsh/collab/tasks.mjs CHECK_AFTER_S, MAX_RENEWALS) and the lead's
 // d10-fire script. One watcher per bridge on the team workspace engine; the state lives in the
@@ -44,9 +44,14 @@ func init() { watchCheckAfterNs.Store(int64(watchCheckAfterDefault)) }
 // watchCheckAfter is the current check time after a claim (see watchCheckAfterNs).
 func watchCheckAfter() time.Duration { return time.Duration(watchCheckAfterNs.Load()) }
 
+// watchMaxRenew caps renewals on progress; 0 means no cap (renew while there is progress).
 // Var only so tests can change it; not configurable.
-// Source: d10-fire MAX_RENEW = 2 (lead ruling 2026-10-25, at most 30 minutes); same as tasks.mjs MAX_RENEWALS.
-var watchMaxRenew = 2
+// Source: user 2026-10-26 agreed「有进展就一直续，没进展才停」(#429), replacing the earlier cap of 2;
+// same as tasks.mjs MAX_RENEWALS.
+var watchMaxRenew = 0
+
+// watchCanRenew: a watch renewed n times may renew again on progress.
+func watchCanRenew(n int) bool { return watchMaxRenew <= 0 || n < watchMaxRenew }
 
 const (
 	// Source: B9 plan v3「park 返回其他错误…Due 推后 1 分钟重试，最多 3 次」.
@@ -252,7 +257,7 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		// drop the check.
 		return now.Add(watchRetryDelay)
 	}
-	if h.ParkFails == 0 && h.Renewed < watchMaxRenew && w.progress != nil {
+	if h.ParkFails == 0 && watchCanRenew(h.Renewed) && w.progress != nil {
 		since := h.Since
 		if since.IsZero() {
 			since = h.Due.Add(-watchCheckAfter())

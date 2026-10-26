@@ -162,3 +162,68 @@ func TestRelayWatchRunsWithoutWorkspaceWatch(t *testing.T) {
 		t.Fatalf("dispatcher got %v %v", got.resp, got.err)
 	}
 }
+
+// #429: once the dispatcher stops waiting, the drain's fixed safety limit must
+// not end a task relay (the watch keeps it), and the outcome wakes the lead.
+func TestTaskRelayDrainOutlivesSafetyLimitAndWakesLead(t *testing.T) {
+	old := relayDrainSafety
+	relayDrainSafety = 20 * time.Millisecond
+	t.Cleanup(func() { relayDrainSafety = old })
+	p, platform, _, id := taskRelayFixture(t)
+	var starts atomic.Int32
+	sent, release := make(chan struct{}), make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	rm, s := taskRelayManager(t, p, platform, func(string) { close(sent); <-release }, &starts)
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rm.engines["source"].timerScheduler = NewTimerScheduler(store)
+	s.events <- Event{Type: EventText, Content: "halfway there"}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := relayWatchSend(rm, ctx, id)
+	<-sent
+	relayWatchWait(t, "text consumed", func() bool { return len(s.events) == 0 })
+	cancel()
+	got := relayWatchResult(t, done, "wait did not end")
+	if got.err == nil || !strings.Contains(got.err.Error(), "ten-minute watch") || !strings.Contains(got.err.Error(), "wake this session") {
+		t.Fatalf("dispatcher got %v %v", got.resp, got.err)
+	}
+	time.Sleep(10 * relayDrainSafety)
+	select {
+	case <-s.closed:
+		t.Fatal("drain safety limit closed a watched task relay")
+	default:
+	}
+	if rc, _ := relayWatchRecord(p, id); rc.Status != "running" {
+		t.Fatalf("receipt ended before the watch: %+v", rc)
+	}
+	if jobs := store.List(); len(jobs) != 0 {
+		t.Fatalf("lead woken while the run continues: %+v", jobs)
+	}
+	rc, _ := relayWatchRecord(p, id)
+	p.relayWatchTick(rc.WatchDue) // no progress: the watch stops the run
+	relayWatchWait(t, "lead woken", func() bool { return len(store.List()) == 1 })
+	job := store.List()[0]
+	if job.Project != "source" || job.SessionKey != "discord:room:user" || !job.InjectIfBusy ||
+		!strings.Contains(job.Prompt, id) || !strings.Contains(job.Prompt, "十分钟看门") || !strings.Contains(job.Prompt, "halfway there") {
+		t.Fatalf("wake job %+v", job)
+	}
+}
+
+// A plain relay (no watch) keeps the drain's safety limit.
+func TestPlainRelayDrainKeepsSafetyLimit(t *testing.T) {
+	old := relayDrainSafety
+	relayDrainSafety = 20 * time.Millisecond
+	t.Cleanup(func() { relayDrainSafety = old })
+	s := newControllableSession("plain")
+	e := NewEngine("target", &stubAgent{}, nil, "", LangEnglish)
+	ended := make(chan teamWorkOutcome, 1)
+	sess := &Session{}
+	go e.drainRelaySession(s, sess, NewSessionManager(""), "stub", "relay:k", func(o teamWorkOutcome) { ended <- o }, s.Events(), nil, false, "", nil, nil, nil)
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("plain relay drain ignored its safety limit")
+	}
+}

@@ -170,7 +170,7 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 		case d == nil: // restart: the run is gone; report once, no nudge, no retry
 			rc.WatchDone = true
 			p.appendEvent(r, TaskEventProgress, relayWatchInterrupted, true)
-		case (rc.LastSeq > rc.WatchSeq || relayMemberProgress(r.record.Task, rc.Target, rc.WatchFrom)) && rc.WatchRenewed < watchMaxRenew:
+		case (rc.LastSeq > rc.WatchSeq || relayMemberProgress(r.record.Task, rc.Target, rc.WatchFrom)) && watchCanRenew(rc.WatchRenewed):
 			rc.WatchRenewed++
 			rc.WatchSeq = rc.LastSeq
 			rc.WatchFrom = now
@@ -178,7 +178,7 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 			if next.IsZero() || rc.WatchDue.Before(next) {
 				next = rc.WatchDue
 			}
-		default: // no progress, or renewed twice already: nudge in the thread, tell the card, stop
+		default: // no progress (or a renewal cap reached): nudge in the thread, tell the card, stop
 			rc.WatchDone = true
 			p.appendEvent(r, TaskEventProgress, relayWatchNudge+"（"+d.name+"）", true)
 			stop = append(stop, d)
