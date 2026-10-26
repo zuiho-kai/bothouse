@@ -6525,12 +6525,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 			}
 			if content != "" && !isEllipsisOnly(content) {
-				// #618 K4: text counts as progress, except while a resumed turn is
-				// unconfirmed (an API error streams as text before its result).
-				state.mu.Lock()
-				armed := state.resumeArmed
-				state.mu.Unlock()
-				e.journalProgress(sessionKey, "", content, !armed)
+				// #618 K4: text is recorded but never clears the no-progress count;
+				// only a tool step does (handoff: 文本不清零、只工具步清零).
+				e.journalProgress(sessionKey, "", content, false)
 			}
 			if event.SessionID != "" {
 				e.journalSessionID(sessionKey, event.SessionID) // #618 K4
@@ -7392,9 +7389,6 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// #618 K4 M2: the bridge is stopping and ended this turn; it is kept in
 					// the journal and resumed after the restart, so it is no failure.
 					slog.Info("agent error during shutdown suppressed", "session", sessionKey, "error", errMsg)
-				} else if input == nil && e.takeResumeFirstError(state, errMsg, chainedQueued) {
-					// #618 K4 S1: re-run on a fresh session by the caller.
-					slog.Warn("resumed turn failed at once; re-running on a fresh session", "session", sessionKey, "error", errMsg)
 				} else if input == nil && isModelCapacityError(errMsg) {
 					// maomao fork: retried / cooled down by runTurnWithCapacityRetry, which tells the user.
 					// A queued message chained into this loop goes back to the queue head,
@@ -7417,6 +7411,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						state.promptTooLongQueued = &q
 					}
 					state.mu.Unlock()
+				} else if input == nil && e.takeResumeFirstError(state, errMsg, chainedQueued) {
+					// #618 K4 S1 (after capacity / prompt-too-long): re-run on a fresh session by the caller.
+					slog.Warn("resumed turn failed at once; re-running on a fresh session", "session", sessionKey, "error", errMsg)
 				} else {
 					detail := errMsg
 					if errors.Is(event.Error, ErrTaskAlreadyCompleted) {

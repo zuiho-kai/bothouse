@@ -53,7 +53,19 @@ type turnResumeHooks struct {
 	deliver func(en TurnJournalEntry, job *TimerJob) error
 	notify  func(en TurnJournalEntry, text string) error
 	reap    func(en TurnJournalEntry) error
+	ready   func(en TurnJournalEntry) error // platform wait; nil: waitTurnResumePlatform
+	// retryDelay / retryFor override turnResumeRetryDelay / turnResumeRetryFor (tests).
+	retryDelay, retryFor time.Duration
 }
+
+// turnResumeRetryDelay / turnResumeRetryFor: a resume whose platform is not
+// ready or whose channel queue is full is retried in this process (K4 must-fix 3).
+var (
+	turnResumeRetryDelay = 2 * time.Minute
+	turnResumeRetryFor   = turnResumeMaxAge
+)
+
+const turnResumeNotDelivered = "重启后这件活没能自动续上（%s），需要人看"
 
 type turnResumeAction int
 
@@ -348,9 +360,41 @@ func (e *Engine) deliverTurnResume(en TurnJournalEntry) {
 	if j == nil {
 		return
 	}
-	if err := e.waitTurnResumePlatform(en); err != nil {
-		slog.Warn("turn resume: platform not ready, left for the next start", "turn", en.TurnID, "error", err)
-		return
+	ready := e.turnResumeHooks.ready
+	if ready == nil {
+		ready = e.waitTurnResumePlatform
+	}
+	delay, retryFor := turnResumeRetryDelay, turnResumeRetryFor
+	if e.turnResumeHooks.retryDelay > 0 {
+		delay = e.turnResumeHooks.retryDelay
+	}
+	if e.turnResumeHooks.retryFor > 0 {
+		retryFor = e.turnResumeHooks.retryFor
+	}
+	giveUp := time.Now().Add(retryFor)
+	// retry waits and reports whether to try again; on the last failure it says
+	// in the channel why the turn was not resumed.
+	retry := func(what string, err error) bool {
+		if time.Now().Add(delay).Before(giveUp) && e.sleepCtx(delay) {
+			slog.Warn("turn resume: "+what+", retrying", "turn", en.TurnID, "error", err)
+			return true
+		}
+		slog.Warn("turn resume: "+what+", giving up", "turn", en.TurnID, "error", err)
+		if e.ctx.Err() == nil {
+			if nerr := e.turnResumeNotify(en, fmt.Sprintf(turnResumeNotDelivered, what)); nerr != nil {
+				slog.Warn("turn resume: not-delivered notice failed", "turn", en.TurnID, "error", nerr)
+			}
+		}
+		return false
+	}
+	for {
+		err := ready(en)
+		if err == nil {
+			break
+		}
+		if !retry("平台未就绪", err) {
+			return
+		}
 	}
 	reap := e.turnResumeHooks.reap
 	if reap == nil {
@@ -371,9 +415,6 @@ func (e *Engine) deliverTurnResume(en TurnJournalEntry) {
 	fallback := ""
 	if resumable {
 		fallback = buildTurnResumePrompt(en, true)
-	}
-	if _, err := j.Update(en.TurnID, func(x *TurnJournalEntry) { x.ResumedAt = time.Now() }); err != nil {
-		slog.Warn("turn resume: mark failed", "turn", en.TurnID, "error", err)
 	}
 	silent := true
 	job := &TimerJob{
@@ -398,17 +439,41 @@ func (e *Engine) deliverTurnResume(en TurnJournalEntry) {
 		job.WorkDir = en.WorkspaceDir
 	}
 	slog.Info("turn resume: resuming", "turn", en.TurnID, "key", en.InteractiveKey, "trigger", en.Trigger, "no_progress", job.resume.noProgress, "resumable", resumable)
-	if e.turnResumeHooks.deliver != nil {
-		if err := e.turnResumeHooks.deliver(en, job); err != nil {
-			slog.Warn("turn resume: delivery failed", "turn", en.TurnID, "error", err)
+	deliver := e.turnResumeHooks.deliver
+	if deliver == nil {
+		deliver = func(_ TurnJournalEntry, job *TimerJob) error { return e.ExecuteTimerJob(job) }
+	}
+	noticed := false
+	for {
+		if !noticed && e.turnResumeHooks.deliver == nil {
+			if err := e.turnResumeNotify(en, turnResumeNotice); err != nil {
+				slog.Debug("turn resume: notice failed", "turn", en.TurnID, "error", err)
+			} else {
+				noticed = true
+			}
 		}
+		// ResumedAt marks the hand-off (a resume still queued when the bridge
+		// goes down counts as one without progress at the next start); a
+		// delivery that failed is rolled back so it is not counted.
+		e.markTurnResumed(en.TurnID, time.Now())
+		err := deliver(en, job)
+		if err == nil {
+			return
+		}
+		e.markTurnResumed(en.TurnID, time.Time{})
+		if !retry("投递失败："+turnResumeOneLine(err.Error(), turnResumeSummaryRunes), err) {
+			return
+		}
+	}
+}
+
+func (e *Engine) markTurnResumed(turnID string, at time.Time) {
+	j := e.turnJournalStore()
+	if j == nil {
 		return
 	}
-	if err := e.turnResumeNotify(en, turnResumeNotice); err != nil {
-		slog.Debug("turn resume: notice failed", "turn", en.TurnID, "error", err)
-	}
-	if err := e.ExecuteTimerJob(job); err != nil {
-		slog.Warn("turn resume: delivery failed", "turn", en.TurnID, "error", err)
+	if _, err := j.Update(turnID, func(x *TurnJournalEntry) { x.ResumedAt = at }); err != nil {
+		slog.Warn("turn resume: mark failed", "turn", turnID, "error", err)
 	}
 }
 
@@ -518,6 +583,10 @@ func (e *Engine) takeResumeFirstResultError(state *interactiveState, input *inpu
 	if isErr, _ := event.Metadata[MetaResultIsError].(bool); !isErr {
 		return false
 	}
+	// Stop / cancel / capacity / prompt-too-long keep their own paths.
+	if state.turnCancelled || e.resumeErrorExcluded(event.Content) {
+		return false
+	}
 	recordResumeFailedLocked(state, event.Content, chained)
 	return true
 }
@@ -528,11 +597,18 @@ func (e *Engine) takeResumeFirstError(state *interactiveState, errMsg string, ch
 	defer state.mu.Unlock()
 	armed := state.resumeArmed
 	state.resumeArmed = false
-	if !armed {
+	if !armed || state.turnCancelled || e.resumeErrorExcluded(errMsg) {
 		return false
 	}
 	recordResumeFailedLocked(state, errMsg, chained)
 	return true
+}
+
+// resumeErrorExcluded: errors S1 must not treat as a failed resume. A stopping
+// bridge keeps the turn for the next start; capacity and prompt-too-long have
+// their own retries (runTurnWithCapacityRetry / retryFreshOnPromptTooLong).
+func (e *Engine) resumeErrorExcluded(errMsg string) bool {
+	return e.isStoppingForJournal() || isModelCapacityError(errMsg) || isPromptTooLongError(errMsg)
 }
 
 func (s *interactiveState) takeResumeFailed() (string, *queuedMessage) {
@@ -550,6 +626,11 @@ func (s *interactiveState) takeResumeFailed() (string, *queuedMessage) {
 // locked; true when the re-run took over the lock. Otherwise the error is
 // reported.
 func (e *Engine) retryFreshOnResumeError(p Platform, msg Message, errMsg string, old *interactiveState, session *Session, sessions *SessionManager, agent Agent, interactiveKey, workspaceDir, ccSessionKey string) bool {
+	if e.isStoppingForJournal() {
+		// Stopping: keep the agent session id so the next start can --resume it.
+		slog.Info("resumed turn error during shutdown; not re-running", "session", interactiveKey, "error", errMsg)
+		return false
+	}
 	if msg.resumeFallback == "" || msg.freshRetried {
 		e.send(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgError), errMsg))
 		return false

@@ -143,7 +143,7 @@ var strayScanned sync.Map // dataDir -> struct{}
 
 // reapStrayAgentProcesses kills agent process groups an earlier bridge left
 // behind, journal or not: parent gone (ppid 1), group leader, started before
-// this process and carrying the claudecode or codex exec markers. Once per
+// this process and carrying the claudecode marker. Once per
 // dataDir per process.
 func reapStrayAgentProcesses(dataDir string, start time.Time) {
 	if dataDir == "" {
@@ -158,15 +158,15 @@ func reapStrayAgentProcesses(dataDir string, start time.Time) {
 		return
 	}
 	self := syscall.Getpgrp()
+	// Only claudecode: its marker (<dataDir>/agent-prompts) is unique to this
+	// bridge. codex exec carries no bridge-specific mark, and gpt/dsx scripts
+	// start the same command, so codex is only reaped by its recorded pid.
 	claude := orphanMarkers("claudecode", dataDir)
-	codex := orphanMarkers("codex", dataDir)
 	for _, p := range procs {
 		if p.ppid != 1 || p.pid != p.pgid || p.pgid == self || !p.started.Before(start) {
 			continue
 		}
-		isClaude := len(claude) > 0 && hasAllMarkers(p.command, claude)
-		isCodex := strings.Contains(p.command, "codex") && hasAllMarkers(p.command, codex)
-		if !isClaude && !isCodex {
+		if len(claude) == 0 || !hasAllMarkers(p.command, claude) {
 			continue
 		}
 		slog.Info("turn resume: stopping stray agent process", "pid", p.pid, "command", p.command)

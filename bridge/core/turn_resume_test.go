@@ -530,6 +530,8 @@ func (s *resumeAgentSession) Send(prompt string, _ string, _ []ImageAttachment, 
 	a.mu.Unlock()
 	switch next {
 	case "hold":
+	case "text": // talks, then never ends (no tool step)
+		s.events <- Event{Type: EventText, Content: "先核对一下产物", SessionID: s.id}
 	case "err":
 		s.events <- Event{Type: EventResult, Content: "API Error: 400 tool_use ids were found without tool_result blocks", Done: true,
 			SessionID: s.id, Metadata: map[string]any{MetaResultIsError: true}}
@@ -636,5 +638,211 @@ func TestTurnResume_PlanSkips(t *testing.T) {
 		if got[k] != v {
 			t.Fatalf("%s: action %d, want %d (all %v)", k, got[k], v, got)
 		}
+	}
+}
+
+// ---- review must-fix tests ----
+
+// Must-fix 1: an armed resume does not take the S1 fresh re-run while stopping,
+// after /stop, or for capacity / prompt-too-long errors.
+func TestTurnResume_FirstErrorExclusions(t *testing.T) {
+	e := newResumeEngine(t, t.TempDir())
+	isErr := map[string]any{MetaResultIsError: true}
+	arm := func() *interactiveState { return &interactiveState{resumeArmed: true} }
+
+	if st := arm(); !e.takeResumeFirstResultError(st, nil, Event{Content: "API Error: 400", Metadata: isErr}, nil) {
+		t.Fatal("plain first error should take S1")
+	}
+	if st := arm(); !e.takeResumeFirstError(st, "API Error: 400", nil) {
+		t.Fatal("plain first EventError should take S1")
+	}
+	for _, msg := range []string{"Selected model is at capacity. Please try a different model.", "prompt is too long: 1227574 tokens > 1048576 maximum"} {
+		if st := arm(); e.takeResumeFirstResultError(st, nil, Event{Content: msg, Metadata: isErr}, nil) || st.resumeFailed != "" {
+			t.Fatalf("result %q took S1", msg)
+		}
+		if st := arm(); e.takeResumeFirstError(st, msg, nil) || st.resumeFailed != "" {
+			t.Fatalf("error %q took S1", msg)
+		}
+	}
+	st := arm()
+	st.turnCancelled = true
+	if e.takeResumeFirstResultError(st, nil, Event{Content: "API Error: aborted", Metadata: isErr}, nil) {
+		t.Fatal("/stop result took S1")
+	}
+	st = arm()
+	st.turnCancelled = true
+	if e.takeResumeFirstError(st, "aborted", nil) {
+		t.Fatal("/stop error took S1")
+	}
+
+	e.platformLifecycleMu.Lock()
+	e.stopping = true
+	e.platformLifecycleMu.Unlock()
+	if st := arm(); e.takeResumeFirstResultError(st, nil, Event{Content: "API Error: 400", Metadata: isErr}, nil) {
+		t.Fatal("stopping result took S1")
+	}
+	if st := arm(); e.takeResumeFirstError(st, "API Error: 400", nil) {
+		t.Fatal("stopping error took S1")
+	}
+	// retryFreshOnResumeError's own guard: stopping keeps the session id.
+	sess := e.sessions.GetOrCreateActive("test:c1")
+	sess.SetAgentSessionID("keep-sid", "claudecode")
+	msg := Message{resumeFallback: "fallback"}
+	if e.retryFreshOnResumeError(nil, msg, "API Error: 400", arm(), sess, e.sessions, e.agent, "test:c1", "", "test:c1") {
+		t.Fatal("re-ran while stopping")
+	}
+	if id := sess.GetAgentSessionID(); id != "keep-sid" {
+		t.Fatalf("session id cleared while stopping: %q", id)
+	}
+}
+
+// Must-fix 2: a resumed turn that only talks (no tool step) and is killed
+// twice still stops on the third start.
+func TestTurnResume_TextOnlyKilledTwiceStops(t *testing.T) {
+	shortenTurnResume(t)
+	dataDir := t.TempDir()
+	// No agent session id: round 1 is not armed for S1 (the path the review flagged).
+	prev := seedJournal(t, dataDir, []TurnJournalEntry{userEntry("test:c1", "长活")}, func(_ int, x *TurnJournalEntry) { x.AgentSessionID = "" })[0]
+	for round := 1; round <= 2; round++ {
+		p := &cronHistoryPlatform{historyPlatform{stubPlatformEngine: stubPlatformEngine{n: "test"}}}
+		a := &resumeAgent{script: []string{"text"}}
+		e := NewEngine("test", a, []Platform{p}, "", LangEnglish)
+		e.SetDataDir(dataDir)
+		strayScanned.Store(dataDir, struct{}{})
+		go e.ResumeInterruptedTurns()
+		waitFor(t, fmt.Sprintf("round %d text written", round), func() bool {
+			j, _ := OpenTurnJournal(TurnJournalPath(dataDir, "test"))
+			l := j.List()
+			return len(l) == 1 && l[0].ResumedFrom == prev && strings.Contains(l[0].LastText, "先核对")
+		})
+		j, _ := OpenTurnJournal(TurnJournalPath(dataDir, "test"))
+		l := j.List()
+		prev = l[0].TurnID
+		if l[0].NoProgressCount != round {
+			t.Fatalf("round %d: no-progress count %d after text, want %d (text must not clear it)", round, l[0].NoProgressCount, round)
+		}
+	}
+	p := &cronHistoryPlatform{historyPlatform{stubPlatformEngine: stubPlatformEngine{n: "test"}}}
+	a := &resumeAgent{}
+	e := NewEngine("test", a, []Platform{p}, "", LangEnglish)
+	e.SetDataDir(dataDir)
+	strayScanned.Store(dataDir, struct{}{})
+	t.Cleanup(func() { e.Stop() })
+	e.ResumeInterruptedTurns()
+	waitFor(t, "stop sentence", func() bool { return strings.Contains(joined(&p.stubPlatformEngine), turnResumeStopNoProgress) })
+	if sent, _, _ := a.snapshot(); len(sent) != 0 {
+		t.Fatalf("third start resumed again: %q", sent)
+	}
+}
+
+// Must-fix 3: platform not ready / queue full are retried in this process; a
+// failed delivery leaves ResumedAt unset.
+func TestTurnResume_RetriesPlatformAndQueueFull(t *testing.T) {
+	shortenTurnResume(t)
+	dataDir := t.TempDir()
+	ids := seedJournal(t, dataDir, []TurnJournalEntry{userEntry("test:c1", "活")}, nil)
+	e := newResumeEngine(t, dataDir)
+	rec := &resumeRecorder{}
+	e.turnResumeHooks = rec.hooks()
+	e.turnResumeHooks.retryDelay, e.turnResumeHooks.retryFor = 20*time.Millisecond, time.Minute
+	var mu sync.Mutex
+	readyFails, deliverFails := 2, 1
+	e.turnResumeHooks.ready = func(TurnJournalEntry) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if readyFails > 0 {
+			readyFails--
+			return errTimerPlatformNotReady
+		}
+		return nil
+	}
+	okDeliver := e.turnResumeHooks.deliver
+	e.turnResumeHooks.deliver = func(en TurnJournalEntry, job *TimerJob) error {
+		mu.Lock()
+		fail := deliverFails > 0
+		if fail {
+			deliverFails--
+		}
+		mu.Unlock()
+		if fail {
+			return errors.New(`session "test:c1" is busy and its queue is full`)
+		}
+		return okDeliver(en, job)
+	}
+	e.ResumeInterruptedTurns()
+	waitFor(t, "delivered after retries", func() bool { n, _ := rec.counts(); return n == 1 })
+	en, ok := e.turnJournalStore().Get(ids[0])
+	if !ok || en.ResumedAt.IsZero() {
+		t.Fatalf("ResumedAt not set after the delivery: %+v", en)
+	}
+	if _, n := rec.counts(); n != 0 {
+		t.Fatalf("notices %q; want none when it got through", rec.noticeText())
+	}
+}
+
+// Must-fix 3: never delivered: ResumedAt rolled back and the channel is told why.
+func TestTurnResume_NotResumedTellsChannel(t *testing.T) {
+	shortenTurnResume(t)
+	dataDir := t.TempDir()
+	ids := seedJournal(t, dataDir, []TurnJournalEntry{userEntry("test:c1", "活")}, nil)
+	e := newResumeEngine(t, dataDir)
+	rec := &resumeRecorder{}
+	e.turnResumeHooks = rec.hooks()
+	e.turnResumeHooks.retryDelay, e.turnResumeHooks.retryFor = 20*time.Millisecond, 150*time.Millisecond
+	var tries int
+	var mu sync.Mutex
+	e.turnResumeHooks.deliver = func(TurnJournalEntry, *TimerJob) error {
+		mu.Lock()
+		tries++
+		mu.Unlock()
+		return errors.New("busy and its queue is full")
+	}
+	e.ResumeInterruptedTurns()
+	waitFor(t, "not-resumed notice", func() bool { _, n := rec.counts(); return n == 1 })
+	if txt := rec.noticeText(); !strings.Contains(txt, "没能自动续上") || !strings.Contains(txt, "queue is full") {
+		t.Fatalf("notice %q", txt)
+	}
+	mu.Lock()
+	n := tries
+	mu.Unlock()
+	if n < 2 {
+		t.Fatalf("delivery tried %d times, want retries", n)
+	}
+	en, _ := e.turnJournalStore().Get(ids[0])
+	if !en.ResumedAt.IsZero() {
+		t.Fatal("ResumedAt kept after failed deliveries (would count as no progress next start)")
+	}
+
+	// Platform never ready: same notice.
+	dataDir2 := t.TempDir()
+	seedJournal(t, dataDir2, []TurnJournalEntry{userEntry("test:c1", "活")}, nil)
+	e2 := newResumeEngine(t, dataDir2)
+	rec2 := &resumeRecorder{}
+	e2.turnResumeHooks = rec2.hooks()
+	e2.turnResumeHooks.retryDelay, e2.turnResumeHooks.retryFor = 20*time.Millisecond, 150*time.Millisecond
+	e2.turnResumeHooks.ready = func(TurnJournalEntry) error { return errTimerPlatformNotReady }
+	e2.ResumeInterruptedTurns()
+	waitFor(t, "platform notice", func() bool { _, n := rec2.counts(); return n == 1 })
+	if d, _ := rec2.counts(); d != 0 || !strings.Contains(rec2.noticeText(), "平台未就绪") {
+		t.Fatalf("delivered=%d notice=%q", d, rec2.noticeText())
+	}
+}
+
+// Extra must-fix: the start-up scan never reaps a codex exec without the
+// bridge's mark (gpt/dsx start the same command line).
+func TestTurnResume_StrayScanLeavesCodex_RealProcess(t *testing.T) {
+	shortTermWait(t)
+	dataDir := t.TempDir()
+	pid := startFakeBridge(t, dataDir, "codex exec --skip-git-repo-check --json -", true)
+	oldStart := StartTime
+	time.Sleep(1100 * time.Millisecond)
+	StartTime = time.Now()
+	t.Cleanup(func() { StartTime = oldStart; strayScanned.Delete(dataDir) })
+	e := NewEngine("test", &stubAgent{}, []Platform{&stubPlatformEngine{n: "test"}}, "", LangEnglish)
+	e.SetDataDir(dataDir)
+	t.Cleanup(func() { e.Stop() })
+	e.ResumeInterruptedTurns()
+	if !groupAlive(pid) {
+		t.Fatal("start-up scan reaped an unmarked codex exec")
 	}
 }
