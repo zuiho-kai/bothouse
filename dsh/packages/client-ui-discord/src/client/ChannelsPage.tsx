@@ -330,6 +330,14 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
   const [modeError, setModeError] = useState<string | undefined>(undefined)
   const [leadSaving, setLeadSaving] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const settingsRef = useRef<HTMLElement>(null)
+  const settingsButtonRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!settingsOpen) return
+    const opener = settingsButtonRef.current
+    settingsRef.current?.focus()
+    return () => { opener?.focus() }
+  }, [settingsOpen])
   const [channelName, setChannelName] = useState('')
   const [nameSaving, setNameSaving] = useState(false)
   const [nameError, setNameError] = useState<string | undefined>(undefined)
@@ -828,7 +836,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
       <aside className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}>
         <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} />
         <hr className={css.settingsDivider} />
-        <button type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { setDrawer(undefined); setChannelName(room?.name ?? ''); setNameError(undefined); setSettingsOpen(true) }}>
+        <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { setDrawer(undefined); setChannelName(room?.name ?? ''); setNameError(undefined); setSettingsOpen(true) }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9.5 3-.7 2.3-2 .9-2.2-.6-2.5 4.3 1.6 1.7v2.3l-1.6 1.7 2.5 4.3 2.2-.6 2 .9.7 2.3h5l.7-2.3 2-.9 2.2.6 2.5-4.3-1.6-1.7v-2.3l1.6-1.7-2.5-4.3-2.2.6-2-.9L14.5 3Z" /><circle cx="12" cy="12.75" r="3" /></svg>
           {t('channelSettings')}
         </button>
@@ -838,7 +846,17 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
         <MemberGroup title={t('humans', { count: String(visibleMembers.filter(m => m.kind === 'human').length) })} members={visibleMembers.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
       </aside>
       {settingsOpen && <div className={css.dialogBackdrop} onClick={() => { setSettingsOpen(false) }}>
-        <section className={css.dialog} role="dialog" aria-modal="true" aria-label={t('channelSettings')} onClick={event => { event.stopPropagation() }} onKeyDown={event => { if (event.key === 'Escape') setSettingsOpen(false) }}>
+        <section ref={settingsRef} tabIndex={-1} className={css.dialog} role="dialog" aria-modal="true" aria-label={t('channelSettings')} onClick={event => { event.stopPropagation() }} onKeyDown={event => {
+          if (event.key === 'Escape') setSettingsOpen(false)
+          if (event.key !== 'Tab') return
+          const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]'))
+          const first = controls[0]
+          const last = controls[controls.length - 1]
+          if (!controls.includes(document.activeElement as HTMLElement) || (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+            event.preventDefault()
+            ;(event.shiftKey ? last : first)?.focus()
+          }
+        }}>
           <h2 className={css.dialogTitle}>{t('channelSettings')}</h2>
           <fieldset disabled={modeSaving || state.roomId === undefined}>
             <legend>{t('dispatchMode')}</legend>
@@ -857,7 +875,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
           {memberError !== undefined && <div role="alert">{memberError}</div>}
           <form onSubmit={event => { event.preventDefault(); saveName() }}>
             <label className={css.field}>{t('channelName')}
-              <input autoFocus className={css.fieldInput} aria-label={t('channelName')} value={channelName} disabled={nameSaving || room?.kind === 'workspace'} onChange={event => { setChannelName(event.target.value) }} onKeyDown={event => { if (event.key === 'Enter' && isImeEnter(event)) event.preventDefault() }} />
+              <input className={css.fieldInput} aria-label={t('channelName')} value={channelName} disabled={nameSaving || room?.kind === 'workspace'} onChange={event => { setChannelName(event.target.value) }} onKeyDown={event => { if (event.key === 'Enter' && isImeEnter(event)) event.preventDefault() }} />
             </label>
             <p>{t(room?.kind === 'workspace' ? 'workspaceNameFixed' : 'channelNameHint')}</p>
             <button type="submit" className={css.primaryButton} disabled={nameSaving || room?.kind === 'workspace' || !channelName || channelName.length > 32 || /\s/.test(channelName) || channelName === room?.name}>{t('messageSave')}</button>

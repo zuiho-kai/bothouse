@@ -815,8 +815,12 @@ export class DshMembers {
         if (member.cli !== undefined) continue;
         const binding = this.store.binding(member.id, room.id);
         if (binding === undefined) continue;
-        const agent = await this.boundAgent(binding.session_id, member);
-        if (agent !== undefined) this.rt.ctx.sessionTitle.rename(agent.session, this.sessionTitle(room, member));
+        try {
+          const agent = await this.boundAgent(binding.session_id, member);
+          if (agent !== undefined) await this.rt.ctx.sessionTitle.rename(agent.session, this.sessionTitle(room, member));
+        } catch (error) {
+          this.rt.logger.warn('collab: could not refresh room %d session %s title: %s', room.id, binding.session_id, error?.stack ?? error);
+        }
       }
     }
   }
