@@ -288,10 +288,8 @@ export class DshMembers {
    * @param hub - Hub instance.
    * @param runtime - { ctx, createUserMessage, workspacePath, logger }.
    * @param members - [{ id, name, agentPreset?, permissionPreset?, model?: { provider, model } }].
-   * @param options - { maxRelay? }.
    */
-  constructor(hub, runtime, members, { maxRelay = DEFAULT_MAX_RELAY } = {}) {
-    // The legacy constructor option is accepted; each channel now owns its relay cap.
+  constructor(hub, runtime, members) {
     this.hub = hub;
     this.store = hub.store;
     this.rt = runtime;

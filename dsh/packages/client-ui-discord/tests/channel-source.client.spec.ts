@@ -35,6 +35,24 @@ function deferred<T>() {
 const state = { rooms: [{ id: 1, name: 'general' }, { id: 2, name: 'other' }], members: [], thinking: {} }
 
 describe('channel source', () => {
+  it('saves relay settings for the parent channel and all its workspaces only', async () => {
+    const rooms = [{ id: 1, name: 'A', max_relay: 6 }, { id: 2, name: 'B', max_relay: 6 }, { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 1, max_relay: 6 }]
+    const { transport } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') return json(200, { ...state, rooms })
+      if (url.endsWith('/settings')) {
+        expect(init?.method).toBe('PATCH')
+        expect(JSON.parse(String(init?.body))).toEqual({ max_relay: 8 })
+        return json(200, { dispatch_mode: 'mixed', max_relay: 8 })
+      }
+      return json(200, { messages: [] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+    await actions.setMaxRelay(1000000, 8)
+    expect(source.getSnapshot().rooms.map(r => r.max_relay)).toEqual([8, 6, 8])
+    unsubscribe()
+  })
   it('ignores an old startup after the panel is closed and reopened', async () => {
     const oldState = deferred<Response>()
     let requests = 0

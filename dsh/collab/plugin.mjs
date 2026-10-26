@@ -87,9 +87,9 @@ export function roomSettingsRoute(req, res, path, { store, hub }) {
   const match = /^\/collab\/api\/rooms\/(\d+)\/settings$/.exec(path);
   if (match === null || !['GET', 'PATCH'].includes(req.method)) return undefined;
   const roomId = Number(match[1]);
-  if (store.room(roomId) === undefined) return json(res, 404, { error: 'room not found' });
+  if (store.room(roomId) === undefined) return Promise.resolve(json(res, 404, { error: 'room not found' }));
   const view = () => ({ dispatch_mode: store.dispatchMode(roomId), ...store.relaySetting(roomId) });
-  if (req.method === 'GET') return json(res, 200, view());
+  if (req.method === 'GET') return Promise.resolve(json(res, 200, view()));
   return withBody(req, res, body => {
     store.transaction(() => {
       if (body?.dispatch_mode !== undefined) store.setDispatchMode(roomId, body.dispatch_mode);
@@ -121,7 +121,7 @@ export async function apply(ctx, rawConfig) {
   const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger, files });
   const later = new Later(hub, join(config.dataDir, 'collab.sqlite3'), (id, msg) => dsh.nudge(id, msg) || gateway.nudge(id, msg), { start: false });
   gateway.later = later;
-  const dsh = new DshMembers(hub, { files, later, ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
+  const dsh = new DshMembers(hub, { files, later, ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, []);
   const roster = new Roster(hub, dsh, ctx.llm);
   // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.
   // Started after dsh.recover(): a reminder due during the downtime must not look like a leftover job.

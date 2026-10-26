@@ -68,6 +68,65 @@ test('store: client keys dedupe, pages are oldest-first, jobs are created and fi
   assert.throws(() => s.setDispatchMode(1, 'bad'), /dispatch mode/);
 });
 
+test('relay settings: integer bounds, channel isolation, workspace inheritance and persistence', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-relay-')), 'settings.sqlite3');
+  const s = new Store(path);
+  s.ensureRoom(1, 'A'); s.ensureRoom(2, 'B');
+  assert.deepEqual(s.relaySetting(1), { max_relay: 6 });
+  for (const value of [5, 21, 6.5, '8', null, NaN, Infinity]) {
+    assert.throws(() => s.setMaxRelay(1, value), error => error.name === 'CollabError' && /6 and 20/.test(error.message));
+  }
+  assert.equal(s.setMaxRelay(1, 6), 6);
+  assert.equal(s.setMaxRelay(1, 20), 20);
+  s.setMaxRelay(1, 8);
+  const ws = s.createWorkspace(1);
+  assert.equal(s.relaySetting(ws.id).max_relay, 8);
+  assert.equal(s.relaySetting(2).max_relay, 6);
+  assert.equal(s.roomsView().find(r => r.id === ws.id).max_relay, 8);
+  s.setMaxRelay(ws.id, 20);
+  assert.equal(s.relaySetting(1).max_relay, 20);
+  s.close();
+  const reopened = new Store(path);
+  assert.equal(reopened.relaySetting(ws.id).max_relay, 20);
+  assert.equal(reopened.relaySetting(2).max_relay, 6);
+  reopened.close();
+});
+
+test('relay settings: existing databases gain max_relay without losing dispatch settings', () => {
+  const s = new Store(':memory:');
+  s.ensureRoom(1, 'general'); s.setDispatchMode(1, 'team');
+  s.db.exec('ALTER TABLE room_settings DROP COLUMN max_relay');
+  s.ensureSchema(11);
+  assert.equal(s.relaySetting(1).max_relay, 6);
+  assert.equal(s.dispatchMode(1), 'team');
+  s.close();
+});
+
+test('relay settings API: GET, PATCH, validation rollback and room events', async t => {
+  const { roomSettingsRoute } = await import('./plugin.mjs');
+  const { createServer } = await import('node:http');
+  const hub = makeHub();
+  const ws = hub.store.createWorkspace(1);
+  const events = [];
+  hub.emit = event => events.push(event);
+  const server = createServer((req, res) => roomSettingsRoute(req, res, req.url, { store: hub.store, hub }));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.close(); hub.store.close(); });
+  const url = `http://127.0.0.1:${server.address().port}/collab/api/rooms`;
+  assert.deepEqual(await (await fetch(`${url}/1/settings`)).json(), { dispatch_mode: 'mixed', max_relay: 6 });
+  const patch = body => fetch(`${url}/${ws.id}/settings`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  assert.deepEqual(await (await patch({ max_relay: 8 })).json(), { dispatch_mode: 'mixed', max_relay: 8 });
+  assert.equal(events.at(-1).rooms.find(r => r.id === 1).max_relay, 8);
+  assert.equal((await patch({ max_relay: 5 })).status, 400);
+  assert.equal((await patch({ dispatch_mode: 'team', max_relay: 21 })).status, 400);
+  assert.equal(hub.store.dispatchMode(1), 'mixed', 'invalid relay cap rolls back the entire settings change');
+  assert.equal(hub.store.relaySetting(1).max_relay, 8);
+  assert.equal((await fetch(`${url}/999/settings`)).status, 404);
+});
+
 test('dispatch mode: a workspace inherits its chat channel setting (PR #138 review 6)', () => {
   const s = new Store(':memory:');
   s.ensureRoom(1, 'general');
@@ -787,6 +846,25 @@ test('DSH member: close drains waiting jobs before the store closes', async () =
   await settle();
   assert.equal(dsh.made.length, 1, 'the in-flight create finished but admitted nothing after close');
   assert.equal(dsh.sessions.get(dsh.made[0]).prompts.length, 0);
+});
+
+for (const cap of [6, 8, 20]) test(`relay cap ${cap}: the next role message is stopped in a workspace`, async () => {
+  const hub = makeHub();
+  hub.store.setMaxRelay(1, cap);
+  hub.store.ensureRoom(2, 'other');
+  const ws = hub.store.createWorkspace(1);
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  members.enqueue = () => {};
+  hub.setMember({ id: 'ju', name: '橘', kind: 'bot', online: true });
+  for (let i = 1; i <= cap; i++) hub.post(ws.id, { authorKind: 'role', author: 'ju', name: '橘', text: '@DeepSeek hi' });
+  assert.equal(hub.store.openJobs().length, cap);
+  hub.post(ws.id, { authorKind: 'role', author: 'ju', name: '橘', text: '@DeepSeek blocked' });
+  await settle();
+  assert.equal(hub.store.openJobs().length, cap);
+  assert.match(hub.store.page(ws.id).at(-1).text, new RegExp(`连续接力 ${cap} 次以上`));
+  assert.equal(hub.store.relaySetting(2).max_relay, 6);
+  await members.close(); hub.store.close();
 });
 
 test('relay cap: agent-to-agent mentions stop starting DSH turns until a human speaks', async () => {
