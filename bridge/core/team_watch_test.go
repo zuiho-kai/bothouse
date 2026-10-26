@@ -873,7 +873,11 @@ func TestWatchWorkspaceBranchPushRenews(t *testing.T) {
 	if ok, err := w.workspaceProgress("discord:ws2", h, since); ok || err != nil {
 		t.Fatalf("another workspace's push is not progress: %v %v", ok, err)
 	}
-	w.tick(h.Due.Add(watchCheckAfter()))
+	next := w.tick(h.Due)
+	if next.IsZero() {
+		t.Fatal("the new push must renew the first check")
+	}
+	w.tick(next)
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
 		t.Fatalf("old push must not renew: %+v", got)
 	}
