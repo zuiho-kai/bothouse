@@ -44,6 +44,10 @@ export const zh = {
   taskNextCheck: '下次看 {time}',
   taskOpenAssign: '派工消息',
   taskOpenResult: '交回消息',
+  channelSettings: '频道设定',
+  maxRelay: '接力上限',
+  relayHint: '允许 6–20 次连续接力，默认 6 次；工作区继承所属频道的设置。保存后即时生效。',
+  relayInvalid: '接力上限必须是 6–20 的整数。',
   dispatchMode: '派活方式',
   dispatchSolo: '单模型多进程 — 同一模型分开处理任务',
   dispatchTeam: '完全团队 — 交给团队成员协作',
@@ -160,6 +164,10 @@ export const zh = {
 
 /** English dictionary. */
 export const en: Record<keyof typeof zh, string> = {
+  channelSettings: 'Channel settings',
+  maxRelay: 'Relay limit',
+  relayHint: 'Allow 6–20 consecutive relays (default 6). Workspaces inherit their channel setting. Changes take effect when saved.',
+  relayInvalid: 'Relay limit must be an integer between 6 and 20.',
   dispatchMode: 'Dispatch mode',
   dispatchSolo: 'Single model, multiple processes — separate tasks on one model',
   dispatchTeam: 'Full team — delegate to team members',

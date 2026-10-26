@@ -291,7 +291,7 @@ export class DshMembers {
    * @param options - { maxRelay? }.
    */
   constructor(hub, runtime, members, { maxRelay = DEFAULT_MAX_RELAY } = {}) {
-    this.maxRelay = maxRelay;
+    // The legacy constructor option is accepted; each channel now owns its relay cap.
     this.hub = hub;
     this.store = hub.store;
     this.rt = runtime;
@@ -457,10 +457,11 @@ export class DshMembers {
         for (const id of targets) this.enqueue({ member_id: id, room_id: msg.room_id }, () => this.renew(id, msg));
       };
     }
-    if (msg.author_kind === 'role' && this.store.relayDepth(msg.room_id, msg.id) > this.maxRelay) {
+    const cap = this.store.relaySetting(msg.room_id).max_relay ?? DEFAULT_MAX_RELAY;
+    if (msg.author_kind === 'role' && this.store.relayDepth(msg.room_id, msg.id) > cap) {
       return () => this.hub.post(msg.room_id, {
         authorKind: 'system', author: 'system', name: 'system', clientKey: `relay-cap-${msg.id}`,
-        text: `Agent 之间已经连续接力 ${this.maxRelay} 次以上，暂停自动接力；需要继续请人来 @。`,
+        text: `Agent 之间已经连续接力 ${cap} 次以上，暂停自动接力；需要继续请人来 @。`,
       });
     }
     const jobs = targets.map(id => this.store.addJob(id, msg.room_id, msg.id)).filter(Boolean);

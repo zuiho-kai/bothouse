@@ -276,7 +276,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
   const [editing, setEditing] = useState<{ id: number; text: string } | undefined>(undefined)
@@ -326,6 +326,11 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
   const [retryingId, setRetryingId] = useState<number | undefined>(undefined)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [relayValue, setRelayValue] = useState('6')
+  const [relaySaving, setRelaySaving] = useState(false)
+  const [relayError, setRelayError] = useState<string | undefined>(undefined)
+  useEffect(() => { setSettingsOpen(false); setRelayError(undefined) }, [state.roomId])
   const [modeSaving, setModeSaving] = useState(false)
   const [modeError, setModeError] = useState<string | undefined>(undefined)
   const [leadSaving, setLeadSaving] = useState(false)
@@ -649,6 +654,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
           <button type="button" className={css.mobileButton} aria-label={t('showRooms')} aria-expanded={drawer === 'rooms'} onClick={() => setDrawer(drawer === 'rooms' ? undefined : 'rooms')}>☰</button>
           <button type="button" className={css.panelToggle} title={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-label={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-expanded={!roomsHidden} onClick={() => { setRoomsHidden(!roomsHidden) }}>{roomsHidden ? '»' : '«'}</button>
           <span className={css.hash} aria-hidden>#</span><span className={css.roomName}>{room?.name}</span>
+          <button type="button" className={css.secondaryButton} disabled={state.roomId === undefined} onClick={() => {
+            setRelayValue(String(room?.max_relay ?? 6)); setRelayError(undefined); setSettingsOpen(true)
+          }}>{t('channelSettings')}</button>
           <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
           <button type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
         </header>
@@ -848,6 +856,28 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, listMo
         <MemberGroup title={t('agents', { count: String(state.members.filter(m => m.kind !== 'human').length) })} members={state.members.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
         <MemberGroup title={t('humans', { count: String(state.members.filter(m => m.kind === 'human').length) })} members={state.members.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
       </aside>
+      {settingsOpen && <div className={css.dialogBackdrop} onClick={() => { if (!relaySaving) setSettingsOpen(false) }}>
+        <form className={css.dialog} role="dialog" aria-modal="true" aria-label={t('channelSettings')} onClick={event => { event.stopPropagation() }} onSubmit={event => {
+          event.preventDefault()
+          const roomId = state.roomId
+          const value = Number(relayValue)
+          if (roomId === undefined || relaySaving) return
+          if (!Number.isInteger(value) || value < 6 || value > 20) { setRelayError(t('relayInvalid')); return }
+          setRelaySaving(true); setRelayError(undefined)
+          setMaxRelay(roomId, value).then(() => { setSettingsOpen(false) }).catch((error: unknown) => {
+            setRelayError(error instanceof Error ? error.message : String(error))
+          }).finally(() => { setRelaySaving(false) })
+        }}>
+          <h2>{t('channelSettings')}</h2>
+          <label className={css.fieldLabel}>{t('maxRelay')}
+            <input className={css.fieldInput} type="number" min={6} max={20} step={1} required value={relayValue} disabled={relaySaving} onChange={event => { setRelayValue(event.target.value) }} />
+          </label>
+          <p>{t('relayHint')}</p>
+          {relayError !== undefined && <div role="alert">{relayError}</div>}
+          <button type="submit" className={css.primaryButton} disabled={relaySaving}>{t('save')}</button>
+          <button type="button" className={css.secondaryButton} disabled={relaySaving} onClick={() => { setSettingsOpen(false) }}>{t('close')}</button>
+        </form>
+      </div>}
       {modelsOpen && <div className={css.dialogBackdrop} onClick={() => { setModelsOpen(false) }}>
         <section className={css.dialog} role="dialog" aria-modal="true" aria-label={t('configureModel')} onClick={event => { event.stopPropagation() }}>
           <button type="button" className={css.secondaryButton} onClick={() => { setModelsOpen(false) }}>{t('close')}</button>

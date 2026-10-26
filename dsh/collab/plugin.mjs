@@ -83,6 +83,23 @@ export function installApprovalAnswerer(ctx, dsh) {
   ctx.on('approval/request', (request, next) => dsh.onApprovalRequest(request, next), { prepend: true });
 }
 
+export function roomSettingsRoute(req, res, path, { store, hub }) {
+  const match = /^\/collab\/api\/rooms\/(\d+)\/settings$/.exec(path);
+  if (match === null || !['GET', 'PATCH'].includes(req.method)) return undefined;
+  const roomId = Number(match[1]);
+  if (store.room(roomId) === undefined) return json(res, 404, { error: 'room not found' });
+  const view = () => ({ dispatch_mode: store.dispatchMode(roomId), ...store.relaySetting(roomId) });
+  if (req.method === 'GET') return json(res, 200, view());
+  return withBody(req, res, body => {
+    store.transaction(() => {
+      if (body?.dispatch_mode !== undefined) store.setDispatchMode(roomId, body.dispatch_mode);
+      if (body?.max_relay !== undefined) store.setMaxRelay(roomId, body.max_relay);
+    });
+    hub.emit({ type: 'rooms', rooms: store.roomsView() });
+    return view();
+  });
+}
+
 export async function apply(ctx, rawConfig) {
   const config = resolveConfig(rawConfig);
   const require = dshRequire();
@@ -235,6 +252,8 @@ export async function apply(ctx, rawConfig) {
         : store.page(roomId, before === null ? undefined : Number(before), url.searchParams.get('limit'));
       return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
     }
+    const settings = roomSettingsRoute(req, res, path, { store, hub });
+    if (settings !== undefined) return settings;
     const mode = /^\/collab\/api\/rooms\/(\d+)\/mode$/.exec(path);
     if (mode !== null && req.method === 'GET') {
       const roomId = Number(mode[1]);

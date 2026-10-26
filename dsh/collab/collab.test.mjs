@@ -792,17 +792,18 @@ test('DSH member: close drains waiting jobs before the store closes', async () =
 test('relay cap: agent-to-agent mentions stop starting DSH turns until a human speaks', async () => {
   const hub = makeHub();
   const dsh = fakeDsh();
-  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { maxRelay: 2 });
+  hub.store.setMaxRelay(1, 8);
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
   hub.setMember({ id: 'ju', name: '橘', kind: 'bot', online: true });
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 开始' });
-  for (const t of ['一', '二']) hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: `@DeepSeek ${t}` });
+  for (let t = 1; t <= 8; t++) hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: `@DeepSeek ${t}` });
   await settle();
-  assert.equal(hub.store.openJobs().length, 2, 'mentions within the cap still start jobs');
+  assert.equal(hub.store.openJobs().length, 8, 'mentions within the cap still start jobs');
   hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '@DeepSeek 三' });
   await settle();
   const last = hub.store.page(1, undefined, 1)[0];
   assert.equal(last.author_kind, 'system');
-  assert.match(last.text, /连续接力 2 次以上/);
+  assert.match(last.text, /连续接力 8 次以上/);
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 继续' });
   assert.equal(hub.store.relayDepth(1, hub.store.page(1, undefined, 1)[0].id), 0);
 });
