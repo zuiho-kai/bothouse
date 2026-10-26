@@ -420,7 +420,7 @@ func TestTaskRelayClosedCardErrorNamesReclaimCommand(t *testing.T) {
 		t.Fatal("closed card accepted without a live turn")
 	}
 	msg := err.Error()
-	for _, want := range []string{id, "earlier turn", "task assign --id " + id} {
+	for _, want := range []string{id, "earlier turn", "task assign --id " + id, "--ref"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("error %q missing %q", msg, want)
 		}
@@ -543,6 +543,104 @@ func TestTaskRelayReclaimsFinishedAutomaticCard(t *testing.T) {
 	if !closed {
 		t.Fatal("reclaimed automatic card stayed open after its new turn ended")
 	}
+}
+
+// The resume note is generated before the dispatch. If the agent follows it
+// after the card was auto-reclaimed, the advertised command must carry the
+// explicit task id so progress goes to the reclaimed card, not the run's
+// empty record.
+func TestTaskRelayResumeNoteAdvertisesExplicitTaskForReclaimedCard(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	p.finish(run, "result")
+	next := p.begin(platform, "discord:room:user", LangChinese, nil)
+	_, resumeSeq, _, _, ok := p.resumeHint(next)
+	if !ok {
+		t.Fatal("resume hint missing for the closed card")
+	}
+	var starts atomic.Int32
+	rm, _ := taskRelayManager(t, p, platform, nil, &starts)
+	instructions := rm.engines["source"].publicProgressInstructions(next, "discord:room:user")
+	taskArg := ""
+	fields := strings.Fields(instructions)
+	for i := 0; i+1 < len(fields); i++ {
+		if fields[i] == "--task" && fields[i+1] == id {
+			taskArg = id
+			break
+		}
+	}
+	if taskArg == "" {
+		t.Fatalf("resume note must advertise --task %s: %s", id, instructions)
+	}
+
+	if _, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Report(PublicProgressRequest{
+		Project:    "source",
+		SessionKey: "discord:room:user",
+		Run:        next,
+		TaskID:     taskArg,
+		Seq:        resumeSeq,
+		Kind:       "update",
+		Summary:    "continuing the earlier card",
+	}); err != nil {
+		t.Fatalf("advertised progress command failed: %v", err)
+	}
+	p.finish(next, "result")
+}
+
+// If the current turn is already stopping, automatic re-claim must say so and
+// must not suggest an explicit task assign with that dead run token.
+func TestTaskRelayReclaimStoppedTurnWaitsForNextTurn(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	p.finish(run, "result")
+	_ = p.begin(platform, "discord:room:user", LangChinese, func() bool { return true })
+
+	_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	if err == nil {
+		t.Fatal("closed card accepted while the current turn was stopping")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "stopping") {
+		t.Errorf("error %q does not name the stopping turn", msg)
+	}
+	if strings.Contains(msg, "task assign") {
+		t.Errorf("error %q suggests a task assign that cannot work", msg)
+	}
+}
+
+// A card released at the end of a turn can still have a relay receipt in
+// flight. Re-claiming it and dispatching again would run two assignments on
+// one card; the second dispatch must be refused until the first finishes.
+func TestTaskRelayReclaimRefusesRunningReceipt(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	first, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.finish(run, "result")
+	next := p.begin(platform, "discord:room:user", LangChinese, nil)
+
+	secondReq := taskRelayRequest(id)
+	secondReq.RequestID = "dispatch-two"
+	if _, _, err := p.beginTaskRelay(secondReq, "Target"); err == nil || !strings.Contains(err.Error(), "running") {
+		t.Fatalf("running receipt was not refused: %v", err)
+	}
+	r := p.records[id]
+	r.mu.Lock()
+	_, secondWritten := r.record.Relays[secondReq.RequestID]
+	r.mu.Unlock()
+	if secondWritten {
+		t.Fatal("refused dispatch wrote a second receipt")
+	}
+
+	if err := first.finish("old result", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := p.beginTaskRelay(secondReq, "Target"); err != nil {
+		t.Fatalf("re-claim after the running receipt finished: %v", err)
+	}
+	p.finish(next, "result")
 }
 
 // A bot dispatched twice on one card: the row it finished for the first

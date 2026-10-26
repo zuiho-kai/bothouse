@@ -135,6 +135,11 @@ func taskRelayLive(r *publicRun) bool {
 	return !r.record.Accepted && !IsTerminalState(r.record.Task.State)
 }
 
+var (
+	errNoLiveMainBotTurn   = errors.New("no live main-bot turn for this session")
+	errMainBotTurnStopping = errors.New("the current main-bot turn for this session is stopping")
+)
+
 // reclaimClosedTask re-attaches a card released at the end of an earlier turn
 // to the single live lead run of the same session. Caller holds transitionMu
 // and r.mu. The returned undo removes the attachment if the dispatch is not
@@ -155,9 +160,17 @@ func (p *PublicProgress) reclaimClosedTask(r *publicRun, session string) (func()
 	case !resumableTask(t, r.record.Accepted, time.Now()):
 		return nil, fmt.Errorf("relay: task %s was released by an earlier turn and is outside the %.0fh resume window; open a new card with task assign --batch instead", t.ID, cardResumeWindow.Hours())
 	}
+	for _, receipt := range r.record.Relays {
+		if receipt.Status == "running" {
+			return nil, fmt.Errorf("relay: task %s already has a running dispatch to %s; wait for it to finish or inspect its thread before re-claiming", t.ID, receipt.Target)
+		}
+	}
 	token, run, err := p.liveLeadRun(session)
 	if err != nil {
-		return nil, fmt.Errorf("relay: task %s was released when an earlier turn of session %s ended, but automatic re-claim is not possible: %w. Re-claim it explicitly with task assign --id %s using the current turn's --run (plus --member/--name/--title), then retry", t.ID, session, err, t.ID)
+		if errors.Is(err, errMainBotTurnStopping) {
+			return nil, fmt.Errorf("relay: task %s is not active: the current main-bot turn for session %s is stopping; wait for the next turn, do not redispatch", t.ID, session)
+		}
+		return nil, fmt.Errorf("relay: task %s was released when an earlier turn of session %s ended, but automatic re-claim is not possible: %w. Re-claim it explicitly with task assign --id %s --run <current-run> --ref '<path:line or 无（新建）>' --member <member> --name <name> --title <title>, then retry", t.ID, session, err, t.ID)
 	}
 	oldClosed, oldStopped := r.record.Closed, r.stopped
 	r.record.Closed = false
@@ -203,11 +216,17 @@ func (p *PublicProgress) liveLeadRun(session string) (string, *publicRun, error)
 	p.mu.Unlock()
 	var foundToken string
 	var found *publicRun
+	stopping := false
 	for _, c := range candidates {
 		c.run.mu.Lock()
-		live := !c.run.record.Closed && !c.run.record.Accepted && c.run.record.Task.SessionKey == session && (c.run.stopped == nil || !c.run.stopped())
+		current := !c.run.record.Closed && !c.run.record.Accepted && c.run.record.Task.SessionKey == session
+		turnStopping := current && c.run.stopped != nil && c.run.stopped()
 		c.run.mu.Unlock()
-		if !live {
+		if !current {
+			continue
+		}
+		if turnStopping {
+			stopping = true
 			continue
 		}
 		if found != nil {
@@ -216,7 +235,10 @@ func (p *PublicProgress) liveLeadRun(session string) (string, *publicRun, error)
 		foundToken, found = c.token, c.run
 	}
 	if found == nil {
-		return "", nil, errors.New("no live main-bot turn for this session")
+		if stopping {
+			return "", nil, errMainBotTurnStopping
+		}
+		return "", nil, errNoLiveMainBotTurn
 	}
 	return foundToken, found, nil
 }
@@ -242,6 +264,9 @@ func (p *PublicProgress) queueTaskRelay(r *publicRun) {
 func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRelay, *RelayResponse, error) {
 	p.transitionMu.Lock()
 	defer p.transitionMu.Unlock()
+	// From and SessionKey are caller-supplied routing fields, not authenticated
+	// identities. The checks below only scope the card to the project/session
+	// named by the caller; they do not prove which local process sent it.
 	if req.From != p.project || strings.TrimSpace(req.RequestID) == "" {
 		return nil, nil, errors.New("relay: task source and request_id required")
 	}
