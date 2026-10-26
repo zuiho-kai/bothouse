@@ -129,7 +129,8 @@ func TestTeamBoardOnlyInWorkspaceChannels(t *testing.T) {
 }
 
 // Review r2 (613-plan-r2.md): the chat's last workspace released (its Parents key is gone) must
-// not delete the pinned summary; the handoff record keeps it a team chat.
+// not delete the pinned summary while it has task-board items (#1 here); the handoff record keeps
+// it a team chat.
 func TestTeamChatBoardKeptAfterWorkspacesReleased(t *testing.T) {
 	e, p := boardTestEngine(t)
 	recordWorkspaces(t, e, "discord:chat", nil, "ws1")
@@ -147,6 +148,63 @@ func TestTeamChatBoardKeptAfterWorkspacesReleased(t *testing.T) {
 	e.updateTeamBoards(nil, boards)
 	if boards["discord:chat"] == nil || p.content["discord:chat"] == "" {
 		t.Fatalf("team chat summary not posted: %v", boards)
+	}
+}
+
+// Review pr453 #1, live data: 创业 handed tasks to workspaces once (Handoffs chat = 创业), owns no
+// workspace now and has no task-board item, so it is a team chat with nothing to show: no empty
+// summary; its old pinned board is deleted (a temporary failure retried). Once an item lands in
+// 创业, the summary shows there and is then edited in place.
+func TestTeamChatBoardOnlyWithEntries(t *testing.T) {
+	const (
+		mainChat = "discord:1562131004234276945"
+		startup  = "discord:1561249071144894544"
+	)
+	p := &stubBoardRemover{stubBoardPlatform: stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}, failFor: "startup-board"}
+	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
+	defer e.cancel()
+	dir := t.TempDir()
+	e.team = &teamState{dir: dir, board: true}
+	recordWorkspaces(t, e, mainChat, []string{"1563000000000000001"})
+	recordWorkspaces(t, e, startup, nil, "1563262073255891156", "1563966441588523169")
+	if !e.isTeamChat(startup) || e.isTeamWorkspaceChat(startup) {
+		t.Fatal("startup should be a team chat (handed off before), not a workspace")
+	}
+	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":1,"what":"修桥","status":"在做","who":"龙娘","at":"10-26 10:00","sk":"`+mainChat+`"}
+`)
+	boards := map[string]*boardChat{startup: {SessionKey: startup, MessageID: "startup-board", Content: "**任务板**\n现在没有进行中的事。"}}
+	e.updateTeamBoards(nil, boards)
+	if boards[startup] == nil {
+		t.Fatal("board forgotten after a temporary delete failure")
+	}
+	p.failFor = ""
+	e.updateTeamBoards(nil, boards)
+	if boards[startup] != nil || len(p.removed) != 1 || p.removed[0] != "startup-board" {
+		t.Fatalf("empty team chat board not removed: removed=%v boards=%v", p.removed, boards)
+	}
+	if _, ok := p.content[startup]; ok {
+		t.Fatalf("empty summary posted in startup: %q", p.content[startup])
+	}
+	e.updateTeamBoards(nil, boards)
+	if boards[startup] != nil {
+		t.Fatal("empty team chat board posted again")
+	}
+
+	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":1,"what":"修桥","status":"在做","who":"龙娘","at":"10-26 10:00","sk":"`+mainChat+`"}
+{"id":2,"what":"写文案","status":"在做","who":"鲸鱼娘","at":"10-26 10:05","sk":"`+startup+`"}
+`)
+	e.updateTeamBoards(nil, boards)
+	b := boards[startup]
+	if b == nil || !strings.HasPrefix(p.content[startup], "**任务板**\n#2 写文案｜鲸鱼娘｜在做") {
+		t.Fatalf("summary not shown with an item: boards=%v content=%q", boards, p.content[startup])
+	}
+	id := b.MessageID
+	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":1,"what":"修桥","status":"在做","who":"龙娘","at":"10-26 10:00","sk":"`+mainChat+`"}
+{"id":2,"what":"写文案","status":"改第二稿","who":"鲸鱼娘","at":"10-26 10:30","sk":"`+startup+`"}
+`)
+	e.updateTeamBoards(nil, boards)
+	if boards[startup] == nil || boards[startup].MessageID != id || !strings.Contains(p.content[startup], "改第二稿") {
+		t.Fatalf("summary not edited in place: id %q -> %+v, content=%q", id, boards[startup], p.content[startup])
 	}
 }
 

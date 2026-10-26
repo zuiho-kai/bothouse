@@ -259,7 +259,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 		}
 	}
 	// The full board (who is doing what, task board, other channels) only in workspace channels
-	// (isTeamWorkspaceChat); a team chat channel (isTeamChat) keeps its pinned task-board summary
+	// (isTeamWorkspaceChat); a team chat channel (isTeamChat) with task-board items keeps its pinned summary
 	// alone; any other channel gets no board. Looked up once per chat per pass.
 	kinds := map[string]teamBoardKind{}
 	kindOf := func(chat string) teamBoardKind {
@@ -317,8 +317,13 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	changed := false
 	for chat, b := range boards {
 		kind := kindOf(chat)
+		if kind == teamBoardSummary && !teamTaskBoardHasEntries(items, done, chat) {
+			// A team chat shows its summary only while it has task-board items here: no empty
+			// board (a side chat that handed off once is a team chat too); an old one is deleted.
+			kind = teamBoardNone
+		}
 		if kind == teamBoardNone {
-			// A board posted before boards were limited to workspaces and team chats: delete it.
+			// A board posted before boards were limited to workspaces and team chats with items: delete it.
 			if e.removeTeamBoard(chat, b) {
 				delete(boards, chat)
 				changed = true
@@ -344,9 +349,6 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 		} else {
 			// Team chat: the task-board summary only, no 谁在干啥 lines (not a big card here).
 			content = renderTeamTaskBoardFit(items, done, chat, now, pending, backfillMaxMsgRunes)
-			if content == "" {
-				content = "**任务板**\n现在没有进行中的事。"
-			}
 			content = cutTeamBoardLines(content, backfillMaxMsgRunes, "")
 		}
 		// The card state comes from the same data as the text: someone shown working, a relay
@@ -389,6 +391,18 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	return changed
 }
 
+// teamTaskBoardHasEntries: chat's task board has an open or done-today item.
+func teamTaskBoardHasEntries(items, done []teamTaskBoardItem, chat string) bool {
+	for _, list := range [][]teamTaskBoardItem{items, done} {
+		for _, it := range list {
+			if it.shownIn(chat) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // teamEntryIsDM: the session is a direct message. A DM channel has no name, so the platform's
 // ChatName is empty or falls back to the channel id (Discord ResolveChannelName).
 func teamEntryIsDM(s *teamEntry) bool {
@@ -405,7 +419,7 @@ type teamBoardKind int
 
 const (
 	teamBoardNone    teamBoardKind = iota // no board; an old one is deleted
-	teamBoardSummary                      // team chat: the pinned task-board summary only
+	teamBoardSummary                      // team chat: the pinned task-board summary only, while it has items
 	teamBoardFull                         // workspace: who is doing what, task board, other channels
 )
 
@@ -429,6 +443,7 @@ func (e *Engine) removeTeamBoard(chat string, b *boardChat) bool {
 	platform, _, _ := strings.Cut(chat, ":")
 	remover, ok := e.platformForName(platform).(BoardRemover)
 	if !ok {
+		slog.Warn("team board: platform cannot remove boards, board outside a workspace left", "chat", chat)
 		return false
 	}
 	ctx, cancel := context.WithTimeout(e.ctx, 15*time.Second)
