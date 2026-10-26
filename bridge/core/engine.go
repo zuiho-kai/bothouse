@@ -2243,6 +2243,11 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	if job.resume == nil {
 		msg.scheduledFrom = targetPlatform
 		e.startScheduledTurn(msg, session)
+	} else {
+		// A turn resumed after a bridge restart is busy work too: without this note the team
+		// status file shows the session idle (sessions:null), and outing-tick keeps queueing
+		// into it until the queue is full (2026-10-26). No backfill: the resume prompt has it.
+		e.teamNoteTurn(msg, session)
 	}
 
 	e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, sessionKey)
