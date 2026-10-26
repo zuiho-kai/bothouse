@@ -5,9 +5,9 @@
  * with its elapsed time). Data comes from the snapshot's `tasks`.
  */
 import { useEffect, useId, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import type { ChannelRoom, ChannelTask, TaskStatus } from './channel-source.ts'
-import { boardSections, cardMembers, sectionTitle, elapsed, formatDuration, STATUS_KEY, type T } from './task-board.ts'
+import { BOARD_TABS, boardSections, cardMembers, sectionTitle, elapsed, formatDuration, STATUS_KEY, type T } from './task-board.ts'
 import css from './ChannelsPage.module.css'
 
 function clock(seconds: number): string {
@@ -31,8 +31,10 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }: {
   onOpen: (roomId: number, messageId: number) => void
 }) {
   const [opened, setOpened] = useState(false)
+  const [selectedTab, setSelectedTab] = useState(BOARD_TABS.find(tab => tab.initial)!.id)
   const dialog = useRef<HTMLElement>(null)
   const titleId = useId()
+  const tabId = useId()
   const now = Date.now() / 1000
   const sections = boardSections(tasks, rooms, chatId, roomId)
   const roomName = rooms.find(room => room.id === roomId)?.name ?? rooms.find(room => room.id === chatId)?.name ?? ''
@@ -47,18 +49,23 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }: {
     return () => { previous?.focus() }
   }, [opened])
   const jump = (targetRoomId: number, messageId: number) => {
-    close()
+    flushSync(close)
     onOpen(targetRoomId, messageId)
   }
   const openTotal = sections.reduce((n, s) => n + s.open, 0)
   const all = sections.reduce((n, s) => n + s.open + s.done, 0)
+  const scopedTasks = sections.flatMap(section => section.owners.flatMap(group => [...group.open, ...group.done]))
+  const activeTab = BOARD_TABS.find(tab => tab.id === selectedTab)!
+  const matches = (task: ChannelTask) => activeTab.statuses.length === 0 || activeTab.statuses.includes(task.status)
+  const visibleCount = scopedTasks.filter(matches).length
   const row = (task: ChannelTask) => (
-    <li key={task.id} className={css.taskRow} data-task-id={task.id}>
-      <div className={css.taskLine}>
+    <li key={task.id} className={css.boardTaskCard} data-task-id={task.id} data-status={task.status} data-working={BOARD_TABS.find(tab => tab.initial)!.statuses.includes(task.status)}>
+      <div className={css.boardTaskHeader}>
+        <span className={css.boardTaskTitle}>#{task.id} {task.title}</span>
         <Status status={task.status} t={t} />
-        <span className={css.taskTitle}>#{task.id} {task.title}</span>
       </div>
       <div className={css.taskMeta}>
+        <span>{task.owner_name}</span>
         <span>{t('taskElapsed', { d: formatDuration(elapsed(task, now), t) })}</span>
         {task.next_check_at !== null && <span>{t('taskNextCheck', { time: clock(task.next_check_at) })}</span>}
       </div>
@@ -70,7 +77,7 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }: {
   )
   return (
     <>
-      <button type="button" className={css.taskBoardTrigger} aria-label={t('taskBoardOpen')} aria-haspopup="dialog" aria-expanded={opened} onClick={() => { setOpened(true) }}>
+      <button type="button" className={css.taskBoardTrigger} aria-label={t('taskBoardOpen')} aria-haspopup="dialog" aria-expanded={opened} onClick={() => { setSelectedTab(BOARD_TABS.find(tab => tab.initial)!.id); setOpened(true) }}>
         <span>{t('taskBoard')}</span>
         <span className={css.taskBoardSummary}>{all === 0 ? t('taskBoardNoTasks') : t('taskBoardSummary', { open: String(openTotal), done: String(all - openTotal) })}</span>
         <span aria-hidden="true">›</span>
@@ -79,7 +86,7 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }: {
         <section ref={dialog} className={`${css.dialog} ${css.taskBoardDialog}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={event => {
           if (event.key === 'Escape') { event.stopPropagation(); close() }
           if (event.key === 'Tab') {
-            const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button, summary')).filter(element => !element.closest('details:not([open])') || element.tagName === 'SUMMARY')
+            const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not([tabindex="-1"]), [role="tabpanel"]'))
             const first = focusable[0]
             const last = focusable[focusable.length - 1]
             if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last?.focus() }
@@ -88,27 +95,36 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }: {
         }}>
           <h2 id={titleId} className={css.dialogTitle}>{t('taskBoard')} · {roomName}</h2>
           <div className={css.taskBoardScope}>{t('taskBoardScope', { room: rooms.find(room => room.id === chatId)?.name ?? roomName, channel: String(channelTotal), workspaces: String(workspaceTotal) })}</div>
-          <div className={css.taskBoardBody}>
-      {all === 0 && <div className={css.taskEmpty}>{t('taskBoardEmptyInModal')}</div>}
-      {sections.map(section => (
-        <div key={section.roomId} className={css.taskSection} data-room-id={section.roomId}>
-          <h4 className={css.taskSectionTitle}>
-            {sectionTitle(section, t)}
-          </h4>
-          {section.owners.map(group => (
-            <div key={group.owner} className={css.taskOwnerGroup} data-owner={group.owner}>
-              <div className={css.taskOwnerName}>{t('taskBoardOwner', { name: group.ownerName })}</div>
-              <ul className={css.taskList}>{group.open.map(row)}</ul>
-              {group.done.length > 0 && (
-                <details className={css.taskDone}>
-                  <summary className={css.groupTitle}>{t('taskDoneGroup', { count: String(group.done.length) })}</summary>
-                  <ul className={css.taskList}>{group.done.map(row)}</ul>
-                </details>
-              )}
-            </div>
-          ))}
-        </div>
-      ))}
+          <div className={css.boardTabs} role="tablist" aria-label={t('taskTabLabel')}>
+            {BOARD_TABS.map((tab, index) => (
+              <button key={tab.id} id={`${tabId}-${tab.id}`} type="button" role="tab" aria-selected={selectedTab === tab.id} aria-controls={`${tabId}-panel`} tabIndex={selectedTab === tab.id ? 0 : -1} onClick={() => { setSelectedTab(tab.id) }} onKeyDown={event => {
+                let next = index
+                if (event.key === 'ArrowRight') next = (index + 1) % BOARD_TABS.length
+                else if (event.key === 'ArrowLeft') next = (index + BOARD_TABS.length - 1) % BOARD_TABS.length
+                else if (event.key === 'Home') next = 0
+                else if (event.key === 'End') next = BOARD_TABS.length - 1
+                else return
+                event.preventDefault()
+                setSelectedTab(BOARD_TABS[next].id)
+                document.getElementById(`${tabId}-${BOARD_TABS[next].id}`)?.focus()
+              }}>
+                {t(tab.label)} <span className={css.boardTabCount}>{scopedTasks.filter(task => tab.statuses.length === 0 || tab.statuses.includes(task.status)).length}</span>
+              </button>
+            ))}
+          </div>
+          <div id={`${tabId}-panel`} className={css.taskBoardBody} role="tabpanel" aria-labelledby={`${tabId}-${selectedTab}`} tabIndex={0}>
+            {visibleCount === 0 && <div className={css.boardTabEmpty}>{all === 0 ? t('taskBoardEmptyInModal') : t('taskTabEmpty', { tab: t(activeTab.label) })}</div>}
+            {sections.map(section => {
+              const owners = section.owners.map(group => ({ ...group, visible: [...group.open, ...group.done].filter(matches) })).filter(group => group.visible.length > 0)
+              if (owners.length === 0) return null
+              return <div key={section.roomId} className={css.taskSection} data-room-id={section.roomId}>
+                <h4 className={css.taskSectionTitle}>{sectionTitle(section, t)}</h4>
+                {owners.map(group => <div key={group.owner} className={css.taskOwnerGroup} data-owner={group.owner}>
+                  <div className={css.taskOwnerName}>{t('taskBoardOwner', { name: group.ownerName })}</div>
+                  <ul className={css.boardCardGrid}>{group.visible.map(row)}</ul>
+                </div>)}
+              </div>
+            })}
           </div>
           <div className={css.dialogActions}><button type="button" className={css.secondaryButton} onClick={close}>{t('close')}</button></div>
         </section>
