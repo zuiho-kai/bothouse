@@ -854,7 +854,11 @@ func (p *Platform) readLoop(ctx context.Context) {
 
 		switch msg.Op {
 		case opDispatch:
-			p.handleDispatch(msg.T, msg.D)
+			// Dispatch off the read loop: a handler runs an engine turn that can
+			// take minutes, while heartbeat ACKs arrive on this same loop. A
+			// blocked read loop starves the ACK, flips heartbeatOK false and
+			// makes heartbeatLoop force a reconnect mid-turn.
+			go p.handleDispatch(msg.T, msg.D)
 		case opHeartbeat:
 			// Server requested heartbeat
 			p.sendHeartbeat()
@@ -1107,7 +1111,7 @@ func (p *Platform) handleInteractionCreate(data json.RawMessage) {
 
 	// Build reply context for sending confirmation messages
 	var rctx *replyContext
-	var userID string
+	var userID, channelKey string
 	switch d.ChatType {
 	case 1: // group
 		rctx = &replyContext{
@@ -1117,6 +1121,7 @@ func (p *Platform) handleInteractionCreate(data json.RawMessage) {
 			sessionKey:  sessionKey,
 		}
 		userID = d.GroupMemberOpenID
+		channelKey = d.GroupOpenID
 	case 2: // c2c
 		rctx = &replyContext{
 			messageType: "c2c",
@@ -1124,6 +1129,7 @@ func (p *Platform) handleInteractionCreate(data json.RawMessage) {
 			sessionKey:  sessionKey,
 		}
 		userID = d.UserOpenID
+		channelKey = d.UserOpenID
 	default:
 		slog.Warn("qqbot: unknown interaction chat_type", "chat_type", d.ChatType)
 		return
@@ -1138,6 +1144,8 @@ func (p *Platform) handleInteractionCreate(data json.RawMessage) {
 		Content:              responseText,
 		ReplyCtx:             rctx,
 		IsPermissionResponse: true,
+		Direct:               d.ChatType == 2,
+		ChannelKey:           channelKey,
 	}
 
 	slog.Debug("qqbot: forwarding button click as permission response",
@@ -1235,6 +1243,14 @@ func (p *Platform) handleGroupMessage(data json.RawMessage) {
 		Images:     images,
 		Files:      files,
 		ReplyCtx:   rctx,
+		// GROUP_AT_MESSAGE_CREATE is only pushed when the bot was @-mentioned, so
+		// every group message that reaches here called us (core/gate_local.go);
+		// without Mentioned, team mode treats it as unaddressed chatter
+		// (core/team.go suppressUnaddressedGroup).
+		Mentioned: true,
+		// Group openid is the channel a workspace binds to
+		// (core/engine.go effectiveWorkspaceChannelKey).
+		ChannelKey: d.GroupOpenID,
 	}
 
 	slog.Debug("qqbot: group message received", "group", d.GroupOpenID, "user", d.Author.MemberOpenID, "len", len(content), "images", len(images), "files", len(files))
@@ -1315,6 +1331,12 @@ func (p *Platform) handleC2CMessage(data json.RawMessage) {
 		Images:     images,
 		Files:      files,
 		ReplyCtx:   rctx,
+		// A C2C message is a private chat: it calls the bot through Direct, not
+		// an @, so Mentioned stays false (core/gate_local.go).
+		Direct: true,
+		// User openid is the channel a workspace binds to
+		// (core/engine.go effectiveWorkspaceChannelKey).
+		ChannelKey: d.Author.UserOpenID,
 	}
 
 	slog.Debug("qqbot: c2c message received", "user", d.Author.UserOpenID, "len", len(content), "images", len(images), "files", len(files))
