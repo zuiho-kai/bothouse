@@ -8,7 +8,7 @@
 // waker can reach the owner (cloud-web bot offline, or not reconnected yet after
 // a restart) the reminder stays pending and is delivered once when it comes online.
 import { CollabError, MAX_TEXT } from './store.mjs';
-import { mentions, nameCalled, split } from './mentions.mjs';
+import { mentions, nameCalled, split, withoutLeadingMentions } from './mentions.mjs';
 import { NOTICE_PREFIXES } from './cloudweb.mjs';
 import { exitMark } from './team-exit.mjs';
 
@@ -429,12 +429,15 @@ export class Tasks {
       // first line or the turn's last part) hands its task back; a 【接】 alone (accepted, waiting) and an
       // [ask] (a question, forwarded by TeamExit) leave the task in work with its 10-minute watch.
       // Only the hand-back changes here: the lead's dispatch below (fromChat) goes on as before.
-      const mark = exitMark(msg.text, { lastLine: true });
+      const mark = exitMark(msg.text, { lastLine: true, team: this.hub.routable() });
       // A stance line naming #id speaks for that task only (gone or done: nothing to hand back).
       const named = STANCE_LINE.exec(withoutLeadingMentions(String(msg.text), this.hub.routable()).split('\n', 1)[0])?.[2] !== undefined;
       const task = stance ?? (named ? undefined : this.openOf(msg.room_id, msg.author));
       if (mark?.kind === 'report' && (stance === undefined || stance.status === 'accepted') && task !== undefined && WORKING.includes(task.status)) {
-        return this.handBack(task.id, { actor: msg.author, messageId: msg.id });
+        // #597 G37: the hand-back does not end it: a lead's [report] @-ing a teammate dispatches too.
+        const handed = this.handBack(task.id, { actor: msg.author, messageId: msg.id });
+        this.fromChat(msg, { handBack: false });
+        return handed;
       }
     } else if (stance?.status === 'accepted' && dsh) {
       // In a chat channel a DSH member's 【接】 is still its delivery (no [report] convention there).
@@ -479,7 +482,7 @@ export class Tasks {
     if (this.hub.members.get(task.owner)?.kind !== 'dsh' || this.store.binding(task.owner, task.room_id) !== undefined) return '';
     const handoff = task.assign_msg_id == null ? undefined : this.store.message(task.assign_msg_id);
     const result = task.result_msg_id == null ? undefined : this.store.message(task.result_msg_id);
-    const report = result === undefined ? '' : (exitMark(result.text, { lastLine: true })?.body ?? String(result.text));
+    const report = result === undefined ? '' : (exitMark(result.text, { lastLine: true, team: this.hub.routable() })?.body ?? String(result.text));
     const cut = (t, n) => { const v = String(t ?? '').trim(); return v.length > n ? `${v.slice(0, n)}…` : v; };
     const parts = [];
     if (handoff !== undefined) parts.push(`原交接：\n${cut(handoff.text, BRIEF_HANDOFF)}`);
@@ -853,13 +856,6 @@ function taskTitle(text, team) {
   const plain = split(text, team).map(([seg, id]) => (id ? '' : seg)).join('');
   const line = plain.split('\n').map(l => l.replace(/^[\s，,：:、]+/, '').trim()).find(Boolean) ?? '';
   return line.slice(0, MAX_TEXT);
-}
-
-function withoutLeadingMentions(text, team) {
-  const parts = split(text, team);
-  let i = 0;
-  while (i < parts.length && (parts[i][1] !== null || !parts[i][0].trim())) i++;
-  return parts.slice(i).map(([seg]) => seg).join('').trimStart();
 }
 
 /** When a workspace task's watch is due: its check time, or CHECK_AFTER_S after its last change. */

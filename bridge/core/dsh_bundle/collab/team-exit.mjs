@@ -1,5 +1,6 @@
 // Durable workspace questions; system forwards never enter agent routing.
 import { randomBytes } from 'node:crypto';
+import { withoutLeadingMentions } from './mentions.mjs';
 
 export function exitTarget(msg) {
   return /^team-answer:([^:]+):/.exec(msg.client_key ?? '')?.[1];
@@ -50,9 +51,11 @@ const LINE_MARK = /(?:^|\n)[ \t]*\[(ask|report)\][ \t]*/gi;
  * line, as the bridge reads it (core/team_exit.go parseExitKind, first line only). lastLine (a
  * DSH member, whose reply is one row for the whole turn: first line 【接】#id, then everything it
  * said) also takes the line starting the turn's last part: the last line that opens with the mark.
+ * team (the routable members): @-mentions the reply opens with are not part of it (#597 G37: a DSH
+ * reply comes back as 「@主 [report]…」, dsh-member.mjs returnToLead), as for its stance line.
  */
-export function exitMark(text, { lastLine = false } = {}) {
-  const t = String(text ?? '').trim();
+export function exitMark(text, { lastLine = false, team = [] } = {}) {
+  const t = withoutLeadingMentions(String(text ?? ''), team).trim();
   let m = FIRST_MARK.exec(t);
   if (m === null && lastLine) {
     const last = [...t.matchAll(LINE_MARK)].at(-1);
@@ -106,7 +109,7 @@ export class TeamExit {
       // Stable client key prevents duplicate delivery if acknowledgement is retried.
       const { message } = this.hub.post(answer.workspace_id, {
         authorKind: 'user', author: msg.author, name: msg.name,
-        text: `@${answer.member_id} 用户回复 ${answer.id}：\n${msg.text}`,
+        text: `@${this.hub.members?.get(answer.member_id)?.name ?? answer.member_id} 用户回复 ${answer.id}：\n${msg.text}`,
         clientKey: `team-answer:${answer.member_id}:${answer.id}`,
       });
       this.db.prepare('UPDATE team_exit_asks SET answered = 1, answer_source_id = ? WHERE id = ?').run(msg.id, answer.id);
@@ -151,7 +154,7 @@ export class TeamExit {
 
   /** A DSH member's one-row reply may carry its mark on a later line; a bridge bot's only on the first. */
   markOpts(msg) {
-    return { lastLine: this.hub.members?.get(msg.author)?.kind === 'dsh' };
+    return { lastLine: this.hub.members?.get(msg.author)?.kind === 'dsh', team: this.hub.routable?.() ?? [] };
   }
 
   /** The workspace room msg was posted in (with a chat channel above it), or undefined. */

@@ -135,7 +135,8 @@ test('team exit: forwards asks and returns answers to the recorded workspace', a
   await tick();
   const answer = hub.store.page(ws.id, undefined, 10).find(m => m.author_kind === 'user');
   assert.match(answer.text, /答案是 42/);
-  assert.match(answer.text, /@ds/);
+  assert.match(answer.text, /^@DeepSeek 用户回复/, 'by name (#597 G37)');
+  assert.deepEqual([...mentions(answer.text, hub.routable())], ['ds'], 'the name still routes to the member');
 });
 
 test('mentions: own mention removed, others rewritten, fences ignored, bare name calls', () => {
@@ -4734,4 +4735,58 @@ test('G35: a DSH reply whose last part is [report] hands back, with or without a
   g.say(g.ws.id, '[report]\n做完了，测试通过');
   await settle();
   assert.equal(g.tasks.task(t2.id).status, 'returned', 'a later [report] turn delivers the open task');
+});
+
+// #597 G37 (K10 r10): a DSH reply comes back as 「@主 [report]…」 (returnToLead puts the @ first); the
+// lead's [report] may dispatch too; an [ask] answer reaches the workspace by the member's name.
+test('G37: a DSH reply 「@主 [report]」 hands back and its result is copied to the chat channel', async () => {
+  const { hub, tasks, ws, assign, say } = g34Setup();
+  const t = assign();
+  say(ws.id, '@主 [report]\n已完成，测试 8 个通过');
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned', 'the @-prefixed [report] is a hand-back');
+  const copies = hub.store.page(1, undefined, 50).filter(m => m.author_kind === 'system' && m.text.startsWith('📬'));
+  assert.equal(copies.length, 1, 'one copy in the chat channel');
+  assert.match(copies[0].text, /测试 8 个通过/);
+  const g = g34Setup();
+  const t2 = g.assign();
+  g.say(g.ws.id, `@主 【接】#${t2.id}\n写完了\n\n[report]\n做完了`);
+  await settle();
+  assert.equal(g.tasks.task(t2.id).status, 'returned', 'with a stance line too');
+});
+
+test('G37: the lead\'s [report] in a workspace hands back its task and its @ still dispatches', async () => {
+  const { tasks, ws, assign, say } = g34Setup();
+  const t = assign('zhu');
+  say(ws.id, `【接】#${t.id}\n[report]\n做完了\n@副，请你核对 README`, 'zhu');
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned', 'the lead\'s own task is handed back');
+  const sub = tasks.list(ws.id).find(r => r.owner === 'fu');
+  assert.ok(sub, 'the @副 in the [report] opens her task');
+  assert.equal(tasks.task(sub.id).source, 'mention');
+});
+
+test('G37: an [ask] answer reaches the workspace @-ing the member by name, not by id', async () => {
+  const { hub, tasks, ws, assign } = g34Setup();
+  const t = assign();
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n[ask]\n方案 A 还是 B？\n自验：无需\n类别：方向` }, 1100).message;
+  tasks.fromMessage(row);
+  hub.teamExit.onMessage(row);
+  await settle();
+  const fwd = hub.store.page(1, undefined, 50).find(m => /ask-[0-9a-f]{8}/.test(m.text));
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '选 A', replyTo: fwd.id });
+  await settle();
+  const answer = hub.store.page(ws.id, undefined, 50).find(m => /用户回复 ask-/.test(m.text));
+  assert.match(answer.text, /^@副 用户回复 ask-/);
+  assert.doesNotMatch(answer.text, /@fu\b/, 'no member id in the text');
+  assert.deepEqual([...mentions(answer.text, hub.routable())], ['fu'], 'the name still routes to her');
+  const t2 = assign('zhu');
+  const ask2 = hub.store.append(ws.id, { authorKind: 'role', author: 'zhu', name: '主', text: `【接】#${t2.id}\n[ask]\n要不要改 C？\n自验：无需\n类别：方向` }, 1200).message;
+  hub.teamExit.onMessage(ask2);
+  await settle();
+  hub.store.db.prepare("UPDATE team_exit_asks SET member_id = 'gone' WHERE source_id = ?").run(ask2.id);
+  const fwd2 = hub.store.page(1, undefined, 50).filter(m => /ask-[0-9a-f]{8}/.test(m.text)).at(-1);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '不改', replyTo: fwd2.id });
+  await settle();
+  assert.ok(hub.store.page(ws.id, undefined, 50).some(m => /^@gone 用户回复 ask-/.test(m.text)), 'a member no longer there falls back to its id');
 });
