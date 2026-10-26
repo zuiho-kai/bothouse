@@ -48,6 +48,7 @@ func memberIdentityFixture(t *testing.T) (*PublicProgress, *memberIdentityPlatfo
 	}
 	lead, worker := newPlatform(), newPlatform()
 	e := &Engine{name: "fish", ctx: context.Background(), dataDir: t.TempDir(), platforms: []Platform{lead}}
+	allChatsAreWorkspaces(e)
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}
