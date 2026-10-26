@@ -417,7 +417,7 @@ func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.T
 	if pushed || running && h.Renewed < watchMaxBackgroundRenew {
 		return watchProgressReal, nil
 	}
-	if w.workspaceBusy(key) {
+	if !running && w.workspaceBusy(key) {
 		if h.BusyRenewed < watchBusyMaxRenew {
 			slog.Info("team watch: a session of the workspace is running a turn", "workspace", key, "chat", h.Chat, "busy_renew", h.BusyRenewed)
 			return watchProgressBusy, nil
