@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -63,7 +64,7 @@ type WizardRequest struct {
 	AppendOnly bool `json:"append_only,omitempty"`
 }
 
-// WizardGate: enabled = a team of bots gets gate_url / gate_fallback (lead "reply", the others
+// WizardGate: enabled = a team of bots (or a single role, as the lead) gets gate_url / gate_fallback (lead "reply", the others
 // "context") and gate-team.json, and bothouse starts the gate when python and a jev are there;
 // without them core/gate.go fallbackFor still lets only the lead answer what names no one.
 // false = no gate: the wizard's own gate_url / gate_fallback are cleared, hand-written ones kept.
@@ -225,6 +226,17 @@ func (s WizardSnapshot) project(name string) (WizardExistingProject, bool) {
 	return WizardExistingProject{}, false
 }
 
+// pointsAtGatePort: a project's gate_url is a wizard URL on 127.0.0.1:port (an existing install).
+func (s WizardSnapshot) pointsAtGatePort(port int) bool {
+	for _, p := range s.Projects {
+		u, err := url.Parse(p.GateURL)
+		if err == nil && isWizardGateURL(p.GateURL) && u.Port() == strconv.Itoa(port) {
+			return true
+		}
+	}
+	return false
+}
+
 // WizardExistingBot is a Discord bot already in the local config. Token and options stay server-side.
 type WizardExistingBot struct {
 	Project      string         `json:"project"`
@@ -332,7 +344,7 @@ type SetupState struct {
 	CloudWebFallback string           `json:"cloud_web_fallback,omitempty"`
 	CloudWebTeam     []SetupTeamEntry `json:"cloud_web_team,omitempty"`
 	// GateOff: the user turned the gate off in the wizard (gate.enabled false). A later run without a
-	// gate field (add role, single-role flows, AI) keeps it off; one with the field records the new choice.
+	// gate field (add role, flows that show no gate checkbox, AI) keeps it off; one with the field records the new choice.
 	GateOff   bool   `json:"gate_off,omitempty"`
 	UpdatedAt string `json:"updated_at,omitempty"`
 }
@@ -695,6 +707,9 @@ type wizardPlan struct {
 	fallbackBot  string
 	note         string
 	writes       []WizardProjectWrite
+	// soloShared: a single-role run while the data dir has another wizard team of two or more
+	// roles; that team owns gate-team.json and the gate wiring, so the single role gets neither
+	soloShared bool
 	// bots whose allow_from was set to AllowFromUnset (nobody known to allow)
 	allowFromUnset []string
 }
@@ -876,7 +891,17 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			}
 			res.Roles = append(res.Roles, WizardRoleResult{})
 		} else {
-			res.Roles = append(res.Roles, WizardRoleResult{})
+			if isFeishu {
+				// the bot's open_id goes into the team file (who is who for d10 / ws-handoff); not
+				// reachable now = the member is written without it, the role is still made
+				f := req.Feishu
+				if id, err := wizardFeishuBotOpenID(ctx, f.AppID, f.AppSecret, f.PlatformType); err == nil {
+					w.botID = id
+				} else { // not blocking; err carries only the API's code/msg, never the secret or token
+					res.Warnings = append(res.Warnings, warnFeishuBotIDUnknown(req.Language, w.Name, err))
+				}
+			}
+			res.Roles = append(res.Roles, WizardRoleResult{BotID: w.botID})
 		}
 		if w.Name == "" {
 			w.Name = w.username
@@ -996,6 +1021,21 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		res.JevHint = JevHint(req.Language, usable, res.Hardware, pl.fallbackName)
 		finishWizardResult(res, req, pl, usable)
 		return res
+	}
+
+	// The gate port (keepGatePort): kept when free, this data dir's gate is on it, or an older gate
+	// without /whoami is on it and this config's gate_urls already point there; else a new port. Picked only now, after the tokens checked out and not on
+	// a dry run, so a failed or dry-run wizard writes nothing; saved before the plan below runs again
+	// inside the lock and writes the gate_urls with it.
+	if req.gateOn() {
+		if port := pickGatePort(env.DataDir, snap.pointsAtGatePort(LocalGatePort())); port != LocalGatePort() {
+			if ps, ok := env.Store.(interface{ SetGatePort(int) error }); ok {
+				if err := ps.SetGatePort(port); err != nil {
+					return fail("gate port", err)
+				}
+			}
+			SetLocalGatePort(port)
+		}
 	}
 
 	// 3. one locked read-modify-write of config.toml, planned on what is there now
@@ -1162,14 +1202,18 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		addStep(res, "team", nil, stepTeam(req.Language, len(pl.team), pl.fallbackName))
 	}
 
-	if (req.Platform == "discord" || cloudWeb || isFeishu) && len(pl.team) > 1 && req.gateOn() {
-		gt := map[string]any{"lead": map[string]any{"name": pl.fallbackName, "aliases": []string{pl.fallback}}, "subs": map[string]any{}}
-		for _, t := range pl.team {
-			if t.Project != pl.fallback {
-				gt["subs"].(map[string]any)[t.Project] = map[string]any{"name": t.Name, "aliases": []string{}}
-			}
+	// a single role gets the file too, as its lead with no subs (the gate's wiki and task board)
+	if (req.Platform == "discord" || cloudWeb || isFeishu) && (len(pl.team) > 1 || len(pl.team) == 1 && !pl.soloShared) && req.gateOn() {
+		after, _ := env.Store.Snapshot()
+		gt := gateTeamJSON(pl.team, pl.fallback, pl.fallbackName, after)
+		path := filepath.Join(env.DataDir, gateTeamFile)
+		var prev map[string]any
+		if readJSONFile(path, &prev) {
+			mergeGateTeam(gt, prev)
 		}
-		if err := writeJSONFile(filepath.Join(env.DataDir, gateTeamFile), gt, 0o644); err != nil {
+		// the file is rewritten whole: DSH's members (kind "dsh") go back in as they were
+		keepDSHGateTeamEntries(path, gt)
+		if err := writeJSONFile(path, gt, 0o644); err != nil {
 			return fail("gate team", err)
 		}
 		addStep(res, "team", nil, stepTeam(req.Language, len(pl.team), pl.fallbackName))
@@ -1212,7 +1256,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	if err := writeJSONFile(filepath.Join(env.DataDir, setupStateFile), st, 0o644); err != nil {
 		return fail("state", err)
 	}
-	wikiSession := "" // the self-hosted platform has no fixed channel to anchor a cron job to: models only
+	wikiSession := cloudWebWikiSession // the self-hosted platform has no fixed channel: the muted jobs need none
 	if !cloudWeb {
 		ch := st.ChannelID
 		if ch == "" {
@@ -1308,8 +1352,16 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		}
 	}
 	taken := map[string]bool{}
+	workDirs := map[string]string{} // absolute, cleaned work_dir → owning project
 	for _, p := range s.Projects {
 		taken[p.Name] = true
+		if p.WorkDir != "" {
+			dir, err := filepath.Abs(p.WorkDir)
+			if err != nil {
+				return nil, fmt.Errorf("project %q work_dir: %w", p.Name, err)
+			}
+			workDirs[dir] = p.Name
+		}
 	}
 	used := map[string]bool{}
 	for i, w := range ids {
@@ -1420,6 +1472,14 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			if r.workDir == "" {
 				r.workDir = filepath.Join(dataDir, "roles", r.project)
 			}
+			dir, err := filepath.Abs(r.workDir)
+			if err != nil {
+				return nil, fmt.Errorf("project %q work_dir: %w", r.project, err)
+			}
+			if owner, exists := workDirs[dir]; exists {
+				return nil, fmt.Errorf("%s", sharedWorkDirText(req.Language, r.project, owner, dir))
+			}
+			workDirs[dir] = r.project
 		}
 		if r.reused && r.workDir == "" && r.writesPersona() {
 			return nil, fmt.Errorf("project %q has no work_dir, so there is no persona file to write", r.project)
@@ -1487,6 +1547,11 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		for _, old := range append(append([]SetupTeamEntry{}, state.Team...), state.CloudWebTeam...) {
 			if old.Project == r.project { // not passed = keep what the state has
 				e.Persona, e.Avatar = old.Persona, old.Avatar
+				// open_id not reachable this run: keep the one found before, but only for the same bot
+				// (r.reused: sameFeishuApp found the same app_id), never for a new app on a reused key/name
+				if e.BotID == "" && old.BotID != "" && r.reused && isFeishuPlatform(req.Platform) && isFeishuPlatform(state.Platform) {
+					e.BotID = old.BotID
+				}
 				break
 			}
 		}
@@ -1641,6 +1706,10 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 	if isFeishuPlatform(req.Platform) && len(pl.team) > 1 {
 		pl.writes = feishuTeamWrites(pl.writes, pl.team, s, pl.fallback, req.gateOn())
 	}
+	pl.soloShared = len(pl.team) == 1 && otherWizardTeam(s, state, pl.team[0].Project)
+	if (req.Platform == "discord" || cloudWeb || isFeishuPlatform(req.Platform)) && len(pl.team) == 1 && !pl.soloShared {
+		pl.writes = soloGateWrites(pl.writes, pl.team[0].Project, req.Platform, s, req.gateOn())
+	}
 	return pl, nil
 }
 
@@ -1778,9 +1847,9 @@ func cloudWebTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, s Wi
 			clearWizardGate(w, ex.GateURL, ex.GateFallback)
 			continue
 		}
-		gate, fb := defaultGateURL+"?bot="+t.Project, "context"
+		gate, fb := localGateURL()+"?bot="+t.Project, "context"
 		if t.Project == fallback {
-			gate, fb = defaultGateURL, "reply"
+			gate, fb = localGateURL(), "reply"
 		}
 		w.GateURL, w.GateFallback = &gate, &fb
 	}
@@ -1866,9 +1935,9 @@ func feishuTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, s Wiza
 		}
 		isLead := t.Project == fallback
 		if ex.GateURL == "" || isWizardGateURL(ex.GateURL) {
-			gate := defaultGateURL + "?bot=" + t.Project
+			gate := localGateURL() + "?bot=" + t.Project
 			if isLead {
-				gate = defaultGateURL
+				gate = localGateURL()
 			}
 			w.GateURL = &gate
 		}
@@ -1879,6 +1948,66 @@ func feishuTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, s Wiza
 			}
 			w.GateFallback = &fb
 		}
+	}
+	return writes
+}
+
+// otherWizardTeam reports whether the recorded wizard teams (Discord / Feishu and cloud_web) hold
+// a team of at least two roles still in the snapshot that has a role other than project. Such a
+// team owns <data_dir>/gate-team.json, so a single-role run must not rewrite it.
+func otherWizardTeam(s WizardSnapshot, state SetupState, project string) bool {
+	for _, team := range [][]SetupTeamEntry{state.Team, state.CloudWebTeam} {
+		live, other := 0, false
+		for _, t := range team {
+			if _, ok := s.project(t.Project); ok {
+				live++
+				other = other || t.Project != project
+			}
+		}
+		if live >= 2 && other {
+			return true
+		}
+	}
+	return false
+}
+
+// soloGateWrites gives a single-role install the gate a team lead gets: gate_url (the lead's, no
+// ?bot=) for the wiki and task board each turn, and gate_fallback "reply", so the only role still
+// answers whatever the gate cannot decide. Only the team wiring of the gate is written (no
+// allow_bots, team_lead_bot or group_reply_all: there is no teammate). The same rules as the team
+// writes keep hand-written values: on Discord / Feishu gate_url is (re)written when unset or the
+// wizard's; on cloud_web, as in cloudWebTeamWrites, a gate_url the project already has from Discord
+// or set by hand is kept. gate_fallback is (re)written when unset or a value the wizard writes.
+func soloGateWrites(writes []WizardProjectWrite, project, platform string, s WizardSnapshot, gateOn bool) []WizardProjectWrite {
+	i := -1
+	for j, w := range writes {
+		if w.Name == project {
+			i = j
+			break
+		}
+	}
+	if i < 0 {
+		writes = append(writes, WizardProjectWrite{Name: project, PlatformType: platform, Options: map[string]any{}})
+		i = len(writes) - 1
+	}
+	w := &writes[i]
+	ex, _ := s.project(project)
+	if !gateOn {
+		clearWizardGate(w, ex.GateURL, ex.GateFallback)
+		return writes
+	}
+	if isCloudWebPlatform(platform) && ex.GateURL != "" {
+		if _, hasDiscord := ex.Platforms["discord"]; hasDiscord || !isWizardGateURL(ex.GateURL) {
+			return writes
+		}
+	}
+	if ex.GateURL == "" || isWizardGateURL(ex.GateURL) {
+		gate := localGateURL()
+		w.GateURL = &gate
+	}
+	if ex.GateFallback == "" || (isWizardGateURL(ex.GateURL) && (ex.GateFallback == "reply" || ex.GateFallback == "context")) {
+		fb := "reply"
+		w.GateFallback = &fb
 	}
 	return writes
 }
@@ -1898,9 +2027,23 @@ func validateWizardProvider(p WizardProvider) error {
 	return nil
 }
 
-// isWizardGateURL reports whether u is a gate_url the wizard itself writes.
+// localGateURL: the /decide URL of this data dir's gate (gateAddr, config [gate] port).
+func localGateURL() string { return "http://" + localGateAddr() + "/decide" }
+
+// isWizardGateURL reports whether u is a gate_url the wizard itself writes: /decide (and ?bot=) on
+// 127.0.0.1 at the gate port in use, the old fixed 9930, or a port this process moved away from.
 func isWizardGateURL(u string) bool {
-	return u == defaultGateURL || strings.HasPrefix(u, defaultGateURL+"?bot=")
+	rest, ok := strings.CutPrefix(u, "http://127.0.0.1:")
+	if !ok {
+		return false
+	}
+	port, path, ok := strings.Cut(rest, "/")
+	if !ok || (path != "decide" && !strings.HasPrefix(path, "decide?bot=")) {
+		return false
+	}
+	gateAddrMu.RLock()
+	defer gateAddrMu.RUnlock()
+	return knownGatePorts[port] || "127.0.0.1:"+port == gateAddr
 }
 
 func csvSet(s string) []string {
@@ -1979,9 +2122,9 @@ func mergeTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, existin
 			continue
 		}
 		if ex.GateURL == "" || isWizardGateURL(ex.GateURL) {
-			gate := defaultGateURL + "?bot=" + t.Project
+			gate := localGateURL() + "?bot=" + t.Project
 			if isLead {
-				gate = defaultGateURL
+				gate = localGateURL()
 			}
 			w.GateURL = &gate
 		}
@@ -2260,7 +2403,9 @@ func (m *ManagementServer) handleSetupApply(w http.ResponseWriter, r *http.Reque
 		mgmtError(w, http.StatusServiceUnavailable, "wizard not configured")
 		return
 	}
-	env := WizardEnv{Store: m.wizardStore, DataDir: m.wizardDataDir, WikiSubScript: m.wikiSubScript}
+	// AlwaysWriteCmd as in the command-line wizard: the PATH this process has now says nothing about
+	// the PATH a later restart or reinstall gives the service, so the detected absolute path goes into cmd.
+	env := WizardEnv{Store: m.wizardStore, DataDir: m.wizardDataDir, AlwaysWriteCmd: true, WikiSubScript: m.wikiSubScript}
 	if m.cronScheduler != nil { // a running service: the wiki's jobs start without a restart
 		env.Cron = CronOfScheduler(m.cronScheduler)
 	}
@@ -2387,4 +2532,111 @@ func (m *ManagementServer) handleProjectPersona(w http.ResponseWriter, r *http.R
 	default:
 		mgmtError(w, http.StatusMethodNotAllowed, "GET or PUT")
 	}
+}
+
+// mergeGateTeam carries over from the team file already on disk what the wizard does not write
+// itself: top-level keys (e.g. the workspace channel id "workspace") and, per member, keys the user
+// added by hand (e.g. "wt"). A member is matched by its id, else by its project key / name; what the
+// wizard wrote now always wins. "id" and "workspace" (work dir) are the wizard's own keys and are never
+// carried over: a matched-by-name old member may be a deleted bot (the id comes from planWizard/state only).
+func mergeGateTeam(gt, prev map[string]any) {
+	for k, v := range prev {
+		if _, ok := gt[k]; !ok {
+			gt[k] = v
+		}
+	}
+	var olds []map[string]any
+	if m, ok := prev["lead"].(map[string]any); ok {
+		olds = append(olds, m)
+	}
+	oldSubs, _ := prev["subs"].(map[string]any)
+	for _, v := range oldSubs {
+		if m, ok := v.(map[string]any); ok {
+			olds = append(olds, m)
+		}
+	}
+	find := func(key string, m map[string]any) map[string]any {
+		if id, _ := m["id"].(string); id != "" {
+			for _, o := range olds {
+				if oid, _ := o["id"].(string); oid == id {
+					return o
+				}
+			}
+		}
+		if o, ok := oldSubs[key].(map[string]any); ok && key != "" {
+			return o
+		}
+		name, _ := m["name"].(string)
+		for _, o := range olds {
+			if on, _ := o["name"].(string); on != "" && on == name {
+				return o
+			}
+		}
+		return nil
+	}
+	fill := func(key string, m map[string]any) {
+		if o := find(key, m); o != nil {
+			for k, v := range o {
+				if k == "id" || k == "workspace" {
+					continue
+				}
+				if _, ok := m[k]; !ok {
+					m[k] = v
+				}
+			}
+		}
+	}
+	if m, ok := gt["lead"].(map[string]any); ok {
+		fill("", m)
+	}
+	if subs, ok := gt["subs"].(map[string]any); ok {
+		for k, v := range subs {
+			if m, ok := v.(map[string]any); ok {
+				fill(k, m)
+			}
+		}
+	}
+}
+
+// warnFeishuBotIDUnknown: the bot's open_id could not be looked up (network, or the app has no bot
+// capability); the role is made, but d10 / ws-handoff cannot tell who she is until a rerun finds it.
+func warnFeishuBotIDUnknown(lang, project string, err error) WizardWarning {
+	return WizardWarning{Code: "feishu_bot_id_unknown", Project: project, Blocking: false,
+		Message: tr3(lang, "没查到这个飞书机器人的 open_id（"+err.Error()+"），协作脚本暂时认不出她。",
+			"この Feishu ボットの open_id を取得できませんでした（"+err.Error()+"）。連携スクリプトはまだ彼女を識別できません。",
+			"Could not look up this Feishu bot's open_id ("+err.Error()+"); the collaboration scripts cannot tell who she is yet."),
+		Fix: tr3(lang, "网络好了、或给应用开了机器人能力后重跑一次向导即可补上。",
+			"ネットワークが戻るか、アプリでボット機能を有効にしてから、もう一度ウィザードを実行してください。",
+			"Run the wizard again once the network is back or the app has the bot capability enabled.")}
+}
+
+// wizardFeishuBotOpenID is FeishuBotOpenID; tests swap it (no network in core tests).
+var wizardFeishuBotOpenID = FeishuBotOpenID
+
+// gateTeamJSON is <data_dir>/gate-team.json, the one team file the gate and the collaboration
+// scripts (contrib/lead/_team.py: d10, ws-handoff) read to know who is who: every member has its
+// platform user id ("id": a Discord bot id, a Feishu open_id, a DSH member id — kept as the string
+// the platform uses, never assumed numeric) and its work directory ("workspace"). Both are left out
+// when the wizard does not know them.
+func gateTeamJSON(team []SetupTeamEntry, fallback, fallbackName string, s WizardSnapshot) map[string]any {
+	member := func(t SetupTeamEntry, name string, aliases []string) map[string]any {
+		m := map[string]any{"name": name, "aliases": aliases}
+		if t.BotID != "" {
+			m["id"] = t.BotID
+		}
+		if p, ok := s.project(t.Project); ok && p.WorkDir != "" {
+			m["workspace"] = p.WorkDir
+		}
+		return m
+	}
+	subs := map[string]any{}
+	gt := map[string]any{"lead": map[string]any{"name": fallbackName, "aliases": []string{fallback}}, "subs": subs}
+	for _, t := range team {
+		if t.Project == fallback {
+			gt["lead"] = member(t, fallbackName, []string{fallback})
+		} else {
+			subs[t.Project] = member(t, t.Name, []string{})
+		}
+	}
+	return gt
 }

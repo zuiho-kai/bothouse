@@ -1,12 +1,14 @@
 package core
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,8 +42,97 @@ const (
 )
 
 // UsesLocalGate reports whether a project's gate_url is the gate this machine runs (the URL the
-// wizard writes, defaultGateURL); a hand-written URL elsewhere is someone else's gate.
+// wizard writes, localGateURL); a hand-written URL elsewhere is someone else's gate.
 func UsesLocalGate(gateURL string) bool { return isWizardGateURL(gateURL) }
+
+// PersistGatePort writes a gate port the supervisor had to move to into config.toml ([gate] port);
+// set by cmd/cc-connect (config.SetGatePort). nil = only this process knows the new port.
+var PersistGatePort func(port int) error
+
+// gateWhoami asks the gate on gateAddr which data dir it serves (gate.py GET /whoami); "" = no
+// answer (nothing there, an older gate without /whoami, or not a gate at all).
+func gateWhoami() string {
+	c := http.Client{Timeout: time.Second} // 本机接口，1s 足够
+	resp, err := c.Get("http://" + localGateAddr() + "/whoami")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var out struct {
+		DataDir string `json:"data_dir"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out) != nil {
+		return ""
+	}
+	return out.DataDir
+}
+
+func sameDir(a, b string) bool {
+	clean := func(p string) string {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			p = r
+		}
+		return filepath.Clean(p)
+	}
+	return a != "" && b != "" && clean(a) == clean(b)
+}
+
+// gateIsOurs: the gate on gateAddr serves dataDir (so it can be reused).
+func gateIsOurs(dataDir string) bool { return sameDir(gateWhoami(), dataDir) }
+
+// Who holds the gate port (gatePortHolder).
+type gateHolder int
+
+const (
+	gateHolderNone    gateHolder = iota // nothing listens there
+	gateHolderOurs                      // /whoami names this data dir
+	gateHolderUnknown                   // no /whoami answer: an older gate.py, gate_switch.py, not HTTP
+	gateHolderForeign                   // /whoami names another data dir: another bothouse
+)
+
+func gatePortHolder(dataDir string) gateHolder {
+	if portFree(LocalGatePort()) {
+		return gateHolderNone
+	}
+	who := gateWhoami()
+	switch {
+	case who == "":
+		return gateHolderUnknown
+	case sameDir(who, dataDir):
+		return gateHolderOurs
+	}
+	return gateHolderForeign
+}
+
+// keepGatePort is the one rule (supervisor and wizard) for staying on the current gate port:
+// moved only when another data dir's gate answers there, or when a gate that cannot say whose it
+// is holds it and this data dir's config does not point at that port yet (a fresh install). An
+// existing install keeps its port with an older gate on it (the launchd gate.py before /whoami).
+func keepGatePort(h gateHolder, configPointsHere bool) bool {
+	switch h {
+	case gateHolderForeign:
+		return false
+	case gateHolderUnknown:
+		return configPointsHere
+	}
+	return true
+}
+
+// pickGatePort: the gate port for dataDir (keepGatePort); when it has to move, 9930 if free, else
+// a free one. Never another install's gate.
+func pickGatePort(dataDir string, configPointsHere bool) int {
+	cur := LocalGatePort()
+	if keepGatePort(gatePortHolder(dataDir), configPointsHere) {
+		return cur
+	}
+	if cur != defaultGatePort && portFree(defaultGatePort) {
+		return defaultGatePort
+	}
+	return PickFreePort(0)
+}
 
 // gateLauncher runs gate.py and exits as soon as bothouse closes the pipe on its stdin, so the gate
 // never outlives bothouse (a crash or kill -9 included), on every OS. gate.py itself is not changed.
@@ -110,8 +201,9 @@ var (
 
 // GateSupervisor starts, restarts and stops the local gate for one bothouse data dir.
 type GateSupervisor struct {
-	dataDir string
-	dir     string // <data_dir>/gate
+	dataDir  string
+	dir      string // <data_dir>/gate
+	roleWiki string // the directory of the role wikis' bots.json (SetRoleWikiDir); "" = <data_dir>/wiki
 
 	op       sync.Mutex // one step / stop at a time: a gate being stopped is never seen as someone else's
 	mu       sync.Mutex
@@ -137,6 +229,31 @@ var (
 func NewGateSupervisor(dataDir string) *GateSupervisor {
 	return &GateSupervisor{dataDir: dataDir, dir: filepath.Join(dataDir, "gate"),
 		kick: make(chan struct{}, 1), done: make(chan struct{})}
+}
+
+// SetRoleWikiDir names the directory holding bots.json (roleWikiSetup.dir: the user's sub-wiki.py's own when
+// the config has that hook, else RoleWikiDir). Set before Run; the gate rereads bots.json itself (ctxsvc.py).
+func (g *GateSupervisor) SetRoleWikiDir(dir string) {
+	g.mu.Lock()
+	g.roleWiki = dir
+	g.mu.Unlock()
+}
+
+// gateWikiEnv: the wikis /context searches (contrib/gate/ctxsvc.py): GATE_WIKI = the main wiki (FindWiki, so
+// $WIKI_DIR counts), GATE_WIKI_BOTS = bots.json, whose entries name each role's own wiki. A GATE_WIKI already
+// in the environment (e.g. "off") is kept.
+func gateWikiEnv(dataDir, roleWikiDir string) []string {
+	var env []string
+	if _, set := os.LookupEnv("GATE_WIKI"); !set {
+		mw, _ := FindWiki()
+		if mw != "" {
+			env = append(env, "GATE_WIKI="+mw)
+		}
+	}
+	if roleWikiDir == "" {
+		roleWikiDir = RoleWikiDir(dataDir)
+	}
+	return append(env, "GATE_WIKI_BOTS="+filepath.Join(roleWikiDir, "bots.json"))
 }
 
 // SetActiveGateSupervisor registers the running service's supervisor, so a wizard run in this
@@ -174,6 +291,15 @@ func (g *GateSupervisor) Reload(want bool) {
 	g.backoff = 0
 	g.mu.Unlock()
 	g.stopChild()
+	g.poke()
+}
+
+// Want turns the gate on without restarting a running one: the DSH route needs it once its
+// members are set up (EnsureGateForDSH), whatever the projects say.
+func (g *GateSupervisor) Want() {
+	g.mu.Lock()
+	g.want = true
+	g.mu.Unlock()
 	g.poke()
 }
 
@@ -267,11 +393,29 @@ func (g *GateSupervisor) step() time.Duration {
 	if !g.want || g.external {
 		return gateRecheck
 	}
-	if GateRunning() {
-		// on the gate's port before bothouse started one: a gate run by hand / launchd / systemd
-		g.external = true
-		slog.Info("gate: a gate is already listening; bothouse will not start its own", "addr", gateAddr)
-		return gateRecheck
+	// g.want: this data dir's config has a gate_url on this machine's gate, i.e. it points here
+	if h := gatePortHolder(g.dataDir); h != gateHolderNone {
+		if keepGatePort(h, true) {
+			// this data dir's gate, or an older one that cannot say whose it is, started before
+			// bothouse: by hand / launchd / systemd
+			g.external = true
+			if h == gateHolderUnknown {
+				slog.Warn("gate: a gate without /whoami is already listening; bothouse will not start its own", "addr", localGateAddr())
+			} else {
+				slog.Info("gate: this data dir's gate is already listening; bothouse will not start its own", "addr", localGateAddr())
+			}
+			return gateRecheck
+		}
+		// another bothouse's gate: never share it, move to a free port
+		old := localGateAddr()
+		port := PickFreePort(0)
+		SetLocalGatePort(port)
+		if PersistGatePort != nil {
+			if err := PersistGatePort(port); err != nil {
+				slog.Warn("gate: cannot write the new gate port to config", "port", port, "error", err)
+			}
+		}
+		slog.Warn("gate: the gate port belongs to another data dir; moved", "from", old, "to", localGateAddr())
 	}
 	py, reason := GatePrereq(g.dataDir)
 	if reason != "" {
@@ -301,7 +445,7 @@ func (g *GateSupervisor) inputsLocked() string {
 
 // gatePort: the port of gateAddr, where bothouse looks for the gate (GateRunning).
 func gatePort() string {
-	if _, port, err := net.SplitHostPort(gateAddr); err == nil {
+	if _, port, err := net.SplitHostPort(localGateAddr()); err == nil {
 		return port
 	}
 	return "9930"
@@ -322,7 +466,7 @@ func (g *GateSupervisor) startLocked(python string) error {
 	}
 	cmd := exec.Command(python, "-c", gateLauncher)
 	cmd.Dir = g.dir
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(append(os.Environ(), gateWikiEnv(g.dataDir, g.roleWiki)...),
 		// Both names point at the bridge's data dir so the gate never mixes it with an inherited one
 		// (contrib/gate/datadir.py: lead.json follows BOTHOUSE_DATA_DIR, the rest GATE_SETUP_DIR).
 		"GATE_SETUP_DIR="+g.dataDir,
@@ -392,11 +536,52 @@ func reloadGateAfterWizard(dataDir string, s WizardSnapshot) {
 	if g == nil {
 		return
 	}
-	want := false
+	want := DSHRouteConfigured() // DSH-native members read /context too (dsh/collab/gate-context.mjs)
 	for _, p := range s.Projects {
 		if UsesLocalGate(p.GateURL) {
 			want = true
 		}
 	}
 	g.Reload(want)
+}
+
+// pickGatePortForDSH: the DSH route's gate port, by the wizard's rule (pickGatePort), picked
+// before `dsh web` is given it as GATE_PORT. A DSH-only install has no setup apply to do this, so
+// a gate of another install (or an older one without /whoami) on 9930 would keep its own from
+// starting. A new port is saved as [gate] port: through the wizard store when it has one (it
+// writes the first config too), else PersistGatePort.
+func pickGatePortForDSH(dataDir string, store WizardStore) error {
+	cur := LocalGatePort()
+	pointsHere := false
+	if store != nil {
+		if snap, err := store.Snapshot(); err == nil {
+			pointsHere = snap.pointsAtGatePort(cur)
+		}
+	}
+	port := pickGatePort(dataDir, pointsHere)
+	if port == cur {
+		return nil
+	}
+	save := PersistGatePort
+	if ps, ok := store.(interface{ SetGatePort(int) error }); ok {
+		save = ps.SetGatePort
+	}
+	if save != nil {
+		if err := save(port); err != nil {
+			return err
+		}
+	}
+	SetLocalGatePort(port)
+	slog.Info("gate: the DSH route moved the gate port", "from", cur, "to", port)
+	return nil
+}
+
+// EnsureGateForDSH starts the gate of the service running in this process for the DSH route:
+// with only DSH-native members there is no project whose gate_url points at the local gate, so
+// nothing else would start it, and the members' per-turn /context (wiki pages, task board) would
+// never answer. Called when bothouse starts `dsh web` (openDSHWeb).
+func EnsureGateForDSH(dataDir string) {
+	if g := activeGateFor(dataDir); g != nil {
+		g.Want()
+	}
 }

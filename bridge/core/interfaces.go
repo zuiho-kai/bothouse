@@ -371,9 +371,11 @@ var ErrPostOutcomeUnknown = errors.New("post outcome unknown")
 // when the previous one was deleted. When the board's channel can no longer be
 // written to (e.g. an archived thread) they return an error wrapping
 // ErrDeliveryUnrecoverable instead, and the caller leaves that chat alone until it
-// sees newer activity there.
+// sees newer activity there. live is the board's state, computed by the caller from the
+// same data as content (someone or something on it is in work); a platform whose board shows
+// a state (cloud_web's card header) uses it, the others ignore it.
 type BoardPoster interface {
-	UpsertBoard(ctx context.Context, sessionKey, messageID, content string) (string, error)
+	UpsertBoard(ctx context.Context, sessionKey, messageID, content string, live bool) (string, error)
 }
 
 // BoardRemover deletes a board message this bot posted earlier, so a bot that

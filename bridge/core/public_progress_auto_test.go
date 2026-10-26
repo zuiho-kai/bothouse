@@ -422,3 +422,18 @@ func TestAutoProgress_OnlyWorkspaceChannelsGetAutoCard(t *testing.T) {
 		t.Fatalf("agent card in chat channel = %+v", tasks)
 	}
 }
+
+// #597 G25: a ws-handoff wake-up timer is handed-over work, not a routine timer:
+// its turn runs as "handoff", which is not a scheduled user, so the card opens.
+func TestTimerTurnUserHandoffOpensCard(t *testing.T) {
+	if got := timerTurnUser(&TimerJob{}); got != "timer" || !scheduledTurnUser(got) {
+		t.Fatalf("plain timer = %q, want routine \"timer\"", got)
+	}
+	got := timerTurnUser(&TimerJob{Handoff: true})
+	if got != "handoff" || scheduledTurnUser(got) {
+		t.Fatalf("handoff timer = %q (scheduled=%v), want non-routine \"handoff\"", got, scheduledTurnUser(got))
+	}
+	if !strings.Contains(withSubagentPolicy("x", got, false), "automated") {
+		t.Fatal("handoff turn must still be treated as automated for subagent policy")
+	}
+}

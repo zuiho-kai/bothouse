@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -145,8 +144,9 @@ func TestApplyWizardGateStatus(t *testing.T) {
 	noHardware(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
+	dataDir := t.TempDir()
 	run := func() *WizardResult {
-		return ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: t.TempDir(), CLIs: testCLIs},
+		return ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: dataDir, CLIs: testCLIs},
 			discordReq("900", WizardRole{Token: t1}, WizardRole{Token: t2}))
 	}
 	res := run()
@@ -156,20 +156,18 @@ func TestApplyWizardGateStatus(t *testing.T) {
 	if w := findWarning(res, "gate_not_running"); w != nil {
 		t.Fatalf("gate_not_running is gone (routing works without the gate): %+v", w)
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	gateAddr = ln.Addr().String()
+	oldAddr := gateAddr
+	t.Cleanup(func() { gateAddr = oldAddr })
+	gateAddr = freeGateAddr(t)
+	whoamiServer(t, gateAddr, dataDir) // this data dir's gate (another install's would make the wizard move: gate_port_test.go)
 	res = run()
 	if res.GateRunning == nil || !*res.GateRunning || findWarning(res, "gate_not_running") != nil {
 		t.Fatalf("gate up: running=%v %v", res.GateRunning, warningCodes(res))
 	}
-	// one bot: no gate line at all
-	one := ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: t.TempDir(), CLIs: testCLIs}, discordReq("900", WizardRole{Token: t1}))
-	if one.GateRunning != nil || one.GateHint != "" {
-		t.Fatalf("single bot gate = %v %q", one.GateRunning, one.GateHint)
+	// one bot: the gate runs for its wiki and task board, but there is no routing line
+	one := ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: dataDir, CLIs: testCLIs}, discordReq("900", WizardRole{Token: t1}))
+	if one.GateRunning == nil || one.GateStatus == GateStatusOff || one.GateHint != "" {
+		t.Fatalf("single bot gate = %v %q %q", one.GateRunning, one.GateStatus, one.GateHint)
 	}
 }
 

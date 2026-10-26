@@ -540,8 +540,9 @@ type Engine struct {
 	interactiveStates map[string]*interactiveState // key = sessionKey
 	nativeCompactions map[string]*nativeCompaction // guarded by interactiveMu
 
-	// handoffWatchOn: startHandoffWatch ran on this engine (team_watch.go); until then a claim
-	// records no check time and the list shows no watch_due.
+	// handoffWatchOn: the API server's handoff watch runs on this engine (team_watch.go
+	// startHandoffWatch, called when the API server starts and again when projects are hot-loaded
+	// or removed); while false a claim records no check time and the list shows no watch_due.
 	handoffWatchOn atomic.Bool
 
 	platformLifecycleMu sync.Mutex
@@ -574,6 +575,8 @@ type Engine struct {
 	// Data directory for socket path injection
 	dataDir        string
 	publicProgress *PublicProgress
+	productPyBin   atomic.Value // string: bin dir holding the product python3, resolved once in Start (role_env.go)
+	productPyWG    sync.WaitGroup // the Start-time lookup above; Stop waits for it (role_env.go)
 
 	// Team mode (#139 C): workspace -> chat channel exit and the asks waiting for an answer.
 	teamExit     teamExitState
@@ -1757,7 +1760,12 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	if replyCtx == nil {
 		replyCtx, err = rc.ReconstructReplyCtx(runSessionKey)
 		if err != nil {
-			return fmt.Errorf("reconstruct reply context: %w", err)
+			if !job.Mute || !job.IsShellJob() {
+				return fmt.Errorf("reconstruct reply context: %w", err)
+			}
+			// a muted shell job posts nothing, so it needs no chat to reply in: the setup wizard's wiki jobs on
+			// cloud_web are anchored to a session no one chats in (core/setup_wizard.go cloudWebWikiSession)
+			replyCtx = nil
 		}
 	}
 
@@ -2105,8 +2113,8 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	msg := &Message{
 		SessionKey:   sessionKey,
 		Platform:     platformName,
-		UserID:       "timer",
-		UserName:     "timer",
+		UserID:       timerTurnUser(job),
+		UserName:     timerTurnUser(job),
 		Content:      content,
 		ReplyCtx:     replyCtx,
 		ModeOverride: job.Mode,
@@ -2180,8 +2188,9 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		// inject_if_busy: fold the prompt into the running turn, the same way a gate mid-turn
 		// message is (same checks: canInjectInto); otherwise, or on failure, fall through to queuing.
 		// It carries the scheduled-turn mark and sender header a new timer turn would, so it is
-		// not taken for something the user just said.
-		if job.InjectIfBusy && e.canInjectInto(agent, iKey) &&
+		// not taken for something the user just said. A handoff wake-up (#597 G25) never folds in:
+		// that path skips the turn setup that opens its own progress card, so it queues instead.
+		if job.InjectIfBusy && !job.Handoff && e.canInjectInto(agent, iKey) &&
 			e.injectIntoRunningTurn(iKey, e.buildSenderPrompt(withScheduledMark(msg.Content), msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey), msg.ReplyCtx, nil, nil) {
 			slog.Info("timer: session busy, job injected into current turn", "id", job.ID, "session", sessionKey)
 			return nil
@@ -2790,6 +2799,7 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 }
 
 func (e *Engine) Start() error {
+	e.resolveRoleProductPython()
 	var startErrs []error
 	readyCount := 0
 	pendingCount := 0
@@ -2894,6 +2904,7 @@ func (e *Engine) Stop() error {
 	// Cancellation requests shutdown; joining ensures no accepted message or
 	// event reader can persist state after Stop returns.
 	e.messageWorkers.Wait()
+	e.productPyWG.Wait() // the role-PATH python3 link is not written into the data dir after Stop
 	if len(errs) > 0 {
 		return fmt.Errorf("engine stop errors: %v", errs)
 	}
@@ -4854,22 +4865,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 
 	// Inject per-session env vars so the agent subprocess can call `cc-connect cron add` etc.
 	if inj, ok := agent.(SessionEnvInjector); ok {
-		envVars := []string{
-			"CC_PROJECT=" + e.name,
-			"CC_SESSION_KEY=" + ccKey,
-		}
-		if e.dataDir != "" {
-			envVars = append(envVars, "CC_DATA_DIR="+e.dataDir)
-		}
-		if exePath, err := os.Executable(); err == nil {
-			binDir := filepath.Dir(exePath)
-			if curPath := os.Getenv("PATH"); curPath != "" {
-				envVars = append(envVars, "PATH="+binDir+string(filepath.ListSeparator)+curPath)
-			} else {
-				envVars = append(envVars, "PATH="+binDir)
-			}
-		}
-		inj.SetSessionEnv(envVars)
+		inj.SetSessionEnv(e.roleSessionEnv(ccKey))
 	}
 	e.applySessionModel(agent, ccKey)
 	e.applySessionInstructions(agent, ccKey)
@@ -17365,13 +17361,28 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 	if err != nil {
 		return "", err
 	}
-	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, relaySessionKey, false)
+	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, relaySessionKey, false, nil)
+}
+
+// relayGateQuery is the text the gate searches the wiki with: the assignment
+// only. A task relay's fixed instructions (and its run token) would otherwise
+// win every search and leak the token to the gate.
+func relayGateQuery(message string) string {
+	if strings.HasPrefix(message, "[Task relay ") {
+		if _, body, ok := strings.Cut(message, "[/Task relay]"); ok {
+			return strings.TrimSpace(body)
+		}
+	}
+	return message
 }
 
 // handleTrackedRelay owns execution and team lifecycle after the caller has
 // resolved its conversation key. Task-scoped relays can pass their scoped key
 // here to share timeout/drain behavior without sharing conversation history.
-func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, completion ...func(string, error)) (string, error) {
+// Closing stop (task relays' ten-minute watch; nil = never) closes the session
+// at once, unlike the wait timeout: a result already received is returned as
+// done, otherwise the text so far comes back with errRelayWatchStopped.
+func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, stop <-chan struct{}, completion ...func(string, error)) (string, error) {
 	if e.IsPaused() {
 		return "", fmt.Errorf("engine %q is paused", e.name)
 	}
@@ -17389,17 +17400,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	}()
 
 	if inj, ok := agent.(SessionEnvInjector); ok {
-		envVars := []string{
-			"CC_PROJECT=" + e.name,
-			"CC_SESSION_KEY=" + sourceSessionKey,
-		}
-		if exePath, err := os.Executable(); err == nil {
-			binDir := filepath.Dir(exePath)
-			if curPath := os.Getenv("PATH"); curPath != "" {
-				envVars = append(envVars, "PATH="+binDir+string(filepath.ListSeparator)+curPath)
-			}
-		}
-		inj.SetSessionEnv(envVars)
+		inj.SetSessionEnv(e.roleSessionEnv(sourceSessionKey))
 	}
 	e.applySessionModel(agent, relaySessionKey)
 	e.applySessionInstructions(agent, relaySessionKey)
@@ -17407,21 +17408,29 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	// Use the engine context (not the relay timeout context) so that the
 	// agent process is not killed when the relay deadline fires. The relay
 	// timeout only controls how long we *wait* for the response.
-	agentSession, err := agent.StartSession(e.ctx, session.GetAgentSessionID())
+	resumeID := session.GetAgentSessionID()
+	agentSession, err := agent.StartSession(e.ctx, resumeID)
+	startedFresh := resumeID == ""
 	if err != nil {
 		// Resume failed — fall back to a fresh session so the relay is not
 		// permanently broken by a corrupted/stale session ID.
-		if session.GetAgentSessionID() != "" {
+		if resumeID != "" {
 			slog.Warn("relay: session resume failed, trying fresh session",
 				"relay_key", relaySessionKey, "error", err)
 			session.SetAgentSessionID("", agent.Name())
 			sessions.Save()
 			agentSession, err = agent.StartSession(e.ctx, "")
+			startedFresh = true
 		}
 		if err != nil {
 			teamOutcome = teamWorkFailed
 			return "", fmt.Errorf("start relay session: %w", err)
 		}
+	}
+	if startedFresh {
+		// maomao fork: a relay context started without resume gets the target's MEMORY.md
+		// on its first turn too (memoryBlock), like the channel path (startInteractive).
+		session.MarkFreshContext()
 	}
 
 	saveRelaySessionID := func(id string, force bool) {
@@ -17450,9 +17459,23 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	// ACP Send waits for the whole turn, including permission responses.
 	// The sender owns this buffered completion channel so it can finish even
 	// after the caller times out and hands event consumption to the drain.
-	prompt := e.withAgentInstructions(message, "", true)
+	// The memory index and wiki pages go only into the agent's prompt, never into
+	// the relay request: task receipts hash the request (beginTaskRelay). Not
+	// withTurnBlocks (same order): channel handoff and teammate status are not for relays.
+	content := message
+	if c := e.memoryBlock(session); c != "" {
+		content = c + "\n\n" + content
+	}
+	if c := e.turnContext(session, relaySessionKey, relayGateQuery(message)); c != "" {
+		content = c + "\n\n" + content
+	}
+	prompt := e.withAgentInstructions(content, "", true)
 	sendResult := make(chan error, 1)
-	go func() { sendResult <- agentSession.Send(prompt, "", nil, nil) }()
+	go func() {
+		err := agentSession.Send(prompt, "", nil, nil)
+		session.SettleHandoff(err == nil) // an unsent turn puts the memory index back for the next one
+		sendResult <- err
+	}()
 	var sendDone <-chan error = sendResult
 	events := agentSession.Events()
 
@@ -17474,7 +17497,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 			// Only the wait timed out. The drain now owns both outstanding
 			// Send completion and events; team work stays busy until it ends.
 			draining = true
-			go e.drainRelaySession(agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, completion)
+			go e.drainRelaySession(agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, completion)
 			if quiet {
 				return strings.Join(textParts, ""), &relayDrainingError{ctx.Err()}
 			}
@@ -17482,6 +17505,17 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 		case <-e.ctx.Done():
 			agentSession.Close()
 			return "", e.ctx.Err()
+		case <-stop:
+			textParts, response, resultReceived = relayTakeBuffered(events, textParts, response, resultReceived)
+			agentSession.Close()
+			if resultReceived {
+				slog.Info("relay: watch stop after the result; recorded as done", "from", fromProject, "to", e.name)
+				teamOutcome = teamWorkCompleted
+				return response, nil
+			}
+			slog.Warn("relay: ten-minute watch stopped the run; session closed", "from", fromProject, "to", e.name)
+			teamOutcome = teamWorkFailed
+			return strings.Join(textParts, ""), errRelayWatchStopped
 		case err := <-sendDone:
 			sendDone = nil
 			if err != nil {
@@ -17570,6 +17604,35 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	return "", fmt.Errorf("relay: agent process exited without response")
 }
 
+// relayTakeBuffered reads the events already waiting (without blocking), so a
+// stop keeps text and a result the worker produced just before it.
+func relayTakeBuffered(events <-chan Event, textParts []string, response string, resultReceived bool) ([]string, string, bool) {
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				return textParts, response, resultReceived
+			}
+			switch ev.Type {
+			case EventText:
+				if ev.Content != "" {
+					textParts = append(textParts, ev.Content)
+				}
+			case EventResult:
+				response, resultReceived = ev.Content, true
+				if response == "" {
+					response = strings.Join(textParts, "")
+				}
+				if response == "" {
+					response = "(empty response)"
+				}
+			}
+		default:
+			return textParts, response, resultReceived
+		}
+	}
+}
+
 func relayPartialResponseOrError(ctxErr error, textParts []string, fromProject, toProject string) (string, error) {
 	if len(textParts) == 0 {
 		return "", ctxErr
@@ -17589,7 +17652,7 @@ func relayPartialResponseOrError(ctxErr error, textParts []string, fromProject, 
 // agent finish its current turn (saving the session ID for future resumption),
 // auto-approves any permission requests, and then closes the session. A 10-minute
 // safety timeout prevents the goroutine from leaking if the agent hangs.
-func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, completion []func(string, error)) {
+func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, completion []func(string, error)) {
 	teamOutcome := teamWorkUnconfirmed
 	completionErr := fmt.Errorf("relay: background execution ended without a confirmed result")
 	defer func() {
@@ -17663,6 +17726,17 @@ func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, 
 					UpdatedInput: ev.ToolInputRaw,
 				})
 			}
+		case <-stop:
+			textParts, response, resultReceived = relayTakeBuffered(events, textParts, response, resultReceived)
+			agentSession.Close()
+			if resultReceived {
+				teamOutcome, completionErr = teamWorkCompleted, nil
+				return
+			}
+			slog.Warn("relay: ten-minute watch stopped the drained run; session closed", "relay_key", relaySessionKey)
+			teamOutcome, completionErr = teamWorkFailed, errRelayWatchStopped
+			response = strings.Join(textParts, "")
+			return
 		case <-timer.C:
 			slog.Warn("relay: background drain timed out, closing session",
 				"relay_key", relaySessionKey)
@@ -17699,7 +17773,7 @@ func (e *Engine) cmdBind(p Platform, msg *Message, args []string) {
 	}
 
 	if len(args) == 0 {
-		e.cmdBindStatus(p, msg.ReplyCtx, chatID)
+		e.cmdBindStatus(p, msg.ReplyCtx, p.Name(), chatID)
 		return
 	}
 
@@ -17760,11 +17834,15 @@ func (e *Engine) cmdBind(p Platform, msg *Message, args []string) {
 	e.relayManager.AddToBind(p.Name(), chatID, otherProject)
 
 	// Get all bound projects for status message
-	binding := e.relayManager.GetBinding(chatID)
+	// Same view as a bare /bind: manual binding plus the wizard team (relay_team_bind.go).
+	binding := e.relayManager.EffectiveBinding(p.Name(), chatID)
 	var boundProjects []string
-	for proj := range binding.Bots {
-		boundProjects = append(boundProjects, proj)
+	if binding != nil {
+		for proj := range binding.Bots {
+			boundProjects = append(boundProjects, proj)
+		}
 	}
+	sort.Strings(boundProjects)
 
 	reply := fmt.Sprintf(e.i18n.T(MsgRelayBindSuccess), strings.Join(boundProjects, " ↔ "), otherProject, otherProject)
 
@@ -17777,8 +17855,8 @@ func (e *Engine) cmdBind(p Platform, msg *Message, args []string) {
 	e.reply(p, msg.ReplyCtx, reply)
 }
 
-func (e *Engine) cmdBindStatus(p Platform, replyCtx any, chatID string) {
-	binding := e.relayManager.GetBinding(chatID)
+func (e *Engine) cmdBindStatus(p Platform, replyCtx any, platform, chatID string) {
+	binding := e.relayManager.EffectiveBinding(platform, chatID)
 	if binding == nil {
 		e.reply(p, replyCtx, e.i18n.T(MsgRelayNoBinding))
 		return

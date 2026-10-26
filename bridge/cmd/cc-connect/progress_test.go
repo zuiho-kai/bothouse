@@ -41,7 +41,7 @@ type progressCLIPlatform struct {
 	boards    chan string
 }
 
-func (p *progressCLIPlatform) UpsertBoard(_ context.Context, _, id, text string) (string, error) {
+func (p *progressCLIPlatform) UpsertBoard(_ context.Context, _, id, text string, _ bool) (string, error) {
 	p.boards <- text
 	if id == "" {
 		id = "board"

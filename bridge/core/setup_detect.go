@@ -23,10 +23,14 @@ type LocalCLI struct {
 	InPath    bool   `json:"in_path"` // false = found in a common install dir outside PATH; the wizard writes Path into the agent's cmd
 	Version   string `json:"version,omitempty"`
 	// Login: "logged_in" (the CLI's own local login / OAuth found), "not_logged_in", "unknown".
-	Login     string `json:"login"`
-	Protocol  string `json:"protocol"` // what a third-party API must speak to be attached ("" = can't attach one)
-	Supported bool   `json:"supported"`
-	Note      string `json:"note,omitempty"`
+	Login string `json:"login"`
+	// LoginEnvOnly: logged in only through an environment variable of this process (Claude Code:
+	// ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN, no credential file). `bothouse daemon install`
+	// does not copy these variables into the service, so a daemon-started CLI is not logged in.
+	LoginEnvOnly bool   `json:"login_env_only,omitempty"`
+	Protocol     string `json:"protocol"` // what a third-party API must speak to be attached ("" = can't attach one)
+	Supported    bool   `json:"supported"`
+	Note         string `json:"note,omitempty"`
 }
 
 type cliSpec struct {
@@ -64,18 +68,32 @@ func jsonHasKey(path, key string) bool {
 	return ok && string(v) != "null"
 }
 
+// claudeEnvLogin: Claude Code is logged in through this process's environment (API key, or the
+// token from `claude setup-token`). Values are never logged or returned.
+func claudeEnvLogin() bool {
+	return os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("CLAUDE_CODE_OAUTH_TOKEN") != ""
+}
+
+// claudeFileLogin: Claude Code's own login on disk, which a daemon-started claude also sees.
+func claudeFileLogin(h string) bool {
+	return fileExists(filepath.Join(h, ".claude", ".credentials.json")) ||
+		jsonHasKey(filepath.Join(h, ".claude.json"), "oauthAccount")
+}
+
+// loginEnvOnly: a logged-in Claude Code whose login comes only from this process's environment.
+func loginEnvOnly(agentType, login, home string) bool {
+	return agentType == "claudecode" && login == "logged_in" && !claudeFileLogin(home)
+}
+
 // Binary names follow each agent's ParseCmdOpts default (agent/*/*.go).
 // Login checks look at whether the CLI's own credential file exists. The one exception is
-// Claude Code: ~/.claude.json exists for logged-out users too and the OAuth token itself
+// Claude Code (besides ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`, both passed
+// through to the child process): ~/.claude.json exists for logged-out users too and the OAuth token itself
 // lives in the macOS keychain, so the file is parsed and only the presence of the
 // "oauthAccount" key is checked; values are discarded and never logged or returned.
 var cliSpecs = []cliSpec{
 	{"claudecode", "Claude Code", []string{"claude"}, ProtocolAnthropic, func(h string) string {
-		if os.Getenv("ANTHROPIC_API_KEY") != "" || fileExists(filepath.Join(h, ".claude", ".credentials.json")) ||
-			jsonHasKey(filepath.Join(h, ".claude.json"), "oauthAccount") {
-			return "logged_in"
-		}
-		return "not_logged_in"
+		return loginIf(claudeEnvLogin() || claudeFileLogin(h))
 	}, ""},
 	{"codex", "Codex", []string{"codex"}, ProtocolResponses, func(h string) string {
 		dir := os.Getenv("CODEX_HOME")
@@ -124,7 +142,52 @@ func extraBinDirs() []string {
 		filepath.Join(home, ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin",
 		filepath.Join(home, ".npm-global", "bin"), filepath.Join(home, ".bun", "bin"),
 		filepath.Join(home, ".cargo", "bin"), filepath.Join(home, "go", "bin"),
+		filepath.Join(home, ".claude", "local"), // Claude Code's local install (`claude migrate-installer`), Unix only
 	}
+}
+
+// ExtraBinDirs returns the install dirs searched after PATH (see extraBinDirs). The role session
+// env and the daemon's service PATH append them, so an npm-installed CLI also finds node.
+func ExtraBinDirs() []string { return extraBinDirs() }
+
+// ResolveCLI returns the command to start for a configured CLI cmd. A cmd found on PATH, or one
+// that is already a path, is returned as is. A bare name missing from PATH is looked up in
+// extraBinDirs (the same lookup as the setup wizard) and its absolute path returned, so a service
+// started with a short PATH still finds claude, codex and the other CLIs.
+func ResolveCLI(cmd string) (string, error) {
+	if _, err := exec.LookPath(cmd); err == nil {
+		return cmd, nil
+	}
+	if cmd == "" || strings.ContainsAny(cmd, `/\`) {
+		return "", exec.ErrNotFound
+	}
+	p, _, err := lookPath(cmd)
+	if err != nil {
+		return "", err
+	}
+	return p, nil
+}
+
+// AppendPathDirs appends dirs to the PATH value path, after what is already there, skipping
+// empty dirs and dirs path already holds. Earlier entries keep winning.
+func AppendPathDirs(path string, dirs ...string) string {
+	sep := string(filepath.ListSeparator)
+	seen := map[string]bool{}
+	var parts []string
+	if path != "" {
+		parts = strings.Split(path, sep)
+	}
+	for _, p := range parts {
+		seen[p] = true
+	}
+	for _, d := range dirs {
+		if d == "" || seen[d] {
+			continue
+		}
+		seen[d] = true
+		parts = append(parts, d)
+	}
+	return strings.Join(parts, sep)
 }
 
 // lookPath finds bin on PATH (inPath = true), then in extraBinDirs. Replaceable in tests.
@@ -237,6 +300,7 @@ func DetectLocalCLIs(ctx context.Context) []LocalCLI {
 			if s.login != nil {
 				c.Login = s.login(home)
 			}
+			c.LoginEnvOnly = loginEnvOnly(s.agentType, c.Login, home)
 			if !strings.HasSuffix(path, ".app") {
 				tctx, cancel := context.WithTimeout(ctx, 5*time.Second) // 来源：沿用改动前本文件 --version 探测的 5 秒
 				if b, err := exec.CommandContext(tctx, path, "--version").Output(); err == nil {

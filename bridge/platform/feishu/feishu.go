@@ -173,6 +173,7 @@ type Platform struct {
 	// without requiring another @bot mention. Value is the last-seen time so
 	// stale entries can be expired by a future TTL sweep if needed.
 	activeThreadSessions sync.Map // sessionKey -> time.Time
+	boardPinned          sync.Map // team board message ID -> struct{} once pinned by this process
 
 	richCardImageMu         sync.Mutex
 	richCardImageResolved   map[string]string
@@ -4788,7 +4789,7 @@ func (p *Platform) patchCardMessage(ctx context.Context, messageID, cardJSON str
 				return fmt.Errorf("%s: patch message: %w", p.tag(), err)
 			}
 			if !resp.Success() {
-				return fmt.Errorf("%s: patch message code=%d msg=%s", p.tag(), resp.Code, resp.Msg)
+				return p.imAPIErr("patch message", resp.ApiResp, resp.Code, resp.Msg)
 			}
 			return nil
 		})

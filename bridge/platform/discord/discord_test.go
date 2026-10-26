@@ -1896,3 +1896,15 @@ func TestReferencedMessage_OnlyKnownOwnOutputCanShorten(t *testing.T) {
 		t.Fatal("unknown timestamp shortened")
 	}
 }
+
+// PR #377 review: the user a reply pings by default is not an @ the text wrote.
+func TestMentionIDsOnlyExplicit(t *testing.T) {
+	users := []*discordgo.User{{ID: "111"}, {ID: "222"}, {ID: "333"}}
+	got := mentionIDs("<@111> 再派一件 <@!333>", users) // 222 = the replied-to author
+	if len(got) != 2 || got[0] != "111" || got[1] != "333" {
+		t.Fatalf("mentionIDs = %v, want [111 333]", got)
+	}
+	if got := mentionIDs("收到", users[1:2]); len(got) != 0 {
+		t.Fatalf("reply ping only: mentionIDs = %v, want none", got)
+	}
+}

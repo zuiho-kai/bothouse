@@ -51,10 +51,10 @@ test('workspace role messages renew the 10-minute check, then idle parks', () =>
   tasks.close();
 });
 
-test('[ask] pauses the bound owner task and leaves its row on the source board', async () => {
+test('a bridge bot\'s [ask] pauses the bound owner task and leaves its row on the source board', async () => {
   const hub = makeHub();
   const ws = hub.store.createWorkspace(1);
-  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'bot', online: true });
   const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
   hub.tasks = tasks;
   new TeamExit(hub);
@@ -70,7 +70,7 @@ test('[ask] pauses the bound owner task and leaves its row on the source board',
 test('single-line [ask] without a task number falls back to the room task and pauses it', async () => {
   const hub = makeHub();
   const ws = hub.store.createWorkspace(1);
-  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'bot', online: true });
   const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
   hub.tasks = tasks;
   new TeamExit(hub);
@@ -84,12 +84,12 @@ test('single-line [ask] without a task number falls back to the room task and pa
 test('[ask] naming 任务 #N pauses that task, not the room fallback', async () => {
   const hub = makeHub();
   const ws = hub.store.createWorkspace(1);
-  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'bot', online: true });
   const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
   hub.tasks = tasks;
   new TeamExit(hub);
   const first = tasks.assign({ roomId: ws.id, title: 'first', owner: 'ds', actor: 'owner' });
-  hub.setMember({ id: 'ds2', name: 'DeepSeek2', kind: 'dsh', online: true });
+  hub.setMember({ id: 'ds2', name: 'DeepSeek2', kind: 'bot', online: true });
   const second = tasks.assign({ roomId: ws.id, title: 'second', owner: 'ds2', actor: 'owner' });
   // room fallback picks the most recently updated task; make that the other one
   tasks.db.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(1, first.id);

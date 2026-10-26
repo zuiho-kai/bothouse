@@ -87,6 +87,7 @@ from urllib.parse import urlsplit
 from aiohttp import WSCloseCode, WSMsgType, web
 
 from . import cloudweb, webpush
+from .errors import Conflict, WorkspaceError   # 定义在叶子模块（见 rh/errors.py），这里照旧可 from rh.hub import
 from .meeting import MAX_TEXT_CHARS, clean
 from .voice import SAMPLE_RATE
 
@@ -177,6 +178,19 @@ MIGRATE_AVATAR = "ALTER TABLE members ADD COLUMN avatar TEXT NOT NULL DEFAULT ''
 MIGRATE_ARCHIVED = "ALTER TABLE rooms ADD COLUMN archived_at REAL"
 MIGRATE_CARD = "ALTER TABLE messages ADD COLUMN card TEXT"   # 旧消息都是 NULL = 普通消息
 MIGRATE_FROM_TURN = "ALTER TABLE messages ADD COLUMN from_turn INTEGER"   # 旧消息都是 NULL：补发时照常给 bot 看
+# cc-connect team_workspace（#597 G1）：频道分聊天频道（chat）和工作区（workspace）。列的意思照抄
+# conest bridge/core/dsh_bundle/collab/store.mjs:34-46：parent_id 现在的主（聊天频道），free=1 空闲（池里谁都能认领），
+# claim_seq 认领号（每次认领 +1，桥 release 带上它，旧号拒绝 stale-claim），claim_bridge=1 是桥认领的。
+# rh 没有任务表，所以没有 claim_task。旧频道都是 chat。
+MIGRATE_WORKSPACE = [
+    ("kind", "ALTER TABLE rooms ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'"),
+    ("parent_id", "ALTER TABLE rooms ADD COLUMN parent_id INTEGER REFERENCES rooms(id)"),
+    ("free", "ALTER TABLE rooms ADD COLUMN free INTEGER NOT NULL DEFAULT 0"),
+    ("claim_seq", "ALTER TABLE rooms ADD COLUMN claim_seq INTEGER NOT NULL DEFAULT 0"),
+    ("claim_bridge", "ALTER TABLE rooms ADD COLUMN claim_bridge INTEGER NOT NULL DEFAULT 0"),
+]
+WORKSPACE_PREFIX = "工作区"   # 工作区名「工作区<n>」，同 store.mjs WORKSPACE_PREFIX
+WORKSPACE_RE = re.compile(rf"^{WORKSPACE_PREFIX}(\d+)$")
 
 
 def add_column(db: sqlite3.Connection, sql: str) -> None:
@@ -196,10 +210,6 @@ def session_key(room_id: int) -> str:
 
 class BadRequest(Exception):
     pass
-
-
-class Conflict(Exception):
-    """频道重名、往归档的频道发消息：HTTP 409。"""
 
 
 class DeviceOut:
@@ -263,6 +273,10 @@ class Hub:
             add_column(self.db, MIGRATE_CARD)
         if "from_turn" not in {r["name"] for r in self.db.execute("PRAGMA table_info(messages)")}:
             add_column(self.db, MIGRATE_FROM_TURN)
+        cols = {r["name"] for r in self.db.execute("PRAGMA table_info(rooms)")}
+        for col, sql in MIGRATE_WORKSPACE:
+            if col not in cols:
+                add_column(self.db, sql)
         # 上次进程留下的“在说”：说话的那个 host 连接已经不在了，改成被打断，否则网页上一直亮着。
         self.db.execute("UPDATE messages SET status='interrupted', updated_at=? WHERE status='speaking'", (time.time(),))
         if not self.db.execute("SELECT 1 FROM rooms").fetchone():
@@ -399,6 +413,78 @@ class Hub:
         except sqlite3.IntegrityError:
             raise Conflict("同名频道已存在（可能在已归档里）")
         return self.room(room_id)
+
+    # ---------- 工作区（cc-connect team_workspace，语义照 collab/store.mjs:346-460） ----------
+    def _chat_of(self, room: dict) -> int:
+        """工作区算它的主聊天频道，聊天频道算自己。"""
+        return room["parent_id"] if room["kind"] == "workspace" and room["parent_id"] is not None else room["id"]
+
+    def workspaces(self) -> list[dict]:
+        """全服一个池：所有没归档的工作区。"""
+        return [dict(r) for r in self.db.execute(
+            "SELECT * FROM rooms WHERE kind='workspace' AND archived_at IS NULL ORDER BY id")]
+
+    def workspace_owner(self, room_id: int) -> int | None:
+        """现在的主（聊天频道 id）；None = 空闲或不是工作区。"""
+        r = self.room(room_id)
+        return None if r is None or r["kind"] != "workspace" or r["free"] else r["parent_id"]
+
+    def claim_id(self, room_id: int) -> str:
+        r = self.room(room_id)
+        return str(r["claim_seq"] if r else 0)
+
+    def create_workspace(self, room_id: int, bridge: bool = True) -> dict:
+        """给聊天频道 room_id 一个工作区：先用编号最小的空闲工作区，没有就建「工作区<n+1>」。
+        n 取所有频道（含归档的、含同名的聊天频道）里最大的「工作区<k>」：rooms.name UNIQUE 且归档的也占名。"""
+        room = self.room(room_id)
+        if room is None:
+            raise WorkspaceError("room-missing")
+        parent = self._chat_of(room)
+        num = lambda r: int(m.group(1)) if (m := WORKSPACE_RE.match(r["name"])) else 0
+        with self.db:
+            free = sorted((w for w in self.workspaces() if w["free"] and num(w) > 0), key=num)
+            if free:
+                wid = free[0]["id"]
+                self.db.execute("UPDATE rooms SET parent_id=?, free=0, claim_bridge=?, claim_seq=claim_seq+1 WHERE id=?",
+                                (parent, int(bridge), wid))
+            else:
+                n = max([0, *(num(dict(r)) for r in self.db.execute("SELECT name FROM rooms"))])
+                cur = self.db.execute(
+                    "INSERT INTO rooms(name, created_at, kind, parent_id, free, claim_seq, claim_bridge) "
+                    "VALUES(?, ?, 'workspace', ?, 0, 1, ?)",
+                    (f"{WORKSPACE_PREFIX}{n + 1}", time.time(), parent, int(bridge)))
+                wid = cur.lastrowid
+        return self.room(wid)
+
+    def claim_workspace(self, chat_id: int, workspace_id: int, bridge: bool = True) -> dict:
+        """chat_id（或它所在工作区的主频道）认领工作区 workspace_id，认领号 +1。别的频道占着就拒 workspace-owned。"""
+        chat, ws = self.room(chat_id), self.room(workspace_id)
+        if chat is None or ws is None or ws["archived_at"] is not None:
+            raise WorkspaceError("room-missing")
+        if ws["kind"] != "workspace":   # 默认频道等聊天频道不能被认领成工作区
+            raise WorkspaceError("not-workspace")
+        parent = self._chat_of(chat)
+        owner = self.workspace_owner(ws["id"])
+        if owner is not None and owner != parent:
+            raise WorkspaceError("workspace-owned", f"{ws['name']} belongs to room {owner}")
+        with self.db:
+            self.db.execute("UPDATE rooms SET parent_id=?, free=0, claim_bridge=?, claim_seq=claim_seq+1 WHERE id=?",
+                            (parent, int(bridge), ws["id"]))
+        return self.room(ws["id"])
+
+    def release_workspace(self, room_id: int, claim: str | None = None) -> bool:
+        """放回池里（free=1）。claim 不是现在的认领号就拒 stale-claim（迟到的 release 不放掉新认领）。
+        已空闲或不是工作区返回 False。rh 没有任务表，没有 busy。"""
+        ws = self.room(room_id)
+        if ws is None:
+            raise WorkspaceError("room-missing")
+        if ws["kind"] != "workspace" or self.workspace_owner(ws["id"]) is None:
+            return False
+        if claim is not None and str(claim) != self.claim_id(ws["id"]):
+            raise WorkspaceError("stale-claim", f"{ws['name']} was claimed again since claim {claim}")
+        with self.db:
+            self.db.execute("UPDATE rooms SET free=1, claim_bridge=0 WHERE id=?", (ws["id"],))
+        return True
 
     def members(self) -> list[dict]:
         return [dict(r) for r in self.db.execute("SELECT * FROM members ORDER BY position, id")]

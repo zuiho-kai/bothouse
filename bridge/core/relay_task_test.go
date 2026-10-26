@@ -277,8 +277,10 @@ func TestTaskRelayLateCompletionCannotReopenParent(t *testing.T) {
 	}
 	p.finish(run, "cancelled")
 	before, _ := p.Task(id)
-	if _, err := p.Report(PublicProgressRequest{Project: "source", SessionKey: d.req.SessionKey, Run: d.token, Seq: 1, Kind: "update", Summary: "late"}); err == nil {
-		t.Fatal("late progress accepted")
+	// A running dispatch still reports (the watch renews on it) but the
+	// ended card keeps its state and summary.
+	if _, err := p.Report(PublicProgressRequest{Project: "source", SessionKey: d.req.SessionKey, Run: d.token, Seq: 1, Kind: "update", Summary: "late"}); err != nil {
+		t.Fatal(err)
 	}
 	if err := d.finish("late result", nil); err != nil {
 		t.Fatal(err)

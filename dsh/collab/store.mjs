@@ -45,6 +45,9 @@ const COLUMNS = [
   // naming an earlier claim (the bridge's late op release) is refused ('stale-claim').
   ['rooms', 'claim_seq', 'INTEGER NOT NULL DEFAULT 0'],
   ['messages', 'edited_at', 'REAL'], // v11 (#148): when the owner last edited their own message; NULL if never.
+  // #597 G34: when a role last changed the row in place (a streamed draft growing, a progress card
+  // edited, the draft committed); NULL if never. The task watch counts it as progress (Tasks.progressed).
+  ['messages', 'changed_at', 'REAL'],
 ];
 /** Workspace rooms are named 工作区<n> (setting added in #139 team mode A, not user-specified). */
 export const WORKSPACE_PREFIX = '工作区';
@@ -60,6 +63,8 @@ export class Store {
   constructor(path) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
+    /** fn(roomId) when a workspace's sessions are dropped for a new claim (resetSessions). */
+    this.sessionResets = [];
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     let version = this.db.prepare('PRAGMA user_version').get().user_version;
     if (version > SCHEMA_VERSION) throw Error(`collab: store schema ${version} is newer than ${SCHEMA_VERSION}`);
@@ -77,8 +82,8 @@ export class Store {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
       byKey: this.db.prepare('SELECT * FROM messages WHERE client_key = ?'),
       byId: this.db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0'),
-      edit: this.db.prepare('UPDATE messages SET text = ?, card = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
-      commit: this.db.prepare('UPDATE messages SET text = ?, from_turn = ?, draft = 0 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 AND card IS NULL AND draft = 1 RETURNING *'),
+      edit: this.db.prepare('UPDATE messages SET text = ?, card = ?, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
+      commit: this.db.prepare('UPDATE messages SET text = ?, from_turn = ?, draft = 0, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 AND card IS NULL AND draft = 1 RETURNING *'),
       editUser: this.db.prepare(`UPDATE messages SET text = ?, edited_at = ? WHERE id = ? AND author_kind = 'user' AND author = ?
         AND deleted = 0 AND draft = 0 AND card IS NULL RETURNING *`),
       del: this.db.prepare('UPDATE messages SET deleted = 1 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
@@ -354,6 +359,7 @@ export class Store {
       const num = w => Number(re.exec(w.name)?.[1] ?? 0);
       const free = all.filter(w => w.free && num(w) > 0 && this.activeTasks(w.id) === 0).sort((a, b) => num(a) - num(b))[0];
       if (free !== undefined) {
+        this.resetSessions(free.id);
         return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
           claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
           .get(parent, bridge ? 1 : 0, free.id, free.id);
@@ -369,9 +375,11 @@ export class Store {
    * channel at a time: one another chat channel owns (not free) is refused with
    * 'workspace-owned' until it is released after its last task (releaseWorkspace).
    * chatId may be a workspace (then its chat channel is used). bridge: the claim comes from the
-   * bridge (cloudweb.mjs), whose lead session the bridge releases itself. Returns the workspace room.
+   * bridge (cloudweb.mjs), whose lead session the bridge releases itself. handoff: the task this
+   * claim is for when it already exists (a paused task resumed, Tasks.resumeClaim), so handoffDone
+   * waits for that task instead of one dispatched later. Returns the workspace room.
    */
-  claimWorkspace(chatId, workspaceId, { bridge = false } = {}) {
+  claimWorkspace(chatId, workspaceId, { bridge = false, handoff = null } = {}) {
     return this.transaction(() => {
       const chat = this.q.room.get(chatId);
       const ws = this.q.room.get(workspaceId);
@@ -382,9 +390,14 @@ export class Store {
       if (owner != null && owner !== parent) {
         throw new CollabError('workspace-owned', `workspace ${ws.name} belongs to room ${owner} until it finishes its last task`);
       }
+      // #597 G35: a released workspace keeps its sessions until a new claim. Claimed back for a task of
+      // its last claim (rework, a paused task resumed: Tasks.reworkClaim/resumeClaim; claim_task stays
+      // after the release), the members go on in the same sessions; any other claim starts fresh.
+      const last = this.db.prepare('SELECT claim_task FROM rooms WHERE id = ?').get(ws.id).claim_task;
+      if (owner == null && !(handoff != null && last != null && Number(handoff) > last)) this.resetSessions(ws.id);
       return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
-        claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
-        .get(parent, bridge ? 1 : 0, ws.id, ws.id);
+        claim_task = COALESCE(?, (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?)) WHERE id = ? RETURNING id, name, kind, parent_id`)
+        .get(parent, bridge ? 1 : 0, handoff == null ? null : Number(handoff) - 1, ws.id, ws.id);
     });
   }
 
@@ -414,6 +427,14 @@ export class Store {
     return handoff !== undefined && (handoff.status === 'returned' || handoff.status === 'done');
   }
 
+  /**
+   * True while workspace roomId is held by a bridge claim: the bridge's handoff watch checks it
+   * (core/team_watch.go), so the task watch here leaves it alone (one watcher per handoff).
+   */
+  bridgeClaimed(roomId) {
+    return Boolean(this.db.prepare('SELECT claim_bridge FROM rooms WHERE id = ?').get(roomId)?.claim_bridge);
+  }
+
   /** Tasks in work in roomId (same statuses as tasks.mjs WORKING; paused ones do not count). */
   activeTasks(roomId) {
     return this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ?
@@ -422,8 +443,8 @@ export class Store {
 
   /**
    * Release workspace roomId after its last task: it goes back to the pool (free) for any chat
-   * channel, and its sessions are cleared (bindings dropped; fresh ones start reading after the
-   * room's last message, room_resets). Refused with 'busy' while tasks are in work there.
+   * channel. Its sessions stay until a new claim takes it (resetSessions), so a rework or a resumed
+   * task goes on in them (#597 G35). Refused with 'busy' while tasks are in work there.
    * Returns false if roomId is no owned workspace (already free, or a chat channel). claim (from
    * the bridge's op release): the claim being ended; refused with 'stale-claim' once the
    * workspace was claimed again, so a late release never frees the new claim. null = any claim.
@@ -437,13 +458,26 @@ export class Store {
         throw new CollabError('stale-claim', `workspace ${ws.name} was claimed again since claim ${claim}`);
       }
       if (this.activeTasks(ws.id) > 0) throw new CollabError('busy', `workspace ${ws.name} has tasks in work`);
-      this.db.prepare('UPDATE rooms SET free = 1, claim_task = NULL, claim_bridge = 0 WHERE id = ?').run(ws.id);
-      this.db.prepare('DELETE FROM bindings WHERE room_id = ?').run(ws.id);
-      const last = this.db.prepare('SELECT MAX(id) AS id FROM messages WHERE room_id = ?').get(ws.id).id ?? 0;
-      this.db.prepare(`INSERT INTO room_resets (room_id, message_id) VALUES (?, ?)
-        ON CONFLICT (room_id) DO UPDATE SET message_id = excluded.message_id`).run(ws.id, last);
+      // claim_task stays: it tells a claim back for this claim's own task from a new one (claimWorkspace).
+      this.db.prepare('UPDATE rooms SET free = 1, claim_bridge = 0 WHERE id = ?').run(ws.id);
       return true;
     });
+  }
+
+  /** Register fn(roomId), called when a workspace's sessions are dropped (resetSessions). */
+  onSessionsReset(fn) { this.sessionResets.push(fn); }
+
+  /**
+   * A free workspace taken by a new claim starts over: its sessions are cleared (bindings dropped;
+   * fresh ones start reading after the room's last message, room_resets) and the listeners drop
+   * what they keep per conversation (dsh-member resetRoom).
+   */
+  resetSessions(roomId) {
+    this.db.prepare('DELETE FROM bindings WHERE room_id = ?').run(roomId);
+    const last = this.db.prepare('SELECT MAX(id) AS id FROM messages WHERE room_id = ?').get(roomId).id ?? 0;
+    this.db.prepare(`INSERT INTO room_resets (room_id, message_id) VALUES (?, ?)
+      ON CONFLICT (room_id) DO UPDATE SET message_id = excluded.message_id`).run(roomId, last);
+    for (const fn of this.sessionResets) { try { fn(roomId); } catch { /* in-memory only: the store is already reset */ } }
   }
 
   ensureRoomSettings(roomId) {
@@ -552,20 +586,20 @@ export class Store {
     return messageAttachments(row).find(a => a.id === id);
   }
 
-  edit(id, authorKind, author, text, card) { return this.q.edit.get(text, card ?? null, id, authorKind, author); }
+  edit(id, authorKind, author, text, card, now = Date.now() / 1000) { return this.q.edit.get(text, card ?? null, now, id, authorKind, author); }
   /**
    * Finish a streamed draft row with its complete text (#121). Returns
    * { message, first }: first is true only when this call turned the draft
    * into a reply (the caller fans out once). A row already committed gets the
    * text and first = false. undefined if it is not that author's live text row.
    */
-  commit(id, authorKind, author, text, fromTurn) {
+  commit(id, authorKind, author, text, fromTurn, now = Date.now() / 1000) {
     if (!text.trim() || text.length > MAX_TEXT) return undefined;
-    const row = this.q.commit.get(text, fromTurn == null ? null : (fromTurn ? 1 : 0), id, authorKind, author);
+    const row = this.q.commit.get(text, fromTurn == null ? null : (fromTurn ? 1 : 0), now, id, authorKind, author);
     if (row !== undefined) return { message: row, first: true };
     const old = this.message(id);
     if (old === undefined || old.card != null) return undefined;
-    const again = this.edit(id, authorKind, author, text);
+    const again = this.edit(id, authorKind, author, text, undefined, now);
     return again === undefined ? undefined : { message: again, first: false };
   }
   /** #148: a person edits their own plain message; returns the row, or undefined if it is not theirs. */

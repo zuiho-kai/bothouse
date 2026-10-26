@@ -18,15 +18,16 @@ def main(argv):
     tid = _team.member_id(argv[0])
     if not tid:
         sys.exit(f"d10: 团队文件里认不出 {argv[0]!r}，或她没写 \"id\"")
-    skey = os.environ.get("CC_SESSION_KEY", "")
+    # DSH 会删掉名字带 KEY 的环境变量，入口另导出一份 CC_SESSION（同 later）
+    skey = os.environ.get("CC_SESSION_KEY", "") or os.environ.get("CC_SESSION", "")
     if not skey:
-        sys.exit("d10: 读不到 CC_SESSION_KEY（要在 cc-connect 会话里跑）")
+        sys.exit("d10: 读不到 CC_SESSION_KEY 或 CC_SESSION（要在 cc-connect 会话里跑）")
     fire = Path(__file__).resolve().with_name("d10-fire")
     cmd = " ".join(shlex.quote(x) for x in (str(fire), tid, argv[1], str(int(time.time())), skey, _team.project()))
     cc = _team.cc_bin()
     if not cc:
         sys.exit("d10: 找不到 bothouse / cc-connect（可设 CC_BIN）")
-    r = subprocess.run([cc, "timer", "add", "--delay", DELAY, "--desc", f"10分钟砍活:{argv[1]}", "--exec", cmd],
+    r = subprocess.run([cc, "timer", "add", "-p", _team.project(), "-s", skey, "--delay", DELAY, "--desc", f"10分钟砍活:{argv[1]}", "--exec", cmd],
                        capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"d10: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")

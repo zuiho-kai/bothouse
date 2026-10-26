@@ -51,6 +51,8 @@ type Platform struct {
 	replyCtxMu sync.RWMutex
 	replyCtxs  map[string]string // sessionKey -> reply_ctx
 
+	board boardState // team board creates awaiting an ack (board.go)
+
 	liveMu       sync.RWMutex   // guards teamLead, which ReloadOptions swaps while running
 	botName      string         // maomao fork: the hub's name for this bot, for leading-name calls (name_call.go)
 	teamLead     string         // maomao fork: team_lead_bot, the lead's <@id>; a reply to its @ is routed back to it (lead_return.go)
@@ -837,7 +839,14 @@ func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
 	}
 	replyCtx, ok := p.lookupReplyCtx(sessionKey)
 	if !ok {
-		return nil, fmt.Errorf("cloud_web: no stored reply context for session %q", sessionKey)
+		// A hub room is addressed by its id (rh/cloudweb.py and dsh/collab/cloudweb.mjs accept
+		// reply_ctx "room-<id>"), like Discord rebuilds from the channel id: a room this bridge
+		// only posted to (a team workspace, team watch nudge) has no inbound message stored.
+		room, isRoom := p.roomFromSessionKey(sessionKey)
+		if !isRoom {
+			return nil, fmt.Errorf("cloud_web: no stored reply context for session %q", sessionKey)
+		}
+		replyCtx = room
 	}
 	return replyContext{SessionKey: sessionKey, ReplyCtx: replyCtx}, nil
 }

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -126,6 +127,7 @@ type PublicProgress struct {
 	open    map[string]*publicRun
 	pending map[string]*publicRun
 	listed  map[string]*publicRun // live tasks and durable requests awaiting a human
+	watchOn atomic.Bool           // the task relay watch loop runs (relay_watch.go)
 }
 
 func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicProgress, error) {
@@ -777,6 +779,10 @@ func (e *Engine) startPublicProgress() {
 	if e.publicProgress == nil || !e.beginMessageWork() {
 		return
 	}
+	// Receipts still running from before a restart get their watch now, not at
+	// the next dispatch. Its notes are queued (pending) and delivered by the
+	// Flush loop below, which retries until the platform is connected.
+	e.publicProgress.resumeRelayWatch(e.ctx)
 	go func() {
 		defer e.messageWorkers.Done()
 		ticker := time.NewTicker(time.Second)

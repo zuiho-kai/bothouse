@@ -93,6 +93,11 @@ The packages are unsigned. macOS: drag **Bothouse.app** into Applications, then 
    Or tell your Claude Code / Codex "set up bothouse and connect it to Discord"; it asks for everything once.
 3. **Use**: after saving, click "Restart to apply", then @ a role in your channel.
 
+Several roles can use the same CLI with different personas. The wizard gives each
+new role its own working directory, persona, hooks and memory index. When calling
+`setup apply` with an explicit `work_dir`, use a separate directory for each role;
+a directory already assigned to another project is rejected.
+
 To let an AI decide who should answer (a small component we call the gate, think of it as a dispatcher), or to add the team memory, install two more pieces: see [the dispatcher and the team memory](docs/ccm-and-wiki.md) (Chinese).
 The full walkthrough is in [Getting started](docs/GETTING_STARTED.md) (Chinese). English docs are on the way.
 

@@ -2,7 +2,7 @@
 // or open a new session and report lost when the CLI cannot load it. No CLI is spawned.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CliMember } from './cli-member.mjs';
+import { CliMember, cleanEnv } from './cli-member.mjs';
 
 /** A CliMember whose ACP connection is a fake; canLoad mirrors agentCapabilities.loadSession. */
 function fakeMember({ canLoad, loadFails = false, persona = 'P' } = {}) {
@@ -75,4 +75,38 @@ test('persona is prepended on every turn', async () => {
   await m.ask('one', 'r1');
   await m.ask('two', 'r1');
   assert.deepEqual(calls.prompts.map(p => p.prompt[0].text), ['PERSONA\n\none', 'PERSONA\n\ntwo']);
+});
+
+test('cleanEnv drops the outer Claude Code session markers but keeps the env-var sign-in', () => {
+  const env = cleanEnv({
+    CLAUDECODE: '1',
+    CLAUDE_CODE_ENTRYPOINT: 'cli',
+    CLAUDE_CODE_SSE_PORT: '1234',
+    CLAUDE_CODE_OAUTH_TOKEN: 'oauth-x',
+    ANTHROPIC_API_KEY: 'key-x',
+    PATH: '/bin',
+  });
+  assert.deepEqual(env, { CLAUDE_CODE_OAUTH_TOKEN: 'oauth-x', ANTHROPIC_API_KEY: 'key-x', PATH: '/bin' });
+});
+
+test('text resumed after a tool call starts a new paragraph, so a closing [report] opens its line', async () => {
+  const m = new CliMember({ cli: 'claude', cwd: '/tmp', persona: '' });
+  m._start = async () => {
+    m.ready = Promise.resolve({});
+    m.exited = new Promise(() => {});
+    m.conn = {
+      newSession: async () => ({ sessionId: 's1' }),
+      prompt: async () => {
+        const c = m._client();
+        await c.sessionUpdate({ sessionId: 's1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '【接】#3\n\n总结文档：' } } });
+        await c.sessionUpdate({ sessionId: 's1', update: { sessionUpdate: 'tool_call', toolCallId: 't1', title: 'Write' } });
+        await c.sessionUpdate({ sessionId: 's1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '[report]\n' } } });
+        await c.sessionUpdate({ sessionId: 's1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '56 个测试通过' } } });
+        return { stopReason: 'end_turn' };
+      },
+    };
+    return m.ready;
+  };
+  const reply = await m.ask('hi', 'r1');
+  assert.equal(reply, '【接】#3\n\n总结文档：\n\n[report]\n56 个测试通过');
 });

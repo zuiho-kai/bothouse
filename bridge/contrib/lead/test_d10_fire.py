@@ -97,6 +97,42 @@ class T(unittest.TestCase):
     def test_accept_with_result_counts(self):
         self.assertSkipped([msg("", ts="2026-10-23T03:01:00+00:00"), msg(self.CAT_RESULT)])
 
+    # 审查 PR #377 第 1 条：Discord 回复经桥读回的形状「[回复 橘：派活原文前 40 字…] @橘 【接】…」
+    DISPATCH = "龙娘，派你一件，10 分钟：读一下这个帖子，把要点和能用在 bothouse 上的地方列出来，交回写来源。"
+    ACCEPT52 = "【接】马上读帖子，十分钟内把要点和能用在 bothouse 的地方列出来交回，有问题我再来群里问你吧好。"
+
+    def reply_shape(self, text):
+        return "[回复 橘：" + self.DISPATCH[:40] + "…] @橘 " + text
+
+    def test_reply_prefixed_accept_not_handback(self):
+        self.assertEqual(len(self.ACCEPT52), 52)
+        c = self.reply_shape(self.ACCEPT52)
+        self.assertGreater(len(c), d.MIN_LEN)
+        self.assertFalse(d.is_handback(c))
+        self.assertSent([msg(c)])
+
+    def test_reply_prefixed_short_quote(self):
+        self.assertFalse(d.is_handback("[回复 橘：去查一下] @橘 " + self.ACCEPT52))
+        self.assertTrue(d.is_handback("[回复 橘：去查一下] @橘 调研交付：" + "要点说明。" * 20))
+
+    def test_reply_prefixed_result_counts(self):
+        self.assertSkipped([msg(self.reply_shape("调研交付：" + "要点说明。" * 20))])
+
+    def test_reply_prefixed_accept_not_activity(self):
+        self.assertFalse(d.chat_active([msg(self.reply_shape(self.ACCEPT52))], TID, SINCE))
+
+    def test_reply_to_her_not_redispatch(self):
+        # 主角色回复她的【接】：引用里有她的 @，桥给的 mentions 不含回复 ping → 不算第二次派活
+        self.assertFalse(d.redispatched([
+            {"author": {"id": self.JU}, "content": "@龙娘 派你一件", "mentions": [TID], "timestamp": "2026-10-23T03:00:07+00:00"},
+            {"author": {"id": self.JU}, "content": "[回复 龙娘：<@%s> 【接】马上读] 好" % TID, "mentions": [], "timestamp": "2026-10-23T03:02:00+00:00"},
+        ], TID, SINCE))
+        # 平台没给 mentions 时：引用里的 <@id> 也不算
+        self.assertFalse(d.redispatched([
+            {"author": {"id": self.JU}, "content": "<@%s> 派你一件" % TID, "timestamp": "2026-10-23T03:00:07+00:00"},
+            {"author": {"id": self.JU}, "content": "[回复 龙娘：<@%s> 【接】马上读] 好" % TID, "timestamp": "2026-10-23T03:02:00+00:00"},
+        ], TID, SINCE))
+
     def test_redispatch_skips(self):
         # 原派活 @ 一次，她只发了进度卡（空正文），主角色又 @ 她派新活 → 旧 d10 不发暂停
         self.assertSkipped([
@@ -121,6 +157,19 @@ class T(unittest.TestCase):
             run.return_value.returncode = 0
             d.main([TID, "活", str(SINCE), "discord:1", "lead-proj"])
         self.assertTrue(run.called)
+
+    def test_no_token_needed(self):
+        # 不读 DISCORD_BOT_TOKEN：平台不支持读历史（桥回 501 → None）时只按提交续期，不报「读不到 token」
+        with mock.patch.dict(os.environ, {}, clear=False) as env, \
+             mock.patch.object(d._team, "channel_history", return_value=None) as hist, \
+             mock.patch.object(d, "last_commit_epoch", return_value=SINCE + 300), \
+             mock.patch.object(d.time, "time", return_value=SINCE + 600), \
+             mock.patch.object(d.subprocess, "run") as run, mock.patch("builtins.print"):
+            env.pop("DISCORD_BOT_TOKEN", None)
+            run.return_value.returncode = 0
+            self.assertEqual(d.main([TID, "活", str(SINCE), "feishu:oc_1", "lead-proj"]), 0)
+        hist.assert_called_once_with("feishu:oc_1", "lead-proj")
+        self.assertEqual(run.call_args[0][0][:3], ["cc-connect", "timer", "add"])
 
     def test_renew_fail_sends(self):
         # timer add 返回非 0 → 退回发暂停
@@ -152,6 +201,93 @@ class T(unittest.TestCase):
     def test_dry_run_shows_renew(self):
         _, pr = self.run_fire([], commit=SINCE + 300, extra=("--dry-run",))
         self.assertIn("会续 10 分钟（第 1/2 次）", pr.call_args[0][0])
+
+
+class BridgeHistoryTest(unittest.TestCase):
+    """fetch_messages 经桥 api.sock GET /channel/history 读频道（假桥：临时 unix socket 上的 HTTP 服务）。"""
+    def serve(self, status, payload):
+        import http.server, socketserver, tempfile, threading, json
+        tmp = tempfile.mkdtemp(dir="/tmp")
+        os.makedirs(os.path.join(tmp, "run"))
+        sock = os.path.join(tmp, "run", "api.sock")
+        seen = []
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append(self.path)
+                body = json.dumps(payload).encode() if status == 200 else b"not supported"
+                self.send_response(status); self.send_header("Content-Length", str(len(body))); self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *a): pass
+            def address_string(self): return "unix"
+        srv = socketserver.UnixStreamServer(sock, H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(lambda: (srv.shutdown(), srv.server_close(), __import__("shutil").rmtree(tmp, ignore_errors=True)))
+        p = mock.patch.dict(os.environ, {"CC_DATA_DIR": tmp}); p.start(); self.addCleanup(p.stop)
+        return seen
+
+    JU = "1001"
+    def rows(self):
+        return {"messages": [
+            {"id": "1", "author_id": self.JU, "author_name": "橘", "is_bot": True, "content": "@龙娘 派你一件，10 分钟：读帖子", "time": "2026-10-23T03:00:07.123456789Z"},
+            {"id": "2", "author_id": TID, "author_name": "龙娘", "is_bot": True, "content": "【接】", "time": "2026-10-23T03:00:30Z"},
+            {"id": "3", "author_id": self.JU, "author_name": "橘", "is_bot": True, "content": "@龙娘 再派一件：体检", "time": "2026-10-23T03:08:13Z"},
+        ]}
+
+    def test_reads_via_bridge(self):
+        seen = self.serve(200, self.rows())
+        msgs = d.fetch_messages("discord:3003:9", "lead-proj")
+        self.assertIn("session_key=discord%3A3003%3A9", seen[0]); self.assertIn("project=lead-proj", seen[0])
+        self.assertEqual(msgs[1]["author"], {"id": TID, "username": "龙娘", "bot": True})
+        # 桥回的正文里 <@id> 已换成 @用户名：仍认得出又派了新活
+        self.assertTrue(d.redispatched(msgs, TID, SINCE))
+
+    def test_redispatch_by_mention_ids(self):
+        # 她窗口内一条没发（用户名无从得知），被 @ 两次：靠桥给的 mentions ID 认出重新派活（审查 #4）
+        rows = {"messages": [
+            {"id": "1", "author_id": self.JU, "author_name": "橘", "is_bot": True, "content": "@龙娘 派你一件，10 分钟：读帖子", "mentions": [TID], "time": "2026-10-23T03:00:07Z"},
+            {"id": "2", "author_id": self.JU, "author_name": "橘", "is_bot": True, "content": "@别人 顺手看下", "mentions": ["9"], "time": "2026-10-23T03:04:00Z"},
+            {"id": "3", "author_id": self.JU, "author_name": "橘", "is_bot": True, "content": "@龙娘 再派一件：体检", "mentions": [TID], "time": "2026-10-23T03:08:13Z"},
+        ]}
+        self.serve(200, rows)
+        msgs = d.fetch_messages("discord:3003", "lead-proj")
+        self.assertTrue(d.redispatched(msgs, TID, SINCE))
+        self.assertFalse(d.redispatched(msgs[:2], TID, SINCE))  # 只 @ 过一次（本次派活）不算
+        with mock.patch.object(d, "last_commit_epoch", return_value=0.0), \
+             mock.patch.object(d.subprocess, "run") as run, mock.patch("builtins.print"):
+            self.assertEqual(d.main([TID, "活", str(SINCE), "discord:3003", "lead-proj"]), 0)
+        self.assertFalse(run.called)
+
+    def test_redispatch_via_bridge_skips_pause(self):
+        self.serve(200, self.rows())
+        with mock.patch.object(d, "last_commit_epoch", return_value=0.0), \
+             mock.patch.object(d.subprocess, "run") as run, mock.patch("builtins.print"):
+            self.assertEqual(d.main([TID, "活", str(SINCE), "discord:3003", "lead-proj"]), 0)
+        self.assertFalse(run.called)
+
+    def test_handback_via_bridge_skips_pause(self):
+        rows = self.rows(); rows["messages"] = rows["messages"][:2] + [
+            {"id": "4", "author_id": TID, "author_name": "龙娘", "is_bot": True, "content": "做完了 https://github.com/a/b/pull/1", "time": "2026-10-23T03:06:00Z"}]
+        self.serve(200, rows)
+        with mock.patch.object(d, "last_commit_epoch", return_value=0.0), \
+             mock.patch.object(d.subprocess, "run") as run, mock.patch("builtins.print"):
+            self.assertEqual(d.main([TID, "活", str(SINCE), "discord:3003", "lead-proj"]), 0)
+        self.assertFalse(run.called)
+
+    def test_unsupported_platform_commit_only(self):
+        self.serve(501, None)
+        self.assertIsNone(d.fetch_messages("feishu:oc_1", "lead-proj"))
+        with mock.patch.dict(os.environ, {"CC_BIN": "cc-connect"}), \
+             mock.patch.object(d, "last_commit_epoch", return_value=0.0), \
+             mock.patch.object(d.subprocess, "run") as run, mock.patch("builtins.print"):
+            run.return_value.returncode = 0
+            d.main([TID, "活", str(SINCE), "feishu:oc_1", "lead-proj"])
+        self.assertEqual(run.call_args[0][0][:2], ["cc-connect", "send"])  # 没提交 → 照发暂停
+
+    def test_bridge_down_raises(self):
+        import tempfile
+        with mock.patch.dict(os.environ, {"CC_DATA_DIR": tempfile.mkdtemp(dir="/tmp")}):
+            with self.assertRaises(OSError):
+                d.fetch_messages("discord:1", "p")
 
 
 class BridgeBinTest(unittest.TestCase):
@@ -207,7 +343,21 @@ class BridgeBinTest(unittest.TestCase):
         out = subprocess.run([sys.executable, "-I", d10, "C", "活"], capture_output=True, text=True, env=env)
         self.assertEqual(out.returncode, 0, out.stderr)
         with open(self.log) as fh:
-            self.assertTrue(fh.read().startswith("timer add --delay 10m"))
+            self.assertTrue(fh.read().startswith("timer add -p lead-proj -s discord:3003 --delay 10m"))
+
+    def test_d10_arms_on_dsh(self):
+        # DSH 删掉带 KEY 的变量，只留 CC_SESSION：d10 照样挂上，timer add 带 -p/-s（审查 PR #377 第 4 条）
+        import json, subprocess, sys
+        team = os.path.join(self.tmp, "team.json")
+        with open(team, "w") as fh:
+            json.dump({"lead": {"name": "L", "id": "1"}, "subs": {"c": {"name": "C", "id": "2"}}}, fh)
+        d10 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "d10")
+        env = {"PATH": os.environ["PATH"], "HOME": self.tmp, "GATE_TEAM": team, "GATE_SETUP_DIR": self.tmp,
+               "CC_SESSION": "dsh:room-1:u", "CC_PROJECT": "lead-proj"}
+        out = subprocess.run([sys.executable, "-I", d10, "C", "活"], capture_output=True, text=True, env=env)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        with open(self.log) as fh:
+            self.assertTrue(fh.read().startswith("timer add -p lead-proj -s dsh:room-1:u --delay 10m"))
 
     def test_no_bridge_fails_loudly(self):
         os.remove(os.path.join(self.tmp, "bothouse"))

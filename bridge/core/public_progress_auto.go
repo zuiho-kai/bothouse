@@ -54,6 +54,15 @@ func scheduledTurnUser(userID string) bool {
 	return false
 }
 
+// timerTurnUser is the sender of a timer turn: "handoff" for a ws-handoff wake-up
+// (handed-over work, so it gets the automatic card), else the routine "timer".
+func timerTurnUser(job *TimerJob) string {
+	if job != nil && job.Handoff {
+		return "handoff"
+	}
+	return "timer"
+}
+
 // armAuto prepares the automatic card for a freshly issued run. With off (a
 // scheduled turn, or not a workspace channel; see withPublicProgress) the run
 // never opens one automatically.

@@ -12,6 +12,8 @@ import { exitTarget } from './team-exit.mjs';
 import { DEFAULT_DISPATCH_MODE, MAX_TEXT } from './store.mjs';
 import { ChannelApprovals, DEFAULT_ACTIONS } from './approvals.mjs';
 import { DEFAULT_PERMISSION_PRESET, presetDecision } from './cli-member.mjs';
+import { GateContext } from './gate-context.mjs';
+import { MemoryIndex } from './memory-index.mjs';
 // Shared with the bridge (bridge/core/team_mode.go): a common part, then one
 // "## <mode>" section per dispatch mode; a member sees only its room's section.
 const TEAM_MODE_FILE = readFileSync(new URL('./team-mode-rules.md', import.meta.url), 'utf8');
@@ -19,6 +21,24 @@ export function teamModeRules(mode = DEFAULT_DISPATCH_MODE) {
   const [common, ...parts] = TEAM_MODE_FILE.split(/^## /m);
   const section = parts.find(p => p.startsWith(`${mode}\n`)) ?? parts.find(p => p.startsWith(`${DEFAULT_DISPATCH_MODE}\n`));
   return `${common.trim()}\n${section.slice(section.indexOf('\n') + 1).trim()}`;
+}
+/** #597 G24: the open-workspace command, for the selected primary role only, never in bridge prompts. */
+export function workspaceHint(hub, later, memberId, roomId) {
+  if (!later?.workspaceInstructions || hub?.selectedPrimaryMember?.()?.id !== memberId) return '';
+  return later.workspaceInstructions(memberId, roomId);
+}
+/**
+ * #597 G24: DSH members have no bridge session, so the shared line about `bothouse workspace new` /
+ * the bare workspaces POST is swapped (whole line, DSH side only) for the ticketed command. The
+ * shared file stays as is: the bridge reads the same line. Throws when the line is gone so a reword
+ * of the shared file fails tests instead of silently dropping the swap.
+ */
+const WORKSPACE_LINE = /^- .*\/collab\/api\/rooms\/\{聊天频道 id\}\/workspaces.*$/m;
+export const DSH_WORKSPACE_RULE = '- 大活（读长文、改代码、等命令）交给工作区：主角色用提示末尾【开工作区】给的本机命令或 curl：POST /collab/api/rooms/{聊天频道 id}/workspaces（头 X-Later-Ticket 带你的票据，只对你和本频道有效）。建工作区=这一条，任务和十分钟看门会自动开；不要调 /tasks（它不认票据）。一次带上标题、接活人（不写就是你自己）和交接正文（用户原话、要做什么、验收标准）；系统建好工作区、开任务、挂十分钟看门并叫醒接活人，交过去的活不再在频道里 @ 另派。DSH 上不用 `bothouse workspace new`。何时交活、交给哪个、要不要新建，由主角色或正在干活的角色决定；一个工作区进行中的活默认达到 3 件就算忙，有把握可往上加。';
+export function dshTeamModeRules(mode) {
+  const rules = teamModeRules(mode);
+  if (!WORKSPACE_LINE.test(rules)) throw new Error('team-mode-rules.md: the workspace line moved; update WORKSPACE_LINE');
+  return rules.replace(WORKSPACE_LINE, DSH_WORKSPACE_RULE);
 }
 /** Opening brief for a new workspace: the rules of the chat channel's mode. */
 export function workspaceInstructions(mode) { return teamModeRules(mode); }
@@ -104,12 +124,17 @@ export function promptText(room, member, messages, status = '', mode = DEFAULT_D
   return [
     `你是频道 #${room.name} 的成员「${member.name}」。${model}频道里其他人各有自己的身份，他们的自我介绍说的是他们自己，不是你。`,
     ...persona,
-    teamModeRules(mode),
+    dshTeamModeRules(mode),
     status,
     '下面是频道里你还没看过的消息，最后一条 @ 了你。直接写出你要在频道里说的话；你这一轮最后一条回复会原样发到频道。',
     '',
     ...lines,
   ].join('\n');
+}
+
+/** The teammate status, then the gate's block (each '' when absent). */
+function withBlock(status, block) {
+  return [status, block].filter(Boolean).join('\n\n');
 }
 
 /** One-line turn/end reason: kind plus a truncated error message when present. */
@@ -283,8 +308,12 @@ export class DshMembers {
     this.cliAgents = new Map();
     /** #557: permission cards of channel-started turns, shared with cloud-web bots. */
     this.approvals = ChannelApprovals.of(hub);
-    /** Session ids whose owner chose 允许所有: later asks in that Session are allowed without a card. */
+    /** Session ids whose owner chose 允许所有: later asks in that Session are allowed without a card (CLI members: `cli:<ACP session id>`). */
     this.allowAll = new Set();
+    /** Per-turn wiki pages and task board from the local gate, each page once per conversation. */
+    this.gateContext = runtime.gateContext ?? new GateContext({ logger: runtime.logger });
+    /** The member's own MEMORY.md on the first turn of each conversation (bridge memory_index). */
+    this.memoryIndex = runtime.memoryIndex ?? new MemoryIndex();
     for (const m of members) this.publish(m);
     hub.onPlan(message => this.plan(message));
   }
@@ -490,7 +519,7 @@ export class DshMembers {
     this.syncSelection(agent, member);
     const binding = this.store.binding(member.id, room.id);
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
-      .filter(m => (m.id > binding.context_cursor || m.id === job.trigger_id) && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
+      .filter(m => turnSees(m, job, binding, member))
       .slice(-CONTEXT_LIMIT);
     // DSH validates images again (count, total bytes, type, pixels). Attachments it
     // refuses are dropped one by one (the rest still go through), the member is told in
@@ -498,9 +527,12 @@ export class DshMembers {
     // never advances the cursor, so the same image would block the room.
     const { parts: media, dropped: refused } = await nativeAttachmentBlocks(this.rt.ctx.attachments, namedAttachmentBlocks(this.rt.files, unseen));
     const dropped = refused.map(d => `\n\n[${d.name}: 附件未送达（${undeliveredReasonZh(d)}）]`).join('');
-    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') }, ...media], source: { kind: 'user' } });
+    const wiki = await this.turnContext(member, room, agent.session.id, unseen);
+    if (this.closed) return;
+    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, withBlock(memberStatus(this.hub), wiki.block), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id) }, ...media], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
     if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
+    wiki.commit();
     if (refused.length) {
       this.hub.post(room.id, {
         authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-job-${jobId}-attachments-dropped`,
@@ -524,8 +556,10 @@ export class DshMembers {
     const sessionId = binding.session_id;
     const resumeId = sessionId.startsWith('cli:') ? undefined : sessionId;
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
-      .filter(m => (m.id > binding.context_cursor || m.id === job.trigger_id) && m.author !== member.id && (m.author_kind !== 'system' || m.id === job.trigger_id) && m.card === null && !m.draft)
+      .filter(m => turnSees(m, job, binding, member))
       .slice(-CONTEXT_LIMIT);
+    const wiki = await this.turnContext(member, room, undefined, unseen);
+    if (this.closed) return;
     if (!this.store.markSent(job.id, sessionId, 0, undefined)) return;
     let entry = this.cliAgents.get(member.id);
     if (entry === undefined) {
@@ -573,11 +607,20 @@ export class DshMembers {
       if (fixed !== 'ask') return { outcome: 'selected', ...fixed };
       const card = cliApprovalCard(request);
       if (card.actions.length === 0) return { outcome: 'cancelled' };
+      // 允许所有 holds for the rest of this ACP session (one per member and room), as
+      // onApprovalRequest does for DSH-native members: the CLI's own allow_always may
+      // only cover that one command, so collab remembers it and answers without a card.
+      const allowAllKey = `cli:${request.sessionId}`;
+      if (this.allowAll.has(allowAllKey)) {
+        const optionId = card.byDecision.get('allow') ?? card.byDecision.get('allow_all');
+        if (optionId !== undefined) return { outcome: 'selected', optionId };
+      }
       const { decision } = this.approvals.open({
         room: job.room_id, author: { id: member.id, name: member.name }, text: card.text, actions: card.actions,
         signal: turnOver.signal, meta: { cliMember: member.id, jobId: job.id }, mapDecision: card.mapDecision,
       });
       const d = await decision;
+      if (d === 'allow_all') this.allowAll.add(allowAllKey);
       const optionId = card.byDecision.get(d);
       return optionId === undefined ? { outcome: 'cancelled' } : { outcome: 'selected', optionId };
     };
@@ -587,13 +630,18 @@ export class DshMembers {
       const onSession = ({ sessionId: acpId, lost }) => {
         if (this.store.binding(member.id, room.id)?.session_id !== acpId) this.store.rebind(member.id, room.id, acpId);
         if (lost) {
+          // the CLI's new session has none of what this conversation was given: the next turn gives it again
+          this.memoryIndex.forget(member.id, room.id);
+          this.gateContext.forget(member.id, room.id);
           this.hub.post(job.room_id, {
             authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-job-${job.id}-session-lost`,
             text: `${member.name}（${member.cli}）这轮起是新会话，之前的上下文没了：${member.cli} 不支持续上原会话，或续会话失败。`,
           });
         }
       };
-      const text = (await entry.agent.ask(promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? ''), String(room.id), onText, onTool, { resumeId, onSession, onPermission, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
+      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub), wiki.block), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id);
+      wiki.commit();
+      const text = (await entry.agent.ask(prompt, String(room.id), onText, onTool, { resumeId, onSession, onPermission, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
       if (this.closed) return;
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
       latest = '';
@@ -612,8 +660,24 @@ export class DshMembers {
     }
   }
 
+  /**
+   * This turn's context blocks: the member's own MEMORY.md on a conversation's first turn, then the gate's
+   * pages (wiki, task board) queried with the message that @-ed the member. commit() records both as given.
+   */
+  async turnContext(member, room, session, unseen) {
+    const trigger = unseen.at(-1);
+    const memory = this.memoryIndex.turn({ member: member.id, room: room.id, session });
+    const gate = await this.gateContext.turn({ member: member.id, room: room.id, session, text: trigger?.text ?? '' });
+    return {
+      block: [memory.block, gate.block].filter(Boolean).join('\n\n'),
+      commit: () => { memory.commit(); gate.commit(); },
+    };
+  }
+
   /** A released workspace starts over: drop each local CLI member's ACP session for roomId. */
   resetRoom(roomId) {
+    this.gateContext.resetRoom(roomId);
+    this.memoryIndex.resetRoom(roomId);
     for (const { agent } of this.cliAgents.values()) {
       agent.sessions?.delete(String(roomId));
       agent.saved?.delete(String(roomId));
@@ -790,6 +854,10 @@ export class DshMembers {
       agent?.sessions?.delete(String(room.id));
       agent?.saved?.delete(String(room.id));
       if (this.store.binding(member.id, room.id) !== undefined) this.store.rebind(member.id, room.id, `cli:${member.cli}:${member.id}:${room.id}`);
+      // runCli keys a CLI member's context records by (member, room) alone, so clear them here:
+      // the fresh ACP context gets its MEMORY.md, task board and wiki pages again.
+      this.gateContext.reset(member.id, room.id);
+      this.memoryIndex.reset(member.id, room.id);
     } else await this.createAgent(member, room);
     if (this.closed) return;
     this.store.advanceCursor(member.id, room.id, msg.id);
@@ -925,4 +993,14 @@ export class DshMembers {
     await Promise.race([Promise.allSettled(this.queues.values()), limit]);
     clearTimeout(timer);
   }
+}
+
+/**
+ * A row a member's turn reads: unread, not its own, no draft; system rows and cards only as the
+ * trigger itself (a task reminder or pause record carries a task card and must still reach the member).
+ */
+function turnSees(m, job, binding, member) {
+  const trigger = m.id === job.trigger_id;
+  return (m.id > binding.context_cursor || trigger) && m.author !== member.id
+    && (m.author_kind !== 'system' || trigger) && (m.card === null || trigger) && !m.draft;
 }

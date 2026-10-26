@@ -1845,9 +1845,9 @@ func platformOptsByType(ps []config.PlatformConfig) map[string]map[string]any {
 // started is the project's platform options as the engine was built with; options a platform
 // cannot take while running are reported in result.RestartKeys.
 // projectTeamStatus is the team status setup (SetTeam) of proj: what config.toml says, or, when it
-// sets no team_status_dir, the defaults of a multi-role team made by the setup wizard
+// sets no team_status_dir, the defaults of a team made by the setup wizard
 // (core.WizardTeamDefaults), so that team's lead gets the team board and workspaces on install and
-// on upgrade without editing config.toml (#587). A single-role install keeps no team status.
+// on upgrade without editing config.toml (#587). A single role is its own lead.
 func projectTeamStatus(dataDir string, proj config.ProjectConfig) (dir, name string, inject bool) {
 	if proj.TeamStatusDir != "" {
 		return proj.TeamStatusDir, proj.TeamName, proj.TeamStatusInject
@@ -1872,6 +1872,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	result := &core.ConfigReloadResult{}
 
 	// Re-apply process-global hot-reloadable settings.
+	core.SetLocalGatePort(cfg.Gate.Port)
 	if globalAPIServer != nil {
 		globalAPIServer.SetMaxAttachmentSize(resolveMaxAttachmentSize(cfg))
 	}

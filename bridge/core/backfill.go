@@ -31,7 +31,10 @@ type ChannelHistoryMessage struct {
 	// name (cron --exec output, relay answers, status lines) never went through it.
 	FromTurn bool
 	Content  string
-	Time     time.Time
+	// MentionIDs: platform ids of the users the post @-ed (Discord m.Mentions); Content may have
+	// the mentions replaced by names, so scripts (d10-fire) match a teammate by id here.
+	MentionIDs []string
+	Time       time.Time
 	// Attachments of the post (maomao fork): backfill downloads the images of the
 	// posts it shows and hands them to the agent as images, files go to disk.
 	Attachments []ChannelHistoryAttachment

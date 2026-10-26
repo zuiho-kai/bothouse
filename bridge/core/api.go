@@ -39,6 +39,8 @@ type APIServer struct {
 	maxAttachmentBytes int64
 	mu                 sync.RWMutex
 	inputs             inputStore
+	// watch: the handoff watch on the team workspace engine (team_watch.go startHandoffWatch).
+	watch handoffWatchRun
 }
 
 // SendRequest is the JSON body for POST /send.
@@ -107,6 +109,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/handoff/show", s.handleHandoffShow)
 	s.mux.HandleFunc("/handoff/switch", s.handleHandoffSwitch)
 	s.mux.HandleFunc("/sessions", s.handleSessions)
+	s.mux.HandleFunc("/channel/history", s.handleChannelHistory) // local scripts read a channel without a platform token (api_history.go)
 	s.mux.HandleFunc("/input", s.handleInput)
 	s.mux.HandleFunc("/input/", s.handleInputLookup)
 	s.mux.HandleFunc("/model/info", s.handleModelInfo) // maomao fork: agents switch their own model
@@ -143,11 +146,12 @@ func (s *APIServer) SocketPath() string {
 
 func (s *APIServer) RegisterEngine(name string, e *Engine) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.engines[name] = e
 	if s.relay != nil {
 		s.relay.RegisterEngine(name, e)
 	}
+	s.mu.Unlock()
+	s.rewatchIfServing() // a hot-loaded project may now own the team workspaces
 }
 
 func (s *APIServer) SetRelayManager(rm *RelayManager) {
@@ -200,6 +204,11 @@ func (s *APIServer) sendBodyLimit() int64 {
 }
 
 func (s *APIServer) Start() {
+	// The platforms are added by now (main starts every engine first) and nothing is served yet.
+	s.watch.mu.Lock()
+	s.watch.serving = true
+	s.watch.mu.Unlock()
+	s.startHandoffWatch()
 	s.server = &http.Server{Handler: s.mux, ConnContext: withPeerConn}
 	go func() {
 		if err := s.server.Serve(s.listener); err != nil && err != http.ErrServerClosed {
@@ -625,6 +634,7 @@ type TimerAddRequest struct {
 	Mode         string `json:"mode,omitempty"`
 	TimeoutMins  *int   `json:"timeout_mins,omitempty"`
 	InjectIfBusy bool   `json:"inject_if_busy,omitempty"`
+	Handoff      bool   `json:"handoff,omitempty"`
 }
 
 func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
@@ -708,6 +718,7 @@ func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
 		Mode:         req.Mode,
 		TimeoutMins:  req.TimeoutMins,
 		InjectIfBusy: req.InjectIfBusy,
+		Handoff:      req.Handoff,
 		CreatedAt:    time.Now(),
 	}
 
@@ -904,7 +915,15 @@ func (s *APIServer) handleRelayBinding(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "chat_id is required", http.StatusBadRequest)
 		return
 	}
-	binding := s.relay.GetBinding(chatID)
+	// platform (optional) adds the wizard team of that platform; without it, the manual
+	// binding's own platform is used.
+	platform := r.URL.Query().Get("platform")
+	if platform == "" {
+		if b := s.relay.GetBinding(chatID); b != nil {
+			platform = b.Platform
+		}
+	}
+	binding := s.relay.EffectiveBinding(platform, chatID)
 	if binding == nil {
 		http.Error(w, "no binding found", http.StatusNotFound)
 		return

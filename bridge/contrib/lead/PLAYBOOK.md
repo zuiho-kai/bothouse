@@ -24,21 +24,21 @@ Merge the change to the shared interface first, then have the others rebase onto
 Do not start a line with several names in a row; the gate treats that as an interrupt.
 (2026-10-23: one line with three names interrupted a teammate's work.)
 
-## 5. If you judge you can no longer keep up, open a "workspace"
+## 5. Hand big tasks to a "workspace"
 
-When the primary role judges it is losing track (missed items, duplicate assignments, forgotten timers), hand a whole large task to the primary role in the "workspace" channel.
-Reference only: more than about 6 parallel threads, or more than half of your context used. The 6 comes from the 2026-10-23 review data: with 8 parallel threads that day, timers were left running 3 times and one task was assigned twice. Your own judgment decides.
+When a task will likely take more than 10 minutes, or needs code changes, test runs or waiting on commands (builds, long live tests), hand it to the primary role in the "workspace" channel in the same turn you accept it; do not do it in the chat channel. This holds even when it is your only task.
+Also hand whole tasks over when you judge you are losing track (missed items, duplicate assignments, forgotten timers). Reference: more than about 6 parallel threads, or more than half of your context used (2026-10-23 review: with 8 parallel threads, timers were left running 3 times and one task was assigned twice).
 
-Write the handoff as a file with at least the sections "用户原话" (user's words), "进度" (progress) and "规矩" (rules; include known pitfalls), plus "参照实现" (reference implementation: `file:line`, or "无（新建）" for non-code work). When several people edit the same files, also add a line "底分支：<branch>" (base branch). Then:
+Write the handoff as a file in `notes/<name>.md` under the current directory (your role directory), not in a shared directory like /tmp (isolation and cleanup do not cover it), with at least the sections "用户原话" (user's words), "进度" (progress) and "规矩" (rules; include known pitfalls), plus "参照实现" (reference implementation: `file:line`, or "无（新建）" for non-code work). When several people edit the same files, also add a line "底分支：<branch>" (base branch). Then:
 
-- `ws-handoff <file> "<one-line task>"` tells the primary role in the workspace to start.
+- `ws-handoff <file> "<one-line task>"` tells the primary role in the workspace to start. Once it is handed off, end this turn: do not sleep or poll the board waiting for it; the workspace sends the result back here with [report], and you check it then.
 - `ws-forward [--notes <file>] "<summary>"` forwards later results there. This channel stops managing that task. `--notes` picks the handoff (and so the workspace); without it the latest handoff is used.
 - ws-handoff reuses a free workspace, or one of this channel's with fewer than 3 tasks in work, and creates a new one only when all are busy. It also adds a board entry (owner: the workspace's lead) bound to this handoff.
 - A stalled task (waiting for the user or someone else, untouched this hour) is paused at the hourly wrap-up: `board pause <id>`. Its handoff is released; with nothing else in work there, the workspace goes back to the pool and its sessions are reset. Reassigning it (`board update <id> <status> - <who>`) does the same. To resume, hand it off again with `ws-handoff`.
 
 The primary role in a workspace does not ask the user directly. The chat channel that handed the task over is the single outlet:
 
-- `ws-up "<progress>"` reports a milestone; the primary role in the chat channel relays it to the user.
+- Results and milestones: the first line of the turn's last reply is only `[report]`, the result follows from the second line, and the bridge copies it to the chat channel (messages earlier in the turn are not copied). After the last task there, run `bothouse session new --after-turn` in the same turn to free the workspace.
 - `ws-up "<question + options + recommendation>" --ask` asks for a decision or missing information. The chat-channel primary role asks the user and sends the answer back with `ws-forward --notes <file> "<answer>"`. While waiting, do the parts the answer does not affect.
 - If the workspace holds tasks from more than one chat channel, add `--notes <file>` to say which task; without it ws-up fails and lists the choices instead of guessing.
 - Decisions that narrow or change the scope of the user's words, and settings you are unsure of, also go through `--ask`. Decide pure technical details yourself.

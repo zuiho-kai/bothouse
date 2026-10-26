@@ -118,6 +118,26 @@ func TestReconstructReplyCtx(t *testing.T) {
 	}
 }
 
+// #597 G21: a team workspace room this bridge never received a message in (the watch nudge)
+// is rebuilt from the hub room id in the session key; a non-room key still fails.
+func TestReconstructReplyCtxHubRoomWithoutStored(t *testing.T) {
+	p := mustNew(t, map[string]any{
+		"token": "t", "transport": "long_poll", "base_url": "http://127.0.0.1",
+	})
+	p.tp.(*pollTransport).setCaps(capabilitySet([]string{"text", "reconstruct_reply"}))
+
+	rc, err := p.ReconstructReplyCtx("cloud_web:room-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rc.(replyContext); got.ReplyCtx != "room-2" || got.SessionKey != "cloud_web:room-2" {
+		t.Fatalf("reply ctx = %+v, want room-2", got)
+	}
+	if _, err := p.ReconstructReplyCtx("cloud_web:dm-7"); err == nil {
+		t.Fatal("non-room session without stored ctx: want error")
+	}
+}
+
 func TestGroupReplyRequiresMention(t *testing.T) {
 	p := mustNew(t, map[string]any{
 		"token": "t", "transport": "long_poll", "base_url": "http://127.0.0.1",

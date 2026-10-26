@@ -3,19 +3,54 @@ package core
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Warnings and the gate status line at the end of a wizard run. The web wizard's last
 // page and `cc-connect setup apply` print the same result.
 
-// 来源：contrib/gate/gate.py PORT = 9930（与 defaultGateURL 同一个地址）。变量便于测试替换。
-var gateAddr = "127.0.0.1:9930"
+// 来源：contrib/gate/gate.py PORT = 9930（与 defaultGateURL 同一个地址）。
+const defaultGatePort = 9930
+
+// gateAddr: where this data dir's gate listens. config [gate] port sets it (SetLocalGatePort, at
+// startup and on reload); a wizard run moves it when the port belongs to another bothouse.
+// A var so tests can swap it; read through localGateAddr.
+var (
+	gateAddrMu sync.RWMutex
+	gateAddr   = "127.0.0.1:9930"
+	// every gate port this process used: gate_urls the wizard wrote on an earlier port are still its own
+	knownGatePorts = map[string]bool{"9930": true}
+)
+
+func localGateAddr() string {
+	gateAddrMu.RLock()
+	defer gateAddrMu.RUnlock()
+	return gateAddr
+}
+
+// SetLocalGatePort points bothouse at the gate on 127.0.0.1:port (0 = 9930, gate.py's default).
+func SetLocalGatePort(port int) {
+	if port <= 0 {
+		port = defaultGatePort
+	}
+	gateAddrMu.Lock()
+	gateAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	knownGatePorts[strconv.Itoa(port)] = true
+	gateAddrMu.Unlock()
+}
+
+// LocalGatePort: the port of the gate bothouse uses (config [gate] port, default 9930).
+func LocalGatePort() int {
+	p, _ := strconv.Atoi(gatePort())
+	return p
+}
 
 // GateRunning reports whether the gate answers on this machine.
 func GateRunning() bool {
-	c, err := net.DialTimeout("tcp", gateAddr, 300*time.Millisecond) // 本机连接，300ms 足够（同 HardwarePresent）
+	c, err := net.DialTimeout("tcp", localGateAddr(), 300*time.Millisecond) // 本机连接，300ms 足够（同 HardwarePresent）
 	if err != nil {
 		return false
 	}
@@ -142,6 +177,21 @@ func cliLoginHow(lang, agentType string) string {
 	return "Log in to this CLI on this machine as its own docs describe."
 }
 
+// warnEnvOnlyLogin: the CLI is logged in only through an environment variable of the current
+// terminal, which a background service (bothouse daemon install) does not get. A note, not blocking.
+func warnEnvOnlyLogin(lang, project, bots, label string) WizardWarning {
+	w := WizardWarning{Code: "agent_login_env_only", Project: project}
+	w.Message = tr3(lang,
+		"「"+bots+"」用本机的 "+label+"，它现在只靠环境变量登录（ANTHROPIC_API_KEY 或 CLAUDE_CODE_OAUTH_TOKEN）。这个登录只在当前终端有效，后台服务拿不到：用 bothouse daemon install 装成后台服务后，机器人收到消息会答不出来。前台直接运行不受影响。",
+		"「"+bots+"」はこのマシンの "+label+" を使いますが、ログインは環境変数（ANTHROPIC_API_KEY または CLAUDE_CODE_OAUTH_TOKEN）だけです。このログインは今のターミナルでしか有効でなく、バックグラウンドサービスには渡りません。bothouse daemon install でサービスにすると、ボットは答えられません。フォアグラウンドで直接動かす場合は問題ありません。",
+		"\""+bots+"\" use(s) this machine's "+label+", which is logged in only through an environment variable (ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN). That login works only in the current terminal; the background service does not get it, so after bothouse daemon install the bot cannot answer. Running in the foreground is not affected.")
+	w.Fix = tr3(lang,
+		"请在这台机器的终端跑一次 claude 登录（claude auth login，或运行 claude 后输入 /login），或者在向导里给这个角色改用第三方 API key（网页向导在「本机 CLI」一步勾「改用第三方 API」）。",
+		"このマシンのターミナルで一度 claude にログインする（claude auth login、または claude を起動して /login）か、ウィザードでこのロールをサードパーティ API キーに切り替えてください（ウェブのウィザードでは「ローカル CLI」のステップで「代わりにサードパーティ API を使う」にチェック）。",
+		"Log in to claude once in a terminal on this machine (claude auth login, or run claude and type /login), or switch this role to a third-party API key in the wizard (web wizard: tick \"Use a third-party API instead\" on the Local CLI step).")
+	return w
+}
+
 // warnAgentLogins: roles that use a CLI's own login (no provider) whose CLI is not logged in
 // (blocking: the bot would answer nothing) or whose login can't be checked (a note). One
 // warning per CLI.
@@ -170,7 +220,7 @@ func warnAgentLogins(lang string, roles []plannedRole, clis []LocalCLI) []Wizard
 				break
 			}
 		}
-		if cli == nil || (cli.Login != "not_logged_in" && cli.Login != "unknown") {
+		if cli == nil {
 			continue
 		}
 		label := cli.Label
@@ -178,6 +228,16 @@ func warnAgentLogins(lang string, roles []plannedRole, clis []LocalCLI) []Wizard
 			label = at
 		}
 		bots := strings.Join(byType[at], "、")
+		if cli.Login == "logged_in" && cli.LoginEnvOnly {
+			// The wizard cannot tell whether bothouse will run in the foreground (env visible) or as
+			// `bothouse daemon install` (env not copied into the service), so it stays logged_in and
+			// only warns, without blocking.
+			out = append(out, warnEnvOnlyLogin(lang, strings.Join(byType[at], ","), bots, label))
+			continue
+		}
+		if cli.Login != "not_logged_in" && cli.Login != "unknown" {
+			continue
+		}
 		w := WizardWarning{Project: strings.Join(byType[at], ",")}
 		ja := isJA(lang)
 		after := "Then run bothouse setup clis and check that its login is logged_in, and restart bothouse; no need to rerun setup. Or let this role use a third-party API instead: in the web wizard, tick \"Use a third-party API instead\" on the Local CLI step and save again; from the command line, add \"provider\" to the role (see bothouse setup matrix)."
@@ -313,23 +373,28 @@ func finishWizardResult(res *WizardResult, req WizardRequest, pl *wizardPlan, je
 	if len(pl.allowFromUnset) > 0 {
 		res.Warnings = append(res.Warnings, warnAllowFromUnknown(req.Language, pl.allowFromUnset))
 	}
-	if (req.Platform == "discord" || isCloudWebPlatform(req.Platform) || isFeishuPlatform(req.Platform)) && len(pl.team) > 1 {
+	if (req.Platform == "discord" || isCloudWebPlatform(req.Platform) || isFeishuPlatform(req.Platform)) && len(pl.team) > 0 {
 		running := GateRunning()
 		res.GateRunning = &running
 		res.GateStatus = GateStatusOff
 		if req.gateOn() {
 			res.GateStatus = gateStatusAfterWizard(res.dataDir)
 		}
+		// a single role has the gate for its wiki and task board, not for routing: no routing line,
+		// no jev note (a jev only chooses who answers), but the python warning still applies
+		team := len(pl.team) > 1
 		hint := res.GateStatus
 		if req.gateOn() && !jevUsable && (hint == GateStatusRunning || hint == GateStatusStarting) {
 			hint = GateStatusJevMissing // the gate runs (wiki, task board) but does not choose who answers: the lead does
 		}
-		res.GateHint = GateHint(req.Language, hint, pl.fallbackName)
+		if team {
+			res.GateHint = GateHint(req.Language, hint, pl.fallbackName)
+		}
 		switch res.GateStatus {
 		case GateStatusPythonMissing, GateStatusPythonTooOld:
 			res.Warnings = append(res.Warnings, warnGatePython(req.Language, res.GateStatus))
 		}
-		if req.gateOn() && !jevUsable {
+		if team && req.gateOn() && !jevUsable {
 			res.Warnings = append(res.Warnings, warnJevRecommended(req.Language, pl.fallbackName))
 		}
 	}

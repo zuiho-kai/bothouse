@@ -23,12 +23,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -98,6 +100,12 @@ func ProductPythonBinDir(dataDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return productPythonLink(dataDir, py)
+}
+
+// productPythonLink makes <dataDir>/tools/bin/python3 point at py (on Windows: py's own directory, nothing
+// is written) and returns that directory.
+func productPythonLink(dataDir, py string) (string, error) {
 	if runtime.GOOS == "windows" {
 		return filepath.Dir(py), nil
 	}
@@ -109,17 +117,30 @@ func ProductPythonBinDir(dataDir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	tmp := link + ".tmp"
+	// A tmp name of its own each call, then one atomic rename over link (POSIX rename replaces an existing
+	// symlink atomically; link is never removed first). A fixed "python3.tmp" collided: productPythonLink
+	// runs outside productPythonMu (ProductPythonBinDir calls it after ProductPython returns), so two engines
+	// of one process starting together did Remove(tmp) / Symlink(tmp) against each other and got EEXIST or
+	// lost the rename; two bothouse processes on one data dir collide the same way. A file lock would cover
+	// only part of that. If our symlink or rename still fails but link already points at py, someone else
+	// did the work: that is success.
+	tmp := fmt.Sprintf("%s.tmp.%d.%d.%08x", link, os.Getpid(), productPythonTmpSeq.Add(1), rand.Uint32())
+	err := os.Symlink(py, tmp)
+	if err == nil {
+		if err = os.Rename(tmp, link); err == nil {
+			return dir, nil
+		}
+	}
 	_ = os.Remove(tmp)
-	if err := os.Symlink(py, tmp); err != nil {
-		return "", err
+	if cur, rerr := os.Readlink(link); rerr == nil && cur == py {
+		return dir, nil
 	}
-	if err := os.Rename(tmp, link); err != nil {
-		_ = os.Remove(tmp)
-		return "", err
-	}
-	return dir, nil
+	return "", err
 }
+
+// productPythonTmpSeq makes productPythonLink's tmp names unique within this process (the pid covers other
+// live processes; the random part keeps a stale tmp left by a crashed process with a reused pid out of the way).
+var productPythonTmpSeq atomic.Uint64
 
 // lastProductPython: the interpreter ProductPython found last in this process ("" = none yet).
 func lastProductPython() string {
@@ -212,22 +233,48 @@ func python312(p string) bool {
 	return ok
 }
 
-// uvPython: a Python ≥3.12 through uv (PATH, else the one in <dataDir>/tools/uv, else downloaded there).
-func uvPython(dataDir string) (string, error) {
-	uv := FindUV()
-	if uv == "" {
-		own := filepath.Join(AgentToolsDir(dataDir), "uv", uvExe())
-		if _, err := os.Stat(own); err != nil {
-			if err := downloadUV(own); err != nil {
-				return "", fmt.Errorf("no Python 3.12+ and no uv on PATH; downloading uv %s failed: %w", uvVersion, err)
-			}
-		}
-		uv = own
+// uvMu: one uv download at a time in this process (the gate's ProductPython and the hub's first start can
+// ask together; the second waits and then finds the first one's file).
+var uvMu sync.Mutex
+
+// ownUV is where bothouse keeps the uv it downloaded.
+func ownUV(dataDir string) string { return filepath.Join(AgentToolsDir(dataDir), "uv", uvExe()) }
+
+// ensureUV: uv on PATH, else the one in <dataDir>/tools/uv, else downloaded there.
+func ensureUV(dataDir string) (string, error) {
+	if uv := FindUV(); uv != "" {
+		return uv, nil
 	}
-	// only-managed: uv never runs the interpreters on PATH (so never the macOS stub); 3.12+ on PATH was
-	// already looked for above.
-	base := []string{"UV_PYTHON_PREFERENCE=only-managed", "UV_NO_CONFIG=1"}
-	own := append(base, "UV_PYTHON_INSTALL_DIR="+filepath.Join(AgentToolsDir(dataDir), "python"))
+	uvMu.Lock()
+	defer uvMu.Unlock()
+	own := ownUV(dataDir)
+	if _, err := os.Stat(own); err == nil {
+		return own, nil
+	}
+	if err := downloadUV(own); err != nil {
+		return "", fmt.Errorf("no uv on PATH; downloading uv %s failed: %w", uvVersion, err)
+	}
+	return own, nil
+}
+
+// uvBaseEnv: only-managed: uv never runs the interpreters on PATH (so never the macOS stub, which opens the
+// "install the developer tools" dialog).
+var uvBaseEnv = []string{"UV_PYTHON_PREFERENCE=only-managed", "UV_NO_CONFIG=1"}
+
+// uvOwnEnv: uvBaseEnv, with uv's Pythons kept in <dataDir>/tools/python (shared by the gate and the hub).
+func uvOwnEnv(dataDir string) []string {
+	return append(append([]string{}, uvBaseEnv...), "UV_PYTHON_INSTALL_DIR="+filepath.Join(AgentToolsDir(dataDir), "python"))
+}
+
+// uvPython: a Python ≥3.12 through uv (ensureUV).
+func uvPython(dataDir string) (string, error) {
+	uv, err := ensureUV(dataDir)
+	if err != nil {
+		return "", fmt.Errorf("no Python 3.12+: %w", err)
+	}
+	// 3.12+ on PATH was already looked for (resolveProductPython).
+	base := append([]string{}, uvBaseEnv...)
+	own := uvOwnEnv(dataDir)
 	if p := uvFind(uv, dataDir, base); p != "" { // one uv already installed for this user
 		return p, nil
 	}
