@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -368,14 +369,14 @@ var watchLeadingMentions = regexp.MustCompile(`^(?:(?:<@[!&]?\d+>|@[^\s【\[]+|\
 var watchFeishuMention = regexp.MustCompile(`user_id="([^"]+)"`)
 
 // workspaceProgress: the task in workspace key showed progress since `since`. Either a session of
-// the workspace is running a turn now (Session.Busy, checked first: a long turn is not stopped), or
+// the workspace is running a turn or native background work, its branch was pushed, or
 // the owner posted in the workspace channel since then, not counting status and stance lines. A
 // platform that cannot read channel history (Feishu) uses the sessions instead: a session of the
 // workspace ended a turn since then (Session.UpdatedAt; B9 plan 9b item 2). An error: the history
 // request failed (check retries it).
 func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.Time) (bool, error) {
-	if w.workspaceBusy(key) {
-		slog.Info("team watch: a session of the workspace is running a turn", "workspace", key, "chat", h.Chat)
+	if w.workspaceBusy(key) || w.workspaceBackgroundProgress(key, since) {
+		slog.Info("team watch: a workspace session is running a turn or has background progress", "workspace", key, "chat", h.Chat)
 		return true, nil
 	}
 	spoke, err := w.ownerSpoke(key, h.Owner, since)
@@ -383,6 +384,68 @@ func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.T
 		return w.workspaceTurnSince(key, since), nil
 	}
 	return spoke, err
+}
+
+// workspaceBackgroundProgress reads the same native task state used by idle
+// cleanup and the child table. Inspect active agent processes even after the
+// parent turn unlocks; Session.Busy alone cannot describe their lifetime.
+func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) bool {
+	dirs := make(map[string]bool)
+	for _, e := range w.engines() {
+		if e == nil {
+			continue
+		}
+		e.interactiveMu.Lock()
+		var states []*interactiveState
+		for k, state := range e.interactiveStates {
+			if chatOf(k) == key {
+				states = append(states, state)
+			}
+		}
+		e.interactiveMu.Unlock()
+		for _, state := range states {
+			state.mu.Lock()
+			as, dir := state.agentSession, state.workspaceDir
+			state.mu.Unlock()
+			if r, ok := as.(BackgroundTaskReporter); ok {
+				running, _ := r.BackgroundTasks()
+				if running > 0 {
+					return true
+				}
+			}
+			if r, ok := as.(SubTaskReporter); ok {
+				_, tasks, _ := r.SubTasks()
+				for _, task := range tasks {
+					if task.Live() {
+						return true
+					}
+				}
+			}
+			if dir != "" {
+				dirs[dir] = true
+			}
+		}
+	}
+	// Successful pushes update remote-tracking reflogs with "update by push".
+	// Use the local observation time, not a commit's author/committer timestamp;
+	// a freshly pushed older commit still represents progress in this window.
+	for dir := range dirs {
+		ctx, cancel := context.WithTimeout(w.e.ctx, 3*time.Second)
+		cmd := exec.CommandContext(ctx, "git", "-C", dir, "reflog", "show", "@{upstream}", "--grep-reflog=^update by push$", "-1", "--date=unix", "--format=%gD")
+		out, err := cmd.Output()
+		cancel()
+		if err != nil { // no repository, upstream or readable push history
+			continue
+		}
+		ref := strings.TrimSpace(string(out))
+		if _, at, ok := strings.Cut(ref, "@{"); ok {
+			seconds, err := strconv.ParseInt(strings.TrimSuffix(at, "}"), 10, 64)
+			if err == nil && seconds >= since.Unix() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // errWatchNoHistory: the platform cannot read channel history (no ChannelHistoryReader).

@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -796,5 +798,83 @@ func TestWatchOwnerID(t *testing.T) {
 		if got := watchOwnerID(in); got != want {
 			t.Fatalf("watchOwnerID(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// An idle parent must retain live background work, then park once it ends.
+func TestWatchBackgroundWorkRenewsThenIdleParks(t *testing.T) {
+	for _, kind := range []string{"background-shell-or-long-task", "running-child", "waiting-child"} {
+		t.Run(kind, func(t *testing.T) {
+			e, p, w, h := progressFixture(t, "")
+			mate, _, _ := exitFixture(t, nil)
+			w.engines = func() []*Engine { return []*Engine{e, mate} }
+			bg := &bgTaskSession{controllableAgentSession: newControllableSession("bg")}
+			child := newSubTaskSession()
+			var as AgentSession = bg
+			if kind == "background-shell-or-long-task" {
+				bg.set(1, time.Time{})
+			} else {
+				status := SubTaskRunning
+				if kind == "waiting-child" {
+					status = SubTaskWaiting
+				}
+				child.set(1, SubTask{ID: "child", Status: status, Background: true})
+				as = child
+			}
+			mate.interactiveStates["discord:ws9:mate"] = &interactiveState{agentSession: as}
+			if ok, err := w.workspaceProgress("discord:ws1", h, h.At); ok || err != nil {
+				t.Fatalf("another workspace is not progress: %v %v", ok, err)
+			}
+			delete(mate.interactiveStates, "discord:ws9:mate")
+			mate.interactiveStates["discord:ws1:mate"] = &interactiveState{agentSession: as}
+			next := w.tick(h.Due)
+			got := handoffsOf(e, "discord:ws1")[0]
+			if next.IsZero() || got.Renewed != 1 || !got.Parked.IsZero() || len(p.out) != 0 {
+				t.Fatalf("background work must renew silently: %+v, next %v, sent %v", got, next, p.out)
+			}
+			bg.set(0, h.Due)
+			child.set(1, SubTask{ID: "child", Status: SubTaskCompleted, EndedAt: h.Due})
+			if next := w.tick(next); !next.IsZero() {
+				t.Fatalf("idle task must park: %v", next)
+			}
+			got = handoffsOf(e, "discord:ws1")[0]
+			if got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
+				t.Fatalf("ended background work with no output must park: %+v, sent %v", got, p.out)
+			}
+		})
+	}
+}
+
+// A push counts by its local observation time, independent of commit dates.
+func TestWatchWorkspaceBranchPushRenews(t *testing.T) {
+	e, p, w, h := progressFixture(t, "")
+	dir := t.TempDir()
+	repo, remote := filepath.Join(dir, "repo"), filepath.Join(dir, "remote.git")
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	git("init", "--bare", remote)
+	git("init", repo)
+	git("-C", repo, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "work")
+	git("-C", repo, "remote", "add", "origin", remote)
+	e.interactiveStates["discord:ws1:owner"] = &interactiveState{workspaceDir: repo}
+	if ok, err := w.workspaceProgress("discord:ws1", h, h.At); ok || err != nil {
+		t.Fatalf("unpushed commit is not progress: %v %v", ok, err)
+	}
+	git("-C", repo, "push", "-u", "origin", "HEAD")
+	since := h.At.Truncate(time.Second)
+	if ok, err := w.workspaceProgress("discord:ws1", h, since); !ok || err != nil {
+		t.Fatalf("pushed branch is progress: %v %v", ok, err)
+	}
+	if ok, err := w.workspaceProgress("discord:ws2", h, since); ok || err != nil {
+		t.Fatalf("another workspace's push is not progress: %v %v", ok, err)
+	}
+	w.tick(h.Due.Add(watchCheckAfter()))
+	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("old push must not renew: %+v", got)
 	}
 }
