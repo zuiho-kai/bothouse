@@ -103,6 +103,7 @@ func TestRelayWatchRestartInterruptionWakesLead(t *testing.T) {
 	platform := newProgressPlatform()
 	source := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangEnglish)
 	source.dataDir = t.TempDir()
+	allChatsAreWorkspaces(source) // this test is about the wake, not about where cards open
 	if err := source.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}

@@ -179,6 +179,7 @@ func TestWatchIgnoresOldHandoffs(t *testing.T) {
 }
 
 func TestWatchRenewsOnProgressAtMostTwice(t *testing.T) {
+	withWatchMaxRenew(t, 2) // this test is about the cap itself
 	e, p, w, h := watchFixture(t, "u1", "")
 	w.progress = func(string, TeamHandoff, time.Time) (watchProgress, error) { return watchProgressReal, nil }
 	now := h.Due
@@ -610,6 +611,7 @@ func TestWatchStanceAndOtherPostsAreNoProgress(t *testing.T) {
 
 // Progress every time: renewed at most twice (30 minutes in all), then nudged and parked.
 func TestWatchOwnerPostsRenewAtMostTwice(t *testing.T) {
+	withWatchMaxRenew(t, 2) // this test is about the cap itself
 	e, p, w, h := progressFixture(t, k5aOwner)
 	now := h.Due
 	for i := 1; i <= watchMaxRenew; i++ {
@@ -651,6 +653,7 @@ func TestWatchNoSignalStops(t *testing.T) {
 // without any post and with no owner named: renewed, not stopped. Renewals used up: stopped
 // anyway.
 func TestWatchBusySessionIsNotStopped(t *testing.T) {
+	withWatchMaxRenew(t, 2) // the last step asserts renewals run out
 	e, p, w, h := progressFixture(t, "")
 	s := e.sessions.GetOrCreateActive("discord:ws1:u1")
 	if !s.TryLock() {
