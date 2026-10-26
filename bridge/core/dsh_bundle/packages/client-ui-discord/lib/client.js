@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".HDX7eq_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.HDX7eq_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.HDX7eq_rooms, .HDX7eq_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.HDX7eq_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.HDX7eq_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.HDX7eq_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.HDX7eq_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.HDX7eq_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.HDX7eq_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.HDX7eq_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.HDX7eq_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.HDX7eq_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.HDX7eq_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.HDX7eq_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.HDX7eq_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.HDX7eq_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.HDX7eq_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.HDX7eq_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_system .HDX7eq_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.HDX7eq_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.HDX7eq_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.HDX7eq_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.HDX7eq_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.HDX7eq_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.HDX7eq_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.HDX7eq_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.HDX7eq_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.HDX7eq_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_messageBody {\n  min-width: 0;\n}\n\n.HDX7eq_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.HDX7eq_author {\n  font-weight: 600;\n}\n\n.HDX7eq_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.HDX7eq_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.HDX7eq_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.HDX7eq_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.HDX7eq_message:hover .HDX7eq_ownActions, .HDX7eq_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .HDX7eq_ownActions {\n    opacity: 1;\n  }\n}\n\n.HDX7eq_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.HDX7eq_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.HDX7eq_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.HDX7eq_editBar .HDX7eq_time {\n  margin-right: auto;\n}\n\n.HDX7eq_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.HDX7eq_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.HDX7eq_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.HDX7eq_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.HDX7eq_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.HDX7eq_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.HDX7eq_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.HDX7eq_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.HDX7eq_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.HDX7eq_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.HDX7eq_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.HDX7eq_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.HDX7eq_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.HDX7eq_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.HDX7eq_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.HDX7eq_quoteDeleted {\n  font-style: italic;\n}\n\n.HDX7eq_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.HDX7eq_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.HDX7eq_message:hover .HDX7eq_replyButton, .HDX7eq_message:focus-within .HDX7eq_replyButton, .HDX7eq_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .HDX7eq_replyButton {\n    opacity: 1;\n  }\n}\n\n.HDX7eq_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.HDX7eq_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.HDX7eq_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.HDX7eq_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.HDX7eq_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.HDX7eq_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.HDX7eq_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.HDX7eq_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_sendButton {\n  border-radius: var(--dsw-radius-md);\n  height: 40px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  padding: 0 14px;\n  font-weight: 600;\n}\n\n.HDX7eq_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.HDX7eq_sendButton:focus-visible, .HDX7eq_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.HDX7eq_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.HDX7eq_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.HDX7eq_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.HDX7eq_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.HDX7eq_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_mentionName {\n  font-weight: 600;\n}\n\n.HDX7eq_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.HDX7eq_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.HDX7eq_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.HDX7eq_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  flex: 1;\n  min-width: 0;\n  padding: 10px 14px;\n}\n\n.HDX7eq_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .HDX7eq_composer {\n    padding: 0 8px 8px;\n  }\n\n  .HDX7eq_composerRow {\n    gap: 4px;\n  }\n\n  .HDX7eq_composerRow .HDX7eq_mentionButton {\n    width: 36px;\n    height: 36px;\n    font-size: 16px;\n  }\n\n  .HDX7eq_composerRow .HDX7eq_sendButton {\n    height: 36px;\n    padding: 0 10px;\n  }\n\n  .HDX7eq_input {\n    padding: 8px 10px;\n  }\n}\n\n.HDX7eq_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.HDX7eq_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.HDX7eq_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.HDX7eq_offline {\n  opacity: .5;\n}\n\n.HDX7eq_memberAvatar {\n  position: relative;\n}\n\n.HDX7eq_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.HDX7eq_offline .HDX7eq_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.HDX7eq_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.HDX7eq_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.HDX7eq_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .HDX7eq_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .HDX7eq_rooms, .HDX7eq_members {\n    display: none;\n  }\n}\n\n.HDX7eq_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.HDX7eq_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.HDX7eq_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_roomInput, .HDX7eq_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.HDX7eq_roomInput {\n  margin: 2px 0 6px;\n}\n\n.HDX7eq_roomInput:focus-visible, .HDX7eq_fieldInput:focus-visible, .HDX7eq_iconButton:focus-visible, .HDX7eq_linkButton:focus-visible, .HDX7eq_addMemberButton:focus-visible, .HDX7eq_primaryButton:focus-visible, .HDX7eq_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.HDX7eq_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.HDX7eq_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.HDX7eq_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_memberRow .HDX7eq_member:hover {\n  background: none;\n}\n\n.HDX7eq_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.HDX7eq_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.HDX7eq_memberRow:hover .HDX7eq_memberActions, .HDX7eq_memberRow:focus-within .HDX7eq_memberActions {\n  opacity: 1;\n}\n\n.HDX7eq_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.HDX7eq_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.HDX7eq_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.HDX7eq_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.HDX7eq_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.HDX7eq_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.HDX7eq_field textarea {\n  resize: vertical;\n}\n\n.HDX7eq_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.HDX7eq_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.HDX7eq_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.HDX7eq_primaryButton, .HDX7eq_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.HDX7eq_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.HDX7eq_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.HDX7eq_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.HDX7eq_memberFailed .HDX7eq_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.HDX7eq_memberFailed .HDX7eq_presence {\n  background: #ed4245;\n}\n\n.HDX7eq_mobileButton, .HDX7eq_drawerBackdrop {\n  display: none;\n}\n\n.HDX7eq_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.HDX7eq_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.HDX7eq_panelToggleEnd {\n  margin-left: auto;\n}\n\n.HDX7eq_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.HDX7eq_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.HDX7eq_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.HDX7eq_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .HDX7eq_page.HDX7eq_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .HDX7eq_page.HDX7eq_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .HDX7eq_page.HDX7eq_roomsHidden.HDX7eq_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .HDX7eq_roomsHidden > .HDX7eq_rooms, .HDX7eq_membersHidden > .HDX7eq_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .HDX7eq_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .HDX7eq_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .HDX7eq_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .HDX7eq_panelToggle {\n    display: none;\n  }\n\n  .HDX7eq_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .HDX7eq_rooms.HDX7eq_drawerOpen, .HDX7eq_members.HDX7eq_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .HDX7eq_rooms.HDX7eq_drawerOpen {\n    left: 0;\n  }\n\n  .HDX7eq_members.HDX7eq_drawerOpen {\n    right: 0;\n  }\n\n  .HDX7eq_memberActions {\n    opacity: 1;\n  }\n\n  .HDX7eq_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.HDX7eq_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.HDX7eq_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.HDX7eq_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.HDX7eq_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.HDX7eq_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.HDX7eq_leadControl .HDX7eq_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.HDX7eq_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.HDX7eq_leadControl .HDX7eq_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.HDX7eq_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.HDX7eq_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.HDX7eq_leadOption:hover, .HDX7eq_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_taskSection + .HDX7eq_taskSection {\n  margin-top: 8px;\n}\n\n.HDX7eq_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.HDX7eq_taskOwnerGroup + .HDX7eq_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.HDX7eq_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.HDX7eq_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.HDX7eq_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.HDX7eq_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.HDX7eq_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.HDX7eq_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.HDX7eq_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.HDX7eq_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.HDX7eq_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.HDX7eq_taskDone summary {\n  cursor: pointer;\n}\n\n.HDX7eq_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.HDX7eq_taskStatus[data-status=\"asked\"], .HDX7eq_taskStatus[data-status=\"escalated\"], .HDX7eq_taskStatus[data-status=\"declined\"], .HDX7eq_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.HDX7eq_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.HDX7eq_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.HDX7eq_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.HDX7eq_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.HDX7eq_taskMemberName {\n  font-weight: 600;\n}\n\n.HDX7eq_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.HDX7eq_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.HDX7eq_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.HDX7eq_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.HDX7eq_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.HDX7eq_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.HDX7eq_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.HDX7eq_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.HDX7eq_attachmentAudio audio {\n  width: 100%;\n}\n\n.HDX7eq_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.HDX7eq_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.HDX7eq_chatHead button, .HDX7eq_chatHead input, .HDX7eq_chatHead select, .HDX7eq_chatHead a, .HDX7eq_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.HDX7eq_text pre, .HDX7eq_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent="._8thCeG_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n._8thCeG_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n._8thCeG_rooms, ._8thCeG_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n._8thCeG_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n._8thCeG_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n._8thCeG_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n._8thCeG_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n._8thCeG_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n._8thCeG_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n._8thCeG_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n._8thCeG_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n._8thCeG_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n._8thCeG_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n._8thCeG_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n._8thCeG_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n._8thCeG_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n._8thCeG_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_system ._8thCeG_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n._8thCeG_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n._8thCeG_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n._8thCeG_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n._8thCeG_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n._8thCeG_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n._8thCeG_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n._8thCeG_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n._8thCeG_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n._8thCeG_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_messageBody {\n  min-width: 0;\n}\n\n._8thCeG_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n._8thCeG_author {\n  font-weight: 600;\n}\n\n._8thCeG_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n._8thCeG_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n._8thCeG_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n._8thCeG_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n._8thCeG_message:hover ._8thCeG_ownActions, ._8thCeG_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  ._8thCeG_ownActions {\n    opacity: 1;\n  }\n}\n\n._8thCeG_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n._8thCeG_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n._8thCeG_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n._8thCeG_editBar ._8thCeG_time {\n  margin-right: auto;\n}\n\n._8thCeG_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n._8thCeG_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n._8thCeG_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n._8thCeG_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n._8thCeG_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n._8thCeG_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n._8thCeG_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n._8thCeG_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n._8thCeG_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n._8thCeG_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n._8thCeG_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n._8thCeG_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n._8thCeG_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n._8thCeG_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n._8thCeG_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n._8thCeG_quoteDeleted {\n  font-style: italic;\n}\n\n._8thCeG_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n._8thCeG_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n._8thCeG_message:hover ._8thCeG_replyButton, ._8thCeG_message:focus-within ._8thCeG_replyButton, ._8thCeG_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  ._8thCeG_replyButton {\n    opacity: 1;\n  }\n}\n\n._8thCeG_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n._8thCeG_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n._8thCeG_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n._8thCeG_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n._8thCeG_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n._8thCeG_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n._8thCeG_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n._8thCeG_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_sendButton {\n  border-radius: var(--dsw-radius-md);\n  height: 40px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  padding: 0 14px;\n  font-weight: 600;\n}\n\n._8thCeG_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n._8thCeG_sendButton:focus-visible, ._8thCeG_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n._8thCeG_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n._8thCeG_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n._8thCeG_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n._8thCeG_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_mentionName {\n  font-weight: 600;\n}\n\n._8thCeG_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n._8thCeG_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n._8thCeG_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n._8thCeG_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  flex: 1;\n  min-width: 0;\n  padding: 10px 14px;\n}\n\n._8thCeG_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  ._8thCeG_composer {\n    padding: 0 8px 8px;\n  }\n\n  ._8thCeG_composerRow {\n    gap: 4px;\n  }\n\n  ._8thCeG_composerRow ._8thCeG_mentionButton {\n    width: 36px;\n    height: 36px;\n    font-size: 16px;\n  }\n\n  ._8thCeG_composerRow ._8thCeG_sendButton {\n    height: 36px;\n    padding: 0 10px;\n  }\n\n  ._8thCeG_input {\n    padding: 8px 10px;\n  }\n}\n\n._8thCeG_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n._8thCeG_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_offline {\n  opacity: .5;\n}\n\n._8thCeG_memberAvatar {\n  position: relative;\n}\n\n._8thCeG_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n._8thCeG_offline ._8thCeG_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n._8thCeG_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n._8thCeG_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n._8thCeG_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  ._8thCeG_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  ._8thCeG_rooms, ._8thCeG_members {\n    display: none;\n  }\n}\n\n._8thCeG_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n._8thCeG_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n._8thCeG_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_roomInput, ._8thCeG_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n._8thCeG_roomInput {\n  margin: 2px 0 6px;\n}\n\n._8thCeG_roomInput:focus-visible, ._8thCeG_fieldInput:focus-visible, ._8thCeG_iconButton:focus-visible, ._8thCeG_linkButton:focus-visible, ._8thCeG_addMemberButton:focus-visible, ._8thCeG_primaryButton:focus-visible, ._8thCeG_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n._8thCeG_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n._8thCeG_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_memberRow ._8thCeG_member:hover {\n  background: none;\n}\n\n._8thCeG_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n._8thCeG_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n._8thCeG_memberRow:hover ._8thCeG_memberActions, ._8thCeG_memberRow:focus-within ._8thCeG_memberActions {\n  opacity: 1;\n}\n\n._8thCeG_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n._8thCeG_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n._8thCeG_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n._8thCeG_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n._8thCeG_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n._8thCeG_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n._8thCeG_field textarea {\n  resize: vertical;\n}\n\n._8thCeG_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n._8thCeG_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n._8thCeG_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n._8thCeG_primaryButton, ._8thCeG_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n._8thCeG_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n._8thCeG_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n._8thCeG_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n._8thCeG_memberFailed ._8thCeG_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n._8thCeG_memberFailed ._8thCeG_presence {\n  background: #ed4245;\n}\n\n._8thCeG_mobileButton, ._8thCeG_drawerBackdrop {\n  display: none;\n}\n\n._8thCeG_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n._8thCeG_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_panelToggleEnd {\n  margin-left: auto;\n}\n\n._8thCeG_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n._8thCeG_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n._8thCeG_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  ._8thCeG_page._8thCeG_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  ._8thCeG_page._8thCeG_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  ._8thCeG_page._8thCeG_roomsHidden._8thCeG_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  ._8thCeG_roomsHidden > ._8thCeG_rooms, ._8thCeG_membersHidden > ._8thCeG_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  ._8thCeG_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  ._8thCeG_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  ._8thCeG_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  ._8thCeG_panelToggle {\n    display: none;\n  }\n\n  ._8thCeG_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  ._8thCeG_rooms._8thCeG_drawerOpen, ._8thCeG_members._8thCeG_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  ._8thCeG_rooms._8thCeG_drawerOpen {\n    left: 0;\n  }\n\n  ._8thCeG_members._8thCeG_drawerOpen {\n    right: 0;\n  }\n\n  ._8thCeG_memberActions {\n    opacity: 1;\n  }\n\n  ._8thCeG_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n._8thCeG_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n._8thCeG_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n._8thCeG_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n._8thCeG_taskBoardTrigger {\n  border: 0;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  height: 40px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  flex: none;\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 8px;\n  padding: 7px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n._8thCeG_taskBoardTrigger:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_taskBoardTrigger:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n._8thCeG_taskBoardSummary {\n  color: var(--dsw-alias-label-secondary);\n  text-align: right;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: 1;\n  overflow: hidden;\n}\n\n._8thCeG_taskBoardDialog {\n  width: min(640px, 100%);\n  max-height: min(70vh, 100dvh - 32px);\n  overflow: hidden;\n}\n\n._8thCeG_taskBoardBody {\n  overscroll-behavior: contain;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n._8thCeG_taskBoardDialog > :not(._8thCeG_taskBoardBody) {\n  flex-shrink: 0;\n}\n\n._8thCeG_taskBoardScope {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n}\n\n._8thCeG_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n._8thCeG_leadControl ._8thCeG_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n._8thCeG_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n._8thCeG_leadControl ._8thCeG_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n._8thCeG_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n._8thCeG_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n._8thCeG_leadOption:hover, ._8thCeG_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_taskSection + ._8thCeG_taskSection {\n  margin-top: 8px;\n}\n\n._8thCeG_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n._8thCeG_taskOwnerGroup + ._8thCeG_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n._8thCeG_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n._8thCeG_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n._8thCeG_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n._8thCeG_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n._8thCeG_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n._8thCeG_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n._8thCeG_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n._8thCeG_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n._8thCeG_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n._8thCeG_taskDone summary {\n  cursor: pointer;\n}\n\n._8thCeG_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n._8thCeG_taskStatus[data-status=\"asked\"], ._8thCeG_taskStatus[data-status=\"escalated\"], ._8thCeG_taskStatus[data-status=\"declined\"], ._8thCeG_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n._8thCeG_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n._8thCeG_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n._8thCeG_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n._8thCeG_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n._8thCeG_taskMemberName {\n  font-weight: 600;\n}\n\n._8thCeG_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n._8thCeG_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n._8thCeG_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n._8thCeG_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n._8thCeG_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n._8thCeG_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n._8thCeG_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n._8thCeG_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n._8thCeG_attachmentAudio audio {\n  width: 100%;\n}\n\n._8thCeG_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n._8thCeG_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n._8thCeG_chatHead button, ._8thCeG_chatHead input, ._8thCeG_chatHead select, ._8thCeG_chatHead a, ._8thCeG_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n._8thCeG_text pre, ._8thCeG_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 // \0rolldown/runtime.js
 var __defProp = Object.defineProperty;
@@ -19,6 +19,7 @@ var __exportAll = (all, no_symbols) => {
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
 let react = require("react");
+let react_dom = require("react-dom");
 // src/client/uuid.ts
 /**
 * v4 UUID that also works outside a secure context. `crypto.randomUUID` exists only
@@ -681,7 +682,7 @@ function createChannelSource(transport) {
 function ChannelsIcon({ size }) {
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconUsersOutlineRegular, { size });
 }
-// ../../node_modules/mdast-util-to-string/lib/index.js
+// node_modules/.pnpm/mdast-util-to-string@4.0.0/node_modules/mdast-util-to-string/lib/index.js
 /**
 * @typedef {import('mdast').Nodes} Nodes
 *
@@ -762,7 +763,7 @@ function all(values, includeImageAlt, includeHtml) {
 function node(value) {
 	return Boolean(value && typeof value === "object");
 }
-// ../../node_modules/character-entities/index.js
+// node_modules/.pnpm/character-entities@2.0.2/node_modules/character-entities/index.js
 /**
 * Map of named character references.
 *
@@ -2895,7 +2896,7 @@ const characterEntities = {
 	zwj: "‍",
 	zwnj: "‌"
 };
-// ../../node_modules/decode-named-character-reference/index.js
+// node_modules/.pnpm/decode-named-character-reference@1.3.0/node_modules/decode-named-character-reference/index.js
 const own$1 = {}.hasOwnProperty;
 /**
 * Decode a single character reference (without the `&` or `;`).
@@ -2911,7 +2912,7 @@ const own$1 = {}.hasOwnProperty;
 function decodeNamedCharacterReference(value) {
 	return own$1.call(characterEntities, value) ? characterEntities[value] : false;
 }
-// ../../node_modules/micromark-util-chunked/index.js
+// node_modules/.pnpm/micromark-util-chunked@2.0.1/node_modules/micromark-util-chunked/index.js
 /**
 * Like `Array#splice`, but smarter for giant arrays.
 *
@@ -2980,7 +2981,7 @@ function push(list, items) {
 	}
 	return items;
 }
-// ../../node_modules/micromark-util-combine-extensions/index.js
+// node_modules/.pnpm/micromark-util-combine-extensions@2.0.1/node_modules/micromark-util-combine-extensions/index.js
 /**
 * @import {
 *   Extension,
@@ -3050,7 +3051,7 @@ function constructs(existing, list) {
 	while (++index < list.length) (list[index].add === "after" ? existing : before).push(list[index]);
 	splice(existing, 0, 0, before);
 }
-// ../../node_modules/micromark-util-decode-numeric-character-reference/index.js
+// node_modules/.pnpm/micromark-util-decode-numeric-character-reference@2.0.2/node_modules/micromark-util-decode-numeric-character-reference/index.js
 /**
 * Turn the number (in string form as either hexa- or plain decimal) coming from
 * a numeric character reference into a character.
@@ -3070,7 +3071,7 @@ function decodeNumericCharacterReference(value, base) {
 	if (code < 9 || code === 11 || code > 13 && code < 32 || code > 126 && code < 160 || code > 55295 && code < 57344 || code > 64975 && code < 65008 || (code & 65535) === 65535 || (code & 65535) === 65534 || code > 1114111) return "�";
 	return String.fromCodePoint(code);
 }
-// ../../node_modules/micromark-util-normalize-identifier/index.js
+// node_modules/.pnpm/micromark-util-normalize-identifier@2.0.1/node_modules/micromark-util-normalize-identifier/index.js
 /**
 * Normalize an identifier (as found in references, definitions).
 *
@@ -3093,7 +3094,7 @@ function decodeNumericCharacterReference(value, base) {
 function normalizeIdentifier(value) {
 	return value.replace(/[\t\n\r ]+/g, " ").replace(/^ | $/g, "").toLowerCase().toUpperCase();
 }
-// ../../node_modules/micromark-util-character/index.js
+// node_modules/.pnpm/micromark-util-character@2.1.1/node_modules/micromark-util-character/index.js
 /**
 * @import {Code} from 'micromark-util-types'
 */
@@ -3320,7 +3321,7 @@ function regexCheck(regex) {
 		return code !== null && code > -1 && regex.test(String.fromCharCode(code));
 	}
 }
-// ../../node_modules/micromark-factory-space/index.js
+// node_modules/.pnpm/micromark-factory-space@2.1.0/node_modules/micromark-factory-space/index.js
 /**
 * @import {Effects, State, TokenType} from 'micromark-util-types'
 */
@@ -3426,7 +3427,7 @@ function factorySpaceMinMax(effects, ok, nok, type, min, max) {
 		return size >= min ? ok(code) : nok(code);
 	}
 }
-// ../../node_modules/micromark/lib/initialize/content.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/initialize/content.js
 /**
 * @import {
 *   InitialConstruct,
@@ -3492,7 +3493,7 @@ function initializeContent(effects) {
 		return data;
 	}
 }
-// ../../node_modules/micromark-util-edit-map/index.js
+// node_modules/.pnpm/micromark-util-edit-map@1.0.0/node_modules/micromark-util-edit-map/index.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -3637,7 +3638,7 @@ function addImplementation$1(editMap, at, remove, add, before) {
 	editMap.map.push(change);
 	editMap.index.set(at, change);
 }
-// ../../node_modules/micromark/lib/initialize/document.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/initialize/document.js
 /**
 * @import {
 *   Construct,
@@ -3856,7 +3857,7 @@ function initializeDocument(effects) {
 function tokenizeContainer(effects, ok, nok) {
 	return factorySpace(effects, effects.attempt(this.parser.constructs.document, ok, nok), "linePrefix", this.parser.constructs.disable.null.includes("codeIndented") ? void 0 : 4);
 }
-// ../../node_modules/micromark-util-classify-character/index.js
+// node_modules/.pnpm/micromark-util-classify-character@2.0.1/node_modules/micromark-util-classify-character/index.js
 /**
 * @import {Code} from 'micromark-util-types'
 */
@@ -3878,7 +3879,7 @@ function classifyCharacter(code) {
 	if (code === null || markdownLineEndingOrSpace(code) || unicodeWhitespace(code)) return 1;
 	if (unicodePunctuation(code)) return 2;
 }
-// ../../node_modules/micromark-util-resolve-all/index.js
+// node_modules/.pnpm/micromark-util-resolve-all@2.0.1/node_modules/micromark-util-resolve-all/index.js
 /**
 * @import {Event, Resolver, TokenizeContext} from 'micromark-util-types'
 */
@@ -3907,7 +3908,7 @@ function resolveAll(constructs, events, context) {
 	}
 	return events;
 }
-// ../../node_modules/micromark-core-commonmark/lib/attention.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/attention.js
 /**
 * @import {
 *   Code,
@@ -4114,7 +4115,7 @@ function movePoint(point, offset) {
 	point.offset += offset;
 	point._bufferIndex += offset;
 }
-// ../../node_modules/micromark-core-commonmark/lib/autolink.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/autolink.js
 /**
 * @import {
 *   Construct,
@@ -4324,7 +4325,7 @@ function tokenizeAutolink(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/blank-line.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/blank-line.js
 /**
 * @import {
 *   Construct,
@@ -4380,7 +4381,7 @@ function tokenizeBlankLine(effects, ok, nok) {
 		return code === null || markdownLineEnding(code) ? ok(code) : nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/block-quote.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/block-quote.js
 /**
 * @import {
 *   Construct,
@@ -4506,7 +4507,7 @@ function tokenizeBlockQuoteContinuation(effects, ok, nok) {
 function exit$1(effects) {
 	effects.exit("blockQuote");
 }
-// ../../node_modules/micromark-core-commonmark/lib/character-escape.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/character-escape.js
 /**
 * @import {
 *   Construct,
@@ -4565,7 +4566,7 @@ function tokenizeCharacterEscape(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/character-reference.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/character-reference.js
 /**
 * @import {
 *   Code,
@@ -4702,7 +4703,7 @@ function tokenizeCharacterReference(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/partial-non-lazy-continuation.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/partial-non-lazy-continuation.js
 /** @type {Construct} */
 const nonLazyContinuation$2 = {
 	partial: true,
@@ -4749,7 +4750,7 @@ function tokenizeNonLazyContinuation$2(effects, ok, nok) {
 		return self.parser.lazy[self.now().line] ? nok(code) : ok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/code-fenced.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/code-fenced.js
 /**
 * @import {
 *   Code,
@@ -5129,7 +5130,7 @@ function tokenizeCodeFenced(effects, ok, nok) {
 		}
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/code-indented.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/code-indented.js
 /**
 * @import {
 *   Construct,
@@ -5260,7 +5261,7 @@ function tokenizeFurtherStart(effects, ok, nok) {
 		return markdownLineEnding(code) ? furtherStart(code) : nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/code-text.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/code-text.js
 /**
 * @import {
 *   Construct,
@@ -5444,7 +5445,7 @@ function tokenizeCodeText(effects, ok, nok) {
 		return data(code);
 	}
 }
-// ../../node_modules/micromark-util-subtokenize/lib/splice-buffer.js
+// node_modules/.pnpm/micromark-util-subtokenize@2.1.0/node_modules/micromark-util-subtokenize/lib/splice-buffer.js
 /**
 * Some of the internal operations of micromark do lots of editing
 * operations on very large arrays. This runs into problems with two
@@ -5673,7 +5674,7 @@ function chunkedPush(list, right) {
 		chunkStart += 1e4;
 	}
 }
-// ../../node_modules/micromark-util-subtokenize/index.js
+// node_modules/.pnpm/micromark-util-subtokenize@2.1.0/node_modules/micromark-util-subtokenize/index.js
 /**
 * @import {Chunk, Event, Token} from 'micromark-util-types'
 */
@@ -5827,7 +5828,7 @@ function subcontent(events, eventIndex) {
 	}
 	return gaps;
 }
-// ../../node_modules/micromark-core-commonmark/lib/content.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/content.js
 /**
 * @import {
 *   Construct,
@@ -5959,7 +5960,7 @@ function tokenizeContinuation(effects, ok, nok) {
 		return effects.interrupt(self.parser.constructs.flow, nok, ok)(code);
 	}
 }
-// ../../node_modules/micromark-factory-destination/index.js
+// node_modules/.pnpm/micromark-factory-destination@2.0.1/node_modules/micromark-factory-destination/index.js
 /**
 * @import {Effects, State, TokenType} from 'micromark-util-types'
 */
@@ -6142,7 +6143,7 @@ function factoryDestination(effects, ok, nok, type, literalType, literalMarkerTy
 		return raw(code);
 	}
 }
-// ../../node_modules/micromark-factory-label/index.js
+// node_modules/.pnpm/micromark-factory-label@2.0.1/node_modules/micromark-factory-label/index.js
 /**
 * @import {
 *   Effects,
@@ -6275,7 +6276,7 @@ function factoryLabel(effects, ok, nok, type, markerType, stringType) {
 		return labelInside(code);
 	}
 }
-// ../../node_modules/micromark-factory-title/index.js
+// node_modules/.pnpm/micromark-factory-title@2.0.1/node_modules/micromark-factory-title/index.js
 /**
 * @import {
 *   Code,
@@ -6419,7 +6420,7 @@ function factoryTitle(effects, ok, nok, type, markerType, stringType) {
 		return inside(code);
 	}
 }
-// ../../node_modules/micromark-factory-whitespace/index.js
+// node_modules/.pnpm/micromark-factory-whitespace@2.0.1/node_modules/micromark-factory-whitespace/index.js
 /**
 * @import {Effects, State} from 'micromark-util-types'
 */
@@ -6458,7 +6459,7 @@ function factoryWhitespace(effects, ok) {
 		return ok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/definition.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/definition.js
 /**
 * @import {
 *   Construct,
@@ -6672,7 +6673,7 @@ function tokenizeTitleBefore(effects, ok, nok) {
 		return code === null || markdownLineEnding(code) ? ok(code) : nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/hard-break-escape.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/hard-break-escape.js
 /**
 * @import {
 *   Construct,
@@ -6728,7 +6729,7 @@ function tokenizeHardBreakEscape(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/heading-atx.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/heading-atx.js
 /**
 * @import {
 *   Construct,
@@ -6908,7 +6909,7 @@ function tokenizeHeadingAtx(effects, ok, nok) {
 		return data;
 	}
 }
-// ../../node_modules/micromark-util-html-tag-name/index.js
+// node_modules/.pnpm/micromark-util-html-tag-name@2.0.1/node_modules/micromark-util-html-tag-name/index.js
 /**
 * List of lowercase HTML “block” tag names.
 *
@@ -7006,7 +7007,7 @@ const htmlRawNames = [
 	"style",
 	"textarea"
 ];
-// ../../node_modules/micromark-core-commonmark/lib/html-flow.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/html-flow.js
 /**
 * @import {
 *   Code,
@@ -7731,7 +7732,7 @@ function tokenizeBlankLineBefore(effects, ok, nok) {
 		return effects.attempt(blankLine, ok, nok);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/html-text.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/html-text.js
 /**
 * @import {
 *   Code,
@@ -8344,7 +8345,7 @@ function tokenizeHtmlText(effects, ok, nok) {
 		return returnState(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/label-end.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/label-end.js
 /**
 * @import {
 *   Construct,
@@ -8812,7 +8813,7 @@ function tokenizeReferenceCollapsed(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/label-start-image.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/label-start-image.js
 /**
 * @import {
 *   Construct,
@@ -8910,7 +8911,7 @@ function tokenizeLabelStartImage(effects, ok, nok) {
 		return ok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/label-start-link.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/label-start-link.js
 /**
 * @import {
 *   Construct,
@@ -8963,7 +8964,7 @@ function tokenizeLabelStartLink(effects, ok, nok) {
 		return ok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/line-ending.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/line-ending.js
 /**
 * @import {
 *   Construct,
@@ -8992,7 +8993,7 @@ function tokenizeLineEnding(effects, ok) {
 		return factorySpace(effects, ok, "linePrefix");
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/thematic-break.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/thematic-break.js
 /**
 * @import {
 *   Code,
@@ -9086,7 +9087,7 @@ function tokenizeThematicBreak(effects, ok, nok) {
 		return markdownSpace(code) ? factorySpace(effects, atBreak, "whitespace")(code) : atBreak(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/list.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/list.js
 /**
 * @import {
 *   Code,
@@ -9257,7 +9258,7 @@ function tokenizeListItemPrefixWhitespace(effects, ok, nok) {
 		return !markdownSpace(code) && tail && tail[1].type === "listItemPrefixWhitespace" ? ok(code) : nok(code);
 	}
 }
-// ../../node_modules/micromark-core-commonmark/lib/setext-underline.js
+// node_modules/.pnpm/micromark-core-commonmark@2.0.4/node_modules/micromark-core-commonmark/lib/setext-underline.js
 /**
 * @import {
 *   Code,
@@ -9410,7 +9411,7 @@ function tokenizeSetextUnderline(effects, ok, nok) {
 		return nok(code);
 	}
 }
-// ../../node_modules/micromark/lib/initialize/flow.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/initialize/flow.js
 /**
 * @import {
 *   InitialConstruct,
@@ -9456,7 +9457,7 @@ function initializeFlow(effects) {
 		return initial;
 	}
 }
-// ../../node_modules/micromark/lib/initialize/text.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/initialize/text.js
 /**
 * @import {
 *   Code,
@@ -9631,7 +9632,7 @@ function resolveAllLineSuffixes(events, context) {
 	editMap.consume(events);
 	return events;
 }
-// ../../node_modules/micromark/lib/constructs.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/constructs.js
 /**
 * @import {Extension} from 'micromark-util-types'
 */
@@ -9708,7 +9709,7 @@ const insideSpan = { null: [attention, resolver] };
 const attentionMarkers = { null: [42, 95] };
 /** @satisfies {Extension['disable']} */
 const disable = { null: [] };
-// ../../node_modules/micromark/lib/create-tokenizer.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/create-tokenizer.js
 /**
 * @import {
 *   Chunk,
@@ -10174,7 +10175,7 @@ function serializeChunks(chunks, expandTabs) {
 	}
 	return result.join("");
 }
-// ../../node_modules/micromark/lib/parse.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/parse.js
 /**
 * @import {
 *   Create,
@@ -10217,7 +10218,7 @@ function parse(options) {
 		}
 	}
 }
-// ../../node_modules/micromark/lib/postprocess.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/postprocess.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -10231,7 +10232,7 @@ function postprocess(events) {
 	while (!subtokenize(events));
 	return events;
 }
-// ../../node_modules/micromark/lib/preprocess.js
+// node_modules/.pnpm/micromark@4.0.3/node_modules/micromark/lib/preprocess.js
 /**
 * @import {Chunk, Code, Encoding, Value} from 'micromark-util-types'
 */
@@ -10322,7 +10323,7 @@ function preprocess() {
 		return chunks;
 	}
 }
-// ../../node_modules/micromark-util-decode-string/index.js
+// node_modules/.pnpm/micromark-util-decode-string@2.0.1/node_modules/micromark-util-decode-string/index.js
 const characterEscapeOrReference = /\\([!-/:-@[-`{-~])|&(#(?:\d{1,7}|x[\da-f]{1,6})|[\da-z]{1,31});/gi;
 /**
 * Decode markdown strings (which occur in places such as fenced code info
@@ -10358,7 +10359,7 @@ function decode($0, $1, $2) {
 	}
 	return decodeNamedCharacterReference($2) || $0;
 }
-// ../../node_modules/unist-util-stringify-position/lib/index.js
+// node_modules/.pnpm/unist-util-stringify-position@4.0.0/node_modules/unist-util-stringify-position/lib/index.js
 /**
 * @typedef {import('unist').Node} Node
 * @typedef {import('unist').Point} Point
@@ -10421,7 +10422,7 @@ function position(pos) {
 function index(value) {
 	return value && typeof value === "number" ? value : 1;
 }
-// ../../node_modules/mdast-util-from-markdown/lib/index.js
+// node_modules/.pnpm/mdast-util-from-markdown@2.1.0/node_modules/mdast-util-from-markdown/lib/index.js
 /**
 * @import {
 *   Break,
@@ -11467,7 +11468,7 @@ function defaultOnError(left, right) {
 		end: right.end
 	}) + ") is still open");
 }
-// ../../node_modules/ccount/index.js
+// node_modules/.pnpm/ccount@2.0.1/node_modules/ccount/index.js
 /**
 * Count how often a character (or substring) is used in a string.
 *
@@ -11489,12 +11490,12 @@ function ccount(value, character) {
 	}
 	return count;
 }
-// ../../node_modules/escape-string-regexp/index.js
+// node_modules/.pnpm/escape-string-regexp@5.0.0/node_modules/escape-string-regexp/index.js
 function escapeStringRegexp(string) {
 	if (typeof string !== "string") throw new TypeError("Expected a string");
 	return string.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&").replace(/-/g, "\\x2d");
 }
-// ../../node_modules/unist-util-is/lib/index.js
+// node_modules/.pnpm/unist-util-is@6.0.1/node_modules/unist-util-is/lib/index.js
 /**
 * Generate an assertion from a test.
 *
@@ -11607,15 +11608,19 @@ function ok() {
 function looksLikeANode(value) {
 	return value !== null && typeof value === "object" && "type" in value;
 }
-// ../../node_modules/unist-util-visit-parents/lib/color.node.js
+// node_modules/.pnpm/unist-util-visit-parents@6.1.0/node_modules/unist-util-visit-parents/lib/color.node.js
 /**
+* Color a string.
+*
 * @param {string} d
+*   Value.
 * @returns {string}
+*   Colored value.
 */
 function color$1(d) {
 	return "\x1B[33m" + d + "\x1B[39m";
 }
-// ../../node_modules/unist-util-visit-parents/lib/index.js
+// node_modules/.pnpm/unist-util-visit-parents@6.1.0/node_modules/unist-util-visit-parents/lib/index.js
 /**
 * @import {Node as UnistNode, Parent as UnistParent} from 'unist'
 */
@@ -11773,43 +11778,93 @@ function color$1(d) {
 *   List with one or two values, the first an action, the second an index.
 *
 * @typedef {Action | ActionTuple | Index | null | undefined | void} VisitorResult
-*   Any value that can be returned from a visitor.
+*   Any value that can be returned from an enter visitor.
+*
+*   Like `VisitorResultExit`,
+*   but `SKIP` can also be returned,
+*   to not walk the children of the node,
+*   and `ActionTuple` can be used to combine an action with an index.
+*
+* @typedef {Index | boolean | null | undefined | void} VisitorResultExit
+*   Any value that can be returned from an exit visitor.
 */
 /**
 * @callback Visitor
-*   Handle a node (matching `test`, if given).
+*   Handle a node (matching `test`, if given) before its children.
 *
-*   Visitors are free to transform `node`.
-*   They can also transform the parent of node (the last of `ancestors`).
-*
-*   Replacing `node` itself, if `SKIP` is not returned, still causes its
-*   descendants to be walked (which is a bug).
-*
-*   When adding or removing previous siblings of `node` (or next siblings, in
-*   case of reverse), the `Visitor` should return a new `Index` to specify the
-*   sibling to traverse after `node` is traversed.
-*   Adding or removing next siblings of `node` (or previous siblings, in case
-*   of reverse) is handled as expected without needing to return a new `Index`.
-*
-*   Removing the children property of an ancestor still results in them being
-*   traversed.
+*   Changes inside `node` are walked next.
+*   Replacing or removing it is easier in `exit`.
+*   When replacing or removing it here,
+*   return `SKIP` (as otherwise its old children are walked),
+*   or `[SKIP, index]` to continue with the node now at `index`.
+*   Changing next siblings (in walk order) is fine;
+*   changing previous siblings needs a new `Index`.
+*   Removing an ancestor or changing its previous siblings is not supported.
 * @param {Visited} node
 *   Found node.
 * @param {Array<VisitedParents>} ancestors
 *   Ancestors of `node`.
+* @param {number | undefined} index
+*   Index of `node` in its parent (the last of `ancestors`),
+*   or `undefined` for the tree itself.
 * @returns {VisitorResult}
 *   What to do next.
 *
-*   An `Index` is treated as a tuple of `[CONTINUE, Index]`.
-*   An `Action` is treated as a tuple of `[Action]`.
-*
-*   Passing a tuple back only makes sense if the `Action` is `SKIP`.
-*   When the `Action` is `EXIT`, that action can be returned.
-*   When the `Action` is `CONTINUE`, `Index` can be returned.
+*   Like `VisitorExit`,
+*   but `SKIP` can also be returned,
+*   to not walk the children of `node`.
+*   Passing a tuple back (`ActionTuple`) only makes sense as `[SKIP, Index]`.
 * @template {UnistNode} [Visited=UnistNode]
 *   Visited node type.
 * @template {UnistParent} [VisitedParents=UnistParent]
 *   Ancestor type.
+*/
+/**
+* @callback VisitorExit
+*   Handle a node (matching `test`, if given) after its children.
+*
+*   Changes inside `node` are not walked,
+*   which makes this a good place to change `node` based on its children,
+*   or to replace or remove it.
+*   When removing `node` or changing previous siblings (in walk order),
+*   return a new `Index`.
+*   Removing an ancestor or changing its previous siblings is not supported.
+* @param {Visited} node
+*   Found node.
+* @param {Array<VisitedParents>} ancestors
+*   Ancestors of `node`.
+* @param {number | undefined} index
+*   Index of `node` in its parent (the last of `ancestors`),
+*   or `undefined` for the tree itself.
+* @returns {VisitorResultExit}
+*   What to do next.
+*
+*   `CONTINUE` (`true`, nothing) continues as normal,
+*   `EXIT` (`false`) stops traversing,
+*   and `Index` continues at that sibling.
+* @template {UnistNode} [Visited=UnistNode]
+*   Visited node type.
+* @template {UnistParent} [VisitedParents=UnistParent]
+*   Ancestor type.
+*/
+/**
+* @template {UnistNode} [Visited=UnistNode]
+*   Visited node type.
+* @template {UnistParent} [VisitedParents=UnistParent]
+*   Ancestor type.
+* @typedef Visitors
+*   Handle nodes when entering and exiting them.
+*   The `enter` visitor is optional while `exit` is required.
+*
+*   Pass an `enter` visitor directly to only handle nodes when entering them.
+*
+*   `enter` is called before children (if any) are walked and `exit` after that.
+*   `exit` is still called when `enter` returns `SKIP`.
+*   Both `enter` and `exit` are only called for nodes that match an optional `test`.
+* @property {Visitor<Visited, VisitedParents> | null | undefined} [enter]
+*   Handle a node before its children (optional).
+* @property {VisitorExit<Visited, VisitedParents>} exit
+*   Handle a node after its children.
 */
 /**
 * @typedef {Visitor<Matches<InclusiveDescendant<Tree>, Check>, Ancestor<Tree, Matches<InclusiveDescendant<Tree>, Check>>>} BuildVisitor
@@ -11821,16 +11876,34 @@ function color$1(d) {
 * @template {Test} [Check=Test]
 *   Test type.
 */
+/**
+* @typedef {Visitors<Matches<InclusiveDescendant<Tree>, Check>, Ancestor<Tree, Matches<InclusiveDescendant<Tree>, Check>>>} BuildVisitors
+*   Build typed `Visitors` from a tree and a test.
+*
+*   It will infer which values are passed as `node` and which as `parents`.
+* @template {UnistNode} [Tree=UnistNode]
+*   Tree type.
+* @template {Test} [Check=Test]
+*   Test type.
+*/
 /** @type {Readonly<ActionTuple>} */
 const empty = [];
+/**
+* Do not traverse this node’s children.
+* Only works when entering a node.
+*/
+const SKIP = "skip";
 /**
 * Visit nodes, with ancestral information.
 *
 * This algorithm performs *depth-first* *tree traversal* in *preorder*
-* (**NLR**) or if `reverse` is given, in *reverse preorder* (**NRL**).
+* (**NLR**) or if `reverse` is given,
+* in *reverse preorder* (**NRL**).
+* An `exit` visitor is called in *postorder* (**LRN**)
+* or if `reverse` is given, in *reverse postorder* (**RLN**).
 *
-* You can choose for which nodes `visitor` is called by passing a `test`.
-* For complex tests, you should test yourself in `visitor`, as it will be
+* You can choose which nodes are visited by passing a `test`.
+* For complex tests, you should test yourself in a visitor, as it will be
 * faster and will have improved type information.
 *
 * Walking the tree is an intensive task.
@@ -11839,29 +11912,72 @@ const empty = [];
 * to check if a node matches, and then perform different operations.
 *
 * You can change the tree.
-* See `Visitor` for more info.
+* Changes inside a node made when entering it are walked,
+* changes made when exiting it are not.
+* See `Visitor` and `VisitorExit` for more info.
 *
 * @overload
 * @param {Tree} tree
+*   Tree to traverse.
 * @param {Check} check
-* @param {BuildVisitor<Tree, Check>} visitor
+*   `unist-util-is`-compatible test.
+* @param {BuildVisitor<Tree, Check>} enter
+*   Handle each node when entering it.
 * @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
 * @returns {undefined}
+*   Nothing.
 *
 * @overload
 * @param {Tree} tree
-* @param {BuildVisitor<Tree>} visitor
+*   Tree to traverse.
+* @param {Check} check
+*   `unist-util-is`-compatible test.
+* @param {BuildVisitors<Tree, Check>} visitors
+*   Handle each node when exiting it, and optionally when entering it.
 * @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
 * @returns {undefined}
+*   Nothing.
+*
+* @overload
+* @param {Tree} tree
+*   Tree to traverse.
+* @param {BuildVisitor<Tree>} enter
+*   Handle each node when entering it.
+* @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
+* @returns {undefined}
+*   Nothing.
+*
+* @overload
+* @param {Tree} tree
+*   Tree to traverse.
+* @param {BuildVisitors<Tree>} visitors
+*   Handle each node when exiting it, and optionally when entering it.
+* @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
+* @returns {undefined}
+*   Nothing.
 *
 * @param {UnistNode} tree
 *   Tree to traverse.
-* @param {Visitor | Test} test
-*   `unist-util-is`-compatible test
-* @param {Visitor | boolean | null | undefined} [visitor]
-*   Handle each node.
+* @param {Visitor | Visitors | Test} testOrEnterOrVisitors
+*   `unist-util-is`-compatible test, `enter`, or `visitors`.
+* @param {Visitor | Visitors | boolean | null | undefined} [enterOrVisitorsOrReverse]
+*   `enter`, `visitors`, or `reverse` after a test.
 * @param {boolean | null | undefined} [reverse]
-*   Traverse in reverse preorder (NRL) instead of the default preorder (NLR).
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
 * @returns {undefined}
 *   Nothing.
 *
@@ -11870,20 +11986,46 @@ const empty = [];
 * @template {Test} Check
 *   `unist-util-is`-compatible test.
 */
-function visitParents(tree, test, visitor, reverse) {
+function visitParents(tree, testOrEnterOrVisitors, enterOrVisitorsOrReverse, reverse) {
+	if (!tree || typeof tree !== "object") throw new Error("Unexpected value `" + tree + "` for `tree`, expected node");
+	let preorder = true;
 	/** @type {Test} */
 	let check;
-	if (typeof test === "function" && typeof visitor !== "function") {
-		reverse = visitor;
-		visitor = test;
-	} else check = test;
+	/** @type {Visitors | Visitor} */
+	let visitors;
+	/** @type {Visitor | null | undefined} */
+	let enter;
+	/** @type {VisitorExit | null | undefined} */
+	let exit;
+	if (typeof enterOrVisitorsOrReverse === "function" || enterOrVisitorsOrReverse && typeof enterOrVisitorsOrReverse === "object") {
+		check = testOrEnterOrVisitors;
+		visitors = enterOrVisitorsOrReverse;
+		if (reverse) preorder = false;
+	} else {
+		visitors = testOrEnterOrVisitors;
+		if (enterOrVisitorsOrReverse) preorder = false;
+	}
+	if (typeof visitors === "function") enter = visitors;
+	else if (visitors && typeof visitors === "object") {
+		if (visitors.enter === null || visitors.enter === void 0) {} else if (typeof visitors.enter === "function") enter = visitors.enter;
+		else throw new Error("Unexpected value `" + visitors.enter + "` for `visitors.enter`, expected optional visitor");
+		if (typeof visitors.exit === "function") exit = visitors.exit;
+		else throw new Error("Unexpected value `" + visitors.exit + "` for `visitors.exit`, expected visitor (pass a visitor directly if you only want an enter visitor)");
+	} else throw new Error("Unexpected value `" + visitors + "` for `enter` or `visitors`, expected visitor or object with visitors");
 	const is = convert(check);
-	const step = reverse ? -1 : 1;
+	const step = preorder ? 1 : -1;
 	factory(tree, void 0, [])();
 	/**
+	* Create a function to visit a node.
+	*
 	* @param {UnistNode} node
+	*   Node to visit.
 	* @param {number | undefined} index
+	*   Index of `node` in its parent.
 	* @param {Array<UnistParent>} parents
+	*   Ancestors of `node`.
+	* @returns {() => Readonly<ActionTuple>}
+	*   Visit `node`.
 	*/
 	function factory(node, index, parents) {
 		const value = node && typeof node === "object" ? node : {};
@@ -11893,30 +12035,30 @@ function visitParents(tree, test, visitor, reverse) {
 		}
 		return visit;
 		function visit() {
+			const matches = !check || is(node, index, parents[parents.length - 1] || void 0);
 			/** @type {Readonly<ActionTuple>} */
 			let result = empty;
-			/** @type {Readonly<ActionTuple>} */
-			let subresult;
-			/** @type {number} */
-			let offset;
-			/** @type {Array<UnistParent>} */
-			let grandparents;
-			if (!test || is(node, index, parents[parents.length - 1] || void 0)) {
-				result = toResult(visitor(node, parents));
+			if (enter && matches) {
+				result = toResult(enter(node, parents, index));
 				if (result[0] === false) return result;
 			}
 			if ("children" in node && node.children) {
 				const nodeAsParent = node;
 				if (nodeAsParent.children && result[0] !== "skip") {
-					offset = (reverse ? nodeAsParent.children.length : -1) + step;
-					grandparents = parents.concat(nodeAsParent);
+					let offset = (preorder ? -1 : nodeAsParent.children.length) + step;
+					const grandparents = [...parents, nodeAsParent];
 					while (offset > -1 && offset < nodeAsParent.children.length) {
 						const child = nodeAsParent.children[offset];
-						subresult = factory(child, offset, grandparents)();
+						const subresult = factory(child, offset, grandparents)();
 						if (subresult[0] === false) return subresult;
 						offset = typeof subresult[1] === "number" ? subresult[1] : offset + step;
 					}
 				}
+			}
+			if (exit && matches) {
+				const exitResult = toResult(exit(node, parents, index));
+				if (exitResult[0] === "skip") throw new Error("Unexpected value `" + exitResult[0] + "` from `exit`, expected `CONTINUE`, `EXIT`, index, or nothing");
+				if (exitResult[0] === false || typeof exitResult[1] === "number") return exitResult;
 			}
 			return result;
 		}
@@ -11935,7 +12077,7 @@ function toResult(value) {
 	if (typeof value === "number") return [true, value];
 	return value === null || value === void 0 ? empty : [value];
 }
-// ../../node_modules/mdast-util-find-and-replace/lib/index.js
+// node_modules/.pnpm/mdast-util-find-and-replace@3.0.4/node_modules/mdast-util-find-and-replace/lib/index.js
 /**
 * @import {Nodes, Parents, PhrasingContent, Root, Text} from 'mdast'
 * @import {BuildVisitor, Test, VisitorResult} from 'unist-util-visit-parents'
@@ -12003,7 +12145,7 @@ function toResult(value) {
 * @param {FindAndReplaceList | FindAndReplaceTuple} list
 *   Patterns to find.
 * @param {Options | null | undefined} [options]
-*   Configuration (when `find` is not `Find`).
+*   Configuration (optional).
 * @returns {undefined}
 *   Nothing.
 */
@@ -12011,24 +12153,15 @@ function findAndReplace(tree, list, options) {
 	const ignored = convert((options || {}).ignore || []);
 	const pairs = toPairs(list);
 	let pairIndex = -1;
-	while (++pairIndex < pairs.length) visitParents(tree, "text", visitor);
+	while (++pairIndex < pairs.length) visitParents(tree, visitor);
 	/**
-	* Visit a text node, and handle it if it is not in an ignored parent.
+	* Handle text nodes and skip ignored nodes.
 	*
-	* @type {BuildVisitor<Root, 'text'>}
+	* @type {BuildVisitor<Root>}
 	*/
-	function visitor(node, parents) {
-		let index = -1;
-		/** @type {Parents | undefined} */
-		let grandparent;
-		while (++index < parents.length) {
-			const parent = parents[index];
-			/** @type {Array<Nodes> | undefined} */
-			const siblings = grandparent ? grandparent.children : void 0;
-			if (ignored(parent, siblings ? siblings.indexOf(parent) : void 0, grandparent)) return;
-			grandparent = parent;
-		}
-		if (grandparent) return handler(node, parents);
+	function visitor(node, parents, index) {
+		if (node.type === "text" && typeof index === "number") return handler(node, parents, index);
+		if (ignored(node, index, parents[parents.length - 1])) return SKIP;
 	}
 	/**
 	* Handle a text node which is not in an ignored parent.
@@ -12037,15 +12170,16 @@ function findAndReplace(tree, list, options) {
 	*   Text node to search in.
 	* @param {Array<Parents>} parents
 	*   Ancestors of `node`.
+	* @param {number} index
+	*   Index of `node` in its parent.
 	* @returns {VisitorResult}
 	*   Where to continue visiting.
 	*/
-	function handler(node, parents) {
+	function handler(node, parents, index) {
 		const parent = parents[parents.length - 1];
 		const find = pairs[pairIndex][0];
 		const replace = pairs[pairIndex][1];
 		let start = 0;
-		const index = parent.children.indexOf(node);
 		let change = false;
 		/** @type {Array<PhrasingContent>} */
 		let nodes = [];
@@ -12113,7 +12247,6 @@ function toPairs(tupleOrList) {
 	if (!Array.isArray(tupleOrList)) throw new TypeError("Expected find and replace tuple or list of tuples");
 	/** @type {Pairs} */
 	const result = [];
-	/** @type {FindAndReplaceList} */
 	const list = !tupleOrList[0] || Array.isArray(tupleOrList[0]) ? tupleOrList : [tupleOrList];
 	let index = -1;
 	while (++index < list.length) {
@@ -12146,7 +12279,7 @@ function toFunction(replace) {
 		return replace;
 	};
 }
-// ../../node_modules/mdast-util-gfm-autolink-literal/lib/index.js
+// node_modules/.pnpm/mdast-util-gfm-autolink-literal@2.0.1/node_modules/mdast-util-gfm-autolink-literal/lib/index.js
 /**
 * @import {RegExpMatchObject, ReplaceFunction} from 'mdast-util-find-and-replace'
 * @import {CompileContext, Extension as FromMarkdownExtension, Handle as FromMarkdownHandle, Transform as FromMarkdownTransform} from 'mdast-util-from-markdown'
@@ -12325,7 +12458,7 @@ function previous$1(match, email) {
 	const code = match.input.charCodeAt(match.index - 1);
 	return (match.index === 0 || unicodeWhitespace(code) || unicodePunctuation(code)) && (!email || code !== 47);
 }
-// ../../node_modules/mdast-util-gfm-footnote/lib/index.js
+// node_modules/.pnpm/mdast-util-gfm-footnote@2.1.0/node_modules/mdast-util-gfm-footnote/lib/index.js
 /**
 * @import {
 *   CompileContext,
@@ -12459,7 +12592,7 @@ function gfmFootnoteFromMarkdown() {
 		}
 	};
 }
-// ../../node_modules/mdast-util-gfm-strikethrough/lib/index.js
+// node_modules/.pnpm/mdast-util-gfm-strikethrough@2.0.1/node_modules/mdast-util-gfm-strikethrough/lib/index.js
 handleDelete.attention = attentionDelete;
 handleDelete.peek = peekDelete;
 /**
@@ -12539,7 +12672,7 @@ function attentionDelete() {
 function peekDelete() {
 	return "~";
 }
-// ../../node_modules/mdast-util-gfm-table/lib/index.js
+// node_modules/.pnpm/mdast-util-gfm-table@2.0.0/node_modules/mdast-util-gfm-table/lib/index.js
 /**
 * @typedef {import('mdast').InlineCode} InlineCode
 * @typedef {import('mdast').Table} Table
@@ -12663,7 +12796,7 @@ function exitCodeText(token) {
 function replace($0, $1) {
 	return $1 === "|" ? $1 : $0;
 }
-// ../../node_modules/mdast-util-gfm-task-list-item/lib/index.js
+// node_modules/.pnpm/mdast-util-gfm-task-list-item@2.0.0/node_modules/mdast-util-gfm-task-list-item/lib/index.js
 /**
 * @typedef {import('mdast').ListItem} ListItem
 * @typedef {import('mdast').Paragraph} Paragraph
@@ -12731,7 +12864,7 @@ function exitParagraphWithTaskListItem(token) {
 	}
 	this.exit(token);
 }
-// ../../node_modules/mdast-util-gfm/lib/index.js
+// node_modules/.pnpm/mdast-util-gfm@3.1.0/node_modules/mdast-util-gfm/lib/index.js
 /**
 * @import {Extension as FromMarkdownExtension} from 'mdast-util-from-markdown'
 * @import {Options} from 'mdast-util-gfm'
@@ -12754,7 +12887,7 @@ function gfmFromMarkdown() {
 		gfmTaskListItemFromMarkdown()
 	];
 }
-// ../../node_modules/mdast-util-math/lib/index.js
+// node_modules/.pnpm/mdast-util-math@3.0.0/node_modules/mdast-util-math/lib/index.js
 /**
 * @typedef {import('hast').Element} HastElement
 * @typedef {import('hast').ElementContent} HastElementContent
@@ -12902,7 +13035,7 @@ function mathFromMarkdown() {
 		this.config.exit.data.call(this, token);
 	}
 }
-// ../../node_modules/micromark-extension-gfm-autolink-literal/lib/syntax.js
+// node_modules/.pnpm/micromark-extension-gfm-autolink-literal@2.1.0/node_modules/micromark-extension-gfm-autolink-literal/lib/syntax.js
 /**
 * @import {Code, ConstructRecord, Event, Extension, Previous, State, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -13602,7 +13735,7 @@ function previousUnbalanced(events) {
 	if (events.length > 0 && !result) events[events.length - 1][1]._gfmAutolinkLiteralWalkedInto = true;
 	return result;
 }
-// ../../node_modules/micromark-extension-gfm-footnote/lib/syntax.js
+// node_modules/.pnpm/micromark-extension-gfm-footnote@2.1.0/node_modules/micromark-extension-gfm-footnote/lib/syntax.js
 /**
 * @import {Event, Exiter, Extension, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -14020,7 +14153,7 @@ function tokenizeIndent(effects, ok, nok) {
 		return tail && tail[1].type === "gfmFootnoteDefinitionIndent" && tail[2].sliceSerialize(tail[1], true).length === 4 ? ok(code) : nok(code);
 	}
 }
-// ../../node_modules/micromark-extension-gfm-strikethrough/lib/syntax.js
+// node_modules/.pnpm/micromark-extension-gfm-strikethrough@2.1.0/node_modules/micromark-extension-gfm-strikethrough/lib/syntax.js
 /**
 * @import {Options} from 'micromark-extension-gfm-strikethrough'
 * @import {Event, Extension, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
@@ -14160,7 +14293,7 @@ function gfmStrikethrough(options) {
 		}
 	}
 }
-// ../../node_modules/micromark-extension-gfm-table/lib/edit-map.js
+// node_modules/.pnpm/micromark-extension-gfm-table@2.1.2/node_modules/micromark-extension-gfm-table/lib/edit-map.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -14270,7 +14403,7 @@ function addImplementation(editMap, at, remove, add) {
 	editMap.map.push(change);
 	editMap.index.set(at, change);
 }
-// ../../node_modules/micromark-extension-gfm-table/lib/infer.js
+// node_modules/.pnpm/micromark-extension-gfm-table@2.1.2/node_modules/micromark-extension-gfm-table/lib/infer.js
 /**
 * @import {Event} from 'micromark-util-types'
 */
@@ -14307,7 +14440,7 @@ function gfmTableAlign(events, index) {
 	}
 	return align;
 }
-// ../../node_modules/micromark-extension-gfm-table/lib/syntax.js
+// node_modules/.pnpm/micromark-extension-gfm-table@2.1.2/node_modules/micromark-extension-gfm-table/lib/syntax.js
 /**
 * @import {Event, Extension, Point, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -15023,7 +15156,7 @@ function getPoint(events, index) {
 	const side = event[0] === "enter" ? "start" : "end";
 	return event[1][side];
 }
-// ../../node_modules/micromark-extension-gfm-task-list-item/lib/syntax.js
+// node_modules/.pnpm/micromark-extension-gfm-task-list-item@2.1.0/node_modules/micromark-extension-gfm-task-list-item/lib/syntax.js
 /**
 * @import {Extension, State, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -15141,7 +15274,7 @@ function spaceThenNonSpace(effects, ok, nok) {
 		return code === null ? nok(code) : ok(code);
 	}
 }
-// ../../node_modules/micromark-extension-gfm/index.js
+// node_modules/.pnpm/micromark-extension-gfm@3.0.0/node_modules/micromark-extension-gfm/index.js
 /**
 * @typedef {import('micromark-extension-gfm-footnote').HtmlOptions} HtmlOptions
 * @typedef {import('micromark-extension-gfm-strikethrough').Options} Options
@@ -15168,7 +15301,7 @@ function gfm(options) {
 		gfmTaskListItem()
 	]);
 }
-// ../../node_modules/micromark-extension-math/lib/math-flow.js
+// node_modules/.pnpm/micromark-extension-math@3.1.0/node_modules/micromark-extension-math/lib/math-flow.js
 /**
 * @import {Construct, State, TokenizeContext, Tokenizer} from 'micromark-util-types'
 */
@@ -15472,7 +15605,7 @@ function tokenizeNonLazyContinuation$1(effects, ok, nok) {
 		return self.parser.lazy[self.now().line] ? nok(code) : ok(code);
 	}
 }
-// ../../node_modules/micromark-extension-math/lib/math-text.js
+// node_modules/.pnpm/micromark-extension-math@3.1.0/node_modules/micromark-extension-math/lib/math-text.js
 /**
 * @import {Options} from 'micromark-extension-math'
 * @import {Construct, Previous, Resolver, State, Token, TokenizeContext, Tokenizer} from 'micromark-util-types'
@@ -15657,7 +15790,7 @@ function resolveMathText(events) {
 function previous(code) {
 	return code !== 36 || this.events[this.events.length - 1][1].type === "characterEscape";
 }
-// ../../node_modules/micromark-extension-math/lib/syntax.js
+// node_modules/.pnpm/micromark-extension-math@3.1.0/node_modules/micromark-extension-math/lib/syntax.js
 /**
 * @import {Options} from 'micromark-extension-math'
 * @import {Extension} from 'micromark-util-types'
@@ -15677,7 +15810,7 @@ function math(options) {
 		text: { [36]: mathText(options) }
 	};
 }
-// ../../node_modules/micromark-util-symbol/lib/codes.js
+// node_modules/.pnpm/micromark-util-symbol@2.0.1/node_modules/micromark-util-symbol/lib/codes.js
 /**
 * Character codes.
 *
@@ -15834,7 +15967,7 @@ const codes = {
 	byteOrderMarker: 65279,
 	replacementCharacter: 65533
 };
-// ../../node_modules/micromark-util-symbol/lib/constants.js
+// node_modules/.pnpm/micromark-util-symbol@2.0.1/node_modules/micromark-util-symbol/lib/constants.js
 /**
 * This module is compiled away!
 *
@@ -15879,7 +16012,7 @@ const constants = {
 	thematicBreakMarkerCountMin: 3,
 	v8MaxSafeChunkSize: 1e4
 };
-// ../../node_modules/micromark-util-symbol/lib/types.js
+// node_modules/.pnpm/micromark-util-symbol@2.0.1/node_modules/micromark-util-symbol/lib/types.js
 /**
 * This module is compiled away!
 *
@@ -16300,142 +16433,146 @@ function softBreaksToHard(text) {
 }
 // src/client/ChannelsPage.module.css
 var ChannelsPage_module_default = {
-	"activeBusy": "HDX7eq_activeBusy",
-	"activeCount": "HDX7eq_activeCount",
-	"addMemberButton": "HDX7eq_addMemberButton",
-	"attachmentAudio": "HDX7eq_attachmentAudio",
-	"attachmentFile": "HDX7eq_attachmentFile",
-	"attachmentImage": "HDX7eq_attachmentImage",
-	"attachments": "HDX7eq_attachments",
-	"attachmentSize": "HDX7eq_attachmentSize",
-	"attachmentThumb": "HDX7eq_attachmentThumb",
-	"author": "HDX7eq_author",
-	"avatar": "HDX7eq_avatar",
-	"avatarAnchor": "HDX7eq_avatarAnchor",
-	"avatarButton": "HDX7eq_avatarButton",
-	"avatarImage": "HDX7eq_avatarImage",
-	"avatarMenu": "HDX7eq_avatarMenu",
-	"avatarMenuItem": "HDX7eq_avatarMenuItem",
-	"avatarMenuTitle": "HDX7eq_avatarMenuTitle",
-	"avatarOption": "HDX7eq_avatarOption",
-	"avatarPicker": "HDX7eq_avatarPicker",
-	"avatarSmall": "HDX7eq_avatarSmall",
-	"capabilityHelp": "HDX7eq_capabilityHelp",
-	"capabilityItem": "HDX7eq_capabilityItem",
-	"capabilityMenu": "HDX7eq_capabilityMenu",
-	"card": "HDX7eq_card",
-	"cardButtons": "HDX7eq_cardButtons",
-	"cardHead": "HDX7eq_cardHead",
-	"cardTitle": "HDX7eq_cardTitle",
-	"cardViewButton": "HDX7eq_cardViewButton",
-	"cardViews": "HDX7eq_cardViews",
-	"chat": "HDX7eq_chat",
-	"chatHead": "HDX7eq_chatHead",
-	"choice": "HDX7eq_choice",
-	"choiceRow": "HDX7eq_choiceRow",
-	"composer": "HDX7eq_composer",
-	"composerRow": "HDX7eq_composerRow",
-	"dialog": "HDX7eq_dialog",
-	"dialogActions": "HDX7eq_dialogActions",
-	"dialogBackdrop": "HDX7eq_dialogBackdrop",
-	"dialogTitle": "HDX7eq_dialogTitle",
-	"drawerBackdrop": "HDX7eq_drawerBackdrop",
-	"drawerOpen": "HDX7eq_drawerOpen",
-	"editBar": "HDX7eq_editBar",
-	"editBox": "HDX7eq_editBox",
-	"edited": "HDX7eq_edited",
-	"editInput": "HDX7eq_editInput",
-	"empty": "HDX7eq_empty",
-	"field": "HDX7eq_field",
-	"fieldInput": "HDX7eq_fieldInput",
-	"fieldLabel": "HDX7eq_fieldLabel",
-	"focused": "HDX7eq_focused",
-	"groupHead": "HDX7eq_groupHead",
-	"groupTitle": "HDX7eq_groupTitle",
-	"guide": "HDX7eq_guide",
-	"hash": "HDX7eq_hash",
-	"iconButton": "HDX7eq_iconButton",
-	"input": "HDX7eq_input",
-	"leadControl": "HDX7eq_leadControl",
-	"leadMenu": "HDX7eq_leadMenu",
-	"leadOption": "HDX7eq_leadOption",
-	"linkButton": "HDX7eq_linkButton",
-	"log": "HDX7eq_log",
-	"member": "HDX7eq_member",
-	"memberActions": "HDX7eq_memberActions",
-	"memberAvatar": "HDX7eq_memberAvatar",
-	"memberFailed": "HDX7eq_memberFailed",
-	"memberModel": "HDX7eq_memberModel",
-	"memberName": "HDX7eq_memberName",
-	"memberRow": "HDX7eq_memberRow",
-	"members": "HDX7eq_members",
-	"membersHidden": "HDX7eq_membersHidden",
-	"memberStatus": "HDX7eq_memberStatus",
-	"memberText": "HDX7eq_memberText",
-	"mentionActive": "HDX7eq_mentionActive",
-	"mentionButton": "HDX7eq_mentionButton",
-	"mentionHint": "HDX7eq_mentionHint",
-	"mentionItem": "HDX7eq_mentionItem",
-	"mentionMeta": "HDX7eq_mentionMeta",
-	"mentionName": "HDX7eq_mentionName",
-	"mentionPopup": "HDX7eq_mentionPopup",
-	"mentionTitle": "HDX7eq_mentionTitle",
-	"message": "HDX7eq_message",
-	"messageBody": "HDX7eq_messageBody",
-	"messageHead": "HDX7eq_messageHead",
-	"mobileButton": "HDX7eq_mobileButton",
-	"notice": "HDX7eq_notice",
-	"offline": "HDX7eq_offline",
-	"ownActions": "HDX7eq_ownActions",
-	"page": "HDX7eq_page",
-	"panelToggle": "HDX7eq_panelToggle",
-	"panelToggleEnd": "HDX7eq_panelToggleEnd",
-	"permActions": "HDX7eq_permActions",
-	"permScope": "HDX7eq_permScope",
-	"permStatus": "HDX7eq_permStatus",
-	"presence": "HDX7eq_presence",
-	"primaryButton": "HDX7eq_primaryButton",
-	"quote": "HDX7eq_quote",
-	"quoteAuthor": "HDX7eq_quoteAuthor",
-	"quoteDeleted": "HDX7eq_quoteDeleted",
-	"replyBar": "HDX7eq_replyBar",
-	"replyBarText": "HDX7eq_replyBarText",
-	"replyButton": "HDX7eq_replyButton",
-	"replyCancel": "HDX7eq_replyCancel",
-	"room": "HDX7eq_room",
-	"roomActive": "HDX7eq_roomActive",
-	"roomInput": "HDX7eq_roomInput",
-	"roomLabel": "HDX7eq_roomLabel",
-	"rooms": "HDX7eq_rooms",
-	"roomsHidden": "HDX7eq_roomsHidden",
-	"secondaryButton": "HDX7eq_secondaryButton",
-	"sendButton": "HDX7eq_sendButton",
-	"sendError": "HDX7eq_sendError",
-	"system": "HDX7eq_system",
-	"tag": "HDX7eq_tag",
-	"taskBoard": "HDX7eq_taskBoard",
-	"taskCard": "HDX7eq_taskCard",
-	"taskDone": "HDX7eq_taskDone",
-	"taskEmpty": "HDX7eq_taskEmpty",
-	"taskLine": "HDX7eq_taskLine",
-	"taskLinks": "HDX7eq_taskLinks",
-	"taskList": "HDX7eq_taskList",
-	"taskMember": "HDX7eq_taskMember",
-	"taskMemberName": "HDX7eq_taskMemberName",
-	"taskMembers": "HDX7eq_taskMembers",
-	"taskMeta": "HDX7eq_taskMeta",
-	"taskOwnerGroup": "HDX7eq_taskOwnerGroup",
-	"taskOwnerName": "HDX7eq_taskOwnerName",
-	"taskRow": "HDX7eq_taskRow",
-	"taskSection": "HDX7eq_taskSection",
-	"taskSectionTitle": "HDX7eq_taskSectionTitle",
-	"taskStatus": "HDX7eq_taskStatus",
-	"taskSub": "HDX7eq_taskSub",
-	"taskTitle": "HDX7eq_taskTitle",
-	"text": "HDX7eq_text",
-	"time": "HDX7eq_time",
-	"working": "HDX7eq_working",
-	"workspace": "HDX7eq_workspace"
+	"activeBusy": "_8thCeG_activeBusy",
+	"activeCount": "_8thCeG_activeCount",
+	"addMemberButton": "_8thCeG_addMemberButton",
+	"attachmentAudio": "_8thCeG_attachmentAudio",
+	"attachmentFile": "_8thCeG_attachmentFile",
+	"attachmentImage": "_8thCeG_attachmentImage",
+	"attachments": "_8thCeG_attachments",
+	"attachmentSize": "_8thCeG_attachmentSize",
+	"attachmentThumb": "_8thCeG_attachmentThumb",
+	"author": "_8thCeG_author",
+	"avatar": "_8thCeG_avatar",
+	"avatarAnchor": "_8thCeG_avatarAnchor",
+	"avatarButton": "_8thCeG_avatarButton",
+	"avatarImage": "_8thCeG_avatarImage",
+	"avatarMenu": "_8thCeG_avatarMenu",
+	"avatarMenuItem": "_8thCeG_avatarMenuItem",
+	"avatarMenuTitle": "_8thCeG_avatarMenuTitle",
+	"avatarOption": "_8thCeG_avatarOption",
+	"avatarPicker": "_8thCeG_avatarPicker",
+	"avatarSmall": "_8thCeG_avatarSmall",
+	"capabilityHelp": "_8thCeG_capabilityHelp",
+	"capabilityItem": "_8thCeG_capabilityItem",
+	"capabilityMenu": "_8thCeG_capabilityMenu",
+	"card": "_8thCeG_card",
+	"cardButtons": "_8thCeG_cardButtons",
+	"cardHead": "_8thCeG_cardHead",
+	"cardTitle": "_8thCeG_cardTitle",
+	"cardViewButton": "_8thCeG_cardViewButton",
+	"cardViews": "_8thCeG_cardViews",
+	"chat": "_8thCeG_chat",
+	"chatHead": "_8thCeG_chatHead",
+	"choice": "_8thCeG_choice",
+	"choiceRow": "_8thCeG_choiceRow",
+	"composer": "_8thCeG_composer",
+	"composerRow": "_8thCeG_composerRow",
+	"dialog": "_8thCeG_dialog",
+	"dialogActions": "_8thCeG_dialogActions",
+	"dialogBackdrop": "_8thCeG_dialogBackdrop",
+	"dialogTitle": "_8thCeG_dialogTitle",
+	"drawerBackdrop": "_8thCeG_drawerBackdrop",
+	"drawerOpen": "_8thCeG_drawerOpen",
+	"editBar": "_8thCeG_editBar",
+	"editBox": "_8thCeG_editBox",
+	"edited": "_8thCeG_edited",
+	"editInput": "_8thCeG_editInput",
+	"empty": "_8thCeG_empty",
+	"field": "_8thCeG_field",
+	"fieldInput": "_8thCeG_fieldInput",
+	"fieldLabel": "_8thCeG_fieldLabel",
+	"focused": "_8thCeG_focused",
+	"groupHead": "_8thCeG_groupHead",
+	"groupTitle": "_8thCeG_groupTitle",
+	"guide": "_8thCeG_guide",
+	"hash": "_8thCeG_hash",
+	"iconButton": "_8thCeG_iconButton",
+	"input": "_8thCeG_input",
+	"leadControl": "_8thCeG_leadControl",
+	"leadMenu": "_8thCeG_leadMenu",
+	"leadOption": "_8thCeG_leadOption",
+	"linkButton": "_8thCeG_linkButton",
+	"log": "_8thCeG_log",
+	"member": "_8thCeG_member",
+	"memberActions": "_8thCeG_memberActions",
+	"memberAvatar": "_8thCeG_memberAvatar",
+	"memberFailed": "_8thCeG_memberFailed",
+	"memberModel": "_8thCeG_memberModel",
+	"memberName": "_8thCeG_memberName",
+	"memberRow": "_8thCeG_memberRow",
+	"members": "_8thCeG_members",
+	"membersHidden": "_8thCeG_membersHidden",
+	"memberStatus": "_8thCeG_memberStatus",
+	"memberText": "_8thCeG_memberText",
+	"mentionActive": "_8thCeG_mentionActive",
+	"mentionButton": "_8thCeG_mentionButton",
+	"mentionHint": "_8thCeG_mentionHint",
+	"mentionItem": "_8thCeG_mentionItem",
+	"mentionMeta": "_8thCeG_mentionMeta",
+	"mentionName": "_8thCeG_mentionName",
+	"mentionPopup": "_8thCeG_mentionPopup",
+	"mentionTitle": "_8thCeG_mentionTitle",
+	"message": "_8thCeG_message",
+	"messageBody": "_8thCeG_messageBody",
+	"messageHead": "_8thCeG_messageHead",
+	"mobileButton": "_8thCeG_mobileButton",
+	"notice": "_8thCeG_notice",
+	"offline": "_8thCeG_offline",
+	"ownActions": "_8thCeG_ownActions",
+	"page": "_8thCeG_page",
+	"panelToggle": "_8thCeG_panelToggle",
+	"panelToggleEnd": "_8thCeG_panelToggleEnd",
+	"permActions": "_8thCeG_permActions",
+	"permScope": "_8thCeG_permScope",
+	"permStatus": "_8thCeG_permStatus",
+	"presence": "_8thCeG_presence",
+	"primaryButton": "_8thCeG_primaryButton",
+	"quote": "_8thCeG_quote",
+	"quoteAuthor": "_8thCeG_quoteAuthor",
+	"quoteDeleted": "_8thCeG_quoteDeleted",
+	"replyBar": "_8thCeG_replyBar",
+	"replyBarText": "_8thCeG_replyBarText",
+	"replyButton": "_8thCeG_replyButton",
+	"replyCancel": "_8thCeG_replyCancel",
+	"room": "_8thCeG_room",
+	"roomActive": "_8thCeG_roomActive",
+	"roomInput": "_8thCeG_roomInput",
+	"roomLabel": "_8thCeG_roomLabel",
+	"rooms": "_8thCeG_rooms",
+	"roomsHidden": "_8thCeG_roomsHidden",
+	"secondaryButton": "_8thCeG_secondaryButton",
+	"sendButton": "_8thCeG_sendButton",
+	"sendError": "_8thCeG_sendError",
+	"system": "_8thCeG_system",
+	"tag": "_8thCeG_tag",
+	"taskBoardBody": "_8thCeG_taskBoardBody",
+	"taskBoardDialog": "_8thCeG_taskBoardDialog",
+	"taskBoardScope": "_8thCeG_taskBoardScope",
+	"taskBoardSummary": "_8thCeG_taskBoardSummary",
+	"taskBoardTrigger": "_8thCeG_taskBoardTrigger",
+	"taskCard": "_8thCeG_taskCard",
+	"taskDone": "_8thCeG_taskDone",
+	"taskEmpty": "_8thCeG_taskEmpty",
+	"taskLine": "_8thCeG_taskLine",
+	"taskLinks": "_8thCeG_taskLinks",
+	"taskList": "_8thCeG_taskList",
+	"taskMember": "_8thCeG_taskMember",
+	"taskMemberName": "_8thCeG_taskMemberName",
+	"taskMembers": "_8thCeG_taskMembers",
+	"taskMeta": "_8thCeG_taskMeta",
+	"taskOwnerGroup": "_8thCeG_taskOwnerGroup",
+	"taskOwnerName": "_8thCeG_taskOwnerName",
+	"taskRow": "_8thCeG_taskRow",
+	"taskSection": "_8thCeG_taskSection",
+	"taskSectionTitle": "_8thCeG_taskSectionTitle",
+	"taskStatus": "_8thCeG_taskStatus",
+	"taskSub": "_8thCeG_taskSub",
+	"taskTitle": "_8thCeG_taskTitle",
+	"text": "_8thCeG_text",
+	"time": "_8thCeG_time",
+	"working": "_8thCeG_working",
+	"workspace": "_8thCeG_workspace"
 };
 // src/client/Attachments.tsx
 const isImage = (mime) => /^image\/(png|jpeg|gif|webp)$/.test(mime);
@@ -16691,6 +16828,12 @@ function boardSections(tasks, rooms, chatId, roomId) {
 	return sections;
 }
 // src/client/TaskBoard.tsx
+/**
+* Team mode B (#139): the task board beside the channel (who, what, status,
+* when it is next checked) and the task card shown for task records in the
+* message stream (one row per member: the task owner and its sub-tasks, each
+* with its elapsed time). Data comes from the snapshot's `tasks`.
+*/
 function clock(seconds) {
 	return (/* @__PURE__ */ new Date(seconds * 1e3)).toLocaleTimeString([], {
 		hour: "2-digit",
@@ -16709,8 +16852,32 @@ function Status({ status, t }) {
 * @param onOpen - jump to a message in a room (dispatch or delivery).
 */
 function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }) {
+	const [opened, setOpened] = (0, react.useState)(false);
+	const dialog = (0, react.useRef)(null);
+	const titleId = (0, react.useId)();
 	const now = Date.now() / 1e3;
 	const sections = boardSections(tasks, rooms, chatId, roomId);
+	const roomName = rooms.find((room) => room.id === roomId)?.name ?? rooms.find((room) => room.id === chatId)?.name ?? "";
+	const channelTotal = sections.filter((section) => section.chat).reduce((n, section) => n + section.open + section.done, 0);
+	const workspaceTotal = sections.filter((section) => !section.chat).reduce((n, section) => n + section.open + section.done, 0);
+	const close = () => {
+		setOpened(false);
+	};
+	(0, react.useEffect)(() => {
+		setOpened(false);
+	}, [roomId]);
+	(0, react.useEffect)(() => {
+		if (!opened) return;
+		const previous = document.activeElement;
+		dialog.current?.focus();
+		return () => {
+			previous?.focus();
+		};
+	}, [opened]);
+	const jump = (targetRoomId, messageId) => {
+		close();
+		onOpen(targetRoomId, messageId);
+	};
 	const openTotal = sections.reduce((n, s) => n + s.open, 0);
 	const all = sections.reduce((n, s) => n + s.open + s.done, 0);
 	const row = (task) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
@@ -16742,65 +16909,140 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }) {
 					type: "button",
 					className: ChannelsPage_module_default.linkButton,
 					onClick: () => {
-						onOpen(task.room_id, task.assign_msg_id);
+						jump(task.room_id, task.assign_msg_id);
 					},
 					children: t("taskOpenAssign")
 				}), task.result_msg_id !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 					type: "button",
 					className: ChannelsPage_module_default.linkButton,
 					onClick: () => {
-						onOpen(task.room_id, task.result_msg_id);
+						jump(task.room_id, task.result_msg_id);
 					},
 					children: t("taskOpenResult")
 				})]
 			})
 		]
 	}, task.id);
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
-		className: ChannelsPage_module_default.taskBoard,
-		"aria-label": t("taskBoard"),
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+		type: "button",
+		className: ChannelsPage_module_default.taskBoardTrigger,
+		"aria-label": t("taskBoardOpen"),
+		"aria-haspopup": "dialog",
+		"aria-expanded": opened,
+		onClick: () => {
+			setOpened(true);
+		},
 		children: [
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
-				className: ChannelsPage_module_default.groupTitle,
-				children: t("taskBoardTitle", { count: String(openTotal) })
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("taskBoard") }),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: ChannelsPage_module_default.taskBoardSummary,
+				children: all === 0 ? t("taskBoardNoTasks") : t("taskBoardSummary", {
+					open: String(openTotal),
+					done: String(all - openTotal)
+				})
 			}),
-			all === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-				className: ChannelsPage_module_default.taskEmpty,
-				children: t("taskBoardEmpty")
-			}),
-			sections.map((section) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: ChannelsPage_module_default.taskSection,
-				"data-room-id": section.roomId,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
-					className: ChannelsPage_module_default.taskSectionTitle,
-					children: sectionTitle(section, t)
-				}), section.owners.map((group) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					className: ChannelsPage_module_default.taskOwnerGroup,
-					"data-owner": group.owner,
-					children: [
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-							className: ChannelsPage_module_default.taskOwnerName,
-							children: t("taskBoardOwner", { name: group.ownerName })
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
-							className: ChannelsPage_module_default.taskList,
-							children: group.open.map(row)
-						}),
-						group.done.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", {
-							className: ChannelsPage_module_default.taskDone,
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("summary", {
-								className: ChannelsPage_module_default.groupTitle,
-								children: t("taskDoneGroup", { count: String(group.done.length) })
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
-								className: ChannelsPage_module_default.taskList,
-								children: group.done.map(row)
-							})]
-						})
-					]
-				}, group.owner))]
-			}, section.roomId))
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				"aria-hidden": "true",
+				children: "›"
+			})
 		]
-	});
+	}), opened && (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+		className: ChannelsPage_module_default.dialogBackdrop,
+		onMouseDown: (event) => {
+			if (event.target === event.currentTarget) close();
+		},
+		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+			ref: dialog,
+			className: `${ChannelsPage_module_default.dialog} ${ChannelsPage_module_default.taskBoardDialog}`,
+			role: "dialog",
+			"aria-modal": "true",
+			"aria-labelledby": titleId,
+			tabIndex: -1,
+			onKeyDown: (event) => {
+				if (event.key === "Escape") {
+					event.stopPropagation();
+					close();
+				}
+				if (event.key === "Tab") {
+					const focusable = Array.from(event.currentTarget.querySelectorAll("button, summary")).filter((element) => !element.closest("details:not([open])") || element.tagName === "SUMMARY");
+					const first = focusable[0];
+					const last = focusable[focusable.length - 1];
+					if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) {
+						event.preventDefault();
+						last?.focus();
+					} else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) {
+						event.preventDefault();
+						first?.focus();
+					}
+				}
+			},
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("h2", {
+					id: titleId,
+					className: ChannelsPage_module_default.dialogTitle,
+					children: [
+						t("taskBoard"),
+						" · ",
+						roomName
+					]
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: ChannelsPage_module_default.taskBoardScope,
+					children: t("taskBoardScope", {
+						room: rooms.find((room) => room.id === chatId)?.name ?? roomName,
+						channel: String(channelTotal),
+						workspaces: String(workspaceTotal)
+					})
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: ChannelsPage_module_default.taskBoardBody,
+					children: [all === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: ChannelsPage_module_default.taskEmpty,
+						children: t("taskBoardEmptyInModal")
+					}), sections.map((section) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: ChannelsPage_module_default.taskSection,
+						"data-room-id": section.roomId,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
+							className: ChannelsPage_module_default.taskSectionTitle,
+							children: sectionTitle(section, t)
+						}), section.owners.map((group) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: ChannelsPage_module_default.taskOwnerGroup,
+							"data-owner": group.owner,
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: ChannelsPage_module_default.taskOwnerName,
+									children: t("taskBoardOwner", { name: group.ownerName })
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+									className: ChannelsPage_module_default.taskList,
+									children: group.open.map(row)
+								}),
+								group.done.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", {
+									className: ChannelsPage_module_default.taskDone,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("summary", {
+										className: ChannelsPage_module_default.groupTitle,
+										children: t("taskDoneGroup", { count: String(group.done.length) })
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+										className: ChannelsPage_module_default.taskList,
+										children: group.done.map(row)
+									})]
+								})
+							]
+						}, group.owner))]
+					}, section.roomId))]
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: ChannelsPage_module_default.dialogActions,
+					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ChannelsPage_module_default.secondaryButton,
+						onClick: close,
+						children: t("close")
+					})
+				})
+			]
+		})
+	}), document.body)] });
 }
 /**
 * Card for a task record in the message stream: the task and one row per
@@ -16949,7 +17191,7 @@ function rankMembers(members, query) {
 	return members.map((m) => ({
 		m,
 		s: score(m)
-	})).filter((x) => x.s !== void 0).sort((a, b) => Number(a.m.kind === "human") - Number(b.m.kind === "human") || a.s - b.s || Number(!a.m.online) - Number(!b.m.online) || a.m.name.localeCompare(b.m.name)).map((x) => x.m);
+	})).filter((x) => x.s !== void 0).sort((a, b) => Number(a.m.kind === "human") - Number(b.m.kind === "human") || a.s - b.s || Number(!a.m.online) - Number(!b.m.online) || a.m.name.localeCompare(b.m.name, "en")).map((x) => x.m);
 }
 /**
 * Replace the active `@query` with `@name ` and put the caret after it.
@@ -17908,6 +18150,8 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 		});
 	}
 	const room = state.rooms.find((r) => r.id === state.roomId);
+	const channelId = room?.parent_id ?? room?.id;
+	const visibleMembers = state.members.filter((m) => !m.rooms?.length || channelId !== void 0 && m.rooms.includes(channelId));
 	const openTaskOwners = new Set((state.tasks ?? []).filter((t) => [
 		"assigned",
 		"accepted",
@@ -17915,10 +18159,10 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 		"rework"
 	].includes(t.status)).map((t) => t.owner));
 	const busy = /* @__PURE__ */ new Set([...state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? [], ...openTaskOwners]);
-	const byId = new Map(state.members.map((m) => [m.id, m]));
+	const byId = new Map(visibleMembers.map((m) => [m.id, m]));
 	const typingNames = (state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? []).map((id) => byId.get(id)?.name ?? id);
 	const mention = activeMention(draft, caret);
-	const candidates = mention === void 0 || mention.start === dismissedAt ? [] : rankMembers(state.members, mention.query);
+	const candidates = mention === void 0 || mention.start === dismissedAt ? [] : rankMembers(visibleMembers, mention.query);
 	const popupOpen = mention !== void 0 && candidates.length > 0;
 	openMentionAt.current = popupOpen ? mention.start : void 0;
 	const selected = Math.min(highlight, Math.max(candidates.length - 1, 0));
@@ -18305,7 +18549,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 							const el = event.currentTarget;
 							stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
 						},
-						children: [!state.members.some((m) => m.kind !== "human") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						children: [!visibleMembers.some((m) => m.kind !== "human") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 							className: ChannelsPage_module_default.guide,
 							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", { children: t("guideNoMembers") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
@@ -18538,17 +18782,17 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 								"aria-haspopup": "listbox",
 								"aria-expanded": leadOpen,
 								"aria-label": t("lead"),
-								disabled: leadSaving || state.members.every((m) => m.kind === "human"),
+								disabled: leadSaving || visibleMembers.every((m) => m.kind === "human"),
 								onClick: () => {
 									setLeadOpen(!leadOpen);
 								},
-								children: state.members.find((m) => m.id === (state.effectiveLeadId ?? state.leadId))?.name ?? t("leadNone")
+								children: visibleMembers.find((m) => m.id === (state.effectiveLeadId ?? state.leadId))?.name ?? t("leadNone")
 							}),
 							leadOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 								className: ChannelsPage_module_default.leadMenu,
 								role: "listbox",
 								"aria-label": t("lead"),
-								children: state.members.filter((m) => m.kind !== "human").map((m) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								children: visibleMembers.filter((m) => m.kind !== "human").map((m) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 									type: "button",
 									role: "option",
 									"aria-selected": m.id === state.leadId,
@@ -18608,8 +18852,8 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 						children: memberError
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(MemberGroup, {
-						title: t("agents", { count: String(state.members.filter((m) => m.kind !== "human").length) }),
-						members: state.members.filter((m) => m.kind !== "human"),
+						title: t("agents", { count: String(visibleMembers.filter((m) => m.kind !== "human").length) }),
+						members: visibleMembers.filter((m) => m.kind !== "human"),
 						busy,
 						onPick: pickFromList,
 						onEdit: setDialog,
@@ -18617,8 +18861,8 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 						t
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(MemberGroup, {
-						title: t("humans", { count: String(state.members.filter((m) => m.kind === "human").length) }),
-						members: state.members.filter((m) => m.kind === "human"),
+						title: t("humans", { count: String(visibleMembers.filter((m) => m.kind === "human").length) }),
+						members: visibleMembers.filter((m) => m.kind === "human"),
 						busy,
 						onPick: pickFromList,
 						onEdit: setDialog,
@@ -18682,13 +18926,18 @@ const zh = {
 	capabilityWorkspace: "工作区",
 	capabilityLead: "换主角色",
 	capabilityDm: "私信",
-	capabilityTaskBoardHelp: "在右侧任务板查看负责人、状态和下次查看时间，点「派工消息」或「交回消息」回到对应记录。",
+	capabilityTaskBoardHelp: "点击右侧「任务板」统计行，在弹窗里查看负责人、状态和下次查看时间，点「派工消息」或「交回消息」回到对应记录。",
 	capabilityLaterHelp: "三类成员都可登记一次性回查：告诉角色何时回来、回来做什么。登记后频道显示下次回查时间，服务重启后仍会在原房间叫醒原成员。",
 	capabilityReminderHelp: "通过任务分发派出的任务，到点会自动催办一次；负责人交回结果或说明卡在哪里。",
 	capabilityWorkspaceHelp: "在聊天频道把任务交给角色，需要时由角色创建工作区。工作区的问题和阶段结果会送回聊天频道。",
 	capabilityLeadHelp: "在成员栏的「主角色」里选择角色。切换后，没有点名的消息由新的主角色接收。",
 	capabilityDmHelp: "在支持私信的平台打开与角色的私聊。角色也可向配置中的用户发送私信；DSH 频道页目前没有私信入口。",
 	taskBoard: "任务板",
+	taskBoardSummary: "进行中 {open} · 已完成 {done}",
+	taskBoardOpen: "打开任务板",
+	taskBoardNoTasks: "暂无任务",
+	taskBoardEmptyInModal: "还没有派出的任务",
+	taskBoardScope: "{room} {channel} · 工作区合计 {workspaces}",
 	taskBoardTitle: "任务板 — 进行中 {count}",
 	taskBoardEmpty: "还没有派出的任务",
 	taskDoneGroup: "已完成 — {count}",
@@ -18830,6 +19079,11 @@ const en = {
 	copiedCode: "Copied",
 	footnotes: "Footnotes",
 	taskBoard: "Task board",
+	taskBoardSummary: "In progress {open} · Done {done}",
+	taskBoardOpen: "Open task board",
+	taskBoardNoTasks: "No tasks",
+	taskBoardEmptyInModal: "No tasks dispatched yet",
+	taskBoardScope: "{room} {channel} · Workspaces total {workspaces}",
 	taskBoardTitle: "Tasks — {count} in progress",
 	taskBoardEmpty: "No tasks dispatched yet",
 	taskDoneGroup: "Done — {count}",
@@ -18864,7 +19118,7 @@ const en = {
 	capabilityWorkspace: "Workspaces",
 	capabilityLead: "Primary role",
 	capabilityDm: "Direct messages",
-	capabilityTaskBoardHelp: "View owners, status and next-check times in the task board on the right. Open Dispatch or Delivery to jump to its message.",
+	capabilityTaskBoardHelp: "Click the Task board summary on the right to view owners, status and next-check times in a dialog. Open Dispatch or Delivery to jump to its message.",
 	capabilityLaterHelp: "All three member types can schedule one-shot follow-ups. Tell the role when to return and what to do. Registration appears in the channel, and wakes the original member in the original room after restart.",
 	capabilityReminderHelp: "Dispatched tasks receive one reminder when due. The owner returns a result or explains the blocker.",
 	capabilityWorkspaceHelp: "Assign work to a role in the chat channel. Roles create workspaces when needed; questions and progress return to the chat channel.",
