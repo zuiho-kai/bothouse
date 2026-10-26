@@ -503,7 +503,13 @@ export class DshMembers {
     const key = `${job.member_id}\u0000${job.room_id}`;
     const tail = (this.queues.get(key) ?? Promise.resolve()).then(() => (this.closed ? undefined : task())).catch((error) => {
       this.rt.logger.warn('collab: DSH job %d failed: %s', job.id, error?.stack ?? error);
-      if (!this.closed) this.fail(job.id, error?.code === 'COLLAB_CLI_START' ? error : `出错了：${error?.message ?? error}`);
+      if (this.closed) return;
+      if (job.id === undefined) {
+        this.hub.post(job.room_id, {
+          authorKind: 'system', author: 'system', name: 'system',
+          text: `${this.config.get(job.member_id).name} 的新会话创建失败：${error?.message ?? error}`,
+        });
+      } else this.fail(job.id, error?.code === 'COLLAB_CLI_START' ? error : `出错了：${error?.message ?? error}`);
     });
     this.queues.set(key, tail);
     return tail;
@@ -835,9 +841,9 @@ export class DshMembers {
 
   /**
    * Create a new Session for (member, room) and bind it, replacing any old
-   * binding. The Session carries origin "subagent" so DSH keeps it out of the
-   * conversation list: the plugin holds it, the user cannot archive it, and
-   * /new in the channel is the way to start over.
+   * binding. With no origin override it appears in its DSH workspace, including
+   * live activity. Archive only the Session being replaced; existing archive
+   * entries stay untouched.
    */
   async createAgent(member, room) {
     const { ctx } = this.rt;
@@ -855,7 +861,7 @@ export class DshMembers {
       }
       handle = await ctx.agents.create({
         sessionId,
-        meta: { cwd: workspace.path, agentPreset: preset.id, origin: 'subagent' },
+        meta: { cwd: workspace.path, agentPreset: preset.id },
         agentOptions: this.selection(member),
         setup: async (agentCtx) => {
           await ctx.agentPresets.mount(agentCtx, preset.id);
@@ -870,14 +876,22 @@ export class DshMembers {
     this.hooked.add(handle.agent);
     if (member.permissionPreset !== undefined) ctx.permissionPresets.set(handle.agent.session, member.permissionPreset);
     ctx.sessionTitle.rename(handle.agent.session, this.sessionTitle(this.store.room(room.id), member));
-    if (this.store.binding(member.id, room.id) === undefined) this.store.bind(member.id, room.id, sessionId);
-    else this.store.rebind(member.id, room.id, sessionId);
+    const previous = this.store.binding(member.id, room.id);
+    if (previous === undefined) this.store.bind(member.id, room.id, sessionId);
+    else {
+      const oldId = previous.session_id;
+      if (!ctx.workspaceRegistry.archivedSessionIds.includes(oldId)
+        && (ctx.agents.get(oldId) !== undefined || await ctx.sessionPersistence.stat(oldId) !== undefined)) {
+        await ctx.workspaceRegistry.archiveSession(oldId, { stopActivity: true });
+      }
+      this.store.rebind(member.id, room.id, sessionId);
+    }
     return handle.agent;
   }
 
   /**
    * /new in the channel: each addressed member starts over in this room. A
-   * DSH member gets a new Session (the old one is dropped from the binding),
+   * DSH member gets a new Session (the replaced one is archived),
    * a CLI member drops its ACP session for the room; both read on from the
    * /new message, not from earlier history.
    */
