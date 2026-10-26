@@ -389,6 +389,17 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	return changed
 }
 
+// teamEntryIsDM: the session is a direct message. A DM channel has no name, so the platform's
+// ChatName is empty or falls back to the channel id (Discord ResolveChannelName).
+func teamEntryIsDM(s *teamEntry) bool {
+	name := strings.TrimSpace(s.Chat)
+	if name == "" {
+		return true
+	}
+	_, id, _ := strings.Cut(chatOf(s.Key), ":")
+	return id != "" && name == id
+}
+
 // teamBoardKind: what board a channel gets.
 type teamBoardKind int
 
@@ -545,7 +556,12 @@ func teamBoardMembers(files []teamFile, chat string, members []teamTaskMember) (
 			case 3:
 				// Busy in another channel: which one (a link), on what (user, 2026-10-26: 「谁在干啥卡
 				// 关联其他频道角色情况」). Not 🔧: that icon means busy here (TeamBoardActive).
-				line = fmt.Sprintf("↗️ 在%s忙：%s（%s 起）%s", teamChatRef(best.Key, best.Chat), task, best.Since.Local().Format("15:04"), teamElsewhereNote)
+				// A DM: no task text (private) and no channel link (it would show as an unknown channel).
+				if teamEntryIsDM(best) {
+					line = fmt.Sprintf("↗️ 在私聊忙（%s 起）%s", best.Since.Local().Format("15:04"), teamElsewhereNote)
+				} else {
+					line = fmt.Sprintf("↗️ 在%s忙：%s（%s 起）%s", teamChatRef(best.Key, best.Chat), task, best.Since.Local().Format("15:04"), teamElsewhereNote)
+				}
 			case 2:
 				switch best.Outcome {
 				case teamWorkFailed:

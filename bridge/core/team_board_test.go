@@ -73,6 +73,24 @@ func TestRenderTeamBoard(t *testing.T) {
 	}
 }
 
+// A DM session (ChatName empty, or the bare channel id a DM falls back to) shows 「在私聊忙」:
+// no task text (private) and no <#id> link, which Discord would render as an unknown channel.
+func TestTeamBoardBusyInDMHidesTask(t *testing.T) {
+	now := time.Now()
+	for _, chat := range []string{"", "333"} {
+		files := []teamFile{{Project: "e", Name: "小橙", Updated: now, Sessions: []teamEntry{
+			{Key: "discord:333:u", Chat: chat, Task: "私聊里的秘密", Busy: true, Worked: true, Since: now},
+		}}}
+		got, _ := teamBoardMembers(files, "discord:111", nil)
+		if !strings.Contains(got, "**小橙**　↗️ 在私聊忙（") || !strings.Contains(got, teamElsewhereNote) {
+			t.Errorf("chat %q: want 在私聊忙 line:\n%s", chat, got)
+		}
+		if strings.Contains(got, "私聊里的秘密") || strings.Contains(got, "<#333>") {
+			t.Errorf("chat %q: DM leaks task or channel link:\n%s", chat, got)
+		}
+	}
+}
+
 // Busy in another channel is listed but is not busy here: the line says it does not block work
 // here, and neither the member lines nor the card state count it as live.
 func TestTeamBoardBusyElsewhereNotBusyHere(t *testing.T) {
@@ -88,7 +106,7 @@ func TestTeamBoardBusyElsewhereNotBusyHere(t *testing.T) {
 	got, live := teamBoardMembers(files, "discord:111", nil)
 	for _, want := range []string{
 		"**大豆包**　↗️ 在<#222>忙：外出巡逻（",
-		"**小橙**　↗️ 在<#333>忙：私聊里的活（",
+		"**小橙**　↗️ 在私聊忙（", // a DM: no task text, no channel link
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("board missing %q:\n%s", want, got)
