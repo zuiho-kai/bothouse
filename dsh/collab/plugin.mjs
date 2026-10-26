@@ -101,7 +101,7 @@ export async function apply(ctx, rawConfig) {
 
   const store = new Store(join(config.dataDir, 'collab.sqlite3'));
   for (const room of config.rooms) {
-    store.ensureRoom(room.id, room.name.trim(), room.workspacePath);
+    store.ensureRoom(room.id, store.room(room.id)?.name ?? room.name.trim(), room.workspacePath);
     store.ensureRoomSettings(room.id);
   }
   store.migrateMemberRooms();
@@ -244,6 +244,8 @@ export async function apply(ctx, rawConfig) {
         : store.page(roomId, before === null ? undefined : Number(before), url.searchParams.get('limit'));
       return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
     }
+    const renamed = renameRoomRoute(req, res, path, { store, hub, dsh });
+    if (renamed !== undefined) return renamed;
     const mode = /^\/collab\/api\/rooms\/(\d+)\/mode$/.exec(path);
     if (mode !== null && req.method === 'GET') {
       const roomId = Number(mode[1]);
@@ -367,6 +369,20 @@ export async function apply(ctx, rawConfig) {
     streams.add(end);
     req.on('close', end);
   }
+}
+
+/** Owner authentication is checked by browserRoute before this handler, like ownMessageRoute. */
+export function renameRoomRoute(req, res, path, { store, hub, dsh }) {
+  const match = /^\/collab\/api\/rooms\/(\d+)$/.exec(path);
+  if (match === null || req.method !== 'PATCH') return undefined;
+  const roomId = Number(match[1]);
+  if (store.room(roomId) === undefined) return json(res, 404, { error: 'room not found' });
+  return withBody(req, res, async body => {
+    const room = store.renameRoom(roomId, body?.name);
+    hub.emit({ type: 'rooms', rooms: store.roomsView() });
+    await dsh.refreshRoomTitles(roomId);
+    return { room };
+  });
 }
 
 /**

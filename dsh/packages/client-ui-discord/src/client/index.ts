@@ -50,6 +50,7 @@ export function apply(ctx: ClientContext): void {
     dismissSend: channels.actions.dismissSend,
     loadOlder: channels.actions.loadOlder,
     createRoom: channels.actions.createRoom,
+    renameRoom: channels.actions.renameRoom,
     listModels: channels.actions.listModels,
     listClis: channels.actions.listClis,
     addMember: channels.actions.addMember,
