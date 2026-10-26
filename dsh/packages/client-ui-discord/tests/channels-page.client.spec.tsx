@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
-import type { ChannelSnapshot } from '../src/client/channel-source.ts'
+import { createChannelSource, type ChannelSnapshot, type ChannelTransport } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from '../src/client/ChannelsPage.module.css'
@@ -508,7 +508,48 @@ describe('channels page', () => {
     expect(p.createRoom).not.toHaveBeenCalled()
   })
 
-  it('adds a globally visible member without a room scope and keeps the form on a refusal', async () => {
+  it.each([2, 1000000])('binds a member submitted from room %i to its chat channel', async (roomId) => {
+    const posted: unknown[] = []
+    const transport: ChannelTransport = {
+      url: path => `/${path}`,
+      openEvents: () => ({ onopen: null, onmessage: null, onerror: null, close() {} }),
+      fetch: async (url, init) => {
+        let body: unknown = { messages: [] }
+        if (url === '/collab/api/state') body = {
+          ...ready,
+          rooms: [...ready.rooms, { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 2 }],
+        }
+        if (url === '/collab/api/models') body = { routes: [{ provider: 'relay', name: 'Relay', models: [{ id: 'm1', name: 'M1' }] }] }
+        // The member dialog reads the persona library on open; an array keeps it rendering.
+        if (url === '/collab/api/personas') body = []
+        if (url === '/collab/api/members') {
+          expect(init?.method).toBe('POST')
+          posted.push(JSON.parse(String(init?.body)))
+          body = {}
+        }
+        return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+      },
+    }
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    try {
+      await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+      await actions.selectRoom(roomId)
+      render(<ChannelsPage {...props(source.getSnapshot())} {...actions} />)
+      fireEvent.click(screen.getByRole('button', { name: '+ ' + zh.addMember }))
+      const dialog = await screen.findByRole('dialog')
+      await act(async () => {})
+      fireEvent.change(screen.getByLabelText(zh.memberName), { target: { value: 'Coder' } })
+      fireEvent.change(screen.getByLabelText(zh.memberModel), { target: { value: 'relay\u0000m1' } })
+      await act(async () => { fireEvent.submit(dialog) })
+      expect(posted).toEqual([expect.objectContaining({ name: 'Coder', rooms: [2] })])
+      expect(screen.queryByRole('dialog')).toBeNull()
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('submits member details and keeps the form on a refusal', async () => {
     const p = props({ ...ready, thinking: {} })
     ;(p.listModels as ReturnType<typeof vi.fn>).mockResolvedValue([
       { provider: 'relay', name: '中转站', models: [{ id: 'deepseek-v4.1-flash', name: 'deepseek-v4.1-flash' }] },
