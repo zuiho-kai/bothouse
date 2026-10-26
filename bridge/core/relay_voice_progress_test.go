@@ -10,6 +10,7 @@ func voiceProgressFixture(t *testing.T, enable bool) (*RelayManager, *Engine, *v
 	a := &voiceAgentFake{sessions: make(chan *inputTestSession, 16)}
 	p := newProgressPlatform()
 	e := NewEngine("target", a, []Platform{p}, "", LangEnglish)
+	allChatsAreWorkspaces(e)
 	e.SetDataDir(t.TempDir())
 	if enable {
 		if err := e.EnablePublicProgress(); err != nil {
@@ -19,6 +20,7 @@ func voiceProgressFixture(t *testing.T, enable bool) (*RelayManager, *Engine, *v
 	rm := NewRelayManager("")
 	rm.RegisterEngine("target", e)
 	src := NewEngine("source", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	allChatsAreWorkspaces(src)
 	rm.RegisterEngine("source", src)
 	t.Cleanup(func() { _ = e.Stop(); _ = src.Stop() })
 	rm.Bind("discord", "voice", map[string]string{"source": "source", "target": "target"})
