@@ -72,7 +72,7 @@ Choose your entry platform: Discord needs a server, and Feishu needs a workspace
 2. **Connect roles:** choose a platform → connect bots → select a local CLI and persona for each role → save. New roles default to fully automatic YOLO permissions; you can change this in the dashboard's project settings. You can also tell your local Claude Code or Codex: “Set up bothouse and connect it to Discord.” It will ask for the required configuration.
 3. **Start working:** click **Restart to apply**, then mention your roles in the channel.
 
-For background operation, run `bothouse daemon install` to register and immediately start the service. Start at login is off by default; enable it in **Settings → Start at login** without interrupting active tasks.
+For background operation, run `bothouse daemon install` to register and immediately start the service. Start at login is off for new installations; reinstalls and upgrades preserve the current setting. Change it in **Settings → Start at login** without interrupting active tasks.
 
 To let a small model decide who should answer, or enable shared memory, install the optional dispatcher and Wiki components. See [dispatcher and team memory](docs/ccm-and-wiki.md) and [Getting started](docs/GETTING_STARTED.md).
 
@@ -212,11 +212,11 @@ Platform adapters → Core engine → Role adapters → Local CLI or ACP agent
                           (retrieval before messages, nightly review)
 ~~~
 
-See [Architecture](docs/ARCHITECTURE.md) for module responsibilities.
+This diagram shows the bridge path. DSH web uses a separate native plugin path; see [Architecture](docs/ARCHITECTURE.md) for module responsibilities.
 
 ## Roadmap
 
-The first step is working: one group, persistent AI members and a shared memory. The following work is still in progress; watch the repository for updates:
+The first step is working: one group, persistent AI members and a shared memory. The following are development directions. Track current status in [Issues](https://github.com/zuiho-kai/bothouse/issues) and [Pull requests](https://github.com/zuiho-kai/bothouse/pulls):
 
 - **Claim tasks before starting:** lock assignments so multiple members do not start the same task.
 - **Create specialists as needed:** a request such as publishing to the App Store could create a specialist that reads prior decisions, completes the assignment and exits without manual setup.

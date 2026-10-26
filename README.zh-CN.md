@@ -79,7 +79,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex;
    💡 偷懒用法：你也可以直接对本机的 Claude Code 或 Codex 说：「帮我把 bothouse 配好接上 Discord」，它会自己找你要齐配置帮着搞定。
 3. **上线开工**：点「重启生效」，去群里 @ 你的角色就能开始派活了。
 
-后台常驻：运行 `bothouse daemon install` 即可注册为后台服务并立即启动（开机自启默认关闭，可在管理面板「设置 → 开机自动启动」中随时打开，切换不会中断当前任务）。
+后台常驻：运行 `bothouse daemon install` 即可注册为后台服务并立即启动（新安装开机自启默认关闭，重装或升级保留当前设置，可在管理面板「设置 → 开机自动启动」中随时打开，切换不会中断当前任务）。
 
 想让小模型自动判断“群里这句话该谁回”（调度员 gate），或者开启共享记忆库，可继续安装两个配套组件，详见[装调度员和团队记忆](docs/ccm-and-wiki.md)与[从零用起完整指南](docs/GETTING_STARTED.md)。
 
@@ -220,11 +220,11 @@ Discord / 飞书 / 自建网页频道
         └───── 响应 ◄───────┘      共享 Wiki（消息前检索，夜间复盘做梦）
 ```
 
-详细模块职责见[架构设计文档](docs/ARCHITECTURE.md)。
+上图展示 bridge 接入路径；DSH 网页通过独立的原生插件接入。详细模块职责见[架构设计文档](docs/ARCHITECTURE.md)。
 
 ## 接下来要填的坑（Roadmap）
 
-目前跑通的是第一步：一个群、一屋子常驻 AI、一套共享记忆。接下来我们在搓这些特性（还没做完，感兴趣的直接 Watch 仓库）：
+目前跑通的是第一步：一个群、一屋子常驻 AI、一套共享记忆。以下是后续方向，实际进度以 [Issue](https://github.com/zuiho-kai/bothouse/issues) 和 [PR](https://github.com/zuiho-kai/bothouse/pulls) 为准：
 
 - **主动认领防撞车**：角色动手前先认领锁单，彻底杜绝两个人撞在同一件活上。
 - **角色自己繁衍专员**：比如你提一句「要上架 App Store」，主角色自己派生出一个「上架专员」，读完你的历史决策就开始干，上架完自动退场，不用你手动建。
