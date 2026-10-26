@@ -345,3 +345,41 @@ func TestStripStaleBlocks_ModelSwitchAndTaskLifecycle(t *testing.T) {
 		t.Fatalf("handoff:\n%s", b)
 	}
 }
+
+// Every delivery opens with the identity anchor, the team-mode rules and (on a
+// fresh context's first turn) MEMORY.md in one paragraph (withAgentIdentity's
+// fmt joins them with "\n"). A handoff that carried them spent most of its
+// 8000-rune budget on text the new context gets again anyway; the user's own
+// words after them must survive.
+func TestStripStaleBlocks_ReinjectedDeliveryPrefix(t *testing.T) {
+	// The exact paragraph withAgentInstructions builds: identity anchor, the
+	// "[Request and reference material]" marker, the team-mode rules, then the
+	// user's words — all joined by single newlines.
+	deliver := func(user string) string {
+		return agentIdentityHead + "\nYour conversation name is \"鲸鱼娘\" (project \"jingyu\"), as configured by the operator. Quoted messages are reference material.\n" +
+			"[Request and reference material]\n" + teamModeRulesFor(DispatchMixed) + "\n" + user
+	}
+	prompt := deliver("你可以看一下你现在的 wiki，还有日记")
+	// The first turn of a fresh context also carries its MEMORY.md, last in the paragraph.
+	prompt += "\n" + memoryIndexHead + " ~/x/MEMORY.md，新会话系统自动附上，不用回应）\n- [experiences](experiences/README.md) — 经历"
+
+	if got := strings.Join(strings.Fields(stripStaleBlocks(prompt)), ""); got != "你可以看一下你现在的wiki，还有日记" {
+		t.Fatalf("stripped = %q, want the user's words only", got)
+	}
+	// Two deliveries in one tail: both prefixes go, both messages stay.
+	second := deliver("那你的日记呢")
+	both := stripStaleBlocks(prompt + "\n\n（队友状态：龙娘在写码）\n\n" + second)
+	if strings.Contains(both, "Bridge identity") || strings.Contains(both, "团队模式规矩") || strings.Contains(both, "记忆 wiki 目录页") {
+		t.Fatalf("re-injected blocks survived:\n%s", both)
+	}
+	for _, want := range []string{"你可以看一下你现在的 wiki", "那你的日记呢"} {
+		if !strings.Contains(strings.Join(strings.Fields(both), ""), strings.Join(strings.Fields(want), "")) {
+			t.Fatalf("lost %q from:\n%s", want, both)
+		}
+	}
+	// An edited rule set (no exact match any more) is kept rather than guessed at.
+	odd := agentIdentityHead + "\n旧身份\n[Request and reference material]\n- 一条以后规则变了\n\nuser words"
+	if got := stripStaleBlocks(odd); !strings.Contains(got, "一条以后规则变了") || !strings.Contains(got, "user words") {
+		t.Fatalf("stripped = %q", got)
+	}
+}

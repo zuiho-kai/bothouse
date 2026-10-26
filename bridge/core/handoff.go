@@ -321,7 +321,10 @@ func stripStaleBlocks(text string) string {
 	var out []string
 	paras := strings.Split(text, "\n\n")
 	for i := 0; i < len(paras); i++ {
-		p := strings.TrimSpace(paras[i])
+		p := stripReinjectedPrefix(paras[i])
+		if p == "" {
+			continue
+		}
 		matched := false
 		for _, sb := range staleBlocks {
 			if !strings.HasPrefix(p, sb.head) {
@@ -342,10 +345,55 @@ func stripStaleBlocks(text string) string {
 			break
 		}
 		if !matched {
-			out = append(out, paras[i])
+			out = append(out, p)
 		}
 	}
 	return strings.Join(out, "\n\n")
+}
+
+// stripReinjectedPrefix drops the per-delivery blocks that open a user turn and
+// keeps what the user wrote after them. The identity anchor and the team-mode
+// rules are re-sent on every delivery, and a fresh context's MEMORY.md on its
+// first turn, so carrying them in a handoff only spends the tail budget on text
+// the new context already has: on jingyu's sessions of 2026-10-26 each user turn
+// opened with ~2.6k runes of them, and the 8000-rune tail kept 3.6 entries on
+// average (21 of 36 sessions: 3 or fewer, so the handoff ended mid-conversation).
+//
+// They all sit in one paragraph (withAgentIdentity joins them with "\n"), which
+// is why the paragraph-level staleBlocks list cannot drop them: that would also
+// drop the user's own words when they share the paragraph.
+func stripReinjectedPrefix(text string) string {
+	t := strings.TrimSpace(text)
+	if strings.HasPrefix(t, agentIdentityHead) {
+		const marker = "[Request and reference material]\n"
+		i := strings.Index(t, marker)
+		if i < 0 {
+			return "" // nothing after the anchor: the whole paragraph is the block
+		}
+		t = t[i+len(marker):]
+	}
+	t = strings.TrimPrefix(t, teamRulesPrefix(t))
+	// A fresh context's MEMORY.md is appended last in the same paragraph and runs
+	// to its end.
+	if i := strings.Index(t, "\n"+memoryIndexHead); i >= 0 {
+		t = t[:i]
+	} else if strings.HasPrefix(t, memoryIndexHead) {
+		return ""
+	}
+	return t
+}
+
+// teamRulesPrefix returns the team-mode rules text, plus the newline that
+// separates them from what follows, when text opens with it for some mode (the
+// old session may have run under another one). "" when none matches: rules
+// edited since then are kept rather than guessed at.
+func teamRulesPrefix(text string) string {
+	for _, mode := range []string{DispatchSolo, DispatchTeam, DispatchMixed} {
+		if r := teamModeRulesFor(mode) + "\n"; strings.HasPrefix(text, r) {
+			return r
+		}
+	}
+	return ""
 }
 
 func isSummaryPara(p string) bool {
