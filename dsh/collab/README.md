@@ -3,7 +3,7 @@
 上游 DSH 项目（未公开）的 Issue #229。一个以绝对路径加载的 DSH Host 插件（纯 ESM，无需构建），在 DSH Web 进程里提供：
 
 - **频道**：消息存在 `dataDir/collab.sqlite3`，重启不丢；数字消息 ID 与 role-household hub 一致。
-- **DSH 原生成员**：每个「成员 × 频道」绑定独立 DSH Session，由插件作为内部会话管理，不出现在普通 DSH 对话列表中，标题为 `#频道 · 成员名`。被 @ 时把频道里它没看过的消息作为一条用户消息投递，取对应轮次的回复写回频道。多个成员可以选择同一个模型，各自保留会话和人设。
+- **DSH 原生成员**：每个「成员 × 频道」绑定独立 DSH Session，显示在对应工作目录的 DSH 对话列表中，运行时显示状态，标题为 `#频道 · 成员名`。被 @ 时把频道里它没看过的消息作为一条用户消息投递，取对应轮次的回复写回频道。多个成员可以选择同一个模型，各自保留会话和人设。
 - **本机 CLI 成员**：在原生频道页选择 Claude Code、Codex 或 Gemini；同一种 CLI 可以添加成多个不同成员，按成员创建运行实例、按成员和频道维护 ACP 会话。
 - **外部 Agent（cc-connect）**：实现 cloud_web WebSocket 服务端（`/cloud-web/ws`）与离线补历史接口（`GET /api/rooms/{id}/messages`），协议行为照搬 `role-household/rh/cloudweb.py`，cc-connect 无需改代码。
 - **最简消息页**：`/collab`，Discord 式三栏，SSE 实时更新。用 DSH 网页的登录 cookie 鉴权，跨源请求被 DSH 的 Host/Origin 校验拒绝。
@@ -104,7 +104,7 @@ node --import tsx/esm apps/cli/src/bin.ts --profile web --patch /absolute/path/t
 - **编辑 / 移除**：网页里建的成员悬停时出现「编辑」「移除」；配置文件里的 `dshMembers` 作为种子写入，网页里只读（标 ⚙）。移除后历史消息保留。
 - **身份与人设**：每次投递都在提示词开头写明「你是频道 #x 的成员『名字』，底层模型 provider/model」，再附人设，并提醒成员区分频道里其他人的自我介绍。配置文件里也可以给 `dshMembers` 写 `persona`。
 - **模型变更即时生效**：写了 `model` 的成员每次请求都用它；在成员表单里改模型，已绑定的会话下一次请求就切换，并在会话日志里记一条 `model/selection`。
-- **重新开始对话**：在频道里发 `@成员名 /new`，只重置被点名成员在当前频道的会话，从该命令之后继续读取消息；其他成员、频道历史和 wiki 不因此清空。
+- **重新开始对话**：在频道里发 `@成员名 /new`，只重置被点名成员在当前频道的会话，从该命令之后继续读取消息；被替换的旧 DSH 会话自动归档，已有归档记录保持归档。其他成员、频道历史和 wiki 不因此清空。
 - 接口（都需要 DSH 登录）：`GET /collab/api/models`、`POST /collab/api/rooms`、`POST /collab/api/members`、`PATCH|DELETE /collab/api/members/{id}`。
 
 ## 接入 cc-connect 成员
