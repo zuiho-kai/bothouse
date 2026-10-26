@@ -2995,7 +2995,8 @@ func (e *Engine) onPlatformReady(p Platform) {
 	slog.Info("platform ready", "project", e.name, "platform", p.Name())
 	e.initPlatformCapabilities(p)
 	// #624 K4: scan the turn journal once; each entry waits for its own platform.
-	e.turnResumeOnce.Do(func() { go e.ResumeInterruptedTurns() })
+	// Tracked as message work so Stop waits for it (it opens the journal under dataDir).
+	e.turnResumeOnce.Do(func() { e.startMessageWorker(e.ResumeInterruptedTurns) })
 }
 
 func (e *Engine) markPlatformReady(p Platform) bool {
