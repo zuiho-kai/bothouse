@@ -65,6 +65,7 @@ export class Store {
   constructor(path) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
+    this.closed = false;
     /** fn(roomId) when a workspace's sessions are dropped for a new claim (resetSessions). */
     this.sessionResets = [];
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
@@ -310,7 +311,11 @@ export class Store {
         UNIQUE (member_id, trigger_id));`);
   }
 
-  close() { if (this.db.isOpen) this.db.close(); }
+  close() {
+    if (this.closed) return;
+    this.db.close();
+    this.closed = true;
+  }
 
   /** Run fn in one write transaction; a throw rolls back every statement it made. */
   transaction(fn) {
@@ -633,7 +638,7 @@ export class Store {
   /** One author's live text drafts (#121), oldest first. */
   drafts(authorKind, author) {
     // WebSocket close events may arrive after plugin teardown has closed SQLite.
-    return this.db.isOpen ? this.q.authorDrafts.all(authorKind, author) : [];
+    return this.closed ? [] : this.q.authorDrafts.all(authorKind, author);
   }
 
   /** Up to `limit` messages before `beforeId` (exclusive), oldest first. */

@@ -24,6 +24,7 @@ export function rowToMember(row) {
     ...(row.cli && row.permission_preset ? { permissionPreset: row.permission_preset } : {}),
     persona: row.persona ?? '',
     ...(row.avatar ? { avatar: row.avatar } : {}),
+    ...(row.rooms && row.rooms !== '[]' ? { rooms: JSON.parse(row.rooms) } : {}),
     source: row.source,
   };
 }
@@ -119,7 +120,7 @@ export class Roster {
     const existing = this.store.member(id);
     if (existing === undefined || existing.removed) throw new CollabError('member-missing', `member ${id} does not exist`);
     if (existing.source !== 'ui') throw new CollabError('read-only', `member ${id} comes from the config file and cannot be edited here`);
-    const m = await this.validate(input, id);
+    const m = await this.validate({ ...input, rooms: input?.rooms === undefined ? JSON.parse(existing.rooms ?? '[]') : input.rooms }, id);
     // An edit that leaves out the approval tier keeps the stored one instead of falling back to the default.
     if (m.cli !== undefined && input?.permissionPreset === undefined && existing.cli && existing.permission_preset) {
       m.permissionPreset = existing.permission_preset;
@@ -143,7 +144,11 @@ export class Roster {
     if (!name || name.length > MAX_NAME || /[\s@<>]/.test(name)) {
       throw new CollabError('invalid', `name must be 1-${MAX_NAME} characters without spaces, @ or <>`);
     }
-    const clash = this.hub.memberList().find(m => m.id !== selfId && (m.name.toLowerCase() === name.toLowerCase() || m.id.toLowerCase() === name.toLowerCase()));
+    const rooms = input?.rooms ?? [];
+    if (!Array.isArray(rooms) || rooms.some(id => !Number.isSafeInteger(id) || this.store.room(id)?.kind !== 'chat')) {
+      throw new CollabError('invalid', 'rooms must contain existing chat channel ids');
+    }
+    const clash = this.hub.memberList().find(m => m.id !== selfId && (!rooms.length || !m.rooms?.length || rooms.some(id => m.rooms.includes(id))) && (m.name.toLowerCase() === name.toLowerCase() || m.id.toLowerCase() === name.toLowerCase()));
     if (clash !== undefined) throw new CollabError('conflict', `name ${name} is already used by ${clash.name}`);
     const persona = String(input?.persona ?? '');
     if (persona.length > MAX_PERSONA) throw new CollabError('invalid', `persona exceeds ${MAX_PERSONA} characters`);
@@ -156,7 +161,7 @@ export class Roster {
       // Tool approval tier: one of DSH's permission presets; absent = DSH's default (cli-member.mjs).
       const preset = input.permissionPreset == null || input.permissionPreset === '' ? undefined : String(input.permissionPreset);
       if (preset !== undefined && !PERMISSION_PRESETS.includes(preset)) throw new CollabError('invalid', `permissionPreset must be one of ${PERMISSION_PRESETS.join(', ')}`);
-      return { name, persona, avatar, cli, ...(preset === undefined ? {} : { permissionPreset: preset }) };
+      return { name, persona, avatar, rooms, cli, ...(preset === undefined ? {} : { permissionPreset: preset }) };
     }
     let model;
     if (input?.model != null) {
@@ -172,7 +177,7 @@ export class Roster {
       }
       model = { provider, model: id };
     }
-    return { name, persona, avatar, ...(model === undefined ? {} : { model }) };
+    return { name, persona, avatar, rooms, ...(model === undefined ? {} : { model }) };
   }
 
   /** A stable, unused member id derived from the name (ASCII) or a short random suffix. */

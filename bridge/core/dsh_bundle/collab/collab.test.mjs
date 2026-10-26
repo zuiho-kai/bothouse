@@ -245,7 +245,7 @@ test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replac
   assert.equal(hub.thinking.get(1).has('ju'), false, 'reconnect clears stale typing');
   assert.equal(hub.members.get('ju').online, true, 'replaced socket close does not mark offline');
   ju2.close(1000);
-  assert.equal(hub.members.get('ju').online, false);
+  assert.equal(hub.members.get('ju').online, false, 'disconnected bot remains in the member list offline');
 });
 
 test('cloud-web: a line-start name calls a non-primary role', async () => {
@@ -703,6 +703,7 @@ test('DSH member: the preset scope is released when Workspace creation fails', a
   await settle();
   assert.equal(dsh.ctx.agentPresets.released, 1);
   assert.match(hub.store.page(1, undefined, 1)[0].text, /no such directory/);
+  assert.match(hub.store.page(1, undefined, 1)[0].text, /频道 #general 的工作目录 \/w 无法打开/);
 });
 
 test('DSH member: the prompt always contains the trigger, however much is unread', async () => {
@@ -1405,6 +1406,25 @@ test('interrupted streams leave no draft: cloud-web disconnect/reconnect and a C
   await settle();
   assert.equal(hub.store.job(job.id).state, 'interrupted');
   assert.deepEqual(live(), [], 'the interrupted CLI job drops its streamed draft');
+});
+
+test('store shutdown: live drafts remain queryable and late disconnect cleanup is safe', () => {
+  const hub = makeHub();
+  const gateway = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gateway, 'bot=shutdown&name=Shutdown');
+  hub.draft(1, { authorKind: 'role', author: 'shutdown', name: 'Shutdown', text: 'partial', clientKey: 'shutdown-draft' });
+  assert.equal(hub.store.drafts('role', 'shutdown').length, 1);
+  hub.dropDrafts('role', 'shutdown');
+  assert.deepEqual(hub.store.drafts('role', 'shutdown'), []);
+  // Older Node versions expose close() without the isOpen property.
+  hub.store.db = { close: hub.store.db.close.bind(hub.store.db) };
+  hub.store.close();
+  assert.doesNotThrow(() => hub.store.close());
+  assert.deepEqual(hub.store.drafts('role', 'shutdown'), []);
+  assert.doesNotThrow(() => hub.dropDrafts('role', 'shutdown'));
+  assert.doesNotThrow(() => bot.close(1001, 'server shutdown'));
+  assert.throws(() => hub.store.page(1, undefined, 10), /closed|finalized/i,
+    'ordinary queries after shutdown still report lifecycle errors');
 });
 
 test('cloud-web #120: permission prompt → button → card_action → card state; duplicates, expiry, offline', async () => {
@@ -4803,4 +4823,174 @@ test('G37: an [ask] answer reaches the workspace @-ing the member by name, not b
   hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '不改', replyTo: fwd2.id });
   await settle();
   assert.ok(hub.store.page(ws.id, undefined, 50).some(m => /^@gone 用户回复 ask-/.test(m.text)), 'a member no longer there falls back to its id');
+});
+
+test('channel directories: native sessions inherit the current parent and default remains unchanged', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(1, 'general', '/channel-a');
+  hub.store.ensureRoom(2, 'other', '/channel-b');
+  hub.store.ensureRoom(3, 'legacy');
+  const workspace = hub.store.createWorkspace(1);
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, []);
+  const member = { id: 'ds', name: 'DS' };
+  for (const id of [1, 2, workspace.id, 3]) await members.ensureAgent(member, hub.store.room(id));
+  assert.deepEqual(dsh.ctx.agents.created.map(c => c.meta.cwd), ['/channel-a', '/channel-b', '/channel-a', '/w']);
+  hub.store.ensureRoom(1, 'general', '/changed');
+  assert.equal(hub.store.workspacePath(workspace.id, '/w'), '/changed');
+  hub.store.ensureRoom(1, 'general', '');
+  assert.equal(hub.store.workspacePath(workspace.id, '/w'), '/w');
+  await members.close(); hub.store.close();
+});
+
+test('channel directories: CLI processes use separate directories and all close on member removal', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(1, 'general', '/channel-a');
+  hub.store.ensureRoom(2, 'other', '/channel-b');
+  const members = cliMembers(hub, async () => 'done');
+  const created = []; const closed = [];
+  members.rt.createCliMember = ({ cwd }) => {
+    created.push(cwd);
+    return { ask: async () => 'done', close() { closed.push(cwd); } };
+  };
+  for (const id of [1, 2, 1]) {
+    hub.post(id, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@CC work' });
+    await settle();
+  }
+  assert.deepEqual(created, ['/channel-a', '/channel-b']);
+  members.dropCli('cc');
+  assert.deepEqual(closed, ['/channel-a', '/channel-b']);
+  await members.close(); hub.store.close();
+});
+
+test('channel directories: configuration rejects relative paths and accepts empty overrides', () => {
+  const base = { dataDir: '/d', workspacePath: '/w' };
+  for (const workspacePath of [null, '', '/channel']) {
+    assert.doesNotThrow(() => resolveConfig({ ...base, rooms: [{ id: 1, name: 'general', workspacePath }] }));
+  }
+  for (const workspacePath of ['relative', 42, {}]) {
+    assert.throws(() => resolveConfig({ ...base, rooms: [{ id: 1, name: 'general', workspacePath }] }), /workspacePath/);
+  }
+});
+
+
+test('channel directories: a released workspace uses its next owner directory and new native session', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(1, 'first', '/first');
+  hub.store.ensureRoom(2, 'second', '/second');
+  const workspace = hub.store.createWorkspace(1);
+  const dsh = fakeDsh(); const members = dsh.attach(hub, []);
+  const member = { id: 'ds', name: 'DS' };
+  await members.ensureAgent(member, hub.store.room(workspace.id));
+  assert.equal(hub.store.releaseWorkspace(workspace.id), true);
+  const reused = hub.store.createWorkspace(2);
+  assert.equal(reused.id, workspace.id);
+  assert.equal(hub.store.workspacePath(reused.id, '/w'), '/second');
+  await members.ensureAgent(member, hub.store.room(reused.id));
+  assert.deepEqual(dsh.ctx.agents.created.map(c => c.meta.cwd), ['/first', '/second']);
+  await members.close(); hub.store.close();
+});
+
+
+test('member room scope: rename and reload retain scope, workspaces follow the parent, legacy stays global', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'office');
+  const dsh = fakeDsh(); const members = dsh.attach(hub, []);
+  const roster = new Roster(hub, members);
+  const a = await roster.create({ name: 'Shared', rooms: [1] });
+  const b = await roster.create({ name: 'Shared', rooms: [2] });
+  const global = await roster.create({ name: 'Global' });
+  await roster.update(a.id, { name: 'Renamed' });
+  assert.deepEqual(JSON.parse(hub.store.member(a.id).rooms), [1]);
+  roster.load([]);
+  assert.deepEqual(hub.routableIn(1).map(m => m.id).sort(), [a.id, global.id].sort());
+  assert.deepEqual(hub.routableIn(2).map(m => m.id).sort(), [b.id, global.id].sort());
+  const workspace = hub.store.createWorkspace(2);
+  assert.deepEqual(hub.routableIn(workspace.id).map(m => m.id).sort(), [b.id, global.id].sort());
+  await assert.rejects(roster.create({ name: 'Shared', rooms: [2] }), /already used/);
+  await assert.rejects(roster.create({ name: 'Bad', rooms: [999] }), /existing chat/);
+  await members.close(); hub.store.close();
+});
+
+
+test('channel routing: same names route within the current channel and status follows parent', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'office');
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'a', name: 'Same', rooms: [1] }, { id: 'b', name: 'Same', rooms: [2] }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@Same work' });
+  await settle();
+  assert.deepEqual(hub.store.openJobs().map(j => j.member_id), ['a']);
+  assert.deepEqual([...mentions('@Same', hub.routableIn(2))], ['b']);
+  assert.deepEqual(hub.membersInRoom(1).filter(m => m.kind !== 'human').map(m => m.id), ['a']);
+  const workspace = hub.store.createWorkspace(2);
+  const status = memberStatus(hub, undefined, workspace.id);
+  assert.match(status, /Same \(b\)/); assert.doesNotMatch(status, /Same \(a\)/);
+  await members.close(); hub.store.close();
+});
+
+test('channel bots: same-channel name overlaps are refused, cross-channel names coexist, disconnect marks offline', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'office');
+  hub.setMember({ id: 'agent', name: 'Shared', kind: 'dsh', rooms: [1] });
+  const gateway = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const refused = connect(gateway, 'bot=bad&name=Shared&room=1');
+  assert.equal(refused.of('register_ack')[0].ok, false);
+  const office = connect(gateway, 'bot=office&name=Shared&room=2');
+  assert.equal(office.of('register_ack')[0].ok, true);
+  const game = connect(gateway, 'bot=game&name=QQ&room=1');
+  const officeQQ = connect(gateway, 'bot=officeqq&name=QQ&room=2');
+  assert.equal(game.of('register_ack')[0].ok, true);
+  assert.equal(officeQQ.of('register_ack')[0].ok, true);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@QQ hello' });
+  await tick();
+  assert.equal(game.of('message').length, 1);
+  assert.equal(officeQQ.of('message').length, 0);
+  assert.equal(office.of('message').length, 0);
+  officeQQ.close(1000);
+  assert.equal(hub.members.get('officeqq').online, false);
+  assert.deepEqual(hub.members.get('officeqq').rooms, [2], 'disconnect retains channel membership');
+  gateway.closeAll(); hub.store.close();
+});
+
+
+test('member snapshot migration: legacy UI scope survives restart and future channels start clean', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const path = join(mkdtempSync(join(tmpdir(), 'member-snapshot-')), 'collab.sqlite3');
+  let store = new Store(path);
+  store.ensureRoom(1, 'general'); store.ensureRoom(2, 'office');
+  store.createWorkspace(1);
+  store.addMember({ id: 'old', name: 'Old' });
+  store.db.prepare('UPDATE members SET rooms = NULL WHERE id = ?').run('old');
+  store.addMember({ id: 'scoped', name: 'Scoped', rooms: [2] });
+  store.addMember({ id: 'explicit-global', name: 'ExplicitGlobal', rooms: [] });
+  store.seedMember({ id: 'config', name: 'Configured' });
+  assert.equal(store.migrateMemberRooms(), true);
+  assert.deepEqual(JSON.parse(store.member('old').rooms), [1, 2]);
+  assert.deepEqual(JSON.parse(store.member('scoped').rooms), [2]);
+  assert.deepEqual(JSON.parse(store.member('explicit-global').rooms), []);
+  assert.deepEqual(JSON.parse(store.member('config').rooms), []);
+  const third = store.createRoom('fresh');
+  store.close(); store = new Store(path);
+  assert.equal(store.migrateMemberRooms(), false);
+  assert.deepEqual(JSON.parse(store.member('old').rooms), [1, 2]);
+  const hub = new Hub(store, quiet);
+  hub.setMember({ id: 'owner', name: 'Owner', kind: 'human', online: true });
+  const dsh = fakeDsh(); const members = dsh.attach(hub, []);
+  const roster = new Roster(hub, members); roster.load([]);
+  // Explicitly global/config members remain visible by the documented exception.
+  assert.equal(hub.membersInRoom(third.id).some(m => m.id === 'old'), false);
+  hub.removeMember('config'); hub.removeMember('explicit-global');
+  assert.deepEqual(hub.membersInRoom(third.id).map(m => m.id), ['owner']);
+  assert.deepEqual(hub.routableIn(third.id), []);
+  for (const id of [1, 2]) assert.equal(hub.membersInRoom(id).some(m => m.id === 'old'), true);
+  await members.close(); store.close();
+});
+
+test('member snapshot migration: no chat channels defers the snapshot', () => {
+  const store = new Store(':memory:');
+  assert.equal(store.migrateMemberRooms(), false);
+  store.ensureRoom(1, 'general');
+  assert.equal(store.migrateMemberRooms(), true);
+  assert.equal(store.migrateMemberRooms(), false);
+  store.close();
 });

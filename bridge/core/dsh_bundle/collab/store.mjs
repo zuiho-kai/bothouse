@@ -19,6 +19,7 @@ const SCHEMA_VERSION = 11;
 /** Columns added after v1, as [table, column, definition]; ensureSchema() adds any missing one. */
 const COLUMNS = [
   ['jobs', 'input_id', 'TEXT'], // v2: jobs remember the id of the input they admitted, to bind its consuming turn.
+  ['members', 'rooms', 'TEXT'], // NULL or [] retains legacy global visibility.
   ['members', 'cli', 'TEXT'], // v4: a member may be a local CLI agent (claude | codex | gemini) instead of a model route.
   ['members', 'avatar', 'TEXT'], // v5: a member may show an avatar (built-in slug); NULL means the initial badge.
   // A local CLI member's DSH permission preset (cli-member.mjs PERMISSION_PRESETS); NULL means DSH's default.
@@ -44,6 +45,7 @@ const COLUMNS = [
   // Id of the current claim, bumped by every claim (claimWorkspace, createWorkspace): a release
   // naming an earlier claim (the bridge's late op release) is refused ('stale-claim').
   ['rooms', 'claim_seq', 'INTEGER NOT NULL DEFAULT 0'],
+  ['rooms', 'workspace_path', 'TEXT'], // Optional chat directory; workspace rooms inherit their current parent.
   ['messages', 'edited_at', 'REAL'], // v11 (#148): when the owner last edited their own message; NULL if never.
   // #597 G34: when a role last changed the row in place (a streamed draft growing, a progress card
   // edited, the draft committed); NULL if never. The task watch counts it as progress (Tasks.progressed).
@@ -63,6 +65,7 @@ export class Store {
   constructor(path) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
+    this.closed = false;
     /** fn(roomId) when a workspace's sessions are dropped for a new claim (resetSessions). */
     this.sessionResets = [];
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
@@ -77,7 +80,9 @@ export class Store {
       createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id, claim_task, claim_bridge)
         SELECT MAX(${WORKSPACE_ID_MIN}, COALESCE((SELECT MAX(id) + 1 FROM rooms WHERE id >= ${WORKSPACE_ID_MIN}), ${WORKSPACE_ID_MIN})),
           ?, 'workspace', ?, 0, ? RETURNING id, name, kind, parent_id`),
-      ensureRoom: this.db.prepare('INSERT INTO rooms (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name'),
+      ensureRoom: this.db.prepare('INSERT INTO rooms (id, name, workspace_path) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, workspace_path = excluded.workspace_path'),
+      workspacePath: this.db.prepare(`SELECT COALESCE(parent.workspace_path, room.workspace_path) AS path
+        FROM rooms room LEFT JOIN rooms parent ON room.kind = 'workspace' AND parent.id = room.parent_id WHERE room.id = ?`),
       insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft, reply_to, attachments)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
       byKey: this.db.prepare('SELECT * FROM messages WHERE client_key = ?'),
@@ -113,13 +118,13 @@ export class Store {
       createRoom: this.db.prepare("INSERT INTO rooms (name, kind) VALUES (?, 'chat') RETURNING id, name, kind, parent_id"),
       members: this.db.prepare('SELECT * FROM members WHERE removed = 0 ORDER BY created_at, id'),
       member: this.db.prepare('SELECT * FROM members WHERE id = ?'),
-      seedMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, permission_preset, source, created_at, removed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'config', ?, 0)
+      seedMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, permission_preset, rooms, source, created_at, removed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'config', ?, 0)
         ON CONFLICT(id) DO UPDATE SET name = excluded.name, provider = excluded.provider, model = excluded.model,
-          cli = excluded.cli, persona = excluded.persona, avatar = excluded.avatar, permission_preset = excluded.permission_preset, source = 'config', removed = 0`),
-      addMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, permission_preset, source, created_at, removed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ui', ?, 0) RETURNING *`),
-      updateMember: this.db.prepare(`UPDATE members SET name = ?, provider = ?, model = ?, cli = ?, persona = ?, avatar = ?, permission_preset = ?
+          cli = excluded.cli, persona = excluded.persona, avatar = excluded.avatar, permission_preset = excluded.permission_preset, rooms = excluded.rooms, source = 'config', removed = 0`),
+      addMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, permission_preset, rooms, source, created_at, removed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ui', ?, 0) RETURNING *`),
+      updateMember: this.db.prepare(`UPDATE members SET name = ?, provider = ?, model = ?, cli = ?, persona = ?, avatar = ?, permission_preset = ?, rooms = ?
         WHERE id = ? AND source = 'ui' AND removed = 0 RETURNING *`),
       removeMember: this.db.prepare("UPDATE members SET removed = 1 WHERE id = ? AND source = 'ui' AND removed = 0 RETURNING *"),
     };
@@ -306,7 +311,11 @@ export class Store {
         UNIQUE (member_id, trigger_id));`);
   }
 
-  close() { this.db.close(); }
+  close() {
+    if (this.closed) return;
+    this.db.close();
+    this.closed = true;
+  }
 
   /** Run fn in one write transaction; a throw rolls back every statement it made. */
   transaction(fn) {
@@ -327,13 +336,13 @@ export class Store {
    * predates that range or someone configured an id inside it. Refuse loudly instead of
    * moving the workspace: bot sessions are keyed room-<id> and must never see it change.
    */
-  ensureRoom(id, name) {
+  ensureRoom(id, name, workspacePath) {
     this.transaction(() => {
       if (this.q.room.get(id)?.kind === 'workspace') {
         throw new CollabError('workspace-id-conflict',
           `config room id ${id} collides with workspace room ${id}; workspace ids start at ${WORKSPACE_ID_MIN} and cannot be reassigned`);
       }
-      this.q.ensureRoom.run(id, name);
+      this.q.ensureRoom.run(id, name, workspacePath || null);
     });
   }
   /** Create a chat channel; its first workspace is made on the first createWorkspace() call. */
@@ -513,21 +522,37 @@ export class Store {
     return mode;
   }
 
+  /** Pin legacy UI members to the chat channels present on first upgrade. */
+  migrateMemberRooms() {
+    return this.transaction(() => {
+      this.db.exec('CREATE TABLE IF NOT EXISTS member_scope_migrations (name TEXT PRIMARY KEY, applied_at REAL NOT NULL)');
+      const name = 'ui-member-room-snapshot-v1';
+      if (this.db.prepare('SELECT 1 FROM member_scope_migrations WHERE name = ?').get(name)) return false;
+      const rooms = this.rooms().filter(r => r.kind === 'chat').map(r => r.id);
+      // No channels yet: defer rather than convert an empty snapshot into global scope.
+      if (!rooms.length) return false;
+      this.db.prepare("UPDATE members SET rooms = ? WHERE source = 'ui' AND rooms IS NULL").run(JSON.stringify(rooms));
+      this.db.prepare('INSERT INTO member_scope_migrations (name, applied_at) VALUES (?, ?)').run(name, Date.now() / 1000);
+      return true;
+    });
+  }
+
   /** Active DSH members, config seeds and UI-created alike. */
   members() { return this.q.members.all(); }
   member(id) { return this.q.member.get(id); }
   /** Upsert a config member; config always wins for its own ids. */
   seedMember(m, now = Date.now() / 1000) {
-    this.q.seedMember.run(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, now);
+    this.q.seedMember.run(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, JSON.stringify(m.rooms ?? []), now);
   }
   addMember(m, now = Date.now() / 1000) {
-    return this.q.addMember.get(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, now);
+    return this.q.addMember.get(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, JSON.stringify(m.rooms ?? []), now);
   }
   /** Edit a UI-created member; config members and removed ones are refused (undefined). */
   updateMember(id, m) {
-    return this.q.updateMember.get(m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, id);
+    return this.q.updateMember.get(m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, JSON.stringify(m.rooms ?? []), id);
   }
   removeMember(id) { return this.q.removeMember.get(id); }
+  workspacePath(roomId, fallback) { return this.q.workspacePath.get(roomId)?.path || fallback; }
   room(id) { return this.q.room.get(id); }
   rooms() { return this.q.rooms.all(); }
   /** Rooms for clients: each carries kind, parent_id and its open task count. */
@@ -611,7 +636,10 @@ export class Store {
   }
   remove(id, authorKind, author) { return this.q.del.get(id, authorKind, author); }
   /** One author's live text drafts (#121), oldest first. */
-  drafts(authorKind, author) { return this.q.authorDrafts.all(authorKind, author); }
+  drafts(authorKind, author) {
+    // WebSocket close events may arrive after plugin teardown has closed SQLite.
+    return this.closed ? [] : this.q.authorDrafts.all(authorKind, author);
+  }
 
   /** Up to `limit` messages before `beforeId` (exclusive), oldest first. */
   page(roomId, beforeId, limit) {

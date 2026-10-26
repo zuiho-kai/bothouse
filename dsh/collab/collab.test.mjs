@@ -245,7 +245,7 @@ test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replac
   assert.equal(hub.thinking.get(1).has('ju'), false, 'reconnect clears stale typing');
   assert.equal(hub.members.get('ju').online, true, 'replaced socket close does not mark offline');
   ju2.close(1000);
-  assert.equal(hub.members.has('ju'), false, 'disconnected bot leaves the member list');
+  assert.equal(hub.members.get('ju').online, false, 'disconnected bot remains in the member list offline');
 });
 
 test('cloud-web: a line-start name calls a non-primary role', async () => {
@@ -1416,6 +1416,8 @@ test('store shutdown: live drafts remain queryable and late disconnect cleanup i
   assert.equal(hub.store.drafts('role', 'shutdown').length, 1);
   hub.dropDrafts('role', 'shutdown');
   assert.deepEqual(hub.store.drafts('role', 'shutdown'), []);
+  // Older Node versions expose close() without the isOpen property.
+  hub.store.db = { close: hub.store.db.close.bind(hub.store.db) };
   hub.store.close();
   assert.doesNotThrow(() => hub.store.close());
   assert.deepEqual(hub.store.drafts('role', 'shutdown'), []);
@@ -4925,7 +4927,7 @@ test('channel routing: same names route within the current channel and status fo
   await members.close(); hub.store.close();
 });
 
-test('channel bots: same-channel name overlaps are refused, cross-channel names coexist, disconnect removes', async () => {
+test('channel bots: same-channel name overlaps are refused, cross-channel names coexist, disconnect marks offline', async () => {
   const hub = makeHub(); hub.store.ensureRoom(2, 'office');
   hub.setMember({ id: 'agent', name: 'Shared', kind: 'dsh', rooms: [1] });
   const gateway = new CloudWebGateway(hub, { token: 't', logger: quiet });
@@ -4943,7 +4945,8 @@ test('channel bots: same-channel name overlaps are refused, cross-channel names 
   assert.equal(officeQQ.of('message').length, 0);
   assert.equal(office.of('message').length, 0);
   officeQQ.close(1000);
-  assert.equal(hub.members.has('officeqq'), false);
+  assert.equal(hub.members.get('officeqq').online, false);
+  assert.deepEqual(hub.members.get('officeqq').rooms, [2], 'disconnect retains channel membership');
   gateway.closeAll(); hub.store.close();
 });
 

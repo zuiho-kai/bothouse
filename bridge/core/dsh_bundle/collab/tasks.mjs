@@ -269,6 +269,7 @@ export class Tasks {
     const text = String(title ?? '').trim();
     if (!text || text.length > MAX_TEXT) throw new CollabError('invalid', 'task title is empty or too long');
     this.member(owner);
+    if (!this.hub.membersInRoom(roomId).some(m => m.id === owner)) throw new CollabError('member-missing', `member ${owner} does not belong to room ${roomId}`);
     this.member(actor);
     if (parentTask != null && this.task(parentTask) === undefined) throw new CollabError('task-missing', `task ${parentTask} does not exist`);
     if (messageId != null && this.store.message(messageId) === undefined) throw new CollabError('invalid', `message ${messageId} does not exist`);
@@ -448,7 +449,7 @@ export class Tasks {
     // A stance naming a task of another room speaks about that task: it hands back nothing here either.
     if (this.foreignStance(msg)) return undefined;
     // A 【问】【退】【升】 reply with no task to answer is a question or a pushback, never a hand-back.
-    if (/^【(问|退|升)】/.test(withoutLeadingMentions(String(msg.text), this.hub.routable()).trimStart())) return undefined;
+    if (/^【(问|退|升)】/.test(withoutLeadingMentions(String(msg.text), this.hub.routableIn(msg.room_id)).trimStart())) return undefined;
     if (NOTICE_PREFIXES.some(p => String(msg.text).trimStart().startsWith(p))) return undefined;
     return this.fromChat(msg, { handBack: !dshWorkspace });
   }
@@ -508,7 +509,7 @@ export class Tasks {
 
   stanceOf(msg) {
     // A bridge final reply opens with the lead's @ (lead_return.go), so skip leading mentions.
-    const first = withoutLeadingMentions(String(msg.text), this.hub.routable()).split('\n', 1)[0];
+    const first = withoutLeadingMentions(String(msg.text), this.hub.routableIn(msg.room_id)).split('\n', 1)[0];
     const m = STANCE_LINE.exec(first);
     if (m === null) return undefined;
     // Members open every reply with a stance, so without #id only a not-yet-answered
@@ -531,7 +532,7 @@ export class Tasks {
    */
   fromChat(msg, { handBack = true } = {}) {
     const lead = this.hub.primaryMember();
-    const team = this.hub.routable();
+    const team = this.hub.routableIn(msg.room_id);
     const text = String(msg.text);
     if (lead !== undefined && msg.author === lead.id) {
       // Its next message after a chat-side hand-back accepts it. Workspace tasks need its explicit
@@ -578,7 +579,7 @@ export class Tasks {
    */
   fromCard(roomId, lead, messageId, members) {
     if (!Array.isArray(members) || !this.hub.members.has(lead)) return;
-    const team = this.hub.routable();
+    const team = this.hub.routableIn(roomId);
     for (const m of members) {
       if (m === null || typeof m !== 'object' || m.parent_id) continue;
       const project = String(m.reporter_project ?? '');
@@ -697,7 +698,7 @@ export class Tasks {
   progressed(task, since) {
     return this.q.ownerSaid.all(task.room_id, task.owner, since).some(({ text, card }) => {
       if (card != null) return true;
-      const lines = withoutLeadingMentions(String(text ?? ''), this.hub.routable()).trim().split('\n');
+      const lines = withoutLeadingMentions(String(text ?? ''), this.hub.routableIn(task.room_id)).trim().split('\n');
       if (STANCE_LINE.test(lines[0])) lines.shift();
       const body = lines.join('\n').trim();
       return body !== '' && !NOTICE_PREFIXES.some(p => body.startsWith(p));

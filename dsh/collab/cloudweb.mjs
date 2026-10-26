@@ -188,7 +188,7 @@ export class CloudWebGateway {
       clearTimeout(timer);
       if (bot !== undefined && this.bots.get(bot.member.id) === bot) {
         this.bots.delete(bot.member.id);
-        this.hub.removeMember(bot.member.id);
+        this.hub.setOnline(bot.member.id, false);
         // #121: a cc-connect that drops mid-stream never commits or deletes its preview.
         this.hub.dropDrafts('role', bot.member.id);
       }
