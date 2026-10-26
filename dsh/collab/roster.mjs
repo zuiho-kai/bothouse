@@ -74,7 +74,7 @@ export class Roster {
       if (this.hub.memberList().some(x => x.name.toLowerCase() === name.toLowerCase())) continue;
       try {
         const avatar = m?.avatar && ['orange', 'whale', 'dragon', 'rainbow', 'lanxi'].includes(m.avatar) ? m.avatar : undefined;
-        await this.create({ name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(avatar ? { avatar } : {}) });
+        await this.create({ name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(m?.name_customized === undefined ? {} : { nameCustomized: Boolean(m.name_customized) }), ...(avatar ? { avatar } : {}) });
         added.push(name);
       } catch (error) {
         logger?.warn?.('conest-collab: wizard member %s not added: %s', name, error?.message ?? error);
@@ -136,14 +136,15 @@ export class Roster {
     const existing = selfId === undefined ? undefined : this.store.member(selfId);
     const nameCustomized = input?.nameCustomized ?? (existing?.name_customized == null ? undefined : Boolean(existing.name_customized));
     if (nameCustomized !== undefined && typeof nameCustomized !== 'boolean') throw new CollabError('invalid', 'nameCustomized must be boolean');
-    const backend = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini' }[input?.cli] ?? 'DSH';
-    if (!name || (nameCustomized === false && existing?.cli !== input?.cli)) {
+    const cli = input?.cli ?? existing?.cli;
+    const backend = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini' }[cli] ?? 'DSH';
+    if (!name || (nameCustomized === false && existing !== undefined && existing.cli !== cli)) {
       const used = new Set(this.hub.memberList().filter(m => m.id !== selfId).map(m => m.name.toLowerCase()));
       name = backend;
       for (let n = 2; used.has(name.toLowerCase()); n++) name = `${backend}-${n}`;
     }
     if (!name || name.length > MAX_NAME || /[@<>\r\n\t]/.test(name) || (/\s/.test(name) && !/^Claude Code(?:-\d+)?$/.test(name))) {
-      throw new CollabError('invalid', `name must be 1-${MAX_NAME} characters without spaces, @ or <>`);
+      throw new CollabError('invalid', `name must be 1-${MAX_NAME} characters without spaces (except Claude Code), @ or <>`);
     }
     const clash = this.hub.memberList().find(m => m.id !== selfId && (m.name.toLowerCase() === name.toLowerCase() || m.id.toLowerCase() === name.toLowerCase()));
     if (clash !== undefined) throw new CollabError('conflict', `name ${name} is already used by ${clash.name}`);
