@@ -269,6 +269,8 @@ export interface ChannelActions {
   dismissSend(clientKey: string): void
   /** Create a room and switch to it. */
   createRoom(name: string): Promise<void>
+  /** Rename a chat channel while preserving its identity and history. */
+  renameRoom(roomId: number, name: string): Promise<void>
   /** Provider routes and their models for the member picker. */
   listModels(): Promise<readonly ModelRoute[]>
   /** CLI agents installed on this machine, for the "local CLI" member type. */
@@ -768,6 +770,10 @@ export function createChannelSource(transport: ChannelTransport): {
       const added = [room, workspace].filter((r): r is ChannelRoom => r !== undefined && !snapshot.rooms.some(s => s.id === r.id))
       if (added.length > 0) set({ rooms: [...snapshot.rooms, ...added] })
       await selectRoom(room.id)
+    },
+    async renameRoom(roomId, name) {
+      const { room } = await request<{ room: ChannelRoom }>(`collab/api/rooms/${roomId}`, json('PATCH', { name }))
+      set({ rooms: snapshot.rooms.map(r => r.id === roomId ? { ...r, ...room } : r) })
     },
     async listModels() {
       const { routes } = await request<{ routes: ModelRoute[] }>('collab/api/models')
