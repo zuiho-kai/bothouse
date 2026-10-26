@@ -456,6 +456,13 @@ func runMain() {
 		builtProjs = append(builtProjs, proj)
 		rt.addRunning(proj.Name, b.engine)
 	}
+	// #462: record the config's current lead in the shared lead.json. A team that
+	// predates the setup wizard has no conest-setup.json and its switch script only
+	// edits config.toml/gate-team.json; without this, the bridge/gate/DSH shared
+	// selection never follows, and #458's lead handoff cannot see the switch.
+	if err := core.SeedConfiguredLead(cfg.DataDir, configuredLeadCandidates(cfg.DataDir, builtProjs)); err != nil {
+		slog.Warn("lead entry: config-driven lead not recorded", "error", err)
+	}
 
 	// Start cron scheduler
 	cronStore, err := core.NewCronStore(cfg.DataDir)
@@ -1867,6 +1874,18 @@ func projectTeamStatus(dataDir string, proj config.ProjectConfig) (dir, name str
 		name = wizardName
 	}
 	return dir, name, lead || proj.TeamStatusInject
+}
+
+// configuredLeadCandidates is the config.toml lead flags for core.SeedConfiguredLead.
+// team_status_inject marks the primary role; a wizard team's fallback role is injected by
+// projectTeamStatus's wizard defaults, so both layouts produce exactly one candidate.
+func configuredLeadCandidates(dataDir string, projs []config.ProjectConfig) []core.LeadCandidate {
+	out := make([]core.LeadCandidate, 0, len(projs))
+	for _, proj := range projs {
+		_, name, inject := projectTeamStatus(dataDir, proj)
+		out = append(out, core.LeadCandidate{Project: proj.Name, Name: name, Lead: inject})
+	}
+	return out
 }
 
 func reloadConfig(configPath, projName string, engine *core.Engine, started map[string]map[string]any) (*core.ConfigReloadResult, error) {
