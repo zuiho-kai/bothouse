@@ -391,6 +391,27 @@ func (e *Engine) TeamWorkspacesOf(channel string) []TeamWorkspace {
 	return append([]TeamWorkspace(nil), st.Parents[teamChatKey(channel)]...)
 }
 
+// isTeamWorkspaceChat: session (a session key, chat key or bare channel ID) is a workspace
+// channel in the team_workspaces.json record: a chat owns it now (WorkspaceParent) or it was
+// handed a task before (Handoffs; a released workspace leaves Parents but is still a workspace).
+// Big cards (who-is-doing-what board, progress card, 📋 task card) only go to workspace channels
+// (user, 2026-10-26: 「那个任务卡只在工作区显示，任何非其他工作区都不要显示太大，太占位置了」).
+func (e *Engine) isTeamWorkspaceChat(session string) bool {
+	if e != nil && e.workspaceChatForTest != nil {
+		return e.workspaceChatForTest(session)
+	}
+	if _, ok := e.WorkspaceParent(session); ok {
+		return true
+	}
+	if e == nil || e.dataDir == "" || session == "" {
+		return false
+	}
+	key := teamChatKey(session)
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	return len(loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]) > 0
+}
+
 // TeamWorkspaceName returns the name (「工作区n」) of workspace ws ("<platform>:<id>"): its record
 // under the chat that owns it now, else the name at its latest handoff (a released workspace, e.g.
 // one whose last task is done today); "" when none is recorded. Only names, never the id: the
