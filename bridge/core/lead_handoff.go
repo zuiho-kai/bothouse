@@ -441,6 +441,13 @@ func BuildLeadHandoffSnapshot(dataDir, self, from string) (*LeadHandoffSnapshot,
 }
 
 func buildLeadHandoffSnapshot(dataDir, self, from string, known, chats map[string]bool) *LeadHandoffSnapshot {
+	return buildLeadHandoffSnapshotLimit(dataDir, self, from, known, chats, leadHandoffMaxTasks)
+}
+
+// buildLeadHandoffSnapshotLimit caps the task list for the injected picture;
+// maxTasks 0 keeps every task, which the post-switch delta needs so a result on
+// a card outside the visible top 12 is still delivered to the new lead.
+func buildLeadHandoffSnapshotLimit(dataDir, self, from string, known, chats map[string]bool, maxTasks int) *LeadHandoffSnapshot {
 	now := time.Now().UTC()
 	snap := &LeadHandoffSnapshot{GeneratedAt: now}
 	var allTasks []LeadHandoffTask
@@ -471,9 +478,9 @@ func buildLeadHandoffSnapshot(dataDir, self, from string, known, chats map[strin
 		return allTasks[i].UpdatedAt.After(allTasks[j].UpdatedAt)
 	})
 	snap.TaskTotal = len(allTasks)
-	if len(allTasks) > leadHandoffMaxTasks {
-		allTasks = allTasks[:leadHandoffMaxTasks]
-		snap.Missing = append(snap.Missing, fmt.Sprintf("任务较多：另有 %d 项仅在各自任务卡中，未复制进本交接。", snap.TaskTotal-leadHandoffMaxTasks))
+	if maxTasks > 0 && len(allTasks) > maxTasks {
+		allTasks = allTasks[:maxTasks]
+		snap.Missing = append(snap.Missing, fmt.Sprintf("任务较多：另有 %d 项仅在各自任务卡中，未复制进本交接。", snap.TaskTotal-maxTasks))
 	}
 	snap.Tasks = allTasks
 
@@ -782,7 +789,7 @@ func buildLeadHandoffDelta(dataDir, self, from string, since time.Time, known, c
 	if since.IsZero() {
 		return ""
 	}
-	snap := buildLeadHandoffSnapshot(dataDir, self, from, known, chats)
+	snap := buildLeadHandoffSnapshotLimit(dataDir, self, from, known, chats, 0)
 	var lines []string
 	for _, task := range snap.Tasks {
 		hasNewEvent := false
