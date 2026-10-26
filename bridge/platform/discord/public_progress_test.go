@@ -32,6 +32,10 @@ type progressREST struct {
 	anyMentions bool     // accept sends that do not suppress mentions (preview cards)
 	renames     []string // raw body of each channel PATCH (thread rename)
 	renameCode  int      // non-zero: reply to a channel PATCH with this HTTP status
+	// reopenStatus makes a channel PATCH archived=false fail with this status.
+	reopenStatus int
+	// archiveTimestamp is returned as ThreadMetadata.ArchiveTimestamp on GET.
+	archiveTimestamp time.Time
 	// threadArchived makes GET /channels/<id> report an already archived thread.
 	threadArchived bool
 	archives       []string // channel IDs PATCHed with archived=true
@@ -113,6 +117,14 @@ func (r *progressREST) RoundTrip(req *http.Request) (*http.Response, error) {
 			if r.archivedThreads != nil {
 				delete(r.archivedThreads, channel)
 			}
+			if r.reopenStatus != 0 {
+				h := http.Header{"Content-Type": []string{"application/json"}}
+				b, _ := json.Marshal(map[string]any{"message": "You are being rate limited.", "retry_after": 1, "global": false})
+				if r.reopenStatus == 429 {
+					h.Set("Retry-After", "1")
+				}
+				return &http.Response{StatusCode: r.reopenStatus, Header: h, Body: io.NopCloser(strings.NewReader(string(b))), Request: req}, nil
+			}
 		}
 		if r.renameCode != 0 {
 			h := http.Header{"Content-Type": []string{"application/json"}}
@@ -145,6 +157,9 @@ func (r *progressREST) RoundTrip(req *http.Request) (*http.Response, error) {
 			body = map[string]any{"code": 10003, "message": "Unknown Channel"}
 		} else {
 			ch := &discordgo.Channel{ID: channel, Type: r.channelType, GuildID: r.guild}
+			if !r.archiveTimestamp.IsZero() {
+				ch.ThreadMetadata = &discordgo.ThreadMetadata{ArchiveTimestamp: r.archiveTimestamp}
+			}
 			if r.threadArchived || r.archivedThreads[channel] {
 				ch.ThreadMetadata = &discordgo.ThreadMetadata{Archived: true}
 			}
@@ -555,5 +570,64 @@ func TestPublishTaskFactReopensArchivedThread(t *testing.T) {
 	}
 	if len(transport.unarchives) != 1 || transport.unarchives[0] != "thread-a" {
 		t.Fatalf("unarchives = %v, want [thread-a]", transport.unarchives)
+	}
+}
+
+// If the reopen after 50083 is itself a transient refusal (429), the fact is
+// retryable; it must not be classified as permanently undeliverable.
+func TestPublishTaskFactKeepsRetryableReopenError(t *testing.T) {
+	transport := &progressREST{
+		messages:        map[string][]*discordgo.Message{},
+		botID:           "bot",
+		channelType:     discordgo.ChannelTypeGuildPublicThread,
+		archivedThreads: map[string]bool{"thread-a": true},
+		reopenStatus:    429,
+	}
+	session, _ := discordgo.New("Bot fixture")
+	session.Client = &http.Client{Transport: transport}
+	session.MaxRestRetries = 0
+	// Production discordgo sleeps and retries a 429; the fixture disables that
+	// so the caller sees the same rate-limit error a bounded call would return.
+	session.ShouldRetryOnRateLimit = false
+	p := &Platform{session: session, botID: "bot"}
+	task := &core.Task{ID: "task-a", ChannelID: "room", ThreadID: "thread-a"}
+	ev := core.TaskEvent{ID: "task-a:3", Seq: 3, Summary: "已验收", Timestamp: time.Now()}
+	err := p.PublishTaskFact(context.Background(), task, ev, core.LangChinese)
+	if err == nil {
+		t.Fatal("reopen failure was ignored")
+	}
+	if errors.Is(err, core.ErrTaskFactUndeliverable) || errors.Is(err, core.ErrDeliveryUnrecoverable) {
+		t.Fatalf("transient reopen failure treated as permanent: %v", err)
+	}
+	var rateLimited *discordgo.RateLimitError
+	if !errors.As(err, &rateLimited) {
+		t.Fatalf("err = %v, want the 429 reopen error", err)
+	}
+	if len(transport.messages["thread-a"]) != 0 {
+		t.Fatal("fact was posted into the archived thread")
+	}
+}
+
+// A manual reopen with no new message is activity through ArchiveTimestamp;
+// the sweep must use it instead of ignoring the thread.
+func TestPublicTaskThreadLastActivityUsesArchiveTimestamp(t *testing.T) {
+	reopened := time.Now().Add(-4 * time.Minute).Truncate(time.Second)
+	transport := &progressREST{
+		messages:         map[string][]*discordgo.Message{},
+		botID:            "bot",
+		channelType:      discordgo.ChannelTypeGuildPublicThread,
+		archiveTimestamp: reopened,
+	}
+	session, _ := discordgo.New("Bot fixture")
+	session.Client = &http.Client{Transport: transport}
+	session.MaxRestRetries = 0
+	p := &Platform{session: session, botID: "bot"}
+	task := &core.Task{ID: "task-a", ChannelID: "room", ThreadID: "thread-a"}
+	got, err := p.TaskThreadLastActivity(context.Background(), task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(reopened) {
+		t.Fatalf("last activity = %s, want ArchiveTimestamp %s", got, reopened)
 	}
 }
