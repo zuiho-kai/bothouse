@@ -347,6 +347,16 @@ export class Store {
       this.q.ensureRoom.run(id, name, workspacePath || null);
     });
   }
+  /** Rename the channel without changing any room, message or session identity. */
+  renameRoom(id, name) {
+    if (typeof name !== 'string' || !name || name.length > 32 || /\s/.test(name)) {
+      throw new CollabError('invalid', 'room name must be 1-32 characters without spaces');
+    }
+    const room = this.room(id);
+    if (room === undefined) throw new CollabError('room-missing', `room ${id} does not exist`);
+    if (room.kind === 'workspace') throw new CollabError('invalid', 'workspace names cannot be changed');
+    return this.db.prepare('UPDATE rooms SET name = ? WHERE id = ? RETURNING id, name, kind, parent_id').get(name, id);
+  }
   /** Create a chat channel; its first workspace is made on the first createWorkspace() call. */
   createRoom(name) {
     const room = this.transaction(() => this.q.createRoom.get(name));

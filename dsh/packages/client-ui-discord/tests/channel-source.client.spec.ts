@@ -35,6 +35,26 @@ function deferred<T>() {
 const state = { rooms: [{ id: 1, name: 'general' }, { id: 2, name: 'other' }], members: [], thinking: {} }
 
 describe('channel source', () => {
+  it('renames a room without replacing selection, history or dispatch settings', async () => {
+    const { transport } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') return json(200, { ...state, rooms: [{ id: 1, name: 'general', dispatch_mode: 'team' }] })
+      if (url === '/collab/api/rooms/1') {
+        expect(init?.method).toBe('PATCH')
+        expect(JSON.parse(String(init?.body))).toEqual({ name: 'renamed' })
+        return json(200, { room: { id: 1, name: 'renamed', kind: 'chat', parent_id: null } })
+      }
+      return json(200, { messages: [message(1, 'history')] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().messages).toHaveLength(1))
+    await actions.renameRoom(1, 'renamed')
+    expect(source.getSnapshot().roomId).toBe(1)
+    expect(source.getSnapshot().rooms[0]).toMatchObject({ id: 1, name: 'renamed', dispatch_mode: 'team' })
+    expect(source.getSnapshot().messages[0].text).toBe('history')
+    unsubscribe()
+  })
+
   it('ignores an old startup after the panel is closed and reopened', async () => {
     const oldState = deferred<Response>()
     let requests = 0
