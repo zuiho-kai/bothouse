@@ -26,7 +26,6 @@ const (
 	TurnTriggerTimer     = "timer"
 	TurnTriggerCron      = "cron"
 	TurnTriggerHeartbeat = "heartbeat"
-	TurnTriggerRelay     = "relay"
 	TurnTriggerWorkspace = "workspace" // a workspace handoff wake-up (TimerJob.Handoff)
 )
 
