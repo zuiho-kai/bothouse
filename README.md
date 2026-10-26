@@ -44,7 +44,7 @@ In DSH web, open **Channels → Add member**, select the same model or local CLI
 
 ### 1. Install
 
-Download your platform's package from [Releases](https://github.com/zuiho-kai/bothouse/releases). No Go or Node installation is needed:
+Download your platform's package from [Releases](https://github.com/zuiho-kai/bothouse/releases). No Go or Node installation is needed. Before opening a manually downloaded installer or bypassing an OS warning, verify it against that release's SHA256SUMS using the [verification steps](docs/GETTING_STARTED.md). Alternatively, use the one-line installer below, which verifies SHA256 automatically.
 
 - **macOS:** `bothouse-mac.dmg` for Apple Silicon and Intel. Drag it into Applications; because it is unsigned, **right-click → Open** on first launch.
 - **Windows:** `bothouse-windows.exe` for x64 and ARM64 Windows. If SmartScreen blocks it, choose **More info → Run anyway**.
@@ -64,7 +64,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex;
 
 ### 2. Configure and start
 
-You'll need a Discord server or Feishu workspace and at least one installed, logged-in AI CLI: Claude Code, Codex or Gemini CLI.
+Choose your entry platform: Discord needs a server, and Feishu needs a workspace. Self-hosted web needs neither account; follow the [connection guide](docs/connect-discord-feishu.md). DSH has separate requirements in the expandable section below. Roles using a local AI CLI need that CLI installed and logged in, such as Claude Code, Codex or Gemini CLI.
 
 1. **Open the wizard:** run `bothouse`; the wizard opens in your browser.
 2. **Connect roles:** choose a platform → connect bots → select a local CLI and persona for each role → save. New roles default to fully automatic YOLO permissions; you can change this in the dashboard's project settings. You can also tell your local Claude Code or Codex: “Set up bothouse and connect it to Discord.” It will ask for the required configuration.

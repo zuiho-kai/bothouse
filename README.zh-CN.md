@@ -50,7 +50,7 @@
 
 ### 1. 安装
 
-直接从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载对应系统的包（无需预装 Go 或 Node）：
+直接从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载对应系统的包（无需预装 Go 或 Node）。手动下载后，先按[完整指南中的校验步骤](docs/GETTING_STARTED.md)对照同一发布的 SHA256SUMS 核验文件，再按下述方式首次打开；也可使用下方自带 SHA256 校验的一行安装命令。
 
 - **macOS**：`bothouse-mac.dmg`（Apple Silicon / Intel 通用。因未签名，拖入 Applications 后**首次打开请「右键 → 打开」**）
 - **Windows**：`bothouse-windows.exe`（x64 / ARM64 通用。若弹出 SmartScreen 拦截，点「更多信息 → 仍要运行」）
@@ -70,7 +70,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex;
 
 ### 2. 配置与启动
 
-准备条件：一个 Discord 服务器（或飞书企业），外加本机至少装好并登录了一个 AI 命令行工具（Claude Code / Codex / Gemini CLI 任一）。
+准备条件按入口选择：Discord 需要一个服务器，飞书需要企业工作区；自建网页平台无需 Discord 或飞书账号，按[接入指南](docs/connect-discord-feishu.md)配置；DSH 的独立要求见下方折叠说明。使用本机 CLI 的角色，需要预先装好并登录对应的 AI 命令行工具（Claude Code / Codex / Gemini CLI 等）。
 
 1. **打开向导**：终端运行 `bothouse`，浏览器会自动弹出配置向导。
 2. **绑定角色**：按提示选平台 -> 接机器人 -> 给每个角色绑定本机 CLI 和人设 -> 保存（新建角色默认开启全自动 YOLO 权限模式，可在面板项目设置中改回）。
@@ -113,7 +113,7 @@ bothouse 跑在你家里的主力机上，自带一个网页管理面板。配�
 
 ### 一、打通设备网络
 
-在跑 bothouse 的电脑和你的手机/笔记本上安装 Tailscale，登录同一个账号进入同一个局域网（tailnet）：
+在跑 bothouse 的电脑和你的手机/笔记本上安装 Tailscale，登录同一个账号，加入同一个 tailnet：
 
 ```sh
 # macOS
