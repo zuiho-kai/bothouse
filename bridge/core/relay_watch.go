@@ -25,6 +25,10 @@ import (
 // errRelayWatchStopped marks a run the watch stopped, like d10 stopping a turn.
 var errRelayWatchStopped = errors.New("十分钟看门停止：到点没有交回结果，会话已关，做到的部分作为部分结果交回")
 
+// errRelayWatchInterrupted marks a run lost to a bridge restart; the watch reports it once
+// and wakes the lead (relayWatchRun, d == nil).
+var errRelayWatchInterrupted = errors.New("桥重启，这次派活的执行已中断")
+
 const (
 	relayWatchNudge       = "十分钟看门：到点还没交回结果。这一轮已停下，做到的部分作为部分结果交回；请看结果再决定是否重派。"
 	relayWatchInterrupted = "十分钟看门：这次派活的执行已中断（桥重启过），请重派。"
@@ -36,15 +40,18 @@ func (d *taskRelay) stopWatch() { d.stopOnce.Do(func() { close(d.stop) }) }
 // ensureRelayWatch runs the receipt watch loop for p unless it is running. It
 // is started by every task dispatch and at engine start (resumeRelayWatch), so
 // the watch needs no API server, team lead or workspace watch. The loop ends when nothing is left to watch.
-func (p *PublicProgress) ensureRelayWatch(ctx context.Context) {
+// It returns whether a watch is running (or already was); false means the
+// context is already done and the caller must keep its own safety limit.
+func (p *PublicProgress) ensureRelayWatch(ctx context.Context) bool {
 	if ctx == nil || ctx.Err() != nil {
 		slog.Error("relay watch: not started, engine is stopping; this dispatch has no ten-minute watch", "project", p.project)
-		return
+		return false
 	}
 	if !p.watchOn.CompareAndSwap(false, true) {
-		return
+		return true
 	}
 	go p.runRelayWatch(ctx)
+	return true
 }
 
 // resumeRelayWatch starts the watch loop at engine start when receipts read
@@ -151,6 +158,7 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 	defer r.mu.Unlock()
 	var next time.Time
 	var stop []*taskRelay
+	var wakes []RelayRequest
 	changed := false
 	old := snapshotTaskRelay(r)
 	summary := r.record.Task.LatestProgress
@@ -167,9 +175,10 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 		d := live[r.record.Task.ID+"\x00"+id]
 		changed = true
 		switch {
-		case d == nil: // restart: the run is gone; report once, no nudge, no retry
+		case d == nil: // restart: the run is gone; report and wake once, no nudge, no retry
 			rc.WatchDone = true
 			p.appendEvent(r, TaskEventProgress, relayWatchInterrupted, true)
+			wakes = append(wakes, RelayRequest{From: p.project, To: rc.Target, SessionKey: r.record.Task.SessionKey, TaskID: r.record.Task.ID, RequestID: id})
 		case (rc.LastSeq > rc.WatchSeq || relayMemberProgress(r.record.Task, rc.Target, rc.WatchFrom)) && watchCanRenew(rc.WatchRenewed):
 			rc.WatchRenewed++
 			rc.WatchSeq = rc.LastSeq
@@ -197,6 +206,14 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 		return now.Add(watchRetryDelay)
 	}
 	p.queueTaskRelay(r)
+	for _, req := range wakes {
+		// No live drain survives a restart, so this is the only wake the lead gets.
+		if p.wakeLead == nil {
+			slog.Warn("relay watch: interrupted run has no wake hook", "task_id", req.TaskID, "request_id", req.RequestID)
+			continue
+		}
+		p.wakeLead(req, req.To, "", errRelayWatchInterrupted)
+	}
 	for _, d := range stop {
 		d.stopWatch()
 	}

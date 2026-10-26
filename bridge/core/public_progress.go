@@ -128,6 +128,9 @@ type PublicProgress struct {
 	pending map[string]*publicRun
 	listed  map[string]*publicRun // live tasks and durable requests awaiting a human
 	watchOn atomic.Bool           // the task relay watch loop runs (relay_watch.go)
+	// wakeLead queues a turn in the dispatching session for a background task outcome
+	// (Engine.wakeRelayLead); nil when no engine has enabled public progress.
+	wakeLead func(req RelayRequest, worker, response string, runErr error)
 }
 
 func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicProgress, error) {
@@ -649,6 +652,7 @@ func (e *Engine) EnablePublicProgress() error {
 	}
 	e.publicProgress = p
 	p.resolveReporter = e.resolveTaskReporter
+	p.wakeLead = e.wakeRelayLead
 	p.reporterName = e.taskReporterName
 	p.notBound = e.noteBound
 	p.projectName = e.projectDisplayName
