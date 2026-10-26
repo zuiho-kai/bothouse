@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -543,3 +544,121 @@ func TestReplyWithAt_AtAllUsesAllSegment(t *testing.T) {
 }
 
 var _ core.AtMentionSender = (*Platform)(nil)
+
+// A teammate bot in the same process: another QQ number with its own nickname.
+// Registering it is what lets one bot tell "@队友" from "@我" (team mode).
+type fakeTeammate struct {
+	qq       string
+	nickname string
+}
+
+func registerTeammate(t *testing.T, qq, nickname string) {
+	t.Helper()
+	tp := &Platform{selfID: parseQQ(t, qq), nickname: nickname}
+	teamPlatforms.Store(qq, tp)
+	t.Cleanup(func() { teamPlatforms.Delete(qq) })
+}
+
+func parseQQ(t *testing.T, qq string) int64 {
+	t.Helper()
+	id, err := strconv.ParseInt(qq, 10, 64)
+	if err != nil {
+		t.Fatalf("bad qq %q: %v", qq, err)
+	}
+	return id
+}
+
+// @ another bot of this process: not this bot's call, and marked AddressedOther
+// so a no-gate lead leaves the message to that teammate (core/team.go).
+func TestGroupAtTeammate_SetsAddressedOther(t *testing.T) {
+	f := newFakeOneBot(t)
+	_, msgs := startTestPlatform(t, f)
+	registerTeammate(t, "2002", "小助手")
+
+	f.push(groupMessage(111, 1001, 1, atSegment("2002"), textSegment(" 你看一下")))
+	msg := awaitMessage(t, msgs)
+
+	if msg.Mentioned {
+		t.Error("Mentioned = true, want false: the @ named a teammate, not this bot")
+	}
+	if !msg.AddressedOther {
+		t.Error("AddressedOther = false, want true: the @ named a teammate")
+	}
+	if msg.Content != "@小助手 你看一下" {
+		t.Errorf("Content = %q, want the teammate's @ kept as text", msg.Content)
+	}
+}
+
+// A name at a line start calls the teammate just like an @ does (same rule
+// platform/discord uses for its teammates).
+func TestGroupNamesTeammate_SetsAddressedOther(t *testing.T) {
+	f := newFakeOneBot(t)
+	_, msgs := startTestPlatform(t, f)
+	registerTeammate(t, "2002", "小助手")
+
+	f.push(groupMessage(111, 1001, 1, textSegment("小助手 你看一下")))
+	msg := awaitMessage(t, msgs)
+
+	if !msg.AddressedOther {
+		t.Error("AddressedOther = false, want true: the text called a teammate by name")
+	}
+	if msg.Mentioned {
+		t.Error("Mentioned = true, want false")
+	}
+}
+
+// @ a person who is not a bot: neither this bot's call nor another bot's.
+func TestGroupAtOutsider_NotAddressedOther(t *testing.T) {
+	f := newFakeOneBot(t)
+	_, msgs := startTestPlatform(t, f)
+
+	f.push(groupMessage(111, 1001, 1, atSegment("3003"), textSegment(" 你看一下")))
+	msg := awaitMessage(t, msgs)
+
+	if msg.AddressedOther {
+		t.Error("AddressedOther = true, want false: an ordinary person is not a team bot")
+	}
+	if msg.Mentioned {
+		t.Error("Mentioned = true, want false")
+	}
+}
+
+// Both this bot and a teammate @-ed: this bot was called, so Mentioned wins and
+// the lead answers rather than handing the message to the teammate.
+func TestGroupAtBoth_SetsMentionedNotAddressedOther(t *testing.T) {
+	f := newFakeOneBot(t)
+	_, msgs := startTestPlatform(t, f)
+	registerTeammate(t, "2002", "小助手")
+
+	f.push(groupMessage(111, 1001, 1,
+		atSegment("2002"), atSegment(strconv.FormatInt(botUserID, 10)), textSegment(" 你们看看")))
+	msg := awaitMessage(t, msgs)
+
+	if !msg.Mentioned {
+		t.Error("Mentioned = false, want true: the bot itself was @-ed")
+	}
+	if msg.AddressedOther {
+		t.Error("AddressedOther = true, want false: Mentioned already decides the recipient")
+	}
+}
+
+// The CQ-string shape sees teammates the same way.
+func TestGroupAtTeammate_CQString(t *testing.T) {
+	f := newFakeOneBot(t)
+	_, msgs := startTestPlatform(t, f)
+	registerTeammate(t, "2002", "小助手")
+
+	payload := groupMessage(111, 1001, 1)
+	delete(payload, "message")
+	payload["message"] = "[CQ:at,qq=2002,name=小助手] 你看一下"
+	payload["raw_message"] = "[CQ:at,qq=2002,name=小助手] 你看一下"
+	f.push(payload)
+	msg := awaitMessage(t, msgs)
+
+	if !msg.AddressedOther {
+		t.Error("AddressedOther = false, want true: the CQ @ named a teammate")
+	}
+	if msg.Mentioned {
+		t.Error("Mentioned = true, want false")
+	}
+}

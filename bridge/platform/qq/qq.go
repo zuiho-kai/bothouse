@@ -48,7 +48,14 @@ type Platform struct {
 	// carries only that ID, so without this the model sees "继续" with no idea
 	// what it continues (core.Message.ExtraContent).
 	quoteCache sync.Map // message ID string -> quoteEntry
+
+	nickname string // login nickname, for "@名字" of a teammate (team mode)
 }
+
+// teamPlatforms: QQ number → *Platform for every QQ bot in this process, so a
+// bot can tell "@另一个机器人" from "@我" (core.Message.AddressedOther). Same
+// registry platform/discord keeps for its teammates.
+var teamPlatforms sync.Map
 
 // quoteEntry is one message kept for reply quoting.
 type quoteEntry struct {
@@ -131,6 +138,10 @@ func (p *Platform) Start(handler core.MessageHandler) error {
 			p.selfID = uid
 		}
 		nick, _ := info["nickname"].(string)
+		p.nickname = nick
+		if p.selfID != 0 {
+			teamPlatforms.Store(p.selfID, p) // lets addressedOther find teammates
+		}
 		slog.Info("qq: logged in", "qq", p.selfID, "nickname", nick)
 	} else {
 		slog.Warn("qq: get_login_info failed; self-message filter disabled until next reconnect", "error", err)
@@ -303,21 +314,28 @@ func (p *Platform) handleMessage(payload map[string]any) {
 		channelKey = strconv.FormatInt(userID, 10)
 	}
 
+	// AddressedOther: an @ or a name at a line start pointed at a teammate bot,
+	// so a no-gate lead leaves the message to that teammate (core/team.go
+	// suppressUnaddressedGroup). Never true for a message that also calls this
+	// bot: Mentioned already decides that case.
+	addressedOther := !mentioned && (parsed.other || p.addressedOther(content))
+
 	msg := &core.Message{
-		SessionKey: sessionKey,
-		Platform:   "qq",
-		MessageID:  strconv.FormatInt(messageID, 10),
-		UserID:     strconv.FormatInt(userID, 10),
-		UserName:   userName,
-		ChatName:   chatName,
-		ChannelKey: channelKey,
-		Content:    content,
-		Images:     parsed.images,
-		Files:      parsed.files,
-		Audio:      parsed.audio,
-		ReplyCtx:   rctx,
-		Mentioned:  mentioned,
-		Direct:     msgType != "group",
+		SessionKey:     sessionKey,
+		Platform:       "qq",
+		MessageID:      strconv.FormatInt(messageID, 10),
+		UserID:         strconv.FormatInt(userID, 10),
+		UserName:       userName,
+		ChatName:       chatName,
+		ChannelKey:     channelKey,
+		Content:        content,
+		Images:         parsed.images,
+		Files:          parsed.files,
+		Audio:          parsed.audio,
+		ReplyCtx:       rctx,
+		Mentioned:      mentioned,
+		AddressedOther: addressedOther,
+		Direct:         msgType != "group",
 	}
 	if len(quoted) > 0 {
 		msg.ExtraContent = "[引用消息]\n" + strings.Join(quoted, "\n")
@@ -334,6 +352,7 @@ type parsedMessage struct {
 	files     []core.FileAttachment
 	audio     *core.AudioAttachment
 	mentioned bool   // an "at" segment addressed this bot
+	other     bool   // an "at" segment named a teammate bot, not this one
 	replyTo   string // message ID of the "reply" segment, empty when not a reply
 }
 
@@ -507,15 +526,22 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 				// The bot's own @ is the call itself (Message.Mentioned), so it
 				// must not reach the model as text. Someone else's stays in the
 				// text: the model needs to know who was addressed.
-				if qq, _ := data["qq"].(string); qq == strconv.FormatInt(p.selfID, 10) {
+				qq, _ := data["qq"].(string)
+				if qq == strconv.FormatInt(p.selfID, 10) {
 					out.mentioned = true
 					continue
+				}
+				if p.isTeammate(qq) {
+					out.other = true
 				}
 				// OneBot puts the separating space in the following text
 				// segment ("[CQ:at,qq=2] 你看一下"), so none is added here.
 				name, _ := data["name"].(string)
 				if name == "" {
-					name, _ = data["qq"].(string)
+					name = p.teammateName(qq)
+				}
+				if name == "" {
+					name = qq
 				}
 				textParts = append(textParts, "@"+name)
 			case "reply":
@@ -529,7 +555,7 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 		if raw == "" {
 			raw, _ = payload["raw_message"].(string)
 		}
-		out.mentioned = p.parseCQString(raw, &textParts)
+		out.mentioned, out.other = p.parseCQString(raw, &textParts)
 	}
 
 	out.text = strings.TrimSpace(strings.Join(textParts, ""))
@@ -537,10 +563,9 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 }
 
 // parseCQString splits a raw CQ-string message ("[CQ:at,qq=10000] 你好") into
-// text, reporting whether one of the at codes is this bot. Used when the
-// OneBot side sends message_format=string instead of a segment array.
-func (p *Platform) parseCQString(raw string, textParts *[]string) bool {
-	mentioned := false
+// text, reporting whether an at code names this bot or a teammate. Used when
+// the OneBot side sends message_format=string instead of a segment array.
+func (p *Platform) parseCQString(raw string, textParts *[]string) (mentioned, other bool) {
 	for len(raw) > 0 {
 		idx := strings.Index(raw, "[CQ:")
 		if idx < 0 {
@@ -562,7 +587,13 @@ func (p *Platform) parseCQString(raw string, textParts *[]string) bool {
 				mentioned = true
 				continue
 			}
+			if p.isTeammate(params["qq"]) {
+				other = true
+			}
 			name := params["name"]
+			if name == "" {
+				name = p.teammateName(params["qq"])
+			}
 			if name == "" {
 				name = params["qq"]
 			}
@@ -573,7 +604,69 @@ func (p *Platform) parseCQString(raw string, textParts *[]string) bool {
 			// covers the quote for that shape.
 		}
 	}
-	return mentioned
+	return mentioned, other
+}
+
+// teammateName returns a teammate bot's nickname for a QQ number, or "" when the
+// number is not a bot of this process. OneBot omits "name" on an at segment in
+// some builds, and "@2002" reads worse to the model than "@小助手".
+func (p *Platform) teammateName(qq string) string {
+	v, ok := teamPlatforms.Load(qq)
+	if !ok {
+		return ""
+	}
+	tp, _ := v.(*Platform)
+	if tp == nil || tp == p {
+		return ""
+	}
+	return tp.nickname
+}
+
+// isTeammate reports whether a QQ number belongs to another bot of this process,
+// so "@队友" can be told from "@我" and from "@一个普通人".
+func (p *Platform) isTeammate(qq string) bool {
+	if qq == "" {
+		return false
+	}
+	v, ok := teamPlatforms.Load(qq)
+	if !ok {
+		return false
+	}
+	tp, _ := v.(*Platform)
+	return tp != nil && tp != p
+}
+
+// addressedOther reports whether the text @-s or names (at a line start) another
+// QQ bot of this process rather than this one, so a no-gate lead leaves the
+// message to that teammate (core.Message.AddressedOther).
+func (p *Platform) addressedOther(content string) bool {
+	other := false
+	teamPlatforms.Range(func(k, v any) bool {
+		tp, _ := v.(*Platform)
+		if tp == nil || tp == p || tp.nickname == "" {
+			return true
+		}
+		if core.NameCalled(content, tp.nickname, p.teamBotNames()...) {
+			other = true
+			return false
+		}
+		return true
+	})
+	return other
+}
+
+// teamBotNames lists the nicknames of the other QQ bots in this process, so a
+// line opening "龙娘、橘，…" is read as calling both.
+func (p *Platform) teamBotNames() []string {
+	var names []string
+	teamPlatforms.Range(func(k, v any) bool {
+		tp, _ := v.(*Platform)
+		if tp != nil && tp != p && tp.nickname != "" {
+			names = append(names, tp.nickname)
+		}
+		return true
+	})
+	return names
 }
 
 // parseCQParams reads the "key=value" parameters of one CQ code.

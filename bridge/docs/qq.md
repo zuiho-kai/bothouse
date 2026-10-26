@@ -103,6 +103,24 @@ In a group, @-mentioning the bot or **replying to one of its messages** counts a
 
 Several roles (QQ accounts) can run on the same platform together with `share_session_in_channel`. Group messages that @ nobody are background only; whoever was @-ed or quoted answers.
 
+判断"点的是谁"有两条路：
+
+1. **@ 段**：@ 的是本机器人 → 叫到它；@ 的是同进程里另一个 QQ 号 → 交给那个机器人，本机器人不抢。
+2. **按名字**：行首写"小助手 你看一下"（和 @ 一样能点名），同 Discord 的规则。
+
+两个都要求同一个进程里跑着这些角色：`qq` 平台在登录后按 QQ 号登记自己，互相才认得出来。
+
+Two things decide who was called:
+
+1. **An at segment**: this bot → it answers; another QQ account of this process → that bot answers, this one stays out.
+2. **A name at a line start** ("小助手 你看一下"), the same rule Discord uses.
+
+Both need the roles to run in one process: each `qq` platform registers itself by QQ number after login, which is how they recognise each other.
+
+> 任务板、进度卡、副任务表这些大卡片只有 Discord 支持。QQ 上相应的内容会退化成纯文本消息，功能不受影响，只是没有卡片。
+>
+> Task boards, progress cards and the sub-task table are Discord-only. On QQ the same content degrades to plain text messages: nothing breaks, there is just no card.
+
 ## 支持的消息类型 / Supported Message Types
 
 | 类型 / Type | 接收 / Receive | 发送 / Send |
