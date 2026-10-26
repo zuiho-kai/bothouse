@@ -25,7 +25,7 @@ def setUpModule():
     _SAVED["env"] = dict(os.environ)
     _SAVED["dir"] = board.DIR
     os.environ["BOARD_DIR"] = TMP
-    for k in ("CC_SESSION_KEY", "BOARD_AUTO_PRUNE", "BOARD_PRUNE_IDLE_HOURS", "FAKE_GH_OUT"):
+    for k in ("CC_SESSION_KEY", "FAKE_GH_OUT"):
         os.environ.pop(k, None)
     os.environ["BOARD_PR_REPO"] = "zuiho-kai/bothouse"
     os.environ["CC_BIN"] = "false"
@@ -77,7 +77,6 @@ class Replay(unittest.TestCase):
             f.unlink()
         board._write(BOARD)
         os.environ["FAKE_GH_OUT"] = json.dumps(GH_DATA)
-        os.environ.pop("BOARD_PRUNE_IDLE_HOURS", None)
         GH_LOG.unlink(missing_ok=True)
 
     def show(self, title, got):
@@ -94,13 +93,13 @@ class Replay(unittest.TestCase):
         self.assertEqual(got[557], "已并入 #597")
 
     def test_replay_8h(self):
-        os.environ["BOARD_PRUNE_IDLE_HOURS"] = "8"
+        board.set_prune_conf(idle_hours=8)
         got = picks()
         self.show("8 小时", got)
         self.assertEqual(set(got), set(SAMPLES) - PAUSED_JUST_NOW)  # 收 6 条；6 条保护项（含闲 13 小时的主线 #589）不收
 
     def test_prune_and_resume_back(self):
-        os.environ["BOARD_PRUNE_IDLE_HOURS"] = "8"
+        board.set_prune_conf(idle_hours=8)
         out = board.auto_prune(now=NOW)
         ids = {i["id"] for i, _ in out}
         self.assertEqual(ids, set(SAMPLES) - PAUSED_JUST_NOW)
@@ -155,12 +154,30 @@ class Replay(unittest.TestCase):
         self.assertFalse(board._waiting_user({"pause_why": "等显卡"}))
 
     def test_switch_off(self):
-        os.environ["BOARD_AUTO_PRUNE"] = "0"
-        try:
-            self.assertEqual(board.auto_prune(now=NOW), [])
-            self.assertEqual(len(board._read()), len(BOARD))
-        finally:
-            os.environ.pop("BOARD_AUTO_PRUNE")
+        board.set_prune_conf(on=False)
+        self.assertEqual(board.auto_prune(now=NOW), [])
+        self.assertEqual(len(board._read()), len(BOARD))
+        board.set_prune_conf(on=True)
+        self.assertEqual({i["id"] for i, _ in board.auto_prune(now=NOW)}, {467, 557, 574, 575})
+
+    def test_conf_missing_and_broken(self):
+        """文件没有 = 开、默认门槛；文件坏了 = 不收并警告（宁可少收）；--on 从默认重写。"""
+        default = {"on": True, "idle_hours": board.PRUNE_IDLE_DEFAULT_H}
+        self.assertEqual(board.prune_conf(), default)
+        for bad in ("", "{bad", "[]", "null", '{"on": 0}', '{"on": "0"}', '{"idle_hours": -1}'):
+            Path(TMP, board.PRUNE_CONF).write_text(bad)
+            self.assertFalse(board.prune_on(), bad)
+            self.assertEqual(board.auto_prune(now=NOW), [], bad)
+        self.assertEqual(board.set_prune_conf(on=True), default)
+
+    def test_unpruned_not_repruned_by_pr_or_merge(self):
+        """找回后（resume 被拒、仍暂停）按①② 也不马上再收；重新暂停后照常判（二审第 5 条）。"""
+        board.auto_prune(now=NOW)
+        for n in (467, 557):  # ① PR 已合、② 已并入 #597
+            self.assertIsNotNone(board.unprune(n))
+        self.assertFalse({467, 557} & {i["id"] for i, _ in board.auto_prune(now=NOW)})
+        board.pause(557, "已并入主线#597")
+        self.assertIn(557, {i["id"] for i, _ in board.auto_prune(now=NOW)})
 
     def test_just_paused_with_old_progress_kept(self):
         """暂停前很久没汇报（progress_at 旧）、刚暂停的不收：闲置从暂停时刻算（审查第 1 条）。"""
@@ -172,7 +189,7 @@ class Replay(unittest.TestCase):
 
     def test_rejudge_inside_lock(self):
         """查 gh 期间有人把暂停原因改成等用户：进锁后重判，不按旧原因收（审查第 3 条）。"""
-        os.environ["BOARD_PRUNE_IDLE_HOURS"] = "8"
+        board.set_prune_conf(idle_hours=8)
         real = board.pr_final
 
         def slow_gh(*a, **kw):
@@ -191,7 +208,7 @@ class Replay(unittest.TestCase):
 
     def test_resume_refused_not_pruned_again(self):
         """找回后（resume 接着被拒、条目还暂停着）下一条命令不按③马上又收（审查第 4 条）。"""
-        os.environ["BOARD_PRUNE_IDLE_HOURS"] = "8"
+        board.set_prune_conf(idle_hours=8)
         board.auto_prune(now=NOW)
         self.assertIsNotNone(board.unprune(341))
         it = next(i for i in board._read() if i["id"] == 341)
@@ -200,7 +217,7 @@ class Replay(unittest.TestCase):
 
     def test_every_command_prunes_without_gh(self):
         """每个 board 命令顺带收（不查 gh）；这次要操作的编号先不收。"""
-        os.environ["BOARD_PRUNE_IDLE_HOURS"] = "0.001"
+        board.set_prune_conf(idle_hours=0.001)
         board.main(["update", "341", "接着做"])  # 341 被改：不收；别的闲着的收
         left = {i["id"] for i in board._read()}
         self.assertIn(341, left)
@@ -222,7 +239,6 @@ class Timers(unittest.TestCase):
 
     def tearDown(self):
         os.environ["CC_BIN"] = "false"
-        os.environ.pop("BOARD_PRUNE_IDLE_HOURS", None)
 
     def calls(self):
         return [json.loads(x) for x in self.log.read_text().splitlines()]
@@ -243,9 +259,8 @@ class Timers(unittest.TestCase):
             cmd = c[c.index("--exec") + 1]
             self.assertTrue(cmd.endswith("board.py refresh"), cmd)
             self.assertIn(f"BOARD_DIR={TMP}", cmd)
-            self.assertIn("BOARD_TIMER=1", cmd)
             self.assertIn("BOARD_PR_REPO=zuiho-kai/bothouse", cmd)
-        os.environ["BOARD_PRUNE_IDLE_HOURS"] = "2"
+        board.set_prune_conf(idle_hours=2)
         self.log.write_text("")
         board.main(["resume", "1"]); board.main(["pause", "1"])
         self.assertEqual([c[c.index("--delay") + 1] for c in self.calls() if c[:2] == ["timer", "add"]], ["121m"])
@@ -255,38 +270,43 @@ class Timers(unittest.TestCase):
                        "paused": "10-26 01:00", "pause_why": "主线外暂停"},
                       {"id": 2, "what": "b", "where": "-", "status": "s", "who": "橘", "at": "10-26 01:00",
                        "paused": "10-26 01:00", "pause_why": "等用户[方向]"}])
-        os.environ["BOARD_PRUNE_IDLE_HOURS"] = "0.001"
+        board.set_prune_conf(idle_hours=0.001)
         r = subprocess.run([sys.executable, str(HERE / "board.py"), "refresh"], capture_output=True, text=True,
                            env={**os.environ, "FAKE_GH_OUT": ""})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("自动收起 #1", r.stderr)
         self.assertEqual([i["id"] for i in board._read()], [2])
 
-    def test_timer_reads_role_switch_and_hours(self):
-        """定时由桥用自己的环境跑（BOARD_TIMER=1）：读角色侧记下的开关和门槛，不看自己的环境（审查第 2 条）。"""
-        p = time.strftime("%m-%d %H:%M", time.localtime(time.time() - 3 * 86400))  # 暂停 3 天：桥默认 24 小时会收
-        item = [{"id": 1, "what": "a", "where": "-", "status": "s", "who": "橘", "at": p, "paused": p, "pause_why": "主线外暂停"}]
+    def test_board_level_switch(self):
+        """开关是板子级的（二审必修 1）：A 角色 board prune --off 后，B 角色（没有任何相关环境变量）跑 board ls、
+        桥跑定时 refresh 都不收；--on 后恢复。门槛同样只认 --idle。"""
+        p = time.strftime("%m-%d %H:%M", time.localtime(time.time() - 3 * 86400))  # 暂停 3 天：默认门槛会收
+        item = [{"id": 1, "what": "a", "where": "-", "status": "s", "who": "工作区1橘", "at": p, "paused": p, "pause_why": "主线外暂停"}]
         board._write(item)
-        bridge_env = {k: v for k, v in os.environ.items() if k not in ("BOARD_AUTO_PRUNE", "BOARD_PRUNE_IDLE_HOURS")}
+        base = {k: v for k, v in os.environ.items() if not k.startswith("BOARD_")}
+        base["BOARD_DIR"] = TMP
 
-        def role(**env):
-            subprocess.run([sys.executable, str(HERE / "board.py")], capture_output=True, text=True,
-                           env={**bridge_env, "BOARD_AUTO_PRUNE": "0", **env})
+        def run(*args, **env):
+            return subprocess.run([sys.executable, str(HERE / "board.py"), *args], capture_output=True, text=True,
+                                  env={**base, "FAKE_GH_OUT": "", **env})
 
-        def timer():
-            return subprocess.run([sys.executable, str(HERE / "board.py"), "refresh"], capture_output=True, text=True,
-                                  env={**bridge_env, "BOARD_TIMER": "1", "FAKE_GH_OUT": ""})
-        role(BOARD_AUTO_PRUNE="0")  # 角色侧关掉开关
-        timer()
+        r = run("prune", "--off", BOARD_PR_REPO="a/b")  # A 角色
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("关", r.stdout)
+        run("ls")  # B 角色
+        run("refresh")  # 桥跑的定时
+        run("prune")
         self.assertEqual([i["id"] for i in board._read()], [1])
-        role(BOARD_AUTO_PRUNE="1", BOARD_PRUNE_IDLE_HOURS="100000")  # 开着，门槛设得很高
-        timer()
+        run("prune", "--on")
+        run("prune", "--idle", "100000h")  # 开着，门槛远大于暂停时长：也不收
+        run("ls")
+        run("refresh")
         self.assertEqual([i["id"] for i in board._read()], [1])
-        role(BOARD_AUTO_PRUNE="1", BOARD_PRUNE_IDLE_HOURS="0.001")  # 角色侧这条命令自己也会收，收完再放回去给定时收
-        board._write(item)
-        r = timer()
+        run("prune", "--idle", str(board.PRUNE_IDLE_DEFAULT_H))
+        r = run("refresh")
         self.assertIn("自动收起 #1", r.stderr)
         self.assertEqual(board._read(), [])
+        self.assertNotEqual(run("prune", "--idle", "0").returncode, 0)
 
     def test_no_sk_no_timer(self):
         board.add("顺手", "-", "s", "橘")

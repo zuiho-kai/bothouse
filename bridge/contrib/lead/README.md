@@ -56,7 +56,9 @@
   `../gate/ctxsvc.py` 把整张板附进每个 bot 每轮的上下文（板子变了才重推，没用过任务板不附）。
   板子不自己发置顶卡、不读平台 token：桥的原生团队板读同一个 `board.jsonl`，在条目所在频道的团队板里出一节「任务板」
   （四平台通用；`BOARD_DIR` 要和 `team_status_dir` 是同一个目录，产品默认都是 `<数据目录>/team`）。
-  暂停条目自动收起：`BOARD_AUTO_PRUNE=0` 关闭自动收起（默认开）；`BOARD_PRUNE_IDLE_HOURS` 是闲置门槛小时数（默认 24）。两个开关在角色环境里设；board 每次运行把生效值记进 `<BOARD_DIR>/board-prune.json`，桥跑的定时检查读这个文件。
+  暂停条目自动收起：开关和闲置门槛是整块板子的设定（共用这块板的所有角色和桥跑的定时检查都按它），只存 `<BOARD_DIR>/board-prune.json`，
+  只由 `board prune --off`（关）、`board prune --on`（开）、`board prune --idle <小时>`（改闲置门槛）写，三条都打印当前设定；不读环境变量。
+  文件没有 = 开、门槛 24 小时；文件坏了 = 不自动收起，并在 stderr 警告一行，跑 `--on` 或 `--idle` 从默认重写。
   `board prune [--dry-run]` 手动收一次（`--dry-run` 只列出不写），其他 board 命令也会顺带收；收起的条目进完成记录，`board resume <编号>` 可找回。
 - `later <任务板编号> <延时如 10m> "<到点要做什么>"`：挂 `cc-connect timer`，并在任务板上这条已有条目记「下次看 几点」（只改「下次看」，
   不新建回看条目），用户在团队板上看得见。所有角色（主和次）都能用：没有条目先 `board add` 正经条目；会话按 `CC_SESSION_KEY`、
