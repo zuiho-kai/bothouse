@@ -2879,15 +2879,18 @@ func (e *Engine) Stop() error {
 	}
 	e.interactiveMu.Unlock()
 
+	sessions := make(map[string]AgentSession, len(states))
 	for key, state := range states {
 		state.mu.Lock()
 		as := state.agentSession
 		state.mu.Unlock()
 		if as != nil {
-			slog.Debug("engine.Stop: closing agent session", "session", key)
-			as.Close()
+			sessions[key] = as
 		}
 	}
+	// Close in parallel under one budget; stragglers get their process group
+	// SIGKILLed so no agent survives the bridge (#618 K3).
+	closeSessionsWithBudget(sessions, engineStopCloseBudget)
 
 	if e.rateLimiter != nil {
 		e.rateLimiter.Stop()

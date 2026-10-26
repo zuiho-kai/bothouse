@@ -1509,6 +1509,16 @@ func (cs *claudeSession) Close() error {
 	return nil
 }
 
+var _ core.AgentSessionForceKiller = (*claudeSession)(nil)
+
+// ForceKill SIGKILLs the session's whole process group right away (maomao
+// fork #618 K3). Engine.Stop calls it when Close runs past the shutdown
+// budget, so claude and its MCP children never outlive the bridge.
+func (cs *claudeSession) ForceKill() error {
+	cs.cancel()
+	return forceKillCmd(cs.cmd)
+}
+
 // shellJoinArgs joins args into a single string, quoting any arg that
 // contains whitespace so that a shell-style splitter (like my_cli's
 // splitCommandLine) preserves each arg as one token.
