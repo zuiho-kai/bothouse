@@ -3587,6 +3587,7 @@ func SaveProjectSettings(projectName string, update ProjectSettingsUpdate) error
 			continue
 		}
 		proj := &cfg.Projects[i]
+		oldName := proj.TeamName
 		if update.DisplayName != nil {
 			proj.TeamName = strings.TrimSpace(*update.DisplayName)
 		}
@@ -3595,32 +3596,33 @@ func SaveProjectSettings(projectName string, update ProjectSettingsUpdate) error
 		}
 		if update.AgentType != nil && *update.AgentType != proj.Agent.Type {
 			newType := *update.AgentType
-			if proj.NameCustomized != nil {
-				if !*proj.NameCustomized && update.DisplayName == nil {
-					taken := []string{}
-					for _, other := range cfg.Projects {
-						if other.Name != projectName {
-							n := other.TeamName
-							if n == "" {
-								n = other.Name
-							}
-							taken = append(taken, n)
+			if proj.NameCustomized != nil && !*proj.NameCustomized && update.DisplayName == nil {
+				taken := []string{}
+				for _, other := range cfg.Projects {
+					if other.Name != projectName {
+						n := other.TeamName
+						if n == "" {
+							n = other.Name
 						}
+						taken = append(taken, n)
 					}
-					proj.TeamName = core.NextRoleName(core.AgentDisplayName(newType), taken)
 				}
-				wd, _ := proj.Agent.Options["work_dir"].(string)
-				if wd != "" {
-					from, to := core.PersonaFilePath(proj.Agent.Type, wd), core.PersonaFilePath(newType, wd)
-					if from != to {
-						content, err := os.ReadFile(from)
-						if err != nil && !os.IsNotExist(err) {
-							return fmt.Errorf("read role instructions: %w", err)
+				proj.TeamName = core.NextRoleName(core.AgentDisplayName(newType), taken)
+			}
+			wd, _ := proj.Agent.Options["work_dir"].(string)
+			if wd != "" {
+				from, to := core.PersonaFilePath(proj.Agent.Type, wd), core.PersonaFilePath(newType, wd)
+				if from != to {
+					content, err := os.ReadFile(from)
+					if err != nil && !os.IsNotExist(err) {
+						return fmt.Errorf("read role instructions: %w", err)
+					}
+					if err == nil {
+						if oldName != "" && oldName != proj.TeamName {
+							content = []byte(core.RenamePersonaIdentity(string(content), oldName, proj.TeamName))
 						}
-						if err == nil {
-							if err := core.AtomicWriteFile(to, content, 0o644); err != nil {
-								return fmt.Errorf("preserve role instructions: %w", err)
-							}
+						if err := core.AtomicWriteFile(to, content, 0o644); err != nil {
+							return fmt.Errorf("preserve role instructions: %w", err)
 						}
 					}
 				}
