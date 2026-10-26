@@ -1272,6 +1272,7 @@
   padding: 8px;
   border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-layer-2);
-  white-space: pre-wrap;
+  /* Log text keeps its newlines; it is not markdown. */
+  white-space: pre;
   word-break: break-all;
 }
