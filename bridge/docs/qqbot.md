@@ -92,6 +92,10 @@ Now you can @mention the bot in group chats or send private messages!
 
 In group chats, the bot **only receives messages when @mentioned**. This is a limitation of the official QQ Bot API.
 
+因为进到机器人的每条群消息本来就是点了名的，适配器把它标成 `Message.Mentioned`，团队模式下不会被当旁听消息丢掉 —— 也就是说 QQ 官方 Bot 的群天然是「只回答被叫到的」。
+
+Because every group message that reaches the bot already @-ed it, the adapter marks it `Message.Mentioned`, so team mode does not drop it as background chatter — a QQ official-bot group is inherently "only answer when called".
+
 每个用户在每个群中拥有独立的会话。
 Each user gets an independent session per group.
 
@@ -100,6 +104,9 @@ Each user gets an independent session per group.
 支持一对一私聊消息，无需 @提及。
 One-on-one private messages are supported without @mention.
 
+私聊消息标成 `Message.Direct`，`core/gate_local.go` 的内置忙碌规则据此认得出这是一个 DM。
+Private messages carry `Message.Direct`, which is how `core/gate_local.go`'s built-in busy rule knows it is a DM.
+
 ## 支持的消息类型 / Supported Message Types
 
 | 类型 / Type | 接收 / Receive | 发送 / Send |
@@ -107,7 +114,17 @@ One-on-one private messages are supported without @mention.
 | 文字 / Text | ✅ | ✅ |
 | 图片 / Image | ✅ | ❌ |
 | 语音 / Voice | ❌ | ❌ |
-| @提及 / @mention | ✅ (自动剥离) | — |
+| @提及 / @mention | ✅ (自动剥离) | ❌（见下）/ not supported (see below) |
+
+### 为什么发不出 @ / Why the bot cannot @ people
+
+官方 API 只给机器人 **openid**，不给用户的真实 QQ 号，也不给昵称（`platform/qqbot/qqbot.go`：`UserName` 和 `ChatName` 都只能用 openid）。发 @ 需要知道被 @ 对象的 ID，而这个机器人根本拿不到它——消息里能看到的只有说话人自己的 openid。
+
+The official API gives a bot **openid**s only: no real QQ numbers, no nicknames (`platform/qqbot/qqbot.go` uses the openid for both `UserName` and `ChatName`). Sending an @ needs the target's id, which the bot never learns — a message only carries the sender's own openid.
+
+所以 `qqbot` 没有实现 `core.AtMentionSender`。引擎在被要求 @ 而又没这个能力时，会**静默退回普通发送**（`core/engine.go` 的 `sendOutbound` 分支），不报错，只是消息上没有 @。如果哪天官方开放了群成员 openid 列表，`ReplyWithAt` 才有依据可写。
+
+So `qqbot` does not implement `core.AtMentionSender`. When an @ is asked for and the platform lacks it, the engine **silently falls back to a plain send** (`core/engine.go`, `sendOutbound`): no error, the message just has no @. A `ReplyWithAt` becomes writable only if the platform ever exposes a group member openid list.
 
 ## 常见问题 / FAQ
 
