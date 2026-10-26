@@ -217,7 +217,7 @@ func TestRelayWatchPromptNamesTheWatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	prompt := d.prompt()
-	if !strings.Contains(prompt, "every few minutes") || !strings.Contains(prompt, "ten minutes") || !strings.Contains(prompt, "one reminder") || !strings.Contains(prompt, "stopped") {
+	if !strings.Contains(prompt, "every few minutes") || !strings.Contains(prompt, "ten minutes") || !strings.Contains(prompt, "gets a reminder") || !strings.Contains(prompt, "re-arms") || !strings.Contains(prompt, "stopped") {
 		t.Fatalf("prompt does not tell the worker about the reminder and the watch:\n%s", prompt)
 	}
 }

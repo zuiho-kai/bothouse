@@ -29,7 +29,7 @@ type taskRelayRecord struct {
 	WatchFrom    time.Time `json:"watch_from,omitempty"` // this window began (member row updates after it count)
 	WatchSeq     int64     `json:"watch_seq,omitempty"`  // LastSeq at the last check
 	WatchRenewed int       `json:"watch_renewed,omitempty"`
-	WatchNudged  bool      `json:"watch_nudged,omitempty"` // the one reminder was sent (or attempted); the next quiet check stops
+	WatchNudged  bool      `json:"watch_nudged,omitempty"` // reminder sent (or attempted) for the current quiet window; a progress renewal clears it
 	WatchDone    bool      `json:"watch_done,omitempty"`   // reminded+stopped, or interrupted reported once
 }
 
@@ -40,7 +40,7 @@ type taskRelay struct {
 	name, token string
 	started     time.Time     // when this dispatch was accepted
 	stop        chan struct{} // closed by the watch (stopWatch): close the session now
-	nudge       chan string   // buffered 1: the watch's one reminder for the running turn
+	nudge       chan string   // buffered 1: the watch's reminder for the running turn
 	stopOnce    sync.Once
 }
 
@@ -349,7 +349,7 @@ func (d *taskRelay) prompt() string {
 		command = exe
 	}
 	prefix := shellQuoteRelay(command) + " progress --project " + shellQuoteRelay(d.p.project) + " --session " + shellQuoteRelay(d.req.SessionKey) + " --data-dir " + shellQuoteRelay(d.p.dataDir) + " --run " + d.token
-	return "[Task relay " + d.req.TaskID + "]\nThis assignment belongs to an existing task thread. Do not send public channel messages or @ mentions. For meaningful, deliberately public progress, use the shell tool: " + prefix + " --seq N --kind update --message 'short progress'. Start at --seq 1, increase by one, reuse identical seq/content on delivery retry. milestone/waiting/result are also allowed; do not use start. Progress and your final response go to the task thread; only brief status labels update its card. Report progress with --seq every few minutes (an update on your own row on this card counts too): a run with no progress for ten minutes gets one reminder in this session and one more window; if that window also has no report, it is stopped, its session closed, and the text so far handed back as a partial result. Never include credentials, private reasoning or raw tool logs. Return your result here, do not forward it with send/relay. This token is only for this request and cannot accept or finish the parent task." + d.memberNote() + "\n[/Task relay]\n\n"
+	return "[Task relay " + d.req.TaskID + "]\nThis assignment belongs to an existing task thread. Do not send public channel messages or @ mentions. For meaningful, deliberately public progress, use the shell tool: " + prefix + " --seq N --kind update --message 'short progress'. Start at --seq 1, increase by one, reuse identical seq/content on delivery retry. milestone/waiting/result are also allowed; do not use start. Progress and your final response go to the task thread; only brief status labels update its card. Report progress with --seq every few minutes (an update on your own row on this card counts too): a run with no progress for ten minutes gets a reminder in this session and one more window; if that window also has no report, it is stopped, its session closed, and the text so far handed back as a partial result. Progress renews the watch and re-arms the reminder for the next quiet window. Never include credentials, private reasoning or raw tool logs. Return your result here, do not forward it with send/relay. This token is only for this request and cannot accept or finish the parent task." + d.memberNote() + "\n[/Task relay]\n\n"
 }
 
 // Member rows bound to this target publish under its account; their tokens

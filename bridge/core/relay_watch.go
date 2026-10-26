@@ -13,10 +13,12 @@ import (
 // handed back (status not running), LastSeq grew, or the worker's own member
 // row on the card was updated since the window began; a busy session is not
 // progress (a relay turn is busy until it returns). Cadence and renew limit are
-// team_watch's (watchCheckAfter, watchMaxRenew). At the first quiet check the
-// watch injects one reminder (once per dispatch) into the running turn and
-// grants one more window; only a second quiet check stops the run. A stop closes
-// the worker's session at once (handleTrackedRelay's stop channel), not the relay drain.
+// team_watch's (watchCheckAfter, watchMaxRenew). At the first quiet check of a
+// window the watch injects one reminder into the running turn and grants one
+// more window; only a second consecutive quiet check stops the run. A progress
+// renewal starts a new window and re-arms the reminder, so every quiet stretch
+// gets its own reminder. A stop closes the worker's session at once
+// (handleTrackedRelay's stop channel), not the relay drain.
 // The gate is the receipt alone (running, not yet nudged, run still known),
 // never the card: a relay sent in the background keeps running after the lead's
 // turn closes the card (finishRun), and after the card turns failed/cancelled
@@ -32,8 +34,9 @@ var errRelayWatchStopped = errors.New("十分钟看门停止：提醒后仍没�
 var errRelayWatchInterrupted = errors.New("桥重启，这次派活的执行已中断")
 
 const (
-	// relayWatchReminder is the one reminder injected into the worker's running turn
-	// before the watch grants its last window (taskRelayRecord.WatchNudged).
+	// relayWatchReminder is the reminder injected into the worker's running turn
+	// for one quiet window (taskRelayRecord.WatchNudged); a progress renewal
+	// re-arms it for the next quiet window.
 	relayWatchReminder = "十分钟看门提醒：这一轮到点还没在任务卡上报进展。请按任务说明里的 progress 命令报一条 update，写清进度或卡在哪；下一个检查点仍然没有回报，就会停下这一轮，只交回已做的部分。"
 	// relayWatchStopNote is the card note when the reminder window also passed without a report.
 	relayWatchStopNote    = "十分钟看门：提醒过仍没有回报，这一轮已停下，做到的部分作为部分结果交回；请看结果再决定是否重派。"
@@ -218,6 +221,7 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 			rc.WatchSeq = rc.LastSeq
 			rc.WatchFrom = now
 			rc.WatchDue = now.Add(watchCheckAfter())
+			rc.WatchNudged = false // a new quiet window gets its own reminder
 			if next.IsZero() || rc.WatchDue.Before(next) {
 				next = rc.WatchDue
 			}

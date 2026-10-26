@@ -96,11 +96,14 @@ func TestRelayWatchNoProgressNudgesAndStops(t *testing.T) {
 	}
 }
 
-func TestRelayWatchProgressAfterReminderRenewsThenStops(t *testing.T) {
+// A progress renewal re-arms the reminder: a still quiet window after it gets
+// another reminder instead of an immediate stop. Regression for #496 review.
+func TestRelayWatchProgressAfterReminderNudgesAgainThenStops(t *testing.T) {
 	p, d, now := relayWatchFixture(t)
 	due := now.Add(watchCheckAfter())
 	p.relayWatchTick(due)
-	if !relayWatchReceipt(d).WatchNudged {
+	rc := relayWatchReceipt(d)
+	if !rc.WatchNudged {
 		t.Fatal("no reminder at the first quiet check")
 	}
 	select {
@@ -108,20 +111,34 @@ func TestRelayWatchProgressAfterReminderRenewsThenStops(t *testing.T) {
 	default:
 		t.Fatal("no reminder queued")
 	}
-	reminderDue := relayWatchReceipt(d).WatchDue
+	reminderDue := rc.WatchDue
 	relayWatchReport(t, p, d, 1)
 	next := p.relayWatchTick(reminderDue)
-	if relayWatchStopped(d) != 0 || relayWatchReceipt(d).WatchRenewed != 1 || !next.Equal(reminderDue.Add(watchCheckAfter())) {
-		t.Fatalf("progress in the reminder window did not renew: cancels=%d rc=%+v next=%v", relayWatchStopped(d), relayWatchReceipt(d), next)
+	rc = relayWatchReceipt(d)
+	if relayWatchStopped(d) != 0 || rc.WatchRenewed != 1 || rc.WatchNudged || !next.Equal(reminderDue.Add(watchCheckAfter())) {
+		t.Fatalf("progress in the reminder window did not renew and re-arm: cancels=%d rc=%+v next=%v", relayWatchStopped(d), rc, next)
 	}
+	// The first quiet check of the renewed window must remind again, not stop.
 	p.relayWatchTick(next)
-	if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone {
-		t.Fatalf("quiet window after the reminder did not stop: cancels=%d rc=%+v", relayWatchStopped(d), relayWatchReceipt(d))
+	rc = relayWatchReceipt(d)
+	if relayWatchStopped(d) != 0 || rc.WatchDone || !rc.WatchNudged {
+		t.Fatalf("quiet window after progress did not get another reminder: cancels=%d rc=%+v", relayWatchStopped(d), rc)
 	}
 	select {
 	case extra := <-d.nudge:
-		t.Fatalf("second reminder injected: %q", extra)
+		if !strings.Contains(extra, "回报") {
+			t.Fatalf("second reminder does not ask for progress: %q", extra)
+		}
 	default:
+		t.Fatal("quiet window after progress did not queue a second reminder")
+	}
+	if !strings.Contains(relayWatchLastEvent(d), "十分钟看门提醒") {
+		t.Fatalf("no second nudge in thread: %q", relayWatchLastEvent(d))
+	}
+	// Only the next quiet window after that reminder stops the run.
+	p.relayWatchTick(rc.WatchDue)
+	if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone {
+		t.Fatalf("second reminder window did not stop: cancels=%d rc=%+v", relayWatchStopped(d), relayWatchReceipt(d))
 	}
 }
 
