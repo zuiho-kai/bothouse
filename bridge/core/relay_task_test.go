@@ -380,6 +380,171 @@ func taskRelayFixture(t *testing.T) (*PublicProgress, *progressTestPlatform, str
 	return p, platform, run, id
 }
 
+// A card released at the end of one turn belongs to that turn. The next turn
+// of the same session may dispatch to it again without a manual re-claim.
+func TestTaskRelayReclaimsClosedCardInNextTurn(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	p.finish(run, "result")
+
+	next := p.begin(platform, "discord:room:user", LangChinese, nil)
+	var starts atomic.Int32
+	rm, session := taskRelayManager(t, p, platform, nil, &starts)
+	session.events <- Event{Type: EventResult, Content: "new result"}
+	result, err := rm.Send(context.Background(), taskRelayRequest(id))
+	if err != nil || result.Response != "new result" {
+		t.Fatalf("reclaimed dispatch = %+v, %v", result, err)
+	}
+	if starts.Load() != 1 {
+		t.Fatalf("starts = %d, want 1", starts.Load())
+	}
+	// The reclaimed card is bound to this turn: ending the turn closes it again
+	// instead of leaving a permanently active card.
+	p.finish(next, "result")
+	r := p.records[id]
+	r.mu.Lock()
+	closed := r.record.Closed
+	r.mu.Unlock()
+	if !closed {
+		t.Fatal("reclaimed card stayed open after its new turn ended")
+	}
+}
+
+// When automatic re-claim is not possible the error must name the cause and
+// the command that re-opens the card, not just "task is not active".
+func TestTaskRelayClosedCardErrorNamesReclaimCommand(t *testing.T) {
+	p, _, run, id := taskRelayFixture(t)
+	p.finish(run, "result")
+
+	_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	if err == nil {
+		t.Fatal("closed card accepted without a live turn")
+	}
+	msg := err.Error()
+	for _, want := range []string{id, "earlier turn", "task assign --id " + id} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+}
+
+// A closed, resumable card is reclaimed only by the single live lead turn of
+// its own session; ended cards stay ended and concurrent turns are ambiguous.
+func TestTaskRelayReclaimSafetyBoundaries(t *testing.T) {
+	t.Run("cancelled", func(t *testing.T) {
+		p, platform, run, id := taskRelayFixture(t)
+		p.finish(run, "cancelled")
+		_ = p.begin(platform, "discord:room:user", LangChinese, nil)
+		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+		if err == nil || !strings.Contains(err.Error(), "cancelled") {
+			t.Fatalf("cancelled card error = %v", err)
+		}
+	})
+
+	t.Run("accepted", func(t *testing.T) {
+		p, platform, run, id := taskRelayFixture(t)
+		if _, err := p.Report(PublicProgressRequest{Project: "source", SessionKey: "discord:room:user", Run: run, Seq: 2, Kind: "result", Summary: "done"}); err != nil {
+			t.Fatal(err)
+		}
+		p.finish(run, "result")
+		if _, err := p.Accept(id, "owner"); err != nil {
+			t.Fatal(err)
+		}
+		_ = p.begin(platform, "discord:room:user", LangChinese, nil)
+		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+		if err == nil || !strings.Contains(err.Error(), "accepted") {
+			t.Fatalf("accepted card error = %v", err)
+		}
+	})
+
+	t.Run("ambiguous turns", func(t *testing.T) {
+		p, platform, run, id := taskRelayFixture(t)
+		p.finish(run, "result")
+		_ = p.begin(platform, "discord:room:user", LangChinese, nil)
+		_ = p.begin(platform, "discord:room:user", LangChinese, nil)
+		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+		if err == nil || !strings.Contains(err.Error(), "more than one") {
+			t.Fatalf("ambiguous turn error = %v", err)
+		}
+	})
+
+	t.Run("resume window", func(t *testing.T) {
+		p, platform, run, id := taskRelayFixture(t)
+		p.finish(run, "result")
+		r := p.records[id]
+		r.mu.Lock()
+		r.record.Task.UpdatedAt = time.Now().Add(-cardResumeWindow - time.Hour)
+		r.mu.Unlock()
+		_ = p.begin(platform, "discord:room:user", LangChinese, nil)
+		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+		if err == nil || !strings.Contains(err.Error(), "resume window") {
+			t.Fatalf("expired card error = %v", err)
+		}
+	})
+}
+
+// A dispatch that fails validation after re-attaching the card must leave it
+// closed and unbound, not permanently active for the turn.
+func TestTaskRelayReclaimRollsBackOnReporterFailure(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	p.finish(run, "result")
+	next := p.begin(platform, "discord:room:user", LangChinese, nil)
+	p.resolveReporter = func(project, platformName, session string) (TaskCardPublisher, error) {
+		return nil, errors.New("unbound test reporter")
+	}
+
+	if _, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target"); err == nil {
+		t.Fatal("dispatch with unbound reporter accepted")
+	}
+	r := p.records[id]
+	r.mu.Lock()
+	closed := r.record.Closed
+	r.mu.Unlock()
+	if !closed {
+		t.Fatal("failed dispatch left the reclaimed card open")
+	}
+	p.mu.Lock()
+	_, bound := p.delegations[next]["task:"+id]
+	p.mu.Unlock()
+	if bound {
+		t.Fatal("failed dispatch left the reclaimed card bound to the turn")
+	}
+}
+
+// Automatic cards are not offered for continuation by runStart, but an
+// explicit relay dispatch to one must still re-claim it for the new turn.
+func TestTaskRelayReclaimsFinishedAutomaticCard(t *testing.T) {
+	p, platform, _ := newAutoProgress(t)
+	p.resolveReporter = func(project, platformName, session string) (TaskCardPublisher, error) {
+		if project != "target" || platformName != "discord" || session != "room:one" {
+			return nil, errors.New("unbound test reporter")
+		}
+		return platform, nil
+	}
+	run := autoRun(p, platform, "room:one", "跑一个长任务")
+	p.noteTool(run, "ls")
+	p.noteTool(run, "go test")
+	rec := runRecord(p, run)
+	if !rec.Auto || rec.Task.ID == "" {
+		t.Fatal("automatic card not opened")
+	}
+	id := rec.Task.ID
+	p.finish(run, "result")
+
+	next := p.begin(platform, "room:one", LangChinese, nil)
+	req := RelayRequest{From: "fish", To: "target", SessionKey: "room:one", TaskID: id, RequestID: "auto-reclaim", Message: "assignment"}
+	if _, _, err := p.beginTaskRelay(req, "Target"); err != nil {
+		t.Fatalf("automatic card not re-claimed: %v", err)
+	}
+	p.finish(next, "result")
+	r := p.records[id]
+	r.mu.Lock()
+	closed := r.record.Closed
+	r.mu.Unlock()
+	if !closed {
+		t.Fatal("reclaimed automatic card stayed open after its new turn ended")
+	}
+}
+
 // A bot dispatched twice on one card: the row it finished for the first
 // dispatch must not swallow the second dispatch's reply.
 func TestMemberReportedOnlyCountsThisDispatch(t *testing.T) {

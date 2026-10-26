@@ -135,6 +135,92 @@ func taskRelayLive(r *publicRun) bool {
 	return !r.record.Accepted && !IsTerminalState(r.record.Task.State)
 }
 
+// reclaimClosedTask re-attaches a card released at the end of an earlier turn
+// to the single live lead run of the same session. Caller holds transitionMu
+// and r.mu. The returned undo removes the attachment if the dispatch is not
+// committed; without it a failed validation would leave a permanently active
+// card.
+func (p *PublicProgress) reclaimClosedTask(r *publicRun, session string) (func(), error) {
+	t := r.record.Task
+	switch {
+	case r.record.Accepted:
+		return nil, fmt.Errorf("relay: task %s was already accepted; open a new card with task assign --batch instead", t.ID)
+	case IsTerminalState(t.State):
+		return nil, fmt.Errorf("relay: task %s is %s and cannot accept a new dispatch; open a new card with task assign --batch instead", t.ID, t.State)
+	case !r.record.Closed:
+		if r.stopped != nil && r.stopped() {
+			return nil, fmt.Errorf("relay: task %s is not active: the turn that owns it is stopping; do not redispatch", t.ID)
+		}
+		return nil, fmt.Errorf("relay: task %s is not active in this turn; do not redispatch", t.ID)
+	case !resumableTask(t, r.record.Accepted, time.Now()):
+		return nil, fmt.Errorf("relay: task %s was released by an earlier turn and is outside the %.0fh resume window; open a new card with task assign --batch instead", t.ID, cardResumeWindow.Hours())
+	}
+	token, run, err := p.liveLeadRun(session)
+	if err != nil {
+		return nil, fmt.Errorf("relay: task %s was released when an earlier turn of session %s ended, but automatic re-claim is not possible: %w. Re-claim it explicitly with task assign --id %s using the current turn's --run (plus --member/--name/--title), then retry", t.ID, session, err, t.ID)
+	}
+	oldClosed, oldStopped := r.record.Closed, r.stopped
+	r.record.Closed = false
+	r.stopped = run.stopped
+	key := "task:" + t.ID
+	p.mu.Lock()
+	if p.delegations == nil {
+		p.delegations = map[string]map[string]*publicRun{}
+	}
+	if p.delegations[token] == nil {
+		p.delegations[token] = map[string]*publicRun{}
+	}
+	p.delegations[token][key] = r
+	p.indexRun(r)
+	p.mu.Unlock()
+	return func() {
+		r.record.Closed = oldClosed
+		r.stopped = oldStopped
+		p.mu.Lock()
+		if p.delegations[token] != nil && p.delegations[token][key] == r {
+			delete(p.delegations[token], key)
+			if len(p.delegations[token]) == 0 {
+				delete(p.delegations, token)
+			}
+		}
+		p.mu.Unlock()
+	}, nil
+}
+
+// liveLeadRun returns the one live main-bot run of a session. Two live turns
+// are ambiguous: the bridge cannot know which one the caller means, and
+// guessing would attach the card to a turn that may end first.
+func (p *PublicProgress) liveLeadRun(session string) (string, *publicRun, error) {
+	type candidate struct {
+		token string
+		run   *publicRun
+	}
+	p.mu.Lock()
+	candidates := make([]candidate, 0, len(p.runs))
+	for token, run := range p.runs {
+		candidates = append(candidates, candidate{token: token, run: run})
+	}
+	p.mu.Unlock()
+	var foundToken string
+	var found *publicRun
+	for _, c := range candidates {
+		c.run.mu.Lock()
+		live := !c.run.record.Closed && !c.run.record.Accepted && c.run.record.Task.SessionKey == session && (c.run.stopped == nil || !c.run.stopped())
+		c.run.mu.Unlock()
+		if !live {
+			continue
+		}
+		if found != nil {
+			return "", nil, errors.New("more than one main-bot turn is active for this session")
+		}
+		foundToken, found = c.token, c.run
+	}
+	if found == nil {
+		return "", nil, errors.New("no live main-bot turn for this session")
+	}
+	return foundToken, found, nil
+}
+
 // Caller holds transitionMu. Copy mutable journal pieces before changing them
 // so a failed write can restore the exact prior receipt and task state.
 func snapshotTaskRelay(r *publicRun) progressRecord {
@@ -202,8 +288,21 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 		}
 		return nil, nil, fmt.Errorf("relay: request %q is %s; inspect its task thread before any new dispatch", req.RequestID, receipt.Status)
 	}
+	var undo func()
 	if !taskRelayActive(r) {
-		return nil, nil, errors.New("relay: task is not active")
+		var err error
+		undo, err = p.reclaimClosedTask(r, req.SessionKey)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	committed := false
+	if undo != nil {
+		defer func() {
+			if !committed {
+				undo()
+			}
+		}()
 	}
 	if req.Workspace != "" {
 		if p.resolveWorkspace == nil {
@@ -239,6 +338,7 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 	p.relayRuns[d.token] = d
 	p.mu.Unlock()
 	p.queueTaskRelay(r)
+	committed = true
 	return d, nil, nil
 }
 
