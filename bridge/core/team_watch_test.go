@@ -674,6 +674,63 @@ func TestWatchBusySessionIsNotStopped(t *testing.T) {
 	}
 }
 
+// A busy turn that keeps producing agent events (tool calls/results, text stream) is real
+// progress, not a busy-only renewal: it renews past watchBusyMaxRenew and never parks. Before
+// this fix the third check parked it as a stuck turn.
+func TestWatchBusySessionWithEventsRenewsBeyondBusyLimit(t *testing.T) {
+	e, p, w, h := progressFixture(t, "")
+	s := e.sessions.GetOrCreateActive("discord:ws1:u1")
+	if !s.TryLock() {
+		t.Fatal("lock")
+	}
+	defer s.Unlock()
+	state := &interactiveState{}
+	e.interactiveStates["discord:ws1:u1"] = state
+	now := h.Due
+	for i := 1; i <= watchBusyMaxRenew+2; i++ {
+		state.lastEventAt.Store(now.Add(-time.Minute).UnixNano())
+		next := w.tick(now)
+		got := handoffsOf(e, "discord:ws1")[0]
+		if next.IsZero() || !got.Parked.IsZero() || got.Renewed != i || len(p.out) != 0 {
+			t.Fatalf("check %d with agent events: renewed as real progress, got %+v, next %v, sent %v", i, got, next, p.out)
+		}
+		now = next
+	}
+	if got := handoffsOf(e, "discord:ws1")[0]; got.BusyRenewed != 0 {
+		t.Fatalf("agent events must count as real progress, got %d busy renewals: %+v", got.BusyRenewed, got)
+	}
+}
+
+// A busy turn with no agent event since the window began is still only a busy renewal and stays
+// capped at watchBusyMaxRenew (#452): after two renewals the workspace is parked.
+func TestWatchBusySessionWithoutEventsStaysCapped(t *testing.T) {
+	e, p, w, h := progressFixture(t, "")
+	s := e.sessions.GetOrCreateActive("discord:ws1:u1")
+	if !s.TryLock() {
+		t.Fatal("lock")
+	}
+	defer s.Unlock()
+	state := &interactiveState{}
+	state.lastEventAt.Store(h.At.Add(-time.Hour).UnixNano())
+	e.interactiveStates["discord:ws1:u1"] = state
+	now := h.Due
+	for i := 1; i <= watchBusyMaxRenew; i++ {
+		next := w.tick(now)
+		got := handoffsOf(e, "discord:ws1")[0]
+		if next.IsZero() || !got.Parked.IsZero() || got.Renewed != i || got.BusyRenewed != i {
+			t.Fatalf("busy check %d without events: renewed only as busy, got %+v, next %v", i, got, next)
+		}
+		now = next
+	}
+	if next := w.tick(now); !next.IsZero() {
+		t.Fatalf("busy renewals used up: parked, next %v", next)
+	}
+	got := handoffsOf(e, "discord:ws1")[0]
+	if got.Parked.IsZero() || got.BusyRenewed != watchBusyMaxRenew || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("busy without events must still park after %d renewals, got %+v, sent %v", watchBusyMaxRenew, got, p.out)
+	}
+}
+
 // A session of another engine (a teammate's role) in the workspace counts too; one of another
 // channel does not.
 func TestWatchBusyOnAnyEngine(t *testing.T) {
