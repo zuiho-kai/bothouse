@@ -54,7 +54,7 @@ type RelayManager struct {
 	timeout    time.Duration
 	visibility string
 	voice      voiceRelayStore
-	// wizard team bindings (relay_team_bind.go)
+	// team bindings from the wizard and configured team_status_dir (relay_team_bind.go)
 	dataDir    string
 	denied     map[string]map[string]bool // chatID → project (or "*") removed by /bind -x or /bind remove
 	deniedPath string
@@ -144,11 +144,12 @@ func (rm *RelayManager) AddToBind(platform, chatID, projectName string) {
 	rm.saveLocked()
 }
 
-// RemoveFromBind removes a project from an existing binding. A wizard team member is also
-// vetoed in this chat, so the team does not bind it back (relay_team_bind.go).
+// RemoveFromBind removes a project from an existing binding. A member of an explicit
+// team (wizard or shared team_status_dir) is also vetoed in this chat, so the team does
+// not bind it back (relay_team_bind.go).
 // Returns true if the project was removed, false if not found.
 func (rm *RelayManager) RemoveFromBind(chatID, projectName string) bool {
-	team := rm.inAnyWizardTeam(projectName)
+	team := rm.inAnyTeam(projectName)
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 
@@ -188,7 +189,7 @@ func (rm *RelayManager) Unbind(chatID string) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 	delete(rm.bindings, chatID)
-	// The wizard team does not bind the chat back either (relay_team_bind.go).
+	// The team does not bind the chat back either (relay_team_bind.go).
 	rm.denied[chatID] = map[string]bool{relayDeniedAll: true}
 	rm.saveDeniedLocked()
 	slog.Info("relay: binding removed", "chat_id", chatID)
@@ -278,11 +279,11 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 	}
 
 	rm.mu.RLock()
-	binding := rm.effectiveBindingLocked(platform, chatID)
-	// teamFilled: the wizard team added members to this chat's binding. Then the sender
-	// must be in the binding too, or bots outside the team (external projects, members
-	// of another platform's team) could relay to team members without /bind. A chat
-	// bound only by a manual /bind keeps its old rule (relay_team_bind.go).
+	binding := rm.effectiveBindingForLocked(platform, chatID, req.From)
+	// teamFilled: a configured team added members to this chat's binding. Then the
+	// sender must be in the binding too, or bots outside the team (external projects,
+	// members of another platform's team) could relay to team members without /bind. A
+	// chat bound only by a manual /bind keeps its old rule (relay_team_bind.go).
 	teamFilled := binding != nil && binding != rm.bindings[chatID]
 	targetEngine := rm.engines[req.To]
 	sourceEngine := rm.engines[req.From]

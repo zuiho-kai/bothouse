@@ -1,25 +1,37 @@
 package core
 
-// Wizard team relay bindings (#597 G2'). Roles the setup wizard put in one team
-// (<data_dir>/conest-setup.json) may relay to each other in any chat of that team's
-// platform without a manual /bind. Projects outside the team still need /bind.
+// Team relay bindings (#597 G2', #462). Roles explicitly configured as one team may
+// relay to each other in any chat of that team's platform without a manual /bind.
+// Projects outside the team still need /bind.
+//
+// A team has two explicit durable sources:
+//   - conest-setup.json (the setup wizard; mtime cache). Its entries also cover members
+//     that are not engines in this process (for example DSH members on cloud_web).
+//   - config.toml: projects sharing the same non-empty team_status_dir on the same
+//     platform. This is the layout of teams created before conest-setup.json existed,
+//     and WizardTeamDefaults uses the same field for wizard teams.
 //
 //	conest-setup.json ──(mtime cache)──▶ wizardTeam(platform) ─┐
-//	relay_bindings.json (manual /bind) ──────────────────────────┼─▶ effectiveBindingLocked
+//	config.toml team_status_dir ────────▶ configuredTeam        ├─▶ teamProjects
+//	relay_bindings.json (manual /bind) ─────────────────────────┼─▶ effectiveBindingForLocked
 //	relay_team_denied.json (/bind -x, /bind remove) ────────────┘    (Send, ResolveTaskReporter,
 //	                                                                  voiceTarget, GET /relay/binding)
 //
-// Teams are split by platform: SetupState.Team serves the platform recorded in
+// Teams are split by platform. SetupState.Team serves the platform recorded in
 // state.Platform (Discord, or Feishu / Lark), CloudWebTeam serves cloud_web (DSH and the
-// self-hosted web). Members match by SetupTeamEntry.Project, so two roles on the same model
-// stay two members. Only teams of two or more roles count. A removal is an explicit veto:
-// the team never adds that project back in that chat until it is /bind'ed again.
+// self-hosted web); configured teams are split by the platforms each engine serves.
+// Members match by project name, so two roles on the same model stay two members. Only
+// teams of two or more roles count. A project with no team_status_dir and no wizard entry
+// stays manual (#462: all projects in one config are not silently made a team).
+// A removal is an explicit veto: the team never adds that project back in that chat until
+// it is /bind'ed again.
 
 import (
 	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -95,15 +107,168 @@ func (rm *RelayManager) inAnyWizardTeam(project string) bool {
 	return false
 }
 
-// effectiveBindingLocked is the chat's manual binding plus the wizard team of platform,
-// minus vetoed projects. Callers hold rm.mu. The result is a copy when the team adds to it.
-func (rm *RelayManager) effectiveBindingLocked(platform, chatID string) *RelayBinding {
+// teamStatusDir is the shared team directory this engine was configured with
+// (team_status_dir, or the wizard default). "" means this project is not in a team.
+func (e *Engine) teamStatusDir() string {
+	if e == nil || e.team == nil {
+		return ""
+	}
+	return filepath.Clean(e.team.dir)
+}
+
+// servesPlatform reports whether this engine has a platform with that name. It is the
+// "already connected on this platform" half of #462's requirement: a team member on
+// another platform is not made available here; /bind cannot cross platforms either.
+func (e *Engine) servesPlatform(name string) bool {
+	if e == nil || name == "" {
+		return false
+	}
+	for _, p := range e.platforms {
+		if p != nil && p.Name() == name {
+			return true
+		}
+	}
+	return false
+}
+
+func mergeProjects(a, b []string) []string {
+	out := make([]string, 0, len(a)+len(b))
+	seen := make(map[string]bool, len(a)+len(b))
+	for _, list := range [][]string{a, b} {
+		for _, p := range list {
+			if p == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// teamsOverlap reports whether the two explicit teams share a project. A wizard team
+// and a configured team that share a member are the same team (the wizard writes its
+// members' team_status_dir too, and may also hold members with no engine here); two
+// disjoint teams must stay apart.
+func teamsOverlap(a, b []string) bool {
+	seen := make(map[string]bool, len(a))
+	for _, p := range a {
+		if p != "" {
+			seen[p] = true
+		}
+	}
+	for _, p := range b {
+		if seen[p] {
+			return true
+		}
+	}
+	return false
+}
+
+// configuredTeam returns the projects sharing a non-empty team_status_dir with from on
+// platform (nil when fewer than two). It is the config.toml source: an old team that
+// never ran the wizard still has the same team_status_dir on every member. With no from
+// (a display lookup) it only answers when exactly one team dir is configured on the
+// platform, so two separate teams are never merged into one.
+func (rm *RelayManager) configuredTeam(platform, from string) []string {
+	if platform == "" {
+		return nil
+	}
+	dir := ""
+	if from != "" {
+		if e := rm.engines[from]; e != nil {
+			dir = e.teamStatusDir()
+		}
+	} else {
+		dirs := map[string]struct{}{}
+		for _, e := range rm.engines {
+			if e == nil || !e.servesPlatform(platform) {
+				continue
+			}
+			if d := e.teamStatusDir(); d != "" {
+				dirs[d] = struct{}{}
+			}
+		}
+		if len(dirs) == 1 {
+			for d := range dirs {
+				dir = d
+			}
+		}
+	}
+	if dir == "" {
+		return nil
+	}
+	var out []string
+	for name, e := range rm.engines {
+		if e == nil || e.teamStatusDir() != dir || !e.servesPlatform(platform) {
+			continue
+		}
+		out = append(out, name)
+	}
+	if len(out) < 2 {
+		return nil
+	}
+	sort.Strings(out)
+	return out
+}
+
+// inAnyTeam: project is a member of an explicit team (wizard or shared team_status_dir)
+// of two or more roles on any platform.
+func (rm *RelayManager) inAnyTeam(project string) bool {
+	if rm.inAnyWizardTeam(project) {
+		return true
+	}
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+	e := rm.engines[project]
+	if e == nil {
+		return false
+	}
+	dir := e.teamStatusDir()
+	if dir == "" {
+		return false
+	}
+	for name, other := range rm.engines {
+		if name != project && other != nil && other.teamStatusDir() == dir {
+			return true
+		}
+	}
+	return false
+}
+
+// teamProjects is the team serving this chat for the sender from: the configured team
+// sharing from's team_status_dir, or the wizard team of the platform when the two are
+// the same team. A chat gets one team only; projects outside it still need /bind.
+func (rm *RelayManager) teamProjects(platform, from string) []string {
+	wizard := rm.wizardTeam(platform)
+	configured := rm.configuredTeam(platform, from)
+	if len(configured) >= 2 {
+		// Merge only when the wizard team is the same team: it can hold members with
+		// no engine here (a DSH entry on cloud_web), but a disjoint wizard team is a
+		// second team and must not leak into this sender's chat.
+		if len(wizard) == 0 || !teamsOverlap(configured, wizard) {
+			return configured
+		}
+		return mergeProjects(configured, wizard)
+	}
+	if len(wizard) >= 2 {
+		return wizard
+	}
+	return nil
+}
+
+// effectiveBindingForLocked is the chat's manual binding plus the team serving platform for
+// from, minus vetoed projects. Callers hold rm.mu. The result is a copy when the team adds
+// to it. from is the sending project: teams are per project, so two different teams on the
+// same platform stay isolated.
+func (rm *RelayManager) effectiveBindingForLocked(platform, chatID, from string) *RelayBinding {
 	b := rm.bindings[chatID]
 	denied := rm.denied[chatID]
 	if denied[relayDeniedAll] || (b != nil && b.Platform != platform) {
 		return b
 	}
-	team := rm.wizardTeam(platform)
+	team := rm.teamProjects(platform, from)
 	if len(team) == 0 {
 		return b
 	}
@@ -126,12 +291,27 @@ func (rm *RelayManager) effectiveBindingLocked(platform, chatID string) *RelayBi
 	return out
 }
 
-// EffectiveBinding is the binding relay uses in chatID on platform (manual /bind plus the
-// wizard team), or nil.
+// effectiveBindingLocked is effectiveBindingForLocked without a sender, for callers
+// that have no project context (GET /relay/binding without ?project).
+func (rm *RelayManager) effectiveBindingLocked(platform, chatID string) *RelayBinding {
+	return rm.effectiveBindingForLocked(platform, chatID, "")
+}
+
+// EffectiveBinding is the binding relay uses in chatID on platform without a sender
+// (manual /bind plus the single configured team of the platform), or nil.
 func (rm *RelayManager) EffectiveBinding(platform, chatID string) *RelayBinding {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
 	return rm.effectiveBindingLocked(platform, chatID)
+}
+
+// EffectiveBindingFor is the binding relay uses in chatID on platform for project project:
+// manual /bind plus project's own team. Use this for /bind displays; EffectiveBinding
+// stays for callers that have no project context.
+func (rm *RelayManager) EffectiveBindingFor(platform, chatID, project string) *RelayBinding {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+	return rm.effectiveBindingForLocked(platform, chatID, project)
 }
 
 // denyLocked records an explicit removal; allowLocked lifts it. Callers hold rm.mu (write).

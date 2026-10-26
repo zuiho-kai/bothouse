@@ -195,7 +195,8 @@ func TestRelayTeamBind_TeamsSplitByPlatform(t *testing.T) {
 	}
 }
 
-// Without conest-setup.json relay behaves as before: manual bindings only.
+// Without conest-setup.json and without a shared team_status_dir relay behaves
+// as before: manual bindings only (a config team is covered in relay_team_config_test.go).
 func TestRelayTeamBind_NoWizardStateKeepsManualOnly(t *testing.T) {
 	rm := newTeamBindManager(t, t.TempDir())
 	if !taskSendBindErr(rm, "lead", "worker", "discord:room:u1") {

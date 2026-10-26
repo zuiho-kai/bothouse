@@ -12,6 +12,10 @@ bothouse handoff switch --to <新主项目名>
 
 这不是 #47 的自动额度探测，也不会自动回切。手动切回旧主是允许的；是否切回由人决定。
 
+## 配置驱动的切换（旧切主脚本）
+
+已有团队仍可用 config.toml 的 `team_status_inject` 切主（旧 switch 脚本改配置后重启）。bridge 启动时把当前配置的主角色同步进 `lead.json`：第一次运行只记基线（`auto: true`、无 `at`），之后的配置变化带 `at` 写入，由同一条 `lead-handoff.json` 记录交给新主；gate、DSH 或 `handoff switch` 已经写出的选择不会被覆盖。这样旧入口和 `handoff switch` 共用同一份交接记录，不再另建第二套存储。
+
 ## 切换时保留什么
 
 切换记录写在 `<data_dir>/lead-handoff.json`。记录不依赖旧主再生成一段总结，来源是 bothouse 已经持久化的公开记录：
