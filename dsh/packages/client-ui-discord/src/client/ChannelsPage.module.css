@@ -493,7 +493,7 @@
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: var(--dsw-radius-xl);
   background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));
-  box-shadow: 0 2px var(--dsw-shadow-lv1-blur) var(--dsw-alias-border-l1);
+  box-shadow: var(--dsw-shadow-lv1-blur);
 }
 
 .composerBox:focus-within {
