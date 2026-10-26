@@ -452,14 +452,14 @@ type Engine struct {
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	pendingResetMu               sync.Mutex
-	pendingReset                 map[string]bool        // session new --after-turn (session_reset.go)
-	resetTurns                   map[string]int         // running turns per reset key (CC_SESSION_KEY), guarded by pendingResetMu
-	team                         *teamState             // maomao fork: team status board (nil = off)
+	pendingReset                 map[string]bool  // session new --after-turn (session_reset.go)
+	resetTurns                   map[string]int   // running turns per reset key (CC_SESSION_KEY), guarded by pendingResetMu
+	team                         *teamState       // maomao fork: team status board (nil = off)
 	displayName                  atomic.Pointer[string] // team_name from config ("" / nil = the project name); see DisplayName
-	teamWS                       *teamWorkspaces        // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
-	board                        *channelBoardHub       // maomao fork: channel task board (channel_board.go); shared by the process
-	memoryIndex                  string                 // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
-	voiceDesk                    voiceDeskState         // maomao fork: voice desk (voice_desk.go)
+	teamWS                       *teamWorkspaces  // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
+	board                        *channelBoardHub // maomao fork: channel task board (channel_board.go); shared by the process
+	memoryIndex                  string           // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
+	voiceDesk                    voiceDeskState   // maomao fork: voice desk (voice_desk.go)
 	dirHistory                   *DirHistory
 	baseWorkDir                  string
 	projectState                 *ProjectStateStore
@@ -604,12 +604,12 @@ type workspaceInitFlow struct {
 // The message is NOT sent to agent stdin at queue time; the event loop
 // sends it after the current turn completes to avoid mid-turn interference.
 type queuedMessage struct {
-	turnTrigger string // #618 K1: Message.turnTrigger, kept across the queue
+	turnTrigger       string // #618 K1: Message.turnTrigger, kept across the queue
 	// #618 K4: Message.resumedFrom/timerJobID/resumeNoProgress/resumeFallback, kept across the queue.
-	resumedFrom       string
-	timerJobID        string
-	resumeNoProgress  int
-	resumeFallback    string
+	resumedFrom      string
+	timerJobID       string
+	resumeNoProgress int
+	resumeFallback   string
 	messageID         string
 	platform          Platform
 	replyCtx          any
@@ -643,9 +643,9 @@ type interactiveState struct {
 	// works (no tool step, no first result); resumeFailed holds the error its
 	// first result was, and resumeFailedQueued the queued message that turn ran
 	// (nil = the turn the loop started with). Guarded by mu.
-	resumeArmed              bool
-	resumeFailed             string
-	resumeFailedQueued       *queuedMessage
+	resumeArmed        bool
+	resumeFailed       string
+	resumeFailedQueued *queuedMessage
 	publicProgressRun        string
 	resetHandoff             bool // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
 	agentSession             AgentSession
@@ -4555,7 +4555,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		return
 	}
 	e.journalTurnAgent(journalTurnID, state.agentSession) // #618 K1
-	e.armResumeRetry(state, session, msg.resumeFallback)  // #618 K4 S1
+	e.armResumeRetry(state, session, msg.resumeFallback) // #618 K4 S1
 	e.cancelAgentSessionIdleClose(state)
 
 	if workspaceDir != "" && e.workspacePool != nil {
@@ -5813,6 +5813,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	var segmentStart int // index into textParts: text before this has been sent/displayed
 	silentHold := false  // true while accumulated segment text could still resolve to a bare NO_REPLY marker
 	toolCount := 0
+	watchTurnFinished := false
+	defer func() {
+		if !watchTurnFinished && !state.isStopped() && e.ctx.Err() == nil {
+			state.mu.Lock()
+			p := state.platform
+			state.mu.Unlock()
+			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, e.watchCardResult(state))
+		}
+	}()
 	waitStart := time.Now()
 	firstEventLogged := false
 	var toolSteps []ToolStep
@@ -6552,7 +6561,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			if event.SessionID != "" {
 				e.journalSessionID(sessionKey, event.SessionID) // #618 K4
-				e.journalAgentProcess(sessionKey, state)        // #618 K4: codex exec pid starts inside Send
+				e.journalAgentProcess(sessionKey, state) // #618 K4: codex exec pid starts inside Send
 				wasEmpty := session.GetAgentSessionID() == ""
 				if session.GetAgentSessionID() != event.SessionID {
 					session.SetAgentSessionID(event.SessionID, e.agent.Name())
@@ -7118,7 +7127,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if state.isStopped() {
 				progressOutcome = "cancelled"
 			}
-			e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, e.watchCardResult(state))
+			watchTurnFinished = true
+			if !state.isStopped() {
+				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, e.watchCardResult(state))
+			}
 			e.finishPublicProgress(state, progressOutcome)
 
 			// Auto-compress after finishing a turn, before sending any queued messages.
@@ -7243,7 +7255,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					}
 					chainedJournalID = id
 				}
-				e.journalSyncQueued(state, sessionKey)                         // #618 K4 #12: dequeued
+				e.journalSyncQueued(state, sessionKey)                       // #618 K4 #12: dequeued
 				e.armResumeRetry(state, session, chainedQueued.resumeFallback) // #618 K4 S1 (clears it for a plain message)
 
 				nextSend := make(chan error, 1)
@@ -7268,6 +7280,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				textParts = nil
 				segmentStart = 0
 				toolCount = 0
+				watchTurnFinished = false
 				turnStart = time.Now()
 				firstEventLogged = false
 				waitStart = time.Now()
@@ -7746,7 +7759,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		// #618 K1: chained into a running turn -> update its entry; a drain with
 		// no outer turn (orphaned queue, after /compress) owns one per message.
 		journalID, journalOwned := e.journalQueuedTurn(&rawQueued, sessionKey, queuedWorkspace, as) // raw text, before the turn blocks
-		e.journalSyncQueued(state, sessionKey)                                                      // #618 K4 #12: dequeued
+		e.journalSyncQueued(state, sessionKey)                                                       // #618 K4 #12: dequeued
 		e.armResumeRetry(state, session, rawQueued.resumeFallback)                                  // #618 K4 S1
 
 		var stopTyping func()

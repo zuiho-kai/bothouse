@@ -281,8 +281,13 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		return now.Add(watchRetryDelay)
 	}
 	// Stopped workers need a wakeup, never a stop/park instruction.
-	if !w.workspaceBusy(key) {
-		if target := w.e.watchTarget(key, h.Owner); target != nil {
+	target := w.e.watchTarget(key, h.Owner)
+	busy := w.workspaceBusy(key)
+	if target != nil {
+		busy = target.watchBusy(key)
+	}
+	if !busy {
+		if target != nil {
 			if h.Idle.Ended.IsZero() {
 				updated, ok := target.updateIdle(idleAssignment{key, h, false}, func(x *TeamHandoff) { x.Idle.Ended = now })
 				if !ok {

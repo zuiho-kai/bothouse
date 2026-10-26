@@ -48,6 +48,8 @@ def is_handback(content: str) -> bool:
     c = body(content)
     if not c or c.startswith(STATUS_PREFIXES):
         return False
+    if c.startswith(("[report]", "【交回】")):
+        return True
     if PR_LINK_RE.search(c):
         return True
     if c.startswith("【接】"):

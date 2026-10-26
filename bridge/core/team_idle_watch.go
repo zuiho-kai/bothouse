@@ -43,6 +43,9 @@ func (e *Engine) watchOwns(p Platform, owner string) bool {
 	if owner == "" {
 		return e.isTeamLead()
 	}
+	if owner == e.name || owner == e.DisplayName() {
+		return true
+	}
 	m, ok := p.(SelfMentioner)
 	return ok && watchOwnerID(m.SelfMention()) == watchOwnerID(owner)
 }
@@ -194,33 +197,37 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 	}
 	w := newHandoffWatch(sender)
 	if escalate {
-		if err := w.send(p, h.Chat, "看门："+watchMention(plat, h.Owner)+"「"+h.Title+"」连续叫醒两次仍未继续，请主角色接手。"); err != nil {
+		text := sender.i18n.Tf(MsgWatchIdleEscalate, watchMention(plat, h.Owner), h.Title)
+		if err := w.send(p, h.Chat, text); err != nil {
 			slog.Warn("idle watch: escalation failed", "error", err)
 		}
+		sender.wakeWatchRole(h.Chat, text, h.Title)
 		return
 	}
 	owner := h.Owner
-	if owner == "" {
-		if m, ok := e.lookupReadyPlatform(plat).(SelfMentioner); ok {
-			owner = m.SelfMention()
-		}
+	if m, ok := e.lookupReadyPlatform(plat).(SelfMentioner); ok && m.SelfMention() != "" {
+		owner = m.SelfMention()
 	}
-	text := strings.TrimSpace(watchMention(plat, owner) + " 接着做 " + h.Title + "，不用回话")
+	text := strings.TrimSpace(watchMention(plat, owner) + " " + sender.i18n.Tf(MsgWatchResume, h.Title))
 	if err := w.send(p, a.key, text); err != nil {
 		slog.Warn("idle watch: wake post failed", "error", err)
 	}
 	// A bot's own post cannot wake it. Deliver locally as well; when another
 	// bot posts the mention, the platform supplies the normal user turn.
 	if sender == e {
-		go func() {
-			silent := true
-			if err := e.ExecuteTimerJob(&TimerJob{SessionKey: a.key, Prompt: text, Description: h.Title, Silent: &silent, Handoff: true}); err != nil {
-				slog.Warn("idle watch: local wake failed", "error", err)
-			}
-		}()
+		e.wakeWatchRole(a.key, text, h.Title)
 	}
 	a.h = h
 	e.armIdleWake(a) // two wake attempts, then one escalation; not a polling loop
+}
+
+func (e *Engine) wakeWatchRole(key, text, title string) {
+	go func() {
+		silent := true
+		if err := e.ExecuteTimerJob(&TimerJob{SessionKey: key, Prompt: text, Description: title, Silent: &silent, Handoff: true}); err != nil {
+			slog.Warn("idle watch: local wake failed", "error", err)
+		}
+	}()
 }
 
 func (e *Engine) watchCardResult(state *interactiveState) bool {
@@ -257,7 +264,7 @@ func (s *APIServer) handleTeamIdleWatch(w http.ResponseWriter, r *http.Request) 
 		Since   int64  `json:"since"`
 		Action  string `json:"action"` // register, status, wake, close
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Project == "" || req.Session == "" || req.Owner == "" || req.Since <= 0 {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&req); err != nil || req.Project == "" || req.Session == "" || req.Owner == "" || req.Since <= 0 {
 		http.Error(w, "project, session_key, owner and since required", http.StatusBadRequest)
 		return
 	}
@@ -265,7 +272,7 @@ func (s *APIServer) handleTeamIdleWatch(w http.ResponseWriter, r *http.Request) 
 	sender := s.engines[req.Project]
 	s.mu.RUnlock()
 	if sender == nil {
-		http.Error(w, "unknown project", http.StatusNotFound)
+		http.Error(w, "unknown project", http.StatusConflict)
 		return
 	}
 	key := teamChatKey(req.Session)
@@ -317,7 +324,7 @@ func (s *APIServer) handleTeamIdleWatch(w http.ResponseWriter, r *http.Request) 
 	st := loadTeamWorkspacesLocked(path)
 	if covered {
 		for _, h := range st.Handoffs[key] {
-			if teamHandoffOpen(h) && !h.Idle.Returned && watchOwnerID(h.Owner) == watchOwnerID(req.Owner) {
+			if teamHandoffOpen(h) && !h.Idle.Returned && (watchOwnerID(h.Owner) == watchOwnerID(req.Owner) || h.Owner == "" && target.isTeamLead()) {
 				teamWorkspaceStore.mu.Unlock()
 				apiJSON(w, http.StatusOK, map[string]any{"covered": true})
 				return
