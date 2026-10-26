@@ -37,8 +37,7 @@
   出一节「任务板」（在做按本频道 + 名下各工作区分块、暂停、今天做完；「下次看」到点且定时已不在标「已过」；没记频道的老条目按 ch 归频道，都没有就出在主聊天频道），四平台都走桥的 BoardPoster。要出板，BOARD_DIR 和 team_status_dir 须是同一个目录。
   done 之后若设了 BOARD_PR_REPO（owner/name），用 gh 列出自己在该仓库还开着的 PR 作提醒；不设、gh 不在或失败都静默跳过。
 
-暂停条目自动收起（用户 2026-10-26「一些暂停的把它干掉，已经没有用的暂停，你全留着」「这个也要变成产品能力或自动化……
-  就每次都主动清理」）：暂停条目满足任一条就移进 board-done.jsonl（带 auto_pruned=原因，不删数据，board resume 能找回）：
+暂停条目自动收起（已经没用的暂停条目不再要人手动清）：暂停条目满足任一条就移进 board-done.jsonl（带 auto_pruned=原因，不删数据，board resume 能找回）：
   ① 「分支/PR/路径」（where）里的 PR 全部已合或已关，且合/关超过 2 小时（要设 BOARD_PR_REPO；gh 查不到就不按这条收）；
   ② 状态或暂停原因写了「并入 #N」/「并入主线 #N」，且 #N 还在板上；
   ③ 暂停后 BOARD_PRUNE_IDLE_HOURS 小时（默认 24）没汇报、没改。暂停原因含「等用户」「等待用户」的、事情写了「主线」的不按③收。
@@ -490,8 +489,8 @@ def rework_report(days=REWORK_DAYS):
 # ---- 暂停条目自动收起（规则见文件头「暂停条目自动收起」）----
 # 照本机任务板已验收的实现（10-26 手动清的 8 条回放：选中 8 条、6 条保护项不误收），产品侧改动：闲置门槛默认 24 小时可调、
 # 等用户只认「等用户/等待用户」、PR 仓库来自 BOARD_PR_REPO、去掉本机的「用户点名只提醒」子规则。
-PRUNE_PR_AFTER = 2 * 3600  # 秒：橘定的规则「PR 已合或已关，且超过 2 小时」；按 PR 的 mergedAt/closedAt 算（方案二审第 3 条）
-# 小时：橘 11:1x 裁决「产品闲置门槛默认 24h 可用环境变量调」（交接 notes/auto-prune-paused-1026.md）
+PRUNE_PR_AFTER = 2 * 3600  # 秒：规则「PR 已合或已关，且超过 2 小时」；按 PR 的 mergedAt/closedAt 算（方案二审第 3 条）
+# 小时：闲置门槛默认 24 小时，可用环境变量 BOARD_PRUNE_IDLE_HOURS 调
 PRUNE_IDLE_DEFAULT_H = 24
 PR_FINAL_RECHECK = 30 * 60  # 秒：沿用本机 board.py PR_FINAL_RECHECK；开着/查不到的 PR 半小时内不再问 gh，终态缓存后不再问
 ASK_WHY = "等待用户答复"  # ws-up --ask 暂停时写的原因（contrib/lead/ws-up）

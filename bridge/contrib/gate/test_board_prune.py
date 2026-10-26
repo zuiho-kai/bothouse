@@ -1,5 +1,5 @@
 """暂停条目自动收起（board.auto_prune）回放 + 单测：python3 -I test_board_prune.py
-回放样本：2026-10-26 10:53 橘在本机任务板手动清掉的 8 条（还原成暂停态）和当时板上 6 条不该收的，
+回放样本：2026-10-26 10:53 一次手动清理掉的 8 条（还原成暂停态）和当时板上 6 条不该收的，
 原样取自本机 ~/im-bridge/team/board-done.jsonl / board.jsonl（字段裁到判据用得上的）；#597 是 #557 #574 并入的主线条目。"""
 import json, os, shutil, subprocess, sys, tempfile, time, unittest
 from datetime import datetime
