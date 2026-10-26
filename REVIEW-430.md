@@ -37,4 +37,4 @@
 
 - PR #430 was merged during this review at `d7fced88a39d65ed9b424482176f8c055387f646` (02:45:53Z); code tree matches reviewed head `0ddd12da` (only `docs/astrbot-bridge.md` differs because main advanced).
 - Throwaway probes (not committed) confirmed: (a) six busy checks renew 1..6 and never park; (b) source engine ctx canceled => `relay watch: not started` and task relay session still open 10x safety period after wait ends.
-- Final posted body: `review-body.md`.
+- Final posted body: `review-body.md`; GitHub review: https://github.com/zuiho-kai/bothouse/pull/430#pullrequestreview-5646894259 (state COMMENTED, no approve).
