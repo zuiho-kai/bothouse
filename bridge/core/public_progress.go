@@ -677,6 +677,7 @@ func (e *Engine) EnablePublicProgress() error {
 	e.publicProgress = p
 	p.resolveReporter = e.resolveTaskReporter
 	p.resolveWorkspace = e.resolveTaskWorkspace
+	p.wakeLead = e.wakeRelayLead
 	p.reporterName = e.taskReporterName
 	p.notBound = e.noteBound
 	p.workspaceChat = e.isTeamWorkspaceChat

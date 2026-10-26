@@ -2,10 +2,11 @@ package core
 
 // Team mode: the ten-minute watch on workspace handoffs (#574 B9). Every claim of a pool
 // workspace records a check time (TeamHandoff.Due = claim + watchCheckAfter). At the check time
-// a handoff still in work either shows progress (renewed by watchCheckAfter, at most
-// watchMaxRenew times, or watchMaxBackgroundRenew with live background work, silently)
-// or is nudged once in the workspace channel and parked
-// (ParkTeamWorkspaceFor, the same path as `bothouse workspace park`). Same rule as the DSH
+// a handoff still in work either shows progress (renewed by watchCheckAfter, silently,
+// while it shows real progress; watchMaxRenew 0 = no cap) or is nudged once in the workspace
+// channel and parked (ParkTeamWorkspaceFor, the same path as `bothouse workspace park`). A
+// renewal justified only by a session still being busy is capped at watchBusyMaxRenew, so a
+// stuck turn cannot hold the workspace forever (PR #430 review P1). Same rule as the DSH
 // gateway's task watch (dsh/collab/tasks.mjs CHECK_AFTER_S, MAX_RENEWALS) and the lead's
 // d10-fire script. One watcher per bridge on the team workspace engine; the state lives in the
 // team workspace file, so a restart re-arms it and a check missed while down fires on start.
@@ -59,6 +60,9 @@ var watchMaxRenew = 0
 // 30 minutes, the old cap. Source: the pre-#429 watchMaxRenew default of 2.
 const watchBusyMaxRenew = 2
 
+// Live native background work retains its six-renewal budget.
+const watchMaxBackgroundRenew = 6
+
 // watchCanRenew: a watch renewed n times may renew again on progress.
 func watchCanRenew(n int) bool { return watchMaxRenew <= 0 || n < watchMaxRenew }
 
@@ -71,10 +75,6 @@ const (
 	watchProgressBusy
 	watchProgressReal
 )
-
-// Live background work can extend a handoff to six ten-minute renewals in total.
-// Ordinary renewals also consume this budget; it survives restart via Renewed.
-const watchMaxBackgroundRenew = 6
 
 const (
 	// Source: B9 plan v3「park 返回其他错误…Due 推后 1 分钟重试，最多 3 次」.
@@ -280,14 +280,8 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		// drop the check.
 		return now.Add(watchRetryDelay)
 	}
-	parkReason := "no progress at the check time"
-	if h.Renewed >= watchMaxRenew {
-		parkReason = "renewals used up"
-	}
-	if h.Renewed >= watchMaxBackgroundRenew {
-		parkReason = "background renewal limit reached"
-	}
-	if h.ParkFails == 0 && h.Renewed < watchMaxBackgroundRenew {
+	background, _ := w.workspaceBackgroundProgress(key, h.Due.Add(-watchCheckAfter()))
+	if h.ParkFails == 0 && (watchCanRenew(h.Renewed) || background && h.Renewed < watchMaxBackgroundRenew) && w.progress != nil {
 		since := h.Since
 		if since.IsZero() {
 			since = h.Due.Add(-watchCheckAfter())
@@ -295,18 +289,7 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 				since = h.At
 			}
 		}
-		// Check live background work even after the ordinary renewals are spent.
-		// A busy parent or channel post alone cannot extend that ordinary limit.
-		background, _ := w.workspaceBackgroundProgress(key, since)
-		maxRenew := watchMaxRenew
-		if background {
-			maxRenew = watchMaxBackgroundRenew
-		}
-		progressed := background
-		var perr error
-		if !background && h.Renewed < watchMaxRenew && w.progress != nil {
-			progressed, perr = w.progress(key, h, since)
-		}
+		progressed, perr := w.progress(key, h, since)
 		if perr != nil {
 			// A failed read (network, Discord 5xx/429) is not a verdict: retry after
 			// watchRetryDelay, like a failed park; only when the retries are used up is it no
@@ -348,7 +331,7 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 				return time.Time{}
 			}
 			if err == nil {
-				slog.Info("team watch: progress, renewed", "workspace", key, "chat", h.Chat, "renew", h.Renewed+1, "max", maxRenew, "background", background)
+				slog.Info("team watch: progress, renewed", "workspace", key, "chat", h.Chat, "renew", h.Renewed+1, "max", watchMaxRenew, "busy", progressed == watchProgressBusy)
 				return due
 			}
 			slog.Warn("team watch: save renewal failed; parking instead", "workspace", key, "error", err)
@@ -374,7 +357,7 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 	freed, err := w.park(key, h.Chat, h.At)
 	switch {
 	case err == nil:
-		slog.Info("team watch: task parked", "workspace", key, "chat", h.Chat, "freed", freed, "reason", parkReason)
+		slog.Info("team watch: no progress at the check time; task parked", "workspace", key, "chat", h.Chat, "freed", freed)
 		return time.Time{}
 	case errors.Is(err, ErrTeamWorkspaceNotOwned):
 		// Handed back, closed or the workspace went to someone else meanwhile: nothing to park.
@@ -424,16 +407,22 @@ var watchLeadingMentions = regexp.MustCompile(`^(?:(?:<@[!&]?\d+>|@[^\s【\[]+|\
 var watchFeishuMention = regexp.MustCompile(`user_id="([^"]+)"`)
 
 // workspaceProgress: the task in workspace key showed progress since `since`. Either a session of
-// the workspace is running a turn or native background work, its branch was pushed, or
+// the workspace is running a turn now (Session.Busy, checked first: a long turn is not stopped), or
 // the owner posted in the workspace channel since then, not counting status and stance lines. A
 // platform that cannot read channel history (Feishu) uses the sessions instead: a session of the
 // workspace ended a turn since then (Session.UpdatedAt; B9 plan 9b item 2). An error: the history
 // request failed (check retries it).
-func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.Time) (bool, error) {
+func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.Time) (watchProgress, error) {
 	running, pushed := w.workspaceBackgroundProgress(key, since)
-	if w.workspaceBusy(key) || running || pushed {
-		slog.Info("team watch: a workspace session is running a turn or has background progress", "workspace", key, "chat", h.Chat)
-		return true, nil
+	if pushed || running && h.Renewed < watchMaxBackgroundRenew {
+		return watchProgressReal, nil
+	}
+	if !running && w.workspaceBusy(key) {
+		if h.BusyRenewed < watchBusyMaxRenew {
+			slog.Info("team watch: a session of the workspace is running a turn", "workspace", key, "chat", h.Chat, "busy_renew", h.BusyRenewed)
+			return watchProgressBusy, nil
+		}
+		slog.Info("team watch: the workspace is still busy but its busy renewals are used up; checking for real progress", "workspace", key, "chat", h.Chat)
 	}
 	spoke, err := w.ownerSpoke(key, h.Owner, since)
 	if errors.Is(err, errWatchNoHistory) {
