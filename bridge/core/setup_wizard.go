@@ -627,6 +627,32 @@ var memoryFileOfAgent = map[string]string{
 	"qoder": "AGENTS.md", "kimi": "AGENTS.md", "pi": "AGENTS.md", "dsh": "AGENTS.md",
 }
 
+// canonicalAgentType maps a CLI binary name the caller may send (claude, agy, cursor-agent,
+// qodercli …, from cliSpecs) to the agent's registered name, and rejects names no agent is
+// registered under — the bridge would otherwise write the config and then fail to start with
+// `unknown agent`.
+func canonicalAgentType(t string) (string, error) {
+	t = strings.TrimSpace(t)
+	if _, ok := agentFactories[t]; !ok {
+		for _, s := range cliSpecs {
+			if s.agentType == "" {
+				continue
+			}
+			for _, bin := range s.bins {
+				if bin == t {
+					t = s.agentType
+				}
+			}
+		}
+	}
+	if _, ok := agentFactories[t]; !ok {
+		names := ListRegisteredAgents()
+		sort.Strings(names)
+		return "", fmt.Errorf("unknown agent type %q, available: %v", t, names)
+	}
+	return t, nil
+}
+
 // PersonaFilePath is the agent's project instruction file in workDir — the same
 // file each agent's ProjectMemoryFile() returns (agent/*/…go), so the wizard,
 // the project page, `/memory` in chat and editing the folder all touch one file.
@@ -1465,6 +1491,11 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		if r.AgentType == "" {
 			return nil, fmt.Errorf("no supported agent CLI found on this machine (install claude / codex / gemini / opencode / dsh …)")
 		}
+		agentType, err := canonicalAgentType(r.AgentType)
+		if err != nil {
+			return nil, fmt.Errorf("role %q: %w", r.project, err)
+		}
+		r.AgentType = agentType
 		if r.Provider != nil && protocolOfAgent[r.AgentType] == "" {
 			return nil, fmt.Errorf("%s can't take a third-party API in bothouse; use one of %v", r.AgentType, AttachableAgents)
 		}
