@@ -14,6 +14,8 @@ GH_LOG = Path(TMP) / "gh.log"
 # 假 gh：记一次调用，输出 FAKE_GH_OUT（没设就失败 = gh 查不到）
 (FAKEBIN / "gh").write_text(f'#!/bin/sh\necho call >> "{GH_LOG}"\n[ -n "$FAKE_GH_OUT" ] || exit 1\nprintf %s "$FAKE_GH_OUT"\n')
 (FAKEBIN / "gh").chmod(0o755)
+# 先导入时就指向临时目录：否则 board.DIR 落在默认的产品目录，tearDown 还原后同进程的别的测试会写真数据
+os.environ.setdefault("BOARD_DIR", TMP)
 import board  # noqa: E402
 
 # 环境和 board.DIR 在模块开始/结束时设/还原：pytest 同进程跑多个测试文件时，board 可能已被别的文件按它的
