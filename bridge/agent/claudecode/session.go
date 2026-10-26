@@ -751,7 +751,7 @@ func (cs *claudeSession) armAPIErrorFallback(raw map[string]any) {
 		cs.apiErrFired = true
 		slog.Warn("claudeSession: no result after API error, synthesizing turn end", "error", errKind)
 		select {
-		case cs.events <- core.Event{Type: core.EventResult, Content: text, SessionID: cs.CurrentSessionID(), Done: true, Metadata: cs.takeQuotaMetaLocked(nil)}:
+		case cs.events <- core.Event{Type: core.EventResult, Content: text, SessionID: cs.CurrentSessionID(), Done: true, Metadata: cs.takeQuotaMetaLocked(map[string]any{core.MetaResultIsError: true})}:
 		case <-cs.ctx.Done():
 		}
 	})
@@ -1086,6 +1086,12 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 		meta = map[string]any{core.MetaContextCompacted: true}
 	} else {
 		meta = quotaMeta
+		if isError, _ := raw["is_error"].(bool); isError {
+			if meta == nil {
+				meta = map[string]any{}
+			}
+			meta[core.MetaResultIsError] = true // #618 K4 S1
+		}
 	}
 	evt := core.Event{
 		Type:                     core.EventResult,

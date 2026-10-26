@@ -602,6 +602,11 @@ type workspaceInitFlow struct {
 // sends it after the current turn completes to avoid mid-turn interference.
 type queuedMessage struct {
 	turnTrigger       string // #618 K1: Message.turnTrigger, kept across the queue
+	// #618 K4: Message.resumedFrom/timerJobID/resumeNoProgress/resumeFallback, kept across the queue.
+	resumedFrom      string
+	timerJobID       string
+	resumeNoProgress int
+	resumeFallback   string
 	messageID         string
 	platform          Platform
 	replyCtx          any
@@ -631,6 +636,13 @@ type queuedMessage struct {
 
 // interactiveState tracks a running interactive agent session and its permission state.
 type interactiveState struct {
+	// #618 K4 S1: resumeArmed is set while a resumed turn has not yet shown it
+	// works (no tool step, no first result); resumeFailed holds the error its
+	// first result was, and resumeFailedQueued the queued message that turn ran
+	// (nil = the turn the loop started with). Guarded by mu.
+	resumeArmed        bool
+	resumeFailed       string
+	resumeFailedQueued *queuedMessage
 	publicProgressRun        string
 	resetHandoff             bool // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
 	agentSession             AgentSession
@@ -3764,6 +3776,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 	// queued message before adoptPendingFromPlaceholder sees it.
 	state.mu.Lock()
 	e.interactiveMu.Unlock()
+	defer e.journalSyncQueued(state, interactiveKey) // #618 K4 #12: runs after the unlock below
 	defer state.mu.Unlock()
 
 	// Allow queueing when agentSession is nil (session is starting up,
@@ -3806,6 +3819,10 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		modeOverride:        msg.ModeOverride,
 		scheduledFrom:       scheduledFrom,
 		turnTrigger:         msg.turnTrigger,
+		resumedFrom:         msg.resumedFrom,
+		timerJobID:          msg.timerJobID,
+		resumeNoProgress:    msg.resumeNoProgress,
+		resumeFallback:      msg.resumeFallback,
 		scheduledBackfilled: msg.scheduledBackfilled,
 		msgPlatform:         msg.Platform,
 		msgSessionKey:       msg.SessionKey,
@@ -4510,6 +4527,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		return
 	}
 	e.journalTurnAgent(journalTurnID, state.agentSession) // #618 K1
+	e.armResumeRetry(state, session, msg.resumeFallback) // #618 K4 S1
 	e.cancelAgentSessionIdleClose(state)
 
 	if workspaceDir != "" && e.workspacePool != nil {
@@ -4649,6 +4667,17 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 				retryP, retry = q.platform, queuedToMessage(*q)
 			}
 			if e.retryFreshOnPromptTooLong(retryP, retry, errMsg, state, session, sessions, agent, interactiveKey, workspaceDir, ccSessionKey) {
+				unlocked = true
+				return
+			}
+		}
+		// #618 K4 S1: the resumed session failed at once; re-run on a fresh one.
+		if errMsg, q := state.takeResumeFailed(); errMsg != "" {
+			retryP, retry := p, origMsg
+			if q != nil {
+				retryP, retry = q.platform, queuedToMessage(*q)
+			}
+			if e.retryFreshOnResumeError(retryP, retry, errMsg, state, session, sessions, agent, interactiveKey, workspaceDir, ccSessionKey) {
 				unlocked = true
 				return
 			}
@@ -6144,6 +6173,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		case EventToolUse:
 			toolCount++
 			e.teamNoteWork(sessionKey)
+			state.mu.Lock()
+			state.resumeArmed = false // #618 K4 S1: the resumed session works
+			state.mu.Unlock()
+			e.journalProgress(sessionKey, strings.TrimSpace(event.ToolName+" "+event.ToolInput), "", true) // #618 K4
 			e.notePublicProgressTool(state, event.ToolInput)
 			if hasRichCard {
 				// When tool messages are suppressed, skip card updates on tool events.
@@ -6468,7 +6501,16 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					}
 				}
 			}
+			if content != "" && !isEllipsisOnly(content) {
+				// #618 K4: text counts as progress, except while a resumed turn is
+				// unconfirmed (an API error streams as text before its result).
+				state.mu.Lock()
+				armed := state.resumeArmed
+				state.mu.Unlock()
+				e.journalProgress(sessionKey, "", content, !armed)
+			}
 			if event.SessionID != "" {
+				e.journalSessionID(sessionKey, event.SessionID) // #618 K4
 				wasEmpty := session.GetAgentSessionID() == ""
 				if session.GetAgentSessionID() != event.SessionID {
 					session.SetAgentSessionID(event.SessionID, e.agent.Name())
@@ -6631,6 +6673,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// to not be persisted to disk, breaking session resume on next startup.
 			if state != nil && state.agentSession != nil {
 				if currentID := state.agentSession.CurrentSessionID(); currentID != "" {
+					e.journalSessionID(sessionKey, currentID) // #618 K4
 					wasEmpty := session.GetAgentSessionID() == ""
 					if session.GetAgentSessionID() != currentID {
 						session.SetAgentSessionID(currentID, e.agent.Name())
@@ -6643,6 +6686,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					}
 					sessions.Save()
 				}
+			}
+
+			// #618 K4 S1: a resumed turn whose first result is an error (e.g. a
+			// 400 for a tool_use the cut-off turn left dangling) is re-run once
+			// on a fresh session by the caller (retryFreshOnResumeError).
+			if e.takeResumeFirstResultError(state, input, event, chainedQueued) {
+				board.hold()
+				sp.discard()
+				return
 			}
 
 			// Mark clean exit so unsolicited reader preserves buffered events.
@@ -7139,6 +7191,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					}
 					chainedJournalID = id
 				}
+				e.journalSyncQueued(state, sessionKey)                       // #618 K4 #12: dequeued
+				e.armResumeRetry(state, session, chainedQueued.resumeFallback) // #618 K4 S1 (clears it for a plain message)
 
 				nextSend := make(chan error, 1)
 				go func() {
@@ -7310,6 +7364,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// maomao fork: the user (/stop) or the gate (abort) cancelled this turn and was
 					// already told so; the agent's resulting error is expected — log only.
 					slog.Info("agent error after turn cancel suppressed", "session", sessionKey, "error", errMsg)
+				} else if e.isStoppingForJournal() {
+					// #618 K4 M2: the bridge is stopping and ended this turn; it is kept in
+					// the journal and resumed after the restart, so it is no failure.
+					slog.Info("agent error during shutdown suppressed", "session", sessionKey, "error", errMsg)
+				} else if input == nil && e.takeResumeFirstError(state, errMsg, chainedQueued) {
+					// #618 K4 S1: re-run on a fresh session by the caller.
+					slog.Warn("resumed turn failed at once; re-running on a fresh session", "session", sessionKey, "error", errMsg)
 				} else if input == nil && isModelCapacityError(errMsg) {
 					// maomao fork: retried / cooled down by runTurnWithCapacityRetry, which tells the user.
 					// A queued message chained into this loop goes back to the queue head,
@@ -7505,6 +7566,17 @@ func mergeRichToolResult(steps []ToolStep, event Event, result string, maxLen in
 // the event loop exits abnormally (EventError, channel closed) and queued
 // messages can no longer be delivered to the agent.
 func (e *Engine) notifyDroppedQueuedMessages(state *interactiveState, reason error) {
+	if e.isStoppingForJournal() {
+		// #618 K4 M2: shutdown, not a failure. The queued messages stay in the
+		// journal (queued_messages of the interrupted turn) and are resumed.
+		state.mu.Lock()
+		n := len(state.pendingMessages)
+		state.mu.Unlock()
+		if n > 0 {
+			slog.Info("queued messages kept for resume after shutdown", "count", n)
+		}
+		return
+	}
 	state.mu.Lock()
 	if state.resetHandoff {
 		// applyPendingReset hands these to the fresh session.
@@ -7617,6 +7689,8 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		// #618 K1: chained into a running turn -> update its entry; a drain with
 		// no outer turn (orphaned queue, after /compress) owns one per message.
 		journalID, journalOwned := e.journalQueuedTurn(&rawQueued, sessionKey, queuedWorkspace, as) // raw text, before the turn blocks
+		e.journalSyncQueued(state, sessionKey)                                                       // #618 K4 #12: dequeued
+		e.armResumeRetry(state, session, rawQueued.resumeFallback)                                  // #618 K4 S1
 
 		var stopTyping func()
 		if ti, ok := queued.platform.(TypingIndicator); ok {
@@ -7651,6 +7725,15 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 				rawQueued = *q
 			}
 			if e.retryFreshOnPromptTooLong(rawQueued.platform, queuedToMessage(rawQueued), errMsg, state, session, sessions, state.agent, sessionKey, state.workspaceDir, rawQueued.msgSessionKey) {
+				return true
+			}
+		}
+		// #618 K4 S1: a queued resume whose resumed session failed at once.
+		if errMsg, q := state.takeResumeFailed(); errMsg != "" {
+			if q != nil {
+				rawQueued = *q
+			}
+			if e.retryFreshOnResumeError(rawQueued.platform, queuedToMessage(rawQueued), errMsg, state, session, sessions, state.agent, sessionKey, state.workspaceDir, rawQueued.msgSessionKey) {
 				return true
 			}
 		}
