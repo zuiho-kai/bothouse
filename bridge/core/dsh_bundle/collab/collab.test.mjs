@@ -4791,8 +4791,13 @@ test('G35: while a DSH [ask] waits on the user the watch wakes nobody and keeps 
 
 test('G35: an unanswered [ask] the owner moved on from (hand-back, rework) does not hold the watch', async () => {
   const { hub, tasks, clock, woken, ws, assign, say } = g34Setup();
+  // say() posts at the real time; run the clock from there so those rows fall in the first
+  // window only and later windows are quiet (with no renewal cap, #429, a later stamp would
+  // read as progress in every window).
+  const base = Math.ceil(Date.now() / 1000) + 5;
+  clock.t = base;
   const t = assign();
-  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n[ask]\n要不要顺手改 B？\n自验：无需\n类别：方向` }, 1100).message;
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n[ask]\n要不要顺手改 B？\n自验：无需\n类别：方向` }, base + 1).message;
   tasks.fromMessage(row);
   hub.teamExit.onMessage(row);
   await settle();
@@ -4803,7 +4808,7 @@ test('G35: an unanswered [ask] the owner moved on from (hand-back, rework) does 
   await settle();
   assert.equal(tasks.task(t.id).status, 'rework');
   for (let i = 1; i <= 4; i++) {
-    clock.t = 1000 + i * (CHECK_AFTER_S + 1);
+    clock.t = base + i * (CHECK_AFTER_S + 1);
     tasks.tick();
   }
   assert.ok(tasks.task(t.id).paused_at, 'a stale [ask] does not push the watch forever');

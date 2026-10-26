@@ -88,10 +88,13 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 		if err := d.finish(response, runErr); err != nil {
 			slog.Error("relay: background result checkpoint failed", "task_id", req.TaskID, "error", err)
 		}
+		// Only the drain calls this: the lead stopped waiting, so nobody would
+		// read the outcome unless the lead is woken (#429).
+		source.wakeRelayLead(req, name, response, runErr)
 	})
 	var draining *relayDrainingError
 	if errors.As(runErr, &draining) {
-		return nil, fmt.Errorf("relay: wait ended; execution continues, do not redispatch: %w", runErr)
+		return nil, fmt.Errorf("relay: wait ended; execution continues under the ten-minute watch and its outcome will wake this session, do not redispatch: %w", runErr)
 	}
 	if err := d.finish(response, runErr); err != nil {
 		return nil, fmt.Errorf("relay: result checkpoint failed; do not repeat tools: %w", err)
@@ -355,4 +358,46 @@ func memberReported(t *Task, project string, since time.Time) bool {
 		}
 	}
 	return false
+}
+
+// relayLeadWakeLimit caps the worker output quoted in the wake prompt.
+// 来源：沿用 relayVisibilityResponseLabel 的 2000 字截断。
+const relayLeadWakeLimit = 2000
+
+// wakeRelayLead queues one turn in the dispatching session once a task relay
+// that outlived the lead's wait ends, so a result, a watch stop or a lost run
+// is picked up instead of sitting on the card (#429). It goes through the timer
+// scheduler like other wakes, injecting into the session's turn when busy.
+func (e *Engine) wakeRelayLead(req RelayRequest, worker, response string, runErr error) {
+	if e.timerScheduler == nil {
+		slog.Warn("relay: no timer scheduler; lead not woken for background outcome", "task_id", req.TaskID, "request_id", req.RequestID)
+		return
+	}
+	outcome := "已交回结果"
+	switch {
+	case errors.Is(runErr, errRelayWatchStopped):
+		outcome = "被十分钟看门停下（没有进展或续期用完），会话已关"
+	case runErr != nil:
+		outcome = "后台执行结束但没有确认结果（" + runErr.Error() + "）"
+	}
+	prompt := fmt.Sprintf("[派工回执] 任务 %s 派给%s的活（请求 %s）%s。先核对实际产物（分支、提交、工作树、PR），再决定验收、续派（同一任务、新的请求号，从检查点接着做）或收口；不要重复已经成功的操作。",
+		req.TaskID, worker, req.RequestID, outcome)
+	if out := strings.TrimSpace(response); out != "" {
+		prompt += "\n\n" + worker + "交回的内容：\n" + truncateRelay(out, relayLeadWakeLimit)
+	}
+	silent := true
+	job := &TimerJob{
+		ID:           GenerateTimerID(),
+		Project:      e.name,
+		SessionKey:   req.SessionKey,
+		ScheduledAt:  time.Now(),
+		Prompt:       prompt,
+		Description:  "派工回执 " + req.TaskID,
+		Silent:       &silent,
+		InjectIfBusy: true,
+		CreatedAt:    time.Now(),
+	}
+	if err := e.timerScheduler.AddJob(job); err != nil {
+		slog.Error("relay: wake lead for background outcome failed", "task_id", req.TaskID, "request_id", req.RequestID, "error", err)
+	}
 }

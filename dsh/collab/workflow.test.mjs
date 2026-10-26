@@ -85,11 +85,11 @@ test('tasks opened from chat skip the ref check', () => {
 
 // #574 B2: a workspace task at its 10-minute check is renewed when the workspace has new role
 // messages (at most MAX_RENEWALS times), otherwise parked. Same rule as contrib/lead/d10-fire.
-function watchSetup() {
+function watchSetup(opts = {}) {
   const { hub } = setup();
   const ws = hub.store.createWorkspace(1);
   let now = 10000;
-  const tasks = new Tasks(hub, { now: () => now, setTimer: () => ({}), clearTimer() {} });
+  const tasks = new Tasks(hub, { now: () => now, setTimer: () => ({}), clearTimer() {}, ...opts });
   const woken = [];
   tasks.onWake((id, msg) => { woken.push([id, msg.text]); return true; });
   const t = tasks.assign({ roomId: ws.id, title: '看门', owner: 'ds', actor: 'lead' });
@@ -126,15 +126,31 @@ test('watch: a message in the window renews 10 minutes', () => {
   tasks.close();
 });
 
-test(`watch: after ${MAX_RENEWALS} renewals it parks even with new messages`, () => {
-  const { tasks, say, at, records } = watchSetup();
+test('watch: with a renewal cap it parks after the cap even with new messages', () => {
+  const { tasks, say, at, records } = watchSetup({ maxRenewals: 2 });
   say(300); assert.equal(at(CHECK_AFTER_S).renewals, 1);
   say(900); assert.equal(at(2 * CHECK_AFTER_S).renewals, 2);
   say(1500);
   const t = at(3 * CHECK_AFTER_S);
   assert.ok(t.paused_at, 'third check parks');
-  assert.equal(t.renewals, MAX_RENEWALS);
+  assert.equal(t.renewals, 2);
   assert.match(records()[0].text, /已续期 2 次，已暂停/);
+  tasks.close();
+});
+
+// #429: by default (MAX_RENEWALS 0) progress keeps renewing; only a quiet window parks.
+test('watch: by default it renews as long as there is progress', () => {
+  assert.equal(MAX_RENEWALS, 0);
+  const { tasks, say, at, records } = watchSetup();
+  for (let i = 1; i <= 5; i++) {
+    say(i * CHECK_AFTER_S - 300);
+    const t = at(i * CHECK_AFTER_S);
+    assert.equal(t.renewals, i);
+    assert.ok(!t.paused_at, `check ${i} with progress does not park`);
+  }
+  const t = at(6 * CHECK_AFTER_S);
+  assert.ok(t.paused_at, 'a quiet window parks');
+  assert.match(records()[0].text, /没有新进展/);
   tasks.close();
 });
 

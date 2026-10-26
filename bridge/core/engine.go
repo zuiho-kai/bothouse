@@ -17792,10 +17792,15 @@ func relayPartialResponseOrError(ctxErr error, textParts []string, fromProject, 
 	return resp, nil
 }
 
+// relayDrainSafety bounds a plain relay's background drain (tests shorten it).
+// 来源：沿用既有 relay 后台 drain 的 10 分钟安全期限。
+var relayDrainSafety = 10 * time.Minute
+
 // drainRelaySession runs in a goroutine after a relay timeout. It lets the
 // agent finish its current turn (saving the session ID for future resumption),
 // auto-approves any permission requests, and then closes the session. A 10-minute
-// safety timeout prevents the goroutine from leaking if the agent hangs.
+// safety timeout prevents the goroutine from leaking if the agent hangs; task
+// relays leave that to the ten-minute watch (stop).
 func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, completion []func(string, error)) {
 	teamOutcome := teamWorkUnconfirmed
 	completionErr := fmt.Errorf("relay: background execution ended without a confirmed result")
@@ -17807,9 +17812,15 @@ func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, 
 			}
 		}
 	}()
-	// 来源：沿用既有 relay 后台 drain 的 10 分钟安全期限。
-	timer := time.NewTimer(10 * time.Minute)
+	timer := time.NewTimer(relayDrainSafety)
 	defer timer.Stop()
+	// A task relay (stop != nil) is kept by the ten-minute watch, which renews
+	// on progress and stops through stop. The fixed safety limit would cut a
+	// run that is still making progress (#429), so it only guards plain relays.
+	var timeout <-chan time.Time = timer.C
+	if stop != nil {
+		timeout = nil
+	}
 
 	for {
 		if resultReceived && sendDone == nil {
@@ -17881,7 +17892,7 @@ func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, 
 			teamOutcome, completionErr = teamWorkFailed, errRelayWatchStopped
 			response = strings.Join(textParts, "")
 			return
-		case <-timer.C:
+		case <-timeout:
 			slog.Warn("relay: background drain timed out, closing session",
 				"relay_key", relaySessionKey)
 			agentSession.Close()

@@ -959,3 +959,35 @@ func TestWatchBackgroundRenewalCapSurvivesReload(t *testing.T) {
 		t.Fatalf("background cap must park even after reload: %+v, sent %v", got, p.out)
 	}
 }
+
+// withWatchMaxRenew sets a renewal cap for one test (the default is no cap).
+func withWatchMaxRenew(t *testing.T, n int) {
+	t.Helper()
+	old := watchMaxRenew
+	watchMaxRenew = n
+	t.Cleanup(func() { watchMaxRenew = old })
+}
+
+// #429: by default progress keeps renewing past the old cap of two; a quiet window parks.
+func TestWatchRenewsWhileProgressByDefault(t *testing.T) {
+	if watchMaxRenew != 0 {
+		t.Fatalf("default watchMaxRenew = %d, want 0 (no cap)", watchMaxRenew)
+	}
+	e, p, w, h := watchFixture(t, "u1", "")
+	progress := true
+	w.progress = func(string, TeamHandoff, time.Time) (bool, error) { return progress, nil }
+	now := h.Due
+	for i := 1; i <= 5; i++ {
+		next := w.tick(now)
+		got := handoffsOf(e, "discord:ws1")[0]
+		if got.Renewed != i || !got.Parked.IsZero() || len(p.out) != 0 {
+			t.Fatalf("check %d with progress: renewed silently, got %+v, sent %v", i, got, p.out)
+		}
+		now = next
+	}
+	progress = false
+	w.tick(now)
+	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("quiet window: nudged once and parked, got %+v, sent %v", got, p.out)
+	}
+}

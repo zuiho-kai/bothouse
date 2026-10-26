@@ -48,7 +48,9 @@ func watchCheckAfter() time.Duration { return time.Duration(watchCheckAfterNs.Lo
 
 // Var only so tests can change it; not configurable.
 // Source: d10-fire MAX_RENEW = 2 (lead ruling 2026-10-25, at most 30 minutes); same as tasks.mjs MAX_RENEWALS.
-var watchMaxRenew = 2
+var watchMaxRenew = 0
+
+func watchCanRenew(n int) bool { return watchMaxRenew <= 0 || n < watchMaxRenew }
 
 // Live background work can extend a handoff to six ten-minute renewals in total.
 // Ordinary renewals also consume this budget; it survives restart via Renewed.

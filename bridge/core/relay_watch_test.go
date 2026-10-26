@@ -76,6 +76,7 @@ func TestRelayWatchNoProgressNudgesAndStops(t *testing.T) {
 }
 
 func TestRelayWatchProgressRenewsThenStopsAfterTwo(t *testing.T) {
+	withWatchMaxRenew(t, 2)
 	p, d, now := relayWatchFixture(t)
 	at := *now
 	for i := 1; i <= watchMaxRenew; i++ {
@@ -315,5 +316,23 @@ func TestRelayWatchNotResumedWithoutRunningReceipt(t *testing.T) {
 	e.startPublicProgress()
 	if restored.watchOn.Load() {
 		t.Fatal("watch started with nothing to watch")
+	}
+}
+
+// #429: by default a task relay with progress is renewed past two checks; a quiet one stops.
+func TestRelayWatchRenewsWhileProgressByDefault(t *testing.T) {
+	p, d, now := relayWatchFixture(t)
+	at := *now
+	for i := 1; i <= 5; i++ {
+		relayWatchReport(t, p, d, int64(i))
+		at = relayWatchReceipt(d).WatchDue
+		p.relayWatchTick(at)
+		if relayWatchStopped(d) != 0 || relayWatchReceipt(d).WatchRenewed != i {
+			t.Fatalf("check %d with progress: cancels=%d receipt=%+v", i, relayWatchStopped(d), relayWatchReceipt(d))
+		}
+	}
+	p.relayWatchTick(relayWatchReceipt(d).WatchDue)
+	if relayWatchStopped(d) != 1 || !relayWatchReceipt(d).WatchDone {
+		t.Fatalf("quiet window not stopped: cancels=%d receipt=%+v", relayWatchStopped(d), relayWatchReceipt(d))
 	}
 }
