@@ -78,7 +78,7 @@ func splitCmdString(s string) []string {
 	if t == "" {
 		return nil
 	}
-	if !strings.ContainsAny(t, `"'`) && isExistingFile(t) {
+	if isExistingFile(t) {
 		return []string{t}
 	}
 	if parts, ok := splitQuoted(t); ok {

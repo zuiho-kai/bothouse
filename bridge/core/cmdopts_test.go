@@ -371,7 +371,7 @@ func TestParseConfigEnv_DoesNotMutateInput(t *testing.T) {
 // an existing file, or quoted when it also carries arguments.
 func TestParseCmdOpts_CmdPathWithSpaces(t *testing.T) {
 	dir := t.TempDir()
-	exe := filepath.Join(dir, "my cli", "agent.exe")
+	exe := filepath.Join(dir, "O'Brien", "my cli", "agent.exe")
 	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
