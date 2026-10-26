@@ -12,7 +12,7 @@ import { LeadState } from './lead-state.mjs';
 import { Roster } from './roster.mjs';
 import { promptText, teamModeRules, TurnProgress, workspaceHint } from './dsh-member.mjs';
 import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
-import { tasksRoute, ownMessageRoute } from './plugin.mjs';
+import { tasksRoute, ownMessageRoute, renameRoomRoute } from './plugin.mjs';
 import { TeamExit } from './team-exit.mjs';
 
 const quiet = { warn() {}, info() {} };
@@ -67,6 +67,102 @@ test('store: client keys dedupe, pages are oldest-first, jobs are created and fi
   assert.equal(s.setDispatchMode(1, 'team'), 'team');
   assert.equal(s.dispatchMode(1), 'team');
   assert.throws(() => s.setDispatchMode(1, 'bad'), /dispatch mode/);
+});
+
+test('channel rename API: emits fresh rooms and returns HTTP 400 for invalid names and workspaces', async () => {
+  const { Readable } = await import('node:stream');
+  const hub = makeHub();
+  const ws = hub.store.createWorkspace(1);
+  const events = [];
+  hub.subscribe(event => events.push(event));
+  const refreshed = [];
+  const call = async (id, name) => {
+    const req = Readable.from([Buffer.from(JSON.stringify({ name }))]);
+    req.method = 'PATCH';
+    let status, result;
+    const res = { writeHead(s) { status = s; }, end(body) { result = JSON.parse(body); } };
+    await renameRoomRoute(req, res, `/collab/api/rooms/${id}`, { store: hub.store, hub, dsh: { async refreshRoomTitles(roomId) { refreshed.push(roomId); } } });
+    return { status, result };
+  };
+  assert.equal((await call(1, 'new')).status, 200);
+  assert.equal(events.at(-1).rooms.find(r => r.id === 1).name, 'new');
+  assert.deepEqual(refreshed, [1]);
+  for (const name of ['', 'x'.repeat(33), 'two words', 'name\n']) assert.equal((await call(1, name)).status, 400);
+  assert.equal((await call(ws.id, 'new')).status, 400);
+  assert.equal((await call(999, 'new')).status, 404);
+  assert.deepEqual(refreshed, [1]);
+  hub.store.close();
+});
+
+test('channel rename: preserves ids, messages, bindings, members, dispatch settings and workspace paths', () => {
+  const hub = makeHub();
+  const s = hub.store;
+  s.ensureRoom(1, 'general', '/channel-project');
+  const ws = s.createWorkspace(1);
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true, rooms: [1] });
+  const message = s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek hello' }).message;
+  s.bind('ds', 1, 'session-1');
+  s.setDispatchMode(1, 'team');
+  const binding = s.binding('ds', 1);
+  const members = hub.memberView();
+  assert.equal(s.renameRoom(1, '新频道').id, 1);
+  assert.equal(s.room(1).name, '新频道');
+  assert.deepEqual(s.message(message.id), message);
+  assert.deepEqual(s.binding('ds', 1), binding);
+  assert.deepEqual(hub.memberView(), members);
+  assert.equal(s.dispatchMode(1), 'team');
+  assert.equal(s.workspacePath(1, '/fallback'), '/channel-project');
+  assert.equal(s.workspacePath(ws.id, '/fallback'), '/channel-project');
+  assert.deepEqual(hub.routableIn(ws.id).map(m => m.id), ['ds']);
+  assert.equal(s.room(ws.id).parent_id, 1);
+  for (const name of ['', 'x'.repeat(33), 'two words', ' name', 'name\n', null, 4]) {
+    assert.throws(() => s.renameRoom(1, name), /1-32 characters/);
+  }
+  assert.throws(() => s.renameRoom(ws.id, 'renamed'), /workspace names/);
+  s.close();
+});
+
+test('channel rename: the persisted name survives reopening the database', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-rename-')), 'collab.sqlite3');
+  const s = new Store(path);
+  s.ensureRoom(1, 'general');
+  s.renameRoom(1, '新频道');
+  s.close();
+  const reopened = new Store(path);
+  assert.equal(reopened.room(1).name, '新频道');
+  // Startup preserves the saved name while reapplying the configured directory.
+  const config = resolveConfig({ dataDir: '/data', workspacePath: '/fallback', rooms: [{ id: 1, name: 'general', workspacePath: '/changed' }] });
+  for (const room of config.rooms) reopened.ensureRoom(room.id, reopened.room(room.id)?.name ?? room.name.trim(), room.workspacePath);
+  assert.equal(reopened.room(1).name, '新频道');
+  assert.equal(reopened.workspacePath(1, '/fallback'), '/changed');
+  reopened.close();
+});
+
+test('channel rename: refreshes loaded and persisted sessions, workspaces and future sessions', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'other');
+  const ws = hub.store.createWorkspace(1);
+  const fake = fakeDsh();
+  const dsh = fake.attach(hub, [{ id: 'ds', name: 'DeepSeek' }, { id: 'ju', name: '橘' }]);
+  await dsh.ensureAgent(dsh.config.get('ds'), hub.store.room(1));
+  await dsh.ensureAgent(dsh.config.get('ju'), ws);
+  await dsh.ensureAgent(dsh.config.get('ds'), hub.store.room(2));
+  fake.restart();
+  const before = fake.ctx.agents.resumes;
+  fake.ctx.sessionTitle.renamed.length = 0;
+  hub.store.renameRoom(1, 'renamed');
+  await dsh.refreshRoomTitles(1);
+  assert.equal(fake.ctx.agents.resumes - before, 2);
+  assert.deepEqual(fake.ctx.sessionTitle.renamed, ['#renamed · DeepSeek', '#renamed · 橘']);
+  await dsh.ensureAgent(dsh.config.get('ju'), hub.store.room(1));
+  assert.equal(fake.ctx.sessionTitle.renamed.at(-1), '#renamed · 橘');
+  await dsh.createAgent(dsh.config.get('ds'), ws);
+  assert.equal(fake.ctx.sessionTitle.renamed.at(-1), '#renamed · DeepSeek');
+  await dsh.close();
+  hub.store.close();
 });
 
 test('dispatch mode: a workspace inherits its chat channel setting (PR #138 review 6)', () => {
