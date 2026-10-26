@@ -221,6 +221,9 @@ type compactProgressWriter struct {
 	platform  Platform
 	replyCtx  any
 	transform func(string) string
+	// noRawFallback: the channel rule forced compact here, so a failed or disabled writer drops
+	// tool/thinking lines instead of handing them back as raw messages (#628).
+	noRawFallback bool
 
 	starter PreviewStarter
 	updater MessageUpdater
@@ -371,6 +374,13 @@ func newCompactProgressWriter(ctx context.Context, p Platform, replyCtx any, age
 		maxEntries: progressCardMaxEntries,
 		startedAt:  time.Now(),
 	}
+	// maomao fork: a reply context the channel rule marked compact (outside a workspace channel,
+	// #613) must never fall back to raw tool or thinking lines in that chat channel.
+	if hint, ok := replyCtx.(ProgressStyleHinter); ok {
+		if style, ok := hint.ProgressStyleHint(); ok && normalizeProgressStyle(style) == progressStyleCompact {
+			w.noRawFallback = true
+		}
+	}
 	if throttler, ok := p.(ProgressUpdateThrottler); ok {
 		w.minUpdateInterval = throttler.ProgressUpdateInterval()
 	}
@@ -458,6 +468,12 @@ func (w *compactProgressWriter) AppendStructured(item ProgressCardEntry, fallbac
 	if !handled && w.style == progressStyleCard {
 		switch item.Kind {
 		case ProgressEntryToolUse, ProgressEntryToolResult:
+			return true
+		}
+	}
+	if !handled && w.noRawFallback {
+		switch item.Kind {
+		case ProgressEntryToolUse, ProgressEntryToolResult, ProgressEntryThinking:
 			return true
 		}
 	}
