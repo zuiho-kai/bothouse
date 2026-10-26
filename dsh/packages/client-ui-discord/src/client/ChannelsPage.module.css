@@ -497,9 +497,8 @@
 }
 
 .composerBox:focus-within {
+  /* Focus changes the border tone only: no blue ring around the composer. */
   border-color: var(--dsw-alias-label-tertiary);
-  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
-  outline-offset: 2px;
 }
 
 .composerToolbar {
