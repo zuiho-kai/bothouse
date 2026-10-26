@@ -1099,6 +1099,25 @@ test('roster: wizard roles are imported once, existing names skipped', async () 
   assert.deepEqual(await roster.importWizard(file), []);
 });
 
+test('roster: a default-named wizard role continues the suffix instead of being skipped', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'collab-wiz-'));
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  await roster.create({ cli: 'codex', nameCustomized: false });
+  await roster.create({ name: '小码', cli: 'codex', nameCustomized: true });
+  const file = join(dir, 'wizard-members.json');
+  writeFileSync(file, JSON.stringify({ members: [
+    { name: 'Codex', cli: 'codex', name_customized: false },
+    { name: '小码', cli: 'codex', name_customized: true },
+  ] }));
+  assert.deepEqual(await roster.importWizard(file), ['Codex-2']);
+  assert.equal(hub.memberList().filter(m => m.name === 'Codex-2').length, 1);
+});
+
 
 test('member failure publishes actionable error and clears it on retry', () => {
   const hub = makeHub();

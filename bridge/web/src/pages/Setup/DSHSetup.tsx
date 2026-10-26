@@ -135,6 +135,16 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
   // Enter the roles step with one role: named after its CLI, no persona.
   const goRoles = () => { setRoles((rs) => (rs.length ? rs : [newRole([])])); setStep(2); };
   const patch = (key: number, p: Partial<Role>) => setRoles((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r)));
+  // Renaming a role also renames the "你是谁" reference in a picked persona, matching the
+  // wizard and the DSH member dialog; manual persona prose keeps common words intact.
+  const patchName = (key: number, name: string) => setRoles((rs) => rs.map((r) => {
+    if (r.key !== key) return r;
+    const next = { ...r, name, nameCustomized: true };
+    if (r.keepName && name.trim() && r.name && name !== r.name) {
+      next.persona = personaWithName(r.persona, r.name, name);
+    }
+    return next;
+  }));
   const changeRunner = (key: number, runner: string) => setRoles((rs) => {
     const r = rs.find((x) => x.key === key);
     if (!r) return rs;
@@ -255,7 +265,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
               <details data-testid={`dsh-optional-${idx}`}>
                 <summary className="cursor-pointer text-sm">{t.optional}</summary>
                 <div className="space-y-2 pt-2">
-                  <Input label={t.name} value={r.name} onChange={(e) => patch(r.key, { name: e.target.value, nameCustomized: true })} data-testid={`dsh-role-name-${idx}`} />
+                  <Input label={t.name} value={r.name} onChange={(e) => patchName(r.key, e.target.value)} data-testid={`dsh-role-name-${idx}`} />
                   <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={r.keepName} data-testid={`dsh-keep-name-${idx}`}
                     onChange={(e) => patch(r.key, { keepName: e.target.checked })} />{t.keepName}</label>
                   {lib ? (

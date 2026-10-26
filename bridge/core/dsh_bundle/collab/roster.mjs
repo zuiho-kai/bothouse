@@ -71,11 +71,14 @@ export class Roster {
     const added = [];
     for (const m of Array.isArray(members) ? members : []) {
       const name = String(m?.name ?? '').trim();
-      if (this.hub.memberList().some(x => x.name.toLowerCase() === name.toLowerCase())) continue;
+      const exists = this.hub.memberList().some(x => x.name.toLowerCase() === name.toLowerCase());
+      // A default-named role may become Codex-2 when Codex is already there; custom and legacy
+      // names stay idempotent (a re-import must not duplicate them).
+      if (exists && m?.name_customized !== false) continue;
       try {
         const avatar = m?.avatar && ['orange', 'whale', 'dragon', 'rainbow', 'lanxi'].includes(m.avatar) ? m.avatar : undefined;
-        await this.create({ name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(m?.name_customized === undefined ? {} : { nameCustomized: Boolean(m.name_customized) }), ...(avatar ? { avatar } : {}) });
-        added.push(name);
+        const created = await this.create({ name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(m?.name_customized === undefined ? {} : { nameCustomized: Boolean(m.name_customized) }), ...(avatar ? { avatar } : {}) });
+        added.push(created.name);
       } catch (error) {
         logger?.warn?.('conest-collab: wizard member %s not added: %s', name, error?.message ?? error);
       }
@@ -138,10 +141,17 @@ export class Roster {
     if (nameCustomized !== undefined && typeof nameCustomized !== 'boolean') throw new CollabError('invalid', 'nameCustomized must be boolean');
     const cli = input?.cli ?? existing?.cli;
     const backend = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini' }[cli] ?? 'DSH';
-    if (!name || (nameCustomized === false && existing !== undefined && existing.cli !== cli)) {
-      const used = new Set(this.hub.memberList().filter(m => m.id !== selfId).map(m => m.name.toLowerCase()));
-      name = backend;
-      for (let n = 2; used.has(name.toLowerCase()); n++) name = `${backend}-${n}`;
+    const used = new Set(this.hub.memberList().filter(m => m.id !== selfId).map(m => m.name.toLowerCase()));
+    const isNew = existing === undefined;
+    if (!name || (nameCustomized === false && (isNew ? used.has(name.toLowerCase()) : existing.cli !== cli))) {
+      if (isNew && name) {
+        // Keep the requested automatic stem (Codex, Claude Code…) and only move past collisions.
+        const stem = name.replace(/-\d+$/, '');
+        for (let n = 2; used.has(name.toLowerCase()); n++) name = `${stem}-${n}`;
+      } else {
+        name = backend;
+        for (let n = 2; used.has(name.toLowerCase()); n++) name = `${backend}-${n}`;
+      }
     }
     if (!name || name.length > MAX_NAME || /[@<>\r\n\t]/.test(name) || (/\s/.test(name) && !/^Claude Code(?:-\d+)?$/.test(name))) {
       throw new CollabError('invalid', `name must be 1-${MAX_NAME} characters without spaces (except Claude Code), @ or <>`);

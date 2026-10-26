@@ -70,6 +70,20 @@ describe('DSH setup roles', () => {
     }));
   });
 
+  it('rewrites the picked persona identity when the name is edited afterwards', async () => {
+    await render();
+    await click('[data-testid="dsh-skip-install"]');
+    await openDetails();
+    await click('[data-testid="pick-fixture"]');
+    expect(container.querySelector<HTMLTextAreaElement>('[data-testid="dsh-role-persona-0"]')?.value).toBe('# 角色：Codex\n\n你是「Codex」——白发。\n');
+    await input('[data-testid="dsh-role-name-0"]', '小码');
+    expect(container.querySelector<HTMLTextAreaElement>('[data-testid="dsh-role-persona-0"]')?.value).toBe('# 角色：小码\n\n你是「小码」——白发。\n');
+    await click('[data-testid="dsh-save-roles"]');
+    expect(configure).toHaveBeenCalledWith(expect.objectContaining({
+      members: [expect.objectContaining({ name: '小码', name_customized: true, persona: '# 角色：小码\n\n你是「小码」——白发。\n' })],
+    }));
+  });
+
   it('keeps an edited name and rewrites the selected persona identity to it', async () => {
     await render();
     await click('[data-testid="dsh-skip-install"]');
