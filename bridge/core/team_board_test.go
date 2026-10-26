@@ -60,7 +60,7 @@ func TestRenderTeamBoard(t *testing.T) {
 	got := renderTeamBoard(boardFiles(now), "discord:111")
 	for _, want := range []string{
 		"**G哥**　🔧 预解码原型",
-		"**大豆包**　🔧 在#dev忙",
+		"**大豆包**　↗️ 在#dev忙（",
 		"**Grok**　💤 空闲",      // a chat reply without tools is not work
 		"**C酱**　✅ 做完：审 #139", // per-user key of the same channel
 	} {
@@ -70,6 +70,45 @@ func TestRenderTeamBoard(t *testing.T) {
 	}
 	if strings.Contains(got, "私密的活") || strings.Contains(got, "随便聊聊") {
 		t.Errorf("board leaked another channel's task or a chat reply:\n%s", got)
+	}
+}
+
+// Busy in another channel is listed but is not busy here: the line says it does not block work
+// here, and neither the member lines nor the card state count it as live.
+func TestTeamBoardBusyElsewhereNotBusyHere(t *testing.T) {
+	now := time.Now()
+	files := []teamFile{
+		{Project: "b", Name: "大豆包", Updated: now, Sessions: []teamEntry{
+			{Key: "discord:222", Chat: "外出", Task: "外出巡逻", Busy: true, Worked: true, Since: now},
+		}},
+		{Project: "e", Name: "小橙", Updated: now, Sessions: []teamEntry{
+			{Key: "discord:333", Task: "私聊里的活", Busy: true, Worked: true, Since: now},
+		}},
+	}
+	got, live := teamBoardMembers(files, "discord:111", nil)
+	for _, want := range []string{
+		"**大豆包**　↗️ 在#外出忙（",
+		"**小橙**　↗️ 在别的频道忙（",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("board missing %q:\n%s", want, got)
+		}
+	}
+	if n := strings.Count(got, teamElsewhereNote); n != 2 {
+		t.Errorf("want %q on both lines, got %d:\n%s", teamElsewhereNote, n, got)
+	}
+	if live {
+		t.Errorf("busy only in other channels must not count as live here:\n%s", got)
+	}
+	if strings.Contains(got, "🔧") {
+		t.Errorf("🔧 is for busy in this channel:\n%s", got)
+	}
+
+	// The same teammate busy in this channel too: that is busy here.
+	files[0].Sessions = append(files[0].Sessions, teamEntry{Key: "discord:111", Chat: "general", Task: "修 bug", Busy: true, Worked: true, Since: now})
+	got, live = teamBoardMembers(files, "discord:111", nil)
+	if !strings.Contains(got, "**大豆包**　🔧 修 bug") || !live {
+		t.Errorf("busy in this channel should be live 🔧 (live=%t):\n%s", live, got)
 	}
 }
 

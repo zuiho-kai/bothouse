@@ -6,8 +6,9 @@ package core
 // it @-s. Each project with team_status_dir set writes <dir>/<project>.json every few seconds:
 // which of its sessions (one per Discord channel / DM) are busy, since when, on what task, and
 // what finished recently. A project with team_status_inject reads the other projects' files and
-// prepends a one-line-per-teammate summary to each turn, so the main bot knows who is busy where
-// (across channels) before it hands out work.
+// prepends a one-line-per-teammate summary to each turn, so the main bot knows who is busy in
+// this channel before it hands out work. Each channel is its own session, so a teammate busy in
+// another channel or a DM is listed for context but marked as not blocking work here.
 
 import (
 	"encoding/json"
@@ -413,7 +414,12 @@ func (e *Engine) teamSummary(sessionKey string) (string, string) {
 				task = "「" + taskText + "」"
 			}
 			if s.Busy {
-				lines = append(lines, fmt.Sprintf("%s：在%s忙了 %s %s", f.Name, where, roundDur(now.Sub(s.Since)), task))
+				line := fmt.Sprintf("%s：在%s忙了 %s %s", f.Name, where, roundDur(now.Sub(s.Since)), task)
+				if where != "本频道" {
+					// Busy only counts in the channel the work goes to.
+					line = strings.TrimRight(line, " ") + teamElsewhereNote
+				}
+				lines = append(lines, line)
 			} else {
 				ended := "做完" // preserve legacy entries with an empty outcome
 				switch s.Outcome {
@@ -435,6 +441,10 @@ func (e *Engine) teamSummary(sessionKey string) (string, string) {
 	// The key leaves out elapsed times so an unchanged board is not resent.
 	return "（队友状态，系统自动附上，不用回应）\n" + strings.Join(lines, "\n"), strings.Join(keys, "\n")
 }
+
+// teamElsewhereNote ends a status line for work in another channel or a DM: each channel is
+// its own session, so that work does not keep the teammate from taking work here.
+const teamElsewhereNote = "（别的频道，不影响在这里派活）"
 
 func roundDur(d time.Duration) string {
 	switch {
