@@ -75,6 +75,9 @@ func (e *Engine) workspaceParent(channelID string) (string, bool) {
 		return "", false
 	}
 	parent, ok := r.WorkspaceParent(channelID)
+	if !ok {
+		parent, ok = e.WorkspaceLastChat(channelID)
+	}
 	if !ok || parent == "" || parent == channelID {
 		return "", false
 	}

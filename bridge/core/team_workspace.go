@@ -380,6 +380,28 @@ func (e *Engine) WorkspaceParent(channelID string) (parentID string, ok bool) {
 	return "", false
 }
 
+// WorkspaceLastChat returns the chat channel of the latest handoff to workspace channelID
+// (same id form as WorkspaceParent). It covers a workspace that is no longer owned because
+// its task was parked or closed while a turn there was still running: that turn's late
+// [report]/[ask] still belongs to that chat (10-26 工作区6 事故).
+func (e *Engine) WorkspaceLastChat(channelID string) (parentID string, ok bool) {
+	if e == nil || e.dataDir == "" || channelID == "" {
+		return "", false
+	}
+	key := teamChatKey(channelID)
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	hs := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]
+	if len(hs) == 0 || hs[len(hs)-1].Chat == "" {
+		return "", false
+	}
+	parent := hs[len(hs)-1].Chat
+	if strings.Contains(channelID, ":") {
+		return parent, true
+	}
+	return teamChannelID(parent), true
+}
+
 // TeamWorkspacesOf returns the recorded workspaces of a chat channel (bare ID or session key).
 func (e *Engine) TeamWorkspacesOf(channel string) []TeamWorkspace {
 	if e == nil || e.dataDir == "" {
