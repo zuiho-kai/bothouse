@@ -1036,11 +1036,13 @@
 
 .taskBoardDialog {
   width: min(920px, 100%);
-  max-height: min(70vh, calc(100dvh - 32px));
+  /* Fixed height, not max-height: switching tabs must not resize the dialog. */
+  height: min(70vh, calc(100dvh - 32px));
   overflow: hidden;
 }
 
 .taskBoardBody {
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1146,6 +1148,11 @@
 }
 
 .boardTabEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* A tall empty state keeps every tab's body the same size. */
+  min-height: 240px;
   padding: 40px 16px;
   color: var(--dsw-alias-label-secondary);
   text-align: center;
