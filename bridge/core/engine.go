@@ -5721,6 +5721,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		input.finish(inputTurnResult{err: fmt.Errorf("turn stopped, stream closed, or reply delivery failed before completion")})
 	}()
 	var chainedQueued *queuedMessage // maomao fork: queued message chained into this loop, if any
+	// #618 K1: entry begun for a chained queued message when no outer turn had
+	// one (e.g. after a local API turn, which is not journaled); ended here.
+	var chainedJournalID string
+	defer func() { e.journalTurnEnd(chainedJournalID) }()
 	if msgID != "" {
 		state.mu.Lock()
 		state.currentMessageID = msgID
@@ -7124,7 +7128,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// The previous turn's mode ends with that turn; this one runs in its own.
 				e.setTurnMode(state, as, queued.modeOverride)
 				// #618 K1: the running turn's entry now describes this queued message.
-				e.journalQueuedTurn(chainedQueued, sessionKey, workspaceDir, as) // raw text, before the turn blocks
+				if id, owned := e.journalQueuedTurn(chainedQueued, sessionKey, workspaceDir, as); owned { // raw text, before the turn blocks
+					if chainedJournalID != "" && chainedJournalID != id {
+						e.journalTurnEnd(chainedJournalID)
+					}
+					chainedJournalID = id
+				}
 
 				nextSend := make(chan error, 1)
 				go func() {

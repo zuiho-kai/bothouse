@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -366,5 +367,60 @@ func TestTurnJournalEntryWrittenBeforeAgentStart(t *testing.T) {
 	<-done
 	if snaps := as.snapshots(); len(snaps) != 1 || len(snaps[0]) != 1 || snaps[0][0].AgentPID != 77 || snaps[0][0].AgentSessionID != "snap-session" {
 		t.Fatalf("pid not recorded after start: %+v", snaps)
+	}
+}
+
+// N1: a prompt-too-long re-run on a fresh session replaces the failed turn's
+// entry in the same write: one entry for the message, naming the new session.
+func TestTurnJournalPromptTooLongRerunSupersedesEntry(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	e, a := newTooLongEngine(t, p, "long", "hold:second")
+	e.SetDataDir(t.TempDir())
+	key := "test:c1"
+	e.handleMessage(p, &Message{SessionKey: key, Platform: "test", UserID: "u", UserName: "u", Content: "hello", ReplyCtx: "ctx"})
+	waitFor(t, "re-run sent", func() bool { sent, _, _ := a.snapshot(); return len(sent) == 2 })
+	got := e.TurnJournal().List()
+	if len(got) != 1 || got[0].LastUserMessage != "hello" || got[0].AgentSessionID != "s2" || got[0].InteractiveKey != key {
+		t.Fatalf("entries during re-run: %+v", got)
+	}
+	close(a.release)
+	waitFor(t, "re-run reply", func() bool { return strings.Contains(joined(p), "reply:second") })
+	waitFor(t, "session released", func() bool { return !e.sessions.GetOrCreateActive(key).Busy() })
+	if got := e.TurnJournal().List(); len(got) != 0 {
+		t.Fatalf("entry left after re-run: %+v", got)
+	}
+}
+
+// N2: a queued message chained after a local API turn (which is not
+// journaled) begins its own entry; it is removed when the turn ends.
+func TestTurnJournalChainedAfterInputTurnIsDeleted(t *testing.T) {
+	api, e, a, p, s := inputFixture(t)
+	e.SetDataDir(t.TempDir())
+	if code, _ := inputPost(api, inputReq("voice-chain", "voice words")); code != 202 {
+		t.Fatal(code)
+	}
+	inputPrompt(t, a)
+	if got := e.TurnJournal().List(); len(got) != 0 {
+		t.Fatalf("API turn journaled: %+v", got)
+	}
+	e.interactiveMu.Lock()
+	st := e.interactiveStates[inputTestKey]
+	e.interactiveMu.Unlock()
+	st.mu.Lock()
+	st.pendingMessages = append(st.pendingMessages, queuedMessage{platform: p, replyCtx: inputTestKey, content: "queued Discord",
+		msgSessionKey: inputTestKey, msgPlatform: "discord", userID: "user"})
+	st.mu.Unlock()
+	inputDone(a, "voice answer")
+	inputPrompt(t, a)
+	if got := e.TurnJournal().List(); len(got) != 1 || got[0].LastUserMessage != "queued Discord" {
+		t.Fatalf("chained entry: %+v", got)
+	}
+	inputDone(a, "queued answer")
+	inputWait(t, func() bool { return !s.Busy() })
+	if got := e.TurnJournal().List(); len(got) != 0 {
+		t.Fatalf("chained entry left after turn: %+v", got)
+	}
+	if j := e.TurnJournal(); j.Active(inputTestKey) != "" {
+		t.Fatalf("active left: %q", j.Active(inputTestKey))
 	}
 }

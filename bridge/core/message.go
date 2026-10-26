@@ -439,6 +439,9 @@ type Message struct {
 	// resumed turn, the journal TurnID it continues.
 	turnTrigger string
 	resumedFrom string
+	// #618 K1: the journal TurnID this turn replaces (a prompt-too-long re-run
+	// supersedes the failed turn's entry); removed in the same write as Begin.
+	journalSupersedes string
 }
 
 // EventType distinguishes different kinds of agent output.

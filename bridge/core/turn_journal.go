@@ -56,6 +56,10 @@ type TurnJournalEntry struct {
 	// ResumedFrom is the TurnID of the interrupted turn this one continues
 	// (empty for an original turn); following it gives the resume chain.
 	ResumedFrom string `json:"resumed_from,omitempty"`
+	// Supersedes (not stored) is the TurnID of an entry this one replaces: a
+	// prompt-too-long re-run on a fresh session takes over the failed turn's
+	// entry, so the message is not left recorded twice.
+	Supersedes string `json:"-"`
 	// NoProgressCount counts consecutive resumes that made no progress; K4
 	// stops resuming when it reaches its limit.
 	NoProgressCount int       `json:"no_progress_count,omitempty"`
@@ -132,7 +136,8 @@ func (j *TurnJournal) saveLocked() error {
 
 // Begin records a turn as started and makes it the active turn of its
 // interactive key. It never replaces another entry; when ResumedFrom is set,
-// the entry it continues is removed. TurnID, Kind and StartedAt are filled in
+// the entry it continues is removed, and likewise the one named by
+// Supersedes. TurnID, Kind and StartedAt are filled in
 // when empty.
 func (j *TurnJournal) Begin(en TurnJournalEntry) (TurnJournalEntry, error) {
 	if en.TurnID == "" {
@@ -150,6 +155,13 @@ func (j *TurnJournal) Begin(en TurnJournalEntry) (TurnJournalEntry, error) {
 	if en.ResumedFrom != "" {
 		delete(j.entries, en.ResumedFrom)
 	}
+	if en.Supersedes != "" {
+		if old, ok := j.entries[en.Supersedes]; ok {
+			j.clearActiveLocked(old.InteractiveKey, en.Supersedes)
+			delete(j.entries, en.Supersedes)
+		}
+	}
+	en.Supersedes = ""
 	cp := en
 	j.entries[en.TurnID] = &cp
 	if en.Kind == TurnKindTurn && en.InteractiveKey != "" {
@@ -303,6 +315,7 @@ func (e *Engine) journalTurnBegin(msg *Message, interactiveKey, workspaceDir str
 		Trigger:         turnTriggerOf(msg),
 		LastUserMessage: msg.Content,
 		ResumedFrom:     msg.resumedFrom,
+		Supersedes:      msg.journalSupersedes,
 	}
 	if session != nil {
 		en.AgentSessionID = session.GetAgentSessionID()
