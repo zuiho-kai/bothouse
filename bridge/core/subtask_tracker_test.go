@@ -74,7 +74,8 @@ func TestSubTaskTrackerPublishesTableAfterTurn(t *testing.T) {
 	defer sess.CloseSubTasks()
 	// No processInteractiveEvents loop: lifecycle changes must reach the real
 	// engine/platform table path even after the parent's prompt is over.
-	e.ensureSubTaskTable(&interactiveState{agentSession: sess, platform: p, replyCtx: "ctx"})
+	subTaskTableWorkspace(e)
+	e.ensureSubTaskTable(&interactiveState{agentSession: sess, platform: p, replyCtx: "ctx"}, "test:ws")
 	sess.UpdateSubTask(SubTask{ID: "child", Status: SubTaskRunning, ModeUnknown: true}, false)
 	waitSub(t, "child table", func() bool { return len(onlyPrefix(p.getPreviewStarts(), SubTaskTablePayloadPrefix)) == 1 })
 	sess.UpdateSubTask(SubTask{ID: "child", Status: SubTaskWaiting}, false)
