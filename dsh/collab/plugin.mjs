@@ -131,7 +131,6 @@ export async function apply(ctx, rawConfig) {
   // A workspace released after its last task shows up free in the room list. Its sessions are
   // cleared when a new claim takes it (store.resetSessions: DSH members rebind from the store; local
   // CLI members drop their ACP session), not on release, so a rework goes on in them (#597 G35).
-  hub.drainWorkspaceQueue = roomId => drainWorkspaceQueue(roomId, { store, hub, tasks, dsh, gateway });
   tasks.onRelease(roomId => {
     hub.emit({ type: 'rooms', rooms: hub.store.roomsView() });
     hub.drainWorkspaceQueue(roomId);
@@ -147,6 +146,8 @@ export async function apply(ctx, rawConfig) {
   installApprovalAnswerer(ctx, dsh);
   // Queue leftover jobs before any route can add new ones, so both share one order.
   dsh.recover();
+  // Enable membership-triggered dispatch only after all members and leftover jobs are loaded.
+  hub.drainWorkspaceQueue = roomId => drainWorkspaceQueue(roomId, { store, hub, tasks, dsh, gateway });
   for (const room of store.rooms().filter(r => r.kind === 'chat')) hub.drainWorkspaceQueue(room.id);
   tasks.start();
   later.start();
@@ -596,7 +597,7 @@ export function workspacesRoute(req, res, url, { store, hub, gateway, owner, lat
   }, false);
 }
 
-/** Resume persisted ticket handoffs after release, a limit increase, or restart. */
+/** Resume persisted ticket handoffs after release, restored membership, a limit increase, or restart. */
 export function drainWorkspaceQueue(roomId, { store, hub, tasks, dsh, gateway }) {
   let allocation;
   const canDispatch = (payload, chat) => {

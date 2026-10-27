@@ -55,9 +55,18 @@ export class Hub {
   }
 
   setMember(member) {
+    const previous = this.members.get(member.id);
     if (member.avatar?.startsWith('upload:')) member.avatarVersion = Math.random().toString(36).slice(2);
     this.members.set(member.id, member);
     this.emit({ type: 'members', members: this.memberView() });
+    // Rejoining or regaining channel eligibility unblocks persisted handoffs.
+    if (this.drainWorkspaceQueue && member.kind !== 'human') {
+      for (const room of this.store.rooms().filter(r => r.kind === 'chat')) {
+        const eligible = !member.rooms?.length || member.rooms.includes(room.id);
+        const wasEligible = previous && previous.kind !== 'human' && (!previous.rooms?.length || previous.rooms.includes(room.id));
+        if (eligible && !wasEligible) this.drainWorkspaceQueue(room.id);
+      }
+    }
   }
 
   removeMember(id) {

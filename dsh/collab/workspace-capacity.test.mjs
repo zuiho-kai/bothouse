@@ -8,6 +8,8 @@ import { Worker } from 'node:worker_threads';
 import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { Tasks } from './tasks.mjs';
+import { Roster } from './roster.mjs';
+import { DshMembers } from './dsh-member.mjs';
 import { workspacesRoute, roomSettingsRoute, drainWorkspaceQueue } from './plugin.mjs';
 
 function setup(t, path = ':memory:') {
@@ -95,18 +97,46 @@ test('capacity: removed queue owner blocks dispatch without losing the request',
   const first = (await post('first')).body;
   const queued = (await post('waiting')).body;
   const member = hub.members.get('dev');
-  hub.members.delete('dev');
+  hub.removeMember('dev');
   const result = store.append(first.workspace.id, { authorKind: 'user', author: 'owner', name: 'owner', text: 'finished' }).message;
   tasks.handBack(first.task.id, { actor: 'dev', messageId: result.id });
   assert.equal(store.workspaceQueue(1)[0].record_id, queued.record.id);
   assert.match(store.workspaceQueue(1)[0].reason, /成员资格/);
   assert.equal(store.currentRound(first.workspace.id), undefined);
   assert.equal(wakes.length, 1);
-  hub.members.set('dev', member);
-  hub.drainWorkspaceQueue(1);
+  hub.setMember(member);
   assert.equal(store.workspaceQueue(1).length, 0);
   assert.equal(wakes.length, 2);
+  assert.equal(wakes[1].msg.record_id, queued.record.id);
+  hub.setMember(member);
+  assert.equal(wakes.length, 2);
 });
+
+for (const restored of ['dev', 'lead']) {
+  test(`capacity: roster restores ${restored} channel eligibility and automatically dispatches once`, async t => {
+    const { store, hub, tasks, post, wakes } = setup(t);
+    const members = new DshMembers(hub, { logger: hub.logger }, []);
+    const roster = new Roster(hub, members);
+    store.addMember({ id: restored, name: restored, rooms: [1] });
+    await roster.update(restored, { name: restored, rooms: [1] });
+    store.setWorkspacesMax(1, 1);
+    const first = (await post('first')).body;
+    const queued = (await post('waiting')).body;
+    await roster.update(restored, { name: restored, rooms: [2] });
+    const result = store.append(first.workspace.id, { authorKind: 'user', author: 'owner', name: 'owner', text: 'finished' }).message;
+    tasks.handBack(first.task.id, { actor: 'dev', messageId: result.id });
+    assert.match(store.workspaceQueue(1)[0].reason, /成员资格/);
+    assert.equal(wakes.length, 1);
+    await roster.update(restored, { name: restored, rooms: [1] });
+    assert.equal(store.workspaceQueue(1).length, 0);
+    assert.equal(store.currentRound(first.workspace.id).record_id, queued.record.id);
+    assert.equal(wakes.length, 2);
+    assert.equal(wakes[1].msg.record_id, queued.record.id);
+    await roster.update(restored, { name: restored, rooms: [1] });
+    assert.equal(wakes.length, 2);
+    assert.equal(tasks.list(1).filter(task => task.record_id === queued.record.id).length, 1);
+  });
+}
 
 test('capacity: settings validate integers, lowering leaves running work and raising drains queue', async t => {
   const { store, call, post } = setup(t);
