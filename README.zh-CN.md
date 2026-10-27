@@ -87,7 +87,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex;
 
 后台常驻：运行 `bothouse daemon install` 即可注册为后台服务并立即启动（新安装开机自启默认关闭，重装或升级保留当前设置，可在管理面板「设置 → 开机自动启动」中随时打开，切换不会中断当前任务）。
 
-想让小模型自动判断“群里这句话该谁回”（调度员 gate），或者开启共享记忆库，可继续安装两个配套组件，详见[装调度员和团队记忆](docs/ccm-and-wiki.md)与[从零用起完整指南](docs/GETTING_STARTED.md)。
+想让小模型自动判断“群里这句话该谁回”（调度员 gate），可在向导中配置 jev，gate 由 bothouse 自动管理；想开启共享记忆库，可按[装调度员和团队记忆](docs/ccm-and-wiki.md)中的步骤单独安装并接入 Wiki，详见[从零用起完整指南](docs/GETTING_STARTED.md)。
 
 ### DSH 频道（实验）
 
@@ -149,12 +149,15 @@ token = "换成一串足够长的随机密码"
 
 [bridge]
 enabled = true            # 必须开启，否则网页端只能看数据、不能发消息聊天
+token = "换成另一串足够长的随机桥接令牌"
 ```
+
+`bridge.token` 与 `management.token` 是独立字段；请设置足够长的随机桥接令牌，或使用 `/web setup` 生成的桥接令牌。
 
 网络与安全注意：
 
 - 请确保 Tailscale 在 bothouse 启动前已运行。如果不写 `host`，正常运行状态下默认监听所有网卡（仅未配置任何平台的向导阶段只听 `127.0.0.1`），建议远程访问时显式指定 `host`。
-- `[bridge]` 开启后会同时跟随面板端口并在所有网卡的 9810 端口监听。若只允许 tailnet 内网访问，请务必在防火墙或 Tailscale ACL 中将 9810 端口一并限制。
+- `[bridge]` 开启后会同时跟随面板端口并在所有网卡的 9810 端口监听。若只允许 tailnet 内网访问，必须用主机防火墙阻止局域网和公网接口访问 9810 端口；Tailscale ACL 可进一步限制 tailnet 内的访问，但不能代替主机防火墙。
 - 历史数据兼容：首次使用默认目录 `~/.bothouse` 启动时，会自动从旧版 `~/.cc-connect` 增量补齐定时任务与用量 JSON（已过期的单次任务会自动标为跳过，防扎堆触发；同名文件不覆盖）。
 
 ### 三、手机登录与日常操作
