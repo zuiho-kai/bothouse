@@ -63,8 +63,6 @@ CALL = re.compile(r"你看看|你看下|看一下|帮我|你觉得|你怎么看|
 URL = re.compile(r"https?://\S+")
 # 纯应答/语气词 → 不出声
 ACK = re.compile(r"^(好的?|嗯+|哦+|噢+|ok|OK|行|收到|知道了|谢谢|谢了|thx|👌|👍|哈+|嘿+|[.。!！~～]+)$")
-LINKS_FOR_REPLY = 3      # 本条 + 缓存里累计这么多链接 → 该看了
-BUFFER_FOR_REPLY = 6     # 攒了这么多条没回 → 该回了
 
 # 指令在前（每次一样，启动时缓存），状态和消息在后（每次只算这段）
 PROMPT = """你是群聊里「橘」的"要不要出声"判断器。橘是群里的主 AI，背后能干活；群里还有龙娘、鲸鱼娘、彩虹猫。
@@ -73,6 +71,7 @@ A 不回：闲聊、语气词、自言自语、还没说完、和橘无关
 B 插入：给出了新信息、新资料，或者对橘正在做的事的更正、追加、叫停，橘应该马上知道，但用户没要求回答
 C 回复：用户在问橘、要橘做事或给意见、问大家的看法
 D 打断：橘正在干活时，用户叫停、暂停、别做了、换成别的事（要她马上停下，不是补充信息）
+主角色只协调用户交给自己的任务。用户在和其他成员对话时选 A；缓存消息、链接和空闲队友本身不构成发言请求。
 只答一个字母。
 
 """
@@ -725,10 +724,10 @@ def _decide_lead(req, me="", model=True):
     if to not in (None, me) and me not in called_names(own):
         return "context", "rule: 回复 sub", None
     if re.search(r"<@!?&?\d+>", own):  # @ 了别的 bot/人（自己的 @ 已被 cc-connect 去掉）→ 不是叫橘
-        return "silent", "rule: @了别人", None
+        return "context", "rule: @了别人", None
     called = called_names(own)
     if called and me not in called:  # 开头叫的是别人，让她自己接
-        return "silent", "rule: 点名 sub", None
+        return "context", "rule: 点名 sub", None
     if own.startswith("/"):
         return "reply", "rule: command", None
     if ACK.match(own):
@@ -736,12 +735,8 @@ def _decide_lead(req, me="", model=True):
     if CALL.search(own) or any(n in own for n in NAMES[me]):
         return "reply", "rule: 叫我/提问", None
     links = len(URL.findall(content)) + sum(len(URL.findall(b)) for b in buffered)
-    if links >= LINKS_FOR_REPLY:
-        return "reply", f"rule: {links} 个链接", None
     if links and not URL.sub("", content).strip():
-        return "silent", f"rule: 只有链接，等凑够 {LINKS_FOR_REPLY} 个", None
-    if len(buffered) + 1 >= BUFFER_FOR_REPLY:
-        return "reply", f"rule: 攒了 {len(buffered) + 1} 条", None
+        return "silent", "rule: 只有链接，等待明确请求", None
     if not content:
         return "insert", "rule: 只有附件", None
     if not model:  # 已判给我（addressee）：规则没拦下就回，同上面「叫我/提问」那几条规则（忙时也是 reply，由 cc-connect 投递）

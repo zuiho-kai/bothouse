@@ -19,7 +19,7 @@ export interface DiscordBotInfo {
 export interface ExistingBot { project: string; agent_type: string; work_dir?: string; bot_id?: string; guild_id?: string; username?: string; error?: string }
 export interface JevTest { reachable: boolean; logprobs: boolean; latency_ms: number; error?: string }
 export interface SetupStateResp {
-  system_language: string; hardware: boolean; data_dir: string; has_projects: boolean; gate_enabled?: boolean; projects?: string[]; project_display_names?: string[];
+  system_language: string; hardware: boolean; data_dir: string; has_projects: boolean; gate_enabled?: boolean; gate_modes?: Record<string, 'smart' | 'addressed' | 'off'>; projects?: string[]; project_display_names?: string[];
   setup: { platform?: string; guild_id?: string; channel_id?: string; fallback_role?: string; team?: { project: string; name: string }[];
     cloud_web_url?: string; cloud_web_fallback?: string; cloud_web_team?: { project: string; name: string }[] };
   jev?: { url: string; model: string; has_key: boolean; logprobs: boolean };
@@ -46,7 +46,7 @@ export interface WizardRequest {
   cloud_web?: { url?: string; token?: string };
   roles: WizardRole[]; fallback_role?: string; fallback_bot_id?: string;
   jev?: { base_url: string; api_key?: string; model: string; remove?: boolean };
-  gate?: { enabled: boolean };
+  gate?: { enabled: boolean; mode?: 'smart' | 'addressed' };
   allow_from?: string;
   wiki?: WizardWiki;
   dry_run?: boolean;

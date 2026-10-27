@@ -24,6 +24,8 @@ Chat and small chores go to a cheap model; the hard jobs get the expensive one. 
 **Control it from anywhere.**
 Discord gets the full team, Feishu starts with a single role, and the self-hosted web channel runs on your own machine. Add a line from your phone and Claude Code or Codex picks it up mid-task, as do ACP roles like DSH that support it; other CLIs such as codex exec take it next turn.
 
+The setup wizard offers **Only when addressed** for quiet group participation without a routing model. Smart routing can use a local 0.6B model; it must provide logprobs and is not downloaded automatically. See [routing choices](docs/connect-discord-feishu.md#5-jev-和主角色).
+
 ## What it looks like
 
 <img src="docs/assets/demo-team.en.gif" alt="Real channel footage: the chat channel hands work to workspaces, tasks are dispatched, accepted and handed back there, the task board groups them, and chat carries on" width="760">

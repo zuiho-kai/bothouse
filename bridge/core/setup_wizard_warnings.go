@@ -390,6 +390,15 @@ func finishWizardResult(res *WizardResult, req WizardRequest, pl *wizardPlan, je
 		if team {
 			res.GateHint = GateHint(req.Language, hint, pl.fallbackName)
 		}
+		if req.Gate != nil && req.Gate.Mode == "addressed" {
+			if isJA(req.Language) {
+				res.GateHint = "呼ばれた時だけ返信：グループでは @ で呼んでください。ルーティング用の Python・jev・小型モデルは不要です。独自 gate と他プラットフォームの設定は維持します。"
+			} else if isZH(req.Language) {
+				res.GateHint = "仅被点名时回复：群聊请 @ 角色，无需为分流运行 Python、jev 或小模型。自定义 gate 和其他平台设置保留。"
+			} else {
+				res.GateHint = "Only when addressed: mention a role in groups. No Python, jev or small model required for routing. Custom gates and other platforms are preserved."
+			}
+		}
 		switch res.GateStatus {
 		case GateStatusPythonMissing, GateStatusPythonTooOld:
 			res.Warnings = append(res.Warnings, warnGatePython(req.Language, res.GateStatus))

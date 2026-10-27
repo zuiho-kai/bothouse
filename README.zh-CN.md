@@ -24,6 +24,8 @@ bothouse 让一队 AI 替你通宵干活：几件事同时推进，跑上一整�
 **在哪都能管。**
 Discord 上是一整套团队，飞书先接一个角色，自建网页频道跑在你自己机器上。手机上补一句，Claude Code 和 Codex 当场就接住，DSH 这类 ACP 角色支持的话也一样；codex exec 这类其他 CLI 下一轮再看。
 
+安装向导可选**仅被点名时回复**，无需运行路由小模型，减少主控插话。智能分流可接本地 0.6B，但需提供 logprobs，向导不会自动下载。详见[参与方式与成本](docs/connect-discord-feishu.md#5-jev-和主角色)。
+
 ## 用起来是什么样
 
 <img src="docs/assets/demo-team.gif" alt="真实频道记录：聊天频道把活交给工作区，工作区里派活、接活、交回，任务板按工作区分组，聊天照常进行" width="760">
