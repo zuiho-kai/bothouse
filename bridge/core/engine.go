@@ -489,6 +489,7 @@ type Engine struct {
 	// Model-at-capacity cooldown (maomao fork, see capacity_retry.go)
 	capMu           sync.Mutex
 	capUntil        time.Time
+	quotaUntil      time.Time
 	capRound        int
 	capPending      []func() // messages to re-deliver when the cooldown ends, in order
 	capArmed        bool     // a flush timer is pending
@@ -5742,6 +5743,9 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 
 			case EventError:
 				if event.Error != nil {
+					if until, ok := e.quotaCoolingUntil(event.Error.Error()); ok {
+						slog.Warn("provider quota exhausted, cooling down until reset", "session_key", sessionKey, "cooling_until", until.Format(time.RFC3339))
+					}
 					slog.Error("unsolicited agent error", "error", event.Error, "session", sessionKey)
 					userMsg := e.agentErrorMessage(event.Error)
 					if backendMsg, ok := BackendUnavailableText(event.Error, e.i18n.CurrentLang()); ok {
@@ -7374,6 +7378,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventError:
 			cp.Finalize(ProgressCardStateFailed)
+			if event.Error != nil {
+				if until, ok := e.quotaCoolingUntil(event.Error.Error()); ok {
+					slog.Warn("provider quota exhausted, cooling down until reset", "session_key", sessionKey, "cooling_until", until.Format(time.RFC3339))
+				}
+			}
 			if event.Error != nil && isModelCapacityError(event.Error.Error()) {
 				board.hold() // maomao fork: re-sent by the capacity retry; one board row, no failure
 			} else {
@@ -7761,7 +7770,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		// no outer turn (orphaned queue, after /compress) owns one per message.
 		journalID, journalOwned := e.journalQueuedTurn(&rawQueued, sessionKey, queuedWorkspace, as) // raw text, before the turn blocks
 		e.journalSyncQueued(state, sessionKey)                                                       // #618 K4 #12: dequeued
-		e.armResumeRetry(state, session, rawQueued.resumeFallback)                                  // #618 K4 S1
+		e.armResumeRetry(state, session, rawQueued.resumeFallback)                                   // #618 K4 S1
 
 		var stopTyping func()
 		if ti, ok := queued.platform.(TypingIndicator); ok {
@@ -17577,6 +17586,9 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	if e.IsPaused() {
 		return "", fmt.Errorf("engine %q is paused", e.name)
 	}
+	if wait := e.capacityWait(); wait > 0 {
+		return "", fmt.Errorf("relay target is cooling down for %s", wait.Round(time.Second))
+	}
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -17770,6 +17782,9 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				agentSession.Close()
 				teamOutcome = teamWorkFailed
 				if event.Error != nil {
+					if until, ok := e.quotaCoolingUntil(event.Error.Error()); ok {
+						slog.Warn("provider quota exhausted, cooling down until reset", "session_key", relaySessionKey, "cooling_until", until.Format(time.RFC3339))
+					}
 					return "", event.Error
 				}
 				return "", fmt.Errorf("agent error (no details)")
