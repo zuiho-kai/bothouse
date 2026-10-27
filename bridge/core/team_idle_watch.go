@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -120,11 +121,56 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 	if raw := e.lookupReadyPlatform(p.Name()); raw != nil {
 		p = raw
 	}
-	returned := cardResult || strings.HasPrefix(strings.TrimSpace(text), "[report]") ||
+	text = strings.TrimSpace(text)
+	first, _, _ := strings.Cut(text, "\n")
+	accepted := strings.HasPrefix(strings.TrimSpace(first), "【接】")
+	// A stale waiting-user card cannot turn a fresh acceptance into a handback.
+	returned := cardResult && !accepted || strings.HasPrefix(strings.TrimSpace(text), "[report]") ||
 		strings.HasPrefix(strings.TrimSpace(text), "【交回】")
 	// A validated user question waits for the user's answer, not an idle wake.
 	if kind, body, ok := parseExitKind(text); ok && kind == exitKindAsk && askEvidenceProblems(body) == nil {
 		returned = true
+	}
+	title := strings.TrimSpace(strings.TrimPrefix(first, "【接】"))
+	chat := key
+	if parent, ok := e.WorkspaceParent(key); ok {
+		chat = parent
+	}
+	if accepted && e.team != nil {
+		// Acceptance is new work, including when the board still says 等用户.
+		// Do not let that old status hide this turn or a later human reply.
+		items := placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir))
+		taskID := 0
+		for _, field := range strings.Fields(strings.TrimPrefix(first, "【接】")) {
+			if id, err := strconv.Atoi(strings.TrimPrefix(field, "#")); strings.HasPrefix(field, "#") && err == nil {
+				taskID = id
+				break
+			}
+		}
+		var picked *teamTaskBoardItem
+		for i := range items {
+			it := &items[i]
+			if it.own != key || it.wsEnded || it.Paused != "" && !teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
+				continue
+			}
+			who := whoInWorkspace(*it)
+			if who != e.name && who != e.DisplayName() {
+				continue
+			}
+			if picked == nil || it.ID > picked.ID {
+				picked = it
+			}
+			if taskID == it.ID {
+				picked = it
+				break
+			}
+		}
+		if picked != nil {
+			title = fmt.Sprintf("#%d %s", picked.ID, picked.What)
+			if picked.parent != "" {
+				chat = picked.parent
+			}
+		}
 	}
 	teamWorkspaceStore.mu.Lock()
 	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
@@ -138,6 +184,32 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 			if teamHandoffOpen(h) && !h.Idle.Returned && !h.Due.IsZero() && e.watchOwns(p, h.Owner) {
 				assignments = append(assignments, idleAssignment{key, h, script})
 			}
+		}
+	}
+	// A direct acceptance in a chat has no handoff/d10 registration. Register
+	// it from this terminal event, using the same one-shot wake path.
+	if accepted && len(assignments) == 0 && e.team != nil {
+		owner := e.name
+		if m, ok := p.(SelfMentioner); ok && m.SelfMention() != "" {
+			owner = m.SelfMention()
+		}
+		sender := e.name
+		for _, x := range e.watchEngines() {
+			if x.isTeamLead() {
+				sender = x.name
+				break
+			}
+		}
+		now := time.Now()
+		h := TeamHandoff{Chat: chat, At: now, Due: now.Add(watchCheckAfter()), Owner: owner, Title: shortLabel(title, teamTaskMaxRunes), Sender: sender}
+		if st.ScriptWatches == nil {
+			st.ScriptWatches = make(map[string][]TeamHandoff)
+		}
+		st.ScriptWatches[key] = append(st.ScriptWatches[key], h)
+		if err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), st); err != nil {
+			slog.Error("idle watch: register acceptance failed", "workspace", key, "error", err)
+		} else {
+			assignments = append(assignments, idleAssignment{key, h, true})
 		}
 	}
 	teamWorkspaceStore.mu.Unlock()
@@ -164,6 +236,10 @@ func (e *Engine) armIdleWake(a idleAssignment) {
 func (e *Engine) fireIdleWake(a idleAssignment) {
 	if e.ctx.Err() != nil || e.watchBusy(a.key) {
 		return
+	}
+	w := newHandoffWatch(e)
+	if running, _ := w.workspaceBackgroundProgress(a.key, a.h.Idle.Ended); running {
+		return // native background completion supplies the next terminal event
 	}
 	escalate, wake := false, false
 	h, ok := e.updateIdle(a, func(h *TeamHandoff) {
@@ -195,7 +271,7 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 		slog.Warn("idle watch: sender platform unavailable", "workspace", a.key)
 		return
 	}
-	w := newHandoffWatch(sender)
+	w = newHandoffWatch(sender)
 	if escalate {
 		text := sender.i18n.Tf(MsgWatchIdleEscalate, watchMention(plat, h.Owner), h.Title)
 		if err := w.send(p, h.Chat, text); err != nil {
