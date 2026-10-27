@@ -397,7 +397,13 @@ type semver struct {
 }
 
 func parseSemver(v string) semver {
-	m := semverRe.FindStringSubmatch(strings.TrimSpace(v))
+	v = strings.TrimSpace(v)
+	// SemVer build metadata ("+local.models2", "+build.7") never affects precedence:
+	// strip it before parsing so a locally patched build compares equal to its base release.
+	if base, _, ok := strings.Cut(v, "+"); ok {
+		v = base
+	}
+	m := semverRe.FindStringSubmatch(v)
 	if m == nil {
 		return semver{}
 	}

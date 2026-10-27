@@ -29,6 +29,13 @@ func TestSemverCompare(t *testing.T) {
 		// without 'v' prefix
 		{"1.0.0", "1.0.0", 0},
 		{"1.0.1", "1.0.0", 1},
+
+		// build metadata is ignored for precedence (SemVer §10)
+		{"v1.0.0", "v1.0.0+build.5", 0},
+		{"v1.0.0+build.5", "v1.0.0", 0},
+		{"v0.1.29", "v0.1.29+local.models2", 0},
+		{"v1.0.1", "v1.0.0+local.models2", 1},
+		{"v1.0.0", "v1.0.1+local.models2", -1},
 	}
 
 	for _, tt := range tests {
@@ -59,6 +66,16 @@ func TestParseSemver_NoPreRelease(t *testing.T) {
 	}
 	if s.pre != "" {
 		t.Errorf("pre = %q, want empty", s.pre)
+	}
+}
+
+func TestParseSemver_BuildMetadataIgnored(t *testing.T) {
+	s := parseSemver("v1.2.3+build.7")
+	if s.major != 1 || s.minor != 2 || s.patch != 3 {
+		t.Errorf("parsed %+v, want 1.2.3", s)
+	}
+	if s.pre != "" {
+		t.Errorf("pre = %q, want empty (build metadata is not a pre-release)", s.pre)
 	}
 }
 
