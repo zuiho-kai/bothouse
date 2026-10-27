@@ -48,6 +48,7 @@ const COLUMNS = [
   // Id of the current claim, bumped by every claim (claimWorkspace, createWorkspace): a release
   // naming an earlier claim (the bridge's late op release) is refused ('stale-claim').
   ['rooms', 'claim_seq', 'INTEGER NOT NULL DEFAULT 0'],
+  ['rooms', 'archived_at', 'REAL'], // Manual archive keeps history and the original parent outside the shared pool.
   ['rooms', 'workspace_path', 'TEXT'], // Optional chat directory; workspace rooms inherit their current parent.
   ['messages', 'edited_at', 'REAL'], // v11 (#148): when the owner last edited their own message; NULL if never.
   // #597 G34: when a role last changed the row in place (a streamed draft growing, a progress card
@@ -77,7 +78,7 @@ export class Store {
     this.ensureSchema(version);
     this.q = {
       room: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?'),
-      rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms ORDER BY id'),
+      rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE archived_at IS NULL ORDER BY id'),
       children: this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id"),
       // A new workspace is claimed with no task yet (claim_task 0): its first task is the handoff.
       createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id, claim_task, claim_bridge)
@@ -377,12 +378,13 @@ export class Store {
     return this.transaction(() => {
       const room = this.q.room.get(roomId);
       if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
+      if (this.isArchived(roomId)) throw new CollabError('invalid', '工作区已归档，请先恢复');
       const parent = room.kind === 'workspace' ? room.parent_id : room.id;
       const re = new RegExp(`^${WORKSPACE_PREFIX}(\\d+)$`);
       // One shared pool: numbers are unique across every chat channel's workspaces.
-      const all = this.db.prepare("SELECT id, name, free FROM rooms WHERE kind = 'workspace'").all();
+      const all = this.db.prepare("SELECT id, name, free, archived_at FROM rooms WHERE kind = 'workspace'").all();
       const num = w => Number(re.exec(w.name)?.[1] ?? 0);
-      const free = all.filter(w => w.free && num(w) > 0 && this.activeTasks(w.id) === 0).sort((a, b) => num(a) - num(b))[0];
+      const free = all.filter(w => w.archived_at == null && w.free && num(w) > 0 && this.activeTasks(w.id) === 0).sort((a, b) => num(a) - num(b))[0];
       if (free !== undefined) {
         this.resetSessions(free.id);
         return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
@@ -410,6 +412,7 @@ export class Store {
       const ws = this.q.room.get(workspaceId);
       if (chat === undefined || ws === undefined) throw new CollabError('room-missing', `room ${chat === undefined ? chatId : workspaceId} does not exist`);
       if (ws.kind !== 'workspace') throw new CollabError('not-workspace', `room ${workspaceId} is not a workspace`);
+      if (this.isArchived(ws.id) || this.isArchived(chat.id)) throw new CollabError('invalid', '工作区已归档，请先恢复');
       const parent = chat.kind === 'workspace' ? chat.parent_id : chat.id;
       const owner = this.workspaceOwner(ws.id);
       if (owner != null && owner !== parent) {
@@ -478,7 +481,7 @@ export class Store {
     return this.transaction(() => {
       const ws = this.q.room.get(roomId);
       if (ws === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
-      if (ws.kind !== 'workspace' || this.workspaceOwner(ws.id) == null) return false;
+      if (ws.kind !== 'workspace' || this.isArchived(ws.id) || this.workspaceOwner(ws.id) == null) return false;
       if (claim != null && String(claim) !== this.claimId(ws.id)) {
         throw new CollabError('stale-claim', `workspace ${ws.name} was claimed again since claim ${claim}`);
       }
@@ -487,6 +490,48 @@ export class Store {
       this.db.prepare('UPDATE rooms SET free = 1, claim_bridge = 0 WHERE id = ?').run(ws.id);
       return true;
     });
+  }
+
+  unfinishedTasks(roomId) {
+    return this.db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status != 'done'").get(roomId).n;
+  }
+
+  /** Archive only completed workspaces; history and parent identity remain intact. */
+  archiveWorkspace(roomId, now = Date.now() / 1000) {
+    return this.transaction(() => {
+      this.checkWorkspaceArchive(roomId);
+      this.resetSessions(roomId);
+      this.db.prepare('UPDATE rooms SET archived_at = COALESCE(archived_at, ?), free = 0, claim_bridge = 0 WHERE id = ?').run(now, roomId);
+      return this.room(roomId);
+    });
+  }
+
+  checkWorkspaceArchive(roomId) {
+    const room = this.room(roomId);
+    if (room === undefined) throw new CollabError('room-missing', '工作区不存在');
+    if (room.kind !== 'workspace') throw new CollabError('invalid', '只有工作区可以归档或恢复');
+    if (this.unfinishedTasks(roomId) > 0) throw new CollabError('invalid', '这个工作区还有未完成的任务，不能归档');
+  }
+
+  unarchiveWorkspace(roomId) {
+    const room = this.room(roomId);
+    if (room === undefined) throw new CollabError('room-missing', '工作区不存在');
+    if (room.kind !== 'workspace') throw new CollabError('invalid', '只有工作区可以归档或恢复');
+    this.db.prepare('UPDATE rooms SET archived_at = NULL, free = 0 WHERE id = ?').run(roomId);
+    return this.room(roomId);
+  }
+
+  isArchived(roomId) {
+    return this.db.prepare('SELECT archived_at FROM rooms WHERE id = ?').get(roomId)?.archived_at != null;
+  }
+
+  archivedWorkspaces() {
+    return this.db.prepare(`SELECT r.id, r.name, r.parent_id, p.name AS parent_name, r.archived_at,
+      (SELECT COUNT(*) FROM tasks WHERE room_id = r.id) AS task_count,
+      MAX(COALESCE((SELECT MAX(MAX(created_at, COALESCE(edited_at, 0), COALESCE(changed_at, 0))) FROM messages WHERE room_id = r.id), 0),
+        COALESCE((SELECT MAX(updated_at) FROM tasks WHERE room_id = r.id), 0)) AS last_activity_at
+      FROM rooms r LEFT JOIN rooms p ON p.id = r.parent_id
+      WHERE r.kind = 'workspace' AND r.archived_at IS NOT NULL ORDER BY r.archived_at DESC, r.id DESC`).all();
   }
 
   /** Register fn(roomId), called when a workspace's sessions are dropped (resetSessions). */
@@ -591,7 +636,7 @@ export class Store {
   roomsView() {
     const counts = new Map(this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
       WHERE status IN ('assigned', 'accepted', 'asked', 'rework') GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
-    return this.rooms().map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id) }));
+    return this.rooms().map(r => ({ ...r, active: counts.get(r.id) ?? 0, unfinished: this.unfinishedTasks(r.id), ...this.dispatchSetting(r.id) }));
   }
 
   /**

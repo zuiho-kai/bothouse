@@ -163,6 +163,17 @@ export interface ChannelRoom {
   readonly parent_id?: number | null
   /** Tasks in progress in this room. */
   readonly active?: number
+  readonly unfinished?: number
+}
+
+export interface ArchivedWorkspace {
+  readonly id: number
+  readonly name: string
+  readonly parent_id: number
+  readonly parent_name: string
+  readonly archived_at: number
+  readonly task_count: number
+  readonly last_activity_at: number
 }
 
 /** One row of the channel list: a chat channel at depth 0, its workspaces at depth 1. */
@@ -293,6 +304,9 @@ export interface ChannelActions {
   setLead(id: string, roomId?: number): Promise<void>
   setWorkspacePath(roomId: number, path: string): Promise<void>
   renewRoom(roomId: number): Promise<void>
+  archiveWorkspace(roomId: number): Promise<void>
+  unarchiveWorkspace(roomId: number): Promise<void>
+  listArchivedWorkspaces(): Promise<readonly ArchivedWorkspace[]>
   /** Answer a bot's permission prompt (#120); rejects with the service's reason (already decided, expired, offline). */
   decidePermission(messageId: number, decision: PermissionDecision): Promise<void>
   /** Page further back in the selected room; resolves with how many rows arrived. */
@@ -464,7 +478,8 @@ export function createChannelSource(transport: ChannelTransport): {
           : current
       case 'members': return { ...current, members: event.members }
       case 'thinking': return { ...current, thinking: { ...current.thinking, [String(event.room_id)]: event.members } }
-      case 'rooms': return { ...current, rooms: event.rooms.map(r => ({ ...current.rooms.find(old => old.id === r.id), ...r })) }
+      case 'rooms': return { ...current, rooms: event.rooms.map(r => ({ ...current.rooms.find(old => old.id === r.id), ...r })),
+        tasks: (current.tasks ?? []).filter(task => event.rooms.some(room => room.id === task.room_id) || !current.rooms.some(room => room.id === task.room_id)) }
       case 'room-settings': return { ...current, rooms: current.rooms.map(r => r.id === event.room_id || r.parent_id === event.room_id ? { ...r, lead_id: event.lead_id, effective_lead_id: event.effective_lead_id, workspace_path: event.workspace_path } : r) }
       case 'lead': return { ...current, leadId: event.lead_id, effectiveLeadId: event.effective_lead_id ?? event.lead_id }
       case 'task': {
@@ -483,7 +498,12 @@ export function createChannelSource(transport: ChannelTransport): {
 
   const onEvent = (event: ServiceEvent): void => {
     pending?.events.push(event)
+    const selected = snapshot.rooms.find(room => room.id === snapshot.roomId)
     set(applyEvent(snapshot, event))
+    if (event.type === 'rooms' && selected && !event.rooms.some(room => room.id === selected.id)) {
+      const target = event.rooms.find(room => room.id === selected.parent_id) ?? event.rooms[0]
+      if (target) void selectRoom(target.id)
+    }
   }
 
   // The task board is off the critical path: messages render first, and a
@@ -784,6 +804,24 @@ export function createChannelSource(transport: ChannelTransport): {
     async renameRoom(roomId, name) {
       const { room } = await request<{ room: ChannelRoom }>(`collab/api/rooms/${roomId}`, json('PATCH', { name }))
       set({ rooms: snapshot.rooms.map(r => r.id === roomId ? { ...r, ...room } : r) })
+    },
+    async archiveWorkspace(roomId) {
+      const parent = snapshot.rooms.find(r => r.id === roomId)?.parent_id
+      const { rooms } = await request<{ rooms: ChannelRoom[] }>(`collab/api/rooms/${roomId}/archive`, json('POST', {}))
+      set({ rooms, tasks: (snapshot.tasks ?? []).filter(task => task.room_id !== roomId) })
+      if (snapshot.roomId === roomId) {
+        const target = rooms.find(r => r.id === parent) ?? rooms[0]
+        if (target) await selectRoom(target.id)
+      }
+    },
+    async unarchiveWorkspace(roomId) {
+      const { rooms } = await request<{ rooms: ChannelRoom[] }>(`collab/api/rooms/${roomId}/unarchive`, json('POST', {}))
+      set({ rooms })
+      if (lifetime && snapshot.roomId !== undefined) await loadBoard(lifetime, snapshot.roomId)
+    },
+    async listArchivedWorkspaces() {
+      const { workspaces } = await request<{ workspaces: ArchivedWorkspace[] }>('collab/api/workspaces/archived')
+      return workspaces
     },
     async listModels() {
       const { routes } = await request<{ routes: ModelRoute[] }>('collab/api/models')

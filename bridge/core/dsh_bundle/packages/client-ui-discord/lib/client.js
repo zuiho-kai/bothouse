@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 75c350f9082cfeaf3d4acf34e29b5f1a71bbf3828207acdeef53a44cc7c53b20
+// dsh-client-source-sha256: 7122a6c9477aa38af8087f64ddb2ea9ba9b5c0b60fe1c23132000542c80a5c7e
 // dsh-style-sha256: b51dc34f3b4d25c9c9bc328782e7d0e7b7455a473792a5e089e0de209c0d7cfc
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -244,7 +244,8 @@ function createChannelSource(transport) {
 				rooms: event.rooms.map((r) => ({
 					...current.rooms.find((old) => old.id === r.id),
 					...r
-				}))
+				})),
+				tasks: (current.tasks ?? []).filter((task) => event.rooms.some((room) => room.id === task.room_id) || !current.rooms.some((room) => room.id === task.room_id))
 			};
 			case "room-settings": return {
 				...current,
@@ -281,7 +282,12 @@ function createChannelSource(transport) {
 	};
 	const onEvent = (event) => {
 		pending?.events.push(event);
+		const selected = snapshot.rooms.find((room) => room.id === snapshot.roomId);
 		set(applyEvent(snapshot, event));
+		if (event.type === "rooms" && selected && !event.rooms.some((room) => room.id === selected.id)) {
+			const target = event.rooms.find((room) => room.id === selected.parent_id) ?? event.rooms[0];
+			if (target) selectRoom(target.id);
+		}
 	};
 	let boardRead;
 	const loadBoard = async (owner, roomId) => {
@@ -583,6 +589,27 @@ function createChannelSource(transport) {
 					...r,
 					...room
 				} : r) });
+			},
+			async archiveWorkspace(roomId) {
+				const parent = snapshot.rooms.find((r) => r.id === roomId)?.parent_id;
+				const { rooms } = await request(`collab/api/rooms/${roomId}/archive`, json("POST", {}));
+				set({
+					rooms,
+					tasks: (snapshot.tasks ?? []).filter((task) => task.room_id !== roomId)
+				});
+				if (snapshot.roomId === roomId) {
+					const target = rooms.find((r) => r.id === parent) ?? rooms[0];
+					if (target) await selectRoom(target.id);
+				}
+			},
+			async unarchiveWorkspace(roomId) {
+				const { rooms } = await request(`collab/api/rooms/${roomId}/unarchive`, json("POST", {}));
+				set({ rooms });
+				if (lifetime && snapshot.roomId !== void 0) await loadBoard(lifetime, snapshot.roomId);
+			},
+			async listArchivedWorkspaces() {
+				const { workspaces } = await request("collab/api/workspaces/archived");
+				return workspaces;
 			},
 			async listModels() {
 				const { routes } = await request("collab/api/models");
@@ -16564,6 +16591,131 @@ function PendingAttachments({ files, onRemove, removeLabel }) {
 		}, `${i}-${f.name}`))
 	});
 }
+// src/client/WorkspaceHistory.tsx
+function WorkspaceHistory({ list, restore, t }) {
+	const [opened, setOpened] = (0, react.useState)(false);
+	const [rows, setRows] = (0, react.useState)([]);
+	const [loading, setLoading] = (0, react.useState)(false);
+	const [restoring, setRestoring] = (0, react.useState)();
+	const [error, setError] = (0, react.useState)();
+	const dialog = (0, react.useRef)(null);
+	(0, react.useEffect)(() => {
+		if (!opened) return;
+		const previous = document.activeElement;
+		dialog.current?.focus();
+		let active = true;
+		setLoading(true);
+		setError(void 0);
+		list().then((result) => {
+			if (active) setRows(result);
+		}).catch((error) => {
+			if (active) setError(error instanceof Error ? error.message : String(error));
+		}).finally(() => {
+			if (active) setLoading(false);
+		});
+		return () => {
+			active = false;
+			previous?.focus();
+		};
+	}, [opened, list]);
+	const time = (seconds) => seconds === 0 ? "—" : (/* @__PURE__ */ new Date(seconds * 1e3)).toLocaleString();
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+		type: "button",
+		className: ChannelsPage_module_default.taskBoardTrigger,
+		"aria-haspopup": "dialog",
+		"aria-expanded": opened,
+		onClick: () => {
+			setOpened(true);
+		},
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("archivedWorkspaces") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+			"aria-hidden": "true",
+			children: "›"
+		})]
+	}), opened && (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+		className: ChannelsPage_module_default.dialogBackdrop,
+		onMouseDown: (event) => {
+			if (event.target === event.currentTarget) setOpened(false);
+		},
+		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+			ref: dialog,
+			className: `${ChannelsPage_module_default.dialog} ${ChannelsPage_module_default.taskBoardDialog}`,
+			role: "dialog",
+			"aria-modal": "true",
+			"aria-label": t("archivedWorkspaces"),
+			tabIndex: -1,
+			onKeyDown: (event) => {
+				if (event.key === "Escape") {
+					event.stopPropagation();
+					setOpened(false);
+				}
+				if (event.key !== "Tab") return;
+				const controls = Array.from(event.currentTarget.querySelectorAll("button:not(:disabled)"));
+				const first = controls[0], last = controls[controls.length - 1];
+				if (!controls.includes(document.activeElement) || (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+					event.preventDefault();
+					(event.shiftKey ? last : first)?.focus();
+				}
+			},
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h2", {
+					className: ChannelsPage_module_default.dialogTitle,
+					children: t("archivedWorkspaces")
+				}),
+				error !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					role: "alert",
+					children: error
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: ChannelsPage_module_default.taskBoardBody,
+					children: loading ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						role: "status",
+						children: t("loading")
+					}) : rows.length === 0 && error === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("archivedEmpty") }) : rows.map((row) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("article", {
+						className: ChannelsPage_module_default.boardTaskCard,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", { children: row.name }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", { children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("archivedParent") }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: row.parent_name }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("archivedTime") }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: time(row.archived_at) }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("archivedTasks") }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: row.task_count }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("archivedActivity") }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: time(row.last_activity_at) })
+							] }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: ChannelsPage_module_default.secondaryButton,
+								disabled: restoring !== void 0,
+								onClick: () => {
+									setRestoring(row.id);
+									setError(void 0);
+									restore(row.id).then(() => {
+										setRows((previous) => previous.filter((item) => item.id !== row.id));
+									}).catch((error) => {
+										setError(error instanceof Error ? error.message : String(error));
+									}).finally(() => {
+										setRestoring(void 0);
+									});
+								},
+								children: t("restoreWorkspace")
+							})
+						]
+					}, row.id))
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: ChannelsPage_module_default.secondaryButton,
+					onClick: () => {
+						setOpened(false);
+					},
+					children: t("close")
+				})
+			]
+		})
+	}), document.body)] });
+}
 // src/client/task-board.ts
 /** Locale key of each status label (dsh/collab/tasks.mjs STATUS). */
 const STATUS_KEY = {
@@ -18340,7 +18492,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, archiveWorkspace, unarchiveWorkspace, listArchivedWorkspaces, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }) {
 	const state = useChannels((snapshot) => snapshot);
 	const [editing, setEditing] = (0, react.useState)(void 0);
 	const [ownNotice, setOwnNotice] = (0, react.useState)(void 0);
@@ -18395,6 +18547,8 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, renameRoom, l
 	const [modeError, setModeError] = (0, react.useState)(void 0);
 	const [leadSaving, setLeadSaving] = (0, react.useState)(false);
 	const [settingsOpen, setSettingsOpen] = (0, react.useState)(false);
+	const [archiving, setArchiving] = (0, react.useState)(false);
+	const [archiveError, setArchiveError] = (0, react.useState)();
 	const [directory, setDirectory] = (0, react.useState)("");
 	const [directorySaving, setDirectorySaving] = (0, react.useState)(false);
 	const [directoryError, setDirectoryError] = (0, react.useState)();
@@ -18505,6 +18659,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, renameRoom, l
 	}
 	const room = state.rooms.find((r) => r.id === state.roomId);
 	const channelId = room?.parent_id ?? room?.id;
+	const archiveBlocked = (room?.unfinished ?? 0) > 0 || (state.tasks ?? []).some((task) => task.room_id === room?.id && task.status !== "done");
 	const visibleMembers = state.members.filter((m) => !m.rooms?.length || channelId !== void 0 && m.rooms.includes(channelId));
 	const openTaskOwners = new Set((state.tasks ?? []).filter((t) => [
 		"assigned",
@@ -19168,6 +19323,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, renameRoom, l
 							setDirectory(room?.workspace_path ?? "");
 							setDirectoryError(void 0);
 							setRenewPending(void 0);
+							setArchiveError(void 0);
 							setSettingsOpen(true);
 						},
 						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
@@ -19194,6 +19350,11 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, renameRoom, l
 						roomId: state.roomId,
 						t,
 						onOpen: openMessage
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(WorkspaceHistory, {
+						list: listArchivedWorkspaces,
+						restore: unarchiveWorkspace,
+						t
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 						type: "button",
@@ -19415,6 +19576,35 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, renameRoom, l
 								})
 							]
 						}),
+						room?.kind === "workspace" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", { children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("archiveHint") }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: ChannelsPage_module_default.secondaryButton,
+								disabled: archiving || archiveBlocked,
+								title: archiveBlocked ? t("archiveBlocked") : void 0,
+								onClick: () => {
+									setArchiving(true);
+									setArchiveError(void 0);
+									archiveWorkspace(room.id).then(() => {
+										setSettingsOpen(false);
+									}).catch((error) => {
+										setArchiveError(error instanceof Error ? error.message : String(error));
+									}).finally(() => {
+										setArchiving(false);
+									});
+								},
+								children: t("archiveWorkspace")
+							}),
+							archiveBlocked && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								role: "status",
+								children: t("archiveBlocked")
+							}),
+							archiveError !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								role: "alert",
+								children: archiveError
+							})
+						] }),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 							type: "button",
 							className: ChannelsPage_module_default.secondaryButton,
@@ -19475,6 +19665,16 @@ const zh = {
 	footnotes: "脚注",
 	panel: "频道",
 	channelSettings: "频道设置",
+	archiveWorkspace: "归档工作区",
+	archiveBlocked: "这个工作区还有未完成的任务，不能归档",
+	archiveHint: "归档会结束当前会话并保留消息与任务记录，可在历史工作区中恢复。",
+	archivedWorkspaces: "历史工作区",
+	archivedEmpty: "还没有归档的工作区",
+	restoreWorkspace: "恢复",
+	archivedParent: "归属频道",
+	archivedTime: "归档时间",
+	archivedTasks: "任务数",
+	archivedActivity: "最后活动时间",
 	workingDirectory: "工作目录",
 	workingDirectoryHint: "请输入已存在的绝对目录。只影响写入范围和相对路径，不影响读取；保存后下次新建会话生效。工作区继承所属频道。",
 	renewConfirm: "已更新工作目录，是否立即为该频道重建会话？重建会清空当前对话上下文。",
@@ -19706,6 +19906,16 @@ const en = {
 	durHours: "{h} h {m} min",
 	panel: "Channels",
 	channelSettings: "Channel settings",
+	archiveWorkspace: "Archive workspace",
+	archiveBlocked: "This workspace has unfinished tasks and cannot be archived",
+	archiveHint: "Archiving ends current sessions and keeps messages and tasks. Restore it from workspace history.",
+	archivedWorkspaces: "Workspace history",
+	archivedEmpty: "No archived workspaces yet",
+	restoreWorkspace: "Restore",
+	archivedParent: "Channel",
+	archivedTime: "Archived at",
+	archivedTasks: "Tasks",
+	archivedActivity: "Last activity",
 	workingDirectory: "Working directory",
 	workingDirectoryHint: "Enter an existing absolute directory. This affects write scope and relative paths, not reads. It applies to new sessions; workspaces inherit their channel.",
 	renewConfirm: "Working directory updated. Recreate this channel’s sessions now? This clears the current conversation context.",
@@ -19890,6 +20100,9 @@ function apply(ctx) {
 		setLead: channels.actions.setLead,
 		setWorkspacePath: channels.actions.setWorkspacePath,
 		renewRoom: channels.actions.renewRoom,
+		archiveWorkspace: channels.actions.archiveWorkspace,
+		unarchiveWorkspace: channels.actions.unarchiveWorkspace,
+		listArchivedWorkspaces: channels.actions.listArchivedWorkspaces,
 		decidePermission: channels.actions.decidePermission,
 		retryMessage: channels.actions.retryMessage,
 		editMessage: channels.actions.editMessage,

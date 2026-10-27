@@ -13,6 +13,7 @@ import type { ChannelActions, ChannelMember, ChannelMessage, ChannelQuote, Chann
 import { MAX_MESSAGE_BODY, messageTooLarge } from './channel-source.ts'
 import { AttachmentList, PendingAttachments, useComposerAttachments } from './Attachments.tsx'
 import { groupRooms } from './channel-source.ts'
+import { WorkspaceHistory } from './WorkspaceHistory.tsx'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { CapabilityList } from './CapabilityList.tsx'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
@@ -276,7 +277,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, archiveWorkspace, unarchiveWorkspace, listArchivedWorkspaces, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
   const [editing, setEditing] = useState<{ id: number; text: string } | undefined>(undefined)
@@ -330,6 +331,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
   const [modeError, setModeError] = useState<string | undefined>(undefined)
   const [leadSaving, setLeadSaving] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [archiving, setArchiving] = useState(false)
+  const [archiveError, setArchiveError] = useState<string>()
   const [directory, setDirectory] = useState('')
   const [directorySaving, setDirectorySaving] = useState(false)
   const [directoryError, setDirectoryError] = useState<string>()
@@ -432,6 +435,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
 
   const room = state.rooms.find(r => r.id === state.roomId)
   const channelId = room?.parent_id ?? room?.id
+  const archiveBlocked = (room?.unfinished ?? 0) > 0 || (state.tasks ?? []).some(task => task.room_id === room?.id && task.status !== 'done')
   const visibleMembers = state.members.filter(m => !m.rooms?.length || (channelId !== undefined && m.rooms.includes(channelId)))
   const openTaskOwners = new Set(
     (state.tasks ?? []).filter(t => ['assigned', 'accepted', 'asked', 'rework'].includes(t.status)).map(t => t.owner)
@@ -840,11 +844,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
       </section>
       <aside className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}>
         <div className={css.membersHead} aria-hidden="true" />
-        <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { setDrawer(undefined); setChannelName(room?.name ?? ''); setNameError(undefined); setDirectory(room?.workspace_path ?? ''); setDirectoryError(undefined); setRenewPending(undefined); setSettingsOpen(true) }}>
+        <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { setDrawer(undefined); setChannelName(room?.name ?? ''); setNameError(undefined); setDirectory(room?.workspace_path ?? ''); setDirectoryError(undefined); setRenewPending(undefined); setArchiveError(undefined); setSettingsOpen(true) }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9.5 3-.7 2.3-2 .9-2.2-.6-2.5 4.3 1.6 1.7v2.3l-1.6 1.7 2.5 4.3 2.2-.6 2 .9.7 2.3h5l.7-2.3 2-.9 2.2.6 2.5-4.3-1.6-1.7v-2.3l1.6-1.7-2.5-4.3-2.2.6-2-.9L14.5 3Z" /><circle cx="12" cy="12.75" r="3" /></svg>
           {t('channelSettings')}
         </button>
         <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} />
+        <WorkspaceHistory list={listArchivedWorkspaces} restore={unarchiveWorkspace} t={t} />
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
         <hr className={css.memberListDivider} />
@@ -913,6 +918,17 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
             <button type="submit" className={css.primaryButton} disabled={nameSaving || room?.kind === 'workspace' || !channelName || channelName.length > 32 || /\s/.test(channelName) || channelName === room?.name}>{t('messageSave')}</button>
             {nameError !== undefined && <div role="alert">{nameError}</div>}
           </form>
+          {room?.kind === 'workspace' && <section>
+            <p>{t('archiveHint')}</p>
+            <button type="button" className={css.secondaryButton} disabled={archiving || archiveBlocked} title={archiveBlocked ? t('archiveBlocked') : undefined} onClick={() => {
+              setArchiving(true); setArchiveError(undefined)
+              archiveWorkspace(room.id).then(() => { setSettingsOpen(false) }).catch((error: unknown) => {
+                setArchiveError(error instanceof Error ? error.message : String(error))
+              }).finally(() => { setArchiving(false) })
+            }}>{t('archiveWorkspace')}</button>
+            {archiveBlocked && <p role="status">{t('archiveBlocked')}</p>}
+            {archiveError !== undefined && <p role="alert">{archiveError}</p>}
+          </section>}
           <button type="button" className={css.secondaryButton} onClick={() => { setSettingsOpen(false) }}>{t('close')}</button>
         </section>
       </div>}

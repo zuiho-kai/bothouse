@@ -143,7 +143,7 @@ export class Tasks {
       openChat: this.db.prepare(`SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND created_by = ? AND source IS NOT NULL
         AND status IN (${PLACEHOLDERS}) ORDER BY id DESC LIMIT 1`),
       returnedChat: this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND created_by = ? AND source IN ('mention', 'card') AND status = 'returned' ORDER BY id"),
-      children: this.tree ? this.db.prepare("SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id") : undefined,
+      children: this.tree ? this.db.prepare("SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ? AND archived_at IS NULL ORDER BY id") : undefined,
       // #597 G24: a job the lead already handed to one of this chat channel's workspaces.
       openHanded: this.tree ? this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND created_by = ? AND source = 'workspace'
         AND status IN (${PLACEHOLDERS}) AND room_id IN (SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ?) ORDER BY id DESC LIMIT 1`) : undefined,
@@ -191,8 +191,8 @@ export class Tasks {
     const rooms = [chat, ...(this.tree ? this.q.children.all(chat).map(r => r.id) : [])];
     // A paused task stays on the board of the chat channel it was paused under (paused_chat), even
     // after its workspace went back to the pool and another chat channel claimed it: a to-do is never lost.
-    const rows = this.db.prepare(`SELECT * FROM tasks WHERE (room_id IN (${rooms.map(() => '?').join(', ')})
-      AND (paused_at IS NULL OR paused_chat IS NULL OR paused_chat = ?)) OR (paused_at IS NOT NULL AND paused_chat = ?)
+    const rows = this.db.prepare(`SELECT * FROM tasks WHERE room_id IN (SELECT id FROM rooms WHERE archived_at IS NULL) AND ((room_id IN (${rooms.map(() => '?').join(', ')})
+      AND (paused_at IS NULL OR paused_chat IS NULL OR paused_chat = ?)) OR (paused_at IS NOT NULL AND paused_chat = ?))
       ORDER BY id DESC`).all(...rooms, chat, chat);
     return rows.map(r => this.view(r));
   }

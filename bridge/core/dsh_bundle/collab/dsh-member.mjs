@@ -913,6 +913,26 @@ export class DshMembers {
     });
   }
 
+  /** End channel work before its owner archives the workspace; reuse the normal reset hooks. */
+  async releaseRoom(roomId) {
+    for (const job of this.store.openJobs().filter(j => j.room_id === roomId)) {
+      this.store.finishJob(job.id, 'interrupted');
+      const watching = this.watching.get(job.session_id);
+      if (watching?.jobId === job.id) {
+        this.watching.delete(job.session_id);
+        watching.resolve(INTERRUPTED);
+      }
+      this.approvals.expireWhere(p => p.meta?.sessionId === job.session_id);
+      this.rt.ctx.agents.get(job.session_id)?.cancel({ kind: 'user' });
+      this.hub.setThinking(roomId, job.member_id, false);
+    }
+    for (const { agent } of this.cliAgents.values()) {
+      const session = agent.sessions?.get(String(roomId));
+      if (session && agent.conn) await agent.conn.cancel({ sessionId: session.sessionId });
+    }
+    await Promise.all([...this.queues].filter(([key]) => key.endsWith(`\u0000${roomId}`)).map(([, tail]) => tail));
+  }
+
   /** Serialize owner-requested renewals with each member's existing channel work. */
   async renewRoom(roomId) {
     const msg = this.hub.post(roomId, {

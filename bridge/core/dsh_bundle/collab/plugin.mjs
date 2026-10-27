@@ -257,6 +257,8 @@ export async function apply(ctx, rawConfig) {
         : store.page(roomId, before === null ? undefined : Number(before), url.searchParams.get('limit'));
       return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
     }
+    const archived = workspaceArchiveRoute(req, res, path, { store, hub, dsh, owner });
+    if (archived !== undefined) return archived;
     const settings = roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePath: config.workspacePath });
     if (settings !== undefined) return settings;
     const renamed = renameRoomRoute(req, res, path, { store, hub, dsh });
@@ -386,6 +388,26 @@ export async function apply(ctx, rawConfig) {
     streams.add(end);
     req.on('close', end);
   }
+}
+
+/** Manual archive and restore are owner-only, including calls outside browserRoute. */
+export function workspaceArchiveRoute(req, res, path, { store, hub, dsh, owner }) {
+  const match = /^\/collab\/api\/rooms\/(\d+)\/(archive|unarchive)$/.exec(path);
+  const history = path === '/collab/api/workspaces/archived' && req.method === 'GET';
+  if (!history && (match === null || req.method !== 'POST')) return undefined;
+  if (!owner(req)) return Promise.resolve(json(res, 401, { error: '请先登录' }));
+  return withBody(req, res, async () => {
+    if (history) return { workspaces: store.archivedWorkspaces() };
+    const id = Number(match[1]);
+    if (match[2] === 'archive') {
+      store.checkWorkspaceArchive(id);
+      await dsh.releaseRoom(id);
+      store.archiveWorkspace(id);
+    } else store.unarchiveWorkspace(id);
+    const rooms = store.roomsView();
+    hub.emit({ type: 'rooms', rooms });
+    return { workspace: store.room(id), rooms };
+  }, false);
 }
 
 /** Owner-only channel settings; workspaces inherit their parent channel. */

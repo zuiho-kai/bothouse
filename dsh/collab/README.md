@@ -56,6 +56,14 @@
 
 频道设置中的主角色按聊天频道独立保存，工作区继承父频道。未设置的频道回退到旧的全局主角色；默认接话、`/new`、派活票据和交回对象都按当前频道取值。接口为 `GET|PATCH /collab/api/rooms/{id}/settings`（`lead_id`、`workspace_path`）及 `POST /collab/api/rooms/{id}/renew`，均需 owner 登录。
 
+## 手动归档工作区
+
+在当前工作区自己的「频道设置」中点击「归档工作区」。只有该工作区所有任务都为 `done` 才可归档；交回待验收、暂停及其他未完成状态仍会阻止归档。归档先结束当前会话并释放会话绑定，再写入 `rooms.archived_at`；消息和任务记录保留，工作区从侧栏、频道任务板和共享池中移除。
+
+任务板下方的「历史工作区」打开归档列表，按归档时间倒序显示名称、归属频道、归档时间、任务数和最后活动时间。「恢复」清除归档时间并固定回原频道，不放回共享池；恢复后下一次接活创建新会话。本版不提供归档内容只读查看或自动归档。
+
+owner 接口：`POST /collab/api/rooms/{id}/archive`、`POST /collab/api/rooms/{id}/unarchive` 和 `GET /collab/api/workspaces/archived`。历史响应为 `{ workspaces: [{ id, name, parent_id, parent_name, archived_at, task_count, last_activity_at }] }`，时间为 Unix 秒，尚无消息或任务的最后活动时间为 0。
+
 ## 成员按频道归属
 
 配置成员可写 `rooms: [1]` 或 `rooms: [1, 2]`；省略或空数组沿用全频道可见的兼容行为。每次启动都以配置覆盖该成员的归属，因此从配置删除 `rooms` 后，该配置成员会恢复全频道可见。

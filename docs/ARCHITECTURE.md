@@ -57,6 +57,8 @@ core 通过接口使用后端能力；agent 与 platform 适配器不互相导�
 
 协议与使用方法见 [自建平台协议](../bridge/docs/cloud-web.md)、[wiki 配置](ccm-and-wiki.md)、[公开进展](PUBLIC_PROGRESS.md)、[工具代批](DELEGATED_PERMISSIONS.md)。
 
+DSH 工作区手动归档使用可空的 `rooms.archived_at`；归档前要求工作区没有 `status != done` 的任务，并结束当前工作、清理会话绑定。归档行保留 `parent_id`、消息和任务，常规频道列表、任务板和共享池均排除它；恢复置空归档时间并保持 `free = 0`，仍归原频道。owner 专用历史接口提供归档元数据，当前不开放只读历史消息入口。
+
 ## 构建与发布
 
 `make hubsrc` 把自建平台源码复制到 Go 嵌入目录，前端构建后随 cc-connect 二进制分发。安装脚本只下载当前仓库 Release 里的预编译包。发布从审核合入 main 的提交构建，流程见 [CONTRIBUTING.md](../CONTRIBUTING.md)。
