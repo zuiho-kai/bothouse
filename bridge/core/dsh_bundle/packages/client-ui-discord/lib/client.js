@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 26a69677e94fe2a8d1fe7e72cd5b99c3574c93242c2303a194738b7f49780757
+// dsh-client-source-sha256: fe17c347bf431f86c53a3796a40b6e1484fd129fe5b9113f233e769d8f5ce023
 // dsh-style-sha256: b51dc34f3b4d25c9c9bc328782e7d0e7b7455a473792a5e089e0de209c0d7cfc
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -18257,6 +18257,9 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 		message.author_kind === "system" ? ChannelsPage_module_default.system : "",
 		focused ? ChannelsPage_module_default.focused : ""
 	].filter(Boolean).join(" ");
+	const anchored = card?.kind === "task" ? [] : tasks.filter((task) => task.assign_msg_id === message.id);
+	const anchoredIds = new Set(anchored.map((task) => task.id));
+	const taskCards = anchored.filter((task) => task.parent_task === null || !anchoredIds.has(task.parent_task));
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: classes,
 		"data-message-id": message.id,
@@ -18453,7 +18456,16 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 								t
 							})
 						]
-					})
+					}),
+					taskCards.map((task) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: ChannelsPage_module_default.card,
+						"data-anchored-task": task.id,
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TaskCard, {
+							taskId: task.id,
+							tasks,
+							t
+						})
+					}, task.id))
 				]
 			}),
 			message.author_kind !== "system" && card === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
