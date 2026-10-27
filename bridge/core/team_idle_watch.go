@@ -220,6 +220,9 @@ func watchBoardClosed(it teamTaskBoardItem) bool {
 // watchTurnEnded runs before finishPublicProgress: automatic card completion is
 // not a deliberate result. A report, handback or explicit result ends the watch.
 func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult bool) {
+	if e.finishWorkspaceReportTurn(key, text) {
+		return // missing delivery owns this wake; do not also arm the idle watch
+	}
 	if p == nil || e.dataDir == "" {
 		return
 	}

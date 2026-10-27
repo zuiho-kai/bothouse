@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 75c350f9082cfeaf3d4acf34e29b5f1a71bbf3828207acdeef53a44cc7c53b20
+// dsh-client-source-sha256: 26a69677e94fe2a8d1fe7e72cd5b99c3574c93242c2303a194738b7f49780757
 // dsh-style-sha256: b51dc34f3b4d25c9c9bc328782e7d0e7b7455a473792a5e089e0de209c0d7cfc
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -555,6 +555,13 @@ function createChannelSource(transport) {
 	return {
 		source,
 		actions: {
+			async reviewTask(id, verdict, note) {
+				const { task } = await request(`collab/api/tasks/${id}/review`, json("POST", {
+					verdict,
+					note
+				}));
+				set({ tasks: (snapshot.tasks ?? []).map((row) => row.id === task.id ? task : row) });
+			},
 			selectRoom,
 			async send(text, replyTo, attachments) {
 				const roomId = snapshot.roomId;
@@ -11603,8 +11610,12 @@ function looksLikeANode(value) {
 	return value !== null && typeof value === "object" && "type" in value;
 }
 /**
+* Color a string.
+*
 * @param {string} d
+*   Value.
 * @returns {string}
+*   Colored value.
 */
 function color$1(d) {
 	return "\x1B[33m" + d + "\x1B[39m";
@@ -11766,43 +11777,93 @@ function color$1(d) {
 *   List with one or two values, the first an action, the second an index.
 *
 * @typedef {Action | ActionTuple | Index | null | undefined | void} VisitorResult
-*   Any value that can be returned from a visitor.
+*   Any value that can be returned from an enter visitor.
+*
+*   Like `VisitorResultExit`,
+*   but `SKIP` can also be returned,
+*   to not walk the children of the node,
+*   and `ActionTuple` can be used to combine an action with an index.
+*
+* @typedef {Index | boolean | null | undefined | void} VisitorResultExit
+*   Any value that can be returned from an exit visitor.
 */
 /**
 * @callback Visitor
-*   Handle a node (matching `test`, if given).
+*   Handle a node (matching `test`, if given) before its children.
 *
-*   Visitors are free to transform `node`.
-*   They can also transform the parent of node (the last of `ancestors`).
-*
-*   Replacing `node` itself, if `SKIP` is not returned, still causes its
-*   descendants to be walked (which is a bug).
-*
-*   When adding or removing previous siblings of `node` (or next siblings, in
-*   case of reverse), the `Visitor` should return a new `Index` to specify the
-*   sibling to traverse after `node` is traversed.
-*   Adding or removing next siblings of `node` (or previous siblings, in case
-*   of reverse) is handled as expected without needing to return a new `Index`.
-*
-*   Removing the children property of an ancestor still results in them being
-*   traversed.
+*   Changes inside `node` are walked next.
+*   Replacing or removing it is easier in `exit`.
+*   When replacing or removing it here,
+*   return `SKIP` (as otherwise its old children are walked),
+*   or `[SKIP, index]` to continue with the node now at `index`.
+*   Changing next siblings (in walk order) is fine;
+*   changing previous siblings needs a new `Index`.
+*   Removing an ancestor or changing its previous siblings is not supported.
 * @param {Visited} node
 *   Found node.
 * @param {Array<VisitedParents>} ancestors
 *   Ancestors of `node`.
+* @param {number | undefined} index
+*   Index of `node` in its parent (the last of `ancestors`),
+*   or `undefined` for the tree itself.
 * @returns {VisitorResult}
 *   What to do next.
 *
-*   An `Index` is treated as a tuple of `[CONTINUE, Index]`.
-*   An `Action` is treated as a tuple of `[Action]`.
-*
-*   Passing a tuple back only makes sense if the `Action` is `SKIP`.
-*   When the `Action` is `EXIT`, that action can be returned.
-*   When the `Action` is `CONTINUE`, `Index` can be returned.
+*   Like `VisitorExit`,
+*   but `SKIP` can also be returned,
+*   to not walk the children of `node`.
+*   Passing a tuple back (`ActionTuple`) only makes sense as `[SKIP, Index]`.
 * @template {UnistNode} [Visited=UnistNode]
 *   Visited node type.
 * @template {UnistParent} [VisitedParents=UnistParent]
 *   Ancestor type.
+*/
+/**
+* @callback VisitorExit
+*   Handle a node (matching `test`, if given) after its children.
+*
+*   Changes inside `node` are not walked,
+*   which makes this a good place to change `node` based on its children,
+*   or to replace or remove it.
+*   When removing `node` or changing previous siblings (in walk order),
+*   return a new `Index`.
+*   Removing an ancestor or changing its previous siblings is not supported.
+* @param {Visited} node
+*   Found node.
+* @param {Array<VisitedParents>} ancestors
+*   Ancestors of `node`.
+* @param {number | undefined} index
+*   Index of `node` in its parent (the last of `ancestors`),
+*   or `undefined` for the tree itself.
+* @returns {VisitorResultExit}
+*   What to do next.
+*
+*   `CONTINUE` (`true`, nothing) continues as normal,
+*   `EXIT` (`false`) stops traversing,
+*   and `Index` continues at that sibling.
+* @template {UnistNode} [Visited=UnistNode]
+*   Visited node type.
+* @template {UnistParent} [VisitedParents=UnistParent]
+*   Ancestor type.
+*/
+/**
+* @template {UnistNode} [Visited=UnistNode]
+*   Visited node type.
+* @template {UnistParent} [VisitedParents=UnistParent]
+*   Ancestor type.
+* @typedef Visitors
+*   Handle nodes when entering and exiting them.
+*   The `enter` visitor is optional while `exit` is required.
+*
+*   Pass an `enter` visitor directly to only handle nodes when entering them.
+*
+*   `enter` is called before children (if any) are walked and `exit` after that.
+*   `exit` is still called when `enter` returns `SKIP`.
+*   Both `enter` and `exit` are only called for nodes that match an optional `test`.
+* @property {Visitor<Visited, VisitedParents> | null | undefined} [enter]
+*   Handle a node before its children (optional).
+* @property {VisitorExit<Visited, VisitedParents>} exit
+*   Handle a node after its children.
 */
 /**
 * @typedef {Visitor<Matches<InclusiveDescendant<Tree>, Check>, Ancestor<Tree, Matches<InclusiveDescendant<Tree>, Check>>>} BuildVisitor
@@ -11814,16 +11875,34 @@ function color$1(d) {
 * @template {Test} [Check=Test]
 *   Test type.
 */
+/**
+* @typedef {Visitors<Matches<InclusiveDescendant<Tree>, Check>, Ancestor<Tree, Matches<InclusiveDescendant<Tree>, Check>>>} BuildVisitors
+*   Build typed `Visitors` from a tree and a test.
+*
+*   It will infer which values are passed as `node` and which as `parents`.
+* @template {UnistNode} [Tree=UnistNode]
+*   Tree type.
+* @template {Test} [Check=Test]
+*   Test type.
+*/
 /** @type {Readonly<ActionTuple>} */
 const empty = [];
+/**
+* Do not traverse this node’s children.
+* Only works when entering a node.
+*/
+const SKIP = "skip";
 /**
 * Visit nodes, with ancestral information.
 *
 * This algorithm performs *depth-first* *tree traversal* in *preorder*
-* (**NLR**) or if `reverse` is given, in *reverse preorder* (**NRL**).
+* (**NLR**) or if `reverse` is given,
+* in *reverse preorder* (**NRL**).
+* An `exit` visitor is called in *postorder* (**LRN**)
+* or if `reverse` is given, in *reverse postorder* (**RLN**).
 *
-* You can choose for which nodes `visitor` is called by passing a `test`.
-* For complex tests, you should test yourself in `visitor`, as it will be
+* You can choose which nodes are visited by passing a `test`.
+* For complex tests, you should test yourself in a visitor, as it will be
 * faster and will have improved type information.
 *
 * Walking the tree is an intensive task.
@@ -11832,29 +11911,72 @@ const empty = [];
 * to check if a node matches, and then perform different operations.
 *
 * You can change the tree.
-* See `Visitor` for more info.
+* Changes inside a node made when entering it are walked,
+* changes made when exiting it are not.
+* See `Visitor` and `VisitorExit` for more info.
 *
 * @overload
 * @param {Tree} tree
+*   Tree to traverse.
 * @param {Check} check
-* @param {BuildVisitor<Tree, Check>} visitor
+*   `unist-util-is`-compatible test.
+* @param {BuildVisitor<Tree, Check>} enter
+*   Handle each node when entering it.
 * @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
 * @returns {undefined}
+*   Nothing.
 *
 * @overload
 * @param {Tree} tree
-* @param {BuildVisitor<Tree>} visitor
+*   Tree to traverse.
+* @param {Check} check
+*   `unist-util-is`-compatible test.
+* @param {BuildVisitors<Tree, Check>} visitors
+*   Handle each node when exiting it, and optionally when entering it.
 * @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
 * @returns {undefined}
+*   Nothing.
+*
+* @overload
+* @param {Tree} tree
+*   Tree to traverse.
+* @param {BuildVisitor<Tree>} enter
+*   Handle each node when entering it.
+* @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
+* @returns {undefined}
+*   Nothing.
+*
+* @overload
+* @param {Tree} tree
+*   Tree to traverse.
+* @param {BuildVisitors<Tree>} visitors
+*   Handle each node when exiting it, and optionally when entering it.
+* @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
+* @returns {undefined}
+*   Nothing.
 *
 * @param {UnistNode} tree
 *   Tree to traverse.
-* @param {Visitor | Test} test
-*   `unist-util-is`-compatible test
-* @param {Visitor | boolean | null | undefined} [visitor]
-*   Handle each node.
+* @param {Visitor | Visitors | Test} testOrEnterOrVisitors
+*   `unist-util-is`-compatible test, `enter`, or `visitors`.
+* @param {Visitor | Visitors | boolean | null | undefined} [enterOrVisitorsOrReverse]
+*   `enter`, `visitors`, or `reverse` after a test.
 * @param {boolean | null | undefined} [reverse]
-*   Traverse in reverse preorder (NRL) instead of the default preorder (NLR).
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
 * @returns {undefined}
 *   Nothing.
 *
@@ -11863,20 +11985,46 @@ const empty = [];
 * @template {Test} Check
 *   `unist-util-is`-compatible test.
 */
-function visitParents(tree, test, visitor, reverse) {
+function visitParents(tree, testOrEnterOrVisitors, enterOrVisitorsOrReverse, reverse) {
+	if (!tree || typeof tree !== "object") throw new Error("Unexpected value `" + tree + "` for `tree`, expected node");
+	let preorder = true;
 	/** @type {Test} */
 	let check;
-	if (typeof test === "function" && typeof visitor !== "function") {
-		reverse = visitor;
-		visitor = test;
-	} else check = test;
+	/** @type {Visitors | Visitor} */
+	let visitors;
+	/** @type {Visitor | null | undefined} */
+	let enter;
+	/** @type {VisitorExit | null | undefined} */
+	let exit;
+	if (typeof enterOrVisitorsOrReverse === "function" || enterOrVisitorsOrReverse && typeof enterOrVisitorsOrReverse === "object") {
+		check = testOrEnterOrVisitors;
+		visitors = enterOrVisitorsOrReverse;
+		if (reverse) preorder = false;
+	} else {
+		visitors = testOrEnterOrVisitors;
+		if (enterOrVisitorsOrReverse) preorder = false;
+	}
+	if (typeof visitors === "function") enter = visitors;
+	else if (visitors && typeof visitors === "object") {
+		if (visitors.enter === null || visitors.enter === void 0) {} else if (typeof visitors.enter === "function") enter = visitors.enter;
+		else throw new Error("Unexpected value `" + visitors.enter + "` for `visitors.enter`, expected optional visitor");
+		if (typeof visitors.exit === "function") exit = visitors.exit;
+		else throw new Error("Unexpected value `" + visitors.exit + "` for `visitors.exit`, expected visitor (pass a visitor directly if you only want an enter visitor)");
+	} else throw new Error("Unexpected value `" + visitors + "` for `enter` or `visitors`, expected visitor or object with visitors");
 	const is = convert(check);
-	const step = reverse ? -1 : 1;
+	const step = preorder ? 1 : -1;
 	factory(tree, void 0, [])();
 	/**
+	* Create a function to visit a node.
+	*
 	* @param {UnistNode} node
+	*   Node to visit.
 	* @param {number | undefined} index
+	*   Index of `node` in its parent.
 	* @param {Array<UnistParent>} parents
+	*   Ancestors of `node`.
+	* @returns {() => Readonly<ActionTuple>}
+	*   Visit `node`.
 	*/
 	function factory(node, index, parents) {
 		const value = node && typeof node === "object" ? node : {};
@@ -11886,30 +12034,30 @@ function visitParents(tree, test, visitor, reverse) {
 		}
 		return visit;
 		function visit() {
+			const matches = !check || is(node, index, parents[parents.length - 1] || void 0);
 			/** @type {Readonly<ActionTuple>} */
 			let result = empty;
-			/** @type {Readonly<ActionTuple>} */
-			let subresult;
-			/** @type {number} */
-			let offset;
-			/** @type {Array<UnistParent>} */
-			let grandparents;
-			if (!test || is(node, index, parents[parents.length - 1] || void 0)) {
-				result = toResult(visitor(node, parents));
+			if (enter && matches) {
+				result = toResult(enter(node, parents, index));
 				if (result[0] === false) return result;
 			}
 			if ("children" in node && node.children) {
 				const nodeAsParent = node;
 				if (nodeAsParent.children && result[0] !== "skip") {
-					offset = (reverse ? nodeAsParent.children.length : -1) + step;
-					grandparents = parents.concat(nodeAsParent);
+					let offset = (preorder ? -1 : nodeAsParent.children.length) + step;
+					const grandparents = [...parents, nodeAsParent];
 					while (offset > -1 && offset < nodeAsParent.children.length) {
 						const child = nodeAsParent.children[offset];
-						subresult = factory(child, offset, grandparents)();
+						const subresult = factory(child, offset, grandparents)();
 						if (subresult[0] === false) return subresult;
 						offset = typeof subresult[1] === "number" ? subresult[1] : offset + step;
 					}
 				}
+			}
+			if (exit && matches) {
+				const exitResult = toResult(exit(node, parents, index));
+				if (exitResult[0] === "skip") throw new Error("Unexpected value `" + exitResult[0] + "` from `exit`, expected `CONTINUE`, `EXIT`, index, or nothing");
+				if (exitResult[0] === false || typeof exitResult[1] === "number") return exitResult;
 			}
 			return result;
 		}
@@ -11995,7 +12143,7 @@ function toResult(value) {
 * @param {FindAndReplaceList | FindAndReplaceTuple} list
 *   Patterns to find.
 * @param {Options | null | undefined} [options]
-*   Configuration (when `find` is not `Find`).
+*   Configuration (optional).
 * @returns {undefined}
 *   Nothing.
 */
@@ -12003,24 +12151,15 @@ function findAndReplace(tree, list, options) {
 	const ignored = convert((options || {}).ignore || []);
 	const pairs = toPairs(list);
 	let pairIndex = -1;
-	while (++pairIndex < pairs.length) visitParents(tree, "text", visitor);
+	while (++pairIndex < pairs.length) visitParents(tree, visitor);
 	/**
-	* Visit a text node, and handle it if it is not in an ignored parent.
+	* Handle text nodes and skip ignored nodes.
 	*
-	* @type {BuildVisitor<Root, 'text'>}
+	* @type {BuildVisitor<Root>}
 	*/
-	function visitor(node, parents) {
-		let index = -1;
-		/** @type {Parents | undefined} */
-		let grandparent;
-		while (++index < parents.length) {
-			const parent = parents[index];
-			/** @type {Array<Nodes> | undefined} */
-			const siblings = grandparent ? grandparent.children : void 0;
-			if (ignored(parent, siblings ? siblings.indexOf(parent) : void 0, grandparent)) return;
-			grandparent = parent;
-		}
-		if (grandparent) return handler(node, parents);
+	function visitor(node, parents, index) {
+		if (node.type === "text" && typeof index === "number") return handler(node, parents, index);
+		if (ignored(node, index, parents[parents.length - 1])) return SKIP;
 	}
 	/**
 	* Handle a text node which is not in an ignored parent.
@@ -12029,15 +12168,16 @@ function findAndReplace(tree, list, options) {
 	*   Text node to search in.
 	* @param {Array<Parents>} parents
 	*   Ancestors of `node`.
+	* @param {number} index
+	*   Index of `node` in its parent.
 	* @returns {VisitorResult}
 	*   Where to continue visiting.
 	*/
-	function handler(node, parents) {
+	function handler(node, parents, index) {
 		const parent = parents[parents.length - 1];
 		const find = pairs[pairIndex][0];
 		const replace = pairs[pairIndex][1];
 		let start = 0;
-		const index = parent.children.indexOf(node);
 		let change = false;
 		/** @type {Array<PhrasingContent>} */
 		let nodes = [];
@@ -12105,7 +12245,6 @@ function toPairs(tupleOrList) {
 	if (!Array.isArray(tupleOrList)) throw new TypeError("Expected find and replace tuple or list of tuples");
 	/** @type {Pairs} */
 	const result = [];
-	/** @type {FindAndReplaceList} */
 	const list = !tupleOrList[0] || Array.isArray(tupleOrList[0]) ? tupleOrList : [tupleOrList];
 	let index = -1;
 	while (++index < list.length) {
@@ -16727,9 +16866,13 @@ function Status({ status, t }) {
 * Right-column board for the selected chat channel.
 * @param onOpen - jump to a message in a room (dispatch or delivery).
 */
-function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }) {
+function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }) {
 	const [opened, setOpened] = (0, react.useState)(false);
 	const [selectedTab, setSelectedTab] = (0, react.useState)(BOARD_TABS.find((tab) => tab.initial).id);
+	const [reviewing, setReviewing] = (0, react.useState)();
+	const [reason, setReason] = (0, react.useState)("");
+	const [saving, setSaving] = (0, react.useState)(false);
+	const [error, setError] = (0, react.useState)();
 	const dialog = (0, react.useRef)(null);
 	const titleId = (0, react.useId)();
 	const tabId = (0, react.useId)();
@@ -16762,6 +16905,19 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }) {
 	const activeTab = BOARD_TABS.find((tab) => tab.id === selectedTab);
 	const matches = (task) => activeTab.statuses.length === 0 || activeTab.statuses.includes(task.status);
 	const visibleCount = scopedTasks.filter(matches).length;
+	const review = async (id, verdict) => {
+		setSaving(true);
+		setError(void 0);
+		try {
+			await onReview?.(id, verdict, verdict === "rework" ? reason.trim() : void 0);
+			setReviewing(void 0);
+			setReason("");
+		} catch (error) {
+			setError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setSaving(false);
+		}
+	};
 	const row = (task) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
 		className: ChannelsPage_module_default.boardTaskCard,
 		"data-task-id": task.id,
@@ -16793,20 +16949,63 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }) {
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: ChannelsPage_module_default.taskLinks,
-				children: [task.assign_msg_id !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-					type: "button",
-					className: ChannelsPage_module_default.linkButton,
-					onClick: () => {
-						jump(task.room_id, task.assign_msg_id);
-					},
-					children: t("taskOpenAssign")
-				}), task.result_msg_id !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-					type: "button",
-					className: ChannelsPage_module_default.linkButton,
-					onClick: () => {
-						jump(task.room_id, task.result_msg_id);
-					},
-					children: t("taskOpenResult")
+				children: [
+					task.assign_msg_id !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ChannelsPage_module_default.linkButton,
+						onClick: () => {
+							jump(task.room_id, task.assign_msg_id);
+						},
+						children: t("taskOpenAssign")
+					}),
+					task.result_msg_id !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ChannelsPage_module_default.linkButton,
+						onClick: () => {
+							jump(task.room_id, task.result_msg_id);
+						},
+						children: t("taskOpenResult")
+					}),
+					onReview !== void 0 && [
+						"returned",
+						"declined",
+						"escalated"
+					].includes(task.status) && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ChannelsPage_module_default.linkButton,
+						disabled: saving,
+						onClick: () => {
+							review(task.id, "done");
+						},
+						children: t("taskApprove")
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ChannelsPage_module_default.linkButton,
+						disabled: saving,
+						onClick: () => {
+							setReviewing(task.id);
+							setReason("");
+							setError(void 0);
+						},
+						children: t("taskSendBack")
+					})] })
+				]
+			}),
+			reviewing === task.id && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("form", {
+				onSubmit: (event) => {
+					event.preventDefault();
+					review(task.id, "rework");
+				},
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", { children: [t("taskReviewReason"), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+					value: reason,
+					required: true,
+					onChange: (event) => {
+						setReason(event.target.value);
+					}
+				})] }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "submit",
+					disabled: saving || !reason.trim(),
+					children: t("taskReviewSubmit")
 				})]
 			})
 		]
@@ -16853,7 +17052,7 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }) {
 					close();
 				}
 				if (event.key === "Tab") {
-					const focusable = Array.from(event.currentTarget.querySelectorAll("button:not([tabindex=\"-1\"]), [role=\"tabpanel\"]"));
+					const focusable = Array.from(event.currentTarget.querySelectorAll("button:not(:disabled):not([tabindex=\"-1\"]), input:not(:disabled), [role=\"tabpanel\"]"));
 					const first = focusable[0];
 					const last = focusable[focusable.length - 1];
 					if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) {
@@ -16874,6 +17073,10 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }) {
 						" · ",
 						roomName
 					]
+				}),
+				error !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					role: "alert",
+					children: error
 				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 					className: ChannelsPage_module_default.taskBoardScope,
@@ -18340,7 +18543,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }) {
 	const state = useChannels((snapshot) => snapshot);
 	const [editing, setEditing] = (0, react.useState)(void 0);
 	const [ownNotice, setOwnNotice] = (0, react.useState)(void 0);
@@ -19193,7 +19396,8 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, renameRoom, l
 						chatId: state.taskChat,
 						roomId: state.roomId,
 						t,
-						onOpen: openMessage
+						onOpen: openMessage,
+						onReview: reviewTask
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 						type: "button",
@@ -19530,6 +19734,10 @@ const zh = {
 	taskNextCheck: "下次看 {time}",
 	taskOpenAssign: "派工消息",
 	taskOpenResult: "交回消息",
+	taskApprove: "验收通过",
+	taskSendBack: "要求返工",
+	taskReviewReason: "返工原因（必填）",
+	taskReviewSubmit: "提交返工",
 	dispatchMode: "派活方式",
 	dispatchSolo: "单模型多进程 — 同一模型分开处理任务",
 	dispatchTeam: "完全团队 — 交给团队成员协作",
@@ -19699,6 +19907,10 @@ const en = {
 	taskNextCheck: "next check {time}",
 	taskOpenAssign: "Dispatch",
 	taskOpenResult: "Delivery",
+	taskApprove: "Accept result",
+	taskSendBack: "Request rework",
+	taskReviewReason: "Reason for rework (required)",
+	taskReviewSubmit: "Submit rework",
 	lead: "Primary role",
 	leadNone: "No role is available",
 	durSeconds: "{n}s",
@@ -19875,6 +20087,7 @@ function apply(ctx) {
 		hooks: { channels: channels.source },
 		selectRoom: channels.actions.selectRoom,
 		send: channels.actions.send,
+		reviewTask: channels.actions.reviewTask,
 		retrySend: channels.actions.retrySend,
 		dismissSend: channels.actions.dismissSend,
 		loadOlder: channels.actions.loadOlder,

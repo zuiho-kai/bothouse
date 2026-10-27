@@ -165,9 +165,15 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		return ""
 	}
 	ws := sessionChannel(sessionKey)
-	parent, ok := e.workspaceParent(ws)
+	parent, ok := e.workspaceParent(teamChatKey(sessionKey))
+	if !ok {
+		parent, ok = e.workspaceParent(ws)
+	}
 	if !ok {
 		return ""
+	}
+	if _, id, full := strings.Cut(parent, ":"); full {
+		parent = id
 	}
 	rec, ok := p.(ReplyContextReconstructor)
 	if !ok {
