@@ -257,6 +257,8 @@ export async function apply(ctx, rawConfig) {
         : store.page(roomId, before === null ? undefined : Number(before), url.searchParams.get('limit'));
       return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
     }
+    const records = workRecordsRoute(req, res, url, { store });
+    if (records !== undefined) return records;
     const settings = roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePath: config.workspacePath });
     if (settings !== undefined) return settings;
     const renamed = renameRoomRoute(req, res, path, { store, hub, dsh });
@@ -535,6 +537,21 @@ export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
  * opens the next 工作区<n+1> under that chat channel. Anyone else gets 401.
  * Returns undefined when the request is not for this route, else a Promise of the reply.
  */
+export function workRecordsRoute(req, res, url, { store }) {
+  const match = /^\/collab\/api\/rooms\/(\d+)\/records(?:\/(\d+)(?:\/(rounds|messages))?)?\/?$/.exec(url.pathname);
+  if (!match || req.method !== 'GET') return undefined;
+  return withBody(req, res, () => {
+    const roomId = Number(match[1]);
+    if (match[2] === undefined) return { records: store.workRecords(roomId) };
+    const recordId = Number(match[2]);
+    const record = store.requireRecord(roomId, recordId);
+    if (match[3] === 'rounds') return { rounds: store.workRounds(roomId, recordId) };
+    if (match[3] === 'messages') return { messages: store.recordMessages(roomId, recordId,
+      url.searchParams.has('before') ? Number(url.searchParams.get('before')) : undefined, url.searchParams.get('limit')).map(m => publicMessage(m, store)) };
+    return { record };
+  }, false);
+}
+
 export function workspacesRoute(req, res, url, { store, hub, gateway, owner, later, tasks, dsh }) {
   const m = /^\/collab\/api\/rooms\/(\d+)\/workspaces\/?$/.exec(url.pathname);
   if (m === null || req.method !== 'POST') return undefined;
@@ -570,11 +587,15 @@ function ticketWorkspace(req, res, roomId, { store, hub, gateway, later, tasks, 
     if (!title) throw new CollabError('invalid', 'workspace handoff requires a title');
     if (store.room(roomId) === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
     const workspace = store.createWorkspace(roomId);
+    const chatId = workspace.parent_id;
+    const record = store.createWorkRecord(chatId, { title, requirement: String(body?.requirement ?? body?.reason ?? ''), owner: taskOwner });
+    const round = store.startWorkRound(chatId, record.id, workspace.id);
     hub.emit({ type: 'rooms', rooms: store.roomsView() });
     const name = hub.members.get(taskOwner)?.name ?? taskOwner;
     const reason = typeof body?.reason === 'string' ? body.reason : undefined;
-    const { message } = hub.post(workspace.id, { authorKind: 'system', author: 'system', name: '交接',
-      text: `【交接】${name}：${title}${reason ? `\n${reason}` : ''}` });
+    const requirement = record.requirement;
+    const { message } = hub.post(workspace.id, { authorKind: 'system', author: 'system', name: '交接', recordId: record.id,
+      text: `【交接】${name}：${title}${requirement ? `\n${requirement}` : ''}${reason && reason !== requirement ? `\n${reason}` : ''}` });
     const task = tasks.assign({ roomId: workspace.id, owner: taskOwner, actor: lead, title, reason, messageId: message.id, force: true });
     tasks.q.setSource.run('workspace', task.id);
     const chat = workspace.parent_id ?? roomId;
@@ -584,11 +605,11 @@ function ticketWorkspace(req, res, roomId, { store, hub, gateway, later, tasks, 
       tasks.review(open.id, { actor: lead, verdict: 'done', note: `转到${workspace.name} #${task.id}` });
     }
     if (!dsh?.nudge(taskOwner, message)) gateway.nudge?.(taskOwner, message);
-    return { workspace, task: tasks.task(task.id) };
+    return { workspace, task: tasks.task(task.id), record, round };
   });
 }
 
-const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, 'member-busy': 409 };
+const ERROR_STATUS = { 'record-missing': 404, 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, 'member-busy': 409 };
 
 /** Parse a JSON body (unless `parse` is false), run fn, and map CollabError codes to HTTP statuses. */
 class BodyTooLarge extends Error {}
