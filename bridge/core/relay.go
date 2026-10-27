@@ -322,6 +322,9 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 		}
 		return nil, notBound(req.To, detail)
 	}
+	if wait := targetEngine.capacityWait(); wait > 0 {
+		return nil, fmt.Errorf("relay: target engine %q is cooling down for %s", req.To, wait.Round(time.Second))
+	}
 	sourceEngine.clearNotBound(req.SessionKey, req.To)
 
 	fromName := req.From

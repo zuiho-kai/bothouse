@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -22,6 +23,21 @@ const capacityAttempts = 3 // 用户原话「三次都这样的话」
 
 var capacityCooldownBase = 10 * time.Minute // 用户原话「冷却10分钟」；var only so tests can shorten it
 
+var quotaResetDurationRE = regexp.MustCompile(`(?i)Resets in ([0-9hms.]+)`)
+
+func quotaCoolingDuration(msg string) (time.Duration, bool) {
+	lower := strings.ToLower(msg)
+	if !strings.Contains(lower, "quota") && !strings.Contains(lower, "resource_exhausted") {
+		return 0, false
+	}
+	match := quotaResetDurationRE.FindStringSubmatch(msg)
+	if len(match) != 2 {
+		return 0, false
+	}
+	d, err := time.ParseDuration(strings.TrimRight(match[1], "."))
+	return d, err == nil && d > 0
+}
+
 // isModelCapacityError matches codex's "Selected model is at capacity. Please
 // try a different model." turn failure.
 func isModelCapacityError(msg string) bool {
@@ -32,10 +48,11 @@ func isModelCapacityError(msg string) bool {
 func (e *Engine) capacityWait() time.Duration {
 	e.capMu.Lock()
 	defer e.capMu.Unlock()
-	if d := time.Until(e.capUntil); d > 0 {
-		return d
+	until := e.capUntil
+	if e.quotaUntil.After(until) {
+		until = e.quotaUntil
 	}
-	return 0
+	return max(time.Until(until), 0)
 }
 
 // capacityStartCooldown starts the next cooldown: base, then doubling.
@@ -166,10 +183,31 @@ func (e *Engine) flushCapacityPending() {
 func (e *Engine) capacityCoolingUntil() time.Time {
 	e.capMu.Lock()
 	defer e.capMu.Unlock()
+	if e.quotaUntil.After(e.capUntil) && time.Now().Before(e.quotaUntil) {
+		return e.quotaUntil
+	}
 	if time.Now().Before(e.capUntil) {
 		return e.capUntil
 	}
+	if time.Now().Before(e.quotaUntil) {
+		return e.quotaUntil
+	}
 	return time.Time{}
+}
+
+func (e *Engine) quotaCoolingUntil(msg string) (time.Time, bool) {
+	d, ok := quotaCoolingDuration(msg)
+	if !ok {
+		return time.Time{}, false
+	}
+	until := time.Now().Add(d)
+	e.capMu.Lock()
+	if until.After(e.quotaUntil) {
+		e.quotaUntil = until
+	}
+	until = e.quotaUntil
+	e.capMu.Unlock()
+	return until, true
 }
 
 // redeliverMessage mirrors the tail of message dispatch: run now if the

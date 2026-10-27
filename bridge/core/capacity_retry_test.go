@@ -1,12 +1,25 @@
 package core
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestQuotaCoolingDuration(t *testing.T) {
+	got, ok := quotaCoolingDuration("RESOURCE_EXHAUSTED (code 429) Individual quota reached. Resets in 83h59m53s")
+	if !ok || got != 83*time.Hour+59*time.Minute+53*time.Second {
+		t.Fatalf("quotaCoolingDuration() = %s, %v", got, ok)
+	}
+	if _, ok := quotaCoolingDuration("RESOURCE_EXHAUSTED without reset"); ok {
+		t.Fatal("accepted quota error without reset duration")
+	}
+}
 
 // capacityScriptSession answers each Send with the next scripted outcome:
 // "cap" → the codex at-capacity turn error, anything else → a result.
@@ -29,6 +42,8 @@ func (s *capacityScriptSession) Send(prompt string, _ string, _ []ImageAttachmen
 	emit := func(next string) {
 		if next == "cap" {
 			s.events <- Event{Type: EventError, Error: errors.New("Selected model is at capacity. Please try a different model.")}
+		} else if next == "quota" {
+			s.events <- Event{Type: EventError, Error: errors.New("RESOURCE_EXHAUSTED (code 429) Individual quota reached. Resets in 83h59m53s")}
 		} else {
 			s.events <- Event{Type: EventResult, Content: "reply:" + next, Done: true}
 		}
@@ -69,6 +84,32 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 }
 
 func joined(p *stubPlatformEngine) string { return strings.Join(p.getSent(), "\n") }
+
+func TestQuotaCooling_EventErrorWritesTeamStatusUntilProviderReset(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	sess := &capacityScriptSession{events: make(chan Event, 1), script: []string{"quota"}}
+	e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	dir := t.TempDir()
+	e.SetTeam(dir, "test", false)
+
+	started := time.Now()
+	e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u", UserName: "u", Content: "check quota", ReplyCtx: "ctx"})
+
+	var status teamFile
+	path := filepath.Join(dir, "test.json")
+	waitFor(t, "team cooling_until status", func() bool {
+		b, err := os.ReadFile(path)
+		return err == nil && json.Unmarshal(b, &status) == nil && !status.CoolingUntil.IsZero()
+	})
+	want := started.Add(83*time.Hour + 59*time.Minute + 53*time.Second).Truncate(time.Second)
+	if delta := status.CoolingUntil.Sub(want); delta < -2*time.Second || delta > 2*time.Second {
+		t.Fatalf("cooling_until = %s, want about %s", status.CoolingUntil, want)
+	}
+	if wait := e.capacityWait(); wait < 83*time.Hour+59*time.Minute+50*time.Second {
+		t.Fatalf("capacityWait() = %s, want close to 83h59m53s", wait)
+	}
+}
 
 func TestCapacityRetry_RetriesWithinTurnThenSucceeds(t *testing.T) {
 	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"cap", "cap", "third"}}
