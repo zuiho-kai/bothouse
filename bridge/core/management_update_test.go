@@ -225,6 +225,9 @@ func TestInstallScriptReinstallsOnLockChange(t *testing.T) {
 	os.MkdirAll(stubs, 0o755)
 	os.WriteFile(filepath.Join(stubs, "dsh"), []byte("#!/bin/sh\nexit 0\n"), 0o755)
 	os.WriteFile(filepath.Join(stubs, "pnpm"), []byte("#!/bin/sh\necho \"$*\" >> "+log+"\nmkdir -p node_modules\n"), 0o755)
+	// install.sh verifies the bundle stamps with node; this test only exercises the
+	// collab lockfile guard, and the bundle accept/reject paths have their own tests.
+	os.WriteFile(filepath.Join(stubs, "node"), []byte("#!/bin/sh\nexit 0\n"), 0o755)
 	run := func() {
 		cmd := exec.Command("bash", filepath.Join(dsh, "install.sh"), "web")
 		cmd.Env = []string{"PATH=" + stubs + ":/usr/bin:/bin", "HOME=" + root, "DSH_HOME=" + filepath.Join(root, ".dsh")}

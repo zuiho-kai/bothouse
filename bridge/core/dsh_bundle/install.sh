@@ -67,11 +67,53 @@ if [ ! -d "$HERE/collab/node_modules" ] || ! cat "$HERE/collab/package.json" "$H
   cat "$HERE/collab/package.json" "$HERE/collab/pnpm-lock.yaml" > "$DEPS_STAMP"
 fi
 
-if [ -f "$UI/lib/client.js" ]; then
-  echo "== client-ui-discord already bundled, skipping build"
-else
-  echo "== build client-ui-discord"
-  (cd "$UI" && pnpm install --ignore-workspace && pnpm run bundle)
+CLIENT_JS="$UI/lib/client.js"
+STYLE_CSS="$UI/lib/style.css"
+BUILD_JSON="$UI/lib/build.json"
+if [ ! -f "$CLIENT_JS" ] || [ ! -f "$STYLE_CSS" ] || [ ! -f "$BUILD_JSON" ]; then
+  echo "client-ui-discord bundle is incomplete: need lib/client.js, lib/style.css and lib/build.json" >&2
+  exit 1
+fi
+node - "$CLIENT_JS" "$STYLE_CSS" "$BUILD_JSON" <<'JS'
+const fs = require("fs");
+const crypto = require("crypto");
+const [clientPath, stylePath, buildPath] = process.argv.slice(2);
+const client = fs.readFileSync(clientPath, "utf8");
+const lines = client.split("\n", 3);
+const sourcePrefix = "// dsh-client-source-sha256: ";
+const stylePrefix = "// dsh-style-sha256: ";
+if (!lines[0]?.startsWith(sourcePrefix) || !lines[1]?.startsWith(stylePrefix)) {
+  console.error("client.js is missing build stamps; rebuild and ship a consistent bundle");
+  process.exit(1);
+}
+let build;
+try {
+  build = JSON.parse(fs.readFileSync(buildPath, "utf8"));
+} catch (err) {
+  console.error(`read ${buildPath}: ${err.message}`);
+  process.exit(1);
+}
+const styleSha = crypto.createHash("sha256").update(fs.readFileSync(stylePath)).digest("hex");
+const sourceSha = lines[0].slice(sourcePrefix.length);
+const styleStamp = lines[1].slice(stylePrefix.length);
+if (build.format !== 1 || sourceSha !== build.sourceDigest || styleStamp !== build.styleSha256 || styleStamp !== styleSha) {
+  console.error("client-ui-discord build stamps do not match lib/build.json or style.css; rebuild and ship a consistent bundle");
+  process.exit(1);
+}
+console.log(`client-ui-discord bundle verified: source ${sourceSha}, style ${styleSha}`);
+JS
+
+# When this script runs from the source checkout, compare the stamp with the actual
+# source digest; the extracted one-click bundle has no src/, so lib/build.json is the
+# only oracle available there.
+SRC_PKG="$HERE/../../../dsh/packages/client-ui-discord"
+if [ -d "$SRC_PKG/src" ] && [ -f "$SRC_PKG/scripts/wrap-client.mjs" ]; then
+  WANT_SOURCE="$(cd "$SRC_PKG" && node scripts/wrap-client.mjs --print-source-digest)"
+  HAVE_SOURCE="$(sed -n '1s/^\/\/ dsh-client-source-sha256: //p' "$CLIENT_JS")"
+  if [ "$WANT_SOURCE" != "$HAVE_SOURCE" ]; then
+    echo "client-ui-discord stamp $HAVE_SOURCE does not match source digest $WANT_SOURCE; rebuild the embedded bundle" >&2
+    exit 1
+  fi
 fi
 
 echo "== step: plugin"
