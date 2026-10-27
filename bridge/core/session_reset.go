@@ -48,6 +48,7 @@ func (e *Engine) QueueSessionReset(sessionKey string) (SessionResetResult, error
 }
 
 func (e *Engine) beginResetTurn(key string) {
+	e.beginWorkspaceReportTurn(key)
 	e.pendingResetMu.Lock()
 	if e.resetTurns == nil {
 		e.resetTurns = map[string]int{}
@@ -72,6 +73,9 @@ func (e *Engine) endResetTurn(key string) {
 func (e *Engine) applyPendingReset(sessionKey string) bool {
 	e.pendingResetMu.Lock()
 	pending := e.pendingReset[sessionKey] && e.resetTurns[sessionKey] == 0
+	if report := e.workspaceReports[sessionKey]; report != nil && !report.valid {
+		pending = false
+	}
 	e.pendingResetMu.Unlock()
 	if !pending {
 		return false
