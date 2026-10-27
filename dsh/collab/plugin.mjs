@@ -415,7 +415,7 @@ export function roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePa
     }
     store.transaction(() => {
       if (body?.lead_id !== undefined) store.setLead(roomId, body.lead_id);
-      if (body?.workspace_path !== undefined) store.setWorkspacePath(roomId, body.workspace_path);
+      if (body?.workspace_path !== undefined) store.setWorkspacePath(roomId, body.workspace_path, workspacePath);
     });
     hub.emit({ type: 'room-settings', room_id: store.settingsRoom(roomId), ...view() });
     return view();

@@ -1497,6 +1497,23 @@ function cliMembers(hub, ask) {
     [{ id: 'cc', name: 'CC', cli: 'claude' }, { id: 'ds', name: 'DeepSeek' }]);
 }
 
+test('CLI channel directory: Later retains the bound directory until /new', async () => {
+  const hub = makeHub(); const fake = fakeDsh(); const paths = [];
+  const dsh = new DshMembers(hub, { ctx: fake.ctx, createUserMessage: m => m, workspacePath: '/w', logger: quiet,
+    createCliMember: ({ cwd }) => { paths.push(cwd); return { async ask() { return 'done'; }, close() {} }; },
+  }, [{ id: 'cc', name: 'CC', cli: 'claude' }]);
+  const say = async text => { hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text }); await settle(); };
+  await say('@CC first');
+  hub.store.setWorkspacePath(1, '/new', '/w');
+  await say('@CC still old');
+  assert.deepEqual(paths, ['/w']);
+  assert.equal(hub.store.bindingWorkspacePath('cc', 1), '/w');
+  await say('@CC /new'); await say('@CC now new');
+  assert.deepEqual(paths, ['/w', '/new']);
+  assert.equal(hub.store.bindingWorkspacePath('cc', 1), '/new');
+  await dsh.close(); hub.store.close();
+});
+
 test('CLI directory errors add one channel prefix without mutating a reused cause', async () => {
   const hub = makeHub();
   const cause = Object.assign(new Error('CLI gemini cannot start: ENOENT'), {

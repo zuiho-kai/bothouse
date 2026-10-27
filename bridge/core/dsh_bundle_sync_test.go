@@ -47,6 +47,11 @@ func TestDSHBundleClientMatchesSource(t *testing.T) {
 	if string(stamp) != fmt.Sprintf("%x\n", hash.Sum(nil)) {
 		t.Error("client source stamp differs; rebuild and copy lib into dsh_bundle")
 	}
+	// Clean checkouts have no ignored local lib; the committed source stamp is
+	// still checked above. Compare local assets too whenever a build is present.
+	if _, err := os.Stat(filepath.Join(source, "lib")); os.IsNotExist(err) {
+		return
+	}
 	for _, name := range []string{"client.js", "index.js", "style.css", "source-stamp.txt"} {
 		want, err := os.ReadFile(filepath.Join(source, "lib", name))
 		if err != nil {

@@ -563,7 +563,8 @@ export class DshMembers {
     const wiki = await this.turnContext(member, room, undefined, unseen);
     if (this.closed) return;
     if (!this.store.markSent(job.id, sessionId, 0, undefined)) return;
-    const cwd = this.store.workspacePath(room.id, this.rt.workspacePath);
+    const cwd = this.store.bindingWorkspacePath(member.id, room.id, this.store.workspacePath(room.id, this.rt.workspacePath));
+    this.store.setBindingWorkspacePath(member.id, room.id, cwd);
     const cliKey = JSON.stringify([member.id, cwd]);
     let entry = this.cliAgents.get(cliKey);
     if (entry === undefined) {
@@ -898,6 +899,7 @@ export class DshMembers {
         entry.agent.saved?.delete(String(room.id));
       }
       if (this.store.binding(member.id, room.id) !== undefined) this.store.rebind(member.id, room.id, `cli:${member.cli}:${member.id}:${room.id}`);
+      this.store.setBindingWorkspacePath(member.id, room.id, this.store.workspacePath(room.id, this.rt.workspacePath));
       // runCli keys a CLI member's context records by (member, room) alone, so clear them here:
       // the fresh ACP context gets its MEMORY.md, task board and wiki pages again.
       this.gateContext.reset(member.id, room.id);

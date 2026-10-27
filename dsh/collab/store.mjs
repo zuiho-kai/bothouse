@@ -18,7 +18,8 @@ export const DEFAULT_DISPATCH_MODE = 'mixed';
 const SCHEMA_VERSION = 11;
 /** Columns added after v1, as [table, column, definition]; ensureSchema() adds any missing one. */
 const COLUMNS = [
-  ['members', 'name_customized', 'INTEGER'], // NULL keeps existing names unchanged; only new UI members opt in.
+  ['members', 'name_customized', 'INTEGER'],
+  ['bindings', 'workspace_path', 'TEXT'], // Keep a CLI conversation in its original directory until /new. // NULL keeps existing names unchanged; only new UI members opt in.
 
   ['jobs', 'input_id', 'TEXT'], // v2: jobs remember the id of the input they admitted, to bind its consuming turn.
   ['members', 'rooms', 'TEXT'], // NULL or [] retains legacy global visibility.
@@ -565,8 +566,17 @@ export class Store {
     this.ensureRoomSettings(roomId);
     this.db.prepare('UPDATE room_settings SET lead_id = ? WHERE room_id = ?').run(id, roomId);
   }
-  setWorkspacePath(roomId, path) {
+  bindingWorkspacePath(memberId, roomId, fallback) {
+    return this.db.prepare('SELECT workspace_path FROM bindings WHERE member_id = ? AND room_id = ?').get(memberId, roomId)?.workspace_path || fallback;
+  }
+  setBindingWorkspacePath(memberId, roomId, path) {
+    this.db.prepare('UPDATE bindings SET workspace_path = ? WHERE member_id = ? AND room_id = ?').run(path, memberId, roomId);
+  }
+  setWorkspacePath(roomId, path, fallback) {
     roomId = this.settingsRoom(roomId);
+    const previous = this.workspacePath(roomId, fallback);
+    if (previous) this.db.prepare(`UPDATE bindings SET workspace_path = ? WHERE workspace_path IS NULL AND
+      (room_id = ? OR room_id IN (SELECT id FROM rooms WHERE parent_id = ?))`).run(previous, roomId, roomId);
     this.ensureRoomSettings(roomId);
     this.db.prepare('UPDATE room_settings SET workspace_path = ? WHERE room_id = ?').run(path, roomId);
     this.db.prepare('UPDATE rooms SET workspace_path = ? WHERE id = ?').run(path, roomId);
