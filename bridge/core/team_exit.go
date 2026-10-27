@@ -69,6 +69,13 @@ func (e *Engine) SetWorkspaceParentResolver(r WorkspaceParentResolver) {
 
 // workspaceParent is the chat a workspace's [ask]/[report] goes to: its current owner, else
 // the chat of its latest handoff (a parked/closed workspace whose turn was still running).
+//
+// Choosing the target from records is all that happens here; which chat a handoff is recorded
+// under is decided when it is claimed (ws-handoff's home_chat, ClaimTeamWorkspaceFor). On 10-28
+// a claim recorded 「彩虹猫的外出」 as 工作区1's owner, so 工作区1's #674 report went there. That
+// record was indistinguishable from a real handoff after the fact (the handoff row carried the
+// same channel), so this path cannot repair it — the write side is where it is prevented, and
+// the log lines below are what make a wrong target visible at all.
 func (e *Engine) workspaceParent(channelID string) (string, bool) {
 	if parent, ok := e.workspaceOwner(channelID); ok {
 		return parent, true
@@ -162,6 +169,10 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		e.clearAskBounces(sessionKey)
 	}
 	if !ok || p == nil {
+		// Most turns carry no marker; only complain when one exists but did not start the reply.
+		if p != nil && (strings.Contains(reply, "["+exitKindReport+"]") || strings.Contains(reply, "["+exitKindAsk+"]")) {
+			slog.Warn("team exit: marker is not on the first line, nothing forwarded", "session", sessionKey)
+		}
 		return ""
 	}
 	ws := sessionChannel(sessionKey)
@@ -170,6 +181,8 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		parent, ok = e.workspaceParent(ws)
 	}
 	if !ok {
+		slog.Warn("team exit: no chat channel for this workspace; the answer stays in the workspace",
+			"workspace", ws, "session", sessionKey)
 		return ""
 	}
 	if _, id, full := strings.Cut(parent, ":"); full {
@@ -177,6 +190,7 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	}
 	rec, ok := p.(ReplyContextReconstructor)
 	if !ok {
+		slog.Warn("team exit: platform cannot rebuild a reply context", "platform", p.Name())
 		return ""
 	}
 	if problems != nil {
@@ -214,6 +228,7 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		}
 		sent = append(sent, text)
 	}
+	slog.Info("team exit: forwarded", "kind", kind, "workspace", ws, "parent", parent, "chunks", len(sent))
 	if id == "" || len(sent) == 0 {
 		return ""
 	}

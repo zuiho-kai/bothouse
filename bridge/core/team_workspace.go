@@ -206,7 +206,37 @@ type teamWorkspaceState struct {
 	ScriptWatches map[string][]TeamHandoff `json:"script_watches,omitempty"`
 }
 
-const teamWorkspaceStateVersion = 2
+const teamWorkspaceStateVersion = 3
+
+// teamWorkspaceMigrateStrayParents drops ownership records held by a channel no handoff ever
+// came from. A Parents key is written by a claim, so it should always be a chat that handed
+// something off; a key with no handoff anywhere is a record written by hand or by a claim that
+// never happened (10-28 some state files carried such a key). Left alone it decides where a
+// workspace's [report] goes, and a wrong chat means the user never sees the answer.
+// A key that does appear in a handoff stays: choosing between two handoff chats is what
+// forwardWorkspaceExit's cross-check does, not what a one-time migration guesses.
+func teamWorkspaceMigrateStrayParents(st *teamWorkspaceState) bool {
+	sources := make(map[string]bool, len(st.Handoffs))
+	for _, list := range st.Handoffs {
+		for _, h := range list {
+			if h.Chat != "" {
+				sources[teamChatKey(h.Chat)] = true
+			}
+		}
+	}
+	changed := false
+	for parent := range st.Parents {
+		if sources[teamChatKey(parent)] {
+			continue
+		}
+		count := len(st.Parents[parent])
+		delete(st.Parents, parent)
+		changed = true
+		slog.Warn("team workspace: dropped an ownership record no handoff came from",
+			"chat", parent, "workspaces", count)
+	}
+	return changed
+}
 
 // teamWorkspaceMigrateOwners upgrades a state written before single owner. Back then a Parents
 // record only named the last chat that handed off and was never removed, so every workspace
@@ -219,6 +249,9 @@ func teamWorkspaceMigrateOwners(st *teamWorkspaceState) bool {
 	}
 	if st.Version < 2 {
 		changed = teamWorkspaceMigrateDirtyChats(st) || changed
+	}
+	if st.Version < 3 {
+		changed = teamWorkspaceMigrateStrayParents(st) || changed
 	}
 	st.Version = teamWorkspaceStateVersion
 	return changed
@@ -486,6 +519,8 @@ func (e *Engine) WorkspaceLastChat(channelID string) (parentID string, ok bool) 
 	// Never answer with another workspace channel: its [report] would land where the user does
 	// not read it. teamWorkspaceMigrateDirtyChats repairs those records; this guards a state
 	// loaded before the repair.
+	// The scan goes back over every recorded handoff, so one empty chat (left by
+	// teamWorkspaceMigrateDirtyChats when the workspace was free) does not cut the fallback.
 	workspaces := workspaceChannelKeysLocked(st)
 	for i := len(hs) - 1; i >= 0; i-- {
 		if hs[i].Chat == "" {
