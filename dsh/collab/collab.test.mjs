@@ -193,6 +193,30 @@ test('channel primary: independent choices persist, inherit to workspaces and fa
   store.close();
 });
 
+test('channel primary: unmentioned messages, /new, workspace hints and handbacks follow their own channel', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  const fake = fakeDsh(); const dsh = fake.attach(hub, [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]);
+  hub.store.setLead(1, 'a'); hub.store.setLead(2, 'b');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: 'one' });
+  hub.post(2, { authorKind: 'user', author: 'owner', name: '我', text: 'two' });
+  await settle();
+  assert.deepEqual(hub.store.openJobs().map(j => [j.member_id, j.room_id]), [['a', 1], ['b', 2]]);
+  for (const agent of fake.sessions.values()) fake.turn(agent, ['done']);
+  await settle();
+  const oldB = hub.store.binding('b', 2).session_id;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '/new' });
+  await settle();
+  assert.equal(hub.store.binding('b', 2).session_id, oldB);
+  assert.equal(hub.store.binding('b', 1), undefined);
+  const later = { workspaceInstructions: (id, room) => `${id}:${room}` };
+  assert.equal(workspaceHint(hub, later, 'a', 1), 'a:1');
+  assert.equal(workspaceHint(hub, later, 'a', 2), '');
+  const trigger = hub.store.append(2, { authorKind: 'role', author: 'b', name: 'B', text: '@A task' }).message;
+  assert.equal(dsh.dispatchedBy({ room_id: 2, trigger_id: trigger.id }, { id: 'a' }).id, 'b');
+  assert.equal(dsh.returnToLead({ room_id: 2, trigger_id: trigger.id }, { id: 'a' }, 'result'), '@B result');
+  await dsh.close(); hub.store.close();
+});
+
 test('channel settings API: validates directories before writing and survives config reseeding', async () => {
   const { Readable } = await import('node:stream');
   const { mkdtempSync, writeFileSync } = await import('node:fs');

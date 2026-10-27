@@ -109,6 +109,7 @@ export async function apply(ctx, rawConfig) {
   store.migrateMemberRooms();
   const leadState = new LeadState(config.leadFile, ctx.logger);
   const hub = new Hub(store, ctx.logger, leadState, config.fallbackLead);
+  hub.workspacePath = config.workspacePath;
   hub.teamExit = new TeamExit(hub);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
   const files = new Attachments(join(config.dataDir, 'attachments'));

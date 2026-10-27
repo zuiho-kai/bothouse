@@ -41,6 +41,13 @@ export class Hub {
     return member !== undefined && member.kind !== 'human' ? member : undefined;
   }
 
+  /** Channel selection, inherited by workspaces; only unset channels use the legacy global choice. */
+  primaryIn(roomId) {
+    const id = this.store.leadId(roomId);
+    const member = id === null ? this.selectedPrimaryMember() : this.members.get(id);
+    return member && this.routableIn(roomId).some(m => m.id === member.id) ? member : undefined;
+  }
+
   /** UI-only fallback; callers that route messages must use selectedPrimaryMember(). */
   primaryMember() {
     const fallback = this.fallbackLead === '' ? undefined : this.members.get(this.fallbackLead);
@@ -209,6 +216,10 @@ export class Hub {
   }
 
   emit(event) {
+    if (event.type === 'rooms') event = { ...event, rooms: event.rooms.map(room => ({ ...room,
+      lead_id: this.store.leadId(room.id), effective_lead_id: this.primaryIn(room.id)?.id ?? null,
+      workspace_path: this.store.workspacePath(room.id, this.workspacePath),
+    })) };
     for (const s of this.subscribers) {
       try { s(event); } catch (error) { this.logger.warn('collab: subscriber failed: %s', error?.message ?? error); }
     }

@@ -12,7 +12,7 @@ import { LeadState } from './lead-state.mjs';
 import { Roster } from './roster.mjs';
 import { promptText, teamModeRules, TurnProgress, workspaceHint } from './dsh-member.mjs';
 import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
-import { tasksRoute, ownMessageRoute, renameRoomRoute } from './plugin.mjs';
+import { tasksRoute, ownMessageRoute, renameRoomRoute, roomSettingsRoute } from './plugin.mjs';
 import { TeamExit } from './team-exit.mjs';
 
 const quiet = { warn() {}, info() {} };
@@ -163,6 +163,109 @@ test('channel rename: refreshes loaded and persisted sessions, workspaces and fu
   assert.equal(fake.ctx.sessionTitle.renamed.at(-1), '#renamed · DeepSeek');
   await dsh.close();
   hub.store.close();
+});
+
+test('channel primary: independent choices persist, inherit to workspaces and fall back only when unset', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-channel-primary-')), 'db');
+  let store = new Store(path);
+  for (const id of [1, 2, 3]) store.ensureRoom(id, `room${id}`);
+  const ws = store.createWorkspace(1);
+  const init = () => {
+    const hub = new Hub(store, quiet, { selected: () => 'global' });
+    for (const id of ['a', 'b', 'global']) hub.setMember({ id, name: id, kind: 'dsh', online: true });
+    return hub;
+  };
+  let hub = init();
+  store.setLead(1, 'a'); store.setLead(2, 'b');
+  assert.equal(hub.primaryIn(1).id, 'a');
+  assert.equal(hub.primaryIn(2).id, 'b');
+  assert.equal(hub.primaryIn(3).id, 'global');
+  assert.equal(hub.primaryIn(ws.id).id, 'a');
+  store.close(); store = new Store(path); hub = init();
+  assert.equal(hub.primaryIn(1).id, 'a');
+  assert.equal(hub.primaryIn(2).id, 'b');
+  assert.equal(hub.primaryIn(3).id, 'global');
+  store.setLead(1, 'removed');
+  assert.equal(hub.primaryIn(1), undefined, 'a missing explicit primary must not pick another channel’s role');
+  store.close();
+});
+
+test('channel primary: unmentioned messages, /new, workspace hints and handbacks follow their own channel', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  const fake = fakeDsh(); const dsh = fake.attach(hub, [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]);
+  hub.store.setLead(1, 'a'); hub.store.setLead(2, 'b');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: 'one' });
+  hub.post(2, { authorKind: 'user', author: 'owner', name: '我', text: 'two' });
+  await settle();
+  assert.deepEqual(hub.store.openJobs().map(j => [j.member_id, j.room_id]), [['a', 1], ['b', 2]]);
+  for (const agent of fake.sessions.values()) fake.turn(agent, ['done']);
+  await settle();
+  const oldB = hub.store.binding('b', 2).session_id;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '/new' });
+  await settle();
+  assert.equal(hub.store.binding('b', 2).session_id, oldB);
+  assert.equal(hub.store.binding('b', 1), undefined);
+  const later = { workspaceInstructions: (id, room) => `${id}:${room}` };
+  assert.equal(workspaceHint(hub, later, 'a', 1), 'a:1');
+  assert.equal(workspaceHint(hub, later, 'a', 2), '');
+  const trigger = hub.store.append(2, { authorKind: 'role', author: 'b', name: 'B', text: '@A task' }).message;
+  assert.equal(dsh.dispatchedBy({ room_id: 2, trigger_id: trigger.id }, { id: 'a' }).id, 'b');
+  assert.equal(dsh.returnToLead({ room_id: 2, trigger_id: trigger.id }, { id: 'a' }, 'result'), '@B result');
+  await dsh.close(); hub.store.close();
+});
+
+test('channel settings API: validates directories before writing and survives config reseeding', async () => {
+  const { Readable } = await import('node:stream');
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'collab-settings-'));
+  const file = join(dir, 'file'); writeFileSync(file, 'x');
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  hub.setMember({ id: 'a', name: 'A', kind: 'dsh', rooms: [1] });
+  hub.setMember({ id: 'b', name: 'B', kind: 'dsh', rooms: [2] });
+  const events = []; hub.subscribe(e => events.push(e));
+  const call = async (body) => {
+    const req = Readable.from([Buffer.from(JSON.stringify(body))]); req.method = 'PATCH';
+    let status, result;
+    await roomSettingsRoute(req, { writeHead(s) { status = s; }, end(b) { result = JSON.parse(b); } }, '/collab/api/rooms/1/settings', { store: hub.store, hub, workspacePath: '/old' });
+    return { status, result };
+  };
+  for (const path of ['relative', join(dir, 'missing'), file]) {
+    const result = await call({ workspace_path: path, lead_id: 'a' });
+    assert.equal(result.status, 400); assert.match(result.result.error, /工作目录/);
+    assert.equal(hub.store.workspacePath(1, '/old'), '/old'); assert.equal(hub.store.leadId(1), null);
+  }
+  assert.equal((await call({ lead_id: 'b' })).status, 400);
+  assert.equal((await call({ workspace_path: dir, lead_id: 'a' })).status, 200);
+  assert.equal(events.at(-1).room_id, 1);
+  assert.equal(hub.primaryIn(1).id, 'a'); assert.equal(hub.store.leadId(2), null);
+  hub.store.ensureRoom(1, 'general', '/config');
+  assert.equal(hub.store.workspacePath(1, '/old'), dir);
+  hub.store.close();
+});
+
+test('channel directory: saving leaves current session pending, /new and immediate renewal use the new path', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  const fake = fakeDsh();
+  const dsh = fake.attach(hub, [{ id: 'a', name: 'A', rooms: [1] }, { id: 'b', name: 'B', rooms: [1] }, { id: 'other', name: 'Other', rooms: [2] }]);
+  hub.store.setLead(1, 'a');
+  const old = await dsh.ensureAgent(dsh.config.get('a'), hub.store.room(1));
+  const other = await dsh.ensureAgent(dsh.config.get('other'), hub.store.room(2));
+  hub.store.setWorkspacePath(1, '/new-directory');
+  assert.equal(await dsh.ensureAgent(dsh.config.get('a'), hub.store.room(1)), old);
+  assert.equal(fake.ctx.agents.created[0].meta.cwd, '/w');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '/new' });
+  await settle();
+  assert.notEqual(hub.store.binding('a', 1).session_id, old.session.id);
+  assert.equal(fake.ctx.agents.created.at(-1).meta.cwd, '/new-directory');
+  assert.deepEqual(await dsh.renewRoom(1), ['a', 'b']);
+  assert.equal(fake.ctx.agents.created.at(-1).meta.cwd, '/new-directory');
+  assert.equal(hub.store.binding('other', 2).session_id, other.session.id);
+  await dsh.close(); hub.store.close();
 });
 
 test('dispatch mode: a workspace inherits its chat channel setting (PR #138 review 6)', () => {
