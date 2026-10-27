@@ -3,6 +3,7 @@
 ## 2026-10-27: direct acceptance wakeups
 
 - A terminal reply beginning with `【接】` also registers unfinished work accepted directly in chat. Existing handoff/d10 watches retain ownership; a chat acceptance without one uses the same one-shot callbacks.
+- An active task-board owner is also registered at turn completion without requiring an acceptance phrase; waiting-user statuses are excluded unless there is a fresh acceptance. Handback uses the d10 policy, including acceptances that already contain a full result. Handbacks never create new watches, and a board item accepted, closed, paused or removed before the callback cancels its pending wake.
 - A fresh acceptance takes precedence over a stale waiting-user task-card or board status, including when a human has replied since the earlier acceptance. Explicit reports and validated questions still stop wakeups.
 - Before sending a wakeup, inspect the role's native background tasks and live child tasks. Their completion events resume terminal-event handling.
 - Coordinators also wait quietly while their tracked relay is running, or while a peer is actively executing their direct chat dispatch in the same workspace. Both the terminal event and the pending wake callback check this state.

@@ -244,6 +244,7 @@ type TeamHandoff struct {
 	// sent. ParkFails: parks that failed at the check time (retried, then reported). ReadFails: below.
 	Idle   watchIdleState `json:"idle,omitzero"`
 	Sender string         `json:"sender,omitempty"` // d10 caller project
+	Board  int            `json:"board,omitempty"`  // task-board item watched at turn completion
 	Owner  string         `json:"owner,omitempty"`
 	Title  string         `json:"title,omitempty"`
 	// Name: the workspace's name at the claim (「工作区n」). The Parents record goes at the release,

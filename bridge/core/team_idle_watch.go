@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Idle wakeups are armed by terminal events, never by the periodic progress scan.
@@ -173,6 +175,48 @@ func (e *Engine) updateIdle(a idleAssignment, f func(*TeamHandoff)) (TeamHandoff
 	return TeamHandoff{}, false
 }
 
+var watchTaskNumberRE = regexp.MustCompile(`(?:^|\s)#([0-9]+)`)
+var watchHandbackPR = regexp.MustCompile(`github\.com/[^\s]+/pull/\d+`)
+
+func watchTaskNumber(text string) int {
+	m := watchTaskNumberRE.FindStringSubmatch(strings.TrimPrefix(text, "【接】"))
+	if m == nil {
+		return 0
+	}
+	id, _ := strconv.Atoi(m[1])
+	return id
+}
+
+// Same handback policy as d10-fire.is_handback. Registered d10 callers read
+// this decision through /team/watch rather than running a second classifier.
+func watchIsHandback(text string) bool {
+	text = strings.TrimSpace(watchLeadingMentions.ReplaceAllString(strings.TrimSpace(text), ""))
+	if text == "" {
+		return false
+	}
+	for _, prefix := range []string{"↪", "⏹", "📬"} {
+		if strings.HasPrefix(text, prefix) {
+			return false
+		}
+	}
+	if strings.HasPrefix(text, "[report]") || strings.HasPrefix(text, "【交回】") || watchHandbackPR.MatchString(text) {
+		return true
+	}
+	if strings.HasPrefix(text, "【接】") {
+		return utf8.RuneCountInString(text) >= 300
+	}
+	return utf8.RuneCountInString(text) >= 80
+}
+
+func watchBoardClosed(it teamTaskBoardItem) bool {
+	for _, status := range []string{"已验收", "验收通过", "已收口", "已完成", "已交回", "已结束"} {
+		if strings.Contains(it.Status, status) {
+			return true
+		}
+	}
+	return false
+}
+
 // watchTurnEnded runs before finishPublicProgress: automatic card completion is
 // not a deliberate result. A report, handback or explicit result ends the watch.
 func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult bool) {
@@ -184,39 +228,39 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 	if raw := e.lookupReadyPlatform(p.Name()); raw != nil {
 		p = raw
 	}
-	text = strings.TrimSpace(text)
+	text = strings.TrimSpace(watchLeadingMentions.ReplaceAllString(strings.TrimSpace(text), ""))
 	first, _, _ := strings.Cut(text, "\n")
 	accepted := strings.HasPrefix(strings.TrimSpace(first), "【接】")
 	// A stale waiting-user card cannot turn a fresh acceptance into a handback.
-	returned := cardResult && !accepted || strings.HasPrefix(strings.TrimSpace(text), "[report]") ||
-		strings.HasPrefix(strings.TrimSpace(text), "【交回】")
+	returned := cardResult && !accepted || watchIsHandback(text)
 	// A validated user question waits for the user's answer, not an idle wake.
-	if kind, body, ok := parseExitKind(text); ok && kind == exitKindAsk && askEvidenceProblems(body) == nil {
-		returned = true
+	if kind, body, ok := parseExitKind(text); ok && kind == exitKindAsk {
+		returned = askEvidenceProblems(body) == nil
 	}
 	title := strings.TrimSpace(strings.TrimPrefix(first, "【接】"))
+	boardID := watchTaskNumber(first)
+	boardActive := false
+	boardClosed := false
 	chat := key
 	if parent, ok := e.WorkspaceParent(key); ok {
 		chat = parent
 	}
-	if accepted && e.team != nil {
-		// Acceptance is new work, including when the board still says 等用户.
-		// Do not let that old status hide this turn or a later human reply.
+	if e.team != nil {
 		items := placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir))
-		taskID := 0
-		for _, field := range strings.Fields(strings.TrimPrefix(first, "【接】")) {
-			if id, err := strconv.Atoi(strings.TrimPrefix(field, "#")); strings.HasPrefix(field, "#") && err == nil {
-				taskID = id
-				break
-			}
-		}
 		var picked *teamTaskBoardItem
 		for i := range items {
 			it := &items[i]
-			if taskID != 0 && taskID != it.ID {
+			if boardID != 0 && boardID != it.ID {
 				continue
 			}
-			if it.own != key || it.wsEnded || it.Paused != "" && !teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
+			if boardID == it.ID && watchBoardClosed(*it) {
+				boardClosed = true
+			}
+			if it.own != key || it.wsEnded || watchBoardClosed(*it) ||
+				it.Paused != "" && !(accepted && teamTaskBoardWaitUser.MatchString(it.PauseWhy)) {
+				continue
+			}
+			if !accepted && (strings.HasPrefix(it.Status, "等用户") || strings.HasPrefix(it.Status, "等待用户")) {
 				continue
 			}
 			who := whoInWorkspace(*it)
@@ -226,18 +270,20 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 			if picked == nil || it.ID > picked.ID {
 				picked = it
 			}
-			if taskID == it.ID {
+			if boardID == it.ID {
 				picked = it
 				break
 			}
 		}
 		if picked != nil {
+			boardID, boardActive = picked.ID, true
 			title = fmt.Sprintf("#%d %s", picked.ID, picked.What)
 			if picked.parent != "" {
 				chat = picked.parent
 			}
 		}
 	}
+	returned = returned || boardClosed
 	teamWorkspaceStore.mu.Lock()
 	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
 	var assignments []idleAssignment
@@ -252,9 +298,9 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 			}
 		}
 	}
-	// A direct acceptance in a chat has no handoff/d10 registration. Register
-	// it from this terminal event, using the same one-shot wake path.
-	if accepted && len(assignments) == 0 && e.team != nil {
+	// Direct acceptance and board-owned active work have no handoff/d10
+	// registration. Register unfinished work from this terminal event only.
+	if (accepted || boardActive) && !returned && len(assignments) == 0 && e.team != nil {
 		owner := e.name
 		if m, ok := p.(SelfMentioner); ok && m.SelfMention() != "" {
 			owner = m.SelfMention()
@@ -267,7 +313,7 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 			}
 		}
 		now := time.Now()
-		h := TeamHandoff{Chat: chat, At: now, Due: now.Add(watchCheckAfter()), Owner: owner, Title: shortLabel(title, teamTaskMaxRunes), Sender: sender}
+		h := TeamHandoff{Chat: chat, At: now, Due: now.Add(watchCheckAfter()), Owner: owner, Title: shortLabel(title, teamTaskMaxRunes), Sender: sender, Board: boardID}
 		if st.ScriptWatches == nil {
 			st.ScriptWatches = make(map[string][]TeamHandoff)
 		}
@@ -303,6 +349,26 @@ func (e *Engine) armIdleWake(a idleAssignment) {
 func (e *Engine) fireIdleWake(a idleAssignment) {
 	if e.ctx.Err() != nil || e.watchBusy(a.key) || e.watchDelegatedWork(a.key) {
 		return
+	}
+	if e.team != nil {
+		id := a.h.Board
+		if id == 0 {
+			id = watchTaskNumber(a.h.Title) // watches recorded before board IDs existed
+		}
+		if id != 0 {
+			found, closed := false, false
+			for _, it := range readTeamTaskBoard(e.team.dir) {
+				if it.ID == id {
+					found = true
+					closed = watchBoardClosed(it) || it.Paused != ""
+					break
+				}
+			}
+			if closed || !found && a.h.Board != 0 {
+				e.updateIdle(a, func(h *TeamHandoff) { h.Idle.Returned = true })
+				return
+			}
+		}
 	}
 	w := newHandoffWatch(e)
 	if running, _ := w.workspaceBackgroundProgress(a.key, a.h.Idle.Ended); running {
