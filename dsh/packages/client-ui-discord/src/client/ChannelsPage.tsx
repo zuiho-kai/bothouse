@@ -128,13 +128,13 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   return (
     <div className={classes} data-message-id={message.id}>
       {member === undefined || message.author_kind === 'system'
-        ? <Avatar id={message.author} name={message.name} avatar={member?.avatar} />
+        ? <Avatar id={message.author} name={message.name} avatar={member?.avatar} avatarVersion={member?.avatarVersion} />
         : (
             // Avatar opens this author's member menu; `data-avatar-menu` marks the
             // area an outside press must not land in to keep the menu open.
             <span className={css.avatarAnchor} data-avatar-menu onKeyDown={(event) => { if (event.key === 'Escape') onCloseMenu() }}>
               <button type="button" className={css.avatarButton} aria-label={t('memberMenu', { name: member.name })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={onAvatar}>
-                <Avatar id={member.id} name={message.name} avatar={member.avatar} />
+                <Avatar id={member.id} name={message.name} avatar={member.avatar} avatarVersion={member.avatarVersion} />
               </button>
               {menuOpen && (
                 <div className={css.avatarMenu} role="menu" aria-label={t('memberMenu', { name: member.name })}>
@@ -246,7 +246,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
             onClick={() => { onPick(m) }}
           >
             <span className={css.memberAvatar}>
-              <Avatar id={m.id} name={m.name} avatar={m.avatar} small />
+              <Avatar id={m.id} name={m.name} avatar={m.avatar} avatarVersion={m.avatarVersion} small />
               <span className={m.error ? `${css.presence} ${css.errorPresence}` : css.presence} />
             </span>
             <span className={css.memberText}>
@@ -742,7 +742,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
                     onClick={() => { choose(m) }}
                   >
                     <span className={css.memberAvatar}>
-                      <Avatar id={m.id} name={m.name} avatar={m.avatar} small />
+                      <Avatar id={m.id} name={m.name} avatar={m.avatar} avatarVersion={m.avatarVersion} small />
                       {m.online && <span className={m.error ? `${css.presence} ${css.errorPresence}` : css.presence} />}
                     </span>
                     <span className={css.mentionName}>{m.name}</span>
@@ -834,14 +834,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
         </div>
       </section>
       <aside className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}>
-        <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} />
-        <hr className={css.settingsDivider} />
+        <div className={css.membersHead} aria-hidden="true" />
         <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { setDrawer(undefined); setChannelName(room?.name ?? ''); setNameError(undefined); setSettingsOpen(true) }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9.5 3-.7 2.3-2 .9-2.2-.6-2.5 4.3 1.6 1.7v2.3l-1.6 1.7 2.5 4.3 2.2-.6 2 .9.7 2.3h5l.7-2.3 2-.9 2.2.6 2.5-4.3-1.6-1.7v-2.3l1.6-1.7-2.5-4.3-2.2.6-2-.9L14.5 3Z" /><circle cx="12" cy="12.75" r="3" /></svg>
           {t('channelSettings')}
         </button>
+        <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} />
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
+        <hr className={css.memberListDivider} />
         <MemberGroup title={t('agents', { count: String(visibleMembers.filter(m => m.kind !== 'human').length) })} members={visibleMembers.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
         <MemberGroup title={t('humans', { count: String(visibleMembers.filter(m => m.kind === 'human').length) })} members={visibleMembers.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
       </aside>

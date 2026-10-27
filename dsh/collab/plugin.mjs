@@ -18,6 +18,7 @@ import { Roster } from './roster.mjs';
 import { Tasks, WORKING } from './tasks.mjs';
 import { createCliMember } from './cli-member.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
+import { AvatarUploads } from './avatar-uploads.mjs';
 import { handler as clisHandler } from './clis.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Attachments, INLINE_IMAGE } from './attachments.mjs';
@@ -115,7 +116,8 @@ export async function apply(ctx, rawConfig) {
   const later = new Later(hub, join(config.dataDir, 'collab.sqlite3'), (id, msg) => dsh.nudge(id, msg) || gateway.nudge(id, msg), { start: false });
   gateway.later = later;
   const dsh = new DshMembers(hub, { files, later, ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
-  const roster = new Roster(hub, dsh, ctx.llm);
+  const avatarUploads = new AvatarUploads(join(config.dataDir, 'avatars'));
+  const roster = new Roster(hub, dsh, ctx.llm, avatarUploads);
   // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.
   // Started after dsh.recover(): a reminder due during the downtime must not look like a leftover job.
   const tasks = new Tasks(hub, { start: false });
@@ -228,6 +230,13 @@ export async function apply(ctx, rawConfig) {
       const bytes = row === undefined ? undefined : files.read(att[1]);
       if (bytes === undefined) return json(res, 404, { error: 'attachment not found' });
       return sendAttachment(req, res, row, bytes);
+    }
+    const uploaded = /^\/collab\/avatars\/uploads\/([a-z0-9-]+\.png)$/.exec(path);
+    if (uploaded !== null && req.method === 'GET') {
+      const png = avatarUploads.read(uploaded[1]);
+      if (png === undefined) return json(res, 404, { error: 'avatar not found' });
+      res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
+      return res.end(png);
     }
     const av = /^\/collab\/avatars\/([a-z0-9_-]+)\.png$/.exec(path);
     if (av !== null && req.method === 'GET') {
@@ -352,6 +361,8 @@ export async function apply(ctx, rawConfig) {
     if (path === '/collab/api/members' && req.method === 'POST') {
       return withBody(req, res, async body => ({ member: await roster.create(body) }));
     }
+    const avatarResult = memberAvatarRoute(req, res, path, { roster, owner });
+    if (avatarResult !== undefined) return avatarResult;
     const mm = /^\/collab\/api\/members\/([^/]+)$/.exec(path);
     if (mm !== null && req.method === 'PATCH') {
       return withBody(req, res, async body => ({ member: await roster.update(decodeURIComponent(mm[1]), body) }));
@@ -371,6 +382,17 @@ export async function apply(ctx, rawConfig) {
     streams.add(end);
     req.on('close', end);
   }
+}
+
+/** Owner-only upload endpoint, also callable in isolated HTTP regressions. */
+export function memberAvatarRoute(req, res, path, { roster, owner }) {
+  const match = /^\/collab\/api\/members\/([^/]+)\/avatar$/.exec(path);
+  if (match === null || !['POST', 'DELETE'].includes(req.method)) return undefined;
+  if (!owner(req)) { json(res, 401, { error: 'unauthorized' }); return Promise.resolve(); }
+  return withBody(req, res, body => {
+    if (req.method === 'POST' && typeof body?.png !== 'string') throw new CollabError('invalid', '请提供 PNG base64 头像数据');
+    return { member: roster.setAvatar(decodeURIComponent(match[1]), req.method === 'POST' ? body.png : undefined) };
+  }, req.method === 'POST', 512 * 1024);
 }
 
 /** Owner authentication is checked by browserRoute before this handler, like ownMessageRoute. */
