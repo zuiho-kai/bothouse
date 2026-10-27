@@ -432,6 +432,8 @@ func TestTaskRelayClosedCardNoLiveTurnDoesNotSuggestRun(t *testing.T) {
 
 // When automatic re-claim is ambiguous because more than one live turn exists,
 // the explicit command must carry the real CLI context so it can actually run.
+// Pull the command back out of the error text: this is what the agent sees and
+// what it is expected to paste into a shell.
 func TestTaskRelayClosedCardReclaimCommandIncludesCLIContext(t *testing.T) {
 	p, platform, run, id := taskRelayFixture(t)
 	p.finish(run, "result")
@@ -443,6 +445,26 @@ func TestTaskRelayClosedCardReclaimCommandIncludesCLIContext(t *testing.T) {
 		t.Fatal("closed card accepted with an ambiguous turn")
 	}
 	msg := err.Error()
+	const marker = "Re-claim it explicitly with "
+	start := strings.Index(msg, marker)
+	if start < 0 {
+		t.Fatalf("error does not advertise a recovery command: %q", msg)
+	}
+	start += len(marker)
+	end := strings.Index(msg[start:], " --run <current-run>")
+	if end < 0 {
+		t.Fatalf("recovery command is missing its run placeholder: %q", msg)
+	}
+	commandText := msg[start : start+end]
+	args := splitShellCommand(t, commandText)
+	if len(args) < 3 || args[1] != "task" || args[2] != "assign" {
+		t.Fatalf("recovery command does not start with an executable then task assign: %q (%v)", commandText, args)
+	}
+	if args[0] != "bothouse" {
+		if _, err := os.Stat(args[0]); err != nil {
+			t.Fatalf("recovery command starts with %q, which is not an executable: %v", args[0], err)
+		}
+	}
 	for _, want := range []string{
 		"more than one main-bot turn",
 		"task assign --project 'source'",
@@ -456,6 +478,41 @@ func TestTaskRelayClosedCardReclaimCommandIncludesCLIContext(t *testing.T) {
 			t.Errorf("error %q missing %q", msg, want)
 		}
 	}
+}
+
+// splitShellCommand tokenizes the small shell-quoted command snippets in these
+// tests. It handles single and double quotes; it is not a full shell parser.
+func splitShellCommand(t *testing.T, s string) []string {
+	t.Helper()
+	var args []string
+	var current strings.Builder
+	var quote rune
+	for _, r := range s {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				current.WriteRune(r)
+			}
+		case r == '\'' || r == '"':
+			quote = r
+		case r == ' ' || r == '\t' || r == '\n':
+			if current.Len() > 0 {
+				args = append(args, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteRune(r)
+		}
+	}
+	if quote != 0 {
+		t.Fatalf("unterminated quote in %q", s)
+	}
+	if current.Len() > 0 {
+		args = append(args, current.String())
+	}
+	return args
 }
 
 // A closed, resumable card is reclaimed only by the single live lead turn of

@@ -173,7 +173,7 @@ func (p *PublicProgress) reclaimClosedTask(r *publicRun, session string) (func()
 		if errors.Is(err, errNoLiveMainBotTurn) {
 			return nil, fmt.Errorf("relay: task %s was released when an earlier turn of session %s ended: %w. Start a new turn and retry", t.ID, session, err)
 		}
-		command := "task assign --project " + shellQuoteRelay(p.project) + " --session " + shellQuoteRelay(session) + " --data-dir " + shellQuoteRelay(p.dataDir) + " --id " + shellQuoteRelay(t.ID)
+		command := shellQuoteRelay(bridgeCommand()) + " task assign --project " + shellQuoteRelay(p.project) + " --session " + shellQuoteRelay(session) + " --data-dir " + shellQuoteRelay(p.dataDir) + " --id " + shellQuoteRelay(t.ID)
 		return nil, fmt.Errorf("relay: task %s was released when an earlier turn of session %s ended, but automatic re-claim is not possible: %w. Re-claim it explicitly with %s --run <current-run> --ref '<path:line or 无（新建）>' --member <member> --name <name> --title <title>, then retry", t.ID, session, err, command)
 	}
 	oldClosed, oldStopped := r.record.Closed, r.stopped
