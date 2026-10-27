@@ -546,7 +546,7 @@ export class Tasks {
    * (a workspace task needs its 【验收】#id line, verdictsOf).
    */
   fromChat(msg, { handBack = true } = {}) {
-    const lead = this.hub.primaryMember();
+    const lead = this.store.leadId(msg.room_id) === null ? this.hub.primaryMember() : this.hub.primaryIn(msg.room_id);
     const team = this.hub.routableIn(msg.room_id);
     const text = String(msg.text);
     if (lead !== undefined && msg.author === lead.id) {

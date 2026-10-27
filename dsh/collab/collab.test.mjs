@@ -217,6 +217,31 @@ test('channel primary: unmentioned messages, /new, workspace hints and handbacks
   await dsh.close(); hub.store.close();
 });
 
+test('channel primary: task dispatch, handback and acceptance use the channel lead', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'other');
+  hub.leadState = { selected: () => 'global' };
+  for (const id of ['global', 'local', 'worker']) hub.setMember({ id, name: id, kind: 'dsh' });
+  hub.store.setLead(1, 'local');
+  const tasks = new Tasks(hub, { start: false });
+  hub.post(1, { authorKind: 'role', author: 'local', name: 'local', text: '@worker implement channel settings' });
+  await tick();
+  const task = tasks.list(1)[0];
+  assert.ok(task, 'the channel lead must create a task even when the global lead differs');
+  assert.equal(task.created_by, 'local');
+  hub.post(1, { authorKind: 'role', author: 'worker', name: 'worker', text: '@local completed' });
+  await tick();
+  assert.equal(tasks.task(task.id).status, 'returned');
+  hub.post(1, { authorKind: 'role', author: 'local', name: 'local', text: 'accepted' });
+  await tick();
+  assert.equal(tasks.task(task.id).status, 'done');
+  hub.post(2, { authorKind: 'role', author: 'global', name: 'global', text: '@worker implement inherited settings' });
+  await tick();
+  assert.equal(tasks.list(2)[0].created_by, 'global', 'unset channels retain the global lead');
+  tasks.close();
+  hub.store.close();
+});
+
 test('channel settings API: validates directories before writing and survives config reseeding', async () => {
   const { Readable } = await import('node:stream');
   const { mkdtempSync, writeFileSync } = await import('node:fs');
