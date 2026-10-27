@@ -195,7 +195,7 @@ export class Tasks {
       OR (record_id IS NULL AND ((room_id IN (${rooms.map(() => '?').join(', ')})
       AND (paused_at IS NULL OR paused_chat IS NULL OR paused_chat = ?)) OR (paused_at IS NOT NULL AND paused_chat = ?)))
       ORDER BY id DESC`).all(chat, ...rooms, chat, chat);
-    return rows.filter(r => r.record_id == null || this.store.workRecord(chat, r.record_id) !== undefined).map(r => this.view(r));
+    return rows.map(r => this.view(r));
   }
 
   /** In-progress tasks in one room (the "进行中 N 件" next to it in the channel list). */
