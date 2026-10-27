@@ -196,16 +196,26 @@ type teamWorkspaceState struct {
 	ScriptWatches map[string][]TeamHandoff `json:"script_watches,omitempty"`
 }
 
-const teamWorkspaceStateVersion = 1
+const teamWorkspaceStateVersion = 2
 
 // teamWorkspaceMigrateOwners upgrades a state written before single owner. Back then a Parents
 // record only named the last chat that handed off and was never removed, so every workspace
 // ever used would count as owned forever. A record without an open handoff (none, or all
 // Closed) is the end of finished work: dropped, the workspace is free. Runs once (Version).
 func teamWorkspaceMigrateOwners(st *teamWorkspaceState) bool {
-	if st.Version >= teamWorkspaceStateVersion {
-		return false
+	changed := false
+	if st.Version < 1 {
+		changed = teamWorkspaceMigrateSingleOwner(st) || changed
 	}
+	if st.Version < 2 {
+		changed = teamWorkspaceMigrateDirtyChats(st) || changed
+	}
+	st.Version = teamWorkspaceStateVersion
+	return changed
+}
+
+// teamWorkspaceMigrateSingleOwner drops the ownership records written before single owner.
+func teamWorkspaceMigrateSingleOwner(st *teamWorkspaceState) bool {
 	for parent, list := range st.Parents {
 		plat, _, _ := strings.Cut(parent, ":")
 		var keep []TeamWorkspace
@@ -223,8 +233,52 @@ func teamWorkspaceMigrateOwners(st *teamWorkspaceState) bool {
 			st.Parents[parent] = keep
 		}
 	}
-	st.Version = teamWorkspaceStateVersion
 	return true
+}
+
+// teamWorkspaceMigrateDirtyChats repairs handoffs whose chat is another workspace channel.
+// A workspace can only be handed off from a chat channel (ClaimTeamWorkspaceFor refuses a
+// workspace source, #534/PR #541), so such a record could only come from a claim made before
+// that check, or from a state file written by hand. Left alone it routes [report]/[ask] into a
+// workspace, where nobody reads the chat channel (10-27 工作区1 的 #678/#680 收口结果被转进
+// 工作区2). Repair: point it at the chat channel that owns that workspace now; if the workspace
+// is free, drop the record (its late report belongs to no chat).
+func teamWorkspaceMigrateDirtyChats(st *teamWorkspaceState) bool {
+	workspaceChats := workspaceChannelKeysLocked(st)
+	changed := false
+	// The same rule for the ownership records: a workspace channel cannot own a workspace.
+	for parent := range st.Parents {
+		if workspaceChats[teamChatKey(parent)] {
+			delete(st.Parents, parent)
+			changed = true
+			slog.Warn("team workspace: dropped an ownership record held by another workspace channel", "chat", parent)
+		}
+	}
+	for key, list := range st.Handoffs {
+		plat, _, _ := strings.Cut(key, ":")
+		wsID := teamChannelID(key)
+		kept := make([]TeamHandoff, 0, len(list))
+		for _, h := range list {
+			if h.Chat == "" || !workspaceChats[h.Chat] {
+				kept = append(kept, h)
+				continue
+			}
+			changed = true
+			if owner, _ := teamWorkspaceOwnerLocked(st, plat, wsID); owner != "" {
+				h.Chat = owner
+				kept = append(kept, h)
+				continue
+			}
+			// No chat channel to answer: keep the task record (the pool listing counts it),
+			// only drop the unusable route.
+			h.Chat = ""
+			kept = append(kept, h)
+			slog.Warn("team workspace: cleared a handoff chat recorded from another workspace channel",
+				"workspace", key)
+		}
+		st.Handoffs[key] = kept
+	}
+	return changed
 }
 
 // TeamHandoff is one task handed from a chat channel to a pool workspace.
@@ -369,8 +423,13 @@ func (e *Engine) WorkspaceParent(channelID string) (parentID string, ok bool) {
 	st := loadTeamWorkspacesLocked(path)
 	plat, _, _ := strings.Cut(key, ":")
 	id := teamChannelID(key)
+	workspaces := workspaceChannelKeysLocked(st)
 	for parent, list := range st.Parents {
 		if p, _, _ := strings.Cut(parent, ":"); p != plat {
+			continue
+		}
+		// A workspace channel never owns another workspace: its [report] would land there.
+		if workspaces[teamChatKey(parent)] {
 			continue
 		}
 		for _, w := range list {
@@ -385,6 +444,22 @@ func (e *Engine) WorkspaceParent(channelID string) (parentID string, ok bool) {
 	return "", false
 }
 
+// workspaceChannelKeysLocked returns every channel key the state knows as a workspace: a handoff
+// target, or an entry of a chat channel's Parents list. Caller holds teamWorkspaceStore.mu.
+func workspaceChannelKeysLocked(st *teamWorkspaceState) map[string]bool {
+	out := make(map[string]bool, len(st.Handoffs))
+	for key := range st.Handoffs {
+		out[key] = true
+	}
+	for parent, list := range st.Parents {
+		plat, _, _ := strings.Cut(teamChatKey(parent), ":")
+		for _, w := range list {
+			out[plat+":"+w.ID] = true
+		}
+	}
+	return out
+}
+
 // WorkspaceLastChat returns the chat channel of the latest handoff to workspace channelID
 // (same id form as WorkspaceParent). It covers a workspace that is no longer owned because
 // its task was parked or closed while a turn there was still running: that turn's late
@@ -396,15 +471,26 @@ func (e *Engine) WorkspaceLastChat(channelID string) (parentID string, ok bool) 
 	key := teamChatKey(channelID)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	hs := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]
-	if len(hs) == 0 || hs[len(hs)-1].Chat == "" {
-		return "", false
+	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	hs := st.Handoffs[key]
+	// Never answer with another workspace channel: its [report] would land where the user does
+	// not read it. teamWorkspaceMigrateDirtyChats repairs those records; this guards a state
+	// loaded before the repair.
+	workspaces := workspaceChannelKeysLocked(st)
+	for i := len(hs) - 1; i >= 0; i-- {
+		if hs[i].Chat == "" {
+			continue
+		}
+		if workspaces[teamChatKey(hs[i].Chat)] {
+			continue
+		}
+		parent := hs[i].Chat
+		if strings.Contains(channelID, ":") {
+			return parent, true
+		}
+		return teamChannelID(parent), true
 	}
-	parent := hs[len(hs)-1].Chat
-	if strings.Contains(channelID, ":") {
-		return parent, true
-	}
-	return teamChannelID(parent), true
+	return "", false
 }
 
 // TeamWorkspacesOf returns the recorded workspaces of a chat channel (bare ID or session key).
