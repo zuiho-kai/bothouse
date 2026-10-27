@@ -115,6 +115,10 @@ func (e *Engine) watchDelegatedWork(key string) bool {
 			}
 		}
 	}
+	// The workspace lead coordinates its claimed workspace even after a
+	// restart replaces the peer's original dispatch text with a resume prompt.
+	_, workspace := e.WorkspaceParent(key)
+	coordinator := workspace && e.isTeamLead()
 	for _, peer := range e.watchEngines() {
 		if peer == e || peer.team == nil {
 			continue
@@ -125,7 +129,7 @@ func (e *Engine) watchDelegatedWork(key string) bool {
 			task := strings.TrimSpace(strings.TrimPrefix(s.task, "♻️ 续做："))
 			fromMe := strings.HasPrefix(task, "【"+e.DisplayName()+"】") ||
 				strings.HasPrefix(task, "【"+e.name+"】")
-			if teamChatKey(k) == key && fromMe {
+			if teamChatKey(k) == key && (fromMe || coordinator) {
 				dispatched = true
 				if s.session != nil && s.session.Busy() {
 					waiting = true
