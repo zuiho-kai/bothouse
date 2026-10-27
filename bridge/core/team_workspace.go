@@ -105,6 +105,16 @@ var ErrTeamWorkspaceStaleClaim = errors.New("workspace release names an earlier 
 // last task; the caller picks a free workspace or creates the next one.
 var ErrTeamWorkspaceOwned = errors.New("workspace belongs to another chat channel")
 
+// ErrTeamWorkspaceCooling: the project's model is cooling down after quota exhaustion, so a
+// workspace in it cannot run the task either. Every session of a project (the chat channel and
+// all its workspaces) shares one quota pool: hand the task off and it lands in front of a bot
+// that answers "quota reached" without doing anything, while the ten-minute watch keeps waking
+// it. The caller keeps the task until the cooldown ends or hands it to another role.
+// Source: 2026-10-27 橘 hit 0% at 00:35 and four tasks were still handed to 工作区1/4/5/7,
+// none started; user 2026-10-27 22:17「工作区15都出来了…之前不是修了吗」and 2026-10-28
+// 02:08「基本上别人不可用的」.
+var ErrTeamWorkspaceCooling = errors.New("project model is cooling down after quota exhaustion")
+
 // TeamWorkspaceRenamer is implemented by platforms that can rename a channel (Discord,
 // Feishu). Core uses it once per old 「<chat name>-工作区n」 workspace to move it into the
 // shared 「工作区n」 pool; without it the old name is only recognised.
@@ -1050,6 +1060,13 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 	chat := teamChatKey(channel)
 	if teamChannelID(chat) == wsID {
 		return fmt.Errorf("team workspace claim: %s cannot hand off to itself", chat)
+	}
+	// A workspace runs this same project, so a cooling project cannot work the task there.
+	if wait := e.capacityWait(); wait > 0 {
+		slog.Warn("team workspace claim: project model cooling, task not handed off",
+			"chat", chat, "workspace", wsID, "cooling_for", wait)
+		return fmt.Errorf("team workspace claim: %s → %s: %w (resets in %s)",
+			chat, wsID, ErrTeamWorkspaceCooling, wait.Truncate(time.Second))
 	}
 	plat, _, _ := strings.Cut(chat, ":")
 	path := teamWorkspacePath(e.dataDir)
