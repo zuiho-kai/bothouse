@@ -71,9 +71,10 @@ it('transport archives the selected workspace, returns to parent, then restores 
   const rooms = [{ id: 1, name: '原频道' }, { id: archived.id, name: archived.name, kind: 'workspace', parent_id: 1 }]
   let visible = rooms
   const reply = (body: unknown) => new Response(JSON.stringify(body), { status: 200 })
+  const stream = { onopen: null, onmessage: null, onerror: null, close() {} } as ReturnType<ChannelTransport['openEvents']>
   const transport: ChannelTransport = {
     url: path => path,
-    openEvents: () => ({ onopen: null, onmessage: null, onerror: null, close() {} }),
+    openEvents: () => stream,
     fetch: vi.fn(async (url, init) => {
       if (url.endsWith('/state')) return reply({ rooms: visible, members: [], thinking: {} })
       if (url.endsWith('/unarchive')) { expect(init?.method).toBe('POST'); return reply({ rooms }) }
@@ -94,5 +95,11 @@ it('transport archives the selected workspace, returns to parent, then restores 
   await actions.unarchiveWorkspace(archived.id)
   expect(source.getSnapshot().roomId).toBe(1)
   expect(source.getSnapshot().rooms[1].parent_id).toBe(1)
+  visible = rooms
+  await actions.selectRoom(archived.id)
+  visible = [rooms[0]]
+  stream.onmessage?.({ data: JSON.stringify({ type: 'rooms', rooms: visible }) } as MessageEvent)
+  await vi.waitFor(() => expect(source.getSnapshot().roomId).toBe(1))
+  expect(source.getSnapshot().rooms.map(r => r.id)).toEqual([1])
   unsubscribe(); dispose()
 })
