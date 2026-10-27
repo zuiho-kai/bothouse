@@ -427,16 +427,22 @@ func (e *Engine) isTeamWorkspaceChat(session string) bool {
 	if e != nil && e.workspaceChatForTest != nil {
 		return e.workspaceChatForTest(session)
 	}
-	if _, ok := e.WorkspaceParent(session); ok {
-		return true
-	}
 	if e == nil || e.dataDir == "" || session == "" {
 		return false
 	}
 	key := teamChatKey(session)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	return len(loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]) > 0
+	return isTeamWorkspaceChannelLocked(loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)), key, "")
+}
+
+// isTeamWorkspaceChannelLocked separates channel identity from its current owner.
+// Release keeps Handoffs; a platform name also identifies workspaces with no history.
+// Used by both new and claim. Caller holds teamWorkspaceStore.mu.
+func isTeamWorkspaceChannelLocked(st *teamWorkspaceState, chat, name string) bool {
+	plat, id, _ := strings.Cut(chat, ":")
+	owner, _ := teamWorkspaceOwnerLocked(st, plat, id)
+	return owner != "" || len(st.Handoffs[chat]) > 0 || isTeamWorkspaceName(name)
 }
 
 // isTeamChat: session (a session key, chat key or bare channel ID) is a team chat channel: one
@@ -710,6 +716,9 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
 	st := loadTeamWorkspacesLocked(path)
+	if isTeamWorkspaceChannelLocked(st, chat, self.Name) {
+		return nil, "", false, "", errTeamIsWorkspace
+	}
 
 	// Channel IDs are only unique within a platform, so only this platform's records count.
 	plat, _, _ := strings.Cut(chat, ":")
@@ -722,10 +731,6 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 			claimed[w.ID] = parent
 		}
 	}
-	if _, isChild := claimed[self.ID]; isChild || isTeamWorkspaceName(self.Name) {
-		return nil, "", false, "", errTeamIsWorkspace
-	}
-
 	byID := map[string]TeamChannel{}
 	for _, c := range guild {
 		byID[c.ID] = c
@@ -957,9 +962,6 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 		return errors.New("team workspace claim: chat channel and workspace id are required")
 	}
 	chat := teamChatKey(channel)
-	if p, ok := e.WorkspaceParent(chat); ok {
-		chat = p
-	}
 	if teamChannelID(chat) == wsID {
 		return fmt.Errorf("team workspace claim: %s cannot hand off to itself", chat)
 	}
@@ -968,6 +970,26 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 
 	teamWorkspaceOpMu.Lock()
 	defer teamWorkspaceOpMu.Unlock()
+
+	// Validate the original source before release retries, platform claims or state writes.
+	// Do not redirect a workspace request through a possibly stale parent record.
+	p, hasPlatform := e.teamWorkspacePlatform(chat)
+	var sourceName string
+	var guild []TeamChannel
+	if hasPlatform {
+		ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
+		self, channels, err := p.TeamGuildChannels(ctx, teamChannelID(chat))
+		cancel()
+		if err == nil {
+			sourceName, guild = self.Name, channels
+		}
+	}
+	teamWorkspaceStore.mu.Lock()
+	isWorkspace := isTeamWorkspaceChannelLocked(loadTeamWorkspacesLocked(path), chat, sourceName)
+	teamWorkspaceStore.mu.Unlock()
+	if isWorkspace {
+		return fmt.Errorf("team workspace claim: %s: %w; run workspace claim from the original chat channel, or complete the assigned task in this workspace", chat, errTeamIsWorkspace)
+	}
 	e.retryTeamWorkspaceReleases(chat)
 
 	// The workspace's recorded entry (under any chat) wins over the given name.
@@ -985,19 +1007,14 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 		return fmt.Errorf("team workspace claim: %q is not a 「%sn」 channel", w.Name, teamWorkspacePrefix)
 	}
 
-	// The platform request runs without teamWorkspaceStore.mu (WorkspaceParent never waits on it).
-	// A platform that records the owner itself (cloud_web/DSH) is asked who owns it now.
-	if p, ok := e.teamWorkspacePlatform(chat); ok {
-		ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
-		_, guild, err := p.TeamGuildChannels(ctx, teamChannelID(chat))
-		cancel()
-		if err == nil {
-			for _, c := range guild {
-				if c.ID == wsID && c.OwnerKnown {
-					owner = ""
-					if c.Owner != "" {
-						owner = plat + ":" + c.Owner
-					}
+	// A platform that records the owner itself (cloud_web/DSH) supplies the owner
+	// in the listing fetched above without teamWorkspaceStore.mu.
+	if hasPlatform {
+		for _, c := range guild {
+			if c.ID == wsID && c.OwnerKnown {
+				owner = ""
+				if c.Owner != "" {
+					owner = plat + ":" + c.Owner
 				}
 			}
 		}
