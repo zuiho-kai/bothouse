@@ -991,6 +991,17 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 		return fmt.Errorf("team workspace claim: %s: %w; run workspace claim from the original chat channel, or complete the assigned task in this workspace", chat, errTeamIsWorkspace)
 	}
 	e.retryTeamWorkspaceReleases(chat)
+	// A release retry can change the platform's owner. Refresh its listing before
+	// deciding whether the target is available; the source check must still run first.
+	if _, releases := p.(TeamWorkspaceReleaser); releases {
+		ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
+		_, channels, err := p.TeamGuildChannels(ctx, teamChannelID(chat))
+		cancel()
+		guild = nil
+		if err == nil {
+			guild = channels
+		}
+	}
 
 	// The workspace's recorded entry (under any chat) wins over the given name.
 	teamWorkspaceStore.mu.Lock()
