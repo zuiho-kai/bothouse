@@ -44,6 +44,8 @@ core 通过接口使用后端能力；agent 与 platform 适配器不互相导�
 
 ## 团队与记忆
 
+DSH 的工作记录存于 `work_records`，固定归属创建它的聊天频道；可复用工作区只承载 `work_rounds` 中的一轮执行。派活入口创建记录与轮次，消息、附件证据、交接与任务通过 `record_id` 关联，任务状态仍以原任务板为准。暂停释放结束当前轮次，恢复任务为同一记录开启新轮次；释放和清场不删除档案。频道下的 `/collab/api/rooms/:id/records`、`/:record/rounds` 与 `/:record/messages` 在服务端校验归属。无归属历史返回 `legacy: true`，新记录上下文只读该记录；DSH 迟到回复从原 job 触发消息继承归属，转发使用记录的原频道。
+
 成员身份与模型后端分开：多个成员可以指向同一模型或同一种 CLI。DSH 频道的绑定键是「成员 ID × 频道 ID」；原生成员创建独立的内部 DSH Session，本机 CLI 按成员创建实例并按频道维护 ACP session。不会以模型名或 CLI 类型作为成员唯一键。
 
 独立会话并不隔离工作文件、操作系统权限或长期记忆。频道历史是显式提供给成员的共同输入，wiki 检索和共享文件也是信息传递路径；DSH 成员新会话使用频道的 `workspacePath`，工作区继承父频道；未设置时使用实例默认目录。界面保存目录在 `room_settings.workspace_path` 保留覆盖值（启动配置继续写入 `rooms.workspace_path`，不会覆盖界面选择）。主角色同样按 `room_settings.lead_id` 保存，所有频道路由通过 `Hub.primaryIn(roomId)` 读取，只有未设置时才回退到旧全局选择。派活模式 `solo` / `team` / `mixed` 分别选择自己的子任务、频道成员或两者，和成员是否使用同一模型无关。用户操作见[同模型多成员指南](single-cli-team.md)。

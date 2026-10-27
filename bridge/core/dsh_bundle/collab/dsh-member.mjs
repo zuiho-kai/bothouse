@@ -440,6 +440,8 @@ export class DshMembers {
    */
   plan(msg) {
     if (msg.author_kind === 'system' || msg.card !== null || this.hub.teamExit?.answerFor(msg)) return undefined;
+    if (this.store.room(msg.room_id)?.kind === 'workspace' && msg.record_id != null
+        && this.store.currentRound(msg.room_id)?.record_id !== msg.record_id) return undefined;
     const target = exitTarget(msg);
     const mode = this.store.dispatchMode(msg.room_id);
     // Solo mode keeps agent-to-agent relays inside the lead's own runtime;
@@ -522,12 +524,18 @@ export class DshMembers {
     const member = this.config.get(job.member_id);
     const room = this.store.room(job.room_id);
     if (member === undefined || room === undefined) { this.store.finishJob(jobId, 'failed'); return; }
+    const trigger = this.store.message(job.trigger_id);
+    const round = this.store.currentRound(room.id);
+    if (room.kind === 'workspace' && round && trigger?.record_id !== round.record_id) {
+      this.store.finishJob(jobId, 'interrupted');
+      return;
+    }
     if (member.cli !== undefined) { await this.runCli(job, member, room); return; }
     const agent = await this.ensureAgent(member, room);
     if (this.closed) return;
     this.syncSelection(agent, member);
     const binding = this.store.binding(member.id, room.id);
-    const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
+    const unseen = this.store.contextPage(room.id, job.trigger_id, CONTEXT_LIMIT * 4)
       .filter(m => turnSees(m, job, binding, member))
       .slice(-CONTEXT_LIMIT);
     // DSH validates images again (count, total bytes, type, pixels). Attachments it
@@ -564,7 +572,7 @@ export class DshMembers {
     const binding = this.store.binding(member.id, room.id);
     const sessionId = binding.session_id;
     const resumeId = sessionId.startsWith('cli:') ? undefined : sessionId;
-    const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
+    const unseen = this.store.contextPage(room.id, job.trigger_id, CONTEXT_LIMIT * 4)
       .filter(m => turnSees(m, job, binding, member))
       .slice(-CONTEXT_LIMIT);
     const wiki = await this.turnContext(member, room, undefined, unseen);

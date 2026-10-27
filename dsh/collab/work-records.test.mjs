@@ -5,7 +5,8 @@ import { Store, publicMessage } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { Tasks } from './tasks.mjs';
 import { TeamExit } from './team-exit.mjs';
-import { workspacesRoute } from './plugin.mjs';
+import { CloudWebGateway, roomOf } from './cloudweb.mjs';
+import { workspacesRoute, workRecordsRoute } from './plugin.mjs';
 
 function setup(t) {
   const store = new Store(':memory:');
@@ -61,6 +62,14 @@ test('records: channel scoped reads and immutable ownership survive workspace re
   assert.equal(store.workRecord(1, first.record.id).room_id, 1);
   assert.equal(store.workRecord(2, first.record.id), undefined);
   assert.equal(store.workRounds(1, first.record.id)[0].status, 'ended');
+  assert.ok(tasks.list(2).every(task => task.record_id !== first.record.id));
+  assert.ok(tasks.list(1).some(task => task.id === first.task.id));
+  for (const suffix of ['', '/rounds', '/messages']) {
+    const res = { writeHead(status) { this.status = status; }, end(data) { this.body = JSON.parse(data); } };
+    await workRecordsRoute({ method: 'GET' }, res, new URL(`http://local/collab/api/rooms/2/records/${first.record.id}${suffix}`), { store });
+    assert.equal(res.status, 404);
+    assert.equal(res.body.code, 'record-missing');
+  }
 });
 
 test('records: old messages stay legacy and outside a new record context', async t => {
@@ -73,6 +82,8 @@ test('records: old messages stay legacy and outside a new record context', async
   assert.equal(publicMessage(store.message(old.id), store).legacy, true);
   assert.equal(publicMessage(store.message(next.task.assign_msg_id), store).legacy, false);
   assert.ok(store.page(ws.id).some(m => m.id === old.id));
+  assert.throws(() => store.editUser(old.id, 'owner', 'changed'), { code: 'read-only' });
+  assert.deepEqual(store.contextPage(ws.id, old.id, 200), []);
   assert.ok(store.contextPage(ws.id, next.task.assign_msg_id, 200).every(m => m.record_id === next.record.id));
 });
 
@@ -106,4 +117,9 @@ test('records: late job replies and forwarded reports stay with the original rec
   tasks.fromMessage(late);
   assert.equal(tasks.task(next.task.id).status, 'assigned');
   assert.ok(!store.contextPage(next.workspace.id, late.id, 200).some(m => m.record_id === next.record.id));
+  const gateway = new CloudWebGateway(hub, { token: 'synthetic-test-token', logger: { warn() {} } });
+  const replyCtx = `room-${first.workspace.id}~record-${first.record.id}`;
+  assert.equal(roomOf({ reply_ctx: replyCtx }, store), first.workspace.id);
+  await gateway.fromBot({ member: { id: 'dev', name: 'dev' } }, { type: 'reply', reply_ctx: replyCtx, content: 'late bridge reply' });
+  assert.equal(store.page(first.workspace.id).at(-1).record_id, first.record.id);
 });

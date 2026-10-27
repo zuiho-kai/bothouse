@@ -53,6 +53,7 @@ const COLUMNS = [
   // #597 G34: when a role last changed the row in place (a streamed draft growing, a progress card
   // edited, the draft committed); NULL if never. The task watch counts it as progress (Tasks.progressed).
   ['messages', 'changed_at', 'REAL'],
+  ['messages', 'record_id', 'INTEGER REFERENCES work_records(id)'],
 ];
 /** Workspace rooms are named 工作区<n> (setting added in #139 team mode A, not user-specified). */
 export const WORKSPACE_PREFIX = '工作区';
@@ -86,8 +87,8 @@ export class Store {
       ensureRoom: this.db.prepare('INSERT INTO rooms (id, name, workspace_path) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, workspace_path = excluded.workspace_path'),
       workspacePath: this.db.prepare(`SELECT COALESCE(parent.workspace_path, room.workspace_path) AS path
         FROM rooms room LEFT JOIN rooms parent ON room.kind = 'workspace' AND parent.id = room.parent_id WHERE room.id = ?`),
-      insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft, reply_to, attachments)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
+      insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft, reply_to, attachments, record_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
       byKey: this.db.prepare('SELECT * FROM messages WHERE client_key = ?'),
       byId: this.db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0'),
       edit: this.db.prepare('UPDATE messages SET text = ?, card = ?, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
@@ -151,6 +152,25 @@ export class Store {
         source TEXT NOT NULL CHECK (source IN ('config', 'ui')),
         created_at REAL NOT NULL,
         removed INTEGER NOT NULL DEFAULT 0)`);
+      this.db.exec(`CREATE TABLE IF NOT EXISTS work_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        room_id INTEGER NOT NULL REFERENCES rooms(id),
+        title TEXT NOT NULL, requirement TEXT NOT NULL, owner TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'done', 'paused', 'cancelled')),
+        created_at REAL NOT NULL, finished_at REAL, summary TEXT);
+        CREATE TABLE IF NOT EXISTS work_rounds (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        record_id INTEGER NOT NULL REFERENCES work_records(id),
+        workspace_id INTEGER NOT NULL REFERENCES rooms(id),
+        started_at REAL NOT NULL, ended_at REAL,
+        status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'wrapping', 'ended', 'failed')),
+        fail_reason TEXT);
+        CREATE INDEX IF NOT EXISTS work_records_room ON work_records(room_id, id);
+        CREATE INDEX IF NOT EXISTS work_rounds_record ON work_rounds(record_id, id);
+        CREATE UNIQUE INDEX IF NOT EXISTS work_rounds_live_workspace ON work_rounds(workspace_id)
+          WHERE status IN ('running', 'wrapping');
+        CREATE TRIGGER IF NOT EXISTS work_records_fixed_room BEFORE UPDATE OF room_id ON work_records
+          WHEN NEW.room_id <> OLD.room_id BEGIN SELECT RAISE(ABORT, 'work record channel is immutable'); END;`);
       const has = new Map();
       const added = new Set();
       for (const [table, column, definition] of COLUMNS) {
@@ -164,6 +184,10 @@ export class Store {
       this.dedupeWorkspaceNames();
       // v9: the tasks table (#139 team mode B), ensured idempotently like the columns above.
       this.ensureTasks();
+      if (!this.db.prepare('PRAGMA table_info(tasks)').all().some(c => c.name === 'record_id')) {
+        this.db.exec('ALTER TABLE tasks ADD COLUMN record_id INTEGER REFERENCES work_records(id)');
+      }
+      this.db.exec('CREATE INDEX IF NOT EXISTS messages_record ON messages(record_id, id); CREATE INDEX IF NOT EXISTS tasks_record ON tasks(record_id, id)');
       // Team mode C upgrade: before it a workspace's parent_id only named the last chat channel
       // that handed off, never cleared. A workspace with no task in work then is done: put it in
       // the pool, else it would belong to that channel forever (no task left to release it).
@@ -374,7 +398,7 @@ export class Store {
    * 工作区<n+1>, n being the highest existing 工作区<k> of any chat channel (one shared pool,
    * unique numbers). Called on a workspace, it works for that workspace's chat channel.
    */
-  createWorkspace(roomId, { bridge = false } = {}) {
+  createWorkspace(roomId, { bridge = false, record: spec } = {}) {
     return this.transaction(() => {
       const room = this.q.room.get(roomId);
       if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
@@ -384,14 +408,20 @@ export class Store {
       const all = this.db.prepare("SELECT id, name, free FROM rooms WHERE kind = 'workspace'").all();
       const num = w => Number(re.exec(w.name)?.[1] ?? 0);
       const free = all.filter(w => w.free && num(w) > 0 && this.activeTasks(w.id) === 0).sort((a, b) => num(a) - num(b))[0];
+      let workspace;
       if (free !== undefined) {
         this.resetSessions(free.id);
-        return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
+        workspace = this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
           claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
           .get(parent, bridge ? 1 : 0, free.id, free.id);
+      } else {
+        const n = Math.max(0, ...all.map(num));
+        workspace = this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${n + 1}`, parent, bridge ? 1 : 0);
       }
-      const n = Math.max(0, ...all.map(num));
-      return this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${n + 1}`, parent, bridge ? 1 : 0);
+      if (!spec) return workspace;
+      const record = this.createWorkRecord(parent, spec);
+      const round = this.startWorkRound(parent, record.id, workspace.id);
+      return { workspace, record, round };
     });
   }
 
@@ -425,6 +455,66 @@ export class Store {
         claim_task = COALESCE(?, (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?)) WHERE id = ? RETURNING id, name, kind, parent_id`)
         .get(parent, bridge ? 1 : 0, handoff == null ? null : Number(handoff) - 1, ws.id, ws.id);
     });
+  }
+
+  /** Records are addressed through their fixed chat channel, never a workspace's later owner. */
+  workRecords(roomId) {
+    return this.db.prepare('SELECT * FROM work_records WHERE room_id = ? ORDER BY id DESC').all(roomId);
+  }
+  workRecord(roomId, id) {
+    return this.db.prepare('SELECT * FROM work_records WHERE room_id = ? AND id = ?').get(roomId, id);
+  }
+  requireRecord(roomId, id) {
+    const record = this.workRecord(roomId, id);
+    if (!record) throw new CollabError('record-missing', 'work record does not belong to this channel');
+    return record;
+  }
+  workRounds(roomId, recordId) {
+    this.requireRecord(roomId, recordId);
+    return this.db.prepare('SELECT * FROM work_rounds WHERE record_id = ? ORDER BY id').all(recordId);
+  }
+  recordMessages(roomId, recordId, beforeId, limit) {
+    this.requireRecord(roomId, recordId);
+    return this.db.prepare('SELECT * FROM messages WHERE record_id = ? AND id < ? AND deleted = 0 ORDER BY id DESC LIMIT ?')
+      .all(recordId, beforeId ?? Number.MAX_SAFE_INTEGER, clampLimit(limit)).reverse();
+  }
+  currentRound(workspaceId) {
+    return this.db.prepare("SELECT * FROM work_rounds WHERE workspace_id = ? AND status IN ('running', 'wrapping') ORDER BY id DESC LIMIT 1").get(workspaceId);
+  }
+  createWorkRecord(roomId, { title, requirement = '', owner }, now = Date.now() / 1000) {
+    const room = this.room(roomId);
+    if (!room || room.kind !== 'chat') throw new CollabError('invalid', 'work records require a chat channel');
+    if (!String(title ?? '').trim() || !String(owner ?? '').trim()) throw new CollabError('invalid', 'work record requires title and owner');
+    return this.db.prepare('INSERT INTO work_records (room_id, title, requirement, owner, created_at) VALUES (?, ?, ?, ?, ?) RETURNING *')
+      .get(roomId, title, requirement, owner, now);
+  }
+  startWorkRound(roomId, recordId, workspaceId, now = Date.now() / 1000) {
+    this.requireRecord(roomId, recordId);
+    const ws = this.room(workspaceId);
+    if (ws?.kind !== 'workspace' || this.workspaceOwner(workspaceId) !== roomId) throw new CollabError('forbidden', 'workspace does not belong to this channel');
+    if (this.currentRound(workspaceId)) throw new CollabError('conflict', 'workspace already has a running work round');
+    this.db.prepare("UPDATE work_records SET status = 'active', finished_at = NULL WHERE id = ?").run(recordId);
+    return this.db.prepare('INSERT INTO work_rounds (record_id, workspace_id, started_at) VALUES (?, ?, ?) RETURNING *').get(recordId, workspaceId, now);
+  }
+  /** Finish a released round from the existing task board; record status is a projection of it. */
+  finishWorkRound(workspaceId, now = Date.now() / 1000) {
+    const round = this.currentRound(workspaceId);
+    if (!round) return;
+    const paused = this.db.prepare("SELECT 1 FROM tasks WHERE record_id = ? AND paused_at IS NOT NULL AND status IN ('assigned', 'accepted', 'asked', 'rework') LIMIT 1").get(round.record_id);
+    this.db.prepare("UPDATE work_rounds SET status = 'ended', ended_at = ? WHERE id = ?").run(now, round.id);
+    this.db.prepare('UPDATE work_records SET status = ?, finished_at = ? WHERE id = ?')
+      .run(paused ? 'paused' : 'done', paused ? null : now, round.record_id);
+  }
+  /** Scope unseen context to the trigger's record. Historical unowned workspace rows stay out. */
+  contextPage(roomId, triggerId, limit) {
+    const trigger = this.message(triggerId);
+    if (!trigger || trigger.room_id !== roomId) return [];
+    if (trigger.record_id == null) {
+      if (this.currentRound(roomId)) return [];
+      return this.page(roomId, triggerId + 1, limit);
+    }
+    return this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND record_id = ? AND id <= ? AND deleted = 0 ORDER BY id DESC LIMIT ?')
+      .all(roomId, trigger.record_id, triggerId, clampLimit(limit)).reverse();
   }
 
   /** The id of workspace roomId's current claim (claim_seq), named by the bridge's op release. */
@@ -485,6 +575,7 @@ export class Store {
       }
       if (this.activeTasks(ws.id) > 0) throw new CollabError('busy', `workspace ${ws.name} has tasks in work`);
       // claim_task stays: it tells a claim back for this claim's own task from a new one (claimWorkspace).
+      this.finishWorkRound(ws.id);
       this.db.prepare('UPDATE rooms SET free = 1, claim_bridge = 0 WHERE id = ?').run(ws.id);
       return true;
     });
@@ -616,9 +707,21 @@ export class Store {
       if (ref === undefined || ref.room_id !== roomId) throw new CollabError('reply-missing', 'the message being replied to does not exist');
       replyTo = ref.id;
     }
+    // A DSH job carries its original trigger across workspace reuse, including late progress.
+    const jobId = /^dsh-job-(\d+)(?:-|$)/.exec(m.clientKey ?? '')?.[1];
+    const job = jobId ? this.job(Number(jobId)) : undefined;
+    const source = m.triggerId ?? job?.trigger_id ?? replyTo;
+    const origin = source == null ? undefined : this.message(source);
+    const recordId = origin !== undefined ? origin.record_id
+      : Object.hasOwn(m, 'recordId') ? m.recordId : this.currentRound(roomId)?.record_id ?? null;
+    if (recordId != null) {
+      const record = this.db.prepare('SELECT * FROM work_records WHERE id = ?').get(recordId);
+      const related = record && (record.room_id === roomId || this.db.prepare('SELECT 1 FROM work_rounds WHERE record_id = ? AND workspace_id = ?').get(recordId, roomId));
+      if (!related) throw new CollabError('record-missing', 'work record does not belong to this room');
+    }
     const row = this.q.insert.get(roomId, m.authorKind, m.author, m.name, text, now,
       m.fromTurn == null ? null : (m.fromTurn ? 1 : 0), m.card ?? null, m.clientKey ?? null, m.draft ? 1 : 0, replyTo,
-      attachments === null ? null : JSON.stringify(attachments));
+      attachments === null ? null : JSON.stringify(attachments), recordId ?? null);
     return { message: row, created: true };
   }
 
@@ -662,6 +765,11 @@ export class Store {
   }
   /** #148: a person edits their own plain message; returns the row, or undefined if it is not theirs. */
   editUser(id, author, text, now = Date.now() / 1000) {
+    const old = this.message(id);
+    if (old?.record_id == null && old && this.room(old.room_id)?.kind === 'workspace'
+        && this.db.prepare('SELECT 1 FROM work_rounds WHERE workspace_id = ? LIMIT 1').get(old.room_id)) {
+      throw new CollabError('read-only', 'legacy workspace history is read-only');
+    }
     text = String(text ?? '');
     if (!text.trim()) throw new CollabError('empty', 'message text is empty');
     if (text.length > MAX_TEXT) throw new CollabError('too-long', `message exceeds ${MAX_TEXT} characters`);
@@ -740,6 +848,7 @@ export function publicMessage(row, store) {
   const out = {
     id: row.id, room_id: row.room_id, author_kind: row.author_kind, author: row.author, name: row.name,
     text: row.text, created_at: row.created_at, card: row.card, from_turn: row.from_turn,
+    record_id: row.record_id ?? null, legacy: row.record_id == null,
     ...(row.edited_at != null ? { edited_at: row.edited_at } : {}),
   };
   const quote = store?.quote(row);

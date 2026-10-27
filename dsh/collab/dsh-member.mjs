@@ -524,6 +524,12 @@ export class DshMembers {
     const member = this.config.get(job.member_id);
     const room = this.store.room(job.room_id);
     if (member === undefined || room === undefined) { this.store.finishJob(jobId, 'failed'); return; }
+    const trigger = this.store.message(job.trigger_id);
+    const round = this.store.currentRound(room.id);
+    if (room.kind === 'workspace' && round && trigger?.record_id !== round.record_id) {
+      this.store.finishJob(jobId, 'interrupted');
+      return;
+    }
     if (member.cli !== undefined) { await this.runCli(job, member, room); return; }
     const agent = await this.ensureAgent(member, room);
     if (this.closed) return;

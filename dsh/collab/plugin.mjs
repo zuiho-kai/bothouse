@@ -591,10 +591,9 @@ function ticketWorkspace(req, res, roomId, { store, hub, gateway, later, tasks, 
     const title = String(body?.title ?? '').trim();
     if (!title) throw new CollabError('invalid', 'workspace handoff requires a title');
     if (store.room(roomId) === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
-    const workspace = store.createWorkspace(roomId);
-    const chatId = workspace.parent_id;
-    const record = store.createWorkRecord(chatId, { title, requirement: String(body?.requirement ?? body?.reason ?? ''), owner: taskOwner });
-    const round = store.startWorkRound(chatId, record.id, workspace.id);
+    const { workspace, record, round } = store.createWorkspace(roomId, {
+      record: { title, requirement: String(body?.requirement ?? body?.reason ?? ''), owner: taskOwner },
+    });
     hub.emit({ type: 'rooms', rooms: store.roomsView() });
     const name = hub.members.get(taskOwner)?.name ?? taskOwner;
     const reason = typeof body?.reason === 'string' ? body.reason : undefined;
