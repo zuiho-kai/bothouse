@@ -311,7 +311,11 @@ export class Tasks {
     if (reviewOf != null) this.q.setSource.run('review', task.id);
     const refNote = `${refText ? `，参照：${refText}` : ''}${baseText ? `，底分支：${baseText}` : ''}`;
     const busyNote = busy.busy ? `（注：该成员在「${busy.roomName}」已有进行中任务 #${busy.task.id}）` : '';
-    const record = this.record(task, 'assign', `派活 #${task.id}「${task.title}」→ ${this.nameOf(owner)}（${this.nameOf(actor)} 派）${why ? `，理由：${why}` : ''}${refNote}${busyNote ? ` ${busyNote}` : ''}`);
+    // The task card shows the title, so the record does not repeat it. A task opened from a message
+    // (an @ dispatch, a handoff) gets its card under that message on the page (TaskCard by
+    // assign_msg_id), so no record goes to the message's own room: the dispatch text shows once.
+    const source = messageId == null ? undefined : this.store.message(messageId).room_id;
+    const record = this.record(task, 'assign', `派活 #${task.id} → ${this.nameOf(owner)}（${this.nameOf(actor)} 派）${why ? `，理由：${why}` : ''}${refNote}${busyNote ? ` ${busyNote}` : ''}`, source);
     if (messageId == null) this.q.bindAssign.run(record.id, task.id);
     return this.changed(task.id);
   }
@@ -852,13 +856,17 @@ export class Tasks {
     return task;
   }
 
-  /** One system record (task card) in the task room and, for a workspace, its chat channel. */
-  record(task, event, text) {
+  /**
+   * One system record (task card) in the task room and, for a workspace, its chat channel; none in
+   * room skip (the room of the dispatch message, which shows the card itself). Returns the task
+   * room's record (undefined when skipped).
+   */
+  record(task, event, text, skip) {
     const card = JSON.stringify({ kind: 'task', task_id: task.id, event });
     const m = { authorKind: 'system', author: 'system', name: '任务', text, card };
-    const { message } = this.hub.post(task.room_id, m);
+    const message = task.room_id === skip ? undefined : this.hub.post(task.room_id, m).message;
     const chat = this.chatOf(task.room_id);
-    if (chat !== undefined && chat !== task.room_id) this.hub.post(chat, m);
+    if (chat !== undefined && chat !== task.room_id && chat !== skip) this.hub.post(chat, m);
     return message;
   }
 
