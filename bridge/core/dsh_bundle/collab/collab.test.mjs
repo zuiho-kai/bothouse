@@ -4692,6 +4692,16 @@ test('G24: single primary opens a workspace by ticket; task owned by itself, wat
   assert.doesNotMatch(later.instructions('ju', 1), /workspaces/, 'bridge-shared later prompt stays without the command');
 });
 
+test('channel primary tickets: each channel accepts only its own selected role', async () => {
+  const { hub, later, call } = await g24Setup(['ju', 'long']);
+  hub.store.ensureRoom(2, 'other');
+  hub.store.setLead(1, 'ju'); hub.store.setLead(2, 'long');
+  assert.equal((await call(later.ticket('ju', 1), { title: 'one' }, 1)).status, 200);
+  assert.equal((await call(later.ticket('long', 2), { title: 'two' }, 2)).status, 200);
+  assert.equal((await call(later.ticket('ju', 2), { title: 'wrong' }, 2)).status, 403);
+  assert.equal((await call(later.ticket('long', 1), { title: 'wrong' }, 1)).status, 403);
+});
+
 test('G24: an @-dispatched chat task is handed over, not opened twice', async () => {
   const { hub, tasks, later, nudged, call } = await g24Setup(['ju', 'long']);
   hub.post(1, { authorKind: 'role', author: 'ju', name: 'ju', text: '@long 修登录页' });
