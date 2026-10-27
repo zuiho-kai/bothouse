@@ -2041,10 +2041,33 @@ test('tasks: dispatch → 接 → hand back → done, each step leaves one task 
   const r = records(hub);
   assert.equal(r.length, 4);
   assert.deepEqual(r.map(m => JSON.parse(m.card).event), ['assign', 'stance', 'return', 'done']);
-  assert.match(r[0].text, /派活 #1「写登录页」→ DeepSeek（橘 派）/);
+  assert.equal(r[0].text, '派活 #1 → DeepSeek（橘 派）', 'the card shows the title, the record does not repeat it');
   assert.match(r[2].text, /交回，用时 2 分钟/);
   assert.equal(r.every(m => !m.text.includes('@')), true, 'records @ nobody');
   assert.throws(() => tasks.review(t.id, { actor: 'lead', verdict: 'done' }), /nothing to review/);
+});
+
+test('tasks: a dispatch from a message posts no record beside it; the card hangs under the message', () => {
+  const { hub, tasks } = makeTasks();
+  const title = '麻烦你核对一下 #1 的来源日期，核完回一行【验收】#1';
+  const { message: msg } = hub.post(1, { authorKind: 'role', author: 'lead', name: '橘', text: `@DeepSeek ${title}` });
+  const t = tasks.assign({ roomId: 1, title, owner: 'ds', actor: 'lead', messageId: msg.id, force: true });
+  assert.equal(t.assign_msg_id, msg.id, 'the dispatch message is the card anchor');
+  assert.equal(records(hub).length, 0, 'no 派活 record repeats the dispatch in its own room');
+  assert.equal(hub.store.page(1, undefined, 50).filter(m => m.text.includes(title)).length, 1, 'the dispatch text shows once');
+  tasks.stance(t.id, { actor: 'ds', stance: '接' });
+  assert.deepEqual(records(hub).map(m => JSON.parse(m.card).event), ['stance'], 'later records are unchanged');
+
+  // A handoff message in a workspace: the workspace shows it, the chat channel gets the short record.
+  const ws = hub.store.createWorkspace(1);
+  const { message: handoff } = hub.post(ws.id, { authorKind: 'system', author: 'system', name: '交接', text: '【交接】DeepSeek：写登录页' });
+  const w = tasks.assign({ roomId: ws.id, title: '写登录页', owner: 'ds', actor: 'lead', messageId: handoff.id, force: true });
+  assert.equal(hub.store.page(ws.id, undefined, 50).filter(m => m.card !== null).length, 0);
+  const chat = records(hub).filter(m => JSON.parse(m.card).task_id === w.id);
+  assert.equal(chat.length, 1);
+  assert.ok(chat[0].text.startsWith(`派活 #${w.id} → DeepSeek（橘 派）`) && !chat[0].text.includes('写登录页'), chat[0].text);
+  assert.equal(tasks.task(w.id).assign_msg_id, handoff.id);
+  tasks.close(); hub.store.close();
 });
 
 test('tasks: 问 keeps the timer; 退 and 升 hand the turn to the lead; rework starts a new round', () => {
