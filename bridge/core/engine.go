@@ -452,6 +452,7 @@ type Engine struct {
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	pendingResetMu               sync.Mutex
+	workspaceReports             map[string]*workspaceReportTurn // guarded by pendingResetMu
 	pendingReset                 map[string]bool  // session new --after-turn (session_reset.go)
 	resetTurns                   map[string]int   // running turns per reset key (CC_SESSION_KEY), guarded by pendingResetMu
 	team                         *teamState       // maomao fork: team status board (nil = off)
