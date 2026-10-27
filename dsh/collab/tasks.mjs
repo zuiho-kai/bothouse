@@ -191,9 +191,10 @@ export class Tasks {
     const rooms = [chat, ...(this.tree ? this.q.children.all(chat).map(r => r.id) : [])];
     // A paused task stays on the board of the chat channel it was paused under (paused_chat), even
     // after its workspace went back to the pool and another chat channel claimed it: a to-do is never lost.
-    const rows = this.db.prepare(`SELECT * FROM tasks WHERE (room_id IN (${rooms.map(() => '?').join(', ')})
-      AND (paused_at IS NULL OR paused_chat IS NULL OR paused_chat = ?)) OR (paused_at IS NOT NULL AND paused_chat = ?)
-      ORDER BY id DESC`).all(...rooms, chat, chat);
+    const rows = this.db.prepare(`SELECT * FROM tasks WHERE record_id IN (SELECT id FROM work_records WHERE room_id = ?)
+      OR (record_id IS NULL AND ((room_id IN (${rooms.map(() => '?').join(', ')})
+      AND (paused_at IS NULL OR paused_chat IS NULL OR paused_chat = ?)) OR (paused_at IS NOT NULL AND paused_chat = ?)))
+      ORDER BY id DESC`).all(chat, ...rooms, chat, chat);
     return rows.filter(r => r.record_id == null || this.store.workRecord(chat, r.record_id) !== undefined).map(r => this.view(r));
   }
 

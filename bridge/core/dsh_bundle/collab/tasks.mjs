@@ -106,8 +106,8 @@ export class Tasks {
     this.tree = cols.has('parent_id') && cols.has('kind');
     this.q = {
       get: this.db.prepare('SELECT * FROM tasks WHERE id = ?'),
-      add: this.db.prepare(`INSERT INTO tasks (room_id, parent_task, title, owner, created_by, status, next_check_at, assign_msg_id, created_at, updated_at, reason, ref, base)
-        VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
+      add: this.db.prepare(`INSERT INTO tasks (room_id, parent_task, title, owner, created_by, status, next_check_at, assign_msg_id, created_at, updated_at, reason, ref, base, record_id)
+        VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
       // The last ? keeps (1) or drops (0) an undelivered reminder: only 接/问 stay the owner's turn.
       // A resumed (was paused) task starts a fresh watch: renewals back to 0 (rework: resetRenewals).
       set: this.db.prepare(`UPDATE tasks SET status = ?, paused_at = NULL, next_check_at = ?, note = ?, updated_at = ?, remind_msg_id = CASE WHEN ? THEN remind_msg_id END,
@@ -191,10 +191,11 @@ export class Tasks {
     const rooms = [chat, ...(this.tree ? this.q.children.all(chat).map(r => r.id) : [])];
     // A paused task stays on the board of the chat channel it was paused under (paused_chat), even
     // after its workspace went back to the pool and another chat channel claimed it: a to-do is never lost.
-    const rows = this.db.prepare(`SELECT * FROM tasks WHERE (room_id IN (${rooms.map(() => '?').join(', ')})
-      AND (paused_at IS NULL OR paused_chat IS NULL OR paused_chat = ?)) OR (paused_at IS NOT NULL AND paused_chat = ?)
-      ORDER BY id DESC`).all(...rooms, chat, chat);
-    return rows.map(r => this.view(r));
+    const rows = this.db.prepare(`SELECT * FROM tasks WHERE record_id IN (SELECT id FROM work_records WHERE room_id = ?)
+      OR (record_id IS NULL AND ((room_id IN (${rooms.map(() => '?').join(', ')})
+      AND (paused_at IS NULL OR paused_chat IS NULL OR paused_chat = ?)) OR (paused_at IS NOT NULL AND paused_chat = ?)))
+      ORDER BY id DESC`).all(chat, ...rooms, chat, chat);
+    return rows.filter(r => r.record_id == null || this.store.workRecord(chat, r.record_id) !== undefined).map(r => this.view(r));
   }
 
   /** In-progress tasks in one room (the "进行中 N 件" next to it in the channel list). */
@@ -206,7 +207,7 @@ export class Tasks {
   /** Public task row: codes plus display names. */
   view(t) {
     return {
-      id: t.id, room_id: t.room_id, parent_task: t.parent_task, title: t.title,
+      id: t.id, room_id: t.room_id, record_id: t.record_id ?? null, parent_task: t.parent_task, title: t.title,
       owner: t.owner, owner_name: this.nameOf(t.owner), created_by: t.created_by, created_by_name: this.nameOf(t.created_by),
       status: t.status, next_check_at: t.next_check_at, assign_msg_id: t.assign_msg_id, result_msg_id: t.result_msg_id,
       note: t.note, reason: t.reason, ref: t.ref ?? null, base: t.base ?? null, created_at: t.created_at, updated_at: t.updated_at, returned_at: t.returned_at,
@@ -299,7 +300,8 @@ export class Tasks {
     const why = clip(reason);
     const refText = ref === undefined ? null : clip(ref);
     const baseText = ref === undefined ? null : clip(base);
-    const task = this.q.add.get(roomId, parentTask ?? null, text, owner, actor, now + CHECK_AFTER_S, messageId ?? null, now, now, why, refText, baseText);
+    const recordId = messageId != null ? this.store.message(messageId).record_id : this.store.currentRound(roomId)?.record_id ?? null;
+    const task = this.q.add.get(roomId, parentTask ?? null, text, owner, actor, now + CHECK_AFTER_S, messageId ?? null, now, now, why, refText, baseText, recordId ?? null);
     const refNote = `${refText ? `，参照：${refText}` : ''}${baseText ? `，底分支：${baseText}` : ''}`;
     const busyNote = busy.busy ? `（注：该成员在「${busy.roomName}」已有进行中任务 #${busy.task.id}）` : '';
     const record = this.record(task, 'assign', `派活 #${task.id}「${task.title}」→ ${this.nameOf(owner)}（${this.nameOf(actor)} 派）${why ? `，理由：${why}` : ''}${refNote}${busyNote ? ` ${busyNote}` : ''}`);
@@ -395,12 +397,14 @@ export class Tasks {
    */
   reworkClaim(task) {
     if (!this.tree || this.store.room(task.room_id)?.kind !== 'workspace' || this.store.bridgeClaimed(task.room_id)) return false;
-    const chat = this.chatOf(task.room_id);
+    const chat = task.record_id == null ? this.chatOf(task.room_id)
+      : this.db.prepare('SELECT room_id FROM work_records WHERE id = ?').get(task.record_id).room_id;
     const owner = this.store.workspaceOwner(task.room_id);
     if (owner != null && owner !== chat) {
       throw new CollabError('workspace-owned', `task ${task.id}'s workspace now belongs to room ${owner}; hand it off again to a free workspace`);
     }
     if (owner == null) this.store.claimWorkspace(chat, task.room_id, { handoff: task.id });
+    if (task.record_id != null && !this.store.currentRound(task.room_id)) this.store.startWorkRound(chat, task.record_id, task.room_id, this.now());
     return true;
   }
 
@@ -434,6 +438,7 @@ export class Tasks {
   /** A member reply whose first line is 【接】【问】【退】【升】 (optionally #id) answers its task. */
   fromMessage(msg) {
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
+    if (this.inWorkspace(msg.room_id) && msg.record_id != null && this.store.currentRound(msg.room_id)?.record_id !== msg.record_id) return undefined;
     this.verdictsOf(msg);
     this.settleCall(msg);
     const stance = this.stanceOf(msg);
@@ -812,9 +817,10 @@ export class Tasks {
   /** One system record (task card) in the task room and, for a workspace, its chat channel. */
   record(task, event, text) {
     const card = JSON.stringify({ kind: 'task', task_id: task.id, event });
-    const m = { authorKind: 'system', author: 'system', name: '任务', text, card };
+    const m = { authorKind: 'system', author: 'system', name: '任务', text, card, recordId: task.record_id ?? null };
     const { message } = this.hub.post(task.room_id, m);
-    const chat = this.chatOf(task.room_id);
+    const chat = task.record_id == null ? this.chatOf(task.room_id)
+      : this.db.prepare('SELECT room_id FROM work_records WHERE id = ?').get(task.record_id)?.room_id;
     if (chat !== undefined && chat !== task.room_id) this.hub.post(chat, m);
     return message;
   }
@@ -891,11 +897,16 @@ export class Tasks {
     }
     // The resumed task is this claim's handoff: handing it back frees the workspace again (handoffDone).
     if (owner == null && reclaim) this.store.claimWorkspace(task.paused_chat, task.room_id, { handoff: task.id });
+    if (reclaim && task.record_id != null && !this.store.currentRound(task.room_id)) {
+      this.store.startWorkRound(task.paused_chat, task.record_id, task.room_id, this.now());
+    }
   }
 
   changed(id) {
     const task = this.view(this.task(id));
-    this.hub.emit({ type: 'task', task, chat_id: this.chatOf(task.room_id), active: this.countActive(task.room_id) });
+    const chat = task.record_id == null ? this.chatOf(task.room_id)
+      : this.db.prepare('SELECT room_id FROM work_records WHERE id = ?').get(task.record_id).room_id;
+    this.hub.emit({ type: 'task', task, chat_id: chat, active: this.countActive(task.room_id) });
     this.hub.emit({ type: 'rooms', rooms: this.store.roomsView() });
     this.arm();
     return task;

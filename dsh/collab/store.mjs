@@ -397,7 +397,7 @@ export class Store {
    * 工作区<n+1>, n being the highest existing 工作区<k> of any chat channel (one shared pool,
    * unique numbers). Called on a workspace, it works for that workspace's chat channel.
    */
-  createWorkspace(roomId, { bridge = false } = {}) {
+  createWorkspace(roomId, { bridge = false, record: spec } = {}) {
     return this.transaction(() => {
       const room = this.q.room.get(roomId);
       if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
@@ -407,14 +407,20 @@ export class Store {
       const all = this.db.prepare("SELECT id, name, free FROM rooms WHERE kind = 'workspace'").all();
       const num = w => Number(re.exec(w.name)?.[1] ?? 0);
       const free = all.filter(w => w.free && num(w) > 0 && this.activeTasks(w.id) === 0).sort((a, b) => num(a) - num(b))[0];
+      let workspace;
       if (free !== undefined) {
         this.resetSessions(free.id);
-        return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
+        workspace = this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
           claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
           .get(parent, bridge ? 1 : 0, free.id, free.id);
+      } else {
+        const n = Math.max(0, ...all.map(num));
+        workspace = this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${n + 1}`, parent, bridge ? 1 : 0);
       }
-      const n = Math.max(0, ...all.map(num));
-      return this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${n + 1}`, parent, bridge ? 1 : 0);
+      if (!spec) return workspace;
+      const record = this.createWorkRecord(parent, spec);
+      const round = this.startWorkRound(parent, record.id, workspace.id);
+      return { workspace, record, round };
     });
   }
 
@@ -758,6 +764,11 @@ export class Store {
   }
   /** #148: a person edits their own plain message; returns the row, or undefined if it is not theirs. */
   editUser(id, author, text, now = Date.now() / 1000) {
+    const old = this.message(id);
+    if (old?.record_id == null && old && this.room(old.room_id)?.kind === 'workspace'
+        && this.db.prepare('SELECT 1 FROM work_rounds WHERE workspace_id = ? LIMIT 1').get(old.room_id)) {
+      throw new CollabError('read-only', 'legacy workspace history is read-only');
+    }
     text = String(text ?? '');
     if (!text.trim()) throw new CollabError('empty', 'message text is empty');
     if (text.length > MAX_TEXT) throw new CollabError('too-long', `message exceeds ${MAX_TEXT} characters`);
