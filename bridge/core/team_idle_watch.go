@@ -87,6 +87,65 @@ func (e *Engine) watchBusy(key string) bool {
 	return false
 }
 
+// A coordinator waiting for its dispatched work is not an idle worker.
+// Receipts cover tracked relays; the peer's current incoming task identifies
+// direct chat dispatches, which have no relay receipt.
+func (e *Engine) watchDelegatedWork(key string) bool {
+	if p := e.publicProgress; p != nil {
+		p.mu.Lock()
+		runs := make([]*publicRun, 0, len(p.records))
+		for _, r := range p.records {
+			runs = append(runs, r)
+		}
+		p.mu.Unlock()
+		for _, r := range runs {
+			r.mu.Lock()
+			waiting := false
+			if teamChatKey(r.record.Task.SessionKey) == key {
+				for _, receipt := range r.record.Relays {
+					if receipt.Target != e.name && receipt.Status == "running" && !receipt.WatchDone {
+						waiting = true
+						break
+					}
+				}
+			}
+			r.mu.Unlock()
+			if waiting {
+				return true
+			}
+		}
+	}
+	for _, peer := range e.watchEngines() {
+		if peer == e || peer.team == nil {
+			continue
+		}
+		peer.team.mu.Lock()
+		waiting, dispatched := false, false
+		for k, s := range peer.team.seen {
+			task := strings.TrimSpace(strings.TrimPrefix(s.task, "♻️ 续做："))
+			fromMe := strings.HasPrefix(task, "【"+e.DisplayName()+"】") ||
+				strings.HasPrefix(task, "【"+e.name+"】")
+			if teamChatKey(k) == key && fromMe {
+				dispatched = true
+				if s.session != nil && s.session.Busy() {
+					waiting = true
+					break
+				}
+			}
+		}
+		peer.team.mu.Unlock()
+		if waiting {
+			return true
+		}
+		if dispatched {
+			if running, _ := newHandoffWatch(peer).workspaceBackgroundProgress(key, time.Now()); running {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (e *Engine) updateIdle(a idleAssignment, f func(*TeamHandoff)) (TeamHandoff, bool) {
 	path := teamWorkspacePath(e.dataDir)
 	teamWorkspaceStore.mu.Lock()
@@ -216,6 +275,7 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 		}
 	}
 	teamWorkspaceStore.mu.Unlock()
+	delegated := e.watchDelegatedWork(key)
 	for _, a := range assignments {
 		h, ok := e.updateIdle(a, func(h *TeamHandoff) {
 			h.Idle.Returned = returned
@@ -225,7 +285,7 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 				h.Idle.Reported = false
 			}
 		})
-		if ok && !returned {
+		if ok && !returned && !delegated {
 			a.h = h
 			e.armIdleWake(a)
 		}
@@ -237,7 +297,7 @@ func (e *Engine) armIdleWake(a idleAssignment) {
 }
 
 func (e *Engine) fireIdleWake(a idleAssignment) {
-	if e.ctx.Err() != nil || e.watchBusy(a.key) {
+	if e.ctx.Err() != nil || e.watchBusy(a.key) || e.watchDelegatedWork(a.key) {
 		return
 	}
 	w := newHandoffWatch(e)

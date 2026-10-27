@@ -5,6 +5,7 @@
 - A terminal reply beginning with `【接】` also registers unfinished work accepted directly in chat. Existing handoff/d10 watches retain ownership; a chat acceptance without one uses the same one-shot callbacks.
 - A fresh acceptance takes precedence over a stale waiting-user task-card or board status, including when a human has replied since the earlier acceptance. Explicit reports and validated questions still stop wakeups.
 - Before sending a wakeup, inspect the role's native background tasks and live child tasks. Their completion events resume terminal-event handling.
+- Coordinators also wait quietly while their tracked relay is running, or while a peer is actively executing their direct chat dispatch in the same workspace. Both the terminal event and the pending wake callback check this state.
 - Validation for this follow-up is compilation only, as requested.
 
 ## 2026-10-26: event-driven idle assignment wakeups
