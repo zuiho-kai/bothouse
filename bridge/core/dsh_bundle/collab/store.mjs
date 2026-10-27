@@ -36,8 +36,7 @@ const COLUMNS = [
   // v8 (#139 team mode A): a room is a chat channel or a workspace under one chat channel.
   ['rooms', 'kind', "TEXT NOT NULL DEFAULT 'chat' CHECK (kind IN ('chat', 'workspace'))"],
   ['rooms', 'parent_id', 'INTEGER REFERENCES rooms(id)'],
-  // Team mode C (single owner, added on open like every column here): a workspace belongs to its parent_id chat channel until it
-  // finishes its last task; free = 1 means released, any chat channel may claim it.
+  // parent_id is the permanent chat owner; free = 1 means available within that channel.
   ['rooms', 'free', 'INTEGER NOT NULL DEFAULT 0'],
   // The room's highest task id when its owner last claimed it; a claim no task followed
   // yet (the handoff is not worked on) keeps it owned when an earlier task ends (Tasks.releaseIfDone).
@@ -72,7 +71,7 @@ export class Store {
     this.closed = false;
     /** fn(roomId) when a workspace's sessions are dropped for a new claim (resetSessions). */
     this.sessionResets = [];
-    this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+    this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     let version = this.db.prepare('PRAGMA user_version').get().user_version;
     if (version > SCHEMA_VERSION) throw Error(`collab: store schema ${version} is newer than ${SCHEMA_VERSION}`);
     this.ensureSchema(version);
@@ -211,6 +210,24 @@ export class Store {
       }
       if (!settingColumns.some(c => c.name === 'lead_id')) this.db.exec('ALTER TABLE room_settings ADD COLUMN lead_id TEXT');
       if (!settingColumns.some(c => c.name === 'workspace_path')) this.db.exec('ALTER TABLE room_settings ADD COLUMN workspace_path TEXT');
+      if (!settingColumns.some(c => c.name === 'workspaces_max')) {
+        this.db.exec('ALTER TABLE room_settings ADD COLUMN workspaces_max INTEGER NOT NULL DEFAULT 3 CHECK (workspaces_max BETWEEN 1 AND 10)');
+      }
+      // Existing workspaces retain their last parent, including released ones.
+      this.db.exec(`CREATE TRIGGER IF NOT EXISTS workspace_fixed_parent BEFORE UPDATE OF parent_id ON rooms
+        WHEN OLD.kind = 'workspace' AND NEW.parent_id IS NOT OLD.parent_id
+        BEGIN SELECT RAISE(ABORT, '工作区固定归属原频道，不能转移到其他频道'); END;
+        CREATE TABLE IF NOT EXISTS workspace_queue (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          room_id INTEGER NOT NULL REFERENCES rooms(id),
+          record_id INTEGER REFERENCES work_records(id),
+          created_at REAL NOT NULL,
+          reason TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'allocated')),
+          bridge INTEGER NOT NULL DEFAULT 0,
+          payload TEXT,
+          workspace_id INTEGER REFERENCES rooms(id));
+        CREATE INDEX IF NOT EXISTS workspace_queue_room ON workspace_queue(room_id, status, id)`);
       this.db.exec('DROP TABLE IF EXISTS collab_settings');
       if (version < SCHEMA_VERSION) this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     });
@@ -392,44 +409,91 @@ export class Store {
     this.ensureRoomSettings(room.id);
     return room;
   }
-  /**
-   * Give a chat channel its next workspace: the lowest-numbered free 工作区<k> of the shared
-   * pool (released by any chat channel after its last task) if there is one, else a new
-   * 工作区<n+1>, n being the highest existing 工作区<k> of any chat channel (one shared pool,
-   * unique numbers). Called on a workspace, it works for that workspace's chat channel.
-   */
-  createWorkspace(roomId, { bridge = false, record: spec } = {}) {
+  /** Allocate and reserve under one write lock; older waiting requests keep their place. */
+  createWorkspace(roomId, { bridge = false, record: spec, payload = null } = {}) {
     return this.transaction(() => {
       const room = this.q.room.get(roomId);
       if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
       const parent = room.kind === 'workspace' ? room.parent_id : room.id;
-      const re = new RegExp(`^${WORKSPACE_PREFIX}(\\d+)$`);
-      // One shared pool: numbers are unique across every chat channel's workspaces.
-      const all = this.db.prepare("SELECT id, name, free FROM rooms WHERE kind = 'workspace'").all();
-      const num = w => Number(re.exec(w.name)?.[1] ?? 0);
-      const free = all.filter(w => w.free && num(w) > 0 && this.activeTasks(w.id) === 0).sort((a, b) => num(a) - num(b))[0];
-      let workspace;
-      if (free !== undefined) {
-        this.resetSessions(free.id);
-        workspace = this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
-          claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
-          .get(parent, bridge ? 1 : 0, free.id, free.id);
-      } else {
-        const n = Math.max(0, ...all.map(num));
-        workspace = this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${n + 1}`, parent, bridge ? 1 : 0);
+      const record = spec ? this.createWorkRecord(parent, spec) : null;
+      const waiting = this.workspaceQueue(parent).length > 0;
+      const workspace = waiting ? null : this.allocateWorkspace(parent, bridge);
+      if (!workspace) {
+        const reason = waiting ? '等待本频道前序排队任务' : `本频道工作区已达上限 ${this.workspacesMax(parent)}，等待空闲工位`;
+        const row = this.db.prepare(`INSERT INTO workspace_queue (room_id, record_id, created_at, reason, bridge, payload)
+          VALUES (?, ?, ?, ?, ?, ?) RETURNING id`).get(parent, record?.id ?? null, Date.now() / 1000, reason, bridge ? 1 : 0, payload == null ? null : JSON.stringify(payload));
+        return { queued: true, message: '已排队', queue: this.workspaceQueue(parent).find(q => q.id === row.id), record };
       }
-      if (!spec) return workspace;
-      const record = this.createWorkRecord(parent, spec);
-      const round = this.startWorkRound(parent, record.id, workspace.id);
-      return { workspace, record, round };
+      if (!record) return workspace;
+      return { workspace, record, round: this.startWorkRound(parent, record.id, workspace.id) };
     });
+  }
+
+  /** Internal: caller holds a write transaction. Numbering remains globally unique. */
+  allocateWorkspace(parent, bridge) {
+    const all = this.db.prepare("SELECT id, name, free, parent_id FROM rooms WHERE kind = 'workspace'").all();
+    const own = all.filter(w => w.parent_id === parent);
+    const num = w => Number(new RegExp(`^${WORKSPACE_PREFIX}(\\d+)$`).exec(w.name)?.[1] ?? 0);
+    // A reduced limit leaves current work running, but no new claim exceeds that limit.
+    const max = this.workspacesMax(parent);
+    if (own.filter(w => !w.free).length >= max) return null;
+    const free = own.filter(w => w.free && this.activeTasks(w.id) === 0 && !this.currentRound(w.id))
+      .sort((a, b) => num(a) - num(b) || a.id - b.id)[0];
+    if (free) {
+      this.resetSessions(free.id);
+      return this.db.prepare(`UPDATE rooms SET free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
+        claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
+        .get(bridge ? 1 : 0, free.id, free.id);
+    }
+    if (own.length >= max) return null;
+    return this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${Math.max(0, ...all.map(num)) + 1}`, parent, bridge ? 1 : 0);
+  }
+
+  workspaceQueue(roomId) {
+    return this.db.prepare(`SELECT id, room_id, record_id, created_at, reason, status,
+      ROW_NUMBER() OVER (ORDER BY id) AS position FROM workspace_queue WHERE room_id = ? AND status = 'waiting' ORDER BY id`)
+      .all(this.settingsRoom(roomId));
+  }
+
+  /** Claim the FIFO head exactly once. The returned payload is the persisted handoff. */
+  dequeueWorkspace(roomId, canDispatch = () => true) {
+    return this.transaction(() => {
+      const parent = this.settingsRoom(roomId);
+      const queue = this.db.prepare("SELECT * FROM workspace_queue WHERE room_id = ? AND status = 'waiting' ORDER BY id LIMIT 1").get(parent);
+      if (!queue) return null;
+      const payload = queue.payload == null ? null : JSON.parse(queue.payload);
+      if (!canDispatch(payload, parent)) {
+        this.db.prepare('UPDATE workspace_queue SET reason = ? WHERE id = ?').run('等待原派活人和接活人恢复本频道成员资格', queue.id);
+        return null;
+      }
+      const workspace = this.allocateWorkspace(parent, Boolean(queue.bridge));
+      if (!workspace) return null;
+      const record = queue.record_id == null ? null : this.requireRecord(parent, queue.record_id);
+      const round = record ? this.startWorkRound(parent, record.id, workspace.id) : null;
+      this.db.prepare("UPDATE workspace_queue SET status = 'allocated', workspace_id = ? WHERE id = ?").run(workspace.id, queue.id);
+      return { workspace, record, round, queue_id: queue.id, payload };
+    });
+  }
+
+  requireWorkspace(chatId, workspaceId) {
+    const ws = this.room(workspaceId);
+    if (!ws) throw new CollabError('room-missing', '工作区不存在');
+    if (ws.kind !== 'workspace') throw new CollabError('not-workspace', '目标不是工作区');
+    if (ws.parent_id !== this.settingsRoom(chatId)) {
+      throw new CollabError('workspace-owned', '工作区属于其他频道，不能跨频道分配、查询或读取消息');
+    }
+    return ws;
+  }
+
+  workspaceMessages(chatId, workspaceId, beforeId, limit) {
+    this.requireWorkspace(chatId, workspaceId);
+    return this.page(workspaceId, beforeId, limit);
   }
 
   /**
    * Record chatId as the owner of workspace workspaceId, so the unified exit (team-exit.mjs,
    * by rooms.parent_id) sends its asks and reports there. A workspace belongs to one chat
-   * channel at a time: one another chat channel owns (not free) is refused with
-   * 'workspace-owned' until it is released after its last task (releaseWorkspace).
+   * channel permanently: another channel is refused with 'workspace-owned', even after release.
    * chatId may be a workspace (then its chat channel is used). bridge: the claim comes from the
    * bridge (cloudweb.mjs), whose lead session the bridge releases itself. handoff: the task this
    * claim is for when it already exists (a paused task resumed, Tasks.resumeClaim), so handoffDone
@@ -442,9 +506,13 @@ export class Store {
       if (chat === undefined || ws === undefined) throw new CollabError('room-missing', `room ${chat === undefined ? chatId : workspaceId} does not exist`);
       if (ws.kind !== 'workspace') throw new CollabError('not-workspace', `room ${workspaceId} is not a workspace`);
       const parent = chat.kind === 'workspace' ? chat.parent_id : chat.id;
+      this.requireWorkspace(parent, ws.id);
       const owner = this.workspaceOwner(ws.id);
-      if (owner != null && owner !== parent) {
-        throw new CollabError('workspace-owned', `workspace ${ws.name} belongs to room ${owner} until it finishes its last task`);
+      if (owner == null) {
+        const occupied = this.db.prepare("SELECT COUNT(*) AS n FROM rooms WHERE kind = 'workspace' AND parent_id = ? AND free = 0").get(parent).n;
+        if (occupied >= this.workspacesMax(parent) || this.workspaceQueue(parent).length) {
+          throw new CollabError('conflict', '本频道工作区已达上限或已有排队任务，请通过创建入口排队');
+        }
       }
       // #597 G35: a released workspace keeps its sessions until a new claim. Claimed back for a task of
       // its last claim (rework, a paused task resumed: Tasks.reworkClaim/resumeClaim; claim_task stays
@@ -558,8 +626,8 @@ export class Store {
   }
 
   /**
-   * Release workspace roomId after its last task: it goes back to the pool (free) for any chat
-   * channel. Its sessions stay until a new claim takes it (resetSessions), so a rework or a resumed
+   * Release workspace roomId after its last task for reuse by its permanent chat channel.
+   * Its sessions stay until a new claim takes it (resetSessions), so a rework or a resumed
    * task goes on in them (#597 G35). Refused with 'busy' while tasks are in work there.
    * Returns false if roomId is no owned workspace (already free, or a chat channel). claim (from
    * the bridge's op release): the claim being ended; refused with 'stale-claim' once the
@@ -606,6 +674,17 @@ export class Store {
     if (!this.db.prepare('PRAGMA table_info(rooms)').all().some(c => c.name === 'parent_id')) return roomId;
     const parent = this.db.prepare('SELECT parent_id FROM rooms WHERE id = ?').get(roomId)?.parent_id;
     return parent == null || parent === roomId ? roomId : parent;
+  }
+
+  workspacesMax(roomId) {
+    return this.db.prepare('SELECT workspaces_max FROM room_settings WHERE room_id = ?').get(this.settingsRoom(roomId))?.workspaces_max ?? 3;
+  }
+
+  setWorkspacesMax(roomId, value) {
+    if (!Number.isInteger(value) || value < 1 || value > 10) throw new CollabError('invalid', '每频道工作区上限必须是 1..10 的整数');
+    roomId = this.settingsRoom(roomId);
+    this.ensureRoomSettings(roomId);
+    this.db.prepare('UPDATE room_settings SET workspaces_max = ? WHERE room_id = ?').run(value, roomId);
   }
 
   /** Dispatch mode of a room; a workspace inherits its chat channel's (PR #138 review 6). */
@@ -683,7 +762,8 @@ export class Store {
   roomsView() {
     const counts = new Map(this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
       WHERE status IN ('assigned', 'accepted', 'asked', 'rework') GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
-    return this.rooms().map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id) }));
+    return this.rooms().map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id),
+      workspaces_max: this.workspacesMax(r.id), ...(r.kind === 'chat' ? { workspace_queue: this.workspaceQueue(r.id) } : {}) }));
   }
 
   /**

@@ -65,7 +65,7 @@ test('records: channel scoped reads and immutable ownership survive workspace re
   assert.throws(() => store.db.prepare('UPDATE work_records SET room_id = 2 WHERE id = ?').run(first.record.id), /immutable/);
   deliver(first.task);
   const second = await call({ title: 'second', owner: 'dev' }, 2);
-  assert.equal(first.workspace.id, second.workspace.id);
+  assert.notEqual(first.workspace.id, second.workspace.id);
   assert.equal(store.workRecord(1, first.record.id).room_id, 1);
   assert.equal(store.workRecord(2, first.record.id), undefined);
   assert.equal(store.workRounds(1, first.record.id)[0].status, 'ended');

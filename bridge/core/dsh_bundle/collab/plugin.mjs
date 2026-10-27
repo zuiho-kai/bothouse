@@ -131,7 +131,11 @@ export async function apply(ctx, rawConfig) {
   // A workspace released after its last task shows up free in the room list. Its sessions are
   // cleared when a new claim takes it (store.resetSessions: DSH members rebind from the store; local
   // CLI members drop their ACP session), not on release, so a rework goes on in them (#597 G35).
-  tasks.onRelease(() => hub.emit({ type: 'rooms', rooms: hub.store.roomsView() }));
+  hub.drainWorkspaceQueue = roomId => drainWorkspaceQueue(roomId, { store, hub, tasks, dsh, gateway });
+  tasks.onRelease(roomId => {
+    hub.emit({ type: 'rooms', rooms: hub.store.roomsView() });
+    hub.drainWorkspaceQueue(roomId);
+  });
   hub.store.onSessionsReset(roomId => dsh.resetRoom(roomId));
   // Config members are seeds; UI-created members persist in the store. Both must be routable before recovery.
   roster.load(config.dshMembers);
@@ -143,6 +147,7 @@ export async function apply(ctx, rawConfig) {
   installApprovalAnswerer(ctx, dsh);
   // Queue leftover jobs before any route can add new ones, so both share one order.
   dsh.recover();
+  for (const room of store.rooms().filter(r => r.kind === 'chat')) hub.drainWorkspaceQueue(room.id);
   tasks.start();
   later.start();
   quota.start();
@@ -402,7 +407,7 @@ export function roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePa
   const roomId = Number(match[1]);
   if (store.room(roomId) === undefined) return Promise.resolve(json(res, 404, { error: '频道不存在' }));
   const view = () => ({ lead_id: store.leadId(roomId), effective_lead_id: hub.primaryIn(roomId)?.id ?? null,
-    workspace_path: store.workspacePath(roomId, workspacePath) });
+    workspace_path: store.workspacePath(roomId, workspacePath), workspaces_max: store.workspacesMax(roomId) });
   if (match[2] === 'renew' && req.method === 'POST') {
     return withBody(req, res, async () => ({ members: await dsh.renewRoom(roomId) }), false);
   }
@@ -421,9 +426,11 @@ export function roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePa
       if (!stat.isDirectory()) throw new CollabError('invalid', '工作目录必须是目录，不能是文件');
     }
     store.transaction(() => {
+      if (body?.workspaces_max !== undefined) store.setWorkspacesMax(roomId, body.workspaces_max);
       if (body?.lead_id !== undefined) store.setLead(roomId, body.lead_id);
       if (body?.workspace_path !== undefined) store.setWorkspacePath(roomId, body.workspace_path, workspacePath);
     });
+    hub.drainWorkspaceQueue?.(roomId);
     hub.emit({ type: 'room-settings', room_id: store.settingsRoom(roomId), ...view() });
     return view();
   });
@@ -558,6 +565,24 @@ export function workRecordsRoute(req, res, url, { store }) {
 }
 
 export function workspacesRoute(req, res, url, { store, hub, gateway, owner, later, tasks, dsh }) {
+  const scoped = /^\/collab\/api\/rooms\/(\d+)\/workspaces(?:\/(queue|\d+)(?:\/(messages))?)?\/?$/.exec(url.pathname);
+  if (scoped && req.method === 'GET') {
+    const claims = later?.verify(req.headers?.['x-later-ticket']);
+    if (!owner(req) && !gateway.authorized(req, url) && claims?.room !== Number(scoped[1])) return Promise.resolve(refuse(req, res));
+    return withBody(req, res, () => {
+      const chat = Number(scoped[1]);
+      if (!store.room(chat)) throw new CollabError('room-missing', '频道不存在');
+      if (scoped[2] === 'queue') return { queue: store.workspaceQueue(chat) };
+      if (scoped[2]) {
+        const workspace = store.requireWorkspace(chat, Number(scoped[2]));
+        if (scoped[3]) return { messages: store.workspaceMessages(chat, workspace.id,
+          url.searchParams.has('before') ? Number(url.searchParams.get('before')) : undefined, url.searchParams.get('limit')).map(m => publicMessage(m, store)) };
+        return { workspace };
+      }
+      return { workspaces: store.roomsView().filter(w => w.kind === 'workspace' && w.parent_id === store.settingsRoom(chat)),
+        workspaces_max: store.workspacesMax(chat), queue: store.workspaceQueue(chat) };
+    }, false);
+  }
   const m = /^\/collab\/api\/rooms\/(\d+)\/workspaces\/?$/.exec(url.pathname);
   if (m === null || req.method !== 'POST') return undefined;
   if (!owner(req) && !gateway.authorized(req, url)) {
@@ -567,8 +592,22 @@ export function workspacesRoute(req, res, url, { store, hub, gateway, owner, lat
   return withBody(req, res, () => {
     const workspace = store.createWorkspace(Number(m[1]));
     hub.emit({ type: 'rooms', rooms: store.roomsView() });
-    return { workspace };
+    return workspace.queued ? workspace : { workspace };
   }, false);
+}
+
+/** Resume persisted ticket handoffs after release, a limit increase, or restart. */
+export function drainWorkspaceQueue(roomId, { store, hub, tasks, dsh, gateway }) {
+  let allocation;
+  const canDispatch = (payload, chat) => {
+    if (!payload) return true;
+    const members = hub.routableIn(chat);
+    return [payload.lead, payload.taskOwner].every(id => members.some(member => member.id === id));
+  };
+  while ((allocation = store.dequeueWorkspace(roomId, canDispatch))) {
+    if (allocation.payload) finishWorkspaceHandoff(allocation, allocation.payload, { store, hub, tasks, dsh, gateway });
+    hub.emit({ type: 'rooms', rooms: store.roomsView() });
+  }
 }
 
 /**
@@ -587,22 +626,28 @@ function ticketWorkspace(req, res, roomId, { store, hub, gateway, later, tasks, 
   return withBody(req, res, body => {
     const lead = claims.member;
     const taskOwner = body?.owner === undefined || body.owner === '' ? lead : String(body.owner);
-    if (!hub.routable().some(r => r.id === taskOwner)) throw new CollabError('member-missing', 'unknown owner');
+    if (!hub.routableIn(roomId).some(r => r.id === taskOwner)) throw new CollabError('member-missing', '接活人不属于本频道或不可派活');
     const title = String(body?.title ?? '').trim();
     if (!title) throw new CollabError('invalid', 'workspace handoff requires a title');
     if (store.room(roomId) === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
-    const { workspace, record, round } = store.createWorkspace(roomId, {
-      record: { title, requirement: String(body?.requirement ?? body?.reason ?? ''), owner: taskOwner },
+    const payload = { lead, taskOwner, title, reason: typeof body?.reason === 'string' ? body.reason : undefined };
+    const allocation = store.createWorkspace(roomId, {
+      record: { title, requirement: String(body?.requirement ?? body?.reason ?? ''), owner: taskOwner }, payload,
     });
     hub.emit({ type: 'rooms', rooms: store.roomsView() });
+    if (allocation.queued) return allocation;
+    return finishWorkspaceHandoff(allocation, payload, { store, hub, tasks, dsh, gateway });
+  });
+}
+
+function finishWorkspaceHandoff({ workspace, record, round }, { lead, taskOwner, title, reason }, { store, hub, tasks, dsh, gateway }) {
     const name = hub.members.get(taskOwner)?.name ?? taskOwner;
-    const reason = typeof body?.reason === 'string' ? body.reason : undefined;
     const requirement = record.requirement;
     const { message } = hub.post(workspace.id, { authorKind: 'system', author: 'system', name: '交接', recordId: record.id,
       text: `【交接】${name}：${title}${requirement ? `\n${requirement}` : ''}${reason && reason !== requirement ? `\n${reason}` : ''}` });
     const task = tasks.assign({ roomId: workspace.id, owner: taskOwner, actor: lead, title, reason, messageId: message.id, force: true });
     tasks.q.setSource.run('workspace', task.id);
-    const chat = workspace.parent_id ?? roomId;
+    const chat = workspace.parent_id;
     const open = tasks.q.openChat.get(chat, taskOwner, lead, ...WORKING);
     if (open !== undefined) {
       tasks.handBack(open.id, { actor: open.owner, messageId: message.id });
@@ -610,10 +655,9 @@ function ticketWorkspace(req, res, roomId, { store, hub, gateway, later, tasks, 
     }
     if (!dsh?.nudge(taskOwner, message)) gateway.nudge?.(taskOwner, message);
     return { workspace, task: tasks.task(task.id), record, round };
-  });
 }
 
-const ERROR_STATUS = { 'record-missing': 404, 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, 'member-busy': 409 };
+const ERROR_STATUS = { 'workspace-owned': 403, 'record-missing': 404, 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, 'member-busy': 409 };
 
 /** Parse a JSON body (unless `parse` is false), run fn, and map CollabError codes to HTTP statuses. */
 class BodyTooLarge extends Error {}

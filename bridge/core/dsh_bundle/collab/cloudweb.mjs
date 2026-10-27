@@ -319,10 +319,9 @@ export class CloudWebGateway {
     try {
       if (d.op === 'dispatch_mode') return { ok: true, ...store.dispatchSetting(id) };
       if (d.op === 'list') {
-        // One shared pool per server: every workspace with its owner ("" = free, released after
-        // its last task) and active (tasks in progress, tasks.mjs countActive), so the bridge
-        // adopts only a free one and never claims a workspace another chat channel owns.
-        const rooms = store.rooms().filter(r => r.kind === 'workspace' && r.id !== id).map(r => {
+        // Only this channel's permanently bound workspaces are visible for reuse.
+        // owner = "" marks an idle slot, without removing its parent binding.
+        const rooms = store.rooms().filter(r => r.kind === 'workspace' && r.parent_id === store.settingsRoom(id) && r.id !== id).map(r => {
           const owner = store.workspaceOwner(r.id);
           return {
             ...view(r), parent_id: r.parent_id == null ? '' : roomKey(r.parent_id),
@@ -359,6 +358,7 @@ export class CloudWebGateway {
         // A's createWorkspace numbers 工作区n+1 itself; the bridge takes the name it gets back.
         const w = store.createWorkspace(id, { bridge: true });
         this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
+        if (w.queued) return { ok: true, ...w };
         return { ok: true, room: { ...view(w), claim: store.claimId(w.id) } };
       }
     } catch (error) {
