@@ -125,6 +125,12 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   const shown = typeof card?.brief === 'string' && cardView === 'brief' ? card.brief : message.text
   const markdown = useMemo(() => softBreaksToHard(shown), [shown])
   const classes = [css.message, message.author_kind === 'system' ? css.system : '', focused ? css.focused : ''].filter(Boolean).join(' ')
+  // A task opened from this message (an @ dispatch, a handoff) shows its card here: the server posts
+  // no 派活 record beside it (dsh/collab/tasks.mjs assign). A task record carries its own card, and a
+  // sub-task anchored here too is a row of its parent's card.
+  const anchored = card?.kind === 'task' ? [] : tasks.filter(task => task.assign_msg_id === message.id)
+  const anchoredIds = new Set(anchored.map(task => task.id))
+  const taskCards = anchored.filter(task => task.parent_task === null || !anchoredIds.has(task.parent_task))
   return (
     <div className={classes} data-message-id={message.id}>
       {member === undefined || message.author_kind === 'system'
@@ -215,6 +221,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                 {card.kind === 'task' && typeof card.task_id === 'number' && <TaskCard taskId={card.task_id} tasks={tasks} t={t} />}
               </div>
             )}
+        {taskCards.map(task => <div key={task.id} className={css.card} data-anchored-task={task.id}><TaskCard taskId={task.id} tasks={tasks} t={t} /></div>)}
       </div>
       {/* System notices and progress cards are not conversation turns, so they take no reply. */}
       {message.author_kind !== 'system' && card === undefined && (

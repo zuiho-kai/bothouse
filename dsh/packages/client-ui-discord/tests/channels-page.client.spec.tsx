@@ -227,6 +227,27 @@ describe('channels page', () => {
     expect(screen.getAllByText(zh.working).length).toBeGreaterThan(0)
   })
 
+  it('hangs a dispatched task card under its dispatch message and keeps the record card once', () => {
+    const task = (id: number, status: 'assigned' | 'accepted', assign: number | null, parent: number | null = null) => ({
+      id, room_id: 1, title: `title ${id}`, owner: 'ju', owner_name: '橘', status,
+      created_by: 'owner', created_by_name: '我', created_at: 1, updated_at: 1,
+      parent_task: parent, next_check_at: null, assign_msg_id: assign, result_msg_id: null, note: null, returned_at: null,
+    })
+    const state: ChannelSnapshot = { ...ready, thinking: {}, messages: [
+      { id: 1, room_id: 1, author_kind: 'role', author: 'ju', name: '橘', text: '@橘 title 1', created_at: 1, card: null, from_turn: null },
+      { id: 2, room_id: 1, author_kind: 'system', author: 'system', name: '任务', text: '派活 #3 → 橘（我 派）', created_at: 2, card: JSON.stringify({ kind: 'task', task_id: 3, event: 'assign' }), from_turn: null },
+    ], tasks: [task(1, 'assigned', 1), task(2, 'assigned', 1, 1), task(3, 'assigned', 2)] }
+    const view = render(<ChannelsPage {...props(state)} />)
+    const row = (id: number) => view.container.querySelector(`[data-message-id="${id}"]`)!
+    expect(within(row(1) as HTMLElement).getAllByText('#1 title 1')).toHaveLength(1)
+    expect(row(1).querySelectorAll('[data-anchored-task]')).toHaveLength(1)
+    expect(within(row(1) as HTMLElement).getByText('title 2')).toBeTruthy()
+    expect(within(row(2) as HTMLElement).getAllByText('#3 title 3')).toHaveLength(1)
+    expect(row(2).querySelectorAll('[data-anchored-task]')).toHaveLength(0)
+    view.rerender(<ChannelsPage {...props({ ...state, tasks: [task(1, 'accepted', 1), task(2, 'assigned', 1, 1), task(3, 'assigned', 2)] })} />)
+    expect(row(1).querySelector('[data-anchored-task="1"] [data-status]')!.getAttribute('data-status')).toBe('accepted')
+  })
+
   it('shows the primary-role selector and saves a changed member', async () => {
     const setLead = vi.fn(async () => {})
     const state: ChannelSnapshot = { ...ready, members: [

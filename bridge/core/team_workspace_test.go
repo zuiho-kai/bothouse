@@ -842,8 +842,8 @@ func TestTeamWorkspaceClaimAPI(t *testing.T) {
 	if p, _ := e.WorkspaceParent("201"); p != "300" || len(e.TeamWorkspacesOf("200")) != 0 {
 		t.Fatalf("parent of 201 = %q, #200 = %+v", p, e.TeamWorkspacesOf("200"))
 	}
-	// From a workspace channel the claim goes to its chat channel.
-	if rec = claim(s, http.MethodPost, `{"session_key":"discord:201","workspace_id":"205"}`); rec.Code != http.StatusOK {
+	// A workspace cannot claim on behalf of its chat channel (#534).
+	if rec = claim(s, http.MethodPost, `{"session_key":"discord:201","workspace_id":"205"}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("claim from workspace: %d %s", rec.Code, rec.Body.String())
 	}
 
