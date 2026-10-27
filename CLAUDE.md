@@ -30,7 +30,7 @@
 4. **确认上线**：看输出 JSON，不只看退出码。`ok: true` 才算好。`needs_user_action: true` 时把 `warnings` 里 `blocking: true` 每条的 `message`、`fix`、`url`
    原样告诉用户（Intent 没开 / 机器人没进服务器 / 没查到所有者要用户给自己的 Discord 用户 ID / CLI 没登录 / token 无效要重置，要用户点链接或回话），用户做完不用重跑，重启即可（token 无效时什么都没写，换新 token 重跑）。
    同一个 token 只能有一个 bothouse 在线：这个机器人已经在别的电脑或别的进程上跑着时，两边会抢消息、各回一遍，先停掉旧的（向导查不出别的机器上有没有在跑）。
-   然后**在后台**启动：`bothouse daemon install`（装成系统服务并立即启动；开机自启默认关闭，可在管理面板「设置 → 开机自动启动」中打开；看日志 `bothouse daemon logs -f`）。**不要在你的 shell 里前台跑 `bothouse`**：它不会退出，会占住终端直到被超时杀掉，机器人跟着下线。
+   然后**在后台**启动：`bothouse daemon install`（装成系统服务并立即启动；新安装开机自启默认关闭；重装或升级保留当前设置，可在管理面板「设置 → 开机自动启动」中修改；看日志 `bothouse daemon logs -f`）。**不要在你的 shell 里前台跑 `bothouse`**：它不会退出，会占住终端直到被超时杀掉，机器人跟着下线。
    只想临时试一下用 `nohup bothouse > ~/.bothouse/run.log 2>&1 &`（Windows：`$env:CC_LOG_FILE="$HOME\.bothouse\run.log"; Start-Process bothouse -WindowStyle Hidden; Remove-Item Env:CC_LOG_FILE`，日志在 `$HOME\.bothouse\run.log`）。日志出现 `discord: connected` 后请用户在频道里 @ 机器人试一句。
    不要动用户已在运行的 bothouse 进程，除非用户同意。
 
