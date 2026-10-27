@@ -280,23 +280,15 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		// drop the check.
 		return now.Add(watchRetryDelay)
 	}
-	// Stopped workers need a wakeup, never a stop/park instruction.
+	// Only a recorded terminal event owns idle wakeups. A missing owner or
+	// event must not silently renew a handoff forever at each deadline.
 	target := w.e.watchTarget(key, h.Owner)
 	busy := w.workspaceBusy(key)
 	if target != nil {
 		busy = target.watchBusy(key)
 	}
-	if !busy {
-		if target != nil {
-			if h.Idle.Ended.IsZero() {
-				updated, ok := target.updateIdle(idleAssignment{key, h, false}, func(x *TeamHandoff) { x.Idle.Ended = now })
-				if !ok {
-					return time.Time{}
-				}
-				h = updated
-			}
-			target.armIdleWake(idleAssignment{key, h, false})
-		}
+	if !busy && target != nil && !h.Idle.Ended.IsZero() && !h.Idle.Returned && !h.Idle.Reported {
+		target.armIdleWake(idleAssignment{key, h, false})
 		due := now.Add(watchCheckAfter())
 		_, _ = w.updateHandoff(key, h, func(x *TeamHandoff) { x.Due = due })
 		return due
