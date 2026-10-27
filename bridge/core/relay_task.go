@@ -16,14 +16,15 @@ import (
 // A receipt is committed before execution. Delivery retries never run tools
 // again, including after restart or an ambiguous execution failure.
 type taskRelayRecord struct {
-	Hash      string           `json:"hash"`
-	Target    string           `json:"target"`
-	Workspace string           `json:"workspace,omitempty"` // execution workspace (sibling of the source workspace); empty = source
-	Status    string           `json:"status"`              // running, done, failed; running after restart is unresolved
-	Response  string           `json:"response,omitempty"`
-	Error     string           `json:"error,omitempty"`
-	LastSeq   int64            `json:"last_seq,omitempty"`
-	Reports   map[int64]string `json:"reports,omitempty"`
+	HandoffRefs []string         `json:"handoff_refs,omitempty"`
+	Hash        string           `json:"hash"`
+	Target      string           `json:"target"`
+	Workspace   string           `json:"workspace,omitempty"` // execution workspace (sibling of the source workspace); empty = source
+	Status      string           `json:"status"`              // running, done, failed; running after restart is unresolved
+	Response    string           `json:"response,omitempty"`
+	Error       string           `json:"error,omitempty"`
+	LastSeq     int64            `json:"last_seq,omitempty"`
+	Reports     map[int64]string `json:"reports,omitempty"`
 	// Ten-minute watch (relay_watch.go); kept with the receipt, never a workspace handoff.
 	WatchDue     time.Time `json:"watch_due,omitempty"`
 	WatchFrom    time.Time `json:"watch_from,omitempty"` // this window began (member row updates after it count)
@@ -363,7 +364,7 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 	}
 	old := snapshotTaskRelay(r)
 	now := time.Now().UTC()
-	r.record.Relays[req.RequestID] = taskRelayRecord{Hash: hash, Target: req.To, Workspace: req.Workspace, Status: "running", WatchFrom: now, WatchDue: now.Add(watchCheckAfter())}
+	r.record.Relays[req.RequestID] = taskRelayRecord{HandoffRefs: quotaHandoffRefRE.FindAllString(req.Message, -1), Hash: hash, Target: req.To, Workspace: req.Workspace, Status: "running", WatchFrom: now, WatchDue: now.Add(watchCheckAfter())}
 	p.appendEvent(r, TaskEventProgress, NewI18n(r.record.Lang).Tf(MsgTaskRelayAssigned, name), true)
 	// Assignment text may contain a private report grant; never publish it.
 	if err := p.save(r); err != nil {

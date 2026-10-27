@@ -7,10 +7,13 @@ import (
 	"log/slog"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 )
+
+var quotaHandoffRefRE = regexp.MustCompile("(?:[A-Za-z]:\\\\|/|~/|[[:alnum:]_.-]+/)[^\\s\"'<>`]+\\.(?:md|txt)(?::[0-9]+)?")
 
 type quotaWork struct {
 	ID      string    `json:"id"`
@@ -20,6 +23,7 @@ type quotaWork struct {
 	Source  string    `json:"source,omitempty"`
 	Task    string    `json:"task,omitempty"`
 	Member  string    `json:"member,omitempty"`
+	Relay   string    `json:"relay,omitempty"`
 	Board   int       `json:"board,omitempty"`
 	At      time.Time `json:"at,omitempty"`
 	Script  bool      `json:"script,omitempty"`
@@ -113,14 +117,29 @@ func (e *Engine) quotaWorkItems() []quotaWork {
 			if owner == e.name {
 				out = append(out, quotaWork{ID: "task:" + t.ID, Source: peer.name, Task: t.ID, Session: t.SessionKey, Title: t.Title, Basis: basis})
 			} else {
+				memberSessions := map[string]bool{}
 				for _, m := range t.Members {
 					if m.Live() && m.ReporterProject == e.name {
 						key := t.SessionKey
 						if m.Workspace != "" {
 							key = m.Workspace
 						}
-						out = append(out, quotaWork{ID: "member:" + t.ID + ":" + m.ID, Source: peer.name, Task: t.ID, Member: m.ID, Session: key, Title: m.Title, Basis: basis + "\n" + m.Summary})
+						out = append(out, quotaWork{ID: "member:" + t.ID + ":" + m.ID, Source: peer.name, Task: t.ID, Member: m.ID, Session: key, Title: m.Title, Basis: basis + "\n" + m.Summary + "\nref=" + m.Ref + "\nbase=" + m.Base})
+						memberSessions[key] = true
 					}
+				}
+				for request, rc := range r.record.Relays {
+					if rc.Target != e.name || rc.Status != "running" || rc.WatchDone {
+						continue
+					}
+					key := t.SessionKey
+					if rc.Workspace != "" {
+						key = rc.Workspace
+					}
+					if memberSessions[key] {
+						continue
+					}
+					out = append(out, quotaWork{ID: "relay:" + t.ID + ":" + request, Source: peer.name, Task: t.ID, Member: "quota-relay-" + request, Relay: request, Session: key, Title: t.Title, Basis: basis + "\noriginal handoff refs: " + strings.Join(rc.HandoffRefs, "\n")})
 				}
 			}
 			r.mu.Unlock()
@@ -281,6 +300,10 @@ func (e *Engine) applyQuotaWork(work quotaWork, target *Engine, now time.Time) e
 			t.AssignedProject, t.Agent = target.name, target.name
 		} else {
 			i := memberIndex(t, work.Member)
+			if i < 0 && work.Relay != "" {
+				t.Members = append(t.Members, TaskMember{ID: work.Member, Name: e.DisplayName(), ReporterProject: e.name, Title: work.Title, Workspace: work.Session, Status: "running", AssignedAt: now, UpdatedAt: now})
+				i = len(t.Members) - 1
+			}
 			if i < 0 {
 				return fmt.Errorf("member %s unavailable", work.Member)
 			}

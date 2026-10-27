@@ -88,6 +88,17 @@ func TestQuotaTakeoverIsolationJourney(t *testing.T) {
 			t.Cleanup(ts.Stop)
 			source := engines["orange"]
 			chat, ws := plat+":chat", plat+":ws"
+			cardPlatform := newProgressPlatform()
+			cardPlatform.n = plat
+			source.publicProgress, err = NewPublicProgress(dir, source.name, []Platform{cardPlatform})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cardRun := source.publicProgress.begin(cardPlatform, ws, LangChinese, nil)
+			_, err = source.publicProgress.Report(PublicProgressRequest{Project: source.name, SessionKey: ws, Run: cardRun, Seq: 1, Kind: "start", Title: "修复代码", Summary: "和任务板同一工作区"})
+			if err != nil {
+				t.Fatal(err)
+			}
 			rm.Bind(plat, "chat", map[string]string{"orange": "orange", "longniang": "longniang", "jingyu": "jingyu"})
 			rm.Bind(plat, "ws", map[string]string{"orange": "orange", "longniang": "longniang", "jingyu": "jingyu"})
 			if err := writeLeadSelectionFile(dir, "orange", "orange", time.Now()); err != nil {
@@ -153,6 +164,9 @@ func TestQuotaTakeoverIsolationJourney(t *testing.T) {
 			default:
 			}
 			count := len(store.List())
+			if count != 2 {
+				t.Fatalf("expected one lead wake and one coalesced workspace wake; got %d", count)
+			}
 			source.quotaTick(now.Add(time.Minute))
 			if len(store.List()) != count {
 				t.Fatal("takeover wake duplicated")
