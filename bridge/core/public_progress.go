@@ -739,10 +739,7 @@ func (e *Engine) voiceProgressInstructions(token, session string) string {
 const voiceProgressPrompt = "[Public progress channel]\nOnly for accepted multi-step work, report public status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'short status'. Start with --seq 1 --kind start --title 'task title'.RESUME_NOTE Increment seq for update/milestone/waiting/result; retry the same seq/content. Report only meaningful changes (max 64). No cards for chat or questions. Keep reasoning, tools, credentials and conversations private. Report verified facts; result is not human acceptance. This token is for this turn only. Keep the spoken reply short.\n[/Public progress channel]\n\n"
 
 func (e *Engine) progressInstructions(token, session, instructions string) string {
-	command := "bothouse"
-	if path, err := os.Executable(); err == nil {
-		command = path
-	}
+	command := bridgeCommand()
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 	prefix := quote(command) + " progress --project " + quote(e.name) + " --session " + quote(session) + " --data-dir " + quote(e.publicProgress.dataDir)
 	resumeNote := ""
@@ -750,7 +747,7 @@ func (e *Engine) progressInstructions(token, session, instructions string) strin
 		// Naming the state is the point: an owner who asked for something new
 		// must not lose the card for it to an earlier card that already
 		// delivered a result, which is the most common wrong continuation.
-		resumeNote = " A card from earlier in this session is still open (" + taskID + ", state " + string(state) + ", title " + strconv.Quote(title) + "). Continue it with --seq " + strconv.FormatInt(resumeSeq, 10) + " --kind update only when this turn is follow-up on that same title; when the human asked for something else, start a new card with --seq 1 --kind start."
+		resumeNote = " A card from earlier in this session is still open (" + taskID + ", state " + string(state) + ", title " + strconv.Quote(title) + "). Continue it with " + prefix + " --run " + token + " --task " + taskID + " --seq " + strconv.FormatInt(resumeSeq, 10) + " --kind update --message 'short status' only when this turn is follow-up on that same title; when the human asked for something else, start a new card with --seq 1 --kind start."
 	}
 	return strings.NewReplacer(
 		"COMMAND", prefix,
@@ -759,6 +756,14 @@ func (e *Engine) progressInstructions(token, session, instructions string) strin
 		"RESUME_NOTE", resumeNote,
 		"RELAY_COMMAND", quote(command)+" relay send --from "+quote(e.name)+" --session "+quote(session)+" --data-dir "+quote(e.publicProgress.dataDir),
 	).Replace(instructions)
+}
+
+// bridgeCommand is the executable name to advertise in agent-facing commands.
+func bridgeCommand() string {
+	if path, err := os.Executable(); err == nil {
+		return path
+	}
+	return "bothouse"
 }
 
 const publicTaskMembersPrompt = "[Task card members]\nWhen delegation is already authorized, open each new delegation batch with ASSIGN_COMMAND --run RUN_TOKEN --batch STABLE_BATCH_ID --member UNIQUE_ID --name 'display name' --title 'short assignment' --ref 'path:line of the existing implementation to follow' (for a configured bot, use --reporter-project EXACT_BOUND_PROJECT_ID; its name comes from that project, never from --name; when it executes in another workspace of the same chat channel, add --workspace WORKSPACE_ID and pass the same workspace to the task relay that dispatches it). Native children use --name 'explicit child name' and optional --parent existing-member-id; they inherit their owning bot account. --ref is required: name the existing implementation (path:line); for non-code work write --ref '无（新建）'. When several members edit the same files, put 多人改 in the title and add --base BRANCH; the member that changes the shared interface merges first. Omit --id for new work: the batch automatically opens a fresh shared card, even if this turn already reported on another card. Use the SAME batch for all participants in that delegation and on retries; use a DIFFERENT batch for independent parallel work. Batch ids are scoped to this turn. To explicitly continue a known card, replace --batch with --id TASK_ID. Overall reports for a delegation use COMMAND --run RUN_TOKEN --task TASK_ID --seq N --kind KIND --message 'public status'; each card has its own lead sequence, beginning at 1 for a new batch; the grant returns lead_next_seq for explicit continuation. Assignment does not consume a lead sequence. A first update can follow assignment without a separate start. Pass only the returned report_command to that participant. A --reporter-project member gets no report_command (report_via is set instead): dispatch it with the task relay and that bot receives its own member report command there. The participant itself reports immediately with --seq 1 --kind update --message 'started', then increments its own sequence only for meaningful progress, waiting, result, failed or cancelled. Use the same sequence/content on retry. Member results update only that row, not the overall task or acceptance. Ending the lead turn does not finish other delegation batches; report each batch's overall result separately. No raw tools, credentials or reasoning. A member's first report starts its clock; result/failed/cancelled ends it. Do not register a member unless actually dispatching; registration grants no permission to delegate.\n[/Task card members]\n\n"
