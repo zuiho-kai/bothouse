@@ -4,6 +4,7 @@ import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { Tasks } from './tasks.mjs';
 import { workspaceArchiveRoute } from './plugin.mjs';
+import { DshMembers } from './dsh-member.mjs';
 
 function setup(t) {
   const store = new Store(':memory:');
@@ -90,4 +91,36 @@ test('archive HTTP owner checks, Chinese errors, session release before archive 
   assert.equal((await call('/collab/api/workspaces/archived', true, 'GET')).body.workspaces.length, 1);
   assert.equal((await call(`${path}/unarchive`, false)).status, 401);
   assert.equal((await call(`${path}/unarchive`)).body.workspace.parent_id, 1);
+});
+
+test('session release interrupts pending and active jobs, cancels native and CLI work, and drains queues', async t => {
+  const { store, hub, workspace } = setup(t);
+  const messages = [1, 2].map(n => store.append(workspace.id, { authorKind: 'user', author: 'owner', name: '我', text: String(n) }).message);
+  const pending = store.addJob('dev', workspace.id, messages[0].id);
+  const running = store.addJob('cli', workspace.id, messages[1].id);
+  store.markSent(running.id, 'session', 0, 'input');
+  let cancelled = 0, resolved = 0, drained = false;
+  const expirations = [];
+  const fake = {
+    store, hub,
+    watching: new Map([['session', { jobId: running.id, resolve() { resolved++; } }]]),
+    approvals: { expireWhere(predicate) { expirations.push(predicate({ meta: { jobId: running.id } })); } },
+    rt: { ctx: { agents: { get(id) { return id === 'session' ? { cancel() { cancelled++; } } : undefined; } } } },
+    cliAgents: new Map([['cli', { agent: { sessions: new Map([[String(workspace.id), { sessionId: 'acp' }]]), conn: { async cancel({ sessionId }) { assert.equal(sessionId, 'acp'); cancelled++; } } } }]]),
+    queues: new Map([[`dev\u0000${workspace.id}`, Promise.resolve().then(() => { drained = true; })]]),
+  };
+  await DshMembers.prototype.releaseRoom.call(fake, workspace.id);
+  assert.equal(store.job(pending.id).state, 'interrupted');
+  assert.equal(store.job(running.id).state, 'interrupted');
+  assert.equal(cancelled, 2);
+  assert.equal(resolved, 1);
+  assert.equal(drained, true);
+  assert.equal(expirations.some(Boolean), true);
+});
+
+test('archived workspaces reject new messages and task dispatch until restored', t => {
+  const { store, tasks, workspace } = setup(t);
+  store.archiveWorkspace(workspace.id);
+  assert.throws(() => store.append(workspace.id, { text: 'new' }), /已归档/);
+  assert.throws(() => tasks.assign({ roomId: workspace.id, title: 'new', owner: 'dev', actor: 'owner' }), /已归档/);
 });

@@ -280,6 +280,7 @@ export class Tasks {
   assign({ roomId, title, owner, actor, parentTask, messageId, reason, ref, base, force = false }) {
     const room = this.store.room(roomId);
     if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
+    if (this.store.isArchived(roomId)) throw new CollabError('invalid', '工作区已归档，请先恢复');
     const text = String(title ?? '').trim();
     if (!text || text.length > MAX_TEXT) throw new CollabError('invalid', 'task title is empty or too long');
     this.member(owner);

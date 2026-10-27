@@ -647,7 +647,7 @@ export class DshMembers {
       const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id);
       wiki.commit();
       const text = (await entry.agent.ask(prompt, String(room.id), onText, onTool, { resumeId, onSession, onPermission, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
-      if (this.closed) return;
+      if (this.closed || this.store.job(job.id)?.state !== 'sent') return;
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
       latest = '';
       const reply = this.returnToLead(job, member, text);
@@ -922,7 +922,7 @@ export class DshMembers {
         this.watching.delete(job.session_id);
         watching.resolve(INTERRUPTED);
       }
-      this.approvals.expireWhere(p => p.meta?.sessionId === job.session_id);
+      this.approvals.expireWhere(p => p.meta?.sessionId === job.session_id || p.meta?.jobId === job.id);
       this.rt.ctx.agents.get(job.session_id)?.cancel({ kind: 'user' });
       this.hub.setThinking(roomId, job.member_id, false);
     }

@@ -501,7 +501,7 @@ export class Store {
     return this.transaction(() => {
       this.checkWorkspaceArchive(roomId);
       this.resetSessions(roomId);
-      this.db.prepare('UPDATE rooms SET archived_at = COALESCE(archived_at, ?), free = 0, claim_bridge = 0 WHERE id = ?').run(now, roomId);
+      this.db.prepare('UPDATE rooms SET archived_at = COALESCE(archived_at, ?), free = 0, claim_bridge = 0, claim_seq = claim_seq + 1 WHERE id = ?').run(now, roomId);
       return this.room(roomId);
     });
   }
@@ -514,9 +514,7 @@ export class Store {
   }
 
   unarchiveWorkspace(roomId) {
-    const room = this.room(roomId);
-    if (room === undefined) throw new CollabError('room-missing', '工作区不存在');
-    if (room.kind !== 'workspace') throw new CollabError('invalid', '只有工作区可以归档或恢复');
+    this.checkWorkspaceArchive(roomId);
     this.db.prepare('UPDATE rooms SET archived_at = NULL, free = 0 WHERE id = ?').run(roomId);
     return this.room(roomId);
   }
@@ -645,6 +643,7 @@ export class Store {
    */
   append(roomId, m, now = Date.now() / 1000) {
     if (this.room(roomId) === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
+    if (this.isArchived(roomId)) throw new CollabError('invalid', '工作区已归档，请先恢复');
     const text = String(m.text ?? '');
     const attachments = Array.isArray(m.attachments) && m.attachments.length ? m.attachments : null;
     if (!text.trim() && m.card == null && attachments === null) throw new CollabError('empty', 'message text is empty');
