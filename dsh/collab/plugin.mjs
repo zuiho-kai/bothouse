@@ -572,7 +572,7 @@ export function workspacesRoute(req, res, url, { store, hub, gateway, owner, lat
     return withBody(req, res, () => {
       const chat = Number(scoped[1]);
       if (!store.room(chat)) throw new CollabError('room-missing', '频道不存在');
-      if (scoped[2] === 'queue') return { queue: store.workspaceQueue(chat) };
+      if (scoped[2] === 'queue') return { queue: store.workspaceQueue(chat, { history: url.searchParams.get('history') === 'true' }) };
       if (scoped[2]) {
         const workspace = store.requireWorkspace(chat, Number(scoped[2]));
         if (scoped[3]) return { messages: store.workspaceMessages(chat, workspace.id,

@@ -72,6 +72,23 @@ test('capacity: releasing a workspace dispatches the oldest persisted handoff ex
   assert.equal(store.dequeueWorkspace(1), null);
 });
 
+test('capacity: queued creation exposes its eventual workspace without losing FIFO positions', async t => {
+  const { store, call } = setup(t);
+  store.setWorkspacesMax(1, 1);
+  const first = store.createWorkspace(1);
+  const queued = store.createWorkspace(1);
+  const next = store.createWorkspace(1);
+  store.releaseWorkspace(first.id);
+  store.dequeueWorkspace(1);
+  const response = await call('GET', '/collab/api/rooms/1/workspaces/queue?history=true');
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.queue.map(q => [q.id, q.status, q.workspace_id, q.position]), [
+    [queued.queue.id, 'allocated', first.id, null], [next.queue.id, 'waiting', null, 1],
+  ]);
+  const forbidden = await call('GET', '/collab/api/rooms/2/workspaces/queue?history=true');
+  assert.equal(forbidden.status, 403);
+});
+
 test('capacity: removed queue owner blocks dispatch without losing the request', async t => {
   const { store, hub, tasks, post, wakes } = setup(t);
   store.setWorkspacesMax(1, 1);

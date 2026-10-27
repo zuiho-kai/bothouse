@@ -449,9 +449,10 @@ export class Store {
     return this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${Math.max(0, ...all.map(num)) + 1}`, parent, bridge ? 1 : 0);
   }
 
-  workspaceQueue(roomId) {
-    return this.db.prepare(`SELECT id, room_id, record_id, created_at, reason, status,
-      ROW_NUMBER() OVER (ORDER BY id) AS position FROM workspace_queue WHERE room_id = ? AND status = 'waiting' ORDER BY id`)
+  workspaceQueue(roomId, { history = false } = {}) {
+    return this.db.prepare(`SELECT id, room_id, record_id, created_at, reason, status, workspace_id,
+      CASE WHEN status = 'waiting' THEN ROW_NUMBER() OVER (PARTITION BY status ORDER BY id) END AS position
+      FROM workspace_queue WHERE room_id = ? ${history ? '' : "AND status = 'waiting'"} ORDER BY id`)
       .all(this.settingsRoom(roomId));
   }
 
