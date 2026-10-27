@@ -41,6 +41,13 @@ export class Hub {
     return member !== undefined && member.kind !== 'human' ? member : undefined;
   }
 
+  /** Channel selection, inherited by workspaces; only unset channels use the legacy global choice. */
+  primaryIn(roomId) {
+    const id = this.store.leadId(roomId);
+    const member = id === null ? this.selectedPrimaryMember() : this.members.get(id);
+    return member && this.routableIn(roomId).some(m => m.id === member.id) ? member : undefined;
+  }
+
   /** UI-only fallback; callers that route messages must use selectedPrimaryMember(). */
   primaryMember() {
     const fallback = this.fallbackLead === '' ? undefined : this.members.get(this.fallbackLead);
@@ -48,6 +55,7 @@ export class Hub {
   }
 
   setMember(member) {
+    if (member.avatar?.startsWith('upload:')) member.avatarVersion = Math.random().toString(36).slice(2);
     this.members.set(member.id, member);
     this.emit({ type: 'members', members: this.memberView() });
   }
@@ -83,8 +91,8 @@ export class Hub {
   }
 
   memberView() {
-    return this.memberList().map(({ id, name, kind, online, model, cli, permissionPreset, persona, nameCustomized, avatar, source, error, rooms }) => ({
-      id, name, kind, ...(rooms ? { rooms } : {}), online: online !== false && !error, ...(error ? { error } : {}), ...(avatar ? { avatar } : {}),
+    return this.memberList().map(({ id, name, kind, online, model, cli, permissionPreset, persona, nameCustomized, avatar, avatarVersion, source, error, rooms }) => ({
+      id, name, kind, ...(rooms ? { rooms } : {}), online: online !== false && !error, ...(error ? { error } : {}), ...(avatar ? { avatar, ...(avatarVersion ? { avatarVersion } : {}) } : {}),
       ...(kind === 'dsh' ? { model: model ?? null, ...(cli ? { cli, ...(permissionPreset ? { permissionPreset } : {}) } : {}), ...(nameCustomized === undefined ? {} : { nameCustomized }), persona: persona ?? '', editable: source === 'ui' } : {}),
     }));
   }
@@ -208,6 +216,10 @@ export class Hub {
   }
 
   emit(event) {
+    if (event.type === 'rooms') event = { ...event, rooms: event.rooms.map(room => ({ ...room,
+      lead_id: this.store.leadId(room.id), effective_lead_id: this.primaryIn(room.id)?.id ?? null,
+      workspace_path: this.store.workspacePath(room.id, this.workspacePath),
+    })) };
     for (const s of this.subscribers) {
       try { s(event); } catch (error) { this.logger.warn('collab: subscriber failed: %s', error?.message ?? error); }
     }

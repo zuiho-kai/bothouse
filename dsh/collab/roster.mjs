@@ -36,7 +36,8 @@ export class Roster {
    * @param dsh - DshMembers (runtime routing).
    * @param llm - DSH `ctx.llm` service, or undefined to skip model checks.
    */
-  constructor(hub, dsh, llm) {
+  constructor(hub, dsh, llm, avatars) {
+    this.avatars = avatars;
     this.hub = hub;
     this.store = hub.store;
     this.dsh = dsh;
@@ -139,8 +140,22 @@ export class Roster {
     const existing = this.store.member(id);
     if (existing === undefined || existing.removed) throw new CollabError('member-missing', `member ${id} does not exist`);
     if (existing.source !== 'ui') throw new CollabError('read-only', `member ${id} comes from the config file and cannot be removed here`);
+    this.avatars?.remove(id);
     this.store.removeMember(id);
     this.dsh.dropMember(id);
+  }
+
+  setAvatar(id, png) {
+    const existing = this.store.member(id);
+    if (existing === undefined || existing.removed) throw new CollabError('member-missing', `member ${id} does not exist`);
+    if (existing.source !== 'ui') throw new CollabError('read-only', '配置文件中的成员不能在这里修改头像');
+    let avatar = '';
+    if (png === undefined) this.avatars.remove(id);
+    else avatar = this.avatars.save(id, png);
+    const row = this.store.updateMember(id, { ...rowToMember(existing), avatar });
+    const member = rowToMember(row);
+    this.dsh.putMember(member);
+    return member;
   }
 
   async validate(input, selfId) {

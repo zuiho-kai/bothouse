@@ -12,8 +12,9 @@ function color(id: string): string {
 }
 
 /** Member portrait, or a colored initial badge when there is none or the image fails to load. */
-export function Avatar({ id, name, avatar, small }: { id: string; name: string; avatar?: string; small?: boolean }) {
-  const src = avatarSrc(avatar)
+export function Avatar({ id, name, avatar, avatarVersion, small }: { id: string; name: string; avatar?: string; avatarVersion?: string; small?: boolean }) {
+  const base = avatarSrc(avatar)
+  const src = base && avatar?.startsWith('upload:') && avatarVersion ? `${base}?v=${avatarVersion}` : base
   const [broken, setBroken] = useState<string | undefined>(undefined)
   return (
     <span className={small === true ? `${css.avatar} ${css.avatarSmall}` : css.avatar} style={{ background: color(id) }} aria-hidden>

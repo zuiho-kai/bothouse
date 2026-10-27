@@ -34,6 +34,27 @@ function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async (
 }
 
 describe('channels page', () => {
+  it('saves the channel directory before asking to renew and supports later or immediate recreation', async () => {
+    const p = props({ ...ready, rooms: [{ id: 1, name: 'general', workspace_path: '/old', effective_lead_id: 'ju' }] })
+    const save = vi.fn(async () => {})
+    const renew = vi.fn(async () => {})
+    render(<ChannelsPage {...p} setWorkspacePath={save} renewRoom={renew} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
+    expect((screen.getByLabelText(zh.workingDirectory) as HTMLInputElement).value).toBe('/old')
+    expect(screen.getByText(zh.workingDirectoryHint)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText(zh.workingDirectory), { target: { value: '/new' } })
+    await act(async () => { fireEvent.submit(screen.getByLabelText(zh.workingDirectory).closest('form')!) })
+    expect(save).toHaveBeenCalledWith(1, '/new')
+    expect(renew).not.toHaveBeenCalled()
+    expect(screen.getByRole('alertdialog')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: zh.renewLater }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    await act(async () => { fireEvent.submit(screen.getByLabelText(zh.workingDirectory).closest('form')!) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: zh.renewNow })) })
+    expect(renew).toHaveBeenCalledExactlyOnceWith(1)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
   it('keeps an offline primary visible with offline styling and its selected name', () => {
     render(<ChannelsPage {...props({
       ...ready, thinking: {}, messages: [],
@@ -106,12 +127,12 @@ describe('channels page', () => {
     await act(async () => { fireEvent.click(dialog.getByRole('radio', { name: zh.dispatchTeam })) })
     expect(p.setDispatchMode).toHaveBeenCalledWith(1, 'team')
     await act(async () => { fireEvent.change(dialog.getByRole('combobox', { name: zh.channelLead }), { target: { value: 'ds' } }) })
-    expect(p.setLead).toHaveBeenCalledWith('ds')
+    expect(p.setLead).toHaveBeenCalledWith('ds', 1)
     const name = dialog.getByRole('textbox', { name: zh.channelName })
     fireEvent.change(name, { target: { value: 'bad name' } })
-    expect((dialog.getByRole('button', { name: zh.messageSave }) as HTMLButtonElement).disabled).toBe(true)
+    expect((within(name.closest('form')!).getByRole('button', { name: zh.messageSave }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.change(name, { target: { value: '新频道' } })
-    await act(async () => { fireEvent.click(dialog.getByRole('button', { name: zh.messageSave })) })
+    await act(async () => { fireEvent.click(within(name.closest('form')!).getByRole('button', { name: zh.messageSave })) })
     expect(renameRoom).toHaveBeenCalledWith(1, '新频道')
     expect(dialog.getByRole('alert').textContent).toBe('rename failed')
   })
@@ -217,7 +238,7 @@ describe('channels page', () => {
     const lead = screen.getByLabelText(zh.channelLead) as HTMLSelectElement
     expect(lead.selectedOptions[0].textContent).toContain('橘')
     await act(async () => { fireEvent.change(lead, { target: { value: 'ds' } }) })
-    expect(setLead).toHaveBeenCalledExactlyOnceWith('ds')
+    expect(setLead).toHaveBeenCalledExactlyOnceWith('ds', 1)
   })
 
   it('allows making the configured effective role explicit', async () => {
@@ -227,7 +248,7 @@ describe('channels page', () => {
     fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
     const lead = screen.getByLabelText(zh.channelLead) as HTMLSelectElement
     await act(async () => { fireEvent.change(lead, { target: { value: 'ju' } }) })
-    expect(setLead).toHaveBeenCalledExactlyOnceWith('ju')
+    expect(setLead).toHaveBeenCalledExactlyOnceWith('ju', 1)
   })
 
   it('renders a room with a message and a configure-model card without throwing', () => {

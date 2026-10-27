@@ -59,6 +59,8 @@ export function apply(ctx: ClientContext): void {
     removeMember: channels.actions.removeMember,
     setDispatchMode: channels.actions.setDispatchMode,
     setLead: channels.actions.setLead,
+    setWorkspacePath: channels.actions.setWorkspacePath,
+    renewRoom: channels.actions.renewRoom,
     decidePermission: channels.actions.decidePermission,
     retryMessage: channels.actions.retryMessage,
     editMessage: channels.actions.editMessage,
