@@ -353,6 +353,7 @@ Modules and data flow: [Architecture](docs/ARCHITECTURE.md) (Chinese).
 | [Getting started](docs/GETTING_STARTED.md) | Install, wizard, check it's online (Chinese) |
 | [One CLI / one model, multiple members](docs/single-cli-team.en.md) | Configure three DeepSeek or several Codex members; dispatch and context boundaries |
 | [Connect Discord or Feishu](docs/connect-discord-feishu.md) | Every wizard step, let an AI configure it, third-party APIs (Chinese) |
+| [Isolate Codex bot sessions](docs/codex-session-isolation.md) | Separate bot and desktop storage; prepare login and preserve existing sessions (Chinese) |
 | [The dispatcher and the team memory](docs/ccm-and-wiki.md) | The gate (who answers) and the shared wiki memory (Chinese) |
 | [Persona library and packs](docs/persona-packs.md) | Pick personas and avatars, make your own, install packs (Chinese) |
 | [Per-role wiki and nightly review](bridge/contrib/wiki/README.md) | One wiki per role, scheduled distilling, the review (Chinese) |
