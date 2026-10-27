@@ -22,16 +22,21 @@ function Status({ status, t }: { status: TaskStatus; t: T }) {
  * Right-column board for the selected chat channel.
  * @param onOpen - jump to a message in a room (dispatch or delivery).
  */
-export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }: {
+export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }: {
   tasks: readonly ChannelTask[]
   rooms: readonly ChannelRoom[]
   chatId: number | undefined
   roomId: number | undefined
   t: T
   onOpen: (roomId: number, messageId: number) => void
+  onReview?: (id: number, verdict: 'done' | 'rework', note?: string) => Promise<void>
 }) {
   const [opened, setOpened] = useState(false)
   const [selectedTab, setSelectedTab] = useState(BOARD_TABS.find(tab => tab.initial)!.id)
+  const [reviewing, setReviewing] = useState<number>()
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string>()
   const dialog = useRef<HTMLElement>(null)
   const titleId = useId()
   const tabId = useId()
@@ -58,6 +63,19 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }: {
   const activeTab = BOARD_TABS.find(tab => tab.id === selectedTab)!
   const matches = (task: ChannelTask) => activeTab.statuses.length === 0 || activeTab.statuses.includes(task.status)
   const visibleCount = scopedTasks.filter(matches).length
+  const review = async (id: number, verdict: 'done' | 'rework') => {
+    setSaving(true)
+    setError(undefined)
+    try {
+      await onReview?.(id, verdict, verdict === 'rework' ? reason.trim() : undefined)
+      setReviewing(undefined)
+      setReason('')
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSaving(false)
+    }
+  }
   const row = (task: ChannelTask) => (
     <li key={task.id} className={css.boardTaskCard} data-task-id={task.id} data-status={task.status} data-working={BOARD_TABS.find(tab => tab.initial)!.statuses.includes(task.status)}>
       <div className={css.boardTaskHeader}>
@@ -72,7 +90,15 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }: {
       <div className={css.taskLinks}>
         {task.assign_msg_id !== null && <button type="button" className={css.linkButton} onClick={() => { jump(task.room_id, task.assign_msg_id as number) }}>{t('taskOpenAssign')}</button>}
         {task.result_msg_id !== null && <button type="button" className={css.linkButton} onClick={() => { jump(task.room_id, task.result_msg_id as number) }}>{t('taskOpenResult')}</button>}
+        {onReview !== undefined && ['returned', 'declined', 'escalated'].includes(task.status) && <>
+          <button type="button" className={css.linkButton} disabled={saving} onClick={() => { void review(task.id, 'done') }}>{t('taskApprove')}</button>
+          <button type="button" className={css.linkButton} disabled={saving} onClick={() => { setReviewing(task.id); setReason(''); setError(undefined) }}>{t('taskSendBack')}</button>
+        </>}
       </div>
+      {reviewing === task.id && <form onSubmit={event => { event.preventDefault(); void review(task.id, 'rework') }}>
+        <label>{t('taskReviewReason')}<input value={reason} required onChange={event => { setReason(event.target.value) }} /></label>
+        <button type="submit" disabled={saving || !reason.trim()}>{t('taskReviewSubmit')}</button>
+      </form>}
     </li>
   )
   return (
@@ -86,7 +112,7 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }: {
         <section ref={dialog} className={`${css.dialog} ${css.taskBoardDialog}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={event => {
           if (event.key === 'Escape') { event.stopPropagation(); close() }
           if (event.key === 'Tab') {
-            const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not([tabindex="-1"]), [role="tabpanel"]'))
+            const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled):not([tabindex="-1"]), input:not(:disabled), [role="tabpanel"]'))
             const first = focusable[0]
             const last = focusable[focusable.length - 1]
             if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last?.focus() }
@@ -94,6 +120,7 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen }: {
           }
         }}>
           <h2 id={titleId} className={css.dialogTitle}>{t('taskBoard')} · {roomName}</h2>
+          {error !== undefined && <div role="alert">{error}</div>}
           <div className={css.taskBoardScope}>{t('taskBoardScope', { room: rooms.find(room => room.id === chatId)?.name ?? roomName, channel: String(channelTotal), workspaces: String(workspaceTotal) })}</div>
           <div className={css.boardTabs} role="tablist" aria-label={t('taskTabLabel')}>
             {BOARD_TABS.map((tab, index) => (

@@ -265,6 +265,7 @@ export interface ChannelSnapshot {
 
 /** Actions the panel can take; each returns once the service answered. */
 export interface ChannelActions {
+  reviewTask(id: number, verdict: 'done' | 'rework', note?: string): Promise<void>
   /** Show another room and load its recent messages. */
   selectRoom(roomId: number): Promise<void>
   /** Post one human message into the selected room, optionally replying to `replyTo`; rejects with the service's reason. */
@@ -756,6 +757,10 @@ export function createChannelSource(transport: ChannelTransport): {
   }
 
   const actions: ChannelActions = {
+    async reviewTask(id, verdict, note) {
+      const { task } = await request<{ task: ChannelTask }>(`collab/api/tasks/${id}/review`, json('POST', { verdict, note }))
+      set({ tasks: (snapshot.tasks ?? []).map(row => row.id === task.id ? task : row) })
+    },
     selectRoom,
     async send(text, replyTo, attachments) {
       const roomId = snapshot.roomId
