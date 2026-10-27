@@ -9,9 +9,13 @@ import (
 // Drive real engine turns, reset queuing, board files and parent forwarding;
 // only the external agent transport and platform transport are substituted.
 func TestWorkspaceMissingReportRecoversBeforeReset(t *testing.T) {
-	for _, platform := range []string{"discord", "cloud_web"} {
+	for _, tc := range []struct {
+		platform string
+		handoff  bool
+	}{{"discord", false}, {"cloud_web", false}, {"discord", true}} {
+		platform := tc.platform
 		for _, mode := range []string{"reset", "reset_waiting", "waiting", "done"} {
-			t.Run(platform+"/"+mode, func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/handoff=%t/%s", platform, tc.handoff, mode), func(t *testing.T) {
 				e, a, p := exitFixture(t, nil)
 				p.n = platform
 				key, parent := platform+":ws1", platform+":chat1"
@@ -27,6 +31,9 @@ func TestWorkspaceMissingReportRecoversBeforeReset(t *testing.T) {
 					t.Fatal(err)
 				}
 				row := func(status, done string) string {
+					if tc.handoff {
+						return fmt.Sprintf("{\"id\":666,\"what\":\"deliver draft\",\"who\":\"工作区1橘\",\"ch\":\"chat1\",\"status\":%q,\"done_at\":%q}\n", status, done)
+					}
 					return fmt.Sprintf("{\"id\":666,\"what\":\"deliver draft\",\"who\":\"工作区1橘\",\"sk\":%q,\"status\":%q,\"done_at\":%q}\n", key, status, done)
 				}
 				writeTaskBoard(t, dir, teamTaskBoardFile, row("在做", ""))
@@ -89,5 +96,41 @@ func TestWorkspaceOldWaitingItemDoesNotWake(t *testing.T) {
 	}
 	if len(p.sentTo("discord:chat1")) != 0 {
 		t.Fatal("unexpected parent message")
+	}
+}
+
+func TestWorkspaceReportLegacyHandoffOwnership(t *testing.T) {
+	e, _, _ := exitFixture(t, nil)
+	dir := t.TempDir()
+	e.SetTeam(dir, "橘", false)
+	teamWorkspaceStore.mu.Lock()
+	err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{
+		Parents: map[string][]TeamWorkspace{"discord:chat1": {{ID: "ws1", Name: "工作区1"}}},
+		Version: teamWorkspaceStateVersion,
+	})
+	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, fields string
+		want         bool
+	}{
+		{"legacy handoff", `"ch":"chat1","who":"工作区1橘"`, true},
+		{"other chat", `"ch":"chat2","who":"工作区1橘"`, false},
+		{"other workspace", `"ch":"chat1","who":"工作区2橘"`, false},
+		{"workspace name prefix", `"ch":"chat1","who":"工作区11橘"`, false},
+		{"other role", `"ch":"chat1","who":"工作区1鲸鱼娘"`, false},
+		{"parent role", `"ch":"chat1","who":"橘"`, false},
+		{"explicit session wins", `"ch":"chat1","who":"工作区1橘","sk":"discord:ws2"`, false},
+		{"explicit workspace wins", `"ch":"chat1","who":"工作区1橘","ws":"discord:ws2"`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writeTaskBoard(t, dir, teamTaskBoardFile, fmt.Sprintf("{\"id\":677,\"status\":\"等用户[看片]\",%s}\n", tc.fields))
+			_, got := e.workspaceReportBoard("discord:ws1")[677]
+			if got != tc.want {
+				t.Fatalf("workspace owns row = %t, want %t: %s", got, tc.want, tc.fields)
+			}
+		})
 	}
 }
