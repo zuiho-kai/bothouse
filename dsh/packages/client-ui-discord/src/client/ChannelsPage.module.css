@@ -29,11 +29,11 @@
   background: var(--dsw-alias-bg-layer-2);
 }
 
-/* Matches .chatHead so the sidebar's top rule continues the channel title rule. */
+/* Same rule as .chatHead, but inset so it visibly stops short of the pane seam. */
 .membersHead {
   flex: 0 0 auto;
   height: 44px;
-  margin: 0 -8px 8px;
+  margin: 0 8px 8px;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
 }
 
