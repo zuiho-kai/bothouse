@@ -906,6 +906,30 @@
   box-shadow: var(--dsw-elevation-panel, 0 12px 32px rgb(0 0 0 / 0.3));
 }
 
+.avatarCropStage {
+  padding: 20px;
+  background: rgb(0 0 0 / 0.65);
+}
+
+.avatarCropFrame {
+  position: relative;
+  width: min(256px, 100%);
+  aspect-ratio: 1;
+  margin: auto;
+  overflow: hidden;
+  outline: 2px solid white;
+  touch-action: none;
+  cursor: grab;
+}
+
+.avatarCropFrame:active { cursor: grabbing; }
+.avatarCropFrame img {
+  position: absolute;
+  max-width: none;
+  pointer-events: none;
+  user-select: none;
+}
+
 .dialogTitle {
   margin: 0;
   font-size: 16px;

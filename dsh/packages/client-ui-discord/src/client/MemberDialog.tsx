@@ -13,7 +13,8 @@ import type { NS } from './locales.ts'
 import { Avatar } from './Avatar.tsx'
 import { renamePersonaIdentity } from './persona.ts'
 import { AVATARS } from './avatars.ts'
-import { avatarPng, uploadAvatar } from './avatar-upload.ts'
+import { loadAvatar, uploadAvatar } from './avatar-upload.ts'
+import { AvatarCropDialog } from './AvatarCropDialog.tsx'
 import css from './ChannelsPage.module.css'
 
 /** Which member the dialog edits; absent member means "add". */
@@ -74,11 +75,20 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
   const [pendingPng, setPendingPng] = useState<string | undefined>()
   const [preview, setPreview] = useState<string | undefined>()
   const fileInput = useRef<HTMLInputElement>(null)
-  const changeAvatar = async (file?: File): Promise<void> => {
+  const [cropImage, setCropImage] = useState<HTMLImageElement>()
+  useEffect(() => () => { if (cropImage) URL.revokeObjectURL(cropImage.src) }, [cropImage])
+  const selectAvatar = async (file: File): Promise<void> => {
+    setBusy(true)
+    setError(undefined)
+    try { setCropImage(await loadAvatar(file)) } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setError(message === 'avatar-size' ? t('memberAvatarSizeError') : t('memberAvatarPngError'))
+    } finally { setBusy(false) }
+  }
+  const changeAvatar = async (png?: string): Promise<void> => {
     setBusy(true)
     setError(undefined)
     try {
-      const png = file ? await avatarPng(file) : undefined
       if (member) {
         const updated = await uploadAvatar(member.id, png)
         setAvatar(updated.avatar ?? '')
@@ -130,7 +140,7 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
 
   const submit = (event: FormEvent): void => {
     event.preventDefault()
-    if (busy) return
+    if (busy || cropImage) return
     const [provider, model] = modelKey === '' ? [] : modelKey.split(SEP)
     setBusy(true)
     setError(undefined)
@@ -189,10 +199,10 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
             ))}
           </span>
           {(preview || avatar.startsWith('upload:')) && <span>{preview ? <img src={preview} width={64} height={64} alt={t('memberAvatarCustom')} /> : <Avatar id={member?.id ?? 'new'} name={name} avatar={avatar} />}</span>}
-          <input ref={fileInput} type="file" accept="image/png" hidden aria-label={t('memberAvatarUpload')} onChange={event => {
+          <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" hidden aria-label={t('memberAvatarUpload')} onChange={event => {
             const file = event.target.files?.[0]
             event.target.value = ''
-            if (file) void changeAvatar(file)
+            if (file) void selectAvatar(file)
           }} />
           <button type="button" disabled={busy} className={css.secondaryButton} onClick={() => fileInput.current?.click()}>{t('memberAvatarUpload')}</button>
           {(preview || avatar.startsWith('upload:')) && <button type="button" disabled={busy} className={css.secondaryButton} onClick={() => { void changeAvatar() }}>{t('memberAvatarReset')}</button>}
@@ -267,6 +277,10 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
           <button type="submit" className={css.primaryButton} disabled={busy || name.trim() === '' || (type === 'cli' && cli === '')}>{t('save')}</button>
         </div>
       </form>
+      {cropImage && <AvatarCropDialog image={cropImage} t={t} onCancel={() => setCropImage(undefined)} onConfirm={png => {
+        setCropImage(undefined)
+        void changeAvatar(png)
+      }} />}
     </div>
   )
 }
