@@ -131,3 +131,29 @@ for (const [lang, dict] of [['zh', zh], ['en', en]] as const) {
     })
   })
 }
+
+it('offers explicit owner acceptance and requires a reason for rework', async () => {
+  const onReview = vi.fn().mockResolvedValue(undefined)
+  const t = ((key: keyof typeof zh) => zh[key]) as T
+  render(<TaskBoard tasks={[task(1, { status: 'returned' })]} rooms={rooms} chatId={1} roomId={1} t={t} onOpen={vi.fn()} onReview={onReview} />)
+  fireEvent.click(screen.getByRole('button', { name: zh.taskBoardOpen }))
+  fireEvent.click(screen.getByRole('tab', { name: `${zh.taskTabReview} 1` }))
+  fireEvent.click(screen.getByRole('button', { name: zh.taskApprove }))
+  await vi.waitFor(() => expect(onReview).toHaveBeenCalledWith(1, 'done', undefined))
+  await vi.waitFor(() => expect((screen.getByRole('button', { name: zh.taskSendBack }) as HTMLButtonElement).disabled).toBe(false))
+  fireEvent.click(screen.getByRole('button', { name: zh.taskSendBack }))
+  expect((screen.getByRole('button', { name: zh.taskReviewSubmit }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.change(screen.getByLabelText(zh.taskReviewReason), { target: { value: 'missing evidence' } })
+  fireEvent.click(screen.getByRole('button', { name: zh.taskReviewSubmit }))
+  await vi.waitFor(() => expect(onReview).toHaveBeenLastCalledWith(1, 'rework', 'missing evidence'))
+})
+
+it('keeps a rejected acceptance visible for retry', async () => {
+  const t = ((key: keyof typeof zh) => zh[key]) as T
+  render(<TaskBoard tasks={[task(1, { status: 'returned' })]} rooms={rooms} chatId={1} roomId={1} t={t} onOpen={vi.fn()} onReview={vi.fn().mockRejectedValue(new Error('permission denied'))} />)
+  fireEvent.click(screen.getByRole('button', { name: zh.taskBoardOpen }))
+  fireEvent.click(screen.getByRole('tab', { name: `${zh.taskTabReview} 1` }))
+  fireEvent.click(screen.getByRole('button', { name: zh.taskApprove }))
+  await vi.waitFor(() => expect(screen.getByRole('alert').textContent).toBe('permission denied'))
+  expect(screen.getByText('#1 Task 1')).toBeTruthy()
+})

@@ -277,7 +277,7 @@ export class Tasks {
    * `ref`/`base` (#574): an API dispatch passes ref (string, checked by hasRef) and, for a
    * multi-editor task, base; undefined ref (tasks opened from chat or bridge cards) skips the check.
    */
-  assign({ roomId, title, owner, actor, parentTask, messageId, reason, ref, base, force = false }) {
+  assign({ roomId, title, owner, actor, parentTask, reviewOf, messageId, reason, ref, base, force = false }) {
     const room = this.store.room(roomId);
     if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
     const text = String(title ?? '').trim();
@@ -285,6 +285,14 @@ export class Tasks {
     this.member(owner);
     if (!this.hub.membersInRoom(roomId).some(m => m.id === owner)) throw new CollabError('member-missing', `member ${owner} does not belong to room ${roomId}`);
     this.member(actor);
+    if (reviewOf != null) {
+      const original = this.mustTask(reviewOf);
+      if (actor !== original.created_by && actor !== HUMAN) throw new CollabError('forbidden', 'only the dispatcher or owner can delegate a review');
+      if (owner === original.owner) throw new CollabError('forbidden', 'the author cannot review their own task');
+      if (!REVIEWABLE.includes(original.status)) throw new CollabError('conflict', 'only a returned task can be delegated for review');
+      if (this.chatOf(original.room_id) !== this.chatOf(roomId)) throw new CollabError('forbidden', 'a review must stay in the task chat channel');
+      parentTask = original.id;
+    }
     if (parentTask != null && this.task(parentTask) === undefined) throw new CollabError('task-missing', `task ${parentTask} does not exist`);
     if (messageId != null && this.store.message(messageId) === undefined) throw new CollabError('invalid', `message ${messageId} does not exist`);
     if (ref !== undefined && !hasRef(ref)) throw new CollabError('invalid', `${MISSING_REF}。${REF_EXAMPLE}`);
@@ -300,6 +308,7 @@ export class Tasks {
     const refText = ref === undefined ? null : clip(ref);
     const baseText = ref === undefined ? null : clip(base);
     const task = this.q.add.get(roomId, parentTask ?? null, text, owner, actor, now + CHECK_AFTER_S, messageId ?? null, now, now, why, refText, baseText);
+    if (reviewOf != null) this.q.setSource.run('review', task.id);
     const refNote = `${refText ? `，参照：${refText}` : ''}${baseText ? `，底分支：${baseText}` : ''}`;
     const busyNote = busy.busy ? `（注：该成员在「${busy.roomName}」已有进行中任务 #${busy.task.id}）` : '';
     const record = this.record(task, 'assign', `派活 #${task.id}「${task.title}」→ ${this.nameOf(owner)}（${this.nameOf(actor)} 派）${why ? `，理由：${why}` : ''}${refNote}${busyNote ? ` ${busyNote}` : ''}`);
@@ -362,9 +371,12 @@ export class Tasks {
   }
 
   /** The lead (or the human owner) closes the task or sends it back for rework. */
-  review(id, { actor, verdict, note }) {
+  review(id, { actor, verdict, note, messageId }) {
     const task = this.mustTask(id);
-    if (actor !== task.created_by && actor !== HUMAN) throw new CollabError('forbidden', `only ${this.nameOf(task.created_by)} can review task ${id}`);
+    const reviews = this.db.prepare(`SELECT * FROM tasks WHERE parent_task = ? AND source = 'review'
+      AND status IN (${PLACEHOLDERS})`).all(id, ...WORKING);
+    const delegated = actor !== task.owner && reviews.some(r => r.owner === actor && r.paused_at == null);
+    if (actor !== task.created_by && actor !== HUMAN && !delegated) throw new CollabError('forbidden', `only ${this.nameOf(task.created_by)} or their delegated reviewer can review task ${id}`);
     if (!REVIEWABLE.includes(task.status)) throw new CollabError('conflict', `task ${id} is ${STATUS[task.status]}, nothing to review`);
     if (verdict !== 'done' && verdict !== 'rework') throw new CollabError('invalid', 'verdict must be done or rework');
     // #574: a send-back always says why (same rule as board done: rework count > 0 needs a reason).
@@ -374,6 +386,14 @@ export class Tasks {
     const reclaim = verdict === 'rework' && this.reworkClaim(task);
     const row = this.q.set.get(verdict, check, clip(note) ?? task.note, this.now(), 0, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
+    for (const review of reviews) {
+      this.db.prepare(`UPDATE tasks SET status = 'done', next_check_at = NULL, remind_msg_id = NULL,
+        paused_at = NULL, result_msg_id = ?, returned_at = ?, updated_at = ? WHERE id = ?`)
+        .run(messageId ?? null, this.now(), this.now(), review.id);
+      this.record(this.task(review.id), 'done', `#${review.id} 验收 #${id} 已结束：${verdict === 'done' ? '通过' : '返工'}`);
+      this.changed(review.id);
+      this.releaseIfDone(review.room_id);
+    }
     if (verdict === 'rework') this.q.resetRenewals.run(id);
     const tail = clip(note) ? `：${clip(note)}` : '';
     // A workspace task sent back: its owner is woken there on the record (nobody routes it there
@@ -383,7 +403,7 @@ export class Tasks {
       ? `#${id}「${row.title}」验收完成（${this.nameOf(actor)}）`
       : `${reclaim ? `@${this.nameOf(row.owner)} ` : ''}#${id}「${row.title}」返工 → ${this.nameOf(row.owner)}（${this.nameOf(actor)}）${tail}${how}`);
     if (verdict === 'done') this.releaseIfDone(row.room_id);
-    if (reclaim) this.wake(row.owner, record);
+    if (reclaim || (delegated && verdict === 'rework')) this.wake(row.owner, record);
     return this.changed(id);
   }
 
@@ -423,7 +443,9 @@ export class Tasks {
     }
     const optional = v => (v == null || v === '' ? undefined : Number(v));
     switch (action) {
-      case 'assign': return this.assign({ roomId, title: body.title, owner: String(body.owner ?? ''), actor, parentTask: optional(body.parent_task), messageId: optional(body.message_id), reason: body.reason, ref: String(body.ref ?? ''), base: body.base, force: Boolean(body.force) });
+      case 'assign':
+        if (body.review_of != null && !verified) throw new CollabError('forbidden', 'delegating review needs a verified sender');
+        return this.assign({ roomId, title: body.title, owner: String(body.owner ?? ''), actor, parentTask: optional(body.parent_task), reviewOf: optional(body.review_of), messageId: optional(body.message_id), reason: body.reason, ref: String(body.ref ?? ''), base: body.base, force: Boolean(body.force) });
       case 'stance': return this.stance(id, { actor, stance: String(body.stance ?? ''), note: body.note });
       case 'return': return this.handBack(id, { actor, messageId: optional(body.message_id) });
       case 'review': return this.review(id, { actor, verdict: String(body.verdict ?? ''), note: body.note });
@@ -434,7 +456,7 @@ export class Tasks {
   /** A member reply whose first line is 【接】【问】【退】【升】 (optionally #id) answers its task. */
   fromMessage(msg) {
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
-    this.verdictsOf(msg);
+    if (this.verdictsOf(msg)) return undefined;
     this.settleCall(msg);
     const stance = this.stanceOf(msg);
     const dsh = this.hub.members.get(msg.author)?.kind === 'dsh';
@@ -449,13 +471,13 @@ export class Tasks {
       // A stance line naming #id speaks for that task only (gone or done: nothing to hand back).
       const named = STANCE_LINE.exec(withoutLeadingMentions(String(msg.text), this.hub.routable()).split('\n', 1)[0])?.[2] !== undefined;
       const task = stance ?? (named ? undefined : this.openOf(msg.room_id, msg.author));
-      if (mark?.kind === 'report' && (stance === undefined || stance.status === 'accepted') && task !== undefined && WORKING.includes(task.status)) {
+      if (mark?.kind === 'report' && (stance === undefined || stance.status === 'accepted') && task !== undefined && task.source !== 'review' && WORKING.includes(task.status)) {
         // #597 G37: the hand-back does not end it: a lead's [report] @-ing a teammate dispatches too.
         const handed = this.handBack(task.id, { actor: msg.author, messageId: msg.id });
         this.fromChat(msg, { handBack: false });
         return handed;
       }
-    } else if (stance?.status === 'accepted' && dsh) {
+    } else if (stance?.status === 'accepted' && this.task(stance.id).source !== 'review' && dsh) {
       // In a chat channel a DSH member's 【接】 is still its delivery (no [report] convention there).
       // A bridge bot may keep working after its 【接】, so its stance stays a stance.
       return this.handBack(stance.id, { actor: msg.author, messageId: msg.id });
@@ -475,17 +497,21 @@ export class Tasks {
    * else the dispatcher says (a reply to someone else, a send-back without the line) changes nothing.
    */
   verdictsOf(msg) {
-    if (!this.tree || this.store.room(msg.room_id)?.kind === 'workspace') return;
+    let applied = false;
     for (const [, word, id, note] of String(msg.text).matchAll(VERDICT_LINE)) {
       const task = this.task(Number(id));
-      if (task === undefined || task.created_by !== msg.author || task.room_id === msg.room_id
-          || this.store.room(task.room_id)?.kind !== 'workspace' || this.chatOf(task.room_id) !== msg.room_id) continue;
+      if (task === undefined || this.chatOf(task.room_id) !== this.chatOf(msg.room_id)) continue;
+      // Dispatchers review in the chat channel; delegated reviewers may work in their review workspace.
+      if (this.inWorkspace(msg.room_id) && !this.db.prepare(`SELECT id FROM tasks WHERE parent_task = ?
+          AND source = 'review' AND room_id = ? AND owner = ? AND ${LIVE}`).get(task.id, msg.room_id, msg.author, ...WORKING)) continue;
       try {
-        this.review(task.id, { actor: msg.author, verdict: word === '验收' ? 'done' : 'rework', note: word === '返工' ? note.trim() : undefined });
+        this.review(task.id, { actor: msg.author, verdict: word === '验收' ? 'done' : 'rework', note: word === '返工' ? note.trim() : undefined, messageId: msg.id });
+        applied = true;
       } catch (error) {
         this.hub.logger?.warn?.('collab: %s #%s from %s refused: %s', word, id, msg.author, error?.message ?? error);
       }
     }
+    return applied;
   }
 
   /**
@@ -550,9 +576,14 @@ export class Tasks {
     const team = this.hub.routableIn(msg.room_id);
     const text = String(msg.text);
     if (lead !== undefined && msg.author === lead.id) {
+      const reviewIds = new Set([...text.matchAll(/【(?:验收|返工)】[ \t]*#(\d+)/g)].map(m => Number(m[1])));
+      const reviewOf = reviewIds.size === 1 ? this.task([...reviewIds][0]) : undefined;
+      const reviewing = reviewOf?.created_by === lead.id && REVIEWABLE.includes(reviewOf.status)
+        && this.chatOf(reviewOf.room_id) === this.chatOf(msg.room_id) ? reviewOf : undefined;
       // Its next message after a chat-side hand-back accepts it. Workspace tasks need its explicit
       // 【验收】#id / 【返工】#id line (verdictsOf): it may be answering something else meanwhile.
       for (const t of this.q.returnedChat.all(msg.room_id, lead.id)) {
+        if (t.id === reviewing?.id || this.db.prepare(`SELECT id FROM tasks WHERE parent_task = ? AND source = 'review' AND status IN (${PLACEHOLDERS})`).get(t.id, ...WORKING)) continue;
         try { this.review(t.id, { actor: lead.id, verdict: 'done' }); } catch { /* changed meanwhile */ }
       }
       const explicit = mentions(text, team);
@@ -563,6 +594,10 @@ export class Tasks {
       const title = taskTitle(text, team);
       if (!title) return undefined;
       for (const owner of called) {
+        if (reviewing !== undefined) {
+          this.openFromChat({ roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, source: 'review', reviewOf: reviewing.id });
+          continue;
+        }
         // #597 r12: structure, not wording. Once the owner's newest task here is handed back or
         // accepted, a bare name may be talk about the delivery (praise) or a send-back: the task
         // opens only when her next message here opens with a stance line (settleCall). An explicit
@@ -583,7 +618,7 @@ export class Tasks {
     const callsLead = lead !== undefined && (mentions(text, team).has(lead.id) || nameCalled(text, lead.name, team.map(m => m.name)));
     if (!callsLead) return undefined;
     const open = this.q.openChat.get(msg.room_id, msg.author, lead.id, ...WORKING);
-    if (open === undefined) return undefined;
+    if (open === undefined || open.source === 'review') return undefined;
     return this.handBack(open.id, { actor: msg.author, messageId: msg.id });
   }
 
@@ -612,11 +647,11 @@ export class Tasks {
    * Open a chat-side task unless the owner already has one open from this lead in this room, or one
    * the lead handed to a workspace under it (the lead's later @ just tells the owner about it).
    */
-  openFromChat({ roomId, owner, lead, title, messageId, source }) {
+  openFromChat({ roomId, owner, lead, title, messageId, source, reviewOf }) {
     if (!this.hub.members.has(owner) || this.q.openChat.get(roomId, owner, lead, ...WORKING) !== undefined) return undefined;
     if (this.q.openHanded?.get(owner, lead, ...WORKING, roomId) !== undefined) return undefined;
     // force: the channel already dispatched it; the board records it even if the owner is busy elsewhere.
-    const task = this.assign({ roomId, title, owner, actor: lead, messageId, force: true });
+    const task = this.assign({ roomId, title, owner, actor: lead, messageId, reviewOf, force: true });
     this.q.setSource.run(source, task.id);
     return task;
   }
@@ -646,7 +681,7 @@ export class Tasks {
         // Keep `done` for cards produced by older task-card implementations.
         } else if (['result', 'completed', 'done', 'failed', 'cancelled', 'interrupted'].includes(status)) {
           const open = this.q.openChat.get(roomId, owner.id, lead, ...WORKING);
-          if (open !== undefined) this.handBack(open.id, { actor: owner.id, messageId });
+          if (open !== undefined && open.source !== 'review') this.handBack(open.id, { actor: owner.id, messageId });
         }
       } catch (error) {
         this.hub.logger?.warn?.('collab: task card sync failed: %s', error?.message ?? error);
