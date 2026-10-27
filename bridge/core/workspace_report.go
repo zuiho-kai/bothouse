@@ -3,7 +3,6 @@ package core
 import (
 	"fmt"
 	"log/slog"
-	"strings"
 )
 
 // Per-turn board snapshots distinguish a new completion from an older item
@@ -22,7 +21,7 @@ func (e *Engine) workspaceReportBoard(key string) map[int]string {
 		return out
 	}
 	items := append(readTeamTaskBoard(e.team.dir), readTeamTaskBoardFile(e.team.dir, teamTaskBoardDoneFile)...)
-	for _, it := range items {
+	for _, it := range placeTeamTaskBoard(e.teamTaskBoardPlacer(), items) {
 		owner := it.WS
 		if owner == "" {
 			owner = it.SK
@@ -45,8 +44,10 @@ func (e *Engine) workspaceReportBoard(key string) map[int]string {
 }
 
 func (e *Engine) beginWorkspaceReportTurn(key string) {
-	if _, ok := e.workspaceParent(sessionChannel(key)); !ok {
-		return
+	if _, ok := e.workspaceParent(teamChatKey(key)); !ok {
+		if _, ok := e.workspaceParent(sessionChannel(key)); !ok {
+			return
+		}
 	}
 	board := e.workspaceReportBoard(key)
 	e.pendingResetMu.Lock()
