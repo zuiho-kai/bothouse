@@ -150,6 +150,9 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 		var picked *teamTaskBoardItem
 		for i := range items {
 			it := &items[i]
+			if taskID != 0 && taskID != it.ID {
+				continue
+			}
 			if it.own != key || it.wsEnded || it.Paused != "" && !teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
 				continue
 			}

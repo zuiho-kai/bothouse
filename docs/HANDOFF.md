@@ -1,5 +1,12 @@
 # Development handoff
 
+## 2026-10-27: direct acceptance wakeups
+
+- A terminal reply beginning with `【接】` also registers unfinished work accepted directly in chat. Existing handoff/d10 watches retain ownership; a chat acceptance without one uses the same one-shot callbacks.
+- A fresh acceptance takes precedence over a stale waiting-user task-card or board status, including when a human has replied since the earlier acceptance. Explicit reports and validated questions still stop wakeups.
+- Before sending a wakeup, inspect the role's native background tasks and live child tasks. Their completion events resume terminal-event handling.
+- Validation for this follow-up is compilation only, as requested.
+
 ## 2026-10-26: event-driven idle assignment wakeups
 
 - Branch: `ws3/watch-idle-wake-1026`, based on `oss/develop` at `969710b1`.
