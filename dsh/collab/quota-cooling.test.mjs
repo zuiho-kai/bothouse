@@ -9,10 +9,12 @@ import { Tasks } from './tasks.mjs';
 import { QuotaCooling, quotaDeadline } from './quota-cooling.mjs';
 
 const start = Date.parse('2026-10-27T13:00:00Z');
-test('quota deadline: below 5%, real reset durations and provider-local clocks', () => {
-  const usage = used => ({ usage: { buckets: [{ windows: [{ windowSeconds: 18000, usedPercent: used, resetAfterSeconds: 3600 }] }] } });
+test('quota deadline: only a reported limit, real reset durations and provider-local clocks', () => {
+  const usage = (used, limitReached = false) => ({ usage: { buckets: [{ limitReached, windows: [{ windowSeconds: 18000, usedPercent: used, resetAfterSeconds: 3600 }] }] } });
+  // A window near its limit still has usable quota; switching early throws it away.
   assert.equal(quotaDeadline(usage(95), start), undefined);
-  assert.equal(quotaDeadline(usage(96), start), start + 3600000);
+  assert.equal(quotaDeadline(usage(99), start), undefined);
+  assert.equal(quotaDeadline(usage(100), start), start + 3600000);
   assert.equal(quotaDeadline({ error: 'RESOURCE_EXHAUSTED quota. Resets in 83h59m53s.' }, start), start + 302393000);
   assert.equal(quotaDeadline({ error: "You've hit your limit · resets 9:30pm (Asia/Tokyo)" }, start), Date.parse('2026-10-28T12:30:00Z'));
   assert.equal(quotaDeadline({ metadata: { quota_exhausted: 'Oct 30, 2pm (Asia/Tokyo)' } }, start), Date.parse('2026-10-30T05:00:00Z'));
