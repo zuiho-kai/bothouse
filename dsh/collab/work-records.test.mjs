@@ -33,6 +33,13 @@ function setup(t) {
   return { store, hub, tasks, call, deliver };
 }
 
+test('records: invalid record creation rolls back workspace allocation', t => {
+  const { store } = setup(t);
+  assert.throws(() => store.createWorkspace(1, { record: { title: '', owner: 'dev' } }), { code: 'invalid' });
+  assert.equal(store.rooms().filter(room => room.kind === 'workspace').length, 0);
+  assert.equal(store.workRecords(1).length, 0);
+});
+
 test('records: dispatch persists requirement, round, handoff, task and evidence attribution', async t => {
   const { store, hub, tasks, call, deliver } = setup(t);
   const { record, round, workspace, task } = await call({ title: 'build', requirement: 'original request', owner: 'dev' });
