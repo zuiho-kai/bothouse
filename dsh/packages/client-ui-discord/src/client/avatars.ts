@@ -11,6 +11,7 @@ export const AVATARS = ['orange', 'whale', 'dragon', 'rainbow', 'lanxi'] as cons
  */
 export function avatarSrc(avatar: string | undefined): string | undefined {
   if (avatar === undefined || avatar === '') return undefined
+  if (/^upload:[a-z0-9-]+\.png$/.test(avatar)) return `collab/avatars/uploads/${avatar.slice(7)}`
   if (/^https?:\/\//.test(avatar)) return avatar
   return (AVATARS as readonly string[]).includes(avatar) ? `collab/avatars/${avatar}.png` : undefined
 }

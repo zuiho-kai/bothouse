@@ -128,13 +128,13 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   return (
     <div className={classes} data-message-id={message.id}>
       {member === undefined || message.author_kind === 'system'
-        ? <Avatar id={message.author} name={message.name} avatar={member?.avatar} />
+        ? <Avatar id={message.author} name={message.name} avatar={member?.avatar} avatarVersion={member?.avatarVersion} />
         : (
             // Avatar opens this author's member menu; `data-avatar-menu` marks the
             // area an outside press must not land in to keep the menu open.
             <span className={css.avatarAnchor} data-avatar-menu onKeyDown={(event) => { if (event.key === 'Escape') onCloseMenu() }}>
               <button type="button" className={css.avatarButton} aria-label={t('memberMenu', { name: member.name })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={onAvatar}>
-                <Avatar id={member.id} name={message.name} avatar={member.avatar} />
+                <Avatar id={member.id} name={message.name} avatar={member.avatar} avatarVersion={member.avatarVersion} />
               </button>
               {menuOpen && (
                 <div className={css.avatarMenu} role="menu" aria-label={t('memberMenu', { name: member.name })}>
@@ -246,7 +246,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
             onClick={() => { onPick(m) }}
           >
             <span className={css.memberAvatar}>
-              <Avatar id={m.id} name={m.name} avatar={m.avatar} small />
+              <Avatar id={m.id} name={m.name} avatar={m.avatar} avatarVersion={m.avatarVersion} small />
               <span className={m.error ? `${css.presence} ${css.errorPresence}` : css.presence} />
             </span>
             <span className={css.memberText}>
@@ -276,7 +276,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
   const [editing, setEditing] = useState<{ id: number; text: string } | undefined>(undefined)
@@ -330,6 +330,11 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
   const [modeError, setModeError] = useState<string | undefined>(undefined)
   const [leadSaving, setLeadSaving] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [directory, setDirectory] = useState('')
+  const [directorySaving, setDirectorySaving] = useState(false)
+  const [directoryError, setDirectoryError] = useState<string>()
+  const [renewPending, setRenewPending] = useState<number>()
+  const [renewing, setRenewing] = useState(false)
   const settingsRef = useRef<HTMLElement>(null)
   const settingsButtonRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -518,10 +523,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
   }
 
   const changeLead = (id: string): void => {
-    if (!id || id === state.leadId || leadSaving) return
+    if (!id || id === room?.effective_lead_id || leadSaving || state.roomId === undefined) return
     setMemberError(undefined)
     setLeadSaving(true)
-    setLead(id).catch((error: unknown) => {
+    setLead(id, state.roomId).catch((error: unknown) => {
       setMemberError(error instanceof Error ? error.message : String(error))
     }).finally(() => { setLeadSaving(false) })
   }
@@ -742,7 +747,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
                     onClick={() => { choose(m) }}
                   >
                     <span className={css.memberAvatar}>
-                      <Avatar id={m.id} name={m.name} avatar={m.avatar} small />
+                      <Avatar id={m.id} name={m.name} avatar={m.avatar} avatarVersion={m.avatarVersion} small />
                       {m.online && <span className={m.error ? `${css.presence} ${css.errorPresence}` : css.presence} />}
                     </span>
                     <span className={css.mentionName}>{m.name}</span>
@@ -834,14 +839,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
         </div>
       </section>
       <aside className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}>
-        <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} />
-        <hr className={css.settingsDivider} />
-        <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { setDrawer(undefined); setChannelName(room?.name ?? ''); setNameError(undefined); setSettingsOpen(true) }}>
+        <div className={css.membersHead} aria-hidden="true" />
+        <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { setDrawer(undefined); setChannelName(room?.name ?? ''); setNameError(undefined); setDirectory(room?.workspace_path ?? ''); setDirectoryError(undefined); setRenewPending(undefined); setSettingsOpen(true) }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9.5 3-.7 2.3-2 .9-2.2-.6-2.5 4.3 1.6 1.7v2.3l-1.6 1.7 2.5 4.3 2.2-.6 2 .9.7 2.3h5l.7-2.3 2-.9 2.2.6 2.5-4.3-1.6-1.7v-2.3l1.6-1.7-2.5-4.3-2.2.6-2-.9L14.5 3Z" /><circle cx="12" cy="12.75" r="3" /></svg>
           {t('channelSettings')}
         </button>
+        <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} />
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
+        <hr className={css.memberListDivider} />
         <MemberGroup title={t('agents', { count: String(visibleMembers.filter(m => m.kind !== 'human').length) })} members={visibleMembers.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
         <MemberGroup title={t('humans', { count: String(visibleMembers.filter(m => m.kind === 'human').length) })} members={visibleMembers.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
       </aside>
@@ -867,12 +873,38 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
           </fieldset>
           {modeError !== undefined && <div role="alert">{modeError}</div>}
           <label className={css.field}>{t('channelLead')}
-            <select className={css.fieldInput} aria-label={t('channelLead')} value={state.effectiveLeadId ?? state.leadId ?? ''} disabled={leadSaving} onChange={event => { changeLead(event.target.value) }}>
+            <select className={css.fieldInput} aria-label={t('channelLead')} value={room?.effective_lead_id === undefined ? state.effectiveLeadId ?? state.leadId ?? '' : room.effective_lead_id ?? ''} disabled={leadSaving} onChange={event => { changeLead(event.target.value) }}>
               <option value="" disabled>{t('leadNone')}</option>
               {visibleMembers.filter(m => m.kind !== 'human').map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </label>
           {memberError !== undefined && <div role="alert">{memberError}</div>}
+          <form onSubmit={event => {
+            event.preventDefault()
+            if (state.roomId === undefined || directorySaving) return
+            const id = state.roomId
+            setDirectorySaving(true); setDirectoryError(undefined)
+            setWorkspacePath(id, directory).then(() => { setRenewPending(id) }).catch((error: unknown) => {
+              setDirectoryError(error instanceof Error ? error.message : String(error))
+            }).finally(() => { setDirectorySaving(false) })
+          }}>
+            <label className={css.field}>{t('workingDirectory')}
+              <input className={css.fieldInput} aria-label={t('workingDirectory')} value={directory} disabled={directorySaving || renewing} onChange={event => { setDirectory(event.target.value) }} />
+            </label>
+            <p>{t('workingDirectoryHint')}</p>
+            <button type="submit" className={css.primaryButton} disabled={directorySaving || renewing || !directory || directory === room?.workspace_path}>{t('messageSave')}</button>
+          </form>
+          {renewPending !== undefined && <section role="alertdialog" aria-label={t('renewConfirm')}>
+            <p>{t('renewConfirm')}</p>
+            <button type="button" className={css.primaryButton} disabled={renewing} onClick={() => {
+              setRenewing(true); setDirectoryError(undefined)
+              renewRoom(renewPending).then(() => { setRenewPending(undefined) }).catch((error: unknown) => {
+                setDirectoryError(error instanceof Error ? error.message : String(error))
+              }).finally(() => { setRenewing(false) })
+            }}>{t('renewNow')}</button>
+            <button type="button" className={css.secondaryButton} disabled={renewing} onClick={() => { setRenewPending(undefined) }}>{t('renewLater')}</button>
+          </section>}
+          {directoryError !== undefined && <div role="alert">{directoryError}</div>}
           <form onSubmit={event => { event.preventDefault(); saveName() }}>
             <label className={css.field}>{t('channelName')}
               <input className={css.fieldInput} aria-label={t('channelName')} value={channelName} disabled={nameSaving || room?.kind === 'workspace'} onChange={event => { setChannelName(event.target.value) }} onKeyDown={event => { if (event.key === 'Enter' && isImeEnter(event)) event.preventDefault() }} />

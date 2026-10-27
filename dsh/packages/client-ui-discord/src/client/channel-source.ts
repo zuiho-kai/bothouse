@@ -94,11 +94,13 @@ export interface ChannelMember {
   /** DSH members only: created in the UI (editable) rather than the config file. */
   readonly editable?: boolean
   /** Built-in avatar slug or a bot's http(s) image URL; absent means the initial badge. */
+  readonly avatarVersion?: string
   readonly avatar?: string
 }
 
 /** Fields the UI can set on a DSH member. */
 export interface DshMemberInput {
+  readonly avatarPng?: string
   readonly rooms?: readonly number[]
   readonly name: string
   readonly model: MemberModel | null
@@ -110,6 +112,7 @@ export interface DshMemberInput {
 
 /** A member backed by a CLI agent installed on this machine (Claude Code, Codex, Gemini). */
 export interface CliMemberInput {
+  readonly avatarPng?: string
   readonly rooms?: readonly number[]
   readonly name: string
   readonly nameCustomized?: boolean
@@ -147,6 +150,9 @@ export interface ModelRoute {
 export type DispatchMode = 'solo' | 'team' | 'mixed'
 
 export interface ChannelRoom {
+  readonly lead_id?: string | null
+  readonly effective_lead_id?: string | null
+  readonly workspace_path?: string
   readonly dispatch_mode?: DispatchMode
   readonly dispatch_explicit?: boolean
   readonly id: number
@@ -284,7 +290,9 @@ export interface ChannelActions {
   removeMember(id: string): Promise<void>
   /** Select the member that owns the primary-role slot for this collab service. */
   setDispatchMode(roomId: number, mode: DispatchMode): Promise<void>
-  setLead(id: string): Promise<void>
+  setLead(id: string, roomId?: number): Promise<void>
+  setWorkspacePath(roomId: number, path: string): Promise<void>
+  renewRoom(roomId: number): Promise<void>
   /** Answer a bot's permission prompt (#120); rejects with the service's reason (already decided, expired, offline). */
   decidePermission(messageId: number, decision: PermissionDecision): Promise<void>
   /** Page further back in the selected room; resolves with how many rows arrived. */
@@ -323,6 +331,7 @@ type ServiceEvent =
   | { readonly type: 'members'; readonly members: readonly ChannelMember[] }
   | { readonly type: 'thinking'; readonly room_id: number; readonly members: readonly string[] }
   | { readonly type: 'rooms'; readonly rooms: readonly ChannelRoom[] }
+  | { readonly type: 'room-settings'; readonly room_id: number; readonly lead_id: string | null; readonly effective_lead_id: string | null; readonly workspace_path: string }
   | { readonly type: 'task'; readonly task: ChannelTask; readonly chat_id: number }
   | { readonly type: 'lead'; readonly lead_id: string | null; readonly effective_lead_id?: string | null }
 
@@ -455,7 +464,8 @@ export function createChannelSource(transport: ChannelTransport): {
           : current
       case 'members': return { ...current, members: event.members }
       case 'thinking': return { ...current, thinking: { ...current.thinking, [String(event.room_id)]: event.members } }
-      case 'rooms': return { ...current, rooms: event.rooms }
+      case 'rooms': return { ...current, rooms: event.rooms.map(r => ({ ...current.rooms.find(old => old.id === r.id), ...r })) }
+      case 'room-settings': return { ...current, rooms: current.rooms.map(r => r.id === event.room_id || r.parent_id === event.room_id ? { ...r, lead_id: event.lead_id, effective_lead_id: event.effective_lead_id, workspace_path: event.workspace_path } : r) }
       case 'lead': return { ...current, leadId: event.lead_id, effectiveLeadId: event.effective_lead_id ?? event.lead_id }
       case 'task': {
         if (current.taskChat === undefined) {
@@ -790,7 +800,15 @@ export function createChannelSource(transport: ChannelTransport): {
       if (roomId === undefined) throw new Error('No channel is open')
       const selected = snapshot.rooms.find(r => r.id === roomId)
       const chatId = selected?.parent_id ?? roomId
-      await request('collab/api/members', json('POST', { ...input, rooms: [chatId] }))
+      const { avatarPng, ...fields } = input
+      const { member } = await request<{ member: ChannelMember }>('collab/api/members', json('POST', { ...fields, rooms: [chatId] }))
+      if (avatarPng) {
+        try { await request(`collab/api/members/${encodeURIComponent(member.id)}/avatar`, json('POST', { png: avatarPng })) }
+        catch (error) {
+          await request(`collab/api/members/${encodeURIComponent(member.id)}`, { method: 'DELETE' })
+          throw error
+        }
+      }
     },
     async updateMember(id, input) {
       await request(`collab/api/members/${encodeURIComponent(id)}`, json('PATCH', input))
@@ -804,9 +822,19 @@ export function createChannelSource(transport: ChannelTransport): {
       const chatId = selected?.parent_id ?? roomId
       set({ rooms: snapshot.rooms.map(r => r.id === chatId || r.parent_id === chatId ? { ...r, ...result } : r) })
     },
-    async setLead(id) {
-      const result = await request<{ lead_id: string; effective_lead_id?: string | null }>('collab/api/lead', json('PATCH', { lead_id: id }))
-      if (lifetime !== undefined) onEvent({ type: 'lead', lead_id: result.lead_id, effective_lead_id: result.effective_lead_id })
+    async setLead(id, roomId = snapshot.roomId) {
+      if (roomId === undefined) throw new Error('No channel is open')
+      const result = await request<{ lead_id: string | null; effective_lead_id: string | null; workspace_path: string }>(`collab/api/rooms/${roomId}/settings`, json('PATCH', { lead_id: id }))
+      const chat = snapshot.rooms.find(r => r.id === roomId)?.parent_id ?? roomId
+      if (lifetime !== undefined) onEvent({ type: 'room-settings', room_id: chat, ...result })
+    },
+    async setWorkspacePath(roomId, path) {
+      const result = await request<{ lead_id: string | null; effective_lead_id: string | null; workspace_path: string }>(`collab/api/rooms/${roomId}/settings`, json('PATCH', { workspace_path: path }))
+      const chat = snapshot.rooms.find(r => r.id === roomId)?.parent_id ?? roomId
+      if (lifetime !== undefined) onEvent({ type: 'room-settings', room_id: chat, ...result })
+    },
+    async renewRoom(roomId) {
+      await request(`collab/api/rooms/${roomId}/renew`, json('POST', {}))
     },
     async decidePermission(messageId, decision) {
       const owner = lifetime

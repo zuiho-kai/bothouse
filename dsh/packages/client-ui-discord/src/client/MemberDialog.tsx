@@ -6,13 +6,15 @@
  * injected action; the host's refusal (name taken, model unavailable) is shown
  * inline and the form keeps its values.
  */
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChannelMember, LocalCli, MemberInput, MemberPersona, ModelRoute, PermissionPreset } from './channel-source.ts'
 import type { NS } from './locales.ts'
 import { Avatar } from './Avatar.tsx'
 import { renamePersonaIdentity } from './persona.ts'
 import { AVATARS } from './avatars.ts'
+import { loadAvatar, uploadAvatar } from './avatar-upload.ts'
+import { AvatarCropDialog } from './AvatarCropDialog.tsx'
 import css from './ChannelsPage.module.css'
 
 /** Which member the dialog edits; absent member means "add". */
@@ -69,7 +71,34 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
   const [clis, setClis] = useState<readonly LocalCli[] | undefined>(undefined)
   const [cli, setCli] = useState<string>(member?.cli ?? '')
   const [preset, setPreset] = useState<PermissionPreset>(member?.permissionPreset ?? DEFAULT_PRESET)
-  const [avatar, setAvatar] = useState(member?.avatar !== undefined && (AVATARS as readonly string[]).includes(member.avatar) ? member.avatar : '')
+  const [avatar, setAvatar] = useState(member?.avatar ?? '')
+  const [pendingPng, setPendingPng] = useState<string | undefined>()
+  const [preview, setPreview] = useState<string | undefined>()
+  const fileInput = useRef<HTMLInputElement>(null)
+  const [cropImage, setCropImage] = useState<HTMLImageElement>()
+  useEffect(() => () => { if (cropImage) URL.revokeObjectURL(cropImage.src) }, [cropImage])
+  const selectAvatar = async (file: File): Promise<void> => {
+    setBusy(true)
+    setError(undefined)
+    try { setCropImage(await loadAvatar(file)) } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setError(message === 'avatar-size' ? t('memberAvatarSizeError') : t('memberAvatarPngError'))
+    } finally { setBusy(false) }
+  }
+  const changeAvatar = async (png?: string): Promise<void> => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      if (member) {
+        const updated = await uploadAvatar(member.id, png)
+        setAvatar(updated.avatar ?? '')
+      } else { setPendingPng(png); setAvatar('') }
+      setPreview(png ? `data:image/png;base64,${png}` : undefined)
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setError(message === 'avatar-png' ? t('memberAvatarPngError') : message === 'avatar-size' ? t('memberAvatarSizeError') : message === 'avatar-convert' ? t('memberAvatarConvertError') : message)
+    } finally { setBusy(false) }
+  }
 
   const backend = type === 'cli' ? CLI_CHOICES.find(c => c.cli === cli)?.label ?? '' : 'DSH'
   useEffect(() => {
@@ -111,14 +140,14 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
 
   const submit = (event: FormEvent): void => {
     event.preventDefault()
-    if (busy) return
+    if (busy || cropImage) return
     const [provider, model] = modelKey === '' ? [] : modelKey.split(SEP)
     setBusy(true)
     setError(undefined)
     const identity = nameCustomized === undefined ? {} : { nameCustomized }
     const input: MemberInput = type === 'cli'
-      ? { name: name.trim(), ...identity, persona, avatar, cli, permissionPreset: preset }
-      : { name: name.trim(), ...identity, persona, avatar, model: provider !== undefined && model !== undefined ? { provider, model } : null }
+      ? { name: name.trim(), ...identity, persona, avatar, ...(pendingPng ? { avatarPng: pendingPng } : {}), cli, permissionPreset: preset }
+      : { name: name.trim(), ...identity, persona, avatar, ...(pendingPng ? { avatarPng: pendingPng } : {}), model: provider !== undefined && model !== undefined ? { provider, model } : null }
     onSubmit(input).then(onClose).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : String(reason))
     }).finally(() => { setBusy(false) })
@@ -162,12 +191,22 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
                 aria-checked={avatar === slug}
                 className={css.avatarOption}
                 title={slug === '' ? t('memberAvatarNone') : slug}
-                onClick={() => { setAvatar(slug) }}
+                disabled={busy}
+                onClick={() => { setAvatar(slug); setPendingPng(undefined); setPreview(undefined) }}
               >
                 <Avatar id={member?.id ?? (name.trim() || 'new')} name={name.trim() || '?'} avatar={slug} />
               </button>
             ))}
           </span>
+          {(preview || avatar.startsWith('upload:')) && <span>{preview ? <img src={preview} width={64} height={64} alt={t('memberAvatarCustom')} /> : <Avatar id={member?.id ?? 'new'} name={name} avatar={avatar} />}</span>}
+          <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" hidden aria-label={t('memberAvatarUpload')} onChange={event => {
+            const file = event.target.files?.[0]
+            event.target.value = ''
+            if (file) void selectAvatar(file)
+          }} />
+          <button type="button" disabled={busy} className={css.secondaryButton} onClick={() => fileInput.current?.click()}>{t('memberAvatarUpload')}</button>
+          {(preview || avatar.startsWith('upload:')) && <button type="button" disabled={busy} className={css.secondaryButton} onClick={() => { void changeAvatar() }}>{t('memberAvatarReset')}</button>}
+          <span>{t('memberAvatarHint')}</span>
         </div>
         <label className={css.field}><span><input type="checkbox" checked={keepName} onChange={e => setKeepName(e.target.checked)} />{t('memberKeepName')}</span></label>
         <select className={css.fieldInput} aria-label={t('memberPersonaLibrary')} value={personaSlug} onChange={e => {
@@ -238,6 +277,10 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
           <button type="submit" className={css.primaryButton} disabled={busy || name.trim() === '' || (type === 'cli' && cli === '')}>{t('save')}</button>
         </div>
       </form>
+      {cropImage && <AvatarCropDialog image={cropImage} t={t} onCancel={() => setCropImage(undefined)} onConfirm={png => {
+        setCropImage(undefined)
+        void changeAvatar(png)
+      }} />}
     </div>
   )
 }
