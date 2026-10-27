@@ -53,6 +53,10 @@ func runWorkspace(args []string) {
 			printModelJSON(r)
 			return
 		}
+		if r.Queued {
+			fmt.Println(r.Message)
+			return
+		}
 		fmt.Printf("%s\t%s\n", r.Workspace.ID, r.Workspace.Name)
 	case "claim":
 		if fs.NArg() < 1 {

@@ -51,6 +51,27 @@ type TeamChannel struct {
 	Claim string
 }
 
+// ErrTeamWorkspaceQueued is an accepted allocation waiting for capacity, not a failure.
+// Callers must not retry creation: the gateway already owns the queued request.
+var ErrTeamWorkspaceQueued = errors.New("team workspace queued")
+
+// TeamWorkspaceQueue identifies an accepted request and its current queue position.
+// Zero Position means the gateway did not include queue details.
+type TeamWorkspaceQueue struct {
+	ID       int64  `json:"id,omitempty"`
+	Position int    `json:"position,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+// TeamWorkspaceQueued carries a normal queued outcome through the existing error-returning
+// platform interface. API callers receive HTTP 200 with queued=true instead of an error.
+type TeamWorkspaceQueued struct {
+	Queue *TeamWorkspaceQueue
+}
+
+func (q *TeamWorkspaceQueued) Error() string { return ErrTeamWorkspaceQueued.Error() }
+func (q *TeamWorkspaceQueued) Unwrap() error { return ErrTeamWorkspaceQueued }
+
 // ErrNotTeamChannel: the channel cannot have workspaces (DM, thread, voice, …).
 var ErrNotTeamChannel = errors.New("not a guild text channel")
 

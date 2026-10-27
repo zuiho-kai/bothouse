@@ -31,9 +31,12 @@ func (s *APIServer) teamWorkspaceEngine() *Engine {
 
 // TeamWorkspaceNewResult is the reply of POST /team/workspace/new.
 type TeamWorkspaceNewResult struct {
-	Parent    string          `json:"parent"`
-	Workspace TeamWorkspace   `json:"workspace"`
-	All       []TeamWorkspace `json:"all"`
+	Parent    string              `json:"parent"`
+	Workspace TeamWorkspace       `json:"workspace"`
+	All       []TeamWorkspace     `json:"all"`
+	Queued    bool                `json:"queued,omitempty"`
+	Queue     *TeamWorkspaceQueue `json:"queue,omitempty"`
+	Message   string              `json:"message,omitempty"`
 }
 
 func (s *APIServer) handleTeamWorkspaceNew(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +61,20 @@ func (s *APIServer) handleTeamWorkspaceNew(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	parent, ws, err := e.NewTeamWorkspace(req.SessionKey)
+	var queued *TeamWorkspaceQueued
+	if errors.As(err, &queued) {
+		message := e.i18n.T(MsgWorkspaceQueued)
+		if queued.Queue != nil {
+			if queued.Queue.Position > 0 {
+				message += e.i18n.Tf(MsgWorkspaceQueuePosition, queued.Queue.Position)
+			}
+			if queued.Queue.Reason != "" {
+				message += ": " + queued.Queue.Reason
+			}
+		}
+		apiJSON(w, http.StatusOK, TeamWorkspaceNewResult{Parent: parent, Queued: true, Queue: queued.Queue, Message: message, All: e.TeamWorkspacesOf(parent)})
+		return
+	}
 	if errors.Is(err, ErrTeamWorkspaceNotLeadChat) {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return

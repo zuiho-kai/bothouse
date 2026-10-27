@@ -710,7 +710,26 @@ const (
 	MsgQuotaCooling      MsgKey = "quota_cooling"
 )
 
+const (
+	MsgWorkspaceQueued        MsgKey = "workspace_queued"
+	MsgWorkspaceQueuePosition MsgKey = "workspace_queue_position"
+)
+
 var messages = map[MsgKey]map[Language]string{
+	MsgWorkspaceQueued: {
+		LangEnglish:            "Queued",
+		LangChinese:            "已排队",
+		LangTraditionalChinese: "已排隊",
+		LangJapanese:           "待機列に追加しました",
+		LangSpanish:            "En cola",
+	},
+	MsgWorkspaceQueuePosition: {
+		LangEnglish:            ", position %d",
+		LangChinese:            "，排队位置 %d",
+		LangTraditionalChinese: "，排隊位置 %d",
+		LangJapanese:           "、順番 %d",
+		LangSpanish:            ", posición %d",
+	},
 	MsgQuotaLeadRestored: {
 		LangEnglish:            "Quota recovered: %s is primary again.",
 		LangChinese:            "额度已恢复，主角色切回 %s。",

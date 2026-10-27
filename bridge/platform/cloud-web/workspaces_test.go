@@ -12,16 +12,17 @@ import (
 
 // workspaceGateway answers team_workspace frames like dsh/collab: rooms with a parent.
 type workspaceGateway struct {
-	mu      sync.Mutex
-	p       *Platform
-	caps    map[string]bool
-	unknown bool              // capabilities not told yet (not registered)
-	errOut  string            // ack error for every request when set
-	parent  map[string]string // room id → parent room id ("" = chat room)
-	names   map[string]string
-	active  map[string]int // tasks in progress per workspace (list)
-	frames  []map[string]any
-	next    int
+	mu        sync.Mutex
+	p         *Platform
+	caps      map[string]bool
+	unknown   bool              // capabilities not told yet (not registered)
+	errOut    string            // ack error for every request when set
+	parent    map[string]string // room id → parent room id ("" = chat room)
+	names     map[string]string
+	active    map[string]int // tasks in progress per workspace (list)
+	frames    []map[string]any
+	next      int
+	createAck map[string]any // exact create response, including queued and malformed responses
 }
 
 func (g *workspaceGateway) Start(context.Context, inboundHandler) error { return nil }
@@ -47,6 +48,10 @@ func (g *workspaceGateway) Send(_ context.Context, msg map[string]any) error {
 			}
 		}
 		ack["ok"], ack["self"], ack["rooms"] = true, map[string]string{"id": chat, "name": g.names[chat]}, rooms
+	case msg["op"] == "create" && g.createAck != nil:
+		for key, value := range g.createAck {
+			ack[key] = value
+		}
 	case msg["op"] == "create":
 		g.next++
 		id := "room-100000" + string(rune('0'+g.next))
@@ -89,6 +94,41 @@ func TestCloudWebTeamWorkspaceListAndCreate(t *testing.T) {
 	last := g.frames[len(g.frames)-1]
 	if last["type"] != typeTeamWorkspace || last["op"] != "create" || last["session_key"] != "cloud_web:room-2" || last["reply_ctx"] != "room-2" || last["name"] != "工作区2" {
 		t.Fatalf("create frame = %v", last)
+	}
+}
+
+func TestCloudWebTeamWorkspaceQueuedWithoutRoom(t *testing.T) {
+	for _, details := range []bool{false, true} {
+		p, g := newWorkspaceGateway(capTeamWorkspace)
+		g.createAck = map[string]any{"ok": true, "queued": true}
+		if details {
+			g.createAck["queue"] = map[string]any{"id": 42, "position": 2, "reason": "本频道工作区已达上限 3，等待空闲工位"}
+		}
+		c, err := p.CreateTeamWorkspaceChannel(context.Background(), "room-2", "工作区2")
+		var queued *core.TeamWorkspaceQueued
+		if !errors.Is(err, core.ErrTeamWorkspaceQueued) || !errors.As(err, &queued) || c.ID != "" {
+			t.Fatalf("queued response must be identifiable without no room failure: channel=%+v err=%v", c, err)
+		}
+		if details && (queued.Queue == nil || queued.Queue.ID != 42 || queued.Queue.Position != 2 || queued.Queue.Reason == "") {
+			t.Fatalf("queue details lost: %+v", queued.Queue)
+		}
+		if !details && queued.Queue != nil {
+			t.Fatalf("invented queue details: %+v", queued.Queue)
+		}
+	}
+}
+
+func TestCloudWebTeamWorkspaceCreateErrorPrecedesQueued(t *testing.T) {
+	p, g := newWorkspaceGateway(capTeamWorkspace)
+	g.createAck = map[string]any{"ok": false, "queued": true, "error": "forbidden"}
+	_, err := p.CreateTeamWorkspaceChannel(context.Background(), "room-2", "工作区2")
+	if !errors.Is(err, core.ErrTeamWorkspacePermanent) || errors.Is(err, core.ErrTeamWorkspaceQueued) {
+		t.Fatalf("ok:false must remain an error: %v", err)
+	}
+	g.createAck = map[string]any{"ok": true}
+	_, err = p.CreateTeamWorkspaceChannel(context.Background(), "room-2", "工作区2")
+	if err == nil || err.Error() != "cloud_web: team_workspace create: no room" {
+		t.Fatalf("missing room without queued must still fail: %v", err)
 	}
 }
 

@@ -313,6 +313,32 @@ func TestTeamWorkspacesLeadOnlyAndNewChannel(t *testing.T) {
 	}
 }
 
+func TestTeamWorkspaceAPIQueuedIsAcceptedWithoutSavingWorkspace(t *testing.T) {
+	g := newWorkspaceGuild()
+	g.createErr = fmt.Errorf("gateway: %w", &TeamWorkspaceQueued{Queue: &TeamWorkspaceQueue{ID: 42, Position: 2, Reason: "本频道工作区已达上限 3，等待空闲工位"}})
+	e := newWorkspaceLead(t, g, t.TempDir())
+	e.teamWS = newTeamWorkspaces()
+	e.i18n = NewI18n(LangChinese)
+	e.sessions.GetOrCreateActive("discord:100:u1")
+	s := &APIServer{engines: map[string]*Engine{"lead": e}}
+	rec := httptest.NewRecorder()
+	s.handleTeamWorkspaceNew(rec, httptest.NewRequest(http.MethodPost, "/team/workspace/new", strings.NewReader(`{"session_key":"discord:100:u1"}`)))
+	var result TeamWorkspaceNewResult
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &result) != nil || !result.Queued || result.Parent != "discord:100" {
+		t.Fatalf("queued must be successful: %d %s", rec.Code, rec.Body.String())
+	}
+	if result.Queue == nil || result.Queue.ID != 42 || result.Queue.Position != 2 || result.Message != "已排队，排队位置 2: 本频道工作区已达上限 3，等待空闲工位" {
+		t.Fatalf("queue feedback lost: %+v", result)
+	}
+	if result.Workspace.ID != "" || len(result.All) != 0 || len(e.TeamWorkspacesOf("discord:100")) != 0 || g.createCalls != 1 {
+		t.Fatalf("queued must not save a phantom workspace or retry: %+v calls=%d", result, g.createCalls)
+	}
+	g.createErr = nil
+	if _, ws, err := e.NewTeamWorkspace("discord:100:u1"); err != nil || ws.ID == "" {
+		t.Fatalf("queued must not mark channel permanently failed: %+v %v", ws, err)
+	}
+}
+
 func TestTeamWorkspaceAPI(t *testing.T) {
 	g := newWorkspaceGuild()
 	e := newWorkspaceLead(t, g, t.TempDir())

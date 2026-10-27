@@ -126,6 +126,9 @@ func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChatID,
 	if err != nil {
 		return core.TeamChannel{}, err
 	}
+	if ack.Queued {
+		return core.TeamChannel{}, &core.TeamWorkspaceQueued{Queue: ack.Queue}
+	}
 	if ack.Room == nil || ack.Room.ID == "" {
 		return core.TeamChannel{}, errors.New("cloud_web: team_workspace create: no room")
 	}
