@@ -41,6 +41,13 @@ export class Hub {
     return member !== undefined && member.kind !== 'human' ? member : undefined;
   }
 
+  /** Channel selection, inherited by workspaces; only unset channels use the legacy global choice. */
+  primaryIn(roomId) {
+    const id = this.store.leadId(roomId);
+    const member = id === null ? this.selectedPrimaryMember() : this.members.get(id);
+    return member && this.routableIn(roomId).some(m => m.id === member.id) ? member : undefined;
+  }
+
   /** UI-only fallback; callers that route messages must use selectedPrimaryMember(). */
   primaryMember() {
     const fallback = this.fallbackLead === '' ? undefined : this.members.get(this.fallbackLead);

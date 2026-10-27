@@ -6,7 +6,7 @@ import { personaLibrary } from './personas.mjs';
 //         name: /abs/path/dsh/collab/plugin.mjs
 //         config: { dataDir, workspacePath, leadFile?, fallbackLead?, botTokenEnv?, ownerName?, rooms?, dshMembers?, maxRelay? }
 import { createRequire } from 'node:module';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, CollabError, publicMessage } from './store.mjs';
@@ -206,7 +206,8 @@ export async function apply(ctx, rawConfig) {
     if (path === '/collab/api/state' && req.method === 'GET') {
       return json(res, 200, { me: OWNER, lead_id: hub.selectedPrimaryMember()?.id ?? null,
         effective_lead_id: hub.primaryMember()?.id ?? null,
-        rooms: store.roomsView().map(r => ({ ...r, dispatch_mode: store.dispatchMode(r.id) })), members: hub.memberView(),
+        rooms: store.roomsView().map(r => ({ ...r, lead_id: store.leadId(r.id), effective_lead_id: hub.primaryIn(r.id)?.id ?? null,
+          workspace_path: store.workspacePath(r.id, config.workspacePath) })), members: hub.memberView(),
         thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])) });
     }
     if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
@@ -255,6 +256,8 @@ export async function apply(ctx, rawConfig) {
         : store.page(roomId, before === null ? undefined : Number(before), url.searchParams.get('limit'));
       return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
     }
+    const settings = roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePath: config.workspacePath });
+    if (settings !== undefined) return settings;
     const renamed = renameRoomRoute(req, res, path, { store, hub, dsh });
     if (renamed !== undefined) return renamed;
     const mode = /^\/collab\/api\/rooms\/(\d+)\/mode$/.exec(path);
@@ -382,6 +385,40 @@ export async function apply(ctx, rawConfig) {
     streams.add(end);
     req.on('close', end);
   }
+}
+
+/** Owner-only channel settings; workspaces inherit their parent channel. */
+export function roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePath }) {
+  const match = /^\/collab\/api\/rooms\/(\d+)\/(settings|renew)$/.exec(path);
+  if (match === null) return undefined;
+  const roomId = Number(match[1]);
+  if (store.room(roomId) === undefined) return Promise.resolve(json(res, 404, { error: '频道不存在' }));
+  const view = () => ({ lead_id: store.leadId(roomId), effective_lead_id: hub.primaryIn(roomId)?.id ?? null,
+    workspace_path: store.workspacePath(roomId, workspacePath) });
+  if (match[2] === 'renew' && req.method === 'POST') {
+    return withBody(req, res, async () => ({ members: await dsh.renewRoom(roomId) }), false);
+  }
+  if (match[2] !== 'settings') return undefined;
+  if (req.method === 'GET') return Promise.resolve(json(res, 200, view()));
+  if (req.method !== 'PATCH') return undefined;
+  return withBody(req, res, body => {
+    if (body?.lead_id !== undefined && body.lead_id !== null && !hub.routableIn(roomId).some(m => m.id === body.lead_id)) {
+      throw new CollabError('invalid', '请选择本频道的主角色');
+    }
+    if (body?.workspace_path !== undefined) {
+      const path = body.workspace_path;
+      if (typeof path !== 'string' || !isAbsolute(path)) throw new CollabError('invalid', '工作目录必须是绝对路径');
+      let stat;
+      try { stat = statSync(path); } catch { throw new CollabError('invalid', '工作目录不存在或无法访问'); }
+      if (!stat.isDirectory()) throw new CollabError('invalid', '工作目录必须是目录，不能是文件');
+    }
+    store.transaction(() => {
+      if (body?.lead_id !== undefined) store.setLead(roomId, body.lead_id);
+      if (body?.workspace_path !== undefined) store.setWorkspacePath(roomId, body.workspace_path);
+    });
+    hub.emit({ type: 'room-settings', room_id: store.settingsRoom(roomId), ...view() });
+    return view();
+  });
 }
 
 /** Owner-only upload endpoint, also callable in isolated HTTP regressions. */
@@ -523,7 +560,7 @@ function ticketWorkspace(req, res, roomId, { store, hub, gateway, later, tasks, 
   const claims = later.verify(req.headers['x-later-ticket']);
   if (!claims) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
   if (claims.room !== roomId) return Promise.resolve(json(res, 403, { error: 'ticket is for another room' }));
-  if (hub.selectedPrimaryMember()?.id !== claims.member) return Promise.resolve(json(res, 403, { error: 'only the primary role opens workspaces' }));
+  if (hub.primaryIn(roomId)?.id !== claims.member) return Promise.resolve(json(res, 403, { error: 'only the primary role opens workspaces' }));
   return withBody(req, res, body => {
     const lead = claims.member;
     const taskOwner = body?.owner === undefined || body.owner === '' ? lead : String(body.owner);
