@@ -350,7 +350,7 @@ func (e *Engine) armIdleWake(a idleAssignment) {
 }
 
 func (e *Engine) fireIdleWake(a idleAssignment) {
-	if e.ctx.Err() != nil || e.watchBusy(a.key) || e.watchDelegatedWork(a.key) {
+	if e.ctx.Err() != nil || !e.quotaCooling().IsZero() || e.watchBusy(a.key) || e.watchDelegatedWork(a.key) {
 		return
 	}
 	if e.team != nil {

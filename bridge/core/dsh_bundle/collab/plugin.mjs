@@ -23,6 +23,7 @@ import { handler as clisHandler } from './clis.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Attachments, INLINE_IMAGE } from './attachments.mjs';
 import { Later, registerLater } from './later.mjs';
+import { QuotaCooling, quotaDirectory } from './quota-cooling.mjs';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -124,6 +125,8 @@ export async function apply(ctx, rawConfig) {
   const tasks = new Tasks(hub, { start: false });
   hub.tasks = tasks;
   gateway.tasks = tasks;
+  const quota = new QuotaCooling(hub, tasks, (id, msg) => dsh.nudge(id,msg) || gateway.nudge(id,msg), quotaDirectory(config.leadFile));
+  hub.quota = quota;
   tasks.onWake((memberId, message) => dsh.nudge(memberId, message) || gateway.nudge(memberId, message));
   // A workspace released after its last task shows up free in the room list. Its sessions are
   // cleared when a new claim takes it (store.resetSessions: DSH members rebind from the store; local
@@ -142,6 +145,7 @@ export async function apply(ctx, rawConfig) {
   dsh.recover();
   tasks.start();
   later.start();
+  quota.start();
   if (!config.botToken) ctx.logger.warn(`conest-collab: ${config.botTokenEnv} is unset; cc-connect bots cannot connect`);
 
   const owner = req => ctx.connection.requestRejection(req) === undefined;
@@ -163,6 +167,7 @@ export async function apply(ctx, rawConfig) {
     },
   }), 'conest-collab: cloud-web upgrade');
   ctx.effect(() => async () => {
+    quota.close();
     later.close();
     tasks.close();
     gateway.closeAll();

@@ -21,6 +21,8 @@ type TaskMember struct {
 	ParentID        string    `json:"parent_id,omitempty"`
 	Name            string    `json:"name"`
 	Title           string    `json:"title"`
+	Ref             string    `json:"ref,omitempty"`
+	Base            string    `json:"base,omitempty"`
 	Workspace       string    `json:"workspace,omitempty"` // execution workspace channel, "" = source workspace
 	Status          string    `json:"status"`
 	Summary         string    `json:"summary,omitempty"`
@@ -261,6 +263,7 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		m.ParentID = req.ParentID
 		m.Title = req.Title
 		m.Workspace = req.Workspace
+		m.Ref, m.Base = req.Ref, req.Base
 		m.Status = "queued"
 		m.Summary = ""
 		m.StartedAt = time.Time{}
@@ -268,7 +271,7 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		m.AssignedAt = now
 		m.UpdatedAt = now
 	} else {
-		r.record.Task.Members = append(r.record.Task.Members, TaskMember{ReporterProject: req.ReporterProject, ID: req.MemberID, ParentID: req.ParentID, Name: req.Name, Title: req.Title, Workspace: req.Workspace, Status: "queued", AssignedAt: now, UpdatedAt: now})
+		r.record.Task.Members = append(r.record.Task.Members, TaskMember{ReporterProject: req.ReporterProject, ID: req.MemberID, ParentID: req.ParentID, Name: req.Name, Title: req.Title, Workspace: req.Workspace, Ref: req.Ref, Base: req.Base, Status: "queued", AssignedAt: now, UpdatedAt: now})
 	}
 	p.memberEvent(r, req.Name+": "+req.Title, false)
 	if err := p.save(r); err != nil {
@@ -460,7 +463,7 @@ func (p *PublicProgress) reportMember(g *taskMemberRun, req PublicProgressReques
 		return "", errors.New("sequence reused with different content")
 	}
 	i := memberIndex(r.record.Task, g.id)
-	if i < 0 || !r.record.Task.Members[i].Live() {
+	if i < 0 || !r.record.Task.Members[i].Live() || r.record.Task.Members[i].ReporterProject != g.assignment.ReporterProject {
 		return "", errors.New("member has finished")
 	}
 	// Source: same report budget as PublicProgress.Report; duplicate delivery is free.
