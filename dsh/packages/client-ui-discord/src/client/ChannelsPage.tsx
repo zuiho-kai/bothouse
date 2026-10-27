@@ -834,14 +834,14 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
         </div>
       </section>
       <aside className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}>
-        <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} />
-        <hr className={css.settingsDivider} />
         <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { setDrawer(undefined); setChannelName(room?.name ?? ''); setNameError(undefined); setSettingsOpen(true) }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9.5 3-.7 2.3-2 .9-2.2-.6-2.5 4.3 1.6 1.7v2.3l-1.6 1.7 2.5 4.3 2.2-.6 2 .9.7 2.3h5l.7-2.3 2-.9 2.2.6 2.5-4.3-1.6-1.7v-2.3l1.6-1.7-2.5-4.3-2.2.6-2-.9L14.5 3Z" /><circle cx="12" cy="12.75" r="3" /></svg>
           {t('channelSettings')}
         </button>
+        <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} />
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
+        <hr className={css.memberListDivider} />
         <MemberGroup title={t('agents', { count: String(visibleMembers.filter(m => m.kind !== 'human').length) })} members={visibleMembers.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
         <MemberGroup title={t('humans', { count: String(visibleMembers.filter(m => m.kind === 'human').length) })} members={visibleMembers.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
       </aside>
