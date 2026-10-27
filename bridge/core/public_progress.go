@@ -28,6 +28,43 @@ type TaskCardPublisher interface {
 	PublishTaskFact(context.Context, *Task, TaskEvent, Language) error
 }
 
+// TaskThreadArchiver is an optional platform capability: hide a finished or
+// result-ready task's thread without deleting messages. A nil error means the
+// thread is archived or already was; reopening is the platform's own job when
+// someone posts again.
+type TaskThreadArchiver interface {
+	ArchiveTaskThread(context.Context, *Task) error
+}
+
+// TaskThreadReopener is an optional platform capability: unarchive a task
+// thread so a later key fact can be posted. The bridge only calls it when its
+// own archived marker is set and a key fact is still pending.
+type TaskThreadReopener interface {
+	ReopenTaskThread(context.Context, *Task) error
+}
+
+// TaskThreadActivityReader is an optional platform capability: return when the
+// thread last saw activity (a message or a reopen). The archive sweep waits
+// from the later of this and the card's UpdatedAt, so a fresh reply is not
+// hidden by the same sweep. Activity newer than the bridge's own archive
+// marker re-arms an archived thread for another archive after the wait.
+type TaskThreadActivityReader interface {
+	TaskThreadLastActivity(context.Context, *Task) (time.Time, error)
+}
+
+// defaultTaskThreadArchiveAfter is how long a finished task's thread stays
+// visible before the sweep archives it. Source: 1440 minutes (24 hours) is the
+// wait this sweep has used for terminal cards; the thread itself is created
+// with a longer Discord auto-archive (10080), so the sweep decides this time.
+const defaultTaskThreadArchiveAfter = 1440 * time.Minute
+
+// defaultResultReadyThreadArchiveAfter is how long a result_ready card's
+// thread stays visible before the sweep archives it. Source: C酱's review
+// suggestion on PR #498 proposed 4320 minutes (3 days) for result_ready cards,
+// because the main bot rarely runs the acceptance step and they would
+// otherwise never be archived.
+const defaultResultReadyThreadArchiveAfter = 4320 * time.Minute
+
 // PublicProgressRequest contains deliberately public prose, never raw agent events.
 type PublicProgressRequest struct {
 	Project    string `json:"project"`
@@ -100,12 +137,14 @@ type publicRun struct {
 type PublicProgress struct {
 	// Lifecycle operations serialize run ownership and durable state transitions.
 	// Delivery never takes this lock; network requests remain independent.
-	transitionMu    sync.Mutex
-	mu              sync.Mutex
-	dir             string
-	dataDir         string
-	project         string
-	resolveReporter func(project, platform, session string) (TaskCardPublisher, error)
+	transitionMu            sync.Mutex
+	mu                      sync.Mutex
+	dir                     string
+	dataDir                 string
+	project                 string
+	archiveAfter            time.Duration // terminal thread archive delay; 0 disables; set before Start
+	resultReadyArchiveAfter time.Duration // result_ready thread archive delay; 0 disables; set before Start
+	resolveReporter         func(project, platform, session string) (TaskCardPublisher, error)
 	// resolveWorkspace validates an explicit task workspace and returns its
 	// "<platform>:<id>" channel key; nil when workspace routing is off.
 	resolveWorkspace func(sourceSession, workspace string) (string, error)
@@ -149,7 +188,7 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 		return nil, fmt.Errorf("public progress data directory: %w", err)
 	}
 	hash := sha256.Sum256([]byte(project))
-	p := &PublicProgress{dir: filepath.Join(dataDir, "public-progress", hex.EncodeToString(hash[:8])), dataDir: dataDir, project: project, runs: map[string]*publicRun{}, records: map[string]*publicRun{}, open: map[string]*publicRun{}, pending: map[string]*publicRun{}, listed: map[string]*publicRun{}}
+	p := &PublicProgress{dir: filepath.Join(dataDir, "public-progress", hex.EncodeToString(hash[:8])), dataDir: dataDir, project: project, archiveAfter: defaultTaskThreadArchiveAfter, resultReadyArchiveAfter: defaultResultReadyThreadArchiveAfter, runs: map[string]*publicRun{}, records: map[string]*publicRun{}, open: map[string]*publicRun{}, pending: map[string]*publicRun{}, listed: map[string]*publicRun{}}
 	if err := os.MkdirAll(p.dir, 0700); err != nil {
 		return nil, err
 	}
@@ -573,6 +612,164 @@ func (p *PublicProgress) Flush(ctx context.Context) {
 	}
 }
 
+// SetThreadArchiveAfter overrides how long a terminal task's thread stays
+// visible before it is archived. Zero disables the sweep. Call before Start.
+func (p *PublicProgress) SetThreadArchiveAfter(after time.Duration) {
+	p.archiveAfter = after
+}
+
+// SetResultReadyThreadArchiveAfter overrides how long a result_ready task's
+// thread stays visible before it is archived. Zero disables this archive. Call
+// before Start.
+func (p *PublicProgress) SetResultReadyThreadArchiveAfter(after time.Duration) {
+	p.resultReadyArchiveAfter = after
+}
+
+// startFinishedThreadArchiveLoop archives threads whose task reached a
+// terminal state or result_ready at least its configured delay ago. It runs
+// beside the delivery loop so archiving never delays a report or a platform
+// reconnect.
+func (p *PublicProgress) startFinishedThreadArchiveLoop(ctx context.Context) {
+	if p.archiveAfter <= 0 && p.resultReadyArchiveAfter <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				p.archiveFinishedThreads(ctx, now)
+			}
+		}
+	}()
+}
+
+// archiveFinishedThreads hides the threads of terminal task cards and of
+// result_ready cards whose longer wait has passed. A card whose latest public
+// fact is still pending is skipped: archiving first would make the platform
+// refuse that final delivery. Nothing is deleted; Discord reopens a thread when
+// someone posts in it again, and the sweep re-arms an archived thread when that
+// activity arrives so it can be archived again after the wait. Archiving a
+// result_ready card never changes its state, so the owner can still accept it.
+func (p *PublicProgress) archiveFinishedThreads(ctx context.Context, now time.Time) {
+	terminalAfter, resultReadyAfter := p.archiveAfter, p.resultReadyArchiveAfter
+	if terminalAfter <= 0 && resultReadyAfter <= 0 {
+		return
+	}
+	p.mu.Lock()
+	runs := make([]*publicRun, 0, len(p.records))
+	for id, r := range p.records {
+		if p.pending[id] == nil {
+			runs = append(runs, r)
+		}
+	}
+	p.mu.Unlock()
+	for _, r := range runs {
+		if ctx.Err() != nil {
+			return
+		}
+		r.mu.Lock()
+		t := r.record.Task
+		var wait time.Duration
+		switch {
+		case IsTerminalState(t.State):
+			wait = terminalAfter
+		case t.State == TaskStateResultReady:
+			wait = resultReadyAfter
+		}
+		archivedAt := t.ThreadArchivedAt
+		_, canReadActivity := r.publisher.(TaskThreadActivityReader)
+		due := wait > 0 && t.ThreadID != "" && t.ThreadID != t.ChannelID &&
+			!t.UpdatedAt.IsZero() && r.record.CardSeq >= t.Seq && r.record.FactSeq >= t.Seq
+		if due {
+			if archivedAt == nil {
+				due = now.Sub(t.UpdatedAt) >= wait
+			} else {
+				// An archived thread is only interesting again once its wait
+				// has elapsed; the activity read below tells us whether a
+				// reply or a manual reopen actually brought it back.
+				due = canReadActivity && now.Sub(*archivedAt) >= wait
+			}
+		}
+		if !due {
+			r.mu.Unlock()
+			continue
+		}
+		snapshot := t.Clone()
+		r.mu.Unlock()
+		archiver, ok := r.publisher.(TaskThreadArchiver)
+		if !ok {
+			continue
+		}
+		if reader, ok := r.publisher.(TaskThreadActivityReader); ok {
+			callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			activity, err := reader.TaskThreadLastActivity(callCtx, snapshot)
+			cancel()
+			if err != nil {
+				slog.Warn("public progress: read task thread activity failed", "task_id", snapshot.ID, "thread", snapshot.ThreadID, "error", err)
+				continue
+			}
+			if archivedAt != nil {
+				if !activity.After(*archivedAt) {
+					continue
+				}
+				// Someone replied or reopened the thread after the bridge
+				// archived it. Clear the marker so the normal wait applies
+				// again from this activity; if enough time has already passed,
+				// archive it again in this same sweep.
+				r.mu.Lock()
+				if r.record.Task.ThreadArchivedAt != nil {
+					r.record.Task.ThreadArchivedAt = nil
+					if err := p.save(r); err != nil {
+						slog.Error("public progress: persist re-armed thread marker failed", "task_id", snapshot.ID, "error", err)
+					}
+				}
+				r.mu.Unlock()
+				if now.Sub(activity) < wait {
+					continue
+				}
+			} else if activity.After(snapshot.UpdatedAt) && now.Sub(activity) < wait {
+				// A reply or reopen after the card's last progress event
+				// restarts the wait, so the same sweep does not hide the fresh
+				// discussion.
+				continue
+			}
+		}
+		// The 10s bound matches flushRun's delivery deadline, so one slow
+		// Discord call cannot stall the sweep for every remaining task.
+		callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err := archiver.ArchiveTaskThread(callCtx, snapshot)
+		cancel()
+		if err != nil {
+			slog.Warn("public progress: archive finished task thread failed", "task_id", snapshot.ID, "thread", snapshot.ThreadID, "error", err)
+			continue
+		}
+		r.mu.Lock()
+		if r.record.Task.ThreadArchivedAt == nil {
+			archivedAt := now.UTC()
+			r.record.Task.ThreadArchivedAt = &archivedAt
+			if err := p.save(r); err != nil {
+				slog.Error("public progress: persist archived thread marker failed", "task_id", snapshot.ID, "error", err)
+			}
+		}
+		r.mu.Unlock()
+		slog.Info("public progress: archived finished task thread", "task_id", snapshot.ID, "thread", snapshot.ThreadID)
+	}
+}
+
+// hasPendingKeyFact reports whether any accepted key fact is still undelivered.
+func hasPendingKeyFact(task *Task, factSeq int64) bool {
+	for _, ev := range task.Events {
+		if ev.Seq > factSeq && ev.IsKeyFact {
+			return true
+		}
+	}
+	return false
+}
+
 // flushRun delivers r's pending card state and facts. attempted is the task
 // sequence this delivery read: facts accepted while it was in flight are not
 // part of it.
@@ -592,6 +789,25 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 	p.displayNames(task)
 	if err != nil {
 		return attempted, err
+	}
+	// A key fact accepted after the sweep archived this thread (acceptance is
+	// the common case) would be refused with 50083. Reopen before delivering,
+	// and clear the marker so the thread is not left permanently unmanaged.
+	wasArchived := task.ThreadArchivedAt != nil
+	if wasArchived && hasPendingKeyFact(task, factSeq) {
+		if reopener, ok := r.publisher.(TaskThreadReopener); ok {
+			if err := reopener.ReopenTaskThread(ctx, task); err != nil {
+				return attempted, err
+			}
+			r.mu.Lock()
+			r.record.Task.ThreadArchivedAt = nil
+			err = p.save(r)
+			r.mu.Unlock()
+			if err != nil {
+				return attempted, err
+			}
+			task.ThreadArchivedAt = nil
+		}
 	}
 	if cardSeq < task.Seq {
 		deliveryErr := r.publisher.EnsureTaskCard(ctx, task, lang)
@@ -647,6 +863,11 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 		}
 		r.mu.Lock()
 		r.record.FactSeq = ev.Seq
+		if wasArchived && ev.IsKeyFact {
+			// A platform without ReopenTaskThread may reopen on its own when
+			// accepting the fact; either way the thread is active again.
+			r.record.Task.ThreadArchivedAt = nil
+		}
 		err = p.save(r)
 		r.mu.Unlock()
 		if err != nil {
@@ -667,6 +888,24 @@ func (p *PublicProgress) checkWorkspaceCard(session string) error {
 		return errCardOutsideWorkspace
 	}
 	return nil
+}
+
+// SetPublicProgressThreadArchiveAfter overrides the finished-task thread
+// archive delay for this engine. Zero disables automatic archiving. Call after
+// EnablePublicProgress and before Start.
+func (e *Engine) SetPublicProgressThreadArchiveAfter(after time.Duration) {
+	if e.publicProgress != nil {
+		e.publicProgress.SetThreadArchiveAfter(after)
+	}
+}
+
+// SetPublicProgressResultReadyThreadArchiveAfter overrides the result_ready
+// thread archive delay for this engine. Zero disables that archive, leaving
+// terminal cards unaffected. Call after EnablePublicProgress and before Start.
+func (e *Engine) SetPublicProgressResultReadyThreadArchiveAfter(after time.Duration) {
+	if e.publicProgress != nil {
+		e.publicProgress.SetResultReadyThreadArchiveAfter(after)
+	}
 }
 
 func (e *Engine) EnablePublicProgress() error {
@@ -821,6 +1060,7 @@ func (e *Engine) startPublicProgress() {
 	// the next dispatch. Its notes are queued (pending) and delivered by the
 	// Flush loop below, which retries until the platform is connected.
 	e.publicProgress.resumeRelayWatch(e.ctx)
+	e.publicProgress.startFinishedThreadArchiveLoop(e.ctx)
 	go func() {
 		defer e.messageWorkers.Done()
 		ticker := time.NewTicker(time.Second)

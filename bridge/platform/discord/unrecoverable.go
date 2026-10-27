@@ -53,3 +53,10 @@ func unrecoverableErr(err error) error {
 	}
 	return fmt.Errorf("%w: %w", core.ErrDeliveryUnrecoverable, err)
 }
+
+// isArchivedThreadError reports the one unrecoverable refusal the bridge can
+// still fix locally: Discord refuses a message because the thread is archived.
+func isArchivedThreadError(err error) bool {
+	var rest *discordgo.RESTError
+	return errors.As(err, &rest) && rest.Message != nil && rest.Message.Code == discordgo.ErrCodePerformedOperationOnArchivedThread
+}
