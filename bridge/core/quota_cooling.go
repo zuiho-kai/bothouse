@@ -126,6 +126,9 @@ func (e *Engine) recordQuota(until time.Time, session string) {
 	if !until.After(e.quotaState.Until) {
 		return
 	}
+	if !e.quotaState.Until.After(time.Now()) {
+		e.quotaState.Transfers = nil
+	}
 	e.quotaState.Until = until
 	if session != "" {
 		e.quotaState.Session = teamChatKey(session)
@@ -332,6 +335,9 @@ func (e *Engine) quotaTick(now time.Time) {
 			}
 		}
 		st.Until, st.Lead = time.Time{}, nil
+		e.capMu.Lock()
+		e.quotaUntil = time.Time{}
+		e.capMu.Unlock()
 		e.saveQuotaLocked()
 		return
 	}

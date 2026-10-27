@@ -75,6 +75,16 @@ export function hasRef(ref) {
 export function multiEditor(text) { return /共改文件|多人改/.test(String(text ?? '')); }
 
 export class Tasks {
+  reassignForQuota(task, owner) {
+    const row = this.db.prepare(`UPDATE tasks SET owner = ?, status = 'assigned', next_check_at = ?,
+      renewals = 0, remind_msg_id = NULL, updated_at = ? WHERE id = ? AND owner = ? RETURNING *`)
+      .get(owner, this.now() + CHECK_AFTER_S, this.now(), task.id, task.owner);
+    if (row) {
+      this.record(row, 'quota', `#${row.id}「${row.title}」额度冷却转交 → ${this.nameOf(owner)}。原交接：${task.reason ?? ''}\n参照：${task.ref ?? ''}\n底分支：${task.base ?? ''}`);
+      this.changed(row.id);
+    }
+    return row;
+  }
   /**
    * @param hub - Hub (store, members, post, emit).
    * @param options - { now?(): seconds, setTimer?, clearTimer? } (tests drive the clock);
@@ -714,6 +724,10 @@ export class Tasks {
     }
     for (const task of this.q.due.all(now, ...WORKING)) {
       if (this.store.room(task.room_id)?.kind === 'workspace') continue;
+      if (this.hub.quota?.cooling(task.owner)) {
+        this.q.renew.get(now + CHECK_AFTER_S, task.renewals ?? 0, task.id, ...WORKING);
+        continue;
+      }
       const name = this.nameOf(task.owner);
       const { message } = this.hub.post(task.room_id, {
         authorKind: 'system', author: 'system', name: '任务提醒',
@@ -739,6 +753,10 @@ export class Tasks {
    * (the record goes first, while the workspace still names its chat channel).
    */
   watch(task, now) {
+    if (this.hub.quota?.cooling(task.owner)) {
+      this.q.renew.get(now + CHECK_AFTER_S, task.renewals ?? 0, task.id, ...WORKING);
+      return;
+    }
     const renewals = task.renewals ?? 0;
     // #597 G35: an owner waiting on its [ask] waits on the user, not stuck: no progress check, no
     // reminder, no pause (which would release the workspace the answer comes back to). The watch
@@ -823,6 +841,7 @@ export class Tasks {
 
   /** Start memberId on message through the first waker that takes it; true if one did. */
   wake(memberId, message) {
+    if (this.hub.quota?.cooling(memberId)) return false;
     for (const wake of this.wakers) {
       try { if (wake(memberId, message)) return true; } catch (error) { this.hub.logger.warn('collab: task reminder wake failed: %s', error?.message ?? error); }
     }

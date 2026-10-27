@@ -342,6 +342,8 @@ export class DshMembers {
     if (event.type === 'turn/start') this.openTurns.set(session.id, event.data?.turn);
     const w = this.watching.get(session.id);
     if (w === undefined) return;
+    const job = this.store.job(w.jobId);
+    if (job) this.hub.quota?.observe(job.member_id, job.room_id, event);
     if (event.type === 'user/message' && event.data?.id === w.inputId && w.turn === undefined) {
       w.turn = this.openTurns.get(session.id);
       return;
@@ -450,7 +452,7 @@ export class DshMembers {
     const leadID = this.hub.primaryIn(msg.room_id)?.id;
     const leadTarget = msg.author_kind === 'user' && leadID !== undefined && target === undefined && only === null && hit.size === 0;
     const visible = new Set(this.hub.routableIn(msg.room_id).map(m => m.id));
-    const targets = [...this.config.keys()].filter(id => visible.has(id) && id !== msg.author && !answered.has(id) && (!target || target === id)
+    const targets = [...this.config.keys()].filter(id => !this.hub.quota?.cooling(id) && visible.has(id) && id !== msg.author && !answered.has(id) && (!target || target === id)
       && (only !== null ? only.has(id) : hit.has(id) || (leadTarget && id === leadID) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name, [...this.config.keys()].filter(o => o !== id).map(o => this.config.get(o).name)))));
     if (targets.length === 0) return undefined;
     // /new goes to the members the message reaches, as on Discord where only the addressed bot handles it.
@@ -477,6 +479,7 @@ export class DshMembers {
    * Returns false when the id is not a DSH member.
    */
   nudge(memberId, msg) {
+    if (this.hub.quota?.cooling(memberId)) return false;
     if (!this.config.has(memberId) || !this.hub.routableIn(msg.room_id).some(m => m.id === memberId)) return false;
     const job = this.store.addJob(memberId, msg.room_id, msg.id);
     if (job) this.enqueue(job, () => this.run(job.id));
@@ -512,6 +515,10 @@ export class DshMembers {
   async run(jobId) {
     const job = this.store.job(jobId);
     if (job === undefined || job.state !== 'pending') return;
+    if (this.hub.quota?.cooling(job.member_id)) {
+      this.store.finishJob(jobId, 'failed');
+      return;
+    }
     const member = this.config.get(job.member_id);
     const room = this.store.room(job.room_id);
     if (member === undefined || room === undefined) { this.store.finishJob(jobId, 'failed'); return; }
@@ -775,6 +782,7 @@ export class DshMembers {
     if (this.closed) return;
     const job = this.store.job(jobId);
     if (job === undefined || !this.store.finishJob(jobId, state)) return;
+    this.hub.quota?.observe(job.member_id, job.room_id, { error: String(notice) });
     const error = friendlyFailure(notice);
     this.hub.setError(job.member_id, error);
     this.hub.post(job.room_id, {

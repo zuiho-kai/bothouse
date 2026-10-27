@@ -521,6 +521,9 @@ func (p *PublicProgress) finish(token, outcome string) {
 func (p *PublicProgress) finishRun(r *publicRun, outcome string, delegated bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.record.Task.AssignedProject != "" && r.record.Task.AssignedProject != p.project {
+		return // the replacement owns completion after quota takeover
+	}
 	if r.record.Accepted {
 		return // acceptance is durable and terminal, even if this turn later fails/stops
 	}
