@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 )
 
 // Per-turn board snapshots distinguish a new completion from an older item
@@ -20,6 +21,8 @@ func (e *Engine) workspaceReportBoard(key string) map[int]string {
 	if e.team == nil {
 		return out
 	}
+	parent, _ := e.workspaceParent(teamChatKey(key))
+	wsName := e.TeamWorkspaceName(key)
 	items := append(readTeamTaskBoard(e.team.dir), readTeamTaskBoardFile(e.team.dir, teamTaskBoardDoneFile)...)
 	for _, it := range placeTeamTaskBoard(e.teamTaskBoardPlacer(), items) {
 		owner := it.WS
@@ -28,6 +31,12 @@ func (e *Engine) workspaceReportBoard(key string) map[int]string {
 		}
 		if owner == "" && it.Ch != "" {
 			owner = "discord:" + it.Ch
+			// Older ws-handoff rows identify the workspace by its name in
+			// who, while ch still points to the parent chat.
+			if parent != "" && teamChatKey(owner) == teamChatKey(parent) &&
+				wsName != "" && strings.HasPrefix(it.Who, wsName) {
+				owner, it.wsName = key, wsName
+			}
 		}
 		if teamChatKey(owner) != teamChatKey(key) || it.AutoPruned != "" {
 			continue
