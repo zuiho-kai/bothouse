@@ -5501,3 +5501,81 @@ test('member scope migration: legacy scope is global even before any channels ex
   assert.equal(store.migrateMemberRooms(), false);
   store.close();
 });
+
+// A delegated review is an authorization for the returned task, not unrelated work.
+test('delegated review closes the original task and its review assignment', async () => {
+  const { hub, tasks, ws, assign, say } = g34Setup();
+  hub.setMember({ id: 'reviewer', name: 'DSH', kind: 'dsh', online: true });
+  const original = assign();
+  say(ws.id, `[report]\nimplementation delivered`);
+  await settle();
+  say(1, `@DSH 核对 #${original.id}，核完回一行【验收】#${original.id}，有问题回【返工】#${original.id} 加原因`, 'zhu');
+  await settle();
+  const review = tasks.list(1).find(t => t.owner === 'reviewer');
+  assert.equal(review.parent_task, original.id);
+  assert.equal(tasks.task(review.id).source, 'review');
+  say(1, `【接】#${review.id}\n正在独立检查`, 'reviewer');
+  await settle();
+  assert.equal(tasks.task(review.id).status, 'accepted', 'taking a review is not delivering a verdict');
+  say(1, `【验收】#${original.id}\nchecked the delivered result`, 'reviewer');
+  await settle();
+  assert.equal(tasks.task(original.id).status, 'done');
+  assert.equal(tasks.task(review.id).status, 'done');
+});
+
+test('delegated review rejects unrelated members, self review, wrong rooms, missing reasons and stale verdicts', async () => {
+  const { hub, tasks, ws, assign, say, woken } = g34Setup();
+  hub.setMember({ id: 'reviewer', name: 'DSH', kind: 'dsh', online: true });
+  const original = assign();
+  say(ws.id, '[report]\nimplementation delivered');
+  await settle();
+  assert.throws(() => tasks.assign({ roomId: 1, title: 'review', owner: 'reviewer', actor: 'fu', reviewOf: original.id }), /dispatcher/);
+  assert.throws(() => tasks.assign({ roomId: 1, title: 'review', owner: 'fu', actor: 'zhu', reviewOf: original.id }), /own task/);
+  assert.throws(() => tasks.assign({ roomId: hub.store.createRoom('other').id, title: 'review', owner: 'reviewer', actor: 'zhu', reviewOf: original.id }), /chat channel/);
+  assert.throws(() => tasks.perform('assign', { roomId: 1, body: { owner: 'reviewer', title: 'review', ref: '无（新建）', review_of: original.id } }, { actor: 'zhu', verified: false }), /verified/);
+  const review = tasks.assign({ roomId: 1, title: 'review', owner: 'reviewer', actor: 'zhu', reviewOf: original.id });
+  say(1, `【返工】#${original.id}`, 'reviewer');
+  await settle();
+  assert.equal(tasks.task(original.id).status, 'returned');
+  say(1, `【返工】#${original.id} missing acceptance evidence`, 'reviewer');
+  await settle();
+  assert.equal(tasks.task(original.id).status, 'rework');
+  assert.equal(tasks.task(review.id).status, 'done');
+  assert.ok(woken.some(([id, room]) => id === 'fu' && room === ws.id));
+  say(ws.id, '[report]\nfixed');
+  await settle();
+  say(1, `【验收】#${original.id}`, 'reviewer');
+  await settle();
+  assert.equal(tasks.task(original.id).status, 'returned', 'old review does not authorize another delivery');
+});
+
+test('chat-side delegated review stays pending through lead chatter and closes on the reviewer verdict', async () => {
+  const { hub, tasks, say } = g34Setup();
+  hub.setMember({ id: 'reviewer', name: 'DSH', kind: 'dsh', online: true });
+  say(1, '@副 implement it', 'zhu');
+  await settle();
+  const original = tasks.list(1)[0];
+  say(1, `【接】#${original.id}\nimplementation delivered`);
+  await settle();
+  say(1, `@DSH 独立核对，回【验收】#${original.id} 或【返工】#${original.id} 原因`, 'zhu');
+  await settle();
+  assert.equal(tasks.task(original.id).status, 'returned');
+  say(1, 'answering another question', 'zhu');
+  await settle();
+  assert.equal(tasks.task(original.id).status, 'returned');
+  say(1, `【验收】#${original.id}`, 'reviewer');
+  await settle();
+  assert.equal(tasks.task(original.id).status, 'done');
+});
+
+test('delegating with standalone verdict examples does not prematurely accept the result', async () => {
+  const { hub, tasks, ws, assign, say } = g34Setup();
+  hub.setMember({ id: 'reviewer', name: 'DSH', kind: 'dsh', online: true });
+  const original = assign();
+  say(ws.id, '[report]\ndelivered');
+  await settle();
+  say(1, `@DSH 核对结果，结束后用下面的格式：\n【验收】#${original.id}\n或\n【返工】#${original.id} 原因`, 'zhu');
+  await settle();
+  assert.equal(tasks.task(original.id).status, 'returned');
+  assert.equal(tasks.list(1).find(t => t.owner === 'reviewer').parent_task, original.id);
+});

@@ -455,3 +455,24 @@ describe('messageTooLarge (#144)', () => {
     expect(messageTooLarge('hi', [file(MAX_MESSAGE_BODY / 2), file(MAX_MESSAGE_BODY / 2)])).toBe(true)
   })
 })
+
+it('sends an explicit owner review and updates the task from the API response', async () => {
+  const returned = { id: 1, room_id: 1, status: 'returned' }
+  const { transport, calls } = fakeTransport((url, init) => {
+    if (url === '/collab/api/state') return json(200, state)
+    if (url === '/collab/api/rooms/1/tasks') return json(200, { chat_id: 1, tasks: [returned] })
+    if (url === '/collab/api/tasks/1/review') {
+      expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({ verdict: 'rework', note: 'missing evidence' })
+      return json(200, { task: { ...returned, status: 'rework' } })
+    }
+    return json(200, { messages: [] })
+  })
+  const { source, actions } = createChannelSource(transport)
+  const unsubscribe = source.subscribe(() => {})
+  await vi.waitFor(() => expect(source.getSnapshot().tasks?.[0]?.status).toBe('returned'))
+  await actions.reviewTask(1, 'rework', 'missing evidence')
+  expect(source.getSnapshot().tasks?.[0]?.status).toBe('rework')
+  expect(calls).toContain('POST /collab/api/tasks/1/review')
+  unsubscribe()
+})

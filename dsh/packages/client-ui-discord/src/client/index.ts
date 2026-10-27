@@ -46,6 +46,7 @@ export function apply(ctx: ClientContext): void {
     hooks: { channels: channels.source },
     selectRoom: channels.actions.selectRoom,
     send: channels.actions.send,
+    reviewTask: channels.actions.reviewTask,
     retrySend: channels.actions.retrySend,
     dismissSend: channels.actions.dismissSend,
     loadOlder: channels.actions.loadOlder,
