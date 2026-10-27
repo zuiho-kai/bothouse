@@ -37,6 +37,7 @@ type teamTaskBoardItem struct {
 	What     string `json:"what"`
 	Status   string `json:"status"`
 	Who      string `json:"who"`
+	Where    string `json:"where"`
 	At       string `json:"at"`
 	Next     string `json:"next"`
 	NextTS   int64  `json:"next_ts"` // epoch of Next, written by board.py when set

@@ -85,6 +85,7 @@ type Task struct {
 	ID                 string       `json:"id"`
 	Title              string       `json:"title"`
 	Agent              string       `json:"agent"`
+	AssignedProject    string       `json:"assigned_project,omitempty"`
 	Origin             string       `json:"origin"` // "voice" / "discord"
 	SessionKey         string       `json:"session_key"`
 	State              TaskState    `json:"state"`
