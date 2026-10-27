@@ -48,12 +48,21 @@ func TestTaskRelayUnknownTaskNeverFallsBackToChannel(t *testing.T) {
 
 type taskRelaySession struct {
 	*controllableAgentSession
-	onSend func(string)
+	onSend    func(string)
+	onMidTurn func(string)
 }
 
 func (s *taskRelaySession) Send(prompt, _ string, _ []ImageAttachment, _ []FileAttachment) error {
 	if s.onSend != nil {
 		s.onSend(prompt)
+	}
+	return nil
+}
+
+// SendMidTurn lets the session take the same mid-turn inject path as gate.go.
+func (s *taskRelaySession) SendMidTurn(prompt, _ string, _ []ImageAttachment, _ []FileAttachment) error {
+	if s.onMidTurn != nil {
+		s.onMidTurn(prompt)
 	}
 	return nil
 }
