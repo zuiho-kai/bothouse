@@ -21,6 +21,7 @@ import { wizardGate } from './wizardGate';
 import DSHSetup, { clearDSHDraft, readDSHDraft } from './DSHSetup';
 import DSHAdd from './DSHAdd';
 import QQSetup from './QQSetup';
+import ProviderModelInput from './ProviderModelInput';
 import { PersonaLibrary, useLibrary } from '@/components/library';
 import type { LibraryPersona } from '@/api/library';
 import { fmt, isZhLang, keptLangLabel, langLabel, libraryTexts, replyLangOptions, stepLabel, wizardTexts } from './texts';
@@ -885,12 +886,18 @@ export default function SetupWizard() {
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, base_url: e.target.value.trim() } })} />}
                         <Input type="password" label={T.apiKey} value={r.provider.api_key} data-testid={`provider-key-${idx}`}
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, api_key: e.target.value.trim() } })} />
+<<<<<<< HEAD
                         <Input label={T.model} placeholder={vendor?.model || ''} value={r.provider.model} data-testid={`provider-model-${idx}`}
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, model: e.target.value.trim() } })} />
                         {/* #1498: DSH sends its own 256000 when the overlay has no maxTokens, and relays answer 503 */}
                         {isDSH && <Input inputMode="numeric" label={T.maxTokens} placeholder="128000" value={r.provider.max_tokens}
                           data-testid={`provider-max-tokens-${idx}`}
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, max_tokens: e.target.value.replace(/[^0-9]/g, '') } })} />}
+=======
+                        <ProviderModelInput provider={r.provider} scopeKey={`${r.key}:${r.agent_type}:${r.reuse_project || ''}`}
+                          texts={T} placeholder={vendor?.model || ''} value={r.provider.model} testId={`provider-model-${idx}`}
+                          onChange={(model) => patchRole(r.key, { provider: { ...r.provider, model } })} />
+>>>>>>> 2b9a0646 (local: setup provider model discovery (rebased onto v0.1.29))
                       </div>
                       {isDSH && <p className="text-xs text-gray-500" data-testid={`provider-max-tokens-hint-${idx}`}>{T.maxTokensHint}</p>}
                       {/* DSH's thinking is a two-value setting (dsh-llm-deepseek config: enabled | disabled): say so before the first 400 */}

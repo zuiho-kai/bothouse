@@ -271,6 +271,10 @@ Quoted QQ messages retain their author and text, fetching missing originals thro
 
 The OneBot guide also covers optional paragraph splitting, original-image storage, labelled forwarded chats and a [judging model](bridge/contrib/qq-gate/README.md) using a self-hosted service or remote API. Personal prompts and model credentials are supplied by the operator.
 
+On the AI side: Claude Code, Codex, Gemini CLI, OpenCode and other CLIs you're already logged into work directly; agents like DSH connect over a standard protocol (ACP).
+You can also point a CLI at a third-party API (SiliconFlow, OpenRouter, DeepSeek, MiniMax, a local model, any OpenAI-compatible endpoint); see the [matrix](docs/connect-discord-feishu.md#4-第三方-api--本机-cli) (Chinese).
+In the setup wizard, enter the Base URL and API key, then click **Fetch models** to search and select a model returned by the endpoint. You can also enter a model ID manually.
+
 <details>
 <summary><b>Everyday actions in DSH Channels</b></summary>
 

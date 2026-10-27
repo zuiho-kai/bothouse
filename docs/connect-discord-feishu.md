@@ -117,6 +117,8 @@ bothouse          # 第一次运行（还没配机器人）：建好配置，只
 
 ## 4. 第三方 API × 本机 CLI
 
+向导的「模型」旁有「拉取模型」按钮：填写 Base URL 和 Key 后点击，按模型 ID 或显示名称搜索，再选择要用的模型。本机不需要密钥的接口可以留空 Key。列表来自接口的 OpenAI 兼容模型目录；如果接口不支持查询、返回空列表或鉴权失败，页面会提示原因，模型 ID 仍可手填。拉取列表只查询接口，角色配置在最后点「保存配置」时写入。
+
 `bothouse setup matrix` 的结果（2026-10-20）。「原生」= 这家有给这个 CLI 用的接口，直接连；「转换」= bothouse 在本机
 起一个转换口，把 CLI 的协议（Claude 的 Messages、Codex 的 Responses、Gemini 的 generateContent）转成 `/chat/completions`，
 key 只留在 bothouse 里。所以任何 OpenAI 兼容接口都能挂到这四个 CLI 上。

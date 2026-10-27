@@ -354,6 +354,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/setup/state", m.wrap(m.handleSetupState))
 	mux.HandleFunc(prefix+"/setup/clis", m.wrap(m.handleSetupCLIs))
 	mux.HandleFunc(prefix+"/setup/matrix", m.wrap(m.handleSetupMatrix))
+	mux.HandleFunc(prefix+"/setup/provider/models", m.wrap(m.handleSetupProviderModels))
 	mux.HandleFunc(prefix+"/setup/personas", m.wrap(m.handleSetupPersonas))
 	mux.HandleFunc(prefix+"/setup/persona", m.wrap(m.handleSetupPersona))
 	mux.HandleFunc(prefix+"/setup/discord/bots", m.wrap(m.handleSetupDiscordBots))

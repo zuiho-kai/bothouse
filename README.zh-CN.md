@@ -265,6 +265,11 @@ QQ / NapCat 用户可手动配 [OneBot 适配器](bridge/docs/qq.md)。
 
 接入指南也包含可选拆条、原图保存、带发言者标签的合并转发，以及支持自部署服务或远程 API 的[判断模型](bridge/contrib/qq-gate/README.md)。个人提示词和模型凭据由使用者自行配置。
 
+AI 这一侧：本机已登录的 Claude Code、Codex、Gemini CLI、OpenCode 等直接用；DSH 这类智能体通过标准协议（ACP）接入。
+也可以给 CLI 挂第三方 API（硅基流动、OpenRouter、DeepSeek、MiniMax、本机模型、任意 OpenAI 兼容接口），
+对应关系见[接入文档](docs/connect-discord-feishu.md#4-第三方-api--本机-cli)。
+安装向导里填好 Base URL 和 Key 后，可以点「拉取模型」，搜索并选择接口返回的模型；也可以继续手动填写模型 ID。
+
 <details>
 <summary><b>DSH 频道里的常用操作</b></summary>
 

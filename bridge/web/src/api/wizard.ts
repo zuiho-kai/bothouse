@@ -10,6 +10,13 @@ export interface WizardVendor {
   model?: string; signup_url?: string; source: string;
 }
 export interface MatrixCell { vendor: string; agent_type: string; mode: 'native' | 'convert'; base_url: string }
+export interface ProviderModelsRequest { vendor: string; base_url: string; api_key: string }
+export interface ProviderModel { id: string; name?: string }
+export type ProviderModelsError = 'bad_url' | 'unauthorized' | 'not_found' | 'unreachable' | 'invalid_response' | 'upstream_error';
+export interface ProviderModelsResult { models: ProviderModel[]; error_code?: ProviderModelsError; upstream_status?: number }
+/** Explicit form action: credentials travel only in the POST body. */
+export const getProviderModels = (body: ProviderModelsRequest) =>
+  api.post<ProviderModelsResult>('/setup/provider/models', body);
 export interface PersonaPreset { id: string; name: string; model: string; new?: boolean; text: string }
 export interface DiscordGuild { id: string; name: string }
 export interface DiscordChannel { id: string; name: string; type: number; position: number }
