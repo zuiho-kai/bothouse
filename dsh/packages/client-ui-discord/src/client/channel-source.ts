@@ -94,11 +94,13 @@ export interface ChannelMember {
   /** DSH members only: created in the UI (editable) rather than the config file. */
   readonly editable?: boolean
   /** Built-in avatar slug or a bot's http(s) image URL; absent means the initial badge. */
+  readonly avatarVersion?: string
   readonly avatar?: string
 }
 
 /** Fields the UI can set on a DSH member. */
 export interface DshMemberInput {
+  readonly avatarPng?: string
   readonly rooms?: readonly number[]
   readonly name: string
   readonly model: MemberModel | null
@@ -110,6 +112,7 @@ export interface DshMemberInput {
 
 /** A member backed by a CLI agent installed on this machine (Claude Code, Codex, Gemini). */
 export interface CliMemberInput {
+  readonly avatarPng?: string
   readonly rooms?: readonly number[]
   readonly name: string
   readonly nameCustomized?: boolean
@@ -790,7 +793,15 @@ export function createChannelSource(transport: ChannelTransport): {
       if (roomId === undefined) throw new Error('No channel is open')
       const selected = snapshot.rooms.find(r => r.id === roomId)
       const chatId = selected?.parent_id ?? roomId
-      await request('collab/api/members', json('POST', { ...input, rooms: [chatId] }))
+      const { avatarPng, ...fields } = input
+      const { member } = await request<{ member: ChannelMember }>('collab/api/members', json('POST', { ...fields, rooms: [chatId] }))
+      if (avatarPng) {
+        try { await request(`collab/api/members/${encodeURIComponent(member.id)}/avatar`, json('POST', { png: avatarPng })) }
+        catch (error) {
+          await request(`collab/api/members/${encodeURIComponent(member.id)}`, { method: 'DELETE' })
+          throw error
+        }
+      }
     },
     async updateMember(id, input) {
       await request(`collab/api/members/${encodeURIComponent(id)}`, json('PATCH', input))

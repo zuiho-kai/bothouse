@@ -128,13 +128,13 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   return (
     <div className={classes} data-message-id={message.id}>
       {member === undefined || message.author_kind === 'system'
-        ? <Avatar id={message.author} name={message.name} avatar={member?.avatar} />
+        ? <Avatar id={message.author} name={message.name} avatar={member?.avatar} avatarVersion={member?.avatarVersion} />
         : (
             // Avatar opens this author's member menu; `data-avatar-menu` marks the
             // area an outside press must not land in to keep the menu open.
             <span className={css.avatarAnchor} data-avatar-menu onKeyDown={(event) => { if (event.key === 'Escape') onCloseMenu() }}>
               <button type="button" className={css.avatarButton} aria-label={t('memberMenu', { name: member.name })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={onAvatar}>
-                <Avatar id={member.id} name={message.name} avatar={member.avatar} />
+                <Avatar id={member.id} name={message.name} avatar={member.avatar} avatarVersion={member.avatarVersion} />
               </button>
               {menuOpen && (
                 <div className={css.avatarMenu} role="menu" aria-label={t('memberMenu', { name: member.name })}>
@@ -246,7 +246,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
             onClick={() => { onPick(m) }}
           >
             <span className={css.memberAvatar}>
-              <Avatar id={m.id} name={m.name} avatar={m.avatar} small />
+              <Avatar id={m.id} name={m.name} avatar={m.avatar} avatarVersion={m.avatarVersion} small />
               <span className={m.error ? `${css.presence} ${css.errorPresence}` : css.presence} />
             </span>
             <span className={css.memberText}>
@@ -742,7 +742,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, createRoom, rename
                     onClick={() => { choose(m) }}
                   >
                     <span className={css.memberAvatar}>
-                      <Avatar id={m.id} name={m.name} avatar={m.avatar} small />
+                      <Avatar id={m.id} name={m.name} avatar={m.avatar} avatarVersion={m.avatarVersion} small />
                       {m.online && <span className={m.error ? `${css.presence} ${css.errorPresence}` : css.presence} />}
                     </span>
                     <span className={css.mentionName}>{m.name}</span>
