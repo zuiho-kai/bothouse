@@ -5741,6 +5741,9 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				if event.Error != nil {
 					slog.Error("unsolicited agent error", "error", event.Error, "session", sessionKey)
 					userMsg := e.agentErrorMessage(event.Error)
+					if backendMsg, ok := BackendUnavailableText(event.Error, e.i18n.CurrentLang()); ok {
+						userMsg = backendMsg
+					}
 					if errors.Is(event.Error, ErrNoPublicAnswer) {
 						userMsg = e.i18n.T(MsgNoPublicAnswer)
 					}
@@ -7446,6 +7449,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						detail = e.i18n.T(MsgTaskAlreadyCompleted)
 					}
 					userMsg := e.agentErrorMessage(detail)
+					if backendMsg, ok := BackendUnavailableText(event.Error, e.i18n.CurrentLang()); ok {
+						userMsg = backendMsg
+					}
 					if errors.Is(event.Error, ErrEmptyAgentResponse) {
 						userMsg = e.i18n.T(MsgEmptyAgentResponse)
 					}

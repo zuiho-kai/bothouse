@@ -278,7 +278,7 @@ func (a *Agent) startSessionWithEnv(ctx context.Context, sessionID string, stric
 	extra = append(extra, sessionEnv...)
 	a.mu.RUnlock()
 
-	return newACPSession(ctx, acpSessionConfig{
+	cfg := acpSessionConfig{
 		command:         command,
 		args:            allArgs,
 		extraEnv:        extra,
@@ -290,7 +290,14 @@ func (a *Agent) startSessionWithEnv(ctx context.Context, sessionID string, stric
 		initialModel:    model,
 		initialEffort:   effort,
 		callbacks:       a,
-	})
+	}
+	// Only Cursor's ACP server writes thrown backend errors into assistant
+	// text and still returns end_turn; other handlers must keep their path.
+	if authMethod == "cursor_login" {
+		cfg.cursorStreamErrors = true
+		cfg.usageReporter = a
+	}
+	return newACPSession(ctx, cfg)
 }
 
 func (a *Agent) Stop() error { return nil }

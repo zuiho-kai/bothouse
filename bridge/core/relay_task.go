@@ -302,16 +302,22 @@ func (d *taskRelay) finish(response string, runErr error) error {
 	receipt := r.record.Relays[d.req.RequestID]
 	receipt.Status, receipt.Response = "done", response
 	key := MsgTaskRelayResult
+	failureText := ""
 	if runErr != nil {
-		receipt.Status, receipt.Error = "failed", runErr.Error()
+		failureText = runErr.Error()
+		if reason, ok := BackendUnavailableText(runErr, r.record.Lang); ok {
+			failureText = reason
+			p.failMembersOnBackendUnavailable(r, d.req.To, reason)
+		}
+		receipt.Status, receipt.Error = "failed", failureText
 		key = MsgTaskRelayFailed
 	}
 	r.record.Relays[d.req.RequestID] = receipt
 	previousSummary := r.record.Task.LatestProgress
 	p.appendEvent(r, TaskEventProgress, NewI18n(r.record.Lang).Tf(key, d.name), true)
 	detail := response
-	if runErr != nil {
-		detail += "\n\n" + runErr.Error()
+	if failureText != "" {
+		detail += "\n\n" + failureText
 	}
 	r.record.Task.Events[len(r.record.Task.Events)-1].Detail = strings.TrimSpace(detail)
 	r.record.Task.Events[len(r.record.Task.Events)-1].Pointer = true

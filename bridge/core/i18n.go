@@ -185,6 +185,10 @@ const (
 	MsgError                     MsgKey = "error"
 	MsgQuotaExhausted            MsgKey = "quota_exhausted"
 	MsgQuotaExhaustedResets      MsgKey = "quota_exhausted_resets"
+	MsgBackendUnavailable        MsgKey = "backend_unavailable"
+	MsgBackendAuthRequired       MsgKey = "backend_auth_required"
+	MsgBackendPlanUnavailable    MsgKey = "backend_plan_unavailable"
+	MsgBackendQuotaRemaining     MsgKey = "backend_quota_remaining"
 	MsgAnswerWithFailure         MsgKey = "answer_with_failure"
 	MsgTaskAlreadyCompleted      MsgKey = "task_already_completed"
 	MsgSessionNotFound           MsgKey = "session_not_found"
@@ -1138,6 +1142,34 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "⚠️ %s 額度已用完，%s 恢復",
 		LangJapanese:           "⚠️ %s の利用枠を使い切りました（%s に回復）",
 		LangSpanish:            "⚠️ %s se ha quedado sin cuota; se restablece %s",
+	},
+	MsgBackendUnavailable: {
+		LangEnglish:            "⚠️ %s backend unavailable: %s",
+		LangChinese:            "⚠️ %s 后端不可用：%s",
+		LangTraditionalChinese: "⚠️ %s 後端無法使用：%s",
+		LangJapanese:           "⚠️ %s バックエンドが利用できません: %s",
+		LangSpanish:            "⚠️ El backend de %s no está disponible: %s",
+	},
+	MsgBackendAuthRequired: {
+		LangEnglish:            "⚠️ %s login has expired; sign in again before retrying.",
+		LangChinese:            "⚠️ %s 登录已失效，请重新登录后再试。",
+		LangTraditionalChinese: "⚠️ %s 登入已失效，請重新登入後再試。",
+		LangJapanese:           "⚠️ %s のログインが失効しました。再ログインしてから再試行してください。",
+		LangSpanish:            "⚠️ La sesión de %s ha caducado; vuelve a iniciar sesión antes de reintentar.",
+	},
+	MsgBackendPlanUnavailable: {
+		LangEnglish:            "⚠️ %s plan or payment method unavailable: %s",
+		LangChinese:            "⚠️ %s 套餐或付款方式不可用：%s",
+		LangTraditionalChinese: "⚠️ %s 方案或付款方式無法使用：%s",
+		LangJapanese:           "⚠️ %s のプランまたは支払い方法を利用できません: %s",
+		LangSpanish:            "⚠️ El plan o método de pago de %s no está disponible: %s",
+	},
+	MsgBackendQuotaRemaining: {
+		LangEnglish:            " (quota still %d%% left)",
+		LangChinese:            "（额度仍剩 %d%%）",
+		LangTraditionalChinese: "（額度仍剩 %d%%）",
+		LangJapanese:           "（利用枠は残り %d%%）",
+		LangSpanish:            " (cuota restante: %d%%)",
 	},
 	MsgAnswerWithFailure: {
 		LangEnglish:            "⚠️ An operation failed this turn. The reply above does not mean every operation succeeded: %v",
