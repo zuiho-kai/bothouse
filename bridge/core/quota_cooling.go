@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -41,8 +40,6 @@ type quotaTransfer struct {
 	Applied bool      `json:"applied"`
 	Work    quotaWork `json:"work"`
 }
-
-var quotaResetDurationRE = regexp.MustCompile(`(?i)resets in ([0-9hms.]+)`)
 
 func quotaResetTime(raw string, now time.Time) (time.Time, bool) {
 	raw = strings.TrimSpace(raw)
