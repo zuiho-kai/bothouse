@@ -37,7 +37,9 @@ export function quotaDeadline(event, now = Date.now()) {
     for (const w of bucket.windows ?? bucket.Windows ?? []) {
       const used = w.usedPercent ?? w.used_percent ?? w.UsedPercent;
       const seconds = w.windowSeconds ?? w.window_seconds ?? w.WindowSeconds;
-      if (!(bucket.limitReached || bucket.LimitReached || used >= 100 || seconds === 18000 && used > 95)) continue;
+      // Only a reported limit counts: a window merely near its limit still has usable quota
+      // (user 2026-10-28「或者报错再交接，提前量太多，有点浪费了」).
+      if (!(bucket.limitReached || bucket.LimitReached || used >= 100)) continue;
       const at = (w.resetAtUnix ?? w.reset_at_unix ?? w.ResetAtUnix) * 1000 ||
         now + (w.resetAfterSeconds ?? w.reset_after_seconds ?? w.ResetAfterSeconds ?? 0) * 1000;
       if (at > now) until = Math.max(until, at);
