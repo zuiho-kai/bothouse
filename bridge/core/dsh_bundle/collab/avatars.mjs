@@ -10,7 +10,7 @@ export const MAX_AVATAR_URL = 2048;
 /** Normalize a member avatar: '' (initial badge), a built-in slug, or — when allowUrl — an http(s) URL. Throws on anything else. */
 export function checkAvatar(value, { allowUrl = false } = {}) {
   const v = String(value ?? '').trim();
-  if (v === '' || AVATARS.includes(v)) return v;
+  if (v === '' || AVATARS.includes(v) || /^upload:[a-z0-9-]+\.png$/.test(v)) return v;
   if (allowUrl && v.length <= MAX_AVATAR_URL && /^https?:\/\/[^\s"'<>]+$/.test(v)) return v;
   throw new Error(`avatar must be one of ${AVATARS.join(', ')}${allowUrl ? ' or an http(s) URL' : ''}`);
 }

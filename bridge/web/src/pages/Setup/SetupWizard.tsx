@@ -14,6 +14,7 @@ import {
   type CloudWebTest, type DiscordBotInfo, type LocalHubStatus, type DiscordChannel, type ExistingBot, type LocalCLI, type MatrixCell,
   type SetupPersona, type SetupStateResp, type WizardRequest, type WizardResult, type WizardVendor, type WizardWiki,
 } from '@/api/wizard';
+import { nextRoleName, roleLabel, personaWithName } from '@/lib/roleIdentity';
 import { wizardGate } from './wizardGate';
 import DSHSetup from './DSHSetup';
 import { PersonaLibrary, useLibrary } from '@/components/library';
@@ -23,6 +24,8 @@ import { fmt, isZhLang, keptLangLabel, langLabel, libraryTexts, replyLangOptions
 interface RoleDraft {
   key: number;
   reuse_project?: string;
+  nameCustomized?: boolean;
+  keepPersonaName?: boolean;
   name?: string; // 自建平台: the name shown on the platform (Discord takes the bot's username)
   token: string;
   info?: DiscordBotInfo;
@@ -86,6 +89,11 @@ export default function SetupWizard() {
     () => shownNames((state?.projects || []).map((name, i) => ({ name, display_name: state?.project_display_names?.[i] }))),
     [state],
   );
+  // Display names remain independent from stable project IDs; the server suffixes ID collisions.
+  const configuredNames = useMemo(
+    () => (state?.projects || []).map((name, i) => state?.project_display_names?.[i] || name).filter(Boolean),
+    [state],
+  );
   const [clis, setClis] = useState<LocalCLI[] | null>(null);
   const [vendors, setVendors] = useState<WizardVendor[]>([]);
   const [matrix, setMatrix] = useState<MatrixCell[]>([]);
@@ -95,7 +103,7 @@ export default function SetupWizard() {
   // /setup?add=1 — the panel's "add role / model" entry: keeps every configured role, only adds
   const addMode = useSearchParams()[0].get('add') === '1';
   const newRole = useCallback((): RoleDraft => ({
-    key: keySeq++, token: '', agent_type: '', useProvider: false,
+    nameCustomized: false, keepPersonaName: true, key: keySeq++, token: '', agent_type: '', useProvider: false,
     provider: { vendor: 'deepseek', base_url: '', api_key: '', model: '' }, persona: '', reply_language: sysReply,
   }), [sysReply]);
   const [roles, setRoles] = useState<RoleDraft[]>(() => [newRole()]);
@@ -140,10 +148,37 @@ export default function SetupWizard() {
     return (ok.find((c) => c.login === 'logged_in') || ok[0])?.agent_type || '';
   }, [clis]);
   useEffect(() => {
-    if (defaultAgent) setRoles((rs) => rs.map((r) => (r.agent_type ? r : { ...r, agent_type: defaultAgent })));
-  }, [defaultAgent]);
+    if (!defaultAgent) return;
+    setRoles((rs) => {
+      const used = new Set(configuredNames);
+      return rs.map((r) => {
+        if (r.nameCustomized || r.reuse_project) {
+          if (r.name) used.add(r.name);
+          return r;
+        }
+        const name = platform === 'discord' && r.info?.username ? r.info.username
+          : platform === 'feishu' ? '' : nextRoleName(r.agent_type || defaultAgent, [...used]);
+        used.add(name);
+        return { ...r, agent_type: r.agent_type || defaultAgent, name };
+      });
+    });
+  }, [defaultAgent, configuredNames, platform]);
 
-  const patchRole = (key: number, p: Partial<RoleDraft>) => setRoles((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r)));
+  const patchRole = (key: number, p: Partial<RoleDraft>) => setRoles((rs) => rs.map((r) => {
+    if (r.key !== key) return r;
+    const next = { ...r, ...p };
+    const taken = [...configuredNames, ...rs.filter((x) => x.key !== key).map((x) => x.name || '')];
+    if (p.agent_type && p.agent_type !== r.agent_type && !r.nameCustomized && !r.reuse_project && p.name === undefined) {
+      next.name = platform === 'discord' && r.info?.username ? r.info.username
+        : platform === 'feishu' ? '' : nextRoleName(p.agent_type, taken);
+    }
+    if (next.name !== r.name && next.keepPersonaName !== false && next.personaSlug && p.persona === undefined) {
+      next.persona = personaWithName(next.persona, r.name || '', next.name || '');
+    }
+    return next;
+  }));
+  const addRole = () => setRoles(rs => [...rs, { ...newRole(), agent_type: defaultAgent,
+    name: nextRoleName(defaultAgent, [...configuredNames, ...rs.map(r => r.name || '')]) }]);
   // Same rule as core ApplyWizard: an existing bot keeps its project name as is; a new bot's
   // name is cleaned, then falls back to role-N, then gets -N if taken.
   const projectNames = useMemo(() => {
@@ -153,15 +188,15 @@ export default function SetupWizard() {
       if (r.reuse_project) { used.add(r.reuse_project); return r.reuse_project; }
       const same = existing.find((b) => b.bot_id && b.bot_id === r.info?.bot_id);
       if (same) { used.add(same.project); return same.project; } // the same bot is already configured
-      const base = cleanName((platform === 'cloud_web' ? r.name : r.info?.username) || '') || `role-${i + 1}`;
+      const base = cleanName(r.name || r.info?.username || '') || `role-${i + 1}`;
       let n = base;
       for (let k = 2; taken.has(n) || used.has(n); k++) n = `${base}-${k}`;
       used.add(n);
       return n;
     });
-  }, [roles, state?.projects, existing, platform]);
+  }, [roles, state?.projects, existing]);
   const projectOf = (r: RoleDraft) => projectNames[roles.indexOf(r)] ?? `role-${roles.indexOf(r) + 1}`;
-  const nameOf = (r: RoleDraft) => (platform === 'cloud_web' ? r.name : r.info?.username) || r.reuse_project || projectOf(r);
+  const nameOf = (r: RoleDraft) => r.name || r.info?.username || r.reuse_project || projectOf(r);
   // an existing bot whose persona is left alone keeps the reply language already in it
   const keptLang = (r: RoleDraft) => !!r.reuse_project && !r.editPersona;
   const keptRoles = roles.filter(keptLang);
@@ -174,13 +209,14 @@ export default function SetupWizard() {
       // A pasted token of a bot that is already configured is that existing bot: switch to the
       // reuse view (its persona is shown read-only and only written when 改人设 is ticked).
       const reuse = body.reuse_project || existing.find((b) => b.bot_id && b.bot_id === info.bot_id)?.project;
-      patchRole(r.key, { info, checking: false, ...(reuse ? { reuse_project: reuse, token: '' } : {}) });
+      patchRole(r.key, { info, checking: false, ...(!r.nameCustomized ? { name: info.username } : {}),
+        ...(reuse ? { reuse_project: reuse, token: '' } : {}) });
       // an existing bot keeps its server: default to the guild already in its config (H3.3)
       const exGuild = reuse ? existing.find((b) => b.project === reuse)?.guild_id : undefined;
       if (!guildID) setGuildID(exGuild || info.guilds[0]?.id || '');
       if (reuse) {
         const ex = existing.find((b) => b.project === reuse);
-        patchRole(r.key, { agent_type: ex?.agent_type || r.agent_type, existingWorkDir: ex?.work_dir, editPersona: false, persona: '', existingPersona: undefined });
+        patchRole(r.key, { name: ex?.username || reuse, nameCustomized: true, agent_type: ex?.agent_type || r.agent_type, existingWorkDir: ex?.work_dir, editPersona: false, persona: '', existingPersona: undefined });
         if (ex?.work_dir) {
           getSetupPersona(ex.agent_type, ex.work_dir).then((p) => patchRole(r.key, { existingPersona: p })).catch(() => patchRole(r.key, { existingPersona: null }));
         } else {
@@ -320,8 +356,10 @@ export default function SetupWizard() {
       language: lang,
       roles: roles.map((r, i) => ({
         ...(r.reuse_project ? { reuse_project: r.reuse_project } : platform === 'discord' ? { token: mask(r.token, `<BOT_TOKEN_${i + 1}>`) } : {}),
-        ...(platform === 'feishu' ? { name: 'feishu-bot' } : {}),
-        ...(platform === 'cloud_web' && nameOf(r) ? { name: nameOf(r) } : {}),
+        ...(!r.reuse_project ? {
+          name: platform !== 'cloud_web' && !r.nameCustomized ? undefined : nameOf(r),
+          name_customized: !!r.nameCustomized, keep_persona_name: r.keepPersonaName,
+        } : {}),
         agent_type: r.agent_type,
         ...(!r.reuse_project ? { persona: r.persona || undefined, reply_language: r.reply_language }
           : r.editPersona ? { persona: r.persona || undefined, reply_language: r.reply_language, edit_persona: true } : {}),
@@ -547,7 +585,7 @@ export default function SetupWizard() {
                 )}
               </div>
             ))}
-            <Button variant="secondary" size="sm" onClick={() => setRoles((rs) => [...rs, { ...newRole(), agent_type: defaultAgent }])}><Plus size={12} />{T.addRole}</Button>
+            <Button variant="secondary" size="sm" onClick={addRole}><Plus size={12} />{T.addRole}</Button>
             {first?.info && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -662,11 +700,11 @@ export default function SetupWizard() {
                     </div>
                   </div>
                 )}
-                <Input label={T.cwRoleName} value={r.name || ''} data-testid={`cw-name-${idx}`} onChange={(e) => patchRole(r.key, { name: e.target.value })} />
+                <Input label={T.cwRoleName} value={r.name || ''} data-testid={`cw-name-${idx}`} onChange={(e) => patchRole(r.key, { name: e.target.value, nameCustomized: true })} />
               </div>
             ))}
             {cwNameTwice && <p className="text-xs text-red-500">{T.cwNameTwice}</p>}
-            <Button variant="secondary" size="sm" data-testid="cw-add-role" onClick={() => setRoles((rs) => [...rs, { ...newRole(), agent_type: defaultAgent }])}><Plus size={12} />{T.cwAddRole}</Button>
+            <Button variant="secondary" size="sm" data-testid="cw-add-role" onClick={addRole}><Plus size={12} />{T.cwAddRole}</Button>
           </div>
         )}
 
@@ -686,7 +724,8 @@ export default function SetupWizard() {
               const via = r.provider.base_url && vendor && r.provider.base_url !== vendor.openai_base && r.agent_type !== 'opencode' ? 'convert' : cell?.mode;
               return (
                 <div key={r.key} className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3" data-testid={`cli-role-${idx}`}>
-                  {roles.length > 1 && <p className="text-sm font-medium">{nameOf(r)}</p>}
+                  <p className="text-sm font-medium" data-testid={`role-label-${idx}`}>{roleLabel(nameOf(r), r.agent_type)}</p>
+                  <Input label={zh ? '名字' : 'Name'} data-testid={`role-name-${idx}`} value={r.name || ''} onChange={e => patchRole(r.key, { name: e.target.value, nameCustomized: true })} />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {(clis || []).map((c) => (
                       <button key={c.label} disabled={!c.supported} onClick={() => patchRole(r.key, { agent_type: c.agent_type })}
@@ -734,7 +773,7 @@ export default function SetupWizard() {
         {/* 3 persona */}
         {step === 3 && (
           <div className="space-y-4">
-            <p className="text-sm text-gray-700 dark:text-gray-300">{T.personaQ}</p>
+            <p className="text-sm text-gray-700 dark:text-gray-300">{zh ? '可以直接开始工作，无需选择人设。' : 'Ready to work. A persona is optional.'}</p>
             <p className="text-xs text-gray-500" data-testid="persona-about">{T.personaAbout}</p>
             {roles.map((r, idx) => (
               <div key={r.key} className="space-y-2 p-3 rounded-xl border border-gray-200 dark:border-gray-700" data-testid={`persona-role-${idx}`}>
@@ -751,15 +790,19 @@ export default function SetupWizard() {
                 )}
                 {(!r.reuse_project || r.editPersona) ? (
                   <>
+                    <details data-testid={`optional-persona-${idx}`}><summary className="cursor-pointer text-sm">{zh ? '可选：自定义名字、性格与说话风格、职责' : 'Optional: name, personality, speaking style and responsibilities'}</summary>
+                    <Input label={zh ? '名字' : 'Name'} data-testid={`persona-name-${idx}`} value={r.name || ''} onChange={e => patchRole(r.key, { name: e.target.value, nameCustomized: true })} />
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={r.keepPersonaName !== false} data-testid={`keep-name-${idx}`} onChange={e => patchRole(r.key, { keepPersonaName: e.target.checked })} />{zh ? '保留我的名字' : 'Keep my name'}</label>
                     {lib ? (
                       <PersonaLibrary lib={lib} lang={lang} T={LT} reload={reloadLib} selected={r.personaSlug}
                         onPick={(p: LibraryPersona | null) => patchRole(r.key, p
-                          ? { persona: p.text, personaSlug: p.slug, avatar: p.avatar || '' }
-                          : { personaSlug: '', avatar: '' })} />
+                          ? { persona: r.keepPersonaName !== false ? personaWithName(p.text, p.name, nameOf(r)) : p.text, personaSlug: p.slug, avatar: p.avatar || '', ...(r.keepPersonaName === false ? { name: p.name, nameCustomized: true } : {}) }
+                          : { persona: '', personaSlug: '', avatar: '' })} />
                     ) : (
                       <p className="text-xs text-gray-500">{libError ? fmt(LT.loadFailed, { error: libError }) : LT.loading}</p>
                     )}
                     <Textarea rows={8} value={r.persona} onChange={(e) => patchRole(r.key, { persona: e.target.value })} data-testid={`persona-${idx}`} />
+                    </details>
                     <div className="flex items-center gap-2">
                       <label className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{T.replyLang}</label>
                       <select className={selectCls + ' max-w-[12rem]'} value={r.reply_language} onChange={(e) => patchRole(r.key, { reply_language: e.target.value, replyTouched: true })} data-testid={`reply-lang-${idx}`}>

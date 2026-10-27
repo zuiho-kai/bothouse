@@ -40,7 +40,7 @@ func (rm *RelayManager) ResolveTaskReporter(source, project, platform, session s
 	}
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
-	binding := rm.effectiveBindingLocked(platform, chat)
+	binding := rm.effectiveBindingForLocked(platform, chat, source)
 	target := rm.engines[project]
 	if rm.engines[source] == nil || target == nil || target.ctx == nil || target.ctx.Err() != nil {
 		return nil, errors.New("task reporter engine unavailable")

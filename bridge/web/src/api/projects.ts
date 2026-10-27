@@ -23,6 +23,7 @@ export interface PlatformConfigInfo {
 }
 
 export interface ProjectDetail {
+  name_customized?: boolean | null;
   name: string;
   display_name?: string;
   agent_type: string;
@@ -51,6 +52,7 @@ export interface ProjectDetail {
 }
 
 export interface ProjectSettingsUpdate {
+  display_name?: string; name_customized?: boolean;
   language?: string;
   admin_from?: string;
   disabled_commands?: string[];

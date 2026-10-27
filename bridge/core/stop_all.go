@@ -32,8 +32,8 @@ func IsBareStopWord(text string) bool {
 // It is handled like "/stop all": every bot stops its own work in the channel.
 // "@A 停" keeps the single-bot path (applyLocalGate on the called bot).
 // Only msg.StopAll counts: the platform sets it after its own "no @, no reply"
-// check. Platforms that never fill Mentioned/Direct (weixin, qq, line …) do not
-// set it, so a "停" in their private chats is not taken as a channel-wide stop.
+// check. Platforms that do not set it (weixin, qq, line …) leave it false, so a
+// "停" there is not taken as a channel-wide stop.
 func (e *Engine) isUnaddressedStop(msg *Message) bool {
 	return msg.StopAll && !msg.FromBot && !msg.Mentioned && !msg.Direct && !msg.AddressedOther &&
 		len(msg.Images) == 0 && len(msg.Files) == 0 && msg.Audio == nil && IsBareStopWord(msg.Content)

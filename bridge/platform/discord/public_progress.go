@@ -12,6 +12,17 @@ import (
 )
 
 var _ core.TaskCardPublisher = (*Platform)(nil)
+var _ core.TaskThreadArchiver = (*Platform)(nil)
+var _ core.TaskThreadReopener = (*Platform)(nil)
+var _ core.TaskThreadActivityReader = (*Platform)(nil)
+
+// discordTaskThreadAutoArchiveMinutes is how long Discord keeps a task thread
+// before its own auto-archive hides it. Source: Discord accepts 60, 1440, 4320
+// and 10080 minutes; 10080 (7 days) is the maximum, chosen so Discord does not
+// archive a thread before the bridge's configurable scan waits (defaults:
+// 1440 minutes for terminal cards, 4320 for result_ready). The bridge sweep
+// remains the thing that archives at the configured time.
+const discordTaskThreadAutoArchiveMinutes = 10080
 
 func (p *Platform) TaskCardDestination(sessionKey string) (string, error) {
 	return parseDiscordSessionKeyChannelID(sessionKey)
@@ -139,7 +150,7 @@ func (p *Platform) ensureTaskCard(ctx context.Context, task *core.Task, lang cor
 	if !errors.As(err, &rest) || rest.Response == nil || rest.Response.StatusCode != 404 {
 		return err
 	}
-	thread, err = p.session.MessageThreadStart(task.ChannelID, task.MessageID, truncateDiscordThreadName(task.Title, 90), 1440, discordgo.WithContext(ctx))
+	thread, err = p.session.MessageThreadStart(task.ChannelID, task.MessageID, truncateDiscordThreadName(task.Title, 90), discordTaskThreadAutoArchiveMinutes, discordgo.WithContext(ctx))
 	if err != nil {
 		return err
 	}
@@ -150,20 +161,117 @@ func (p *Platform) ensureTaskCard(ctx context.Context, task *core.Task, lang cor
 // syncTaskThreadName renames the card's thread when the card title changed
 // after the thread was opened (a batch card is titled by its first member
 // until the lead reports a start title). A thread the card merely lives in
-// is the user's own and is never renamed. The rename is cosmetic: a refusal
-// (archived/locked thread, rename rate limit) is only logged and never blocks
-// the card or the thread's messages. Each title is tried once, and a rate
-// limit fails fast instead of sleeping through the delivery's deadline.
+// is the user's own and is never renamed. A thread the bridge archived is
+// left archived: renaming is cosmetic, and reopening it here would undo the
+// archive without a matching fact or clear thread_archived_at. The rename is
+// otherwise best-effort: a refusal (archived/locked thread, rename rate limit)
+// is only logged and never blocks the card or the thread's messages. Each
+// title is tried once, and a rate limit fails fast instead of sleeping through
+// the delivery's deadline.
 func (p *Platform) syncTaskThreadName(ctx context.Context, task *core.Task) {
 	name := truncateDiscordThreadName(task.Title, 90)
-	if task.ThreadID == task.ChannelID || name == "" || name == task.ThreadTitle {
+	if task.ThreadID == task.ChannelID || name == "" || name == task.ThreadTitle || task.ThreadArchivedAt != nil {
 		return
 	}
 	task.ThreadTitle = name
-	unarchive := false
-	if _, err := p.session.ChannelEdit(task.ThreadID, &discordgo.ChannelEdit{Name: name, Archived: &unarchive}, discordgo.WithContext(ctx), discordgo.WithRetryOnRatelimit(false)); err != nil {
+	if _, err := p.session.ChannelEdit(task.ThreadID, &discordgo.ChannelEdit{Name: name}, discordgo.WithContext(ctx), discordgo.WithRetryOnRatelimit(false)); err != nil {
 		slog.Warn("discord: task thread rename failed", "task_id", task.ID, "thread", task.ThreadID, "error", err)
 	}
+}
+
+// ArchiveTaskThread hides a finished task's thread. Archiving keeps every
+// message and Discord reopens a public thread automatically when someone posts
+// in it again. A thread the card merely lives in is the user's own and is left
+// alone.
+func (p *Platform) ArchiveTaskThread(ctx context.Context, task *core.Task) error {
+	if p.session == nil || p.botID == "" {
+		return errors.New("discord session is not ready")
+	}
+	if task.ThreadID == "" || task.ThreadID == task.ChannelID {
+		return nil
+	}
+	thread, err := p.session.Channel(task.ThreadID, discordgo.WithContext(ctx))
+	if err != nil {
+		var rest *discordgo.RESTError
+		if errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == 404 {
+			return nil // the thread is already gone; nothing left to archive
+		}
+		return fmt.Errorf("discord: read task thread: %w", err)
+	}
+	if !isThreadChannelType(thread.Type) {
+		return fmt.Errorf("discord: task thread %s is not a thread", task.ThreadID)
+	}
+	if thread.ThreadMetadata != nil && thread.ThreadMetadata.Archived {
+		return nil
+	}
+	archived := true
+	if _, err := p.session.ChannelEdit(task.ThreadID, &discordgo.ChannelEdit{Archived: &archived}, discordgo.WithContext(ctx)); err != nil {
+		return fmt.Errorf("discord: archive task thread: %w", err)
+	}
+	return nil
+}
+
+// ReopenTaskThread unarchives a task thread so a later key fact (for example
+// an acceptance) can be posted instead of being refused with 50083. A thread
+// that is gone is treated as already handled here; posting the fact will
+// surface the missing destination through the normal unrecoverable path.
+func (p *Platform) ReopenTaskThread(ctx context.Context, task *core.Task) error {
+	if p.session == nil || p.botID == "" {
+		return errors.New("discord session is not ready")
+	}
+	if task.ThreadID == "" || task.ThreadID == task.ChannelID {
+		return nil
+	}
+	archived := false
+	if _, err := p.session.ChannelEdit(task.ThreadID, &discordgo.ChannelEdit{Archived: &archived}, discordgo.WithContext(ctx)); err != nil {
+		var rest *discordgo.RESTError
+		if errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == 404 {
+			return nil
+		}
+		return fmt.Errorf("discord: reopen task thread: %w", err)
+	}
+	return nil
+}
+
+// TaskThreadLastActivity returns when the thread last saw activity: the newest
+// message, or the moment Discord last changed its archive status (a reopen).
+// The archive sweep waits from the later of this and the card's UpdatedAt, so
+// a reply that reopened a thread is not hidden again by the same sweep.
+func (p *Platform) TaskThreadLastActivity(ctx context.Context, task *core.Task) (time.Time, error) {
+	if p.session == nil || p.botID == "" {
+		return time.Time{}, errors.New("discord session is not ready")
+	}
+	if task.ThreadID == "" || task.ThreadID == task.ChannelID {
+		return time.Time{}, nil
+	}
+	thread, err := p.session.Channel(task.ThreadID, discordgo.WithContext(ctx))
+	if err != nil {
+		var rest *discordgo.RESTError
+		if errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == 404 {
+			return time.Time{}, nil
+		}
+		return time.Time{}, fmt.Errorf("discord: read task thread activity: %w", err)
+	}
+	if !isThreadChannelType(thread.Type) {
+		return time.Time{}, fmt.Errorf("discord: task thread %s is not a thread", task.ThreadID)
+	}
+	if thread.ThreadMetadata != nil && thread.ThreadMetadata.Archived {
+		return time.Time{}, nil
+	}
+	var last time.Time
+	if thread.ThreadMetadata != nil && !thread.ThreadMetadata.ArchiveTimestamp.IsZero() {
+		last = thread.ThreadMetadata.ArchiveTimestamp
+	}
+	// Source: one newest message is the smallest read that tells whether a
+	// human replied after the card's last progress event.
+	messages, err := p.session.ChannelMessages(task.ThreadID, 1, "", "", "", discordgo.WithContext(ctx))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("discord: read task thread messages: %w", err)
+	}
+	if len(messages) > 0 && messages[0].Timestamp.After(last) {
+		last = messages[0].Timestamp
+	}
+	return last, nil
 }
 
 func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core.TaskEvent, lang core.Language) error {
@@ -182,7 +290,21 @@ func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core
 	}
 	for i, part := range parts {
 		marker := taskFactMarker(task, ev, i, len(parts))
-		if err := p.publishTaskFactPart(ctx, task, ev, lang, marker, part); err != nil {
+		err := p.publishTaskFactPart(ctx, task, ev, lang, marker, part)
+		if isArchivedThreadError(err) && task.ThreadID != task.ChannelID {
+			// Discord auto-archives a thread after its own inactivity window,
+			// not only when the bridge sweep archived it. Reopen it and retry
+			// this one message so an acceptance is not silently dropped.
+			if reopenErr := p.ReopenTaskThread(ctx, task); reopenErr == nil {
+				err = p.publishTaskFactPart(ctx, task, ev, lang, marker, part)
+			} else {
+				// Keep the reopen error: a rate limit or transient failure is
+				// retryable, unlike the original 50083 refusal.
+				slog.Warn("discord: reopen archived task thread failed", "task_id", task.ID, "thread", task.ThreadID, "error", reopenErr)
+				err = reopenErr
+			}
+		}
+		if err != nil {
 			// Missing access or thread is permanent for this account; core
 			// reports it visibly instead of blocking later facts on retries.
 			// An unrecoverable refusal (e.g. 50083 archived thread) is also

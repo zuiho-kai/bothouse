@@ -417,6 +417,28 @@ func (p *PublicProgress) memberEvent(r *publicRun, summary string, key bool) {
 	r.record.Task.LatestProgress = previous
 }
 
+// failMembersOnBackendUnavailable closes the live rows assigned to project
+// when that backend could not accept this dispatch, so the card shows the real
+// reason instead of leaving them queued forever. A backend-wide outage affects
+// every dispatch to the same project, so all its live rows on this task fail.
+// Caller holds r.mu.
+func (p *PublicProgress) failMembersOnBackendUnavailable(r *publicRun, project, reason string) {
+	if project == "" {
+		return
+	}
+	now := time.Now().UTC()
+	for i := range r.record.Task.Members {
+		member := &r.record.Task.Members[i]
+		if member.ReporterProject != project || !member.Live() {
+			continue
+		}
+		member.Status = "failed"
+		member.Summary = reason
+		member.UpdatedAt = now
+		member.EndedAt = now
+	}
+}
+
 // Caller holds transitionMu. Reports use an independent sequence per member.
 func (p *PublicProgress) reportMember(g *taskMemberRun, req PublicProgressRequest) (string, error) {
 	r := g.r

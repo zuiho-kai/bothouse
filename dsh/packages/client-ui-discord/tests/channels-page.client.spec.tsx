@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
-import type { ChannelSnapshot } from '../src/client/channel-source.ts'
+import { createChannelSource, type ChannelSnapshot, type ChannelTransport } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from '../src/client/ChannelsPage.module.css'
@@ -34,6 +34,27 @@ function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async (
 }
 
 describe('channels page', () => {
+  it('saves the channel directory before asking to renew and supports later or immediate recreation', async () => {
+    const p = props({ ...ready, rooms: [{ id: 1, name: 'general', workspace_path: '/old', effective_lead_id: 'ju' }] })
+    const save = vi.fn(async () => {})
+    const renew = vi.fn(async () => {})
+    render(<ChannelsPage {...p} setWorkspacePath={save} renewRoom={renew} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
+    expect((screen.getByLabelText(zh.workingDirectory) as HTMLInputElement).value).toBe('/old')
+    expect(screen.getByText(zh.workingDirectoryHint)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText(zh.workingDirectory), { target: { value: '/new' } })
+    await act(async () => { fireEvent.submit(screen.getByLabelText(zh.workingDirectory).closest('form')!) })
+    expect(save).toHaveBeenCalledWith(1, '/new')
+    expect(renew).not.toHaveBeenCalled()
+    expect(screen.getByRole('alertdialog')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: zh.renewLater }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    await act(async () => { fireEvent.submit(screen.getByLabelText(zh.workingDirectory).closest('form')!) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: zh.renewNow })) })
+    expect(renew).toHaveBeenCalledExactlyOnceWith(1)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
   it('keeps an offline primary visible with offline styling and its selected name', () => {
     render(<ChannelsPage {...props({
       ...ready, thinking: {}, messages: [],
@@ -106,12 +127,12 @@ describe('channels page', () => {
     await act(async () => { fireEvent.click(dialog.getByRole('radio', { name: zh.dispatchTeam })) })
     expect(p.setDispatchMode).toHaveBeenCalledWith(1, 'team')
     await act(async () => { fireEvent.change(dialog.getByRole('combobox', { name: zh.channelLead }), { target: { value: 'ds' } }) })
-    expect(p.setLead).toHaveBeenCalledWith('ds')
+    expect(p.setLead).toHaveBeenCalledWith('ds', 1)
     const name = dialog.getByRole('textbox', { name: zh.channelName })
     fireEvent.change(name, { target: { value: 'bad name' } })
-    expect((dialog.getByRole('button', { name: zh.messageSave }) as HTMLButtonElement).disabled).toBe(true)
+    expect((within(name.closest('form')!).getByRole('button', { name: zh.messageSave }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.change(name, { target: { value: '新频道' } })
-    await act(async () => { fireEvent.click(dialog.getByRole('button', { name: zh.messageSave })) })
+    await act(async () => { fireEvent.click(within(name.closest('form')!).getByRole('button', { name: zh.messageSave })) })
     expect(renameRoom).toHaveBeenCalledWith(1, '新频道')
     expect(dialog.getByRole('alert').textContent).toBe('rename failed')
   })
@@ -217,7 +238,7 @@ describe('channels page', () => {
     const lead = screen.getByLabelText(zh.channelLead) as HTMLSelectElement
     expect(lead.selectedOptions[0].textContent).toContain('橘')
     await act(async () => { fireEvent.change(lead, { target: { value: 'ds' } }) })
-    expect(setLead).toHaveBeenCalledExactlyOnceWith('ds')
+    expect(setLead).toHaveBeenCalledExactlyOnceWith('ds', 1)
   })
 
   it('allows making the configured effective role explicit', async () => {
@@ -227,7 +248,7 @@ describe('channels page', () => {
     fireEvent.click(screen.getByRole('button', { name: zh.channelSettings }))
     const lead = screen.getByLabelText(zh.channelLead) as HTMLSelectElement
     await act(async () => { fireEvent.change(lead, { target: { value: 'ju' } }) })
-    expect(setLead).toHaveBeenCalledExactlyOnceWith('ju')
+    expect(setLead).toHaveBeenCalledExactlyOnceWith('ju', 1)
   })
 
   it('renders a room with a message and a configure-model card without throwing', () => {
@@ -508,7 +529,48 @@ describe('channels page', () => {
     expect(p.createRoom).not.toHaveBeenCalled()
   })
 
-  it('adds a globally visible member without a room scope and keeps the form on a refusal', async () => {
+  it.each([2, 1000000])('binds a member submitted from room %i to its chat channel', async (roomId) => {
+    const posted: unknown[] = []
+    const transport: ChannelTransport = {
+      url: path => `/${path}`,
+      openEvents: () => ({ onopen: null, onmessage: null, onerror: null, close() {} }),
+      fetch: async (url, init) => {
+        let body: unknown = { messages: [] }
+        if (url === '/collab/api/state') body = {
+          ...ready,
+          rooms: [...ready.rooms, { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 2 }],
+        }
+        if (url === '/collab/api/models') body = { routes: [{ provider: 'relay', name: 'Relay', models: [{ id: 'm1', name: 'M1' }] }] }
+        // The member dialog reads the persona library on open; an array keeps it rendering.
+        if (url === '/collab/api/personas') body = []
+        if (url === '/collab/api/members') {
+          expect(init?.method).toBe('POST')
+          posted.push(JSON.parse(String(init?.body)))
+          body = {}
+        }
+        return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+      },
+    }
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    try {
+      await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+      await actions.selectRoom(roomId)
+      render(<ChannelsPage {...props(source.getSnapshot())} {...actions} />)
+      fireEvent.click(screen.getByRole('button', { name: '+ ' + zh.addMember }))
+      const dialog = await screen.findByRole('dialog')
+      await act(async () => {})
+      fireEvent.change(screen.getByLabelText(zh.memberName), { target: { value: 'Coder' } })
+      fireEvent.change(screen.getByLabelText(zh.memberModel), { target: { value: 'relay\u0000m1' } })
+      await act(async () => { fireEvent.submit(dialog) })
+      expect(posted).toEqual([expect.objectContaining({ name: 'Coder', rooms: [2] })])
+      expect(screen.queryByRole('dialog')).toBeNull()
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('submits member details and keeps the form on a refusal', async () => {
     const p = props({ ...ready, thinking: {} })
     ;(p.listModels as ReturnType<typeof vi.fn>).mockResolvedValue([
       { provider: 'relay', name: '中转站', models: [{ id: 'deepseek-v4.1-flash', name: 'deepseek-v4.1-flash' }] },
@@ -527,7 +589,7 @@ describe('channels page', () => {
     expect(dialog.querySelector('[role="radio"][title="whale"] img')?.getAttribute('src')).toBe('collab/avatars/whale.png')
     expect(dialog.querySelector('optgroup[label="Broken（读取失败：no key）"]')).toBeTruthy()
     await act(async () => { fireEvent.submit(dialog) })
-    expect(p.addMember).toHaveBeenCalledWith({ name: 'Coder', persona: '写代码', avatar: 'whale', model: { provider: 'relay', model: 'deepseek-v4.1-flash' } })
+    expect(p.addMember).toHaveBeenCalledWith({ name: 'Coder', nameCustomized: true, persona: '写代码', avatar: 'whale', model: { provider: 'relay', model: 'deepseek-v4.1-flash' } })
     expect(screen.getByRole('alert').textContent).toContain('already used')
     expect((screen.getByLabelText(zh.memberName) as HTMLInputElement).value).toBe('Coder')
     await act(async () => { fireEvent.submit(dialog) })

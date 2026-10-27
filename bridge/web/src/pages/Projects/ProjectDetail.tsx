@@ -1,3 +1,4 @@
+import { backendLabel, roleLabel } from '@/lib/roleIdentity';
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link, useNavigate } from 'react-router-dom';
@@ -115,6 +116,8 @@ export default function ProjectDetail() {
   const [disabledCmds, setDisabledCmds] = useState('');
   const [workDir, setWorkDir] = useState('');
   const [agentMode, setAgentMode] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [nameTouched, setNameTouched] = useState(false);
   const [showCtxIndicator, setShowCtxIndicator] = useState(true);
   const [showWorkdirIndicator, setShowWorkdirIndicator] = useState(true);
   const [replyFooter, setReplyFooter] = useState(true);
@@ -210,6 +213,7 @@ export default function ProjectDetail() {
         setWorkDir(proj.value.work_dir || '');
         setAgentMode(proj.value.agent_mode || 'default');
         setSelectedAgentType(proj.value.agent_type || '');
+        setDisplayName(shownName(proj.value)); setNameTouched(false);
         setShowCtxIndicator(proj.value.show_context_indicator !== false);
         setShowWorkdirIndicator(proj.value.show_workdir_indicator !== false);
         setReplyFooter(proj.value.reply_footer !== false);
@@ -254,6 +258,7 @@ export default function ProjectDetail() {
       const agentTypeChanged = project && selectedAgentType !== project.agent_type;
       const res = await updateProject(name, {
         language,
+        ...(nameTouched ? { display_name: displayName, name_customized: true } : {}),
         admin_from: adminFrom,
         disabled_commands: disabledCmds.split(',').map(s => s.trim()).filter(Boolean),
         work_dir: workDir,
@@ -302,6 +307,12 @@ export default function ProjectDetail() {
     return <div className="flex items-center justify-center h-64 text-gray-400 animate-pulse">Loading...</div>;
   }
 
+  const headerName = nameTouched
+    ? displayName
+    : project?.name_customized === false && selectedAgentType !== project.agent_type
+      ? backendLabel(selectedAgentType)
+      : shownName(project) || name || '';
+
   return (
     <div className="space-y-6 animate-fade-in ">
       {/* Back + title */}
@@ -309,8 +320,7 @@ export default function ProjectDetail() {
         <Link to="/projects" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
           <ArrowLeft size={18} className="text-gray-400" />
         </Link>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white">{shownName(project) || name}</h2>
-        {project && <Badge variant="info">{project.agent_type}</Badge>}
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white">{roleLabel(headerName, selectedAgentType || project?.agent_type || '')}</h2>
       </div>
 
       {/* Tabs */}
@@ -566,6 +576,7 @@ export default function ProjectDetail() {
         {/* Agent settings */}
         <Card>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">{t('projects.agentSettings', 'Agent')}</h3>
+          <Input label={t('common.name', 'Name')} value={!nameTouched && project?.name_customized === false && selectedAgentType !== project.agent_type ? backendLabel(selectedAgentType) : displayName} onChange={e => { setDisplayName(e.target.value); setNameTouched(true); }} />
           <div className="space-y-4 max-w-lg">
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">

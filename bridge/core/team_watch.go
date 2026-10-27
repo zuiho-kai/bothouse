@@ -232,7 +232,7 @@ func (w *handoffWatch) tick(now time.Time) time.Time {
 	st := loadTeamWorkspacesLocked(path)
 	for key, list := range st.Handoffs {
 		for _, h := range list {
-			if !teamHandoffOpen(h) || h.Due.IsZero() {
+			if !teamHandoffOpen(h) || h.Due.IsZero() || h.Idle.Returned {
 				continue
 			}
 			if !now.Before(h.Due) {
@@ -260,7 +260,7 @@ func (w *handoffWatch) updateHandoff(key string, h TeamHandoff, f func(*TeamHand
 	st := loadTeamWorkspacesLocked(path)
 	for i, x := range st.Handoffs[key] {
 		if x.Chat == h.Chat && x.At.Equal(h.At) {
-			if !teamHandoffOpen(x) {
+			if !teamHandoffOpen(x) || x.Idle.Returned {
 				return false, nil
 			}
 			f(&st.Handoffs[key][i])
@@ -279,6 +279,19 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		// The platform is not connected (yet): nothing is sent or parked; try again later, never
 		// drop the check.
 		return now.Add(watchRetryDelay)
+	}
+	// Only a recorded terminal event owns idle wakeups. A missing owner or
+	// event must not silently renew a handoff forever at each deadline.
+	target := w.e.watchTarget(key, h.Owner)
+	busy := w.workspaceBusy(key)
+	if target != nil {
+		busy = target.watchBusy(key)
+	}
+	if !busy && target != nil && !h.Idle.Ended.IsZero() && !h.Idle.Returned && !h.Idle.Reported {
+		target.armIdleWake(idleAssignment{key, h, false})
+		due := now.Add(watchCheckAfter())
+		_, _ = w.updateHandoff(key, h, func(x *TeamHandoff) { x.Due = due })
+		return due
 	}
 	background, _ := w.workspaceBackgroundProgress(key, h.Due.Add(-watchCheckAfter()))
 	if h.ParkFails == 0 && (watchCanRenew(h.Renewed) || background && h.Renewed < watchMaxBackgroundRenew) && w.progress != nil {
@@ -630,7 +643,7 @@ func watchNudgeText(plat string, h TeamHandoff) string {
 	if m := watchMention(plat, h.Owner); m != "" {
 		b.WriteString(m + " ")
 	}
-	b.WriteString("到了检查时间还没交回：请交回结果，或说明卡在哪。先停手，做到哪一步交回来。")
+	b.WriteString("到了检查时间还没交回：请交回做到哪一步，或说明卡在哪。")
 	if h.Title != "" {
 		b.WriteString("（" + h.Title + "）")
 	}

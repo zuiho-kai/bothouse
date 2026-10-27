@@ -185,6 +185,10 @@ const (
 	MsgError                     MsgKey = "error"
 	MsgQuotaExhausted            MsgKey = "quota_exhausted"
 	MsgQuotaExhaustedResets      MsgKey = "quota_exhausted_resets"
+	MsgBackendUnavailable        MsgKey = "backend_unavailable"
+	MsgBackendAuthRequired       MsgKey = "backend_auth_required"
+	MsgBackendPlanUnavailable    MsgKey = "backend_plan_unavailable"
+	MsgBackendQuotaRemaining     MsgKey = "backend_quota_remaining"
 	MsgAnswerWithFailure         MsgKey = "answer_with_failure"
 	MsgTaskAlreadyCompleted      MsgKey = "task_already_completed"
 	MsgSessionNotFound           MsgKey = "session_not_found"
@@ -680,6 +684,8 @@ const (
 	MsgBoardTasksMore    MsgKey = "board_tasks_more"
 	MsgPublicInterrupted MsgKey = "MsgPublicInterrupted"
 	MsgPublicEnded       MsgKey = "MsgPublicEnded"
+	MsgWatchResume       MsgKey = "watch_resume"
+	MsgWatchIdleEscalate MsgKey = "watch_idle_escalate"
 	MsgTaskKeyFact       MsgKey = "MsgTaskKeyFact"
 	MsgTaskResultReady   MsgKey = "MsgTaskResultReady"
 	MsgTaskRelayAssigned MsgKey = "MsgTaskRelayAssigned"
@@ -916,6 +922,20 @@ var messages = map[MsgKey]map[Language]string{
 		LangJapanese:           "処理が中断しました。再試行前に記録済みの成果を確認してください。",
 		LangSpanish:            "Turno interrumpido; revise los resultados antes de reintentar.",
 	},
+	MsgWatchResume: {
+		LangEnglish:            "Continue %s; no reply needed",
+		LangChinese:            "接着做 %s，不用回话",
+		LangTraditionalChinese: "接著做 %s，不用回話",
+		LangJapanese:           "%s を続けてください。返事は不要です",
+		LangSpanish:            "Continúa %s; no hace falta responder",
+	},
+	MsgWatchIdleEscalate: {
+		LangEnglish:            "Watch: %s has not resumed %s after two wakeups. Primary role, please take over.",
+		LangChinese:            "看门：%s「%s」连续叫醒两次仍未继续，请主角色接手。",
+		LangTraditionalChinese: "看門：%s「%s」連續叫醒兩次仍未繼續，請主角色接手。",
+		LangJapanese:           "見守り：%s は %s を2回呼びかけても再開していません。主担当に引き継いでください。",
+		LangSpanish:            "Aviso: %s no ha retomado %s tras dos avisos. El rol principal debe hacerse cargo.",
+	},
 	MsgPublicEnded: {
 		LangEnglish:            "Turn ended; see the final reply. Acceptance is not confirmed.",
 		LangChinese:            "本轮已结束，结果见最终答复；验收尚未确认。",
@@ -1138,6 +1158,34 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "⚠️ %s 額度已用完，%s 恢復",
 		LangJapanese:           "⚠️ %s の利用枠を使い切りました（%s に回復）",
 		LangSpanish:            "⚠️ %s se ha quedado sin cuota; se restablece %s",
+	},
+	MsgBackendUnavailable: {
+		LangEnglish:            "⚠️ %s backend unavailable: %s",
+		LangChinese:            "⚠️ %s 后端不可用：%s",
+		LangTraditionalChinese: "⚠️ %s 後端無法使用：%s",
+		LangJapanese:           "⚠️ %s バックエンドが利用できません: %s",
+		LangSpanish:            "⚠️ El backend de %s no está disponible: %s",
+	},
+	MsgBackendAuthRequired: {
+		LangEnglish:            "⚠️ %s login has expired; sign in again before retrying.",
+		LangChinese:            "⚠️ %s 登录已失效，请重新登录后再试。",
+		LangTraditionalChinese: "⚠️ %s 登入已失效，請重新登入後再試。",
+		LangJapanese:           "⚠️ %s のログインが失効しました。再ログインしてから再試行してください。",
+		LangSpanish:            "⚠️ La sesión de %s ha caducado; vuelve a iniciar sesión antes de reintentar.",
+	},
+	MsgBackendPlanUnavailable: {
+		LangEnglish:            "⚠️ %s plan or payment method unavailable: %s",
+		LangChinese:            "⚠️ %s 套餐或付款方式不可用：%s",
+		LangTraditionalChinese: "⚠️ %s 方案或付款方式無法使用：%s",
+		LangJapanese:           "⚠️ %s のプランまたは支払い方法を利用できません: %s",
+		LangSpanish:            "⚠️ El plan o método de pago de %s no está disponible: %s",
+	},
+	MsgBackendQuotaRemaining: {
+		LangEnglish:            " (quota still %d%% left)",
+		LangChinese:            "（额度仍剩 %d%%）",
+		LangTraditionalChinese: "（額度仍剩 %d%%）",
+		LangJapanese:           "（利用枠は残り %d%%）",
+		LangSpanish:            " (cuota restante: %d%%)",
 	},
 	MsgAnswerWithFailure: {
 		LangEnglish:            "⚠️ An operation failed this turn. The reply above does not mean every operation succeeded: %v",

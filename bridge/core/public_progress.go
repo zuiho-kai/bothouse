@@ -28,6 +28,43 @@ type TaskCardPublisher interface {
 	PublishTaskFact(context.Context, *Task, TaskEvent, Language) error
 }
 
+// TaskThreadArchiver is an optional platform capability: hide a finished or
+// result-ready task's thread without deleting messages. A nil error means the
+// thread is archived or already was; reopening is the platform's own job when
+// someone posts again.
+type TaskThreadArchiver interface {
+	ArchiveTaskThread(context.Context, *Task) error
+}
+
+// TaskThreadReopener is an optional platform capability: unarchive a task
+// thread so a later key fact can be posted. The bridge only calls it when its
+// own archived marker is set and a key fact is still pending.
+type TaskThreadReopener interface {
+	ReopenTaskThread(context.Context, *Task) error
+}
+
+// TaskThreadActivityReader is an optional platform capability: return when the
+// thread last saw activity (a message or a reopen). The archive sweep waits
+// from the later of this and the card's UpdatedAt, so a fresh reply is not
+// hidden by the same sweep. Activity newer than the bridge's own archive
+// marker re-arms an archived thread for another archive after the wait.
+type TaskThreadActivityReader interface {
+	TaskThreadLastActivity(context.Context, *Task) (time.Time, error)
+}
+
+// defaultTaskThreadArchiveAfter is how long a finished task's thread stays
+// visible before the sweep archives it. Source: 1440 minutes (24 hours) is the
+// wait this sweep has used for terminal cards; the thread itself is created
+// with a longer Discord auto-archive (10080), so the sweep decides this time.
+const defaultTaskThreadArchiveAfter = 1440 * time.Minute
+
+// defaultResultReadyThreadArchiveAfter is how long a result_ready card's
+// thread stays visible before the sweep archives it. Source: C酱's review
+// suggestion on PR #498 proposed 4320 minutes (3 days) for result_ready cards,
+// because the main bot rarely runs the acceptance step and they would
+// otherwise never be archived.
+const defaultResultReadyThreadArchiveAfter = 4320 * time.Minute
+
 // PublicProgressRequest contains deliberately public prose, never raw agent events.
 type PublicProgressRequest struct {
 	Project    string `json:"project"`
@@ -100,12 +137,14 @@ type publicRun struct {
 type PublicProgress struct {
 	// Lifecycle operations serialize run ownership and durable state transitions.
 	// Delivery never takes this lock; network requests remain independent.
-	transitionMu    sync.Mutex
-	mu              sync.Mutex
-	dir             string
-	dataDir         string
-	project         string
-	resolveReporter func(project, platform, session string) (TaskCardPublisher, error)
+	transitionMu            sync.Mutex
+	mu                      sync.Mutex
+	dir                     string
+	dataDir                 string
+	project                 string
+	archiveAfter            time.Duration // terminal thread archive delay; 0 disables; set before Start
+	resultReadyArchiveAfter time.Duration // result_ready thread archive delay; 0 disables; set before Start
+	resolveReporter         func(project, platform, session string) (TaskCardPublisher, error)
 	// resolveWorkspace validates an explicit task workspace and returns its
 	// "<platform>:<id>" channel key; nil when workspace routing is off.
 	resolveWorkspace func(sourceSession, workspace string) (string, error)
@@ -149,7 +188,7 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 		return nil, fmt.Errorf("public progress data directory: %w", err)
 	}
 	hash := sha256.Sum256([]byte(project))
-	p := &PublicProgress{dir: filepath.Join(dataDir, "public-progress", hex.EncodeToString(hash[:8])), dataDir: dataDir, project: project, runs: map[string]*publicRun{}, records: map[string]*publicRun{}, open: map[string]*publicRun{}, pending: map[string]*publicRun{}, listed: map[string]*publicRun{}}
+	p := &PublicProgress{dir: filepath.Join(dataDir, "public-progress", hex.EncodeToString(hash[:8])), dataDir: dataDir, project: project, archiveAfter: defaultTaskThreadArchiveAfter, resultReadyArchiveAfter: defaultResultReadyThreadArchiveAfter, runs: map[string]*publicRun{}, records: map[string]*publicRun{}, open: map[string]*publicRun{}, pending: map[string]*publicRun{}, listed: map[string]*publicRun{}}
 	if err := os.MkdirAll(p.dir, 0700); err != nil {
 		return nil, err
 	}
@@ -573,6 +612,164 @@ func (p *PublicProgress) Flush(ctx context.Context) {
 	}
 }
 
+// SetThreadArchiveAfter overrides how long a terminal task's thread stays
+// visible before it is archived. Zero disables the sweep. Call before Start.
+func (p *PublicProgress) SetThreadArchiveAfter(after time.Duration) {
+	p.archiveAfter = after
+}
+
+// SetResultReadyThreadArchiveAfter overrides how long a result_ready task's
+// thread stays visible before it is archived. Zero disables this archive. Call
+// before Start.
+func (p *PublicProgress) SetResultReadyThreadArchiveAfter(after time.Duration) {
+	p.resultReadyArchiveAfter = after
+}
+
+// startFinishedThreadArchiveLoop archives threads whose task reached a
+// terminal state or result_ready at least its configured delay ago. It runs
+// beside the delivery loop so archiving never delays a report or a platform
+// reconnect.
+func (p *PublicProgress) startFinishedThreadArchiveLoop(ctx context.Context) {
+	if p.archiveAfter <= 0 && p.resultReadyArchiveAfter <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				p.archiveFinishedThreads(ctx, now)
+			}
+		}
+	}()
+}
+
+// archiveFinishedThreads hides the threads of terminal task cards and of
+// result_ready cards whose longer wait has passed. A card whose latest public
+// fact is still pending is skipped: archiving first would make the platform
+// refuse that final delivery. Nothing is deleted; Discord reopens a thread when
+// someone posts in it again, and the sweep re-arms an archived thread when that
+// activity arrives so it can be archived again after the wait. Archiving a
+// result_ready card never changes its state, so the owner can still accept it.
+func (p *PublicProgress) archiveFinishedThreads(ctx context.Context, now time.Time) {
+	terminalAfter, resultReadyAfter := p.archiveAfter, p.resultReadyArchiveAfter
+	if terminalAfter <= 0 && resultReadyAfter <= 0 {
+		return
+	}
+	p.mu.Lock()
+	runs := make([]*publicRun, 0, len(p.records))
+	for id, r := range p.records {
+		if p.pending[id] == nil {
+			runs = append(runs, r)
+		}
+	}
+	p.mu.Unlock()
+	for _, r := range runs {
+		if ctx.Err() != nil {
+			return
+		}
+		r.mu.Lock()
+		t := r.record.Task
+		var wait time.Duration
+		switch {
+		case IsTerminalState(t.State):
+			wait = terminalAfter
+		case t.State == TaskStateResultReady:
+			wait = resultReadyAfter
+		}
+		archivedAt := t.ThreadArchivedAt
+		_, canReadActivity := r.publisher.(TaskThreadActivityReader)
+		due := wait > 0 && t.ThreadID != "" && t.ThreadID != t.ChannelID &&
+			!t.UpdatedAt.IsZero() && r.record.CardSeq >= t.Seq && r.record.FactSeq >= t.Seq
+		if due {
+			if archivedAt == nil {
+				due = now.Sub(t.UpdatedAt) >= wait
+			} else {
+				// An archived thread is only interesting again once its wait
+				// has elapsed; the activity read below tells us whether a
+				// reply or a manual reopen actually brought it back.
+				due = canReadActivity && now.Sub(*archivedAt) >= wait
+			}
+		}
+		if !due {
+			r.mu.Unlock()
+			continue
+		}
+		snapshot := t.Clone()
+		r.mu.Unlock()
+		archiver, ok := r.publisher.(TaskThreadArchiver)
+		if !ok {
+			continue
+		}
+		if reader, ok := r.publisher.(TaskThreadActivityReader); ok {
+			callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			activity, err := reader.TaskThreadLastActivity(callCtx, snapshot)
+			cancel()
+			if err != nil {
+				slog.Warn("public progress: read task thread activity failed", "task_id", snapshot.ID, "thread", snapshot.ThreadID, "error", err)
+				continue
+			}
+			if archivedAt != nil {
+				if !activity.After(*archivedAt) {
+					continue
+				}
+				// Someone replied or reopened the thread after the bridge
+				// archived it. Clear the marker so the normal wait applies
+				// again from this activity; if enough time has already passed,
+				// archive it again in this same sweep.
+				r.mu.Lock()
+				if r.record.Task.ThreadArchivedAt != nil {
+					r.record.Task.ThreadArchivedAt = nil
+					if err := p.save(r); err != nil {
+						slog.Error("public progress: persist re-armed thread marker failed", "task_id", snapshot.ID, "error", err)
+					}
+				}
+				r.mu.Unlock()
+				if now.Sub(activity) < wait {
+					continue
+				}
+			} else if activity.After(snapshot.UpdatedAt) && now.Sub(activity) < wait {
+				// A reply or reopen after the card's last progress event
+				// restarts the wait, so the same sweep does not hide the fresh
+				// discussion.
+				continue
+			}
+		}
+		// The 10s bound matches flushRun's delivery deadline, so one slow
+		// Discord call cannot stall the sweep for every remaining task.
+		callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err := archiver.ArchiveTaskThread(callCtx, snapshot)
+		cancel()
+		if err != nil {
+			slog.Warn("public progress: archive finished task thread failed", "task_id", snapshot.ID, "thread", snapshot.ThreadID, "error", err)
+			continue
+		}
+		r.mu.Lock()
+		if r.record.Task.ThreadArchivedAt == nil {
+			archivedAt := now.UTC()
+			r.record.Task.ThreadArchivedAt = &archivedAt
+			if err := p.save(r); err != nil {
+				slog.Error("public progress: persist archived thread marker failed", "task_id", snapshot.ID, "error", err)
+			}
+		}
+		r.mu.Unlock()
+		slog.Info("public progress: archived finished task thread", "task_id", snapshot.ID, "thread", snapshot.ThreadID)
+	}
+}
+
+// hasPendingKeyFact reports whether any accepted key fact is still undelivered.
+func hasPendingKeyFact(task *Task, factSeq int64) bool {
+	for _, ev := range task.Events {
+		if ev.Seq > factSeq && ev.IsKeyFact {
+			return true
+		}
+	}
+	return false
+}
+
 // flushRun delivers r's pending card state and facts. attempted is the task
 // sequence this delivery read: facts accepted while it was in flight are not
 // part of it.
@@ -592,6 +789,25 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 	p.displayNames(task)
 	if err != nil {
 		return attempted, err
+	}
+	// A key fact accepted after the sweep archived this thread (acceptance is
+	// the common case) would be refused with 50083. Reopen before delivering,
+	// and clear the marker so the thread is not left permanently unmanaged.
+	wasArchived := task.ThreadArchivedAt != nil
+	if wasArchived && hasPendingKeyFact(task, factSeq) {
+		if reopener, ok := r.publisher.(TaskThreadReopener); ok {
+			if err := reopener.ReopenTaskThread(ctx, task); err != nil {
+				return attempted, err
+			}
+			r.mu.Lock()
+			r.record.Task.ThreadArchivedAt = nil
+			err = p.save(r)
+			r.mu.Unlock()
+			if err != nil {
+				return attempted, err
+			}
+			task.ThreadArchivedAt = nil
+		}
 	}
 	if cardSeq < task.Seq {
 		deliveryErr := r.publisher.EnsureTaskCard(ctx, task, lang)
@@ -647,6 +863,11 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 		}
 		r.mu.Lock()
 		r.record.FactSeq = ev.Seq
+		if wasArchived && ev.IsKeyFact {
+			// A platform without ReopenTaskThread may reopen on its own when
+			// accepting the fact; either way the thread is active again.
+			r.record.Task.ThreadArchivedAt = nil
+		}
 		err = p.save(r)
 		r.mu.Unlock()
 		if err != nil {
@@ -667,6 +888,24 @@ func (p *PublicProgress) checkWorkspaceCard(session string) error {
 		return errCardOutsideWorkspace
 	}
 	return nil
+}
+
+// SetPublicProgressThreadArchiveAfter overrides the finished-task thread
+// archive delay for this engine. Zero disables automatic archiving. Call after
+// EnablePublicProgress and before Start.
+func (e *Engine) SetPublicProgressThreadArchiveAfter(after time.Duration) {
+	if e.publicProgress != nil {
+		e.publicProgress.SetThreadArchiveAfter(after)
+	}
+}
+
+// SetPublicProgressResultReadyThreadArchiveAfter overrides the result_ready
+// thread archive delay for this engine. Zero disables that archive, leaving
+// terminal cards unaffected. Call after EnablePublicProgress and before Start.
+func (e *Engine) SetPublicProgressResultReadyThreadArchiveAfter(after time.Duration) {
+	if e.publicProgress != nil {
+		e.publicProgress.SetResultReadyThreadArchiveAfter(after)
+	}
 }
 
 func (e *Engine) EnablePublicProgress() error {
@@ -739,10 +978,7 @@ func (e *Engine) voiceProgressInstructions(token, session string) string {
 const voiceProgressPrompt = "[Public progress channel]\nOnly for accepted multi-step work, report public status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'short status'. Start with --seq 1 --kind start --title 'task title'.RESUME_NOTE Increment seq for update/milestone/waiting/result; retry the same seq/content. Report only meaningful changes (max 64). No cards for chat or questions. Keep reasoning, tools, credentials and conversations private. Report verified facts; result is not human acceptance. This token is for this turn only. Keep the spoken reply short.\n[/Public progress channel]\n\n"
 
 func (e *Engine) progressInstructions(token, session, instructions string) string {
-	command := "bothouse"
-	if path, err := os.Executable(); err == nil {
-		command = path
-	}
+	command := bridgeCommand()
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 	prefix := quote(command) + " progress --project " + quote(e.name) + " --session " + quote(session) + " --data-dir " + quote(e.publicProgress.dataDir)
 	resumeNote := ""
@@ -750,7 +986,7 @@ func (e *Engine) progressInstructions(token, session, instructions string) strin
 		// Naming the state is the point: an owner who asked for something new
 		// must not lose the card for it to an earlier card that already
 		// delivered a result, which is the most common wrong continuation.
-		resumeNote = " A card from earlier in this session is still open (" + taskID + ", state " + string(state) + ", title " + strconv.Quote(title) + "). Continue it with --seq " + strconv.FormatInt(resumeSeq, 10) + " --kind update only when this turn is follow-up on that same title; when the human asked for something else, start a new card with --seq 1 --kind start."
+		resumeNote = " A card from earlier in this session is still open (" + taskID + ", state " + string(state) + ", title " + strconv.Quote(title) + "). Continue it with " + prefix + " --run " + token + " --task " + taskID + " --seq " + strconv.FormatInt(resumeSeq, 10) + " --kind update --message 'short status' only when this turn is follow-up on that same title; when the human asked for something else, start a new card with --seq 1 --kind start."
 	}
 	return strings.NewReplacer(
 		"COMMAND", prefix,
@@ -759,6 +995,14 @@ func (e *Engine) progressInstructions(token, session, instructions string) strin
 		"RESUME_NOTE", resumeNote,
 		"RELAY_COMMAND", quote(command)+" relay send --from "+quote(e.name)+" --session "+quote(session)+" --data-dir "+quote(e.publicProgress.dataDir),
 	).Replace(instructions)
+}
+
+// bridgeCommand is the executable name to advertise in agent-facing commands.
+func bridgeCommand() string {
+	if path, err := os.Executable(); err == nil {
+		return path
+	}
+	return "bothouse"
 }
 
 const publicTaskMembersPrompt = "[Task card members]\nWhen delegation is already authorized, open each new delegation batch with ASSIGN_COMMAND --run RUN_TOKEN --batch STABLE_BATCH_ID --member UNIQUE_ID --name 'display name' --title 'short assignment' --ref 'path:line of the existing implementation to follow' (for a configured bot, use --reporter-project EXACT_BOUND_PROJECT_ID; its name comes from that project, never from --name; when it executes in another workspace of the same chat channel, add --workspace WORKSPACE_ID and pass the same workspace to the task relay that dispatches it). Native children use --name 'explicit child name' and optional --parent existing-member-id; they inherit their owning bot account. --ref is required: name the existing implementation (path:line); for non-code work write --ref '无（新建）'. When several members edit the same files, put 多人改 in the title and add --base BRANCH; the member that changes the shared interface merges first. Omit --id for new work: the batch automatically opens a fresh shared card, even if this turn already reported on another card. Use the SAME batch for all participants in that delegation and on retries; use a DIFFERENT batch for independent parallel work. Batch ids are scoped to this turn. To explicitly continue a known card, replace --batch with --id TASK_ID. Overall reports for a delegation use COMMAND --run RUN_TOKEN --task TASK_ID --seq N --kind KIND --message 'public status'; each card has its own lead sequence, beginning at 1 for a new batch; the grant returns lead_next_seq for explicit continuation. Assignment does not consume a lead sequence. A first update can follow assignment without a separate start. Pass only the returned report_command to that participant. A --reporter-project member gets no report_command (report_via is set instead): dispatch it with the task relay and that bot receives its own member report command there. The participant itself reports immediately with --seq 1 --kind update --message 'started', then increments its own sequence only for meaningful progress, waiting, result, failed or cancelled. Use the same sequence/content on retry. Member results update only that row, not the overall task or acceptance. Ending the lead turn does not finish other delegation batches; report each batch's overall result separately. No raw tools, credentials or reasoning. A member's first report starts its clock; result/failed/cancelled ends it. Do not register a member unless actually dispatching; registration grants no permission to delegate.\n[/Task card members]\n\n"
@@ -816,6 +1060,7 @@ func (e *Engine) startPublicProgress() {
 	// the next dispatch. Its notes are queued (pending) and delivered by the
 	// Flush loop below, which retries until the platform is connected.
 	e.publicProgress.resumeRelayWatch(e.ctx)
+	e.publicProgress.startFinishedThreadArchiveLoop(e.ctx)
 	go func() {
 		defer e.messageWorkers.Done()
 		ticker := time.NewTicker(time.Second)

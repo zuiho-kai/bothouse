@@ -32,7 +32,7 @@ export interface WikiEngine { id: string; label: string; agent_type: string }
 export interface WizardWiki { daily?: string; night?: string; split?: string }
 
 export interface WizardRole {
-  project?: string; name?: string; token?: string; reuse_project?: string; agent_type?: string;
+  name_customized?: boolean; keep_persona_name?: boolean; project?: string; name?: string; token?: string; reuse_project?: string; agent_type?: string;
   work_dir?: string; persona?: string; edit_persona?: boolean; reply_language?: string;
   provider?: { vendor: string; base_url?: string; api_key?: string; model?: string };
   /** library persona slug / avatar slug; omitted = keep what setup state has, "" = clear */
@@ -156,7 +156,7 @@ export async function installDSHPlugin(lang: string, onEvent: (e: DSHInstallEven
   }
 }
 
-export interface DSHMember { name: string; cli?: 'claude' | 'codex' | 'gemini'; persona?: string }
+export interface DSHMember { name: string; cli?: 'claude' | 'codex' | 'gemini'; persona?: string; name_customized?: boolean }
 export const configureDSH = (body: { deepseek_api_key?: string; members: DSHMember[] }) =>
   api.post<{ key_saved: boolean; members_file: string; members: number }>('/setup/dsh/configure', body);
 export const openDSHWeb = () => api.post<{ url: string; pid: number; log: string }>('/setup/dsh/open', {});

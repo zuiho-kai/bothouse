@@ -2995,7 +2995,8 @@ func (e *Engine) onPlatformReady(p Platform) {
 	slog.Info("platform ready", "project", e.name, "platform", p.Name())
 	e.initPlatformCapabilities(p)
 	// #624 K4: scan the turn journal once; each entry waits for its own platform.
-	e.turnResumeOnce.Do(func() { go e.ResumeInterruptedTurns() })
+	// Tracked as message work so Stop waits for it (it opens the journal under dataDir).
+	e.turnResumeOnce.Do(func() { e.startMessageWorker(e.ResumeInterruptedTurns) })
 }
 
 func (e *Engine) markPlatformReady(p Platform) bool {
@@ -5657,6 +5658,8 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					e.forwardWorkspaceExit(p, sessionKey, fullResponse) // #139 C: workspace [ask]/[report] -> chat channel
 				}
 
+				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false)
+
 				// Safety note: concurrent writes to session.History by the
 				// unsolicited reader and a foreground turn cannot overlap.
 				// Session.AddHistory takes session.mu internally, and
@@ -5740,6 +5743,9 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				if event.Error != nil {
 					slog.Error("unsolicited agent error", "error", event.Error, "session", sessionKey)
 					userMsg := e.agentErrorMessage(event.Error)
+					if backendMsg, ok := BackendUnavailableText(event.Error, e.i18n.CurrentLang()); ok {
+						userMsg = backendMsg
+					}
 					if errors.Is(event.Error, ErrNoPublicAnswer) {
 						userMsg = e.i18n.T(MsgNoPublicAnswer)
 					}
@@ -5786,6 +5792,17 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// one (e.g. after a local API turn, which is not journaled); ended here.
 	var chainedJournalID string
 	defer func() { e.journalTurnEnd(chainedJournalID) }()
+	// keepLeadHandoffForRetry is set when runTurnWithCapacityRetry re-sends
+	// this exact prompt; the successful retry then confirms the handoff.
+	var keepLeadHandoffForRetry bool
+	defer func() {
+		// maomao fork: a lead handoff block assembled into this turn becomes
+		// active only on a successful terminal result (#274). Any other exit
+		// drops the taken mark so the next turn gets the complete record again.
+		if !keepLeadHandoffForRetry {
+			session.rollbackLeadHandoff()
+		}
+	}()
 	if msgID != "" {
 		state.mu.Lock()
 		state.currentMessageID = msgID
@@ -5796,6 +5813,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	var segmentStart int // index into textParts: text before this has been sent/displayed
 	silentHold := false  // true while accumulated segment text could still resolve to a bare NO_REPLY marker
 	toolCount := 0
+	watchTurnFinished := false
+	defer func() {
+		if !watchTurnFinished && !state.isStopped() && e.ctx.Err() == nil {
+			state.mu.Lock()
+			p := state.platform
+			state.mu.Unlock()
+			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, e.watchCardResult(state))
+		}
+	}()
 	waitStart := time.Now()
 	firstEventLogged := false
 	var toolSteps []ToolStep
@@ -6757,6 +6783,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				input.finish(inputTurnResult{err: fmt.Errorf("agent completed without an answer")})
 				return
 			}
+			// maomao fork: only now, with a successful terminal result, has the
+			// turn carrying the lead handoff really taken over (#274). Send
+			// errors, EventError, quota exhaustion and stops leave it pending
+			// for a complete retry next turn.
+			if event.Error == nil && !state.isStopped() {
+				if _, exhausted := QuotaExhaustedReset(event); !exhausted {
+					e.confirmLeadHandoff(session)
+				}
+			}
 			if fullResponse == "" {
 				fullResponse = e.i18n.T(MsgEmptyResponse)
 			}
@@ -7092,6 +7127,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if state.isStopped() {
 				progressOutcome = "cancelled"
 			}
+			watchTurnFinished = true
+			if !state.isStopped() {
+				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, e.watchCardResult(state))
+			}
 			e.finishPublicProgress(state, progressOutcome)
 
 			// Auto-compress after finishing a turn, before sending any queued messages.
@@ -7241,6 +7280,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				textParts = nil
 				segmentStart = 0
 				toolCount = 0
+				watchTurnFinished = false
 				turnStart = time.Now()
 				firstEventLogged = false
 				waitStart = time.Now()
@@ -7403,6 +7443,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						state.pendingMessages = append([]queuedMessage{*chainedQueued}, state.pendingMessages...)
 					} else {
 						state.capacityFailed = true
+						keepLeadHandoffForRetry = true
 					}
 					state.mu.Unlock()
 				} else if input == nil && isPromptTooLongError(errMsg) {
@@ -7424,6 +7465,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						detail = e.i18n.T(MsgTaskAlreadyCompleted)
 					}
 					userMsg := e.agentErrorMessage(detail)
+					if backendMsg, ok := BackendUnavailableText(event.Error, e.i18n.CurrentLang()); ok {
+						userMsg = backendMsg
+					}
 					if errors.Is(event.Error, ErrEmptyAgentResponse) {
 						userMsg = e.i18n.T(MsgEmptyAgentResponse)
 					}
@@ -7703,6 +7747,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		state.mu.Unlock()
 		if as == nil || !as.Alive() {
 			session.SettleHandoff(false)
+			session.rollbackLeadHandoff()
 			e.send(queued.platform, queued.replyCtx, fmt.Sprintf(e.i18n.T(MsgError), "agent session ended"))
 			e.notifyDroppedQueuedMessages(state, fmt.Errorf("agent session ended"))
 			return false
@@ -17504,7 +17549,7 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, sourceSessionKey,
 	if err != nil {
 		return "", err
 	}
-	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, relaySessionKey, false, nil)
+	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, relaySessionKey, false, nil, nil)
 }
 
 // relayGateQuery is the text the gate searches the wiki with: the assignment
@@ -17525,7 +17570,9 @@ func relayGateQuery(message string) string {
 // Closing stop (task relays' ten-minute watch; nil = never) closes the session
 // at once, unlike the wait timeout: a result already received is returned as
 // done, otherwise the text so far comes back with errRelayWatchStopped.
-func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, stop <-chan struct{}, completion ...func(string, error)) (string, error) {
+// A value on nudge (nil = never) is folded into the running turn by
+// injectRelayReminder; the watch uses it once before its last window.
+func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, stop <-chan struct{}, nudge <-chan string, completion ...func(string, error)) (string, error) {
 	if e.IsPaused() {
 		return "", fmt.Errorf("engine %q is paused", e.name)
 	}
@@ -17641,7 +17688,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 			// Only the wait timed out. The drain now owns both outstanding
 			// Send completion and events; team work stays busy until it ends.
 			draining = true
-			go e.drainRelaySession(agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, completion)
+			go e.drainRelaySession(agent, agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, nudge, completion)
 			if quiet {
 				return strings.Join(textParts, ""), &relayDrainingError{ctx.Err()}
 			}
@@ -17649,6 +17696,15 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 		case <-e.ctx.Done():
 			agentSession.Close()
 			return "", e.ctx.Err()
+		case content, ok := <-nudge:
+			if !ok {
+				nudge = nil
+				continue
+			}
+			if resultReceived { // the turn already answered; do not start another one
+				continue
+			}
+			injectRelayReminder(agent, agentSession, content)
 		case <-stop:
 			textParts, response, resultReceived = relayTakeBuffered(events, textParts, response, resultReceived)
 			agentSession.Close()
@@ -17800,8 +17856,8 @@ var relayDrainSafety = 10 * time.Minute
 // agent finish its current turn (saving the session ID for future resumption),
 // auto-approves any permission requests, and then closes the session. A 10-minute
 // safety timeout prevents the goroutine from leaking if the agent hangs; task
-// relays leave that to the ten-minute watch (stop).
-func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, completion []func(string, error)) {
+// relays leave that to the ten-minute watch (stop and nudge).
+func (e *Engine) drainRelaySession(agent Agent, agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, nudge <-chan string, completion []func(string, error)) {
 	teamOutcome := teamWorkUnconfirmed
 	completionErr := fmt.Errorf("relay: background execution ended without a confirmed result")
 	defer func() {
@@ -17845,6 +17901,15 @@ func (e *Engine) drainRelaySession(agentSession AgentSession, session *Session, 
 				agentSession.Close()
 				return
 			}
+		case content, ok := <-nudge:
+			if !ok {
+				nudge = nil
+				continue
+			}
+			if resultReceived { // the turn already answered; do not start another one
+				continue
+			}
+			injectRelayReminder(agent, agentSession, content)
 		case ev, ok := <-events:
 			if !ok {
 				// Keep observing Send: channel closure cannot hide a send error.
@@ -17989,8 +18054,8 @@ func (e *Engine) cmdBind(p Platform, msg *Message, args []string) {
 	e.relayManager.AddToBind(p.Name(), chatID, otherProject)
 
 	// Get all bound projects for status message
-	// Same view as a bare /bind: manual binding plus the wizard team (relay_team_bind.go).
-	binding := e.relayManager.EffectiveBinding(p.Name(), chatID)
+	// Same view as a bare /bind: manual binding plus this project's team (relay_team_bind.go).
+	binding := e.relayManager.EffectiveBindingFor(p.Name(), chatID, e.name)
 	var boundProjects []string
 	if binding != nil {
 		for proj := range binding.Bots {
@@ -18011,7 +18076,7 @@ func (e *Engine) cmdBind(p Platform, msg *Message, args []string) {
 }
 
 func (e *Engine) cmdBindStatus(p Platform, replyCtx any, platform, chatID string) {
-	binding := e.relayManager.EffectiveBinding(platform, chatID)
+	binding := e.relayManager.EffectiveBindingFor(platform, chatID, e.name)
 	if binding == nil {
 		e.reply(p, replyCtx, e.i18n.T(MsgRelayNoBinding))
 		return

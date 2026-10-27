@@ -307,7 +307,10 @@ func stamp(t time.Time) string {
 var staleBlocks = []struct{ head, end string }{
 	{"（队友状态", "\n\n"},
 	{"（可能相关的 wiki 页", "\n\n"},
-	{memoryIndexHead, "\n\n"}, // a fresh context's MEMORY.md (memoryBlock)
+	// A fresh context's MEMORY.md (memoryBlock) is cut by stripReinjectedPrefix:
+	// its head line also reads like something a user could quote, so the whole
+	// block's shape is checked there rather than dropping any paragraph that
+	// starts with the head.
 	{handoffHead, handoffEnd}, // an earlier handoff
 	{"（本频道进展总结", ""},          // removed 2026-10-14; still in older transcripts
 	// Per-turn notes of adapters without a system prompt (antigravity).
@@ -321,7 +324,10 @@ func stripStaleBlocks(text string) string {
 	var out []string
 	paras := strings.Split(text, "\n\n")
 	for i := 0; i < len(paras); i++ {
-		p := strings.TrimSpace(paras[i])
+		p := stripReinjectedPrefix(paras[i])
+		if p == "" {
+			continue
+		}
 		matched := false
 		for _, sb := range staleBlocks {
 			if !strings.HasPrefix(p, sb.head) {
@@ -342,10 +348,110 @@ func stripStaleBlocks(text string) string {
 			break
 		}
 		if !matched {
-			out = append(out, paras[i])
+			out = append(out, p)
 		}
 	}
 	return strings.Join(out, "\n\n")
+}
+
+// stripReinjectedPrefix drops the per-delivery blocks that open a user turn and
+// keeps what the user wrote after them. The identity anchor and the team-mode
+// rules are re-sent on every delivery, and a fresh context's MEMORY.md on its
+// first turn, so carrying them in a handoff only spends the tail budget on text
+// the new context already has: on jingyu's sessions of 2026-10-26 each user turn
+// opened with ~2.6k runes of them, and the 8000-rune tail kept 3.6 entries on
+// average (21 of 36 sessions: 3 or fewer, so the handoff ended mid-conversation).
+//
+// They all sit in one paragraph (withAgentIdentity joins them with "\n"), which
+// is why the paragraph-level staleBlocks list cannot drop them: that would also
+// drop the user's own words when they share the paragraph.
+//
+// Each block is matched by its whole shape, not just its first line: a user may
+// paste or quote one of these markers, and their text must survive that.
+func stripReinjectedPrefix(text string) string {
+	t := strings.TrimSpace(text)
+	if strings.HasPrefix(t, agentIdentityHead) {
+		if i, ok := identityBlockEnd(t); ok {
+			t = t[i:]
+		}
+	}
+	t = strings.TrimPrefix(t, teamRulesPrefix(t))
+	return cutMemoryIndex(t)
+}
+
+// identityBlockEnd returns where the identity block ends in t when t really is
+// one (the anchor, its fixed sentence about the conversation name, and the
+// [Request and reference material] marker this engine writes), else ok=false.
+func identityBlockEnd(t string) (int, bool) {
+	const (
+		anchor = "\nYour conversation name is \""
+		marker = "\n[Request and reference material]\n"
+	)
+	if !strings.HasPrefix(t, agentIdentityHead) || !strings.Contains(t, "as configured by the operator") {
+		return 0, false
+	}
+	i := strings.Index(t, anchor)
+	if i < 0 {
+		return 0, false
+	}
+	j := strings.Index(t[i:], marker)
+	if j < 0 {
+		return 0, false
+	}
+	return i + j + len(marker), true
+}
+
+// cutMemoryIndex removes a fresh context's MEMORY.md block (memoryindex.go: a
+// one-line head, then one "- [name](path) — desc" line per domain) wherever it
+// sits in t, keeping the text after it. Lines that do not look like that block
+// are left alone.
+func cutMemoryIndex(t string) string {
+	for {
+		i := strings.Index(t, memoryIndexHead)
+		if i < 0 {
+			return t
+		}
+		if i > 0 && t[i-1] != '\n' {
+			return t // inside a sentence, not the block
+		}
+		rest := t[i:]
+		line, after, _ := strings.Cut(rest, "\n")
+		if !strings.Contains(line, "新会话系统自动附上，不用回应") {
+			return t
+		}
+		kept, ok := cutIndexList(after)
+		if !ok {
+			return t
+		}
+		t = strings.TrimSpace(strings.TrimSuffix(t[:i], "\n") + "\n" + kept)
+	}
+}
+
+// cutIndexList drops the leading "- [name](path) — desc" lines of s and returns
+// what follows them; ok=false when s does not start with one.
+func cutIndexList(s string) (string, bool) {
+	lines := strings.Split(s, "\n")
+	n := 0
+	for n < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[n]), "- [") {
+		n++
+	}
+	if n == 0 {
+		return "", false
+	}
+	return strings.Join(lines[n:], "\n"), true
+}
+
+// teamRulesPrefix returns the team-mode rules text, plus the newline that
+// separates them from what follows, when text opens with it for some mode (the
+// old session may have run under another one). "" when none matches: rules
+// edited since then are kept rather than guessed at.
+func teamRulesPrefix(text string) string {
+	for _, mode := range []string{DispatchSolo, DispatchTeam, DispatchMixed} {
+		if r := teamModeRulesFor(mode) + "\n"; strings.HasPrefix(text, r) {
+			return r
+		}
+	}
+	return ""
 }
 
 func isSummaryPara(p string) bool {

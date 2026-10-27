@@ -48,12 +48,21 @@ func TestTaskRelayUnknownTaskNeverFallsBackToChannel(t *testing.T) {
 
 type taskRelaySession struct {
 	*controllableAgentSession
-	onSend func(string)
+	onSend    func(string)
+	onMidTurn func(string)
 }
 
 func (s *taskRelaySession) Send(prompt, _ string, _ []ImageAttachment, _ []FileAttachment) error {
 	if s.onSend != nil {
 		s.onSend(prompt)
+	}
+	return nil
+}
+
+// SendMidTurn lets the session take the same mid-turn inject path as gate.go.
+func (s *taskRelaySession) SendMidTurn(prompt, _ string, _ []ImageAttachment, _ []FileAttachment) error {
+	if s.onMidTurn != nil {
+		s.onMidTurn(prompt)
 	}
 	return nil
 }
@@ -378,6 +387,411 @@ func taskRelayFixture(t *testing.T) (*PublicProgress, *progressTestPlatform, str
 		t.Fatal(err)
 	}
 	return p, platform, run, id
+}
+
+// A card released at the end of one turn belongs to that turn. The next turn
+// of the same session may dispatch to it again without a manual re-claim.
+func TestTaskRelayReclaimsClosedCardInNextTurn(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	p.finish(run, "result")
+
+	next := p.begin(platform, "discord:room:user", LangChinese, nil)
+	var starts atomic.Int32
+	rm, session := taskRelayManager(t, p, platform, nil, &starts)
+	session.events <- Event{Type: EventResult, Content: "new result"}
+	result, err := rm.Send(context.Background(), taskRelayRequest(id))
+	if err != nil || result.Response != "new result" {
+		t.Fatalf("reclaimed dispatch = %+v, %v", result, err)
+	}
+	if starts.Load() != 1 {
+		t.Fatalf("starts = %d, want 1", starts.Load())
+	}
+	// The reclaimed card is bound to this turn: ending the turn closes it again
+	// instead of leaving a permanently active card.
+	p.finish(next, "result")
+	r := p.records[id]
+	r.mu.Lock()
+	closed := r.record.Closed
+	r.mu.Unlock()
+	if !closed {
+		t.Fatal("reclaimed card stayed open after its new turn ended")
+	}
+}
+
+// No live turn means there is no --run to suggest; the error must say what to
+// do instead of handing the caller an impossible command.
+func TestTaskRelayClosedCardNoLiveTurnDoesNotSuggestRun(t *testing.T) {
+	p, _, run, id := taskRelayFixture(t)
+	p.finish(run, "result")
+
+	_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	if err == nil {
+		t.Fatal("closed card accepted without a live turn")
+	}
+	msg := err.Error()
+	for _, want := range []string{id, "earlier turn", "no live main-bot turn", "Start a new turn"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+	if strings.Contains(msg, "task assign") || strings.Contains(msg, "--run") {
+		t.Errorf("no-live error suggests an unusable dispatch: %q", msg)
+	}
+}
+
+// When automatic re-claim is ambiguous because more than one live turn exists,
+// the explicit command must carry the real CLI context so it can actually run.
+// Pull the command back out of the error text: this is what the agent sees and
+// what it is expected to paste into a shell.
+func TestTaskRelayClosedCardReclaimCommandIncludesCLIContext(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	p.finish(run, "result")
+	_ = p.begin(platform, "discord:room:user", LangChinese, nil)
+	_ = p.begin(platform, "discord:room:user", LangChinese, nil)
+
+	_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	if err == nil {
+		t.Fatal("closed card accepted with an ambiguous turn")
+	}
+	msg := err.Error()
+	const marker = "Re-claim it explicitly with "
+	start := strings.Index(msg, marker)
+	if start < 0 {
+		t.Fatalf("error does not advertise a recovery command: %q", msg)
+	}
+	start += len(marker)
+	end := strings.Index(msg[start:], " --run <current-run>")
+	if end < 0 {
+		t.Fatalf("recovery command is missing its run placeholder: %q", msg)
+	}
+	commandText := msg[start : start+end]
+	args := splitShellCommand(t, commandText)
+	if len(args) < 3 || args[1] != "task" || args[2] != "assign" {
+		t.Fatalf("recovery command does not start with an executable then task assign: %q (%v)", commandText, args)
+	}
+	if args[0] != "bothouse" {
+		if _, err := os.Stat(args[0]); err != nil {
+			t.Fatalf("recovery command starts with %q, which is not an executable: %v", args[0], err)
+		}
+	}
+	for _, want := range []string{
+		"more than one main-bot turn",
+		"task assign --project 'source'",
+		"--session 'discord:room:user'",
+		"--data-dir '" + p.dataDir + "'",
+		"--id '" + id + "'",
+		"--run <current-run>",
+		"--ref",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+}
+
+// splitShellCommand tokenizes the small shell-quoted command snippets in these
+// tests. It handles single and double quotes; it is not a full shell parser.
+func splitShellCommand(t *testing.T, s string) []string {
+	t.Helper()
+	var args []string
+	var current strings.Builder
+	var quote rune
+	for _, r := range s {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				current.WriteRune(r)
+			}
+		case r == '\'' || r == '"':
+			quote = r
+		case r == ' ' || r == '\t' || r == '\n':
+			if current.Len() > 0 {
+				args = append(args, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteRune(r)
+		}
+	}
+	if quote != 0 {
+		t.Fatalf("unterminated quote in %q", s)
+	}
+	if current.Len() > 0 {
+		args = append(args, current.String())
+	}
+	return args
+}
+
+// A closed, resumable card is reclaimed only by the single live lead turn of
+// its own session; ended cards stay ended and concurrent turns are ambiguous.
+func TestTaskRelayReclaimSafetyBoundaries(t *testing.T) {
+	t.Run("cancelled", func(t *testing.T) {
+		p, platform, run, id := taskRelayFixture(t)
+		p.finish(run, "cancelled")
+		_ = p.begin(platform, "discord:room:user", LangChinese, nil)
+		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+		if err == nil || !strings.Contains(err.Error(), "cancelled") {
+			t.Fatalf("cancelled card error = %v", err)
+		}
+	})
+
+	t.Run("accepted", func(t *testing.T) {
+		p, platform, run, id := taskRelayFixture(t)
+		if _, err := p.Report(PublicProgressRequest{Project: "source", SessionKey: "discord:room:user", Run: run, Seq: 2, Kind: "result", Summary: "done"}); err != nil {
+			t.Fatal(err)
+		}
+		p.finish(run, "result")
+		if _, err := p.Accept(id, "owner"); err != nil {
+			t.Fatal(err)
+		}
+		_ = p.begin(platform, "discord:room:user", LangChinese, nil)
+		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+		if err == nil || !strings.Contains(err.Error(), "accepted") {
+			t.Fatalf("accepted card error = %v", err)
+		}
+	})
+
+	t.Run("ambiguous turns", func(t *testing.T) {
+		p, platform, run, id := taskRelayFixture(t)
+		p.finish(run, "result")
+		_ = p.begin(platform, "discord:room:user", LangChinese, nil)
+		_ = p.begin(platform, "discord:room:user", LangChinese, nil)
+		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+		if err == nil || !strings.Contains(err.Error(), "more than one") {
+			t.Fatalf("ambiguous turn error = %v", err)
+		}
+	})
+
+	t.Run("resume window", func(t *testing.T) {
+		p, platform, run, id := taskRelayFixture(t)
+		p.finish(run, "result")
+		r := p.records[id]
+		r.mu.Lock()
+		r.record.Task.UpdatedAt = time.Now().Add(-cardResumeWindow - time.Hour)
+		r.mu.Unlock()
+		_ = p.begin(platform, "discord:room:user", LangChinese, nil)
+		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+		if err == nil || !strings.Contains(err.Error(), "resume window") {
+			t.Fatalf("expired card error = %v", err)
+		}
+	})
+}
+
+// A dispatch that fails validation after re-attaching the card must leave it
+// closed and unbound, not permanently active for the turn.
+func TestTaskRelayReclaimRollsBackOnReporterFailure(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	p.finish(run, "result")
+	next := p.begin(platform, "discord:room:user", LangChinese, nil)
+	p.resolveReporter = func(project, platformName, session string) (TaskCardPublisher, error) {
+		return nil, errors.New("unbound test reporter")
+	}
+
+	if _, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target"); err == nil {
+		t.Fatal("dispatch with unbound reporter accepted")
+	}
+	r := p.records[id]
+	r.mu.Lock()
+	closed := r.record.Closed
+	r.mu.Unlock()
+	if !closed {
+		t.Fatal("failed dispatch left the reclaimed card open")
+	}
+	p.mu.Lock()
+	_, bound := p.delegations[next]["task:"+id]
+	p.mu.Unlock()
+	if bound {
+		t.Fatal("failed dispatch left the reclaimed card bound to the turn")
+	}
+}
+
+// Automatic cards are not offered for continuation by runStart, but an
+// explicit relay dispatch to one must still re-claim it for the new turn.
+func TestTaskRelayReclaimsFinishedAutomaticCard(t *testing.T) {
+	p, platform, _ := newAutoProgress(t)
+	p.resolveReporter = func(project, platformName, session string) (TaskCardPublisher, error) {
+		if project != "target" || platformName != "discord" || session != "room:one" {
+			return nil, errors.New("unbound test reporter")
+		}
+		return platform, nil
+	}
+	run := autoRun(p, platform, "room:one", "跑一个长任务")
+	p.noteTool(run, "ls")
+	p.noteTool(run, "go test")
+	rec := runRecord(p, run)
+	if !rec.Auto || rec.Task.ID == "" {
+		t.Fatal("automatic card not opened")
+	}
+	id := rec.Task.ID
+	p.finish(run, "result")
+
+	next := p.begin(platform, "room:one", LangChinese, nil)
+	req := RelayRequest{From: "fish", To: "target", SessionKey: "room:one", TaskID: id, RequestID: "auto-reclaim", Message: "assignment"}
+	if _, _, err := p.beginTaskRelay(req, "Target"); err != nil {
+		t.Fatalf("automatic card not re-claimed: %v", err)
+	}
+	p.finish(next, "result")
+	r := p.records[id]
+	r.mu.Lock()
+	closed := r.record.Closed
+	r.mu.Unlock()
+	if !closed {
+		t.Fatal("reclaimed automatic card stayed open after its new turn ended")
+	}
+}
+
+// The resume note is generated before the dispatch. If the agent follows it
+// after the card was auto-reclaimed, the advertised command must carry the
+// explicit task id so progress goes to the reclaimed card, not the run's
+// empty record.
+func TestTaskRelayResumeNoteAdvertisesExplicitTaskForReclaimedCard(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	p.finish(run, "result")
+	next := p.begin(platform, "discord:room:user", LangChinese, nil)
+	_, resumeSeq, _, _, ok := p.resumeHint(next)
+	if !ok {
+		t.Fatal("resume hint missing for the closed card")
+	}
+	var starts atomic.Int32
+	rm, _ := taskRelayManager(t, p, platform, nil, &starts)
+	instructions := rm.engines["source"].publicProgressInstructions(next, "discord:room:user")
+	taskArg := ""
+	fields := strings.Fields(instructions)
+	for i := 0; i+1 < len(fields); i++ {
+		if fields[i] == "--task" && fields[i+1] == id {
+			taskArg = id
+			break
+		}
+	}
+	if taskArg == "" {
+		t.Fatalf("resume note must advertise --task %s: %s", id, instructions)
+	}
+	noteStart := strings.Index(instructions, "A card from earlier in this session")
+	if noteStart < 0 {
+		t.Fatalf("resume note missing from instructions: %s", instructions)
+	}
+	noteEnd := strings.Index(instructions[noteStart:], "; when the human asked for something else")
+	if noteEnd < 0 {
+		t.Fatalf("resume note end missing from instructions: %s", instructions)
+	}
+	note := instructions[noteStart : noteStart+noteEnd]
+	if !strings.Contains(note, "--run "+next) {
+		t.Fatalf("resume note must include --run %s: %s", next, note)
+	}
+
+	if _, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Report(PublicProgressRequest{
+		Project:    "source",
+		SessionKey: "discord:room:user",
+		Run:        next,
+		TaskID:     taskArg,
+		Seq:        resumeSeq,
+		Kind:       "update",
+		Summary:    "continuing the earlier card",
+	}); err != nil {
+		t.Fatalf("advertised progress command failed: %v", err)
+	}
+	p.finish(next, "result")
+}
+
+// After an automatic re-claim, the card must be bound to the current run for
+// the whole turn: the first report may use --task, but the next ordinary
+// report (no --task) must resolve to the same card instead of the empty run.
+func TestTaskRelayReclaimedCardContinuesWithoutTaskID(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	p.finish(run, "result")
+	next := p.begin(platform, "discord:room:user", LangChinese, nil)
+	_, resumeSeq, _, _, ok := p.resumeHint(next)
+	if !ok {
+		t.Fatal("resume hint missing for the closed card")
+	}
+	if _, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Report(PublicProgressRequest{
+		Project:    "source",
+		SessionKey: "discord:room:user",
+		Run:        next,
+		TaskID:     id,
+		Seq:        resumeSeq,
+		Kind:       "update",
+		Summary:    "first with task",
+	}); err != nil {
+		t.Fatalf("first report: %v", err)
+	}
+	if _, err := p.Report(PublicProgressRequest{
+		Project:    "source",
+		SessionKey: "discord:room:user",
+		Run:        next,
+		Seq:        resumeSeq + 1,
+		Kind:       "update",
+		Summary:    "second without task",
+	}); err != nil {
+		t.Fatalf("ordinary progress after re-claim: %v", err)
+	}
+	task, found := p.Task(id)
+	if !found || task.LatestProgress != "second without task" {
+		t.Fatalf("second report did not reach the reclaimed card: %+v %v", task, found)
+	}
+	p.finish(next, "result")
+}
+
+// If the current turn is already stopping, automatic re-claim must say so and
+// must not suggest an explicit task assign with that dead run token.
+func TestTaskRelayReclaimStoppedTurnWaitsForNextTurn(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	p.finish(run, "result")
+	_ = p.begin(platform, "discord:room:user", LangChinese, func() bool { return true })
+
+	_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	if err == nil {
+		t.Fatal("closed card accepted while the current turn was stopping")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "stopping") {
+		t.Errorf("error %q does not name the stopping turn", msg)
+	}
+	if strings.Contains(msg, "task assign") {
+		t.Errorf("error %q suggests a task assign that cannot work", msg)
+	}
+}
+
+// A card released at the end of a turn can still have a relay receipt in
+// flight. Re-claiming it and dispatching again would run two assignments on
+// one card; the second dispatch must be refused until the first finishes.
+func TestTaskRelayReclaimRefusesRunningReceipt(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	first, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.finish(run, "result")
+	next := p.begin(platform, "discord:room:user", LangChinese, nil)
+
+	secondReq := taskRelayRequest(id)
+	secondReq.RequestID = "dispatch-two"
+	if _, _, err := p.beginTaskRelay(secondReq, "Target"); err == nil || !strings.Contains(err.Error(), "running") {
+		t.Fatalf("running receipt was not refused: %v", err)
+	}
+	r := p.records[id]
+	r.mu.Lock()
+	_, secondWritten := r.record.Relays[secondReq.RequestID]
+	r.mu.Unlock()
+	if secondWritten {
+		t.Fatal("refused dispatch wrote a second receipt")
+	}
+
+	if err := first.finish("old result", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := p.beginTaskRelay(secondReq, "Target"); err != nil {
+		t.Fatalf("re-claim after the running receipt finished: %v", err)
+	}
+	p.finish(next, "result")
 }
 
 // A bot dispatched twice on one card: the row it finished for the first

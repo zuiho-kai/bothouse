@@ -45,10 +45,11 @@ type acpSession struct {
 	acpSessMu sync.RWMutex
 	acpSessID string
 
-	outputMu        sync.Mutex
-	outputFilter    privateOutput
-	outputMessageID string
-	outputTurn      privateOutputTurn
+	outputMu           sync.Mutex
+	outputFilter       privateOutput
+	outputMessageID    string
+	outputTurn         privateOutputTurn
+	streamErrCandidate string // Cursor trailing error text held until the prompt ends; guarded by outputMu
 
 	sendMu         sync.Mutex
 	promptInFlight atomic.Bool // a session/prompt RPC is outstanding (sendLocked)
@@ -60,6 +61,10 @@ type acpSession struct {
 	inputErr       error
 	requireEndTurn bool // set before publishing a voice session; immutable thereafter
 	strictResume   bool // immutable: cold start must never fall back to session/new
+
+	cursorStreamErrors bool                 // Cursor ACP streams backend errors as assistant text
+	usageReporter      backendUsageReporter // optional quota lookup used to classify that text
+	quotaModel         string               // model whose quota bucket classifies the failure
 
 	permMu   sync.Mutex
 	permByID map[string]permState
@@ -100,6 +105,11 @@ type acpSessionConfig struct {
 	initialModel    string           // if non-empty, applied after session/new (set_model or the "model" config option)
 	initialEffort   string           // if non-empty, applied via the "reasoning_effort" config option
 	callbacks       sessionCallbacks // may be nil
+	// Cursor's ACP server streams thrown backend errors as ordinary assistant
+	// text and still returns end_turn. These knobs are set only for the
+	// cursor_login backend so other ACP agents keep their normal text path.
+	cursorStreamErrors bool
+	usageReporter      backendUsageReporter
 }
 
 func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, error) {
@@ -110,17 +120,20 @@ func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, erro
 
 	sessionCtx, cancel := context.WithCancel(ctx)
 	s := &acpSession{
-		workDir:       absWorkDir,
-		events:        make(chan core.Event, 128),
-		ctx:           sessionCtx,
-		cancel:        cancel,
-		permByID:      make(map[string]permState),
-		toolInputByID: make(map[string]string),
-		toolNameByID:  make(map[string]string),
-		acpSessID:     cfg.resumeSessionID,
-		callbacks:     cfg.callbacks,
-		strictResume:  cfg.strictResume,
-		inputGuard:    cfg.strictResume,
+		workDir:            absWorkDir,
+		events:             make(chan core.Event, 128),
+		ctx:                sessionCtx,
+		cancel:             cancel,
+		permByID:           make(map[string]permState),
+		toolInputByID:      make(map[string]string),
+		toolNameByID:       make(map[string]string),
+		acpSessID:          cfg.resumeSessionID,
+		callbacks:          cfg.callbacks,
+		strictResume:       cfg.strictResume,
+		inputGuard:         cfg.strictResume,
+		cursorStreamErrors: cfg.cursorStreamErrors,
+		usageReporter:      cfg.usageReporter,
+		quotaModel:         cfg.initialModel,
 	}
 	s.alive.Store(true)
 
@@ -481,7 +494,11 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 				s.outputFilter = privateOutput{}
 				s.outputMessageID = id
 			}
-			ev.Content = s.outputFilter.feed(ev.Content)
+			content := ev.Content
+			if s.cursorStreamErrors && s.promptInFlight.Load() {
+				content = s.holdTrailingStreamError(content)
+			}
+			ev.Content = s.outputFilter.feed(content)
 			s.outputTurn.public = s.outputTurn.public || strings.TrimSpace(ev.Content) != ""
 			if ev.Content == "" {
 				continue
@@ -738,6 +755,9 @@ func (s *acpSession) Send(prompt string, messageID string, images []core.ImageAt
 
 func (s *acpSession) sendLocked(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment, strict bool) error {
 	s.resetPrivateOutput()
+	s.outputMu.Lock()
+	s.streamErrCandidate = ""
+	s.outputMu.Unlock()
 
 	sid := s.currentACPSessionID()
 	if sid == "" {
@@ -773,6 +793,25 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 		StopReason string `json:"stopReason"`
 	}
 	validResult := json.Unmarshal(res, &result) == nil
+	s.outputMu.Lock()
+	streamErrCandidate := s.streamErrCandidate
+	s.streamErrCandidate = ""
+	s.outputMu.Unlock()
+	if streamErrCandidate != "" {
+		if output.public {
+			// A normal answer already streamed, so the trailing marker was
+			// quoted text rather than the turn's only content. Publish it
+			// intact and finish normally.
+			s.emit(core.Event{Type: core.EventText, SessionID: sid, Content: streamErrCandidate})
+		} else {
+			// Cursor reported a backend failure as assistant text but still
+			// returned end_turn. Surface one typed error; never a successful turn.
+			_, detail := splitCursorStreamError(streamErrCandidate)
+			backendErr := s.backendErrorForStream(detail)
+			s.emit(core.Event{Type: core.EventError, SessionID: sid, Error: backendErr})
+			return fmt.Errorf("acp: session/prompt: %w", backendErr)
+		}
+	}
 	if strict {
 		s.finishInputUpdates()
 		s.inputMu.Lock()

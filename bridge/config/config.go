@@ -5,6 +5,7 @@ import (
 	"fmt"
 	ccconnect "github.com/chenhg5/cc-connect"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/chenhg5/cc-connect/core"
@@ -497,11 +499,25 @@ type ReferenceConfig struct {
 type ProjectConfig struct {
 	// PublicProgress is enabled when omitted so a main bot's first delegation
 	// can create its task card automatically. Set it to false to opt out.
-	PublicProgress *bool  `toml:"public_progress,omitempty"`
-	Name           string `toml:"name"`
-	Mode           string `toml:"mode,omitempty"`     // "" or "multi-workspace"
-	BaseDir        string `toml:"base_dir,omitempty"` // parent dir for workspaces
-	SkipGit        *bool  `toml:"skip_git,omitempty"`
+	PublicProgress *bool `toml:"public_progress,omitempty"`
+	// PublicProgressThreadArchiveMins is how many minutes after a task card
+	// reaches completed/failed/cancelled its Discord thread is archived. nil
+	// uses 1440; 0 disables automatic archiving. The thread itself is created
+	// with Discord's maximum auto-archive duration (10080 minutes), so Discord
+	// does not hide it before this scan runs.
+	PublicProgressThreadArchiveMins *int `toml:"public_progress_thread_archive_mins,omitempty"`
+	// PublicProgressResultReadyArchiveMins is how many minutes after a task
+	// card reaches result_ready its Discord thread is archived, without
+	// changing the card state. nil uses 4320 (3 days), the wait C酱 suggested
+	// in the PR #498 review: result_ready cards rarely get accepted and would
+	// otherwise keep their threads active forever. 0 disables this archive.
+	// Keep it below the thread's 10080-minute Discord auto-archive so the
+	// bridge scan, not Discord, decides when the thread is hidden.
+	PublicProgressResultReadyArchiveMins *int   `toml:"public_progress_result_ready_archive_mins,omitempty"`
+	Name                                 string `toml:"name"`
+	Mode                                 string `toml:"mode,omitempty"`     // "" or "multi-workspace"
+	BaseDir                              string `toml:"base_dir,omitempty"` // parent dir for workspaces
+	SkipGit                              *bool  `toml:"skip_git,omitempty"`
 	// WorkspaceInitAllowLocalPaths allows /workspace init and the conversational
 	// init flow to bind existing local directories. Default false keeps init
 	// limited to git URLs; use /workspace bind or /workspace route for explicit
@@ -559,7 +575,8 @@ type ProjectConfig struct {
 	// so teammates can see them. Empty disables the status board.
 	TeamStatusDir string `toml:"team_status_dir,omitempty"`
 	// TeamName is this project's display name in the team status (default: project name).
-	TeamName string `toml:"team_name,omitempty"`
+	TeamName       string `toml:"team_name,omitempty"`
+	NameCustomized *bool  `toml:"name_customized,omitempty"`
 	// TeamStatusInject prepends the other projects' status to each turn (for the main bot).
 	TeamStatusInject bool `toml:"team_status_inject,omitempty"`
 	// ChannelBoard (maomao fork): this project's Discord bot posts, pins and edits one
@@ -3551,6 +3568,8 @@ func extractLineComment(line string) string {
 
 // ProjectSettingsUpdate carries optional field updates for SaveProjectSettings.
 type ProjectSettingsUpdate struct {
+	DisplayName          *string
+	NameCustomized       *bool
 	Language             *string
 	AdminFrom            *string
 	DisabledCommands     []string
@@ -3589,8 +3608,57 @@ func SaveProjectSettings(projectName string, update ProjectSettingsUpdate) error
 			continue
 		}
 		proj := &cfg.Projects[i]
+		oldName := proj.TeamName
+		if update.DisplayName != nil {
+			proj.TeamName = strings.TrimSpace(*update.DisplayName)
+		}
+		if update.NameCustomized != nil {
+			proj.NameCustomized = update.NameCustomized
+		}
 		if update.AgentType != nil && *update.AgentType != proj.Agent.Type {
 			newType := *update.AgentType
+			if proj.NameCustomized != nil && !*proj.NameCustomized && update.DisplayName == nil {
+				taken := []string{}
+				for _, other := range cfg.Projects {
+					if other.Name != projectName {
+						n := other.TeamName
+						if n == "" {
+							n = other.Name
+						}
+						taken = append(taken, n)
+					}
+				}
+				proj.TeamName = core.NextRoleName(core.AgentDisplayName(newType), taken)
+			}
+			wd, _ := proj.Agent.Options["work_dir"].(string)
+			if wd != "" {
+				from, to := core.PersonaFilePath(proj.Agent.Type, wd), core.PersonaFilePath(newType, wd)
+				if from != to {
+					content, err := os.ReadFile(from)
+					if err != nil && !os.IsNotExist(err) {
+						return fmt.Errorf("read role instructions: %w", err)
+					}
+					if err == nil {
+						if oldName != "" && oldName != proj.TeamName {
+							content = []byte(core.RenamePersonaIdentity(string(content), oldName, proj.TeamName))
+						}
+						existing, err := os.ReadFile(to)
+						if err != nil && !os.IsNotExist(err) {
+							return fmt.Errorf("read target role instructions: %w", err)
+						}
+						if err == nil {
+							if err := core.AtomicWriteFile(backupPath(to, time.Now()), existing, 0o644); err != nil {
+								return fmt.Errorf("backup target role instructions: %w", err)
+							}
+							// Keep the target's repository instructions as well as the role persona.
+							content = append(append(existing, []byte("\n\n")...), content...)
+						}
+						if err := core.AtomicWriteFile(to, content, 0o644); err != nil {
+							return fmt.Errorf("preserve role instructions: %w", err)
+						}
+					}
+				}
+			}
 			proj.Agent.Type = newType
 			// Filter out provider_refs incompatible with the new agent type.
 			globalByName := make(map[string]ProviderConfig, len(cfg.Providers))
@@ -3626,6 +3694,23 @@ func SaveProjectSettings(projectName string, update ProjectSettingsUpdate) error
 						delete(opts, "provider")
 					}
 				}
+			}
+		}
+		if proj.NameCustomized != nil && proj.TeamName != "" {
+			for j := range proj.Platforms {
+				platform := &proj.Platforms[j]
+				if platform.Type != "cloud_web" {
+					continue
+				}
+				raw, _ := platform.Options["ws_url"].(string)
+				u, err := url.Parse(raw)
+				if err != nil {
+					return fmt.Errorf("role platform URL: %w", err)
+				}
+				q := u.Query()
+				q.Set("name", proj.TeamName)
+				u.RawQuery = q.Encode()
+				platform.Options["ws_url"] = u.String()
 			}
 		}
 		if update.AdminFrom != nil {
@@ -3694,7 +3779,28 @@ func SaveProjectSettings(projectName string, update ProjectSettingsUpdate) error
 				proj.Platforms[j].Options["allow_from"] = strings.TrimSpace(af)
 			}
 		}
-		return saveConfig(cfg)
+		if err := saveConfig(cfg); err != nil {
+			return err
+		}
+		if oldName != proj.TeamName || update.AgentType != nil {
+			dataDir := cfg.DataDir
+			if dataDir == "" {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return fmt.Errorf("resolve setup data directory: %w", err)
+				}
+				dataDir = ccconnect.DataDir(home)
+			}
+			snapshot := core.WizardSnapshot{}
+			for _, p := range snapshotOf(cfg) {
+				snapshot.Projects = append(snapshot.Projects, core.WizardExistingProject{
+					Name: p.Name, DisplayName: p.TeamName, AgentType: p.AgentType, WorkDir: p.WorkDir,
+					Platforms: p.Platforms, GateURL: p.GateURL, GateFallback: p.GateFallback,
+				})
+			}
+			return core.RefreshSetupRoleIdentity(dataDir, snapshot, projectName, oldName)
+		}
+		return nil
 	}
 	return fmt.Errorf("project %q not found", projectName)
 }
@@ -3717,6 +3823,9 @@ func GetProjectConfigDetails(projectName string) map[string]any {
 			continue
 		}
 		result := map[string]any{}
+		if p.NameCustomized != nil {
+			result["name_customized"] = *p.NameCustomized
+		}
 		if p.Agent.Options != nil {
 			if wd, ok := p.Agent.Options["work_dir"].(string); ok && strings.TrimSpace(wd) != "" {
 				result["work_dir"] = wd

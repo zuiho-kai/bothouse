@@ -218,6 +218,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"send":         runSend,
 	"progress":     runProgress,
 	"task":         runTask,
+	"handoff":      runHandoff,
 	"cron":         runCron,
 	"model":        runModel,
 	"workspace":    runWorkspace,
@@ -455,6 +456,13 @@ func runMain() {
 		builtProjs = append(builtProjs, proj)
 		rt.addRunning(proj.Name, b.engine)
 	}
+	// #462: record the config's current lead in the shared lead.json. A team that
+	// predates the setup wizard has no conest-setup.json and its switch script only
+	// edits config.toml/gate-team.json; without this, the bridge/gate/DSH shared
+	// selection never follows, and #458's lead handoff cannot see the switch.
+	if err := core.SeedConfiguredLead(cfg.DataDir, configuredLeadCandidates(cfg.DataDir, builtProjs)); err != nil {
+		slog.Warn("lead entry: config-driven lead not recorded", "error", err)
+	}
 
 	// Start cron scheduler
 	cronStore, err := core.NewCronStore(cfg.DataDir)
@@ -641,6 +649,7 @@ func runMain() {
 		mgmtSrv.SetRemoveProject(config.RemoveProject)
 		mgmtSrv.SetSaveProjectSettings(func(name string, u core.ProjectSettingsUpdate) error {
 			return config.SaveProjectSettings(name, config.ProjectSettingsUpdate{
+				DisplayName: u.DisplayName, NameCustomized: u.NameCustomized,
 				Language:             u.Language,
 				AdminFrom:            u.AdminFrom,
 				DisabledCommands:     u.DisabledCommands,
@@ -964,6 +973,12 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 		if err := engine.EnablePublicProgress(); err != nil {
 			slog.Error("public progress initialization failed", "error", err)
 			return b, fmt.Errorf("public progress: %w", err)
+		}
+		if proj.PublicProgressThreadArchiveMins != nil {
+			engine.SetPublicProgressThreadArchiveAfter(time.Duration(*proj.PublicProgressThreadArchiveMins) * time.Minute)
+		}
+		if proj.PublicProgressResultReadyArchiveMins != nil {
+			engine.SetPublicProgressResultReadyThreadArchiveAfter(time.Duration(*proj.PublicProgressResultReadyArchiveMins) * time.Minute)
 		}
 	}
 
@@ -1756,6 +1771,11 @@ Commands:
     show <id>        Show session messages (-n N for last N)
   session new        Reset this agent session after the current turn (--after-turn)
 
+  handoff            Manually hand the primary role to another connected bot
+    status           Show the current primary role and the last switch record
+    show             Print the stored handoff snapshot (works while stopped)
+    switch           Switch the primary role (--to <project>; needs the running bridge)
+
   agent-sid          Print the agent session ID for the current session
 
   relay              Cross-project message relay
@@ -1860,6 +1880,18 @@ func projectTeamStatus(dataDir string, proj config.ProjectConfig) (dir, name str
 		name = wizardName
 	}
 	return dir, name, lead || proj.TeamStatusInject
+}
+
+// configuredLeadCandidates is the config.toml lead flags for core.SeedConfiguredLead.
+// team_status_inject marks the primary role; a wizard team's fallback role is injected by
+// projectTeamStatus's wizard defaults, so both layouts produce exactly one candidate.
+func configuredLeadCandidates(dataDir string, projs []config.ProjectConfig) []core.LeadCandidate {
+	out := make([]core.LeadCandidate, 0, len(projs))
+	for _, proj := range projs {
+		_, name, inject := projectTeamStatus(dataDir, proj)
+		out = append(out, core.LeadCandidate{Project: proj.Name, Name: name, Lead: inject})
+	}
+	return out
 }
 
 func reloadConfig(configPath, projName string, engine *core.Engine, started map[string]map[string]any) (*core.ConfigReloadResult, error) {

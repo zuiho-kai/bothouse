@@ -23,8 +23,8 @@ func TestConfigureDSHWritesKeyPatchAndMembers(t *testing.T) {
 	if _, err := ConfigureDSH(DSHConfigureRequest{Members: []DSHMember{{Name: "橘"}}}); err == nil {
 		t.Fatal("a model member without key must be refused")
 	}
-	res, err := ConfigureDSH(DSHConfigureRequest{DeepSeekAPIKey: "sk-new", Members: []DSHMember{{Name: "橘", CLI: "claude", Persona: "p"}, {Name: "鲸鱼娘"}}})
-	if err != nil || !res.KeySaved || res.Members != 2 {
+	res, err := ConfigureDSH(DSHConfigureRequest{DeepSeekAPIKey: "sk-new", Members: []DSHMember{{Name: "橘", CLI: "claude", Persona: "p"}, {Name: "鲸鱼娘"}, {Name: "Claude Code", CLI: "claude", NameCustomized: dshBoolPtr(false)}}})
+	if err != nil || !res.KeySaved || res.Members != 3 {
 		t.Fatalf("configure: %+v %v", res, err)
 	}
 	b, _ := os.ReadFile(cred)
@@ -41,7 +41,7 @@ func TestConfigureDSHWritesKeyPatchAndMembers(t *testing.T) {
 	}
 	var seed struct{ Members []DSHMember }
 	b, _ = os.ReadFile(res.MembersFile)
-	if json.Unmarshal(b, &seed) != nil || len(seed.Members) != 2 || seed.Members[0].CLI != "claude" {
+	if json.Unmarshal(b, &seed) != nil || len(seed.Members) != 3 || seed.Members[0].CLI != "claude" || seed.Members[2].Name != "Claude Code" || seed.Members[2].NameCustomized == nil || *seed.Members[2].NameCustomized {
 		t.Fatalf("members file: %s", b)
 	}
 	// second run is idempotent on the patch entry
@@ -110,3 +110,5 @@ func TestSetDSHPatchConfigImageDimension(t *testing.T) {
 		t.Fatal("a string value must be refused")
 	}
 }
+
+func dshBoolPtr(v bool) *bool { return &v }

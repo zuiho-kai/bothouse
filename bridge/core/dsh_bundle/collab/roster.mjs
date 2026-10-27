@@ -19,6 +19,7 @@ export function rowToMember(row) {
   return {
     id: row.id,
     name: row.name,
+    ...(row.name_customized == null ? {} : { nameCustomized: Boolean(row.name_customized) }),
     ...(row.provider && row.model ? { model: { provider: row.provider, model: row.model } } : {}),
     ...(row.cli ? { cli: row.cli } : {}),
     ...(row.cli && row.permission_preset ? { permissionPreset: row.permission_preset } : {}),
@@ -35,7 +36,8 @@ export class Roster {
    * @param dsh - DshMembers (runtime routing).
    * @param llm - DSH `ctx.llm` service, or undefined to skip model checks.
    */
-  constructor(hub, dsh, llm) {
+  constructor(hub, dsh, llm, avatars) {
+    this.avatars = avatars;
     this.hub = hub;
     this.store = hub.store;
     this.dsh = dsh;
@@ -74,15 +76,17 @@ export class Roster {
     for (const m of Array.isArray(members) ? members : []) {
       const name = String(m?.name ?? '').trim();
       const same = this.hub.memberList().find(x => x.name.toLowerCase() === name.toLowerCase());
-      if (same !== undefined) {
+      // A default-named role may become Codex-2 when Codex is already there; custom and legacy
+      // names stay idempotent (a re-import must not duplicate them).
+      if (same !== undefined && m?.name_customized !== false) {
         imported.push({ ...m, id: same.id });
         continue;
       }
       try {
         const avatar = m?.avatar && ['orange', 'whale', 'dragon', 'rainbow', 'lanxi'].includes(m.avatar) ? m.avatar : undefined;
-        const member = await this.create({ name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(avatar ? { avatar } : {}) });
+        const member = await this.create({ name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(m?.name_customized === undefined ? {} : { nameCustomized: Boolean(m.name_customized) }), ...(avatar ? { avatar } : {}) });
         imported.push({ ...m, id: member.id });
-        added.push(name);
+        added.push(member.name);
       } catch (error) {
         imported.push(m);
         logger?.warn?.('conest-collab: wizard member %s not added: %s', name, error?.message ?? error);
@@ -121,6 +125,7 @@ export class Roster {
     if (existing === undefined || existing.removed) throw new CollabError('member-missing', `member ${id} does not exist`);
     if (existing.source !== 'ui') throw new CollabError('read-only', `member ${id} comes from the config file and cannot be edited here`);
     const m = await this.validate({ ...input, rooms: input?.rooms === undefined ? JSON.parse(existing.rooms ?? '[]') : input.rooms }, id);
+    if (input?.nameCustomized === undefined && existing.name_customized != null) m.nameCustomized = Boolean(existing.name_customized);
     // An edit that leaves out the approval tier keeps the stored one instead of falling back to the default.
     if (m.cli !== undefined && input?.permissionPreset === undefined && existing.cli && existing.permission_preset) {
       m.permissionPreset = existing.permission_preset;
@@ -135,14 +140,45 @@ export class Roster {
     const existing = this.store.member(id);
     if (existing === undefined || existing.removed) throw new CollabError('member-missing', `member ${id} does not exist`);
     if (existing.source !== 'ui') throw new CollabError('read-only', `member ${id} comes from the config file and cannot be removed here`);
+    this.avatars?.remove(id);
     this.store.removeMember(id);
     this.dsh.dropMember(id);
   }
 
+  setAvatar(id, png) {
+    const existing = this.store.member(id);
+    if (existing === undefined || existing.removed) throw new CollabError('member-missing', `member ${id} does not exist`);
+    if (existing.source !== 'ui') throw new CollabError('read-only', '配置文件中的成员不能在这里修改头像');
+    let avatar = '';
+    if (png === undefined) this.avatars.remove(id);
+    else avatar = this.avatars.save(id, png);
+    const row = this.store.updateMember(id, { ...rowToMember(existing), avatar });
+    const member = rowToMember(row);
+    this.dsh.putMember(member);
+    return member;
+  }
+
   async validate(input, selfId) {
-    const name = String(input?.name ?? '').trim();
-    if (!name || name.length > MAX_NAME || /[\s@<>]/.test(name)) {
-      throw new CollabError('invalid', `name must be 1-${MAX_NAME} characters without spaces, @ or <>`);
+    let name = String(input?.name ?? '').trim();
+    const existing = selfId === undefined ? undefined : this.store.member(selfId);
+    const nameCustomized = input?.nameCustomized ?? (existing?.name_customized == null ? undefined : Boolean(existing.name_customized));
+    if (nameCustomized !== undefined && typeof nameCustomized !== 'boolean') throw new CollabError('invalid', 'nameCustomized must be boolean');
+    const cli = input?.cli ?? existing?.cli;
+    const backend = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini' }[cli] ?? 'DSH';
+    const used = new Set(this.hub.memberList().filter(m => m.id !== selfId).map(m => m.name.toLowerCase()));
+    const isNew = existing === undefined;
+    if (!name || (nameCustomized === false && (isNew ? used.has(name.toLowerCase()) : existing.cli !== cli))) {
+      if (isNew && name) {
+        // Keep the requested automatic stem (Codex, Claude Code…) and only move past collisions.
+        const stem = name.replace(/-\d+$/, '');
+        for (let n = 2; used.has(name.toLowerCase()); n++) name = `${stem}-${n}`;
+      } else {
+        name = backend;
+        for (let n = 2; used.has(name.toLowerCase()); n++) name = `${backend}-${n}`;
+      }
+    }
+    if (!name || name.length > MAX_NAME || /[@<>\r\n\t]/.test(name) || (/\s/.test(name) && !/^Claude Code(?:-\d+)?$/.test(name))) {
+      throw new CollabError('invalid', `name must be 1-${MAX_NAME} characters without spaces (except Claude Code), @ or <>`);
     }
     const rooms = input?.rooms ?? [];
     if (!Array.isArray(rooms) || rooms.some(id => !Number.isSafeInteger(id) || this.store.room(id)?.kind !== 'chat')) {
@@ -161,7 +197,7 @@ export class Roster {
       // Tool approval tier: one of DSH's permission presets; absent = DSH's default (cli-member.mjs).
       const preset = input.permissionPreset == null || input.permissionPreset === '' ? undefined : String(input.permissionPreset);
       if (preset !== undefined && !PERMISSION_PRESETS.includes(preset)) throw new CollabError('invalid', `permissionPreset must be one of ${PERMISSION_PRESETS.join(', ')}`);
-      return { name, persona, avatar, rooms, cli, ...(preset === undefined ? {} : { permissionPreset: preset }) };
+      return { name, persona, avatar, nameCustomized, rooms, cli, ...(preset === undefined ? {} : { permissionPreset: preset }) };
     }
     let model;
     if (input?.model != null) {
@@ -177,7 +213,7 @@ export class Roster {
       }
       model = { provider, model: id };
     }
-    return { name, persona, avatar, rooms, ...(model === undefined ? {} : { model }) };
+    return { name, persona, avatar, nameCustomized, rooms, ...(model === undefined ? {} : { model }) };
   }
 
   /** A stable, unused member id derived from the name (ASCII) or a short random suffix. */

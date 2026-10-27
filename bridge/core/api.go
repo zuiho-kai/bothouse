@@ -25,6 +25,7 @@ const DefaultMaxAttachmentSize int64 = 50 << 20
 // to send messages to active sessions.
 type APIServer struct {
 	socketPath string
+	dataDir    string
 	listener   net.Listener
 	server     *http.Server
 	mux        *http.ServeMux
@@ -91,6 +92,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 
 	s := &APIServer{
 		socketPath:         sockPath,
+		dataDir:            dataDir,
 		listener:           listener,
 		mux:                http.NewServeMux(),
 		engines:            make(map[string]*Engine),
@@ -103,6 +105,9 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/task", s.handleTask)
 	s.mux.HandleFunc("/task/accept", s.handleTaskAccept)
 	s.mux.HandleFunc("/task/assign", s.handleTaskAssign)
+	s.mux.HandleFunc("/handoff/status", s.handleHandoffStatus)
+	s.mux.HandleFunc("/handoff/show", s.handleHandoffShow)
+	s.mux.HandleFunc("/handoff/switch", s.handleHandoffSwitch)
 	s.mux.HandleFunc("/sessions", s.handleSessions)
 	s.mux.HandleFunc("/channel/history", s.handleChannelHistory) // local scripts read a channel without a platform token (api_history.go)
 	s.mux.HandleFunc("/input", s.handleInput)
@@ -114,6 +119,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/team/workspace/list", s.handleTeamWorkspaceList)
 	s.mux.HandleFunc("/team/workspace/claim", s.handleTeamWorkspaceClaim)
 	s.mux.HandleFunc("/team/workspace/park", s.handleTeamWorkspacePark)
+	s.mux.HandleFunc("/team/watch", s.handleTeamIdleWatch)
 	s.mux.HandleFunc("/version", handleSocketVersion) // update self-check probe without management
 	s.mux.HandleFunc("/update", handleSocketUpdate)   // `bothouse update` while bothouse is running
 	s.mux.HandleFunc("/cron/add", s.handleCronAdd)
@@ -910,15 +916,22 @@ func (s *APIServer) handleRelayBinding(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "chat_id is required", http.StatusBadRequest)
 		return
 	}
-	// platform (optional) adds the wizard team of that platform; without it, the manual
-	// binding's own platform is used.
+	// platform (optional) adds the configured/wizard team of that platform; without it,
+	// the manual binding's own platform is used. project (optional) limits the team to
+	// that project's team, so two teams on one platform stay isolated.
 	platform := r.URL.Query().Get("platform")
 	if platform == "" {
 		if b := s.relay.GetBinding(chatID); b != nil {
 			platform = b.Platform
 		}
 	}
-	binding := s.relay.EffectiveBinding(platform, chatID)
+	project := r.URL.Query().Get("project")
+	var binding *RelayBinding
+	if project != "" {
+		binding = s.relay.EffectiveBindingFor(platform, chatID, project)
+	} else {
+		binding = s.relay.EffectiveBinding(platform, chatID)
+	}
 	if binding == nil {
 		http.Error(w, "no binding found", http.StatusNotFound)
 		return

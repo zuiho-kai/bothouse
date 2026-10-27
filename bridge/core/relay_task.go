@@ -29,7 +29,8 @@ type taskRelayRecord struct {
 	WatchFrom    time.Time `json:"watch_from,omitempty"` // this window began (member row updates after it count)
 	WatchSeq     int64     `json:"watch_seq,omitempty"`  // LastSeq at the last check
 	WatchRenewed int       `json:"watch_renewed,omitempty"`
-	WatchDone    bool      `json:"watch_done,omitempty"` // nudged+stopped, or interrupted reported once
+	WatchNudged  bool      `json:"watch_nudged,omitempty"` // reminder sent (or attempted) for the current quiet window; a progress renewal clears it
+	WatchDone    bool      `json:"watch_done,omitempty"`   // reminded+stopped, or interrupted reported once
 }
 
 type taskRelay struct {
@@ -39,12 +40,13 @@ type taskRelay struct {
 	name, token string
 	started     time.Time     // when this dispatch was accepted
 	stop        chan struct{} // closed by the watch (stopWatch): close the session now
+	nudge       chan string   // buffered 1: the watch's reminder for the running turn
 	stopOnce    sync.Once
 }
 
 // Task relays share execution tracking with ordinary relays, but keep each
 // dispatch in a distinct conversation and exclude raw tools from public facts.
-func (e *Engine) handleRelay(ctx context.Context, fromProject, sourceSessionKey, workspaceSessionKey, message, taskScope string, stop <-chan struct{}, complete func(string, error)) (string, error) {
+func (e *Engine) handleRelay(ctx context.Context, fromProject, sourceSessionKey, workspaceSessionKey, message, taskScope string, stop <-chan struct{}, nudge <-chan string, complete func(string, error)) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -61,7 +63,7 @@ func (e *Engine) handleRelay(ctx context.Context, fromProject, sourceSessionKey,
 	if taskScope != "" {
 		key += ":task:" + taskScope
 	}
-	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, key, taskScope != "", stop, complete)
+	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, key, taskScope != "", stop, nudge, complete)
 }
 
 func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, target *Engine, name string) (*RelayResponse, error) {
@@ -83,15 +85,17 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	// drainRelaySession keeps its fixed safety limit instead of waiting forever
 	// on a stop channel nobody will close (#448 P2).
 	var relayStop <-chan struct{}
+	var relayNudge <-chan string
 	if watchStarted {
 		relayStop = d.stop
+		relayNudge = d.nudge
 	}
 	relayCtx, cancel := rm.relayContext(ctx)
 	defer cancel()
 	// Distinct request sessions prevent concurrent dispatches from sharing a
 	// conversation. This is routing, not a tool/filesystem sandbox.
 	scope := req.TaskID + ":" + fmt.Sprintf("%x", sha256.Sum256([]byte(req.RequestID)))
-	response, runErr := target.handleRelay(relayCtx, req.From, req.SessionKey, d.req.Workspace, d.prompt()+req.Message, scope, relayStop, func(response string, runErr error) {
+	response, runErr := target.handleRelay(relayCtx, req.From, req.SessionKey, d.req.Workspace, d.prompt()+req.Message, scope, relayStop, relayNudge, func(response string, runErr error) {
 		if err := d.finish(response, runErr); err != nil {
 			slog.Error("relay: background result checkpoint failed", "task_id", req.TaskID, "error", err)
 		}
@@ -135,6 +139,125 @@ func taskRelayLive(r *publicRun) bool {
 	return !r.record.Accepted && !IsTerminalState(r.record.Task.State)
 }
 
+var (
+	errNoLiveMainBotTurn   = errors.New("no live main-bot turn for this session")
+	errMainBotTurnStopping = errors.New("the current main-bot turn for this session is stopping")
+)
+
+// reclaimClosedTask re-attaches a card released at the end of an earlier turn
+// to the single live lead run of the same session. Caller holds transitionMu
+// and r.mu. The returned undo removes the attachment if the dispatch is not
+// committed; without it a failed validation would leave a permanently active
+// card.
+func (p *PublicProgress) reclaimClosedTask(r *publicRun, session string) (func(), error) {
+	t := r.record.Task
+	switch {
+	case r.record.Accepted:
+		return nil, fmt.Errorf("relay: task %s was already accepted; open a new card with task assign --batch instead", t.ID)
+	case IsTerminalState(t.State):
+		return nil, fmt.Errorf("relay: task %s is %s and cannot accept a new dispatch; open a new card with task assign --batch instead", t.ID, t.State)
+	case !r.record.Closed:
+		if r.stopped != nil && r.stopped() {
+			return nil, fmt.Errorf("relay: task %s is not active: the turn that owns it is stopping; do not redispatch", t.ID)
+		}
+		return nil, fmt.Errorf("relay: task %s is not active in this turn; do not redispatch", t.ID)
+	case !resumableTask(t, r.record.Accepted, time.Now()):
+		return nil, fmt.Errorf("relay: task %s was released by an earlier turn and is outside the %.0fh resume window; open a new card with task assign --batch instead", t.ID, cardResumeWindow.Hours())
+	}
+	for _, receipt := range r.record.Relays {
+		if receipt.Status == "running" {
+			return nil, fmt.Errorf("relay: task %s already has a running dispatch to %s; wait for it to finish or inspect its thread before re-claiming", t.ID, receipt.Target)
+		}
+	}
+	token, run, err := p.liveLeadRun(session)
+	if err != nil {
+		if errors.Is(err, errMainBotTurnStopping) {
+			return nil, fmt.Errorf("relay: task %s is not active: the current main-bot turn for session %s is stopping; wait for the next turn, do not redispatch", t.ID, session)
+		}
+		if errors.Is(err, errNoLiveMainBotTurn) {
+			return nil, fmt.Errorf("relay: task %s was released when an earlier turn of session %s ended: %w. Start a new turn and retry", t.ID, session, err)
+		}
+		command := shellQuoteRelay(bridgeCommand()) + " task assign --project " + shellQuoteRelay(p.project) + " --session " + shellQuoteRelay(session) + " --data-dir " + shellQuoteRelay(p.dataDir) + " --id " + shellQuoteRelay(t.ID)
+		return nil, fmt.Errorf("relay: task %s was released when an earlier turn of session %s ended, but automatic re-claim is not possible: %w. Re-claim it explicitly with %s --run <current-run> --ref '<path:line or 无（新建）>' --member <member> --name <name> --title <title>, then retry", t.ID, session, err, command)
+	}
+	oldClosed, oldStopped := r.record.Closed, r.stopped
+	r.record.Closed = false
+	r.stopped = run.stopped
+	key := "task:" + t.ID
+	p.mu.Lock()
+	if p.delegations == nil {
+		p.delegations = map[string]map[string]*publicRun{}
+	}
+	if p.delegations[token] == nil {
+		p.delegations[token] = map[string]*publicRun{}
+	}
+	p.delegations[token][key] = r
+	p.indexRun(r)
+	p.mu.Unlock()
+	run.mu.Lock()
+	oldCandidate := run.candidate
+	run.candidate = r
+	run.mu.Unlock()
+	return func() {
+		r.record.Closed = oldClosed
+		r.stopped = oldStopped
+		run.mu.Lock()
+		run.candidate = oldCandidate
+		run.mu.Unlock()
+		p.mu.Lock()
+		if p.delegations[token] != nil && p.delegations[token][key] == r {
+			delete(p.delegations[token], key)
+			if len(p.delegations[token]) == 0 {
+				delete(p.delegations, token)
+			}
+		}
+		p.mu.Unlock()
+	}, nil
+}
+
+// liveLeadRun returns the one live main-bot run of a session. Two live turns
+// are ambiguous: the bridge cannot know which one the caller means, and
+// guessing would attach the card to a turn that may end first.
+func (p *PublicProgress) liveLeadRun(session string) (string, *publicRun, error) {
+	type candidate struct {
+		token string
+		run   *publicRun
+	}
+	p.mu.Lock()
+	candidates := make([]candidate, 0, len(p.runs))
+	for token, run := range p.runs {
+		candidates = append(candidates, candidate{token: token, run: run})
+	}
+	p.mu.Unlock()
+	var foundToken string
+	var found *publicRun
+	stopping := false
+	for _, c := range candidates {
+		c.run.mu.Lock()
+		current := !c.run.record.Closed && !c.run.record.Accepted && c.run.record.Task.SessionKey == session
+		turnStopping := current && c.run.stopped != nil && c.run.stopped()
+		c.run.mu.Unlock()
+		if !current {
+			continue
+		}
+		if turnStopping {
+			stopping = true
+			continue
+		}
+		if found != nil {
+			return "", nil, errors.New("more than one main-bot turn is active for this session")
+		}
+		foundToken, found = c.token, c.run
+	}
+	if found == nil {
+		if stopping {
+			return "", nil, errMainBotTurnStopping
+		}
+		return "", nil, errNoLiveMainBotTurn
+	}
+	return foundToken, found, nil
+}
+
 // Caller holds transitionMu. Copy mutable journal pieces before changing them
 // so a failed write can restore the exact prior receipt and task state.
 func snapshotTaskRelay(r *publicRun) progressRecord {
@@ -156,6 +279,9 @@ func (p *PublicProgress) queueTaskRelay(r *publicRun) {
 func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRelay, *RelayResponse, error) {
 	p.transitionMu.Lock()
 	defer p.transitionMu.Unlock()
+	// From and SessionKey are caller-supplied routing fields, not authenticated
+	// identities. The checks below only scope the card to the project/session
+	// named by the caller; they do not prove which local process sent it.
 	if req.From != p.project || strings.TrimSpace(req.RequestID) == "" {
 		return nil, nil, errors.New("relay: task source and request_id required")
 	}
@@ -202,8 +328,21 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 		}
 		return nil, nil, fmt.Errorf("relay: request %q is %s; inspect its task thread before any new dispatch", req.RequestID, receipt.Status)
 	}
+	var undo func()
 	if !taskRelayActive(r) {
-		return nil, nil, errors.New("relay: task is not active")
+		var err error
+		undo, err = p.reclaimClosedTask(r, req.SessionKey)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	committed := false
+	if undo != nil {
+		defer func() {
+			if !committed {
+				undo()
+			}
+		}()
 	}
 	if req.Workspace != "" {
 		if p.resolveWorkspace == nil {
@@ -231,7 +370,7 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 		r.record = old
 		return nil, nil, err
 	}
-	d := &taskRelay{p: p, r: r, req: req, name: name, token: randomProgressID(32), started: now, stop: make(chan struct{})} // source: existing public progress token size
+	d := &taskRelay{p: p, r: r, req: req, name: name, token: randomProgressID(32), started: now, stop: make(chan struct{}), nudge: make(chan string, 1)} // source: existing public progress token size
 	p.mu.Lock()
 	if p.relayRuns == nil {
 		p.relayRuns = map[string]*taskRelay{}
@@ -239,6 +378,7 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 	p.relayRuns[d.token] = d
 	p.mu.Unlock()
 	p.queueTaskRelay(r)
+	committed = true
 	return d, nil, nil
 }
 
@@ -302,16 +442,22 @@ func (d *taskRelay) finish(response string, runErr error) error {
 	receipt := r.record.Relays[d.req.RequestID]
 	receipt.Status, receipt.Response = "done", response
 	key := MsgTaskRelayResult
+	failureText := ""
 	if runErr != nil {
-		receipt.Status, receipt.Error = "failed", runErr.Error()
+		failureText = runErr.Error()
+		if reason, ok := BackendUnavailableText(runErr, r.record.Lang); ok {
+			failureText = reason
+			p.failMembersOnBackendUnavailable(r, d.req.To, reason)
+		}
+		receipt.Status, receipt.Error = "failed", failureText
 		key = MsgTaskRelayFailed
 	}
 	r.record.Relays[d.req.RequestID] = receipt
 	previousSummary := r.record.Task.LatestProgress
 	p.appendEvent(r, TaskEventProgress, NewI18n(r.record.Lang).Tf(key, d.name), true)
 	detail := response
-	if runErr != nil {
-		detail += "\n\n" + runErr.Error()
+	if failureText != "" {
+		detail += "\n\n" + failureText
 	}
 	r.record.Task.Events[len(r.record.Task.Events)-1].Detail = strings.TrimSpace(detail)
 	r.record.Task.Events[len(r.record.Task.Events)-1].Pointer = true
@@ -345,7 +491,7 @@ func (d *taskRelay) prompt() string {
 		command = exe
 	}
 	prefix := shellQuoteRelay(command) + " progress --project " + shellQuoteRelay(d.p.project) + " --session " + shellQuoteRelay(d.req.SessionKey) + " --data-dir " + shellQuoteRelay(d.p.dataDir) + " --run " + d.token
-	return "[Task relay " + d.req.TaskID + "]\nThis assignment belongs to an existing task thread. Do not send public channel messages or @ mentions. For meaningful, deliberately public progress, use the shell tool: " + prefix + " --seq N --kind update --message 'short progress'. Start at --seq 1, increase by one, reuse identical seq/content on delivery retry. milestone/waiting/result are also allowed; do not use start. Progress and your final response go to the task thread; only brief status labels update its card. Report progress with --seq every few minutes (an update on your own row on this card counts too): a run with no progress for ten minutes is stopped, its session closed, and the text so far handed back as a partial result. Never include credentials, private reasoning or raw tool logs. Return your result here, do not forward it with send/relay. This token is only for this request and cannot accept or finish the parent task." + d.memberNote() + "\n[/Task relay]\n\n"
+	return "[Task relay " + d.req.TaskID + "]\nThis assignment belongs to an existing task thread. Do not send public channel messages or @ mentions. For meaningful, deliberately public progress, use the shell tool: " + prefix + " --seq N --kind update --message 'short progress'. Start at --seq 1, increase by one, reuse identical seq/content on delivery retry. milestone/waiting/result are also allowed; do not use start. Progress and your final response go to the task thread; only brief status labels update its card. Report progress with --seq every few minutes (an update on your own row on this card counts too): a run with no progress for ten minutes gets a reminder in this session and one more window; if that window also has no report, it is stopped, its session closed, and the text so far handed back as a partial result. Progress renews the watch and re-arms the reminder for the next quiet window. Never include credentials, private reasoning or raw tool logs. Return your result here, do not forward it with send/relay. This token is only for this request and cannot accept or finish the parent task." + d.memberNote() + "\n[/Task relay]\n\n"
 }
 
 // Member rows bound to this target publish under its account; their tokens

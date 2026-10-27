@@ -680,6 +680,9 @@ func (e *Engine) turnContext(session *Session, sessionKey, text string) string {
 // (user, cron, timer or queued); teammate status and wiki pages only with
 // turnCtx messages.
 func (e *Engine) withTurnBlocks(session *Session, sessionKey, query, content string, turnCtx bool) string {
+	if c := e.leadHandoffBlock(session, sessionKey); c != "" {
+		content = c + "\n\n" + content
+	}
 	if c := e.handoffBlock(session); c != "" {
 		content = c + "\n\n" + content
 	}

@@ -31,6 +31,12 @@
 
 真实频道记录：主频道派活给工作区 -> 工作区拆活、接单、交差 -> 任务板实时刷新，主频道照常聊天。
 
+DSH 频道页新增或编辑成员时，展开「可选 → 头像 → 上传图片」即可选择本机 PNG（最大 256KB）。浏览器自动缩放为 256×256，头像只存本机数据目录；已有成员上传后立即生效，点「恢复默认」删除上传头像。
+
+DSH 频道页的成员栏只显示任务统计，点击「任务板」打开可滚动弹窗，按频道、工作区和负责人查看详情。已完成任务默认折叠，点击「派工消息」「交回消息」可跳转到原消息。
+
+在「频道设置」中可为每个频道独立选择主角色，并保存已存在的绝对「工作目录」。保存后询问立即重建该频道的 DSH 成员会话（清空对话上下文），或下次新建会话时生效。工作区继承父频道设置；目录只影响写入范围和相对路径，不影响读取。
+
 ### 日常怎么使唤它们
 
 1. **随口派活**：在群里跟主角色说一句：“做个管理面板，我想看每个角色今天花了多少 token。”
@@ -75,7 +81,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex;
 准备条件按入口选择：Discord 需要一个服务器，飞书需要企业工作区；自建网页平台无需 Discord 或飞书账号，按[接入指南](docs/connect-discord-feishu.md)配置；DSH 的独立要求见下方折叠说明。使用本机 CLI 的角色，需要预先装好并登录对应的 AI 命令行工具（Claude Code / Codex / Gemini CLI 等）。
 
 1. **打开向导**：终端运行 `bothouse`，浏览器会自动弹出配置向导。
-2. **绑定角色**：按提示选平台 -> 接机器人 -> 给每个角色绑定本机 CLI 和人设 -> 保存（新建角色默认开启全自动 YOLO 权限模式，可在面板项目设置中改回）。
+2. **绑定角色**：按提示选平台 -> 接机器人 -> 给每个角色绑定本机 CLI -> 保存（新建角色默认开启全自动 YOLO 权限模式，可在面板项目设置中改回）。名称默认使用 CLI 名称（如 Codex、Codex-2）；人设可选，仅在选定后应用。在可选设置中可自定义名称，选择库中人设时保留该名称。自定义名称与后端并列显示（如 Coder·Codex），切换 CLI 时保持不变；未改动的默认名称随新后端更新。已有角色保留原名称和人设。
    💡 偷懒用法：你也可以直接对本机的 Claude Code 或 Codex 说：「帮我把 bothouse 配好接上 Discord」，它会自己找你要齐配置帮着搞定。
 3. **上线开工**：点「重启生效」，去群里 @ 你的角色就能开始派活了。
 
@@ -170,7 +176,7 @@ enabled = true            # 必须开启，否则网页端只能看数据、不�
 
 ### 2. 团队规矩与小模型调度员（jev）
 
-- **点名才回，绝不抢答**：群里默认由主角色接话，其他角色全程旁听，被 @ 或点名时才开口。想换人主持大局，随口说句「鲸鱼娘，你当主」或「换回 opus」，团队当场切主控。
+- **点名才回，绝不抢答**：群里默认由主角色接话，其他角色全程旁听，被 @ 或点名时才开口。想换人主持大局，随口说句「鲸鱼娘，你当主」或「换回 opus」，团队当场切主控。旧主已经不能回话时，用 `bothouse handoff switch --to <项目>` 手动交接；任务卡、工作区和待回答的问题保留原任务身份，详见[主角色手动交接](docs/LEAD_HANDOFF.md)。
 - **调度员 jev（Gate）**：没点名的话该谁接？我们塞了一个轻量级调度组件 jev 专门做这道选择题（判断该 opus 回、鲸鱼娘回，还是全员闭嘴）。直接挂硅基流动的免费小模型，或者本机跑个 Qwen 0.6B 就能离线秒判。
 
 ### 3. 会自己长大的共享记忆（基于 llm-wiki）
@@ -251,5 +257,5 @@ Discord / 飞书 / 自建网页频道
 
 ## 许可与社区
 
-- **开源协议**：本项目按 Apache-2.0 授权，详见 [LICENSING.md](LICENSING.md)。随附桥接组件的上游 MIT 声明保留在 [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream)，第三方依赖见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。
+- **开源协议**：本项目按 Apache-2.0 授权，详见 [LICENSING.md](LICENSING.md)。桥接组件基于 [cc-connect](https://github.com/chenhg5/cc-connect)，保留了完整提交历史，贡献者列表也包含 cc-connect 的作者和贡献者；感谢 [@chenhg5](https://github.com/chenhg5) 和所有 cc-connect 贡献者。上游 MIT 声明保留在 [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream)，第三方依赖见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。
 - **交流社区**：[linux.do](https://linux.do)

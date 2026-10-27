@@ -24,7 +24,7 @@ export function teamModeRules(mode = DEFAULT_DISPATCH_MODE) {
 }
 /** #597 G24: the open-workspace command, for the selected primary role only, never in bridge prompts. */
 export function workspaceHint(hub, later, memberId, roomId) {
-  if (!later?.workspaceInstructions || hub?.selectedPrimaryMember?.()?.id !== memberId) return '';
+  if (!later?.workspaceInstructions || hub?.primaryIn?.(roomId)?.id !== memberId) return '';
   return later.workspaceInstructions(memberId, roomId);
 }
 /**
@@ -123,7 +123,7 @@ export function promptText(room, member, messages, status = '', mode = DEFAULT_D
   const persona = member.persona?.trim() ? ['你的人设：', member.persona.trim(), ''] : [];
   return [
     `你是频道 #${room.name} 的成员「${member.name}」。${model}频道里其他人各有自己的身份，他们的自我介绍说的是他们自己，不是你。`,
-    ...persona,
+    ...(persona.length ? persona : ['显示名只用于频道 @ 和路由，不要求扮演人物。没有人设时，以实际 AI 身份直接完成工作。']),
     dshTeamModeRules(mode),
     status,
     '下面是频道里你还没看过的消息，最后一条 @ 了你。直接写出你要在频道里说的话；你这一轮最后一条回复会原样发到频道。',
@@ -447,7 +447,7 @@ export class DshMembers {
     const answered = this.approvals.answerByText(msg);
     const hit = mentions(msg.text, this.hub.routableIn(msg.room_id));
     const only = this.hub.replyRoute(msg);
-    const leadID = this.hub.selectedPrimaryMember()?.id;
+    const leadID = this.hub.primaryIn(msg.room_id)?.id;
     const leadTarget = msg.author_kind === 'user' && leadID !== undefined && target === undefined && only === null && hit.size === 0;
     const visible = new Set(this.hub.routableIn(msg.room_id).map(m => m.id));
     const targets = [...this.config.keys()].filter(id => visible.has(id) && id !== msg.author && !answered.has(id) && (!target || target === id)
@@ -563,7 +563,8 @@ export class DshMembers {
     const wiki = await this.turnContext(member, room, undefined, unseen);
     if (this.closed) return;
     if (!this.store.markSent(job.id, sessionId, 0, undefined)) return;
-    const cwd = this.store.workspacePath(room.id, this.rt.workspacePath);
+    const cwd = this.store.bindingWorkspacePath(member.id, room.id, this.store.workspacePath(room.id, this.rt.workspacePath));
+    this.store.setBindingWorkspacePath(member.id, room.id, cwd);
     const cliKey = JSON.stringify([member.id, cwd]);
     let entry = this.cliAgents.get(cliKey);
     if (entry === undefined) {
@@ -750,7 +751,7 @@ export class DshMembers {
    * called this member, or a person's message @-s this member and the lead together.
    */
   dispatchedBy(job, member) {
-    const lead = this.hub.selectedPrimaryMember();
+    const lead = this.hub.primaryIn(job.room_id);
     if (lead === undefined || lead.id === member.id) return undefined;
     const trigger = this.store.message(job.trigger_id);
     if (trigger === undefined) return undefined;
@@ -898,6 +899,7 @@ export class DshMembers {
         entry.agent.saved?.delete(String(room.id));
       }
       if (this.store.binding(member.id, room.id) !== undefined) this.store.rebind(member.id, room.id, `cli:${member.cli}:${member.id}:${room.id}`);
+      this.store.setBindingWorkspacePath(member.id, room.id, this.store.workspacePath(room.id, this.rt.workspacePath));
       // runCli keys a CLI member's context records by (member, room) alone, so clear them here:
       // the fresh ACP context gets its MEMORY.md, task board and wiki pages again.
       this.gateContext.reset(member.id, room.id);
@@ -909,6 +911,20 @@ export class DshMembers {
       authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-new-${msg.id}-${member.id}`,
       text: `✅ ${member.name} 的新会话已创建`,
     });
+  }
+
+  /** Serialize owner-requested renewals with each member's existing channel work. */
+  async renewRoom(roomId) {
+    const msg = this.hub.post(roomId, {
+      authorKind: 'system', author: 'system', name: 'system', text: '正在按新的工作目录重建频道会话。',
+    }).message;
+    const ids = this.hub.routableIn(roomId).filter(m => this.config.has(m.id)).map(m => m.id);
+    const errors = [];
+    await Promise.all(ids.map(id => this.enqueue({ member_id: id, room_id: roomId }, async () => {
+      try { await this.renew(id, msg); } catch (error) { errors.push(`${this.config.get(id).name}：${error.message}`); }
+    })));
+    if (errors.length) throw new Error(`重建会话失败：${errors.join('；')}`);
+    return ids;
   }
 
   async liveAgent(sessionId, member) {

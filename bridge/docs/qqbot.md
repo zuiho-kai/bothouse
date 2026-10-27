@@ -92,6 +92,10 @@ Now you can @mention the bot in group chats or send private messages!
 
 In group chats, the bot **only receives messages when @mentioned**. This is a limitation of the official QQ Bot API.
 
+因为进到机器人的每条群消息本来就是点了名的，适配器把它标成 `Message.Mentioned`，团队模式下不会被当旁听消息丢掉 —— 也就是说 QQ 官方 Bot 的群天然是「只回答被叫到的」。
+
+Because every group message that reaches the bot already @-ed it, the adapter marks it `Message.Mentioned`, so team mode does not drop it as background chatter — a QQ official-bot group is inherently "only answer when called".
+
 每个用户在每个群中拥有独立的会话。
 Each user gets an independent session per group.
 
@@ -100,6 +104,9 @@ Each user gets an independent session per group.
 支持一对一私聊消息，无需 @提及。
 One-on-one private messages are supported without @mention.
 
+私聊消息标成 `Message.Direct`，`core/gate_local.go` 的内置忙碌规则据此认得出这是一个 DM。
+Private messages carry `Message.Direct`, which is how `core/gate_local.go`'s built-in busy rule knows it is a DM.
+
 ## 支持的消息类型 / Supported Message Types
 
 | 类型 / Type | 接收 / Receive | 发送 / Send |
@@ -107,7 +114,25 @@ One-on-one private messages are supported without @mention.
 | 文字 / Text | ✅ | ✅ |
 | 图片 / Image | ✅ | ❌ |
 | 语音 / Voice | ❌ | ❌ |
-| @提及 / @mention | ✅ (自动剥离) | — |
+| @提及 / @mention | ✅ (自动剥离) | ❌ 未实现（见下）/ not implemented (see below) |
+
+### @ 提及：官方有能力，本适配器还没做 / @-mention: the API supports it, this adapter does not
+
+官方 API 的群聊消息支持 @ 某人，写进文本的格式是 `<qqbot-at-user id="" />`（官方文档「文本交互」：@某人｜群聊、文字子频道可用）。所以这件事**不是**平台限制。
+
+The official group-message API does support @-mentioning someone, embedded in the text as `<qqbot-at-user id="" />` (official docs, "文本交互": @某人 works in group chats and text sub-channels). So this is **not** a platform limitation.
+
+被 @ 的对象由调用方指定，不是从收到的消息里推断的：`core.AtMentionSender` 收的是 `atUsers []string`，来源是 `--at-users` 命令行参数或 API 的 `at_users` 字段（`cmd/cc-connect/send.go`、`core/api.go`）。所以平台侧要做的只是把这个 id 拼进上面的格式。
+
+The target is supplied by the caller, not inferred from an incoming message: `core.AtMentionSender` takes `atUsers []string`, filled from the `--at-users` flag or the API's `at_users` field (`cmd/cc-connect/send.go`, `core/api.go`). The adapter only has to put that id into the format above.
+
+**目前 `qqbot` 没有实现 `core.AtMentionSender`**，所以被要求 @ 时会走引擎的降级：**静默退回普通发送**（`core/engine.go` 的 `sendOutbound` 分支），不报错，只是消息上没有 @。
+
+**`qqbot` does not implement `core.AtMentionSender` today**, so an asked-for @ takes the engine's fallback: a **silent plain send** (`core/engine.go`, `sendOutbound`) — no error, the message just has no @.
+
+另外，官方 API 只给 openid，不给真实 QQ 号，也不给昵称（`platform/qqbot/qqbot.go` 的 `UserName`、`ChatName` 都只能用 openid）。这影响的是「机器人怎么称呼人」，不影响能不能 @——只要调用方拿得到想 @ 的那个 openid。
+
+Separately, the official API returns openids only, no real QQ numbers and no nicknames (`platform/qqbot/qqbot.go` uses the openid for both `UserName` and `ChatName`). That affects how the bot *names* people, not whether it can @ them — all it needs is the openid of the person to mention, supplied by the caller.
 
 ## 常见问题 / FAQ
 

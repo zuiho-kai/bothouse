@@ -26,6 +26,12 @@ So we built **bothouse**: a hub that brings your local CLIs and models into one 
 
 Real channel footage: the main channel hands work to a workspace → members split, accept and return tasks → the task board updates while the main conversation continues.
 
+In DSH Channels, add or edit a member and open **Optional → Avatar → Upload image** to choose a local PNG (up to 256KB). The browser resizes it to 256×256; portraits stay in the local data directory. Uploading for an existing member applies immediately; **Restore default** removes the uploaded portrait.
+
+In DSH Channels, the member sidebar shows task counts. Click **Task board** to open a scrollable dialog grouped by channel, workspace and owner; completed tasks start collapsed, and Dispatch / Delivery links jump to the original messages.
+
+In **Channel settings**, choose a primary role independently for each channel and save an existing absolute **Working directory**. Saving asks whether to recreate that channel’s DSH sessions now, clearing their conversation context, or apply the directory when sessions are next created. Workspaces inherit their parent channel’s settings. The directory affects write scope and relative paths, not read access.
+
 ### Everyday use
 
 1. **Give a task in plain language:** “Build a dashboard showing how many tokens each role used today.”
@@ -69,7 +75,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex;
 Choose your entry platform: Discord needs a server, and Feishu needs a workspace. Self-hosted web needs neither account; follow the [connection guide](docs/connect-discord-feishu.md). DSH has separate requirements in the expandable section below. Roles using a local AI CLI need that CLI installed and logged in, such as Claude Code, Codex or Gemini CLI.
 
 1. **Open the wizard:** run `bothouse`; the wizard opens in your browser.
-2. **Connect roles:** choose a platform → connect bots → select a local CLI and persona for each role → save. New roles default to fully automatic YOLO permissions; you can change this in the dashboard's project settings. You can also tell your local Claude Code or Codex: “Set up bothouse and connect it to Discord.” It will ask for the required configuration.
+2. **Connect roles:** choose a platform → connect bots → select a local CLI for each role → save. New roles default to fully automatic YOLO permissions; you can change this in the dashboard's project settings. Names start with the CLI label (Codex, then Codex-2); personas are optional and applied only when selected. Optional settings let you customize a name and keep it when selecting a library persona. Custom names display beside the backend, for example Coder·Codex, and stay when switching CLI; untouched default names follow the new backend. Existing roles keep their names and personas. You can also tell your local Claude Code or Codex: “Set up bothouse and connect it to Discord.” It will ask for the required configuration.
 3. **Start working:** click **Restart to apply**, then mention your roles in the channel.
 
 For background operation, run `bothouse daemon install` to register and immediately start the service. Start at login is off for new installations; reinstalls and upgrades preserve the current setting. Change it in **Settings → Start at login** without interrupting active tasks.
@@ -161,7 +167,7 @@ Get your token through `/web setup`, `bothouse web --no-browser`, or `config.tom
 
 ### 2. Team rules and the small-model dispatcher (jev)
 
-- **Speak when called:** the lead answers by default. Other roles follow the conversation and respond when mentioned or named. Ask another role to take the lead, or switch back to opus, in plain language.
+- **Speak when called:** the lead answers by default. Other roles follow the conversation and respond when mentioned or named. Ask another role to take the lead, or switch back to opus, in plain language. If the old lead can no longer reply, use `bothouse handoff switch --to <project>`; task cards, workspaces and pending questions keep their original task IDs. See [manual lead handoff](docs/LEAD_HANDOFF.md).
 - **Choose who answers:** the lightweight jev dispatcher, or Gate, decides whether opus, another member or nobody should respond to an unaddressed message. It can use a free small model on SiliconFlow or a local model such as Qwen 0.6B.
 
 ### 3. Shared memory built on llm-wiki
@@ -245,5 +251,5 @@ To contribute, read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md
 
 ## License and community
 
-- **License:** Apache-2.0; see [LICENSING.md](LICENSING.md). The bundled bridge retains its upstream MIT notice in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Third-party dependencies are listed in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
+- **License:** Apache-2.0; see [LICENSING.md](LICENSING.md). The bridge is built on [cc-connect](https://github.com/chenhg5/cc-connect) and keeps its full commit history, so the contributor list also includes cc-connect's authors and contributors. Thanks to [@chenhg5](https://github.com/chenhg5) and every cc-connect contributor. The upstream MIT notice is kept in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Third-party dependencies are listed in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
 - **Community:** [linux.do](https://linux.do)

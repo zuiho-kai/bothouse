@@ -100,6 +100,7 @@ type Task struct {
 	CardURL            string       `json:"card_url,omitempty"` // platform-generated permalink, never supplied by a progress report
 	ThreadID           string       `json:"thread_id,omitempty"`
 	ThreadTitle        string       `json:"thread_title,omitempty"` // name last given to the thread; it follows Title
+	ThreadArchivedAt   *time.Time   `json:"thread_archived_at,omitempty"`
 	Seq                int64        `json:"seq"`
 	CreatedAt          time.Time    `json:"created_at"`
 	UpdatedAt          time.Time    `json:"updated_at"`
@@ -119,6 +120,10 @@ func (t *Task) Clone() *Task {
 	if t.CompletedAt != nil {
 		tComplete := *t.CompletedAt
 		cp.CompletedAt = &tComplete
+	}
+	if t.ThreadArchivedAt != nil {
+		archived := *t.ThreadArchivedAt
+		cp.ThreadArchivedAt = &archived
 	}
 	if len(t.Events) > 0 {
 		cp.Events = make([]TaskEvent, len(t.Events))

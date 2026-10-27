@@ -717,6 +717,8 @@ level = "info" # debug, info, warn, error
 [[projects]]
 name = "my-backend"
 # public_progress = false  # Optional opt-out: public task cards are on by default; restart required. See docs/PUBLIC_PROGRESS.md.
+# public_progress_thread_archive_mins = 1440  # Archive a finished task card's Discord thread after this many minutes (default 1440; 0 disables). The thread itself is created with Discord's 10080-minute (max) auto-archive, so the bridge scan decides the actual time. Restart required. See docs/PUBLIC_PROGRESS.md.
+# public_progress_result_ready_archive_mins = 4320  # Archive a result_ready card's Discord thread after this many minutes (default 4320 = 3 days, C酱's PR #498 review suggestion; 0 disables; the card state is left as result_ready). Keep it below the thread's 10080-minute Discord auto-archive. Restart required. See docs/PUBLIC_PROGRESS.md.
 #
 # ---- maomao fork: gate / main + subs / team status (see docs/ccm-and-wiki.md) ----
 # ---- maomao 分支：快脑闸门、一主多 sub、队友状态（说明见仓库根目录 docs/ccm-and-wiki.md）----
@@ -743,7 +745,10 @@ name = "my-backend"
 # chat_model = ""                  # With task_model: the gate's chat/task tag picks the model per idle turn.
 # task_model = ""                  # 两个都填时，闸门判「聊天/干活」，空闲时每轮按它换模型。
 # team_status_dir = "~/.bothouse/team"   # Every bot: write busy/idle per channel to <dir>/<project>.json.
+#                                          # A non-empty dir shared by two or more projects on one platform is also
+#                                          # their team: those members may relay/派活 in a new channel without /bind.
 #                                          # 每个 bot：把各频道忙/闲写到 <dir>/<project>.json，队友互相看得到。
+#                                          # 同一平台上共用这个目录的两个及以上项目视为同一团队，新频道默认可互相派活，不必逐个 /bind。
 # team_name = "协调员"               # This bot's name in the team status (default: project name). / 队友状态里的名字。
 # team_status_inject = true        # Main bot only: start each turn with the teammates' status.
 #                                  # 只给主 bot：每轮开头附上队友状态。
@@ -1779,6 +1784,7 @@ app_secret = "your-feishu-app-secret"
 # allow_from = "*"                 # allowed QQ user IDs, e.g. "12345,67890" or "*" for all
 #                                  # 允许的 QQ 号，如 "12345,67890"，"*" 表示所有
 # share_session_in_channel = false  # If true, all users in a group share one agent session / 群聊共享会话
+#                                   # Team mode (several roles in one group) needs true / 团队模式（同群多角色）需要 true
 
 # QQ Bot (Official / 官方 QQ 机器人) (uncomment to enable / 取消注释以启用)
 # Uses the official QQ Bot Platform API — no third-party adapter needed.

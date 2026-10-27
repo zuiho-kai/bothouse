@@ -12,7 +12,7 @@ import { LeadState } from './lead-state.mjs';
 import { Roster } from './roster.mjs';
 import { promptText, teamModeRules, TurnProgress, workspaceHint } from './dsh-member.mjs';
 import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
-import { tasksRoute, ownMessageRoute, renameRoomRoute } from './plugin.mjs';
+import { tasksRoute, ownMessageRoute, renameRoomRoute, roomSettingsRoute } from './plugin.mjs';
 import { TeamExit } from './team-exit.mjs';
 
 const quiet = { warn() {}, info() {} };
@@ -163,6 +163,134 @@ test('channel rename: refreshes loaded and persisted sessions, workspaces and fu
   assert.equal(fake.ctx.sessionTitle.renamed.at(-1), '#renamed · DeepSeek');
   await dsh.close();
   hub.store.close();
+});
+
+test('channel primary: independent choices persist, inherit to workspaces and fall back only when unset', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-channel-primary-')), 'db');
+  let store = new Store(path);
+  for (const id of [1, 2, 3]) store.ensureRoom(id, `room${id}`);
+  const ws = store.createWorkspace(1);
+  const init = () => {
+    const hub = new Hub(store, quiet, { selected: () => 'global' });
+    for (const id of ['a', 'b', 'global']) hub.setMember({ id, name: id, kind: 'dsh', online: true });
+    return hub;
+  };
+  let hub = init();
+  store.setLead(1, 'a'); store.setLead(2, 'b');
+  assert.equal(hub.primaryIn(1).id, 'a');
+  assert.equal(hub.primaryIn(2).id, 'b');
+  assert.equal(hub.primaryIn(3).id, 'global');
+  assert.equal(hub.primaryIn(ws.id).id, 'a');
+  store.close(); store = new Store(path); hub = init();
+  assert.equal(hub.primaryIn(1).id, 'a');
+  assert.equal(hub.primaryIn(2).id, 'b');
+  assert.equal(hub.primaryIn(3).id, 'global');
+  store.setLead(1, 'removed');
+  assert.equal(hub.primaryIn(1), undefined, 'a missing explicit primary must not pick another channel’s role');
+  store.close();
+});
+
+test('channel primary: unmentioned messages, /new, workspace hints and handbacks follow their own channel', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  const fake = fakeDsh(); const dsh = fake.attach(hub, [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]);
+  hub.store.setLead(1, 'a'); hub.store.setLead(2, 'b');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: 'one' });
+  hub.post(2, { authorKind: 'user', author: 'owner', name: '我', text: 'two' });
+  await settle();
+  assert.deepEqual(hub.store.openJobs().map(j => [j.member_id, j.room_id]), [['a', 1], ['b', 2]]);
+  for (const agent of fake.sessions.values()) fake.turn(agent, ['done']);
+  await settle();
+  const oldB = hub.store.binding('b', 2).session_id;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '/new' });
+  await settle();
+  assert.equal(hub.store.binding('b', 2).session_id, oldB);
+  assert.equal(hub.store.binding('b', 1), undefined);
+  const later = { workspaceInstructions: (id, room) => `${id}:${room}` };
+  assert.equal(workspaceHint(hub, later, 'a', 1), 'a:1');
+  assert.equal(workspaceHint(hub, later, 'a', 2), '');
+  const trigger = hub.store.append(2, { authorKind: 'role', author: 'b', name: 'B', text: '@A task' }).message;
+  assert.equal(dsh.dispatchedBy({ room_id: 2, trigger_id: trigger.id }, { id: 'a' }).id, 'b');
+  assert.equal(dsh.returnToLead({ room_id: 2, trigger_id: trigger.id }, { id: 'a' }, 'result'), '@B result');
+  await dsh.close(); hub.store.close();
+});
+
+test('channel primary: task dispatch, handback and acceptance use the channel lead', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'other');
+  hub.leadState = { selected: () => 'global' };
+  for (const id of ['global', 'local', 'worker']) hub.setMember({ id, name: id, kind: 'dsh' });
+  hub.store.setLead(1, 'local');
+  const tasks = new Tasks(hub, { start: false });
+  hub.post(1, { authorKind: 'role', author: 'local', name: 'local', text: '@worker implement channel settings' });
+  await tick();
+  const task = tasks.list(1)[0];
+  assert.ok(task, 'the channel lead must create a task even when the global lead differs');
+  assert.equal(task.created_by, 'local');
+  hub.post(1, { authorKind: 'role', author: 'worker', name: 'worker', text: '@local completed' });
+  await tick();
+  assert.equal(tasks.task(task.id).status, 'returned');
+  hub.post(1, { authorKind: 'role', author: 'local', name: 'local', text: 'accepted' });
+  await tick();
+  assert.equal(tasks.task(task.id).status, 'done');
+  hub.post(2, { authorKind: 'role', author: 'global', name: 'global', text: '@worker implement inherited settings' });
+  await tick();
+  assert.equal(tasks.list(2)[0].created_by, 'global', 'unset channels retain the global lead');
+  tasks.close();
+  hub.store.close();
+});
+
+test('channel settings API: validates directories before writing and survives config reseeding', async () => {
+  const { Readable } = await import('node:stream');
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'collab-settings-'));
+  const file = join(dir, 'file'); writeFileSync(file, 'x');
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  hub.setMember({ id: 'a', name: 'A', kind: 'dsh', rooms: [1] });
+  hub.setMember({ id: 'b', name: 'B', kind: 'dsh', rooms: [2] });
+  const events = []; hub.subscribe(e => events.push(e));
+  const call = async (body) => {
+    const req = Readable.from([Buffer.from(JSON.stringify(body))]); req.method = 'PATCH';
+    let status, result;
+    await roomSettingsRoute(req, { writeHead(s) { status = s; }, end(b) { result = JSON.parse(b); } }, '/collab/api/rooms/1/settings', { store: hub.store, hub, workspacePath: '/old' });
+    return { status, result };
+  };
+  for (const path of ['relative', join(dir, 'missing'), file]) {
+    const result = await call({ workspace_path: path, lead_id: 'a' });
+    assert.equal(result.status, 400); assert.match(result.result.error, /工作目录/);
+    assert.equal(hub.store.workspacePath(1, '/old'), '/old'); assert.equal(hub.store.leadId(1), null);
+  }
+  assert.equal((await call({ lead_id: 'b' })).status, 400);
+  assert.equal((await call({ workspace_path: dir, lead_id: 'a' })).status, 200);
+  assert.equal(events.at(-1).room_id, 1);
+  assert.equal(hub.primaryIn(1).id, 'a'); assert.equal(hub.store.leadId(2), null);
+  hub.store.ensureRoom(1, 'general', '/config');
+  assert.equal(hub.store.workspacePath(1, '/old'), dir);
+  hub.store.close();
+});
+
+test('channel directory: saving leaves current session pending, /new and immediate renewal use the new path', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  const fake = fakeDsh();
+  const dsh = fake.attach(hub, [{ id: 'a', name: 'A', rooms: [1] }, { id: 'b', name: 'B', rooms: [1] }, { id: 'other', name: 'Other', rooms: [2] }]);
+  hub.store.setLead(1, 'a');
+  const old = await dsh.ensureAgent(dsh.config.get('a'), hub.store.room(1));
+  const other = await dsh.ensureAgent(dsh.config.get('other'), hub.store.room(2));
+  hub.store.setWorkspacePath(1, '/new-directory');
+  assert.equal(await dsh.ensureAgent(dsh.config.get('a'), hub.store.room(1)), old);
+  assert.equal(fake.ctx.agents.created[0].meta.cwd, '/w');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '/new' });
+  await settle();
+  assert.notEqual(hub.store.binding('a', 1).session_id, old.session.id);
+  assert.equal(fake.ctx.agents.created.at(-1).meta.cwd, '/new-directory');
+  assert.deepEqual(await dsh.renewRoom(1), ['a', 'b']);
+  assert.equal(fake.ctx.agents.created.at(-1).meta.cwd, '/new-directory');
+  assert.equal(hub.store.binding('other', 2).session_id, other.session.id);
+  await dsh.close(); hub.store.close();
 });
 
 test('dispatch mode: a workspace inherits its chat channel setting (PR #138 review 6)', () => {
@@ -1201,6 +1329,25 @@ test('roster: wizard roles are imported once, existing names skipped', async () 
   assert.deepEqual(await roster.importWizard(file), []);
 });
 
+test('roster: a default-named wizard role continues the suffix instead of being skipped', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'collab-wiz-'));
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  await roster.create({ cli: 'codex', nameCustomized: false });
+  await roster.create({ name: '小码', cli: 'codex', nameCustomized: true });
+  const file = join(dir, 'wizard-members.json');
+  writeFileSync(file, JSON.stringify({ members: [
+    { name: 'Codex', cli: 'codex', name_customized: false },
+    { name: '小码', cli: 'codex', name_customized: true },
+  ] }));
+  assert.deepEqual(await roster.importWizard(file), ['Codex-2']);
+  assert.equal(hub.memberList().filter(m => m.name === 'Codex-2').length, 1);
+});
+
 
 test('member failure publishes actionable error and clears it on retry', () => {
   const hub = makeHub();
@@ -1374,6 +1521,23 @@ function cliMembers(hub, ask) {
   return new DshMembers(hub, { ctx: dsh.ctx, createUserMessage: m => m, createCliMember: () => agent, workspacePath: '/w', logger: quiet },
     [{ id: 'cc', name: 'CC', cli: 'claude' }, { id: 'ds', name: 'DeepSeek' }]);
 }
+
+test('CLI channel directory: Later retains the bound directory until /new', async () => {
+  const hub = makeHub(); const fake = fakeDsh(); const paths = [];
+  const dsh = new DshMembers(hub, { ctx: fake.ctx, createUserMessage: m => m, workspacePath: '/w', logger: quiet,
+    createCliMember: ({ cwd }) => { paths.push(cwd); return { async ask() { return 'done'; }, close() {} }; },
+  }, [{ id: 'cc', name: 'CC', cli: 'claude' }]);
+  const say = async text => { hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text }); await settle(); };
+  await say('@CC first');
+  hub.store.setWorkspacePath(1, '/new', '/w');
+  await say('@CC still old');
+  assert.deepEqual(paths, ['/w']);
+  assert.equal(hub.store.bindingWorkspacePath('cc', 1), '/w');
+  await say('@CC /new'); await say('@CC now new');
+  assert.deepEqual(paths, ['/w', '/new']);
+  assert.equal(hub.store.bindingWorkspacePath('cc', 1), '/new');
+  await dsh.close(); hub.store.close();
+});
 
 test('CLI directory errors add one channel prefix without mutating a reused cause', async () => {
   const hub = makeHub();
@@ -4275,6 +4439,25 @@ test('attachments: undelivered reasons are shown in Chinese by DSH error code, u
   assert.equal(undeliveredReasonZh({ reason: 'something new' }), 'something new');
 });
 
+test('member names: automatic CLI suffixes, backend switch, custom persona, and legacy preservation', async () => {
+  const hub = makeHub(); const dsh = fakeDsh(); const members = dsh.attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  const first = await roster.create({ cli: 'codex', nameCustomized: false });
+  const second = await roster.create({ cli: 'codex', nameCustomized: false });
+  assert.equal(first.name, 'Codex'); assert.equal(second.name, 'Codex-2');
+  const changed = await roster.update(first.id, { name: first.name, cli: 'claude', nameCustomized: false, persona: '' });
+  assert.equal(changed.name, 'Claude Code'); assert.equal(changed.persona, '');
+  const custom = await roster.create({ name: '小码', cli: 'codex', nameCustomized: true, persona: '你是小码，认真工作。' });
+  const switched = await roster.update(custom.id, { name: custom.name, cli: 'claude', nameCustomized: true, persona: custom.persona });
+  assert.equal(switched.name, '小码'); assert.equal(switched.persona, custom.persona);
+  const legacy = await roster.create({ name: '旧名字', cli: 'codex', persona: '旧人设' });
+  assert.equal(legacy.nameCustomized, undefined);
+  const old = await roster.update(legacy.id, { name: legacy.name, cli: 'claude', persona: legacy.persona });
+  assert.equal(old.name, '旧名字'); assert.equal(old.persona, '旧人设');
+  assert.deepEqual([...mentions('@Claude Code 你好', hub.routable())], [first.id]);
+  assert.equal(hub.store.member(custom.id).name_customized, 1);
+});
+
 // #597 K11: DSH-native members get the gate's /context (wiki pages, task board) each turn.
 async function fakeGate(handler) {
   const { createServer } = await import('node:http');
@@ -4532,6 +4715,16 @@ test('G24: single primary opens a workspace by ticket; task owned by itself, wat
   assert.deepEqual(nudged, [['ju', res.body.workspace.id, 'system']]);
   assert.match(workspaceHint(hub, later, 'ju', 1), /\/collab\/api\/rooms\/1\/workspaces/);
   assert.doesNotMatch(later.instructions('ju', 1), /workspaces/, 'bridge-shared later prompt stays without the command');
+});
+
+test('channel primary tickets: each channel accepts only its own selected role', async () => {
+  const { hub, later, call } = await g24Setup(['ju', 'long']);
+  hub.store.ensureRoom(2, 'other');
+  hub.store.setLead(1, 'ju'); hub.store.setLead(2, 'long');
+  assert.equal((await call(later.ticket('ju', 1), { title: 'one' }, 1)).status, 200);
+  assert.equal((await call(later.ticket('long', 2), { title: 'two' }, 2)).status, 200);
+  assert.equal((await call(later.ticket('ju', 2), { title: 'wrong' }, 2)).status, 403);
+  assert.equal((await call(later.ticket('long', 1), { title: 'wrong' }, 1)).status, 403);
 });
 
 test('G24: an @-dispatched chat task is handed over, not opened twice', async () => {

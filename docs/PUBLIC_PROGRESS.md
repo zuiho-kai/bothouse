@@ -2,6 +2,8 @@
 
 机器人接受多步骤任务后，用专用公开报告通道写出开始、进展、关键发现、等待决定和结果。Discord 原地更新任务卡；开始、关键发现、等待决定、结果和异常追加到关联讨论串。普通更新不刷屏。Thinking、工具输入/输出和完整对话不进入这个通道。
 
+主角色手动交接如何读取这些持久记录见[主角色手动交接](LEAD_HANDOFF.md)。
+
 Grok 与肥鱼共用 ACP 入口，大豆包使用 Antigravity；三者都收到当前轮次的命令说明，通过已有 shell 工具调用同一个本地 API。没有按模型名提取“思考”，也没有修改 thinking_messages。是否按时报告仍取决于模型遵循公开进展提示，不能把协议测试当成三个真人频道验收。
 
 ## 启用
@@ -34,6 +36,24 @@ cc-connect progress --run <同一run> --seq 3 --kind result --message '绑定已
 project/session/data-dir 通常由命令提示显式指定；CLI 也兼容 CC_PROJECT、CC_SESSION_KEY 和既有 socket 路径解析。新任务 seq 从 1 连续增加，首次必须 start，标题最多 60 字符。续接旧任务使用提示给出的下一个 seq；序号随卡片累计，每轮仍最多 64 条，每条公开摘要最多 500 字符。其他 kind：update、waiting。相同序号与相同内容重试幂等；同序号改内容、跨项目/会话、旧 run、停止后的报告均拒绝。
 
 CLI 的 recorded 回执表示本地持久化成功，不表示 Discord 已收到。失败时不重做原来的工具操作。不要报告凭据、推理草稿、原始工具日志或完整语音转写。
+
+## 结束任务的子区自动归档
+
+任务卡进入 `completed`（真人验收）、`failed` 或 `cancelled` 后，bridge 会在 `public_progress_thread_archive_mins` 配置的等待时间过去后归档它对应的 Discord 讨论串。`received`、`in_progress`、`waiting_user` 不归档。`result_ready`（已有结果、等真人验收）不是终态，另按 `public_progress_result_ready_archive_mins` 的等待时间处理；到点只归档讨论串、不改卡片状态：卡片仍是 `result_ready`，仍然可以验收。归档只是把讨论串收进 Discord 的“已归档”列表：消息、附件和卡片链接都保留，不删除任何内容；有人往讨论串发新消息时，Discord 会自动重新展开。创建任务子区时 `auto_archive_duration` 传 10080 分钟（Discord 允许的最大值，7 天），高于下面两项扫描等待，Discord 不会在 bridge 扫描前先把子区自动收起；实际归档时间由两项配置决定。
+
+配置写在项目块：
+
+~~~toml
+[[projects]]
+name = "已有项目名"
+public_progress_thread_archive_mins = 1440          # 终态卡
+public_progress_result_ready_archive_mins = 4320     # result_ready 卡
+# 两项都写 0 = 分别关闭对应的自动归档
+~~~
+
+终态默认 1440 分钟（24 小时），沿用本 PR 之前的等待时间。`result_ready` 默认 4320 分钟（3 天）。来源：C酱 在 PR #498 的审核建议——主 bot 很少走验收这一步，这些卡若沿用 24 小时，子区数量基本降不下来。两项等待时间都从卡片最近一次更新时间和子区最近活动（最后一条消息或重新展开时间）中较晚者算起；有人刚回复或刚展开的讨论不会被同一轮收起。子区被 bridge 归档后，如果之后有人回复或手动展开，扫描会按这次新活动重新计时，等够对应时长再归档一次。bridge 重启后会从 data_dir 里的任务记录恢复扫描，已有历史卡也按同一规则处理。
+
+只归档 bridge 为任务卡创建的子区；如果卡片本来就在用户自己的讨论串里（`ThreadID == ChannelID`），不会归档。归档前要求卡片和最后一条公开事实已经投递完成，避免把最后一条消息挡在归档后。成功归档会写 `thread_archived_at`，之后没有新活动时扫描不重复调用；如果归档后有人回复或手动展开，扫描会用最近活动与标记比较，清掉 `thread_archived_at` 并按新活动重新计时，等够时长后再次归档。失败只记日志并在下一轮重试，不删除、不改任务状态（包括 `result_ready` 状态）。归档后如果又产生需要投递的关键事实（例如验收），bridge 先展开子区再投递，成功后清掉 `thread_archived_at`，让子区按新活动重新计时。改标题不会为了改名展开已归档子区；已归档子区的标题保持不变。机器人需要“管理讨论串”权限，缺权限时归档会失败并重试，不影响任务卡本身。
 
 ## 自动开卡
 
