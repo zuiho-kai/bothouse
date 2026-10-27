@@ -5567,3 +5567,15 @@ test('chat-side delegated review stays pending through lead chatter and closes o
   await settle();
   assert.equal(tasks.task(original.id).status, 'done');
 });
+
+test('delegating with standalone verdict examples does not prematurely accept the result', async () => {
+  const { hub, tasks, ws, assign, say } = g34Setup();
+  hub.setMember({ id: 'reviewer', name: 'DSH', kind: 'dsh', online: true });
+  const original = assign();
+  say(ws.id, '[report]\ndelivered');
+  await settle();
+  say(1, `@DSH 核对结果，结束后用下面的格式：\n【验收】#${original.id}\n或\n【返工】#${original.id} 原因`, 'zhu');
+  await settle();
+  assert.equal(tasks.task(original.id).status, 'returned');
+  assert.equal(tasks.list(1).find(t => t.owner === 'reviewer').parent_task, original.id);
+});

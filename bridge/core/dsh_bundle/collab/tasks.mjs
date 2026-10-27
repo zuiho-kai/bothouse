@@ -470,7 +470,7 @@ export class Tasks {
       const mark = exitMark(msg.text, { lastLine: true, team: this.hub.routable() });
       // A stance line naming #id speaks for that task only (gone or done: nothing to hand back).
       const named = STANCE_LINE.exec(withoutLeadingMentions(String(msg.text), this.hub.routable()).split('\n', 1)[0])?.[2] !== undefined;
-      const task = stance ?? (named ? undefined : this.openOf(msg.room_id, msg.author));
+      const task = stance !== undefined ? this.task(stance.id) : (named ? undefined : this.openOf(msg.room_id, msg.author));
       if (mark?.kind === 'report' && (stance === undefined || stance.status === 'accepted') && task !== undefined && task.source !== 'review' && WORKING.includes(task.status)) {
         // #597 G37: the hand-back does not end it: a lead's [report] @-ing a teammate dispatches too.
         const handed = this.handBack(task.id, { actor: msg.author, messageId: msg.id });
@@ -501,6 +501,14 @@ export class Tasks {
     for (const [, word, id, note] of String(msg.text).matchAll(VERDICT_LINE)) {
       const task = this.task(Number(id));
       if (task === undefined || this.chatOf(task.room_id) !== this.chatOf(msg.room_id)) continue;
+      // A dispatcher teaching an independent reviewer the verdict syntax is delegating,
+      // even when those example commands occupy their own lines.
+      if (task.created_by === msg.author) {
+        const team = this.hub.routableIn(msg.room_id);
+        const explicit = mentions(String(msg.text), team);
+        if (team.some(m => m.id !== msg.author && m.id !== task.owner
+            && (explicit.has(m.id) || nameCalled(String(msg.text), m.name, team.map(t => t.name))))) continue;
+      }
       // Dispatchers review in the chat channel; delegated reviewers may work in their review workspace.
       if (this.inWorkspace(msg.room_id) && !this.db.prepare(`SELECT id FROM tasks WHERE parent_task = ?
           AND source = 'review' AND room_id = ? AND owner = ? AND ${LIVE}`).get(task.id, msg.room_id, msg.author, ...WORKING)) continue;
