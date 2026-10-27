@@ -684,6 +684,8 @@ const (
 	MsgBoardTasksMore    MsgKey = "board_tasks_more"
 	MsgPublicInterrupted MsgKey = "MsgPublicInterrupted"
 	MsgPublicEnded       MsgKey = "MsgPublicEnded"
+	MsgWatchResume       MsgKey = "watch_resume"
+	MsgWatchIdleEscalate MsgKey = "watch_idle_escalate"
 	MsgTaskKeyFact       MsgKey = "MsgTaskKeyFact"
 	MsgTaskResultReady   MsgKey = "MsgTaskResultReady"
 	MsgTaskRelayAssigned MsgKey = "MsgTaskRelayAssigned"
@@ -919,6 +921,20 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "本輪中斷；重試前請先核對已記錄的成果。",
 		LangJapanese:           "処理が中断しました。再試行前に記録済みの成果を確認してください。",
 		LangSpanish:            "Turno interrumpido; revise los resultados antes de reintentar.",
+	},
+	MsgWatchResume: {
+		LangEnglish:            "Continue %s; no reply needed",
+		LangChinese:            "接着做 %s，不用回话",
+		LangTraditionalChinese: "接著做 %s，不用回話",
+		LangJapanese:           "%s を続けてください。返事は不要です",
+		LangSpanish:            "Continúa %s; no hace falta responder",
+	},
+	MsgWatchIdleEscalate: {
+		LangEnglish:            "Watch: %s has not resumed %s after two wakeups. Primary role, please take over.",
+		LangChinese:            "看门：%s「%s」连续叫醒两次仍未继续，请主角色接手。",
+		LangTraditionalChinese: "看門：%s「%s」連續叫醒兩次仍未繼續，請主角色接手。",
+		LangJapanese:           "見守り：%s は %s を2回呼びかけても再開していません。主担当に引き継いでください。",
+		LangSpanish:            "Aviso: %s no ha retomado %s tras dos avisos. El rol principal debe hacerse cargo.",
 	},
 	MsgPublicEnded: {
 		LangEnglish:            "Turn ended; see the final reply. Acceptance is not confirmed.",

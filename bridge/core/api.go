@@ -119,6 +119,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/team/workspace/list", s.handleTeamWorkspaceList)
 	s.mux.HandleFunc("/team/workspace/claim", s.handleTeamWorkspaceClaim)
 	s.mux.HandleFunc("/team/workspace/park", s.handleTeamWorkspacePark)
+	s.mux.HandleFunc("/team/watch", s.handleTeamIdleWatch)
 	s.mux.HandleFunc("/version", handleSocketVersion) // update self-check probe without management
 	s.mux.HandleFunc("/update", handleSocketUpdate)   // `bothouse update` while bothouse is running
 	s.mux.HandleFunc("/cron/add", s.handleCronAdd)

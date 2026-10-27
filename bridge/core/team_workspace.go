@@ -192,7 +192,8 @@ type teamWorkspaceState struct {
 	Handoffs map[string][]TeamHandoff `json:"handoffs,omitempty"`
 	// Version of the record format: 1 = single owner (a Parents record means the chat owns the
 	// workspace now). 0 = written before; migrated on load (teamWorkspaceMigrateOwners).
-	Version int `json:"version,omitempty"`
+	Version       int                      `json:"version,omitempty"`
+	ScriptWatches map[string][]TeamHandoff `json:"script_watches,omitempty"`
 }
 
 const teamWorkspaceStateVersion = 1
@@ -241,8 +242,10 @@ type TeamHandoff struct {
 	// name for the nudge. Due: the next check time (zero: not watched, e.g. a handoff recorded
 	// before the watch existed). Renewed: renewals given for progress. Nudged: the nudge was
 	// sent. ParkFails: parks that failed at the check time (retried, then reported). ReadFails: below.
-	Owner string `json:"owner,omitempty"`
-	Title string `json:"title,omitempty"`
+	Idle   watchIdleState `json:"idle,omitempty"`
+	Sender string         `json:"sender,omitempty"` // d10 caller project
+	Owner  string         `json:"owner,omitempty"`
+	Title  string         `json:"title,omitempty"`
 	// Name: the workspace's name at the claim (「工作区n」). The Parents record goes at the release,
 	// this stays, so the task board still names the workspace of a finished task (TeamWorkspaceName).
 	Name        string    `json:"name,omitempty"`

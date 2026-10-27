@@ -5658,6 +5658,8 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					e.forwardWorkspaceExit(p, sessionKey, fullResponse) // #139 C: workspace [ask]/[report] -> chat channel
 				}
 
+				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false)
+
 				// Safety note: concurrent writes to session.History by the
 				// unsolicited reader and a foreground turn cannot overlap.
 				// Session.AddHistory takes session.mu internally, and
@@ -5811,6 +5813,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	var segmentStart int // index into textParts: text before this has been sent/displayed
 	silentHold := false  // true while accumulated segment text could still resolve to a bare NO_REPLY marker
 	toolCount := 0
+	watchTurnFinished := false
+	defer func() {
+		if !watchTurnFinished && !state.isStopped() && e.ctx.Err() == nil {
+			state.mu.Lock()
+			p := state.platform
+			state.mu.Unlock()
+			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, e.watchCardResult(state))
+		}
+	}()
 	waitStart := time.Now()
 	firstEventLogged := false
 	var toolSteps []ToolStep
@@ -7116,6 +7127,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if state.isStopped() {
 				progressOutcome = "cancelled"
 			}
+			watchTurnFinished = true
+			if !state.isStopped() {
+				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, e.watchCardResult(state))
+			}
 			e.finishPublicProgress(state, progressOutcome)
 
 			// Auto-compress after finishing a turn, before sending any queued messages.
@@ -7265,6 +7280,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				textParts = nil
 				segmentStart = 0
 				toolCount = 0
+				watchTurnFinished = false
 				turnStart = time.Now()
 				firstEventLogged = false
 				waitStart = time.Now()
