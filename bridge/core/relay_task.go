@@ -447,7 +447,9 @@ func (d *taskRelay) finish(response string, runErr error) error {
 		failureText = runErr.Error()
 		if reason, ok := BackendUnavailableText(runErr, r.record.Lang); ok {
 			failureText = reason
-			p.failMembersOnBackendUnavailable(r, d.req.To, reason)
+			if p.quotaBlocked == nil || !p.quotaBlocked(d.req.To) {
+				p.failMembersOnBackendUnavailable(r, d.req.To, reason)
+			}
 		}
 		receipt.Status, receipt.Error = "failed", failureText
 		key = MsgTaskRelayFailed

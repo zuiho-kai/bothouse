@@ -1,6 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { WORKING } from './tasks.mjs';
 
 // Claude reports a provider-local reset clock; convert it using its IANA zone,
 // including calendar dates for weekly limits. Missing deadlines stay unknown.
@@ -50,7 +49,9 @@ export function quotaDeadline(event, now = Date.now()) {
     const duration = /resets in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?/i.exec(text);
     const delay = duration && (Number(duration[1] ?? 0) * 3600 + Number(duration[2] ?? 0) * 60 + Number(duration[3] ?? 0)) * 1000;
     const raw = reset ?? /resets?\s+(.+?\([^)]+\))/i.exec(text)?.[1] ?? '';
-    const absolute = /^\d{4}-\d\d-\d\dT/.test(raw) ? Date.parse(raw) : resetClock(raw, now);
+    let absolute;
+    try { absolute = /^\d{4}-\d\d-\d\dT/.test(raw) ? Date.parse(raw) : resetClock(raw, now); }
+    catch (error) { if (!(error instanceof RangeError)) throw error; } // invalid external IANA zone stays unknown
     if (delay > 0) until = Math.max(until, now + delay);
     if (absolute > now) until = Math.max(until, absolute);
   }

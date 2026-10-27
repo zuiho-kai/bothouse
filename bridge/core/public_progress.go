@@ -99,16 +99,17 @@ func (r PublicProgressRequest) Validate() error {
 }
 
 type progressRecord struct {
-	Relays   map[string]taskRelayRecord `json:"relays,omitempty"`
-	Task     *Task                      `json:"task"`
-	Platform string                     `json:"platform"`
-	Lang     Language                   `json:"lang"`
-	Closed   bool                       `json:"closed"`
-	Accepted bool                       `json:"accepted,omitempty"`
-	Reports  map[int64]string           `json:"reports"`
-	LastSeq  int64                      `json:"last_seq"`
-	CardSeq  int64                      `json:"card_seq"`
-	FactSeq  int64                      `json:"fact_seq"`
+	QuotaReports map[string]quotaProgressReceipt `json:"quota_reports,omitempty"`
+	Relays       map[string]taskRelayRecord      `json:"relays,omitempty"`
+	Task         *Task                           `json:"task"`
+	Platform     string                          `json:"platform"`
+	Lang         Language                        `json:"lang"`
+	Closed       bool                            `json:"closed"`
+	Accepted     bool                            `json:"accepted,omitempty"`
+	Reports      map[int64]string                `json:"reports"`
+	LastSeq      int64                           `json:"last_seq"`
+	CardSeq      int64                           `json:"card_seq"`
+	FactSeq      int64                           `json:"fact_seq"`
 	// Auto marks a card the bridge opened for a turn whose agent did not
 	// (public_progress_auto.go). Cleared once the agent starts it as its own.
 	Auto bool `json:"auto,omitempty"`
@@ -135,6 +136,7 @@ type publicRun struct {
 // PublicProgress owns run authorization, durable public facts and delivery.
 // Tokens exist only in memory/prompt, never in the card or journal.
 type PublicProgress struct {
+	quotaBlocked func(string) bool
 	// Lifecycle operations serialize run ownership and durable state transitions.
 	// Delivery never takes this lock; network requests remain independent.
 	transitionMu            sync.Mutex
@@ -369,6 +371,9 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 		}
 		return "", errors.New("sequence reused with different content")
 	}
+	if r.record.Task.AssignedProject != "" && r.record.Task.AssignedProject != p.project {
+		return "", errors.New("task ownership transferred")
+	}
 	if IsTerminalState(r.record.Task.State) {
 		return "", errors.New("task is terminal")
 	}
@@ -532,6 +537,13 @@ func (p *PublicProgress) finishRun(r *publicRun, outcome string, delegated bool)
 		return
 	} // casual chat never creates a card
 	t := r.record.Task
+	if p.quotaBlocked != nil && p.quotaBlocked(p.project) {
+		// A provider stop is a pending handoff, not a failed user task.
+		if err := p.save(r); err != nil {
+			slog.Error("quota handoff persistence failed", "error", err)
+		}
+		return
+	}
 	i := NewI18n(r.record.Lang)
 	if !IsTerminalState(t.State) {
 		switch outcome {
@@ -924,6 +936,14 @@ func (e *Engine) EnablePublicProgress() error {
 	p.notBound = e.noteBound
 	p.workspaceChat = e.isTeamWorkspaceChat
 	p.projectName = e.projectDisplayName
+	p.quotaBlocked = func(project string) bool {
+		for _, peer := range e.watchEngines() {
+			if peer.name == project {
+				return !peer.quotaCooling().IsZero()
+			}
+		}
+		return false
+	}
 	return nil
 }
 

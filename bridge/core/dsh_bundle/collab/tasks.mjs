@@ -695,9 +695,14 @@ export class Tasks {
       if (owner === undefined || owner.id === lead) continue;
       const status = String(m.status ?? '');
       try {
+        const mirrored = m.id ? this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND assign_msg_id = ? AND card_member_id = ? AND source = 'card'").get(roomId, messageId, m.id) : undefined;
+        if (mirrored && mirrored.owner !== owner.id && WORKING.includes(mirrored.status)) this.reassignForQuota(mirrored, owner.id);
         if (['queued', 'running', 'waiting'].includes(status)) {
           const title = String(m.title ?? '').trim() || String(m.name ?? '').trim();
-          if (title) this.openFromChat({ roomId, owner: owner.id, lead, title, messageId, source: 'card' });
+          if (title) {
+            const opened = this.openFromChat({ roomId, owner: owner.id, lead, title, messageId, source: 'card' });
+            if (opened && m.id) this.db.prepare('UPDATE tasks SET card_member_id = ? WHERE id = ?').run(m.id, opened.id);
+          }
         // `result` is the public-progress report kind; newer bridge cards
         // normalize it to `completed`, while older cards expose it directly.
         // Keep `done` for cards produced by older task-card implementations.

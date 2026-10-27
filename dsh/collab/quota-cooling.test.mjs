@@ -97,3 +97,20 @@ test('quota: a cooling owner receives no due-task reminder', t => {
   assert.equal(store.page(1).length, before);
   t.after(() => { tasks.close(); store.close(); });
 });
+
+test('quota card mirror: transferred member changes the existing task owner without a second wake', t => {
+  const store = new Store(':memory:'); store.ensureRoom(1, 'general');
+  const hub = new Hub(store, { warn() {} });
+  for (const id of ['lead', 'orange', 'longniang']) hub.setMember({ id, name: id, kind: 'bot', online: true });
+  const tasks = new Tasks(hub, { start: false });
+  t.after(() => { tasks.close(); store.close(); });
+  const message = hub.post(1, { authorKind: 'role', author: 'lead', name: 'lead', text: 'card' }).message;
+  const member = { id: 'worker', reporter_project: 'orange', title: '修复代码', status: 'running' };
+  tasks.fromCard(1, 'lead', message.id, [member]);
+  const original = tasks.activeTasksOf('orange')[0];
+  tasks.fromCard(1, 'lead', message.id, [{ ...member, reporter_project: 'longniang', name: 'longniang', status: 'queued' }]);
+  assert.equal(tasks.activeTasksOf('orange').length, 0);
+  assert.equal(tasks.activeTasksOf('longniang')[0].id, original.id);
+  tasks.fromCard(1, 'lead', message.id, [{ ...member, reporter_project: 'longniang', name: 'longniang', status: 'completed' }]);
+  assert.equal(tasks.task(original.id).status, 'returned');
+});

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -130,24 +131,41 @@ func (e *Engine) quotaWorkItems() []quotaWork {
 
 func (e *Engine) quotaTransferWork(st *quotaCoolingState, now time.Time) {
 	reserved := map[string]bool{}
+	sessionTargets := map[string]string{}
 	for _, transfer := range st.Transfers {
 		if !transfer.Woken {
 			reserved[transfer.To] = true
+			sessionTargets[transfer.Session] = transfer.To
 		}
 	}
 	for _, work := range e.quotaWorkItems() {
-		if _, exists := st.Transfers[work.ID]; exists {
+		if previous, exists := st.Transfers[work.ID]; exists && !previous.Woken {
 			continue
 		}
-		target := e.quotaCandidate(work.Session, work.Title+" "+work.Basis, reserved)
+		var target *Engine
+		if owner := sessionTargets[work.Session]; owner != "" {
+			for _, peer := range e.watchEngines() {
+				if peer.name == owner {
+					target = peer
+					break
+				}
+			}
+		} else {
+			target = e.quotaCandidate(work.Session, work.Title+" "+work.Basis, reserved)
+		}
 		if target == nil {
 			continue // keep ownership and retry when a bound teammate becomes idle
 		}
+		prompt := target.i18n.Tf(MsgQuotaWorkPrompt, e.DisplayName(), work.Title, work.Basis)
+		if work.Task != "" {
+			prompt += "\n[Quota takeover] Continue the original task with this turn's own progress command and --task " + work.Task + " --seq 1 --kind update. Do not start a duplicate card. Your reports update the transferred task or member row. [/Quota takeover]"
+		}
 		st.Transfers[work.ID] = quotaTransfer{
 			To: target.name, Session: work.Session, Title: work.Title, Work: work,
-			Prompt: target.i18n.Tf(MsgQuotaWorkPrompt, e.DisplayName(), work.Title, work.Basis),
+			Prompt: prompt,
 		}
 		reserved[target.name] = true
+		sessionTargets[work.Session] = target.name
 		e.saveQuotaLocked() // checkpoint the intent before changing any owner
 	}
 	for id, tr := range st.Transfers {
@@ -173,15 +191,46 @@ func (e *Engine) quotaTransferWork(st *quotaCoolingState, now time.Time) {
 			st.Transfers[id] = tr
 			e.saveQuotaLocked()
 		}
-		if err := e.queueQuotaWake(target, id, tr.Session, tr.Prompt, tr.Title); err != nil {
-			slog.Warn("quota takeover: wake failed", "work", id, "error", err)
+	}
+	// Apply every representation first, then deliver one combined handoff per
+	// workspace. A board row and its public card must never run twice.
+	groups := map[string][]string{}
+	for id, tr := range st.Transfers {
+		if tr.Applied && !tr.Woken {
+			groups[tr.To+"\x00"+tr.Session] = append(groups[tr.To+"\x00"+tr.Session], id)
+		}
+	}
+	for group, ids := range groups {
+		sort.Strings(ids)
+		first := st.Transfers[ids[0]]
+		var target *Engine
+		for _, peer := range e.watchEngines() {
+			if peer.name == first.To {
+				target = peer
+				break
+			}
+		}
+		if target == nil || !target.quotaCooling().IsZero() {
 			continue
 		}
-		tr.Woken = true
-		st.Transfers[id] = tr
+		var prompts, titles []string
+		for _, id := range ids {
+			prompts = append(prompts, st.Transfers[id].Prompt)
+			titles = append(titles, st.Transfers[id].Title)
+		}
+		title := strings.Join(titles, "; ")
+		if err := e.queueQuotaWake(target, "work:"+group, first.Session, strings.Join(prompts, "\n\n"), title); err != nil {
+			slog.Warn("quota takeover: wake failed", "error", err)
+			continue
+		}
+		for _, id := range ids {
+			tr := st.Transfers[id]
+			tr.Woken = true
+			st.Transfers[id] = tr
+		}
 		e.saveQuotaLocked()
-		e.quotaNotice(tr.Session, e.i18n.Tf(MsgQuotaWorkTakeover, e.DisplayName(), target.DisplayName(), tr.Title))
-		slog.Info("quota takeover: work reassigned and wake queued", "from", e.name, "to", target.name, "work", id)
+		e.quotaNotice(first.Session, e.i18n.Tf(MsgQuotaWorkTakeover, e.DisplayName(), target.DisplayName(), title))
+		slog.Info("quota takeover: work reassigned and wake queued", "from", e.name, "to", target.name, "records", len(ids))
 	}
 }
 

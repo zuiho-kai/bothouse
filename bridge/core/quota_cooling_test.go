@@ -169,3 +169,76 @@ func TestQuotaTakeoverIsolationJourney(t *testing.T) {
 		})
 	}
 }
+
+func TestQuotaTaskCardTakeoverContinuesOriginalJournal(t *testing.T) {
+	dir := t.TempDir()
+	rm := NewRelayManager(dir)
+	engines := map[string]*Engine{}
+	for _, name := range []string{"orange", "longniang"} {
+		p := newProgressPlatform()
+		e := NewEngine(name, &stubAgent{}, []Platform{p}, "", LangChinese)
+		e.dataDir = dir
+		e.SetRelayManager(rm)
+		rm.RegisterEngine(name, e)
+		if err := e.EnablePublicProgress(); err != nil {
+			t.Fatal(err)
+		}
+		e.publicProgress.workspaceChat = func(string) bool { return true }
+		engines[name] = e
+		t.Cleanup(e.cancel)
+	}
+	source, target := engines["orange"], engines["longniang"]
+	platform := source.platforms[0]
+	run := source.publicProgress.begin(platform, "discord:ws", LangChinese, nil)
+	req := PublicProgressRequest{Project: source.name, SessionKey: "discord:ws", Run: run, Seq: 1, Kind: "start", Title: "修复代码", Summary: "正在修复"}
+	id, err := source.publicProgress.Report(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.recordQuota(time.Now().Add(time.Hour), "discord:ws")
+	source.publicProgress.finish(run, "failed")
+	r := source.publicProgress.records[id]
+	if IsTerminalState(r.record.Task.State) {
+		t.Fatal("quota ended unfinished card before takeover")
+	}
+	work := quotaWork{ID: "task:" + id, Task: id, Source: source.name, Session: "discord:ws", Title: "修复代码"}
+	if err := source.applyQuotaWork(work, target, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	source.quotaState.Transfers = map[string]quotaTransfer{work.ID: {To: target.name, Session: work.Session, Work: work, Applied: true, Woken: true}}
+	token := target.publicProgress.begin(target.platforms[0], work.Session, LangChinese, nil)
+	update := PublicProgressRequest{Project: target.name, SessionKey: work.Session, Run: token, TaskID: id, Seq: 1, Kind: "update", Summary: "接手原卡"}
+	for i := 0; i < 2; i++ {
+		if got, handled, err := target.reportQuotaProgress(update); err != nil || !handled || got != id {
+			t.Fatalf("takeover update: %s %v %v", got, handled, err)
+		}
+	}
+	update.Seq, update.Kind, update.Summary = 2, "result", "修复完成"
+	if _, _, err := target.reportQuotaProgress(update); err != nil {
+		t.Fatal(err)
+	}
+	if r.record.Task.State != TaskStateResultReady || r.record.Task.ResultSummary != "修复完成" {
+		t.Fatal("replacement could not finish original card")
+	}
+	if r.record.Task.Events[len(r.record.Task.Events)-1].ReporterProject != target.name {
+		t.Fatal("replacement attribution lost")
+	}
+	source.publicProgress.finishRun(r, "failed", false)
+	if r.record.Task.State != TaskStateResultReady {
+		t.Fatal("old owner overwrote replacement result")
+	}
+}
+
+func TestQuotaRelayWatchDoesNotNudgeCoolingMember(t *testing.T) {
+	p, d, now := relayWatchFixture(t)
+	p.quotaBlocked = func(project string) bool { return project == d.req.To }
+	p.relayWatchTick(now.Add(watchCheckAfter()))
+	select {
+	case <-d.nudge:
+		t.Fatal("watch nudged a cooling backend")
+	default:
+	}
+	if relayWatchStopped(d) != 0 || relayWatchReceipt(d).WatchDone {
+		t.Fatal("quota handoff was stopped instead of retained")
+	}
+}

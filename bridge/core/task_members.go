@@ -460,7 +460,7 @@ func (p *PublicProgress) reportMember(g *taskMemberRun, req PublicProgressReques
 		return "", errors.New("sequence reused with different content")
 	}
 	i := memberIndex(r.record.Task, g.id)
-	if i < 0 || !r.record.Task.Members[i].Live() {
+	if i < 0 || !r.record.Task.Members[i].Live() || r.record.Task.Members[i].ReporterProject != g.assignment.ReporterProject {
 		return "", errors.New("member has finished")
 	}
 	// Source: same report budget as PublicProgress.Report; duplicate delivery is free.

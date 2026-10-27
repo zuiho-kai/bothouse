@@ -126,9 +126,6 @@ func (e *Engine) recordQuota(until time.Time, session string) {
 	if !until.After(e.quotaState.Until) {
 		return
 	}
-	if !e.quotaState.Until.After(time.Now()) {
-		e.quotaState.Transfers = nil
-	}
 	e.quotaState.Until = until
 	if session != "" {
 		e.quotaState.Session = teamChatKey(session)
@@ -235,7 +232,7 @@ func (e *Engine) quotaCandidate(session, title string, reserved map[string]bool)
 	var candidates []*Engine
 	for _, peer := range e.watchEngines() {
 		if peer == e || reserved[peer.name] || peer.IsPaused() || peer.ctx.Err() != nil ||
-			!peer.quotaCooling().IsZero() || peer.watchBusy(teamChatKey(session)) {
+			!peer.quotaCooling().IsZero() || peer.quotaBusy(session) {
 			continue
 		}
 		if _, ok := bound[peer.name]; !ok {
@@ -268,6 +265,48 @@ func (e *Engine) quotaCandidate(session, title string, reserved map[string]bool)
 		return nil
 	}
 	return candidates[0]
+}
+
+// Workspace tasks and their parent channel share one availability domain.
+// Activity in an unrelated chat does not disqualify a teammate here.
+func (e *Engine) quotaBusy(session string) bool {
+	chat := func(key string) string {
+		key = teamChatKey(key)
+		if parent, ok := e.WorkspaceParent(key); ok {
+			return parent
+		}
+		return key
+	}
+	here := chat(session)
+	managers := []*SessionManager{e.sessions}
+	if e.workspacePool != nil {
+		for _, ws := range e.workspacePool.All() {
+			ws.mu.Lock()
+			managers = append(managers, ws.sessions)
+			ws.mu.Unlock()
+		}
+	}
+	for _, manager := range managers {
+		if manager == nil {
+			continue
+		}
+		for _, key := range manager.UserKeys() {
+			if chat(key) != here {
+				continue
+			}
+			for _, s := range manager.ListSessions(key) {
+				if s.Busy() {
+					return true
+				}
+			}
+		}
+	}
+	for _, work := range e.quotaWorkItems() {
+		if chat(work.Session) == here {
+			return true
+		}
+	}
+	return e.watchDelegatedWork(teamChatKey(session))
 }
 
 func (e *Engine) quotaSwitchLead(target *Engine, now time.Time) (string, error) {
