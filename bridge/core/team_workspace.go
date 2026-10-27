@@ -242,7 +242,7 @@ type TeamHandoff struct {
 	// name for the nudge. Due: the next check time (zero: not watched, e.g. a handoff recorded
 	// before the watch existed). Renewed: renewals given for progress. Nudged: the nudge was
 	// sent. ParkFails: parks that failed at the check time (retried, then reported). ReadFails: below.
-	Idle   watchIdleState `json:"idle,omitempty"`
+	Idle   watchIdleState `json:"idle,omitzero"`
 	Sender string         `json:"sender,omitempty"` // d10 caller project
 	Owner  string         `json:"owner,omitempty"`
 	Title  string         `json:"title,omitempty"`
