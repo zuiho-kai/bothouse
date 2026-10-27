@@ -45,7 +45,9 @@ export class AvatarUploads {
   }
 
   remove(id) {
-    const file = this.filename(id);
+    // Older member ids may contain underscores; those members never had an upload.
+    const file = `${id}.png`;
+    if (!UPLOAD_FILE.test(file)) return;
     try { unlinkSync(join(this.dir, file)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
 }

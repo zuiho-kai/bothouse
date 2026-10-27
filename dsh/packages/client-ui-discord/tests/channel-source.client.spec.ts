@@ -35,6 +35,31 @@ function deferred<T>() {
 const state = { rooms: [{ id: 1, name: 'general' }, { id: 2, name: 'other' }], members: [], thinking: {} }
 
 describe('channel source', () => {
+  it('uploads a new member portrait and removes the new member when upload fails so retry stays possible', async () => {
+    let fail = false
+    const { transport, calls } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') return json(200, state)
+      if (url === '/collab/api/members') {
+        expect(JSON.parse(String(init?.body))).not.toHaveProperty('avatarPng')
+        return json(200, { member: { id: 'new' } })
+      }
+      if (url.endsWith('/avatar')) {
+        expect(JSON.parse(String(init?.body))).toEqual({ png: 'AQID' })
+        return json(fail ? 400 : 200, fail ? { error: '头像错误' } : { member: { id: 'new' } })
+      }
+      return json(200, { messages: [] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().roomId).toBe(1))
+    await actions.addMember({ name: 'New', persona: '', model: null, avatarPng: 'AQID' })
+    expect(calls).toContain('POST /collab/api/members/new/avatar')
+    fail = true
+    await expect(actions.addMember({ name: 'New', persona: '', model: null, avatarPng: 'AQID' })).rejects.toThrow('头像错误')
+    expect(calls).toContain('DELETE /collab/api/members/new')
+    unsubscribe()
+  })
+
   it('renames a room without replacing selection, history or dispatch settings', async () => {
     const { transport } = fakeTransport((url, init) => {
       if (url === '/collab/api/state') return json(200, { ...state, rooms: [{ id: 1, name: 'general', dispatch_mode: 'team' }] })

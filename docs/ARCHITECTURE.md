@@ -38,6 +38,8 @@ DSH 忙时插话（steer）要给 dsh-acp 打 integrations/dsh-acp-steer 的补�
 | `companion/` | 保留的电脑语音、活动采集与归档扩展，独立配置 |
 | `integrations/`、`skills/` | 智能体集成与工作约定 |
 
+DSH 自定义成员头像由 collab 的 owner 专用上传接口接收：浏览器缩放为 256×256 PNG，服务端检查 PNG 文件头、IHDR 尺寸和 256KB 上限，原子写入 `<dataDir>/avatars/<memberId>.png`，成员记录只存 `upload:<memberId>.png`。图片通过 owner 鉴权的静态路由读取；成员事件携带缓存版本，替换后列表和历史消息同步刷新。恢复默认或删除成员会清理本地图片。
+
 core 通过接口使用后端能力；agent 与 platform 适配器不互相导入。模型会话归各后端所有，共享 wiki 保存有来源的记录，凭据与运行数据留在仓库之外。
 
 ## 团队与记忆

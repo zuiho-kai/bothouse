@@ -30,6 +30,8 @@ Discord gets the full team, Feishu starts with a single role, and the self-hoste
 
 Real channel footage: chat hands work to a workspace, the workspace dispatches it, the task board shows it all at a glance, and chat carries on.
 
+In DSH Channels, add or edit a member and open **Optional → Avatar → Upload image** to choose a local PNG (up to 256KB). The browser resizes it to 256×256; portraits stay in the local data directory. Uploading for an existing member applies immediately; **Restore default** removes the uploaded portrait.
+
 In DSH Channels, the member sidebar shows task counts. Click **Task board** to open a scrollable dialog grouped by channel, workspace and owner; completed tasks start collapsed, and Dispatch / Delivery links jump to the original messages.
 
 ## How you use it
