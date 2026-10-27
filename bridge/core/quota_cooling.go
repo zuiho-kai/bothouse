@@ -167,9 +167,11 @@ func (e *Engine) observeQuotaUsage(report *UsageReport, session string) {
 	now := time.Now()
 	for _, bucket := range report.Buckets {
 		for _, window := range bucket.Windows {
-			// The requested early handover is strictly below 5% remaining.
-			if !(bucket.LimitReached || window.UsedPercent >= 100 ||
-				window.WindowSeconds == 5*3600 && window.UsedPercent > 95) {
+			// Cool down only when the provider says the quota is gone: a limit-reached
+			// bucket, a window at 100%, or a reported reset time. A window merely close to
+			// its limit still has usable quota, and switching early throws it away.
+			// Source: user 2026-10-28 02:4x「或者报错再交接，提前量太多，有点浪费了」.
+			if !(bucket.LimitReached || window.UsedPercent >= 100) {
 				continue
 			}
 			until := time.Unix(window.ResetAtUnix, 0)

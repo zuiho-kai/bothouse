@@ -35,14 +35,21 @@ func TestQuotaResetTime(t *testing.T) {
 func TestQuotaUsageThresholdAndPersistence(t *testing.T) {
 	e, _, _ := exitFixture(t, nil)
 	until := time.Now().Add(time.Hour).Truncate(time.Second)
-	report := func(used int) *UsageReport {
-		return &UsageReport{Buckets: []UsageBucket{{Windows: []UsageWindow{{WindowSeconds: 18000, UsedPercent: used, ResetAtUnix: until.Unix()}}}}}
+	report := func(used int, limitReached bool) *UsageReport {
+		return &UsageReport{Buckets: []UsageBucket{{
+			LimitReached: limitReached,
+			Windows:      []UsageWindow{{WindowSeconds: 18000, UsedPercent: used, ResetAtUnix: until.Unix()}},
+		}}}
 	}
-	e.observeQuotaUsage(report(95), "discord:chat")
-	if !e.quotaCooling().IsZero() {
-		t.Fatal("5% remaining must not trigger below-5% rule")
+	// 用户 2026-10-28 02:4x「或者报错再交接，提前量太多，有点浪费了」：没到上限就不交接，
+	// 99% 也一样——剩下的额度还能用。
+	for _, used := range []int{95, 99} {
+		e.observeQuotaUsage(report(used, false), "discord:chat")
+		if !e.quotaCooling().IsZero() {
+			t.Fatalf("%d%% used without a limit report must not cool down", used)
+		}
 	}
-	e.observeQuotaUsage(report(96), "discord:chat")
+	e.observeQuotaUsage(report(100, false), "discord:chat")
 	if !e.quotaCooling().Equal(until) || !e.capacityCoolingUntil().Equal(until) {
 		t.Fatal("cooling_until contract missing")
 	}
