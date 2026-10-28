@@ -127,7 +127,7 @@ def context(req):
         return {"wiki": [x for x in (who, pb) if x] + board_items()}
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
     return {"wiki": [x for x in (who, pb) if x] + standing_items(roots) + board_items() + match_wiki(text) + mine
-            + decision_items(text)}  # 主 wiki 在前
+            + decision_items(text, req.get("key") or "")}  # 主 wiki 在前
 
 
 # ---- 已定的方向和做法（llm-wiki 页的「关键事实」「决策与踩坑」两段）----
@@ -207,19 +207,50 @@ def decisions(text, root=None):
     return pages, out
 
 
-def decision_items(text):
-    """按话题附一块定案。path 带话题页的指纹：同一话题一个会话只推一次（gate.go turnContext），换话题再推。"""
+# 只在开工那一轮推：每轮都推的话，聊天里话题页轮轮不同，路径指纹去重不生效，10 轮真实消息累计约 2.1 万字。
+# 开工 = 消息点名了存在的交接文件（ws-handoff 叫醒语「先读交接 …/notes/x.md」），或是派活（relay 的「[甲 → 乙] …」、
+# 带派活/接手/开工/交接字样）。
+_START = re.compile(r"^\[[^\]\n]+ → [^\]\n]+\]|派活|派给|接手|开工|交接")
+DEC_BLOCK = 2600  # 单块上限：加上块头约 2.8k，守住作者定的单轮 3000 字
+DEC_KEY_CHARS = 6000  # 每个会话 key 累计上限：约两次开工的量；交接文件那轮算新活，清零重计
+_dec_used = {}
+
+
+def _handoff_named(q):
+    return any(Path(m).expanduser().is_file() for m in _MD.findall(q))
+
+
+def is_start(text):
+    """这条消息是不是开工、交活或派活的那一轮。"""
+    q = query(text)
+    return _handoff_named(q) or bool(_START.search(q))
+
+
+def decision_items(text, key=""):
+    """开工那一轮按话题附一块定案（is_start）；同一 key 累计不超过 DEC_KEY_CHARS。
+    path 带话题页的指纹：同一话题一个会话只推一次（gate.go turnContext）。"""
     try:
+        if not is_start(text):
+            return []
+        if _handoff_named(query(text)):
+            _dec_used[key] = 0
         pages, hits = decisions(text)
     except Exception:  # 读坏了不挡推页
         return []
     if not hits:
         return []
     tag = hashlib.sha1("\n".join(sorted(pages)).encode()).hexdigest()[:6]
-    by = {}
+    by, size = {}, 0
     for rel, ln, line in hits:  # 按页折叠：页路径只写一次（路径常有 80 字，逐行写占掉一半）
-        by.setdefault(rel, []).append(f"  {ln}: {line.strip().removeprefix('- ')[:DEC_LINE]}")
+        row = f"  {ln}: {line.strip().removeprefix('- ')[:DEC_LINE]}"
+        size += len(row) + 1 + (0 if rel in by else len(rel) + 1)
+        if size > DEC_BLOCK:  # hits 按相关度排，超了就丢后面的
+            break
+        by.setdefault(rel, []).append(row)
     body = "\n".join(f"{rel}\n" + "\n".join(v) for rel, v in by.items())
+    if _dec_used.get(key, 0) + len(body) > DEC_KEY_CHARS:
+        return []
+    _dec_used[key] = _dec_used.get(key, 0) + len(body)
     return [{"path": f"【已定的方向和做法 {tag}】",
              "desc": f"以前定过的方向、流程和踩过的坑（路径相对 {_shown('.').removesuffix('/.')}，要细节按行号读）。"
                      "开工、交活、派活前先对照：照着做，别重新探索；交给队友或工作区时，把相关的几条写进交接\n" + body}]
