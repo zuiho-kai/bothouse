@@ -103,6 +103,9 @@ func TestClaudeQuotaExhausted(t *testing.T) {
 		ok                bool
 	}{
 		{"rate_limit", "You've hit your session limit · resets 10pm (Asia/Tokyo)", "10pm (Asia/Tokyo)", true},
+		{"rate_limit", "You've hit your 5-hour limit · resets 6:50pm (Asia/Tokyo)", "6:50pm (Asia/Tokyo)", true},
+		{"rate_limit", "You've hit your weekly limit · resets Nov 3, 9am (Asia/Tokyo)", "Nov 3, 9am (Asia/Tokyo)", true},
+		{"rate_limit", "You've hit your Opus limit", "", true},
 		{"rate_limit", "You've hit your weekly limit · resets Oct 30, 9am (Asia/Tokyo)", "Oct 30, 9am (Asia/Tokyo)", true},
 		{"rate_limit", "API Error: Request rejected (429) · usage limit", "", true},
 		{"rate_limit", "API Error: Request rejected (429) · slow down", "", false},

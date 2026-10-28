@@ -5680,7 +5680,8 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 						e.send(p, markAgentReply(p, replyCtx, session), chunk)
 					}
 				}
-				if fullResponse != "" {
+				// A quota notice is not the workspace's answer: it must not go back as a [report].
+				if _, exhausted := QuotaExhaustedReset(event); fullResponse != "" && !exhausted {
 					e.forwardWorkspaceExit(p, sessionKey, fullResponse) // #139 C: workspace [ask]/[report] -> chat channel
 				}
 
@@ -6884,7 +6885,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 			}
 
-			if !isSilent {
+			// A quota notice is not the workspace's answer: it must not go back as a [report].
+			if _, exhausted := QuotaExhaustedReset(event); !isSilent && !exhausted {
 				e.forwardWorkspaceExit(p, sessionKey, baseResponse) // #139 C: workspace [ask]/[report] -> chat channel
 			}
 			if !isSilent && input == nil {
