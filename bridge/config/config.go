@@ -269,6 +269,16 @@ type RoleConfig struct {
 type RelayConfig struct {
 	TimeoutSecs *int   `toml:"timeout_secs"`         // max seconds to wait for relay response; 0 = disabled; default 120
 	Visibility  string `toml:"visibility,omitempty"` // "full" (default), "summary", or "none" for group visibility echoes
+	// VoiceResident reuses one live ACP voice session per relay key instead of
+	// spawning a session per turn. Off by default so it can be rolled out to one
+	// device first; measured saving is in notes/voice-latency-plan-a-20261028.md 3.5.
+	VoiceResident *bool `toml:"voice_resident,omitempty"`
+	// VoiceResidentIdleSecs closes an idle resident session; 0 keeps the default
+	// (600, from the same research section's 10-minute TTL).
+	VoiceResidentIdleSecs *int `toml:"voice_resident_idle_secs,omitempty"`
+	// VoiceResidentMaxTurns recycles a resident session after this many turns; 0
+	// keeps the default (30, from the same research section).
+	VoiceResidentMaxTurns *int `toml:"voice_resident_max_turns,omitempty"`
 }
 
 // SpeechConfig configures speech-to-text for voice messages.
