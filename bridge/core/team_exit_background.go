@@ -17,16 +17,20 @@ const (
 	userWordsHeading     = "用户原话"
 )
 
-// workspaceTaskBackground: the task-board line of the item last bound to workspace session
+// workspaceTaskBackground: the task-board line of board item boardID when the reply named it
+// (its headline, team_exit_headline.go), else of the item last bound to workspace session
 // wsSession (open board first, then finished items) and the 用户原话 sections of its handoff
 // file (the item's where). "" when nothing is recorded.
-func (e *Engine) workspaceTaskBackground(wsSession string) string {
+func (e *Engine) workspaceTaskBackground(wsSession string, boardID int) string {
 	dir := e.teamStatusDir()
 	if dir == "" || wsSession == "" {
 		return ""
 	}
 	key := teamChatKey(wsSession)
-	it := lastBoundItem(readTeamTaskBoard(dir), key)
+	it := e.boardItemByID(boardID)
+	if it == nil {
+		it = lastBoundItem(readTeamTaskBoard(dir), key)
+	}
 	if it == nil {
 		it = lastBoundItem(readTeamTaskBoardFile(dir, teamTaskBoardDoneFile), key)
 	}

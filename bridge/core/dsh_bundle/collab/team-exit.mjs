@@ -39,8 +39,31 @@ export function askEvidenceProblems(body) {
 }
 
 export function askBounceText(problems) {
-  return `这条 [ask] 没有转给用户：${problems.join('；')}。补上后重发：第一行只写 [ask]，正文写「自验：」附证据和「类别：」；`
-    + '方向、花钱、需要用户看的成品、权限确认四类可写「自验：无需」。';
+  return exitBounceText('ask', problems);
+}
+
+// Headline (user 2026-10-28 「做」): the first line is `[report] #<task id> <one or two sentences
+// for the user>`; that sentence is what the chat channel shows first. Same rule in the Go bridge:
+// bridge/core/team_exit_headline.go exitHeadline.
+const HEADLINE = /^#(\d+)[\s\u3000:：,，、.。]*(.*)$/;
+export const EXIT_MISSING_ID = '第一行缺任务板编号（#编号）';
+export const EXIT_MISSING_LINE = '第一行缺给用户的一两句话';
+export const EXIT_UNKNOWN_ID = '任务板上没有这个编号';
+
+/** { id, line, problems } of a marked body's first line. */
+export function exitHeadline(body) {
+  const first = String(body ?? '').split('\n')[0].trim();
+  const m = HEADLINE.exec(first);
+  if (!m) return { id: 0, line: '', problems: first === '' || first.startsWith('#') ? [EXIT_MISSING_ID, EXIT_MISSING_LINE] : [EXIT_MISSING_ID] };
+  const line = m[2].trim();
+  return { id: Number(m[1]), line, problems: line ? [] : [EXIT_MISSING_LINE] };
+}
+
+/** Why a workspace [ask]/[report] stayed in the workspace and how to resend it (Go: exitBounceText). */
+export function exitBounceText(kind, problems) {
+  let t = `这条 [${kind}] 没有转给用户：${problems.join('；')}。补上后重发：第一行写 [${kind}] #任务板编号 给用户的一两句话（系统原样贴到聊天频道），第二行起写细节`;
+  if (kind === 'ask') t += '，正文写「自验：」附证据和「类别：」；方向、花钱、需要用户看的成品、权限确认四类可写「自验：无需」';
+  return `${t}。`;
 }
 
 const FIRST_MARK = /^\[(ask|report)\][ \t]*\n?([\s\S]*\S[\s\S]*)$/i;
@@ -83,13 +106,13 @@ export class TeamExit {
   }
 
   /** Post why the [ask] stayed in the workspace and wake its author to fix it. */
-  bounce(room, msg, problems) {
+  bounce(room, msg, problems, kind = 'ask') {
     const key = `${room.id}:${msg.author}`;
     const count = (this.bounces.get(key) ?? 0) + 1;
     this.bounces.set(key, count);
     const { message } = this.hub.post(room.id, {
       authorKind: 'system', author: 'system', name: 'system', clientKey: `team-exit-bounce:${msg.id}`,
-      text: `📬 @${msg.name} ${askBounceText(problems)}`,
+      text: `📬 @${msg.name} ${exitBounceText(kind, problems)}`,
     });
     if (count > BOUNCE_WAKE_LIMIT) return;
     for (const wake of this.hub.tasks?.wakers ?? []) {
@@ -126,9 +149,18 @@ export class TeamExit {
     const room = this.workspaceOf(msg);
     if (!room) return;
     const ask = mark?.kind === 'ask';
-    if (ask) {
-      const problems = askEvidenceProblems(mark.body);
-      if (problems.length) return this.bounce(room, msg, problems);
+    let headline;
+    if (mark) {
+      const problems = ask ? askEvidenceProblems(mark.body) : [];
+      headline = exitHeadline(mark.body);
+      if (!headline.problems.length) {
+        headline.task = this.hub.tasks?.task?.(headline.id);
+        if (!headline.task) headline.problems.push(`${EXIT_UNKNOWN_ID}（#${headline.id}）`);
+      }
+      // Once bounces stop waking the member, a reply still without a headline goes out as before.
+      if (headline.problems.length && !problems.length && (this.bounces.get(`${room.id}:${msg.author}`) ?? 0) >= BOUNCE_WAKE_LIMIT) headline = undefined;
+      else problems.push(...headline.problems);
+      if (problems.length) return this.bounce(room, msg, problems, mark.kind);
     }
     // Any reply without a bounced [ask] ends the run of bounces.
     this.bounces.delete(`${room.id}:${msg.author}`);
@@ -139,7 +171,7 @@ export class TeamExit {
         VALUES (?, ?, ?, ?, ?)`).run(`ask-${randomBytes(4).toString('hex')}`, room.parent_id, room.id, msg.author, msg.id);
       record = this.db.prepare('SELECT * FROM team_exit_asks WHERE source_id = ?').get(msg.id);
     }
-    const message = this.forward(room, msg, mark.body, record);
+    const message = this.forward(room, msg, mark.body, record, headline);
     if (ask) {
       this.db.prepare('UPDATE team_exit_asks SET forwarded_id = ? WHERE id = ?').run(message.id, record.id);
       const tasks = this.hub.tasks;
@@ -172,10 +204,17 @@ export class TeamExit {
    * Copy a workspace reply into its chat channel (once per source row: a repeated client key
    * returns the copy already posted). ask: its team_exit_asks record; otherwise a 阶段结果.
    */
-  forward(room, msg, body, ask) {
+  forward(room, msg, body, ask, headline) {
+    let text = `📬 来自 ${room.name} · ${msg.name}${ask ? ` · ${ask.id}` : ' · 阶段结果'}\n${body}`;
+    if (headline) {
+      // The headline as written, named by its task; the details follow (the DSH lead reads them here).
+      const name = headline.task?.title ?? '';
+      const rest = String(body).split('\n').slice(1).join('\n').trim();
+      text = `📬 #${headline.id}「${name}」${ask ? `要你定：${headline.line}（直接回复这条就能答复，编号 ${ask.id}）` : `：${headline.line}`}`
+        + (rest ? `\n\n来自 ${room.name} · ${msg.name} 的细节：\n${rest}` : '');
+    }
     return this.hub.post(room.parent_id, {
-      authorKind: 'system', author: 'system', name: 'system', clientKey: `team-exit:${msg.id}`,
-      text: `📬 来自 ${room.name} · ${msg.name}${ask ? ` · ${ask.id}` : ' · 阶段结果'}\n${body}`,
+      authorKind: 'system', author: 'system', name: 'system', clientKey: `team-exit:${msg.id}`, text,
     }).message;
   }
 
@@ -193,6 +232,8 @@ export class TeamExit {
     const lines = String(msg.text).trim().split('\n');
     if (/^\s*(?:@\S+\s+)*【(接|问|退|升)】/.test(lines[0])) lines.shift();
     const body = mark?.body ?? (lines.join('\n').trim() || String(msg.text).trim());
-    return this.forward(room, msg, body);
+    const headline = mark ? exitHeadline(mark.body) : undefined;
+    if (headline && !headline.problems.length) headline.task = this.hub.tasks?.task?.(headline.id);
+    return this.forward(room, msg, body, undefined, headline?.task ? headline : undefined);
   }
 }

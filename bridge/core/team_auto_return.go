@@ -39,7 +39,7 @@ func (e *Engine) workspaceHasOpenHandoff(sessionKey string) bool {
 // posts the original instead). Loop guard: the turn runs in the chat channel's session (no
 // workspace, no handoff there), so its reply is never forwarded again; ask ids are stripped so
 // the prompt cannot be taken as the user's answer (routeWorkspaceAnswer).
-func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession string) bool {
+func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession string, boardID int) bool {
 	if p == nil || parent == "" {
 		return false
 	}
@@ -63,7 +63,7 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 		slog.Error("team exit: lead has no timer scheduler; forwarded reply not handed to it", "lead", lead.name, "parent", parent)
 		return false
 	}
-	prompt := chatLeadPrompt(channelLabel(p.Name(), ws), bot, kind, body, e.workspaceTaskBackground(wsSession))
+	prompt := chatLeadPrompt(channelLabel(p.Name(), ws), bot, kind, body, e.workspaceTaskBackground(wsSession, boardID), boardID > 0)
 	prompt = askRef.ReplaceAllString(prompt, "ask-…")
 	silent := true
 	job := &TimerJob{
@@ -88,23 +88,35 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 // reply, then how to speak — as the user's secretary (user 2026-10-28 「你的身份应该是我的秘书…
 // 我只关心我要的东西，现在什么进度」「你要有背景，突然间拍脑袋来一句…没背景都忘记要干嘛了」
 // 「你都知道我要换了，你还要…要我回个a」).
-func chatLeadPrompt(wsLabel, bot, kind, body, background string) string {
+func chatLeadPrompt(wsLabel, bot, kind, body, background string, posted bool) string {
 	var b strings.Builder
 	what := "阶段结果"
 	if kind == exitKindAsk {
 		what = "提问"
 	}
-	fmt.Fprintf(&b, "[工作区回传] 工作区 %s 的「%s」交回了%s。原文只给你看，没有贴进本频道；用户看到的只有你这一条。\n", wsLabel, bot, what)
+	if posted {
+		// The headline is already in the channel (postExitHeadline); the lead adds, it does not retell.
+		fmt.Fprintf(&b, "[工作区回传] 工作区 %s 的「%s」交回了%s。第一行给用户的话系统已原样贴进本频道，用户已经看到；下面的细节只给你当背景。\n", wsLabel, bot, what)
+	} else {
+		fmt.Fprintf(&b, "[工作区回传] 工作区 %s 的「%s」交回了%s。原文只给你看，没有贴进本频道；用户看到的只有你这一条。\n", wsLabel, bot, what)
+	}
 	if background != "" {
 		b.WriteString("\n这件活的背景：\n" + background + "\n")
 	}
 	b.WriteString("\n内容：\n" + truncateRelay(body, chatLeadWakeLimit) + "\n\n")
-	b.WriteString("你是用户的秘书，替用户过滤。回复一到三句：第一句说是哪件事（用户什么时候让做的什么），再说现在的进度，最后说要不要用户动手、动什么。" +
-		"细节、过程、文件名不说，用户问了再去工作区取。用户意图已经明确的事，不给 A/B 选项让用户回字母，直接按用户意图办，说一句你怎么办的。\n")
-	if kind == exitKindAsk {
-		b.WriteString("这是提问：先对照上面的用户原话和本频道最近的用户消息，看用户是不是已经答过或意图已经明确。" +
-			"答过就不问用户，直接用 ws-forward 把答案（附用户原话）转回工作区，再跟用户说一句你怎么定的；" +
-			"真没答过才问用户，只问一句要定什么、为什么，用户答了用 ws-forward 转回。\n")
+	switch {
+	case posted && kind == exitKindAsk:
+		b.WriteString("问题已经贴给用户，不要再问一遍。先对照上面的用户原话和本频道最近的用户消息：用户已经答过或意图已经明确，就用 ws-forward 把答案（附用户原话）转回工作区，再说一句你怎么定的；没答过就回 NO_REPLY，等用户回复。\n")
+	case posted:
+		b.WriteString("不用转述。你有用户需要知道、那句话里没有的事（比如要用户动手），补一两句；没有就回 NO_REPLY。\n")
+	default:
+		b.WriteString("你是用户的秘书，替用户过滤。回复一到三句：第一句说是哪件事（用户什么时候让做的什么），再说现在的进度，最后说要不要用户动手、动什么。" +
+			"细节、过程、文件名不说，用户问了再去工作区取。用户意图已经明确的事，不给 A/B 选项让用户回字母，直接按用户意图办，说一句你怎么办的。\n")
+		if kind == exitKindAsk {
+			b.WriteString("这是提问：先对照上面的用户原话和本频道最近的用户消息，看用户是不是已经答过或意图已经明确。" +
+				"答过就不问用户，直接用 ws-forward 把答案（附用户原话）转回工作区，再跟用户说一句你怎么定的；" +
+				"真没答过才问用户，只问一句要定什么、为什么，用户答了用 ws-forward 转回。\n")
+		}
 	}
 	b.WriteString("这是回传给你看的，不是新任务：不要再派回工作区，不要 @ 工作区里的 bot。")
 	return b.String()

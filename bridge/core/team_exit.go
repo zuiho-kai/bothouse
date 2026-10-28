@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -172,6 +173,27 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	if ok && kind == exitKindAsk {
 		problems = askEvidenceProblems(body)
 	}
+	// The first line's #id and sentence are posted as written (team_exit_headline.go); once the
+	// bounces stop waking the bot, a reply still without them takes the old path (legacy).
+	var hid int
+	var hline string
+	var item *teamTaskBoardItem
+	legacy := false
+	if ok {
+		var hp []string
+		if auto {
+			hp = []string{exitMissingMarker}
+		} else if hid, hline, hp = exitHeadline(body); hp == nil {
+			if item = e.boardItemByID(hid); item == nil {
+				hp = []string{exitUnknownID + "（#" + strconv.Itoa(hid) + "）"}
+			}
+		}
+		if hp != nil && problems == nil && e.exitBounceCount(sessionKey) >= askBounceWakeLimit {
+			legacy = true
+		} else {
+			problems = append(problems, hp...)
+		}
+	}
 	if problems == nil {
 		// Any reply without a bounced [ask] ends the run of bounces.
 		e.clearAskBounces(sessionKey)
@@ -207,7 +229,7 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		return ""
 	}
 	if problems != nil {
-		e.bounceWorkspaceAsk(p, rec, sessionKey, problems)
+		e.bounceWorkspaceExit(p, rec, sessionKey, kind, problems)
 		return ""
 	}
 	rc, err := rec.ReconstructReplyCtx(p.Name() + ":" + parent)
@@ -216,22 +238,70 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		return ""
 	}
 	bot := e.exitBotName()
+	if !legacy {
+		return e.postExitHeadline(p, rc, parent, ws, bot, kind, body, sessionKey, hid, hline, item)
+	}
 	// The chat channel's lead reads the reply first and tells the user what matters (user
 	// 2026-10-28 「原文返回…一坨屎给我…你的身份应该是我的秘书，那些东西你再帮我过滤一遍」). The
 	// workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
-	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey) {
+	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, 0) {
 		slog.Info("team exit: handed to the chat lead", "kind", kind, "auto", auto, "workspace", ws, "parent", parent)
 		return ""
 	}
-	from := "来自工作区 " + channelLabel(p.Name(), ws) + " 的「" + bot + "」"
+	return e.postExitOriginal(p, rc, parent, ws, bot, kind, body, sessionKey, "")
+}
+
+// postExitHeadline posts the first line's sentence in chat channel parent, named by board item
+// hid, and hands the whole reply to the chat lead as background (it need not retell it). The
+// same sentence for the same item within exitHeadlineDedup is not posted or handed again. When
+// no lead takes it, the rest of the reply follows the headline as 📬 continuation posts.
+func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, body, sessionKey string, hid int, hline string, item *teamTaskBoardItem) string {
+	if e.exitPostedBefore(kind, hid, hline) {
+		slog.Info("team exit: same headline already posted within the hour; not posted again", "kind", kind, "board_item", hid, "workspace", ws)
+		return ""
+	}
 	id := ""
-	var header, cont string
 	if kind == exitKindAsk {
 		id = newAskID()
-		header = exitPrefix + " " + from + "的提问（直接回复这条就能答复，编号 " + id + "）：\n"
+	}
+	text := exitHeadlineText(kind, hid, teamTaskBoardShort(*item), hline, id)
+	if err := p.Send(e.ctx, rc, text); err != nil {
+		slog.Error("team exit: headline post failed", "parent", parent, "workspace", ws, "error", err)
+		return ""
+	}
+	slog.Info("team exit: headline posted", "kind", kind, "board_item", hid, "workspace", ws, "parent", parent)
+	if id != "" {
+		e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Bot: bot, Forwarded: []string{text}, At: time.Now()})
+	}
+	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, hid) {
+		return id
+	}
+	rest := ""
+	if parts := strings.SplitN(body, "\n", 2); len(parts) == 2 {
+		rest = strings.TrimSpace(parts[1])
+	}
+	if rest != "" {
+		e.postExitOriginal(p, rc, parent, ws, bot, exitKindReport, rest, sessionKey, exitPrefix+"（续 #"+strconv.Itoa(hid)+"）\n")
+	}
+	return id
+}
+
+// postExitOriginal copies body into the chat channel as 📬 posts (no lead took it). header
+// overrides the first post's header (a headline's details). It returns the forwarded ask id.
+func (e *Engine) postExitOriginal(p Platform, rc any, parent, ws, bot, kind, body, sessionKey, header string) string {
+	from := "来自工作区 " + channelLabel(p.Name(), ws) + " 的「" + bot + "」"
+	id := ""
+	var cont string
+	if kind == exitKindAsk {
+		id = newAskID()
+		if header == "" {
+			header = exitPrefix + " " + from + "的提问（直接回复这条就能答复，编号 " + id + "）：\n"
+		}
 		cont = exitPrefix + "（续 " + id + "）\n"
 	} else {
-		header = exitPrefix + " " + from + "的阶段结果：\n"
+		if header == "" {
+			header = exitPrefix + " " + from + "的阶段结果：\n"
+		}
 		cont = exitPrefix + "（续）\n"
 	}
 	limit := maxPlatformMessageLen - utf8.RuneCountInString(header)
@@ -248,7 +318,7 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		}
 		sent = append(sent, text)
 	}
-	slog.Info("team exit: forwarded", "kind", kind, "auto", auto, "workspace", ws, "parent", parent, "chunks", len(sent))
+	slog.Info("team exit: forwarded", "kind", kind, "workspace", ws, "parent", parent, "chunks", len(sent))
 	if id == "" || len(sent) == 0 {
 		return ""
 	}
