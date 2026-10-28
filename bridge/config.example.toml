@@ -311,6 +311,9 @@ level = "info" # debug, info, warn, error
 # [relay]
 # timeout_secs = 120        # Max relay wait in seconds; 0 = disabled (default: 120) / relay 最大等待秒数；0 = 禁用（默认 120）
 # visibility = "full"       # "full" (default), "summary", or "none" / 群内可见消息：完整、摘要或不显示
+# voice_resident = false    # Reuse one live ACP voice session per relay key; off by default, enable per device / 每个 relay key 复用一条常驻 ACP 语音会话；默认关，灰度开
+# voice_resident_idle_secs = 600   # Close an idle resident session (default: 600) / 空闲回收秒数（默认 600）
+# voice_resident_max_turns = 30    # Recycle a resident session after N turns (default: 30) / 累计 N 轮回收（默认 30）
 
 # =============================================================================
 # Auto-Compress / 自动压缩
