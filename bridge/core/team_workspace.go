@@ -821,6 +821,8 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 	if err != nil {
 		return nil, nil, err
 	}
+	var beside string
+	self, beside = teamWorkspacePoolHome(self, guild)
 	guild = e.teamWorkspaceMigrate(ctx, chat, plat, self, guild)
 
 	path := teamWorkspacePath(e.dataDir)
@@ -851,7 +853,7 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 	}
 	// The platform request runs without teamWorkspaceStore.mu, so WorkspaceParent (reply path,
 	// team mode C) never waits on the network; teamWorkspaceOpMu keeps operations serial.
-	c, err := plat.CreateTeamWorkspaceChannel(ctx, self.ID, name)
+	c, err := plat.CreateTeamWorkspaceChannel(ctx, beside, name)
 	if err != nil {
 		return list, nil, err
 	}
@@ -861,6 +863,36 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 		return list, created, fmt.Errorf("team workspace: save state: %w", err)
 	}
 	return list, created, nil
+}
+
+// teamWorkspacePoolHome returns self with ParentID set to the category of the shared pool, and
+// the channel a new workspace is created beside. All chat channels share one 「工作区1..n」
+// pool; a chat channel in another category (or none) must not start a second pool there.
+// The pool lives in the category holding the most 「工作区n」 channels; with none, in self's.
+// 来源：2026-10-28 无分类聊天频道 15:08 又建了一个「工作区1」（编号只数本分类），用户「这个是一个严重问题」。
+func teamWorkspacePoolHome(self TeamChannel, guild []TeamChannel) (TeamChannel, string) {
+	count := map[string]int{}
+	first := map[string]TeamChannel{}
+	for _, c := range guild {
+		if c.ID == self.ID || teamWorkspaceNum(c.Name) <= 0 {
+			continue
+		}
+		count[c.ParentID]++
+		if f, ok := first[c.ParentID]; !ok || teamWorkspaceNum(c.Name) < teamWorkspaceNum(f.Name) {
+			first[c.ParentID] = c
+		}
+	}
+	best, n := "", 0
+	for parent, k := range count {
+		if k > n || (k == n && teamWorkspaceNum(first[parent].Name) < teamWorkspaceNum(first[best].Name)) {
+			best, n = parent, k
+		}
+	}
+	if n == 0 || best == self.ParentID {
+		return self, self.ID
+	}
+	self.ParentID = best
+	return self, first[best].ID
 }
 
 // teamWorkspaceStoreList records chat's workspaces (none = drop the entry) and saves.
@@ -1597,6 +1629,7 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	if err != nil {
 		return nil, err
 	}
+	self, _ = teamWorkspacePoolHome(self, guild)
 	if e.dataDir != "" {
 		guild = e.teamWorkspaceMigrate(ctx, chat, plat, self, guild)
 	}
