@@ -204,7 +204,12 @@ func TestTaskArtifactPrompt(t *testing.T) {
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"[Task artifacts]", "artifact --id TASK_ID", "--request-id STABLE_ATTACH_ID", "--revision CURRENT_REVISION", "rework --id TASK_ID", "--request-id", "input material is history", "not an upload, publication or delivery", "show --id TASK_ID"}
+	want := []string{"[Task artifacts]", "--request-id STABLE_ATTACH_ID", "--revision CURRENT_REVISION", "--request-id", "input material is history", "not an upload, publication or delivery"}
+	// taskCommand consumes the action before parsing flags. Validate the actual
+	// generated prefixes, not just isolated action words in the template.
+	for _, action := range []string{"artifact", "rework", "show"} {
+		want = append(want, " task "+action+" --project "+shellQuoteRelay(e.name)+" --data-dir "+shellQuoteRelay(dir)+" --id TASK_ID")
+	}
 	state := &interactiveState{platform: platform}
 	prompt := e.withPublicProgress("user content", state, "test:room:user", false, false)
 	for _, s := range want {
@@ -219,6 +224,11 @@ func TestTaskArtifactPrompt(t *testing.T) {
 	cardPrompt := e.withPublicProgress("user content", cardState, "test:room:user", false, false)
 	if !strings.Contains(cardPrompt, "[Task artifacts]") || !strings.Contains(cardPrompt, "[Task card members]") {
 		t.Fatalf("card prompt missing artifact instructions: %s", cardPrompt)
+	}
+	for _, s := range want {
+		if !strings.Contains(cardPrompt, s) {
+			t.Fatalf("card prompt missing %q", s)
+		}
 	}
 	e.finishPublicProgress(cardState, "result")
 }
