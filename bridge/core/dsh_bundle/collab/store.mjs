@@ -54,6 +54,7 @@ const COLUMNS = [
   ['messages', 'changed_at', 'REAL'],
   ['messages', 'record_id', 'INTEGER REFERENCES work_records(id)'],
   ['messages', 'round_id', 'INTEGER REFERENCES work_rounds(id)'],
+  ['messages', 'round_assignment', "TEXT NOT NULL DEFAULT 'confirmed' CHECK (round_assignment IN ('confirmed', 'inferred'))"],
   // Global message high-water mark at round creation; independent of wall-clock skew.
   ['work_rounds', 'after_message_id', 'INTEGER'],
   ['rooms', 'clearing_state', "TEXT NOT NULL DEFAULT 'occupied' CHECK (clearing_state IN ('occupied', 'wrapping', 'free', 'review'))"],
@@ -184,26 +185,47 @@ export class Store {
           added.add(`${table}.${column}`);
         }
       }
-      if (added.has('messages.round_id')) {
-        // Prefer the persisted message boundary. Legacy rounds lack that evidence:
-        // use the latest preceding start, allowing the handoff's two-second clock
-        // skew only outside an earlier round's active window. Gaps stay with the
-        // preceding round, not the first. Never reinterpret rows on later opens.
-        this.db.exec(`UPDATE messages SET round_id = COALESCE(
-          (SELECT r.id FROM work_rounds r WHERE r.record_id = messages.record_id
-            AND ((r.after_message_id IS NOT NULL AND r.after_message_id < messages.id) OR
-              (r.after_message_id IS NULL AND (r.started_at <= messages.created_at OR
-                (r.started_at <= messages.created_at + 2 AND NOT EXISTS (
-                  SELECT 1 FROM work_rounds prior WHERE prior.record_id = r.record_id
-                    AND prior.started_at <= messages.created_at
-                    AND (prior.ended_at IS NULL OR messages.created_at < prior.ended_at))))))
-            AND NOT EXISTS (SELECT 1 FROM work_rounds later
-              WHERE later.record_id = r.record_id AND later.id > r.id
-                AND later.after_message_id IS NOT NULL AND later.after_message_id < messages.id)
-            ORDER BY r.started_at DESC, r.id DESC LIMIT 1),
-          (SELECT id FROM work_rounds WHERE record_id = messages.record_id
-            ORDER BY started_at, id LIMIT 1))
-          WHERE record_id IS NOT NULL AND round_id IS NULL`);
+      if (added.has('messages.round_id') || added.has('messages.round_assignment')) {
+        // Snapshot evidence before assigning anything: inferred rows must never
+        // become evidence for the next round during this migration.
+        const records = this.db.prepare('SELECT id FROM work_records').all();
+        const saveBoundary = this.db.prepare('UPDATE work_rounds SET after_message_id = ? WHERE id = ?');
+        const assign = this.db.prepare('UPDATE messages SET round_id = ?, round_assignment = ? WHERE id = ?');
+        for (const record of records) {
+          const rounds = this.db.prepare('SELECT * FROM work_rounds WHERE record_id = ? ORDER BY id').all(record.id);
+          const messages = this.db.prepare('SELECT * FROM messages WHERE record_id = ? ORDER BY id').all(record.id);
+          for (let i = 1; i < rounds.length; i++) {
+            const round = rounds[i];
+            if (round.after_message_id != null) continue;
+            const previous = messages.filter(m => m.round_id === rounds[i - 1].id && m.round_assignment === 'confirmed');
+            if (previous.length) {
+              round.after_message_id = previous.at(-1).id;
+              saveBoundary.run(round.after_message_id, round.id);
+            }
+          }
+          for (const message of messages) {
+            if (message.round_id != null || !rounds.length) continue;
+            // Every known boundary constrains both sides, even if the first
+            // round has no lower boundary. Timestamps cannot override it.
+            const candidates = rounds.filter((round, i) =>
+              (round.after_message_id == null || message.id > round.after_message_id) &&
+              !rounds.slice(i + 1).some(later => later.after_message_id != null && message.id > later.after_message_id) &&
+              !rounds.slice(0, i + 1).some(earlier => earlier.after_message_id != null && message.id <= earlier.after_message_id));
+            if (!candidates.length) continue;
+            const hasBoundary = rounds.some(r => r.after_message_id != null);
+            if (candidates.length === 1 && hasBoundary) {
+              assign.run(candidates[0].id, 'confirmed', message.id);
+              continue;
+            }
+            // With no distinguishing ID evidence, retain legacy time fallback
+            // only as explicitly inferred ownership (including adjacent handoff).
+            const preceding = candidates.filter(r => r.started_at <= message.created_at ||
+              (r.started_at <= message.created_at + 2 && !candidates.some(prior =>
+                prior.started_at <= message.created_at && (prior.ended_at == null || message.created_at < prior.ended_at))));
+            const round = preceding.at(-1) ?? candidates[0];
+            assign.run(round.id, 'inferred', message.id);
+          }
+        }
       }
       this.migrateWorkspaceIds();
       this.dedupeWorkspaceNames();
@@ -1020,7 +1042,7 @@ export function publicMessage(row, store) {
   const out = {
     id: row.id, room_id: row.room_id, author_kind: row.author_kind, author: row.author, name: row.name,
     text: row.text, created_at: row.created_at, card: row.card, from_turn: row.from_turn,
-    record_id: row.record_id ?? null, round_id: row.round_id ?? null, legacy: row.record_id == null,
+    record_id: row.record_id ?? null, round_id: row.round_id ?? null, round_assignment: row.round_id == null ? null : row.round_assignment, legacy: row.record_id == null,
     ...(row.edited_at != null ? { edited_at: row.edited_at } : {}),
   };
   const quote = store?.quote(row);
