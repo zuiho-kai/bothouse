@@ -258,9 +258,10 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			}
 		}
 	}
-	// The full board (who is doing what, task board, other channels) only in workspace channels
-	// (isTeamWorkspaceChat); a team chat channel (isTeamChat) with task-board items keeps its pinned summary
-	// alone; any other channel gets no board. Looked up once per chat per pass.
+	// Workspace channels (isTeamWorkspaceChat) get the task board plus other channels' running
+	// items; a team chat channel (isTeamChat) the task board alone; any other channel no board.
+	// A board exists only while it has an item in work or waiting on the user. Looked up once per
+	// chat per pass.
 	kinds := map[string]teamBoardKind{}
 	kindOf := func(chat string) teamBoardKind {
 		k, ok := kinds[chat]
@@ -270,14 +271,13 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 		}
 		return k
 	}
-	isWS := func(chat string) bool { return kindOf(chat) == teamBoardFull }
+	// Only open items: no 今天做完 block (user, 2026-10-28: 「完成的也没必要显示」).
 	var items, done []teamTaskBoardItem
 	var pending []*TimerJob
 	now := time.Now()
 	if e.team != nil {
 		place := e.teamTaskBoardPlacer()
 		items = placeTeamTaskBoard(place, readTeamTaskBoard(e.team.dir))
-		done = placeTeamTaskBoard(place, readTeamTaskBoardDoneToday(e.team.dir, now))
 		if e.timerScheduler != nil {
 			pending = append([]*TimerJob{}, e.timerScheduler.Store().ListPending()...)
 		}
@@ -294,8 +294,10 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			if !listedTaskState(task.State) || !boardTaskURL(task.URL) || task.SessionKey == "" {
 				continue
 			}
+			// A listed task card is a board item: it creates/keeps the workspace board even with
+			// no tool activity. Bot busy/idle alone no longer creates one (no 谁在干啥 lines).
 			chat := chatOf(task.SessionKey)
-			if boards[chat] == nil && isWS(chat) {
+			if boards[chat] == nil && kindOf(chat) == teamBoardFull {
 				boards[chat] = &boardChat{SessionKey: task.SessionKey}
 			}
 			noteActive(chat, task.UpdatedAt)
@@ -307,11 +309,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			if !s.Worked || s.Chat == "" {
 				continue
 			}
-			chat := chatOf(s.Key)
-			if _, ok := boards[chat]; !ok && isWS(chat) {
-				boards[chat] = &boardChat{SessionKey: s.Key}
-			}
-			noteActive(chat, s.Since, s.DoneAt)
+			noteActive(chatOf(s.Key), s.Since, s.DoneAt)
 		}
 	}
 	changed := false
@@ -338,22 +336,32 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			b.GaveUpAt = time.Time{}
 			changed = true
 		}
+		// The board keeps its task-card index entries and board.py items; the 谁在干啥 member
+		// roster is gone (user, 2026-10-28: 「老是刷新没必要」), so bot busy/idle no longer edits it.
 		var content string
-		var live bool
+		live := teamTaskBoardLive(items, chat)
+		index, indexLive := renderTeamTaskIndex(files, chat, e.i18n.CurrentLang())
 		if kind == teamBoardFull {
-			var members string
-			members, live = teamBoardWithTasks(files, chat, e.i18n.CurrentLang())
-			content = withTeamTaskBoard(members, func(budget int) string {
+			content = withTeamTaskBoard(index, func(budget int) string {
 				return renderWorkspaceTaskBoardFit(items, done, chat, now, pending, budget)
 			})
+			live = live || indexLive
 		} else {
-			// Team chat: the task-board summary only, no 谁在干啥 lines (not a big card here).
 			content = renderTeamTaskBoardFit(items, done, chat, now, pending, backfillMaxMsgRunes)
-			content = cutTeamBoardLines(content, backfillMaxMsgRunes, "")
 		}
-		// The card state comes from the same data as the text: someone shown working, a relay
-		// task in the index, or a task-board item still in work (#597 G33).
-		live = live || teamTaskBoardLive(items, chat)
+		content = cutTeamBoardLines(content, backfillMaxMsgRunes, "")
+		if content == "" {
+			// Nothing in work or waiting on the user here: delete the board instead of keeping
+			// an empty one; the next item posts a new one.
+			if e.removeTeamBoard(chat, b) {
+				if b.MessageID != "" {
+					changed = true
+				}
+				delete(boards, chat)
+			}
+			continue
+		}
+		// The card state comes from the same data as the text: a task-board item still in work.
 		if content == b.Content && live == b.Live {
 			continue
 		}

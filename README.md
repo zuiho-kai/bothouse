@@ -269,6 +269,8 @@ See [configuration and requirements](bridge/contrib/lead/README.md).
 - **License:** [Apache-2.0](LICENSE); see [LICENSING.md](LICENSING.md) for details. The bridge is built on [cc-connect](https://github.com/chenhg5/cc-connect) and keeps its full commit history, so the contributor list also includes cc-connect's authors and contributors. Thanks to [@chenhg5](https://github.com/chenhg5) and every cc-connect contributor. The upstream MIT notice is kept in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Third-party dependencies are listed in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
 - **Community:** [linux.do](https://linux.do)
 
+Quota exhaustion, or less than 5% of a five-hour quota remaining, triggers automatic cooldown when the reset time is known. Idle teammates in the same channel can take over unfinished work; scheduled wakes stop during cooldown and temporary primary-role changes are restored after recovery. See [architecture](docs/ARCHITECTURE.md#团队与记忆).
+
 ### Local token usage
 
 The management API exposes daily, hourly, role, and model usage totals, with optional configured price estimates. Accounting starts from installation; backends without complete billing usage remain explicitly unknown. See [usage API and pricing](docs/api/usage.md).

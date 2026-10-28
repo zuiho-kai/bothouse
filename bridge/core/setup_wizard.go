@@ -710,6 +710,7 @@ type plannedRole struct {
 	agentCmd  string
 	agentArgs []string          // dsh: how to start the user's dsh (dshRoleLaunch)
 	agentEnv  map[string]string // dsh: UV_CACHE_DIR, the wizard-picked key
+	dshKeyEnv map[string]string // dsh: the role's model key (dshModelSetup)
 	nameNote  string            // why the project name is not the bot's name (e.g. role-1 for a name with no a-z/0-9)
 }
 
@@ -1164,7 +1165,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			// every new DSH role gets its overlay (dsh --patch): the third-party API picked for it (the key is in
 			// the role's env) and the hook bridge; the user's own $DSH_HOME is not written
 			ds := fmt.Sprintf("role %d dsh", i+1)
-			p, err := writeDSHProviderPatch(env.DataDir, r.project, r.Provider)
+			p, err := writeDSHProviderPatch(env.DataDir, r.project, r.Provider, r.dshKeyEnv)
 			if err != nil {
 				return fail(ds, err)
 			}
@@ -1359,6 +1360,10 @@ func fillRoleResults(res *WizardResult, pl *wizardPlan) {
 			if p.APIFormat == APIFormatOpenAIChat {
 				rr.ProviderVia = "convert"
 			}
+			if r.AgentType == "dsh" { // DSH talks to the Anthropic endpoint itself (no converter)
+				base, _ := dshProviderBase(*r.Provider)
+				rr.Provider, rr.ProviderVia = p.Name+" "+base, "native"
+			}
 		}
 	}
 }
@@ -1549,9 +1554,15 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			}
 		}
 		if r.AgentType == "dsh" && !r.reused {
+			// a DSH role with no model key fails every turn: refuse it here, before anything is written
+			keyEnv, err := dshModelSetup(req.Language, r.project, "", r.Provider)
+			if err != nil {
+				return nil, err
+			}
+			r.dshKeyEnv = keyEnv
 			for _, c := range clis {
 				if c.AgentType == "dsh" && c.Path != "" {
-					r.agentCmd, r.agentArgs, r.agentEnv = dshRoleLaunch(c.Path, dataDir, r.project, r.workDir, r.Provider)
+					r.agentCmd, r.agentArgs, r.agentEnv = dshRoleLaunch(c.Path, dataDir, r.project, r.workDir, keyEnv)
 				}
 			}
 		}

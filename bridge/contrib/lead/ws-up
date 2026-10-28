@@ -119,6 +119,11 @@ def main(argv):
     key = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
     last = load_last()
     chat, path = pick_chat(last, bare(key), notes)
+    # 用户叫停的活（board pause，不是 --ask 自己挂起的等答复）不再往聊天频道报（用户 2026-10-28「我都说不做了，你还问我」）
+    ids = set(handoffs(last)[path].get("board") or [])
+    stopped = [i for i in board.items() if i["id"] in ids and i.get("paused") and i.get("pause_why") != board.ASK_WHY]
+    if stopped:
+        sys.exit(f"ws-up: #{stopped[0]['id']} 已被暂停（用户叫停），不上报；停手，等聊天频道重新交活")
     r = subprocess.run(timer_cmd(chat, rest[0], ask, path, _team.project()), capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"ws-up: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")

@@ -104,8 +104,28 @@ func renderTeamBoardWithTasks(files []teamFile, chat string, lang Language) stri
 }
 
 // teamBoardWithTasks is renderTeamBoardWithTasks and whether it shows live work: a member line
-// in work (teamBoardMembers) or a relay task in the index (only running / waiting are listed).
+// in work (teamBoardMembers) or a task card in the index (only running / waiting are listed).
 func teamBoardWithTasks(files []teamFile, chat string, lang Language) (string, bool) {
+	var members []teamTaskMember
+	for _, f := range files {
+		for _, task := range f.Tasks {
+			if chatOf(task.SessionKey) == chat && listedTaskState(task.State) && boardTaskURL(task.URL) {
+				members = append(members, task.Members...)
+			}
+		}
+	}
+	board, live := teamBoardMembers(files, chat, members)
+	index, indexLive := renderTeamTaskIndex(files, chat, lang)
+	if index != "" {
+		board = strings.TrimRight(board, "\n") + "\n\n" + index
+	}
+	return board, live || indexLive
+}
+
+// renderTeamTaskIndex lists this chat's running and waiting task cards: the pinned board's
+// task links (docs/PUBLIC_PROGRESS.md). It stays separate from the 谁在干啥 roster, which the
+// quiet board drops, so a real task still creates and updates a board without member lines.
+func renderTeamTaskIndex(files []teamFile, chat string, lang Language) (string, bool) {
 	type entry struct {
 		teamTaskLink
 		name, project string
@@ -122,13 +142,8 @@ func teamBoardWithTasks(files []teamFile, chat string, lang Language) (string, b
 			tasks = append(tasks, entry{task, f.Name, f.Project})
 		}
 	}
-	var members []teamTaskMember
-	for _, task := range tasks {
-		members = append(members, task.Members...)
-	}
-	board, live := teamBoardMembers(files, chat, members)
 	if len(tasks) == 0 {
-		return board, live
+		return "", false
 	}
 	sort.Slice(tasks, func(i, j int) bool {
 		a, b := tasks[i], tasks[j]
@@ -155,10 +170,13 @@ func teamBoardWithTasks(files []teamFile, chat string, lang Language) (string, b
 		}
 		heading := ""
 		if key != group {
-			heading = "\n**" + i18n.T(key) + "**"
+			heading = "**" + i18n.T(key) + "**"
+			if len(lines) > 0 {
+				heading = "\n" + heading
+			}
 		}
-		// Bound the whole index, and never truncate a Markdown URL. Leave room
-		// for the roster and the omitted-task notice within the platform embed.
+		// Bound the whole index, and never truncate a Markdown URL. Source: the
+		// previous same 12-link / 3000-rune bound within one platform embed.
 		if shown == 12 || length+len([]rune(line+heading)) > 3000 {
 			break
 		}
@@ -173,6 +191,5 @@ func teamBoardWithTasks(files []teamFile, chat string, lang Language) (string, b
 	if shown < len(tasks) {
 		lines = append(lines, i18n.Tf(MsgBoardTasksMore, len(tasks)-shown))
 	}
-	title, roster, _ := strings.Cut(board, "\n")
-	return title + "\n" + strings.Join(lines, "\n") + "\n\n" + roster, true
+	return strings.Join(lines, "\n"), true
 }

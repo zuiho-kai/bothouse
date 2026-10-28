@@ -126,6 +126,7 @@ func TestApplyWizardAppendOnlyNonASCIINames(t *testing.T) {
 // user picked, and the name the user typed is what the panel shows (team_name → display_name),
 // in the wizard's list of existing roles and in the project list.
 func TestApplyWizardAppendOnlyDisplayNameAndBackend(t *testing.T) {
+	dshStoredKey(t)
 	noHardware(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")

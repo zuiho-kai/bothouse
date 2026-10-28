@@ -47,6 +47,7 @@ type RelayBinding struct {
 
 // RelayManager coordinates bot-to-bot message relay across engines.
 type RelayManager struct {
+	quotaMu    sync.Mutex // one quota takeover changes shared task/workspace ownership at a time
 	mu         sync.RWMutex
 	engines    map[string]*Engine       // project name → engine (runtime only)
 	bindings   map[string]*RelayBinding // chatID → binding

@@ -183,11 +183,12 @@ func (e *Engine) flushCapacityPending() {
 func (e *Engine) capacityCoolingUntil() time.Time {
 	e.capMu.Lock()
 	defer e.capMu.Unlock()
-	if e.quotaUntil.After(e.capUntil) && time.Now().Before(e.quotaUntil) {
-		return e.quotaUntil
+	until := e.capUntil
+	if e.quotaUntil.After(until) {
+		until = e.quotaUntil
 	}
-	if time.Now().Before(e.capUntil) {
-		return e.capUntil
+	if time.Now().Before(until) {
+		return until
 	}
 	if time.Now().Before(e.quotaUntil) {
 		return e.quotaUntil

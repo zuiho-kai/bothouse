@@ -36,7 +36,10 @@ func (s *APIServer) handlePublicProgress(w http.ResponseWriter, r *http.Request)
 		inputHTTPError(w, 409, errors.New("public progress unavailable"))
 		return
 	}
-	id, err := e.publicProgress.Report(req)
+	id, handled, err := e.reportQuotaProgress(req)
+	if !handled {
+		id, err = e.publicProgress.Report(req)
+	}
 	if err != nil {
 		inputHTTPError(w, 409, err)
 		return

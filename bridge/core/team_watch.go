@@ -160,7 +160,7 @@ func (s *APIServer) startHandoffWatch() {
 		return // already running
 	}
 	w := newHandoffWatch(e)
-	w.park = func(key, chat string, at time.Time) (bool, error) { return s.parkAndReset(e, key, chat, at) }
+	w.park = func(key, chat string, at time.Time) (bool, error) { return s.parkAndReset(e, key, chat, at, false) }
 	w.engines = func() []*Engine {
 		s.mu.RLock()
 		defer s.mu.RUnlock()
@@ -283,6 +283,9 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 	// Only a recorded terminal event owns idle wakeups. A missing owner or
 	// event must not silently renew a handoff forever at each deadline.
 	target := w.e.watchTarget(key, h.Owner)
+	if target != nil && !target.quotaCooling().IsZero() {
+		return now.Add(watchRetryDelay) // quota takeover changes the owner; never nudge the cooling role
+	}
 	busy := w.workspaceBusy(key)
 	if target != nil {
 		busy = target.watchBusy(key)

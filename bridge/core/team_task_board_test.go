@@ -46,7 +46,7 @@ not json
 	}
 	now := time.Date(2026, 10, 26, 2, 30, 0, 0, time.Local) // #4 paused 27 minutes: no "等你" yet
 	got := renderTeamTaskBoard(items, nil, "feishu:oc_a", now, nil)
-	want := "**任务板**\n#1 修登录 ‹＠123›｜龙娘｜在做｜10-26 02:00\n\n**工作区1**\n#3 交接｜橘｜已交接｜10-26 02:02\n\n**工作区2**\n#5 老交接｜橘｜在做｜10-26 02:04\n\n**暂停**\n#4 停着｜橘｜x｜10-26 02:03｜暂停：等用户"
+	want := "**任务板**\n#1 修登录 ‹＠123›｜龙娘｜在做｜10-26 02:00\n\n**工作区1**\n#3 交接｜橘｜已交接｜10-26 02:02\n\n**工作区2**\n#5 老交接｜橘｜在做｜10-26 02:04\n\n**等你拍板**\n#4 停着｜橘｜x｜10-26 02:03｜暂停：等用户"
 	if got != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
@@ -218,7 +218,8 @@ func TestUpdateTeamBoardsPostsTaskBoard(t *testing.T) {
 		t.Fatal("no board posted")
 	}
 	got := p.content["feishu:oc_a"]
-	if !strings.Contains(got, "#7 出板｜橘｜在做") || !strings.Contains(got, "**今天做完**\n- 龙娘：做完了") {
+	// The quiet board drops the 今天做完 block but keeps the open item.
+	if !strings.Contains(got, "#7 出板｜橘｜在做") || strings.Contains(got, "**今天做完**") {
 		t.Fatalf("board = %q", got)
 	}
 }
@@ -270,7 +271,8 @@ func TestCloudWebSingleRoleBoardOnce(t *testing.T) {
 		t.Fatal("no board posted")
 	}
 	got := p.content["cloud_web:room-1"]
-	for want, n := range map[string]int{"**任务板**": 1, "#1 修登录": 1, "**今天做完**": 1, "- 橘：写文档": 1, "**在做**": 0} {
+	// The quiet board has no 今天做完 block; only open items remain.
+	for want, n := range map[string]int{"**任务板**": 1, "#1 修登录": 1, "**今天做完**": 0, "- 橘：写文档": 0, "**在做**": 0} {
 		if c := strings.Count(got, want); c != n {
 			t.Fatalf("%q appears %d times, want %d:\n%s", want, c, n, got)
 		}
@@ -278,10 +280,10 @@ func TestCloudWebSingleRoleBoardOnce(t *testing.T) {
 	if !p.live["cloud_web:room-1"] {
 		t.Fatalf("running item, card must be Running:\n%s", got)
 	}
-	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":1,"what":"修登录","status":"在做","who":"橘","at":"10-26 03:00","paused":"10-26 04:00","pause_why":"等回复","sk":"cloud_web:room-1"}`+"\n")
+	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":1,"what":"修登录","status":"在做","who":"橘","at":"10-26 03:00","paused":"10-26 04:00","pause_why":"等用户确认","sk":"cloud_web:room-1"}`+"\n")
 	e.updateTeamBoards(files, map[string]*boardChat{})
 	got = p.content["cloud_web:room-1"]
-	if !strings.Contains(got, "**暂停**\n#1 修登录") || p.live["cloud_web:room-1"] {
+	if !strings.Contains(got, "**等你拍板**\n#1 修登录") || p.live["cloud_web:room-1"] {
 		t.Fatalf("paused only, card must be Completed:\n%s", got)
 	}
 }
@@ -347,16 +349,15 @@ func TestTeamBoardLiveFollowsWorkspaceHandoff(t *testing.T) {
 	if !strings.Contains(p.content["cloud_web:room-1"], "#1 实现 release.py") || !p.live["cloud_web:room-1"] {
 		t.Fatalf("open handoff: live = %v, want true:\n%s", p.live["cloud_web:room-1"], p.content["cloud_web:room-1"])
 	}
-	posts := p.posts
-
 	setHandoff(at.Add(10 * time.Minute)) // the workspace finished and was reset
 	e.updateTeamBoards(files, boards)
 	got := p.content["cloud_web:room-1"]
-	if !strings.Contains(got, "**ayi**　💤 空闲") || !strings.Contains(got, "#1 实现 release.py｜工作区1ayi｜done") {
+	// No 谁在干啥 member lines and no open item: the board is removed, not refreshed.
+	if got != "" || strings.Contains(got, "💤 空闲") {
 		t.Fatalf("board text:\n%s", got)
 	}
-	if p.live["cloud_web:room-1"] || p.posts == posts {
-		t.Fatalf("closed handoff: live = %v, posts %d→%d; want not live and re-posted", p.live["cloud_web:room-1"], posts, p.posts)
+	if p.live["cloud_web:room-1"] || boards["cloud_web:room-1"] != nil {
+		t.Fatalf("closed handoff: live = %v, board %v; want not live and removed", p.live["cloud_web:room-1"], boards["cloud_web:room-1"])
 	}
 }
 
@@ -401,7 +402,7 @@ func TestTeamTaskBoardWaitHours(t *testing.T) {
 		{ID: 591, What: "英文版", Who: "橘", At: "10-26 07:40", Paused: "10-26 07:40", PauseWhy: "片源未定", own: "discord:1"},
 	}
 	got := renderTeamTaskBoard(items, nil, "discord:1", now, nil)
-	if !strings.Contains(got, "#600 宣传稿返工｜橘｜-｜10-26 07:40｜暂停：等用户［看片］｜等你 3 小时") || strings.Count(got, "等你") != 1 {
+	if !strings.Contains(got, "**等你拍板**") || !strings.Contains(got, "#600 宣传稿返工｜橘｜-｜10-26 07:40｜暂停：等用户［看片］｜等你 3 小时") || strings.Contains(got, "#591") {
 		t.Fatalf("got\n%s", got)
 	}
 }

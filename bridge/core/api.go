@@ -41,6 +41,9 @@ type APIServer struct {
 	inputs             inputStore
 	// watch: the handoff watch on the team workspace engine (team_watch.go startHandoffWatch).
 	watch handoffWatchRun
+	// followStop ends runLeadFollow (team_workspace_api.go) at Stop.
+	followStop chan struct{}
+	followOnce sync.Once
 }
 
 // SendRequest is the JSON body for POST /send.
@@ -212,6 +215,8 @@ func (s *APIServer) Start() {
 	s.watch.serving = true
 	s.watch.mu.Unlock()
 	s.startHandoffWatch()
+	s.followStop = make(chan struct{})
+	go s.runLeadFollow(s.followStop)
 	s.server = &http.Server{Handler: s.mux, ConnContext: withPeerConn}
 	go func() {
 		if err := s.server.Serve(s.listener); err != nil && err != http.ErrServerClosed {
@@ -222,6 +227,9 @@ func (s *APIServer) Start() {
 }
 
 func (s *APIServer) Stop() {
+	if s.followStop != nil {
+		s.followOnce.Do(func() { close(s.followStop) })
+	}
 	if s.server != nil {
 		if err := s.server.Close(); err != nil && err != http.ErrServerClosed {
 			slog.Debug("api server close failed", "error", err)
