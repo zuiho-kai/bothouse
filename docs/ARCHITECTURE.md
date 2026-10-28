@@ -46,7 +46,7 @@ core 通过接口使用后端能力；agent 与 platform 适配器不互相导�
 
 DSH 工作区的 `rooms.parent_id` 固定绑定聊天频道，数据库触发器拒绝迁移；释放只将本频道工位设为空闲。`room_settings.workspaces_max` 默认 3，由 owner 设置接口接受 1..10 整数。容量检查、最小编号工位占用、新建和 FIFO 入队均在 `BEGIN IMMEDIATE` 事务中完成。`workspace_queue` 持久保存工作记录、顺序、阻塞原因及票据交接参数；释放、调整设置、成员重新加入或恢复频道资格以及启动恢复时尝试派发，派发前重新核对成员资格；启动时先加载全部成员并恢复遗留任务，再启用成员变更触发的续派。频道路径下的工作区查询和消息接口复用固定归属校验。降低上限保留正在执行的工作，后续分配受新上限约束。Go 桥接以 `core.TeamWorkspaceQueued`（`errors.Is` 匹配 `ErrTeamWorkspaceQueued`）承接网关已接受的排队结果，不保存空工作区；本地创建 API 将其转换为 HTTP 200 的 `queued`、`queue`（ID、位置、原因）及本地化 `message`，命令行展示该消息。缺少队列详情时只报告已排队，不推测位置或重复创建。
 
-DSH 的工作记录存于 `work_records`，固定归属创建它的聊天频道；可复用工作区只承载 `work_rounds` 中的一轮执行。派活入口创建记录与轮次，消息、附件证据、交接与任务通过 `record_id` 关联，任务状态仍以原任务板为准。暂停释放结束当前轮次，恢复任务为同一记录开启新轮次；释放和清场不删除档案。频道下的 `/collab/api/rooms/:id/records`、`/:record/rounds` 与 `/:record/messages` 在服务端校验归属。无归属历史返回 `legacy: true`，新记录上下文只读该记录；DSH 迟到回复从原 job 触发消息继承归属，转发使用记录的原频道。
+DSH 的工作记录存于 `work_records`，固定归属创建它的聊天频道；可复用工作区只承载 `work_rounds` 中的一轮执行。派活入口创建记录与轮次，消息、附件证据、交接与任务通过 `record_id` 关联，任务状态仍以原任务板为准。暂停释放结束当前轮次，恢复任务为同一记录开启新轮次；释放和清场不删除档案。工作区清场依次经过 `occupied → wrapping → free`；会话清理失败进入 `review` 并保留占用和 `clearing_reason`，重试成功才释放。清场中断后重新打开数据库会标记待核对。消息持久化 `round_id`；工作区消息接口和模型上下文只读当前轮次，记录消息接口可用 `round_id` 查询历史轮次。旧轮次回复和用户对旧问题的答案仍留档，但不推进任务、转发或唤醒成员。恢复记录开启新轮次时重建会话。频道下的 `/collab/api/rooms/:id/records`、`/:record/rounds` 与 `/:record/messages` 在服务端校验归属。无归属历史返回 `legacy: true`，新记录上下文只读该记录；DSH 迟到回复从原 job 触发消息继承归属，转发使用记录的原频道。
 
 成员身份与模型后端分开：多个成员可以指向同一模型或同一种 CLI。DSH 频道的绑定键是「成员 ID × 频道 ID」；原生成员创建独立的内部 DSH Session，本机 CLI 按成员创建实例并按频道维护 ACP session。不会以模型名或 CLI 类型作为成员唯一键。
 

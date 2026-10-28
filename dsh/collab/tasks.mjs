@@ -291,6 +291,7 @@ export class Tasks {
   assign({ roomId, title, owner, actor, parentTask, reviewOf, messageId, reason, ref, base, force = false }) {
     const room = this.store.room(roomId);
     if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
+    if (room.kind === 'workspace' && ['wrapping', 'review'].includes(this.store.workspaceState(roomId).clearing_state)) throw new CollabError('busy', 'workspace cleanup is incomplete');
     const text = String(title ?? '').trim();
     if (!text || text.length > MAX_TEXT) throw new CollabError('invalid', 'task title is empty or too long');
     this.member(owner);
@@ -358,6 +359,7 @@ export class Tasks {
     if (actor !== task.owner && actor !== HUMAN) throw new CollabError('forbidden', `only ${this.nameOf(task.owner)} can hand back task ${id}`);
     if (!WORKING.includes(task.status)) throw new CollabError('conflict', `task ${id} is ${STATUS[task.status]}, nothing to hand back`);
     if (messageId == null || this.store.message(messageId) === undefined) throw new CollabError('invalid', 'message_id must name the delivery message');
+    if (this.store.staleMessage(this.store.message(messageId))) throw new CollabError('stale-claim', 'delivery belongs to an inactive round');
     this.resumeClaim(task, false);
     const now = this.now();
     const row = this.q.handBack.get(messageId, now, now, id, task.status);

@@ -64,7 +64,7 @@ export function roomOf(frame, store) {
   const candidates = [frame.reply_ctx, typeof sk === 'string' && sk.includes(':') ? sk.split(':')[1] : undefined];
   for (let raw of candidates) {
     if (typeof raw !== 'string') continue;
-    raw = raw.replace(/~record-\d+$/, '');
+    raw = raw.replace(/~record-\d+(?:~round-\d+)?$/, '');
     if (raw.startsWith('room-')) raw = raw.slice(5);
     if (/^\d+$/.test(raw) && store.room(Number(raw)) !== undefined) return Number(raw);
   }
@@ -245,8 +245,7 @@ export class CloudWebGateway {
   /** Forward one new channel message to every connected bot except its author. */
   onNew(msg) {
     if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0 || this.hub.teamExit?.answerFor(msg)) return;
-    if (this.hub.store.room(msg.room_id)?.kind === 'workspace' && msg.record_id != null
-        && this.hub.store.currentRound(msg.room_id)?.record_id !== msg.record_id) return;
+    if (this.hub.store.staleMessage(msg)) return;
     const target = exitTarget(msg);
     const fromAgent = msg.author_kind === 'role';
     // The owner's text reply to a pending permission prompt goes the same way as a button click.
@@ -279,7 +278,7 @@ export class CloudWebGateway {
       else content = quote + content;
       const frame = {
         type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
-        user_id: msg.author, user_name: msg.name, content: content + (hit ? (this.later?.instructions(member.id, msg.room_id) ?? '') : ''), reply_ctx: msg.record_id == null ? roomKey(msg.room_id) : `${roomKey(msg.room_id)}~record-${msg.record_id}`,
+        user_id: msg.author, user_name: msg.name, content: content + (hit ? (this.later?.instructions(member.id, msg.room_id) ?? '') : ''), reply_ctx: msg.record_id == null ? roomKey(msg.room_id) : `${roomKey(msg.room_id)}~record-${msg.record_id}${msg.round_id == null ? '' : `~round-${msg.round_id}`}`,
         mentioned: hit, from_bot: fromAgent, ...attached,
       };
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
@@ -293,6 +292,7 @@ export class CloudWebGateway {
    * reminder); onNew never forwards system rows. False when the bot is offline.
    */
   nudge(memberId, msg) {
+    if (this.hub.store.staleMessage(msg)) return false;
     if (this.hub.quota?.cooling(memberId)) return false;
     const bot = this.bots.get(memberId);
     if (bot === undefined || !this.hub.routableIn(msg.room_id).some(m => m.id === memberId)) return false;
@@ -301,7 +301,7 @@ export class CloudWebGateway {
     const frame = {
       type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
       user_id: msg.author, user_name: msg.name, content: forMember(msg.text, bot.member, members) || msg.text,
-      reply_ctx: msg.record_id == null ? roomKey(msg.room_id) : `${roomKey(msg.room_id)}~record-${msg.record_id}`, mentioned: true, from_bot: false,
+      reply_ctx: msg.record_id == null ? roomKey(msg.room_id) : `${roomKey(msg.room_id)}~record-${msg.record_id}${msg.round_id == null ? '' : `~round-${msg.round_id}`}`, mentioned: true, from_bot: false,
     };
     if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
     send(bot.ws, frame);
@@ -566,8 +566,8 @@ function send(ws, frame) {
 
 // reply_ctx is opaque to bridge clients and round-trips with replies/previews/media.
 function frameRecord(frame) {
-  const record = /~record-(\d+)$/.exec(frame.reply_ctx ?? '')?.[1];
-  return record === undefined ? {} : { recordId: Number(record) };
+  const match = /~record-(\d+)(?:~round-(\d+))?$/.exec(frame.reply_ctx ?? '');
+  return match === null ? {} : { recordId: Number(match[1]), roundId: match[2] == null ? null : Number(match[2]) };
 }
 
 function clean(s) { return String(s ?? '').replace(/[\x00-\x1f\x7f]/g, '').trim(); }

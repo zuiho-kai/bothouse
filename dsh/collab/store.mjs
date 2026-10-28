@@ -598,7 +598,7 @@ export class Store {
     if (ws?.kind !== 'workspace' || this.workspaceOwner(workspaceId) !== roomId) throw new CollabError('forbidden', 'workspace does not belong to this channel');
     if (this.workspaceState(workspaceId).clearing_state !== 'occupied') throw new CollabError('busy', 'workspace cleanup is incomplete');
     if (this.currentRound(workspaceId)) throw new CollabError('conflict', 'workspace already has a running work round');
-    this.resetSessions(workspaceId);
+    this.resetSessions(workspaceId, { strict: true });
     this.db.prepare("UPDATE work_records SET status = 'active', finished_at = NULL WHERE id = ?").run(recordId);
     return this.db.prepare('INSERT INTO work_rounds (record_id, workspace_id, started_at) VALUES (?, ?, ?) RETURNING *').get(recordId, workspaceId, now);
   }

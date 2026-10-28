@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Store, publicMessage } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { Tasks } from './tasks.mjs';
@@ -56,19 +59,40 @@ test('round isolation: resumed record excludes previous context and archives lat
   const before = tasks.task(first.task.id).status;
   tasks.fromMessage(late);
   assert.equal(tasks.task(first.task.id).status, before);
+  assert.throws(() => tasks.handBack(first.task.id, { actor: 'dev', messageId: late.id }), { code: 'stale-claim' });
+  assert.ok(store.currentMessages(first.workspace.id, { after: 0 }).every(m => m.round_id === current.id));
   assert.equal(DshMembers.prototype.plan.call({ store, hub }, late), undefined);
   assert.equal(DshMembers.prototype.nudge.call({ store }, 'dev', late), false);
   const exits = new TeamExit(hub); exits.onMessage(late);
   assert.equal(store.page(1).some(m => m.client_key === `team-exit:${late.id}`), false);
 });
 
+test('round isolation: late answer keeps the asked round and never rearms the current task', async t => {
+  const { store, hub, tasks, call } = setup(t);
+  const first = await call({ title: 'late answer', owner: 'dev' });
+  const exits = new TeamExit(hub);
+  const ask = store.append(first.workspace.id, { authorKind: 'role', author: 'dev', name: 'dev', text: '[ask]\n选择方向\n自验：无需\n类别：方向' }).message;
+  exits.onMessage(ask);
+  const forwarded = store.page(1).find(m => m.client_key === `team-exit:${ask.id}`);
+  tasks.pauseTask(first.task.id);
+  tasks.stance(first.task.id, { actor: 'dev', stance: '接' });
+  let rewatched = 0; tasks.rewatch = () => { rewatched++; };
+  const reply = store.append(1, { authorKind: 'user', author: 'owner', name: 'owner', text: '继续', replyTo: forwarded.id }).message;
+  const archived = exits.onMessage(reply);
+  assert.equal(archived.round_id, first.round.id);
+  assert.equal(store.staleMessage(archived), true);
+  assert.equal(rewatched, 0);
+  assert.equal(DshMembers.prototype.plan.call({ store, hub }, archived), undefined);
+});
+
 test('cleanup: failure stays occupied with reason; wrapping refuses claims; retry releases', t => {
-  const { store } = setup(t);
+  const { store, tasks } = setup(t);
   const first = store.createWorkspace(1, { record: { title: 'cleanup', owner: 'dev' } });
   let fail = true;
   store.onSessionsReset(id => {
     assert.equal(store.workspaceState(id).clearing_state, 'wrapping');
     assert.throws(() => store.claimWorkspace(1, id), { code: 'busy' });
+    assert.throws(() => tasks.assign({ roomId: id, title: 'cannot dispatch', owner: 'dev', actor: 'lead' }), { code: 'busy' });
     if (fail) throw new Error('synthetic cleanup failure');
   });
   assert.throws(() => store.releaseWorkspace(first.workspace.id), /synthetic cleanup failure/);
@@ -82,6 +106,19 @@ test('cleanup: failure stays occupied with reason; wrapping refuses claims; retr
   assert.equal(store.workspaceState(first.workspace.id).clearing_state, 'free');
   assert.equal(store.workspaceOwner(first.workspace.id), null);
   assert.equal(store.currentRound(first.workspace.id), undefined);
+});
+
+test('cleanup: interrupted wrapping reopens as review with original round retained', t => {
+  const path = join(mkdtempSync(join(tmpdir(), 'p2b-clearing-')), 'collab.sqlite');
+  const store = new Store(path); store.ensureRoom(1, 'one');
+  const first = store.createWorkspace(1, { record: { title: 'restart', owner: 'dev' } });
+  store.beginWorkspaceCleanup(first.workspace.id); store.close();
+  const reopened = new Store(path); t.after(() => reopened.close());
+  assert.equal(reopened.workspaceState(first.workspace.id).clearing_state, 'review');
+  assert.match(reopened.workspaceState(first.workspace.id).clearing_reason, /interrupted/);
+  assert.equal(reopened.currentRound(first.workspace.id).id, first.round.id);
+  assert.throws(() => reopened.claimWorkspace(1, first.workspace.id), { code: 'busy' });
+  assert.equal(reopened.releaseWorkspace(first.workspace.id), true);
 });
 
 test('records: invalid record creation rolls back workspace allocation', t => {

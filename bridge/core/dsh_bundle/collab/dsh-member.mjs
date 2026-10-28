@@ -440,8 +440,7 @@ export class DshMembers {
    */
   plan(msg) {
     if (msg.author_kind === 'system' || msg.card !== null || this.hub.teamExit?.answerFor(msg)) return undefined;
-    if (this.store.room(msg.room_id)?.kind === 'workspace' && msg.record_id != null
-        && this.store.currentRound(msg.room_id)?.record_id !== msg.record_id) return undefined;
+    if (this.store.staleMessage(msg)) return undefined;
     const target = exitTarget(msg);
     const mode = this.store.dispatchMode(msg.room_id);
     // Solo mode keeps agent-to-agent relays inside the lead's own runtime;
@@ -481,6 +480,7 @@ export class DshMembers {
    * Returns false when the id is not a DSH member.
    */
   nudge(memberId, msg) {
+    if (this.store.staleMessage(msg)) return false;
     if (this.hub.quota?.cooling(memberId)) return false;
     if (!this.config.has(memberId) || !this.hub.routableIn(msg.room_id).some(m => m.id === memberId)) return false;
     const job = this.store.addJob(memberId, msg.room_id, msg.id);
@@ -525,8 +525,7 @@ export class DshMembers {
     const room = this.store.room(job.room_id);
     if (member === undefined || room === undefined) { this.store.finishJob(jobId, 'failed'); return; }
     const trigger = this.store.message(job.trigger_id);
-    const round = this.store.currentRound(room.id);
-    if (room.kind === 'workspace' && round && trigger?.record_id !== round.record_id) {
+    if (this.store.staleMessage(trigger)) {
       this.store.finishJob(jobId, 'interrupted');
       return;
     }
