@@ -160,7 +160,7 @@ func (s *APIServer) startHandoffWatch() {
 		return // already running
 	}
 	w := newHandoffWatch(e)
-	w.park = func(key, chat string, at time.Time) (bool, error) { return s.parkAndReset(e, key, chat, at) }
+	w.park = func(key, chat string, at time.Time) (bool, error) { return s.parkAndReset(e, key, chat, at, false) }
 	w.engines = func() []*Engine {
 		s.mu.RLock()
 		defer s.mu.RUnlock()

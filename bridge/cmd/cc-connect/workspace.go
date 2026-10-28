@@ -28,6 +28,7 @@ func runWorkspace(args []string) {
 	jsonOut := fs.Bool("json", false, "print raw JSON")
 	chat := fs.String("chat", "", "park: the chat channel that handed the task off; refused unless it owns the workspace")
 	before := fs.String("before", "", "park: RFC 3339 time the task was bound; parks that chat's newest handoff at or before it")
+	stop := fs.Bool("stop", false, "park: also stop the turn running in the workspace when it is freed (the user stopped the task)")
 	owner := fs.String("owner", "", "claim: who the task goes to (platform user/bot id), mentioned if the ten-minute check finds no progress")
 	title := fs.String("title", "", "claim: the task's short name, shown in that nudge")
 	_ = fs.Parse(rest)
@@ -71,7 +72,7 @@ func runWorkspace(args []string) {
 		fmt.Println(strings.TrimSpace(string(data)))
 	case "park":
 		// Optional <workspace id>; without it the session (CC_SESSION_KEY) is the workspace.
-		req := map[string]string{"session_key": *session, "chat": *chat, "before": *before}
+		req := map[string]any{"session_key": *session, "chat": *chat, "before": *before, "stop": *stop}
 		if fs.NArg() > 0 {
 			req["workspace_id"] = fs.Arg(0)
 		}
