@@ -186,3 +186,33 @@ func TestTaskArtifactValidation(t *testing.T) {
 		t.Fatal("overlong feedback was accepted")
 	}
 }
+
+// TestTaskArtifactPrompt checks that both progress modes tell the agent how to
+// record supplied material, deliverables and a specified rework. Without this
+// the API would exist but no turn would know to use it.
+func TestTaskArtifactPrompt(t *testing.T) {
+	dir := t.TempDir()
+	_, e, _, platform, _ := inputFixture(t)
+	e.workspaceChatForTest = func(string) bool { return false }
+	e.SetDataDir(dir)
+	if err := e.EnablePublicProgress(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"[Task artifacts]", "artifact --id TASK_ID", "rework --id TASK_ID", "not an upload, publication or delivery"}
+	state := &interactiveState{platform: platform}
+	prompt := e.withPublicProgress("user content", state, "test:room:user", false, false)
+	for _, s := range want {
+		if !strings.Contains(prompt, s) {
+			t.Fatalf("journal prompt missing %q", s)
+		}
+	}
+	e.finishPublicProgress(state, "result")
+
+	e.workspaceChatForTest = func(string) bool { return true }
+	cardState := &interactiveState{platform: newProgressPlatform()}
+	cardPrompt := e.withPublicProgress("user content", cardState, "test:room:user", false, false)
+	if !strings.Contains(cardPrompt, "[Task artifacts]") || !strings.Contains(cardPrompt, "[Task card members]") {
+		t.Fatalf("card prompt missing artifact instructions: %s", cardPrompt)
+	}
+	e.finishPublicProgress(cardState, "result")
+}
