@@ -163,6 +163,8 @@ func (a *Agent) runClaudeUsageProbe(ctx context.Context) (string, error) {
 			if screenErr := detectClaudeUsageOutputError(lastScreen, stderr.String()); screenErr != nil {
 				return "", screenErr
 			}
+			// Log what the panel looked like: a renamed block header used to fail silently here.
+			slog.Warn("claudecode: /usage panel not recognised before timeout", "screen", lastScreen)
 			return "", fmt.Errorf("claudecode: timed out waiting for Claude Code /usage panel: %w", probeCtx.Err())
 		case err := <-readDone:
 			if err != nil {
@@ -176,6 +178,7 @@ func (a *Agent) runClaudeUsageProbe(ctx context.Context) (string, error) {
 				return "", screenErr
 			}
 			if waitErr != nil {
+				slog.Warn("claudecode: /usage probe exited early", "error", waitErr, "stderr", stderr.String(), "screen", lastScreen)
 				return "", fmt.Errorf("claudecode: Claude Code exited before /usage rendered: %w", waitErr)
 			}
 			return "", fmt.Errorf("claudecode: Claude Code exited before /usage rendered")
