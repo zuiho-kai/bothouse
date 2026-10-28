@@ -474,21 +474,16 @@ func renderTeamTaskBoardFit(items, done []teamTaskBoardItem, chat string, now ti
 }
 
 // renderWorkspaceTaskBoardFit: a workspace's board answers only 「这里在干什么」: its own items one
-// per line (卡住, 在做, 等你), paused ones counted, then one line 「别处在做 N 件 → <home>」 for every
-// other channel's work (user, 2026-10-26 wants the link to the rest; 2026-10-28 not the list).
-// home: the chat channel the workspace belongs to ("" = not known). "" when nothing to show.
-func renderWorkspaceTaskBoardFit(items []teamTaskBoardItem, chat, home string, now time.Time, budget int) string {
+// per line (卡住, 在做, 等你), paused ones counted. Nothing from other channels (user, 2026-10-28:
+// 「不应该挂到其他频道，其他频道自己收敛」). "" when nothing to show.
+func renderWorkspaceTaskBoardFit(items []teamTaskBoardItem, chat string, now time.Time, budget int) string {
 	rows := map[teamTaskBoardState][]string{}
-	paused, elsewhere := 0, 0
+	paused := 0
 	for _, it := range items {
-		st, note := teamTaskBoardStateOf(it, now)
 		if !it.shownIn(chat) {
-			if st == teamTaskRunning || st == teamTaskStuck {
-				elsewhere++
-			}
 			continue
 		}
-		switch st {
+		switch st, note := teamTaskBoardStateOf(it, now); st {
 		case teamTaskPaused:
 			paused++
 		case teamTaskHidden:
@@ -500,24 +495,17 @@ func renderWorkspaceTaskBoardFit(items []teamTaskBoardItem, chat, home string, n
 			rows[st] = append(rows[st], line)
 		}
 	}
-	var lines []string
+	if len(rows) == 0 {
+		return "" // only paused items here: no board (same as before, paused items alone never kept one)
+	}
+	lines := []string{"**这里在做**"}
 	for _, st := range []teamTaskBoardState{teamTaskStuck, teamTaskRunning, teamTaskWaiting} {
 		lines = append(lines, rows[st]...)
 	}
 	if paused > 0 {
 		lines = append(lines, fmt.Sprintf("暂停 %d 件（已收起）", paused))
 	}
-	if elsewhere > 0 {
-		where := "看聊天频道"
-		if home != "" {
-			where = "→ " + teamChatRef(home, "")
-		}
-		lines = append(lines, fmt.Sprintf("别处在做 %d 件 %s", elsewhere, where))
-	}
-	if len(rows) == 0 && elsewhere == 0 {
-		return "" // only paused items here: no board (same as before, paused items alone never kept one)
-	}
-	return cutTeamBoardLines(strings.Join(append([]string{"**这里在做**"}, lines...), "\n"), budget, "")
+	return cutTeamBoardLines(strings.Join(lines, "\n"), budget, "")
 }
 
 // renderTeamTaskBoardStage renders a chat channel's section: it answers 「整体怎样、哪些等我」 —
