@@ -266,8 +266,8 @@ func printReportFileFrequencyUsage(w io.Writer) {
   bothouse report file-frequency [flags]
 
 Reads tool events from <data-dir>/events.jsonl (the #581 unified stream).
-If that stream has no reads, it falls back to Claude Code session logs in
-~/.claude/projects. It reports counts, last read and size per project, and
+If that stream has no reads for the requested project, it falls back to Claude
+Code session logs in ~/.claude/projects. It reports counts, last read and size per project, and
 suggests small frequent files for the STANDING.md block or large frequent
 files for splitting. It never edits memory or STANDING.md.
 
