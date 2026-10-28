@@ -1100,7 +1100,9 @@ func (e *Engine) progressInstructions(token, session, instructions string) strin
 		"RUN_TOKEN", token,
 		"RESUME_NOTE", resumeNote,
 		"RELAY_COMMAND", quote(command)+" relay send --from "+quote(e.name)+" --session "+quote(session)+" --data-dir "+quote(e.publicProgress.dataDir),
-		"TASK_COMMAND", quote(command)+" task --project "+quote(e.name)+" --data-dir "+quote(e.publicProgress.dataDir),
+		"TASK_COMMAND artifact", quote(command)+" task artifact --project "+quote(e.name)+" --data-dir "+quote(e.publicProgress.dataDir),
+		"TASK_COMMAND rework", quote(command)+" task rework --project "+quote(e.name)+" --data-dir "+quote(e.publicProgress.dataDir),
+		"TASK_COMMAND show", quote(command)+" task show --project "+quote(e.name)+" --data-dir "+quote(e.publicProgress.dataDir),
 	).Replace(instructions)
 }
 
