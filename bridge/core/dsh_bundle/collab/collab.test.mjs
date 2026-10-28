@@ -4887,6 +4887,80 @@ function g34Setup() {
   return { hub, tasks, clock, woken, ws, assign, say };
 }
 
+test('watch closes work owned by a removed member, including parked tasks', () => {
+  const { hub, tasks, clock, ws, assign } = g34Setup();
+  const task = assign();
+  tasks.pauseTask(task.id);
+  assert.equal(tasks.task(task.id).next_check_at, null);
+  hub.members.delete('fu');
+  clock.t += 1;
+  tasks.tick();
+  const closed = tasks.task(task.id);
+  assert.equal(closed.status, 'returned');
+  assert.equal(closed.next_check_at, null);
+  assert.match(closed.note, /负责人已移除，自动收口/);
+  assert.ok(hub.store.page(1).some(m => m.author_kind === 'system' && m.text.includes(`#${task.id}`)));
+});
+
+test('watch closes an active task whose persisted owner was removed', () => {
+  const { hub, tasks, clock, assign } = g34Setup();
+  const task = assign();
+  hub.store.db.prepare(`INSERT INTO members (id, name, persona, source, created_at, removed)
+    VALUES ('fu', '副', '', 'ui', 1, 1)`).run();
+  hub.members.delete('fu');
+  clock.t += 1;
+  tasks.tick();
+  assert.equal(tasks.task(task.id).status, 'returned');
+  assert.match(tasks.task(task.id).note, /负责人已移除，自动收口/);
+});
+
+test('parked task closure reports to its original channel after workspace reuse', () => {
+  const { hub, tasks, clock, ws, assign } = g34Setup();
+  hub.store.ensureRoom(2, 'other');
+  const task = assign();
+  tasks.pauseTask(task.id);
+  hub.store.claimWorkspace(2, ws.id);
+  clock.t += 30 * 60 + 1;
+  tasks.tick();
+  assert.equal(tasks.task(task.id).status, 'returned');
+  assert.ok(hub.store.page(1).some(m => m.author_kind === 'system' && m.text.includes(`暂停超过 30 分钟，自动收口`)));
+  assert.equal(hub.store.page(2).some(m => m.text.includes(`暂停超过 30 分钟，自动收口`)), false);
+  assert.equal(hub.store.workspaceOwner(ws.id), 2);
+});
+
+test('watch closes parked tasks after 30 minutes, but not earlier', () => {
+  const { hub, tasks, clock, ws, assign } = g34Setup();
+  const task = assign();
+  tasks.pauseTask(task.id);
+  clock.t += 30 * 60 - 1;
+  tasks.tick();
+  assert.equal(tasks.task(task.id).status, 'assigned');
+  clock.t += 2;
+  tasks.tick();
+  assert.equal(tasks.task(task.id).status, 'returned');
+  assert.match(tasks.task(task.id).note, /暂停超过 30 分钟，自动收口/);
+  assert.ok(hub.store.page(ws.id).some(m => m.author_kind === 'system' && m.text.includes(`#${task.id}`)));
+});
+
+test('workspace listing releases an empty owned workspace, not a parked task or bridge claim', () => {
+  const { hub, tasks, ws, assign } = g34Setup();
+  const pending = assign();
+  tasks.pauseTask(pending.id);
+  hub.store.claimWorkspace(1, ws.id);
+  hub.store.roomsView();
+  assert.equal(hub.store.workspaceOwner(ws.id), 1, 'parked work still owns its claimed workspace');
+  const idle = hub.store.createWorkspace(1);
+  hub.store.db.prepare('UPDATE rooms SET claim_task = ? WHERE id = ?').run(pending.id, idle.id);
+  hub.store.roomsView();
+  assert.equal(hub.store.workspaceOwner(idle.id), 1, 'a fresh claim has time to open its handoff');
+  hub.store.db.prepare('UPDATE rooms SET claim_at = unixepoch() - 1801 WHERE id = ?').run(idle.id);
+  hub.store.roomsView();
+  assert.equal(hub.store.workspaceOwner(idle.id), null, 'an expired empty claim returns to the pool');
+  const bridge = hub.store.createWorkspace(1, { bridge: true });
+  hub.store.roomsView();
+  assert.equal(hub.store.workspaceOwner(bridge.id), 1, 'bridge claim remains owned');
+});
+
 test('G34: a DSH reply opening with 【接】#id and growing in place, and its progress card, count as progress', () => {
   const { hub, tasks, clock, ws, assign } = g34Setup();
   const t = assign();
