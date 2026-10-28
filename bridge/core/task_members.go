@@ -215,6 +215,12 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		}
 		return nil, errors.New("member id already used; use a new id for new work")
 	}
+	// A journal-only platform cannot deliver a member row or its facts: the
+	// prompt already says task-member publishing is not provided there, so do
+	// not grant a command that would look like a delivered assignment.
+	if r.publisher == nil {
+		return nil, errors.New("this platform has no task publisher: member assignment is not available on a journal-only task; record progress in plain replies")
+	}
 	if req.Workspace != "" {
 		if p.resolveWorkspace == nil {
 			return nil, errors.New("workspace routing is not enabled")
