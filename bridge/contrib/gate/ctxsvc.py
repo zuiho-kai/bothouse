@@ -161,6 +161,7 @@ def _decisions(root):
                 keep.add((rel, n))
     d = search.Index.__new__(search.Index)
     d.desc, d.lines = idx.desc, [l for l in idx.lines if (l[0], l[1]) in keep]
+    d.decay = [1.0] * len(d.lines)  # 定案行算重要，不按日期降分
     n = max(len(d.lines), 1)
     d.avg = sum(len(l[3]) for l in d.lines) / n or 1
     df = collections.Counter(t for l in d.lines for t in set(l[3]))
