@@ -202,6 +202,16 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 		if rc.Status != "running" || rc.WatchDue.IsZero() || rc.WatchDone {
 			continue
 		}
+		if p.quotaBlocked != nil && p.quotaBlocked(rc.Target) {
+			// Leave the receipt for takeover; never nudge a cooling backend.
+			rc.WatchDue = now.Add(watchCheckAfter())
+			r.record.Relays[id] = rc
+			changed = true
+			if next.IsZero() || rc.WatchDue.Before(next) {
+				next = rc.WatchDue
+			}
+			continue
+		}
 		if now.Before(rc.WatchDue) {
 			if next.IsZero() || rc.WatchDue.Before(next) {
 				next = rc.WatchDue

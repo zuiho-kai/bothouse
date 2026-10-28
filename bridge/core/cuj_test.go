@@ -2843,7 +2843,6 @@ func TestCUJ_Progress3_ContinueAndAcceptSameCard(t *testing.T) {
 		t.Fatal(text)
 	}
 	first := p.task(id)
-	boardID := boards[inputTestKey].MessageID
 
 	prompt := send("two", "继续调整同一个绑定")
 	if !strings.Contains(prompt, id) || !strings.Contains(prompt, "--seq 3 --kind update") {
@@ -2880,8 +2879,8 @@ func TestCUJ_Progress3_ContinueAndAcceptSameCard(t *testing.T) {
 	p.pm.Lock()
 	defer p.pm.Unlock()
 	last := card.Events[len(card.Events)-1]
-	if len(p.snapshots) != 1 || p.facts[last.ID].Kind != TaskEventCompleted || boards[inputTestKey].MessageID != boardID {
-		t.Fatal("card, acceptance fact, or board identity lost")
+	if len(p.snapshots) != 1 || p.facts[last.ID].Kind != TaskEventCompleted || boards[inputTestKey] != nil {
+		t.Fatal("card, acceptance fact, or empty-board cleanup lost")
 	}
 }
 

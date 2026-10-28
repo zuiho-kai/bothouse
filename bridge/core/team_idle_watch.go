@@ -205,7 +205,9 @@ func watchIsHandback(text string) bool {
 	if strings.HasPrefix(text, "【接】") {
 		return utf8.RuneCountInString(text) >= 300
 	}
-	return utf8.RuneCountInString(text) >= 80
+	// Length alone is not a handback (user 2026-10-28): a long progress note left the
+	// handoff marked returned, so the watch skipped it and the workspace was never freed.
+	return false
 }
 
 func watchBoardClosed(it teamTaskBoardItem) bool {
@@ -237,8 +239,10 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 	// A stale waiting-user card cannot turn a fresh acceptance into a handback.
 	returned := cardResult && !accepted || watchIsHandback(text)
 	// A validated user question waits for the user's answer, not an idle wake.
+	asking := false
 	if kind, body, ok := parseExitKind(text); ok && kind == exitKindAsk {
 		returned = askEvidenceProblems(body) == nil
+		asking = true
 	}
 	title := strings.TrimSpace(strings.TrimPrefix(first, "【接】"))
 	boardID := watchTaskNumber(first)
@@ -287,6 +291,9 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 		}
 	}
 	returned = returned || boardClosed
+	if returned && !asking {
+		e.scheduleWorkspaceReturn(key, time.Now())
+	}
 	teamWorkspaceStore.mu.Lock()
 	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
 	var assignments []idleAssignment
@@ -350,7 +357,7 @@ func (e *Engine) armIdleWake(a idleAssignment) {
 }
 
 func (e *Engine) fireIdleWake(a idleAssignment) {
-	if e.ctx.Err() != nil || e.watchBusy(a.key) || e.watchDelegatedWork(a.key) {
+	if e.ctx.Err() != nil || !e.quotaCooling().IsZero() || e.watchBusy(a.key) || e.watchDelegatedWork(a.key) {
 		return
 	}
 	if e.team != nil {

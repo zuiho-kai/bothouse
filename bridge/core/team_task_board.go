@@ -37,6 +37,7 @@ type teamTaskBoardItem struct {
 	What     string `json:"what"`
 	Status   string `json:"status"`
 	Who      string `json:"who"`
+	Where    string `json:"where"`
 	At       string `json:"at"`
 	Next     string `json:"next"`
 	NextTS   int64  `json:"next_ts"` // epoch of Next, written by board.py when set
@@ -50,6 +51,8 @@ type teamTaskBoardItem struct {
 	SK string `json:"sk"`
 	// WS: the workspace a handoff item is bound to; dropped when the item leaves it (pause).
 	WS string `json:"ws"`
+	// WSWas: the workspace a paused handoff item was bound to (board.py pause moves WS here).
+	WSWas string `json:"ws_was"`
 	// Bound: when the item was bound to WS (RFC 3339), just after the bridge recorded that handoff.
 	Bound string `json:"bound"`
 	// Chat: for a handoff, the chat it came from; the item also shows on that chat's board.
@@ -420,8 +423,15 @@ func renderTeamTaskBoardStage(items, done []teamTaskBoardItem, chat string, now 
 		}
 		switch {
 		case it.Paused != "":
-			held = append(held, row(it, boardLabel(it.Who)))
+			// Only items waiting on the user (等用户拍板) show; other paused items stay off the
+			// board (user, 2026-10-28) and are still listed by the board command.
+			if teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
+				held = append(held, row(it, boardLabel(it.Who)))
+			}
 		case it.parent == chat && it.own != chat:
+			if it.wsEnded {
+				continue // the workspace's handoff is closed: only open handoffs show under 工作区
+			}
 			if _, ok := wsRows[it.wsName]; !ok {
 				wsOrder = append(wsOrder, it.wsName)
 			}
@@ -486,7 +496,7 @@ func renderTeamTaskBoardStage(items, done []teamTaskBoardItem, chat string, now 
 		lines = append(lines, "现在没有进行中的事。")
 	}
 	if len(held) > 0 {
-		lines = append(lines, "", "**暂停**")
+		lines = append(lines, "", "**等你拍板**")
 		lines = append(lines, held...)
 	}
 	if len(doneRows) > 0 && st.doneRows < 0 {
@@ -518,6 +528,10 @@ func withTeamTaskBoard(board string, section func(budget int) string) string {
 	sec := section(limit - runes(board) - 2)
 	if sec == "" {
 		return board
+	}
+	if board == "" {
+		// A quiet board can be index-only; do not leave separator blank lines.
+		return sec
 	}
 	if runes(sec) > limit {
 		// Dozens running at once: even the last stage does not fit a post alone.

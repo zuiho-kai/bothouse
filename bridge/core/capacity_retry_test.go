@@ -111,6 +111,50 @@ func TestQuotaCooling_EventErrorWritesTeamStatusUntilProviderReset(t *testing.T)
 	}
 }
 
+func TestQuotaCooling_RestoresTeamStatusAfterRestart(t *testing.T) {
+	dir := t.TempDir()
+	until := time.Now().Add(82 * time.Hour).Truncate(time.Second)
+	// The heartbeat can be old while the provider cooldown is still active.
+	writeTeamFile(t, dir, teamFile{Project: "test", Updated: time.Now().Add(-time.Hour), CoolingUntil: until})
+	e := NewEngine("test", &resultAgent{}, nil, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	e.SetTeam(dir, "test", false)
+	if got := e.capacityCoolingUntil(); !got.Equal(until) {
+		t.Fatalf("restored cooling_until = %s, want %s", got, until)
+	}
+	if got := e.capacityWait(); got < 81*time.Hour {
+		t.Fatalf("restored capacityWait = %s, want about 82h", got)
+	}
+}
+
+func TestQuotaCooling_IgnoresExpiredOrForeignTeamStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		project string
+		until   time.Time
+	}{
+		{"expired", "test", time.Now().Add(-time.Second)},
+		{"other project", "other", time.Now().Add(time.Hour)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			data, err := json.Marshal(teamFile{Project: tc.project, CoolingUntil: tc.until})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "test.json"), data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			e := NewEngine("test", &resultAgent{}, nil, "", LangEnglish)
+			t.Cleanup(func() { _ = e.Stop() })
+			e.SetTeam(dir, "test", false)
+			if got := e.capacityWait(); got != 0 {
+				t.Fatalf("unexpected cooldown: %s", got)
+			}
+		})
+	}
+}
+
 func TestCapacityRetry_RetriesWithinTurnThenSucceeds(t *testing.T) {
 	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"cap", "cap", "third"}}
 	p := &stubPlatformEngine{n: "test"}

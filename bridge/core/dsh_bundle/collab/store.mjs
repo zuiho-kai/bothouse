@@ -222,11 +222,12 @@ export class Store {
         source TEXT,
         ref TEXT,
         base TEXT,
+        card_member_id TEXT,
         renewals INTEGER NOT NULL DEFAULT 0)`);
     } else {
       const cols = new Set(this.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name));
       for (const [name, type] of [['parent_task', 'INTEGER'], ['next_check_at', 'REAL'], ['result_msg_id', 'INTEGER'],
-        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER'], ['reason', 'TEXT'], ['paused_at', 'REAL'], ['paused_chat', 'INTEGER'], ['source', 'TEXT'], ['ref', 'TEXT'], ['base', 'TEXT'], ['renewals', 'INTEGER NOT NULL DEFAULT 0']]) {
+        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER'], ['reason', 'TEXT'], ['paused_at', 'REAL'], ['paused_chat', 'INTEGER'], ['source', 'TEXT'], ['ref', 'TEXT'], ['base', 'TEXT'], ['renewals', 'INTEGER NOT NULL DEFAULT 0'], ['card_member_id', 'TEXT']]) {
         if (!cols.has(name)) this.db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
       }
       // #574 B2 upgrade: workspace tasks in work with no check time start their 10-minute watch

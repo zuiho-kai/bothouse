@@ -243,6 +243,24 @@ func (e *Engine) SetTeam(dir, name string, inject bool) {
 	}
 	e.team = t
 	if old == nil {
+		// Restore before the first heartbeat can replace the persisted cooldown.
+		path := filepath.Join(dir, e.name+".json")
+		data, err := os.ReadFile(path)
+		if err == nil {
+			var saved teamFile
+			if err := json.Unmarshal(data, &saved); err != nil {
+				slog.Warn("team: cannot decode saved cooldown", "path", path, "error", err)
+			} else if saved.Project == e.name && saved.CoolingUntil.After(time.Now()) {
+				e.capMu.Lock()
+				if saved.CoolingUntil.After(e.quotaUntil) {
+					e.quotaUntil = saved.CoolingUntil
+				}
+				e.capMu.Unlock()
+				slog.Info("team: restored provider cooldown", "project", e.name, "cooling_until", saved.CoolingUntil)
+			}
+		} else if !os.IsNotExist(err) {
+			slog.Warn("team: cannot read saved cooldown", "path", path, "error", err)
+		}
 		go e.runTeamWriter()
 	}
 	slog.Info("team status enabled", "dir", dir, "name", name, "inject", inject)

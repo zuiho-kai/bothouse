@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDisplayModelName(t *testing.T) {
@@ -72,9 +73,24 @@ func TestCUJ_QuotaExhaustedTurnEndsOnceWithAttributedNotice(t *testing.T) {
 			if strings.Count(out, want) != 1 || strings.Contains(out, "hit your") || strings.Contains(out, "❌") {
 				t.Fatalf("sent = %q, want one %q and no raw CLI text", out, want)
 			}
-			// The next message starts a fresh turn: the quota turn was closed.
+			// The turn is closed, but the provider stays cooling until its reset.
 			p.clearSent()
 			send("second")
+			inputWait(t, func() bool { return !s.Busy() && len(p.getSent()) > 0 })
+			select {
+			case prompt := <-as.prompts:
+				t.Fatalf("cooling provider received %q", prompt)
+			default:
+			}
+			if out := strings.Join(p.getSent(), "\n"); !strings.Contains(out, "冷却") {
+				t.Fatalf("cooldown notice missing: %q", out)
+			}
+			// Advance the deadline instead of paying for a retry during cooldown.
+			e.capMu.Lock()
+			e.quotaUntil = time.Now().Add(-time.Second)
+			e.capMu.Unlock()
+			p.clearSent()
+			send("third")
 			inputPrompt(t, &inputTestAgent{session: as.inputTestSession})
 			as.events <- Event{Type: EventResult, Content: "next-answer", SessionID: as.id, Done: true}
 			inputWait(t, func() bool { return !s.Busy() })

@@ -23,9 +23,10 @@ import (
 // forward-only.
 //
 // The forwarded copy starts with 📬, a prefix every bot drops as a notice
-// (platform/discord isBotNotice), and carries no user mentions, so it never
-// wakes a bot in the chat channel (user 2026-10-24 「这个要做成产品」, forwarded
-// records are for the user to read).
+// (platform/discord isBotNotice), and carries no user mentions, so the post itself
+// wakes no bot in the chat channel. The chat channel's lead gets the content as an
+// in-process turn instead (wakeChatLead, team_auto_return.go), so it can tell the user;
+// other bots still ignore it, and the lead's reply stays in the chat channel.
 
 // WorkspaceParentResolver tells whether a channel is a workspace and which
 // chat channel it belongs to. NewEngine installs the engine itself (block D's
@@ -69,6 +70,13 @@ func (e *Engine) SetWorkspaceParentResolver(r WorkspaceParentResolver) {
 
 // workspaceParent is the chat a workspace's [ask]/[report] goes to: its current owner, else
 // the chat of its latest handoff (a parked/closed workspace whose turn was still running).
+//
+// Choosing the target from records is all that happens here; which chat a handoff is recorded
+// under is decided when it is claimed (ws-handoff's home_chat, ClaimTeamWorkspaceFor). On 10-28
+// a claim recorded 「彩虹猫的外出」 as 工作区1's owner, so 工作区1's #674 report went there. That
+// record was indistinguishable from a real handoff after the fact (the handoff row carried the
+// same channel), so this path cannot repair it — the write side is where it is prevented, and
+// the log lines below are what make a wrong target visible at all.
 func (e *Engine) workspaceParent(channelID string) (string, bool) {
 	if parent, ok := e.workspaceOwner(channelID); ok {
 		return parent, true
@@ -153,6 +161,13 @@ func newAskID() string {
 // It returns the forwarded ask id ("" for a report or when nothing was sent).
 func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) string {
 	kind, body, ok := parseExitKind(reply)
+	auto := false
+	if !ok && p != nil && strings.TrimSpace(reply) != "" && e.workspaceHasOpenHandoff(sessionKey) {
+		// A workspace turn that ends without a marker while a handoff is open is still the
+		// answer to that handoff: it goes back as a [report] (user 2026-10-28 「工作区队列做完了
+		// 为什么没返回」).
+		kind, body, ok, auto = exitKindReport, strings.TrimSpace(reply), true, true
+	}
 	var problems []string
 	if ok && kind == exitKindAsk {
 		problems = askEvidenceProblems(body)
@@ -162,14 +177,25 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		e.clearAskBounces(sessionKey)
 	}
 	if !ok || p == nil {
+		// Most turns carry no marker; only complain when one exists but did not start the reply.
+		if p != nil && (strings.Contains(reply, "["+exitKindReport+"]") || strings.Contains(reply, "["+exitKindAsk+"]")) {
+			slog.Warn("team exit: marker is not on the first line, nothing forwarded", "session", sessionKey)
+		}
 		return ""
 	}
 	ws := sessionChannel(sessionKey)
+	if id, stopped := e.workspaceTaskStopped(sessionKey); stopped {
+		slog.Info("team exit: the task was stopped by the user; the answer stays in the workspace",
+			"kind", kind, "workspace", ws, "board_item", id)
+		return ""
+	}
 	parent, ok := e.workspaceParent(teamChatKey(sessionKey))
 	if !ok {
 		parent, ok = e.workspaceParent(ws)
 	}
 	if !ok {
+		slog.Error("team exit: no chat channel for this workspace; the answer stays in the workspace",
+			"workspace", ws, "session", sessionKey, "auto", auto)
 		return ""
 	}
 	if _, id, full := strings.Cut(parent, ":"); full {
@@ -177,6 +203,7 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	}
 	rec, ok := p.(ReplyContextReconstructor)
 	if !ok {
+		slog.Error("team exit: platform cannot rebuild a reply context", "platform", p.Name(), "workspace", ws)
 		return ""
 	}
 	if problems != nil {
@@ -185,7 +212,7 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	}
 	rc, err := rec.ReconstructReplyCtx(p.Name() + ":" + parent)
 	if err != nil {
-		slog.Warn("team exit: chat channel unreachable", "parent", parent, "error", err)
+		slog.Error("team exit: chat channel unreachable", "parent", parent, "workspace", ws, "error", err)
 		return ""
 	}
 	bot := e.exitBotName()
@@ -209,16 +236,55 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 			text = header + c
 		}
 		if err := p.Send(e.ctx, rc, text); err != nil {
-			slog.Warn("team exit: forward failed", "parent", parent, "error", err)
+			slog.Error("team exit: forward failed", "parent", parent, "workspace", ws, "error", err)
 			break
 		}
 		sent = append(sent, text)
+	}
+	slog.Info("team exit: forwarded", "kind", kind, "auto", auto, "workspace", ws, "parent", parent, "chunks", len(sent))
+	if len(sent) > 0 {
+		e.wakeChatLead(p, parent, ws, bot, kind, body)
 	}
 	if id == "" || len(sent) == 0 {
 		return ""
 	}
 	e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Bot: bot, Forwarded: sent, At: time.Now()})
 	return id
+}
+
+// workspaceTaskStopped: the workspace's task was stopped by the user (board pause), so its
+// [ask]/[report] is not forwarded (user 2026-10-28 「我都说不做了，你还问我」: a turn already
+// running when the task was paused still sent an [ask]). Stopped means no handoff is in work
+// there and the board item last bound to it is paused for a reason other than waiting on the
+// user (ws-up --ask pauses its own item with 「等待用户答复」; that [ask] still goes out).
+func (e *Engine) workspaceTaskStopped(sessionKey string) (int, bool) {
+	if e.workspaceHasOpenHandoff(sessionKey) {
+		return 0, false
+	}
+	dir := e.teamStatusDir()
+	if dir == "" {
+		return 0, false
+	}
+	key := teamChatKey(sessionKey)
+	var last *teamTaskBoardItem
+	items := readTeamTaskBoard(dir)
+	for i := range items {
+		it := &items[i]
+		w := it.WS
+		if w == "" {
+			w = it.WSWas
+		}
+		if w == "" || teamChatKey(w) != key {
+			continue
+		}
+		if last == nil || it.Bound > last.Bound {
+			last = it
+		}
+	}
+	if last == nil || last.Paused == "" || teamTaskBoardWaitUser.MatchString(last.PauseWhy) {
+		return 0, false
+	}
+	return last.ID, true
 }
 
 var askRef = regexp.MustCompile(`\bask-[0-9a-f]{8}\b`)

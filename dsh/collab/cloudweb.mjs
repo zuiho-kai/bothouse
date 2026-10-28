@@ -290,6 +290,7 @@ export class CloudWebGateway {
    * reminder); onNew never forwards system rows. False when the bot is offline.
    */
   nudge(memberId, msg) {
+    if (this.hub.quota?.cooling(memberId)) return false;
     const bot = this.bots.get(memberId);
     if (bot === undefined || !this.hub.routableIn(msg.room_id).some(m => m.id === memberId)) return false;
     const members = this.hub.routableIn(msg.room_id);

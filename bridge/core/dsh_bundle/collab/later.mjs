@@ -112,6 +112,7 @@ export class Later {
       this.db.prepare('UPDATE member_later SET announced = 1 WHERE id = ?').run(row.id);
     }
     for (const row of this.db.prepare('SELECT * FROM member_later WHERE delivered = 0 AND due_at <= ? ORDER BY id').all(this.now())) {
+      if (this.hub.quota?.cooling(row.member_id)) continue;
       let message;
       if (row.message_id === null) {
         // A stable client key makes a crash before receipt persistence reuse the same message.

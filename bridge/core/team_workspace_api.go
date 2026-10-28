@@ -5,28 +5,99 @@ package core
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
 )
 
-// teamWorkspaceEngine picks the engine that owns the workspaces: the primary role with
-// team_workspaces on. A working role (any project) may ask; the lead's bot creates.
+// teamWorkspaceEngine picks the engine that owns the workspaces: the current primary role
+// (lead.json, isTeamLead), so claims, park, the watch, auto-return and the task board follow a
+// lead switch instead of staying on the project that was lead when the bridge started (user
+// 2026-10-28: 橘 cooling, lead switched to 鲸鱼娘, `workspace claim` still refused because the
+// first project by name with team_workspaces kept the workspaces). team_workspaces is a team
+// setting: when the current lead's project has it off but the startup lead had it on, the
+// current lead takes the workspaces over. With no current lead in this bridge the old rule
+// stays (the first project by name with team_workspaces on).
 func (s *APIServer) teamWorkspaceEngine() *Engine {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	names := make([]string, 0, len(s.engines))
 	for n := range s.engines {
 		names = append(names, n)
 	}
 	sort.Strings(names)
+	var lead, first *Engine
 	for _, n := range names {
-		if e := s.engines[n]; e.teamWS != nil {
-			return e
+		e := s.engines[n]
+		if first == nil && e.teamWS != nil {
+			first = e
+		}
+		if lead == nil && e.team != nil && e.isTeamLead() {
+			lead = e
 		}
 	}
-	return nil
+	s.mu.RUnlock()
+	if lead == nil || lead == first {
+		return first
+	}
+	if lead.teamWS == nil && lead.teamWorkspacesOn() {
+		lead.ensureTeamWS()
+	}
+	if lead.teamWS == nil {
+		return first
+	}
+	return lead
+}
+
+// followLead re-applies the lead-only services (task board, workspaces, handoff watch) when
+// lead.json names another primary role. Before this they were set once at start (and on a
+// channel host's lead update), so a lead switched through lead.json left the board and the
+// workspaces on the old lead until restart.
+func (s *APIServer) followLead(seen map[string]bool) {
+	s.mu.RLock()
+	engines := make([]*Engine, 0, len(s.engines))
+	for _, e := range s.engines {
+		engines = append(engines, e)
+	}
+	s.mu.RUnlock()
+	changed := false
+	for _, e := range engines {
+		t := e.team
+		if t == nil {
+			continue
+		}
+		lead := e.isTeamLead()
+		was, ok := seen[e.name]
+		seen[e.name] = lead
+		if !ok || was == lead {
+			continue
+		}
+		changed = true
+		t.mu.Lock()
+		board, ws := t.boardEnabled, t.workspacesEnabled
+		t.mu.Unlock()
+		e.SetTeamBoard(board)
+		e.SetTeamWorkspaces(ws)
+		slog.Info("team: primary role changed; lead-only services re-applied", "project", e.name, "lead", lead)
+	}
+	if changed {
+		s.rewatchIfServing()
+	}
+}
+
+func (s *APIServer) runLeadFollow(stop <-chan struct{}) {
+	seen := map[string]bool{}
+	tick := time.NewTicker(teamPollInterval)
+	defer tick.Stop()
+	for {
+		s.followLead(seen)
+		select {
+		case <-stop:
+			return
+		case <-tick.C:
+		}
+	}
 }
 
 // TeamWorkspaceNewResult is the reply of POST /team/workspace/new.
@@ -189,6 +260,9 @@ func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Reque
 		// the task; the newest handoff of chat at or before it is the one parked.
 		Chat   string `json:"chat"`
 		Before string `json:"before"`
+		// Stop: the user stopped the task (board pause); a freed workspace's running turn is
+		// stopped too, so nothing more comes out of it. ws-up --ask parks without it.
+		Stop bool `json:"stop"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -217,7 +291,7 @@ func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Reque
 		plat, _, _ := strings.Cut(key, ":")
 		key = plat + ":" + req.WorkspaceID
 	}
-	freed, err := s.parkAndReset(e, key, req.Chat, before)
+	freed, err := s.parkAndReset(e, key, req.Chat, before, req.Stop)
 	if errors.Is(err, ErrTeamWorkspaceNotOwned) {
 		msg := err.Error()
 		parent := key
@@ -243,7 +317,10 @@ func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Reque
 // parkAndReset parks a task of workspace key on the team workspace engine e
 // (ParkTeamWorkspaceFor) and, when that freed the workspace, also resets the teammates'
 // sessions there (e reset the lead's). Shared by the park API and the ten-minute watch.
-func (s *APIServer) parkAndReset(e *Engine, key, chat string, before time.Time) (bool, error) {
+// stop (the user stopped the task): every role's turn still running in the freed workspace is
+// stopped as well. Resetting the sessions does not end a running turn: on 10-28 a workspace
+// parked at 14:06 kept working and sent an [ask] at 14:10 (user 「为什么工作区没暂停」).
+func (s *APIServer) parkAndReset(e *Engine, key, chat string, before time.Time, stop bool) (bool, error) {
 	freed, err := e.ParkTeamWorkspaceFor(key, chat, before)
 	if err != nil || !freed {
 		return freed, err
@@ -258,6 +335,14 @@ func (s *APIServer) parkAndReset(e *Engine, key, chat string, before time.Time) 
 	s.mu.RUnlock()
 	for _, x := range others {
 		x.ResetTeamWorkspaceSessions(key)
+	}
+	if stop {
+		plat, _, _ := strings.Cut(key, ":")
+		n := 0
+		for _, x := range append(others, e) {
+			n += x.stopChannel(plat, key)
+		}
+		slog.Info("team workspace: stopped the turns running there", "workspace", key, "stopped", n)
 	}
 	return true, nil
 }
