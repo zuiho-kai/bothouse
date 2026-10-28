@@ -1,15 +1,16 @@
 #!/usr/bin/env -S python3 -I
 # 把一整块大活交给「工作区」频道里的主角色：检查交接文件，再用 cc-connect timer 叫她开工，输出 timer id。
 # 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名]
+#       ws-handoff --drain                        排队的活按先后接到空出来的工作区（桥放回工作区后调）
+#       ws-handoff --resume <编号> "<用户答复>"    等你的活收到答复，找空工作区接着做（桥调）
 #   短名（≤10 字）上团队板（board add --short）；不写就从任务句去前缀再截。
 #   交接文件放当前目录（角色目录，在数据目录下）的 notes/<名>.md，同本机做法；不放 /tmp 这类公共目录（USAGE）。
 #   交接文件必须含「用户原话」「进度」「规矩」三个小节标题（# 开头的行），和「参照实现」（文件:行，非代码活写
 #   「无（新建）」）；有「共改文件」/「多人改」标题时还要「底分支：<分支名>」一行（见 check_notes）。
 #   工作区：没配 WS_CHANNEL / 团队文件 "workspace" 时，走桥的共享池（<桥> workspace list/claim/new，
-#   core/team_workspace.go，Discord、飞书、DSH、网页版同一套）：本频道名下或空着、进行中不到 3 件的
-#   工作区里挑（件数少的先，同件数编号小的先），都忙才 new（桥先复用空号，没有才建 工作区n+1），再 claim
-#   记一件交接（桥按件计数，连交时刚交的也算）。暂停的活（board pause → <桥> workspace park）不算件数，
-#   它的工作区已放回池子，会被先复用。
+#   core/team_workspace.go，Discord、飞书、DSH、网页版同一套）：一个工作区同一时间只做一件活，只挑本频道名下
+#   或空着、手上没活的（编号小的先）；都占着才 new（桥先复用空号，没有才建 工作区n+1），池子满 MAX_WS 个就不建，
+#   这件活在任务板记「排队」、进 QUEUE，有工作区放回时桥调 --drain 先排先接。暂停、等你的活不占工作区。
 #   配了 WS_CHANNEL 或团队文件顶层 "workspace"（_team.py）就固定用它（不读平台 token、不自己建频道）。
 # 来源：用户 2026-10-23「如果你觉得已经开始管不过来了，你可以去开新的频道，就叫工作区，然后把任务整个大颗粒度的交给那边的橘」
 #   「方便任意人当主角色，并且也能放到仓库」。
@@ -32,7 +33,9 @@ DONE = ("已交给{name}。本轮到此结束：不要在本轮等待、sleep �
         "工作区做完会用 [report] 把结果转回本频道，到时再看、再验收。")
 # 一个工作区进行中的活达到这么多件就算忙。来源：dsh_bundle/collab/team-mode-rules.md「一个工作区里进行中的活默认
 # 达到 3 件就算忙」（团队模式规矩，用户 2026-10-24）；桥里同值 core/team_workspace.go teamWorkspaceBusy。
-BUSY = 3
+BUSY = 1  # 用户 2026-10-28 批「一个工作区同一时间只做一件活」
+MAX_WS = 4  # 池子最多几个工作区（含现有），满了排队；橘加的设定，已告诉用户
+QUEUE = _team.SETUP / "ws-queue.json"  # 排队的活：[{nid, path, task, chat, project, answer}]，先排先接
 
 
 def missing_sections(text: str):
@@ -176,7 +179,8 @@ def claim_cmd(chat: str, wid: str, task: str):
 
 
 def pick_pool(chat: str, task: str = ""):
-    """共享池里挑一个工作区并 claim（记一件交接），返回（工作区会话 key <平台>:<id>，工作区名，交接的聊天频道 parent）。
+    """共享池里挑一个工作区并 claim（记一件交接），返回（工作区会话 key <平台>:<id>，工作区名，交接的聊天频道 parent）；
+    没有空的、池子又满 MAX_WS 个时返回 None（排队）。
     claim 不带 --owner：交接的 owner 为空时，桥的十分钟看门按本 bot 自己在工作区的发言（IsSelf）
     算进展（core/team_watch.go ownerSpoke）；接手的就是本 bot 的主角色，不用另传 id。"""
     board.pause_stale()
@@ -193,6 +197,8 @@ def pick_pool(chat: str, task: str = ""):
         if c.returncode == 0:
             return f"{plat}:{w['id']}", str(w.get("name") or w["id"]), parent
         print(f"ws-handoff: {w.get('name')} 认领不了（{c.stderr.strip()}），换下一个", file=sys.stderr)
+    if len([w for w in r.get("pool") or [] if isinstance(w, dict) and w.get("id")]) >= MAX_WS:
+        return None
     w = (ws_cmd(chat, "new").get("workspace") or {})
     if not w.get("id"):
         sys.exit("ws-handoff: workspace new 没回工作区")
@@ -203,22 +209,26 @@ def pick_pool(chat: str, task: str = ""):
     return f"{plat}:{w['id']}", str(w.get("name") or w["id"]), parent
 
 
-def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>"):
+def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=None):
     """叫醒工作区会话。--handoff：这一轮是交过来的活，不是例行定时，桥照常自动开公开任务卡
     （core/public_progress_auto.go timerTurnUser）。不带 --inject-if-busy：工作区正有别的活在跑时这一轮排在后面，
     轮到时自己开一轮、开自己的卡；插进那一轮不会开卡（审稿 pr410 必须改 1，桥 ExecuteTimerJob 对 Handoff 也不插）。
     开工提示对照本机 ws-handoff timer_cmd：任务板编号、上报方式。--desc 带任务：桥把它当这一轮的任务名（谁在干啥、
     频道任务板，core/team.go teamNoteTurn → boardDescOf），不是把开工提示当任务名（#597 G36）。"""
-    prompt = (f"你是工作区频道里的主角色，从主频道接手一整块大活：{task}。"
-              f"先读交接 {path}。这块活交活时已在任务板建好 #{nid}，接手后用 board update {nid} <状态> 更新，"
+    head = (f"你是工作区频道里的主角色，接着做一件提问后停下的活：{task}。用户答复了：{answer}\n"
+            f"先读交接 {path}（之前的进度都在里面）。这块活在任务板是 #{nid}，接手后用 board update {nid} <状态> 更新，"
+            if answer is not None else
+            f"你是工作区频道里的主角色，从主频道接手一整块大活：{task}。"
+            f"先读交接 {path}。这块活交活时已在任务板建好 #{nid}，接手后用 board update {nid} <状态> 更新，")
+    prompt = (head +
               f"不要再 board add 这块活；本轮会自动开公开任务卡。接手后发五段式说明，并把还没派的活当场派出去。"
               f"有问题、要用户拍板用 ws-up --notes {path} \"<问题+选项+推荐>\" --ask，等聊天频道转回答复再做，"
               f"等的时候先做不受影响的部分；不在工作区里问用户。会缩小或改变用户原话范围的决定也先 --ask，纯技术细节自己定。"
               f"做完交回：这一轮最后一条回复的第一行写 [report] #{nid} 加给用户的一两句话（系统原样贴到聊天频道），第二行起写细节（中途发的话不转）；"
-              f"这是你手上最后一件活时，同一轮跑 `{cc_bin()} session new --after-turn` 空出工作区")
+              f"交回后桥自动把这件标完成、清空会话、放回工作区")
     key = ws if ":" in ws else f"discord:{ws}"
     return [cc_bin(), "timer", "add", "-s", key, "--delay", "1m", "--timeout-mins", "0",
-            "--handoff", "--desc", f"工作区接手：{task}", "--prompt", prompt]
+            "--handoff", "--desc", f"工作区{'接回' if answer is not None else '接手'}：{task}", "--prompt", prompt]
 
 
 def record_last(path: str, ws: str, task: str, chat: str, nid=None):
@@ -249,7 +259,76 @@ def record_last(path: str, ws: str, task: str, chat: str, nid=None):
                                      ensure_ascii=False), encoding="utf-8")
 
 
+@contextlib.contextmanager
+def _queue():
+    """排队表（加锁读改写）：yield 列表，退出时写回。"""
+    import fcntl
+    QUEUE.parent.mkdir(parents=True, exist_ok=True)
+    with open(str(QUEUE) + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            q = json.loads(QUEUE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            q = []
+        q = [x for x in q if isinstance(x, dict) and x.get("nid")] if isinstance(q, list) else []
+        yield q
+        QUEUE.write_text(json.dumps(q, ensure_ascii=False), encoding="utf-8")
+
+
+def _lead_name(project):
+    return _team.name_of(project) if project else "主角色"
+
+
+def start(path, task, chat, nid, project, answer=None):
+    """挑空工作区、绑任务板 #nid、叫醒；没空的返回 False（调用方排队）。"""
+    picked = pick_pool(chat, task)
+    if picked is None:
+        return False
+    ws, name, parent = picked
+    board.update(nid, "已交接", who=f"{name}{_lead_name(project)}")
+    board.rebind(nid, ws)
+    r = subprocess.run(timer_cmd(ws, path, task, nid, answer), capture_output=True, text=True)
+    if r.returncode != 0:
+        board._park_once(cc_bin(), ws, parent)
+        sys.exit(f"ws-handoff: #{nid} 叫醒 {name} 失败：{r.stderr.strip() or r.stdout.strip()}")
+    record_last(path, ws, task, chat, nid)
+    print(f"ws-handoff: #{nid} 交给 {name}", file=sys.stderr)
+    return True
+
+
+def drain():
+    """排队的活先排先接，接到没有空工作区为止（桥放回工作区后调，core/team_workspace_one.go drainTeamWorkspaceQueue）。"""
+    with _queue() as q:
+        while q:
+            x = q[0]
+            if not any(i["id"] == x["nid"] for i in board.items()):
+                q.pop(0)  # 板上已没有（做完、撤掉）：不再接
+                continue
+            if not start(x["path"], x["task"], x["chat"], x["nid"], x.get("project"), x.get("answer")):
+                break
+            q.pop(0)
+
+
+def resume_answered(nid, answer):
+    """等你的活收到答复：恢复条目、答复写进交接，找空工作区接着做；没有就排队（core resumeAskedTask 调）。"""
+    it = next((i for i in board.items() if i["id"] == nid), None)
+    if it is None or not it.get("chat") or not os.path.isfile(it.get("where") or ""):
+        sys.exit(f"ws-handoff: #{nid} 不是 ws-handoff 交的活，没法接回")
+    board.resume(nid)
+    board.append_forward(it["where"], f"{board._now()} 用户答复（#{nid}）：{answer}")
+    project = os.environ.get("CC_PROJECT", "")
+    with _queue() as q:
+        if not start(it["where"], it["what"], it["chat"], nid, project, answer):
+            board.update(nid, "排队")
+            q.append({"nid": nid, "path": it["where"], "task": it["what"], "chat": it["chat"], "project": project, "answer": answer})
+            print(f"ws-handoff: #{nid} 工作区都占着，排队", file=sys.stderr)
+
+
 def main(argv):
+    if argv[:1] == ["--drain"]:
+        return drain()
+    if argv[:1] == ["--resume"] and len(argv) == 3:
+        return resume_answered(int(argv[1].lstrip("#")), argv[2])
     short_name = None
     if "--short" in argv:
         k = argv.index("--short")
@@ -271,7 +350,16 @@ def main(argv):
     elif ":" not in chat:
         sys.exit("ws-handoff: 没配工作区频道（WS_CHANNEL / 团队文件 \"workspace\"），也不在桥的会话里（CC_SESSION_KEY），没法从池里挑工作区")
     else:
-        ws, name, parent = pick_pool(chat, task)
+        picked = pick_pool(chat, task)
+        if picked is None:
+            nid = board.add(task, path, "排队", "待接手", chat=chat, short_name=short_name)
+            with _queue() as q:
+                q.append({"nid": nid, "path": path, "task": task, "chat": chat, "project": os.environ.get("CC_PROJECT", "")})
+            print(f"ws-handoff: 任务板 #{nid}", file=sys.stderr)
+            print(f"queued #{nid}")
+            print(f"{MAX_WS} 个工作区都在做活，#{nid} 已排队；有工作区空出来桥会自动接上。跟用户说一句排队了，本轮到此结束。")
+            return
+        ws, name, parent = picked
     # 先上任务板、绑这个工作区（编号要写进开工提示，同本机 ws-handoff 先 board_add 再叫醒）：
     # 放回只看绑定的条目（board pause / 把「谁」改走），刚交的活不会被当成没人做
     key = ws if ":" in ws else f"discord:{ws}"

@@ -176,9 +176,9 @@ type TeamWorkspace struct {
 }
 
 // teamWorkspaceBusy: a workspace with this many tasks in work counts as busy; a new handoff
-// does not adopt it. Source: dsh_bundle/collab/team-mode-rules.md「一个工作区里进行中的活默认达到
-// 3 件就算忙」(team mode rules, user 2026-10-24).
-const teamWorkspaceBusy = 3
+// does not adopt it. One task per workspace (user 2026-10-28 approved「一个工作区同一时间只做一件活」,
+// dsh_bundle/collab/team-mode-rules.md).
+const teamWorkspaceBusy = 1
 
 // TeamWorkspaceParker is implemented by platforms that count a workspace's tasks themselves
 // (cloud_web: the DSH gateway). ParkTeamWorkspace's release asks it to mark the workspace's
@@ -1366,6 +1366,7 @@ func (e *Engine) releaseTeamWorkspace(sessionKey string, lastActive time.Time, k
 	}
 	if !platformReleases {
 		slog.Info("team workspace: released after its last task", "workspace", key, "owner", owner)
+		e.drainTeamWorkspaceQueue(owner)
 		return true
 	}
 	// The platform request runs under teamWorkspaceOpMu like claims, so a claim and a release
@@ -1479,6 +1480,7 @@ func (e *Engine) ParkTeamWorkspaceFor(workspace, chat string, before time.Time) 
 	}
 	e.ResetTeamWorkspaceSessions(key)
 	slog.Info("team workspace: released, its tasks are paused", "workspace", key, "owner", owner)
+	e.drainTeamWorkspaceQueue(owner)
 	if platformReleases {
 		go func() {
 			teamWorkspaceOpMu.Lock()
