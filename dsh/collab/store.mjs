@@ -588,8 +588,22 @@ export class Store {
   }
   room(id) { return this.q.room.get(id); }
   rooms() { return this.q.rooms.all(); }
+  /** Return stale, empty claims to the pool without taking bridge or paused work. */
+  releaseIdleWorkspaces() {
+    const idle = this.db.prepare(`SELECT id FROM rooms WHERE kind = 'workspace' AND free = 0
+      AND claim_bridge = 0 AND claim_task > 0
+      AND (NOT EXISTS (SELECT 1 FROM tasks WHERE room_id = rooms.id AND id = rooms.claim_task)
+        OR EXISTS (SELECT 1 FROM tasks WHERE room_id = rooms.id AND id > rooms.claim_task
+          AND status IN ('returned', 'done')))
+      AND NOT EXISTS (SELECT 1 FROM tasks WHERE room_id = rooms.id
+        AND status IN ('assigned', 'accepted', 'asked', 'rework'))`).all();
+    for (const room of idle) this.releaseWorkspace(room.id);
+    return idle.length;
+  }
+
   /** Rooms for clients: each carries kind, parent_id and its open task count. */
   roomsView() {
+    this.releaseIdleWorkspaces();
     const counts = new Map(this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
       WHERE status IN ('assigned', 'accepted', 'asked', 'rework') GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
     return this.rooms().map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id) }));
