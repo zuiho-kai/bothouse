@@ -17,6 +17,8 @@
    一串只读查询里第 4 个「一步只跑一条只读查询」的步拦（合并过的步放行），本轮重复的只读命令拦；
    前台联网长命令（git clone/fetch/pull、npm/pip/brew install）拦，改后台。子 agent 会话和外出轮豁免。"""
 import json, os, re, shlex, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import plan_gate  # noqa: E402  要方案未批时拦开做（用户 2026-10-28）
 
 PROXY_URL = os.environ.get("HOOK_PROXY", "").strip()  # 例：http://127.0.0.1:7890；空 = 不查下载
 _wiki = os.environ.get("GATE_WIKI", "~/wiki").strip()  # 同 bridge/contrib/gate/ctxsvc.py
@@ -445,6 +447,10 @@ def main():
             check_job_poll(str(inp.get("job_id") or ""), turn, d.get("tool_use_id"))
         return
     cmd = inp.get("command", "")
+    if not d.get("agent_id") and plan_gate.bash_blocked(cmd):
+        asked = plan_gate.pending(d.get("transcript_path"))
+        if asked:
+            deny(plan_gate.message(asked))
     if (d.get("tool_input") or {}).get("run_in_background"):
         check_background(cmd)
     else:

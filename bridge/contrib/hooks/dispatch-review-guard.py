@@ -19,6 +19,9 @@ import json, os, re, sys
 
 HOME = os.path.expanduser("~")
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import plan_gate  # noqa: E402  要方案未批时拦开做（用户 2026-10-28）
+NOTES_DIR = os.path.join(os.getcwd(), "notes")  # 写方案、交接稿不拦
 REVIEWS = os.path.expanduser(os.environ.get("HOOK_REVIEWS_DIR") or os.path.join(HOME, ".claude", "reviews"))
 USED = os.path.join(REVIEWS, ".used")
 DOCS = os.path.join(REVIEWS, ".docs")
@@ -127,6 +130,13 @@ def main():
     except Exception:
         return
     tool, inp = d.get("tool_name", ""), d.get("tool_input", {}) or {}
+    if not d.get("agent_id") and tool in ("Agent", "Task", "Edit", "Write", "MultiEdit", "NotebookEdit"):
+        p = os.path.realpath(os.path.expanduser(inp.get("file_path") or inp.get("notebook_path") or ""))
+        free = p and any(p == x or p.startswith(os.path.realpath(x) + os.sep) for x in FREE_DIRS + [NOTES_DIR])
+        if not free:
+            asked = plan_gate.pending(d.get("transcript_path"))
+            if asked:
+                deny(plan_gate.message(asked))
     if tool in ("Agent", "Task"):
         check_bot_model(d.get("cwd", ""), inp)
         check_agent(inp.get("prompt", ""))
