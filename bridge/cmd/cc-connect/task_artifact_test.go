@@ -104,8 +104,14 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 		}
 		return payload.Artifact
 	}
-	attach("input", "image", "用户原图", "https://example.test/original.png")
+	attach("input", "image", "用户原图", "https://example.test/original.png", "--request-id", "input-op-1", "--revision", "1")
 	draft := attach("output", "file", "初稿", "/tmp/cover-v1.png", "--request-id", "draft-op-1", "--revision", "1")
+	// A second operation with identical fields on the same revision is a new
+	// attach, not a retry: it must get its own id now and keep it later.
+	sameFields := attach("output", "file", "初稿", "/tmp/cover-v1.png", "--request-id", "draft-op-2", "--revision", "1")
+	if sameFields.ID == draft.ID || sameFields.Revision != 1 {
+		t.Fatalf("second same-field operation was swallowed: %+v", sameFields)
+	}
 
 	var result bytes.Buffer
 	if err := progressCommand(append(append(append([]string{}, base...), run...), "--seq", "2", "--kind", "result", "--message", "初稿已交"), &result); err != nil {
@@ -203,6 +209,10 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 	if lateDraft.ID != draft.ID || lateDraft.Revision != 1 {
 		t.Fatalf("late artifact retry was rebound: %+v", lateDraft)
 	}
+	lateSameFields := attach("output", "file", "初稿", "/tmp/cover-v1.png", "--request-id", "draft-op-2", "--revision", "1")
+	if lateSameFields.ID != sameFields.ID || lateSameFields.Revision != 1 {
+		t.Fatalf("late retry of the second same-field operation was rebound: %+v", lateSameFields)
+	}
 
 	var show bytes.Buffer
 	if err := taskCommand(append(append([]string{"show"}, base...), "--id", id), &show); err != nil {
@@ -214,7 +224,7 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 	if err := json.Unmarshal(show.Bytes(), &shown); err != nil {
 		t.Fatal(err)
 	}
-	if shown.Task.RevisionNo() != 3 || len(shown.Task.Artifacts) != 3 || shown.Task.State != core.TaskStateInProgress {
+	if shown.Task.RevisionNo() != 3 || len(shown.Task.Artifacts) != 4 || shown.Task.State != core.TaskStateInProgress {
 		t.Fatalf("status query lost the loop: rev=%d artifacts=%d state=%s", shown.Task.RevisionNo(), len(shown.Task.Artifacts), shown.Task.State)
 	}
 	if strings.Contains(show.String(), m[1]) {
@@ -230,7 +240,7 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 	if err := taskCommand(append([]string{"list"}, base...), &list); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(list.String(), "修订 v3") || !strings.Contains(list.String(), "产物 3") {
+	if !strings.Contains(list.String(), "修订 v3") || !strings.Contains(list.String(), "产物 4") {
 		t.Fatalf("list does not show revision/artifacts: %q", list.String())
 	}
 }

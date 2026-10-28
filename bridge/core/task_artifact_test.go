@@ -43,18 +43,18 @@ func TestTaskArtifactAndRework(t *testing.T) {
 	session := "plain:room:user"
 	run, id := startTask(t, p, platform, session, "封面")
 
-	input, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "input", Kind: "image", Label: "用户原图", Ref: "https://example.test/original.png"})
+	input, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, RequestID: "input-1", Revision: 1, Role: "input", Kind: "image", Label: "用户原图", Ref: "https://example.test/original.png"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if input.Role != TaskArtifactInput || input.Revision != 1 || input.ID == "" {
 		t.Fatalf("unexpected input artifact: %+v", input)
 	}
-	draft, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "file", Label: "初稿", Ref: "/tmp/cover-v1.png", Summary: "第一版"})
+	draft, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, RequestID: "draft-1", Revision: 1, Role: "output", Kind: "file", Label: "初稿", Ref: "/tmp/cover-v1.png", Summary: "第一版"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "file", Label: "初稿", Ref: "/tmp/cover-v1.png", Summary: "第一版"})
+	again, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, RequestID: "draft-1", Revision: 1, Role: "output", Kind: "file", Label: "初稿", Ref: "/tmp/cover-v1.png", Summary: "第一版"})
 	if err != nil || again.ID != draft.ID {
 		t.Fatalf("identical attach was not idempotent: %+v %v", again, err)
 	}
@@ -93,7 +93,7 @@ func TestTaskArtifactAndRework(t *testing.T) {
 	if continued, err := p.Report(req); err != nil || continued != id {
 		t.Fatalf("reworked task was not continuable: %s %v", continued, err)
 	}
-	if _, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "file", Label: "第二版", Ref: "/tmp/cover-v2.png"}); err != nil {
+	if _, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, RequestID: "draft-2", Revision: 2, Role: "output", Kind: "file", Label: "第二版", Ref: "/tmp/cover-v2.png"}); err != nil {
 		t.Fatal(err)
 	}
 	p.finish(run2, "result")
@@ -122,7 +122,7 @@ func TestTaskArtifactAndRework(t *testing.T) {
 	}
 	journalDir := restored.dir
 	restored.dir = blocker
-	if _, err := restored.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "file", Label: "丢失", Ref: "/tmp/lost.png"}); err == nil {
+	if _, err := restored.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, RequestID: "lost-1", Revision: 2, Role: "output", Kind: "file", Label: "丢失", Ref: "/tmp/lost.png"}); err == nil {
 		t.Fatal("artifact attach was acknowledged before it was persisted")
 	}
 	if _, err := restored.Rework(TaskReworkRequest{Project: "fish", TaskID: id, ArtifactID: draft.ID, RequestID: "rw-write-fail", Feedback: "不应写入"}); err == nil || !strings.Contains(err.Error(), "not a directory") {
@@ -154,7 +154,7 @@ func TestTaskArtifactAndRework(t *testing.T) {
 	if _, err := restored.Accept(other, "主人"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := restored.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: other, Role: "output", Kind: "file", Label: "晚了", Ref: "/tmp/late.png"}); err == nil {
+	if _, err := restored.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: other, RequestID: "late-1", Revision: 1, Role: "output", Kind: "file", Label: "晚了", Ref: "/tmp/late.png"}); err == nil {
 		t.Fatal("accepted task took a new artifact")
 	}
 	if _, err := restored.Rework(TaskReworkRequest{Project: "fish", TaskID: other, RequestID: "rw-late", Feedback: "晚了"}); err == nil {
@@ -166,14 +166,17 @@ func TestTaskArtifactValidation(t *testing.T) {
 	dir := t.TempDir()
 	p, platform := journalModel(t, dir, "fish")
 	_, id := startTask(t, p, platform, "plain:room:user", "task")
-	base := TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "file", Label: "x", Ref: "/tmp/x"}
+	base := TaskArtifactRequest{Project: "fish", TaskID: id, RequestID: "valid-1", Revision: 1, Role: "output", Kind: "file", Label: "x", Ref: "/tmp/x"}
 	cases := map[string]func(*TaskArtifactRequest){
-		"bad role":     func(r *TaskArtifactRequest) { r.Role = "sideways" },
-		"bad kind":     func(r *TaskArtifactRequest) { r.Kind = "binary" },
-		"empty label":  func(r *TaskArtifactRequest) { r.Label = "  " },
-		"newline ref":  func(r *TaskArtifactRequest) { r.Ref = "/tmp/a\n/tmp/b" },
-		"empty ref":    func(r *TaskArtifactRequest) { r.Ref = "" },
-		"unknown task": func(r *TaskArtifactRequest) { r.TaskID = "task-missing" },
+		"bad role":          func(r *TaskArtifactRequest) { r.Role = "sideways" },
+		"bad kind":          func(r *TaskArtifactRequest) { r.Kind = "binary" },
+		"empty label":       func(r *TaskArtifactRequest) { r.Label = "  " },
+		"newline ref":       func(r *TaskArtifactRequest) { r.Ref = "/tmp/a\n/tmp/b" },
+		"empty ref":         func(r *TaskArtifactRequest) { r.Ref = "" },
+		"empty request id":  func(r *TaskArtifactRequest) { r.RequestID = "  " },
+		"zero revision":     func(r *TaskArtifactRequest) { r.Revision = 0 },
+		"negative revision": func(r *TaskArtifactRequest) { r.Revision = -1 },
+		"unknown task":      func(r *TaskArtifactRequest) { r.TaskID = "task-missing" },
 		"wrong project": func(r *TaskArtifactRequest) {
 			r.Project = "other"
 		},
@@ -228,7 +231,7 @@ func TestTaskReworkRequestIDIdempotencyAndConflict(t *testing.T) {
 	dir := t.TempDir()
 	p, platform := journalModel(t, dir, "fish")
 	_, id := startTask(t, p, platform, "plain:room:user", "cover")
-	draft, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "file", Label: "draft", Ref: "/tmp/draft.png"})
+	draft, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, RequestID: "draft-1", Revision: 1, Role: "output", Kind: "file", Label: "draft", Ref: "/tmp/draft.png"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +274,7 @@ func TestTaskReworkRequestIDSurvivesRestart(t *testing.T) {
 	dir := t.TempDir()
 	p, platform := journalModel(t, dir, "fish")
 	run, id := startTask(t, p, platform, "plain:room:user", "cover")
-	draft, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "file", Label: "draft", Ref: "/tmp/draft.png"})
+	draft, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, RequestID: "draft-1", Revision: 1, Role: "output", Kind: "file", Label: "draft", Ref: "/tmp/draft.png"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,11 +308,11 @@ func TestTaskReworkRequestIDDelayedBinding(t *testing.T) {
 	dir := t.TempDir()
 	p, platform := journalModel(t, dir, "fish")
 	_, id := startTask(t, p, platform, "plain:room:user", "cover")
-	a, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "file", Label: "a", Ref: "/tmp/a.png"})
+	a, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, RequestID: "a-op", Revision: 1, Role: "output", Kind: "file", Label: "a", Ref: "/tmp/a.png"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "file", Label: "b", Ref: "/tmp/b.png"})
+	b, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, RequestID: "b-op", Revision: 1, Role: "output", Kind: "file", Label: "b", Ref: "/tmp/b.png"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +343,7 @@ func TestTaskReworkRejectsInputTarget(t *testing.T) {
 	dir := t.TempDir()
 	p, platform := journalModel(t, dir, "fish")
 	_, id := startTask(t, p, platform, "plain:room:user", "cover")
-	in, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "input", Kind: "image", Label: "source", Ref: "/tmp/source.png"})
+	in, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, RequestID: "source-op", Revision: 1, Role: "input", Kind: "image", Label: "source", Ref: "/tmp/source.png"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,8 +388,8 @@ func TestTaskArtifactRetryDoesNotRebindAfterRework(t *testing.T) {
 
 // TestTaskArtifactSameLocatorNewRevision records a real new version written to
 // the same output pathname with the same label, kind and summary. Only the
-// operation id (or its absence, scoped to the current revision) distinguishes
-// it from the old attach; it must land on the new revision, not return v1.
+// operation id and its target revision distinguish it from the old attach; it
+// must land on the new revision, not return v1.
 func TestTaskArtifactSameLocatorNewRevision(t *testing.T) {
 	dir := t.TempDir()
 	p, platform := journalModel(t, dir, "fish")
@@ -395,7 +398,7 @@ func TestTaskArtifactSameLocatorNewRevision(t *testing.T) {
 	if err := os.WriteFile(file, []byte("<svg>red</svg>"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	req := TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "image", Label: "cover", Ref: file}
+	req := TaskArtifactRequest{Project: "fish", TaskID: id, RequestID: "cover-op-1", Revision: 1, Role: "output", Kind: "image", Label: "cover", Ref: file}
 	first, err := p.AttachArtifact(req)
 	if err != nil {
 		t.Fatal(err)
@@ -409,7 +412,10 @@ func TestTaskArtifactSameLocatorNewRevision(t *testing.T) {
 	if err := os.WriteFile(file, []byte("<svg>blue</svg>"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	second, err := p.AttachArtifact(req)
+	secondReq := req
+	secondReq.RequestID = "cover-op-2"
+	secondReq.Revision = 2
+	second, err := p.AttachArtifact(secondReq)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,6 +450,11 @@ func TestTaskArtifactRequestIDRevisions(t *testing.T) {
 	conflict.Ref = "/tmp/other.svg"
 	if _, err := p.AttachArtifact(conflict); err == nil || !strings.Contains(err.Error(), "different content") {
 		t.Fatalf("same id with different content was accepted: %v", err)
+	}
+	conflictRevision := firstReq
+	conflictRevision.Revision = 2
+	if _, err := p.AttachArtifact(conflictRevision); err == nil || !strings.Contains(err.Error(), "different content") {
+		t.Fatalf("same id with a different target revision was accepted: %v", err)
 	}
 	if _, err := p.Rework(TaskReworkRequest{Project: "fish", TaskID: id, ArtifactID: first.ID, RequestID: "rw-2", Feedback: "make it blue"}); err != nil {
 		t.Fatal(err)
@@ -487,6 +498,61 @@ func TestTaskArtifactRequestIDRevisions(t *testing.T) {
 	again2, err := restarted.AttachArtifact(secondReq)
 	if err != nil || again2.ID != second.ID {
 		t.Fatalf("second receipt did not survive restart: %+v %v", again2, err)
+	}
+}
+
+// TestTaskArtifactSameRevisionNewOperationReceipt: two distinct operation ids
+// with identical fields on the same revision are two operations, not one. Each
+// records its own artifact and durable receipt; a later retry of the second
+// still returns its own artifact after a rework and a restart, never the first
+// operation's result.
+func TestTaskArtifactSameRevisionNewOperationReceipt(t *testing.T) {
+	dir := t.TempDir()
+	p, platform := journalModel(t, dir, "fish")
+	_, id := startTask(t, p, platform, "plain:room:user", "cover")
+	firstReq := TaskArtifactRequest{Project: "fish", TaskID: id, RequestID: "attach-1", Revision: 1, Role: "output", Kind: "file", Label: "cover", Ref: "/tmp/cover.svg"}
+	first, err := p.AttachArtifact(firstReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondReq := firstReq
+	secondReq.RequestID = "attach-2"
+	second, err := p.AttachArtifact(secondReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ID == first.ID {
+		t.Fatalf("a new operation id was swallowed on the same revision: %s", second.ID)
+	}
+	got, _ := p.Task(id)
+	if len(got.Artifacts) != 2 || got.Artifacts[0].ID != first.ID || got.Artifacts[1].ID != second.ID {
+		t.Fatalf("two operations on one revision did not record two artifacts: %+v", got.Artifacts)
+	}
+	for _, requestID := range []string{"attach-1", "attach-2"} {
+		rec, ok := p.records[id].record.ArtifactRequests[requestID]
+		if !ok || rec.Revision != 1 || rec.Hash == "" {
+			t.Fatalf("operation %s has no durable receipt: %+v", requestID, rec)
+		}
+	}
+	retry, err := p.AttachArtifact(secondReq)
+	if err != nil || retry.ID != second.ID || retry.Revision != 1 {
+		t.Fatalf("same-id retry did not return the second operation: %+v %v", retry, err)
+	}
+	if _, err := p.Rework(TaskReworkRequest{Project: "fish", TaskID: id, ArtifactID: first.ID, RequestID: "rw-same-revision", Feedback: "make it blue"}); err != nil {
+		t.Fatal(err)
+	}
+	late, err := p.AttachArtifact(secondReq)
+	if err != nil || late.ID != second.ID || late.Revision != 1 {
+		t.Fatalf("late retry of the second operation was rebound: %+v %v", late, err)
+	}
+
+	restarted, err := NewPublicProgress(dir, "fish", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := restarted.AttachArtifact(secondReq)
+	if err != nil || after.ID != second.ID || after.Revision != 1 {
+		t.Fatalf("second operation receipt did not survive restart: %+v %v", after, err)
 	}
 }
 

@@ -40,16 +40,17 @@ type TaskArtifact struct {
 type TaskArtifactRequest struct {
 	Project string `json:"project"`
 	TaskID  string `json:"task_id"`
-	// RequestID is the stable operation id for this attach. Reusing it returns
-	// the artifact that operation recorded, even after a rework advanced the
-	// task or the bridge restarted. A new deliverable uses a new id even when
-	// every field (including the output path) is identical.
-	RequestID string `json:"request_id,omitempty"`
-	// Revision pins the task revision this attach was produced for. A retry
-	// reuses its RequestID instead; a new attach names the revision the caller
-	// is delivering for, so a late request cannot be silently attached to a
-	// newer revision. Zero means the current revision.
-	Revision int    `json:"revision,omitempty"`
+	// RequestID is the required stable operation id for this attach. Reusing it
+	// with the same parameters returns the artifact that operation recorded,
+	// even after a rework advanced the task or the bridge restarted. A new
+	// deliverable uses a new id even when every field (including the output
+	// path) is identical.
+	RequestID string `json:"request_id"`
+	// Revision is the required task revision this attach was produced for. A
+	// retry reuses its RequestID and the same revision; a new attach names the
+	// revision the caller is delivering for, so a late request cannot be
+	// silently attached to a newer revision.
+	Revision int    `json:"revision"`
 	Role     string `json:"role"`
 	Kind     string `json:"kind"`
 	Label    string `json:"label"`
@@ -78,11 +79,11 @@ func (r TaskArtifactRequest) validate() error {
 	}
 	// Source: same 1..100 character bound as a rework request id, so one retry
 	// token cannot grow unbounded.
-	if id := strings.TrimSpace(r.RequestID); utf8.RuneCountInString(id) > 100 {
-		return errors.New("request_id must contain at most 100 characters")
+	if id := strings.TrimSpace(r.RequestID); id == "" || utf8.RuneCountInString(id) > 100 {
+		return errors.New("request_id must contain 1..100 characters; reuse it when retrying one attach")
 	}
-	if r.Revision < 0 {
-		return errors.New("revision must be positive when set")
+	if r.Revision < 1 {
+		return errors.New("revision must be positive; take the current revision from task show")
 	}
 	if r.Role != string(TaskArtifactInput) && r.Role != string(TaskArtifactOutput) {
 		return errors.New("role must be input or output")
@@ -186,11 +187,13 @@ type taskArtifactRecord struct {
 }
 
 // artifactRequestHash is the content identity of one attach operation. The
-// task id and every recorded field are included; the revision is not, because
-// a retry may arrive after a newer revision was opened.
+// task id, every recorded field and the target revision are included, so a
+// retry that changes the revision it claims is a conflict rather than the same
+// operation.
 func artifactRequestHash(req TaskArtifactRequest) string {
 	b, _ := json.Marshal([]string{
 		strings.TrimSpace(req.TaskID),
+		fmt.Sprintf("%d", req.Revision),
 		strings.TrimSpace(req.Role),
 		strings.TrimSpace(req.Kind),
 		strings.TrimSpace(req.Label),
@@ -229,10 +232,10 @@ func attachableTaskState(s TaskState) bool {
 
 // AttachArtifact records one artifact reference before acknowledging it. The
 // operation is identified by RequestID: an identical retry returns the stored
-// artifact at its original revision, even after a rework or a restart. Without
-// an id the only retry scope is the current revision, so an identical attach
-// after a revision bump is a new deliverable rather than the old operation
-// rebound. Recording is not delivery: no card, message or thread is created.
+// artifact at its original revision, even after a rework or a restart. A new
+// id is a new operation even when every field (including the locator) is
+// identical, so it records a new artifact and receipt. Recording is not
+// delivery: no card, message or thread is created.
 func (p *PublicProgress) AttachArtifact(req TaskArtifactRequest) (*TaskArtifact, error) {
 	if err := req.validate(); err != nil {
 		return nil, err
@@ -263,39 +266,25 @@ func (p *PublicProgress) AttachArtifact(req TaskArtifactRequest) (*TaskArtifact,
 	// A committed retry is answered before the state check: a lost ACK must
 	// still see the artifact it recorded, even if the task later advanced or a
 	// human accepted it. Same id with different content is a conflict.
-	if requestID != "" {
-		if rec, ok := r.record.ArtifactRequests[requestID]; ok {
-			if rec.Hash != hash {
-				return nil, errors.New("artifact request_id reused with different content")
-			}
-			if stored := artifactByID(t, rec.ArtifactID); stored != nil {
-				cp := *stored
-				return &cp, nil
-			}
-			return nil, fmt.Errorf("artifact receipt %s refers to missing artifact %s", requestID, rec.ArtifactID)
+	if rec, ok := r.record.ArtifactRequests[requestID]; ok {
+		if rec.Hash != hash {
+			return nil, errors.New("artifact request_id reused with different content")
 		}
+		if stored := artifactByID(t, rec.ArtifactID); stored != nil {
+			cp := *stored
+			return &cp, nil
+		}
+		return nil, fmt.Errorf("artifact receipt %s refers to missing artifact %s", requestID, rec.ArtifactID)
 	}
 	if !attachableTaskState(t.State) {
 		return nil, errors.New("a finished task cannot take new artifacts; record the change before it ends")
 	}
 	rev := t.RevisionNo()
-	// An explicit revision is a promise about what the caller is delivering
-	// for. A stale number is refused instead of being attached to the newer
-	// current revision; the retry path above is the way to replay an old
-	// operation.
-	if req.Revision != 0 && req.Revision != rev {
+	// The caller names the revision it is delivering for. A stale number is
+	// refused instead of being attached to the newer current revision; the
+	// retry path above is the way to replay an old operation.
+	if req.Revision != rev {
 		return nil, fmt.Errorf("artifact revision %d is not the current revision %d; a new attach names the current revision and a retry reuses its request_id", req.Revision, rev)
-	}
-	// Without an operation id, identical fields are only a retry of the same
-	// operation while the revision has not changed. After a rework the user
-	// commonly writes the new version to the same path with the same label,
-	// and that is a new deliverable.
-	for i := range t.Artifacts {
-		a := t.Artifacts[i]
-		if a.Revision == rev && a.Role == role && a.Kind == kind && a.Label == label && a.Ref == ref && a.Summary == summary {
-			cp := a
-			return &cp, nil
-		}
 	}
 	old := r.record.Task.Clone()
 	oldRequests := r.record.ArtifactRequests
@@ -313,14 +302,12 @@ func (p *PublicProgress) AttachArtifact(req TaskArtifactRequest) (*TaskArtifact,
 	}
 	t.Artifacts = append(t.Artifacts, a)
 	t.UpdatedAt = a.CreatedAt
-	if requestID != "" {
-		requests := make(map[string]taskArtifactRecord, len(oldRequests)+1)
-		for id, rec := range oldRequests {
-			requests[id] = rec
-		}
-		requests[requestID] = taskArtifactRecord{Hash: hash, ArtifactID: a.ID, Revision: rev}
-		r.record.ArtifactRequests = requests
+	requests := make(map[string]taskArtifactRecord, len(oldRequests)+1)
+	for id, rec := range oldRequests {
+		requests[id] = rec
 	}
+	requests[requestID] = taskArtifactRecord{Hash: hash, ArtifactID: a.ID, Revision: rev}
+	r.record.ArtifactRequests = requests
 	if err := p.save(r); err != nil {
 		r.record.Task = old
 		r.record.ArtifactRequests = oldRequests
