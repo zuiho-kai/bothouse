@@ -778,8 +778,14 @@ func assistantText(msg map[string]any) string {
 // transcripts (claude 2.1.x):
 //   - "You've hit your session limit · resets 10pm (Asia/Tokyo)"
 //   - "You've hit your weekly limit · resets <time> (<tz>)"
+//   - "You've hit your 5-hour limit · resets 6:50pm (Asia/Tokyo)" (claude 2.1.3xx, 10-28)
 //   - "API Error: Request rejected (429) · usage limit ..."
-var claudeQuotaPhrases = []string{"hit your session limit", "hit your weekly limit", "usage limit"}
+// The window name in "hit your <window> limit" keeps changing (session, weekly,
+// 5-hour), so claudeQuotaHitRe matches the family rather than each wording.
+var claudeQuotaPhrases = []string{"usage limit"}
+
+// claudeQuotaHitRe matches "hit your <any window> limit".
+var claudeQuotaHitRe = regexp.MustCompile(`(?i)\bhit your\s+[\w\- ]{1,30}?\s*limit\b`)
 
 // claudeQuotaResetRe captures the reset time after " · resets " in the notices
 // above, e.g. "10pm (Asia/Tokyo)".
@@ -792,8 +798,9 @@ func claudeQuotaExhausted(errKind, text string) (reset string, ok bool) {
 		return "", false
 	}
 	lower := strings.ToLower(text)
+	hit := claudeQuotaHitRe.MatchString(text)
 	for _, p := range claudeQuotaPhrases {
-		if strings.Contains(lower, p) {
+		if hit || strings.Contains(lower, p) {
 			if m := claudeQuotaResetRe.FindStringSubmatch(strings.TrimSpace(text)); m != nil {
 				reset = m[1]
 			}
