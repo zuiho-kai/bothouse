@@ -344,6 +344,13 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 		return "", errors.New("kind is only available for member reports")
 	}
 	if r == nil && adopt == nil {
+		// Chat channels with cards never receive a run token. Preserve the
+		// workspace-specific rejection for an attempted start there.
+		if req.Kind == "start" {
+			if err := p.checkWorkspaceCard(req.SessionKey); err != nil {
+				return "", err
+			}
+		}
 		return "", errors.New("run is not active")
 	}
 	source := r
