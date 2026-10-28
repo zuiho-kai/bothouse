@@ -386,7 +386,7 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, key st
 	if pool == nil {
 		session, err = starter.StartVoiceRelay(ctx, prior.ID, env)
 	} else {
-		session, reused, err = pool.acquire(ctx, key, prior, starter, env)
+		session, reused, err = pool.acquire(ctx, key, req.Stream, prior, starter, env)
 	}
 	if err != nil {
 		return "", nil, err

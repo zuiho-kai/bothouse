@@ -18,7 +18,7 @@ Refs #284。范围：bothouse `bridge/` 的私密语音 relay 与 ACP 会话生�
 
 1. **按 relay key 的 ACP 会话常驻**（`bridge/core/relay_voice_pool.go`）
    - 池键沿用现有 `relay_key = digest(from, to, session_key, scope)`，因此不同设备、不同角色、不同会话天然隔离，不会串话。
-   - 命中条件：`Alive()`、会话 id 与已记录 id 一致、未超 TTL、未超轮数；否则丢弃并严格 resume 重建，不静默新建。
+   - 命中条件：`Alive()`、**`stream` 设置与建会话时一致**、会话 id 与已记录 id 一致、未超 TTL、未超轮数；否则丢弃并严格 resume 重建，不静默新建。`CC_VOICE_STREAM` 只在建会话时生效，跨设置复用会让流式轮静默失去首句增量，因此该情形必须重建。
    - 回收：空闲 TTL（默认 600s）、累计轮数（默认 30）、`Alive()` 为 false、取消/失败/看门狗超时。`Close` 一律异步，最多 8s，不挡下一轮。
    - 开关：`[relay] voice_resident = false`（默认关，按设备灰度）；`voice_resident_idle_secs`、`voice_resident_max_turns` 可覆盖默认。
    - 关掉开关时行为与改动前完全一致（每轮新建并 Close）。
