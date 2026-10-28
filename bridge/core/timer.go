@@ -34,14 +34,16 @@ type TimerJob struct {
 	Handoff bool `json:"handoff,omitempty"`
 	// WaitUserQuiet: a wake that is not the user (workspace handback, dispatch receipt) waits
 	// until the user has stopped talking in the session (holdForUser).
-	WaitUserQuiet bool      `json:"wait_user_quiet,omitempty"`
-	SessionMode   string    `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run
-	Mode          string    `json:"mode,omitempty"`         // permission mode override; "" = use project default
-	TimeoutMins   *int      `json:"timeout_mins,omitempty"` // nil = default 30m; 0 = no limit; >0 = minutes
-	CreatedAt     time.Time `json:"created_at"`
-	Fired         bool      `json:"fired"`
-	FiredAt       time.Time `json:"fired_at,omitempty"`
-	LastError     string    `json:"last_error,omitempty"`
+	WaitUserQuiet bool `json:"wait_user_quiet,omitempty"`
+	// ReportID ties a workspace-handback wake to its pending-record entry (team_report_delivery.go).
+	ReportID    string    `json:"report_id,omitempty"`
+	SessionMode string    `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run
+	Mode        string    `json:"mode,omitempty"`         // permission mode override; "" = use project default
+	TimeoutMins *int      `json:"timeout_mins,omitempty"` // nil = default 30m; 0 = no limit; >0 = minutes
+	CreatedAt   time.Time `json:"created_at"`
+	Fired       bool      `json:"fired"`
+	FiredAt     time.Time `json:"fired_at,omitempty"`
+	LastError   string    `json:"last_error,omitempty"`
 
 	// resume: set (in memory only) when the job delivers a #624 K4 turn resume.
 	resume *turnResumeDelivery
@@ -331,6 +333,17 @@ func (ts *TimerScheduler) Start() error {
 			scheduled++
 		}
 	}
+	ts.mu.RLock()
+	engines := make([]*Engine, 0, len(ts.engines))
+	for _, e := range ts.engines {
+		engines = append(engines, e)
+	}
+	ts.mu.RUnlock()
+	for _, e := range engines {
+		// A bridge that stopped between queueing a workspace handback and its turn left the
+		// report pending; post it now instead of waiting for another handback.
+		e.recoverPendingReports(false)
+	}
 	slog.Info("timer: scheduler started", "scheduled", scheduled, "missed_fired", missed, "skipped_stale", skipped, "total", len(jobs))
 	return nil
 }
@@ -475,6 +488,8 @@ func (ts *TimerScheduler) executeJob(jobID string) {
 	boardTouchJob(engine, job.SessionKey) // maomao fork: off the channel task board's queue
 
 	if err != nil {
+		// A handback wake that never ran must not count as a delivered report.
+		engine.settleReportWake(job.ID, "", err)
 		slog.Error("timer: job failed", "id", jobID, "error", err)
 	} else {
 		slog.Info("timer: job completed", "id", jobID)
