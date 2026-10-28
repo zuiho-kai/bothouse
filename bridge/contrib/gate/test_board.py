@@ -158,7 +158,8 @@ class Increments(unittest.TestCase):
             self.assertEqual(log.read_text(), "")
             board.main(["pause", "1"])
             self.assertEqual(log.read_text().split(), ["workspace", "park", "--session-key", "feishu:oc_1",
-                                                       "--chat", "feishu:oc_chat", "--before", board.items()[0]["bound"], "--json"])
+                                                       "--chat", "feishu:oc_chat", "--before", board.items()[0]["bound"],
+                                                       "--stop", "--json"])  # 暂停 = 用户喊停，连同那一轮一起停（#571）
             self.assertNotIn("ws", board.items()[0])
             board.main(["resume", "1"]); board.main(["pause", "1"])
             calls = log.read_text().splitlines()  # 恢复时向桥收回（claim）、重新绑上，再停再放一次
@@ -194,7 +195,7 @@ esac
             board.main(["pause", "3"])
             calls = log.read_text()
             self.assertNotIn("STOLE", calls)
-            self.assertIn(f"workspace park --session-key discord:201 --chat discord:100 --before {bound} --json", calls)
+            self.assertIn(f"workspace park --session-key discord:201 --chat discord:100 --before {bound} --stop --json", calls)
             self.assertEqual(len(calls.splitlines()), 2)  # 1 和 2 各问一次（被拒），3 不问桥
         finally:
             os.environ["CC_BIN"] = "false"
