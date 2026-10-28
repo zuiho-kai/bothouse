@@ -55,9 +55,11 @@ func watchCheckAfter() time.Duration { return time.Duration(watchCheckAfterNs.Lo
 var watchMaxRenew = 0
 
 // watchBusyMaxRenew caps renewals granted only because a session of the workspace is still in
-// a turn (no owner post and no finished turn in the window). Without it a stuck turn that
-// holds the session renews forever under watchMaxRenew = 0 (PR #430 review P1). Two checks =
-// 30 minutes, the old cap. Source: the pre-#429 watchMaxRenew default of 2.
+// a turn with no agent event in the window (a stuck turn). A busy turn that keeps producing tool
+// calls/results or text events is real progress (workspaceEventActive) and does not use this
+// budget. Without the cap a stuck turn that holds the session renews forever under
+// watchMaxRenew = 0 (PR #430 review P1). Two checks = 30 minutes, the old cap. Source: the
+// pre-#429 watchMaxRenew default of 2.
 const watchBusyMaxRenew = 2
 
 // Live native background work retains its six-renewal budget.
@@ -66,8 +68,9 @@ const watchMaxBackgroundRenew = 6
 // watchCanRenew: a watch renewed n times may renew again on progress.
 func watchCanRenew(n int) bool { return watchMaxRenew <= 0 || n < watchMaxRenew }
 
-// watchProgress says why a check found progress. A busy-only renewal has its own budget;
-// real progress (a post, a finished turn on Feishu) is unlimited and resets that budget.
+// watchProgress says why a check found progress. A busy-only renewal (no agent event in the
+// window) has its own budget; real progress (a post, a finished turn on Feishu, a tool/text
+// event from a busy turn) is unlimited and resets that budget.
 type watchProgress int
 
 const (
@@ -431,18 +434,24 @@ var watchLeadingMentions = regexp.MustCompile(`^(?:(?:<@[!&]?\d+>|@[^\s【\[]+|\
 
 var watchFeishuMention = regexp.MustCompile(`user_id="([^"]+)"`)
 
-// workspaceProgress: the task in workspace key showed progress since `since`. Either a session of
-// the workspace is running a turn now (Session.Busy, checked first: a long turn is not stopped), or
-// the owner posted in the workspace channel since then, not counting status and stance lines. A
-// platform that cannot read channel history (Feishu) uses the sessions instead: a session of the
-// workspace ended a turn since then (Session.UpdatedAt; B9 plan 9b item 2). An error: the history
-// request failed (check retries it).
+// workspaceProgress: the task in workspace key showed progress since `since`. A busy session that
+// produced an agent event in the window (tool call/result, text stream: interactiveState.lastEventAt)
+// counts as real progress, so a working DSH/ACP member is not parked as a stuck turn. A busy session
+// without events is a busy-only renewal, capped by watchBusyMaxRenew. Otherwise the owner posted in
+// the workspace channel since then, not counting status and stance lines. A platform that cannot
+// read channel history (Feishu) uses the sessions instead: a session of the workspace ended a turn
+// since then (Session.UpdatedAt; B9 plan 9b item 2). An error: the history request failed (check
+// retries it).
 func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.Time) (watchProgress, error) {
 	running, pushed := w.workspaceBackgroundProgress(key, since)
 	if pushed || running && h.Renewed < watchMaxBackgroundRenew {
 		return watchProgressReal, nil
 	}
 	if !running && w.workspaceBusy(key) {
+		if w.workspaceEventActive(key, since) {
+			slog.Info("team watch: a busy session is producing agent events", "workspace", key, "chat", h.Chat)
+			return watchProgressReal, nil
+		}
 		if h.BusyRenewed < watchBusyMaxRenew {
 			slog.Info("team watch: a session of the workspace is running a turn", "workspace", key, "chat", h.Chat, "busy_renew", h.BusyRenewed)
 			return watchProgressBusy, nil
@@ -477,7 +486,7 @@ func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) 
 		e.interactiveMu.Lock()
 		var states []*interactiveState
 		for k, state := range e.interactiveStates {
-			if chatOf(k) == key {
+			if _, ok := interactiveSessionInWorkspace(k, key); ok {
 				states = append(states, state)
 			}
 		}
@@ -575,6 +584,53 @@ func (w *handoffWatch) workspaceBusy(key string) bool {
 		return busy
 	})
 	return busy
+}
+
+// interactiveSessionInWorkspace: the session key of an interactiveStates entry when it belongs to
+// workspace key. A multi-workspace engine keys the map "<workspace path>:<session key>"
+// (interactiveKeyForSessionKey); a single-workspace engine keys the session directly. A shared
+// channel session and a per-user session "<workspace>:<user>" both belong to the workspace.
+func interactiveSessionInWorkspace(stateKey, workspaceKey string) (string, bool) {
+	if stateKey == workspaceKey || strings.HasPrefix(stateKey, workspaceKey+":") {
+		return stateKey, true
+	}
+	i := strings.LastIndex(stateKey, ":"+workspaceKey)
+	if i > 0 && strings.ContainsAny(stateKey[:i], `/\`) {
+		session := stateKey[i+1:]
+		if session == workspaceKey || strings.HasPrefix(session, workspaceKey+":") {
+			return session, true
+		}
+	}
+	return "", false
+}
+
+// workspaceEventActive: any session of workspace key received an agent event at or after since.
+// Any session of the workspace counts (Issue #518's wording), so a sibling session can keep a
+// stuck task alive and hold its workspace slot; per-task isolation is a separate requirement and
+// not part of this fix. interactiveState.lastEventAt is bumped on every event from the agent
+// (tool call/result, text stream) and when a turn starts. A turn that only holds its session lock
+// without events leaves it older than the window, so the busy cap applies.
+func (w *handoffWatch) workspaceEventActive(key string, since time.Time) bool {
+	for _, e := range w.engines() {
+		if e == nil {
+			continue
+		}
+		e.interactiveMu.Lock()
+		var states []*interactiveState
+		for k, state := range e.interactiveStates {
+			if _, ok := interactiveSessionInWorkspace(k, key); !ok {
+				continue
+			}
+			states = append(states, state)
+		}
+		e.interactiveMu.Unlock()
+		for _, state := range states {
+			if at := state.lastEventAt.Load(); at != 0 && at >= since.UnixNano() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ownerSpoke: owner posted progress in the channel of workspace key at or after since. No owner
