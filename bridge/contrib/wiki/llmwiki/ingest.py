@@ -180,7 +180,8 @@ DREAM_NOTIFY = os.environ.get("WIKI_DREAM_NOTIFY", CFG["dream_notify"])
 SPLIT_ENGINE = os.environ.get("WIKI_SPLIT_ENGINE", CFG["split_engine"])  # Haiku won't split; luna/sol does it before Haiku writes
 SPLIT_AT = 0.9  # a page this full (lines or chars) is split before the next ingest
 NIGHT_BUDGET = int(os.environ.get("WIKI_NIGHT_BUDGET", 5 * 3600))  # seconds; the rest waits for the next night
-QUOTA_TEXT = ("hit your session limit", "usage limit", "rate limit")
+QUOTA_TEXT = ("usage limit", "rate limit")
+QUOTA_RE = re.compile(r"hit your [\w\- ]{1,30}?\s*limit\b")  # session / weekly / 5-hour / later windows
 quota_hit = False  # set by claude() when the subscription refuses the call
 LAST_ENGINE = ""  # engine/model that produced the accepted result of the last model_pass
 LAST_REJECTED = False  # last model_pass: the model finished but its result failed acceptance (vs. a call failure)
@@ -1254,7 +1255,7 @@ def claude(instruction, stdin="", label="?", context=None, model=None):
         log(f"{label} tokens: {record_usage(label, res)}")
     except ValueError:
         out, cost = (r.stdout or r.stderr)[-500:], 0
-    if r.returncode and any(q in out.lower() for q in QUOTA_TEXT):
+    if r.returncode and (QUOTA_RE.search(out.lower()) or any(q in out.lower() for q in QUOTA_TEXT)):
         global quota_hit
         quota_hit = True
     return r.returncode == 0, out.strip(), cost
