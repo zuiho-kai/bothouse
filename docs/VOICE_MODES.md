@@ -66,6 +66,13 @@ PYTHONPATH=. python -m tools.voice_latency_report <events.jsonl 或其目录> --
 - **记忆包**：预生成 JSON（人设、近期摘要、高频事实、最近语音对话），进程启动时预读，TTL 到点后台刷新；刷新失败保留上一版。
 - **语音日记**：每轮回答成功都追加一条 `voice-outbox.jsonl`（小脑与大脑轮次都写），字段含 `operation_id`、`transcript`、`answer`、`route`、`mode`、`model`、`confidence`、`escalated`；同一 `operation_id` 只写一次，写失败留在队列里下次重试。
 - **合并**：`merge_staging()` 只把未复核记录写进 `voice-staging.jsonl`，标注 `voice-origin / 未复核`；不改 wiki/DSH 权威记忆，不把模型推断写成用户事实，冲突留给大脑或主人裁决。
+- **合并入口**（可在每日任务或需要时手动跑）：
+
+```sh
+cd companion && PYTHONPATH=. python -m tools.voice_merge <voice-outbox.jsonl 所在目录>
+```
+
+本轮只提供入口，没有挂调度器；多久合并一次由使用者决定。
 
 ## 未做的部分
 

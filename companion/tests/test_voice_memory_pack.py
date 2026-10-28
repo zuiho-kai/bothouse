@@ -86,3 +86,12 @@ def test_extractor_facts_are_bounded_to_two(tmp_path):
     merge_staging(outbox, extractor=lambda record: ['一', '二', '三'])
     row = json.loads(outbox.staging.read_text(encoding='utf-8').splitlines()[0])
     assert row['facts'] == ['一', '二']
+
+
+def test_merge_tool_reports_written_rows(tmp_path, capsys):
+    outbox = VoiceOutbox(tmp_path)
+    outbox.append(record_turn('desk-gge', sample_turn(), mode='work', route='big'))
+    from tools.voice_merge import main
+    assert main([str(tmp_path)]) == 0
+    assert json.loads(capsys.readouterr().out) == {'written': 1, 'pending': 0}
+    assert (tmp_path / 'voice-staging.jsonl').is_file()
