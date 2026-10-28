@@ -59,7 +59,7 @@ func closeCronResponseBody(body io.Closer) {
 func runCronAdd(args []string) {
 	var project, sessionKey, cronExpr, prompt, execCmd, desc, dataDir, sessionMode string
 	var timeoutMins *int
-	var silent, mute bool
+	var silent, mute, poll bool
 
 	var positional []string
 	for i := 0; i < len(args); i++ {
@@ -118,6 +118,8 @@ func runCronAdd(args []string) {
 			silent = true
 		case "--mute":
 			mute = true
+		case "--poll":
+			poll = true
 		case "--help", "-h":
 			printCronAddUsage()
 			return
@@ -149,7 +151,11 @@ func runCronAdd(args []string) {
 		printCronAddUsage()
 		os.Exit(1)
 	}
-	if prompt != "" && execCmd != "" {
+	if poll && execCmd == "" {
+		fmt.Fprintln(os.Stderr, "Error: --poll needs --exec (the check script)")
+		os.Exit(1)
+	}
+	if prompt != "" && execCmd != "" && !poll {
 		fmt.Fprintln(os.Stderr, "Error: --prompt and --exec are mutually exclusive")
 		os.Exit(1)
 	}
@@ -173,6 +179,9 @@ func runCronAdd(args []string) {
 	}
 	if mute {
 		body["mute"] = true
+	}
+	if poll {
+		body["poll"] = true
 	}
 	if sessionMode != "" {
 		body["session_mode"] = sessionMode
@@ -638,6 +647,8 @@ Options:
       --timeout-mins <n>     Max minutes to wait per run (0 = no limit; default 30 if omitted)
       --silent               Suppress cron start notification
       --mute                 Post nothing (no start notification, no output)
+      --poll                 --exec is a check script: no output = nothing happens; output = one event
+                             in events.jsonl and the agent is woken with --prompt plus the output
       --data-dir <path>      Data directory (default: ~/.bothouse)
   -h, --help                 Show this help
 
