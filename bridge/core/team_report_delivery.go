@@ -98,10 +98,10 @@ func (e *Engine) loadReportsLocked() map[string]*pendingReport {
 
 // saveReportsLocked persists the map and drops dedupe records that aged out.
 // Callers hold teamExit.mu.
-func (e *Engine) saveReportsLocked() {
+func (e *Engine) saveReportsLocked() error {
 	path := e.reportsPath()
 	if path == "" {
-		return
+		return nil
 	}
 	now := time.Now()
 	for k, rec := range e.teamExit.reports {
@@ -111,15 +111,17 @@ func (e *Engine) saveReportsLocked() {
 	}
 	b, err := json.Marshal(e.teamExit.reports)
 	if err != nil {
-		return
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		slog.Error("report delivery: create dir failed", "path", path, "error", err)
-		return
+		return err
 	}
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		slog.Error("report delivery: save failed", "path", path, "error", err)
+		return err
 	}
+	return nil
 }
 
 // reportSeenRecently reports whether this handback is still pending or was delivered within the
@@ -138,18 +140,52 @@ func (e *Engine) reportSeenRecently(key string) bool {
 }
 
 // rememberReport records a queued handback wake. false: an equal report is still pending or was
-// just delivered, so the caller must not queue another wake.
+// just delivered, so the caller must not queue another wake, or the record could not be saved.
 func (e *Engine) rememberReport(rec *pendingReport) bool {
+	ok, _ := e.rememberReportErr(rec)
+	return ok
+}
+
+// rememberReportErr keeps the dedupe answer apart from the persistence error: a record that
+// could not be written must not become a wake's only copy. Callers hold no lock.
+func (e *Engine) rememberReportErr(rec *pendingReport) (bool, error) {
 	e.teamExit.mu.Lock()
 	defer e.teamExit.mu.Unlock()
 	if old := e.loadReportsLocked()[rec.Key]; old != nil {
 		if !old.delivered() || time.Since(old.DeliveredAt) <= teamReportDedupe {
-			return false
+			return false, nil
 		}
 		delete(e.teamExit.reports, rec.Key)
 	}
 	e.teamExit.reports[rec.Key] = rec
-	e.saveReportsLocked()
+	if err := e.saveReportsLocked(); err != nil {
+		delete(e.teamExit.reports, rec.Key)
+		return false, err
+	}
+	return true, nil
+}
+
+// queueReportWake persists rec, then queues job. The order is the point: AddJob runs a job
+// whose time has already come, so its turn can settle before a later write; that settle would
+// find no record, and a record written afterwards has no LastError for a retry. A record that
+// cannot be saved, or a job that cannot be queued, makes the caller post the original (false).
+func (e *Engine) queueReportWake(job *TimerJob, rec *pendingReport, enqueue func(*TimerJob) error) bool {
+	ok, err := e.rememberReportErr(rec)
+	if err != nil {
+		slog.Error("report delivery: cannot persist the pending report; not queueing the wake",
+			"workspace", rec.Workspace, "board_item", rec.Board, "error", err)
+		return false
+	}
+	if !ok {
+		return true // the same handback is already pending or was just delivered
+	}
+	if err := enqueue(job); err != nil {
+		slog.Error("report delivery: queueing the wake failed; caller posts the original",
+			"workspace", rec.Workspace, "board_item", rec.Board, "error", err)
+		// The caller posts the same text now; keeping the record pending would post it twice.
+		e.dropDeliveredReport(rec.Key)
+		return false
+	}
 	return true
 }
 
@@ -272,10 +308,21 @@ func (e *Engine) deliverPendingReport(rec *pendingReport) error {
 	return err
 }
 
-// recoverPendingReports runs at scheduler start and on the team watch. At start every old
-// record is settled (no turn is running then); on the watch onlyFailed retries records whose
-// fallback send already failed, because a record with no attempt may be a wake queued behind a
-// busy session and posting now would duplicate it.
+// reportWakeLive: this process still owns a wake for the record — queued, waiting for the user
+// to go quiet, or running now. A fired or missing job can never settle it, so recovery must.
+func (e *Engine) reportWakeLive(jobID string) bool {
+	if jobID == "" || e.timerScheduler == nil || e.timerScheduler.Store() == nil {
+		return false
+	}
+	job := e.timerScheduler.Store().Get(jobID)
+	return job != nil && !job.Fired
+}
+
+// recoverPendingReports runs at scheduler start and on the team watch. At start the scheduler
+// has already re-armed every job it could keep, so a record whose wake is not live can never be
+// settled by a turn and is delivered here. On the watch onlyFailed first waits out the grace
+// window (a record is persisted a moment before its AddJob), then retries every record whose
+// wake is gone, whether the last fallback failed or never ran at all.
 func (e *Engine) recoverPendingReports(onlyFailed bool) {
 	if e == nil || e.dataDir == "" {
 		return
@@ -289,17 +336,18 @@ func (e *Engine) recoverPendingReports(onlyFailed bool) {
 	for _, k := range keys {
 		e.teamExit.mu.Lock()
 		rec := e.teamExit.reports[k]
-		if rec == nil || rec.delivered() || time.Since(rec.CreatedAt) < teamReportRecoveryGrace ||
-			(onlyFailed && rec.LastError == "") {
+		if rec == nil || rec.delivered() {
 			e.teamExit.mu.Unlock()
 			continue
 		}
 		jobID := rec.JobID
+		createdAt := rec.CreatedAt
 		e.teamExit.mu.Unlock()
-		if e.timerScheduler != nil && e.timerScheduler.Store() != nil {
-			if job := e.timerScheduler.Store().Get(jobID); job != nil && !job.Fired {
-				continue // queued and not fired yet
-			}
+		if e.reportWakeLive(jobID) {
+			continue // queued behind a busy session, waiting, or running now
+		}
+		if onlyFailed && time.Since(createdAt) < teamReportRecoveryGrace {
+			continue // just persisted; AddJob may not have queued it yet
 		}
 		e.settleReportRecord(k, "", nil)
 	}

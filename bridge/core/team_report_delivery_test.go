@@ -178,10 +178,61 @@ func TestReportRecoveryAfterRestart(t *testing.T) {
 	}
 }
 
-// TestReportPeriodicSweepOnlyRetriesFailed: a record with no failed attempt may still be a wake
-// queued behind a busy session; the minute sweep must leave it alone, but retry a failed post.
-func TestReportPeriodicSweepOnlyRetriesFailed(t *testing.T) {
+// TestReportRecentDeadWakeRecoveredAtStart reproduces the P1: a record younger than the grace
+// window whose wake already fired (or is gone) was skipped at start and then never retried,
+// because the minute sweep only looked at LastError.
+func TestReportRecentDeadWakeRecoveredAtStart(t *testing.T) {
 	e, p := reportFixture(t)
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.timerScheduler = NewTimerScheduler(store)
+	rec := pendingReportForTest("r11")
+	rec.CreatedAt = time.Now() // younger than teamReportRecoveryGrace
+	e.rememberReport(rec)
+	e.recoverPendingReports(false)
+	if got := p.sentTo("discord:chat1"); len(got) != 1 || !strings.Contains(got[0], "看门修复完成") {
+		t.Fatalf("recent dead-wake record was not recovered at start: %#v", got)
+	}
+}
+
+// TestReportStartLeavesLiveWakeAlone: the scheduler re-armed the job, so its turn may still
+// deliver the report; posting now would duplicate it.
+func TestReportStartLeavesLiveWakeAlone(t *testing.T) {
+	e, p := reportFixture(t)
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.timerScheduler = NewTimerScheduler(store)
+	if err := store.Add(&TimerJob{ID: "job-r12", Project: "orange", SessionKey: "discord:chat1",
+		ScheduledAt: time.Now().Add(time.Hour), Prompt: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	rec := pendingReportForTest("r12")
+	rec.CreatedAt = time.Now().Add(-3 * time.Minute)
+	e.rememberReport(rec)
+	e.recoverPendingReports(false)
+	if got := p.sentTo("discord:chat1"); len(got) != 0 {
+		t.Fatalf("start recovery posted over a live wake: %#v", got)
+	}
+}
+
+// TestReportPeriodicSweepRetriesDeadWake: a record with no failed attempt may still be a wake
+// queued behind a busy session, so the sweep must leave a live wake alone. Once the wake is
+// gone, the sweep must post it even though LastError is empty.
+func TestReportPeriodicSweepRetriesDeadWake(t *testing.T) {
+	e, p := reportFixture(t)
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.timerScheduler = NewTimerScheduler(store)
+	if err := store.Add(&TimerJob{ID: "job-r8", Project: "orange", SessionKey: "discord:chat1",
+		ScheduledAt: time.Now().Add(time.Hour), Prompt: "x"}); err != nil {
+		t.Fatal(err)
+	}
 	rec := pendingReportForTest("r8")
 	rec.CreatedAt = time.Now().Add(-3 * time.Minute)
 	e.rememberReport(rec)
@@ -189,14 +240,52 @@ func TestReportPeriodicSweepOnlyRetriesFailed(t *testing.T) {
 	if got := p.sentTo("discord:chat1"); len(got) != 0 {
 		t.Fatalf("periodic sweep posted a still-queued wake: %#v", got)
 	}
-	e.teamExit.mu.Lock()
-	e.teamExit.reports["r8"].Attempts = 1
-	e.teamExit.reports["r8"].LastError = "platform rejected the post"
-	e.saveReportsLocked()
-	e.teamExit.mu.Unlock()
+	store.MarkFired("job-r8", nil)
 	e.recoverPendingReports(true)
 	if got := p.sentTo("discord:chat1"); len(got) != 1 || !strings.Contains(got[0], "看门修复完成") {
-		t.Fatalf("periodic sweep did not retry a failed post: %#v", got)
+		t.Fatalf("periodic sweep did not retry a dead wake without LastError: %#v", got)
+	}
+}
+
+// TestReportSettlesBetweenPersistAndEnqueue reproduces the P2: AddJob runs a due job at once,
+// so its turn can settle before the queue call returns. The record must be persisted first;
+// a settle before the record is written finds nothing, and the later record is never retried.
+func TestReportSettlesBetweenPersistAndEnqueue(t *testing.T) {
+	e, p := reportFixture(t)
+	rec := pendingReportForTest("r13")
+	var enqueued bool
+	ok := e.queueReportWake(&TimerJob{ID: rec.JobID}, rec, func(*TimerJob) error {
+		enqueued = true
+		e.settleReportRecord(rec.Key, "", nil) // the due wake's turn ends with nothing visible
+		return nil
+	})
+	if !ok || !enqueued {
+		t.Fatalf("wake not queued: ok=%v enqueued=%v", ok, enqueued)
+	}
+	if got := p.sentTo("discord:chat1"); len(got) != 1 || !strings.Contains(got[0], "看门修复完成") {
+		t.Fatalf("settle between persist and enqueue lost the report: %#v", got)
+	}
+	e.recoverPendingReports(true)
+	if got := p.sentTo("discord:chat1"); len(got) != 1 {
+		t.Fatalf("report posted twice: %#v", got)
+	}
+}
+
+// TestReportEnqueueFailureDoesNotStrandRecord: when the wake cannot be queued the caller posts
+// the original, so the persisted record must not stay pending and post it again later.
+func TestReportEnqueueFailureDoesNotStrandRecord(t *testing.T) {
+	e, p := reportFixture(t)
+	rec := pendingReportForTest("r14")
+	rec.CreatedAt = time.Now().Add(-3 * time.Minute)
+	ok := e.queueReportWake(&TimerJob{ID: rec.JobID}, rec, func(*TimerJob) error {
+		return errors.New("queue closed")
+	})
+	if ok {
+		t.Fatal("enqueue failure reported success")
+	}
+	e.recoverPendingReports(true)
+	if got := p.sentTo("discord:chat1"); len(got) != 0 {
+		t.Fatalf("record stranded after enqueue failure: %#v", got)
 	}
 }
 

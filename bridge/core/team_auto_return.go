@@ -94,13 +94,11 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 		WaitUserQuiet: true,
 		CreatedAt:     time.Now(),
 	}
-	if err := lead.timerScheduler.AddJob(job); err != nil {
-		slog.Error("team exit: hand forwarded reply to lead failed", "lead", lead.name, "parent", parent, "workspace", ws, "error", err)
-		return false
-	}
+	// Persist the pending record before the wake is queued (team_report_delivery.go): AddJob
+	// fires a job whose time has already come, so its turn can settle before a later write.
 	// AddJob only proves the wake is queued, not that the user saw a report; the record is
-	// cleared when the lead's turn produces one (team_report_delivery.go).
-	lead.rememberReport(&pendingReport{
+	// cleared when the lead's turn produces one.
+	rec := &pendingReport{
 		Key:       key,
 		JobID:     job.ID,
 		Platform:  p.Name(),
@@ -114,8 +112,8 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 		Session:   wsSession,
 		Posted:    posted,
 		CreatedAt: time.Now(),
-	})
-	return true
+	}
+	return lead.queueReportWake(job, rec, lead.timerScheduler.AddJob)
 }
 
 // chatLeadPrompt is the lead's turn for a workspace reply: the task's background, then the
