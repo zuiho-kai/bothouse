@@ -14,6 +14,11 @@ that clock, in increasing fidelity:
 Rows without ``speech_end_ms`` are reported separately (submit-to-playback),
 never silently mixed into the acceptance number. The tool only reads recorded
 events; it never estimates or fills in missing samples.
+
+Acceptance targets (频道 2026-10-28 明确口径): companion-mode answers within
+2 seconds and work-mode answers within 4 seconds, measured from the user
+finishing speech to the first effective answer sentence playing, excluding
+acknowledgment tones. ``auto`` is judged by the route it chose.
 """
 from __future__ import annotations
 
@@ -26,6 +31,8 @@ import statistics
 
 METRICS = ('e2e_first_playback_ms', 'e2e_first_audio_ms',
            'first_playback_ms', 'submit_to_first_audio_ms')
+# 来源：频道 2026-10-28 明确口径——陪伴 2 秒、工作 4 秒（用户说完→第一句有效回答出声）。
+TARGETS_BY_ROUTE = {'small': 2000, 'big': 4000}
 
 
 def percentile(values: list[float], ratio: float) -> float:
@@ -73,7 +80,8 @@ def summarize(paths: list[Path]) -> dict:
     result = {'files': [str(p) for p in paths], 'days': sorted(days),
               'groups': {}, 'samples': 0}
     for (mode, metric), values in sorted(groups.items()):
-        result['groups'][f'{mode} {metric}'] = {
+        route = mode.rsplit('/', 1)[-1]
+        entry = {
             'n': len(values),
             'p50': round(percentile(values, 0.5), 1),
             'p90': round(percentile(values, 0.9), 1),
@@ -81,5 +89,11 @@ def summarize(paths: list[Path]) -> dict:
             'max': round(max(values), 1),
             'mean': round(statistics.fmean(values), 1),
         }
+        target = TARGETS_BY_ROUTE.get(route)
+        if metric == 'e2e_first_playback_ms' and target:
+            entry['target_ms'] = target
+            entry['within_target'] = sum(1 for value in values if value <= target)
+            entry['pass_rate'] = round(entry['within_target'] / len(values), 3)
+        result['groups'][f'{mode} {metric}'] = entry
         result['samples'] = max(result['samples'], len(values))
     return result

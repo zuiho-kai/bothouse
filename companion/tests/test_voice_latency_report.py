@@ -30,7 +30,10 @@ def test_grouped_distribution_uses_recorded_samples_only(tmp_path):
     assert small['n'] == 3
     assert small['p50'] == 1900
     assert small['min'] == 1800 and small['max'] == 2100
-    assert result['groups']['work/big e2e_first_playback_ms']['n'] == 1
+    assert small['target_ms'] == 2000 and small['within_target'] == 2
+    assert small['pass_rate'] == 0.667
+    work = result['groups']['work/big e2e_first_playback_ms']
+    assert work['n'] == 1 and work['target_ms'] == 4000 and work['within_target'] == 0
     assert 'companion/small first_playback_ms' in result['groups']
     assert result['days'] == ['2026-10-28']
 
