@@ -11,6 +11,10 @@ for k in ("GATE_TEAM", "GATE_PLAYBOOK"):
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ctxsvc, lead  # noqa: E402
 
+# 和别的测试一起跑（pytest）时 lead 可能早被别的测试按线上目录导入过，上面的环境变量不再生效；
+# 2026-10-28 17:09 就这样把 set_lead("dsh-claude") 写进了线上 lead.json，桥认不出主角色、任务板全被删。
+lead.LEAD_FILE = Path(os.environ["GATE_LEAD_FILE"])
+
 MARK = "队友空着，就给她们安排活"
 
 
