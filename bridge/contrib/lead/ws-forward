@@ -54,6 +54,11 @@ def main(argv):
         if rec is None:
             sys.exit(f"ws-forward: {path} 没有 ws-handoff 记录")
         last = {"file": rec.get("file") or path, "channel": rec.get("ws_key") or rec["channel"]}
+    hit = board.paused_item(last["file"])
+    if hit and hit.get("pause_why") == board.ASK_WHY and not hit.get("ws"):
+        # 提问后工作区已让出（board ask / ws-up --ask）：答复交 ws-handoff --resume 找空工作区接着做，不发去旧工作区
+        r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(hit["id"]), argv[0]])
+        sys.exit(r.returncode)
     append_result(last["file"], argv[0], time.strftime("%Y-%m-%d %H:%M:%S"))
     r = subprocess.run(timer_cmd(last["channel"], last["file"], argv[0]), capture_output=True, text=True)
     if r.returncode != 0:

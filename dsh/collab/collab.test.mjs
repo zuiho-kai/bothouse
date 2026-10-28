@@ -1211,7 +1211,7 @@ test('team rules: a prompt carries only the room mode section (PR #138 review 4,
   const mixed = promptText(room, member, []);
   for (const text of [solo, team, mixed]) {
     assert.match(text, /\[团队模式规矩/);
-    assert.match(text, /默认达到 3 件就算忙/);
+    assert.match(text, /只做一件活，满 4 个就排队/);
     assert.match(text, /拿不准的设定，不要自己定：在工作区用 \[ask\] 转到聊天频道问用户/);
     assert.match(text, /主角色拿不准也一样/);
     assert.match(text, /写的人不验收自己的活/);
