@@ -341,7 +341,7 @@ func TestEnsureDSHAttachmentPatchUpgrade(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(home, "cordis.patch.yml"), []byte("- id: attachment-local\n  config:\n    maxImageBytes: 100\n"), 0o644)
 	dir := t.TempDir()
 	patch := filepath.Join(dir, "whale.patch.yml")
-	old := dshProviderPatch("whale", "https://x/anthropic", "m") + dshHookPatch("/b.js", "/s.json", "/w")
+	old := dshProviderPatch("whale", "https://x/anthropic", "m", false) + dshHookPatch("/b.js", "/s.json", "/w")
 	_ = os.WriteFile(patch, []byte(old), 0o644)
 	opts := map[string]any{"args": []any{"--profile", "acp", "--patch", patch}, "env": map[string]any{"DSH_HOME": home}}
 	changed, err := EnsureDSHRoleAttachmentPatch(opts)
@@ -349,7 +349,7 @@ func TestEnsureDSHAttachmentPatchUpgrade(t *testing.T) {
 		t.Fatalf("changed=%v err=%v", changed, err)
 	}
 	b, _ := os.ReadFile(patch)
-	want := dshProviderPatch("whale", "https://x/anthropic", "m") +
+	want := dshProviderPatch("whale", "https://x/anthropic", "m", false) +
 		"- id: attachment-local\n  config:\n    maxImageBytes: 100\n    maxImageDimension: 65535\n" +
 		dshHookPatch("/b.js", "/s.json", "/w")
 	if string(b) != want {
