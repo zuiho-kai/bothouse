@@ -227,7 +227,18 @@ func (e *Engine) quotaCandidate(session, title string, reserved map[string]bool)
 	if err != nil {
 		return nil
 	}
-	bound := rm.ListBoundBots(chat, e.name)
+	// The chat's effective binding: a manual /bind plus the configured team (same
+	// team_status_dir). ListBoundBots saw only manual /bind entries, so a team that never ran
+	// /bind (no relay_bindings.json) had no candidate and the cooling lead was never replaced.
+	plat, _, _ := strings.Cut(session, ":")
+	bound := map[string]string{}
+	if b := rm.EffectiveBindingFor(plat, chat, e.name); b != nil {
+		for k, v := range b.Bots {
+			if k != e.name {
+				bound[k] = v
+			}
+		}
+	}
 	var candidates []*Engine
 	for _, peer := range e.watchEngines() {
 		if peer == e || reserved[peer.name] || peer.IsPaused() || peer.ctx.Err() != nil ||
@@ -237,7 +248,6 @@ func (e *Engine) quotaCandidate(session, title string, reserved map[string]bool)
 		if _, ok := bound[peer.name]; !ok {
 			continue
 		}
-		plat, _, _ := strings.Cut(session, ":")
 		if peer.lookupReadyPlatform(plat) != nil {
 			candidates = append(candidates, peer)
 		}
@@ -308,44 +318,61 @@ func (e *Engine) quotaBusy(session string) bool {
 	return e.watchDelegatedWork(teamChatKey(session))
 }
 
+// quotaSwitchLead moves the primary role to target. lead.json in the data directory is the one
+// record of who leads: it is written here in every case, then a configured gate is told as
+// well. Before, with a gate configured only the gate was told and the switch counted only if
+// lead.json changed afterwards; a gate that keeps its own lead file (an external gate, not the
+// bundled one started with BOTHOUSE_DATA_DIR) never changed it, so every takeover failed and
+// the gate and the bridge each kept their own lead (2026-10-28: gate said 鲸鱼娘 since 10-21,
+// lead.json said 橘 while 橘 was cooling).
 func (e *Engine) quotaSwitchLead(target *Engine, now time.Time) (string, error) {
-	if e.gate != nil {
-		u, err := url.Parse(e.gate.liveURL())
-		if err != nil {
-			return "", err
-		}
-		u.Path, u.RawQuery = "/lead", ""
-		body, _ := json.Marshal(map[string]string{"action": "set", "who": target.name})
-		ctx, cancel := context.WithTimeout(e.ctx, 5*time.Second)
-		defer cancel()
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(body))
-		if err != nil {
-			return "", err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return "", fmt.Errorf("quota switch gate: %w", err)
-		}
-		defer resp.Body.Close()
-		var out struct {
-			OK bool `json:"ok"`
-		}
-		if err := json.NewDecoder(io.LimitReader(resp.Body, 8192)).Decode(&out); err != nil {
-			return "", err
-		}
-		if resp.StatusCode != http.StatusOK || !out.OK {
-			return "", fmt.Errorf("quota switch gate: HTTP %d", resp.StatusCode)
-		}
-	} else if err := writeLeadSelectionFile(e.dataDir, target.name, target.DisplayName(), now); err != nil {
+	if err := writeLeadSelectionFile(e.dataDir, target.name, target.DisplayName(), now); err != nil {
 		return "", err
 	}
 	sel, ok := readLeadSelectionFull(e.dataDir)
 	if !ok || sel.Lead != target.name {
 		return "", fmt.Errorf("quota switch: shared lead selection did not change")
 	}
+	if e.gate != nil {
+		if err := e.notifyGateLead(target.name); err != nil {
+			slog.Warn("quota switch: lead.json written, gate not told", "to", target.name, "error", err)
+		}
+	}
 	target.observeLeadSelection()
 	return sel.At, nil
+}
+
+// notifyGateLead tells the gate (POST /lead set) who leads now, for a gate that keeps its own
+// copy. The bundled gate reads lead.json itself; telling it again is harmless.
+func (e *Engine) notifyGateLead(who string) error {
+	u, err := url.Parse(e.gate.liveURL())
+	if err != nil {
+		return err
+	}
+	u.Path, u.RawQuery = "/lead", ""
+	body, _ := json.Marshal(map[string]string{"action": "set", "who": who})
+	ctx, cancel := context.WithTimeout(e.ctx, 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("quota switch gate: %w", err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8192)).Decode(&out); err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK || !out.OK {
+		return fmt.Errorf("quota switch gate: HTTP %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func (e *Engine) quotaTick(now time.Time) {

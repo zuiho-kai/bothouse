@@ -23,9 +23,10 @@ import (
 // forward-only.
 //
 // The forwarded copy starts with 📬, a prefix every bot drops as a notice
-// (platform/discord isBotNotice), and carries no user mentions, so it never
-// wakes a bot in the chat channel (user 2026-10-24 「这个要做成产品」, forwarded
-// records are for the user to read).
+// (platform/discord isBotNotice), and carries no user mentions, so the post itself
+// wakes no bot in the chat channel. The chat channel's lead gets the content as an
+// in-process turn instead (wakeChatLead, team_auto_return.go), so it can tell the user;
+// other bots still ignore it, and the lead's reply stays in the chat channel.
 
 // WorkspaceParentResolver tells whether a channel is a workspace and which
 // chat channel it belongs to. NewEngine installs the engine itself (block D's
@@ -160,6 +161,13 @@ func newAskID() string {
 // It returns the forwarded ask id ("" for a report or when nothing was sent).
 func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) string {
 	kind, body, ok := parseExitKind(reply)
+	auto := false
+	if !ok && p != nil && strings.TrimSpace(reply) != "" && e.workspaceHasOpenHandoff(sessionKey) {
+		// A workspace turn that ends without a marker while a handoff is open is still the
+		// answer to that handoff: it goes back as a [report] (user 2026-10-28 「工作区队列做完了
+		// 为什么没返回」).
+		kind, body, ok, auto = exitKindReport, strings.TrimSpace(reply), true, true
+	}
 	var problems []string
 	if ok && kind == exitKindAsk {
 		problems = askEvidenceProblems(body)
@@ -181,8 +189,8 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		parent, ok = e.workspaceParent(ws)
 	}
 	if !ok {
-		slog.Warn("team exit: no chat channel for this workspace; the answer stays in the workspace",
-			"workspace", ws, "session", sessionKey)
+		slog.Error("team exit: no chat channel for this workspace; the answer stays in the workspace",
+			"workspace", ws, "session", sessionKey, "auto", auto)
 		return ""
 	}
 	if _, id, full := strings.Cut(parent, ":"); full {
@@ -190,7 +198,7 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	}
 	rec, ok := p.(ReplyContextReconstructor)
 	if !ok {
-		slog.Warn("team exit: platform cannot rebuild a reply context", "platform", p.Name())
+		slog.Error("team exit: platform cannot rebuild a reply context", "platform", p.Name(), "workspace", ws)
 		return ""
 	}
 	if problems != nil {
@@ -199,7 +207,7 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	}
 	rc, err := rec.ReconstructReplyCtx(p.Name() + ":" + parent)
 	if err != nil {
-		slog.Warn("team exit: chat channel unreachable", "parent", parent, "error", err)
+		slog.Error("team exit: chat channel unreachable", "parent", parent, "workspace", ws, "error", err)
 		return ""
 	}
 	bot := e.exitBotName()
@@ -223,12 +231,15 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 			text = header + c
 		}
 		if err := p.Send(e.ctx, rc, text); err != nil {
-			slog.Warn("team exit: forward failed", "parent", parent, "error", err)
+			slog.Error("team exit: forward failed", "parent", parent, "workspace", ws, "error", err)
 			break
 		}
 		sent = append(sent, text)
 	}
-	slog.Info("team exit: forwarded", "kind", kind, "workspace", ws, "parent", parent, "chunks", len(sent))
+	slog.Info("team exit: forwarded", "kind", kind, "auto", auto, "workspace", ws, "parent", parent, "chunks", len(sent))
+	if len(sent) > 0 {
+		e.wakeChatLead(p, parent, ws, bot, kind, body)
+	}
 	if id == "" || len(sent) == 0 {
 		return ""
 	}

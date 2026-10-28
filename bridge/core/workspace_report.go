@@ -80,6 +80,9 @@ func (e *Engine) finishWorkspaceReportTurn(key, text string) bool {
 	if valid && kind == exitKindAsk {
 		valid = askEvidenceProblems(body) == nil
 	}
+	if kind == "" && strings.TrimSpace(text) != "" && e.workspaceHasOpenHandoff(key) {
+		valid = true // forwardWorkspaceExit sent this unmarked reply back as a [report]
+	}
 	e.pendingResetMu.Lock()
 	r := e.workspaceReports[key]
 	if r == nil {
