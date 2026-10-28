@@ -342,12 +342,8 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 		live := teamTaskBoardLive(items, chat)
 		index, indexLive := renderTeamTaskIndex(files, chat, e.i18n.CurrentLang())
 		if kind == teamBoardFull {
-			home, _ := e.WorkspaceParent(chat)
-			if home == "" {
-				home = teamMainChat(e.dataDir)
-			}
 			content = withTeamTaskBoard(index, func(budget int) string {
-				return renderWorkspaceTaskBoardFit(items, chat, home, now, budget)
+				return renderWorkspaceTaskBoardFit(items, chat, now, budget)
 			})
 			live = live || indexLive
 		} else {
