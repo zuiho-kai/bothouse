@@ -92,18 +92,21 @@ accept 走 POST /task/accept，只允许 result_ready / waiting_user；只有真
 
 ~~~sh
 cc-connect task artifact --data-dir /path/to/data --project fish --id task-xxx \
+  --request-id material-20261022-1 --revision 1 \
   --role input --kind image --label '用户原图' --locator 'https://example.com/a.png'
 cc-connect task artifact --data-dir /path/to/data --project fish --id task-xxx \
+  --request-id cover-20261022-1 --revision 1 \
   --role output --kind file --label '初稿' --locator '/tmp/cover-v1.png'
 cc-connect task rework --data-dir /path/to/data --project fish --id task-xxx \
   --artifact task-xxx:a2 --request-id rw-20261022-1 --feedback '把背景改成蓝色'
 ~~~
 
-- artifact 走 POST /task/artifact，role 只能是 input/output；kind 取 file/image/video/audio/link/text。同一任务内完全相同的重复附加（即使修订已推进）返回同一条记录并按原修订保留，避免丢失回执的重试被绑到新修订；新版本应使用不同的 label、locator 或 summary。已完成、已取消或已失败的任务不接受新产物，先改任务或另开新任务。
-- rework 走 POST /task/rework，必须带稳定的 `--request-id`：同一次修改操作重试要复用同一个 id，服务端返回已提交的回执（修订号与事件），不再加修订或写事件；同 id 但内容不同会被拒绝；换 id 即使文字相同也是一次新请求。回执随任务日志落盘，重启后仍能识别迟到重试。rework 把修改意见绑定到明确产物并让修订号加一、状态回到 in_progress。旧产物和事件保留；上一条 result 摘要会清空，因为它描述的是旧版本。它不执行修改，也不代表验收；重新交付后仍需真人 accept。
+- artifact 走 POST /task/artifact，role 只能是 input/output；kind 取 file/image/video/audio/link/text。`--request-id` 是一次附加操作的稳定标识：重试同一次附加要复用它，服务端返回原产物（含原修订号），即使任务已推进或桥接重启；同 id 但内容不同会被拒绝；换 id 即使字段完全相同也是一次新附加。用户返工后常把新版本写回同一路径、沿用同一 label，也应用新 id 登记到当前修订，不能靠改文案字段来制造“新身份”。不带 id 时只在当前修订内做重复判定，跨修订不再返回旧记录。
+- `--revision` 是调用方声称交付的修订号，取自 show：与当前修订不符时拒绝，避免迟到请求被静默绑到新修订；重试旧操作应改用原 `--request-id`，服务端会返回当时记录的原产物。已完成、已取消或已失败的任务不接受新产物，先改任务或另开新任务。
+- rework 走 POST /task/rework，必须带稳定的 `--request-id`：同一次修改操作重试要复用同一个 id，服务端返回同一条操作回执（请求 id、目标产物、修订号、事件 id 与序号），不再加修订或写事件；同 id 但内容不同会被拒绝；换 id 即使文字相同也是一次新请求。响应同时带当前 task 快照和 `receipt`；迟到重试时 task 可能已是更新版本，但 `receipt` 仍是该请求自己的修订、事件和目标，不会把任务回滚成旧快照。回执随任务日志落盘，重启后仍能识别迟到重试。rework 把修改意见绑定到明确产物并让修订号加一、状态回到 in_progress。旧产物和事件保留；上一条 result 摘要会清空，因为它描述的是旧版本。它不执行修改，也不代表验收；重新交付后仍需真人 accept。
 - 有多个 output 时，rework 必须用 --artifact 指名；只有一个 output 时自动指向它；没有 output 时允许先登记意见。--artifact 只能是 output，input 是用户素材和历史，不能被当作返工对象；指名 input 会在写入前拒绝，不改修订、事件或状态。调用方不能根据“最新文件”猜关联，也不能把另一个任务的产物串进来。
 - list/show 会显示修订号和产物数量；show 仍是本地查询，不包含 run token、模型推理或原始工具日志。task list 对老任务（revision 为 0）按第一版处理。
-- 先落盘再确认：写失败返回错误并恢复内存状态（任务与 request-id 回执一起回滚），重试必须真正落盘。重启后修订、产物、返工事件和 request-id 回执从同一任务日志恢复。此能力不改变卡片、语音或验收的既有语义，也不代表 QQ 已接通、产物已上传或空间已发布。
+- 先落盘再确认：写失败返回错误并恢复内存状态（任务、产物与两类 request-id 回执一起回滚），重试必须真正落盘。重启后修订、产物、返工事件和 request-id 回执从同一任务日志恢复。此能力不改变卡片、语音或验收的既有语义，也不代表 QQ 已接通、产物已上传或空间已发布。
 
 ## 置顶状态栏里的任务入口
 

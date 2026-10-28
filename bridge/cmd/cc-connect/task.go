@@ -97,7 +97,8 @@ func taskCommand(args []string, out io.Writer) error {
 	locator := f.String("locator", "", "artifact reference: URL, repository path or absolute path (artifact only)")
 	summary := f.String("summary", "", "optional note about the artifact (artifact only)")
 	artifact := f.String("artifact", "", "artifact id the change is about (output only, rework only)")
-	requestID := f.String("request-id", "", "stable operation id for one rework; reuse it when retrying that change (rework only)")
+	requestID := f.String("request-id", "", "stable operation id for one artifact attach or rework; reuse it when retrying that operation")
+	revision := f.Int("revision", 0, "task revision this artifact is delivered for (artifact only; retries reuse --request-id)")
 	feedback := f.String("feedback", "", "the change request in the owner's words (rework only)")
 	limit := f.Int("limit", 10, "how many tasks to list")
 	dataDir := f.String("data-dir", "", "bridge data directory")
@@ -148,7 +149,7 @@ func taskCommand(args []string, out io.Writer) error {
 		if *id == "" {
 			return errors.New("id is required")
 		}
-		body, err := json.Marshal(core.TaskArtifactRequest{Project: *project, TaskID: *id, Role: *role, Kind: *kind, Label: *label, Ref: *locator, Summary: *summary})
+		body, err := json.Marshal(core.TaskArtifactRequest{Project: *project, TaskID: *id, RequestID: *requestID, Revision: *revision, Role: *role, Kind: *kind, Label: *label, Ref: *locator, Summary: *summary})
 		if err != nil {
 			return err
 		}

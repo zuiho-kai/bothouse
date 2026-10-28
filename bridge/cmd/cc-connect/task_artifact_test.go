@@ -84,10 +84,11 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 		t.Fatal("start returned no task id")
 	}
 
-	attach := func(role, kind, label, locator string) core.TaskArtifact {
+	attach := func(role, kind, label, locator string, extra ...string) core.TaskArtifact {
 		t.Helper()
 		var out bytes.Buffer
 		args := append(append([]string{"artifact"}, base...), "--id", id, "--role", role, "--kind", kind, "--label", label, "--locator", locator)
+		args = append(args, extra...)
 		if err := taskCommand(args, &out); err != nil {
 			t.Fatal(err)
 		}
@@ -104,7 +105,7 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 		return payload.Artifact
 	}
 	attach("input", "image", "用户原图", "https://example.test/original.png")
-	draft := attach("output", "file", "初稿", "/tmp/cover-v1.png")
+	draft := attach("output", "file", "初稿", "/tmp/cover-v1.png", "--request-id", "draft-op-1", "--revision", "1")
 
 	var result bytes.Buffer
 	if err := progressCommand(append(append(append([]string{}, base...), run...), "--seq", "2", "--kind", "result", "--message", "初稿已交"), &result); err != nil {
@@ -117,8 +118,9 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	var rw struct {
-		Task   core.Task `json:"task"`
-		Status string    `json:"status"`
+		Task    core.Task              `json:"task"`
+		Receipt core.TaskReworkReceipt `json:"receipt"`
+		Status  string                 `json:"status"`
 	}
 	if err := json.Unmarshal(reworked.Bytes(), &rw); err != nil {
 		t.Fatal(err)
@@ -132,13 +134,23 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 	if n := len(rw.Task.Events); n == 0 || rw.Task.Events[n-1].Kind != core.TaskEventRequirementChanged {
 		t.Fatalf("rework event missing: %+v", rw.Task.Events)
 	}
-	// The same CLI action retried with the same request id must not advance it.
+	firstReceipt := rw.Receipt
+	if firstReceipt.RequestID != "rw-cli-1" || firstReceipt.TaskID != id || firstReceipt.Revision != 2 ||
+		firstReceipt.ArtifactID != draft.ID || firstReceipt.EventID == "" || firstReceipt.Feedback != "把背景改成蓝色" {
+		t.Fatalf("rework receipt does not bind the request: %+v", firstReceipt)
+	}
+	if last := rw.Task.Events[len(rw.Task.Events)-1]; firstReceipt.EventID != last.ID || firstReceipt.Seq != last.Seq {
+		t.Fatalf("receipt event does not match the recorded event: receipt=%+v event=%+v", firstReceipt, last)
+	}
+	// The same CLI action retried with the same request id must not advance it,
+	// and must return the same operation receipt.
 	var retry bytes.Buffer
 	if err := taskCommand(reworkArgs, &retry); err != nil {
 		t.Fatalf("rework retry failed: %v", err)
 	}
 	var retried struct {
-		Task core.Task `json:"task"`
+		Task    core.Task              `json:"task"`
+		Receipt core.TaskReworkReceipt `json:"receipt"`
 	}
 	if err := json.Unmarshal(retry.Bytes(), &retried); err != nil {
 		t.Fatal(err)
@@ -146,9 +158,50 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 	if retried.Task.RevisionNo() != 2 || len(retried.Task.Events) != len(rw.Task.Events) {
 		t.Fatalf("CLI rework retry advanced the task: rev=%d events=%d", retried.Task.RevisionNo(), len(retried.Task.Events))
 	}
-	second := attach("output", "file", "第二版", "/tmp/cover-v2.png")
+	if retried.Receipt != firstReceipt {
+		t.Fatalf("CLI rework retry lost its receipt:\nfirst=%+v\nretry=%+v", firstReceipt, retried.Receipt)
+	}
+	second := attach("output", "file", "第二版", "/tmp/cover-v2.png", "--request-id", "second-op-1", "--revision", "2")
 	if second.Revision != 2 {
 		t.Fatalf("second output attached at revision %d", second.Revision)
+	}
+	// A second change request opens revision 3; a late retry of the first one
+	// still reports r1's own revision and target while the task stays at v3.
+	var reworked2 bytes.Buffer
+	if err := taskCommand(append(append([]string{"rework"}, base...), "--id", id, "--artifact", second.ID, "--request-id", "rw-cli-2", "--feedback", "再改一次"), &reworked2); err != nil {
+		t.Fatal(err)
+	}
+	var rw2 struct {
+		Task    core.Task              `json:"task"`
+		Receipt core.TaskReworkReceipt `json:"receipt"`
+	}
+	if err := json.Unmarshal(reworked2.Bytes(), &rw2); err != nil {
+		t.Fatal(err)
+	}
+	if rw2.Task.RevisionNo() != 3 || rw2.Receipt.Revision != 3 || rw2.Receipt.ArtifactID != second.ID {
+		t.Fatalf("second rework did not open revision 3: task=%d receipt=%+v", rw2.Task.RevisionNo(), rw2.Receipt)
+	}
+	var late bytes.Buffer
+	if err := taskCommand(reworkArgs, &late); err != nil {
+		t.Fatalf("delayed retry failed: %v", err)
+	}
+	var delayed struct {
+		Task    core.Task              `json:"task"`
+		Receipt core.TaskReworkReceipt `json:"receipt"`
+	}
+	if err := json.Unmarshal(late.Bytes(), &delayed); err != nil {
+		t.Fatal(err)
+	}
+	if delayed.Task.RevisionNo() != 3 {
+		t.Fatalf("delayed retry rolled the task back: rev=%d", delayed.Task.RevisionNo())
+	}
+	if delayed.Receipt != firstReceipt {
+		t.Fatalf("delayed retry did not return r1's receipt:\nwant=%+v\ngot =%+v", firstReceipt, delayed.Receipt)
+	}
+	// A lost-ack retry of the first attach keeps its original revision too.
+	lateDraft := attach("output", "file", "初稿", "/tmp/cover-v1.png", "--request-id", "draft-op-1", "--revision", "1")
+	if lateDraft.ID != draft.ID || lateDraft.Revision != 1 {
+		t.Fatalf("late artifact retry was rebound: %+v", lateDraft)
 	}
 
 	var show bytes.Buffer
@@ -161,7 +214,7 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 	if err := json.Unmarshal(show.Bytes(), &shown); err != nil {
 		t.Fatal(err)
 	}
-	if shown.Task.RevisionNo() != 2 || len(shown.Task.Artifacts) != 3 || shown.Task.State != core.TaskStateInProgress {
+	if shown.Task.RevisionNo() != 3 || len(shown.Task.Artifacts) != 3 || shown.Task.State != core.TaskStateInProgress {
 		t.Fatalf("status query lost the loop: rev=%d artifacts=%d state=%s", shown.Task.RevisionNo(), len(shown.Task.Artifacts), shown.Task.State)
 	}
 	if strings.Contains(show.String(), m[1]) {
@@ -177,7 +230,7 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 	if err := taskCommand(append([]string{"list"}, base...), &list); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(list.String(), "修订 v2") || !strings.Contains(list.String(), "产物 3") {
+	if !strings.Contains(list.String(), "修订 v3") || !strings.Contains(list.String(), "产物 3") {
 		t.Fatalf("list does not show revision/artifacts: %q", list.String())
 	}
 }

@@ -231,10 +231,12 @@ func (s *APIServer) handleTaskRework(w http.ResponseWriter, r *http.Request) {
 		inputHTTPError(w, 409, errors.New("public progress unavailable"))
 		return
 	}
-	task, err := progress.Rework(req)
+	result, err := progress.Rework(req)
 	if err != nil {
 		inputHTTPError(w, 409, err)
 		return
 	}
-	apiJSON(w, 200, map[string]any{"task": task, "status": "rework_recorded"})
+	// Task is the current snapshot; receipt names the caller's own operation,
+	// which may be older than the current revision after a delayed retry.
+	apiJSON(w, 200, map[string]any{"task": result.Task, "receipt": result.Receipt, "status": "rework_recorded"})
 }

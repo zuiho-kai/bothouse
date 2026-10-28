@@ -99,17 +99,21 @@ func (r PublicProgressRequest) Validate() error {
 }
 
 type progressRecord struct {
-	Relays   map[string]taskRelayRecord  `json:"relays,omitempty"`
-	Reworks  map[string]taskReworkRecord `json:"reworks,omitempty"`
-	Task     *Task                       `json:"task"`
-	Platform string                      `json:"platform"`
-	Lang     Language                    `json:"lang"`
-	Closed   bool                        `json:"closed"`
-	Accepted bool                        `json:"accepted,omitempty"`
-	Reports  map[int64]string            `json:"reports"`
-	LastSeq  int64                       `json:"last_seq"`
-	CardSeq  int64                       `json:"card_seq"`
-	FactSeq  int64                       `json:"fact_seq"`
+	Relays  map[string]taskRelayRecord  `json:"relays,omitempty"`
+	Reworks map[string]taskReworkRecord `json:"reworks,omitempty"`
+	// ArtifactRequests keeps the receipt of each attach operation by its stable
+	// request id, so a retry after a rework or restart returns the original
+	// artifact instead of attaching it to the current revision.
+	ArtifactRequests map[string]taskArtifactRecord `json:"artifact_requests,omitempty"`
+	Task             *Task                         `json:"task"`
+	Platform         string                        `json:"platform"`
+	Lang             Language                      `json:"lang"`
+	Closed           bool                          `json:"closed"`
+	Accepted         bool                          `json:"accepted,omitempty"`
+	Reports          map[int64]string              `json:"reports"`
+	LastSeq          int64                         `json:"last_seq"`
+	CardSeq          int64                         `json:"card_seq"`
+	FactSeq          int64                         `json:"fact_seq"`
 	// Auto marks a card the bridge opened for a turn whose agent did not
 	// (public_progress_auto.go). Cleared once the agent starts it as its own.
 	Auto bool `json:"auto,omitempty"`
@@ -1050,7 +1054,7 @@ func (e *Engine) voiceProgressInstructions(token, session string) string {
 
 const voiceProgressPrompt = "[Public progress channel]\nOnly for accepted multi-step work, report public status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'short status'. Start with --seq 1 --kind start --title 'task title'.RESUME_NOTE Increment seq for update/milestone/waiting/result; retry the same seq/content. Report only meaningful changes (max 64). No cards for chat or questions. Keep reasoning, tools, credentials and conversations private. Report verified facts; result is not human acceptance. This token is for this turn only. Keep the spoken reply short.\n[/Public progress channel]\n\n"
 
-const taskArtifactsPrompt = "[Task artifacts]\nFor an accepted task only: when the user supplies material, or you hand over a file, link or image, record its reference with TASK_COMMAND artifact --id TASK_ID --role input|output --kind file|image|video|audio|link|text --label 'short label' --locator 'url or path'. Use input for material the user gave you and output for what you deliver. When the user asks to change a named deliverable, first record TASK_COMMAND rework --id TASK_ID --artifact ARTIFACT_ID --request-id STABLE_REQUEST_ID --feedback 'the change in the user's words' (always name the output when there is more than one; input material is history and cannot be the target), then do the work. Reuse the same request id only when retrying that one change; a different id is a new change even with the same words. The task id comes from the progress result; never invent one. Attaching a reference is a record for the owner, not an upload, publication or delivery, and not acceptance; do not describe it as delivered. When the user asks about progress or remaining work, read the record with TASK_COMMAND show --id TASK_ID (or list --session SESSION) instead of guessing; answer only what it records. Keep private paths or credentials out of public feedback. Never attach another task's artifact; do not record casual chat.\n[/Task artifacts]\n\n"
+const taskArtifactsPrompt = "[Task artifacts]\nFor an accepted task only: when the user supplies material, or you hand over a file, link or image, record its reference with TASK_COMMAND artifact --id TASK_ID --request-id STABLE_ATTACH_ID --revision CURRENT_REVISION --role input|output --kind file|image|video|audio|link|text --label 'short label' --locator 'url or path'. Use input for material the user gave you and output for what you deliver. The request id is the operation identity: reuse it only when retrying that one attach (the original artifact is returned even after a rework or restart); a new version uses a new id even when it is written to the same path with the same label. --revision is the revision from show; a stale revision is refused instead of being bound to the current one. When the user asks to change a named deliverable, first record TASK_COMMAND rework --id TASK_ID --artifact ARTIFACT_ID --request-id STABLE_REQUEST_ID --feedback 'the change in the user's words' (always name the output when there is more than one; input material is history and cannot be the target), then do the work. Reuse the same request id only when retrying that one change; a different id is a new change even with the same words. The rework response carries a receipt with your request's revision, event and target; keep it even when the task snapshot is newer. The task id comes from the progress result; never invent one. Attaching a reference is a record for the owner, not an upload, publication or delivery, and not acceptance; do not describe it as delivered. When the user asks about progress or remaining work, read the record with TASK_COMMAND show --id TASK_ID (or list --session SESSION) instead of guessing; answer only what it records. Keep private paths or credentials out of public feedback. Never attach another task's artifact; do not record casual chat.\n[/Task artifacts]\n\n"
 
 func (e *Engine) progressInstructions(token, session, instructions string) string {
 	command := bridgeCommand()
