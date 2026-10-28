@@ -184,6 +184,7 @@ func (s *dshTestAgentSession) RespondPermission(id string, res PermissionResult)
 // TestDSH_DefaultYoloAutoApprovesPermission verifies that a new DSH role gets mode="yolo"
 // from wizard defaults and automatically approves permission requests during interactive turns.
 func TestDSH_DefaultYoloAutoApprovesPermission(t *testing.T) {
+	dshStoredKey(t)
 	noHardware(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
