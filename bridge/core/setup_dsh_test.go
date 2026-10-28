@@ -192,14 +192,14 @@ func TestApplyWizardDSHRole(t *testing.T) {
 	if i := strings.Index(pt, dshPatchBegin); i >= 0 {
 		pt = pt[:i] // the provider part; the bridge block is checked below
 	}
-	for _, want := range []string{`baseURL: "https://api.deepseek.com/anthropic"`, "apiKeyEnv: " + DSHKeyEnv, `- id: "deepseek-chat"`, "- id: acp",
+	for _, want := range []string{`baseURL: "https://api.deepseek.com/anthropic"`, "apiKeyEnv: " + DSHKeyEnv, `- id: "deepseek-chat"`, "inputModalities: [text, image]", "- id: acp",
 		"- id: attachment-local\n  config:\n    maxImageDimension: 65535\n"} {
 		if !strings.Contains(pt, want) {
 			t.Errorf("patch lacks %q:\n%s", want, pt)
 		}
 	}
 	// only what the plug-in needs: DSH's own defaults are not touched (compression, telemetry, prompt, sandbox, …)
-	for _, no := range []string{"sk-test", "compression", "session-log", "system-prompt", "sandbox", "permission", "time-context", "tool-web", "inputModalities"} {
+	for _, no := range []string{"sk-test", "compression", "session-log", "system-prompt", "sandbox", "permission", "time-context", "tool-web"} {
 		if strings.Contains(pt, no) {
 			t.Errorf("patch must not contain %q:\n%s", no, pt)
 		}
@@ -341,7 +341,7 @@ func TestEnsureDSHAttachmentPatchUpgrade(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(home, "cordis.patch.yml"), []byte("- id: attachment-local\n  config:\n    maxImageBytes: 100\n"), 0o644)
 	dir := t.TempDir()
 	patch := filepath.Join(dir, "whale.patch.yml")
-	old := dshProviderPatch("whale", "https://x/anthropic", "m", false) + dshHookPatch("/b.js", "/s.json", "/w")
+	old := dshProviderPatch("whale", "https://x/anthropic", "m") + dshHookPatch("/b.js", "/s.json", "/w")
 	_ = os.WriteFile(patch, []byte(old), 0o644)
 	opts := map[string]any{"args": []any{"--profile", "acp", "--patch", patch}, "env": map[string]any{"DSH_HOME": home}}
 	changed, err := EnsureDSHRoleAttachmentPatch(opts)
@@ -349,7 +349,7 @@ func TestEnsureDSHAttachmentPatchUpgrade(t *testing.T) {
 		t.Fatalf("changed=%v err=%v", changed, err)
 	}
 	b, _ := os.ReadFile(patch)
-	want := dshProviderPatch("whale", "https://x/anthropic", "m", false) +
+	want := dshProviderPatch("whale", "https://x/anthropic", "m") +
 		"- id: attachment-local\n  config:\n    maxImageBytes: 100\n    maxImageDimension: 65535\n" +
 		dshHookPatch("/b.js", "/s.json", "/w")
 	if string(b) != want {
