@@ -264,6 +264,32 @@ def link(nid, url):
     return True
 
 
+# 交接文件「## 转交结果」节：ws-forward 转话和 board pause 的停手话都插到这一节末尾（下一个「## 」之前），节不存在才在
+# 文件末尾新建。只往文件末尾追加时，节后面有「## 检查点」就落进检查点，工作区按提示读转交结果节读到的是旧的「接着做」，
+# 把暂停的活又跑了三次（用户 2026-10-28「为什么又重新跑了一次，什么问题修一下」）。
+FORWARD_HEAD = "## 转交结果"
+
+
+def append_forward(path, line):
+    with open(path, encoding="utf-8") as fh:
+        lines = fh.read().splitlines()
+    entry = f"- {line}"
+    if FORWARD_HEAD in lines:
+        end = next((k for k in range(lines.index(FORWARD_HEAD) + 1, len(lines)) if lines[k].startswith("## ")), len(lines))
+        while end > lines.index(FORWARD_HEAD) + 1 and not lines[end - 1].strip():
+            end -= 1  # 插在节里最后一条后面，节和下一节之间的空行留着
+        lines[end:end] = [entry]
+    else:
+        lines += ([""] if lines and lines[-1].strip() else []) + [FORWARD_HEAD, entry]
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
+def paused_item(path):
+    """交接文件 path 对应、正在暂停的条目（ws-handoff 建条目时 where 记的就是交接文件）；没有返回 None。"""
+    return next((i for i in _read() if i.get("paused") and i.get("where") == path), None)
+
+
 # 暂停：条目留在 board.jsonl（不写 board-done.jsonl，不算完成），带 paused（暂停时刻）和 pause_why；团队板上单列「暂停」块。
 def pause(nid, why=None):
     with _locked():
@@ -884,6 +910,9 @@ def main(argv):
             if not hit:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
             print("已暂停")
+            if os.path.isfile(hit.get("where") or ""):  # ws-handoff 建的条目：停手话写进交接的转交结果节，工作区读得到
+                append_forward(hit["where"], f"{_now()} 已暂停（#{nid}）{'：' + hit['pause_why'] if hit.get('pause_why') else ''}。"
+                                             "停手，不要再起后台命令，正在跑的停掉；上面更早的「接着做」作废，等主频道恢复再做。")
             schedule_prune_check(hit)
             # 在那个工作区里自己 pause 的不打断（会把正在跑 board 的这一轮掐掉）
             here = os.environ.get("CC_SESSION_KEY", "").split(":")[1:2]

@@ -1,5 +1,5 @@
 #!/usr/bin/env -S python3 -I
-# 把本频道收到的结果摘要转给工作区里的主角色：追加到最近一次 ws-handoff 的交接文件「## 转交结果」节，再叫她去读。
+# 把本频道收到的结果摘要转给工作区里的主角色：插进最近一次 ws-handoff 的交接文件「## 转交结果」节末尾，再叫醒她（提示里直接带原文）。
 # 用法：ws-forward [--notes <交接文件>] "<摘要>"
 #   --notes 转给那份交接对应的工作区（ws-up 给聊天频道的提示里会带上）；不给就转给最近一次交接。
 # 最近一次交接记在 <GATE_SETUP_DIR>/ws-handoff-last.json（ws-handoff 写，见 _team.py）。
@@ -10,25 +10,29 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _team  # noqa: E402
 
-HEAD = "## 转交结果"
+sys.path.insert(0, os.environ.get("GATE_DIR") or str(Path(__file__).resolve().parent.parent / "gate"))
+import board  # noqa: E402  转交结果节的插入和暂停状态都以任务板为准（../gate/board.py）
+
+PROMPT_MAX = 1500  # 叫醒提示直接带原文；太长的截断，全文在交接文件里
 
 
 def append_result(path: str, summary: str, now: str):
-    with open(path, encoding="utf-8") as fh:
-        text = fh.read()
-    add = ""
-    if HEAD not in text.splitlines():
-        add += ("" if text.endswith("\n") or not text else "\n") + f"\n{HEAD}\n"
-    elif not text.endswith("\n"):
-        add += "\n"
-    add += f"- {now} {summary}\n"
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(add)
+    board.append_forward(path, f"{now} {summary}")
 
 
-def timer_cmd(ws: str, path: str):
+def wake_prompt(path: str, summary: str):
+    """叫醒提示直接带这次转的原文，不让工作区去文件里找（找错节读到旧的「接着做」，见 board.append_forward）。"""
+    text = summary if len(summary) <= PROMPT_MAX else summary[:PROMPT_MAX] + f"…（全文见 {path}「转交结果」节最新一条）"
+    hit = board.paused_item(path)
+    if hit:
+        return (f"主频道转来一条话，这件活已暂停（#{hit['id']}）：停手，不要再起后台命令，正在跑的停掉，"
+                f"别按交接里更早的话接着做。原文：{text}")
+    return f"主频道转来一条话（已记进 {path}「转交结果」节），按这条做：{text}"
+
+
+def timer_cmd(ws: str, path: str, summary: str):
     return [_team.cc_bin() or "cc-connect", "timer", "add", "-s", ws if ":" in ws else f"discord:{ws}", "--delay", "1m", "--timeout-mins", "0",
-            "--desc", "工作区转交", "--prompt", f"主频道转来新结果，读 {path} 末尾「转交结果」节最新一条，接着推进"]
+            "--desc", "工作区转交", "--prompt", wake_prompt(path, summary)]
 
 
 def main(argv):
@@ -51,7 +55,7 @@ def main(argv):
             sys.exit(f"ws-forward: {path} 没有 ws-handoff 记录")
         last = {"file": rec.get("file") or path, "channel": rec.get("ws_key") or rec["channel"]}
     append_result(last["file"], argv[0], time.strftime("%Y-%m-%d %H:%M:%S"))
-    r = subprocess.run(timer_cmd(last["channel"], last["file"]), capture_output=True, text=True)
+    r = subprocess.run(timer_cmd(last["channel"], last["file"], argv[0]), capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"ws-forward: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
