@@ -423,6 +423,9 @@ func renderTeamTaskBoardStage(items, done []teamTaskBoardItem, chat string, now 
 		case it.Paused != "":
 			held = append(held, row(it, boardLabel(it.Who)))
 		case it.parent == chat && it.own != chat:
+			if it.wsEnded {
+				continue // the workspace's handoff is closed: only open handoffs show under 工作区
+			}
 			if _, ok := wsRows[it.wsName]; !ok {
 				wsOrder = append(wsOrder, it.wsName)
 			}
