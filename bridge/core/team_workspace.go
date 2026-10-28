@@ -1533,6 +1533,7 @@ func (e *Engine) ResetTeamWorkspaceSessions(key string) int {
 		if sessions == nil {
 			continue
 		}
+		e.dropPendingReset(k)
 		e.cleanupInteractiveState(e.interactiveKeyForSessionKey(k))
 		old := sessions.GetOrCreateActive(k)
 		old.SetAgentSessionID("", "")
