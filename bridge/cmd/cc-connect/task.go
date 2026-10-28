@@ -96,7 +96,8 @@ func taskCommand(args []string, out io.Writer) error {
 	label := f.String("label", "", "human-readable artifact label (artifact only)")
 	locator := f.String("locator", "", "artifact reference: URL, repository path or absolute path (artifact only)")
 	summary := f.String("summary", "", "optional note about the artifact (artifact only)")
-	artifact := f.String("artifact", "", "artifact id the change is about (rework only)")
+	artifact := f.String("artifact", "", "artifact id the change is about (output only, rework only)")
+	requestID := f.String("request-id", "", "stable operation id for one rework; reuse it when retrying that change (rework only)")
 	feedback := f.String("feedback", "", "the change request in the owner's words (rework only)")
 	limit := f.Int("limit", 10, "how many tasks to list")
 	dataDir := f.String("data-dir", "", "bridge data directory")
@@ -163,7 +164,10 @@ func taskCommand(args []string, out io.Writer) error {
 		if *feedback == "" {
 			return errors.New("--feedback is required: name the change to make")
 		}
-		body, err := json.Marshal(core.TaskReworkRequest{Project: *project, TaskID: *id, ArtifactID: *artifact, Feedback: *feedback})
+		if *requestID == "" {
+			return errors.New("--request-id is required: reuse the same id when retrying one change request")
+		}
+		body, err := json.Marshal(core.TaskReworkRequest{Project: *project, TaskID: *id, ArtifactID: *artifact, RequestID: *requestID, Feedback: *feedback})
 		if err != nil {
 			return err
 		}
@@ -221,7 +225,7 @@ func writeTasks(out io.Writer, raw []byte) error {
 					outputs++
 				}
 			}
-			fmt.Fprintf(out, "\t修订 v%d · 产物 %d（素材 %d / 交付 %d）\n", t.RevisionNo(), len(t.Artifacts), inputs, outputs)
+			fmt.Fprintf(out, "\t%s\n", core.NewI18n(core.Language(core.SystemLanguage())).Tf(core.MsgTaskListRevision, t.RevisionNo(), len(t.Artifacts), inputs, outputs))
 		}
 	}
 	return nil

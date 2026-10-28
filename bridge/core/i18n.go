@@ -693,6 +693,7 @@ const (
 	MsgTaskRelayResult   MsgKey = "MsgTaskRelayResult"
 	MsgTaskRelayFailed   MsgKey = "MsgTaskRelayFailed"
 	MsgTaskReporterMuted MsgKey = "MsgTaskReporterMuted"
+	MsgTaskListRevision  MsgKey = "task_list_revision"
 )
 
 const (
@@ -702,6 +703,13 @@ const (
 )
 
 var messages = map[MsgKey]map[Language]string{
+	MsgTaskListRevision: {
+		LangEnglish:            "revision v%d · %d artifacts (%d input / %d output)",
+		LangChinese:            "修订 v%d · 产物 %d（素材 %d / 交付 %d）",
+		LangTraditionalChinese: "修訂 v%d · 產物 %d（素材 %d / 交付 %d）",
+		LangJapanese:           "改訂 v%d · 成果物 %d（素材 %d / 納品 %d）",
+		LangSpanish:            "revisión v%d · %d artefactos (%d de entrada / %d de salida)",
+	},
 	MsgTaskReporterMuted: {
 		LangEnglish: "%s cannot post in this thread; that update was not delivered", LangChinese: "%s 无法在线程发言，这条进展没有发出", LangTraditionalChinese: "%s 無法在討論串發言，這條進展沒有發出", LangJapanese: "%s はこのスレッドに投稿できません。この更新は届いていません", LangSpanish: "%s no puede publicar en este hilo; esa actualización no se entregó",
 	},

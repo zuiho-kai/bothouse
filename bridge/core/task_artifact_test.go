@@ -69,7 +69,7 @@ func TestTaskArtifactAndRework(t *testing.T) {
 	}
 	p.finish(run, "result")
 
-	reworked, err := p.Rework(TaskReworkRequest{Project: "fish", TaskID: id, ArtifactID: draft.ID, Feedback: "把背景改成蓝色"})
+	reworked, err := p.Rework(TaskReworkRequest{Project: "fish", TaskID: id, ArtifactID: draft.ID, RequestID: "rw-1", Feedback: "把背景改成蓝色"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestTaskArtifactAndRework(t *testing.T) {
 	p.finish(run2, "result")
 
 	// Several output revisions exist, so an unnamed rework must ask which one.
-	if _, err := p.Rework(TaskReworkRequest{Project: "fish", TaskID: id, Feedback: "再改一次"}); err == nil || !strings.Contains(err.Error(), draft.ID) {
+	if _, err := p.Rework(TaskReworkRequest{Project: "fish", TaskID: id, RequestID: "rw-unnamed", Feedback: "再改一次"}); err == nil || !strings.Contains(err.Error(), draft.ID) {
 		t.Fatalf("unnamed rework with several outputs was not refused with ids: %v", err)
 	}
 
@@ -125,8 +125,11 @@ func TestTaskArtifactAndRework(t *testing.T) {
 	if _, err := restored.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "file", Label: "丢失", Ref: "/tmp/lost.png"}); err == nil {
 		t.Fatal("artifact attach was acknowledged before it was persisted")
 	}
-	if _, err := restored.Rework(TaskReworkRequest{Project: "fish", TaskID: id, Feedback: "不应写入"}); err == nil {
-		t.Fatal("rework was acknowledged before it was persisted")
+	if _, err := restored.Rework(TaskReworkRequest{Project: "fish", TaskID: id, ArtifactID: draft.ID, RequestID: "rw-write-fail", Feedback: "不应写入"}); err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("rework did not reach the persistence failure: %v", err)
+	}
+	if _, ok := restored.records[id].record.Reworks["rw-write-fail"]; ok {
+		t.Fatal("failed write left an idempotency receipt")
 	}
 	restored.dir = journalDir
 	if got, _ := restored.Task(id); got.RevisionNo() != 2 || len(got.Artifacts) != 3 {
@@ -139,7 +142,7 @@ func TestTaskArtifactAndRework(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := restored.Rework(TaskReworkRequest{Project: "fish", TaskID: other, ArtifactID: draft.ID, Feedback: "串任务"}); err == nil {
+	if _, err := restored.Rework(TaskReworkRequest{Project: "fish", TaskID: other, ArtifactID: draft.ID, RequestID: "rw-cross", Feedback: "串任务"}); err == nil {
 		t.Fatal("rework accepted an artifact from another task")
 	}
 
@@ -154,7 +157,7 @@ func TestTaskArtifactAndRework(t *testing.T) {
 	if _, err := restored.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: other, Role: "output", Kind: "file", Label: "晚了", Ref: "/tmp/late.png"}); err == nil {
 		t.Fatal("accepted task took a new artifact")
 	}
-	if _, err := restored.Rework(TaskReworkRequest{Project: "fish", TaskID: other, Feedback: "晚了"}); err == nil {
+	if _, err := restored.Rework(TaskReworkRequest{Project: "fish", TaskID: other, RequestID: "rw-late", Feedback: "晚了"}); err == nil {
 		t.Fatal("accepted task was reworked")
 	}
 }
@@ -182,7 +185,7 @@ func TestTaskArtifactValidation(t *testing.T) {
 			t.Fatalf("%s was accepted", name)
 		}
 	}
-	if _, err := p.Rework(TaskReworkRequest{Project: "fish", TaskID: id, Feedback: strings.Repeat("长", 501)}); err == nil {
+	if _, err := p.Rework(TaskReworkRequest{Project: "fish", TaskID: id, RequestID: "rw-long", Feedback: strings.Repeat("长", 501)}); err == nil {
 		t.Fatal("overlong feedback was accepted")
 	}
 }
@@ -198,7 +201,7 @@ func TestTaskArtifactPrompt(t *testing.T) {
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"[Task artifacts]", "artifact --id TASK_ID", "rework --id TASK_ID", "not an upload, publication or delivery", "show --id TASK_ID"}
+	want := []string{"[Task artifacts]", "artifact --id TASK_ID", "rework --id TASK_ID", "--request-id", "input material is history", "not an upload, publication or delivery", "show --id TASK_ID"}
 	state := &interactiveState{platform: platform}
 	prompt := e.withPublicProgress("user content", state, "test:room:user", false, false)
 	for _, s := range want {
@@ -215,4 +218,166 @@ func TestTaskArtifactPrompt(t *testing.T) {
 		t.Fatalf("card prompt missing artifact instructions: %s", cardPrompt)
 	}
 	e.finishPublicProgress(cardState, "result")
+}
+
+// TestTaskReworkRequestIDIdempotencyAndConflict: one rework action carries one
+// stable request id. A retry returns the committed receipt (no new revision or
+// event); the same id with different content is refused; the same words under a
+// new id are a new request. Reproduces the reviewer's double-mutation finding.
+func TestTaskReworkRequestIDIdempotencyAndConflict(t *testing.T) {
+	dir := t.TempDir()
+	p, platform := journalModel(t, dir, "fish")
+	_, id := startTask(t, p, platform, "plain:room:user", "cover")
+	draft, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "file", Label: "draft", Ref: "/tmp/draft.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := p.Task(id)
+	base := TaskReworkRequest{Project: "fish", TaskID: id, ArtifactID: draft.ID, RequestID: "change-1", Feedback: "make it blue"}
+	first, err := p.Rework(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.RevisionNo() != 2 || len(first.Events) != len(before.Events)+1 {
+		t.Fatalf("first rework did not open revision 2 with one event: %+v", first)
+	}
+	second, err := p.Rework(base)
+	if err != nil {
+		t.Fatalf("lost-ack retry failed: %v", err)
+	}
+	if second.RevisionNo() != 2 || len(second.Events) != len(first.Events) {
+		t.Fatalf("retry opened another revision or event: revision %d events %d", second.RevisionNo(), len(second.Events))
+	}
+	conflict := base
+	conflict.Feedback = "make it green"
+	if _, err := p.Rework(conflict); err == nil || !strings.Contains(err.Error(), "different content") {
+		t.Fatalf("same request id with different content was accepted: %v", err)
+	}
+	next := base
+	next.RequestID = "change-2"
+	third, err := p.Rework(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.RevisionNo() != 3 {
+		t.Fatalf("a new id with the same words was not a new request: %+v", third)
+	}
+}
+
+// TestTaskReworkRequestIDSurvivesRestart: the receipt is written with the task
+// journal, so a retry after a bridge restart still returns the committed change
+// instead of advancing the revision again.
+func TestTaskReworkRequestIDSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	p, platform := journalModel(t, dir, "fish")
+	run, id := startTask(t, p, platform, "plain:room:user", "cover")
+	draft, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "file", Label: "draft", Ref: "/tmp/draft.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rework := TaskReworkRequest{Project: "fish", TaskID: id, ArtifactID: draft.ID, RequestID: "restart-1", Feedback: "change it"}
+	if _, err := p.Rework(rework); err != nil {
+		t.Fatal(err)
+	}
+	p.finish(run, "result")
+
+	restarted, err := NewPublicProgress(dir, "fish", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, ok := restarted.Task(id)
+	if !ok {
+		t.Fatal("task lost across restart")
+	}
+	again, err := restarted.Rework(rework)
+	if err != nil {
+		t.Fatalf("retry after restart failed: %v", err)
+	}
+	if again.RevisionNo() != before.RevisionNo() || len(again.Events) != len(before.Events) {
+		t.Fatalf("retry after restart advanced the task: revision %d -> %d events %d -> %d", before.RevisionNo(), again.RevisionNo(), len(before.Events), len(again.Events))
+	}
+}
+
+// TestTaskReworkRequestIDDelayedBinding: a delayed retry of an older request
+// arriving after a newer one still returns its own receipt and does not mutate
+// the current revision.
+func TestTaskReworkRequestIDDelayedBinding(t *testing.T) {
+	dir := t.TempDir()
+	p, platform := journalModel(t, dir, "fish")
+	_, id := startTask(t, p, platform, "plain:room:user", "cover")
+	a, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "file", Label: "a", Ref: "/tmp/a.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "file", Label: "b", Ref: "/tmp/b.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r1 := TaskReworkRequest{Project: "fish", TaskID: id, ArtifactID: a.ID, RequestID: "r1", Feedback: "first"}
+	if _, err := p.Rework(r1); err != nil {
+		t.Fatal(err)
+	}
+	r2 := TaskReworkRequest{Project: "fish", TaskID: id, ArtifactID: b.ID, RequestID: "r2", Feedback: "second"}
+	if _, err := p.Rework(r2); err != nil {
+		t.Fatal(err)
+	}
+	delayed, err := p.Rework(r1)
+	if err != nil {
+		t.Fatalf("delayed retry failed: %v", err)
+	}
+	if delayed.RevisionNo() != 3 {
+		t.Fatalf("delayed retry mutated the current revision: %+v", delayed)
+	}
+	receipt := p.records[id].record.Reworks["r1"]
+	if receipt.Revision != 2 || receipt.ArtifactID != a.ID || receipt.Hash == "" || receipt.EventID == "" {
+		t.Fatalf("receipt did not keep the original binding: %+v", receipt)
+	}
+}
+
+// TestTaskReworkRejectsInputTarget: input material is history; naming it as the
+// deliverable to rework is refused before anything is written.
+func TestTaskReworkRejectsInputTarget(t *testing.T) {
+	dir := t.TempDir()
+	p, platform := journalModel(t, dir, "fish")
+	_, id := startTask(t, p, platform, "plain:room:user", "cover")
+	in, err := p.AttachArtifact(TaskArtifactRequest{Project: "fish", TaskID: id, Role: "input", Kind: "image", Label: "source", Ref: "/tmp/source.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := p.Task(id)
+	if _, err := p.Rework(TaskReworkRequest{Project: "fish", TaskID: id, ArtifactID: in.ID, RequestID: "bad-input", Feedback: "redo the source"}); err == nil || !strings.Contains(err.Error(), "input material") {
+		t.Fatalf("input material was accepted as a rework target: %v", err)
+	}
+	after, _ := p.Task(id)
+	if after.RevisionNo() != before.RevisionNo() || len(after.Events) != len(before.Events) || after.State != before.State {
+		t.Fatalf("refused input target changed the task: %+v", after)
+	}
+}
+
+// TestTaskArtifactRetryDoesNotRebindAfterRework: an identical attach retried
+// after a revision bump is the same operation and keeps its original revision,
+// instead of being rebound to the new revision.
+func TestTaskArtifactRetryDoesNotRebindAfterRework(t *testing.T) {
+	dir := t.TempDir()
+	p, platform := journalModel(t, dir, "fish")
+	_, id := startTask(t, p, platform, "plain:room:user", "cover")
+	attach := TaskArtifactRequest{Project: "fish", TaskID: id, Role: "output", Kind: "file", Label: "draft", Ref: "/tmp/draft.png"}
+	first, err := p.AttachArtifact(attach)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Rework(TaskReworkRequest{Project: "fish", TaskID: id, ArtifactID: first.ID, RequestID: "rw", Feedback: "change it"}); err != nil {
+		t.Fatal(err)
+	}
+	again, err := p.AttachArtifact(attach)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != first.ID || again.Revision != 1 {
+		t.Fatalf("retried attach was rebound to the new revision: %+v", again)
+	}
+	got, _ := p.Task(id)
+	if len(got.Artifacts) != 1 {
+		t.Fatalf("retried attach duplicated the artifact: %+v", got.Artifacts)
+	}
 }

@@ -1,6 +1,8 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -52,7 +54,12 @@ type TaskReworkRequest struct {
 	Project    string `json:"project"`
 	TaskID     string `json:"task_id"`
 	ArtifactID string `json:"artifact_id,omitempty"`
-	Feedback   string `json:"feedback"`
+	// RequestID is the stable operation id for this change request. A retry of
+	// the same user action must reuse it; the committed receipt (revision and
+	// event) is returned instead of opening another revision. A new action uses
+	// a new id even when its words are identical.
+	RequestID string `json:"request_id"`
+	Feedback  string `json:"feedback"`
 }
 
 func (r TaskArtifactRequest) validate() error {
@@ -87,12 +94,37 @@ func (r TaskReworkRequest) validate() error {
 	if strings.TrimSpace(r.Project) == "" || strings.TrimSpace(r.TaskID) == "" {
 		return errors.New("project and task_id are required")
 	}
+	// Source: same 1..100 character bound as a relay request id (RelayRequest
+	// validation) so one retry token cannot grow unbounded.
+	if id := strings.TrimSpace(r.RequestID); id == "" || utf8.RuneCountInString(id) > 100 {
+		return errors.New("request_id must contain 1..100 characters; reuse it when retrying one change request")
+	}
 	feedback := strings.TrimSpace(r.Feedback)
 	// Source: same 500-character public summary bound as a progress report.
 	if feedback == "" || utf8.RuneCountInString(feedback) > 500 {
 		return errors.New("feedback must contain 1..500 characters")
 	}
 	return nil
+}
+
+// taskReworkRecord binds one stable rework request id to the revision and event
+// it produced. It is stored with the task journal (like a relay receipt), so a
+// lost acknowledgement after a restart returns the committed operation instead
+// of opening a second revision.
+type taskReworkRecord struct {
+	Hash       string `json:"hash"`
+	ArtifactID string `json:"artifact_id,omitempty"`
+	Revision   int    `json:"revision"`
+	Seq        int64  `json:"seq"`
+	EventID    string `json:"event_id,omitempty"`
+}
+
+// reworkRequestHash is the content identity of one operation. It deliberately
+// includes the task and named artifact, so a reused request id with different
+// words or a different target is a conflict, not a retry.
+func reworkRequestHash(req TaskReworkRequest) string {
+	b, _ := json.Marshal([]string{strings.TrimSpace(req.TaskID), strings.TrimSpace(req.ArtifactID), strings.TrimSpace(req.Feedback)})
+	return fmt.Sprintf("%x", sha256.Sum256(b))
 }
 
 // RevisionNo is the task's current revision. Journals written before rework
@@ -147,9 +179,13 @@ func (p *PublicProgress) AttachArtifact(req TaskArtifactRequest) (*TaskArtifact,
 	}
 	label, ref := strings.TrimSpace(req.Label), strings.TrimSpace(req.Ref)
 	summary := strings.TrimSpace(req.Summary)
+	// An identical reference is the same operation even after a rework advanced
+	// the task revision: returning the stored artifact stops a lost-ack retry
+	// from being rebound to the new revision. A genuinely new deliverable
+	// differs in at least one field.
 	for i := range t.Artifacts {
 		a := t.Artifacts[i]
-		if a.Revision == rev && a.Role == role && a.Kind == kind && a.Label == label && a.Ref == ref && a.Summary == summary {
+		if a.Role == role && a.Kind == kind && a.Label == label && a.Ref == ref && a.Summary == summary {
 			cp := a
 			return &cp, nil
 		}
@@ -198,6 +234,17 @@ func (p *PublicProgress) Rework(req TaskReworkRequest) (*Task, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	t := r.record.Task
+	// A committed retry is recognised before the current state, so a lost ACK
+	// is answered even if the task was later accepted or advanced. Same id with
+	// different content is a conflict; the same words under a new id are a new
+	// request and open a new revision below.
+	hash := reworkRequestHash(req)
+	if receipt, ok := r.record.Reworks[req.RequestID]; ok {
+		if receipt.Hash != hash {
+			return nil, errors.New("rework request_id reused with different content")
+		}
+		return t.Clone(), nil
+	}
 	if r.record.Accepted || t.State == TaskStateCompleted {
 		return nil, errors.New("an accepted task cannot be reworked; open a new task")
 	}
@@ -223,8 +270,21 @@ func (p *PublicProgress) Rework(req TaskReworkRequest) (*Task, error) {
 	if target != nil {
 		r.record.Task.Events[len(r.record.Task.Events)-1].Detail = detail
 	}
+	event := r.record.Task.Events[len(r.record.Task.Events)-1]
+	artifactID := ""
+	if target != nil {
+		artifactID = target.ID
+	}
+	oldReworks := r.record.Reworks
+	reworks := make(map[string]taskReworkRecord, len(oldReworks)+1)
+	for id, rec := range oldReworks {
+		reworks[id] = rec
+	}
+	reworks[req.RequestID] = taskReworkRecord{Hash: hash, ArtifactID: artifactID, Revision: t.Revision, Seq: event.Seq, EventID: event.ID}
+	r.record.Reworks = reworks
 	if err := p.save(r); err != nil {
 		r.record.Task = old
+		r.record.Reworks = oldReworks
 		return nil, err
 	}
 	p.mu.Lock()
@@ -237,13 +297,16 @@ func (p *PublicProgress) Rework(req TaskReworkRequest) (*Task, error) {
 	return t.Clone(), nil
 }
 
-// reworkTarget resolves the artifact the change is about. With exactly one
-// output artifact that one is unambiguous; with several the caller must name
-// one, so the wrong deliverable's history is never rewritten by a guess.
+// reworkTarget resolves the artifact the change is about. It only ever names a
+// deliverable output: an input is kept as history and cannot be the target, so
+// naming one is refused instead of silently rewriting the user's material.
 func reworkTarget(t *Task, artifactID string) (*TaskArtifact, error) {
 	if artifactID != "" {
 		for i := range t.Artifacts {
 			if t.Artifacts[i].ID == artifactID {
+				if t.Artifacts[i].Role != TaskArtifactOutput {
+					return nil, fmt.Errorf("artifact %s is input material; rework names an output deliverable", artifactID)
+				}
 				cp := t.Artifacts[i]
 				return &cp, nil
 			}

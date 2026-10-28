@@ -112,7 +112,8 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 	}
 
 	var reworked bytes.Buffer
-	if err := taskCommand(append(append([]string{"rework"}, base...), "--id", id, "--artifact", draft.ID, "--feedback", "把背景改成蓝色"), &reworked); err != nil {
+	reworkArgs := append(append([]string{"rework"}, base...), "--id", id, "--artifact", draft.ID, "--request-id", "rw-cli-1", "--feedback", "把背景改成蓝色")
+	if err := taskCommand(reworkArgs, &reworked); err != nil {
 		t.Fatal(err)
 	}
 	var rw struct {
@@ -130,6 +131,20 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 	}
 	if n := len(rw.Task.Events); n == 0 || rw.Task.Events[n-1].Kind != core.TaskEventRequirementChanged {
 		t.Fatalf("rework event missing: %+v", rw.Task.Events)
+	}
+	// The same CLI action retried with the same request id must not advance it.
+	var retry bytes.Buffer
+	if err := taskCommand(reworkArgs, &retry); err != nil {
+		t.Fatalf("rework retry failed: %v", err)
+	}
+	var retried struct {
+		Task core.Task `json:"task"`
+	}
+	if err := json.Unmarshal(retry.Bytes(), &retried); err != nil {
+		t.Fatal(err)
+	}
+	if retried.Task.RevisionNo() != 2 || len(retried.Task.Events) != len(rw.Task.Events) {
+		t.Fatalf("CLI rework retry advanced the task: rev=%d events=%d", retried.Task.RevisionNo(), len(retried.Task.Events))
 	}
 	second := attach("output", "file", "第二版", "/tmp/cover-v2.png")
 	if second.Revision != 2 {
@@ -153,6 +168,11 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 		t.Fatal("task query exposed the turn capability")
 	}
 
+	// The list line is user-facing and comes from the shared i18n catalogue;
+	// pin the locale so this test checks the Chinese rendering deterministically.
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_MESSAGES", "")
+	t.Setenv("LANG", "zh_CN.UTF-8")
 	var list bytes.Buffer
 	if err := taskCommand(append([]string{"list"}, base...), &list); err != nil {
 		t.Fatal(err)

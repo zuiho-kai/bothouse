@@ -96,14 +96,14 @@ cc-connect task artifact --data-dir /path/to/data --project fish --id task-xxx \
 cc-connect task artifact --data-dir /path/to/data --project fish --id task-xxx \
   --role output --kind file --label '初稿' --locator '/tmp/cover-v1.png'
 cc-connect task rework --data-dir /path/to/data --project fish --id task-xxx \
-  --artifact task-xxx:a2 --feedback '把背景改成蓝色'
+  --artifact task-xxx:a2 --request-id rw-20261022-1 --feedback '把背景改成蓝色'
 ~~~
 
-- artifact 走 POST /task/artifact，role 只能是 input/output；kind 取 file/image/video/audio/link/text。同一修订内完全相同的重复附加返回同一条记录，不重复历史。已完成、已取消或已失败的任务不接受新产物，先改任务或另开新任务。
-- rework 走 POST /task/rework，把修改意见绑定到明确产物并让修订号加一、状态回到 in_progress。旧产物和事件保留；上一条 result 摘要会清空，因为它描述的是旧版本。它不执行修改，也不代表验收；重新交付后仍需真人 accept。
-- 有多个 output 时，rework 必须用 --artifact 指名；只有一个 output 时自动指向它；没有 output 时允许先登记意见。调用方不能根据“最新文件”猜关联，也不能把另一个任务的产物串进来。
+- artifact 走 POST /task/artifact，role 只能是 input/output；kind 取 file/image/video/audio/link/text。同一任务内完全相同的重复附加（即使修订已推进）返回同一条记录并按原修订保留，避免丢失回执的重试被绑到新修订；新版本应使用不同的 label、locator 或 summary。已完成、已取消或已失败的任务不接受新产物，先改任务或另开新任务。
+- rework 走 POST /task/rework，必须带稳定的 `--request-id`：同一次修改操作重试要复用同一个 id，服务端返回已提交的回执（修订号与事件），不再加修订或写事件；同 id 但内容不同会被拒绝；换 id 即使文字相同也是一次新请求。回执随任务日志落盘，重启后仍能识别迟到重试。rework 把修改意见绑定到明确产物并让修订号加一、状态回到 in_progress。旧产物和事件保留；上一条 result 摘要会清空，因为它描述的是旧版本。它不执行修改，也不代表验收；重新交付后仍需真人 accept。
+- 有多个 output 时，rework 必须用 --artifact 指名；只有一个 output 时自动指向它；没有 output 时允许先登记意见。--artifact 只能是 output，input 是用户素材和历史，不能被当作返工对象；指名 input 会在写入前拒绝，不改修订、事件或状态。调用方不能根据“最新文件”猜关联，也不能把另一个任务的产物串进来。
 - list/show 会显示修订号和产物数量；show 仍是本地查询，不包含 run token、模型推理或原始工具日志。task list 对老任务（revision 为 0）按第一版处理。
-- 先落盘再确认：写失败返回错误并恢复内存状态，重试必须真正落盘。重启后修订、产物和返工事件从同一任务日志恢复。此能力不改变卡片、语音或验收的既有语义，也不代表 QQ 已接通、产物已上传或空间已发布。
+- 先落盘再确认：写失败返回错误并恢复内存状态（任务与 request-id 回执一起回滚），重试必须真正落盘。重启后修订、产物、返工事件和 request-id 回执从同一任务日志恢复。此能力不改变卡片、语音或验收的既有语义，也不代表 QQ 已接通、产物已上传或空间已发布。
 
 ## 置顶状态栏里的任务入口
 
