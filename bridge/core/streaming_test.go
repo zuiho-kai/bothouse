@@ -665,3 +665,99 @@ func TestStreamPreview_UnfreezePreservesActiveAndCommittedMessages(t *testing.T)
 		t.Fatal("discarded preview revived")
 	}
 }
+
+// mockFailingPreviewCleaner is a platform whose DeletePreviewMessage always
+// fails (Discord 429 / 10008 Unknown Message / network blip) and whose
+// UpdateMessage outcome is configurable. It records both calls.
+type mockFailingPreviewCleaner struct {
+	mockUpdaterPlatform
+	deleteErr error
+	updateErr error
+	deletes   []any
+	updates   []string
+}
+
+func (m *mockFailingPreviewCleaner) DeletePreviewMessage(_ context.Context, handle any) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.deletes = append(m.deletes, handle)
+	return m.deleteErr
+}
+
+func (m *mockFailingPreviewCleaner) UpdateMessage(_ context.Context, _ any, content string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.updates = append(m.updates, content)
+	if m.updateErr != nil {
+		return m.updateErr
+	}
+	m.lastMsg = content
+	return nil
+}
+
+func (m *mockFailingPreviewCleaner) getUpdates() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.updates...)
+}
+
+// A failed preview delete must not leave the preview behind and then send a
+// second full message: the preview is overwritten in place instead.
+// 2026-10-26 09:42:48/09:42:54 Discord 私聊看到两条，后者以前者开头。
+func TestPreviewCleanerDeleteFailsFallsBackToUpdate(t *testing.T) {
+	mp := &mockFailingPreviewCleaner{deleteErr: errors.New("429 too many requests")}
+	cfg := StreamPreviewCfg{
+		Enabled:       true,
+		IntervalMs:    50,
+		MinDeltaChars: 1,
+		MaxChars:      500,
+	}
+
+	sp := newStreamPreview(cfg, mp, "ctx", context.Background(), nil)
+	sp.appendText("正文的一部分")
+	time.Sleep(100 * time.Millisecond)
+
+	ok := sp.finish("正文", "")
+	if !ok {
+		t.Fatal("finish should return true when the preview was overwritten in place")
+	}
+
+	if got := mp.getUpdates(); len(got) != 1 || got[0] != "正文" {
+		t.Fatalf("updates = %q, want exactly [正文]", got)
+	}
+	if got := mp.getSent(); len(got) != 0 {
+		t.Fatalf("an extra message was sent: %q", got)
+	}
+}
+
+// When the preview can be neither deleted nor updated, finish reports false so
+// the caller falls back to a fresh send — and says so, so the duplicate can be
+// found afterwards.
+func TestPreviewCleanerDeleteAndUpdateFailWarns(t *testing.T) {
+	logs := captureLogs(t)
+	mp := &mockFailingPreviewCleaner{
+		deleteErr: errors.New("10008 Unknown Message"),
+		updateErr: errors.New("500 cannot edit message"),
+	}
+	cfg := StreamPreviewCfg{
+		Enabled:       true,
+		IntervalMs:    50,
+		MinDeltaChars: 1,
+		MaxChars:      500,
+	}
+
+	sp := newStreamPreview(cfg, mp, "ctx", context.Background(), nil)
+	sp.appendText("正文的一部分")
+	time.Sleep(100 * time.Millisecond)
+
+	if sp.finish("正文", "") {
+		t.Fatal("finish should return false when delete and update both fail")
+	}
+	out := logs.String()
+	if !strings.Contains(out, "could neither be deleted nor updated") {
+		t.Fatalf("no duplication warning logged: %s", out)
+	}
+	if !strings.Contains(out, "10008 Unknown Message") || !strings.Contains(out, "500 cannot edit message") {
+		t.Fatalf("both errors should be logged: %s", out)
+	}
+}

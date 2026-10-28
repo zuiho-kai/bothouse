@@ -414,7 +414,10 @@ func (sp *streamPreview) discard() {
 	if sp.previewMsgID != nil {
 		if cleaner, ok := sp.platform.(PreviewCleaner); ok {
 			slog.Debug("stream preview discard: deleting preview")
-			_ = cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID)
+			if err := cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID); err != nil {
+				slog.Warn("stream preview: deleting the stale preview failed; the message may be duplicated",
+					"preview_id", sp.previewMsgID, "error", err)
+			}
 		}
 	}
 
@@ -476,7 +479,10 @@ func (sp *streamPreview) finish(finalText, statusFooter string) bool {
 			}
 			if cleaner, ok := sp.platform.(PreviewCleaner); ok {
 				slog.Debug("stream preview finish: deleting stale preview (degraded)")
-				_ = cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID)
+				if err := cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID); err != nil {
+					slog.Warn("stream preview: deleting the stale preview failed; the message may be duplicated",
+						"preview_id", sp.previewMsgID, "error", err)
+				}
 			}
 		}
 		slog.Debug("stream preview finish: no active preview", "hasHandle", sp.previewMsgID != nil, "degraded", sp.degraded)
@@ -488,10 +494,38 @@ func (sp *streamPreview) finish(finalText, statusFooter string) bool {
 		keepPreview = pref.KeepPreviewOnFinish()
 	}
 
-	// If platform wants to delete the preview and send fresh, let it.
+	// 2026-10-26 09:42:48/09:42:54 Discord 私聊出现两条，后者是前者的超集；删除预览失败被
+	// `_ =` 吞掉，预览留在频道里，引擎照常补发正文。So the platform-mandated
+	// "delete the preview and send fresh" is only followed when the delete really
+	// worked: a failed delete overwrites the preview in place instead, and only
+	// gives up (loudly) when that fails too.
 	if cleaner, ok := sp.platform.(PreviewCleaner); ok && !keepPreview {
 		slog.Debug("stream preview finish: deleting preview (PreviewCleaner)")
-		_ = cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID)
+		delErr := cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID)
+		if delErr == nil {
+			return false
+		}
+		slog.Warn("stream preview finish: deleting the preview failed, updating it in place",
+			"preview_id", sp.previewMsgID, "error", delErr)
+
+		text := appendReplyFooter(finalText, statusFooter)
+		if updater, isUpdater := sp.platform.(MessageUpdater); isUpdater && text != "" {
+			if err := updater.UpdateMessage(sp.ctx, sp.previewMsgID, text); err == nil {
+				if sp.pendingStatus != "" {
+					if statusUpdater, ok := sp.platform.(PreviewStatusUpdater); ok {
+						statusUpdater.SetPreviewStatus(sp.previewMsgID, sp.pendingStatus)
+					}
+				}
+				slog.Debug("stream preview finish: preview overwritten in place instead of deleted")
+				return true
+			} else {
+				slog.Warn("stream preview finish: the preview could neither be deleted nor updated; the message will be duplicated",
+					"preview_id", sp.previewMsgID, "delete_error", delErr, "update_error", err)
+				return false
+			}
+		}
+		slog.Warn("stream preview finish: the preview could neither be deleted nor updated; the message will be duplicated",
+			"preview_id", sp.previewMsgID, "delete_error", delErr, "update_error", "no MessageUpdater or empty final text")
 		return false
 	}
 
@@ -550,7 +584,10 @@ func (sp *streamPreview) finish(finalText, statusFooter string) bool {
 		// Update failed (e.g. text too long for platform edit API).
 		// Try to delete the stale preview so caller can send a fresh message.
 		if cleaner, ok := sp.platform.(PreviewCleaner); ok {
-			_ = cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID)
+			if err := cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID); err != nil {
+				slog.Warn("stream preview: deleting the stale preview failed; the message may be duplicated",
+					"preview_id", sp.previewMsgID, "error", err)
+			}
 		}
 		return false
 	}
@@ -571,14 +608,20 @@ func (sp *streamPreview) commitLocked(replier PreviewReplier, text string, reply
 	sp.previewMsgID = nil
 	if strings.TrimSpace(text) == "" {
 		if cleaner, ok := sp.platform.(PreviewCleaner); ok {
-			_ = cleaner.DeletePreviewMessage(sp.ctx, handle)
+			if err := cleaner.DeletePreviewMessage(sp.ctx, handle); err != nil {
+				slog.Warn("stream preview: deleting the stale preview failed; the message may be duplicated",
+					"preview_id", handle, "error", err)
+			}
 		}
 		return false
 	}
 	if err := replier.ReplyInPlace(sp.ctx, handle, replyCtx, text); err != nil {
 		slog.Debug("stream preview: reply in place failed, deleting preview", "error", err)
 		if cleaner, ok := sp.platform.(PreviewCleaner); ok {
-			_ = cleaner.DeletePreviewMessage(sp.ctx, handle)
+			if derr := cleaner.DeletePreviewMessage(sp.ctx, handle); derr != nil {
+				slog.Warn("stream preview: deleting the stale preview failed; the message may be duplicated",
+					"preview_id", handle, "error", derr)
+			}
 		}
 		return false
 	}
