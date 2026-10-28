@@ -56,6 +56,17 @@ class Settings:
     tts_voice: str = 'uncle_fu'
     tts_volc_credentials: str = ''  # 私密 JSON；角色音色是火山音色 ID 时走云端合成
     sentence_stream: bool = False
+    # 三模式/快脑默认关闭：配置齐全并显式打开才改变现有链路。
+    modes_enabled: bool = False
+    default_mode: str = 'work'  # 拿不准默认工作模式（走现有 Agent）
+    fast_brain_provider: str = 'disabled'  # disabled | mock | openai
+    fast_brain_base_url: str = ''  # OpenAI 兼容地址；密钥只从环境变量读
+    fast_brain_model: str = ''
+    fast_brain_api_key_env: str = 'FAST_BRAIN_API_KEY'
+    fast_brain_first_token_timeout_s: float = 0.8  # 研究笔记 §12：800ms 首字超时回退
+    memory_pack_path: str = ''
+    memory_pack_ttl_s: float = 600.0  # 研究笔记 §6.1：每 10 分钟刷新记忆包
+    voice_outbox_dir: str = ''  # 空则用 data_dir
     port: int = 8787
     data_dir: str = ''
     shared_memory_dir: str = ''
@@ -89,6 +100,27 @@ class Settings:
             raise ValueError('asr_remote_timeout_s 必须在 0.5—30 秒之间')
         if not isinstance(self.sentence_stream, bool):
             raise ValueError('sentence_stream 必须为布尔值')
+        if not isinstance(self.modes_enabled, bool):
+            raise ValueError('modes_enabled 必须为布尔值')
+        from .modes import MODES
+        if self.default_mode not in MODES:
+            raise ValueError('default_mode 必须是 companion、work 或 auto。')
+        if self.fast_brain_provider not in {'disabled', 'mock', 'openai'}:
+            raise ValueError('fast_brain_provider 必须是 disabled、mock 或 openai。')
+        for field in ('fast_brain_base_url', 'fast_brain_model', 'fast_brain_api_key_env',
+                      'memory_pack_path', 'voice_outbox_dir'):
+            if not isinstance(getattr(self, field, None), str):
+                raise ValueError(f'{field} 必须为字符串')
+        if (isinstance(self.fast_brain_first_token_timeout_s, bool)
+                or not isinstance(self.fast_brain_first_token_timeout_s, (int, float))
+                or self.fast_brain_first_token_timeout_s <= 0):
+            raise ValueError('fast_brain_first_token_timeout_s 必须为正数。')
+        if (isinstance(self.memory_pack_ttl_s, bool) or not isinstance(self.memory_pack_ttl_s, (int, float))
+                or self.memory_pack_ttl_s <= 0):
+            raise ValueError('memory_pack_ttl_s 必须为正数。')
+        if self.modes_enabled and self.fast_brain_provider == 'openai' and not (
+                _nonempty_str(self.fast_brain_base_url) and _nonempty_str(self.fast_brain_model)):
+            raise ValueError('启用快脑 openai 时必须显式配置 fast_brain_base_url 与 fast_brain_model。')
         if self.tts_backend not in {'say', 'qwen3', 'volc'}:
             raise ValueError('tts_backend 必须为 say、qwen3 或 volc。')
         if self.tts_backend == 'volc':

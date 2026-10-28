@@ -95,6 +95,36 @@ class SentenceSpeech:
             await self.enqueue(''.join(self.sentences[self.played:]) + rest)
             self.played = len(self.sentences)
 
+    async def feed_delta(self, delta: str, *, final: bool = False) -> None:
+        """Feed raw model deltas (small brain) instead of a bridge receipt.
+
+        Same sentence splitting and markup stop as ``feed``; there is no
+        binding to validate because this text never passed through the bridge.
+        """
+        if self.worker and self.worker.done():
+            self.worker.result()
+        if self.service.output_stopped(self.turn):
+            raise BridgeError('本轮播放已停止。', 409)
+        if not isinstance(delta, str):
+            raise BridgeError('增量回答格式不正确；已停止本轮播放。', 422)
+        if len((self.raw + delta).encode()) > 16384:  # 沿用 relay 增量路径的同一上限
+            raise BridgeError('增量回答过长；已停止本轮播放。', 422)
+        self.raw += delta
+        if self.blocked:
+            return
+        self.pending += delta
+        if any(token in self.pending for token in ('<', chr(96), '[[')):
+            self.blocked = True
+            self.pending = ''
+            return
+        while match := re.search(r'[。！？!?\n]|\.(?=\s|$)', self.pending):
+            end = match.end()
+            await self.enqueue(self.pending[:end])
+            self.pending = self.pending[end:]
+        if final and self.pending:
+            await self.enqueue(self.pending)
+            self.pending = ''
+
     async def enqueue(self, text):
         from .app import spoken_answer
         text = spoken_answer(text).strip()

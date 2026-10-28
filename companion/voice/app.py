@@ -28,12 +28,19 @@ from .roles import Role, validate_roles, voice_label
 from .discussion import Discussions, DiscussionInput, AdvanceInput
 from .speech import _pcm_samples
 from .recognition import prewarm, transcribe_request
+from .modes import MODES, ModeRouter
+from .memory_pack import MemoryPack, VoiceOutbox
+from .mode_control import ModeStore
+from .fast_brain import FastBrain, FastBrainUnavailable, build_provider
 
 
 class TurnInput(BaseModel):
     id: str
     project: str
     text: str = Field(min_length=1, max_length=6000)
+    # 板端/页面可选上报：本轮使用的模式，以及用户说完话的墙上时钟毫秒。
+    mode: str = ''
+    speech_end_ms: int | None = None
 
 
 class PlaybackInput(BaseModel):
@@ -78,6 +85,17 @@ class VoiceService:
         self.data_dir = Path(settings.data_dir).expanduser()
         self.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.memory = SharedMemory(settings.shared_memory_dir, settings.session_key)
+        self.router = ModeRouter()
+        self.mode_store = ModeStore(self.data_dir / 'device-modes.json', settings.default_mode)
+        self.fast_brain = None
+        self.outbox = None
+        if settings.modes_enabled:
+            pack = (MemoryPack(Path(settings.memory_pack_path).expanduser(), settings.memory_pack_ttl_s)
+                    if settings.memory_pack_path else None)
+            self.outbox = VoiceOutbox(settings.voice_outbox_dir or settings.data_dir)
+            self.fast_brain = FastBrain(
+                build_provider(settings), pack, self.outbox,
+                first_token_timeout_s=settings.fast_brain_first_token_timeout_s)
 
     def record(self, event: str, value: dict):
         path = self.data_dir / 'events.jsonl'
@@ -159,6 +177,8 @@ class VoiceService:
         text = data.text.strip()
         if not text or text.startswith('/'):
             raise HTTPException(400, '请输入普通对话；管理命令请在 Discord 使用。')
+        if data.mode and data.mode not in MODES:
+            raise HTTPException(400, '语音模式只能是 companion、work 或 auto。')
         if data.id in self.turns:
             existing = self.turns[data.id]
             if existing['input_text'] != text or existing['project'] != data.project:
@@ -191,9 +211,14 @@ class VoiceService:
             self.turns.pop(oldest)
             self.audio.pop(oldest, None)
             self.audio_chunks.pop(oldest, None)
+        mode = (data.mode
+                or (self.mode_store.get(device['device_id']) if device else '')
+                or self.settings.default_mode)
         turn = {'id': data.id, 'project': data.project, 'input_text': text,
                 'status': 'thinking', 'text': '', 'spoken_text': '', 'error': '',
                 'timings': {}, 'started': time.monotonic(),
+                'mode': mode, 'speech_end_ms': data.speech_end_ms,
+                'received_at_ms': round(time.time() * 1000),
                 '_binding': binding,
                 'role_name': self.roles[data.project].name,
                 'voice_label': voice_label(self.settings, self.roles[data.project]),
@@ -250,7 +275,13 @@ class VoiceService:
             if text is not None and index == base_index:
                 turn['audio_chunks'][-1]['text'] = text
             if index == 0:
-                turn['timings']['tts_first_chunk_ms'] = round((time.monotonic() - turn['_tts_started']) * 1000)
+                now = time.monotonic()
+                turn['timings']['tts_first_chunk_ms'] = round((now - turn['_tts_started']) * 1000)
+                # 从 8796 收到本轮，到第一段音频可播放；是验收口径的一段。
+                turn['timings']['submit_to_first_audio_ms'] = round((now - turn['started']) * 1000)
+                if turn.get('speech_end_ms'):
+                    # 从板端/页面记录的用户说完时刻，到第一段音频可播放。
+                    turn['timings']['e2e_first_audio_ms'] = round(time.time() * 1000 - turn['speech_end_ms'])
 
         def receive(audio):
             nonlocal total_bytes, total_frames
@@ -278,6 +309,16 @@ class VoiceService:
             # A cancelled task cannot publish late worker data into a new turn.
             accepting.clear()
 
+    def route(self, turn: dict) -> dict:
+        """Decide the answer owner once; the route is recorded for reporting."""
+        started = time.monotonic()
+        decision = self.router.decide(turn['input_text'], turn['mode'])
+        turn['route'] = decision.route
+        turn['route_reason'] = decision.reason
+        turn['confidence'] = decision.confidence
+        turn['timings']['route_ms'] = round((time.monotonic() - started) * 1000)
+        return decision
+
     async def run(self, turn: dict):
         request_id = 'voice-' + turn['id']
         sentences = None
@@ -289,6 +330,22 @@ class VoiceService:
             if turn.get('discussion_id') and self.discussions.get(turn['discussion_id'])['stop_requested']:
                 turn.update(status='error', error='已停止讨论，本轮尚未发送。')
                 return
+            if self.fast_brain is not None:
+                decision = self.route(turn)
+                if decision.route == 'small':
+                    try:
+                        if await self.fast_brain.run(self, turn, request_id):
+                            return
+                    except FastBrainUnavailable as exc:
+                        if exc.partial or turn.get('audio_chunks'):
+                            turn['status'] = 'error'
+                            turn['error'] = '快脑回答中断了，已经播出的部分不会重播；请再说一次或切到工作模式。'
+                            return
+                        # Nothing was spoken: one answer ownership, hand it to the big brain.
+                        turn['route'] = 'big'
+                        turn['route_escalated'] = True
+                        turn['escalation_reason'] = str(exc)
+                        turn['notice'] = '快脑不可用，已转给大脑。'
             if self.roles[turn['project']].relay_project:
                 from .relay import relay_turn
                 if (self.settings.sentence_stream and turn.get('_binding') and
@@ -446,6 +503,9 @@ class VoiceService:
             now = time.monotonic()
             turn['timings']['first_playback_ms'] = round((now - turn['started']) * 1000)
             turn['timings']['tts_to_playback_ms'] = round((now - turn['_tts_started']) * 1000)
+            if turn.get('speech_end_ms'):
+                # 验收口径：用户说完 → 设备报告开始播放第一句。
+                turn['timings']['e2e_first_playback_ms'] = round(time.time() * 1000 - turn['speech_end_ms'])
         turn['playback'] = data.model_dump()
         self.record('playback', {'id': turn_id, 'project': turn['project'],
                                   **{k: turn[k] for k in ('discussion_id', 'phase', 'round', 'device_id', 'audio_target') if k in turn},

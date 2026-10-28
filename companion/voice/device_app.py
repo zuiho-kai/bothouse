@@ -15,14 +15,21 @@ import wave
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .app import TurnInput, PlaybackInput, build_service
+from .modes import MODES
 from .bridge import BridgeError
 from .devices import DeviceRegistry, RoutingError
 from .floor import FloorControl, FloorError, HumanUtterance
 from .roles import voice_label
 from .recognition import prewarm, transcribe_request
+
+
+class ModeInput(BaseModel):
+    mode: str
+    operation_id: str = Field(min_length=1, max_length=200)
 
 
 DEFAULT_LEASE_SECONDS = 30.0
@@ -689,8 +696,26 @@ def create_device_app(settings, registry, *, speech=None, bridge=None, roles, ho
                 'max_record_seconds': 30, 'asr_model_ready': Path(settings.model_path).is_dir(),
                 'active_turn': held['id'] if held and held['client'] == client else None,
                 'playback_owner': room.records[room.active]['device_id'] if room.active in room.records else None,
+                'mode': service.mode_store.snapshot(device_id),
+                'modes_enabled': settings.modes_enabled,
                 'roles': [{'id': device.project, 'name': role.name, 'available': available,
                            'detail': detail, 'voice_label': voice_label(settings, role)}]}
+
+    @app.get('/device/{device_id}/api/mode')
+    async def get_mode(device_id: str):
+        room.device(device_id)
+        state = service.mode_store.snapshot(device_id)
+        state['modes_enabled'] = settings.modes_enabled
+        return state
+
+    @app.put('/device/{device_id}/api/mode')
+    async def put_mode(device_id: str, data: ModeInput):
+        device = room.device(device_id)
+        if data.mode not in MODES:
+            raise HTTPException(400, '语音模式只能是 companion、work 或 auto。')
+        result = service.mode_store.set(device.device_id, data.mode, data.operation_id)
+        service.record('mode', {'device_id': device.device_id, **result})
+        return result
 
     @app.post('/device/{device_id}/api/heartbeat')
     async def heartbeat(device_id: str, request: Request):
