@@ -198,9 +198,30 @@ func readPathsFromSedArgs(args []string) []string {
 		if arg == "--" {
 			continue
 		}
-		if strings.HasPrefix(arg, "-") {
-			if arg == "-e" || arg == "--expression" || arg == "-f" || arg == "--file" {
+		if strings.HasPrefix(arg, "--") {
+			switch {
+			case arg == "--expression" || arg == "--file":
+				scriptSeen = true
 				skipNext = true
+			case strings.HasPrefix(arg, "--expression=") || strings.HasPrefix(arg, "--file="):
+				scriptSeen = true
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") && arg != "-" {
+			// An explicit script (-e/-f) means the next positional argument is
+			// an input file, not the positional script. Short options may be
+			// bundled ("-ne") or carry the value ("-e1,2p").
+			cluster := arg[1:]
+			for i := 0; i < len(cluster); i++ {
+				if cluster[i] != 'e' && cluster[i] != 'f' {
+					continue
+				}
+				scriptSeen = true
+				if i == len(cluster)-1 {
+					skipNext = true
+				}
+				break
 			}
 			continue
 		}

@@ -37,7 +37,7 @@ bothouse report file-frequency --since 7d --json-out /tmp/reads.json
 
 - `data.tool` 是工具名，`text` 是工具入参的摘要。
 - `Read` / `NotebookRead`：`text` 是文件路径，兼容 `file_path`、`path`、`notebook_path`、`file` 等 JSON 字段。
-- `Bash` / `shell` / `execute`：`text` 是命令。当前识别 `cat`、`head`、`tail`、`less`、`more`、`bat`/`batcat`、`sed` 这些整文件读取命令；`grep`/`rg` 只做检索，不算读取。
+- `Bash` / `shell` / `execute`：`text` 是命令。当前识别 `cat`、`head`、`tail`、`less`、`more`、`bat`/`batcat`、`sed` 这些整文件读取命令（`sed` 的脚本可位置传入，也可用 `-e`/`-f` 显式指定）；`grep`/`rg` 只做检索，不算读取。
 - 写入类工具（`Write`/`Edit`/`Patch`）不计入读取。
 
 #581 在写事件时把 `text` 截到 500 个字符，超长命令尾部的路径可能丢失；这是摘要流的已知边界。
@@ -46,7 +46,7 @@ bothouse report file-frequency --since 7d --json-out /tmp/reads.json
 
 `--source claudecode` 读取 `~/.claude/projects/<project>/<session>.jsonl` 及其 `subagents/*.jsonl`，从 `message.content[]` 的 `tool_use` 块中取 `Read` 和 `Bash` 的入参。项目名用会话记录里的 `cwd`；没有 `cwd` 的记录归到 `(unknown)`。
 
-`--source auto`（默认）先读 `events.jsonl`；如果窗口内没有任何 tool 事件，再回退到 Claude Code 记录。这样新部署和旧机器都能出报告。
+`--source auto`（默认）先读 `events.jsonl`；如果窗口内没有请求项目（`--project`）的 tool 事件，再回退到 Claude Code 记录。这样新部署和旧机器都能出报告，别的项目的活动也不会把本项目的记录挡掉。
 
 ## 建议阈值
 

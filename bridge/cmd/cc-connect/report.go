@@ -115,7 +115,7 @@ func reportFileFrequencyCommand(args []string, out io.Writer) error {
 		return err
 	}
 	dataDir := resolveDataDir(opts.DataDir)
-	events, actualSource, err := loadReadFrequencyEvents(source, dataDir, opts.ClaudeDir, since)
+	events, actualSource, err := loadReadFrequencyEvents(source, dataDir, opts.ClaudeDir, opts.Project, since)
 	if err != nil {
 		return err
 	}
@@ -191,7 +191,7 @@ func parseReadFrequencySince(raw string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("invalid --since %q (use 24h, 7d, ...)", raw)
 }
 
-func loadReadFrequencyEvents(source core.ReadFrequencySource, dataDir, claudeDir string, since time.Time) ([]core.ReadEvent, string, error) {
+func loadReadFrequencyEvents(source core.ReadFrequencySource, dataDir, claudeDir, project string, since time.Time) ([]core.ReadEvent, string, error) {
 	switch source {
 	case core.ReadFrequencySourceEvents:
 		events, err := (core.EventsReadSource{DataDir: dataDir}).ReadEvents(since)
@@ -201,7 +201,9 @@ func loadReadFrequencyEvents(source core.ReadFrequencySource, dataDir, claudeDir
 		return events, string(core.ReadFrequencySourceClaudeCode), err
 	default:
 		events, eventsErr := (core.EventsReadSource{DataDir: dataDir}).ReadEvents(since)
-		if eventsErr == nil && len(events) > 0 {
+		// Decide on the reads the caller will actually report: another
+		// project's activity must not hide this project's Claude records.
+		if eventsErr == nil && readFrequencyEventsMatchProject(events, project) {
 			return events, string(core.ReadFrequencySourceEvents), nil
 		}
 		claudeEvents, claudeErr := (core.ClaudeCodeReadSource{Dir: claudeDir}).ReadEvents(since)
@@ -221,6 +223,21 @@ func readFrequencyProjectMatches(project, filter string) bool {
 	}
 	project = strings.TrimSpace(project)
 	return project == filter || filepath.Base(project) == filter
+}
+
+// readFrequencyEventsMatchProject reports whether events contain a read for the
+// requested project. With no filter it is just "any events at all", preserving
+// the previous auto-source behaviour.
+func readFrequencyEventsMatchProject(events []core.ReadEvent, project string) bool {
+	if project == "" {
+		return len(events) > 0
+	}
+	for _, event := range events {
+		if readFrequencyProjectMatches(event.Project, project) {
+			return true
+		}
+	}
+	return false
 }
 
 func defaultReadFrequencyWikiDir() string {
