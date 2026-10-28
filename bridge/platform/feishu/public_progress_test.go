@@ -308,7 +308,7 @@ func TestFeishuBoardPinFailureKeepsID(t *testing.T) {
 	if got, err := p.UpsertBoard(context.Background(), "feishu:oc_chat:ou_u", id, "**板**\ny", false); err != nil || got != id {
 		t.Fatalf("edit with pin still refused: %q, %v", got, err)
 	}
-	// Scope granted: the next successful edit pins the board, once.
+	// Scope granted: the next successful edit does not re-pin the board (no churn).
 	f.mu.Lock()
 	f.pinFail = false
 	f.mu.Unlock()
@@ -317,8 +317,8 @@ func TestFeishuBoardPinFailureKeepsID(t *testing.T) {
 			t.Fatalf("edit after scope granted: %q, %v", got, err)
 		}
 	}
-	if len(f.pins) != 1 || f.pins[0] != id {
-		t.Fatalf("board not re-pinned exactly once: %v", f.pins)
+	if len(f.pins) != 0 {
+		t.Fatalf("edit must not re-pin: %v", f.pins)
 	}
 }
 

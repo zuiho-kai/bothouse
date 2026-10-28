@@ -21,6 +21,10 @@ func (p *indexedProgressPlatform) UpsertBoard(ctx context.Context, key, id, text
 	return p.board.UpsertBoard(ctx, key, id, text, live)
 }
 
+func (p *indexedProgressPlatform) RemoveBoard(ctx context.Context, key, id string) error {
+	return p.board.RemoveBoard(ctx, key, id)
+}
+
 // Three user actions use the real Engine, reporter, heartbeat writer and board
 // updater. Only the model process and message transport are fixtures.
 func TestCUJ_Progress2_PinnedIndexLifecycle(t *testing.T) {
@@ -61,7 +65,6 @@ func TestCUJ_Progress2_PinnedIndexLifecycle(t *testing.T) {
 	if text := refresh(TaskStateInProgress, 1); !strings.Contains(text, "https://example.test/cards/"+id) {
 		t.Fatal("real entry did not publish index link", text)
 	}
-	boardID := boards[inputTestKey].MessageID
 	report(token, 2, "waiting")
 	if text := refresh(TaskStateWaitingUser, 1); !strings.Contains(text, "Needs your input") {
 		t.Fatal("waiting not visible", text)
@@ -89,8 +92,8 @@ func TestCUJ_Progress2_PinnedIndexLifecycle(t *testing.T) {
 	inputDone(a, "你好")
 	inputWait(t, func() bool { return !session.Busy() })
 	refresh("", 0)
-	if boards[inputTestKey].MessageID != boardID || len(p.snapshots) != 2 {
-		t.Fatal("board replaced or chat created a task")
+	if boards[inputTestKey] != nil || len(p.snapshots) != 2 {
+		t.Fatal("empty board stayed or chat created a task")
 	}
 }
 
@@ -200,15 +203,40 @@ func TestTaskIndexCreatesBoardWithoutToolActivityAndKeepsHistory(t *testing.T) {
 	if !e.updateTeamBoards(files, boards) || p.posts != 1 {
 		t.Fatal("waiting task did not create index")
 	}
-	id := boards["discord:111"].MessageID
 	if e.updateTeamBoards(files, boards) || p.posts != 1 {
 		t.Fatal("unchanged index reposted")
 	}
 	files[0].Tasks = nil
-	if !e.updateTeamBoards(files, boards) || boards["discord:111"].MessageID != id {
-		t.Fatal("ending task replaced/deleted the board")
+	if !e.updateTeamBoards(files, boards) || boards["discord:111"] != nil {
+		t.Fatal("ending task left an empty board")
 	}
 	if strings.Contains(p.content["discord:111"], "https://example.test/card/1") {
 		t.Fatal("ended task retained in index")
+	}
+}
+
+// Regression (#565): the quiet board dropped the pinned board's task-card index
+// links (docs/PUBLIC_PROGRESS.md "进行中 / 待你处理") together with the 谁在干啥
+// member lines. A waiting task with no tool activity must still create the board
+// and link its card.
+func TestTeamBoardQuietKeepsTaskIndexLinks(t *testing.T) {
+	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}
+	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
+	allChatsAreWorkspaces(e)
+	defer e.cancel()
+	e.team = &teamState{dir: t.TempDir(), board: true}
+	files := []teamFile{{Project: "fish", Name: "肥鱼", Tasks: []teamTaskLink{{
+		ID: "t1", SessionKey: "discord:111", Title: "验证语音",
+		URL: "https://example.test/card/1", State: TaskStateWaitingUser,
+	}}}}
+	if !e.updateTeamBoards(files, map[string]*boardChat{}) {
+		t.Fatal("waiting task with no tool activity must create the index board")
+	}
+	got := p.content["discord:111"]
+	if !strings.Contains(got, "https://example.test/card/1") || !strings.Contains(got, "**待你处理**") {
+		t.Fatalf("task index links missing:\n%s", got)
+	}
+	if strings.Contains(got, "谁在干啥") {
+		t.Fatalf("quiet board must not bring back the member roster:\n%s", got)
 	}
 }
