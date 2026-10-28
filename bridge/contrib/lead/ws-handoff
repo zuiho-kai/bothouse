@@ -1,6 +1,7 @@
 #!/usr/bin/env -S python3 -I
 # 把一整块大活交给「工作区」频道里的主角色：检查交接文件，再用 cc-connect timer 叫她开工，输出 timer id。
-# 用法：ws-handoff <交接文件> "<一句话任务>"
+# 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名]
+#   短名（≤10 字）上团队板（board add --short）；不写就从任务句去前缀再截。
 #   交接文件放当前目录（角色目录，在数据目录下）的 notes/<名>.md，同本机做法；不放 /tmp 这类公共目录（USAGE）。
 #   交接文件必须含「用户原话」「进度」「规矩」三个小节标题（# 开头的行），和「参照实现」（文件:行，非代码活写
 #   「无（新建）」）；有「共改文件」/「多人改」标题时还要「底分支：<分支名>」一行（见 check_notes）。
@@ -249,6 +250,11 @@ def record_last(path: str, ws: str, task: str, chat: str, nid=None):
 
 
 def main(argv):
+    short_name = None
+    if "--short" in argv:
+        k = argv.index("--short")
+        short_name = argv[k + 1] if k + 1 < len(argv) else None
+        argv = argv[:k] + argv[k + 2:]
     if len(argv) != 2 or not argv[1].strip():
         sys.exit(USAGE)
     path, task = os.path.abspath(os.path.expanduser(argv[0])), argv[1]
@@ -270,7 +276,7 @@ def main(argv):
     # 放回只看绑定的条目（board pause / 把「谁」改走），刚交的活不会被当成没人做
     key = ws if ":" in ws else f"discord:{ws}"
     lead_name = _team.name_of(os.environ["CC_PROJECT"]) if os.environ.get("CC_PROJECT") else "主角色"
-    nid = board.add(task, path, "已交接", f"{name}{lead_name}", ws=key, chat=chat)
+    nid = board.add(task, path, "已交接", f"{name}{lead_name}", ws=key, chat=chat, short_name=short_name)
     r = subprocess.run(timer_cmd(ws, path, task, nid), capture_output=True, text=True)
     if r.returncode != 0:
         # 叫醒失败：撤掉刚上的板和刚 claim 的那一件交接（只放这一件，同 board pause 的 park），不留给看门判无进展

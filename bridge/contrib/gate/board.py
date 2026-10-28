@@ -13,7 +13,8 @@
 
 用法：
   board                                  # 列出进行中的事
-  board add <事情> <分支/PR/路径> <状态> <谁> [--next 几点看]   # 新加一条，打印编号
+  board add <事情> <分支/PR/路径> <状态> <谁> [--next 几点看] [--short 短名]   # 新加一条，打印编号
+                                         #   短名（≤10 字）上团队板；不写就从事情去掉「用户点名：」「#N 续：」这类前缀再截
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
                                          #   状态以收尾词开头（已交回/已完成/已验收/已收口/已结束/done）就直接结束，同 done
   board next <编号> <几点> | --restore <JSON>  # 只改「下次看」（later 专用，要 BOARD_LATER=1）；打印改前记录和事情
@@ -112,6 +113,51 @@ def _now():
     return time.strftime("%m-%d %H:%M")
 
 
+# 团队板只显示短名（用户 2026-10-28「工作区的任务板又长又臭」）。同 core/team_task_board.go teamTaskBoardShort，改要一起改。
+SHORT_RUNES = 10
+_SHORT_TAG = re.compile(r"[（(]用户点名[)）]")
+_SHORT_PREFIX = re.compile(r"^\s*(?:用户点名(?:「[^」]*」|（[^）]*）|\s*#\d+\s*\S{0,3})?[：:]|用户点名\s*|事故\s*#\d+[^：:]{0,8}[：:]|#\d+[^：:]{0,10}[：:])\s*")
+
+
+def short_of(what):
+    """事情的短名：去掉「用户点名：」「#N 续：」「事故 #N 跟进：」这类前缀，冒号前够短就取冒号前，否则截 10 字。"""
+    s = _SHORT_TAG.sub("", str(what or "")).strip()
+    while True:
+        t = _SHORT_PREFIX.sub("", s, count=1)
+        if t == s or not t:
+            break
+        s = t
+    m = re.search(r"[：:，,；;（(]", s)
+    if m and 2 <= m.start() <= SHORT_RUNES:
+        return s[:m.start()].strip()
+    return s if len(s) <= SHORT_RUNES else s[:SHORT_RUNES].rstrip() + "…"
+
+
+WAIT_STATUS_RE = re.compile(r"等待?用户|待用户")  # 状态写着在等用户（等用户[看片]、待用户定），同 core teamOtherQuiet
+
+
+def waits_user(it):
+    """等用户拍板/看片的条目：暂停原因或状态写着等用户。"""
+    if it.get("paused"):
+        return bool(WAIT_USER_RE.search(it.get("pause_why") or ""))
+    return bool(WAIT_STATUS_RE.search(it.get("status") or ""))
+
+
+def in_chat(it, key):
+    """条目属于会话 key（<平台>:<id>）所在频道：建在这里、绑在这里（工作区），或从这里交出（聊天频道）。"""
+    chat = ":".join(str(key or "").split(":", 2)[:2])
+    if ":" not in chat:
+        return False
+    cid = chat.split(":", 1)[1]
+    c = it.get("chat") or ""
+    c = c if ":" in c else (f"discord:{c}" if c else "")
+    return chat in (it.get("ws"), it.get("sk"), c) or (chat.startswith("discord:") and it.get("ch") == cid)
+
+
+def short(it):
+    return it.get("short") or short_of(it.get("what"))
+
+
 def _cur_channel():
     k = os.environ.get("CC_SESSION_KEY", "")  # 形如 discord:<频道 id>
     c = k.removeprefix("discord:")
@@ -147,13 +193,14 @@ def _back_to_chat(it):
         it["ch"] = chat.split(":", 1)[1]
 
 
-def add(what, where, status, who, nxt=None, ws=None, chat=None):
+def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None):
     """ws：ws-handoff 交活时建的条目绑到这个工作区（<平台>:<id>，桥里那一件交接）；pause、把「谁」改走时放掉那一件。
     chat：交活的聊天频道（<平台>:<id>），恢复/改回工作区时按它向桥收回占用（reoccupy）。"""
     with _locked():
         cur = _read()
         nid = max([i["id"] for i in cur + _read("board-done.jsonl")] + [0]) + 1
-        it = {"id": nid, "what": what, "where": where, "status": status, "who": who, "at": _now()}
+        it = {"id": nid, "what": what, "short": (short_name or "").strip()[:SHORT_RUNES] or short_of(what),
+              "where": where, "status": status, "who": who, "at": _now()}
         if nxt:
             it["next"], it["next_ts"] = nxt, _deadline(nxt)
         if _cur_channel():
@@ -805,6 +852,15 @@ def _cc_bin():  # 同 ../lead/later：CC_BIN，否则 PATH 里的 bothouse / cc-
 WS_TIMEOUT = 5  # 秒：问桥工作区注册表的上限（本机 socket 调用，正常 1 秒内；桥卡住时不拖住 board 命令）
 
 
+def _split_short(argv):
+    if "--short" in argv:
+        k = argv.index("--short")
+        if k + 1 >= len(argv):
+            sys.exit("--short 后面要写短名（≤10 字），比如 --short 任务板整理")
+        return argv[:k] + argv[k + 2:], argv[k + 1]
+    return argv, None
+
+
 def _split_next(argv):
     if "--next" in argv:
         k = argv.index("--next")
@@ -837,6 +893,7 @@ def open_pr_hint():
 
 def main(argv):
     argv, nxt = _split_next(argv)
+    argv, short_name = _split_short(argv)
     cmd = argv[0] if argv else "list"
     if cmd not in ("refresh", "prune"):  # 每个命令顺带收一次（不查 gh，不拖慢命令）；这次要操作的编号先不收
         nid = argv[1].lstrip("#") if len(argv) > 1 else ""
@@ -848,7 +905,7 @@ def main(argv):
             why = _lookback_reason(*argv[1:4])
             if why:
                 sys.exit(f"不加：{why}。用完成通知，或在原条目上 board update / later <编号>")
-            nid = add(*argv[1:5], nxt=nxt)
+            nid = add(*argv[1:5], nxt=nxt, short_name=short_name)
             print(f"#{nid}")
         elif cmd == "next" and len(argv) in (3, 4):
             if os.environ.get("BOARD_LATER") != "1":
