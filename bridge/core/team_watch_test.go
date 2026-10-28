@@ -675,6 +675,200 @@ func TestWatchBusySessionIsNotStopped(t *testing.T) {
 	}
 }
 
+// A busy turn that keeps producing agent events (tool calls/results, text stream) is real
+// progress, not a busy-only renewal: it renews past watchBusyMaxRenew and never parks. Before
+// this fix the third check parked it as a stuck turn.
+func TestWatchBusySessionWithEventsRenewsBeyondBusyLimit(t *testing.T) {
+	e, p, w, h := progressFixture(t, "")
+	s := e.sessions.GetOrCreateActive("discord:ws1:u1")
+	if !s.TryLock() {
+		t.Fatal("lock")
+	}
+	defer s.Unlock()
+	state := &interactiveState{}
+	e.interactiveStates["discord:ws1:u1"] = state
+	now := h.Due
+	for i := 1; i <= watchBusyMaxRenew+2; i++ {
+		state.lastEventAt.Store(now.Add(-time.Minute).UnixNano())
+		next := w.tick(now)
+		got := handoffsOf(e, "discord:ws1")[0]
+		if next.IsZero() || !got.Parked.IsZero() || got.Renewed != i || len(p.out) != 0 {
+			t.Fatalf("check %d with agent events: renewed as real progress, got %+v, next %v, sent %v", i, got, next, p.out)
+		}
+		now = next
+	}
+	if got := handoffsOf(e, "discord:ws1")[0]; got.BusyRenewed != 0 {
+		t.Fatalf("agent events must count as real progress, got %d busy renewals: %+v", got.BusyRenewed, got)
+	}
+}
+
+// A busy turn with no agent event since the window began is still only a busy renewal and stays
+// capped at watchBusyMaxRenew (#452): after two renewals the workspace is parked.
+func TestWatchBusySessionWithoutEventsStaysCapped(t *testing.T) {
+	e, p, w, h := progressFixture(t, "")
+	s := e.sessions.GetOrCreateActive("discord:ws1:u1")
+	if !s.TryLock() {
+		t.Fatal("lock")
+	}
+	defer s.Unlock()
+	state := &interactiveState{}
+	state.lastEventAt.Store(h.At.Add(-time.Hour).UnixNano())
+	e.interactiveStates["discord:ws1:u1"] = state
+	now := h.Due
+	for i := 1; i <= watchBusyMaxRenew; i++ {
+		next := w.tick(now)
+		got := handoffsOf(e, "discord:ws1")[0]
+		if next.IsZero() || !got.Parked.IsZero() || got.Renewed != i || got.BusyRenewed != i {
+			t.Fatalf("busy check %d without events: renewed only as busy, got %+v, next %v", i, got, next)
+		}
+		now = next
+	}
+	if next := w.tick(now); !next.IsZero() {
+		t.Fatalf("busy renewals used up: parked, next %v", next)
+	}
+	got := handoffsOf(e, "discord:ws1")[0]
+	if got.Parked.IsZero() || got.BusyRenewed != watchBusyMaxRenew || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("busy without events must still park after %d renewals, got %+v, sent %v", watchBusyMaxRenew, got, p.out)
+	}
+}
+
+// In multi-workspace mode interactiveStates is keyed "<workspace path>:<session key>" (see
+// interactiveKeyForSessionKey); the watch must see that state as a session of the workspace,
+// not compare chatOf() of the prefixed key with the workspace key.
+func TestWatchMultiWorkspacePrefixedStateCountsAsEvent(t *testing.T) {
+	e, _, w, h := progressFixture(t, "")
+	wsDir := t.TempDir()
+	e.multiWorkspace = true
+	e.workspaceBindings = NewWorkspaceBindingManager(filepath.Join(t.TempDir(), "bindings.json"))
+	e.workspaceBindings.Bind("project:"+e.name, "discord:ws1", "ws1", wsDir)
+	iKey := e.interactiveKeyForSessionKey("discord:ws1:u1")
+	if iKey == "discord:ws1:u1" {
+		t.Fatalf("precondition: expected a workspace-prefixed interactive key")
+	}
+	state := &interactiveState{}
+	state.lastEventAt.Store(h.At.Add(time.Minute).UnixNano())
+	e.interactiveStates[iKey] = state
+	if !w.workspaceEventActive("discord:ws1", h.At) {
+		t.Fatalf("prefixed state key %q is not recognized as an event of workspace discord:ws1", iKey)
+	}
+}
+
+// Same prefix, through the production path: workspaceProgress must see the prefixed state and
+// renew as real progress.
+func TestWatchMultiWorkspacePrefixedStateRenewsHandoff(t *testing.T) {
+	e, _, w, h := progressFixture(t, "")
+	wsDir := t.TempDir()
+	e.multiWorkspace = true
+	e.workspaceBindings = NewWorkspaceBindingManager(filepath.Join(t.TempDir(), "bindings.json"))
+	e.workspaceBindings.Bind("project:"+e.name, "discord:ws1", "ws1", wsDir)
+	iKey := e.interactiveKeyForSessionKey("discord:ws1:u1")
+	if iKey == "discord:ws1:u1" {
+		t.Fatalf("precondition: expected a workspace-prefixed interactive key")
+	}
+	s := e.sessions.GetOrCreateActive("discord:ws1:u1")
+	if !s.TryLock() {
+		t.Fatal("lock")
+	}
+	defer s.Unlock()
+	state := &interactiveState{}
+	state.lastEventAt.Store(h.At.Add(time.Minute).UnixNano())
+	e.interactiveStates[iKey] = state
+	if kind, err := w.workspaceProgress("discord:ws1", h, h.At); kind != watchProgressReal || err != nil {
+		t.Fatalf("prefixed active handoff: progress = %v, %v; want real", kind, err)
+	}
+}
+
+// The background-task probe uses the same workspace match; a prefixed interactive key must not
+// hide a live background task from the watch either.
+func TestWatchMultiWorkspacePrefixedBackgroundCounts(t *testing.T) {
+	e, _, w, h := progressFixture(t, "")
+	mate, _, _ := exitFixture(t, nil)
+	w.engines = func() []*Engine { return []*Engine{e, mate} }
+	wsDir := t.TempDir()
+	mate.multiWorkspace = true
+	mate.workspaceBindings = NewWorkspaceBindingManager(filepath.Join(t.TempDir(), "bindings.json"))
+	mate.workspaceBindings.Bind("project:"+mate.name, "discord:ws1", "ws1", wsDir)
+	key := mate.interactiveKeyForSessionKey("discord:ws1:mate")
+	if key == "discord:ws1:mate" {
+		t.Fatalf("precondition: expected a workspace-prefixed interactive key")
+	}
+	bg := &bgTaskSession{controllableAgentSession: newControllableSession("bg")}
+	bg.set(1, time.Time{})
+	mate.interactiveStates[key] = &interactiveState{agentSession: bg}
+	if running, pushed := w.workspaceBackgroundProgress("discord:ws1", h.At); !running || pushed {
+		t.Fatalf("prefixed background state %q not counted: running=%v pushed=%v", key, running, pushed)
+	}
+}
+
+// Issue #518's wording is workspace-wide: any session of the workspace with agent events counts
+// as real progress, so a sibling session can keep a stuck handoff alive and hold its slot. That
+// trade-off is intentional for now; per-task isolation is a separate requirement. This test
+// documents it so a later change does not silently flip the semantics.
+func TestWatchSiblingSessionEventsRenewStuckHandoff(t *testing.T) {
+	e, _, w, h := progressFixture(t, "")
+	stuck := e.sessions.GetOrCreateActive("discord:ws1:u1")
+	if !stuck.TryLock() {
+		t.Fatal("lock stuck session")
+	}
+	defer stuck.Unlock()
+	stuckState := &interactiveState{}
+	stuckState.lastEventAt.Store(h.At.Add(-time.Hour).UnixNano())
+	e.interactiveStates["discord:ws1:u1"] = stuckState
+
+	sibling := e.sessions.GetOrCreateActive("discord:ws1:u2")
+	if !sibling.TryLock() {
+		t.Fatal("lock sibling session")
+	}
+	defer sibling.Unlock()
+	siblingState := &interactiveState{}
+	e.interactiveStates["discord:ws1:u2"] = siblingState
+
+	now := h.Due
+	for i := 1; i <= watchBusyMaxRenew+2; i++ {
+		siblingState.lastEventAt.Store(now.Add(-time.Minute).UnixNano())
+		next := w.tick(now)
+		got := handoffsOf(e, "discord:ws1")[0]
+		if next.IsZero() || !got.Parked.IsZero() {
+			t.Fatalf("window %d: sibling events must renew the workspace, got %+v, next %v", i, got, next)
+		}
+		if got.Renewed != i || got.BusyRenewed != 0 {
+			t.Fatalf("window %d: sibling events count as real progress; renewed=%d busy_renewed=%d", i, got.Renewed, got.BusyRenewed)
+		}
+		now = next
+	}
+}
+
+// P3: lastEventAt must be updated by the real event loop (processInteractiveEvents), not only by
+// a test storing it directly. The loop consumes an agent event and the watch sees the state as
+// active even when its interactive key carries a workspace path prefix.
+func TestWatchProcessInteractiveEventsUpdatesLastEventAt(t *testing.T) {
+	e, p, w, h := progressFixture(t, "")
+	wsDir := t.TempDir()
+	e.multiWorkspace = true
+	e.workspaceBindings = NewWorkspaceBindingManager(filepath.Join(t.TempDir(), "bindings.json"))
+	e.workspaceBindings.Bind("project:"+e.name, "discord:ws1", "ws1", wsDir)
+	key := e.interactiveKeyForSessionKey("discord:ws1:u1")
+	if key == "discord:ws1:u1" {
+		t.Fatalf("precondition: expected a workspace-prefixed interactive key")
+	}
+	session := e.sessions.GetOrCreateActive("discord:ws1:u1")
+	as := newControllableSession("p3")
+	state := &interactiveState{agentSession: as, platform: p, replyCtx: "discord:ws1:u1"}
+	state.lastEventAt.Store(h.At.Add(-time.Hour).UnixNano())
+	e.interactiveStates[key] = state
+
+	as.events <- Event{Type: EventText, Content: "工具输出"}
+	as.events <- Event{Type: EventResult, Content: "完成", Done: true}
+	e.processInteractiveEvents(state, session, e.sessions, "discord:ws1:u1", "m1", time.Now(), nil, nil, nil)
+
+	if state.lastEventAt.Load() <= h.At.UnixNano() {
+		t.Fatalf("processInteractiveEvents did not update lastEventAt: %d <= %d", state.lastEventAt.Load(), h.At.UnixNano())
+	}
+	if !w.workspaceEventActive("discord:ws1", h.At) {
+		t.Fatalf("event updated state key %q but the watch did not recognize it", key)
+	}
+}
+
 // A session of another engine (a teammate's role) in the workspace counts too; one of another
 // channel does not.
 func TestWatchBusyOnAnyEngine(t *testing.T) {
