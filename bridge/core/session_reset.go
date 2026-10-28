@@ -67,6 +67,15 @@ func (e *Engine) endResetTurn(key string) {
 	e.pendingResetMu.Unlock()
 }
 
+// dropPendingReset forgets a queued reset for sessionKey: the conversation it
+// asked to end is already gone (/new, workspace release), so it must not end
+// the next one.
+func (e *Engine) dropPendingReset(sessionKey string) {
+	e.pendingResetMu.Lock()
+	delete(e.pendingReset, sessionKey)
+	e.pendingResetMu.Unlock()
+}
+
 // applyPendingReset runs a queued reset for sessionKey if no turn for that key
 // is running and no one holds the session. It reports whether a reset ran. If a
 // turn is running, the reset stays queued and runs when that turn ends.
