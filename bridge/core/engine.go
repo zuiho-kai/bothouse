@@ -5723,6 +5723,13 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					"session", sessionKey,
 					"response_len", len(fullResponse))
 
+				// `session new --after-turn` run inside a background-notification turn is
+				// applied when that turn ends, like a foreground turn does. Left queued, it
+				// fired at the end of the next task's first turn and wiped that task's
+				// session while its background job was still running. Async: the reset
+				// stops this agent session, which waits for this reader to exit.
+				go e.applyPendingReset(sessionKey)
+
 			case EventPermissionRequest:
 				// If approveAll (/yolo) is set, grant the request. Otherwise
 				// deny — there is no active user turn to consult — and notify
@@ -8451,6 +8458,7 @@ func (e *Engine) cmdNew(p Platform, msg *Message, args []string) {
 // old transcript's tail. Also used by `cc-connect session new --after-turn`.
 func (e *Engine) startFreshSession(sessions *SessionManager, interactiveKey, sessionKey, name, handoffReason string) {
 	slog.Info("cmdNew: cleaning up old session", "session_key", sessionKey)
+	e.dropPendingReset(sessionKey) // this reset satisfies any queued one; it must not hit the next conversation
 	// Messages that move to the fresh session (session new --after-turn) are more work for a
 	// workspace, so it stays owned (releaseWorkspaceOnReset below).
 	queued := false
