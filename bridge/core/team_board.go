@@ -294,8 +294,12 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			if !listedTaskState(task.State) || !boardTaskURL(task.URL) || task.SessionKey == "" {
 				continue
 			}
-			// Bot work no longer creates a board (no 谁在干啥 lines); it only marks activity.
+			// A listed task card is a board item: it creates/keeps the workspace board even with
+			// no tool activity. Bot busy/idle alone no longer creates one (no 谁在干啥 lines).
 			chat := chatOf(task.SessionKey)
+			if boards[chat] == nil && kindOf(chat) == teamBoardFull {
+				boards[chat] = &boardChat{SessionKey: task.SessionKey}
+			}
 			noteActive(chat, task.UpdatedAt)
 			for _, m := range task.Members {
 				noteActive(chat, m.UpdatedAt)
@@ -332,11 +336,16 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			b.GaveUpAt = time.Time{}
 			changed = true
 		}
-		// The board shows task-board items only, no 谁在干啥 member lines (user, 2026-10-28:
-		// 「老是刷新没必要」): a bot going busy/idle no longer edits it, only item changes do.
+		// The board keeps its task-card index entries and board.py items; the 谁在干啥 member
+		// roster is gone (user, 2026-10-28: 「老是刷新没必要」), so bot busy/idle no longer edits it.
 		var content string
+		live := teamTaskBoardLive(items, chat)
+		index, indexLive := renderTeamTaskIndex(files, chat, e.i18n.CurrentLang())
 		if kind == teamBoardFull {
-			content = renderWorkspaceTaskBoardFit(items, done, chat, now, pending, backfillMaxMsgRunes)
+			content = withTeamTaskBoard(index, func(budget int) string {
+				return renderWorkspaceTaskBoardFit(items, done, chat, now, pending, budget)
+			})
+			live = live || indexLive
 		} else {
 			content = renderTeamTaskBoardFit(items, done, chat, now, pending, backfillMaxMsgRunes)
 		}
@@ -353,7 +362,6 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			continue
 		}
 		// The card state comes from the same data as the text: a task-board item still in work.
-		live := teamTaskBoardLive(items, chat)
 		if content == b.Content && live == b.Live {
 			continue
 		}

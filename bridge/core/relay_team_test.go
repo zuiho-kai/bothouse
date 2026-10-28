@@ -117,11 +117,13 @@ func assertExistingRelayBoard(t *testing.T, files []teamFile) {
 	defer lead.cancel()
 	allChatsAreWorkspaces(lead)
 	boards := map[string]*boardChat{"discord:room": {SessionKey: "discord:room", MessageID: "existing-pin"}}
-	if !lead.updateTeamBoards(files, boards) || p.content["discord:room"] != renderTeamBoard(files, "discord:room") || boards["discord:room"].MessageID != "existing-pin" {
-		t.Fatalf("existing pinned board was not updated: %+v, %v", boards, p.content)
+	// The relay turn shows only member lines, which the quiet board no longer
+	// prints; a board with nothing left is removed instead of refreshed.
+	if !lead.updateTeamBoards(files, boards) || boards["discord:room"] != nil || p.content["discord:room"] != "" {
+		t.Fatalf("member-line-only board was not removed: %+v, %v", boards, p.content)
 	}
 	// HandleRelay has no ChatName. Do not invent one or publish a new board
-	// for an unknown channel/DM; existing pinned boards still refresh above.
+	// for an unknown channel/DM.
 	if lead.updateTeamBoards(files, map[string]*boardChat{}) {
 		t.Fatal("relay without a channel name discovered a new public board")
 	}

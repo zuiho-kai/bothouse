@@ -529,6 +529,10 @@ func withTeamTaskBoard(board string, section func(budget int) string) string {
 	if sec == "" {
 		return board
 	}
+	if board == "" {
+		// A quiet board can be index-only; do not leave separator blank lines.
+		return sec
+	}
 	if runes(sec) > limit {
 		// Dozens running at once: even the last stage does not fit a post alone.
 		return cutTeamBoardLines(sec, limit, "")

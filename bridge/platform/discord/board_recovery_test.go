@@ -23,7 +23,8 @@ func TestBoardPinFailureRetainsMessageForRetry(t *testing.T) {
 	if _, err := upsertBoard(api, "channel", id, "title\nindex"); err != nil {
 		t.Fatal(err)
 	}
-	if len(api.sends) != 1 || len(api.pins) != 2 || api.pins[0] != api.pins[1] {
-		t.Fatalf("retry must pin the same board: sends=%d pins=%v", len(api.sends), api.pins)
+	// A retry edits the retained board; it does not pin it again (no re-pin churn).
+	if len(api.sends) != 1 || len(api.pins) != 1 || api.pins[0] != "new" {
+		t.Fatalf("retry must reuse the retained board without re-pinning: sends=%d pins=%v", len(api.sends), api.pins)
 	}
 }
