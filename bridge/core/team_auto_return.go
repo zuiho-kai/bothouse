@@ -120,3 +120,42 @@ func (e *Engine) returnWorkspace(key string, ended time.Time) {
 	}
 	slog.Info("team workspace: returned to the pool after a handback", "workspace", key)
 }
+
+// workspaceTaskFromLead: msg is a bot message in a workspace channel, sent by the current
+// primary role's bot, while that workspace has an open handoff whose owner is this role (and
+// this role is not the lead). Such a message is the lead handing the task over, so it starts a
+// turn instead of being kept as teammate context (user 2026-10-28: other bots only took the
+// handoff as context and never started). A handoff with no owner belongs to the lead
+// (watchOwns), so other roles keep listening; the lead's own bot never reaches here.
+func (e *Engine) workspaceTaskFromLead(p Platform, msg *Message) bool {
+	if e == nil || p == nil || msg == nil || e.dataDir == "" || e.isTeamLead() {
+		return false
+	}
+	key := teamChatKey(msg.SessionKey)
+	if _, isWS := e.WorkspaceParent(key); !isWS {
+		return false
+	}
+	var lead *Engine
+	for _, x := range e.watchEngines() {
+		if x != e && x.isTeamLead() {
+			lead = x
+			break
+		}
+	}
+	if lead == nil {
+		return false
+	}
+	lp, ok := lead.lookupReadyPlatform(p.Name()).(SelfMentioner)
+	if !ok || watchOwnerID(lp.SelfMention()) != watchOwnerID(msg.UserID) {
+		return false
+	}
+	teamWorkspaceStore.mu.Lock()
+	handoffs := append([]TeamHandoff(nil), loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]...)
+	teamWorkspaceStore.mu.Unlock()
+	for _, h := range handoffs {
+		if teamHandoffOpen(h) && h.Owner != "" && e.watchOwns(p, h.Owner) {
+			return true
+		}
+	}
+	return false
+}

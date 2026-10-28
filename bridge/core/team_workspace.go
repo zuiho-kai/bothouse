@@ -645,10 +645,47 @@ func (e *Engine) SetTeamWorkspaces(on bool) {
 		e.teamWS = nil
 		return
 	}
-	if e.teamWS != nil {
-		return
+	e.ensureTeamWS()
+}
+
+var teamWSInitMu sync.Mutex
+
+// ensureTeamWS gives e the in-process workspace operation state (the workspace records
+// themselves are in the shared team_workspaces.json).
+func (e *Engine) ensureTeamWS() {
+	teamWSInitMu.Lock()
+	defer teamWSInitMu.Unlock()
+	if e.teamWS == nil {
+		e.teamWS = newTeamWorkspaces()
 	}
-	e.teamWS = newTeamWorkspaces()
+}
+
+// teamWorkspacesOn: team_workspaces is a team setting. It is on when this project or another
+// member of the same team (same team_status_dir) has it on (config; default on), so a lead
+// whose own project turned it off keeps the workspaces the team had.
+func (e *Engine) teamWorkspacesOn() bool {
+	on := func(x *Engine) bool {
+		t := x.team
+		if t == nil {
+			return false
+		}
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		return t.workspacesEnabled
+	}
+	if e.team == nil {
+		return false
+	}
+	if on(e) {
+		return true
+	}
+	dir := e.teamStatusDir()
+	for _, x := range e.watchEngines() {
+		if x != e && x.teamStatusDir() == dir && on(x) {
+			return true
+		}
+	}
+	return false
 }
 
 // teamWorkspacePlatform returns the platform of chat ("<platform>:<id>") when it can have
@@ -1096,10 +1133,21 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 	if teamChannelID(chat) == wsID {
 		return fmt.Errorf("team workspace claim: %s cannot hand off to itself", chat)
 	}
-	// A workspace runs this same project, so a cooling project cannot work the task there.
-	if wait := e.capacityWait(); wait > 0 {
+	// The project that works the task (taskOwner when it names a role of this bridge, else this
+	// lead's own project) cannot take it while its model is cooling.
+	worker := e
+	if taskOwner != "" {
+		plat, _, _ := strings.Cut(chat, ":")
+		for _, x := range e.watchEngines() {
+			if p := x.lookupReadyPlatform(plat); p != nil && x.watchOwns(p, taskOwner) {
+				worker = x
+				break
+			}
+		}
+	}
+	if wait := worker.capacityWait(); wait > 0 {
 		slog.Warn("team workspace claim: project model cooling, task not handed off",
-			"chat", chat, "workspace", wsID, "cooling_for", wait)
+			"chat", chat, "workspace", wsID, "project", worker.name, "cooling_for", wait)
 		return fmt.Errorf("team workspace claim: %s → %s: %w (resets in %s)",
 			chat, wsID, ErrTeamWorkspaceCooling, wait.Truncate(time.Second))
 	}

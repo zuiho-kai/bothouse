@@ -237,6 +237,12 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		keepUserText(msg)
 		msg.Content = "（队友 " + msg.UserName + " 报错了。你是负责人：查原因，告诉用户，必要时换人接手）\n" + msg.Content
 	}
+	if msg.FromBot && !msg.Mentioned && e.workspaceTaskFromLead(p, msg) {
+		// The primary role handed this role a task in a workspace channel without @-ing it
+		// (ws-handoff posts the handoff note with mentions disabled): start, not just listen.
+		msg.Mentioned = true
+		slog.Info("gate: workspace task from the primary role", "session", msg.SessionKey, "from", msg.UserName, "project", e.name)
+	}
 	if msg.FromBot && !msg.Mentioned {
 		// A teammate talking to someone else: only listen. Never start a turn from it, gate or
 		// not, so bots can't chain each other into a loop.
