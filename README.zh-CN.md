@@ -254,6 +254,7 @@ Discord / 飞书 / 自建网页频道
 | [角色库：人设、头像和包](docs/persona-packs.md) | 挑选、自制与导入角色人设包 |
 | [每角色 Wiki 与夜间反思](bridge/contrib/wiki/README.md) | 独立 Wiki、定时整理与夜间“做梦”机制详解 |
 | [护栏与小工具](bridge/contrib/hooks/README.md) | Hook 拦截规则、开关方式与内置小工具 |
+| [记忆读取频率报告](docs/READ_FREQUENCY.md) | 找出常读文件，建议进 STANDING.md 常驻做法或拆分 |
 | [自建平台协议](bridge/docs/cloud-web.md) | 自建网页端与插件间的通信接口（英文） |
 | [架构设计](docs/ARCHITECTURE.md) | 核心模块职责与底层数据流 |
 
