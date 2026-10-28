@@ -176,6 +176,9 @@ func readPathsFromSimpleArgs(command string, args []string) []string {
 			}
 			continue
 		}
+		if (command == "less" || command == "more") && strings.HasPrefix(arg, "+") {
+			continue
+		}
 		if readCommandPathLike(arg) {
 			out = append(out, arg)
 		}

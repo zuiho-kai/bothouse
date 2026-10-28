@@ -54,9 +54,9 @@ bothouse report file-frequency --since 7d --json-out /tmp/reads.json
 
 | 参数 | 默认值 | 来源 |
 | --- | --- | --- |
-| `--min-reads` | 2 | SPEC #580：单次打开是探索，至少重复读取 2 次才算“常读” |
+| `--min-reads` | 2 | 本 PR 默认约定（#580 要求参数化）：单次打开是探索，至少重复读取 2 次才算“常读” |
 | `--small-chars` | 1500 | `bridge/contrib/gate/ctxsvc.py` 的 `STANDING_CHARS=1500`（#574）；`STANDING.md` 上限 20 条 / 1500 字 |
-| `--large-bytes` | 65536 | SPEC #580：常读文件超过 64 KiB（约 1.6 万 token，按 4 B/token）建议拆分 |
+| `--large-bytes` | 65536 | 本 PR 默认约定（#580 要求参数化）：按 4 B/token，64 KiB 约 1.6 万 token，常读时建议拆分 |
 | `--top` | 15 | 沿用 open-strix `file_frequency_report.py` 的 `--top` 默认值 |
 
 “建议进 `STANDING.md`”只说明该文件的字符数不超过常驻块上限（`--small-chars`），不代表当前块一定有空间。报告会读取 `<wiki>/STANDING.md` 并显示当前条数/字数/剩余字数；它不会替你删改。

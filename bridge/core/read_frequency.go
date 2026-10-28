@@ -15,9 +15,9 @@ import (
 const (
 	// 来源：bridge/contrib/gate/ctxsvc.py 的 STANDING_CHARS=1500（#574）。
 	DefaultReadFrequencySmallChars = 1500
-	// 来源：SPEC #580——常读文件超过 64 KiB（约 1.6 万 token，按 4 B/token）视为大文件。
+	// 来源：本 PR 的默认约定（Issue #580 要求参数化）——按 4 B/token，64 KiB 约 1.6 万 token，常读时建议拆分。
 	DefaultReadFrequencyLargeBytes int64 = 65536
-	// 来源：SPEC #580——同一文件至少重复读取 2 次才算「常读」。
+	// 来源：本 PR 的默认约定（Issue #580 要求参数化）——单次打开是探索，至少重复读取 2 次才算「常读」。
 	DefaultReadFrequencyMinReads = 2
 	// 来源：沿用 open-strix file_frequency_report.py 的 --top 默认 15。
 	DefaultReadFrequencyTop = 15

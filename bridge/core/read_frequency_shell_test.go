@@ -28,6 +28,7 @@ func TestReadPathsFromShellCommand(t *testing.T) {
 		{"sudo", "sudo cat f.md", []string{"f.md"}},
 		{"bat flag", "bat --theme=Monokai file.md", []string{"file.md"}},
 		{"head long flag", "head --lines 20 file.md", []string{"file.md"}},
+		{"less plus", "less +F file.md", []string{"file.md"}},
 		{"duplicate dedup", "cat a.md a.md", []string{"a.md"}},
 	}
 	for _, tt := range tests {
