@@ -103,6 +103,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	}
 	activeAPISocket.Store(sockPath)
 	s.mux.HandleFunc("/send", s.handleSend)
+	s.mux.HandleFunc("/events", s.handleEvents) // unified event stream (events.go)
 	s.mux.HandleFunc("/progress", s.handlePublicProgress)
 	s.mux.HandleFunc("/voice/desk", s.handleVoiceDesk)
 	s.mux.HandleFunc("/task", s.handleTask)
@@ -382,6 +383,7 @@ type CronAddRequest struct {
 	Description string `json:"description"`
 	Silent      *bool  `json:"silent,omitempty"`
 	Mute        bool   `json:"mute,omitempty"` // post nothing (start notice and output)
+	Poll        bool   `json:"poll,omitempty"` // exec is a check script; prompt (optional) is what the agent gets on a change
 	SessionMode string `json:"session_mode,omitempty"`
 	Mode        string `json:"mode,omitempty"`
 	TimeoutMins *int   `json:"timeout_mins,omitempty"`
@@ -410,7 +412,11 @@ func (s *APIServer) handleCronAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "either prompt or exec is required", http.StatusBadRequest)
 		return
 	}
-	if req.Prompt != "" && req.Exec != "" {
+	if req.Poll && req.Exec == "" {
+		http.Error(w, "poll needs exec (the check script)", http.StatusBadRequest)
+		return
+	}
+	if req.Prompt != "" && req.Exec != "" && !req.Poll {
 		http.Error(w, "prompt and exec are mutually exclusive", http.StatusBadRequest)
 		return
 	}
@@ -462,6 +468,7 @@ func (s *APIServer) handleCronAdd(w http.ResponseWriter, r *http.Request) {
 		Enabled:     true,
 		Silent:      req.Silent,
 		Mute:        req.Mute,
+		Poll:        req.Poll,
 		SessionMode: NormalizeCronSessionMode(req.SessionMode),
 		Mode:        req.Mode,
 		TimeoutMins: req.TimeoutMins,
