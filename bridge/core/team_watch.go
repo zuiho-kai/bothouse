@@ -192,11 +192,17 @@ func (s *APIServer) rewatchIfServing() {
 }
 
 func (w *handoffWatch) run(ctx context.Context) {
-	var reconciled time.Time
+	var reconciled, recovered time.Time
 	for {
 		if now := w.now(); now.Sub(reconciled) >= teamWorkspaceReconcileEvery {
 			reconciled = now
 			w.reconcileTeamWorkspaces(now)
+		}
+		if now := w.now(); now.Sub(recovered) >= teamReportRecoveryEvery {
+			recovered = now
+			for _, eng := range w.engines() {
+				eng.recoverPendingReports(true)
+			}
 		}
 		next := w.tick(w.now())
 		wait := watchIdleWake()

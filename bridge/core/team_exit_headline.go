@@ -74,10 +74,10 @@ func exitHeadlineText(kind string, id int, name, line, askID string) string {
 	return head + "：" + quietText(line)
 }
 
-// exitPostedBefore reports whether this headline was posted within exitHeadlineDedup (a bridge
-// restart that runs the handback again posts nothing new); otherwise it records it as posted.
-// The record survives restarts, in the bridge's data dir.
-func (e *Engine) exitPostedBefore(kind string, id int, line string) bool {
+// exitPostedRecently reports whether this headline was posted within exitHeadlineDedup (a
+// bridge restart that runs the handback again posts nothing new). Recording is separate, so a
+// failed post can retry instead of being remembered as delivered.
+func (e *Engine) exitPostedRecently(kind string, id int, line string) bool {
 	if e.dataDir == "" {
 		return false
 	}
@@ -95,14 +95,34 @@ func (e *Engine) exitPostedBefore(kind string, id int, line string) bool {
 			delete(posted, k)
 		}
 	}
-	if _, seen := posted[key]; seen {
-		return true
+	_, seen := posted[key]
+	return seen
+}
+
+// exitMarkPosted records a headline that the chat actually accepted (Send succeeded). It
+// survives restarts, in the bridge's data dir.
+func (e *Engine) exitMarkPosted(kind string, id int, line string) {
+	if e.dataDir == "" {
+		return
+	}
+	path := filepath.Join(e.dataDir, exitPostedFile)
+	key := kind + "#" + strconv.Itoa(id) + ":" + line
+	now := time.Now()
+	e.teamExit.mu.Lock()
+	defer e.teamExit.mu.Unlock()
+	posted := map[string]time.Time{}
+	if b, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(b, &posted)
+	}
+	for k, at := range posted {
+		if now.Sub(at) > exitHeadlineDedup {
+			delete(posted, k)
+		}
 	}
 	posted[key] = now
 	if b, err := json.Marshal(posted); err == nil {
 		_ = os.WriteFile(path, b, 0o600)
 	}
-	return false
 }
 
 // exitBounceCount: consecutive bounces of replies in sessionKey's channel so far (the idle watch

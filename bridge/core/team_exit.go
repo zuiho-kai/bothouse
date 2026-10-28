@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -55,6 +56,10 @@ type teamExitState struct {
 	asks     map[string]*teamAsk
 	loaded   bool
 	bounces  map[string]int // session key -> consecutive [ask] bounces (team_ask_evidence.go)
+	// reports are the workspace handbacks still waiting for a user-visible post
+	// (team_report_delivery.go); the same mutex guards them.
+	reports       map[string]*pendingReport
+	reportsLoaded bool
 }
 
 const (
@@ -253,7 +258,7 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	// The chat channel's lead reads the reply first and tells the user what matters (user
 	// 2026-10-28 「原文返回…一坨屎给我…你的身份应该是我的秘书，那些东西你再帮我过滤一遍」). The
 	// workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
-	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, 0) {
+	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, 0, false, "") {
 		slog.Info("team exit: handed to the chat lead", "kind", kind, "auto", auto, "workspace", ws, "parent", parent)
 		return ""
 	}
@@ -265,7 +270,7 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 // same sentence for the same item within exitHeadlineDedup is not posted or handed again. When
 // no lead takes it, the rest of the reply follows the headline as 📬 continuation posts.
 func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, body, sessionKey string, hid int, hline string, item *teamTaskBoardItem) string {
-	if e.exitPostedBefore(kind, hid, hline) {
+	if e.exitPostedRecently(kind, hid, hline) {
 		slog.Info("team exit: same headline already posted within the hour; not posted again", "kind", kind, "board_item", hid, "workspace", ws)
 		return ""
 	}
@@ -275,15 +280,40 @@ func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, bod
 	}
 	text := exitHeadlineText(kind, hid, teamTaskBoardShort(*item), hline, id)
 	if err := p.Send(e.ctx, rc, text); err != nil {
-		slog.Error("team exit: headline post failed", "parent", parent, "workspace", ws, "error", err)
+		// The headline is a workspace result, not a chat nicety: a rejected post must not
+		// drop it (the record would also block a retry). Post the 📬 copy instead.
+		slog.Error("team exit: headline post failed; posting the original", "parent", parent, "workspace", ws, "error", err)
+		if _, ferr := e.postExitOriginalErr(p, rc, parent, ws, bot, kind, body, sessionKey, ""); ferr == nil {
+			e.exitMarkPosted(kind, hid, hline)
+			e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
+		} else {
+			// Both posts failed: keep the result for the recovery sweep instead of dropping it.
+			rec := &pendingReport{
+				Key:       reportKey(p.Name(), parent, ws, kind, hid, body),
+				Platform:  p.Name(),
+				Chat:      parent,
+				Workspace: ws,
+				Bot:       bot,
+				Kind:      kind,
+				Body:      body,
+				Headline:  hline,
+				Board:     hid,
+				Session:   sessionKey,
+				CreatedAt: time.Now(),
+				Attempts:  1,
+				LastError: ferr.Error(),
+			}
+			e.rememberReport(rec)
+		}
 		return ""
 	}
+	e.exitMarkPosted(kind, hid, hline)
 	slog.Info("team exit: headline posted", "kind", kind, "board_item", hid, "workspace", ws, "parent", parent)
 	if id != "" {
 		e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Board: hid, Bot: bot, Forwarded: []string{text}, At: time.Now()})
 	}
 	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
-	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, hid) {
+	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, hid, true, hline) {
 		return id
 	}
 	rest := ""
@@ -299,6 +329,13 @@ func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, bod
 // postExitOriginal copies body into the chat channel as 📬 posts (no lead took it). header
 // overrides the first post's header (a headline's details). It returns the forwarded ask id.
 func (e *Engine) postExitOriginal(p Platform, rc any, parent, ws, bot, kind, body, sessionKey, header string) string {
+	id, _ := e.postExitOriginalErr(p, rc, parent, ws, bot, kind, body, sessionKey, header)
+	return id
+}
+
+// postExitOriginalErr is postExitOriginal with the platform error, so a caller that must keep a
+// handback pending (team_report_delivery.go) knows the post did not happen.
+func (e *Engine) postExitOriginalErr(p Platform, rc any, parent, ws, bot, kind, body, sessionKey, header string) (string, error) {
 	from := "来自工作区 " + channelLabel(p.Name(), ws) + " 的「" + bot + "」"
 	id := ""
 	var cont string
@@ -324,16 +361,16 @@ func (e *Engine) postExitOriginal(p Platform, rc any, parent, ws, bot, kind, bod
 		}
 		if err := p.Send(e.ctx, rc, text); err != nil {
 			slog.Error("team exit: forward failed", "parent", parent, "workspace", ws, "error", err)
-			break
+			return id, fmt.Errorf("forward %s to %s: %w", ws, parent, err)
 		}
 		sent = append(sent, text)
 	}
 	slog.Info("team exit: forwarded", "kind", kind, "workspace", ws, "parent", parent, "chunks", len(sent))
 	if id == "" || len(sent) == 0 {
-		return ""
+		return "", nil
 	}
 	e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Bot: bot, Forwarded: sent, At: time.Now()})
-	return id
+	return id, nil
 }
 
 // workspaceTaskStopped: the workspace's task was stopped by the user (board pause), so its

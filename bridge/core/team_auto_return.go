@@ -49,7 +49,7 @@ func (e *Engine) workspaceHasOpenHandoff(sessionKey string) bool {
 // posts the original instead). Loop guard: the turn runs in the chat channel's session (no
 // workspace, no handoff there), so its reply is never forwarded again; ask ids are stripped so
 // the prompt cannot be taken as the user's answer (routeWorkspaceAnswer).
-func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession string, boardID int) bool {
+func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession string, boardID int, posted bool, headline string) bool {
 	if p == nil || parent == "" {
 		return false
 	}
@@ -76,6 +76,12 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 	prompt := chatLeadPrompt(channelLabel(p.Name(), ws), bot, kind, body, e.workspaceTaskBackground(wsSession, boardID), boardID > 0)
 	prompt = askRef.ReplaceAllString(prompt, "ask-…")
 	silent := true
+	key := reportKey(p.Name(), parent, ws, kind, boardID, body)
+	if lead.reportSeenRecently(key) {
+		slog.Info("team exit: same workspace report already pending or delivered; not waking the lead twice",
+			"parent", parent, "workspace", ws, "board_item", boardID)
+		return true
+	}
 	job := &TimerJob{
 		ID:            GenerateTimerID(),
 		Project:       lead.name,
@@ -83,15 +89,31 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 		ScheduledAt:   time.Now(),
 		Prompt:        prompt,
 		Description:   "工作区回传 " + ws,
+		ReportID:      key,
 		Silent:        &silent,
 		WaitUserQuiet: true,
 		CreatedAt:     time.Now(),
 	}
-	if err := lead.timerScheduler.AddJob(job); err != nil {
-		slog.Error("team exit: hand forwarded reply to lead failed", "lead", lead.name, "parent", parent, "workspace", ws, "error", err)
-		return false
+	// Persist the pending record before the wake is queued (team_report_delivery.go): AddJob
+	// fires a job whose time has already come, so its turn can settle before a later write.
+	// AddJob only proves the wake is queued, not that the user saw a report; the record is
+	// cleared when the lead's turn produces one.
+	rec := &pendingReport{
+		Key:       key,
+		JobID:     job.ID,
+		Platform:  p.Name(),
+		Chat:      parent,
+		Workspace: ws,
+		Bot:       bot,
+		Kind:      kind,
+		Body:      body,
+		Headline:  headline,
+		Board:     boardID,
+		Session:   wsSession,
+		Posted:    posted,
+		CreatedAt: time.Now(),
 	}
-	return true
+	return lead.queueReportWake(job, rec, lead.timerScheduler.AddJob)
 }
 
 // chatLeadPrompt is the lead's turn for a workspace reply: the task's background, then the
@@ -127,14 +149,16 @@ func chatLeadPrompt(wsLabel, bot, kind, body, background string, posted bool) st
 		b.WriteString("不用转述。你有用户需要知道、那句话里没有的事（比如要用户动手），补一两句；没有就回 NO_REPLY。\n")
 	default:
 		b.WriteString("你是用户的秘书，替用户过滤。回复一到三句：第一句说是哪件事（用户什么时候让做的什么），再说现在的进度，最后说要不要用户动手、动什么。" +
-			"细节、过程、文件名不说，用户问了再去工作区取。用户意图已经明确的事，不给 A/B 选项让用户回字母，直接按用户意图办，说一句你怎么办的。\n")
+			"细节、过程、文件名不说，用户问了再去工作区取。用户意图已经明确的事，不给 A/B 选项让用户回字母，直接按用户意图办，说一句你怎么办的。" +
+			"只说「待协调」「待审核」不算汇报：还差什么、下一步谁接要写清楚，并且应是已经派出的任务或已登记的检查；还没有安排就明说「尚未安排」。\n")
 		if kind == exitKindAsk {
 			b.WriteString("这是提问：先对照上面的用户原话和本频道最近的用户消息，看用户是不是已经答过或意图已经明确。" +
 				"答过就不问用户，直接用 ws-forward 把答案（附用户原话）转回工作区，再跟用户说一句你怎么定的；" +
 				"真没答过才问用户，只问一句要定什么、为什么，用户答了用 ws-forward 转回。\n")
 		}
 	}
-	b.WriteString("这是回传给你看的，不是新任务：不要再派回工作区，不要 @ 工作区里的 bot。")
+	b.WriteString("这是回传给你看的，不是新的用户指令：不要把这件活重新派一遍，不要 @ 工作区里的 bot。" +
+		"但用户此前已明确要求继续、下一步也已定好的待办，你可以接着做或按现有派工规则交给负责人；花钱、部署、重启，以及用户已经停止的任务，不要自行恢复，先问用户。")
 	return b.String()
 }
 
