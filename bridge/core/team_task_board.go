@@ -421,7 +421,11 @@ func renderTeamTaskBoardStage(items, done []teamTaskBoardItem, chat string, now 
 		}
 		switch {
 		case it.Paused != "":
-			held = append(held, row(it, boardLabel(it.Who)))
+			// Only items waiting on the user (等用户拍板) show; other paused items stay off the
+			// board (user, 2026-10-28) and are still listed by the board command.
+			if teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
+				held = append(held, row(it, boardLabel(it.Who)))
+			}
 		case it.parent == chat && it.own != chat:
 			if it.wsEnded {
 				continue // the workspace's handoff is closed: only open handoffs show under 工作区
@@ -490,7 +494,7 @@ func renderTeamTaskBoardStage(items, done []teamTaskBoardItem, chat string, now 
 		lines = append(lines, "现在没有进行中的事。")
 	}
 	if len(held) > 0 {
-		lines = append(lines, "", "**暂停**")
+		lines = append(lines, "", "**等你拍板**")
 		lines = append(lines, held...)
 	}
 	if len(doneRows) > 0 && st.doneRows < 0 {
