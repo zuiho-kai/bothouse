@@ -5564,6 +5564,8 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					ws.EndTurn()
 				}
 			}
+			e.endResetTurn(sessionKey)
+			go e.applyPendingReset(sessionKey)
 		}
 	}()
 
@@ -5621,6 +5623,10 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 						ws.BeginTurn()
 					}
 				}
+				// A background-notification turn is a turn like a foreground one:
+				// `session new --after-turn` run inside it queues until its reply is
+				// delivered instead of resetting (and killing) the agent mid-turn.
+				e.beginResetTurn(sessionKey)
 				slog.Info("unsolicited events detected, relaying to platform",
 					"session", sessionKey)
 			}
@@ -5725,10 +5731,10 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					"response_len", len(fullResponse))
 
 				// `session new --after-turn` run inside a background-notification turn is
-				// applied when that turn ends, like a foreground turn does. Left queued, it
-				// fired at the end of the next task's first turn and wiped that task's
-				// session while its background job was still running. Async: the reset
-				// stops this agent session, which waits for this reader to exit.
+				// applied now that its reply (and any [report]) has been delivered, like a
+				// foreground turn does. Async: the reset stops this agent session, which
+				// waits for this reader to exit.
+				e.endResetTurn(sessionKey)
 				go e.applyPendingReset(sessionKey)
 
 			case EventPermissionRequest:
