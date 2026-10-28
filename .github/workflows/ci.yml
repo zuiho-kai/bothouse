@@ -171,6 +171,12 @@ jobs:
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_datadir.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/gate/test_board.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/gate/test_board_prune.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/gate/test_sync_gate_modules.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - name: Install channel test dependencies
         if: ${{ !cancelled() }}
         working-directory: .
