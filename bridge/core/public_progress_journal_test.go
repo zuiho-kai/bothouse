@@ -75,8 +75,11 @@ func TestPublicProgressJournalOnlyDurability(t *testing.T) {
 	if !ok || got.State != TaskStateResultReady || got.FactStage == FactStageVerified || got.ResultSummary != "result" {
 		t.Fatalf("restart lost or accepted task: %+v", got)
 	}
-	if restored.pending[id] == nil {
+	if rec := restored.records[id].record; rec.CardSeq != 0 || rec.FactSeq != 0 {
 		t.Fatal("missing publisher was treated as successful delivery")
+	}
+	if restored.pending[id] != nil {
+		t.Fatal("journal-only records should not trigger perpetual disk writes")
 	}
 	if _, err := restored.Report(req); err == nil {
 		t.Fatal("restart revived stale run token")
@@ -145,6 +148,48 @@ func TestPublicProgressJournalOnlyInterruptedAndSaveFailure(t *testing.T) {
 	}
 	if _, err := restored.Report(req); err == nil {
 		t.Fatal("interrupted run was allowed to repeat work")
+	}
+}
+
+func TestPublicProgressJournalOnlyRetriesTerminalCheckpoint(t *testing.T) {
+	platform := &stubPlatformEngine{n: "plain"}
+	dir := t.TempDir()
+	p, err := NewPublicProgress(dir, "fish", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := p.begin(platform, "plain:room:user", LangEnglish, nil)
+	req := PublicProgressRequest{Project: "fish", SessionKey: "plain:room:user", Run: run, Seq: 1, Kind: "start", Title: "task", Summary: "accepted"}
+	id, err := p.Report(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journalDir := p.dir
+	blocker := filepath.Join(dir, "not-a-directory")
+	if err := os.WriteFile(blocker, []byte("blocked"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p.dir = blocker
+	p.finish(run, "result")
+	p.Flush(context.Background())
+	if p.pending[id] == nil {
+		t.Fatal("failed checkpoint was discarded")
+	}
+	p.dir = journalDir
+	p.Flush(context.Background())
+	if p.pending[id] != nil {
+		t.Fatal("successful journal checkpoint stayed in the retry loop")
+	}
+	restored, err := NewPublicProgress(dir, "fish", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := restored.Task(id)
+	if !ok || got.State != TaskStateResultReady {
+		t.Fatalf("retry lost the terminal checkpoint: %+v", got)
+	}
+	if rec := restored.records[id].record; rec.CardSeq != 0 || rec.FactSeq != 0 {
+		t.Fatal("checkpoint retry falsely recorded delivery")
 	}
 }
 

@@ -340,11 +340,6 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	if child != nil {
 		return p.reportTaskRelay(child, req)
 	}
-	if req.Kind == "start" && r != nil && r.publisher != nil {
-		if err := p.checkWorkspaceCard(req.SessionKey); err != nil {
-			return "", err
-		}
-	}
 	if (req.Kind == "failed" || req.Kind == "cancelled") && req.TaskID == "" {
 		return "", errors.New("kind is only available for member reports")
 	}
@@ -363,6 +358,11 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 		return "", err
 	}
 	defer r.mu.Unlock()
+	if req.Kind == "start" && r.publisher != nil {
+		if err := p.checkWorkspaceCard(req.SessionKey); err != nil {
+			return "", err
+		}
+	}
 	b, _ := json.Marshal(req)
 	hash := fmt.Sprintf("%x", sha256.Sum256(b))
 	if old, ok := r.record.Reports[req.Seq]; ok {
@@ -570,10 +570,7 @@ func (p *PublicProgress) Flush(ctx context.Context) {
 	p.mu.Lock()
 	runs := make([]*publicRun, 0, len(p.pending))
 	for _, r := range p.pending {
-		// Keep undelivered checkpoints pending for a restart with a publisher.
-		if r.publisher != nil {
-			runs = append(runs, r)
-		}
+		runs = append(runs, r)
 	}
 	p.mu.Unlock()
 	for _, r := range runs {
@@ -605,7 +602,10 @@ func (p *PublicProgress) Flush(ctx context.Context) {
 			}
 			continue
 		}
-		if err == nil && r.record.CardSeq >= r.record.Task.Seq && r.record.FactSeq >= r.record.Task.Seq {
+		// A journal-only flush checkpoints failed terminal writes, then stops
+		// polling. Delivery sequences stay untouched: a later restart with a
+		// publisher will discover the undelivered facts from the journal.
+		if err == nil && ((r.publisher == nil && attempted >= r.record.Task.Seq) || (r.record.CardSeq >= r.record.Task.Seq && r.record.FactSeq >= r.record.Task.Seq)) {
 			p.mu.Lock()
 			delete(p.pending, id)
 			p.mu.Unlock()
@@ -791,10 +791,13 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 	platform := r.record.Platform
 	r.mu.Unlock()
 	attempted = task.Seq
-	p.displayNames(task)
 	if err != nil {
 		return attempted, err
 	}
+	if r.publisher == nil {
+		return attempted, nil
+	}
+	p.displayNames(task)
 	// A key fact accepted after the sweep archived this thread (acceptance is
 	// the common case) would be refused with 50083. Reopen before delivering,
 	// and clear the marker so the thread is not left permanently unmanaged.
