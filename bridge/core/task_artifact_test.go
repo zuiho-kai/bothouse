@@ -198,7 +198,7 @@ func TestTaskArtifactPrompt(t *testing.T) {
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"[Task artifacts]", "artifact --id TASK_ID", "rework --id TASK_ID", "not an upload, publication or delivery"}
+	want := []string{"[Task artifacts]", "artifact --id TASK_ID", "rework --id TASK_ID", "not an upload, publication or delivery", "show --id TASK_ID"}
 	state := &interactiveState{platform: platform}
 	prompt := e.withPublicProgress("user content", state, "test:room:user", false, false)
 	for _, s := range want {
