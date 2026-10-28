@@ -81,8 +81,8 @@ func TestPublicProgressJournalOnlyDurability(t *testing.T) {
 	if restored.pending[id] != nil {
 		t.Fatal("journal-only records should not trigger perpetual disk writes")
 	}
-	if _, err := restored.Report(req); err == nil {
-		t.Fatal("restart revived stale run token")
+	if _, err := restored.Report(req); err == nil || !strings.Contains(err.Error(), "run is not active") {
+		t.Fatalf("restart revived stale run token: %v", err)
 	}
 	if _, err := NewPublicProgress(dir, "fish", nil); err == nil {
 		t.Fatal("missing platform configuration was silently accepted")
@@ -99,6 +99,22 @@ func TestPublicProgressJournalOnlyDurability(t *testing.T) {
 	upgraded.Flush(context.Background())
 	if len(publisher.snapshots) != 0 || len(publisher.facts) != 0 {
 		t.Fatal("publisher upgrade opened a card outside a workspace")
+	}
+	// A statically refused delivery keeps the facts pending for a later
+	// workspace-capable restart, but must not rewrite the unchanged journal or
+	// warn on every flush.
+	file := filepath.Join(upgraded.dir, id+".json")
+	before, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upgraded.Flush(context.Background())
+	after, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) {
+		t.Fatalf("unchanged outside-workspace task was rewritten on a repeat flush (pending=%t)", upgraded.pending[id] != nil)
 	}
 	upgraded.workspaceChat = func(string) bool { return true }
 	upgraded.Flush(context.Background())
@@ -190,6 +206,28 @@ func TestPublicProgressJournalOnlyRetriesTerminalCheckpoint(t *testing.T) {
 	}
 	if rec := restored.records[id].record; rec.CardSeq != 0 || rec.FactSeq != 0 {
 		t.Fatal("checkpoint retry falsely recorded delivery")
+	}
+}
+
+func TestPublicProgressJournalOnlyRejectsMemberAssignment(t *testing.T) {
+	platform := &stubPlatformEngine{n: "plain"}
+	p, err := NewPublicProgress(t.TempDir(), "fish", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := p.begin(platform, "plain:room:user", LangEnglish, nil)
+	id, err := p.Report(PublicProgressRequest{Project: "fish", SessionKey: "plain:room:user", Run: run, Seq: 1, Kind: "start", Title: "task", Summary: "accepted"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The journal prompt says member publishing is not provided; the API must
+	// not grant a command that would look like a delivered assignment.
+	_, err = p.AssignMember(TaskMemberAssignment{Project: "fish", SessionKey: "plain:room:user", Run: run, TaskID: id, MemberID: "w1", Name: "Worker", Title: "Work", Ref: "无（新建）"})
+	if err == nil || !strings.Contains(err.Error(), "no task publisher") {
+		t.Fatalf("journal-only assignment was granted: %v", err)
+	}
+	if got, _ := p.Task(id); got == nil || len(got.Members) != 0 {
+		t.Fatalf("rejected assignment still changed the task: %+v", got)
 	}
 }
 

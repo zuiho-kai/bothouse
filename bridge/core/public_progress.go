@@ -125,6 +125,10 @@ type publicRun struct {
 	// a fresh request always opens its own card.
 	candidate  *publicRun
 	reportBase int64 // sequence at this turn's adoption; budget is per turn, not per card
+	// dirty: an in-memory change (most often a terminal checkpoint) has not
+	// reached the journal yet, so Flush must retry that write before sending.
+	// A clean record is never rewritten just because delivery was attempted.
+	dirty bool
 	// Automatic card trigger for this turn (public_progress_auto.go); guarded by mu.
 	autoTimer *time.Timer
 	autoTitle string
@@ -154,6 +158,10 @@ type PublicProgress struct {
 	// workspaceChat: the session is a workspace channel (Engine.isTeamWorkspaceChat); cards only
 	// open there. nil = everywhere (tests, PublicProgress without an engine).
 	workspaceChat func(session string) bool
+	// hasPublisher: at least one configured platform can publish task cards. A
+	// missing run token on a journal-only project is a stale token, not the
+	// workspace refusal that explains why no card token was issued.
+	hasPublisher bool
 	// reporterName is a bound bot's display name in a session's channel ("" if unknown).
 	reporterName func(project, session string) string
 	// projectName is a configured project's name for people (team_name, e.g. 橘 for
@@ -189,6 +197,12 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 	}
 	hash := sha256.Sum256([]byte(project))
 	p := &PublicProgress{dir: filepath.Join(dataDir, "public-progress", hex.EncodeToString(hash[:8])), dataDir: dataDir, project: project, archiveAfter: defaultTaskThreadArchiveAfter, resultReadyArchiveAfter: defaultResultReadyThreadArchiveAfter, runs: map[string]*publicRun{}, records: map[string]*publicRun{}, open: map[string]*publicRun{}, pending: map[string]*publicRun{}, listed: map[string]*publicRun{}}
+	for _, platform := range platforms {
+		if _, ok := platform.(TaskCardPublisher); ok {
+			p.hasPublisher = true
+			break
+		}
+	}
 	if err := os.MkdirAll(p.dir, 0700); err != nil {
 		return nil, err
 	}
@@ -297,9 +311,15 @@ func (p *PublicProgress) appendEvent(r *publicRun, kind TaskEventKind, summary s
 func (p *PublicProgress) save(r *publicRun) error {
 	b, err := json.Marshal(r.record)
 	if err != nil {
+		r.dirty = true
 		return err
 	}
-	return AtomicWriteFile(filepath.Join(p.dir, r.record.Task.ID+".json"), b, 0600)
+	if err := AtomicWriteFile(filepath.Join(p.dir, r.record.Task.ID+".json"), b, 0600); err != nil {
+		r.dirty = true
+		return err
+	}
+	r.dirty = false
+	return nil
 }
 
 // Report commits before ACK. Delivery runs independently, so a Discord outage
@@ -345,8 +365,11 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	}
 	if r == nil && adopt == nil {
 		// Chat channels with cards never receive a run token. Preserve the
-		// workspace-specific rejection for an attempted start there.
-		if req.Kind == "start" {
+		// workspace-specific rejection for an attempted start there. A project
+		// without any publisher issues tokens everywhere, so an unknown token
+		// there is genuinely stale and saying "cards only in workspaces" would
+		// misname the cause.
+		if req.Kind == "start" && p.hasPublisher {
 			if err := p.checkWorkspaceCard(req.SessionKey); err != nil {
 				return "", err
 			}
@@ -618,7 +641,11 @@ func (p *PublicProgress) Flush(ctx context.Context) {
 			p.mu.Unlock()
 		}
 		r.mu.Unlock()
-		if err != nil && ctx.Err() == nil {
+		// A workspace-only refusal is static, not a transient delivery failure:
+		// keep the undelivered facts pending without rewriting or warning every
+		// tick. A later restart where the session is a workspace delivers them
+		// through the same flushRun path.
+		if err != nil && ctx.Err() == nil && !errors.Is(err, errCardOutsideWorkspace) {
 			slog.Warn("public progress delivery pending", "task_id", id, "error", err)
 		}
 	}
@@ -793,7 +820,9 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 	r.mu.Lock()
-	err = p.save(r) // retries a failed terminal-state checkpoint before sending
+	if r.dirty {
+		err = p.save(r) // retries a failed terminal-state checkpoint; a clean record is not rewritten
+	}
 	task, cardSeq, factSeq, lang := r.record.Task.Clone(), r.record.CardSeq, r.record.FactSeq, r.record.Lang
 	platform := r.record.Platform
 	r.mu.Unlock()
