@@ -474,7 +474,7 @@ export class Tasks {
   /** A member reply whose first line is 【接】【问】【退】【升】 (optionally #id) answers its task. */
   fromMessage(msg) {
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
-    if (this.inWorkspace(msg.room_id) && msg.record_id != null && this.store.currentRound(msg.room_id)?.record_id !== msg.record_id) return undefined;
+    if (this.store.staleMessage(msg)) return undefined;
     if (this.verdictsOf(msg)) return undefined;
     this.settleCall(msg);
     const stance = this.stanceOf(msg);

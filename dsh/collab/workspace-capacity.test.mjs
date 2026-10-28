@@ -167,7 +167,7 @@ test('capacity: fixed channel governs allocation, query and message reads after 
   }
   assert.notEqual(store.createWorkspace(2).id, ws.id);
   const response = await call('GET', `/collab/api/rooms/1/workspaces/${ws.id}/messages`);
-  assert.equal(response.status, 200); assert.equal(response.body.messages.length, 1);
+  assert.equal(response.status, 200); assert.equal(response.body.messages.length, 0, 'released workspace has no current round context');
   assert.equal(store.room(ws.id).parent_id, 1);
 });
 

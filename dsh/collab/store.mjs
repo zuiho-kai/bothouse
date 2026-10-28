@@ -53,6 +53,9 @@ const COLUMNS = [
   // edited, the draft committed); NULL if never. The task watch counts it as progress (Tasks.progressed).
   ['messages', 'changed_at', 'REAL'],
   ['messages', 'record_id', 'INTEGER REFERENCES work_records(id)'],
+  ['messages', 'round_id', 'INTEGER REFERENCES work_rounds(id)'],
+  ['rooms', 'clearing_state', "TEXT NOT NULL DEFAULT 'occupied' CHECK (clearing_state IN ('occupied', 'wrapping', 'free', 'review'))"],
+  ['rooms', 'clearing_reason', 'TEXT'],
 ];
 /** Workspace rooms are named 工作区<n> (setting added in #139 team mode A, not user-specified). */
 export const WORKSPACE_PREFIX = '工作区';
@@ -86,8 +89,8 @@ export class Store {
       ensureRoom: this.db.prepare('INSERT INTO rooms (id, name, workspace_path) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, workspace_path = excluded.workspace_path'),
       workspacePath: this.db.prepare(`SELECT COALESCE(parent.workspace_path, room.workspace_path) AS path
         FROM rooms room LEFT JOIN rooms parent ON room.kind = 'workspace' AND parent.id = room.parent_id WHERE room.id = ?`),
-      insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft, reply_to, attachments, record_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
+      insert: this.db.prepare(`INSERT INTO messages (room_id, author_kind, author, name, text, created_at, from_turn, card, client_key, draft, reply_to, attachments, record_id, round_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
       byKey: this.db.prepare('SELECT * FROM messages WHERE client_key = ?'),
       byId: this.db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0'),
       edit: this.db.prepare('UPDATE messages SET text = ?, card = ?, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
@@ -194,6 +197,9 @@ export class Store {
         this.db.exec(`UPDATE rooms SET free = 1 WHERE kind = 'workspace' AND NOT EXISTS (SELECT 1 FROM tasks
           WHERE tasks.room_id = rooms.id AND status IN ('assigned', 'accepted', 'asked', 'rework'))`);
       }
+      if (added.has('rooms.clearing_state')) this.db.exec("UPDATE rooms SET clearing_state = 'free' WHERE free = 1");
+      // A restart cannot prove that an interrupted cleanup completed.
+      this.db.exec("UPDATE rooms SET clearing_state = 'review', clearing_reason = 'cleanup interrupted by restart' WHERE clearing_state = 'wrapping'");
       // Team mode C: where a released workspace's fresh sessions start reading (releaseWorkspace).
       this.db.exec(`CREATE TABLE IF NOT EXISTS room_resets (
         room_id INTEGER PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,
@@ -441,7 +447,7 @@ export class Store {
       .sort((a, b) => num(a) - num(b) || a.id - b.id)[0];
     if (free) {
       this.resetSessions(free.id);
-      return this.db.prepare(`UPDATE rooms SET free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
+      return this.db.prepare(`UPDATE rooms SET free = 0, clearing_state = 'occupied', clearing_reason = NULL, claim_bridge = ?, claim_seq = claim_seq + 1,
         claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
         .get(bridge ? 1 : 0, free.id, free.id);
     }
@@ -488,7 +494,34 @@ export class Store {
 
   workspaceMessages(chatId, workspaceId, beforeId, limit) {
     this.requireWorkspace(chatId, workspaceId);
-    return this.page(workspaceId, beforeId, limit);
+    const round = this.currentRound(workspaceId);
+    if (!round) return [];
+    return this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND record_id = ? AND round_id = ? AND id < ? AND deleted = 0 ORDER BY id DESC LIMIT ?')
+      .all(workspaceId, round.record_id, round.id, beforeId ?? Number.MAX_SAFE_INTEGER, clampLimit(limit)).reverse();
+  }
+
+  currentMessages(roomId, { before, after, limit } = {}) {
+    const room = this.room(roomId);
+    if (room?.kind !== 'workspace') return after != null ? this.since(roomId, after, limit) : this.page(roomId, before, limit);
+    const round = this.currentRound(roomId);
+    if (!round) return [];
+    const rows = this.db.prepare(`SELECT * FROM messages WHERE room_id = ? AND record_id = ? AND round_id = ?
+      AND id < ? AND id > ? AND deleted = 0 ORDER BY id ${after != null ? 'ASC' : 'DESC'} LIMIT ?`)
+      .all(roomId, round.record_id, round.id, before ?? Number.MAX_SAFE_INTEGER, after ?? 0, clampLimit(limit));
+    return after != null ? rows : rows.reverse();
+  }
+
+  workspaceState(roomId) {
+    return this.db.prepare('SELECT clearing_state, clearing_reason FROM rooms WHERE id = ?').get(roomId);
+  }
+
+  /** Archived replies can be stored, but cannot drive a later execution round. */
+  staleMessage(msg) {
+    if (!msg || this.room(msg.room_id)?.kind !== 'workspace') return false;
+    const round = this.currentRound(msg.room_id);
+    if (msg.record_id == null && !round) return false;
+    return !round || round.record_id !== msg.record_id || round.id !== msg.round_id
+      || this.workspaceState(msg.room_id).clearing_state !== 'occupied';
   }
 
   /**
@@ -508,6 +541,7 @@ export class Store {
       if (ws.kind !== 'workspace') throw new CollabError('not-workspace', `room ${workspaceId} is not a workspace`);
       const parent = chat.kind === 'workspace' ? chat.parent_id : chat.id;
       this.requireWorkspace(parent, ws.id);
+      if (['wrapping', 'review'].includes(this.workspaceState(ws.id).clearing_state)) throw new CollabError('busy', 'workspace cleanup is incomplete');
       const owner = this.workspaceOwner(ws.id);
       if (owner == null) {
         const occupied = this.db.prepare("SELECT COUNT(*) AS n FROM rooms WHERE kind = 'workspace' AND parent_id = ? AND free = 0").get(parent).n;
@@ -520,7 +554,7 @@ export class Store {
       // after the release), the members go on in the same sessions; any other claim starts fresh.
       const last = this.db.prepare('SELECT claim_task FROM rooms WHERE id = ?').get(ws.id).claim_task;
       if (owner == null && !(handoff != null && last != null && Number(handoff) > last)) this.resetSessions(ws.id);
-      return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
+      return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, clearing_state = 'occupied', clearing_reason = NULL, claim_bridge = ?, claim_seq = claim_seq + 1,
         claim_task = COALESCE(?, (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?)) WHERE id = ? RETURNING id, name, kind, parent_id`)
         .get(parent, bridge ? 1 : 0, handoff == null ? null : Number(handoff) - 1, ws.id, ws.id);
     });
@@ -542,10 +576,11 @@ export class Store {
     this.requireRecord(roomId, recordId);
     return this.db.prepare('SELECT * FROM work_rounds WHERE record_id = ? ORDER BY id').all(recordId);
   }
-  recordMessages(roomId, recordId, beforeId, limit) {
+  recordMessages(roomId, recordId, beforeId, limit, roundId) {
     this.requireRecord(roomId, recordId);
-    return this.db.prepare('SELECT * FROM messages WHERE record_id = ? AND id < ? AND deleted = 0 ORDER BY id DESC LIMIT ?')
-      .all(recordId, beforeId ?? Number.MAX_SAFE_INTEGER, clampLimit(limit)).reverse();
+    if (roundId != null && !this.workRounds(roomId, recordId).some(r => r.id === roundId)) throw new CollabError('record-missing', 'round does not belong to this record');
+    return this.db.prepare('SELECT * FROM messages WHERE record_id = ? AND (? IS NULL OR round_id = ?) AND id < ? AND deleted = 0 ORDER BY id DESC LIMIT ?')
+      .all(recordId, roundId ?? null, roundId ?? null, beforeId ?? Number.MAX_SAFE_INTEGER, clampLimit(limit)).reverse();
   }
   currentRound(workspaceId) {
     return this.db.prepare("SELECT * FROM work_rounds WHERE workspace_id = ? AND status IN ('running', 'wrapping') ORDER BY id DESC LIMIT 1").get(workspaceId);
@@ -561,7 +596,9 @@ export class Store {
     this.requireRecord(roomId, recordId);
     const ws = this.room(workspaceId);
     if (ws?.kind !== 'workspace' || this.workspaceOwner(workspaceId) !== roomId) throw new CollabError('forbidden', 'workspace does not belong to this channel');
+    if (this.workspaceState(workspaceId).clearing_state !== 'occupied') throw new CollabError('busy', 'workspace cleanup is incomplete');
     if (this.currentRound(workspaceId)) throw new CollabError('conflict', 'workspace already has a running work round');
+    this.resetSessions(workspaceId);
     this.db.prepare("UPDATE work_records SET status = 'active', finished_at = NULL WHERE id = ?").run(recordId);
     return this.db.prepare('INSERT INTO work_rounds (record_id, workspace_id, started_at) VALUES (?, ?, ?) RETURNING *').get(recordId, workspaceId, now);
   }
@@ -582,8 +619,9 @@ export class Store {
       if (this.currentRound(roomId)) return [];
       return this.page(roomId, triggerId + 1, limit);
     }
-    return this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND record_id = ? AND id <= ? AND deleted = 0 ORDER BY id DESC LIMIT ?')
-      .all(roomId, trigger.record_id, triggerId, clampLimit(limit)).reverse();
+    if (this.staleMessage(trigger)) return [];
+    return this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND record_id = ? AND round_id IS ? AND id <= ? AND deleted = 0 ORDER BY id DESC LIMIT ?')
+      .all(roomId, trigger.record_id, trigger.round_id, triggerId, clampLimit(limit)).reverse();
   }
 
   /** The id of workspace roomId's current claim (claim_seq), named by the bridge's op release. */
@@ -634,7 +672,7 @@ export class Store {
    * the bridge's op release): the claim being ended; refused with 'stale-claim' once the
    * workspace was claimed again, so a late release never frees the new claim. null = any claim.
    */
-  releaseWorkspace(roomId, claim = null) {
+  beginWorkspaceCleanup(roomId, claim = null) {
     return this.transaction(() => {
       const ws = this.q.room.get(roomId);
       if (ws === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
@@ -643,11 +681,32 @@ export class Store {
         throw new CollabError('stale-claim', `workspace ${ws.name} was claimed again since claim ${claim}`);
       }
       if (this.activeTasks(ws.id) > 0) throw new CollabError('busy', `workspace ${ws.name} has tasks in work`);
-      // claim_task stays: it tells a claim back for this claim's own task from a new one (claimWorkspace).
-      this.finishWorkRound(ws.id);
-      this.db.prepare('UPDATE rooms SET free = 1, claim_bridge = 0 WHERE id = ?').run(ws.id);
+      if (this.workspaceState(ws.id).clearing_state === 'wrapping') throw new CollabError('busy', 'workspace cleanup already running');
+      this.db.prepare("UPDATE rooms SET clearing_state = 'wrapping', clearing_reason = NULL WHERE id = ?").run(ws.id);
+      this.db.prepare("UPDATE work_rounds SET status = 'wrapping' WHERE workspace_id = ? AND status = 'running'").run(ws.id);
       return true;
     });
+  }
+
+  failWorkspaceCleanup(roomId, error) {
+    const reason = String(error?.message ?? error);
+    this.db.prepare("UPDATE rooms SET clearing_state = 'review', clearing_reason = ?, free = 0 WHERE id = ?").run(reason, roomId);
+    this.db.prepare("UPDATE work_rounds SET fail_reason = ? WHERE workspace_id = ? AND status = 'wrapping'").run(reason, roomId);
+  }
+
+  releaseWorkspace(roomId, claim = null) {
+    if (!this.beginWorkspaceCleanup(roomId, claim)) return false;
+    try {
+      if (this.currentRound(roomId)) this.resetSessions(roomId, { strict: true });
+      this.transaction(() => {
+        this.finishWorkRound(roomId);
+        this.db.prepare("UPDATE rooms SET free = 1, claim_bridge = 0, clearing_state = 'free', clearing_reason = NULL WHERE id = ?").run(roomId);
+      });
+      return true;
+    } catch (error) {
+      this.failWorkspaceCleanup(roomId, error);
+      throw error;
+    }
   }
 
   /** Register fn(roomId), called when a workspace's sessions are dropped (resetSessions). */
@@ -658,12 +717,14 @@ export class Store {
    * fresh ones start reading after the room's last message, room_resets) and the listeners drop
    * what they keep per conversation (dsh-member resetRoom).
    */
-  resetSessions(roomId) {
+  resetSessions(roomId, { strict = false } = {}) {
     this.db.prepare('DELETE FROM bindings WHERE room_id = ?').run(roomId);
     const last = this.db.prepare('SELECT MAX(id) AS id FROM messages WHERE room_id = ?').get(roomId).id ?? 0;
     this.db.prepare(`INSERT INTO room_resets (room_id, message_id) VALUES (?, ?)
       ON CONFLICT (room_id) DO UPDATE SET message_id = excluded.message_id`).run(roomId, last);
-    for (const fn of this.sessionResets) { try { fn(roomId); } catch { /* in-memory only: the store is already reset */ } }
+    for (const fn of this.sessionResets) {
+      try { fn(roomId); } catch (error) { if (strict) throw error; }
+    }
   }
 
   ensureRoomSettings(roomId) {
@@ -763,7 +824,7 @@ export class Store {
   roomsView() {
     const counts = new Map(this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
       WHERE status IN ('assigned', 'accepted', 'asked', 'rework') GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
-    return this.rooms().map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id),
+    return this.rooms().map(r => ({ ...r, ...this.workspaceState(r.id), active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id),
       workspaces_max: this.workspacesMax(r.id), ...(r.kind === 'chat' ? { workspace_queue: this.workspaceQueue(r.id) } : {}) }));
   }
 
@@ -800,9 +861,15 @@ export class Store {
       const related = record && (record.room_id === roomId || this.db.prepare('SELECT 1 FROM work_rounds WHERE record_id = ? AND workspace_id = ?').get(recordId, roomId));
       if (!related) throw new CollabError('record-missing', 'work record does not belong to this room');
     }
+    const current = this.currentRound(roomId);
+    const roundId = origin !== undefined ? origin.round_id
+      : Object.hasOwn(m, 'roundId') ? m.roundId : current?.record_id === recordId ? current.id : null;
+    if (roundId != null && !this.db.prepare('SELECT 1 FROM work_rounds WHERE id = ? AND record_id = ?').get(roundId, recordId)) {
+      throw new CollabError('record-missing', 'round does not belong to this record');
+    }
     const row = this.q.insert.get(roomId, m.authorKind, m.author, m.name, text, now,
       m.fromTurn == null ? null : (m.fromTurn ? 1 : 0), m.card ?? null, m.clientKey ?? null, m.draft ? 1 : 0, replyTo,
-      attachments === null ? null : JSON.stringify(attachments), recordId ?? null);
+      attachments === null ? null : JSON.stringify(attachments), recordId ?? null, roundId ?? null);
     return { message: row, created: true };
   }
 
@@ -929,7 +996,7 @@ export function publicMessage(row, store) {
   const out = {
     id: row.id, room_id: row.room_id, author_kind: row.author_kind, author: row.author, name: row.name,
     text: row.text, created_at: row.created_at, card: row.card, from_turn: row.from_turn,
-    record_id: row.record_id ?? null, legacy: row.record_id == null,
+    record_id: row.record_id ?? null, round_id: row.round_id ?? null, legacy: row.record_id == null,
     ...(row.edited_at != null ? { edited_at: row.edited_at } : {}),
   };
   const quote = store?.quote(row);

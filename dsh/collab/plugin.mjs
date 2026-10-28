@@ -195,7 +195,7 @@ export async function apply(ctx, rawConfig) {
     if (!gateway.authorized(req, url) && !owner(req)) return json(res, 401, { error: 'unauthorized' });
     if (store.room(Number(m[1])) === undefined) return json(res, 404, { error: 'room not found' });
     const before = url.searchParams.get('before');
-    const rows = store.page(Number(m[1]), before === null ? undefined : Number(before), url.searchParams.get('limit'));
+    const rows = store.currentMessages(Number(m[1]), { before: before === null ? undefined : Number(before), limit: url.searchParams.get('limit') });
     return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
   }
 
@@ -264,8 +264,8 @@ export async function apply(ctx, rawConfig) {
       if (store.room(roomId) === undefined) return json(res, 404, { error: 'room not found' });
       const after = url.searchParams.get('after');
       const before = url.searchParams.get('before');
-      const rows = after !== null ? store.since(roomId, Number(after), url.searchParams.get('limit'))
-        : store.page(roomId, before === null ? undefined : Number(before), url.searchParams.get('limit'));
+      const rows = store.currentMessages(roomId, { after: after === null ? undefined : Number(after),
+        before: before === null ? undefined : Number(before), limit: url.searchParams.get('limit') });
       return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
     }
     const records = workRecordsRoute(req, res, url, { store });
@@ -560,7 +560,8 @@ export function workRecordsRoute(req, res, url, { store }) {
     const record = store.requireRecord(roomId, recordId);
     if (match[3] === 'rounds') return { rounds: store.workRounds(roomId, recordId) };
     if (match[3] === 'messages') return { messages: store.recordMessages(roomId, recordId,
-      url.searchParams.has('before') ? Number(url.searchParams.get('before')) : undefined, url.searchParams.get('limit')).map(m => publicMessage(m, store)) };
+      url.searchParams.has('before') ? Number(url.searchParams.get('before')) : undefined, url.searchParams.get('limit'),
+      url.searchParams.has('round_id') ? Number(url.searchParams.get('round_id')) : undefined).map(m => publicMessage(m, store)) };
     return { record };
   }, false);
 }

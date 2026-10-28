@@ -116,13 +116,14 @@ export class TeamExit {
         text: `@${this.hub.members?.get(answer.member_id)?.name ?? answer.member_id} 用户回复 ${answer.id}：\n${msg.text}`,
         clientKey: `team-answer:${answer.member_id}:${answer.id}`,
         recordId: this.hub.store.message(answer.source_id)?.record_id ?? null,
+        roundId: this.hub.store.message(answer.source_id)?.round_id ?? null,
       });
       this.db.prepare('UPDATE team_exit_asks SET answered = 1, answer_source_id = ? WHERE id = ?').run(msg.id, answer.id);
       // #597 G35: the watch waited on the user (Tasks.watch awaitingUser); it starts again from here.
-      this.hub.tasks?.rewatch?.(answer.workspace_id, answer.member_id);
+      if (!this.hub.store.staleMessage(message)) this.hub.tasks?.rewatch?.(answer.workspace_id, answer.member_id);
       return message;
     }
-    if (msg.author_kind !== 'role') return;
+    if (msg.author_kind !== 'role' || this.hub.store.staleMessage(msg)) return;
     const mark = msg.card == null ? exitMark(msg.text, this.markOpts(msg)) : undefined;
     const room = this.workspaceOf(msg);
     if (!room) return;
@@ -179,7 +180,7 @@ export class TeamExit {
    */
   forward(room, msg, body, ask) {
     return this.hub.post(room.parent_id, {
-      authorKind: 'system', author: 'system', name: 'system', clientKey: `team-exit:${msg.id}`, recordId: msg.record_id ?? null,
+      authorKind: 'system', author: 'system', name: 'system', clientKey: `team-exit:${msg.id}`, recordId: msg.record_id ?? null, roundId: msg.round_id ?? null,
       text: `📬 来自 ${room.name} · ${msg.name}${ask ? ` · ${ask.id}` : ' · 阶段结果'}\n${body}`,
     }).message;
   }

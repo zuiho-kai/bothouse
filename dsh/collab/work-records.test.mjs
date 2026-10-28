@@ -5,6 +5,7 @@ import { Store, publicMessage } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { Tasks } from './tasks.mjs';
 import { TeamExit } from './team-exit.mjs';
+import { DshMembers } from './dsh-member.mjs';
 import { CloudWebGateway, roomOf } from './cloudweb.mjs';
 import { workspacesRoute, workRecordsRoute } from './plugin.mjs';
 
@@ -32,6 +33,56 @@ function setup(t) {
   };
   return { store, hub, tasks, call, deliver };
 }
+
+test('round isolation: resumed record excludes previous context and archives late replies without routing', async t => {
+  const { store, hub, tasks, call } = setup(t);
+  const first = await call({ title: 'resume isolation', owner: 'dev' });
+  const job = store.addJob('dev', first.workspace.id, first.task.assign_msg_id);
+  tasks.pauseTask(first.task.id);
+  tasks.stance(first.task.id, { actor: 'dev', stance: '接' });
+  const current = store.currentRound(first.workspace.id);
+  assert.notEqual(current.id, first.round.id);
+  const fresh = store.append(first.workspace.id, { authorKind: 'user', author: 'owner', name: 'owner', text: 'new round' }).message;
+  const late = store.append(first.workspace.id, { authorKind: 'role', author: 'dev', name: 'dev', text: '[report]\n@lead old round done', clientKey: `dsh-job-${job.id}` }).message;
+  assert.equal(late.record_id, fresh.record_id);
+  assert.equal(late.round_id, first.round.id);
+  assert.equal(fresh.round_id, current.id);
+  const context = store.contextPage(first.workspace.id, fresh.id, 200);
+  assert.ok(context.some(m => m.id === fresh.id));
+  assert.ok(context.every(m => m.round_id === current.id));
+  assert.ok(store.workspaceMessages(1, first.workspace.id).every(m => m.round_id === current.id));
+  assert.ok(store.recordMessages(1, first.record.id, undefined, 200, first.round.id).some(m => m.id === late.id));
+  assert.throws(() => store.recordMessages(1, first.record.id, undefined, 200, 999), { code: 'record-missing' });
+  const before = tasks.task(first.task.id).status;
+  tasks.fromMessage(late);
+  assert.equal(tasks.task(first.task.id).status, before);
+  assert.equal(DshMembers.prototype.plan.call({ store, hub }, late), undefined);
+  assert.equal(DshMembers.prototype.nudge.call({ store }, 'dev', late), false);
+  const exits = new TeamExit(hub); exits.onMessage(late);
+  assert.equal(store.page(1).some(m => m.client_key === `team-exit:${late.id}`), false);
+});
+
+test('cleanup: failure stays occupied with reason; wrapping refuses claims; retry releases', t => {
+  const { store } = setup(t);
+  const first = store.createWorkspace(1, { record: { title: 'cleanup', owner: 'dev' } });
+  let fail = true;
+  store.onSessionsReset(id => {
+    assert.equal(store.workspaceState(id).clearing_state, 'wrapping');
+    assert.throws(() => store.claimWorkspace(1, id), { code: 'busy' });
+    if (fail) throw new Error('synthetic cleanup failure');
+  });
+  assert.throws(() => store.releaseWorkspace(first.workspace.id), /synthetic cleanup failure/);
+  assert.equal(store.workspaceOwner(first.workspace.id), 1);
+  assert.equal(store.workspaceState(first.workspace.id).clearing_state, 'review');
+  assert.match(store.roomsView().find(r => r.id === first.workspace.id).clearing_reason, /synthetic cleanup failure/);
+  assert.equal(store.currentRound(first.workspace.id).status, 'wrapping');
+  assert.throws(() => store.claimWorkspace(1, first.workspace.id), { code: 'busy' });
+  fail = false;
+  assert.equal(store.releaseWorkspace(first.workspace.id), true);
+  assert.equal(store.workspaceState(first.workspace.id).clearing_state, 'free');
+  assert.equal(store.workspaceOwner(first.workspace.id), null);
+  assert.equal(store.currentRound(first.workspace.id), undefined);
+});
 
 test('records: invalid record creation rolls back workspace allocation', t => {
   const { store } = setup(t);
@@ -119,7 +170,7 @@ test('records: late job replies and forwarded reports stay with the original rec
   const exits = new TeamExit(hub);
   exits.onMessage(late);
   const copy = store.page(1).find(m => m.client_key === `team-exit:${late.id}`);
-  assert.equal(copy.record_id, first.record.id);
+  assert.equal(copy, undefined, 'late replies remain archived without forwarding');
   assert.ok(!store.page(2).some(m => m.client_key === `team-exit:${late.id}`));
   tasks.fromMessage(late);
   assert.equal(tasks.task(next.task.id).status, 'assigned');
