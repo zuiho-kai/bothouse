@@ -70,16 +70,42 @@ def cc_bin() -> str:
     return os.environ.get("CC_BIN") or shutil.which("bothouse") or shutil.which("cc-connect") or "cc-connect"
 
 
-def timer_cmd(chat: str, text: str, ask: bool, notes: str, proj: str):
+def user_words(notes: str, limit: int = 1500) -> str:
+    """交接文件里标题含「用户原话」的几节（同 bridge/core/team_exit_background.go handoffUserWords）。"""
+    try:
+        lines = Path(notes).read_text(encoding="utf-8").splitlines()
+    except (OSError, ValueError):
+        return ""
+    out, on = [], False
+    for ln in lines:
+        if ln.startswith("#"):
+            on = "用户原话" in ln
+        elif on and ln.strip():
+            out.append(ln)
+    return "\n".join(out)[:limit]
+
+
+SECRETARY = ("你是用户的秘书，替用户过滤。回复一到三句：第一句说是哪件事（用户什么时候让做的什么），再说现在的进度，"
+             "最后说要不要用户动手、动什么。细节、过程、文件名不说，用户问了再去工作区取。"
+             "用户意图已经明确的事，不给 A/B 选项让用户回字母，直接按用户意图办，说一句你怎么办的。")
+
+
+def timer_cmd(chat: str, text: str, ask: bool, notes: str, proj: str, task: str = "", file: str = ""):
     fwd = f'{here / "ws-forward"} --notes {notes}'
+    bg = f"这件活：{task}（交接 {file or notes}）" if task else f"这件活的交接：{file or notes}"
+    words = user_words(file or notes)
+    if words:
+        bg += f"\n交接里记的用户原话：\n{words}"
     if ask:
-        prompt = (f"【工作区要问用户】{text}\n"
-                  f"——这是工作区的主角色交上来的问题。在本频道只发一条五段式问用户，说人话，先说要定什么、为什么；"
-                  f"细节留在工作区，用户问再去取；用户答了，用 {fwd} \"<用户的答复，附原话>\" 转回工作区")
+        prompt = (f"【工作区要问用户】{text}\n\n{bg}\n\n"
+                  f"——这是工作区的主角色交上来的问题，原文只给你看。{SECRETARY}"
+                  f"先对照上面的用户原话和本频道最近的用户消息：用户已经答过或意图已经明确，就不问用户，"
+                  f"直接用 {fwd} \"<答案，附用户原话>\" 转回工作区，再跟用户说一句你怎么定的；"
+                  f"真没答过才问用户，只问一句要定什么、为什么，用户答了用 {fwd} \"<用户的答复，附原话>\" 转回")
     else:
-        prompt = (f"【工作区上报】{text}\n"
-                  f"——这是工作区的主角色交上来的进展。只发一条五段式转给用户，说人话，和你自己核实过的分开说；"
-                  f"细节留在工作区，用户问再去取；用户有回话要转给工作区时用 {fwd} \"<回话>\"")
+        prompt = (f"【工作区上报】{text}\n\n{bg}\n\n"
+                  f"——这是工作区的主角色交上来的进展，原文只给你看。{SECRETARY}"
+                  f"和你自己核实过的分开说；用户有回话要转给工作区时用 {fwd} \"<回话>\"")
     # --delay 1s：timer 只收正数延迟，上报不用多等
     return [cc_bin(), "timer", "add", "-p", proj, "-s", chat, "--delay", "1s", "--timeout-mins", "0",
             "--inject-if-busy", "--desc", "工作区提问" if ask else "工作区上报", "--prompt", prompt]
@@ -124,7 +150,9 @@ def main(argv):
     stopped = [i for i in board.items() if i["id"] in ids and i.get("paused") and i.get("pause_why") != board.ASK_WHY]
     if stopped:
         sys.exit(f"ws-up: #{stopped[0]['id']} 已被暂停（用户叫停），不上报；停手，等聊天频道重新交活")
-    r = subprocess.run(timer_cmd(chat, rest[0], ask, path, _team.project()), capture_output=True, text=True)
+    rec = handoffs(last)[path]
+    r = subprocess.run(timer_cmd(chat, rest[0], ask, path, _team.project(), rec.get("task") or "", rec.get("file") or path),
+                       capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"ws-up: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
     if ask:

@@ -22,11 +22,11 @@ import (
 // forwarded [ask] goes back to the workspace and its asking bot; [report] is
 // forward-only.
 //
-// The forwarded copy starts with 📬, a prefix every bot drops as a notice
-// (platform/discord isBotNotice), and carries no user mentions, so the post itself
-// wakes no bot in the chat channel. The chat channel's lead gets the content as an
-// in-process turn instead (wakeChatLead, team_auto_return.go), so it can tell the user;
-// other bots still ignore it, and the lead's reply stays in the chat channel.
+// The chat channel's lead gets the content as an in-process turn (wakeChatLead,
+// team_auto_return.go) and tells the user in its own words; nothing is posted there
+// verbatim. Only when no lead can take it is the original copied into the chat channel,
+// starting with 📬, a prefix every bot drops as a notice (platform/discord isBotNotice),
+// with no user mentions, so the post itself wakes no bot.
 
 // WorkspaceParentResolver tells whether a channel is a workspace and which
 // chat channel it belongs to. NewEngine installs the engine itself (block D's
@@ -216,6 +216,13 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		return ""
 	}
 	bot := e.exitBotName()
+	// The chat channel's lead reads the reply first and tells the user what matters (user
+	// 2026-10-28 「原文返回…一坨屎给我…你的身份应该是我的秘书，那些东西你再帮我过滤一遍」). The
+	// workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
+	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey) {
+		slog.Info("team exit: handed to the chat lead", "kind", kind, "auto", auto, "workspace", ws, "parent", parent)
+		return ""
+	}
 	from := "来自工作区 " + channelLabel(p.Name(), ws) + " 的「" + bot + "」"
 	id := ""
 	var header, cont string
@@ -242,9 +249,6 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		sent = append(sent, text)
 	}
 	slog.Info("team exit: forwarded", "kind", kind, "auto", auto, "workspace", ws, "parent", parent, "chunks", len(sent))
-	if len(sent) > 0 {
-		e.wakeChatLead(p, parent, ws, bot, kind, body)
-	}
 	if id == "" || len(sent) == 0 {
 		return ""
 	}
