@@ -415,7 +415,7 @@ class HandoffAlignTest(WsPoolTest):
         self.assertIn("ws-up", prompt)
         self.assertIn("--ask", prompt)
         # #597 G31：交付走这一轮最后一条回复首行 [report]，最后一件交完 session new --after-turn 空出工作区
-        self.assertIn("最后一条回复的第一行只写 [report]", prompt)
+        self.assertIn("最后一条回复的第一行写 [report] #", prompt)
         self.assertIn("session new --after-turn", prompt)
         self.assertNotIn("交付用 ws-up", prompt)
 

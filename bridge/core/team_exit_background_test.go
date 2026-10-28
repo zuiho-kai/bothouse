@@ -26,13 +26,13 @@ func TestHandoffUserWordsAndLastBound(t *testing.T) {
 }
 
 func TestChatLeadPromptSecretary(t *testing.T) {
-	p := chatLeadPrompt("<#9>", "橘", exitKindAsk, "选 A 还是 B", "任务板 #5：改桥")
+	p := chatLeadPrompt("<#9>", "橘", exitKindAsk, "选 A 还是 B", "任务板 #5：改桥", false)
 	for _, want := range []string{"没有贴进本频道", "任务板 #5：改桥", "秘书", "不给 A/B 选项", "ws-forward"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt lacks %q:\n%s", want, p)
 		}
 	}
-	if strings.Contains(chatLeadPrompt("<#9>", "橘", exitKindReport, "做完了", ""), "ws-forward 把答案") {
+	if strings.Contains(chatLeadPrompt("<#9>", "橘", exitKindReport, "做完了", "", false), "ws-forward 把答案") {
 		t.Fatal("report prompt should not carry the ask rule")
 	}
 }

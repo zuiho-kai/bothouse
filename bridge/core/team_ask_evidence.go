@@ -60,16 +60,25 @@ func askEvidenceProblems(body string) []string {
 }
 
 func askBounceText(problems []string) string {
-	return "这条 [ask] 没有转给用户：" + strings.Join(problems, "；") +
-		"。补上后重发：第一行只写 [ask]，正文写「自验：」附证据和「类别：」；方向、花钱、需要用户看的成品、权限确认四类可写「自验：无需」。"
+	return exitBounceText(exitKindAsk, problems)
 }
 
-// bounceWorkspaceAsk posts the reason in the workspace and hands it to the
-// asking bot, so it fixes the [ask] instead of waiting on a user who never saw it.
+// exitBounceText: why a workspace [ask]/[report] stayed in the workspace and how to resend it.
+func exitBounceText(kind string, problems []string) string {
+	t := "这条 [" + kind + "] 没有转给用户：" + strings.Join(problems, "；") +
+		"。补上后重发：第一行写 [" + kind + "] #任务板编号 给用户的一两句话（系统原样贴到聊天频道），第二行起写细节"
+	if kind == exitKindAsk {
+		t += "，正文写「自验：」附证据和「类别：」；方向、花钱、需要用户看的成品、权限确认四类可写「自验：无需」"
+	}
+	return t + "。"
+}
+
+// bounceWorkspaceExit posts the reason in the workspace and hands it to the
+// replying bot, so it fixes the [ask]/[report] instead of waiting on a user who never saw it.
 // Both wait for the asking turn to end: the notice then follows the bot's own
 // reply, and the new turn needs no queue notice.
-func (e *Engine) bounceWorkspaceAsk(p Platform, rec ReplyContextReconstructor, sessionKey string, problems []string) {
-	text := askBounceText(problems)
+func (e *Engine) bounceWorkspaceExit(p Platform, rec ReplyContextReconstructor, sessionKey, kind string, problems []string) {
+	text := exitBounceText(kind, problems)
 	e.teamExit.mu.Lock()
 	if e.teamExit.bounces == nil {
 		e.teamExit.bounces = map[string]int{}
@@ -101,7 +110,7 @@ func (e *Engine) bounceWorkspaceAsk(p Platform, rec ReplyContextReconstructor, s
 		if !wake {
 			return
 		}
-		if err := e.ExecuteHeartbeat(sessionKey, "【系统退回了你的 [ask]】"+text, true); err != nil {
+		if err := e.ExecuteHeartbeat(sessionKey, "【系统退回了你的 ["+kind+"]】"+text, true); err != nil {
 			slog.Warn("team exit: ask bounce turn failed", "session", sessionKey, "error", err)
 		}
 	}()

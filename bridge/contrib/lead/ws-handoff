@@ -214,7 +214,7 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>"):
               f"不要再 board add 这块活；本轮会自动开公开任务卡。接手后发五段式说明，并把还没派的活当场派出去。"
               f"有问题、要用户拍板用 ws-up --notes {path} \"<问题+选项+推荐>\" --ask，等聊天频道转回答复再做，"
               f"等的时候先做不受影响的部分；不在工作区里问用户。会缩小或改变用户原话范围的决定也先 --ask，纯技术细节自己定。"
-              f"做完交回：这一轮最后一条回复的第一行只写 [report]，第二行起写结果，系统会转到聊天频道（中途发的话不转）；"
+              f"做完交回：这一轮最后一条回复的第一行写 [report] #{nid} 加给用户的一两句话（系统原样贴到聊天频道），第二行起写细节（中途发的话不转）；"
               f"这是你手上最后一件活时，同一轮跑 `{cc_bin()} session new --after-turn` 空出工作区")
     key = ws if ":" in ws else f"discord:{ws}"
     return [cc_bin(), "timer", "add", "-s", key, "--delay", "1m", "--timeout-mins", "0",
