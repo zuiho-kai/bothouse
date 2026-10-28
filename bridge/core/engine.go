@@ -453,14 +453,14 @@ type Engine struct {
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	pendingResetMu               sync.Mutex
 	workspaceReports             map[string]*workspaceReportTurn // guarded by pendingResetMu
-	pendingReset                 map[string]bool  // session new --after-turn (session_reset.go)
-	resetTurns                   map[string]int   // running turns per reset key (CC_SESSION_KEY), guarded by pendingResetMu
-	team                         *teamState       // maomao fork: team status board (nil = off)
-	displayName                  atomic.Pointer[string] // team_name from config ("" / nil = the project name); see DisplayName
-	teamWS                       *teamWorkspaces  // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
-	board                        *channelBoardHub // maomao fork: channel task board (channel_board.go); shared by the process
-	memoryIndex                  string           // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
-	voiceDesk                    voiceDeskState   // maomao fork: voice desk (voice_desk.go)
+	pendingReset                 map[string]bool                 // session new --after-turn (session_reset.go)
+	resetTurns                   map[string]int                  // running turns per reset key (CC_SESSION_KEY), guarded by pendingResetMu
+	team                         *teamState                      // maomao fork: team status board (nil = off)
+	displayName                  atomic.Pointer[string]          // team_name from config ("" / nil = the project name); see DisplayName
+	teamWS                       *teamWorkspaces                 // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
+	board                        *channelBoardHub                // maomao fork: channel task board (channel_board.go); shared by the process
+	memoryIndex                  string                          // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
+	voiceDesk                    voiceDeskState                  // maomao fork: voice desk (voice_desk.go)
 	dirHistory                   *DirHistory
 	baseWorkDir                  string
 	projectState                 *ProjectStateStore
@@ -489,6 +489,9 @@ type Engine struct {
 	// Model-at-capacity cooldown (maomao fork, see capacity_retry.go)
 	capMu           sync.Mutex
 	capUntil        time.Time
+	quotaUntil      time.Time
+	quotaMu         sync.Mutex
+	quotaState      quotaCoolingState
 	capRound        int
 	capPending      []func() // messages to re-deliver when the cooldown ends, in order
 	capArmed        bool     // a flush timer is pending
@@ -605,12 +608,12 @@ type workspaceInitFlow struct {
 // The message is NOT sent to agent stdin at queue time; the event loop
 // sends it after the current turn completes to avoid mid-turn interference.
 type queuedMessage struct {
-	turnTrigger       string // #618 K1: Message.turnTrigger, kept across the queue
+	turnTrigger string // #618 K1: Message.turnTrigger, kept across the queue
 	// #618 K4: Message.resumedFrom/timerJobID/resumeNoProgress/resumeFallback, kept across the queue.
-	resumedFrom      string
-	timerJobID       string
-	resumeNoProgress int
-	resumeFallback   string
+	resumedFrom       string
+	timerJobID        string
+	resumeNoProgress  int
+	resumeFallback    string
 	messageID         string
 	platform          Platform
 	replyCtx          any
@@ -644,9 +647,9 @@ type interactiveState struct {
 	// works (no tool step, no first result); resumeFailed holds the error its
 	// first result was, and resumeFailedQueued the queued message that turn ran
 	// (nil = the turn the loop started with). Guarded by mu.
-	resumeArmed        bool
-	resumeFailed       string
-	resumeFailedQueued *queuedMessage
+	resumeArmed              bool
+	resumeFailed             string
+	resumeFailedQueued       *queuedMessage
 	publicProgressRun        string
 	resetHandoff             bool // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
 	agentSession             AgentSession
@@ -1714,6 +1717,10 @@ func (e *Engine) ActiveSessionKeys() []string {
 // It finds the platform that owns the session key, reconstructs a reply context,
 // and processes the message as if the user sent it.
 func (e *Engine) ExecuteCronJob(job *CronJob) error {
+	if until := e.quotaCooling(); !until.IsZero() {
+		slog.Info("quota cooldown: cron skipped", "project", e.name, "job", job.ID, "cooling_until", until)
+		return nil
+	}
 	if e.IsPaused() {
 		return fmt.Errorf("engine %q is paused", e.name)
 	}
@@ -2021,6 +2028,10 @@ func (e *Engine) WaitPlatformsReady(timeout time.Duration) error {
 func PlatformReadyTimeout() time.Duration { return timerPlatformReadyTimeout }
 
 func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
+	if until := e.quotaCooling(); !until.IsZero() {
+		slog.Info("quota cooldown: timer skipped", "project", e.name, "job", job.ID, "cooling_until", until)
+		return nil
+	}
 	if e.IsPaused() {
 		return fmt.Errorf("engine %q is paused", e.name)
 	}
@@ -2884,6 +2895,7 @@ func (e *Engine) Start() error {
 
 	e.startPublicProgress()
 	e.startObserver()
+	e.startQuotaCooling()
 	return nil
 }
 
@@ -4556,7 +4568,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		return
 	}
 	e.journalTurnAgent(journalTurnID, state.agentSession) // #618 K1
-	e.armResumeRetry(state, session, msg.resumeFallback) // #618 K4 S1
+	e.armResumeRetry(state, session, msg.resumeFallback)  // #618 K4 S1
 	e.cancelAgentSessionIdleClose(state)
 
 	if workspaceDir != "" && e.workspacePool != nil {
@@ -4618,7 +4630,9 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	// for the cooldown instead of reaching the agent. Checked before withTurnBlocks so
 	// nothing (wiki pages, team status, handoff) is marked sent for an unsent message.
 	// A local input turn (msg.inputTurn) is never deferred: its caller waits on it.
-	if wait := e.capacityWait(); wait > 0 && msg.inputTurn == nil {
+	if until := e.quotaCooling(); !until.IsZero() {
+		e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgQuotaCooling, until.Format(time.RFC3339)))
+	} else if wait := e.capacityWait(); wait > 0 && msg.inputTurn == nil {
 		e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, wait, true)
 	} else {
 		// Local copy, not msg.Content: the caller may still read *msg (data race).
@@ -5609,6 +5623,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 			if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
 				session.ResetTurnCtx() // maomao fork
 			}
+			e.observeQuotaEvent(event, sessionKey, agentSession)
 			switch event.Type {
 			case EventText:
 				if event.Content != "" {
@@ -5742,6 +5757,9 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 
 			case EventError:
 				if event.Error != nil {
+					if until, ok := e.quotaCoolingUntil(event.Error.Error()); ok {
+						slog.Warn("provider quota exhausted, cooling down until reset", "session_key", sessionKey, "cooling_until", until.Format(time.RFC3339))
+					}
 					slog.Error("unsolicited agent error", "error", event.Error, "session", sessionKey)
 					userMsg := e.agentErrorMessage(event.Error)
 					if backendMsg, ok := BackendUnavailableText(event.Error, e.i18n.CurrentLang()); ok {
@@ -6114,6 +6132,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			state.mu.Unlock()
 			return
 		}
+
+		e.observeQuotaEvent(event, sessionKey, state.agentSession)
 
 		// maomao fork: the agent compacted its context, so the per-turn blocks are gone.
 		if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
@@ -6562,7 +6582,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			if event.SessionID != "" {
 				e.journalSessionID(sessionKey, event.SessionID) // #618 K4
-				e.journalAgentProcess(sessionKey, state) // #618 K4: codex exec pid starts inside Send
+				e.journalAgentProcess(sessionKey, state)        // #618 K4: codex exec pid starts inside Send
 				wasEmpty := session.GetAgentSessionID() == ""
 				if session.GetAgentSessionID() != event.SessionID {
 					session.SetAgentSessionID(event.SessionID, e.agent.Name())
@@ -7256,7 +7276,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					}
 					chainedJournalID = id
 				}
-				e.journalSyncQueued(state, sessionKey)                       // #618 K4 #12: dequeued
+				e.journalSyncQueued(state, sessionKey)                         // #618 K4 #12: dequeued
 				e.armResumeRetry(state, session, chainedQueued.resumeFallback) // #618 K4 S1 (clears it for a plain message)
 
 				nextSend := make(chan error, 1)
@@ -7374,6 +7394,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventError:
 			cp.Finalize(ProgressCardStateFailed)
+			if event.Error != nil {
+				if until, ok := e.quotaCoolingUntil(event.Error.Error()); ok {
+					slog.Warn("provider quota exhausted, cooling down until reset", "session_key", sessionKey, "cooling_until", until.Format(time.RFC3339))
+				}
+			}
 			if event.Error != nil && isModelCapacityError(event.Error.Error()) {
 				board.hold() // maomao fork: re-sent by the capacity retry; one board row, no failure
 			} else {
@@ -7761,7 +7786,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		// no outer turn (orphaned queue, after /compress) owns one per message.
 		journalID, journalOwned := e.journalQueuedTurn(&rawQueued, sessionKey, queuedWorkspace, as) // raw text, before the turn blocks
 		e.journalSyncQueued(state, sessionKey)                                                       // #618 K4 #12: dequeued
-		e.armResumeRetry(state, session, rawQueued.resumeFallback)                                  // #618 K4 S1
+		e.armResumeRetry(state, session, rawQueued.resumeFallback)                                   // #618 K4 S1
 
 		var stopTyping func()
 		if ti, ok := queued.platform.(TypingIndicator); ok {
@@ -8982,6 +9007,9 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 		return "", false
 	}
 	// maomao fork: quota the session already holds (CachedUsageReporter, no I/O) wins.
+	if cached, ok := session.(CachedUsageReporter); ok {
+		e.observeQuotaUsage(cached.CachedUsage(), "")
+	}
 	if text := replyFooterCachedQuotaText(session, e.i18n); text != "" {
 		return text, true
 	}
@@ -8999,6 +9027,7 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 	if session != nil {
 		if reporter, ok := session.(UsageReporter); ok && usageReporterAvailable(session) {
 			if report, err := reporter.GetUsage(ctx); err == nil {
+				e.observeQuotaUsage(report, "")
 				if text := formatReplyFooterUsage(report, e.i18n); text != "" {
 					return text, true
 				}
@@ -9091,6 +9120,7 @@ func (e *Engine) refreshReplyFooterUsage(reporter UsageReporter, agent Agent, mo
 		slog.Debug("reply footer: quota probe failed", "agent", agent.Name(), "model", model, "error", err)
 		failText = e.i18n.T(MsgQuotaFetchFailed)
 	} else {
+		e.observeQuotaUsage(report, "")
 		text = formatReplyFooterUsage(report, e.i18n)
 	}
 
@@ -17574,8 +17604,14 @@ func relayGateQuery(message string) string {
 // A value on nudge (nil = never) is folded into the running turn by
 // injectRelayReminder; the watch uses it once before its last window.
 func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, stop <-chan struct{}, nudge <-chan string, completion ...func(string, error)) (string, error) {
+	if until := e.quotaCooling(); !until.IsZero() {
+		return "", fmt.Errorf("engine %q quota cooling until %s", e.name, until.Format(time.RFC3339))
+	}
 	if e.IsPaused() {
 		return "", fmt.Errorf("engine %q is paused", e.name)
+	}
+	if wait := e.capacityWait(); wait > 0 {
+		return "", fmt.Errorf("relay target is cooling down for %s", wait.Round(time.Second))
 	}
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -17729,6 +17765,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				events = nil
 				continue
 			}
+			e.observeQuotaEvent(event, sourceSessionKey, agentSession)
 			switch event.Type {
 			case EventText:
 				if event.Content != "" {
@@ -17770,6 +17807,9 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				agentSession.Close()
 				teamOutcome = teamWorkFailed
 				if event.Error != nil {
+					if until, ok := e.quotaCoolingUntil(event.Error.Error()); ok {
+						slog.Warn("provider quota exhausted, cooling down until reset", "session_key", relaySessionKey, "cooling_until", until.Format(time.RFC3339))
+					}
 					return "", event.Error
 				}
 				return "", fmt.Errorf("agent error (no details)")
@@ -17921,6 +17961,7 @@ func (e *Engine) drainRelaySession(agent Agent, agentSession AgentSession, sessi
 				session.SetAgentSessionID(ev.SessionID, agentName)
 				sessions.Save()
 			}
+			e.observeQuotaEvent(ev, relaySessionKey, agentSession)
 			switch ev.Type {
 			case EventText:
 				if ev.Content != "" {

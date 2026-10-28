@@ -701,7 +701,58 @@ const (
 	MsgPublicAccepted     MsgKey = "MsgPublicAccepted"
 )
 
+const (
+	MsgQuotaLeadRestored MsgKey = "quota_lead_restored"
+	MsgQuotaLeadTakeover MsgKey = "quota_lead_takeover"
+	MsgQuotaLeadPrompt   MsgKey = "quota_lead_prompt"
+	MsgQuotaWorkTakeover MsgKey = "quota_work_takeover"
+	MsgQuotaWorkPrompt   MsgKey = "quota_work_prompt"
+	MsgQuotaCooling      MsgKey = "quota_cooling"
+)
+
 var messages = map[MsgKey]map[Language]string{
+	MsgQuotaLeadRestored: {
+		LangEnglish:            "Quota recovered: %s is primary again.",
+		LangChinese:            "额度已恢复，主角色切回 %s。",
+		LangTraditionalChinese: "額度已恢復，主角色切回 %s。",
+		LangJapanese:           "利用枠が回復したため、%s が主担当に戻りました。",
+		LangSpanish:            "Cuota recuperada: %s vuelve a ser principal.",
+	},
+	MsgQuotaLeadTakeover: {
+		LangEnglish:            "%s is cooling down; %s takes over as primary.",
+		LangChinese:            "%s 额度冷却，主角色自动交给 %s。",
+		LangTraditionalChinese: "%s 額度冷卻，主角色自動交給 %s。",
+		LangJapanese:           "%s の利用枠待機中、%s が主担当を引き継ぎます。",
+		LangSpanish:            "%s espera su cuota; %s asume el rol principal.",
+	},
+	MsgQuotaLeadPrompt: {
+		LangEnglish:            "The previous primary %s is cooling down. Continue from the persisted lead handoff and unfinished tasks.",
+		LangChinese:            "原主角色 %s 额度冷却。请读取持久主角色交接和未完成任务，接着推进。",
+		LangTraditionalChinese: "原主角色 %s 額度冷卻。請讀取持久主角色交接和未完成任務，接著推進。",
+		LangJapanese:           "前の主担当 %s は利用枠待機中です。保存済みの引き継ぎと未完了タスクを進めてください。",
+		LangSpanish:            "El principal anterior %s espera su cuota. Continúa con el traspaso guardado y las tareas pendientes.",
+	},
+	MsgQuotaWorkTakeover: {
+		LangEnglish:            "%s → %s: quota handover of %s.",
+		LangChinese:            "%s → %s：额度冷却，转交任务「%s」。",
+		LangTraditionalChinese: "%s → %s：額度冷卻，轉交任務「%s」。",
+		LangJapanese:           "%s → %s：利用枠待機のため「%s」を引き継ぎます。",
+		LangSpanish:            "%s → %s: traspaso por cuota de %s.",
+	},
+	MsgQuotaWorkPrompt: {
+		LangEnglish:            "%s is cooling down. You now own: %s. Read the original handoff files and saved task record before continuing. Preserve the original request and branch. Report results to the original channel.\nBasis:\n%s",
+		LangChinese:            "%s 额度冷却，现在由你接手：%s。先读下面记录及原交接文件，保留用户原话和底分支，继续未完成部分，交回原频道。\n交接依据：\n%s",
+		LangTraditionalChinese: "%s 額度冷卻，現在由你接手：%s。先讀下面紀錄及原交接文件，保留用戶原話和底分支，繼續未完成部分，交回原頻道。\n交接依據：\n%s",
+		LangJapanese:           "%s は利用枠待機中です。「%s」を引き継いでください。元の依頼・ブランチと保存済みの引き継ぎを確認し、元のチャンネルへ報告してください。\n記録：\n%s",
+		LangSpanish:            "%s espera su cuota. Asumes: %s. Lee el traspaso original y el registro guardado. Conserva la petición y la rama, y entrega en el canal original.\nBase:\n%s",
+	},
+	MsgQuotaCooling: {
+		LangEnglish:            "This role is cooling down until %s.",
+		LangChinese:            "本角色额度冷却至 %s。",
+		LangTraditionalChinese: "本角色額度冷卻至 %s。",
+		LangJapanese:           "この担当は %s まで利用枠待機中です。",
+		LangSpanish:            "Este rol espera su cuota hasta %s.",
+	},
 	MsgTaskReporterMuted: {
 		LangEnglish: "%s cannot post in this thread; that update was not delivered", LangChinese: "%s 无法在线程发言，这条进展没有发出", LangTraditionalChinese: "%s 無法在討論串發言，這條進展沒有發出", LangJapanese: "%s はこのスレッドに投稿できません。この更新は届いていません", LangSpanish: "%s no puede publicar en este hilo; esa actualización no se entregó",
 	},

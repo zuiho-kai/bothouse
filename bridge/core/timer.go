@@ -31,7 +31,7 @@ type TimerJob struct {
 	InjectIfBusy bool      `json:"inject_if_busy,omitempty"`
 	// Handoff: the job wakes a workspace for a handed-over task (ws-handoff). Its turn is
 	// work, not a routine timer, so it runs as user "handoff" and gets the automatic card.
-	Handoff bool `json:"handoff,omitempty"`
+	Handoff      bool      `json:"handoff,omitempty"`
 	SessionMode  string    `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run
 	Mode         string    `json:"mode,omitempty"`         // permission mode override; "" = use project default
 	TimeoutMins  *int      `json:"timeout_mins,omitempty"` // nil = default 30m; 0 = no limit; >0 = minutes
@@ -427,6 +427,13 @@ func (ts *TimerScheduler) executeJob(jobID string) {
 		slog.Error("timer: project not found", "job", jobID, "project", job.Project)
 		ts.store.MarkFired(jobID, fmt.Errorf("project %q not found", job.Project))
 		return
+	}
+	if !job.IsShellJob() {
+		if wait := engine.capacityWait(); wait > 0 {
+			slog.Info("timer: delaying job until provider cooldown ends", "id", jobID, "project", job.Project, "delay", wait)
+			ts.scheduleAt(job, wait)
+			return
+		}
 	}
 
 	slog.Info("timer: executing job", "id", jobID, "project", job.Project, "prompt", truncateStr(job.Prompt, 60))

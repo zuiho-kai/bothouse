@@ -246,13 +246,31 @@ Most guides below are currently in Chinese; the self-hosted platform protocol is
 | [Dispatcher and team memory](docs/ccm-and-wiki.md) | jev and the shared Wiki |
 | [Role packs](docs/persona-packs.md) | Choose, build and import personas and avatars |
 | [Per-role Wiki and nightly reflection](bridge/contrib/wiki/README.md) | Wiki isolation, maintenance and Autodream |
-| [Guardrails and tools](bridge/contrib/hooks/README.md) | Hook rules, switches and built-in utilities |
+| [Guardrails and tools](bridge/contrib/hooks/README.md) | Hook rules, switches and [built-in utilities](bridge/contrib/tools/README.md) |
 | [Self-hosted platform protocol](bridge/docs/cloud-web.md) | Communication between the web platform and plugins |
 | [Architecture](docs/ARCHITECTURE.md) | Module responsibilities and data flow |
 
 To contribute, read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
 
+Source builds with the web management dashboard must build the frontend before
+Go compilation and omit `no_web`. See [dashboard builds and private remote
+access](docs/dashboard-source-build.md).
+
+### Collaboration helper scripts
+
+The setup wizard automatically installs the packaged task board, timer, handoff and
+primary role helpers for a newly created primary role. Other roles do not receive them.
+To install them explicitly for an existing role, use
+`bothouse setup lead install --work-dir /path/to/role --agent codex`.
+See [configuration and requirements](bridge/contrib/lead/README.md).
+
 ## License and community
 
-- **License:** Apache-2.0; see [LICENSING.md](LICENSING.md). The bridge is built on [cc-connect](https://github.com/chenhg5/cc-connect) and keeps its full commit history, so the contributor list also includes cc-connect's authors and contributors. Thanks to [@chenhg5](https://github.com/chenhg5) and every cc-connect contributor. The upstream MIT notice is kept in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Third-party dependencies are listed in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
+- **License:** [Apache-2.0](LICENSE); see [LICENSING.md](LICENSING.md) for details. The bridge is built on [cc-connect](https://github.com/chenhg5/cc-connect) and keeps its full commit history, so the contributor list also includes cc-connect's authors and contributors. Thanks to [@chenhg5](https://github.com/chenhg5) and every cc-connect contributor. The upstream MIT notice is kept in [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream). Third-party dependencies are listed in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
 - **Community:** [linux.do](https://linux.do)
+
+Quota exhaustion, or less than 5% of a five-hour quota remaining, triggers automatic cooldown when the reset time is known. Idle teammates in the same channel can take over unfinished work; scheduled wakes stop during cooldown and temporary primary-role changes are restored after recovery. See [architecture](docs/ARCHITECTURE.md#团队与记忆).
+
+### Local token usage
+
+The management API exposes daily, hourly, role, and model usage totals, with optional configured price estimates. Accounting starts from installation; backends without complete billing usage remain explicitly unknown. See [usage API and pricing](docs/api/usage.md).

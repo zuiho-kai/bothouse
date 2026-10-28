@@ -175,8 +175,8 @@ token = "换成另一串足够长的随机桥接令牌"
 
 - **前后台分离**：你在聊天频道派个大活，主角色接单后整块丢去“工作区 1”处理，自己留在聊天频道继续陪你聊。工作区 1 满了会自动开工作区 2。
 - **闭环交差**：工作区里主角色拆活、@ 队友，队友回【接】、干完回【交回】；需要你拍板的事才汇总回主频道问你，你平时只需盯一个频道。
-- **认领从聊天频道发起**：`bothouse workspace claim` 要在聊天频道里跑；已释放的工作区仍算工作区，不能认领另一个工作区。在工作区收到的任务就地完成。
 - **防撞车任务板**：任务板按「聊天频道 → 工作区 → 角色」分级展示。主角色派活前会自动瞄一眼队友在别的工作区忙不忙。支持按频道切换派活模式（单模型多进程 / 完全团队 / 默认混合）。
+- **不在别的工作区抢活**：`bothouse workspace claim` 从聊天频道发起；已释放的工作区仍是工作区，不能认领另一个工作区。在工作区收到任务后就地完成。
 
 ### 2. 团队规矩与小模型调度员（jev）
 
@@ -261,5 +261,5 @@ Discord / 飞书 / 自建网页频道
 
 ## 许可与社区
 
-- **开源协议**：本项目按 Apache-2.0 授权，详见 [LICENSING.md](LICENSING.md)。桥接组件基于 [cc-connect](https://github.com/chenhg5/cc-connect)，保留了完整提交历史，贡献者列表也包含 cc-connect 的作者和贡献者；感谢 [@chenhg5](https://github.com/chenhg5) 和所有 cc-connect 贡献者。上游 MIT 声明保留在 [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream)，第三方依赖见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。
+- **开源协议**：本项目按 [Apache-2.0](LICENSE) 授权，详见 [LICENSING.md](LICENSING.md)。桥接组件基于 [cc-connect](https://github.com/chenhg5/cc-connect)，保留了完整提交历史，贡献者列表也包含 cc-connect 的作者和贡献者；感谢 [@chenhg5](https://github.com/chenhg5) 和所有 cc-connect 贡献者。上游 MIT 声明保留在 [bridge/LICENSE-MIT-upstream](bridge/LICENSE-MIT-upstream)，第三方依赖见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。
 - **交流社区**：[linux.do](https://linux.do)

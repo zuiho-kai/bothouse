@@ -105,6 +105,16 @@ var ErrTeamWorkspaceStaleClaim = errors.New("workspace release names an earlier 
 // last task; the caller picks a free workspace or creates the next one.
 var ErrTeamWorkspaceOwned = errors.New("workspace belongs to another chat channel")
 
+// ErrTeamWorkspaceCooling: the project's model is cooling down after quota exhaustion, so a
+// workspace in it cannot run the task either. Every session of a project (the chat channel and
+// all its workspaces) shares one quota pool: hand the task off and it lands in front of a bot
+// that answers "quota reached" without doing anything, while the ten-minute watch keeps waking
+// it. The caller keeps the task until the cooldown ends or hands it to another role.
+// Source: 2026-10-27 橘 hit 0% at 00:35 and four tasks were still handed to 工作区1/4/5/7,
+// none started; user 2026-10-27 22:17「工作区15都出来了…之前不是修了吗」and 2026-10-28
+// 02:08「基本上别人不可用的」.
+var ErrTeamWorkspaceCooling = errors.New("project model is cooling down after quota exhaustion")
+
 // TeamWorkspaceRenamer is implemented by platforms that can rename a channel (Discord,
 // Feishu). Core uses it once per old 「<chat name>-工作区n」 workspace to move it into the
 // shared 「工作区n」 pool; without it the old name is only recognised.
@@ -196,7 +206,37 @@ type teamWorkspaceState struct {
 	ScriptWatches map[string][]TeamHandoff `json:"script_watches,omitempty"`
 }
 
-const teamWorkspaceStateVersion = 2
+const teamWorkspaceStateVersion = 3
+
+// teamWorkspaceMigrateStrayParents drops ownership records held by a channel no handoff ever
+// came from. A Parents key is written by a claim, so it should always be a chat that handed
+// something off; a key with no handoff anywhere is a record written by hand or by a claim that
+// never happened (10-28 some state files carried such a key). Left alone it decides where a
+// workspace's [report] goes, and a wrong chat means the user never sees the answer.
+// A key that does appear in a handoff stays: choosing between two handoff chats is what
+// forwardWorkspaceExit's cross-check does, not what a one-time migration guesses.
+func teamWorkspaceMigrateStrayParents(st *teamWorkspaceState) bool {
+	sources := make(map[string]bool, len(st.Handoffs))
+	for _, list := range st.Handoffs {
+		for _, h := range list {
+			if h.Chat != "" {
+				sources[teamChatKey(h.Chat)] = true
+			}
+		}
+	}
+	changed := false
+	for parent := range st.Parents {
+		if sources[teamChatKey(parent)] {
+			continue
+		}
+		count := len(st.Parents[parent])
+		delete(st.Parents, parent)
+		changed = true
+		slog.Warn("team workspace: dropped an ownership record no handoff came from",
+			"chat", parent, "workspaces", count)
+	}
+	return changed
+}
 
 // teamWorkspaceMigrateOwners upgrades a state written before single owner. Back then a Parents
 // record only named the last chat that handed off and was never removed, so every workspace
@@ -209,6 +249,9 @@ func teamWorkspaceMigrateOwners(st *teamWorkspaceState) bool {
 	}
 	if st.Version < 2 {
 		changed = teamWorkspaceMigrateDirtyChats(st) || changed
+	}
+	if st.Version < 3 {
+		changed = teamWorkspaceMigrateStrayParents(st) || changed
 	}
 	st.Version = teamWorkspaceStateVersion
 	return changed
@@ -476,6 +519,8 @@ func (e *Engine) WorkspaceLastChat(channelID string) (parentID string, ok bool) 
 	// Never answer with another workspace channel: its [report] would land where the user does
 	// not read it. teamWorkspaceMigrateDirtyChats repairs those records; this guards a state
 	// loaded before the repair.
+	// The scan goes back over every recorded handoff, so one empty chat (left by
+	// teamWorkspaceMigrateDirtyChats when the workspace was free) does not cut the fallback.
 	workspaces := workspaceChannelKeysLocked(st)
 	for i := len(hs) - 1; i >= 0; i-- {
 		if hs[i].Chat == "" {
@@ -1050,6 +1095,13 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 	chat := teamChatKey(channel)
 	if teamChannelID(chat) == wsID {
 		return fmt.Errorf("team workspace claim: %s cannot hand off to itself", chat)
+	}
+	// A workspace runs this same project, so a cooling project cannot work the task there.
+	if wait := e.capacityWait(); wait > 0 {
+		slog.Warn("team workspace claim: project model cooling, task not handed off",
+			"chat", chat, "workspace", wsID, "cooling_for", wait)
+		return fmt.Errorf("team workspace claim: %s → %s: %w (resets in %s)",
+			chat, wsID, ErrTeamWorkspaceCooling, wait.Truncate(time.Second))
 	}
 	plat, _, _ := strings.Cut(chat, ":")
 	path := teamWorkspacePath(e.dataDir)

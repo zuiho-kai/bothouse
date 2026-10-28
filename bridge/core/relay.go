@@ -47,6 +47,7 @@ type RelayBinding struct {
 
 // RelayManager coordinates bot-to-bot message relay across engines.
 type RelayManager struct {
+	quotaMu    sync.Mutex // one quota takeover changes shared task/workspace ownership at a time
 	mu         sync.RWMutex
 	engines    map[string]*Engine       // project name → engine (runtime only)
 	bindings   map[string]*RelayBinding // chatID → binding
@@ -321,6 +322,9 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 			detail = "已绑定：" + strings.Join(bound, ", ") + "，名字要写准"
 		}
 		return nil, notBound(req.To, detail)
+	}
+	if wait := targetEngine.capacityWait(); wait > 0 {
+		return nil, fmt.Errorf("relay: target engine %q is cooling down for %s", req.To, wait.Round(time.Second))
 	}
 	sourceEngine.clearNotBound(req.SessionKey, req.To)
 
