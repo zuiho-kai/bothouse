@@ -37,6 +37,67 @@ function setup(t) {
   return { store, hub, tasks, call, deliver };
 }
 
+test('migration: old database messages remain readable after adding round_id', t => {
+  const path = join(mkdtempSync(join(tmpdir(), 'round-upgrade-')), 'collab.sqlite');
+  const old = new Store(path); old.ensureRoom(1, 'one');
+  const first = old.createWorkspace(1, { record: { title: 'in flight', owner: 'dev' } });
+  const message = old.append(first.workspace.id, { authorKind: 'user', author: 'owner', name: 'owner', text: 'original requirement' }).message;
+  old.db.exec('ALTER TABLE messages DROP COLUMN round_id');
+  assert.ok(!old.db.prepare('PRAGMA table_info(messages)').all().some(c => c.name === 'round_id'));
+  old.close();
+  const upgraded = new Store(path); t.after(() => upgraded.close());
+  assert.equal(upgraded.message(message.id).round_id, first.round.id);
+  assert.deepEqual(upgraded.workspaceMessages(1, first.workspace.id).map(m => m.text), ['original requirement']);
+  assert.deepEqual(upgraded.contextPage(first.workspace.id, message.id, 200).map(m => m.text), ['original requirement']);
+  assert.equal(upgraded.staleMessage(upgraded.message(message.id)), false);
+});
+
+test('migration: old messages follow round time boundaries with earliest-round fallback', t => {
+  const path = join(mkdtempSync(join(tmpdir(), 'round-boundaries-')), 'collab.sqlite');
+  const old = new Store(path); old.ensureRoom(1, 'one');
+  const first = old.createWorkspace(1, { record: { title: 'multiple rounds', owner: 'dev' } });
+  old.db.prepare("UPDATE work_rounds SET started_at = 100, ended_at = 200, status = 'ended' WHERE id = ?").run(first.round.id);
+  const second = old.db.prepare("INSERT INTO work_rounds (record_id, workspace_id, started_at, status) VALUES (?, ?, 300, 'running') RETURNING id").get(first.record.id, first.workspace.id);
+  const ids = [50, 100, 199, 200, 250, 300, 350].map(time => {
+    const msg = old.append(first.workspace.id, { authorKind: 'user', author: 'owner', name: 'owner', text: `time ${time}` }).message;
+    old.db.prepare('UPDATE messages SET created_at = ? WHERE id = ?').run(time, msg.id);
+    return msg.id;
+  });
+  old.db.exec('ALTER TABLE messages DROP COLUMN round_id'); old.close();
+  const upgraded = new Store(path);
+  const expected = [first.round.id, first.round.id, first.round.id, first.round.id, first.round.id, second.id, second.id];
+  assert.deepEqual(ids.map(id => upgraded.message(id).round_id), expected);
+  assert.deepEqual(upgraded.workspaceMessages(1, first.workspace.id).map(m => m.id), ids.slice(-2));
+  assert.equal(upgraded.recordMessages(1, first.record.id).length, ids.length);
+  upgraded.close();
+  const reopened = new Store(path); t.after(() => reopened.close());
+  assert.deepEqual(ids.map(id => reopened.message(id).round_id), expected);
+});
+
+test('bridge compatibility: missing round accepts current reply while explicit old round stays blocked', async t => {
+  const { store, hub, tasks, call } = setup(t);
+  const first = await call({ title: 'legacy bridge', owner: 'dev' });
+  tasks.pauseTask(first.task.id);
+  tasks.stance(first.task.id, { actor: 'dev', stance: '接' });
+  const current = store.currentRound(first.workspace.id);
+  const gateway = new CloudWebGateway(hub, { token: 'synthetic-test-token', logger: { warn() {} } });
+  const replyCtx = `room-${first.workspace.id}~record-${first.record.id}`;
+  const bot = { member: { id: 'dev', name: 'dev' } };
+  await gateway.fromBot(bot, { type: 'reply', reply_ctx: `${replyCtx}~round-${first.round.id}`, content: '[report]\nold reply' });
+  const late = store.page(first.workspace.id).at(-1);
+  assert.equal(late.round_id, first.round.id);
+  assert.equal(store.staleMessage(late), true);
+  assert.throws(() => tasks.handBack(first.task.id, { actor: 'dev', messageId: late.id }), { code: 'stale-claim' });
+  await gateway.fromBot(bot, { type: 'reply', reply_ctx: replyCtx, content: 'legacy current reply' });
+  const fresh = store.page(first.workspace.id).at(-1);
+  assert.equal(fresh.round_id, current.id);
+  assert.equal(store.staleMessage(fresh), false);
+  assert.ok(store.workspaceMessages(1, first.workspace.id).some(m => m.id === fresh.id));
+  assert.ok(!store.workspaceMessages(1, first.workspace.id).some(m => m.id === late.id));
+  tasks.handBack(first.task.id, { actor: 'dev', messageId: fresh.id });
+  assert.equal(tasks.task(first.task.id).status, 'returned');
+});
+
 test('round isolation: resumed record excludes previous context and archives late replies without routing', async t => {
   const { store, hub, tasks, call } = setup(t);
   const first = await call({ title: 'resume isolation', owner: 'dev' });

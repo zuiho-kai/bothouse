@@ -182,6 +182,19 @@ export class Store {
           added.add(`${table}.${column}`);
         }
       }
+      if (added.has('messages.round_id')) {
+        // Old messages have record attribution but no round. Use [start, end) time
+        // windows; gaps/pre-start timestamps deterministically belong to the earliest
+        // round of that record. Never reinterpret explicit nulls on subsequent opens.
+        this.db.exec(`UPDATE messages SET round_id = COALESCE(
+          (SELECT id FROM work_rounds WHERE record_id = messages.record_id
+            AND started_at <= messages.created_at
+            AND (ended_at IS NULL OR messages.created_at < ended_at)
+            ORDER BY started_at DESC, id DESC LIMIT 1),
+          (SELECT id FROM work_rounds WHERE record_id = messages.record_id
+            ORDER BY started_at, id LIMIT 1))
+          WHERE record_id IS NOT NULL AND round_id IS NULL`);
+      }
       this.migrateWorkspaceIds();
       this.dedupeWorkspaceNames();
       // v9: the tasks table (#139 team mode B), ensured idempotently like the columns above.

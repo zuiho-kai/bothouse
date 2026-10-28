@@ -567,7 +567,9 @@ function send(ws, frame) {
 // reply_ctx is opaque to bridge clients and round-trips with replies/previews/media.
 function frameRecord(frame) {
   const match = /~record-(\d+)(?:~round-(\d+))?$/.exec(frame.reply_ctx ?? '');
-  return match === null ? {} : { recordId: Number(match[1]), roundId: match[2] == null ? null : Number(match[2]) };
+  // Omit the round only for legacy contexts: Store.append resolves the current
+  // round of this record. Explicit rounds retain their identity and stale checks.
+  return match === null ? {} : { recordId: Number(match[1]), ...(match[2] == null ? {} : { roundId: Number(match[2]) }) };
 }
 
 function clean(s) { return String(s ?? '').replace(/[\x00-\x1f\x7f]/g, '').trim(); }
