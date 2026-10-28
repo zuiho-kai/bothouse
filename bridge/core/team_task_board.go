@@ -358,21 +358,36 @@ func renderWorkspaceTaskBoardFit(items, done []teamTaskBoardItem, chat string, n
 	return out
 }
 
-// renderTeamOtherChannels: the 「其他频道」 section of chat's board: one row per running (not
-// paused) item not on chat's board, led by a link to the channel it is worked in; "" when none.
+// renderTeamOtherChannels: the 「其他频道」 section of chat's board: one row per other channel with
+// its items in work as 「#id 短名」, done or waiting-on-user items left out (user, 2026-10-28: 「工作区
+// 的任务板又长又臭」 — one long row per item from every channel filled the workspace board); "" when none.
 func renderTeamOtherChannels(items []teamTaskBoardItem, chat string, st teamTaskBoardStage) string {
-	var rows []string
+	var order []string
+	rows := map[string][]string{}
 	for _, it := range items {
-		if it.own == "" || it.shownIn(chat) || it.Paused != "" {
+		if it.own == "" || it.shownIn(chat) || it.Paused != "" || teamOtherQuiet.MatchString(it.Status) {
 			continue
 		}
-		rows = append(rows, fmt.Sprintf("- %s #%d %s｜%s｜%s", teamChatRef(it.own, ""), it.ID, shortLabel(it.What, st.whatCap), boardLabel(it.Who), shortLabel(it.Status, st.statusCap)))
+		if _, ok := rows[it.own]; !ok {
+			order = append(order, it.own)
+		}
+		rows[it.own] = append(rows[it.own], fmt.Sprintf("#%d %s", it.ID, shortLabel(it.What, teamOtherWhatRunes)))
 	}
-	if len(rows) == 0 {
+	if len(order) == 0 {
 		return ""
 	}
-	return strings.Join(append([]string{"**其他频道**"}, rows...), "\n")
+	lines := []string{"**其他频道**"}
+	for _, c := range order {
+		lines = append(lines, "- "+teamChatRef(c, "")+" "+strings.Join(rows[c], "、"))
+	}
+	return strings.Join(lines, "\n")
 }
+
+// teamOtherQuiet: statuses of items not in work, kept off 「其他频道」 (完成, 等用户看片/拍板).
+var teamOtherQuiet = regexp.MustCompile(`^完成|等待?用户|待用户`)
+
+// teamOtherWhatRunes: an item's name in 「其他频道」, cut short: the row only says what runs where.
+const teamOtherWhatRunes = 12
 
 // teamChatRef: how a board names another channel (a chat key or session key): on Discord the
 // channel mention <#id>, which shows as a clickable 「#频道名」; elsewhere #name (the channel name
