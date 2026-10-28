@@ -57,7 +57,7 @@ func TestApplyWizardDSHRelay(t *testing.T) {
 		t.Fatalf("project = %+v", p)
 	}
 	b, _ := os.ReadFile(DSHPatchPath(data, "whale"))
-	for _, want := range []string{"- id: llm-deepseek\n  config:\n    baseURL: \"https://relay.example\"\n    apiKeyEnv: " + DSHKeyEnv + "\n    models:\n      - id: \"deepseek-v4.1-flash\"\n",
+	for _, want := range []string{"- id: llm-deepseek\n  config:\n    baseURL: \"https://relay.example\"\n    apiKeyEnv: " + DSHKeyEnv + "\n    models:\n      - id: \"deepseek-v4.1-flash\"\n        inputModalities: [text, image]\n",
 		"- id: agent-default-model\n  config:\n    provider: deepseek-official\n    model: \"deepseek-v4.1-flash\"\n",
 		"- id: acp\n  config:\n    provider: deepseek-official\n    model: \"deepseek-v4.1-flash\"\n"} {
 		if !strings.Contains(string(b), want) {
