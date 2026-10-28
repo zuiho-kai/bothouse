@@ -4950,9 +4950,12 @@ test('workspace listing releases an empty owned workspace, not a parked task or 
   hub.store.roomsView();
   assert.equal(hub.store.workspaceOwner(ws.id), 1, 'parked work still owns its claimed workspace');
   const idle = hub.store.createWorkspace(1);
-  hub.store.db.prepare('UPDATE rooms SET claim_task = ? WHERE id = ?').run(26, idle.id);
+  hub.store.db.prepare('UPDATE rooms SET claim_task = ? WHERE id = ?').run(pending.id, idle.id);
   hub.store.roomsView();
-  assert.equal(hub.store.workspaceOwner(idle.id), null, 'a stale empty claim returns to the pool');
+  assert.equal(hub.store.workspaceOwner(idle.id), 1, 'a fresh claim has time to open its handoff');
+  hub.store.db.prepare('UPDATE rooms SET claim_at = unixepoch() - 1801 WHERE id = ?').run(idle.id);
+  hub.store.roomsView();
+  assert.equal(hub.store.workspaceOwner(idle.id), null, 'an expired empty claim returns to the pool');
   const bridge = hub.store.createWorkspace(1, { bridge: true });
   hub.store.roomsView();
   assert.equal(hub.store.workspaceOwner(bridge.id), 1, 'bridge claim remains owned');

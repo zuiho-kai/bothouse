@@ -42,6 +42,7 @@ const COLUMNS = [
   // The room's highest task id when its owner last claimed it; a claim no task followed
   // yet (the handoff is not worked on) keeps it owned when an earlier task ends (Tasks.releaseIfDone).
   ['rooms', 'claim_task', 'INTEGER'],
+  ['rooms', 'claim_at', 'REAL'], // A fresh claim gets time to open its handoff before idle recovery.
   // 1 = the bridge claimed it (cloudweb.mjs op claim/create): its lead is a bridge session, so
   // only the bridge's op release (lead reset) frees it, never Tasks.releaseIfDone.
   ['rooms', 'claim_bridge', 'INTEGER NOT NULL DEFAULT 0'],
@@ -80,9 +81,9 @@ export class Store {
       rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms ORDER BY id'),
       children: this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id"),
       // A new workspace is claimed with no task yet (claim_task 0): its first task is the handoff.
-      createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id, claim_task, claim_bridge)
+      createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id, claim_task, claim_bridge, claim_at)
         SELECT MAX(${WORKSPACE_ID_MIN}, COALESCE((SELECT MAX(id) + 1 FROM rooms WHERE id >= ${WORKSPACE_ID_MIN}), ${WORKSPACE_ID_MIN})),
-          ?, 'workspace', ?, 0, ? RETURNING id, name, kind, parent_id`),
+          ?, 'workspace', ?, 0, ?, unixepoch() RETURNING id, name, kind, parent_id`),
       ensureRoom: this.db.prepare('INSERT INTO rooms (id, name, workspace_path) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, workspace_path = excluded.workspace_path'),
       workspacePath: this.db.prepare(`SELECT COALESCE(parent.workspace_path, room.workspace_path) AS path
         FROM rooms room LEFT JOIN rooms parent ON room.kind = 'workspace' AND parent.id = room.parent_id WHERE room.id = ?`),
@@ -387,7 +388,7 @@ export class Store {
       if (free !== undefined) {
         this.resetSessions(free.id);
         return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
-          claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
+          claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?), claim_at = unixepoch() WHERE id = ? RETURNING id, name, kind, parent_id`)
           .get(parent, bridge ? 1 : 0, free.id, free.id);
       }
       const n = Math.max(0, ...all.map(num));
@@ -422,7 +423,7 @@ export class Store {
       const last = this.db.prepare('SELECT claim_task FROM rooms WHERE id = ?').get(ws.id).claim_task;
       if (owner == null && !(handoff != null && last != null && Number(handoff) > last)) this.resetSessions(ws.id);
       return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
-        claim_task = COALESCE(?, (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?)) WHERE id = ? RETURNING id, name, kind, parent_id`)
+        claim_task = COALESCE(?, (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?)), claim_at = unixepoch() WHERE id = ? RETURNING id, name, kind, parent_id`)
         .get(parent, bridge ? 1 : 0, handoff == null ? null : Number(handoff) - 1, ws.id, ws.id);
     });
   }
@@ -592,9 +593,7 @@ export class Store {
   releaseIdleWorkspaces() {
     const idle = this.db.prepare(`SELECT id FROM rooms WHERE kind = 'workspace' AND free = 0
       AND claim_bridge = 0 AND claim_task > 0
-      AND (NOT EXISTS (SELECT 1 FROM tasks WHERE room_id = rooms.id AND id = rooms.claim_task)
-        OR EXISTS (SELECT 1 FROM tasks WHERE room_id = rooms.id AND id > rooms.claim_task
-          AND status IN ('returned', 'done')))
+      AND (claim_at IS NULL OR claim_at < unixepoch() - 1800)
       AND NOT EXISTS (SELECT 1 FROM tasks WHERE room_id = rooms.id
         AND status IN ('assigned', 'accepted', 'asked', 'rework'))`).all();
     for (const room of idle) this.releaseWorkspace(room.id);
