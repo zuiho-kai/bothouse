@@ -86,6 +86,28 @@ list 默认查询整个项目最近 10 张卡，--session 可缩小到会话，-
 
 accept 走 POST /task/accept，只允许 result_ready / waiting_user；只有真人明确确认验收后才应调用。--by 是本地调用者填写的归属记录，**不验证身份，也不独立证明真人批准**，信任边界是本机 socket 的访问权限。成功后卡片变为 completed / verified，关键验收事实进入讨论串，并从置顶状态栏移除入口。这个终态不再被迟到的进展、回合结束、失败、停止或重启覆盖；旧卡验收不会清掉同会话新卡的续接候选。落盘失败返回错误并恢复原状态，重试必须真正落盘后才成功。
 
+## 产物与指定返工
+
+任务可以有多次修订，每次修订记录用户素材（input）和交付产物（output）的引用。引用是可供本机核对的位置（http(s) 链接、仓库路径或绝对路径），不是文件内容，也不表示已经上传、发布或送达。记录与投递分开：成功只说明已写入任务日志，消息、卡片或线程是否存在仍以平台回执为准。
+
+~~~sh
+cc-connect task artifact --data-dir /path/to/data --project fish --id task-xxx \
+  --request-id material-20261022-1 --revision 1 \
+  --role input --kind image --label '用户原图' --locator 'https://example.com/a.png'
+cc-connect task artifact --data-dir /path/to/data --project fish --id task-xxx \
+  --request-id cover-20261022-1 --revision 1 \
+  --role output --kind file --label '初稿' --locator '/tmp/cover-v1.png'
+cc-connect task rework --data-dir /path/to/data --project fish --id task-xxx \
+  --artifact task-xxx:a2 --request-id rw-20261022-1 --feedback '把背景改成蓝色'
+~~~
+
+- artifact 走 POST /task/artifact，role 只能是 input/output；kind 取 file/image/video/audio/link/text。`--request-id` 与 `--revision` 都是必填：`--request-id` 是一次附加操作的稳定标识，重试同一次附加要复用它并保留原修订号，服务端返回原产物（含原修订号），即使任务已推进或桥接重启；同 id 但内容或目标修订不同会被拒绝；换 id 即使字段完全相同也是一次新附加，会各自登记产物与回执。用户返工后常把新版本写回同一路径、沿用同一 label，也应用新 id 登记到当前修订，不能靠改文案字段来制造“新身份”。
+- `--revision` 是调用方声称交付的修订号，取自 show，必须是正数且与当前修订相符，否则拒绝，避免迟到请求被静默绑到新修订；重试旧操作应改用原 `--request-id` 和原修订号，服务端会返回当时记录的原产物。已完成、已取消或已失败的任务不接受新产物，先改任务或另开新任务。
+- rework 走 POST /task/rework，必须带稳定的 `--request-id`：同一次修改操作重试要复用同一个 id，服务端返回同一条操作回执（请求 id、目标产物、修订号、事件 id 与序号），不再加修订或写事件；同 id 但内容不同会被拒绝；换 id 即使文字相同也是一次新请求。响应同时带当前 task 快照和 `receipt`；迟到重试时 task 可能已是更新版本，但 `receipt` 仍是该请求自己的修订、事件和目标，不会把任务回滚成旧快照。回执随任务日志落盘，重启后仍能识别迟到重试。rework 把修改意见绑定到明确产物并让修订号加一、状态回到 in_progress。旧产物和事件保留；上一条 result 摘要会清空，因为它描述的是旧版本。它不执行修改，也不代表验收；重新交付后仍需真人 accept。
+- 有多个 output 时，rework 必须用 --artifact 指名；只有一个 output 时自动指向它；没有 output 时允许先登记意见。--artifact 只能是 output，input 是用户素材和历史，不能被当作返工对象；指名 input 会在写入前拒绝，不改修订、事件或状态。调用方不能根据“最新文件”猜关联，也不能把另一个任务的产物串进来。
+- list/show 会显示修订号和产物数量；show 仍是本地查询，不包含 run token、模型推理或原始工具日志。task list 对老任务（revision 为 0）按第一版处理。
+- 先落盘再确认：写失败返回错误并恢复内存状态（任务、产物与两类 request-id 回执一起回滚），重试必须真正落盘。重启后修订、产物、返工事件和 request-id 回执从同一任务日志恢复。此能力不改变卡片、语音或验收的既有语义，也不代表 QQ 已接通、产物已上传或空间已发布。
+
 ## 置顶状态栏里的任务入口
 
 主 bot 维护每频道一张置顶团队状态栏，增加“待你处理”和“进行中”两组任务卡链接。只有已实际发布到该频道的卡片才进入列表；角色名称读团队配置。等待决定的任务排前面，同组按最近更新排序。普通更新原地编辑状态栏，不重复置顶每张任务卡。

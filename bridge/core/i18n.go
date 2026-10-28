@@ -693,6 +693,7 @@ const (
 	MsgTaskRelayResult   MsgKey = "MsgTaskRelayResult"
 	MsgTaskRelayFailed   MsgKey = "MsgTaskRelayFailed"
 	MsgTaskReporterMuted MsgKey = "MsgTaskReporterMuted"
+	MsgTaskListRevision  MsgKey = "task_list_revision"
 )
 
 const (
@@ -711,6 +712,13 @@ const (
 )
 
 var messages = map[MsgKey]map[Language]string{
+	MsgTaskListRevision: {
+		LangEnglish:            "revision v%d · %d artifacts (%d input / %d output)",
+		LangChinese:            "修订 v%d · 产物 %d（素材 %d / 交付 %d）",
+		LangTraditionalChinese: "修訂 v%d · 產物 %d（素材 %d / 交付 %d）",
+		LangJapanese:           "改訂 v%d · 成果物 %d（素材 %d / 納品 %d）",
+		LangSpanish:            "revisión v%d · %d artefactos (%d de entrada / %d de salida)",
+	},
 	MsgQuotaLeadRestored: {
 		LangEnglish:            "Quota recovered: %s is primary again.",
 		LangChinese:            "额度已恢复，主角色切回 %s。",

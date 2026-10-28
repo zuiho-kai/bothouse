@@ -109,6 +109,8 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/task", s.handleTask)
 	s.mux.HandleFunc("/task/accept", s.handleTaskAccept)
 	s.mux.HandleFunc("/task/assign", s.handleTaskAssign)
+	s.mux.HandleFunc("/task/artifact", s.handleTaskArtifact)
+	s.mux.HandleFunc("/task/rework", s.handleTaskRework)
 	s.mux.HandleFunc("/handoff/status", s.handleHandoffStatus)
 	s.mux.HandleFunc("/handoff/show", s.handleHandoffShow)
 	s.mux.HandleFunc("/handoff/switch", s.handleHandoffSwitch)
