@@ -13,7 +13,7 @@ lead 也带 ?bot=，也查她自己的；bot 为空或不在 bots.json 里只查
 
 POST /context {key, text, bot}  → {wiki: [{path, desc}]}，desc = 页描述 | 行号: 原文 | …（cc-connect 原样拼成「- path — desc」）
 """
-import hashlib, json, os, re, time
+import collections, hashlib, json, math, os, re, time
 from pathlib import Path
 
 try:
@@ -123,7 +123,151 @@ def context(req):
     text = req.get("text") or ""
     own = role_wiki(bot) if WIKI is not None else None  # GATE_WIKI=off/空 = 什么 wiki 都不推，角色 wiki 也不查
     mine = match_wiki(text, root=own) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
-    return {"wiki": [x for x in (who, pb) if x] + board_items() + match_wiki(text) + mine}  # 主 wiki 在前
+    if WIKI is None:
+        return {"wiki": [x for x in (who, pb) if x] + board_items()}
+    roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
+    return {"wiki": [x for x in (who, pb) if x] + standing_items(roots) + board_items() + match_wiki(text) + mine
+            + decision_items(text)}  # 主 wiki 在前
+
+
+# ---- 已定的方向和做法（llm-wiki 页的「关键事实」「决策与踩坑」两段）----
+# 只推命中行时，开工那句话的字面常和旧定案对不上，agent 就重新探索、做出偏离定案的东西。
+# 离线对比（作者 wiki，16 个「定过又重来」的真实案例）：现推 3 页命中行 5/16；前 3 页决策段各取最相关 8 行
+# + 全库决策段前 10 行 11/16，约 2400 字。所以按话题再附一块定案。
+DEC_HEADS = ("决策", "关键事实", "decision", "key fact")  # 页模板的段名（中英）
+DEC_PER_PAGE = 8  # 来源：上面的离线对比，各页 8 行
+DEC_TOP = 10  # 来源：同上，全库决策段前 10 行（= wiki_search.TOP）
+DEC_LINE = 100  # 每行截断字数：整块压在 3000 字内（作者定的每轮增量上限）
+_dec, _dec_of = {}, {}
+_MD = re.compile(r"(?:~|/)[^\s`'\"（）()「」]*?\.md")  # 交接文件（ws-handoff 叫醒语里写着它的路径）
+
+
+def _decisions(root):
+    """root 的定案行：一个和 Index 同格式的子索引，只含「关键事实」「决策与踩坑」段里的行。随主索引一起重建。"""
+    idx = _index(root)
+    if _dec_of.get(root) is idx:
+        return _dec[root]
+    keep = set()
+    for rel in idx.desc:
+        on = False
+        try:
+            lines = (root / rel).read_text(encoding="utf-8", errors="ignore").split("\n")
+        except OSError:
+            continue
+        for n, x in enumerate(lines, 1):
+            if x.startswith("## "):
+                on = any(h in x.lower() for h in DEC_HEADS)
+            elif on:
+                keep.add((rel, n))
+    d = search.Index.__new__(search.Index)
+    d.desc, d.lines = idx.desc, [l for l in idx.lines if (l[0], l[1]) in keep]
+    n = max(len(d.lines), 1)
+    d.avg = sum(len(l[3]) for l in d.lines) / n or 1
+    df = collections.Counter(t for l in d.lines for t in set(l[3]))
+    d.idf = {t: math.log(1 + (n - c + .5) / (c + .5)) for t, c in df.items()}
+    d.inv = collections.defaultdict(list)
+    for i, l in enumerate(d.lines):
+        for t, c in collections.Counter(l[3]).items():
+            d.inv[t].append((i, c))
+    _dec[root], _dec_of[root] = d, idx
+    return d
+
+
+def _task_text(text):
+    """查定案用的话：这条消息，加上它点名的交接文件（ws-handoff 叫醒时只写「读 …/notes/x.md」，活写在文件里）。"""
+    q = query(text)
+    for m in dict.fromkeys(_MD.findall(q)):
+        try:
+            q += "\n" + Path(m).expanduser().read_text(encoding="utf-8", errors="ignore")[:4000]  # 交接文件前 4000 字够用
+        except OSError:
+            pass
+    return q
+
+
+def decisions(text, root=None):
+    """(这次的话题页, 定案行 [(rel, 行号, 原文)])：前 3 页的定案段各取最相关 DEC_PER_PAGE 行，再并上全库定案段前 DEC_TOP 行。"""
+    root = root or WIKI
+    if root is None or not root.is_dir():
+        return [], []
+    q = _task_text(text)
+    idx, d = _index(root), _decisions(root)
+    pages = []
+    for rel, _, _ in idx.search(q):
+        if rel not in pages and len(pages) < TOP_PAGES:
+            pages.append(rel)
+    per = collections.Counter()
+    out = []
+    for rel, ln, line in d.search(q, k=len(d.lines)):  # 全排序后按页取，只取话题页的
+        if rel in pages and per[rel] < DEC_PER_PAGE:
+            per[rel] += 1
+            out.append((rel, ln, line))
+    for hit in d.search(q):
+        if hit not in out:
+            out.append(hit)
+    return pages, out
+
+
+def decision_items(text):
+    """按话题附一块定案。path 带话题页的指纹：同一话题一个会话只推一次（gate.go turnContext），换话题再推。"""
+    try:
+        pages, hits = decisions(text)
+    except Exception:  # 读坏了不挡推页
+        return []
+    if not hits:
+        return []
+    tag = hashlib.sha1("\n".join(sorted(pages)).encode()).hexdigest()[:6]
+    by = {}
+    for rel, ln, line in hits:  # 按页折叠：页路径只写一次（路径常有 80 字，逐行写占掉一半）
+        by.setdefault(rel, []).append(f"  {ln}: {line.strip().removeprefix('- ')[:DEC_LINE]}")
+    body = "\n".join(f"{rel}\n" + "\n".join(v) for rel, v in by.items())
+    return [{"path": f"【已定的方向和做法 {tag}】",
+             "desc": f"以前定过的方向、流程和踩过的坑（路径相对 {_shown('.').removesuffix('/.')}，要细节按行号读）。"
+                     "开工、交活、派活前先对照：照着做，别重新探索；交给队友或工作区时，把相关的几条写进交接\n" + body}]
+
+
+# ---- 常驻做法短块（<wiki>/STANDING.md）----
+# 跨话题的固定做法（用什么工具、谁来做、怎么跑），按话题检索拉不到（离线对比漏的 5 条里 4 条是这类），
+# 所以写成一个短块，每个会话都带。块由 agent 自己维护；每轮校验，坏了当场让它修。
+STANDING = "STANDING.md"
+STANDING_LINES = 20  # 最多几条：短块要每会话常带，按约 1500 字封顶倒推（每条约 70 字）
+STANDING_CHARS = 1500
+STANDING_HOW = ("每个会话都带的跨话题固定做法（工具、谁来做、怎么跑），照做。这块由你维护：用户定了跨话题的做法就加一行，"
+                f"过时就删；改 {{path}}，每条一行、以「- 」开头，最多 {STANDING_LINES} 条、{STANDING_CHARS} 字；话题内的定案写进话题页，不写这里")
+
+
+def standing_check(body):
+    """短块哪里坏了（空串 = 没坏）。"""
+    rows = [x for x in body.split("\n") if x.strip() and not x.startswith("#")]
+    bad = [x for x in rows if not x.startswith("- ")]
+    if bad:
+        return f"有 {len(bad)} 行不是「- 」开头的一条做法（如「{bad[0][:30]}」）"
+    if len(rows) > STANDING_LINES:
+        return f"{len(rows)} 条，超过 {STANDING_LINES} 条"
+    if len(body) > STANDING_CHARS:
+        return f"{len(body)} 字，超过 {STANDING_CHARS} 字"
+    return ""
+
+
+def standing_items(roots):
+    """各 wiki 根下的 STANDING.md（没有就不附）。path 带内容指纹：不变一个会话只推一次，改了下一轮重推；
+    坏了就推一条「当场修」，修好后指纹变了照常推新块。"""
+    out = []
+    for root in roots:
+        f = root / STANDING
+        try:
+            body = f.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        shown = _shown(STANDING, root)
+        tag = hashlib.sha1(body.encode()).hexdigest()[:6]
+        bad = standing_check(body)
+        if bad:
+            out.append({"path": f"【常驻做法坏了 {tag}】",
+                        "desc": f"{shown} {bad}。先当场修好它（{STANDING_HOW.format(path=shown)}），再做这轮的事"})
+            continue
+        if body:
+            out.append({"path": f"【常驻做法 {tag}】", "desc": STANDING_HOW.format(path=shown) + "\n" + body})
+    return out
 
 
 def board_items():
