@@ -15,6 +15,16 @@ import (
 // no handoff is left open the workspace goes back to the pool and its sessions start clean,
 // the same release as /new (releaseTeamWorkspace) and park (ResetTeamWorkspaceSessions).
 
+// firstLine: the first non-empty line of s.
+func firstLine(s string) string {
+	for _, l := range strings.Split(s, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			return l
+		}
+	}
+	return ""
+}
+
 // chatLeadWakeLimit caps the forwarded body quoted in the lead's prompt (relayLeadWakeLimit).
 const chatLeadWakeLimit = relayLeadWakeLimit
 
@@ -67,15 +77,15 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 	prompt = askRef.ReplaceAllString(prompt, "ask-…")
 	silent := true
 	job := &TimerJob{
-		ID:           GenerateTimerID(),
-		Project:      lead.name,
-		SessionKey:   chat,
-		ScheduledAt:  time.Now(),
-		Prompt:       prompt,
-		Description:  "工作区回传 " + ws,
-		Silent:       &silent,
-		InjectIfBusy: true,
-		CreatedAt:    time.Now(),
+		ID:            GenerateTimerID(),
+		Project:       lead.name,
+		SessionKey:    chat,
+		ScheduledAt:   time.Now(),
+		Prompt:        prompt,
+		Description:   "工作区回传 " + ws,
+		Silent:        &silent,
+		WaitUserQuiet: true,
+		CreatedAt:     time.Now(),
 	}
 	if err := lead.timerScheduler.AddJob(job); err != nil {
 		slog.Error("team exit: hand forwarded reply to lead failed", "lead", lead.name, "parent", parent, "workspace", ws, "error", err)
@@ -100,10 +110,16 @@ func chatLeadPrompt(wsLabel, bot, kind, body, background string, posted bool) st
 	} else {
 		fmt.Fprintf(&b, "[工作区回传] 工作区 %s 的「%s」交回了%s。原文只给你看，没有贴进本频道；用户看到的只有你这一条。\n", wsLabel, bot, what)
 	}
-	if background != "" {
-		b.WriteString("\n这件活的背景：\n" + background + "\n")
+	if posted && kind != exitKindAsk {
+		// The user already has the headline: it is all the lead needs here; the full text stays
+		// in the workspace (user 2026-10-28: workspace text is not to fill the chat context).
+		fmt.Fprintf(&b, "\n第一行：%s\n原文在工作区 %s，用户问了再去取。\n\n", firstLine(body), wsLabel)
+	} else {
+		if background != "" {
+			b.WriteString("\n这件活的背景：\n" + background + "\n")
+		}
+		b.WriteString("\n内容：\n" + truncateRelay(body, chatLeadWakeLimit) + "\n\n")
 	}
-	b.WriteString("\n内容：\n" + truncateRelay(body, chatLeadWakeLimit) + "\n\n")
 	switch {
 	case posted && kind == exitKindAsk:
 		b.WriteString("问题已经贴给用户，不要再问一遍。先对照上面的用户原话和本频道最近的用户消息：用户已经答过或意图已经明确，就用 ws-forward 把答案（附用户原话）转回工作区，再说一句你怎么定的；没答过就回 NO_REPLY，等用户回复。\n")
