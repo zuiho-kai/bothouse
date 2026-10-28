@@ -29,7 +29,7 @@ from .discussion import Discussions, DiscussionInput, AdvanceInput
 from .speech import _pcm_samples
 from .recognition import prewarm, transcribe_request
 from .modes import MODES, ModeRouter
-from .memory_pack import MemoryPack, VoiceOutbox
+from .memory_pack import MemoryPack, VoiceOutbox, record_turn
 from .mode_control import ModeStore
 from .fast_brain import FastBrain, FastBrainUnavailable, build_provider
 
@@ -468,6 +468,14 @@ class VoiceService:
             if sentences:
                 await sentences.close()
             turn['timings']['total_ms'] = round((time.monotonic() - turn['started']) * 1000)
+            # 每轮都进语音日记：小脑轮次在 fast_brain 里写，这里补大脑轮次（含回退）。
+            if (self.outbox is not None and turn.get('text') and turn.get('route') != 'small'
+                    and turn.get('status') in {'ready', 'stopped'}):
+                self.outbox.append(record_turn(
+                    turn.get('device_id', 'desktop'), turn,
+                    mode=turn.get('mode', ''), route=turn.get('route', 'big'),
+                    model=turn.get('model', ''), confidence=turn.get('confidence', 0.0),
+                    escalated=bool(turn.get('route_escalated'))))
             self.active = None
             self.last_turn[turn['project']] = turn['id']
             try:

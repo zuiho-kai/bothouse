@@ -37,7 +37,7 @@ class BridgeStub:
         return self.result
 
 
-def setup(tmp_path, bridge=None, speech=None):
+def setup(tmp_path, bridge=None, speech=None, **settings_kwargs):
     bridge = bridge or BridgeStub()
     settings = Settings(
         project='gge',
@@ -47,6 +47,7 @@ def setup(tmp_path, bridge=None, speech=None):
         model_path=str(tmp_path / 'model'),
         data_dir=str(tmp_path),
         shared_memory_dir=str(tmp_path / 'memory'),
+        **settings_kwargs,
     )
     app = create_app(settings, speech or SpeechStub(), bridge)
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://127.0.0.1:8787')
@@ -88,6 +89,20 @@ async def test_real_turn_contract_and_correlated_output(tmp_path):
     assert entries[0]['input_text'] == data['text']
     assert entries[-1]['text'] == result['text']
     assert all(entry['source'] == 'desktop_voice' for entry in entries)
+
+
+async def test_each_answered_turn_writes_voice_outbox(tmp_path):
+    app, client, headers, _ = setup(tmp_path, modes_enabled=True)
+    data = payload(mode='work')
+    async with client:
+        await client.post('/api/turn', headers=headers, json=data)
+        await finish(app)
+        assert (await client.get('/api/turn/' + data['id'])).json()['status'] == 'ready'
+    rows = [json.loads(line) for line in (tmp_path / 'voice-outbox.jsonl').read_text().splitlines()]
+    assert len(rows) == 1
+    assert rows[0]['route'] == 'big' and rows[0]['mode'] == 'work'
+    assert rows[0]['transcript'] == data['text']
+    assert rows[0]['canonical'] is False and rows[0]['reviewed'] is False
 
 
 async def test_idempotency_and_concurrent_turn_rejection(tmp_path):
