@@ -271,21 +271,75 @@ func TestReportSettlesBetweenPersistAndEnqueue(t *testing.T) {
 	}
 }
 
-// TestReportEnqueueFailureDoesNotStrandRecord: when the wake cannot be queued the caller posts
-// the original, so the persisted record must not stay pending and post it again later.
-func TestReportEnqueueFailureDoesNotStrandRecord(t *testing.T) {
+// TestReportEnqueueFailurePostsNowThenStaysDelivered: when the wake cannot be queued the report
+// is posted immediately, and only that accepted post marks it delivered — later sweeps must not
+// post it again.
+func TestReportEnqueueFailurePostsNowThenStaysDelivered(t *testing.T) {
 	e, p := reportFixture(t)
 	rec := pendingReportForTest("r14")
 	rec.CreatedAt = time.Now().Add(-3 * time.Minute)
-	ok := e.queueReportWake(&TimerJob{ID: rec.JobID}, rec, func(*TimerJob) error {
+	if !e.queueReportWake(&TimerJob{ID: rec.JobID}, rec, func(*TimerJob) error {
 		return errors.New("queue closed")
-	})
-	if ok {
+	}) {
 		t.Fatal("enqueue failure reported success")
 	}
+	if got := p.sentTo("discord:chat1"); len(got) != 1 || !strings.Contains(got[0], "看门修复完成") {
+		t.Fatalf("enqueue failure did not post the report: %#v", got)
+	}
+	e.recoverPendingReports(false)
 	e.recoverPendingReports(true)
-	if got := p.sentTo("discord:chat1"); len(got) != 0 {
-		t.Fatalf("record stranded after enqueue failure: %#v", got)
+	if got := p.sentTo("discord:chat1"); len(got) != 1 {
+		t.Fatalf("report posted twice: %#v", got)
+	}
+}
+
+// TestReportEnqueueAndFallbackFailureRetried is the regression for review 5686795473: the wake
+// cannot be queued and the platform also rejects the immediate post. The record must stay pending
+// (a rejected post is not delivery) and the recovery sweep must send it exactly once.
+func TestReportEnqueueAndFallbackFailureRetried(t *testing.T) {
+	e, p := reportFixture(t)
+	rec := pendingReportForTest("r15")
+	rec.CreatedAt = time.Now().Add(-3 * time.Minute)
+	p.failSends = 1
+	e.queueReportWake(&TimerJob{ID: rec.JobID}, rec, func(*TimerJob) error {
+		return errors.New("queue closed")
+	})
+	e.teamExit.mu.Lock()
+	got := e.teamExit.reports["r15"]
+	delivered, attempts, lastErr, jobID := got.delivered(), got.Attempts, got.LastError, got.JobID
+	e.teamExit.mu.Unlock()
+	if delivered || attempts != 1 || lastErr == "" || jobID != "" {
+		t.Fatalf("rejected post recorded as delivery: delivered=%v attempts=%d err=%q job=%q",
+			delivered, attempts, lastErr, jobID)
+	}
+	if sent := p.sentTo("discord:chat1"); len(sent) != 0 {
+		t.Fatalf("rejected post counted as sent: %#v", sent)
+	}
+	e.recoverPendingReports(true)
+	if sent := p.sentTo("discord:chat1"); len(sent) != 1 || !strings.Contains(sent[0], "看门修复完成") {
+		t.Fatalf("recovery did not retry the report: %#v", sent)
+	}
+	e.recoverPendingReports(true)
+	if sent := p.sentTo("discord:chat1"); len(sent) != 1 {
+		t.Fatalf("report posted twice: %#v", sent)
+	}
+}
+
+// TestReportEnqueueFailureKeepsDedupeForRepeat: until a post is accepted, the same handback
+// arriving again must not queue a second wake or post a second copy.
+func TestReportEnqueueFailureKeepsDedupeForRepeat(t *testing.T) {
+	e, p := reportFixture(t)
+	rec := pendingReportForTest("r16")
+	p.failSends = 1
+	e.queueReportWake(&TimerJob{ID: rec.JobID}, rec, func(*TimerJob) error {
+		return errors.New("queue closed")
+	})
+	if !e.reportSeenRecently("r16") {
+		t.Fatal("a report whose post was rejected must still dedupe a repeated handback")
+	}
+	e.recoverPendingReports(false)
+	if sent := p.sentTo("discord:chat1"); len(sent) != 1 {
+		t.Fatalf("recovery after a repeated handback = %#v, want one post", sent)
 	}
 }
 

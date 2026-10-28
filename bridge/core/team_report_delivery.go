@@ -167,8 +167,12 @@ func (e *Engine) rememberReportErr(rec *pendingReport) (bool, error) {
 
 // queueReportWake persists rec, then queues job. The order is the point: AddJob runs a job
 // whose time has already come, so its turn can settle before a later write; that settle would
-// find no record, and a record written afterwards has no LastError for a retry. A record that
-// cannot be saved, or a job that cannot be queued, makes the caller post the original (false).
+// find no record, and a record written afterwards has no LastError for a retry.
+//
+// A wake that cannot be queued is posted here instead, and only the platform's acceptance marks
+// the record delivered (review 5686795473: marking it delivered before the post was accepted lost
+// the report whenever the fallback was also rejected). false is reserved for a record that could
+// not be persisted at all, where the caller posts the original without a recovery record.
 func (e *Engine) queueReportWake(job *TimerJob, rec *pendingReport, enqueue func(*TimerJob) error) bool {
 	ok, err := e.rememberReportErr(rec)
 	if err != nil {
@@ -180,13 +184,45 @@ func (e *Engine) queueReportWake(job *TimerJob, rec *pendingReport, enqueue func
 		return true // the same handback is already pending or was just delivered
 	}
 	if err := enqueue(job); err != nil {
-		slog.Error("report delivery: queueing the wake failed; caller posts the original",
+		slog.Error("report delivery: queueing the wake failed; posting the report now",
 			"workspace", rec.Workspace, "board_item", rec.Board, "error", err)
-		// The caller posts the same text now; keeping the record pending would post it twice.
+		// No turn can settle a wake that was never queued. A posted headline is already the
+		// report (#623); otherwise post it here and keep the record pending until the platform
+		// accepts it, so a rejected post is still retried by the recovery sweep.
+		if rec.Posted {
+			e.dropDeliveredReport(rec.Key)
+			return true
+		}
+		if derr := e.deliverPendingReport(rec); derr != nil {
+			e.noteReportFailure(rec, derr)
+			return true
+		}
 		e.dropDeliveredReport(rec.Key)
-		return false
+		return true
 	}
 	return true
+}
+
+// noteReportFailure keeps a rejected immediate post as a pending record: not delivered, with the
+// error, and owned by no wake, so the start/periodic recovery retries it.
+func (e *Engine) noteReportFailure(rec *pendingReport, err error) {
+	e.teamExit.mu.Lock()
+	defer e.teamExit.mu.Unlock()
+	cur := e.loadReportsLocked()[rec.Key]
+	if cur == nil || cur.delivered() {
+		cur = rec
+		cur.Attempts = 0
+		e.teamExit.reports[rec.Key] = cur
+	}
+	cur.Attempts++
+	cur.JobID = ""
+	cur.LastError = err.Error()
+	if serr := e.saveReportsLocked(); serr != nil {
+		slog.Error("report delivery: save failed; the rejected post cannot be retried",
+			"workspace", cur.Workspace, "board_item", cur.Board, "error", serr)
+	}
+	slog.Error("report delivery: immediate post failed; record kept for recovery",
+		"workspace", cur.Workspace, "board_item", cur.Board, "attempts", cur.Attempts, "error", err)
 }
 
 // dropDeliveredReport marks a handback as delivered (kept briefly for dedupe).
