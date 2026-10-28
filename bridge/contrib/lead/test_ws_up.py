@@ -287,6 +287,49 @@ class WsPoolTest(unittest.TestCase):
         self.assertEqual((w["owner"], w["open"]), ("test:100", 1))
         self.assertEqual(self.handoff(self.note("c"), "C", chat="test:200"), "test:2")
 
+    def forward(self, notes, text):
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-forward"), "--notes", notes, text], capture_output=True,
+                           text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        argv = [c for c in map(json.loads, Path(str(self.fake) + ".calls").read_text().splitlines())
+                if c[:2] == ["timer", "add"] and "工作区转交" in c][-1]
+        return argv[argv.index("--prompt") + 1]
+
+    def test_forward_lands_in_section_and_wakes_with_text(self):  # 10-28 #696：节后有「## 检查点」时转话落进检查点
+        notes = self.note("x")
+        self.handoff(notes, "X")
+        with open(notes, "a", encoding="utf-8") as fh:
+            fh.write("\n## 转交结果\n- 15:59 接着做\n\n## 检查点\n- 16:00 跑了一半\n")
+        prompt = self.forward(notes, "用户说先别做")
+        text = Path(notes).read_text(encoding="utf-8")
+        sec = text[text.index("## 转交结果"):text.index("## 检查点")]
+        self.assertIn("用户说先别做", sec)
+        self.assertLess(sec.index("接着做"), sec.index("用户说先别做"))
+        self.assertNotIn("用户说先别做", text[text.index("## 检查点"):])
+        self.assertIn("按这条做：用户说先别做", prompt)
+        self.assertNotIn("接着推进", prompt)
+
+    def test_pause_writes_stop_into_section_and_forward_says_stop(self):
+        notes = self.note("x")
+        self.handoff(notes, "X")
+        with open(notes, "a", encoding="utf-8") as fh:
+            fh.write("\n## 转交结果\n- 15:59 接着做\n\n## 检查点\n- 16:00 跑了一半\n")
+        code, out = self.board("pause", "1", "用户说先别做")
+        self.assertEqual(code, 0, out)
+        text = Path(notes).read_text(encoding="utf-8")
+        sec = text[text.index("## 转交结果"):text.index("## 检查点")]
+        self.assertIn("已暂停（#1）：用户说先别做。停手", sec)
+        prompt = self.forward(notes, "再说一遍：别跑评测")
+        self.assertIn("已暂停（#1）：停手，不要再起后台命令", prompt)
+        self.assertIn("原文：再说一遍：别跑评测", prompt)
+
+    def test_forward_creates_section_when_missing(self):
+        notes = self.note("y")
+        self.handoff(notes, "Y")
+        self.forward(notes, "第一条")
+        self.assertTrue(Path(notes).read_text(encoding="utf-8").endswith("\n## 转交结果\n- " + Path(notes).read_text(encoding="utf-8").rsplit("- ", 1)[1]))
+        self.assertIn("第一条", Path(notes).read_text(encoding="utf-8").split("## 转交结果")[1])
+
     def test_manual_item_in_workspace_does_not_park(self):  # 没绑工作区的条目（工作区里手动 add 的）暂停不动桥
         self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
         self.handoff(self.note("x"), "X")
