@@ -37,6 +37,20 @@ class Board(unittest.TestCase):
         self.assertEqual(cli("add", "a", "b", "c", "龙娘"), (0, "#3"))  # 结束过的编号不再用
         self.assertIn('"done_at"', (Path(TMP) / "board-done.jsonl").read_text())
 
+    def test_update_closing_status_ends_item(self):
+        # 用户 2026-10-28「任务榜完成的为什么不下掉」：状态写成收尾词就移出任务板
+        cli("add", "交来的活", "a.md", "已交接", "橘")
+        cli("add", "另一件", "b.md", "已交接", "橘")
+        cli("add", "第三件", "c.md", "已交接", "橘")
+        code, out = cli("update", "1", "已交回：报告写完")
+        self.assertEqual(code, 0)
+        self.assertIn("已结束", out)
+        self.assertEqual(cli("update", "2", "done")[0], 0)
+        self.assertEqual(cli("update", "3", "PR571已合，等新包装上后验")[1], "已更新")  # 不是开头的收尾词不算
+        self.assertEqual([l.split()[0] for l in cli()[1].splitlines()], ["#3"])
+        done = [json.loads(l)["id"] for l in (Path(TMP) / "board-done.jsonl").read_text().splitlines()]
+        self.assertEqual(done, [1, 2])
+
     def test_done_record_status_is_done(self):
         # #597 N3：结束的条目进 board-done.jsonl 时 status 要是「已完成」，不能带着原来的「进行中」
         board.add("写 hello.py", "-", "进行中", "橘")

@@ -1,10 +1,12 @@
 #!/bin/sh
-# 主角色用的自重启：后台等本轮回复发完再重启 cc-connect，避免把自己这轮杀掉。
+# 主角色用的自重启：后台等本轮回复发完再重启桥（bothouse / cc-connect），避免把自己这轮杀掉。
 # 可选固定签名检查由 CC_SIGN_BIN / CC_SIGN_ID 配置。
 # 配置（环境变量）：
-#   CC_LOG           cc-connect 日志（默认 ~/.cc-connect/logs/cc-connect.log），等里面出现 "turn complete" 再重启
+#   CC_LOG           桥日志，等里面出现 "turn complete" 再重启；不设依次用 CC_LOG_FILE（桥给会话导出的）、
+#                    <CC_DATA_DIR 或 ~/.bothouse>/logs/bothouse.log、~/.cc-connect/logs/cc-connect.log 里存在的那个
 #   CC_RESTART_LOG   本脚本的重启记录（默认 CC_LOG 同目录 safe-restart.log）
-#   CC_LAUNCHD_LABEL launchd 服务名（必填，形如 com.<你>.cc-connect）
+#   CC_LAUNCHD_LABEL 可选：自建 launchd 服务名（形如 com.<你>.cc-connect），给了就 launchctl kickstart -k 它；
+#                    不设就用 `<CC_BIN 或 PATH 里的 bothouse> daemon restart`（bothouse daemon install 装的服务）
 #   CC_SIGN_BIN / CC_SIGN_ID  可选：二进制路径和期望的 codesign Identifier；都给了才检查，签名不对就拒绝重启
 #   CC_PRE_RESTART   可选：重启前跑的检查命令，失败只警告
 # 用法：safe-restart "原因" "重启后接着做的事|无" [任务板编号]
@@ -12,9 +14,17 @@
 # 第二个参数：重启后约 2 分钟自动叫醒本会话接着做，免得重启完干等（用户 2026-10-23「为什么看到后续了以后只能搞个定时任务跟踪一下」，起因 12:38 重启后空等 8 分钟）
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
-LOG=${CC_LOG:-$HOME/.cc-connect/logs/cc-connect.log}
+LOG=${CC_LOG:-${CC_LOG_FILE:-}}
+if [ -z "$LOG" ]; then
+  LOG=${CC_DATA_DIR:-$HOME/.bothouse}/logs/bothouse.log
+  [ -f "$LOG" ] || LOG=$HOME/.cc-connect/logs/cc-connect.log
+fi
 OUT=${CC_RESTART_LOG:-$(dirname "$LOG")/safe-restart.log}
-LABEL=${CC_LAUNCHD_LABEL:?先设 CC_LAUNCHD_LABEL=<launchd 服务名，形如 com.<你>.cc-connect>}
+LABEL=${CC_LAUNCHD_LABEL:-}
+cc=${CC_BIN:-$(command -v bothouse || command -v cc-connect || echo cc-connect)}
+if [ -z "$LABEL" ] && ! "$cc" daemon --help >/dev/null 2>&1; then
+  echo "没设 CC_LAUNCHD_LABEL，$cc 也没有 daemon restart；设 CC_LAUNCHD_LABEL 或 CC_BIN" >&2; exit 1
+fi
 reason=${1:-未写原因}
 next=${2:-}
 [ -n "$next" ] || { echo "要写第二个参数：重启后接着做什么（没有就写「无」）" >&2; exit 1; }
@@ -36,13 +46,17 @@ if [ -n "$next" ]; then
     "$here/later" "$nid" 2m "$wake" >/dev/null || echo "⚠️ 重启后叫醒没挂上，重启完要自己接着做" >&2
   else
     sk=${CC_SESSION_KEY:-${CC_SESSION:-}}
-    cc=${CC_BIN:-$(command -v bothouse || command -v cc-connect || echo cc-connect)}
     { [ -n "${CC_PROJECT:-}" ] && [ -n "$sk" ] && "$cc" timer add -p "$CC_PROJECT" -s "$sk" --delay 2m --desc "重启后接着做" --prompt "$wake" >/dev/null; } \
       || echo "⚠️ 重启后叫醒没挂上，重启完要自己接着做" >&2
     echo "（没给任务板编号，重启叫醒不上任务板；要上板写第三个参数：safe-restart 原因 接着做 <编号>）" >&2
   fi
 fi
-nohup sh -c '
+# 脱离调用者的进程组：桥停时会按进程组杀会话里的子进程，重启脚本跟着死就没人把桥拉起来
+if command -v setsid >/dev/null 2>&1; then det=setsid
+elif command -v perl >/dev/null 2>&1; then det="perl -MPOSIX -e POSIX::setsid();exec(@ARGV)or(die)"
+else det=; fi
+# shellcheck disable=SC2086
+nohup $det sh -c '
   i=0
   while [ "$i" -lt 60 ]; do
     sleep 5
@@ -51,6 +65,6 @@ nohup sh -c '
   done
   sleep 3
   echo "$(date "+%Y-%m-%d %H:%M:%S") 重启：$3" >> "$4"
-  launchctl kickstart -k "gui/$(id -u)/$5"
-' _ "$start" "$LOG" "$reason" "$OUT" "$LABEL" >/dev/null 2>&1 &
-echo "已安排：本轮回复发出后约 10 秒重启 cc-connect（最多等 5 分钟）。原因：$reason"
+  if [ -n "$5" ]; then launchctl kickstart -k "gui/$(id -u)/$5"; else "$6" daemon restart; fi >> "$4" 2>&1
+' _ "$start" "$LOG" "$reason" "$OUT" "$LABEL" "$cc" >/dev/null 2>&1 &
+echo "已安排：本轮回复发出后约 10 秒重启桥（最多等 5 分钟）。原因：$reason"
