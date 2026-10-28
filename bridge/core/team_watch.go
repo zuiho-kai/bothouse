@@ -4,7 +4,7 @@ package core
 // workspace records a check time (TeamHandoff.Due = claim + watchCheckAfter). At the check time
 // a handoff still in work either shows progress (renewed by watchCheckAfter, silently,
 // while it shows real progress; watchMaxRenew 0 = no cap) or is nudged once in the workspace
-// channel and parked (ParkTeamWorkspaceFor, the same path as `bothouse workspace park`). A
+// channel. A second quiet check parks it (ParkTeamWorkspaceFor, as workspace park does). A
 // renewal justified only by a session still being busy is capped at watchBusyMaxRenew, so a
 // stuck turn cannot hold the workspace forever (PR #430 review P1). Same rule as the DSH
 // gateway's task watch (dsh/collab/tasks.mjs CHECK_AFTER_S, MAX_RENEWALS) and the lead's
@@ -340,6 +340,7 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 				x.Renewed++
 				x.ReadFails = 0
 				x.Since = time.Time{}
+				x.Nudged = false
 				if progressed == watchProgressBusy {
 					x.BusyRenewed++
 				} else {
@@ -357,11 +358,16 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		}
 	}
 
-	// No progress (or renewals used up): nudge once in the workspace channel, then park. Nudged
+	// No progress (or renewals used up): nudge, then allow one check window to respond. Nudged
 	// is saved before the send: a task handed back meanwhile gets no nudge, and a crash between
 	// the two loses at most that one nudge, never sends it twice.
 	if !h.Nudged {
-		ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) { x.Nudged = true })
+		due := now.Add(watchCheckAfter())
+		ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) {
+			x.Nudged = true
+			x.Due = due
+			x.Since = now
+		})
 		switch {
 		case err != nil:
 			slog.Warn("team watch: save nudge failed; parking without it", "workspace", key, "error", err)
@@ -369,8 +375,9 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 			return time.Time{} // handed back, closed or parked meanwhile
 		default:
 			if err := w.send(p, key, watchNudgeText(plat, h)); err != nil {
-				slog.Warn("team watch: nudge failed; parking anyway", "workspace", key, "error", err)
+				slog.Warn("team watch: nudge failed; preserving the response window", "workspace", key, "error", err)
 			}
+			return due
 		}
 	}
 	freed, err := w.park(key, h.Chat, h.At)

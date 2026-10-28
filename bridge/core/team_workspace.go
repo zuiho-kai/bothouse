@@ -1171,7 +1171,17 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 	if taskOwner != "" {
 		plat, _, _ := strings.Cut(chat, ":")
 		for _, x := range e.watchEngines() {
-			if p := x.lookupReadyPlatform(plat); p != nil && x.watchOwns(p, taskOwner) {
+			p := x.lookupReadyPlatform(plat)
+			if taskOwner == x.name || taskOwner == x.DisplayName() {
+				m, ok := p.(SelfMentioner)
+				if !ok || watchOwnerID(m.SelfMention()) == "" {
+					return fmt.Errorf("team workspace claim: owner %q has no ready platform identity; pass its platform user ID", taskOwner)
+				}
+				taskOwner = watchOwnerID(m.SelfMention())
+				worker = x
+				break
+			}
+			if p != nil && x.watchOwns(p, taskOwner) {
 				worker = x
 				break
 			}
