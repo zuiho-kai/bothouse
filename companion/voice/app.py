@@ -92,6 +92,8 @@ class VoiceService:
         if settings.modes_enabled:
             pack = (MemoryPack(Path(settings.memory_pack_path).expanduser(), settings.memory_pack_ttl_s)
                     if settings.memory_pack_path else None)
+            if pack is not None:
+                pack.refresh()  # 启动时先读一次，首轮不再走文件 I/O
             self.outbox = VoiceOutbox(settings.voice_outbox_dir or settings.data_dir)
             self.fast_brain = FastBrain(
                 build_provider(settings), pack, self.outbox,
