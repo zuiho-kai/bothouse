@@ -108,7 +108,7 @@ def timer_cmd(chat: str, text: str, ask: bool, notes: str, proj: str, task: str 
                   f"和你自己核实过的分开说；用户有回话要转给工作区时用 {fwd} \"<回话>\"")
     # --delay 1s：timer 只收正数延迟，上报不用多等
     return [cc_bin(), "timer", "add", "-p", proj, "-s", chat, "--delay", "1s", "--timeout-mins", "0",
-            "--inject-if-busy", "--desc", "工作区提问" if ask else "工作区上报", "--prompt", prompt]
+            "--inject-if-busy", "--silent", "--desc", "工作区提问" if ask else "工作区上报", "--prompt", prompt]
 
 
 def say(session_key: str, text: str, proj: str):
