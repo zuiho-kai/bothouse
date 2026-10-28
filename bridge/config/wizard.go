@@ -245,11 +245,12 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 			at = "claudecode"
 		}
 		p = map[string]any{"name": o.Name, "agent": map[string]any{"type": at, "options": map[string]any{}},
-			// A new bot's reply footer leaves out the owner's subscription quota ("5h 剩 65% · 周 36%")
-			// and this machine's work_dir path: the footer goes to the whole group. Both can be turned
-			// back on per project. Existing projects are not touched.
-			// 来源：2026-10-21 rc5 Linux 实测隐私条（开源前必须）：向导配出来的默认不把额度和本机路径发进群，已有配置不变。
-			"show_quota_indicator": false, "show_workdir_indicator": false}
+			// A new bot's reply footer shows the subscription quota ("5h 剩 65% · 周 36%") but leaves out
+			// this machine's work_dir path: the footer goes to the whole group. Both can be changed per
+			// project. Existing projects are not touched.
+			// 来源：2026-10-21 rc5 Linux 实测隐私条：默认不把本机路径发进群；2026-10-28 额度改为默认显示
+			// （首次运行新建配置时，已有机器人作为新项目加入，页脚额度全被关掉）。
+			"show_workdir_indicator": false}
 		projects = append(projects, p)
 	}
 	doc["projects"] = projects
