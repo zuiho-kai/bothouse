@@ -2679,6 +2679,71 @@ func TestCUJ_H4_FeishuTopicsKeepWorkspaceBindingsIsolated(t *testing.T) {
 	}
 }
 
+// A platform without task cards still returns ordinary replies and keeps
+// queryable task records. Starting work, following up and chatting all enter
+// through the same ReceiveMessage path used by platform adapters.
+func TestCUJ_Progress4_JournalOnlyRepliesAndQueries(t *testing.T) {
+	dir := t.TempDir()
+	api, e, a, _, session := inputFixture(t)
+	p := &stubPlatformEngine{n: "discord"}
+	e.platforms = []Platform{p}
+	e.workspaceChatForTest = func(string) bool { return false }
+	e.SetDataDir(dir)
+	e.SetDisplayConfig(DisplayCfg{ThinkingMessages: false, ToolMessages: false})
+	if err := e.EnablePublicProgress(); err != nil {
+		t.Fatal(err)
+	}
+	send := func(id, content string) string {
+		e.ReceiveMessage(p, &Message{SessionKey: inputTestKey, Platform: p.Name(), MessageID: id, UserID: "human", Content: content, Mentioned: true, ReplyCtx: "local"})
+		return inputPrompt(t, a)
+	}
+	first := progressToken(t, send("journal-start", "prepare a draft"))
+	req := PublicProgressRequest{Project: e.name, SessionKey: inputTestKey, Run: first, Seq: 1, Kind: "start", Title: "draft", Summary: "working"}
+	id, err := e.publicProgress.Report(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Seq, req.Kind, req.Summary = 2, "result", "draft is ready, awaiting your review"
+	if _, err := e.publicProgress.Report(req); err != nil {
+		t.Fatal(err)
+	}
+	inputDone(a, "Here is the draft; it has not been accepted yet.")
+	inputWait(t, func() bool { return !session.Busy() })
+
+	second := progressToken(t, send("journal-follow-up", "revise the same draft"))
+	if first == second {
+		t.Fatal("follow-up reused the previous turn grant")
+	}
+	req.Run, req.TaskID, req.Seq, req.Kind, req.Summary = second, id, 3, "update", "revising the same draft"
+	if continued, err := e.publicProgress.Report(req); err != nil || continued != id {
+		t.Fatalf("follow-up lost task identity: %s %v", continued, err)
+	}
+	inputDone(a, "Here is the revised draft, still awaiting your review.")
+	inputWait(t, func() bool { return !session.Busy() })
+
+	send("journal-chat", "thank you")
+	inputDone(a, "You are welcome.")
+	inputWait(t, func() bool { return !session.Busy() })
+	e.publicProgress.Flush(context.Background())
+	visible := strings.Join(p.getSent(), "\n")
+	for _, want := range []string{"Here is the draft", "Here is the revised draft", "You are welcome"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("missing normal reply %q: %s", want, visible)
+		}
+	}
+	if strings.Contains(visible, first) || strings.Contains(visible, second) {
+		t.Fatal("journal mode leaked a grant")
+	}
+	w := httptest.NewRecorder()
+	api.handleTask(w, httptest.NewRequest(http.MethodGet, "/task?project="+e.name+"&session="+inputTestKey, nil))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), id) || strings.Contains(w.Body.String(), string(FactStageVerified)) {
+		t.Fatalf("task query lost the unaccepted result: %d %s", w.Code, w.Body.String())
+	}
+	if got := e.publicProgress.Tasks(inputTestKey, 10); len(got) != 1 {
+		t.Fatalf("follow-up or casual chat created extra tasks: %d", len(got))
+	}
+}
+
 func TestCUJ_Progress1_QuietQueueAndFailure(t *testing.T) {
 	_, e, a, _, s := inputFixture(t)
 	p := newProgressPlatform()
@@ -2778,7 +2843,6 @@ func TestCUJ_Progress3_ContinueAndAcceptSameCard(t *testing.T) {
 		t.Fatal(text)
 	}
 	first := p.task(id)
-	boardID := boards[inputTestKey].MessageID
 
 	prompt := send("two", "继续调整同一个绑定")
 	if !strings.Contains(prompt, id) || !strings.Contains(prompt, "--seq 3 --kind update") {
@@ -2815,8 +2879,8 @@ func TestCUJ_Progress3_ContinueAndAcceptSameCard(t *testing.T) {
 	p.pm.Lock()
 	defer p.pm.Unlock()
 	last := card.Events[len(card.Events)-1]
-	if len(p.snapshots) != 1 || p.facts[last.ID].Kind != TaskEventCompleted || boards[inputTestKey].MessageID != boardID {
-		t.Fatal("card, acceptance fact, or board identity lost")
+	if len(p.snapshots) != 1 || p.facts[last.ID].Kind != TaskEventCompleted || boards[inputTestKey] != nil {
+		t.Fatal("card, acceptance fact, or empty-board cleanup lost")
 	}
 }
 

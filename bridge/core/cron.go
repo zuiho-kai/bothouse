@@ -26,7 +26,8 @@ type CronJob struct {
 	SessionKey  string    `json:"session_key"`
 	CronExpr    string    `json:"cron_expr"`
 	Prompt      string    `json:"prompt"`
-	Exec        string    `json:"exec,omitempty"`     // shell command; mutually exclusive with Prompt
+	Exec        string    `json:"exec,omitempty"`     // shell command; mutually exclusive with Prompt unless Poll
+	Poll        bool      `json:"poll,omitempty"`     // Exec is a check script: empty stdout = no change, otherwise wake the agent with Prompt + output (cron_poll.go)
 	WorkDir     string    `json:"work_dir,omitempty"` // working directory for exec; empty = agent work_dir
 	Description string    `json:"description"`
 	Enabled     bool      `json:"enabled"`

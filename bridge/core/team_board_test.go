@@ -38,6 +38,17 @@ func (p *stubBoardPlatform) UpsertBoard(_ context.Context, sessionKey, messageID
 	return messageID, nil
 }
 
+// RemoveBoard mirrors a real platform deleting the board message: an empty
+// board is gone, so a later test read must not see the old content.
+func (p *stubBoardPlatform) RemoveBoard(_ context.Context, sessionKey, _ string) error {
+	if p.fail {
+		return errors.New("boom")
+	}
+	delete(p.content, sessionKey)
+	delete(p.live, sessionKey)
+	return nil
+}
+
 func boardFiles(now time.Time) []teamFile {
 	return []teamFile{
 		{Project: "a", Name: "G哥", Updated: now, Sessions: []teamEntry{
@@ -147,31 +158,27 @@ func TestUpdateTeamBoards(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}
 	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
 	allChatsAreWorkspaces(e)
+	dir := t.TempDir()
+	e.team = &teamState{dir: dir, board: true}
 	now := time.Now()
+	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":7,"what":"修登录","status":"在做","who":"G哥","at":"10-26 03:00","sk":"discord:111"}`+"\n")
 	boards := map[string]*boardChat{}
 
 	if !e.updateTeamBoards(boardFiles(now), boards) {
-		t.Fatal("first update should post boards")
+		t.Fatal("a task-board item must post its workspace board")
 	}
-	// Work happened in #general (G哥, C酱) and #dev (大豆包); Grok's chat reply opens nothing.
-	if len(boards) != 2 || boards["discord:111"] == nil || boards["discord:222"] == nil {
-		t.Fatalf("boards = %v", boards)
-	}
-	if p.posts != 2 {
-		t.Fatalf("posts = %d, want 2", p.posts)
+	if len(boards) != 1 || boards["discord:111"] == nil || p.posts != 1 {
+		t.Fatalf("boards = %v, posts = %d", boards, p.posts)
 	}
 
-	if e.updateTeamBoards(boardFiles(now), boards) || p.posts != 2 {
-		t.Fatal("unchanged state must not edit the boards")
+	if e.updateTeamBoards(boardFiles(now), boards) || p.posts != 1 {
+		t.Fatal("unchanged state must not edit the board")
 	}
 
-	// Everyone goes idle: boards stay and are edited to show it.
+	// Bot busy/idle no longer edits the board (no 谁在干啥 lines).
 	idle := []teamFile{{Project: "a", Name: "G哥", Updated: now}}
-	if !e.updateTeamBoards(idle, boards) || p.posts != 4 {
-		t.Fatalf("idle update: posts = %d, want 4", p.posts)
-	}
-	if got := boards["discord:111"].Content; !strings.Contains(got, "💤 空闲") {
-		t.Fatalf("idle board = %q", got)
+	if e.updateTeamBoards(idle, boards) || p.posts != 1 {
+		t.Fatalf("idle update edited the board: posts = %d", p.posts)
 	}
 	if boards["discord:111"].MessageID != "m-discord:111" {
 		t.Fatalf("board message id = %q", boards["discord:111"].MessageID)
@@ -182,6 +189,9 @@ func TestUpdateTeamBoardsKeepsStateOnFailure(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}, fail: true}
 	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
 	allChatsAreWorkspaces(e)
+	dir := t.TempDir()
+	e.team = &teamState{dir: dir, board: true}
+	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":7,"what":"修登录","status":"在做","who":"G哥","at":"10-26 03:00","sk":"discord:111"}`+"\n")
 	boards := map[string]*boardChat{}
 	if e.updateTeamBoards(boardFiles(time.Now()), boards) {
 		t.Fatal("failed posts must not count as changes")
@@ -420,6 +430,9 @@ func TestTeamBoardEditGivesUp(t *testing.T) {
 				failFor: "discord:111", editErr: tc.editErr}
 			e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
 			allChatsAreWorkspaces(e)
+			dir := t.TempDir()
+			e.team = &teamState{dir: dir, board: true}
+			writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":7,"what":"修登录","status":"在做","who":"G哥","at":"10-26 03:00","sk":"discord:111"}`+"\n")
 			boards := map[string]*boardChat{"discord:111": {SessionKey: "discord:111", MessageID: tc.messageID, Content: "old"}}
 			before := time.Now().Add(-time.Minute)
 			logs, restore := captureSlog(t)
@@ -496,6 +509,8 @@ func TestTeamBoardGaveUpSurvivesRestart(t *testing.T) {
 	allChatsAreWorkspaces(e)
 	dir := t.TempDir()
 	e.team = &teamState{dir: dir, board: true, inject: true}
+	// An open item keeps the board non-empty, so a retry attempts the edit.
+	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":7,"what":"修登录","status":"在做","who":"G哥","at":"10-26 03:00","sk":"discord:111"}`+"\n")
 	gaveUp := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
 	statePath := filepath.Join(dir, "lead"+teamBoardFileExt)
 	state := fmt.Sprintf(`{"discord:111":{"session_key":"discord:111","message_id":"m1","content":"old","gave_up_at":%q}}`, gaveUp.Format(time.RFC3339))

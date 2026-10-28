@@ -22,11 +22,11 @@ import (
 // forwarded [ask] goes back to the workspace and its asking bot; [report] is
 // forward-only.
 //
-// The forwarded copy starts with 📬, a prefix every bot drops as a notice
-// (platform/discord isBotNotice), and carries no user mentions, so the post itself
-// wakes no bot in the chat channel. The chat channel's lead gets the content as an
-// in-process turn instead (wakeChatLead, team_auto_return.go), so it can tell the user;
-// other bots still ignore it, and the lead's reply stays in the chat channel.
+// The chat channel's lead gets the content as an in-process turn (wakeChatLead,
+// team_auto_return.go) and tells the user in its own words; nothing is posted there
+// verbatim. Only when no lead can take it is the original copied into the chat channel,
+// starting with 📬, a prefix every bot drops as a notice (platform/discord isBotNotice),
+// with no user mentions, so the post itself wakes no bot.
 
 // WorkspaceParentResolver tells whether a channel is a workspace and which
 // chat channel it belongs to. NewEngine installs the engine itself (block D's
@@ -184,6 +184,11 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		return ""
 	}
 	ws := sessionChannel(sessionKey)
+	if id, stopped := e.workspaceTaskStopped(sessionKey); stopped {
+		slog.Info("team exit: the task was stopped by the user; the answer stays in the workspace",
+			"kind", kind, "workspace", ws, "board_item", id)
+		return ""
+	}
 	parent, ok := e.workspaceParent(teamChatKey(sessionKey))
 	if !ok {
 		parent, ok = e.workspaceParent(ws)
@@ -211,6 +216,13 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		return ""
 	}
 	bot := e.exitBotName()
+	// The chat channel's lead reads the reply first and tells the user what matters (user
+	// 2026-10-28 「原文返回…一坨屎给我…你的身份应该是我的秘书，那些东西你再帮我过滤一遍」). The
+	// workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
+	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey) {
+		slog.Info("team exit: handed to the chat lead", "kind", kind, "auto", auto, "workspace", ws, "parent", parent)
+		return ""
+	}
 	from := "来自工作区 " + channelLabel(p.Name(), ws) + " 的「" + bot + "」"
 	id := ""
 	var header, cont string
@@ -237,14 +249,46 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		sent = append(sent, text)
 	}
 	slog.Info("team exit: forwarded", "kind", kind, "auto", auto, "workspace", ws, "parent", parent, "chunks", len(sent))
-	if len(sent) > 0 {
-		e.wakeChatLead(p, parent, ws, bot, kind, body)
-	}
 	if id == "" || len(sent) == 0 {
 		return ""
 	}
 	e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Bot: bot, Forwarded: sent, At: time.Now()})
 	return id
+}
+
+// workspaceTaskStopped: the workspace's task was stopped by the user (board pause), so its
+// [ask]/[report] is not forwarded (user 2026-10-28 「我都说不做了，你还问我」: a turn already
+// running when the task was paused still sent an [ask]). Stopped means no handoff is in work
+// there and the board item last bound to it is paused for a reason other than waiting on the
+// user (ws-up --ask pauses its own item with 「等待用户答复」; that [ask] still goes out).
+func (e *Engine) workspaceTaskStopped(sessionKey string) (int, bool) {
+	if e.workspaceHasOpenHandoff(sessionKey) {
+		return 0, false
+	}
+	dir := e.teamStatusDir()
+	if dir == "" {
+		return 0, false
+	}
+	key := teamChatKey(sessionKey)
+	var last *teamTaskBoardItem
+	items := readTeamTaskBoard(dir)
+	for i := range items {
+		it := &items[i]
+		w := it.WS
+		if w == "" {
+			w = it.WSWas
+		}
+		if w == "" || teamChatKey(w) != key {
+			continue
+		}
+		if last == nil || it.Bound > last.Bound {
+			last = it
+		}
+	}
+	if last == nil || last.Paused == "" || teamTaskBoardWaitUser.MatchString(last.PauseWhy) {
+		return 0, false
+	}
+	return last.ID, true
 }
 
 var askRef = regexp.MustCompile(`\bask-[0-9a-f]{8}\b`)

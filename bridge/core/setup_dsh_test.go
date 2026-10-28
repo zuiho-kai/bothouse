@@ -45,11 +45,19 @@ func TestDSHLogin(t *testing.T) {
 	if dshLogin(h) != "not_logged_in" {
 		t.Fatal("DSH_HOME must be the home that is looked at")
 	}
-	if err := os.WriteFile(filepath.Join(other, ".credentials.yaml"), []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
+	// the web UI's own browser session is no model login (the 2026-10-28 鲸鱼娘 setup: "no API key" every turn)
+	cred := filepath.Join(other, ".credentials.yaml")
+	_ = os.WriteFile(cred, []byte("version: 1\nrecords:\n  client-connection/browser-session:\n    kind: grant\n    payload: {version: 1, secret: s}\n"), 0o600)
+	if dshLogin(h) != "not_logged_in" {
+		t.Fatal("a browser session alone must not count")
 	}
+	_ = os.WriteFile(cred, []byte("version: 1\nrecords:\n  deepseek-account-platform/default:\n    kind: grant\n    payload: {}\n"), 0o600)
 	if dshLogin(h) != "logged_in" {
 		t.Fatal("an account login counts")
+	}
+	_ = os.WriteFile(cred, []byte("version: 1\nrefs:\n  DEEPSEEK_API_KEY: sk-x\n"), 0o600)
+	if dshLogin(h) != "logged_in" {
+		t.Fatal("a key stored by the Models page counts")
 	}
 }
 
@@ -59,7 +67,10 @@ func TestVendorServesDSH(t *testing.T) {
 			t.Errorf("%s has an Anthropic endpoint: DSH must take it", v)
 		}
 	}
-	for _, v := range []string{"local", "custom", "nope"} {
+	if !VendorServes("custom", "dsh") {
+		t.Error("a relay (custom base_url) must be offered for DSH")
+	}
+	for _, v := range []string{"local", "nope"} {
 		if VendorServes(v, "dsh") {
 			t.Errorf("%s must not be offered for DSH", v)
 		}
@@ -181,14 +192,14 @@ func TestApplyWizardDSHRole(t *testing.T) {
 	if i := strings.Index(pt, dshPatchBegin); i >= 0 {
 		pt = pt[:i] // the provider part; the bridge block is checked below
 	}
-	for _, want := range []string{`baseURL: "https://api.deepseek.com/anthropic"`, "apiKeyEnv: " + DSHKeyEnv, `- id: "deepseek-chat"`, "- id: acp",
+	for _, want := range []string{`baseURL: "https://api.deepseek.com/anthropic"`, "apiKeyEnv: " + DSHKeyEnv, `- id: "deepseek-chat"`, "inputModalities: [text, image]", "- id: acp",
 		"- id: attachment-local\n  config:\n    maxImageDimension: 65535\n"} {
 		if !strings.Contains(pt, want) {
 			t.Errorf("patch lacks %q:\n%s", want, pt)
 		}
 	}
 	// only what the plug-in needs: DSH's own defaults are not touched (compression, telemetry, prompt, sandbox, …)
-	for _, no := range []string{"sk-test", "compression", "session-log", "system-prompt", "sandbox", "permission", "time-context", "tool-web", "inputModalities"} {
+	for _, no := range []string{"sk-test", "compression", "session-log", "system-prompt", "sandbox", "permission", "time-context", "tool-web"} {
 		if strings.Contains(pt, no) {
 			t.Errorf("patch must not contain %q:\n%s", no, pt)
 		}
@@ -233,16 +244,31 @@ func TestApplyWizardDSHOwnSetupAndFailures(t *testing.T) {
 	fakeDiscord(t, map[string]string{fakeToken("333"): "Whale"})
 	dsh, _, _ := fakeDSH(t)
 	t.Setenv("DSH_HOME", t.TempDir())
+	t.Setenv("DEEPSEEK_API_KEY", "")
 	oldNpm := npmInstall
 	npmInstall = func(context.Context, string, string) error { return errors.New("npm not found") }
 	t.Cleanup(func() { npmInstall = oldNpm })
 	clis := []LocalCLI{{AgentType: "dsh", Path: dsh, Supported: true, Login: "logged_in"}}
 
-	// no third-party API: the user's own DSH setup, no key; the overlay is there (for the bridge) but sets no model
+	// no third-party API and no key anywhere DSH looks: refused before anything is written
 	dshHome := os.Getenv("DSH_HOME")
 	data := t.TempDir()
+	res := ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: data, CLIs: clis}, dshWizardReq(nil))
+	if res.Saved || !strings.Contains(res.Error, "DEEPSEEK_API_KEY") || fileExists(DSHPatchPath(data, "whale")) {
+		t.Fatalf("no key: %+v", res)
+	}
+	// a third-party API without its key: refused too
+	res = ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: data, CLIs: clis},
+		dshWizardReq(&WizardProvider{Vendor: "deepseek"}))
+	if res.Saved || !strings.Contains(res.Error, "api_key") || fileExists(DSHPatchPath(data, "whale")) {
+		t.Fatalf("provider without key: %+v", res)
+	}
+
+	// the user's own DSH setup with the key stored by DSH's Models page; the overlay is there (for the bridge)
+	// but sets no model (none in DSH_HOME)
+	_ = os.WriteFile(filepath.Join(dshHome, ".credentials.yaml"), []byte("version: 1\nrefs:\n  DEEPSEEK_API_KEY: sk-x\n"), 0o600)
 	store := newMemStore()
-	res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: clis}, dshWizardReq(nil))
+	res = ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: clis}, dshWizardReq(nil))
 	if !res.Saved {
 		t.Fatalf("apply: %+v", res)
 	}
@@ -251,7 +277,7 @@ func TestApplyWizardDSHOwnSetupAndFailures(t *testing.T) {
 	if !slices.Contains(p.AgentArgs, "--patch") || p.AgentEnv[DSHKeyEnv] != "" || strings.Contains(string(ov), "llm-deepseek") {
 		t.Fatalf("own setup: %+v overlay %q", p, ov)
 	}
-	if ents, _ := os.ReadDir(dshHome); len(ents) != 0 {
+	if ents, _ := os.ReadDir(dshHome); len(ents) != 1 {
 		t.Fatalf("DSH_HOME was written: %v", ents)
 	}
 	// the bridge could not be installed: the hooks step fails, the role is still made
@@ -264,12 +290,11 @@ func TestApplyWizardDSHOwnSetupAndFailures(t *testing.T) {
 		t.Fatal("role persona missing")
 	}
 
-	// a vendor with no Anthropic endpoint is refused
-	for _, v := range []string{"local", "custom"} {
-		res := ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: t.TempDir(), CLIs: clis},
-			dshWizardReq(&WizardProvider{Vendor: v, BaseURL: "http://127.0.0.1:1/v1", Model: "m"}))
-		if res.Saved || !strings.Contains(res.Error, "Anthropic") {
-			t.Fatalf("%s: %+v", v, res)
+	// a vendor with no Anthropic endpoint is refused; a custom relay needs its base_url
+	for _, p := range []WizardProvider{{Vendor: "local", BaseURL: "http://127.0.0.1:1/v1", APIKey: "k", Model: "m"}, {Vendor: "custom", APIKey: "k", Model: "m"}} {
+		res := ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: t.TempDir(), CLIs: clis}, dshWizardReq(&p))
+		if res.Saved || !strings.Contains(res.Error, "base_url") && !strings.Contains(res.Error, "Anthropic") {
+			t.Fatalf("%s: %+v", p.Vendor, res)
 		}
 	}
 

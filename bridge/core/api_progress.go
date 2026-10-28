@@ -178,3 +178,68 @@ func (s *APIServer) handleTaskAccept(w http.ResponseWriter, r *http.Request) {
 	}
 	apiJSON(w, 200, map[string]any{"task": task, "status": "accepted"})
 }
+
+// handleTaskArtifact records one artifact reference on an existing task. The
+// response says "recorded", never "delivered": no card or message is created
+// by this call, so a caller cannot mistake it for a delivery receipt.
+func (s *APIServer) handleTaskArtifact(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var req TaskArtifactRequest
+	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
+	d.DisallowUnknownFields()
+	if err := d.Decode(&req); err != nil {
+		inputHTTPError(w, 400, errors.New("invalid artifact request"))
+		return
+	}
+	if err := d.Decode(new(any)); err != io.EOF {
+		inputHTTPError(w, 400, errors.New("expected one request"))
+		return
+	}
+	progress := s.progressFor(req.Project)
+	if progress == nil {
+		inputHTTPError(w, 409, errors.New("public progress unavailable"))
+		return
+	}
+	artifact, err := progress.AttachArtifact(req)
+	if err != nil {
+		inputHTTPError(w, 409, err)
+		return
+	}
+	apiJSON(w, 200, map[string]any{"artifact": artifact, "status": "recorded"})
+}
+
+// handleTaskRework records a change request against one artifact revision and
+// reopens the task. It does not execute the change or mark it accepted.
+func (s *APIServer) handleTaskRework(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var req TaskReworkRequest
+	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
+	d.DisallowUnknownFields()
+	if err := d.Decode(&req); err != nil {
+		inputHTTPError(w, 400, errors.New("invalid rework request"))
+		return
+	}
+	if err := d.Decode(new(any)); err != io.EOF {
+		inputHTTPError(w, 400, errors.New("expected one request"))
+		return
+	}
+	progress := s.progressFor(req.Project)
+	if progress == nil {
+		inputHTTPError(w, 409, errors.New("public progress unavailable"))
+		return
+	}
+	result, err := progress.Rework(req)
+	if err != nil {
+		inputHTTPError(w, 409, err)
+		return
+	}
+	// Task is the current snapshot; receipt names the caller's own operation,
+	// which may be older than the current revision after a delayed retry.
+	apiJSON(w, 200, map[string]any{"task": result.Task, "receipt": result.Receipt, "status": "rework_recorded"})
+}

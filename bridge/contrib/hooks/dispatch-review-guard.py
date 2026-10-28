@@ -82,6 +82,45 @@ def doc_tagged(session, path):
         return False
 
 
+SMALL_EDIT_LINES = 10
+
+
+def _data_dir():
+    return os.path.expanduser(os.environ.get("BOTHOUSE_DATA_DIR") or os.environ.get("GATE_SETUP_DIR")
+                              or os.path.join(HOME, ".bothouse"))
+
+
+def in_workspace():
+    """工作区就是干活的地方：工作区会话直接改代码，不再开子任务、不再问授权。
+    作者 2026-10-28「复杂长程任务，就交回给那个工作区啊……这种我不都已经授权过了吗？为什么还要…问我」。
+    工作区：bothouse 记在 <数据目录>/team_workspaces.json 里的频道（parents 的工作区或 handoffs 的键）。"""
+    chan = os.environ.get("CC_SESSION_KEY", "").split(":")[-1]
+    if len(os.environ.get("CC_SESSION_KEY", "").split(":")) >= 3:
+        chan = os.environ["CC_SESSION_KEY"].split(":")[1]
+    if not chan:
+        return False
+    try:
+        st = json.load(open(os.path.join(_data_dir(), "team_workspaces.json"), encoding="utf-8"))
+    except Exception:
+        return False
+    ids = {w.get("id") for ws in (st.get("parents") or {}).values() for w in (ws or []) if isinstance(w, dict)}
+    ids |= {k.split(":")[1] if ":" in k else k for k in (st.get("handoffs") or {})}
+    return chan in ids
+
+
+def small_edit(tool, inp):
+    """聊天频道主会话：几行的小改直接改（作者同日「主命令如果简单的话，就直接可以直接改」）。"""
+    if tool == "Edit":
+        edits = [inp]
+    elif tool == "MultiEdit":
+        edits = inp.get("edits") or []
+    else:
+        return False
+    n = sum(max(len((e.get("old_string") or "").splitlines()), len((e.get("new_string") or "").splitlines()))
+            * (len(edits) if e.get("replace_all") else 1) for e in edits)
+    return 0 < n <= SMALL_EDIT_LINES
+
+
 def main():
     try:
         d = json.load(sys.stdin)
@@ -94,9 +133,11 @@ def main():
     elif tool in ("Edit", "Write", "MultiEdit", "NotebookEdit") and not d.get("agent_id"):
         p = os.path.realpath(os.path.expanduser(inp.get("file_path") or inp.get("notebook_path") or ""))
         if p and not any(p == x or p.startswith(os.path.realpath(x) + os.sep) for x in FREE_DIRS) \
-                and not doc_tagged(d.get("session_id"), p):
-            deny(f"主会话不直接改代码（人设里的 hook 规则「分工」）：{p}。派给 subagent，派活前先审"
-                 f"（小改动在派活 prompt 开头写【免审:小改动】）；若是文档，先跑 `python3 {HERE}/doc-ok.py <文件>` 登记。")
+                and not doc_tagged(d.get("session_id"), p) \
+                and not in_workspace() and not small_edit(tool, inp):
+            deny(f"聊天频道主会话只直接改 {SMALL_EDIT_LINES} 行以内的小改（人设里的 hook 规则「分工」）：{p}。"
+                 f"大改交工作区（ws-handoff），工作区里直接改；或派给 subagent（小改动在派活 prompt 开头写【免审:小改动】）；"
+                 f"若是文档，先跑 `python3 {HERE}/doc-ok.py <文件>` 登记。")
 
 
 if __name__ == "__main__":

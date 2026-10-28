@@ -431,12 +431,16 @@ export default function SetupWizard() {
   };
 
   // ── step validity ──
+  const dshNoLogin = clis?.find((c) => c.agent_type === 'dsh')?.login === 'not_logged_in';
   const stepOK = [
     true,
     platform === 'discord' ? roles.every((r) => r.info) && !!guildID : platform === 'cloud_web' ? cwOK && !cwNameTwice : !!feishu,
     roles.every((r) => {
       if (!r.agent_type) return false;
+      // DSH with no key anywhere fails every turn (core dshModelSetup): its own login, or a provider with a key
+      if (r.agent_type === 'dsh' && !r.reuse_project && !r.useProvider && dshNoLogin) return false;
       if (!r.useProvider) return true;
+      if (r.agent_type === 'dsh' && !r.provider.api_key) return false;
       const v = vendors.find((x) => x.id === r.provider.vendor);
       if (r.provider.vendor === 'custom' && !r.provider.base_url) return false; // custom: base_url required
       if (!v?.model && !r.provider.model) return false;                      // no default model: model required
@@ -720,8 +724,11 @@ export default function SetupWizard() {
               const attachable = ['claudecode', 'codex', 'gemini', 'opencode', 'dsh'].includes(r.agent_type);
               // DSH takes a vendor only at its native Anthropic endpoint: vendors without a matrix cell for it are greyed out
               const isDSH = r.agent_type === 'dsh';
-              const served = (id: string) => !isDSH || matrix.some((m) => m.vendor === id && m.agent_type === 'dsh');
-              const via = r.provider.base_url && vendor && r.provider.base_url !== vendor.openai_base && r.agent_type !== 'opencode' ? 'convert' : cell?.mode;
+              // custom = a relay: its base_url is taken as its Anthropic endpoint
+              const served = (id: string) => !isDSH || id === 'custom' || matrix.some((m) => m.vendor === id && m.agent_type === 'dsh');
+              const via = isDSH ? (r.provider.vendor === 'custom' ? 'native' : cell?.mode)
+                : r.provider.base_url && vendor && r.provider.base_url !== vendor.openai_base && r.agent_type !== 'opencode' ? 'convert' : cell?.mode;
+              const dshCustom = isDSH && r.provider.vendor === 'custom';
               return (
                 <div key={r.key} className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3" data-testid={`cli-role-${idx}`}>
                   <p className="text-sm font-medium" data-testid={`role-label-${idx}`}>{roleLabel(nameOf(r), r.agent_type)}</p>
@@ -741,7 +748,7 @@ export default function SetupWizard() {
                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={r.useProvider} data-testid={`use-provider-${idx}`}
                       onChange={(e) => patchRole(r.key, { useProvider: e.target.checked })} />{T.thirdParty}</label>
                   )}
-                  {isDSH && !r.useProvider && <p className="text-xs text-gray-500" data-testid={`dsh-own-${idx}`}>{T.dshOwn}</p>}
+                  {isDSH && !r.useProvider && <p className={`text-xs ${dshNoLogin && !r.reuse_project ? 'text-red-500' : 'text-gray-500'}`} data-testid={`dsh-own-${idx}`}>{dshNoLogin && !r.reuse_project ? T.dshNoKey : T.dshOwn}</p>}
                   {attachable && r.useProvider && (
                     <div className="space-y-2 pl-5">
                       <select className={selectCls} value={r.provider.vendor} data-testid={`vendor-${idx}`}
@@ -749,8 +756,9 @@ export default function SetupWizard() {
                         {vendors.map((v) => <option key={v.id} value={v.id} disabled={!served(v.id)}>{v.label}</option>)}
                       </select>
                       {isDSH && <p className={`text-xs ${served(r.provider.vendor) ? 'text-gray-500' : 'text-red-500'}`} data-testid={`dsh-vendors-${idx}`}>{T.dshVendors}</p>}
-                      <div className={`grid grid-cols-1 gap-2 ${isDSH ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
-                        {!isDSH && <Input placeholder={vendor?.openai_base || 'https://…/v1'} label={T.baseURL} value={r.provider.base_url}
+                      <div className={`grid grid-cols-1 gap-2 ${isDSH && !dshCustom ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
+                        {(!isDSH || dshCustom) && <Input placeholder={dshCustom ? 'https://<relay>' : vendor?.openai_base || 'https://…/v1'} label={T.baseURL} value={r.provider.base_url}
+                          data-testid={`provider-base-${idx}`}
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, base_url: e.target.value.trim() } })} />}
                         <Input type="password" label={T.apiKey} value={r.provider.api_key} data-testid={`provider-key-${idx}`}
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, api_key: e.target.value.trim() } })} />

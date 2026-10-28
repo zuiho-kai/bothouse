@@ -65,7 +65,7 @@
   `CC_SESSION` 顺序取，都没有就报错、不写板；定时挂不上会把「下次看」改回原值。DSH 运行时会删掉名字含 KEY 的环境变量（dsh-subprocess 过滤
   `/KEY|PASSWORD|SECRET|TOKEN/i`），所以 DSH 的启动入口要加一行 `export CC_SESSION="${CC_SESSION_KEY:-}"`。
 - `safe-restart "原因" "重启后接着做的事|无" [任务板编号]`：等本轮回复发出再用 launchd 重启 cc-connect，约 2 分钟后叫醒本会话接着做（给了编号就用 `later` 记在那条上）。
-  必填 `CC_LAUNCHD_LABEL`；可选 `CC_LOG`、`CC_RESTART_LOG`、`CC_SIGN_BIN`+`CC_SIGN_ID`（签名检查）、`CC_PRE_RESTART`（重启前检查，失败只警告）。
+  默认用 `bothouse daemon restart` 重启、读桥导出的 `CC_LOG_FILE`；自建 launchd 服务时设 `CC_LAUNCHD_LABEL`；可选 `CC_LOG`、`CC_RESTART_LOG`、`CC_SIGN_BIN`+`CC_SIGN_ID`（签名检查）、`CC_PRE_RESTART`（重启前检查，失败只警告）。
 
 ## Install from the published binary
 
@@ -84,5 +84,5 @@ from its runtime session key before its subprocess environment filter.
 `board done <id> <rework-count> "<reason>"` archives rework data (count required, reason required when it is above 0);
 `board add` refuses pure look-back items (use `later <id>`), and `board next` is reserved for `later` (`BOARD_LATER=1`);
 `board rework [days]` summarizes the last 14 days by default.
-`safe-restart` requires macOS launchctl and explicit `CC_LAUNCHD_LABEL`;
+`safe-restart` restarts through `bothouse daemon restart` by default (or `launchctl kickstart` when `CC_LAUNCHD_LABEL` is set);
 installation does not invoke it or restart a running bridge.

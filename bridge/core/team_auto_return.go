@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -33,19 +34,19 @@ func (e *Engine) workspaceHasOpenHandoff(sessionKey string) bool {
 	return false
 }
 
-// wakeChatLead hands a forwarded workspace reply to the lead of chat channel parent as one
-// queued turn, so it can tell the user. The forwarded post starts with 📬, which every bot
-// drops, so without this the lead never sees it. Loop guard: the turn runs in the chat
-// channel's session (no workspace, no handoff there), so its reply is never forwarded again;
-// ask ids are stripped so the prompt cannot be taken as the user's answer (routeWorkspaceAnswer).
-func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body string) {
+// wakeChatLead hands a workspace reply to the lead of chat channel parent as one queued turn,
+// so it tells the user what matters; it reports whether the turn was queued (false: the caller
+// posts the original instead). Loop guard: the turn runs in the chat channel's session (no
+// workspace, no handoff there), so its reply is never forwarded again; ask ids are stripped so
+// the prompt cannot be taken as the user's answer (routeWorkspaceAnswer).
+func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession string) bool {
 	if p == nil || parent == "" {
-		return
+		return false
 	}
 	chat := p.Name() + ":" + parent
 	if _, isWS := e.workspaceOwner(parent); isWS {
 		slog.Error("team exit: forward target is itself a workspace; lead not woken", "parent", parent, "workspace", ws)
-		return
+		return false
 	}
 	var lead *Engine
 	for _, x := range e.watchEngines() {
@@ -56,18 +57,13 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body string) {
 	}
 	if lead == nil {
 		slog.Error("team exit: no lead to read the forwarded reply", "parent", parent, "workspace", ws)
-		return
+		return false
 	}
 	if lead.timerScheduler == nil {
 		slog.Error("team exit: lead has no timer scheduler; forwarded reply not handed to it", "lead", lead.name, "parent", parent)
-		return
+		return false
 	}
-	what := "阶段结果"
-	if kind == exitKindAsk {
-		what = "提问（用户直接回复那条 📬 转发消息就会回到工作区）"
-	}
-	prompt := fmt.Sprintf("[工作区回传] 工作区 %s 的「%s」交回了%s，原文已贴在本频道（📬 开头那条）。请用一两句话向用户转述要点。这是回传给你看的，不是新任务：不要再派回工作区，不要 @ 工作区里的 bot。\n\n内容：\n%s",
-		channelLabel(p.Name(), ws), bot, what, truncateRelay(body, chatLeadWakeLimit))
+	prompt := chatLeadPrompt(channelLabel(p.Name(), ws), bot, kind, body, e.workspaceTaskBackground(wsSession))
 	prompt = askRef.ReplaceAllString(prompt, "ask-…")
 	silent := true
 	job := &TimerJob{
@@ -83,7 +79,35 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body string) {
 	}
 	if err := lead.timerScheduler.AddJob(job); err != nil {
 		slog.Error("team exit: hand forwarded reply to lead failed", "lead", lead.name, "parent", parent, "workspace", ws, "error", err)
+		return false
 	}
+	return true
+}
+
+// chatLeadPrompt is the lead's turn for a workspace reply: the task's background, then the
+// reply, then how to speak — as the user's secretary (user 2026-10-28 「你的身份应该是我的秘书…
+// 我只关心我要的东西，现在什么进度」「你要有背景，突然间拍脑袋来一句…没背景都忘记要干嘛了」
+// 「你都知道我要换了，你还要…要我回个a」).
+func chatLeadPrompt(wsLabel, bot, kind, body, background string) string {
+	var b strings.Builder
+	what := "阶段结果"
+	if kind == exitKindAsk {
+		what = "提问"
+	}
+	fmt.Fprintf(&b, "[工作区回传] 工作区 %s 的「%s」交回了%s。原文只给你看，没有贴进本频道；用户看到的只有你这一条。\n", wsLabel, bot, what)
+	if background != "" {
+		b.WriteString("\n这件活的背景：\n" + background + "\n")
+	}
+	b.WriteString("\n内容：\n" + truncateRelay(body, chatLeadWakeLimit) + "\n\n")
+	b.WriteString("你是用户的秘书，替用户过滤。回复一到三句：第一句说是哪件事（用户什么时候让做的什么），再说现在的进度，最后说要不要用户动手、动什么。" +
+		"细节、过程、文件名不说，用户问了再去工作区取。用户意图已经明确的事，不给 A/B 选项让用户回字母，直接按用户意图办，说一句你怎么办的。\n")
+	if kind == exitKindAsk {
+		b.WriteString("这是提问：先对照上面的用户原话和本频道最近的用户消息，看用户是不是已经答过或意图已经明确。" +
+			"答过就不问用户，直接用 ws-forward 把答案（附用户原话）转回工作区，再跟用户说一句你怎么定的；" +
+			"真没答过才问用户，只问一句要定什么、为什么，用户答了用 ws-forward 转回。\n")
+	}
+	b.WriteString("这是回传给你看的，不是新任务：不要再派回工作区，不要 @ 工作区里的 bot。")
+	return b.String()
 }
 
 // scheduleWorkspaceReturn runs after a handback in workspace key ended at `ended`. After the

@@ -1,6 +1,6 @@
 # 独立实例配置与多设备部署指南（Instance Setup）
 
-本文档说明如何在新机器、第二台设备或同机多实例环境下配置与运行 `companion`（包括电脑语音入口 `companion/voice` 与自主活动/日志调度 `companion/autonomy`），以及旧生产实例（`~/.bothouse-maomao/`）的升级兼容方式与回滚边界。
+本文档说明如何在新机器、第二台设备或同机多实例环境下配置与运行 `companion`（包括电脑语音入口 `companion/voice` 与自主活动/日志调度 `companion/autonomy`），多台设备作为成员加入同一个 `cloud_web` 频道（团队协作，见 2.4），以及旧生产实例（`~/.bothouse-maomao/`）的升级兼容方式与回滚边界。
 
 ---
 
@@ -122,6 +122,81 @@ companion/scripts/autonomy --config ~/.conest-gge/autonomy/config.json preview
 companion/scripts/autonomy --config ~/.conest-gge/autonomy/config.json install
 companion/scripts/autonomy --config ~/.conest-gge/autonomy/config.json resume
 ```
+
+### 2.4 多设备加入同一频道（团队协作）
+
+`companion` 解决「一位 AI 一台设备」；如果希望**多台设备上的角色/agent 在同一个频道里组队协作**，可以让它们作为不同成员接入同一个 `cloud_web` 频道（hub）。本节的步骤已在两个独立实例（同一 hub、同一局域网）上验证；hub 本身属于角色小家（见 [与角色小家的协作说明](ROLE_HOUSEHOLD_COLLAB.md)），协议细节见 [cloud_web 文档](../bridge/docs/cloud-web.md)。
+
+**拓扑**
+
+- 设备 A：运行 hub（频道服务）；
+- 设备 B：运行另一个 bothouse 实例，以成员身份连接设备 A 的 hub；
+- 两台设备上的实例各自有独立的实例根目录（见 2.1）。
+
+**设备 A：让 hub 可被局域网访问**
+
+1. hub 默认只监听本机回环地址；多设备使用前需让它显式监听局域网地址（按所用 hub 的启动参数或配置）。
+2. 在本机防火墙放行对应端口，并只对可信局域网开放。
+3. 明文 `ws://` 会暴露 token 与消息内容：建议只在可信局域网使用；跨网络请使用 TLS 反向代理或 Tailscale 等已有访问方案。
+
+**设备 B：配置成员身份**
+
+在设备 B 的 `config.toml` 中为 `cloud_web` 平台填写成员参数（agent 部分按 2.2/2.3 配置）：
+
+| 字段 | 说明 |
+| --- | --- |
+| `token` | hub 的 bot token（与设备 A 上的实例一致） |
+| `bot`（`ws_url` 查询参数） | 成员 ID，团队内唯一，例如 `role-1` / `role-2` |
+| `name` | 频道里显示的成员名 |
+| `mention_id` | 被 @ 时匹配用的唯一 ID |
+
+示例（把 `<hub-host>`、`<hub-port>` 换成设备 A 的实际地址和端口；`<member>`、`<member-name>`、`<mention-id>` 换成该成员的唯一值）：
+
+```toml
+[[projects]]
+  name = "role-2"
+  # ... 该成员的 agent 配置同 2.2/2.3 ...
+
+  [[projects.platforms]]
+    type = "cloud_web"
+
+    [projects.platforms.options]
+      allow_from = "*"
+      group_reply_all = true
+      share_session_in_channel = true
+      token = "<hub bot token>"
+      transport = "websocket"
+      ws_url = "ws://<hub-host>:<hub-port>/cloud-web/ws?bot=<member>&name=<member-name>&mention_id=<mention-id>"
+```
+
+设备 A 上的成员保持自己的 `ws_url`（使用不同的 `bot` / `mention_id`），两边 `token` 相同。
+
+**同一台机器模拟两台设备（推荐先这样验证）**
+
+- 两个实例使用不同的 `data_dir`、`[management] port` 和各自的 agent 数据目录；
+- 两个实例连接同一个本地 hub，确认协作正常后再换到真实两台设备；
+- `bot` 与 `mention_id` 必须不同，否则 hub 会视为同一成员。
+
+**agent 工具执行注意**
+
+- DSH agent 默认使用 `workspace-write` 沙箱，只能写自己的 work_dir；若日志出现
+  `EPERM: operation not permitted, mkdtemp ...`，通常是 subprocess/spill 的临时目录落在工作区之外；
+- 把该实例的 `TMP`/`TEMP` 指向实例工作区内的目录并重启实例即可；
+- 多设备场景下按最小权限原则配置，不要默认给远程成员开放 `danger-full-access`。
+
+**验证清单**
+
+1. 两个成员都出现在同一个频道（各自日志出现 `platform ready`）；
+2. 在频道里直接 @ 两个成员，分别都能收到回复；
+3. lead 在回复中 @ 另一个成员，对方能收到（`mentioned=true`）并回复（跨设备派活）；
+4. 观察一段时间：无重复回复、无互相触发死循环；
+5. 配置了 gate 时，路由符合预期（lead 被 @ → reply；sub 被 @ → reply；@别人 → silent）。
+
+**已知限制**
+
+- 需要手工填写地址/端口，暂无自动发现或一键配对；
+- 明文 `ws://` 只适合可信局域网；
+- 接管/回落语义与团队已有的接管机制保持一致，不另起一套。
 
 ---
 

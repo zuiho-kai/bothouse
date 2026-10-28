@@ -101,15 +101,20 @@ func (r PublicProgressRequest) Validate() error {
 type progressRecord struct {
 	QuotaReports map[string]quotaProgressReceipt `json:"quota_reports,omitempty"`
 	Relays       map[string]taskRelayRecord      `json:"relays,omitempty"`
-	Task         *Task                           `json:"task"`
-	Platform     string                          `json:"platform"`
-	Lang         Language                        `json:"lang"`
-	Closed       bool                            `json:"closed"`
-	Accepted     bool                            `json:"accepted,omitempty"`
-	Reports      map[int64]string                `json:"reports"`
-	LastSeq      int64                           `json:"last_seq"`
-	CardSeq      int64                           `json:"card_seq"`
-	FactSeq      int64                           `json:"fact_seq"`
+	Reworks      map[string]taskReworkRecord     `json:"reworks,omitempty"`
+	// ArtifactRequests keeps the receipt of each attach operation by its stable
+	// request id, so a retry after a rework or restart returns the original
+	// artifact instead of attaching it to the current revision.
+	ArtifactRequests map[string]taskArtifactRecord `json:"artifact_requests,omitempty"`
+	Task             *Task                         `json:"task"`
+	Platform         string                        `json:"platform"`
+	Lang             Language                      `json:"lang"`
+	Closed           bool                          `json:"closed"`
+	Accepted         bool                          `json:"accepted,omitempty"`
+	Reports          map[int64]string              `json:"reports"`
+	LastSeq          int64                         `json:"last_seq"`
+	CardSeq          int64                         `json:"card_seq"`
+	FactSeq          int64                         `json:"fact_seq"`
 	// Auto marks a card the bridge opened for a turn whose agent did not
 	// (public_progress_auto.go). Cleared once the agent starts it as its own.
 	Auto bool `json:"auto,omitempty"`
@@ -126,6 +131,10 @@ type publicRun struct {
 	// a fresh request always opens its own card.
 	candidate  *publicRun
 	reportBase int64 // sequence at this turn's adoption; budget is per turn, not per card
+	// dirty: an in-memory change (most often a terminal checkpoint) has not
+	// reached the journal yet, so Flush must retry that write before sending.
+	// A clean record is never rewritten just because delivery was attempted.
+	dirty bool
 	// Automatic card trigger for this turn (public_progress_auto.go); guarded by mu.
 	autoTimer *time.Timer
 	autoTitle string
@@ -156,6 +165,10 @@ type PublicProgress struct {
 	// workspaceChat: the session is a workspace channel (Engine.isTeamWorkspaceChat); cards only
 	// open there. nil = everywhere (tests, PublicProgress without an engine).
 	workspaceChat func(session string) bool
+	// hasPublisher: at least one configured platform can publish task cards. A
+	// missing run token on a journal-only project is a stale token, not the
+	// workspace refusal that explains why no card token was issued.
+	hasPublisher bool
 	// reporterName is a bound bot's display name in a session's channel ("" if unknown).
 	reporterName func(project, session string) string
 	// projectName is a configured project's name for people (team_name, e.g. 橘 for
@@ -191,6 +204,12 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 	}
 	hash := sha256.Sum256([]byte(project))
 	p := &PublicProgress{dir: filepath.Join(dataDir, "public-progress", hex.EncodeToString(hash[:8])), dataDir: dataDir, project: project, archiveAfter: defaultTaskThreadArchiveAfter, resultReadyArchiveAfter: defaultResultReadyThreadArchiveAfter, runs: map[string]*publicRun{}, records: map[string]*publicRun{}, open: map[string]*publicRun{}, pending: map[string]*publicRun{}, listed: map[string]*publicRun{}}
+	for _, platform := range platforms {
+		if _, ok := platform.(TaskCardPublisher); ok {
+			p.hasPublisher = true
+			break
+		}
+	}
 	if err := os.MkdirAll(p.dir, 0700); err != nil {
 		return nil, err
 	}
@@ -211,12 +230,14 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 			return nil, errors.New("invalid public progress journal")
 		}
 		var sink TaskCardPublisher
+		platformFound := false
 		for _, platform := range platforms {
 			if platform.Name() == rec.Platform {
+				platformFound = true
 				sink, _ = platform.(TaskCardPublisher)
 			}
 		}
-		if sink == nil {
+		if !platformFound {
 			return nil, errors.New("public progress journal platform unavailable")
 		}
 		r := &publicRun{record: rec, publisher: sink}
@@ -265,15 +286,15 @@ func randomProgressID(n int) string {
 func (p *PublicProgress) begin(platform Platform, session string, lang Language, stopped func() bool) string {
 	p.transitionMu.Lock()
 	defer p.transitionMu.Unlock()
-	sink, ok := platform.(TaskCardPublisher)
-	if !ok {
-		slog.Warn("public progress: no turn token, platform cannot publish task cards", "platform", fmt.Sprintf("%T", platform), "session", session)
-		return ""
-	}
-	channel, err := sink.TaskCardDestination(session)
-	if err != nil {
-		slog.Warn("public progress: no turn token, task card destination unresolved", "platform", platform.Name(), "session", session, "error", err)
-		return ""
+	sink, _ := platform.(TaskCardPublisher)
+	channel := ""
+	if sink != nil {
+		var err error
+		channel, err = sink.TaskCardDestination(session)
+		if err != nil {
+			slog.Warn("public progress: no turn token, task card destination unresolved", "platform", platform.Name(), "session", session, "error", err)
+			return ""
+		}
 	}
 	token := randomProgressID(32)
 	p.mu.Lock()
@@ -297,9 +318,15 @@ func (p *PublicProgress) appendEvent(r *publicRun, kind TaskEventKind, summary s
 func (p *PublicProgress) save(r *publicRun) error {
 	b, err := json.Marshal(r.record)
 	if err != nil {
+		r.dirty = true
 		return err
 	}
-	return AtomicWriteFile(filepath.Join(p.dir, r.record.Task.ID+".json"), b, 0600)
+	if err := AtomicWriteFile(filepath.Join(p.dir, r.record.Task.ID+".json"), b, 0600); err != nil {
+		r.dirty = true
+		return err
+	}
+	r.dirty = false
+	return nil
 }
 
 // Report commits before ACK. Delivery runs independently, so a Discord outage
@@ -340,15 +367,20 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	if child != nil {
 		return p.reportTaskRelay(child, req)
 	}
-	if req.Kind == "start" {
-		if err := p.checkWorkspaceCard(req.SessionKey); err != nil {
-			return "", err
-		}
-	}
 	if (req.Kind == "failed" || req.Kind == "cancelled") && req.TaskID == "" {
 		return "", errors.New("kind is only available for member reports")
 	}
 	if r == nil && adopt == nil {
+		// Chat channels with cards never receive a run token. Preserve the
+		// workspace-specific rejection for an attempted start there. A project
+		// without any publisher issues tokens everywhere, so an unknown token
+		// there is genuinely stale and saying "cards only in workspaces" would
+		// misname the cause.
+		if req.Kind == "start" && p.hasPublisher {
+			if err := p.checkWorkspaceCard(req.SessionKey); err != nil {
+				return "", err
+			}
+		}
 		return "", errors.New("run is not active")
 	}
 	source := r
@@ -363,6 +395,11 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 		return "", err
 	}
 	defer r.mu.Unlock()
+	if req.Kind == "start" && r.publisher != nil {
+		if err := p.checkWorkspaceCard(req.SessionKey); err != nil {
+			return "", err
+		}
+	}
 	b, _ := json.Marshal(req)
 	hash := fmt.Sprintf("%x", sha256.Sum256(b))
 	if old, ok := r.record.Reports[req.Seq]; ok {
@@ -615,13 +652,20 @@ func (p *PublicProgress) Flush(ctx context.Context) {
 			}
 			continue
 		}
-		if err == nil && r.record.CardSeq >= r.record.Task.Seq && r.record.FactSeq >= r.record.Task.Seq {
+		// A journal-only flush checkpoints failed terminal writes, then stops
+		// polling. Delivery sequences stay untouched: a later restart with a
+		// publisher will discover the undelivered facts from the journal.
+		if err == nil && ((r.publisher == nil && attempted >= r.record.Task.Seq) || (r.record.CardSeq >= r.record.Task.Seq && r.record.FactSeq >= r.record.Task.Seq)) {
 			p.mu.Lock()
 			delete(p.pending, id)
 			p.mu.Unlock()
 		}
 		r.mu.Unlock()
-		if err != nil && ctx.Err() == nil {
+		// A workspace-only refusal is static, not a transient delivery failure:
+		// keep the undelivered facts pending without rewriting or warning every
+		// tick. A later restart where the session is a workspace delivers them
+		// through the same flushRun path.
+		if err != nil && ctx.Err() == nil && !errors.Is(err, errCardOutsideWorkspace) {
 			slog.Warn("public progress delivery pending", "task_id", id, "error", err)
 		}
 	}
@@ -796,15 +840,20 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 	r.mu.Lock()
-	err = p.save(r) // retries a failed terminal-state checkpoint before sending
+	if r.dirty {
+		err = p.save(r) // retries a failed terminal-state checkpoint; a clean record is not rewritten
+	}
 	task, cardSeq, factSeq, lang := r.record.Task.Clone(), r.record.CardSeq, r.record.FactSeq, r.record.Lang
 	platform := r.record.Platform
 	r.mu.Unlock()
 	attempted = task.Seq
-	p.displayNames(task)
 	if err != nil {
 		return attempted, err
 	}
+	if r.publisher == nil {
+		return attempted, nil
+	}
+	p.displayNames(task)
 	// A key fact accepted after the sweep archived this thread (acceptance is
 	// the common case) would be refused with 50083. Reopen before delivering,
 	// and clear the marker so the thread is not left permanently unmanaged.
@@ -825,10 +874,23 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 		}
 	}
 	if cardSeq < task.Seq {
+		// Journals created without a publisher have no transport destination.
+		// Adding that capability must still respect the workspace-only policy.
+		if task.ChannelID == "" {
+			if err := p.checkWorkspaceCard(task.SessionKey); err != nil {
+				return attempted, err
+			}
+			channel, err := r.publisher.TaskCardDestination(task.SessionKey)
+			if err != nil {
+				return attempted, err
+			}
+			task.ChannelID = channel
+		}
 		deliveryErr := r.publisher.EnsureTaskCard(ctx, task, lang)
 		r.mu.Lock()
 		// Only transport bindings/checkpoints are written back. Newer state and
 		// summaries may have arrived while the HTTP request was in flight.
+		r.record.Task.ChannelID = task.ChannelID
 		r.record.Task.MessageID, r.record.Task.ThreadID = task.MessageID, task.ThreadID
 		r.record.Task.CardURL, r.record.Task.ThreadTitle = task.CardURL, task.ThreadTitle
 		if deliveryErr == nil {
@@ -951,14 +1013,15 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	if e.publicProgress == nil || fromBot {
 		return prompt
 	}
-	// Task cards only in workspace channels (isTeamWorkspaceChat): elsewhere no card prompt and
-	// no turn token, so neither the agent nor the bridge opens a card there.
-	if !e.isTeamWorkspaceChat(session) {
-		return prompt
-	}
 	state.mu.Lock()
 	platform := state.platform
 	state.mu.Unlock()
+	// The workspace restriction governs card presentation, not durable task
+	// records on platforms without cards. No automatic card is armed there.
+	_, hasCards := platform.(TaskCardPublisher)
+	if hasCards && !e.isTeamWorkspaceChat(session) {
+		return prompt
+	}
 	token := e.beginPublicProgress(platform, session, state.isStopped, fromVoice)
 	if token == "" {
 		return prompt
@@ -967,9 +1030,8 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	state.publicProgressRun = token
 	desc, scheduled := state.turnDesc, state.turnScheduled
 	state.mu.Unlock()
-	// Automatic cards only in workspace channels (user, 2026-10-26: 「聊天频道不要自动任务卡，太占
-	// 位置」); non-workspace channels returned above. Voice turns get no automatic card.
-	e.publicProgress.armAuto(token, desc, scheduled || fromVoice)
+	// Journal-only turns must disable tool-count activation as well as timers.
+	e.publicProgress.armAuto(token, desc, scheduled || fromVoice || !hasCards)
 	return e.publicProgressInstructions(token, session) + prompt
 }
 
@@ -990,26 +1052,47 @@ func (e *Engine) beginPublicProgress(platform Platform, session string, stopped 
 }
 
 func (e *Engine) publicProgressInstructions(token, session string) string {
-	return e.progressInstructions(token, session, publicProgressPrompt+publicTaskMembersPrompt)
+	if e.publicProgress.journalOnly(token) {
+		return e.progressInstructions(token, session, journalProgressPrompt+taskArtifactsPrompt)
+	}
+	return e.progressInstructions(token, session, publicProgressPrompt+publicTaskMembersPrompt+taskArtifactsPrompt)
 }
+
+func (p *PublicProgress) journalOnly(token string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	r := p.runs[token]
+	return r != nil && r.publisher == nil
+}
+
+const journalProgressPrompt = "[Task progress journal]\nFor accepted multi-step work only, record concise public-safe status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'short status'. Start with --seq 1 --kind start --title 'task title'.RESUME_NOTE Increase seq by one for update/milestone/waiting/result; retry exactly the same seq and content. This platform has no task publisher: success means the journal was saved, NOT that a message or card was delivered. Give the user necessary progress and results in your normal reply. Do not claim a card, thread or delivery receipt exists. Do not repeat task execution to retry delivery. A result is not human acceptance. Do not record casual chat, raw tools, credentials or conversations. This token is for this turn only. Task-member publishing and task-bound relay are not provided by this journal capability.\n[/Task progress journal]\n\n"
 
 // Voice cannot delegate; retain task cards without unrelated member/relay instructions.
 func (e *Engine) voiceProgressInstructions(token, session string) string {
+	if e.publicProgress.journalOnly(token) {
+		return e.progressInstructions(token, session, journalProgressPrompt)
+	}
 	return e.progressInstructions(token, session, voiceProgressPrompt)
 }
 
 const voiceProgressPrompt = "[Public progress channel]\nOnly for accepted multi-step work, report public status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'short status'. Start with --seq 1 --kind start --title 'task title'.RESUME_NOTE Increment seq for update/milestone/waiting/result; retry the same seq/content. Report only meaningful changes (max 64). No cards for chat or questions. Keep reasoning, tools, credentials and conversations private. Report verified facts; result is not human acceptance. This token is for this turn only. Keep the spoken reply short.\n[/Public progress channel]\n\n"
+
+const taskArtifactsPrompt = "[Task artifacts]\nFor an accepted task only: when the user supplies material, or you hand over a file, link or image, record its reference with TASK_COMMAND artifact --id TASK_ID --request-id STABLE_ATTACH_ID --revision CURRENT_REVISION --role input|output --kind file|image|video|audio|link|text --label 'short label' --locator 'url or path'. Use input for material the user gave you and output for what you deliver. The request id is the operation identity: both --request-id and --revision are required; reuse the id only when retrying that one attach with the same revision (the original artifact is returned even after a rework or restart); a new version uses a new id even when it is written to the same path with the same label. --revision is the revision from show; a stale revision is refused instead of being bound to the current one. When the user asks to change a named deliverable, first record TASK_COMMAND rework --id TASK_ID --artifact ARTIFACT_ID --request-id STABLE_REQUEST_ID --feedback 'the change in the user's words' (always name the output when there is more than one; input material is history and cannot be the target), then do the work. Reuse the same request id only when retrying that one change; a different id is a new change even with the same words. The rework response carries a receipt with your request's revision, event and target; keep it even when the task snapshot is newer. The task id comes from the progress result; never invent one. Attaching a reference is a record for the owner, not an upload, publication or delivery, and not acceptance; do not describe it as delivered. When the user asks about progress or remaining work, read the record with TASK_COMMAND show --id TASK_ID (or list --session SESSION) instead of guessing; answer only what it records. Keep private paths or credentials out of public feedback. Never attach another task's artifact; do not record casual chat.\n[/Task artifacts]\n\n"
 
 func (e *Engine) progressInstructions(token, session, instructions string) string {
 	command := bridgeCommand()
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 	prefix := quote(command) + " progress --project " + quote(e.name) + " --session " + quote(session) + " --data-dir " + quote(e.publicProgress.dataDir)
 	resumeNote := ""
+	recordName := "card"
+	if e.publicProgress.journalOnly(token) {
+		recordName = "task record"
+	}
 	if taskID, resumeSeq, state, title, ok := e.publicProgress.resumeHint(token); ok {
 		// Naming the state is the point: an owner who asked for something new
 		// must not lose the card for it to an earlier card that already
 		// delivered a result, which is the most common wrong continuation.
-		resumeNote = " A card from earlier in this session is still open (" + taskID + ", state " + string(state) + ", title " + strconv.Quote(title) + "). Continue it with " + prefix + " --run " + token + " --task " + taskID + " --seq " + strconv.FormatInt(resumeSeq, 10) + " --kind update --message 'short status' only when this turn is follow-up on that same title; when the human asked for something else, start a new card with --seq 1 --kind start."
+		resumeNote = " A " + recordName + " from earlier in this session is still open (" + taskID + ", state " + string(state) + ", title " + strconv.Quote(title) + "). Continue it with " + prefix + " --run " + token + " --task " + taskID + " --seq " + strconv.FormatInt(resumeSeq, 10) + " --kind update --message 'short status' only when this turn is follow-up on that same title; when the human asked for something else, start a new " + recordName + " with --seq 1 --kind start."
 	}
 	return strings.NewReplacer(
 		"COMMAND", prefix,
@@ -1017,6 +1100,7 @@ func (e *Engine) progressInstructions(token, session, instructions string) strin
 		"RUN_TOKEN", token,
 		"RESUME_NOTE", resumeNote,
 		"RELAY_COMMAND", quote(command)+" relay send --from "+quote(e.name)+" --session "+quote(session)+" --data-dir "+quote(e.publicProgress.dataDir),
+		"TASK_COMMAND", quote(command)+" task --project "+quote(e.name)+" --data-dir "+quote(e.publicProgress.dataDir),
 	).Replace(instructions)
 }
 
@@ -1055,7 +1139,7 @@ func (e *Engine) publicVoiceReceipt(state *interactiveState, fallback string) st
 	e.publicProgress.mu.Lock()
 	r := e.publicProgress.runs[token]
 	e.publicProgress.mu.Unlock()
-	if r == nil {
+	if r == nil || r.publisher == nil {
 		return fallback
 	}
 	r.mu.Lock()

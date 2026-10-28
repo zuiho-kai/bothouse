@@ -69,10 +69,10 @@ func taskCall(client *http.Client, method, path string, body []byte) ([]byte, er
 
 func taskCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: task list|show|accept|assign [flags]")
+		return errors.New("usage: task list|show|accept|assign|artifact|rework [flags]")
 	}
 	if isHelpArg(args[0]) {
-		fmt.Fprintln(out, "usage: task list|show|accept|assign [flags]  (task <action> -h lists the flags)")
+		fmt.Fprintln(out, "usage: task list|show|accept|assign|artifact|rework [flags]  (task <action> -h lists the flags)")
 		return nil
 	}
 	action, rest := args[0], args[1:]
@@ -91,6 +91,15 @@ func taskCommand(args []string, out io.Writer) error {
 	ref := f.String("ref", "", "reference implementation to follow, path:line; non-code work writes 无（新建） (assign only, required)")
 	base := f.String("base", "", "branch to start from; required when the title or ref says 多人改/共改文件 (assign only)")
 	workspace := f.String("workspace", "", "another workspace of the same chat channel where the member executes (assign only)")
+	role := f.String("role", "", "input or output (artifact only)")
+	kind := f.String("kind", "", "file/image/video/audio/link/text (artifact only)")
+	label := f.String("label", "", "human-readable artifact label (artifact only)")
+	locator := f.String("locator", "", "artifact reference: URL, repository path or absolute path (artifact only)")
+	summary := f.String("summary", "", "optional note about the artifact (artifact only)")
+	artifact := f.String("artifact", "", "artifact id the change is about (output only, rework only)")
+	requestID := f.String("request-id", "", "stable operation id for one artifact attach or rework (required); reuse it only when retrying that operation")
+	revision := f.Int("revision", 0, "task revision this artifact is delivered for (artifact only, required; a retry keeps its original revision)")
+	feedback := f.String("feedback", "", "the change request in the owner's words (rework only)")
 	limit := f.Int("limit", 10, "how many tasks to list")
 	dataDir := f.String("data-dir", "", "bridge data directory")
 	if err := f.Parse(rest); err != nil {
@@ -136,6 +145,44 @@ func taskCommand(args []string, out io.Writer) error {
 			return err
 		}
 		return writeJSON(out, b)
+	case "artifact":
+		if *id == "" {
+			return errors.New("id is required")
+		}
+		if *requestID == "" {
+			return errors.New("--request-id is required: reuse the same id only when retrying one attach")
+		}
+		if *revision < 1 {
+			return errors.New("--revision is required: take the current revision from task show")
+		}
+		body, err := json.Marshal(core.TaskArtifactRequest{Project: *project, TaskID: *id, RequestID: *requestID, Revision: *revision, Role: *role, Kind: *kind, Label: *label, Ref: *locator, Summary: *summary})
+		if err != nil {
+			return err
+		}
+		b, err := taskCall(client, http.MethodPost, "/task/artifact", body)
+		if err != nil {
+			return err
+		}
+		return writeJSON(out, b)
+	case "rework":
+		if *id == "" {
+			return errors.New("id is required")
+		}
+		if *feedback == "" {
+			return errors.New("--feedback is required: name the change to make")
+		}
+		if *requestID == "" {
+			return errors.New("--request-id is required: reuse the same id when retrying one change request")
+		}
+		body, err := json.Marshal(core.TaskReworkRequest{Project: *project, TaskID: *id, ArtifactID: *artifact, RequestID: *requestID, Feedback: *feedback})
+		if err != nil {
+			return err
+		}
+		b, err := taskCall(client, http.MethodPost, "/task/rework", body)
+		if err != nil {
+			return err
+		}
+		return writeJSON(out, b)
 	case "accept":
 		if *id == "" {
 			return errors.New("id is required")
@@ -153,7 +200,7 @@ func taskCommand(args []string, out io.Writer) error {
 		}
 		return writeJSON(out, b)
 	default:
-		return fmt.Errorf("unknown task action %q (use list, show, accept or assign)", action)
+		return fmt.Errorf("unknown task action %q (use list, show, accept, assign, artifact or rework)", action)
 	}
 }
 
@@ -175,6 +222,17 @@ func writeTasks(out io.Writer, raw []byte) error {
 		fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", t.ID, t.State, updated, t.Title)
 		if t.LatestProgress != "" {
 			fmt.Fprintf(out, "\t%s\n", t.LatestProgress)
+		}
+		if t.RevisionNo() > 1 || len(t.Artifacts) > 0 {
+			inputs, outputs := 0, 0
+			for _, a := range t.Artifacts {
+				if a.Role == core.TaskArtifactInput {
+					inputs++
+				} else {
+					outputs++
+				}
+			}
+			fmt.Fprintf(out, "\t%s\n", core.NewI18n(core.Language(core.SystemLanguage())).Tf(core.MsgTaskListRevision, t.RevisionNo(), len(t.Artifacts), inputs, outputs))
 		}
 	}
 	return nil

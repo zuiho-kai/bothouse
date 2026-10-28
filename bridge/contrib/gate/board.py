@@ -15,6 +15,7 @@
   board                                  # 列出进行中的事
   board add <事情> <分支/PR/路径> <状态> <谁> [--next 几点看]   # 新加一条，打印编号
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
+                                         #   状态以收尾词开头（已交回/已完成/已验收/已收口/已结束/done）就直接结束，同 done
   board next <编号> <几点> | --restore <JSON>  # 只改「下次看」（later 专用，要 BOARD_LATER=1）；打印改前记录和事情
   board done <编号> <返工次数> [原因]      # 结束：移出任务板，记进 board-done.jsonl；返工次数必填，大于 0 时原因必填
   board rework [天数]                    # 最近 14 天的返工次数和原因
@@ -289,13 +290,15 @@ def _ws_key(it):
     return it.get("sk") or (f"discord:{it['ch']}" if it.get("ch") else "")
 
 
-def _park_once(cc, sk, chat, bound=None):
+def _park_once(cc, sk, chat, bound=None, stop=False):
     """<桥> workspace park 一次，只放 chat 交的那一件（绑定时刻 bound 及以前最新的那件）：工作区眼下不归 chat、
     或那件早已收尾（工作区做完放回、又被别人或 chat 自己的新活领走）时桥拒绝（not owned），什么都不动。
     True 放回了 / False 那里还有活 / None 不在工作区、不归它、早已放回或失败（失败写 stderr）。"""
     args = [cc, "workspace", "park", "--session-key", sk, "--chat", chat]
     if bound:
         args += ["--before", bound]
+    if stop:
+        args.append("--stop")
     try:
         p = subprocess.run(args + ["--json"],
                            capture_output=True, text=True, timeout=WS_TIMEOUT)
@@ -312,16 +315,18 @@ def _park_once(cc, sk, chat, bound=None):
         return None
 
 
-def park_workspace(it):
+def park_workspace(it, stop=False):
     """暂停即放回（用户同意的「停着的活挪到待办列表」）：条目是 ws-handoff 交活时建、绑了工作区的（it["ws"]），
     <桥> workspace park 放掉它在那里的那一件交接；那里没别的活在做，桥就把工作区放回池子并清掉会话
     （core/team_workspace.go ParkTeamWorkspace）。只按绑定的条目放：没绑的（在工作区里手动 add 的）不动桥，
     免得把刚交、还没上板的活一起放掉、串频道（审查 ~/.claude/reviews/ws-stale-local-code.md 第二轮）。
+    stop：用户叫停（board pause）时连工作区正在跑的那一轮一起打断，暂停后不再有输出；ws-up --ask 自己挂起不打断
+    （用户 2026-10-28「我都说不做了，你还问我」「为什么工作区没暂停」）。
     返回 True 放回了 / False 还有别的活留着 / None 没绑工作区、没桥或失败（失败写 stderr，不拦 pause）。"""
     cc = _cc_bin()
     if not it.get("ws") or not cc or not it.get("chat"):
         return None  # 没记交活的聊天频道：认不出工作区眼下是不是还在做这件，不放（宁可多占，不停别人的活）
-    return _park_once(cc, it["ws"], it["chat"], it.get("bound"))
+    return _park_once(cc, it["ws"], it["chat"], it.get("bound"), stop)
 
 
 # User, 2026-10-24: "稳定的一放一收，以小时为力度". Unfinished tasks with no
@@ -434,6 +439,11 @@ def resume(nid):
         hit["at"] = _now()
         _write(cur)
     return True
+
+
+# 收尾词：update 写成这些开头的状态就直接 done（用户 2026-10-28「任务榜完成的为什么不下掉」：
+# 工作区交回时只改状态为「已交回」「done」，没人再跑 board done，条目一直挂着）。和桥 watchBoardClosed 同一组词。
+CLOSED_RE = re.compile(r"\s*(?:已验收|验收通过|已收口|已完成|已交回|已结束|done\b)", re.I)
 
 
 def done(nid, rework=None, why=None):
@@ -843,6 +853,9 @@ def main(argv):
                 rebind(nid, back)
             if not before:
                 sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
+            if CLOSED_RE.match(argv[2]) and done(nid):
+                print(f"已结束：状态「{argv[2]}」是收尾词，#{nid} 移出任务板（返工次数记「未填」）")
+                return
             print("已更新")
             if before.get("ws") and not any(i["id"] == nid and i.get("ws") == before["ws"] for i in items()):
                 freed = park_workspace(before)  # 「谁」改走了：它在工作区的那件交接放回桥
@@ -872,7 +885,9 @@ def main(argv):
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
             print("已暂停")
             schedule_prune_check(hit)
-            freed = park_workspace(hit)
+            # 在那个工作区里自己 pause 的不打断（会把正在跑 board 的这一轮掐掉）
+            here = os.environ.get("CC_SESSION_KEY", "").split(":")[1:2]
+            freed = park_workspace(hit, stop=(here != (hit.get("ws") or "").split(":")[1:2]))
             if freed is not None:
                 print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
         elif cmd == "resume" and len(argv) == 2:

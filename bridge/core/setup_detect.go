@@ -413,6 +413,9 @@ func VendorServes(vendorID, agentType string) bool {
 	if !nativeOnlyAgents[agentType] {
 		return true
 	}
+	if vendorID == "custom" { // a relay's base_url given by the user is taken as its Anthropic endpoint
+		return true
+	}
 	_, native := v.Endpoints[protocolOfAgent[agentType]]
 	return native
 }

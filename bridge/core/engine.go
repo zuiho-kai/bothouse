@@ -1724,6 +1724,13 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	if e.IsPaused() {
 		return fmt.Errorf("engine %q is paused", e.name)
 	}
+	if job.Poll && job.IsShellJob() {
+		wake, err := e.pollCronJob(job)
+		if err != nil || wake == nil {
+			return err
+		}
+		job = wake
+	}
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventCronTriggered,
 		SessionKey: job.SessionKey,
@@ -4512,6 +4519,9 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	// #618 K1: record the running turn right after its user message is saved,
 	// before the agent (cold) starts; a bridge killed mid-turn leaves it on disk.
 	journalTurnID := e.journalTurnBegin(msg, interactiveKey, workspaceDir, session)
+	if msg.inputTurn == nil {
+		e.emitStreamEvent(StreamEventMessage, msg.SessionKey, msg.Content, map[string]any{"user": msg.UserName, "trigger": turnTriggerOf(msg)})
+	}
 	defer e.journalTurnEnd(journalTurnID)
 
 	// Use the agent override when available (multi-workspace mode)
@@ -6251,6 +6261,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			state.resumeArmed = false // #618 K4 S1: the resumed session works
 			state.mu.Unlock()
 			e.journalProgress(sessionKey, strings.TrimSpace(event.ToolName+" "+event.ToolInput), "", true) // #618 K4
+			e.emitStreamEvent(StreamEventTool, sessionKey, event.ToolInput, map[string]any{"tool": event.ToolName})
 			e.notePublicProgressTool(state, event.ToolInput)
 			if hasRichCard {
 				// When tool messages are suppressed, skip card updates on tool events.
@@ -6731,6 +6742,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				continue
 			}
 			cp.Finalize(ProgressCardStateCompleted)
+			if input == nil {
+				e.emitStreamEvent(StreamEventReply, sessionKey, event.Content, nil)
+			}
 			// Use state.agentSession.CurrentSessionID() instead of event.SessionID.
 			if input != nil && (event.Error != nil || state.agentSession.CurrentSessionID() != input.expectedID ||
 				(event.SessionID != "" && event.SessionID != input.expectedID) || sessions.ActiveSessionID(sessionKey) != session.ID || session.GetAgentSessionID() != input.expectedID) {

@@ -354,8 +354,9 @@ func TestWatchStartsWithAPIServer(t *testing.T) {
 	t.Fatal("the started bridge did not check the claim")
 }
 
-// A hot load (RegisterEngine after Start) or removal that changes the team workspace engine
-// moves the watch there: the old one is stopped first, so one file has one watcher.
+// The watch stays on the engine that is the team's current lead (PR #566: workspaces follow
+// the lead, not the first project by name). A non-lead hot load or removal does not move it;
+// one file still has one watcher.
 func TestWatchMovesWithTeamWorkspaceEngine(t *testing.T) {
 	setWatchCheckAfter(t, 30*time.Millisecond)
 	t.Setenv("BOTHOUSE_WATCH_TEST_SECONDS", "")
@@ -373,8 +374,8 @@ func TestWatchMovesWithTeamWorkspaceEngine(t *testing.T) {
 	if !orange.handoffWatchOn.Load() || other.handoffWatchOn.Load() {
 		t.Fatal("an engine without team workspaces does not take the watch")
 	}
-	s.RegisterEngine("alpha", alpha) // sorts first: teamWorkspaceEngine() is alpha now
-	if !alpha.handoffWatchOn.Load() || orange.handoffWatchOn.Load() {
+	s.RegisterEngine("alpha", alpha) // not the lead: the watch stays on orange
+	if alpha.handoffWatchOn.Load() || !orange.handoffWatchOn.Load() {
 		t.Fatalf("hot load: watch on alpha %v, orange %v", alpha.handoffWatchOn.Load(), orange.handoffWatchOn.Load())
 	}
 	s.UnregisterEngine("alpha")

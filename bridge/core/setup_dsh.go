@@ -43,8 +43,9 @@ func dshLogin(h string) string {
 	if strings.TrimSpace(dir) == "" {
 		dir = filepath.Join(h, ".dsh")
 	}
-	return loginIf(os.Getenv("DEEPSEEK_API_KEY") != "" || fileExists(filepath.Join(dir, ".credentials.yaml")) ||
-		dshHasOwnModel(dir))
+	// a credentials file alone is no login: the web UI's own browser session is stored there too
+	refs, account := dshCredentials(dir)
+	return loginIf(os.Getenv(dshDefaultKeyEnv) != "" || refs[dshDefaultKeyEnv] != "" || account || dshHasOwnModel(dir))
 }
 
 func dshHasOwnModel(dshHome string) bool {
@@ -200,10 +201,12 @@ func EnsureDSHRoleAttachmentPatch(opts map[string]any) (bool, error) {
 // dshProviderPatch points llm-deepseek at the vendor's Anthropic endpoint and makes model the default.
 func dshProviderPatch(project, baseURL, model string) string {
 	q := func(s string) string { b, _ := json.Marshal(s); return string(b) } // JSON string = YAML double-quoted scalar
+	// without inputModalities DSH tells the ACP client image=false and a pasted picture reaches the model only as a path
+	modalities := "        inputModalities: [text, image]\n"
 	return "# written by the bothouse setup wizard for role " + project + ": the third-party API picked in the wizard.\n" +
 		"# The key is in this role's env " + DSHKeyEnv + " (config.toml). Everything else is the user's own DSH setup.\n" +
 		"- id: llm-deepseek\n  config:\n    baseURL: " + q(baseURL) + "\n    apiKeyEnv: " + DSHKeyEnv + "\n" +
-		"    models:\n      - id: " + q(model) + "\n" +
+		"    models:\n      - id: " + q(model) + "\n" + modalities +
 		"- id: agent-default-model\n  config:\n    provider: deepseek-official\n    model: " + q(model) + "\n" +
 		"- id: acp\n  config:\n    provider: deepseek-official\n    model: " + q(model) + "\n"
 }
@@ -239,7 +242,8 @@ func dshLaunch(dshPath string) (cmd string, args []string) {
 }
 
 // dshRoleLaunch is what the wizard writes for a DSH role: cmd, args and env.
-func dshRoleLaunch(dshPath, dataDir, project, workDir string, p *WizardProvider) (string, []string, map[string]string) {
+// keyEnv is the role's model key (dshModelSetup).
+func dshRoleLaunch(dshPath, dataDir, project, workDir string, keyEnv map[string]string) (string, []string, map[string]string) {
 	cmd, args := dshLaunch(dshPath)
 	env := map[string]string{
 		"UV_CACHE_DIR":      filepath.Join(workDir, ".cache", "uv"),
@@ -250,31 +254,41 @@ func dshRoleLaunch(dshPath, dataDir, project, workDir string, p *WizardProvider)
 		"DSH_HOME": DSHHome(""),
 	}
 	args = append(args, "--patch", DSHPatchPath(dataDir, project))
-	if p != nil {
-		env[DSHKeyEnv] = p.APIKey
+	for k, v := range keyEnv {
+		env[k] = v
 	}
 	return cmd, args, env
 }
 
-// writeDSHProviderPatch writes the role's overlay: the third-party API in p (nil = the user's own model setup)
-// and the image size limit (dshAttachmentPatch); a hook bridge block already in it is kept.
-func writeDSHProviderPatch(dataDir, project string, p *WizardProvider) (string, error) {
+// writeDSHProviderPatch writes the role's overlay: the third-party API in p, or (p nil) the model setup from the
+// user's own DSH home (dshOwnModelPatch), and the image size limit (dshAttachmentPatch); a hook bridge block already
+// in it is kept. keyEnv (dshModelSetup) also goes to DSHEnvPath for runs outside the role's process.
+func writeDSHProviderPatch(dataDir, project string, p *WizardProvider, keyEnv map[string]string) (string, error) {
 	path := DSHPatchPath(dataDir, project)
 	body, err := dshAttachmentPatch(DSHHome(""), nil)
 	if err != nil {
 		return "", err
 	}
+	var model string
 	if p != nil {
-		prov, err := dshProviderBody(project, *p)
-		if err != nil {
-			return "", err
-		}
-		body = prov + body
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return "", err
-		}
+		model, err = dshProviderBody(project, *p)
+	} else {
+		model, _, err = dshOwnModelPatch("")
+	}
+	if err != nil {
+		return "", err
+	}
+	body = model + body
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", err
+	}
+	if len(keyEnv) > 0 {
 		// the wiki's dsh ingest runs outside the role's process, so it reads the key from this 0600 file
-		if err := AtomicWriteFile(DSHEnvPath(dataDir, project), []byte(DSHKeyEnv+"="+p.APIKey+"\n"), 0o600); err != nil {
+		var env strings.Builder
+		for _, k := range sortedKeys(keyEnv) {
+			env.WriteString(k + "=" + keyEnv[k] + "\n")
+		}
+		if err := AtomicWriteFile(DSHEnvPath(dataDir, project), []byte(env.String()), 0o600); err != nil {
 			return "", err
 		}
 	}
@@ -283,21 +297,21 @@ func writeDSHProviderPatch(dataDir, project string, p *WizardProvider) (string, 
 			body += string(old[i:])
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", err
-	}
 	return path, AtomicWriteFile(path, []byte(body), 0o644)
 }
 
 func dshProviderBody(project string, p WizardProvider) (string, error) {
-	v, _ := wizardVendor(p.Vendor)
-	base := v.Endpoints[ProtocolAnthropic]
-	if base == "" {
-		return "", fmt.Errorf("%s has no Anthropic endpoint, which DSH needs", p.Vendor)
+	base, err := dshProviderBase(p)
+	if err != nil {
+		return "", err
 	}
 	model := strings.TrimSpace(p.Model)
 	if model == "" {
+		v, _ := wizardVendor(p.Vendor)
 		model = v.Model
+	}
+	if model == "" {
+		return "", fmt.Errorf("%s: model is required", p.Vendor)
 	}
 	return dshProviderPatch(project, base, model), nil
 }
