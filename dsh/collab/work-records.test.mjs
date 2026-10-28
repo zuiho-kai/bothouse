@@ -52,26 +52,58 @@ test('migration: old database messages remain readable after adding round_id', t
   assert.equal(upgraded.staleMessage(upgraded.message(message.id)), false);
 });
 
-test('migration: old messages follow round time boundaries with earliest-round fallback', t => {
+test('migration: legacy timestamps use nearest preceding round and adjacent start', t => {
   const path = join(mkdtempSync(join(tmpdir(), 'round-boundaries-')), 'collab.sqlite');
   const old = new Store(path); old.ensureRoom(1, 'one');
   const first = old.createWorkspace(1, { record: { title: 'multiple rounds', owner: 'dev' } });
   old.db.prepare("UPDATE work_rounds SET started_at = 100, ended_at = 200, status = 'ended' WHERE id = ?").run(first.round.id);
   const second = old.db.prepare("INSERT INTO work_rounds (record_id, workspace_id, started_at, status) VALUES (?, ?, 300, 'running') RETURNING id").get(first.record.id, first.workspace.id);
-  const ids = [50, 100, 199, 200, 250, 300, 350].map(time => {
+  old.db.prepare("UPDATE work_rounds SET ended_at = 400, status = 'ended' WHERE id = ?").run(second.id);
+  const third = old.db.prepare("INSERT INTO work_rounds (record_id, workspace_id, started_at) VALUES (?, ?, 500) RETURNING id").get(first.record.id, first.workspace.id);
+  const ids = [50, 100, 199, 200, 250, 298, 299, 300, 350, 400, 450, 499, 500].map(time => {
     const msg = old.append(first.workspace.id, { authorKind: 'user', author: 'owner', name: 'owner', text: `time ${time}` }).message;
     old.db.prepare('UPDATE messages SET created_at = ? WHERE id = ?').run(time, msg.id);
     return msg.id;
   });
-  old.db.exec('ALTER TABLE messages DROP COLUMN round_id'); old.close();
+  old.db.exec('ALTER TABLE messages DROP COLUMN round_id; ALTER TABLE work_rounds DROP COLUMN after_message_id'); old.close();
   const upgraded = new Store(path);
-  const expected = [first.round.id, first.round.id, first.round.id, first.round.id, first.round.id, second.id, second.id];
+  const expected = [first.round.id, first.round.id, first.round.id, first.round.id, first.round.id,
+    second.id, second.id, second.id, second.id, second.id, second.id, third.id, third.id];
   assert.deepEqual(ids.map(id => upgraded.message(id).round_id), expected);
   assert.deepEqual(upgraded.workspaceMessages(1, first.workspace.id).map(m => m.id), ids.slice(-2));
   assert.equal(upgraded.recordMessages(1, first.record.id).length, ids.length);
+  assert.deepEqual(upgraded.contextPage(first.workspace.id, ids.at(-1), 200).map(m => m.id), ids.slice(-2));
   upgraded.close();
   const reopened = new Store(path); t.after(() => reopened.close());
   assert.deepEqual(ids.map(id => reopened.message(id).round_id), expected);
+});
+
+for (const legacyFirst of [false, true]) test(`migration: message boundary preserves actual round despite timestamp skew (legacy first: ${legacyFirst})`, t => {
+  const path = join(mkdtempSync(join(tmpdir(), 'round-message-boundary-')), 'collab.sqlite');
+  const old = new Store(path); old.ensureRoom(1, 'one');
+  const first = old.createWorkspace(1, { record: { title: 'actual rounds', owner: 'dev' } });
+  old.db.prepare('UPDATE work_rounds SET started_at = 100 WHERE id = ?').run(first.round.id);
+  const append = time => {
+    const msg = old.append(first.workspace.id, { authorKind: 'user', author: 'owner', name: 'owner', text: `time ${time}` }).message;
+    old.db.prepare('UPDATE messages SET created_at = ? WHERE id = ?').run(time, msg.id);
+    return msg.id;
+  };
+  const previous = [append(100), append(299)]; // Same timestamp as current handoff, but written in the old round.
+  old.finishWorkRound(first.workspace.id, 200);
+  const second = old.startWorkRound(1, first.record.id, first.workspace.id, 300);
+  const current = [append(200), append(250), append(299), append(300)];
+  if (legacyFirst) old.db.prepare('UPDATE work_rounds SET after_message_id = NULL WHERE id = ?').run(first.round.id);
+  old.db.exec('ALTER TABLE messages DROP COLUMN round_id'); old.close();
+  const upgraded = new Store(path);
+  assert.deepEqual(previous.map(id => upgraded.message(id).round_id), previous.map(() => first.round.id));
+  assert.deepEqual(current.map(id => upgraded.message(id).round_id), current.map(() => second.id));
+  assert.deepEqual(upgraded.workspaceMessages(1, first.workspace.id).map(m => m.id), current);
+  assert.deepEqual(upgraded.contextPage(first.workspace.id, current.at(-1), 200).map(m => m.id), current);
+  assert.equal(upgraded.recordMessages(1, first.record.id).length, previous.length + current.length);
+  upgraded.close();
+  const reopened = new Store(path); t.after(() => reopened.close());
+  assert.deepEqual(reopened.workspaceMessages(1, first.workspace.id).map(m => m.id), current);
+  assert.deepEqual(previous.map(id => reopened.message(id).round_id), previous.map(() => first.round.id));
 });
 
 test('bridge compatibility: missing round accepts current reply while explicit old round stays blocked', async t => {

@@ -54,6 +54,8 @@ const COLUMNS = [
   ['messages', 'changed_at', 'REAL'],
   ['messages', 'record_id', 'INTEGER REFERENCES work_records(id)'],
   ['messages', 'round_id', 'INTEGER REFERENCES work_rounds(id)'],
+  // Global message high-water mark at round creation; independent of wall-clock skew.
+  ['work_rounds', 'after_message_id', 'INTEGER'],
   ['rooms', 'clearing_state', "TEXT NOT NULL DEFAULT 'occupied' CHECK (clearing_state IN ('occupied', 'wrapping', 'free', 'review'))"],
   ['rooms', 'clearing_reason', 'TEXT'],
 ];
@@ -183,14 +185,22 @@ export class Store {
         }
       }
       if (added.has('messages.round_id')) {
-        // Old messages have record attribution but no round. Use [start, end) time
-        // windows; gaps/pre-start timestamps deterministically belong to the earliest
-        // round of that record. Never reinterpret explicit nulls on subsequent opens.
+        // Prefer the persisted message boundary. Legacy rounds lack that evidence:
+        // use the latest preceding start, allowing the handoff's two-second clock
+        // skew only outside an earlier round's active window. Gaps stay with the
+        // preceding round, not the first. Never reinterpret rows on later opens.
         this.db.exec(`UPDATE messages SET round_id = COALESCE(
-          (SELECT id FROM work_rounds WHERE record_id = messages.record_id
-            AND started_at <= messages.created_at
-            AND (ended_at IS NULL OR messages.created_at < ended_at)
-            ORDER BY started_at DESC, id DESC LIMIT 1),
+          (SELECT r.id FROM work_rounds r WHERE r.record_id = messages.record_id
+            AND ((r.after_message_id IS NOT NULL AND r.after_message_id < messages.id) OR
+              (r.after_message_id IS NULL AND (r.started_at <= messages.created_at OR
+                (r.started_at <= messages.created_at + 2 AND NOT EXISTS (
+                  SELECT 1 FROM work_rounds prior WHERE prior.record_id = r.record_id
+                    AND prior.started_at <= messages.created_at
+                    AND (prior.ended_at IS NULL OR messages.created_at < prior.ended_at))))))
+            AND NOT EXISTS (SELECT 1 FROM work_rounds later
+              WHERE later.record_id = r.record_id AND later.id > r.id
+                AND later.after_message_id IS NOT NULL AND later.after_message_id < messages.id)
+            ORDER BY r.started_at DESC, r.id DESC LIMIT 1),
           (SELECT id FROM work_rounds WHERE record_id = messages.record_id
             ORDER BY started_at, id LIMIT 1))
           WHERE record_id IS NOT NULL AND round_id IS NULL`);
@@ -613,7 +623,8 @@ export class Store {
     if (this.currentRound(workspaceId)) throw new CollabError('conflict', 'workspace already has a running work round');
     this.resetSessions(workspaceId, { strict: true });
     this.db.prepare("UPDATE work_records SET status = 'active', finished_at = NULL WHERE id = ?").run(recordId);
-    return this.db.prepare('INSERT INTO work_rounds (record_id, workspace_id, started_at) VALUES (?, ?, ?) RETURNING *').get(recordId, workspaceId, now);
+    return this.db.prepare(`INSERT INTO work_rounds (record_id, workspace_id, started_at, after_message_id)
+      VALUES (?, ?, ?, (SELECT COALESCE(MAX(id), 0) FROM messages)) RETURNING *`).get(recordId, workspaceId, now);
   }
   /** Finish a released round from the existing task board; record status is a projection of it. */
   finishWorkRound(workspaceId, now = Date.now() / 1000) {
