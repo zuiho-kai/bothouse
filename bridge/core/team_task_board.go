@@ -51,6 +51,8 @@ type teamTaskBoardItem struct {
 	SK string `json:"sk"`
 	// WS: the workspace a handoff item is bound to; dropped when the item leaves it (pause).
 	WS string `json:"ws"`
+	// WSWas: the workspace a paused handoff item was bound to (board.py pause moves WS here).
+	WSWas string `json:"ws_was"`
 	// Bound: when the item was bound to WS (RFC 3339), just after the bridge recorded that handoff.
 	Bound string `json:"bound"`
 	// Chat: for a handoff, the chat it came from; the item also shows on that chat's board.

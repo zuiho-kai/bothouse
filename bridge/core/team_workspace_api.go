@@ -260,6 +260,9 @@ func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Reque
 		// the task; the newest handoff of chat at or before it is the one parked.
 		Chat   string `json:"chat"`
 		Before string `json:"before"`
+		// Stop: the user stopped the task (board pause); a freed workspace's running turn is
+		// stopped too, so nothing more comes out of it. ws-up --ask parks without it.
+		Stop bool `json:"stop"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -288,7 +291,7 @@ func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Reque
 		plat, _, _ := strings.Cut(key, ":")
 		key = plat + ":" + req.WorkspaceID
 	}
-	freed, err := s.parkAndReset(e, key, req.Chat, before)
+	freed, err := s.parkAndReset(e, key, req.Chat, before, req.Stop)
 	if errors.Is(err, ErrTeamWorkspaceNotOwned) {
 		msg := err.Error()
 		parent := key
@@ -314,7 +317,10 @@ func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Reque
 // parkAndReset parks a task of workspace key on the team workspace engine e
 // (ParkTeamWorkspaceFor) and, when that freed the workspace, also resets the teammates'
 // sessions there (e reset the lead's). Shared by the park API and the ten-minute watch.
-func (s *APIServer) parkAndReset(e *Engine, key, chat string, before time.Time) (bool, error) {
+// stop (the user stopped the task): every role's turn still running in the freed workspace is
+// stopped as well. Resetting the sessions does not end a running turn: on 10-28 a workspace
+// parked at 14:06 kept working and sent an [ask] at 14:10 (user 「为什么工作区没暂停」).
+func (s *APIServer) parkAndReset(e *Engine, key, chat string, before time.Time, stop bool) (bool, error) {
 	freed, err := e.ParkTeamWorkspaceFor(key, chat, before)
 	if err != nil || !freed {
 		return freed, err
@@ -329,6 +335,14 @@ func (s *APIServer) parkAndReset(e *Engine, key, chat string, before time.Time) 
 	s.mu.RUnlock()
 	for _, x := range others {
 		x.ResetTeamWorkspaceSessions(key)
+	}
+	if stop {
+		plat, _, _ := strings.Cut(key, ":")
+		n := 0
+		for _, x := range append(others, e) {
+			n += x.stopChannel(plat, key)
+		}
+		slog.Info("team workspace: stopped the turns running there", "workspace", key, "stopped", n)
 	}
 	return true, nil
 }

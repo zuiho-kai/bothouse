@@ -184,6 +184,11 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		return ""
 	}
 	ws := sessionChannel(sessionKey)
+	if id, stopped := e.workspaceTaskStopped(sessionKey); stopped {
+		slog.Info("team exit: the task was stopped by the user; the answer stays in the workspace",
+			"kind", kind, "workspace", ws, "board_item", id)
+		return ""
+	}
 	parent, ok := e.workspaceParent(teamChatKey(sessionKey))
 	if !ok {
 		parent, ok = e.workspaceParent(ws)
@@ -245,6 +250,41 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	}
 	e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Bot: bot, Forwarded: sent, At: time.Now()})
 	return id
+}
+
+// workspaceTaskStopped: the workspace's task was stopped by the user (board pause), so its
+// [ask]/[report] is not forwarded (user 2026-10-28 「我都说不做了，你还问我」: a turn already
+// running when the task was paused still sent an [ask]). Stopped means no handoff is in work
+// there and the board item last bound to it is paused for a reason other than waiting on the
+// user (ws-up --ask pauses its own item with 「等待用户答复」; that [ask] still goes out).
+func (e *Engine) workspaceTaskStopped(sessionKey string) (int, bool) {
+	if e.workspaceHasOpenHandoff(sessionKey) {
+		return 0, false
+	}
+	dir := e.teamStatusDir()
+	if dir == "" {
+		return 0, false
+	}
+	key := teamChatKey(sessionKey)
+	var last *teamTaskBoardItem
+	items := readTeamTaskBoard(dir)
+	for i := range items {
+		it := &items[i]
+		w := it.WS
+		if w == "" {
+			w = it.WSWas
+		}
+		if w == "" || teamChatKey(w) != key {
+			continue
+		}
+		if last == nil || it.Bound > last.Bound {
+			last = it
+		}
+	}
+	if last == nil || last.Paused == "" || teamTaskBoardWaitUser.MatchString(last.PauseWhy) {
+		return 0, false
+	}
+	return last.ID, true
 }
 
 var askRef = regexp.MustCompile(`\bask-[0-9a-f]{8}\b`)
