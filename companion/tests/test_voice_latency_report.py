@@ -20,6 +20,8 @@ def test_grouped_distribution_uses_recorded_samples_only(tmp_path):
         row('companion', 'small', {'e2e_first_playback_ms': 1900}),
         row('companion', 'small', {'e2e_first_playback_ms': 2100}),
         row('work', 'big', {'e2e_first_playback_ms': 4200}),
+        # 陪伴模式回退大脑：仍按陪伴 2 秒判，不按大脑 4 秒放宽。
+        row('companion', 'big', {'e2e_first_playback_ms': 2600}),
         # No speech-end sample: must stay in its own lower-fidelity bucket.
         row('companion', 'small', {'first_playback_ms': 1200}),
         # Not a playback start: ignored.
@@ -34,6 +36,8 @@ def test_grouped_distribution_uses_recorded_samples_only(tmp_path):
     assert small['pass_rate'] == 0.667
     work = result['groups']['work/big e2e_first_playback_ms']
     assert work['n'] == 1 and work['target_ms'] == 4000 and work['within_target'] == 0
+    escalated = result['groups']['companion/big e2e_first_playback_ms']
+    assert escalated['target_ms'] == 2000 and escalated['within_target'] == 0
     assert 'companion/small first_playback_ms' in result['groups']
     assert result['days'] == ['2026-10-28']
 

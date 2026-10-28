@@ -32,7 +32,18 @@ import statistics
 METRICS = ('e2e_first_playback_ms', 'e2e_first_audio_ms',
            'first_playback_ms', 'submit_to_first_audio_ms')
 # 来源：频道 2026-10-28 明确口径——陪伴 2 秒、工作 4 秒（用户说完→第一句有效回答出声）。
+# 自动模式按实际选择的路由判定：小脑 2 秒、大脑 4 秒。
 TARGETS_BY_ROUTE = {'small': 2000, 'big': 4000}
+
+
+def target_ms(mode: str, route: str) -> int | None:
+    if mode == 'companion':
+        return 2000  # 陪伴模式包含回退大脑的轮次，仍按 2 秒验收
+    if mode == 'work':
+        return 4000
+    if mode == 'auto':
+        return TARGETS_BY_ROUTE.get(route)
+    return None
 
 
 def percentile(values: list[float], ratio: float) -> float:
@@ -80,7 +91,7 @@ def summarize(paths: list[Path]) -> dict:
     result = {'files': [str(p) for p in paths], 'days': sorted(days),
               'groups': {}, 'samples': 0}
     for (mode, metric), values in sorted(groups.items()):
-        route = mode.rsplit('/', 1)[-1]
+        mode_name, route = mode.rsplit('/', 1)
         entry = {
             'n': len(values),
             'p50': round(percentile(values, 0.5), 1),
@@ -89,7 +100,7 @@ def summarize(paths: list[Path]) -> dict:
             'max': round(max(values), 1),
             'mean': round(statistics.fmean(values), 1),
         }
-        target = TARGETS_BY_ROUTE.get(route)
+        target = target_ms(mode_name, route)
         if metric == 'e2e_first_playback_ms' and target:
             entry['target_ms'] = target
             entry['within_target'] = sum(1 for value in values if value <= target)
