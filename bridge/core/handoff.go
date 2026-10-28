@@ -32,9 +32,13 @@ type SessionHandoffReader interface {
 }
 
 const (
-	handoffSummaryRunes = 10000
-	handoffTailRunes    = 8000
-	handoffEntryRunes   = 1500
+	// Handoff budget (user 2026-10-28「那大的东西其实没有什么信息量可言」): the new context keeps the
+	// user's words and where the work stopped; automation, quotes and long reports are cut at the
+	// source (slimHandoffEntry), and the whole block stays short.
+	handoffSummaryRunes = 2000
+	handoffTailRunes    = 1500
+	handoffEntryRunes   = 400
+	handoffReplyRunes   = 300 // one reply of the old context: its first lines (the conclusion)
 )
 
 // SetColdCacheFresh configures starting a fresh session (with a handoff)
@@ -260,21 +264,23 @@ func formatHandoff(id, reason string, h *SessionHandoff) string {
 	}
 	budget := handoffTailRunes
 	if strings.TrimSpace(h.CompactSummary) == "" {
-		budget += handoffSummaryRunes // never compacted: give the dialogue the summary's share
+		budget += handoffTailRunes // never compacted: the dialogue is all there is
 	}
 	var lines []string
 	total := 0
+	seen := map[string]bool{}
 	for i := len(h.Tail) - 1; i >= 0; i-- {
 		t := h.Tail[i]
-		who, keepEnd, text := "你", false, t.Content
+		who, keepEnd, text, max := "你", false, t.Content, handoffReplyRunes
 		if t.Role == "user" {
 			// Injected blocks come first in a user turn; the user's own words last.
-			who, keepEnd, text = "消息", true, stripStaleBlocks(text)
+			who, keepEnd, text, max = "消息", true, slimHandoffEntry(stripStaleBlocks(text)), handoffEntryRunes
 		}
-		if text = strings.TrimSpace(text); text == "" {
+		if text = strings.TrimSpace(text); text == "" || seen[text] {
 			continue
 		}
-		line := "[" + stamp(t.Timestamp) + " " + who + "] " + clipRunes(text, handoffEntryRunes, keepEnd)
+		seen[text] = true
+		line := "[" + stamp(t.Timestamp) + " " + who + "] " + clipRunes(text, max, keepEnd)
 		n := len([]rune(line))
 		if total+n > budget {
 			break
@@ -452,6 +458,61 @@ func teamRulesPrefix(text string) string {
 		}
 	}
 	return ""
+}
+
+// slimHandoffEntry keeps what a user turn says, not what came with it: lines this bot account
+// posted itself (timers, watch nudges, ⏰/📬 notices), delivery notes, model footers, image paths
+// and the team rules go; in the channel backfill each message keeps its first line only, and a
+// quoted reply keeps its start. The words after the backfill (the message itself) stay whole.
+func slimHandoffEntry(text string) string {
+	var out []string
+	inQuote, inRules, backfill := false, false, false
+	for _, l := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(l)
+		if inQuote {
+			inQuote = !strings.HasSuffix(t, "]")
+			continue
+		}
+		if inRules {
+			inRules = t != ""
+			continue
+		}
+		switch {
+		case t == "":
+			if len(out) > 0 && out[len(out)-1] != "" {
+				out = append(out, "")
+			}
+			continue
+		case t == handoffEnd: // an earlier handoff that stripStaleBlocks could not see the start of
+			out = out[:0]
+			continue
+		case strings.HasPrefix(t, "（频道里你上次看到之后的消息"):
+			backfill = true
+			continue
+		case strings.HasPrefix(t, "（最新，回这条）"), strings.HasPrefix(t, "（定时任务，回这条）"):
+			backfill = false
+			continue
+		case strings.HasPrefix(t, "[团队模式规矩"), strings.HasPrefix(t, "[Bridge delegation policy"):
+			inRules = true
+			continue
+		case strings.Contains(t, "（你这个账号，但不是你在会话里写的"),
+			strings.HasPrefix(t, "（用户这条明确 @ 了你"), strings.HasPrefix(t, "（新会话：旧会话里看过的频道图片"),
+			strings.HasPrefix(t, "(Images also saved locally"), strings.HasPrefix(t, "看门："),
+			strings.HasPrefix(t, "⏰"), strings.HasPrefix(t, "📬"),
+			strings.HasPrefix(t, "*") && strings.Contains(t, " · "):
+			continue
+		case backfill:
+			if !strings.HasPrefix(t, "[") {
+				continue // a backfilled message's later lines
+			}
+			t = clipRunes(t, 120, false)
+		case strings.HasPrefix(t, "[replying to "):
+			inQuote = !strings.HasSuffix(t, "]")
+			t = "[回复：" + clipRunes(strings.TrimPrefix(t, "[replying to "), 60, false) + "]"
+		}
+		out = append(out, t)
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
 func isSummaryPara(p string) bool {
