@@ -42,7 +42,7 @@ func TestWatchNoProgressNudgesAndParks(t *testing.T) {
 	if next := w.tick(h.Due.Add(-time.Second)); !next.Equal(h.Due) || len(p.sentTo("discord:ws1")) != 0 {
 		t.Fatalf("before the check time nothing happens; next %v, sent %v", next, p.out)
 	}
-	if next := w.tick(h.Due); !next.IsZero() {
+	if next := watchAfterWarning(t, w, h.Due); !next.IsZero() {
 		t.Fatalf("parked handoff must not be checked again, next %v", next)
 	}
 	sent := p.sentTo("discord:ws1")
@@ -87,7 +87,7 @@ func TestWatchParksWhenNudgeFails(t *testing.T) {
 	e.platforms = []Platform{stub}
 	e.platformReady = map[Platform]bool{}
 	e.markPlatformReady(stub)
-	w.tick(h.Due)
+	watchAfterWarning(t, w, h.Due)
 	got := handoffsOf(e, "discord:ws1")[0]
 	if got.Parked.IsZero() || !got.Nudged {
 		t.Fatalf("send failed: still parked (nudged is marked before the send): %+v", got)
@@ -98,7 +98,7 @@ func TestWatchParkNotOwnedStops(t *testing.T) {
 	e, _, w, h := watchFixture(t, "u1", "")
 	calls := 0
 	w.park = func(string, string, time.Time) (bool, error) { calls++; return false, ErrTeamWorkspaceNotOwned }
-	if next := w.tick(h.Due); !next.IsZero() {
+	if next := watchAfterWarning(t, w, h.Due); !next.IsZero() {
 		t.Fatalf("not owned: watch ends, next %v", next)
 	}
 	if got := handoffsOf(e, "discord:ws1")[0]; !got.Due.IsZero() {
@@ -114,7 +114,7 @@ func TestWatchParkFailureRetriesThenReports(t *testing.T) {
 	e, p, w, h := watchFixture(t, "u1", "")
 	calls := 0
 	w.park = func(string, string, time.Time) (bool, error) { calls++; return false, errors.New("disk full") }
-	now := h.Due
+	now := w.tick(h.Due) // warn before exercising park retries
 	for i := 1; i < watchParkRetries; i++ {
 		next := w.tick(now)
 		if !next.Equal(now.Add(watchRetryDelay)) {
@@ -193,7 +193,7 @@ func TestWatchRenewsOnProgressAtMostTwice(t *testing.T) {
 	if len(p.out) != 0 {
 		t.Fatalf("renewals are silent, got %v", p.out)
 	}
-	w.tick(now)
+	watchAfterWarning(t, w, now)
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || got.Renewed != watchMaxRenew {
 		t.Fatalf("after %d renewals the task is parked: %+v", watchMaxRenew, got)
 	}
@@ -255,7 +255,7 @@ func TestWatchWaitsForReadyPlatform(t *testing.T) {
 		t.Fatalf("not ready: nothing sent or parked: %+v %v", got, p.out)
 	}
 	e.markPlatformReady(p)
-	w.tick(h.Due.Add(5 * watchRetryDelay))
+	watchAfterWarning(t, w, h.Due.Add(5*watchRetryDelay))
 	w.tick(h.Due.Add(6 * watchRetryDelay))
 	if n := len(p.sentTo("discord:ws1")); n != 1 {
 		t.Fatalf("ready: one nudge, got %d", n)
@@ -603,7 +603,7 @@ func TestWatchStanceAndOtherPostsAreNoProgress(t *testing.T) {
 	}
 	p.post("ws1", "someone-else", "我在干活", at)
 	p.post("ws1", k5aOwner, "这条在派活之前", h.At.Add(-time.Minute))
-	w.tick(h.Due)
+	watchAfterWarning(t, w, h.Due)
 	got := handoffsOf(e, "discord:ws1")[0]
 	if got.Renewed != 0 || got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
 		t.Fatalf("no progress: nudged once and parked, got %+v, sent %v", got, p.out)
@@ -627,7 +627,7 @@ func TestWatchOwnerPostsRenewAtMostTwice(t *testing.T) {
 		t.Fatalf("renewals are silent, got %v", p.out)
 	}
 	p.post("ws1", k5aOwner, "进度：还在做", now.Add(-time.Second))
-	if next := w.tick(now); !next.IsZero() {
+	if next := watchAfterWarning(t, w, now); !next.IsZero() {
 		t.Fatalf("third check stops the watch, next %v", next)
 	}
 	got := handoffsOf(e, "discord:ws1")[0]
@@ -642,7 +642,7 @@ func TestWatchOwnerPostsRenewAtMostTwice(t *testing.T) {
 // No post and no turn running: stopped at the first check.
 func TestWatchNoSignalStops(t *testing.T) {
 	e, p, w, h := progressFixture(t, k5aOwner)
-	if next := w.tick(h.Due); !next.IsZero() {
+	if next := watchAfterWarning(t, w, h.Due); !next.IsZero() {
 		t.Fatalf("stopped, next %v", next)
 	}
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || got.Renewed != 0 || len(p.sentTo("discord:ws1")) != 1 {
@@ -669,7 +669,7 @@ func TestWatchBusySessionIsNotStopped(t *testing.T) {
 	}
 	w.tick(next)
 	next = handoffsOf(e, "discord:ws1")[0].Due
-	w.tick(next)
+	watchAfterWarning(t, w, next)
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Renewed != watchMaxRenew || got.Parked.IsZero() {
 		t.Fatalf("busy but renewals used up: parked, got %+v", got)
 	}
@@ -723,7 +723,7 @@ func TestWatchBusySessionWithoutEventsStaysCapped(t *testing.T) {
 		}
 		now = next
 	}
-	if next := w.tick(now); !next.IsZero() {
+	if next := watchAfterWarning(t, w, now); !next.IsZero() {
 		t.Fatalf("busy renewals used up: parked, next %v", next)
 	}
 	got := handoffsOf(e, "discord:ws1")[0]
@@ -905,7 +905,7 @@ func TestWatchSignalErrorRetriesThenNoProgress(t *testing.T) {
 		}
 		now = next
 	}
-	if next := w.tick(now); !next.IsZero() {
+	if next := watchAfterWarning(t, w, now); !next.IsZero() {
 		t.Fatalf("retries used up: stopped, next %v", next)
 	}
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || got.Renewed != 0 || len(p.sentTo("discord:ws1")) != 1 {
@@ -983,7 +983,7 @@ func TestWatchFeishuUsesSessionUpdate(t *testing.T) {
 		t.Fatalf("a turn ended in the window renews silently, got %+v, sent %v", got, p.out)
 	}
 	// Next window: no turn since then: nudged and parked, not retried (no read error).
-	if next := w.tick(got.Due); !next.IsZero() {
+	if next := watchAfterWarning(t, w, got.Due); !next.IsZero() {
 		t.Fatalf("no turn in the window: stopped, next %v", next)
 	}
 	if got := handoffsOf(e, "feishu:ws1")[0]; got.Parked.IsZero() || got.ReadFails != 0 || len(p.sentTo("feishu:ws1")) != 1 {
@@ -1032,7 +1032,7 @@ func TestWatchBackgroundWorkRenewsThenIdleParks(t *testing.T) {
 			}
 			bg.set(0, h.Due)
 			child.set(1, SubTask{ID: "child", Status: SubTaskCompleted, EndedAt: h.Due})
-			if next := w.tick(next); !next.IsZero() {
+			if next := watchAfterWarning(t, w, next); !next.IsZero() {
 				t.Fatalf("idle task must park: %v", next)
 			}
 			got = handoffsOf(e, "discord:ws1")[0]
@@ -1075,7 +1075,7 @@ func TestWatchWorkspaceBranchPushRenews(t *testing.T) {
 	if next.IsZero() {
 		t.Fatal("the new push must renew the first check")
 	}
-	w.tick(next)
+	watchAfterWarning(t, w, next)
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
 		t.Fatalf("old push must not renew: %+v", got)
 	}
@@ -1097,7 +1097,7 @@ func TestWatchBackgroundRenewsBeyondOrdinaryLimit(t *testing.T) {
 		now = next
 	}
 	bg.set(0, time.Time{})
-	if next := w.tick(now); !next.IsZero() {
+	if next := watchAfterWarning(t, w, now); !next.IsZero() {
 		t.Fatalf("background ended without output: must park, next %v", next)
 	}
 }
@@ -1120,7 +1120,7 @@ func TestWatchDeadBackgroundSessionParks(t *testing.T) {
 				bg.alive = false
 			}
 			e.interactiveStates["discord:ws1:owner"] = &interactiveState{agentSession: as}
-			if next := w.tick(h.Due); !next.IsZero() {
+			if next := watchAfterWarning(t, w, h.Due); !next.IsZero() {
 				t.Fatalf("dead process must not renew: %v", next)
 			}
 			got := handoffsOf(e, "discord:ws1")[0]
@@ -1149,7 +1149,7 @@ func TestWatchBackgroundRenewalCapSurvivesReload(t *testing.T) {
 		teamWorkspaceStore.mu.Unlock()
 		w = newHandoffWatch(e)
 	}
-	if next := w.tick(now); !next.IsZero() {
+	if next := watchAfterWarning(t, w, now); !next.IsZero() {
 		t.Fatalf("six renewals exhausted: must park, next %v", next)
 	}
 	got := handoffsOf(e, "discord:ws1")[0]
@@ -1184,7 +1184,7 @@ func TestWatchRenewsWhileProgressByDefault(t *testing.T) {
 		now = next
 	}
 	progress = watchProgressNone
-	w.tick(now)
+	watchAfterWarning(t, w, now)
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
 		t.Fatalf("quiet window: nudged once and parked, got %+v, sent %v", got, p.out)
 	}
