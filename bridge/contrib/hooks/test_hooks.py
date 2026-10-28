@@ -28,7 +28,8 @@ class Hooks(unittest.TestCase):
         for f in ("ctxsvc.py", "wiki_search.py"):
             shutil.copy(os.path.join(GATE, f), cls.hooks)
         cls.env = dict(os.environ, HOME=cls.tmp, DSH_HOME=os.path.join(cls.tmp, "dsh"), GATE_WIKI="off")
-        for k in ("CC_PROJECT", "HOOK_PROXY", "HOOK_FREE_DIRS", "HOOK_REVIEWS_DIR", "HOOK_RESEARCHER_DIRS"):
+        for k in ("CC_PROJECT", "HOOK_PROXY", "HOOK_FREE_DIRS", "HOOK_REVIEWS_DIR", "HOOK_RESEARCHER_DIRS",
+                  "CC_SESSION_KEY", "BOTHOUSE_DATA_DIR", "GATE_SETUP_DIR"):
             cls.env.pop(k, None)
 
     @classmethod
@@ -201,6 +202,20 @@ class Hooks(unittest.TestCase):
         self.assertTrue(self.denied(self.run_hook("dispatch-review-guard", p)))
         self.session("child1", [], depth=1, compress=False)  # a DSH subagent: allowed, as a Claude Code subagent is
         self.assertEqual(self.run_hook("dispatch-review-guard", dict(p, session_id="child1")), "")
+
+    def test_workspace_session_edits_directly(self):
+        data = os.path.join(self.tmp, "bh")
+        os.makedirs(data, exist_ok=True)
+        with open(os.path.join(data, "team_workspaces.json"), "w") as f:
+            json.dump({"parents": {"discord:100": [{"name": "工作区1", "id": "200"}]}, "handoffs": {}}, f)
+        p = {"hook_event_name": "PreToolUse", "session_id": "ws1", "transcript_path": "", "tool_name": "Write",
+             "tool_input": {"file_path": "/work/app.py", "content": "x"}}
+        self.session("ws1", [], compress=False)
+        env = dict(self.env, BOTHOUSE_DATA_DIR=data)
+        self.assertEqual(self.run_hook("dispatch-review-guard", p, env=dict(env, CC_SESSION_KEY="discord:200")), "")
+        self.assertTrue(self.denied(self.run_hook("dispatch-review-guard", p, env=dict(env, CC_SESSION_KEY="discord:100"))))
+        small = dict(p, tool_name="Edit", tool_input={"file_path": "/work/app.py", "old_string": "a", "new_string": "b"})
+        self.assertEqual(self.run_hook("dispatch-review-guard", small, env=dict(env, CC_SESSION_KEY="discord:100")), "")
 
     # ---- param-source-guard ----
     def test_param_source_both_clis(self):
