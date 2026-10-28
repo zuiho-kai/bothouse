@@ -16,13 +16,13 @@ func watchAfterWarning(t *testing.T, w *handoffWatch, at time.Time) time.Time {
 	return w.tick(next)
 }
 
-type watchOwnerPlatform struct{ *exitTestPlatform }
+type watchOwnerPlatform struct{ *historyTestPlatform }
 
 func (*watchOwnerPlatform) SelfMention() string { return "<@123456789>" }
 
 func TestWatchClaimResolvesProjectOwner(t *testing.T) {
 	e, _, raw := exitFixture(t, nil)
-	p := &watchOwnerPlatform{raw}
+	p := &watchOwnerPlatform{&historyTestPlatform{exitTestPlatform: raw}}
 	e.platforms = []Platform{p}
 	e.markPlatformReady(p)
 	e.name = "deep"
@@ -32,6 +32,10 @@ func TestWatchClaimResolvesProjectOwner(t *testing.T) {
 	h := handoffsOf(e, "discord:ws1")[0]
 	if h.Owner != "123456789" {
 		t.Fatalf("project owner persisted as %q; want platform ID", h.Owner)
+	}
+	p.post("ws1", "123456789", "implemented and tested", h.At.Add(time.Second))
+	if kind, err := newHandoffWatch(e).workspaceProgress("discord:ws1", h, h.At); err != nil || kind != watchProgressReal {
+		t.Fatalf("resolved owner's real post was missed: %v, %v", kind, err)
 	}
 }
 
@@ -93,6 +97,7 @@ func TestWatchRecoveryWarningSurvivesReload(t *testing.T) {
 func TestWatchRecoveryClosedHandoffDoesNotAffectReclaim(t *testing.T) {
 	e, p, w, h := watchFixture(t, "u1", "old")
 	due := w.tick(h.Due)
+	h = handoffsOf(e, "discord:ws1")[0]
 	if _, err := e.ParkTeamWorkspaceFor("discord:ws1", h.Chat, h.At); err != nil {
 		t.Fatal(err)
 	}
@@ -105,5 +110,21 @@ func TestWatchRecoveryClosedHandoffDoesNotAffectReclaim(t *testing.T) {
 	hs := handoffsOf(e, "discord:ws1")
 	if len(hs) != 2 || !teamHandoffOpen(hs[1]) || hs[1].Owner != "u2" || len(p.sentTo("discord:ws1")) != 1 {
 		t.Fatalf("stale warning affected the new claim: %+v", hs)
+	}
+}
+
+func TestWatchRecoveryOtherWorkspaceEventsDoNotRenew(t *testing.T) {
+	e, _, w, h := progressFixture(t, "u1")
+	s := e.sessions.GetOrCreateActive("discord:ws1:u1")
+	if !s.TryLock() {
+		t.Fatal("lock")
+	}
+	defer s.Unlock()
+	h.BusyRenewed = watchBusyMaxRenew
+	state := &interactiveState{}
+	state.lastEventAt.Store(h.At.Add(time.Second).UnixNano())
+	e.interactiveStates["/tmp/other:discord:ws2:u1"] = state
+	if kind, err := w.workspaceProgress("discord:ws1", h, h.At); err != nil || kind != watchProgressNone {
+		t.Fatalf("another workspace kept a stalled task alive: %v, %v", kind, err)
 	}
 }
