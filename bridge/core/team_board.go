@@ -277,7 +277,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	now := time.Now()
 	if e.team != nil {
 		place := e.teamTaskBoardPlacer()
-		items = placeTeamTaskBoard(place, readTeamTaskBoard(e.team.dir))
+		items = e.dropGoneTeamTaskBoard(placeTeamTaskBoard(place, readTeamTaskBoard(e.team.dir)))
 		if e.timerScheduler != nil {
 			pending = append([]*TimerJob{}, e.timerScheduler.Store().ListPending()...)
 		}
@@ -342,8 +342,12 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 		live := teamTaskBoardLive(items, chat)
 		index, indexLive := renderTeamTaskIndex(files, chat, e.i18n.CurrentLang())
 		if kind == teamBoardFull {
+			home, _ := e.WorkspaceParent(chat)
+			if home == "" {
+				home = teamMainChat(e.dataDir)
+			}
 			content = withTeamTaskBoard(index, func(budget int) string {
-				return renderWorkspaceTaskBoardFit(items, done, chat, now, pending, budget)
+				return renderWorkspaceTaskBoardFit(items, chat, home, now, budget)
 			})
 			live = live || indexLive
 		} else {
