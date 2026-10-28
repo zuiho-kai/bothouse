@@ -385,7 +385,7 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, key st
 			"CC_PROJECT=" + e.name, "CC_SESSION_KEY=" + req.SessionKey, "CC_VOICE_STREAM=" + stream,
 		})
 	} else {
-		session, reused, err = pool.acquire(ctx, key, prior, starter, []string{
+		session, reused, err = pool.acquire(ctx, key, req.Stream, prior, starter, []string{
 			"CC_PROJECT=" + e.name, "CC_SESSION_KEY=" + req.SessionKey, "CC_VOICE_STREAM=" + stream,
 		})
 	}

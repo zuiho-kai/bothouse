@@ -67,23 +67,53 @@ func TestVoiceSessionPool_ReusesPerRelayKeyAndIsolatesKeys(t *testing.T) {
 	f := newPoolStarterFake()
 	ctx := context.Background()
 
-	s1, reused, err := p.acquire(ctx, "key-a", voiceRelayConversation{}, f, nil)
+	s1, reused, err := p.acquire(ctx, "key-a", false, voiceRelayConversation{}, f, nil)
 	if err != nil || reused {
 		t.Fatalf("first acquire = reused %v err %v", reused, err)
 	}
 	p.release("key-a", s1, true)
 
-	s2, reused, err := p.acquire(ctx, "key-a", voiceRelayConversation{ID: s1.CurrentSessionID()}, f, nil)
+	s2, reused, err := p.acquire(ctx, "key-a", false, voiceRelayConversation{ID: s1.CurrentSessionID()}, f, nil)
 	if err != nil || !reused || s2 != s1 {
 		t.Fatalf("second acquire = reused %v same %v err %v", reused, s2 == s1, err)
 	}
 	p.release("key-a", s2, true)
 
 	// A different relay key (another device/role) must never share the session.
-	s3, reused, err := p.acquire(ctx, "key-b", voiceRelayConversation{}, f, nil)
+	s3, reused, err := p.acquire(ctx, "key-b", false, voiceRelayConversation{}, f, nil)
 	if err != nil || reused || s3 == s1 {
 		t.Fatalf("other key = reused %v same %v err %v", reused, s3 == s1, err)
 	}
+	if got := f.starts.Load(); got != 2 {
+		t.Fatalf("starts = %d, want 2", got)
+	}
+}
+
+// TestVoiceSessionPool_DoesNotReuseAcrossStreamSetting is the regression for a
+// non-stream resident session being handed to a streaming voice turn: the
+// backend was started with CC_VOICE_STREAM=0, so it would never publish
+// first-sentence deltas and the turn would silently lose the whole latency win.
+func TestVoiceSessionPool_DoesNotReuseAcrossStreamSetting(t *testing.T) {
+	p := newVoiceSessionPool()
+	p.configure(true, time.Minute, 10)
+	f := newPoolStarterFake()
+	ctx := context.Background()
+
+	s1, reused, err := p.acquire(ctx, "key", false, voiceRelayConversation{}, f, nil)
+	if err != nil || reused {
+		t.Fatalf("first acquire = reused %v err %v", reused, err)
+	}
+	p.release("key", s1, true)
+
+	s2, reused, err := p.acquire(ctx, "key", true, voiceRelayConversation{ID: s1.CurrentSessionID()}, f, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reused || s2 == s1 {
+		t.Fatalf("stream turn reused a non-stream session: reused=%v same=%v", reused, s2 == s1)
+	}
+	p.release("key", s2, true)
+
 	if got := f.starts.Load(); got != 2 {
 		t.Fatalf("starts = %d, want 2", got)
 	}
@@ -95,7 +125,7 @@ func TestVoiceSessionPool_RebuildsWhenSessionIsNotAlive(t *testing.T) {
 	f := newPoolStarterFake()
 	ctx := context.Background()
 
-	s1, _, err := p.acquire(ctx, "key", voiceRelayConversation{}, f, nil)
+	s1, _, err := p.acquire(ctx, "key", false, voiceRelayConversation{}, f, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +133,7 @@ func TestVoiceSessionPool_RebuildsWhenSessionIsNotAlive(t *testing.T) {
 	dead := s1.(*poolSessionFake)
 	dead.alive.Store(false)
 
-	s2, reused, err := p.acquire(ctx, "key", voiceRelayConversation{ID: dead.CurrentSessionID()}, f, nil)
+	s2, reused, err := p.acquire(ctx, "key", false, voiceRelayConversation{ID: dead.CurrentSessionID()}, f, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,14 +155,14 @@ func TestVoiceSessionPool_RecyclesAfterTurnLimitAndIdle(t *testing.T) {
 	f := newPoolStarterFake()
 	ctx := context.Background()
 
-	s1, _, _ := p.acquire(ctx, "key", voiceRelayConversation{}, f, nil)
+	s1, _, _ := p.acquire(ctx, "key", false, voiceRelayConversation{}, f, nil)
 	p.release("key", s1, true)
-	s2, reused, _ := p.acquire(ctx, "key", voiceRelayConversation{ID: s1.(*poolSessionFake).id}, f, nil)
+	s2, reused, _ := p.acquire(ctx, "key", false, voiceRelayConversation{ID: s1.(*poolSessionFake).id}, f, nil)
 	if !reused {
 		t.Fatal("first turn under the limit must be reused")
 	}
 	p.release("key", s2, true)
-	if _, reused, _ := p.acquire(ctx, "key", voiceRelayConversation{ID: s2.(*poolSessionFake).id}, f, nil); reused {
+	if _, reused, _ := p.acquire(ctx, "key", false, voiceRelayConversation{ID: s2.(*poolSessionFake).id}, f, nil); reused {
 		t.Fatal("session at the turn limit must be replaced")
 	}
 
@@ -140,10 +170,10 @@ func TestVoiceSessionPool_RecyclesAfterTurnLimitAndIdle(t *testing.T) {
 	p2 := newVoiceSessionPool()
 	p2.configure(true, time.Millisecond, 10)
 	f2 := newPoolStarterFake()
-	x, _, _ := p2.acquire(ctx, "key", voiceRelayConversation{}, f2, nil)
+	x, _, _ := p2.acquire(ctx, "key", false, voiceRelayConversation{}, f2, nil)
 	p2.release("key", x, true)
 	time.Sleep(5 * time.Millisecond)
-	if _, reused, _ := p2.acquire(ctx, "key", voiceRelayConversation{ID: x.(*poolSessionFake).id}, f2, nil); reused {
+	if _, reused, _ := p2.acquire(ctx, "key", false, voiceRelayConversation{ID: x.(*poolSessionFake).id}, f2, nil); reused {
 		t.Fatal("idle session must not be reused")
 	}
 }
@@ -152,7 +182,7 @@ func TestVoiceSessionPool_DisabledStartsEveryTurn(t *testing.T) {
 	p := newVoiceSessionPool() // configured by default: disabled
 	f := newPoolStarterFake()
 	ctx := context.Background()
-	s1, reused, _ := p.acquire(ctx, "key", voiceRelayConversation{}, f, nil)
+	s1, reused, _ := p.acquire(ctx, "key", false, voiceRelayConversation{}, f, nil)
 	if reused {
 		t.Fatal("disabled pool must not reuse")
 	}
@@ -160,7 +190,7 @@ func TestVoiceSessionPool_DisabledStartsEveryTurn(t *testing.T) {
 	if got := p.count(); got != 0 {
 		t.Fatalf("pool entries = %d, want 0 when disabled", got)
 	}
-	if _, reused, _ := p.acquire(ctx, "key", voiceRelayConversation{}, f, nil); reused {
+	if _, reused, _ := p.acquire(ctx, "key", false, voiceRelayConversation{}, f, nil); reused {
 		t.Fatal("disabled pool reused a session")
 	}
 	if got := f.starts.Load(); got != 2 {

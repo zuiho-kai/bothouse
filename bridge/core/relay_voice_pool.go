@@ -43,6 +43,10 @@ type voiceResidentEntry struct {
 	id       string
 	lastUsed time.Time
 	turns    int
+	// stream records the CC_VOICE_STREAM the backend was started with. Reusing
+	// it under the other setting would silently drop first-sentence deltas
+	// (a session started with 0 never publishes incremental public text).
+	stream bool
 }
 
 // voiceSessionPool keeps sessions keyed by the relay key, which already
@@ -84,7 +88,7 @@ func (p *voiceSessionPool) isEnabled() bool {
 
 // acquire returns this relay key's session, reusing a live one when residency
 // is on. reused reports that StartVoiceRelay was skipped.
-func (p *voiceSessionPool) acquire(ctx context.Context, key string, prior voiceRelayConversation, starter VoiceRelayAgent, env []string) (session AgentSession, reused bool, err error) {
+func (p *voiceSessionPool) acquire(ctx context.Context, key string, stream bool, prior voiceRelayConversation, starter VoiceRelayAgent, env []string) (session AgentSession, reused bool, err error) {
 	now := time.Now()
 	var stale []AgentSession
 	p.mu.Lock()
@@ -92,7 +96,7 @@ func (p *voiceSessionPool) acquire(ctx context.Context, key string, prior voiceR
 	if p.enabled {
 		if e := p.entries[key]; e != nil {
 			// Strict resume must keep the exact identity the store recorded.
-			if e.session != nil && e.session.Alive() && (prior.ID == "" || e.id == prior.ID) && (p.maxTurns <= 0 || e.turns < p.maxTurns) {
+			if e.session != nil && e.session.Alive() && e.stream == stream && (prior.ID == "" || e.id == prior.ID) && (p.maxTurns <= 0 || e.turns < p.maxTurns) {
 				e.lastUsed = now
 				session = e.session
 				p.mu.Unlock()
@@ -116,7 +120,7 @@ func (p *voiceSessionPool) acquire(ctx context.Context, key string, prior voiceR
 		return session, false, nil
 	}
 	p.mu.Lock()
-	p.entries[key] = &voiceResidentEntry{session: session, id: session.CurrentSessionID(), lastUsed: time.Now()}
+	p.entries[key] = &voiceResidentEntry{session: session, id: session.CurrentSessionID(), lastUsed: time.Now(), stream: stream}
 	p.mu.Unlock()
 	return session, false, nil
 }
