@@ -123,6 +123,16 @@ func (s *APIServer) handleHandoffSwitch(w http.ResponseWriter, r *http.Request) 
 		inputHTTPError(w, http.StatusInternalServerError, fmt.Errorf("handoff switch: %w", err))
 		return
 	}
+	// lead.json is the record; a gate with its own lead copy is told too (quota_cooling.go
+	// notifyGateLead), so `handoff switch` no longer leaves the gate on the old lead.
+	for _, e := range []*Engine{fromEngine, target} {
+		if e != nil && e.gate != nil {
+			if err := e.notifyGateLead(req.To); err != nil {
+				slog.Warn("handoff switch: lead.json written, gate not told", "to", req.To, "error", err)
+			}
+			break
+		}
+	}
 	h := target.observeLeadSelection()
 	if h == nil || h.To != req.To {
 		h = ensureLeadHandoffRecord(target, from, fromName, req.To, toName, at)
