@@ -309,6 +309,11 @@ func runMain() {
 	}
 
 	rootConfigPath = rootOpts.configPath
+	if why := testEnvLeak(resolveConfigPath(rootOpts.configPath), os.Args[1:]); why != "" {
+		// a test run must not reach the live bridge or its channels (test_env_guard.go)
+		fmt.Fprintf(os.Stderr, "bothouse: 测试环境拒跑：%s\n", why)
+		os.Exit(3)
+	}
 	if runTopLevelCommand(rootOpts.args) {
 		return
 	}

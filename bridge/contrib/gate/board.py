@@ -119,6 +119,15 @@ _SHORT_TAG = re.compile(r"[（(]用户点名[)）]")
 _SHORT_PREFIX = re.compile(r"^\s*(?:用户点名(?:「[^」]*」|（[^）]*）|\s*#\d+\s*\S{0,3})?[：:]|用户点名\s*|事故\s*#\d+[^：:]{0,8}[：:]|#\d+[^：:]{0,10}[：:])\s*")
 
 
+# 测试活：标题以测试标记加分隔符开头（「测试：」「验收探针：」「【自检】」「probe:」），交回、提问、上报都不进用户的聊天频道
+# （用户 2026-10-28「这个傻逼提问探针是什么东西啊？来了三个」）。与 core/test_noise.go 的 testWorkTitle 同一条规则。
+TEST_TITLE = re.compile(r"^\s*[\[【(（]?\s*(验收探针|提问探针|探针|测试|自检|自验|test|probe|self-?check)\s*[\]】)）:：]", re.I)
+
+
+def is_test(title):
+    return bool(TEST_TITLE.match(title or ""))
+
+
 def short_of(what):
     """事情的短名：去掉「用户点名：」「#N 续：」「事故 #N 跟进：」这类前缀，冒号前够短就取冒号前，否则截 10 字。"""
     s = _SHORT_TAG.sub("", str(what or "")).strip()
