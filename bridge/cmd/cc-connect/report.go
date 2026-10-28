@@ -176,6 +176,9 @@ func parseReadFrequencySince(raw string) (time.Time, error) {
 		return time.Time{}, nil
 	}
 	if duration, err := time.ParseDuration(raw); err == nil {
+		if duration <= 0 {
+			return time.Time{}, fmt.Errorf("--since must be positive")
+		}
 		return time.Now().Add(-duration), nil
 	}
 	if strings.HasSuffix(raw, "d") {

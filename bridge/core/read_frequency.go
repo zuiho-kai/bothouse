@@ -320,6 +320,7 @@ func ReadStandingInfo(wikiDir string, smallChars int) *ReadFrequencyStanding {
 	if smallChars <= 0 {
 		smallChars = DefaultReadFrequencySmallChars
 	}
+	wikiDir = ResolveReadPath("", wikiDir)
 	path := filepath.Join(wikiDir, "STANDING.md")
 	info := &ReadFrequencyStanding{
 		Path:           path,
@@ -376,7 +377,7 @@ func RenderReadFrequencyMarkdown(report *ReadFrequencyReport) string {
 		return b.String()
 	}
 	for _, project := range report.Projects {
-		fmt.Fprintf(&b, "## %s\n\n", project.Project)
+		fmt.Fprintf(&b, "## %s\n\n", readFrequencyCell(project.Project))
 		fmt.Fprintf(&b, "读取事件 %d 次，涉及 %d 个文件。\n\n", project.Events, project.UniqueFiles)
 		b.WriteString("| 文件 | 读取次数 | 最近读取 | 大小 | 建议 |\n")
 		b.WriteString("|---|---:|---|---:|---|\n")

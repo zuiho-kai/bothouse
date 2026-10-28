@@ -50,6 +50,8 @@ func TestReadPathsFromTool(t *testing.T) {
 		{"read bare", "Read", "/x/a.md", []string{"/x/a.md"}},
 		{"read json", "Read", `{"file_path":"/x/b.md"}`, []string{"/x/b.md"}},
 		{"read title", "Read file", "/x/r.md", []string{"/x/r.md"}},
+		{"read summary", "Read", "Read /x/u.md", []string{"/x/u.md"}},
+		{"read title only", "Read", "Read", nil},
 		{"run title", "Run command", `{"command":"cat /x/s.md"}`, []string{"/x/s.md"}},
 		{"write title", "Write file", `{"file_path":"/x/t.md"}`, nil},
 		{"notebook", "NotebookRead", `{"notebook_path":"/x/n.ipynb"}`, []string{"/x/n.ipynb"}},

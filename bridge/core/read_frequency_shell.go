@@ -58,6 +58,18 @@ func readPathsFromReadInput(input string) []string {
 		}
 		return nil
 	}
+	lower := strings.ToLower(input)
+	for _, prefix := range []string{"read file: ", "read file ", "read: ", "read "} {
+		if strings.HasPrefix(lower, prefix) {
+			input = strings.TrimSpace(input[len(prefix):])
+			lower = strings.ToLower(input)
+			break
+		}
+	}
+	switch lower {
+	case "", "read", "read file", "notebookread", "view":
+		return nil
+	}
 	return []string{strings.Trim(input, `"'`)}
 }
 
