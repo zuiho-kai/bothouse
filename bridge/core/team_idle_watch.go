@@ -243,6 +243,9 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 	if kind, body, ok := parseExitKind(text); ok && kind == exitKindAsk {
 		returned = askEvidenceProblems(body) == nil
 		asking = true
+	} else if ok && returned && !e.exitHeadlineOK(body) && e.exitBounceCount(key) < askBounceWakeLimit {
+		// A [report] bounced for its headline (forwardWorkspaceExit) is resent, not handed back yet.
+		returned = false
 	}
 	title := strings.TrimSpace(strings.TrimPrefix(first, "【接】"))
 	boardID := watchTaskNumber(first)

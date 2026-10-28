@@ -105,9 +105,23 @@ func (e *Engine) exitPostedBefore(kind string, id int, line string) bool {
 	return false
 }
 
-// exitBounceCount: consecutive bounces of session's replies so far.
+// exitBounceCount: consecutive bounces of replies in sessionKey's channel so far (the idle watch
+// passes the channel key, forwardWorkspaceExit the session key).
 func (e *Engine) exitBounceCount(sessionKey string) int {
+	key := teamChatKey(sessionKey)
 	e.teamExit.mu.Lock()
 	defer e.teamExit.mu.Unlock()
-	return e.teamExit.bounces[sessionKey]
+	n := 0
+	for k, c := range e.teamExit.bounces {
+		if teamChatKey(k) == key && c > n {
+			n = c
+		}
+	}
+	return n
+}
+
+// exitHeadlineOK: body's first line has a #id that is on the board and a sentence.
+func (e *Engine) exitHeadlineOK(body string) bool {
+	id, _, problems := exitHeadline(body)
+	return problems == nil && e.boardItemByID(id) != nil
 }
