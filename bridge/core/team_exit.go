@@ -233,6 +233,14 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		e.bounceWorkspaceExit(p, rec, sessionKey, kind, problems)
 		return ""
 	}
+	if item != nil && item.isTest() {
+		// test work: the answer stays in the workspace and the log, the task still closes or yields
+		// as usual (core/test_noise.go)
+		slog.Info("team exit: test item; nothing posted in the chat channel",
+			"kind", kind, "board_item", hid, "workspace", ws, "parent", parent, "headline", truncateStr(hline, 120))
+		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
+		return ""
+	}
 	rc, err := rec.ReconstructReplyCtx(p.Name() + ":" + parent)
 	if err != nil {
 		slog.Error("team exit: chat channel unreachable", "parent", parent, "workspace", ws, "error", err)

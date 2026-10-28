@@ -1731,6 +1731,14 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		}
 		job = wake
 	}
+	if !job.Mute && isTestJob(job.Description, job.Prompt) {
+		// test work never posts in a chat (core/test_noise.go)
+		j := *job
+		j.Mute = true
+		job = &j
+		slog.Info("cron: test job runs muted", "job", job.ID, "desc", job.Description)
+	}
+	check := !job.Mute && isCheckJob(job.Description, job.Prompt)
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventCronTriggered,
 		SessionKey: job.SessionKey,
@@ -1815,7 +1823,8 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	// Notify user that a cron job is executing (unless silent/muted)
 	// Note: this notification uses targetPlatform directly, not the tracking wrapper,
 	// so it won't count as a "meaningful delivery" for empty response detection.
-	if !job.Mute {
+	// A check job posts no start notice (core/test_noise.go).
+	if !job.Mute && !check {
 		silent := false
 		if e.cronScheduler != nil {
 			silent = e.cronScheduler.IsSilent(job)
@@ -1834,10 +1843,18 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	}
 
 	if job.IsShellJob() {
+		if check {
+			return e.runQuietOKShell(effectivePlatform, replyCtx, job.ID, job.Description, func(p Platform) error {
+				return e.executeCronShell(p, replyCtx, job)
+			})
+		}
 		return e.executeCronShell(effectivePlatform, replyCtx, job)
 	}
 
 	content := job.Prompt
+	if check {
+		content += checkJobPromptNote
+	}
 	if strings.HasPrefix(content, "/") {
 		parts := strings.Fields(content)
 		if len(parts) > 0 {
@@ -2042,6 +2059,14 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	if e.IsPaused() {
 		return fmt.Errorf("engine %q is paused", e.name)
 	}
+	if !job.Mute && !job.Handoff && job.resume == nil && isTestJob(job.Description, job.Prompt) {
+		// test work never posts in a chat (core/test_noise.go)
+		j := *job
+		j.Mute = true
+		job = &j
+		slog.Info("timer: test job runs muted", "job", job.ID, "desc", job.Description)
+	}
+	check := !job.Mute && !job.Handoff && job.resume == nil && isCheckJob(job.Description, job.Prompt)
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventTimerTriggered,
 		SessionKey: job.SessionKey,
@@ -2118,8 +2143,8 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		effectivePlatform = &mutePlatform{targetPlatform}
 	}
 
-	// Notify user unless muted or silent
-	if !job.Mute && job.resume == nil { // #624 K4: a resume posts its own notice
+	// Notify user unless muted or silent; a check job posts no start notice (core/test_noise.go)
+	if !job.Mute && job.resume == nil && !check { // #624 K4: a resume posts its own notice
 		silent := false
 		if e.timerScheduler != nil {
 			silent = e.timerScheduler.IsSilent(job)
@@ -2138,10 +2163,18 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	}
 
 	if job.IsShellJob() {
+		if check {
+			return e.runQuietOKShell(effectivePlatform, replyCtx, job.ID, job.Description, func(p Platform) error {
+				return e.executeTimerShell(p, replyCtx, job)
+			})
+		}
 		return e.executeTimerShell(effectivePlatform, replyCtx, job)
 	}
 
 	content := job.Prompt
+	if check {
+		content += checkJobPromptNote
+	}
 	if strings.HasPrefix(content, "/") {
 		parts := strings.Fields(content)
 		if len(parts) > 0 {
