@@ -976,6 +976,19 @@ def main(argv):
             freed = park_workspace(hit, stop=(here != (hit.get("ws") or "").split(":")[1:2]))
             if freed is not None:
                 print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
+        elif cmd == "ask" and len(argv) == 2:
+            # 工作区发了 [ask]（桥调，core/team_workspace_one.go endWorkspaceTask）：条目记「等你」，工作区放回池子、清会话，
+            # 不打断这一轮；用户答复后 ws-handoff --resume 找空工作区接着做（用户 2026-10-28 批第 3 条）
+            nid = int(argv[1].lstrip("#"))
+            hit = pause(nid, ASK_WHY)
+            if not hit:
+                sys.exit(f"没有 #{nid}，先跑 board 看编号")
+            print("已记等你")
+            if os.path.isfile(hit.get("where") or ""):
+                append_forward(hit["where"], f"{_now()} 已提问、等用户答复（#{nid}）：工作区已放回，答复到了会另交一个空工作区接着做。")
+            freed = park_workspace(hit)
+            if freed is not None:
+                print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
         elif cmd == "resume" and len(argv) == 2:
             nid = int(argv[1].lstrip("#"))
             if unprune(nid):  # 自动收起的：先从完成记录拿回板上（还暂停着），再照常恢复

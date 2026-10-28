@@ -40,9 +40,10 @@ type WorkspaceParentResolver interface {
 type teamAsk struct {
 	ID         string    `json:"id"`
 	Platform   string    `json:"platform"`
-	Workspace  string    `json:"workspace"`   // workspace channel id
-	Parent     string    `json:"parent"`      // chat channel id
-	SessionKey string    `json:"session_key"` // the asking bot's workspace session
+	Workspace  string    `json:"workspace"`       // workspace channel id
+	Parent     string    `json:"parent"`          // chat channel id
+	SessionKey string    `json:"session_key"`     // the asking bot's workspace session
+	Board      int       `json:"board,omitempty"` // the task-board item asked about (headline #id)
 	Bot        string    `json:"bot"`
 	Forwarded  []string  `json:"forwarded"` // the forwarded chunks, to strip the reply quote
 	At         time.Time `json:"at"`
@@ -271,8 +272,9 @@ func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, bod
 	}
 	slog.Info("team exit: headline posted", "kind", kind, "board_item", hid, "workspace", ws, "parent", parent)
 	if id != "" {
-		e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Bot: bot, Forwarded: []string{text}, At: time.Now()})
+		e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Board: hid, Bot: bot, Forwarded: []string{text}, At: time.Now()})
 	}
+	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
 	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, hid) {
 		return id
 	}
@@ -388,6 +390,9 @@ func (e *Engine) routeWorkspaceAnswer(p Platform, msg *Message) bool {
 		return false
 	}
 	answer := stripForwardQuote(msg.Content, ask.Forwarded)
+	if e.resumeAskedTask(p.Name()+":"+ask.Parent, ask.Board, answer) {
+		return true
+	}
 	rec, ok := p.(ReplyContextReconstructor)
 	if !ok {
 		return false
