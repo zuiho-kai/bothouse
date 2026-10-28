@@ -199,12 +199,16 @@ func EnsureDSHRoleAttachmentPatch(opts map[string]any) (bool, error) {
 }
 
 // dshProviderPatch points llm-deepseek at the vendor's Anthropic endpoint and makes model the default.
-func dshProviderPatch(project, baseURL, model string) string {
+func dshProviderPatch(project, baseURL, model string, image bool) string {
 	q := func(s string) string { b, _ := json.Marshal(s); return string(b) } // JSON string = YAML double-quoted scalar
+	modalities := ""
+	if image { // without it DSH tells the ACP client image=false and a pasted picture reaches the model only as a path
+		modalities = "        inputModalities: [text, image]\n"
+	}
 	return "# written by the bothouse setup wizard for role " + project + ": the third-party API picked in the wizard.\n" +
 		"# The key is in this role's env " + DSHKeyEnv + " (config.toml). Everything else is the user's own DSH setup.\n" +
 		"- id: llm-deepseek\n  config:\n    baseURL: " + q(baseURL) + "\n    apiKeyEnv: " + DSHKeyEnv + "\n" +
-		"    models:\n      - id: " + q(model) + "\n" +
+		"    models:\n      - id: " + q(model) + "\n" + modalities +
 		"- id: agent-default-model\n  config:\n    provider: deepseek-official\n    model: " + q(model) + "\n" +
 		"- id: acp\n  config:\n    provider: deepseek-official\n    model: " + q(model) + "\n"
 }
@@ -311,7 +315,9 @@ func dshProviderBody(project string, p WizardProvider) (string, error) {
 	if model == "" {
 		return "", fmt.Errorf("%s: model is required", p.Vendor)
 	}
-	return dshProviderPatch(project, base, model), nil
+	// a relay (custom) is declared image-capable, as it was before the wizard set it up; an official vendor keeps
+	// DSH's own default for its model
+	return dshProviderPatch(project, base, model, p.Vendor == "custom"), nil
 }
 
 var dshVersionRe = regexp.MustCompile(`\d+\.\d+\.\d+[0-9A-Za-z.+-]*`)
