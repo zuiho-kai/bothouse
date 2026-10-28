@@ -151,6 +151,11 @@ def main(argv):
     if stopped:
         sys.exit(f"ws-up: #{stopped[0]['id']} 已被暂停（用户叫停），不上报；停手，等聊天频道重新交活")
     rec = handoffs(last)[path]
+    if board.is_test(rec.get("task") or ""):
+        # 测试活不往用户的聊天频道报（board.is_test），只留在工作区和日志
+        say(key, f"🧪 测试活，未报回聊天频道：{rest[0][:300]}", _team.project())
+        print(f"ws-up: 测试活（{rec.get('task')}），没有交给聊天频道 {chat}", file=sys.stderr)
+        return
     r = subprocess.run(timer_cmd(chat, rest[0], ask, path, _team.project(), rec.get("task") or "", rec.get("file") or path),
                        capture_output=True, text=True)
     if r.returncode != 0:

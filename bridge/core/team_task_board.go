@@ -235,13 +235,14 @@ func teamTaskBoardLive(items []teamTaskBoardItem, chat string) bool {
 	return false
 }
 
-// chats: the chats this item shows on (its own, and the chat its workspace belongs to).
+// chats: the chats this item shows on (its own, and the chat its workspace belongs to). Test
+// work shows only in its own chat, not on the board of the chat it came from (core/test_noise.go).
 func (it teamTaskBoardItem) chats() []string {
 	var out []string
 	if it.own != "" {
 		out = append(out, it.own)
 	}
-	if it.parent != "" && it.parent != it.own {
+	if it.parent != "" && it.parent != it.own && !it.isTest() {
 		out = append(out, it.parent)
 	}
 	return out
