@@ -11,16 +11,16 @@ import (
 // Claude Code stores the raw tool_use input as JSON.
 func readPathsFromTool(tool, input string) []string {
 	name := strings.ToLower(strings.TrimSpace(tool))
-	switch name {
-	case "read", "notebookread", "readfile", "view":
+	switch {
+	case readFrequencyToolHasPrefix(name, "read", "notebookread", "readfile", "view"):
 		return readPathsFromReadInput(input)
-	case "bash", "shell", "terminal", "execute", "exec", "run", "command":
+	case readFrequencyToolHasPrefix(name, "bash", "shell", "terminal", "execute", "exec", "run", "command"):
 		command := input
 		if parsed, ok := readCommandFromJSON(input); ok {
 			command = parsed
 		}
 		return readPathsFromShellCommand(stripLeadingCommentLines(command))
-	case "write", "edit", "multiedit", "patch", "applypatch":
+	case readFrequencyToolHasPrefix(name, "write", "edit", "multiedit", "patch", "applypatch"):
 		return nil
 	default:
 		// Unknown tools: only trust an explicit command, not file_path,
@@ -30,6 +30,21 @@ func readPathsFromTool(tool, input string) []string {
 		}
 		return nil
 	}
+}
+
+// readFrequencyToolHasPrefix accepts both exact tool names ("Read") and ACP
+// titles ("Read file", "Run command") without matching unrelated words.
+func readFrequencyToolHasPrefix(name string, prefixes ...string) bool {
+	for _, prefix := range prefixes {
+		if name == prefix ||
+			strings.HasPrefix(name, prefix+" ") ||
+			strings.HasPrefix(name, prefix+"_") ||
+			strings.HasPrefix(name, prefix+":") ||
+			strings.HasPrefix(name, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func readPathsFromReadInput(input string) []string {
