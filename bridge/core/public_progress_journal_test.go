@@ -149,9 +149,10 @@ func TestPublicProgressJournalOnlyInterruptedAndSaveFailure(t *testing.T) {
 }
 
 func TestPublicProgressJournalOnlyEnginePrompt(t *testing.T) {
+	dir := t.TempDir()
 	_, e, _, platform, _ := inputFixture(t)
 	e.workspaceChatForTest = func(string) bool { return false }
-	e.SetDataDir(t.TempDir())
+	e.SetDataDir(dir)
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}
