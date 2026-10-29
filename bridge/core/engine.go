@@ -2902,6 +2902,10 @@ func (e *Engine) Start() error {
 		if async, ok := p.(AsyncRecoverablePlatform); ok {
 			async.SetLifecycleHandler(e)
 		}
+		if sc, ok := p.(SilentChannelAware); ok {
+			// A released workspace is still a workspace (isTeamWorkspaceChat checks Handoffs too).
+			sc.SetSilentChannel(e.isTeamWorkspaceChat)
+		}
 		if err := p.Start(e.handleMessage); err != nil {
 			slog.Warn("platform start failed", "project", e.name, "platform", p.Name(), "error", err)
 			startErrs = append(startErrs, fmt.Errorf("[%s] start platform %s: %w", e.name, p.Name(), err))
@@ -5728,7 +5732,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					e.forwardWorkspaceExit(p, sessionKey, fullResponse) // #139 C: workspace [ask]/[report] -> chat channel
 				}
 
-				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false)
+				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false, time.Time{})
 
 				// Safety note: concurrent writes to session.History by the
 				// unsolicited reader and a foreground turn cannot overlap.
@@ -5899,7 +5903,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			state.mu.Lock()
 			p := state.platform
 			state.mu.Unlock()
-			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, e.watchCardResult(state))
+			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, e.watchCardResult(state), turnStart)
 		}
 	}()
 	waitStart := time.Now()
@@ -7216,7 +7220,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			watchTurnFinished = true
 			if !state.isStopped() {
-				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, e.watchCardResult(state))
+				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, e.watchCardResult(state), turnStart)
 			}
 			e.finishPublicProgress(state, progressOutcome)
 
@@ -7851,8 +7855,8 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		// #618 K1: chained into a running turn -> update its entry; a drain with
 		// no outer turn (orphaned queue, after /compress) owns one per message.
 		journalID, journalOwned := e.journalQueuedTurn(&rawQueued, sessionKey, queuedWorkspace, as) // raw text, before the turn blocks
-		e.journalSyncQueued(state, sessionKey)                                                       // #618 K4 #12: dequeued
-		e.armResumeRetry(state, session, rawQueued.resumeFallback)                                   // #618 K4 S1
+		e.journalSyncQueued(state, sessionKey)                                                      // #618 K4 #12: dequeued
+		e.armResumeRetry(state, session, rawQueued.resumeFallback)                                  // #618 K4 S1
 
 		var stopTyping func()
 		if ti, ok := queued.platform.(TypingIndicator); ok {
