@@ -2903,10 +2903,8 @@ func (e *Engine) Start() error {
 			async.SetLifecycleHandler(e)
 		}
 		if sc, ok := p.(SilentChannelAware); ok {
-			sc.SetSilentChannel(func(channelID string) bool {
-				_, ws := e.WorkspaceParent(channelID)
-				return ws
-			})
+			// A released workspace is still a workspace (isTeamWorkspaceChat checks Handoffs too).
+			sc.SetSilentChannel(e.isTeamWorkspaceChat)
 		}
 		if err := p.Start(e.handleMessage); err != nil {
 			slog.Warn("platform start failed", "project", e.name, "platform", p.Name(), "error", err)
