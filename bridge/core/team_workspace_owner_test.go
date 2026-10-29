@@ -24,7 +24,8 @@ func TestWorkspaceOwnedRefusesOtherChat(t *testing.T) {
 	if err := e.ClaimTeamWorkspace("discord:chatB", "ws1", "工作区1"); !errors.Is(err, ErrTeamWorkspaceOwned) {
 		t.Fatalf("claim by B = %v, want ErrTeamWorkspaceOwned", err)
 	}
-	e.forwardWorkspaceExit(p, exitWSKey, "[report]\n做好了")
+	exitBoardItem(t, e, 7, "活")
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 做好了")
 	if got := p.sentTo("discord:chatA"); len(got) != 1 || !strings.Contains(got[0], "做好了") {
 		t.Fatalf("chatA got %q", got)
 	}
@@ -50,7 +51,8 @@ func TestWorkspaceLeadResetReleasesForOtherChat(t *testing.T) {
 	if err := e.ClaimTeamWorkspace("discord:chatB", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
-	e.forwardWorkspaceExit(p, exitWSKey, "[report]\nB 的活做好了")
+	exitBoardItem(t, e, 7, "B 的活")
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 B 的活做好了")
 	if got := p.sentTo("discord:chatB"); len(got) != 1 || !strings.Contains(got[0], "B 的活做好了") {
 		t.Fatalf("chatB got %q", got)
 	}
