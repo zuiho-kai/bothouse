@@ -71,8 +71,21 @@ func lastBoundItem(items []teamTaskBoardItem, key string) *teamTaskBoardItem {
 
 // handoffUserWords: the sections of handoff file path whose heading names 用户原话.
 func handoffUserWords(path string) string {
+	var out []string
+	for _, ln := range strings.Split(handoffSection(path, userWordsHeading), "\n") {
+		if strings.TrimSpace(ln) != "" {
+			out = append(out, ln)
+		}
+	}
+	return truncateRelay(strings.Join(out, "\n"), backgroundWordsLimit)
+}
+
+// handoffSection: the body of every section of handoff file path (ws-handoff's markdown)
+// whose heading line contains heading, in file order, blank lines inside kept and the whole
+// trimmed. "" when path is not an absolute readable file or has no such section.
+func handoffSection(path, heading string) string {
 	path = strings.TrimSpace(path)
-	if path == "" || !filepath.IsAbs(path) {
+	if path == "" || !filepath.IsAbs(path) || heading == "" {
 		return ""
 	}
 	b, err := os.ReadFile(path)
@@ -83,12 +96,21 @@ func handoffUserWords(path string) string {
 	in := false
 	for _, ln := range strings.Split(string(b), "\n") {
 		if strings.HasPrefix(ln, "#") {
-			in = strings.Contains(ln, userWordsHeading)
+			in = strings.Contains(ln, heading)
 			continue
 		}
-		if in && strings.TrimSpace(ln) != "" {
-			out = append(out, ln)
+		if in {
+			out = append(out, strings.TrimRight(ln, " \t\r"))
 		}
 	}
-	return truncateRelay(strings.Join(out, "\n"), backgroundWordsLimit)
+	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+// firstParagraph: s up to its first blank line.
+func firstParagraph(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.Index(s, "\n\n"); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
 }

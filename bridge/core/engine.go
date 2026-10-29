@@ -4970,7 +4970,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			if agentOverride != nil {
 				agent = agentOverride
 			}
-			notice := e.freshOnContextSize(agent, session)
+			notice := e.freshOnContextSize(agent, session, contextFreshChat(p, sessionKey))
 			if notice == "" {
 				notice = e.freshOnImageBloat(agent, session)
 			}
@@ -5051,7 +5051,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			sessions.Save()
 			go e.send(p, markSystemNotice(p, replyCtx), notice)
 		}
-		if notice := e.freshOnContextSize(agent, session); notice != "" {
+		if notice := e.freshOnContextSize(agent, session, contextFreshChat(p, sessionKey)); notice != "" {
 			sessions.Save()
 			go e.send(p, markSystemNotice(p, replyCtx), notice)
 		}
