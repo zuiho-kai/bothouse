@@ -549,15 +549,15 @@ func (e *Engine) wakeRelayLead(req RelayRequest, worker, response string, runErr
 	}
 	silent := true
 	job := &TimerJob{
-		ID:           GenerateTimerID(),
-		Project:      e.name,
-		SessionKey:   req.SessionKey,
-		ScheduledAt:  time.Now(),
-		Prompt:       prompt,
-		Description:  "派工回执 " + req.TaskID,
-		Silent:       &silent,
-		InjectIfBusy: true,
-		CreatedAt:    time.Now(),
+		ID:            GenerateTimerID(),
+		Project:       e.name,
+		SessionKey:    req.SessionKey,
+		ScheduledAt:   time.Now(),
+		Prompt:        prompt,
+		Description:   "派工回执 " + req.TaskID,
+		Silent:        &silent,
+		WaitUserQuiet: true,
+		CreatedAt:     time.Now(),
 	}
 	if err := e.timerScheduler.AddJob(job); err != nil {
 		slog.Error("relay: wake lead for background outcome failed", "task_id", req.TaskID, "request_id", req.RequestID, "error", err)
