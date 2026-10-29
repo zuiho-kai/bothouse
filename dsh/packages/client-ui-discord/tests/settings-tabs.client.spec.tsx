@@ -3,7 +3,12 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChannelSettingsDialog } from '../src/client/ChannelSettingsDialog.tsx'
 import { zh } from '../src/client/locales.ts'
+import css from '../src/client/ChannelsPage.module.css'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { ComponentProps } from 'react'
+
+const stylesheet = readFileSync(resolve(import.meta.dirname, '../src/client/ChannelsPage.module.css'), 'utf8')
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
@@ -22,6 +27,57 @@ const save = async () => { await act(async () => { fireEvent.click(screen.getByR
 const saveDisabled = () => (screen.getByRole('button', { name: zh.messageSave }) as HTMLButtonElement).disabled
 
 describe('channel settings tabs', () => {
+  it('keeps a fixed dialog and scrolling body with shared tabs and a stationary action bar', () => {
+    render(<ChannelSettingsDialog {...props()} />)
+    const dialog = screen.getByRole('dialog')
+    const button = screen.getByRole('button', { name: zh.messageSave })
+    const actions = button.parentElement!
+    expect(dialog.classList.contains(css.settingsDialog)).toBe(true)
+    expect(stylesheet).toMatch(/\.settingsDialog\s*\{[^}]*height: min\(70vh, calc\(100dvh - 32px\)\)/)
+    expect(stylesheet).toMatch(/\.settingsBody\s*\{[^}]*min-height: 0;[^}]*overflow-y: auto;/)
+    expect(stylesheet).toMatch(/\.settingsDialog > :not\(\.settingsBody\)\s*\{[^}]*flex-shrink: 0;/)
+    expect(stylesheet).toMatch(/@media \(max-width: 599px\)\s*\{\s*\.settingsDialog\s*\{[^}]*height: calc\(100dvh - 32px\)/)
+    expect(actions.classList.contains(css.dialogActions)).toBe(true)
+    expect(actions.firstElementChild).toBe(screen.getByRole('button', { name: zh.close }))
+    expect(actions.lastElementChild).toBe(button)
+    const fixedClass = dialog.className
+    for (const target of [zh.settingsDispatch, zh.settingsWorkspace, zh.settingsBasic]) {
+      tab(target)
+      expect(screen.getByRole('dialog')).toBe(dialog)
+      expect(dialog.className).toBe(fixedClass)
+      expect(screen.getByRole('tablist').className).toBe(css.boardTabs)
+      const panel = screen.getByRole('tabpanel')
+      expect(panel.classList.contains(css.settingsBody)).toBe(true)
+      expect(panel.contains(actions)).toBe(false)
+      expect(screen.getByRole('button', { name: zh.messageSave })).toBe(button)
+    }
+  })
+
+  it.each([zh.settingsBasic, zh.settingsDispatch, zh.settingsWorkspace])('shows pending save state and disables duplicate saves in %s', async target => {
+    const p = props()
+    let resolve!: () => void
+    const pending = vi.fn(() => new Promise<void>(done => { resolve = done }))
+    p.renameRoom = pending; p.setDispatchMode = pending; p.setWorkspacePath = pending
+    render(<ChannelSettingsDialog {...p} />)
+    tab(target)
+    expect(saveDisabled()).toBe(true)
+    if (target === zh.settingsBasic) change(zh.channelName, 'new')
+    else if (target === zh.settingsDispatch) fireEvent.click(screen.getByRole('radio', { name: zh.dispatchSolo }))
+    else change(zh.workingDirectory, '/new')
+    expect(saveDisabled()).toBe(false)
+    await save()
+    const button = screen.getByRole('button', { name: zh.settingsSaving }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    fireEvent.click(button)
+    expect(pending).toHaveBeenCalledOnce()
+    await act(async () => { resolve() })
+    expect(saveDisabled()).toBe(true)
+    const status = screen.getByRole('status')
+    expect(status.textContent).toBe(zh.settingsSaved)
+    expect(screen.getByRole('tabpanel').contains(status)).toBe(false)
+  })
+
   it('retains all drafts across tabs and saves only the selected tab', async () => {
     const p = props()
     render(<ChannelSettingsDialog {...p} />)
@@ -70,7 +126,10 @@ describe('channel settings tabs', () => {
     else if (target === zh.settingsDispatch) fireEvent.click(screen.getByRole('radio', { name: zh.dispatchSolo }))
     else change(zh.workingDirectory, '/new')
     await save()
-    expect(screen.getByRole('alert').textContent).toBe('service: exact failure 原因')
+    const error = screen.getByRole('alert')
+    expect(error.textContent).toBe('service: exact failure 原因')
+    expect(screen.getByRole('tabpanel').contains(error)).toBe(false)
+    expect(error.parentElement!.nextElementSibling).toBe(screen.getByRole('button', { name: zh.messageSave }).parentElement)
     expect(saveDisabled()).toBe(false)
     for (const other of [zh.settingsBasic, zh.settingsDispatch, zh.settingsWorkspace].filter(t => t !== target)) {
       tab(other)

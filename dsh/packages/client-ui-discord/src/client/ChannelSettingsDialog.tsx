@@ -80,7 +80,7 @@ export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom
   }
 
   return <div className={css.dialogBackdrop} onClick={close}>
-    <section ref={dialogRef} tabIndex={-1} className={css.dialog} role="dialog" aria-modal="true" aria-label={t('channelSettings')} onClick={event => { event.stopPropagation() }} onKeyDown={event => {
+    <section ref={dialogRef} tabIndex={-1} className={`${css.dialog} ${css.settingsDialog}`} role="dialog" aria-modal="true" aria-label={t('channelSettings')} onClick={event => { event.stopPropagation() }} onKeyDown={event => {
       if (event.key === 'Escape') { event.preventDefault(); close() }
       if (event.key !== 'Tab') return
       const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]')).filter(control => control.tabIndex >= 0)
@@ -92,8 +92,8 @@ export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom
       }
     }}>
       <h2 className={css.dialogTitle}>{t('channelSettings')}</h2>
-      <div className={css.settingsTabs} role="tablist" aria-label={t('channelSettings')}>
-        {tabs.map((value, index) => <button key={value} id={`settings-tab-${value}`} type="button" role="tab" aria-selected={tab === value} aria-controls={`settings-panel-${value}`} tabIndex={tab === value ? 0 : -1} className={css.settingsTab} onClick={() => { setTab(value) }} onKeyDown={event => {
+      <div className={css.boardTabs} role="tablist" aria-label={t('channelSettings')}>
+        {tabs.map((value, index) => <button key={value} id={`settings-tab-${value}`} type="button" role="tab" aria-selected={tab === value} aria-controls={`settings-panel-${value}`} tabIndex={tab === value ? 0 : -1} onClick={() => { setTab(value) }} onKeyDown={event => {
           if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
           event.preventDefault()
           const next = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[2] : tabs[(index + (event.key === 'ArrowRight' ? 1 : 2)) % tabs.length]
@@ -101,22 +101,24 @@ export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom
           document.getElementById(`settings-tab-${next}`)?.focus()
         }}>{t(tabLabels[value])}</button>)}
       </div>
-      <div id={`settings-panel-${tab}`} role="tabpanel" aria-labelledby={`settings-tab-${tab}`}>
-        <form onSubmit={event => { event.preventDefault(); void save(tab) }}>
+      <div className={css.settingsBody} id={`settings-panel-${tab}`} role="tabpanel" aria-labelledby={`settings-tab-${tab}`}>
+        <form id="channel-settings-form" className={css.settingsFields} onSubmit={event => { event.preventDefault(); void save(tab) }}>
           {tab === 'basic' && <>
             <label className={css.field}>{t('channelName')}
               <input className={css.fieldInput} aria-label={t('channelName')} value={name} disabled={saving.basic || room.kind === 'workspace'} onChange={event => { setName(event.target.value); clearFeedback('basic') }} onKeyDown={event => { if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) event.preventDefault() }} />
+              <span>{t(room.kind === 'workspace' ? 'workspaceNameFixed' : 'channelNameHint')}</span>
             </label>
-            <p>{t(room.kind === 'workspace' ? 'workspaceNameFixed' : 'channelNameHint')}</p>
           </>}
           {tab === 'dispatch' && <>
-            <fieldset disabled={saving.dispatch}>
-              <legend>{t('dispatchMode')}</legend>
-              {(['solo', 'team', 'mixed'] as const).map(value => <label key={value} style={{ display: 'block' }}>
-                <input type="radio" name="settings-dispatch-mode" checked={mode === value} onChange={() => { setMode(value); clearFeedback('dispatch') }} />
-                {t(value === 'solo' ? 'dispatchSolo' : value === 'team' ? 'dispatchTeam' : 'dispatchMixed')}
-              </label>)}
-            </fieldset>
+            <div className={css.field} role="radiogroup" aria-label={t('dispatchMode')}>
+              <span>{t('dispatchMode')}</span>
+              <div className={css.choiceRow}>
+                {(['solo', 'team', 'mixed'] as const).map(value => <label key={value} className={css.choice}>
+                  <input type="radio" name="settings-dispatch-mode" disabled={saving.dispatch} checked={mode === value} onChange={() => { setMode(value); clearFeedback('dispatch') }} />
+                  {t(value === 'solo' ? 'dispatchSolo' : value === 'team' ? 'dispatchTeam' : 'dispatchMixed')}
+                </label>)}
+              </div>
+            </div>
             <label className={css.field}>{t('channelLead')}
               <select className={css.fieldInput} aria-label={t('channelLead')} value={lead} disabled={saving.dispatch} onChange={event => { setLeadDraft(event.target.value); clearFeedback('dispatch') }}>
                 <option value="" disabled>{t('leadNone')}</option>
@@ -127,25 +129,30 @@ export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom
           {tab === 'workspace' && <>
             <label className={css.field}>{t('workingDirectory')}
               <input className={css.fieldInput} aria-label={t('workingDirectory')} value={directory} disabled={saving.workspace || renewing || renewPending} onChange={event => { setDirectory(event.target.value); clearFeedback('workspace') }} />
+              <span>{t('workingDirectoryHint')}</span>
             </label>
-            <p>{t('workingDirectoryHint')}</p>
           </>}
-          <button type="submit" className={css.primaryButton} disabled={saving[tab] || !dirty[tab] || (tab === 'basic' && (!name || name.length > 32 || /\s/.test(name))) || (tab === 'workspace' && (!directory || renewing || renewPending))}>{t('messageSave')}</button>
         </form>
-        {success[tab] && <p role="status">{t('settingsSaved')}</p>}
-        {tab === 'workspace' && renewPending && <section role="alertdialog" aria-label={t('renewConfirm')}>
-          <p>{t('renewConfirm')}</p>
-          <button type="button" className={css.primaryButton} disabled={renewing} onClick={() => {
-            setRenewing(true); setErrors(previous => ({ ...previous, workspace: undefined }))
-            renewRoom(room.id).then(() => { setRenewPending(false) }).catch((error: unknown) => {
-              setErrors(previous => ({ ...previous, workspace: error instanceof Error ? error.message : String(error) }))
-            }).finally(() => { setRenewing(false) })
-          }}>{t('renewNow')}</button>
-          <button type="button" className={css.secondaryButton} disabled={renewing} onClick={() => { setRenewPending(false) }}>{t('renewLater')}</button>
+        {tab === 'workspace' && renewPending && <section className={css.settingsFields} role="alertdialog" aria-label={t('renewConfirm')}>
+          <div className={css.field}>{t('renewConfirm')}</div>
+          <div className={css.dialogActions}>
+            <button type="button" className={css.secondaryButton} disabled={renewing} onClick={() => { setRenewPending(false) }}>{t('renewLater')}</button>
+            <button type="button" className={css.primaryButton} disabled={renewing} onClick={() => {
+              setRenewing(true); setErrors(previous => ({ ...previous, workspace: undefined }))
+              renewRoom(room.id).then(() => { setRenewPending(false) }).catch((error: unknown) => {
+                setErrors(previous => ({ ...previous, workspace: error instanceof Error ? error.message : String(error) }))
+              }).finally(() => { setRenewing(false) })
+            }}>{t('renewNow')}</button>
+          </div>
         </section>}
-        {errors[tab] !== undefined && <p role="alert">{errors[tab]}</p>}
       </div>
-      <button type="button" className={css.secondaryButton} disabled={Object.values(saving).some(Boolean) || renewing} onClick={close}>{t('close')}</button>
+      {(errors[tab] !== undefined || success[tab]) && <div className={css.settingsFeedback}>
+        {errors[tab] !== undefined ? <div className={css.sendError} role="alert">{errors[tab]}</div> : <div className={css.field} role="status">{t('settingsSaved')}</div>}
+      </div>}
+      <div className={css.dialogActions}>
+        <button type="button" className={css.secondaryButton} disabled={Object.values(saving).some(Boolean) || renewing} onClick={close}>{t('close')}</button>
+        <button type="submit" form="channel-settings-form" aria-busy={Boolean(saving[tab])} className={css.primaryButton} disabled={saving[tab] || !dirty[tab] || (tab === 'basic' && (!name || name.length > 32 || /\s/.test(name))) || (tab === 'workspace' && (!directory || renewing || renewPending))}>{t(saving[tab] ? 'settingsSaving' : 'messageSave')}</button>
+      </div>
     </section>
   </div>
 }
