@@ -53,11 +53,18 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 	if p == nil || parent == "" {
 		return false
 	}
-	chat := p.Name() + ":" + parent
 	if _, isWS := e.workspaceOwner(parent); isWS {
 		slog.Error("team exit: forward target is itself a workspace; lead not woken", "parent", parent, "workspace", ws)
 		return false
 	}
+	prompt := chatLeadPrompt(channelLabel(p.Name(), ws), bot, kind, body, e.workspaceTaskBackground(wsSession, boardID), boardID > 0)
+	prompt = askRef.ReplaceAllString(prompt, "ask-…")
+	return e.queueChatLeadTurn(p, parent, ws, "工作区回传 "+ws, prompt)
+}
+
+// queueChatLeadTurn queues prompt as one silent turn of the team lead in chat channel parent.
+func (e *Engine) queueChatLeadTurn(p Platform, parent, ws, desc, prompt string) bool {
+	chat := p.Name() + ":" + parent
 	var lead *Engine
 	for _, x := range e.watchEngines() {
 		if x.isTeamLead() && x.lookupReadyPlatform(p.Name()) != nil {
@@ -73,8 +80,6 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 		slog.Error("team exit: lead has no timer scheduler; forwarded reply not handed to it", "lead", lead.name, "parent", parent)
 		return false
 	}
-	prompt := chatLeadPrompt(channelLabel(p.Name(), ws), bot, kind, body, e.workspaceTaskBackground(wsSession, boardID), boardID > 0)
-	prompt = askRef.ReplaceAllString(prompt, "ask-…")
 	silent := true
 	job := &TimerJob{
 		ID:            GenerateTimerID(),
@@ -82,7 +87,7 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 		SessionKey:    chat,
 		ScheduledAt:   time.Now(),
 		Prompt:        prompt,
-		Description:   "工作区回传 " + ws,
+		Description:   desc,
 		Silent:        &silent,
 		WaitUserQuiet: true,
 		CreatedAt:     time.Now(),
