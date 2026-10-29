@@ -24,7 +24,7 @@ Other machines mirror their transcripts to the Mac after each run (MIRROR_TO); t
 The teammates' wikis (contrib/wiki/setup_wiki.py) run this same file with WIKI_DIR=<their wiki>: their config.json sets
 whose sessions, rules and channel it is (DEFAULTS are 橘's); their bin/ingest.py and bin/lint.py only exec this one.
 """
-import argparse, calendar, hashlib, json, os, posixpath, re, sqlite3, subprocess, sys, tempfile, time, traceback
+import argparse, calendar, hashlib, json, os, posixpath, re, shutil, sqlite3, subprocess, sys, tempfile, time, traceback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script dir; lint.py lives next to us
@@ -196,7 +196,11 @@ EFFORT = os.environ.get("WIKI_INGEST_EFFORT", "max")  # codex only
 TIER = os.environ.get("WIKI_CODEX_TIER", "")  # codex only: "fast" = Fast mode (service_tier)
 # Other machines (Linux, e.g. the N150) only run the day Haiku pass. After each run they mirror their
 # transcripts, state db and log to the Mac (ssh alias `mac`), whose nightly review then checks their writes too.
-MIRROR_TO = os.environ.get("WIKI_MIRROR_TO", "mac" if sys.platform.startswith("linux") else "")
+# The author's Linux machines mirror to the Mac by default; a wiki the wizard made (.bothouse-main / .bothouse-role) has no
+# "mac" host to send to, so it mirrors only when WIKI_MIRROR_TO names one.
+SANDBOX_WARNED = False
+WIZARD_MADE = (WIKI / ".bothouse-main").exists() or (WIKI / ".bothouse-role").exists()
+MIRROR_TO = os.environ.get("WIKI_MIRROR_TO", "mac" if sys.platform.startswith("linux") and not WIZARD_MADE else "")
 HOSTS = Path(os.path.expanduser(CFG["hosts"] or "/nonexistent-wiki-hosts"))  # on the Mac: <hostname>/{projects/,ingest.sqlite,ingest.log}
 MIRRORED = WIKI / ".mirror.json"  # on the mirroring machine: {transcript path: size already sent}
 SOP_ENGINES = set(os.environ.get("WIKI_SOP_ENGINES", "codex,agy,gemini,claude,haiku,sonnet,opus,dsh").split(","))
@@ -1237,6 +1241,11 @@ def claude(instruction, stdin="", label="?", context=None, model=None):
     # global ~/wiki setting a trial on a clone would edit the real wiki.
     # Full tools like luna: Bash runs auto-approved inside Claude Code's sandbox, which (like codex
     # workspace-write) confines writes to the wiki directory.
+    if sys.platform.startswith("linux") and not all(map(shutil.which, ("bwrap", "socat"))) and not SANDBOX_WARNED:
+        # without its sandbox Claude Code asks before every Bash call, -p denies it, and the pass loops on lint until
+        # the timeout: say why once a run (fix: install bubblewrap + socat, or allow Bash in ~/.claude/settings.json)
+        globals()["SANDBOX_WARNED"] = True
+        log("claude sandbox unavailable (bubblewrap/socat missing): Bash is denied unless ~/.claude/settings.json allows it")
     settings = {"autoMemoryDirectory": str(WIKI),
                 "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False}}
     cmd = ["claude", "-p", instruction, "--model", model or MODELS["claude"], "--no-session-persistence", "--strict-mcp-config",
@@ -1466,7 +1475,10 @@ def remote(*args):
 
 def pull():
     """Several machines ingest into the same repo: rebase onto origin before a pass and before pushing.
-    A conflict is aborted and left for the next run (log.md appends merge via .gitattributes merge=union)."""
+    A conflict is aborted and left for the next run (log.md appends merge via .gitattributes merge=union).
+    A wiki whose branch tracks no remote (one the wizard made) has nothing to sync: skipped, not logged as a failure."""
+    if subprocess.run(["git", "rev-parse", "--abbrev-ref", "@{u}"], cwd=REPO, capture_output=True).returncode:
+        return True
     if not remote("pull", "-q", "--rebase", "--autostash"):
         git("rebase", "--abort", cwd=REPO)
         return False
