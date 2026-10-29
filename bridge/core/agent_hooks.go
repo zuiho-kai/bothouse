@@ -405,7 +405,7 @@ func AgentHooksSwitchedOff(workDir string) []string {
 // tool.execute.before plugin in <work_dir>/.opencode/plugins that runs the role's .claude/settings.json hooks,
 // Kimi Code CLI through <work_dir>/.bothouse/kimi-home/config.toml, Cursor through
 // <work_dir>/.cursor/hooks.json, and Codex through <work_dir>/.codex/hooks.json.
-var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity", "pi", "opencode", "kimi", "cursor", "codex", "qoder", "iflow"}
+var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity", "pi", "opencode", "kimi", "cursor", "codex", "qoder", "iflow", "grok"}
 
 // iflowMatchers: the matcher each hook gets in iFlow CLI, whose built-in tool names are Gemini-like
 // (hooks doc, "Common Tool Name Reference": run_shell_command, replace, multi_edit, write_file, read_file,
@@ -511,10 +511,17 @@ func (o AgentHookOptions) dshPatch() string {
 var codexHooks = []string{"bash-guard", "ask-only-guard", "fix-claim-guard"}
 var codexMatchers = map[string]string{"bash-guard": "Bash", "ask-only-guard": "Bash|apply_patch"}
 
+// grokHooks are the hooks run.py --grok adapts. Grok (run by bothouse over ACP) reads the role's
+// .claude/settings.json hooks and matches the Claude Code names in a matcher against its own tools.
+var grokHooks = []string{"ask-only-guard"}
+
 func (o AgentHookOptions) names() ([]string, error) {
 	if len(o.Only) == 0 {
 		if o.CLI == "codex" {
 			return slices.Clone(codexHooks), nil
+		}
+		if o.CLI == "grok" {
+			return slices.Clone(grokHooks), nil
 		}
 		return AgentHookNames(), nil
 	}
@@ -526,6 +533,9 @@ func (o AgentHookOptions) names() ([]string, error) {
 		}
 		if o.CLI == "codex" && !slices.Contains(codexHooks, n) {
 			return nil, fmt.Errorf("Codex hook %q is not adapted yet", n)
+		}
+		if o.CLI == "grok" && !slices.Contains(grokHooks, n) {
+			return nil, fmt.Errorf("Grok hook %q is not adapted yet", n)
 		}
 		if _, ok := agentHookByName(n); !ok {
 			return nil, fmt.Errorf("unknown hook %q (hooks: %s)", n, strings.Join(AgentHookNames(), ", "))
@@ -539,7 +549,7 @@ func (o AgentHookOptions) personaPath() (string, error) {
 	switch o.CLI {
 	case "claudecode":
 		return PersonaFilePath("claudecode", o.WorkDir), nil
-	case "dsh", "codex":
+	case "dsh", "codex", "grok":
 		return filepath.Join(o.WorkDir, "AGENTS.md"), nil // DSH reads AGENTS.md (dsh-agent-instructions)
 	case "gemini":
 		return PersonaFilePath("gemini", o.WorkDir), nil // Gemini CLI reads GEMINI.md
@@ -602,8 +612,8 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 	var events []string
 	for _, n := range names {
 		opts := []string{"--role", o.WorkDir}
-		if o.CLI == "codex" {
-			opts = append(opts, "--codex")
+		if o.CLI == "codex" || o.CLI == "grok" {
+			opts = append(opts, "--"+o.CLI)
 		}
 		h, _ := agentHookByName(n)
 		timeout := h.Timeout
