@@ -124,7 +124,7 @@ GEMINI_TO_CLAUDE_EVENT = {"BeforeTool": "PreToolUse", "AfterTool": "PostToolUse"
 STATE = os.path.join(HERE, "state", "dsh-stop.json")
 DSH_ROLES = os.path.join(HERE, "dsh-roles.json")  # {role work_dir: {"hooks": [...], "dsh_home": ...}}
 OPTS = {"role": None, "dsh_home": None, "dsh_global": False, "agy": None, "kimi": False,
-        "cursor": False, "codex": False}  # {session_id: turn already blocked once}
+        "cursor": False, "codex": False, "grok": False}  # {session_id: turn already blocked once}
 # 来源：实测，验收时日志在钩子开始后约 0.15 秒内写到；留足余量又不拖住回复（Stop 超时设的是 30 秒）
 STOP_WAIT = 3.0
 MODEL_HEAD, MODEL_END = "[bothouse model-control instructions]", "[/bothouse model-control instructions]"
@@ -316,7 +316,9 @@ def iflow_output(out):
 # Claude Code / Qoder put a Claude Code transcript in every PreToolUse payload. For Codex, agy and DSH run.py
 # reads the words from where that CLI keeps them and passes them as payload["user_prompt"], which the guard reads
 # before transcript_path.
-PROMPT_HOOKS = {"ask-only-guard"}  # hooks that read the user's latest words in PreToolUse
+PROMPT_HOOKS = {"ask-only-guard"}
+# Grok's tool names in its hook payload -> Claude Code's (Grok maps Bash/Edit/Write in matchers, not in the payload)
+GROK_NAMES = {"run_terminal_command": "Bash", "search_replace": "Edit", "write": "Write"}  # hooks that read the user's latest words in PreToolUse
 CODEX_INJECTED = ("# AGENTS.md instructions", "<environment_context>", "<user_instructions>", "<permissions instructions>")
 TAIL_BYTES = 4 << 20  # a rollout can be large; the latest user message is near its end
 
@@ -354,7 +356,9 @@ def tail_lines(path):
 def transcript_user_words(path):
     """The latest user message in a transcript file, whichever CLI wrote it:
     Claude Code / Qoder JSONL ({type: user, message: {content}}), Codex rollout (response_item message role user,
-    without the AGENTS.md / environment_context messages Codex injects), agy transcript_full.jsonl (USER_INPUT steps)."""
+    without the AGENTS.md / environment_context messages Codex injects), agy transcript_full.jsonl (USER_INPUT steps),
+    Grok updates.jsonl (session/update user_message_chunk; the chunks of one message are consecutive)."""
+    chunks = []
     for line in reversed(tail_lines(path)):
         try:
             e = json.loads(line)
@@ -362,6 +366,12 @@ def transcript_user_words(path):
             continue
         if not isinstance(e, dict):
             continue
+        up = (e.get("params") or {}).get("update") if e.get("method") == "session/update" else None
+        if isinstance(up, dict) and up.get("sessionUpdate") == "user_message_chunk":
+            chunks.insert(0, parts_text((up.get("content") or {}).get("text") or ""))
+            continue
+        if chunks:
+            break
         t = e.get("type")
         if t == "user" and not e.get("isMeta"):
             msg = e.get("message")
@@ -378,7 +388,7 @@ def transcript_user_words(path):
             text = agy_user_text(e.get("content"))
             if text:
                 return text
-    return ""
+    return "".join(chunks)
 
 
 def dsh_user_words(recs):
@@ -554,6 +564,8 @@ def parse_args(argv):
             OPTS["cursor"] = True
         elif a == "--codex":
             OPTS["codex"] = True
+        elif a == "--grok":
+            OPTS["grok"] = True
         elif a != "--conest-hook":
             rest.append(a)
         i += 1
@@ -655,13 +667,15 @@ def main():
             payload["transcript_path"] = tmp
     if OPTS["kimi"] and payload.get("tool_name") == "bash":
         payload["tool_name"] = "Bash"
+    if OPTS["grok"]:  # Grok sends its own tool names (its args already match Claude Code's: command, file_path)
+        payload["tool_name"] = GROK_NAMES.get(payload.get("tool_name"), payload.get("tool_name"))
     tool = payload.get("tool_name")
     dsh = not cursor and not gemini and isinstance(tool, str) and (tool in NAMES or tool in ("str_replace_editor", "job_output"))
     if dsh:
         payload["tool_name"], payload["tool_input"] = tool_input(tool, payload.get("tool_input"))
     stop = payload.get("hook_event_name") == "Stop"
     # Claude Code always gives a transcript; an empty one is the DSH bridge (dsh-hooks-claude-code base())
-    bridge = not cursor and not gemini and not OPTS["kimi"] and not OPTS["codex"] and (
+    bridge = not cursor and not gemini and not OPTS["kimi"] and not OPTS["codex"] and not OPTS["grok"] and (
         dsh or OPTS["dsh_global"] or not payload.get("transcript_path"))
     path = session_file(payload.get("session_id") or "") if bridge else None
     # only the first record (session header) is needed here; the whole log is read for Stop alone
@@ -691,7 +705,7 @@ def main():
     if name in PROMPT_HOOKS and payload.get("hook_event_name") == "PreToolUse" and not payload.get("user_prompt"):
         if path:  # DSH: the bridge's transcript_path is empty; the words are in the session log
             payload["user_prompt"] = dsh_user_words(records(read_lines(path)))
-        elif OPTS["codex"]:  # Codex: the rollout
+        elif OPTS["codex"] or OPTS["grok"]:  # Codex: the rollout; Grok: its session updates.jsonl
             payload["user_prompt"] = transcript_user_words(payload.get("transcript_path"))
 
     if stop and path:
@@ -753,9 +767,26 @@ def main():
     if gemini:
         sys.stdout.write(gemini_output(proc.stdout, payload.get("hook_event_name")))
     else:
-        sys.stdout.write(proc.stdout)
+        sys.stdout.write(stop_full_reply(payload.get("hook_event_name"), proc.stdout))
     sys.stderr.write(proc.stderr)
     sys.exit(proc.returncode)
+
+
+# A blocked Stop: the model often writes only an addendum afterwards, and the channel gets that addendum alone
+FULL_REPLY = "\n被拦后用户只会收到你接下来写的这一段：处理完后把给用户的完整回复从头重写一遍，不要只写补充或解释。"
+
+
+def stop_full_reply(event, out):
+    if event != "Stop":
+        return out
+    try:
+        d = json.loads(out)
+    except ValueError:
+        return out
+    if not isinstance(d, dict) or d.get("decision") != "block":
+        return out
+    d["reason"] = (d.get("reason") or "") + FULL_REPLY
+    return json.dumps(d, ensure_ascii=False)
 
 
 # ── Antigravity ──

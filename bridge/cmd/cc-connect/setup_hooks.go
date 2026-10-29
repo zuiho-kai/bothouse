@@ -40,7 +40,7 @@ persona block makes it run <data_dir>/hooks/run.py --role <dir> off|on [hook…]
 <dir>/.bothouse/conest-hooks.json ({"off": ["bash-guard"]} or {"off": ["all"]}; editing it by hand works too).
 "status" shows both.
 
---cli: claudecode | dsh | gemini | antigravity | pi | opencode | kimi | cursor | codex | qoder | iflow. Gemini
+--cli: claudecode | dsh | gemini | antigravity | pi | opencode | kimi | cursor | codex | qoder | iflow | grok. Gemini
 CLI reads <dir>/.gemini/settings.json, Antigravity <dir>/.agents/hooks.json, Codex <dir>/.codex/hooks.json (its
 hooks stay untrusted for Codex until bothouse registers their trusted_hash at session start; "on" also enables
 the hooks feature in <dir>/.codex/config.toml), Cursor <dir>/.cursor/hooks.json, Qoder <dir>/.qoder/settings.json,
@@ -68,7 +68,7 @@ func runSetupHooks(args []string) {
 		fs.PrintDefaults()
 	}
 	workDir := fs.String("work-dir", "", "the role's work_dir (REQUIRED)")
-	cli := fs.String("cli", "claudecode", "the role's CLI: claudecode | dsh | gemini | antigravity | pi | opencode | kimi | cursor | codex | qoder | iflow")
+	cli := fs.String("cli", "claudecode", "the role's CLI: claudecode | dsh | gemini | antigravity | pi | opencode | kimi | cursor | codex | qoder | iflow | grok")
 	only := fs.String("only", "", "comma-separated hooks to switch on/off (default: all)")
 	lang := fs.String("lang", "", "language of the persona block: zh | en (default: the persona's reply language, else system)")
 	dshHome := fs.String("dsh-home", "", "DSH home for --cli dsh (default: $DSH_HOME, else ~/.dsh)")

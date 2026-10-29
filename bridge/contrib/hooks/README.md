@@ -56,7 +56,7 @@ bothouse 写的 hook 命令都带 `--conest-hook` 标记，`off` 只删带标记
 | hook | 事件 | 管什么 | 怎么放行 |
 | --- | --- | --- | --- |
 | bash-guard | PreToolUse（Bash/bash） | `pkill -f`；后台命令没超时或接了 `\| tail`；macOS 上 `go build -o …bothouse`；设了 `HOOK_PROXY` 时没走代理的下载；整页 cat 多页 wiki（只提示） | `# long-running-ok`、`# direct-ok`、`# tcc-ok` |
-| ask-only-guard | PreToolUse（Bash/bash、编辑类，Codex 含 apply_patch） | 用户最新一条只在提问，命令却是派活、转活或挂定时（`ws-handoff`、`ws-forward`、`board add`、`bothouse timer/cron add`，heredoc 和引号里的字不算），或用编辑工具改 wiki、临时目录以外的文件 | 用户说"做/可以/帮我…"；定时任务和别的 bot 触发的轮；判不准放行 |
+| ask-only-guard | PreToolUse（Bash/bash、编辑类，Codex 含 apply_patch；Grok 只装这一条，`--cli grok`） | 用户最新一条只在提问，命令却是派活、转活或挂定时（`ws-handoff`、`ws-forward`、`board add`、`bothouse timer/cron add`，heredoc 和引号里的字不算），或用编辑工具改 wiki、临时目录以外的文件 | 用户说"做/可以/帮我…"；定时任务和别的 bot 触发的轮；判不准放行 |
 | param-source-guard | PreToolUse（Edit/Write/edit/write/str_replace_editor） | 代码里新加 `名字 = 数字` 没写来源注释 | 同一行或上一行注释写来源（用户原话、数据、SPEC、沿用） |
 | dispatch-review-guard | PreToolUse（Agent/Task/subagent/subagent_fork/workflow；主会话的 Edit/Write） | 派活没写【已审:…】；主会话直接改代码 | 【免审:调研/小改动/一次性脚本/代码审查】、【审稿】+逐字原话、【已审:<审稿文件>】；文档先跑 `doc-ok.py <文件>` |
 | fix-claim-guard | Stop | 用户在说 bug，回复说"已修复"却没列入口表 | 列 `入口 \| 是否经过修复 \| 核对结果` 表；每轮只拦一次 |
@@ -116,6 +116,10 @@ cd bridge && go test -tags no_web ./core -run 'TestAgentHooks|TestWithHookRules|
 ```
 
 `test_promise_guard.py` 用固定时钟、临时 HOME 和定时任务夹具。新增 `test_bash_guard_nowait.py`、`test_bash_guard_speed.py` 可直接通过 python3 -I 运行；只把命令作为 hook 输入，不执行被测 shell 命令。DSH 辅助文件不单独注册，既有 run.py 复用它的会话字段读取。
+
+## Grok roles
+
+`setup hooks on --cli grok` 只装 ask-only-guard，写进角色的 `.claude/settings.json`（Grok 读它，项目目录要先信任）。run.py `--grok` 把 Grok 的工具名（run_terminal_command、search_replace、write）换成 Bash/Edit/Write，从 Grok 会话的 updates.jsonl 读用户最新一句。
 
 ## Codex roles
 

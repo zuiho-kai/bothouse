@@ -8,7 +8,7 @@ import (
 )
 
 // TestAskOnlyGuardInstalled: ask-only-guard is installed for each CLI in use, with its shell and edit tools in
-// the matcher. (Grok runs over ACP, which has no hook entry point yet.)
+// the matcher. Grok matches the Claude Code names in its matcher against its own tools.
 func TestAskOnlyGuardInstalled(t *testing.T) {
 	useRepoHooks(t)
 	t.Setenv("HOME", t.TempDir())
@@ -17,6 +17,7 @@ func TestAskOnlyGuardInstalled(t *testing.T) {
 		"dsh":         {"bash", "edit", "write"},
 		"codex":       {"Bash", "apply_patch"},
 		"antigravity": {"run_command", "write_to_file", "replace_file_content"},
+		"grok":        {"Bash", "Edit", "Write", "--grok"},
 	} {
 		t.Run(cli, func(t *testing.T) {
 			wd := t.TempDir()

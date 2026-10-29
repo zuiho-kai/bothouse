@@ -73,7 +73,13 @@ type claudeSession struct {
 	// maomao fork: an API error (e.g. usage limit) ends the turn; if the CLI
 	// never follows it with a result event, apiErrTimer synthesizes one so the
 	// turn (typing, busy flag) cannot hang. apiErrFired drops the late real one.
-	apiErrMu     sync.Mutex
+	apiErrMu sync.Mutex
+	// Reply text seen before a Stop hook blocked the turn. When the model
+	// answers the block with only a short addendum, the CLI result holds just
+	// that addendum; handleResult puts the blocked reply back in front of it.
+	replyMu      sync.Mutex
+	lastText     string
+	preStopText  string
 	apiErrTimer  *time.Timer
 	apiErrFired  bool
 	apiErrClosed bool // events channel closed; guarded by apiErrMu
@@ -780,6 +786,7 @@ func assistantText(msg map[string]any) string {
 //   - "You've hit your weekly limit · resets <time> (<tz>)"
 //   - "You've hit your 5-hour limit · resets 6:50pm (Asia/Tokyo)" (claude 2.1.3xx, 10-28)
 //   - "API Error: Request rejected (429) · usage limit ..."
+//
 // The window name in "hit your <window> limit" keeps changing (session, weekly,
 // 5-hour), so claudeQuotaHitRe matches the family rather than each wording.
 var claudeQuotaPhrases = []string{"usage limit"}
@@ -937,6 +944,7 @@ func (cs *claudeSession) handleAssistant(raw map[string]any) {
 			}
 		case "text":
 			if text, ok := item["text"].(string); ok && text != "" {
+				cs.noteReplyText(text)
 				evt := core.Event{Type: core.EventText, Content: text}
 				select {
 				case cs.events <- evt:
@@ -946,6 +954,51 @@ func (cs *claudeSession) handleAssistant(raw map[string]any) {
 			}
 		}
 	}
+}
+
+// stopHookFeedbackPrefix starts the user message Claude Code injects when a
+// Stop hook blocks the end of a turn.
+const stopHookFeedbackPrefix = "Stop hook feedback:"
+
+func (cs *claudeSession) noteReplyText(text string) {
+	cs.replyMu.Lock()
+	cs.lastText = text
+	cs.replyMu.Unlock()
+}
+
+// noteStopBlocked keeps the reply that was blocked; with several blocks in one
+// turn the longest one is kept.
+func (cs *claudeSession) noteStopBlocked() {
+	cs.replyMu.Lock()
+	if len(cs.lastText) > len(cs.preStopText) {
+		cs.preStopText = cs.lastText
+	}
+	cs.lastText = ""
+	cs.replyMu.Unlock()
+}
+
+// takeStopBlockedReply returns the final reply for a turn and clears the
+// per-turn state. If a Stop hook blocked a longer reply and the model then
+// wrote only a short addendum, the blocked reply goes in front so the channel
+// does not get the addendum alone.
+func (cs *claudeSession) takeStopBlockedReply(result string) string {
+	cs.replyMu.Lock()
+	pre := cs.preStopText
+	cs.preStopText, cs.lastText = "", ""
+	cs.replyMu.Unlock()
+	return mergeStopBlockedReply(pre, result)
+}
+
+func mergeStopBlockedReply(pre, result string) string {
+	pre = strings.TrimSpace(pre)
+	res := strings.TrimSpace(result)
+	if pre == "" || strings.Contains(res, pre) || len(res) >= len(pre) {
+		return result
+	}
+	if res == "" {
+		return pre
+	}
+	return pre + "\n\n" + res
 }
 
 func (cs *claudeSession) handleUser(raw map[string]any) {
@@ -966,6 +1019,12 @@ func (cs *claudeSession) handleUser(raw map[string]any) {
 			continue
 		}
 		contentType, _ := item["type"].(string)
+		if contentType == "text" {
+			if t, _ := item["text"].(string); strings.HasPrefix(t, stopHookFeedbackPrefix) {
+				cs.noteStopBlocked()
+			}
+			continue
+		}
 		if contentType == "tool_result" {
 			isError, _ := item["is_error"].(bool)
 			var result string
@@ -1021,6 +1080,9 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 	var content string
 	if result, ok := raw["result"].(string); ok {
 		content = result
+	}
+	if !isCompactionResult(raw) {
+		content = cs.takeStopBlockedReply(content)
 	}
 	if sid, ok := raw["session_id"].(string); ok && sid != "" {
 		cs.sessionID.Store(sid)
