@@ -63,6 +63,10 @@ def main(argv):
     r = subprocess.run(timer_cmd(last["channel"], last["file"], argv[0]), capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"ws-forward: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
+    # 转了新话，工作区要接着做：这件活的兜底定时器从现在重新算（board.arm_guard；暂停的活不挂）
+    for it in board.items():
+        if it.get("where") == last["file"] and it.get("ws") and not it.get("paused"):
+            board.arm_guard(it["id"])
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
 
 

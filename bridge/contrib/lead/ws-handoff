@@ -1,6 +1,8 @@
 #!/usr/bin/env -S python3 -I
 # 把一整块大活交给「工作区」频道里的主角色：检查交接文件，再用 cc-connect timer 叫她开工，输出 timer id。
-# 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名]
+# 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名] [--guard 时长]
+#   --guard：兜底定时器时长（默认 30m，按活的大小改，如 90m、2h）。交出后在本聊天频道挂上，到点工作区还没交回就叫醒
+#   本频道主角色去查；工作区交回 [report]、[ask] 让出、暂停、改派时任务板自动撤（../gate/board.py arm_guard）。
 #       ws-handoff --drain                        排队的活按先后接到空出来的工作区（桥放回工作区后调）
 #       ws-handoff --resume <编号> "<用户答复>"    等你的活收到答复，找空工作区接着做（桥调）
 #   短名（≤10 字）上团队板（board add --short）；不写就从任务句去前缀再截。
@@ -279,6 +281,9 @@ def _lead_name(project):
     return _team.name_of(project) if project else "主角色"
 
 
+GUARD = None  # --guard 给的时长；None 用 board.GUARD_DELAY
+
+
 def start(path, task, chat, nid, project, answer=None):
     """挑空工作区、绑任务板 #nid、叫醒；没空的返回 False（调用方排队）。"""
     picked = pick_pool(chat, task)
@@ -292,6 +297,7 @@ def start(path, task, chat, nid, project, answer=None):
         board._park_once(cc_bin(), ws, parent)
         sys.exit(f"ws-handoff: #{nid} 叫醒 {name} 失败：{r.stderr.strip() or r.stdout.strip()}")
     record_last(path, ws, task, chat, nid)
+    board.arm_guard(nid, GUARD)
     print(f"ws-handoff: #{nid} 交给 {name}", file=sys.stderr)
     return True
 
@@ -329,6 +335,13 @@ def main(argv):
         return drain()
     if argv[:1] == ["--resume"] and len(argv) == 3:
         return resume_answered(int(argv[1].lstrip("#")), argv[2])
+    global GUARD
+    if "--guard" in argv:
+        k = argv.index("--guard")
+        GUARD = argv[k + 1] if k + 1 < len(argv) else None
+        if not GUARD or not re.fullmatch(r"(\d+h)?(\d+m)?", GUARD):
+            sys.exit("ws-handoff: --guard 要写时长，如 30m、90m、2h")
+        argv = argv[:k] + argv[k + 2:]
     short_name = None
     if "--short" in argv:
         k = argv.index("--short")
@@ -383,7 +396,8 @@ def main(argv):
                      f"任务板已撤，交接没放回（{reason}），桥恢复后跑 workspace park --session-key {key} --chat {parent}")
         sys.exit(f"ws-handoff: timer add 失败（已撤掉任务板 #{nid} 和这件交接）：{why}")
     record_last(path, ws, task, chat, nid)
-    print(f"ws-handoff: 任务板 #{nid}", file=sys.stderr)
+    guard = board.arm_guard(nid, GUARD)
+    print(f"ws-handoff: 任务板 #{nid}" + (f"，兜底定时器 {guard}（{GUARD or board.GUARD_DELAY}）" if guard else ""), file=sys.stderr)
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
     # 交出后主角色就收手：G27 实测里没有这句时，主角色在本轮 sleep 50 秒查任务板等工作区，聊天频道被占 8–11 分钟
     print(DONE.format(name=name))
