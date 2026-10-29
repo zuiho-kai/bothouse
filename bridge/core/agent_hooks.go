@@ -40,6 +40,9 @@ type agentHook struct {
 // Timeouts follow the author's own hooks.json / settings.json for these hooks.
 var agentHooks = []agentHook{
 	{"bash-guard", "PreToolUse", "Bash|bash|job_output", 10},
+	// Denies dispatch commands (ws-handoff, ws-forward, board add, timer/cron add) when the user's latest message
+	// only asks a question. It reads the user's words from transcript_path; no transcript = pass.
+	{"ask-only-guard", "PreToolUse", "Bash|bash", 10},
 	{"param-source-guard", "PreToolUse", "Edit|Write|MultiEdit|edit|write|str_replace_editor", 10},
 	{"dispatch-review-guard", "PreToolUse",
 		"Agent|Task|Edit|Write|MultiEdit|NotebookEdit|subagent|subagent_fork|workflow|edit|write|str_replace_editor", 10},
@@ -409,6 +412,7 @@ var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity", "pi",
 // so the names are listed explicitly rather than relying on the alias table.
 var iflowMatchers = map[string]string{
 	"bash-guard":            "run_shell_command|Bash|bash",
+	"ask-only-guard":        "run_shell_command|Bash|bash",
 	"param-source-guard":    "replace|multi_edit|write_file|Edit|Write|MultiEdit",
 	"dispatch-review-guard": "replace|multi_edit|write_file|Edit|Write|MultiEdit|Agent|Task|subagent",
 }
@@ -420,6 +424,7 @@ var iflowMatchers = map[string]string{
 // are a role/kind, not a tool name.
 var geminiMatchers = map[string]string{
 	"bash-guard":            "run_shell_command",
+	"ask-only-guard":        "run_shell_command",
 	"param-source-guard":    "write_file|replace",
 	"dispatch-review-guard": "invoke_agent|write_file|replace",
 }
