@@ -1,0 +1,71 @@
+{
+  "_doc": [
+    "交接校验规则，只此一份：ws-handoff（_handoff_rules.py）和 DSH collab（handoff-rules.mjs：建工作区交接、/tasks 派活）都读它。",
+    "标题行 = 去掉前导空白后以 # 开头的行；一节 = 从标题（或 inline 时以节名开头的行）到下一个标题。lead 是行首可去掉的字符。",
+    "正则只写 ASCII 字符类（JS 的 \\w、\\d 只认 ASCII，Python 认 Unicode），按 search 用，要锚定就写 ^。",
+    "checks 按顺序跑，报第一条不合格的。dispatch 列出只带字段的派活（/tasks：title、ref、base）要跑的检查：字段拼成一份交接再查。",
+    "改规则后跑 contrib/lead/test_handoff_rules.py（Python 与 Node 跑同一组 fixture 比对）。"
+  ],
+  "lead": "#-*> \t",
+  "checks": [
+    {
+      "id": "sections",
+      "type": "headings",
+      "names": ["用户原话", "总目标", "范围", "已查过什么", "进度", "相关改动", "规矩"],
+      "msg": "交接文件缺小节：{missing}",
+      "sep": "、"
+    },
+    {
+      "id": "ref",
+      "type": "ref",
+      "section": "参照实现",
+      "inline": true,
+      "none_re": "无\\s*[（(]\\s*新建\\s*[)）]",
+      "ref_re": "[~A-Za-z0-9_./-]*[A-Za-z_][~A-Za-z0-9_./-]*:[0-9]+",
+      "path_re": "[/.]",
+      "msg": "缺参照实现：写 文件:行，非代码活写「无（新建）」。示例：\n## 参照实现\n- bridge/contrib/lead/ws-up:120（和它的差异：…）",
+      "dispatch_msg": "缺参照实现：写 文件:行，非代码活写「无（新建）」。示例：ref: \"dsh/collab/tasks.mjs:226\"，或 ref: \"无（新建）\""
+    },
+    {
+      "id": "checked",
+      "type": "ref",
+      "section": "已查过什么",
+      "none_re": "无\\s*[（(]\\s*没查过",
+      "ref_re": "[~A-Za-z0-9_./-]*[A-Za-z_][~A-Za-z0-9_./-]*(:[0-9]+|\\.[A-Za-z]+)",
+      "path_re": "[/.]",
+      "msg": "「已查过什么」节要写已查过的 文件:行 或文档路径，下一棒不用重查；什么都没查过写「无（没查过）」。示例：\n## 已查过什么\n- dsh/collab/tasks.mjs:467 assign 只校验 ref/base\n- ~/work/codemaps/bothouse-bridge.md「编译与测试」节"
+    },
+    {
+      "id": "scope",
+      "type": "kinds",
+      "section": "范围",
+      "line_re": "^(不?改)\\s*[:：]\\s*\\S",
+      "need": ["改", "不改"],
+      "item": "{}：…",
+      "sep": "」「",
+      "msg": "「范围」节缺「{missing}」行：用户原话里的名词逐个写改或不改，没有不改的写「不改：无」。示例：\n## 范围\n- 改：任务卡（只在工作区显示）\n- 不改：进度表、聊天频道的每轮回复"
+    },
+    {
+      "id": "conflict",
+      "type": "values",
+      "section": "相关改动",
+      "line_re": "^冲突\\s*[:：]\\s*(.*)",
+      "ok_re": "^无\\s*([（(].*[）)])?\\s*[。.；;]?$",
+      "or_re": "已问用户\\s*[:：]\\s*\\S",
+      "msg": "「相关改动」节缺一行「冲突：无」或「冲突：…（已问用户：<答复>）」。示例：\n## 相关改动\n- #612 已合，改了 core/handoff.go，和这件不重叠\n冲突：无",
+      "bad_msg": "相关改动里写了冲突、没写已问用户：先在聊天频道问用户，把答复写进相关改动（「冲突：…（已问用户：<答复>）」）"
+    },
+    {
+      "id": "base",
+      "type": "heading_needs_field",
+      "headings": ["共改文件", "多人改"],
+      "field": "底分支",
+      "msg": "交接文件写了多人改同组文件（「共改文件」/「多人改」节），缺「底分支：<分支名>」一行。示例：\n底分支：feat/approvals-card",
+      "dispatch_msg": "多人改同组文件要写底分支：base 填分支名，示例：base: \"feat/approvals-card\""
+    }
+  ],
+  "dispatch": {
+    "checks": ["ref", "base"],
+    "fields": {"ref": "ref", "base": "base"}
+  }
+}

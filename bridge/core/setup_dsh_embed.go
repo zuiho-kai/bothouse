@@ -57,11 +57,39 @@ func ExtractEmbeddedDSH(targetDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("unpack embedded dsh to %s: %w", targetDir, err)
 	}
+	if err := writeHandoffRules(filepath.Join(targetDir, "collab")); err != nil {
+		return "", err
+	}
 
 	scriptPath := filepath.Join(targetDir, "install.sh")
 	_ = os.Chmod(scriptPath, 0755)
 	_ = os.WriteFile(filepath.Join(targetDir, dshVersionFile), []byte(CurrentVersion), 0644)
 	return scriptPath, nil
+}
+
+// handoffRulesFile is the one copy of the handoff rules (contrib/lead/handoff-rules.json in the lead
+// tools, read there by ws-handoff). The collab plugin reads its copy next to handoff-rules.mjs and
+// refuses workspace handoffs and dispatches when it is missing, so every unpack and refresh writes it.
+const handoffRulesFile = "handoff-rules.json"
+
+// writeHandoffRules copies the lead tools' handoff rules into collabDir. LeadToolFS is set by the
+// binary (cmd/cc-connect/setup_lead.go); only core unit tests run without it.
+func writeHandoffRules(collabDir string) error {
+	if LeadToolFS == nil {
+		slog.Warn("dsh: lead tools not built in, collab has no handoff rules and will refuse handoffs", "dir", collabDir)
+		return nil
+	}
+	data, err := fs.ReadFile(LeadToolFS, "contrib/lead/"+handoffRulesFile)
+	if err != nil {
+		return fmt.Errorf("dsh: read handoff rules: %w", err)
+	}
+	if err := os.MkdirAll(collabDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(collabDir, handoffRulesFile), data, 0o644); err != nil {
+		return fmt.Errorf("dsh: write handoff rules: %w", err)
+	}
+	return nil
 }
 
 // dshVersionFile records which program version last unpacked ~/.bothouse/dsh.
@@ -145,6 +173,11 @@ func RefreshEmbeddedDSH(targetDir, version string) (bool, error) {
 	})
 	if err != nil {
 		return false, fmt.Errorf("refresh embedded dsh in %s: %w", targetDir, err)
+	}
+	if !staged { // the staged copy got them before it was swapped in
+		if err := writeHandoffRules(filepath.Join(targetDir, "collab")); err != nil {
+			return false, err
+		}
 	}
 	_ = os.Chmod(filepath.Join(targetDir, "install.sh"), 0755)
 	if err := os.WriteFile(stamp, []byte(version), 0644); err != nil {
@@ -302,6 +335,9 @@ func refreshCollabStaged(sub fs.FS, targetDir string, deps []byte) (err error) {
 	})
 	if err != nil {
 		return fmt.Errorf("stage files: %w", err)
+	}
+	if err := writeHandoffRules(stage); err != nil {
+		return err
 	}
 	if err := installCollabDeps(stage); err != nil {
 		return err

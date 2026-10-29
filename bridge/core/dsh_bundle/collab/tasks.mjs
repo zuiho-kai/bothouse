@@ -11,6 +11,7 @@ import { CollabError, MAX_TEXT } from './store.mjs';
 import { mentions, nameCalled, split, withoutLeadingMentions } from './mentions.mjs';
 import { NOTICE_PREFIXES } from './cloudweb.mjs';
 import { exitMark } from './team-exit.mjs';
+import { checkDispatch, HandoffRulesError } from './handoff-rules.mjs';
 
 /** Status codes and their labels (the eight names are a #139 B setting, not user-specified). */
 export const STATUS = {
@@ -53,26 +54,24 @@ const PLACEHOLDERS = WORKING.map(() => '?').join(', ');
 // point) keeps its status but is not in progress: no check timer, not counted. Any status
 // change by its owner or the lead (stance, hand-back, review) resumes it.
 const LIVE = `status IN (${PLACEHOLDERS}) AND paused_at IS NULL`;
-// #574 dispatch fields (same checks as contrib/lead/ws-handoff has_ref_impl/multi_editor/has_base,
-// user 2026-10-25 「交活带参照实现，非代码活写『无（新建）』算过」): `ref` names the existing
-// implementation to follow as `file:line`, or 无（新建） for work with none; when the task says
-// several members edit the same files (「共改文件」/「多人改」) it also needs `base`, the branch to start from.
-const REF_RE = /[~\w.\-/]*[A-Za-z_][~\w.\-/]*:\d+/g;
-const NO_REF = /^无\s*[（(]\s*新建\s*[)）]/;
-export const MISSING_REF = '缺参照实现：写 文件:行，非代码活写「无（新建）」';
-const REF_EXAMPLE = '示例：ref: "dsh/collab/tasks.mjs:226"，或 ref: "无（新建）"';
-const MISSING_BASE = '多人改同组文件要写底分支：base 填分支名，示例：base: "feat/approvals-card"';
+// #574 dispatch fields: `ref` names the existing implementation to follow, `base` the branch to start
+// from when several members edit the same files. The checks and their messages are in the shared
+// handoff rules (handoff-rules.json, also read by ws-handoff); a dispatch runs the ones listed under
+// its `dispatch` key. The rules file not being readable refuses the dispatch (HTTP 500), never skips it.
 const MISSING_REWORK_NOTE = '返工要写原因：note 填为什么打回，示例：note: "没先读现有实现"';
 
-/** True when ref is 无（新建） or holds at least one `path:line` (path with / or ., so 14:30 does not count). */
-export function hasRef(ref) {
-  const s = String(ref ?? '').trim();
-  if (NO_REF.test(s)) return true;
-  return (s.match(REF_RE) ?? []).some(m => m.includes('/') || m.split(':')[0].includes('.'));
+/** Runs a handoff check; a missing or broken rules file becomes a CollabError instead of letting it through. */
+export function withRules(fn) {
+  try {
+    return fn();
+  } catch (e) {
+    if (e instanceof HandoffRulesError) throw new CollabError('rules-missing', e.message);
+    throw e;
+  }
 }
 
-/** The task says several members edit the same files. */
-export function multiEditor(text) { return /共改文件|多人改/.test(String(text ?? '')); }
+/** True when ref passes the shared reference-implementation check on its own. */
+export function hasRef(ref) { return checkDispatch({ title: '', ref }) === null; }
 
 export class Tasks {
   reassignForQuota(task, owner) {
@@ -289,7 +288,7 @@ export class Tasks {
    * Dispatch: the actor (the lead for this task) assigns `title` in `roomId` to member `owner`.
    * `reason` is the dispatcher's own one-line why-this-member, shown in the record (team mode C).
    * `force` allows assigning even if the member has an in-progress task in any room.
-   * `ref`/`base` (#574): an API dispatch passes ref (string, checked by hasRef) and, for a
+   * `ref`/`base` (#574): an API dispatch passes ref (string, checked by the shared rules) and, for a
    * multi-editor task, base; undefined ref (tasks opened from chat or bridge cards) skips the check.
    */
   assign({ roomId, title, owner, actor, parentTask, reviewOf, messageId, reason, ref, base, force = false }) {
@@ -310,8 +309,8 @@ export class Tasks {
     }
     if (parentTask != null && this.task(parentTask) === undefined) throw new CollabError('task-missing', `task ${parentTask} does not exist`);
     if (messageId != null && this.store.message(messageId) === undefined) throw new CollabError('invalid', `message ${messageId} does not exist`);
-    if (ref !== undefined && !hasRef(ref)) throw new CollabError('invalid', `${MISSING_REF}。${REF_EXAMPLE}`);
-    if (ref !== undefined && multiEditor(text) && !clip(base)) throw new CollabError('invalid', MISSING_BASE);
+    const refError = ref === undefined ? null : withRules(() => checkDispatch({ title: text, ref, base }));
+    if (refError) throw new CollabError('invalid', refError);
     const excludeIds = parentTask != null ? this.ancestorsOf(parentTask) : new Set();
     const busy = this.busyInfo(owner, excludeIds);
     if (busy.busy && !force) {
