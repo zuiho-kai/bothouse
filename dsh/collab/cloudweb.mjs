@@ -137,6 +137,13 @@ function briefSteps(items, state) {
   });
 }
 
+/** reply_to_* frame fields for a reply (store.quote result); {} for a plain message. */
+function replyToFields(quoted, store) {
+  if (quoted === undefined) return {};
+  if (quoted.deleted) return { reply_to_id: String(quoted.id) };
+  return { reply_to_id: String(quoted.id), reply_to_author: quoted.name, reply_to_text: store.message(quoted.id)?.text ?? quoted.text };
+}
+
 export class CloudWebGateway {
   /**
    * @param hub - Hub instance.
@@ -261,7 +268,11 @@ export class CloudWebGateway {
     const only = this.hub.replyRoute(msg);
     const metas = messageAttachments(msg);
     const attached = metas.length && this.files ? this.files.wire(metas) : {};
-    const quote = quotePrefix(this.hub.store.quote(msg));
+    const quoted = this.hub.store.quote(msg);
+    const quote = quotePrefix(quoted);
+    // The replied-to row's id (same id space as a task card's preview_handle and a reply_ack),
+    // so the bridge can find the work it belongs to (core.Message.Reference, reply_task.go).
+    const replyTo = replyToFields(quoted, this.hub.store);
     for (const { ws, member } of this.bots.values()) {
       if (!members.some(m => m.id === member.id)) continue;
       if ((target && target !== member.id) || (fromAgent && msg.author === member.id)) continue;
@@ -277,7 +288,7 @@ export class CloudWebGateway {
       const frame = {
         type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
         user_id: msg.author, user_name: msg.name, content: content + (hit ? (this.later?.instructions(member.id, msg.room_id) ?? '') : ''), reply_ctx: roomKey(msg.room_id),
-        mentioned: hit, from_bot: fromAgent, ...attached,
+        mentioned: hit, from_bot: fromAgent, ...attached, ...replyTo,
       };
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
       if (author?.mentionId) frame.user_mention_id = author.mentionId;
@@ -413,9 +424,15 @@ export class CloudWebGateway {
         const text = forDisplay(content, this.hub.routable()).trim();
         if (!text || text.length > MAX_TEXT) return;
         // reply_in_place (#121): the streamed preview becomes this reply; fall back to a new row if it is gone.
+        // A frame with ref_id asks for the posted row's id back (bridge SentMessageRecorder).
+        const ack = id => { if (typeof d.ref_id === 'string' && d.ref_id) send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: String(id) }); };
         const h = d.preview_handle;
-        if (typeof h === 'string' && /^\d+$/.test(h) && this.hub.commit(Number(h), 'role', member.id, text, d.agent === true) !== undefined) return;
-        this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text, fromTurn: d.agent === true });
+        if (typeof h === 'string' && /^\d+$/.test(h)) {
+          const row = this.hub.commit(Number(h), 'role', member.id, text, d.agent === true);
+          if (row !== undefined) { ack(row.id); return; }
+        }
+        const { message } = this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text, fromTurn: d.agent === true });
+        ack(message.id);
         return;
       }
       case 'buttons': {
