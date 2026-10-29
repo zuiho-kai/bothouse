@@ -686,6 +686,15 @@ func (e *Engine) turnContext(session *Session, sessionKey, text string) string {
 // (user, cron, timer or queued); teammate status and wiki pages only with
 // turnCtx messages.
 func (e *Engine) withTurnBlocks(session *Session, sessionKey, query, content string, turnCtx bool) string {
+	return e.withTurnBlocksRef(session, sessionKey, query, content, turnCtx, nil)
+}
+
+// withTurnBlocksRef also puts the background of the work a reply quotes (ref, reply_task.go)
+// right before the message, once per agent context.
+func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, content string, turnCtx bool, ref *MessageReference) string {
+	if c := e.replyTaskBlock(session, ref); c != "" {
+		content = c + "\n\n" + content
+	}
 	if c := e.leadHandoffBlock(session, sessionKey); c != "" {
 		content = c + "\n\n" + content
 	}

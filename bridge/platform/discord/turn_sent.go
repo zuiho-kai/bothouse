@@ -91,6 +91,9 @@ func (l *turnSentLog) has(id string) bool {
 
 // noteTurnSent records sent when it carries agent output.
 func (p *Platform) noteTurnSent(rc replyContext, sent *discordgo.Message) {
+	if sent != nil && sent.ID != "" && rc.recordSent != nil {
+		rc.recordSent(sent.ID)
+	}
 	if rc.agent {
 		p.recordAgentPost(sent)
 		if sent != nil && rc.recordAgentReply != nil {
@@ -113,6 +116,16 @@ func (p *Platform) recordAgentPost(sent *discordgo.Message) {
 		return
 	}
 	p.turnSent.add(sent.ChannelID, sent.ID)
+}
+
+// RecordSentMessages implements core.SentMessageRecorder: record gets the id of every message
+// posted with the returned context (agent output or not). Slash-command contexts are left as is.
+func (p *Platform) RecordSentMessages(replyCtx any, record func(string)) any {
+	if rc, ok := replyCtx.(replyContext); ok {
+		rc.recordSent = record
+		return rc
+	}
+	return replyCtx
 }
 
 // MarkFinalReply implements core.FinalReplyMarker.
