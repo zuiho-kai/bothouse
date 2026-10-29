@@ -52,12 +52,12 @@ case $cmd in
     b=${d:t}
     mkdir -p $rec && snap > $rec/$b.before && printf '%s\n%s\n' "$owner" "$d" > $rec/$b.owner || { rmdir $d; die "写记录失败"; }
     cat $rec/$b.before
-    echo "ISO_DIR=$d（本次测试的 HOME、数据目录、gocache、worktree 都建在它下面；跑 iso-check after $d 会删掉它）";;
+    echo "ISO_DIR=${d}（本次测试的 HOME、数据目录、gocache、worktree 都建在它下面；跑 iso-check after $d 会删掉它）";;
   after)
     d=${args[1]}
     [[ -n $d ]] || die "必须给目录：iso-check after <目录>（before 打出的 ISO_DIR）。不猜「最近一个」。"
     d=${d%/}; b=${d:t}
-    [[ -f $rec/$b.owner && $(sed -n 2p $rec/$b.owner) == $d ]] || die "$d 不是本会话（$owner）登记的隔离目录，拒绝删除和对比。是你的就用建它时的会话键 --owner。"
+    [[ -f $rec/$b.owner && $(sed -n 2p $rec/$b.owner) == $d ]] || die "$d 不是本会话（${owner}）登记的隔离目录，拒绝删除和对比。是你的就用建它时的会话键 --owner。"
     snap > $rec/$b.after
     if isodir $d; then
       chmod -R u+w $d 2>/dev/null; rm -rf $d && echo "iso-check: 已删隔离目录 $d"

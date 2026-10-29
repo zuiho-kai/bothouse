@@ -115,6 +115,11 @@ type replyContext struct {
 	// core.Message in dispatchCoreMessage for core's built-in busy rules (core/gate_local.go).
 	mentioned bool
 	direct    bool
+	// replyTo: the message this one replies to (parent_id); dispatchCoreMessage puts it in
+	// core.Message.Reference so core can find the work it belongs to (core/reply_task.go).
+	replyTo string
+	// recordSent gets the id of every message posted with this context (core.SentMessageRecorder).
+	recordSent func(string)
 }
 
 type Platform struct {
@@ -1102,6 +1107,10 @@ func (p *Platform) dispatchCoreMessage(msg *core.Message) {
 	if rc, ok := msg.ReplyCtx.(replyContext); ok {
 		msg.Mentioned = msg.Mentioned || rc.mentioned
 		msg.Direct = msg.Direct || rc.direct
+		if rc.replyTo != "" && msg.Reference == nil {
+			// Only the id: the quoted text already is in ExtraContent (fetchQuotedMessage).
+			msg.Reference = &core.MessageReference{ID: rc.replyTo}
+		}
 	}
 	if p.isMessageRecalled(msg.MessageID) {
 		slog.Debug(p.tag()+": recalled message dispatch dropped", "message_id", msg.MessageID)
@@ -1449,7 +1458,7 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 
 	rctx := replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey,
 		mentioned: chatType == "group" && p.getBotOpenID() != "" && isBotMentioned(mentions, p.getBotOpenID()),
-		direct:    chatType == "p2p"}
+		direct:    chatType == "p2p", replyTo: parentID}
 	slog.Debug(p.tag()+": routed inbound message",
 		"message_id", messageID,
 		"session_key", sessionKey,
@@ -2983,7 +2992,7 @@ func (p *Platform) sendMediaMessage(ctx context.Context, rc replyContext, msgTyp
 	if p.shouldUseThreadOrReplyAPI(rc) {
 		return p.replyMessage(ctx, rc, msgType, content)
 	}
-	return p.createMessage(ctx, rc.chatID, msgType, content, "send media message")
+	return p.createMessageRec(ctx, rc.chatID, msgType, content, "send media message", rc.recordSent)
 }
 
 func detectFeishuFileType(mimeType, fileName string) string {
@@ -3674,7 +3683,7 @@ func (p *Platform) sendNewMessageToChat(ctx context.Context, rc replyContext, ms
 	if rc.chatID == "" {
 		return fmt.Errorf("%s: chatID is empty, cannot send new message", p.tag())
 	}
-	return p.createMessage(ctx, rc.chatID, msgType, content, "send")
+	return p.createMessageRec(ctx, rc.chatID, msgType, content, "send", rc.recordSent)
 }
 
 func (p *Platform) buildReplyMessageReqBody(rc replyContext, msgType, content string) *larkim.ReplyMessageReqBody {
@@ -3701,12 +3710,20 @@ func (p *Platform) replyMessage(ctx context.Context, rc replyContext, msgType, c
 			if !resp.Success() {
 				return fmt.Errorf("%s: reply failed code=%d msg=%s", p.tag(), resp.Code, resp.Msg)
 			}
+			if resp.Data != nil {
+				noteSent(rc.recordSent, resp.Data.MessageId)
+			}
 			return nil
 		})
 	})
 }
 
 func (p *Platform) createMessage(ctx context.Context, chatID, msgType, content, op string) error {
+	return p.createMessageRec(ctx, chatID, msgType, content, op, nil)
+}
+
+// createMessageRec is createMessage that passes the new message's id to record (may be nil).
+func (p *Platform) createMessageRec(ctx context.Context, chatID, msgType, content, op string, record func(string)) error {
 	req := larkim.NewCreateMessageReqBuilder().
 		ReceiveIdType(larkim.ReceiveIdTypeChatId).
 		Body(larkim.NewCreateMessageReqBodyBuilder().
@@ -3724,9 +3741,29 @@ func (p *Platform) createMessage(ctx context.Context, chatID, msgType, content, 
 			if !resp.Success() {
 				return fmt.Errorf("%s: %s failed code=%d msg=%s", p.tag(), op, resp.Code, resp.Msg)
 			}
+			if resp.Data != nil {
+				noteSent(record, resp.Data.MessageId)
+			}
 			return nil
 		})
 	})
+}
+
+// noteSent passes a posted message's id to record (core.SentMessageRecorder).
+func noteSent(record func(string), id *string) {
+	if record != nil && id != nil && *id != "" {
+		record(*id)
+	}
+}
+
+// RecordSentMessages implements core.SentMessageRecorder: record gets the id of every message
+// posted with the returned context.
+func (p *Platform) RecordSentMessages(rctx any, record func(string)) any {
+	if rc, ok := rctx.(replyContext); ok {
+		rc.recordSent = record
+		return rc
+	}
+	return rctx
 }
 
 func (p *Platform) withFreshTenantAccessTokenRetry(ctx context.Context, operation string, fn feishuRequestFunc) error {

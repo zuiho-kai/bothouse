@@ -33,7 +33,8 @@ func TestWorkspaceDirtyChatRepairedToOwner(t *testing.T) {
 	if got, ok := e.WorkspaceParent("ws1"); !ok || got != "chatA" {
 		t.Fatalf("ws1 parent = %q,%v; want chatA", got, ok)
 	}
-	e.forwardWorkspaceExit(p, exitWSKey, "[report]\n收口结果")
+	exitBoardItem(t, e, 7, "收口")
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 收口结果")
 	if got := p.sentTo("discord:chatA"); len(got) != 1 || !strings.Contains(got[0], "收口结果") {
 		t.Fatalf("chatA got %q", got)
 	}

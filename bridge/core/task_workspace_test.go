@@ -44,7 +44,8 @@ func TestResolveTaskWorkspaceChecksOwnershipAndOccupancy(t *testing.T) {
 	busy := NewEngine("source", &stubAgent{}, []Platform{newProgressPlatform()}, "", LangChinese)
 	busy.SetDataDir(t.TempDir())
 	claimSourceWorkspace(t, busy)
-	for i := 0; i < teamWorkspaceBusy; i++ {
+	// One claim is the dispatch's own and does not count; one more task in work makes it busy.
+	for i := 0; i <= teamWorkspaceBusy; i++ {
 		if err := busy.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
 			t.Fatal(err)
 		}

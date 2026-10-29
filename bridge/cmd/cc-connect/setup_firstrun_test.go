@@ -440,9 +440,10 @@ func TestSetupApplyInvalidTokenWritesNoConfig(t *testing.T) {
 	}
 }
 
-// rc5: a new bot's reply footer sent the owner's quota ("5h 剩 65% · 周 36%") and this machine's
-// path to the group. Projects the wizard creates now turn both off; existing projects keep theirs.
-func TestSetupApplyNewBotFooterHidesQuotaAndPath(t *testing.T) {
+// rc5: a new bot's reply footer sent this machine's path to the group, so projects the wizard
+// creates turn the path off; existing projects keep theirs. The quota footer stays on by default
+// (9337f0da #595, user: 「什么傻逼玩意让他默认打开」), so the wizard leaves it unset.
+func TestSetupApplyNewBotFooterHidesPath(t *testing.T) {
 	srv := fakeDiscordAPI(t, 1<<18, "900")
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "config.toml")
@@ -462,7 +463,7 @@ func TestSetupApplyNewBotFooterHidesQuotaAndPath(t *testing.T) {
 		switch p.Name {
 		case "juzi":
 			seen++
-			if p.ShowQuotaIndicator == nil || *p.ShowQuotaIndicator || p.ShowWorkdirIndicator == nil || *p.ShowWorkdirIndicator {
+			if p.ShowQuotaIndicator != nil || p.ShowWorkdirIndicator == nil || *p.ShowWorkdirIndicator {
 				t.Errorf("new bot footer: quota=%v workdir=%v", p.ShowQuotaIndicator, p.ShowWorkdirIndicator)
 			}
 		case "mine":

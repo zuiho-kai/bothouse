@@ -31,7 +31,7 @@ out=$(setnext "$id" "$at") || exit 1
 prev=$(printf '%s\n' "$out" | sed -n 1p)
 what=$(printf '%s\n' "$out" | sed -n 2p)
 # 卡片上有「下次看」⇔ 定时真挂上了：timer 失败就把 next 改回原值再报错
-"$cc" timer add -p "$proj" -s "$sk" --delay "$delay" --desc "$what" --prompt "【later 到点】任务板 #$id：$todo；做完照常 board done $id <返工次数> [原因]，没做完 later $id <延时> \"<到点要做什么>\" 再挂。" >/dev/null || {
+"$cc" timer add -p "$proj" -s "$sk" --delay "$delay" --desc "$what" --prompt "【later 到点】任务板 #${id}：${todo}；做完照常 board done $id <返工次数> [原因]，没做完 later $id <延时> \"<到点要做什么>\" 再挂。" >/dev/null || {
   setnext "$id" --restore "$prev" >/dev/null || true
   echo "定时没挂上，#$id 的「下次看」已改回原值" >&2; exit 1; }
 echo "已挂：$at 回来，任务板 #$id"

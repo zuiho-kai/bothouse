@@ -130,6 +130,7 @@ POST /cloud-web/v1/register
 - `from_bot`: sent by a teammate bot (maomao fork). Copied to `Message.FromBot`; without `mentioned` it is listen-only context and never starts a turn, as on Discord. `allow_from` does not apply to it — the gateway vouches for its bots
 - `chat_name`: the channel's display name (maomao fork). Copied to `Message.ChatName`, so the team status block names the channel a teammate is busy in, as on Discord
 - `user_mention_id`: for `from_bot` messages, the sending bot's `<@id>` (maomao fork). When it equals `team_lead_bot` and `mentioned` is true, the turn was dispatched by the primary role: its final answer gets `<@team_lead_bot>` prepended unless it already mentions the primary role (same as Discord `lead_return`). A person's message (not `from_bot`) that mentions this bot and contains `<@team_lead_bot>` counts the same (issue #182: the user @-s the primary role and a sub together; the sub answers, the primary role checks when @-ed back)
+- `reply_to_id`, `reply_to_author`, `reply_to_text` (optional): the message this one replies to. `reply_to_id` is the gateway message id, the same id a task card's `preview_ack` returns, so core can tell which work the reply is about (`core.Message.Reference`). An outbound `reply` frame may carry `ref_id`; the gateway then answers `preview_ack` with that `ref_id` and the posted message id in `preview_handle`. Older gateways send neither; nothing changes for them
 
 ### `card_action`
 
