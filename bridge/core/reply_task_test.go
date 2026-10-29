@@ -173,7 +173,7 @@ func TestReplyTaskCardByMessageID(t *testing.T) {
 	if task == nil || task.card == nil {
 		t.Fatal("task card not found by its message id")
 	}
-	got := e.replyTaskText(task)
+	got := e.replyTaskText(task, "")
 	if !strings.Contains(got, "任务卡 t-1「整理周报」") || !strings.Contains(got, "最近汇报：汇总了三份") {
 		t.Fatalf("card block = %q", got)
 	}

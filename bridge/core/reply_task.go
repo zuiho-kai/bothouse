@@ -30,7 +30,9 @@ const (
 )
 
 // SentMessageRecorder is implemented by platforms that can report the id of each message
-// posted with a reply context (maomao fork: Discord). record gets every posted id.
+// posted with a reply context (the platform's send call returns it). record gets every posted
+// id. Which platforms do, and why the others cannot, is in platform/CAPABILITIES.md
+// (checked by platform_parity_test.go).
 type SentMessageRecorder interface {
 	RecordSentMessages(replyCtx any, record func(id string)) any
 }
@@ -211,7 +213,7 @@ func (e *Engine) replyTaskBlock(session *Session, ref *MessageReference) string 
 	if sent {
 		return ""
 	}
-	body := e.replyTaskText(ref.task)
+	body := e.replyTaskText(ref.task, replyTaskQuote(ref))
 	if body == "" {
 		return ""
 	}
@@ -219,7 +221,20 @@ func (e *Engine) replyTaskBlock(session *Session, ref *MessageReference) string 
 	return body
 }
 
-func (e *Engine) replyTaskText(t *replyTask) string {
+// replyTaskQuote points at the quoted message. Only platforms that wrap the quote in the
+// message (Full, e.g. Discord) keep it whole there; for the others the text the platform gave
+// (Reference.Text) is written here, and nothing when it gave only the id.
+func replyTaskQuote(ref *MessageReference) string {
+	if ref.Full != "" {
+		return replyTaskQuoteNote
+	}
+	if t := strings.TrimSpace(ref.Text); t != "" {
+		return "被回复的消息：" + truncateRelay(t, backgroundWordsLimit)
+	}
+	return ""
+}
+
+func (e *Engine) replyTaskText(t *replyTask, quote string) string {
 	var b strings.Builder
 	b.WriteString("（用户回复的那条消息属于下面这件活，系统附上它的背景，不用回应这段）\n")
 	if t.card != nil {
@@ -228,8 +243,8 @@ func (e *Engine) replyTaskText(t *replyTask) string {
 		if p := strings.TrimSpace(c.LatestProgress); p != "" {
 			b.WriteString("最近汇报：" + truncateRelay(p, backgroundWordsLimit) + "\n")
 		}
-		b.WriteString(replyTaskQuoteNote)
-		return b.String()
+		b.WriteString(quote)
+		return strings.TrimRight(b.String(), "\n")
 	}
 	it := e.boardItemByID(t.board)
 	if it == nil {
@@ -248,10 +263,13 @@ func (e *Engine) replyTaskText(t *replyTask) string {
 	if s := strings.TrimSpace(it.Status); s != "" {
 		b.WriteString("最近汇报：" + s + "\n")
 	}
-	b.WriteString(replyTaskQuoteNote)
+	b.WriteString(quote)
 	if it.WS != "" && it.DoneAt == "" && e.workspaceHasOpenHandoff(it.WS) {
 		plat, id, _ := strings.Cut(teamChatKey(it.WS), ":")
-		b.WriteString("\n这件活在工作区 " + channelLabel(plat, id) + " 进行中，追加要求用 ws-forward 转过去。")
+		if quote != "" {
+			b.WriteString("\n")
+		}
+		b.WriteString("这件活在工作区 " + channelLabel(plat, id) + " 进行中，追加要求用 ws-forward 转过去。")
 	}
-	return b.String()
+	return strings.TrimRight(b.String(), "\n")
 }
