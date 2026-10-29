@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"log/slog"
 	"strings"
 	"sync/atomic"
@@ -82,10 +84,35 @@ func (e *Engine) SetDispatchMode(mode string) {
 // DispatchMode is this project's dispatch mode.
 func (e *Engine) DispatchMode() string { return e.dispatchMode.get() }
 
-// withTeamModeRules prefixes the team-mode rules of the project's mode on every
-// delivery, like the identity and delegation blocks, so resumed and queued turns see them too.
-func (e *Engine) withTeamModeRules(prompt string) string {
-	return teamModeRulesFor(e.DispatchMode()) + "\n" + prompt
+// withTeamModeRules prefixes the team-mode rules of the project's mode when this
+// delivery must carry them (teamRulesOnce).
+func (e *Engine) withTeamModeRules(prompt string, session *Session, agent Agent) string {
+	return prefixRules(e.teamRulesOnce(teamModeRulesFor(e.DispatchMode()), session, agent), prompt)
+}
+
+func prefixRules(rules, prompt string) string {
+	if rules == "" {
+		return prompt
+	}
+	return rules + "\n" + prompt
+}
+
+// teamRulesOnce returns rules when this delivery must carry them, else "". Agents that report
+// their own compaction (ContextCompactionReporter) get them once per agent context: TurnCtxSent.Rules
+// holds a hash of the text sent, and a new session, a compaction (ResetTurnCtx) or a different text
+// (another dispatch mode, edited rules) sends them again. Other agents compact without telling the
+// bridge, so they get the rules on every delivery, as does a nil session. Before this, every turn
+// repeated about 2,000 characters of rules (2026-10-29 Discord session review).
+func (e *Engine) teamRulesOnce(rules string, session *Session, agent Agent) string {
+	r, ok := agent.(ContextCompactionReporter)
+	if session == nil || !ok || !r.ReportsContextCompaction() {
+		return rules
+	}
+	sum := sha256.Sum256([]byte(rules))
+	if !session.takeTeamRules(hex.EncodeToString(sum[:8])) {
+		return ""
+	}
+	return rules
 }
 
 // TeamModeWorkspaceInstructions is the shared opening brief for a new workspace in the given mode.

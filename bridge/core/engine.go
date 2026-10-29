@@ -4698,7 +4698,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		content = e.withTurnBlocks(session, msg.SessionKey, msg.TurnCtxQuery, content, msg.TurnCtx)
 		promptContent := e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
 		promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
-		promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey)
+		promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey, session, agent)
 		// The public-progress run is minted per attempt (beginAttempt): a capacity
 		// retry's earlier attempt closed its run when its event loop ended.
 		var attemptPrompt string
@@ -7340,7 +7340,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				queued.content = e.withTurnBlocks(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content, queued.turnCtx)
 				queuedPrompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 				queuedPrompt = e.withSharedMemoryHint(queuedPrompt, replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, workspaceDir)
-				queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey)
+				queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, replyAgent)
 				queuedPrompt = e.withPublicProgress(queuedPrompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
 
 				state.mu.Lock()
@@ -7845,7 +7845,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		queuedAgent, queuedWorkspace := state.agent, state.workspaceDir
 		state.mu.Unlock()
 		prompt = e.withSharedMemoryHint(prompt, queuedAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, queuedWorkspace)
-		prompt = e.withChannelAgentInstructions(prompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey)
+		prompt = e.withChannelAgentInstructions(prompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, queuedAgent)
 
 		state.mu.Lock()
 		as := state.agentSession // capture under lock to avoid race with cleanup (mirrors #1436)
@@ -7993,7 +7993,8 @@ func (e *Engine) cmdPs(p Platform, msg *Message, args []string) {
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPsNoSession))
 		return
 	}
-	if err := state.agentSession.Send(e.withChannelAgentInstructions(text, msg.UserID, msg.FromBot, p, msg.SessionKey), "", nil, nil); err != nil {
+	// No team-mode rules: /ps adds to the running turn, which already had them (teamRulesOnce).
+	if err := state.agentSession.Send(e.withSupplementInstructions(text, msg.UserID, msg.FromBot), "", nil, nil); err != nil {
 		slog.Error("ps: send failed", "error", err)
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPsSendFailed))
 		return
@@ -17777,7 +17778,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	if c := e.turnContext(session, relaySessionKey, relayGateQuery(message)); c != "" {
 		content = c + "\n\n" + content
 	}
-	prompt := e.withAgentInstructions(content, "", true)
+	prompt := e.withAgentInstructions(content, "", true, session, agent)
 	sendResult := make(chan error, 1)
 	go func() {
 		err := agentSession.Send(prompt, "", nil, nil)
@@ -17846,6 +17847,9 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				continue
 			}
 			e.observeQuotaEvent(event, sourceSessionKey, agentSession)
+			if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
+				session.ResetTurnCtx() // the relay context lost its per-turn blocks (rules, wiki)
+			}
 			switch event.Type {
 			case EventText:
 				if event.Content != "" {
@@ -18042,6 +18046,9 @@ func (e *Engine) drainRelaySession(agent Agent, agentSession AgentSession, sessi
 				sessions.Save()
 			}
 			e.observeQuotaEvent(ev, relaySessionKey, agentSession)
+			if c, _ := ev.Metadata[MetaContextCompacted].(bool); c {
+				session.ResetTurnCtx() // as in handleTrackedRelay
+			}
 			switch ev.Type {
 			case EventText:
 				if ev.Content != "" {
