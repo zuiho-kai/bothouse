@@ -28,6 +28,9 @@ const (
 	// Source: the approved plan, 「同一件活、同一句话一小时内重复交回…只贴一次」.
 	exitHeadlineDedup = time.Hour
 	exitPostedFile    = "team-exit-posted.json"
+	// exitReportedFile: board items whose [report] reached the chat channel, kept exitReportedKeep.
+	exitReportedFile = "team-exit-reported.json"
+	exitReportedKeep = 7 * 24 * time.Hour
 )
 
 // exitHeadline splits body's first line into the board id and the sentence for the user.
@@ -103,6 +106,46 @@ func (e *Engine) exitPostedBefore(kind string, id int, line string) bool {
 		_ = os.WriteFile(path, b, 0o600)
 	}
 	return false
+}
+
+// exitReportedBefore reports whether a [report] for board item id was posted in the chat channel
+// within exitReportedKeep (the record survives restarts, in the bridge's data dir).
+func (e *Engine) exitReportedBefore(id int) bool {
+	if e.dataDir == "" {
+		return false
+	}
+	e.teamExit.mu.Lock()
+	defer e.teamExit.mu.Unlock()
+	at, seen := e.readExitReported()[strconv.Itoa(id)]
+	return seen && time.Since(at) <= exitReportedKeep
+}
+
+// markExitReported records that board item id's [report] was posted in the chat channel.
+func (e *Engine) markExitReported(id int) {
+	if e.dataDir == "" {
+		return
+	}
+	e.teamExit.mu.Lock()
+	defer e.teamExit.mu.Unlock()
+	reported := e.readExitReported()
+	for k, at := range reported {
+		if time.Since(at) > exitReportedKeep {
+			delete(reported, k)
+		}
+	}
+	reported[strconv.Itoa(id)] = time.Now()
+	if b, err := json.Marshal(reported); err == nil {
+		_ = os.WriteFile(filepath.Join(e.dataDir, exitReportedFile), b, 0o600)
+	}
+}
+
+// readExitReported loads the reported-items record; the caller holds e.teamExit.mu.
+func (e *Engine) readExitReported() map[string]time.Time {
+	reported := map[string]time.Time{}
+	if b, err := os.ReadFile(filepath.Join(e.dataDir, exitReportedFile)); err == nil {
+		_ = json.Unmarshal(b, &reported)
+	}
+	return reported
 }
 
 // exitBounceCount: consecutive bounces of replies in sessionKey's channel so far (the idle watch
