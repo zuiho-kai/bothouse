@@ -253,6 +253,11 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	// The chat channel's lead reads the reply first and tells the user what matters (user
 	// 2026-10-28 「原文返回…一坨屎给我…你的身份应该是我的秘书，那些东西你再帮我过滤一遍」). The
 	// workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
+	// A report's full text is posted as is, so the user sees it in the chat channel (user
+	// 2026-10-29 「我这看不见」); only an [ask] still goes through the lead first.
+	if kind != exitKindAsk {
+		return e.postExitOriginal(p, rc, parent, ws, bot, kind, body, sessionKey, "")
+	}
 	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, 0) {
 		slog.Info("team exit: handed to the chat lead", "kind", kind, "auto", auto, "workspace", ws, "parent", parent)
 		return ""
