@@ -13,7 +13,7 @@ function setup() {
   hub.setMember({ id: 'owner', name: 'Owner', kind: 'human', online: true });
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
   const woken = [];
-  hub.tasks = { wakers: [(id, m) => { woken.push([id, m.id]); return true; }] };
+  hub.tasks = { wakers: [(id, m) => { woken.push([id, m.id]); return true; }], task: id => (id === 1 ? { id: 1, title: '修 CI' } : undefined) };
   const exit = new TeamExit(hub);
   const ws = store.createWorkspace(1);
   const say = async text => { hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text }); await tick(); };
@@ -61,11 +61,11 @@ for (const [name, text, want] of [
 test('complete [ask] in each of the four categories, or with evidence, reaches the chat channel', async () => {
   const { say, chat, back } = setup();
   const asks = [
-    '[ask]\n选哪条路？\n自验：无需\n类别：方向',
-    '[ask]\n要充值吗\n自验：无需\n类别：花钱',
-    '[ask]\n看下成片\n自验：无需\n类别：需要用户看的成品',
-    '[ask]\n点一下授权\n自验：无需\n类别：权限确认',
-    '[ask]\nPR #12 合不合？\n自验：node --test 输出 ok\n类别：验收',
+    '[ask] #1 选哪条路？\n自验：无需\n类别：方向',
+    '[ask] #1 要充值吗\n自验：无需\n类别：花钱',
+    '[ask] #1 看下成片\n自验：无需\n类别：需要用户看的成品',
+    '[ask] #1 点一下授权\n自验：无需\n类别：权限确认',
+    '[ask] #1 PR #12 合不合？\n自验：node --test 输出 ok\n类别：验收',
   ];
   for (const a of asks) await say(a);
   assert.equal(back().length, 0);
@@ -75,9 +75,9 @@ test('complete [ask] in each of the four categories, or with evidence, reaches t
 
 test('[report] needs no 自验 or 类别', async () => {
   const { say, chat, back } = setup();
-  await say('[report]\n第一阶段做完');
+  await say('[report] #1 第一阶段做完');
   assert.equal(back().length, 0);
-  assert.match(chat()[0].text, /阶段结果\n第一阶段做完/);
+  assert.match(chat()[0].text, /#1「修 CI」：第一阶段做完/);
 });
 
 test('only two bounces in a row wake the member; a good ask resets', async () => {

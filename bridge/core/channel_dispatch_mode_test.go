@@ -99,20 +99,20 @@ func TestChannelAgentInstructionsPerChannelAndAfterChange(t *testing.T) {
 		"room2": {mode: DispatchMixed, explicit: false},
 	}}
 
-	p1 := e.withChannelAgentInstructions("hello", "u1", false, p, "room1")
-	p2 := e.withChannelAgentInstructions("hello", "u1", false, p, "room2")
+	p1 := e.withChannelAgentInstructions("hello", "u1", false, p, "room1", nil, nil)
+	p2 := e.withChannelAgentInstructions("hello", "u1", false, p, "room2", nil, nil)
 	assertModeSection(t, p1, DispatchTeam, DispatchSolo, DispatchMixed)
 	assertModeSection(t, p2, DispatchSolo, DispatchTeam, DispatchMixed)
 
 	// Changing room1 takes effect on the next call; room2 is unaffected.
 	p.set("room1", channelModeSetting{mode: DispatchMixed, explicit: true})
-	p1 = e.withChannelAgentInstructions("hello", "u1", false, p, "room1")
-	p2 = e.withChannelAgentInstructions("hello", "u1", false, p, "room2")
+	p1 = e.withChannelAgentInstructions("hello", "u1", false, p, "room1", nil, nil)
+	p2 = e.withChannelAgentInstructions("hello", "u1", false, p, "room2", nil, nil)
 	assertModeSection(t, p1, DispatchMixed, DispatchTeam, DispatchSolo)
 	assertModeSection(t, p2, DispatchSolo, DispatchTeam, DispatchMixed)
 
 	// Clearing the explicit setting falls back to project configuration.
 	p.set("room1", channelModeSetting{mode: DispatchMixed, explicit: false})
-	p1 = e.withChannelAgentInstructions("hello", "u1", false, p, "room1")
+	p1 = e.withChannelAgentInstructions("hello", "u1", false, p, "room1", nil, nil)
 	assertModeSection(t, p1, DispatchSolo, DispatchTeam, DispatchMixed)
 }

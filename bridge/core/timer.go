@@ -43,6 +43,10 @@ type TimerJob struct {
 	FiredAt       time.Time `json:"fired_at,omitempty"`
 	LastError     string    `json:"last_error,omitempty"`
 
+	// ReplyBoard: the task-board item a lead's turn on a workspace handback reports on; the
+	// turn's posts are recorded under it (reply_task.go).
+	ReplyBoard int `json:"reply_board,omitempty"`
+
 	// resume: set (in memory only) when the job delivers a #624 K4 turn resume.
 	resume *turnResumeDelivery
 }

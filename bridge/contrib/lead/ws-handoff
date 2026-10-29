@@ -7,8 +7,8 @@
 #       ws-handoff --resume <编号> "<用户答复>"    等你的活收到答复，找空工作区接着做（桥调）
 #   短名（≤10 字）上团队板（board add --short）；不写就从任务句去前缀再截。
 #   交接文件放当前目录（角色目录，在数据目录下）的 notes/<名>.md，同本机做法；不放 /tmp 这类公共目录（USAGE）。
-#   交接文件必须含「用户原话」「进度」「规矩」三个小节标题（# 开头的行），和「参照实现」（文件:行，非代码活写
-#   「无（新建）」）；有「共改文件」/「多人改」标题时还要「底分支：<分支名>」一行（见 check_notes）。
+#   交接文件要过 handoff-rules.json（同目录，唯一一份交接规则，DSH collab 建工作区与派活也读它）：必需小节、
+#   参照实现、已查过什么（文件:行或文档路径）、范围的改/不改行（改最多 3 行）、相关改动的冲突行、多人改时的底分支；不合格就报缺什么并给示例（_handoff_rules.py）。
 #   工作区：没配 WS_CHANNEL / 团队文件 "workspace" 时，走桥的共享池（<桥> workspace list/claim/new，
 #   core/team_workspace.go，Discord、飞书、DSH、网页版同一套）：一个工作区同一时间只做一件活，只挑本频道名下
 #   或空着、手上没活的（编号小的先）；都占着才 new（桥先复用空号，没有才建 工作区n+1），池子满 MAX_WS 个就不建，
@@ -21,13 +21,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _team  # noqa: E402
+import _handoff_rules  # noqa: E402  交接校验（规则在 handoff-rules.json）
 
 sys.path.insert(0, os.environ.get("GATE_DIR") or str(Path(__file__).resolve().parent.parent / "gate"))
 import board  # noqa: E402  任务板：交活时建条目、绑工作区（../gate/board.py）
 
 MIGRATED = _team.SETUP / "ws-park-migrated.json"  # 做过一次性迁移的聊天频道（见 migrate_unbound）
 
-REQUIRED = ["用户原话", "进度", "规矩"]
 USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>"\n'
          "交接文件写在当前目录（角色目录）的 notes/<名>.md，不放 /tmp 这类公共目录：隔离和清理都管不到那里。")
 # 交出成功后打给主角色的话（stdout 第二行起；第一行仍是 timer id）。来源：团队模式规矩「聊天频道要保持畅通…交出就结束本轮」
@@ -40,61 +40,9 @@ MAX_WS = 4  # 池子最多几个工作区（含现有），满了排队；橘加
 QUEUE = _team.SETUP / "ws-queue.json"  # 排队的活：[{nid, path, task, chat, project, answer}]，先排先接
 
 
-def missing_sections(text: str):
-    heads = [l for l in text.splitlines() if l.lstrip().startswith("#")]
-    return [s for s in REQUIRED if not any(s in h for h in heads)]
-
-
-# 交活必须带参照实现（派活字段 ref）；多人改同组文件时还要写底分支（字段 base）。
-# 「参照实现」节：# 标题含「参照实现」，或某行（前面可有 -、*、> 和空白）以「参照实现」开头；从这行到下一个 # 标题之间
-#   至少一个 `路径:行号` 引用（路径里要有 / 或 .，排除 14:30 这类时间）；非代码活写「无（新建）」也算。
-# 多人改判据：有一个 # 标题含「共改文件」或「多人改」→ 必须有一行「底分支：<分支名>」（全角/半角冒号都认）。
-REF_RE = re.compile(r"[~\w.\-/]*[A-Za-z_][~\w.\-/]*:\d+")
-NO_REF = "无（新建）"
-LEAD = "#-*> \t"
-REF_MSG = "缺参照实现：写 文件:行，非代码活写「无（新建）」"
-REF_EXAMPLE = "## 参照实现\n- bridge/contrib/lead/ws-up:120（和它的差异：…）"
-BASE_EXAMPLE = "底分支：feat/approvals-card"
-
-
-def _until_head(lines):
-    for x in lines:
-        if x.lstrip().startswith("#"):
-            return
-        yield x
-
-
-def has_ref_impl(text: str) -> bool:
-    lines = text.splitlines()
-    for i, l in enumerate(lines):
-        if not (l.lstrip(LEAD).startswith("参照实现") or (l.lstrip().startswith("#") and "参照实现" in l)):
-            continue
-        seg = [l] + list(_until_head(lines[i + 1:]))
-        if any(NO_REF in x for x in seg):
-            return True
-        if any("/" in m or "." in m.split(":")[0] for x in seg for m in REF_RE.findall(x)):
-            return True
-    return False
-
-
-def multi_editor(text: str) -> bool:
-    return any(l.lstrip().startswith("#") and ("共改文件" in l or "多人改" in l) for l in text.splitlines())
-
-
-def has_base(text: str) -> bool:
-    return any(re.match(r"底分支\s*[:：]\s*\S+", l.lstrip(LEAD)) for l in text.splitlines())
-
-
 def check_notes(text: str):
-    """交接文件不合格时返回报错文字（含要补什么和示例），合格返回 None。"""
-    miss = missing_sections(text)
-    if miss:
-        return f"交接文件缺小节：{'、'.join(miss)}"
-    if not has_ref_impl(text):
-        return f"{REF_MSG}。示例：\n{REF_EXAMPLE}"
-    if multi_editor(text) and not has_base(text):
-        return f"交接文件写了多人改同组文件（「共改文件」/「多人改」节），缺「底分支：<分支名>」一行。示例：\n{BASE_EXAMPLE}"
-    return None
+    """交接文件不合格时返回报错文字（含要补什么和示例），合格返回 None。规则在 handoff-rules.json（_handoff_rules.py）。"""
+    return _handoff_rules.check(text)
 
 
 def fixed_channel(chat: str) -> str:
@@ -226,7 +174,8 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
               f"不要再 board add 这块活；本轮会自动开公开任务卡。接手后发五段式说明，并把还没派的活当场派出去。"
               f"有问题、要用户拍板用 ws-up --notes {path} \"<问题+选项+推荐>\" --ask，等聊天频道转回答复再做，"
               f"等的时候先做不受影响的部分；不在工作区里问用户。会缩小或改变用户原话范围的决定也先 --ask，纯技术细节自己定。"
-              f"做完交回：这一轮最后一条回复的第一行写 [report] #{nid} 加给用户的一两句话（系统原样贴到聊天频道），第二行起写细节（中途发的话不转）；"
+              f"只做交接里写成「改」的部分；用户原话里没有的设定、开关、参数不加，要加先 --ask。"
+              f"做完交回：这一轮最后一条回复的第一行写 [report] #{nid} 加给用户的一两句话（系统原样贴到聊天频道），第二行起写细节（中途发的话不转），细节最后一行写「我加的、原话里没有：…」（没有写「无」）；"
               f"交回后桥自动把这件标完成、清空会话、放回工作区")
     key = ws if ":" in ws else f"discord:{ws}"
     return [cc_bin(), "timer", "add", "-s", key, "--delay", "1m", "--timeout-mins", "0",
@@ -353,7 +302,10 @@ def main(argv):
     if not os.path.isfile(path):
         sys.exit(f"ws-handoff: 交接文件不存在 {path}\n{USAGE}")
     with open(path, encoding="utf-8") as fh:
-        err = check_notes(fh.read())
+        try:
+            err = check_notes(fh.read())
+        except RuntimeError as e:  # 规则文件读不到或写坏：报错不放行
+            sys.exit(f"ws-handoff: {e}")
     if err:
         sys.exit(f"ws-handoff: {err}")
     chat = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")

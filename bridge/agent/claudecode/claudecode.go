@@ -325,6 +325,9 @@ func (a *Agent) Name() string           { return "claudecode" }
 func (a *Agent) CLIBinaryName() string  { return a.cmd }
 func (a *Agent) CLIDisplayName() string { return "Claude" }
 
+// ReportsContextCompaction: sessions turn compact_boundary into core.MetaContextCompacted (session.go).
+func (a *Agent) ReportsContextCompaction() bool { return true }
+
 func (a *Agent) SetWorkDir(dir string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

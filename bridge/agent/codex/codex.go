@@ -173,6 +173,14 @@ func normalizeReasoningEffort(raw string) string {
 
 func (a *Agent) Name() string { return "codex" }
 
+// ReportsContextCompaction: only the app-server backend reports contextCompaction items
+// (appserver_session.go); exec runs compact inside codex without telling the bridge.
+func (a *Agent) ReportsContextCompaction() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.backend == "app_server"
+}
+
 func (a *Agent) SetWorkDir(dir string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

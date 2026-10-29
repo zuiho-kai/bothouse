@@ -255,7 +255,12 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		return ""
 	}
 	if !legacy {
+		// The 📬 posts report on board item hid: a reply to them brings its background (reply_task.go).
+		rc = e.recordReplyTask(p, rc, hid)
 		return e.postExitHeadline(p, rc, parent, ws, bot, kind, body, sessionKey, hid, hline, item)
+	}
+	if it := e.workspaceBoardItem(sessionKey, 0); it != nil {
+		rc = e.recordReplyTask(p, rc, it.ID)
 	}
 	// The chat channel's lead reads the reply first and tells the user what matters (user
 	// 2026-10-28 「原文返回…一坨屎给我…你的身份应该是我的秘书，那些东西你再帮我过滤一遍」). The
@@ -281,7 +286,10 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 // workspace answering a late nudge: it stays in the workspace. The same sentence for the same
 // item within exitHeadlineDedup is not posted or handed again.
 func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, body, sessionKey string, hid int, hline string, item *teamTaskBoardItem) string {
-	if kind == exitKindReport && item.DoneAt != "" && item.AutoPruned == "" {
+	// The board's done mark alone does not mean the user saw the result: a workspace often runs
+	// `board update <id> 已完成` itself just before its [report] (#770 was dropped that way). Only
+	// a report already posted for this item makes a later one a late-nudge answer.
+	if kind == exitKindReport && item.DoneAt != "" && item.AutoPruned == "" && e.exitReportedBefore(hid) {
 		slog.Info("team exit: report for a task already done; not posted again", "board_item", hid, "workspace", ws, "done_at", item.DoneAt)
 		return ""
 	}
@@ -306,6 +314,7 @@ func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, bod
 			return ""
 		}
 		slog.Info("team exit: report posted", "board_item", hid, "workspace", ws, "parent", parent)
+		e.markExitReported(hid)
 		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
 		return ""
 	}

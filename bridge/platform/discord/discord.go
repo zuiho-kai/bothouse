@@ -29,6 +29,7 @@ const maxDiscordLen = 1900
 
 type replyContext struct {
 	recordAgentReply func(string)
+	recordSent       func(string) // maomao fork: every message id this context posts (core.SentMessageRecorder)
 	channelID        string
 	messageID        string
 	threadID         string
@@ -2130,21 +2131,32 @@ func discordDisplayName(m *discordgo.MessageCreate) string {
 	return m.Author.Username
 }
 
-// messageReference only proposes shortening this bot's known agent output.
+// messageReference describes the quoted message (its id lets core find the task it belongs
+// to) and only proposes shortening (Short) this bot's known agent output.
 // Session.renderReference checks the current context again at actual delivery.
 func (p *Platform) messageReference(ref *discordgo.Message) *core.MessageReference {
-	if ref == nil || ref.Author == nil || p.botID == "" || ref.Author.ID != p.botID || !p.turnSent.has(ref.ID) || ref.Timestamp.IsZero() {
+	if ref == nil || ref.ID == "" {
 		return nil
+	}
+	author := ""
+	if ref.Author != nil {
+		author = ref.Author.Username
+	}
+	prefix := "[replying to " + author + ": "
+	out := &core.MessageReference{
+		ID:     ref.ID,
+		Full:   prefix + ref.Content + "]\n",
+		Author: author,
+		Text:   ref.Content,
+		SentAt: ref.Timestamp,
+	}
+	if ref.Author == nil || p.botID == "" || ref.Author.ID != p.botID || !p.turnSent.has(ref.ID) || ref.Timestamp.IsZero() {
+		return out
 	}
 	text := []rune(ref.Content)
 	if len(text) > 80 {
 		text = text[:80]
 	}
-	prefix := "[replying to " + ref.Author.Username + ": "
-	return &core.MessageReference{
-		ID:     ref.ID,
-		Full:   prefix + ref.Content + "]\n",
-		Short:  prefix + string(text) + "（你自己的上一条，已在上文）]\n",
-		SentAt: ref.Timestamp,
-	}
+	out.Short = prefix + string(text) + "（你自己的上一条，已在上文）]\n"
+	return out
 }

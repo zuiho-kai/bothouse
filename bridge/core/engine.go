@@ -2138,6 +2138,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 			return fmt.Errorf("reconstruct reply context: %w", err)
 		}
 	}
+	replyCtx = e.recordReplyTask(targetPlatform, replyCtx, job.ReplyBoard)
 
 	effectivePlatform := targetPlatform
 	if job.Mute {
@@ -3468,6 +3469,9 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	if e.routeEndedTaskReply(p, msg) {
 		return
 	}
+	// A reply to a task card or a workspace report: its quote stays whole and the turn gets
+	// that work's background (reply_task.go). Replies to an open [ask] were taken above.
+	e.noteReplyTaskOf(msg)
 	// "/stop all" stops this bot's work in the whole channel. It runs before
 	// any mention/gate filtering so every bot in the channel honours it.
 	// A stop word that calls no bot (no @, no reply) means the same.
@@ -4695,10 +4699,10 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			content = note + "\n\n" + content
 			images = append(imgs, images...)
 		}
-		content = e.withTurnBlocks(session, msg.SessionKey, msg.TurnCtxQuery, content, msg.TurnCtx)
+		content = e.withTurnBlocksRef(session, msg.SessionKey, msg.TurnCtxQuery, content, msg.TurnCtx, msg.Reference)
 		promptContent := e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
 		promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
-		promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey)
+		promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey, session, agent)
 		// The public-progress run is minted per attempt (beginAttempt): a capacity
 		// retry's earlier attempt closed its run when its event loop ended.
 		var attemptPrompt string
@@ -4970,7 +4974,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			if agentOverride != nil {
 				agent = agentOverride
 			}
-			notice := e.freshOnContextSize(agent, session)
+			notice := e.freshOnContextSize(agent, session, contextFreshChat(p, sessionKey))
 			if notice == "" {
 				notice = e.freshOnImageBloat(agent, session)
 			}
@@ -5051,7 +5055,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			sessions.Save()
 			go e.send(p, markSystemNotice(p, replyCtx), notice)
 		}
-		if notice := e.freshOnContextSize(agent, session); notice != "" {
+		if notice := e.freshOnContextSize(agent, session, contextFreshChat(p, sessionKey)); notice != "" {
 			sessions.Save()
 			go e.send(p, markSystemNotice(p, replyCtx), notice)
 		}
@@ -7337,10 +7341,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// (the backfill already marked those posts seen).
 				*chainedQueued = queued
 				queued.content = session.renderReference(queued.content, queued.reference)
-				queued.content = e.withTurnBlocks(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content, queued.turnCtx)
+				queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content, queued.turnCtx, queued.reference)
 				queuedPrompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 				queuedPrompt = e.withSharedMemoryHint(queuedPrompt, replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, workspaceDir)
-				queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey)
+				queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, replyAgent)
 				queuedPrompt = e.withPublicProgress(queuedPrompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
 
 				state.mu.Lock()
@@ -7839,13 +7843,13 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		e.startScheduledQueuedTurn(&queued, session)
 		rawQueued = queued // maomao fork: re-delivered with its backfill (those posts are marked seen now)
 		queued.content = session.renderReference(queued.content, queued.reference)
-		queued.content = e.withTurnBlocks(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content, queued.turnCtx)
+		queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content, queued.turnCtx, queued.reference)
 		prompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 		state.mu.Lock()
 		queuedAgent, queuedWorkspace := state.agent, state.workspaceDir
 		state.mu.Unlock()
 		prompt = e.withSharedMemoryHint(prompt, queuedAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, queuedWorkspace)
-		prompt = e.withChannelAgentInstructions(prompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey)
+		prompt = e.withChannelAgentInstructions(prompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, queuedAgent)
 
 		state.mu.Lock()
 		as := state.agentSession // capture under lock to avoid race with cleanup (mirrors #1436)
@@ -7993,7 +7997,8 @@ func (e *Engine) cmdPs(p Platform, msg *Message, args []string) {
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPsNoSession))
 		return
 	}
-	if err := state.agentSession.Send(e.withChannelAgentInstructions(text, msg.UserID, msg.FromBot, p, msg.SessionKey), "", nil, nil); err != nil {
+	// No team-mode rules: /ps adds to the running turn, which already had them (teamRulesOnce).
+	if err := state.agentSession.Send(e.withSupplementInstructions(text, msg.UserID, msg.FromBot), "", nil, nil); err != nil {
 		slog.Error("ps: send failed", "error", err)
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPsSendFailed))
 		return
@@ -17777,7 +17782,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	if c := e.turnContext(session, relaySessionKey, relayGateQuery(message)); c != "" {
 		content = c + "\n\n" + content
 	}
-	prompt := e.withAgentInstructions(content, "", true)
+	prompt := e.withAgentInstructions(content, "", true, session, agent)
 	sendResult := make(chan error, 1)
 	go func() {
 		err := agentSession.Send(prompt, "", nil, nil)
@@ -17846,6 +17851,9 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				continue
 			}
 			e.observeQuotaEvent(event, sourceSessionKey, agentSession)
+			if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
+				session.ResetTurnCtx() // the relay context lost its per-turn blocks (rules, wiki)
+			}
 			switch event.Type {
 			case EventText:
 				if event.Content != "" {
@@ -18042,6 +18050,9 @@ func (e *Engine) drainRelaySession(agent Agent, agentSession AgentSession, sessi
 				sessions.Save()
 			}
 			e.observeQuotaEvent(ev, relaySessionKey, agentSession)
+			if c, _ := ev.Metadata[MetaContextCompacted].(bool); c {
+				session.ResetTurnCtx() // as in handleTrackedRelay
+			}
 			switch ev.Type {
 			case EventText:
 				if ev.Content != "" {

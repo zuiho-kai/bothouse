@@ -904,6 +904,48 @@
   overflow-y: auto;
 }
 
+.dshc_settingsDialog {
+  box-sizing: border-box;
+  height: min(70vh, 100dvh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+}
+
+.dshc_settingsBody {
+  overscroll-behavior: contain;
+  flex: auto;
+  min-height: 0;
+  padding: 2px;
+  overflow-y: auto;
+}
+
+.dshc_settingsDialog > :not(.dshc_settingsBody) {
+  flex-shrink: 0;
+}
+
+.dshc_settingsFields {
+  flex-direction: column;
+  gap: 12px;
+  display: flex;
+}
+
+.dshc_settingsFeedback {
+  overflow-wrap: anywhere;
+  max-height: 20%;
+  overflow-y: auto;
+}
+
+.dshc_settingsDialog .dshc_dialogActions {
+  justify-content: space-between;
+}
+
+@media (width <= 599px) {
+  .dshc_settingsDialog {
+    height: calc(100dvh - 32px);
+    padding: 16px;
+  }
+}
+
 .dshc_avatarCropStage {
   background: #000000a6;
   padding: 20px;
@@ -952,6 +994,18 @@
   flex-wrap: wrap;
   gap: 12px;
   display: flex;
+}
+
+.dshc_choiceColumn {
+  flex-direction: column;
+  gap: 12px;
+  display: flex;
+}
+
+.dshc_choiceColumn .dshc_choice {
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  display: grid;
 }
 
 .dshc_choice {
@@ -1257,6 +1311,11 @@
 .dshc_boardTabs button:hover, .dshc_boardTabs button[aria-selected="true"] {
   color: var(--dsw-alias-state-business-primary);
   background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dshc_boardTabs button:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);
+  outline-offset: -2px;
 }
 
 .dshc_boardTabCount {

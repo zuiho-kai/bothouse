@@ -59,11 +59,16 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 	}
 	prompt := chatLeadPrompt(channelLabel(p.Name(), ws), bot, kind, body, e.workspaceTaskBackground(wsSession, boardID), boardID > 0)
 	prompt = askRef.ReplaceAllString(prompt, "ask-…")
-	return e.queueChatLeadTurn(p, parent, ws, "工作区回传 "+ws, prompt)
+	board := boardID
+	if it := e.workspaceBoardItem(wsSession, boardID); it != nil {
+		board = it.ID
+	}
+	return e.queueChatLeadTurn(p, parent, ws, "工作区回传 "+ws, prompt, board)
 }
 
 // queueChatLeadTurn queues prompt as one silent turn of the team lead in chat channel parent.
-func (e *Engine) queueChatLeadTurn(p Platform, parent, ws, desc, prompt string) bool {
+// board > 0: the turn reports on that task-board item; its posts are recorded under it.
+func (e *Engine) queueChatLeadTurn(p Platform, parent, ws, desc, prompt string, board int) bool {
 	chat := p.Name() + ":" + parent
 	var lead *Engine
 	for _, x := range e.watchEngines() {
@@ -90,6 +95,7 @@ func (e *Engine) queueChatLeadTurn(p Platform, parent, ws, desc, prompt string) 
 		Description:   desc,
 		Silent:        &silent,
 		WaitUserQuiet: true,
+		ReplyBoard:    board,
 		CreatedAt:     time.Now(),
 	}
 	if err := lead.timerScheduler.AddJob(job); err != nil {

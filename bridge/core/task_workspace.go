@@ -35,8 +35,13 @@ func taskWorkspaceChannelKey(sourceSessionKey, workspace string) (platform, wsID
 // live in workspace channels (#453), so a cross-workspace dispatch goes from
 // workspace A (card, reports and watch stay on A's card) to another workspace
 // B of the same chat channel: WorkspaceParent(A) == WorkspaceParent(B). B must
-// already be claimed (claim it first) and have fewer than teamWorkspaceBusy
-// tasks in work. It returns the normalized "<platform>:<workspace id>" key.
+// already be claimed (claim it first). The claim itself records one handoff in
+// work, so B is busy only when it has more than teamWorkspaceBusy in work: the
+// claim for this dispatch plus some other task. A second claim of B by the same
+// chat channel is not refused (ClaimTeamWorkspaceFor only refuses other
+// channels), so a claim made for another task still lets this dispatch in;
+// closing that gap needs the task id recorded on the claim. It returns the
+// normalized "<platform>:<workspace id>" key.
 func (e *Engine) resolveTaskWorkspace(sourceSessionKey, workspace string) (string, error) {
 	platform, wsID, err := taskWorkspaceChannelKey(sourceSessionKey, workspace)
 	if err != nil {
@@ -61,7 +66,7 @@ func (e *Engine) resolveTaskWorkspace(sourceSessionKey, workspace string) (strin
 	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
 	open, _ := teamWorkspaceCountsLocked(st, platform+":"+wsID)
 	teamWorkspaceStore.mu.Unlock()
-	if open >= teamWorkspaceBusy {
+	if open > teamWorkspaceBusy {
 		return "", fmt.Errorf("workspace %q is busy (%d tasks in work)", wsID, open)
 	}
 	return platform + ":" + wsID, nil

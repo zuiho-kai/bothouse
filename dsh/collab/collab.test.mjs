@@ -351,7 +351,8 @@ test('team exit: forwards asks and returns answers to the recorded workspace', a
   const ws = hub.store.createWorkspace(1);
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
   new TeamExit(hub);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n需要一个答案\n自验：无需\n类别：方向' });
+  hub.tasks = { task: id => (id === 7 ? { id: 7, title: '问答' } : undefined) }; // the headline's task on the board
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #7 需要一个答案\n自验：无需\n类别：方向` });
   await tick();
   const forwarded = hub.store.page(1, undefined, 10).find(m => m.author_kind === 'system');
   assert.ok(forwarded);
@@ -1622,6 +1623,33 @@ test('CLI member streams: an error or cancel removes the draft; no output leaves
   assert.equal(hub3.store.job(1).state, 'failed');
 });
 
+test('cloud-web reply ids: a reply to a task card carries the card id (reply_to_id); a reply frame with ref_id is acked with its row id', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘&mention_id=111');
+  ju.frame({ type: 'preview_start', ref_id: 'taskcard-task-1', reply_ctx: 'room-1', content: '任务卡：整理日志' });
+  const card = ju.of('preview_ack').at(-1).preview_handle;
+  assert.match(card, /^\d+$/, 'the bridge stores this handle as Task.MessageID');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 进展如何', replyTo: Number(card) });
+  await tick(); await tick();
+  const got = ju.of('message').at(-1);
+  assert.equal(got.reply_to_id, card, 'same id as the task card handle');
+  assert.equal(got.reply_to_author, '橘');
+  assert.equal(got.reply_to_text, '任务卡：整理日志');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 普通' });
+  await tick(); await tick();
+  assert.equal(ju.of('message').at(-1).reply_to_id, undefined, 'a plain message has no reply fields');
+
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', ref_id: 'reply-1', content: '📬 汇报' });
+  const ack = ju.of('preview_ack').at(-1);
+  assert.equal(ack.ref_id, 'reply-1');
+  const row = hub.store.page(1, undefined, 10).find(m => m.text === '📬 汇报');
+  assert.equal(ack.preview_handle, String(row.id), 'the ack carries the posted row id');
+  const acks = ju.of('preview_ack').length;
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', content: '无 ref_id' });
+  assert.equal(ju.of('preview_ack').length, acks, 'no ref_id, no ack (wire unchanged)');
+});
+
 test('cloud-web reply_in_place: a text preview is a draft; the reply with its handle commits that row and is forwarded once', async () => {
   const hub = makeHub();
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
@@ -2627,7 +2655,7 @@ test('G35: rework whose session a new claim cleared carries the original handoff
   const t = tasks.assign({ roomId: ws.id, title: '记账', owner: 'fu', actor: 'zhu', messageId: handoff.id });
   tasks.q.setSource.run('workspace', t.id);
   hub.store.bind('fu', ws.id, 'collab-fu');
-  say(ws.id, `【接】#${t.id}\n\n[report]\nledger 加了 add/list，12 个测试通过`);
+  say(ws.id, `【接】#${t.id}\n\n[report] #${t.id} ledger 加了 add/list，12 个测试通过`);
   await settle();
   hub.store.resetSessions(ws.id); // as a new claim does
   say(1, `【返工】#${t.id} 缺 README`, 'zhu');
@@ -2694,6 +2722,7 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
   const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
   gw.tasks = tasks;
+  hub.tasks = tasks; // TeamExit looks up the headline's task number
   const ju = connect(gw, 'bot=ju&name=橘');
   // dev tries the same workspace (what core ClaimTeamWorkspace sends): refused.
   ju.frame({ type: 'team_workspace', ref_id: 'c1', op: 'claim', session_key: 'cloud_web:room-2', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
@@ -2702,7 +2731,9 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   ju.frame({ type: 'team_workspace', ref_id: 'l1', op: 'list', reply_ctx: 'room-2' });
   await tick();
   assert.deepEqual(ju.of('team_workspace_ack').at(-1).rooms.map(r => [r.name, r.owner]), [['工作区1', 'room-1']]);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[report]\n做完了' });
+  // the headline needs a task on the board; one in the chat channel leaves the workspace free
+  const earlier = tasks.assign({ roomId: 1, title: '前活', owner: 'owner', actor: 'ju' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[report] #${earlier.id} 做完了` });
   await tick();
   assert.ok(hub.store.page(1, undefined, 10).some(m => m.author_kind === 'system' && /做完了/.test(m.text)), 'report reaches the owner');
   assert.equal(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system'), false, 'never the other chat channel');
@@ -2719,7 +2750,7 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   ju.frame({ type: 'team_workspace', ref_id: 'c2', op: 'claim', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
   await tick();
   assert.equal(ju.of('team_workspace_ack').at(-1).ok, true);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n要答案\n自验：无需\n类别：方向' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #${t.id} 要答案\n自验：无需\n类别：方向` });
   await tick();
   assert.ok(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), 'ask reaches dev, the new owner');
   assert.equal(hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), false);
@@ -4523,7 +4554,7 @@ test('DSH member: each turn carries the gate wiki and task board, a page only on
     await until(() => agent.prompts.length === 2);
     const second = agent.prompts[1].content[0].text;
     assert.equal(gate.calls.length, 2, 'the gate is asked every turn');
-    assert.doesNotMatch(second, /wiki 页|任务板/, 'pages already given are not given again');
+    assert.doesNotMatch(second, /wiki 页|【任务板/, 'pages already given are not given again');
   } finally {
     delete process.env.GATE_PORT;
     await gate.close();
@@ -4546,7 +4577,7 @@ test('CLI member: the gate block goes into the prompt; a changed board goes out 
     hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 现在呢' });
     await until(() => hub.store.job(3)?.state === 'done');
     assert.match(prompts[0], /【任务板 aaa111】 — .*\n#7 修登录 · 龙娘/);
-    assert.doesNotMatch(prompts[1], /任务板/);
+    assert.doesNotMatch(prompts[1], /【任务板/);
     assert.match(prompts[2], /【任务板 bbb222】/);
   } finally {
     delete process.env.GATE_PORT;
@@ -4657,7 +4688,7 @@ test('CLI member: after /new the fresh context gets its MEMORY.md and the task b
     await until(() => prompts.length === 3);
     assert.match(prompts[0], /你的记忆/);
     assert.match(prompts[0], /【任务板 aaa111】/);
-    assert.doesNotMatch(prompts[1], /你的记忆|任务板/, 'same context: not again');
+    assert.doesNotMatch(prompts[1], /你的记忆|【任务板/, 'same context: not again');
     assert.match(prompts[2], /你的记忆/, '/new: MEMORY.md again');
     assert.match(prompts[2], /【任务板 aaa111】/, '/new: the unchanged board again');
   } finally {
@@ -4692,10 +4723,10 @@ test('CLI member: a session that could not be resumed gets its MEMORY.md and the
       await settle();
     }
     assert.match(prompts[0], /你的记忆/);
-    assert.doesNotMatch(prompts[1], /你的记忆|任务板/, 'same context so far: not again');
+    assert.doesNotMatch(prompts[1], /你的记忆|【任务板/, 'same context so far: not again');
     assert.match(prompts[2], /你的记忆/, 'session lost: MEMORY.md again');
     assert.match(prompts[2], /【任务板 aaa111】/, 'session lost: the unchanged board again');
-    assert.doesNotMatch(prompts[3], /你的记忆|任务板/, 'given to the new session: not again');
+    assert.doesNotMatch(prompts[3], /你的记忆|【任务板/, 'given to the new session: not again');
   } finally {
     delete process.env.BOTHOUSE_DATA_DIR;
     delete process.env.GATE_PORT;
@@ -5007,7 +5038,7 @@ test('G34: 【接】#id in the chat channel about a workspace task neither accep
 test('G34: a workspace hand-back brings its [report] body to the chat channel and wakes the dispatcher, who accepts it with 【验收】#id', async () => {
   const { hub, tasks, woken, ws, assign, say } = g34Setup();
   const t = assign();
-  say(ws.id, `【接】#${t.id}\n\n先规划结构。现在写模块。\n\n[report]\n40 个测试通过，README 第一行写了暗号`);
+  say(ws.id, `【接】#${t.id}\n\n先规划结构。现在写模块。\n\n[report] #${t.id} 40 个测试通过，README 第一行写了暗号`);
   await settle();
   assert.equal(tasks.task(t.id).status, 'returned');
   const copies = hub.store.page(1, undefined, 50).filter(m => m.author_kind === 'system' && m.text.startsWith('📬'));
@@ -5130,7 +5161,7 @@ test('G35: a DSH [ask] is forwarded as a question, not a hand-back, and its task
   const { hub, tasks, woken, ws, assign, say } = g34Setup();
   const t = assign();
   const due = tasks.task(t.id).next_check_at;
-  say(ws.id, `【接】#${t.id}\n先看了现状。\n\n[ask]\n方案 A 还是 B？\n自验：无需\n类别：方向`);
+  say(ws.id, `【接】#${t.id}\n先看了现状。\n\n[ask] #${t.id} 方案 A 还是 B？\n自验：无需\n类别：方向`);
   await settle();
   const task = tasks.task(t.id);
   assert.equal(task.status, 'accepted', 'not returned');
@@ -5147,7 +5178,7 @@ test('G35: a DSH [ask] is forwarded as a question, not a hand-back, and its task
 test('G35: while a DSH [ask] waits on the user the watch wakes nobody and keeps the workspace; the answer re-arms it', async () => {
   const { hub, tasks, clock, woken, ws, assign } = g34Setup();
   const t = assign();
-  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n看了现状\n\n[ask]\n方案 A 还是 B？\n自验：无需\n类别：方向` }, 1100).message;
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n看了现状\n\n[ask] #${t.id} 方案 A 还是 B？\n自验：无需\n类别：方向` }, 1100).message;
   tasks.fromMessage(row);
   hub.teamExit.onMessage(row);
   await settle();
@@ -5402,7 +5433,7 @@ test('r12: a first call 「副，把 README 改一下」 dispatches as before', 
 test('G37: an [ask] answer reaches the workspace @-ing the member by name, not by id', async () => {
   const { hub, tasks, ws, assign } = g34Setup();
   const t = assign();
-  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n[ask]\n方案 A 还是 B？\n自验：无需\n类别：方向` }, 1100).message;
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n[ask] #${t.id} 方案 A 还是 B？\n自验：无需\n类别：方向` }, 1100).message;
   tasks.fromMessage(row);
   hub.teamExit.onMessage(row);
   await settle();
@@ -5414,7 +5445,7 @@ test('G37: an [ask] answer reaches the workspace @-ing the member by name, not b
   assert.doesNotMatch(answer.text, /@fu\b/, 'no member id in the text');
   assert.deepEqual([...mentions(answer.text, hub.routable())], ['fu'], 'the name still routes to her');
   const t2 = assign('zhu');
-  const ask2 = hub.store.append(ws.id, { authorKind: 'role', author: 'zhu', name: '主', text: `【接】#${t2.id}\n[ask]\n要不要改 C？\n自验：无需\n类别：方向` }, 1200).message;
+  const ask2 = hub.store.append(ws.id, { authorKind: 'role', author: 'zhu', name: '主', text: `【接】#${t2.id}\n[ask] #${t2.id} 要不要改 C？\n自验：无需\n类别：方向` }, 1200).message;
   hub.teamExit.onMessage(ask2);
   await settle();
   hub.store.db.prepare("UPDATE team_exit_asks SET member_id = 'gone' WHERE source_id = ?").run(ask2.id);

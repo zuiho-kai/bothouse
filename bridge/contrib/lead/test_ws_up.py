@@ -110,7 +110,7 @@ class WsUpTest(unittest.TestCase):
         notes = []
         for n in ("a", "b"):
             p = self.tmp / f"{n}.md"
-            p.write_text("# 用户原话\n# 进度\n# 规矩\n# 参照实现\n- bridge/contrib/lead/ws-up:1\n", encoding="utf-8")
+            p.write_text("# 用户原话\n# 总目标\n# 范围\n改：x\n不改：无\n# 已查过什么\n无（没查过）\n# 进度\n# 相关改动\n冲突：无\n# 规矩\n# 参照实现\n- bridge/contrib/lead/ws-up:1\n", encoding="utf-8")
             notes.append(str(p))
         self.assertEqual(self.handoff(notes[0], "A", key="test:100").returncode, 0)
         self.env["WS_CHANNEL"] = "901"
@@ -198,7 +198,7 @@ class WsPoolTest(unittest.TestCase):
 
     def note(self, n):
         p = self.tmp / f"{n}.md"
-        p.write_text("# 用户原话\n# 进度\n# 规矩\n# 参照实现\n- bridge/contrib/lead/ws-up:1\n", encoding="utf-8")
+        p.write_text("# 用户原话\n# 总目标\n# 范围\n改：x\n不改：无\n# 已查过什么\n无（没查过）\n# 进度\n# 相关改动\n冲突：无\n# 规矩\n# 参照实现\n- bridge/contrib/lead/ws-up:1\n", encoding="utf-8")
         return str(p)
 
     def handoff(self, notes, task, chat="test:100"):
@@ -465,7 +465,8 @@ class HandoffAlignTest(WsPoolTest):
 class HandoffNotesCheckTest(unittest.TestCase):
     """交接文件要带参照实现（文件:行 或「无（新建）」）；写了多人改同组文件还要底分支。缺了不建定时、不上任务板。"""
     setUp, handoff, timers = WsUpTest.setUp, WsUpTest.handoff, WsUpTest.timers
-    BASE = "# 交接\n## 用户原话\n「x」\n## 进度\n| a |\n## 规矩\n- y\n"
+    BASE = ("# 交接\n## 用户原话\n「x」\n## 总目标\n- z\n## 范围\n- 改：x\n- 不改：y\n"
+            "## 已查过什么\n- dsh/collab/tasks.mjs:467 只校验 ref\n## 进度\n| a |\n## 相关改动\n- #1 已合\n冲突：无\n## 规矩\n- y\n")
     GOOD = BASE + "## 参照实现\n- bridge/contrib/lead/ws-up:120（差异：不发卡）\n"
 
     def check(self, text):
@@ -504,6 +505,51 @@ class HandoffNotesCheckTest(unittest.TestCase):
         self.assertEqual(self.check(self.GOOD + "## 共改文件\n- agent_hooks.go\n底分支：feat/approvals\n"), "OK")
         self.assertEqual(self.check(self.GOOD + "- 底分支: main\n## 多人改\n"), "OK")
         self.assertEqual(self.check(self.GOOD + "正文提到多人改，但没有这一节\n"), "OK")
+
+    def test_new_sections_required(self):
+        for sec in ("总目标", "范围", "相关改动"):
+            text = self.GOOD.replace(f"## {sec}\n", "## 其他\n")
+            self.assertIn(f"缺小节：{sec}", self.refused(text))
+
+    def test_scope_lines(self):
+        sc = "## 范围\n- 改：x\n- 不改：y\n"
+
+        def with_sc(body):
+            return self.GOOD.replace(sc, "## 范围\n" + body)
+        # 缺改或不改行：拒，带示例；空值、别的节里的不算
+        for body, miss in (("", "改：…"), ("- 改：x\n", "不改：…"), ("不改：无\n", "「改：…」"),
+                           ("改：\n不改：无\n", "「改：…」"), ("修改：x\n不改：无\n", "「改：…」")):
+            self.assertIn(miss, self.check(with_sc(body)), body)
+        self.assertIn("「范围」节缺", self.refused(with_sc("")))
+        self.assertIn("「范围」节缺", self.check(with_sc("") + "## 其他\n改：x\n不改：无\n"))
+        for body in ("改：x\n不改：无\n", "* 改: a、b\n> 不改: c\n", "- 不改：进度表\n- 改：任务卡\n- 改：文案\n"):
+            self.assertEqual(self.check(with_sc(body)), "OK", body)
+
+    def test_checked_section_required(self):
+        sec = "## 已查过什么\n- dsh/collab/tasks.mjs:467 只校验 ref\n"
+        self.assertIn("缺小节：已查过什么", self.refused(self.GOOD.replace(sec, "")))
+        self.assertIn("「已查过什么」节要写已查过的 文件:行 或文档路径", self.refused(self.GOOD.replace(sec, "## 已查过什么\n- 都看过了\n")))
+        for body in ("- 无（没查过）\n", "- ~/work/codemaps/bothouse-bridge.md「编译与测试」节\n"):
+            self.assertEqual(self.check(self.GOOD.replace(sec, "## 已查过什么\n" + body)), "OK", body)
+
+    def test_conflict_line(self):
+        rel = "## 相关改动\n- #1 已合\n冲突：无\n"
+
+        def with_rel(body):
+            return self.GOOD.replace(rel, "## 相关改动\n- #1 已合\n" + body)
+        # 缺冲突行：拒，带示例；正文里的「无冲突」「不冲突」不算
+        for body in ("", "和 #1 无冲突\n", "不冲突\n"):
+            self.assertIn("缺一行「冲突：无」", self.check(with_rel(body)), body)
+        self.assertIn("缺一行「冲突：无」", self.refused(with_rel("")))
+        # 冲突没问用户：拒，提示在聊天频道问；不提 ws-up --ask
+        err = self.refused(with_rel("冲突：#1 改了同一个函数\n"))
+        self.assertIn("先在聊天频道问用户", err)
+        self.assertNotIn("--ask", err)
+        # 冲突行只认「相关改动」节里的
+        self.assertIn("缺一行", self.check(with_rel("") + "## 其他\n冲突：无\n"))
+        for body in ("冲突：无\n", "- 冲突: 无。\n", "冲突：无（已对过 #1）\n",
+                     "冲突：#1 改了同一个函数（已问用户：先合 #1 再做）\n"):
+            self.assertEqual(self.check(with_rel(body)), "OK", body)
 
 
 if __name__ == "__main__":
