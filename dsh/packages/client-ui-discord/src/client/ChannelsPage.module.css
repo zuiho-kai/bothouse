@@ -817,6 +817,34 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+.settingsTabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.settingsTab {
+  flex: 1;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.settingsTab[aria-selected="true"] {
+  border-bottom-color: currentColor;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.settingsTab:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);
+  outline-offset: -2px;
+}
+
 .settingsDivider {
   width: 100%;
   margin: 8px 0 4px;
