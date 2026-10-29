@@ -767,9 +767,26 @@ def main():
     if gemini:
         sys.stdout.write(gemini_output(proc.stdout, payload.get("hook_event_name")))
     else:
-        sys.stdout.write(proc.stdout)
+        sys.stdout.write(stop_full_reply(payload.get("hook_event_name"), proc.stdout))
     sys.stderr.write(proc.stderr)
     sys.exit(proc.returncode)
+
+
+# A blocked Stop: the model often writes only an addendum afterwards, and the channel gets that addendum alone
+FULL_REPLY = "\n被拦后用户只会收到你接下来写的这一段：处理完后把给用户的完整回复从头重写一遍，不要只写补充或解释。"
+
+
+def stop_full_reply(event, out):
+    if event != "Stop":
+        return out
+    try:
+        d = json.loads(out)
+    except ValueError:
+        return out
+    if not isinstance(d, dict) or d.get("decision") != "block":
+        return out
+    d["reason"] = (d.get("reason") or "") + FULL_REPLY
+    return json.dumps(d, ensure_ascii=False)
 
 
 # ── Antigravity ──
