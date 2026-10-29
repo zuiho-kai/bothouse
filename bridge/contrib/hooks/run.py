@@ -312,6 +312,88 @@ def iflow_output(out):
     return "", "", 0
 
 
+# ── The user's latest words for PreToolUse (ask-only-guard) ──
+# Claude Code / Qoder put a Claude Code transcript in every PreToolUse payload. For Codex, agy and DSH run.py
+# reads the words from where that CLI keeps them and passes them as payload["user_prompt"], which the guard reads
+# before transcript_path.
+PROMPT_HOOKS = {"ask-only-guard"}  # hooks that read the user's latest words in PreToolUse
+CODEX_INJECTED = ("# AGENTS.md instructions", "<environment_context>", "<user_instructions>", "<permissions instructions>")
+TAIL_BYTES = 4 << 20  # a rollout can be large; the latest user message is near its end
+
+
+def parts_text(parts):
+    """Text of a content-part list ({type: text, text} / Codex's input_text) or a string."""
+    if isinstance(parts, str):
+        return parts
+    if isinstance(parts, dict):
+        parts = [parts]
+    if not isinstance(parts, list):
+        return ""
+    out = []
+    for p in parts:
+        if isinstance(p, str):
+            out.append(p)
+        elif isinstance(p, dict) and isinstance(p.get("text"), str) and p.get("type") in (None, "text", "input_text"):
+            out.append(p["text"])
+    return "\n".join(t for t in out if t)
+
+
+def tail_lines(path):
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - TAIL_BYTES))
+            data = f.read()
+    except (OSError, TypeError, ValueError):
+        return []
+    lines = data.decode("utf-8", "replace").splitlines()
+    return lines[1:] if size > TAIL_BYTES else lines
+
+
+def transcript_user_words(path):
+    """The latest user message in a transcript file, whichever CLI wrote it:
+    Claude Code / Qoder JSONL ({type: user, message: {content}}), Codex rollout (response_item message role user,
+    without the AGENTS.md / environment_context messages Codex injects), agy transcript_full.jsonl (USER_INPUT steps)."""
+    for line in reversed(tail_lines(path)):
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(e, dict):
+            continue
+        t = e.get("type")
+        if t == "user" and not e.get("isMeta"):
+            msg = e.get("message")
+            text = parts_text(msg.get("content") if isinstance(msg, dict) else None)
+            if text.strip():
+                return text
+        elif t == "response_item":
+            item = e.get("payload") or {}
+            if item.get("type") == "message" and item.get("role") == "user":
+                text = parts_text(item.get("content"))
+                if text.strip() and not text.lstrip().startswith(CODEX_INJECTED):
+                    return text
+        elif t == "USER_INPUT":
+            text = agy_user_text(e.get("content"))
+            if text:
+                return text
+    return ""
+
+
+def dsh_user_words(recs):
+    """The latest user message in a DSH session log."""
+    for d in reversed(recs):
+        data = d.get("data") or {}
+        if d.get("type") == "user/message" and (data.get("source") or {}).get("kind") == "user":
+            parts = [user_text(c.get("text", "")) for c in data.get("content", [])
+                     if isinstance(c, dict) and c.get("type") == "text"]
+            text = "\n\n".join(p for p in parts if p)
+            if text:
+                return text
+    return ""
+
+
 def user_text(text):
     t = text.strip()
     if t.startswith(MODEL_HEAD):
@@ -606,6 +688,12 @@ def main():
             # (dsh_turn) and dsh_busy only for a sleep / wait=true; unreadable log = no fields, hook still runs
             compat.add_fields(payload, tool, sub, lambda: read_lines(path))
 
+    if name in PROMPT_HOOKS and payload.get("hook_event_name") == "PreToolUse" and not payload.get("user_prompt"):
+        if path:  # DSH: the bridge's transcript_path is empty; the words are in the session log
+            payload["user_prompt"] = dsh_user_words(records(read_lines(path)))
+        elif OPTS["codex"]:  # Codex: the rollout
+            payload["user_prompt"] = transcript_user_words(payload.get("transcript_path"))
+
     if stop and path:
         if sub:
             sys.exit(0)
@@ -672,6 +760,11 @@ def main():
 
 # ── Antigravity ──
 AGY_NAMES = {"run_command": "Bash"}  # agy tool -> Claude Code tool (run_command: agy 1.4.5 PreToolUse payload)
+# agy's file tools -> Claude Code's (tool and argument names are the strings in the agy 1.4.x binary:
+# write_to_file / replace_file_content / multi_replace_file_content with TargetFile, CodeContent,
+# ReplacementChunks; delete_file). Only ask-only-guard is matched on them (agyMatchers).
+AGY_EDITS = {"write_to_file": "Write", "replace_file_content": "Edit", "multi_replace_file_content": "Edit",
+             "delete_file": "Write"}
 AGY_STATE = os.path.join(HERE, "state", "agy-stop.json")  # {conversationId: user step already blocked once}
 
 
@@ -713,6 +806,9 @@ def agy_tool(name, args):
     args = args if isinstance(args, dict) else {}
     if name == "run_command":
         return "Bash", dict(args, command=str(args.get("CommandLine") or ""))
+    if name in AGY_EDITS:
+        path = args.get("TargetFile") or args.get("AbsolutePath") or args.get("FilePath") or ""
+        return AGY_EDITS[name], dict(args, file_path=str(path))
     return AGY_NAMES.get(name, name), args
 
 
@@ -754,6 +850,8 @@ def agy_answer(event, rc, stdout, stderr):
 def run_agy(target, raw, event):
     payload = agy_payload(raw, event)
     tmp, step, sid = None, None, payload["session_id"]
+    if event == "PreToolUse" and os.path.basename(target)[:-3] in PROMPT_HOOKS:
+        payload["user_prompt"] = transcript_user_words(payload["transcript_path"])
     if event == "Stop":
         lines = []
         try:
