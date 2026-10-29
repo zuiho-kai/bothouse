@@ -142,6 +142,9 @@ export class Tasks {
       resetRenewals: this.db.prepare('UPDATE tasks SET renewals = 0 WHERE id = ?'),
       renew: this.db.prepare(`UPDATE tasks SET next_check_at = ?, renewals = ? WHERE id = ? AND ${LIVE} RETURNING *`),
       park: this.db.prepare(`UPDATE tasks SET paused_at = ?, paused_chat = ?, next_check_at = NULL WHERE room_id = ? AND ${LIVE}`),
+      open: this.db.prepare(`SELECT * FROM tasks WHERE status IN (${PLACEHOLDERS}) ORDER BY id`),
+      autoClose: this.db.prepare(`UPDATE tasks SET status = 'returned', next_check_at = NULL, remind_msg_id = NULL,
+        note = ?, returned_at = ?, updated_at = ? WHERE id = ? AND status IN (${PLACEHOLDERS}) RETURNING *`),
       busyOfOwner: this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND ${LIVE} ORDER BY updated_at DESC`),
       allBusy: this.db.prepare(`SELECT * FROM tasks WHERE ${LIVE} ORDER BY updated_at DESC`),
       // A stance line without #id only answers a dispatch the owner has not answered yet.
@@ -160,7 +163,9 @@ export class Tasks {
     };
     hub.onMessage(message => this.fromMessage(message));
     // A member coming online (cloud-web register, DSH member published) gets its pending reminders.
-    this.unsubscribe = hub.subscribe(event => { if (event.type === 'members') this.deliverPending(); });
+    this.unsubscribe = hub.subscribe(event => {
+      if (event.type === 'members') { this.deliverPending(); this.arm(); }
+    });
     if (start) this.start();
   }
 
@@ -724,6 +729,26 @@ export class Tasks {
   tick() {
     if (this.closed || !this.started) return;
     const now = this.now();
+    for (const task of this.q.open.all(...WORKING)) {
+      // Only a member that was actually removed closes its work: a merely offline member, or a
+      // pause the user asked for, must be able to resume later.
+      if (task.owner === HUMAN) continue;
+      const removed = this.db.prepare('SELECT removed FROM members WHERE id = ?').get(task.owner)?.removed === 1;
+      if (!removed) continue;
+      const reason = '负责人已移除，自动收口';
+      const row = this.q.autoClose.get(reason, now, now, task.id, ...WORKING);
+      if (row === undefined) continue;
+      const text = `#${row.id}「${row.title}」${reason}。`;
+      if (row.paused_at != null && row.paused_chat != null && row.paused_chat !== this.chatOf(row.room_id)) {
+        const card = JSON.stringify({ kind: 'task', task_id: row.id, event: 'return' });
+        const message = { authorKind: 'system', author: 'system', name: '任务', text, card };
+        this.hub.post(row.room_id, message);
+        this.hub.post(row.paused_chat, message);
+      } else this.record(row, 'return', text);
+      this.releaseIfDone(row.room_id);
+      this.store.releaseIdleWorkspaces();
+      this.changed(row.id);
+    }
     for (const task of this.q.allBusy.all(...WORKING)) {
       if (this.watched(task) && watchDue(task) <= now) this.watch(task, now);
     }
@@ -860,8 +885,14 @@ export class Tasks {
     if (this.closed) return;
     // Workspace tasks are due at watchDue (also those whose check time an older reminder spent),
     // except in bridge-claimed workspaces; other tasks at their check time.
-    const at = this.q.allBusy.all(...WORKING)
-      .map(t => this.store.room(t.room_id)?.kind !== 'workspace' ? t.next_check_at : this.watched(t) ? watchDue(t) : null)
+    const at = this.q.open.all(...WORKING)
+      .map(t => {
+        if (t.owner === HUMAN) return null;
+        const removed = this.db.prepare('SELECT removed FROM members WHERE id = ?').get(t.owner)?.removed === 1;
+        if (removed) return this.now();
+        if (t.paused_at != null) return null;
+        return this.store.room(t.room_id)?.kind !== 'workspace' ? t.next_check_at : this.watched(t) ? watchDue(t) : null;
+      })
       .filter(t => t != null).sort((a, b) => a - b)[0];
     if (at == null) return;
     const ms = Math.min(MAX_TIMER_MS, Math.max(0, (at - this.now()) * 1000));
