@@ -350,10 +350,13 @@ test('team exit: forwards asks and returns answers to the recorded workspace', a
   const hub = makeHub();
   const ws = hub.store.createWorkspace(1);
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  hub.tasks = tasks;
+  const task = tasks.assign({ roomId: ws.id, title: '选择方案', owner: 'ds', actor: 'owner' });
   new TeamExit(hub);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n需要一个答案\n自验：无需\n类别：方向' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #${task.id} 需要一个答案\n自验：无需\n类别：方向` });
   await tick();
-  const forwarded = hub.store.page(1, undefined, 10).find(m => m.author_kind === 'system');
+  const forwarded = hub.store.page(1, undefined, 10).find(m => m.author_kind === 'system' && m.text.startsWith('📬'));
   assert.ok(forwarded);
   assert.match(forwarded.text, /ask-[0-9a-f]{8}/);
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: `${forwarded.text.match(/ask-[0-9a-f]{8}/)[0]} 答案是 42` });
@@ -2606,7 +2609,7 @@ test('G35: rework of a handed-back DSH task wakes its owner in the same workspac
   const { hub, tasks, woken, ws, assign, say } = g34Setup();
   const t = assign();
   hub.store.bind('fu', ws.id, 'collab-fu');
-  say(ws.id, `【接】#${t.id}\n\n[report]\n做完了`);
+  say(ws.id, `【接】#${t.id}\n\n[report] #${t.id} 做完了`);
   await settle();
   assert.equal(tasks.task(t.id).status, 'returned');
   assert.equal(hub.store.workspaceOwner(ws.id), null, 'the hand-back released the workspace');
@@ -2627,7 +2630,7 @@ test('G35: rework whose session a new claim cleared carries the original handoff
   const t = tasks.assign({ roomId: ws.id, title: '记账', owner: 'fu', actor: 'zhu', messageId: handoff.id });
   tasks.q.setSource.run('workspace', t.id);
   hub.store.bind('fu', ws.id, 'collab-fu');
-  say(ws.id, `【接】#${t.id}\n\n[report]\nledger 加了 add/list，12 个测试通过`);
+  say(ws.id, `【接】#${t.id}\n\n[report] #${t.id} ledger 加了 add/list，12 个测试通过`);
   await settle();
   hub.store.resetSessions(ws.id); // as a new claim does
   say(1, `【返工】#${t.id} 缺 README`, 'zhu');
@@ -2694,6 +2697,8 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
   const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
   gw.tasks = tasks;
+  hub.tasks = tasks;
+  const boardTask = tasks.assign({ roomId: 1, title: '确认方向', owner: 'owner', actor: 'owner' });
   const ju = connect(gw, 'bot=ju&name=橘');
   // dev tries the same workspace (what core ClaimTeamWorkspace sends): refused.
   ju.frame({ type: 'team_workspace', ref_id: 'c1', op: 'claim', session_key: 'cloud_web:room-2', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
@@ -2702,7 +2707,7 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   ju.frame({ type: 'team_workspace', ref_id: 'l1', op: 'list', reply_ctx: 'room-2' });
   await tick();
   assert.deepEqual(ju.of('team_workspace_ack').at(-1).rooms.map(r => [r.name, r.owner]), [['工作区1', 'room-1']]);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[report]\n做完了' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[report] #${boardTask.id} 做完了` });
   await tick();
   assert.ok(hub.store.page(1, undefined, 10).some(m => m.author_kind === 'system' && /做完了/.test(m.text)), 'report reaches the owner');
   assert.equal(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system'), false, 'never the other chat channel');
@@ -2719,7 +2724,7 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   ju.frame({ type: 'team_workspace', ref_id: 'c2', op: 'claim', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
   await tick();
   assert.equal(ju.of('team_workspace_ack').at(-1).ok, true);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n要答案\n自验：无需\n类别：方向' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #${boardTask.id} 要答案\n自验：无需\n类别：方向` });
   await tick();
   assert.ok(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), 'ask reaches dev, the new owner');
   assert.equal(hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), false);
@@ -4523,7 +4528,7 @@ test('DSH member: each turn carries the gate wiki and task board, a page only on
     await until(() => agent.prompts.length === 2);
     const second = agent.prompts[1].content[0].text;
     assert.equal(gate.calls.length, 2, 'the gate is asked every turn');
-    assert.doesNotMatch(second, /wiki 页|任务板/, 'pages already given are not given again');
+    assert.doesNotMatch(second, /wiki 页|【任务板 [^】]+】/, 'pages already given are not given again');
   } finally {
     delete process.env.GATE_PORT;
     await gate.close();
@@ -4546,7 +4551,7 @@ test('CLI member: the gate block goes into the prompt; a changed board goes out 
     hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 现在呢' });
     await until(() => hub.store.job(3)?.state === 'done');
     assert.match(prompts[0], /【任务板 aaa111】 — .*\n#7 修登录 · 龙娘/);
-    assert.doesNotMatch(prompts[1], /任务板/);
+    assert.doesNotMatch(prompts[1], /【任务板 [^】]+】/);
     assert.match(prompts[2], /【任务板 bbb222】/);
   } finally {
     delete process.env.GATE_PORT;
@@ -4657,7 +4662,7 @@ test('CLI member: after /new the fresh context gets its MEMORY.md and the task b
     await until(() => prompts.length === 3);
     assert.match(prompts[0], /你的记忆/);
     assert.match(prompts[0], /【任务板 aaa111】/);
-    assert.doesNotMatch(prompts[1], /你的记忆|任务板/, 'same context: not again');
+    assert.doesNotMatch(prompts[1], /你的记忆|【任务板 [^】]+】/, 'same context: not again');
     assert.match(prompts[2], /你的记忆/, '/new: MEMORY.md again');
     assert.match(prompts[2], /【任务板 aaa111】/, '/new: the unchanged board again');
   } finally {
@@ -4692,10 +4697,10 @@ test('CLI member: a session that could not be resumed gets its MEMORY.md and the
       await settle();
     }
     assert.match(prompts[0], /你的记忆/);
-    assert.doesNotMatch(prompts[1], /你的记忆|任务板/, 'same context so far: not again');
+    assert.doesNotMatch(prompts[1], /你的记忆|【任务板 [^】]+】/, 'same context so far: not again');
     assert.match(prompts[2], /你的记忆/, 'session lost: MEMORY.md again');
     assert.match(prompts[2], /【任务板 aaa111】/, 'session lost: the unchanged board again');
-    assert.doesNotMatch(prompts[3], /你的记忆|任务板/, 'given to the new session: not again');
+    assert.doesNotMatch(prompts[3], /你的记忆|【任务板 [^】]+】/, 'given to the new session: not again');
   } finally {
     delete process.env.BOTHOUSE_DATA_DIR;
     delete process.env.GATE_PORT;
@@ -5007,7 +5012,7 @@ test('G34: 【接】#id in the chat channel about a workspace task neither accep
 test('G34: a workspace hand-back brings its [report] body to the chat channel and wakes the dispatcher, who accepts it with 【验收】#id', async () => {
   const { hub, tasks, woken, ws, assign, say } = g34Setup();
   const t = assign();
-  say(ws.id, `【接】#${t.id}\n\n先规划结构。现在写模块。\n\n[report]\n40 个测试通过，README 第一行写了暗号`);
+  say(ws.id, `【接】#${t.id}\n\n先规划结构。现在写模块。\n\n[report] #${t.id} 40 个测试通过，README 第一行写了暗号`);
   await settle();
   assert.equal(tasks.task(t.id).status, 'returned');
   const copies = hub.store.page(1, undefined, 50).filter(m => m.author_kind === 'system' && m.text.startsWith('📬'));
@@ -5039,7 +5044,7 @@ test('G34: only an explicit 【验收】/【返工】 line by the dispatcher, in
   hub.setMember({ id: 'x', name: '旁', kind: 'dsh', online: true });
   const reworks = () => hub.store.page(ws.id, undefined, 100).filter(m => m.card && JSON.parse(m.card).event === 'rework').length;
   const t = assign();
-  say(ws.id, `【接】#${t.id}\n\n[report]\n做完了`);
+  say(ws.id, `【接】#${t.id}\n\n[report] #${t.id} 做完了`);
   await settle();
   assert.equal(tasks.task(t.id).status, 'returned');
   // The dispatcher answering something else meanwhile, or a send-back without the line.
@@ -5087,7 +5092,7 @@ test('G34: a paused task resumed and handed back frees its workspace again', asy
   const [, , pause] = woken[0];
   assert.match(pause, new RegExp(`【接】#${t.id}`), 'the pause record says how to answer');
   assert.match(pause, /\[report\]/);
-  say(ws.id, `【接】#${t.id}\n\n[report]\n做完了`);
+  say(ws.id, `【接】#${t.id}\n\n[report] #${t.id} 做完了`);
   await settle();
   assert.equal(tasks.task(t.id).status, 'returned');
   assert.equal(hub.store.workspaceOwner(ws.id), null, 'handed back after the resume: free again');
@@ -5130,7 +5135,7 @@ test('G35: a DSH [ask] is forwarded as a question, not a hand-back, and its task
   const { hub, tasks, woken, ws, assign, say } = g34Setup();
   const t = assign();
   const due = tasks.task(t.id).next_check_at;
-  say(ws.id, `【接】#${t.id}\n先看了现状。\n\n[ask]\n方案 A 还是 B？\n自验：无需\n类别：方向`);
+  say(ws.id, `【接】#${t.id}\n先看了现状。\n\n[ask] #${t.id} 方案 A 还是 B？\n自验：无需\n类别：方向`);
   await settle();
   const task = tasks.task(t.id);
   assert.equal(task.status, 'accepted', 'not returned');
@@ -5147,7 +5152,7 @@ test('G35: a DSH [ask] is forwarded as a question, not a hand-back, and its task
 test('G35: while a DSH [ask] waits on the user the watch wakes nobody and keeps the workspace; the answer re-arms it', async () => {
   const { hub, tasks, clock, woken, ws, assign } = g34Setup();
   const t = assign();
-  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n看了现状\n\n[ask]\n方案 A 还是 B？\n自验：无需\n类别：方向` }, 1100).message;
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n看了现状\n\n[ask] #${t.id} 方案 A 还是 B？\n自验：无需\n类别：方向` }, 1100).message;
   tasks.fromMessage(row);
   hub.teamExit.onMessage(row);
   await settle();
@@ -5184,7 +5189,7 @@ test('G35: an unanswered [ask] the owner moved on from (hand-back, rework) does 
   const base = Math.ceil(Date.now() / 1000) + 5;
   clock.t = base;
   const t = assign();
-  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n[ask]\n要不要顺手改 B？\n自验：无需\n类别：方向` }, base + 1).message;
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n[ask] #${t.id} 要不要顺手改 B？\n自验：无需\n类别：方向` }, base + 1).message;
   tasks.fromMessage(row);
   hub.teamExit.onMessage(row);
   await settle();
@@ -5223,11 +5228,11 @@ test('G35: in a workspace the lead @-ing a teammate still opens its mention task
 test('G35: a [report] under 【接】#id of a task already done hands back no other open task', async () => {
   const { tasks, ws, assign, say } = g34Setup();
   const done = assign();
-  say(ws.id, `【接】#${done.id}\n\n[report]\n做完了`);
+  say(ws.id, `【接】#${done.id}\n\n[report] #${done.id} 做完了`);
   await settle();
   tasks.review(done.id, { actor: 'zhu', verdict: 'done' });
   const open = assign();
-  say(ws.id, `【接】#${done.id}\n\n[report]\n再补一句`);
+  say(ws.id, `【接】#${done.id}\n\n[report] #${done.id} 再补一句`);
   await settle();
   assert.equal(tasks.task(open.id).status, 'assigned', 'the other task stays open');
 });
@@ -5235,7 +5240,7 @@ test('G35: a [report] under 【接】#id of a task already done hands back no ot
 test('G35: a DSH reply whose last part is [report] hands back, with or without a stance line', async () => {
   const { tasks, ws, assign, say } = g34Setup();
   const t = assign();
-  say(ws.id, `【接】#${t.id}\n\n写完了。\n\n[report]\n测试 12 个通过`);
+  say(ws.id, `【接】#${t.id}\n\n写完了。\n\n[report] #${t.id} 测试 12 个通过`);
   await settle();
   assert.equal(tasks.task(t.id).status, 'returned');
   const g = g34Setup();
@@ -5261,7 +5266,7 @@ test('G37: a DSH reply 「@主 [report]」 hands back and its result is copied t
   assert.match(copies[0].text, /测试 8 个通过/);
   const g = g34Setup();
   const t2 = g.assign();
-  g.say(g.ws.id, `@主 【接】#${t2.id}\n写完了\n\n[report]\n做完了`);
+  g.say(g.ws.id, `@主 【接】#${t2.id}\n写完了\n\n[report] #${t2.id} 做完了`);
   await settle();
   assert.equal(g.tasks.task(t2.id).status, 'returned', 'with a stance line too');
 });
@@ -5269,7 +5274,7 @@ test('G37: a DSH reply 「@主 [report]」 hands back and its result is copied t
 test('G40: a later part of the turn opening 「@主 [report]」 hands back; [report] inside a sentence does not', async () => {
   const { tasks, ws, assign, say } = g34Setup();
   const t = assign();
-  say(ws.id, `@主 【接】#${t.id}\n先看了代码\n@主 [report]\n做完了，测试 3 个通过`);
+  say(ws.id, `@主 【接】#${t.id}\n先看了代码\n@主 [report] #${t.id} 做完了，测试 3 个通过`);
   await settle();
   assert.equal(tasks.task(t.id).status, 'returned', 'the turn\'s last part is the hand-back');
   const g = g34Setup();
@@ -5282,7 +5287,7 @@ test('G40: a later part of the turn opening 「@主 [report]」 hands back; [rep
 test('G37: the lead\'s [report] in a workspace hands back its task and its @ still dispatches', async () => {
   const { tasks, ws, assign, say } = g34Setup();
   const t = assign('zhu');
-  say(ws.id, `【接】#${t.id}\n[report]\n做完了\n@副，请你核对 README`, 'zhu');
+  say(ws.id, `【接】#${t.id}\n[report] #${t.id} 做完了\n@副，请你核对 README`, 'zhu');
   await settle();
   assert.equal(tasks.task(t.id).status, 'returned', 'the lead\'s own task is handed back');
   const sub = tasks.list(ws.id).find(r => r.owner === 'fu');
@@ -5402,7 +5407,7 @@ test('r12: a first call 「副，把 README 改一下」 dispatches as before', 
 test('G37: an [ask] answer reaches the workspace @-ing the member by name, not by id', async () => {
   const { hub, tasks, ws, assign } = g34Setup();
   const t = assign();
-  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n[ask]\n方案 A 还是 B？\n自验：无需\n类别：方向` }, 1100).message;
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n[ask] #${t.id} 方案 A 还是 B？\n自验：无需\n类别：方向` }, 1100).message;
   tasks.fromMessage(row);
   hub.teamExit.onMessage(row);
   await settle();
@@ -5414,7 +5419,7 @@ test('G37: an [ask] answer reaches the workspace @-ing the member by name, not b
   assert.doesNotMatch(answer.text, /@fu\b/, 'no member id in the text');
   assert.deepEqual([...mentions(answer.text, hub.routable())], ['fu'], 'the name still routes to her');
   const t2 = assign('zhu');
-  const ask2 = hub.store.append(ws.id, { authorKind: 'role', author: 'zhu', name: '主', text: `【接】#${t2.id}\n[ask]\n要不要改 C？\n自验：无需\n类别：方向` }, 1200).message;
+  const ask2 = hub.store.append(ws.id, { authorKind: 'role', author: 'zhu', name: '主', text: `【接】#${t2.id}\n[ask] #${t2.id} 要不要改 C？\n自验：无需\n类别：方向` }, 1200).message;
   hub.teamExit.onMessage(ask2);
   await settle();
   hub.store.db.prepare("UPDATE team_exit_asks SET member_id = 'gone' WHERE source_id = ?").run(ask2.id);

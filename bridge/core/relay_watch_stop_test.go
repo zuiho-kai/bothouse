@@ -296,7 +296,7 @@ func TestTaskRelayDrainOutlivesSafetyLimitAndWakesLead(t *testing.T) {
 	p.relayWatchTick(rc.WatchDue) // the reminder window is quiet too: stop and wake
 	relayWatchWait(t, "lead woken", func() bool { return len(store.List()) == 1 })
 	job := store.List()[0]
-	if job.Project != "source" || job.SessionKey != "discord:room:user" || !job.InjectIfBusy ||
+	if job.Project != "source" || job.SessionKey != "discord:room:user" || job.InjectIfBusy || !job.WaitUserQuiet ||
 		!strings.Contains(job.Prompt, id) || !strings.Contains(job.Prompt, "十分钟看门") || !strings.Contains(job.Prompt, "halfway there") {
 		t.Fatalf("wake job %+v", job)
 	}

@@ -111,6 +111,7 @@ func TestRelaySendUnknownTargetNoBindNotice(t *testing.T) {
 // still never made by themselves.
 func TestTeamWorkspaceListEmptySaysNew(t *testing.T) {
 	g := newWorkspaceGuild()
+	g.channels = g.channels[:2] // The shared pool really is empty.
 	e := newWorkspaceLead(t, g, t.TempDir())
 	e.teamWS = newTeamWorkspaces()
 	e.sessions.GetOrCreateActive("discord:100:u1")

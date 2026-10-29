@@ -30,11 +30,11 @@ func TestPausedTaskExitNotForwarded(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(c.item+"\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			e.forwardWorkspaceExit(p, exitWSKey, "[ask] 能不能开子任务\n自验：设计稿已写好\n类别：权限确认")
-			e.forwardWorkspaceExit(p, exitWSKey, "[report]\n已停手")
+			e.forwardWorkspaceExit(p, exitWSKey, "[ask] #4 能不能开子任务\n自验：设计稿已写好\n类别：权限确认")
+			e.forwardWorkspaceExit(p, exitWSKey, "[report] #4 已停手")
 			got := len(p.sentTo("discord:chat1"))
-			if c.forward && got != 2 {
-				t.Fatalf("forwarded %d of 2: %+v", got, p.out)
+			if c.forward && got != 3 {
+				t.Fatalf("want ask headline, evidence and report; got %d: %+v", got, p.out)
 			}
 			if !c.forward && got != 0 {
 				t.Fatalf("stopped task still forwarded: %+v", p.out)

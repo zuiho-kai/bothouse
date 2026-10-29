@@ -227,7 +227,7 @@ func TestWorkspacePlanSkipsBusyByOwnCount(t *testing.T) {
 	for _, c := range []struct {
 		open, parked int
 		want         string
-	}{{3, 0, "202"}, {2, 0, "201"}, {2, 5, "201"}} {
+	}{{1, 0, "202"}, {0, 0, "201"}, {0, 5, "201"}} {
 		set(c.open, c.parked)
 		_, _, _, adopted, err := teamWorkspacePlan(path, "discord:100", self, guild, true)
 		if err != nil || adopted != c.want {

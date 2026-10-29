@@ -24,7 +24,8 @@ func TestWorkspaceOwnedRefusesOtherChat(t *testing.T) {
 	if err := e.ClaimTeamWorkspace("discord:chatB", "ws1", "工作区1"); !errors.Is(err, ErrTeamWorkspaceOwned) {
 		t.Fatalf("claim by B = %v, want ErrTeamWorkspaceOwned", err)
 	}
-	e.forwardWorkspaceExit(p, exitWSKey, "[report]\n做好了")
+	exitBoardFixture(t, e)
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #4 做好了")
 	if got := p.sentTo("discord:chatA"); len(got) != 1 || !strings.Contains(got[0], "做好了") {
 		t.Fatalf("chatA got %q", got)
 	}
@@ -50,7 +51,8 @@ func TestWorkspaceLeadResetReleasesForOtherChat(t *testing.T) {
 	if err := e.ClaimTeamWorkspace("discord:chatB", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
-	e.forwardWorkspaceExit(p, exitWSKey, "[report]\nB 的活做好了")
+	exitBoardFixture(t, e)
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #4 B 的活做好了")
 	if got := p.sentTo("discord:chatB"); len(got) != 1 || !strings.Contains(got[0], "B 的活做好了") {
 		t.Fatalf("chatB got %q", got)
 	}
@@ -336,8 +338,8 @@ func TestTaskBoardNamesReleasedWorkspace(t *testing.T) {
 	done := placeTeamTaskBoard(e.teamTaskBoardPlacer(), []teamTaskBoardItem{{ID: 1, What: "写脚本", Who: "橘",
 		Status: "已完成", WS: "discord:ws1", SK: "discord:ws1", Chat: "discord:chatA"}})
 	got := renderTeamTaskBoard(nil, done, "discord:chatA", time.Now(), nil)
-	if !strings.Contains(got, "- 工作区1·橘：写脚本") || strings.Contains(got, "ws1·") {
-		t.Fatalf("board =\n%s", got)
+	if done[0].wsName != "工作区1" || whoInWorkspace(done[0]) != "橘" || got != "" {
+		t.Fatalf("released workspace lost its name, or done work was shown: %+v, board=%q", done, got)
 	}
 	if n := e.TeamWorkspaceName("discord:nope"); n != "" {
 		t.Fatalf("unknown workspace name = %q", n)

@@ -72,10 +72,12 @@ func TestWorkspaceAskWithEvidenceForwards(t *testing.T) {
 		"[ask]\nPR #12 合不合？\n自验：go test ./core 输出 ok\n类别：验收",
 	} {
 		e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
+		exitBoardFixture(t, e)
+		reply = strings.Replace(reply, "[ask]\n", "[ask] #4 ", 1)
 		if id := e.forwardWorkspaceExit(p, exitWSKey, reply); id == "" {
 			t.Fatalf("complete ask not forwarded: %q", reply)
 		}
-		if got := p.sentTo("discord:chat1"); len(got) != 1 || !strings.Contains(got[0], "类别：") {
+		if got := p.sentTo("discord:chat1"); len(got) != 2 || !strings.Contains(got[0], "#4「测试任务」要你定：") || !strings.Contains(got[1], "类别：") {
 			t.Fatalf("forward = %q", got)
 		}
 		if e.teamExit.bounces[exitWSKey] != 0 {
@@ -86,7 +88,8 @@ func TestWorkspaceAskWithEvidenceForwards(t *testing.T) {
 
 func TestWorkspaceReportNeedsNoEvidence(t *testing.T) {
 	e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
-	e.forwardWorkspaceExit(p, exitWSKey, "[report]\n第一阶段做完")
+	exitBoardFixture(t, e)
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #4 第一阶段做完")
 	if got := p.sentTo("discord:chat1"); len(got) != 1 || !strings.Contains(got[0], "第一阶段做完") {
 		t.Fatalf("report forward = %q", got)
 	}

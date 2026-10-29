@@ -609,7 +609,7 @@ func withTeamTaskBoard(board string, section func(budget int) string) string {
 }
 
 // cutTeamBoardLines keeps whole lines of s within limit runes, ending with a note of what is cut
-// ("…还有 N 件放不下" counting task rows "#…"/"- …", or note when given).
+// ("…还有 N 件放不下" counting legacy rows and compact board items, or note when given).
 func cutTeamBoardLines(s string, limit int, note string) string {
 	if len([]rune(s)) <= limit {
 		return s
@@ -621,7 +621,13 @@ func cutTeamBoardLines(s string, limit int, note string) string {
 		if n == "" {
 			left := 0
 			for _, x := range lines[k:] {
-				if strings.HasPrefix(x, "#") || strings.HasPrefix(x, "- ") {
+				if strings.HasPrefix(x, "**在做 ") {
+					var running int
+					if _, err := fmt.Sscanf(x, "**在做 %d**", &running); err == nil {
+						left += running
+					}
+				} else if strings.HasPrefix(x, "#") || strings.HasPrefix(x, "- ") ||
+					strings.HasPrefix(x, "⚠ ") || strings.HasPrefix(x, "▶ ") || strings.HasPrefix(x, "⏸ ") {
 					left++
 				}
 			}

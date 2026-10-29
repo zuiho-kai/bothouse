@@ -137,7 +137,7 @@ func TestRelayWatchRestartInterruptionWakesLead(t *testing.T) {
 		t.Fatalf("restart interruption woke the lead %d times, want 1: %+v", len(jobs), jobs)
 	}
 	job := jobs[0]
-	if job.Project != "source" || job.SessionKey != "discord:room:user" || !job.InjectIfBusy ||
+	if job.Project != "source" || job.SessionKey != "discord:room:user" || job.InjectIfBusy || !job.WaitUserQuiet ||
 		!strings.Contains(job.Prompt, id) || !strings.Contains(job.Prompt, "桥重启") {
 		t.Fatalf("restart wake job %+v", job)
 	}

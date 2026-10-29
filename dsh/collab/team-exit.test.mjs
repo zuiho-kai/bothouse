@@ -13,7 +13,7 @@ function setup() {
   hub.setMember({ id: 'owner', name: 'Owner', kind: 'human', online: true });
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
   const woken = [];
-  hub.tasks = { wakers: [(id, m) => { woken.push([id, m.id]); return true; }] };
+  hub.tasks = { task: id => id === 4 ? { id: 4, title: '选择方案' } : undefined, wakers: [(id, m) => { woken.push([id, m.id]); return true; }] };
   const exit = new TeamExit(hub);
   const ws = store.createWorkspace(1);
   const say = async text => { hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text }); await tick(); };
@@ -67,7 +67,7 @@ test('complete [ask] in each of the four categories, or with evidence, reaches t
     '[ask]\n点一下授权\n自验：无需\n类别：权限确认',
     '[ask]\nPR #12 合不合？\n自验：node --test 输出 ok\n类别：验收',
   ];
-  for (const a of asks) await say(a);
+  for (const a of asks) await say(a.replace('[ask]\n', '[ask] #4 '));
   assert.equal(back().length, 0);
   assert.equal(chat().length, asks.length);
   assert.ok(chat().every(m => /ask-[0-9a-f]{8}/.test(m.text)));
@@ -75,9 +75,9 @@ test('complete [ask] in each of the four categories, or with evidence, reaches t
 
 test('[report] needs no 自验 or 类别', async () => {
   const { say, chat, back } = setup();
-  await say('[report]\n第一阶段做完');
+  await say('[report] #4 第一阶段做完');
   assert.equal(back().length, 0);
-  assert.match(chat()[0].text, /阶段结果\n第一阶段做完/);
+  assert.match(chat()[0].text, /#4「选择方案」：第一阶段做完/);
 });
 
 test('only two bounces in a row wake the member; a good ask resets', async () => {
