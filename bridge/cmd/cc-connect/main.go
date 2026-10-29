@@ -2301,25 +2301,29 @@ func wireImageFresh(engine *core.Engine, proj config.ProjectConfig) {
 // On unless enabled = false; defaults 60 min idle / 80000 tokens come from the
 // maomao fork settings the user chose on 2026-10-14 (~/.cc-connect/config.toml
 // [projects.cold_cache_fresh]: enabled=true, idle_mins=60, min_tokens=80000).
-func coldCacheFreshSettings(c config.ColdCacheFreshConfig) (enabled bool, idleMins, minTokens int) {
+// max_context_tokens defaults to 300000 (user 2026-10-29: fresh session at 300k).
+func coldCacheFreshSettings(c config.ColdCacheFreshConfig) (enabled bool, idleMins, minTokens, maxTokens int) {
 	if c.Enabled != nil && !*c.Enabled {
-		return false, 0, 0
+		return false, 0, 0, 0
 	}
-	idleMins, minTokens = 60, 80000 // source: see comment above (user, 2026-10-14)
+	idleMins, minTokens, maxTokens = 60, 80000, 300000 // source: see comment above
 	if c.IdleMins != nil && *c.IdleMins > 0 {
 		idleMins = *c.IdleMins
 	}
 	if c.MinTokens != nil && *c.MinTokens > 0 {
 		minTokens = *c.MinTokens
 	}
-	return true, idleMins, minTokens
+	if c.MaxContextTokens != nil && *c.MaxContextTokens > 0 {
+		maxTokens = *c.MaxContextTokens
+	}
+	return true, idleMins, minTokens, maxTokens
 }
 
 // wireColdCacheFresh applies [projects.cold_cache_fresh] (maomao fork).
 func wireColdCacheFresh(engine *core.Engine, proj config.ProjectConfig) {
-	enabled, idle, minTokens := coldCacheFreshSettings(proj.ColdCacheFresh)
+	enabled, idle, minTokens, maxTokens := coldCacheFreshSettings(proj.ColdCacheFresh)
 	if !enabled {
-		engine.SetColdCacheFresh(false, 0, 0)
+		engine.SetColdCacheFresh(false, 0, 0, 0)
 		return
 	}
 	if t := proj.AgentSessionIdleTimeoutMins; t != nil && *t > idle {
@@ -2327,7 +2331,7 @@ func wireColdCacheFresh(engine *core.Engine, proj config.ProjectConfig) {
 			"project", proj.Name, "idle_mins", idle, "agent_session_idle_timeout_mins", *t)
 	}
 	warnColdCacheFreshUnsupported(engine.GetAgent(), proj)
-	engine.SetColdCacheFresh(true, time.Duration(idle)*time.Minute, minTokens)
+	engine.SetColdCacheFresh(true, time.Duration(idle)*time.Minute, minTokens, maxTokens)
 }
 
 // warnColdCacheFreshUnsupported logs a role whose agent cannot read its session
