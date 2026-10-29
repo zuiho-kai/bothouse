@@ -505,6 +505,13 @@ type AsyncRecoverablePlatform interface {
 	SetLifecycleHandler(h PlatformLifecycleHandler)
 }
 
+// SilentChannelAware is an optional interface for platforms that can send a message
+// without push notifications. The engine hands it a predicate; the platform sends
+// silently to every channel the predicate accepts (team workspace channels).
+type SilentChannelAware interface {
+	SetSilentChannel(isSilent func(channelID string) bool)
+}
+
 // MessageHandler is called by platforms when a new message arrives.
 type MessageHandler func(p Platform, msg *Message)
 
