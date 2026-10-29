@@ -32,6 +32,7 @@ type Platform struct {
 	wsURL                 string // e.g. "ws://127.0.0.1:3001"
 	token                 string // optional access_token
 	allowFrom             string // comma-separated user IDs or "*"
+	commandAllowFrom      string // optional separate sender list for slash-prefixed input
 	shareSessionInChannel bool
 	handler               core.MessageHandler
 	conn                  *websocket.Conn
@@ -90,6 +91,7 @@ func New(opts map[string]any) (core.Platform, error) {
 	}
 	token, _ := opts["token"].(string)
 	allowFrom, _ := opts["allow_from"].(string)
+	commandAllowFrom, _ := opts["command_allow_from"].(string)
 	shareSessionInChannel, _ := opts["share_session_in_channel"].(bool)
 
 	core.CheckAllowFrom("qq", allowFrom)
@@ -101,6 +103,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		wsURL:                 wsURL,
 		token:                 token,
 		allowFrom:             allowFrom,
+		commandAllowFrom:      commandAllowFrom,
 		shareSessionInChannel: shareSessionInChannel,
 		httpURL:               httpURL,
 	}, nil
@@ -257,6 +260,13 @@ func (p *Platform) handleMessage(payload map[string]any) {
 
 	// Parse message content from CQ message array or raw_message
 	parsed := p.parseMessage(payload, msgType, groupID)
+
+	// Apply before handing input to core: unknown slash commands, custom
+	// commands and skills must follow the same sender policy as built-ins.
+	if strings.HasPrefix(strings.TrimSpace(parsed.text), "/") &&
+		!core.AllowList(p.commandAllowFrom, strconv.FormatInt(userID, 10)) {
+		return
+	}
 
 	// A bare @ is a person calling the bot with nothing to say yet; dropping it
 	// as empty would look like the bot ignored them (platform/discord does the

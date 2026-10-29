@@ -34,6 +34,13 @@ In **Channel settings**, choose a primary role independently for each channel an
 
 ### Everyday use
 
+For QQ, set `command_allow_from = "12345"` under `[projects.platforms.options]`
+to allow slash-prefixed input only from the listed QQ sender IDs. This covers
+built-in commands, custom commands, skills and unknown commands forwarded to an
+agent, in both groups and private chats. Ordinary chat still follows `allow_from`.
+Omitting the setting, an empty string, or `"*"` preserves existing behavior;
+this setting does not grant privileged command access (`admin_from`).
+
 1. **Give a task in plain language:** “Build a dashboard showing how many tokens each role used today.”
 2. **Split the work:** the lead assigns pieces such as statistics, a menu bar icon, the role list and the desktop companion interface to different AI members with `@` mentions. Progress appears on one task card.
 3. **Steer and review:** add instructions while work is running. Claude Code, Codex app-server and DSH backends with ACP steering support receive them during the active task; CLIs such as `codex exec` read them on the next turn. When the work and the lead's checks are complete, you get a report of changes, validation and remaining work.
