@@ -112,7 +112,7 @@ export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom
           {tab === 'dispatch' && <>
             <div className={css.field} role="radiogroup" aria-label={t('dispatchMode')}>
               <span>{t('dispatchMode')}</span>
-              <div className={css.choiceRow}>
+              <div className={css.choiceColumn}>
                 {(['solo', 'team', 'mixed'] as const).map(value => <label key={value} className={css.choice}>
                   <input type="radio" name="settings-dispatch-mode" disabled={saving.dispatch} checked={mode === value} onChange={() => { setMode(value); clearFeedback('dispatch') }} />
                   {t(value === 'solo' ? 'dispatchSolo' : value === 'team' ? 'dispatchTeam' : 'dispatchMixed')}

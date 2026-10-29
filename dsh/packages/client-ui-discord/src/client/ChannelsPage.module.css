@@ -1012,6 +1012,18 @@
   gap: 12px;
 }
 
+.choiceColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.choiceColumn .choice {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+}
+
 .choice {
   display: inline-flex;
   align-items: center;
