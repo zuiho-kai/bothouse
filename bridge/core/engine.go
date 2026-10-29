@@ -5011,7 +5011,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 
 	// Inject per-session env vars so the agent subprocess can call `cc-connect cron add` etc.
 	if inj, ok := agent.(SessionEnvInjector); ok {
-		inj.SetSessionEnv(e.roleSessionEnv(ccKey))
+		inj.SetSessionEnv(append(e.roleSessionEnv(ccKey), "CC_AGENT="+agent.Name()))
 	}
 	e.applySessionModel(agent, ccKey)
 	e.applySessionInstructions(agent, ccKey)
@@ -11446,7 +11446,7 @@ func (e *Engine) cmdModel(p Platform, msg *Message, args []string) {
 			models := switcher.AvailableModels(fetchCtx)
 
 			var sb strings.Builder
-			current := switcher.GetModel()
+			current := e.currentSessionModel(msg.SessionKey, agent)
 			if current == "" {
 				sb.WriteString(e.i18n.T(MsgModelDefault))
 			} else {
@@ -14790,7 +14790,7 @@ func (e *Engine) renderModelCard(sessionKey string) *Card {
 	fetchCtx, cancel := context.WithTimeout(e.ctx, 3*time.Second)
 	defer cancel()
 	models := switcher.AvailableModels(fetchCtx)
-	current := switcher.GetModel()
+	current := e.currentSessionModel(sessionKey, agent)
 
 	var sb strings.Builder
 	if current == "" {
@@ -17707,7 +17707,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	}()
 
 	if inj, ok := agent.(SessionEnvInjector); ok {
-		inj.SetSessionEnv(e.roleSessionEnv(sourceSessionKey))
+		inj.SetSessionEnv(append(e.roleSessionEnv(sourceSessionKey), "CC_AGENT="+agent.Name()))
 	}
 	e.applySessionModel(agent, relaySessionKey)
 	e.applySessionInstructions(agent, relaySessionKey)

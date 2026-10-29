@@ -337,7 +337,7 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 		stream = "1"
 	}
 	session, err := starter.StartVoiceRelay(ctx, prior.ID, []string{
-		"CC_PROJECT=" + e.name, "CC_SESSION_KEY=" + req.SessionKey, "CC_VOICE_STREAM=" + stream,
+		"CC_PROJECT=" + e.name, "CC_SESSION_KEY=" + req.SessionKey, "CC_AGENT=" + agent.Name(), "CC_VOICE_STREAM=" + stream,
 	})
 	if err != nil {
 		return "", nil, err
