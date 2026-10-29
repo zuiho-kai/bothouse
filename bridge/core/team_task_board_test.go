@@ -44,66 +44,76 @@ not json
 	if len(items) != 5 {
 		t.Fatalf("items = %d", len(items))
 	}
-	now := time.Date(2026, 10, 26, 2, 30, 0, 0, time.Local) // #4 paused 27 minutes: no "等你" yet
-	got := renderTeamTaskBoard(items, nil, "feishu:oc_a", now, nil)
+	now := time.Date(2026, 10, 26, 2, 30, 0, 0, time.Local) // #3 handed off 28 minutes ago: not 卡住 yet
+	// The chat board (ba2af5d0 #610): 在做 on one line with workspace items named, 等你 one per
+	// line with its reason; the other channel's #2 is not shown.
+	got := renderTeamTaskBoard(items, "feishu:oc_a", now)
 	want := "**任务板**\n**在做 3**  ▶ 修登录 ‹＠123›  ▶ 交接（工作区1）  ▶ 老交接（工作区2）\n**等你 1**\n⏸ 停着 · x"
 	if got != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
-	// A workspace's board lists only its own item with its activity age.
+	// The workspace's own board lists only its item (#612).
 	if ws := renderWorkspaceTaskBoardFit(items, "feishu:oc_ws", now, backfillMaxMsgRunes); ws != "**这里在做**\n▶ 交接 · 在做 · 28 分钟前" {
 		t.Fatalf("workspace board = %q", ws)
 	}
-	if renderTeamTaskBoard(items, nil, "feishu:none", now, nil) != "" {
+	if renderTeamTaskBoard(items, "feishu:none", now) != "" {
 		t.Fatal("empty chat should render nothing")
 	}
-	if renderTeamTaskBoard(nil, nil, "feishu:oc_a", now, nil) != "" || readTeamTaskBoard(t.TempDir()) != nil {
+	if renderTeamTaskBoard(nil, "feishu:oc_a", now) != "" || readTeamTaskBoard(t.TempDir()) != nil {
 		t.Fatal("missing file should be empty")
 	}
 }
 
-// Compact boards truncate whole rows and tell the user how many items were omitted.
-func TestTeamTaskBoardOverlongKeepsWholeRows(t *testing.T) {
+// Over one post: the section is cut by whole lines with a count of what is left out, the 在做 line
+// (every running item) stays, and the member board above it stays whole.
+func TestTeamTaskBoardOverlongKeepsRunning(t *testing.T) {
 	var items []teamTaskBoardItem
-	for i := 1; i <= 180; i++ {
-		items = append(items, teamTaskBoardItem{ID: i, What: fmt.Sprintf("待确认%d", i),
-			Status: "等用户确认：方向还未确定", own: "discord:42"})
+	for i := 1; i <= 17; i++ {
+		items = append(items, teamTaskBoardItem{ID: i, What: fmt.Sprintf("第%d件", i), Who: "橘",
+			Status: "在做", At: "10-26 02:00", Ch: "1562131004234276945"})
 	}
-	board := "**谁在干啥**\n- 橘：在写文档"
+	for i := 100; i < 160; i++ {
+		items = append(items, teamTaskBoardItem{ID: i, What: fmt.Sprintf("等拍板的第%d件事情", i), Who: "橘", At: "10-26 02:00",
+			Paused: "10-26 03:00", PauseWhy: "等用户拍板：" + strings.Repeat("理由", 15), Ch: "1562131004234276945"})
+	}
+	items = placeTeamTaskBoard(testTaskBoardPlacer(), items)
+	chat := "discord:1562131004234276945"
 	now := time.Now()
-	got := withTeamTaskBoard(board, func(b int) string { return renderTeamTaskBoardFit(items, nil, "discord:42", now, nil, b) })
-	if len([]rune(got)) > backfillMaxMsgRunes || !strings.HasPrefix(got, board) {
-		t.Fatalf("oversize or member board cut: %s", got)
+	section := renderTeamTaskBoard(items, chat, now)
+	if len([]rune(section)) <= backfillMaxMsgRunes {
+		t.Fatalf("test data too short: %d", len([]rune(section)))
 	}
-	shown := 0
-	for _, line := range strings.Split(got, "\n") {
-		if strings.HasPrefix(line, "⏸ ") {
-			shown++
-			if !strings.HasSuffix(line, " · 方向还未确定") {
-				t.Fatalf("partial row: %q", line)
-			}
+	whole := map[string]bool{}
+	for _, ln := range strings.Split(section, "\n") {
+		whole[ln] = true
+	}
+	board := "**谁在干啥**\n" + strings.Repeat("- 龙娘：在写一段很长的成员状态\n", 10) + "- 收尾"
+	got := withTeamTaskBoard(board, func(b int) string { return renderTeamTaskBoardFit(items, chat, now, b) })
+	if n := len([]rune(got)); n > backfillMaxMsgRunes {
+		t.Fatalf("len = %d", n)
+	}
+	if !strings.HasPrefix(got, board+"\n\n**任务板**\n**在做 17**  ▶ 第1件") || !strings.Contains(got, "▶ 第17件\n") {
+		t.Fatalf("member board or 在做 line not whole:\n%s", got)
+	}
+	lines := strings.Split(strings.TrimPrefix(got, board+"\n\n"), "\n")
+	for _, ln := range lines[:len(lines)-1] {
+		if !whole[ln] {
+			t.Fatalf("line cut: %q", ln)
 		}
 	}
-	if shown == 0 || shown == len(items) || !strings.HasSuffix(got, fmt.Sprintf("…还有 %d 件放不下", len(items)-shown)) {
-		t.Fatalf("missing or inaccurate overflow count (%d shown): %s", shown, got)
+	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "…还有 ") || strings.HasPrefix(last, "…还有 0 ") {
+		t.Fatalf("last line = %q, want a count of the rows left out", last)
 	}
-	if got := withTeamTaskBoard("板", func(int) string { return "**任务板**\n▶ x" }); got != "板\n\n**任务板**\n▶ x" {
+	// Member board too long for both: cut by whole lines, the task section stays whole.
+	short := items[:17]
+	huge := strings.Repeat("- 成员一行\n", 400) + "- 尾"
+	got = withTeamTaskBoard(huge, func(b int) string { return renderTeamTaskBoardFit(short, chat, now, b) })
+	if n := len([]rune(got)); n > backfillMaxMsgRunes || !strings.Contains(got, "▶ 第17件") || !strings.Contains(got, "- 成员一行\n…\n\n**任务板**") {
+		t.Fatalf("len %d:\n%s", n, got)
+	}
+	// Short section: unchanged.
+	if got := withTeamTaskBoard("板", func(int) string { return "**任务板**\n#1 x" }); got != "板\n\n**任务板**\n#1 x" {
 		t.Fatalf("short = %q", got)
-	}
-}
-
-func TestCompactBoardOverflowCountsRunningAndWorkspaceRows(t *testing.T) {
-	for _, tc := range []struct {
-		text    string
-		omitted int
-	}{
-		{"**任务板**\n**在做 3**  ▶ 第一件  ▶ 第二件  ▶ 第三件", 3},
-		{"**这里在做**\n⚠ 第一件 · 卡住 · 一小时无人接\n▶ 第二件 · 在做 · 刚刚\n⏸ 第三件 · 等你 · 确认", 3},
-	} {
-		got := cutTeamBoardLines(tc.text, 23, "")
-		if len([]rune(got)) > 23 || !strings.HasSuffix(got, fmt.Sprintf("…还有 %d 件放不下", tc.omitted)) {
-			t.Fatalf("overflow = %q", got)
-		}
 	}
 }
 
@@ -114,10 +124,10 @@ func TestTeamTaskBoardOldItemsPlaced(t *testing.T) {
 		{ID: 2, What: "啥都没记"},
 	})
 	now := time.Now()
-	if got := renderTeamTaskBoard(items, nil, "discord:42", now, nil); !strings.Contains(got, "▶ 老条目") || strings.Contains(got, "啥都没记") {
+	if got := renderTeamTaskBoard(items, "discord:42", now); !strings.Contains(got, "▶ 老条目") || strings.Contains(got, "啥都没记") {
 		t.Fatalf("ch board = %q", got)
 	}
-	if got := renderTeamTaskBoard(items, nil, "discord:main", now, nil); !strings.Contains(got, "▶ 啥都没记") {
+	if got := renderTeamTaskBoard(items, "discord:main", now); !strings.Contains(got, "▶ 啥都没记") {
 		t.Fatalf("main board = %q", got)
 	}
 }
@@ -132,7 +142,7 @@ func TestTeamTaskBoardBareChatPlaced(t *testing.T) {
 		t.Fatalf("parents = %q %q", items[0].parent, items[1].parent)
 	}
 	now := time.Now()
-	got := renderTeamTaskBoard(items, nil, "discord:1558868087456014521", now, nil)
+	got := renderTeamTaskBoard(items, "discord:1558868087456014521", now)
 	if !strings.Contains(got, "▶ 工作区活") || !strings.Contains(got, "▶ 本频道活") {
 		t.Fatalf("chat board = %q", got)
 	}
@@ -143,53 +153,8 @@ func TestTeamTaskBoardBareChatPlaced(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(renderTeamTaskBoard(items, nil, "discord:777", now, nil), "▶ 工作区活") {
+	if !strings.Contains(renderTeamTaskBoard(items, "discord:777", now), "▶ 工作区活") {
 		t.Fatal("workspace board missing its item")
-	}
-}
-
-func TestTeamTaskBoardDoneToday(t *testing.T) {
-	dir := t.TempDir()
-	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.Local)
-	writeTaskBoard(t, dir, teamTaskBoardDoneFile, `{"id":1,"what":"昨天的","who":"橘","sk":"feishu:oc_a","done_at":"10-25 23:00"}
-{"id":2,"what":"回看 CI","who":"橘","sk":"feishu:oc_a","done_at":"10-26 01:00"}
-{"id":3,"what":"回看 CI","who":"橘","sk":"feishu:oc_a","done_at":"10-26 02:00"}
-{"id":4,"what":"交接活","who":"工作区1橘","sk":"feishu:oc_ws","ws":"feishu:oc_ws","chat":"feishu:oc_a","done_at":"10-26 03:00"}
-{"id":5,"what":"甲","who":"龙娘","sk":"feishu:oc_a","done_at":"10-26 04:00"}
-{"id":6,"what":"乙","who":"龙娘","sk":"feishu:oc_a","done_at":"10-26 05:00"}
-`)
-	done := placeTeamTaskBoard(testTaskBoardPlacer(), readTeamTaskBoardDoneToday(dir, now))
-	if len(done) != 5 {
-		t.Fatalf("done today = %d", len(done))
-	}
-	got := renderTeamTaskBoard(nil, done, "feishu:oc_a", now, nil)
-	if got != "" {
-		t.Fatalf("completed work must remain in history, not keep a quiet board alive: %s", got)
-	}
-}
-
-func TestTeamTaskBoardNextOverdue(t *testing.T) {
-	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.Local)
-	past := now.Add(-10 * time.Minute)
-	future := now.Add(10 * time.Minute)
-	it := func(id int, what string, at time.Time) teamTaskBoardItem {
-		return teamTaskBoardItem{ID: id, What: what, Who: "橘", SK: "feishu:oc_a", Next: at.Format("15:04"), NextTS: at.Unix()}
-	}
-	items := placeTeamTaskBoard(testTaskBoardPlacer(), []teamTaskBoardItem{
-		it(1, "没人回来看", past), it(2, "还没到", future), it(3, "定时还挂着", past),
-	})
-	pending := []*TimerJob{{Description: "定时还挂着", ScheduledAt: past}}
-	for i, want := range []bool{true, false, false} {
-		if got := teamTaskBoardNextOverdue(items[i], now, pending); got != want {
-			t.Errorf("item %d overdue = %t, want %t", items[i].ID, got, want)
-		}
-		if teamTaskBoardNextOverdue(items[i], now, nil) {
-			t.Fatal("unknown timers marked overdue")
-		}
-	}
-	got := renderTeamTaskBoard(items, nil, "feishu:oc_a", now, pending)
-	if !strings.Contains(got, "**在做 3**") || strings.Contains(got, "下次看") || strings.Contains(got, "已过") {
-		t.Fatalf("compact board leaked scheduler detail: %s", got)
 	}
 }
 
@@ -208,8 +173,8 @@ func TestUpdateTeamBoardsPostsTaskBoard(t *testing.T) {
 		t.Fatal("no board posted")
 	}
 	got := p.content["feishu:oc_a"]
-	// The quiet board drops the 今天做完 block but keeps the open item.
-	if !strings.Contains(got, "▶ 出板 · 在做") || strings.Contains(got, "**今天做完**") {
+	// The workspace board lists its open item and no done ones (#610).
+	if !strings.Contains(got, "▶ 出板 · 在做") || strings.Contains(got, "做完了") {
 		t.Fatalf("board = %q", got)
 	}
 }
@@ -261,8 +226,8 @@ func TestCloudWebSingleRoleBoardOnce(t *testing.T) {
 		t.Fatal("no board posted")
 	}
 	got := p.content["cloud_web:room-1"]
-	// The quiet board has no 今天做完 block; only open items remain.
-	for want, n := range map[string]int{"**这里在做**": 1, "▶ 修登录": 1, "**今天做完**": 0, "- 橘：写文档": 0, "**在做**": 0} {
+	// The workspace board has no done items; only open items remain (#610).
+	for want, n := range map[string]int{"**这里在做**": 1, "▶ 修登录 · 在做": 1, "写文档": 0} {
 		if c := strings.Count(got, want); c != n {
 			t.Fatalf("%q appears %d times, want %d:\n%s", want, c, n, got)
 		}
@@ -336,7 +301,7 @@ func TestTeamBoardLiveFollowsWorkspaceHandoff(t *testing.T) {
 
 	setHandoff(time.Time{}) // the workspace is on it
 	e.updateTeamBoards(files, boards)
-	if !strings.Contains(p.content["cloud_web:room-1"], "实现 release…") || !p.live["cloud_web:room-1"] {
+	if !strings.Contains(p.content["cloud_web:room-1"], "实现 release") || !p.live["cloud_web:room-1"] {
 		t.Fatalf("open handoff: live = %v, want true:\n%s", p.live["cloud_web:room-1"], p.content["cloud_web:room-1"])
 	}
 	setHandoff(at.Add(10 * time.Minute)) // the workspace finished and was reset
@@ -391,21 +356,9 @@ func TestTeamTaskBoardWaitHours(t *testing.T) {
 		{ID: 600, What: "宣传稿返工", Who: "橘", At: "10-26 07:40", Paused: "10-26 07:40", PauseWhy: "等用户[看片]", own: "discord:1"},
 		{ID: 591, What: "英文版", Who: "橘", At: "10-26 07:40", Paused: "10-26 07:40", PauseWhy: "片源未定", own: "discord:1"},
 	}
-	got := renderTeamTaskBoard(items, nil, "discord:1", now, nil)
+	// On the board (#610) the waiting item is one 等你 row; the other pause is only counted.
+	got := renderTeamTaskBoard(items, "discord:1", now)
 	if !strings.Contains(got, "**等你 1**\n⏸ 宣传稿返工") || !strings.Contains(got, "暂停 1 件（已收起）") || strings.Contains(got, "英文版") {
 		t.Fatalf("got\n%s", got)
-	}
-}
-
-// Items board.py auto_prune moved to board-done.jsonl are not "done today".
-func TestTeamTaskBoardDoneTodaySkipsAutoPruned(t *testing.T) {
-	dir := t.TempDir()
-	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.Local)
-	writeTaskBoard(t, dir, teamTaskBoardDoneFile, `{"id":1,"what":"做完的","who":"橘","sk":"feishu:oc_a","done_at":"10-26 10:00"}
-{"id":2,"what":"收起的","who":"橘","sk":"feishu:oc_a","done_at":"10-26 10:53","paused":"10-25 20:42","auto_pruned":"暂停后 14 小时没汇报没更新"}
-`)
-	done := readTeamTaskBoardDoneToday(dir, now)
-	if len(done) != 1 || done[0].ID != 1 {
-		t.Fatalf("done today = %+v", done)
 	}
 }

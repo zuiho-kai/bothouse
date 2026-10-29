@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -13,31 +12,13 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-// Model the real workspace allocator: a newly allocated workspace has no task yet.
-// ClaimTeamWorkspace creates a handoff and fills the workspace's one-task slot.
-type workspaceCLIPlatform struct{ *progressCLIPlatform }
-
-func (p *workspaceCLIPlatform) TeamGuildChannels(_ context.Context, id string) (core.TeamChannel, []core.TeamChannel, error) {
-	channels := []core.TeamChannel{{ID: "lobby", Name: "Lobby"}, {ID: "room", Name: "工作区2"}, {ID: "ws1", Name: "工作区1"}}
-	for _, c := range channels {
-		if c.ID == id {
-			return c, channels, nil
-		}
-	}
-	return core.TeamChannel{}, nil, fmt.Errorf("unknown test channel %s", id)
-}
-
-func (p *workspaceCLIPlatform) CreateTeamWorkspaceChannel(context.Context, string, string) (core.TeamChannel, error) {
-	return core.TeamChannel{}, fmt.Errorf("expected to adopt the idle workspace")
-}
-
 // The real CLI entry: a task card in the chat channel, a member registered for
 // a workspace, then a task relay explicitly dispatched there. The target runs
 // in the workspace, its credential is scoped there, and the result still lands
 // on the source card.
 func TestTaskWsCLI(t *testing.T) {
 	dir := t.TempDir()
-	sourcePlatform := &workspaceCLIPlatform{&progressCLIPlatform{delivered: make(chan *core.Task, 20), boards: make(chan string, 20)}}
+	sourcePlatform := &progressCLIPlatform{delivered: make(chan *core.Task, 20), boards: make(chan string, 20)}
 	sourceSession := &progressCLISession{events: make(chan core.Event, 10), prompts: make(chan string, 4)}
 	source := core.NewEngine("fish", &progressCLIAgent{session: sourceSession}, []core.Platform{sourcePlatform}, "", core.LangEnglish)
 	source.SetDataDir(dir)
@@ -67,11 +48,8 @@ func TestTaskWsCLI(t *testing.T) {
 	if err := source.ClaimTeamWorkspace("test:lobby", "room", "工作区2"); err != nil {
 		t.Fatal(err)
 	}
-	source.SetTeam(t.TempDir(), "Fish", true)
-	source.SetTeamWorkspaces(true)
-	source.GetSessions().GetOrCreateActive("test:lobby")
-	if _, w, err := source.NewTeamWorkspace("test:lobby"); err != nil || w.ID != "ws1" {
-		t.Fatalf("allocate idle workspace: %+v, %v", w, err)
+	if err := source.ClaimTeamWorkspace("test:lobby", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
 	}
 
 	api, err := core.NewAPIServer(dir)

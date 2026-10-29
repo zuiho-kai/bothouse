@@ -272,15 +272,11 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 		return k
 	}
 	// Only open items: no 今天做完 block (user, 2026-10-28: 「完成的也没必要显示」).
-	var items, done []teamTaskBoardItem
-	var pending []*TimerJob
+	var items []teamTaskBoardItem
 	now := time.Now()
 	if e.team != nil {
 		place := e.teamTaskBoardPlacer()
 		items = e.dropGoneTeamTaskBoard(placeTeamTaskBoard(place, readTeamTaskBoard(e.team.dir)))
-		if e.timerScheduler != nil {
-			pending = append([]*TimerJob{}, e.timerScheduler.Store().ListPending()...)
-		}
 	}
 	for _, it := range items { // a chat with task-board items gets a board too (board.py no longer posts its own card)
 		for _, key := range it.chats() {
@@ -315,7 +311,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	changed := false
 	for chat, b := range boards {
 		kind := kindOf(chat)
-		if kind == teamBoardSummary && !teamTaskBoardHasEntries(items, done, chat) {
+		if kind == teamBoardSummary && !teamTaskBoardHasEntries(items, chat) {
 			// A team chat shows its summary only while it has task-board items here: no empty
 			// board (a side chat that handed off once is a team chat too); an old one is deleted.
 			kind = teamBoardNone
@@ -347,7 +343,7 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			})
 			live = live || indexLive
 		} else {
-			content = renderTeamTaskBoardFit(items, done, chat, now, pending, backfillMaxMsgRunes)
+			content = renderTeamTaskBoardFit(items, chat, now, backfillMaxMsgRunes)
 		}
 		content = cutTeamBoardLines(content, backfillMaxMsgRunes, "")
 		if content == "" {
@@ -399,13 +395,11 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	return changed
 }
 
-// teamTaskBoardHasEntries: chat's task board has an open or done-today item.
-func teamTaskBoardHasEntries(items, done []teamTaskBoardItem, chat string) bool {
-	for _, list := range [][]teamTaskBoardItem{items, done} {
-		for _, it := range list {
-			if it.shownIn(chat) {
-				return true
-			}
+// teamTaskBoardHasEntries: chat's task board has an open item.
+func teamTaskBoardHasEntries(items []teamTaskBoardItem, chat string) bool {
+	for _, it := range items {
+		if it.shownIn(chat) {
+			return true
 		}
 	}
 	return false

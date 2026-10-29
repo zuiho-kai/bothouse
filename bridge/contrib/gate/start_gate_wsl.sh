@@ -14,7 +14,7 @@ for pid in $(ss -ltnpH "sport = :$PORT" 2>/dev/null | grep -o 'pid=[0-9]*' | cut
     kill "$pid"
     for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
   else
-    echo "[$(date '+%F %T')] 端口 $PORT 被其他程序占用（PID $pid，目录 $cwd），不启动" >&2
+    echo "[$(date '+%F %T')] 端口 $PORT 被其他程序占用（PID ${pid}，目录 ${cwd}），不启动" >&2
     exit 3
   fi
 done
@@ -22,5 +22,5 @@ done
 export GATE_MODEL="${GATE_MODEL:-$HOME/models/Qwen3.5-4B}"
 export GATE_TEAM="$D/gate-team.json"
 export GATE_LOG="$D/gate.jsonl"
-echo "[$(date '+%F %T')] 启动闸门：$D，模型 $GATE_MODEL"
+echo "[$(date '+%F %T')] 启动闸门：${D}，模型 $GATE_MODEL"
 exec "$HOME/venvs/gate/bin/python" -u gate.py

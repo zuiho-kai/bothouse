@@ -21,7 +21,7 @@ func TestResolveTaskWorkspaceChecksOwnershipAndOccupancy(t *testing.T) {
 	e := NewEngine("source", &stubAgent{}, []Platform{newProgressPlatform()}, "", LangChinese)
 	e.SetDataDir(t.TempDir())
 	claimSourceWorkspace(t, e)
-	if err := recordIdleWorkspace(e, "discord:lobby", "ws1", "工作区1"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := e.resolveTaskWorkspace("discord:room:user", "ws1")
@@ -34,7 +34,7 @@ func TestResolveTaskWorkspaceChecksOwnershipAndOccupancy(t *testing.T) {
 	if _, err := e.resolveTaskWorkspace("discord:room:user", "feishu:ws1"); err == nil {
 		t.Fatal("cross-platform workspace accepted")
 	}
-	if err := recordIdleWorkspace(e, "discord:other", "ws2", "工作区2"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:other", "ws2", "工作区2"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.resolveTaskWorkspace("discord:room:user", "ws2"); err == nil || !strings.Contains(err.Error(), "another chat channel") {
@@ -44,7 +44,8 @@ func TestResolveTaskWorkspaceChecksOwnershipAndOccupancy(t *testing.T) {
 	busy := NewEngine("source", &stubAgent{}, []Platform{newProgressPlatform()}, "", LangChinese)
 	busy.SetDataDir(t.TempDir())
 	claimSourceWorkspace(t, busy)
-	for i := 0; i < teamWorkspaceBusy; i++ {
+	// One claim is the dispatch's own and does not count; one more task in work makes it busy.
+	for i := 0; i <= teamWorkspaceBusy; i++ {
 		if err := busy.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
 			t.Fatal(err)
 		}
@@ -76,7 +77,7 @@ func TestAssignMemberWorkspaceScopesCredentialToWorkspace(t *testing.T) {
 	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
 	e.SetDataDir(p.dataDir)
 	claimSourceWorkspace(t, e)
-	if err := recordIdleWorkspace(e, "discord:lobby", "ws1", "工作区1"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
 	p.resolveWorkspace = e.resolveTaskWorkspace
@@ -147,7 +148,7 @@ func TestAssignMemberWorkspaceRejectsForeignAndUnrecorded(t *testing.T) {
 	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
 	e.SetDataDir(p.dataDir)
 	claimSourceWorkspace(t, e)
-	if err := recordIdleWorkspace(e, "discord:other", "ws2", "工作区2"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:other", "ws2", "工作区2"); err != nil {
 		t.Fatal(err)
 	}
 	p.resolveWorkspace = e.resolveTaskWorkspace
@@ -177,10 +178,10 @@ func TestTaskRelayWorkspaceExecutesThereAndReturnsResult(t *testing.T) {
 	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
 	e.SetDataDir(p.dataDir)
 	claimSourceWorkspace(t, e)
-	if err := recordIdleWorkspace(e, "discord:lobby", "ws1", "工作区1"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := recordIdleWorkspace(e, "discord:lobby", "ws2", "工作区2"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws2", "工作区2"); err != nil {
 		t.Fatal(err)
 	}
 	var starts atomic.Int32
@@ -255,7 +256,7 @@ func TestTaskRelayWorkspaceRequiresTargetBinding(t *testing.T) {
 	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
 	e.SetDataDir(p.dataDir)
 	claimSourceWorkspace(t, e)
-	if err := recordIdleWorkspace(e, "discord:lobby", "ws1", "工作区1"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
 	var starts atomic.Int32
@@ -284,7 +285,7 @@ func TestAssignMemberWorkspaceKeepsSourceRunSessionCheck(t *testing.T) {
 	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
 	e.SetDataDir(p.dataDir)
 	claimSourceWorkspace(t, e)
-	if err := recordIdleWorkspace(e, "discord:lobby", "ws1", "工作区1"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
 	p.resolveWorkspace = e.resolveTaskWorkspace
@@ -313,7 +314,7 @@ func TestAssignMemberWorkspaceRequiresBoundTarget(t *testing.T) {
 	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
 	e.SetDataDir(p.dataDir)
 	claimSourceWorkspace(t, e)
-	if err := recordIdleWorkspace(e, "discord:lobby", "ws1", "工作区1"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
 	p.resolveWorkspace = e.resolveTaskWorkspace
@@ -342,7 +343,7 @@ func TestTaskRelayWorkspaceRejectsForeignAndUnrecorded(t *testing.T) {
 			e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
 			e.SetDataDir(p.dataDir)
 			claimSourceWorkspace(t, e)
-			if err := recordIdleWorkspace(e, "discord:other", "ws2", "工作区2"); err != nil {
+			if err := e.ClaimTeamWorkspace("discord:other", "ws2", "工作区2"); err != nil {
 				t.Fatal(err)
 			}
 			var starts atomic.Int32
@@ -373,7 +374,7 @@ func TestTaskRelayWorkspaceRetrySurvivesHandoffChange(t *testing.T) {
 	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
 	e.SetDataDir(p.dataDir)
 	claimSourceWorkspace(t, e)
-	if err := recordIdleWorkspace(e, "discord:lobby", "ws1", "工作区1"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
 	var starts atomic.Int32
@@ -393,7 +394,7 @@ func TestTaskRelayWorkspaceRetrySurvivesHandoffChange(t *testing.T) {
 	if !e.releaseTeamWorkspace("discord:ws1", time.Now().Add(time.Hour), false) {
 		t.Fatal("workspace was not released")
 	}
-	if err := recordIdleWorkspace(e, "discord:other", "ws1", "工作区1"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:other", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
 	if cached, err := rm.Send(context.Background(), req); err != nil || cached.Response != result.Response {
@@ -422,7 +423,7 @@ func TestTaskRelayWorkspaceMemberCredentialAndResult(t *testing.T) {
 	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
 	e.SetDataDir(p.dataDir)
 	claimSourceWorkspace(t, e)
-	if err := recordIdleWorkspace(e, "discord:lobby", "ws1", "工作区1"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
 	var starts atomic.Int32
@@ -510,7 +511,7 @@ func TestTaskRelayWorkspaceDuplicateDispatchRunsOnce(t *testing.T) {
 	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
 	e.SetDataDir(p.dataDir)
 	claimSourceWorkspace(t, e)
-	if err := recordIdleWorkspace(e, "discord:lobby", "ws1", "工作区1"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
 	var starts atomic.Int32
@@ -564,22 +565,12 @@ func readProgressRecord(t *testing.T, dir, id string) progressRecord {
 	return rec
 }
 
-// recordIdleWorkspace models the record NewTeamWorkspace writes before a handoff.
-// ClaimTeamWorkspace creates a task and fills the only slot; reserve it for busy cases.
-func recordIdleWorkspace(e *Engine, chat, id, name string) error {
-	teamWorkspaceStore.mu.Lock()
-	defer teamWorkspaceStore.mu.Unlock()
-	path := teamWorkspacePath(e.dataDir)
-	st := loadTeamWorkspacesLocked(path)
-	st.Parents[chat] = append(st.Parents[chat], TeamWorkspace{ID: id, Name: name})
-	return saveTeamWorkspacesLocked(path, st)
-}
-
-// claimSourceWorkspace records discord:room under discord:lobby: task cards only
-// live in workspaces (#453), and cross-workspace dispatch goes to a sibling.
+// claimSourceWorkspace records the source session (discord:room) as a workspace
+// of discord:lobby: task cards only live in workspace channels (#453), and a
+// cross-workspace dispatch goes to a sibling workspace of the same chat.
 func claimSourceWorkspace(t *testing.T, e *Engine) {
 	t.Helper()
-	if err := recordIdleWorkspace(e, "discord:lobby", "room", "工作区9"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:lobby", "room", "工作区9"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -593,10 +584,10 @@ func crossWorkspaceGateFixture(t *testing.T) (*PublicProgress, *progressTestPlat
 	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
 	e.SetDataDir(p.dataDir)
 	claimSourceWorkspace(t, e)
-	if err := recordIdleWorkspace(e, "discord:lobby", "ws1", "工作区1"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := recordIdleWorkspace(e, "discord:other", "ws2", "工作区2"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:other", "ws2", "工作区2"); err != nil {
 		t.Fatal(err)
 	}
 	p.workspaceChat = e.isTeamWorkspaceChat
@@ -736,7 +727,7 @@ func TestAssignMemberWorkspaceRetryBeforeLiveChecks(t *testing.T) {
 	if !e.releaseTeamWorkspace("discord:ws1", time.Now().Add(time.Hour), false) {
 		t.Fatal("workspace was not released")
 	}
-	if err := recordIdleWorkspace(e, "discord:other", "ws1", "工作区1"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:other", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
 	if retry, err := p.AssignMember(req); err != nil || retry.ReportVia != grant.ReportVia {

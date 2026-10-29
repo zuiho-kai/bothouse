@@ -82,7 +82,6 @@ func TestForwardReportWithoutChatLogs(t *testing.T) {
 func TestForwardReportLogsSuccess(t *testing.T) {
 	logs := captureLogs(t)
 	e, _, p := exitFixture(t, nil)
-	exitBoardFixture(t, e)
 	writeTeamWorkspaces(t, e.dataDir, &teamWorkspaceState{
 		Version: teamWorkspaceStateVersion,
 		Parents: map[string][]TeamWorkspace{"discord:chat1": {{Name: "工作区1", ID: "ws1"}}},
@@ -91,7 +90,8 @@ func TestForwardReportLogsSuccess(t *testing.T) {
 		}},
 	})
 
-	e.forwardWorkspaceExit(p, exitWSKey, "[report] #4 好了")
+	exitBoardItem(t, e, 7, "活")
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 好了")
 	if got := p.sentTo("discord:chat1"); len(got) != 1 {
 		t.Fatalf("chat1 got %q", got)
 	}

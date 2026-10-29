@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -32,9 +33,15 @@ func TestPausedTaskExitNotForwarded(t *testing.T) {
 			}
 			e.forwardWorkspaceExit(p, exitWSKey, "[ask] #4 能不能开子任务\n自验：设计稿已写好\n类别：权限确认")
 			e.forwardWorkspaceExit(p, exitWSKey, "[report] #4 已停手")
-			got := len(p.sentTo("discord:chat1"))
-			if c.forward && got != 3 {
-				t.Fatalf("want ask headline, evidence and report; got %d: %+v", got, p.out)
+			// Each reply's first line is posted as a 📬 #4 headline (its details may follow it).
+			got := 0
+			for _, s := range p.sentTo("discord:chat1") {
+				if strings.HasPrefix(s, "📬 #4「") {
+					got++
+				}
+			}
+			if c.forward && got != 2 {
+				t.Fatalf("forwarded %d of 2: %+v", got, p.out)
 			}
 			if !c.forward && got != 0 {
 				t.Fatalf("stopped task still forwarded: %+v", p.out)

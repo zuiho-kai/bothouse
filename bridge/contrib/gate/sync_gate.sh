@@ -38,7 +38,7 @@ set -e
 D=\$HOME/work/$NAME
 [ -e "\$D" ] && { echo "\$D 已存在，不覆盖"; exit 1; }
 mkdir -p "\$D" && tar -xzf $WIN_HOME/$NAME.tgz -C "\$D" --strip-components=1 2>/dev/null
-echo "已部署到 \$D：\$(ls "\$D" | tr '\n' ' ')"
+echo "已部署到 \${D}：\$(ls "\$D" | tr '\n' ' ')"
 EOF
 ssh -o BatchMode=yes "$HOST" wsl bash -s < "$TMP/deploy.sh"
 
