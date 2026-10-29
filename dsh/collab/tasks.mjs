@@ -31,7 +31,6 @@ const DELIVERED = ['returned', 'done'];
 const PENDING_CALL_S = 30 * 60;
 // Default check time after dispatch or rework. Source: user 2026-10-23「这10分钟之内搞不完就滚蛋」.
 export const CHECK_AFTER_S = 10 * 60;
-const PAUSED_CLOSE_S = 30 * 60;
 // Workspace watch (#574 B2, same rule as contrib/lead/d10-fire MAX_RENEW, 0 = no cap): at the
 // check time a workspace task with new role messages since its window opened gets another
 // CHECK_AFTER_S, renewing while there is progress; otherwise it is parked (paused queue).
@@ -731,14 +730,12 @@ export class Tasks {
     if (this.closed || !this.started) return;
     const now = this.now();
     for (const task of this.q.open.all(...WORKING)) {
+      // Only a member that was actually removed closes its work: a merely offline member, or a
+      // pause the user asked for, must be able to resume later.
+      if (task.owner === HUMAN) continue;
       const removed = this.db.prepare('SELECT removed FROM members WHERE id = ?').get(task.owner)?.removed === 1;
-      const reason = task.owner !== HUMAN && (removed || task.paused_at != null)
-        && this.hub.members.get(task.owner)?.kind !== 'human'
-        && !this.hub.routableIn(task.room_id).some(m => m.id === task.owner)
-        ? '负责人已移除，自动收口'
-        : task.paused_at != null && task.next_check_at == null && now > task.paused_at + PAUSED_CLOSE_S
-          ? '暂停超过 30 分钟，自动收口' : null;
-      if (reason === null) continue;
+      if (!removed) continue;
+      const reason = '负责人已移除，自动收口';
       const row = this.q.autoClose.get(reason, now, now, task.id, ...WORKING);
       if (row === undefined) continue;
       const text = `#${row.id}「${row.title}」${reason}。`;
@@ -890,11 +887,10 @@ export class Tasks {
     // except in bridge-claimed workspaces; other tasks at their check time.
     const at = this.q.open.all(...WORKING)
       .map(t => {
+        if (t.owner === HUMAN) return null;
         const removed = this.db.prepare('SELECT removed FROM members WHERE id = ?').get(t.owner)?.removed === 1;
-        if (t.owner !== HUMAN && (removed || t.paused_at != null)
-            && this.hub.members.get(t.owner)?.kind !== 'human'
-            && !this.hub.routableIn(t.room_id).some(m => m.id === t.owner)) return this.now();
-        if (t.paused_at != null) return t.next_check_at == null ? t.paused_at + PAUSED_CLOSE_S + 1 : null;
+        if (removed) return this.now();
+        if (t.paused_at != null) return null;
         return this.store.room(t.room_id)?.kind !== 'workspace' ? t.next_check_at : this.watched(t) ? watchDue(t) : null;
       })
       .filter(t => t != null).sort((a, b) => a - b)[0];

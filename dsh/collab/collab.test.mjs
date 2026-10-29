@@ -4892,7 +4892,8 @@ test('watch closes work owned by a removed member, including parked tasks', () =
   const task = assign();
   tasks.pauseTask(task.id);
   assert.equal(tasks.task(task.id).next_check_at, null);
-  hub.members.delete('fu');
+  hub.store.db.prepare(`INSERT INTO members (id, name, persona, source, created_at, removed)
+    VALUES ('fu', '副', '', 'ui', 1, 1)`).run();
   clock.t += 1;
   tasks.tick();
   const closed = tasks.task(task.id);
@@ -4920,26 +4921,26 @@ test('parked task closure reports to its original channel after workspace reuse'
   const task = assign();
   tasks.pauseTask(task.id);
   hub.store.claimWorkspace(2, ws.id);
-  clock.t += 30 * 60 + 1;
+  hub.store.db.prepare(`INSERT INTO members (id, name, persona, source, created_at, removed)
+    VALUES ('fu', '副', '', 'ui', 1, 1)`).run();
+  clock.t += 1;
   tasks.tick();
   assert.equal(tasks.task(task.id).status, 'returned');
-  assert.ok(hub.store.page(1).some(m => m.author_kind === 'system' && m.text.includes(`暂停超过 30 分钟，自动收口`)));
-  assert.equal(hub.store.page(2).some(m => m.text.includes(`暂停超过 30 分钟，自动收口`)), false);
+  assert.ok(hub.store.page(1).some(m => m.author_kind === 'system' && m.text.includes(`负责人已移除，自动收口`)));
+  assert.equal(hub.store.page(2).some(m => m.text.includes(`负责人已移除，自动收口`)), false);
   assert.equal(hub.store.workspaceOwner(ws.id), 2);
 });
 
-test('watch closes parked tasks after 30 minutes, but not earlier', () => {
+test('a paused task with a live owner is never closed by the watch', () => {
   const { hub, tasks, clock, ws, assign } = g34Setup();
   const task = assign();
   tasks.pauseTask(task.id);
-  clock.t += 30 * 60 - 1;
+  clock.t += 6 * 60 * 60;
   tasks.tick();
-  assert.equal(tasks.task(task.id).status, 'assigned');
-  clock.t += 2;
-  tasks.tick();
-  assert.equal(tasks.task(task.id).status, 'returned');
-  assert.match(tasks.task(task.id).note, /暂停超过 30 分钟，自动收口/);
-  assert.ok(hub.store.page(ws.id).some(m => m.author_kind === 'system' && m.text.includes(`#${task.id}`)));
+  const kept = tasks.task(task.id);
+  assert.equal(kept.status, 'assigned');
+  assert.notEqual(kept.paused_at, null);
+  assert.equal(hub.store.page(ws.id).some(m => m.author_kind === 'system' && m.text.includes('自动收口')), false);
 });
 
 test('workspace listing releases an empty owned workspace, not a parked task or bridge claim', () => {
