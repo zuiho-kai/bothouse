@@ -2902,6 +2902,12 @@ func (e *Engine) Start() error {
 		if async, ok := p.(AsyncRecoverablePlatform); ok {
 			async.SetLifecycleHandler(e)
 		}
+		if sc, ok := p.(SilentChannelAware); ok {
+			sc.SetSilentChannel(func(channelID string) bool {
+				_, ws := e.WorkspaceParent(channelID)
+				return ws
+			})
+		}
 		if err := p.Start(e.handleMessage); err != nil {
 			slog.Warn("platform start failed", "project", e.name, "platform", p.Name(), "error", err)
 			startErrs = append(startErrs, fmt.Errorf("[%s] start platform %s: %w", e.name, p.Name(), err))
@@ -7851,8 +7857,8 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		// #618 K1: chained into a running turn -> update its entry; a drain with
 		// no outer turn (orphaned queue, after /compress) owns one per message.
 		journalID, journalOwned := e.journalQueuedTurn(&rawQueued, sessionKey, queuedWorkspace, as) // raw text, before the turn blocks
-		e.journalSyncQueued(state, sessionKey)                                                       // #618 K4 #12: dequeued
-		e.armResumeRetry(state, session, rawQueued.resumeFallback)                                   // #618 K4 S1
+		e.journalSyncQueued(state, sessionKey)                                                      // #618 K4 #12: dequeued
+		e.armResumeRetry(state, session, rawQueued.resumeFallback)                                  // #618 K4 S1
 
 		var stopTyping func()
 		if ti, ok := queued.platform.(TypingIndicator); ok {

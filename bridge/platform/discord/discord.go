@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -72,9 +73,10 @@ type progressPlatform struct {
 }
 
 type Platform struct {
-	turnSent                   turnSentLog // maomao fork: see turn_sent.go
-	leadReturned               sync.Map    // maomao fork: trigger message ID → time the reply was routed back to the lead
-	cardViews                  cardViews   // maomao fork: 细节/简略 view per card message (card_view.go)
+	turnSent                   turnSentLog                       // maomao fork: see turn_sent.go
+	silentChannel              atomic.Pointer[func(string) bool] // maomao fork: see silent.go
+	leadReturned               sync.Map                          // maomao fork: trigger message ID → time the reply was routed back to the lead
+	cardViews                  cardViews                         // maomao fork: 细节/简略 view per card message (card_view.go)
 	token                      string
 	allowFrom                  string
 	permissionApprovers        []string
@@ -718,12 +720,13 @@ func (p *Platform) buildSession() (*discordgo.Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("discord: create session: %w", err)
 	}
+	var base http.RoundTripper = http.DefaultTransport
 	if p.proxyURL != nil {
-		transport := &http.Transport{Proxy: http.ProxyURL(p.proxyURL)}
-		session.Client = &http.Client{Transport: transport, Timeout: 60 * time.Second}
+		base = &http.Transport{Proxy: http.ProxyURL(p.proxyURL)}
 		session.Dialer = &websocket.Dialer{Proxy: http.ProxyURL(p.proxyURL)}
 		slog.Info("discord: using proxy", "proxy", p.proxyURL.Host)
 	}
+	session.Client = &http.Client{Transport: &silentTransport{base: base, isSilent: p.isSilentChannel}, Timeout: 60 * time.Second}
 
 	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentMessageContent
 
