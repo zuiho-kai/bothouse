@@ -320,8 +320,8 @@ func TestWorkspaceUpgradeFreesOldRecords(t *testing.T) {
 }
 
 // #597 G36: after the workspace's last task it is released (its chat no longer owns it), and the
-// chat's 「今天做完」 row still names it 「工作区1·」, not the internal id (v0.1.24 web check:
-// 「room-2·工作区1ayi：…」).
+// chat still names it 「工作区1」, not the internal id (v0.1.24 web check: 「room-2·工作区1ayi：…」).
+// Done rows left the board in #610; the name lookup they used (placer) is checked directly.
 func TestTaskBoardNamesReleasedWorkspace(t *testing.T) {
 	e, _, _ := exitFixture(t, nil)
 	e.SetTeam(t.TempDir(), "橘", true)
@@ -333,11 +333,13 @@ func TestTaskBoardNamesReleasedWorkspace(t *testing.T) {
 	if _, ok := e.WorkspaceParent("ws1"); ok {
 		t.Fatal("ws1 still owned after its lead session was reset")
 	}
-	done := placeTeamTaskBoard(e.teamTaskBoardPlacer(), []teamTaskBoardItem{{ID: 1, What: "写脚本", Who: "橘",
+	items := placeTeamTaskBoard(e.teamTaskBoardPlacer(), []teamTaskBoardItem{{ID: 1, What: "写脚本", Who: "工作区1橘",
 		Status: "已完成", WS: "discord:ws1", SK: "discord:ws1", Chat: "discord:chatA"}})
-	got := renderTeamTaskBoard(nil, done, "discord:chatA", time.Now(), nil)
-	if !strings.Contains(got, "- 工作区1·橘：写脚本") || strings.Contains(got, "ws1·") {
-		t.Fatalf("board =\n%s", got)
+	if got := items[0].wsName; got != "工作区1" {
+		t.Fatalf("released workspace name = %q, want 工作区1", got)
+	}
+	if got := whoInWorkspace(items[0]); got != "橘" {
+		t.Fatalf("who = %q", got)
 	}
 	if n := e.TeamWorkspaceName("discord:nope"); n != "" {
 		t.Fatalf("unknown workspace name = %q", n)
