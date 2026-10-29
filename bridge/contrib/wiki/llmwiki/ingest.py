@@ -196,7 +196,10 @@ EFFORT = os.environ.get("WIKI_INGEST_EFFORT", "max")  # codex only
 TIER = os.environ.get("WIKI_CODEX_TIER", "")  # codex only: "fast" = Fast mode (service_tier)
 # Other machines (Linux, e.g. the N150) only run the day Haiku pass. After each run they mirror their
 # transcripts, state db and log to the Mac (ssh alias `mac`), whose nightly review then checks their writes too.
-MIRROR_TO = os.environ.get("WIKI_MIRROR_TO", "mac" if sys.platform.startswith("linux") else "")
+# The author's Linux machines mirror to the Mac by default; a wiki the wizard made (.bothouse-main / .bothouse-role) has no
+# "mac" host to send to, so it mirrors only when WIKI_MIRROR_TO names one.
+WIZARD_MADE = (WIKI / ".bothouse-main").exists() or (WIKI / ".bothouse-role").exists()
+MIRROR_TO = os.environ.get("WIKI_MIRROR_TO", "mac" if sys.platform.startswith("linux") and not WIZARD_MADE else "")
 HOSTS = Path(os.path.expanduser(CFG["hosts"] or "/nonexistent-wiki-hosts"))  # on the Mac: <hostname>/{projects/,ingest.sqlite,ingest.log}
 MIRRORED = WIKI / ".mirror.json"  # on the mirroring machine: {transcript path: size already sent}
 SOP_ENGINES = set(os.environ.get("WIKI_SOP_ENGINES", "codex,agy,gemini,claude,haiku,sonnet,opus,dsh").split(","))
@@ -1235,13 +1238,14 @@ def claude(instruction, stdin="", label="?", context=None, model=None):
     claude.ai connectors out, which otherwise make every prefix unique. Keep --tools identical across passes."""
     # autoMemoryDirectory points at this wiki: the memory dir is writable without permission, so with the
     # global ~/wiki setting a trial on a clone would edit the real wiki.
-    # Full tools like luna: Bash runs auto-approved inside Claude Code's sandbox, which (like codex
-    # workspace-write) confines writes to the wiki directory.
+    # Full tools like luna, nothing asked: bypassPermissions, so Bash runs on a machine whose
+    # ~/.claude/settings.json allows nothing (a fresh install, a container) — acceptEdits made -p deny every Bash
+    # call and a pass looped on lint until the timeout. Where Claude Code's sandbox runs, Bash stays inside it.
     settings = {"autoMemoryDirectory": str(WIKI),
                 "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False}}
     cmd = ["claude", "-p", instruction, "--model", model or MODELS["claude"], "--no-session-persistence", "--strict-mcp-config",
            "--settings", json.dumps(settings), "--tools", "Read,Edit,Write,Glob,Grep,Bash",
-           "--permission-mode", "acceptEdits", "--output-format", "json"]
+           "--permission-mode", "bypassPermissions", "--output-format", "json"]
     with tempfile.NamedTemporaryFile("w", suffix=".md", prefix="wiki-ctx-") as f:  # outside WIKI: not committed
         if context:
             f.write(CONTEXT.format(text=context))
@@ -1466,7 +1470,10 @@ def remote(*args):
 
 def pull():
     """Several machines ingest into the same repo: rebase onto origin before a pass and before pushing.
-    A conflict is aborted and left for the next run (log.md appends merge via .gitattributes merge=union)."""
+    A conflict is aborted and left for the next run (log.md appends merge via .gitattributes merge=union).
+    A wiki whose branch tracks no remote (one the wizard made) has nothing to sync: skipped, not logged as a failure."""
+    if subprocess.run(["git", "rev-parse", "--abbrev-ref", "@{u}"], cwd=REPO, capture_output=True).returncode:
+        return True
     if not remote("pull", "-q", "--rebase", "--autostash"):
         git("rebase", "--abort", cwd=REPO)
         return False
