@@ -283,14 +283,20 @@ func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, bod
 		e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Board: hid, Bot: bot, Forwarded: []string{text}, At: time.Now()})
 	}
 	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
-	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, hid) {
-		return id
-	}
 	rest := ""
 	if parts := strings.SplitN(body, "\n", 2); len(parts) == 2 {
 		rest = strings.TrimSpace(parts[1])
 	}
-	if rest != "" {
+	// A report's full text follows its headline in the chat channel, whether or not a lead
+	// takes it (user 2026-10-29 「我这看不见」: a handed-back draft stayed in the workspace).
+	full := kind == exitKindReport && rest != ""
+	if full {
+		e.postExitOriginal(p, rc, parent, ws, bot, exitKindReport, rest, sessionKey, exitPrefix+"（续 #"+strconv.Itoa(hid)+"）\n")
+	}
+	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, hid) {
+		return id
+	}
+	if rest != "" && !full {
 		e.postExitOriginal(p, rc, parent, ws, bot, exitKindReport, rest, sessionKey, exitPrefix+"（续 #"+strconv.Itoa(hid)+"）\n")
 	}
 	return id
