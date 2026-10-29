@@ -8,7 +8,10 @@ import { Hub } from './hub.mjs';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Tasks, MISSING_REF, hasRef, CHECK_AFTER_S, MAX_RENEWALS } from './tasks.mjs';
+import { Tasks, hasRef, CHECK_AFTER_S, MAX_RENEWALS } from './tasks.mjs';
+import { loadRules } from './handoff-rules.mjs';
+
+const MISSING_REF = loadRules().checks.find(c => c.id === 'ref').dispatch_msg.split('。')[0];
 
 function setup() {
   const store = new Store(':memory:');
