@@ -76,7 +76,7 @@ def check(root=None):
             errs.append(f"MEMORY.md: line over {INDEX_LINE} chars ({len(l)}): {l[:50]}…")
     stats.append(f"L0 MEMORY.md: {len(doms)} domains, {len(index.read_text())} chars")
 
-    dirs = {p.name for p in W.iterdir() if p.is_dir() and not p.name.startswith(".") and p.name != "bin"}
+    dirs = {p.name for p in W.iterdir() if p.is_dir() and not p.name.startswith(".") and p.name not in ("bin", "schema")}  # schema/: the llm-wiki template's spec, not a domain
     for d in sorted(dirs - linked):
         errs.append(f"{d}/: domain not listed in MEMORY.md")
     todo = sorted(linked)
