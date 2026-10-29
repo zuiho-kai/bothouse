@@ -40,6 +40,12 @@ WIKI = Path(os.environ.get("WIKI_DIR", HOME_WIKI))  # WIKI_DIR: another wiki (a 
 REPO = WIKI  # the wiki everyone uses; during run() WIKI points at WORK instead
 WORK = REPO / ".ingest-work"  # git worktree where model passes edit; only accepted commits reach REPO
 os.environ.setdefault("WIKI_BIN", str(Path(__file__).resolve().parent))  # a sub wiki's bin/ shims exec this tool
+# A machine with no git identity (a container, a fresh server) cannot commit or cherry-pick a pass ("Please tell me who
+# you are"): every pass ends NOT DELIVERED. Use a fixed one then, like setup_wiki.py's first commit.
+if not subprocess.run(["git", "config", "user.email"], cwd=WIKI if WIKI.exists() else None, capture_output=True, text=True).stdout.strip():
+    for k, v in (("GIT_AUTHOR_NAME", "wiki-ingest"), ("GIT_AUTHOR_EMAIL", "wiki-ingest@localhost"),
+                 ("GIT_COMMITTER_NAME", "wiki-ingest"), ("GIT_COMMITTER_EMAIL", "wiki-ingest@localhost")):
+        os.environ.setdefault(k, v)
 
 # One tool for every wiki (user 2026-10-20 「让他们和你一样的待遇，不要区分」): 橘's ~/wiki runs with the defaults
 # below; a teammate's wiki (contrib/wiki/setup_wiki.py) carries a config.json next to MEMORY.md that says whose it is.
