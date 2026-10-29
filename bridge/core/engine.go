@@ -517,6 +517,9 @@ type Engine struct {
 	// (project option inject_subagent_policy = false). Default false = inject.
 	skipSubagentPolicy atomic.Bool
 	skipAgentIdentity  atomic.Bool
+	// skipTeamModeRules drops the per-turn team-mode rules block
+	// (project option inject_team_rules = false). Default false = inject.
+	skipTeamModeRules  atomic.Bool
 	replyFooterEnabled bool
 
 	// When true, /list etc. only show sessions tracked by cc-connect,

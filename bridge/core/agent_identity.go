@@ -26,6 +26,10 @@ func (e *Engine) withAgentInstructions(prompt, userID string, fromBot bool) stri
 func (e *Engine) SetAgentIdentityEnabled(on bool) { e.skipAgentIdentity.Store(!on) }
 
 func (e *Engine) withChannelAgentInstructions(prompt, userID string, fromBot bool, p Platform, sessionKey string) string {
+	rest := e.withPermissionDelegateAuthority(e.withSubagentPolicy(prompt, userID, fromBot))
+	if e.skipTeamModeRules.Load() {
+		return e.withAgentIdentity(rest)
+	}
 	rules := teamModeRulesFor(e.channelDispatchMode(p, sessionKey))
-	return e.withAgentIdentity(rules + "\n" + e.withPermissionDelegateAuthority(e.withSubagentPolicy(prompt, userID, fromBot)))
+	return e.withAgentIdentity(rules + "\n" + rest)
 }
