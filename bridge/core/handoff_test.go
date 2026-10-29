@@ -63,6 +63,41 @@ func TestFreshOnColdCache(t *testing.T) {
 	}
 }
 
+func TestFreshOnContextSize(t *testing.T) {
+	a := &handoffStubAgent{handoffs: map[string]*SessionHandoff{
+		// replied a minute ago: the cold-cache rule keeps it, the size rule must not
+		"big":   {Path: "/x/big.jsonl", LastActivity: time.Now().Add(-time.Minute), ContextTokens: 312000},
+		"under": {LastActivity: time.Now().Add(-time.Minute), ContextTokens: 299999},
+	}}
+	e := NewEngine("test", a, []Platform{&stubPlatformEngine{n: "x"}}, "", LangEnglish)
+	defer e.Stop()
+
+	s := &Session{AgentSessionID: "big"}
+	if n := e.freshOnContextSize(a, s); n != "" {
+		t.Fatalf("cold_cache_fresh off but got %q", n)
+	}
+	e.SetColdCacheFresh(true, time.Hour, 80000)
+	if n := e.freshOnColdCache(a, s); n != "" {
+		t.Fatalf("cold cache should keep a warm session, got %q", n)
+	}
+	for _, id := range []string{"under", "missing"} {
+		s := &Session{AgentSessionID: id}
+		if n := e.freshOnContextSize(a, s); n != "" || s.GetAgentSessionID() != id {
+			t.Fatalf("%s: should resume, got %q", id, n)
+		}
+	}
+	n := e.freshOnContextSize(a, s)
+	if !strings.Contains(n, "31.2 万") {
+		t.Fatalf("notice = %q", n)
+	}
+	if s.GetAgentSessionID() != "" || s.HandoffFrom != "big" {
+		t.Fatalf("agent id %q handoff %q", s.GetAgentSessionID(), s.HandoffFrom)
+	}
+	if b := e.handoffBlock(s); !strings.Contains(b, "/x/big.jsonl") || !strings.Contains(b, "上下文约") {
+		t.Fatalf("handoff block:\n%s", b)
+	}
+}
+
 func TestFreshOnImageBloat(t *testing.T) {
 	a := &handoffStubAgent{handoffs: map[string]*SessionHandoff{
 		// recent and small in tokens: the cold-cache rule keeps it, the image rule must not

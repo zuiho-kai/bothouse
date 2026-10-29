@@ -4965,7 +4965,11 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			if agentOverride != nil {
 				agent = agentOverride
 			}
-			if notice := e.freshOnImageBloat(agent, session); notice != "" {
+			notice := e.freshOnContextSize(agent, session)
+			if notice == "" {
+				notice = e.freshOnImageBloat(agent, session)
+			}
+			if notice != "" {
 				sessions.Save()
 				go e.send(p, markSystemNotice(p, replyCtx), notice)
 				wantID, needRecycle = "", true
@@ -5039,6 +5043,10 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 
 	if input == nil {
 		if notice := e.freshOnColdCache(agent, session); notice != "" {
+			sessions.Save()
+			go e.send(p, markSystemNotice(p, replyCtx), notice)
+		}
+		if notice := e.freshOnContextSize(agent, session); notice != "" {
 			sessions.Save()
 			go e.send(p, markSystemNotice(p, replyCtx), notice)
 		}
