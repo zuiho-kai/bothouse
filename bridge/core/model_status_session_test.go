@@ -38,3 +38,19 @@ func TestCUJ_ModelStatusUsesChannelSession(t *testing.T) {
 		t.Fatalf("configured fallback = %q", got)
 	}
 }
+
+func TestModelStatusPreservesCatalogModelID(t *testing.T) {
+	const model = `["provider","model"]`
+	agent := &stubStrictModelAgent{stubModelModeAgent: stubModelModeAgent{model: model}, models: []ModelOption{{Name: model}}}
+	e := NewEngine("test", agent, nil, "", LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	e.interactiveStates["active"] = &interactiveState{agentSession: &statusModelSession{newControllableSession("active"), model}}
+	for _, key := range []string{"active", "no-session"} {
+		if got := e.ModelStatus(context.Background(), key).Model; got != model {
+			t.Fatalf("%s: model ID = %q, want catalog ID %q", key, got, model)
+		}
+		if text := e.renderModelCard(key).RenderText(); !strings.Contains(text, e.i18n.Tf(MsgModelCurrent, model)) {
+			t.Fatalf("model card changed catalog ID: %s", text)
+		}
+	}
+}

@@ -167,7 +167,16 @@ func (e *Engine) currentSessionModel(sessionKey string, agent Agent) string {
 		session = state.agentSession
 		state.mu.Unlock()
 	}
-	return replyFooterModel(session, agent)
+	// Keep the catalog ID intact (some agents use JSON-array IDs). Footer
+	// display normalization would prevent matching the current catalog option.
+	for _, source := range []any{session, agent} {
+		if getter, ok := source.(interface{ GetModel() string }); ok {
+			if model := strings.TrimSpace(getter.GetModel()); model != "" {
+				return model
+			}
+		}
+	}
+	return ""
 }
 
 // ModelSwitchResult tells the agent what was queued, or why not.
