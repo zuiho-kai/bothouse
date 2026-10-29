@@ -526,6 +526,13 @@ type Agent interface {
 	Stop() error
 }
 
+// ContextCompactionReporter is optional for an Agent (maomao fork): true when its sessions emit
+// MetaContextCompacted whenever the agent compacts its own context. The engine then sends the
+// team-mode rules once per agent context (teamRulesOnce) instead of on every delivery.
+type ContextCompactionReporter interface {
+	ReportsContextCompaction() bool
+}
+
 // AgentSession represents a running interactive agent session with a persistent process.
 type AgentSession interface {
 	// Send sends a user message (with optional images and files) to the running

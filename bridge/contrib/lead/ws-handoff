@@ -7,8 +7,9 @@
 #       ws-handoff --resume <编号> "<用户答复>"    等你的活收到答复，找空工作区接着做（桥调）
 #   短名（≤10 字）上团队板（board add --short）；不写就从任务句去前缀再截。
 #   交接文件放当前目录（角色目录，在数据目录下）的 notes/<名>.md，同本机做法；不放 /tmp 这类公共目录（USAGE）。
-#   交接文件必须含「用户原话」「进度」「规矩」三个小节标题（# 开头的行），和「参照实现」（文件:行，非代码活写
-#   「无（新建）」）；有「共改文件」/「多人改」标题时还要「底分支：<分支名>」一行（见 check_notes）。
+#   交接文件必须含「用户原话」「总目标」「进度」「相关改动」「规矩」五个小节标题（# 开头的行），和「参照实现」
+#   （文件:行，非代码活写「无（新建）」）；「相关改动」节要有一行「冲突：无」或「冲突：…（已问用户：<答复>）」；
+#   有「共改文件」/「多人改」标题时还要「底分支：<分支名>」一行（见 check_notes）。
 #   工作区：没配 WS_CHANNEL / 团队文件 "workspace" 时，走桥的共享池（<桥> workspace list/claim/new，
 #   core/team_workspace.go，Discord、飞书、DSH、网页版同一套）：一个工作区同一时间只做一件活，只挑本频道名下
 #   或空着、手上没活的（编号小的先）；都占着才 new（桥先复用空号，没有才建 工作区n+1），池子满 MAX_WS 个就不建，
@@ -27,7 +28,7 @@ import board  # noqa: E402  任务板：交活时建条目、绑工作区（../g
 
 MIGRATED = _team.SETUP / "ws-park-migrated.json"  # 做过一次性迁移的聊天频道（见 migrate_unbound）
 
-REQUIRED = ["用户原话", "进度", "规矩"]
+REQUIRED = ["用户原话", "总目标", "进度", "相关改动", "规矩"]
 USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>"\n'
          "交接文件写在当前目录（角色目录）的 notes/<名>.md，不放 /tmp 这类公共目录：隔离和清理都管不到那里。")
 # 交出成功后打给主角色的话（stdout 第二行起；第一行仍是 timer id）。来源：团队模式规矩「聊天频道要保持畅通…交出就结束本轮」
@@ -85,6 +86,28 @@ def has_base(text: str) -> bool:
     return any(re.match(r"底分支\s*[:：]\s*\S+", l.lstrip(LEAD)) for l in text.splitlines())
 
 
+# 「相关改动」节（# 标题含「相关改动」到下一个 # 标题）只认一行「冲突：…」（前面可有 -、*、> 和空白）：
+#   「冲突：无」（后面可带括号说明）算没冲突；其余要带「已问用户：<答复>」。只认这一行，正文里的「无冲突」「不冲突」不算。
+# 来源：交接只有用户最新半句、没核对已合改动，工作区照半句做、和已合改动冲突也不问。冲突由主角色在聊天频道问用户
+#   （团队模式规矩「主角色拿不准也一样，在聊天频道直接问用户」），不用 ws-up --ask（那是工作区问用户用的）。
+CONFLICT_RE = re.compile(r"冲突\s*[:：]\s*(.*)")
+NO_CONFLICT_RE = re.compile(r"无\s*([（(].*[）)])?\s*[。.；;]?")
+ASKED_RE = re.compile(r"已问用户\s*[:：]\s*\S")
+CONFLICT_EXAMPLE = "## 相关改动\n- #612 已合，改了 core/handoff.go，和这件不重叠\n冲突：无"
+
+
+def conflict_error(text: str):
+    lines, found = text.splitlines(), []
+    for i, l in enumerate(lines):
+        if l.lstrip().startswith("#") and "相关改动" in l:
+            found += [m.group(1).strip() for x in _until_head(lines[i + 1:]) for m in [CONFLICT_RE.match(x.lstrip(LEAD))] if m]
+    if not found:
+        return f"「相关改动」节缺一行「冲突：无」或「冲突：…（已问用户：<答复>）」。示例：\n{CONFLICT_EXAMPLE}"
+    if any(not NO_CONFLICT_RE.fullmatch(v) and not ASKED_RE.search(v) for v in found):
+        return "相关改动里写了冲突、没写已问用户：先在聊天频道问用户，把答复写进相关改动（「冲突：…（已问用户：<答复>）」）"
+    return None
+
+
 def check_notes(text: str):
     """交接文件不合格时返回报错文字（含要补什么和示例），合格返回 None。"""
     miss = missing_sections(text)
@@ -92,6 +115,9 @@ def check_notes(text: str):
         return f"交接文件缺小节：{'、'.join(miss)}"
     if not has_ref_impl(text):
         return f"{REF_MSG}。示例：\n{REF_EXAMPLE}"
+    err = conflict_error(text)
+    if err:
+        return err
     if multi_editor(text) and not has_base(text):
         return f"交接文件写了多人改同组文件（「共改文件」/「多人改」节），缺「底分支：<分支名>」一行。示例：\n{BASE_EXAMPLE}"
     return None
