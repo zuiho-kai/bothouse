@@ -1032,7 +1032,7 @@ func padZero(s string) string {
 // engine, or any engine whose platform can reach the session when the project
 // is missing.
 func (cs *CronScheduler) notifyFailure(job *CronJob, err error) {
-	if job.SessionKey == "" || job.Mute { // muted = no message at all, failures included (CronJob.Mute)
+	if job.SessionKey == "" {
 		return
 	}
 	name := job.Description
