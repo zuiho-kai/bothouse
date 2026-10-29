@@ -923,6 +923,48 @@
   box-shadow: var(--dsw-elevation-panel, 0 12px 32px rgb(0 0 0 / 0.3));
 }
 
+.settingsDialog {
+  box-sizing: border-box;
+  height: min(70vh, calc(100dvh - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+}
+
+.settingsBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px;
+}
+
+.settingsDialog > :not(.settingsBody) {
+  flex-shrink: 0;
+}
+
+.settingsFields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settingsFeedback {
+  max-height: 20%;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+.settingsDialog .dialogActions {
+  justify-content: space-between;
+}
+
+@media (max-width: 599px) {
+  .settingsDialog {
+    height: calc(100dvh - 32px);
+    padding: 16px;
+  }
+}
+
 .avatarCropStage {
   padding: 20px;
   background: rgb(0 0 0 / 0.65);
@@ -968,6 +1010,18 @@
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.choiceColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.choiceColumn .choice {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
 }
 
 .choice {
@@ -1166,6 +1220,11 @@
 .boardTabs button[aria-selected='true'] {
   color: var(--dsw-alias-state-business-primary);
   background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.boardTabs button:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);
+  outline-offset: -2px;
 }
 
 .boardTabCount {

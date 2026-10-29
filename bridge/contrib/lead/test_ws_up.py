@@ -130,7 +130,7 @@ class WsUpTest(unittest.TestCase):
         # 答复按 --notes 转回 a 所在工作区，而不是最近一次交接
         r = self.run_tool("ws-forward", "--notes", notes[0], "用户说选 A", key="test:100")
         self.assertEqual(r.returncode, 0, r.stderr)
-        argv = self.timers()[-1]
+        argv = [t for t in self.timers() if "工作区转交" in t][-1]  # 之后还有聊天频道的兜底重挂
         self.assertEqual(argv[argv.index("-s") + 1], "test:900")
         self.assertIn("用户说选 A", Path(notes[0]).read_text(encoding="utf-8"))
         self.assertNotIn("用户说选 A", Path(notes[1]).read_text(encoding="utf-8"))

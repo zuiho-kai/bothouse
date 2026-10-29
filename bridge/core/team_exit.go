@@ -253,6 +253,11 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	// The chat channel's lead reads the reply first and tells the user what matters (user
 	// 2026-10-28 「原文返回…一坨屎给我…你的身份应该是我的秘书，那些东西你再帮我过滤一遍」). The
 	// workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
+	// A report's full text is posted as is, so the user sees it in the chat channel (user
+	// 2026-10-29 「我这看不见」); only an [ask] still goes through the lead first.
+	if kind != exitKindAsk {
+		return e.postExitOriginal(p, rc, parent, ws, bot, kind, body, sessionKey, "")
+	}
 	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, 0) {
 		slog.Info("team exit: handed to the chat lead", "kind", kind, "auto", auto, "workspace", ws, "parent", parent)
 		return ""
@@ -261,10 +266,18 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 }
 
 // postExitHeadline posts the first line's sentence in chat channel parent, named by board item
-// hid, and hands the whole reply to the chat lead as background (it need not retell it). The
-// same sentence for the same item within exitHeadlineDedup is not posted or handed again. When
-// no lead takes it, the rest of the reply follows the headline as 📬 continuation posts.
+// hid. A report goes out as one post, headline then its full text (user 2026-10-29 「我这看不见」
+// then 「太鸡巴多重复跟无用消息」: headline, 续 and a lead's copy were three outputs for one
+// report); it is not handed to the chat lead, which sees the post in its channel history. An
+// [ask] is handed to the lead as background; when no lead takes it, the rest of the reply
+// follows as 📬 continuation posts. A report for an item the board already closed is the
+// workspace answering a late nudge: it stays in the workspace. The same sentence for the same
+// item within exitHeadlineDedup is not posted or handed again.
 func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, body, sessionKey string, hid int, hline string, item *teamTaskBoardItem) string {
+	if kind == exitKindReport && item.DoneAt != "" && item.AutoPruned == "" {
+		slog.Info("team exit: report for a task already done; not posted again", "board_item", hid, "workspace", ws, "done_at", item.DoneAt)
+		return ""
+	}
 	if e.exitPostedBefore(kind, hid, hline) {
 		slog.Info("team exit: same headline already posted within the hour; not posted again", "kind", kind, "board_item", hid, "workspace", ws)
 		return ""
@@ -274,21 +287,30 @@ func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, bod
 		id = newAskID()
 	}
 	text := exitHeadlineText(kind, hid, teamTaskBoardShort(*item), hline, id)
+	rest := ""
+	if parts := strings.SplitN(body, "\n", 2); len(parts) == 2 {
+		rest = strings.TrimSpace(parts[1])
+	}
+	if kind == exitKindReport {
+		if rest != "" {
+			e.postExitOriginal(p, rc, parent, ws, bot, exitKindReport, rest, sessionKey, text+"\n\n")
+		} else if err := p.Send(e.ctx, rc, text); err != nil {
+			slog.Error("team exit: headline post failed", "parent", parent, "workspace", ws, "error", err)
+			return ""
+		}
+		slog.Info("team exit: report posted", "board_item", hid, "workspace", ws, "parent", parent)
+		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
+		return ""
+	}
 	if err := p.Send(e.ctx, rc, text); err != nil {
 		slog.Error("team exit: headline post failed", "parent", parent, "workspace", ws, "error", err)
 		return ""
 	}
 	slog.Info("team exit: headline posted", "kind", kind, "board_item", hid, "workspace", ws, "parent", parent)
-	if id != "" {
-		e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Board: hid, Bot: bot, Forwarded: []string{text}, At: time.Now()})
-	}
+	e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Board: hid, Bot: bot, Forwarded: []string{text}, At: time.Now()})
 	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
 	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, hid) {
 		return id
-	}
-	rest := ""
-	if parts := strings.SplitN(body, "\n", 2); len(parts) == 2 {
-		rest = strings.TrimSpace(parts[1])
 	}
 	if rest != "" {
 		e.postExitOriginal(p, rc, parent, ws, bot, exitKindReport, rest, sessionKey, exitPrefix+"（续 #"+strconv.Itoa(hid)+"）\n")

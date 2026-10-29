@@ -1363,6 +1363,9 @@ app_secret = "your-feishu-app-secret"
 # token = "your-discord-bot-token"
 # allow_from = "*"  # Allowed Discord user IDs / 允许的 Discord 用户 ID
 # guild_id = ""     # Optional: set for instant slash command registration (per-guild)
+# allow_guilds = "" # Optional: comma-separated server IDs this instance serves; others are ignored.
+#                   # Add "dm" to also answer DMs. Lets one bot token run per-server in several projects or machines.
+#                   # 只服务列出的服务器（逗号分隔），其余服务器的消息和命令一律不收；加 "dm" 才回私聊。
 #                   # 可选：设置后 slash 命令秒级生效（仅该服务器）
 # group_reply_all = false  # If true, respond to ALL guild messages without @mention / 设为 true 群聊无需 @ 也响应
 # group_reply_all_guilds = ""  # Comma-separated guild IDs where group_reply_all is active (overrides group_reply_all)
