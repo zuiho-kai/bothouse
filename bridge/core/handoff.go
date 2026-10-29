@@ -76,6 +76,35 @@ func (e *Engine) freshOnColdCache(agent Agent, session *Session) string {
 	return "♻️ " + reason + "：开新会话，带上旧会话的压缩摘要和最近对话"
 }
 
+// contextFreshTokens is the context size at which the next message starts a
+// fresh session with a handoff, however recent the last reply (user 2026-10-29
+// 「我们产品默认改成300k自动开新会话」). Off together with cold_cache_fresh.
+const contextFreshTokens = 300000
+
+// freshOnContextSize clears the session's agent ID once its last reply's
+// context has reached contextFreshTokens, and records it as the handoff source.
+// Unlike freshOnColdCache it ignores idle time, so a busy session gets
+// replaced too. Returns the notice for the channel ("" when nothing changes).
+func (e *Engine) freshOnContextSize(agent Agent, session *Session) string {
+	if !e.coldFreshEnabled {
+		return ""
+	}
+	id := session.GetAgentSessionID()
+	r, ok := agent.(SessionHandoffReader)
+	if id == "" || id == ContinueSession || !ok {
+		return ""
+	}
+	h, err := r.ReadSessionHandoff(id)
+	if err != nil || h.ContextTokens < contextFreshTokens {
+		return ""
+	}
+	reason := fmt.Sprintf("上下文约 %s token", formatWan(h.ContextTokens))
+	slog.Info("context size: starting fresh with handoff", "old_agent_session", id, "context_tokens", h.ContextTokens)
+	session.SetAgentSessionID("", agent.Name())
+	session.SetHandoffFrom(id, reason)
+	return "♻️ " + reason + "：开新会话，带上旧会话的压缩摘要和最近对话"
+}
+
 // SetImageFresh configures starting a fresh session (with a handoff) once the
 // images in a session's context add up to maxBytes of base64.
 func (e *Engine) SetImageFresh(enabled bool, maxBytes int) {
