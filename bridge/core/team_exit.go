@@ -266,10 +266,18 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 }
 
 // postExitHeadline posts the first line's sentence in chat channel parent, named by board item
-// hid, and hands the whole reply to the chat lead as background (it need not retell it). The
-// same sentence for the same item within exitHeadlineDedup is not posted or handed again. When
-// no lead takes it, the rest of the reply follows the headline as 📬 continuation posts.
+// hid. A report goes out as one post, headline then its full text (user 2026-10-29 「我这看不见」
+// then 「太鸡巴多重复跟无用消息」: headline, 续 and a lead's copy were three outputs for one
+// report); it is not handed to the chat lead, which sees the post in its channel history. An
+// [ask] is handed to the lead as background; when no lead takes it, the rest of the reply
+// follows as 📬 continuation posts. A report for an item the board already closed is the
+// workspace answering a late nudge: it stays in the workspace. The same sentence for the same
+// item within exitHeadlineDedup is not posted or handed again.
 func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, body, sessionKey string, hid int, hline string, item *teamTaskBoardItem) string {
+	if kind == exitKindReport && item.DoneAt != "" && item.AutoPruned == "" {
+		slog.Info("team exit: report for a task already done; not posted again", "board_item", hid, "workspace", ws, "done_at", item.DoneAt)
+		return ""
+	}
 	if e.exitPostedBefore(kind, hid, hline) {
 		slog.Info("team exit: same headline already posted within the hour; not posted again", "kind", kind, "board_item", hid, "workspace", ws)
 		return ""
@@ -279,29 +287,32 @@ func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, bod
 		id = newAskID()
 	}
 	text := exitHeadlineText(kind, hid, teamTaskBoardShort(*item), hline, id)
+	rest := ""
+	if parts := strings.SplitN(body, "\n", 2); len(parts) == 2 {
+		rest = strings.TrimSpace(parts[1])
+	}
+	if kind == exitKindReport {
+		if rest != "" {
+			e.postExitOriginal(p, rc, parent, ws, bot, exitKindReport, rest, sessionKey, text+"\n\n")
+		} else if err := p.Send(e.ctx, rc, text); err != nil {
+			slog.Error("team exit: headline post failed", "parent", parent, "workspace", ws, "error", err)
+			return ""
+		}
+		slog.Info("team exit: report posted", "board_item", hid, "workspace", ws, "parent", parent)
+		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
+		return ""
+	}
 	if err := p.Send(e.ctx, rc, text); err != nil {
 		slog.Error("team exit: headline post failed", "parent", parent, "workspace", ws, "error", err)
 		return ""
 	}
 	slog.Info("team exit: headline posted", "kind", kind, "board_item", hid, "workspace", ws, "parent", parent)
-	if id != "" {
-		e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Board: hid, Bot: bot, Forwarded: []string{text}, At: time.Now()})
-	}
+	e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Board: hid, Bot: bot, Forwarded: []string{text}, At: time.Now()})
 	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
-	rest := ""
-	if parts := strings.SplitN(body, "\n", 2); len(parts) == 2 {
-		rest = strings.TrimSpace(parts[1])
-	}
-	// A report's full text follows its headline in the chat channel, whether or not a lead
-	// takes it (user 2026-10-29 「我这看不见」: a handed-back draft stayed in the workspace).
-	full := kind == exitKindReport && rest != ""
-	if full {
-		e.postExitOriginal(p, rc, parent, ws, bot, exitKindReport, rest, sessionKey, exitPrefix+"（续 #"+strconv.Itoa(hid)+"）\n")
-	}
 	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, hid) {
 		return id
 	}
-	if rest != "" && !full {
+	if rest != "" {
 		e.postExitOriginal(p, rc, parent, ws, bot, exitKindReport, rest, sessionKey, exitPrefix+"（续 #"+strconv.Itoa(hid)+"）\n")
 	}
 	return id
