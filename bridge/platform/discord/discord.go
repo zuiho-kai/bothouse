@@ -85,6 +85,7 @@ type Platform struct {
 	botName                    string            // maomao fork: this bot's username, for self-mention marking and name calls (mentions.go)
 	auxChannels                map[string]string // maomao fork: main channel ID → log channel ID; see aux_channels.go
 	guildID                    string            // optional: instant guild registration, plus DM-only global commands
+	allowGuilds                map[string]bool   // allow_guilds: only these servers (and "dm") are served; see allow_guilds.go
 	progressStyle              string
 	cardEntries                int
 	cardLineLen                int
@@ -198,6 +199,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		allowBotsFile:              newAllowBotsFile(allowBotsFilePath),
 		teamLead:                   teamLead,
 		guildID:                    guildID,
+		allowGuilds:                parseAllowGuilds(opts),
 		progressStyle:              progressStyle,
 		cardEntries:                cardEntries,
 		cardLineLen:                cardLineLen,
@@ -647,14 +649,14 @@ func (p *Platform) RegisterCommands(commands []core.BotCommandInfo) error {
 	// Guild commands cannot appear in DMs. Keep instant guild registration,
 	// then overwrite the global scope with BotDM-only commands so a guild
 	// never sees a second copy. Without guild_id, one global set serves both.
-	scopes := []string{""}
-	if p.guildID != "" {
-		scopes = []string{p.guildID, ""}
-	}
+	// With allow_guilds, commands go to each allowed server and the global set
+	// is DM-only, so an instance never shows commands in servers it ignores.
+	guilds := p.commandGuilds()
+	scopes := append(append([]string{}, guilds...), "")
 	for _, guildID := range scopes {
 		if guildID == "" {
 			contexts := []discordgo.InteractionContextType{discordgo.InteractionContextBotDM}
-			if p.guildID == "" {
+			if len(guilds) == 0 {
 				contexts = []discordgo.InteractionContextType{discordgo.InteractionContextGuild, discordgo.InteractionContextBotDM}
 			}
 			for _, cmd := range cmds {
@@ -771,6 +773,9 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	}
 
 	if m.Author.ID == p.botID {
+		return
+	}
+	if !p.guildAllowed(m.GuildID) {
 		return
 	}
 	// maomao fork: other bots get through only if listed in allow_bots or allow_bots_file,
@@ -1039,6 +1044,9 @@ func (p *Platform) isStopping() bool {
 func (p *Platform) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if !rememberDedupID(&p.seenInteractions, i.ID) {
 		slog.Debug("discord: ignoring duplicate interaction", "interaction_id", i.ID, "type", i.Type)
+		return
+	}
+	if !p.guildAllowed(i.GuildID) {
 		return
 	}
 
