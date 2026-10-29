@@ -5728,7 +5728,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					e.forwardWorkspaceExit(p, sessionKey, fullResponse) // #139 C: workspace [ask]/[report] -> chat channel
 				}
 
-				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false)
+				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false, time.Time{})
 
 				// Safety note: concurrent writes to session.History by the
 				// unsolicited reader and a foreground turn cannot overlap.
@@ -5899,7 +5899,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			state.mu.Lock()
 			p := state.platform
 			state.mu.Unlock()
-			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, e.watchCardResult(state))
+			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, e.watchCardResult(state), turnStart)
 		}
 	}()
 	waitStart := time.Now()
@@ -7216,7 +7216,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			watchTurnFinished = true
 			if !state.isStopped() {
-				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, e.watchCardResult(state))
+				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, e.watchCardResult(state), turnStart)
 			}
 			e.finishPublicProgress(state, progressOutcome)
 

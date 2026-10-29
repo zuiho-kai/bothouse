@@ -221,7 +221,9 @@ func watchBoardClosed(it teamTaskBoardItem) bool {
 
 // watchTurnEnded runs before finishPublicProgress: automatic card completion is
 // not a deliberate result. A report, handback or explicit result ends the watch.
-func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult bool) {
+// since: when the turn began (zero when unknown); a workspace handoff recorded from this chat
+// after it means the accepted work now belongs to that workspace.
+func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult bool, since time.Time) {
 	if e.finishWorkspaceReportTurn(key, text) {
 		return // missing delivery owns this wake; do not also arm the idle watch
 	}
@@ -247,10 +249,11 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 		// A [report] bounced for its headline (forwardWorkspaceExit) is resent, not handed back yet.
 		returned = false
 	}
-	title := strings.TrimSpace(strings.TrimPrefix(first, "【接】"))
-	boardID := watchTaskNumber(first)
+	title := strings.TrimSpace(StripMarkdown(strings.TrimPrefix(first, "【接】")))
+	boardID := watchTaskNumber(StripMarkdown(first))
 	boardActive := false
 	boardClosed := false
+	handedOff := false // the accepted work is in a workspace: its watch is the workspace's
 	chat := key
 	if parent, ok := e.WorkspaceParent(key); ok {
 		chat = parent
@@ -265,6 +268,9 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 			}
 			if boardID == it.ID && watchBoardClosed(*it) {
 				boardClosed = true
+			}
+			if boardID == it.ID && it.own != key && it.parent == key && !it.wsEnded {
+				handedOff = true
 			}
 			if it.own != key || it.wsEnded || watchBoardClosed(*it) ||
 				it.Paused != "" && !(accepted && teamTaskBoardWaitUser.MatchString(it.PauseWhy)) {
@@ -299,6 +305,18 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 	}
 	teamWorkspaceStore.mu.Lock()
 	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if !since.IsZero() && !boardActive {
+		for ws, rows := range st.Handoffs {
+			if ws == key {
+				continue
+			}
+			for _, h := range rows {
+				if h.Chat == key && teamHandoffOpen(h) && !h.At.Before(since) {
+					handedOff = true
+				}
+			}
+		}
+	}
 	var assignments []idleAssignment
 	for _, script := range []bool{false, true} {
 		rows := st.Handoffs[key]
@@ -313,7 +331,8 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 	}
 	// Direct acceptance and board-owned active work have no handoff/d10
 	// registration. Register unfinished work from this terminal event only.
-	if (accepted || boardActive) && !returned && len(assignments) == 0 && e.team != nil {
+	// A chat-channel 「已交给工作区」 acceptance is not work left in the chat channel.
+	if (accepted || boardActive) && !returned && !handedOff && len(assignments) == 0 && e.team != nil {
 		owner := e.name
 		if m, ok := p.(SelfMentioner); ok && m.SelfMention() != "" {
 			owner = m.SelfMention()
@@ -370,10 +389,11 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 		}
 		if id != 0 {
 			found, closed := false, false
-			for _, it := range readTeamTaskBoard(e.team.dir) {
+			for _, it := range placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir)) {
 				if it.ID == id {
 					found = true
-					closed = watchBoardClosed(it) || it.Paused != ""
+					// Handed to a workspace since: the workspace's watch keeps it, not this chat.
+					closed = watchBoardClosed(it) || it.Paused != "" || it.own != a.key && it.parent == a.key && !it.wsEnded
 					break
 				}
 			}
