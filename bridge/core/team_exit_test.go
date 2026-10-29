@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,6 +63,23 @@ func exitFixture(t *testing.T, parents WorkspaceParentResolver) (*Engine, *input
 	return e, ag, p
 }
 
+// exitBoardItem puts item id on the team board: a workspace [report]/[ask] names it on its first
+// line, `[report] #<id> <sentence>`, or goes back to the workspace (00014526).
+func exitBoardItem(t *testing.T, e *Engine, id int, what string) {
+	t.Helper()
+	if e.team == nil {
+		e.SetTeam(t.TempDir(), "橘", false)
+	}
+	f, err := os.OpenFile(filepath.Join(e.team.dir, teamTaskBoardFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := fmt.Fprintf(f, "{\"id\":%d,\"what\":%q,\"status\":\"在做\",\"who\":\"橘\"}\n", id, what); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func exitSay(e *Engine, p Platform, key, channel, content string) {
 	e.ReceiveMessage(p, &Message{SessionKey: key, Platform: "discord", ChannelID: channel, MessageID: content, UserID: "human", UserName: "瑞凤", Content: content, Mentioned: true, ReplyCtx: key})
 }
@@ -90,12 +108,15 @@ func TestTeamModeRulesInEveryPrompt(t *testing.T) {
 func TestWorkspaceAskForwardsAndAnswerGoesBack(t *testing.T) {
 	e, a, p := exitFixture(t, mapParent{"ws1": "chat1"})
 	e.SetTeam(t.TempDir(), "橘", false)
+	exitBoardItem(t, e, 7, "选方案")
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
-	inputDone(a, "[ask]\n用 A 还是 B？<@123> 看一下\n自验：无需\n类别：方向")
-	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
+	inputDone(a, "[ask] #7 用 A 还是 B？<@123> 看一下\n自验：无需\n类别：方向")
+	// The headline, then (no chat lead takes it) its details.
+	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 2 })
 	fwd := p.sentTo("discord:chat1")[0]
-	if !strings.HasPrefix(fwd, "📬") || !strings.Contains(fwd, "<#ws1>") || !strings.Contains(fwd, "「橘」") || !strings.Contains(fwd, "用 A 还是 B？") {
+	// The first line is posted as written, named by the board item (00014526).
+	if !strings.HasPrefix(fwd, "📬 #7「选方案」要你定：用 A 还是 B？") {
 		t.Fatalf("forward = %q", fwd)
 	}
 	// A visible record only: it must not ping anyone (other bots drop 📬 notices).
@@ -139,19 +160,20 @@ func TestWorkspaceAskForwardsAndAnswerGoesBack(t *testing.T) {
 	if got := p.sentTo(exitWSKey)[2]; got != "好，用 A 继续" {
 		t.Fatalf("bot reply went elsewhere: %q", got)
 	}
-	if len(p.sentTo("discord:chat1")) != 1 || len(p.sentTo(exitChatKey)) != 0 {
+	if len(p.sentTo("discord:chat1")) != 2 || len(p.sentTo(exitChatKey)) != 0 {
 		t.Fatal("chat channel got extra messages")
 	}
 }
 
 func TestWorkspaceReportForwardsOnly(t *testing.T) {
 	e, a, p := exitFixture(t, mapParent{"ws1": "chat1"})
+	exitBoardItem(t, e, 7, "第一阶段")
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
-	inputDone(a, "[report]\n第一阶段做完")
+	inputDone(a, "[report] #7 第一阶段做完")
 	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
 	fwd := p.sentTo("discord:chat1")[0]
-	if !strings.Contains(fwd, "阶段结果") || askRef.MatchString(fwd) {
+	if fwd != "📬 #7「第一阶段」：第一阶段做完" || askRef.MatchString(fwd) {
 		t.Fatalf("report forward = %q", fwd)
 	}
 	if n := len(e.teamExit.asks); n != 0 {
@@ -182,9 +204,10 @@ func TestWorkspaceExitDefaultResolverUsesRecordedWorkspaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	exitBoardItem(t, e, 7, "第一阶段")
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
-	inputDone(a, "[report]\n第一阶段做完")
+	inputDone(a, "[report] #7 第一阶段做完")
 	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
 	if fwd := p.sentTo("discord:chat1")[0]; !strings.HasPrefix(fwd, "📬") || !strings.Contains(fwd, "第一阶段做完") {
 		t.Fatalf("forward = %q", fwd)
@@ -193,7 +216,8 @@ func TestWorkspaceExitDefaultResolverUsesRecordedWorkspaces(t *testing.T) {
 
 func TestAskSurvivesRestart(t *testing.T) {
 	e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
-	id := e.forwardWorkspaceExit(p, exitWSKey, "[ask] 选哪个\n自验：go test ./core 通过\n类别：验收")
+	exitBoardItem(t, e, 7, "选型")
+	id := e.forwardWorkspaceExit(p, exitWSKey, "[ask] #7 选哪个\n自验：go test ./core 通过\n类别：验收")
 	if id == "" {
 		t.Fatal("no ask")
 	}

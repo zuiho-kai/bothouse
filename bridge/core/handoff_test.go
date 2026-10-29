@@ -244,7 +244,7 @@ func TestHandoffFromSurvivesSave(t *testing.T) {
 }
 
 func TestFormatHandoffDropsStaleBlocks(t *testing.T) {
-	h := &SessionHandoff{Tail: []HistoryEntry{{Role: "user", Content: "（队友状态，系统自动附上，不用回应）\n龙娘：忙\n\n（可能相关的 wiki 页，需要时去读）\n- a.md\n\n（频道里你上次看到之后的消息，按时间顺序）\n[10:00] 龙娘: 做完了\n\n你看看"}}}
+	h := &SessionHandoff{Tail: []HistoryEntry{{Role: "user", Content: "（队友状态，系统自动附上，不用回应）\n龙娘：忙\n\n（可能相关的 wiki 页，需要时去读）\n- a.md\n\n（频道里你上次看到之后的消息，按时间顺序）\n[10:00] 龙娘: 做完了\n\n（最新，回这条）\n你看看"}}}
 	b := formatHandoff("old", "x", h, "")
 	if strings.Contains(b, "队友状态") || strings.Contains(b, "a.md") || !strings.Contains(b, "龙娘: 做完了") || !strings.Contains(b, "你看看") {
 		t.Fatalf("handoff:\n%s", b)

@@ -64,7 +64,7 @@ func TestWorkspaceMissingReportRecoversBeforeReset(t *testing.T) {
 				if got := p.sentTo(parent); len(got) != 0 {
 					t.Fatalf("unmarked reply was forwarded: %v", got)
 				}
-				inputDone(a, "[report]\nDraft delivered with verification evidence.")
+				inputDone(a, "[report] #666 Draft delivered with verification evidence.")
 				inputWait(t, func() bool { return len(p.sentTo(parent)) == 1 })
 				t.Logf("recovery prompt received in retained session %s; parent %s received %q", old, parent, p.sentTo(parent)[0])
 				if strings.HasPrefix(mode, "reset") {
