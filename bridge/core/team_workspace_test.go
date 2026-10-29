@@ -141,6 +141,31 @@ func newWorkspaceGuild() *fakeWorkspaceGuild {
 	}
 }
 
+// newEmptyPoolGuild is newWorkspaceGuild without the shared pool (201/205): every chat shares one
+// 「工作区n」 pool (d1c05bbe), so a test of the create path needs a guild with nothing to adopt.
+func newEmptyPoolGuild() *fakeWorkspaceGuild {
+	g := newWorkspaceGuild()
+	var keep []TeamChannel
+	for _, c := range g.channels {
+		if teamWorkspaceNum(c.Name) <= 0 {
+			keep = append(keep, c)
+		}
+	}
+	g.channels = keep
+	return g
+}
+
+// adoptWorkspacePool has key's chat adopt the free pool workspaces 201 and 205 (lowest first),
+// so the next "new" goes to the platform.
+func adoptWorkspacePool(t *testing.T, e *Engine, key string) {
+	t.Helper()
+	for _, id := range []string{"201", "205"} {
+		if _, w, err := e.NewTeamWorkspace(key); err != nil || w.ID != id {
+			t.Fatalf("new in %s = %+v %v, want adopted %s", key, w, err, id)
+		}
+	}
+}
+
 func newWorkspaceLead(t *testing.T, g *fakeWorkspaceGuild, dataDir string) *Engine {
 	t.Helper()
 	e := NewEngine("lead", &stubAgent{}, []Platform{g}, "", LangEnglish)
@@ -182,23 +207,26 @@ func TestTeamWorkspacesOnlyOnFirstNew(t *testing.T) {
 	if calls != 0 || len(g.createdNames()) != 0 || len(e.TeamWorkspacesOf("100")) != 0 {
 		t.Fatalf("before any new: %d platform calls, created %v", calls, g.createdNames())
 	}
-	if _, w, err := e.NewTeamWorkspace("discord:100:u1"); err != nil || w.Name != "工作区1" {
-		t.Fatalf("first new in #100 = %+v %v", w, err)
+	// All chats share one pool (in catB): #100 adopts the free 工作区1 (201), #200 the free 工作区5.
+	if _, w, err := e.NewTeamWorkspace("discord:100:u1"); err != nil || w.ID != "201" {
+		t.Fatalf("first new in #100 = %+v %v, want adopted 201", w, err)
 	}
-	// #200 has an unclaimed 工作区1 (201) in its category: the first new adopts it.
-	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.ID != "201" {
-		t.Fatalf("first new in #200 = %+v %v, want adopted 201", w, err)
+	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.ID != "205" {
+		t.Fatalf("first new in #200 = %+v %v, want adopted 205", w, err)
 	}
-	if got := g.createdNames(); len(got) != 1 || got[0] != "catA/工作区1" {
-		t.Fatalf("created = %v, want [catA/工作区1]", got)
+	if got := g.createdNames(); len(got) != 0 {
+		t.Fatalf("created = %v, want none (both adopted)", got)
 	}
-	// After a restart the recorded 工作区1 is kept; the next new is 工作区2.
+	// After a restart the recorded workspaces are kept; the next new numbers past 工作区5 in the pool's category.
 	e.cancel()
 	forgetWorkspaceCache(dataDir)
 	e2 := newWorkspaceLead(t, g, dataDir)
 	e2.SetTeamWorkspaces(true)
-	if _, w, err := e2.NewTeamWorkspace("discord:100"); err != nil || w.Name != "工作区2" {
+	if _, w, err := e2.NewTeamWorkspace("discord:100"); err != nil || w.Name != "工作区6" {
 		t.Fatalf("new after restart = %+v %v", w, err)
+	}
+	if got := g.createdNames(); len(got) != 1 || got[0] != "catB/工作区6" {
+		t.Fatalf("created = %v, want [catB/工作区6]", got)
 	}
 }
 
@@ -210,34 +238,26 @@ func TestTeamWorkspacesNewNumbering(t *testing.T) {
 	e.sessions.GetOrCreateActive("discord:100:u1")
 	e.sessions.GetOrCreateActive("discord:200")
 
-	// No 工作区1 yet: "new" makes 工作区1 first.
+	// One shared pool: #100 adopts the free 工作区1, then the free 工作区5, lowest first; only then
+	// does it number past 工作区5 in the pool's category.
+	adoptWorkspacePool(t, e, "discord:100:u1")
 	parent, w1, err := e.NewTeamWorkspace("discord:100:u1")
-	if err != nil || parent != "discord:100" || w1.Name != "工作区1" {
-		t.Fatalf("first new = %q %+v %v", parent, w1, err)
-	}
-	if _, w2, err := e.NewTeamWorkspace("discord:100:u1"); err != nil || w2.Name != "工作区2" {
-		t.Fatalf("second new = %+v %v", w2, err)
+	if err != nil || parent != "discord:100" || w1.Name != "工作区6" {
+		t.Fatalf("third new = %q %+v %v", parent, w1, err)
 	}
 	// Called from inside a workspace (a working role there): goes to its chat channel.
-	parent, w3, err := e.NewTeamWorkspace("discord:" + w1.ID)
-	if err != nil || parent != "discord:100" || w3.Name != "工作区3" {
-		t.Fatalf("new from workspace = %q %+v %v", parent, w3, err)
+	parent, w7, err := e.NewTeamWorkspace("discord:" + w1.ID)
+	if err != nil || parent != "discord:100" || w7.Name != "工作区7" {
+		t.Fatalf("new from workspace = %q %+v %v", parent, w7, err)
 	}
-	// #200: new adopts the free 工作区1, then the free 工作区5, lowest first; only then does it
-	// number past 工作区5 already in its category.
-	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.ID != "201" {
-		t.Fatalf("first new in #200 = %+v %v, want adopted 201", w, err)
-	}
-	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.ID != "205" {
-		t.Fatalf("second new in #200 = %+v %v, want adopted 205", w, err)
-	}
-	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.Name != "工作区6" {
+	// #200 shares the pool: nothing left to adopt, so it numbers on (工作区8), not a second 工作区1.
+	if _, w, err := e.NewTeamWorkspace("discord:200"); err != nil || w.Name != "工作区8" {
 		t.Fatalf("new in #200 = %+v %v", w, err)
 	}
-	if got := e.TeamWorkspacesOf("200"); len(got) != 3 || got[0].ID != "201" {
-		t.Fatalf("#200 workspaces = %+v", got)
+	if got := g.createdNames(); strings.Join(got, ",") != "catB/工作区6,catB/工作区7,catB/工作区8" {
+		t.Fatalf("created = %v", got)
 	}
-	// A deleted workspace is dropped; the chat still has 工作区2/3, so ensure creates nothing.
+	// A deleted workspace is dropped; the chat still has others, so ensure creates nothing.
 	g.mu.Lock()
 	for i, c := range g.channels {
 		if c.ID == w1.ID {
@@ -253,7 +273,7 @@ func TestTeamWorkspacesNewNumbering(t *testing.T) {
 	for _, w := range e.TeamWorkspacesOf("100") {
 		names[w.Name] = true
 	}
-	if !names["工作区2"] || !names["工作区3"] || len(names) != 2 {
+	if !names["工作区1"] || !names["工作区5"] || !names["工作区7"] || len(names) != 3 {
 		t.Fatalf("after delete+ensure = %v", names)
 	}
 }
@@ -462,14 +482,25 @@ func TestWorkspaceParentNotBlockedByCreate(t *testing.T) {
 // in the chat (Feishu) goes out once.
 func TestTeamWorkspacePermanentFailureOnce(t *testing.T) {
 	g := newWorkspaceGuild()
-	g.createErr = fmt.Errorf("%w: no im:chat", ErrTeamWorkspacePermanent)
-	g.block, g.creating = make(chan struct{}), make(chan struct{})
 	e := newWorkspaceLead(t, g, t.TempDir())
 	e.teamWS = newTeamWorkspaces()
 	e.sessions.GetOrCreateActive("discord:100:u1")
+	// The shared pool's free workspaces are adopted without a platform call; only then does
+	// "new" create, and that create is the one that fails for good.
+	adoptWorkspacePool(t, e, "discord:100:u1")
+	g.mu.Lock()
+	g.createErr = fmt.Errorf("%w: no im:chat", ErrTeamWorkspacePermanent)
+	g.block, g.creating = make(chan struct{}), make(chan struct{})
+	g.mu.Unlock()
 	first := make(chan error, 1)
 	go func() { _, _, err := e.NewTeamWorkspace("discord:100:u1"); first <- err }()
-	<-g.creating
+	select {
+	case <-g.creating:
+	case err := <-first:
+		t.Fatalf("new returned %v without reaching create", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("new never reached create (adopted instead?)")
+	}
 	if _, _, err := e.NewTeamWorkspace("discord:100:u2"); !errors.Is(err, ErrTeamWorkspaceBusy) {
 		t.Fatalf("concurrent new = %v, want ErrTeamWorkspaceBusy", err)
 	}
@@ -511,10 +542,13 @@ func TestTeamWorkspacePermanentFailureOnce(t *testing.T) {
 // the chat in-flight, or every later "new" returns ErrTeamWorkspaceBusy until restart.
 func TestTeamWorkspacePanicClearsInflight(t *testing.T) {
 	g := newWorkspaceGuild()
-	g.panicOnce = true
 	e := newWorkspaceLead(t, g, t.TempDir())
 	e.teamWS = newTeamWorkspaces()
 	e.sessions.GetOrCreateActive("discord:100")
+	adoptWorkspacePool(t, e, "discord:100") // adoption makes no platform call; the next new creates
+	g.mu.Lock()
+	g.panicOnce = true
+	g.mu.Unlock()
 	func() {
 		defer func() {
 			if recover() == nil {
@@ -575,8 +609,12 @@ func TestTeamWorkspacesPerPlatform(t *testing.T) {
 			t.Fatalf("ensure %s: %v", c, err)
 		}
 	}
-	if d, f := disc.createdNames(), fs.createdNames(); len(d) != 1 || d[0] != "catA/工作区1" || len(f) != 1 || f[0] != "/工作区1" {
+	// Discord adopts the free 工作区1 (201) from the shared pool; feishu has none and creates one.
+	if d, f := disc.createdNames(), fs.createdNames(); len(d) != 0 || len(f) != 1 || f[0] != "/工作区1" {
 		t.Fatalf("discord created %v, feishu created %v", d, f)
+	}
+	if dw := e.TeamWorkspacesOf("discord:100"); len(dw) != 1 || dw[0].ID != "201" {
+		t.Fatalf("discord workspaces = %+v, want adopted 201", dw)
 	}
 	fw := e.TeamWorkspacesOf("feishu:100")
 	if len(fw) != 1 {
@@ -591,7 +629,7 @@ func TestTeamWorkspacesPerPlatform(t *testing.T) {
 	if _, _, err := e.NewTeamWorkspace("telegram:5:u"); !errors.Is(err, ErrTeamWorkspaceNotLeadChat) {
 		t.Fatalf("telegram new: %v", err)
 	}
-	if got := disc.createdNames(); len(got) != 1 {
+	if got := disc.createdNames(); len(got) != 0 {
 		t.Fatalf("discord created after feishu new = %v", got)
 	}
 }
