@@ -1623,6 +1623,33 @@ test('CLI member streams: an error or cancel removes the draft; no output leaves
   assert.equal(hub3.store.job(1).state, 'failed');
 });
 
+test('cloud-web reply ids: a reply to a task card carries the card id (reply_to_id); a reply frame with ref_id is acked with its row id', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘&mention_id=111');
+  ju.frame({ type: 'preview_start', ref_id: 'taskcard-task-1', reply_ctx: 'room-1', content: '任务卡：整理日志' });
+  const card = ju.of('preview_ack').at(-1).preview_handle;
+  assert.match(card, /^\d+$/, 'the bridge stores this handle as Task.MessageID');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 进展如何', replyTo: Number(card) });
+  await tick(); await tick();
+  const got = ju.of('message').at(-1);
+  assert.equal(got.reply_to_id, card, 'same id as the task card handle');
+  assert.equal(got.reply_to_author, '橘');
+  assert.equal(got.reply_to_text, '任务卡：整理日志');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 普通' });
+  await tick(); await tick();
+  assert.equal(ju.of('message').at(-1).reply_to_id, undefined, 'a plain message has no reply fields');
+
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', ref_id: 'reply-1', content: '📬 汇报' });
+  const ack = ju.of('preview_ack').at(-1);
+  assert.equal(ack.ref_id, 'reply-1');
+  const row = hub.store.page(1, undefined, 10).find(m => m.text === '📬 汇报');
+  assert.equal(ack.preview_handle, String(row.id), 'the ack carries the posted row id');
+  const acks = ju.of('preview_ack').length;
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', content: '无 ref_id' });
+  assert.equal(ju.of('preview_ack').length, acks, 'no ref_id, no ack (wire unchanged)');
+});
+
 test('cloud-web reply_in_place: a text preview is a draft; the reply with its handle commits that row and is forwarded once', async () => {
   const hub = makeHub();
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });

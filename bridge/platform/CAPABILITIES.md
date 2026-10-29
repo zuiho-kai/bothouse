@@ -15,8 +15,8 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 
 - discord: 已接
 - feishu: 已接
-- cloud-web: 不支持：入站帧 wireInboundMessage（platform/cloud-web/protocol.go）没有「回复哪条」的字段，网关只发正文。
-- dsh: 不支持：DSH 消息有 reply_to，但网关进桥时只把被引用的作者和前 40 字拼成正文前缀「[回复 作者：…]」（dsh/collab/cloudweb.mjs quotePrefix），不带消息 id；原文模型已能看到，找活要 id，帧里没有。
+- cloud-web: 已接
+- dsh: 已接
 
 ## SentMessageRecorder
 
@@ -24,5 +24,5 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 
 - discord: 已接
 - feishu: 已接
-- cloud-web: 不支持：发消息的 reply/send 帧网关不回执，拿不到发出消息的 id（只有预览帧有 preview_ack，回的是预览句柄）。
-- dsh: 不支持：同 cloud-web，DSH 经 collab 网关走 cloud-web 帧，发出消息没有回执 id。
+- cloud-web: 已接
+- dsh: 已接
