@@ -43,10 +43,11 @@ const (
 
 // SetColdCacheFresh configures starting a fresh session (with a handoff)
 // instead of resuming one whose prompt cache has expired.
-func (e *Engine) SetColdCacheFresh(enabled bool, idle time.Duration, minTokens int) {
+func (e *Engine) SetColdCacheFresh(enabled bool, idle time.Duration, minTokens, maxTokens int) {
 	e.coldFreshEnabled = enabled
 	e.coldFreshIdle = idle
 	e.coldFreshMinTokens = minTokens
+	e.coldFreshMaxTokens = maxTokens
 }
 
 // freshOnColdCache clears the session's agent ID when resuming it would only
@@ -76,17 +77,13 @@ func (e *Engine) freshOnColdCache(agent Agent, session *Session) string {
 	return "♻️ " + reason + "：开新会话，带上旧会话的压缩摘要和最近对话"
 }
 
-// contextFreshTokens is the context size at which the next message starts a
-// fresh session with a handoff, however recent the last reply (user 2026-10-29
-// 「我们产品默认改成300k自动开新会话」). Off together with cold_cache_fresh.
-const contextFreshTokens = 300000
-
 // freshOnContextSize clears the session's agent ID once its last reply's
-// context has reached contextFreshTokens, and records it as the handoff source.
+// context has reached cold_cache_fresh.max_context_tokens (default 300000),
+// and records it as the handoff source.
 // Unlike freshOnColdCache it ignores idle time, so a busy session gets
 // replaced too. Returns the notice for the channel ("" when nothing changes).
 func (e *Engine) freshOnContextSize(agent Agent, session *Session) string {
-	if !e.coldFreshEnabled {
+	if !e.coldFreshEnabled || e.coldFreshMaxTokens <= 0 {
 		return ""
 	}
 	id := session.GetAgentSessionID()
@@ -95,7 +92,7 @@ func (e *Engine) freshOnContextSize(agent Agent, session *Session) string {
 		return ""
 	}
 	h, err := r.ReadSessionHandoff(id)
-	if err != nil || h.ContextTokens < contextFreshTokens {
+	if err != nil || h.ContextTokens < e.coldFreshMaxTokens {
 		return ""
 	}
 	reason := fmt.Sprintf("上下文约 %s token", formatWan(h.ContextTokens))

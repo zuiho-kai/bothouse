@@ -40,7 +40,7 @@ func TestFreshOnColdCache(t *testing.T) {
 	if n := e.freshOnColdCache(a, s); n != "" {
 		t.Fatalf("disabled but got %q", n)
 	}
-	e.SetColdCacheFresh(true, time.Hour, 80000)
+	e.SetColdCacheFresh(true, time.Hour, 80000, 300000)
 	for _, id := range []string{"warm", "small", "missing"} {
 		s := &Session{AgentSessionID: id}
 		if n := e.freshOnColdCache(a, s); n != "" || s.GetAgentSessionID() != id {
@@ -76,7 +76,7 @@ func TestFreshOnContextSize(t *testing.T) {
 	if n := e.freshOnContextSize(a, s); n != "" {
 		t.Fatalf("cold_cache_fresh off but got %q", n)
 	}
-	e.SetColdCacheFresh(true, time.Hour, 80000)
+	e.SetColdCacheFresh(true, time.Hour, 80000, 300000)
 	if n := e.freshOnColdCache(a, s); n != "" {
 		t.Fatalf("cold cache should keep a warm session, got %q", n)
 	}
@@ -96,6 +96,12 @@ func TestFreshOnContextSize(t *testing.T) {
 	if b := e.handoffBlock(s); !strings.Contains(b, "/x/big.jsonl") || !strings.Contains(b, "上下文约") {
 		t.Fatalf("handoff block:\n%s", b)
 	}
+	// A configured threshold replaces the default.
+	e.SetColdCacheFresh(true, time.Hour, 80000, 400000)
+	big := &Session{AgentSessionID: "big"}
+	if n := e.freshOnContextSize(a, big); n != "" || big.GetAgentSessionID() != "big" {
+		t.Fatalf("under max_context_tokens 400000: should resume, got %q", n)
+	}
 }
 
 func TestFreshOnImageBloat(t *testing.T) {
@@ -106,7 +112,7 @@ func TestFreshOnImageBloat(t *testing.T) {
 	}}
 	e := NewEngine("test", a, []Platform{&stubPlatformEngine{n: "x"}}, "", LangEnglish)
 	defer e.Stop()
-	e.SetColdCacheFresh(true, time.Hour, 80000)
+	e.SetColdCacheFresh(true, time.Hour, 80000, 300000)
 
 	s := &Session{AgentSessionID: "heavy"}
 	if n := e.freshOnImageBloat(a, s); n != "" || s.GetAgentSessionID() != "heavy" {

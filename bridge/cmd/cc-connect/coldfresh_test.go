@@ -17,21 +17,21 @@ func TestColdCacheFreshSettings(t *testing.T) {
 	bp := func(b bool) *bool { return &b }
 	ip := func(i int) *int { return &i }
 	cases := []struct {
-		name      string
-		in        config.ColdCacheFreshConfig
-		on        bool
-		idle, min int
+		name           string
+		in             config.ColdCacheFreshConfig
+		on             bool
+		idle, min, max int
 	}{
-		{"unset defaults on", config.ColdCacheFreshConfig{}, true, 60, 80000},
-		{"explicit true defaults", config.ColdCacheFreshConfig{Enabled: bp(true)}, true, 60, 80000},
-		{"explicit false off", config.ColdCacheFreshConfig{Enabled: bp(false), IdleMins: ip(30)}, false, 0, 0},
-		{"explicit values", config.ColdCacheFreshConfig{IdleMins: ip(90), MinTokens: ip(120000)}, true, 90, 120000},
-		{"non-positive values ignored", config.ColdCacheFreshConfig{IdleMins: ip(0), MinTokens: ip(-1)}, true, 60, 80000},
+		{"unset defaults on", config.ColdCacheFreshConfig{}, true, 60, 80000, 300000},
+		{"explicit true defaults", config.ColdCacheFreshConfig{Enabled: bp(true)}, true, 60, 80000, 300000},
+		{"explicit false off", config.ColdCacheFreshConfig{Enabled: bp(false), IdleMins: ip(30)}, false, 0, 0, 0},
+		{"explicit values", config.ColdCacheFreshConfig{IdleMins: ip(90), MinTokens: ip(120000), MaxContextTokens: ip(500000)}, true, 90, 120000, 500000},
+		{"non-positive values ignored", config.ColdCacheFreshConfig{IdleMins: ip(0), MinTokens: ip(-1), MaxContextTokens: ip(0)}, true, 60, 80000, 300000},
 	}
 	for _, c := range cases {
-		on, idle, min := coldCacheFreshSettings(c.in)
-		if on != c.on || idle != c.idle || min != c.min {
-			t.Errorf("%s: got (%v,%d,%d), want (%v,%d,%d)", c.name, on, idle, min, c.on, c.idle, c.min)
+		on, idle, min, max := coldCacheFreshSettings(c.in)
+		if on != c.on || idle != c.idle || min != c.min || max != c.max {
+			t.Errorf("%s: got (%v,%d,%d,%d), want (%v,%d,%d,%d)", c.name, on, idle, min, max, c.on, c.idle, c.min, c.max)
 		}
 	}
 }
@@ -58,7 +58,7 @@ func TestRegisteredAgentsSessionHandoffReader(t *testing.T) {
 	dir := fakeAgentBins(t)
 	want := map[string]bool{
 		"claudecode": true, "codex": true, "antigravity": true, "pi": true, "dsh": true,
-		"acp": false, // generic ACP; a DSH launcher under acp is checked below
+		"acp":     false, // generic ACP; a DSH launcher under acp is checked below
 		"copilot": false, "cursor": false, "devin": false, "gemini": false, "iflow": false,
 		"kimi": false, "opencode": false, "qoder": false, "reasonix": false, "tmux": false,
 	}
