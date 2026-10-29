@@ -40,9 +40,10 @@ type agentHook struct {
 // Timeouts follow the author's own hooks.json / settings.json for these hooks.
 var agentHooks = []agentHook{
 	{"bash-guard", "PreToolUse", "Bash|bash|job_output", 10},
-	// Denies dispatch commands (ws-handoff, ws-forward, board add, timer/cron add) when the user's latest message
-	// only asks a question. It reads the user's words from transcript_path; no transcript = pass.
-	{"ask-only-guard", "PreToolUse", "Bash|bash", 10},
+	// Denies dispatch commands (ws-handoff, ws-forward, board add, timer/cron add), edits and writing shell
+	// commands when the user's latest message only asks a question. It reads the user's words from
+	// payload user_prompt (run.py fills it for Codex, agy, DSH) or transcript_path; none = pass.
+	{"ask-only-guard", "PreToolUse", "Bash|bash|Edit|Write|MultiEdit|NotebookEdit|edit|write|str_replace_editor", 10},
 	{"param-source-guard", "PreToolUse", "Edit|Write|MultiEdit|edit|write|str_replace_editor", 10},
 	{"dispatch-review-guard", "PreToolUse",
 		"Agent|Task|Edit|Write|MultiEdit|NotebookEdit|subagent|subagent_fork|workflow|edit|write|str_replace_editor", 10},
@@ -505,10 +506,15 @@ func (o AgentHookOptions) dshPatch() string {
 	return DSHPatchPath(o.DataDir, filepath.Base(o.WorkDir))
 }
 
+// codexHooks are the hooks run.py --codex can adapt; codexMatchers their Codex matcher. Codex's shell tool is
+// Bash and its file edits are apply_patch (PreToolUse fires for both, tool_name stays apply_patch).
+var codexHooks = []string{"bash-guard", "ask-only-guard", "fix-claim-guard"}
+var codexMatchers = map[string]string{"bash-guard": "Bash", "ask-only-guard": "Bash|apply_patch"}
+
 func (o AgentHookOptions) names() ([]string, error) {
 	if len(o.Only) == 0 {
 		if o.CLI == "codex" {
-			return []string{"bash-guard", "fix-claim-guard"}, nil
+			return slices.Clone(codexHooks), nil
 		}
 		return AgentHookNames(), nil
 	}
@@ -518,7 +524,7 @@ func (o AgentHookOptions) names() ([]string, error) {
 		if n == "" {
 			continue
 		}
-		if o.CLI == "codex" && n != "bash-guard" && n != "fix-claim-guard" {
+		if o.CLI == "codex" && !slices.Contains(codexHooks, n) {
 			return nil, fmt.Errorf("Codex hook %q is not adapted yet", n)
 		}
 		if _, ok := agentHookByName(n); !ok {
@@ -624,7 +630,7 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 			}
 		}
 		if o.CLI == "codex" && matcher != "" {
-			matcher = "Bash" // Codex's shell tool is Bash; only the shell hooks are installed for it
+			matcher = codexMatchers[n]
 		}
 		if matcher != "" {
 			g["matcher"] = matcher
@@ -1097,6 +1103,7 @@ const agyHookKey = "bothouse"
 // tested with agy 1.4.5). Edit/subagent hooks are left out: their agy argument names are not verified.
 var agyMatchers = map[string]string{
 	"bash-guard":      "run_command",
+	"ask-only-guard":  "run_command|write_to_file|replace_file_content|multi_replace_file_content|delete_file",
 	"fix-claim-guard": "",
 	"promise-guard":   "",
 }
@@ -1181,7 +1188,7 @@ func agyNames(o AgentHookOptions, names []string) ([]string, error) {
 		if _, ok := agyMatchers[n]; ok {
 			out = append(out, n)
 		} else if len(o.Only) > 0 {
-			return nil, fmt.Errorf("hook %q does not run under antigravity (antigravity hooks: bash-guard, fix-claim-guard, promise-guard)", n)
+			return nil, fmt.Errorf("hook %q does not run under antigravity (antigravity hooks: bash-guard, ask-only-guard, fix-claim-guard, promise-guard)", n)
 		}
 	}
 	return out, nil
