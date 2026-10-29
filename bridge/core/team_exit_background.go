@@ -26,14 +26,7 @@ func (e *Engine) workspaceTaskBackground(wsSession string, boardID int) string {
 	if dir == "" || wsSession == "" {
 		return ""
 	}
-	key := teamChatKey(wsSession)
-	it := e.boardItemByID(boardID)
-	if it == nil {
-		it = lastBoundItem(readTeamTaskBoard(dir), key)
-	}
-	if it == nil {
-		it = lastBoundItem(readTeamTaskBoardFile(dir, teamTaskBoardDoneFile), key)
-	}
+	it := e.workspaceBoardItem(wsSession, boardID)
 	if it == nil {
 		return ""
 	}
@@ -49,6 +42,23 @@ func (e *Engine) workspaceTaskBackground(wsSession string, boardID int) string {
 		line += "\n交接里记的用户原话：\n" + words
 	}
 	return line
+}
+
+// workspaceBoardItem: board item boardID when it exists, else the item last bound to workspace
+// session wsSession (open board first, then finished items); nil when none is recorded.
+func (e *Engine) workspaceBoardItem(wsSession string, boardID int) *teamTaskBoardItem {
+	dir := e.teamStatusDir()
+	if dir == "" || wsSession == "" {
+		return nil
+	}
+	if it := e.boardItemByID(boardID); it != nil {
+		return it
+	}
+	key := teamChatKey(wsSession)
+	if it := lastBoundItem(readTeamTaskBoard(dir), key); it != nil {
+		return it
+	}
+	return lastBoundItem(readTeamTaskBoardFile(dir, teamTaskBoardDoneFile), key)
 }
 
 func lastBoundItem(items []teamTaskBoardItem, key string) *teamTaskBoardItem {

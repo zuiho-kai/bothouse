@@ -255,7 +255,12 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		return ""
 	}
 	if !legacy {
+		// The 📬 posts report on board item hid: a reply to them brings its background (reply_task.go).
+		rc = e.recordReplyTask(p, rc, hid)
 		return e.postExitHeadline(p, rc, parent, ws, bot, kind, body, sessionKey, hid, hline, item)
+	}
+	if it := e.workspaceBoardItem(sessionKey, 0); it != nil {
+		rc = e.recordReplyTask(p, rc, it.ID)
 	}
 	// The chat channel's lead reads the reply first and tells the user what matters (user
 	// 2026-10-28 「原文返回…一坨屎给我…你的身份应该是我的秘书，那些东西你再帮我过滤一遍」). The

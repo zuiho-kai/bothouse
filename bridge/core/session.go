@@ -91,6 +91,8 @@ type TurnCtxSent struct {
 	LeadHandoffAt time.Time `json:"lead_handoff_at,omitempty"`
 	// Rules is a hash of the team-mode rules this context got (teamRulesOnce).
 	Rules string `json:"rules,omitempty"`
+	// ReplyTasks: the work (reply_task.go key) whose background a reply already brought.
+	ReplyTasks []string `json:"reply_tasks,omitempty"`
 }
 
 func (s *Session) TryLock() bool {
