@@ -851,6 +851,8 @@ name = "my-backend"
 # idle_mins = 60                 # Minutes since the last reply (default 60); keep >= agent_session_idle_timeout_mins
 #                                # 距上次回复的分钟数（默认 60）；不要小于 agent_session_idle_timeout_mins
 # min_tokens = 80000             # Context size worth leaving (default 80000) / 上下文达到多少才换新会话（默认 80000）
+# max_context_tokens = 300000    # Start fresh at this context size even when not idle (default 300000)
+#                                # 上下文达到多少时不看空闲、下一条直接开新会话（默认 300000）
 
 # Heartbeat — periodic awareness check / 心跳 — 周期性巡检
 # The agent wakes up at a fixed interval to check the environment.

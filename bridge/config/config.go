@@ -470,6 +470,8 @@ type ColdCacheFreshConfig struct {
 	Enabled   *bool `toml:"enabled,omitempty"`    // default true; false turns it off
 	IdleMins  *int  `toml:"idle_mins,omitempty"`  // minutes since the last reply (default 60); checked only when the agent process starts, so keep it >= agent_session_idle_timeout_mins
 	MinTokens *int  `toml:"min_tokens,omitempty"` // context size worth leaving (default 80000)
+	// MaxContextTokens: once the last reply's context reaches this, the next message starts fresh whatever the idle time (default 300000)
+	MaxContextTokens *int `toml:"max_context_tokens,omitempty"`
 }
 
 // ImageFreshConfig (maomao fork): once the images in a session's context add

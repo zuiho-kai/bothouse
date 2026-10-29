@@ -481,6 +481,7 @@ type Engine struct {
 	coldFreshEnabled   bool
 	coldFreshIdle      time.Duration
 	coldFreshMinTokens int
+	coldFreshMaxTokens int
 	// Image-bloat fresh start (maomao fork, see handoff.go)
 	imageFreshEnabled  bool
 	imageFreshMaxBytes int
