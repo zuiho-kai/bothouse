@@ -689,7 +689,7 @@ func (e *Engine) withTurnBlocks(session *Session, sessionKey, query, content str
 	if c := e.leadHandoffBlock(session, sessionKey); c != "" {
 		content = c + "\n\n" + content
 	}
-	if c := e.handoffBlock(session); c != "" {
+	if c := e.handoffBlock(session, sessionKey); c != "" {
 		content = c + "\n\n" + content
 	}
 	if c := e.memoryBlock(session); c != "" { // before the handoff: the index, then what the old context did
