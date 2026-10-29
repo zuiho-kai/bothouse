@@ -439,7 +439,11 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 	}
 	w = newHandoffWatch(sender)
 	if escalate {
-		text := sender.i18n.Tf(MsgWatchIdleEscalate, watchMention(plat, h.Owner), h.Title)
+		who := watchMention(plat, h.Owner)
+		if sender.watchOwns(p, h.Owner) {
+			who = sender.DisplayName() // a lone bot does not mention itself
+		}
+		text := sender.i18n.Tf(MsgWatchIdleEscalate, who, h.Title)
 		if err := w.send(p, h.Chat, text); err != nil {
 			slog.Warn("idle watch: escalation failed", "error", err)
 		}
@@ -450,14 +454,16 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 	if m, ok := e.lookupReadyPlatform(plat).(SelfMentioner); ok && m.SelfMention() != "" {
 		owner = m.SelfMention()
 	}
-	text := strings.TrimSpace(watchMention(plat, owner) + " " + sender.i18n.Tf(MsgWatchResume, h.Title))
-	if err := w.send(p, a.key, text); err != nil {
-		slog.Warn("idle watch: wake post failed", "error", err)
-	}
-	// A bot's own post cannot wake it. Deliver locally as well; when another
-	// bot posts the mention, the platform supplies the normal user turn.
+	// A bot's own post cannot wake it, and a post mentioning itself only adds
+	// noise: the sole bot wakes locally. When another bot posts the mention,
+	// the platform supplies the normal user turn.
 	if sender == e {
-		e.wakeWatchRole(a.key, text, h.Title)
+		e.wakeWatchRole(a.key, sender.i18n.Tf(MsgWatchResume, h.Title), h.Title)
+	} else {
+		text := strings.TrimSpace(watchMention(plat, owner) + " " + sender.i18n.Tf(MsgWatchResume, h.Title))
+		if err := w.send(p, a.key, text); err != nil {
+			slog.Warn("idle watch: wake post failed", "error", err)
+		}
 	}
 	a.h = h
 	e.armIdleWake(a) // two wake attempts, then one escalation; not a polling loop

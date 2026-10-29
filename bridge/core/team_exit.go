@@ -162,9 +162,10 @@ func newAskID() string {
 // forwardWorkspaceExit copies a marked workspace reply into its chat channel.
 // It returns the forwarded ask id ("" for a report or when nothing was sent).
 func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) string {
+	reply = stripFillerLines(reply)
 	kind, body, ok := parseExitKind(reply)
 	auto := false
-	if !ok && p != nil && strings.TrimSpace(reply) != "" && e.workspaceHasOpenHandoff(sessionKey) {
+	if !ok && p != nil && strings.TrimSpace(reply) != "" && e.workspaceHasOpenHandoff(sessionKey) && !e.workspaceStillWorking(sessionKey) {
 		// A workspace turn that ends without a marker while a handoff is open is still the
 		// answer to that handoff: it goes back as a [report] (user 2026-10-28 「工作区队列做完了
 		// 为什么没返回」).
@@ -247,6 +248,12 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		return ""
 	}
 	bot := e.exitBotName()
+	if auto && legacy {
+		// An unmarked turn end is process talk; it never goes to the chat channel (user 2026-10-29
+		// 「一件活只出一条，过程话不贴频道」). The idle watch escalates a workspace that stops here.
+		slog.Info("team exit: unmarked reply after bounces; kept in the workspace", "workspace", ws, "parent", parent)
+		return ""
+	}
 	if !legacy {
 		return e.postExitHeadline(p, rc, parent, ws, bot, kind, body, sessionKey, hid, hline, item)
 	}
@@ -544,4 +551,27 @@ func (e *Engine) takeAsk(id, platform, parent string) *teamAsk {
 	delete(e.teamExit.asks, id)
 	e.saveAsksLocked()
 	return a
+}
+
+// fillerLine matches a whole line a model writes when it believes no answer is wanted
+// (kimi 2026-10-29 「No response requested.」): it carries nothing for the user.
+var fillerLine = regexp.MustCompile(`(?i)^\s*(no response (is )?(requested|needed|required)|no reply (is )?(requested|needed|required)|不用回话|无需回复)[.。!！]?\s*$`)
+
+// stripFillerLines drops filler lines, so a reply made only of them counts as empty.
+func stripFillerLines(reply string) string {
+	lines := strings.Split(reply, "\n")
+	kept := lines[:0]
+	for _, l := range lines {
+		if !fillerLine.MatchString(l) {
+			kept = append(kept, l)
+		}
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n"))
+}
+
+// workspaceStillWorking: a background sub-agent or task of this workspace is still running, so
+// the turn that just ended is not the answer to the handoff; its completion brings the next turn.
+func (e *Engine) workspaceStillWorking(sessionKey string) bool {
+	running, _ := newHandoffWatch(e).workspaceBackgroundProgress(chatOf(sessionKey), time.Now())
+	return running
 }

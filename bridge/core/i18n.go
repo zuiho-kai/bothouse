@@ -982,11 +982,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "Turno interrumpido; revise los resultados antes de reintentar.",
 	},
 	MsgWatchResume: {
-		LangEnglish:            "Continue %s; no reply needed",
-		LangChinese:            "接着做 %s，不用回话",
-		LangTraditionalChinese: "接著做 %s，不用回話",
-		LangJapanese:           "%s を続けてください。返事は不要です",
-		LangSpanish:            "Continúa %s; no hace falta responder",
+		LangEnglish:            "Continue %s and finish it; when done, start the reply with [report]",
+		LangChinese:            "接着做 %s，做完再结束本轮，交回时第一行写 [report]",
+		LangTraditionalChinese: "接著做 %s，做完再結束本輪，交回時第一行寫 [report]",
+		LangJapanese:           "%s を続けて完了させてください。完了したら返信の1行目を [report] にしてください",
+		LangSpanish:            "Continúa %s hasta terminarlo; al terminar, empieza la respuesta con [report]",
 	},
 	MsgWatchIdleEscalate: {
 		LangEnglish:            "Watch: %s has not resumed %s after two wakeups. Primary role, please take over.",
