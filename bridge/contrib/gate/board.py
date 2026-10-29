@@ -233,7 +233,10 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None)
 def unadd(nid):
     """撤掉刚 add 的条目（ws-handoff 叫醒失败时用）：不进 board-done，不算返工。"""
     with _locked():
-        _write([i for i in _read() if i.get("id") != nid])
+        cur = _read()
+        tid = next((i.get("guard") for i in cur if i.get("id") == nid), None)
+        _write([i for i in cur if i.get("id") != nid])
+    _del_timer(tid)
 
 
 # 纯回看条目：见文件头「add 拒绝纯回看条目」
@@ -276,9 +279,11 @@ def update(nid, status, where=None, who=None, nxt=None):
             return False
         before = dict(hit)
         hit["status"], hit["at"] = status, _now()
+        tid = None
         if who and hit.get("ws") and who != before.get("who"):
             hit["ws_was"] = hit.pop("ws")  # 「谁」改走：这件不再算在那个工作区（main 里 park 掉它的交接）
             _back_to_chat(hit)
+            tid = hit.pop("guard", None)  # 改派：撤兜底，交给新工作区时 ws-handoff 再挂
         if where:
             hit["where"] = where
         if who:
@@ -288,6 +293,7 @@ def update(nid, status, where=None, who=None, nxt=None):
         if not hit.get("ch") and _cur_channel():
             hit["ch"] = _cur_channel()
         _write(cur)
+    _del_timer(tid)
     return before
 
 
@@ -363,7 +369,9 @@ def pause(nid, why=None):
             hit["pause_why"] = why
         else:
             hit.pop("pause_why", None)
+        tid = hit.pop("guard", None)  # 暂停、提问让出（ask 也走这里）：不再等工作区交回
         _write(cur)
+    _del_timer(tid)
     return {**hit, "ws": ws} if ws else hit
 
 
@@ -454,6 +462,80 @@ def schedule_stale_check(it):
         print(f"board: #{it['id']} 自动停滞检查未安排：{r.stderr.strip()[:200]}", file=sys.stderr)
 
 
+# 兜底定时器（用户 2026-10-29「他那边返回给你的时候，这个定时任务自动删了，你那边还是要有个定时任务，防止说他那边超时」）：
+# ws-handoff / ws-forward 交活时在交活的聊天频道（条目 chat）挂一个，到点叫醒那里的主角色查卡在哪、跟用户说；
+# 条目结束（工作区 [report] 交回，桥调 board update 已完成）、提问让出（board ask）、暂停、「谁」改走时撤掉。
+# 结果靠工作区 [report] 推回聊天频道，定时器只管超时，不轮询。条目上记 guard（timer id）。
+GUARD_DELAY = "30m"  # 橘定的默认（交接 notes/ws-fallback-timer-1029.md），ws-handoff --guard 可改
+TIMER_ID_RE = re.compile(r"Timer created:\s*(\S+)")
+
+
+def _guard_prompt(it, delay):
+    where = it.get("who") or "工作区"
+    return (f"兜底到点：#{it['id']}「{it.get('what', '')}」交给{where} {delay} 了，还没交回。"
+            f"先看任务板 #{it['id']}：已经完成或暂停就什么都不说，只回 NO_REPLY。"
+            f"还在做就查卡在哪（工作区最后的发言、看门催促、命令是不是挂住），跟用户说一句卡在哪、你怎么办；"
+            f"要接着等就用 ws-forward --notes {it.get('where', '')} \"<要它做的>\" 催一下（会重挂兜底），不自己 timer add。")
+
+
+def _del_timer(tid):
+    cc = _cc_bin()
+    if not tid or not cc:
+        return
+    try:
+        p = subprocess.run([cc, "timer", "del", tid], capture_output=True, text=True, timeout=WS_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"board: 兜底定时器 {tid} 没撤掉（{e}）", file=sys.stderr)
+        return
+    if p.returncode and "not found" not in (p.stderr + p.stdout).lower():  # 已经到点触发过：不用撤
+        print(f"board: 兜底定时器 {tid} 没撤掉（{p.stderr.strip()[:200]}）", file=sys.stderr)
+
+
+def disarm_guard(nid):
+    """撤掉 #nid 的兜底定时器（没有就什么都不做）。"""
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        tid = hit.pop("guard", None) if hit else None
+        if tid:
+            _write(cur)
+    _del_timer(tid)
+
+
+def arm_guard(nid, delay=None):
+    """给 #nid 挂（或重挂）兜底定时器，返回 timer id；条目没记聊天频道、没桥、挂不上返回 None（只警告，不拦交活）。"""
+    delay = delay or GUARD_DELAY
+    disarm_guard(nid)
+    cc = _cc_bin()
+    it = next((i for i in _read() if i["id"] == nid), None)
+    if not cc or it is None or not it.get("chat"):
+        return None
+    try:
+        p = subprocess.run([cc, "timer", "add", "-s", it["chat"], "--delay", delay, "--timeout-mins", "0",
+                            "--silent", "--desc", f"兜底 #{nid}：工作区 {delay} 没交回就查", "--prompt", _guard_prompt(it, delay)],
+                           capture_output=True, text=True, timeout=WS_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"board: #{nid} 兜底定时器没挂上（{e}）", file=sys.stderr)
+        return None
+    m = TIMER_ID_RE.search(p.stdout)
+    if p.returncode or not m:
+        print(f"board: #{nid} 兜底定时器没挂上（{(p.stderr.strip() or p.stdout.strip())[:200]}）", file=sys.stderr)
+        return None
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None:  # 挂的时候条目已经结束了
+            stale = True
+        else:
+            stale = False
+            hit["guard"] = m.group(1)
+            _write(cur)
+    if stale:
+        _del_timer(m.group(1))
+        return None
+    return m.group(1)
+
+
 WS_NAME_RE = re.compile(r"^(工作区\d+)")  # 「谁」= 工作区名 + 主角色名（ws-handoff 写的 f"{name}{lead_name}"）
 
 
@@ -535,6 +617,7 @@ def done(nid, rework=None, why=None):
         if hit is None:
             return False
         _write([i for i in cur if i["id"] != nid])
+        tid = hit.pop("guard", None)  # 交回了：撤兜底
         with open(_path("board-done.jsonl"), "a") as f:
             rec = {**hit, "status": "已完成", "done_at": _now()}  # #597 N3：结束记录不带着原来的「进行中」
             if rework is not None:  # 不填就不写这两项，汇总时算「未填」
@@ -542,6 +625,7 @@ def done(nid, rework=None, why=None):
                 if why:
                     rec["rework_why"] = why
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    _del_timer(tid)
     return True
 
 
