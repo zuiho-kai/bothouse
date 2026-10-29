@@ -116,9 +116,9 @@ func chatLeadPrompt(wsLabel, bot, kind, body, background string, posted bool) st
 		fmt.Fprintf(&b, "[工作区回传] 工作区 %s 的「%s」交回了%s。原文只给你看，没有贴进本频道；用户看到的只有你这一条。\n", wsLabel, bot, what)
 	}
 	if posted && kind != exitKindAsk {
-		// The user already has the headline: it is all the lead needs here; the full text stays
-		// in the workspace (user 2026-10-28: workspace text is not to fill the chat context).
-		fmt.Fprintf(&b, "\n第一行：%s\n原文在工作区 %s，用户问了再去取。\n\n", firstLine(body), wsLabel)
+		// The headline and the full text are already posted (postExitHeadline); the lead's own
+		// context gets only the headline (user 2026-10-28: workspace text is not to fill it).
+		fmt.Fprintf(&b, "\n第一行：%s\n全文系统也已贴进本频道，用户看得到，不要再贴一遍。\n\n", firstLine(body))
 	} else {
 		if background != "" {
 			b.WriteString("\n这件活的背景：\n" + background + "\n")
