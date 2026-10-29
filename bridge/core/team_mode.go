@@ -79,12 +79,20 @@ func (e *Engine) SetDispatchMode(mode string) {
 	e.dispatchMode.v.Store(mode)
 }
 
+// SetTeamModeRulesEnabled controls per-turn team-mode rules injection
+// (config: inject_team_rules, default true). A persona-only bot (e.g. a QQ chat
+// character) has no channels, workspaces or task board, so the rules are noise.
+func (e *Engine) SetTeamModeRulesEnabled(on bool) { e.skipTeamModeRules.Store(!on) }
+
 // DispatchMode is this project's dispatch mode.
 func (e *Engine) DispatchMode() string { return e.dispatchMode.get() }
 
 // withTeamModeRules prefixes the team-mode rules of the project's mode on every
 // delivery, like the identity and delegation blocks, so resumed and queued turns see them too.
 func (e *Engine) withTeamModeRules(prompt string) string {
+	if e.skipTeamModeRules.Load() {
+		return prompt
+	}
 	return teamModeRulesFor(e.DispatchMode()) + "\n" + prompt
 }
 
