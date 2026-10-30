@@ -247,6 +247,7 @@ Most guides below are currently in Chinese; the self-hosted platform protocol is
 | [Role packs](docs/persona-packs.md) | Choose, build and import personas and avatars |
 | [Per-role Wiki and nightly reflection](bridge/contrib/wiki/README.md) | Wiki isolation, maintenance and Autodream |
 | [Guardrails and tools](bridge/contrib/hooks/README.md) | Hook rules, switches and [built-in utilities](bridge/contrib/tools/README.md) |
+| [Memory read-frequency report](docs/READ_FREQUENCY.md) | Which files agents read most, with STANDING.md and split suggestions |
 | [Self-hosted platform protocol](bridge/docs/cloud-web.md) | Communication between the web platform and plugins |
 | [Architecture](docs/ARCHITECTURE.md) | Module responsibilities and data flow |
 
