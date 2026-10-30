@@ -65,6 +65,10 @@ def main(argv):
         if rec is None:
             sys.exit(f"ws-forward: {path} 没有 ws-handoff 记录")
         last = {"file": rec.get("file") or path, "channel": rec.get("ws_key") or rec["channel"]}
+    done = board.done_item(last["file"])
+    if done:  # 已交回：工作区会话已清空、放回池子，话发过去没人接（用户 10-30「他那边不是返回了吗？为什么没感知」）
+        sys.exit(f"ws-forward: #{done['id']}（{done.get('short') or done.get('what')}）{done.get('done_at', '')} 已交回，工作区已清空。"
+                 f"要接着做就重新 ws-handoff 这份交接：{last['file']}")
     hit = board.paused_item(last["file"])
     if hit and hit.get("pause_why") == board.ASK_WHY and not hit.get("ws"):
         # 提问后工作区已让出（board ask / ws-up --ask）：答复交 ws-handoff --resume 找空工作区接着做，不发去旧工作区

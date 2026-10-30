@@ -352,6 +352,14 @@ def paused_item(path):
     return next((i for i in _read() if i.get("paused") and i.get("where") == path), None)
 
 
+def done_item(path):
+    """交接文件 path 对应的活已交回：板上没有它的条目，board-done.jsonl 里有它做完的记录（自动收起的暂停不算），返回最后一条；否则 None。
+    ws-forward 用它拦下往已交回的活转话（工作区交回后会话已清空，话发过去没人接）。"""
+    if any(i.get("where") == path for i in _read()):
+        return None
+    return next((r for r in reversed(_read("board-done.jsonl")) if r.get("where") == path and not r.get("auto_pruned")), None)
+
+
 # 暂停：条目留在 board.jsonl（不写 board-done.jsonl，不算完成），带 paused（暂停时刻）和 pause_why；团队板上单列「暂停」块。
 def pause(nid, why=None):
     with _locked():
