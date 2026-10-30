@@ -15,7 +15,8 @@ package core
 //   - "reply":  the user wants an answer. Busy → also injected into the running turn, whose
 //               final reply then covers it. Idle → normal turn.
 // Any gate error or timeout falls back to gate_fallback (default "reply", so the bot never goes deaf);
-// a bot that was @-mentioned replies regardless.
+// a bot that was @-mentioned replies regardless, and a message that @-s another bot only gives context.
+// A gate without a judging model (/decide 503) never falls back to "reply" for what names no one.
 
 import (
 	"bytes"
@@ -101,6 +102,8 @@ type gateRequest struct {
 	// "可以" answering its question from idle chatter. LastReplyAge is seconds since then.
 	LastReply    string `json:"last_reply,omitempty"`
 	LastReplyAge int    `json:"last_reply_age_s,omitempty"`
+	// AddressedOther: the text @-s or names another team bot and not this one (Message.AddressedOther).
+	AddressedOther bool `json:"addressed_other,omitempty"`
 }
 
 // gatePart is one message of a merged burst: what the user wrote, whether it @-ed this bot, and
@@ -192,13 +195,27 @@ func (g *gateState) burstDelay(msg *Message) time.Duration {
 }
 
 // fallbackFor is the action when the gate can't answer: a bot that was @-mentioned
-// still replies (being named directly needs no judgement); otherwise gate_fallback
-// applies (the fallback role "reply", other roles "context").
+// still replies (being named directly needs no judgement); a message @-ing another bot is
+// that bot's to answer ("context"); otherwise gate_fallback applies (the fallback role
+// "reply", other roles "context").
 func (g *gateState) fallbackFor(req gateRequest) string {
 	if req.Mentioned {
 		return "reply"
 	}
+	if req.AddressedOther {
+		return "context"
+	}
 	return g.fallback
+}
+
+// noModelFallback is the action when the gate runs but has no model to judge with (/decide 503,
+// contrib/gate/gate.py NO_JEV): that is not a passing outage, so even the fallback role does not
+// answer every message; only an @-mentioned bot replies.
+func (g *gateState) noModelFallback(req gateRequest) string {
+	if req.Mentioned {
+		return "reply"
+	}
+	return "context"
 }
 
 func (g *gateState) decide(ctx context.Context, req gateRequest) gateResponse {
@@ -215,6 +232,9 @@ func (g *gateState) decide(ctx context.Context, req gateRequest) gateResponse {
 		return gateResponse{Action: g.fallbackFor(req), Reason: "gate unreachable: " + err.Error()}
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		return gateResponse{Action: g.noModelFallback(req), Reason: "gate has no model: 503"}
+	}
 	var out gateResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || resp.StatusCode != http.StatusOK {
 		return gateResponse{Action: g.fallbackFor(req), Reason: fmt.Sprintf("gate bad response: %d %v", resp.StatusCode, err)}
@@ -333,7 +353,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	dec := g.decide(e.ctx, gateRequest{
 		SessionKey: msg.SessionKey, Content: userTextOf(msg), Mentioned: msg.Mentioned, FromBot: msg.FromBot, Parts: msg.gateParts, Busy: busy,
 		HasImages: len(msg.Images) > 0, HasFiles: len(msg.Files) > 0, Buffered: gateBuffered,
-		LastReply: last, LastReplyAge: lastAge,
+		LastReply: last, LastReplyAge: lastAge, AddressedOther: msg.AddressedOther,
 	})
 	slog.Info("gate decision", "session", msg.SessionKey, "action", dec.Action, "busy", busy,
 		"mentioned", msg.Mentioned, "buffered", len(buffered), "tier", dec.Tier, "reason", dec.Reason)
