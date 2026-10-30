@@ -14,8 +14,8 @@ export const DEFAULT_DISPATCH_MODE = 'mixed';
 // (room_settings.dispatch_explicit); columns are added by ensureSchema() on every open
 // (checked with PRAGMA table_info), so either merge or release order ends with every column;
 // user_version only records the newest schema known.
-// v11 is #148 (edited_at).
-const SCHEMA_VERSION = 11;
+// v11 is #148 (edited_at); v12 links task deliverables to existing attachments.
+const SCHEMA_VERSION = 12;
 /** Columns added after v1, as [table, column, definition]; ensureSchema() adds any missing one. */
 const COLUMNS = [
   ['members', 'name_customized', 'INTEGER'],
@@ -165,6 +165,15 @@ export class Store {
       this.dedupeWorkspaceNames();
       // v9: the tasks table (#139 team mode B), ensured idempotently like the columns above.
       this.ensureTasks();
+      this.db.exec(`CREATE TABLE IF NOT EXISTS task_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL REFERENCES tasks(id),
+        attachment_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('source', 'deliverable')),
+        label TEXT,
+        added_by TEXT NOT NULL,
+        created_at REAL NOT NULL,
+        UNIQUE(task_id, attachment_id, role))`);
       // Team mode C upgrade: before it a workspace's parent_id only named the last chat channel
       // that handed off, never cleared. A workspace with no task in work then is done: put it in
       // the pool, else it would belong to that channel forever (no task left to release it).

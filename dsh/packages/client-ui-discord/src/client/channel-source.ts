@@ -199,7 +199,18 @@ export function groupRooms(rooms: readonly ChannelRoom[]): RoomRow[] {
 export type TaskStatus = 'assigned' | 'accepted' | 'asked' | 'declined' | 'escalated' | 'returned' | 'done' | 'rework'
 
 /** One dispatched task (#139 team mode B), as `GET /collab/api/rooms/:id/tasks` serializes it. */
+export interface TaskFile {
+  readonly id: number
+  readonly attachment_id: string
+  readonly role: 'source' | 'deliverable'
+  readonly label: string | null
+  readonly name: string
+  readonly mime: string
+  readonly size: number
+}
+
 export interface ChannelTask {
+  readonly files?: readonly TaskFile[]
   readonly id: number
   /** Room the task was dispatched in (the chat channel or one of its workspaces). */
   readonly room_id: number

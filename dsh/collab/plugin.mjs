@@ -208,6 +208,16 @@ export async function apply(ctx, rawConfig) {
       return refuse(req, res);
     }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
+    const taskFiles = /^\/collab\/api\/tasks\/(\d+)\/files$/.exec(path);
+    if (taskFiles && req.method === 'GET') {
+      const task = tasks.task(Number(taskFiles[1]));
+      return task ? json(res, 200, { files: tasks.files(task.id) }) : json(res, 404, { error: 'task not found' });
+    }
+    if (taskFiles && req.method === 'POST') {
+      return withBody(req, res, body => ({ files: tasks.addFile(Number(taskFiles[1]), {
+        attachmentId: body?.attachment_id, label: body?.label, actor: OWNER,
+      }) }));
+    }
     if (path === '/collab/api/personas' && req.method === 'GET') return json(res, 200, personaLibrary(url.searchParams.get('lang') ?? 'zh'));
     if (path === '/collab/api/state' && req.method === 'GET') {
       return json(res, 200, { me: OWNER, lead_id: hub.selectedPrimaryMember()?.id ?? null,

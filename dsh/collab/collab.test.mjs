@@ -1340,7 +1340,7 @@ test('store: a v3 database gains the cli column and keeps its members', async ()
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE members DROP COLUMN cli; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 3');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 12);
   assert.equal(up.member('old').cli, null);
   assert.equal(up.member('old').model, 'm1');
   assert.equal(up.addMember({ id: 'gm', name: 'GM', cli: 'gemini' }).cli, 'gemini');
@@ -1445,7 +1445,7 @@ test('store: a v4 database gains the avatar column and keeps its members', async
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 4');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 12);
   assert.equal(up.member('old').avatar, null);
   assert.equal(up.member('old').cli, 'claude');
   assert.equal(up.addMember({ id: 'w', name: 'W', avatar: 'whale' }).avatar, 'whale');
@@ -2039,7 +2039,7 @@ test('reply: a v6 database gains reply_to and keeps its messages', async () => {
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; PRAGMA user_version = 6');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 12);
   const old = up.page(1, undefined, 1)[0];
   assert.equal(old.text, '老消息');
   assert.equal(old.reply_to, null);
@@ -2132,6 +2132,28 @@ test('tasks: rooms snapshots track dispatch, return, rework and acceptance witho
   assert.deepEqual(counts(), [0, 0]);
   assert.deepEqual(latest(), [0, 0]);
   assert.equal(events.length, 6);
+  tasks.close(); hub.store.close();
+});
+
+test('task files: delivery links existing bytes once, source must belong to owner and task channel', () => {
+  const { hub, tasks } = makeTasks();
+  hub.store.ensureRoom(2, 'other');
+  const task = tasks.assign({ roomId: 1, title: '改表格', owner: 'ds', actor: 'lead' });
+  const source = { id: 'source-a', name: 'before.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 14 };
+  const result = { id: 'result-a', name: 'after.xlsx', mime: source.mime, size: 21 };
+  const other = { id: 'other-a', name: 'private.xlsx', mime: source.mime, size: 1 };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '原文件', attachments: [source] });
+  hub.post(2, { authorKind: 'user', author: 'owner', name: '我', text: '别的频道', attachments: [other] });
+  const { message: delivery } = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '处理好了', attachments: [result] });
+  tasks.handBack(task.id, { actor: 'ds', messageId: delivery.id });
+  assert.deepEqual(tasks.files(task.id).map(f => [f.attachment_id, f.role]), [['result-a', 'deliverable']]);
+  assert.throws(() => tasks.addFile(task.id, { attachmentId: other.id, actor: 'owner' }), /your message in this channel/);
+  assert.throws(() => tasks.addFile(task.id, { attachmentId: result.id, actor: 'ds' }), /only the owner/);
+  tasks.addFile(task.id, { attachmentId: source.id, label: '原始账本', actor: 'owner' });
+  tasks.addFile(task.id, { attachmentId: source.id, label: '原始账本', actor: 'owner' });
+  assert.deepEqual(tasks.list(1)[0].files.map(f => [f.name, f.role, f.label]), [
+    ['after.xlsx', 'deliverable', null], ['before.xlsx', 'source', '原始账本'],
+  ]);
   tasks.close(); hub.store.close();
 });
 
@@ -2398,7 +2420,7 @@ test('tasks: the tasks table is ensured idempotently and survives reopen', async
   const cols = again.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name);
   assert.equal(cols.includes('note'), true, 'a missing column is added back');
   assert.equal(again.db.prepare('SELECT title FROM tasks').get().title, 'kept');
-  assert.equal(again.db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(again.db.prepare('PRAGMA user_version').get().user_version, 12);
   again.close();
 });
 
@@ -2489,7 +2511,7 @@ test('store: a v6 database gains kind/parent_id; opening it creates no workspace
   old.db.exec("DELETE FROM rooms WHERE kind = 'workspace'; ALTER TABLE rooms DROP COLUMN parent_id; ALTER TABLE rooms DROP COLUMN kind; PRAGMA user_version = 6");
   old.close();
   const s = new Store(path);
-  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 12);
   assert.deepEqual(plain(s.rooms()), [
     { id: 1, name: 'general', kind: 'chat', parent_id: null },
     { id: 2, name: 'dev', kind: 'chat', parent_id: null },
@@ -2583,11 +2605,11 @@ test('store: a v8 database missing reply_to (#133 shipped after) gains it on ope
   s.ensureRoom(1, 'general');
   s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'old' });
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to');
-  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 12);
   s.close();
   const up = new Store(path);
   assert.ok(up.db.prepare('PRAGMA table_info(messages)').all().some(c => c.name === 'reply_to'));
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 12);
   assert.equal(up.page(1, undefined, 1)[0].text, 'old');
   up.close();
 });

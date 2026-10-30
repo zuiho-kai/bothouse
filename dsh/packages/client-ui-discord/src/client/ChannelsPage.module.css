@@ -1291,6 +1291,12 @@
   font-size: 11px;
 }
 
+.taskFiles { display: grid; gap: 4px; min-width: 0; font-size: 12px; }
+.taskFiles > span { color: var(--dsw-alias-label-tertiary); }
+.taskFile { display: flex; gap: 8px; align-items: center; min-width: 0; color: var(--dsw-alias-label-primary); }
+.taskFile span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.taskFile span:last-child { flex-shrink: 0; color: var(--dsw-alias-label-tertiary); }
+
 .boardTaskCard .taskLinks {
   justify-content: flex-end;
   margin-top: auto;

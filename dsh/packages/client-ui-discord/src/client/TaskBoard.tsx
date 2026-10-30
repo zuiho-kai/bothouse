@@ -7,6 +7,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import type { ChannelRoom, ChannelTask, TaskStatus } from './channel-source.ts'
+import { attachmentUrl } from './channel-source.ts'
 import { BOARD_TABS, boardSections, cardMembers, sectionTitle, elapsed, formatDuration, STATUS_KEY, type T } from './task-board.ts'
 import css from './ChannelsPage.module.css'
 
@@ -94,6 +95,16 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }:
           <button type="button" className={css.linkButton} disabled={saving} onClick={() => { void review(task.id, 'done') }}>{t('taskApprove')}</button>
           <button type="button" className={css.linkButton} disabled={saving} onClick={() => { setReviewing(task.id); setReason(''); setError(undefined) }}>{t('taskSendBack')}</button>
         </>}
+      </div>
+      <div className={css.taskFiles} aria-label={t('taskFiles')}>
+        <strong>{t('taskFiles')}</strong>
+        {(task.files?.length ?? 0) === 0 ? <span>{t('taskFilesEmpty')}</span> : task.files?.map(file => (
+          <a key={file.id} href={attachmentUrl(file.attachment_id)} download={file.name} className={css.taskFile}>
+            <span>{file.role === 'source' ? t('taskFileSource') : t('taskFileDeliverable')}</span>
+            <span>{file.label || file.name}</span>
+            <span>{(file.size / 1024).toFixed(1)} KB</span>
+          </a>
+        ))}
       </div>
       {reviewing === task.id && <form onSubmit={event => { event.preventDefault(); void review(task.id, 'rework') }}>
         <label>{t('taskReviewReason')}<input value={reason} required onChange={event => { setReason(event.target.value) }} /></label>
