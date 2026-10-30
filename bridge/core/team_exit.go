@@ -271,11 +271,15 @@ func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, bod
 		id = newAskID()
 	}
 	name := teamTaskBoardShort(*item)
-	text := exitHeadlineText(kind, name, hline, id)
+	// User 10-30 「每一行中间加一行换行，聚在一起完全不想看」: a blank line between the parts.
+	text := spaceExitLines(exitHeadlineText(kind, name, hline, id))
 	_, detail := exitSplit(body)
 	if err := e.postWithDetail(p, rc, name, text, detail); err != nil {
 		slog.Error("team exit: headline post failed", "kind", kind, "parent", parent, "workspace", ws, "error", err)
 		return ""
+	}
+	if !postReportDetail {
+		detail = ""
 	}
 	e.postToTaskThread(p, sessionKey, joinExitDetail(text, detail))
 	if kind == exitKindReport {
@@ -603,4 +607,15 @@ func stripFillerLines(reply string) string {
 func (e *Engine) workspaceStillWorking(sessionKey string) bool {
 	running, _ := newHandoffWatch(e).workspaceBackgroundProgress(chatOf(sessionKey), time.Now())
 	return running
+}
+
+// spaceExitLines puts one blank line between the non-empty lines of a post.
+func spaceExitLines(s string) string {
+	var out []string
+	for _, l := range strings.Split(s, "\n") {
+		if strings.TrimSpace(l) != "" {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "\n\n")
 }
