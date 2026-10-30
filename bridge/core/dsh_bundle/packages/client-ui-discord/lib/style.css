@@ -1559,6 +1559,111 @@
   display: block;
 }
 
+.dshc_imageAttachment {
+  align-content: start;
+  max-width: 100%;
+  display: grid;
+}
+
+.dshc_imagePreviewTrigger {
+  cursor: zoom-in;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  grid-area: 1 / 1;
+  padding: 0;
+}
+
+.dshc_imagePreviewTrigger:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+}
+
+.dshc_imagePreviewDialog {
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: 90vw;
+  max-height: 90dvh;
+  overflow: auto;
+}
+
+.dshc_imagePreviewHeader {
+  flex-shrink: 0;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  display: flex;
+}
+
+.dshc_imagePreviewHeader span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.dshc_imagePreviewHeader button {
+  flex-shrink: 0;
+}
+
+.dshc_imagePreviewImage {
+  object-fit: contain;
+  align-self: center;
+  max-width: 100%;
+  min-height: 0;
+  max-height: 65dvh;
+  display: block;
+}
+
+.dshc_imagePreviewActions {
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 8px;
+  display: flex;
+}
+
+.dshc_imagePreviewActions a {
+  text-decoration: none;
+}
+
+.dshc_imagePreviewActions button:disabled {
+  cursor: wait;
+  opacity: .5;
+}
+
+.dshc_attachmentActions {
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-base);
+  opacity: 0;
+  pointer-events: none;
+  flex-wrap: wrap;
+  grid-area: 1 / 1;
+  place-self: start end;
+  gap: 4px;
+  margin: 4px;
+  padding: 4px;
+  display: flex;
+}
+
+.dshc_attachmentActions a {
+  text-decoration: none;
+}
+
+.dshc_attachmentActions button:disabled {
+  cursor: wait;
+  opacity: .5;
+}
+
+.dshc_imageAttachment:hover .dshc_attachmentActions, .dshc_imageAttachment:focus-within .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state="error"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state="copying"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state="copied"] .dshc_attachmentActions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none), (pointer: coarse), (width <= 768px) {
+  .dshc_attachmentActions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .dshc_attachmentThumb {
   object-fit: cover;
   vertical-align: middle;
