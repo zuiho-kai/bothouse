@@ -105,22 +105,6 @@ func (e *Engine) workspaceOwner(channelID string) (string, bool) {
 	return parent, true
 }
 
-// parseExitKind reads an [ask] / [report] marker on the reply's first line.
-func parseExitKind(text string) (kind, body string, ok bool) {
-	t := strings.TrimLeft(text, " \t\r\n")
-	for _, k := range []string{exitKindAsk, exitKindReport} {
-		tag := "[" + k + "]"
-		if len(t) >= len(tag) && strings.EqualFold(t[:len(tag)], tag) {
-			body = strings.TrimSpace(t[len(tag):])
-			if body == "" {
-				return "", "", false
-			}
-			return k, body, true
-		}
-	}
-	return "", "", false
-}
-
 // sessionChannel is the channel id inside "<platform>:<channel>[:<user>]".
 func sessionChannel(sessionKey string) string {
 	parts := strings.SplitN(sessionKey, ":", 3)
@@ -171,30 +155,19 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		// 为什么没返回」).
 		kind, body, ok, auto = exitKindReport, strings.TrimSpace(reply), true, true
 	}
-	var problems []string
-	if ok && kind == exitKindAsk {
-		problems = askEvidenceProblems(body)
-	}
 	// The first line's #id and sentence are posted as written (team_exit_headline.go); once the
 	// bounces stop waking the bot, a reply still without them takes the old path (legacy).
+	var problems []string
 	var hid int
 	var hline string
 	var item *teamTaskBoardItem
 	legacy := false
 	if ok {
-		var hp []string
-		if auto {
-			hp = []string{exitMissingMarker}
-		} else if hid, hline, hp = exitHeadline(body); hp == nil {
-			if item = e.boardItemByID(hid); item == nil {
-				hp = []string{exitUnknownID + "（#" + strconv.Itoa(hid) + "）"}
-			}
-		}
-		if hp != nil && problems == nil && e.exitBounceCount(sessionKey) >= askBounceWakeLimit {
-			legacy = true
-		} else {
-			problems = append(problems, hp...)
-		}
+		v := judgeExit(kind, body, auto, func(id int) bool {
+			item = e.boardItemByID(id)
+			return item != nil
+		}, e.exitBounceCount(sessionKey))
+		problems, hid, hline, legacy = v.Problems, v.ID, v.Line, v.Legacy
 	}
 	if problems == nil {
 		// Any reply without a bounced [ask] ends the run of bounces.
@@ -202,8 +175,11 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	}
 	if !ok || p == nil {
 		// Most turns carry no marker; only complain when one exists but did not start the reply.
-		if p != nil && (strings.Contains(reply, "["+exitKindReport+"]") || strings.Contains(reply, "["+exitKindAsk+"]")) {
-			slog.Warn("team exit: marker is not on the first line, nothing forwarded", "session", sessionKey)
+		for _, k := range exitRules.Kinds {
+			if p != nil && strings.Contains(reply, strings.ReplaceAll(exitRules.Mark, "{kind}", k)) {
+				slog.Warn("team exit: marker is not on the first line, nothing forwarded", "session", sessionKey)
+				break
+			}
 		}
 		return ""
 	}
@@ -384,40 +360,41 @@ func (e *Engine) postExitOriginal(p Platform, rc any, parent, ws, bot, kind, bod
 // open for it (or one without an item) counts as work in progress.
 func (e *Engine) workspaceTaskStopped(sessionKey string, named *teamTaskBoardItem) (int, bool) {
 	key := teamChatKey(sessionKey)
-	if named != nil {
-		w := named.WS
-		if w == "" {
-			w = named.WSWas
-		}
-		if w != "" && teamChatKey(w) == key {
-			if e.workspaceHasOpenHandoffFor(sessionKey, named.ID) {
-				return 0, false
-			}
-			return named.ID, boardItemStopped(named)
-		}
-	}
-	if e.workspaceHasOpenHandoff(sessionKey) {
-		return 0, false
-	}
-	dir := e.teamStatusDir()
-	if dir == "" {
-		return 0, false
-	}
-	var last *teamTaskBoardItem
-	items := readTeamTaskBoard(dir)
-	for i := range items {
-		it := &items[i]
+	here := func(it *teamTaskBoardItem) bool {
 		w := it.WS
 		if w == "" {
 			w = it.WSWas
 		}
-		if w == "" || teamChatKey(w) != key {
-			continue
-		}
-		if last == nil || it.Bound > last.Bound {
-			last = it
-		}
+		return w != "" && teamChatKey(w) == key
 	}
+	var items []teamTaskBoardItem
+	if dir := e.teamStatusDir(); dir != "" {
+		items = readTeamTaskBoard(dir)
+	}
+	namedID := 0
+	cands := make([]exitTaskCand, 0, len(items)+1)
+	if named != nil {
+		// named may already be among the finished items; it is judged all the same.
+		namedID = named.ID
+		cands = append(cands, exitTaskCand{ID: named.ID, Here: here(named), Bound: named.Bound})
+	}
+	byID := map[int]*teamTaskBoardItem{}
+	for i := range items {
+		it := &items[i]
+		byID[it.ID] = it
+		cands = append(cands, exitTaskCand{ID: it.ID, Here: here(it), Bound: it.Bound})
+	}
+	pick := exitTaskPick(namedID, cands)
+	if pick != 0 && pick == namedID {
+		if e.workspaceHasOpenHandoffFor(sessionKey, named.ID) {
+			return 0, false
+		}
+		return named.ID, boardItemStopped(named)
+	}
+	if e.workspaceHasOpenHandoff(sessionKey) {
+		return 0, false
+	}
+	last := byID[pick]
 	if !boardItemStopped(last) {
 		return 0, false
 	}

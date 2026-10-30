@@ -5,29 +5,6 @@ import (
 	"testing"
 )
 
-func TestAskEvidenceProblems(t *testing.T) {
-	for body, want := range map[string][]string{
-		"用 A 还是 B？":                                 {askMissingSelfCheck, askMissingCategory},
-		"用 A 还是 B？\n类别：验收":                          {askMissingSelfCheck},
-		"用 A 还是 B？\n自验：go test 通过":                  {askMissingCategory},
-		"用 A 还是 B？\n自验：\n类别：":                       {askMissingSelfCheck, askMissingCategory},
-		"合不合？\n自验：无需\n类别：验收":                        {askNoCheckNotExempt},
-		"选哪条路？\n自验：无需\n类别：方向":                       nil,
-		"要充值 20 美元\n自验：无需\n类别：花钱":                   nil,
-		"看一下成片\n自验：无需\n类别：需要用户看的成品":                 nil,
-		"点一下授权\n自验: 无需\n类别: 权限确认":                   nil,
-		"合不合？\n自验：\n```\nok  core 1.2s\n```\n类别：验收": nil,
-		"合不合？\n类别：验收\n自验：截图 /tmp/a.png":             nil,
-		"选哪条路？\n自验\u3000：无需\u3000\n类别\u3000：方向":     nil,
-		"合不合？\n自验：无需\u3000看过\n类别：验收":                {askNoCheckNotExempt},
-	} {
-		got := askEvidenceProblems(body)
-		if strings.Join(got, "|") != strings.Join(want, "|") {
-			t.Errorf("askEvidenceProblems(%q) = %q, want %q", body, got, want)
-		}
-	}
-}
-
 func TestWorkspaceAskWithoutEvidenceGoesBack(t *testing.T) {
 	for reply, want := range map[string][]string{
 		"[ask]\n用 A 还是 B？\n类别：验收":         {"缺「自验：」"},
@@ -98,17 +75,17 @@ func TestWorkspaceReportNeedsNoEvidence(t *testing.T) {
 	}
 }
 
-// Only the first askBounceWakeLimit bounces in a row wake the bot; a good ask resets.
+// Only the first exitRules.Bounce.WakeLimit bounces in a row wake the bot; a good ask resets.
 func TestAskBounceWakeLimit(t *testing.T) {
 	e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
 	e.cancel() // no posts or turns: only the counter is under test
-	for i := 0; i < askBounceWakeLimit+1; i++ {
+	for i := 0; i < exitRules.Bounce.WakeLimit+1; i++ {
 		e.forwardWorkspaceExit(p, exitWSKey, "[ask]\n问一下")
 	}
 	e.teamExit.mu.Lock()
 	n := e.teamExit.bounces[exitWSKey]
 	e.teamExit.mu.Unlock()
-	if n != askBounceWakeLimit+1 {
+	if n != exitRules.Bounce.WakeLimit+1 {
 		t.Fatalf("bounces = %d", n)
 	}
 	e.forwardWorkspaceExit(p, exitWSKey, "[ask]\n问一下\n自验：无需\n类别：方向")
@@ -129,10 +106,10 @@ func TestAskBounceResetByPlainReply(t *testing.T) {
 		defer e.teamExit.mu.Unlock()
 		return e.teamExit.bounces[exitWSKey]
 	}
-	for i := 0; i < askBounceWakeLimit; i++ {
+	for i := 0; i < exitRules.Bounce.WakeLimit; i++ {
 		e.forwardWorkspaceExit(p, exitWSKey, "[ask]\n问一下")
 	}
-	if n := count(); n != askBounceWakeLimit {
+	if n := count(); n != exitRules.Bounce.WakeLimit {
 		t.Fatalf("bounces = %d", n)
 	}
 	e.forwardWorkspaceExit(p, exitWSKey, "好，我先自己查一下")
