@@ -91,7 +91,7 @@ func TestForwardReportLogsSuccess(t *testing.T) {
 	})
 
 	exitBoardItem(t, e, 7, "活")
-	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 背景：你让我做这件事。\n好了\n要你做的：没有。")
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 背景：你让我做这件事。\n好了\n要你做的：没有。\n我加的：无")
 	if got := p.sentTo("discord:chat1"); len(got) != 1 {
 		t.Fatalf("chat1 got %q", got)
 	}

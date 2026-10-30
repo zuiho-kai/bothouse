@@ -26,3 +26,21 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - feishu: 已接
 - cloud-web: 已接
 - dsh: 已接
+
+## DetailThreadSender
+
+工作区交回时，正文发到聊天频道、细节放进正文下的子话题（core/team_exit.go postWorkspaceExit）。10-30 起细节不再发给用户（postReportDetail=false），这条路目前不走；没接的平台退回到「正文后再发一条细节」。
+
+- discord: 已接
+- feishu: 不支持：细节已停发，飞书的话题回复要先拿到第一条消息的 id 再 reply_in_thread，没有真实飞书环境验证前不接；细节恢复时再接
+- cloud-web: 不支持：Channels 没有子话题，只能顺着发第二条，就是 core 的默认退路
+- dsh: 不支持：同 cloud-web
+
+## TaskThreadTarget
+
+工作区每一步的进度卡复制进任务卡的子话题（core/task_thread_progress.go）。core 按 Task.ThreadID 找子话题。
+
+- discord: 已接
+- feishu: 不支持：飞书任务卡的事件是对卡片消息的话题回复，不填 Task.ThreadID，进度卡也不能在话题里原地编辑；要接得先给飞书任务卡填话题 id 并在真实飞书上验证
+- cloud-web: 不支持：Channels 没有任务子话题（PublishTaskFact 也是空实现），进度只在卡片本身
+- dsh: 不支持：同 cloud-web
