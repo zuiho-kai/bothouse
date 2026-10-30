@@ -44,6 +44,23 @@ func (e *Engine) workspaceHasOpenHandoff(sessionKey string) bool {
 	return false
 }
 
+// workspaceHasOpenHandoffFor: an open handoff to the workspace of sessionKey is for board item
+// board, or records no item.
+func (e *Engine) workspaceHasOpenHandoffFor(sessionKey string, board int) bool {
+	if e == nil || e.dataDir == "" || sessionKey == "" {
+		return false
+	}
+	key := teamChatKey(sessionKey)
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	for _, h := range loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key] {
+		if teamHandoffOpen(h) && (h.Board == board || h.Board == 0) {
+			return true
+		}
+	}
+	return false
+}
+
 // wakeChatLead hands a workspace reply to the lead of chat channel parent as one queued turn,
 // so it tells the user what matters; it reports whether the turn was queued (false: the caller
 // posts the original instead). Loop guard: the turn runs in the chat channel's session (no
