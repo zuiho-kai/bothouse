@@ -35,11 +35,14 @@ func TestReplyTaskIDOnlyPlatformEndToEnd(t *testing.T) {
 	e.ReceiveMessage(p, &Message{SessionKey: wsKey, Platform: "idonly", ChannelID: "ws1", MessageID: "go", UserID: "human", UserName: "瑞凤", Content: "开工", Mentioned: true, ReplyCtx: wsKey})
 	inputPrompt(t, ag)
 	inputDone(ag, "[report] #7 背景：你让我做这件事。\n登录不再掉线了\n要你做的：没有。\n改了重连逻辑，已在本机验过")
-	inputWait(t, func() bool { return len(p.sentTo("idonly:chat1")) == 1 })
+	// The three parts, then the details in a second post (no threads on this platform).
+	inputWait(t, func() bool { return len(p.sentTo("idonly:chat1")) == 2 })
 	var postID, post string
 	p.mu.Lock()
 	for id, text := range p.ids {
-		postID, post = id, text
+		if strings.HasPrefix(text, "📬「") {
+			postID, post = id, text
+		}
 	}
 	p.mu.Unlock()
 	if postID == "" || e.replyTaskBoard(postID) != 7 {
@@ -50,7 +53,7 @@ func TestReplyTaskIDOnlyPlatformEndToEnd(t *testing.T) {
 		Reference: &MessageReference{ID: postID, Text: post}})
 	got := inputPrompt(t, ag)
 	inputDone(ag, "好")
-	for _, want := range []string{"任务板 #7「修登录」", "总目标：\n- 登录不再掉线", "被回复的消息：", "改了重连逻辑", "那顺便把注册也看看"} {
+	for _, want := range []string{"任务板 #7「修登录」", "总目标：\n- 登录不再掉线", "被回复的消息：", "登录不再掉线了", "那顺便把注册也看看"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("reply prompt missing %q in %q", want, got)
 		}
