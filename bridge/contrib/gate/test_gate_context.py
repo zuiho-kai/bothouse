@@ -70,10 +70,52 @@ class T(unittest.TestCase):
         g = load_gate()
         me = g.lead.current()
         g.tasks[me] = types.SimpleNamespace(score=lambda *a, **k: types.SimpleNamespace(choice=3, probs=[0, 0, 0, 1]))
+        g.sub_task = g.tasks[me]  # 忙时被叫按 SUB_PROMPT 判（busy_action），D = 要她停
         d = lambda c, m, b: g.decide({"content": c, "mentioned": m, "busy": b, "session_key": "t:1"}, me)[0]
         self.assertEqual(d("暂停", True, True), "abort")
         self.assertEqual(d(g.NAMES[me][0] + " 暂停", False, True), "abort")
         self.assertEqual(d("暂停", True, False), "reply")
+
+    def test_busy_intent_combines_with_no_insert(self):
+        """忙时按意思（sub_task 四选一）合成动作：要她停 → 打断；等她回话 → 插得进就照常、插不进（no_insert）就打断；
+        补充 → 插话（插不进由 cc-connect 排队），不打断。用户 2026-10-30「我给你用jev，就是让你智能化」。"""
+        g = load_gate()
+        sub = next(iter(g.SUBS))
+        pick = {}
+        g.sub_task = types.SimpleNamespace(score=lambda text, **k: types.SimpleNamespace(choice=pick["c"], probs=[0] * 4))
+        def d(c, no_insert, choice, content=None):
+            pick["c"] = choice
+            req = {"content": content or f"[replying to {g.SUBS[sub]}: 好]\n{c}", "mentioned": False, "busy": True,
+                   "session_key": "t:1", "no_insert": no_insert}
+            return g.decide_sub(req, sub)[0]
+        self.assertEqual(d("怎么那么简单功能改那么久", True, 2), "abort")   # 催她、插不进：打断后回
+        self.assertEqual(d("你卡在哪了，先回我", True, 2), "abort")
+        self.assertEqual(d("你卡在哪了，先回我", False, 2), "reply")      # 插得进：照常回（插进这一轮）
+        self.assertEqual(d("顺便把 X 也改了", True, 1), "reply")          # 补充：不打断，插不进由 cc-connect 排队
+        self.assertEqual(d("暂停", False, 3), "abort")
+        # 没叫她、和手上的任务相关：补充 → insert，等她回话且插不进 → abort，无关 → context
+        g.current_task[(sub, "t:1")] = "修登录页"
+        self.assertEqual(d("", True, 1, content="登录页按钮也要改"), "insert")
+        self.assertEqual(d("", True, 2, content="登录页好了没"), "abort")
+        self.assertEqual(d("", True, 0, content="晚饭吃啥"), "context")
+
+    def test_busy_interjection_keeps_task(self):  # 忙时插话不覆盖她手上的任务，打断后换成新的这句
+        g = load_gate()
+        sub = next(iter(g.SUBS))
+        seen = []
+        def score(text, **k):
+            seen.append(text)
+            return types.SimpleNamespace(choice=pick, probs=[0] * 4)
+        g.sub_task = types.SimpleNamespace(score=score)
+        name = g.SUBS[sub]
+        pick = 1
+        g.decide_sub({"content": f"{name}，把登录页修一下", "busy": False, "session_key": "t:1"}, sub)
+        g.decide_sub({"content": f"[replying to {name}: 好]\n顺便看下注册页", "busy": True, "session_key": "t:1"}, sub)
+        self.assertIn("正在做的任务：「" + name + "，把登录页修一下」", seen[-1])
+        self.assertEqual(g.current_task[(sub, "t:1")], name + "，把登录页修一下")
+        pick = 3
+        g.decide_sub({"content": f"[replying to {name}: 好]\n别弄了，先查日志", "busy": True, "session_key": "t:1"}, sub)
+        self.assertEqual(g.current_task[(sub, "t:1")], "别弄了，先查日志")
 
     def test_single_role_decide_always_replies(self):
         """单角色（gate-team.json 没有 subs）：不打分；忙时被 @ 叫停/改做回 abort，其余 reply，没 jev 也一样。"""
