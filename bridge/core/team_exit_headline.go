@@ -9,8 +9,8 @@ import (
 )
 
 // Headline of a workspace [report]/[ask] (user 2026-10-28 「工作区完成了，他没有回报给你」→「做」;
-// 10-30 three parts): `[report] #<board id> 背景：…`, then what was done, then 「要你做的：…」. The
-// bridge posts those three parts as written in the chat channel, named by the board item the id
+// 10-30 four parts): `[report] #<board id> 背景：…`, then what was done, then 「要你做的：…」, then
+// 「我加的：…」. The bridge posts those four parts as written in the chat channel, named by the board item the id
 // points at; the lines after them go under that post (postWithDetail). A reply without the id
 // or the parts goes back to the workspace (bounceWorkspaceExit); after the bounce limit the chat
 // lead rewrites it in the same parts, so it is never dropped.

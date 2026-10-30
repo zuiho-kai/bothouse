@@ -22,6 +22,7 @@ const JARGON_TABLE = new RegExp(RULES.jargon.table_re);
 const BACKGROUND = new RegExp(RULES.summary.background_re);
 const TODO = new RegExp(RULES.summary.todo_re);
 const DETAIL = new RegExp(RULES.summary.detail_re);
+const ADDED = new RegExp(RULES.summary.added_re);
 // Consecutive bounces that still wake the asking member; later ones are only posted.
 const BOUNCE_WAKE_LIMIT = RULES.bounce.wake_limit;
 
@@ -56,7 +57,7 @@ export function exitHeadline(body) {
 
 /**
  * { summary, detail } of a marked body (Go: exitSplit): after the first line's #id, up to and
- * including the 「要你做的：」 line is posted for the user; the lines after it go under that post.
+ * including the 「我加的：」 line (else the 「要你做的：」 line) is posted for the user; the lines after it go under that post.
  */
 export function exitSplit(body) {
   let lines = String(body ?? '').replaceAll('\r\n', '\n').split('\n');
@@ -64,6 +65,10 @@ export function exitSplit(body) {
   if (m) lines[0] = m[2];
   while (lines.length && !lines[0].trim()) lines.shift();
   let end = lines.findIndex(l => TODO.test(l));
+  if (end >= 0) {
+    const added = lines.findIndex((l, i) => i > end && ADDED.test(l));
+    if (added >= 0) end = added;
+  }
   if (end < 0) {
     const blank = lines.findIndex(l => !l.trim());
     end = blank < 0 ? lines.length - 1 : blank - 1;
@@ -75,7 +80,7 @@ export function exitSplit(body) {
   return { summary, detail: rest.join('\n').trim() };
 }
 
-/** What the part for the user lacks: background, what was done, what the user is to do (Go: summaryProblems). */
+/** What the part for the user lacks: background, what was done, what the user is to do, what the agent added (Go: summaryProblems). */
 export function summaryProblems(summary) {
   const lines = String(summary).split('\n');
   const problems = [];
@@ -90,6 +95,7 @@ export function summaryProblems(summary) {
   }
   if (!done) problems.push(RULES.summary.missing_done);
   if (todo < 0) problems.push(RULES.summary.missing_todo);
+  if (!lines.some(l => ADDED.test(l))) problems.push(RULES.summary.missing_added);
   return problems;
 }
 
