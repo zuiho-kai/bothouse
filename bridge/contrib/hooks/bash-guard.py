@@ -73,6 +73,9 @@ def deny(reason):
 TIMEOUT = re.compile(r"(^|[\s;&|(])(g?timeout\s|perl\s+-e\s+['\"]alarm)")
 TAILPIPE = re.compile(r"\|\s*(tail|head)\b")
 
+# ws-forward 里表示「改方向」的说法：纠正、叫停、改做法、用户嫌不对
+FWD_CHANGE = re.compile(r"纠正|改方向|方向不符|不符合|跑偏|跑完(就|再)|停掉|停下|叫停|别再|不再|改法|改成|改用|换成|一坨屎")
+
 def check_background(cmd):
     if "# long-running-ok" in cmd:
         return
@@ -467,6 +470,11 @@ def main():
         if sys.platform == "darwin" and "# tcc-ok" not in cmd and t[:2] == ["go", "build"] and re.search(r"-o\s+\S*bothouse", seg):
             deny("不要直接 go build -o 覆盖正在用的 bothouse：macOS 上签名会变回 ad-hoc，TCC 授权失效。"
                  "编到别的路径，再用原来的证书 codesign 后替换；确实要覆盖就在命令末尾加 `# tcc-ok`。")
+        if any(x.endswith("ws-forward") for x in t[:1]) and "--interrupt" not in t and "# queue-ok" not in cmd \
+                and FWD_CHANGE.search(seg):
+            deny("这条 ws-forward 是在改工作区的方向（纠正、叫停、改做法），却没加 --interrupt：话会排到工作区这一轮跑完才到，"
+                 "错的那部分会接着跑完。改方向一律加 --interrupt 当场插进去，也不要写「跑完再停」。"
+                 "确实只是补充信息、不改做法，就在命令末尾加 `# queue-ok`。\n被拦的片段：" + seg.strip()[:200])
     direct_ok = not PROXY_URL or "# direct-ok" in cmd or PROXY.search(cmd)
     for seg in ([] if direct_ok else segments(cmd)):
         if not is_download(seg):
