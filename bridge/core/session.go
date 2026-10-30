@@ -91,10 +91,9 @@ type TurnCtxSent struct {
 	LeadHandoffAt time.Time `json:"lead_handoff_at,omitempty"`
 	// Rules is a hash of the team-mode rules this context got (teamRulesOnce).
 	Rules string `json:"rules,omitempty"`
-	// ContextTokens is the agent's last reported prompt size, and SentBytes what the bridge sent
-	// since the rules went out, for agents that do not report compaction (checkRulesContext).
+	// ContextTokens is the agent's last reported prompt size, for agents that do not report
+	// compaction (checkRulesContext).
 	ContextTokens int `json:"context_tokens,omitempty"`
-	SentBytes     int `json:"sent_bytes,omitempty"`
 	// ReplyTasks: the work (reply_task.go key) whose background a reply already brought.
 	ReplyTasks []string `json:"reply_tasks,omitempty"`
 }
@@ -240,20 +239,6 @@ func (s *Session) noteContextTokens(tokens int) {
 		s.TurnCtx = &TurnCtxSent{}
 	}
 	s.TurnCtx.ContextTokens = tokens
-}
-
-// noteSentBytes adds a prompt to what this context received since the rules; past
-// rulesResendBytes the rules are due again (checkRulesContext).
-func (s *Session) noteSentBytes(n int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.TurnCtx == nil {
-		s.TurnCtx = &TurnCtxSent{}
-	}
-	s.TurnCtx.SentBytes += n
-	if s.TurnCtx.SentBytes >= rulesResendBytes {
-		s.TurnCtx.Rules, s.TurnCtx.SentBytes = "", 0
-	}
 }
 
 // ResetTurnCtx forgets what was sent: the agent's context was compacted or replaced.

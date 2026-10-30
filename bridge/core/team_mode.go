@@ -87,7 +87,7 @@ func (e *Engine) DispatchMode() string { return e.dispatchMode.get() }
 // withTeamModeRules prefixes the team-mode rules of the project's mode when this
 // delivery must carry them (teamRulesOnce).
 func (e *Engine) withTeamModeRules(prompt string, session *Session, agent Agent) string {
-	e.checkRulesContext(session, agent, len(prompt))
+	e.checkRulesContext(session, agent)
 	return prefixRules(e.teamRulesOnce(teamModeRulesFor(e.DispatchMode()), session, agent), prompt)
 }
 
@@ -114,42 +114,44 @@ func (e *Engine) teamRulesOnce(rules string, session *Session, agent Agent) stri
 	return rules
 }
 
-const (
-	// rulesResendBytes: an agent that reports neither its compaction nor its context size (acp) gets
-	// the rules again after the bridge has sent it this many prompt bytes in one context. Tool output
-	// and replies make the real context several times larger, so this is roughly one compaction cycle
-	// of a 200k-token model; the repeat costs about 6 KB per 100 KB sent.
-	rulesResendBytes = 100_000
-	// A context that shrinks below this share of its last size between turns was compacted.
-	rulesCompactedRatio = 2
-)
+// A context that shrinks below this share of its last size between turns was compacted.
+const rulesCompactedRatio = 2
+
+// ContextSizeReader is optional for an Agent (maomao fork): the prompt size the agent last
+// reported for a session, 0 when unknown (acp: Grok's turn_completed usage).
+type ContextSizeReader interface {
+	LastContextTokens(sessionID string) int
+}
 
 // checkRulesContext notices a compaction the agent does not report (user 2026-10-30「为什么没有通用化，
 // 并且支持我们现在几个cli」). Agents with ContextCompactionReporter (claudecode, codex) already reset
-// TurnCtx through MetaContextCompacted. Agents whose transcript gives the prompt size
-// (SessionHandoffReader: dsh, antigravity) are compacted when that size falls below half its last
-// value. The rest (acp) are assumed compacted once rulesResendBytes have been sent, and get the
-// rules again then. A new agent session already starts an empty TurnCtx (SetAgentSessionID).
-func (e *Engine) checkRulesContext(session *Session, agent Agent, sent int) {
+// TurnCtx through MetaContextCompacted. Agents whose transcript (SessionHandoffReader: dsh,
+// antigravity) or live usage (ContextSizeReader: acp/Grok) gives the prompt size are compacted when
+// that size falls below half its last value. An agent that reports none of these keeps the rules
+// for the life of its session; a new agent session already starts an empty TurnCtx
+// (SetAgentSessionID).
+func (e *Engine) checkRulesContext(session *Session, agent Agent) {
 	if session == nil {
 		return
 	}
 	if r, ok := agent.(ContextCompactionReporter); ok && r.ReportsContextCompaction() {
 		return
 	}
-	if r, ok := agent.(SessionHandoffReader); ok {
-		id := session.GetAgentSessionID()
-		if id == "" || id == ContinueSession {
-			return
-		}
-		h, err := r.ReadSessionHandoff(id)
-		if err != nil || h.ContextTokens <= 0 {
-			return
-		}
-		session.noteContextTokens(h.ContextTokens)
+	id := session.GetAgentSessionID()
+	if id == "" || id == ContinueSession {
 		return
 	}
-	session.noteSentBytes(sent)
+	tokens := 0
+	if r, ok := agent.(SessionHandoffReader); ok {
+		if h, err := r.ReadSessionHandoff(id); err == nil {
+			tokens = h.ContextTokens
+		}
+	} else if r, ok := agent.(ContextSizeReader); ok {
+		tokens = r.LastContextTokens(id)
+	}
+	if tokens > 0 {
+		session.noteContextTokens(tokens)
+	}
 }
 
 // TeamModeWorkspaceInstructions is the shared opening brief for a new workspace in the given mode.
