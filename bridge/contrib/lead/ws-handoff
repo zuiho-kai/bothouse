@@ -1,6 +1,7 @@
 #!/usr/bin/env -S python3 -I
 # 把一整块大活交给「工作区」频道里的主角色：检查交接文件，再用 cc-connect timer 叫她开工，输出 timer id。
-# 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名] [--guard 时长]
+# 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名] [--guard 时长] [--confirmed]
+#   --confirmed：交接标了「类别：出图/改用户文档/定方向」时，用户看过「派活人自己定的」清单后才带（见 own_gate）。
 #   --guard：兜底定时器时长（默认 30m，按活的大小改，如 90m、2h）。交出后在本聊天频道挂上，到点工作区还没交回就叫醒
 #   本频道主角色去查；工作区交回 [report]、[ask] 让出、暂停、改派时任务板自动撤（../gate/board.py arm_guard）。
 #       ws-handoff --drain                        排队的活按先后接到空出来的工作区（桥放回工作区后调）
@@ -43,6 +44,53 @@ QUEUE = _team.SETUP / "ws-queue.json"  # 排队的活：[{nid, path, task, chat,
 def check_notes(text: str):
     """交接文件不合格时返回报错文字（含要补什么和示例），合格返回 None。规则在 handoff-rules.json（_handoff_rules.py）。"""
     return _handoff_rules.check(text)
+
+
+# 三类活（出图、改用户文档、定方向）派出去前，派活人自己定的决定单列给用户看一眼：交接里写一行「类别：出图」，
+# 加「## 派活人自己定的」节（每条一行，没有写「无」）；不带 --confirmed 时只打出清单不交出，用户看过再带 --confirmed 重跑。
+# 来源：10-30 第三轮重放，只有「派活人单列自己定的主意给用户看」拦住了返工（用户「可以试一下」）。其他类的活不受影响。
+GATED = ("出图", "改用户文档", "定方向")
+OWN = "派活人自己定的"
+OWN_EXAMPLE = "类别：出图\n## 派活人自己定的\n- 画风照上次头像，不换\n- 尺寸 1024×1024"
+
+
+def gated_kind(text: str):
+    for l in text.splitlines():
+        m = re.match(r"类别\s*[:：]\s*(.+)", l.lstrip("#-*> \t"))
+        if m:
+            hit = [k for k in GATED if k in m.group(1)]
+            if hit:
+                return hit[0]
+    return None
+
+
+def own_decisions(text: str):
+    """「派活人自己定的」节里的每一行（去掉 -、* 等前缀，空行不算）；没有这一节返回 None。"""
+    lines, out, found = text.splitlines(), [], False
+    for i, l in enumerate(lines):
+        if l.lstrip().startswith("#") and OWN in l:
+            found = True
+            for x in lines[i + 1:]:
+                if x.lstrip().startswith("#"):
+                    break
+                if x.strip("-*> \t"):
+                    out.append(x.strip("-*> \t"))
+    return out if found else None
+
+
+def own_gate(text: str, confirmed: bool):
+    """三类活没过确认时返回要打给派活人的话（不交出），否则 None。"""
+    kind = gated_kind(text)
+    if not kind:
+        return None
+    own = own_decisions(text)
+    if not own:
+        return (f"这件是「{kind}」类，交接要有「{OWN}」节：用户原话里没有、你自己定的决定每条一行，没有写「无」。示例：\n"
+                f"{OWN_EXAMPLE}")
+    if confirmed:
+        return None
+    return (f"这件是「{kind}」类，还没交出。先把下面这份清单原样贴给用户，用户回过（没拦或改完交接）再加 --confirmed 重跑：\n"
+            f"{OWN}：\n" + "\n".join(f"- {x}" for x in own))
 
 
 def fixed_channel(chat: str) -> str:
@@ -291,6 +339,8 @@ def main(argv):
         if not GUARD or not re.fullmatch(r"(\d+h)?(\d+m)?", GUARD):
             sys.exit("ws-handoff: --guard 要写时长，如 30m、90m、2h")
         argv = argv[:k] + argv[k + 2:]
+    confirmed = "--confirmed" in argv
+    argv = [a for a in argv if a != "--confirmed"]
     short_name = None
     if "--short" in argv:
         k = argv.index("--short")
@@ -302,12 +352,16 @@ def main(argv):
     if not os.path.isfile(path):
         sys.exit(f"ws-handoff: 交接文件不存在 {path}\n{USAGE}")
     with open(path, encoding="utf-8") as fh:
+        notes = fh.read()
         try:
-            err = check_notes(fh.read())
+            err = check_notes(notes)
         except RuntimeError as e:  # 规则文件读不到或写坏：报错不放行
             sys.exit(f"ws-handoff: {e}")
     if err:
         sys.exit(f"ws-handoff: {err}")
+    gate = own_gate(notes, confirmed)
+    if gate:
+        sys.exit(f"ws-handoff: {gate}")
     chat = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
     parent = ""  # 走共享池时交接记在桥里的聊天频道；叫醒失败按它撤掉刚 claim 的那件
     if _team.workspace():
