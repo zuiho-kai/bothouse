@@ -435,6 +435,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		g.mu.Lock()
 		g.dropBuffered(interactiveKey, len(buffered))
 		g.mu.Unlock()
+		e.noteInjectedMessage(interactiveKey, msg.MessageID)
 		e.reply(p, msg.ReplyCtx, "↪ 已插入")
 		return true
 	}

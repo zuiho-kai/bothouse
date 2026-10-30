@@ -55,7 +55,17 @@
     { "name": "ask lacking evidence still goes back after the bounce limit", "reply": "[ask] #1 合不合？\n自验：无需\n类别：验收", "known": [1], "bounces": 5,
       "want": { "kind": "ask", "id": 1, "line": "合不合？", "problems": ["ask.no_check_not_exempt"], "legacy": false } },
     { "name": "ask with evidence but unknown id after the bounce limit goes out without headline", "reply": "[ask] #9 合不合？\n自验：go test ok\n类别：验收", "known": [1], "bounces": 2,
-      "want": { "kind": "ask", "id": 9, "line": "合不合？", "problems": [], "legacy": true } }
+      "want": { "kind": "ask", "id": 9, "line": "合不合？", "problems": [], "legacy": true } },
+    { "name": "sentence names a PR and a workspace", "reply": "[report] #7 !9300 已提，工作区2 实测过", "known": [7], "bounces": 0,
+      "want": { "kind": "report", "id": 7, "line": "!9300 已提，工作区2 实测过", "problems": ["jargon.line:!9300、工作区2"], "legacy": false } },
+    { "name": "sentence names a branch", "reply": "[report] #7 改动在 fix/retro-forward 上", "known": [7], "bounces": 0,
+      "want": { "kind": "report", "id": 7, "line": "改动在 fix/retro-forward 上", "problems": ["jargon.line:fix/retro-forward"], "legacy": false } },
+    { "name": "body holds a table", "reply": "[report] #7 做完了，免费模型能开全双工\n| 项 | 结果 |\n|---|---|\n| 实测 | 过 |", "known": [7], "bounces": 0,
+      "want": { "kind": "report", "id": 7, "line": "做完了，免费模型能开全双工", "problems": ["jargon.table"], "legacy": false } },
+    { "name": "numbers in the detail lines are fine", "reply": "[report] #7 做完了，免费模型能开全双工\nPR !9300，分支 fix/x，工作区2", "known": [7], "bounces": 0,
+      "want": { "kind": "report", "id": 7, "line": "做完了，免费模型能开全双工", "problems": [], "legacy": false } },
+    { "name": "wording is posted as written after the wake limit", "reply": "[report] #7 !9300 已提", "known": [7], "bounces": 2,
+      "want": { "kind": "report", "id": 7, "line": "!9300 已提", "problems": [], "legacy": false } }
   ],
   "pick": [
     { "name": "named and bound here", "named": 3,

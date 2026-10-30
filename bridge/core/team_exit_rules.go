@@ -39,11 +39,17 @@ type teamExitRulesDoc struct {
 		Extra     map[string]string `json:"extra"`
 		WakeLimit int               `json:"wake_limit"`
 	} `json:"bounce"`
+	Jargon struct {
+		LineRe  string `json:"line_re"`
+		TableRe string `json:"table_re"`
+		Line    string `json:"line"`
+		Table   string `json:"table"`
+	} `json:"jargon"`
 }
 
 type teamExitRules struct {
 	teamExitRulesDoc
-	headline, selfCheck, category, exempt, noCheck *regexp.Regexp
+	headline, selfCheck, category, exempt, noCheck, jargonLine, jargonTable *regexp.Regexp
 }
 
 // exitRules is read once from the embedded copy; a broken file fails every test that touches it.
@@ -70,6 +76,7 @@ func parseTeamExitRules(b []byte) (*teamExitRules, error) {
 	}{
 		{&r.headline, r.HeadlineRe}, {&r.selfCheck, r.Ask.SelfCheckRe}, {&r.category, r.Ask.CategoryRe},
 		{&r.exempt, r.Ask.ExemptRe}, {&r.noCheck, r.Ask.NoCheckRe},
+		{&r.jargonLine, r.Jargon.LineRe}, {&r.jargonTable, r.Jargon.TableRe},
 	} {
 		re, err := regexp.Compile(c.src)
 		if err != nil {
@@ -142,6 +149,23 @@ func askEvidenceProblems(body string) []string {
 	return problems
 }
 
+// jargonProblems: the sentence for the user names board/PR numbers, workspaces or branches, or the
+// body holds a table (user 10-30 复盘「汇报堆编号、表格、工作区代号，要追问才知道进度」).
+func jargonProblems(line, body string) []string {
+	var problems []string
+	var hits []string
+	for _, m := range exitRules.jargonLine.FindAllString(line, -1) {
+		hits = append(hits, strings.TrimLeft(m, " \t（(，,：:、"))
+	}
+	if len(hits) > 0 {
+		problems = append(problems, strings.ReplaceAll(exitRules.Jargon.Line, "{hits}", strings.Join(hits, "、")))
+	}
+	if exitRules.jargonTable.MatchString(body) {
+		problems = append(problems, exitRules.Jargon.Table)
+	}
+	return problems
+}
+
 // exitBounceText: why a workspace [ask]/[report] stayed in the workspace and how to resend it.
 func exitBounceText(kind string, problems []string) string {
 	return strings.NewReplacer(
@@ -177,6 +201,10 @@ func judgeExit(kind, body string, auto bool, known func(int) bool, bounces int) 
 		v.Legacy = true
 	} else {
 		v.Problems = append(v.Problems, hp...)
+	}
+	// Wording goes back only while bounces still wake the bot; after that it is posted as written.
+	if hp == nil && bounces < exitRules.Bounce.WakeLimit {
+		v.Problems = append(v.Problems, jargonProblems(v.Line, body)...)
 	}
 	return v
 }

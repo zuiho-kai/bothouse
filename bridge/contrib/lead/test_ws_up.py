@@ -134,6 +134,16 @@ class WsUpTest(unittest.TestCase):
         self.assertEqual(argv[argv.index("-s") + 1], "test:900")
         self.assertIn("用户说选 A", Path(notes[0]).read_text(encoding="utf-8"))
         self.assertNotIn("用户说选 A", Path(notes[1]).read_text(encoding="utf-8"))
+        self.assertNotIn("--inject-if-busy", argv)
+        # 用户改了要求（桥自动转话带 --interrupt）：插进工作区当前这一轮，提示先停旧做法
+        r = self.run_tool("ws-forward", "--interrupt", "--notes", notes[0], "验收改成选免费模型就不显示按钮", key="test:100")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        argv = [t for t in self.timers() if "工作区转交" in t][-1]
+        self.assertEqual(argv[argv.index("-s") + 1], "test:900")
+        self.assertIn("--inject-if-busy", argv)
+        self.assertEqual(argv[argv.index("--delay") + 1], "1s")
+        self.assertTrue(argv[argv.index("--prompt") + 1].startswith("打断：用户改了要求"))
+        self.assertIn("验收改成选免费模型就不显示按钮", Path(notes[0]).read_text(encoding="utf-8"))
 
 
 

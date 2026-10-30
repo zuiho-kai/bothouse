@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-"""PreToolUse：用户最新一条消息只在提问、没有让 agent 去做，就拦下两类动作。
-1. 派活、转活、挂定时：命令里有 ws-handoff、ws-forward、board add、bothouse timer add、bothouse cron add。
-2. 自己动手改：编辑类工具（Edit/Write/MultiEdit/NotebookEdit，Codex 的 apply_patch；run.py 已把别的 CLI 的
+"""PreToolUse：用户最新一条消息只在提问、没有让 agent 去做，就拦下自己动手改：编辑类工具（Edit/Write/MultiEdit/NotebookEdit，Codex 的 apply_patch；run.py 已把别的 CLI 的
    编辑工具名换成这几个）。改 wiki（GATE_WIKI，默认 ~/wiki）和临时目录的放行。
-heredoc 正文和引号里的文字是数据不是命令，判派活前先去掉。
+派活、转活、任务板、定时、发消息一律放行（10-30：问进度的话曾挡住提醒工作区）。
 用户原话：payload 的 user_prompt（run.py 按 CLI 填：DSH 会话记录、Codex rollout、agy transcript），没有再读 transcript_path（Claude Code / Qoder 格式）。
 子 agent（payload 有 agent_id）是已派出的活，放行：它的 transcript_path 指向主会话的最新一句，不能拿来判。
 定时任务、别的 bot 触发的轮放行；读不到用户原话或判不准时放行；hook 自己出错时静默放行。
 例："修了么""什么进度"→ 拦；"做""可以""帮我改一下"→ 放行；"别改"→ 拦。"""
 import json, os, re, sys
 
-DISPATCH = re.compile(r"\bws-handoff\b|\bws-forward\b|\bboard\s+add\b|\bbothouse['\"]?\s+(timer|cron)\s+add\b")
 AUTO = "This request is automated or from another bot"
 # 桥在用户原话前拼的标记，取最后一个之后的段落
 ANCHORS = ("（最新，回这条）", "（用户这条明确 @ 了你或回复了你", "[Current request and context]")
@@ -27,23 +24,12 @@ AFFIRM = re.compile(r"^(可以|行|好|好的|ok|嗯|对|同意|批准|go|上|�
 STOP = re.compile(r"^\s*(不要|别|不用|先别|停)")
 ASK = re.compile(r"[？?]|吗|么|嘛|呢|什么|怎么|为什么|为啥|是不是|有没有|能不能|会不会|要不要|哪|多少|进度|状态|没$")
 
-REASON = "用户这条只在问，没让做。先回答；要做的话末尾问一句，等用户说做再派。"
 EDIT_REASON = "用户这条只在问，没让做。先回答，不改文件、不跑写操作；要改的话末尾问一句，等用户说做再改。"
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"}  # apply_patch: Codex
 WIKI = os.path.expanduser(os.environ.get("GATE_WIKI") or "~/wiki").rstrip("/")
 # 放行的位置：wiki（记忆）、临时目录
 FREE = re.compile(re.escape(WIKI) + r"(?:/|$)|^(?:/private)?/tmp/|^/var/folders/")
-# heredoc：保留 <<EOF 那一行的其余部分，去掉正文
-HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1([^\n]*)\n.*?\n\s*\2\s*(?=\n|$)", re.S)
-QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
-CMD_POS = re.compile(r"(?:^|[;&|(\n])\s*$")
-
-
-def code_text(cmd):
-    """命令里要执行的部分：去掉 heredoc 正文，引号里的文字换成 _；命令位置上的引号（'/path/bothouse' timer add）照留。"""
-    cmd = HEREDOC.sub(lambda m: "<<_" + m.group(3), cmd)
-    return QUOTED.sub(lambda m: m.group(0)[1:-1] if CMD_POS.search(cmd[:m.start()]) else "_", cmd)
 
 
 def edits(d):
@@ -113,11 +99,9 @@ def main():
     d = json.load(sys.stdin)
     if not isinstance(d, dict) or d.get("agent_id"):
         return
-    inp = d.get("tool_input") or {}
-    cmd = inp.get("command") if isinstance(inp, dict) else ""
-    cmd = cmd if isinstance(cmd, str) else ""
-    dispatch = d.get("tool_name") == "Bash" and DISPATCH.search(code_text(cmd))
-    reason = REASON if dispatch else EDIT_REASON if edits(d) else None
+    # Dispatching, forwarding, the task board, timers and sends are never stopped: a progress
+    # question ("验证怎么样了") must not block reminding a workspace (user 10-30 复盘). Only own edits are.
+    reason = EDIT_REASON if edits(d) else None
     if not reason:
         return
     prompt = d.get("user_prompt")

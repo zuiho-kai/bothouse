@@ -59,7 +59,7 @@ func exitRuleText(t *testing.T, ref string) string {
 	if !ok {
 		t.Fatalf("case names rule %q, not in %s", ref, teamExitRulesFile)
 	}
-	return strings.ReplaceAll(text, "{id}", id)
+	return strings.NewReplacer("{id}", id, "{hits}", id).Replace(text)
 }
 
 func TestTeamExitSharedCases(t *testing.T) {

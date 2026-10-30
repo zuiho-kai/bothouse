@@ -17,6 +17,8 @@ const SELF_CHECK = new RegExp(RULES.ask.self_check_re);
 const CATEGORY = new RegExp(RULES.ask.category_re);
 const EXEMPT = new RegExp(RULES.ask.exempt_re);
 const NO_CHECK = new RegExp(RULES.ask.no_check_re);
+const JARGON_LINE = new RegExp(RULES.jargon.line_re, 'g');
+const JARGON_TABLE = new RegExp(RULES.jargon.table_re);
 // Consecutive bounces that still wake the asking member; later ones are only posted.
 const BOUNCE_WAKE_LIMIT = RULES.bounce.wake_limit;
 
@@ -49,6 +51,15 @@ export function exitHeadline(body) {
   return { id: Number(m[1]), line, problems: line ? [] : [noLine] };
 }
 
+/** The sentence for the user names numbers, workspaces or branches, or the body has a table (Go: jargonProblems). */
+export function jargonProblems(line, body) {
+  const problems = [];
+  const hits = [...String(line).matchAll(JARGON_LINE)].map(m => m[0].replace(/^[ \t（(，,：:、]+/, ''));
+  if (hits.length) problems.push(RULES.jargon.line.replaceAll('{hits}', hits.join('、')));
+  if (JARGON_TABLE.test(body)) problems.push(RULES.jargon.table);
+  return problems;
+}
+
 /** Why a workspace [ask]/[report] stayed in the workspace and how to resend it (Go: exitBounceText). */
 export function exitBounceText(kind, problems) {
   const vars = { kind, problems: problems.join(RULES.bounce.sep), extra: RULES.bounce.extra[kind] ?? '' };
@@ -65,7 +76,9 @@ export function judgeExit(kind, body, { known, bounces = 0 }) {
   let { id, line, problems: hp } = exitHeadline(body);
   if (!hp.length && !known(id)) hp = [RULES.headline.unknown_id.replaceAll('{id}', String(id))];
   if (hp.length && !problems.length && bounces >= BOUNCE_WAKE_LIMIT) return { id, line, problems, legacy: true };
-  return { id, line, problems: [...problems, ...hp], legacy: false };
+  // Wording goes back only while bounces still wake the member; after that it is posted as written.
+  const jp = !hp.length && bounces < BOUNCE_WAKE_LIMIT ? jargonProblems(line, body) : [];
+  return { id, line, problems: [...problems, ...hp, ...jp], legacy: false };
 }
 
 /**
