@@ -3,6 +3,7 @@ package core
 import (
 	"log/slog"
 	"strings"
+	"time"
 )
 
 // TaskThreadTarget is an optional platform capability: a reply context that posts into a task
@@ -14,14 +15,11 @@ type TaskThreadTarget interface {
 	TaskThreadReplyCtx(*Task) (any, bool)
 }
 
-// openThreadTask is the newest unfinished task card opened from session that has a thread.
-func (p *PublicProgress) openThreadTask(session string) *Task {
-	return p.threadTask(session, false)
-}
-
-// threadTask is the newest task card opened from session whose thread is still open; done also
-// takes a finished card (a workspace often reports its card's result just before its [report]).
-func (p *PublicProgress) threadTask(session string, done bool) *Task {
+// threadTask is the task card of the work session is on: the newest card with an open thread
+// opened from session since its conversation began (since; a workspace's conversation is reset
+// for each task). Its state does not matter: a bridge restart fails the card of a turn it
+// interrupted, and the resumed turn still belongs to it, not to an older unfinished card.
+func (p *PublicProgress) threadTask(session string, since time.Time) *Task {
 	if p == nil {
 		return nil
 	}
@@ -35,13 +33,21 @@ func (p *PublicProgress) threadTask(session string, done bool) *Task {
 	for _, r := range runs {
 		r.mu.Lock()
 		t := r.record.Task
-		if t != nil && t.SessionKey == session && t.ThreadID != "" && t.ThreadArchivedAt == nil && (done || !IsTerminalState(t.State)) &&
-			(best == nil || t.UpdatedAt.After(best.UpdatedAt)) {
+		if t != nil && t.SessionKey == session && t.ThreadID != "" && t.ThreadArchivedAt == nil && !t.CreatedAt.Before(since) &&
+			(best == nil || t.CreatedAt.After(best.CreatedAt)) {
 			best = t.Clone()
 		}
 		r.mu.Unlock()
 	}
 	return best
+}
+
+// sessionTask is the task card session works on (threadTask since its conversation began).
+func (e *Engine) sessionTask(session string) *Task {
+	if e.publicProgress == nil || e.sessions == nil {
+		return nil
+	}
+	return e.publicProgress.threadTask(session, e.sessions.GetOrCreateActive(session).CreatedAt)
 }
 
 // taskThreadProgress returns the lookup of a workspace turn's progress card copy in its task
@@ -52,7 +58,7 @@ func (e *Engine) taskThreadProgress(p Platform, session string, transform func(s
 		return nil
 	}
 	return func() *compactProgressWriter {
-		t := e.publicProgress.openThreadTask(session)
+		t := e.sessionTask(session)
 		if t == nil {
 			return nil
 		}
@@ -79,7 +85,7 @@ func (e *Engine) postToTaskThread(p Platform, session, text string) {
 	if !ok || text == "" || e.publicProgress == nil || !e.isTeamWorkspaceChat(session) {
 		return
 	}
-	t := e.publicProgress.threadTask(session, true)
+	t := e.sessionTask(session)
 	if t == nil {
 		return
 	}
