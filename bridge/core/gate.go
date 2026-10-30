@@ -104,6 +104,11 @@ type gateRequest struct {
 	LastReplyAge int    `json:"last_reply_age_s,omitempty"`
 	// AddressedOther: the text @-s or names another team bot and not this one (Message.AddressedOther).
 	AddressedOther bool `json:"addressed_other,omitempty"`
+	// NoInsert (maomao fork): busy, and this turn can't take the message mid-turn (agent can't fold
+	// input in, or the turn has stopped moving), so a reply or insert would queue until it ends. The
+	// gate then aborts for a message waiting on her answer (user 2026-10-30: nagging a busy DSH
+	// member queued behind its 24-minute turn).
+	NoInsert bool `json:"no_insert,omitempty"`
 }
 
 // gatePart is one message of a merged burst: what the user wrote, whether it @-ed this bot, and
@@ -354,6 +359,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		SessionKey: msg.SessionKey, Content: userTextOf(msg), Mentioned: msg.Mentioned, FromBot: msg.FromBot, Parts: msg.gateParts, Busy: busy,
 		HasImages: len(msg.Images) > 0, HasFiles: len(msg.Files) > 0, Buffered: gateBuffered,
 		LastReply: last, LastReplyAge: lastAge, AddressedOther: msg.AddressedOther,
+		NoInsert: busy && !(g.canInject() && e.turnIdleFor(interactiveKey) < deadTurnAfter),
 	})
 	slog.Info("gate decision", "session", msg.SessionKey, "action", dec.Action, "busy", busy,
 		"mentioned", msg.Mentioned, "buffered", len(buffered), "tier", dec.Tier, "reason", dec.Reason)
