@@ -609,13 +609,34 @@ func (e *Engine) workspaceStillWorking(sessionKey string) bool {
 	return running
 }
 
-// spaceExitLines puts one blank line between the non-empty lines of a post.
+// exitPartLabels turns a part's leading 「名：」 into 【名】 (user 10-30 「【背景】，加那种符号」).
+var exitPartLabels = []struct{ from, to string }{
+	{"背景：", "【背景】"}, {"要你做的：", "【要你做的】"}, {"要你定的：", "【要你定的】"},
+	{"要你定：", "【要你定】"}, {"我加的、原话里没有：", "【我加的】"}, {"我加的：", "【我加的】"},
+}
+
+// spaceExitLines puts one blank line between the non-empty lines of a post and labels each
+// part 【…】; the first unlabeled line after 【背景】 is what was done.
 func spaceExitLines(s string) string {
 	var out []string
+	afterBg, doneLabeled := false, false
 	for _, l := range strings.Split(s, "\n") {
-		if strings.TrimSpace(l) != "" {
-			out = append(out, l)
+		t := strings.TrimSpace(l)
+		if t == "" {
+			continue
 		}
+		labeled := false
+		for _, lb := range exitPartLabels {
+			if strings.HasPrefix(t, lb.from) {
+				l, labeled = lb.to+strings.TrimPrefix(t, lb.from), true
+				afterBg = lb.from == "背景："
+				break
+			}
+		}
+		if !labeled && afterBg && !doneLabeled {
+			l, doneLabeled = "【做了什么】"+t, true
+		}
+		out = append(out, l)
 	}
 	return strings.Join(out, "\n\n")
 }
