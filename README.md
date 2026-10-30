@@ -32,6 +32,8 @@ In DSH Channels, the member sidebar shows task counts. Click **Task board** to o
 
 In **Channel settings**, choose a primary role independently for each channel and save an existing absolute **Working directory**. Saving asks whether to recreate that channel’s DSH sessions now, clearing their conversation context, or apply the directory when sessions are next created. Workspaces inherit their parent channel’s settings. The directory affects write scope and relative paths, not read access.
 
+Image attachments in DSH Channels have **Download** and **Copy image** actions: hover over the image or focus it with Tab; touch and narrow screens keep the actions visible. Clicking the image still opens the full-size view. If copying is unavailable or denied, an error appears below the image and Download stays highlighted.
+
 ### Everyday use
 
 1. **Give a task in plain language:** “Build a dashboard showing how many tokens each role used today.”

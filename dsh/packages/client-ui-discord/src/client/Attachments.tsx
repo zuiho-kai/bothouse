@@ -1,6 +1,8 @@
 // #144: images and files in channel messages — the list shown under a message,
 // and the composer's pending list (picked with the button, pasted, or dropped).
-import { useRef, type ClipboardEvent, type DragEvent } from 'react'
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type { NS } from './locales.ts'
 import type { ChannelAttachment, OutgoingAttachment } from './channel-source.ts'
 import { attachmentUrl, readAttachment } from './channel-source.ts'
 import css from './ChannelsPage.module.css'
@@ -11,17 +13,54 @@ const isAudio = (mime: string): boolean => mime.startsWith('audio/')
 const size = (bytes: number): string =>
   bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
 
+type T = TranslateNS<typeof NS>
+
+function ImageAttachment({ attachment: a, t }: { readonly attachment: ChannelAttachment; readonly t: T }) {
+  const [copyState, setCopyState] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle')
+  useEffect(() => {
+    if (copyState !== 'copied') return
+    const timer = setTimeout(() => setCopyState('idle'), 2000)
+    return () => clearTimeout(timer)
+  }, [copyState])
+  const copy = async (): Promise<void> => {
+    if (copyState === 'copying') return
+    setCopyState('copying')
+    try {
+      if (typeof navigator.clipboard?.write !== 'function' || typeof ClipboardItem === 'undefined') {
+        setCopyState('error')
+        return
+      }
+      const response = await fetch(attachmentUrl(a.id))
+      if (!response.ok) throw new Error('Image download failed')
+      const blob = await response.blob()
+      await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
+      setCopyState('copied')
+    } catch {
+      setCopyState('error')
+    }
+  }
+  const copyLabel = t(copyState === 'copied' ? 'attachmentCopied' : copyState === 'copying' ? 'attachmentCopying' : 'attachmentCopy')
+  return (
+    <div className={css.imageAttachment} data-copy-state={copyState}>
+      <a href={attachmentUrl(a.id)} target="_blank" rel="noreferrer" title={a.name}>
+        <img className={css.attachmentImage} src={attachmentUrl(a.id)} alt={a.name} loading="lazy" />
+      </a>
+      <div className={css.attachmentActions}>
+        <a className={copyState === 'error' ? css.primaryButton : css.secondaryButton} href={attachmentUrl(a.id)} download={a.name} target="_blank" rel="noreferrer" aria-label={t('attachmentDownload')}>{t('attachmentDownload')}</a>
+        <button type="button" className={css.secondaryButton} onClick={() => { void copy() }} disabled={copyState === 'copying'} aria-label={copyLabel} aria-live="polite">{copyLabel}</button>
+      </div>
+      {copyState === 'error' && <div className={css.sendError} role="alert">{t('attachmentCopyError')}</div>}
+    </div>
+  )
+}
+
 /** Thumbnails for images, a download card for other files. */
-export function AttachmentList({ attachments }: { readonly attachments?: readonly ChannelAttachment[] }) {
+export function AttachmentList({ attachments, t }: { readonly attachments?: readonly ChannelAttachment[]; readonly t: T }) {
   if (attachments === undefined || attachments.length === 0) return null
   return (
     <div className={css.attachments}>
       {attachments.map(a => isImage(a.mime)
-        ? (
-            <a key={a.id} href={attachmentUrl(a.id)} target="_blank" rel="noreferrer" title={a.name}>
-              <img className={css.attachmentImage} src={attachmentUrl(a.id)} alt={a.name} loading="lazy" />
-            </a>
-          )
+        ? <ImageAttachment key={a.id} attachment={a} t={t} />
         : isAudio(a.mime)
           ? (
               <div key={a.id} className={css.attachmentAudio}>
