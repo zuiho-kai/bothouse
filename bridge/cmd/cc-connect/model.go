@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,6 +19,19 @@ import (
 
 	"github.com/chenhg5/cc-connect/core"
 )
+
+var errModelAPIUnreachable = errors.New("cannot reach bothouse")
+
+// Optional agent plugin hook; absent in builds without that agent. Only a
+// query for the calling tool's own injected project/channel may use it.
+var localModelStatus func() (core.ModelStatus, bool)
+
+func readLocalModelStatus(project, session, socket string) (core.ModelStatus, bool) {
+	if project == "" || session == "" || project != os.Getenv("CC_PROJECT") || session != os.Getenv("CC_SESSION_KEY") || socket != resolveSocketPath("") || localModelStatus == nil {
+		return core.ModelStatus{}, false
+	}
+	return localModelStatus()
+}
 
 func runModel(args []string) {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
@@ -48,7 +62,13 @@ func runModel(args []string) {
 		q := url.Values{"project": {*project}, "session_key": {*session}}
 		var st core.ModelStatus
 		if err := modelAPIGet(sock, "/model/info?"+q.Encode(), &st); err != nil {
-			modelFail(err)
+			var found bool
+			if errors.Is(err, errModelAPIUnreachable) {
+				st, found = readLocalModelStatus(*project, *session, sock)
+			}
+			if !found {
+				modelFail(err)
+			}
 		}
 		if *jsonOut {
 			printModelJSON(st)
@@ -107,7 +127,7 @@ func modelAPIGet(sock, path string, out any) error {
 	}}
 	resp, err := client.Get("http://unix" + path)
 	if err != nil {
-		return fmt.Errorf("cannot reach bothouse (%s): %w", sock, err)
+		return fmt.Errorf("%w (%s): %w", errModelAPIUnreachable, sock, err)
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
@@ -119,6 +139,10 @@ func modelAPIGet(sock, path string, out any) error {
 
 func printModelStatus(st core.ModelStatus) {
 	fmt.Printf("agent: %s\ncurrent model: %s\n", st.Agent, st.Model)
+	if st.Source == "local_session" {
+		fmt.Println("source: current session metadata (bridge unavailable; model catalog and switch status not queried)")
+		return
+	}
 	if st.Effort != "" || len(st.Efforts) > 0 {
 		fmt.Printf("reasoning effort: %s (available: %s)\n", orDash(st.Effort), orDash(strings.Join(st.Efforts, ", ")))
 	} else if st.EffortInModel {
