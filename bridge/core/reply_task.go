@@ -139,10 +139,66 @@ func (e *Engine) recordReplyTask(p Platform, rc any, board int) any {
 	return r.RecordSentMessages(rc, func(id string) { e.noteReplyTask(id, board) })
 }
 
+// noteInjectedMessage remembers a user message folded into interactiveKey's running turn, so
+// noteTurnHandoffs ties it to the work that turn hands over too.
+func (e *Engine) noteInjectedMessage(interactiveKey, msgID string) {
+	if msgID == "" {
+		return
+	}
+	e.interactiveMu.Lock()
+	state := e.interactiveStates[interactiveKey]
+	e.interactiveMu.Unlock()
+	if state == nil {
+		return
+	}
+	state.mu.Lock()
+	state.injectedMsgIDs = append(state.injectedMsgIDs, msgID)
+	state.mu.Unlock()
+}
+
+// noteTurnHandoffs records the user messages of a lead turn (the one that started it and those
+// folded in) under each task that turn
+// handed to a workspace from this chat channel, so a later reply to that message is about the
+// task (user 10-30 11:05 replied to their own request to change its acceptance criteria; the
+// reply was not tied to the work and never reached the workspace).
+func (e *Engine) noteTurnHandoffs(sessionKey string, msgIDs []string, start time.Time) {
+	if e == nil || e.team == nil || len(msgIDs) == 0 || sessionKey == "" || !e.isTeamLead() {
+		return
+	}
+	chat := teamChatKey(sessionKey)
+	if _, inWorkspace := e.workspaceOwner(teamChannelID(chat)); inWorkspace {
+		return
+	}
+	for _, it := range readTeamTaskBoard(e.team.dir) {
+		if it.Chat != chat || !boardItemSince(it, start) {
+			continue
+		}
+		for _, id := range msgIDs {
+			e.noteReplyTask(id, it.ID)
+		}
+	}
+}
+
+// boardItemSince: the item was added or bound to a workspace at or after start.
+func boardItemSince(it teamTaskBoardItem, start time.Time) bool {
+	if b, err := time.Parse(time.RFC3339, it.Bound); err == nil && !b.Before(start) {
+		return true
+	}
+	at, err := time.ParseInLocation("01-02 15:04", it.At, time.Local)
+	if err != nil {
+		return false
+	}
+	at = at.AddDate(start.Year(), 0, 0) // "MM-DD HH:MM" carries no year
+	return !at.Before(start.Truncate(time.Minute))
+}
+
 // replyTask is the work a quoted message belongs to: a board item or a task card.
 type replyTask struct {
 	board int
 	card  *Task
+	// forwarded: the user's words were already handed to the workspace running this work
+	// (forwardReplyToWorkspace); fwdFailed: that hand-over was tried and failed.
+	forwarded, fwdFailed bool
 }
 
 func (t *replyTask) key() string {
@@ -193,6 +249,56 @@ func (e *Engine) noteReplyTaskOf(msg *Message) {
 		return
 	}
 	msg.Reference.task = e.replyTaskOf(msg.Reference.ID)
+}
+
+// replyForwardPrefix marks a user's reply handed to a running workspace: it changes the work.
+const replyForwardPrefix = "打断：按新要求做。用户在聊天频道回复这件活："
+
+// forwardReplyToWorkspace hands a user's reply in a chat channel to the workspace still running
+// the work it quotes (ws-forward --interrupt), so a changed requirement reaches the workspace at
+// once (user 10-30 复盘: an 11:05 reply that changed the acceptance criteria stayed in the chat
+// channel; the workspace built the old version). The chat lead's turn still runs and is told the
+// words were handed over. Only the lead forwards, and only replies made in a chat channel.
+func (e *Engine) forwardReplyToWorkspace(p Platform, msg *Message) {
+	if msg == nil || msg.FromBot || p == nil || msg.Reference == nil || msg.Reference.task == nil {
+		return
+	}
+	t := msg.Reference.task
+	if t.board <= 0 || !e.isTeamLead() {
+		return
+	}
+	ch := msg.ChannelID
+	if ch == "" {
+		ch = sessionChannel(msg.SessionKey)
+	}
+	if ch == "" {
+		return
+	}
+	if _, inWorkspace := e.workspaceOwner(ch); inWorkspace {
+		return
+	}
+	it := e.boardItemByID(t.board)
+	if it == nil || it.WS == "" || it.DoneAt != "" || it.Paused != "" || it.Where == "" || !e.workspaceHasOpenHandoff(it.WS) {
+		return
+	}
+	words := strings.TrimSpace(msg.Content)
+	if msg.Reference.Full != "" {
+		words = strings.TrimSpace(strings.Replace(words, msg.Reference.Full, "", 1))
+	}
+	if words == "" {
+		return
+	}
+	if n := len(msg.Images) + len(msg.Files); n > 0 {
+		words += "\n（附了 " + strconv.Itoa(n) + " 个图片/文件，在聊天频道的原消息里）"
+	}
+	out, err := e.runLeadScript(p.Name()+":"+ch, "ws-forward", "--interrupt", "--notes", it.Where, replyForwardPrefix+words)
+	if err != nil {
+		t.fwdFailed = true
+		slog.Warn("reply task: forward to workspace failed", "board_item", it.ID, "error", err, "output", strings.TrimSpace(string(out)))
+		return
+	}
+	t.forwarded = true
+	slog.Info("reply task: user reply handed to the running workspace", "board_item", it.ID, "workspace", it.WS, "msg_id", msg.MessageID)
 }
 
 // replyTaskBlock is the background of the work ref quotes, once per agent context.
@@ -269,7 +375,14 @@ func (e *Engine) replyTaskText(t *replyTask, quote string) string {
 		if quote != "" {
 			b.WriteString("\n")
 		}
-		b.WriteString("这件活在工作区 " + channelLabel(plat, id) + " 进行中，追加要求用 ws-forward 转过去。")
+		switch {
+		case t.forwarded:
+			b.WriteString("这件活在工作区 " + channelLabel(plat, id) + " 进行中。用户这条已由系统原样转过去并标了「打断：按新要求做」，不要再 ws-forward；用一句话告诉用户已转给在做的那边。")
+		case t.fwdFailed:
+			b.WriteString("这件活在工作区 " + channelLabel(plat, id) + " 进行中。系统自动转这条没成功，你用 ws-forward --interrupt 转过去。")
+		default:
+			b.WriteString("这件活在工作区 " + channelLabel(plat, id) + " 进行中，追加要求用 ws-forward 转过去。")
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

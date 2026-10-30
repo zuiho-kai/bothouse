@@ -31,7 +31,7 @@ const ruleText = ref => {
   const [group, name] = key.split('.');
   const text = RULES[group]?.[name];
   assert.equal(typeof text, 'string', `case names rule ${ref}`);
-  return text.replaceAll('{id}', id);
+  return text.replaceAll('{id}', id).replaceAll('{hits}', id);
 };
 
 test('shared cases: [ask] self-check', () => {
@@ -81,7 +81,7 @@ test('complete [ask] in each of the four categories, or with evidence, reaches t
     '[ask] #1 要充值吗\n自验：无需\n类别：花钱',
     '[ask] #1 看下成片\n自验：无需\n类别：需要用户看的成品',
     '[ask] #1 点一下授权\n自验：无需\n类别：权限确认',
-    '[ask] #1 PR #12 合不合？\n自验：node --test 输出 ok\n类别：验收',
+    '[ask] #1 这个改动合不合？\n自验：node --test 输出 ok\n类别：验收',
   ];
   for (const a of asks) await say(a);
   assert.equal(back().length, 0);

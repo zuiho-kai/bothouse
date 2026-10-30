@@ -46,7 +46,7 @@ func TestWorkspaceAskWithEvidenceForwards(t *testing.T) {
 		"[ask] #7 要充值吗\n自验：无需\n类别：花钱",
 		"[ask] #7 看下成片\n自验：无需\n类别：需要用户看的成品",
 		"[ask] #7 点一下授权\n自验：无需\n类别：权限确认",
-		"[ask] #7 PR #12 合不合？\n自验：go test ./core 输出 ok\n类别：验收",
+		"[ask] #7 这个改动合不合？\n自验：go test ./core 输出 ok\n类别：验收",
 	} {
 		e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
 		exitBoardItem(t, e, 7, "选方案")

@@ -662,6 +662,7 @@ type interactiveState struct {
 	platform                 Platform
 	replyCtx                 any
 	injectedReplyCtxs        []*injectedReply // maomao fork: reply contexts of messages injected into the running turn (gate.go); guarded by mu
+	injectedMsgIDs           []string         // maomao fork: ids of user messages injected into the running turn (noteTurnHandoffs); guarded by mu
 	currentMessageID         string
 	lastRecallProbeMessageID string
 	lastRecallProbeAt        time.Time
@@ -3472,6 +3473,8 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	// A reply to a task card or a workspace report: its quote stays whole and the turn gets
 	// that work's background (reply_task.go). Replies to an open [ask] were taken above.
 	e.noteReplyTaskOf(msg)
+	// A reply to work still running in a workspace is handed there at once, marked as an interrupt.
+	e.forwardReplyToWorkspace(p, msg)
 	// "/stop all" stops this bot's work in the whole channel. It runs before
 	// any mention/gate filtering so every bot in the channel honours it.
 	// A stop word that calls no bot (no @, no reply) means the same.
@@ -7027,6 +7030,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 
 			e.noteUserTurnCompleted(state)
+			// A lead turn that handed work to a workspace: its message now belongs to that work.
+			state.mu.Lock()
+			turnMsgIDs := append([]string{msgID}, state.injectedMsgIDs...)
+			state.injectedMsgIDs = nil
+			state.mu.Unlock()
+			e.noteTurnHandoffs(sessionKey, turnMsgIDs, turnStart)
 
 			normalizedBaseResponse := strings.TrimSpace(baseResponse)
 			state.mu.Lock()
