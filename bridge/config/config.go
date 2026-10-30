@@ -632,9 +632,9 @@ type ProjectConfig struct {
 	// ShowQuotaStatus: nil/true = without a measured quota, show its status
 	// (unavailable / no data / querying / query failed); false = show nothing.
 	ShowQuotaStatus *bool `toml:"show_quota_status,omitempty"`
-	// InjectSubagentPolicy: nil/true = prefix every agent turn with the bridge
+	// InjectSubagentPolicy: true = prefix every agent turn with the bridge
 	// delegation policy (start subagents only on explicit human consent);
-	// false = send the request as is.
+	// nil/false = send the request as is, so roles may open subagents.
 	InjectSubagentPolicy *bool `toml:"inject_subagent_policy,omitempty"`
 	// InjectAgentIdentity: nil/true = prepend the bridge identity block each
 	// turn; false = the persona owns identity (saves prompt tokens).

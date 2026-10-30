@@ -774,7 +774,7 @@ name = "my-backend"
 # show_quota_status = false        # Without a measured quota, show nothing instead of "unavailable / no data / querying / failed" (default: true)
 #                                   # 查不到额度时不显示「暂不可查询/暂无数据/查询中/查询失败」，什么都不显示（默认 true 显示）
 # inject_agent_identity = false   # default true; false when the persona file already states identity.
-# inject_subagent_policy = false   # Stop prefixing each turn with the bridge delegation policy (default: true = prefix)
+# inject_subagent_policy = true    # Prefix each turn with the bridge delegation policy (subagents only on explicit human consent; default: false = off)
 #                                   # 不再在每轮请求前加「子 agent 委派策略」（默认 true 加）
 # disabled_commands = ["restart", "upgrade", "cron"]  # Disable specific commands for this project
 #                                                     # 禁用该项目的指定命令
