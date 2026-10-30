@@ -1296,6 +1296,9 @@
 .taskFile { display: flex; gap: 8px; align-items: center; min-width: 0; color: var(--dsw-alias-label-primary); }
 .taskFile span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .taskFile span:last-child { flex-shrink: 0; color: var(--dsw-alias-label-tertiary); }
+.taskFileForm { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.taskFileForm select { grid-column: 1 / -1; }
+.taskFileForm select, .taskFileForm input { min-width: 0; padding: 5px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 4px; background: var(--dsw-alias-bg-base); color: inherit; }
 
 .boardTaskCard .taskLinks {
   justify-content: flex-end;

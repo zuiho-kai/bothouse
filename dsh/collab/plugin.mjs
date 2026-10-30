@@ -211,7 +211,8 @@ export async function apply(ctx, rawConfig) {
     const taskFiles = /^\/collab\/api\/tasks\/(\d+)\/files$/.exec(path);
     if (taskFiles && req.method === 'GET') {
       const task = tasks.task(Number(taskFiles[1]));
-      return task ? json(res, 200, { files: tasks.files(task.id) }) : json(res, 404, { error: 'task not found' });
+      return task ? json(res, 200, { files: tasks.files(task.id), candidates: tasks.sourceCandidates(task.id) })
+        : json(res, 404, { error: 'task not found' });
     }
     if (taskFiles && req.method === 'POST') {
       return withBody(req, res, body => ({ files: tasks.addFile(Number(taskFiles[1]), {

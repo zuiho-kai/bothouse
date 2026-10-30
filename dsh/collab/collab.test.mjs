@@ -2151,9 +2151,27 @@ test('task files: delivery links existing bytes once, source must belong to owne
   assert.throws(() => tasks.addFile(task.id, { attachmentId: result.id, actor: 'ds' }), /only the owner/);
   tasks.addFile(task.id, { attachmentId: source.id, label: '原始账本', actor: 'owner' });
   tasks.addFile(task.id, { attachmentId: source.id, label: '原始账本', actor: 'owner' });
+  assert.deepEqual(tasks.sourceCandidates(task.id).map(f => f.id), [source.id]);
   assert.deepEqual(tasks.list(1)[0].files.map(f => [f.name, f.role, f.label]), [
     ['after.xlsx', 'deliverable', null], ['before.xlsx', 'source', '原始账本'],
   ]);
+  tasks.close(); hub.store.close();
+});
+
+test('task files: source on the dispatch follows the task into its workspace', () => {
+  const { hub, tasks } = makeTasks();
+  const ws = hub.store.createWorkspace(1);
+  const source = { id: 'dispatch-file', name: 'input.txt', mime: 'text/plain', size: 5 };
+  const { message } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '请处理附件', attachments: [source] });
+  const task = tasks.assign({ roomId: ws.id, title: '处理输入', owner: 'ds', actor: 'lead', messageId: message.id });
+  assert.deepEqual(tasks.files(task.id).map(f => [f.name, f.role]), [['input.txt', 'source']]);
+  const { message: delivered } = hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[report] 完成' });
+  tasks.handBack(task.id, { actor: 'ds', messageId: delivered.id });
+  hub.store.ensureRoom(2, 'other');
+  hub.store.claimWorkspace(2, ws.id);
+  hub.post(2, { authorKind: 'user', author: 'owner', name: '我', text: '另一个频道', attachments: [{ id: 'new-file', name: 'new.txt', mime: 'text/plain', size: 3 }] });
+  assert.deepEqual(tasks.sourceCandidates(task.id).map(f => f.id), ['dispatch-file']);
+  assert.throws(() => tasks.addFile(task.id, { attachmentId: 'new-file', actor: 'owner' }), /your message in this channel/);
   tasks.close(); hub.store.close();
 });
 

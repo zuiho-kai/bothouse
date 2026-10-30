@@ -174,6 +174,10 @@ export class Store {
         added_by TEXT NOT NULL,
         created_at REAL NOT NULL,
         UNIQUE(task_id, attachment_id, role))`);
+      const taskColumns = this.db.prepare('PRAGMA table_info(tasks)').all();
+      if (!taskColumns.some(c => c.name === 'file_chat_id')) this.db.exec('ALTER TABLE tasks ADD COLUMN file_chat_id INTEGER');
+      this.db.exec(`UPDATE tasks SET file_chat_id = COALESCE(paused_chat,
+        (SELECT parent_id FROM rooms WHERE id = tasks.room_id), room_id) WHERE file_chat_id IS NULL`);
       // Team mode C upgrade: before it a workspace's parent_id only named the last chat channel
       // that handed off, never cleared. A workspace with no task in work then is done: put it in
       // the pool, else it would belong to that channel forever (no task left to release it).

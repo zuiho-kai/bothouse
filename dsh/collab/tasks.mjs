@@ -227,18 +227,24 @@ export class Tasks {
     });
   }
 
+  sourceCandidates(id) {
+    const task = this.mustTask(id);
+    const chat = task.file_chat_id;
+    return this.db.prepare(`SELECT * FROM messages WHERE author_kind = 'user' AND author = ? AND deleted = 0
+      AND room_id = ? AND attachments IS NOT NULL ORDER BY id DESC`)
+      .all(HUMAN, chat)
+      .flatMap(m => messageAttachments(m).map(a => ({ ...a, message_id: m.id })));
+  }
+
   addFile(id, { attachmentId, label, actor }) {
     const task = this.mustTask(id);
     if (actor !== HUMAN) throw new CollabError('forbidden', 'only the owner can attach a source file');
     if (typeof attachmentId !== 'string' || !attachmentId) throw new CollabError('invalid', 'attachment_id is required');
     if (typeof label !== 'string' && label !== undefined) throw new CollabError('invalid', 'label must be text');
     if (label && label.length > 200) throw new CollabError('invalid', 'label is too long');
-    const chat = this.chatOf(task.room_id);
-    const message = this.db.prepare(`SELECT * FROM messages WHERE author_kind = 'user' AND author = ? AND deleted = 0
-      AND room_id IN (?, ?) AND attachments IS NOT NULL ORDER BY id DESC`)
-      .all(HUMAN, chat, task.room_id)
-      .find(m => messageAttachments(m).some(a => a.id === attachmentId));
-    if (!message) throw new CollabError('forbidden', 'file must come from your message in this channel');
+    if (!this.sourceCandidates(id).some(a => a.id === attachmentId)) {
+      throw new CollabError('forbidden', 'file must come from your message in this channel');
+    }
     this.q.addFile.run(id, attachmentId, 'source', label?.trim() || null, actor, this.now());
     this.changed(id);
     return this.files(id);
@@ -349,6 +355,7 @@ export class Tasks {
     const refText = ref === undefined ? null : clip(ref);
     const baseText = ref === undefined ? null : clip(base);
     const task = this.q.add.get(roomId, parentTask ?? null, text, owner, actor, now + CHECK_AFTER_S, messageId ?? null, now, now, why, refText, baseText);
+    this.db.prepare('UPDATE tasks SET file_chat_id = ? WHERE id = ?').run(this.chatOf(roomId), task.id);
     if (reviewOf != null) this.q.setSource.run('review', task.id);
     const refNote = `${refText ? `，参照：${refText}` : ''}${baseText ? `，底分支：${baseText}` : ''}`;
     const busyNote = busy.busy ? `（注：该成员在「${busy.roomName}」已有进行中任务 #${busy.task.id}）` : '';
@@ -358,6 +365,10 @@ export class Tasks {
     const source = messageId == null ? undefined : this.store.message(messageId).room_id;
     const record = this.record(task, 'assign', `派活 #${task.id} → ${this.nameOf(owner)}（${this.nameOf(actor)} 派）${why ? `，理由：${why}` : ''}${refNote}${busyNote ? ` ${busyNote}` : ''}`, source);
     if (messageId == null) this.q.bindAssign.run(record.id, task.id);
+    const request = messageId == null ? undefined : this.store.message(messageId);
+    if (request?.author_kind === 'user' && request.author === HUMAN && request.room_id === this.chatOf(roomId)) {
+      for (const file of messageAttachments(request)) this.q.addFile.run(task.id, file.id, 'source', null, HUMAN, now);
+    }
     return this.changed(task.id);
   }
 
@@ -392,7 +403,8 @@ export class Tasks {
     const row = this.q.handBack.get(messageId, now, now, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
     const delivery = this.store.message(messageId);
-    if (delivery.room_id === task.room_id && delivery.author_kind === 'role' && delivery.author === task.owner) {
+    if (delivery?.room_id === task.room_id && delivery.author_kind === 'role' && delivery.author === task.owner &&
+        (task.room_id === task.file_chat_id || delivery.id >= task.assign_msg_id)) {
       for (const file of messageAttachments(delivery)) {
         this.q.addFile.run(id, file.id, 'deliverable', null, actor, now);
       }
