@@ -223,7 +223,8 @@ export class Tasks {
   files(id) {
     return this.q.files.all(id).flatMap(row => {
       const attachment = this.store.attachmentMeta(row.attachment_id);
-      return attachment ? [{ ...row, name: attachment.name, mime: attachment.mime, size: attachment.size }] : [];
+      return attachment ? [{ ...row, name: attachment.name, mime: attachment.mime, size: attachment.size,
+        url: `/collab/api/attachments/${encodeURIComponent(row.attachment_id)}` }] : [];
     });
   }
 
@@ -236,9 +237,10 @@ export class Tasks {
       .flatMap(m => messageAttachments(m).map(a => ({ ...a, message_id: m.id })));
   }
 
-  addFile(id, { attachmentId, label, actor }) {
+  addFile(id, { attachmentId, label, role, actor }) {
     const task = this.mustTask(id);
     if (actor !== HUMAN) throw new CollabError('forbidden', 'only the owner can attach a source file');
+    if (role !== 'source') throw new CollabError('invalid', 'role must be source');
     if (typeof attachmentId !== 'string' || !attachmentId) throw new CollabError('invalid', 'attachment_id is required');
     if (typeof label !== 'string' && label !== undefined) throw new CollabError('invalid', 'label must be text');
     if (label && label.length > 200) throw new CollabError('invalid', 'label is too long');

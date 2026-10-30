@@ -7,7 +7,7 @@
 // reminder @s the owner when the check time passes without a hand-back; if no
 // waker can reach the owner (cloud-web bot offline, or not reconnected yet after
 // a restart) the reminder stays pending and is delivered once when it comes online.
-import { CollabError, MAX_TEXT } from './store.mjs';
+import { CollabError, MAX_TEXT, messageAttachments } from './store.mjs';
 import { mentions, nameCalled, split, withoutLeadingMentions } from './mentions.mjs';
 import { NOTICE_PREFIXES } from './cloudweb.mjs';
 import { exitMark } from './team-exit.mjs';
@@ -159,6 +159,9 @@ export class Tasks {
       // #597 G24: a job the lead already handed to one of this chat channel's workspaces.
       openHanded: this.tree ? this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND created_by = ? AND source = 'workspace'
         AND status IN (${PLACEHOLDERS}) AND room_id IN (SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ?) ORDER BY id DESC LIMIT 1`) : undefined,
+      addFile: this.db.prepare(`INSERT INTO task_files (task_id, attachment_id, role, label, added_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(task_id, attachment_id, role) DO UPDATE SET label = excluded.label`),
+      files: this.db.prepare('SELECT * FROM task_files WHERE task_id = ? ORDER BY id'),
     };
     hub.onMessage(message => this.fromMessage(message));
     // A member coming online (cloud-web register, DSH member published) gets its pending reminders.
@@ -217,6 +220,38 @@ export class Tasks {
   /** Paused tasks in roomId (park): not counted by countActive. */
   countPaused(roomId) { return this.q.paused.get(roomId, ...WORKING).n; }
 
+  files(id) {
+    return this.q.files.all(id).flatMap(row => {
+      const attachment = this.store.attachmentMeta(row.attachment_id);
+      return attachment ? [{ ...row, name: attachment.name, mime: attachment.mime, size: attachment.size,
+        url: `/collab/api/attachments/${encodeURIComponent(row.attachment_id)}` }] : [];
+    });
+  }
+
+  sourceCandidates(id) {
+    const task = this.mustTask(id);
+    const chat = task.file_chat_id;
+    return this.db.prepare(`SELECT * FROM messages WHERE author_kind = 'user' AND author = ? AND deleted = 0
+      AND room_id = ? AND attachments IS NOT NULL ORDER BY id DESC`)
+      .all(HUMAN, chat)
+      .flatMap(m => messageAttachments(m).map(a => ({ ...a, message_id: m.id })));
+  }
+
+  addFile(id, { attachmentId, label, role, actor }) {
+    const task = this.mustTask(id);
+    if (actor !== HUMAN) throw new CollabError('forbidden', 'only the owner can attach a source file');
+    if (role !== 'source') throw new CollabError('invalid', 'role must be source');
+    if (typeof attachmentId !== 'string' || !attachmentId) throw new CollabError('invalid', 'attachment_id is required');
+    if (typeof label !== 'string' && label !== undefined) throw new CollabError('invalid', 'label must be text');
+    if (label && label.length > 200) throw new CollabError('invalid', 'label is too long');
+    if (!this.sourceCandidates(id).some(a => a.id === attachmentId)) {
+      throw new CollabError('forbidden', 'file must come from your message in this channel');
+    }
+    this.q.addFile.run(id, attachmentId, 'source', label?.trim() || null, actor, this.now());
+    this.changed(id);
+    return this.files(id);
+  }
+
   /** Public task row: codes plus display names. */
   view(t) {
     return {
@@ -224,7 +259,7 @@ export class Tasks {
       owner: t.owner, owner_name: this.nameOf(t.owner), created_by: t.created_by, created_by_name: this.nameOf(t.created_by),
       status: t.status, next_check_at: t.next_check_at, assign_msg_id: t.assign_msg_id, result_msg_id: t.result_msg_id,
       note: t.note, reason: t.reason, ref: t.ref ?? null, base: t.base ?? null, created_at: t.created_at, updated_at: t.updated_at, returned_at: t.returned_at,
-      paused_at: t.paused_at ?? null,
+      paused_at: t.paused_at ?? null, files: this.files(t.id),
     };
   }
 
@@ -322,6 +357,7 @@ export class Tasks {
     const refText = ref === undefined ? null : clip(ref);
     const baseText = ref === undefined ? null : clip(base);
     const task = this.q.add.get(roomId, parentTask ?? null, text, owner, actor, now + CHECK_AFTER_S, messageId ?? null, now, now, why, refText, baseText);
+    this.db.prepare('UPDATE tasks SET file_chat_id = ? WHERE id = ?').run(this.chatOf(roomId), task.id);
     if (reviewOf != null) this.q.setSource.run('review', task.id);
     const refNote = `${refText ? `，参照：${refText}` : ''}${baseText ? `，底分支：${baseText}` : ''}`;
     const busyNote = busy.busy ? `（注：该成员在「${busy.roomName}」已有进行中任务 #${busy.task.id}）` : '';
@@ -331,6 +367,10 @@ export class Tasks {
     const source = messageId == null ? undefined : this.store.message(messageId).room_id;
     const record = this.record(task, 'assign', `派活 #${task.id} → ${this.nameOf(owner)}（${this.nameOf(actor)} 派）${why ? `，理由：${why}` : ''}${refNote}${busyNote ? ` ${busyNote}` : ''}`, source);
     if (messageId == null) this.q.bindAssign.run(record.id, task.id);
+    const request = messageId == null ? undefined : this.store.message(messageId);
+    if (request?.author_kind === 'user' && request.author === HUMAN && request.room_id === this.chatOf(roomId)) {
+      for (const file of messageAttachments(request)) this.q.addFile.run(task.id, file.id, 'source', null, HUMAN, now);
+    }
     return this.changed(task.id);
   }
 
@@ -364,6 +404,13 @@ export class Tasks {
     const now = this.now();
     const row = this.q.handBack.get(messageId, now, now, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
+    const delivery = this.store.message(messageId);
+    if (delivery?.room_id === task.room_id && delivery.author_kind === 'role' && delivery.author === task.owner &&
+        (task.room_id === task.file_chat_id || delivery.id >= task.assign_msg_id)) {
+      for (const file of messageAttachments(delivery)) {
+        this.q.addFile.run(id, file.id, 'deliverable', null, actor, now);
+      }
+    }
     this.record(row, 'return', `#${id}「${row.title}」${this.nameOf(row.owner)} 交回，用时 ${duration(row.returned_at - row.created_at)}`);
     this.returnToChat(row, messageId);
     this.releaseIfDone(row.room_id);

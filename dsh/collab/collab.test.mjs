@@ -2147,10 +2147,10 @@ test('task files: delivery links existing bytes once, source must belong to owne
   const { message: delivery } = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '处理好了', attachments: [result] });
   tasks.handBack(task.id, { actor: 'ds', messageId: delivery.id });
   assert.deepEqual(tasks.files(task.id).map(f => [f.attachment_id, f.role]), [['result-a', 'deliverable']]);
-  assert.throws(() => tasks.addFile(task.id, { attachmentId: other.id, actor: 'owner' }), /your message in this channel/);
-  assert.throws(() => tasks.addFile(task.id, { attachmentId: result.id, actor: 'ds' }), /only the owner/);
-  tasks.addFile(task.id, { attachmentId: source.id, label: '原始账本', actor: 'owner' });
-  tasks.addFile(task.id, { attachmentId: source.id, label: '原始账本', actor: 'owner' });
+  assert.throws(() => tasks.addFile(task.id, { attachmentId: other.id, role: 'source', actor: 'owner' }), /your message in this channel/);
+  assert.throws(() => tasks.addFile(task.id, { attachmentId: result.id, role: 'source', actor: 'ds' }), /only the owner/);
+  tasks.addFile(task.id, { attachmentId: source.id, label: '原始账本', role: 'source', actor: 'owner' });
+  tasks.addFile(task.id, { attachmentId: source.id, label: '原始账本', role: 'source', actor: 'owner' });
   assert.deepEqual(tasks.sourceCandidates(task.id).map(f => f.id), [source.id]);
   assert.deepEqual(tasks.list(1)[0].files.map(f => [f.name, f.role, f.label]), [
     ['after.xlsx', 'deliverable', null], ['before.xlsx', 'source', '原始账本'],
@@ -2171,7 +2171,7 @@ test('task files: source on the dispatch follows the task into its workspace', (
   hub.store.claimWorkspace(2, ws.id);
   hub.post(2, { authorKind: 'user', author: 'owner', name: '我', text: '另一个频道', attachments: [{ id: 'new-file', name: 'new.txt', mime: 'text/plain', size: 3 }] });
   assert.deepEqual(tasks.sourceCandidates(task.id).map(f => f.id), ['dispatch-file']);
-  assert.throws(() => tasks.addFile(task.id, { attachmentId: 'new-file', actor: 'owner' }), /your message in this channel/);
+  assert.throws(() => tasks.addFile(task.id, { attachmentId: 'new-file', role: 'source', actor: 'owner' }), /your message in this channel/);
   tasks.close(); hub.store.close();
 });
 
@@ -2468,6 +2468,18 @@ test('tasks API: owner acts as owner, bots name themselves with the bot token, o
   const board = await call('GET', '/collab/api/rooms/1/tasks', undefined, { human: true });
   assert.deepEqual(board.json.tasks.map(t => [t.title, t.status, t.owner_name]), [['写文档', 'accepted', 'DeepSeek']]);
   assert.equal((await call('GET', '/collab/api/tasks/99', undefined, { human: true })).status, 404);
+  assert.equal((await call('GET', '/collab/api/tasks/99/files', undefined, { human: true })).status, 404);
+  assert.equal((await call('POST', '/collab/api/tasks/99/files', { attachment_id: 'missing', role: 'source' }, { human: true })).status, 404);
+  assert.deepEqual((await call('GET', `/collab/api/tasks/${id}/files`, undefined, { human: true })).json.files, []);
+  const source = { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', name: 'before.txt', mime: 'text/plain', size: 6 };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '原文件', attachments: [source] });
+  const filesPath = `/collab/api/tasks/${id}/files`;
+  assert.deepEqual((await call('GET', filesPath, undefined, { human: true })).json.candidates.map(file => file.id), [source.id]);
+  assert.deepEqual((await call('GET', filesPath, undefined, { token: 't' })).json.candidates, []);
+  assert.equal((await call('POST', filesPath, { attachment_id: source.id, role: 'source' }, { human: true })).status, 200);
+  assert.equal((await call('GET', filesPath, undefined, { human: true })).json.files[0].url, `/collab/api/attachments/${source.id}`);
+  assert.equal((await call('POST', `/collab/api/tasks/${id}/files`, { attachment_id: 'missing', role: 'deliverable' }, { human: true })).status, 400);
+  assert.equal((await call('POST', `/collab/api/tasks/${id}/files`, { attachment_id: 'missing', role: 'source', actor: 'owner' }, { token: 't' })).status, 403);
   assert.equal((await call('POST', '/collab/api/rooms/1/tasks', { title: 'y', owner: 'nobody' }, { human: true })).status, 404);
 });
 

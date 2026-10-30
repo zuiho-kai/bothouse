@@ -134,7 +134,7 @@ for (const [lang, dict] of [['zh', zh], ['en', en]] as const) {
 
 it('downloads delivered files and links an existing original through the task board', async () => {
   const t = ((key: keyof typeof zh) => zh[key]) as T
-  const result = { id: 3, attachment_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', role: 'deliverable' as const,
+  const result = { id: 3, attachment_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', url: '/collab/api/attachments/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', role: 'deliverable' as const,
     label: null, name: 'result.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 4096 }
   const candidate = { id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', message_id: 23,
     name: 'original.xlsx', mime: result.mime, size: 2048 }

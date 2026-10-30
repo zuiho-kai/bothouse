@@ -208,17 +208,6 @@ export async function apply(ctx, rawConfig) {
       return refuse(req, res);
     }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
-    const taskFiles = /^\/collab\/api\/tasks\/(\d+)\/files$/.exec(path);
-    if (taskFiles && req.method === 'GET') {
-      const task = tasks.task(Number(taskFiles[1]));
-      return task ? json(res, 200, { files: tasks.files(task.id), candidates: tasks.sourceCandidates(task.id) })
-        : json(res, 404, { error: 'task not found' });
-    }
-    if (taskFiles && req.method === 'POST') {
-      return withBody(req, res, body => ({ files: tasks.addFile(Number(taskFiles[1]), {
-        attachmentId: body?.attachment_id, label: body?.label, actor: OWNER,
-      }) }));
-    }
     if (path === '/collab/api/personas' && req.method === 'GET') return json(res, 200, personaLibrary(url.searchParams.get('lang') ?? 'zh'));
     if (path === '/collab/api/state' && req.method === 'GET') {
       return json(res, 200, { me: OWNER, lead_id: hub.selectedPrimaryMember()?.id ?? null,
@@ -525,7 +514,7 @@ function refuse(req, res) {
 export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
   const path = url.pathname.replace(/\/+$/, '');
   const board = /^\/collab\/api\/rooms\/(\d+)\/tasks$/.exec(path);
-  const one = /^\/collab\/api\/tasks\/(\d+)(?:\/(stance|return|review))?$/.exec(path);
+  const one = /^\/collab\/api\/tasks\/(\d+)(?:\/(stance|return|review|files))?$/.exec(path);
   if (board === null && one === null) return undefined;
   const human = owner(req);
   if (!human && !gateway.authorized(req, url)) return Promise.resolve(refuse(req, res));
@@ -533,15 +522,22 @@ export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
   const sender = body => (human ? { actor: OWNER, verified: true } : { actor: body?.actor, verified: false });
   const id = Number((board ?? one)[1]);
   if (req.method === 'GET' && board !== null) return withBody(req, res, () => ({ tasks: tasks.list(id), chat_id: tasks.chatOf(id) }), false);
-  if (req.method === 'GET' && one !== null && one[2] === undefined) {
+  if (req.method === 'GET' && one !== null && (one[2] === undefined || one[2] === 'files')) {
     return withBody(req, res, () => {
       const t = tasks.task(id);
       if (t === undefined) throw new CollabError('task-missing', `task ${id} does not exist`);
+      if (one[2] === 'files') return { files: tasks.files(id), candidates: human ? tasks.sourceCandidates(id) : [] };
       return { task: tasks.view(t) };
     }, false);
   }
   if (req.method !== 'POST') return Promise.resolve(json(res, 404, { error: 'not found' }));
   if (board !== null) return withBody(req, res, body => ({ task: tasks.perform('assign', { roomId: id, body }, sender(body)) }));
+  if (one[2] === 'files') {
+    if (!human) return Promise.resolve(json(res, 403, { error: 'only the owner can attach a source file' }));
+    return withBody(req, res, body => ({ files: tasks.addFile(id, {
+      attachmentId: body?.attachment_id, label: body?.label, role: body?.role, actor: OWNER,
+    }) }));
+  }
   return withBody(req, res, body => ({ task: tasks.perform(one[2], { id, body }, sender(body)) }));
 }
 

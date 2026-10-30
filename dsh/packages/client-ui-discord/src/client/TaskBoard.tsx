@@ -7,7 +7,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import type { ChannelRoom, ChannelTask, TaskFile, TaskFileCandidate, TaskStatus } from './channel-source.ts'
-import { attachmentUrl } from './channel-source.ts'
 import { BOARD_TABS, boardSections, cardMembers, sectionTitle, elapsed, formatDuration, STATUS_KEY, type T } from './task-board.ts'
 import css from './ChannelsPage.module.css'
 
@@ -125,10 +124,12 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview, o
       <div className={css.taskFiles} aria-label={t('taskFiles')}>
         <strong>{t('taskFiles')}</strong>
         {(task.files?.length ?? 0) === 0 ? <span>{t('taskFilesEmpty')}</span> : task.files?.map(file => (
-          <a key={file.id} href={attachmentUrl(file.attachment_id)} download={file.name} className={css.taskFile}>
+          <a key={file.id} href={file.url} download={file.name} className={css.taskFile} title={file.name}>
+            {file.mime.startsWith('image/') && <img src={file.url} alt="" loading="lazy" />}
             <span>{file.role === 'source' ? t('taskFileSource') : t('taskFileDeliverable')}</span>
             <span>{file.label || file.name}</span>
             <span>{(file.size / 1024).toFixed(1)} KB</span>
+            <span aria-label={t('attachmentDownload')} title={t('attachmentDownload')}>↓</span>
           </a>
         ))}
         {onListFiles && onAttachFile && <button type="button" className={css.linkButton} onClick={() => { void chooseFile(task) }}>{t('taskFileAddSource')}</button>}
@@ -158,7 +159,7 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview, o
         <section ref={dialog} className={`${css.dialog} ${css.taskBoardDialog}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={event => {
           if (event.key === 'Escape') { event.stopPropagation(); close() }
           if (event.key === 'Tab') {
-            const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled):not([tabindex="-1"]), input:not(:disabled), [role="tabpanel"]'))
+            const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled):not([tabindex="-1"]), input:not(:disabled), select:not(:disabled), a[href], [role="tabpanel"]'))
             const first = focusable[0]
             const last = focusable[focusable.length - 1]
             if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last?.focus() }

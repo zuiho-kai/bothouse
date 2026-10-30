@@ -206,6 +206,7 @@ export interface TaskFileCandidate extends ChannelAttachment {
 export interface TaskFile {
   readonly id: number
   readonly attachment_id: string
+  readonly url: string
   readonly role: 'source' | 'deliverable'
   readonly label: string | null
   readonly name: string
@@ -778,8 +779,8 @@ export function createChannelSource(transport: ChannelTransport): {
       return request<{ files: TaskFile[]; candidates: TaskFileCandidate[] }>(`collab/api/tasks/${id}/files`)
     },
     async attachTaskFile(id, attachmentId, label) {
-      const { files } = await request<{ files: TaskFile[] }>(`collab/api/tasks/${id}/files`, json('POST', { attachment_id: attachmentId, label }))
-      set({ tasks: snapshot.tasks.map(task => task.id === id ? { ...task, files } : task) })
+      const { files } = await request<{ files: TaskFile[] }>(`collab/api/tasks/${id}/files`, json('POST', { attachment_id: attachmentId, label, role: 'source' }))
+      set({ tasks: (snapshot.tasks ?? []).map(task => task.id === id ? { ...task, files } : task) })
     },
     async reviewTask(id, verdict, note) {
       const { task } = await request<{ task: ChannelTask }>(`collab/api/tasks/${id}/review`, json('POST', { verdict, note }))

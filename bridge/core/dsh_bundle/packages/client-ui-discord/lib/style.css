@@ -1382,6 +1382,66 @@
   font-size: 11px;
 }
 
+.dshc_taskFiles {
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  display: grid;
+}
+
+.dshc_taskFiles > span {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.dshc_taskFile {
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  align-items: center;
+  gap: 8px;
+  display: flex;
+}
+
+.dshc_taskFile span:nth-child(2) {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dshc_taskFile img {
+  object-fit: cover;
+  border-radius: 4px;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+}
+
+.dshc_taskFile span:last-child {
+  color: var(--dsw-alias-label-tertiary);
+  flex-shrink: 0;
+  font-size: 18px;
+}
+
+.dshc_taskFileForm {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  display: grid;
+}
+
+.dshc_taskFileForm select {
+  grid-column: 1 / -1;
+}
+
+.dshc_taskFileForm select, .dshc_taskFileForm input {
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  min-width: 0;
+  color: inherit;
+  border-radius: 4px;
+  padding: 5px;
+}
+
 .dshc_boardTaskCard .dshc_taskLinks {
   justify-content: flex-end;
   margin-top: auto;
