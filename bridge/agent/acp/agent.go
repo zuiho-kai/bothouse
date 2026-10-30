@@ -61,6 +61,10 @@ type Agent struct {
 	modesCache   []core.PermissionModeInfo
 	modesCurrent string
 
+	// contextTokens holds each ACP session's last reported prompt size (reportContextTokens).
+	contextMu     sync.Mutex
+	contextTokens map[string]int
+
 	mu sync.RWMutex
 }
 
@@ -71,6 +75,7 @@ type Agent struct {
 type sessionCallbacks interface {
 	reportModes(block acpModesBlock)
 	reportListSupported(supported bool)
+	reportContextTokens(sessionID string, tokens int)
 }
 
 // Ensure *Agent satisfies sessionCallbacks at compile time.
@@ -423,6 +428,26 @@ func (a *Agent) reportSteerSupported(supported bool) { a.steerSupported.Store(su
 // SupportsMidTurnInput reports whether a message sent while a turn runs can join that turn
 // (core gate): true once the agent advertised the steer extension.
 func (a *Agent) SupportsMidTurnInput() bool { return a.steerSupported.Load() }
+
+func (a *Agent) reportContextTokens(sessionID string, tokens int) {
+	if sessionID == "" || tokens <= 0 {
+		return
+	}
+	a.contextMu.Lock()
+	defer a.contextMu.Unlock()
+	if a.contextTokens == nil {
+		a.contextTokens = make(map[string]int)
+	}
+	a.contextTokens[sessionID] = tokens
+}
+
+// LastContextTokens implements core.ContextSizeReader: the prompt size the agent last reported
+// for this session, 0 when it never did (only Grok's ACP server reports it, see onXAIUpdate).
+func (a *Agent) LastContextTokens(sessionID string) int {
+	a.contextMu.Lock()
+	defer a.contextMu.Unlock()
+	return a.contextTokens[sessionID]
+}
 
 func (a *Agent) reportListSupported(supported bool) {
 	if !supported {

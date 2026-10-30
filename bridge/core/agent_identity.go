@@ -28,7 +28,7 @@ func (e *Engine) SetAgentIdentityEnabled(on bool) { e.skipAgentIdentity.Store(!o
 // withChannelAgentInstructions builds a channel turn; session and agent decide whether the
 // team-mode rules go with it (teamRulesOnce; nil session = every delivery).
 func (e *Engine) withChannelAgentInstructions(prompt, userID string, fromBot bool, p Platform, sessionKey string, session *Session, agent Agent) string {
-	e.checkRulesContext(session, agent, len(prompt))
+	e.checkRulesContext(session, agent)
 	rules := e.teamRulesOnce(teamModeRulesFor(e.channelDispatchMode(p, sessionKey)), session, agent)
 	return e.withAgentIdentity(prefixRules(rules, e.withPermissionDelegateAuthority(e.withSubagentPolicy(prompt, userID, fromBot))))
 }
