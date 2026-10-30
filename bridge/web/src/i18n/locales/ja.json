@@ -1,4 +1,28 @@
 {
+  "qq": {
+    "setupTitle": "QQ に接続",
+    "setupHint": "既存の OneBot / NapCat 接続または QQ 公式 Bot の認証情報を使用します。保存だけでは接続を確認できません。",
+    "route": "接続方式",
+    "official": "QQ 公式 Bot",
+    "projectID": "新しいロール ID",
+    "projectHint": "未使用の英数字、ハイフン、アンダースコアを指定してください。",
+    "invalidProject": "ID が無効か、すでに使用されています。",
+    "noCLI": "対応する AI CLI をインストールしてログインしてください。",
+    "savedRestart": "設定を保存しました。反映には再起動が必要です。QQ の実際の送受信は未確認です。",
+    "restartRequested": "再起動を要求しました。起動後にロール一覧に戻ってください。",
+    "settingsTitle": "QQ 接続と機能",
+    "settingsHint": "変更は再起動後に反映されます。設定の保存は接続確認ではありません。",
+    "httpURL": "OneBot HTTP URL（任意）",
+    "keepToken": "空欄で保存済みトークンを保持",
+    "clearToken": "保存済みトークンを消去",
+    "sharedHint": "有効にするとグループ全員が会話を共有します。個人の記憶は分離されません。",
+    "unavailable": "このバージョンでは利用不可",
+    "capabilities": {
+      "qq_voice_out": "音声返信は利用できません。",
+      "qq_command_allow_from": "個別のコマンド許可リストは利用できません。プロジェクトの管理者設定が適用されます。",
+      "memory_import": "記憶のインポートは、ソースと形式の確認待ちです。"
+    }
+  },
   "nav": {
     "addRole": "ロール/モデルを追加",
     "library": "ライブラリ",

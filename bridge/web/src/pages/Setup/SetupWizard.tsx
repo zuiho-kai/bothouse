@@ -17,6 +17,7 @@ import {
 import { nextRoleName, roleLabel, personaWithName } from '@/lib/roleIdentity';
 import { wizardGate } from './wizardGate';
 import DSHSetup from './DSHSetup';
+import QQSetup from './QQSetup';
 import { PersonaLibrary, useLibrary } from '@/components/library';
 import type { LibraryPersona } from '@/api/library';
 import { fmt, isZhLang, keptLangLabel, langLabel, libraryTexts, replyLangOptions, stepLabel, wizardTexts } from './texts';
@@ -74,7 +75,7 @@ export default function SetupWizard() {
   const sysReply = lang;
 
   const [step, setStep] = useState(0);
-  const [picked, setPlatform] = useState<'discord' | 'feishu' | 'cloud_web' | 'dsh'>('discord');
+  const [picked, setPlatform] = useState<'discord' | 'feishu' | 'cloud_web' | 'dsh' | 'qq'>('discord');
   const platform = picked;
   // 自建平台 (cloud_web): the hub on this machine, or someone else's (address + token, tested)
   const [hub, setHub] = useState<LocalHubStatus | null>(null);
@@ -349,7 +350,7 @@ export default function SetupWizard() {
 
   // ── request ──
   const buildRequest = (maskSecrets = false): WizardRequest => {
-    if (platform === 'dsh') throw new Error('DSH uses the plugin installer');
+    if (platform === 'dsh' || platform === 'qq') throw new Error('This platform uses its own setup form');
     const mask = (s: string, ph: string) => (maskSecrets && s ? ph : s);
     const req: WizardRequest = {
       platform: platform === 'feishu' ? ((feishu?.platform_type as 'feishu' | 'lark') || 'feishu') : platform,
@@ -462,6 +463,7 @@ export default function SetupWizard() {
       : c.login === 'not_logged_in' ? <Badge variant="warning">{T.notLoggedIn}</Badge> : <Badge>{T.unknownLogin}</Badge>;
 
   if (picked === 'dsh' && step > 0) return <DSHSetup lang={lang} onBack={() => setStep(0)} />;
+  if (picked === 'qq' && step > 0) return <QQSetup clis={clis} projects={state?.projects || []} onBack={() => setStep(0)} />;
 
   return (
     <div className="setup-wizard animate-fade-in space-y-6 w-full max-w-4xl mx-auto" data-testid="setup-wizard">
@@ -520,7 +522,8 @@ export default function SetupWizard() {
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{T.platformQ}</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {([['discord', 'Discord', T.discordDesc, MessageSquare], ['feishu', zh ? '飞书 / Lark' : 'Feishu / Lark', T.feishuDesc, Smartphone],
-                ['dsh', 'DSH', T.dshDesc, Puzzle], ['cloud_web', T.cloudWebLabel, T.cloudWebDesc, Globe]] as const).map(([k, label, desc, Icon]) => (
+                ['dsh', 'DSH', T.dshDesc, Puzzle], ['cloud_web', T.cloudWebLabel, T.cloudWebDesc, Globe],
+                ['qq', 'QQ', zh ? 'OneBot / NapCat 或官方机器人，填写配置后保存。' : 'Save a OneBot / NapCat or official bot connection.', MessageSquare]] as const).map(([k, label, desc, Icon]) => (
                 <button key={k} aria-pressed={picked === k} data-testid={`platform-${k}`} onClick={() => {
                   setPlatform(k);
                   if (k === 'feishu') setRoles((rs) => rs.slice(0, 1));
