@@ -299,10 +299,15 @@ func joinExitDetail(text, detail string) string {
 	return text + "\n\n" + quietText(detail)
 }
 
+// postReportDetail: post the details under the report (off since 10-30).
+const postReportDetail = false
+
 // postWithDetail posts text in the chat channel and detail under it: in a thread on that post
 // where the platform has one (DetailThreadSender), else as a following post marked as details.
 func (e *Engine) postWithDetail(p Platform, rc any, name, text, detail string) error {
-	if detail == "" {
+	// User 10-30 「细节先不用吧，把它给去掉」: only the four parts reach the user; the lead still
+	// gets the details through the auto-return.
+	if detail == "" || !postReportDetail {
 		return p.Send(e.ctx, rc, text)
 	}
 	title := exitPrefix + " 细节「" + name + "」"
