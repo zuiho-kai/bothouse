@@ -19,6 +19,9 @@ const EXEMPT = new RegExp(RULES.ask.exempt_re);
 const NO_CHECK = new RegExp(RULES.ask.no_check_re);
 const JARGON_LINE = new RegExp(RULES.jargon.line_re, 'g');
 const JARGON_TABLE = new RegExp(RULES.jargon.table_re);
+const BACKGROUND = new RegExp(RULES.summary.background_re);
+const TODO = new RegExp(RULES.summary.todo_re);
+const DETAIL = new RegExp(RULES.summary.detail_re);
 // Consecutive bounces that still wake the asking member; later ones are only posted.
 const BOUNCE_WAKE_LIMIT = RULES.bounce.wake_limit;
 
@@ -41,22 +44,61 @@ export function askEvidenceProblems(body) {
   return problems;
 }
 
-/** { id, line, problems } of a marked body's first line (Go: exitHeadline). */
+/** { id, line, problems } of a marked body's first line; line is the part for the user (Go: exitHeadline). */
 export function exitHeadline(body) {
   const first = String(body ?? '').split('\n')[0].trim();
   const m = HEADLINE.exec(first);
   const { missing_id: noId, missing_line: noLine } = RULES.headline;
   if (!m) return { id: 0, line: '', problems: first === '' || first.startsWith('#') ? [noId, noLine] : [noId] };
-  const line = m[2].trim();
+  const { summary: line } = exitSplit(body);
   return { id: Number(m[1]), line, problems: line ? [] : [noLine] };
 }
 
-/** The sentence for the user names numbers, workspaces or branches, or the body has a table (Go: jargonProblems). */
-export function jargonProblems(line, body) {
+/**
+ * { summary, detail } of a marked body (Go: exitSplit): after the first line's #id, up to and
+ * including the 「要你做的：」 line is posted for the user; the lines after it go under that post.
+ */
+export function exitSplit(body) {
+  let lines = String(body ?? '').replaceAll('\r\n', '\n').split('\n');
+  const m = HEADLINE.exec(lines[0].trim());
+  if (m) lines[0] = m[2];
+  while (lines.length && !lines[0].trim()) lines.shift();
+  let end = lines.findIndex(l => TODO.test(l));
+  if (end < 0) {
+    const blank = lines.findIndex(l => !l.trim());
+    end = blank < 0 ? lines.length - 1 : blank - 1;
+  }
+  const summary = lines.slice(0, end + 1).join('\n').trim();
+  let rest = lines.slice(end + 1);
+  while (rest.length && !rest[0].trim()) rest.shift();
+  if (rest.length && DETAIL.test(rest[0].trim())) rest = rest.slice(1);
+  return { summary, detail: rest.join('\n').trim() };
+}
+
+/** What the part for the user lacks: background, what was done, what the user is to do (Go: summaryProblems). */
+export function summaryProblems(summary) {
+  const lines = String(summary).split('\n');
   const problems = [];
-  const hits = [...String(line).matchAll(JARGON_LINE)].map(m => m[0].replace(/^[ \t（(，,：:、]+/, ''));
+  if (!BACKGROUND.test(lines[0].trim())) problems.push(RULES.summary.missing_background);
+  const todo = lines.findIndex(l => TODO.test(l));
+  let done = false;
+  for (let i = 1; i < lines.length && !done; i++) {
+    let l = lines[i];
+    if (i === todo) l = l.slice(0, TODO.exec(l).index);
+    else if (todo >= 0 && i > todo) break;
+    done = l.trim() !== '';
+  }
+  if (!done) problems.push(RULES.summary.missing_done);
+  if (todo < 0) problems.push(RULES.summary.missing_todo);
+  return problems;
+}
+
+/** The part for the user names numbers, workspaces, branches, paths or identifiers, or has a table (Go: jargonProblems). */
+export function jargonProblems(line) {
+  const problems = [];
+  const hits = [...String(line).matchAll(JARGON_LINE)].map(m => m[0].replace(/^[^~/`#!_\-0-9A-Za-z＃！工]+/u, ''));
   if (hits.length) problems.push(RULES.jargon.line.replaceAll('{hits}', hits.join('、')));
-  if (JARGON_TABLE.test(body)) problems.push(RULES.jargon.table);
+  if (JARGON_TABLE.test(line)) problems.push(RULES.jargon.table);
   return problems;
 }
 
@@ -69,16 +111,17 @@ export function exitBounceText(kind, problems) {
 /**
  * How a marked body is judged (Go: judgeExit): { id, line, problems, legacy }. known(id): the id is a
  * task; bounces: replies in a row already sent back. problems [] means it goes to the chat channel;
- * legacy: the headline is wrong but bounces stopped waking the member, so it goes without it.
+ * legacy: the format is still wrong but bounces stopped waking the member (the bridge's chat lead
+ * rewrites it; DSH posts it without the headline).
  */
 export function judgeExit(kind, body, { known, bounces = 0 }) {
   const problems = kind === 'ask' ? askEvidenceProblems(body) : [];
   let { id, line, problems: hp } = exitHeadline(body);
   if (!hp.length && !known(id)) hp = [RULES.headline.unknown_id.replaceAll('{id}', String(id))];
+  else if (!hp.length) hp = [...summaryProblems(line), ...jargonProblems(line)];
+  // Format goes back only while bounces still wake the member; after that the chat lead rewrites it.
   if (hp.length && !problems.length && bounces >= BOUNCE_WAKE_LIMIT) return { id, line, problems, legacy: true };
-  // Wording goes back only while bounces still wake the member; after that it is posted as written.
-  const jp = !hp.length && bounces < BOUNCE_WAKE_LIMIT ? jargonProblems(line, body) : [];
-  return { id, line, problems: [...problems, ...hp, ...jp], legacy: false };
+  return { id, line, problems: [...problems, ...hp], legacy: false };
 }
 
 /**
@@ -236,16 +279,24 @@ export class TeamExit {
    */
   forward(room, msg, body, ask, headline) {
     let text = `📬 来自 ${room.name} · ${msg.name}${ask ? ` · ${ask.id}` : ' · 阶段结果'}\n${body}`;
+    let detail = '';
     if (headline) {
-      // The headline as written, named by its task; the details follow (the DSH lead reads them here).
+      // The three parts for the user, named by its task; DSH has no threads, so the details are a
+      // second post marked as such (Go: postWithDetail).
       const name = headline.task?.title ?? '';
-      const rest = String(body).split('\n').slice(1).join('\n').trim();
-      text = `📬 #${headline.id}「${name}」${ask ? `要你定：${headline.line}（直接回复这条就能答复，编号 ${ask.id}）` : `：${headline.line}`}`
-        + (rest ? `\n\n来自 ${room.name} · ${msg.name} 的细节：\n${rest}` : '');
+      detail = exitSplit(body).detail;
+      text = `📬「${name}」${ask ? `要你定\n${headline.line}\n（直接回复这条就能答复，编号 ${ask.id}）` : `\n${headline.line}`}`;
+      if (detail) detail = `📬 细节「${name}」（来自 ${room.name} · ${msg.name}，想看再展开，不用回）\n${detail}`;
     }
-    return this.hub.post(room.parent_id, {
+    const { message } = this.hub.post(room.parent_id, {
       authorKind: 'system', author: 'system', name: 'system', clientKey: `team-exit:${msg.id}`, text,
-    }).message;
+    });
+    if (detail) {
+      this.hub.post(room.parent_id, {
+        authorKind: 'system', author: 'system', name: 'system', clientKey: `team-exit-detail:${msg.id}`, text: detail,
+      });
+    }
+    return message;
   }
 
   /**

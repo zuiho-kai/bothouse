@@ -59,7 +59,7 @@ test('a bridge bot\'s [ask] pauses the bound owner task and leaves its row on th
   hub.tasks = tasks;
   new TeamExit(hub);
   const task = tasks.assign({ roomId: ws.id, title: 'choose', owner: 'ds', actor: 'owner' });
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #${task.id} PR #280 should merge?\n自验：无需\n类别：方向` });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #${task.id} 背景：你让我看这个改动。\n看完了。\n要你定的：要不要合？\n自验：无需\n类别：方向` });
   await new Promise(r => setImmediate(r));
   assert.ok(tasks.task(task.id).paused_at);
   assert.equal(hub.store.workspaceOwner(ws.id), null);
@@ -79,7 +79,7 @@ test('[ask] headline #N pauses that task without repeating the ID in the body', 
   const second = tasks.assign({ roomId: ws.id, title: 'second', owner: 'ds2', actor: 'owner' });
   // room fallback picks the most recently updated task; make that the other one
   tasks.db.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(1, first.id);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #${first.id} 选 A 还是 B\n自验：无需\n类别：方向` });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #${first.id} 背景：你让我选方案。\n两条都试过。\n要你定的：选 A 还是 B？\n自验：无需\n类别：方向` });
   await new Promise(r => setImmediate(r));
   assert.ok(tasks.task(first.id).paused_at);
   assert.ok(!tasks.task(second.id).paused_at);

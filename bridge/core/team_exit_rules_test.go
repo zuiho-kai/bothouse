@@ -30,6 +30,13 @@ type teamExitCases struct {
 			Legacy   bool     `json:"legacy"`
 		} `json:"want"`
 	} `json:"judge"`
+	Split []struct {
+		Body string `json:"body"`
+		Want struct {
+			Summary string `json:"summary"`
+			Detail  string `json:"detail"`
+		} `json:"want"`
+	} `json:"split"`
 	Pick []struct {
 		Name  string `json:"name"`
 		Named int    `json:"named"`
@@ -110,6 +117,11 @@ func TestTeamExitSharedCases(t *testing.T) {
 		want := exitVerdict{ID: c.Want.ID, Line: c.Want.Line, Problems: texts(c.Want.Problems), Legacy: c.Want.Legacy}
 		if !reflect.DeepEqual(v, want) {
 			t.Errorf("judge %s: %+v, want %+v", c.Name, v, want)
+		}
+	}
+	for _, c := range cases.Split {
+		if s, d := exitSplit(c.Body); s != c.Want.Summary || d != c.Want.Detail {
+			t.Errorf("split %q = %q / %q, want %q / %q", c.Body, s, d, c.Want.Summary, c.Want.Detail)
 		}
 	}
 	for _, c := range cases.Pick {

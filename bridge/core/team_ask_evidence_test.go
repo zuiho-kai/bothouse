@@ -42,11 +42,11 @@ func TestWorkspaceAskWithoutEvidenceGoesBack(t *testing.T) {
 
 func TestWorkspaceAskWithEvidenceForwards(t *testing.T) {
 	for _, reply := range []string{
-		"[ask] #7 选哪条路？\n自验：无需\n类别：方向",
-		"[ask] #7 要充值吗\n自验：无需\n类别：花钱",
-		"[ask] #7 看下成片\n自验：无需\n类别：需要用户看的成品",
-		"[ask] #7 点一下授权\n自验：无需\n类别：权限确认",
-		"[ask] #7 这个改动合不合？\n自验：go test ./core 输出 ok\n类别：验收",
+		"[ask] #7 背景：你让我做这件事。\n选哪条路？\n要你做的：没有。\n自验：无需\n类别：方向",
+		"[ask] #7 背景：你让我做这件事。\n要充值吗\n要你做的：没有。\n自验：无需\n类别：花钱",
+		"[ask] #7 背景：你让我做这件事。\n看下成片\n要你做的：没有。\n自验：无需\n类别：需要用户看的成品",
+		"[ask] #7 背景：你让我做这件事。\n点一下授权\n要你做的：没有。\n自验：无需\n类别：权限确认",
+		"[ask] #7 背景：你让我做这件事。\n这个改动合不合？\n要你做的：没有。\n自验：go test ./core 输出 ok\n类别：验收",
 	} {
 		e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
 		exitBoardItem(t, e, 7, "选方案")
@@ -66,7 +66,7 @@ func TestWorkspaceAskWithEvidenceForwards(t *testing.T) {
 func TestWorkspaceReportNeedsNoEvidence(t *testing.T) {
 	e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
 	exitBoardItem(t, e, 7, "第一阶段")
-	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 第一阶段做完")
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。")
 	if got := p.sentTo("discord:chat1"); len(got) != 1 || !strings.Contains(got[0], "第一阶段做完") {
 		t.Fatalf("report forward = %q", got)
 	}
