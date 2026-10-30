@@ -17,7 +17,7 @@ func TestXAITurnCompletedReportsContextTokens(t *testing.T) {
 				"usage":         map[string]any{"inputTokens": inputTokens, "modelCalls": calls},
 			},
 		})
-		s.onNotification(xaiSessionUpdate, params)
+		s.onNotification(xaiSessionNotification, params)
 	}
 	update(68807, 1)
 	if got := a.LastContextTokens("g1"); got != 68807 {
