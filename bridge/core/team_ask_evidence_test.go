@@ -53,8 +53,8 @@ func TestWorkspaceAskWithEvidenceForwards(t *testing.T) {
 		if id := e.forwardWorkspaceExit(p, exitWSKey, reply); id == "" {
 			t.Fatalf("complete ask not forwarded: %q", reply)
 		}
-		// The first line is posted as written; with no chat lead to take it, the details follow.
-		if got := p.sentTo("discord:chat1"); len(got) != 2 || !strings.Contains(got[0], "要你定") || !strings.Contains(got[1], "类别：") {
+		// The parts are posted; details (自验/类别) are not (user 10-30, 2795ca4a).
+		if got := p.sentTo("discord:chat1"); len(got) != 1 || !strings.Contains(got[0], "要你定") || strings.Contains(got[0], "类别：") {
 			t.Fatalf("forward = %q", got)
 		}
 		if e.teamExit.bounces[exitWSKey] != 0 {

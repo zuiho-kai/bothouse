@@ -112,11 +112,11 @@ func TestWorkspaceAskForwardsAndAnswerGoesBack(t *testing.T) {
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
 	inputDone(a, "[ask] #7 背景：你让我做这件事。\n用 A 还是 B？<@123> 看一下\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向")
-	// The three parts, then its details.
-	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 2 })
+	// The four parts only; details are not posted (user 10-30, 2795ca4a).
+	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
 	fwd := p.sentTo("discord:chat1")[0]
 	// The three parts are posted as written, named by the board item (00014526; user 10-30).
-	if !strings.HasPrefix(fwd, "📬「选方案」要你定\n背景：你让我做这件事。\n用 A 还是 B？") {
+	if !strings.HasPrefix(fwd, "📬「选方案」要你定\n\n【背景】你让我做这件事。\n\n【做了什么】用 A 还是 B？") {
 		t.Fatalf("forward = %q", fwd)
 	}
 	// A visible record only: it must not ping anyone (other bots drop 📬 notices).
@@ -160,7 +160,7 @@ func TestWorkspaceAskForwardsAndAnswerGoesBack(t *testing.T) {
 	if got := p.sentTo(exitWSKey)[2]; got != "好，用 A 继续" {
 		t.Fatalf("bot reply went elsewhere: %q", got)
 	}
-	if len(p.sentTo("discord:chat1")) != 2 || len(p.sentTo(exitChatKey)) != 0 {
+	if len(p.sentTo("discord:chat1")) != 1 || len(p.sentTo(exitChatKey)) != 0 {
 		t.Fatal("chat channel got extra messages")
 	}
 }
@@ -173,7 +173,7 @@ func TestWorkspaceReportForwardsOnly(t *testing.T) {
 	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无")
 	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
 	fwd := p.sentTo("discord:chat1")[0]
-	if fwd != "📬「第一阶段」\n背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无" || askRef.MatchString(fwd) {
+	if fwd != "📬「第一阶段」\n\n【背景】你让我做这件事。\n\n【做了什么】第一阶段做完\n\n【要你做的】没有。\n\n【我加的】无" || askRef.MatchString(fwd) {
 		t.Fatalf("report forward = %q", fwd)
 	}
 	if n := len(e.teamExit.asks); n != 0 {
