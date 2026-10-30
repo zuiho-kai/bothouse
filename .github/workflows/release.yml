@@ -330,9 +330,27 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
       - name: Build plugin package
         working-directory: dsh/plugin-pkg
         run: npm run build
+      # The npm package bothouse-dsh ships with every release, versioned as the tag (v0.1.40 -> 0.1.40).
+      # A re-run for a tag that is already on npm skips the publish.
+      - name: Publish bothouse-dsh to npm
+        working-directory: dsh/plugin-pkg
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          ver="${TAG#v}"
+          npm version "$ver" --no-git-tag-version --allow-same-version
+          if npm view "bothouse-dsh@$ver" version >/dev/null 2>&1; then
+            echo "bothouse-dsh@$ver is already on npm; skipping"
+          else
+            tagflag=()
+            case "$ver" in *-*) tagflag=(--tag next) ;; esac
+            npm publish --access public "${tagflag[@]}"
+          fi
       - name: Force-update dsh-plugin branch
         env:
           GH_TOKEN: ${{ github.token }}

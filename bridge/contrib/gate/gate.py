@@ -5,7 +5,7 @@
 """主 bot 的快脑：cc-connect（maomao 分支）每条用户消息先问这里，回 reply / insert / silent / abort。
 
 先走确定性规则，规则定不了再让 jev（向导填的模型）读 A/B/C 三个选项的概率（见 scorer_remote.py）。
-没填 jev 时照样启动，只供 /context（每轮 wiki、任务板）和 /lead；/decide 回 503，cc-connect 按 gate_fallback 兜底
+没填 jev 时照样启动，只供 /context（每轮 wiki、任务板）和 /lead；/decide 回 503，cc-connect 只让被 @ 的角色回、其余只听（core/gate.go noModelFallback）
 （core/gate.go fallbackFor：被 @ 的回，其余归主角色）。不自己下载模型。
 每次判断写进 GATE_LOG（默认 <数据目录>/gate.jsonl），用来调规则或以后做微调。
 POST /decide  {content, mentioned, busy, has_images, has_files, buffered[]} → {action, reason}
@@ -95,7 +95,7 @@ STOP_WORDS = re.compile(r"[\s　。.!！~～、,，…]*(?:停|暂停|停一下|
 REDIRECT = re.compile(r"(?:先)?别做(?:这个|了)[，,、；;]?\s*改(?:做|成)\s*\S")
 # 措辞同向导 jev 一步（web/src/pages/Setup/texts.ts jevQ）和 docs/connect-discord-feishu.md 第 5 节的推荐
 NO_JEV = """gate 没填 jev 模型（{path} 不存在，或向导测试时没拿到概率）：只供每轮 wiki/任务板（/context）和 /lead，
-不判谁回（/decide 回 503，cc-connect 按 gate_fallback 兜底）。gate 靠 jev 判断一句话该哪个角色回，不会自己下载模型。二选一，填好再启动：
+不判谁回（/decide 回 503，cc-connect 只让被 @ 的角色回，其余只听）。gate 靠 jev 判断一句话该哪个角色回，不会自己下载模型。二选一，填好再启动：
   1. 用免费小模型：硅基流动的免费 Qwen 小模型。在安装向导（运行 cc-connect，浏览器里的 /setup）的 jev 一步填 Base URL、Key、模型名。
   2. 本地下载一个 0.6B 小模型：如 Qwen3 0.6B，用 mlx_lm.server 起 OpenAI 兼容接口
      （mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit），再把地址填进向导的 jev。LM Studio 不给概率，当不了 jev。"""

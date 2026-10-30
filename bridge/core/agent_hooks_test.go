@@ -539,7 +539,7 @@ func TestAgentHooksAntigravity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"bash-guard", "fix-claim-guard", "promise-guard"}
+	want := []string{"bash-guard", "ask-only-guard", "fix-claim-guard", "promise-guard"}
 	if !slices.Equal(res.Enabled, want) || res.SettingsFile != AgyHookFile(wd) {
 		t.Fatalf("res = %+v", res)
 	}
@@ -552,7 +552,8 @@ func TestAgentHooksAntigravity(t *testing.T) {
 		t.Fatalf("user hook dropped:\n%s", b)
 	}
 	pre := m["bothouse"]["PreToolUse"]
-	if len(pre) != 1 || pre[0]["matcher"] != "run_command" {
+	// bash-guard on shell commands; ask-only-guard (#678) also covers the edit tools.
+	if len(pre) != 2 || pre[0]["matcher"] != "run_command" || !strings.Contains(pre[1]["matcher"].(string), "write_to_file") {
 		t.Fatalf("PreToolUse = %v", pre)
 	}
 	h := pre[0]["hooks"].([]any)[0].(map[string]any)

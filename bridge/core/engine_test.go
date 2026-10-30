@@ -3414,6 +3414,9 @@ func TestHandleMessage_MultiWorkspacePreservesCCSessionKey(t *testing.T) {
 	deadline := time.After(2 * time.Second)
 	for {
 		if got := wsAgent.EnvValue("CC_SESSION_KEY"); got != "" {
+			if got := wsAgent.EnvValue("CC_AGENT"); got != wsAgent.Name() {
+				t.Fatalf("CC_AGENT = %q, want %q", got, wsAgent.Name())
+			}
 			if got != msg.SessionKey {
 				t.Fatalf("CC_SESSION_KEY = %q, want %q", got, msg.SessionKey)
 			}

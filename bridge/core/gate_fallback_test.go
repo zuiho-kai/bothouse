@@ -28,3 +28,26 @@ func TestGateFallbackMentionedReplies(t *testing.T) {
 		}
 	}
 }
+
+// A message @-ing another bot is that bot's to answer: the fallback role only listens. A gate
+// without a model (/decide 503) lets no one answer what names no one; an @-mentioned bot still does.
+func TestGateFallbackAddressedOtherAndNoModel(t *testing.T) {
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	down.Close()
+	lead := &gateState{url: down.URL, timeout: time.Second, fallback: "reply"}
+	if got := lead.decide(context.Background(), gateRequest{Content: "<@2> hi", AddressedOther: true}); got.Action != "context" {
+		t.Errorf("lead, @ other, gate down: %s", got.Action)
+	}
+	noModel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"no jev"}`))
+	}))
+	defer noModel.Close()
+	lead = &gateState{url: noModel.URL, timeout: time.Second, fallback: "reply"}
+	if got := lead.decide(context.Background(), gateRequest{Content: "hi"}); got.Action != "context" {
+		t.Errorf("lead, no model, names no one: %s", got.Action)
+	}
+	if got := lead.decide(context.Background(), gateRequest{Content: "hi", Mentioned: true}); got.Action != "reply" {
+		t.Errorf("lead, no model, mentioned: %s", got.Action)
+	}
+}

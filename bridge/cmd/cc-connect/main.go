@@ -262,27 +262,6 @@ func runMain() {
 	}
 
 	checkUpdateAsync()
-	// When started as a daemon (CC_LOG_FILE set), redirect logs to a rotating file.
-	// Log file setup happens before flag.Parse() so the rotating writer is in
-	// place before any slog output. To still honour --log-max-size, we
-	// pre-scan os.Args here for the flag value; this is a small, deliberate
-	// duplication of flag parsing for one well-known key.
-	var logWriter io.Writer
-	var logCloser io.Closer
-	if logFile := os.Getenv("CC_LOG_FILE"); logFile != "" {
-		maxSize, maxSizeSrc := resolveLogMaxSize(preScanLogMaxSizeFlag(os.Args[1:]))
-		maxBackups, maxBackupsSrc := resolveLogMaxBackups(preScanLogMaxBackupsFlag(os.Args[1:]))
-		fmt.Fprintf(os.Stderr, "log: redirecting to %s with max_size=%d bytes (source: %s), max_backups=%d (source: %s)\n", logFile, maxSize, maxSizeSrc, maxBackups, maxBackupsSrc)
-		w, err := daemon.NewRotatingWriter(logFile, maxSize, maxBackups)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to open log file %s: %v\n", logFile, err)
-			os.Exit(1)
-		}
-		logWriter = w
-		logCloser = w
-		slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo})))
-	}
-
 	rootOpts, err := parseRootCLIOptions(os.Args[1:])
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -291,7 +270,7 @@ func runMain() {
 		os.Exit(2)
 	}
 
-	// Cross-check: the rotating-writer setup above consumed a pre-scanned
+	// Cross-check: the rotating-writer setup below consumes a pre-scanned
 	// value of --log-max-size. Validate the parsed value too so malformed
 	// values surface a clear warning.
 	if strings.TrimSpace(rootOpts.logMaxSize) != "" {
@@ -322,6 +301,24 @@ func runMain() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
 		printUsage()
 		os.Exit(1)
+	}
+
+	// Only the server owns the daemon log. Agent-side commands can inherit
+	// CC_LOG_FILE while running in a read-only sandbox.
+	var logWriter io.Writer
+	var logCloser io.Closer
+	if logFile := os.Getenv("CC_LOG_FILE"); logFile != "" {
+		maxSize, maxSizeSrc := resolveLogMaxSize(preScanLogMaxSizeFlag(os.Args[1:]))
+		maxBackups, maxBackupsSrc := resolveLogMaxBackups(preScanLogMaxBackupsFlag(os.Args[1:]))
+		fmt.Fprintf(os.Stderr, "log: redirecting to %s with max_size=%d bytes (source: %s), max_backups=%d (source: %s)\n", logFile, maxSize, maxSizeSrc, maxBackups, maxBackupsSrc)
+		w, err := daemon.NewRotatingWriter(logFile, maxSize, maxBackups)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to open log file %s: %v\n", logFile, err)
+			os.Exit(1)
+		}
+		logWriter = w
+		logCloser = w
+		slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	}
 
 	core.VersionInfo = fmt.Sprintf("bothouse %s\ncommit: %s\nbuilt: %s", version, commit, buildTime)

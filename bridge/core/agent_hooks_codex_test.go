@@ -20,7 +20,7 @@ func TestAgentHooksCodexRoleScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SettingsFile != filepath.Join(dir, "hooks.json") || len(got.Enabled) != 2 {
+	if got.SettingsFile != filepath.Join(dir, "hooks.json") || len(got.Enabled) != 3 {
 		t.Fatalf("%+v", got)
 	}
 	if _, err := os.Stat(AgentHookSettingsPath("claudecode", wd)); !os.IsNotExist(err) {
@@ -38,7 +38,7 @@ func TestAgentHooksCodexRoleScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ = os.ReadFile(got.SettingsFile)
-	if strings.Count(string(b), "--codex") != 2 {
+	if strings.Count(string(b), "--codex") != 3 {
 		t.Fatal("not idempotent", string(b))
 	}
 	off, err := DisableAgentHooks(opts)
