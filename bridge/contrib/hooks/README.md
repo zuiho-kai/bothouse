@@ -111,6 +111,7 @@ DSH 桥支持的事件：SessionStart、UserPromptSubmit、PreToolUse、PostTool
 python3 -I bridge/contrib/hooks/test_hooks.py            # 两种载荷走 run.py：拒绝、放行、开关、zstd 记录上的 Stop、wiki-context
 python3 -I bridge/contrib/hooks/test_dshlog.py           # DSH 记录：多帧 zstd、未压缩、两种混在一起、坏文件；export.py 和 peek.py 读两种结果一致
 python3 -I bridge/contrib/hooks/test_promise_guard.py    # promise-guard 的句子回放
+python3 -I bridge/contrib/hooks/test_doc_ok.py           # doc-ok：Codex/Claude/DSH 会话登记、同会话放行、跨会话拒绝、路径归一化
 python3 -I bridge/contrib/hooks/test_subagent_ctx_hook.py  # subagent-ctx-hook：阈值上下、主会话不管、Codex/context_tokens、经 run.py 跑一次
 cd bridge && go test -tags no_web ./core -run 'TestAgentHooks|TestWithHookRules|TestApplyWizardNewClaudeRoleGetsHooks'
 ```
@@ -128,3 +129,5 @@ cd bridge && go test -tags no_web ./core -run 'TestAgentHooks|TestWithHookRules|
 Codex loads hooks beside active config layers, including project `.codex` and the user config under CODEX_HOME. Project layers require project trust, and Codex skips hooks whose hash is not recorded as trusted (app-server has no bypass flag). When bothouse starts a Codex app-server session it calls `hooks/list` for the role directory and, for its own untrusted/modified hooks only (commands carrying `--conest-hook` and `--codex`), writes `hooks.state.<key>.trusted_hash` through `config/batchWrite` into that session's CODEX_HOME config.toml, the same write Codex's own app-server uses. User hooks are never auto-trusted; `codex exec` / interactive sessions still need review through `/hooks`. Production launches never add a trust-bypass flag. If that registration fails at any step (reading the role's hooks file, `hooks/list` not listing every bothouse hook, the `config/batchWrite`, or a read-back that still reports them untrusted), the session start returns the error naming the step and the session does not start: running without bash-guard registered is not an acceptable fallback. Restart an existing session after configuration changes.
 
 `run.py --codex` normalizes shell inputs and translates Codex response_item chat records for Stop. `stop_hook_active` is preserved. Other hooks are explicitly rejected until adapted. Tested CLI version: 0.163.0-alpha.11.1; transcript format is not a stable public API. Source: https://learn.chatgpt.com/docs/hooks .
+
+`doc-ok.py` accepts Codex's shell identity from `CODEX_SESSION_ID`, which is the same value as the hook payload's `session_id`. `CODEX_THREAD_ID` is a thread identifier and is deliberately not used: registering it would not match the guard.
