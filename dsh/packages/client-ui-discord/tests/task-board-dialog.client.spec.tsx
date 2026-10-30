@@ -132,6 +132,28 @@ for (const [lang, dict] of [['zh', zh], ['en', en]] as const) {
   })
 }
 
+it('downloads delivered files and links an existing original through the task board', async () => {
+  const t = ((key: keyof typeof zh) => zh[key]) as T
+  const result = { id: 3, attachment_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', role: 'deliverable' as const,
+    label: null, name: 'result.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 4096 }
+  const candidate = { id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', message_id: 23,
+    name: 'original.xlsx', mime: result.mime, size: 2048 }
+  const onListFiles = vi.fn().mockResolvedValue({ files: [result], candidates: [candidate] })
+  const onAttachFile = vi.fn().mockResolvedValue(undefined)
+  render(<TaskBoard tasks={[task(1, { files: [result] })]} rooms={rooms} chatId={1} roomId={1} t={t}
+    onOpen={vi.fn()} onListFiles={onListFiles} onAttachFile={onAttachFile} />)
+  fireEvent.click(screen.getByRole('button', { name: zh.taskBoardOpen }))
+  const link = screen.getByRole('link', { name: /result.xlsx/ }) as HTMLAnchorElement
+  expect(link.getAttribute('href')).toContain(result.attachment_id)
+  expect(link.getAttribute('download')).toBe('result.xlsx')
+  fireEvent.click(screen.getByRole('button', { name: zh.taskFileAddSource }))
+  await vi.waitFor(() => expect(onListFiles).toHaveBeenCalledWith(1))
+  fireEvent.change(await screen.findByRole('combobox', { name: zh.taskFileChoose }), { target: { value: candidate.id } })
+  fireEvent.change(screen.getByRole('textbox', { name: zh.taskFileLabel }), { target: { value: '原始账本' } })
+  fireEvent.click(screen.getByRole('button', { name: zh.messageSave }))
+  await vi.waitFor(() => expect(onAttachFile).toHaveBeenCalledWith(1, candidate.id, '原始账本'))
+})
+
 it('offers explicit owner acceptance and requires a reason for rework', async () => {
   const onReview = vi.fn().mockResolvedValue(undefined)
   const t = ((key: keyof typeof zh) => zh[key]) as T
