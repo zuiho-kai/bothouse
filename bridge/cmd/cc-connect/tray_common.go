@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/chenhg5/cc-connect/config"
+	"github.com/chenhg5/cc-connect/core"
 	"github.com/getlantern/systray"
 )
 
@@ -118,7 +119,17 @@ func (c trayClient) get(path string, out any) error {
 	if res.StatusCode != 200 {
 		return fmt.Errorf("HTTP %d", res.StatusCode)
 	}
-	return json.NewDecoder(res.Body).Decode(out)
+	var envelope struct {
+		OK   bool            `json:"ok"`
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&envelope); err != nil {
+		return fmt.Errorf("decode management response: %w", err)
+	}
+	if !envelope.OK || len(envelope.Data) == 0 || string(envelope.Data) == "null" {
+		return fmt.Errorf("management response has no successful data")
+	}
+	return json.Unmarshal(envelope.Data, out)
 }
 func refreshTray(c trayClient) {
 	tick := time.NewTicker(45 * time.Second)
@@ -169,30 +180,13 @@ func refreshTray(c trayClient) {
 			}
 		}
 		var usage struct {
-			Items []struct {
-				Total int64    `json:"total_tokens"`
-				Cost  *float64 `json:"estimated_cost"`
-			} `json:"items"`
+			Items []core.UsageAggregate `json:"items"`
 		}
 		today := time.Now().Format("2006-01-02")
 		if c.get("/api/v1/usage/daily?from="+today+"&to="+today, &usage) != nil {
-			trayUsage.SetTitle("今日用量：等待 #208")
+			trayUsage.SetTitle("今日用量：读取失败")
 		} else {
-			var tokens int64
-			cost := 0.0
-			hasCost := false
-			for _, r := range usage.Items {
-				tokens += r.Total
-				if r.Cost != nil {
-					cost += *r.Cost
-					hasCost = true
-				}
-			}
-			label := fmt.Sprintf("今日用量：%d tokens", tokens)
-			if hasCost {
-				label += fmt.Sprintf(" · $%.2f", cost)
-			}
-			trayUsage.SetTitle(compact(label, 55))
+			trayUsage.SetTitle(compact(trayUsageLabel(usage.Items), 55))
 		}
 		var update struct {
 			HasUpdate bool   `json:"has_update"`
@@ -207,6 +201,34 @@ func refreshTray(c trayClient) {
 		}
 		<-tick.C
 	}
+}
+
+func trayUsageLabel(items []core.UsageAggregate) string {
+	var tokens int64
+	var unknown, unpriced int64
+	var cost float64
+	hasCost := false
+	for _, r := range items {
+		tokens += r.Total
+		unknown += r.Unknown
+		unpriced += r.Unpriced
+		if r.EstimatedCost != nil {
+			cost += *r.EstimatedCost
+			hasCost = true
+		}
+	}
+	label := fmt.Sprintf("今日用量：%d tokens", tokens)
+	if unknown > 0 {
+		label = fmt.Sprintf("今日用量：已知 %d tokens（%d 次未完整报告）", tokens, unknown)
+	}
+	if hasCost {
+		if unpriced > 0 {
+			label += fmt.Sprintf(" · 部分估算 $%.2f", cost)
+		} else {
+			label += fmt.Sprintf(" · 估算 $%.2f", cost)
+		}
+	}
+	return label
 }
 func compact(s string, max int) string {
 	r := []rune(s)
