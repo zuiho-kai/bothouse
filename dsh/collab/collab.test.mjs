@@ -6,7 +6,7 @@ import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX, roomKey } from './cloudweb.mjs';
-import { DshMembers, finalText, describeReason, friendlyFailure, memberStatus } from './dsh-member.mjs';
+import { DshMembers, finalText, describeReason, friendlyFailure, memberStatus, localImageReply } from './dsh-member.mjs';
 import { resolveConfig, installApprovalAnswerer } from './plugin.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Roster } from './roster.mjs';
@@ -352,7 +352,7 @@ test('team exit: forwards asks and returns answers to the recorded workspace', a
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
   new TeamExit(hub);
   hub.tasks = { task: id => (id === 7 ? { id: 7, title: '问答' } : undefined) }; // the headline's task on the board
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #7 需要一个答案\n自验：无需\n类别：方向` });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #7 背景：你让我做这件事。\n需要一个答案\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向` });
   await tick();
   const forwarded = hub.store.page(1, undefined, 10).find(m => m.author_kind === 'system');
   assert.ok(forwarded);
@@ -607,6 +607,63 @@ function fakeDsh() {
 }
 
 const settle = async () => { for (let i = 0; i < 8; i++) await tick(); };
+
+test('DSH member: local images become attachments while outside paths remain untouched', async () => {
+  const { mkdtempSync, writeFileSync, symlinkSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments } = await import('./attachments.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'member-images-'));
+  const outside = mkdtempSync(join(tmpdir(), 'member-outside-'));
+  const image = join(root, '图 test.png');
+  const bare = join(root, 'bare.jpg');
+  const forbidden = join(outside, 'private.png');
+  const link = join(root, 'linked.png');
+  const big = join(root, 'big.webp');
+  writeFileSync(image, 'png'); writeFileSync(bare, 'jpg'); writeFileSync(forbidden, 'private');
+  writeFileSync(big, Buffer.alloc(8 * 1024 * 1024 + 1));
+  symlinkSync(forbidden, link);
+  const files = new Attachments(join(root, 'attachments'));
+  const warnings = [];
+  const logger = { warn: (...args) => warnings.push(args) };
+  const original = `前 ![预览](${image}) 后 ${bare} ${forbidden} ${link} ${big} ${join(root, 'notes.txt')}`;
+  const result = localImageReply(original, root, files, logger);
+  assert.equal(result.text, `前 预览 后  ${forbidden} ${link} ${big} ${join(root, 'notes.txt')}`);
+  assert.deepEqual(result.attachments.map(a => [a.name, a.mime]), [['图 test.png', 'image/png'], ['bare.jpg', 'image/jpeg']]);
+  assert.equal(files.read(result.attachments[0].id).toString(), 'png');
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0][0], /exceeds/);
+  assert.deepEqual(localImageReply('纯文字', root, files, logger), { text: '纯文字', attachments: [] });
+  assert.equal(localImageReply(`![outside](${forbidden})`, root, files, logger).text, `![outside](${forbidden})`);
+  const repeated = localImageReply(Array(11).fill(bare).join(' '), root, files, logger);
+  assert.equal(repeated.attachments.length, 10);
+  assert.equal(repeated.text.trim(), bare);
+  assert.match(warnings.at(-1)[0], /attachment limit/);
+});
+
+test('DSH member: posted reply carries local image bytes', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments } = await import('./attachments.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'member-reply-'));
+  const path = join(root, 'proof.png');
+  writeFileSync(path, 'proof');
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const files = new Attachments(join(root, 'attachments'));
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  members.rt.workspacePath = root;
+  members.rt.files = files;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 图' });
+  await settle();
+  dsh.turn(dsh.sessions.get(dsh.made[0]), [`看图 ![截图](${path})`]);
+  await settle();
+  const reply = hub.store.page(1, undefined, 1)[0];
+  assert.equal(reply.text, '看图 截图');
+  assert.equal(files.read(JSON.parse(reply.attachments)[0].id).toString(), 'proof');
+  await members.close(); hub.store.close();
+});
 
 test('DSH member: @ admits one prompt, its turn posts the reply, duplicates never re-run', async () => {
   const hub = makeHub();
@@ -1514,6 +1571,35 @@ test('CLI directory error: real spawn failure reports channel, cwd and cause wit
     assert.equal(dsh.ctx.agents.created.length, 0);
     assert.match(hub.store.binding('cc', 1).session_id, /^cli:/, 'no ACP session id was bound');
   } finally { await members.close(); hub.store.close(); }
+});
+
+test('CLI member: streamed draft commits image attachment on the same row', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments } = await import('./attachments.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'cli-images-'));
+  const image = join(root, 'result.png');
+  writeFileSync(image, 'result');
+  const hub = makeHub();
+  const fake = fakeDsh();
+  const files = new Attachments(join(root, 'attachments'));
+  const members = new DshMembers(hub, {
+    ctx: fake.ctx, createUserMessage: m => m, workspacePath: root, files, logger: quiet,
+    createCliMember: () => ({ async ask(_prompt, _room, onText) {
+      onText(`结果 ![图](${image})`);
+      await tick();
+      return `结果 ![图](${image})`;
+    }, close() {} }),
+  }, [{ id: 'cc', name: 'CC', cli: 'claude' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 生成图' });
+  await settle();
+  const rows = hub.store.page(1, undefined, 10).filter(m => m.author === 'cc');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].draft, 0);
+  assert.equal(rows[0].text, '结果 图');
+  assert.equal(files.read(JSON.parse(rows[0].attachments)[0].id).toString(), 'result');
+  await members.close(); hub.store.close();
 });
 
 function cliMembers(hub, ask) {
@@ -2655,7 +2741,7 @@ test('G35: rework whose session a new claim cleared carries the original handoff
   const t = tasks.assign({ roomId: ws.id, title: '记账', owner: 'fu', actor: 'zhu', messageId: handoff.id });
   tasks.q.setSource.run('workspace', t.id);
   hub.store.bind('fu', ws.id, 'collab-fu');
-  say(ws.id, `【接】#${t.id}\n\n[report] #${t.id} ledger 加了 add/list，12 个测试通过`);
+  say(ws.id, `【接】#${t.id}\n\n[report] #${t.id} 背景：你让我做这件事。\nledger 加了 add/list，12 个测试通过\n要你做的：没有。\n我加的：无`);
   await settle();
   hub.store.resetSessions(ws.id); // as a new claim does
   say(1, `【返工】#${t.id} 缺 README`, 'zhu');
@@ -2733,7 +2819,7 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   assert.deepEqual(ju.of('team_workspace_ack').at(-1).rooms.map(r => [r.name, r.owner]), [['工作区1', 'room-1']]);
   // the headline needs a task on the board; one in the chat channel leaves the workspace free
   const earlier = tasks.assign({ roomId: 1, title: '前活', owner: 'owner', actor: 'ju' });
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[report] #${earlier.id} 做完了` });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[report] #${earlier.id} 背景：你让我做这件事。\n做完了\n要你做的：没有。\n我加的：无` });
   await tick();
   assert.ok(hub.store.page(1, undefined, 10).some(m => m.author_kind === 'system' && /做完了/.test(m.text)), 'report reaches the owner');
   assert.equal(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system'), false, 'never the other chat channel');
@@ -2750,7 +2836,7 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   ju.frame({ type: 'team_workspace', ref_id: 'c2', op: 'claim', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
   await tick();
   assert.equal(ju.of('team_workspace_ack').at(-1).ok, true);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #${t.id} 要答案\n自验：无需\n类别：方向` });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #${t.id} 背景：你让我做这件事。\n要答案\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向` });
   await tick();
   assert.ok(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), 'ask reaches dev, the new owner');
   assert.equal(hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), false);
@@ -5038,7 +5124,7 @@ test('G34: 【接】#id in the chat channel about a workspace task neither accep
 test('G34: a workspace hand-back brings its [report] body to the chat channel and wakes the dispatcher, who accepts it with 【验收】#id', async () => {
   const { hub, tasks, woken, ws, assign, say } = g34Setup();
   const t = assign();
-  say(ws.id, `【接】#${t.id}\n\n先规划结构。现在写模块。\n\n[report] #${t.id} 40 个测试通过，README 第一行写了暗号`);
+  say(ws.id, `【接】#${t.id}\n\n先规划结构。现在写模块。\n\n[report] #${t.id} 背景：你让我做这件事。\n40 个测试通过，README 第一行写了暗号\n要你做的：没有。\n我加的：无`);
   await settle();
   assert.equal(tasks.task(t.id).status, 'returned');
   const copies = hub.store.page(1, undefined, 50).filter(m => m.author_kind === 'system' && m.text.startsWith('📬'));
@@ -5161,14 +5247,14 @@ test('G35: a DSH [ask] is forwarded as a question, not a hand-back, and its task
   const { hub, tasks, woken, ws, assign, say } = g34Setup();
   const t = assign();
   const due = tasks.task(t.id).next_check_at;
-  say(ws.id, `【接】#${t.id}\n先看了现状。\n\n[ask] #${t.id} 方案 A 还是 B？\n自验：无需\n类别：方向`);
+  say(ws.id, `【接】#${t.id}\n先看了现状。\n\n[ask] #${t.id} 背景：你让我做这件事。\n方案 A 还是 B？\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向`);
   await settle();
   const task = tasks.task(t.id);
   assert.equal(task.status, 'accepted', 'not returned');
   assert.equal(task.paused_at, null, 'not parked');
   assert.equal(task.next_check_at, due, 'the watch stays');
   assert.equal(hub.store.workspaceOwner(ws.id), 1, 'the workspace stays with its chat channel');
-  const copies = hub.store.page(1, undefined, 50).filter(m => m.text.startsWith('📬'));
+  const copies = hub.store.page(1, undefined, 50).filter(m => m.text.startsWith('📬') && !m.text.startsWith('📬 细节'));
   assert.equal(copies.length, 1);
   assert.match(copies[0].text, /ask-[0-9a-f]{8}/, 'forwarded as an ask');
   assert.equal(hub.store.page(1, undefined, 50).filter(m => /交回/.test(m.text)).length, 0);
@@ -5178,7 +5264,7 @@ test('G35: a DSH [ask] is forwarded as a question, not a hand-back, and its task
 test('G35: while a DSH [ask] waits on the user the watch wakes nobody and keeps the workspace; the answer re-arms it', async () => {
   const { hub, tasks, clock, woken, ws, assign } = g34Setup();
   const t = assign();
-  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n看了现状\n\n[ask] #${t.id} 方案 A 还是 B？\n自验：无需\n类别：方向` }, 1100).message;
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n看了现状\n\n[ask] #${t.id} 背景：你让我做这件事。\n方案 A 还是 B？\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向` }, 1100).message;
   tasks.fromMessage(row);
   hub.teamExit.onMessage(row);
   await settle();
@@ -5433,7 +5519,7 @@ test('r12: a first call 「副，把 README 改一下」 dispatches as before', 
 test('G37: an [ask] answer reaches the workspace @-ing the member by name, not by id', async () => {
   const { hub, tasks, ws, assign } = g34Setup();
   const t = assign();
-  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n[ask] #${t.id} 方案 A 还是 B？\n自验：无需\n类别：方向` }, 1100).message;
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n[ask] #${t.id} 背景：你让我做这件事。\n方案 A 还是 B？\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向` }, 1100).message;
   tasks.fromMessage(row);
   hub.teamExit.onMessage(row);
   await settle();
@@ -5445,7 +5531,7 @@ test('G37: an [ask] answer reaches the workspace @-ing the member by name, not b
   assert.doesNotMatch(answer.text, /@fu\b/, 'no member id in the text');
   assert.deepEqual([...mentions(answer.text, hub.routable())], ['fu'], 'the name still routes to her');
   const t2 = assign('zhu');
-  const ask2 = hub.store.append(ws.id, { authorKind: 'role', author: 'zhu', name: '主', text: `【接】#${t2.id}\n[ask] #${t2.id} 要不要改 C？\n自验：无需\n类别：方向` }, 1200).message;
+  const ask2 = hub.store.append(ws.id, { authorKind: 'role', author: 'zhu', name: '主', text: `【接】#${t2.id}\n[ask] #${t2.id} 背景：你让我做这件事。\n要不要改 C？\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向` }, 1200).message;
   hub.teamExit.onMessage(ask2);
   await settle();
   hub.store.db.prepare("UPDATE team_exit_asks SET member_id = 'gone' WHERE source_id = ?").run(ask2.id);

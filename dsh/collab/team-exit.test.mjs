@@ -86,7 +86,7 @@ test('complete [ask] in each of the four categories, or with evidence, reaches t
     '看下成片\n自验：无需\n类别：需要用户看的成品',
     '点一下授权\n自验：无需\n类别：权限确认',
     '这个改动合不合？\n自验：node --test 输出 ok\n类别：验收',
-  ].map(q => `[ask] #1 背景：你让我修 CI。\n两条路都试过了。\n要你定的：${q}`);
+  ].map(q => `[ask] #1 背景：你让我修 CI。\n两条路都试过了。\n要你定的：${q.replace("\n", "\n我加的：无\n")}`);
   for (const a of asks) await say(a);
   assert.equal(back().length, 0);
   const parts = chat().filter(m => !m.text.startsWith('📬 细节'));
@@ -96,9 +96,9 @@ test('complete [ask] in each of the four categories, or with evidence, reaches t
 
 test('[report] needs no 自验 or 类别', async () => {
   const { say, chat, back } = setup();
-  await say('[report] #1 背景：你让我修 CI。\n第一阶段做完，已经上线。\n要你做的：没有。\n\n细节：\n跑了 node --test');
+  await say('[report] #1 背景：你让我修 CI。\n第一阶段做完，已经上线。\n要你做的：没有。\n我加的：无\n\n细节：\n跑了 node --test');
   assert.equal(back().length, 0);
-  assert.equal(chat()[0].text, '📬「修 CI」\n背景：你让我修 CI。\n第一阶段做完，已经上线。\n要你做的：没有。');
+  assert.equal(chat()[0].text, '📬「修 CI」\n背景：你让我修 CI。\n第一阶段做完，已经上线。\n要你做的：没有。\n我加的：无');
   assert.match(chat()[1].text, /^📬 细节「修 CI」[^\n]*\n跑了 node --test$/);
 });
 

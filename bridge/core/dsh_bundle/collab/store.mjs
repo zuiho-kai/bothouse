@@ -92,7 +92,7 @@ export class Store {
       byKey: this.db.prepare('SELECT * FROM messages WHERE client_key = ?'),
       byId: this.db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0'),
       edit: this.db.prepare('UPDATE messages SET text = ?, card = ?, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
-      commit: this.db.prepare('UPDATE messages SET text = ?, from_turn = ?, draft = 0, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 AND card IS NULL AND draft = 1 RETURNING *'),
+      commit: this.db.prepare('UPDATE messages SET text = ?, from_turn = ?, attachments = ?, draft = 0, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 AND card IS NULL AND draft = 1 RETURNING *'),
       editUser: this.db.prepare(`UPDATE messages SET text = ?, edited_at = ? WHERE id = ? AND author_kind = 'user' AND author = ?
         AND deleted = 0 AND draft = 0 AND card IS NULL RETURNING *`),
       del: this.db.prepare('UPDATE messages SET deleted = 1 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
@@ -664,9 +664,9 @@ export class Store {
    * into a reply (the caller fans out once). A row already committed gets the
    * text and first = false. undefined if it is not that author's live text row.
    */
-  commit(id, authorKind, author, text, fromTurn, now = Date.now() / 1000) {
-    if (!text.trim() || text.length > MAX_TEXT) return undefined;
-    const row = this.q.commit.get(text, fromTurn == null ? null : (fromTurn ? 1 : 0), now, id, authorKind, author);
+  commit(id, authorKind, author, text, fromTurn, attachments, now = Date.now() / 1000) {
+    if ((!text.trim() && !attachments?.length) || text.length > MAX_TEXT) return undefined;
+    const row = this.q.commit.get(text, fromTurn == null ? null : (fromTurn ? 1 : 0), attachments?.length ? JSON.stringify(attachments) : null, now, id, authorKind, author);
     if (row !== undefined) return { message: row, first: true };
     const old = this.message(id);
     if (old === undefined || old.card != null) return undefined;
