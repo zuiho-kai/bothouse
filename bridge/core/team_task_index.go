@@ -17,6 +17,10 @@ type teamTaskLink struct {
 	URL        string    `json:"url"`
 	State      TaskState `json:"state"`
 	UpdatedAt  time.Time `json:"updated_at"`
+	// Progress: the card's latest public progress line; ThreadURL: its task thread (the
+	// chat's pinned task table says what the item is doing and links there).
+	Progress  string `json:"progress,omitempty"`
+	ThreadURL string `json:"thread_url,omitempty"`
 	// Members carries only public assignment rows (no summaries or tokens)
 	// so the lead's board can show dispatched teammates.
 	Members []teamTaskMember `json:"members,omitempty"`
@@ -65,12 +69,26 @@ func (p *PublicProgress) taskLinks() []teamTaskLink {
 		t := r.record.Task
 		// A link is useful only once the platform has returned a real message.
 		if listedTaskState(t.State) && t.MessageID != "" && boardTaskURL(t.CardURL) {
-			links = append(links, teamTaskLink{ID: t.ID, SessionKey: t.SessionKey, Title: t.Title, URL: t.CardURL, State: t.State, UpdatedAt: t.UpdatedAt, Members: teamTaskMembers(t.Members)})
+			links = append(links, teamTaskLink{ID: t.ID, SessionKey: t.SessionKey, Title: t.Title, URL: t.CardURL, State: t.State, UpdatedAt: t.UpdatedAt, Progress: t.LatestProgress, ThreadURL: taskThreadURL(t.CardURL, t.ThreadID), Members: teamTaskMembers(t.Members)})
 		}
 		r.mu.Unlock()
 	}
 	sort.Slice(links, func(i, j int) bool { return links[i].ID < links[j].ID })
 	return links
+}
+
+// taskThreadURL: the Discord link of the card's thread (https://discord.com/channels/<guild>/<thread>),
+// "" without a thread or for a card link of another form.
+func taskThreadURL(cardURL, threadID string) string {
+	const head = "https://discord.com/channels/"
+	if threadID == "" || !strings.HasPrefix(cardURL, head) {
+		return ""
+	}
+	guild, _, ok := strings.Cut(strings.TrimPrefix(cardURL, head), "/")
+	if !ok || guild == "" {
+		return ""
+	}
+	return head + guild + "/" + threadID
 }
 
 func safeTaskURL(raw string) bool {
