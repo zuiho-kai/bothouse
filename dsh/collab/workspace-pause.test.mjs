@@ -59,7 +59,7 @@ test('a bridge bot\'s [ask] pauses the bound owner task and leaves its row on th
   hub.tasks = tasks;
   new TeamExit(hub);
   const task = tasks.assign({ roomId: ws.id, title: 'choose', owner: 'ds', actor: 'owner' });
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #${task.id} PR #280 should merge?\n自验：无需\n类别：方向` });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #${task.id} 这个要不要合？\n自验：无需\n类别：方向` });
   await new Promise(r => setImmediate(r));
   assert.ok(tasks.task(task.id).paused_at);
   assert.equal(hub.store.workspaceOwner(ws.id), null);
