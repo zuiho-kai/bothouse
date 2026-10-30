@@ -1,0 +1,34 @@
+{
+  "_doc": [
+    "工作区交回（[ask]/[report]）规则，只此一份：桥本体 Go（bridge/core/team_exit_rules.go，读内嵌的 dsh_bundle/collab 副本）和 DSH collab（team-exit.mjs，读同目录这份）都读它。",
+    "改这里后把它复制到 bridge/core/dsh_bundle/collab/（TestDSHBundleCollabMatchesSource 查两份一致），再跑两边的共用样例：dsh/collab/test/team-exit-cases.json（go test ./core -run TestTeamExitSharedCases；node --test team-exit.test.mjs）。",
+    "正则两边（Go RE2 与 JS）都要能编译、结果一样：不用 \\s \\w（两边含义不同），空白写成 [\\t\\n\\f\\r \\u3000]；不用环视；按 search 用，要锚定就写 ^。",
+    "{kind} {id} {problems} {extra} 是占位符；problems 用 bounce.sep 连起来；extra 取 bounce.extra[kind]，没有就是空。"
+  ],
+  "kinds": ["ask", "report"],
+  "mark": "[{kind}]",
+  "headline_re": "^#([0-9]+)[\t\n\f\r 　:：,，、.。]*(.*)$",
+  "headline": {
+    "missing_id": "第一行缺任务板编号（#编号）",
+    "missing_line": "第一行缺给用户的一两句话",
+    "missing_marker": "第一行没写 [report]",
+    "unknown_id": "任务板上没有这个编号（#{id}）"
+  },
+  "ask": {
+    "self_check_re": "自验[\t\n\f\r 　]*[：:]",
+    "category_re": "类别[\t\n\f\r 　]*[：:]",
+    "exempt_re": "方向|花钱|成品|权限",
+    "no_check_re": "^(无需|不需要|无|免)([\t\n\f\r 　，。,.;；（(]|$)",
+    "missing_self_check": "缺「自验：」（附证据：截图或命令输出）",
+    "missing_category": "缺「类别：」（方向、花钱、需要用户看的成品、权限确认之一，或写别的类别）",
+    "no_check_not_exempt": "「自验：无需」只限方向、花钱、需要用户看的成品、权限确认四类，其它类别要附证据"
+  },
+  "bounce": {
+    "text": "这条 [{kind}] 没有转给用户：{problems}。补上后重发：第一行写 [{kind}] #任务板编号 给用户的一两句话（系统原样贴到聊天频道），第二行起写细节{extra}。",
+    "sep": "；",
+    "extra": {
+      "ask": "，正文写「自验：」附证据和「类别：」；方向、花钱、需要用户看的成品、权限确认四类可写「自验：无需」"
+    },
+    "wake_limit": 2
+  }
+}
