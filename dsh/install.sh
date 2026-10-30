@@ -57,6 +57,23 @@ if [ -z "$WEB_APP" ] && command -v npm >/dev/null; then
   fi
 fi
 
+echo "== step: acp steer"
+# The bridge folds a message sent while a turn runs into that turn only when dsh-acp advertises
+# "dsh/steer" (bridge/agent/acp/session_steer.go); stock DSH does not, so a busy bot could only
+# queue. Patch the installed dsh-acp once; a reinstall or upgrade of DSH drops it, so rerun this.
+ACP_JS="${DSH_DIR:-}/node_modules/@deepseek-ai/dsh-acp/lib/index.js"
+if [ -z "${DSH_DIR:-}" ] || [ ! -f "$ACP_JS" ]; then
+  echo "== dsh-acp not found, skipping (busy messages will queue instead of joining the turn)"
+elif grep -q '"dsh/steer"' "$ACP_JS"; then
+  echo "== dsh-acp already supports steer"
+elif command -v patch >/dev/null && patch --dry-run -s "$ACP_JS" < "$HERE/runtime-patches/dsh-acp-steer.patch" >/dev/null; then
+  cp -p "$ACP_JS" "$ACP_JS.bak-presteer"
+  patch -s "$ACP_JS" < "$HERE/runtime-patches/dsh-acp-steer.patch"
+  echo "== dsh-acp patched for steer (backup: $ACP_JS.bak-presteer)"
+else
+  echo "== dsh-acp steer patch does not fit this DSH version, skipping (busy messages will queue)" >&2
+fi
+
 echo "== step: deps"
 # Reinstall when deps are missing or package.json/pnpm-lock.yaml changed since the last install
 # (an upgrade refreshes these files in place); the stamp is a copy of both files.

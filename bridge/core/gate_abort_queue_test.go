@@ -15,6 +15,8 @@ import (
 // review ~/.claude/reviews/agy-abort-reset.md): a gate abort cancels only the running turn. A
 // message queued behind that turn is still answered, nobody gets an error, and the abort
 // message's question becomes a turn that is answered.
+// 10-30: the abort message is answered first, before what queued behind the cancelled turn
+// (「暂停」 was answered third, after a cron turn and an earlier message, with a "queued" notice).
 
 type queueAbortSession struct {
 	events  chan Event
@@ -132,6 +134,9 @@ func TestGateAbortKeepsQueuedMessageAndAnswersQuestion(t *testing.T) {
 			if cancels != 1 {
 				t.Fatalf("CancelTurn called %d times, want 1", cancels)
 			}
+			if !strings.Contains(prompts[1], "你在干啥") {
+				t.Fatalf("turn after the abort = %q, want the abort message first", prompts[1])
+			}
 			break
 		}
 		if time.Now().After(deadline) {
@@ -155,6 +160,15 @@ func TestGateAbortKeepsQueuedMessageAndAnswersQuestion(t *testing.T) {
 			}
 		}
 		if answers >= 2 {
+			notices := 0
+			for _, m := range sent {
+				if strings.Contains(m.content, "📬") {
+					notices++
+				}
+			}
+			if notices != 1 { // message 2 only; the abort says "⏹ 已打断"
+				t.Fatalf("queued notices = %d, want 1; sent=%+v", notices, sent)
+			}
 			break
 		}
 		if time.Now().After(deadline) {
