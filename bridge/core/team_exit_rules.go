@@ -46,6 +46,8 @@ type teamExitRulesDoc struct {
 		MissingBackground string `json:"missing_background"`
 		MissingDone       string `json:"missing_done"`
 		MissingTodo       string `json:"missing_todo"`
+		AddedRe           string `json:"added_re"`
+		MissingAdded      string `json:"missing_added"`
 	} `json:"summary"`
 	Jargon struct {
 		LineRe  string `json:"line_re"`
@@ -58,7 +60,7 @@ type teamExitRulesDoc struct {
 type teamExitRules struct {
 	teamExitRulesDoc
 	headline, selfCheck, category, exempt, noCheck, jargonLine, jargonTable *regexp.Regexp
-	background, todo, detail                                               *regexp.Regexp
+	background, todo, detail, added                                         *regexp.Regexp
 }
 
 // exitRules is read once from the embedded copy; a broken file fails every test that touches it.
@@ -87,6 +89,7 @@ func parseTeamExitRules(b []byte) (*teamExitRules, error) {
 		{&r.exempt, r.Ask.ExemptRe}, {&r.noCheck, r.Ask.NoCheckRe},
 		{&r.jargonLine, r.Jargon.LineRe}, {&r.jargonTable, r.Jargon.TableRe},
 		{&r.background, r.Summary.BackgroundRe}, {&r.todo, r.Summary.TodoRe}, {&r.detail, r.Summary.DetailRe},
+		{&r.added, r.Summary.AddedRe},
 	} {
 		re, err := regexp.Compile(c.src)
 		if err != nil {
@@ -133,9 +136,9 @@ func exitHeadline(body string) (id int, line string, problems []string) {
 }
 
 // exitSplit splits a marked body, after its first line's #id, into the part posted for the user
-// (background, what was done, what the user is to do: up to and including the 「要你做的：」 line)
-// and the details after it, which go under that post (user 10-30 「太多事我都忘记了。背景，例如复盘
-// 问题12345有什么xxx，我做了125 xxx，已经上线了」). Without that line the part for the user is the
+// (background, what was done, what the user is to do, what the agent added on its own: up to and
+// including the 「我加的：」 line, else the 「要你做的：」 line) and the details after it, which go under that post (user 10-30 「太多事我都忘记了。背景，例如复盘
+// 问题12345有什么xxx，我做了125 xxx，已经上线了」; 10-30 「别忘了你自己加的东西，那个很重要」). Without either line the part for the user is the
 // first paragraph. A 「细节：」 line opening the details only separates them and is dropped.
 func exitSplit(body string) (summary, detail string) {
 	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
@@ -148,6 +151,12 @@ func exitSplit(body string) (summary, detail string) {
 	end := -1
 	for i, l := range lines {
 		if exitRules.todo.MatchString(l) {
+			end = i
+			break
+		}
+	}
+	for i := end + 1; end >= 0 && i < len(lines); i++ {
+		if exitRules.added.MatchString(lines[i]) {
 			end = i
 			break
 		}
@@ -172,8 +181,8 @@ func exitSplit(body string) (summary, detail string) {
 	return summary, strings.TrimSpace(strings.Join(rest, "\n"))
 }
 
-// summaryProblems: the part for the user lacks its background, what was done, or what the user
-// is to do.
+// summaryProblems: the part for the user lacks its background, what was done, what the user is
+// to do, or what the agent added that the user never asked for.
 func summaryProblems(summary string) []string {
 	lines := strings.Split(summary, "\n")
 	var problems []string
@@ -202,6 +211,13 @@ func summaryProblems(summary string) []string {
 	}
 	if todo < 0 {
 		problems = append(problems, exitRules.Summary.MissingTodo)
+	}
+	added := false
+	for _, l := range lines {
+		added = added || exitRules.added.MatchString(l)
+	}
+	if !added {
+		problems = append(problems, exitRules.Summary.MissingAdded)
 	}
 	return problems
 }
