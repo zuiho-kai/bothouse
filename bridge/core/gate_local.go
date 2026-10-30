@@ -93,6 +93,13 @@ func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, inte
 		return false
 	}
 	stopOnly := isLocalStopWord(userTextOf(msg))
+	if !stopOnly && isLocalRedirect(userTextOf(msg)) && e.turnCancelKeepsQueue(interactiveKey) && e.turnIdleFor(interactiveKey) < deadTurnAfter {
+		// The replacement task is queued first, then the turn is cancelled (handleMessage →
+		// abortForQueuedFront), so it is answered before what queued behind the old turn — as the
+		// gate's abort does (gate.go).
+		msg.abortFront = true
+		return false
+	}
 	if stopOnly || isLocalRedirect(userTextOf(msg)) {
 		stopped := e.stopInteractiveSession(interactiveKey, p, msg.ReplyCtx)
 		if !stopped {
