@@ -277,6 +277,7 @@ func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, bod
 		slog.Error("team exit: headline post failed", "kind", kind, "parent", parent, "workspace", ws, "error", err)
 		return ""
 	}
+	e.postToTaskThread(p, sessionKey, joinExitDetail(text, detail))
 	if kind == exitKindReport {
 		slog.Info("team exit: report posted", "board_item", hid, "workspace", ws, "parent", parent, "detail", detail != "")
 		e.markExitReported(hid)
@@ -288,6 +289,14 @@ func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, bod
 	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
 	e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, hid)
 	return id
+}
+
+// joinExitDetail is a headline with its details below, as one post for the task thread.
+func joinExitDetail(text, detail string) string {
+	if detail == "" {
+		return text
+	}
+	return text + "\n\n" + quietText(detail)
 }
 
 // postWithDetail posts text in the chat channel and detail under it: in a thread on that post
@@ -347,6 +356,9 @@ func (e *Engine) postExitOriginal(p Platform, rc any, parent, ws, bot, kind, bod
 			break
 		}
 		sent = append(sent, text)
+	}
+	if len(sent) > 0 {
+		e.postToTaskThread(p, sessionKey, strings.Join(sent, "\n"))
 	}
 	slog.Info("team exit: forwarded", "kind", kind, "workspace", ws, "parent", parent, "chunks", len(sent))
 	if id == "" || len(sent) == 0 {
