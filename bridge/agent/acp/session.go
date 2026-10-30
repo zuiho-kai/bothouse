@@ -456,7 +456,7 @@ func (s *acpSession) matchAvailableMode(input string) string {
 }
 
 func (s *acpSession) onNotification(method string, params json.RawMessage) {
-	if method == xaiSessionUpdate {
+	if method == xaiSessionNotification || method == xaiSessionUpdate {
 		s.onXAIUpdate(params)
 		return
 	}
@@ -512,8 +512,13 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 	}
 }
 
-// xaiSessionUpdate is Grok's vendor notification; its turn_completed update carries the turn's usage.
-const xaiSessionUpdate = "_x.ai/session/update"
+// Grok's vendor notifications; their turn_completed update carries the turn's usage. Over stdio it
+// sends xaiSessionNotification; its own session log (updates.jsonl) records the same update as
+// xaiSessionUpdate.
+const (
+	xaiSessionNotification = "_x.ai/session_notification"
+	xaiSessionUpdate       = "_x.ai/session/update"
+)
 
 // onXAIUpdate reports the prompt size of a finished Grok turn to the Agent, which the engine reads
 // to notice a compaction (core.ContextSizeReader). usage.inputTokens sums every model call of the
