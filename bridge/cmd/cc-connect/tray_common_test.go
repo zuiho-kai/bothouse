@@ -1,5 +1,3 @@
-//go:build darwin || windows
-
 package main
 
 import (
@@ -105,6 +103,27 @@ func TestTrayClientRejectsInvalidManagementEnvelope(t *testing.T) {
 			}
 			if err := (trayClient{base: s.URL}).get("/api/v1/status", &got); err == nil {
 				t.Fatal("invalid response was accepted as zero")
+			}
+		})
+	}
+}
+
+func TestTrayMissingFieldsDoNotDisplayZero(t *testing.T) {
+	for _, tc := range []struct{ body, status, usage string }{
+		{`{}`, "运行状态：读取失败", "今日用量：读取失败"},
+		{`{"projects_count":null,"items":null}`, "运行状态：读取失败", "今日用量：读取失败"},
+		{`{"projects_count":0,"items":[]}`, "运行状态：运行中（已加载 0 个角色）", "今日用量：0 tokens"},
+		{`{"projects_count":5,"items":[{"total_tokens":42}]}`, "运行状态：运行中（已加载 5 个角色）", "今日用量：42 tokens"},
+	} {
+		t.Run(tc.body, func(t *testing.T) {
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprintf(w, `{"ok":true,"data":%s}`, tc.body) }))
+			defer s.Close()
+			c := trayClient{base: s.URL}
+			if got := c.statusLabel(); got != tc.status {
+				t.Errorf("status=%q, want %q", got, tc.status)
+			}
+			if got := c.usageLabel("2026-10-30"); got != tc.usage {
+				t.Errorf("usage=%q, want %q", got, tc.usage)
 			}
 		})
 	}
