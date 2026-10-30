@@ -569,7 +569,12 @@ func cutTeamBoardLines(s string, limit int, note string) string {
 		if n == "" {
 			left := 0
 			for _, x := range lines[k:] {
-				if teamBoardRowLine(x) {
+				if strings.HasPrefix(x, "**在做 ") {
+					var running int
+					if _, err := fmt.Sscanf(x, "**在做 %d**", &running); err == nil {
+						left += running
+					}
+				} else if teamBoardRowLine(x) {
 					left++
 				}
 			}

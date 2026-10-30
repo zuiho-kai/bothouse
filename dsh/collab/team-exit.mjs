@@ -178,7 +178,7 @@ export class TeamExit {
       // #597 G35: a DSH member's [ask] keeps its task in work and watched (and its workspace, so the
       // answer reaches the same session); a bridge bot's [ask] parks it as before (#280).
       if (tasks && !this.markOpts(msg).lastLine) {
-        const taskId = /任务\s*#(\d+)\b/.exec(mark.body)?.[1];
+        const taskId = headline?.id ?? /任务\s*#(\d+)\b/.exec(mark.body)?.[1];
         const inRoom = tasks.q.allBusy.all('assigned', 'accepted', 'asked', 'rework')
           .filter(t => t.room_id === room.id);
         const marked = taskId ? tasks.task(Number(taskId)) : undefined;

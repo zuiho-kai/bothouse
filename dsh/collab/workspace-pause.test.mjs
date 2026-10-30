@@ -67,7 +67,7 @@ test('a bridge bot\'s [ask] pauses the bound owner task and leaves its row on th
   tasks.close();
 });
 
-test('[ask] naming 任务 #N pauses that task, not the room fallback', async () => {
+test('[ask] headline #N pauses that task without repeating the ID in the body', async () => {
   const hub = makeHub();
   const ws = hub.store.createWorkspace(1);
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'bot', online: true });
@@ -79,9 +79,29 @@ test('[ask] naming 任务 #N pauses that task, not the room fallback', async () 
   const second = tasks.assign({ roomId: ws.id, title: 'second', owner: 'ds2', actor: 'owner' });
   // room fallback picks the most recently updated task; make that the other one
   tasks.db.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(1, first.id);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #${first.id} 选 A 还是 B\n任务 #${first.id}\n自验：无需\n类别：方向` });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #${first.id} 选 A 还是 B\n自验：无需\n类别：方向` });
   await new Promise(r => setImmediate(r));
   assert.ok(tasks.task(first.id).paused_at);
   assert.ok(!tasks.task(second.id).paused_at);
+  tasks.close();
+});
+
+test('an unnumbered [ask] only falls back to the room task after two correction attempts', async () => {
+  const hub = makeHub();
+  const ws = hub.store.createWorkspace(1);
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'bot', online: true });
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  hub.tasks = tasks;
+  new TeamExit(hub);
+  const task = tasks.assign({ roomId: ws.id, title: 'choose', owner: 'ds', actor: 'owner' });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask] PR #280 要不要合\n自验：无需\n类别：方向' });
+    await new Promise(r => setImmediate(r));
+    if (attempt < 2) {
+      assert.equal(tasks.task(task.id).paused_at, null, 'invalid headline does not park a task yet');
+      assert.equal(hub.store.page(1).some(m => m.text.startsWith('📬')), false);
+    }
+  }
+  assert.ok(tasks.task(task.id).paused_at);
   tasks.close();
 });
