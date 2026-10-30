@@ -39,6 +39,14 @@ type teamExitRulesDoc struct {
 		Extra     map[string]string `json:"extra"`
 		WakeLimit int               `json:"wake_limit"`
 	} `json:"bounce"`
+	Summary struct {
+		BackgroundRe      string `json:"background_re"`
+		TodoRe            string `json:"todo_re"`
+		DetailRe          string `json:"detail_re"`
+		MissingBackground string `json:"missing_background"`
+		MissingDone       string `json:"missing_done"`
+		MissingTodo       string `json:"missing_todo"`
+	} `json:"summary"`
 	Jargon struct {
 		LineRe  string `json:"line_re"`
 		TableRe string `json:"table_re"`
@@ -50,6 +58,7 @@ type teamExitRulesDoc struct {
 type teamExitRules struct {
 	teamExitRulesDoc
 	headline, selfCheck, category, exempt, noCheck, jargonLine, jargonTable *regexp.Regexp
+	background, todo, detail                                               *regexp.Regexp
 }
 
 // exitRules is read once from the embedded copy; a broken file fails every test that touches it.
@@ -77,6 +86,7 @@ func parseTeamExitRules(b []byte) (*teamExitRules, error) {
 		{&r.headline, r.HeadlineRe}, {&r.selfCheck, r.Ask.SelfCheckRe}, {&r.category, r.Ask.CategoryRe},
 		{&r.exempt, r.Ask.ExemptRe}, {&r.noCheck, r.Ask.NoCheckRe},
 		{&r.jargonLine, r.Jargon.LineRe}, {&r.jargonTable, r.Jargon.TableRe},
+		{&r.background, r.Summary.BackgroundRe}, {&r.todo, r.Summary.TodoRe}, {&r.detail, r.Summary.DetailRe},
 	} {
 		re, err := regexp.Compile(c.src)
 		if err != nil {
@@ -103,7 +113,7 @@ func parseExitKind(text string) (kind, body string, ok bool) {
 	return "", "", false
 }
 
-// exitHeadline splits body's first line into the board id and the sentence for the user.
+// exitHeadline reads body's first line board id and the part for the user after it (exitSplit).
 func exitHeadline(body string) (id int, line string, problems []string) {
 	first := strings.TrimSpace(strings.SplitN(body, "\n", 2)[0])
 	m := exitRules.headline.FindStringSubmatch(first)
@@ -115,11 +125,85 @@ func exitHeadline(body string) (id int, line string, problems []string) {
 		return 0, "", problems
 	}
 	id, _ = strconv.Atoi(m[1])
-	line = strings.TrimSpace(m[2])
+	line, _ = exitSplit(body)
 	if line == "" {
 		problems = append(problems, exitRules.Headline.MissingLine)
 	}
 	return id, line, problems
+}
+
+// exitSplit splits a marked body, after its first line's #id, into the part posted for the user
+// (background, what was done, what the user is to do: up to and including the 「要你做的：」 line)
+// and the details after it, which go under that post (user 10-30 「太多事我都忘记了。背景，例如复盘
+// 问题12345有什么xxx，我做了125 xxx，已经上线了」). Without that line the part for the user is the
+// first paragraph. A 「细节：」 line opening the details only separates them and is dropped.
+func exitSplit(body string) (summary, detail string) {
+	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
+	if m := exitRules.headline.FindStringSubmatch(strings.TrimSpace(lines[0])); m != nil {
+		lines[0] = m[2]
+	}
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+	end := -1
+	for i, l := range lines {
+		if exitRules.todo.MatchString(l) {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		end = len(lines) - 1
+		for i, l := range lines {
+			if strings.TrimSpace(l) == "" {
+				end = i - 1
+				break
+			}
+		}
+	}
+	summary = strings.TrimSpace(strings.Join(lines[:end+1], "\n"))
+	rest := lines[end+1:]
+	for len(rest) > 0 && strings.TrimSpace(rest[0]) == "" {
+		rest = rest[1:]
+	}
+	if len(rest) > 0 && exitRules.detail.MatchString(strings.TrimSpace(rest[0])) {
+		rest = rest[1:]
+	}
+	return summary, strings.TrimSpace(strings.Join(rest, "\n"))
+}
+
+// summaryProblems: the part for the user lacks its background, what was done, or what the user
+// is to do.
+func summaryProblems(summary string) []string {
+	lines := strings.Split(summary, "\n")
+	var problems []string
+	if !exitRules.background.MatchString(strings.TrimSpace(lines[0])) {
+		problems = append(problems, exitRules.Summary.MissingBackground)
+	}
+	todo := -1
+	for i, l := range lines {
+		if exitRules.todo.MatchString(l) {
+			todo = i
+			break
+		}
+	}
+	done := false
+	for i := 1; i < len(lines) && !done; i++ {
+		l := lines[i]
+		if i == todo {
+			l = l[:exitRules.todo.FindStringIndex(l)[0]]
+		} else if todo >= 0 && i > todo {
+			break
+		}
+		done = strings.TrimSpace(l) != ""
+	}
+	if !done {
+		problems = append(problems, exitRules.Summary.MissingDone)
+	}
+	if todo < 0 {
+		problems = append(problems, exitRules.Summary.MissingTodo)
+	}
+	return problems
 }
 
 // askEvidenceProblems lists what an [ask] body lacks; nil means it may go to the user.
@@ -149,21 +233,27 @@ func askEvidenceProblems(body string) []string {
 	return problems
 }
 
-// jargonProblems: the sentence for the user names board/PR numbers, workspaces or branches, or the
-// body holds a table (user 10-30 复盘「汇报堆编号、表格、工作区代号，要追问才知道进度」).
-func jargonProblems(line, body string) []string {
+// jargonProblems: the part for the user names board/PR numbers, workspaces, branches, paths or
+// code identifiers, or holds a table (user 10-30 复盘「汇报堆编号、表格、工作区代号，要追问才知道进度」).
+func jargonProblems(line string) []string {
 	var problems []string
 	var hits []string
 	for _, m := range exitRules.jargonLine.FindAllString(line, -1) {
-		hits = append(hits, strings.TrimLeft(m, " \t（(，,：:、"))
+		hits = append(hits, strings.TrimLeftFunc(m, jargonLead))
 	}
 	if len(hits) > 0 {
 		problems = append(problems, strings.ReplaceAll(exitRules.Jargon.Line, "{hits}", strings.Join(hits, "、")))
 	}
-	if exitRules.jargonTable.MatchString(body) {
+	if exitRules.jargonTable.MatchString(line) {
 		problems = append(problems, exitRules.Jargon.Table)
 	}
 	return problems
+}
+
+// jargonLead: a character a jargon match took only as its left boundary.
+func jargonLead(r rune) bool {
+	return !(r < 0x80 && (r == '~' || r == '/' || r == '`' || r == '#' || r == '!' || r == '_' || r == '-' ||
+		r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z')) && r != '＃' && r != '！' && r != '工'
 }
 
 // exitBounceText: why a workspace [ask]/[report] stayed in the workspace and how to resend it.
@@ -178,9 +268,9 @@ func exitBounceText(kind string, problems []string) string {
 // exitVerdict is how a marked workspace reply is judged.
 type exitVerdict struct {
 	ID       int      // the first line's board id (0 when it has none)
-	Line     string   // the first line's sentence for the user
+	Line     string   // the part for the user after the id (exitSplit)
 	Problems []string // why it goes back to the workspace; nil: it goes to the chat channel
-	Legacy   bool     // the headline is wrong but bounces stopped waking the bot: forwarded without it
+	Legacy   bool     // the format is still wrong but bounces stopped waking the bot: the chat lead rewrites it
 }
 
 // judgeExit judges a marked reply's body. auto: the reply had no mark (an unmarked turn end
@@ -196,15 +286,15 @@ func judgeExit(kind, body string, auto bool, known func(int) bool, bounces int) 
 		hp = []string{exitRules.Headline.MissingMarker}
 	} else if v.ID, v.Line, hp = exitHeadline(body); hp == nil && !known(v.ID) {
 		hp = []string{strings.ReplaceAll(exitRules.Headline.UnknownID, "{id}", strconv.Itoa(v.ID))}
+	} else if hp == nil {
+		hp = append(summaryProblems(v.Line), jargonProblems(v.Line)...)
 	}
+	// Format goes back only while bounces still wake the bot; after that the chat lead rewrites it
+	// (user 10-30: not posted as written any more). A missing [ask] self-check always goes back.
 	if hp != nil && v.Problems == nil && bounces >= exitRules.Bounce.WakeLimit {
 		v.Legacy = true
 	} else {
 		v.Problems = append(v.Problems, hp...)
-	}
-	// Wording goes back only while bounces still wake the bot; after that it is posted as written.
-	if hp == nil && bounces < exitRules.Bounce.WakeLimit {
-		v.Problems = append(v.Problems, jargonProblems(v.Line, body)...)
 	}
 	return v
 }

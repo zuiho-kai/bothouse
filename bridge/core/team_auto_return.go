@@ -134,14 +134,14 @@ func chatLeadPrompt(wsLabel, bot, kind, body, background string, posted bool) st
 	}
 	if posted {
 		// The headline is already in the channel (postExitHeadline); the lead adds, it does not retell.
-		fmt.Fprintf(&b, "[工作区回传] 工作区 %s 的「%s」交回了%s。第一行给用户的话系统已原样贴进本频道，用户已经看到；下面的细节只给你当背景。\n", wsLabel, bot, what)
+		fmt.Fprintf(&b, "[工作区回传] 工作区 %s 的「%s」交回了%s。给用户的三段（背景、做了什么、要你做的）系统已原样贴进本频道，细节贴在那条下面的子话题，用户都看得到；下面的内容只给你当背景。\n", wsLabel, bot, what)
 	} else {
 		fmt.Fprintf(&b, "[工作区回传] 工作区 %s 的「%s」交回了%s。原文只给你看，没有贴进本频道；用户看到的只有你这一条。\n", wsLabel, bot, what)
 	}
 	if posted && kind != exitKindAsk {
 		// The headline and the full text are already posted (postExitHeadline); the lead's own
 		// context gets only the headline (user 2026-10-28: workspace text is not to fill it).
-		fmt.Fprintf(&b, "\n第一行：%s\n全文系统也已贴进本频道，用户看得到，不要再贴一遍。\n\n", firstLine(body))
+		fmt.Fprintf(&b, "\n第一行：%s\n三段和细节系统都已贴进本频道，用户看得到，不要再贴一遍。\n\n", firstLine(body))
 	} else {
 		if background != "" {
 			b.WriteString("\n这件活的背景：\n" + background + "\n")
@@ -154,8 +154,10 @@ func chatLeadPrompt(wsLabel, bot, kind, body, background string, posted bool) st
 	case posted:
 		b.WriteString("不用转述。你有用户需要知道、那句话里没有的事（比如要用户动手），补一两句；没有就回 NO_REPLY。\n")
 	default:
-		b.WriteString("你是用户的秘书，替用户过滤。回复一到三句：第一句说是哪件事（用户什么时候让做的什么），再说现在的进度，最后说要不要用户动手、动什么。" +
-			"细节、过程、文件名不说，用户问了再去工作区取。用户意图已经明确的事，不给 A/B 选项让用户回字母，直接按用户意图办，说一句你怎么办的。\n")
+		b.WriteString("你是用户的秘书，替用户过滤。工作区写的格式不对，退回两次还没改好，由你按同样三段重写后贴给用户（用户 10-30「太多事我都忘记了」）：" +
+			"第一段「背景：」说这件事是什么、用户什么时候怎么说的、当初有哪几项、每项是什么，忘了这件事的人也看得懂；" +
+			"第二段说这次做了哪几项、各改成什么、上线没有；第三段「要你做的：」一句，没有就写「要你做的：没有」。" +
+			"不写编号、工作区代号、分支名、路径、英文标识、表格；细节、过程、文件名不说，用户问了再去工作区取。用户意图已经明确的事，不给 A/B 选项让用户回字母，直接按用户意图办，说一句你怎么办的。\n")
 		if kind == exitKindAsk {
 			b.WriteString("这是提问：先对照上面的用户原话和本频道最近的用户消息，看用户是不是已经答过或意图已经明确。" +
 				"答过就不问用户，直接用 ws-forward 把答案（附用户原话）转回工作区，再跟用户说一句你怎么定的；" +

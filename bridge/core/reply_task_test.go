@@ -198,7 +198,7 @@ func TestReplyToWorkspaceReportBringsTask(t *testing.T) {
 
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, ag)
-	inputDone(ag, "[report] #7 登录不再掉线了\n改了重连逻辑，已在本机验过")
+	inputDone(ag, "[report] #7 背景：你让我做这件事。\n登录不再掉线了\n要你做的：没有。\n改了重连逻辑，已在本机验过")
 	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
 	var postID, post string
 	p.mu.Lock()

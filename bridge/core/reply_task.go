@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -35,6 +36,13 @@ const (
 // (checked by platform_parity_test.go).
 type SentMessageRecorder interface {
 	RecordSentMessages(replyCtx any, record func(id string)) any
+}
+
+// DetailThreadSender is implemented by platforms that can post text and put detail under it, in
+// a thread or reply chain on that message (Discord, Slack). title heads the detail (the thread's
+// name). Elsewhere the detail follows as a second post marked as details (postWithDetail).
+type DetailThreadSender interface {
+	SendWithDetail(ctx context.Context, replyCtx any, text, title, detail string) error
 }
 
 type replyTaskEntry struct {

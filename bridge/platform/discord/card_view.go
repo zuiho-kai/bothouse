@@ -107,6 +107,19 @@ func (c *cardViews) turnMode(origin string) cardView {
 	return c.prefs.get(origin)
 }
 
+// startDetail makes the detailed view the start of channelID's cards until someone chooses one.
+func (c *cardViews) startDetail(channelID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.init()
+	c.prefs.mu.Lock()
+	defer c.prefs.mu.Unlock()
+	if c.prefs.start == nil {
+		c.prefs.start = map[string]cardView{}
+	}
+	c.prefs.start[channelID] = cardViewDetail
+}
+
 // lead marks a progress card as the newest turn of an origin channel.
 func (c *cardViews) lead(origin, channelID, messageID string) {
 	if messageID == "" {

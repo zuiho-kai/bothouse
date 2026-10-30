@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -238,29 +237,23 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	if it := e.workspaceBoardItem(sessionKey, 0); it != nil {
 		rc = e.recordReplyTask(p, rc, it.ID)
 	}
-	// The chat channel's lead reads the reply first and tells the user what matters (user
-	// 2026-10-28 「原文返回…一坨屎给我…你的身份应该是我的秘书，那些东西你再帮我过滤一遍」). The
-	// workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
-	// A report's full text is posted as is, so the user sees it in the chat channel (user
-	// 2026-10-29 「我这看不见」); only an [ask] still goes through the lead first.
-	if kind != exitKindAsk {
-		return e.postExitOriginal(p, rc, parent, ws, bot, kind, body, sessionKey, "")
-	}
+	// The format is still wrong after the bounces: the chat channel's lead rewrites it in the same
+	// three parts and posts that (user 10-30: no longer posted as written, 「一大坨根本看不懂」).
+	// The workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
 	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, 0) {
-		slog.Info("team exit: handed to the chat lead", "kind", kind, "auto", auto, "workspace", ws, "parent", parent)
+		slog.Info("team exit: handed to the chat lead to rewrite", "kind", kind, "auto", auto, "workspace", ws, "parent", parent)
 		return ""
 	}
 	return e.postExitOriginal(p, rc, parent, ws, bot, kind, body, sessionKey, "")
 }
 
-// postExitHeadline posts the first line's sentence in chat channel parent, named by board item
-// hid. A report goes out as one post, headline then its full text (user 2026-10-29 「我这看不见」
-// then 「太鸡巴多重复跟无用消息」: headline, 续 and a lead's copy were three outputs for one
-// report); it is not handed to the chat lead, which sees the post in its channel history. An
-// [ask] is handed to the lead as background; when no lead takes it, the rest of the reply
-// follows as 📬 continuation posts. A report for an item the board already closed is the
-// workspace answering a late nudge: it stays in the workspace. The same sentence for the same
-// item within exitHeadlineDedup is not posted or handed again.
+// postExitHeadline posts the part for the user (background, what was done, what the user is to
+// do; exitSplit) in chat channel parent, named by board item hid; the details go under that post
+// (postWithDetail; user 10-30 「要么只给最后一句…看不懂前面，要么给全量…更加炸」). A report is not
+// handed to the chat lead, which sees the post in its channel history. An [ask] is handed to the
+// lead as background. A report for an item the board already closed is the workspace answering
+// a late nudge: it stays in the workspace. The same text for the same item within
+// exitHeadlineDedup is not posted or handed again.
 func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, body, sessionKey string, hid int, hline string, item *teamTaskBoardItem) string {
 	// The board's done mark alone does not mean the user saw the result: a workspace often runs
 	// `board update <id> 已完成` itself just before its [report] (#770 was dropped that way). Only
@@ -277,37 +270,50 @@ func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, bod
 	if kind == exitKindAsk {
 		id = newAskID()
 	}
-	text := exitHeadlineText(kind, hid, teamTaskBoardShort(*item), hline, id)
-	rest := ""
-	if parts := strings.SplitN(body, "\n", 2); len(parts) == 2 {
-		rest = strings.TrimSpace(parts[1])
+	name := teamTaskBoardShort(*item)
+	text := exitHeadlineText(kind, name, hline, id)
+	_, detail := exitSplit(body)
+	if err := e.postWithDetail(p, rc, name, text, detail); err != nil {
+		slog.Error("team exit: headline post failed", "kind", kind, "parent", parent, "workspace", ws, "error", err)
+		return ""
 	}
 	if kind == exitKindReport {
-		if rest != "" {
-			e.postExitOriginal(p, rc, parent, ws, bot, exitKindReport, rest, sessionKey, text+"\n\n")
-		} else if err := p.Send(e.ctx, rc, text); err != nil {
-			slog.Error("team exit: headline post failed", "parent", parent, "workspace", ws, "error", err)
-			return ""
-		}
-		slog.Info("team exit: report posted", "board_item", hid, "workspace", ws, "parent", parent)
+		slog.Info("team exit: report posted", "board_item", hid, "workspace", ws, "parent", parent, "detail", detail != "")
 		e.markExitReported(hid)
 		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
 		return ""
 	}
-	if err := p.Send(e.ctx, rc, text); err != nil {
-		slog.Error("team exit: headline post failed", "parent", parent, "workspace", ws, "error", err)
-		return ""
-	}
-	slog.Info("team exit: headline posted", "kind", kind, "board_item", hid, "workspace", ws, "parent", parent)
+	slog.Info("team exit: headline posted", "kind", kind, "board_item", hid, "workspace", ws, "parent", parent, "detail", detail != "")
 	e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Board: hid, Bot: bot, Forwarded: []string{text}, At: time.Now()})
 	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
-	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, hid) {
-		return id
-	}
-	if rest != "" {
-		e.postExitOriginal(p, rc, parent, ws, bot, exitKindReport, rest, sessionKey, exitPrefix+"（续 #"+strconv.Itoa(hid)+"）\n")
-	}
+	e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, hid)
 	return id
+}
+
+// postWithDetail posts text in the chat channel and detail under it: in a thread on that post
+// where the platform has one (DetailThreadSender), else as a following post marked as details.
+func (e *Engine) postWithDetail(p Platform, rc any, name, text, detail string) error {
+	if detail == "" {
+		return p.Send(e.ctx, rc, text)
+	}
+	title := exitPrefix + " 细节「" + name + "」"
+	detail = quietText(detail)
+	if d, ok := p.(DetailThreadSender); ok {
+		return d.SendWithDetail(e.ctx, rc, text, title, detail)
+	}
+	if err := p.Send(e.ctx, rc, text); err != nil {
+		return err
+	}
+	head := title + "（想看再展开，不用回）\n"
+	for i, c := range SplitMessageCodeFenceAware(detail, maxPlatformMessageLen-utf8.RuneCountInString(head)) {
+		if i > 0 {
+			head = exitPrefix + "（细节续）\n"
+		}
+		if err := p.Send(e.ctx, rc, head+c); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // postExitOriginal copies body into the chat channel as 📬 posts (no lead took it). header

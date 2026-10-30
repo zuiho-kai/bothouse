@@ -5997,6 +5997,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// maomao fork: previews and the progress card carry agent output (AgentReplyMarker).
 	sp := newStreamPreview(e.streamPreview, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), e.ctx, workspaceRenderer)
 	cp := newCompactProgressWriter(e.ctx, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), e.agent.Name(), e.i18n.CurrentLang(), workspaceRenderer)
+	cp.mirrorFor = e.taskThreadProgress(inputOutputPlatform(state.platform, input), sessionKey, workspaceRenderer)
 	state.mu.Unlock()
 
 	// maomao fork: this turn's row on the channel task board; the card's steps
@@ -7429,6 +7430,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 				sp = newStreamPreview(e.streamPreview, queued.platform, markAgentReply(queued.platform, queued.replyCtx, session), e.ctx, queuedRenderer)
 				cp = newCompactProgressWriter(e.ctx, queued.platform, markAgentReply(queued.platform, queued.replyCtx, session), e.agent.Name(), e.i18n.CurrentLang(), queuedRenderer)
+				cp.mirrorFor = e.taskThreadProgress(queued.platform, sessionKey, queuedRenderer)
 				board = e.boardBegin(state, sessionKey) // maomao fork: the queued turn's board row
 				cp.onStep = board.step
 
