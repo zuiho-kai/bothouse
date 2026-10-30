@@ -271,11 +271,15 @@ func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, bod
 		id = newAskID()
 	}
 	name := teamTaskBoardShort(*item)
-	text := exitHeadlineText(kind, name, hline, id)
+	// User 10-30 「每一行中间加一行换行，聚在一起完全不想看」: a blank line between the parts.
+	text := spaceExitLines(exitHeadlineText(kind, name, hline, id))
 	_, detail := exitSplit(body)
 	if err := e.postWithDetail(p, rc, name, text, detail); err != nil {
 		slog.Error("team exit: headline post failed", "kind", kind, "parent", parent, "workspace", ws, "error", err)
 		return ""
+	}
+	if !postReportDetail {
+		detail = ""
 	}
 	e.postToTaskThread(p, sessionKey, joinExitDetail(text, detail))
 	if kind == exitKindReport {
@@ -299,10 +303,15 @@ func joinExitDetail(text, detail string) string {
 	return text + "\n\n" + quietText(detail)
 }
 
+// postReportDetail: post the details under the report (off since 10-30).
+const postReportDetail = false
+
 // postWithDetail posts text in the chat channel and detail under it: in a thread on that post
 // where the platform has one (DetailThreadSender), else as a following post marked as details.
 func (e *Engine) postWithDetail(p Platform, rc any, name, text, detail string) error {
-	if detail == "" {
+	// User 10-30 「细节先不用吧，把它给去掉」: only the four parts reach the user; the lead still
+	// gets the details through the auto-return.
+	if detail == "" || !postReportDetail {
 		return p.Send(e.ctx, rc, text)
 	}
 	title := exitPrefix + " 细节「" + name + "」"
@@ -598,4 +607,36 @@ func stripFillerLines(reply string) string {
 func (e *Engine) workspaceStillWorking(sessionKey string) bool {
 	running, _ := newHandoffWatch(e).workspaceBackgroundProgress(chatOf(sessionKey), time.Now())
 	return running
+}
+
+// exitPartLabels turns a part's leading 「名：」 into 【名】 (user 10-30 「【背景】，加那种符号」).
+var exitPartLabels = []struct{ from, to string }{
+	{"背景：", "【背景】"}, {"要你做的：", "【要你做的】"}, {"要你定的：", "【要你定的】"},
+	{"要你定：", "【要你定】"}, {"我加的、原话里没有：", "【我加的】"}, {"我加的：", "【我加的】"},
+}
+
+// spaceExitLines puts one blank line between the non-empty lines of a post and labels each
+// part 【…】; the first unlabeled line after 【背景】 is what was done.
+func spaceExitLines(s string) string {
+	var out []string
+	afterBg, doneLabeled := false, false
+	for _, l := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(l)
+		if t == "" {
+			continue
+		}
+		labeled := false
+		for _, lb := range exitPartLabels {
+			if strings.HasPrefix(t, lb.from) {
+				l, labeled = lb.to+strings.TrimPrefix(t, lb.from), true
+				afterBg = lb.from == "背景："
+				break
+			}
+		}
+		if !labeled && afterBg && !doneLabeled {
+			l, doneLabeled = "【做了什么】"+t, true
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n\n")
 }
