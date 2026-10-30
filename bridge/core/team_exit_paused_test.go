@@ -49,3 +49,36 @@ func TestPausedTaskExitNotForwarded(t *testing.T) {
 		})
 	}
 }
+
+// The first line's #id decides which task is judged (#775): the item bound to the workspace
+// last was stopped by the user, while the reply is for another of its items, still in work.
+func TestStoppedJudgedByHeadlineID(t *testing.T) {
+	board := `{"id": 3, "what": "旧活", "ws": "discord:ws1", "bound": "2026-10-28T01:00:00+00:00"}` + "\n" +
+		`{"id": 4, "what": "守卫", "ws_was": "discord:ws1", "bound": "2026-10-28T05:05:47+00:00", "paused": "10-28 14:12", "pause_why": "用户叫停"}`
+	for _, c := range []struct {
+		name, reply, head string
+		forward           bool
+	}{
+		{"other task in work", "[report] #3 旧活做完了", "📬 #3「", true},
+		{"stopped task named", "[report] #4 已停手", "📬 #4「", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
+			dir := t.TempDir()
+			e.SetTeam(dir, "橘", false)
+			if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(board+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			e.forwardWorkspaceExit(p, exitWSKey, c.reply)
+			got := 0
+			for _, s := range p.sentTo("discord:chat1") {
+				if strings.HasPrefix(s, c.head) {
+					got++
+				}
+			}
+			if c.forward != (got == 1) {
+				t.Fatalf("forward=%v, got %d: %+v", c.forward, got, p.out)
+			}
+		})
+	}
+}

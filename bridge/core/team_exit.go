@@ -208,7 +208,7 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		return ""
 	}
 	ws := sessionChannel(sessionKey)
-	if id, stopped := e.workspaceTaskStopped(sessionKey); stopped {
+	if id, stopped := e.workspaceTaskStopped(sessionKey, item); stopped {
 		slog.Info("team exit: the task was stopped by the user; the answer stays in the workspace",
 			"kind", kind, "workspace", ws, "board_item", id)
 		return ""
@@ -379,7 +379,23 @@ func (e *Engine) postExitOriginal(p Platform, rc any, parent, ws, bot, kind, bod
 // running when the task was paused still sent an [ask]). Stopped means no handoff is in work
 // there and the board item last bound to it is paused for a reason other than waiting on the
 // user (ws-up --ask pauses its own item with 「等待用户答复」; that [ask] still goes out).
-func (e *Engine) workspaceTaskStopped(sessionKey string) (int, bool) {
+// named is the item the first line's #id names: when it was bound to this workspace it is the
+// one judged (a newer item stopped there no longer swallows its answer), and only a handoff
+// open for it (or one without an item) counts as work in progress.
+func (e *Engine) workspaceTaskStopped(sessionKey string, named *teamTaskBoardItem) (int, bool) {
+	key := teamChatKey(sessionKey)
+	if named != nil {
+		w := named.WS
+		if w == "" {
+			w = named.WSWas
+		}
+		if w != "" && teamChatKey(w) == key {
+			if e.workspaceHasOpenHandoffFor(sessionKey, named.ID) {
+				return 0, false
+			}
+			return named.ID, boardItemStopped(named)
+		}
+	}
 	if e.workspaceHasOpenHandoff(sessionKey) {
 		return 0, false
 	}
@@ -387,7 +403,6 @@ func (e *Engine) workspaceTaskStopped(sessionKey string) (int, bool) {
 	if dir == "" {
 		return 0, false
 	}
-	key := teamChatKey(sessionKey)
 	var last *teamTaskBoardItem
 	items := readTeamTaskBoard(dir)
 	for i := range items {
@@ -403,10 +418,15 @@ func (e *Engine) workspaceTaskStopped(sessionKey string) (int, bool) {
 			last = it
 		}
 	}
-	if last == nil || last.Paused == "" || teamTaskBoardWaitUser.MatchString(last.PauseWhy) {
+	if !boardItemStopped(last) {
 		return 0, false
 	}
 	return last.ID, true
+}
+
+// boardItemStopped: it is paused for a reason other than waiting on the user's answer.
+func boardItemStopped(it *teamTaskBoardItem) bool {
+	return it != nil && it.Paused != "" && !teamTaskBoardWaitUser.MatchString(it.PauseWhy)
 }
 
 var askRef = regexp.MustCompile(`\bask-[0-9a-f]{8}\b`)
