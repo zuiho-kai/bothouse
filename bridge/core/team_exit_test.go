@@ -111,12 +111,12 @@ func TestWorkspaceAskForwardsAndAnswerGoesBack(t *testing.T) {
 	exitBoardItem(t, e, 7, "选方案")
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
-	inputDone(a, "[ask] #7 用 A 还是 B？<@123> 看一下\n自验：无需\n类别：方向")
-	// The headline, then (no chat lead takes it) its details.
+	inputDone(a, "[ask] #7 背景：你让我做这件事。\n用 A 还是 B？<@123> 看一下\n要你做的：没有。\n自验：无需\n类别：方向")
+	// The three parts, then its details.
 	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 2 })
 	fwd := p.sentTo("discord:chat1")[0]
-	// The first line is posted as written, named by the board item (00014526).
-	if !strings.HasPrefix(fwd, "📬 #7「选方案」要你定：用 A 还是 B？") {
+	// The three parts are posted as written, named by the board item (00014526; user 10-30).
+	if !strings.HasPrefix(fwd, "📬「选方案」要你定\n背景：你让我做这件事。\n用 A 还是 B？") {
 		t.Fatalf("forward = %q", fwd)
 	}
 	// A visible record only: it must not ping anyone (other bots drop 📬 notices).
@@ -170,10 +170,10 @@ func TestWorkspaceReportForwardsOnly(t *testing.T) {
 	exitBoardItem(t, e, 7, "第一阶段")
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
-	inputDone(a, "[report] #7 第一阶段做完")
+	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。")
 	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
 	fwd := p.sentTo("discord:chat1")[0]
-	if fwd != "📬 #7「第一阶段」：第一阶段做完" || askRef.MatchString(fwd) {
+	if fwd != "📬「第一阶段」\n背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。" || askRef.MatchString(fwd) {
 		t.Fatalf("report forward = %q", fwd)
 	}
 	if n := len(e.teamExit.asks); n != 0 {
@@ -207,7 +207,7 @@ func TestWorkspaceExitDefaultResolverUsesRecordedWorkspaces(t *testing.T) {
 	exitBoardItem(t, e, 7, "第一阶段")
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
-	inputDone(a, "[report] #7 第一阶段做完")
+	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。")
 	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
 	if fwd := p.sentTo("discord:chat1")[0]; !strings.HasPrefix(fwd, "📬") || !strings.Contains(fwd, "第一阶段做完") {
 		t.Fatalf("forward = %q", fwd)
@@ -217,7 +217,7 @@ func TestWorkspaceExitDefaultResolverUsesRecordedWorkspaces(t *testing.T) {
 func TestAskSurvivesRestart(t *testing.T) {
 	e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
 	exitBoardItem(t, e, 7, "选型")
-	id := e.forwardWorkspaceExit(p, exitWSKey, "[ask] #7 选哪个\n自验：go test ./core 通过\n类别：验收")
+	id := e.forwardWorkspaceExit(p, exitWSKey, "[ask] #7 背景：你让我做这件事。\n选哪个\n要你做的：没有。\n自验：go test ./core 通过\n类别：验收")
 	if id == "" {
 		t.Fatal("no ask")
 	}

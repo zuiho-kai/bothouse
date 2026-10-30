@@ -1,23 +1,29 @@
 // Durable workspace questions; system forwards never enter agent routing.
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { withoutLeadingMentions } from './mentions.mjs';
 
 export function exitTarget(msg) {
   return /^team-answer:([^:]+):/.exec(msg.client_key ?? '')?.[1];
 }
 
-// #574 B4: an [ask] must carry 「自验：」 (evidence) and 「类别：」 before it waits on
-// the user; only 方向、花钱、需要用户看的成品、权限确认 may write 「自验：无需」.
-// Same check in the Go bridge: bridge/core/team_ask_evidence.go askEvidenceProblems.
-const SELF_CHECK = /自验\s*[：:]/;
-const CATEGORY = /类别\s*[：:]/;
-const EXEMPT = /方向|花钱|成品|权限/;
-const NO_CHECK = /^(无需|不需要|无|免)([\s，。,.;；（(]|$)/;
-export const ASK_MISSING_SELF_CHECK = '缺「自验：」（附证据：截图或命令输出）';
-export const ASK_MISSING_CATEGORY = '缺「类别：」（方向、花钱、需要用户看的成品、权限确认之一，或写别的类别）';
-export const ASK_NO_CHECK_NOT_EXEMPT = '「自验：无需」只限方向、花钱、需要用户看的成品、权限确认四类，其它类别要附证据';
+// The workspace [ask]/[report] rules (first-line mark and #id format, the [ask] self-check, bounce
+// texts) are one file, team-exit-rules.json next to this one; the Go bridge reads the same file
+// (bridge/core/team_exit_rules.go, from its dsh_bundle copy) and both sides run the shared cases in
+// test/team-exit-cases.json. No formats or texts live here. Regexes are written for both RE2 and JS.
+export const RULES = JSON.parse(readFileSync(new URL('./team-exit-rules.json', import.meta.url), 'utf8'));
+const HEADLINE = new RegExp(RULES.headline_re);
+const SELF_CHECK = new RegExp(RULES.ask.self_check_re);
+const CATEGORY = new RegExp(RULES.ask.category_re);
+const EXEMPT = new RegExp(RULES.ask.exempt_re);
+const NO_CHECK = new RegExp(RULES.ask.no_check_re);
+const JARGON_LINE = new RegExp(RULES.jargon.line_re, 'g');
+const JARGON_TABLE = new RegExp(RULES.jargon.table_re);
+const BACKGROUND = new RegExp(RULES.summary.background_re);
+const TODO = new RegExp(RULES.summary.todo_re);
+const DETAIL = new RegExp(RULES.summary.detail_re);
 // Consecutive bounces that still wake the asking member; later ones are only posted.
-const BOUNCE_WAKE_LIMIT = 2;
+const BOUNCE_WAKE_LIMIT = RULES.bounce.wake_limit;
 
 /** What an [ask] body lacks; [] means it may go to the user. */
 export function askEvidenceProblems(body) {
@@ -32,42 +38,114 @@ export function askEvidenceProblems(body) {
     check = rest.trim();
   }
   const problems = [];
-  if (!check) problems.push(ASK_MISSING_SELF_CHECK);
-  if (!category) problems.push(ASK_MISSING_CATEGORY);
-  if (check && category && NO_CHECK.test(check) && !EXEMPT.test(category)) problems.push(ASK_NO_CHECK_NOT_EXEMPT);
+  if (!check) problems.push(RULES.ask.missing_self_check);
+  if (!category) problems.push(RULES.ask.missing_category);
+  if (check && category && NO_CHECK.test(check) && !EXEMPT.test(category)) problems.push(RULES.ask.no_check_not_exempt);
   return problems;
 }
 
-export function askBounceText(problems) {
-  return exitBounceText('ask', problems);
-}
-
-// Headline (user 2026-10-28 「做」): the first line is `[report] #<task id> <one or two sentences
-// for the user>`; that sentence is what the chat channel shows first. Same rule in the Go bridge:
-// bridge/core/team_exit_headline.go exitHeadline.
-const HEADLINE = /^#(\d+)[\s\u3000:：,，、.。]*(.*)$/;
-export const EXIT_MISSING_ID = '第一行缺任务板编号（#编号）';
-export const EXIT_MISSING_LINE = '第一行缺给用户的一两句话';
-export const EXIT_UNKNOWN_ID = '任务板上没有这个编号';
-
-/** { id, line, problems } of a marked body's first line. */
+/** { id, line, problems } of a marked body's first line; line is the part for the user (Go: exitHeadline). */
 export function exitHeadline(body) {
   const first = String(body ?? '').split('\n')[0].trim();
   const m = HEADLINE.exec(first);
-  if (!m) return { id: 0, line: '', problems: first === '' || first.startsWith('#') ? [EXIT_MISSING_ID, EXIT_MISSING_LINE] : [EXIT_MISSING_ID] };
-  const line = m[2].trim();
-  return { id: Number(m[1]), line, problems: line ? [] : [EXIT_MISSING_LINE] };
+  const { missing_id: noId, missing_line: noLine } = RULES.headline;
+  if (!m) return { id: 0, line: '', problems: first === '' || first.startsWith('#') ? [noId, noLine] : [noId] };
+  const { summary: line } = exitSplit(body);
+  return { id: Number(m[1]), line, problems: line ? [] : [noLine] };
+}
+
+/**
+ * { summary, detail } of a marked body (Go: exitSplit): after the first line's #id, up to and
+ * including the 「要你做的：」 line is posted for the user; the lines after it go under that post.
+ */
+export function exitSplit(body) {
+  let lines = String(body ?? '').replaceAll('\r\n', '\n').split('\n');
+  const m = HEADLINE.exec(lines[0].trim());
+  if (m) lines[0] = m[2];
+  while (lines.length && !lines[0].trim()) lines.shift();
+  let end = lines.findIndex(l => TODO.test(l));
+  if (end < 0) {
+    const blank = lines.findIndex(l => !l.trim());
+    end = blank < 0 ? lines.length - 1 : blank - 1;
+  }
+  const summary = lines.slice(0, end + 1).join('\n').trim();
+  let rest = lines.slice(end + 1);
+  while (rest.length && !rest[0].trim()) rest.shift();
+  if (rest.length && DETAIL.test(rest[0].trim())) rest = rest.slice(1);
+  return { summary, detail: rest.join('\n').trim() };
+}
+
+/** What the part for the user lacks: background, what was done, what the user is to do (Go: summaryProblems). */
+export function summaryProblems(summary) {
+  const lines = String(summary).split('\n');
+  const problems = [];
+  if (!BACKGROUND.test(lines[0].trim())) problems.push(RULES.summary.missing_background);
+  const todo = lines.findIndex(l => TODO.test(l));
+  let done = false;
+  for (let i = 1; i < lines.length && !done; i++) {
+    let l = lines[i];
+    if (i === todo) l = l.slice(0, TODO.exec(l).index);
+    else if (todo >= 0 && i > todo) break;
+    done = l.trim() !== '';
+  }
+  if (!done) problems.push(RULES.summary.missing_done);
+  if (todo < 0) problems.push(RULES.summary.missing_todo);
+  return problems;
+}
+
+/** The part for the user names numbers, workspaces, branches, paths or identifiers, or has a table (Go: jargonProblems). */
+export function jargonProblems(line) {
+  const problems = [];
+  const hits = [...String(line).matchAll(JARGON_LINE)].map(m => m[0].replace(/^[^~/`#!_\-0-9A-Za-z＃！工]+/u, ''));
+  if (hits.length) problems.push(RULES.jargon.line.replaceAll('{hits}', hits.join('、')));
+  if (JARGON_TABLE.test(line)) problems.push(RULES.jargon.table);
+  return problems;
 }
 
 /** Why a workspace [ask]/[report] stayed in the workspace and how to resend it (Go: exitBounceText). */
 export function exitBounceText(kind, problems) {
-  let t = `这条 [${kind}] 没有转给用户：${problems.join('；')}。补上后重发：第一行写 [${kind}] #任务板编号 给用户的一两句话（系统原样贴到聊天频道），第二行起写细节`;
-  if (kind === 'ask') t += '，正文写「自验：」附证据和「类别：」；方向、花钱、需要用户看的成品、权限确认四类可写「自验：无需」';
-  return `${t}。`;
+  const vars = { kind, problems: problems.join(RULES.bounce.sep), extra: RULES.bounce.extra[kind] ?? '' };
+  return RULES.bounce.text.replace(/\{(kind|problems|extra)\}/g, (_, k) => vars[k]);
 }
 
-const FIRST_MARK = /^\[(ask|report)\][ \t]*\n?([\s\S]*\S[\s\S]*)$/i;
-const LINE_MARK = /^[ \t]*\[(ask|report)\]/i;
+/**
+ * How a marked body is judged (Go: judgeExit): { id, line, problems, legacy }. known(id): the id is a
+ * task; bounces: replies in a row already sent back. problems [] means it goes to the chat channel;
+ * legacy: the format is still wrong but bounces stopped waking the member (the bridge's chat lead
+ * rewrites it; DSH posts it without the headline).
+ */
+export function judgeExit(kind, body, { known, bounces = 0 }) {
+  const problems = kind === 'ask' ? askEvidenceProblems(body) : [];
+  let { id, line, problems: hp } = exitHeadline(body);
+  if (!hp.length && !known(id)) hp = [RULES.headline.unknown_id.replaceAll('{id}', String(id))];
+  else if (!hp.length) hp = [...summaryProblems(line), ...jargonProblems(line)];
+  // Format goes back only while bounces still wake the member; after that the chat lead rewrites it.
+  if (hp.length && !problems.length && bounces >= BOUNCE_WAKE_LIMIT) return { id, line, problems, legacy: true };
+  return { id, line, problems: [...problems, ...hp], legacy: false };
+}
+
+/**
+ * The task a workspace reply is about (Go: exitTaskPick): the one its first line names when that one
+ * is here (bound to this workspace), else the one bound here last; 0 when none is here.
+ * items: [{ id, here, bound }], bound compared as given.
+ */
+export function exitTaskPick(named, items) {
+  let pick = 0, last;
+  for (const it of items) {
+    if (!it.here) continue;
+    if (named > 0 && it.id === named) return named;
+    if (pick === 0 || it.bound > last) { pick = it.id; last = it.bound; }
+  }
+  return pick;
+}
+
+const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const MARKS = RULES.kinds.map(k => escapeRe(RULES.mark.replace('{kind}', k))).join('|');
+const FIRST_MARK = new RegExp(`^(${MARKS})([\\s\\S]*)$`, 'i');
+// A mark with nothing after it is no mark (Go: parseExitKind).
+const firstMark = t => { const m = FIRST_MARK.exec(t); return m?.[2].trim() ? m : null; };
+const markKind = tag => RULES.kinds.find(k => RULES.mark.replace('{kind}', k).toLowerCase() === tag.toLowerCase());
+const LINE_MARK = new RegExp(`^[ \\t]*(${MARKS})`, 'i');
 
 /**
  * The [ask] / [report] mark of a role reply: { kind, body } or undefined. Marked on the first
@@ -80,15 +158,15 @@ const LINE_MARK = /^[ \t]*\[(ask|report)\]/i;
  */
 export function exitMark(text, { lastLine = false, team = [] } = {}) {
   const t = withoutLeadingMentions(String(text ?? ''), team).trim();
-  let m = FIRST_MARK.exec(t);
+  let m = firstMark(t);
   if (m === null && lastLine) {
     const lines = t.split('\n');
     for (let i = lines.length - 1; i > 0 && m === null; i--) {
       const line = withoutLeadingMentions(lines[i], team);
-      if (LINE_MARK.test(line)) m = FIRST_MARK.exec([line.trimStart(), ...lines.slice(i + 1)].join('\n'));
+      if (LINE_MARK.test(line)) m = firstMark([line.trimStart(), ...lines.slice(i + 1)].join('\n'));
     }
   }
-  return m === null ? undefined : { kind: m[1].toLowerCase(), body: m[2] };
+  return m === null ? undefined : { kind: markKind(m[1]), body: m[2].trim() };
 }
 
 export class TeamExit {
@@ -151,16 +229,11 @@ export class TeamExit {
     const ask = mark?.kind === 'ask';
     let headline;
     if (mark) {
-      const problems = ask ? askEvidenceProblems(mark.body) : [];
-      headline = exitHeadline(mark.body);
-      if (!headline.problems.length) {
-        headline.task = this.hub.tasks?.task?.(headline.id);
-        if (!headline.task) headline.problems.push(`${EXIT_UNKNOWN_ID}（#${headline.id}）`);
-      }
+      const bounces = this.bounces.get(`${room.id}:${msg.author}`) ?? 0;
+      const v = judgeExit(mark.kind, mark.body, { known: id => Boolean(this.hub.tasks?.task?.(id)), bounces });
+      if (v.problems.length) return this.bounce(room, msg, v.problems, mark.kind);
       // Once bounces stop waking the member, a reply still without a headline goes out as before.
-      if (headline.problems.length && !problems.length && (this.bounces.get(`${room.id}:${msg.author}`) ?? 0) >= BOUNCE_WAKE_LIMIT) headline = undefined;
-      else problems.push(...headline.problems);
-      if (problems.length) return this.bounce(room, msg, problems, mark.kind);
+      if (!v.legacy) headline = { ...v, task: this.hub.tasks?.task?.(v.id) };
     }
     // Any reply without a bounced [ask] ends the run of bounces.
     this.bounces.delete(`${room.id}:${msg.author}`);
@@ -178,12 +251,12 @@ export class TeamExit {
       // #597 G35: a DSH member's [ask] keeps its task in work and watched (and its workspace, so the
       // answer reaches the same session); a bridge bot's [ask] parks it as before (#280).
       if (tasks && !this.markOpts(msg).lastLine) {
-        const taskId = headline?.id ?? /任务\s*#(\d+)\b/.exec(mark.body)?.[1];
-        const inRoom = tasks.q.allBusy.all('assigned', 'accepted', 'asked', 'rework')
-          .filter(t => t.room_id === room.id);
-        const marked = taskId ? tasks.task(Number(taskId)) : undefined;
-        const selected = marked?.room_id === room.id ? marked : inRoom[0];
-        if (selected?.room_id === room.id) tasks.pauseTask(selected.id);
+        const busy = tasks.q.allBusy.all('assigned', 'accepted', 'asked', 'rework');
+        const named = headline?.task;
+        const items = [...(named ? [named] : []), ...busy]
+          .map(t => ({ id: t.id, here: t.room_id === room.id, bound: t.updated_at }));
+        const selected = exitTaskPick(named?.id ?? 0, items);
+        if (selected) tasks.pauseTask(selected);
       }
     }
   }
@@ -206,16 +279,24 @@ export class TeamExit {
    */
   forward(room, msg, body, ask, headline) {
     let text = `📬 来自 ${room.name} · ${msg.name}${ask ? ` · ${ask.id}` : ' · 阶段结果'}\n${body}`;
+    let detail = '';
     if (headline) {
-      // The headline as written, named by its task; the details follow (the DSH lead reads them here).
+      // The three parts for the user, named by its task; DSH has no threads, so the details are a
+      // second post marked as such (Go: postWithDetail).
       const name = headline.task?.title ?? '';
-      const rest = String(body).split('\n').slice(1).join('\n').trim();
-      text = `📬 #${headline.id}「${name}」${ask ? `要你定：${headline.line}（直接回复这条就能答复，编号 ${ask.id}）` : `：${headline.line}`}`
-        + (rest ? `\n\n来自 ${room.name} · ${msg.name} 的细节：\n${rest}` : '');
+      detail = exitSplit(body).detail;
+      text = `📬「${name}」${ask ? `要你定\n${headline.line}\n（直接回复这条就能答复，编号 ${ask.id}）` : `\n${headline.line}`}`;
+      if (detail) detail = `📬 细节「${name}」（来自 ${room.name} · ${msg.name}，想看再展开，不用回）\n${detail}`;
     }
-    return this.hub.post(room.parent_id, {
+    const { message } = this.hub.post(room.parent_id, {
       authorKind: 'system', author: 'system', name: 'system', clientKey: `team-exit:${msg.id}`, text,
-    }).message;
+    });
+    if (detail) {
+      this.hub.post(room.parent_id, {
+        authorKind: 'system', author: 'system', name: 'system', clientKey: `team-exit-detail:${msg.id}`, text: detail,
+      });
+    }
+    return message;
   }
 
   /**

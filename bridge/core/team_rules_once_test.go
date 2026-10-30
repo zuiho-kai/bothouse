@@ -48,18 +48,76 @@ func TestTeamRulesOncePerContext(t *testing.T) {
 	inputDone(in, "ok")
 }
 
-// Agents that compact without telling the bridge keep the rules on every turn.
-func TestTeamRulesEveryTurnWithoutCompactionReports(t *testing.T) {
+// An agent that reports neither compaction nor its size gets the rules once per session, however
+// much the bridge sends it (no byte estimate).
+func TestTeamRulesOnceWithoutSize(t *testing.T) {
 	e, a, p := exitFixture(t, nil)
 	e.SetTeam(t.TempDir(), "橘", false)
 	session := e.sessions.GetOrCreateActive(exitWSKey)
-	for _, say := range []string{"一", "二"} {
+	turn := func(say string) string {
 		exitSay(e, p, exitWSKey, "ws1", say)
-		if got := inputPrompt(t, a); !strings.Contains(got, rulesHead) {
-			t.Fatalf("turn %s lacks the rules:\n%s", say, got)
-		}
+		got := inputPrompt(t, a)
 		inputDone(a, "ok")
 		inputWait(t, func() bool { return !session.Busy() })
+		return got
+	}
+	if got := turn("一"); !strings.Contains(got, rulesHead) {
+		t.Fatalf("first turn lacks the rules:\n%s", got)
+	}
+	if got := turn(strings.Repeat("长", 50_000)); strings.Contains(got, rulesHead) {
+		t.Fatal("rules resent without a reported compaction")
+	}
+}
+
+// sizeTestAgent reads its prompt size from the transcript, like dsh and antigravity.
+type sizeTestAgent struct {
+	*inputTestAgent
+	tokens *int
+}
+
+func (a sizeTestAgent) ReadSessionHandoff(string) (*SessionHandoff, error) {
+	return &SessionHandoff{ContextTokens: *a.tokens}, nil
+}
+
+// liveSizeTestAgent reports its last prompt size from live usage, like acp with Grok.
+type liveSizeTestAgent struct {
+	*inputTestAgent
+	tokens *int
+}
+
+func (a liveSizeTestAgent) LastContextTokens(string) int { return *a.tokens }
+
+// An agent that reports its size but not its compaction gets the rules again when the size drops.
+func TestTeamRulesOnceByContextDrop(t *testing.T) {
+	tokens := 0
+	t.Run("transcript", func(t *testing.T) { testRulesByContextDrop(t, sizeTestAgent{&inputTestAgent{}, &tokens}, &tokens) })
+	t.Run("live", func(t *testing.T) { testRulesByContextDrop(t, liveSizeTestAgent{&inputTestAgent{}, &tokens}, &tokens) })
+}
+
+func testRulesByContextDrop(t *testing.T, ag Agent, tokens *int) {
+	e := &Engine{}
+	rules := teamModeRulesFor(DispatchMixed)
+	s := &Session{AgentSessionID: "s1"}
+	send := func(n int) string {
+		*tokens = n
+		e.checkRulesContext(s, ag)
+		got := e.teamRulesOnce(rules, s, ag)
+		s.SettleHandoff(true)
+		return got
+	}
+	if send(0) == "" {
+		t.Fatal("first delivery lacks the rules")
+	}
+	for _, n := range []int{50_000, 90_000, 60_000} {
+		if send(n) != "" {
+			t.Fatalf("rules repeated at %d tokens", n)
+		}
+	}
+	if send(25_000) == "" {
+		t.Fatal("rules not resent after the context shrank")
+	}
+	if send(30_000) != "" {
+		t.Fatal("rules repeated after the resend")
 	}
 }
 

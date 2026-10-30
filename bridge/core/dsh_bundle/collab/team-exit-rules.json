@@ -1,0 +1,56 @@
+{
+  "_doc": [
+    "工作区交回（[ask]/[report]）规则，只此一份：桥本体 Go（bridge/core/team_exit_rules.go，读内嵌的 dsh_bundle/collab 副本）和 DSH collab（team-exit.mjs，读同目录这份）都读它。",
+    "改这里后把它复制到 bridge/core/dsh_bundle/collab/（TestDSHBundleCollabMatchesSource 查两份一致），再跑两边的共用样例：dsh/collab/test/team-exit-cases.json（go test ./core -run TestTeamExitSharedCases；node --test team-exit.test.mjs）。",
+    "正则两边（Go RE2 与 JS）都要能编译、结果一样：不用 \\s \\w（两边含义不同），空白写成 [\\t\\n\\f\\r \\u3000]；不用环视；按 search 用，要锚定就写 ^。",
+    "{kind} {id} {problems} {extra} 是占位符；problems 用 bounce.sep 连起来；extra 取 bounce.extra[kind]，没有就是空。",
+    "jargon：给用户的那句（第一行编号之后）不写任务编号、PR 号、工作区代号、分支名，整条不放表格（用户 10-30 复盘「汇报堆编号、表格、工作区代号」）；退回 wake_limit 次后照原样转，不吞。",
+    "summary：贴进聊天频道的那段（用户 10-30「太多事我都忘记了。背景，例如复盘问题12345有什么xxx，我做了125 xxx，已经上线了」）。第一行编号之后到「要你做的：」那一行为止，分三段：背景（这件事是什么、用户当时怎么说的、当初有哪几项）、做了什么（做了哪几项、各改成什么、上线没有）、要你做的。之后的行是细节，贴到这条消息下的子话题，不进正文；开头一行「细节：」只是分隔，去掉。",
+    "退回 wake_limit 次后格式仍不对（编号、三段、措辞），不再照原样贴，交给聊天频道主角色按同样三段重写后再贴（用户 10-30 交接「不再原样整段贴」）；[ask] 缺自验照旧一直退回。"
+  ],
+  "kinds": [
+    "ask",
+    "report"
+  ],
+  "mark": "[{kind}]",
+  "headline_re": "^#([0-9]+)[\t\n\f\r 　:：,，、.。]*(.*)$",
+  "headline": {
+    "missing_id": "第一行缺任务板编号（#编号）",
+    "missing_line": "第一行编号后缺给用户的那段",
+    "missing_marker": "第一行没写 [report]",
+    "unknown_id": "任务板上没有这个编号（#{id}）"
+  },
+  "ask": {
+    "self_check_re": "自验[\t\n\f\r 　]*[：:]",
+    "category_re": "类别[\t\n\f\r 　]*[：:]",
+    "exempt_re": "方向|花钱|成品|权限",
+    "no_check_re": "^(无需|不需要|无|免)([\t\n\f\r 　，。,.;；（(]|$)",
+    "missing_self_check": "缺「自验：」（附证据：截图或命令输出）",
+    "missing_category": "缺「类别：」（方向、花钱、需要用户看的成品、权限确认之一，或写别的类别）",
+    "no_check_not_exempt": "「自验：无需」只限方向、花钱、需要用户看的成品、权限确认四类，其它类别要附证据"
+  },
+  "bounce": {
+    "text": "这条 [{kind}] 没有转给用户：{problems}。补上后重发：第一行写 [{kind}] #任务板编号 背景：……，再起一行写做了什么，再一行写「要你做的：……」，这三段系统原样贴到聊天频道；之后的行是细节，贴在那条消息下的子话题{extra}。",
+    "sep": "；",
+    "extra": {
+      "ask": "，正文写「自验：」附证据和「类别：」；方向、花钱、需要用户看的成品、权限确认四类可写「自验：无需」"
+    },
+    "wake_limit": 2
+  },
+  "jargon": {
+    "line_re": "[#＃!！][0-9]+|工作区[\t ]*[0-9]+|(^|[^A-Za-z0-9_])(fix|feat|feature|chore|refactor|hotfix|release|wip|origin|longniang)/[A-Za-z0-9._-]+|(^|[^A-Za-z0-9_.])~?/[A-Za-z][A-Za-z0-9._-]*/[A-Za-z0-9._/-]*|[A-Za-z0-9_-]+[.](go|mjs|js|ts|py|md|json|jsonl|toml|yaml|yml|sh|log|html|png|jpg)|`[^`\n]+`|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+|[a-z][a-z0-9]*-[a-z0-9-]*[a-z0-9]|[a-z]{2,}[A-Z][a-z]+[A-Za-z0-9]*",
+    "table_re": "(^|\n)[\t ]*[|][^\n]*[|][\t ]*\n[\t ]*[|]?[\t ]*:?-{3,}",
+    "line": "给用户的那段写了编号、代号、路径或英文标识（{hits}），换成大白话：说这件活是什么、现在怎样",
+    "table": "给用户的那段有表格，改成几句话"
+  },
+  "summary": {
+    "background_re": "^背景[\t 　]*[：:]",
+    "todo_re": "要你(做|定)的[\t 　]*[：:]",
+    "detail_re": "^细节[\t 　]*[：:]?[\t 　]*$",
+    "missing_background": "给用户的那段要以「背景：」开头（这件事是什么、用户当时怎么说的、当初有哪几项，忘了这件事的人也看得懂）",
+    "missing_done": "缺「做了什么」那段（背景之后另起一行：这次做了哪几项、各改成什么、上线没有）",
+    "missing_todo": "缺「要你做的：」那句（没有就写「要你做的：没有」），它之后的行才是细节",
+    "added_re": "^[\t 　]*我加的[^：:\n]*[：:]",
+    "missing_added": "缺「我加的：」那句（放在「要你做的：」之后、细节之前，列用户原话里没有、你自己加的设定；没有就写「我加的：无」）"
+  }
+}

@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
-import { TeamExit, exitMark, askEvidenceProblems, ASK_MISSING_SELF_CHECK, ASK_MISSING_CATEGORY, ASK_NO_CHECK_NOT_EXEMPT } from './team-exit.mjs';
+import { readFileSync } from 'node:fs';
+import { TeamExit, RULES, exitMark, askEvidenceProblems, judgeExit, exitTaskPick, exitBounceText, exitSplit } from './team-exit.mjs';
 
 const tick = () => new Promise(r => setImmediate(r));
 
@@ -22,22 +23,41 @@ function setup() {
   return { hub, exit, ws, say, chat, back, woken };
 }
 
-test('askEvidenceProblems: what an [ask] body lacks', () => {
-  const cases = [
-    ['用 A 还是 B？', [ASK_MISSING_SELF_CHECK, ASK_MISSING_CATEGORY]],
-    ['用 A 还是 B？\n类别：验收', [ASK_MISSING_SELF_CHECK]],
-    ['用 A 还是 B？\n自验：go test 通过', [ASK_MISSING_CATEGORY]],
-    ['合不合？\n自验：无需\n类别：验收', [ASK_NO_CHECK_NOT_EXEMPT]],
-    ['选哪条路？\n自验：无需\n类别：方向', []],
-    ['要充值\n自验：无需\n类别：花钱', []],
-    ['看成片\n自验：无需\n类别：需要用户看的成品', []],
-    ['点授权\n自验: 无需\n类别: 权限确认', []],
-    ['合不合？\n自验：\n```\nok core\n```\n类别：验收', []],
-    ['合不合？\n类别：验收\n自验：截图 /tmp/a.png', []],
-    ['选哪条路？\n自验\u3000：无需\u3000\n类别\u3000：方向', []],
-    ['合不合？\n自验：无需\u3000看过\n类别：验收', [ASK_NO_CHECK_NOT_EXEMPT]],
-  ];
-  for (const [body, want] of cases) assert.deepEqual(askEvidenceProblems(body), want, body);
+// The shared cases: the Go bridge runs the same file (bridge/core/team_exit_rules_test.go
+// TestTeamExitSharedCases), so a rule judged differently on either side fails one of them.
+const CASES = JSON.parse(readFileSync(new URL('./test/team-exit-cases.json', import.meta.url), 'utf8'));
+const ruleText = ref => {
+  const [key, id = ''] = ref.split(':');
+  const [group, name] = key.split('.');
+  const text = RULES[group]?.[name];
+  assert.equal(typeof text, 'string', `case names rule ${ref}`);
+  return text.replaceAll('{id}', id).replaceAll('{hits}', id);
+};
+
+test('shared cases: [ask] self-check', () => {
+  for (const c of CASES.evidence) assert.deepEqual(askEvidenceProblems(c.body), c.want.map(ruleText), c.body);
+});
+
+test('shared cases: judging a marked reply', () => {
+  for (const c of CASES.judge) {
+    const mark = exitMark(c.reply);
+    assert.equal(mark?.kind ?? '', c.want.kind, c.name);
+    if (!mark) continue;
+    const v = judgeExit(mark.kind, mark.body, { known: id => c.known.includes(id), bounces: c.bounces });
+    assert.deepEqual(v, { id: c.want.id, line: c.want.line, problems: c.want.problems.map(ruleText), legacy: c.want.legacy }, c.name);
+  }
+});
+
+test('shared cases: splitting the parts from the details', () => {
+  for (const c of CASES.split) assert.deepEqual(exitSplit(c.body), c.want, c.body);
+});
+
+test('shared cases: which task a reply is about', () => {
+  for (const c of CASES.pick) assert.equal(exitTaskPick(c.named, c.items), c.want, c.name);
+});
+
+test('shared cases: bounce text', () => {
+  for (const c of CASES.bounce) assert.equal(exitBounceText(c.kind, c.problems), c.want);
 });
 
 for (const [name, text, want] of [
@@ -61,23 +81,25 @@ for (const [name, text, want] of [
 test('complete [ask] in each of the four categories, or with evidence, reaches the chat channel', async () => {
   const { say, chat, back } = setup();
   const asks = [
-    '[ask] #1 选哪条路？\n自验：无需\n类别：方向',
-    '[ask] #1 要充值吗\n自验：无需\n类别：花钱',
-    '[ask] #1 看下成片\n自验：无需\n类别：需要用户看的成品',
-    '[ask] #1 点一下授权\n自验：无需\n类别：权限确认',
-    '[ask] #1 PR #12 合不合？\n自验：node --test 输出 ok\n类别：验收',
-  ];
+    '选哪条路？\n自验：无需\n类别：方向',
+    '要充值吗\n自验：无需\n类别：花钱',
+    '看下成片\n自验：无需\n类别：需要用户看的成品',
+    '点一下授权\n自验：无需\n类别：权限确认',
+    '这个改动合不合？\n自验：node --test 输出 ok\n类别：验收',
+  ].map(q => `[ask] #1 背景：你让我修 CI。\n两条路都试过了。\n要你定的：${q}`);
   for (const a of asks) await say(a);
   assert.equal(back().length, 0);
-  assert.equal(chat().length, asks.length);
-  assert.ok(chat().every(m => /ask-[0-9a-f]{8}/.test(m.text)));
+  const parts = chat().filter(m => !m.text.startsWith('📬 细节'));
+  assert.equal(parts.length, asks.length);
+  assert.ok(parts.every(m => /ask-[0-9a-f]{8}/.test(m.text)));
 });
 
 test('[report] needs no 自验 or 类别', async () => {
   const { say, chat, back } = setup();
-  await say('[report] #1 第一阶段做完');
+  await say('[report] #1 背景：你让我修 CI。\n第一阶段做完，已经上线。\n要你做的：没有。\n\n细节：\n跑了 node --test');
   assert.equal(back().length, 0);
-  assert.match(chat()[0].text, /#1「修 CI」：第一阶段做完/);
+  assert.equal(chat()[0].text, '📬「修 CI」\n背景：你让我修 CI。\n第一阶段做完，已经上线。\n要你做的：没有。');
+  assert.match(chat()[1].text, /^📬 细节「修 CI」[^\n]*\n跑了 node --test$/);
 });
 
 test('only two bounces in a row wake the member; a good ask resets', async () => {

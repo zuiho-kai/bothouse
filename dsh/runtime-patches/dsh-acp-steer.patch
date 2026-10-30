@@ -1,0 +1,66 @@
+--- index.js.orig	2026-10-21 14:47:13
++++ index.js	2026-10-21 15:55:30
+@@ -795,6 +795,9 @@
+ 	*/
+ 	async prompt(params, imageEnabled, requestSignal) {
+ 		this.assertActive();
++		// [bothouse patch] Only a request that asks to steer (_meta "dsh/steer") joins a running prompt;
++		// any other busy prompt keeps the stock rejection.
++		if (params._meta?.["dsh/steer"] === true) return this.steerPrompt(params, imageEnabled, requestSignal);
+ 		if (this.inflight !== void 0) throw invalidParams$1("a prompt is already in flight for this session");
+ 		const completion = Promise.withResolvers();
+ 		const admission = Promise.withResolvers();
+@@ -865,6 +868,43 @@
+ 			requestSignal?.removeEventListener("abort", onRequestAbort);
+ 		}
+ 	}
++	/**
++	* [bothouse patch] Busy-session prompt: hand the message to the running turn as
++	* agent.steer (consumed at the next model step, after the current tool call),
++	* and answer at once. Output keeps flowing through the in-flight prompt, which
++	* settles only after the steered work goes idle.
++	*/
++	async steerPrompt(params, imageEnabled, requestSignal) {
++		// Steerable: a prompt whose own message is already queued and which is not being cancelled.
++		// Anything else is refused so the client queues the message; a steer never starts a turn.
++		const steerable = () => {
++			const inflight = this.inflight;
++			return inflight !== void 0 && inflight.messageQueued && !inflight.admissionController.signal.aborted;
++		};
++		if (!steerable()) throw invalidParams$1("no running prompt to steer");
++		const controller = new AbortController();
++		const onAbort = () => controller.abort(new Error("ACP steer request cancelled"));
++		requestSignal?.addEventListener("abort", onAbort, { once: true });
++		try {
++			const content = await admitAcpPrompt(this.ctx, this.modelControl.snapshot(), params.prompt, imageEnabled, controller.signal);
++			controller.signal.throwIfAborted();
++			if (!steerable()) throw invalidParams$1("no running prompt to steer");
++			this.agent.steer(createUserMessage({
++				content,
++				source: { kind: "user" }
++			}));
++			return {
++				stopReason: "end_turn",
++				_meta: { "dsh/steered": true }
++			};
++		} catch (error) {
++			if (error instanceof AcpContentError) throw error.kind === "invalid" ? invalidParams$1(error.message) : internalError$1(error.message);
++			if (error instanceof RequestError) throw error;
++			throw internalError$1(`steer was not queued: ${error.message}`);
++		} finally {
++			requestSignal?.removeEventListener("abort", onAbort);
++		}
++	}
+ 	/** Cancel the active prompt, or autonomous work when no ACP prompt exists. */
+ 	cancel() {
+ 		const inflight = this.inflight;
+@@ -1199,7 +1239,8 @@
+ 						close: {},
+ 						list: {},
+ 						resume: {}
+-					}
++					},
++					_meta: { "dsh/steer": true }
+ 				},
+ 				authMethods: []
+ 			};

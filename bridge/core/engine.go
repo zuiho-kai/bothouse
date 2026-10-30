@@ -662,6 +662,7 @@ type interactiveState struct {
 	platform                 Platform
 	replyCtx                 any
 	injectedReplyCtxs        []*injectedReply // maomao fork: reply contexts of messages injected into the running turn (gate.go); guarded by mu
+	injectedMsgIDs           []string         // maomao fork: ids of user messages injected into the running turn (noteTurnHandoffs); guarded by mu
 	currentMessageID         string
 	lastRecallProbeMessageID string
 	lastRecallProbeAt        time.Time
@@ -3472,6 +3473,8 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	// A reply to a task card or a workspace report: its quote stays whole and the turn gets
 	// that work's background (reply_task.go). Replies to an open [ask] were taken above.
 	e.noteReplyTaskOf(msg)
+	// A reply to work still running in a workspace is handed there at once, marked as an interrupt.
+	e.forwardReplyToWorkspace(p, msg)
 	// "/stop all" stops this bot's work in the whole channel. It runs before
 	// any mention/gate filtering so every bot in the channel honours it.
 	// A stop word that calls no bot (no @, no reply) means the same.
@@ -3722,7 +3725,10 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		}
 		// Session is busy — try to queue the message for the running turn
 		// so the agent processes it immediately after the current turn ends.
-		if e.queueForBusySession(p, msg, session, sessions, interactiveKey, agent, resolvedWorkspace, nil) != queueUnavailable {
+		if out := e.queueForBusySession(p, msg, session, sessions, interactiveKey, agent, resolvedWorkspace, nil); out != queueUnavailable {
+			if out == queueAccepted && msg.abortFront {
+				e.abortForQueuedFront(p, msg, interactiveKey) // maomao fork: queued first, now cancel (gate.go)
+			}
 			return
 		}
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPreviousProcessing))
@@ -3889,7 +3895,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		e.logStaleUserMessageDropped("reject_before_queue", msg, interactiveKey, snap)
 		return queueRejected
 	}
-	if len(state.pendingMessages) >= e.maxQueuedMessages {
+	if len(state.pendingMessages) >= e.maxQueuedMessages && !msg.abortFront {
 		depth := len(state.pendingMessages)
 		e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgQueueFull), depth))
 		return queueRejected // handled: queue-full reply sent
@@ -3897,7 +3903,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 	if behindCompact {
 		state.queuedBehindCompact = true
 	}
-	state.pendingMessages = append(state.pendingMessages, queuedMessage{
+	q := queuedMessage{
 		messageID:           msg.MessageID,
 		platform:            p,
 		replyCtx:            msg.ReplyCtx,
@@ -3924,7 +3930,13 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		userMessageTimeMs:   msg.UserMessageTimeMs,
 		fromBot:             msg.FromBot,
 		boardDesc:           boardDescOf(msg),
-	})
+	}
+	if msg.abortFront {
+		// maomao fork: a gate abort is answered before what queued behind the turn it cancels.
+		state.pendingMessages = append([]queuedMessage{q}, state.pendingMessages...)
+	} else {
+		state.pendingMessages = append(state.pendingMessages, q)
+	}
 	runMessageAccepted(msg)
 	if e.board != nil {
 		e.board.touchKey(interactiveKey) // maomao fork: "排着队的" on the channel board
@@ -3944,7 +3956,9 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		"user", msg.UserName,
 		"queue_depth", queueDepth,
 	)
-	e.reply(p, msg.ReplyCtx, e.i18n.T(MsgMessageQueued))
+	if !msg.abortFront { // the abort says "⏹ 已打断" instead (abortForQueuedFront)
+		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgMessageQueued))
+	}
 	return queueAccepted
 }
 
@@ -5983,6 +5997,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// maomao fork: previews and the progress card carry agent output (AgentReplyMarker).
 	sp := newStreamPreview(e.streamPreview, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), e.ctx, workspaceRenderer)
 	cp := newCompactProgressWriter(e.ctx, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), e.agent.Name(), e.i18n.CurrentLang(), workspaceRenderer)
+	cp.mirrorFor = e.taskThreadProgress(inputOutputPlatform(state.platform, input), sessionKey, workspaceRenderer)
 	state.mu.Unlock()
 
 	// maomao fork: this turn's row on the channel task board; the card's steps
@@ -7027,6 +7042,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 
 			e.noteUserTurnCompleted(state)
+			// A lead turn that handed work to a workspace: its message now belongs to that work.
+			state.mu.Lock()
+			turnMsgIDs := append([]string{msgID}, state.injectedMsgIDs...)
+			state.injectedMsgIDs = nil
+			state.mu.Unlock()
+			e.noteTurnHandoffs(sessionKey, turnMsgIDs, turnStart)
 
 			normalizedBaseResponse := strings.TrimSpace(baseResponse)
 			state.mu.Lock()
@@ -7409,6 +7430,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 				sp = newStreamPreview(e.streamPreview, queued.platform, markAgentReply(queued.platform, queued.replyCtx, session), e.ctx, queuedRenderer)
 				cp = newCompactProgressWriter(e.ctx, queued.platform, markAgentReply(queued.platform, queued.replyCtx, session), e.agent.Name(), e.i18n.CurrentLang(), queuedRenderer)
+				cp.mirrorFor = e.taskThreadProgress(queued.platform, sessionKey, queuedRenderer)
 				board = e.boardBegin(state, sessionKey) // maomao fork: the queued turn's board row
 				cp.onStep = board.step
 
@@ -12917,6 +12939,8 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 			state.sideText = strings.TrimSpace(message)
 			state.mu.Unlock()
 		}
+		// a workspace's own posts (ws-up stage results) also go into its task thread
+		e.postToTaskThread(p, sessionKey, message)
 	}
 	for _, img := range images {
 		if err := e.waitOutgoing(p); err != nil {

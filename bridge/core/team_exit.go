@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -105,22 +104,6 @@ func (e *Engine) workspaceOwner(channelID string) (string, bool) {
 	return parent, true
 }
 
-// parseExitKind reads an [ask] / [report] marker on the reply's first line.
-func parseExitKind(text string) (kind, body string, ok bool) {
-	t := strings.TrimLeft(text, " \t\r\n")
-	for _, k := range []string{exitKindAsk, exitKindReport} {
-		tag := "[" + k + "]"
-		if len(t) >= len(tag) && strings.EqualFold(t[:len(tag)], tag) {
-			body = strings.TrimSpace(t[len(tag):])
-			if body == "" {
-				return "", "", false
-			}
-			return k, body, true
-		}
-	}
-	return "", "", false
-}
-
 // sessionChannel is the channel id inside "<platform>:<channel>[:<user>]".
 func sessionChannel(sessionKey string) string {
 	parts := strings.SplitN(sessionKey, ":", 3)
@@ -171,30 +154,19 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		// 为什么没返回」).
 		kind, body, ok, auto = exitKindReport, strings.TrimSpace(reply), true, true
 	}
-	var problems []string
-	if ok && kind == exitKindAsk {
-		problems = askEvidenceProblems(body)
-	}
 	// The first line's #id and sentence are posted as written (team_exit_headline.go); once the
 	// bounces stop waking the bot, a reply still without them takes the old path (legacy).
+	var problems []string
 	var hid int
 	var hline string
 	var item *teamTaskBoardItem
 	legacy := false
 	if ok {
-		var hp []string
-		if auto {
-			hp = []string{exitMissingMarker}
-		} else if hid, hline, hp = exitHeadline(body); hp == nil {
-			if item = e.boardItemByID(hid); item == nil {
-				hp = []string{exitUnknownID + "（#" + strconv.Itoa(hid) + "）"}
-			}
-		}
-		if hp != nil && problems == nil && e.exitBounceCount(sessionKey) >= askBounceWakeLimit {
-			legacy = true
-		} else {
-			problems = append(problems, hp...)
-		}
+		v := judgeExit(kind, body, auto, func(id int) bool {
+			item = e.boardItemByID(id)
+			return item != nil
+		}, e.exitBounceCount(sessionKey))
+		problems, hid, hline, legacy = v.Problems, v.ID, v.Line, v.Legacy
 	}
 	if problems == nil {
 		// Any reply without a bounced [ask] ends the run of bounces.
@@ -202,8 +174,11 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	}
 	if !ok || p == nil {
 		// Most turns carry no marker; only complain when one exists but did not start the reply.
-		if p != nil && (strings.Contains(reply, "["+exitKindReport+"]") || strings.Contains(reply, "["+exitKindAsk+"]")) {
-			slog.Warn("team exit: marker is not on the first line, nothing forwarded", "session", sessionKey)
+		for _, k := range exitRules.Kinds {
+			if p != nil && strings.Contains(reply, strings.ReplaceAll(exitRules.Mark, "{kind}", k)) {
+				slog.Warn("team exit: marker is not on the first line, nothing forwarded", "session", sessionKey)
+				break
+			}
 		}
 		return ""
 	}
@@ -262,29 +237,23 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 	if it := e.workspaceBoardItem(sessionKey, 0); it != nil {
 		rc = e.recordReplyTask(p, rc, it.ID)
 	}
-	// The chat channel's lead reads the reply first and tells the user what matters (user
-	// 2026-10-28 「原文返回…一坨屎给我…你的身份应该是我的秘书，那些东西你再帮我过滤一遍」). The
-	// workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
-	// A report's full text is posted as is, so the user sees it in the chat channel (user
-	// 2026-10-29 「我这看不见」); only an [ask] still goes through the lead first.
-	if kind != exitKindAsk {
-		return e.postExitOriginal(p, rc, parent, ws, bot, kind, body, sessionKey, "")
-	}
+	// The format is still wrong after the bounces: the chat channel's lead rewrites it in the same
+	// three parts and posts that (user 10-30: no longer posted as written, 「一大坨根本看不懂」).
+	// The workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
 	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, 0) {
-		slog.Info("team exit: handed to the chat lead", "kind", kind, "auto", auto, "workspace", ws, "parent", parent)
+		slog.Info("team exit: handed to the chat lead to rewrite", "kind", kind, "auto", auto, "workspace", ws, "parent", parent)
 		return ""
 	}
 	return e.postExitOriginal(p, rc, parent, ws, bot, kind, body, sessionKey, "")
 }
 
-// postExitHeadline posts the first line's sentence in chat channel parent, named by board item
-// hid. A report goes out as one post, headline then its full text (user 2026-10-29 「我这看不见」
-// then 「太鸡巴多重复跟无用消息」: headline, 续 and a lead's copy were three outputs for one
-// report); it is not handed to the chat lead, which sees the post in its channel history. An
-// [ask] is handed to the lead as background; when no lead takes it, the rest of the reply
-// follows as 📬 continuation posts. A report for an item the board already closed is the
-// workspace answering a late nudge: it stays in the workspace. The same sentence for the same
-// item within exitHeadlineDedup is not posted or handed again.
+// postExitHeadline posts the part for the user (background, what was done, what the user is to
+// do; exitSplit) in chat channel parent, named by board item hid; the details go under that post
+// (postWithDetail; user 10-30 「要么只给最后一句…看不懂前面，要么给全量…更加炸」). A report is not
+// handed to the chat lead, which sees the post in its channel history. An [ask] is handed to the
+// lead as background. A report for an item the board already closed is the workspace answering
+// a late nudge: it stays in the workspace. The same text for the same item within
+// exitHeadlineDedup is not posted or handed again.
 func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, body, sessionKey string, hid int, hline string, item *teamTaskBoardItem) string {
 	// The board's done mark alone does not mean the user saw the result: a workspace often runs
 	// `board update <id> 已完成` itself just before its [report] (#770 was dropped that way). Only
@@ -301,37 +270,68 @@ func (e *Engine) postExitHeadline(p Platform, rc any, parent, ws, bot, kind, bod
 	if kind == exitKindAsk {
 		id = newAskID()
 	}
-	text := exitHeadlineText(kind, hid, teamTaskBoardShort(*item), hline, id)
-	rest := ""
-	if parts := strings.SplitN(body, "\n", 2); len(parts) == 2 {
-		rest = strings.TrimSpace(parts[1])
+	name := teamTaskBoardShort(*item)
+	// User 10-30 「每一行中间加一行换行，聚在一起完全不想看」: a blank line between the parts.
+	text := spaceExitLines(exitHeadlineText(kind, name, hline, id))
+	_, detail := exitSplit(body)
+	if err := e.postWithDetail(p, rc, name, text, detail); err != nil {
+		slog.Error("team exit: headline post failed", "kind", kind, "parent", parent, "workspace", ws, "error", err)
+		return ""
 	}
+	if !postReportDetail {
+		detail = ""
+	}
+	e.postToTaskThread(p, sessionKey, joinExitDetail(text, detail))
 	if kind == exitKindReport {
-		if rest != "" {
-			e.postExitOriginal(p, rc, parent, ws, bot, exitKindReport, rest, sessionKey, text+"\n\n")
-		} else if err := p.Send(e.ctx, rc, text); err != nil {
-			slog.Error("team exit: headline post failed", "parent", parent, "workspace", ws, "error", err)
-			return ""
-		}
-		slog.Info("team exit: report posted", "board_item", hid, "workspace", ws, "parent", parent)
+		slog.Info("team exit: report posted", "board_item", hid, "workspace", ws, "parent", parent, "detail", detail != "")
 		e.markExitReported(hid)
 		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
 		return ""
 	}
-	if err := p.Send(e.ctx, rc, text); err != nil {
-		slog.Error("team exit: headline post failed", "parent", parent, "workspace", ws, "error", err)
-		return ""
-	}
-	slog.Info("team exit: headline posted", "kind", kind, "board_item", hid, "workspace", ws, "parent", parent)
+	slog.Info("team exit: headline posted", "kind", kind, "board_item", hid, "workspace", ws, "parent", parent, "detail", detail != "")
 	e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Board: hid, Bot: bot, Forwarded: []string{text}, At: time.Now()})
 	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
-	if e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, hid) {
-		return id
-	}
-	if rest != "" {
-		e.postExitOriginal(p, rc, parent, ws, bot, exitKindReport, rest, sessionKey, exitPrefix+"（续 #"+strconv.Itoa(hid)+"）\n")
-	}
+	e.wakeChatLead(p, parent, ws, bot, kind, body, sessionKey, hid)
 	return id
+}
+
+// joinExitDetail is a headline with its details below, as one post for the task thread.
+func joinExitDetail(text, detail string) string {
+	if detail == "" {
+		return text
+	}
+	return text + "\n\n" + quietText(detail)
+}
+
+// postReportDetail: post the details under the report (off since 10-30).
+const postReportDetail = false
+
+// postWithDetail posts text in the chat channel and detail under it: in a thread on that post
+// where the platform has one (DetailThreadSender), else as a following post marked as details.
+func (e *Engine) postWithDetail(p Platform, rc any, name, text, detail string) error {
+	// User 10-30 「细节先不用吧，把它给去掉」: only the four parts reach the user; the lead still
+	// gets the details through the auto-return.
+	if detail == "" || !postReportDetail {
+		return p.Send(e.ctx, rc, text)
+	}
+	title := exitPrefix + " 细节「" + name + "」"
+	detail = quietText(detail)
+	if d, ok := p.(DetailThreadSender); ok {
+		return d.SendWithDetail(e.ctx, rc, text, title, detail)
+	}
+	if err := p.Send(e.ctx, rc, text); err != nil {
+		return err
+	}
+	head := title + "（想看再展开，不用回）\n"
+	for i, c := range SplitMessageCodeFenceAware(detail, maxPlatformMessageLen-utf8.RuneCountInString(head)) {
+		if i > 0 {
+			head = exitPrefix + "（细节续）\n"
+		}
+		if err := p.Send(e.ctx, rc, head+c); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // postExitOriginal copies body into the chat channel as 📬 posts (no lead took it). header
@@ -366,6 +366,9 @@ func (e *Engine) postExitOriginal(p Platform, rc any, parent, ws, bot, kind, bod
 		}
 		sent = append(sent, text)
 	}
+	if len(sent) > 0 {
+		e.postToTaskThread(p, sessionKey, strings.Join(sent, "\n"))
+	}
 	slog.Info("team exit: forwarded", "kind", kind, "workspace", ws, "parent", parent, "chunks", len(sent))
 	if id == "" || len(sent) == 0 {
 		return ""
@@ -384,40 +387,41 @@ func (e *Engine) postExitOriginal(p Platform, rc any, parent, ws, bot, kind, bod
 // open for it (or one without an item) counts as work in progress.
 func (e *Engine) workspaceTaskStopped(sessionKey string, named *teamTaskBoardItem) (int, bool) {
 	key := teamChatKey(sessionKey)
-	if named != nil {
-		w := named.WS
-		if w == "" {
-			w = named.WSWas
-		}
-		if w != "" && teamChatKey(w) == key {
-			if e.workspaceHasOpenHandoffFor(sessionKey, named.ID) {
-				return 0, false
-			}
-			return named.ID, boardItemStopped(named)
-		}
-	}
-	if e.workspaceHasOpenHandoff(sessionKey) {
-		return 0, false
-	}
-	dir := e.teamStatusDir()
-	if dir == "" {
-		return 0, false
-	}
-	var last *teamTaskBoardItem
-	items := readTeamTaskBoard(dir)
-	for i := range items {
-		it := &items[i]
+	here := func(it *teamTaskBoardItem) bool {
 		w := it.WS
 		if w == "" {
 			w = it.WSWas
 		}
-		if w == "" || teamChatKey(w) != key {
-			continue
-		}
-		if last == nil || it.Bound > last.Bound {
-			last = it
-		}
+		return w != "" && teamChatKey(w) == key
 	}
+	var items []teamTaskBoardItem
+	if dir := e.teamStatusDir(); dir != "" {
+		items = readTeamTaskBoard(dir)
+	}
+	namedID := 0
+	cands := make([]exitTaskCand, 0, len(items)+1)
+	if named != nil {
+		// named may already be among the finished items; it is judged all the same.
+		namedID = named.ID
+		cands = append(cands, exitTaskCand{ID: named.ID, Here: here(named), Bound: named.Bound})
+	}
+	byID := map[int]*teamTaskBoardItem{}
+	for i := range items {
+		it := &items[i]
+		byID[it.ID] = it
+		cands = append(cands, exitTaskCand{ID: it.ID, Here: here(it), Bound: it.Bound})
+	}
+	pick := exitTaskPick(namedID, cands)
+	if pick != 0 && pick == namedID {
+		if e.workspaceHasOpenHandoffFor(sessionKey, named.ID) {
+			return 0, false
+		}
+		return named.ID, boardItemStopped(named)
+	}
+	if e.workspaceHasOpenHandoff(sessionKey) {
+		return 0, false
+	}
+	last := byID[pick]
 	if !boardItemStopped(last) {
 		return 0, false
 	}
@@ -603,4 +607,36 @@ func stripFillerLines(reply string) string {
 func (e *Engine) workspaceStillWorking(sessionKey string) bool {
 	running, _ := newHandoffWatch(e).workspaceBackgroundProgress(chatOf(sessionKey), time.Now())
 	return running
+}
+
+// exitPartLabels turns a part's leading 「名：」 into 【名】 (user 10-30 「【背景】，加那种符号」).
+var exitPartLabels = []struct{ from, to string }{
+	{"背景：", "【背景】"}, {"要你做的：", "【要你做的】"}, {"要你定的：", "【要你定的】"},
+	{"要你定：", "【要你定】"}, {"我加的、原话里没有：", "【我加的】"}, {"我加的：", "【我加的】"},
+}
+
+// spaceExitLines puts one blank line between the non-empty lines of a post and labels each
+// part 【…】; the first unlabeled line after 【背景】 is what was done.
+func spaceExitLines(s string) string {
+	var out []string
+	afterBg, doneLabeled := false, false
+	for _, l := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(l)
+		if t == "" {
+			continue
+		}
+		labeled := false
+		for _, lb := range exitPartLabels {
+			if strings.HasPrefix(t, lb.from) {
+				l, labeled = lb.to+strings.TrimPrefix(t, lb.from), true
+				afterBg = lb.from == "背景："
+				break
+			}
+		}
+		if !labeled && afterBg && !doneLabeled {
+			l, doneLabeled = "【做了什么】"+t, true
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n\n")
 }

@@ -55,6 +55,8 @@ type teamTaskBoardItem struct {
 	Ch string `json:"ch"`
 	// ProgressAt: epoch of the workspace's last ws-up report (board.py progress); 0 = none yet.
 	ProgressAt float64 `json:"progress_at"`
+	// Card: the item's task card link (board.py link), for an item with no workspace task card.
+	Card string `json:"card"`
 
 	// Resolved by placeTeamTaskBoard, not stored.
 	own    string // the chat the item is in
@@ -446,6 +448,149 @@ func renderTeamTaskBoard(items []teamTaskBoardItem, chat string, now time.Time) 
 	return strings.Join(lines, "\n")
 }
 
+// The chat channel's pinned task table (user, 2026-10-30: 「打开任务表一眼知道有几件事、每件在干什么、
+// 哪件等你；点开一件能看到它一步步在做什么」, approved layout in the handoff taskboard-redo-1030):
+//
+//	📋 任务表（12:20 更新）
+//	等你看 2
+//	  · 全双工权限卡回复稿 —— 草稿写好了，等你过目  [→点进去](thread)
+//	在做 1
+//	  · 任务表改版 —— 工作区3，正在改置顶表  [→点进去](thread)
+//	（另有 4 件搁置）
+//
+// Three states only: 等你看, 在做, 搁置 (paused for another reason, or no activity for a day; only
+// counted). Done items are left off. 卡住 is an 在做 row that says so.
+const (
+	teamTaskTableHead = "📋 任务表"
+	// teamTaskTableShelveAfter: an item with no activity this long is 搁置. Source: the approved plan, 「超一天没动自动进搁置」.
+	teamTaskTableShelveAfter = 24 * time.Hour
+	// teamTaskTableNoteRunes: the text after 「——」. Same bound as the 等你 reason (teamTaskBoardReasonRunes).
+	teamTaskTableNoteRunes = teamTaskBoardReasonRunes
+)
+
+// teamTaskTableHeader: the table's first line with the time it last changed.
+func teamTaskTableHeader(at time.Time) string {
+	return teamTaskTableHead + "（" + at.Format("15:04") + " 更新）"
+}
+
+// teamTaskTableBody: the table without its first line.
+func teamTaskTableBody(content string) string {
+	if !strings.HasPrefix(content, teamTaskTableHead) {
+		return ""
+	}
+	_, body, _ := strings.Cut(content, "\n")
+	return body
+}
+
+// teamTaskItemCard: the task card that belongs to it: for a workspace handoff, the newest listed card
+// in that workspace since it was bound; else none. Placed items only.
+func teamTaskItemCard(it teamTaskBoardItem, links []teamTaskLink) *teamTaskLink {
+	if it.WS == "" {
+		return nil
+	}
+	bound, _ := time.Parse(time.RFC3339Nano, it.Bound)
+	var best *teamTaskLink
+	for i := range links {
+		l := &links[i]
+		if chatOf(l.SessionKey) != it.own || l.UpdatedAt.Before(bound) {
+			continue
+		}
+		if best == nil || l.UpdatedAt.After(best.UpdatedAt) {
+			best = l
+		}
+	}
+	return best
+}
+
+// teamTaskGenericStatus: board statuses that say nothing about what is being done.
+var teamTaskGenericStatus = regexp.MustCompile(`^\s*(?:已交接|在做|进行中|排队|已接手|-)?\s*$`)
+
+// renderTeamTaskTable renders the table body (no header line) for chat, "" when the chat has no
+// open item. links: the task cards (readTeamFiles' Tasks), for each row's thread and progress.
+func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat string, now time.Time) string {
+	var waiting, running []string
+	shelved, open := 0, 0
+	for _, it := range items {
+		if !it.shownIn(chat) {
+			continue
+		}
+		state, note := teamTaskBoardStateOf(it, now)
+		if state == teamTaskHidden {
+			continue
+		}
+		open++
+		last := teamTaskBoardLastActive(it, now)
+		card := teamTaskItemCard(it, links)
+		if card != nil && card.UpdatedAt.After(last) {
+			last = card.UpdatedAt
+		}
+		if state == teamTaskPaused || (!last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
+			shelved++
+			continue
+		}
+		var where string
+		if it.parent == chat && it.own != chat && it.wsName != "" {
+			where = boardLabel(it.wsName)
+		}
+		switch state {
+		case teamTaskRunning:
+			note = ""
+			if card != nil && strings.TrimSpace(card.Progress) != "" {
+				note = shortLabel(card.Progress, teamTaskTableNoteRunes)
+			} else if !teamTaskGenericStatus.MatchString(it.Status) {
+				note = shortLabel(it.Status, teamTaskTableNoteRunes)
+			}
+		case teamTaskStuck:
+			note = "卡住了，" + note
+		}
+		if where != "" {
+			if note == "" {
+				note = where + " 在做"
+			} else {
+				note = where + "，" + note
+			}
+		}
+		row := "  · " + teamTaskBoardShort(it)
+		if note != "" {
+			row += " —— " + note
+		}
+		url := it.Card
+		if card != nil {
+			url = card.ThreadURL
+			if url == "" {
+				url = card.URL
+			}
+		}
+		if url != "" && safeTaskURL(url) {
+			row += "  [→点进去](" + url + ")"
+		}
+		if state == teamTaskWaiting {
+			waiting = append(waiting, row)
+		} else {
+			running = append(running, row)
+		}
+	}
+	if open == 0 {
+		return ""
+	}
+	var lines []string
+	if len(waiting) > 0 {
+		lines = append(lines, fmt.Sprintf("**等你看 %d**", len(waiting)))
+		lines = append(lines, waiting...)
+	}
+	if len(running) > 0 {
+		lines = append(lines, fmt.Sprintf("**在做 %d**", len(running)))
+		lines = append(lines, running...)
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "现在没有在做或等你看的")
+	}
+	if shelved > 0 {
+		lines = append(lines, fmt.Sprintf("（另有 %d 件搁置，超过一天没动或已暂停）", shelved))
+	}
+	return strings.Join(lines, "\n")
+}
+
 // renderTeamTaskBoardFit: renderTeamTaskBoard cut by whole lines to budget runes. Running items
 // are never dropped (board.py card_text): the section keeps at least its lines up to the 在做 line,
 // so a long board above it is cut instead (withTeamTaskBoard).
@@ -548,7 +693,7 @@ func withTeamTaskBoard(board string, section func(budget int) string) string {
 // teamBoardRowLine: a line that is one task row: an item of the four-state board (⚠/▶/⏸, #610)
 // or an older "#…"/"- …" row.
 func teamBoardRowLine(s string) bool {
-	for _, p := range []string{"#", "- ", "⚠ ", "▶ ", "⏸ "} {
+	for _, p := range []string{"#", "- ", "⚠ ", "▶ ", "⏸ ", "  · "} {
 		if strings.HasPrefix(s, p) {
 			return true
 		}

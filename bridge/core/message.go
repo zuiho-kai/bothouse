@@ -400,6 +400,7 @@ type Message struct {
 	userText     string     // maomao fork: Content before media notes were appended — the gate's input
 	userTextSet  bool       // maomao fork: userText is set (see userTextOf)
 	gateParts    []gatePart // maomao fork: the messages an idle gate burst folded into this one, as each was (gate.go)
+	abortFront   bool       // maomao fork: a gate abort; queued first, then the running turn is cancelled (gate.go)
 	// maomao fork: the gate asks for the per-turn context blocks (teammate
 	// status, wiki pages); they are added right before the send, once the agent
 	// process for this turn is known. A pending handoff goes either way.

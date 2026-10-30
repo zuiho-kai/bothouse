@@ -456,6 +456,10 @@ func (s *acpSession) matchAvailableMode(input string) string {
 }
 
 func (s *acpSession) onNotification(method string, params json.RawMessage) {
+	if method == xaiSessionUpdate {
+		s.onXAIUpdate(params)
+		return
+	}
 	if method != "session/update" {
 		slog.Debug("acp: notification", "method", method)
 		return
@@ -505,6 +509,40 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 			}
 		}
 		s.emit(ev)
+	}
+}
+
+// xaiSessionUpdate is Grok's vendor notification; its turn_completed update carries the turn's usage.
+const xaiSessionUpdate = "_x.ai/session/update"
+
+// onXAIUpdate reports the prompt size of a finished Grok turn to the Agent, which the engine reads
+// to notice a compaction (core.ContextSizeReader). usage.inputTokens sums every model call of the
+// turn, so the size of one call is that sum divided by modelCalls.
+func (s *acpSession) onXAIUpdate(params json.RawMessage) {
+	var msg struct {
+		SessionID string `json:"sessionId"`
+		Update    struct {
+			SessionUpdate string `json:"sessionUpdate"`
+			Usage         struct {
+				InputTokens int `json:"inputTokens"`
+				ModelCalls  int `json:"modelCalls"`
+			} `json:"usage"`
+		} `json:"update"`
+	}
+	if json.Unmarshal(params, &msg) != nil || msg.Update.SessionUpdate != "turn_completed" {
+		return
+	}
+	tokens, calls := msg.Update.Usage.InputTokens, msg.Update.Usage.ModelCalls
+	if calls > 1 {
+		tokens /= calls
+	}
+	sid := msg.SessionID
+	if sid == "" {
+		sid = s.currentACPSessionID()
+	}
+	slog.Info("acp: context size", "session_id", sid, "context_tokens", tokens, "input_tokens", msg.Update.Usage.InputTokens, "model_calls", calls)
+	if s.callbacks != nil {
+		s.callbacks.reportContextTokens(sid, tokens)
 	}
 }
 

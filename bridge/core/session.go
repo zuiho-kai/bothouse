@@ -91,6 +91,9 @@ type TurnCtxSent struct {
 	LeadHandoffAt time.Time `json:"lead_handoff_at,omitempty"`
 	// Rules is a hash of the team-mode rules this context got (teamRulesOnce).
 	Rules string `json:"rules,omitempty"`
+	// ContextTokens is the agent's last reported prompt size, for agents that do not report
+	// compaction (checkRulesContext).
+	ContextTokens int `json:"context_tokens,omitempty"`
 	// ReplyTasks: the work (reply_task.go key) whose background a reply already brought.
 	ReplyTasks []string `json:"reply_tasks,omitempty"`
 }
@@ -222,6 +225,20 @@ func (s *Session) takeTeamRules(key string) bool {
 	}
 	s.TurnCtx.Rules, s.rulesTaken = key, key
 	return true
+}
+
+// noteContextTokens records the agent's prompt size; a drop below half the last one is a
+// compaction, so the context forgets what was sent (checkRulesContext).
+func (s *Session) noteContextTokens(tokens int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.TurnCtx == nil {
+		s.TurnCtx = &TurnCtxSent{}
+	}
+	if tokens*rulesCompactedRatio < s.TurnCtx.ContextTokens {
+		s.TurnCtx = &TurnCtxSent{}
+	}
+	s.TurnCtx.ContextTokens = tokens
 }
 
 // ResetTurnCtx forgets what was sent: the agent's context was compacted or replaced.

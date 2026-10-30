@@ -156,7 +156,8 @@ func TestCUJ_Subagents_SourcePolicySurvivesQueueAndResume(t *testing.T) {
 	inputWait(t, func() bool { return !s.Busy() })
 	send("human-2", "A separate ordinary task", false)
 	resumed := inputPrompt(t, a)
-	if !strings.HasPrefix(resumed, teamModeRulesFor(DefaultDispatchMode)+"\n[Bridge delegation policy") || !strings.Contains(resumed, "Default: do the task yourself.") || !strings.Contains(resumed, "A separate ordinary task") {
+	// Same agent context: the team rules went with the first request only (teamRulesOnce).
+	if !strings.HasPrefix(resumed, "[Bridge delegation policy") || !strings.Contains(resumed, "Default: do the task yourself.") || !strings.Contains(resumed, "A separate ordinary task") {
 		t.Fatal("resumed request missing renewed default policy")
 	}
 	inputDone(a, "ordinary-task-done")

@@ -1,0 +1,342 @@
+package core
+
+import (
+	"encoding/json"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+// teamExitRulesFile is the one copy of the workspace [ask]/[report] rules: first-line mark and #id
+// format, the [ask] self-check, bounce texts. dsh/collab/team-exit-rules.json is mirrored into
+// dsh_bundle/collab; DSH collab (team-exit.mjs) reads the same file, and both sides run the shared
+// cases in dsh/collab/test/team-exit-cases.json (TestTeamExitSharedCases; team-exit.test.mjs). No
+// formats or texts live here.
+const teamExitRulesFile = "dsh_bundle/collab/team-exit-rules.json"
+
+type teamExitRulesDoc struct {
+	Kinds      []string `json:"kinds"`
+	Mark       string   `json:"mark"`
+	HeadlineRe string   `json:"headline_re"`
+	Headline   struct {
+		MissingID     string `json:"missing_id"`
+		MissingLine   string `json:"missing_line"`
+		MissingMarker string `json:"missing_marker"`
+		UnknownID     string `json:"unknown_id"`
+	} `json:"headline"`
+	Ask struct {
+		SelfCheckRe      string `json:"self_check_re"`
+		CategoryRe       string `json:"category_re"`
+		ExemptRe         string `json:"exempt_re"`
+		NoCheckRe        string `json:"no_check_re"`
+		MissingSelfCheck string `json:"missing_self_check"`
+		MissingCategory  string `json:"missing_category"`
+		NoCheckNotExempt string `json:"no_check_not_exempt"`
+	} `json:"ask"`
+	Bounce struct {
+		Text      string            `json:"text"`
+		Sep       string            `json:"sep"`
+		Extra     map[string]string `json:"extra"`
+		WakeLimit int               `json:"wake_limit"`
+	} `json:"bounce"`
+	Summary struct {
+		BackgroundRe      string `json:"background_re"`
+		TodoRe            string `json:"todo_re"`
+		DetailRe          string `json:"detail_re"`
+		MissingBackground string `json:"missing_background"`
+		MissingDone       string `json:"missing_done"`
+		MissingTodo       string `json:"missing_todo"`
+		AddedRe           string `json:"added_re"`
+		MissingAdded      string `json:"missing_added"`
+	} `json:"summary"`
+	Jargon struct {
+		LineRe  string `json:"line_re"`
+		TableRe string `json:"table_re"`
+		Line    string `json:"line"`
+		Table   string `json:"table"`
+	} `json:"jargon"`
+}
+
+type teamExitRules struct {
+	teamExitRulesDoc
+	headline, selfCheck, category, exempt, noCheck, jargonLine, jargonTable *regexp.Regexp
+	background, todo, detail, added                                         *regexp.Regexp
+}
+
+// exitRules is read once from the embedded copy; a broken file fails every test that touches it.
+var exitRules = func() *teamExitRules {
+	b, err := embeddedDSH.ReadFile(teamExitRulesFile)
+	if err != nil {
+		panic("team exit rules: " + err.Error())
+	}
+	r, err := parseTeamExitRules(b)
+	if err != nil {
+		panic("team exit rules: " + err.Error())
+	}
+	return r
+}()
+
+func parseTeamExitRules(b []byte) (*teamExitRules, error) {
+	r := &teamExitRules{}
+	if err := json.Unmarshal(b, &r.teamExitRulesDoc); err != nil {
+		return nil, err
+	}
+	for _, c := range []struct {
+		dst **regexp.Regexp
+		src string
+	}{
+		{&r.headline, r.HeadlineRe}, {&r.selfCheck, r.Ask.SelfCheckRe}, {&r.category, r.Ask.CategoryRe},
+		{&r.exempt, r.Ask.ExemptRe}, {&r.noCheck, r.Ask.NoCheckRe},
+		{&r.jargonLine, r.Jargon.LineRe}, {&r.jargonTable, r.Jargon.TableRe},
+		{&r.background, r.Summary.BackgroundRe}, {&r.todo, r.Summary.TodoRe}, {&r.detail, r.Summary.DetailRe},
+		{&r.added, r.Summary.AddedRe},
+	} {
+		re, err := regexp.Compile(c.src)
+		if err != nil {
+			return nil, err
+		}
+		*c.dst = re
+	}
+	return r, nil
+}
+
+// parseExitKind reads an [ask] / [report] marker on the reply's first line.
+func parseExitKind(text string) (kind, body string, ok bool) {
+	t := strings.TrimLeft(text, " \t\r\n")
+	for _, k := range exitRules.Kinds {
+		tag := strings.ReplaceAll(exitRules.Mark, "{kind}", k)
+		if len(t) >= len(tag) && strings.EqualFold(t[:len(tag)], tag) {
+			body = strings.TrimSpace(t[len(tag):])
+			if body == "" {
+				return "", "", false
+			}
+			return k, body, true
+		}
+	}
+	return "", "", false
+}
+
+// exitHeadline reads body's first line board id and the part for the user after it (exitSplit).
+func exitHeadline(body string) (id int, line string, problems []string) {
+	first := strings.TrimSpace(strings.SplitN(body, "\n", 2)[0])
+	m := exitRules.headline.FindStringSubmatch(first)
+	if m == nil {
+		problems = append(problems, exitRules.Headline.MissingID)
+		if first == "" || strings.HasPrefix(first, "#") {
+			problems = append(problems, exitRules.Headline.MissingLine)
+		}
+		return 0, "", problems
+	}
+	id, _ = strconv.Atoi(m[1])
+	line, _ = exitSplit(body)
+	if line == "" {
+		problems = append(problems, exitRules.Headline.MissingLine)
+	}
+	return id, line, problems
+}
+
+// exitSplit splits a marked body, after its first line's #id, into the part posted for the user
+// (background, what was done, what the user is to do, what the agent added on its own: up to and
+// including the 「我加的：」 line, else the 「要你做的：」 line) and the details after it, which go under that post (user 10-30 「太多事我都忘记了。背景，例如复盘
+// 问题12345有什么xxx，我做了125 xxx，已经上线了」; 10-30 「别忘了你自己加的东西，那个很重要」). Without either line the part for the user is the
+// first paragraph. A 「细节：」 line opening the details only separates them and is dropped.
+func exitSplit(body string) (summary, detail string) {
+	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
+	if m := exitRules.headline.FindStringSubmatch(strings.TrimSpace(lines[0])); m != nil {
+		lines[0] = m[2]
+	}
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+	end := -1
+	for i, l := range lines {
+		if exitRules.todo.MatchString(l) {
+			end = i
+			break
+		}
+	}
+	for i := end + 1; end >= 0 && i < len(lines); i++ {
+		if exitRules.added.MatchString(lines[i]) {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		end = len(lines) - 1
+		for i, l := range lines {
+			if strings.TrimSpace(l) == "" {
+				end = i - 1
+				break
+			}
+		}
+	}
+	summary = strings.TrimSpace(strings.Join(lines[:end+1], "\n"))
+	rest := lines[end+1:]
+	for len(rest) > 0 && strings.TrimSpace(rest[0]) == "" {
+		rest = rest[1:]
+	}
+	if len(rest) > 0 && exitRules.detail.MatchString(strings.TrimSpace(rest[0])) {
+		rest = rest[1:]
+	}
+	return summary, strings.TrimSpace(strings.Join(rest, "\n"))
+}
+
+// summaryProblems: the part for the user lacks its background, what was done, what the user is
+// to do, or what the agent added that the user never asked for.
+func summaryProblems(summary string) []string {
+	lines := strings.Split(summary, "\n")
+	var problems []string
+	if !exitRules.background.MatchString(strings.TrimSpace(lines[0])) {
+		problems = append(problems, exitRules.Summary.MissingBackground)
+	}
+	todo := -1
+	for i, l := range lines {
+		if exitRules.todo.MatchString(l) {
+			todo = i
+			break
+		}
+	}
+	done := false
+	for i := 1; i < len(lines) && !done; i++ {
+		l := lines[i]
+		if i == todo {
+			l = l[:exitRules.todo.FindStringIndex(l)[0]]
+		} else if todo >= 0 && i > todo {
+			break
+		}
+		done = strings.TrimSpace(l) != ""
+	}
+	if !done {
+		problems = append(problems, exitRules.Summary.MissingDone)
+	}
+	if todo < 0 {
+		problems = append(problems, exitRules.Summary.MissingTodo)
+	}
+	added := false
+	for _, l := range lines {
+		added = added || exitRules.added.MatchString(l)
+	}
+	if !added {
+		problems = append(problems, exitRules.Summary.MissingAdded)
+	}
+	return problems
+}
+
+// askEvidenceProblems lists what an [ask] body lacks; nil means it may go to the user.
+func askEvidenceProblems(body string) []string {
+	var problems []string
+	cat := ""
+	if loc := exitRules.category.FindStringIndex(body); loc != nil {
+		cat = strings.TrimSpace(strings.SplitN(body[loc[1]:], "\n", 2)[0])
+	}
+	check := ""
+	if loc := exitRules.selfCheck.FindStringIndex(body); loc != nil {
+		rest := body[loc[1]:]
+		if next := exitRules.category.FindStringIndex(rest); next != nil {
+			rest = rest[:next[0]]
+		}
+		check = strings.TrimSpace(rest)
+	}
+	if check == "" {
+		problems = append(problems, exitRules.Ask.MissingSelfCheck)
+	}
+	if cat == "" {
+		problems = append(problems, exitRules.Ask.MissingCategory)
+	}
+	if check != "" && cat != "" && exitRules.noCheck.MatchString(check) && !exitRules.exempt.MatchString(cat) {
+		problems = append(problems, exitRules.Ask.NoCheckNotExempt)
+	}
+	return problems
+}
+
+// jargonProblems: the part for the user names board/PR numbers, workspaces, branches, paths or
+// code identifiers, or holds a table (user 10-30 复盘「汇报堆编号、表格、工作区代号，要追问才知道进度」).
+func jargonProblems(line string) []string {
+	var problems []string
+	var hits []string
+	for _, m := range exitRules.jargonLine.FindAllString(line, -1) {
+		hits = append(hits, strings.TrimLeftFunc(m, jargonLead))
+	}
+	if len(hits) > 0 {
+		problems = append(problems, strings.ReplaceAll(exitRules.Jargon.Line, "{hits}", strings.Join(hits, "、")))
+	}
+	if exitRules.jargonTable.MatchString(line) {
+		problems = append(problems, exitRules.Jargon.Table)
+	}
+	return problems
+}
+
+// jargonLead: a character a jargon match took only as its left boundary.
+func jargonLead(r rune) bool {
+	return !(r < 0x80 && (r == '~' || r == '/' || r == '`' || r == '#' || r == '!' || r == '_' || r == '-' ||
+		r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z')) && r != '＃' && r != '！' && r != '工'
+}
+
+// exitBounceText: why a workspace [ask]/[report] stayed in the workspace and how to resend it.
+func exitBounceText(kind string, problems []string) string {
+	return strings.NewReplacer(
+		"{kind}", kind,
+		"{problems}", strings.Join(problems, exitRules.Bounce.Sep),
+		"{extra}", exitRules.Bounce.Extra[kind],
+	).Replace(exitRules.Bounce.Text)
+}
+
+// exitVerdict is how a marked workspace reply is judged.
+type exitVerdict struct {
+	ID       int      // the first line's board id (0 when it has none)
+	Line     string   // the part for the user after the id (exitSplit)
+	Problems []string // why it goes back to the workspace; nil: it goes to the chat channel
+	Legacy   bool     // the format is still wrong but bounces stopped waking the bot: the chat lead rewrites it
+}
+
+// judgeExit judges a marked reply's body. auto: the reply had no mark (an unmarked turn end
+// answering a handoff). known reports whether a board id is on the board; bounces is how many
+// replies in a row went back already.
+func judgeExit(kind, body string, auto bool, known func(int) bool, bounces int) exitVerdict {
+	var v exitVerdict
+	if kind == exitKindAsk {
+		v.Problems = askEvidenceProblems(body)
+	}
+	var hp []string
+	if auto {
+		hp = []string{exitRules.Headline.MissingMarker}
+	} else if v.ID, v.Line, hp = exitHeadline(body); hp == nil && !known(v.ID) {
+		hp = []string{strings.ReplaceAll(exitRules.Headline.UnknownID, "{id}", strconv.Itoa(v.ID))}
+	} else if hp == nil {
+		hp = append(summaryProblems(v.Line), jargonProblems(v.Line)...)
+	}
+	// Format goes back only while bounces still wake the bot; after that the chat lead rewrites it
+	// (user 10-30: not posted as written any more). A missing [ask] self-check always goes back.
+	if hp != nil && v.Problems == nil && bounces >= exitRules.Bounce.WakeLimit {
+		v.Legacy = true
+	} else {
+		v.Problems = append(v.Problems, hp...)
+	}
+	return v
+}
+
+// exitTaskCand is a task a workspace reply may be about: here when it is bound to that workspace,
+// bound when it was bound (compared as written).
+type exitTaskCand struct {
+	ID    int
+	Here  bool
+	Bound string
+}
+
+// exitTaskPick is the task a workspace reply is about: the one its first line names when that one
+// is bound to this workspace, else the one bound here last; 0 when none is here.
+func exitTaskPick(named int, items []exitTaskCand) int {
+	pick, last := 0, ""
+	for _, it := range items {
+		if !it.Here {
+			continue
+		}
+		if named > 0 && it.ID == named {
+			return named
+		}
+		if pick == 0 || it.Bound > last {
+			pick, last = it.ID, it.Bound
+		}
+	}
+	return pick
+}

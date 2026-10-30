@@ -247,6 +247,13 @@ type compactProgressWriter struct {
 	// maomao fork: called with every item the card shows (the channel task
 	// board's "当前步骤"); nil = none.
 	onStep func(ProgressCardEntry)
+	// maomao fork: the same card in the thread of the task card this turn works on (user 10-30
+	// 「点开这个任务子频道可以看到他具体在干什么」); mirrorFor finds it once that card has a thread.
+	mirror    *compactProgressWriter
+	mirrorFor func() *compactProgressWriter
+	// moved: the card now lives only in that thread; this one was taken down (user 10-30: one
+	// task's three cards become the one in its thread). Steps still feed onStep.
+	moved bool
 	// maomao fork: the "等子 agent" line currently in items/entries ("" = none).
 	waitText     string
 	waitFallback string
@@ -414,6 +421,9 @@ func (w *compactProgressWriter) AppendEvent(kind ProgressCardEntryKind, text str
 // the caller must not send its raw fallback, not necessarily that delivery
 // succeeded: a card transport failure must not widen tool visibility to chat.
 func (w *compactProgressWriter) AppendStructured(item ProgressCardEntry, fallback string) bool {
+	if m := w.mirrorWriter(); m != nil {
+		m.AppendStructured(item, fallback)
+	}
 	handled := w.appendStructured(item, fallback)
 	if !handled && w.style == progressStyleCard {
 		switch item.Kind {
@@ -518,7 +528,8 @@ func (w *compactProgressWriter) renderCard() bool {
 
 // push sends or edits the message with w.content (throttled edits).
 func (w *compactProgressWriter) push() bool {
-	if w.content == w.lastSent {
+	if w.content == w.lastSent || w.moved {
+		w.lastSent = w.content
 		return true
 	}
 
@@ -574,6 +585,9 @@ func (w *compactProgressWriter) push() bool {
 // moving instead of the card stopping at "🔧 Agent". Any earlier wait line is
 // removed first, wherever other steps have pushed it.
 func (w *compactProgressWriter) ShowSubAgentWait(text string) bool {
+	if w.mirror != nil {
+		w.mirror.ShowSubAgentWait(text)
+	}
 	if !w.enabled || w.failed || w.style != progressStyleCard {
 		return false
 	}
@@ -588,6 +602,9 @@ func (w *compactProgressWriter) ShowSubAgentWait(text string) bool {
 
 // ClearSubAgentWait removes the wait line once no foreground sub-agent runs.
 func (w *compactProgressWriter) ClearSubAgentWait() bool {
+	if w.mirror != nil {
+		w.mirror.ClearSubAgentWait()
+	}
 	if !w.enabled || w.failed || w.style != progressStyleCard || w.handle == nil {
 		return false
 	}
@@ -627,6 +644,12 @@ func (w *compactProgressWriter) removeWaitLine() {
 // Finalize updates card progress state (running/completed/failed) without
 // appending a new progress entry.
 func (w *compactProgressWriter) Finalize(state ProgressCardState) bool {
+	if w.mirror != nil {
+		ok := w.mirror.Finalize(state)
+		if w.moved {
+			return ok
+		}
+	}
 	if !w.enabled || w.failed || w.style != progressStyleCard || !w.usePayload || w.handle == nil {
 		return false
 	}
@@ -691,6 +714,48 @@ func trimCompactProgressText(s string, maxRunes int) string {
 func (w *compactProgressWriter) payload() string {
 	return buildProgressCardPayload(w.items, w.truncated, w.agentName, w.lang, w.state,
 		w.steps, int(time.Since(w.startedAt).Seconds()), w.lineLen)
+}
+
+// mirrorWriter is the thread copy of this card, looked up until the task card has a thread.
+func (w *compactProgressWriter) mirrorWriter() *compactProgressWriter {
+	if w.mirror == nil && w.mirrorFor != nil {
+		if w.mirror = w.mirrorFor(); w.mirror != nil {
+			w.mirrorFor = nil
+			w.moveToMirror()
+		}
+	}
+	return w.mirror
+}
+
+// moveToMirror starts the thread copy with the steps shown so far, then takes this card down so
+// the thread's card is the only one. A platform that cannot delete keeps both.
+func (w *compactProgressWriter) moveToMirror() {
+	m := w.mirror
+	if w.style != progressStyleCard || m.style != progressStyleCard {
+		return
+	}
+	if len(w.items) > 0 {
+		m.items = append([]ProgressCardEntry(nil), w.items...)
+		m.entries = append([]string(nil), w.entries...)
+		m.steps, m.truncated, m.startedAt = w.steps, w.truncated, w.startedAt
+		if !m.renderCard() || !m.push() {
+			return
+		}
+	}
+	if w.handle != nil {
+		cleaner, ok := w.platform.(PreviewCleaner)
+		if !ok {
+			return
+		}
+		callCtx, cancel := w.withAPITimeout()
+		err := cleaner.DeletePreviewMessage(callCtx, w.handle)
+		cancel()
+		if err != nil {
+			slog.Warn("progress writer: taking the card down for its thread copy failed", "platform", w.platform.Name(), "error", err)
+			return
+		}
+	}
+	w.moved = true
 }
 
 // Active reports whether this writer renders progress in place (maomao fork).
