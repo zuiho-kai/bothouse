@@ -1,6 +1,9 @@
 package core
 
-import "log/slog"
+import (
+	"log/slog"
+	"strings"
+)
 
 // TaskThreadTarget is an optional platform capability: a reply context that posts into a task
 // card's thread (false when the card has none, or it is archived). A workspace turn's progress
@@ -13,6 +16,12 @@ type TaskThreadTarget interface {
 
 // openThreadTask is the newest unfinished task card opened from session that has a thread.
 func (p *PublicProgress) openThreadTask(session string) *Task {
+	return p.threadTask(session, false)
+}
+
+// threadTask is the newest task card opened from session whose thread is still open; done also
+// takes a finished card (a workspace often reports its card's result just before its [report]).
+func (p *PublicProgress) threadTask(session string, done bool) *Task {
 	if p == nil {
 		return nil
 	}
@@ -26,7 +35,7 @@ func (p *PublicProgress) openThreadTask(session string) *Task {
 	for _, r := range runs {
 		r.mu.Lock()
 		t := r.record.Task
-		if t != nil && t.SessionKey == session && t.ThreadID != "" && t.ThreadArchivedAt == nil && !IsTerminalState(t.State) &&
+		if t != nil && t.SessionKey == session && t.ThreadID != "" && t.ThreadArchivedAt == nil && (done || !IsTerminalState(t.State)) &&
 			(best == nil || t.UpdatedAt.After(best.UpdatedAt)) {
 			best = t.Clone()
 		}
@@ -58,4 +67,31 @@ func (e *Engine) taskThreadProgress(p Platform, session string, transform func(s
 		slog.Info("progress card: copied into the task thread", "session", session, "task_id", t.ID, "thread", t.ThreadID)
 		return w
 	}
+}
+
+// postToTaskThread copies text a workspace session posts (a ws-up stage result, an [ask], the
+// final [report]) into its task card's thread, so the thread shows the task's whole course in
+// time order (user 10-30 「我点开这个任务子频道可以看到他具体在干什么东西」). Best effort: a
+// failure is only logged.
+func (e *Engine) postToTaskThread(p Platform, session, text string) {
+	text = strings.TrimSpace(text)
+	target, ok := p.(TaskThreadTarget)
+	if !ok || text == "" || e.publicProgress == nil || !e.isTeamWorkspaceChat(session) {
+		return
+	}
+	t := e.publicProgress.threadTask(session, true)
+	if t == nil {
+		return
+	}
+	rc, ok := target.TaskThreadReplyCtx(t)
+	if !ok {
+		return
+	}
+	for _, c := range SplitMessageCodeFenceAware(text, maxPlatformMessageLen) {
+		if err := p.Send(e.ctx, rc, c); err != nil {
+			slog.Warn("task thread: copy failed", "session", session, "task_id", t.ID, "thread", t.ThreadID, "error", err)
+			return
+		}
+	}
+	slog.Info("task thread: workspace post copied", "session", session, "task_id", t.ID, "thread", t.ThreadID)
 }

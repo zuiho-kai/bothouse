@@ -12939,6 +12939,8 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 			state.sideText = strings.TrimSpace(message)
 			state.mu.Unlock()
 		}
+		// a workspace's own posts (ws-up stage results) also go into its task thread
+		e.postToTaskThread(p, sessionKey, message)
 	}
 	for _, img := range images {
 		if err := e.waitOutgoing(p); err != nil {
