@@ -28,10 +28,9 @@ it('offers a named download link with new-tab fallback and keeps the image previ
   expect(link.getAttribute('download')).toBe(image.name)
   expect(link.getAttribute('target')).toBe('_blank')
   expect(link.textContent).toBe(downloadLabel)
-  const preview = screen.getByRole('img', { name: image.name }).closest('a')
-  expect(preview?.getAttribute('href')).toBe(attachmentUrl(image.id))
-  expect(preview?.getAttribute('target')).toBe('_blank')
-  expect(preview?.hasAttribute('download')).toBe(false)
+  const preview = screen.getByRole('button', { name: image.name })
+  expect(preview.getAttribute('aria-haspopup')).toBe('dialog')
+  expect(screen.getByRole('img', { name: image.name }).getAttribute('src')).toBe(attachmentUrl(image.id))
 })
 
 it('writes the fetched image blob to the clipboard and briefly announces success', async () => {
@@ -85,7 +84,7 @@ it('prevents duplicate copies while pending and allows retry after failure', asy
   show()
   fireEvent.click(screen.getByRole('button', { name: copyLabel }))
   await waitFor(() => expect(write).toHaveBeenCalledOnce())
-  expect((screen.getByRole('button') as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: '复制中…' }) as HTMLButtonElement).disabled).toBe(true)
   await act(async () => { reject(new Error('denied')) })
   expect(screen.getByRole('alert')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: copyLabel }))

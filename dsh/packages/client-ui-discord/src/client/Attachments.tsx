@@ -1,6 +1,7 @@
 // #144: images and files in channel messages — the list shown under a message,
 // and the composer's pending list (picked with the button, pasted, or dropped).
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
+import { createPortal } from 'react-dom'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { NS } from './locales.ts'
 import type { ChannelAttachment, OutgoingAttachment } from './channel-source.ts'
@@ -16,6 +17,23 @@ const size = (bytes: number): string =>
 type T = TranslateNS<typeof NS>
 
 function ImageAttachment({ attachment: a, t }: { readonly attachment: ChannelAttachment; readonly t: T }) {
+  const [opened, setOpened] = useState(false)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const dialog = useRef<HTMLElement>(null)
+  const closeButton = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!opened) return
+    const origin = trigger.current
+    closeButton.current?.focus()
+    const containFocus = (event: FocusEvent): void => {
+      if (!dialog.current?.contains(event.target as Node)) closeButton.current?.focus()
+    }
+    document.addEventListener('focusin', containFocus)
+    return () => {
+      document.removeEventListener('focusin', containFocus)
+      origin?.focus()
+    }
+  }, [opened])
   const [copyState, setCopyState] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle')
   useEffect(() => {
     if (copyState !== 'copied') return
@@ -40,16 +58,41 @@ function ImageAttachment({ attachment: a, t }: { readonly attachment: ChannelAtt
     }
   }
   const copyLabel = t(copyState === 'copied' ? 'attachmentCopied' : copyState === 'copying' ? 'attachmentCopying' : 'attachmentCopy')
+  // Both surfaces use the same controls, copy callback and feedback state.
+  const actions = <>
+    <a className={copyState === 'error' ? css.primaryButton : css.secondaryButton} href={attachmentUrl(a.id)} download={a.name} target="_blank" rel="noreferrer" aria-label={t('attachmentDownload')}>{t('attachmentDownload')}</a>
+    <button type="button" className={css.secondaryButton} onClick={() => { void copy() }} disabled={copyState === 'copying'} aria-label={copyLabel} aria-live="polite">{copyLabel}</button>
+  </>
+  const error = copyState === 'error' && <div className={css.sendError} role="alert">{t('attachmentCopyError')}</div>
   return (
     <div className={css.imageAttachment} data-copy-state={copyState}>
-      <a href={attachmentUrl(a.id)} target="_blank" rel="noreferrer" title={a.name}>
+      <button ref={trigger} type="button" className={css.imagePreviewTrigger} title={a.name} aria-haspopup="dialog" aria-expanded={opened} onClick={() => setOpened(true)}>
         <img className={css.attachmentImage} src={attachmentUrl(a.id)} alt={a.name} loading="lazy" />
-      </a>
-      <div className={css.attachmentActions}>
-        <a className={copyState === 'error' ? css.primaryButton : css.secondaryButton} href={attachmentUrl(a.id)} download={a.name} target="_blank" rel="noreferrer" aria-label={t('attachmentDownload')}>{t('attachmentDownload')}</a>
-        <button type="button" className={css.secondaryButton} onClick={() => { void copy() }} disabled={copyState === 'copying'} aria-label={copyLabel} aria-live="polite">{copyLabel}</button>
-      </div>
-      {copyState === 'error' && <div className={css.sendError} role="alert">{t('attachmentCopyError')}</div>}
+      </button>
+      <div className={css.attachmentActions}>{actions}</div>
+      {!opened && error}
+      {opened && createPortal(
+        <div className={css.dialogBackdrop} onClick={event => { if (event.target === event.currentTarget) setOpened(false) }}>
+          <section ref={dialog} className={`${css.dialog} ${css.imagePreviewDialog}`} role="dialog" aria-modal="true" aria-label={a.name} tabIndex={-1} onKeyDown={event => {
+            if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpened(false) }
+            if (event.key === 'Tab') {
+              const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]'))
+              const first = controls[0]
+              const last = controls[controls.length - 1]
+              if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last?.focus() }
+              else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) { event.preventDefault(); first?.focus() }
+            }
+          }}>
+            <div className={css.imagePreviewHeader}>
+              <span>{a.name}</span>
+              <button ref={closeButton} type="button" className={css.secondaryButton} aria-label={t('close')} onClick={() => setOpened(false)}>×</button>
+            </div>
+            <img className={css.imagePreviewImage} src={attachmentUrl(a.id)} alt={a.name} />
+            <div className={css.imagePreviewActions}>{actions}</div>
+            {error}
+          </section>
+        </div>, document.body,
+      )}
     </div>
   )
 }
