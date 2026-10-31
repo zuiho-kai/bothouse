@@ -1014,6 +1014,10 @@ func (p *Platform) callHTTPAPI(action string, params map[string]any) (map[string
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("qq: HTTP %s returned HTTP %d", action, resp.StatusCode)
+	}
+
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("qq: HTTP %s read body: %w", action, err)
