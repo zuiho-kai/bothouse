@@ -154,6 +154,12 @@ Separately, the official API returns openids only, no real QQ numbers and no nic
 - bothouse 内置自动重连机制，断线后会自动尝试恢复（最多 30 次）
 - bothouse has built-in automatic reconnection with resume support (up to 30 attempts)
 
+## 附件下载上限 / Attachment download limit
+
+接收图片或文件的上限是每个 20 MiB（20,971,520 字节，包含边界）。超过上限的附件会跳过并记录 `exceeds download size limit` 警告，不会把截断内容交给模型；同一消息中其他可读取的内容仍按正常流程处理。该警告在运行日志里，当前不会自动向 QQ 发送失败通知。
+
+Incoming images/files are limited to 20 MiB each (20,971,520 bytes, inclusive). Oversized attachments are skipped with an `exceeds download size limit` log warning; truncated bytes are never forwarded to the model. Other readable message content is still processed. This warning appears in runtime logs; no automatic QQ failure notice is sent.
+
 ## 沙箱环境 / Sandbox
 
 开发测试时可以使用沙箱环境，设置 `sandbox = true`。沙箱环境使用独立的 API 端点 (`sandbox.api.sgroup.qq.com`)，不影响生产环境。
