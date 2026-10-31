@@ -108,9 +108,10 @@ _Top row: real channel footage. Bottom row: the author's own dashboard._
 
 The team's memory is a plain folder of Markdown files. Each incoming message first looks up the relevant pages; a nightly review fixes what was written down wrong. You can read and edit it directly; Git records every change and pushes it to your own private GitHub repo, so the memory follows you to another computer. See [dispatcher and team memory](docs/ccm-and-wiki.md) (Chinese).
 
-<p align="center">
-  <img src="docs/assets/readme/architecture.en.svg" width="960" alt="bothouse architecture: entry points (Discord, Feishu, QQ Bot, self-hosted web, DSH web) on the left; bothouse (core engine, reply gate, workspaces) in the middle; local CLIs and agents below; team memory (shared wiki, pre-message recall, nightly review) and the in-development memory forum on the right; a private GitHub repo that syncs the memory on the far right">
-</p>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-en-night.svg" />
+  <img src="docs/assets/readme/architecture-en-day.svg" width="960" alt="bothouse architecture: where you chat on the left (Discord, Feishu, QQ, web, DSH web); bothouse in the middle, running on your own computer and handling assignment, routing and the task board; the CLIs you already have below (Claude Code, Codex, Gemini CLI, DSH, OpenCode and more); shared memory (Markdown wiki, reviewed nightly) and the in-development memory forum on the right; a private GitHub repo that syncs the memory on the far right" />
+</picture>
 
 <a id="how"></a>
 
@@ -201,22 +202,29 @@ Full history in [Releases](https://github.com/zuiho-kai/bothouse/releases).
 
 ## bothouse and other projects: different focus
 
-People often ask: DeepSeek now ships its own agent, and there are Tobs, DS Bot, OpenClaw and more — how is bothouse different? In short, most of them are **one agent or one platform**. bothouse is the layer that **puts the AIs you already use into one group chat**.
+People often ask: DeepSeek now ships its own agent, and there are Tobs, DS Bot, OpenClaw and more — how is bothouse different?
 
-- **DeepSeek Harness (DSH)** is DeepSeek's official open-source agent framework. Tobs and DS Bot are community bot plugins that run on DSH. bothouse doesn't compete with them: DSH can join a bothouse team as a teammate over ACP.
-- **bothouse** isn't tied to one agent. Claude Code, Codex, Gemini CLI, OpenCode and DSH can all be teammates in the same group. The lead role hands big jobs to separate workspaces, and everyone shares one Markdown memory that is reviewed every night.
+**Most of them are one agent with a crew of sub-agents. bothouse puts the several AIs you already use into one group chat, splits the work between them, and gives them one shared memory.**
 
-| | What it is | Which AIs | How several AIs work together | Memory | Where you chat | License |
-| --- | --- | --- | --- | --- | --- | --- |
-| **bothouse** | Always-on relay on your computer + web panel | Claude Code, Codex, Gemini CLI, OpenCode; DSH and others over ACP; OpenAI-compatible APIs | Lead role hands work to separate workspaces; task board; one thread per job | One shared Markdown wiki, searched before each reply, reviewed nightly | Discord, self-hosted web, Feishu, QQ, DSH web (experimental) | Apache-2.0 |
-| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | DeepSeek's official agent framework (developer preview) | DeepSeek by default, other providers can be added | Subagents; agent teams are experimental | No built-in long-term memory; memory MCPs can be plugged in | Its own desktop app and web UI | MIT |
-| [Tobs](https://github.com/BotHarness/DeepSeekBot) | DSH plugin (Bot mode) | Models configured in DSH | @ whoever you need; assignments | One Git repo per bot | Feishu, Slack, Discord, QQ, WeChat | MIT |
-| [DS Bot](https://github.com/Fei2411/DS-Bot) | Desktop app bundling DSH / plugin / Docker | Models configured in DSH | A chief bot runs the team; group admins coordinate | Memory per bot and per group | In the app | Apache-2.0 |
-| [OpenClaw](https://github.com/openclaw/openclaw) | Personal AI assistant: local gateway + apps | Hosted or local models; swappable harness | A coordinator hands work to specialists | Each agent keeps its own | 20+ chat apps | MIT |
-| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | Self-improving personal assistant | Any model | Isolated subagents in parallel | Manages its own memory, writes its own skills | Telegram, Discord, Slack and more | MIT |
-| [Orca](https://github.com/stablyai/orca) | Multi-agent coding IDE | Your own Claude Code, Codex and more | Several agents race on one task; merge the best | — | Desktop and mobile | MIT |
+- **DeepSeek Harness (DSH)** is DeepSeek's official open-source agent framework, still a developer preview: agent teams are experimental, and there's no built-in long-term memory unless you plug one in. bothouse's assignment, task board and shared memory are in daily use already — and DSH itself can join over ACP as one of the teammates.
+- **Tobs and DS Bot** are community bot projects built on DSH; every bot in the team runs on DSH. bothouse isn't tied to one agent: Claude Code, Codex, Gemini CLI, OpenCode and DSH each take their own jobs in the same group.
 
-**Which to pick**: for a personal assistant you can reach anywhere and that learns you, OpenClaw and Hermes Agent are mature; to watch several coding agents race side by side, pick Orca; to build a bot team on DSH, there are Tobs and DS Bot. If you already have several AI CLIs and want them to split the work in one group and share one memory — say it before bed, collect results in the morning — pick bothouse. Many of these can be used together.
+| | What it is | Which AIs | How several AIs work together | Memory | Where you chat |
+| --- | --- | --- | --- | --- | --- |
+| **bothouse** | **A coordination layer on your own computer + web panel** | **Claude Code, Codex, Gemini CLI, OpenCode; DSH and others over ACP; OpenAI-compatible APIs** | **The lead role hands work to separate workspaces; task board; one thread per job** | **One shared Markdown wiki, reviewed nightly** | Discord, self-hosted web, Feishu, QQ, DSH web (experimental) |
+| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | DeepSeek's official agent framework (developer preview) | DeepSeek by default; other providers can be added | Subagents; agent teams are experimental | No built-in long-term memory; memory plugins can be added | Its own desktop app and web UI |
+| [Tobs](https://github.com/BotHarness/DeepSeekBot) | Bot plugin built on DSH | Models configured in DSH | @ whoever you need; assignments | One Git repo per bot | Feishu, Slack, Discord, QQ, WeChat |
+| [DS Bot](https://github.com/Fei2411/DS-Bot) | Desktop app / plugin / Docker built on DSH | Models configured in DSH | A chief bot runs the team; group admins coordinate | Memory per bot and per group | In the app |
+
+Mature personal assistants and coding tools get compared too:
+
+| | What it is | How several AIs work together | Memory | How bothouse differs |
+| --- | --- | --- | --- | --- |
+| [OpenClaw](https://github.com/openclaw/openclaw) | Personal AI assistant with pluggable harnesses (Claude, Codex and more), 20+ chat apps | Team preset: a coordinator delegates to researcher, writer and reviewer | Sessions split per agent; Memory Wiki shared by default, can be split per agent | One assistant with swappable engines vs several signed-in CLIs working side by side in one group |
+| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | Self-improving personal assistant, any model | Isolated subagents in parallel | Manages its own memory, writes its own skills | It learns one person; bothouse gives a team one shared memory |
+| [Orca](https://github.com/stablyai/orca) | Multi-agent coding IDE using your own CLIs | Several agents race on one task; merge the best | Left to each CLI | It has you watch the race; bothouse lets you hand it off and walk away |
+
+**Which to pick**: for a personal assistant you can reach anywhere and that learns you, OpenClaw and Hermes Agent are mature; to watch several coding agents race side by side, pick Orca; if you only use DSH and want a few bots, there are Tobs and DS Bot. If you already have several AI CLIs and want them to split the work in one group and share one memory — say it before bed, collect results in the morning — pick bothouse. Many of these can be used together.
 
 <details>
 <summary>Others people ask about</summary>

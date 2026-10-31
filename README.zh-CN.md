@@ -108,9 +108,10 @@ _上面两张是真实频道录屏，下面两张是作者自己在用的管理�
 
 团队的记忆就是一个普通的 Markdown 文件夹。每条消息进来，先查相关的几页再回答；夜里自动复盘，把记错的改掉。你可以直接翻、直接改；它用 Git 记下每一次改动，推到你自己的 GitHub 私人仓库，换台电脑也能接着用。详见[调度与团队记忆](docs/ccm-and-wiki.md)。
 
-<p align="center">
-  <img src="docs/assets/readme/architecture.zh.svg" width="960" alt="bothouse 架构：左边是入口（Discord、飞书、QQ 机器人、自建网页、DSH web），中间是 bothouse（核心引擎、调度门、工作区派活），下面是接的本地 CLI 和 Agent，右边是团队记忆（共享 Wiki、消息前检索、夜间复盘）和开发中的记忆论坛，最右边是同步记忆的 GitHub 私人仓库">
-</p>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-zh-night.svg" />
+  <img src="docs/assets/readme/architecture-zh-day.svg" width="960" alt="bothouse 架构图：左边是入口（Discord、飞书、QQ、网页、DSH web）；中间是跑在你自己电脑上的 bothouse，负责派活、调度和任务板；下面是你已经装好的 CLI（Claude Code、Codex、Gemini CLI、DSH、OpenCode 等）；右边是共享记忆（Markdown Wiki，每晚自己复盘）和开发中的记忆论坛；最右边是同步记忆的 GitHub 私有仓库" />
+</picture>
 
 <a id="how"></a>
 
@@ -201,22 +202,29 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 
 ## bothouse 和其他项目：重心不同
 
-常有人问：DeepSeek 自己出了 agent，还有 Tobs、DS Bot、OpenClaw 这些，bothouse 有什么不一样？简单说，它们大多是**一个 agent 或一个平台**，bothouse 是**把你已经在用的几种 AI 拉进同一个群**的那一层。
+常有人问：DeepSeek 自己出了 agent，还有 Tobs、DS Bot、OpenClaw 这些，bothouse 有什么不一样？
 
-- **DeepSeek Harness（DSH）** 是 DeepSeek 官方开源的 agent 框架。Tobs 和 DS Bot 是跑在 DSH 上的社区 Bot 插件。bothouse 不和它们抢位置：DSH 能经 ACP 当 bothouse 的一个队友。
-- **bothouse** 不绑定某一个 agent。Claude Code、Codex、Gemini CLI、OpenCode、DSH 都能成为同一个群里的队友。主角色把大活派到独立工作区，大家共用一份每晚复盘的 Markdown 记忆。
+**别家大多是一个 agent 带一群分身；bothouse 是把你已经在用的几种 AI 拉进一个群，让它们分工、共用一份记忆。**
 
-| | 是什么 | 接哪些 AI | 几个 AI 怎么协作 | 记忆 | 在哪聊 | 许可 |
-| --- | --- | --- | --- | --- | --- | --- |
-| **bothouse** | 本机常驻的转发层 + 网页面板 | Claude Code、Codex、Gemini CLI、OpenCode；DSH 等走 ACP；OpenAI 兼容接口 | 主角色派活到独立工作区，任务板，每件活一个子话题 | 全员共用一份 Markdown Wiki，消息前检索，夜间复盘 | Discord、自建网页、飞书、QQ、DSH web（实验） | Apache-2.0 |
-| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | DeepSeek 官方 agent 框架（开发者预览） | 默认 DeepSeek，也能加其他模型提供商 | 子 agent；团队模式在实验中 | 没有内置长期记忆，可接记忆 MCP | 自带桌面端和网页 | MIT |
-| [Tobs](https://github.com/BotHarness/DeepSeekBot) | DSH 插件（Bot 模式） | DSH 里配的模型 | 群里 @ 谁谁回，任务委派 | 每个 Bot 一个 Git 仓库 | 飞书、Slack、Discord、QQ、微信 | MIT |
-| [DS Bot](https://github.com/Fei2411/DS-Bot) | 自带 DSH 的桌面 App / 插件 / Docker | DSH 里配的模型 | 主 Bot 带团队，群管理员统筹 | 每个 Bot、每个群各有记忆 | App 内 | Apache-2.0 |
-| [OpenClaw](https://github.com/openclaw/openclaw) | 个人 AI 助手，本机网关 + 各端 App | 托管或本地模型，可换 harness | 协调者派给几个专员 | 每个 agent 各记各的 | 20 多种聊天软件 | MIT |
-| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | 会自己学习的个人助手 | 任意模型 | 隔离子 agent 并行 | 自管记忆、自动生成技能 | Telegram、Discord、Slack 等 | MIT |
-| [Orca](https://github.com/stablyai/orca) | 多 agent 编程 IDE | 你自己订阅的 Claude Code、Codex 等 | 几个 agent 并排做同一件活，挑最好的合 | — | 桌面和手机端 | MIT |
+- **DeepSeek Harness（DSH）** 是 DeepSeek 官方开源的 agent 框架，目前还是开发者预览：团队模式在实验，默认不带长期记忆，要自己接记忆插件。bothouse 的派活、任务板和共享记忆已经每天在用，而且 DSH 本身也能经 ACP 进来，当团队里的一个队友。
+- **Tobs 和 DS Bot** 是基于 DSH 的社区 Bot 项目，团队里的 Bot 都跑在 DSH 上。bothouse 不绑定某一个 agent：Claude Code、Codex、Gemini CLI、OpenCode、DSH 能在同一个群里各干各的活。
 
-**怎么选**：想要一个随处能聊、越用越懂你的个人助手，OpenClaw 和 Hermes Agent 很成熟；想同屏盯几路编程 agent 赛马，选 Orca；想把 DSH 用出 Bot 团队，有 Tobs 和 DS Bot。如果你手上已经有几种 AI CLI，想让它们在一个群里分工、共用记忆，睡前交代一句、醒来收结果，选 bothouse。这些项目很多能叠着用。
+| | 是什么 | 接哪些 AI | 几个 AI 怎么协作 | 记忆 | 在哪聊 |
+| --- | --- | --- | --- | --- | --- |
+| **bothouse** | **跑在你电脑上的调度层 + 网页面板** | **Claude Code、Codex、Gemini CLI、OpenCode；DSH 等走 ACP；OpenAI 兼容接口** | **主角色派活到独立工作区，任务板，每件活一个子话题** | **全员共用一份 Markdown Wiki，每晚复盘** | Discord、自建网页、飞书、QQ、DSH web（实验） |
+| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | DeepSeek 官方 agent 框架（开发者预览） | 默认 DeepSeek，也能加其他模型提供商 | 子 agent；团队模式在实验 | 没有内置长期记忆，可接记忆插件 | 自带桌面端和网页 |
+| [Tobs](https://github.com/BotHarness/DeepSeekBot) | 基于 DSH 的 Bot 插件 | DSH 里配的模型 | 群里 @ 谁谁回，任务委派 | 每个 Bot 一个 Git 仓库 | 飞书、Slack、Discord、QQ、微信 |
+| [DS Bot](https://github.com/Fei2411/DS-Bot) | 基于 DSH 的桌面 App / 插件 / Docker | DSH 里配的模型 | 主 Bot 带团队，群管理员统筹 | 每个 Bot、每个群各有记忆 | App 内 |
+
+另一类是成熟的个人助手和编程工具，也常被拿来比：
+
+| | 是什么 | 几个 AI 怎么协作 | 记忆 | bothouse 的不同 |
+| --- | --- | --- | --- | --- |
+| [OpenClaw](https://github.com/openclaw/openclaw) | 个人 AI 助手，Claude、Codex 等内核可插拔，能接 20 多种聊天软件 | 团队预设：一个协调者派给研究、写作、审稿 | 会话按 agent 分开；Memory Wiki 默认共用，可按 agent 拆 | 一个助手换内核 vs 几种已登录的 CLI 同时在一个群里分工 |
+| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | 会自己学习的个人助手，任意模型 | 隔离子 agent 并行 | 自管记忆、自动生成技能 | 它越用越懂你一个人；bothouse 让一个团队共用记忆 |
+| [Orca](https://github.com/stablyai/orca) | 多 agent 编程 IDE，用你自己订阅的 CLI | 几个 agent 并排做同一件活，挑最好的合 | 交给各 CLI 自己 | 它让你盯着赛马；bothouse 让你交代完就走 |
+
+**怎么选**：想要一个随处能聊、越用越懂你的个人助手，OpenClaw 和 Hermes Agent 很成熟；想同屏盯几路编程 agent 赛马，选 Orca；只用 DSH、想养几个 Bot，有 Tobs 和 DS Bot。如果你手上已经有几种 AI CLI，想让它们在一个群里分工、共用记忆，睡前交代一句、醒来收结果，选 bothouse。这些项目很多能叠着用。
 
 <details>
 <summary>其他常被问到的</summary>
