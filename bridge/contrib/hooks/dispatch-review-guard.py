@@ -142,7 +142,9 @@ def main():
         check_agent(inp.get("prompt", ""))
     elif tool in ("Edit", "Write", "MultiEdit", "NotebookEdit") and not d.get("agent_id"):
         p = os.path.realpath(os.path.expanduser(inp.get("file_path") or inp.get("notebook_path") or ""))
-        if p and not any(p == x or p.startswith(os.path.realpath(x) + os.sep) for x in FREE_DIRS) \
+        # notes/ 是方案和交接稿（ws-handoff 必需），按会话 cwd 算，不是代码改动
+        notes = os.path.join(d.get("cwd") or os.getcwd(), "notes")
+        if p and not any(p == x or p.startswith(os.path.realpath(x) + os.sep) for x in FREE_DIRS + [NOTES_DIR, notes]) \
                 and not doc_tagged(d.get("session_id"), p) \
                 and not in_workspace() and not small_edit(tool, inp):
             deny(f"聊天频道主会话只直接改 {SMALL_EDIT_LINES} 行以内的小改（人设里的 hook 规则「分工」）：{p}。"

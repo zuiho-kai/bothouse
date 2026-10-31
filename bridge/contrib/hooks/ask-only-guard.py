@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """PreToolUse：用户最新一条消息只在提问、没有让 agent 去做，就拦下自己动手改：编辑类工具（Edit/Write/MultiEdit/NotebookEdit，Codex 的 apply_patch；run.py 已把别的 CLI 的
-   编辑工具名换成这几个）。改 wiki（GATE_WIKI，默认 ~/wiki）和临时目录的放行。
+   编辑工具名换成这几个）。改 wiki（GATE_WIKI，默认 ~/wiki）、角色 notes/ 和临时目录的放行。
 派活、转活、任务板、定时、发消息一律放行（10-30：问进度的话曾挡住提醒工作区）。
 用户原话：payload 的 user_prompt（run.py 按 CLI 填：DSH 会话记录、Codex rollout、agy transcript），没有再读 transcript_path（Claude Code / Qoder 格式）。
 子 agent（payload 有 agent_id）是已派出的活，放行：它的 transcript_path 指向主会话的最新一句，不能拿来判。
@@ -13,7 +13,7 @@ AUTO = "This request is automated or from another bot"
 ANCHORS = ("（最新，回这条）", "（用户这条明确 @ 了你或回复了你", "[Current request and context]")
 TAIL = re.compile(r"\n*\(Images also saved locally:.*\Z", re.S)
 
-DO = r"做|改|修|搞|加|删|派|弄|跑|试|处理|安排|上线|发版|重启"
+DO = r"做|改|修|搞|加|删|派|弄|跑|试|写|记|存|处理|安排|上线|发版|重启"
 # 先去掉不是叫做的用法：「没说做」「别改」「怎么做的」「修了没」「跑通了吗」
 NOT_DO = re.compile(
     r"(没|不|别|不要|没有)(说|让|叫)?(" + DO + r")"
@@ -28,8 +28,9 @@ EDIT_REASON = "用户这条只在问，没让做。先回答，不改文件、�
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"}  # apply_patch: Codex
 WIKI = os.path.expanduser(os.environ.get("GATE_WIKI") or "~/wiki").rstrip("/")
-# 放行的位置：wiki（记忆）、临时目录
-FREE = re.compile(re.escape(WIKI) + r"(?:/|$)|^(?:/private)?/tmp/|^/var/folders/")
+DATA = os.path.expanduser(os.environ.get("BOTHOUSE_DATA_DIR") or "~/.bothouse").rstrip("/")
+# 放行的位置：wiki（记忆）、角色目录 notes/（方案和交接稿）、临时目录
+FREE = re.compile(re.escape(WIKI) + r"(?:/|$)|" + re.escape(DATA) + r"/roles/[^/]+/notes/|^(?:/private)?/tmp/|^/var/folders/")
 
 
 def edits(d):
