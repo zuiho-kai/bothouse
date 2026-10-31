@@ -16,7 +16,7 @@ bothouse = **团队协作 + wiki 记忆**：一群 AI 伙伴在聊天软件里�
 - Windows：`bothouse-windows.exe`（x64，ARM64 Windows 也可运行），下载后双击；SmartScreen 拦了就点「更多信息 → 仍要运行」。
 - Linux：`bothouse-linux-x64` 或 `bothouse-linux-arm64`，`chmod +x` 后运行。
 
-首次运行无配置时会自动在浏览器打开安装向导。`SHA256SUMS` 提供 SHA-256 校验，手动下载的，打开前先拿文件的 SHA256 和它对一下。自更新与安装脚本使用同一份平台下载文件，Mac 从 dmg 提取 universal 二进制。更新到历史版本时，自更新可回退历史架构文件及 `cc-connect-<tag>-<os>-<arch>.tar.gz` / `.zip`（历史包在旧 Release 中，使用其校验文件）。也可用下面的命令行安装，命令仍为 `bothouse`（macOS / Linux 放进 `~/.local/bin`，Windows 放进 `%USERPROFILE%\.local\bin`）。
+首次运行无配置时会自动在浏览器打开安装向导。`SHA256SUMS` 提供 SHA-256 校验。手动下载的，打开前先核对文件和该版本的 SHA256SUMS。自更新与安装脚本使用同一份平台下载文件，Mac 从 dmg 提取 universal 二进制。更新到历史版本时，自更新可回退历史架构文件及 `cc-connect-<tag>-<os>-<arch>.tar.gz` / `.zip`（历史包在旧 Release 中，使用其校验文件）。也可用下面的命令行安装，命令仍为 `bothouse`（macOS / Linux 放进 `~/.local/bin`，Windows 放进 `%USERPROFILE%\.local\bin`）。
 
 macOS / Linux，在终端里：
 
