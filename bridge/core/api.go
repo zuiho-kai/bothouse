@@ -477,6 +477,10 @@ func (s *APIServer) handleCronAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	job.CreatedAt = time.Now()
 
+	if err := CheckAntiSpinCron(job); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err := s.cron.AddJob(job); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -740,6 +744,12 @@ func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:    time.Now(),
 	}
 
+	// Anti-spin only for jobs created through the API (CLI/model); internal wake-ups
+	// (relay drain, watch, auto-return) add timers directly and must not be blocked.
+	if err := CheckAntiSpinTimer(job); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err := s.timer.AddJob(job); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

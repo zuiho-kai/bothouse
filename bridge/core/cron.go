@@ -112,9 +112,6 @@ func validateCronJob(j *CronJob) error {
 	if j.TimeoutMins != nil && *j.TimeoutMins < 0 {
 		return fmt.Errorf("timeout_mins must be >= 0")
 	}
-	if err := CheckAntiSpinCron(j); err != nil {
-		return err
-	}
 	return nil
 }
 

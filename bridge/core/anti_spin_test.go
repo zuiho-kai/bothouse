@@ -28,9 +28,10 @@ func TestAntiSpinGuard(t *testing.T) {
 				t.Fatalf("expected ErrAntiSpinBlocked for prompt %q at 1m, got %v", p, err)
 			}
 
-			// Also test through validateTimerJob
-			if valErr := validateTimerJob(job); !errors.Is(valErr, ErrAntiSpinBlocked) {
-				t.Fatalf("validateTimerJob: expected ErrAntiSpinBlocked for prompt %q, got %v", p, valErr)
+			// Internal wake-up timers go through validateTimerJob only; the guard
+			// lives at the API entry, so it must not reject them here.
+			if valErr := validateTimerJob(job); errors.Is(valErr, ErrAntiSpinBlocked) {
+				t.Fatalf("validateTimerJob must not apply the anti-spin guard (prompt %q)", p)
 			}
 		}
 	})
@@ -86,8 +87,8 @@ func TestAntiSpinGuard(t *testing.T) {
 			if !errors.Is(err, ErrAntiSpinBlocked) {
 				t.Fatalf("expected ErrAntiSpinBlocked for cron %q with spin prompt, got %v", expr, err)
 			}
-			if valErr := validateCronJob(job); !errors.Is(valErr, ErrAntiSpinBlocked) {
-				t.Fatalf("validateCronJob: expected ErrAntiSpinBlocked for cron %q, got %v", expr, valErr)
+			if valErr := validateCronJob(job); errors.Is(valErr, ErrAntiSpinBlocked) {
+				t.Fatalf("validateCronJob must not apply the anti-spin guard (cron %q)", expr)
 			}
 		}
 	})
