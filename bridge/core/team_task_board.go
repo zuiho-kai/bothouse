@@ -450,23 +450,27 @@ func renderTeamTaskBoard(items []teamTaskBoardItem, chat string, now time.Time) 
 }
 
 // The chat channel's pinned task table (user, 2026-10-30: 「打开任务表一眼知道有几件事、每件在干什么、
-// 哪件等你；点开一件能看到它一步步在做什么」, approved layout in the handoff taskboard-redo-1030):
+// 哪件等你；点开一件能看到它一步步在做什么」; rows trimmed 2026-11-01: 「信息太杂乱了 不知道在说些什么
+// 我只想知道有哪些工作在干，干了多久 什么工作区之类的」):
 //
 //	📋 任务表（12:20 更新）
-//	等你看 2
-//	  · 全双工权限卡回复稿 —— 草稿写好了，等你过目  [→点进去](thread)
-//	在做 1
-//	  · 任务表改版 —— 工作区3，正在改置顶表  [→点进去](thread)
-//	（另有 4 件搁置）
+//	**等你看 1**
+//	  · 全双工权限卡回复稿 · 等了 2小时  [→点进去](thread)
+//	**在做 1**
+//	  · 任务板重构PR · 工作区1 · 已做 25分钟  [→点进去](thread)
+//	**已交回，待主角色核对 1**
+//	  · QQ断线修复
+//	**未开工 1**
+//	  · 强制汇报
+//	（另有 4 件搁置，超过一天没动或已暂停）
 //
-// Three states only: 等你看, 在做, 搁置 (paused for another reason, or no activity for a day; only
-// counted). Done items are left off. 卡住 is an 在做 row that says so.
+// Each row is name · workspace · age; progress words stay in the workspace. An open item no
+// workspace is working on is 未开工, not 在做. 搁置 (paused for another reason, or no activity for
+// a day) is only counted; done items are left off. 卡住 is an 在做 row that says so.
 const (
 	teamTaskTableHead = "📋 任务表"
 	// teamTaskTableShelveAfter: an item with no activity this long is 搁置. Source: the approved plan, 「超一天没动自动进搁置」.
 	teamTaskTableShelveAfter = 24 * time.Hour
-	// teamTaskTableNoteRunes: the text after 「——」. Same bound as the 等你 reason (teamTaskBoardReasonRunes).
-	teamTaskTableNoteRunes = teamTaskBoardReasonRunes
 )
 
 // teamTaskTableHeader: the table's first line with the time it last changed.
@@ -503,19 +507,51 @@ func teamTaskItemCard(it teamTaskBoardItem, links []teamTaskLink) *teamTaskLink 
 	return best
 }
 
-// teamTaskGenericStatus: board statuses that say nothing about what is being done.
-var teamTaskGenericStatus = regexp.MustCompile(`^\s*(?:已交接|在做|进行中|排队|已接手|-)?\s*$`)
+// teamTaskTableSpan: how long since t, as 「25分钟」「1小时20分钟」「5小时」「3天」; "" for a zero t.
+func teamTaskTableSpan(t, now time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	d := now.Sub(t)
+	switch {
+	case d < time.Minute:
+		return "不到1分钟"
+	case d < time.Hour:
+		return fmt.Sprintf("%d分钟", int(d/time.Minute))
+	case d < 2*time.Hour:
+		if m := int(d % time.Hour / time.Minute); m > 0 {
+			return fmt.Sprintf("1小时%d分钟", m)
+		}
+		return "1小时"
+	case d < 2*24*time.Hour:
+		return fmt.Sprintf("%d小时", int(d/time.Hour))
+	}
+	return fmt.Sprintf("%d天", int(d/(24*time.Hour)))
+}
+
+// teamTaskTableSince: when the item's current stretch began: its binding to the workspace for a
+// handoff (kept while it is paused there), else the time it was paused (a question to the user), else its last board update.
+func teamTaskTableSince(it teamTaskBoardItem, now time.Time) time.Time {
+	if b, err := time.Parse(time.RFC3339Nano, it.Bound); err == nil {
+		return b
+	}
+	if at, ok := teamTaskBoardLocal(it.Paused, now); ok {
+		return at
+	}
+	at, _ := teamTaskBoardLocal(it.At, now)
+	return at
+}
 
 // renderTeamTaskTable renders the table body (no header line) for chat, "" when the chat has no
-// open item. links: the task cards (readTeamFiles' Tasks), for each row's thread and progress.
+// open item. links: the task cards (readTeamFiles' Tasks), for each row's thread.
 func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat string, now time.Time) string {
-	var waiting, running []string
+	var waiting, running, idle, ended []string
 	shelved, open := 0, 0
 	for _, it := range items {
 		if !it.shownIn(chat) {
 			continue
 		}
-		state, note := teamTaskBoardStateOf(it, now)
+		state, _ := teamTaskBoardStateOf(it, now)
 		if state == teamTaskHidden {
 			continue
 		}
@@ -533,28 +569,31 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		if it.parent == chat && it.own != chat && it.wsName != "" {
 			where = boardLabel(it.wsName)
 		}
-		switch state {
-		case teamTaskRunning:
-			note = ""
-			if card != nil && strings.TrimSpace(card.Progress) != "" {
-				note = shortLabel(card.Progress, teamTaskTableNoteRunes)
-			} else if !teamTaskGenericStatus.MatchString(it.Status) {
-				note = shortLabel(it.Status, teamTaskTableNoteRunes)
+		parts := []string{teamTaskBoardShort(it)}
+		span := teamTaskTableSpan(teamTaskTableSince(it, now), now)
+		switch {
+		case it.wsEnded:
+			// The workspace handed it back; the lead still has to check it (not acceptance). Its
+			// workspace's newest card belongs to later work, so no link.
+			ended = append(ended, "  · "+parts[0])
+			continue
+		case state == teamTaskWaiting:
+			if span != "" {
+				parts = append(parts, "等了 "+span)
 			}
-		case teamTaskStuck:
-			note = "卡住了，" + note
-		}
-		if where != "" {
-			if note == "" {
-				note = where + " 在做"
-			} else {
-				note = where + "，" + note
+		case where == "":
+			idle = append(idle, "  · "+parts[0])
+			continue
+		default:
+			parts = append(parts, where)
+			if span != "" {
+				parts = append(parts, "已做 "+span)
+			}
+			if state == teamTaskStuck {
+				parts = append(parts, "卡住")
 			}
 		}
-		row := "  · " + teamTaskBoardShort(it)
-		if note != "" {
-			row += " —— " + note
-		}
+		row := "  · " + strings.Join(parts, " · ")
 		url := it.Card
 		if card != nil {
 			url = card.ThreadURL
@@ -575,13 +614,14 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		return ""
 	}
 	var lines []string
-	if len(waiting) > 0 {
-		lines = append(lines, fmt.Sprintf("**等你看 %d**", len(waiting)))
-		lines = append(lines, waiting...)
-	}
-	if len(running) > 0 {
-		lines = append(lines, fmt.Sprintf("**在做 %d**", len(running)))
-		lines = append(lines, running...)
+	for _, sec := range []struct {
+		name string
+		rows []string
+	}{{"等你看", waiting}, {"在做", running}, {"已交回，待主角色核对", ended}, {"未开工", idle}} {
+		if len(sec.rows) > 0 {
+			lines = append(lines, fmt.Sprintf("**%s %d**", sec.name, len(sec.rows)))
+			lines = append(lines, sec.rows...)
+		}
 	}
 	if len(lines) == 0 {
 		lines = append(lines, "现在没有在做或等你看的")
