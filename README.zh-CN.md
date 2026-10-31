@@ -1,9 +1,5 @@
 <div align="center">
 
-<img src="docs/assets/bothouse-lockup.svg" alt="bothouse" width="300">
-
-<br><br>
-
 <img src="docs/assets/bothouse-team-hero.png" alt="bothouse 团队：G哥、C酱、肥鱼和大豆包并行协作" width="960">
 
 [English](README.md) ｜ **中文**

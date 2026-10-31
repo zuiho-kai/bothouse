@@ -1,9 +1,5 @@
 <div align="center">
 
-<img src="docs/assets/bothouse-lockup.svg" alt="bothouse" width="300">
-
-<br><br>
-
 <img src="docs/assets/bothouse-team-hero.png" alt="The bothouse team: G-ge, C-chan, Feiyu and Dadoubao working together" width="960">
 
 **English** ｜ [中文](README.zh-CN.md)
