@@ -545,7 +545,7 @@ func (e *Engine) wakeRelayLead(req RelayRequest, worker, response string, runErr
 	prompt := fmt.Sprintf("[派工回执] 任务 %s 派给%s的活（请求 %s）%s。先核对实际产物（分支、提交、工作树、PR），再决定验收、续派（同一任务、新的请求号，从检查点接着做）或收口；不要重复已经成功的操作。",
 		req.TaskID, worker, req.RequestID, outcome)
 	if out := strings.TrimSpace(response); out != "" {
-		prompt += "\n\n" + worker + "交回的内容：\n" + truncateRelay(out, relayLeadWakeLimit)
+		prompt += "\n\n" + worker + "交回的内容：\n" + truncateRelayMore(e.dataDir, "relay-"+req.TaskID, out, relayLeadWakeLimit)
 	}
 	silent := true
 	job := &TimerJob{

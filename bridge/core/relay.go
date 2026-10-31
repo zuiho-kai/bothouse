@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -541,4 +542,50 @@ func (rm *RelayManager) load() {
 		rm.bindings = bindings
 		slog.Info("relay: loaded bindings", "count", len(bindings))
 	}
+}
+
+// truncateRelayMore is truncateRelay with a way back to the rest: when s is cut,
+// the full text is saved under dataDir and the cut ends with its length and path,
+// so the reader can open the whole thing instead of guessing what was dropped.
+func truncateRelayMore(dataDir, kind, s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	cut := string(runes[:maxLen]) + "…"
+	path := saveTruncatedFull(dataDir, kind, s)
+	if path == "" {
+		return cut + fmt.Sprintf("\n（已截断：原文 %d 字，这里只有前 %d 字）", len(runes), maxLen)
+	}
+	return cut + fmt.Sprintf("\n（已截断：原文 %d 字，这里只有前 %d 字；全文：%s ，要细节用 Read 读它）", len(runes), maxLen, path)
+}
+
+// saveTruncatedFull writes s to <dataDir>/truncated/<time>-<kind>-<hash>.txt and
+// returns the path ("" when there is nowhere to write). Same text, same file.
+func saveTruncatedFull(dataDir, kind, s string) string {
+	if dataDir == "" {
+		return ""
+	}
+	dir := filepath.Join(dataDir, "truncated")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		slog.Warn("relay: save truncated text failed", "error", err)
+		return ""
+	}
+	kind = strings.Map(func(r rune) rune {
+		if r == '-' || r == '_' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			return r
+		}
+		return '_'
+	}, kind)
+	sum := sha256.Sum256([]byte(s))
+	name := fmt.Sprintf("%s-%s-%x.txt", time.Now().Format("20060102"), kind, sum[:6])
+	path := filepath.Join(dir, name)
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	if err := os.WriteFile(path, []byte(s), 0o600); err != nil {
+		slog.Warn("relay: save truncated text failed", "error", err)
+		return ""
+	}
+	return path
 }
