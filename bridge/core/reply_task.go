@@ -262,6 +262,9 @@ func (e *Engine) noteReplyTaskOf(msg *Message) {
 // replyForwardPrefix marks a user's reply handed to a running workspace: it changes the work.
 const replyForwardPrefix = "打断：按新要求做。用户在聊天频道回复这件活："
 
+// replyAnswerPrefix marks a user's reply to the question a paused task asked (ws-up --ask).
+const replyAnswerPrefix = "用户在聊天频道答复了这件活的提问（原话）："
+
 // forwardReplyToWorkspace hands a user's reply in a chat channel to the workspace still running
 // the work it quotes (ws-forward --interrupt), so a changed requirement reaches the workspace at
 // once (user 10-30 复盘: an 11:05 reply that changed the acceptance criteria stayed in the chat
@@ -286,7 +289,15 @@ func (e *Engine) forwardReplyToWorkspace(p Platform, msg *Message) {
 		return
 	}
 	it := e.boardItemByID(t.board)
-	if it == nil || it.WS == "" || it.DoneAt != "" || it.Paused != "" || it.Where == "" || !e.workspaceHasOpenHandoff(it.WS) {
+	if it == nil || it.DoneAt != "" || it.Where == "" {
+		return
+	}
+	// Work paused on its own question (ws-up --ask) waits for exactly this reply: ws-forward
+	// resumes it with the answer in a free workspace (ws-handoff --resume). 11-01 #855: the user
+	// answered the lead's relay of the question, the answer stayed in the chat channel and the
+	// workspace asked again.
+	asked := it.Paused != "" && teamTaskBoardWaitUser.MatchString(it.PauseWhy)
+	if !asked && (it.WS == "" || it.Paused != "" || !e.workspaceHasOpenHandoff(it.WS)) {
 		return
 	}
 	words := strings.TrimSpace(msg.Content)
@@ -299,7 +310,11 @@ func (e *Engine) forwardReplyToWorkspace(p Platform, msg *Message) {
 	if n := len(msg.Images) + len(msg.Files); n > 0 {
 		words += "\n（附了 " + strconv.Itoa(n) + " 个图片/文件，在聊天频道的原消息里）"
 	}
-	out, err := e.runLeadScript(p.Name()+":"+ch, "ws-forward", "--interrupt", "--notes", it.Where, replyForwardPrefix+words)
+	args := []string{"--interrupt", "--notes", it.Where, replyForwardPrefix + words}
+	if asked {
+		args = []string{"--notes", it.Where, replyAnswerPrefix + words}
+	}
+	out, err := e.runLeadScript(p.Name()+":"+ch, "ws-forward", args...)
 	if err != nil {
 		t.fwdFailed = true
 		slog.Warn("reply task: forward to workspace failed", "board_item", it.ID, "error", err, "output", strings.TrimSpace(string(out)))
