@@ -202,3 +202,6 @@ func (e *Engine) channelDispatchMode(p Platform, sessionKey string) string {
 	}
 	return fallback
 }
+
+// SetQueuedNoticeEnabled controls the queue receipt; queuing itself is unchanged.
+func (e *Engine) SetQueuedNoticeEnabled(on bool) { e.skipQueuedNotice.Store(!on) }

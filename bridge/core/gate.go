@@ -324,7 +324,11 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		if h.msg.userTextSet || msg.userTextSet {
 			h.msg.userText, h.msg.userTextSet = strings.TrimSpace(userTextOf(h.msg)+"\n"+userTextOf(msg)), true
 		}
-		h.msg.Content = strings.TrimSpace(h.msg.Content + "\n" + msg.Content)
+		// Fold only the sender's own words: msg.Content already carries its own ambient chat,
+		// which would otherwise appear once per message of the burst. bufferedText drops it
+		// wherever a quote or note put it, the same rule the silent buffer uses.
+		body := bufferedText(msg)
+		h.msg.Content = strings.TrimSpace(h.msg.Content + "\n" + body)
 		h.msg.Images = append(h.msg.Images, msg.Images...)
 		h.msg.Files = append(h.msg.Files, msg.Files...)
 		h.msg.Mentioned = h.msg.Mentioned || msg.Mentioned
@@ -377,7 +381,9 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		return true
 	}
 	if dec.Action == "silent" {
-		g.buffer(interactiveKey, msg.Content, userTextOf(msg))
+		if text := bufferedText(msg); text != "" {
+			g.buffer(interactiveKey, text, userTextOf(msg))
+		}
 		return true
 	}
 	e.teamNoteTurn(msg, session)
@@ -529,9 +535,25 @@ func (g *gateState) dropBuffered(interactiveKey string, n int) {
 	}
 }
 
+// bufferedText is what the gate files for a later turn: the platform's ambient chat (QQ's
+// "[群里刚才的聊天]") is dropped, because the turn that finally answers brings its own.
+func bufferedText(msg *Message) string {
+	text := strings.TrimSpace(msg.Content)
+	if ambient := strings.TrimSpace(msg.AmbientChat); ambient != "" {
+		if strings.HasPrefix(text, ambient) {
+			text = strings.TrimSpace(strings.TrimPrefix(text, ambient))
+		} else if i := strings.Index(text, ambient); i >= 0 {
+			// An older path could put another block (e.g. a quote) before the ambient chat;
+			// strip it there too so the buffer never keeps a stale copy of the group.
+			text = strings.TrimSpace(text[:i] + text[i+len(ambient):])
+		}
+	}
+	return text
+}
+
 // bufferContext buffers msg as listen-only context; attachments become a note.
 func (g *gateState) bufferContext(interactiveKey string, msg *Message) {
-	text, gateText := msg.Content, userTextOf(msg)
+	text, gateText := bufferedText(msg), userTextOf(msg)
 	if n := len(msg.Images) + len(msg.Files); n > 0 {
 		note := fmt.Sprintf("（附了 %d 个图片/文件）", n)
 		text, gateText = strings.TrimSpace(text+note), strings.TrimSpace(gateText+note)

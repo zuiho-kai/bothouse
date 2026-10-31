@@ -60,6 +60,7 @@ func batchReference(parts []queuedMessage) *MessageReference {
 func mergeQueued(parts []queuedMessage) queuedMessage {
 	last := parts[len(parts)-1]
 	out := last
+	out.ambientChat = parts[0].ambientChat
 	out.reference = batchReference(parts)
 	out.boardDesc = parts[0].boardDesc
 	out.images, out.files = nil, nil
@@ -79,7 +80,11 @@ func mergeQueued(parts []queuedMessage) queuedMessage {
 		} else {
 			fmt.Fprintf(&b, "[%d]\n", i+1)
 		}
-		b.WriteString(p.content)
+		if i == 0 {
+			b.WriteString(p.content)
+		} else {
+			b.WriteString(bufferedText(&Message{Content: p.content, AmbientChat: p.ambientChat}))
+		}
 		b.WriteString("\n")
 	}
 	out.content = strings.TrimRight(b.String(), "\n")

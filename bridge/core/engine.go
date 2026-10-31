@@ -518,6 +518,7 @@ type Engine struct {
 	// (project option inject_subagent_policy = false). Default false = inject.
 	skipSubagentPolicy atomic.Bool
 	skipAgentIdentity  atomic.Bool
+	skipQueuedNotice   atomic.Bool // queued_notice=false suppresses only the queue receipt.
 	replyFooterEnabled bool
 
 	// When true, /list etc. only show sessions tracked by cc-connect,
@@ -619,6 +620,7 @@ type queuedMessage struct {
 	platform          Platform
 	replyCtx          any
 	content           string
+	ambientChat       string // background to include once when queued messages are batched
 	reference         *MessageReference
 	images            []ImageAttachment
 	files             []FileAttachment
@@ -3541,20 +3543,13 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	}
 
 	content := strings.TrimSpace(msg.Content)
-	if content == "" && msg.ExtraContent == "" && len(msg.Images) == 0 && len(msg.Files) == 0 && msg.Location == nil {
+	if content == "" && msg.ExtraContent == "" && msg.AmbientChat == "" && len(msg.Images) == 0 && len(msg.Files) == 0 && msg.Location == nil {
 		return
 	}
 
-	// Resolve aliases on user text BEFORE merging ExtraContent, so reply
-	// quotes and platform context survive alias resolution (PR #420 fix).
-	content = e.resolveAlias(content)
-	if msg.ExtraContent != "" {
-		if content == "" {
-			msg.Content = msg.ExtraContent
-		} else {
-			msg.Content = msg.ExtraContent + "\n" + content
-		}
-	} else {
+	// Route commands and permissions using the sender's words, never group context.
+	content = e.resolveAlias(strings.TrimSpace(userTextOf(msg)))
+	if !msg.contentMerged {
 		msg.Content = content
 	}
 
@@ -3696,6 +3691,38 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 
 	if e.discardStaleUserMessageIfNeeded(interactiveKey, msg) {
 		return
+	}
+
+	// A message held for its gate burst re-enters handleMessage (mediaDone above) with the
+	// same platform blocks still on it, so they are merged once: merging them again put the
+	// group's recent chat into the prompt twice.
+	if !msg.contentMerged {
+		keepUserText(msg)
+		body := content
+		// A multi-party chat's own words need the speaker's name; otherwise the newest message
+		// reads as if the previous speaker said it. GroupChat
+		// and UserName are structured fields, so this works with an empty AmbientChat too (first
+		// message, after restart, quote-only). Commands, bridge payloads and DMs keep their raw
+		// text so command parsing and DM routing do not change.
+		body = senderText(msg, body)
+		var head []string
+		if msg.AmbientChat != "" {
+			head = append(head, msg.AmbientChat)
+		}
+		if msg.ExtraContent != "" {
+			head = append(head, msg.ExtraContent)
+		}
+		if len(head) > 0 {
+			if body == "" {
+				content = strings.Join(head, "\n")
+			} else {
+				content = strings.Join(head, "\n") + "\n" + body
+			}
+		} else {
+			content = body
+		}
+		msg.Content = content
+		msg.contentMerged = true
 	}
 
 	// maomao fork: video links → watchvid once, result paths appended (media library).
@@ -3908,6 +3935,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		platform:            p,
 		replyCtx:            msg.ReplyCtx,
 		content:             msg.Content,
+		ambientChat:         msg.AmbientChat,
 		reference:           msg.Reference,
 		images:              msg.Images,
 		files:               msg.Files,
@@ -3957,7 +3985,9 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		"queue_depth", queueDepth,
 	)
 	if !msg.abortFront { // the abort says "⏹ 已打断" instead (abortForQueuedFront)
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgMessageQueued))
+		if !e.skipQueuedNotice.Load() {
+			e.reply(p, msg.ReplyCtx, e.i18n.T(MsgMessageQueued))
+		}
 	}
 	return queueAccepted
 }
@@ -7179,7 +7209,16 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// side-channel messages and segmentStart stays 0, so keep normal finalize flow.
 				if segmentStart < len(textParts) {
 					unsent := strings.Join(textParts[segmentStart:], "")
-					if unsent != "" {
+					// The text before the tool call already went out, so the whole-reply
+					// NO_REPLY check above does not cover this remainder after a tool call.
+					if isSilentReply(unsent) {
+						unsent = ""
+					} else if stripped, ok := stripTrailingSilent(unsent); ok {
+						unsent = stripped
+					}
+					if unsent == "" {
+						sp.discard()
+					} else {
 						if !sp.finish(unsent, statusFooter) && !sendChunksWithStatusFooter(e.ctx, p, markFinalReply(p, replyCtx, session), unsent, statusFooter, sendWorkspaceWithError) {
 							return
 						}
@@ -18321,6 +18360,21 @@ func (e *Engine) cmdBindSetup(p Platform, msg *Message) {
 	}
 }
 
+// senderText prefixes a multi-party message's own words with the sender's display name.
+// GroupChat and UserName are structured platform fields, so the label does not depend on
+// AmbientChat: the first message after start/reconnect, and a quote-only message, keep
+// their author too. DMs, bot payloads and commands stay raw so routing and command parsing
+// are unchanged.
+func senderText(msg *Message, text string) string {
+	// GroupChat is the structured signal; AmbientChat is kept as a compatibility fallback
+	// for a platform that has not set GroupChat yet (it can only exist in a group anyway).
+	if (!msg.GroupChat && msg.AmbientChat == "") || msg.FromBot || msg.Direct || text == "" || msg.UserName == "" ||
+		strings.HasPrefix(text, "/") || strings.HasPrefix(text, "!") {
+		return text
+	}
+	return strings.NewReplacer("\n", " ", "\r", "").Replace(msg.UserName) + "：" + text
+}
+
 // buildSenderPrompt prepends a sender identity header to content when
 // injectSender is enabled and userID is non-empty. When userName is available
 // it is included as sender_name so the agent can identify who sent the message
@@ -19068,7 +19122,9 @@ var silentReplyRe = regexp.MustCompile(`(?i)^\s*NO_REPLY\s*$`)
 // silentReplyTrailingRe matches a trailing NO_REPLY marker preceded by whitespace or
 // markdown emphasis (`*`). Lets agents that narrate their reasoning before the marker
 // still suppress the marker from the delivered text (mirroring OpenClaw's stripSilentToken).
-var silentReplyTrailingRe = regexp.MustCompile(`(?i)(?:^|\s+|\*+)NO_REPLY\s*$`)
+// With tool progress hidden, text segments around tool calls are joined with no separator,
+// so the marker can sit right after CJK text or punctuation; group 1 preserves that character.
+var silentReplyTrailingRe = regexp.MustCompile(`(?i)(?:^|\s+|\*+|([^\x00-\x7F]|[.!?,;:)\]]))NO_REPLY\s*$`)
 
 // isSilentReply reports whether text is exactly a NO_REPLY marker.
 func isSilentReply(text string) bool {
@@ -19079,7 +19135,7 @@ func isSilentReply(text string) bool {
 // along with whether a strip occurred. Caller must first check isSilentReply for the
 // bare-marker case; this helper assumes mixed content.
 func stripTrailingSilent(text string) (string, bool) {
-	stripped := silentReplyTrailingRe.ReplaceAllString(text, "")
+	stripped := silentReplyTrailingRe.ReplaceAllString(text, "${1}")
 	if stripped == text {
 		return text, false
 	}

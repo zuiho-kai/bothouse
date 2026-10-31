@@ -69,7 +69,7 @@ func TestQuotedBotReplyReachesHandler(t *testing.T) {
 				}
 				f.push(event)
 				m := awaitMessage(t, msgs)
-				if !m.Mentioned || m.ExtraContent != "[引用消息]\n上一次答复" {
+				if !m.Mentioned || m.ExtraContent != "[引用消息]\n你：上一次答复" {
 					t.Errorf("Mentioned=%v ExtraContent=%q", m.Mentioned, m.ExtraContent)
 				}
 				want := text
@@ -93,7 +93,7 @@ func TestCQStringReplyToOtherDoesNotMentionBot(t *testing.T) {
 	event["message"] = "[CQ:reply,id=103] 看一下"
 	f.push(event)
 	m := awaitMessage(t, msgs)
-	if m.Mentioned || m.Content != "看一下" || m.ExtraContent != "[引用消息]\n成员的话" {
+	if m.Mentioned || m.Content != "看一下" || m.ExtraContent != "[引用消息]\n成员：成员的话" {
 		t.Errorf("Mentioned=%v Content=%q ExtraContent=%q", m.Mentioned, m.Content, m.ExtraContent)
 	}
 }

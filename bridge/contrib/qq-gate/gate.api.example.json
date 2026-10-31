@@ -1,0 +1,10 @@
+{
+  "names": ["YourBotName"],
+  "judge": {
+    "mode": "openai",
+    "base_url": "https://api.example.com/v1",
+    "model": "your-model-id",
+    "api_key_env": "QQ_GATE_JUDGE_API_KEY",
+    "timeout_s": 2.5
+  }
+}

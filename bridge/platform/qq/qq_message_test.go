@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -94,15 +95,20 @@ func (f *fakeOneBot) respond(req map[string]any, action string) {
 	f.mu.Unlock()
 
 	data := map[string]any{}
+	retcode := 0
 	if h != nil {
 		params, _ := req["params"].(map[string]any)
 		if d := h(params); d != nil {
 			data = d
 		}
 	}
+	// A handler returns {"retcode": n} to make the action fail like NapCat does.
+	if rc, ok := data["retcode"].(int); ok {
+		retcode, data = rc, map[string]any{}
+	}
 	f.write(map[string]any{
 		"status":  "ok",
-		"retcode": 0,
+		"retcode": retcode,
 		"echo":    req["echo"],
 		"data":    data,
 	})
@@ -354,8 +360,10 @@ func TestGroupReplyToBot_SetsMentionedAndQuotes(t *testing.T) {
 	if !m.Mentioned {
 		t.Error("Mentioned = false, want true when replying to the bot's own message")
 	}
-	if m.ExtraContent != "[引用消息]\n我之前的回复" {
-		t.Errorf("ExtraContent = %q, want %q", m.ExtraContent, "[引用消息]\n我之前的回复")
+	// Recent group chat may come first (groupContext); the quote ends it, and it
+	// carries the quoted speaker ("你" for this bot's own line).
+	if !strings.HasSuffix(m.ExtraContent, "[引用消息]\n你：我之前的回复") {
+		t.Errorf("ExtraContent = %q, want %q", m.ExtraContent, "[引用消息]\n你：我之前的回复")
 	}
 	if m.Content != "继续" {
 		t.Errorf("Content = %q, want %q", m.Content, "继续")
@@ -379,8 +387,10 @@ func TestGroupReplyToOther_QuotesWithoutMention(t *testing.T) {
 	if m.Mentioned {
 		t.Error("Mentioned = true, want false when replying to another user")
 	}
-	if m.ExtraContent != "[引用消息]\n之前的讨论内容" {
-		t.Errorf("ExtraContent = %q, want %q", m.ExtraContent, "[引用消息]\n之前的讨论内容")
+	// Recent group chat may come first (groupContext); the quote ends it and names
+	// the speaker, so the quoting user does not inherit the quoted words.
+	if !strings.HasSuffix(m.ExtraContent, "[引用消息]\n成员：之前的讨论内容") {
+		t.Errorf("ExtraContent = %q, want %q", m.ExtraContent, "[引用消息]\n成员：之前的讨论内容")
 	}
 }
 
@@ -705,5 +715,95 @@ func TestPlainAtToCQ_LeavesOtherTextAlone(t *testing.T) {
 		if got := plainAtToCQ(in); got != want {
 			t.Errorf("plainAtToCQ(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// allow_groups_with: a stranger's group message passes only in a group where
+// the listed owner is a member; private chats still follow allow_from.
+func TestAllowGroupsWithOwnerMembership(t *testing.T) {
+	const owner, stranger = 20001, 20002 // 测试常量：假 QQ 号与群号
+	const ownerGroup, otherGroup = 30001, 30002
+	f := newFakeOneBot(t)
+	f.on("get_group_member_info", func(params map[string]any) map[string]any {
+		if int64(params["group_id"].(float64)) == ownerGroup && int64(params["user_id"].(float64)) == owner {
+			return map[string]any{"user_id": owner}
+		}
+		return map[string]any{"retcode": 100}
+	})
+	p, msgs := startTestPlatform(t, f)
+	p.allowFrom = "20001"
+	p.allowGroupsWith = []string{"20001"}
+
+	f.push(groupMessage(otherGroup, stranger, 1, textSegment("外群陌生人")))
+	f.push(privateMessage(stranger, 2, textSegment("陌生人私聊")))
+	f.push(groupMessage(ownerGroup, stranger, 3, textSegment("主人群里的陌生人")))
+	got := awaitMessage(t, msgs)
+	if got.Content != "主人群里的陌生人" {
+		t.Fatalf("first dispatched message = %q, want the owner-group one", got.Content)
+	}
+	select {
+	case m := <-msgs:
+		t.Fatalf("unexpected dispatch %q", m.Content)
+	case <-time.After(300 * time.Millisecond):
+	}
+	// Cached: a second message in the owner group needs no new lookup.
+	n := len(f.record()["get_group_member_info"])
+	f.push(groupMessage(ownerGroup, stranger, 4, textSegment("再来一句")))
+	awaitMessage(t, msgs)
+	if m := len(f.record()["get_group_member_info"]); m != n {
+		t.Fatalf("lookups %d -> %d, want cached", n, m)
+	}
+}
+
+// A group turn sees the recent chat before it, including lines the gate may
+// have kept from the agent, and its own earlier replies.
+func TestGroupTurnCarriesRecentChat(t *testing.T) {
+	f := newFakeOneBot(t)
+	f.on("send_group_msg", func(map[string]any) map[string]any { return map[string]any{"message_id": 900} })
+	p, msgs := startTestPlatform(t, f)
+	const gid = 40001 // 测试常量：假群号
+	f.push(groupMessage(gid, 20001, 1, textSegment("拉完了")))
+	first := awaitMessage(t, msgs)
+	if first.AmbientChat != "" || first.ExtraContent != "" {
+		t.Fatalf("first message context = %q / %q, want none", first.AmbientChat, first.ExtraContent)
+	}
+	if err := p.Send(context.Background(), first.ReplyCtx, "拉完啥了"); err != nil {
+		t.Fatal(err)
+	}
+	f.push(groupMessage(gid, 20002, 2, textSegment("Bob逗你玩呢")))
+	second := awaitMessage(t, msgs)
+	want := "[群里刚才的聊天]\n成员：拉完了\n你：拉完啥了"
+	if second.AmbientChat != want {
+		t.Fatalf("ambient chat = %q, want %q", second.AmbientChat, want)
+	}
+	if second.ExtraContent != "" {
+		t.Fatalf("ambient chat must not ride in ExtraContent (it would be re-merged): %q", second.ExtraContent)
+	}
+	f.push(privateMessage(20001, 3, textSegment("私聊")))
+	if dm := awaitMessage(t, msgs); dm.AmbientChat != "" || dm.ExtraContent != "" {
+		t.Fatalf("private chat got group context %q / %q", dm.AmbientChat, dm.ExtraContent)
+	}
+}
+
+// save_images_dir: a received image is written there and its path added to
+// the message text, so the persona can keep it as a sticker.
+func TestSaveImagesDir(t *testing.T) {
+	dir := t.TempDir()
+	f := newFakeOneBot(t)
+	img := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte("\x89PNG\r\n\x1a\nfake"))
+	}))
+	t.Cleanup(img.Close)
+	p, msgs := startTestPlatform(t, f)
+	p.saveImagesDir = dir
+	f.push(privateMessage(20001, 77, map[string]any{"type": "image", "data": map[string]any{"url": img.URL + "/a.png"}}))
+	m := awaitMessage(t, msgs)
+	want := dir + "/77-1.png"
+	if !strings.Contains(m.ExtraContent, "[图片已存到 "+want+"]") {
+		t.Fatalf("extra content = %q, want saved path %s", m.ExtraContent, want)
+	}
+	if b, err := os.ReadFile(want); err != nil || !strings.HasPrefix(string(b), "\x89PNG") {
+		t.Fatalf("saved file: %v %q", err, b)
 	}
 }

@@ -639,6 +639,8 @@ type ProjectConfig struct {
 	// InjectAgentIdentity: nil/true = prepend the bridge identity block each
 	// turn; false = the persona owns identity (saves prompt tokens).
 	InjectAgentIdentity *bool `toml:"inject_agent_identity,omitempty"`
+	// QueuedNotice: nil/true sends a queue receipt; false queues silently.
+	QueuedNotice *bool `toml:"queued_notice,omitempty"`
 	// ReplyFooter: nil/true = render the reply footer; false = disable it
 	// entirely (the per-line indicator flags above become no-ops).
 	ReplyFooter      *bool        `toml:"reply_footer,omitempty"`
