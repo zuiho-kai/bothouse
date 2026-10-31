@@ -493,6 +493,7 @@ type Engine struct {
 	quotaUntil      time.Time
 	quotaMu         sync.Mutex
 	quotaState      quotaCoolingState
+	quotaProbeFn    func(ctx context.Context) (usable bool, nextRetry time.Duration, err error)
 	capRound        int
 	capPending      []func() // messages to re-deliver when the cooldown ends, in order
 	capArmed        bool     // a flush timer is pending

@@ -101,6 +101,9 @@ func validateTimerJob(j *TimerJob) error {
 	if j.TimeoutMins != nil && *j.TimeoutMins < 0 {
 		return fmt.Errorf("timeout_mins must be >= 0")
 	}
+	if err := CheckAntiSpinTimer(j); err != nil {
+		return err
+	}
 	return nil
 }
 
