@@ -62,6 +62,7 @@ type RelayManager struct {
 	deniedPath string
 	teamMu     sync.Mutex
 	team       relayTeamCache
+	balance    *relayBalanceGuard // #837: refuse dispatches a prepaid relay cannot pay for
 }
 
 func NewRelayManager(dataDir string) *RelayManager {
@@ -78,6 +79,8 @@ func NewRelayManager(dataDir string) *RelayManager {
 		rm.deniedPath = filepath.Join(dataDir, "relay_team_denied.json")
 		rm.load()
 		rm.loadDenied()
+		rm.balance = newRelayBalanceGuard(dataDir)
+		go rm.balance.watch(rm)
 	}
 	rm.initVoiceRelay(dataDir)
 	return rm
@@ -328,6 +331,11 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 		return nil, fmt.Errorf("relay: target engine %q is cooling down for %s", req.To, wait.Round(time.Second))
 	}
 	sourceEngine.clearNotBound(req.SessionKey, req.To)
+	if rm.balance != nil {
+		if err := rm.balance.checkDispatch(ctx, req.To, binding.Bots[req.To]); err != nil {
+			return nil, err
+		}
+	}
 
 	fromName := req.From
 	if binding.Bots[req.From] != "" {
