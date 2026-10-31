@@ -317,6 +317,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      id-token: write # npm trusted publishing (OIDC); no NPM_TOKEN secret
     defaults:
       run:
         shell: bash
@@ -331,15 +332,17 @@ jobs:
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
+      # Trusted publishing needs npm >= 11.5.1; Node 22 ships npm 10.
+      - name: Upgrade npm
+        run: npm install -g npm@11.19.0
       - name: Build plugin package
         working-directory: dsh/plugin-pkg
         run: npm run build
       # The npm package bothouse-dsh ships with every release, versioned as the tag (v0.1.40 -> 0.1.40).
       # A re-run for a tag that is already on npm skips the publish.
+      # Auth is npm trusted publishing: npmjs.com trusts this repo's release.yml, so no token is stored.
       - name: Publish bothouse-dsh to npm
         working-directory: dsh/plugin-pkg
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
           ver="${TAG#v}"
