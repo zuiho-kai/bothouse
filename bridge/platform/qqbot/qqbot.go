@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -213,6 +214,47 @@ func (p *Platform) Start(handler core.MessageHandler) error {
 func (p *Platform) Reply(ctx context.Context, replyCtx any, content string) error {
 	return p.Send(ctx, replyCtx, content)
 }
+
+// ReplyWithAt adds QQ's native group mention tags. Group user mentions require
+// Markdown; @everyone also supports text, subject to QQ's admin/quota checks.
+func (p *Platform) ReplyWithAt(ctx context.Context, replyCtx any, content string, atUsers []string, atAll bool) error {
+	if len(atUsers) == 0 && !atAll {
+		return p.Send(ctx, replyCtx, content)
+	}
+	rctx, ok := replyCtx.(*replyContext)
+	if !ok {
+		return fmt.Errorf("qqbot: ReplyWithAt: invalid reply context type %T", replyCtx)
+	}
+	if rctx.messageType != "group" {
+		return fmt.Errorf("qqbot: @ mentions are only supported in group chats")
+	}
+	if len(atUsers) > 0 && !p.markdownSupport {
+		return fmt.Errorf("qqbot: group @user requires markdown_support = true; use the member_openid as at_users")
+	}
+
+	tags := make([]string, 0, len(atUsers)+1)
+	if atAll {
+		tags = append(tags, "<qqbot-at-everyone />")
+	}
+	for _, id := range atUsers {
+		// IDs come from CLI/API callers and are inserted into a tag attribute.
+		if id == "" || strings.IndexFunc(id, func(r rune) bool {
+			return unicode.IsSpace(r) || unicode.IsControl(r) || strings.ContainsRune(`<>&"'`, r)
+		}) >= 0 {
+			return fmt.Errorf("qqbot: at_users must contain nonempty member_openid values without whitespace or tag characters")
+		}
+		tags = append(tags, fmt.Sprintf(`<qqbot-at-user id="%s" />`, id))
+	}
+	prefix := strings.Join(tags, " ")
+	if utf8.RuneCountInString(prefix)+1 > messageMaxLen {
+		return fmt.Errorf("qqbot: mention prefix is too long; reduce at_users")
+	}
+	// Keep all tags on a separate, bounded first line. The normal code-fence
+	// aware splitter preserves that line and only includes it in the first chunk.
+	return p.Send(ctx, rctx, prefix+"\n"+content)
+}
+
+var _ core.AtMentionSender = (*Platform)(nil)
 
 // Send sends a message to the conversation identified by replyCtx.
 func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error {

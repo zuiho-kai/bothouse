@@ -69,6 +69,7 @@ allow_from = "*"                 # 允许的用户 openid，"*" 表示所有 / A
 | `sandbox` | ❌ | 使用沙箱 API（默认 false）/ Use sandbox API (default false) |
 | `allow_from` | ❌ | 允许的用户 openid 列表或 `"*"`（默认允许所有）/ Allowed user openids or `"*"` |
 | `intents` | ❌ | 自定义事件意图位掩码 / Custom intents bitmask (advanced) |
+| `markdown_support` | ❌ | 使用 Markdown 发送（默认 false）；群聊 @用户需要 true / Send Markdown (default false); required for group @user |
 
 ### 3. 启动 / Start
 
@@ -124,21 +125,32 @@ Sources: [group events](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/g
 | 文字 / Text | ✅ | ✅ |
 | 图片 / Image | ✅ | ❌ |
 | 语音 / Voice | ❌ | ❌ |
-| @提及 / @mention | ✅ (自动剥离) | ❌ 未实现（见下）/ not implemented (see below) |
+| @提及 / @mention | ✅ (自动剥离) | ✅ 群聊，见下方限制 / Group chats, subject to limits below |
 
-### @ 提及：官方有能力，本适配器还没做 / @-mention: the API supports it, this adapter does not
+### 发送群聊 @ 提及 / Sending group mentions
 
-官方 API 的群聊消息支持 @ 某人，写进文本的格式是 `<qqbot-at-user id="" />`（官方文档「文本交互」：@某人｜群聊、文字子频道可用）。所以这件事**不是**平台限制。
+`qqbot` 实现 `core.AtMentionSender`，支持 CLI `--at-users` / `--at-all` 和发送 API 的 `at_users` / `at_all`。以 [QQ 官方「文本交互」文档](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/text-chain.html) 为准（2026-10-26 更新）：
 
-The official group-message API does support @-mentioning someone, embedded in the text as `<qqbot-at-user id="" />` (official docs, "文本交互": @某人 works in group chats and text sub-channels). So this is **not** a platform limitation.
+`qqbot` implements `core.AtMentionSender` for CLI `--at-users` / `--at-all` and API `at_users` / `at_all`. The [official text interaction documentation](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/text-chain.html), updated 2026-10-26, defines these limits:
 
-被 @ 的对象由调用方指定，不是从收到的消息里推断的：`core.AtMentionSender` 收的是 `atUsers []string`，来源是 `--at-users` 命令行参数或 API 的 `at_users` 字段（`cmd/cc-connect/send.go`、`core/api.go`）。所以平台侧要做的只是把这个 id 拼进上面的格式。
+| 请求 / Request | 条件 / Requirements |
+|---|---|
+| `--at-users MEMBER_OPENID` | 群聊；配置 `markdown_support = true`；使用该群消息事件 `author.member_openid`，多个用逗号分隔 / Group chat, Markdown enabled, member openids from group events, comma-separated |
+| `--at-all` | 群聊；文本或 Markdown 均可；机器人必须是该群管理员，每群每天一次 / Group chat, text or Markdown; bot must be a group admin, once per group per day |
 
-The target is supplied by the caller, not inferred from an incoming message: `core.AtMentionSender` takes `atUsers []string`, filled from the `--at-users` flag or the API's `at_users` field (`cmd/cc-connect/send.go`, `core/api.go`). The adapter only has to put that id into the format above.
+例如，在已经有活跃会话的项目中发送 / For a project with an active group session:
 
-**目前 `qqbot` 没有实现 `core.AtMentionSender`**，所以被要求 @ 时会走引擎的降级：**静默退回普通发送**（`core/engine.go` 的 `sendOutbound` 分支），不报错，只是消息上没有 @。
+```bash
+bothouse send -p my-project -s qqbot:GROUP_OPENID:MEMBER_OPENID --at-users MEMBER_OPENID -m "任务完成"
+```
 
-**`qqbot` does not implement `core.AtMentionSender` today**, so an asked-for @ takes the engine's fallback: a **silent plain send** (`core/engine.go`, `sendOutbound`) — no error, the message just has no @.
+会话 key 使用当前活跃会话的实际值；开启共享群会话时可能不同。不能用 QQ 号、昵称或私聊 `user_openid` 代替群成员 `member_openid`，适配器不会自动查询成员。私聊带 @ 参数、未开启 Markdown 的 @用户、空或含标签字符的 ID 会报错，不会静默发送普通文本。
+
+Use the actual active session key; shared group sessions can differ. Supply the group's `member_openid`, not a QQ number, nickname or C2C `user_openid`; there is no automatic member lookup. Mentions in private chats, @user without Markdown, and empty/malformed IDs return errors instead of silently sending plain text.
+
+长回复只在第一片带 @ 标签，标签不会跨片拆开；被动回复仍受 QQ 的时效和次数限制。权限或每日额度错误原样返回，由 QQ 判定，不在本地猜测剩余额度。本功能已用本地模拟 API 验证，真实群通知及机器人之间互叫尚需实机验收。
+
+Long replies include mention tags only in the first chunk, without splitting tags. Passive reply timing/count limits still apply. QQ decides permissions and daily quotas; API failures are returned to the caller. Local simulated API tests cover request behavior; live notifications and bot-to-bot handoffs still need acceptance testing.
 
 ## 常见问题 / FAQ
 

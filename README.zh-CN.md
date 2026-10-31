@@ -115,6 +115,7 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 | Discord | 完整支持 | 多角色团队全套能力：点名、派活交差、队友状态感知、日志频道；服务器与私聊均支持斜杠命令 |
 | 自建网页平台 | 团队模式 | 内置类 Discord 的本地网页端，开箱即用，支持多角色点名与派活交差 |
 | 飞书 | 单角色 | 目前支持接入单个角色对话 |
+| QQ 官方机器人 | 手动配置 | 群聊、私聊；群 @用户需要 Markdown，@全体需要群管理员权限，详见 [QQ Bot 接入](bridge/docs/qqbot.md) |
 | DSH 网页 | 实验支持 | DSH 网页内的「频道」页，详见 [DSH 频道入口](dsh/collab/README.md) |
 
 QQ / NapCat 用户可手动配置 [OneBot 适配器](bridge/docs/qq.md)。array 与 CQ 字符串格式均支持接收附件、@ 和已缓存的引用上下文；依赖与当前限制见接入指南。

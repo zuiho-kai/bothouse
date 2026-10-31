@@ -7319,10 +7319,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			// maomao fork: during a capacity cooldown leave the queue to the drain loop, which defers it.
 			if len(state.pendingMessages) > 0 && e.capacityWait() == 0 {
-				queued := state.pendingMessages[0]
-				raw := queued // maomao fork: raw copy (content not yet expanded), put back if this turn hits capacity
+				queued := takeQueuedBatchLocked(state) // a burst from one sender runs as one turn
+				raw := queued                          // maomao fork: raw copy (content not yet expanded), put back if this turn hits capacity
 				chainedQueued = &raw
-				state.pendingMessages = state.pendingMessages[1:]
 				remainingQueue := len(state.pendingMessages)
 				state.platform = queued.platform
 				state.replyCtx = queued.replyCtx
@@ -7843,8 +7842,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 			state.mu.Unlock()
 			return true
 		}
-		queued := state.pendingMessages[0]
-		state.pendingMessages = state.pendingMessages[1:]
+		queued := takeQueuedBatchLocked(state) // a burst from one sender runs as one turn
 		state.platform = queued.platform
 		state.replyCtx = queued.replyCtx
 		state.injectedReplyCtxs = nil
