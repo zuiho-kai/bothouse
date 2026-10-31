@@ -1590,10 +1590,14 @@ func downloadAttachmentImages(attachments []attachment) []core.ImageAttachment {
 			resp.Body.Close()
 			continue
 		}
-		data, err := io.ReadAll(io.LimitReader(resp.Body, maxAttachmentSize))
+		data, err := io.ReadAll(io.LimitReader(resp.Body, maxAttachmentSize+1))
 		resp.Body.Close()
 		if err != nil {
 			slog.Warn("qqbot: read image body failed", "error", err)
+			continue
+		}
+		if len(data) > maxAttachmentSize {
+			slog.Warn("qqbot: image exceeds download size limit", "limit", maxAttachmentSize)
 			continue
 		}
 		mime := att.ContentType
@@ -1633,10 +1637,14 @@ func downloadAttachmentFiles(attachments []attachment) []core.FileAttachment {
 			resp.Body.Close()
 			continue
 		}
-		data, err := io.ReadAll(io.LimitReader(resp.Body, maxAttachmentSize))
+		data, err := io.ReadAll(io.LimitReader(resp.Body, maxAttachmentSize+1))
 		resp.Body.Close()
 		if err != nil {
 			slog.Warn("qqbot: read file body failed", "error", err)
+			continue
+		}
+		if len(data) > maxAttachmentSize {
+			slog.Warn("qqbot: file exceeds download size limit", "limit", maxAttachmentSize)
 			continue
 		}
 		mime := att.ContentType
