@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -65,6 +66,8 @@ type teamTaskBoardItem struct {
 	// wsEnded: WS has stopped working on the item's handoff (finished or paused there,
 	// TeamHandoffEnded); the item waits for the lead (board done / resume) and is not live work.
 	wsEnded bool
+	// wsStuckWhy: watchdog/retry-exhaustion stuck reason from an open TeamHandoff; "" = none.
+	wsStuckWhy string
 }
 
 // readTeamTaskBoardFile loads <dir>/<name>; a missing file or bad lines are skipped.
@@ -120,10 +123,41 @@ type teamTaskBoardPlacer struct {
 	wsName   func(ws string) string         // a workspace's name (TeamWorkspaceName); "" = not recorded
 	// handoffEnded: TeamHandoffEnded (workspace, chat that handed off, bound); nil = unknown.
 	handoffEnded func(ws, chat string, bound time.Time) bool
+	// handoffOf: TeamHandoffOf (workspace, chat that handed off, bound); nil = unknown.
+	handoffOf func(ws, chat string, bound time.Time) (TeamHandoff, bool)
+	// openHandoffs: TeamOpenWorkspaceHandoffs; nil = no workspace handoff reconciliation.
+	openHandoffs func() map[string]TeamHandoff
 }
 
 func (e *Engine) teamTaskBoardPlacer() teamTaskBoardPlacer {
-	return teamTaskBoardPlacer{mainChat: teamMainChat(e.dataDir), parentOf: e.WorkspaceParent, wsName: e.TeamWorkspaceName, handoffEnded: e.TeamHandoffEnded}
+	return teamTaskBoardPlacer{
+		mainChat:     teamMainChat(e.dataDir),
+		parentOf:     e.WorkspaceParent,
+		wsName:       e.TeamWorkspaceName,
+		handoffEnded: e.TeamHandoffEnded,
+		handoffOf:    e.TeamHandoffOf,
+		openHandoffs: e.TeamOpenWorkspaceHandoffs,
+	}
+}
+
+// teamHandoffStuckReason returns a short stuck reason when an open workspace handoff has
+// exhausted wake/park retries or been nudged by the watchdog without subsequent ws-up progress.
+func teamHandoffStuckReason(h TeamHandoff, progressAt float64) string {
+	switch {
+	case h.ParkFails > 0:
+		return "看门暂停失败，待主角色处理"
+	case h.Idle.Reported && !h.Idle.Returned:
+		return "连续唤醒无响应，已升级主角色"
+	case h.Nudged:
+		ref := h.Since
+		if ref.IsZero() {
+			ref = h.At
+		}
+		if progressAt <= 0 || (!ref.IsZero() && !time.Unix(int64(progressAt), 0).After(ref)) {
+			return "看门催促无进展"
+		}
+	}
+	return ""
 }
 
 // teamMainChat: the main chat channel the setup wizard bound the roles to (conest-setup.json
@@ -145,6 +179,10 @@ var teamTaskBoardUnplaced sync.Map
 // place resolves own/parent/wsName. Old items: sk, else the bare Discord channel ch; with neither
 // the item shows in the main chat, or nowhere (logged once) when no main chat is recorded.
 func (p teamTaskBoardPlacer) place(it *teamTaskBoardItem) {
+	chat := it.Chat
+	if chat != "" && !strings.Contains(chat, ":") {
+		chat = "discord:" + chat // board.py writes the bare Discord channel ID, like ch
+	}
 	switch {
 	case it.WS != "":
 		it.own = chatOf(it.WS)
@@ -152,6 +190,8 @@ func (p teamTaskBoardPlacer) place(it *teamTaskBoardItem) {
 		it.own = chatOf(it.SK)
 	case it.Ch != "":
 		it.own = "discord:" + it.Ch
+	case chat != "":
+		it.own = chatOf(chat)
 	default:
 		it.own = p.mainChat
 		if it.own == "" {
@@ -161,13 +201,19 @@ func (p teamTaskBoardPlacer) place(it *teamTaskBoardItem) {
 			return
 		}
 	}
-	chat := it.Chat
-	if chat != "" && !strings.Contains(chat, ":") {
-		chat = "discord:" + chat // board.py writes the bare Discord channel ID, like ch
-	}
-	if it.WS != "" && p.handoffEnded != nil {
+	if it.WS != "" {
 		bound, _ := time.Parse(time.RFC3339Nano, it.Bound) // unparsable: zero, the chat's newest handoff
-		it.wsEnded = p.handoffEnded(it.WS, chat, bound)
+		if p.handoffOf != nil {
+			if h, ok := p.handoffOf(it.WS, chat, bound); ok {
+				if !teamHandoffOpen(h) {
+					it.wsEnded = true
+				} else {
+					it.wsStuckWhy = teamHandoffStuckReason(h, it.ProgressAt)
+				}
+			}
+		} else if p.handoffEnded != nil {
+			it.wsEnded = p.handoffEnded(it.WS, chat, bound)
+		}
 	}
 	if chat != "" && chatOf(chat) != it.own {
 		it.parent = chatOf(chat)
@@ -193,7 +239,142 @@ func placeTeamTaskBoard(p teamTaskBoardPlacer, items []teamTaskBoardItem) []team
 	for i := range items {
 		p.place(&items[i])
 	}
+	if p.openHandoffs == nil {
+		return items
+	}
+	open := p.openHandoffs()
+	if len(open) == 0 {
+		return items
+	}
+	wsKeys := make([]string, 0, len(open))
+	for wsKey := range open {
+		wsKeys = append(wsKeys, wsKey)
+	}
+	sort.Strings(wsKeys)
+	for _, wsKey := range wsKeys {
+		h := open[wsKey]
+		hasLive := false
+		rebound := false
+		for i := range items {
+			it := &items[i]
+			if it.Paused == "" && !strings.HasPrefix(strings.TrimSpace(it.Status), "完成") && !it.wsEnded && (it.own == wsKey || chatOf(it.WS) == wsKey) {
+				if h.Board > 0 && it.ID != h.Board {
+					continue
+				}
+				if it.Chat != "" && h.Chat != "" && teamChatKey(it.Chat) != teamChatKey(h.Chat) {
+					continue
+				}
+				if it.Bound != "" && !h.At.IsZero() {
+					if bound, err := time.Parse(time.RFC3339Nano, it.Bound); err != nil || h.At.After(bound) {
+						continue
+					}
+				}
+				hasLive = true
+				break
+			}
+		}
+		if hasLive {
+			continue
+		}
+		for i := range items {
+			it := &items[i]
+			if !teamHandoffMatchesPausedItem(wsKey, h, *it) {
+				continue
+			}
+			it.Paused = ""
+			it.PauseWhy = ""
+			it.WS = wsKey
+			it.SK = wsKey
+			if h.Chat != "" {
+				it.Chat = h.Chat
+			}
+			if !h.At.IsZero() {
+				it.Bound = h.At.UTC().Format(time.RFC3339Nano)
+			}
+			it.wsEnded = false
+			it.wsStuckWhy = ""
+			p.place(it)
+			rebound = true
+			break
+		}
+		if rebound {
+			continue
+		}
+		title := strings.TrimSpace(h.Title)
+		if title == "" {
+			if h.Board > 0 {
+				title = fmt.Sprintf("工作区任务 #%d", h.Board)
+			} else {
+				title = "工作区任务"
+			}
+		}
+		syn := teamTaskBoardItem{
+			ID:     h.Board,
+			What:   title,
+			Short:  shortLabel(title, teamTaskBoardShortRunes),
+			Status: "进行中（未登记任务板）",
+			Who:    h.Name,
+			WS:     wsKey,
+			SK:     wsKey,
+			Chat:   h.Chat,
+		}
+		if !h.At.IsZero() {
+			syn.Bound = h.At.UTC().Format(time.RFC3339Nano)
+			syn.At = h.At.Local().Format("01-02 15:04")
+		}
+		p.place(&syn)
+		items = append(items, syn)
+	}
 	return items
+}
+
+// teamHandoffMatchesPausedItem reports whether an open workspace handoff h on wsKey is the
+// same task as a non-user-waiting paused board item it. A reused workspace alone is not enough:
+// source chat, binding timestamp (Bound >= h.At), and task identity (Board ID, or title for
+// legacy handoffs without Board ID) must all agree.
+func teamHandoffMatchesPausedItem(wsKey string, h TeamHandoff, it teamTaskBoardItem) bool {
+	if it.Paused == "" || teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
+		return false
+	}
+	if it.Chat != "" && h.Chat != "" && teamChatKey(it.Chat) != teamChatKey(h.Chat) {
+		return false
+	}
+	if it.Bound != "" && !h.At.IsZero() {
+		bound, err := time.Parse(time.RFC3339Nano, it.Bound)
+		if err != nil || h.At.After(bound) {
+			return false
+		}
+	}
+	hBoard := h.Board
+	if hBoard <= 0 && strings.HasPrefix(strings.TrimSpace(h.Title), "#") {
+		hBoard = watchTaskNumber(h.Title)
+	}
+	if hBoard > 0 {
+		return it.ID == hBoard
+	}
+	if chatOf(it.WSWas) != wsKey && chatOf(it.WS) != wsKey {
+		return false
+	}
+	return teamHandoffTitleMatchesItem(h.Title, it)
+}
+
+func teamHandoffTitleMatchesItem(title string, it teamTaskBoardItem) bool {
+	t := strings.TrimSpace(title)
+	if t == "" {
+		return false
+	}
+	what := strings.TrimSpace(it.What)
+	short := strings.TrimSpace(it.Short)
+	if t == what || t == short {
+		return true
+	}
+	if cut := strings.TrimSpace(strings.TrimSuffix(t, "…")); cut != "" && cut != t && strings.HasPrefix(what, cut) {
+		return true
+	}
+	if what != "" && strings.HasPrefix(what, t) && short != "" && strings.HasPrefix(t, short) {
+		return true
+	}
+	return false
 }
 
 // shownIn: the item is on chat's board.
@@ -383,10 +564,16 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 	case it.wsEnded:
 		// Releasing an execution workspace is not acceptance of its still-open board item.
 		return teamTaskStuck, "工作区已结束，待主角色核对"
+	case it.wsStuckWhy != "":
+		return teamTaskStuck, it.wsStuckWhy
 	}
 	last := teamTaskBoardLastActive(it, now)
-	if it.WS != "" && it.ProgressAt == 0 && !last.IsZero() && now.Sub(last) >= teamTaskBoardStuckAfter {
-		return teamTaskStuck, fmt.Sprintf("交出 %d 小时没人接", int(now.Sub(last)/time.Hour))
+	if it.WS != "" && !last.IsZero() && now.Sub(last) >= teamTaskBoardStuckAfter {
+		hours := int(now.Sub(last) / time.Hour)
+		if it.ProgressAt == 0 {
+			return teamTaskStuck, fmt.Sprintf("交出 %d 小时没人接", hours)
+		}
+		return teamTaskStuck, fmt.Sprintf("%d 小时无进展", hours)
 	}
 	return teamTaskRunning, teamTaskBoardAgo(last, now)
 }

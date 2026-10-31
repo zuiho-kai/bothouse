@@ -1491,14 +1491,11 @@ func (e *Engine) ParkTeamWorkspaceFor(workspace, chat string, before time.Time) 
 	return true, nil
 }
 
-// TeamHandoffEnded reports whether the workspace has stopped working on chat's task handed off
-// at or before bound: that handoff is closed (the workspace finished it and its session was reset,
-// releaseTeamWorkspace) or paused. The pick is ParkTeamWorkspaceFor's: chat's newest handoff at or
-// before bound (bound zero: chat's newest; chat "": any chat's). false when no such handoff is
-// recorded (not known to have ended). The team board uses it for a handoff item's live state.
-func (e *Engine) TeamHandoffEnded(workspace, chat string, bound time.Time) bool {
+// TeamHandoffOf returns chat's newest handoff to workspace at or before bound (bound zero: chat's
+// newest; chat "": any chat's), using the same pick rule as ParkTeamWorkspaceFor.
+func (e *Engine) TeamHandoffOf(workspace, chat string, bound time.Time) (TeamHandoff, bool) {
 	if e == nil || e.dataDir == "" || workspace == "" {
-		return false
+		return TeamHandoff{}, false
 	}
 	key := teamChatKey(workspace)
 	if chat != "" {
@@ -1514,7 +1511,50 @@ func (e *Engine) TeamHandoffEnded(workspace, chat string, bound time.Time) bool 
 		}
 		pick = i
 	}
-	return pick >= 0 && !teamHandoffOpen(list[pick])
+	if pick < 0 {
+		return TeamHandoff{}, false
+	}
+	return list[pick], true
+}
+
+// TeamHandoffEnded reports whether the workspace has stopped working on chat's task handed off
+// at or before bound: that handoff is closed (the workspace finished it and its session was reset,
+// releaseTeamWorkspace) or paused. The pick is ParkTeamWorkspaceFor's: chat's newest handoff at or
+// before bound (bound zero: chat's newest; chat "": any chat's). false when no such handoff is
+// recorded (not known to have ended). The team board uses it for a handoff item's live state.
+func (e *Engine) TeamHandoffEnded(workspace, chat string, bound time.Time) bool {
+	h, ok := e.TeamHandoffOf(workspace, chat, bound)
+	return ok && !teamHandoffOpen(h)
+}
+
+// TeamOpenWorkspaceHandoffs returns each workspace's newest open, unreturned handoff that carries a
+// task identity (title or board ID) and source chat, so the native board can reconcile active
+// workspace executions even when board.jsonl missed or prematurely paused the item.
+func (e *Engine) TeamOpenWorkspaceHandoffs() map[string]TeamHandoff {
+	if e == nil || e.dataDir == "" {
+		return nil
+	}
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	var out map[string]TeamHandoff
+	for key, list := range st.Handoffs {
+		for i := len(list) - 1; i >= 0; i-- {
+			h := list[i]
+			if !teamHandoffOpen(h) || h.Idle.Returned || h.Chat == "" {
+				continue
+			}
+			if strings.TrimSpace(h.Title) == "" && h.Board <= 0 {
+				continue
+			}
+			if out == nil {
+				out = make(map[string]TeamHandoff)
+			}
+			out[teamChatKey(key)] = h
+			break
+		}
+	}
+	return out
 }
 
 // ResetTeamWorkspaceSessions gives every session of this engine in workspace key

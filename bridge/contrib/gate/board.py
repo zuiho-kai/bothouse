@@ -59,7 +59,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # ../lead/board 从别
 import datadir  # noqa: E402
 
 SETUP = datadir.setup_dir()
-DIR = Path(os.environ.get("BOARD_DIR") or SETUP / "team").expanduser()
+
+
+def _board_dir():
+    if os.environ.get("BOARD_DIR"):
+        return Path(os.environ["BOARD_DIR"]).expanduser()
+    cfg = SETUP / "config.toml"
+    if cfg.is_file():
+        try:
+            m = re.search(r'^\s*team_status_dir\s*=\s*"([^"]+)"', cfg.read_text(encoding="utf-8"), re.M)
+            if m and m.group(1).strip():
+                return Path(m.group(1).strip()).expanduser()
+        except OSError:
+            pass
+    return (SETUP / "team").expanduser()
+
+
+DIR = _board_dir()
 
 
 def _path(name):
@@ -441,6 +457,9 @@ def pause_stale(now=None):
         stamp = it.get("progress_at")
         if stamp is None:
             continue
+        at_ts = _ts(it.get("at"), now)
+        if isinstance(at_ts, (int, float)) and at_ts > stamp:
+            stamp = at_ts
         if now - stamp < STALE_AFTER:
             continue
         hit = pause(it["id"], "一小时无进展，转待办")
