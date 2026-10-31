@@ -75,7 +75,7 @@ func (e *Engine) routeEndedTaskReply(p Platform, msg *Message) bool {
 	}
 	prompt := fmt.Sprintf("[工作区转回] %s 在工作区 %s 回复了已经交回的活「%s」（%s 交到工作区）。工作区现在在做别的活，这条没有插进去，转给你接着办。\n\n用户原话：\n%s\n\n"+
 		"这是那件活的后续。用户要改或要续做，就把这件活重新交给工作区（任务板上有原编号就 ws-handoff --resume，没有就新交活，交接里带上这段用户原话），再在本频道说一句你怎么办的；只是确认或道谢，回 NO_REPLY。不要插进工作区现在的活，不要 @ 工作区里的 bot。",
-		who, channelLabel(p.Name(), ch), title, h.At.Format("01-02 15:04"), truncateRelay(words, chatLeadWakeLimit))
+		who, channelLabel(p.Name(), ch), title, h.At.Format("01-02 15:04"), truncateRelayMore(e.dataDir, "ended-reply", words, chatLeadWakeLimit))
 	if !e.queueChatLeadTurn(p, parent, ch, "工作区转回 "+ch, prompt, 0) {
 		e.reply(p, msg.ReplyCtx, "⚠️ 这条回的是已经交回的「"+title+"」，工作区现在在做别的活，没插进去；转回聊天频道也没成功，请到聊天频道 "+channelLabel(p.Name(), parent)+" 再说一次")
 		return true
