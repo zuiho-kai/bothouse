@@ -1174,6 +1174,8 @@ func (p *Platform) handleGroupMessage(data json.RawMessage) {
 		MsgElements      []msgElement      `json:"msg_elements"`
 		Author           struct {
 			MemberOpenID string `json:"member_openid"`
+			Username     string `json:"username"`
+			Bot          bool   `json:"bot"`
 		} `json:"author"`
 	}
 	if err := json.Unmarshal(data, &d); err != nil {
@@ -1223,6 +1225,10 @@ func (p *Platform) handleGroupMessage(data json.RawMessage) {
 	} else {
 		sessionKey = fmt.Sprintf("qqbot:%s:%s", d.GroupOpenID, d.Author.MemberOpenID)
 	}
+	userName := strings.TrimSpace(d.Author.Username)
+	if userName == "" {
+		userName = d.Author.MemberOpenID
+	}
 
 	rctx := &replyContext{
 		messageType: "group",
@@ -1237,8 +1243,9 @@ func (p *Platform) handleGroupMessage(data json.RawMessage) {
 		Platform:   "qqbot",
 		MessageID:  d.ID,
 		UserID:     d.Author.MemberOpenID,
-		UserName:   d.Author.MemberOpenID, // official API only provides openid, no nickname
-		ChatName:   d.GroupOpenID,         // group openid as fallback (no group name API)
+		UserName:   userName,
+		FromBot:    d.Author.Bot,
+		ChatName:   d.GroupOpenID, // group openid as fallback (no group name API)
 		Content:    content,
 		Images:     images,
 		Files:      files,
@@ -1268,6 +1275,8 @@ func (p *Platform) handleC2CMessage(data json.RawMessage) {
 		MsgElements      []msgElement      `json:"msg_elements"`
 		Author           struct {
 			UserOpenID string `json:"user_openid"`
+			Username   string `json:"username"`
+			Bot        bool   `json:"bot"`
 		} `json:"author"`
 	}
 	if err := json.Unmarshal(data, &d); err != nil {
@@ -1313,6 +1322,10 @@ func (p *Platform) handleC2CMessage(data json.RawMessage) {
 	}
 
 	sessionKey := fmt.Sprintf("qqbot:%s", d.Author.UserOpenID)
+	userName := strings.TrimSpace(d.Author.Username)
+	if userName == "" {
+		userName = d.Author.UserOpenID
+	}
 
 	rctx := &replyContext{
 		messageType: "c2c",
@@ -1326,7 +1339,8 @@ func (p *Platform) handleC2CMessage(data json.RawMessage) {
 		Platform:   "qqbot",
 		MessageID:  d.ID,
 		UserID:     d.Author.UserOpenID,
-		UserName:   d.Author.UserOpenID,
+		UserName:   userName,
+		FromBot:    d.Author.Bot,
 		Content:    content,
 		Images:     images,
 		Files:      files,
