@@ -354,7 +354,7 @@ jobs:
           else
             tagflag=()
             case "$ver" in *-*) tagflag=(--tag next) ;; esac
-            npm publish --access public "${tagflag[@]}"
+            npm publish --access public --loglevel verbose "${tagflag[@]}"
           fi
       - name: Force-update dsh-plugin branch
         env:
