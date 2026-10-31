@@ -63,6 +63,18 @@
       "field": "底分支",
       "msg": "交接文件写了多人改同组文件（「共改文件」/「多人改」节），缺「底分支：<分支名>」一行。示例：\n底分支：feat/approvals-card",
       "dispatch_msg": "多人改同组文件要写底分支：base 填分支名，示例：base: \"feat/approvals-card\""
+    },
+    {
+      "id": "exemplar",
+      "type": "section_needs_table",
+      "trigger_section": "用户原话",
+      "trigger_re": "「(?!\\[replying)[^」]*(照着|照抄|抄|学习|学一下|参考|对标|模仿|仿照)",
+      "object_re": "https?://|《[^》]+》",
+      "section": "照抄对象",
+      "row_re": "^\\S.*(→|->)\\s*\\S",
+      "rows": 3,
+      "need_res": ["https?://|《[^》]+》", "并排截图"],
+      "msg": "用户原话给了范本（链接或《…》+ 照着/抄/学习/参考/对标），交接要有「照抄对象」节：范本链接、「范本第 N 部分 → 我们第 N 部分」对照至少 3 行、验收写「并排截图」。示例：\n## 照抄对象\n- 范本：https://github.com/BotHarness/DeepSeekBot 的 README\n- 范本第 1 部分 顶部插画横幅 → 我们第 1 部分 顶部横幅\n- 范本第 2 部分 明暗两版截图 → 我们第 2 部分 功能截图\n- 范本第 3 部分 三行安装 → 我们第 3 部分 安装\n- 验收：并排截图（范本和我们同一部分左右放）"
     }
   ],
   "dispatch": {
