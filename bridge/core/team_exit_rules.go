@@ -56,6 +56,15 @@ type teamExitRulesDoc struct {
 		MissingCompare string `json:"missing_compare"`
 		MissingFile    string `json:"missing_file"`
 	} `json:"art"`
+	Scope struct {
+		SectionRe string `json:"section_re"`
+		ItemRe    string `json:"item_re"`
+		KeyStopRe string `json:"key_stop_re"`
+		KeyTrim   string `json:"key_trim"`
+		KeyRunes  int    `json:"key_runes"`
+		Sep       string `json:"sep"`
+		Missing   string `json:"missing"`
+	} `json:"scope"`
 	Jargon struct {
 		LineRe  string `json:"line_re"`
 		URLRe   string `json:"url_re"`
@@ -70,6 +79,7 @@ type teamExitRules struct {
 	headline, selfCheck, category, exempt, noCheck, jargonLine, jargonTable, jargonURL *regexp.Regexp
 	background, todo, detail, added                                                    *regexp.Regexp
 	artNotes, artCompare, artImage                                                     *regexp.Regexp
+	scopeSection, scopeItem, scopeKeyStop                                              *regexp.Regexp
 }
 
 // exitRules is read once from the embedded copy; a broken file fails every test that touches it.
@@ -100,6 +110,7 @@ func parseTeamExitRules(b []byte) (*teamExitRules, error) {
 		{&r.background, r.Summary.BackgroundRe}, {&r.todo, r.Summary.TodoRe}, {&r.detail, r.Summary.DetailRe},
 		{&r.added, r.Summary.AddedRe},
 		{&r.artNotes, r.Art.NotesRe}, {&r.artCompare, r.Art.CompareRe}, {&r.artImage, r.Art.ImageRe},
+		{&r.scopeSection, r.Scope.SectionRe}, {&r.scopeItem, r.Scope.ItemRe}, {&r.scopeKeyStop, r.Scope.KeyStopRe},
 	} {
 		re, err := regexp.Compile(c.src)
 		if err != nil {
@@ -278,6 +289,48 @@ func artReportProblems(notes, body string, exists func(string) bool) []string {
 		return []string{strings.ReplaceAll(exitRules.Art.MissingFile, "{path}", path)}
 	}
 	return []string{exitRules.Art.MissingCompare}
+}
+
+// scopeReportProblems: a [report] that mentions none of the handoff's 「## 范围」「改」 items
+// anywhere (summary and details) goes back naming them (user 11-01 「我们要提取优秀基因，但是也要
+// 对我们的错误进行一个深刻的检讨和规避」: a handoff item was not done and nobody noticed on return).
+// Each item's key is its text up to the first punctuation, at most key_runes runes; it and the
+// body are compared without whitespace, case-folded. notes "" or no 改 items: nothing to check.
+func scopeReportProblems(notes, body string) []string {
+	if notes == "" {
+		return nil
+	}
+	norm := func(s string) string {
+		return strings.ToLower(strings.Join(strings.Fields(s), ""))
+	}
+	have := norm(body)
+	var missing []string
+	in := false
+	for _, ln := range strings.Split(strings.ReplaceAll(notes, "\r\n", "\n"), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(ln), "#") {
+			in = exitRules.scopeSection.MatchString(strings.TrimSpace(ln))
+			continue
+		}
+		m := exitRules.scopeItem.FindStringSubmatch(ln)
+		if !in || m == nil {
+			continue
+		}
+		key := m[2]
+		if loc := exitRules.scopeKeyStop.FindStringIndex(key); loc != nil {
+			key = key[:loc[0]]
+		}
+		key = strings.TrimSpace(strings.Trim(strings.TrimSpace(key), exitRules.Scope.KeyTrim))
+		if r := []rune(key); exitRules.Scope.KeyRunes > 0 && len(r) > exitRules.Scope.KeyRunes {
+			key = string(r[:exitRules.Scope.KeyRunes])
+		}
+		if k := norm(key); k != "" && !strings.Contains(have, k) {
+			missing = append(missing, key)
+		}
+	}
+	if missing == nil {
+		return nil
+	}
+	return []string{strings.ReplaceAll(exitRules.Scope.Missing, "{items}", strings.Join(missing, exitRules.Scope.Sep))}
 }
 
 // jargonProblems: the part for the user names board/PR numbers, workspaces, branches, paths or

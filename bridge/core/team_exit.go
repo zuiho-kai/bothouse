@@ -169,8 +169,13 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 		problems, hid, hline, legacy = v.Problems, v.ID, v.Line, v.Legacy
 		if kind == exitKindReport && item != nil {
 			// image work goes back without its side-by-side image, like an [ask] without its self-check
-			if art := artReportProblems(readNotes(item.Where), body, localFileExists); art != nil {
+			notes := readNotes(item.Where)
+			if art := artReportProblems(notes, body, localFileExists); art != nil {
 				problems, legacy = append(problems, art...), false
+			}
+			// every 「改」 item of the handoff's scope must show up in the report, done or why not
+			if sc := scopeReportProblems(notes, body); sc != nil {
+				problems, legacy = append(problems, sc...), false
 			}
 		}
 	}
