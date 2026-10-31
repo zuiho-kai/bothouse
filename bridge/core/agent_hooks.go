@@ -55,7 +55,20 @@ var agentHooks = []agentHook{
 	// Only PreToolUse, every tool: once a subagent's context is past the line its tool calls are denied with the
 	// handoff instructions as the reason. No agent_id in the payload (main session, CLIs without subagents) = pass.
 	{"subagent-ctx-hook", "PreToolUse", "", 5},
+	// Claude Code only (claudeCodeOnlyHooks): when a subagent is dispatched, prepend the code maps
+	// (<data_dir>/codemaps/*.md, picked by their keywords: line) the task matches; when it finishes, append the
+	// "## 地图要补的条目（<map>）" entries of its report to that map.
+	{"codemap-inject", "PreToolUse", "Agent|Task", 10},
+	{"codemap-fill", "SubagentStop", "", 10},
 }
+
+// claudeCodeOnlyHooks hook Claude Code's subagent tool (Agent/Task) and its SubagentStop event, which the other
+// CLIs do not have: they are installed for --cli claudecode only.
+var claudeCodeOnlyHooks = []string{"codemap-inject", "codemap-fill"}
+
+// AgentCodeMapsDir is the code map directory codemap-inject/codemap-fill read by default (CODEMAP_DIR overrides it
+// in the hook's environment): beside the hooks directory, so the scripts find it from their own path.
+func AgentCodeMapsDir(dataDir string) string { return filepath.Join(dataDir, "codemaps") }
 
 // AgentHookNames lists every hook, in the order they are written.
 func AgentHookNames() []string {
@@ -98,8 +111,25 @@ func InstallAgentHookScripts(dataDir string) (string, error) {
 			return nil
 		}
 		dst := filepath.Join(dir, base)
-		if path.Base(path.Dir(p)) == "rules" {
+		switch path.Base(path.Dir(p)) {
+		case "rules":
 			dst = filepath.Join(dir, "rules", base)
+		case "agents":
+			return nil // written into the role's .claude/agents by installLongTaskAgent
+		case "codemaps":
+			// the user's own maps live there: only a missing file is written, nothing is replaced
+			cm := AgentCodeMapsDir(dataDir)
+			if _, err := os.Stat(filepath.Join(cm, base)); err == nil {
+				return nil
+			}
+			if err := os.MkdirAll(cm, 0o755); err != nil {
+				return err
+			}
+			b, err := fs.ReadFile(AgentHookFS, p)
+			if err != nil {
+				return err
+			}
+			return AtomicWriteFile(filepath.Join(cm, base), b, 0o644)
 		}
 		b, err := fs.ReadFile(AgentHookFS, p)
 		if err != nil {
@@ -499,6 +529,8 @@ type AgentHookResult struct {
 	ReviewRequired     bool     `json:"review_required,omitempty"`
 	PiExtension        string   `json:"pi_extension_file,omitempty"`
 	OpenCodePluginFile string   `json:"opencode_plugin_file,omitempty"`
+	// AgentFile: Claude Code only, the long-task subagent type written beside bash-guard (installLongTaskAgent)
+	AgentFile string `json:"agent_file,omitempty"`
 }
 
 func (o AgentHookOptions) dshPatch() string {
@@ -525,6 +557,9 @@ func (o AgentHookOptions) names() ([]string, error) {
 		if o.CLI == "grok" {
 			return slices.Clone(grokHooks), nil
 		}
+		if o.CLI != "claudecode" {
+			return slices.DeleteFunc(AgentHookNames(), func(n string) bool { return slices.Contains(claudeCodeOnlyHooks, n) }), nil
+		}
 		return AgentHookNames(), nil
 	}
 	var out []string
@@ -538,6 +573,9 @@ func (o AgentHookOptions) names() ([]string, error) {
 		}
 		if o.CLI == "grok" && !slices.Contains(grokHooks, n) {
 			return nil, fmt.Errorf("Grok hook %q is not adapted yet", n)
+		}
+		if o.CLI != "claudecode" && slices.Contains(claudeCodeOnlyHooks, n) {
+			return nil, fmt.Errorf("hook %q runs under Claude Code only (--cli claudecode)", n)
 		}
 		if _, ok := agentHookByName(n); !ok {
 			return nil, fmt.Errorf("unknown hook %q (hooks: %s)", n, strings.Join(AgentHookNames(), ", "))
@@ -666,6 +704,11 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 	if err := writeHookRules(persona, o.Lang, o.personaEnabled(persona, res.Enabled), python, dir, o.WorkDir); err != nil {
 		return nil, err
 	}
+	if o.CLI == "claudecode" {
+		if res.AgentFile, err = syncLongTaskAgent(o.WorkDir, persona, o.Lang, slices.Contains(res.Enabled, "bash-guard")); err != nil {
+			return nil, err
+		}
+	}
 	if o.CLI == "dsh" {
 		if err := setDSHRole(dir, o.WorkDir, DSHHome(o.DSHHome), res.Enabled); err != nil {
 			return nil, err
@@ -730,6 +773,11 @@ func DisableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 	dir := AgentHooksDir(o.DataDir)
 	if err := writeHookRules(persona, o.Lang, o.personaEnabled(persona, res.Enabled), python, dir, o.WorkDir); err != nil {
 		return nil, err
+	}
+	if o.CLI == "claudecode" {
+		if res.AgentFile, err = syncLongTaskAgent(o.WorkDir, persona, o.Lang, slices.Contains(res.Enabled, "bash-guard")); err != nil {
+			return nil, err
+		}
 	}
 	if o.CLI == "dsh" {
 		home := DSHHome(o.DSHHome)
@@ -835,7 +883,7 @@ func HookRules(lang string, enabled []string, python, hooksDir, workDir string) 
 		reviews = "~/.claude/reviews"
 	}
 	r := strings.NewReplacer("{{HOOKS}}", hooksDir, "{{PYTHON}}", python, "{{REVIEWS}}", reviews,
-		"{{ROLE}}", hookQuote(workDir))
+		"{{ROLE}}", hookQuote(workDir), "{{CODEMAPS}}", AgentCodeMapsDir(filepath.Dir(hooksDir)))
 	return r.Replace(strings.Join(parts, "\n"))
 }
 
@@ -909,17 +957,23 @@ func (o AgentHookOptions) personaEnabled(persona string, enabled []string) []str
 	return out
 }
 
+// hookLang: lang if set, else the persona's reply language, else the system's.
+func hookLang(lang, persona string) string {
+	if lang != "" {
+		return lang
+	}
+	if lang, _ = PersonaReplyLanguage(persona); lang != "" {
+		return lang
+	}
+	return SystemLanguage()
+}
+
 func writeHookRules(persona, lang string, enabled []string, python, dir, workDir string) error {
 	b, err := os.ReadFile(persona)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if lang == "" {
-		lang, _ = PersonaReplyLanguage(string(b))
-	}
-	if lang == "" {
-		lang = SystemLanguage()
-	}
+	lang = hookLang(lang, string(b))
 	out := WithHookRules(string(b), HookRules(lang, enabled, python, dir, workDir))
 	if out == string(b) {
 		return nil
@@ -928,6 +982,62 @@ func writeHookRules(persona, lang string, enabled []string, python, dir, workDir
 		return err
 	}
 	return AtomicWriteFile(persona, []byte(out), 0o644)
+}
+
+// ── long-task subagent type ────────────────────────────────────
+
+// longTaskAgentMark is in every long-task.md bothouse writes; a file without it is the user's own and is left alone.
+const longTaskAgentMark = "<!-- conest:agent long-task"
+
+// LongTaskAgentPath is the Claude Code project subagent file of the role.
+func LongTaskAgentPath(workDir string) string {
+	return filepath.Join(workDir, ".claude", "agents", "long-task.md")
+}
+
+// syncLongTaskAgent writes (on = true) or removes (on = false) the role's long-task subagent type
+// (contrib/hooks/agents/long-task.<zh|en>.md): a subagent with a 1-hour prompt cache for work that waits 5–60
+// minutes. It goes with bash-guard, which caps other subagents' foreground commands at 290 seconds and leaves
+// long-task's alone. A long-task.md without longTaskAgentMark is never written over or removed. Returns the file
+// path when it is ours and in place ("" otherwise).
+func syncLongTaskAgent(workDir, persona, lang string, on bool) (string, error) {
+	p := LongTaskAgentPath(workDir)
+	old, err := os.ReadFile(p)
+	if err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	ours := err == nil && strings.Contains(string(old), longTaskAgentMark)
+	if err == nil && !ours {
+		return "", nil // the user's own long-task.md
+	}
+	if !on {
+		if ours {
+			if err := os.Remove(p); err != nil {
+				return "", err
+			}
+		}
+		return "", nil
+	}
+	if AgentHookFS == nil {
+		return "", nil
+	}
+	pb, _ := os.ReadFile(persona)
+	l := "en"
+	if isZH(hookLang(lang, string(pb))) {
+		l = "zh"
+	}
+	b, err := fs.ReadFile(AgentHookFS, "contrib/hooks/agents/long-task."+l+".md")
+	if err != nil {
+		return "", err
+	}
+	if string(b) != string(old) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return "", err
+		}
+		if err := AtomicWriteFile(p, b, 0o644); err != nil {
+			return "", err
+		}
+	}
+	return p, nil
 }
 
 // ── DSH bridge ─────────────────────────────────────────────────
