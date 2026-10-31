@@ -112,6 +112,78 @@ _上面两张是真实频道录屏，下面两张是作者自己在用的管理�
   <img src="docs/assets/readme/architecture.zh.svg" width="960" alt="bothouse 架构：左边是入口（Discord、飞书、QQ 机器人、自建网页、DSH web），中间是 bothouse（核心引擎、调度门、工作区派活），下面是接的本地 CLI 和 Agent，右边是团队记忆（共享 Wiki、消息前检索、夜间复盘）和开发中的记忆论坛，最右边是同步记忆的 GitHub 私人仓库">
 </p>
 
+<a id="how"></a>
+
+## 团队怎么运转
+
+```text
+你（手机 / 电脑 / 浏览器）
+   │  一句话
+   ▼
+聊天频道 ── 主角色（常驻会话 + 共享 Wiki）
+   │  大活交出去，聊天不停
+   ├─ 工作区1 ── @写代码的角色 · @写文案的角色 ── 交回
+   └─ 工作区2 ── @查资料的角色 ── 交回
+   ▲
+   └─ 要你拍板的事回到聊天频道，别的不打扰你
+```
+
+- **叫到才开口**：默认主角色接话，其他角色跟着看，被 @ 或点名才回。轻量调度器 jev（一个只做选择题的小模型）判断没点名的消息该谁回，能用硅基流动的免费小模型或本地 Qwen 0.6B。
+- **共享记忆**：基于我们开源的 llm-wiki 扩展成多角色共用的记忆，存在本地 Markdown 里，能直接读、直接改，Git 记录团队学到的东西。
+- **夜间复盘**：会话结束、闲置 30 分钟或出错时，快模型把进度记进 Wiki；夜里慢而细的免费模型对照原始对话纠错补漏，周日全量检查。引用你的话会被代码逐字核对，编造的引用直接拒掉。
+- **护栏和工具**：拦危险命令；说「修好了」要附验证证据，说「稍后看」要挂定时器；在群里一句话就能关掉某项检查。自带看队友进度、视频抽帧和转写、联网搜索、子 agent 用时和状态等工具。
+- **手动换主角色**：旧主角色回不了话时，`bothouse handoff switch --to <项目>` 切过去，任务卡、工作区和待答问题都保留原编号。见[手动交接主角色](docs/LEAD_HANDOFF.md)。
+
+## 平台
+
+Discord 和飞书本来就有手机和电脑客户端，不用再包一层 App。
+
+| 平台 | 状态 | 能做什么 |
+| --- | --- | --- |
+| Discord | 完整支持 | 多角色、@、派活交回、队友状态、日志频道；服务器和私信里都有斜杠命令 |
+| 自建网页 | 团队模式 | 本地运行、像 Discord 的网页，多角色、@、派活交回 |
+| 飞书（Lark） | 单角色 | 和接上的一个角色对话 |
+| QQ 官方机器人 | 手动配置 | 群聊/私聊，群里 @ 人、@全体，见 [QQ 机器人](bridge/docs/qqbot.md) |
+| DSH web | 实验 | DSH web 里的频道页，见 [DSH 频道](dsh/collab/README.md) |
+
+QQ / NapCat 用户可手动配 [OneBot 适配器](bridge/docs/qq.md)。
+
+<details>
+<summary><b>DSH 频道里的常用操作</b></summary>
+
+- **上传头像**：添加或编辑成员，打开 **可选 → 头像 → 上传图片**，选本地 PNG（256KB 以内），浏览器缩到 256×256，存在本地数据目录；**恢复默认** 删掉上传的头像。
+- **任务板**：成员侧栏显示任务数，点 **任务板** 打开按频道、工作区、负责人分组的弹窗；已完成的默认折叠，派活/交付链接能跳回原消息。
+- **频道设置**：每个频道单独选主角色、填一个已存在的绝对 **工作目录**；保存时可选立刻重建该频道的 DSH 会话（清空上下文），或下次建会话时再用。工作区继承所属频道的设置。
+- **图片**：图片附件有 **下载** 和 **复制图片**；点图片打开大图预览，Esc、点背景或右上角关闭。
+
+</details>
+
+<details>
+<summary><b>用 Tailscale 在手机上远程管理</b></summary>
+
+bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机连回来，不用租服务器、不用开公网端口。
+
+1. **连上设备**：电脑和手机都装 Tailscale、登录同一账号（macOS `brew install --cask tailscale`；Linux `curl -fsSL https://tailscale.com/install.sh | sh`），用 `tailscale ip -4` 记下电脑的 `100.x.y.z`。
+2. **打开面板和实时桥**：对机器人发 `/web setup`，或运行 `bothouse web`，按提示重启一次。也可以手动改 `~/.bothouse/config.toml`：
+
+   ```toml
+   [management]
+   enabled = true
+   host = "100.x.y.z"        # 上一步的 Tailscale 地址
+   port = 9820
+   token = "换成一串长随机密码"
+
+   [bridge]
+   enabled = true            # 要在手机上发消息就得开
+   token = "换成另一串随机密码"
+   ```
+
+3. **登录使用**：手机打开 `http://100.x.y.z:9820/`，填 token。能看运行时间、今天和本月各角色各模型的 token 用量与热力图；能加角色、改人设、换模型；能打开项目给正在跑的活插话。
+
+网络提示：先启动 Tailscale 再启动 bothouse；不写 `host` 时监听所有网卡，远程访问请写明。桥开启后还会在所有网卡监听 9810，要只给 tailnet 用，请在本机防火墙挡掉局域网和公网的 9810。
+
+</details>
+
 <a id="releases"></a>
 
 ## 版本亮点
@@ -125,7 +197,7 @@ _上面两张是真实频道录屏，下面两张是作者自己在用的管理�
 | **[0.1.41](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.41)**（2026-10-30） | `/model` 显示频道**实际在用**的模型；工作区提问只暂停它点名的那件活；`bothouse-dsh` 随版本发到 npm。 |
 | **[0.1.40](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.40)**（2026-10-29） | 回复被钩子拦下后不再只剩最后一句；Grok 角色也有「只问不改」护栏。 |
 
-## 接下来
+## 路线图
 
 - **先认领再开工**：给活上锁，避免两个成员同时做一件事。
 - **按需生成专家**：比如「发到 App Store」，自动建一位读过往决定、做完就退的专家。
@@ -134,23 +206,13 @@ _上面两张是真实频道录屏，下面两张是作者自己在用的管理�
 - **工作区自动清理**：最后一件活交完就清上下文。
 - **更多群聊平台**：完整团队模式扩到 DSH web 频道、Telegram、Slack、QQ 和企业微信。
 
-## 常见问题
-
-### 只能用 Claude 吗？
-
-不是。Claude Code、Codex、Gemini CLI、OpenCode 这类本地 CLI 都能接，DSH 这类 Agent 走 ACP 接入；硅基流动、OpenRouter、DeepSeek 等 OpenAI 兼容接口和本地模型也能配。用的都是你自己的账号和额度。
-
-### 电脑要一直开着吗？
-
-要。bothouse 跑在你自己的电脑上，`bothouse daemon install` 让它在后台常驻。人不在电脑前时，用 Discord、飞书的手机版，或者[用 Tailscale 远程打开管理面板](docs/platforms-and-remote.md)。
-
 <a id="docs"></a>
 
 ## 参与开发
 
 欢迎贡献，先读 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [AGENTS.md](AGENTS.md)。带网页面板的源码构建要先构建前端、再编译 Go，见[面板构建](docs/dashboard-source-build.md)。
 
-更多见[上手指南](docs/GETTING_STARTED.md) · [一个 CLI 组团队](docs/single-cli-team.md) · [接入 Discord 和飞书](docs/connect-discord-feishu.md) · [平台、远程管理和团队机制](docs/platforms-and-remote.md) · [调度与团队记忆](docs/ccm-and-wiki.md) · [角色包](docs/persona-packs.md) · [分角色 Wiki 与夜间反思](bridge/contrib/wiki/README.md) · [护栏和工具](bridge/contrib/hooks/README.md) · [用量接口](docs/api/usage.md) · [自建平台协议](bridge/docs/cloud-web.md) · [架构](docs/ARCHITECTURE.md) · [主角色协作脚本](bridge/contrib/lead/README.md)
+更多见[上手指南](docs/GETTING_STARTED.md) · [一个 CLI 组团队](docs/single-cli-team.md) · [接入 Discord 和飞书](docs/connect-discord-feishu.md) · [调度与团队记忆](docs/ccm-and-wiki.md) · [角色包](docs/persona-packs.md) · [分角色 Wiki 与夜间反思](bridge/contrib/wiki/README.md) · [护栏和工具](bridge/contrib/hooks/README.md) · [用量接口](docs/api/usage.md) · [自建平台协议](bridge/docs/cloud-web.md) · [架构](docs/ARCHITECTURE.md) · [主角色协作脚本](bridge/contrib/lead/README.md)
 
 <a id="community"></a>
 
