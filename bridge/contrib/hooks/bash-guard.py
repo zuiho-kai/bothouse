@@ -500,10 +500,9 @@ def main():
         if t and t[0] == "pkill" and any(re.match(r"^-[a-zA-Z]*f", a) for a in t[1:]):
             deny("不要用 pkill -f：它会匹配到执行本命令的 wrapper shell，把自己杀掉。"
                  "改用 pid 文件，或 `kill $(pgrep -f '[x]yz')`（方括号让 pattern 不匹配自身）。")
-        if "# restart-ok" not in cmd and RESTART.search(seg):
+        if RESTART.search(seg):
             deny("不要直接 launchctl/kill 正在跑的桥：会把这轮回复和同桥的 bot 一起杀掉。"
-                 "改用 `safe-restart \"原因\" \"重启后接着做的事|无\"`（等本轮回复发出再重启）或 `bothouse daemon restart`；"
-                 "杀的是测试用的隔离实例就在命令末尾加 `# restart-ok`。")
+                 "改用 `safe-restart \"原因\" \"重启后接着做的事|无\"`（等本轮回复发出再重启）或 `bothouse daemon restart`。")
         if sys.platform == "darwin" and "# tcc-ok" not in cmd and t[:2] == ["go", "build"] and re.search(r"-o\s+\S*bothouse", seg):
             deny("不要直接 go build -o 覆盖正在用的 bothouse：macOS 上签名会变回 ad-hoc，TCC 授权失效。"
                  "编到别的路径，再用原来的证书 codesign 后替换；确实要覆盖就在命令末尾加 `# tcc-ok`。")
