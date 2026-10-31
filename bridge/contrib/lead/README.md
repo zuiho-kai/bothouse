@@ -41,6 +41,8 @@
   after 必须给目录，只删本会话登记过的。快照看数据目录（`BOTHOUSE_DATA_DIR`、`~/.bothouse`、`~/.cc-connect`）和其中的
   `run/api.sock`、`CONEST_COLLAB_DATA`/`~/.conest-collab`、管理端口（`ISO_CHECK_PORTS`，缺省 9820）、桥程序文件
   （`CC_BIN`、PATH 上的 bothouse/cc-connect）。记录目录 `ISO_CHECK_STATE`（缺省 `/tmp/iso-check.d`）。
+- `iso-check before` 还按工作区号分端口段（42000+N×100 起 100 个，写进 `$ISO_DIR/ports.env`，含 jiuwen 前端/WEB/网关/AgentServer），起测试实例前 source 它；`ISO_PORT_SLOT` 可指定段号（测试用）。
+- `merge-gate record|check|guard`：PR 进发布分支前要有真实登录态、用户入口的截图或日志登记（跟着提交走）；`~/.claude/hooks/bash-guard.py` 规则 9 调它拦合并、转非草稿、批准评论、建非草稿发布分支 PR。
 - `rehearse-copy <真实配置> [<目录>] [--keep-secrets]`：把真实配置 `cp -a` 进隔离目录（缺省调 `iso-check before` 新建 `/tmp/iso.*`，登记失败就中止），
   默认脱敏（键名含 token/secret/password/api_key/key_id/encrypt_key/aes_key/wps_sid/webhook_url 的值，含带引号键和 TOML 多行串；URL 的 token= 和 `user:pass@`；所有文本文件都扫，含 `.bak-*`），打印 `HOME=`、`CONFIG=`。
 - `rehearse-copy --restore <config.toml> [<备份>] [--dry-run]`：把设置向导/`setup apply` 写配置前留的 `config.toml.bak-<时间>`

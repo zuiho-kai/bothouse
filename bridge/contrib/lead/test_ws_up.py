@@ -30,7 +30,7 @@ class WsUpTest(unittest.TestCase):
         """ws-handoff 原样跑；桥（timer/workspace/send）是假脚本，不读平台 token、不走网络。"""
         drv = ("import sys; from importlib.machinery import SourceFileLoader as L; "
                "m = L('ws_handoff', sys.argv[1]).load_module(); m.main(sys.argv[2:])")
-        return subprocess.run([sys.executable, "-I", "-c", drv, str(HERE / "ws-handoff"), *args], capture_output=True,
+        return subprocess.run([sys.executable, "-I", "-c", drv, str(HERE / "ws-handoff"), *args, "--short", "测试"], capture_output=True,
                               text=True, env={**self.env, "CC_SESSION_KEY": key})
 
     def timers(self):
@@ -211,8 +211,9 @@ class WsPoolTest(unittest.TestCase):
         p.write_text("# 用户原话\n# 总目标\n# 范围\n改：x\n不改：无\n# 已查过什么\n无（没查过）\n# 进度\n# 相关改动\n冲突：无\n# 规矩\n# 参照实现\n- bridge/contrib/lead/ws-up:1\n", encoding="utf-8")
         return str(p)
 
-    def handoff(self, notes, task, chat="test:100"):
-        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), notes, task], capture_output=True, text=True,
+    def handoff(self, notes, task, chat="test:100", force=False):
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), notes, task, "--short", "测试",
+                            *(["--force"] if force else [])], capture_output=True, text=True,
                            env={**self.env, "CC_SESSION_KEY": chat})
         self.assertEqual(r.returncode, 0, r.stderr)
         argv = [c for c in map(json.loads, Path(str(self.fake) + ".calls").read_text().splitlines())
@@ -234,10 +235,15 @@ class WsPoolTest(unittest.TestCase):
         self.assertNotIn("工作区3", self.pool())
         self.assertEqual([i["ws"] for i in self.items()], got)  # 每块都上板、绑工作区
 
-    def test_same_notes_twice_both_bound(self):  # 方案 10：同一交接文件连交 2 件，两条都在
+    def test_same_notes_twice_both_bound(self):  # 方案 10：同一交接文件连交 2 件，带 --force 两条都在
         self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
         n = self.note("a")
-        self.handoff(n, "A"); self.handoff(n, "B")
+        self.handoff(n, "A")
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), n, "B", "--short", "测试"],
+                           capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
+        self.assertNotEqual(r.returncode, 0)  # 防重复派：已有进行中的就拒（10-31）
+        self.assertIn("--force", r.stderr)
+        self.handoff(n, "B", force=True)
         records = json.loads((self.tmp / "setup" / "ws-handoff-last.json").read_text())["tasks"]
         self.assertEqual(len(records), 2)
         self.assertEqual([r["board"] for r in records.values()], [[1], [2]])
@@ -343,7 +349,7 @@ class WsPoolTest(unittest.TestCase):
     def test_manual_item_in_workspace_does_not_park(self):  # 没绑工作区的条目（工作区里手动 add 的）暂停不动桥
         self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
         self.handoff(self.note("x"), "X")
-        r = subprocess.run([str(HERE / "board"), "add", "顺手的事", "-", "s", "工作区1主角色"], capture_output=True,
+        r = subprocess.run([str(HERE / "board"), "add", "顺手的事", "-", "s", "工作区1主角色", "--short", "测试"], capture_output=True,
                            text=True, env={**self.env, "CC_SESSION_KEY": "test:1"})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.board("pause", "2")
@@ -361,7 +367,7 @@ class WsPoolTest(unittest.TestCase):
         self.pool([{"id": "1", "name": "工作区1", "owner": "test:100", "open": 2, "parked": 0},
                    {"id": "2", "name": "工作区2", "owner": "test:100", "open": 1, "parked": 0},
                    {"id": "3", "name": "工作区3", "owner": "test:100", "open": 3, "parked": 0}])
-        r = subprocess.run([str(HERE / "board"), "add", "还在做", "-", "s", "工作区2主角色"], capture_output=True,
+        r = subprocess.run([str(HERE / "board"), "add", "还在做", "-", "s", "工作区2主角色", "--short", "测试"], capture_output=True,
                            text=True, env={**self.env, "CC_SESSION_KEY": "test:2"})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.handoff(self.note("a"), "A"), "test:1")
@@ -379,11 +385,11 @@ class WsPoolTest(unittest.TestCase):
                    {"id": "3", "name": "工作区3", "owner": "test:100", "open": 1, "parked": 0},
                    {"id": "4", "name": "工作区4", "owner": "test:300", "open": 1, "parked": 0}])
         # 工作区1 只剩一条 later 回查条目（等 CI，带 next）
-        r = subprocess.run([str(HERE / "board"), "add", "等 CI", "-", "s", "工作区1主角色", "--next", "23:59"],
+        r = subprocess.run([str(HERE / "board"), "add", "等 CI", "-", "s", "工作区1主角色", "--short", "测试", "--next", "23:59"],
                            capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:1", "BOARD_LATER": "1"})
         self.assertEqual(r.returncode, 0, r.stderr)
         # 工作区2：聊天频道 add 的条目（条目频道是聊天频道），工作区只把「谁」改成「工作区2…」
-        r = subprocess.run([str(HERE / "board"), "add", "旧活", "-", "s", "橘"], capture_output=True, text=True,
+        r = subprocess.run([str(HERE / "board"), "add", "旧活", "-", "s", "橘", "--short", "测试"], capture_output=True, text=True,
                            env={**self.env, "CC_SESSION_KEY": "test:100"})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.board("update", "2", "做着", "-", "工作区2橘")[0], 0)
@@ -432,7 +438,7 @@ class HandoffAlignTest(WsPoolTest):
     def test_success_tells_lead_to_end_turn(self):
         # #597 G31：交出后主角色本轮就收手，不 sleep、不查任务板等工作区；stdout 第一行仍是 timer id
         self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
-        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), self.note("a"), "改登录页"],
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), self.note("a"), "改登录页", "--short", "改登录页"],
                            capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = r.stdout.strip().splitlines()
@@ -446,7 +452,7 @@ class HandoffAlignTest(WsPoolTest):
         f = Path(str(self.fake) + ".json")
         f.write_text(json.dumps({"ws": [{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}],
                                  "timer_fail": True}))
-        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), self.note("a"), "改登录页"],
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), self.note("a"), "改登录页", "--short", "改登录页"],
                            capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("timer add 失败", r.stderr)
@@ -460,7 +466,7 @@ class HandoffAlignTest(WsPoolTest):
         f = Path(str(self.fake) + ".json")
         f.write_text(json.dumps({"ws": [{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}],
                                  "timer_fail": True, "park_fail": True}))
-        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), self.note("a"), "改登录页"],
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), self.note("a"), "改登录页", "--short", "改登录页"],
                            capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("timer add 失败", r.stderr)
