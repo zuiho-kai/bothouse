@@ -343,6 +343,8 @@ jobs:
       # Auth is npm trusted publishing: npmjs.com trusts this repo's release.yml, so no token is stored.
       - name: Publish bothouse-dsh to npm
         working-directory: dsh/plugin-pkg
+        # An npm auth failure must not stop the dsh-plugin branch update below (DSH installs from it).
+        continue-on-error: true
         run: |
           set -euo pipefail
           ver="${TAG#v}"
