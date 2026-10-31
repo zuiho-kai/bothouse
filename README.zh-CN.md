@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/bothouse-team-hero.png" alt="bothouse 团队：G哥、C酱、肥鱼和大豆包并行协作" width="960">
+<img src="docs/assets/bothouse-team-hero.png" alt="bothouse：几个 AI 角色在同一个群里并行协作" width="960">
 
 [English](README.md) ｜ **中文**
 
@@ -21,10 +21,10 @@
 
 ## 宣传片
 
-3 分钟看懂 bothouse：一句话交代下去，几只「大肥鱼」自己分工、接活、交回。点击封面播放。
+3 分钟看懂 bothouse：一句话交代下去，几个 AI 角色自己分工、接活、交回。点击封面播放。
 
 <p align="center">
-  <a href="https://www.bilibili.com/video/BV15msZ6XEYq"><img src="docs/assets/readme/promo-cover.zh.jpg" width="760" alt="bothouse 宣传片：大肥鱼组队，点击在 B 站播放"></a>
+  <a href="https://www.bilibili.com/video/BV15msZ6XEYq"><img src="docs/assets/readme/promo-cover.zh.jpg" width="760" alt="bothouse 宣传片：AI 角色组队干活，点击在 B 站播放"></a>
 </p>
 
 以前同时用 Claude Code、Codex 和 DeepSeek，要在几个终端之间来回切、来回复制。窗口一关上下文就没了，人一离开电脑活就停。
@@ -35,48 +35,13 @@
 
 ## 安装
 
-一行命令装好，自带 SHA256 校验：
+一行命令装好，运行 `bothouse` 打开浏览器里的向导，选平台、接机器人、给每个角色选一个本地 CLI 就能开工：
 
 ```sh
-# macOS / Linux
 curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
 ```
 
-```powershell
-# Windows（PowerShell）
-irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex; bothouse
-```
-
-装好后三步上手：
-
-1. **打开向导**：运行 `bothouse`，浏览器里弹出设置向导。
-2. **接上角色**：选平台 → 接上机器人 → 给每个角色选一个本地 CLI → 保存。也可以直接对本地的 Claude Code 或 Codex 说一句「帮我装好 bothouse 并接上 Discord」。
-3. **开工**：点 **重启生效**，在频道里 @ 你的角色。
-
-<details>
-<summary><b>安装包下载、常驻后台、DSH 频道</b></summary>
-
-**直接下载**：到 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载对应平台的安装包，不用装 Go 或 Node。手动下载的，打开前先拿文件的 SHA256 和该版本的 SHA256SUMS 对一下。
-
-- **macOS**：`bothouse-mac.dmg`，Apple 芯片和 Intel 通用。拖进「应用程序」；没签名，第一次打开用 **右键 → 打开**。
-- **Windows**：`bothouse-windows.exe`（x64）；ARM64 Windows 走 x64 模拟。SmartScreen 拦了就点 **更多信息 → 仍要运行**。
-- **Linux**：`bothouse-linux-x64` 或 `bothouse-linux-arm64`，`chmod +x` 后运行。
-
-一行命令装的默认装最新版（含预发布），设 `BOTHOUSE_VERSION=<tag>` 可锁版本。提示 `~/.local/bin` 不在 PATH 时，先执行它打印的那条 PATH 命令。
-
-**入口平台**：Discord 要有服务器，飞书要有企业；自建网页两样都不用，见[接入指南](docs/connect-discord-feishu.md)。用本地 AI CLI 的角色，要先装好并登录对应 CLI。
-
-**常驻后台**：`bothouse daemon install` 注册并立刻启动服务。新装默认不开机自启，在 **设置 → 开机自启** 里改，不打断正在跑的活。
-
-**小模型调度和共享记忆**：在向导里配好 jev，bothouse 自动管理调度门；共享 Wiki 另装，见[调度与团队记忆](docs/ccm-and-wiki.md)。完整流程见[上手指南](docs/GETTING_STARTED.md)。
-
-**DSH 频道（实验）**：要 DSH `>= 0.2.1-rc.2`、PATH 上有 `pnpm`、Node `>= 22.12.0`。向导第一步选 DSH，检测 dsh → 装插件 → 运行返回的命令打开 DSH web。等价命令是 `bothouse setup dsh install`，也可以直接从 GitHub 装插件：
-
-```sh
-dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plugin-pkg'
-```
-
-</details>
+Windows、安装包下载、常驻后台和 DSH 频道见[上手指南](docs/GETTING_STARTED.md)。
 
 <a id="features"></a>
 
@@ -121,13 +86,13 @@ _上面两张是真实频道录屏，下面两张是作者自己在用的管理�
    ▼
 聊天频道 ── 主角色（常驻会话 + 共享 Wiki）
    │  大活交出去，聊天不停
-   ├─ 工作区1 ── @龙娘 写代码 · @鲸鱼娘 写文案 ── 交回
-   └─ 工作区2 ── @彩虹猫 查资料 ── 交回
+   ├─ 工作区1 ── @写代码的角色 · @写文案的角色 ── 交回
+   └─ 工作区2 ── @查资料的角色 ── 交回
    ▲
    └─ 要你拍板的事回到聊天频道，别的不打扰你
 ```
 
-- **叫到才开口**：默认主角色接话，其他角色跟着看，被 @ 或点名才回。轻量调度器 jev 判断没点名的消息该谁回，能用硅基流动的免费小模型或本地 Qwen 0.6B。
+- **叫到才开口**：默认主角色接话，其他角色跟着看，被 @ 或点名才回。轻量调度器 jev（一个只做选择题的小模型）判断没点名的消息该谁回，能用硅基流动的免费小模型或本地 Qwen 0.6B。
 - **共享记忆**：基于我们开源的 llm-wiki 扩展成多角色共用的记忆，存在本地 Markdown 里，能直接读、直接改，Git 记录团队学到的东西。
 - **夜间复盘**：会话结束、闲置 30 分钟或出错时，快模型把进度记进 Wiki；夜里慢而细的免费模型对照原始对话纠错补漏，周日全量检查。引用你的话会被代码逐字核对，编造的引用直接拒掉。
 - **护栏和工具**：拦危险命令；说「修好了」要附验证证据，说「稍后看」要挂定时器；在群里一句话就能关掉某项检查。自带看队友进度、视频抽帧和转写、联网搜索、子 agent 用时和状态等工具。
@@ -198,19 +163,11 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 
 ## 架构
 
-```text
-Discord / 飞书 / 自建频道
-        │
-平台适配 → 核心引擎 → 角色适配 → 本地 CLI 或 ACP Agent
-        ▲           │     ▲
-        │           ▼     │
-        │       调度门(jev)
-        │           │     │
-        └─ 回复 ────┘     共享 Wiki
-                          （消息前检索、夜间复盘）
-```
+<p align="center">
+  <img src="docs/assets/readme/architecture.zh.svg" width="960" alt="bothouse 架构：左边是入口（Discord、飞书、QQ 机器人、自建网页、DSH web），中间是 bothouse（核心引擎、调度门、工作区派活），下面是接的本地 CLI 和 Agent，右边是团队记忆（共享 Wiki、消息前检索、夜间复盘）和开发中的记忆论坛，最右边是同步记忆的 GitHub 私人仓库">
+</p>
 
-这是转发层的路径；DSH web 走单独的原生插件路径。模块职责见[架构](docs/ARCHITECTURE.md)。
+模块职责见[架构](docs/ARCHITECTURE.md)。
 
 ## 路线图
 

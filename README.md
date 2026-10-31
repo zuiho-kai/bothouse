@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/bothouse-team-hero.png" alt="The bothouse team: G-ge, C-chan, Feiyu and Dadoubao working together" width="960">
+<img src="docs/assets/bothouse-team-hero.png" alt="bothouse: several AI roles working side by side in one group chat" width="960">
 
 **English** ｜ [中文](README.zh-CN.md)
 
@@ -21,10 +21,10 @@
 
 ## Watch it in 3 minutes
 
-One message goes in; the whale squad splits the work, accepts it and hands it back. Click the cover to play.
+One message goes in; a team of AI roles splits the work, takes it on and hands it back. Click the cover to play.
 
 <p align="center">
-  <a href="https://x.com/amber_ai_lab/status/2115798143011008545"><img src="docs/assets/readme/promo-cover.en.jpg" width="760" alt="bothouse promo video: Whale Squad — click to play"></a>
+  <a href="https://x.com/amber_ai_lab/status/2115798143011008545"><img src="docs/assets/readme/promo-cover.en.jpg" width="760" alt="bothouse promo video: an AI team at work — click to play"></a>
 </p>
 
 Using Claude Code, Codex and DeepSeek together used to mean switching terminals and copying messages back and forth. Close a window and the context is gone; step away and the work stops.
@@ -35,48 +35,13 @@ So we built **bothouse**: a hub that brings your local CLIs and models into one 
 
 ## Install
 
-One command, SHA256 verification included:
+Install with one command, run `bothouse` to open the setup wizard in your browser, then pick a platform, connect your bots and choose a local CLI for each role:
 
 ```sh
-# macOS / Linux
 curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
 ```
 
-```powershell
-# Windows (PowerShell)
-irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex; bothouse
-```
-
-Then three steps:
-
-1. **Open the wizard:** run `bothouse`; the setup wizard opens in your browser.
-2. **Connect roles:** choose a platform → connect bots → pick a local CLI for each role → save. Or just tell your local Claude Code or Codex: “Set up bothouse and connect it to Discord.”
-3. **Start working:** click **Restart to apply**, then mention your roles in the channel.
-
-<details>
-<summary><b>Package downloads, background service, DSH channel</b></summary>
-
-**Direct download:** get your platform's package from [Releases](https://github.com/zuiho-kai/bothouse/releases); no Go or Node needed. For manual downloads, compare the file's SHA256 with that release's SHA256SUMS before opening it.
-
-- **macOS:** `bothouse-mac.dmg` for Apple Silicon and Intel. Drag it into Applications; it is unsigned, so **right-click → Open** on first launch.
-- **Windows:** `bothouse-windows.exe` (x64); ARM64 Windows runs it under emulation. If SmartScreen blocks it, choose **More info → Run anyway**.
-- **Linux:** `bothouse-linux-x64` or `bothouse-linux-arm64`; `chmod +x`, then run.
-
-The one-line installer picks the latest release, including prereleases; set `BOTHOUSE_VERSION=<tag>` to pin one. If it reports that `~/.local/bin` is not on PATH, run the PATH command it prints first.
-
-**Entry platform:** Discord needs a server and Feishu a workspace; self-hosted web needs neither — see the [connection guide](docs/connect-discord-feishu.md). Roles that use a local AI CLI need that CLI installed and logged in.
-
-**Background service:** `bothouse daemon install` registers and starts the service. Start at login is off for new installs; change it in **Settings → Start at login** without interrupting running work.
-
-**Small-model dispatcher and shared memory:** configure jev in the wizard and bothouse manages the gate; install the shared Wiki separately with [dispatcher and team memory](docs/ccm-and-wiki.md). Full walkthrough: [Getting started](docs/GETTING_STARTED.md).
-
-**DSH channel (experimental):** needs DSH `>= 0.2.1-rc.2`, `pnpm` on PATH and Node `>= 22.12.0`. Pick DSH in the first wizard step, then detect dsh → install plugins → run the returned command to open DSH web. The CLI equivalent is `bothouse setup dsh install --lang en`, or install the plugin straight from GitHub:
-
-```sh
-dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plugin-pkg'
-```
-
-</details>
+Windows, package downloads, the background service and the DSH channel are covered in [Getting started](docs/GETTING_STARTED.md).
 
 <a id="features"></a>
 
@@ -127,7 +92,7 @@ Chat channel ── lead (persistent session + shared Wiki)
    └─ only decisions that need you come back to chat
 ```
 
-- **Speak when called:** the lead answers by default; other roles follow along and reply when mentioned or named. The lightweight jev dispatcher decides who should answer an unaddressed message, using a free small model on SiliconFlow or a local model such as Qwen 0.6B.
+- **Speak when called:** the lead answers by default; other roles follow along and reply when mentioned or named. The lightweight jev dispatcher (a small model that only answers multiple-choice questions) decides who should answer an unaddressed message, using a free small model on SiliconFlow or a local model such as Qwen 0.6B.
 - **Shared memory:** we extended our open-source llm-wiki into a memory shared by every role. It lives in local Markdown you can read and edit, and Git history records what the team learned.
 - **Nightly review:** when a session ends, idles for 30 minutes or errors, a fast model records progress in the Wiki; at night a slower, thorough free model compares it with the original conversations to fix errors and fill gaps, with a full review on Sundays. Code checks every quoted instruction against your actual words and rejects invented quotes.
 - **Guardrails and tools:** dangerous commands are blocked; “fixed” needs verification evidence and “I'll check later” needs a timer; turn any check off with one message in chat. Built-in tools inspect teammate progress, extract video frames and transcripts, search the web, and show child-agent durations and status.
@@ -198,19 +163,11 @@ Full notes in [Releases](https://github.com/zuiho-kai/bothouse/releases).
 
 ## Architecture
 
-```text
-Discord / Feishu / self-hosted channels
-        │
-Platform adapters → Core engine → Role adapters → Local CLI or ACP agent
-        ▲           │     ▲
-        │           ▼     │
-        │     Dispatcher gate (jev)
-        │           │     │
-        └─ Responses┘     Shared Wiki
-                          (retrieval before messages, nightly review)
-```
+<p align="center">
+  <img src="docs/assets/readme/architecture.en.svg" width="960" alt="bothouse architecture: entry points (Discord, Feishu, QQ Bot, self-hosted web, DSH web) on the left; bothouse (core engine, reply gate, workspaces) in the middle; local CLIs and agents below; team memory (shared wiki, pre-message recall, nightly review) and the in-development memory forum on the right; a private GitHub repo that syncs the memory on the far right">
+</p>
 
-This is the bridge path; DSH web uses a separate native plugin path. See [Architecture](docs/ARCHITECTURE.md) for module responsibilities.
+See [Architecture](docs/ARCHITECTURE.md) for module responsibilities.
 
 ## Roadmap
 
