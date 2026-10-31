@@ -374,6 +374,19 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 	}
 }
 
+// watchHandoffLeft: a handoff item (it came from a chat, it.Chat) is no longer bound to
+// workspace key. Asking the user (ws-up --ask) pauses the item and drops its workspace; the
+// answer (ws-handoff --resume) clears the pause before the item is bound again, possibly to
+// another workspace or only queued. The old workspace's watch must not wake it then: its
+// session never got the answer and asks the user again (11-01 #855: answered at 03:22:32,
+// the old workspace was told to carry on at 03:22:56 and posted the same [ask] at 03:23:11).
+func watchHandoffLeft(it teamTaskBoardItem, key string) bool {
+	if it.Chat == "" || chatOf(it.Chat) == key {
+		return false
+	}
+	return it.WS == "" || teamChatKey(it.WS) != key
+}
+
 func (e *Engine) armIdleWake(a idleAssignment) {
 	time.AfterFunc(watchTurnEndDelay, func() { e.fireIdleWake(a) })
 }
@@ -393,7 +406,8 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 				if it.ID == id {
 					found = true
 					// Handed to a workspace since: the workspace's watch keeps it, not this chat.
-					closed = watchBoardClosed(it) || it.Paused != "" || it.own != a.key && it.parent == a.key && !it.wsEnded
+					closed = watchBoardClosed(it) || it.Paused != "" || it.own != a.key && it.parent == a.key && !it.wsEnded ||
+						watchHandoffLeft(it, a.key)
 					break
 				}
 			}
