@@ -371,8 +371,6 @@ func teamTaskBoardReason(texts ...string) string {
 // teamTaskBoardStateOf: the item's state and the text after it (reason or age).
 func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardState, string) {
 	switch {
-	case it.wsEnded:
-		return teamTaskHidden, ""
 	case it.Paused != "":
 		if teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
 			return teamTaskWaiting, teamTaskBoardReason(it.PauseWhy, it.Status)
@@ -382,6 +380,9 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 		return teamTaskHidden, ""
 	case teamOtherQuiet.MatchString(it.Status):
 		return teamTaskWaiting, teamTaskBoardReason(it.Status)
+	case it.wsEnded:
+		// Releasing an execution workspace is not acceptance of its still-open board item.
+		return teamTaskStuck, "工作区已结束，待主角色核对"
 	}
 	last := teamTaskBoardLastActive(it, now)
 	if it.WS != "" && it.ProgressAt == 0 && !last.IsZero() && now.Sub(last) >= teamTaskBoardStuckAfter {
@@ -524,7 +525,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		if card != nil && card.UpdatedAt.After(last) {
 			last = card.UpdatedAt
 		}
-		if state == teamTaskPaused || (!last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
+		if state == teamTaskPaused || (state != teamTaskWaiting && !it.wsEnded && !last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
 			shelved++
 			continue
 		}
@@ -615,7 +616,8 @@ func renderWorkspaceTaskBoardFit(items []teamTaskBoardItem, chat string, now tim
 	rows := map[teamTaskBoardState][]string{}
 	paused := 0
 	for _, it := range items {
-		if !it.shownIn(chat) {
+		// An ended execution awaits the lead on the parent table, not in a reused workspace.
+		if !it.shownIn(chat) || it.wsEnded {
 			continue
 		}
 		switch st, note := teamTaskBoardStateOf(it, now); st {
