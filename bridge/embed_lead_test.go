@@ -61,7 +61,7 @@ func TestEmbeddedLeadInstallAndExecute(t *testing.T) {
 		}
 		return string(out)
 	}
-	id := strings.TrimSpace(run("board", "add", "task", "-", "doing", "role"))
+	id := strings.TrimSpace(run("board", "add", "task", "-", "doing", "role", "--short", "task"))
 	run("board", "done", id, "2", "regression")
 	report := run("board", "rework")
 	if !strings.Contains(report, "regression：2 次") {
@@ -75,7 +75,7 @@ func TestEmbeddedLeadInstallAndExecute(t *testing.T) {
 	t.Setenv("CC_BIN", mock)
 	t.Setenv("CC_PROJECT", "test-role")
 	t.Setenv("CC_SESSION", "test:isolated")
-	back := strings.TrimSpace(run("board", "add", "comeback", "-", "doing", "role"))
+	back := strings.TrimSpace(run("board", "add", "comeback", "-", "doing", "role", "--short", "comeback"))
 	run("later", back, "10m", "continue")
 	args, err := os.ReadFile(filepath.Join(home, "timer.args"))
 	if err != nil {
@@ -85,7 +85,7 @@ func TestEmbeddedLeadInstallAndExecute(t *testing.T) {
 		t.Fatalf("session lost: %s", args)
 	}
 	t.Setenv("CC_BIN", "/usr/bin/false")
-	rb := strings.TrimSpace(run("board", "add", "rollback", "-", "doing", "role"))
+	rb := strings.TrimSpace(run("board", "add", "rollback", "-", "doing", "role", "--short", "rollback"))
 	if out, err := exec.Command(filepath.Join(bin, "later"), rb, "10m", "continue").CombinedOutput(); err == nil {
 		t.Fatalf("failure ignored: %s", out)
 	}
