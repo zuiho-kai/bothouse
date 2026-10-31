@@ -231,6 +231,24 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 | [Pull requests](https://github.com/zuiho-kai/bothouse/pulls) | 一起改代码 |
 | [linux.do](https://linux.do) | 中文社区讨论 |
 
+<a id="repository-status"></a>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/status-zh-night.svg" />
+  <img src="docs/assets/readme/banner/status-zh-day.svg" width="960" alt="" />
+</picture>
+
+## 仓库状态
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zuiho-kai/bothouse/readme-status/stats-zh-night.svg" />
+  <img src="https://raw.githubusercontent.com/zuiho-kai/bothouse/readme-status/stats-zh-day.svg" width="960" alt="GitHub 仓库状态：Stars、Forks、未关闭 Issues 和 PR、最近 30 天关闭的 PR 和提交数、最新版本；文字数据见下方链接。" />
+</picture>
+
+**最近 30 天**：关闭的 PR 包括已合并的 PR；提交按默认分支的全部历史统计，包括合并提交和机器人提交。每六小时更新一次，图里的时间是最后一次成功更新的时间。
+
+[文字数据与统计口径](https://github.com/zuiho-kai/bothouse/tree/readme-status#readme) · [JSON](https://raw.githubusercontent.com/zuiho-kai/bothouse/readme-status/stats.json) · [更新任务](https://github.com/zuiho-kai/bothouse/actions/workflows/readme-status.yml)
+
 <a href="https://github.com/zuiho-kai/bothouse">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/star-zh-night.svg" />
