@@ -107,6 +107,16 @@ One-on-one private messages are supported without @mention.
 私聊消息标成 `Message.Direct`，`core/gate_local.go` 的内置忙碌规则据此认得出这是一个 DM。
 Private messages carry `Message.Direct`, which is how `core/gate_local.go`'s built-in busy rule knows it is a DM.
 
+### 发言者身份 / Sender identity
+
+群聊和私聊使用事件里的 `author.username` 显示昵称；昵称缺失或为空白时回退到 openid。`author.bot` 会传给核心的 `Message.FromBot`，保留机器人发言的来源。昵称仅用于展示，`allow_from`、用户 ID、会话与回复目标仍使用原来的 `member_openid`（群聊）或 `user_openid`（私聊）；改名不会改变会话或授权。
+
+Group and private messages use `author.username` for display, falling back to the openid when absent or blank. `author.bot` maps to `Message.FromBot`. Display names never replace the stable openids used for authorization, sessions or reply routing. Renaming a sender does not change their session or access.
+
+字段依据：[群消息事件](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/group_at_message_create.html)、[私聊事件](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/c2c_message_create.html)。本地模拟 WebSocket 网关验证了这些字段的传递；真实 QQ 昵称展示仍需实机验收。
+
+Sources: [group events](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/group_at_message_create.html), [C2C events](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/c2c_message_create.html). A local simulated WebSocket gateway verifies field propagation; live QQ display still needs acceptance testing.
+
 ## 支持的消息类型 / Supported Message Types
 
 | 类型 / Type | 接收 / Receive | 发送 / Send |
@@ -129,10 +139,6 @@ The target is supplied by the caller, not inferred from an incoming message: `co
 **目前 `qqbot` 没有实现 `core.AtMentionSender`**，所以被要求 @ 时会走引擎的降级：**静默退回普通发送**（`core/engine.go` 的 `sendOutbound` 分支），不报错，只是消息上没有 @。
 
 **`qqbot` does not implement `core.AtMentionSender` today**, so an asked-for @ takes the engine's fallback: a **silent plain send** (`core/engine.go`, `sendOutbound`) — no error, the message just has no @.
-
-另外，官方 API 只给 openid，不给真实 QQ 号，也不给昵称（`platform/qqbot/qqbot.go` 的 `UserName`、`ChatName` 都只能用 openid）。这影响的是「机器人怎么称呼人」，不影响能不能 @——只要调用方拿得到想 @ 的那个 openid。
-
-Separately, the official API returns openids only, no real QQ numbers and no nicknames (`platform/qqbot/qqbot.go` uses the openid for both `UserName` and `ChatName`). That affects how the bot *names* people, not whether it can @ them — all it needs is the openid of the person to mention, supplied by the caller.
 
 ## 常见问题 / FAQ
 
