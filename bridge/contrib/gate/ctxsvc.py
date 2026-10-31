@@ -120,13 +120,14 @@ def context(req):
     bot = req.get("bot") or ""
     who = lead.identity(bot) if lead else None
     pb = lead.playbook(bot) if lead else None  # 当主的才有：主角色工作手册（lead.playbook）
+    dm = lead.dept_manager(bot, ws_task(req.get("key") or "")) if lead else None  # 工作区里有活才有：部门经理做法
     text = req.get("text") or ""
     own = role_wiki(bot) if WIKI is not None else None  # GATE_WIKI=off/空 = 什么 wiki 都不推，角色 wiki 也不查
     mine = match_wiki(text, root=own) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
     if WIKI is None:
-        return {"wiki": [x for x in (who, pb) if x] + board_items(req.get("key") or "")}
+        return {"wiki": [x for x in (who, pb, dm) if x] + board_items(req.get("key") or "")}
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
-    return {"wiki": [x for x in (who, pb) if x] + standing_items(roots) + board_items(req.get("key") or "") + match_wiki(text) + mine
+    return {"wiki": [x for x in (who, pb, dm) if x] + standing_items(roots) + board_items(req.get("key") or "") + match_wiki(text) + mine
             + decision_items(text, req.get("key") or "")}  # 主 wiki 在前
 
 
@@ -300,6 +301,18 @@ def standing_items(roots):
         if body:
             out.append({"path": f"【常驻做法 {tag}】", "desc": STANDING_HOW.format(path=shown) + "\n" + body})
     return out
+
+
+def ws_task(key=""):
+    """会话 key 所在频道是工作区、任务板上有绑在这里且没暂停的活 → 最早那件的编号，否则 None。"""
+    chat = ":".join(str(key or "").split(":", 2)[:2])
+    if board is None or ":" not in chat or not board._path("board.jsonl").exists():
+        return None
+    try:
+        ids = [i["id"] for i in board.items() if i.get("ws") == chat and not i.get("paused")]
+    except Exception:  # 板子读坏了不挡推页
+        return None
+    return min(ids) if ids else None
 
 
 def board_items(key=""):

@@ -159,7 +159,9 @@ func TestGateAbortKeepsQueuedMessageAndAnswersQuestion(t *testing.T) {
 				answers++
 			}
 		}
-		if answers >= 2 {
+		// The abort question and the queued message come from the same sender, so they
+		// run as one batched turn and get one answer.
+		if answers >= 1 {
 			notices := 0
 			for _, m := range sent {
 				if strings.Contains(m.content, "📬") {
@@ -172,7 +174,7 @@ func TestGateAbortKeepsQueuedMessageAndAnswersQuestion(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("answers in channel = %d, want 2 (queued message and the question); sent=%+v", answers, sent)
+			t.Fatalf("answers in channel = %d, want 1 (queued message and the question batched); sent=%+v", answers, sent)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
