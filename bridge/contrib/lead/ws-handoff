@@ -22,6 +22,7 @@ import contextlib, io, json, os, re, shutil, subprocess, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _recall  # noqa: E402
 import _team  # noqa: E402
 import _handoff_rules  # noqa: E402  交接校验（规则在 handoff-rules.json）
 
@@ -415,6 +416,7 @@ def main(argv):
     dup = None if force else live_dup(path)
     if dup:
         sys.exit(f"ws-handoff: {dup_error(dup)}")
+    _recall.append_to(path)
     chat = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
     parent = ""  # 走共享池时交接记在桥里的聊天频道；叫醒失败按它撤掉刚 claim 的那件
     if _team.workspace():
