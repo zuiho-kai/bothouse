@@ -222,6 +222,10 @@ Set `share_session_in_channel = true` on both, otherwise each person in the grou
 - NapCat 使用 NTQQ 协议，长时间挂机可能需要重新登录 / NapCat may need re-login after long periods
 - 建议使用 Docker restart policy: `--restart unless-stopped`
 
+**Q: 图片或语音没有传给模型？/ An image or voice message did not reach the model?**
+- 检查日志中的 `qq: download image failed` / `qq: download audio failed`。媒体下载只接受 HTTP 200；404、500 或不完整的 206 响应会跳过，不把错误页或残片作为附件。文字和其他成功下载的附件仍会正常处理；不会自动向 QQ 发送失败通知。
+- Check those download warnings in the logs. Media downloads require HTTP 200; error pages and partial responses are skipped. Text and other successful attachments are still processed. No failure notification is automatically sent to QQ.
+
 ## 其他 OneBot 实现 / Other OneBot Implementations
 
 除了 NapCat，以下 OneBot v11 实现也应该兼容 / Besides NapCat, these should also work:
