@@ -5,9 +5,12 @@ ws-handoff 交活时把结果追加成交接的「旧定案（程序搜出）」
 搜不到、超时、没装 claude 都只写「旧定案：没搜到」，不拦交活。
 来源：10-31 交接跑偏实验（3 案，只有「原话 + 程序搜出的旧定案」那组两件都命中；只看交接两件都没中）。
 命令行：_recall.py <交接文件>  → 打出要追加的那一节（不改文件）。"""
-import json, os, re, subprocess, sys, tempfile, time
+import json, os, re, runpy, subprocess, sys, tempfile, time
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
+
+channel_records = runpy.run_path(str(Path(__file__).with_name("chanlog")))["records"]
 
 HOME = Path.home()
 WIKI_BIN = Path(os.environ.get("WIKI_BIN") or HOME / "wiki" / "bin")
@@ -63,7 +66,8 @@ KW_SYSTEM = ("从一份交活说明里抽几个搜索关键词（最多五个）
 PICK_SYSTEM = """你从一堆搜索片段里挑出「用户本人以前定过或否过」的事，交给执行者参考，免得他照转述做跑偏。
 只留：用户的原话里明确定下、选定、否决、纠正过的做法（或笔记里写明「用户定/用户否/用户要/用户说」的记录），并且和这件活有关。
 片段大多是助手（橘）和队友（龙娘、鲸鱼娘、彩虹猫、grok娘）说的话，不是用户的；只有片段写明「用户…」「原话」，或明显是人在 @ 机器人下指令时，才算用户说的。拿不准是谁说的就不要。
-不要：助手、队友自己的主意、计划和对别人的要求；只是陈述现状、进度、事故的；和这件活无关的；已在「本次用户原话」里的重复。
+频道检索中带「【队友原话：名字】」的片段例外：保留和本任务有关的明确批评、否决和改法，输出必须写「队友意见（名字）」并保留来源，不是用户定案，不得冒充用户拍板。
+不要：未标明作者的助手主意、计划和对别人的要求；只是陈述现状、进度、事故的；和这件活无关的；已在「本次用户原话」里的重复。
 每条一行：先写定了什么（一句短话，尽量带用户原话引号），再写「——来源」，来源照片段给的原样抄（wiki 路径:行号，或 会话id 时间）。
 最多 15 条，按和这件活的相关程度排。没有就输出空数组。只输出 JSON 数组（字符串），不要别的字。"""
 
@@ -139,17 +143,53 @@ def session_snips(pairs, before):
     return out
 
 
+def parse_stamp(value):
+    # Go RFC3339Nano has variable fractional precision; Python 3.9 accepts six digits.
+    value = re.sub(r"\.(\d+)", lambda m: "." + (m.group(1) + "000000")[:6], value)
+    stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)
+
+
+def channel_hits(kws, before):
+    """Reuse chanlog's channel transcript parser; exclude ambiguous user/system blocks."""
+    cutoff = parse_stamp(before)
+    out = []
+    for ts, speaker, text, where, src in channel_records():
+        if speaker == "用户/系统" or not ts:
+            continue
+        try:
+            stamp = parse_stamp(ts)
+        except ValueError:
+            continue
+        if stamp > cutoff:
+            continue
+        label = "用户原话" if speaker.startswith("用户:") else "队友原话"
+        for line in text.splitlines():
+            if any(noise in line for noise in NOISE):
+                continue
+            for kw in kws:
+                i = line.lower().find(kw.lower())
+                if i >= 0:
+                    snippet = " ".join(line[max(0, i-SNIP_BEFORE):i+len(kw)+SNIP_AFTER].split())
+                    out.append((f"频道 {speaker} @{where} {src} {ts}", f"【{label}：{speaker}】{snippet}"))
+                    break
+    return out
+
+
 DECIDED = re.compile(r"用户(定|要|说|否|嫌|点名|改)|原话|不要|别再|就这样|定了|改成|不用|先不|以后")
 
 
 def gather(kws, before):
-    """wiki 和会话命中的片段 [(来源, 正文)]；整段最多 SEARCH_BUDGET 秒，超时的那路跳过。"""
+    """wiki、会话和频道命中的片段 [(来源, 正文)]；整段最多 SEARCH_BUDGET 秒，超时的那路跳过。"""
     t0 = time.time()
-    pool = ThreadPoolExecutor(max_workers=2 * len(kws) + 1)
+    pool = ThreadPoolExecutor(max_workers=2 * len(kws) + 2)
     wf = [pool.submit(wiki_hits, k) for k in kws]
     sf = [pool.submit(session_ids, k) for k in kws]
-    wait(wf + sf, timeout=SEARCH_BUDGET)
+    cf = pool.submit(channel_hits, kws, before)
+    wait(wf + sf + [cf], timeout=SEARCH_BUDGET)
     snips = [h for f in wf if f.done() for h in f.result()]
+    if cf.done():
+        snips += cf.result()
     pairs = [p for f in sf if f.done() for p in f.result()]
     left = SEARCH_BUDGET - (time.time() - t0)
     if pairs and left > 0:
@@ -196,7 +236,7 @@ def old_decisions(notes, before=None):
 
 
 def render(rows):
-    lines = [f"## {SECTION}", "（交活时程序按原话和总目标搜 wiki 与历史会话，只留用户定过/否过的；和交接冲突时以原话和这里为准，"
+    lines = [f"## {SECTION}", "（交活时程序按原话和总目标搜 wiki、历史会话和频道原话，区分用户定案与具名队友意见；队友意见不等于用户拍板，和交接冲突时以用户原话为准，"
              "拿不准先问聊天频道的主角色，不直接问用户）"]
     lines += [f"- {r.lstrip('-* ')}" for r in rows] if rows else [f"- {NONE_LINE}"]
     return "\n".join(lines) + "\n"

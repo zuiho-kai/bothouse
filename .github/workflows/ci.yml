@@ -145,6 +145,12 @@ jobs:
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_dshlog.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/hooks/test_bash_guard_longwait.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/hooks/test_codemap_inject.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/hooks/test_codemap_fill.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/wiki/test_rolewiki.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       # gate tests read config.toml with tomllib (3.11+) and skip below it; pin 3.11 here, after the steps above,

@@ -12,10 +12,12 @@
    提示走 PreToolUse 的 additionalContext，命令照常执行。
 6. 前台干等：gh run watch、gh … --watch、前台 sleep ≥60 秒、until/while … sleep … done 轮询循环（等完成通知，
    不要占着前台；超过 5 分钟缓存全部重写）。run_in_background=true 的不拦，单个 sleep <60 秒不拦。
+   perl/python 里的 while … sleep 循环同样拦。
    DSH：载荷带 dsh_busy（本会话还有子 agent/后台任务在跑）时 job_output wait=true 也拦；DSH 的前台 sleep 一律拦。
 8. 仅 DSH 提速（本轮的工具调用来自 dsh-cc-compat.py 加的 dsh_turn）：同一轮第二次轮询同一对象拦；
    一串只读查询里第 4 个「一步只跑一条只读查询」的步拦（合并过的步放行），本轮重复的只读命令拦；
-   前台联网长命令（git clone/fetch/pull、npm/pip/brew install）拦，改后台。子 agent 会话和外出轮豁免。"""
+   前台联网长命令（git clone/fetch/pull、npm/pip/brew install）拦，改后台。子 agent 会话和外出轮豁免。
+10. 不拦只改：Claude Code 子 agent（非 long-task）前台 Bash 的 timeout 超过 290 秒时压到 290 秒，跑不完自动转后台。"""
 import json, os, re, shlex, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import plan_gate  # noqa: E402  要方案未批时拦开做（用户 2026-10-28）
@@ -124,6 +126,30 @@ WAIT_MSG = ("别前台干等：把命令放后台/推完就交付，附 run id �
             "（用户 2026-10-22「超过5分钟就是0缓存重写了」）。")
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$", re.S | re.M)
 POLL_LOOP = re.compile(r"\b(until|while)\b.*?\bdo\b.*?\bsleep\b.*?\bdone\b", re.S)
+# the same loop written inside perl/python: perl -e 'while(1){…sleep 5}', python -c 'while …: time.sleep(10)'
+POLL_INLINE = re.compile(r"\bwhile\s*[(\s].*?[{:].*?\bsleep\b", re.S)
+
+# 规则 10：子 agent 的提示缓存只有 5 分钟，前台等更久整段上下文要重写。前台 Bash 的 timeout 超过 SUB_CAP_MS 时
+# 不拦，压到 SUB_CAP_MS（updatedInput）：跑不完 Claude Code 自动转后台，子 agent 立刻拿回控制权。
+# 回放（作者机器 2127 条子 agent 前台命令）：约百条设了 >5 分钟 timeout，多数几秒就完，硬拦每条多一步，所以只压不拦。
+# 主会话、long-task 子 agent（1 小时缓存，见 agents/long-task.*.md）、DSH、后台命令不管。
+SUB_CAP_MS = 290000  # 5 分钟缓存留 10 秒给模型开口
+SUB_CAP_AGENT = "long-task"
+SUB_CAP_MSG = ("这条命令的 timeout 被压到 290 秒（子 agent 提示缓存只有 5 分钟，前台等更久整段上下文要重写）。"
+               "跑不完会自动转后台：转后台后别 sleep/轮询等它，交付收工，交付里写输出文件路径和下一步，"
+               "结果出来再由派活方接手；预计要等 5–60 分钟的活应派 long-task 子 agent。")
+
+
+def sub_cap(inp, d):
+    """子 agent（非 long-task）的前台 Bash timeout 超过 SUB_CAP_MS 时，返回压过的新 tool_input；否则 None。"""
+    if not d.get("agent_id") or d.get("agent_type") == SUB_CAP_AGENT or d.get("dsh") or inp.get("run_in_background"):
+        return None
+    try:
+        if float(inp.get("timeout") or 0) <= SUB_CAP_MS:
+            return None
+    except (TypeError, ValueError):
+        return None
+    return dict(inp, timeout=SUB_CAP_MS)
 
 
 def sleep_secs(arg):
@@ -146,6 +172,8 @@ def check_wait(cmd, busy=None, dsh=False):
     cmd = HEREDOC.sub("", cmd)  # heredoc 正文是写进文件的内容，不是要执行的命令
     if POLL_LOOP.search(cmd):
         deny(WAIT_MSG + "\n被拦：until/while … sleep … done 轮询循环。")
+    if POLL_INLINE.search(cmd):
+        deny(WAIT_MSG + "\n被拦：perl/python 里的 while … sleep 轮询循环。")
     for seg in segments(cmd):
         t = toks(seg)
         while t and (re.match(r"^\w+=", t[0]) or t[0] in ("sudo", "env", "time", "command", "exec", "do", "then")):
@@ -489,6 +517,12 @@ def main():
             f"\n被拦的片段：{seg.strip()[:200]}"
         )
         deny(reason)
+    capped = sub_cap(inp, d)
+    if capped:  # 规则 10：只改 timeout，命令照常执行（别的规则已在上面查过）
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
+                                                 "updatedInput": capped, "additionalContext": SUB_CAP_MSG}},
+                         ensure_ascii=False))
+        sys.exit(0)
     if wiki_cat_pages(cmd, d.get("cwd")) >= WIKI_CAT_MIN:
         hint("这条命令整页 cat 了多页 wiki（照常执行，只是提醒）。下次先 `grep -rn <关键词> <wiki 目录>`（装了 llm-wiki 就用它的 "
              "`bin/search.py <关键词>`）拿 路径:行号，再 `sed -n '<起>,<止>p' <页>` 只读命中段，不整页 cat 多页。")

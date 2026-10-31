@@ -162,7 +162,7 @@ func TestAgentHooksGemini(t *testing.T) {
 	if res.PersonaFile != filepath.Join(wd, "GEMINI.md") {
 		t.Fatalf("persona = %q", res.PersonaFile)
 	}
-	if !slices.Equal(res.Enabled, AgentHookNames()) {
+	if want, _ := (AgentHookOptions{CLI: "gemini"}).names(); !slices.Equal(res.Enabled, want) {
 		t.Fatalf("enabled = %v", res.Enabled)
 	}
 	if _, err := os.Stat(filepath.Join(wd, ".claude", "settings.json")); !os.IsNotExist(err) {
@@ -205,7 +205,7 @@ func TestAgentHooksGemini(t *testing.T) {
 	if !strings.Contains(txt, `"timeout": 10000`) {
 		t.Fatalf("timeout must be in milliseconds:\n%s", txt)
 	}
-	if on, err := AgentHooksEnabled("gemini", wd); err != nil || !slices.Equal(on, AgentHookNames()) {
+	if on, err := AgentHooksEnabled("gemini", wd); err != nil || !slices.Equal(on, res.Enabled) {
 		t.Fatalf("enabled read back = %v %v", on, err)
 	}
 	p, _ := os.ReadFile(filepath.Join(wd, "GEMINI.md"))
@@ -269,7 +269,7 @@ func TestAgentHooksQoderIFlow(t *testing.T) {
 			if res.PersonaFile != filepath.Join(wd, tc.persona) {
 				t.Fatalf("persona = %q", res.PersonaFile)
 			}
-			if !slices.Equal(res.Enabled, AgentHookNames()) {
+			if want, _ := (AgentHookOptions{CLI: tc.cli}).names(); !slices.Equal(res.Enabled, want) {
 				t.Fatalf("enabled = %v", res.Enabled)
 			}
 			if _, err := os.Stat(filepath.Join(wd, ".claude", "settings.json")); !os.IsNotExist(err) {
@@ -309,7 +309,7 @@ func TestAgentHooksQoderIFlow(t *testing.T) {
 			if !strings.Contains(txt, `"timeout": 10`) {
 				t.Fatalf("timeout must stay in seconds:\n%s", txt)
 			}
-			if on, err := AgentHooksEnabled(tc.cli, wd); err != nil || !slices.Equal(on, AgentHookNames()) {
+			if on, err := AgentHooksEnabled(tc.cli, wd); err != nil || !slices.Equal(on, res.Enabled) {
 				t.Fatalf("enabled read back = %v %v", on, err)
 			}
 			p, _ := os.ReadFile(filepath.Join(wd, tc.persona))
