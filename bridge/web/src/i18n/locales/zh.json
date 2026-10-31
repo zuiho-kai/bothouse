@@ -365,7 +365,9 @@
     "logLevel": "日志级别",
     "appearance": "外观",
     "theme": "主题",
-    "themeHint": "默认是黄白明亮。只保存在这个浏览器里，不用点保存。"
+    "themeHint": "默认是黄白明亮。只保存在这个浏览器里，不用点保存。",
+    "tokenUnit": "Token 用量单位",
+    "tokenUnitHint": "设置 Token 用量的显示单位（支持原数、百万 M、十亿 B），悬停可查看完整原数。只保存在这个浏览器里，不用点保存。"
   },
   "globalProviders": {
     "title": "服务商管理",
@@ -466,6 +468,22 @@
   "usage": {
     "title": "用量",
     "subtitle": "每一天的消耗，每一小时的节奏。",
+    "tokenUnit": "显示单位",
+    "unitRaw": "完整原数",
+    "unitM": "M (百万)",
+    "unitB": "B (十亿)",
+    "unitRawShort": "原数",
+    "unitMShort": "M",
+    "unitBShort": "B",
+    "dateRange": "时间段",
+    "startDate": "开始日期",
+    "endDate": "结束日期",
+    "resetRange": "重置时间段",
+    "customTokens": "所选时段 token",
+    "customRoles": "按角色 · 所选时段",
+    "customModels": "按模型 · 所选时段",
+    "dateRangeInvalid": "起止日期无效：结束日期须晚于或等于开始日期",
+    "dateRangeTooLong": "起止日期跨度不能超过一年",
     "roles": "按角色 · 近一年",
     "models": "按模型 · 近一年",
     "allRoles": "全部角色",

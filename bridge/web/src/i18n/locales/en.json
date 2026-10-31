@@ -365,7 +365,9 @@
     "logLevel": "Log level",
     "appearance": "Appearance",
     "theme": "Theme",
-    "themeHint": "Default is bright yellow-white. Saved in this browser only; no need to press Save."
+    "themeHint": "Default is bright yellow-white. Saved in this browser only; no need to press Save.",
+    "tokenUnit": "Token usage unit",
+    "tokenUnitHint": "Set the token usage display unit (Raw, Million M, Billion B). Hover to view exact raw count. Saved in this browser only; no need to press Save."
   },
   "globalProviders": {
     "title": "Providers",
@@ -466,6 +468,22 @@
   "usage": {
     "title": "Usage",
     "subtitle": "Daily consumption and hourly activity.",
+    "tokenUnit": "Display unit",
+    "unitRaw": "Raw count",
+    "unitM": "M (Million)",
+    "unitB": "B (Billion)",
+    "unitRawShort": "Raw",
+    "unitMShort": "M",
+    "unitBShort": "B",
+    "dateRange": "Time range",
+    "startDate": "Start date",
+    "endDate": "End date",
+    "resetRange": "Reset range",
+    "customTokens": "Selected period tokens",
+    "customRoles": "By role · selected period",
+    "customModels": "By model · selected period",
+    "dateRangeInvalid": "Invalid date range: End date must be on or after start date",
+    "dateRangeTooLong": "Date range must be at most one year",
     "roles": "By role · past year",
     "models": "By model · past year",
     "allRoles": "All roles",

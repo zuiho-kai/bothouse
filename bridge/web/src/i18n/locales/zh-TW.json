@@ -364,7 +364,9 @@
     "logLevel": "記錄層級",
     "appearance": "外觀",
     "theme": "主題",
-    "themeHint": "預設是黃白明亮。只儲存在這個瀏覽器裡，不用按儲存。"
+    "themeHint": "預設是黃白明亮。只儲存在這個瀏覽器裡，不用按儲存。",
+    "tokenUnit": "Token 用量單位",
+    "tokenUnitHint": "設定 Token 用量的顯示單位（支援原數、百萬 M、十億 B），懸停可查看完整原數。只儲存在這個瀏覽器裡，不用按儲存。"
   },
   "globalProviders": {
     "title": "服務商管理",
