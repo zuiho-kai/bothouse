@@ -45,6 +45,28 @@ def check_notes(text: str):
     return _handoff_rules.check(text)
 
 
+def intent_gate(text: str):
+    """交接对照产品意图卡，由小模型判断（../hooks/intent_judge.py，发问检查用同一个）：交接里留给用户定的事按用户定过的话
+    能推出来，或做法和用户定过的冲突，就退回并给出答案；真是方向、超时出错、找不到判断器都放行。
+    来源：用户 2026-10-31「我不想什么事情都要我说，你自己思考」「有没有更好的办法，更智能的办法」（#827）。"""
+    here = Path(__file__).resolve().parent
+    for d in (here.parent / "hooks", here.parent.parent / "hooks"):  # 仓库 contrib/hooks；安装后 ~/.bothouse/hooks
+        if (d / "intent_judge.py").is_file():
+            break
+    else:
+        return None
+    sys.path.insert(0, str(d))
+    import intent_judge  # noqa: E402
+    r = intent_judge.judge(text, kind="handoff")
+    if r["verdict"] == "self":
+        return (f"交接里留给用户定的「{r['question']}」按用户定过的话能推出来：{r['answer']}（{r['basis'].rstrip('。')}）。"
+                "把这个答案写进交接，自己定，再交。判断器漏了事实就在交接里写明漏了什么再交。")
+    if r["verdict"] == "conflict":
+        return (f"交接里的做法「{r['question']}」和用户定过的冲突：{r['basis'].rstrip('。')}。合定案的做法：{r['answer']}。"
+                "按定案改了再交；确要推翻定案，先问用户，把用户确认的原话写进「用户原话」再交。")
+    return None
+
+
 def fixed_channel(chat: str) -> str:
     """配了 WS_CHANNEL / 团队文件 "workspace" 时固定用它；不带平台前缀就沿用当前聊天频道的平台（都没有按 discord）。
     不再自己用平台 token 查/建频道：配的频道没了，timer add 会报错；不配就走桥的共享池（workspace new 由桥建频道/建群）。"""
@@ -302,10 +324,14 @@ def main(argv):
     if not os.path.isfile(path):
         sys.exit(f"ws-handoff: 交接文件不存在 {path}\n{USAGE}")
     with open(path, encoding="utf-8") as fh:
+        notes = fh.read()
         try:
-            err = check_notes(fh.read())
+            err = check_notes(notes)
         except RuntimeError as e:  # 规则文件读不到或写坏：报错不放行
             sys.exit(f"ws-handoff: {e}")
+    if err:
+        sys.exit(f"ws-handoff: {err}")
+    err = intent_gate(notes)
     if err:
         sys.exit(f"ws-handoff: {err}")
     chat = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
