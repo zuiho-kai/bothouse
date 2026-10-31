@@ -8,15 +8,15 @@ bothouse = **团队协作 + wiki 记忆**：一群 AI 伙伴在聊天软件里�
 
 ## 三步用起来：装 → 向导 → 确认上线
 
-下面先介绍 Discord / 自建平台的向导流程。macOS、Linux、Windows 都行（Apple 芯片 / Intel / arm64 / x86_64），预编译桥接不用装 Go 或 Node。已有 DSH、想在网页里添加多个 DeepSeek 或 Codex 成员，走[DSH 安装入口](../README.zh-CN.md#dsh-频道实验)和[成员配置步骤](single-cli-team.md#在-dsh-里创建三个成员)；DSH 插件另有 Node、pnpm 和版本要求。
+下面先介绍 Discord / 自建平台的向导流程。macOS、Linux、Windows 都行（Apple 芯片 / Intel / arm64 / x86_64），预编译桥接不用装 Go 或 Node。已有 DSH、想在网页里添加多个 DeepSeek 或 Codex 成员，走下面的[DSH 频道（实验）](#dsh-频道实验)和[成员配置步骤](single-cli-team.md#在-dsh-里创建三个成员)；DSH 插件另有 Node、pnpm 和版本要求。
 
 **1. 装。** 从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载：
 
 - macOS：`bothouse-mac.dmg`（Apple 芯片和 Intel 通用）；把 Bothouse.app 拖入 Applications，首次打开请「右键→打开」（安装包未签名）。
-- Windows：`bothouse-windows.exe`（x64，ARM64 Windows 也可运行），下载后双击。
+- Windows：`bothouse-windows.exe`（x64，ARM64 Windows 也可运行），下载后双击；SmartScreen 拦了就点「更多信息 → 仍要运行」。
 - Linux：`bothouse-linux-x64` 或 `bothouse-linux-arm64`，`chmod +x` 后运行。
 
-首次运行无配置时会自动在浏览器打开安装向导。`SHA256SUMS` 提供 SHA-256 校验。自更新与安装脚本使用同一份平台下载文件，Mac 从 dmg 提取 universal 二进制。更新到历史版本时，自更新可回退历史架构文件及 `cc-connect-<tag>-<os>-<arch>.tar.gz` / `.zip`（历史包在旧 Release 中，使用其校验文件）。也可用下面的命令行安装，命令仍为 `bothouse`（macOS / Linux 放进 `~/.local/bin`，Windows 放进 `%USERPROFILE%\.local\bin`）。
+首次运行无配置时会自动在浏览器打开安装向导。`SHA256SUMS` 提供 SHA-256 校验。手动下载的，打开前先核对文件和该版本的 SHA256SUMS。自更新与安装脚本使用同一份平台下载文件，Mac 从 dmg 提取 universal 二进制。更新到历史版本时，自更新可回退历史架构文件及 `cc-connect-<tag>-<os>-<arch>.tar.gz` / `.zip`（历史包在旧 Release 中，使用其校验文件）。也可用下面的命令行安装，命令仍为 `bothouse`（macOS / Linux 放进 `~/.local/bin`，Windows 放进 `%USERPROFILE%\.local\bin`）。
 
 macOS / Linux，在终端里：
 
@@ -65,6 +65,14 @@ Discord 要准备：每个角色一个不同的 Discord 机器人 token（开发
 **gate 可以不装。** 没有 gate 时，被 @ 的角色照常回，其余消息都由主角色回。想让 AI 自己判断一句话该谁回再装 gate（[线 1](ccm-and-wiki.md) 第 3 步）：要先在向导填 jev，没填 gate 会报错并提示怎么填。
 
 新安装默认使用 `~/.bothouse`；没有该目录而存在旧配置目录时，会继续沿用旧配置，不移动文件。
+
+## DSH 频道（实验）
+
+要 DSH `>= 0.2.1-rc.2`、PATH 上有 `pnpm`、Node `>= 22.12.0`。向导第一步选 DSH，检测 dsh → 装插件 → 运行返回的命令打开 DSH web。等价命令是 `bothouse setup dsh install`，也可以直接从 GitHub 装插件：
+
+```sh
+dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plugin-pkg'
+```
 
 ## 上面三步之后，按需再加
 
