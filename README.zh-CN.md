@@ -13,7 +13,7 @@
 
 **睡前在手机上交代一句，家里电脑通宵干活，早上起来收结果。**
 
-[宣传片](#video) · [安装](#install) · [能做什么](#features) · [截图](#screenshots) · [怎么运转](#how) · [版本亮点](#releases) · [和 Tobs / DS Bot 的区别](#compare) · [文档](#docs)
+[宣传片](#video) · [安装](#install) · [能做什么](#features) · [截图](#screenshots) · [怎么运转](#how) · [版本亮点](#releases) · [文档](#docs)
 
 </div>
 
@@ -195,33 +195,6 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 | **[0.1.42](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.42)**（2026-10-30） | 每个聊天频道钉一张**任务表**（等你看 / 在做 / 搁置）；**每件活一个子话题**；交回改成四段大白话；回复正在跑的活，直接转进它的工作区。 |
 | **[0.1.41](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.41)**（2026-10-30） | `/model` 显示频道**实际在用**的模型；工作区提问只暂停它点名的那件活；`bothouse-dsh` 随版本发到 npm。 |
 | **[0.1.40](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.40)**（2026-10-29） | 回复被钩子拦下后不再只剩最后一句；Grok 角色也有「只问不改」护栏。 |
-
-<a id="compare"></a>
-
-## 和 Tobs / DS Bot 有什么不同
-
-[Tobs](https://github.com/BotHarness/DeepSeekBot)（原 DeepSeekBot）和 [DS Bot](https://github.com/Fei2411/DeepSeek-Bot) 都是很用心的开源项目，也都让多个 Bot 一起干活。重心不一样：
-
-- **Tobs 和 DS Bot** 是 DeepSeek Harness（DSH）的**插件**，Bot 跑在 DSH 里，用 DSH 配好的模型。
-- **bothouse** 是一层独立的**转发层**：把你电脑上已经登录的各种 CLI 和运行时（Claude Code、Codex、Gemini CLI、OpenCode，以及经 ACP 接入的 DSH 等）接到同一个群里，再加上**工作区派活**和共用的 **Wiki 记忆**。DSH 只是它能接的后端之一，它也提供一个 DSH 频道插件。
-
-| | bothouse | Tobs | DS Bot |
-| --- | --- | --- | --- |
-| 形态 | 独立程序（macOS / Windows / Linux） | DSH 插件 | DSH 插件 |
-| 成员背后 | 本地 Claude Code、Codex、Gemini CLI、OpenCode、ACP Agent（含 DSH）、OpenAI 兼容接口，可混搭 | DSH 里配置的模型 | DSH 里配置的模型 |
-| 多 Bot 协作 | 聊天频道 + 独立工作区，任务表和子话题跟踪每件活 | 群聊 @ 谁、Assignments 委派 | 主 Bot 统筹、群管理员默认回复 |
-| 记忆 | 全队共用一份 Markdown Wiki，消息前检索、夜间复盘 | 每个 Bot 一个 Git 记忆仓库 | Markdown 记忆，个人与团队两级 |
-| 许可 | Apache-2.0 | MIT | Apache-2.0 |
-
-**怎么选**：主要在 DSH 里用、想要精致的 Bot 界面，看看 Tobs 或 DS Bot；手上已经有几种 CLI、想让它们在 Discord 等群里像一个团队那样分工，试试 bothouse。
-
-和其他做法相比：
-
-| 别的做法 | 思路 | bothouse 的做法 |
-| --- | --- | --- |
-| Orca / 多 Agent IDE | 桌前开几个写代码窗口 | 常驻角色待在群里，记得以前的活，手机上也能派活 |
-| ai-memory / 向量记忆库 | 给 Agent 挂一个数据库 | 能直接改的 Markdown Wiki，消息前检索，夜里复盘去重 |
-| CrewAI / MetaGPT / Claude Teams | 每个任务临时拉一支队 | 常驻角色带着共享知识库跨项目干活，少讲重复背景 |
 
 ## 架构
 

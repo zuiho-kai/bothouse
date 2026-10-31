@@ -13,7 +13,7 @@
 
 **Send one line from your phone before bed. Your home computer works through the night. Collect the results in the morning.**
 
-[Video](#video) · [Install](#install) · [Features](#features) · [Screenshots](#screenshots) · [How it works](#how) · [Releases](#releases) · [vs Tobs / DS Bot](#compare) · [Docs](#docs)
+[Video](#video) · [Install](#install) · [Features](#features) · [Screenshots](#screenshots) · [How it works](#how) · [Releases](#releases) · [Docs](#docs)
 
 </div>
 
@@ -195,33 +195,6 @@ Full notes in [Releases](https://github.com/zuiho-kai/bothouse/releases).
 | **[0.1.42](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.42)** (2026-10-30) | Each chat channel pins a **task table** (waiting for you / running / parked); **every task gets its own thread**; handbacks in four plain-language parts; replies about running work go straight to its workspace. |
 | **[0.1.41](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.41)** (2026-10-30) | `/model` shows the model a channel is **actually using**; a workspace question pauses only the task it names; `bothouse-dsh` is published to npm with each release. |
 | **[0.1.40](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.40)** (2026-10-29) | A reply blocked by a hook is no longer cut to its last line; Grok roles get the ask-only guard too. |
-
-<a id="compare"></a>
-
-## How is this different from Tobs / DS Bot?
-
-[Tobs](https://github.com/BotHarness/DeepSeekBot) (formerly DeepSeekBot) and [DS Bot](https://github.com/Fei2411/DeepSeek-Bot) are carefully built open-source projects that also let several bots work together. The focus differs:
-
-- **Tobs and DS Bot** are **plugins** for DeepSeek Harness (DSH): the bots live inside DSH and use the models configured there.
-- **bothouse** is a standalone **relay layer**: it connects the CLIs and runtimes already logged in on your computer — Claude Code, Codex, Gemini CLI, OpenCode, and DSH and others over ACP — to one group, then adds **workspace dispatch** and a shared **Wiki memory**. DSH is one of the backends it can drive, and it also ships a DSH Channels plugin.
-
-| | bothouse | Tobs | DS Bot |
-| --- | --- | --- | --- |
-| Form | Standalone app (macOS / Windows / Linux) | DSH plugin | DSH plugin |
-| Behind each member | Local Claude Code, Codex, Gemini CLI, OpenCode, ACP agents (incl. DSH), OpenAI-compatible APIs — mix freely | Models configured in DSH | Models configured in DSH |
-| Multi-bot work | Chat channel + separate workspaces; a task table and per-task threads | @ who you need in a group; Assignments | A lead bot runs the team; group admin replies by default |
-| Memory | One shared Markdown Wiki for the whole team, retrieved before messages, reviewed nightly | A Git memory repo per bot | Markdown memory, personal and team levels |
-| License | Apache-2.0 | MIT | Apache-2.0 |
-
-**Which one?** If you live in DSH and want a polished bot UI, look at Tobs or DS Bot. If you already have several CLIs and want them to work as one team in Discord and other group chats, try bothouse.
-
-Compared with other approaches:
-
-| Alternative | Approach | bothouse's approach |
-| --- | --- | --- |
-| Orca / multi-agent IDEs | Several coding windows at your desk | Permanent roles stay in a group, remember previous work and accept tasks from your phone |
-| ai-memory / vector memory stores | A database attached to an agent | An editable Markdown Wiki, retrieved before each message and deduplicated at night |
-| CrewAI / MetaGPT / Claude Teams | A temporary team per task | Persistent roles carry the shared knowledge base across projects |
 
 ## Architecture
 
