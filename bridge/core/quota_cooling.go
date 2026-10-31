@@ -19,11 +19,18 @@ import (
 // The reset deadline feeds the existing team cooling_until contract. Takeover
 // receipts survive restart independently of the agent's conversation.
 type quotaCoolingState struct {
-	Until     time.Time                `json:"cooling_until"`
-	Session   string                   `json:"session,omitempty"`
-	Lead      *quotaLeadTakeover       `json:"lead,omitempty"`
-	Transfers map[string]quotaTransfer `json:"transfers,omitempty"`
+	Until      time.Time                `json:"cooling_until"`
+	Session    string                   `json:"session,omitempty"`
+	Lead       *quotaLeadTakeover       `json:"lead,omitempty"`
+	Transfers  map[string]quotaTransfer `json:"transfers,omitempty"`
+	ProbeRound int                      `json:"probe_round,omitempty"`
 }
+
+// quotaProbeBackoffBase: 沿用 capacity_retry.go 冷却退避策略基线
+var quotaProbeBackoffBase = 5 * time.Minute
+
+// quotaProbeBackoffMax: 来源 Issue #757 退避上限设定，避免无限制退避
+var quotaProbeBackoffMax = 30 * time.Minute
 
 type quotaLeadTakeover struct {
 	To    string `json:"to"`
@@ -124,6 +131,7 @@ func (e *Engine) recordQuota(until time.Time, session string) {
 		return
 	}
 	e.quotaState.Until = until
+	e.quotaState.ProbeRound = 0
 	if session != "" {
 		e.quotaState.Session = teamChatKey(session)
 	}
@@ -375,6 +383,42 @@ func (e *Engine) notifyGateLead(who string) error {
 	return nil
 }
 
+// probeQuota performs a silent low-overhead quota probe without waking the conversation model.
+func (e *Engine) probeQuota(ctx context.Context) (bool, time.Duration, error) {
+	if e.quotaProbeFn != nil {
+		return e.quotaProbeFn(ctx)
+	}
+	reporter, ok := e.agent.(UsageReporter)
+	if !ok || !usageReporterAvailable(e.agent) {
+		return true, 0, nil
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	report, err := reporter.GetUsage(fetchCtx)
+	if err != nil {
+		return false, 0, err
+	}
+	if report == nil {
+		return true, 0, nil
+	}
+	now := time.Now()
+	for _, bucket := range report.Buckets {
+		for _, window := range bucket.Windows {
+			if bucket.LimitReached || window.UsedPercent >= 100 {
+				until := time.Unix(window.ResetAtUnix, 0)
+				if window.ResetAtUnix == 0 && window.ResetAfterSeconds > 0 {
+					until = now.Add(time.Duration(window.ResetAfterSeconds) * time.Second)
+				}
+				if until.After(now) {
+					return false, time.Until(until), nil
+				}
+				return false, 0, nil
+			}
+		}
+	}
+	return true, 0, nil
+}
+
 func (e *Engine) quotaTick(now time.Time) {
 	rm := e.relayManager
 	if rm == nil {
@@ -389,6 +433,32 @@ func (e *Engine) quotaTick(now time.Time) {
 		return
 	}
 	if !st.Until.After(now) {
+		usable, nextWait, err := e.probeQuota(e.ctx)
+		if !usable || err != nil {
+			// 探活失败或仍受限：指数退避顺延冷却时间，零 Token 消耗，不唤醒主对话模型
+			st.ProbeRound++
+			backoff := quotaProbeBackoffBase
+			for i := 1; i < st.ProbeRound && backoff < quotaProbeBackoffMax; i++ {
+				backoff *= 2
+			}
+			if backoff > quotaProbeBackoffMax {
+				backoff = quotaProbeBackoffMax
+			}
+			if nextWait > backoff {
+				backoff = nextWait
+			}
+			st.Until = now.Add(backoff)
+			e.capMu.Lock()
+			e.quotaUntil = st.Until
+			e.capMu.Unlock()
+			e.saveQuotaLocked()
+			slog.Warn("quota auto-probe: quota still exhausted, cooling extended",
+				"project", e.name, "until", st.Until, "round", st.ProbeRound, "err", err)
+			return
+		}
+
+		// 探活成功：自动解除冷却状态，记录恢复事件
+		st.ProbeRound = 0
 		if st.Lead != nil {
 			sel, ok := readLeadSelectionFull(e.dataDir)
 			if ok && sel.Lead == st.Lead.To && sel.At == st.Lead.At {
@@ -404,6 +474,8 @@ func (e *Engine) quotaTick(now time.Time) {
 		e.quotaUntil = time.Time{}
 		e.capMu.Unlock()
 		e.saveQuotaLocked()
+		slog.Info("quota auto-probe: quota restored silently", "project", e.name)
+		e.emitStreamEvent(StreamEventQuota, st.Session, "quota auto-probe: restored", map[string]any{"project": e.name, "action": "quota_restored"})
 		return
 	}
 	if st.Transfers == nil {
