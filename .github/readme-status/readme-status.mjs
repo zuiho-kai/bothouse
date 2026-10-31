@@ -19,52 +19,77 @@ const FILES = [
 ];
 
 const THEMES = {
-  day: { shadow: '#5a3317', frame: '#e8833a', bg: '#fffaf3', tile: '#fdeedd', value: '#b4561a', label: '#6b4a33', title: '#3b2414', muted: '#9a7a62' },
-  night: { shadow: '#0b0d1a', frame: '#e8833a', bg: '#221d33', tile: '#2e2745', value: '#ffb36b', label: '#d9c4b0', title: '#ffe9d2', muted: '#8f86a8' },
+  day: { shadow: '#5a3317', frame: '#e8833a', bg: '#fffaf3', tile: '#fdeedd', value: '#b4561a', label: '#6b4a33', title: '#3b2414', muted: '#9a7a62', green: '#4a7c59' },
+  night: { shadow: '#0b0d1a', frame: '#e8833a', bg: '#221d33', tile: '#2e2745', value: '#ffb36b', label: '#d9c4b0', title: '#ffe9d2', muted: '#8f86a8', green: '#7fc28f' },
 };
 const TEXT = {
   zh: {
-    title: 'bothouse 仓库状态',
-    updated: '更新于',
-    labels: ['Stars', 'Forks', '未关闭 Issues', '未关闭 PR', '30 天关闭 PR', '30 天提交', '最新版本'],
+    title: 'REPOSITORY / bothouse',
+    tiles: [
+      ['STARS', '收藏 bothouse'],
+      ['FORKS', '一起改'],
+      ['OPEN ISSUES', '问题与想法'],
+      ['OPEN PRs', '正在做'],
+      ['CLOSED PRs / 30 DAYS', '近 30 天 · 含已合并 PR'],
+      ['COMMITS / 30 DAYS', '近 30 天 · 默认分支'],
+    ],
+    license: 'APACHE-2.0 许可',
+    footer: '最后成功更新 · 每六小时更新',
     aria: 'bothouse 仓库状态',
   },
   en: {
-    title: 'bothouse repository status',
-    updated: 'Updated',
-    labels: ['Stars', 'Forks', 'Open issues', 'Open PRs', 'PRs closed (30d)', 'Commits (30d)', 'Latest release'],
+    title: 'REPOSITORY / bothouse',
+    tiles: [
+      ['STARS', 'star bothouse'],
+      ['FORKS', 'build with us'],
+      ['OPEN ISSUES', 'bugs and ideas'],
+      ['OPEN PRs', 'in progress'],
+      ['CLOSED PRs / 30 DAYS', 'last 30 days · incl. merged'],
+      ['COMMITS / 30 DAYS', 'last 30 days · default branch'],
+    ],
+    license: 'APACHE-2.0 LICENSE',
+    footer: 'last successful update · every six hours',
     aria: 'bothouse repository status',
   },
 };
 const FONT = "'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC',-apple-system,'Segoe UI',sans-serif";
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const num = (v) => Number(v).toLocaleString('en-US');
 
 export function renderStatus(stats, lang, theme) {
   const c = THEMES[theme];
   const t = TEXT[lang];
   const values = [
     stats.stars, stats.forks, stats.issues, stats.pullRequests,
-    stats.activity.closedPullRequests, stats.activity.commits, stats.release,
+    stats.activity.closedPullRequests, stats.activity.commits,
   ];
-  const updated = `${t.updated} ${stats.updatedAt.replace('T', ' ').replace('Z', ' UTC')}`;
-  const n = values.length, x0 = 20, gap = 10, w = (920 - gap * (n - 1)) / n;
+  const updated = stats.updatedAt.replace('T', ' ').replace(/:\d\dZ$/, ' UTC');
+  const w = 288, h = 116, gx = 16, gy = 14, x0 = 24, y0 = 62;
   const tiles = values.map((v, i) => {
-    const x = x0 + i * (w + gap);
-    const size = String(v).length > 6 ? 22 : 28;
-    return `<rect x="${x.toFixed(1)}" y="62" width="${w.toFixed(1)}" height="96" rx="12" fill="${c.tile}"/>` +
-      `<text x="${(x + w / 2).toFixed(1)}" y="110" font-size="${size}" font-weight="800" fill="${c.value}" text-anchor="middle">${esc(v)}</text>` +
-      `<text x="${(x + w / 2).toFixed(1)}" y="140" font-size="13" fill="${c.label}" text-anchor="middle">${esc(t.labels[i])}</text>`;
+    const x = x0 + (i % 3) * (w + gx), y = y0 + Math.floor(i / 3) * (h + gy);
+    const accent = i < 4 ? c.frame : c.green;
+    return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="12" fill="${c.tile}"/>` +
+      `<rect x="${x}" y="${y}" width="${w}" height="5" rx="2.5" fill="${accent}"/>` +
+      `<text x="${x + 16}" y="${y + 30}" font-size="13" font-weight="600" letter-spacing="0.5" fill="${c.label}">${esc(t.tiles[i][0])}</text>` +
+      `<text x="${x + 16}" y="${y + 74}" font-size="36" font-weight="800" fill="${c.value}">${esc(num(v))}</text>` +
+      `<text x="${x + 16}" y="${y + 100}" font-size="13" fill="${c.muted}">${esc(t.tiles[i][1])}</text>`;
   }).join('');
-  const aria = `${t.aria}: ${t.labels.map((l, i) => `${l} ${values[i]}`).join(', ')}`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="184" viewBox="0 0 960 184" role="img" aria-label="${esc(aria)}" font-family="${FONT}">` +
+  const fy = y0 + 2 * h + gy + 38;
+  const aria = `${t.aria}: ${t.tiles.map((l, i) => `${l[0]} ${values[i]}`).join(', ')}, RELEASE ${stats.release}`;
+  const H = fy + 26;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="${H}" viewBox="0 0 960 ${H}" role="img" aria-label="${esc(aria)}" font-family="${FONT}">` +
     `<title>${esc(aria)}</title>` +
-    `<rect x="3" y="5" width="954" height="176" rx="16" fill="${c.shadow}"/>` +
-    `<rect x="1" y="1" width="954" height="176" rx="16" fill="${c.frame}"/>` +
-    `<rect x="5" y="5" width="946" height="168" rx="13" fill="${c.bg}"/>` +
-    `<text x="24" y="42" font-size="19" font-weight="700" fill="${c.title}">${esc(t.title)}</text>` +
-    `<text x="936" y="42" font-size="13" fill="${c.muted}" text-anchor="end">${esc(updated)}</text>` +
-    tiles + `</svg>\n`;
+    `<rect x="3" y="5" width="954" height="${H - 8}" rx="16" fill="${c.shadow}"/>` +
+    `<rect x="1" y="1" width="954" height="${H - 8}" rx="16" fill="${c.frame}"/>` +
+    `<rect x="5" y="5" width="946" height="${H - 16}" rx="13" fill="${c.bg}"/>` +
+    `<text x="26" y="42" font-size="18" font-weight="700" letter-spacing="0.5" fill="${c.title}">${esc(t.title)}</text>` +
+    `<text x="932" y="42" font-size="14" fill="${c.muted}" text-anchor="end">${esc(updated)}</text>` +
+    tiles +
+    `<text x="26" y="${fy}" font-size="16" font-weight="700" fill="${c.title}">RELEASE ${esc(stats.release)}</text>` +
+    `<text x="330" y="${fy}" font-size="16" font-weight="700" fill="${c.title}">${esc(t.license)}</text>` +
+    `<text x="932" y="${fy}" font-size="13" fill="${c.muted}" text-anchor="end">${esc(t.footer)}</text>` +
+    `</svg>\n`;
 }
 
 export function githubClient(token, request = fetch) {
