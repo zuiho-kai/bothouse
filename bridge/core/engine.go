@@ -2189,6 +2189,8 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		}
 	}
 
+	content = timerUserContext(targetPlatform, sessionKey, job) + content
+
 	msg := &Message{
 		turnTrigger:  timerTurnTrigger(job),
 		SessionKey:   sessionKey,
