@@ -108,6 +108,16 @@ One-on-one private messages are supported without @mention.
 私聊消息标成 `Message.Direct`，`core/gate_local.go` 的内置忙碌规则据此认得出这是一个 DM。
 Private messages carry `Message.Direct`, which is how `core/gate_local.go`'s built-in busy rule knows it is a DM.
 
+### 发言者身份 / Sender identity
+
+群聊和私聊使用事件里的 `author.username` 显示昵称；昵称缺失或为空白时回退到 openid。`author.bot` 会传给核心的 `Message.FromBot`，保留机器人发言的来源。昵称仅用于展示，`allow_from`、用户 ID、会话与回复目标仍使用原来的 `member_openid`（群聊）或 `user_openid`（私聊）；改名不会改变会话或授权。
+
+Group and private messages use `author.username` for display, falling back to the openid when absent or blank. `author.bot` maps to `Message.FromBot`. Display names never replace the stable openids used for authorization, sessions or reply routing. Renaming a sender does not change their session or access.
+
+字段依据：[群消息事件](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/group_at_message_create.html)、[私聊事件](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/c2c_message_create.html)。本地模拟 WebSocket 网关验证了这些字段的传递；真实 QQ 昵称展示仍需实机验收。
+
+Sources: [group events](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/group_at_message_create.html), [C2C events](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/c2c_message_create.html). A local simulated WebSocket gateway verifies field propagation; live QQ display still needs acceptance testing.
+
 ## 支持的消息类型 / Supported Message Types
 
 | 类型 / Type | 接收 / Receive | 发送 / Send |
