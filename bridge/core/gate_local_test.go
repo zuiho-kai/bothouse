@@ -584,12 +584,15 @@ func TestLocalGate_RedirectAnsweredBeforeQueued(t *testing.T) {
 	send("3", "别做这个，改做另一件事")
 	for {
 		prompts, cancels := sess.snapshot()
-		if len(prompts) >= 3 {
+		// Redirect and queued message are from the same sender, so they run as one
+		// batched turn with the redirect first.
+		if len(prompts) >= 2 {
 			if cancels != 1 {
 				t.Fatalf("CancelTurn called %d times, want 1", cancels)
 			}
-			if !strings.Contains(prompts[1], "改做另一件事") || !strings.Contains(prompts[2], "顺便再看看日志") {
-				t.Fatalf("turns after the redirect = %q, want the redirect first", prompts[1:])
+			r, q := strings.Index(prompts[1], "改做另一件事"), strings.Index(prompts[1], "顺便再看看日志")
+			if r < 0 || q < 0 || r > q {
+				t.Fatalf("turn after the redirect = %q, want the redirect first, then the queued message", prompts[1])
 			}
 			return
 		}

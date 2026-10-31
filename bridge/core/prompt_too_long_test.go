@@ -166,7 +166,8 @@ func TestPromptTooLong_QueuedMessageRerun(t *testing.T) {
 	e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u", UserName: "u", Content: "msgA", ReplyCtx: "ctx"})
 	waitFor(t, "A sent", func() bool { sent, _, _ := a.snapshot(); return len(sent) == 1 })
 	e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u", UserName: "u", Content: "msgB", ReplyCtx: "ctx"})
-	e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u", UserName: "u", Content: "msgC", ReplyCtx: "ctx"})
+	// A second sender, so C is not batched into B's turn.
+	e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u2", UserName: "u2", Content: "msgC", ReplyCtx: "ctx"})
 	close(a.release)
 	waitFor(t, "C answered", func() bool { return strings.Contains(joined(p), "reply:c") })
 
