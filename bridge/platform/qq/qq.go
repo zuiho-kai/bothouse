@@ -258,17 +258,6 @@ func (p *Platform) handleMessage(payload map[string]any) {
 	// Parse message content from CQ message array or raw_message
 	parsed := p.parseMessage(payload, msgType, groupID)
 
-	// A bare @ is a person calling the bot with nothing to say yet; dropping it
-	// as empty would look like the bot ignored them (platform/discord does the
-	// same).
-	content := parsed.text
-	if content == "" && len(parsed.images) == 0 && len(parsed.files) == 0 && parsed.audio == nil && !parsed.mentioned {
-		return
-	}
-	if content == "" && len(parsed.images) == 0 && len(parsed.files) == 0 && parsed.audio == nil {
-		content = bareMentionPlaceholder
-	}
-
 	// A reply to one of this bot's messages calls the bot just like an @ does
 	// (core/gate_local.go: "an @, a reply to it"). Everyone else's message is
 	// context only.
@@ -280,6 +269,17 @@ func (p *Platform) handleMessage(payload map[string]any) {
 			mentioned = mentioned || entry.self
 		}
 	}
+
+	// A bare @ or quote of the bot still calls it. Resolve quotes first so
+	// these messages are not mistaken for empty input.
+	content := parsed.text
+	if content == "" && len(parsed.images) == 0 && len(parsed.files) == 0 && parsed.audio == nil && !mentioned {
+		return
+	}
+	if content == "" && len(parsed.images) == 0 && len(parsed.files) == 0 && parsed.audio == nil {
+		content = bareMentionPlaceholder
+	}
+
 	// Store the person's own words, not the bare-@ placeholder: a later reply to
 	// a poke should not quote the placeholder back as if they had said it.
 	p.storeQuote(strconv.FormatInt(messageID, 10), parsed.text, false)
@@ -361,118 +361,145 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 	var out parsedMessage
 	var textParts []string
 
-	// OneBot message can be array of segments or a string
-	switch msg := payload["message"].(type) {
-	case []any:
-		for _, seg := range msg {
-			s, ok := seg.(map[string]any)
-			if !ok {
-				continue
+	// Normalize both OneBot wire formats before interpreting media or mentions.
+	msg, ok := payload["message"].([]any)
+	if !ok {
+		raw, _ := payload["message"].(string)
+		if raw == "" {
+			raw, _ = payload["raw_message"].(string)
+		}
+		msg = parseCQString(raw)
+	}
+	for _, seg := range msg {
+		s, ok := seg.(map[string]any)
+		if !ok {
+			continue
+		}
+		segType, _ := s["type"].(string)
+		data, _ := s["data"].(map[string]any)
+		if data == nil {
+			continue
+		}
+
+		switch segType {
+		case "text":
+			if text, ok := data["text"].(string); ok {
+				textParts = append(textParts, text)
 			}
-			segType, _ := s["type"].(string)
-			data, _ := s["data"].(map[string]any)
-			if data == nil {
-				continue
+		case "image":
+			if url, ok := data["url"].(string); ok && url != "" {
+				imgData, mime, err := downloadFile(url)
+				if err != nil {
+					slog.Warn("qq: download image failed", "error", err)
+					continue
+				}
+				out.images = append(out.images, core.ImageAttachment{
+					MimeType: mime,
+					Data:     imgData,
+				})
+			}
+		case "record":
+			if url, ok := data["url"].(string); ok && url != "" {
+				audioData, _, err := downloadFile(url)
+				if err != nil {
+					slog.Warn("qq: download audio failed", "error", err)
+					continue
+				}
+				format := "silk"
+				if f, ok := data["file"].(string); ok {
+					if strings.HasSuffix(f, ".amr") {
+						format = "amr"
+					} else if strings.HasSuffix(f, ".mp3") {
+						format = "mp3"
+					}
+				}
+				out.audio = &core.AudioAttachment{
+					Data:   audioData,
+					Format: format,
+				}
+			}
+		case "file":
+			name, _ := data["name"].(string)
+			if name == "" {
+				name, _ = data["file"].(string)
+			}
+			fileID, _ := data["file_id"].(string)
+			if fileID == "" {
+				fileID, _ = data["file"].(string)
 			}
 
-			switch segType {
-			case "text":
-				if text, ok := data["text"].(string); ok {
-					textParts = append(textParts, text)
-				}
-			case "image":
-				if url, ok := data["url"].(string); ok && url != "" {
-					imgData, mime, err := downloadFile(url)
-					if err != nil {
-						slog.Warn("qq: download image failed", "error", err)
-						continue
-					}
-					out.images = append(out.images, core.ImageAttachment{
+			slog.Info("qq: file segment received", "name", name, "file_id", fileID,
+				"has_url", data["url"] != nil, "msg_type", msgType, "group_id", groupID)
+
+			var downloaded bool
+
+			// Step 1: Try direct URL from message segment (with longer timeout for large files)
+			if url, ok := data["url"].(string); ok && url != "" {
+				fileData, mime, err := downloadLargeFile(url)
+				if err != nil {
+					slog.Warn("qq: [step1] download file via segment URL failed", "error", err)
+				} else {
+					out.files = append(out.files, core.FileAttachment{
 						MimeType: mime,
-						Data:     imgData,
+						Data:     fileData,
+						FileName: name,
 					})
+					downloaded = true
+					slog.Info("qq: [step1] file downloaded via segment URL", "name", name, "size", len(fileData))
 				}
-			case "record":
-				if url, ok := data["url"].(string); ok && url != "" {
-					audioData, _, err := downloadFile(url)
-					if err != nil {
-						slog.Warn("qq: download audio failed", "error", err)
-						continue
-					}
-					format := "silk"
-					if f, ok := data["file"].(string); ok {
-						if strings.HasSuffix(f, ".amr") {
-							format = "amr"
-						} else if strings.HasSuffix(f, ".mp3") {
-							format = "mp3"
-						}
-					}
-					out.audio = &core.AudioAttachment{
-						Data:   audioData,
-						Format: format,
-					}
-				}
-			case "file":
-				name, _ := data["name"].(string)
-				if name == "" {
-					name, _ = data["file"].(string)
-				}
-				fileID, _ := data["file_id"].(string)
-				if fileID == "" {
-					fileID, _ = data["file"].(string)
-				}
+			}
 
-				slog.Info("qq: file segment received", "name", name, "file_id", fileID,
-					"has_url", data["url"] != nil, "msg_type", msgType, "group_id", groupID)
-
-				var downloaded bool
-
-				// Step 1: Try direct URL from message segment (with longer timeout for large files)
-				if url, ok := data["url"].(string); ok && url != "" {
-					fileData, mime, err := downloadLargeFile(url)
-					if err != nil {
-						slog.Warn("qq: [step1] download file via segment URL failed", "error", err)
+			// Step 2: Get fresh direct link via NapCat API (CDN URLs expire / have download limits)
+			// NapCat docs: params are STRINGS — group (not group_id), file_id
+			if !downloaded && p.httpURL != "" && fileID != "" {
+				var freshURL string
+				if msgType == "group" && groupID != 0 {
+					groupStr := strconv.FormatInt(groupID, 10)
+					slog.Info("qq: [step2] trying get_group_file_url", "file_id", fileID, "group", groupStr)
+					result, err := p.callHTTPAPI("get_group_file_url", map[string]any{
+						"file_id": fileID,
+						"group":   groupStr,
+					})
+					if err == nil {
+						freshURL, _ = result["url"].(string)
+						slog.Info("qq: [step2] get_group_file_url returned", "has_url", freshURL != "")
 					} else {
+						slog.Warn("qq: [step2] get_group_file_url failed", "file_id", fileID, "error", err)
+					}
+				} else {
+					slog.Info("qq: [step2] trying get_private_file_url", "file_id", fileID)
+					result, err := p.callHTTPAPI("get_private_file_url", map[string]any{
+						"file_id": fileID,
+					})
+					if err == nil {
+						freshURL, _ = result["url"].(string)
+					} else {
+						slog.Warn("qq: [step2] get_private_file_url failed", "file_id", fileID, "error", err)
+					}
+				}
+				if freshURL != "" {
+					fileData, mime, err := downloadLargeFile(freshURL)
+					if err == nil {
 						out.files = append(out.files, core.FileAttachment{
 							MimeType: mime,
 							Data:     fileData,
 							FileName: name,
 						})
 						downloaded = true
-						slog.Info("qq: [step1] file downloaded via segment URL", "name", name, "size", len(fileData))
+						slog.Info("qq: [step2] file downloaded via fresh URL", "name", name, "size", len(fileData))
+					} else {
+						slog.Warn("qq: [step2] download file via fresh URL failed", "error", err)
 					}
 				}
+			}
 
-				// Step 2: Get fresh direct link via NapCat API (CDN URLs expire / have download limits)
-				// NapCat docs: params are STRINGS — group (not group_id), file_id
-				if !downloaded && p.httpURL != "" && fileID != "" {
-					var freshURL string
-					if msgType == "group" && groupID != 0 {
-						groupStr := strconv.FormatInt(groupID, 10)
-						slog.Info("qq: [step2] trying get_group_file_url", "file_id", fileID, "group", groupStr)
-						result, err := p.callHTTPAPI("get_group_file_url", map[string]any{
-							"file_id": fileID,
-							"group":   groupStr,
-						})
-						if err == nil {
-							freshURL, _ = result["url"].(string)
-							slog.Info("qq: [step2] get_group_file_url returned", "has_url", freshURL != "")
-						} else {
-							slog.Warn("qq: [step2] get_group_file_url failed", "file_id", fileID, "error", err)
-						}
-					} else {
-						slog.Info("qq: [step2] trying get_private_file_url", "file_id", fileID)
-						result, err := p.callHTTPAPI("get_private_file_url", map[string]any{
-							"file_id": fileID,
-						})
-						if err == nil {
-							freshURL, _ = result["url"].(string)
-						} else {
-							slog.Warn("qq: [step2] get_private_file_url failed", "file_id", fileID, "error", err)
-						}
-					}
-					if freshURL != "" {
-						fileData, mime, err := downloadLargeFile(freshURL)
+			// Step 3: Last resort — get_file (downloads to NapCat local or returns base64)
+			if !downloaded && p.httpURL != "" && fileID != "" {
+				slog.Info("qq: [step3] trying get_file", "file_id", fileID)
+				result, err := p.callHTTPAPI("get_file", map[string]any{"file_id": fileID})
+				if err == nil {
+					if fileURL, ok := result["url"].(string); ok && fileURL != "" {
+						fileData, mime, err := downloadLargeFile(fileURL)
 						if err == nil {
 							out.files = append(out.files, core.FileAttachment{
 								MimeType: mime,
@@ -480,132 +507,85 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 								FileName: name,
 							})
 							downloaded = true
-							slog.Info("qq: [step2] file downloaded via fresh URL", "name", name, "size", len(fileData))
-						} else {
-							slog.Warn("qq: [step2] download file via fresh URL failed", "error", err)
 						}
 					}
-				}
-
-				// Step 3: Last resort — get_file (downloads to NapCat local or returns base64)
-				if !downloaded && p.httpURL != "" && fileID != "" {
-					slog.Info("qq: [step3] trying get_file", "file_id", fileID)
-					result, err := p.callHTTPAPI("get_file", map[string]any{"file_id": fileID})
-					if err == nil {
-						if fileURL, ok := result["url"].(string); ok && fileURL != "" {
-							fileData, mime, err := downloadLargeFile(fileURL)
-							if err == nil {
+					if !downloaded {
+						if b64Str, ok := result["base64"].(string); ok && b64Str != "" {
+							if decoded, err := base64.StdEncoding.DecodeString(b64Str); err == nil {
 								out.files = append(out.files, core.FileAttachment{
-									MimeType: mime,
-									Data:     fileData,
+									MimeType: http.DetectContentType(decoded),
+									Data:     decoded,
 									FileName: name,
 								})
 								downloaded = true
 							}
 						}
-						if !downloaded {
-							if b64Str, ok := result["base64"].(string); ok && b64Str != "" {
-								if decoded, err := base64.StdEncoding.DecodeString(b64Str); err == nil {
-									out.files = append(out.files, core.FileAttachment{
-										MimeType: http.DetectContentType(decoded),
-										Data:     decoded,
-										FileName: name,
-									})
-									downloaded = true
-								}
-							}
-						}
-					} else {
-						slog.Warn("qq: get_file API failed", "file_id", fileID, "error", err)
 					}
+				} else {
+					slog.Warn("qq: get_file API failed", "file_id", fileID, "error", err)
 				}
-
-				if !downloaded {
-					slog.Warn("qq: file segment could not be downloaded", "name", name)
-				}
-			case "at":
-				// The bot's own @ is the call itself (Message.Mentioned), so it
-				// must not reach the model as text. Someone else's stays in the
-				// text: the model needs to know who was addressed.
-				qq, _ := data["qq"].(string)
-				if qq == strconv.FormatInt(p.selfID, 10) {
-					out.mentioned = true
-					continue
-				}
-				if p.isTeammate(qq) {
-					out.other = true
-				}
-				// OneBot puts the separating space in the following text
-				// segment ("[CQ:at,qq=2] 你看一下"), so none is added here.
-				name, _ := data["name"].(string)
-				if name == "" {
-					name = p.teammateName(qq)
-				}
-				if name == "" {
-					name = qq
-				}
-				textParts = append(textParts, "@"+name)
-			case "reply":
-				out.replyTo, _ = data["id"].(string)
 			}
+
+			if !downloaded {
+				slog.Warn("qq: file segment could not be downloaded", "name", name)
+			}
+		case "at":
+			// The bot's own @ is the call itself (Message.Mentioned), so it
+			// must not reach the model as text. Someone else's stays in the
+			// text: the model needs to know who was addressed.
+			qq, _ := data["qq"].(string)
+			if qq == strconv.FormatInt(p.selfID, 10) {
+				out.mentioned = true
+				continue
+			}
+			if p.isTeammate(qq) {
+				out.other = true
+			}
+			// OneBot puts the separating space in the following text
+			// segment ("[CQ:at,qq=2] 你看一下"), so none is added here.
+			name, _ := data["name"].(string)
+			if name == "" {
+				name = p.teammateName(qq)
+			}
+			if name == "" {
+				name = qq
+			}
+			textParts = append(textParts, "@"+name)
+		case "reply":
+			out.replyTo, _ = data["id"].(string)
 		}
-	default:
-		// String message (message_format=string): CQ codes, with raw_message as
-		// the same text when the OneBot side includes it.
-		raw, _ := payload["message"].(string)
-		if raw == "" {
-			raw, _ = payload["raw_message"].(string)
-		}
-		out.mentioned, out.other = p.parseCQString(raw, &textParts)
 	}
 
 	out.text = strings.TrimSpace(strings.Join(textParts, ""))
 	return out
 }
 
-// parseCQString splits a raw CQ-string message ("[CQ:at,qq=10000] 你好") into
-// text, reporting whether an at code names this bot or a teammate. Used when
-// the OneBot side sends message_format=string instead of a segment array.
-func (p *Platform) parseCQString(raw string, textParts *[]string) (mentioned, other bool) {
+// parseCQString normalizes CQ codes into the same segments as message_format=array.
+// Split before unescaping so escaped literal CQ text is never treated as a code.
+func parseCQString(raw string) []any {
+	var segments []any
 	for len(raw) > 0 {
 		idx := strings.Index(raw, "[CQ:")
-		if idx < 0 {
-			*textParts = append(*textParts, unescapeCQText(raw))
+		if idx < 0 || !strings.Contains(raw[idx:], "]") {
+			segments = append(segments, map[string]any{
+				"type": "text", "data": map[string]any{"text": unescapeCQText(raw)},
+			})
 			break
 		}
-		*textParts = append(*textParts, unescapeCQText(raw[:idx]))
-		end := strings.Index(raw[idx:], "]")
-		if end < 0 {
-			break
+		if idx > 0 {
+			segments = append(segments, map[string]any{
+				"type": "text", "data": map[string]any{"text": unescapeCQText(raw[:idx])},
+			})
 		}
-		fields := strings.Split(raw[idx+len("[CQ:"):idx+end], ",")
-		raw = raw[idx+end+1:]
-
-		switch fields[0] {
-		case "at":
-			params := parseCQParams(fields[1:])
-			if params["qq"] == strconv.FormatInt(p.selfID, 10) {
-				mentioned = true
-				continue
-			}
-			if p.isTeammate(params["qq"]) {
-				other = true
-			}
-			name := params["name"]
-			if name == "" {
-				name = p.teammateName(params["qq"])
-			}
-			if name == "" {
-				name = params["qq"]
-			}
-			*textParts = append(*textParts, "@"+name)
-		case "reply":
-			// Reply targets are ignored here: the same event normally carries a
-			// "reply" only in segment form, and Message.ExtraContent already
-			// covers the quote for that shape.
-		}
+		raw = raw[idx+len("[CQ:"):]
+		end := strings.IndexByte(raw, ']')
+		fields := strings.Split(raw[:end], ",")
+		segments = append(segments, map[string]any{
+			"type": fields[0], "data": parseCQParams(fields[1:]),
+		})
+		raw = raw[end+1:]
 	}
-	return mentioned, other
+	return segments
 }
 
 // teammateName returns a teammate bot's nickname for a QQ number, or "" when the
@@ -671,14 +651,14 @@ func (p *Platform) teamBotNames() []string {
 }
 
 // parseCQParams reads the "key=value" parameters of one CQ code.
-func parseCQParams(fields []string) map[string]string {
-	params := make(map[string]string, len(fields))
+func parseCQParams(fields []string) map[string]any {
+	params := make(map[string]any, len(fields))
 	for _, f := range fields {
 		k, v, ok := strings.Cut(f, "=")
 		if !ok {
 			continue
 		}
-		params[k] = unescapeCQText(v)
+		params[k] = cqParamUnescaper.Replace(v)
 	}
 	return params
 }
@@ -691,7 +671,7 @@ func truncateRunes(s string, max int) string {
 	return string([]rune(s)[:max])
 }
 
-// unescapeCQText reverses the four escapes OneBot applies inside CQ codes.
+// unescapeCQText decodes text escapes; commas are escaped only in parameters.
 func unescapeCQText(s string) string {
 	if !strings.Contains(s, "&") {
 		return s
@@ -700,6 +680,12 @@ func unescapeCQText(s string) string {
 }
 
 var cqUnescaper = strings.NewReplacer(
+	"&#91;", "[",
+	"&#93;", "]",
+	"&amp;", "&",
+)
+
+var cqParamUnescaper = strings.NewReplacer(
 	"&#91;", "[",
 	"&#93;", "]",
 	"&#44;", ",",
