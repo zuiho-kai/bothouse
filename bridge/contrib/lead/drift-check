@@ -1,0 +1,169 @@
+#!/usr/bin/env -S python3 -I
+# 看门查跑偏：交给工作区的活，每 10 分钟拿交接里的「用户原话」「总目标」「旧定案（程序搜出）」对照工作区这段时间的发言，
+# 问小模型「对得上吗」；对不上就叫醒交活的聊天频道主角色去看（不自动叫停、不打断工作区）。活还在做就再挂下一次，
+# 活做完、暂停、交回（任务板上没有或暂停了）就停。
+# 用法：drift-check --arm <任务板编号>          交活后挂第一次（ws-handoff 调）
+#       drift-check <任务板编号> [--dry-run]     到点查一次并续挂（定时器调；--dry-run 只打印不叫醒不续挂）
+# 来源：用户 10-31 23:3x「一般我们不都是第一个10分钟判断有没有跑偏，后面就不关心了是不是，而且他也是根据你那个转发的
+#   那个去做判断有没有跑偏，跟你真实的差别很大」；交接 notes/handoff-recall-fix-1101.md「每次续期都…问对得上吗；
+#   对不上就叫醒聊天频道主角色，不自动叫停」。桥的十分钟看门（core/team_watch.go）只看有没有进展，不看方向，这里补方向。
+import json, os, re, shlex, subprocess, sys, time
+from datetime import datetime
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import _team  # noqa: E402
+import _recall  # noqa: E402
+sys.path.insert(0, os.environ.get("GATE_DIR") or str(HERE.parent / "gate"))
+import board  # noqa: E402
+
+EVERY = "10m"  # 同桥的十分钟看门和 d10-fire WINDOW（用户原话「第一个10分钟判断有没有跑偏」）
+WINDOW = 600   # 秒，同上
+STATUS = ("↪", "⏹", "📬", "✅", "⏳", "🔄", "⏸", "⏰", "📤", "📋")  # 桥和看门的状态行，同 core/team_watch.go watchStatusPrefixes
+LOG = Path.home() / ".bothouse" / "logs" / "drift-check.tsv"
+
+SYSTEM = """你是看门的人。执行者在工作区干一件活，你拿用户原话、总目标和用户以前定过的事，对照执行者最近十分钟在工作区说的话和做的事，判断方向对不对得上。
+跑偏 = 做的东西和用户原话或旧定案明显冲突（做了用户否过的、改了用户没让改的范围、把用户要的换成了别的、自己替用户拍了用户该定的方向）。
+只是做法细节不同、还没做到、在查资料、在修环境，都不算跑偏。拿不准就算对得上。
+只输出一个 JSON 对象，不要别的字：{"ok": true 或 false, "why": "对不上时：哪句原话或旧定案，和执行者哪句话冲突，一两句；对得上时空"}"""
+
+
+def item(nid):
+    return next((i for i in board.items() if i.get("id") == nid), None)
+
+
+def live(it):
+    return bool(it) and not it.get("paused") and not board.CLOSED_RE.match(str(it.get("status") or "")) and it.get("ws")
+
+
+def cc():
+    return _team.cc_bin() or "bothouse"
+
+
+def project():
+    return os.environ.get("CC_PROJECT", "")
+
+
+def arm(nid):
+    """在工作区会话挂一个 EVERY 后的静默定时（--mute：查的过程不往工作区发话）。挂不上只警告。"""
+    it = item(nid)
+    if not live(it):
+        return None
+    cmd = " ".join(shlex.quote(x) for x in (str(HERE / "drift-check"), str(nid)))
+    argv = [cc(), "timer", "add", "-s", it["ws"], "--delay", EVERY, "--mute", "--timeout-mins", "0",
+            "--desc", f"查跑偏 #{nid}", "--exec", cmd]
+    if project():
+        argv[3:3] = ["-p", project()]
+    try:
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"drift-check: #{nid} 没挂上（{e}）", file=sys.stderr)
+        return None
+    if p.returncode:
+        print(f"drift-check: #{nid} 没挂上（{(p.stderr or p.stdout).strip()[:200]}）", file=sys.stderr)
+        return None
+    return (p.stdout.strip().splitlines() or [""])[0]
+
+
+def _epoch(t):
+    t = re.sub(r"(\.\d{1,6})\d*", r"\1", str(t or "").replace("Z", "+00:00"))
+    try:
+        return datetime.fromisoformat(t).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def recent(ws, since):
+    """工作区频道 since 之后的发言（去掉桥的状态行）；读不到返回 None。"""
+    try:
+        rows = _team.channel_history(ws, project())
+    except OSError:
+        return None
+    if rows is None:
+        return None
+    out = []
+    for r in rows:
+        c = (r.get("content") or "").strip()
+        if c and not c.startswith(STATUS) and _epoch(r.get("time")) >= since:
+            out.append(f"{r.get('author_name') or '?'}：{c}")
+    return out
+
+
+def judge(notes, posts):
+    task = (f"## 用户原话\n{_recall.section(notes, '用户原话')}\n\n## 总目标\n{_recall.section(notes, '总目标')}\n\n"
+            f"## 用户以前定过的事\n{_recall.section(notes, _recall.SECTION) or '（没有）'}\n\n"
+            f"## 执行者最近十分钟在工作区说的（旧→新）\n" + "\n".join(posts))
+    txt, cost = _recall.claude(SYSTEM, task)
+    d = _recall.parse_json(txt)
+    if isinstance(d, dict) and d.get("ok") is False:  # 只有明说对不上才算；出错、超时、说不清都算对得上
+        return False, str(d.get("why") or "").strip(), cost
+    return True, "", cost
+
+
+def wake_lead(it, why):
+    path = re.sub(r"@ws.*$", "", it.get("where") or "")
+    prompt = (f"看门查跑偏：工作区在做的 #{it['id']}「{it.get('what')}」，这十分钟的做法和用户原话或旧定案对不上：{why}\n"
+              f"去工作区看一眼（交接 {path}）。真跑偏就用 ws-forward --notes {path} \"<纠正>\" 转话纠正；"
+              f"是判断器看错就不用管。不自动叫停，不用跟用户说，除非要用户拍板。")
+    argv = [cc(), "timer", "add", "-s", it["chat"], "--delay", "1m", "--timeout-mins", "0", "--silent",
+            "--desc", f"查跑偏 #{it['id']}：对不上", "--prompt", prompt]
+    if project():
+        argv[3:3] = ["-p", project()]
+    return subprocess.run(argv, capture_output=True, text=True, timeout=30).returncode == 0
+
+
+def _log(nid, verdict, n, cost, why):
+    try:
+        LOG.parent.mkdir(parents=True, exist_ok=True)
+        with LOG.open("a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}\t#{nid}\t{verdict}\t{n}\t{cost}\t{why[:120]}\n")
+    except OSError:
+        pass
+
+
+def check(nid, dry=False):
+    it = item(nid)
+    if not live(it):
+        print(f"#{nid} 不在做了（做完、暂停或没交给工作区），不再查")
+        return 0
+    try:
+        notes = Path(re.sub(r"@ws.*$", "", it.get("where") or "")).read_text(encoding="utf-8")
+    except OSError:
+        notes = ""
+    posts = recent(it["ws"], time.time() - WINDOW) if notes else None
+    if posts:
+        ok, why, cost = judge(notes, posts)
+        _log(nid, "ok" if ok else "drift", len(posts), cost, why)
+        if not ok:
+            if dry:
+                print(f"对不上，会叫醒聊天频道主角色：{why}")
+            elif not wake_lead(it, why):
+                print(f"drift-check: #{nid} 叫醒主角色失败", file=sys.stderr)
+        else:
+            print(f"#{nid} 对得上")
+    else:
+        _log(nid, "skip", 0, 0, "没交接或这十分钟没发言/读不到频道")
+        print(f"#{nid} 这十分钟没可查的发言，跳过")
+    if dry:
+        print(f"会再挂 {EVERY} 后的下一次")
+        return 0
+    arm(nid)
+    return 0
+
+
+def main(argv):
+    dry = "--dry-run" in argv
+    argv = [a for a in argv if a != "--dry-run"]
+    if len(argv) == 2 and argv[0] == "--arm":
+        tid = arm(int(argv[1].lstrip("#")))
+        print(tid or "")
+        return 0
+    if len(argv) == 1:
+        return check(int(argv[0].lstrip("#")), dry)
+    print("用法：drift-check --arm <编号> | drift-check <编号> [--dry-run]", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
