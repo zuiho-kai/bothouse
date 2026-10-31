@@ -1,0 +1,10 @@
+{
+  "names": ["YourBotName"],
+  "judge": {
+    "mode": "openai",
+    "base_url": "http://127.0.0.1:8000/v1",
+    "model": "your-local-model",
+    "no_proxy": true,
+    "extra_body": {"chat_template_kwargs": {"enable_thinking": false}}
+  }
+}

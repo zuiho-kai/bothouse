@@ -120,6 +120,8 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 
 QQ / NapCat 用户可手动配置 [OneBot 适配器](bridge/docs/qq.md)。array 与 CQ 字符串格式均支持接收附件、@ 和已缓存的引用上下文；依赖与当前限制见接入指南。
 
+接入指南也包含可选拆条、原图保存、带发言者标签的合并转发，以及支持自部署服务或远程 API 的[判断模型](bridge/contrib/qq-gate/README.md)。个人提示词和模型凭据由使用者自行配置。
+
 底层 AI 接入：本机已登录的 Claude Code、Codex、Gemini CLI、OpenCode 直接调起；DSH 等智能体走标准 ACP 协议接入。同时也支持给 CLI 挂载任意第三方 API（硅基流动、OpenRouter、DeepSeek、MiniMax、本地模型及任意 OpenAI 兼容接口），配置方式见[接入文档](docs/connect-discord-feishu.md)。
 
 ## 手机远程遥控（基于 Tailscale）

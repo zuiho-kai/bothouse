@@ -384,23 +384,30 @@ type Message struct {
 	// older workspace-binding scope. When both keys are set, multi-workspace
 	// routing atomically migrates the legacy binding to ChannelKey.
 	LegacyChannelKey string
-	ReplyCtx         any    // platform-specific context needed for replying
-	FromVoice        bool   // true if message originated from voice transcription
-	Mentioned        bool   // maomao fork: user explicitly @-mentioned the bot (input to the gate)
-	FromBot          bool   // maomao fork: sent by a teammate bot; without Mentioned it is context only
-	AddressedOther   bool   // the text @-s or names (at a line start) another team bot, not this one
-	Direct           bool   // a private chat with the bot (DM); counts as calling it for the built-in busy rules
-	StopAll          bool   // set only by a platform that saw a stop word calling no bot (discord isBareStop); the engine stops the whole channel
-	SeenUpToID       string // maomao fork: newest message folded into this one (gate burst), for channel backfill
+	ReplyCtx         any  // platform-specific context needed for replying
+	FromVoice        bool // true if message originated from voice transcription
+	Mentioned        bool // maomao fork: user explicitly @-mentioned the bot (input to the gate)
+	FromBot          bool // maomao fork: sent by a teammate bot; without Mentioned it is context only
+	AddressedOther   bool // the text @-s or names (at a line start) another team bot, not this one
+	Direct           bool // a private chat with the bot (DM); counts as calling it for the built-in busy rules
+	// GroupChat marks a message from a shared multi-party chat (e.g. a QQ group). Core uses it
+	// with the structured UserName to label each speaker's own words, both in the prompt and in
+	// the gate's silent buffer, so attribution does not depend on AmbientChat being non-empty:
+	// the first message after start/reconnect and a quote-only message must keep their author too.
+	GroupChat  bool
+	StopAll    bool   // set only by a platform that saw a stop word calling no bot (discord isBareStop); the engine stops the whole channel
+	SeenUpToID string // maomao fork: newest message folded into this one (gate burst), for channel backfill
 	// maomao fork: channel backfill ran for this turn and covered the posts after BackfillFrom
 	// ("" = the whole first window); freshContextImages adds the images from before it.
-	BackfillFrom string
-	BackfillRan  bool
-	mediaDone    bool       // maomao fork: prepareMedia already ran (a held gate burst re-enters handleMessage)
-	userText     string     // maomao fork: Content before media notes were appended — the gate's input
-	userTextSet  bool       // maomao fork: userText is set (see userTextOf)
-	gateParts    []gatePart // maomao fork: the messages an idle gate burst folded into this one, as each was (gate.go)
-	abortFront   bool       // maomao fork: a gate abort; queued first, then the running turn is cancelled (gate.go)
+	BackfillFrom  string
+	AmbientChat   string // Background merged once, excluded from the silent buffer.
+	contentMerged bool
+	BackfillRan   bool
+	mediaDone     bool       // maomao fork: prepareMedia already ran (a held gate burst re-enters handleMessage)
+	userText      string     // maomao fork: Content before media notes were appended — the gate's input
+	userTextSet   bool       // maomao fork: userText is set (see userTextOf)
+	gateParts     []gatePart // maomao fork: the messages an idle gate burst folded into this one, as each was (gate.go)
+	abortFront    bool       // maomao fork: a gate abort; queued first, then the running turn is cancelled (gate.go)
 	// maomao fork: the gate asks for the per-turn context blocks (teammate
 	// status, wiki pages); they are added right before the send, once the agent
 	// process for this turn is known. A pending handoff goes either way.

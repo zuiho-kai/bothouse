@@ -112,6 +112,8 @@ Discord and Feishu already provide phone and desktop clients, so there is no ext
 
 QQ / NapCat users can configure the [OneBot adapter](bridge/docs/qq.md) manually. Both array and CQ-string message formats support incoming media, mentions and cached quote context; see the guide for dependencies and current limits.
 
+The OneBot guide also covers optional paragraph splitting, original-image storage, labelled forwarded chats and a [judging model](bridge/contrib/qq-gate/README.md) using a self-hosted service or remote API. Personal prompts and model credentials are supplied by the operator.
+
 Already logged-in Claude Code, Codex, Gemini CLI and OpenCode installations run directly. Agents such as DSH connect through ACP. You can also configure CLIs with third-party APIs, including SiliconFlow, OpenRouter, DeepSeek, MiniMax, local models and other OpenAI-compatible endpoints. See [connection setup](docs/connect-discord-feishu.md).
 
 ## Remote access from your phone with Tailscale

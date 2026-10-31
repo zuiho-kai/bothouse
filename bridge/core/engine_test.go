@@ -14523,6 +14523,9 @@ func TestStripTrailingSilent(t *testing.T) {
 		{"marker not at end", "NO_REPLY then more", "NO_REPLY then more", false},
 		{"marker with suffix token", "Hello NO_REPLY_EXTRA", "Hello NO_REPLY_EXTRA", false},
 		{"marker touching prior letters", "somethingNO_REPLY", "somethingNO_REPLY", false},
+		{"glued after CJK segment", "哦 是这张NO_REPLY", "哦 是这张", true},
+		{"glued after CJK punctuation", "好的。NO_REPLY", "好的。", true},
+		{"glued after ascii punctuation", "done.NO_REPLY", "done.", true},
 		{"empty", "", "", false},
 	}
 	for _, tc := range cases {
