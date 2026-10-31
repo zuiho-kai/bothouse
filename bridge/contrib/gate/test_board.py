@@ -15,6 +15,8 @@ import ctxsvc  # noqa: E402
 
 
 def cli(*args):
+    if args[:1] == ("add",) and len(args) >= 5 and "--short" not in args:
+        args = (*args, "--short", "测试")  # board add 要短名（10-30）
     p = subprocess.run([str(HERE.parent / "lead" / "board"), *args], capture_output=True, text=True,
                        env={**os.environ, "BOARD_DIR": TMP})
     return p.returncode, (p.stdout + p.stderr).strip()

@@ -13,7 +13,7 @@
 
 用法：
   board                                  # 列出进行中的事
-  board add <事情> <分支/PR/路径> <状态> <谁> [--next 几点看] [--short 短名]   # 新加一条，打印编号
+  board add <事情> <分支/PR/路径> <状态> <谁> --short 短名 [--next 几点看]   # 新加一条，打印编号
                                          #   短名（≤10 字）上团队板；不写就从事情去掉「用户点名：」「#N 续：」这类前缀再截
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
                                          #   状态以收尾词开头（已交回/已完成/已验收/已收口/已结束/done）就直接结束，同 done
@@ -1003,6 +1003,8 @@ def main(argv):
         if cmd in ("list", "ls"):
             print("\n".join(lines()) or "（任务板是空的）")
         elif cmd == "add" and len(argv) == 5:
+            if not (short_name or "").strip() or len(short_name.strip()) > SHORT_RUNES:
+                sys.exit(f"不加：要写 --short 短名（≤{SHORT_RUNES} 字，置顶任务表上显示的名字），不再从任务句截前十字")
             why = _lookback_reason(*argv[1:4])
             if why:
                 sys.exit(f"不加：{why}。用完成通知，或在原条目上 board update / later <编号>")

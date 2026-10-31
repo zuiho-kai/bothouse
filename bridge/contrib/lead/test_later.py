@@ -12,7 +12,7 @@ class LaterTest(unittest.TestCase):
         self.env = {"PATH": "/usr/bin:/bin", "HOME": str(self.tmp), "GATE_SETUP_DIR": str(self.tmp / "setup"),
                     "BOARD_DIR": str(self.tmp / "board"), "CALLS": str(self.calls),
                     "CC_BIN": str(self.cc), "CC_PROJECT": "p", "CC_SESSION_KEY": "test:1"}
-        r = subprocess.run(["sh", str(HERE / "board"), "add", "修登录页", "-", "在做", "码农"], capture_output=True,
+        r = subprocess.run(["sh", str(HERE / "board"), "add", "修登录页", "-", "在做", "码农", "--short", "修登录页"], capture_output=True,
                            text=True, env=self.env)
         self.assertEqual(r.returncode, 0, r.stderr)
 

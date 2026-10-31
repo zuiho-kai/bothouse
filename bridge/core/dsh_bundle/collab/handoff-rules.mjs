@@ -63,6 +63,8 @@ function run(c, lines, lead, key = 'msg') {
     case 'kinds': {
       const found = captures(sections(lines, c.section, lead), new RegExp(c.line_re), lead);
       const got = new Set(found);
+      const mx = c.max, n = mx ? found.filter(k => k === mx.kind).length : 0;
+      if (mx && n > mx.n) return mx.msg.replace('{n}', String(n));
       const miss = c.need.filter(k => !got.has(k));
       return miss.length ? missing(c, miss) : null;
     }
