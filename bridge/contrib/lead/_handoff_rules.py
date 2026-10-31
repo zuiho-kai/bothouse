@@ -90,6 +90,17 @@ def _check(c, lines, lead, key="msg"):
         if re.search(c["original_re"], text_of(lines)) and not re.search(c["sample_re"], text_of(lines)):
             return c["original_msg"]
         return None
+    if t == "section_needs_table":  # 某节正文命中触发词和对象时，另一节要有 N 行对照和必备项（11-01 范本只抄了骨架）
+        body = "\n".join(x for s in _sections(lines, c["trigger_section"], lead) for x in s[1:])
+        if not (re.search(c["trigger_re"], body) and re.search(c["object_re"], body)):
+            return None
+        row = re.compile(c["row_re"])
+        for seg in _sections(lines, c["section"], lead):
+            text = "\n".join(seg[1:])
+            if (sum(bool(row.search(x.lstrip(lead))) for x in seg[1:]) >= c["rows"]
+                    and all(re.search(r, text) for r in c["need_res"])):
+                return None
+        return c[key]
     raise RuntimeError(f"交接规则文件里有不认识的检查类型：{t}")
 
 

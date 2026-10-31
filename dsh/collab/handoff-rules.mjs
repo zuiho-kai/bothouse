@@ -92,6 +92,16 @@ function run(c, lines, lead, key = 'msg') {
       if (new RegExp(c.original_re).test(all) && !new RegExp(c.sample_re).test(all)) return c.original_msg;
       return null;
     }
+    case 'section_needs_table': {
+      const body = sections(lines, c.trigger_section, lead).flatMap(seg => seg.slice(1)).join('\n');
+      if (!(new RegExp(c.trigger_re).test(body) && new RegExp(c.object_re).test(body))) return null;
+      const row = new RegExp(c.row_re);
+      for (const seg of sections(lines, c.section, lead)) {
+        const rest = seg.slice(1), text = rest.join('\n');
+        if (rest.filter(x => row.test(stripLead(x, lead))).length >= c.rows && c.need_res.every(r => new RegExp(r).test(text))) return null;
+      }
+      return c[key];
+    }
     default: throw new HandoffRulesError(`交接规则文件里有不认识的检查类型：${c.type}`);
   }
 }
