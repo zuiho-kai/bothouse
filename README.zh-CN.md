@@ -110,24 +110,16 @@ _上面两张是真实频道录屏，下面两张是作者自己在用的管理�
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-zh-night.svg" />
-  <img src="docs/assets/readme/architecture-zh-day.svg" width="960" alt="bothouse 架构图：左边是入口（Discord、飞书、QQ、网页、DSH web）；中间是跑在你自己电脑上的 bothouse，负责派活、调度和任务板；下面是你已经装好的 CLI（Claude Code、Codex、Gemini CLI、DSH、OpenCode 等）；右边是共享记忆（Markdown Wiki，每晚自己复盘）和开发中的记忆论坛；最右边是同步记忆的 GitHub 私有仓库" />
+  <img src="docs/assets/readme/architecture-zh-day.svg" width="960" alt="bothouse 架构图：左边是入口（Discord、飞书、QQ、自建网页、DSH web）；中间是跑在你自己电脑上的 bothouse，负责派活、调度和任务板；下面是你已经装好的 CLI（Claude Code、Codex、Gemini CLI、DSH、OpenCode 等）；右边是共享记忆（Markdown Wiki，每晚自己复盘）和开发中的记忆论坛；最右边是同步记忆的 GitHub 私有仓库" />
 </picture>
 
 <a id="how"></a>
 
 ## 团队怎么运转
 
-```text
-你（手机 / 电脑 / 浏览器）
-   │  一句话
-   ▼
-聊天频道 ── 主角色（你默认在跟它说话的那个 AI）
-   │  大活交出去，聊天不停
-   ├─ 工作区1 ── @写代码的 · @写文案的 ── 交回
-   └─ 工作区2 ── @做调研的 ── 交回
-   ▲
-   └─ 要你拍板的事回到聊天频道，别的不打扰你
-```
+你在手机、电脑或浏览器上说一句话 → 聊天频道里的**主角色**（你默认在跟它说话的那个 AI）接下 → 大活交给**工作区**：工作区1 里 @写代码的、@写文案的，工作区2 里 @做调研的 → 干完交回。
+
+聊天频道一直不停；只有要你拍板的事才回到聊天频道，别的不打扰你。
 
 - **叫到才开口**：默认主角色接话，其他角色跟着看，被 @ 或点名才回。没点名的消息由轻量调度模块 jev（一个只做选择题的小模型）判断该谁接；它能用硅基流动的免费小模型，也能用本地 Qwen 0.6B。
 - **共享记忆**：基于我们开源的 llm-wiki 扩展成多角色共用的记忆，存在本地 Markdown 里，能直接读、直接改，Git 记录团队学到的东西。
