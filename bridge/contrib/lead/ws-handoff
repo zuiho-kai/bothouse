@@ -1,12 +1,13 @@
 #!/usr/bin/env -S python3 -I
 # 把一整块大活交给「工作区」频道里的主角色：检查交接文件，再用 cc-connect timer 叫她开工，输出 timer id。
-# 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名] [--guard 时长] [--confirmed]
+# 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名] [--guard 时长] [--confirmed] [--force]
+#   --force：同一份交接文件已有进行中（没完成、没暂停）的活时照样再交（见 live_dup）。
 #   --confirmed：交接标了「类别：出图/改用户文档/定方向」时，用户看过「派活人自己定的」清单后才带（见 own_gate）。
 #   --guard：兜底定时器时长（默认 30m，按活的大小改，如 90m、2h）。交出后在本聊天频道挂上，到点工作区还没交回就叫醒
 #   本频道主角色去查；工作区交回 [report]、[ask] 让出、暂停、改派时任务板自动撤（../gate/board.py arm_guard）。
 #       ws-handoff --drain                        排队的活按先后接到空出来的工作区（桥放回工作区后调）
 #       ws-handoff --resume <编号> "<用户答复>"    等你的活收到答复，找空工作区接着做（桥调）
-#   短名（≤10 字）上团队板（board add --short）；不写就从任务句去前缀再截。
+#   --short 短名（≤10 字）必填，上置顶任务表（board add --short）；不写就退回。
 #   交接文件放当前目录（角色目录，在数据目录下）的 notes/<名>.md，同本机做法；不放 /tmp 这类公共目录（USAGE）。
 #   交接文件要过 handoff-rules.json（同目录，唯一一份交接规则，DSH collab 建工作区与派活也读它）：必需小节、
 #   参照实现、已查过什么（文件:行或文档路径）、范围的改/不改行（改最多 3 行）、相关改动的冲突行、多人改时的底分支；不合格就报缺什么并给示例（_handoff_rules.py）。
@@ -29,7 +30,7 @@ import board  # noqa: E402  任务板：交活时建条目、绑工作区（../g
 
 MIGRATED = _team.SETUP / "ws-park-migrated.json"  # 做过一次性迁移的聊天频道（见 migrate_unbound）
 
-USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>"\n'
+USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>" --short 短名\n'
          "交接文件写在当前目录（角色目录）的 notes/<名>.md，不放 /tmp 这类公共目录：隔离和清理都管不到那里。")
 # 交出成功后打给主角色的话（stdout 第二行起；第一行仍是 timer id）。来源：团队模式规矩「聊天频道要保持畅通…交出就结束本轮」
 DONE = ("已交给{name}。本轮到此结束：不要在本轮等待、sleep 或查任务板看进度。"
@@ -37,13 +38,35 @@ DONE = ("已交给{name}。本轮到此结束：不要在本轮等待、sleep �
 # 一个工作区进行中的活达到这么多件就算忙。来源：dsh_bundle/collab/team-mode-rules.md「一个工作区里进行中的活默认
 # 达到 3 件就算忙」（团队模式规矩，用户 2026-10-24）；桥里同值 core/team_workspace.go teamWorkspaceBusy。
 BUSY = 1  # 用户 2026-10-28 批「一个工作区同一时间只做一件活」
-MAX_WS = 4  # 池子最多几个工作区（含现有），满了排队；橘加的设定，已告诉用户
+MAX_WS = 6  # 池子最多几个工作区（含现有），满了排队；用户 10-31「新开2个工作区」4→6
 QUEUE = _team.SETUP / "ws-queue.json"  # 排队的活：[{nid, path, task, chat, project, answer}]，先排先接
 
 
 def check_notes(text: str):
     """交接文件不合格时返回报错文字（含要补什么和示例），合格返回 None。规则在 handoff-rules.json（_handoff_rules.py）。"""
     return _handoff_rules.check(text)
+
+
+def intent_gate(text: str):
+    """交接对照产品意图卡，由小模型判断（../hooks/intent_judge.py，发问检查用同一个）：交接里留给用户定的事按用户定过的话
+    能推出来，或做法和用户定过的冲突，就退回并给出答案；真是方向、超时出错、找不到判断器都放行。
+    来源：用户 2026-10-31「我不想什么事情都要我说，你自己思考」「有没有更好的办法，更智能的办法」（#827）。"""
+    here = Path(__file__).resolve().parent
+    for d in (here.parent / "hooks", here.parent.parent / "hooks"):  # 仓库 contrib/hooks；安装后 ~/.bothouse/hooks
+        if (d / "intent_judge.py").is_file():
+            break
+    else:
+        return None
+    sys.path.insert(0, str(d))
+    import intent_judge  # noqa: E402
+    r = intent_judge.judge(text, kind="handoff")
+    if r["verdict"] == "self":
+        return (f"交接里留给用户定的「{r['question']}」按用户定过的话能推出来：{r['answer']}（{r['basis'].rstrip('。')}）。"
+                "把这个答案写进交接，自己定，再交。判断器漏了事实就在交接里写明漏了什么再交。")
+    if r["verdict"] == "conflict":
+        return (f"交接里的做法「{r['question']}」和用户定过的冲突：{r['basis'].rstrip('。')}。合定案的做法：{r['answer']}。"
+                "按定案改了再交；确要推翻定案，先问用户，把用户确认的原话写进交接再交。")
+    return None
 
 
 # 三类活（出图、改用户文档、定方向）派出去前，派活人自己定的决定单列给用户看一眼：交接里写一行「类别：出图」，
@@ -91,6 +114,25 @@ def own_gate(text: str, confirmed: bool):
         return None
     return (f"这件是「{kind}」类，还没交出。先把下面这份清单原样贴给用户，用户回过（没拦或改完交接）再加 --confirmed 重跑：\n"
             f"{OWN}：\n" + "\n".join(f"- {x}" for x in own))
+
+
+# 防重复派：同一份交接文件在任务板上已有进行中（board.jsonl 里、没暂停；排队也算）的条目就拒绝再交，带 --force 放行。
+# 路径按 realpath 比，忽略 record_last 加的 @ws…@task… 后缀。来源：10-31 凌晨重复派同一件，两个会话同改一个目录约 15 分钟
+# （首次 10-30 #780），复盘 role-household-puck185-night-retro-1031.md 第 6 条。
+def _real(where: str) -> str:
+    return os.path.realpath(os.path.expanduser(re.sub(r"@ws.*$", "", str(where or ""))))
+
+
+def live_dup(path: str):
+    """同一份交接文件进行中的任务板条目（没有返回 None）。"""
+    me = _real(path)
+    return next((i for i in board.items() if not i.get("paused") and i.get("where") and _real(i["where"]) == me), None)
+
+
+def dup_error(it) -> str:
+    where = it.get("who") or it.get("ws") or "工作区"
+    return (f"这份交接已有进行中的活 #{it['id']}（{where}，状态：{it.get('status') or '—'}），没再交。"
+            f"要接着做用 ws-forward 转话；确实要再开一件，加 --force 重跑。")
 
 
 def fixed_channel(chat: str) -> str:
@@ -223,7 +265,7 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
               f"有问题、要用户拍板用 ws-up --notes {path} \"<问题+选项+推荐>\" --ask，等聊天频道转回答复再做，"
               f"等的时候先做不受影响的部分；不在工作区里问用户。会缩小或改变用户原话范围的决定也先 --ask，纯技术细节自己定。"
               f"只做交接里写成「改」的部分；用户原话里没有的设定、开关、参数不加，要加先 --ask。"
-              f"做完交回：这一轮最后一条回复的第一行写 [report] #{nid} 背景：……，再起一行写做了什么，再一行写「要你做的：……」，再一行写「我加的：……」（用户原话里没有、你自己加的设定，没有写「我加的：无」）（这四段系统原样贴到聊天频道），之后的行是细节，贴在那条消息下的子话题（中途发的话不转）；"
+              f"做完交回：这一轮最后一条回复的第一行写 [report] #{nid} 背景：……，再起一行写做了什么，再一行写「要你做的：……」（只写要用户拍板或只有用户本人能做的事；你自己能验的先验完，不让用户替你核对，没有写「要你做的：没有」），再一行写「我加的：……」（用户原话里没有、你自己加的设定，没有写「我加的：无」）（这四段系统原样贴到聊天频道），之后的行是细节，贴在那条消息下的子话题（中途发的话不转）；"
               f"交回后桥自动把这件标完成、清空会话、放回工作区")
     key = ws if ":" in ws else f"discord:{ws}"
     return [cc_bin(), "timer", "add", "-s", key, "--delay", "1m", "--timeout-mins", "0",
@@ -340,7 +382,8 @@ def main(argv):
             sys.exit("ws-handoff: --guard 要写时长，如 30m、90m、2h")
         argv = argv[:k] + argv[k + 2:]
     confirmed = "--confirmed" in argv
-    argv = [a for a in argv if a != "--confirmed"]
+    force = "--force" in argv
+    argv = [a for a in argv if a not in ("--confirmed", "--force")]
     short_name = None
     if "--short" in argv:
         k = argv.index("--short")
@@ -348,20 +391,30 @@ def main(argv):
         argv = argv[:k] + argv[k + 2:]
     if len(argv) != 2 or not argv[1].strip():
         sys.exit(USAGE)
+    # 短名由交活人写，不再从任务句截前十字（用户 10-30 认可的置顶表方案：没写就退回让写）。
+    short_name = (short_name or "").strip()
+    if not short_name or len(short_name) > board.SHORT_RUNES:
+        sys.exit(f"ws-handoff: 要写 --short 短名（≤{board.SHORT_RUNES} 字，置顶任务表上显示的名字，比如 --short 任务表改版）")
     path, task = os.path.abspath(os.path.expanduser(argv[0])), argv[1]
     if not os.path.isfile(path):
         sys.exit(f"ws-handoff: 交接文件不存在 {path}\n{USAGE}")
     with open(path, encoding="utf-8") as fh:
         notes = fh.read()
-        try:
-            err = check_notes(notes)
-        except RuntimeError as e:  # 规则文件读不到或写坏：报错不放行
-            sys.exit(f"ws-handoff: {e}")
+    try:
+        err = check_notes(notes)
+    except RuntimeError as e:  # 规则文件读不到或写坏：报错不放行
+        sys.exit(f"ws-handoff: {e}")
+    if err:
+        sys.exit(f"ws-handoff: {err}")
+    err = intent_gate(notes)
     if err:
         sys.exit(f"ws-handoff: {err}")
     gate = own_gate(notes, confirmed)
     if gate:
         sys.exit(f"ws-handoff: {gate}")
+    dup = None if force else live_dup(path)
+    if dup:
+        sys.exit(f"ws-handoff: {dup_error(dup)}")
     chat = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
     parent = ""  # 走共享池时交接记在桥里的聊天频道；叫醒失败按它撤掉刚 claim 的那件
     if _team.workspace():

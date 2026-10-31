@@ -279,16 +279,19 @@ func TestCapacityRetry_DeferredMessagesKeepOrder(t *testing.T) {
 	waitFor(t, "B deferred", func() bool { return strings.Count(joined(p), "冷却中") == 1 })
 	send("msgC")
 	waitFor(t, "C deferred", func() bool { return strings.Count(joined(p), "冷却中") == 2 })
-	waitFor(t, "all answered", func() bool { return strings.Contains(joined(p), "reply:3") })
+	// B and C queue behind A from the same sender, so they run as one batched turn (B before C).
+	waitFor(t, "all answered", func() bool { return strings.Contains(joined(p), "reply:2") })
 
 	sent := sess.sentPrompts()
-	if len(sent) != 6 {
-		t.Fatalf("sends = %d, want 6: %q", len(sent), sent)
+	if len(sent) != 5 {
+		t.Fatalf("sends = %d, want 5 (A x3 at capacity, A, batched B+C): %q", len(sent), sent)
 	}
-	for i, want := range []string{"msgA", "msgB", "msgC"} {
-		if !strings.Contains(sent[3+i], want) {
-			t.Fatalf("after cooldown send %d = %q, want %s (order A, B, C)", i, sent[3+i], want)
-		}
+	if !strings.Contains(sent[3], "msgA") {
+		t.Fatalf("first send after cooldown = %q, want msgA", sent[3])
+	}
+	b, c := strings.Index(sent[4], "msgB"), strings.Index(sent[4], "msgC")
+	if b < 0 || c < 0 || b > c {
+		t.Fatalf("batched send = %q, want msgB then msgC", sent[4])
 	}
 }
 

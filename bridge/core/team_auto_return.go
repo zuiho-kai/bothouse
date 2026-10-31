@@ -74,7 +74,7 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 		slog.Error("team exit: forward target is itself a workspace; lead not woken", "parent", parent, "workspace", ws)
 		return false
 	}
-	prompt := chatLeadPrompt(channelLabel(p.Name(), ws), bot, kind, body, e.workspaceTaskBackground(wsSession, boardID), boardID > 0)
+	prompt := chatLeadPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, kind, body, e.workspaceTaskBackground(wsSession, boardID), boardID > 0)
 	prompt = askRef.ReplaceAllString(prompt, "ask-…")
 	board := boardID
 	if it := e.workspaceBoardItem(wsSession, boardID); it != nil {
@@ -126,7 +126,7 @@ func (e *Engine) queueChatLeadTurn(p Platform, parent, ws, desc, prompt string, 
 // reply, then how to speak — as the user's secretary (user 2026-10-28 「你的身份应该是我的秘书…
 // 我只关心我要的东西，现在什么进度」「你要有背景，突然间拍脑袋来一句…没背景都忘记要干嘛了」
 // 「你都知道我要换了，你还要…要我回个a」).
-func chatLeadPrompt(wsLabel, bot, kind, body, background string, posted bool) string {
+func chatLeadPrompt(dataDir, wsLabel, bot, kind, body, background string, posted bool) string {
 	var b strings.Builder
 	what := "阶段结果"
 	if kind == exitKindAsk {
@@ -146,7 +146,7 @@ func chatLeadPrompt(wsLabel, bot, kind, body, background string, posted bool) st
 		if background != "" {
 			b.WriteString("\n这件活的背景：\n" + background + "\n")
 		}
-		b.WriteString("\n内容：\n" + truncateRelay(body, chatLeadWakeLimit) + "\n\n")
+		b.WriteString("\n内容：\n" + truncateRelayMore(dataDir, "workspace-reply", body, chatLeadWakeLimit) + "\n\n")
 	}
 	switch {
 	case posted && kind == exitKindAsk:

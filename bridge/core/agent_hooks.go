@@ -49,6 +49,8 @@ var agentHooks = []agentHook{
 		"Agent|Task|Edit|Write|MultiEdit|NotebookEdit|subagent|subagent_fork|workflow|edit|write|str_replace_editor", 10},
 	{"fix-claim-guard", "Stop", "", 30},
 	{"promise-guard", "Stop", "", 30},
+	// Blocks a reply that puts a choice/decision question to the user without the agent's own answer first.
+	{"choice-ask-guard", "Stop", "", 30},
 	{"wiki-context", "UserPromptSubmit", "", 5},
 	// Only PreToolUse, every tool: once a subagent's context is past the line its tool calls are denied with the
 	// handoff instructions as the reason. No agent_id in the payload (main session, CLIs without subagents) = pass.

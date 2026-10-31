@@ -50,6 +50,12 @@ func (e *Engine) sessionTask(session string) *Task {
 	return e.publicProgress.threadTask(session, e.sessions.GetOrCreateActive(session).CreatedAt)
 }
 
+// The task thread's card lists the recent steps in full (user 10-30 「只希望在任务子频道里面才完整显示」).
+const (
+	taskThreadCardEntries = 10  // 沿用已有配置：upstream 多行卡的条数（engine_test 里 progressCardMaxEntries = 10）
+	taskThreadCardLineLen = 340 // 沿用已有配置：Discord 卡片正文上限 3500 字（maxDiscordProgressDescLen）÷ 10 条，留出抬头行
+)
+
 // taskThreadProgress returns the lookup of a workspace turn's progress card copy in its task
 // card's thread; nil when the session is no workspace or the platform cannot post into threads.
 func (e *Engine) taskThreadProgress(p Platform, session string, transform func(string) string) func() *compactProgressWriter {
@@ -70,6 +76,8 @@ func (e *Engine) taskThreadProgress(p Platform, session string, transform func(s
 		if !w.Active() {
 			return nil
 		}
+		// Only the thread copy lists the recent steps in full; channel cards keep their one line.
+		w.maxEntries, w.lineLen = taskThreadCardEntries, taskThreadCardLineLen
 		slog.Info("progress card: copied into the task thread", "session", session, "task_id", t.ID, "thread", t.ThreadID)
 		return w
 	}

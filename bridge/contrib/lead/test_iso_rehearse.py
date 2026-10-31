@@ -37,7 +37,7 @@ class IsoCheck(unittest.TestCase):
     def run_iso(self, *args, owner=None, var='CC_SESSION_KEY', extra=None):
         env = {k: v for k, v in os.environ.items() if k not in CLEAR + ('CC_BIN', 'ISO_CHECK_PORTS')}
         env.update(ISO_CHECK_STATE=self.state, HOME=self.home, PATH=f'{self.bindir}:/usr/bin:/bin:/usr/sbin:/sbin',
-                   ISO_CHECK_PORTS='1')
+                   ISO_CHECK_PORTS='1', ISO_PORT_SLOT='0')  # 不让测试去查线上桥的工作区列表
         if owner:
             env[var] = owner
         env.update(extra or {})
@@ -50,6 +50,38 @@ class IsoCheck(unittest.TestCase):
         self.mine.append(d)
         self.assertTrue(d.startswith('/tmp/iso.') and os.path.isdir(d))
         return d
+
+    def ports(self, d):
+        env = {}
+        for line in open(os.path.join(d, 'ports.env')):
+            if line.startswith('export '):
+                for kv in line.split()[1:]:
+                    k, v = kv.split('=', 1)
+                    env[k] = int(v)
+        return env
+
+    def test_ports_by_workspace_no_overlap(self):
+        # 10-30 两个工作区的 jiuwen 测试实例都用 5173/19000 撞车：不同工作区号拿到不重叠的端口段
+        p2 = self.ports(self.before('discord:W2', extra={'ISO_PORT_SLOT': '2'}))
+        p3 = self.ports(self.before('discord:W3', extra={'ISO_PORT_SLOT': '3'}))
+        self.assertEqual(p2['ISO_PORT_BASE'], 42200)
+        self.assertEqual(p3['FRONTEND_PORT'], 42300)
+        keys = [k for k in p2 if k.endswith('_PORT')]
+        for k in ('FRONTEND_PORT', 'WEB_PORT', 'GATEWAY_PORT', 'AGENT_SERVER_PORT', 'JIUWENSWARM_WEB_PORT',
+                  'JIUWENSWARM_AGENT_HTTP_PORT', 'BROWSER_RUNTIME_MCP_PORT'):
+            self.assertIn(k, keys)
+        for p in (p2, p3):
+            self.assertEqual(p['WEB_PORT'], p['JIUWENSWARM_WEB_PORT'])
+            for k in keys:
+                self.assertTrue(p['ISO_PORT_BASE'] <= p[k] <= p['ISO_PORT_BASE'] + 99, k)
+        self.assertFalse({p2[k] for k in keys} & {p3[k] for k in keys})
+
+    def test_ports_slot_out_of_range_refused(self):
+        before = set(os.listdir('/tmp'))
+        r = self.run_iso('before', owner='discord:W', extra={'ISO_PORT_SLOT': '72'})
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('超出端口段', r.stderr)
+        self.assertFalse({x for x in set(os.listdir('/tmp')) - before if x.startswith('iso.')})
 
     def test_cross_session_cannot_delete(self):
         a, b = self.before('discord:A'), self.before('discord:B')

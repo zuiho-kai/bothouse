@@ -3,10 +3,8 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -99,39 +97,11 @@ func trayConfigPath(args []string) string {
 	return resolveConfigPath("")
 }
 
-type trayClient struct{ base, token string }
-
-func (c trayClient) loginURL(path string) string {
-	return c.base + "/login?token=" + url.QueryEscape(c.token) + "&next=" + url.QueryEscape(path)
-}
-func (c trayClient) get(path string, out any) error {
-	req, err := http.NewRequest(http.MethodGet, c.base+path, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	res, err := (&http.Client{Timeout: 4 * time.Second}).Do(req)
-	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-	if res.StatusCode != 200 {
-		return fmt.Errorf("HTTP %d", res.StatusCode)
-	}
-	return json.NewDecoder(res.Body).Decode(out)
-}
 func refreshTray(c trayClient) {
 	tick := time.NewTicker(45 * time.Second)
 	defer tick.Stop()
 	for {
-		var status struct {
-			Projects int `json:"projects_count"`
-		}
-		if err := c.get("/api/v1/status", &status); err != nil {
-			trayStatus.SetTitle("运行状态：未连接")
-		} else {
-			trayStatus.SetTitle(fmt.Sprintf("运行状态：运行中（%d 个角色）", status.Projects))
-		}
+		trayStatus.SetTitle(c.statusLabel())
 		var projects struct {
 			Projects []struct {
 				Name      string   `json:"name"`
@@ -168,32 +138,8 @@ func refreshTray(c trayClient) {
 				trayRoles.SetTitle("角色：未知（等待 #207）")
 			}
 		}
-		var usage struct {
-			Items []struct {
-				Total int64    `json:"total_tokens"`
-				Cost  *float64 `json:"estimated_cost"`
-			} `json:"items"`
-		}
 		today := time.Now().Format("2006-01-02")
-		if c.get("/api/v1/usage/daily?from="+today+"&to="+today, &usage) != nil {
-			trayUsage.SetTitle("今日用量：等待 #208")
-		} else {
-			var tokens int64
-			cost := 0.0
-			hasCost := false
-			for _, r := range usage.Items {
-				tokens += r.Total
-				if r.Cost != nil {
-					cost += *r.Cost
-					hasCost = true
-				}
-			}
-			label := fmt.Sprintf("今日用量：%d tokens", tokens)
-			if hasCost {
-				label += fmt.Sprintf(" · $%.2f", cost)
-			}
-			trayUsage.SetTitle(compact(label, 55))
-		}
+		trayUsage.SetTitle(compact(c.usageLabel(today), 55))
 		var update struct {
 			HasUpdate bool   `json:"has_update"`
 			Latest    string `json:"latest"`
@@ -207,11 +153,4 @@ func refreshTray(c trayClient) {
 		}
 		<-tick.C
 	}
-}
-func compact(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	return string(r[:max-1]) + "…"
 }

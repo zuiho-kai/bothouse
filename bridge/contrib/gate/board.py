@@ -13,7 +13,7 @@
 
 用法：
   board                                  # 列出进行中的事
-  board add <事情> <分支/PR/路径> <状态> <谁> [--next 几点看] [--short 短名]   # 新加一条，打印编号
+  board add <事情> <分支/PR/路径> <状态> <谁> --short 短名 [--next 几点看]   # 新加一条，打印编号
                                          #   短名（≤10 字）上团队板；不写就从事情去掉「用户点名：」「#N 续：」这类前缀再截
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
                                          #   状态以收尾词开头（已交回/已完成/已验收/已收口/已结束/done）就直接结束，同 done
@@ -350,6 +350,14 @@ def append_forward(path, line):
 def paused_item(path):
     """交接文件 path 对应、正在暂停的条目（ws-handoff 建条目时 where 记的就是交接文件）；没有返回 None。"""
     return next((i for i in _read() if i.get("paused") and i.get("where") == path), None)
+
+
+def done_item(path):
+    """交接文件 path 对应的活已交回：板上没有它的条目，board-done.jsonl 里有它做完的记录（自动收起的暂停不算），返回最后一条；否则 None。
+    ws-forward 用它拦下往已交回的活转话（工作区交回后会话已清空，话发过去没人接）。"""
+    if any(i.get("where") == path for i in _read()):
+        return None
+    return next((r for r in reversed(_read("board-done.jsonl")) if r.get("where") == path and not r.get("auto_pruned")), None)
 
 
 # 暂停：条目留在 board.jsonl（不写 board-done.jsonl，不算完成），带 paused（暂停时刻）和 pause_why；团队板上单列「暂停」块。
@@ -995,6 +1003,8 @@ def main(argv):
         if cmd in ("list", "ls"):
             print("\n".join(lines()) or "（任务板是空的）")
         elif cmd == "add" and len(argv) == 5:
+            if not (short_name or "").strip() or len(short_name.strip()) > SHORT_RUNES:
+                sys.exit(f"不加：要写 --short 短名（≤{SHORT_RUNES} 字，置顶任务表上显示的名字），不再从任务句截前十字")
             why = _lookback_reason(*argv[1:4])
             if why:
                 sys.exit(f"不加：{why}。用完成通知，或在原条目上 board update / later <编号>")

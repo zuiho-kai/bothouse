@@ -26,6 +26,8 @@ class WsGuardTest(unittest.TestCase):
 
     def run_tool(self, name, *args):
         cmd = ["/bin/sh", str(HERE / name)] if name == "board" else [sys.executable, "-I", str(HERE / name)]
+        if name == "ws-handoff" and "--short" not in args:
+            args = (*args, "--short", "测试")  # ws-handoff 要短名（10-30）
         return subprocess.run([*cmd, *args], capture_output=True, text=True, env=self.env)
 
     def calls_of(self, sub):

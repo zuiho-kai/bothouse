@@ -107,7 +107,10 @@ Discord and Feishu already provide phone and desktop clients, so there is no ext
 | Discord | Full support | Multiple roles, mentions, task handoffs, teammate status and log channels; slash commands in servers and direct messages |
 | Self-hosted web | Team mode | A local, Discord-like web interface with multiple roles, mentions and task handoffs |
 | Feishu (Lark) | Single role | Conversation with one connected role |
+| QQ official bot | Manual configuration | Group/private chat; group @user requires Markdown, @everyone requires group admin permission; see [QQ Bot setup](bridge/docs/qqbot.md) |
 | DSH web | Experimental | A Channels page inside DSH web; see [DSH channels](dsh/collab/README.md) |
+
+QQ / NapCat users can configure the [OneBot adapter](bridge/docs/qq.md) manually. Both array and CQ-string message formats support incoming media, mentions and cached quote context; see the guide for dependencies and current limits.
 
 Already logged-in Claude Code, Codex, Gemini CLI and OpenCode installations run directly. Agents such as DSH connect through ACP. You can also configure CLIs with third-party APIs, including SiliconFlow, OpenRouter, DeepSeek, MiniMax, local models and other OpenAI-compatible endpoints. See [connection setup](docs/connect-discord-feishu.md).
 

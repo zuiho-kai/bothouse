@@ -56,6 +56,9 @@ def _check(c, lines, lead, key="msg"):
         found = [m.group(1) for seg in _sections(lines, c["section"], lead) for x in seg[1:]
                  for m in [rx.search(x.lstrip(lead))] if m]
         got = set(found)
+        mx = c.get("max")  # 某一种行超过上限就拆开派（10-30 三个子 agent 因一件管 10 多项停半路）
+        if mx and found.count(mx["kind"]) > mx["n"]:
+            return mx["msg"].replace("{n}", str(found.count(mx["kind"])))
         miss = [k for k in c["need"] if k not in got]
         return _missing(c, miss) if miss else None
     if t == "values":

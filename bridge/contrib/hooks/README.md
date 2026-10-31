@@ -61,10 +61,11 @@ bothouse 写的 hook 命令都带 `--conest-hook` 标记，`off` 只删带标记
 | dispatch-review-guard | PreToolUse（Agent/Task/subagent/subagent_fork/workflow；主会话的 Edit/Write） | 派活没写【已审:…】；主会话直接改代码 | 【免审:调研/小改动/一次性脚本/代码审查】、【审稿】+逐字原话、【已审:<审稿文件>】；文档先跑 `doc-ok.py <文件>` |
 | fix-claim-guard | Stop | 用户在说 bug，回复说"已修复"却没列入口表 | 列 `入口 \| 是否经过修复 \| 核对结果` 表；每轮只拦一次 |
 | promise-guard | Stop | 说了"X 点回来看/跑完告诉你/下一步做 X"，本轮却没有定时器、后台任务或派活 | 设定时器、当轮派出去，或写明「这件事不跟进，原因是 Y」；每轮只拦一次 |
+| choice-ask-guard | Stop | 回复里有要用户拍板的问题时，小模型（intent_judge.py，Haiku）对照产品意图卡（hooks/intent-cards.txt 列的路径）和最近 10 条用户消息判断：能推出答案、或与用户定过的冲突 | 拦回并给出答案或指出冲突的那条；真是方向/花钱放行；超时出错放行；每轮只拦一次。ws-handoff 交接时调同一判断 |
 | wiki-context | UserPromptSubmit | 终端会话里按消息附「可能相关的 wiki 页」（和 gate 同一套检索） | 只是附上下文；bothouse 起的 bot 跳过，因为 gate 已经推了 |
 | subagent-ctx-hook | PreToolUse（所有工具） | 子 agent 上下文到 15 万 token 后还在调工具 | 不放行：拒绝理由里要求写交接（做到哪、文件在哪、下一步）后收工；主会话不管 |
 
-fix-claim-guard 和 promise-guard 认的是中文措辞。
+fix-claim-guard、promise-guard 和 choice-ask-guard 认的是中文措辞。
 
 这些 hook 就是「同类错第 2 次写成检查，不再往规则里加字」的落点：`lessons.py`（由 wiki-context 加载）按 wiki 教训表里的「N 次」提醒，某条到 2 次就在这里加一个 hook 或测试，常驻规则本身加一删一。
 
