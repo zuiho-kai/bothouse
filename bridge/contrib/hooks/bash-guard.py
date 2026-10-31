@@ -29,6 +29,11 @@ WIKI = None if _wiki.lower() in ("", "off") else os.path.realpath(os.path.expand
 PROXY = re.compile(r"(^|\s)(-x|--proxy|--socks5\S*)(\s|=)|\b(https?|all)_proxy=|\b(HTTPS?|ALL)_PROXY=|\bproxy_on\b")
 LOCAL = re.compile(r"^(https?://)?(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|[^/]*\.local\b|[^/]*\.ts\.net\b|\[?::1)")
 
+# 直接停/杀桥（launchd 服务 com.bothouse.* 或 bothouse / cc-connect 进程）：只拦改状态的动词，list/print 放行
+RESTART = re.compile(r"\blaunchctl\s+(?:kickstart|stop|bootout|unload|kill|remove)\b[^\n;|&]*(?:com\.bothouse|cc-connect)"
+                     r"|\b(?:kill|pkill|killall)\b[^\n;|&]*\b(?:bothouse|cc-connect)\b")
+
+
 def segments(cmd):
     return [s for s in re.split(r"\|\||&&|[;\n|]", cmd) if s.strip()]
 
@@ -495,6 +500,10 @@ def main():
         if t and t[0] == "pkill" and any(re.match(r"^-[a-zA-Z]*f", a) for a in t[1:]):
             deny("不要用 pkill -f：它会匹配到执行本命令的 wrapper shell，把自己杀掉。"
                  "改用 pid 文件，或 `kill $(pgrep -f '[x]yz')`（方括号让 pattern 不匹配自身）。")
+        if "# restart-ok" not in cmd and RESTART.search(seg):
+            deny("不要直接 launchctl/kill 正在跑的桥：会把这轮回复和同桥的 bot 一起杀掉。"
+                 "改用 `safe-restart \"原因\" \"重启后接着做的事|无\"`（等本轮回复发出再重启）或 `bothouse daemon restart`；"
+                 "杀的是测试用的隔离实例就在命令末尾加 `# restart-ok`。")
         if sys.platform == "darwin" and "# tcc-ok" not in cmd and t[:2] == ["go", "build"] and re.search(r"-o\s+\S*bothouse", seg):
             deny("不要直接 go build -o 覆盖正在用的 bothouse：macOS 上签名会变回 ad-hoc，TCC 授权失效。"
                  "编到别的路径，再用原来的证书 codesign 后替换；确实要覆盖就在命令末尾加 `# tcc-ok`。")
