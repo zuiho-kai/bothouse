@@ -14,6 +14,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-4a7c59?style=flat-square)](LICENSE)
 [![Platforms](https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-555?style=flat-square)](https://github.com/zuiho-kai/bothouse/releases)
 [![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
 
 **bothouse：把电脑上的 Claude Code、Codex、Gemini CLI 拉进一个群，再接上 DeepSeek 这类模型，组成一支共享记忆、自己分活的 AI 小团队。**
 
@@ -261,6 +262,7 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 
 | 来坐坐 | |
 | --- | --- |
+| [Discord](https://discord.gg/aJmcnrt5ZB) | 和用户、贡献者直接聊 |
 | [GitHub Issues](https://github.com/zuiho-kai/bothouse/issues) | 报 bug、提想法 |
 | [Pull requests](https://github.com/zuiho-kai/bothouse/pulls) | 一起改代码 |
 | [linux.do](https://linux.do) | 中文社区讨论 |

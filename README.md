@@ -14,6 +14,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-4a7c59?style=flat-square)](LICENSE)
 [![Platforms](https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-555?style=flat-square)](https://github.com/zuiho-kai/bothouse/releases)
 [![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
 
 **bothouse: put Claude Code, Codex, Gemini CLI and DeepSeek on your computer into one group chat — an AI team that shares one memory and divides up its own work.**
 
@@ -263,6 +264,7 @@ Questions, ideas and the teams you build are all welcome.
 
 | Drop by | |
 | --- | --- |
+| [Discord](https://discord.gg/aJmcnrt5ZB) | chat with users and contributors |
 | [GitHub Issues](https://github.com/zuiho-kai/bothouse/issues) | bugs and ideas |
 | [Pull requests](https://github.com/zuiho-kai/bothouse/pulls) | build it with us |
 | [linux.do](https://linux.do) | Chinese community forum |
