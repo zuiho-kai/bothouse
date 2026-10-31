@@ -167,6 +167,12 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 			return item != nil
 		}, e.exitBounceCount(sessionKey))
 		problems, hid, hline, legacy = v.Problems, v.ID, v.Line, v.Legacy
+		if kind == exitKindReport && item != nil {
+			// image work goes back without its side-by-side image, like an [ask] without its self-check
+			if art := artReportProblems(readNotes(item.Where), body, localFileExists); art != nil {
+				problems, legacy = append(problems, art...), false
+			}
+		}
 	}
 	if problems == nil {
 		// Any reply without a bounced [ask] ends the run of bounces.
@@ -639,4 +645,31 @@ func spaceExitLines(s string) string {
 		out = append(out, l)
 	}
 	return strings.Join(out, "\n\n")
+}
+
+// readNotes reads a board item's handoff file (its Where); "" when it is not a readable file.
+func readNotes(where string) string {
+	path := expandHome(strings.TrimSpace(where))
+	if path == "" || !filepath.IsAbs(path) {
+		return ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func localFileExists(path string) bool {
+	st, err := os.Stat(expandHome(path))
+	return err == nil && !st.IsDir()
+}
+
+func expandHome(path string) string {
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, rest)
+		}
+	}
+	return path
 }

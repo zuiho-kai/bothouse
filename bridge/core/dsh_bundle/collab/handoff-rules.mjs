@@ -79,6 +79,19 @@ function run(c, lines, lead, key = 'msg') {
       const rx = new RegExp(`^${escape(c.field)}\\s*[:：]\\s*\\S`);
       return lines.some(l => rx.test(stripLead(l, lead))) ? null : c[key];
     }
+    case 'art_ref': {
+      const trig = new RegExp(c.trigger_re);
+      if (!c.trigger_sections.some(s => sections(lines, s, lead).some(seg => seg.some(x => trig.test(x))))) return null;
+      // The scope changes code files: work on image-related code, not image work.
+      const code = new RegExp(c.code_line_re);
+      if (sections(lines, c.code_section, lead).some(seg => seg.slice(1).some(x => code.test(stripLead(x, lead))))) return null;
+      const refs = new Set(sections(lines, c.section, lead, Boolean(c.inline))
+        .flatMap(seg => seg.flatMap(x => [...x.matchAll(new RegExp(c.image_re, 'g'))].map(m => m[0]))));
+      if (refs.size < c.min) return c.msg.replaceAll('{min}', String(c.min)).replaceAll('{n}', String(refs.size));
+      const all = lines.join('\n');
+      if (new RegExp(c.original_re).test(all) && !new RegExp(c.sample_re).test(all)) return c.original_msg;
+      return null;
+    }
     default: throw new HandoffRulesError(`交接规则文件里有不认识的检查类型：${c.type}`);
   }
 }
