@@ -1120,6 +1120,10 @@ func downloadFile(url string) ([]byte, string, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, "", err
