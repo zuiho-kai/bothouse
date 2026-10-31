@@ -42,7 +42,21 @@ Options:
 | `-Browser auto\|edge\|chrome` | browser to use (default `auto`) |
 | `-NoChannel` | only the management panel |
 | `-ShowToken` | print the management token found in the config (copy it into the login page) |
-| `-CreateShortcuts` | create Desktop shortcuts that run this script again (only when you want the URLs saved; a token in `ChannelUrl` will be stored in the shortcut) |
+| `-CreateShortcuts` | create shortcuts that run this script again (icon comes from `-IconPath`, or `bothouse.ico` next to this script if you generated one; otherwise the system default icon; only when you want the URLs saved — a token in `ChannelUrl` will be stored in the shortcut) |
+| `-ShortcutDir <dir>` | where to create the shortcuts (default: the Desktop; set a folder to test without touching it) |
+| `-IconPath <file>` | icon for the shortcuts (default: `bothouse.ico` next to this script if present, else the system default) |
+
+### Icon
+
+No binary icon is committed. To get a bothouse-branded icon, generate one locally from the
+reviewable text script `make-icon.ps1` (dark rounded square + green dot + white "b"):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\make-icon.ps1
+# then shortcuts created by open-desktop.ps1 pick up .\bothouse.ico automatically
+```
+
+You can also pass any `.ico` via `-IconPath`, or omit it and keep the default system icon.
 
 The management login page asks for the API token from `config.toml`:
 
