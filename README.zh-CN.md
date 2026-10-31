@@ -17,7 +17,7 @@
 
 **bothouse：把电脑上的 Claude Code、Codex、Gemini CLI 拉进一个群，再接上 DeepSeek 这类模型，组成一支共享记忆、自己分活的 AI 小团队。**
 
-[宣传片](#video) · [安装](#install) · [能力](#features) · [截图](#screenshots) · [记忆](#memory) · [版本亮点](#releases) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
+[宣传片](#video) · [安装](#install) · [能力](#features) · [截图](#screenshots) · [记忆](#memory) · [版本亮点](#releases) · [对比](#compare) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
 
 </div>
 
@@ -196,6 +196,40 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 | **[0.1.42](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.42)**（2026-10-30） | 每个聊天频道钉一张**任务板**（等你看 / 在做 / 搁置）；**每件活一个子话题**；队友交回结果时，固定写成四段大白话；回复正在跑的活，直接转进它的工作区。 |
 | **[0.1.41](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.41)**（2026-10-30） | `/model` 显示频道**实际在用**的模型；工作区提问只暂停它点名的那件活；`bothouse-dsh` 随版本发到 npm。 |
 | **[0.1.40](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.40)**（2026-10-29） | 回复被钩子拦下后不再只剩最后一句；Grok 角色也有「只问不改」护栏。 |
+
+<a id="compare"></a>
+
+## bothouse 和其他项目：重心不同
+
+常有人问：DeepSeek 自己出了 agent，还有 Tobs、DS Bot、OpenClaw 这些，bothouse 有什么不一样？简单说，它们大多是**一个 agent 或一个平台**，bothouse 是**把你已经在用的几种 AI 拉进同一个群**的那一层。
+
+- **DeepSeek Harness（DSH）** 是 DeepSeek 官方开源的 agent 框架。Tobs 和 DS Bot 是跑在 DSH 上的社区 Bot 插件。bothouse 不和它们抢位置：DSH 能经 ACP 当 bothouse 的一个队友。
+- **bothouse** 不绑定某一个 agent。Claude Code、Codex、Gemini CLI、OpenCode、DSH 都能成为同一个群里的队友。主角色把大活派到独立工作区，大家共用一份每晚复盘的 Markdown 记忆。
+
+| | 是什么 | 接哪些 AI | 几个 AI 怎么协作 | 记忆 | 在哪聊 | 许可 |
+| --- | --- | --- | --- | --- | --- | --- |
+| **bothouse** | 本机常驻的转发层 + 网页面板 | Claude Code、Codex、Gemini CLI、OpenCode；DSH 等走 ACP；OpenAI 兼容接口 | 主角色派活到独立工作区，任务板，每件活一个子话题 | 全员共用一份 Markdown Wiki，消息前检索，夜间复盘 | Discord、自建网页、飞书、QQ、DSH web（实验） | Apache-2.0 |
+| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | DeepSeek 官方 agent 框架（开发者预览） | 默认 DeepSeek，也能加其他模型提供商 | 子 agent；团队模式在实验中 | 没有内置长期记忆，可接记忆 MCP | 自带桌面端和网页 | MIT |
+| [Tobs](https://github.com/BotHarness/DeepSeekBot) | DSH 插件（Bot 模式） | DSH 里配的模型 | 群里 @ 谁谁回，任务委派 | 每个 Bot 一个 Git 仓库 | 飞书、Slack、Discord、QQ、微信 | MIT |
+| [DS Bot](https://github.com/Fei2411/DS-Bot) | 自带 DSH 的桌面 App / 插件 / Docker | DSH 里配的模型 | 主 Bot 带团队，群管理员统筹 | 每个 Bot、每个群各有记忆 | App 内 | Apache-2.0 |
+| [OpenClaw](https://github.com/openclaw/openclaw) | 个人 AI 助手，本机网关 + 各端 App | 托管或本地模型，可换 harness | 协调者派给几个专员 | 每个 agent 各记各的 | 20 多种聊天软件 | MIT |
+| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | 会自己学习的个人助手 | 任意模型 | 隔离子 agent 并行 | 自管记忆、自动生成技能 | Telegram、Discord、Slack 等 | MIT |
+| [Orca](https://github.com/stablyai/orca) | 多 agent 编程 IDE | 你自己订阅的 Claude Code、Codex 等 | 几个 agent 并排做同一件活，挑最好的合 | — | 桌面和手机端 | MIT |
+
+**怎么选**：想要一个随处能聊、越用越懂你的个人助手，OpenClaw 和 Hermes Agent 很成熟；想同屏盯几路编程 agent 赛马，选 Orca；想把 DSH 用出 Bot 团队，有 Tobs 和 DS Bot。如果你手上已经有几种 AI CLI，想让它们在一个群里分工、共用记忆，睡前交代一句、醒来收结果，选 bothouse。这些项目很多能叠着用。
+
+<details>
+<summary>其他常被问到的</summary>
+
+| | 它擅长什么 | bothouse 多了什么 |
+| --- | --- | --- |
+| [Raft](https://www.testingcatalog.com/raft-1-0-puts-ai-agents-in-team-mode/) | 人和 agent 同在一个类 Slack 的新工作区 | 不用换软件，接进你已在用的 Discord、飞书、网页；开源，可自己部署 |
+| [Cindy](https://github.com/makecindy/cindy) | 一个客户端挂 Claude Code、Codex，换模型不丢上下文 | 主角色自己拆活、派到工作区，不用你先拆好 |
+| [腾讯马维斯](https://technode.com/2026/05/21/tencent-unveils-mavis-ai-assistant-that-turns-pcs-into-conversational-interfaces/) | 系统级助手：整理文件、操作电脑和手机 App | 几个 AI 分工做项目：写代码、查资料、审稿 |
+| [magpie](https://github.com/yetone/magpie) / [cc-switch](https://github.com/farion1231/cc-switch) | 统一管理模型入口和供应商 | 不同层：它们管「用哪个模型」，bothouse 管「谁接哪件活、大家记得什么」，可以一起用 |
+| [llm-wiki](https://github.com/zuiho-kai/llm-wiki) | 把会话整理成分层 wiki 记忆 | bothouse 的记忆就是在它上面扩成多角色共用 |
+
+</details>
 
 ## 路线图
 
