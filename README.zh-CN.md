@@ -115,6 +115,7 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 | Discord | 完整支持 | 多角色团队全套能力：点名、派活交差、队友状态感知、日志频道；服务器与私聊均支持斜杠命令 |
 | 自建网页平台 | 团队模式 | 内置类 Discord 的本地网页端，开箱即用，支持多角色点名与派活交差 |
 | 飞书 | 单角色 | 目前支持接入单个角色对话 |
+| QQ 官方机器人 | 手动配置 | 群聊、私聊；群 @用户需要 Markdown，@全体需要群管理员权限，详见 [QQ Bot 接入](bridge/docs/qqbot.md) |
 | DSH 网页 | 实验支持 | DSH 网页内的「频道」页，详见 [DSH 频道入口](dsh/collab/README.md) |
 
 底层 AI 接入：本机已登录的 Claude Code、Codex、Gemini CLI、OpenCode 直接调起；DSH 等智能体走标准 ACP 协议接入。同时也支持给 CLI 挂载任意第三方 API（硅基流动、OpenRouter、DeepSeek、MiniMax、本地模型及任意 OpenAI 兼容接口），配置方式见[接入文档](docs/connect-discord-feishu.md)。
