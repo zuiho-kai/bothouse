@@ -75,7 +75,37 @@ def _check(c, lines, lead, key="msg"):
             return None
         rx = re.compile("^" + re.escape(c["field"]) + r"\s*[:：]\s*\S")
         return None if any(rx.search(l.lstrip(lead)) for l in lines) else c[key]
+    if t == "art_ref":
+        trig = re.compile(c["trigger_re"])
+        if not any(trig.search(x) for s in c["trigger_sections"] for seg in _sections(lines, s, lead) for x in seg):
+            return None
+        code = re.compile(c["code_line_re"])
+        if any(code.search(x.lstrip(lead)) for seg in _sections(lines, c["code_section"], lead) for x in seg[1:]):
+            return None  # 范围「改」的是代码文件：改出图相关代码的活，不是出图活
+        img = re.compile(c["image_re"])
+        refs = {m.group(0) for seg in _sections(lines, c["section"], lead, c.get("inline", False)) for x in seg
+                for m in img.finditer(x)}
+        if len(refs) < c["min"]:
+            return c["msg"].replace("{min}", str(c["min"])).replace("{n}", str(len(refs)))
+        if re.search(c["original_re"], text_of(lines)) and not re.search(c["sample_re"], text_of(lines)):
+            return c["original_msg"]
+        return None
+    if t == "section_needs_table":  # 某节正文命中触发词和对象时，另一节要有 N 行对照和必备项（11-01 范本只抄了骨架）
+        body = "\n".join(x for s in _sections(lines, c["trigger_section"], lead) for x in s[1:])
+        if not (re.search(c["trigger_re"], body) and re.search(c["object_re"], body)):
+            return None
+        row = re.compile(c["row_re"])
+        for seg in _sections(lines, c["section"], lead):
+            text = "\n".join(seg[1:])
+            if (sum(bool(row.search(x.lstrip(lead))) for x in seg[1:]) >= c["rows"]
+                    and all(re.search(r, text) for r in c["need_res"])):
+                return None
+        return c[key]
     raise RuntimeError(f"交接规则文件里有不认识的检查类型：{t}")
+
+
+def text_of(lines):
+    return "\n".join(lines)
 
 
 def check(text, rules=None):

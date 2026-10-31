@@ -49,6 +49,13 @@ type teamExitRulesDoc struct {
 		AddedRe           string `json:"added_re"`
 		MissingAdded      string `json:"missing_added"`
 	} `json:"summary"`
+	Art struct {
+		NotesRe        string `json:"notes_re"`
+		CompareRe      string `json:"compare_re"`
+		ImageRe        string `json:"image_re"`
+		MissingCompare string `json:"missing_compare"`
+		MissingFile    string `json:"missing_file"`
+	} `json:"art"`
 	Jargon struct {
 		LineRe  string `json:"line_re"`
 		TableRe string `json:"table_re"`
@@ -61,6 +68,7 @@ type teamExitRules struct {
 	teamExitRulesDoc
 	headline, selfCheck, category, exempt, noCheck, jargonLine, jargonTable *regexp.Regexp
 	background, todo, detail, added                                         *regexp.Regexp
+	artNotes, artCompare, artImage                                          *regexp.Regexp
 }
 
 // exitRules is read once from the embedded copy; a broken file fails every test that touches it.
@@ -90,6 +98,7 @@ func parseTeamExitRules(b []byte) (*teamExitRules, error) {
 		{&r.jargonLine, r.Jargon.LineRe}, {&r.jargonTable, r.Jargon.TableRe},
 		{&r.background, r.Summary.BackgroundRe}, {&r.todo, r.Summary.TodoRe}, {&r.detail, r.Summary.DetailRe},
 		{&r.added, r.Summary.AddedRe},
+		{&r.artNotes, r.Art.NotesRe}, {&r.artCompare, r.Art.CompareRe}, {&r.artImage, r.Art.ImageRe},
 	} {
 		re, err := regexp.Compile(c.src)
 		if err != nil {
@@ -247,6 +256,27 @@ func askEvidenceProblems(body string) []string {
 		problems = append(problems, exitRules.Ask.NoCheckNotExempt)
 	}
 	return problems
+}
+
+// artReportProblems lists what a [report] on image work lacks: image work is a task whose handoff
+// notes list reference images (handoff-rules.json art_ref makes image handoffs list them); its
+// report must name a side-by-side image of the references and the result, and a local one must
+// exist. notes is the handoff text ("" when there is none: nothing to check).
+func artReportProblems(notes, body string, exists func(string) bool) []string {
+	if notes == "" || !exitRules.artNotes.MatchString(notes) {
+		return nil
+	}
+	for _, m := range exitRules.artCompare.FindAllStringSubmatch(body, -1) {
+		path := strings.Trim(m[1], "`'\"「」<>()（）")
+		if !exitRules.artImage.MatchString(path) {
+			continue
+		}
+		if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") || exists(path) {
+			return nil
+		}
+		return []string{strings.ReplaceAll(exitRules.Art.MissingFile, "{path}", path)}
+	}
+	return []string{exitRules.Art.MissingCompare}
 }
 
 // jargonProblems: the part for the user names board/PR numbers, workspaces, branches, paths or

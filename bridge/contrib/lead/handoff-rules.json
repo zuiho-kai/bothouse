@@ -4,7 +4,8 @@
     "标题行 = 去掉前导空白后以 # 开头的行；一节 = 从标题（或 inline 时以节名开头的行）到下一个标题。lead 是行首可去掉的字符。",
     "正则只写 ASCII 字符类（JS 的 \\w、\\d 只认 ASCII，Python 认 Unicode），按 search 用，要锚定就写 ^。",
     "checks 按顺序跑，报第一条不合格的。dispatch 列出只带字段的派活（/tasks：title、ref、base）要跑的检查：字段拼成一份交接再查。",
-    "改规则后跑 contrib/lead/test_handoff_rules.py（Python 与 Node 跑同一组 fixture 比对）。"
+    "改规则后跑 contrib/lead/test_handoff_rules.py（Python 与 Node 跑同一组 fixture 比对）。",
+    "art_ref：出图类活（总目标/范围提到画、出图、小人、角色图、封面、立绘、Q版等，且范围的「改」行没写代码文件）要有「参考图」节（或「参考图：」行），列至少 min 张参考图路径或链接；写「原创：无现成图」的创意活照样要 min 张风格/构图参考，另写先出小样给用户挑。交回 [report] 要带对照图（team-exit-rules.json 的 art）。起因：用户 11-01「每次都给我画一坨屎出来」，规矩写在文字里没人执行，改成检查。"
   ],
   "lead": "#-*> \t",
   "checks": [
@@ -63,6 +64,34 @@
       "field": "底分支",
       "msg": "交接文件写了多人改同组文件（「共改文件」/「多人改」节），缺「底分支：<分支名>」一行。示例：\n底分支：feat/approvals-card",
       "dispatch_msg": "多人改同组文件要写底分支：base 填分支名，示例：base: \"feat/approvals-card\""
+    },
+    {
+      "id": "art_ref",
+      "type": "art_ref",
+      "trigger_sections": ["总目标", "范围"],
+      "trigger_re": "出图|生图|小人|角色图|立绘|[Qq] ?版|插画|海报|宣传图|配图|封面图|做封面|画(一|个|张|幅|出)?[张个幅]?(角色|人物|头像|封面|画像|插图)",
+      "code_section": "范围",
+      "code_line_re": "^改\\s*[:：].*([A-Za-z0-9_-][.](py|go|mjs|js|ts|tsx|json|sh|yml|yaml|toml|html|css)([^A-Za-z0-9]|$)|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)",
+      "section": "参考图",
+      "inline": true,
+      "image_re": "https?://[^ \t<>()（）「」\"'`，,、；;]+|[^ \t<>()（）「」\"'`，,、；;：:]+[.](png|jpg|jpeg|webp|gif|avif|PNG|JPG|JPEG|WEBP)",
+      "min": 2,
+      "original_re": "原创\\s*[:：]\\s*无现成图",
+      "sample_re": "小样",
+      "msg": "这是出图类活，缺参考图：先找官方图或现成高分图当参考，写一节「参考图」列至少 {min} 张图的路径或链接（现在 {n} 张）。真是原创没有现成图，写「原创：无现成图」，照样列 {min} 张风格/构图参考（同类作品、画风、配色都行），并写明先出 3 张小样给用户挑，挑定再出正稿。示例：\n## 参考图\n- ~/art/ref/官方立绘.png\n- https://example.com/高分同人.jpg",
+      "original_msg": "写了「原创：无现成图」，还要写明先出 3 张小样给用户挑、挑定再出正稿（正文里要有「小样」）。"
+    },
+    {
+      "id": "exemplar",
+      "type": "section_needs_table",
+      "trigger_section": "用户原话",
+      "trigger_re": "「(?!\\[replying)[^」]*(照着|照抄|抄|学习|学一下|参考|对标|模仿|仿照)",
+      "object_re": "https?://|《[^》]+》",
+      "section": "照抄对象",
+      "row_re": "^\\S.*(→|->)\\s*\\S",
+      "rows": 3,
+      "need_res": ["https?://|《[^》]+》", "并排截图"],
+      "msg": "用户原话给了范本（链接或《…》+ 照着/抄/学习/参考/对标），交接要有「照抄对象」节：范本链接、「范本第 N 部分 → 我们第 N 部分」对照至少 3 行、验收写「并排截图」。示例：\n## 照抄对象\n- 范本：https://github.com/BotHarness/DeepSeekBot 的 README\n- 范本第 1 部分 顶部插画横幅 → 我们第 1 部分 顶部横幅\n- 范本第 2 部分 明暗两版截图 → 我们第 2 部分 功能截图\n- 范本第 3 部分 三行安装 → 我们第 3 部分 安装\n- 验收：并排截图（范本和我们同一部分左右放）"
     }
   ],
   "dispatch": {
