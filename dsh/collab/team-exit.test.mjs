@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { readFileSync } from 'node:fs';
-import { TeamExit, RULES, exitMark, askEvidenceProblems, judgeExit, exitTaskPick, exitBounceText, exitSplit } from './team-exit.mjs';
+import { TeamExit, RULES, jargonProblems, exitMark, askEvidenceProblems, judgeExit, exitTaskPick, exitBounceText, exitSplit } from './team-exit.mjs';
 
 const tick = () => new Promise(r => setImmediate(r));
 
@@ -133,4 +133,11 @@ test('a mark on a later line counts only for a DSH member (lastLine); the bridge
   await tick();
   assert.equal(chat().length, 0, 'a bridge bot\'s reply with [ask] mid-text is neither forwarded nor bounced');
   assert.equal(back().length, 0);
+});
+
+test('jargon permits product names and complete links', () => {
+  for (const text of ['DeepSeek 与 OpenClaw 并排图已补', '邀请：https://discord.gg/fooBar，文档 https://example.com/a-b/file.md#123']) assert.deepEqual(jargonProblems(text), []);
+});
+test('jargon still rejects internal identifiers outside links', () => {
+  for (const text of ['fooBar', '~/x/y', '#123', 'https://discord.gg/ok 后面 fooBar']) assert.equal(jargonProblems(text).length, 1);
 });

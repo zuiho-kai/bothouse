@@ -38,10 +38,11 @@
     "wake_limit": 2
   },
   "jargon": {
-    "line_re": "[#＃!！][0-9]+|工作区[\t ]*[0-9]+|(^|[^A-Za-z0-9_])(fix|feat|feature|chore|refactor|hotfix|release|wip|origin|longniang)/[A-Za-z0-9._-]+|(^|[^A-Za-z0-9_.])~?/[A-Za-z][A-Za-z0-9._-]*/[A-Za-z0-9._/-]*|[A-Za-z0-9_-]+[.](go|mjs|js|ts|py|md|json|jsonl|toml|yaml|yml|sh|log|html|png|jpg)|`[^`\n]+`|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+|[a-z][a-z0-9]*-[a-z0-9-]*[a-z0-9]|[a-z]{2,}[A-Z][a-z]+[A-Za-z0-9]*",
+    "line_re": "[#＃!！][0-9]+|工作区[\t ]*[0-9]+|(^|[^A-Za-z0-9_])(fix|feat|feature|chore|refactor|hotfix|release|wip|origin|longniang)/[A-Za-z0-9._-]+|(^|[^A-Za-z0-9_.])~?/[A-Za-z][A-Za-z0-9._-]*/[A-Za-z0-9._/-]*|[A-Za-z0-9_-]+[.](go|mjs|js|ts|py|md|json|jsonl|toml|yaml|yml|sh|log|html|png|jpg)|`[^`\n]+`|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+|[a-z][a-z0-9]*-[a-z0-9-]*[a-z0-9]|(^|[^A-Za-z0-9])[a-z]{2,}[A-Z][a-z]+[A-Za-z0-9]*",
     "table_re": "(^|\n)[\t ]*[|][^\n]*[|][\t ]*\n[\t ]*[|]?[\t ]*:?-{3,}",
     "line": "给用户的那段写了编号、代号、路径或英文标识（{hits}），换成大白话：说这件活是什么、现在怎样",
-    "table": "给用户的那段有表格，改成几句话"
+    "table": "给用户的那段有表格，改成几句话",
+    "url_re": "https?://[^\\s<>\"`，。；！？、（）]+"
   },
   "art": {
     "_why": "出图类活交回要带参考图和成品并排的对照图（用户 11-01「每次都给我画一坨屎出来」）。出图活 = 任务板这件的交接文件里有「参考图」节或「参考图：」行（handoff-rules.json 的 art_ref 逼出图活写它）。只有桥本体 Go 查（要读交接文件）；本机路径的图要真的存在。",

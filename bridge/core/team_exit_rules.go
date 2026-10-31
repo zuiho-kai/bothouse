@@ -58,6 +58,7 @@ type teamExitRulesDoc struct {
 	} `json:"art"`
 	Jargon struct {
 		LineRe  string `json:"line_re"`
+		URLRe   string `json:"url_re"`
 		TableRe string `json:"table_re"`
 		Line    string `json:"line"`
 		Table   string `json:"table"`
@@ -66,9 +67,9 @@ type teamExitRulesDoc struct {
 
 type teamExitRules struct {
 	teamExitRulesDoc
-	headline, selfCheck, category, exempt, noCheck, jargonLine, jargonTable *regexp.Regexp
-	background, todo, detail, added                                         *regexp.Regexp
-	artNotes, artCompare, artImage                                          *regexp.Regexp
+	headline, selfCheck, category, exempt, noCheck, jargonLine, jargonTable, jargonURL *regexp.Regexp
+	background, todo, detail, added                                                    *regexp.Regexp
+	artNotes, artCompare, artImage                                                     *regexp.Regexp
 }
 
 // exitRules is read once from the embedded copy; a broken file fails every test that touches it.
@@ -95,7 +96,7 @@ func parseTeamExitRules(b []byte) (*teamExitRules, error) {
 	}{
 		{&r.headline, r.HeadlineRe}, {&r.selfCheck, r.Ask.SelfCheckRe}, {&r.category, r.Ask.CategoryRe},
 		{&r.exempt, r.Ask.ExemptRe}, {&r.noCheck, r.Ask.NoCheckRe},
-		{&r.jargonLine, r.Jargon.LineRe}, {&r.jargonTable, r.Jargon.TableRe},
+		{&r.jargonURL, r.Jargon.URLRe}, {&r.jargonLine, r.Jargon.LineRe}, {&r.jargonTable, r.Jargon.TableRe},
 		{&r.background, r.Summary.BackgroundRe}, {&r.todo, r.Summary.TodoRe}, {&r.detail, r.Summary.DetailRe},
 		{&r.added, r.Summary.AddedRe},
 		{&r.artNotes, r.Art.NotesRe}, {&r.artCompare, r.Art.CompareRe}, {&r.artImage, r.Art.ImageRe},
@@ -284,7 +285,7 @@ func artReportProblems(notes, body string, exists func(string) bool) []string {
 func jargonProblems(line string) []string {
 	var problems []string
 	var hits []string
-	for _, m := range exitRules.jargonLine.FindAllString(line, -1) {
+	for _, m := range exitRules.jargonLine.FindAllString(exitRules.jargonURL.ReplaceAllString(line, " "), -1) {
 		hits = append(hits, strings.TrimLeftFunc(m, jargonLead))
 	}
 	if len(hits) > 0 {
