@@ -262,4 +262,23 @@ def playbook(bot):
     return {"path": f"【主角色工作手册：{book}，{s['at'] or '默认主角色'}】",
             "desc": book.read_text(encoding="utf-8").strip()}
 
+# 部门经理做法：工作区会话里、手上有任务板绑到这个工作区的活时附给当前主角色（用户 2026-10-31「他是部门经理，
+# 我们两个是总部」「做成产品能力」）。和主角色手册同目录；GATE_DEPT_MANAGER=<文件> 换成自己的，空或 off = 不附。
+DEPT_MANAGER_NAME = "DEPT_MANAGER.zh-CN.md"
+_dm = os.environ.get("GATE_DEPT_MANAGER")
+if _dm is None:
+    DEPT_MANAGER = (PLAYBOOK or _default_playbook()).parent / DEPT_MANAGER_NAME
+else:
+    DEPT_MANAGER = None if _dm.strip().lower() in ("", "off") else Path(_dm.strip()).expanduser()
+
+
+def dept_manager(bot, nid):
+    """bot 是当前主角色、nid 是绑在本工作区的任务板编号 → 做法段，否则 None。
+    path 带编号：cc-connect 按 path 每个会话只推一次，每接一件新活收到一次。"""
+    if nid is None or member(bot) != state()["lead"] or DEPT_MANAGER is None or not DEPT_MANAGER.is_file():
+        return None
+    return {"path": f"【工作区做法（部门经理）：{DEPT_MANAGER}，#{nid}】",
+            "desc": DEPT_MANAGER.read_text(encoding="utf-8").strip()}
+
+
 configure(_default_team())
