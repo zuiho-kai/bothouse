@@ -18,7 +18,7 @@
    一串只读查询里第 4 个「一步只跑一条只读查询」的步拦（合并过的步放行），本轮重复的只读命令拦；
    前台联网长命令（git clone/fetch/pull、npm/pip/brew install）拦，改后台。子 agent 会话和外出轮豁免。
 10. 不拦只改：Claude Code 子 agent（非 long-task）前台 Bash 的 timeout 超过 290 秒时压到 290 秒，跑不完自动转后台。"""
-import json, os, re, shlex, sys
+import ast, json, os, re, shlex, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import plan_gate  # noqa: E402  要方案未批时拦开做（用户 2026-10-28）
 
@@ -131,8 +131,30 @@ WAIT_MSG = ("别前台干等：把命令放后台/推完就交付，附 run id �
             "（用户 2026-10-22「超过5分钟就是0缓存重写了」）。")
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$", re.S | re.M)
 POLL_LOOP = re.compile(r"\b(until|while)\b.*?\bdo\b.*?\bsleep\b.*?\bdone\b", re.S)
-# the same loop written inside perl/python: perl -e 'while(1){…sleep 5}', python -c 'while …: time.sleep(10)'
-POLL_INLINE = re.compile(r"\bwhile\s*[(\s].*?[{:].*?\bsleep\b", re.S)
+def interpreter_poll(program, source):
+    """Inspect executable inline code, never shell-quoted data or string constants."""
+    if re.fullmatch(r"python[\d.]*", program):
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return False
+        for loop in ast.walk(tree):
+            if not isinstance(loop, (ast.While, ast.For, ast.AsyncFor, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                continue
+            if any(isinstance(n, ast.Call) and
+                   ((isinstance(n.func, ast.Attribute) and n.func.attr == "sleep") or
+                    (isinstance(n.func, ast.Name) and n.func.id == "sleep")) for n in ast.walk(loop)):
+                return True
+        return False
+    # Preserve executable shell sleep passed to Node's execSync, then mask
+    # ordinary strings/comments before looking for Ruby/Perl/JS loop syntax.
+    source = re.sub(r"\bexecSync\(\s*(['\"])sleep\s+\d+\1\s*\)", "sleep()", source)
+    source = re.sub(r"(['\"`])(?:\\.|(?!\1).)*?\1|/\*.*?\*/|//[^\n]*|\#[^\n]*", " ", source, flags=re.S)
+    if program in ("node", "nodejs") and re.search(r"\bsetInterval\s*\(", source):
+        return True
+    return bool(re.search(r"\bsleep\b", source) and
+                re.search(r"\b(?:while|until|for|loop)\b", source))
+
 
 # 规则 10：子 agent 的提示缓存只有 5 分钟，前台等更久整段上下文要重写。前台 Bash 的 timeout 超过 SUB_CAP_MS 时
 # 不拦，压到 SUB_CAP_MS（updatedInput）：跑不完 Claude Code 自动转后台，子 agent 立刻拿回控制权。
@@ -147,7 +169,7 @@ SUB_CAP_MSG = ("这条命令的 timeout 被压到 290 秒（子 agent 提示缓�
 
 def sub_cap(inp, d):
     """子 agent（非 long-task）的前台 Bash timeout 超过 SUB_CAP_MS 时，返回压过的新 tool_input；否则 None。"""
-    if not d.get("agent_id") or d.get("agent_type") == SUB_CAP_AGENT or d.get("dsh") or inp.get("run_in_background"):
+    if not d.get("agent_id") or d.get("agent_type") == SUB_CAP_AGENT or inp.get("run_in_background"):
         return None
     try:
         if float(inp.get("timeout") or 0) <= SUB_CAP_MS:
@@ -175,14 +197,39 @@ def check_wait(cmd, busy=None, dsh=False):
     """前台干等：gh run watch / gh … --watch / sleep ≥60 / until|while … sleep … done。
     DSH（dsh=True）任何前台 sleep 都拦；busy（本会话在跑的子 agent/后台任务）非空时提示里列出在跑的东西。"""
     cmd = HEREDOC.sub("", cmd)  # heredoc 正文是写进文件的内容，不是要执行的命令
-    if POLL_LOOP.search(cmd):
+    # shlex keeps the interpreter's quoted source in a single argument.
+    try:
+        lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";&|()\n")
+        lexer.whitespace = " \t\r"
+        lexer.whitespace_split = True
+        words = list(lexer)
+    except ValueError:
+        words = []
+    commands = [[]]
+    for word in words:
+        if word in (";", "&&", "||", "|", "\n"):
+            commands.append([])
+        else:
+            commands[-1].append(word)
+    for args in commands:
+        while args and (re.match(r"^\w+=", args[0]) or args[0] in ("sudo", "env", "time", "command", "exec", "do", "then")):
+            args.pop(0)
+        if not args:
+            continue
+        program = args[0].rsplit("/", 1)[-1]
+        if not re.fullmatch(r"python[\d.]*|perl|ruby|node|nodejs", program):
+            continue
+        for j in range(1, len(args) - 1):
+            if args[j] in ("-c", "-e", "--eval"):
+                if interpreter_poll(program, args[j + 1]):
+                    deny(WAIT_MSG + "\n被拦：解释器中的轮询等待循环。")
+                break
+    # Shell loops cannot be inferred from text quoted as an argument.
+    shell = re.sub(r"(['\"])(?:\\.|(?!\1).)*?\1", " ", cmd, flags=re.S)
+    if POLL_LOOP.search(shell):
         deny(WAIT_MSG + "\n被拦：until/while … sleep … done 轮询循环。")
-    if POLL_INLINE.search(cmd):
-        deny(WAIT_MSG + "\n被拦：perl/python 里的 while … sleep 轮询循环。")
-    for seg in segments(cmd):
-        t = toks(seg)
-        while t and (re.match(r"^\w+=", t[0]) or t[0] in ("sudo", "env", "time", "command", "exec", "do", "then")):
-            t = t[1:]
+    for t in commands:
+        seg = shlex.join(t)
         if not t:
             continue
         prog = t[0].rsplit("/", 1)[-1]

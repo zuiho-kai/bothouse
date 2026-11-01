@@ -55,16 +55,19 @@ var agentHooks = []agentHook{
 	// Only PreToolUse, every tool: once a subagent's context is past the line its tool calls are denied with the
 	// handoff instructions as the reason. No agent_id in the payload (main session, CLIs without subagents) = pass.
 	{"subagent-ctx-hook", "PreToolUse", "", 5},
-	// Claude Code only (claudeCodeOnlyHooks): when a subagent is dispatched, prepend the code maps
+	// When a subagent is dispatched, prepend the code maps
 	// (<data_dir>/codemaps/*.md, picked by their keywords: line) the task matches; when it finishes, append the
 	// "## 地图要补的条目（<map>）" entries of its report to that map.
-	{"codemap-inject", "PreToolUse", "Agent|Task", 10},
+	{"codemap-inject", "PreToolUse", "Agent|Task|subagent|subagent_fork", 10},
 	{"codemap-fill", "SubagentStop", "", 10},
 }
 
-// claudeCodeOnlyHooks hook Claude Code's subagent tool (Agent/Task) and its SubagentStop event, which the other
-// CLIs do not have: they are installed for --cli claudecode only.
-var claudeCodeOnlyHooks = []string{"codemap-inject", "codemap-fill"}
+// Code maps use each backend's dispatch and completion events; Gemini uses AfterTool.
+var codeMapHooks = []string{"codemap-inject", "codemap-fill"}
+
+func codeMapCLI(cli string) bool {
+	return slices.Contains([]string{"claudecode", "codex", "gemini", "grok", "dsh"}, cli)
+}
 
 // AgentCodeMapsDir is the code map directory codemap-inject/codemap-fill read by default (CODEMAP_DIR overrides it
 // in the hook's environment): beside the hooks directory, so the scripts find it from their own path.
@@ -460,6 +463,8 @@ var geminiMatchers = map[string]string{
 	"ask-only-guard":        "run_shell_command",
 	"param-source-guard":    "write_file|replace",
 	"dispatch-review-guard": "invoke_agent|write_file|replace",
+	"codemap-inject":        "invoke_agent",
+	"codemap-fill":          "invoke_agent",
 }
 
 // geminiEvent translates a Claude Code hook event name (what agentHooks registers) into Gemini CLI's name.
@@ -542,12 +547,12 @@ func (o AgentHookOptions) dshPatch() string {
 
 // codexHooks are the hooks run.py --codex can adapt; codexMatchers their Codex matcher. Codex's shell tool is
 // Bash and its file edits are apply_patch (PreToolUse fires for both, tool_name stays apply_patch).
-var codexHooks = []string{"bash-guard", "ask-only-guard", "fix-claim-guard"}
-var codexMatchers = map[string]string{"bash-guard": "Bash", "ask-only-guard": "Bash|apply_patch"}
+var codexHooks = []string{"bash-guard", "ask-only-guard", "dispatch-review-guard", "fix-claim-guard", "promise-guard", "codemap-inject", "codemap-fill"}
+var codexMatchers = map[string]string{"bash-guard": "Bash", "ask-only-guard": "Bash|apply_patch", "dispatch-review-guard": "Agent|apply_patch", "codemap-inject": "Agent"}
 
 // grokHooks are the hooks run.py --grok adapts. Grok (run by bothouse over ACP) reads the role's
 // .claude/settings.json hooks and matches the Claude Code names in a matcher against its own tools.
-var grokHooks = []string{"ask-only-guard"}
+var grokHooks = []string{"bash-guard", "ask-only-guard", "dispatch-review-guard", "fix-claim-guard", "promise-guard", "codemap-inject", "codemap-fill"}
 
 func (o AgentHookOptions) names() ([]string, error) {
 	if len(o.Only) == 0 {
@@ -557,8 +562,8 @@ func (o AgentHookOptions) names() ([]string, error) {
 		if o.CLI == "grok" {
 			return slices.Clone(grokHooks), nil
 		}
-		if o.CLI != "claudecode" {
-			return slices.DeleteFunc(AgentHookNames(), func(n string) bool { return slices.Contains(claudeCodeOnlyHooks, n) }), nil
+		if !codeMapCLI(o.CLI) {
+			return slices.DeleteFunc(AgentHookNames(), func(n string) bool { return slices.Contains(codeMapHooks, n) }), nil
 		}
 		return AgentHookNames(), nil
 	}
@@ -574,8 +579,8 @@ func (o AgentHookOptions) names() ([]string, error) {
 		if o.CLI == "grok" && !slices.Contains(grokHooks, n) {
 			return nil, fmt.Errorf("Grok hook %q is not adapted yet", n)
 		}
-		if o.CLI != "claudecode" && slices.Contains(claudeCodeOnlyHooks, n) {
-			return nil, fmt.Errorf("hook %q runs under Claude Code only (--cli claudecode)", n)
+		if !codeMapCLI(o.CLI) && slices.Contains(codeMapHooks, n) {
+			return nil, fmt.Errorf("hook %q is not adapted for %s", n, o.CLI)
 		}
 		if _, ok := agentHookByName(n); !ok {
 			return nil, fmt.Errorf("unknown hook %q (hooks: %s)", n, strings.Join(AgentHookNames(), ", "))
@@ -660,6 +665,9 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 		ev := h.Event
 		if o.CLI == "gemini" {
 			ev = geminiEvent(h.Event)
+			if n == "codemap-fill" {
+				ev = "AfterTool"
+			}
 			timeout *= 1000 // Gemini's "timeout" is milliseconds (default 60000), Claude Code's is seconds
 		}
 		hk := map[string]any{"type": "command",
@@ -681,6 +689,10 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 		}
 		if o.CLI == "codex" && matcher != "" {
 			matcher = codexMatchers[n]
+		}
+		if o.CLI == "codex" && n == "codemap-inject" {
+			ev = "SubagentStart"
+			matcher = "" // all subagent types; spawn messages may be encrypted
 		}
 		if matcher != "" {
 			g["matcher"] = matcher

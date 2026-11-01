@@ -36,7 +36,12 @@ class T(unittest.TestCase):
         self.assertIsNone(run("python3 x.py", 120000))
         self.assertIsNone(run("python3 x.py", 290000))
         self.assertIsNone(run("perl -e 'alarm shift; exec @ARGV' 1800 python3 x.py > l 2>&1", 600000, bg=True))
-        self.assertIsNone(run("python3 x.py", 600000, dsh=True))
+
+    def test_dsh_cap_is_returned_to_native_retry_adapter(self):
+        # run.py translates this into timeoutMs and a denial with retry args:
+        # the official DSH bridge does not apply updatedInput itself.
+        self.assertEqual(run("python3 x.py", 600000, dsh=True),
+                         {"command": "python3 x.py", "timeout": 290000})
 
     def test_other_rules_still_deny(self):
         self.assertEqual(run("pkill -f foo", 600000), "deny")

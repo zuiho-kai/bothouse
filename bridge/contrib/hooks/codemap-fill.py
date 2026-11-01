@@ -128,6 +128,13 @@ def transcript_last_text(path):
 def hook_text(d):
     """SubagentStop：优先 last_assistant_message，没有就读子 agent transcript 最后一段文字。"""
     t = d.get("last_assistant_message") or ""
+    if not t and d.get("hook_event_name") == "PostToolUse":
+        response = d.get("tool_response")
+        if isinstance(response, dict):
+            response = response.get("llmContent") or response.get("output") or response.get("content") or ""
+        if isinstance(response, list):
+            response = "\n".join(part.get("text", "") for part in response if isinstance(part, dict))
+        t = response if isinstance(response, str) else ""
     if not t and d.get("agent_transcript_path"):
         t = transcript_last_text(d["agent_transcript_path"])
     src = "子 agent " + " ".join(x for x in (d.get("agent_type") or "", (d.get("agent_id") or "")[:8]) if x)
@@ -143,7 +150,7 @@ def main(argv):
             except ValueError:
                 d = None
             if isinstance(d, dict) and ("hook_event_name" in d or "--hook" in argv):
-                if d.get("hook_event_name", "SubagentStop") != "SubagentStop":
+                if d.get("hook_event_name", "SubagentStop") not in ("SubagentStop", "PostToolUse"):
                     return
                 text, source = hook_text(d)
             else:

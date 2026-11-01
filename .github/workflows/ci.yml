@@ -147,6 +147,8 @@ jobs:
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_bash_guard_longwait.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/hooks/test_workflow_clis.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_codemap_inject.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_codemap_fill.py

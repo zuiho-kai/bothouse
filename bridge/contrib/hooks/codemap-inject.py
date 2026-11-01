@@ -54,10 +54,23 @@ def main():
         d = json.load(sys.stdin)
     except ValueError:
         return
+    if d.get("hook_cli") == "codex" and d.get("hook_event_name") == "SubagentStart":
+        # The spawn message can be encrypted, and SubagentStart has no prompt
+        # field. Supply the map catalogue to the child, which selects by task.
+        try:
+            catalogue = maps()
+        except OSError:
+            return
+        if catalogue:
+            note = "【代码地图】按本次任务选择下面关键词匹配的地图，先读匹配地图再定位代码；不相关的不用读。交付附一节「## 地图要补的条目（地图完整路径）」，每条写「- 符号 文件:行」。\n"
+            note += "".join(f"- {path}（关键词：{', '.join(words)}）\n" for path, words in catalogue)
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "SubagentStart", "additionalContext": note}}, ensure_ascii=False))
+        return
     if d.get("tool_name") not in ("Agent", "Task"):
         return
     ti = d.get("tool_input") or {}
-    prompt = ti.get("prompt") or ""
+    key = "message" if d.get("hook_cli") == "codex" and "message" in ti else "prompt"
+    prompt = ti.get(key) or ""
     try:
         hits = pick(prompt)
     except OSError:
@@ -70,7 +83,7 @@ def main():
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
         "permissionDecision": "allow",
-        "updatedInput": {**ti, "prompt": note + prompt},
+        "updatedInput": {**ti, key: note + prompt},
     }}, ensure_ascii=False))
 
 

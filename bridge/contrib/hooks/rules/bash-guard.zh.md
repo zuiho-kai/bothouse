@@ -1,3 +1,5 @@
 - 命令（bash-guard）：不用 `pkill -f`（会杀掉执行命令的 shell 自己），改用 `kill $(pgrep -f '[x]yz')` 或 pid 文件。后台命令要套超时（`timeout <秒> <命令>`；macOS 用 `perl -e 'alarm shift; exec @ARGV' <秒> <命令>`），不接 `| tail`/`| head`；常驻服务在命令末尾加 `# long-running-ok`。设了 HOOK_PROXY 时下载要走代理，确需直连加 `# direct-ok`。
 - 前台禁止 gh watch、sleep ≥60 秒、带 sleep 的轮询；DSH 禁止任何前台 sleep、同轮重复轮询、重复只读命令，以及连续三步单条只读后的第四步。并行查询、子会话和外出轮按规则豁免；DSH 联网安装/拉取改用带超时的后台任务。缺失会话记录时不猜历史计数。
 - Claude Code 子 agent 前台命令的 timeout 超过 290 秒会被压到 290 秒（子 agent 提示缓存只有 5 分钟），跑不完自动转后台；转后台后别轮询，交付里写日志路径和下一步。预计要等 5–60 分钟的活派 long-task 子 agent（1 小时缓存，不受这条限制）；perl/python 里的 while … sleep 循环同样算轮询。
+
+- 其他 CLI 不套用 Claude 的 long-task 缓存承诺：预计超过 5 分钟的命令直接用原生后台，附日志/任务 ID 后结束本轮。DSH 用 run_in_background（timeoutMs 到期可转后台），grok 用 block_until_ms=0，Gemini 用 is_background，Codex 用 exec_command 返回的 session ID；不要挂着 wait/sleep 轮询。DSH 子任务的超长 timeoutMs 会被拦并给出压到 290000 的重试参数，grok 子任务的 block_until_ms 会被压到 290000。

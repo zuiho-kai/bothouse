@@ -56,9 +56,9 @@ bothouse 写的 hook 命令都带 `--conest-hook` 标记，`off` 只删带标记
 | hook | 事件 | 管什么 | 怎么放行 |
 | --- | --- | --- | --- |
 | bash-guard | PreToolUse（Bash/bash） | `pkill -f`；后台命令没超时或接了 `\| tail`；macOS 上 `go build -o …bothouse`；设了 `HOOK_PROXY` 时没走代理的下载；整页 cat 多页 wiki（只提示）；前台干等（`gh run watch`、`sleep` ≥60 秒、shell/perl/python 里带 sleep 的轮询循环）；Claude Code 子 agent 前台命令 timeout 超过 290 秒时压到 290 秒（不拦，跑不完自动转后台，long-task 子 agent 不压） | `# long-running-ok`、`# direct-ok`、`# tcc-ok`；要等的放后台 |
-| codemap-inject | PreToolUse（Agent/Task，只装给 Claude Code） | 派子 agent 时，按派活说明命中的关键词附上代码地图（`<data_dir>/codemaps/*.md`），要求先读地图、交付附「## 地图要补的条目（<地图路径>）」 | 只加上下文，不拦；没命中不动 |
-| codemap-fill | SubagentStop（只装给 Claude Code） | 子 agent 交付里「地图要补的条目」一节追加到对应地图末尾（去重，跳过「无…」） | 不拦；出错只写 stderr |
-| ask-only-guard | PreToolUse（Bash/bash、编辑类，Codex 含 apply_patch；Grok 只装这一条，`--cli grok`） | 用户最新一条只在提问，命令却是派活、转活或挂定时（`ws-handoff`、`ws-forward`、`board add`、`bothouse timer/cron add`，heredoc 和引号里的字不算），或用编辑工具改 wiki、临时目录以外的文件 | 用户说"做/可以/帮我…"；定时任务和别的 bot 触发的轮；判不准放行 |
+| codemap-inject | PreToolUse（五个团队 CLI 的派活工具） | 派子 agent 时，按派活说明命中的关键词附上代码地图（`<data_dir>/codemaps/*.md`），要求先读地图、交付附「## 地图要补的条目（<地图路径>）」 | 改写派活输入；DSH 返回完整参数要求重试；没命中不动 |
+| codemap-fill | SubagentStop（Gemini 用 AfterTool） | 子 agent 交付里「地图要补的条目」一节追加到对应地图末尾（去重，跳过「无…」） | 不拦；出错只写 stderr |
+| ask-only-guard | PreToolUse（Bash/bash、编辑类，Codex 含 apply_patch） | 用户最新一条只在提问，命令却是派活、转活或挂定时（`ws-handoff`、`ws-forward`、`board add`、`bothouse timer/cron add`，heredoc 和引号里的字不算），或用编辑工具改 wiki、临时目录以外的文件 | 用户说"做/可以/帮我…"；定时任务和别的 bot 触发的轮；判不准放行 |
 | param-source-guard | PreToolUse（Edit/Write/edit/write/str_replace_editor） | 代码里新加 `名字 = 数字` 没写来源注释 | 同一行或上一行注释写来源（用户原话、数据、SPEC、沿用） |
 | dispatch-review-guard | PreToolUse（Agent/Task/subagent/subagent_fork/workflow；主会话的 Edit/Write） | 派活没写【已审:…】；主会话直接改代码 | 【免审:调研/小改动/一次性脚本/代码审查】、【审稿】+逐字原话、【已审:<审稿文件>】；文档先跑 `doc-ok.py <文件>` |
 | fix-claim-guard | Stop | 用户在说 bug，回复说"已修复"却没列入口表 | 列 `入口 \| 是否经过修复 \| 核对结果` 表；每轮只拦一次 |
@@ -139,3 +139,5 @@ cd bridge && go test -tags no_web ./core -run 'TestAgentHooks|TestWithHookRules|
 Codex loads hooks beside active config layers, including project `.codex` and the user config under CODEX_HOME. Project layers require project trust, and Codex skips hooks whose hash is not recorded as trusted (app-server has no bypass flag). When bothouse starts a Codex app-server session it calls `hooks/list` for the role directory and, for its own untrusted/modified hooks only (commands carrying `--conest-hook` and `--codex`), writes `hooks.state.<key>.trusted_hash` through `config/batchWrite` into that session's CODEX_HOME config.toml, the same write Codex's own app-server uses. User hooks are never auto-trusted; `codex exec` / interactive sessions still need review through `/hooks`. Production launches never add a trust-bypass flag. If that registration fails at any step (reading the role's hooks file, `hooks/list` not listing every bothouse hook, the `config/batchWrite`, or a read-back that still reports them untrusted), the session start returns the error naming the step and the session does not start: running without bash-guard registered is not an acceptable fallback. Restart an existing session after configuration changes.
 
 `run.py --codex` normalizes shell inputs and translates Codex response_item chat records for Stop. `stop_hook_active` is preserved. Other hooks are explicitly rejected until adapted. Tested CLI version: 0.163.0-alpha.11.1; transcript format is not a stable public API. Source: https://learn.chatgpt.com/docs/hooks .
+
+五端的原生参数、后台等价做法、官方协议来源及验收边界见 [跨 CLI 工作流钩子](../../../docs/workflow-hooks.md)。
