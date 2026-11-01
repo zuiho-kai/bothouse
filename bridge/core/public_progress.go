@@ -145,8 +145,10 @@ type publicRun struct {
 // PublicProgress owns run authorization, durable public facts and delivery.
 // Tokens exist only in memory/prompt, never in the card or journal.
 type PublicProgress struct {
-	checkAuthorization func(*Task, string) error
-	quotaBlocked       func(string) bool
+	checkAuthorization       func(*Task, string) error
+	syncAuthorizationNotices func() error
+	revokeAuthorization      func(*Task) error
+	quotaBlocked             func(string) bool
 	// Lifecycle operations serialize run ownership and durable state transitions.
 	// Delivery never takes this lock; network requests remain independent.
 	transitionMu            sync.Mutex
@@ -460,6 +462,12 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 		t.State = TaskStateFailed
 		kind, key = TaskEventFailed, true
 	case "cancelled":
+		if p.revokeAuthorization != nil {
+			if err := p.revokeAuthorization(t); err != nil {
+				r.record = old
+				return "", err
+			}
+		}
 		t.State = TaskStateCancelled
 		kind, key = TaskEventBlocked, true
 	}
@@ -575,6 +583,11 @@ func (p *PublicProgress) finishRun(r *publicRun, outcome string, delegated bool)
 		return
 	} // casual chat never creates a card
 	t := r.record.Task
+	if outcome == "cancelled" && p.revokeAuthorization != nil {
+		if err := p.revokeAuthorization(t); err != nil {
+			slog.Error("task authorization withdrawal persistence failed", "task_id", t.ID, "error", err)
+		}
+	}
 	if p.quotaBlocked != nil && p.quotaBlocked(p.project) {
 		// A provider stop is a pending handoff, not a failed user task.
 		if err := p.save(r); err != nil {
@@ -618,6 +631,11 @@ func (p *PublicProgress) finishRun(r *publicRun, outcome string, delegated bool)
 
 // Flush retries only delivery of already accepted facts, never agent execution.
 func (p *PublicProgress) Flush(ctx context.Context) {
+	if p.syncAuthorizationNotices != nil {
+		if err := p.syncAuthorizationNotices(); err != nil {
+			slog.Warn("authorization notice projection pending", "error", err)
+		}
+	}
 	p.mu.Lock()
 	runs := make([]*publicRun, 0, len(p.pending))
 	for _, r := range p.pending {
@@ -1015,6 +1033,8 @@ func (e *Engine) EnablePublicProgress() error {
 	}
 	e.publicProgress = p
 	p.checkAuthorization = e.CheckTaskAuthorization
+	p.syncAuthorizationNotices = e.SyncAuthorizationNotices
+	p.revokeAuthorization = e.revokeCancelledTask
 	p.resolveReporter = e.resolveTaskReporter
 	p.resolveWorkspace = e.resolveTaskWorkspace
 	p.wakeLead = e.wakeRelayLead
@@ -1030,7 +1050,7 @@ func (e *Engine) EnablePublicProgress() error {
 		}
 		return false
 	}
-	return nil
+	return e.SyncAuthorizationNotices()
 }
 
 func (e *Engine) withPublicProgress(prompt string, state *interactiveState, session string, fromBot, fromVoice bool) string {

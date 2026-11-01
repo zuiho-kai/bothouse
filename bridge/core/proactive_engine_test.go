@@ -147,6 +147,8 @@ func TestProactiveNoticeRecoveryAndIdempotency(t *testing.T) {
 	a, c := authorizationFixture(t, ProactiveAuto)
 	e := NewEngine("role", &stubAgent{}, nil, "", LangEnglish)
 	e.proactiveAuthorization, e.publicProgress = a, p
+	e.SetDataDir(dir)
+	e.platforms = []Platform{platform}
 	d, err := a.Evaluate(c)
 	if err != nil {
 		t.Fatal(err)
@@ -161,15 +163,11 @@ func TestProactiveNoticeRecoveryAndIdempotency(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Simulate restart before the committed policy change was projected.
-	e.publicProgress, err = NewPublicProgress(dir, "role", []Platform{platform})
-	if err != nil {
-		t.Fatal(err)
-	}
 	e.proactiveAuthorization, err = OpenProactiveAuthorization(a.path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := e.SyncAuthorizationNotices(); err != nil {
+	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}
 	task, _ = e.publicProgress.Task(id)
@@ -184,6 +182,10 @@ func TestProactiveNoticeRecoveryAndIdempotency(t *testing.T) {
 	if task.Seq != seq {
 		t.Fatal("duplicate notice on retry")
 	}
+	e.publicProgress.Flush(context.Background())
+	if visible := platform.task(id); visible == nil || visible.AuthorizationNoticeVersion != policy.Version+1 {
+		t.Fatal("recovered notice did not reach task card")
+	}
 	if err := e.CheckTaskAuthorization(task, "task.resume"); err == nil {
 		t.Fatal("recovery accepted stale decision")
 	}
@@ -196,6 +198,10 @@ func TestProactiveNoticeRecoveryAndIdempotency(t *testing.T) {
 	task, _ = e.publicProgress.Task(id)
 	if !task.AuthorizationWithdrawn || task.Seq != seq+1 {
 		t.Fatal("withdrawal notice missing")
+	}
+	e.publicProgress.Flush(context.Background())
+	if visible := platform.task(id); visible == nil || !visible.AuthorizationWithdrawn {
+		t.Fatal("withdrawal did not requeue previously delivered card")
 	}
 }
 func TestProactiveEngineWaitingAndNonCodeFollowup(t *testing.T) {
@@ -256,6 +262,59 @@ func TestProactiveEngineDecisionCannotCrossTaskSessionOrRole(t *testing.T) {
 		t.Fatal("grant crossed session after admission")
 	}
 }
+
+func TestProactiveTaskContinuationRevalidatesAndStopPersists(t *testing.T) {
+	for _, action := range []string{"policy", "cancel"} {
+		t.Run(action, func(t *testing.T) {
+			p, platform, run, id := taskRelayFixture(t)
+			a, c := authorizationFixture(t, ProactiveAuto)
+			policy := a.Policy()
+			policy.Rules[0].SessionKey = "discord:room:user"
+			if err := a.ReplacePolicy(policy.Version, policy); err != nil {
+				t.Fatal(err)
+			}
+			c.SessionKey = "discord:room:user"
+			e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangEnglish)
+			e.publicProgress, e.proactiveAuthorization = p, a
+			p.checkAuthorization, p.revokeAuthorization = e.CheckTaskAuthorization, e.revokeCancelledTask
+			d, err := a.Evaluate(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			task, _ := p.Task(id)
+			if err := e.AdmitProactiveTask(d.ID, task, "backend"); err != nil {
+				t.Fatal(err)
+			}
+			p.finish(run, "result")
+			// A follow-up may continue when its original authority is valid.
+			next := p.begin(platform, c.SessionKey, LangEnglish, nil)
+			if _, err := p.Report(PublicProgressRequest{Project: "source", SessionKey: c.SessionKey, Run: next, Seq: 2, Kind: "update", Summary: "Continue authorized work"}); err != nil {
+				t.Fatal(err)
+			}
+			if action == "cancel" {
+				p.finish(next, "cancelled")
+				reloaded, err := OpenProactiveAuthorization(a.path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := reloaded.Check(d.ID, "task.resume"); err == nil {
+					t.Fatal("cancelled decision revived after restart")
+				}
+				return
+			}
+			p.finish(next, "result")
+			policy = a.Policy()
+			policy.Mode = ProactiveOff
+			if err := a.ReplacePolicy(policy.Version, policy); err != nil {
+				t.Fatal(err)
+			}
+			next = p.begin(platform, c.SessionKey, LangEnglish, nil)
+			if _, err := p.Report(PublicProgressRequest{Project: "source", SessionKey: c.SessionKey, Run: next, Seq: 3, Kind: "update", Summary: "Must not resume stale authority"}); err == nil {
+				t.Fatal("task continuation bypassed current policy")
+			}
+		})
+	}
+}
 func TestManagementProactiveAuthorization(t *testing.T) {
 	_, server, e := testManagementServer(t, "test-secret")
 	e.SetDataDir(t.TempDir())
@@ -300,5 +359,20 @@ func TestManagementProactiveAuthorization(t *testing.T) {
 	code, _ = request("POST", "/revoke/"+d.ID, "", "test-secret")
 	if code != 200 {
 		t.Fatal("withdrawal failed")
+	}
+}
+
+func TestManagementProactiveRequiresConfiguredAuthentication(t *testing.T) {
+	_, server, e := testManagementServer(t, "")
+	e.SetDataDir(t.TempDir())
+	for _, path := range []string{"", "/policy"} {
+		resp, err := server.Client().Get(server.URL + "/api/v1/projects/test-project/authorization" + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("tokenless management exposed authorization: %d", resp.StatusCode)
+		}
 	}
 }

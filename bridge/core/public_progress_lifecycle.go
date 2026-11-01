@@ -117,6 +117,12 @@ func (p *PublicProgress) lockReportRun(r *publicRun, req PublicProgressRequest) 
 		}
 		return nil, errors.New("card cannot be continued with this sequence")
 	}
+	if p.checkAuthorization != nil {
+		if err := p.checkAuthorization(cand.record.Task, "task.resume"); err != nil {
+			cand.mu.Unlock()
+			return nil, err
+		}
+	}
 	return cand, nil
 }
 
@@ -135,6 +141,12 @@ func (p *PublicProgress) lockAdoptedRun(lead, card *publicRun, req PublicProgres
 		!resumableTask(card.record.Task, card.record.Accepted, time.Now()) {
 		card.mu.Unlock()
 		return nil, errors.New("task is not active for this run and session")
+	}
+	if p.checkAuthorization != nil {
+		if err := p.checkAuthorization(card.record.Task, "task.resume"); err != nil {
+			card.mu.Unlock()
+			return nil, err
+		}
 	}
 	return card, nil
 }

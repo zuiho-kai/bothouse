@@ -77,7 +77,7 @@ func (e *Engine) CheckTaskAuthorization(task *Task, scope string) error {
 	if task.AuthorizationDecisionID == "" {
 		return nil
 	}
-	if IsTerminalState(task.State) {
+	if task.State == TaskStateCompleted || task.State == TaskStateCancelled {
 		return ErrAuthorizationDenied
 	}
 	a, err := e.ProactiveAuthorization()
@@ -99,6 +99,19 @@ func (e *Engine) CheckTaskAuthorization(task *Task, scope string) error {
 		}
 	}
 	return ErrAuthorizationDenied
+}
+
+// revokeCancelledTask is called while the task journal is locked. Only mutate
+// the authorization ledger here; notice projection runs after the task commit.
+func (e *Engine) revokeCancelledTask(task *Task) error {
+	if task.AuthorizationDecisionID == "" {
+		return nil
+	}
+	a, err := e.ProactiveAuthorization()
+	if err != nil {
+		return err
+	}
+	return a.Revoke(task.AuthorizationDecisionID, "task:cancelled")
 }
 
 // RunAuthorizedEffect is the controlled side-effect boundary. Callers use their
@@ -250,5 +263,8 @@ func (p *PublicProgress) applyAuthorizationNotice(n AuthorizationNotice) error {
 		r.record.Task = old
 		return err
 	}
+	p.mu.Lock()
+	p.pending[t.ID] = r
+	p.mu.Unlock()
 	return nil
 }

@@ -10,6 +10,12 @@ import (
 // Mounted under the existing authenticated management routes. No public API
 // accepts source-authenticated/visible flags or substitutes a bot for a human.
 func (m *ManagementServer) handleProjectAuthorization(w http.ResponseWriter, r *http.Request, e *Engine, rest string) {
+	// The legacy management server can run without a token. That mode cannot
+	// attest an administrator and must not expose evidence or mint grants.
+	if m.token == "" {
+		mgmtError(w, http.StatusForbidden, "authorization controls require management authentication")
+		return
+	}
 	a, err := e.ProactiveAuthorization()
 	if err != nil {
 		mgmtError(w, http.StatusServiceUnavailable, err.Error())
