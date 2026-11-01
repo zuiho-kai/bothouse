@@ -13735,6 +13735,11 @@ func (e *Engine) sendWithError(p Platform, replyCtx any, content string) error {
 }
 
 func (e *Engine) sendAlreadyRenderedWithError(p Platform, replyCtx any, content string) error {
+	// Hidden thinking/tool boundaries can flush a whitespace-only text delta.
+	// It has no standalone message to deliver; media uses separate send paths.
+	if strings.TrimSpace(content) == "" {
+		return nil
+	}
 	start := time.Now()
 	if err := p.Send(e.ctx, replyCtx, content); err != nil {
 		// Check for context_token missing error (common for Weixin platform)
@@ -13795,6 +13800,9 @@ func drainEvents(ch <-chan Event) {
 
 // replyWithError applies outgoing rate limiting and p.Reply.
 func (e *Engine) replyWithError(p Platform, replyCtx any, content string) error {
+	if strings.TrimSpace(content) == "" {
+		return nil
+	}
 	if err := e.waitOutgoing(p); err != nil {
 		slog.Warn("outgoing rate limit: context cancelled", "platform", p.Name(), "error", err)
 		return err
