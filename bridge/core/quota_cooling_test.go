@@ -260,7 +260,7 @@ func TestQuotaTaskCardTakeoverContinuesOriginalJournal(t *testing.T) {
 
 func TestQuotaRelayWatchDoesNotNudgeCoolingMember(t *testing.T) {
 	p, d, now := relayWatchFixture(t)
-	p.quotaBlocked = func(project string) bool { return project == d.req.To }
+	p.quotaBlocked = func(project, session string) bool { return project == d.req.To }
 	p.relayWatchTick(now.Add(watchCheckAfter()))
 	select {
 	case <-d.nudge:

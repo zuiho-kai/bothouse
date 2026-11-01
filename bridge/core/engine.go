@@ -5290,7 +5290,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	}
 	newState := &interactiveState{
 		agentSession:     agentSession,
-		quotaScope:       e.quotaScopeFor(agent, modelOf(agent)),
+		quotaScope:       e.quotaScopeOfSession(agent, agentSession),
 		platform:         p,
 		replyCtx:         replyCtx,
 		agent:            agent,
@@ -8035,7 +8035,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 
 		e.i18n.DetectAndSet(queued.content)
 		rawQueued := queued // maomao fork: re-delivered as-is after a capacity cooldown
-		if wait := e.capacityWait(); wait > 0 {
+		if wait := e.capacityWait(state.quotaScope); wait > 0 {
 			// Before withTurnBlocks: an unsent message must not mark anything sent.
 			e.deferForCapacity(queued.platform, queuedToMessage(rawQueued), state.agent, sessions, sessionKey, state.workspaceDir, wait, true)
 			continue

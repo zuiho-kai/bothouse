@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -177,5 +178,62 @@ func TestQuotaUnknownProbeIsNotAvailability(t *testing.T) {
 	a.reports["A"] = &UsageReport{}
 	if usable, _, err := e.probeQuota(context.Background()); usable || err == nil {
 		t.Fatal("empty report claimed availability")
+	}
+	a.reports["A"] = &UsageReport{Buckets: []UsageBucket{{LimitReached: true}, {Windows: []UsageWindow{{UsedPercent: 10}}}}}
+	if usable, _, _ := e.probeQuota(context.Background()); usable {
+		t.Fatal("explicit exhausted bucket without windows claimed availability")
+	}
+}
+
+func TestQuotaProbeCannotEraseNewExhaustion(t *testing.T) {
+	for _, available := range []bool{true, false} {
+		t.Run(fmt.Sprint(available), func(t *testing.T) {
+			e, a := scopedQuotaFixture(t)
+			peer := NewEngine("peer", a, nil, "", LangEnglish)
+			peer.dataDir = e.dataDir
+			t.Cleanup(peer.cancel)
+			e.SetRelayManager(NewRelayManager(e.dataDir))
+			scope := e.quotaScopeFor(a, "A")
+			expired := time.Now().Add(-time.Minute)
+			quotaDomainsMu.Lock()
+			e.saveDomainLocked(scope.key(), expired)
+			quotaDomainsMu.Unlock()
+			e.quotaState = quotaCoolingState{Scope: scope.key(), Until: expired}
+			newer := time.Now().Add(time.Hour).Truncate(time.Second)
+			e.quotaProbeFn = func(context.Context) (bool, time.Duration, error) {
+				peer.recordQuotaFor(scope, newer, "")
+				return available, 0, nil
+			}
+			e.quotaTick(time.Now())
+			if got := e.quotaCooling(); !got.Equal(newer) {
+				t.Fatalf("probe replaced newer exhaustion: got %v want %v", got, newer)
+			}
+		})
+	}
+}
+
+func TestQuotaTeamRestorePreservesSeparateDeadlines(t *testing.T) {
+	e, a := scopedQuotaFixture(t)
+	now := time.Now().Truncate(time.Second)
+	e.recordQuota(now.Add(3*time.Hour), "")
+	a.model = "B"
+	dir := t.TempDir()
+	saved := teamFile{Project: e.name, QuotaScoped: true, CoolingUntil: now.Add(3 * time.Hour), CapacityUntil: now.Add(time.Minute), LegacyQuotaUntil: now.Add(time.Hour)}
+	data, err := json.Marshal(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, e.name+".json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	e.SetTeam(dir, e.name, false)
+	e.capMu.Lock()
+	capacity, legacy := e.capUntil, e.quotaUntil
+	e.capMu.Unlock()
+	if !capacity.Equal(saved.CapacityUntil) || !legacy.Equal(saved.LegacyQuotaUntil) {
+		t.Fatalf("restored capacity=%v legacy=%v", capacity, legacy)
+	}
+	if !e.quotaCooling().Equal(saved.LegacyQuotaUntil) {
+		t.Fatal("scoped A quota leaked into B after heartbeat restore")
 	}
 }

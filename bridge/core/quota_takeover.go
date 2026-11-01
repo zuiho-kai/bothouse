@@ -198,7 +198,7 @@ func (e *Engine) quotaTransferWork(st *quotaCoolingState, now time.Time) {
 				break
 			}
 		}
-		if target == nil || !target.quotaCooling().IsZero() {
+		if target == nil || !target.quotaCoolingFor(target.admissionQuotaScope(target.agent, tr.Session)).IsZero() {
 			continue
 		}
 		if !tr.Applied {
@@ -229,7 +229,7 @@ func (e *Engine) quotaTransferWork(st *quotaCoolingState, now time.Time) {
 				break
 			}
 		}
-		if target == nil || !target.quotaCooling().IsZero() {
+		if target == nil || !target.quotaCoolingFor(target.admissionQuotaScope(target.agent, first.Session)).IsZero() {
 			continue
 		}
 		var prompts, titles []string

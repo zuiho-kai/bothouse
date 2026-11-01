@@ -16,6 +16,11 @@ import (
 // apply its queued switch. It does not mutate a running conversation.
 func (e *Engine) admissionQuotaScope(agent Agent, keys ...string) quotaScope {
 	model := modelOf(agent)
+	for _, key := range keys {
+		if m := e.sessionModelFor(key); m != "" {
+			model = m
+		}
+	}
 	e.modelSwitchMu.Lock()
 	for _, key := range keys {
 		if p, ok := e.pendingSwitch[key]; ok && p.model != "" {
@@ -108,7 +113,15 @@ func (e *Engine) quotaScopeFor(agent Agent, model string) quotaScope {
 		agent = e.agent
 	}
 	home, _ := os.UserHomeDir()
-	s := quotaScope{Provider: agent.Name(), Account: home, Group: "account"}
+	provider := "unconfigured"
+	if agent != nil {
+		provider = agent.Name()
+	}
+	s := quotaScope{Provider: provider, Account: home, Group: "account"}
+	var parts []string
+	if json.Unmarshal([]byte(model), &parts) == nil && len(parts) == 2 {
+		s.Provider += "/" + parts[0]
+	}
 	if resolver, ok := agent.(QuotaScopeProvider); ok {
 		account, group := resolver.QuotaScope(model)
 		if account != "" {
@@ -218,4 +231,13 @@ func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session strin
 		e.quotaState.Session = teamChatKey(session)
 	}
 	e.saveQuotaLocked()
+}
+
+// The session's effective model includes CLI-pinned and per-channel overrides.
+func (e *Engine) quotaScopeOfSession(agent Agent, session AgentSession) quotaScope {
+	model := modelOf(agent)
+	if getter, ok := session.(interface{ GetModel() string }); ok && getter.GetModel() != "" {
+		model = getter.GetModel()
+	}
+	return e.quotaScopeFor(agent, model)
 }

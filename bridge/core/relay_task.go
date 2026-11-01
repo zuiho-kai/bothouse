@@ -497,7 +497,7 @@ func (d *taskRelay) finish(response string, runErr error) error {
 		failureText = runErr.Error()
 		if reason, ok := BackendUnavailableText(runErr, r.record.Lang); ok {
 			failureText = reason
-			if p.quotaBlocked == nil || !p.quotaBlocked(d.req.To) {
+			if p.quotaBlocked == nil || !p.quotaBlocked(d.req.To, d.req.SessionKey) {
 				p.failMembersOnBackendUnavailable(r, d.req.To, reason)
 			}
 		}
