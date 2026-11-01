@@ -63,11 +63,11 @@ func TestShelvedLifecycle_StuckAfterProgressAndWatchdog(t *testing.T) {
 	p.handoffOf = func(ws, chat string, bound time.Time) (TeamHandoff, bool) {
 		switch ws {
 		case "feishu:oc_ws_nudged":
-			return TeamHandoff{Chat: chat, At: now.Add(-40 * time.Minute), Since: now.Add(-20 * time.Minute), Nudged: true}, true
+			return TeamHandoff{Chat: chat, Board: 2, At: now.Add(-40 * time.Minute), Since: now.Add(-20 * time.Minute), Nudged: true}, true
 		case "feishu:oc_ws_park":
-			return TeamHandoff{Chat: chat, At: now.Add(-30 * time.Minute), ParkFails: 1}, true
+			return TeamHandoff{Chat: chat, Board: 3, At: now.Add(-30 * time.Minute), ParkFails: 1}, true
 		case "feishu:oc_ws_idle":
-			return TeamHandoff{Chat: chat, At: now.Add(-30 * time.Minute), Idle: watchIdleState{Reported: true}}, true
+			return TeamHandoff{Chat: chat, Board: 4, At: now.Add(-30 * time.Minute), Idle: watchIdleState{Reported: true}}, true
 		default:
 			return TeamHandoff{Chat: chat, At: now.Add(-3 * time.Hour)}, true
 		}
