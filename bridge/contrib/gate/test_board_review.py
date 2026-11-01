@@ -11,6 +11,27 @@ HERE = Path(__file__).resolve().parent
 
 
 class HandbackReview(unittest.TestCase):
+    def test_report_after_worker_closed_still_requires_dispatcher(self):
+        tmp = tempfile.mkdtemp()
+        env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": "false", "CC_PROJECT": "worker", "CC_SESSION_KEY": "room:work"}
+        path = Path(tmp) / "board.jsonl"
+        path.write_text(json.dumps({"id": 46, "what": "verify", "chat": "room:chat", "ws": "room:work", "dispatcher": "dispatcher"}) + "\n")
+        def cli(*args):
+            p = subprocess.run([sys.executable, "-I", str(HERE / "board.py"), *args], env=env, text=True, capture_output=True, timeout=10)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        cli("update", "46", "已完成")
+        self.assertEqual(path.read_text(), "")  # existing worker completion behavior
+        cli("returned", "46", "worker")
+        it = json.loads(path.read_text())
+        self.assertEqual(it["reviewer"], "dispatcher")
+        self.assertNotIn("done_at", it)
+        self.assertEqual((Path(tmp) / "board-done.jsonl").read_text(), "")
+        env.update(CC_PROJECT="dispatcher", CC_SESSION_KEY="room:chat")
+        cli("done", "46", "0")
+        cli("returned", "46", "worker")  # delayed duplicate cannot undo acceptance
+        self.assertEqual(path.read_text(), "")
+        self.assertTrue(json.loads((Path(tmp) / "board-done.jsonl").read_text())["review_accepted_at"])
+
     def test_report_reject_rebind_and_accept(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": "false", "CC_PROJECT": "dispatcher"}

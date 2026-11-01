@@ -104,10 +104,10 @@ def _read(name="board.jsonl"):
     return out
 
 
-def _write(items):
-    tmp = _path("board.jsonl.tmp")
+def _write(items, name="board.jsonl"):
+    tmp = _path(name + ".tmp")
     tmp.write_text("".join(json.dumps(i, ensure_ascii=False) + "\n" for i in items))
-    os.replace(tmp, _path("board.jsonl"))
+    os.replace(tmp, _path(name))
 
 
 def items():
@@ -609,8 +609,20 @@ def returned(nid, reviewer, at=None):
     with _locked():
         cur = _read()
         hit = next((i for i in cur if i["id"] == nid), None)
+        archived = None
         if hit is None:
-            return False
+            # Legacy workers may say "done" before their final report (#770). That is
+            # execution completion, not dispatcher acceptance of a delivered artifact.
+            archived = _read("board-done.jsonl")
+            hit = next((i for i in reversed(archived) if i["id"] == nid), None)
+            if hit is None or not hit.get("chat"):
+                return False
+            if hit.get("review_accepted_at"):
+                return True  # a delayed report must not reopen an accepted task
+            hit = dict(hit)
+            for key in ("done_at", "auto_pruned", "returned_at"):
+                hit.pop(key, None)
+            cur.append(hit)
         if hit.get("returned_at"):
             return True
         hit["returned_at"] = datetime.fromisoformat(re.sub(r"\.\d+", lambda m: m[0][:7].ljust(7, "0"), at).replace("Z", "+00:00")).isoformat() if at else _bound_now()
@@ -625,6 +637,8 @@ def returned(nid, reviewer, at=None):
         _back_to_chat(hit)
         tid = hit.pop("guard", None)
         _write(cur)
+        if archived is not None:
+            _write([i for i in archived if i["id"] != nid], "board-done.jsonl")
     _del_timer(tid)
     return True
 
@@ -692,6 +706,9 @@ def done(nid, rework=None, why=None):
         tid = hit.pop("guard", None)  # 交回了：撤兜底
         with open(_path("board-done.jsonl"), "a") as f:
             rec = {**hit, "status": "已完成", "done_at": _now()}  # #597 N3：结束记录不带着原来的「进行中」
+            session = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+            if hit.get("returned_at") or (hit.get("chat") and session == hit["chat"]):
+                rec["review_accepted_at"] = _bound_now()
             if rework is not None:  # 不填就不写这两项，汇总时算「未填」
                 rec["rework"] = rework
                 if why:

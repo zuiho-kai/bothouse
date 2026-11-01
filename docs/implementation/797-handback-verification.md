@@ -1,7 +1,7 @@
 # 交回验收（#797）
 
 ## 生命周期
-最终工作区报告成功送达聊天频道后，bridge 调用 board returned，保存 returned_at、reviewer，随后释放工作区。任务仍在 board.jsonl，只有 board done 表示验收完成。工作区释放不作为交回证据；释放且未完成的任务显示暂停。
+最终工作区报告成功送达聊天频道后，bridge 调用 board returned，保存 returned_at、reviewer，随后释放工作区。任务仍在 board.jsonl，只有 board done 表示验收完成。若工作区沿用旧习惯先写“已完成”再最终交回，收到报告时把未经验收的归档记录移回待验收。真正收口记录 review_accepted_at，延迟重复报告不得重开已验收任务。工作区释放不作为交回证据；释放且未完成的任务显示暂停。
 
 新任务记录 dispatcher，交回后该原派活人负责验收。旧条目没有 dispatcher 时采用交接 Sender，最后才回退到处理交回的主角色。派活人暂时不在线时向当前主角色发一次接手提醒，保留原负责人，待角色恢复继续通知。
 
