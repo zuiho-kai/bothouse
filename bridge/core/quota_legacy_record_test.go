@@ -70,21 +70,45 @@ func TestQuotaLegacyRecordHoldsWhenQuotaQueryFails(t *testing.T) {
 	}
 }
 
-// TestQuotaLegacyRecordReturnsWhenSwitchingBack keeps the old account's limit for
-// the account that actually ran out.
-func TestQuotaLegacyRecordReturnsWhenSwitchingBack(t *testing.T) {
+// TestQuotaAccountSwitchFullChain walks the real entry points instead of hand
+// building scopes: the old account runs out through a recorded turn, the user
+// swaps accounts and gets a measured usable allowance, then swaps back.
+func TestQuotaAccountSwitchFullChain(t *testing.T) {
 	e, a := scopedQuotaFixture(t)
-	writeLegacyQuotaRecord(t, e, time.Now().Add(time.Hour))
-
 	a.reports = map[string]*UsageReport{"A": fullQuotaReport()}
-	released := e.admissionQuotaScope(a, "")
-	if until := e.quotaCoolingFor(released); !until.IsZero() {
-		t.Fatal("the first account was not released after a measured report")
+
+	// 1. The account in use runs out; the turn records it against its own scope.
+	oldScope := e.admissionQuotaScope(a, "")
+	if oldScope.Account != "test-account" {
+		t.Fatalf("first admission produced account %q", oldScope.Account)
+	}
+	e.recordQuotaFor(oldScope, time.Now().Add(time.Hour), "")
+	if e.quotaCoolingFor(oldScope).IsZero() {
+		t.Fatal("the exhausted account was not in cooldown")
 	}
 
-	// A different account never got that measurement, so the record still holds.
-	other := quotaScope{Provider: "claudecode", Account: "acct:other", Group: "account"}
-	if until := e.quotaCoolingFor(other); until.IsZero() {
-		t.Fatal("an unmeasured account was released by another account's report")
+	// 2. The user swaps accounts; the new one is not blocked by the old record.
+	a.account = "acct-new-account"
+	newScope := e.admissionQuotaScope(a, "")
+	if newScope.Account != "acct-new-account" {
+		t.Fatalf("admission after the swap produced account %q", newScope.Account)
+	}
+	if until := e.quotaCoolingFor(newScope); !until.IsZero() {
+		t.Fatalf("the previous account's cooldown blocked the new account until %s", until)
+	}
+
+	// 3. The new account has a measured, unused allowance: it runs normally.
+	if until := e.quotaCoolingFor(e.admissionQuotaScope(a, "")); !until.IsZero() {
+		t.Fatal("the measured new account was still cooled down")
+	}
+
+	// 4. Swapping back must still find the exhausted account's limit.
+	a.account = "test-account"
+	backScope := e.admissionQuotaScope(a, "")
+	if backScope.Account != "test-account" {
+		t.Fatalf("admission after switching back produced account %q", backScope.Account)
+	}
+	if e.quotaCoolingFor(backScope).IsZero() {
+		t.Fatal("switching back to the exhausted account lost its cooldown")
 	}
 }
