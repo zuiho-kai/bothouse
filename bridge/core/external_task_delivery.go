@@ -65,7 +65,7 @@ func (e *Engine) externalTaskTarget(event ExternalTaskEvent) (*externalTaskTarge
 			return nil, errors.New("task owner unavailable")
 		}
 	}
-	if target.IsPaused() || target.ctx.Err() != nil || !target.quotaCooling().IsZero() || target.capacityWait() > 0 {
+	if target.IsPaused() || target.ctx.Err() != nil || target.capacityWait(target.admissionQuotaScope(target.agent, task.SessionKey)) > 0 {
 		return nil, errors.New("task executor paused, stopped or cooling")
 	}
 	key := task.cardSessionKey()

@@ -2,13 +2,40 @@ package codex
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func TestQuotaScopeUsesAccountAndConservativePool(t *testing.T) {
+	home := t.TempDir()
+	a := &Agent{codexHome: home}
+	if account, group := a.QuotaScope("model-a"); account != home || group != "account" {
+		t.Fatalf("missing login scope = %q/%q", account, group)
+	}
+	data, err := json.Marshal(map[string]any{"tokens": map[string]string{"access_token": "fixture", "account_id": "account-a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "auth.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, model := range []string{"model-a", "model-b"} {
+		if account, group := a.QuotaScope(model); account != "account-a" || group != "account" {
+			t.Fatalf("scope = %q/%q", account, group)
+		}
+	}
+	other := &Agent{codexHome: t.TempDir()}
+	if account, _ := other.QuotaScope("model-a"); account == "account-a" || account == home {
+		t.Fatal("different credential source shared scope")
+	}
+}
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
