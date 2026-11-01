@@ -10,14 +10,12 @@ package main
 // JSON. Without flags it still means "turn this platform back on".
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/chenhg5/cc-connect/config"
 	"github.com/chenhg5/cc-connect/core"
@@ -70,7 +68,7 @@ Parameters of add (non-interactive: missing ones are printed as JSON, nothing is
   discord   --token <bot token> --guild <server ID> [--channel <channel ID>] [--allow-from <user IDs>]
   feishu    --app-id <app ID> --app-secret <app secret>
   cloud_web --url <address> --token <bot token> [--name <display name>]
-  dsh       no parameters: prints how to install the DSH plugin
+  dsh       install or enable the DSH plugin in profile web; --lang and --dry-run are supported
   All of them: [--lang <zh|en|ja|…>] [--dry-run] (writes nothing). The result is the same JSON
   as ` + "`bothouse setup apply`" + `.
 
@@ -135,7 +133,7 @@ func runModule(args []string) {
 		os.Exit(1)
 	}
 	if mod == "dsh" {
-		moduleDSH(args[0])
+		runDSHModule(args[0], f)
 		return
 	}
 	if args[0] != "disable" && (f.given() || !moduleConfigured(mod)) {
@@ -316,14 +314,17 @@ func moduleList() error {
 	for _, mod := range moduleOrder {
 		label := fmt.Sprintf("%-12s", mod)
 		if mod == "dsh" {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			st := core.GetDSHStatus(ctx)
-			cancel()
+			st, err := core.GetDSHModuleState()
+			if err != nil {
+				return err
+			}
 			switch {
-			case st.PluginInstalled:
-				fmt.Printf("%s installed (plugin in DSH profile %s)\n", label, st.Profile)
-			default:
+			case !st.Installed:
 				fmt.Printf("%s not configured\n", label)
+			case st.Disabled:
+				fmt.Printf("%s disabled (DSH profile %s)\n", label, core.DSHProfile)
+			default:
+				fmt.Printf("%s enabled (DSH profile %s)\n", label, core.DSHProfile)
 			}
 			continue
 		}
@@ -342,13 +343,4 @@ func moduleList() error {
 		fmt.Printf("%s %s\n", label, strings.Join(parts, "; "))
 	}
 	return nil
-}
-
-// moduleDSH: DSH is not a config.toml platform; its plugin lives in a DSH profile.
-func moduleDSH(cmd string) {
-	if cmd == "disable" {
-		fmt.Println("DSH is a plugin inside DSH, not a bothouse config section: remove it from the DSH profile in DSH itself.")
-		return
-	}
-	fmt.Println("Install the DSH plugin with: bothouse setup dsh install (needs dsh, Node >= 22.12.0 and pnpm).")
 }

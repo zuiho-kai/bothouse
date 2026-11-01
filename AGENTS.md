@@ -94,7 +94,7 @@ bothouse module add feishu --app-id <app_id> --app-secret <app_secret>
 # 自建平台：url/token 省掉时用本机向导启动的那个 hub；名字是它在平台里显示的名字
 bothouse module add cloud_web --url <地址> --token '<机器人 token>' --name <名字>
 
-# DSH：不是配置文件里的平台，只提示怎么装插件
+# DSH：安装或恢复 web profile 插件，JSON 输出；可先加 --dry-run 只检查
 bothouse module add dsh
 ```
 

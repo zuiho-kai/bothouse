@@ -59,7 +59,8 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 | **DSH**（实验） | 在 DeepSeek 的 DSH 网页里用 | DSH、Node ≥ 22.12、pnpm | [DSH](platforms/dsh.md) |
 | **自建平台** | 自己的聊天网页，打开就聊 | uv（本机一键起） | [自建平台](connect-discord-feishu.md#7-自建平台) |
 
-每个平台都还要本机一个已登录的 CLI（`claude`、`codex`、`gemini`……）；多个角色可以全选同一个。
+QQ、Discord、飞书和自建平台还要本机一个已登录的 CLI（`claude`、`codex`、`gemini`……）；多个角色可以全选同一个。
+DSH 的成员在 DSH 网页里配置，可以直接使用 DeepSeek，也可接本机 CLI。
 不用浏览器也行：对 Claude Code / Codex 说「帮我把 bothouse 配好接上 QQ（或 Discord）」，它按 [AGENTS.md](../AGENTS.md) 一次问齐，跑 `bothouse setup apply`。
 配置写在 `~/.bothouse/config.toml`（Windows 是 `%USERPROFILE%\.bothouse\config.toml`）。
 
@@ -81,7 +82,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 - **停用**：`bothouse module disable <平台>`，配置留着，重启后这个平台不再连接；`bothouse module add <平台>` 恢复。
 - **看现状**：`bothouse module list` 列出每个平台是已启用、已停用还是没配置。
 
-平台名：`qq`、`discord`、`feishu`、`dsh`、`cloud_web`（自建平台）。命令只改配置文件里的平台段，改前把原文件备份成 `config.toml.bak-<时间>`。
+平台名：`qq`、`discord`、`feishu`、`dsh`、`cloud_web`（自建平台）。QQ、Discord、飞书、自建平台命令只改配置文件里的平台段，改前把原文件备份成 `config.toml.bak-<时间>`；DSH 改自己的 web profile 原生 patch 并备份，详见 [DSH 页](platforms/dsh.md)。
 
 ## 进阶，可不装
 

@@ -719,7 +719,42 @@ const (
 	MsgQuotaCooling      MsgKey = "quota_cooling"
 )
 
+const (
+	MsgDSHNodeRequired  MsgKey = "dsh_node_required"
+	MsgDSHNodeRunFailed MsgKey = "dsh_node_run_failed"
+	MsgDSHModulePreview MsgKey = "dsh_module_preview"
+	MsgDSHModuleRestart MsgKey = "dsh_module_restart"
+)
+
 var messages = map[MsgKey]map[Language]string{
+	MsgDSHNodeRequired: {
+		LangEnglish:            "Node >= 22.12.0 is required for DSH; install or upgrade Node and detect again.",
+		LangChinese:            "DSH 需要 Node >= 22.12.0；请安装或升级 Node 后重新检测。",
+		LangTraditionalChinese: "DSH 需要 Node >= 22.12.0；請安裝或升級 Node 後重新偵測。",
+		LangJapanese:           "DSH には Node >= 22.12.0 が必要です。インストールまたは更新後に再検出してください。",
+		LangSpanish:            "DSH requiere Node >= 22.12.0; instala o actualiza Node y detecta de nuevo.",
+	},
+	MsgDSHNodeRunFailed: {
+		LangEnglish:            "Could not run node --version; check Node on PATH and detect again.",
+		LangChinese:            "无法运行 node --version；请检查 PATH 中的 Node 后重新检测。",
+		LangTraditionalChinese: "無法執行 node --version；請檢查 PATH 中的 Node 後重新偵測。",
+		LangJapanese:           "node --version を実行できません。PATH の Node を確認して再検出してください。",
+		LangSpanish:            "No se pudo ejecutar node --version; comprueba Node en PATH y detecta de nuevo.",
+	},
+	MsgDSHModulePreview: {
+		LangEnglish:            "Run without --dry-run to install or enable the DSH plugin in profile web.",
+		LangChinese:            "去掉 --dry-run 后执行，安装或启用 web profile 中的 DSH 插件。",
+		LangTraditionalChinese: "移除 --dry-run 後執行，安裝或啟用 web profile 中的 DSH 外掛。",
+		LangJapanese:           "--dry-run を外して実行すると、web プロファイルの DSH プラグインをインストールまたは有効化します。",
+		LangSpanish:            "Ejecuta sin --dry-run para instalar o activar el complemento DSH del perfil web.",
+	},
+	MsgDSHModuleRestart: {
+		LangEnglish:            "Restart your DSH web profile to apply; roles, history and other platform settings are preserved.",
+		LangChinese:            "重启 DSH web profile 后生效；角色、历史和其他平台设置均保留。",
+		LangTraditionalChinese: "重新啟動 DSH web profile 後生效；角色、歷史和其他平台設定均保留。",
+		LangJapanese:           "DSH の web プロファイルを再起動して適用してください。役割、履歴、他のプラットフォーム設定は保持されます。",
+		LangSpanish:            "Reinicia el perfil web de DSH para aplicar; se conservan roles, historial y otros ajustes.",
+	},
 	MsgTaskListRevision: {
 		LangEnglish:            "revision v%d · %d artifacts (%d input / %d output)",
 		LangChinese:            "修订 v%d · 产物 %d（素材 %d / 交付 %d）",
