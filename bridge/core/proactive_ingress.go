@@ -5,6 +5,12 @@ import (
 	"strings"
 )
 
+// MessageSourceAuthenticator attests the account namespace supplied by a
+// multiplexing adapter. It is called only on its live Platform.Start intake.
+type MessageSourceAuthenticator interface {
+	AuthenticatedMessageSource(*Message) (string, bool)
+}
+
 // Only the registered platform adapter supplies the authenticated intake.
 // Local API and replay inputs continue through their existing checked paths.
 func (e *Engine) handlePlatformMessage(p Platform, msg *Message) {
@@ -21,6 +27,8 @@ func (e *Engine) handlePlatformMessage(p Platform, msg *Message) {
 			slog.Warn("platform followup admission denied", "error", err)
 			return
 		}
+		e.handleAdmittedMessage(p, msg)
+		return
 	}
 	e.handleMessage(p, msg)
 }
@@ -48,7 +56,11 @@ func (e *Engine) evaluatePlatformFollowup(p Platform, msg *Message) (Authorizati
 		// Merely installing the software does not change existing chat routing.
 		return AuthorizationDecision{}, false, nil
 	}
-	identity := AuthorityIdentity{Platform: p.Name(), UserID: msg.UserID}
+	source, authenticated := p.Name(), msg.Platform == p.Name()
+	if adapter, ok := p.(MessageSourceAuthenticator); ok {
+		source, authenticated = adapter.AuthenticatedMessageSource(msg)
+	}
+	identity := AuthorityIdentity{Platform: source, UserID: msg.UserID}
 	principal := ""
 	for _, binding := range policy.Bindings {
 		for _, id := range binding.Identities {
@@ -57,23 +69,30 @@ func (e *Engine) evaluatePlatformFollowup(p Platform, msg *Message) (Authorizati
 			}
 		}
 	}
+	if principal == "" {
+		// Installing a policy must not swallow unrelated existing chat flows.
+		return AuthorizationDecision{}, false, nil
+	}
 	// Rules, never user message text or routing output, supply action scopes.
 	var scopes []string
 	for _, rule := range policy.Rules {
-		if rule.Source == p.Name() && rule.Principal == principal && rule.SessionKey == msg.SessionKey && rule.EventKind == "message" {
+		if rule.Source == source && rule.Principal == principal && rule.SessionKey == msg.SessionKey && rule.EventKind == "message" {
 			scopes = rule.Scopes
 			break
 		}
+	}
+	if len(scopes) == 0 {
+		return AuthorizationDecision{}, false, nil
 	}
 	actor := "human"
 	if msg.FromBot {
 		actor = "bot"
 	}
 	candidate := ProactiveCandidate{
-		EventID: msg.MessageID, Source: p.Name(), EventKind: "message",
+		EventID: msg.MessageID, Source: source, EventKind: "message",
 		Identity: identity, SessionKey: msg.SessionKey, Scopes: scopes,
 		ActorKind: actor, Intent: "inferred",
-		Authenticated: msg.Platform == p.Name() && msg.UserID != "",
+		Authenticated: authenticated && msg.UserID != "",
 		Visible:       true, ContextOnly: msg.FromBot || msg.AddressedOther,
 	}
 	d, err := a.Evaluate(candidate)

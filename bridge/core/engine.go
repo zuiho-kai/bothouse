@@ -2240,6 +2240,9 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		msg.resumeFallback = r.fallback
 		msg.authorization = r.authorization
 		msg.boardLabel = "♻️ " + boardJobDesc(job.Description, job.Prompt, job.Exec)
+		if r.authorization != nil && strings.HasPrefix(r.resumedFrom, "admission-") {
+			return e.resumeProactiveAdmission(targetPlatform, msg)
+		}
 	}
 
 	agent := e.agent
@@ -8070,7 +8073,13 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 					session.SettleHandoff(false)
 					return fmt.Errorf("agent session became nil")
 				}
-				err := e.recordTurnBackend(queued.authorization, queuedAgent.Name())
+				var err error
+				if queued.authorization != nil {
+					if queuedAgent == nil {
+						return ErrAuthorizationDenied
+					}
+					err = e.recordTurnBackend(queued.authorization, queuedAgent.Name())
+				}
 				if err == nil {
 					err = as.Send(attemptPrompt, queued.messageID, queued.images, queued.files)
 				}

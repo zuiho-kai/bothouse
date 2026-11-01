@@ -4,8 +4,61 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
+	"sync/atomic"
 	"time"
 )
+
+// Admission is not acceptance by the ordinary execution path. A rejected
+// candidate must not survive as restart work that bypasses that rejection.
+func (e *Engine) handleAdmittedMessage(p Platform, msg *Message) {
+	var accepted atomic.Bool
+	callback := msg.OnAccepted
+	msg.OnAccepted = func() {
+		accepted.Store(true)
+		if callback != nil {
+			callback()
+		}
+	}
+	e.handleMessage(p, msg)
+	if accepted.Load() {
+		return
+	}
+	a, err := e.ProactiveAuthorization()
+	if err == nil {
+		err = a.Revoke(msg.authorization.DecisionID, "admission:rejected")
+	}
+	if err != nil {
+		slog.Error("rejected admission withdrawal failed", "error", err)
+		return
+	}
+	e.journalTurnEnd(msg.resumedFrom)
+}
+
+// An admission intent has not yet passed ordinary intake checks. Recover its
+// original input through those checks, not through the scheduled-execution
+// shortcut used for an already running turn. The private journal supplies
+// content; the immutable decision supplies identity, never a timer payload.
+func (e *Engine) resumeProactiveAdmission(p Platform, msg *Message) error {
+	en, ok := e.turnJournalStore().Get(msg.resumedFrom)
+	if !ok || en.Authorization == nil {
+		return ErrAuthorizationDenied
+	}
+	a, err := e.ProactiveAuthorization()
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	d, ok := a.state.Decisions[en.Authorization.DecisionID]
+	a.mu.Unlock()
+	if !ok {
+		return ErrAuthorizationDenied
+	}
+	msg.authorization = en.Authorization
+	msg.Content, msg.MessageID, msg.UserID = en.LastUserMessage, d.EventID, d.Identity.UserID
+	msg.Platform = d.Identity.Platform
+	e.handleAdmittedMessage(p, msg)
+	return nil
+}
 
 // admitPlatformTask commits a journal-only task before the candidate reaches
 // the ordinary execution queue. The source event, not a new run token or the
