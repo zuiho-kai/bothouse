@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"log/slog"
 	"strings"
 	"time"
@@ -59,12 +60,16 @@ const (
 // taskThreadProgress returns the lookup of a workspace turn's progress card copy in its task
 // card's thread; nil when the session is no workspace or the platform cannot post into threads.
 func (e *Engine) taskThreadProgress(p Platform, session string, transform func(string) string) func() *compactProgressWriter {
+	return e.taskThreadProgressContext(e.ctx, p, session, transform)
+}
+
+func (e *Engine) taskThreadProgressContext(ctx context.Context, p Platform, session string, transform func(string) string) func() *compactProgressWriter {
 	target, ok := p.(TaskThreadTarget)
 	if !ok || e.publicProgress == nil || !e.isTeamWorkspaceChat(session) {
 		return nil
 	}
 	return func() *compactProgressWriter {
-		t := e.sessionTask(session)
+		t := e.outputThreadTask(ctx, session)
 		if t == nil {
 			return nil
 		}
@@ -72,7 +77,7 @@ func (e *Engine) taskThreadProgress(p Platform, session string, transform func(s
 		if !ok {
 			return nil
 		}
-		w := newCompactProgressWriter(e.ctx, p, rc, e.agent.Name(), e.i18n.CurrentLang(), transform)
+		w := newCompactProgressWriter(ctx, p, rc, e.agent.Name(), e.i18n.CurrentLang(), transform)
 		if !w.Active() {
 			return nil
 		}
@@ -88,12 +93,16 @@ func (e *Engine) taskThreadProgress(p Platform, session string, transform func(s
 // time order (user 10-30 「我点开这个任务子频道可以看到他具体在干什么东西」). Best effort: a
 // failure is only logged.
 func (e *Engine) postToTaskThread(p Platform, session, text string) {
+	e.postToTaskThreadContext(e.ctx, p, session, text)
+}
+
+func (e *Engine) postToTaskThreadContext(ctx context.Context, p Platform, session, text string) {
 	text = strings.TrimSpace(text)
 	target, ok := p.(TaskThreadTarget)
 	if !ok || text == "" || e.publicProgress == nil || !e.isTeamWorkspaceChat(session) {
 		return
 	}
-	t := e.sessionTask(session)
+	t := e.outputThreadTask(ctx, session)
 	if t == nil {
 		return
 	}
@@ -102,10 +111,21 @@ func (e *Engine) postToTaskThread(p Platform, session, text string) {
 		return
 	}
 	for _, c := range SplitMessageCodeFenceAware(text, maxPlatformMessageLen) {
-		if err := p.Send(e.ctx, rc, c); err != nil {
+		if err := e.sendRenderedWithContext(ctx, p, rc, c); err != nil {
 			slog.Warn("task thread: copy failed", "session", session, "task_id", t.ID, "thread", t.ThreadID, "error", err)
 			return
 		}
 	}
 	slog.Info("task thread: workspace post copied", "session", session, "task_id", t.ID, "thread", t.ThreadID)
+}
+
+func (e *Engine) outputThreadTask(ctx context.Context, session string) *Task {
+	if execution, bound := ctx.Value(proactiveExecutionKey{}).(proactiveExecution); bound {
+		if checkProactiveExecution(ctx, "message.send") != nil {
+			return nil
+		}
+		task, _ := execution.source.publicProgress.Task(execution.taskID)
+		return task
+	}
+	return e.sessionTask(session)
 }
