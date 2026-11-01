@@ -220,7 +220,7 @@ func (p teamTaskBoardPlacer) place(it *teamTaskBoardItem) {
 	if it.WS != "" {
 		bound, _ := time.Parse(time.RFC3339Nano, it.Bound) // unparsable: zero, the chat's newest handoff
 		if p.handoffOf != nil {
-			if h, ok := p.handoffOf(it.WS, chat, bound); ok {
+			if h, ok := p.handoffOf(it.WS, chat, bound); ok && teamHandoffBelongsToItem(h, *it, bound) {
 				if !teamHandoffOpen(h) {
 					it.wsEnded = true
 				} else {
@@ -258,6 +258,20 @@ func (p teamTaskBoardPlacer) place(it *teamTaskBoardItem) {
 			}
 		}
 	}
+}
+
+// A timestamp selects a candidate handoff, not proof that it belongs to this task.
+// A reused workspace can still carry a different task's closed/parked handoff.
+// Even the same task may have been rebound after its previous execution ended.
+func teamHandoffBelongsToItem(h TeamHandoff, it teamTaskBoardItem, bound time.Time) bool {
+	if !bound.IsZero() && ((!h.Closed.IsZero() && !h.Closed.After(bound)) ||
+		(!h.Parked.IsZero() && !h.Parked.After(bound))) {
+		return false
+	}
+	if h.Board > 0 {
+		return h.Board == it.ID
+	}
+	return teamHandoffTitleMatchesItem(h.Title, it)
 }
 
 func placeTeamTaskBoard(p teamTaskBoardPlacer, items []teamTaskBoardItem) []teamTaskBoardItem {
