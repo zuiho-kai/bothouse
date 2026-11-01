@@ -5,9 +5,12 @@ package main
 // through the same apply path.
 
 import (
+	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -233,5 +236,67 @@ func TestModuleAddCloudWebWithoutHubWritesNothing(t *testing.T) {
 	}
 	if string(before) != string(after) {
 		t.Fatalf("config.toml was written:\n%s", after)
+	}
+}
+
+// one QQ platform, enabled: enough for `module disable qq` to have something to flip
+const moduleDisableFixture = `[[projects]]
+name = "fixture"
+[projects.agent]
+type = "claudecode"
+[[projects.platforms]]
+type = "qq"
+[projects.platforms.options]
+ws_url = "ws://127.0.0.1:3001"
+token = "napcat-secret"
+allow_from = "3889000001"
+`
+
+// Regression (#814 review, P2): `module disable` took the shared --dry-run flag and wrote
+// config.toml anyway. The command entry now refuses the flag: non-zero exit, no backup, and
+// config.toml byte-for-byte as it was. Runs through runModule in a child process, so the exit
+// code is the one a user's shell sees.
+func TestModuleDisableRefusesDryRun(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte(moduleDisableFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := helper(t, "module", []string{"HOME=" + dir}, "disable", "qq", "--dry-run", "--config", path)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() == 0 {
+		t.Fatalf("disable --dry-run exit = %v (stdout %s), want a non-zero exit", err, out)
+	}
+	if !strings.Contains(stderr.String(), "--dry-run") {
+		t.Fatalf("stderr does not say --dry-run is not for disable: %s", stderr.String())
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("disable --dry-run changed config.toml:\n%s", after)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Fatalf("disable --dry-run left files behind: %v", entries)
+	}
+
+	// Control: the same fixture without --dry-run does disable QQ, so the assertions above are
+	// not passing just because nothing matched the section.
+	okCmd := helper(t, "module", []string{"HOME=" + dir}, "disable", "qq", "--config", path)
+	out, err = okCmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "QQ disabled for: fixture") {
+		t.Fatalf("disable without --dry-run: %v\n%s", err, out)
+	}
+	if raw, _ := os.ReadFile(path); !strings.Contains(string(raw), "disabled = true") {
+		t.Fatalf("disable without --dry-run wrote no mark:\n%s", raw)
 	}
 }

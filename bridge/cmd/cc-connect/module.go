@@ -60,7 +60,8 @@ Platforms are optional modules: only the ones in config.toml start.
 
   list                  Each platform: enabled / disabled / not configured, and which roles use it
   add <platform>        Configure the platform with its own flags (below), or turn a disabled one back on
-  disable <platform>    Stop a platform; its settings stay in config.toml (add turns it back on)
+  disable <platform>    Stop a platform; its settings stay in config.toml (add turns it back on).
+                        Takes no parameters and no --dry-run: it only marks the section disabled
 
 Platforms: qq, discord, feishu, dsh, cloud_web (自建平台).
 
@@ -123,6 +124,14 @@ func runModule(args []string) {
 	}
 	if _, ok := moduleLabels[mod]; !ok {
 		fmt.Fprintf(os.Stderr, "Error: give a platform: %s\n", strings.Join(moduleOrder, ", "))
+		os.Exit(1)
+	}
+	// disable only flips the section's `disabled` mark, so there is nothing to preview: taking
+	// --dry-run and writing anyway (the #814 review) is worse than saying it is not for disable.
+	if args[0] == "disable" && f.dryRun {
+		fmt.Fprintf(os.Stderr, "Error: module disable does not take --dry-run: it only marks the %s sections disabled in config.toml.\n"+
+			"Drop --dry-run to disable %s; `module add <platform> … --dry-run` previews a configuration.\n",
+			moduleLabels[mod], moduleLabels[mod])
 		os.Exit(1)
 	}
 	if mod == "dsh" {
