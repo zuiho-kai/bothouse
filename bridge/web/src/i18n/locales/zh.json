@@ -107,6 +107,10 @@
     "linkGlobal": "关联全局服务商",
     "addCustom": "自定义添加",
     "allLinked": "所有全局服务商已关联。",
+    "noGlobal": "还没有全局服务商。请先在“服务商”页创建。",
+    "noCompatible": "没有适用于该项目 agent 类型的全局服务商。",
+    "emptyProjectMismatch": "已关联的全局服务商不适用于该项目的 agent 类型。",
+    "emptyProjectMismatchHint": "在“服务商”页调整它们的适用类型，或添加自定义服务商。",
     "manageGlobal": "管理全局服务商"
   },
   "cron": {

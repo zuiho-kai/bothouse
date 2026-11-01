@@ -378,13 +378,20 @@ export default function ProjectDetail() {
       )}
 
       {tab === 'providers' && (() => {
-        const globalNames = new Set(globalProviders.map(g => g.name));
-        const isGlobal = (pName: string) => globalNames.has(pName) && providerRefs.includes(pName);
+        const globalByName = new Map(globalProviders.map(g => [g.name, g] as const));
+        const isGlobal = (pName: string) => globalByName.has(pName) && providerRefs.includes(pName);
         const currentAgentType = project?.agent_type || selectedAgentType || '';
-        const unlinkedGlobals = globalProviders.filter(g =>
-          !providerRefs.includes(g.name) &&
-          (!g.agent_types?.length || g.agent_types.includes(currentAgentType))
-        );
+        // A global provider with agent_types only serves those CLIs (config.go ResolveProviderRefs skips the
+        // rest), so it can be linked and still resolve to nothing for this project.
+        const fitsAgentType = (g: GlobalProvider) => !g.agent_types?.length || g.agent_types.includes(currentAgentType);
+        const unlinkedGlobals = globalProviders.filter(g => !providerRefs.includes(g.name) && fitsAgentType(g));
+        // Linked refs the backend skips for this project's agent type, and unlinked globals hidden by the same
+        // filter. Both used to be invisible: the list looked unconfigured while the dialog claimed every global
+        // provider was already linked (#636).
+        const skippedRefs = providerRefs
+          .map(r => globalByName.get(r))
+          .filter((g): g is GlobalProvider => !!g && !fitsAgentType(g));
+        const typeBlockedGlobals = globalProviders.filter(g => !providerRefs.includes(g.name) && !fitsAgentType(g));
         return (
         <div className="space-y-4">
           {/* Header */}
@@ -398,8 +405,17 @@ export default function ProjectDetail() {
             <Card>
               <div className="py-6 text-center">
                 <Plug size={32} className="mx-auto text-gray-300 dark:text-gray-600 mb-2" />
-                <p className="text-sm text-gray-500 dark:text-gray-400">{t('providers.emptyProject', 'No providers configured for this project.')}</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{t('providers.emptyProjectHint', 'Link a global provider or add a custom one.')}</p>
+                {skippedRefs.length > 0 ? (
+                  <>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{t('providers.emptyProjectMismatch', "Linked global providers do not match this project's agent type.")}</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{t('providers.emptyProjectMismatchHint', 'Change their agent types on the Providers page, or add a custom one.')}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{t('providers.emptyProject', 'No providers configured for this project.')}</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{t('providers.emptyProjectHint', 'Link a global provider or add a custom one.')}</p>
+                  </>
+                )}
               </div>
             </Card>
           ) : (
@@ -481,7 +497,17 @@ export default function ProjectDetail() {
               {addMode === 'pick' ? (
                 unlinkedGlobals.length === 0 ? (
                   <div className="py-4 text-center">
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{t('providers.allLinked', 'All global providers are already linked.')}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      {/* Only claim "all linked" when nothing is hidden by agent type: a linked-but-skipped ref
+                          is why the project page used to look unconfigured while this said everything was linked. */}
+                      {globalProviders.length === 0
+                        ? t('providers.noGlobal', 'No global providers yet. Create one on the Providers page first.')
+                        : skippedRefs.length > 0
+                          ? t('providers.emptyProjectMismatch', "Linked global providers do not match this project's agent type.")
+                          : typeBlockedGlobals.length > 0
+                            ? t('providers.noCompatible', "No global provider matches this project's agent type.")
+                            : t('providers.allLinked', 'All global providers are already linked.')}
+                    </p>
                     <Link to="/providers" className="inline-flex items-center gap-1 mt-2 text-xs text-accent hover:underline">
                       {t('providers.manageGlobal', 'Manage global providers')} <ExternalLink size={11} />
                     </Link>

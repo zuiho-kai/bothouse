@@ -107,6 +107,10 @@
     "linkGlobal": "Link global",
     "addCustom": "Add custom",
     "allLinked": "All global providers are already linked.",
+    "noGlobal": "No global providers yet. Create one on the Providers page first.",
+    "noCompatible": "No global provider matches this project's agent type.",
+    "emptyProjectMismatch": "Linked global providers do not match this project's agent type.",
+    "emptyProjectMismatchHint": "Change their agent types on the Providers page, or add a custom one.",
     "manageGlobal": "Manage global providers"
   },
   "cron": {
