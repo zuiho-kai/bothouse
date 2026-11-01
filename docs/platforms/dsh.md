@@ -5,7 +5,7 @@
 要准备（只有选 DSH 才需要）：
 
 - DSH `>= 0.2.1-rc.2`。
-- Node `>= 22.12.0`，PATH 上有 `pnpm`。
+- Node `>= 22.12.0`，安装器可用 npm 补齐缺失的 `pnpm`。
 
 ## 1. 装 bothouse
 
@@ -32,3 +32,5 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 - `bothouse module disable dsh` 停用，`bothouse module add dsh` 恢复启用；结果为 JSON。
 - 插件位于 DSH 的 `web` profile，停用使用 DSH 原生的 `disabled` 标记，保留依赖、角色和历史。改动后重启该 DSH profile 生效，命令不会替你重启服务。
 - 改动前备份原 `cordis.patch.yml` 为旁边的 `.bak-时间戳` 文件；需要回退时恢复备份。其他自定义配置保留；已有动态 `disabled: !!js ...` 表达式时拒绝覆盖，提示在 DSH 中处理。
+
+状态按已注册插件包、web profile、DSH HOME 全局 patch 的顺序计算。全局 patch 优先于 profile；若全局策略与要切换的状态冲突，命令会报错且不写文件，请先在 DSH 中调整全局策略。命令不会为了单个平台改写影响其他 profile 的全局设置。
