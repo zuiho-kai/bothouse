@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -239,5 +240,114 @@ func TestExternalEventsNonCodeWaitDoesNotWakeUntilSatisfied(t *testing.T) {
 	inputWait(t, func() bool { return !s.Busy() })
 	if a.session.normal.Load() != 1 {
 		t.Fatal("wait delivered more than once")
+	}
+}
+
+func TestCUJ_ExternalEvents1_WaitReplayAndStop(t *testing.T) {
+	_, e, a, s, ev := externalEngineFixture(t)
+	p := e.platforms[0].(*inputTestPlatform)
+	send := func(id, content string) {
+		e.ReceiveMessage(p, &Message{SessionKey: inputTestKey, Platform: p.Name(), MessageID: id, UserID: "human", Content: content, Mentioned: true, ReplyCtx: "local"})
+	}
+	// A user asks to wait. The existing task receives the result of that turn.
+	send("wait", "Keep this reservation task and wait for availability")
+	inputPrompt(t, a)
+	inputDone(a, "Waiting for the venue's availability")
+	inputWait(t, func() bool { return !s.Busy() })
+	// Finish the fixture's original progress run, as the CLI would do for this task.
+	e.publicProgress.mu.Lock()
+	r := e.publicProgress.records[ev.TaskID]
+	token := ""
+	for key, run := range e.publicProgress.runs {
+		if run == r {
+			token = key
+			break
+		}
+	}
+	e.publicProgress.mu.Unlock()
+	e.publicProgress.finish(token, "result")
+	if _, err := e.AcceptExternalTaskEvents([]ExternalTaskEvent{ev}); err != nil {
+		t.Fatal(err)
+	}
+	e.flushExternalTaskEvents()
+	inputPrompt(t, a)
+	inputDone(a, "Availability confirmed for the original reservation")
+	inputWait(t, func() bool { return !s.Busy() })
+	if _, err := e.AcceptExternalTaskEvents([]ExternalTaskEvent{ev}); err != nil {
+		t.Fatal(err)
+	}
+	e.flushExternalTaskEvents()
+	send("history", "/history")
+	inputWait(t, func() bool { return strings.Contains(strings.Join(p.getSent(), "\n"), "Availability confirmed") })
+	if a.session.normal.Load() != 2 {
+		t.Fatalf("replayed work: %d", a.session.normal.Load())
+	}
+	ev.EventID = "later"
+	ev.SourceSequence = 2
+	if _, err := e.AcceptExternalTaskEvents([]ExternalTaskEvent{ev}); err != nil {
+		t.Fatal(err)
+	}
+	e.flushExternalTaskEvents()
+	inputPrompt(t, a)
+	send("stop", "/stop")
+	inputWait(t, func() bool { return !s.Busy() })
+	task, _ := e.publicProgress.Task(ev.TaskID)
+	if task.State != TaskStateCancelled {
+		t.Fatalf("stopped task still live: %s", task.State)
+	}
+	ev.EventID = "after-stop"
+	ev.SourceSequence = 3
+	if _, err := e.AcceptExternalTaskEvents([]ExternalTaskEvent{ev}); err != nil {
+		t.Fatal(err)
+	}
+	e.flushExternalTaskEvents()
+	if a.session.normal.Load() != 3 {
+		t.Fatal("stopped task woke again")
+	}
+	visible := strings.Join(p.getSent(), "\n")
+	if !strings.Contains(visible, "Waiting for the venue") || !strings.Contains(visible, "Availability confirmed") {
+		t.Fatalf("missing user-visible journey: %s", visible)
+	}
+}
+
+func TestExternalEventsAdapterFixtures(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is required for adapter examples")
+	}
+	_, e, _, _, base := externalEngineFixture(t)
+	for _, kind := range []string{"comment", "check", "pr"} {
+		cmd := exec.Command(python, "../contrib/task-events/github_event.py", "github:fixture", base.TaskID, kind, "2026-11-01T00:00:00Z", "../contrib/task-events/github-"+kind+".json")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		events, structured, err := structuredPollEvents(string(out))
+		if err != nil || !structured || len(events) != 1 {
+			t.Fatalf("%s: %s %v", kind, out, err)
+		}
+		ev := events[0]
+		if err := e.publicProgress.externalInputs.Bind(ExternalEventSource{SourceInstance: ev.SourceInstance, ThreadRef: ev.ThreadRef, TaskID: ev.TaskID, Enabled: true}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.AcceptExternalTaskEvents(events); err != nil {
+			t.Fatal(err)
+		}
+	}
+	task, _ := e.publicProgress.Task(base.TaskID)
+	if task.FactStage == FactStageDeployed || task.FactStage == FactStageVerified {
+		t.Fatal("GitHub success fabricated deployment")
+	}
+	cmd := exec.Command(python, "../contrib/task-events/wait_condition.py", "venue:fixture", base.TaskID, "../contrib/task-events/wait-satisfied.json")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, structured, err := structuredPollEvents(string(out))
+	if err != nil || !structured || len(events) != 1 {
+		t.Fatalf("wait: %s %v", out, err)
+	}
+	if events[0].TaskID != base.TaskID || events[0].ActorKind != "system" {
+		t.Fatalf("wait event: %+v", events)
 	}
 }

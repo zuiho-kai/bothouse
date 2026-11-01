@@ -32,7 +32,9 @@ func (e *Engine) externalTaskTarget(event ExternalTaskEvent) (*externalTaskTarge
 	if !ok {
 		return nil, errors.New("task no longer exists")
 	}
-	if task.State != TaskStateReceived && task.State != TaskStateInProgress {
+	// ResultReady closes a turn, not the ongoing task. An enabled source may
+	// bring its next fact; waiting for a human decision still cannot be bypassed.
+	if task.State != TaskStateReceived && task.State != TaskStateInProgress && task.State != TaskStateResultReady {
 		return nil, fmt.Errorf("task is %s; explicit continuation required", task.State)
 	}
 	if e.externalTaskEventCheck != nil {
@@ -205,4 +207,20 @@ func (e *Engine) flushExternalTaskEvents() {
 		msg := &Message{SessionKey: target.sessionKey, Platform: target.platform.Name(), UserID: "external-task-event", UserName: "external-task-event", FromBot: true, Content: prompt, ReplyCtx: target.reply, MessageID: externalEventKey(event.SourceInstance, event.EventID), externalInput: &externalInputDelivery{owner: e, event: event, assignment: target.assignment}}
 		target.engine.startInteractiveMessage(target.platform, msg, target.session, target.agent, target.sessions, target.interactiveKey, target.workspace, target.sessionKey)
 	}
+}
+
+// An external turn does not mint a new progress run, but a human stop must
+// still cancel its original task. Otherwise the next source event revives it.
+func (d *externalInputDelivery) cancelTask() {
+	p := d.owner.publicProgress
+	p.transitionMu.Lock()
+	defer p.transitionMu.Unlock()
+	target, err := d.owner.externalTaskTarget(d.event)
+	if err != nil || target.assignment != d.assignment {
+		return
+	}
+	p.mu.Lock()
+	r := p.records[d.event.TaskID]
+	p.mu.Unlock()
+	p.finishRun(r, "cancelled", false)
 }

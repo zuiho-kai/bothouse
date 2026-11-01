@@ -658,6 +658,7 @@ type interactiveState struct {
 	resumeFailed             string
 	resumeFailedQueued       *queuedMessage
 	publicProgressRun        string
+	externalTaskInput        *externalInputDelivery
 	resetHandoff             bool // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
 	agentSession             AgentSession
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
@@ -4750,6 +4751,9 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		// The agent session is captured under lock per attempt inside runTurnWithCapacityRetry.
 		e.runTurnWithCapacityRetry(state, session, sessions, interactiveKey, msg.MessageID, turnStart, stopTyping, msg.ReplyCtx, msg.inputTurn,
 			func() {
+				state.mu.Lock()
+				state.externalTaskInput = msg.externalInput
+				state.mu.Unlock()
 				attemptPrompt = e.withPublicProgress(promptContent, state, msg.SessionKey, msg.FromBot, msg.FromVoice || msg.inputTurn != nil)
 			},
 			func(as AgentSession) error {
