@@ -6,17 +6,20 @@ bothouse = **团队协作 + wiki 记忆**：一群 AI 伙伴在聊天软件里�
 
 **只有一个 CLI 或一个模型也能组队。** 多个角色可以选择同一套 Codex、Claude Code 或 Gemini CLI；在 DSH 里也可以添加三个都用同一 DeepSeek 的成员。每位成员有独立会话和人设，通过频道交换任务。具体步骤与共享边界见[同模型多成员指南](single-cli-team.md)。
 
-## 三步用起来：装 → 向导 → 确认上线
+## 三步用起来：装 → 选平台 → 确认上线
 
-下面先介绍 Discord / 自建平台的向导流程。macOS、Linux、Windows 都行（Apple 芯片 / Intel / arm64 / x86_64），预编译桥接不用装 Go 或 Node。已有 DSH、想在网页里添加多个 DeepSeek 或 Codex 成员，走[DSH 安装入口](../README.zh-CN.md#dsh-频道实验)和[成员配置步骤](single-cli-team.md#在-dsh-里创建三个成员)；DSH 插件另有 Node、pnpm 和版本要求。
+bothouse 是**核心 + 可选平台**：一个安装包里什么都有，但你只配要用的那个平台；没配的平台不启动、不检查、不报警告。
+以后随时可以再加或停用平台，记忆、人设、定时任务都不受影响。macOS、Linux、Windows 都行，预编译桥接不用装 Go 或 Node。
 
-**1. 装。** 从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载：
+### 1. 装
+
+从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载：
 
 - macOS：`bothouse-mac.dmg`（Apple 芯片和 Intel 通用）；把 Bothouse.app 拖入 Applications，首次打开请「右键→打开」（安装包未签名）。
-- Windows：`bothouse-windows.exe`（x64，ARM64 Windows 也可运行），下载后双击。
+- Windows：`bothouse-windows.exe`（x64，ARM64 Windows 也可运行），下载后双击；SmartScreen 拦了就点「更多信息 → 仍要运行」。
 - Linux：`bothouse-linux-x64` 或 `bothouse-linux-arm64`，`chmod +x` 后运行。
 
-首次运行无配置时会自动在浏览器打开安装向导。`SHA256SUMS` 提供 SHA-256 校验。自更新与安装脚本使用同一份平台下载文件，Mac 从 dmg 提取 universal 二进制。更新到历史版本时，自更新可回退历史架构文件及 `cc-connect-<tag>-<os>-<arch>.tar.gz` / `.zip`（历史包在旧 Release 中，使用其校验文件）。也可用下面的命令行安装，命令仍为 `bothouse`（macOS / Linux 放进 `~/.local/bin`，Windows 放进 `%USERPROFILE%\.local\bin`）。
+首次运行无配置时会自动在浏览器打开安装向导。`SHA256SUMS` 提供 SHA-256 校验。手动下载的，打开前先核对文件和该版本的 SHA256SUMS。自更新与安装脚本使用同一份平台下载文件，Mac 从 dmg 提取 universal 二进制。更新到历史版本时，自更新可回退历史架构文件及 `cc-connect-<tag>-<os>-<arch>.tar.gz` / `.zip`（历史包在旧 Release 中，使用其校验文件）。也可用下面的命令行安装，命令仍为 `bothouse`（macOS / Linux 放进 `~/.local/bin`，Windows 放进 `%USERPROFILE%\.local\bin`）。
 
 macOS / Linux，在终端里：
 
@@ -44,37 +47,46 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 
 它会校验下载的包，并把安装目录加进你的用户 PATH；当前窗口立刻能用，新开的窗口也能用。
 
-**2. 配。** 二选一，写的是同一份配置（`~/.bothouse/config.toml`，Windows 是 `%USERPROFILE%\.bothouse\config.toml`）：
+### 2. 选平台
 
-- 人：运行 `bothouse`。第一次运行会自动在浏览器打开安装向导（打不开就把带口令的链接打印出来，复制到浏览器）。
-  按页面点：选平台 → 填机器人 token → 选服务器和频道 → 每个角色选本机 CLI → 人设 → 主角色 → jev（可跳过）→ 保存 → 「重启生效」。
-  以上 token、服务器和频道步骤适用于 Discord。选「自建平台」时，点「在本机启动」、填写角色名即可，不用注册 Discord 机器人；详见[自建平台步骤](connect-discord-feishu.md#7-自建平台)。
-- AI：对 Claude Code / Codex 说「帮我把 bothouse 配好接上 Discord」。它按 [AGENTS.md](../AGENTS.md) 一次问齐要的东西，跑 `bothouse setup apply`。
+运行 `bothouse`，第一次会自动在浏览器打开安装向导（打不开就把带口令的链接打印出来，复制到浏览器）。第一页「你想在哪儿用」选一个，后面只出现这个平台的步骤：
 
-Discord 要准备：每个角色一个不同的 Discord 机器人 token（开发者后台 → Bot → Reset Token，并打开 **Message Content Intent**），和本机一个已登录的 CLI（`claude`、`codex`、`gemini`……）。多个角色在 CLI 一步可以全部选同一个；自建平台和 DSH 原生成员不需要 Discord token。
-服务器和频道在向导里点选；谁能指挥机器人（`allow_from`）默认就是建机器人的你。jev 和 gate 都可以不要。
+| 平台 | 适合 | 要额外准备 | 怎么配 |
+|---|---|---|---|
+| **QQ** | 在 QQ 群或私聊里用 | NapCat（登录一个 QQ 号） | [QQ](platforms/qq.md) |
+| **Discord** | 多个角色在一个频道里协作 | 每个角色一个机器人 token | [Discord](platforms/discord.md) |
+| **飞书 / Lark** | 在飞书里用，一个机器人 | 飞书扫码 | [飞书](platforms/feishu.md) |
+| **DSH**（实验） | 在 DeepSeek 的 DSH 网页里用 | DSH、Node ≥ 22.12、pnpm | [DSH](platforms/dsh.md) |
+| **自建平台** | 自己的聊天网页，打开就聊 | uv（本机一键起） | [自建平台](connect-discord-feishu.md#7-自建平台) |
 
-**3. 确认上线。** 保存后向导最后一页（或 `setup apply` 输出的 JSON）会列出还要你做的事：
+每个平台都还要本机一个已登录的 CLI（`claude`、`codex`、`gemini`……）；多个角色可以全选同一个。
+不用浏览器也行：对 Claude Code / Codex 说「帮我把 bothouse 配好接上 QQ（或 Discord）」，它按 [AGENTS.md](../AGENTS.md) 一次问齐，跑 `bothouse setup apply`。
+配置写在 `~/.bothouse/config.toml`（Windows 是 `%USERPROFILE%\.bothouse\config.toml`）。
 
-- **Message Content Intent 没开（或没查到）**：机器人读不到消息。点链接到开发者后台打开 / 确认。
-- **没查到机器人的所有者**：为了安全机器人先谁都不听，按提示填上你自己的 Discord 用户 ID。
-- **机器人还没进服务器**：点邀请链接把它拉进去。
-- 都没有就是好了。日志里出现 `discord: connected` 就是上线，去频道里 @ 机器人说一句试试。
+### 3. 确认上线
+
+保存后向导最后一页（或 `setup apply` 输出的 JSON）列出还要你做的事，各平台页写了每一条怎么处理。都处理完，去聊天软件里 @ 机器人说一句试试。
+
 - 想关掉终端也一直在线：`bothouse daemon install`（装成后台服务并立即启动；新安装开机自启默认关闭；重装或升级保留当前设置，可在管理面板「设置 → 开机自动启动」中修改：macOS 用 launchd，Linux 用 systemd，Windows 用「任务计划程序」）。Windows 上 `bothouse daemon stop` / `uninstall` 会结束这个服务启动的全部进程，包括机器人正在跑的 AI CLI；在机器人里让 AI 跑 `bothouse daemon restart`（或 stop、install --force、uninstall）也可以：这时操作交给服务外的一个后台进程做完，结果写在 `%USERPROFILE%\.bothouse\logs\daemon-handoff.log`。
-
-**gate 可以不装。** 没有 gate 时，被 @ 的角色照常回，其余消息都由主角色回。想让 AI 自己判断一句话该谁回再装 gate（[线 1](ccm-and-wiki.md) 第 3 步）：要先在向导填 jev，没填 gate 会报错并提示怎么填。
 
 新安装默认使用 `~/.bothouse`；没有该目录而存在旧配置目录时，会继续沿用旧配置，不移动文件。
 
-## 上面三步之后，按需再加
+## 以后添加或停用平台
 
-```
-             你                                    想要什么                         再看哪篇
- ───────────────────────────────    ─────────────────────────────────    ─────────────
- 想在 Discord/自建平台组队          多角色协作（可全用同一 CLI）            上面三步就够
- 想在飞书里对话                     当前单角色接入                         接入指南
- 还想要会记事、自己判断谁回           wiki 记忆、gate                        线 1 第 3–4 步
-```
+- **添加**：管理面板左侧「添加平台」，进同一个向导，选新平台、只配它；已有的角色、记忆、人设、定时任务都不动。已配置的平台在第一页标「已配置」。
+- **停用**：`bothouse module disable <平台>`，配置留着，重启后这个平台不再连接；`bothouse module add <平台>` 恢复。
+- **看现状**：`bothouse module list` 列出每个平台是已启用、已停用还是没配置。
+
+平台名：`qq`、`discord`、`feishu`、`dsh`、`cloud_web`（自建平台）。命令只改配置文件里的平台段，改前把原文件备份成 `config.toml.bak-<时间>`。
+
+## 进阶，可不装
+
+下面这些都不影响基本对话，用熟了再加：
+
+- **gate（分流）**：多个角色时让 AI 判断一句话该谁回。没有 gate 时，被 @ 的角色照常回，其余消息由主角色回。见[线 1](ccm-and-wiki.md) 第 3 步。
+- **jev**：gate 用来做判断的模型（OpenAI 兼容、给出选项概率）。在向导的 jev 页填，或跳过。没填 gate 会报错并提示怎么填。
+- **wiki 记忆**：角色共用、自己会长的记忆。见[线 1](ccm-and-wiki.md) 第 4 步。
+- **语音**：电脑语音伙伴是独立扩展（`companion/`），现状见 [MULTI_VOICE.md](MULTI_VOICE.md)。
 
 ## 各部分怎么连
 

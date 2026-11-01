@@ -1,11 +1,11 @@
-// dsh-client-source-sha256: fe17c347bf431f86c53a3796a40b6e1484fd129fe5b9113f233e769d8f5ce023
-// dsh-style-sha256: b51dc34f3b4d25c9c9bc328782e7d0e7b7455a473792a5e089e0de209c0d7cfc
+// dsh-client-source-sha256: 51732729e2bd1e81bb4d9c84a793292ba99e9ca0bbed95f72393ce083fbaeadd
+// dsh-style-sha256: 8de64f320b70b31c6dba515e74187a98284317258d9cb57df3dc16f2eb345641
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".dshc_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.dshc_rooms, .dshc_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 0 8px 16px;\n  overflow-y: auto;\n}\n\n.dshc_membersHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  flex: none;\n  height: 44px;\n  margin: 0 0 8px;\n}\n\n.dshc_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.dshc_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.dshc_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.dshc_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.dshc_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.dshc_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.dshc_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_system .dshc_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.dshc_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.dshc_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.dshc_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.dshc_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.dshc_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.dshc_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.dshc_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.dshc_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_messageBody {\n  min-width: 0;\n}\n\n.dshc_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_author {\n  font-weight: 600;\n}\n\n.dshc_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.dshc_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.dshc_message:hover .dshc_ownActions, .dshc_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_ownActions {\n    opacity: 1;\n  }\n}\n\n.dshc_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.dshc_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.dshc_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_editBar .dshc_time {\n  margin-right: auto;\n}\n\n.dshc_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.dshc_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.dshc_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.dshc_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.dshc_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.dshc_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.dshc_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_quoteDeleted {\n  font-style: italic;\n}\n\n.dshc_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.dshc_message:hover .dshc_replyButton, .dshc_message:focus-within .dshc_replyButton, .dshc_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_replyButton {\n    opacity: 1;\n  }\n}\n\n.dshc_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.dshc_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.dshc_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.dshc_composerBox {\n  border: 1px solid var(--dsw-alias-border-l1);\n  border-radius: var(--dsw-radius-xl);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  box-shadow: var(--dsw-shadow-lv1-blur);\n  flex-direction: column;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_composerBox:focus-within {\n  border-color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_composerToolbar {\n  flex: none;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 10px 10px;\n  display: flex;\n}\n\n.dshc_composerBox > .dshc_replyBar, .dshc_composerBox > .dshc_attachments {\n  margin: 10px 14px 0;\n}\n\n.dshc_mentionButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  font-size: 18px;\n  display: inline-flex;\n}\n\n.dshc_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_sendButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: auto;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.dshc_sendButton:focus-visible, .dshc_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.dshc_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_mentionName {\n  font-weight: 600;\n}\n\n.dshc_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.dshc_input {\n  box-sizing: border-box;\n  width: 100%;\n  min-height: 52px;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  background: none;\n  border: 0;\n  border-radius: 0;\n  flex: 1;\n  min-width: 0;\n  padding: 14px 16px 8px;\n  line-height: 1.5;\n}\n\n.dshc_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .dshc_composer {\n    padding: 0 8px 8px;\n  }\n\n  .dshc_composerToolbar {\n    padding: 4px 8px 8px;\n  }\n\n  .dshc_input {\n    padding: 12px 14px 8px;\n  }\n}\n\n.dshc_input:focus-visible {\n  outline: none;\n}\n\n.dshc_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_offline {\n  opacity: .5;\n}\n\n.dshc_memberAvatar {\n  position: relative;\n}\n\n.dshc_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_offline .dshc_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_rooms, .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.dshc_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.dshc_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_roomInput, .dshc_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.dshc_roomInput {\n  margin: 2px 0 6px;\n}\n\n.dshc_roomInput:focus-visible, .dshc_fieldInput:focus-visible, .dshc_iconButton:focus-visible, .dshc_linkButton:focus-visible, .dshc_addMemberButton:focus-visible, .dshc_primaryButton:focus-visible, .dshc_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_addMemberButton {\n  box-sizing: border-box;\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.dshc_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_settingsDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: 100%;\n  margin: 8px 0 4px;\n}\n\n.dshc_memberListDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: calc(100% - 16px);\n  margin: 12px 8px 2px;\n}\n\n.dshc_settingsButton {\n  text-align: left;\n  border-style: solid;\n  border-color: #0000;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_settingsButton svg {\n  flex: none;\n}\n\n.dshc_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.dshc_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_memberRow .dshc_member:hover {\n  background: none;\n}\n\n.dshc_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_memberRow:hover .dshc_memberActions, .dshc_memberRow:focus-within .dshc_memberActions {\n  opacity: 1;\n}\n\n.dshc_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.dshc_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.dshc_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.dshc_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_avatarCropStage {\n  background: #000000a6;\n  padding: 20px;\n}\n\n.dshc_avatarCropFrame {\n  aspect-ratio: 1;\n  touch-action: none;\n  cursor: grab;\n  outline: 2px solid #fff;\n  width: min(256px, 100%);\n  margin: auto;\n  position: relative;\n  overflow: hidden;\n}\n\n.dshc_avatarCropFrame:active {\n  cursor: grabbing;\n}\n\n.dshc_avatarCropFrame img {\n  pointer-events: none;\n  user-select: none;\n  max-width: none;\n  position: absolute;\n}\n\n.dshc_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.dshc_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_field textarea {\n  resize: vertical;\n}\n\n.dshc_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.dshc_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_primaryButton, .dshc_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.dshc_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.dshc_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.dshc_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.dshc_memberFailed .dshc_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.dshc_memberFailed .dshc_presence {\n  background: #ed4245;\n}\n\n.dshc_mobileButton, .dshc_drawerBackdrop {\n  display: none;\n}\n\n.dshc_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_panelToggleEnd {\n  margin-left: auto;\n}\n\n.dshc_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.dshc_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.dshc_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_roomsHidden > .dshc_rooms, .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .dshc_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .dshc_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .dshc_panelToggle {\n    display: none;\n  }\n\n  .dshc_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .dshc_rooms.dshc_drawerOpen, .dshc_members.dshc_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .dshc_rooms.dshc_drawerOpen {\n    left: 0;\n  }\n\n  .dshc_members.dshc_drawerOpen {\n    right: 0;\n  }\n\n  .dshc_memberActions {\n    opacity: 1;\n  }\n\n  .dshc_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.dshc_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.dshc_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.dshc_taskBoardTrigger {\n  box-sizing: border-box;\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  height: 34px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: center;\n  gap: 8px;\n  margin: 4px 0;\n  padding: 7px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskBoardTrigger:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskBoardTrigger:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_taskBoardSummary {\n  color: var(--dsw-alias-label-secondary);\n  text-align: right;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: 1;\n  overflow: hidden;\n}\n\n.dshc_taskBoardDialog {\n  width: min(920px, 100%);\n  height: min(70vh, 100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_taskBoardBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_taskBoardDialog > :not(.dshc_taskBoardBody) {\n  flex-shrink: 0;\n}\n\n.dshc_boardTabs {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  gap: 4px;\n  padding-bottom: 8px;\n  display: flex;\n  overflow-x: auto;\n}\n\n.dshc_boardTabs button {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  padding: 7px 10px;\n  font-size: 13px;\n}\n\n.dshc_boardTabs button:hover, .dshc_boardTabs button[aria-selected=\"true\"] {\n  color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_boardTabCount {\n  font-variant-numeric: tabular-nums;\n  margin-left: 4px;\n}\n\n.dshc_boardCardGrid {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 12px;\n  margin: 6px 0 16px;\n  padding: 2px;\n  list-style: none;\n  display: grid;\n}\n\n.dshc_boardTaskCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  border-radius: 12px;\n  flex-direction: column;\n  gap: 10px;\n  min-width: 0;\n  padding: 14px;\n  transition: transform .14s, box-shadow .14s;\n  display: flex;\n}\n\n.dshc_boardTaskCard[data-working=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n}\n\n.dshc_boardTaskCard[data-status=\"done\"] {\n  filter: saturate(.25);\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_boardTaskCard:hover {\n  transform: translateY(-2px);\n  box-shadow: 0 4px 12px #00000014;\n}\n\n.dshc_boardTaskHeader {\n  align-items: flex-start;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_boardTaskTitle {\n  overflow-wrap: anywhere;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  flex: 1;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.5;\n  display: -webkit-box;\n  overflow: hidden;\n}\n\n.dshc_boardTaskHeader .dshc_taskStatus {\n  border-radius: 999px;\n  padding: 3px 7px;\n  font-size: 11px;\n}\n\n.dshc_boardTaskCard .dshc_taskLinks {\n  justify-content: flex-end;\n  margin-top: auto;\n}\n\n.dshc_boardTabEmpty {\n  min-height: 240px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  justify-content: center;\n  align-items: center;\n  padding: 40px 16px;\n  display: flex;\n}\n\n@media (width <= 640px) {\n  .dshc_boardCardGrid {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardTaskCard {\n    transition: none;\n  }\n\n  .dshc_boardTaskCard:hover {\n    transform: none;\n  }\n}\n\n.dshc_taskBoardScope {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n}\n\n.dshc_taskSection + .dshc_taskSection {\n  margin-top: 8px;\n}\n\n.dshc_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_taskOwnerGroup + .dshc_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.dshc_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.dshc_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.dshc_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskDone summary {\n  cursor: pointer;\n}\n\n.dshc_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.dshc_taskStatus[data-status=\"asked\"], .dshc_taskStatus[data-status=\"escalated\"], .dshc_taskStatus[data-status=\"declined\"], .dshc_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.dshc_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.dshc_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_taskMemberName {\n  font-weight: 600;\n}\n\n.dshc_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.dshc_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.dshc_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.dshc_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.dshc_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.dshc_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.dshc_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.dshc_attachmentAudio audio {\n  width: 100%;\n}\n\n.dshc_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.dshc_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.dshc_chatHead button, .dshc_chatHead input, .dshc_chatHead select, .dshc_chatHead a, .dshc_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.dshc_text pre, .dshc_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".dshc_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.dshc_rooms, .dshc_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 0 8px 16px;\n  overflow-y: auto;\n}\n\n.dshc_membersHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  flex: none;\n  height: 44px;\n  margin: 0 0 8px;\n}\n\n.dshc_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.dshc_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.dshc_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.dshc_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.dshc_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.dshc_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.dshc_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_system .dshc_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.dshc_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.dshc_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.dshc_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.dshc_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.dshc_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.dshc_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.dshc_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.dshc_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_messageBody {\n  min-width: 0;\n}\n\n.dshc_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_author {\n  font-weight: 600;\n}\n\n.dshc_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.dshc_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.dshc_message:hover .dshc_ownActions, .dshc_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_ownActions {\n    opacity: 1;\n  }\n}\n\n.dshc_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.dshc_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.dshc_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_editBar .dshc_time {\n  margin-right: auto;\n}\n\n.dshc_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.dshc_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.dshc_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.dshc_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.dshc_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.dshc_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.dshc_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_quoteDeleted {\n  font-style: italic;\n}\n\n.dshc_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.dshc_message:hover .dshc_replyButton, .dshc_message:focus-within .dshc_replyButton, .dshc_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_replyButton {\n    opacity: 1;\n  }\n}\n\n.dshc_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.dshc_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.dshc_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.dshc_composerBox {\n  border: 1px solid var(--dsw-alias-border-l1);\n  border-radius: var(--dsw-radius-xl);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  box-shadow: var(--dsw-shadow-lv1-blur);\n  flex-direction: column;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_composerBox:focus-within {\n  border-color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_composerToolbar {\n  flex: none;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 10px 10px;\n  display: flex;\n}\n\n.dshc_composerBox > .dshc_replyBar, .dshc_composerBox > .dshc_attachments {\n  margin: 10px 14px 0;\n}\n\n.dshc_mentionButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  font-size: 18px;\n  display: inline-flex;\n}\n\n.dshc_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_sendButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: auto;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.dshc_sendButton:focus-visible, .dshc_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.dshc_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_mentionName {\n  font-weight: 600;\n}\n\n.dshc_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.dshc_input {\n  box-sizing: border-box;\n  width: 100%;\n  min-height: 52px;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  background: none;\n  border: 0;\n  border-radius: 0;\n  flex: 1;\n  min-width: 0;\n  padding: 14px 16px 8px;\n  line-height: 1.5;\n}\n\n.dshc_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .dshc_composer {\n    padding: 0 8px 8px;\n  }\n\n  .dshc_composerToolbar {\n    padding: 4px 8px 8px;\n  }\n\n  .dshc_input {\n    padding: 12px 14px 8px;\n  }\n}\n\n.dshc_input:focus-visible {\n  outline: none;\n}\n\n.dshc_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_offline {\n  opacity: .5;\n}\n\n.dshc_memberAvatar {\n  position: relative;\n}\n\n.dshc_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_offline .dshc_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_rooms, .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.dshc_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.dshc_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_roomInput, .dshc_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.dshc_roomInput {\n  margin: 2px 0 6px;\n}\n\n.dshc_roomInput:focus-visible, .dshc_fieldInput:focus-visible, .dshc_iconButton:focus-visible, .dshc_linkButton:focus-visible, .dshc_addMemberButton:focus-visible, .dshc_primaryButton:focus-visible, .dshc_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_addMemberButton {\n  box-sizing: border-box;\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.dshc_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_settingsDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: 100%;\n  margin: 8px 0 4px;\n}\n\n.dshc_memberListDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: calc(100% - 16px);\n  margin: 12px 8px 2px;\n}\n\n.dshc_settingsButton {\n  text-align: left;\n  border-style: solid;\n  border-color: #0000;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_settingsButton svg {\n  flex: none;\n}\n\n.dshc_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.dshc_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_memberRow .dshc_member:hover {\n  background: none;\n}\n\n.dshc_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_memberRow:hover .dshc_memberActions, .dshc_memberRow:focus-within .dshc_memberActions {\n  opacity: 1;\n}\n\n.dshc_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.dshc_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.dshc_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.dshc_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog {\n  box-sizing: border-box;\n  height: min(70vh, 100dvh - 32px);\n  max-height: calc(100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_settingsBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  padding: 2px;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog > :not(.dshc_settingsBody) {\n  flex-shrink: 0;\n}\n\n.dshc_settingsFields {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_settingsFeedback {\n  overflow-wrap: anywhere;\n  max-height: 20%;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog .dshc_dialogActions {\n  justify-content: space-between;\n}\n\n@media (width <= 599px) {\n  .dshc_settingsDialog {\n    height: calc(100dvh - 32px);\n    padding: 16px;\n  }\n}\n\n.dshc_avatarCropStage {\n  background: #000000a6;\n  padding: 20px;\n}\n\n.dshc_avatarCropFrame {\n  aspect-ratio: 1;\n  touch-action: none;\n  cursor: grab;\n  outline: 2px solid #fff;\n  width: min(256px, 100%);\n  margin: auto;\n  position: relative;\n  overflow: hidden;\n}\n\n.dshc_avatarCropFrame:active {\n  cursor: grabbing;\n}\n\n.dshc_avatarCropFrame img {\n  pointer-events: none;\n  user-select: none;\n  max-width: none;\n  position: absolute;\n}\n\n.dshc_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.dshc_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_field textarea {\n  resize: vertical;\n}\n\n.dshc_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn .dshc_choice {\n  grid-template-columns: max-content minmax(0, 1fr);\n  align-items: start;\n  display: grid;\n}\n\n.dshc_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.dshc_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_primaryButton, .dshc_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.dshc_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.dshc_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.dshc_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.dshc_memberFailed .dshc_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.dshc_memberFailed .dshc_presence {\n  background: #ed4245;\n}\n\n.dshc_mobileButton, .dshc_drawerBackdrop {\n  display: none;\n}\n\n.dshc_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_panelToggleEnd {\n  margin-left: auto;\n}\n\n.dshc_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.dshc_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.dshc_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_roomsHidden > .dshc_rooms, .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .dshc_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .dshc_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .dshc_panelToggle {\n    display: none;\n  }\n\n  .dshc_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .dshc_rooms.dshc_drawerOpen, .dshc_members.dshc_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .dshc_rooms.dshc_drawerOpen {\n    left: 0;\n  }\n\n  .dshc_members.dshc_drawerOpen {\n    right: 0;\n  }\n\n  .dshc_memberActions {\n    opacity: 1;\n  }\n\n  .dshc_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.dshc_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.dshc_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.dshc_taskBoardTrigger {\n  box-sizing: border-box;\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  height: 34px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: center;\n  gap: 8px;\n  margin: 4px 0;\n  padding: 7px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskBoardTrigger:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskBoardTrigger:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_taskBoardSummary {\n  color: var(--dsw-alias-label-secondary);\n  text-align: right;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: 1;\n  overflow: hidden;\n}\n\n.dshc_taskBoardDialog {\n  width: min(920px, 100%);\n  height: min(70vh, 100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_taskBoardBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_taskBoardDialog > :not(.dshc_taskBoardBody) {\n  flex-shrink: 0;\n}\n\n.dshc_boardTabs {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  gap: 4px;\n  padding-bottom: 8px;\n  display: flex;\n  overflow-x: auto;\n}\n\n.dshc_boardTabs button {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  padding: 7px 10px;\n  font-size: 13px;\n}\n\n.dshc_boardTabs button:hover, .dshc_boardTabs button[aria-selected=\"true\"] {\n  color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_boardTabs button:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_boardTabCount {\n  font-variant-numeric: tabular-nums;\n  margin-left: 4px;\n}\n\n.dshc_boardCardGrid {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 12px;\n  margin: 6px 0 16px;\n  padding: 2px;\n  list-style: none;\n  display: grid;\n}\n\n.dshc_boardTaskCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  border-radius: 12px;\n  flex-direction: column;\n  gap: 10px;\n  min-width: 0;\n  padding: 14px;\n  transition: transform .14s, box-shadow .14s;\n  display: flex;\n}\n\n.dshc_boardTaskCard[data-working=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n}\n\n.dshc_boardTaskCard[data-status=\"done\"] {\n  filter: saturate(.25);\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_boardTaskCard:hover {\n  transform: translateY(-2px);\n  box-shadow: 0 4px 12px #00000014;\n}\n\n.dshc_boardTaskHeader {\n  align-items: flex-start;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_boardTaskTitle {\n  overflow-wrap: anywhere;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  flex: 1;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.5;\n  display: -webkit-box;\n  overflow: hidden;\n}\n\n.dshc_boardTaskHeader .dshc_taskStatus {\n  border-radius: 999px;\n  padding: 3px 7px;\n  font-size: 11px;\n}\n\n.dshc_boardTaskCard .dshc_taskLinks {\n  justify-content: flex-end;\n  margin-top: auto;\n}\n\n.dshc_boardTabEmpty {\n  min-height: 240px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  justify-content: center;\n  align-items: center;\n  padding: 40px 16px;\n  display: flex;\n}\n\n@media (width <= 640px) {\n  .dshc_boardCardGrid {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardTaskCard {\n    transition: none;\n  }\n\n  .dshc_boardTaskCard:hover {\n    transform: none;\n  }\n}\n\n.dshc_taskBoardScope {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n}\n\n.dshc_taskSection + .dshc_taskSection {\n  margin-top: 8px;\n}\n\n.dshc_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_taskOwnerGroup + .dshc_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.dshc_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.dshc_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.dshc_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskDone summary {\n  cursor: pointer;\n}\n\n.dshc_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.dshc_taskStatus[data-status=\"asked\"], .dshc_taskStatus[data-status=\"escalated\"], .dshc_taskStatus[data-status=\"declined\"], .dshc_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.dshc_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.dshc_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_taskMemberName {\n  font-weight: 600;\n}\n\n.dshc_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.dshc_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.dshc_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.dshc_imageAttachment {\n  align-content: start;\n  max-width: 100%;\n  display: grid;\n}\n\n.dshc_imagePreviewTrigger {\n  cursor: zoom-in;\n  background: none;\n  border: 0;\n  border-radius: 4px;\n  grid-area: 1 / 1;\n  padding: 0;\n}\n\n.dshc_imagePreviewTrigger:focus-visible {\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n  outline-offset: 2px;\n}\n\n.dshc_imagePreviewDialog {\n  box-sizing: border-box;\n  width: fit-content;\n  max-width: 90vw;\n  max-height: 90dvh;\n  overflow: auto;\n}\n\n.dshc_imagePreviewHeader {\n  flex-shrink: 0;\n  justify-content: space-between;\n  align-items: center;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_imagePreviewHeader span {\n  overflow-wrap: anywhere;\n  min-width: 0;\n}\n\n.dshc_imagePreviewHeader button {\n  flex-shrink: 0;\n}\n\n.dshc_imagePreviewImage {\n  object-fit: contain;\n  align-self: center;\n  max-width: 100%;\n  min-height: 0;\n  max-height: 65dvh;\n  display: block;\n}\n\n.dshc_imagePreviewActions {\n  flex-wrap: wrap;\n  flex-shrink: 0;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_imagePreviewActions a {\n  text-decoration: none;\n}\n\n.dshc_imagePreviewActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_attachmentActions {\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  opacity: 0;\n  pointer-events: none;\n  flex-wrap: wrap;\n  grid-area: 1 / 1;\n  place-self: start end;\n  gap: 4px;\n  margin: 4px;\n  padding: 4px;\n  display: flex;\n}\n\n.dshc_attachmentActions a {\n  text-decoration: none;\n}\n\n.dshc_attachmentActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_imageAttachment:hover .dshc_attachmentActions, .dshc_imageAttachment:focus-within .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"error\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copying\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copied\"] .dshc_attachmentActions {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n@media (hover: none), (pointer: coarse), (width <= 768px) {\n  .dshc_attachmentActions {\n    opacity: 1;\n    pointer-events: auto;\n  }\n}\n\n.dshc_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.dshc_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.dshc_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.dshc_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.dshc_attachmentAudio audio {\n  width: 100%;\n}\n\n.dshc_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.dshc_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.dshc_chatHead button, .dshc_chatHead input, .dshc_chatHead select, .dshc_chatHead a, .dshc_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.dshc_text pre, .dshc_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 // \0rolldown/runtime.js
 var __defProp = Object.defineProperty;
@@ -252,7 +252,8 @@ function createChannelSource(transport) {
 					...r,
 					lead_id: event.lead_id,
 					effective_lead_id: event.effective_lead_id,
-					workspace_path: event.workspace_path
+					workspace_path: event.workspace_path,
+					max_relay: event.max_relay ?? r.max_relay
 				} : r)
 			};
 			case "lead": return {
@@ -630,6 +631,15 @@ function createChannelSource(transport) {
 					...r,
 					...result
 				} : r) });
+			},
+			async setMaxRelay(roomId, maxRelay) {
+				const result = await request(`collab/api/rooms/${roomId}/settings`, json("PATCH", { max_relay: maxRelay }));
+				const chat = snapshot.rooms.find((r) => r.id === roomId)?.parent_id ?? roomId;
+				if (lifetime !== void 0) onEvent({
+					type: "room-settings",
+					room_id: chat,
+					...result
+				});
 			},
 			async setLead(id, roomId = snapshot.roomId) {
 				if (roomId === void 0) throw new Error("No channel is open");
@@ -16413,6 +16423,7 @@ var ChannelsPage_module_default = {
 	"activeBusy": "dshc_activeBusy",
 	"activeCount": "dshc_activeCount",
 	"addMemberButton": "dshc_addMemberButton",
+	"attachmentActions": "dshc_attachmentActions",
 	"attachmentAudio": "dshc_attachmentAudio",
 	"attachmentFile": "dshc_attachmentFile",
 	"attachmentImage": "dshc_attachmentImage",
@@ -16451,6 +16462,7 @@ var ChannelsPage_module_default = {
 	"chat": "dshc_chat",
 	"chatHead": "dshc_chatHead",
 	"choice": "dshc_choice",
+	"choiceColumn": "dshc_choiceColumn",
 	"choiceRow": "dshc_choiceRow",
 	"composer": "dshc_composer",
 	"composerBox": "dshc_composerBox",
@@ -16474,6 +16486,12 @@ var ChannelsPage_module_default = {
 	"guide": "dshc_guide",
 	"hash": "dshc_hash",
 	"iconButton": "dshc_iconButton",
+	"imageAttachment": "dshc_imageAttachment",
+	"imagePreviewActions": "dshc_imagePreviewActions",
+	"imagePreviewDialog": "dshc_imagePreviewDialog",
+	"imagePreviewHeader": "dshc_imagePreviewHeader",
+	"imagePreviewImage": "dshc_imagePreviewImage",
+	"imagePreviewTrigger": "dshc_imagePreviewTrigger",
 	"input": "dshc_input",
 	"linkButton": "dshc_linkButton",
 	"log": "dshc_log",
@@ -16529,8 +16547,12 @@ var ChannelsPage_module_default = {
 	"secondaryButton": "dshc_secondaryButton",
 	"sendButton": "dshc_sendButton",
 	"sendError": "dshc_sendError",
+	"settingsBody": "dshc_settingsBody",
 	"settingsButton": "dshc_settingsButton",
+	"settingsDialog": "dshc_settingsDialog",
 	"settingsDivider": "dshc_settingsDivider",
+	"settingsFeedback": "dshc_settingsFeedback",
+	"settingsFields": "dshc_settingsFields",
 	"system": "dshc_system",
 	"tag": "dshc_tag",
 	"taskBoardBody": "dshc_taskBoardBody",
@@ -16565,22 +16587,163 @@ var ChannelsPage_module_default = {
 const isImage = (mime) => /^image\/(png|jpeg|gif|webp)$/.test(mime);
 const isAudio = (mime) => mime.startsWith("audio/");
 const size = (bytes) => bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+function ImageAttachment({ attachment: a, t }) {
+	const [opened, setOpened] = (0, react.useState)(false);
+	const trigger = (0, react.useRef)(null);
+	const dialog = (0, react.useRef)(null);
+	const closeButton = (0, react.useRef)(null);
+	(0, react.useEffect)(() => {
+		if (!opened) return;
+		const origin = trigger.current;
+		closeButton.current?.focus();
+		const containFocus = (event) => {
+			if (!dialog.current?.contains(event.target)) closeButton.current?.focus();
+		};
+		document.addEventListener("focusin", containFocus);
+		return () => {
+			document.removeEventListener("focusin", containFocus);
+			origin?.focus();
+		};
+	}, [opened]);
+	const [copyState, setCopyState] = (0, react.useState)("idle");
+	(0, react.useEffect)(() => {
+		if (copyState !== "copied") return;
+		const timer = setTimeout(() => setCopyState("idle"), 2e3);
+		return () => clearTimeout(timer);
+	}, [copyState]);
+	const copy = async () => {
+		if (copyState === "copying") return;
+		setCopyState("copying");
+		try {
+			if (typeof navigator.clipboard?.write !== "function" || typeof ClipboardItem === "undefined") {
+				setCopyState("error");
+				return;
+			}
+			const response = await fetch(attachmentUrl(a.id));
+			if (!response.ok) throw new Error("Image download failed");
+			const blob = await response.blob();
+			await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+			setCopyState("copied");
+		} catch {
+			setCopyState("error");
+		}
+	};
+	const copyLabel = t(copyState === "copied" ? "attachmentCopied" : copyState === "copying" ? "attachmentCopying" : "attachmentCopy");
+	const actions = /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
+		className: copyState === "error" ? ChannelsPage_module_default.primaryButton : ChannelsPage_module_default.secondaryButton,
+		href: attachmentUrl(a.id),
+		download: a.name,
+		target: "_blank",
+		rel: "noreferrer",
+		"aria-label": t("attachmentDownload"),
+		children: t("attachmentDownload")
+	}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+		type: "button",
+		className: ChannelsPage_module_default.secondaryButton,
+		onClick: () => {
+			copy();
+		},
+		disabled: copyState === "copying",
+		"aria-label": copyLabel,
+		"aria-live": "polite",
+		children: copyLabel
+	})] });
+	const error = copyState === "error" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+		className: ChannelsPage_module_default.sendError,
+		role: "alert",
+		children: t("attachmentCopyError")
+	});
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: ChannelsPage_module_default.imageAttachment,
+		"data-copy-state": copyState,
+		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				ref: trigger,
+				type: "button",
+				className: ChannelsPage_module_default.imagePreviewTrigger,
+				title: a.name,
+				"aria-haspopup": "dialog",
+				"aria-expanded": opened,
+				onClick: () => setOpened(true),
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
+					className: ChannelsPage_module_default.attachmentImage,
+					src: attachmentUrl(a.id),
+					alt: a.name,
+					loading: "lazy"
+				})
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ChannelsPage_module_default.attachmentActions,
+				children: actions
+			}),
+			!opened && error,
+			opened && (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ChannelsPage_module_default.dialogBackdrop,
+				onClick: (event) => {
+					if (event.target === event.currentTarget) setOpened(false);
+				},
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+					ref: dialog,
+					className: `${ChannelsPage_module_default.dialog} ${ChannelsPage_module_default.imagePreviewDialog}`,
+					role: "dialog",
+					"aria-modal": "true",
+					"aria-label": a.name,
+					tabIndex: -1,
+					onKeyDown: (event) => {
+						if (event.key === "Escape") {
+							event.preventDefault();
+							event.stopPropagation();
+							setOpened(false);
+						}
+						if (event.key === "Tab") {
+							const controls = Array.from(event.currentTarget.querySelectorAll("button:not(:disabled), a[href]"));
+							const first = controls[0];
+							const last = controls[controls.length - 1];
+							if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) {
+								event.preventDefault();
+								last?.focus();
+							} else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) {
+								event.preventDefault();
+								first?.focus();
+							}
+						}
+					},
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: ChannelsPage_module_default.imagePreviewHeader,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: a.name }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								ref: closeButton,
+								type: "button",
+								className: ChannelsPage_module_default.secondaryButton,
+								"aria-label": t("close"),
+								onClick: () => setOpened(false),
+								children: "×"
+							})]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
+							className: ChannelsPage_module_default.imagePreviewImage,
+							src: attachmentUrl(a.id),
+							alt: a.name
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: ChannelsPage_module_default.imagePreviewActions,
+							children: actions
+						}),
+						error
+					]
+				})
+			}), document.body)
+		]
+	});
+}
 /** Thumbnails for images, a download card for other files. */
-function AttachmentList({ attachments }) {
+function AttachmentList({ attachments, t }) {
 	if (attachments === void 0 || attachments.length === 0) return null;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 		className: ChannelsPage_module_default.attachments,
-		children: attachments.map((a) => isImage(a.mime) ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
-			href: attachmentUrl(a.id),
-			target: "_blank",
-			rel: "noreferrer",
-			title: a.name,
-			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
-				className: ChannelsPage_module_default.attachmentImage,
-				src: attachmentUrl(a.id),
-				alt: a.name,
-				loading: "lazy"
-			})
+		children: attachments.map((a) => isImage(a.mime) ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ImageAttachment, {
+			attachment: a,
+			t
 		}, a.id) : isAudio(a.mime) ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 			className: ChannelsPage_module_default.attachmentAudio,
 			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("audio", {
@@ -18118,6 +18281,384 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 		})]
 	});
 }
+// src/client/ChannelSettingsDialog.tsx
+const RELAY_CAP_MIN = 6;
+const RELAY_CAP_MAX = 20;
+const tabs = [
+	"basic",
+	"dispatch",
+	"workspace"
+];
+const tabLabels = {
+	basic: "settingsBasic",
+	dispatch: "settingsDispatch",
+	workspace: "settingsWorkspace"
+};
+/** Drafts and save outcomes live for the whole dialog, independently of the selected tab. */
+function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDispatchMode, setMaxRelay, setLead, setWorkspacePath, renewRoom, t, onClose }) {
+	const [tab, setTab] = (0, react.useState)("basic");
+	const [name, setName] = (0, react.useState)(room.name);
+	const [mode, setMode] = (0, react.useState)(room.dispatch_mode ?? "mixed");
+	const [relay, setRelay] = (0, react.useState)(String(room.max_relay ?? RELAY_CAP_MIN));
+	const [lead, setLeadDraft] = (0, react.useState)(effectiveLead);
+	const [directory, setDirectory] = (0, react.useState)(room.workspace_path ?? "");
+	const [saved, setSaved] = (0, react.useState)({
+		name: room.name,
+		mode: room.dispatch_mode ?? "mixed",
+		relay: String(room.max_relay ?? RELAY_CAP_MIN),
+		lead: effectiveLead,
+		directory: room.workspace_path ?? ""
+	});
+	const [saving, setSaving] = (0, react.useState)({});
+	const [errors, setErrors] = (0, react.useState)({});
+	const [success, setSuccess] = (0, react.useState)({});
+	const [renewPending, setRenewPending] = (0, react.useState)(false);
+	const [renewing, setRenewing] = (0, react.useState)(false);
+	const dialogRef = (0, react.useRef)(null);
+	(0, react.useEffect)(() => {
+		dialogRef.current?.focus();
+	}, []);
+	const relayValid = /^\d+$/.test(relay) && Number(relay) >= RELAY_CAP_MIN && Number(relay) <= RELAY_CAP_MAX;
+	const dirty = {
+		basic: room.kind !== "workspace" && name !== saved.name,
+		dispatch: mode !== saved.mode || relay !== saved.relay || lead !== saved.lead,
+		workspace: directory !== saved.directory
+	};
+	const close = () => {
+		if (Object.values(saving).some(Boolean) || renewing) return;
+		if (Object.values(dirty).some(Boolean) && !window.confirm(t("settingsDiscardConfirm"))) return;
+		onClose();
+	};
+	const clearFeedback = (target) => {
+		setErrors((previous) => ({
+			...previous,
+			[target]: void 0
+		}));
+		setSuccess((previous) => ({
+			...previous,
+			[target]: false
+		}));
+	};
+	const save = async (target) => {
+		if (saving[target] || !dirty[target]) return;
+		if (target === "basic" && (!name || name.length > 32 || /\s/.test(name))) return;
+		if (target === "dispatch" && !relayValid) return;
+		if (target === "workspace" && (!directory || renewing || renewPending)) return;
+		setSaving((previous) => ({
+			...previous,
+			[target]: true
+		}));
+		clearFeedback(target);
+		try {
+			if (target === "basic") {
+				await renameRoom(room.id, name);
+				setSaved((previous) => ({
+					...previous,
+					name
+				}));
+			} else if (target === "dispatch") {
+				if (mode !== saved.mode) {
+					await setDispatchMode(room.id, mode);
+					setSaved((previous) => ({
+						...previous,
+						mode
+					}));
+				}
+				if (lead !== saved.lead) {
+					await setLead(lead, room.id);
+					setSaved((previous) => ({
+						...previous,
+						lead
+					}));
+				}
+				if (relay !== saved.relay) {
+					await setMaxRelay(room.id, Number(relay));
+					setSaved((previous) => ({
+						...previous,
+						relay
+					}));
+				}
+			} else {
+				await setWorkspacePath(room.id, directory);
+				setSaved((previous) => ({
+					...previous,
+					directory
+				}));
+				setRenewPending(true);
+			}
+			setSuccess((previous) => ({
+				...previous,
+				[target]: true
+			}));
+		} catch (error) {
+			setErrors((previous) => ({
+				...previous,
+				[target]: error instanceof Error ? error.message : String(error)
+			}));
+		} finally {
+			setSaving((previous) => ({
+				...previous,
+				[target]: false
+			}));
+		}
+	};
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+		className: ChannelsPage_module_default.dialogBackdrop,
+		onClick: close,
+		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+			ref: dialogRef,
+			tabIndex: -1,
+			className: `${ChannelsPage_module_default.dialog} ${ChannelsPage_module_default.settingsDialog}`,
+			role: "dialog",
+			"aria-modal": "true",
+			"aria-label": t("channelSettings"),
+			onClick: (event) => {
+				event.stopPropagation();
+			},
+			onKeyDown: (event) => {
+				if (event.key === "Escape") {
+					event.preventDefault();
+					close();
+				}
+				if (event.key !== "Tab") return;
+				const controls = Array.from(event.currentTarget.querySelectorAll("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex=\"0\"]")).filter((control) => control.tabIndex >= 0);
+				const first = controls[0];
+				const last = controls[controls.length - 1];
+				if (!controls.includes(document.activeElement) || (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+					event.preventDefault();
+					(event.shiftKey ? last : first)?.focus();
+				}
+			},
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h2", {
+					className: ChannelsPage_module_default.dialogTitle,
+					children: t("channelSettings")
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: ChannelsPage_module_default.boardTabs,
+					role: "tablist",
+					"aria-label": t("channelSettings"),
+					children: tabs.map((value, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						id: `settings-tab-${value}`,
+						type: "button",
+						role: "tab",
+						"aria-selected": tab === value,
+						"aria-controls": `settings-panel-${value}`,
+						tabIndex: tab === value ? 0 : -1,
+						onClick: () => {
+							setTab(value);
+						},
+						onKeyDown: (event) => {
+							if (![
+								"ArrowLeft",
+								"ArrowRight",
+								"Home",
+								"End"
+							].includes(event.key)) return;
+							event.preventDefault();
+							const next = event.key === "Home" ? tabs[0] : event.key === "End" ? tabs[2] : tabs[(index + (event.key === "ArrowRight" ? 1 : 2)) % tabs.length];
+							setTab(next);
+							document.getElementById(`settings-tab-${next}`)?.focus();
+						},
+						children: t(tabLabels[value])
+					}, value))
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: ChannelsPage_module_default.settingsBody,
+					id: `settings-panel-${tab}`,
+					role: "tabpanel",
+					"aria-labelledby": `settings-tab-${tab}`,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("form", {
+						id: "channel-settings-form",
+						className: ChannelsPage_module_default.settingsFields,
+						onSubmit: (event) => {
+							event.preventDefault();
+							save(tab);
+						},
+						children: [
+							tab === "basic" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+								className: ChannelsPage_module_default.field,
+								children: [
+									t("channelName"),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+										className: ChannelsPage_module_default.fieldInput,
+										"aria-label": t("channelName"),
+										value: name,
+										disabled: saving.basic || room.kind === "workspace",
+										onChange: (event) => {
+											setName(event.target.value);
+											clearFeedback("basic");
+										},
+										onKeyDown: (event) => {
+											if (event.key === "Enter" && (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) event.preventDefault();
+										}
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t(room.kind === "workspace" ? "workspaceNameFixed" : "channelNameHint") })
+								]
+							}) }),
+							tab === "dispatch" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									className: ChannelsPage_module_default.field,
+									role: "radiogroup",
+									"aria-label": t("dispatchMode"),
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("dispatchMode") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: ChannelsPage_module_default.choiceColumn,
+										children: [
+											"solo",
+											"team",
+											"mixed"
+										].map((value) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+											className: ChannelsPage_module_default.choice,
+											children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+												type: "radio",
+												name: "settings-dispatch-mode",
+												disabled: saving.dispatch,
+												checked: mode === value,
+												onChange: () => {
+													setMode(value);
+													clearFeedback("dispatch");
+												}
+											}), t(value === "solo" ? "dispatchSolo" : value === "team" ? "dispatchTeam" : "dispatchMixed")]
+										}, value))
+									})]
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: ChannelsPage_module_default.field,
+									children: [t("channelLead"), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
+										className: ChannelsPage_module_default.fieldInput,
+										"aria-label": t("channelLead"),
+										value: lead,
+										disabled: saving.dispatch,
+										onChange: (event) => {
+											setLeadDraft(event.target.value);
+											clearFeedback("dispatch");
+										},
+										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+											value: "",
+											disabled: true,
+											children: t("leadNone")
+										}), members.filter((member) => member.kind !== "human").map((member) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+											value: member.id,
+											children: member.name
+										}, member.id))]
+									})]
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: ChannelsPage_module_default.field,
+									children: [
+										t("settingsRelay"),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+											className: ChannelsPage_module_default.fieldInput,
+											type: "number",
+											min: RELAY_CAP_MIN,
+											max: RELAY_CAP_MAX,
+											step: 1,
+											"aria-label": t("settingsRelay"),
+											value: relay,
+											disabled: saving.dispatch,
+											onChange: (event) => {
+												setRelay(event.target.value);
+												clearFeedback("dispatch");
+											}
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("settingsRelayHint") })
+									]
+								})
+							] }),
+							tab === "workspace" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+								className: ChannelsPage_module_default.field,
+								children: [
+									t("workingDirectory"),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+										className: ChannelsPage_module_default.fieldInput,
+										"aria-label": t("workingDirectory"),
+										value: directory,
+										disabled: saving.workspace || renewing || renewPending,
+										onChange: (event) => {
+											setDirectory(event.target.value);
+											clearFeedback("workspace");
+										}
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("workingDirectoryHint") })
+								]
+							}) })
+						]
+					}), tab === "workspace" && renewPending && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+						className: ChannelsPage_module_default.settingsFields,
+						role: "alertdialog",
+						"aria-label": t("renewConfirm"),
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: ChannelsPage_module_default.field,
+							children: t("renewConfirm")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: ChannelsPage_module_default.dialogActions,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: ChannelsPage_module_default.secondaryButton,
+								disabled: renewing,
+								onClick: () => {
+									setRenewPending(false);
+								},
+								children: t("renewLater")
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: ChannelsPage_module_default.primaryButton,
+								disabled: renewing,
+								onClick: () => {
+									setRenewing(true);
+									setErrors((previous) => ({
+										...previous,
+										workspace: void 0
+									}));
+									renewRoom(room.id).then(() => {
+										setRenewPending(false);
+									}).catch((error) => {
+										setErrors((previous) => ({
+											...previous,
+											workspace: error instanceof Error ? error.message : String(error)
+										}));
+									}).finally(() => {
+										setRenewing(false);
+									});
+								},
+								children: t("renewNow")
+							})]
+						})]
+					})]
+				}),
+				(errors[tab] !== void 0 || success[tab]) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: ChannelsPage_module_default.settingsFeedback,
+					children: errors[tab] !== void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: ChannelsPage_module_default.sendError,
+						role: "alert",
+						children: errors[tab]
+					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: ChannelsPage_module_default.field,
+						role: "status",
+						children: t("settingsSaved")
+					})
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: ChannelsPage_module_default.dialogActions,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ChannelsPage_module_default.secondaryButton,
+						disabled: Object.values(saving).some(Boolean) || renewing,
+						onClick: close,
+						children: t("close")
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "submit",
+						form: "channel-settings-form",
+						"aria-busy": Boolean(saving[tab]),
+						className: ChannelsPage_module_default.primaryButton,
+						disabled: saving[tab] || !dirty[tab] || tab === "basic" && (!name || name.length > 32 || /\s/.test(name)) || tab === "dispatch" && !relayValid || tab === "workspace" && (!directory || renewing || renewPending),
+						children: t(saving[tab] ? "settingsSaving" : "messageSave")
+					})]
+				})
+			]
+		})
+	});
+}
 // src/client/PermissionCard.tsx
 /**
 * Buttons for a cloud-web bot's permission prompt (#120). The card JSON is
@@ -18398,7 +18939,10 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 							text: markdown,
 							labels
 						})
-					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(AttachmentList, { attachments: message.attachments })] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(AttachmentList, {
+						attachments: message.attachments,
+						t
+					})] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: ChannelsPage_module_default.card,
 						"data-state": card.state,
 						children: [
@@ -18555,7 +19099,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }) {
 	const state = useChannels((snapshot) => snapshot);
 	const [editing, setEditing] = (0, react.useState)(void 0);
 	const [ownNotice, setOwnNotice] = (0, react.useState)(void 0);
@@ -18606,31 +19150,17 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 	const [roomError, setRoomError] = (0, react.useState)(void 0);
 	const [memberError, setMemberError] = (0, react.useState)(void 0);
 	const [retryingId, setRetryingId] = (0, react.useState)(void 0);
-	const [modeSaving, setModeSaving] = (0, react.useState)(false);
-	const [modeError, setModeError] = (0, react.useState)(void 0);
-	const [leadSaving, setLeadSaving] = (0, react.useState)(false);
 	const [settingsOpen, setSettingsOpen] = (0, react.useState)(false);
-	const [directory, setDirectory] = (0, react.useState)("");
-	const [directorySaving, setDirectorySaving] = (0, react.useState)(false);
-	const [directoryError, setDirectoryError] = (0, react.useState)();
-	const [renewPending, setRenewPending] = (0, react.useState)();
-	const [renewing, setRenewing] = (0, react.useState)(false);
-	const settingsRef = (0, react.useRef)(null);
 	const settingsButtonRef = (0, react.useRef)(null);
 	(0, react.useEffect)(() => {
 		if (!settingsOpen) return;
 		const opener = settingsButtonRef.current;
-		settingsRef.current?.focus();
 		return () => {
 			opener?.focus();
 		};
 	}, [settingsOpen]);
-	const [channelName, setChannelName] = (0, react.useState)("");
-	const [nameSaving, setNameSaving] = (0, react.useState)(false);
-	const [nameError, setNameError] = (0, react.useState)(void 0);
 	(0, react.useEffect)(() => {
 		setSettingsOpen(false);
-		setNameError(void 0);
 	}, [state.roomId]);
 	const [capabilitiesDismissed, setCapabilitiesDismissed] = (0, react.useState)(false);
 	(0, react.useEffect)(() => {
@@ -18822,36 +19352,6 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		setMemberError(void 0);
 		removeMember(member.id).catch((error) => {
 			setMemberError(error instanceof Error ? error.message : String(error));
-		});
-	};
-	const changeLead = (id) => {
-		if (!id || id === room?.effective_lead_id || leadSaving || state.roomId === void 0) return;
-		setMemberError(void 0);
-		setLeadSaving(true);
-		setLead(id, state.roomId).catch((error) => {
-			setMemberError(error instanceof Error ? error.message : String(error));
-		}).finally(() => {
-			setLeadSaving(false);
-		});
-	};
-	const changeMode = (mode) => {
-		if (state.roomId === void 0 || modeSaving) return;
-		setModeSaving(true);
-		setModeError(void 0);
-		setDispatchMode(state.roomId, mode).catch((error) => {
-			setModeError(error instanceof Error ? error.message : String(error));
-		}).finally(() => {
-			setModeSaving(false);
-		});
-	};
-	const saveName = () => {
-		if (state.roomId === void 0 || nameSaving) return;
-		setNameSaving(true);
-		setNameError(void 0);
-		renameRoom(state.roomId, channelName).catch((error) => {
-			setNameError(error instanceof Error ? error.message : String(error));
-		}).finally(() => {
-			setNameSaving(false);
 		});
 	};
 	const openPicker = () => {
@@ -19378,11 +19878,6 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 						disabled: room === void 0,
 						onClick: () => {
 							setDrawer(void 0);
-							setChannelName(room?.name ?? "");
-							setNameError(void 0);
-							setDirectory(room?.workspace_path ?? "");
-							setDirectoryError(void 0);
-							setRenewPending(void 0);
 							setSettingsOpen(true);
 						},
 						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
@@ -19446,202 +19941,21 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 					})
 				]
 			}),
-			settingsOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-				className: ChannelsPage_module_default.dialogBackdrop,
-				onClick: () => {
+			settingsOpen && room !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ChannelSettingsDialog, {
+				room,
+				members: visibleMembers,
+				effectiveLead: room.effective_lead_id === void 0 ? state.effectiveLeadId ?? state.leadId ?? "" : room.effective_lead_id ?? "",
+				renameRoom,
+				setDispatchMode,
+				setMaxRelay,
+				setLead,
+				setWorkspacePath,
+				renewRoom,
+				t,
+				onClose: () => {
 					setSettingsOpen(false);
-				},
-				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
-					ref: settingsRef,
-					tabIndex: -1,
-					className: ChannelsPage_module_default.dialog,
-					role: "dialog",
-					"aria-modal": "true",
-					"aria-label": t("channelSettings"),
-					onClick: (event) => {
-						event.stopPropagation();
-					},
-					onKeyDown: (event) => {
-						if (event.key === "Escape") setSettingsOpen(false);
-						if (event.key !== "Tab") return;
-						const controls = Array.from(event.currentTarget.querySelectorAll("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex=\"0\"]"));
-						const first = controls[0];
-						const last = controls[controls.length - 1];
-						if (!controls.includes(document.activeElement) || (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
-							event.preventDefault();
-							(event.shiftKey ? last : first)?.focus();
-						}
-					},
-					children: [
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h2", {
-							className: ChannelsPage_module_default.dialogTitle,
-							children: t("channelSettings")
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("fieldset", {
-							disabled: modeSaving || state.roomId === void 0,
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("legend", { children: t("dispatchMode") }), [
-								"solo",
-								"team",
-								"mixed"
-							].map((mode) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-								style: { display: "block" },
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-									type: "radio",
-									name: "settings-dispatch-mode",
-									checked: (room?.dispatch_mode ?? "mixed") === mode,
-									onChange: () => {
-										changeMode(mode);
-									}
-								}), t(mode === "solo" ? "dispatchSolo" : mode === "team" ? "dispatchTeam" : "dispatchMixed")]
-							}, mode))]
-						}),
-						modeError !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-							role: "alert",
-							children: modeError
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-							className: ChannelsPage_module_default.field,
-							children: [t("channelLead"), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
-								className: ChannelsPage_module_default.fieldInput,
-								"aria-label": t("channelLead"),
-								value: room?.effective_lead_id === void 0 ? state.effectiveLeadId ?? state.leadId ?? "" : room.effective_lead_id ?? "",
-								disabled: leadSaving,
-								onChange: (event) => {
-									changeLead(event.target.value);
-								},
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-									value: "",
-									disabled: true,
-									children: t("leadNone")
-								}), visibleMembers.filter((m) => m.kind !== "human").map((m) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-									value: m.id,
-									children: m.name
-								}, m.id))]
-							})]
-						}),
-						memberError !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-							role: "alert",
-							children: memberError
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("form", {
-							onSubmit: (event) => {
-								event.preventDefault();
-								if (state.roomId === void 0 || directorySaving) return;
-								const id = state.roomId;
-								setDirectorySaving(true);
-								setDirectoryError(void 0);
-								setWorkspacePath(id, directory).then(() => {
-									setRenewPending(id);
-								}).catch((error) => {
-									setDirectoryError(error instanceof Error ? error.message : String(error));
-								}).finally(() => {
-									setDirectorySaving(false);
-								});
-							},
-							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-									className: ChannelsPage_module_default.field,
-									children: [t("workingDirectory"), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-										className: ChannelsPage_module_default.fieldInput,
-										"aria-label": t("workingDirectory"),
-										value: directory,
-										disabled: directorySaving || renewing,
-										onChange: (event) => {
-											setDirectory(event.target.value);
-										}
-									})]
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("workingDirectoryHint") }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									type: "submit",
-									className: ChannelsPage_module_default.primaryButton,
-									disabled: directorySaving || renewing || !directory || directory === room?.workspace_path,
-									children: t("messageSave")
-								})
-							]
-						}),
-						renewPending !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
-							role: "alertdialog",
-							"aria-label": t("renewConfirm"),
-							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("renewConfirm") }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									type: "button",
-									className: ChannelsPage_module_default.primaryButton,
-									disabled: renewing,
-									onClick: () => {
-										setRenewing(true);
-										setDirectoryError(void 0);
-										renewRoom(renewPending).then(() => {
-											setRenewPending(void 0);
-										}).catch((error) => {
-											setDirectoryError(error instanceof Error ? error.message : String(error));
-										}).finally(() => {
-											setRenewing(false);
-										});
-									},
-									children: t("renewNow")
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									type: "button",
-									className: ChannelsPage_module_default.secondaryButton,
-									disabled: renewing,
-									onClick: () => {
-										setRenewPending(void 0);
-									},
-									children: t("renewLater")
-								})
-							]
-						}),
-						directoryError !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-							role: "alert",
-							children: directoryError
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("form", {
-							onSubmit: (event) => {
-								event.preventDefault();
-								saveName();
-							},
-							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-									className: ChannelsPage_module_default.field,
-									children: [t("channelName"), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-										className: ChannelsPage_module_default.fieldInput,
-										"aria-label": t("channelName"),
-										value: channelName,
-										disabled: nameSaving || room?.kind === "workspace",
-										onChange: (event) => {
-											setChannelName(event.target.value);
-										},
-										onKeyDown: (event) => {
-											if (event.key === "Enter" && isImeEnter(event)) event.preventDefault();
-										}
-									})]
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t(room?.kind === "workspace" ? "workspaceNameFixed" : "channelNameHint") }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									type: "submit",
-									className: ChannelsPage_module_default.primaryButton,
-									disabled: nameSaving || room?.kind === "workspace" || !channelName || channelName.length > 32 || /\s/.test(channelName) || channelName === room?.name,
-									children: t("messageSave")
-								}),
-								nameError !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-									role: "alert",
-									children: nameError
-								})
-							]
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-							type: "button",
-							className: ChannelsPage_module_default.secondaryButton,
-							onClick: () => {
-								setSettingsOpen(false);
-							},
-							children: t("close")
-						})
-					]
-				})
-			}),
+				}
+			}, room.id),
 			modelsOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 				className: ChannelsPage_module_default.dialogBackdrop,
 				onClick: () => {
@@ -19688,9 +20002,22 @@ const NS = "discord-channels";
 const zh = {
 	copyCode: "复制代码",
 	copiedCode: "已复制",
+	attachmentDownload: "下载",
+	attachmentCopy: "复制图片",
+	attachmentCopying: "复制中…",
+	attachmentCopied: "已复制",
+	attachmentCopyError: "复制失败，请下载图片后保存或复制。",
 	footnotes: "脚注",
 	panel: "频道",
 	channelSettings: "频道设置",
+	settingsBasic: "基本",
+	settingsDispatch: "派活",
+	settingsWorkspace: "工作区",
+	settingsSaved: "已保存",
+	settingsSaving: "保存中…",
+	settingsDiscardConfirm: "还有未保存的改动。关闭将丢弃这些改动，确定关闭吗？",
+	settingsRelay: "接力上限",
+	settingsRelayHint: "Agent 连续接力达到上限后暂停自动接力，等人来 @。6–20 的整数，默认 6。",
 	workingDirectory: "工作目录",
 	workingDirectoryHint: "请输入已存在的绝对目录。只影响写入范围和相对路径，不影响读取；保存后下次新建会话生效。工作区继承所属频道。",
 	renewConfirm: "已更新工作目录，是否立即为该频道重建会话？重建会清空当前对话上下文。",
@@ -19887,6 +20214,11 @@ const en = {
 	dispatchMixed: "Mixed — choose models and members for each task",
 	copyCode: "Copy code",
 	copiedCode: "Copied",
+	attachmentDownload: "Download",
+	attachmentCopy: "Copy image",
+	attachmentCopying: "Copying…",
+	attachmentCopied: "Copied",
+	attachmentCopyError: "Could not copy. Download the image to save or copy it.",
 	footnotes: "Footnotes",
 	taskTabLabel: "Filter tasks by status",
 	taskTabAll: "All",
@@ -19930,6 +20262,14 @@ const en = {
 	durHours: "{h} h {m} min",
 	panel: "Channels",
 	channelSettings: "Channel settings",
+	settingsBasic: "Basic",
+	settingsDispatch: "Dispatch",
+	settingsWorkspace: "Workspace",
+	settingsSaved: "Saved",
+	settingsSaving: "Saving…",
+	settingsDiscardConfirm: "You have unsaved changes. Closing will discard them. Close anyway?",
+	settingsRelay: "Relay cap",
+	settingsRelayHint: "Agent-to-agent relays stop at this cap until a person @-mentions again. Integer 6–20, default 6.",
 	workingDirectory: "Working directory",
 	workingDirectoryHint: "Enter an existing absolute directory. This affects write scope and relative paths, not reads. It applies to new sessions; workspaces inherit their channel.",
 	renewConfirm: "Working directory updated. Recreate this channel’s sessions now? This clears the current conversation context.",
@@ -20112,6 +20452,7 @@ function apply(ctx) {
 		updateMember: channels.actions.updateMember,
 		removeMember: channels.actions.removeMember,
 		setDispatchMode: channels.actions.setDispatchMode,
+		setMaxRelay: channels.actions.setMaxRelay,
 		setLead: channels.actions.setLead,
 		setWorkspacePath: channels.actions.setWorkspacePath,
 		renewRoom: channels.actions.renewRoom,

@@ -505,6 +505,13 @@ type AsyncRecoverablePlatform interface {
 	SetLifecycleHandler(h PlatformLifecycleHandler)
 }
 
+// SilentChannelAware is an optional interface for platforms that can send a message
+// without push notifications. The engine hands it a predicate; the platform sends
+// silently to every channel the predicate accepts (team workspace channels).
+type SilentChannelAware interface {
+	SetSilentChannel(isSilent func(channelID string) bool)
+}
+
 // MessageHandler is called by platforms when a new message arrives.
 type MessageHandler func(p Platform, msg *Message)
 
@@ -517,6 +524,13 @@ type Agent interface {
 	// ListSessions returns sessions known to the agent backend.
 	ListSessions(ctx context.Context) ([]AgentSessionInfo, error)
 	Stop() error
+}
+
+// ContextCompactionReporter is optional for an Agent (maomao fork): true when its sessions emit
+// MetaContextCompacted whenever the agent compacts its own context. The engine then sends the
+// team-mode rules once per agent context (teamRulesOnce) instead of on every delivery.
+type ContextCompactionReporter interface {
+	ReportsContextCompaction() bool
 }
 
 // AgentSession represents a running interactive agent session with a persistent process.

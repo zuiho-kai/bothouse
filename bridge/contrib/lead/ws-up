@@ -90,7 +90,16 @@ SECRETARY = ("你是用户的秘书，替用户过滤。回复一到三句：第
              "用户意图已经明确的事，不给 A/B 选项让用户回字母，直接按用户意图办，说一句你怎么办的。")
 
 
-def timer_cmd(chat: str, text: str, ask: bool, notes: str, proj: str, task: str = "", file: str = ""):
+def timer_has_reply_board() -> bool:
+    """桥认不认 timer add --reply-board（老版本不认，传了会把参数当正文）。"""
+    try:
+        r = subprocess.run([cc_bin(), "timer", "add", "--help"], capture_output=True, text=True, timeout=10)
+    except Exception:
+        return False
+    return "--reply-board" in (r.stdout + r.stderr)
+
+
+def timer_cmd(chat: str, text: str, ask: bool, notes: str, proj: str, task: str = "", file: str = "", board_id: int = 0):
     fwd = f'{here / "ws-forward"} --notes {notes}'
     bg = f"这件活：{task}（交接 {file or notes}）" if task else f"这件活的交接：{file or notes}"
     words = user_words(file or notes)
@@ -107,8 +116,13 @@ def timer_cmd(chat: str, text: str, ask: bool, notes: str, proj: str, task: str 
                   f"——这是工作区的主角色交上来的进展，原文只给你看。{SECRETARY}"
                   f"和你自己核实过的分开说；用户有回话要转给工作区时用 {fwd} \"<回话>\"")
     # --delay 1s：timer 只收正数延迟，上报不用多等
-    return [cc_bin(), "timer", "add", "-p", proj, "-s", chat, "--delay", "1s", "--timeout-mins", "0",
-            "--inject-if-busy", "--silent", "--desc", "工作区提问" if ask else "工作区上报", "--prompt", prompt]
+    cmd = [cc_bin(), "timer", "add", "-p", proj, "-s", chat, "--delay", "1s", "--timeout-mins", "0",
+           "--inject-if-busy", "--silent", "--desc", "工作区提问" if ask else "工作区上报", "--prompt", prompt]
+    if ask and board_id and timer_has_reply_board():
+        # 主角色转述这个问题的消息记在这件活名下：用户直接回复那条，桥自动把答复转回工作区
+        # （reply_task.go forwardReplyToWorkspace；11-01 #855 用户答了「我打开了」没转过去，工作区又问）
+        cmd[cmd.index("--prompt"):cmd.index("--prompt")] = ["--reply-board", str(board_id)]
+    return cmd
 
 
 def say(session_key: str, text: str, proj: str):
@@ -156,7 +170,8 @@ def main(argv):
         say(key, f"🧪 测试活，未报回聊天频道：{rest[0][:300]}", _team.project())
         print(f"ws-up: 测试活（{rec.get('task')}），没有交给聊天频道 {chat}", file=sys.stderr)
         return
-    r = subprocess.run(timer_cmd(chat, rest[0], ask, path, _team.project(), rec.get("task") or "", rec.get("file") or path),
+    r = subprocess.run(timer_cmd(chat, rest[0], ask, path, _team.project(), rec.get("task") or "", rec.get("file") or path,
+                                 next(iter(rec.get("board") or []), 0)),
                        capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"ws-up: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")

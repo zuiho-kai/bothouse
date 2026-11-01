@@ -40,16 +40,38 @@ type agentHook struct {
 // Timeouts follow the author's own hooks.json / settings.json for these hooks.
 var agentHooks = []agentHook{
 	{"bash-guard", "PreToolUse", "Bash|bash|job_output", 10},
+	// Denies dispatch commands (ws-handoff, ws-forward, board add, timer/cron add), edits and writing shell
+	// commands when the user's latest message only asks a question. It reads the user's words from
+	// payload user_prompt (run.py fills it for Codex, agy, DSH) or transcript_path; none = pass.
+	{"ask-only-guard", "PreToolUse", "Bash|bash|Edit|Write|MultiEdit|NotebookEdit|edit|write|str_replace_editor", 10},
 	{"param-source-guard", "PreToolUse", "Edit|Write|MultiEdit|edit|write|str_replace_editor", 10},
 	{"dispatch-review-guard", "PreToolUse",
 		"Agent|Task|Edit|Write|MultiEdit|NotebookEdit|subagent|subagent_fork|workflow|edit|write|str_replace_editor", 10},
 	{"fix-claim-guard", "Stop", "", 30},
 	{"promise-guard", "Stop", "", 30},
+	// Blocks a reply that puts a choice/decision question to the user without the agent's own answer first.
+	{"choice-ask-guard", "Stop", "", 30},
 	{"wiki-context", "UserPromptSubmit", "", 5},
 	// Only PreToolUse, every tool: once a subagent's context is past the line its tool calls are denied with the
 	// handoff instructions as the reason. No agent_id in the payload (main session, CLIs without subagents) = pass.
 	{"subagent-ctx-hook", "PreToolUse", "", 5},
+	// When a subagent is dispatched, prepend the code maps
+	// (<data_dir>/codemaps/*.md, picked by their keywords: line) the task matches; when it finishes, append the
+	// "## 地图要补的条目（<map>）" entries of its report to that map.
+	{"codemap-inject", "PreToolUse", "Agent|Task|subagent|subagent_fork", 10},
+	{"codemap-fill", "SubagentStop", "", 10},
 }
+
+// Code maps use each backend's dispatch and completion events; Gemini uses AfterTool.
+var codeMapHooks = []string{"codemap-inject", "codemap-fill"}
+
+func codeMapCLI(cli string) bool {
+	return slices.Contains([]string{"claudecode", "codex", "gemini", "grok", "dsh"}, cli)
+}
+
+// AgentCodeMapsDir is the code map directory codemap-inject/codemap-fill read by default (CODEMAP_DIR overrides it
+// in the hook's environment): beside the hooks directory, so the scripts find it from their own path.
+func AgentCodeMapsDir(dataDir string) string { return filepath.Join(dataDir, "codemaps") }
 
 // AgentHookNames lists every hook, in the order they are written.
 func AgentHookNames() []string {
@@ -92,8 +114,25 @@ func InstallAgentHookScripts(dataDir string) (string, error) {
 			return nil
 		}
 		dst := filepath.Join(dir, base)
-		if path.Base(path.Dir(p)) == "rules" {
+		switch path.Base(path.Dir(p)) {
+		case "rules":
 			dst = filepath.Join(dir, "rules", base)
+		case "agents":
+			return nil // written into the role's .claude/agents by installLongTaskAgent
+		case "codemaps":
+			// the user's own maps live there: only a missing file is written, nothing is replaced
+			cm := AgentCodeMapsDir(dataDir)
+			if _, err := os.Stat(filepath.Join(cm, base)); err == nil {
+				return nil
+			}
+			if err := os.MkdirAll(cm, 0o755); err != nil {
+				return err
+			}
+			b, err := fs.ReadFile(AgentHookFS, p)
+			if err != nil {
+				return err
+			}
+			return AtomicWriteFile(filepath.Join(cm, base), b, 0o644)
 		}
 		b, err := fs.ReadFile(AgentHookFS, p)
 		if err != nil {
@@ -401,7 +440,7 @@ func AgentHooksSwitchedOff(workDir string) []string {
 // tool.execute.before plugin in <work_dir>/.opencode/plugins that runs the role's .claude/settings.json hooks,
 // Kimi Code CLI through <work_dir>/.bothouse/kimi-home/config.toml, Cursor through
 // <work_dir>/.cursor/hooks.json, and Codex through <work_dir>/.codex/hooks.json.
-var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity", "pi", "opencode", "kimi", "cursor", "codex", "qoder", "iflow"}
+var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity", "pi", "opencode", "kimi", "cursor", "codex", "qoder", "iflow", "grok"}
 
 // iflowMatchers: the matcher each hook gets in iFlow CLI, whose built-in tool names are Gemini-like
 // (hooks doc, "Common Tool Name Reference": run_shell_command, replace, multi_edit, write_file, read_file,
@@ -409,6 +448,7 @@ var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity", "pi",
 // so the names are listed explicitly rather than relying on the alias table.
 var iflowMatchers = map[string]string{
 	"bash-guard":            "run_shell_command|Bash|bash",
+	"ask-only-guard":        "run_shell_command|Bash|bash",
 	"param-source-guard":    "replace|multi_edit|write_file|Edit|Write|MultiEdit",
 	"dispatch-review-guard": "replace|multi_edit|write_file|Edit|Write|MultiEdit|Agent|Task|subagent",
 }
@@ -420,8 +460,11 @@ var iflowMatchers = map[string]string{
 // are a role/kind, not a tool name.
 var geminiMatchers = map[string]string{
 	"bash-guard":            "run_shell_command",
+	"ask-only-guard":        "run_shell_command",
 	"param-source-guard":    "write_file|replace",
 	"dispatch-review-guard": "invoke_agent|write_file|replace",
+	"codemap-inject":        "invoke_agent",
+	"codemap-fill":          "invoke_agent",
 }
 
 // geminiEvent translates a Claude Code hook event name (what agentHooks registers) into Gemini CLI's name.
@@ -491,6 +534,8 @@ type AgentHookResult struct {
 	ReviewRequired     bool     `json:"review_required,omitempty"`
 	PiExtension        string   `json:"pi_extension_file,omitempty"`
 	OpenCodePluginFile string   `json:"opencode_plugin_file,omitempty"`
+	// AgentFile: Claude Code only, the long-task subagent type written beside bash-guard (installLongTaskAgent)
+	AgentFile string `json:"agent_file,omitempty"`
 }
 
 func (o AgentHookOptions) dshPatch() string {
@@ -500,10 +545,25 @@ func (o AgentHookOptions) dshPatch() string {
 	return DSHPatchPath(o.DataDir, filepath.Base(o.WorkDir))
 }
 
+// codexHooks are the hooks run.py --codex can adapt; codexMatchers their Codex matcher. Codex's shell tool is
+// Bash and its file edits are apply_patch (PreToolUse fires for both, tool_name stays apply_patch).
+var codexHooks = []string{"bash-guard", "ask-only-guard", "dispatch-review-guard", "fix-claim-guard", "promise-guard", "codemap-inject", "codemap-fill"}
+var codexMatchers = map[string]string{"bash-guard": "Bash", "ask-only-guard": "Bash|apply_patch", "dispatch-review-guard": "Agent|apply_patch", "codemap-inject": "Agent"}
+
+// grokHooks are the hooks run.py --grok adapts. Grok (run by bothouse over ACP) reads the role's
+// .claude/settings.json hooks and matches the Claude Code names in a matcher against its own tools.
+var grokHooks = []string{"bash-guard", "ask-only-guard", "dispatch-review-guard", "fix-claim-guard", "promise-guard", "codemap-inject", "codemap-fill"}
+
 func (o AgentHookOptions) names() ([]string, error) {
 	if len(o.Only) == 0 {
 		if o.CLI == "codex" {
-			return []string{"bash-guard", "fix-claim-guard"}, nil
+			return slices.Clone(codexHooks), nil
+		}
+		if o.CLI == "grok" {
+			return slices.Clone(grokHooks), nil
+		}
+		if !codeMapCLI(o.CLI) {
+			return slices.DeleteFunc(AgentHookNames(), func(n string) bool { return slices.Contains(codeMapHooks, n) }), nil
 		}
 		return AgentHookNames(), nil
 	}
@@ -513,8 +573,14 @@ func (o AgentHookOptions) names() ([]string, error) {
 		if n == "" {
 			continue
 		}
-		if o.CLI == "codex" && n != "bash-guard" && n != "fix-claim-guard" {
+		if o.CLI == "codex" && !slices.Contains(codexHooks, n) {
 			return nil, fmt.Errorf("Codex hook %q is not adapted yet", n)
+		}
+		if o.CLI == "grok" && !slices.Contains(grokHooks, n) {
+			return nil, fmt.Errorf("Grok hook %q is not adapted yet", n)
+		}
+		if !codeMapCLI(o.CLI) && slices.Contains(codeMapHooks, n) {
+			return nil, fmt.Errorf("hook %q is not adapted for %s", n, o.CLI)
 		}
 		if _, ok := agentHookByName(n); !ok {
 			return nil, fmt.Errorf("unknown hook %q (hooks: %s)", n, strings.Join(AgentHookNames(), ", "))
@@ -528,7 +594,7 @@ func (o AgentHookOptions) personaPath() (string, error) {
 	switch o.CLI {
 	case "claudecode":
 		return PersonaFilePath("claudecode", o.WorkDir), nil
-	case "dsh", "codex":
+	case "dsh", "codex", "grok":
 		return filepath.Join(o.WorkDir, "AGENTS.md"), nil // DSH reads AGENTS.md (dsh-agent-instructions)
 	case "gemini":
 		return PersonaFilePath("gemini", o.WorkDir), nil // Gemini CLI reads GEMINI.md
@@ -591,14 +657,17 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 	var events []string
 	for _, n := range names {
 		opts := []string{"--role", o.WorkDir}
-		if o.CLI == "codex" {
-			opts = append(opts, "--codex")
+		if o.CLI == "codex" || o.CLI == "grok" {
+			opts = append(opts, "--"+o.CLI)
 		}
 		h, _ := agentHookByName(n)
 		timeout := h.Timeout
 		ev := h.Event
 		if o.CLI == "gemini" {
 			ev = geminiEvent(h.Event)
+			if n == "codemap-fill" {
+				ev = "AfterTool"
+			}
 			timeout *= 1000 // Gemini's "timeout" is milliseconds (default 60000), Claude Code's is seconds
 		}
 		hk := map[string]any{"type": "command",
@@ -619,13 +688,32 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 			}
 		}
 		if o.CLI == "codex" && matcher != "" {
-			matcher = "Bash" // Codex's shell tool is Bash; only the shell hooks are installed for it
+			matcher = codexMatchers[n]
+		}
+		if o.CLI == "codex" && n == "codemap-inject" {
+			ev = "SubagentStart"
+			matcher = "" // all subagent types; spawn messages may be encrypted
 		}
 		if matcher != "" {
 			g["matcher"] = matcher
 		}
 		add = append(add, g)
 		events = append(events, ev)
+		if n == "codemap-fill" {
+			// The workspace lead works in its main session and reports there, so its "## 地图要补的条目" section
+			// arrives at the end of a main-session turn, not at SubagentStop: run it at the turn's end too
+			// (Gemini AfterAgent; run.py turns every CLI's turn end into Stop with the reply or a transcript).
+			stop := "Stop"
+			if o.CLI == "gemini" {
+				stop = geminiEvent("Stop")
+			}
+			hs := map[string]any{}
+			for k, v := range hk {
+				hs[k] = v
+			}
+			add = append(add, map[string]any{"hooks": []any{hs}})
+			events = append(events, stop)
+		}
 	}
 	editHooks(m, func(n string) bool { return slices.Contains(names, n) }, add, events)
 	if err := writeSettings(sp, m); err != nil {
@@ -642,6 +730,11 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 	}
 	if err := writeHookRules(persona, o.Lang, o.personaEnabled(persona, res.Enabled), python, dir, o.WorkDir); err != nil {
 		return nil, err
+	}
+	if o.CLI == "claudecode" {
+		if res.AgentFile, err = syncLongTaskAgent(o.WorkDir, persona, o.Lang, slices.Contains(res.Enabled, "bash-guard")); err != nil {
+			return nil, err
+		}
 	}
 	if o.CLI == "dsh" {
 		if err := setDSHRole(dir, o.WorkDir, DSHHome(o.DSHHome), res.Enabled); err != nil {
@@ -707,6 +800,11 @@ func DisableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 	dir := AgentHooksDir(o.DataDir)
 	if err := writeHookRules(persona, o.Lang, o.personaEnabled(persona, res.Enabled), python, dir, o.WorkDir); err != nil {
 		return nil, err
+	}
+	if o.CLI == "claudecode" {
+		if res.AgentFile, err = syncLongTaskAgent(o.WorkDir, persona, o.Lang, slices.Contains(res.Enabled, "bash-guard")); err != nil {
+			return nil, err
+		}
 	}
 	if o.CLI == "dsh" {
 		home := DSHHome(o.DSHHome)
@@ -812,7 +910,7 @@ func HookRules(lang string, enabled []string, python, hooksDir, workDir string) 
 		reviews = "~/.claude/reviews"
 	}
 	r := strings.NewReplacer("{{HOOKS}}", hooksDir, "{{PYTHON}}", python, "{{REVIEWS}}", reviews,
-		"{{ROLE}}", hookQuote(workDir))
+		"{{ROLE}}", hookQuote(workDir), "{{CODEMAPS}}", AgentCodeMapsDir(filepath.Dir(hooksDir)))
 	return r.Replace(strings.Join(parts, "\n"))
 }
 
@@ -886,17 +984,23 @@ func (o AgentHookOptions) personaEnabled(persona string, enabled []string) []str
 	return out
 }
 
+// hookLang: lang if set, else the persona's reply language, else the system's.
+func hookLang(lang, persona string) string {
+	if lang != "" {
+		return lang
+	}
+	if lang, _ = PersonaReplyLanguage(persona); lang != "" {
+		return lang
+	}
+	return SystemLanguage()
+}
+
 func writeHookRules(persona, lang string, enabled []string, python, dir, workDir string) error {
 	b, err := os.ReadFile(persona)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if lang == "" {
-		lang, _ = PersonaReplyLanguage(string(b))
-	}
-	if lang == "" {
-		lang = SystemLanguage()
-	}
+	lang = hookLang(lang, string(b))
 	out := WithHookRules(string(b), HookRules(lang, enabled, python, dir, workDir))
 	if out == string(b) {
 		return nil
@@ -905,6 +1009,62 @@ func writeHookRules(persona, lang string, enabled []string, python, dir, workDir
 		return err
 	}
 	return AtomicWriteFile(persona, []byte(out), 0o644)
+}
+
+// ── long-task subagent type ────────────────────────────────────
+
+// longTaskAgentMark is in every long-task.md bothouse writes; a file without it is the user's own and is left alone.
+const longTaskAgentMark = "<!-- conest:agent long-task"
+
+// LongTaskAgentPath is the Claude Code project subagent file of the role.
+func LongTaskAgentPath(workDir string) string {
+	return filepath.Join(workDir, ".claude", "agents", "long-task.md")
+}
+
+// syncLongTaskAgent writes (on = true) or removes (on = false) the role's long-task subagent type
+// (contrib/hooks/agents/long-task.<zh|en>.md): a subagent with a 1-hour prompt cache for work that waits 5–60
+// minutes. It goes with bash-guard, which caps other subagents' foreground commands at 290 seconds and leaves
+// long-task's alone. A long-task.md without longTaskAgentMark is never written over or removed. Returns the file
+// path when it is ours and in place ("" otherwise).
+func syncLongTaskAgent(workDir, persona, lang string, on bool) (string, error) {
+	p := LongTaskAgentPath(workDir)
+	old, err := os.ReadFile(p)
+	if err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	ours := err == nil && strings.Contains(string(old), longTaskAgentMark)
+	if err == nil && !ours {
+		return "", nil // the user's own long-task.md
+	}
+	if !on {
+		if ours {
+			if err := os.Remove(p); err != nil {
+				return "", err
+			}
+		}
+		return "", nil
+	}
+	if AgentHookFS == nil {
+		return "", nil
+	}
+	pb, _ := os.ReadFile(persona)
+	l := "en"
+	if isZH(hookLang(lang, string(pb))) {
+		l = "zh"
+	}
+	b, err := fs.ReadFile(AgentHookFS, "contrib/hooks/agents/long-task."+l+".md")
+	if err != nil {
+		return "", err
+	}
+	if string(b) != string(old) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return "", err
+		}
+		if err := AtomicWriteFile(p, b, 0o644); err != nil {
+			return "", err
+		}
+	}
+	return p, nil
 }
 
 // ── DSH bridge ─────────────────────────────────────────────────
@@ -1092,6 +1252,7 @@ const agyHookKey = "bothouse"
 // tested with agy 1.4.5). Edit/subagent hooks are left out: their agy argument names are not verified.
 var agyMatchers = map[string]string{
 	"bash-guard":      "run_command",
+	"ask-only-guard":  "run_command|write_to_file|replace_file_content|multi_replace_file_content|delete_file",
 	"fix-claim-guard": "",
 	"promise-guard":   "",
 }
@@ -1176,7 +1337,7 @@ func agyNames(o AgentHookOptions, names []string) ([]string, error) {
 		if _, ok := agyMatchers[n]; ok {
 			out = append(out, n)
 		} else if len(o.Only) > 0 {
-			return nil, fmt.Errorf("hook %q does not run under antigravity (antigravity hooks: bash-guard, fix-claim-guard, promise-guard)", n)
+			return nil, fmt.Errorf("hook %q does not run under antigravity (antigravity hooks: bash-guard, ask-only-guard, fix-claim-guard, promise-guard)", n)
 		}
 	}
 	return out, nil

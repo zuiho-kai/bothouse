@@ -881,6 +881,9 @@ func (cs *codexSession) GetWorkDir() string {
 }
 
 func (cs *codexSession) GetModel() string {
+	if model := cs.rolloutModel(); model != "" {
+		return model
+	}
 	if model := strings.TrimSpace(cs.model); model != "" {
 		return model
 	}

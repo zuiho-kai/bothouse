@@ -62,10 +62,11 @@ type Session struct {
 	leadHandoffTaken     string
 	leadHandoffTakenAt   time.Time
 	leadHandoffTakenSnap *LeadHandoffSnapshot
-	freshCtx             bool // maomao fork: agent started without resume; see freshContextImages
-	freshTaken           bool // freshCtx taken by a turn not yet sent
-	memCtx               bool // maomao fork: give the next turn the bot's MEMORY.md (memoryBlock)
-	memTaken             bool // memCtx taken by a turn not yet sent
+	freshCtx             bool   // maomao fork: agent started without resume; see freshContextImages
+	freshTaken           bool   // freshCtx taken by a turn not yet sent
+	memCtx               bool   // maomao fork: give the next turn the bot's MEMORY.md (memoryBlock)
+	memTaken             bool   // memCtx taken by a turn not yet sent
+	rulesTaken           string // TurnCtxSent.Rules set by a turn not yet sent (takeTeamRules)
 	// maomao fork: posts up to freshDoneUpTo already went to an earlier fresh context
 	// (freshContextImages); freshDonePending replaces it once the turn is sent.
 	freshDoneUpTo, freshDonePending string
@@ -88,6 +89,13 @@ type TurnCtxSent struct {
 	// with the rest of TurnCtx when the agent context is replaced.
 	LeadHandoff   string    `json:"lead_handoff,omitempty"`
 	LeadHandoffAt time.Time `json:"lead_handoff_at,omitempty"`
+	// Rules is a hash of the team-mode rules this context got (teamRulesOnce).
+	Rules string `json:"rules,omitempty"`
+	// ContextTokens is the agent's last reported prompt size, for agents that do not report
+	// compaction (checkRulesContext).
+	ContextTokens int `json:"context_tokens,omitempty"`
+	// ReplyTasks: the work (reply_task.go key) whose background a reply already brought.
+	ReplyTasks []string `json:"reply_tasks,omitempty"`
 }
 
 func (s *Session) TryLock() bool {
@@ -202,6 +210,35 @@ func (s *Session) UpdateTurnCtx(fn func(*TurnCtxSent)) {
 		s.TurnCtx = &TurnCtxSent{}
 	}
 	fn(s.TurnCtx)
+}
+
+// takeTeamRules reports whether the team-mode rules (by hash key) must go with this turn, and marks
+// them sent to the current context; SettleHandoff undoes the mark when the turn was not sent.
+func (s *Session) takeTeamRules(key string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.TurnCtx == nil {
+		s.TurnCtx = &TurnCtxSent{}
+	}
+	if s.TurnCtx.Rules == key {
+		return false
+	}
+	s.TurnCtx.Rules, s.rulesTaken = key, key
+	return true
+}
+
+// noteContextTokens records the agent's prompt size; a drop below half the last one is a
+// compaction, so the context forgets what was sent (checkRulesContext).
+func (s *Session) noteContextTokens(tokens int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.TurnCtx == nil {
+		s.TurnCtx = &TurnCtxSent{}
+	}
+	if tokens*rulesCompactedRatio < s.TurnCtx.ContextTokens {
+		s.TurnCtx = &TurnCtxSent{}
+	}
+	s.TurnCtx.ContextTokens = tokens
 }
 
 // ResetTurnCtx forgets what was sent: the agent's context was compacted or replaced.

@@ -679,21 +679,27 @@ const (
 )
 
 const (
-	MsgBoardTasksRunning MsgKey = "board_tasks_running"
-	MsgBoardTasksWaiting MsgKey = "board_tasks_waiting"
-	MsgBoardTasksMore    MsgKey = "board_tasks_more"
-	MsgPublicInterrupted MsgKey = "MsgPublicInterrupted"
-	MsgPublicEnded       MsgKey = "MsgPublicEnded"
-	MsgWatchResume       MsgKey = "watch_resume"
-	MsgWatchIdleEscalate MsgKey = "watch_idle_escalate"
-	MsgTaskKeyFact       MsgKey = "MsgTaskKeyFact"
-	MsgTaskResultReady   MsgKey = "MsgTaskResultReady"
-	MsgTaskRelayAssigned MsgKey = "MsgTaskRelayAssigned"
-	MsgTaskRelayProgress MsgKey = "MsgTaskRelayProgress"
-	MsgTaskRelayResult   MsgKey = "MsgTaskRelayResult"
-	MsgTaskRelayFailed   MsgKey = "MsgTaskRelayFailed"
-	MsgTaskReporterMuted MsgKey = "MsgTaskReporterMuted"
-	MsgTaskListRevision  MsgKey = "task_list_revision"
+	MsgBoardTasksRunning     MsgKey = "board_tasks_running"
+	MsgBoardTasksWaiting     MsgKey = "board_tasks_waiting"
+	MsgBoardTasksMore        MsgKey = "board_tasks_more"
+	MsgPublicInterrupted     MsgKey = "MsgPublicInterrupted"
+	MsgPublicEnded           MsgKey = "MsgPublicEnded"
+	MsgWatchResume           MsgKey = "watch_resume"
+	MsgWatchIdleEscalate     MsgKey = "watch_idle_escalate"
+	MsgWatchFailEscalate     MsgKey = "watch_fail_escalate"
+	MsgTaskReviewReturned    MsgKey = "task_review_returned"
+	MsgTaskReviewOverdue     MsgKey = "task_review_overdue"
+	MsgTaskReviewPrompt      MsgKey = "task_review_prompt"
+	MsgTaskReviewUnavailable MsgKey = "task_review_unavailable"
+	MsgTaskReviewRoundup     MsgKey = "task_review_roundup"
+	MsgTaskKeyFact           MsgKey = "MsgTaskKeyFact"
+	MsgTaskResultReady       MsgKey = "MsgTaskResultReady"
+	MsgTaskRelayAssigned     MsgKey = "MsgTaskRelayAssigned"
+	MsgTaskRelayProgress     MsgKey = "MsgTaskRelayProgress"
+	MsgTaskRelayResult       MsgKey = "MsgTaskRelayResult"
+	MsgTaskRelayFailed       MsgKey = "MsgTaskRelayFailed"
+	MsgTaskReporterMuted     MsgKey = "MsgTaskReporterMuted"
+	MsgTaskListRevision      MsgKey = "task_list_revision"
 )
 
 const (
@@ -982,11 +988,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "Turno interrumpido; revise los resultados antes de reintentar.",
 	},
 	MsgWatchResume: {
-		LangEnglish:            "Continue %s; no reply needed",
-		LangChinese:            "接着做 %s，不用回话",
-		LangTraditionalChinese: "接著做 %s，不用回話",
-		LangJapanese:           "%s を続けてください。返事は不要です",
-		LangSpanish:            "Continúa %s; no hace falta responder",
+		LangEnglish:            "Continue %s and finish it; when done, start the reply with [report]",
+		LangChinese:            "接着做 %s，做完再结束本轮，交回时第一行写 [report]",
+		LangTraditionalChinese: "接著做 %s，做完再結束本輪，交回時第一行寫 [report]",
+		LangJapanese:           "%s を続けて完了させてください。完了したら返信の1行目を [report] にしてください",
+		LangSpanish:            "Continúa %s hasta terminarlo; al terminar, empieza la respuesta con [report]",
 	},
 	MsgWatchIdleEscalate: {
 		LangEnglish:            "Watch: %s has not resumed %s after two wakeups. Primary role, please take over.",
@@ -994,6 +1000,49 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "看門：%s「%s」連續叫醒兩次仍未繼續，請主角色接手。",
 		LangJapanese:           "見守り：%s は %s を2回呼びかけても再開していません。主担当に引き継いでください。",
 		LangSpanish:            "Aviso: %s no ha retomado %s tras dos avisos. El rol principal debe hacerse cargo.",
+	},
+	MsgTaskReviewUnavailable: {
+		LangEnglish:            "#%d: dispatcher %s is unavailable; primary role, verify or reassign",
+		LangChinese:            "#%d：派活人 %s 不在线，请主角色核对或接手",
+		LangTraditionalChinese: "#%d：派活人 %s 不在線，請主角色核對或接手",
+		LangJapanese:           "#%d：依頼担当 %s が不在です。主担当が検収または再割当してください",
+		LangSpanish:            "#%d: el coordinador %s no está disponible; el rol principal debe verificar o reasignar",
+	},
+	MsgTaskReviewRoundup: {
+		LangEnglish:            "Hourly pending verification list",
+		LangChinese:            "整点待验收清单",
+		LangTraditionalChinese: "整點待驗收清單",
+		LangJapanese:           "毎時の検収待ち一覧",
+		LangSpanish:            "Lista horaria de verificaciones pendientes",
+	},
+	MsgTaskReviewReturned: {
+		LangEnglish:            "#%d returned; please verify",
+		LangChinese:            "#%d 交回了，请验收",
+		LangTraditionalChinese: "#%d 交回了，請驗收",
+		LangJapanese:           "#%d が返却されました。検収してください",
+		LangSpanish:            "#%d entregada; verifica el resultado",
+	},
+	MsgTaskReviewOverdue: {
+		LangEnglish:            "#%d is overdue for verification",
+		LangChinese:            "#%d 没人验收，请处理",
+		LangTraditionalChinese: "#%d 尚未驗收，請處理",
+		LangJapanese:           "#%d の検収が遅れています",
+		LangSpanish:            "#%d sigue pendiente de verificación",
+	},
+	MsgTaskReviewPrompt: {
+		LangEnglish:            "%s: %s. Handoff: %s. Verify artifacts first. Accept with board done %[4]d <rework-count>, or record feedback with board reject %[4]d <feedback> and continue through ws-handoff --resume %[4]d <feedback>. Check workspace occupancy; use a free workspace or queue. The dispatcher owns verification, not the user. A returned report is not acceptance.",
+		LangChinese:            "%s：%s。交接：%s。先核对实际产物，再收口（board done %[4]d <返工次数>），或记录问题（board reject %[4]d <问题>）后用 ws-handoff --resume %[4]d <问题> 续办。先核对原工作区占用，占用时排队或选空闲区。不得把待核对交给用户，不得把交回当验收。",
+		LangTraditionalChinese: "%s：%s。交接：%s。先核對產物，再用 board done %[4]d <返工次數> 收口，或 board reject %[4]d <問題> 記錄問題並 ws-handoff --resume %[4]d <問題> 續辦。先核對工作區占用，忙碌時排隊或選空閒區。驗收歸派活人，不交給使用者；交回不等於驗收。",
+		LangJapanese:           "%s：%s。引継ぎ：%s。成果物を検証し、board done %[4]d <修正回数> で承認するか、board reject %[4]d <問題> に記録し ws-handoff --resume %[4]d <問題> で再開してください。空き作業区がなければ待機してください。依頼担当が検収してください。返却は承認ではありません。",
+		LangSpanish:            "%s: %s. Traspaso: %s. Verifica los artefactos y acepta con board done %[4]d <revisiones>, o registra problemas con board reject %[4]d <problemas> y continúa con ws-handoff --resume %[4]d <problemas>. Comprueba la ocupación; usa un espacio libre o la cola. La verificación corresponde al coordinador, no al usuario. Entrega no significa aceptación.",
+	},
+
+	MsgWatchFailEscalate: {
+		LangEnglish:            "Watch: %s failed %s twice in a row with errors; automatic resume stopped. Primary role, reassign or take over.",
+		LangChinese:            "看门：%s「%s」连续两次报错，已停止自动接着做，请主角色换人或接手。",
+		LangTraditionalChinese: "看門：%s「%s」連續兩次報錯，已停止自動接著做，請主角色換人或接手。",
+		LangJapanese:           "見守り：%s の %s が2回連続でエラーになったため、自動再開を止めました。主担当は担当替えか引き継ぎをしてください。",
+		LangSpanish:            "Aviso: %s falló dos veces seguidas en %s; se detuvo la reanudación automática. El rol principal debe reasignar o hacerse cargo.",
 	},
 	MsgPublicEnded: {
 		LangEnglish:            "Turn ended; see the final reply. Acceptance is not confirmed.",

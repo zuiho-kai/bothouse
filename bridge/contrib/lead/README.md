@@ -14,14 +14,18 @@
 - `PLAYBOOK.zh-CN.md`（原文）/ `PLAYBOOK.md`（英文译本）：主角色怎么带团队并行干活。
   gate 的 `/context` 只给当前主角色附这份手册（`../gate/lead.py` 的 `playbook()`），当次的不附；换主后新主的下一轮收到一次。
   `GATE_PLAYBOOK=<文件>` 换成英文版或自己的版本，`off` = 不附。默认先读 `<数据目录>/collaboration/lead/PLAYBOOK.zh-CN.md`（向导装的 lead 工具），没有再读 gate 旁的 `../lead/`。
+- `DEPT_MANAGER.zh-CN.md`：工作区做法（工作区里的主角色当部门经理：自定做法、开工核前提、两轮不降换方法、给自己配秘书）。
+  gate 的 `/context` 只在工作区会话里、任务板上有绑到这个工作区且没暂停的活时附给当前主角色（`lead.py` 的 `dept_manager()`），每接一件新活收到一次；聊天频道和当次的角色不附。
+  跟主角色手册同目录；`GATE_DEPT_MANAGER=<文件>` 换成自己的，`off` = 不附。
 - 手册里用到的脚本（都从 gate 已有的配置读，见 `_team.py`，不写死名字和 ID）：
   - `t10 <pid>`：后台活满 10 分钟连子进程一起停。
   - `d10 <队友名字/别名/ID> "<简称>"`：登记派活并挂十分钟检查。队友一轮结束却没有 `[report]`、`【交回】` 或任务卡 result 时，桥在 15 秒后于原频道叫醒；连续叫两次仍没继续，报给聊天频道的主角色。合法 `[ask]` 等用户时不叫醒。
     到点先查桥：已交回就结束；已停工只叫醒；仍在干且有新进展就续十分钟，否则请她交回做到哪。桥内工作区看门或 G6 relay 已覆盖的，不重复挂十分钟定时器。
     `_watch.py` 走本地 api.sock，不读平台 token；老桥没有 `/team/watch` 时提示降级并保留原到点检查。`d10-fire ... --dry-run` 不发消息。
   - `ws-handoff <交接文件> "<任务>"` / `ws-forward "<摘要>"`：把大活交给「工作区」频道里的主角色、之后转结果。
-    交接文件要有「用户原话」「进度」「规矩」小节和「参照实现」（`文件:行`，非代码活写「无（新建）」），缺了报
-    「缺参照实现：写 文件:行，非代码活写「无（新建）」」；有「共改文件」/「多人改」标题时还要一行「底分支：<分支名>」。
+    交接文件要过 `handoff-rules.json`（唯一一份交接规则，DSH collab 建工作区与派活也读它），要有「用户原话」「总目标」「范围」「已查过什么」「进度」「相关改动」「规矩」小节和「参照实现」（`文件:行`，非代码活写「无（新建）」），缺了报
+    「缺参照实现：写 文件:行，非代码活写「无（新建）」」；「范围」节要有「改：…」「不改：…」各至少一行（没有不改的写「不改：无」）；「已查过什么」节写已查过的 `文件:行` 或文档路径（下一棒不重查，没查过写「无（没查过）」）；「相关改动」节要有一行「冲突：无」或「冲突：…（已问用户：<答复>）」，写了冲突没问过用户就拒，提示先在聊天频道问用户；
+    有「共改文件」/「多人改」标题时还要一行「底分支：<分支名>」。
     工作区：配了 `WS_CHANNEL` 或团队文件顶层 `"workspace"` 就固定用它（不读平台 token、不自己建频道）；
     没配就走桥的共享池（`<桥> workspace list/claim/new`，Discord、飞书、DSH、网页版同一套）：空着或本频道名下
     进行中不到 3 件的先用（件数少、编号小的先），都忙才 `new`。交活时在任务板上记一条并绑这个工作区（`ws`），
@@ -40,6 +44,8 @@
   after 必须给目录，只删本会话登记过的。快照看数据目录（`BOTHOUSE_DATA_DIR`、`~/.bothouse`、`~/.cc-connect`）和其中的
   `run/api.sock`、`CONEST_COLLAB_DATA`/`~/.conest-collab`、管理端口（`ISO_CHECK_PORTS`，缺省 9820）、桥程序文件
   （`CC_BIN`、PATH 上的 bothouse/cc-connect）。记录目录 `ISO_CHECK_STATE`（缺省 `/tmp/iso-check.d`）。
+- `iso-check before` 还按工作区号分端口段（42000+N×100 起 100 个，写进 `$ISO_DIR/ports.env`，含 jiuwen 前端/WEB/网关/AgentServer），起测试实例前 source 它；`ISO_PORT_SLOT` 可指定段号（测试用）。
+- `merge-gate record|check|guard`：PR 进发布分支前要有真实登录态、用户入口的截图或日志登记（跟着提交走）；`~/.claude/hooks/bash-guard.py` 规则 9 调它拦合并、转非草稿、批准评论、建非草稿发布分支 PR。
 - `rehearse-copy <真实配置> [<目录>] [--keep-secrets]`：把真实配置 `cp -a` 进隔离目录（缺省调 `iso-check before` 新建 `/tmp/iso.*`，登记失败就中止），
   默认脱敏（键名含 token/secret/password/api_key/key_id/encrypt_key/aes_key/wps_sid/webhook_url 的值，含带引号键和 TOML 多行串；URL 的 token= 和 `user:pass@`；所有文本文件都扫，含 `.bak-*`），打印 `HOME=`、`CONFIG=`。
 - `rehearse-copy --restore <config.toml> [<备份>] [--dry-run]`：把设置向导/`setup apply` 写配置前留的 `config.toml.bak-<时间>`

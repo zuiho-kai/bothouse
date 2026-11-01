@@ -203,8 +203,9 @@ func TestWorkspaceParkOnPlatformRetries(t *testing.T) {
 	}
 }
 
-// Discord/Feishu do not count tasks (ActiveKnown false): a free workspace with 3 tasks in work
-// on the bridge's record is busy and skipped; parked ones do not count.
+// Discord/Feishu do not count tasks (ActiveKnown false): a free workspace with a task in work on
+// the bridge's record is busy and skipped (one task per workspace, a7212692 #615); parked ones
+// do not count.
 func TestWorkspacePlanSkipsBusyByOwnCount(t *testing.T) {
 	path := teamWorkspacePath(t.TempDir())
 	self := TeamChannel{ID: "100", Name: "聊天", ParentID: "cat"}
@@ -227,7 +228,7 @@ func TestWorkspacePlanSkipsBusyByOwnCount(t *testing.T) {
 	for _, c := range []struct {
 		open, parked int
 		want         string
-	}{{3, 0, "202"}, {2, 0, "201"}, {2, 5, "201"}} {
+	}{{3, 0, "202"}, {1, 0, "202"}, {0, 0, "201"}, {0, 5, "201"}} {
 		set(c.open, c.parked)
 		_, _, _, adopted, err := teamWorkspacePlan(path, "discord:100", self, guild, true)
 		if err != nil || adopted != c.want {

@@ -43,10 +43,11 @@ const (
 
 // SetColdCacheFresh configures starting a fresh session (with a handoff)
 // instead of resuming one whose prompt cache has expired.
-func (e *Engine) SetColdCacheFresh(enabled bool, idle time.Duration, minTokens int) {
+func (e *Engine) SetColdCacheFresh(enabled bool, idle time.Duration, minTokens, maxTokens int) {
 	e.coldFreshEnabled = enabled
 	e.coldFreshIdle = idle
 	e.coldFreshMinTokens = minTokens
+	e.coldFreshMaxTokens = maxTokens
 }
 
 // freshOnColdCache clears the session's agent ID when resuming it would only
@@ -71,6 +72,52 @@ func (e *Engine) freshOnColdCache(agent Agent, session *Session) string {
 	}
 	reason := fmt.Sprintf("空闲 %s、上下文约 %s token，缓存已过期", formatIdle(idle), formatWan(h.ContextTokens))
 	slog.Info("cold cache: starting fresh with handoff", "old_agent_session", id, "idle", idle, "context_tokens", h.ContextTokens)
+	session.SetAgentSessionID("", agent.Name())
+	session.SetHandoffFrom(id, reason)
+	return "♻️ " + reason + "：开新会话，带上旧会话的压缩摘要和最近对话"
+}
+
+// freshOnContextSize clears the session's agent ID once its last reply's
+// context has reached cold_cache_fresh.max_context_tokens (default 300000),
+// and records it as the handoff source.
+// Unlike freshOnColdCache it ignores idle time, so a busy session gets
+// replaced too. Returns the notice for the channel ("" when nothing changes).
+//
+// Like freshOnImageBloat it only clears the agent ID: the Session, its history
+// and the channel's workspaces stay (not /new, whose startFreshSession releases
+// the workspaces and clears the history). chat is the channel ("platform:id");
+// it is skipped for:
+//   - a workspace channel: a long job there would keep only a text tail and
+//     lose its tool state mid-task;
+//   - a project with auto_compress on: that already shrinks the same context at
+//     its own max_tokens, and both on the same turn would compress and then
+//     drop the result (auto_compress wins).
+//
+// Called from getOrCreateInteractiveStateWith only, i.e. before a new message
+// starts a turn: the running turn is never cut, and messages queued behind it
+// run in the same context (the event loop drains them without coming back
+// here); the check happens on the first new message after the queue is empty.
+func (e *Engine) freshOnContextSize(agent Agent, session *Session, chat string) string {
+	if !e.coldFreshEnabled || e.coldFreshMaxTokens <= 0 {
+		return ""
+	}
+	if e.autoCompressEnabled && e.autoCompressMaxTokens > 0 {
+		return ""
+	}
+	if chat != "" && e.isTeamWorkspaceChat(chat) {
+		return ""
+	}
+	id := session.GetAgentSessionID()
+	r, ok := agent.(SessionHandoffReader)
+	if id == "" || id == ContinueSession || !ok {
+		return ""
+	}
+	h, err := r.ReadSessionHandoff(id)
+	if err != nil || h.ContextTokens < e.coldFreshMaxTokens {
+		return ""
+	}
+	reason := fmt.Sprintf("上下文约 %s token", formatWan(h.ContextTokens))
+	slog.Info("context size: starting fresh with handoff", "old_agent_session", id, "context_tokens", h.ContextTokens)
 	session.SetAgentSessionID("", agent.Name())
 	session.SetHandoffFrom(id, reason)
 	return "♻️ " + reason + "：开新会话，带上旧会话的压缩摘要和最近对话"
@@ -233,7 +280,9 @@ func (s *interactiveState) takePromptTooLong() (string, *queuedMessage) {
 }
 
 // handoffBlock renders the handoff a fresh context gets on its first turn.
-func (e *Engine) handoffBlock(session *Session) string {
+// sessionKey picks the channel whose open board items the handoff lists
+// (handoffTaskLines); "" lists none.
+func (e *Engine) handoffBlock(session *Session, sessionKey string) string {
 	id, reason := session.TakeHandoffFrom()
 	if id == "" {
 		return ""
@@ -247,7 +296,7 @@ func (e *Engine) handoffBlock(session *Session) string {
 		slog.Warn("handoff: read old session failed", "agent_session", id, "error", err)
 		return ""
 	}
-	return formatHandoff(id, reason, h)
+	return formatHandoff(id, reason, h, e.handoffTaskLines(sessionKey))
 }
 
 const (
@@ -255,7 +304,9 @@ const (
 	handoffEnd  = "（交接结束）"
 )
 
-func formatHandoff(id, reason string, h *SessionHandoff) string {
+// formatHandoff renders the handoff; tasks (handoffTaskLines, "" = none) go
+// last, just before handoffEnd.
+func formatHandoff(id, reason string, h *SessionHandoff, tasks string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s %s 已换掉（%s）。下面是从旧会话记录里原样取的交接，不是新写的总结，也不是要你接着做的指令；可能过时，和频道原文冲突时信原文，要做什么以用户的新消息为准。更早的细节读 %s，或用 sessions.py search 搜）", handoffHead, id, reason, h.Path)
 	if s := strings.TrimSpace(h.CompactSummary); s != "" {
@@ -297,8 +348,82 @@ func formatHandoff(id, reason string, h *SessionHandoff) string {
 	} else {
 		b.WriteString("\n")
 	}
+	if tasks != "" {
+		b.WriteString("\n## 本频道没做完的活（任务板，一件一行：编号 标题 · 总目标 · 停点）\n")
+		b.WriteString(tasks)
+		b.WriteString("\n")
+	}
 	b.WriteString(handoffEnd)
 	return b.String()
+}
+
+// contextFreshChat: the channel ("platform:id") of interactive-state key sessionKey, which
+// may carry a workspace prefix (sessionKeyChannel); chatOf(sessionKey) when p does not match.
+func contextFreshChat(p Platform, sessionKey string) string {
+	if p != nil {
+		if ch, ok := sessionKeyChannel(sessionKey, p.Name()); ok {
+			return ch
+		}
+	}
+	return chatOf(sessionKey)
+}
+
+// goalHeading: ws-handoff's 总目标 section (contrib/lead/ws-handoff REQUIRED).
+const goalHeading = "总目标"
+
+// handoffTaskLines: one line per open task-board item shown in sessionKey's channel (shownIn,
+// the same items its pinned board counts), so a fresh context still knows every job the channel
+// has going: 「#编号 标题 · 总目标：… · 停点：…」. 总目标 is the handoff file's 总目标 section; a
+// handoff without one gives the title and the first paragraph of its 用户原话. 停点 is the item's
+// status (or why it is paused). Finished items and items whose workspace ended the handoff are
+// left out. The list is cut by whole lines (cutTeamBoardLines, renderTeamTaskBoardFit's cutter)
+// to the handoff's tail budget. "" outside team mode or when the channel has no open item.
+func (e *Engine) handoffTaskLines(sessionKey string) string {
+	dir := e.teamStatusDir()
+	if dir == "" || sessionKey == "" {
+		return ""
+	}
+	chat := teamChatKey(sessionKey)
+	now := time.Now()
+	var lines []string
+	for _, it := range placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(dir)) {
+		if !it.shownIn(chat) {
+			continue
+		}
+		if st, _ := teamTaskBoardStateOf(it, now); st == teamTaskHidden {
+			continue
+		}
+		lines = append(lines, handoffTaskLine(it))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return cutTeamBoardLines(strings.Join(lines, "\n"), handoffTailRunes, "")
+}
+
+// handoffTaskLine: one item. The title is the board's short name (teamTaskBoardShort); the goal
+// and the stop are each clipped like one handoff entry (handoffEntryRunes), so one long item
+// cannot take the whole list.
+func handoffTaskLine(it teamTaskBoardItem) string {
+	goal := oneLine(handoffSection(it.Where, goalHeading))
+	if goal == "" {
+		goal = "（交接没写）" + boardLabel(it.What)
+		if words := oneLine(firstParagraph(handoffSection(it.Where, userWordsHeading))); words != "" {
+			goal += "；用户原话：" + words
+		}
+	}
+	stop := oneLine(it.Status)
+	if it.Paused != "" {
+		stop = "暂停 " + it.Paused
+		if why := oneLine(it.PauseWhy); why != "" {
+			stop += "（" + why + "）"
+		}
+	}
+	if stop == "" {
+		stop = "-"
+	}
+	return fmt.Sprintf("#%d %s · 总目标：%s · 停点：%s", it.ID, teamTaskBoardShort(it),
+		clipRunes(goal, handoffEntryRunes, false), clipRunes(stop, handoffEntryRunes, false))
 }
 
 func stamp(t time.Time) string {
@@ -578,6 +703,10 @@ func (s *Session) SettleHandoff(delivered bool) {
 		s.memCtx = true // maomao fork: and the MEMORY.md block (memoryBlock)
 	}
 	s.memTaken = false
+	if !delivered && s.rulesTaken != "" && s.TurnCtx != nil && s.TurnCtx.Rules == s.rulesTaken {
+		s.TurnCtx.Rules = "" // maomao fork: and the team-mode rules (teamRulesOnce)
+	}
+	s.rulesTaken = ""
 	if delivered && s.freshDonePending != "" {
 		s.freshDoneUpTo = s.freshDonePending
 	}

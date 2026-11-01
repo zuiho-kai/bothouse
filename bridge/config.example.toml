@@ -311,6 +311,9 @@ level = "info" # debug, info, warn, error
 # [relay]
 # timeout_secs = 120        # Max relay wait in seconds; 0 = disabled (default: 120) / relay 最大等待秒数；0 = 禁用（默认 120）
 # visibility = "full"       # "full" (default), "summary", or "none" / 群内可见消息：完整、摘要或不显示
+# voice_resident = false    # Reuse one live ACP voice session per relay key; off by default, enable per device / 每个 relay key 复用一条常驻 ACP 语音会话；默认关，灰度开
+# voice_resident_idle_secs = 600   # Close an idle resident session (default: 600) / 空闲回收秒数（默认 600）
+# voice_resident_max_turns = 30    # Recycle a resident session after N turns (default: 30) / 累计 N 轮回收（默认 30）
 
 # =============================================================================
 # Auto-Compress / 自动压缩
@@ -752,6 +755,7 @@ name = "my-backend"
 # team_name = "协调员"               # This bot's name in the team status (default: project name). / 队友状态里的名字。
 # team_status_inject = true        # Main bot only: start each turn with the teammates' status.
 #                                  # 只给主 bot：每轮开头附上队友状态。
+# team_review_after_seconds = 3600 # Source: existing one-hour stuck threshold; dispatcher verification deadline.
 # team_board = false               # Main bot: pinned per-channel team board, on unless set to false.
 #                                  # 主 bot 每频道一张置顶团队状态栏；不写即开，写 false 关闭。
 # Discord options for main + subs go under [projects.platforms.options]:
@@ -774,7 +778,8 @@ name = "my-backend"
 # show_quota_status = false        # Without a measured quota, show nothing instead of "unavailable / no data / querying / failed" (default: true)
 #                                   # 查不到额度时不显示「暂不可查询/暂无数据/查询中/查询失败」，什么都不显示（默认 true 显示）
 # inject_agent_identity = false   # default true; false when the persona file already states identity.
-# inject_subagent_policy = false   # Stop prefixing each turn with the bridge delegation policy (default: true = prefix)
+# inject_subagent_policy = true    # Prefix each turn with the bridge delegation policy (subagents only on explicit human consent; default: false = off)
+# inject_team_rules = false       # default true; false for a chat persona outside the team channels (e.g. a QQ character): skips the per-turn team-mode rules.
 #                                   # 不再在每轮请求前加「子 agent 委派策略」（默认 true 加）
 # disabled_commands = ["restart", "upgrade", "cron"]  # Disable specific commands for this project
 #                                                     # 禁用该项目的指定命令
@@ -851,6 +856,8 @@ name = "my-backend"
 # idle_mins = 60                 # Minutes since the last reply (default 60); keep >= agent_session_idle_timeout_mins
 #                                # 距上次回复的分钟数（默认 60）；不要小于 agent_session_idle_timeout_mins
 # min_tokens = 80000             # Context size worth leaving (default 80000) / 上下文达到多少才换新会话（默认 80000）
+# max_context_tokens = 300000    # Start fresh at this context size even when not idle (default 300000)
+#                                # 上下文达到多少时不看空闲、下一条直接开新会话（默认 300000）
 
 # Heartbeat — periodic awareness check / 心跳 — 周期性巡检
 # The agent wakes up at a fixed interval to check the environment.
@@ -1363,6 +1370,9 @@ app_secret = "your-feishu-app-secret"
 # token = "your-discord-bot-token"
 # allow_from = "*"  # Allowed Discord user IDs / 允许的 Discord 用户 ID
 # guild_id = ""     # Optional: set for instant slash command registration (per-guild)
+# allow_guilds = "" # Optional: comma-separated server IDs this instance serves; others are ignored.
+#                   # Add "dm" to also answer DMs. Lets one bot token run per-server in several projects or machines.
+#                   # 只服务列出的服务器（逗号分隔），其余服务器的消息和命令一律不收；加 "dm" 才回私聊。
 #                   # 可选：设置后 slash 命令秒级生效（仅该服务器）
 # group_reply_all = false  # If true, respond to ALL guild messages without @mention / 设为 true 群聊无需 @ 也响应
 # group_reply_all_guilds = ""  # Comma-separated guild IDs where group_reply_all is active (overrides group_reply_all)
@@ -1680,6 +1690,17 @@ app_secret = "your-feishu-app-secret"
 # [projects.agent.options]
 # work_dir = "/path/to/project"
 # mode = "suggest"  # "suggest" | "auto-edit" | "full-auto" | "yolo"
+#
+# Optional: isolate bot sessions from Codex desktop (exec and app_server).
+# 可选：将机器人会话与桌面 Codex 隔离（exec 和 app_server 均支持）。
+# codex_home = "/absolute/path/to/.bothouse/codex-home/my-codex-project"
+# Use an absolute path; prepare login/config there, then restart bothouse.
+# 使用绝对路径；先在该目录准备登录和配置，再重启 bothouse。
+# Unset: inherit CODEX_HOME, otherwise use ~/.codex (may share desktop sessions).
+# 不填：继承 CODEX_HOME，否则用 ~/.codex（可能与桌面共用会话）。
+# Existing history is not moved automatically; check copied config's sqlite_home.
+# 旧会话不会自动迁移；复制 Codex 配置时也要检查 sqlite_home。
+# See / 详见: ../docs/codex-session-isolation.md
 #
 # Mode options / 模式说明:
 # - "suggest":   ask permission for every tool call (default, safest) / 每次调用都需确认（默认，最安全）

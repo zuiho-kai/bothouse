@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	ccconnect "github.com/chenhg5/cc-connect"
 	"github.com/chenhg5/cc-connect/config"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -152,7 +153,15 @@ func TestSetupHelperProcess(t *testing.T) {
 
 func helper(t *testing.T, mode string, env []string, args ...string) *exec.Cmd {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestSetupHelperProcess$")
-	cmd.Env = append(os.Environ(), append(env, "CONEST_TEST_HELPER="+mode, "CONEST_TEST_ARGS="+strings.Join(args, "\x1f"))...)
+	var base []string
+	for _, kv := range os.Environ() {
+		// The bridge gives agents BOTHOUSE_DATA_DIR / CC_DATA_DIR; a test HOME alone does
+		// not override them, so the helper would write the live data dir (2026-11-01).
+		if k, _, _ := strings.Cut(kv, "="); k != ccconnect.DataDirEnv && k != "CC_DATA_DIR" {
+			base = append(base, kv)
+		}
+	}
+	cmd.Env = append(base, append(env, "CONEST_TEST_HELPER="+mode, "CONEST_TEST_ARGS="+strings.Join(args, "\x1f"))...)
 	return cmd
 }
 
@@ -440,9 +449,10 @@ func TestSetupApplyInvalidTokenWritesNoConfig(t *testing.T) {
 	}
 }
 
-// rc5: a new bot's reply footer sent the owner's quota ("5h 剩 65% · 周 36%") and this machine's
-// path to the group. Projects the wizard creates now turn both off; existing projects keep theirs.
-func TestSetupApplyNewBotFooterHidesQuotaAndPath(t *testing.T) {
+// rc5: a new bot's reply footer sent this machine's path to the group, so projects the wizard
+// creates turn the path off; existing projects keep theirs. The quota footer stays on by default
+// (9337f0da #595, user: 「什么傻逼玩意让他默认打开」), so the wizard leaves it unset.
+func TestSetupApplyNewBotFooterHidesPath(t *testing.T) {
 	srv := fakeDiscordAPI(t, 1<<18, "900")
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "config.toml")
@@ -462,7 +472,7 @@ func TestSetupApplyNewBotFooterHidesQuotaAndPath(t *testing.T) {
 		switch p.Name {
 		case "juzi":
 			seen++
-			if p.ShowQuotaIndicator == nil || *p.ShowQuotaIndicator || p.ShowWorkdirIndicator == nil || *p.ShowWorkdirIndicator {
+			if p.ShowQuotaIndicator != nil || p.ShowWorkdirIndicator == nil || *p.ShowWorkdirIndicator {
 				t.Errorf("new bot footer: quota=%v workdir=%v", p.ShowQuotaIndicator, p.ShowWorkdirIndicator)
 			}
 		case "mine":

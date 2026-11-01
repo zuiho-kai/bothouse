@@ -111,6 +111,7 @@ type pendingModelSwitch struct {
 type ModelStatus struct {
 	Agent         string        `json:"agent"`
 	Model         string        `json:"model"`
+	Source        string        `json:"source,omitempty"` // local_session means catalog/switch state is unavailable
 	Effort        string        `json:"effort,omitempty"`
 	Models        []ModelOption `json:"models"`
 	Efforts       []string      `json:"efforts,omitempty"`
@@ -122,7 +123,7 @@ type ModelStatus struct {
 }
 
 func (e *Engine) ModelStatus(ctx context.Context, sessionKey string) ModelStatus {
-	agent := e.agent
+	agent, _ := e.sessionContextForKey(sessionKey)
 	st := ModelStatus{Agent: agent.Name(), Model: modelOf(agent)}
 	if sw, ok := agent.(ModelSwitcher); ok {
 		st.Models = sw.AvailableModels(ctx)
@@ -131,6 +132,9 @@ func (e *Engine) ModelStatus(ctx context.Context, sessionKey string) ModelStatus
 	if rs, ok := agent.(ReasoningEffortSwitcher); ok {
 		st.Effort = rs.GetReasoningEffort()
 		st.Efforts = rs.AvailableReasoningEfforts()
+	}
+	if model := e.currentSessionModel(sessionKey, agent); model != "" {
+		st.Model = model
 	}
 	if len(st.Efforts) == 0 && effortVariant(st.Model, "high", st.Models) != "" {
 		st.EffortInModel = true
@@ -148,6 +152,31 @@ func (e *Engine) ModelStatus(ctx context.Context, sessionKey string) ModelStatus
 	}
 	e.modelSwitchMu.Unlock()
 	return st
+}
+
+// Snapshot the current channel's session before querying runtime metadata;
+// agent getters may perform I/O and must not hold engine/state locks.
+func (e *Engine) currentSessionModel(sessionKey string, agent Agent) string {
+	key := e.interactiveKeyForSessionKey(sessionKey)
+	e.interactiveMu.Lock()
+	state := e.interactiveStates[key]
+	e.interactiveMu.Unlock()
+	var session AgentSession
+	if state != nil {
+		state.mu.Lock()
+		session = state.agentSession
+		state.mu.Unlock()
+	}
+	// Keep the catalog ID intact (some agents use JSON-array IDs). Footer
+	// display normalization would prevent matching the current catalog option.
+	for _, source := range []any{session, agent} {
+		if getter, ok := source.(interface{ GetModel() string }); ok {
+			if model := strings.TrimSpace(getter.GetModel()); model != "" {
+				return model
+			}
+		}
+	}
+	return ""
 }
 
 // ModelSwitchResult tells the agent what was queued, or why not.

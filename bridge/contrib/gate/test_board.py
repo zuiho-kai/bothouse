@@ -15,6 +15,8 @@ import ctxsvc  # noqa: E402
 
 
 def cli(*args):
+    if args[:1] == ("add",) and len(args) >= 5 and "--short" not in args:
+        args = (*args, "--short", "测试")  # board add 要短名（10-30）
     p = subprocess.run([str(HERE.parent / "lead" / "board"), *args], capture_output=True, text=True,
                        env={**os.environ, "BOARD_DIR": TMP})
     return p.returncode, (p.stdout + p.stderr).strip()
@@ -44,12 +46,12 @@ class Board(unittest.TestCase):
         cli("add", "第三件", "c.md", "已交接", "橘")
         code, out = cli("update", "1", "已交回：报告写完")
         self.assertEqual(code, 0)
-        self.assertIn("已结束", out)
+        self.assertIn("已更新", out)
         self.assertEqual(cli("update", "2", "done")[0], 0)
         self.assertEqual(cli("update", "3", "PR571已合，等新包装上后验")[1], "已更新")  # 不是开头的收尾词不算
-        self.assertEqual([l.split()[0] for l in cli()[1].splitlines()], ["#3"])
+        self.assertEqual([l.split()[0] for l in cli()[1].splitlines()], ["#1", "#3"])
         done = [json.loads(l)["id"] for l in (Path(TMP) / "board-done.jsonl").read_text().splitlines()]
-        self.assertEqual(done, [1, 2])
+        self.assertEqual(done, [2])
 
     def test_done_record_status_is_done(self):
         # #597 N3：结束的条目进 board-done.jsonl 时 status 要是「已完成」，不能带着原来的「进行中」
@@ -108,11 +110,16 @@ class Board(unittest.TestCase):
         board._write([])
         empty = ctxsvc.board_items()
         self.assertIn("现在没有进行中的事", empty[0]["desc"])
-        board.add("x", "y", "z", "橘")
-        one = ctxsvc.board_items()
+        os.environ["CC_SESSION_KEY"] = "discord:1"  # 条目按频道分（#611），这里造本频道的一条
+        try:
+            board.add("x", "y", "z", "橘")
+        finally:
+            os.environ.pop("CC_SESSION_KEY")
+        one = ctxsvc.board_items("discord:1")
         self.assertNotEqual(empty[0]["path"], one[0]["path"])  # 板子变了 path 就变，cc-connect 会重推
         self.assertIn("#1 x｜y｜z｜橘", one[0]["desc"])
-        self.assertEqual(one, ctxsvc.board_items())  # 不变就不重推
+        self.assertEqual(one, ctxsvc.board_items("discord:1"))  # 不变就不重推
+        self.assertIn("别处还有 1 件在做", ctxsvc.board_items("discord:2")[0]["desc"])  # 别的频道只计数（#611）
         self.assertIn(one[0], ctxsvc.context({"key": "discord:1", "text": "hi", "bot": "jingyu"})["wiki"])
 
     def test_not_a_team_status_file(self):  # cc-connect 把 team/*.json 当队友状态读，任务板不能叫 .json
@@ -158,7 +165,8 @@ class Increments(unittest.TestCase):
             self.assertEqual(log.read_text(), "")
             board.main(["pause", "1"])
             self.assertEqual(log.read_text().split(), ["workspace", "park", "--session-key", "feishu:oc_1",
-                                                       "--chat", "feishu:oc_chat", "--before", board.items()[0]["bound"], "--json"])
+                                                       "--chat", "feishu:oc_chat", "--before", board.items()[0]["bound"],
+                                                       "--stop", "--json"])  # 暂停 = 用户喊停，连同那一轮一起停（#571）
             self.assertNotIn("ws", board.items()[0])
             board.main(["resume", "1"]); board.main(["pause", "1"])
             calls = log.read_text().splitlines()  # 恢复时向桥收回（claim）、重新绑上，再停再放一次
@@ -194,7 +202,7 @@ esac
             board.main(["pause", "3"])
             calls = log.read_text()
             self.assertNotIn("STOLE", calls)
-            self.assertIn(f"workspace park --session-key discord:201 --chat discord:100 --before {bound} --json", calls)
+            self.assertIn(f"workspace park --session-key discord:201 --chat discord:100 --before {bound} --stop --json", calls)
             self.assertEqual(len(calls.splitlines()), 2)  # 1 和 2 各问一次（被拒），3 不问桥
         finally:
             os.environ["CC_BIN"] = "false"

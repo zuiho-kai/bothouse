@@ -16,16 +16,17 @@ import (
 
 // TimerJob represents a persisted one-shot timer.
 type TimerJob struct {
-	ID          string    `json:"id"`
-	Project     string    `json:"project"`
-	SessionKey  string    `json:"session_key"`
-	ScheduledAt time.Time `json:"scheduled_at"` // absolute fire time
-	Prompt      string    `json:"prompt"`
-	Exec        string    `json:"exec,omitempty"`     // shell command; mutually exclusive with Prompt
-	WorkDir     string    `json:"work_dir,omitempty"` // working directory for exec; empty = agent work_dir
-	Description string    `json:"description"`
-	Silent      *bool     `json:"silent,omitempty"` // suppress start notification; nil = use global default
-	Mute        bool      `json:"mute,omitempty"`   // suppress ALL messages (start + result)
+	TaskReview  *taskReviewRef `json:"task_review,omitempty"`
+	ID          string         `json:"id"`
+	Project     string         `json:"project"`
+	SessionKey  string         `json:"session_key"`
+	ScheduledAt time.Time      `json:"scheduled_at"` // absolute fire time
+	Prompt      string         `json:"prompt"`
+	Exec        string         `json:"exec,omitempty"`     // shell command; mutually exclusive with Prompt
+	WorkDir     string         `json:"work_dir,omitempty"` // working directory for exec; empty = agent work_dir
+	Description string         `json:"description"`
+	Silent      *bool          `json:"silent,omitempty"` // suppress start notification; nil = use global default
+	Mute        bool           `json:"mute,omitempty"`   // suppress ALL messages (start + result)
 	// InjectIfBusy: when the target session is mid-turn, write the prompt into that turn
 	// instead of queuing a new one after it. Falls back to queuing when injection fails.
 	InjectIfBusy bool `json:"inject_if_busy,omitempty"`
@@ -44,6 +45,10 @@ type TimerJob struct {
 	Fired       bool      `json:"fired"`
 	FiredAt     time.Time `json:"fired_at,omitempty"`
 	LastError   string    `json:"last_error,omitempty"`
+
+	// ReplyBoard: the task-board item a lead's turn on a workspace handback reports on; the
+	// turn's posts are recorded under it (reply_task.go).
+	ReplyBoard int `json:"reply_board,omitempty"`
 
 	// resume: set (in memory only) when the job delivers a #624 K4 turn resume.
 	resume *turnResumeDelivery
@@ -253,6 +258,7 @@ func (s *TimerStore) ListPending() []*TimerJob {
 
 // TimerScheduler runs one-shot timer jobs using time.AfterFunc.
 type TimerScheduler struct {
+	reviewMu           sync.Mutex
 	store              *TimerStore
 	engines            map[string]*Engine
 	mu                 sync.RWMutex
@@ -318,7 +324,7 @@ func (ts *TimerScheduler) Start() error {
 		delay := job.ScheduledAt.Sub(now)
 		if delay <= 0 {
 			// Past due
-			if -delay <= missedJobGracePeriod {
+			if job.TaskReview != nil || -delay <= missedJobGracePeriod {
 				// Just missed — fire immediately
 				slog.Info("timer: firing missed job immediately", "id", job.ID, "overdue", -delay)
 				ts.scheduleAt(job, 0)

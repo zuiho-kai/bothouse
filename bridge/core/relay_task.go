@@ -64,7 +64,7 @@ func (e *Engine) handleRelay(ctx context.Context, fromProject, sourceSessionKey,
 	if taskScope != "" {
 		key += ":task:" + taskScope
 	}
-	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, key, taskScope != "", stop, nudge, complete)
+	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, resolveKey, message, agent, sessions, key, taskScope != "", stop, nudge, complete)
 }
 
 func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, target *Engine, name string) (*RelayResponse, error) {
@@ -74,7 +74,7 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	if source.publicProgress == nil {
 		return nil, errors.New("relay: task cards are not enabled on source")
 	}
-	if err := source.publicProgress.checkWorkspaceCard(req.SessionKey); err != nil {
+	if err := source.publicProgress.checkAssignmentCard(req.SessionKey, req.Workspace); err != nil {
 		return nil, err
 	}
 	d, cached, err := source.publicProgress.beginTaskRelay(req, name)
@@ -114,6 +114,12 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	}
 	if err := d.finish(response, runErr); err != nil {
 		return nil, fmt.Errorf("relay: result checkpoint failed; do not repeat tools: %w", err)
+	}
+	if runErr != nil && d.leadReleased() {
+		// The lead's turn ended while the run was still inside the wait, so
+		// this error goes back to a command nobody reads (10-31: a dispatch
+		// failed at 23:52 and the workspace sat idle until the user asked).
+		source.wakeRelayLead(req, name, response, runErr)
 	}
 	if errors.Is(runErr, errRelayWatchStopped) && strings.TrimSpace(response) != "" {
 		return nil, fmt.Errorf("relay: %w\n\n部分结果：\n%s", runErr, response)
@@ -355,9 +361,10 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 			return nil, nil, fmt.Errorf("relay: workspace: %w", err)
 		}
 	}
-	// Bound in the source workspace (facts land on its card) and, when set, in
-	// the execution workspace (the target runs there).
-	for _, session := range taskReporterSessions(req.SessionKey, req.Workspace) {
+	// Bound in the card's channel (the source workspace, or the workspace
+	// holding a chat-channel source's card) and, when set, in the execution
+	// workspace (the target runs there).
+	for _, session := range taskReporterSessions(r.record.Task.cardSessionKey(), req.Workspace) {
 		if _, err := p.taskReporter(req.To, r.record.Platform, session, r.publisher); err != nil {
 			return nil, nil, fmt.Errorf("relay: reporter: %w", err)
 		}
@@ -486,6 +493,13 @@ func (d *taskRelay) finish(response string, runErr error) error {
 	return nil
 }
 
+// leadReleased reports whether the lead's turn no longer holds the card.
+func (d *taskRelay) leadReleased() bool {
+	d.r.mu.Lock()
+	defer d.r.mu.Unlock()
+	return !taskRelayActive(d.r)
+}
+
 func shellQuoteRelay(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 
 func (d *taskRelay) prompt() string {
@@ -540,12 +554,15 @@ func (e *Engine) wakeRelayLead(req RelayRequest, worker, response string, runErr
 	case errors.Is(runErr, errRelayWatchInterrupted):
 		outcome = "因桥重启中断（运行已丢失，没有结果）"
 	case runErr != nil:
-		outcome = "后台执行结束但没有确认结果（" + runErr.Error() + "）"
+		outcome = "派工失败（" + truncateRunes(runErr.Error(), 300) + "）"
 	}
 	prompt := fmt.Sprintf("[派工回执] 任务 %s 派给%s的活（请求 %s）%s。先核对实际产物（分支、提交、工作树、PR），再决定验收、续派（同一任务、新的请求号，从检查点接着做）或收口；不要重复已经成功的操作。",
 		req.TaskID, worker, req.RequestID, outcome)
+	if runErr != nil && !errors.Is(runErr, errRelayWatchStopped) && !errors.Is(runErr, errRelayWatchInterrupted) {
+		prompt += "这件活现在没人在做：这一轮就自己接着做，或换一个空着的队友重派，不要等。"
+	}
 	if out := strings.TrimSpace(response); out != "" {
-		prompt += "\n\n" + worker + "交回的内容：\n" + truncateRelay(out, relayLeadWakeLimit)
+		prompt += "\n\n" + worker + "交回的内容：\n" + truncateRelayMore(e.dataDir, "relay-"+req.TaskID, out, relayLeadWakeLimit)
 	}
 	silent := true
 	job := &TimerJob{

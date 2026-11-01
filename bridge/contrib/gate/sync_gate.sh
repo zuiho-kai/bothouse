@@ -30,6 +30,9 @@ fi
 mkdir -p "$TMP/$NAME"
 cp "$HERE/gate.py" "$TMP/$NAME/gate.py"
 cp "$HERE/scorer_torch.py" "$TMP/$NAME/scorer.py"
+# gate.py 运行时要 import 的同目录模块（ctxsvc 又用到 wiki_search，gate/lead 用 datadir）；漏一个远端闸门就起不来。
+GATE_MODULES="ctxsvc.py datadir.py lead.py scorer_remote.py wiki_search.py"
+for f in $GATE_MODULES; do cp "$HERE/$f" "$TMP/$NAME/$f"; done
 cp "$TEAM" "$TMP/$NAME/gate-team.json"
 COPYFILE_DISABLE=1 tar -C "$TMP" -czf "$TMP/$NAME.tgz" "$NAME"
 scp -q -o BatchMode=yes "$TMP/$NAME.tgz" "$HOST:$NAME.tgz"
@@ -38,7 +41,7 @@ set -e
 D=\$HOME/work/$NAME
 [ -e "\$D" ] && { echo "\$D 已存在，不覆盖"; exit 1; }
 mkdir -p "\$D" && tar -xzf $WIN_HOME/$NAME.tgz -C "\$D" --strip-components=1 2>/dev/null
-echo "已部署到 \$D：\$(ls "\$D" | tr '\n' ' ')"
+echo "已部署到 \${D}：\$(ls "\$D" | tr '\n' ' ')"
 EOF
 ssh -o BatchMode=yes "$HOST" wsl bash -s < "$TMP/deploy.sh"
 

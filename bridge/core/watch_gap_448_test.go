@@ -56,7 +56,7 @@ func TestWatchBusyAloneDoesNotRenewForever(t *testing.T) {
 		}
 		now = next
 	}
-	if next := w.tick(now); !next.IsZero() {
+	if next := watchAfterWarning(t, w, now); !next.IsZero() {
 		t.Fatalf("busy with no new progress must stop after the budget, next %v", next)
 	}
 	got = handoffsOf(e, "discord:ws1")[0]
@@ -137,7 +137,8 @@ func TestRelayWatchRestartInterruptionWakesLead(t *testing.T) {
 		t.Fatalf("restart interruption woke the lead %d times, want 1: %+v", len(jobs), jobs)
 	}
 	job := jobs[0]
-	if job.Project != "source" || job.SessionKey != "discord:room:user" || !job.InjectIfBusy ||
+	// e0b92ee8 (#623): the receipt waits for the user to go quiet instead of joining a running turn.
+	if job.Project != "source" || job.SessionKey != "discord:room:user" || !job.WaitUserQuiet ||
 		!strings.Contains(job.Prompt, id) || !strings.Contains(job.Prompt, "桥重启") {
 		t.Fatalf("restart wake job %+v", job)
 	}

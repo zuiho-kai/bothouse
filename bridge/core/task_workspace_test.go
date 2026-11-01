@@ -15,6 +15,19 @@ import (
 	"time"
 )
 
+// rawDestinationPlatform models Discord's TaskCardDestination: it returns the
+// platform channel ID, not a session key. Facts must therefore use the card's
+// session key (Task.CardSession), never its channel ID.
+type rawDestinationPlatform struct{ *progressTestPlatform }
+
+func (p *rawDestinationPlatform) TaskCardDestination(session string) (string, error) {
+	_, chat, err := parseSessionKeyParts(session)
+	if err != nil {
+		return "", err
+	}
+	return chat, nil
+}
+
 // A task workspace is an execution location, not a new task identity: it must
 // belong to the source chat and have room for the work.
 func TestResolveTaskWorkspaceChecksOwnershipAndOccupancy(t *testing.T) {
@@ -44,13 +57,41 @@ func TestResolveTaskWorkspaceChecksOwnershipAndOccupancy(t *testing.T) {
 	busy := NewEngine("source", &stubAgent{}, []Platform{newProgressPlatform()}, "", LangChinese)
 	busy.SetDataDir(t.TempDir())
 	claimSourceWorkspace(t, busy)
-	for i := 0; i < teamWorkspaceBusy; i++ {
+	// One claim is the dispatch's own and does not count; one more task in work makes it busy.
+	for i := 0; i <= teamWorkspaceBusy; i++ {
 		if err := busy.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if _, err := busy.resolveTaskWorkspace("discord:room:user", "ws1"); err == nil || !strings.Contains(err.Error(), "busy") {
 		t.Fatalf("full workspace = %v", err)
+	}
+}
+
+// A chat channel that owns workspaces is a valid task source: the task keeps
+// the chat's run and session, while the card opens in the execution workspace.
+func TestResolveTaskWorkspaceAcceptsOwningChatSource(t *testing.T) {
+	e := NewEngine("source", &stubAgent{}, []Platform{newProgressPlatform()}, "", LangChinese)
+	e.SetDataDir(t.TempDir())
+	claimSourceWorkspace(t, e)
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.ClaimTeamWorkspace("discord:other", "ws2", "工作区2"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.resolveTaskWorkspace("discord:lobby:user", "ws1")
+	if err != nil || got != "discord:ws1" {
+		t.Fatalf("chat-source sibling workspace = %q, %v", got, err)
+	}
+	if _, err := e.resolveTaskWorkspace("discord:lobby:user", "ws2"); err == nil || !strings.Contains(err.Error(), "another chat channel") {
+		t.Fatalf("chat-source foreign workspace = %v", err)
+	}
+	if _, err := e.resolveTaskWorkspace("discord:lobby:user", "ws9"); err == nil || !strings.Contains(err.Error(), "not a recorded workspace") {
+		t.Fatalf("chat-source unrecorded workspace = %v", err)
+	}
+	if _, err := e.resolveTaskWorkspace("discord:chat-without-workspaces:user", "ws1"); err == nil {
+		t.Fatal("workspace accepted for a chat channel with no workspaces")
 	}
 }
 
@@ -246,6 +287,44 @@ func TestTaskRelayWorkspaceExecutesThereAndReturnsResult(t *testing.T) {
 	}
 	if starts.Load() != 1 {
 		t.Fatalf("restart replay reran target: %d starts", starts.Load())
+	}
+}
+
+// A cross-workspace relay runs the target in B, so its agent process must see
+// B's session identity; inheriting A's CC_SESSION_KEY would make tools in the
+// workspace default to the wrong channel.
+func TestTaskRelayWorkspaceInjectsExecutionSessionEnv(t *testing.T) {
+	p, platform, _, id := taskRelayFixture(t)
+	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
+	e.SetDataDir(p.dataDir)
+	claimSourceWorkspace(t, e)
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	var starts atomic.Int32
+	agent := &controllableAgent{}
+	rm, session := taskRelayManagerWithAgent(t, p, platform, nil, &starts, agent)
+	source := rm.engines["source"]
+	source.dataDir = p.dataDir
+	p.resolveWorkspace = source.resolveTaskWorkspace
+	rm.Bind("discord", "ws1", map[string]string{"source": "Source", "target": "Target"})
+	session.events <- Event{Type: EventResult, Content: "env result"}
+
+	req := taskRelayRequest(id)
+	req.Workspace = "ws1"
+	if result, err := rm.Send(context.Background(), req); err != nil || result.Response != "env result" {
+		t.Fatalf("workspace relay = %+v, %v", result, err)
+	}
+	if got := envValue(agent.sessionEnv, "CC_SESSION_KEY"); got != "discord:ws1" {
+		t.Fatalf("CC_SESSION_KEY = %q, want execution workspace", got)
+	}
+	if got := envValue(agent.sessionEnv, "CC_PROJECT"); got != "target" {
+		t.Fatalf("CC_PROJECT = %q, want target", got)
+	}
+	for _, kv := range agent.sessionEnv {
+		if strings.Contains(kv, "discord:room") {
+			t.Fatalf("agent env leaked the source workspace: %q", kv)
+		}
 	}
 }
 
@@ -594,9 +673,8 @@ func crossWorkspaceGateFixture(t *testing.T) (*PublicProgress, *progressTestPlat
 	return p, platform, e, run, id
 }
 
-// #431 after #453: a dispatch goes from workspace A to a sibling workspace B of
-// the same chat; a workspace of another chat is refused, and a chat channel
-// cannot be the source at all (the card gate refuses it first).
+// #431 after #453: a dispatch goes from workspace A or the owning chat channel
+// to a workspace B of the same chat; a workspace of another chat is refused.
 func TestCrossWorkspaceDispatchThroughWorkspaceCardGate(t *testing.T) {
 	p, platform, e, run, id := crossWorkspaceGateFixture(t)
 	p.resolveReporter = func(project, platformName, session string) (TaskCardPublisher, error) {
@@ -623,7 +701,9 @@ func TestCrossWorkspaceDispatchThroughWorkspaceCardGate(t *testing.T) {
 		t.Fatalf("foreign assignment created rows: %+v", task.Members)
 	}
 
-	// Chat channel as source: no card opens there, so nothing can be dispatched.
+	// Chat channel as source: progress start still opens no card there, but a
+	// batch assignment with an explicit workspace opens the card in that
+	// workspace and keeps the chat run/session as the task identity.
 	lobby := "discord:lobby:user"
 	lobbyRun := p.begin(platform, lobby, LangChinese, nil)
 	if _, err := p.Report(PublicProgressRequest{Project: "source", SessionKey: lobby, Run: lobbyRun, Seq: 1, Kind: "start", Title: "chat task", Summary: "start"}); !errors.Is(err, errCardOutsideWorkspace) {
@@ -631,19 +711,101 @@ func TestCrossWorkspaceDispatchThroughWorkspaceCardGate(t *testing.T) {
 	}
 	req := taskWorkspaceAssignment("", lobbyRun, "m3", "ws1")
 	req.SessionKey, req.BatchID = lobby, "chat-batch"
-	if _, err := p.AssignMember(req); !errors.Is(err, errCardOutsideWorkspace) {
-		t.Fatalf("chat channel source assignment = %v", err)
+	grant, err := p.AssignMember(req)
+	if err != nil {
+		t.Fatalf("chat channel source assignment: %v", err)
 	}
-	if _, err := e.resolveTaskWorkspace(lobby, "ws1"); err == nil || !strings.Contains(err.Error(), "not a workspace") {
+	chatTask, ok := p.Task(grant.TaskID)
+	if !ok || chatTask.SessionKey != lobby || chatTask.ChannelID != "discord:ws1" {
+		t.Fatalf("chat-source card = %+v, %v", chatTask, ok)
+	}
+	foreignChat := taskWorkspaceAssignment("", lobbyRun, "m4", "ws2")
+	foreignChat.SessionKey, foreignChat.BatchID = lobby, "chat-batch-2"
+	if _, err := p.AssignMember(foreignChat); err == nil || !strings.Contains(err.Error(), "another chat channel") {
+		t.Fatalf("chat-source foreign workspace assignment = %v", err)
+	}
+	noWorkspace := taskWorkspaceAssignment("", lobbyRun, "m5", "")
+	noWorkspace.SessionKey, noWorkspace.BatchID = lobby, "chat-batch-3"
+	if _, err := p.AssignMember(noWorkspace); !errors.Is(err, errCardOutsideWorkspace) {
+		t.Fatalf("chat-source assignment without workspace = %v", err)
+	}
+	if _, err := e.resolveTaskWorkspace(lobby, "ws1"); err != nil {
 		t.Fatalf("chat channel source workspace = %v", err)
 	}
 }
 
-// The same three cases through task relay with the real gate and bindings.
+// Facts of a chat-source task are posted through the bot bound in the card's
+// execution workspace, not in the chat channel that owns the task.
+func TestChatSourceCardFactsUseExecutionWorkspace(t *testing.T) {
+	p, platform, e, _, _ := crossWorkspaceGateFixture(t)
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws3", "工作区3"); err != nil {
+		t.Fatal(err)
+	}
+	raw := &rawDestinationPlatform{progressTestPlatform: platform}
+	var sessions []string
+	p.resolveReporter = func(project, platformName, session string) (TaskCardPublisher, error) {
+		sessions = append(sessions, session)
+		return raw, nil
+	}
+	lobby := "discord:lobby:user"
+	lobbyRun := p.begin(raw, lobby, LangChinese, nil)
+	req := taskWorkspaceAssignment("", lobbyRun, "m1", "ws1")
+	req.SessionKey, req.BatchID = lobby, "chat-batch"
+	grant, err := p.AssignMember(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 || sessions[0] != "discord:ws1" {
+		t.Fatalf("first member reporter sessions = %v, want only discord:ws1", sessions)
+	}
+	p.mu.Lock()
+	r := p.records[grant.TaskID]
+	p.mu.Unlock()
+	if r == nil {
+		t.Fatal("chat-source card missing")
+	}
+	r.mu.Lock()
+	if r.record.Task.ChannelID != "ws1" || r.record.Task.CardSession != "discord:ws1" {
+		r.mu.Unlock()
+		t.Fatalf("card destination = channel %q, session %q", r.record.Task.ChannelID, r.record.Task.CardSession)
+	}
+	r.mu.Unlock()
+	// A second member in another workspace of the same chat still reports to
+	// the workspace holding the card, not to its own execution workspace.
+	sessions = nil
+	second := taskWorkspaceAssignment(grant.TaskID, lobbyRun, "m2", "ws3")
+	second.SessionKey = lobby
+	if _, err := p.AssignMember(second); err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 2 || sessions[0] != "discord:ws1" || sessions[1] != "discord:ws3" {
+		t.Fatalf("second member reporter sessions = %v, want card ws1 then execution ws3", sessions)
+	}
+	sessions = nil
+	r.mu.Lock()
+	p.appendEvent(r, TaskEventProgress, "member fact", true)
+	r.record.Task.Events[len(r.record.Task.Events)-1].ReporterProject = "target"
+	r.mu.Unlock()
+	if _, err := p.flushRun(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) == 0 {
+		t.Fatal("fact reporter was never resolved")
+	}
+	for _, session := range sessions {
+		if session != "discord:ws1" {
+			t.Fatalf("fact reporter sessions = %v, want only discord:ws1", sessions)
+		}
+	}
+}
+
+// The same cases through task relay with the real gate and bindings,
+// including a task owned by the chat channel itself.
 func TestCrossWorkspaceRelayThroughWorkspaceCardGate(t *testing.T) {
 	p, platform, _, _, id := crossWorkspaceGateFixture(t)
 	var starts atomic.Int32
-	rm, session := taskRelayManager(t, p, platform, nil, &starts)
+	agent := &controllableAgent{}
+	rm, session := taskRelayManagerWithAgent(t, p, platform, nil, &starts, agent)
 	source := rm.engines["source"]
 	source.dataDir = p.dataDir
 	for _, ch := range []string{"ws1", "ws2", "lobby"} {
@@ -661,12 +823,34 @@ func TestCrossWorkspaceRelayThroughWorkspaceCardGate(t *testing.T) {
 	if _, err := rm.Send(context.Background(), foreign); err == nil || !strings.Contains(err.Error(), "another chat channel") {
 		t.Fatalf("foreign workspace relay = %v", err)
 	}
-	chat := taskRelayRequest(id)
-	chat.RequestID, chat.SessionKey, chat.Workspace = "dispatch-chat", "discord:lobby:user", "ws1"
-	if _, err := rm.Send(context.Background(), chat); !errors.Is(err, errCardOutsideWorkspace) {
-		t.Fatalf("chat channel source relay = %v", err)
+	lobby := "discord:lobby:user"
+	lobbyRun := p.begin(platform, lobby, LangChinese, nil)
+	chatAssign := taskWorkspaceAssignment("", lobbyRun, "m-chat", "ws1")
+	chatAssign.SessionKey, chatAssign.BatchID = lobby, "chat-batch"
+	grant, err := p.AssignMember(chatAssign)
+	if err != nil {
+		t.Fatalf("chat channel source assignment: %v", err)
 	}
-	if starts.Load() != 1 {
+	// Each relay closes its target session, so the chat dispatch gets a fresh one.
+	chatSession := &taskRelaySession{controllableAgentSession: newControllableSession("target")}
+	agent.startSessionFn = func(context.Context, string) (AgentSession, error) { starts.Add(1); return chatSession, nil }
+	chatSession.events <- Event{Type: EventResult, Content: "chat result"}
+	chat := taskRelayRequest(grant.TaskID)
+	chat.RequestID, chat.SessionKey, chat.Workspace = "dispatch-chat", lobby, "ws1"
+	if result, err := rm.Send(context.Background(), chat); err != nil || result.Response != "chat result" {
+		t.Fatalf("chat channel source relay = %+v, %v", result, err)
+	}
+	chatForeign := chat
+	chatForeign.RequestID, chatForeign.Workspace = "dispatch-chat-foreign", "ws2"
+	if _, err := rm.Send(context.Background(), chatForeign); err == nil || !strings.Contains(err.Error(), "another chat channel") {
+		t.Fatalf("chat channel source foreign relay = %v", err)
+	}
+	chatNoWorkspace := chat
+	chatNoWorkspace.RequestID, chatNoWorkspace.Workspace = "dispatch-chat-no-workspace", ""
+	if _, err := rm.Send(context.Background(), chatNoWorkspace); !errors.Is(err, errCardOutsideWorkspace) {
+		t.Fatalf("chat channel source relay without workspace = %v", err)
+	}
+	if starts.Load() != 2 {
 		t.Fatalf("refused dispatches started the target: %d starts", starts.Load())
 	}
 }

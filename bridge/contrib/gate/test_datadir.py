@@ -3,7 +3,7 @@ import os, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-KEYS = ("BOTHOUSE_DATA_DIR", "GATE_SETUP_DIR", "BOARD_DIR", "GATE_LEAD_FILE", "GATE_TEAM", "GATE_DIR",
+KEYS = ("BOTHOUSE_DATA_DIR", "GATE_SETUP_DIR", "CC_DATA_DIR", "BOARD_DIR", "GATE_LEAD_FILE", "GATE_TEAM", "GATE_DIR",
         "CC_SESSION_KEY", "CC_SESSION", "DISCORD_BOT_TOKEN", "BOARD_PR_REPO")
 
 
@@ -47,6 +47,17 @@ class DataDir(unittest.TestCase):
         d = str(self.home / "setup")
         self.assertEqual(self.paths(GATE_SETUP_DIR=d), [d, d, d + "/lead.json", d + "/team"])
 
+    def test_cc_data_dir_fallback(self):
+        d = str(self.home / "ccdata")
+        self.assertEqual(self.paths(CC_DATA_DIR=d), [d, d, d + "/lead.json", d + "/team"])
+
+    def test_board_follows_config_team_status_dir(self):
+        d = self.home / "data"
+        tdir = self.home / "shared-team"
+        d.mkdir()
+        (d / "config.toml").write_text(f'team_status_dir = "{tdir}"\n', encoding="utf-8")
+        self.assertEqual(self.paths(GATE_SETUP_DIR=str(d))[3], str(tdir))
+
     def test_both_set(self):
         # lead.json 跟 BOTHOUSE_DATA_DIR，团队文件/任务板等跟 GATE_SETUP_DIR（datadir.py 文档写死的规则）
         p, s = str(self.home / "product"), str(self.home / "setup")
@@ -57,7 +68,7 @@ class DataDir(unittest.TestCase):
         d = self.home / "data"
         e = {k: v for k, v in os.environ.items() if k not in KEYS}
         e.update(HOME=str(self.home), CC_BIN="false", BOTHOUSE_DATA_DIR=str(d))
-        out = subprocess.run([str(HERE.parent / "lead" / "board"), "add", "task", "-", "doing", "role"],
+        out = subprocess.run([str(HERE.parent / "lead" / "board"), "add", "task", "-", "doing", "role", "--short", "task"],
                              capture_output=True, text=True, env=e)
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertTrue((d / "team" / "board.jsonl").exists())

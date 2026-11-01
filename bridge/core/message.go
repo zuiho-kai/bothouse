@@ -362,24 +362,25 @@ type LocationAttachment struct {
 
 // Message represents a unified incoming message from any platform.
 type Message struct {
-	SessionKey   string // unique key for user context, e.g. "feishu:{chatID}:{userID}"
-	Platform     string
-	MessageID    string // platform message ID for tracing
-	Recalled     bool   // true for platform message recall/delete events targeting MessageID
-	ChannelID    string
-	UserID       string
-	UserName     string
-	ChatName     string // human-readable chat/group name (optional)
-	Content      string
-	Reference    *MessageReference
-	Images       []ImageAttachment   // attached images (if any)
-	Files        []FileAttachment    // attached files (if any)
-	Audio        *AudioAttachment    // voice message (if any)
-	Location     *LocationAttachment // geographical location (if any)
-	ExtraContent string              // platform-enriched content (e.g. location text, reply quote) prepended for the agent
-	OnAccepted   func()              // called once when the engine accepts this message for an agent turn
-	inputTurn    *inputTurn          // local API only; never inherited by queued/platform messages
-	ChannelKey   string              // platform-provided channel identifier for workspace binding (optional)
+	SessionKey    string // unique key for user context, e.g. "feishu:{chatID}:{userID}"
+	Platform      string
+	MessageID     string // platform message ID for tracing
+	Recalled      bool   // true for platform message recall/delete events targeting MessageID
+	ChannelID     string
+	UserID        string
+	UserName      string
+	ChatName      string // human-readable chat/group name (optional)
+	Content       string
+	Reference     *MessageReference
+	Images        []ImageAttachment      // attached images (if any)
+	Files         []FileAttachment       // attached files (if any)
+	Audio         *AudioAttachment       // voice message (if any)
+	Location      *LocationAttachment    // geographical location (if any)
+	ExtraContent  string                 // platform-enriched content (e.g. location text, reply quote) prepended for the agent
+	OnAccepted    func()                 // called once when the engine accepts this message for an agent turn
+	inputTurn     *inputTurn             // local API only; never inherited by queued/platform messages
+	externalInput *externalInputDelivery // durable existing-task inbox, never set by a platform payload
+	ChannelKey    string                 // platform-provided channel identifier for workspace binding (optional)
 	// LegacyChannelKey is the platform-provided channel identifier used by an
 	// older workspace-binding scope. When both keys are set, multi-workspace
 	// routing atomically migrates the legacy binding to ChannelKey.
@@ -400,6 +401,7 @@ type Message struct {
 	userText     string     // maomao fork: Content before media notes were appended — the gate's input
 	userTextSet  bool       // maomao fork: userText is set (see userTextOf)
 	gateParts    []gatePart // maomao fork: the messages an idle gate burst folded into this one, as each was (gate.go)
+	abortFront   bool       // maomao fork: a gate abort; queued first, then the running turn is cancelled (gate.go)
 	// maomao fork: the gate asks for the per-turn context blocks (teammate
 	// status, wiki pages); they are added right before the send, once the agent
 	// process for this turn is known. A pending handoff goes either way.

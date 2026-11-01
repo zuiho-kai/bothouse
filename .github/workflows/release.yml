@@ -317,6 +317,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      id-token: write # npm trusted publishing (OIDC); no NPM_TOKEN secret
     defaults:
       run:
         shell: bash
@@ -330,9 +331,31 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      # Trusted publishing needs npm >= 11.5.1; Node 22 ships npm 10.
+      - name: Upgrade npm
+        run: npm install -g npm@11.19.0
       - name: Build plugin package
         working-directory: dsh/plugin-pkg
         run: npm run build
+      # The npm package bothouse-dsh ships with every release, versioned as the tag (v0.1.40 -> 0.1.40).
+      # A re-run for a tag that is already on npm skips the publish.
+      # Auth is npm trusted publishing: npmjs.com trusts this repo's release.yml, so no token is stored.
+      - name: Publish bothouse-dsh to npm
+        working-directory: dsh/plugin-pkg
+        # An npm auth failure must not stop the dsh-plugin branch update below (DSH installs from it).
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          ver="${TAG#v}"
+          npm version "$ver" --no-git-tag-version --allow-same-version
+          if npm view "bothouse-dsh@$ver" version >/dev/null 2>&1; then
+            echo "bothouse-dsh@$ver is already on npm; skipping"
+          else
+            tagflag=()
+            case "$ver" in *-*) tagflag=(--tag next) ;; esac
+            npm publish --access public --loglevel verbose "${tagflag[@]}"
+          fi
       - name: Force-update dsh-plugin branch
         env:
           GH_TOKEN: ${{ github.token }}

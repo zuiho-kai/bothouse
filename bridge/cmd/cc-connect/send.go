@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/chenhg5/cc-connect/config"
@@ -64,6 +65,10 @@ func runSend(args []string) {
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusAccepted {
+		fmt.Println(string(body))
+		return
+	}
 	if resp.StatusCode != http.StatusOK {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", strings.TrimSpace(string(body)))
 		os.Exit(1)
@@ -86,6 +91,29 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--task", "--revision", "--delivery-id", "--text-kind":
+			flag := args[i]
+			if i+1 >= len(args) {
+				return req, "", fmt.Errorf("%s requires a value", flag)
+			}
+			i++
+			if req.TaskText == nil {
+				req.TaskText = &core.TaskTextRequest{Kind: "result"}
+			}
+			switch flag {
+			case "--task":
+				req.TaskText.TaskID = args[i]
+			case "--delivery-id":
+				req.TaskText.DeliveryID = args[i]
+			case "--text-kind":
+				req.TaskText.Kind = args[i]
+			case "--revision":
+				n, err := strconv.Atoi(args[i])
+				if err != nil || n < 1 {
+					return req, "", fmt.Errorf("positive revision required")
+				}
+				req.TaskText.Revision = n
+			}
 		case "--project", "-p":
 			if i+1 >= len(args) {
 				return req, "", fmt.Errorf("--project requires a value")
@@ -224,6 +252,9 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 		return req, "", fmt.Errorf("message, tts text, or attachment is required")
 	}
 
+	if req.TaskText != nil && (req.TaskText.TaskID == "" || req.TaskText.DeliveryID == "" || req.TaskText.Revision < 1 || req.SessionKey == "") {
+		return req, "", fmt.Errorf("task text requires --task, --revision, --delivery-id and --session")
+	}
 	return req, dataDir, nil
 }
 
@@ -360,7 +391,7 @@ func resolveSocketPath(dataDir string) string {
 		return filepath.Join(dataDir, "run", "api.sock")
 	}
 	// Check CC_DATA_DIR env var for custom data_dir configuration
-	if envDataDir := strings.TrimSpace(os.Getenv("CC_DATA_DIR")); envDataDir != "" {
+	if envDataDir := ccconnect.GuardTestDataDir(strings.TrimSpace(os.Getenv("CC_DATA_DIR"))); envDataDir != "" {
 		return filepath.Join(envDataDir, "run", "api.sock")
 	}
 	if home, err := os.UserHomeDir(); err == nil {
@@ -383,6 +414,10 @@ func printSendUsage() {
 Send a message, attachment, or synthesized voice message to an active bothouse session.
 
 Options:
+      --task <id>          Persist task-bound text (acceptance is not delivery)
+      --revision <n>       Required current task revision
+      --delivery-id <id>   Stable request ID; reuse only for the same text/target
+      --text-kind <kind>   result (default), receipt, or question
   -m, --message <text>     Message to send (preferred over positional args)
       --cwd <path>         Start a new session in this working directory
       --work-dir <path>    Alias for --cwd
@@ -392,8 +427,8 @@ Options:
       --audio <path>       Send an audio attachment (repeatable)
       --video <path>       Send a video attachment (repeatable)
       --stdin              Read message from stdin (best for long/special-char messages)
-      --at-users <ids>     @ user IDs, comma-separated (DingTalk)
-      --at-all             @ everyone (DingTalk)
+      --at-users <ids>     @ user IDs, comma-separated (DingTalk, QQ, QQBot)
+      --at-all             @ everyone (platform permissions and limits apply)
       --dm                 Send privately to the project owner (first ID in admin_from) (Discord)
   -p, --project <name>     Target project (optional if only one project)
   -s, --session <key>      Target session key (optional, picks first active)

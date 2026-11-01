@@ -538,3 +538,67 @@ func TestIsLocalRedirect(t *testing.T) {
 		}
 	}
 }
+
+// 10-30: a redirect while busy is answered before what queued behind the turn it cancels
+// (same as the gate's abort, gate_abort_queue_test.go).
+func TestLocalGate_RedirectAnsweredBeforeQueued(t *testing.T) {
+	sess := &queueAbortSession{events: make(chan Event, 8)}
+	p := &leadPlatform{}
+	e := NewEngine("test", &queueAbortAgent{s: sess}, []Platform{p}, t.TempDir()+"/sessions.json", LangEnglish)
+	defer e.Stop()
+	e.SetGateLocal(true)
+
+	key := "test:room-local-redirect"
+	send := func(id, text string) {
+		e.ReceiveMessage(p, &Message{SessionKey: key, Platform: "test", MessageID: id, UserID: "user", UserName: "用户",
+			Content: text, Mentioned: true, ReplyCtx: leadCtx{id: id}})
+	}
+	send("1", "跑一个很长的任务")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		prompts, _ := sess.snapshot()
+		if len(prompts) == 1 && e.sessions.GetOrCreateActive(key).Busy() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("first turn never started")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	send("2", "顺便再看看日志") // no mid-turn input: queued behind the turn
+	for {
+		e.interactiveMu.Lock()
+		st := e.interactiveStates[key]
+		e.interactiveMu.Unlock()
+		st.mu.Lock()
+		n := len(st.pendingMessages)
+		st.mu.Unlock()
+		if n == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("message 2 was never queued")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	send("3", "别做这个，改做另一件事")
+	for {
+		prompts, cancels := sess.snapshot()
+		// Redirect and queued message are from the same sender, so they run as one
+		// batched turn with the redirect first.
+		if len(prompts) >= 2 {
+			if cancels != 1 {
+				t.Fatalf("CancelTurn called %d times, want 1", cancels)
+			}
+			r, q := strings.Index(prompts[1], "改做另一件事"), strings.Index(prompts[1], "顺便再看看日志")
+			if r < 0 || q < 0 || r > q {
+				t.Fatalf("turn after the redirect = %q, want the redirect first, then the queued message", prompts[1])
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("turns never ran; prompts=%q sent=%+v", prompts, p.sent)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

@@ -269,6 +269,16 @@ type RoleConfig struct {
 type RelayConfig struct {
 	TimeoutSecs *int   `toml:"timeout_secs"`         // max seconds to wait for relay response; 0 = disabled; default 120
 	Visibility  string `toml:"visibility,omitempty"` // "full" (default), "summary", or "none" for group visibility echoes
+	// VoiceResident reuses one live ACP voice session per relay key instead of
+	// spawning a session per turn. Off by default so it can be rolled out to one
+	// device first; measured saving is in notes/voice-latency-plan-a-20261028.md 3.5.
+	VoiceResident *bool `toml:"voice_resident,omitempty"`
+	// VoiceResidentIdleSecs closes an idle resident session; 0 keeps the default
+	// (600, from the same research section's 10-minute TTL).
+	VoiceResidentIdleSecs *int `toml:"voice_resident_idle_secs,omitempty"`
+	// VoiceResidentMaxTurns recycles a resident session after this many turns; 0
+	// keeps the default (30, from the same research section).
+	VoiceResidentMaxTurns *int `toml:"voice_resident_max_turns,omitempty"`
 }
 
 // SpeechConfig configures speech-to-text for voice messages.
@@ -470,6 +480,8 @@ type ColdCacheFreshConfig struct {
 	Enabled   *bool `toml:"enabled,omitempty"`    // default true; false turns it off
 	IdleMins  *int  `toml:"idle_mins,omitempty"`  // minutes since the last reply (default 60); checked only when the agent process starts, so keep it >= agent_session_idle_timeout_mins
 	MinTokens *int  `toml:"min_tokens,omitempty"` // context size worth leaving (default 80000)
+	// MaxContextTokens: once the last reply's context reaches this, the next message starts fresh whatever the idle time (default 300000)
+	MaxContextTokens *int `toml:"max_context_tokens,omitempty"`
 }
 
 // ImageFreshConfig (maomao fork): once the images in a session's context add
@@ -591,6 +603,8 @@ type ProjectConfig struct {
 	// without editing config.toml; team_board = false opts out (TeamBoardEnabled). Ignored on
 	// non-lead projects.
 	TeamBoard *bool `toml:"team_board,omitempty"`
+	// Source: #797. Nonpositive values follow the existing one-hour stuck threshold.
+	TeamReviewAfterSeconds int `toml:"team_review_after_seconds,omitempty"`
 	// TeamWorkspaces (lead only, Discord): give each of the lead's channels a 「工作区1」 channel in
 	// the same category (existing channels are backfilled at start) and allow `bothouse workspace new`
 	// to add 「工作区n+1」 (core/team_workspace.go). Default on for the lead (user 2026-10-24 00:50
@@ -630,13 +644,16 @@ type ProjectConfig struct {
 	// ShowQuotaStatus: nil/true = without a measured quota, show its status
 	// (unavailable / no data / querying / query failed); false = show nothing.
 	ShowQuotaStatus *bool `toml:"show_quota_status,omitempty"`
-	// InjectSubagentPolicy: nil/true = prefix every agent turn with the bridge
+	// InjectSubagentPolicy: true = prefix every agent turn with the bridge
 	// delegation policy (start subagents only on explicit human consent);
-	// false = send the request as is.
+	// nil/false = send the request as is, so roles may open subagents.
 	InjectSubagentPolicy *bool `toml:"inject_subagent_policy,omitempty"`
 	// InjectAgentIdentity: nil/true = prepend the bridge identity block each
 	// turn; false = the persona owns identity (saves prompt tokens).
 	InjectAgentIdentity *bool `toml:"inject_agent_identity,omitempty"`
+	// InjectTeamRules: nil/true = prepend the team-mode rules each turn;
+	// false = skip them (a chat persona outside the team channels).
+	InjectTeamRules *bool `toml:"inject_team_rules,omitempty"`
 	// ReplyFooter: nil/true = render the reply footer; false = disable it
 	// entirely (the per-line indicator flags above become no-ops).
 	ReplyFooter      *bool        `toml:"reply_footer,omitempty"`
@@ -743,6 +760,20 @@ type CodexProviderConfig struct {
 type PlatformConfig struct {
 	Type    string         `toml:"type"`
 	Options map[string]any `toml:"options"`
+	// Disabled keeps the section (credentials, options) but the bridge neither creates nor
+	// connects it (`bothouse module disable <platform>`, #812).
+	Disabled bool `toml:"disabled,omitempty"`
+}
+
+// ActivePlatforms is the project's platforms without the disabled ones: the ones startup creates.
+func (p ProjectConfig) ActivePlatforms() []PlatformConfig {
+	var out []PlatformConfig
+	for _, pc := range p.Platforms {
+		if !pc.Disabled {
+			out = append(out, pc)
+		}
+	}
+	return out
 }
 
 // AliasConfig maps a trigger string to a command (e.g. "帮助" → "/help").

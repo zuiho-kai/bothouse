@@ -6,7 +6,7 @@ import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX, roomKey } from './cloudweb.mjs';
-import { DshMembers, finalText, describeReason, friendlyFailure, memberStatus } from './dsh-member.mjs';
+import { DshMembers, finalText, describeReason, friendlyFailure, memberStatus, localImageReply } from './dsh-member.mjs';
 import { resolveConfig, installApprovalAnswerer } from './plugin.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Roster } from './roster.mjs';
@@ -304,6 +304,85 @@ test('dispatch mode: a workspace inherits its chat channel setting (PR #138 revi
   assert.equal(s.dispatchMode(1), 'team', 'setting a workspace sets its chat channel');
 });
 
+test('relay cap settings: only 6–20, isolated per channel, workspaces inherit and persist (#445)', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-relay-')), 'relay.sqlite3');
+  const s = new Store(path);
+  s.ensureRoom(1, 'general');
+  s.ensureRoom(2, 'other');
+  const ws = s.createWorkspace(1);
+  assert.deepEqual(s.relaySetting(1), { max_relay: 6 }, 'the default cap is 6');
+  assert.deepEqual(s.relaySetting(ws.id), { max_relay: 6 }, 'a workspace follows its chat channel');
+  for (const bad of [5, 21, 0, -1, 6.5, '8', null, undefined, NaN]) {
+    assert.throws(() => s.setMaxRelay(1, bad), /6–20/, `${String(bad)} must be rejected`);
+  }
+  assert.equal(s.relaySetting(1).max_relay, 6, 'rejected values leave the cap unchanged');
+  s.setMaxRelay(1, 8);
+  s.setMaxRelay(2, 20);
+  assert.equal(s.relaySetting(1).max_relay, 8);
+  assert.equal(s.relaySetting(2).max_relay, 20, 'channels are isolated');
+  assert.equal(s.relaySetting(ws.id).max_relay, 8, 'the workspace reads its chat channel');
+  s.setMaxRelay(ws.id, 20);
+  assert.equal(s.relaySetting(1).max_relay, 20, 'setting a workspace writes its chat channel');
+  assert.equal(s.relaySetting(2).max_relay, 20);
+  s.setMaxRelay(1, 6);
+  s.close();
+  const reopened = new Store(path);
+  try {
+    assert.equal(reopened.relaySetting(1).max_relay, 6, 'the setting survives reopening');
+    assert.equal(reopened.relaySetting(2).max_relay, 20);
+  } finally {
+    reopened.close();
+  }
+});
+
+test('channel settings API: GET returns and PATCH accepts the relay cap, invalid values roll back (#445)', async () => {
+  const { Readable } = await import('node:stream');
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  const call = async (method, body, roomId = 1) => {
+    const req = body === undefined ? { method } : Object.assign(Readable.from([Buffer.from(JSON.stringify(body))]), { method });
+    let status, result;
+    await roomSettingsRoute(req, { writeHead(s) { status = s; }, end(b) { result = JSON.parse(b); } }, `/collab/api/rooms/${roomId}/settings`, { store: hub.store, hub, workspacePath: '/old' });
+    return { status, result };
+  };
+  assert.equal((await call('GET')).result.max_relay, 6);
+  for (const bad of [5, 21]) {
+    const rejected = await call('PATCH', { max_relay: bad });
+    assert.equal(rejected.status, 400);
+    assert.match(rejected.result.error, /6–20/);
+  }
+  assert.equal((await call('GET')).result.max_relay, 6, 'rejected values are not stored');
+  assert.equal((await call('PATCH', { max_relay: 8, lead_id: 'nobody' })).status, 400, 'a rejected field rolls the cap back too');
+  assert.equal((await call('GET')).result.max_relay, 6);
+  const saved = await call('PATCH', { max_relay: 20 });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.result.max_relay, 20);
+  assert.equal((await call('GET', undefined, 2)).result.max_relay, 6, 'another channel keeps its own value');
+  hub.store.close();
+});
+
+test('relay cap: the channel setting wins over the instance default and pauses on the 7th, 9th and 21st message (#445)', async () => {
+  for (const cap of [6, 8, 20]) {
+    const hub = makeHub();
+    const dsh = fakeDsh();
+    dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { maxRelay: 6 });
+    hub.setMember({ id: 'ju', name: '橘', kind: 'bot', online: true });
+    hub.store.setMaxRelay(1, cap);
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 开始' });
+    for (let i = 1; i <= cap; i++) hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: `@DeepSeek ${i}` });
+    await settle();
+    assert.equal(hub.store.openJobs().length, cap, `cap ${cap}: mentions within the cap still start jobs`);
+    hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '@DeepSeek 越过上限' });
+    await settle();
+    const last = hub.store.page(1, undefined, 1)[0];
+    assert.equal(last.author_kind, 'system', `cap ${cap}: message ${cap + 1} pauses the relay`);
+    assert.match(last.text, new RegExp(`连续接力 ${cap} 次以上`));
+    hub.store.close();
+  }
+});
+
 test('primary role: shared lead state routes explicitly selected roles and keeps fallback display-only', async () => {
   const { mkdtempSync, readFileSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -351,7 +430,8 @@ test('team exit: forwards asks and returns answers to the recorded workspace', a
   const ws = hub.store.createWorkspace(1);
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
   new TeamExit(hub);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n需要一个答案\n自验：无需\n类别：方向' });
+  hub.tasks = { task: id => (id === 7 ? { id: 7, title: '问答' } : undefined) }; // the headline's task on the board
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #7 背景：你让我做这件事。\n需要一个答案\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向` });
   await tick();
   const forwarded = hub.store.page(1, undefined, 10).find(m => m.author_kind === 'system');
   assert.ok(forwarded);
@@ -606,6 +686,63 @@ function fakeDsh() {
 }
 
 const settle = async () => { for (let i = 0; i < 8; i++) await tick(); };
+
+test('DSH member: local images become attachments while outside paths remain untouched', async () => {
+  const { mkdtempSync, writeFileSync, symlinkSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments } = await import('./attachments.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'member-images-'));
+  const outside = mkdtempSync(join(tmpdir(), 'member-outside-'));
+  const image = join(root, '图 test.png');
+  const bare = join(root, 'bare.jpg');
+  const forbidden = join(outside, 'private.png');
+  const link = join(root, 'linked.png');
+  const big = join(root, 'big.webp');
+  writeFileSync(image, 'png'); writeFileSync(bare, 'jpg'); writeFileSync(forbidden, 'private');
+  writeFileSync(big, Buffer.alloc(8 * 1024 * 1024 + 1));
+  symlinkSync(forbidden, link);
+  const files = new Attachments(join(root, 'attachments'));
+  const warnings = [];
+  const logger = { warn: (...args) => warnings.push(args) };
+  const original = `前 ![预览](${image}) 后 ${bare} ${forbidden} ${link} ${big} ${join(root, 'notes.txt')}`;
+  const result = localImageReply(original, root, files, logger);
+  assert.equal(result.text, `前 预览 后  ${forbidden} ${link} ${big} ${join(root, 'notes.txt')}`);
+  assert.deepEqual(result.attachments.map(a => [a.name, a.mime]), [['图 test.png', 'image/png'], ['bare.jpg', 'image/jpeg']]);
+  assert.equal(files.read(result.attachments[0].id).toString(), 'png');
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0][0], /exceeds/);
+  assert.deepEqual(localImageReply('纯文字', root, files, logger), { text: '纯文字', attachments: [] });
+  assert.equal(localImageReply(`![outside](${forbidden})`, root, files, logger).text, `![outside](${forbidden})`);
+  const repeated = localImageReply(Array(11).fill(bare).join(' '), root, files, logger);
+  assert.equal(repeated.attachments.length, 10);
+  assert.equal(repeated.text.trim(), bare);
+  assert.match(warnings.at(-1)[0], /attachment limit/);
+});
+
+test('DSH member: posted reply carries local image bytes', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments } = await import('./attachments.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'member-reply-'));
+  const path = join(root, 'proof.png');
+  writeFileSync(path, 'proof');
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const files = new Attachments(join(root, 'attachments'));
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  members.rt.workspacePath = root;
+  members.rt.files = files;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 图' });
+  await settle();
+  dsh.turn(dsh.sessions.get(dsh.made[0]), [`看图 ![截图](${path})`]);
+  await settle();
+  const reply = hub.store.page(1, undefined, 1)[0];
+  assert.equal(reply.text, '看图 截图');
+  assert.equal(files.read(JSON.parse(reply.attachments)[0].id).toString(), 'proof');
+  await members.close(); hub.store.close();
+});
 
 test('DSH member: @ admits one prompt, its turn posts the reply, duplicates never re-run', async () => {
   const hub = makeHub();
@@ -1515,6 +1652,35 @@ test('CLI directory error: real spawn failure reports channel, cwd and cause wit
   } finally { await members.close(); hub.store.close(); }
 });
 
+test('CLI member: streamed draft commits image attachment on the same row', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments } = await import('./attachments.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'cli-images-'));
+  const image = join(root, 'result.png');
+  writeFileSync(image, 'result');
+  const hub = makeHub();
+  const fake = fakeDsh();
+  const files = new Attachments(join(root, 'attachments'));
+  const members = new DshMembers(hub, {
+    ctx: fake.ctx, createUserMessage: m => m, workspacePath: root, files, logger: quiet,
+    createCliMember: () => ({ async ask(_prompt, _room, onText) {
+      onText(`结果 ![图](${image})`);
+      await tick();
+      return `结果 ![图](${image})`;
+    }, close() {} }),
+  }, [{ id: 'cc', name: 'CC', cli: 'claude' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 生成图' });
+  await settle();
+  const rows = hub.store.page(1, undefined, 10).filter(m => m.author === 'cc');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].draft, 0);
+  assert.equal(rows[0].text, '结果 图');
+  assert.equal(files.read(JSON.parse(rows[0].attachments)[0].id).toString(), 'result');
+  await members.close(); hub.store.close();
+});
+
 function cliMembers(hub, ask) {
   const dsh = fakeDsh();
   const agent = { ask, close() {} };
@@ -1620,6 +1786,33 @@ test('CLI member streams: an error or cancel removes the draft; no output leaves
   await settle();
   assert.equal(hub3.store.page(1, undefined, 10).filter(m => m.author === 'cc').length, 0);
   assert.equal(hub3.store.job(1).state, 'failed');
+});
+
+test('cloud-web reply ids: a reply to a task card carries the card id (reply_to_id); a reply frame with ref_id is acked with its row id', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘&mention_id=111');
+  ju.frame({ type: 'preview_start', ref_id: 'taskcard-task-1', reply_ctx: 'room-1', content: '任务卡：整理日志' });
+  const card = ju.of('preview_ack').at(-1).preview_handle;
+  assert.match(card, /^\d+$/, 'the bridge stores this handle as Task.MessageID');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 进展如何', replyTo: Number(card) });
+  await tick(); await tick();
+  const got = ju.of('message').at(-1);
+  assert.equal(got.reply_to_id, card, 'same id as the task card handle');
+  assert.equal(got.reply_to_author, '橘');
+  assert.equal(got.reply_to_text, '任务卡：整理日志');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 普通' });
+  await tick(); await tick();
+  assert.equal(ju.of('message').at(-1).reply_to_id, undefined, 'a plain message has no reply fields');
+
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', ref_id: 'reply-1', content: '📬 汇报' });
+  const ack = ju.of('preview_ack').at(-1);
+  assert.equal(ack.ref_id, 'reply-1');
+  const row = hub.store.page(1, undefined, 10).find(m => m.text === '📬 汇报');
+  assert.equal(ack.preview_handle, String(row.id), 'the ack carries the posted row id');
+  const acks = ju.of('preview_ack').length;
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', content: '无 ref_id' });
+  assert.equal(ju.of('preview_ack').length, acks, 'no ref_id, no ack (wire unchanged)');
 });
 
 test('cloud-web reply_in_place: a text preview is a draft; the reply with its handle commits that row and is forwarded once', async () => {
@@ -2627,7 +2820,7 @@ test('G35: rework whose session a new claim cleared carries the original handoff
   const t = tasks.assign({ roomId: ws.id, title: '记账', owner: 'fu', actor: 'zhu', messageId: handoff.id });
   tasks.q.setSource.run('workspace', t.id);
   hub.store.bind('fu', ws.id, 'collab-fu');
-  say(ws.id, `【接】#${t.id}\n\n[report]\nledger 加了 add/list，12 个测试通过`);
+  say(ws.id, `【接】#${t.id}\n\n[report] #${t.id} 背景：你让我做这件事。\nledger 加了 add/list，12 个测试通过\n要你做的：没有。\n我加的：无`);
   await settle();
   hub.store.resetSessions(ws.id); // as a new claim does
   say(1, `【返工】#${t.id} 缺 README`, 'zhu');
@@ -2694,6 +2887,7 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
   const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
   gw.tasks = tasks;
+  hub.tasks = tasks; // TeamExit looks up the headline's task number
   const ju = connect(gw, 'bot=ju&name=橘');
   // dev tries the same workspace (what core ClaimTeamWorkspace sends): refused.
   ju.frame({ type: 'team_workspace', ref_id: 'c1', op: 'claim', session_key: 'cloud_web:room-2', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
@@ -2702,7 +2896,9 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   ju.frame({ type: 'team_workspace', ref_id: 'l1', op: 'list', reply_ctx: 'room-2' });
   await tick();
   assert.deepEqual(ju.of('team_workspace_ack').at(-1).rooms.map(r => [r.name, r.owner]), [['工作区1', 'room-1']]);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[report]\n做完了' });
+  // the headline needs a task on the board; one in the chat channel leaves the workspace free
+  const earlier = tasks.assign({ roomId: 1, title: '前活', owner: 'owner', actor: 'ju' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[report] #${earlier.id} 背景：你让我做这件事。\n做完了\n要你做的：没有。\n我加的：无` });
   await tick();
   assert.ok(hub.store.page(1, undefined, 10).some(m => m.author_kind === 'system' && /做完了/.test(m.text)), 'report reaches the owner');
   assert.equal(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system'), false, 'never the other chat channel');
@@ -2719,7 +2915,7 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   ju.frame({ type: 'team_workspace', ref_id: 'c2', op: 'claim', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
   await tick();
   assert.equal(ju.of('team_workspace_ack').at(-1).ok, true);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n要答案\n自验：无需\n类别：方向' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #${t.id} 背景：你让我做这件事。\n要答案\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向` });
   await tick();
   assert.ok(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), 'ask reaches dev, the new owner');
   assert.equal(hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), false);
@@ -4523,7 +4719,7 @@ test('DSH member: each turn carries the gate wiki and task board, a page only on
     await until(() => agent.prompts.length === 2);
     const second = agent.prompts[1].content[0].text;
     assert.equal(gate.calls.length, 2, 'the gate is asked every turn');
-    assert.doesNotMatch(second, /wiki 页|任务板/, 'pages already given are not given again');
+    assert.doesNotMatch(second, /wiki 页|【任务板/, 'pages already given are not given again');
   } finally {
     delete process.env.GATE_PORT;
     await gate.close();
@@ -4546,7 +4742,7 @@ test('CLI member: the gate block goes into the prompt; a changed board goes out 
     hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 现在呢' });
     await until(() => hub.store.job(3)?.state === 'done');
     assert.match(prompts[0], /【任务板 aaa111】 — .*\n#7 修登录 · 龙娘/);
-    assert.doesNotMatch(prompts[1], /任务板/);
+    assert.doesNotMatch(prompts[1], /【任务板/);
     assert.match(prompts[2], /【任务板 bbb222】/);
   } finally {
     delete process.env.GATE_PORT;
@@ -4657,7 +4853,7 @@ test('CLI member: after /new the fresh context gets its MEMORY.md and the task b
     await until(() => prompts.length === 3);
     assert.match(prompts[0], /你的记忆/);
     assert.match(prompts[0], /【任务板 aaa111】/);
-    assert.doesNotMatch(prompts[1], /你的记忆|任务板/, 'same context: not again');
+    assert.doesNotMatch(prompts[1], /你的记忆|【任务板/, 'same context: not again');
     assert.match(prompts[2], /你的记忆/, '/new: MEMORY.md again');
     assert.match(prompts[2], /【任务板 aaa111】/, '/new: the unchanged board again');
   } finally {
@@ -4692,10 +4888,10 @@ test('CLI member: a session that could not be resumed gets its MEMORY.md and the
       await settle();
     }
     assert.match(prompts[0], /你的记忆/);
-    assert.doesNotMatch(prompts[1], /你的记忆|任务板/, 'same context so far: not again');
+    assert.doesNotMatch(prompts[1], /你的记忆|【任务板/, 'same context so far: not again');
     assert.match(prompts[2], /你的记忆/, 'session lost: MEMORY.md again');
     assert.match(prompts[2], /【任务板 aaa111】/, 'session lost: the unchanged board again');
-    assert.doesNotMatch(prompts[3], /你的记忆|任务板/, 'given to the new session: not again');
+    assert.doesNotMatch(prompts[3], /你的记忆|【任务板/, 'given to the new session: not again');
   } finally {
     delete process.env.BOTHOUSE_DATA_DIR;
     delete process.env.GATE_PORT;
@@ -4887,6 +5083,81 @@ function g34Setup() {
   return { hub, tasks, clock, woken, ws, assign, say };
 }
 
+test('watch closes work owned by a removed member, including parked tasks', () => {
+  const { hub, tasks, clock, ws, assign } = g34Setup();
+  const task = assign();
+  tasks.pauseTask(task.id);
+  assert.equal(tasks.task(task.id).next_check_at, null);
+  hub.store.db.prepare(`INSERT INTO members (id, name, persona, source, created_at, removed)
+    VALUES ('fu', '副', '', 'ui', 1, 1)`).run();
+  clock.t += 1;
+  tasks.tick();
+  const closed = tasks.task(task.id);
+  assert.equal(closed.status, 'returned');
+  assert.equal(closed.next_check_at, null);
+  assert.match(closed.note, /负责人已移除，自动收口/);
+  assert.ok(hub.store.page(1).some(m => m.author_kind === 'system' && m.text.includes(`#${task.id}`)));
+});
+
+test('watch closes an active task whose persisted owner was removed', () => {
+  const { hub, tasks, clock, assign } = g34Setup();
+  const task = assign();
+  hub.store.db.prepare(`INSERT INTO members (id, name, persona, source, created_at, removed)
+    VALUES ('fu', '副', '', 'ui', 1, 1)`).run();
+  hub.members.delete('fu');
+  clock.t += 1;
+  tasks.tick();
+  assert.equal(tasks.task(task.id).status, 'returned');
+  assert.match(tasks.task(task.id).note, /负责人已移除，自动收口/);
+});
+
+test('parked task closure reports to its original channel after workspace reuse', () => {
+  const { hub, tasks, clock, ws, assign } = g34Setup();
+  hub.store.ensureRoom(2, 'other');
+  const task = assign();
+  tasks.pauseTask(task.id);
+  hub.store.claimWorkspace(2, ws.id);
+  hub.store.db.prepare(`INSERT INTO members (id, name, persona, source, created_at, removed)
+    VALUES ('fu', '副', '', 'ui', 1, 1)`).run();
+  clock.t += 1;
+  tasks.tick();
+  assert.equal(tasks.task(task.id).status, 'returned');
+  assert.ok(hub.store.page(1).some(m => m.author_kind === 'system' && m.text.includes(`负责人已移除，自动收口`)));
+  assert.equal(hub.store.page(2).some(m => m.text.includes(`负责人已移除，自动收口`)), false);
+  assert.equal(hub.store.workspaceOwner(ws.id), 2);
+});
+
+test('a paused task with a live owner is never closed by the watch', () => {
+  const { hub, tasks, clock, ws, assign } = g34Setup();
+  const task = assign();
+  tasks.pauseTask(task.id);
+  clock.t += 6 * 60 * 60;
+  tasks.tick();
+  const kept = tasks.task(task.id);
+  assert.equal(kept.status, 'assigned');
+  assert.notEqual(kept.paused_at, null);
+  assert.equal(hub.store.page(ws.id).some(m => m.author_kind === 'system' && m.text.includes('自动收口')), false);
+});
+
+test('workspace listing releases an empty owned workspace, not a parked task or bridge claim', () => {
+  const { hub, tasks, ws, assign } = g34Setup();
+  const pending = assign();
+  tasks.pauseTask(pending.id);
+  hub.store.claimWorkspace(1, ws.id);
+  hub.store.roomsView();
+  assert.equal(hub.store.workspaceOwner(ws.id), 1, 'parked work still owns its claimed workspace');
+  const idle = hub.store.createWorkspace(1);
+  hub.store.db.prepare('UPDATE rooms SET claim_task = ? WHERE id = ?').run(pending.id, idle.id);
+  hub.store.roomsView();
+  assert.equal(hub.store.workspaceOwner(idle.id), 1, 'a fresh claim has time to open its handoff');
+  hub.store.db.prepare('UPDATE rooms SET claim_at = unixepoch() - 1801 WHERE id = ?').run(idle.id);
+  hub.store.roomsView();
+  assert.equal(hub.store.workspaceOwner(idle.id), null, 'an expired empty claim returns to the pool');
+  const bridge = hub.store.createWorkspace(1, { bridge: true });
+  hub.store.roomsView();
+  assert.equal(hub.store.workspaceOwner(bridge.id), 1, 'bridge claim remains owned');
+});
+
 test('G34: a DSH reply opening with 【接】#id and growing in place, and its progress card, count as progress', () => {
   const { hub, tasks, clock, ws, assign } = g34Setup();
   const t = assign();
@@ -4932,7 +5203,7 @@ test('G34: 【接】#id in the chat channel about a workspace task neither accep
 test('G34: a workspace hand-back brings its [report] body to the chat channel and wakes the dispatcher, who accepts it with 【验收】#id', async () => {
   const { hub, tasks, woken, ws, assign, say } = g34Setup();
   const t = assign();
-  say(ws.id, `【接】#${t.id}\n\n先规划结构。现在写模块。\n\n[report]\n40 个测试通过，README 第一行写了暗号`);
+  say(ws.id, `【接】#${t.id}\n\n先规划结构。现在写模块。\n\n[report] #${t.id} 背景：你让我做这件事。\n40 个测试通过，README 第一行写了暗号\n要你做的：没有。\n我加的：无`);
   await settle();
   assert.equal(tasks.task(t.id).status, 'returned');
   const copies = hub.store.page(1, undefined, 50).filter(m => m.author_kind === 'system' && m.text.startsWith('📬'));
@@ -5055,14 +5326,14 @@ test('G35: a DSH [ask] is forwarded as a question, not a hand-back, and its task
   const { hub, tasks, woken, ws, assign, say } = g34Setup();
   const t = assign();
   const due = tasks.task(t.id).next_check_at;
-  say(ws.id, `【接】#${t.id}\n先看了现状。\n\n[ask]\n方案 A 还是 B？\n自验：无需\n类别：方向`);
+  say(ws.id, `【接】#${t.id}\n先看了现状。\n\n[ask] #${t.id} 背景：你让我做这件事。\n方案 A 还是 B？\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向`);
   await settle();
   const task = tasks.task(t.id);
   assert.equal(task.status, 'accepted', 'not returned');
   assert.equal(task.paused_at, null, 'not parked');
   assert.equal(task.next_check_at, due, 'the watch stays');
   assert.equal(hub.store.workspaceOwner(ws.id), 1, 'the workspace stays with its chat channel');
-  const copies = hub.store.page(1, undefined, 50).filter(m => m.text.startsWith('📬'));
+  const copies = hub.store.page(1, undefined, 50).filter(m => m.text.startsWith('📬') && !m.text.startsWith('📬 细节'));
   assert.equal(copies.length, 1);
   assert.match(copies[0].text, /ask-[0-9a-f]{8}/, 'forwarded as an ask');
   assert.equal(hub.store.page(1, undefined, 50).filter(m => /交回/.test(m.text)).length, 0);
@@ -5072,7 +5343,7 @@ test('G35: a DSH [ask] is forwarded as a question, not a hand-back, and its task
 test('G35: while a DSH [ask] waits on the user the watch wakes nobody and keeps the workspace; the answer re-arms it', async () => {
   const { hub, tasks, clock, woken, ws, assign } = g34Setup();
   const t = assign();
-  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n看了现状\n\n[ask]\n方案 A 还是 B？\n自验：无需\n类别：方向` }, 1100).message;
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n看了现状\n\n[ask] #${t.id} 背景：你让我做这件事。\n方案 A 还是 B？\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向` }, 1100).message;
   tasks.fromMessage(row);
   hub.teamExit.onMessage(row);
   await settle();
@@ -5327,7 +5598,7 @@ test('r12: a first call 「副，把 README 改一下」 dispatches as before', 
 test('G37: an [ask] answer reaches the workspace @-ing the member by name, not by id', async () => {
   const { hub, tasks, ws, assign } = g34Setup();
   const t = assign();
-  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n[ask]\n方案 A 还是 B？\n自验：无需\n类别：方向` }, 1100).message;
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n[ask] #${t.id} 背景：你让我做这件事。\n方案 A 还是 B？\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向` }, 1100).message;
   tasks.fromMessage(row);
   hub.teamExit.onMessage(row);
   await settle();
@@ -5339,7 +5610,7 @@ test('G37: an [ask] answer reaches the workspace @-ing the member by name, not b
   assert.doesNotMatch(answer.text, /@fu\b/, 'no member id in the text');
   assert.deepEqual([...mentions(answer.text, hub.routable())], ['fu'], 'the name still routes to her');
   const t2 = assign('zhu');
-  const ask2 = hub.store.append(ws.id, { authorKind: 'role', author: 'zhu', name: '主', text: `【接】#${t2.id}\n[ask]\n要不要改 C？\n自验：无需\n类别：方向` }, 1200).message;
+  const ask2 = hub.store.append(ws.id, { authorKind: 'role', author: 'zhu', name: '主', text: `【接】#${t2.id}\n[ask] #${t2.id} 背景：你让我做这件事。\n要不要改 C？\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向` }, 1200).message;
   hub.teamExit.onMessage(ask2);
   await settle();
   hub.store.db.prepare("UPDATE team_exit_asks SET member_id = 'gone' WHERE source_id = ?").run(ask2.id);

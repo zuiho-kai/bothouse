@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -30,14 +31,53 @@ func TestPausedTaskExitNotForwarded(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(c.item+"\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			e.forwardWorkspaceExit(p, exitWSKey, "[ask] 能不能开子任务\n自验：设计稿已写好\n类别：权限确认")
-			e.forwardWorkspaceExit(p, exitWSKey, "[report]\n已停手")
-			got := len(p.sentTo("discord:chat1"))
+			e.forwardWorkspaceExit(p, exitWSKey, "[ask] #4 背景：你让我做这件事。\n能不能开子任务\n要你做的：没有。\n我加的：无\n自验：设计稿已写好\n类别：权限确认")
+			e.forwardWorkspaceExit(p, exitWSKey, "[report] #4 背景：你让我做这件事。\n已停手\n要你做的：没有。\n我加的：无")
+			// Each reply's three parts are posted, named by item #4 (its details may follow them).
+			got := 0
+			for _, s := range p.sentTo("discord:chat1") {
+				if strings.HasPrefix(s, "📬「守卫」") {
+					got++
+				}
+			}
 			if c.forward && got != 2 {
 				t.Fatalf("forwarded %d of 2: %+v", got, p.out)
 			}
 			if !c.forward && got != 0 {
 				t.Fatalf("stopped task still forwarded: %+v", p.out)
+			}
+		})
+	}
+}
+
+// The first line's #id decides which task is judged (#775): the item bound to the workspace
+// last was stopped by the user, while the reply is for another of its items, still in work.
+func TestStoppedJudgedByHeadlineID(t *testing.T) {
+	board := `{"id": 3, "what": "旧活", "ws": "discord:ws1", "bound": "2026-10-28T01:00:00+00:00"}` + "\n" +
+		`{"id": 4, "what": "守卫", "ws_was": "discord:ws1", "bound": "2026-10-28T05:05:47+00:00", "paused": "10-28 14:12", "pause_why": "用户叫停"}`
+	for _, c := range []struct {
+		name, reply, head string
+		forward           bool
+	}{
+		{"other task in work", "[report] #3 背景：你让我做这件事。\n旧活做完了\n要你做的：没有。\n我加的：无", "📬「旧活」", true},
+		{"stopped task named", "[report] #4 背景：你让我做这件事。\n已停手\n要你做的：没有。\n我加的：无", "📬「守卫」", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
+			dir := t.TempDir()
+			e.SetTeam(dir, "橘", false)
+			if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(board+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			e.forwardWorkspaceExit(p, exitWSKey, c.reply)
+			got := 0
+			for _, s := range p.sentTo("discord:chat1") {
+				if strings.HasPrefix(s, c.head) {
+					got++
+				}
+			}
+			if c.forward != (got == 1) {
+				t.Fatalf("forward=%v, got %d: %+v", c.forward, got, p.out)
 			}
 		})
 	}

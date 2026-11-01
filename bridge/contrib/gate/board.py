@@ -13,10 +13,10 @@
 
 用法：
   board                                  # 列出进行中的事
-  board add <事情> <分支/PR/路径> <状态> <谁> [--next 几点看] [--short 短名]   # 新加一条，打印编号
+  board add <事情> <分支/PR/路径> <状态> <谁> --short 短名 [--next 几点看]   # 新加一条，打印编号
                                          #   短名（≤10 字）上团队板；不写就从事情去掉「用户点名：」「#N 续：」这类前缀再截
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
-                                         #   状态以收尾词开头（已交回/已完成/已验收/已收口/已结束/done）就直接结束，同 done
+                                         #   状态以收尾词开头（已完成/已验收/已收口/已结束/done）就直接结束，同 done
   board next <编号> <几点> | --restore <JSON>  # 只改「下次看」（later 专用，要 BOARD_LATER=1）；打印改前记录和事情
   board done <编号> <返工次数> [原因]      # 结束：移出任务板，记进 board-done.jsonl；返工次数必填，大于 0 时原因必填
   board rework [天数]                    # 最近 14 天的返工次数和原因
@@ -59,7 +59,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # ../lead/board 从别
 import datadir  # noqa: E402
 
 SETUP = datadir.setup_dir()
-DIR = Path(os.environ.get("BOARD_DIR") or SETUP / "team").expanduser()
+
+
+def _board_dir():
+    if os.environ.get("BOARD_DIR"):
+        return Path(os.environ["BOARD_DIR"]).expanduser()
+    cfg = SETUP / "config.toml"
+    if cfg.is_file():
+        try:
+            m = re.search(r'^\s*team_status_dir\s*=\s*"([^"]+)"', cfg.read_text(encoding="utf-8"), re.M)
+            if m and m.group(1).strip():
+                return Path(m.group(1).strip()).expanduser()
+        except OSError:
+            pass
+    return (SETUP / "team").expanduser()
+
+
+DIR = _board_dir()
 
 
 def _path(name):
@@ -88,10 +104,10 @@ def _read(name="board.jsonl"):
     return out
 
 
-def _write(items):
-    tmp = _path("board.jsonl.tmp")
+def _write(items, name="board.jsonl"):
+    tmp = _path(name + ".tmp")
     tmp.write_text("".join(json.dumps(i, ensure_ascii=False) + "\n" for i in items))
-    os.replace(tmp, _path("board.jsonl"))
+    os.replace(tmp, _path(name))
 
 
 def items():
@@ -209,7 +225,7 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None)
         cur = _read()
         nid = max([i["id"] for i in cur + _read("board-done.jsonl")] + [0]) + 1
         it = {"id": nid, "what": what, "short": (short_name or "").strip()[:SHORT_RUNES] or short_of(what),
-              "where": where, "status": status, "who": who, "at": _now()}
+              "where": where, "status": status, "who": who, "at": _now(), "dispatcher": os.environ.get("CC_PROJECT", "")}
         if nxt:
             it["next"], it["next_ts"] = nxt, _deadline(nxt)
         if _cur_channel():
@@ -233,7 +249,10 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None)
 def unadd(nid):
     """撤掉刚 add 的条目（ws-handoff 叫醒失败时用）：不进 board-done，不算返工。"""
     with _locked():
-        _write([i for i in _read() if i.get("id") != nid])
+        cur = _read()
+        tid = next((i.get("guard") for i in cur if i.get("id") == nid), None)
+        _write([i for i in cur if i.get("id") != nid])
+    _del_timer(tid)
 
 
 # 纯回看条目：见文件头「add 拒绝纯回看条目」
@@ -276,9 +295,11 @@ def update(nid, status, where=None, who=None, nxt=None):
             return False
         before = dict(hit)
         hit["status"], hit["at"] = status, _now()
+        tid = None
         if who and hit.get("ws") and who != before.get("who"):
             hit["ws_was"] = hit.pop("ws")  # 「谁」改走：这件不再算在那个工作区（main 里 park 掉它的交接）
             _back_to_chat(hit)
+            tid = hit.pop("guard", None)  # 改派：撤兜底，交给新工作区时 ws-handoff 再挂
         if where:
             hit["where"] = where
         if who:
@@ -288,6 +309,7 @@ def update(nid, status, where=None, who=None, nxt=None):
         if not hit.get("ch") and _cur_channel():
             hit["ch"] = _cur_channel()
         _write(cur)
+    _del_timer(tid)
     return before
 
 
@@ -346,6 +368,14 @@ def paused_item(path):
     return next((i for i in _read() if i.get("paused") and i.get("where") == path), None)
 
 
+def done_item(path):
+    """交接文件 path 对应的活已交回：板上没有它的条目，board-done.jsonl 里有它做完的记录（自动收起的暂停不算），返回最后一条；否则 None。
+    ws-forward 用它拦下往已交回的活转话（工作区交回后会话已清空，话发过去没人接）。"""
+    if any(i.get("where") == path for i in _read()):
+        return None
+    return next((r for r in reversed(_read("board-done.jsonl")) if r.get("where") == path and not r.get("auto_pruned")), None)
+
+
 # 暂停：条目留在 board.jsonl（不写 board-done.jsonl，不算完成），带 paused（暂停时刻）和 pause_why；团队板上单列「暂停」块。
 def pause(nid, why=None):
     with _locked():
@@ -363,7 +393,9 @@ def pause(nid, why=None):
             hit["pause_why"] = why
         else:
             hit.pop("pause_why", None)
+        tid = hit.pop("guard", None)  # 暂停、提问让出（ask 也走这里）：不再等工作区交回
         _write(cur)
+    _del_timer(tid)
     return {**hit, "ws": ws} if ws else hit
 
 
@@ -425,6 +457,9 @@ def pause_stale(now=None):
         stamp = it.get("progress_at")
         if stamp is None:
             continue
+        at_ts = _ts(it.get("at"), now)
+        if isinstance(at_ts, (int, float)) and at_ts > stamp:
+            stamp = at_ts
         if now - stamp < STALE_AFTER:
             continue
         hit = pause(it["id"], "一小时无进展，转待办")
@@ -452,6 +487,80 @@ def schedule_stale_check(it):
                        capture_output=True, text=True)
     if r.returncode:
         print(f"board: #{it['id']} 自动停滞检查未安排：{r.stderr.strip()[:200]}", file=sys.stderr)
+
+
+# 兜底定时器（用户 2026-10-29「他那边返回给你的时候，这个定时任务自动删了，你那边还是要有个定时任务，防止说他那边超时」）：
+# ws-handoff / ws-forward 交活时在交活的聊天频道（条目 chat）挂一个，到点叫醒那里的主角色查卡在哪、跟用户说；
+# 条目结束（工作区 [report] 交回，桥调 board update 已完成）、提问让出（board ask）、暂停、「谁」改走时撤掉。
+# 结果靠工作区 [report] 推回聊天频道，定时器只管超时，不轮询。条目上记 guard（timer id）。
+GUARD_DELAY = "30m"  # 橘定的默认（交接 notes/ws-fallback-timer-1029.md），ws-handoff --guard 可改
+TIMER_ID_RE = re.compile(r"Timer created:\s*(\S+)")
+
+
+def _guard_prompt(it, delay):
+    where = it.get("who") or "工作区"
+    return (f"兜底到点：#{it['id']}「{it.get('what', '')}」交给{where} {delay} 了，还没交回。"
+            f"先看任务板 #{it['id']}：已经完成或暂停就什么都不说，只回 NO_REPLY。"
+            f"还在做就查卡在哪（工作区最后的发言、看门催促、命令是不是挂住），跟用户说一句卡在哪、你怎么办；"
+            f"要接着等就用 ws-forward --notes {it.get('where', '')} \"<要它做的>\" 催一下（会重挂兜底），不自己 timer add。")
+
+
+def _del_timer(tid):
+    cc = _cc_bin()
+    if not tid or not cc:
+        return
+    try:
+        p = subprocess.run([cc, "timer", "del", tid], capture_output=True, text=True, timeout=WS_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"board: 兜底定时器 {tid} 没撤掉（{e}）", file=sys.stderr)
+        return
+    if p.returncode and "not found" not in (p.stderr + p.stdout).lower():  # 已经到点触发过：不用撤
+        print(f"board: 兜底定时器 {tid} 没撤掉（{p.stderr.strip()[:200]}）", file=sys.stderr)
+
+
+def disarm_guard(nid):
+    """撤掉 #nid 的兜底定时器（没有就什么都不做）。"""
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        tid = hit.pop("guard", None) if hit else None
+        if tid:
+            _write(cur)
+    _del_timer(tid)
+
+
+def arm_guard(nid, delay=None):
+    """给 #nid 挂（或重挂）兜底定时器，返回 timer id；条目没记聊天频道、没桥、挂不上返回 None（只警告，不拦交活）。"""
+    delay = delay or GUARD_DELAY
+    disarm_guard(nid)
+    cc = _cc_bin()
+    it = next((i for i in _read() if i["id"] == nid), None)
+    if not cc or it is None or not it.get("chat"):
+        return None
+    try:
+        p = subprocess.run([cc, "timer", "add", "-s", it["chat"], "--delay", delay, "--timeout-mins", "0",
+                            "--silent", "--desc", f"兜底 #{nid}：工作区 {delay} 没交回就查", "--prompt", _guard_prompt(it, delay)],
+                           capture_output=True, text=True, timeout=WS_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"board: #{nid} 兜底定时器没挂上（{e}）", file=sys.stderr)
+        return None
+    m = TIMER_ID_RE.search(p.stdout)
+    if p.returncode or not m:
+        print(f"board: #{nid} 兜底定时器没挂上（{(p.stderr.strip() or p.stdout.strip())[:200]}）", file=sys.stderr)
+        return None
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None:  # 挂的时候条目已经结束了
+            stale = True
+        else:
+            stale = False
+            hit["guard"] = m.group(1)
+            _write(cur)
+    if stale:
+        _del_timer(m.group(1))
+        return None
+    return m.group(1)
 
 
 WS_NAME_RE = re.compile(r"^(工作区\d+)")  # 「谁」= 工作区名 + 主角色名（ws-handoff 写的 f"{name}{lead_name}"）
@@ -495,6 +604,62 @@ def _refuse(nid, why):
              f"或用 ws-handoff 另交一个工作区")
 
 
+def returned(nid, reviewer, at=None):
+    """Record a delivered report, not acceptance. Repeated reports keep the deadline."""
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        archived = None
+        if hit is None:
+            # Legacy workers may say "done" before their final report (#770). That is
+            # execution completion, not dispatcher acceptance of a delivered artifact.
+            archived = _read("board-done.jsonl")
+            hit = next((i for i in reversed(archived) if i["id"] == nid), None)
+            if hit is None or not hit.get("chat"):
+                return False
+            if hit.get("review_accepted_at"):
+                return True  # a delayed report must not reopen an accepted task
+            hit = dict(hit)
+            for key in ("done_at", "auto_pruned", "returned_at"):
+                hit.pop(key, None)
+            cur.append(hit)
+        if hit.get("returned_at"):
+            return True
+        hit["returned_at"] = datetime.fromisoformat(re.sub(r"\.\d+", lambda m: m[0][:7].ljust(7, "0"), at).replace("Z", "+00:00")).isoformat() if at else _bound_now()
+        hit["reviewer"] = hit.get("dispatcher") or reviewer
+        hit["status"], hit["at"] = "已交回待验收", _now()
+        if hit.get("chat"):
+            hit["sk"] = hit["chat"]
+        if hit.get("ws"):
+            hit["ws_was"] = hit.pop("ws")
+        hit.pop("paused", None)
+        hit.pop("pause_why", None)
+        _back_to_chat(hit)
+        tid = hit.pop("guard", None)
+        _write(cur)
+        if archived is not None:
+            _write([i for i in archived if i["id"] != nid], "board-done.jsonl")
+    _del_timer(tid)
+    return True
+
+
+def reject(nid, reason):
+    """Keep feedback for ws-handoff --resume's occupancy-aware dispatch."""
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None or not hit.get("returned_at"):
+            return False
+        hit.pop("returned_at", None)
+        hit.pop("reviewer", None)
+        hit["paused"] = hit["at"] = _now()
+        hit["review_rejected"] = reason
+        hit["pause_why"] = "验收退回：" + reason
+        hit["status"] = hit["pause_why"]
+        _write(cur)
+    return True
+
+
 def rebind(nid, ws):
     """reoccupy 收回后，条目重新绑上工作区（之后 pause / 改走会再放回）。"""
     with _locked():
@@ -502,6 +667,9 @@ def rebind(nid, ws):
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is not None:
             hit["ws"] = hit["sk"] = ws
+            hit.pop("returned_at", None)
+            hit.pop("reviewer", None)
+            hit.pop("review_rejected", None)
             hit["bound"] = _bound_now()  # reoccupy 刚 claim 了一件新交接
             hit.pop("ws_was", None)
             if ws.startswith("discord:"):
@@ -524,8 +692,8 @@ def resume(nid):
 
 
 # 收尾词：update 写成这些开头的状态就直接 done（用户 2026-10-28「任务榜完成的为什么不下掉」：
-# 工作区交回时只改状态为「已交回」「done」，没人再跑 board done，条目一直挂着）。和桥 watchBoardClosed 同一组词。
-CLOSED_RE = re.compile(r"\s*(?:已验收|验收通过|已收口|已完成|已交回|已结束|done\b)", re.I)
+# 只有明确完成/验收/收口才关闭；「已交回」仍需验收。和桥 watchBoardClosed 同一组词。
+CLOSED_RE = re.compile(r"\s*(?:已验收|验收通过|已收口|已完成|已结束|done\b)", re.I)
 
 
 def done(nid, rework=None, why=None):
@@ -535,13 +703,18 @@ def done(nid, rework=None, why=None):
         if hit is None:
             return False
         _write([i for i in cur if i["id"] != nid])
+        tid = hit.pop("guard", None)  # 交回了：撤兜底
         with open(_path("board-done.jsonl"), "a") as f:
             rec = {**hit, "status": "已完成", "done_at": _now()}  # #597 N3：结束记录不带着原来的「进行中」
+            session = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+            if hit.get("returned_at") or (hit.get("chat") and session == hit["chat"]):
+                rec["review_accepted_at"] = _bound_now()
             if rework is not None:  # 不填就不写这两项，汇总时算「未填」
                 rec["rework"] = rework
                 if why:
                     rec["rework_why"] = why
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    _del_timer(tid)
     return True
 
 
@@ -747,7 +920,7 @@ def pr_final(numbers, now=None, repo=None):
 
 def prune_why(i, its, now, prs, idle_after=None):
     """暂停条目该自动收起返回原因；不收返回 None。prs = pr_final 的结果（{} = 不按 PR 判）。"""
-    if not i.get("paused") or _asking(i):
+    if i.get("returned_at") or i.get("review_rejected") or not i.get("paused") or _asking(i):
         return None  # 提问等答复的一律不收
     if i.get("unpruned"):
         prs, its = {}, []  # 手动找回过（resume 被拒仍暂停）：①② 的事实不会变，不再按它们收；③从找回时刻重新计，再暂停时清掉
@@ -911,6 +1084,8 @@ def main(argv):
         if cmd in ("list", "ls"):
             print("\n".join(lines()) or "（任务板是空的）")
         elif cmd == "add" and len(argv) == 5:
+            if not (short_name or "").strip() or len(short_name.strip()) > SHORT_RUNES:
+                sys.exit(f"不加：要写 --short 短名（≤{SHORT_RUNES} 字，置顶任务表上显示的名字），不再从任务句截前十字")
             why = _lookback_reason(*argv[1:4])
             if why:
                 sys.exit(f"不加：{why}。用完成通知，或在原条目上 board update / later <编号>")
@@ -953,6 +1128,14 @@ def main(argv):
                 freed = park_workspace(before)  # 「谁」改走了：它在工作区的那件交接放回桥
                 if freed:
                     print("工作区已放回池子，会话已清")
+        elif cmd == "returned" and len(argv) in (3, 4):
+            if not returned(int(argv[1].lstrip("#")), *argv[2:]):
+                sys.exit("条目不存在，未登记交回")
+            print("已交回待验收")
+        elif cmd == "reject" and len(argv) == 3 and argv[2].strip():
+            if not reject(int(argv[1].lstrip("#")), argv[2].strip()):
+                sys.exit("条目不在待验收状态，未退回")
+            print("已记录退回问题；用 ws-handoff --resume <编号> <问题> 续办")
         elif cmd == "done" and 2 <= len(argv) <= 4:
             # 返工次数必填、>0 时原因必填：不填就没法统计哪条规矩起了作用（board rework 汇总里的「未填」）
             nid = int(argv[1].lstrip("#"))

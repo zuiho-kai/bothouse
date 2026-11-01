@@ -110,7 +110,7 @@ func TestRelaySendUnknownTargetNoBindNotice(t *testing.T) {
 // #587: a chat channel with no workspace is told how to make the first one; workspaces are
 // still never made by themselves.
 func TestTeamWorkspaceListEmptySaysNew(t *testing.T) {
-	g := newWorkspaceGuild()
+	g := newEmptyPoolGuild()
 	e := newWorkspaceLead(t, g, t.TempDir())
 	e.teamWS = newTeamWorkspaces()
 	e.sessions.GetOrCreateActive("discord:100:u1")

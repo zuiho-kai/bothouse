@@ -30,7 +30,7 @@ class WsUpTest(unittest.TestCase):
         """ws-handoff 原样跑；桥（timer/workspace/send）是假脚本，不读平台 token、不走网络。"""
         drv = ("import sys; from importlib.machinery import SourceFileLoader as L; "
                "m = L('ws_handoff', sys.argv[1]).load_module(); m.main(sys.argv[2:])")
-        return subprocess.run([sys.executable, "-I", "-c", drv, str(HERE / "ws-handoff"), *args], capture_output=True,
+        return subprocess.run([sys.executable, "-I", "-c", drv, str(HERE / "ws-handoff"), *args, "--short", "测试"], capture_output=True,
                               text=True, env={**self.env, "CC_SESSION_KEY": key})
 
     def timers(self):
@@ -110,7 +110,7 @@ class WsUpTest(unittest.TestCase):
         notes = []
         for n in ("a", "b"):
             p = self.tmp / f"{n}.md"
-            p.write_text("# 用户原话\n# 进度\n# 规矩\n# 参照实现\n- bridge/contrib/lead/ws-up:1\n", encoding="utf-8")
+            p.write_text("# 用户原话\n# 总目标\n# 范围\n改：x\n不改：无\n# 已查过什么\n无（没查过）\n# 进度\n# 相关改动\n冲突：无\n# 规矩\n# 参照实现\n- bridge/contrib/lead/ws-up:1\n", encoding="utf-8")
             notes.append(str(p))
         self.assertEqual(self.handoff(notes[0], "A", key="test:100").returncode, 0)
         self.env["WS_CHANNEL"] = "901"
@@ -130,10 +130,20 @@ class WsUpTest(unittest.TestCase):
         # 答复按 --notes 转回 a 所在工作区，而不是最近一次交接
         r = self.run_tool("ws-forward", "--notes", notes[0], "用户说选 A", key="test:100")
         self.assertEqual(r.returncode, 0, r.stderr)
-        argv = self.timers()[-1]
+        argv = [t for t in self.timers() if "工作区转交" in t][-1]  # 之后还有聊天频道的兜底重挂
         self.assertEqual(argv[argv.index("-s") + 1], "test:900")
         self.assertIn("用户说选 A", Path(notes[0]).read_text(encoding="utf-8"))
         self.assertNotIn("用户说选 A", Path(notes[1]).read_text(encoding="utf-8"))
+        self.assertNotIn("--inject-if-busy", argv)
+        # 用户改了要求（桥自动转话带 --interrupt）：插进工作区当前这一轮，提示先停旧做法
+        r = self.run_tool("ws-forward", "--interrupt", "--notes", notes[0], "验收改成选免费模型就不显示按钮", key="test:100")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        argv = [t for t in self.timers() if "工作区转交" in t][-1]
+        self.assertEqual(argv[argv.index("-s") + 1], "test:900")
+        self.assertIn("--inject-if-busy", argv)
+        self.assertEqual(argv[argv.index("--delay") + 1], "1s")
+        self.assertTrue(argv[argv.index("--prompt") + 1].startswith("打断：用户改了要求"))
+        self.assertIn("验收改成选免费模型就不显示按钮", Path(notes[0]).read_text(encoding="utf-8"))
 
 
 
@@ -198,11 +208,12 @@ class WsPoolTest(unittest.TestCase):
 
     def note(self, n):
         p = self.tmp / f"{n}.md"
-        p.write_text("# 用户原话\n# 进度\n# 规矩\n# 参照实现\n- bridge/contrib/lead/ws-up:1\n", encoding="utf-8")
+        p.write_text("# 用户原话\n# 总目标\n# 范围\n改：x\n不改：无\n# 已查过什么\n无（没查过）\n# 进度\n# 相关改动\n冲突：无\n# 规矩\n# 参照实现\n- bridge/contrib/lead/ws-up:1\n", encoding="utf-8")
         return str(p)
 
-    def handoff(self, notes, task, chat="test:100"):
-        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), notes, task], capture_output=True, text=True,
+    def handoff(self, notes, task, chat="test:100", force=False):
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), notes, task, "--short", "测试",
+                            *(["--force"] if force else [])], capture_output=True, text=True,
                            env={**self.env, "CC_SESSION_KEY": chat})
         self.assertEqual(r.returncode, 0, r.stderr)
         argv = [c for c in map(json.loads, Path(str(self.fake) + ".calls").read_text().splitlines())
@@ -224,10 +235,15 @@ class WsPoolTest(unittest.TestCase):
         self.assertNotIn("工作区3", self.pool())
         self.assertEqual([i["ws"] for i in self.items()], got)  # 每块都上板、绑工作区
 
-    def test_same_notes_twice_both_bound(self):  # 方案 10：同一交接文件连交 2 件，两条都在
+    def test_same_notes_twice_both_bound(self):  # 方案 10：同一交接文件连交 2 件，带 --force 两条都在
         self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
         n = self.note("a")
-        self.handoff(n, "A"); self.handoff(n, "B")
+        self.handoff(n, "A")
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), n, "B", "--short", "测试"],
+                           capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
+        self.assertNotEqual(r.returncode, 0)  # 防重复派：已有进行中的就拒（10-31）
+        self.assertIn("--force", r.stderr)
+        self.handoff(n, "B", force=True)
         records = json.loads((self.tmp / "setup" / "ws-handoff-last.json").read_text())["tasks"]
         self.assertEqual(len(records), 2)
         self.assertEqual([r["board"] for r in records.values()], [[1], [2]])
@@ -333,7 +349,7 @@ class WsPoolTest(unittest.TestCase):
     def test_manual_item_in_workspace_does_not_park(self):  # 没绑工作区的条目（工作区里手动 add 的）暂停不动桥
         self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
         self.handoff(self.note("x"), "X")
-        r = subprocess.run([str(HERE / "board"), "add", "顺手的事", "-", "s", "工作区1主角色"], capture_output=True,
+        r = subprocess.run([str(HERE / "board"), "add", "顺手的事", "-", "s", "工作区1主角色", "--short", "测试"], capture_output=True,
                            text=True, env={**self.env, "CC_SESSION_KEY": "test:1"})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.board("pause", "2")
@@ -351,7 +367,7 @@ class WsPoolTest(unittest.TestCase):
         self.pool([{"id": "1", "name": "工作区1", "owner": "test:100", "open": 2, "parked": 0},
                    {"id": "2", "name": "工作区2", "owner": "test:100", "open": 1, "parked": 0},
                    {"id": "3", "name": "工作区3", "owner": "test:100", "open": 3, "parked": 0}])
-        r = subprocess.run([str(HERE / "board"), "add", "还在做", "-", "s", "工作区2主角色"], capture_output=True,
+        r = subprocess.run([str(HERE / "board"), "add", "还在做", "-", "s", "工作区2主角色", "--short", "测试"], capture_output=True,
                            text=True, env={**self.env, "CC_SESSION_KEY": "test:2"})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.handoff(self.note("a"), "A"), "test:1")
@@ -369,11 +385,11 @@ class WsPoolTest(unittest.TestCase):
                    {"id": "3", "name": "工作区3", "owner": "test:100", "open": 1, "parked": 0},
                    {"id": "4", "name": "工作区4", "owner": "test:300", "open": 1, "parked": 0}])
         # 工作区1 只剩一条 later 回查条目（等 CI，带 next）
-        r = subprocess.run([str(HERE / "board"), "add", "等 CI", "-", "s", "工作区1主角色", "--next", "23:59"],
+        r = subprocess.run([str(HERE / "board"), "add", "等 CI", "-", "s", "工作区1主角色", "--short", "测试", "--next", "23:59"],
                            capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:1", "BOARD_LATER": "1"})
         self.assertEqual(r.returncode, 0, r.stderr)
         # 工作区2：聊天频道 add 的条目（条目频道是聊天频道），工作区只把「谁」改成「工作区2…」
-        r = subprocess.run([str(HERE / "board"), "add", "旧活", "-", "s", "橘"], capture_output=True, text=True,
+        r = subprocess.run([str(HERE / "board"), "add", "旧活", "-", "s", "橘", "--short", "测试"], capture_output=True, text=True,
                            env={**self.env, "CC_SESSION_KEY": "test:100"})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.board("update", "2", "做着", "-", "工作区2橘")[0], 0)
@@ -422,7 +438,7 @@ class HandoffAlignTest(WsPoolTest):
     def test_success_tells_lead_to_end_turn(self):
         # #597 G31：交出后主角色本轮就收手，不 sleep、不查任务板等工作区；stdout 第一行仍是 timer id
         self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
-        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), self.note("a"), "改登录页"],
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), self.note("a"), "改登录页", "--short", "改登录页"],
                            capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = r.stdout.strip().splitlines()
@@ -436,7 +452,7 @@ class HandoffAlignTest(WsPoolTest):
         f = Path(str(self.fake) + ".json")
         f.write_text(json.dumps({"ws": [{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}],
                                  "timer_fail": True}))
-        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), self.note("a"), "改登录页"],
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), self.note("a"), "改登录页", "--short", "改登录页"],
                            capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("timer add 失败", r.stderr)
@@ -450,7 +466,7 @@ class HandoffAlignTest(WsPoolTest):
         f = Path(str(self.fake) + ".json")
         f.write_text(json.dumps({"ws": [{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}],
                                  "timer_fail": True, "park_fail": True}))
-        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), self.note("a"), "改登录页"],
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), self.note("a"), "改登录页", "--short", "改登录页"],
                            capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("timer add 失败", r.stderr)
@@ -465,7 +481,8 @@ class HandoffAlignTest(WsPoolTest):
 class HandoffNotesCheckTest(unittest.TestCase):
     """交接文件要带参照实现（文件:行 或「无（新建）」）；写了多人改同组文件还要底分支。缺了不建定时、不上任务板。"""
     setUp, handoff, timers = WsUpTest.setUp, WsUpTest.handoff, WsUpTest.timers
-    BASE = "# 交接\n## 用户原话\n「x」\n## 进度\n| a |\n## 规矩\n- y\n"
+    BASE = ("# 交接\n## 用户原话\n「x」\n## 总目标\n- z\n## 范围\n- 改：x\n- 不改：y\n"
+            "## 已查过什么\n- dsh/collab/tasks.mjs:467 只校验 ref\n## 进度\n| a |\n## 相关改动\n- #1 已合\n冲突：无\n## 规矩\n- y\n")
     GOOD = BASE + "## 参照实现\n- bridge/contrib/lead/ws-up:120（差异：不发卡）\n"
 
     def check(self, text):
@@ -504,6 +521,51 @@ class HandoffNotesCheckTest(unittest.TestCase):
         self.assertEqual(self.check(self.GOOD + "## 共改文件\n- agent_hooks.go\n底分支：feat/approvals\n"), "OK")
         self.assertEqual(self.check(self.GOOD + "- 底分支: main\n## 多人改\n"), "OK")
         self.assertEqual(self.check(self.GOOD + "正文提到多人改，但没有这一节\n"), "OK")
+
+    def test_new_sections_required(self):
+        for sec in ("总目标", "范围", "相关改动"):
+            text = self.GOOD.replace(f"## {sec}\n", "## 其他\n")
+            self.assertIn(f"缺小节：{sec}", self.refused(text))
+
+    def test_scope_lines(self):
+        sc = "## 范围\n- 改：x\n- 不改：y\n"
+
+        def with_sc(body):
+            return self.GOOD.replace(sc, "## 范围\n" + body)
+        # 缺改或不改行：拒，带示例；空值、别的节里的不算
+        for body, miss in (("", "改：…"), ("- 改：x\n", "不改：…"), ("不改：无\n", "「改：…」"),
+                           ("改：\n不改：无\n", "「改：…」"), ("修改：x\n不改：无\n", "「改：…」")):
+            self.assertIn(miss, self.check(with_sc(body)), body)
+        self.assertIn("「范围」节缺", self.refused(with_sc("")))
+        self.assertIn("「范围」节缺", self.check(with_sc("") + "## 其他\n改：x\n不改：无\n"))
+        for body in ("改：x\n不改：无\n", "* 改: a、b\n> 不改: c\n", "- 不改：进度表\n- 改：任务卡\n- 改：文案\n"):
+            self.assertEqual(self.check(with_sc(body)), "OK", body)
+
+    def test_checked_section_required(self):
+        sec = "## 已查过什么\n- dsh/collab/tasks.mjs:467 只校验 ref\n"
+        self.assertIn("缺小节：已查过什么", self.refused(self.GOOD.replace(sec, "")))
+        self.assertIn("「已查过什么」节要写已查过的 文件:行 或文档路径", self.refused(self.GOOD.replace(sec, "## 已查过什么\n- 都看过了\n")))
+        for body in ("- 无（没查过）\n", "- ~/work/codemaps/bothouse-bridge.md「编译与测试」节\n"):
+            self.assertEqual(self.check(self.GOOD.replace(sec, "## 已查过什么\n" + body)), "OK", body)
+
+    def test_conflict_line(self):
+        rel = "## 相关改动\n- #1 已合\n冲突：无\n"
+
+        def with_rel(body):
+            return self.GOOD.replace(rel, "## 相关改动\n- #1 已合\n" + body)
+        # 缺冲突行：拒，带示例；正文里的「无冲突」「不冲突」不算
+        for body in ("", "和 #1 无冲突\n", "不冲突\n"):
+            self.assertIn("缺一行「冲突：无」", self.check(with_rel(body)), body)
+        self.assertIn("缺一行「冲突：无」", self.refused(with_rel("")))
+        # 冲突没问用户：拒，提示在聊天频道问；不提 ws-up --ask
+        err = self.refused(with_rel("冲突：#1 改了同一个函数\n"))
+        self.assertIn("先在聊天频道问用户", err)
+        self.assertNotIn("--ask", err)
+        # 冲突行只认「相关改动」节里的
+        self.assertIn("缺一行", self.check(with_rel("") + "## 其他\n冲突：无\n"))
+        for body in ("冲突：无\n", "- 冲突: 无。\n", "冲突：无（已对过 #1）\n",
+                     "冲突：#1 改了同一个函数（已问用户：先合 #1 再做）\n"):
+            self.assertEqual(self.check(with_rel(body)), "OK", body)
 
 
 if __name__ == "__main__":

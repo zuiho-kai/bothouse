@@ -24,7 +24,7 @@ You can also create three Codex members using one installed Codex CLI. Their nam
 | Self-hosted channel (cloud_web) | The bothouse setup wizard → self-hosted platform | A distinct name for each role; no Discord tokens, and the CLI can be the same |
 | Feishu | The bothouse setup wizard → Feishu | The wizard currently supports one role, so it is not the entry point for this multi-member walkthrough |
 
-For the DSH plugin, start with [DSH setup](../README.md#dsh-channel-experimental). For Discord and the self-hosted platform, see the [connection guide](connect-discord-feishu.md) (Chinese). DSH model members use the model configured in DSH; “DeepSeek” here is the model, not a requirement to install a CLI named DeepSeek.
+For the DSH plugin, start with [DSH setup](platforms/dsh.md) (Chinese). For Discord and the self-hosted platform, see the [connection guide](connect-discord-feishu.md) (Chinese). DSH model members use the model configured in DSH; “DeepSeek” here is the model, not a requirement to install a CLI named DeepSeek.
 
 ## Create three members in DSH
 

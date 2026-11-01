@@ -136,15 +136,19 @@ Both need the roles to run in one process: each `qq` platform registers itself b
 
 `http_url` is NapCat's HTTP API endpoint (e.g. `http://127.0.0.1:3000`). With it set, receiving a file re-resolves an expiring CDN link via `get_group_file_url` / `get_file`, and sending a file goes over HTTP instead of the WebSocket, avoiding large frames and cross-container path issues.
 
-### 消息上报格式必须是 array / The report format must be array
+### 消息上报格式 / Message report format
 
-NapCat 的 OneBot 配置里，每个 server 都要设 `"messagePostFormat": "array"`。设成 `string` 时消息以 CQ 码字符串上报，图片、文件、@ 这些 segment 都拿不到结构化字段，图片尤其会直接解析失败。这是接 NapCat 最容易踩的一个坑。
+NapCat 的 OneBot 配置支持 `"messagePostFormat": "array"` 和 `"string"`，bothouse 现在用同一套消息段处理逻辑接收两种格式的文字、图片、文件、语音、@ 和引用。图片与语音仍需要可下载的 `url`；文件沿用上面的 URL / HTTP API 下载流程；语音转写仍需配置 STT，格式转换能力没有变化。
 
-Set `"messagePostFormat": "array"` on every server in NapCat's OneBot config. With `string`, messages arrive as one CQ-code string: images, files and @ lose their structured fields, and images in particular fail to parse. This is the easiest trap when wiring up NapCat.
+Both `"messagePostFormat": "array"` and `"string"` are supported. Text, images, files, voice, mentions and quotes use the same segment-processing path. Images and voice still need a downloadable `url`; files use the URL / HTTP API flow above. Voice transcription still requires STT; audio conversion support is unchanged.
 
-（这条来自公开实现 [openclaw-napcat-qq](https://github.com/Gu-Heping/openclaw-napcat-qq) 的踩坑记录，不是我们自己试出来的。）
+引用上下文来自本次运行的消息缓存（最多 1000 条 / 7 天）；引用已缓存的机器人消息，即使没有另附文字，也算叫到机器人。重启或缓存淘汰后，只有引用 ID 不足以恢复旧消息内容。
 
-(From the notes of the public [openclaw-napcat-qq](https://github.com/Gu-Heping/openclaw-napcat-qq) project, not something we hit ourselves.)
+Quote context comes from the current process's message cache (up to 1,000 entries / seven days). Quoting a cached bot message calls the bot even without additional text. After restart or cache eviction, a quote ID alone cannot recover the old content.
+
+两种格式已通过本地模拟 OneBot WebSocket 与 HTTP 附件测试；尚未作为本次改动的一部分完成真实 QQ / NapCat 验收。CQ 转义遵循 [OneBot v11 字符串格式](https://github.com/botuniverse/onebot-11/blob/master/message/string.md)：先分段再解码，转义后的 CQ 文字不会被当作真实 @ 或附件。
+
+Both formats are covered by local simulated OneBot WebSocket and HTTP attachment tests; live QQ / NapCat acceptance has not been performed for this change. Escapes follow the [OneBot v11 string format](https://github.com/botuniverse/onebot-11/blob/master/message/string.md): splitting precedes decoding, so escaped literal CQ text is not interpreted as a mention or attachment.
 
 ### 模型写出纯文本 @ 时 / When the model writes a plain @
 
@@ -217,6 +221,10 @@ Set `share_session_in_channel = true` on both, otherwise each person in the grou
 **Q: NapCat 掉线？/ NapCat disconnected?**
 - NapCat 使用 NTQQ 协议，长时间挂机可能需要重新登录 / NapCat may need re-login after long periods
 - 建议使用 Docker restart policy: `--restart unless-stopped`
+
+**Q: 图片或语音没有传给模型？/ An image or voice message did not reach the model?**
+- 检查日志中的 `qq: download image failed` / `qq: download audio failed`。媒体下载只接受 HTTP 200；404、500 或不完整的 206 响应会跳过，不把错误页或残片作为附件。文字和其他成功下载的附件仍会正常处理；不会自动向 QQ 发送失败通知。
+- Check those download warnings in the logs. Media downloads require HTTP 200; error pages and partial responses are skipped. Text and other successful attachments are still processed. No failure notification is automatically sent to QQ.
 
 ## 其他 OneBot 实现 / Other OneBot Implementations
 

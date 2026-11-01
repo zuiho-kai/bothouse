@@ -5,7 +5,7 @@
 """主 bot 的快脑：cc-connect（maomao 分支）每条用户消息先问这里，回 reply / insert / silent / abort。
 
 先走确定性规则，规则定不了再让 jev（向导填的模型）读 A/B/C 三个选项的概率（见 scorer_remote.py）。
-没填 jev 时照样启动，只供 /context（每轮 wiki、任务板）和 /lead；/decide 回 503，cc-connect 按 gate_fallback 兜底
+没填 jev 时照样启动，只供 /context（每轮 wiki、任务板）和 /lead；/decide 回 503，cc-connect 只让被 @ 的角色回、其余只听（core/gate.go noModelFallback）
 （core/gate.go fallbackFor：被 @ 的回，其余归主角色）。不自己下载模型。
 每次判断写进 GATE_LOG（默认 <数据目录>/gate.jsonl），用来调规则或以后做微调。
 POST /decide  {content, mentioned, busy, has_images, has_files, buffered[]} → {action, reason}
@@ -63,17 +63,16 @@ CALL = re.compile(r"你看看|你看下|看一下|帮我|你觉得|你怎么看|
 URL = re.compile(r"https?://\S+")
 # 纯应答/语气词 → 不出声
 ACK = re.compile(r"^(好的?|嗯+|哦+|噢+|ok|OK|行|收到|知道了|谢谢|谢了|thx|👌|👍|哈+|嘿+|[.。!！~～]+)$")
-LINKS_FOR_REPLY = 3      # 本条 + 缓存里累计这么多链接 → 该看了
-BUFFER_FOR_REPLY = 6     # 攒了这么多条没回 → 该回了
 
 # 指令在前（每次一样，启动时缓存），状态和消息在后（每次只算这段）
 PROMPT = """你是群聊里「橘」的"要不要出声"判断器。橘是群里的主 AI，背后能干活；群里还有龙娘、鲸鱼娘、彩虹猫。
 根据下面的状态和消息，判断橘该怎么做：
 A 不回：闲聊、语气词、自言自语、还没说完、和橘无关
-B 插入：给出了新信息、新资料，或者对橘正在做的事的更正、追加、叫停，橘应该马上知道，但用户没要求回答
-C 回复：用户在问橘、要橘做事或给意见、问大家的看法
-D 打断：橘正在干活时，用户叫停、暂停、别做了、换成别的事（要她马上停下，不是补充信息）
-只答一个字母。
+B 插入：给出了新信息、新资料，或者对橘正在做的事补充、更正，橘应该马上知道，但用户没在等她回话
+C 回复：用户在等橘回话：问她、要她做事或给意见、问大家的看法；橘在干活时用户催她、问进度、嫌慢、发火，也是在等她回话
+D 打断：橘正在干活时，用户要她放下手上这件事：停下来，或者改做别的事
+主角色只协调用户交给自己的任务。用户在和其他成员对话时选 A；缓存消息、链接和空闲队友本身不构成发言请求。
+看用户想要什么，不看用了哪个词。只答一个字母。
 
 """
 PROMPT = _team_text(PROMPT)
@@ -95,7 +94,7 @@ STOP_WORDS = re.compile(r"[\s　。.!！~～、,，…]*(?:停|暂停|停一下|
 REDIRECT = re.compile(r"(?:先)?别做(?:这个|了)[，,、；;]?\s*改(?:做|成)\s*\S")
 # 措辞同向导 jev 一步（web/src/pages/Setup/texts.ts jevQ）和 docs/connect-discord-feishu.md 第 5 节的推荐
 NO_JEV = """gate 没填 jev 模型（{path} 不存在，或向导测试时没拿到概率）：只供每轮 wiki/任务板（/context）和 /lead，
-不判谁回（/decide 回 503，cc-connect 按 gate_fallback 兜底）。gate 靠 jev 判断一句话该哪个角色回，不会自己下载模型。二选一，填好再启动：
+不判谁回（/decide 回 503，cc-connect 只让被 @ 的角色回，其余只听）。gate 靠 jev 判断一句话该哪个角色回，不会自己下载模型。二选一，填好再启动：
   1. 用免费小模型：硅基流动的免费 Qwen 小模型。在安装向导（运行 cc-connect，浏览器里的 /setup）的 jev 一步填 Base URL、Key、模型名。
   2. 本地下载一个 0.6B 小模型：如 Qwen3 0.6B，用 mlx_lm.server 起 OpenAI 兼容接口
      （mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit），再把地址填进向导的 jev。LM Studio 不给概率，当不了 jev。"""
@@ -128,20 +127,50 @@ scorer, SCORER_KIND = make_scorer()
 # 按当前主角色的名字判（lead.py）
 tasks = {k: scorer.prepare(_member_text(PROMPT, k), options=["A", "B", "C", "D"], prefill="答案：") for k in lead.KEYS}
 
-# sub：忙时这句要不要打断她
-SUB_PROMPT = """一个 AI 成员正在处理派给她的任务，这时群里有人发了新消息。判断这条消息怎么给她：
-A 增量：普通群聊、和她手上的任务无关，先记着，等她下次开口时再一起看
-B 插入：和她正在做的任务直接相关（更正、补充要求、改方向、叫她名字问进度），应该马上告诉她
-D 打断：叫停、暂停、别做了、换成别的事（要她马上停下手上的任务）
+# 忙时这句要她怎样（sub 和主角色忙时被叫都用这份）：按意思分四种，再看她这一轮插不插得进话合成动作（busy_action）。
+# 用户 2026-10-30「现在除非明确暂停，才会暂停，这个是规则化的，我给你用jev，就是让你智能化」：
+# 「怎么那么简单功能改那么久」旧提示词判成插入，鲸鱼娘这一轮插不进话，只能排队到她干完。
+SUB_PROMPT = """一个 AI 成员正在处理派给她的任务，这时群里有人发了新消息。看发消息的人想要她怎样：
+A 无关：普通群聊、和她手上的任务无关，先记着，等她下次开口时再一起看
+B 补充：和她手上的任务相关的新信息、补充要求、更正，她知道了接着做就行，不用马上回话
+C 等她回话：在等她马上开口：催她、问进度、问她卡在哪、嫌她慢、对她发火、问她问题
+D 要她停：要她放下手上这件事：停下来，或者改做别的事
 群里还有橘、龙娘、鲸鱼娘、彩虹猫；叫的是别人的名字，就是在跟别人说话，不是对她。
-只答一个字母。
+看想要什么，不看用了哪个词。只答一个字母。
 
 """
 SUB_PROMPT = _team_text(SUB_PROMPT)
-SUB_SUFFIX = "她是「{name}」，正在做的任务：「{task}」\n群里刚发：「{msg}」\n\n判断（A 增量 / B 插入 / D 打断）："
-sub_task = scorer.prepare(SUB_PROMPT, options=["A", "B", "D"], prefill="答案：")
+SUB_SUFFIX = "她是「{name}」，正在做的任务：「{task}」\n群里刚发：「{msg}」\n\n判断（A 无关 / B 补充 / C 等她回话 / D 要她停）："
+sub_task = scorer.prepare(SUB_PROMPT, options=["A", "B", "C", "D"], prefill="答案：")
 # 多频道：每个频道是她的一个独立会话（share_session_in_channel），手上的活按 (bot, session_key) 记
-current_task = {}  # (bot, session_key) → 最近一次被叫时的内容
+current_task = {}  # (bot, session_key) → 她这一轮在做的事：空闲时叫她的那句（派活那句）；忙时的插话不覆盖，打断后换成新的这句
+
+
+def _set_task(req, bot, content):
+    """空闲时被叫 = 开始新的一轮，记下这句；忙时被叫是在插话，留着她手上那件（用户 2026-10-30 定位：插话把任务描述冲掉，模型看不到真任务）。"""
+    key = (bot, req.get("session_key") or "")
+    if not req.get("busy") or not current_task.get(key):
+        current_task[key] = content[-500:]
+
+
+def busy_action(req, bot, content, addressed):
+    """她正忙时这句按意思（SUB_PROMPT）合成动作。addressed：已确定在跟她说（@、点名、回复她、判给她）。
+    要她停 → abort；等她回话 → 这一轮插得进就插（addressed 走 reply，否则 insert），插不进（cc-connect 发 no_insert）就打断后回；
+    补充 → 插入（插不进时 cc-connect 排队，不打断）；无关 → 不改（addressed 照 reply，否则记作增量）。"""
+    key = (bot, req.get("session_key") or "")
+    sc = sub_task.score(SUB_SUFFIX.format(name=lead.NAME[bot], task=current_task.get(key, "")[:500], msg=content[:1500]))
+    stuck = bool(req.get("no_insert"))
+    if sc.choice == 3:
+        action, why = "abort", "要她停"
+    elif sc.choice == 2:
+        action, why = ("abort", "等她回话、这一轮插不进") if stuck else ("reply" if addressed else "insert", "等她回话")
+    elif sc.choice == 1:
+        action, why = ("reply" if addressed else "insert"), "补充"
+    else:
+        action, why = ("reply" if addressed else "context"), "无关"
+    if action == "abort":
+        current_task[key] = content[-500:]  # 打断后新的一轮做的是这句
+    return action, f"busy model: {why}", sc
 
 # 点名：消息开头就是名字（"龙娘，帮我…" / "龙娘鲸鱼娘你们看看"）= 在叫她，直接回；
 # 名字出现在句中（"龙娘刚才写的有 bug"）可能只是在说她，交给她自己的 4B 判断。
@@ -218,12 +247,10 @@ def judge(content, busy, buffered, me=""):
 
 def decide_sub(req, bot):
     action, reason, sc = _decide_sub(req, bot)
-    if action == "reply" and req.get("busy"):  # 叫她且她正忙：是不是叫停
-        key = (bot, req.get("session_key") or "")
+    if action == "reply" and req.get("busy"):  # 叫她且她正忙：按意思定打断、插话还是照常回
         content = split_reply((req.get("content") or "").strip())[1]
-        sc2 = sub_task.score(SUB_SUFFIX.format(name=lead.NAME[bot], task=current_task.get(key, "")[:500], msg=content[:1500]))
-        if sc2.choice == 2:
-            return "abort", reason + "；sub model: 打断", sc2
+        action, why, sc2 = busy_action(req, bot, content, addressed=True)
+        return action, f"{reason}；{why}", sc2
     return action, reason, sc
 
 
@@ -231,33 +258,32 @@ def _decide_sub(req, bot):
     content = (req.get("content") or "").strip()
     key = (bot, req.get("session_key") or "")
     if req.get("mentioned"):
-        current_task[key] = content[-500:]
+        _set_task(req, bot, content)
         return "reply", "sub: 被@", None
     to, content = split_reply(content)
     if re.search(r"<@!?&?\d+>", content):  # @ 了别人：不是对她说
         return "context", "sub: @了别人", None
     called = called_names(content)
     if bot in called:
-        current_task[key] = content[-500:]
+        _set_task(req, bot, content)
         return "reply", "sub: 被点名", None
     if called:  # 开头叫的是别人
         return "context", "sub: 叫的是别人", None
     if to == bot:  # 回复她的消息 = 在跟她说
-        current_task[key] = content[-500:]
+        _set_task(req, bot, content)
         return "reply", "sub: 回复她", None
     if to is not None:
         return "context", "sub: 回复别人的消息", None
     if mentions_name(content, bot):
         sc = named_task.score(NAMED_SUFFIX.format(name=lead.NAME[bot], msg=content[:1500]))
         if sc.probs[1] >= NAMED_THRESHOLD:
-            current_task[key] = content[-500:]
+            _set_task(req, bot, content)
             return "reply", "sub model: 提到且在叫她", sc
         if not req.get("busy"):
             return "context", "sub model: 只是提到", sc
     if not req.get("busy") or not current_task.get(key):
         return "context", "sub: 空闲，记作增量", None
-    sc = sub_task.score(SUB_SUFFIX.format(name=lead.NAME[bot], task=current_task[key], msg=content[:1500]))
-    return ("context", "insert", "abort")[sc.choice], "sub model", sc
+    return busy_action(req, bot, content, addressed=False)
 
 
 # ---------- 没 @ 的消息该归谁（用户 2026-10-22「核心要区分一下，让jev判断，是给谁回的」）----------
@@ -660,12 +686,15 @@ def _route(req, bot=""):
     if addr is not None:
         if bot != addr:
             return "context", f"{why}: 判给{lead.NAME[addr]}", asc
-        current_task[(bot, req.get("session_key") or "")] = own[-500:]
+        _set_task(req, bot, own)
         if req.get("busy") and STOP_WORDS.fullmatch(own):  # 判给她且她正忙、整句是停止词：直接打断，不调模型（下面 model=False 会回 reply，打断不了）
             return "abort", f"{why}: 判给我；rule: 停止词", asc
         # 收件人只跑主角色那套的规则部分，不再串一次 judge：jev 已判给她，再打分要多等一次模型，
         # 加上拉历史和 jev 会超过 cc-connect 的 gate_timeout_ms（默认 3000ms），兜底成 context 就没人回了
         action, reason, sc = _decide_lead(req, bot, model=False)
+        if action == "reply" and req.get("busy") and own:  # 忙时判给她：同 decide_sub 按意思定打断/插话（多一次打分，只在忙时）
+            action, bwhy, sc = busy_action(req, bot, own, addressed=True)
+            reason = f"{reason}；{bwhy}"
         return action, f"{why}: 判给我；{reason}", sc or asc
     action, reason, sc = decide(req, bot) if bot == lead.current() else decide_sub(req, bot)
     return action, (f"{why}；{reason}" if why else reason), sc or asc
@@ -702,9 +731,8 @@ def decide(req, me=""):
     if action == "reply" and req.get("busy"):  # @主角色/叫她名字且她正忙：是不是叫停，同 decide_sub（用户原话「艾特她的时候，不要只有insert插入，而是还有abort插入」）
         content = split_reply((req.get("content") or "").strip())[1]
         if req.get("mentioned") or any(n in content for n in NAMES[me]):
-            sc2 = judge(content, True, req.get("buffered") or [], me)
-            if ACTIONS[sc2.choice] == "abort":
-                return "abort", reason + "；model: 打断", sc2
+            action, why, sc2 = busy_action(req, me, content, addressed=True)
+            return action, f"{reason}；{why}", sc2
     return action, reason, sc
 
 
@@ -725,10 +753,10 @@ def _decide_lead(req, me="", model=True):
     if to not in (None, me) and me not in called_names(own):
         return "context", "rule: 回复 sub", None
     if re.search(r"<@!?&?\d+>", own):  # @ 了别的 bot/人（自己的 @ 已被 cc-connect 去掉）→ 不是叫橘
-        return "silent", "rule: @了别人", None
+        return "context", "rule: @了别人", None
     called = called_names(own)
     if called and me not in called:  # 开头叫的是别人，让她自己接
-        return "silent", "rule: 点名 sub", None
+        return "context", "rule: 点名 sub", None
     if own.startswith("/"):
         return "reply", "rule: command", None
     if ACK.match(own):
@@ -736,12 +764,8 @@ def _decide_lead(req, me="", model=True):
     if CALL.search(own) or any(n in own for n in NAMES[me]):
         return "reply", "rule: 叫我/提问", None
     links = len(URL.findall(content)) + sum(len(URL.findall(b)) for b in buffered)
-    if links >= LINKS_FOR_REPLY:
-        return "reply", f"rule: {links} 个链接", None
     if links and not URL.sub("", content).strip():
-        return "silent", f"rule: 只有链接，等凑够 {LINKS_FOR_REPLY} 个", None
-    if len(buffered) + 1 >= BUFFER_FOR_REPLY:
-        return "reply", f"rule: 攒了 {len(buffered) + 1} 条", None
+        return "silent", "rule: 只有链接，等待明确请求", None
     if not content:
         return "insert", "rule: 只有附件", None
     if not model:  # 已判给我（addressee）：规则没拦下就回，同上面「叫我/提问」那几条规则（忙时也是 reply，由 cc-connect 投递）
@@ -753,6 +777,8 @@ def _decide_lead(req, me="", model=True):
     action = ACTIONS[sc.choice]
     if action == "abort" and not busy:  # 不忙没有可打断的，按回复
         return "reply", "model: 打断但空闲，按回复", sc
+    if action == "reply" and busy and req.get("no_insert"):  # 等她回话、这一轮插不进：打断后回，不排到她干完
+        return "abort", "model: 等她回话、这一轮插不进", sc
     return action, "model", sc
 
 

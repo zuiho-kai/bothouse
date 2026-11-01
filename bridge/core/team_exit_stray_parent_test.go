@@ -90,11 +90,12 @@ func TestForwardReportLogsSuccess(t *testing.T) {
 		}},
 	})
 
-	e.forwardWorkspaceExit(p, exitWSKey, "[report]\n好了")
+	exitBoardItem(t, e, 7, "活")
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 背景：你让我做这件事。\n好了\n要你做的：没有。\n我加的：无")
 	if got := p.sentTo("discord:chat1"); len(got) != 1 {
 		t.Fatalf("chat1 got %q", got)
 	}
-	if !strings.Contains(logs.String(), "team exit: forwarded") {
+	if !strings.Contains(logs.String(), "team exit: report posted") {
 		t.Fatalf("no success line: %s", logs.String())
 	}
 }

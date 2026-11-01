@@ -156,7 +156,8 @@ func TestCUJ_Subagents_SourcePolicySurvivesQueueAndResume(t *testing.T) {
 	inputWait(t, func() bool { return !s.Busy() })
 	send("human-2", "A separate ordinary task", false)
 	resumed := inputPrompt(t, a)
-	if !strings.HasPrefix(resumed, teamModeRulesFor(DefaultDispatchMode)+"\n[Bridge delegation policy") || !strings.Contains(resumed, "Default: do the task yourself.") || !strings.Contains(resumed, "A separate ordinary task") {
+	// Same agent context: the team rules went with the first request only (teamRulesOnce).
+	if !strings.HasPrefix(resumed, "[Bridge delegation policy") || !strings.Contains(resumed, "Default: do the task yourself.") || !strings.Contains(resumed, "A separate ordinary task") {
 		t.Fatal("resumed request missing renewed default policy")
 	}
 	inputDone(a, "ordinary-task-done")
@@ -2181,18 +2182,18 @@ func TestCUJ_H2_TwoPlatformsConcurrentNoBleed(t *testing.T) {
 	for {
 		histA := e.sessions.GetOrCreateActive("platA:userA").GetHistory(0)
 		histB := e.sessions.GetOrCreateActive("platB:userB").GetHistory(0)
-		// Each user sent 5 messages — expect each session to have ≥5 user
-		// entries when fully drained.
+		// Each user sent 5 messages — expect all 5 in that session's user
+		// entries when fully drained (a queued burst may share one entry).
 		userA := 0
 		for _, h := range histA {
 			if h.Role == "user" {
-				userA++
+				userA += strings.Count(h.Content, "from A ")
 			}
 		}
 		userB := 0
 		for _, h := range histB {
 			if h.Role == "user" {
-				userB++
+				userB += strings.Count(h.Content, "from B ")
 			}
 		}
 		if userA >= 5 && userB >= 5 {

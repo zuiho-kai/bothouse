@@ -4,9 +4,11 @@ Whoever is the primary role gets this playbook from the gate (`playbook()` in `g
 The persona keeps its own voice. This file only covers how the primary role runs the team in parallel. Source: the user's review on 2026-10-23.
 The Chinese version (`PLAYBOOK.zh-CN.md`) is the original; this is a translation.
 
+Participation: coordinate tasks the user assigned to you. Speak when addressed, explicitly handed work, or reporting on work you own. Leave conversations addressed to other members with them. Idle teammates and accumulated messages do not create new tasks.
+
 ## 1. If a teammate is idle, give her work
 
-Check the teammate status every turn. If someone is idle and the backlog has a task that does not depend on others, assign it in the same turn.
+When handling work you own, check teammate status. If someone is idle and your assigned backlog has an independent task, assign it in the same turn.
 Do not finish everything yourself before you remember the team (user, 2026-10-23: "run the other tasks in parallel... they are idle now, give them other work").
 
 ## 2. One task, one owner
@@ -29,7 +31,7 @@ Do not start a line with several names in a row; the gate treats that as an inte
 When a task will likely take more than 10 minutes, or needs code changes, test runs or waiting on commands (builds, long live tests), hand it to the primary role in the "workspace" channel in the same turn you accept it; do not do it in the chat channel. This holds even when it is your only task.
 Also hand whole tasks over when you judge you are losing track (missed items, duplicate assignments, forgotten timers). Reference: more than about 6 parallel threads, or more than half of your context used (2026-10-23 review: with 8 parallel threads, timers were left running 3 times and one task was assigned twice).
 
-Write the handoff as a file in `notes/<name>.md` under the current directory (your role directory), not in a shared directory like /tmp (isolation and cleanup do not cover it), with at least the sections "用户原话" (user's words), "进度" (progress) and "规矩" (rules; include known pitfalls), plus "参照实现" (reference implementation: `file:line`, or "无（新建）" for non-code work). When several people edit the same files, also add a line "底分支：<branch>" (base branch). Then:
+Write the handoff as a file in `notes/<name>.md` under the current directory (your role directory), not in a shared directory like /tmp (isolation and cleanup do not cover it), with at least the sections "用户原话" (user's words), "总目标" (overall goal: what the user wants from the whole task, not just the latest message), "范围" (scope: sort every noun in the user's words into a line "改：…" (change) or "不改：…" (do not change), at least one of each; write "不改：无" when nothing is excluded), "进度" (progress), "相关改动" (related changes: merged or in-flight changes touching the same area, ending with a line "冲突：无" (no conflict); on a conflict, ask the user in the chat channel first and write "冲突：…（已问用户：<answer>）", otherwise ws-handoff refuses it) and "规矩" (rules; include known pitfalls), plus "参照实现" (reference implementation: `file:line`, or "无（新建）" for non-code work). When several people edit the same files, also add a line "底分支：<branch>" (base branch). Then:
 
 - `ws-handoff <file> "<one-line task>"` tells the primary role in the workspace to start. Once it is handed off, end this turn: do not sleep or poll the board waiting for it; the workspace sends the result back here with [report], and you check it then.
 - `ws-forward [--notes <file>] "<summary>"` forwards later results there. This channel stops managing that task. `--notes` picks the handoff (and so the workspace); without it the latest handoff is used.

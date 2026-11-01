@@ -385,10 +385,19 @@ func finishWizardResult(res *WizardResult, req WizardRequest, pl *wizardPlan, je
 		team := len(pl.team) > 1
 		hint := res.GateStatus
 		if req.gateOn() && !jevUsable && (hint == GateStatusRunning || hint == GateStatusStarting) {
-			hint = GateStatusJevMissing // the gate runs (wiki, task board) but does not choose who answers: the lead does
+			hint = GateStatusJevMissing // the gate runs (wiki, task board) but does not choose who answers: only @-mentioned roles do
 		}
 		if team {
 			res.GateHint = GateHint(req.Language, hint, pl.fallbackName)
+		}
+		if req.Gate != nil && req.Gate.Mode == "addressed" {
+			if isJA(req.Language) {
+				res.GateHint = "呼ばれた時だけ返信：グループでは @ で呼んでください。ルーティング用の Python・jev・小型モデルは不要です。独自 gate と他プラットフォームの設定は維持します。"
+			} else if isZH(req.Language) {
+				res.GateHint = "仅被点名时回复：群聊请 @ 角色，无需为分流运行 Python、jev 或小模型。自定义 gate 和其他平台设置保留。"
+			} else {
+				res.GateHint = "Only when addressed: mention a role in groups. No Python, jev or small model required for routing. Custom gates and other platforms are preserved."
+			}
 		}
 		switch res.GateStatus {
 		case GateStatusPythonMissing, GateStatusPythonTooOld:
@@ -406,20 +415,21 @@ func finishWizardResult(res *WizardResult, req WizardRequest, pl *wizardPlan, je
 	res.OK = !res.NeedsUserAction
 }
 
-// warnJevRecommended: a team of bots with no usable jev. Without it every message that names
-// no one goes to the fallback role, so it looks like that role answers everything. A note, not
+// warnJevRecommended: a team of bots with no usable jev. Without it the gate does not choose who
+// answers: only an @-mentioned role answers, a message that names no one gets no answer
+// (core/gate.go noModelFallback). A note, not
 // blocking. The two ways to get a jev are the ones gate.py prints when started without one
 // (contrib/gate/gate.py; docs/ccm-and-wiki.md「起 gate」).
 func warnJevRecommended(lang, fallbackName string) WizardWarning {
 	w := WizardWarning{Code: "jev_recommended"}
 	if isJA(lang) {
-		w.Message = "ロールが複数ありますが jev が未設定です：@ されていないメッセージはすべてメインロール「" + fallbackName + "」が答えるので、毎回そのロールが返事しているように見えます。jev を設定するのがおすすめです。無料の小型モデルで十分で、設定すると gate がメッセージごとに答えるべきか・誰が答えるかを賢く判断します。"
+		w.Message = "ロールが複数ありますが jev が未設定です：@ されたロールだけが答え、誰も @ していないメッセージにはどのロールも返事しません（メインロール「" + fallbackName + "」も聞くだけ）。jev を設定するのがおすすめです。無料の小型モデルで十分で、設定すると gate がメッセージごとに答えるべきか・誰が答えるかを判断します。"
 		w.Fix = "ウィザードの jev ステップで Base URL・Key・モデル名を入力してください（AI：リクエストに \"jev\": {\"base_url\", \"api_key\", \"model\"} を追加）：SiliconFlow の無料 Qwen 小型モデル、またはローカルで Qwen3 0.6B を起動（mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit）。jev を設定すれば bothouse が自動で gate の判断を有効にします（gate を手で入れる必要はありません）。"
 	} else if isZH(lang) {
-		w.Message = "配了多个角色，但没填 jev：没被 @ 的消息都由主角色「" + fallbackName + "」回，看起来就是它每句都回。推荐填一个 jev，免费小模型就够；填了以后 gate 会更智能地判断每句话该不该回、该谁回。"
+		w.Message = "配了多个角色，但没填 jev：只有被 @ 的角色回话，没 @ 任何人的消息谁都不回（主角色「" + fallbackName + "」也只听）。推荐填一个 jev，免费小模型就够；填了以后 gate 会判断每句话该不该回、该谁回。"
 		w.Fix = "在向导的 jev 一步填 Base URL、Key、模型名（AI：请求里加 \"jev\": {\"base_url\", \"api_key\", \"model\"}）：用硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B（mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit）。装好 jev 后 bothouse 自动启用 gate 的智能判断，不用自己装 gate。"
 	} else {
-		w.Message = "Several roles but no jev: every message that @-mentions no one goes to the primary role \"" + fallbackName + "\", so it looks like that role answers everything. A jev is recommended, and a free small model is enough: with it the gate decides more smartly whether and which role should answer each message."
+		w.Message = "Several roles but no jev: only an @-mentioned role answers, and a message that @-mentions no one gets no answer (the primary role \"" + fallbackName + "\" only listens too). A jev is recommended, and a free small model is enough: with it the gate decides whether and which role should answer each message."
 		w.Fix = "Fill in Base URL, Key and model on the wizard's jev step (AI: add \"jev\": {\"base_url\", \"api_key\", \"model\"} to the request): a free small Qwen model on SiliconFlow, or run Qwen3 0.6B locally (mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit). Once the jev is set, bothouse turns on the gate's smart routing by itself; no need to install the gate."
 	}
 	return w
@@ -464,6 +474,8 @@ func GateHint(lang, status, fallbackName string) string {
 			return "振り分けはオフです：gate を使わず、各ボットが自分の設定どおりに返事します。"
 		case GateStatusRunning:
 			return "振り分けは有効です：gate が動いていて、メッセージごとにどのロールが答えるかを判断します。"
+		case GateStatusJevMissing:
+			return "振り分けは有効です：jev がないので gate は誰が答えるかを判断しません。@ されたロールだけが答え、誰も @ していないメッセージにはメインのボット「" + fallbackName + "」も返事しません。jev を入れると自動で判断が有効になります。"
 		case GateStatusStarting:
 			return "振り分けは有効です：メインのボット「" + fallbackName + "」がまとめて返事します。gate は bothouse が自動で起動し（サービス稼働中ならすぐ、そうでなければ次の起動時）、以後は誰が答えるかを賢く判断します。"
 		}
@@ -474,6 +486,8 @@ func GateHint(lang, status, fallbackName string) string {
 			return "没开分流：不用 gate，各机器人按自己的设置回话。"
 		case GateStatusRunning:
 			return "分流已生效：gate 在运行，每条消息由它判断该哪个角色回。"
+		case GateStatusJevMissing:
+			return "分流已生效：没填 jev，gate 不判断谁回。只有被 @ 的角色回话，没 @ 任何人的消息主 bot「" + fallbackName + "」也只听不回；填好 jev 后会自动启用判断。"
 		case GateStatusStarting:
 			return "分流已生效：主 bot「" + fallbackName + "」统一回话；gate 由 bothouse 自动拉起（服务在跑就马上起，没在跑就下次启动时起），之后会智能判断该谁回。"
 		}
@@ -484,6 +498,8 @@ func GateHint(lang, status, fallbackName string) string {
 		return "Routing is off: no gate, each bot answers by its own settings."
 	case GateStatusRunning:
 		return "Routing is on: the gate is running and decides which role answers each message."
+	case GateStatusJevMissing:
+		return "Routing is on: with no jev the gate does not choose who answers. Only an @-mentioned role answers; a message that @-mentions no one gets no answer, the primary role \"" + fallbackName + "\" only listens. Judging turns on by itself once a jev is there."
 	case GateStatusStarting:
 		return "Routing is on: the primary role \"" + fallbackName + "\" answers for the team; bothouse starts the gate (right away if the service is running, otherwise when it next starts), which then decides smartly who answers."
 	}

@@ -99,20 +99,46 @@ func TestChannelAgentInstructionsPerChannelAndAfterChange(t *testing.T) {
 		"room2": {mode: DispatchMixed, explicit: false},
 	}}
 
-	p1 := e.withChannelAgentInstructions("hello", "u1", false, p, "room1")
-	p2 := e.withChannelAgentInstructions("hello", "u1", false, p, "room2")
+	p1 := e.withChannelAgentInstructions("hello", "u1", false, p, "room1", nil, nil)
+	p2 := e.withChannelAgentInstructions("hello", "u1", false, p, "room2", nil, nil)
 	assertModeSection(t, p1, DispatchTeam, DispatchSolo, DispatchMixed)
 	assertModeSection(t, p2, DispatchSolo, DispatchTeam, DispatchMixed)
 
 	// Changing room1 takes effect on the next call; room2 is unaffected.
 	p.set("room1", channelModeSetting{mode: DispatchMixed, explicit: true})
-	p1 = e.withChannelAgentInstructions("hello", "u1", false, p, "room1")
-	p2 = e.withChannelAgentInstructions("hello", "u1", false, p, "room2")
+	p1 = e.withChannelAgentInstructions("hello", "u1", false, p, "room1", nil, nil)
+	p2 = e.withChannelAgentInstructions("hello", "u1", false, p, "room2", nil, nil)
 	assertModeSection(t, p1, DispatchMixed, DispatchTeam, DispatchSolo)
 	assertModeSection(t, p2, DispatchSolo, DispatchTeam, DispatchMixed)
 
 	// Clearing the explicit setting falls back to project configuration.
 	p.set("room1", channelModeSetting{mode: DispatchMixed, explicit: false})
-	p1 = e.withChannelAgentInstructions("hello", "u1", false, p, "room1")
+	p1 = e.withChannelAgentInstructions("hello", "u1", false, p, "room1", nil, nil)
 	assertModeSection(t, p1, DispatchSolo, DispatchTeam, DispatchMixed)
+}
+
+// inject_team_rules = false: a persona-only bot (QQ chat character) gets neither
+// the channel nor the project team-mode rules; the request text is kept.
+func TestTeamModeRulesDisabledSkipsBothPaths(t *testing.T) {
+	e := &Engine{}
+	e.SetDispatchMode(DispatchMixed)
+	p := &modePlatform{byKey: map[string]channelModeSetting{"room1": {mode: DispatchTeam, explicit: true}}}
+	common := strings.SplitN(teamModeRulesText, "\n## ", 2)[0]
+	common = strings.TrimSpace(common)
+	if got := e.withChannelAgentInstructions("hello", "u1", false, p, "room1", nil, nil); !strings.Contains(got, common) {
+		t.Fatalf("default should inject team rules:\n%s", got)
+	}
+	e.SetTeamModeRulesEnabled(false)
+	for name, got := range map[string]string{
+		"channel": e.withChannelAgentInstructions("hello", "u1", false, p, "room1", nil, nil),
+		"project": e.withAgentInstructions("hello", "", true, nil, nil),
+	} {
+		if strings.Contains(got, common) || !strings.Contains(got, "hello") {
+			t.Fatalf("%s path with rules disabled:\n%s", name, got)
+		}
+	}
+	e.SetTeamModeRulesEnabled(true)
+	if got := e.withAgentInstructions("hello", "", true, nil, nil); !strings.Contains(got, common) {
+		t.Fatalf("re-enabled project path lost team rules:\n%s", got)
+	}
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	ccconnect "github.com/chenhg5/cc-connect"
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -50,7 +51,7 @@ func handoffCommand(args []string, out io.Writer) error {
 		return errors.New("unexpected positional arguments")
 	}
 	if *dataDir == "" {
-		*dataDir = strings.TrimSpace(os.Getenv("CC_DATA_DIR"))
+		*dataDir = ccconnect.GuardTestDataDir(strings.TrimSpace(os.Getenv("CC_DATA_DIR")))
 	}
 	if *dataDir == "" {
 		*dataDir = defaultDataDir()

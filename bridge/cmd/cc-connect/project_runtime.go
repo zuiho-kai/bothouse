@@ -179,6 +179,9 @@ func (rt *projectRuntime) HotLoad() core.HotLoadResult {
 		if _, running := rt.engines[proj.Name]; running {
 			continue
 		}
+		if len(proj.ActivePlatforms()) == 0 { // disabled with `module disable`: not a failure
+			continue
+		}
 		if err := rt.startProject(cfg, proj); err != nil {
 			slog.Error("hot load: project not started", "project", proj.Name, "error", err)
 			if res.Failed == nil {

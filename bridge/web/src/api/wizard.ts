@@ -19,7 +19,9 @@ export interface DiscordBotInfo {
 export interface ExistingBot { project: string; agent_type: string; work_dir?: string; bot_id?: string; guild_id?: string; username?: string; error?: string }
 export interface JevTest { reachable: boolean; logprobs: boolean; latency_ms: number; error?: string }
 export interface SetupStateResp {
-  system_language: string; hardware: boolean; data_dir: string; has_projects: boolean; gate_enabled?: boolean; projects?: string[]; project_display_names?: string[];
+  system_language: string; hardware: boolean; data_dir: string; has_projects: boolean; gate_enabled?: boolean; gate_modes?: Record<string, 'smart' | 'addressed' | 'off'>; projects?: string[]; project_display_names?: string[];
+  /** platform types already in config.toml (lark counts as feishu) */
+  configured_platforms?: Record<string, boolean>;
   setup: { platform?: string; guild_id?: string; channel_id?: string; fallback_role?: string; team?: { project: string; name: string }[];
     cloud_web_url?: string; cloud_web_fallback?: string; cloud_web_team?: { project: string; name: string }[] };
   jev?: { url: string; model: string; has_key: boolean; logprobs: boolean };
@@ -39,14 +41,16 @@ export interface WizardRole {
   persona_preset?: string; avatar?: string;
 }
 export interface WizardRequest {
-  platform: 'discord' | 'feishu' | 'lark' | 'cloud_web'; language?: string;
+  platform: 'discord' | 'feishu' | 'lark' | 'cloud_web' | 'qq'; language?: string;
   discord?: { guild_id: string; channel_id: string };
   feishu?: { app_id: string; app_secret: string; platform_type?: string; owner_open_id?: string; chat_id?: string };
   /** 自建平台: empty url/token = the hub this wizard started on this machine (filled in server-side) */
   cloud_web?: { url?: string; token?: string };
+  /** QQ: NapCat / OneBot forward WebSocket; allow_from = QQ numbers that may give orders (or *) */
+  qq?: { ws_url: string; token?: string; allow_from: string };
   roles: WizardRole[]; fallback_role?: string; fallback_bot_id?: string;
   jev?: { base_url: string; api_key?: string; model: string; remove?: boolean };
-  gate?: { enabled: boolean };
+  gate?: { enabled: boolean; mode?: 'smart' | 'addressed' };
   allow_from?: string;
   wiki?: WizardWiki;
   dry_run?: boolean;
@@ -63,6 +67,7 @@ export interface WizardResult {
     invite_url?: string; in_guild?: boolean; provider?: string; provider_via?: string; fallback: boolean; reused: boolean; persona_written: boolean;
     reply_language?: string; reply_language_name?: string; reply_language_from?: string }[];
   cloud_web?: CloudWebTest;
+  qq?: { code: string; message: string; fix?: string; user_id?: string; nickname?: string };
   fallback_role?: string; jev_test?: JevTest; jev_ok: boolean; jev_reason?: string; jev_in_use?: string; jev_hint: string; hardware: boolean; restart_required: boolean; config_backup?: string;
   // the running service started the roles this save added: projects_added are online, projects_failed says why one is not
   // projects_removed: failed roles taken back out of config.toml; restart_keys / reload_error: why the running roles still need a restart

@@ -10,6 +10,11 @@ export const MAX_TEXT = 128 * 1024;
 // 「默认混合模型」); the same names as the bridge's dispatch_mode config.
 export const DISPATCH_MODES = ['solo', 'team', 'mixed'];
 export const DEFAULT_DISPATCH_MODE = 'mixed';
+// #445: a chat channel may set its own relay cap; the Issue's acceptance fixes the range
+// (5/21 rejected, 6/20 accepted) and the default (6).
+export const MIN_CHANNEL_MAX_RELAY = 6;
+export const MAX_CHANNEL_MAX_RELAY = 20;
+export const DEFAULT_CHANNEL_MAX_RELAY = 6;
 // v7 is #133 (reply_to), v8 is #139 team mode A, v9 is #139 team mode B tasks, v10 is #177
 // (room_settings.dispatch_explicit); columns are added by ensureSchema() on every open
 // (checked with PRAGMA table_info), so either merge or release order ends with every column;
@@ -42,6 +47,7 @@ const COLUMNS = [
   // The room's highest task id when its owner last claimed it; a claim no task followed
   // yet (the handoff is not worked on) keeps it owned when an earlier task ends (Tasks.releaseIfDone).
   ['rooms', 'claim_task', 'INTEGER'],
+  ['rooms', 'claim_at', 'REAL'], // A fresh claim gets time to open its handoff before idle recovery.
   // 1 = the bridge claimed it (cloudweb.mjs op claim/create): its lead is a bridge session, so
   // only the bridge's op release (lead reset) frees it, never Tasks.releaseIfDone.
   ['rooms', 'claim_bridge', 'INTEGER NOT NULL DEFAULT 0'],
@@ -65,7 +71,13 @@ export const WORKSPACE_ID_MIN = 1000000;
 export const QUOTE_CHARS = 40;
 
 export class Store {
-  constructor(path) {
+  /**
+   * @param path - SQLite file, or ':memory:'.
+   * @param options - { maxRelay? } instance default for channels that never set one (#445);
+   *   kept configurable so instances that run a tighter loop keep working.
+   */
+  constructor(path, { maxRelay = DEFAULT_CHANNEL_MAX_RELAY } = {}) {
+    this.relayDefault = maxRelay;
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.closed = false;
@@ -80,9 +92,9 @@ export class Store {
       rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms ORDER BY id'),
       children: this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id"),
       // A new workspace is claimed with no task yet (claim_task 0): its first task is the handoff.
-      createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id, claim_task, claim_bridge)
+      createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id, claim_task, claim_bridge, claim_at)
         SELECT MAX(${WORKSPACE_ID_MIN}, COALESCE((SELECT MAX(id) + 1 FROM rooms WHERE id >= ${WORKSPACE_ID_MIN}), ${WORKSPACE_ID_MIN})),
-          ?, 'workspace', ?, 0, ? RETURNING id, name, kind, parent_id`),
+          ?, 'workspace', ?, 0, ?, unixepoch() RETURNING id, name, kind, parent_id`),
       ensureRoom: this.db.prepare('INSERT INTO rooms (id, name, workspace_path) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, workspace_path = excluded.workspace_path'),
       workspacePath: this.db.prepare(`SELECT COALESCE(parent.workspace_path, room.workspace_path) AS path
         FROM rooms room LEFT JOIN rooms parent ON room.kind = 'workspace' AND parent.id = room.parent_id WHERE room.id = ?`),
@@ -91,7 +103,7 @@ export class Store {
       byKey: this.db.prepare('SELECT * FROM messages WHERE client_key = ?'),
       byId: this.db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0'),
       edit: this.db.prepare('UPDATE messages SET text = ?, card = ?, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
-      commit: this.db.prepare('UPDATE messages SET text = ?, from_turn = ?, draft = 0, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 AND card IS NULL AND draft = 1 RETURNING *'),
+      commit: this.db.prepare('UPDATE messages SET text = ?, from_turn = ?, attachments = ?, draft = 0, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 AND card IS NULL AND draft = 1 RETURNING *'),
       editUser: this.db.prepare(`UPDATE messages SET text = ?, edited_at = ? WHERE id = ? AND author_kind = 'user' AND author = ?
         AND deleted = 0 AND draft = 0 AND card IS NULL RETURNING *`),
       del: this.db.prepare('UPDATE messages SET deleted = 1 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
@@ -187,6 +199,8 @@ export class Store {
       }
       if (!settingColumns.some(c => c.name === 'lead_id')) this.db.exec('ALTER TABLE room_settings ADD COLUMN lead_id TEXT');
       if (!settingColumns.some(c => c.name === 'workspace_path')) this.db.exec('ALTER TABLE room_settings ADD COLUMN workspace_path TEXT');
+      // #445: NULL means the channel never set a cap, so the instance default applies.
+      if (!settingColumns.some(c => c.name === 'max_relay')) this.db.exec('ALTER TABLE room_settings ADD COLUMN max_relay INTEGER');
       this.db.exec('DROP TABLE IF EXISTS collab_settings');
       if (version < SCHEMA_VERSION) this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     });
@@ -387,7 +401,7 @@ export class Store {
       if (free !== undefined) {
         this.resetSessions(free.id);
         return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
-          claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?) WHERE id = ? RETURNING id, name, kind, parent_id`)
+          claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?), claim_at = unixepoch() WHERE id = ? RETURNING id, name, kind, parent_id`)
           .get(parent, bridge ? 1 : 0, free.id, free.id);
       }
       const n = Math.max(0, ...all.map(num));
@@ -422,7 +436,7 @@ export class Store {
       const last = this.db.prepare('SELECT claim_task FROM rooms WHERE id = ?').get(ws.id).claim_task;
       if (owner == null && !(handoff != null && last != null && Number(handoff) > last)) this.resetSessions(ws.id);
       return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
-        claim_task = COALESCE(?, (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?)) WHERE id = ? RETURNING id, name, kind, parent_id`)
+        claim_task = COALESCE(?, (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?)), claim_at = unixepoch() WHERE id = ? RETURNING id, name, kind, parent_id`)
         .get(parent, bridge ? 1 : 0, handoff == null ? null : Number(handoff) - 1, ws.id, ws.id);
     });
   }
@@ -539,6 +553,28 @@ export class Store {
     return mode;
   }
 
+  /** A channel's saved relay cap (a workspace reads its chat channel); null when it never set one (#445). */
+  savedMaxRelay(roomId) {
+    const row = this.db.prepare('SELECT max_relay FROM room_settings WHERE room_id = ?').get(this.settingsRoom(roomId));
+    return row?.max_relay ?? null;
+  }
+
+  /** The setting the client shows: the saved cap, else the instance default (#445). */
+  relaySetting(roomId) {
+    return { max_relay: this.savedMaxRelay(roomId) ?? this.relayDefault };
+  }
+
+  /** Set a chat channel's relay cap; only 6–20 (Issue #445), stored on the channel so its workspaces share it. */
+  setMaxRelay(roomId, value) {
+    if (!Number.isInteger(value) || value < MIN_CHANNEL_MAX_RELAY || value > MAX_CHANNEL_MAX_RELAY) {
+      throw new CollabError('invalid', `接力上限必须是 ${MIN_CHANNEL_MAX_RELAY}–${MAX_CHANNEL_MAX_RELAY} 的整数`);
+    }
+    roomId = this.settingsRoom(roomId); // set on a workspace = set on its chat channel
+    this.ensureRoomSettings(roomId);
+    this.db.prepare('UPDATE room_settings SET max_relay = ? WHERE room_id = ?').run(value, roomId);
+    return value;
+  }
+
   /** Keep legacy members visible in all channels, including future ones. */
   migrateMemberRooms() {
     return this.db.prepare("UPDATE members SET rooms = '[]' WHERE rooms IS NULL").run().changes > 0;
@@ -588,11 +624,23 @@ export class Store {
   }
   room(id) { return this.q.room.get(id); }
   rooms() { return this.q.rooms.all(); }
+  /** Return stale, empty claims to the pool without taking bridge or paused work. */
+  releaseIdleWorkspaces() {
+    const idle = this.db.prepare(`SELECT id FROM rooms WHERE kind = 'workspace' AND free = 0
+      AND claim_bridge = 0 AND claim_task > 0
+      AND (claim_at IS NULL OR claim_at < unixepoch() - 1800)
+      AND NOT EXISTS (SELECT 1 FROM tasks WHERE room_id = rooms.id
+        AND status IN ('assigned', 'accepted', 'asked', 'rework'))`).all();
+    for (const room of idle) this.releaseWorkspace(room.id);
+    return idle.length;
+  }
+
   /** Rooms for clients: each carries kind, parent_id and its open task count. */
   roomsView() {
+    this.releaseIdleWorkspaces();
     const counts = new Map(this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
       WHERE status IN ('assigned', 'accepted', 'asked', 'rework') GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
-    return this.rooms().map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id) }));
+    return this.rooms().map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id), ...this.relaySetting(r.id) }));
   }
 
   /**
@@ -651,9 +699,9 @@ export class Store {
    * into a reply (the caller fans out once). A row already committed gets the
    * text and first = false. undefined if it is not that author's live text row.
    */
-  commit(id, authorKind, author, text, fromTurn, now = Date.now() / 1000) {
-    if (!text.trim() || text.length > MAX_TEXT) return undefined;
-    const row = this.q.commit.get(text, fromTurn == null ? null : (fromTurn ? 1 : 0), now, id, authorKind, author);
+  commit(id, authorKind, author, text, fromTurn, attachments, now = Date.now() / 1000) {
+    if ((!text.trim() && !attachments?.length) || text.length > MAX_TEXT) return undefined;
+    const row = this.q.commit.get(text, fromTurn == null ? null : (fromTurn ? 1 : 0), attachments?.length ? JSON.stringify(attachments) : null, now, id, authorKind, author);
     if (row !== undefined) return { message: row, first: true };
     const old = this.message(id);
     if (old === undefined || old.card != null) return undefined;

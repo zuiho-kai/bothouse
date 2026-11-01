@@ -25,8 +25,10 @@
 
 ## 3. 起 gate：向导默认开，bothouse 自动拉起
 
-**不用手动起。** 多个机器人时，向导「主角色」一步的「分流：一个主 bot 决定谁回话（推荐）」默认勾着（AI 的请求不带 `gate` 字段也是开）。
-保存后分流马上生效：主 bot 统一回话，被 @ 的角色照常回，其他角色只听。
+无需运行小模型且希望少插话：在安装向导选「仅被点名时回复」，或安装请求加 "gate": {"enabled": true, "mode": "addressed"}。它使用平台已有的 @ / 回复规则，不做语义推断。私聊、明确交回和停手命令沿用平台现有规则。详见[参与方式与成本](connect-discord-feishu.md#5-jev-和主角色)。下面介绍默认的智能分流。
+
+**不用手动起。** 首次安装时，向导的「群聊参与方式」默认选择智能分流。AI 的请求不带 `gate` 字段时，保留该平台已保存的选择；首次安装默认开启。
+选择智能分流并保存后，分流马上生效：主 bot 统一回话，被 @ 的角色照常回，其他角色只听。
 bothouse 会自己拉起 gate（服务在跑就马上起，没在跑就下次启动时起），装好 **Python 3.12+** 和 **jev** 后自动启用智能判断，不用重跑向导。
 
 - jev 在向导里填（[线 2](connect-discord-feishu.md) 第 5 节：硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B）。gate 不会自己下载模型。
@@ -62,6 +64,7 @@ GATE_WIKI=~/wiki uv run bridge/contrib/gate/gate.py
 - 想在自己的显卡上跑大一点的本机模型：显式设 `GATE_MODEL=<本地模型目录>`，Apple 芯片用 `bridge/contrib/gate/scorer.py`（`uv run --with mlx-lm`），
   N 卡用 `scorer_torch.py`（PyTorch 版，放成 `scorer.py`）；`gate_switch.py`
   演示了把 gate 放在另一台机器上、连不上时退回规则（要先设 `SWITCH_HOST`、`SWITCH_TS_IP`；同步脚本 `sync_gate.sh` 另要 `SWITCH_WIN_HOME`）。这两样按你的机器改，不在这篇的范围内。
+  用切换器时，`/context` 由切换器在**本机**用 `ctxsvc` 查本机的 wiki（`GATE_WIKI`，默认 `~/wiki`），不转给远端：检索不用模型，wiki 也是本机的 llm-wiki 写的，所以 wiki 装在跑 ccm 和切换器的这台机器上，GPU 机器上不需要；闸门离线时照样推 wiki 页。`sync_gate.sh` 会把 `gate.py` 用到的本地模块一起传过去（清单 `GATE_MODULES`，`test_gate_switch.py` 检查是否齐全）。
 
 ## 4. 装 wiki 并接到 gate
 
@@ -86,7 +89,7 @@ ccm 拼在消息前面：
 ```
 
 - wiki 目录用 `GATE_WIKI` 指（默认 `~/wiki`）；设成 `off` 或空就不推。目录不存在也不推，不报错。
-- wiki 页应保存为 UTF-8；`wiki_search.py` 和 `/context` 的词法检索支持 Windows 中文系统（cp936），无需设置 `PYTHONUTF8=1`。返回的路径统一使用 `/`，家目录下仍缩写为 `~/...`。此支持范围仅涵盖词法检索；本篇 shell 安装命令、launchd 和本机模型后端仍按各自的平台要求使用。
+- wiki 页应保存为 UTF-8（可带 BOM）；`wiki_search.py` 和 `/context` 的词法检索支持 Windows 中文系统（cp936），无需设置 `PYTHONUTF8=1`。返回的路径统一使用 `/`，家目录下仍缩写为 `~/...`。此支持范围仅涵盖词法检索；本篇 shell 安装命令、launchd 和本机模型后端仍按各自的平台要求使用。
 - 同一页同一个会话只推一次（ccm 记着）。wiki 改了最迟 5 分钟后检索得到。
 - 只有 `MEMORY.md` → 域目录（有 `README.md`）→ 主题页这样的页会被检索；根目录的 `MEMORY.md`、`log.md`、各 `README.md` 不算。
 

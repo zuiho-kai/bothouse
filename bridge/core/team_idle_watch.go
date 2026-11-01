@@ -16,10 +16,16 @@ import (
 // Fifteen seconds lets the completed turn unlock and queued work start first.
 const watchTurnEndDelay = 15 * time.Second
 
+// Turns of one watched assignment that may end in an agent error in a row before
+// the watch stops resuming it and asks the primary role to reassign (user 2026-11-01:
+// four upstream errors each followed by another automatic resume).
+const watchFailLimit = 2
+
 type watchIdleState struct {
 	Returned bool      `json:"returned,omitempty"`
 	Ended    time.Time `json:"ended,omitzero"`
 	Wakes    int       `json:"wakes,omitempty"`
+	Fails    int       `json:"fails,omitempty"` // consecutive turns that ended in an agent error
 	Reported bool      `json:"reported,omitempty"`
 }
 
@@ -211,7 +217,7 @@ func watchIsHandback(text string) bool {
 }
 
 func watchBoardClosed(it teamTaskBoardItem) bool {
-	for _, status := range []string{"已验收", "验收通过", "已收口", "已完成", "已交回", "已结束"} {
+	for _, status := range []string{"已验收", "验收通过", "已收口", "已完成", "已结束"} {
 		if strings.Contains(it.Status, status) {
 			return true
 		}
@@ -221,7 +227,9 @@ func watchBoardClosed(it teamTaskBoardItem) bool {
 
 // watchTurnEnded runs before finishPublicProgress: automatic card completion is
 // not a deliberate result. A report, handback or explicit result ends the watch.
-func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult bool) {
+// since: when the turn began (zero when unknown); a workspace handoff recorded from this chat
+// after it means the accepted work now belongs to that workspace.
+func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, cardResult bool, since time.Time) {
 	if e.finishWorkspaceReportTurn(key, text) {
 		return // missing delivery owns this wake; do not also arm the idle watch
 	}
@@ -243,14 +251,15 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 	if kind, body, ok := parseExitKind(text); ok && kind == exitKindAsk {
 		returned = askEvidenceProblems(body) == nil
 		asking = true
-	} else if ok && returned && !e.exitHeadlineOK(body) && e.exitBounceCount(key) < askBounceWakeLimit {
+	} else if ok && returned && !e.exitHeadlineOK(body) && e.exitBounceCount(key) < exitRules.Bounce.WakeLimit {
 		// A [report] bounced for its headline (forwardWorkspaceExit) is resent, not handed back yet.
 		returned = false
 	}
-	title := strings.TrimSpace(strings.TrimPrefix(first, "【接】"))
-	boardID := watchTaskNumber(first)
+	title := strings.TrimSpace(StripMarkdown(strings.TrimPrefix(first, "【接】")))
+	boardID := watchTaskNumber(StripMarkdown(first))
 	boardActive := false
 	boardClosed := false
+	handedOff := false // the accepted work is in a workspace: its watch is the workspace's
 	chat := key
 	if parent, ok := e.WorkspaceParent(key); ok {
 		chat = parent
@@ -265,6 +274,9 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 			}
 			if boardID == it.ID && watchBoardClosed(*it) {
 				boardClosed = true
+			}
+			if boardID == it.ID && it.own != key && it.parent == key && !it.wsEnded {
+				handedOff = true
 			}
 			if it.own != key || it.wsEnded || watchBoardClosed(*it) ||
 				it.Paused != "" && !(accepted && teamTaskBoardWaitUser.MatchString(it.PauseWhy)) {
@@ -299,6 +311,18 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 	}
 	teamWorkspaceStore.mu.Lock()
 	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if !since.IsZero() && !boardActive {
+		for ws, rows := range st.Handoffs {
+			if ws == key {
+				continue
+			}
+			for _, h := range rows {
+				if h.Chat == key && teamHandoffOpen(h) && !h.At.Before(since) {
+					handedOff = true
+				}
+			}
+		}
+	}
 	var assignments []idleAssignment
 	for _, script := range []bool{false, true} {
 		rows := st.Handoffs[key]
@@ -313,7 +337,8 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 	}
 	// Direct acceptance and board-owned active work have no handoff/d10
 	// registration. Register unfinished work from this terminal event only.
-	if (accepted || boardActive) && !returned && len(assignments) == 0 && e.team != nil {
+	// A chat-channel 「已交给工作区」 acceptance is not work left in the chat channel.
+	if (accepted || boardActive) && !returned && !handedOff && len(assignments) == 0 && e.team != nil {
 		owner := e.name
 		if m, ok := p.(SelfMentioner); ok && m.SelfMention() != "" {
 			owner = m.SelfMention()
@@ -340,19 +365,47 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 	teamWorkspaceStore.mu.Unlock()
 	delegated := e.watchDelegatedWork(key)
 	for _, a := range assignments {
+		giveUp := false
 		h, ok := e.updateIdle(a, func(h *TeamHandoff) {
 			h.Idle.Returned = returned
 			h.Idle.Ended = time.Now()
+			if failed {
+				// Tools run before an error are not progress: keep the wake count.
+				h.Idle.Fails++
+				if !returned && h.Idle.Fails >= watchFailLimit && !h.Idle.Reported {
+					h.Idle.Reported = true
+					giveUp = true
+				}
+				return
+			}
+			h.Idle.Fails = 0
 			if worked {
 				h.Idle.Wakes = 0
 				h.Idle.Reported = false
 			}
 		})
-		if ok && !returned && !delegated {
+		if ok && giveUp {
+			e.escalateIdle(a.key, h, MsgWatchFailEscalate)
+			continue
+		}
+		if ok && !returned && !delegated && !h.Idle.Reported {
 			a.h = h
 			e.armIdleWake(a)
 		}
 	}
+}
+
+// watchHandoffLeft: a handoff item (it came from a chat, it.Chat) is no longer bound to
+// workspace key. Asking the user (ws-up --ask) pauses the item and drops its workspace; the
+// answer (ws-handoff --resume) clears the pause before the item is bound again, possibly to
+// another workspace or only queued. The old workspace's watch must not wake it then: its
+// session never got the answer and asks the user again (11-01 #855: answered at 03:22:32,
+// the old workspace was told to carry on at 03:22:56 and posted the same [ask] at 03:23:11).
+func watchHandoffLeft(it teamTaskBoardItem, key string) bool {
+	if it.Chat == "" || chatOf(it.Chat) == key {
+		return false
+	}
+	return it.WS == "" || teamChatKey(it.WS) != key
 }
 
 func (e *Engine) armIdleWake(a idleAssignment) {
@@ -370,10 +423,12 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 		}
 		if id != 0 {
 			found, closed := false, false
-			for _, it := range readTeamTaskBoard(e.team.dir) {
+			for _, it := range placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir)) {
 				if it.ID == id {
 					found = true
-					closed = watchBoardClosed(it) || it.Paused != ""
+					// Handed to a workspace since: the workspace's watch keeps it, not this chat.
+					closed = watchBoardClosed(it) || it.Paused != "" || it.own != a.key && it.parent == a.key && !it.wsEnded ||
+						watchHandoffLeft(it, a.key)
 					break
 				}
 			}
@@ -404,43 +459,70 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 	if !ok || (!wake && !escalate) {
 		return
 	}
-	plat, _, _ := strings.Cut(a.key, ":")
-	sender := e
-	for _, x := range e.watchEngines() {
-		if (h.Sender != "" && x.name == h.Sender) || (h.Sender == "" && x.isTeamLead()) {
-			sender = x
-			break
-		}
+	if escalate {
+		e.escalateIdle(a.key, h, MsgWatchIdleEscalate)
+		return
 	}
+	plat, _, _ := strings.Cut(a.key, ":")
+	sender := e.watchSender(h)
 	p := sender.lookupReadyPlatform(plat)
 	if p == nil {
 		slog.Warn("idle watch: sender platform unavailable", "workspace", a.key)
 		return
 	}
 	w = newHandoffWatch(sender)
-	if escalate {
-		text := sender.i18n.Tf(MsgWatchIdleEscalate, watchMention(plat, h.Owner), h.Title)
-		if err := w.send(p, h.Chat, text); err != nil {
-			slog.Warn("idle watch: escalation failed", "error", err)
-		}
-		sender.wakeWatchRole(h.Chat, text, h.Title)
-		return
-	}
 	owner := h.Owner
 	if m, ok := e.lookupReadyPlatform(plat).(SelfMentioner); ok && m.SelfMention() != "" {
 		owner = m.SelfMention()
 	}
-	text := strings.TrimSpace(watchMention(plat, owner) + " " + sender.i18n.Tf(MsgWatchResume, h.Title))
-	if err := w.send(p, a.key, text); err != nil {
-		slog.Warn("idle watch: wake post failed", "error", err)
-	}
-	// A bot's own post cannot wake it. Deliver locally as well; when another
-	// bot posts the mention, the platform supplies the normal user turn.
+	// A bot's own post cannot wake it, and a post mentioning itself only adds
+	// noise: the sole bot wakes locally. When another bot posts the mention,
+	// the platform supplies the normal user turn.
 	if sender == e {
-		e.wakeWatchRole(a.key, text, h.Title)
+		e.wakeWatchRole(a.key, sender.i18n.Tf(MsgWatchResume, h.Title), h.Title)
+	} else {
+		text := strings.TrimSpace(watchMention(plat, owner) + " " + sender.i18n.Tf(MsgWatchResume, h.Title))
+		if err := w.send(p, a.key, text); err != nil {
+			slog.Warn("idle watch: wake post failed", "error", err)
+		}
 	}
 	a.h = h
 	e.armIdleWake(a) // two wake attempts, then one escalation; not a polling loop
+}
+
+func (e *Engine) watchSender(h TeamHandoff) *Engine {
+	for _, x := range e.watchEngines() {
+		if (h.Sender != "" && x.name == h.Sender) || (h.Sender == "" && x.isTeamLead()) {
+			return x
+		}
+	}
+	return e
+}
+
+// escalateIdle stops resuming the assignment: it tells the chat once and wakes the
+// primary role there to take over or reassign.
+func (e *Engine) escalateIdle(key string, h TeamHandoff, msg MsgKey) {
+	plat, _, _ := strings.Cut(key, ":")
+	sender := e.watchSender(h)
+	p := sender.lookupReadyPlatform(plat)
+	if p == nil {
+		slog.Warn("idle watch: sender platform unavailable", "workspace", key)
+		return
+	}
+	who := watchMention(plat, h.Owner)
+	if sender.watchOwns(p, h.Owner) {
+		who = sender.DisplayName() // a lone bot does not mention itself
+	} else if msg == MsgWatchFailEscalate {
+		// Naming, not mentioning: a mention would start one more failing turn.
+		if t := e.watchTarget(key, h.Owner); t != nil {
+			who = t.DisplayName()
+		}
+	}
+	text := sender.i18n.Tf(msg, who, h.Title)
+	if err := newHandoffWatch(sender).send(p, h.Chat, text); err != nil {
+		slog.Warn("idle watch: escalation failed", "error", err)
+	}
+	sender.wakeWatchRole(h.Chat, text, h.Title)
 }
 
 func (e *Engine) wakeWatchRole(key, text, title string) {
@@ -559,8 +641,20 @@ func (s *APIServer) handleTeamIdleWatch(w http.ResponseWriter, r *http.Request) 
 	var found *TeamHandoff
 	for i := range st.ScriptWatches[key] {
 		h := &st.ScriptWatches[key][i]
-		if h.Owner == req.Owner && h.Sender == req.Project && h.At.Equal(at) {
+		// since is whole seconds; a watch registered by the bridge itself keeps sub-second time,
+		// so an exact Equal never matched it and close answered "not registered" (2026-11-01).
+		if h.Owner == req.Owner && h.Sender == req.Project && h.At.Unix() == at.Unix() {
 			found = h
+		}
+	}
+	if found == nil && req.Action == "close" {
+		// Stopping an assignment must not depend on the caller knowing its start second:
+		// close every open watch of this role from this sender in the channel.
+		for i := range st.ScriptWatches[key] {
+			if h := &st.ScriptWatches[key][i]; h.Owner == req.Owner && h.Sender == req.Project && h.Closed.IsZero() {
+				h.Closed = time.Now()
+				found = h
+			}
 		}
 	}
 	if found == nil && req.Action == "register" {

@@ -7,7 +7,8 @@
 // one that was consumed is settled from the Session log. Nothing is re-sent,
 // so a prompt is executed at most once.
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { basename, isAbsolute, relative, sep } from 'node:path';
 import { exitTarget } from './team-exit.mjs';
 import { DEFAULT_DISPATCH_MODE, MAX_TEXT } from './store.mjs';
 import { ChannelApprovals, DEFAULT_ACTIONS } from './approvals.mjs';
@@ -62,6 +63,54 @@ import { attachmentBlocks, namedAttachmentBlocks, nativeAttachmentBlocks, undeli
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
+const MAX_LOCAL_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_LOCAL_IMAGES = 10;
+const IMAGE_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+// Markdown targets may contain spaces; bare paths end at whitespace or punctuation.
+const LOCAL_IMAGE = /!\[([^\]\n]*)\]\((\/[^)\n]+?\.(?:png|jpe?g|gif|webp))\)|(?<![\w/])\/[^\s<>"'`()[\]{}，。；,;]+?\.(?:png|jpe?g|gif|webp)(?![\w/])/gi;
+
+/** Only files physically inside this room's working directory may leave the machine. */
+export function localImageReply(text, workspacePath, files, logger) {
+  if (!files || !workspacePath || !LOCAL_IMAGE.test(text)) return { text, attachments: [] };
+  LOCAL_IMAGE.lastIndex = 0;
+  let root;
+  try { root = realpathSync(workspacePath); } catch { return { text, attachments: [] }; }
+  const attachments = [];
+  const result = text.replace(LOCAL_IMAGE, (match, alt, markdownPath) => {
+    const path = markdownPath ?? match;
+    if (!isAbsolute(path)) return match;
+    let target;
+    try { target = realpathSync(path); } catch (error) {
+      logger?.warn('collab: local image skipped (%s): %s', path, error.message);
+      return match;
+    }
+    const within = relative(root, target);
+    if (within === '..' || within.startsWith(`..${sep}`) || isAbsolute(within)) return match;
+    if (attachments.length >= MAX_LOCAL_IMAGES) {
+      logger?.warn('collab: local image skipped (%s): attachment limit %d', path, MAX_LOCAL_IMAGES);
+      return match;
+    }
+    try {
+      const size = statSync(target).size;
+      if (size > MAX_LOCAL_IMAGE_BYTES) {
+        logger?.warn('collab: local image skipped (%s): exceeds %d bytes', path, MAX_LOCAL_IMAGE_BYTES);
+        return match;
+      }
+      const data = readFileSync(target);
+      if (data.length > MAX_LOCAL_IMAGE_BYTES) {
+        logger?.warn('collab: local image skipped (%s): exceeds %d bytes', path, MAX_LOCAL_IMAGE_BYTES);
+        return match;
+      }
+      const mime = IMAGE_MIME[path.slice(path.lastIndexOf('.') + 1).toLowerCase()];
+      attachments.push(...files.save([{ name: basename(path), mime, data: data.toString('base64') }]));
+      return alt ?? '';
+    } catch (error) {
+      logger?.warn('collab: local image skipped (%s): %s', path, error.message);
+      return match;
+    }
+  });
+  return { text: result, attachments };
+}
 // Agent-to-agent relay cap: after this many agent messages in a row without a
 // human message, agent mentions stop starting DSH turns (prevents loops with bots).
 export const DEFAULT_MAX_RELAY = 6;
@@ -461,10 +510,12 @@ export class DshMembers {
         for (const id of targets) this.enqueue({ member_id: id, room_id: msg.room_id }, () => this.renew(id, msg));
       };
     }
-    if (msg.author_kind === 'role' && this.store.relayDepth(msg.room_id, msg.id) > this.maxRelay) {
+    // #445: a channel's saved cap wins; otherwise the instance default (this.maxRelay).
+    const cap = this.store.savedMaxRelay?.(msg.room_id) ?? this.maxRelay;
+    if (msg.author_kind === 'role' && this.store.relayDepth(msg.room_id, msg.id) > cap) {
       return () => this.hub.post(msg.room_id, {
         authorKind: 'system', author: 'system', name: 'system', clientKey: `relay-cap-${msg.id}`,
-        text: `Agent 之间已经连续接力 ${this.maxRelay} 次以上，暂停自动接力；需要继续请人来 @。`,
+        text: `Agent 之间已经连续接力 ${cap} 次以上，暂停自动接力；需要继续请人来 @。`,
       });
     }
     const jobs = targets.map(id => this.store.addJob(id, msg.room_id, msg.id)).filter(Boolean);
@@ -659,8 +710,9 @@ export class DshMembers {
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
       latest = '';
       const reply = this.returnToLead(job, member, text);
-      const committed = draft === undefined ? undefined : this.hub.commit(draft.id, 'role', member.id, reply);
-      const message = committed ?? this.hub.post(job.room_id, { authorKind: 'role', author: member.id, name: member.name, clientKey, text: reply }).message;
+      const converted = localImageReply(reply, cwd, this.rt.files, this.rt.logger);
+      const committed = draft === undefined ? undefined : this.hub.commit(draft.id, 'role', member.id, converted.text, undefined, converted.attachments);
+      const message = committed ?? this.hub.post(job.room_id, { authorKind: 'role', author: member.id, name: member.name, clientKey, text: converted.text, attachments: converted.attachments }).message;
       done = true;
       this.store.finishJob(job.id, 'done', message.id);
     } catch (error) {
@@ -745,9 +797,12 @@ export class DshMembers {
     }
     const kind = reason?.kind;
     const complete = kind === undefined || kind === 'completed' || kind === 'max-tokens';
+    const reply = this.returnToLead(job, member, complete ? text : `${text}\n\n（这一轮没有正常结束：${describeReason(reason)}）`);
+    const cwd = this.store.workspacePath(job.room_id, this.rt.workspacePath);
+    const converted = localImageReply(reply, cwd, this.rt.files, this.rt.logger);
     const { message } = this.hub.post(job.room_id, {
       authorKind: 'role', author: member.id, name: member.name, clientKey: `dsh-job-${job.id}`,
-      text: this.returnToLead(job, member, complete ? text : `${text}\n\n（这一轮没有正常结束：${describeReason(reason)}）`),
+      text: converted.text, attachments: converted.attachments,
     });
     this.store.finishJob(job.id, 'done', message.id);
     return complete;

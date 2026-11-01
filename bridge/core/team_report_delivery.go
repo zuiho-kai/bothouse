@@ -190,14 +190,14 @@ func (e *Engine) queueReportWake(job *TimerJob, rec *pendingReport, enqueue func
 		// report (#623); otherwise post it here and keep the record pending until the platform
 		// accepts it, so a rejected post is still retried by the recovery sweep.
 		if rec.Posted {
-			e.dropDeliveredReport(rec.Key)
+			e.completeReportDelivery(rec)
 			return true
 		}
 		if derr := e.deliverPendingReport(rec); derr != nil {
 			e.noteReportFailure(rec, derr)
 			return true
 		}
-		e.dropDeliveredReport(rec.Key)
+		e.completeReportDelivery(rec)
 		return true
 	}
 	return true
@@ -280,15 +280,15 @@ func (e *Engine) settleReportRecord(key, text string, runErr error) {
 	e.teamExit.mu.Unlock()
 
 	if runErr == nil && e.reportTextVisible(text) {
-		e.dropDeliveredReport(key)
+		e.completeReportDelivery(&recCopy)
 		return
 	}
 	if recCopy.Posted {
 		// The headline is already in the chat; the lead adding nothing is allowed (#623).
-		e.dropDeliveredReport(key)
+		e.completeReportDelivery(&recCopy)
 		return
 	}
-	if _, stopped := e.workspaceTaskStopped(recCopy.Session); stopped {
+	if _, stopped := e.workspaceTaskStopped(recCopy.Session, e.boardItemByID(recCopy.Board)); stopped {
 		slog.Info("report delivery: task was stopped by the user; not posting its report",
 			"workspace", recCopy.Workspace, "board_item", recCopy.Board)
 		e.dropDeliveredReport(key)
@@ -306,17 +306,22 @@ func (e *Engine) settleReportRecord(key, text string, runErr error) {
 			"workspace", recCopy.Workspace, "board_item", recCopy.Board, "attempts", recCopy.Attempts+1, "error", err)
 		return
 	}
-	if recCopy.Headline != "" {
-		e.exitMarkPosted(recCopy.Kind, recCopy.Board, recCopy.Headline)
+	e.completeReportDelivery(&recCopy)
+}
+
+// completeReportDelivery records platform acceptance separately from task verification.
+// All successful paths retain the same receipt so PR800 can retry a failed board write.
+func (e *Engine) completeReportDelivery(rec *pendingReport) {
+	if rec.Headline != "" {
+		e.exitMarkPosted(rec.Kind, rec.Board, rec.Headline)
 	}
-	// The headline path closes the board item right after its post; when that post (and the
-	// immediate fallback) failed, closing happens only now that the report is actually out.
-	if recCopy.Board > 0 && !recCopy.Posted {
-		e.endWorkspaceTask(recCopy.Platform+":"+recCopy.Chat, recCopy.Session, recCopy.Kind, recCopy.Board)
+	if rec.Kind == exitKindReport && rec.Board > 0 {
+		e.markExitReported(rec.Board)
 	}
-	slog.Info("report delivery: fallback posted the workspace report",
-		"workspace", recCopy.Workspace, "board_item", recCopy.Board, "posted_headline", recCopy.Posted)
-	e.dropDeliveredReport(key)
+	if rec.Board > 0 && !rec.Posted {
+		e.endWorkspaceTask(rec.Platform+":"+rec.Chat, rec.Session, rec.Kind, rec.Board)
+	}
+	e.dropDeliveredReport(rec.Key)
 }
 
 // deliverPendingReport posts the handback as the 📬 record, so the user still sees it when the

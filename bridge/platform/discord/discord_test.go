@@ -1874,7 +1874,7 @@ func TestNewParsesGroupReplyAllChannels(t *testing.T) {
 func TestReferencedMessage_OnlyKnownOwnOutputCanShorten(t *testing.T) {
 	p := &Platform{botID: "self"}
 	ref := &discordgo.Message{ID: "post", ChannelID: "chan", Author: &discordgo.User{ID: "self", Username: "橘"}, Content: strings.Repeat("字", 90), Timestamp: time.Now()}
-	if p.messageReference(ref) != nil {
+	if r := p.messageReference(ref); r == nil || r.Short != "" {
 		t.Fatal("unseen cron/status output must stay full")
 	}
 	p.turnSent.add("chan", "post")
@@ -1887,12 +1887,12 @@ func TestReferencedMessage_OnlyKnownOwnOutputCanShorten(t *testing.T) {
 		t.Fatalf("short reference = %q", proposal.Short)
 	}
 	ref.Author.ID = "other"
-	if p.messageReference(ref) != nil {
+	if r := p.messageReference(ref); r == nil || r.Short != "" {
 		t.Fatal("teammate reference shortened")
 	}
 	ref.Author.ID = "self"
 	ref.Timestamp = time.Time{}
-	if p.messageReference(ref) != nil {
+	if r := p.messageReference(ref); r == nil || r.Short != "" {
 		t.Fatal("unknown timestamp shortened")
 	}
 }

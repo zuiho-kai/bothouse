@@ -55,15 +55,28 @@ bothouse 写的 hook 命令都带 `--conest-hook` 标记，`off` 只删带标记
 
 | hook | 事件 | 管什么 | 怎么放行 |
 | --- | --- | --- | --- |
-| bash-guard | PreToolUse（Bash/bash） | `pkill -f`；后台命令没超时或接了 `\| tail`；macOS 上 `go build -o …bothouse`；设了 `HOOK_PROXY` 时没走代理的下载；整页 cat 多页 wiki（只提示） | `# long-running-ok`、`# direct-ok`、`# tcc-ok` |
+| bash-guard | PreToolUse（Bash/bash） | `pkill -f`；后台命令没超时或接了 `\| tail`；macOS 上 `go build -o …bothouse`；设了 `HOOK_PROXY` 时没走代理的下载；整页 cat 多页 wiki（只提示）；前台干等（`gh run watch`、`sleep` ≥60 秒、shell/perl/python 里带 sleep 的轮询循环）；Claude Code 子 agent 前台命令 timeout 超过 290 秒时压到 290 秒（不拦，跑不完自动转后台，long-task 子 agent 不压） | `# long-running-ok`、`# direct-ok`、`# tcc-ok`；要等的放后台 |
+| codemap-inject | PreToolUse（五个团队 CLI 的派活工具） | 派子 agent 时，按派活说明命中的关键词附上代码地图（`<data_dir>/codemaps/*.md`），要求先读地图、交付附「## 地图要补的条目（<地图路径>）」 | 改写派活输入；DSH 返回完整参数要求重试；没命中不动 |
+| codemap-fill | SubagentStop（Gemini 用 AfterTool） | 子 agent 交付里「地图要补的条目」一节追加到对应地图末尾（去重，跳过「无…」） | 不拦；出错只写 stderr |
+| ask-only-guard | PreToolUse（Bash/bash、编辑类，Codex 含 apply_patch） | 用户最新一条只在提问，命令却是派活、转活或挂定时（`ws-handoff`、`ws-forward`、`board add`、`bothouse timer/cron add`，heredoc 和引号里的字不算），或用编辑工具改 wiki、临时目录以外的文件 | 用户说"做/可以/帮我…"；定时任务和别的 bot 触发的轮；判不准放行 |
 | param-source-guard | PreToolUse（Edit/Write/edit/write/str_replace_editor） | 代码里新加 `名字 = 数字` 没写来源注释 | 同一行或上一行注释写来源（用户原话、数据、SPEC、沿用） |
 | dispatch-review-guard | PreToolUse（Agent/Task/subagent/subagent_fork/workflow；主会话的 Edit/Write） | 派活没写【已审:…】；主会话直接改代码 | 【免审:调研/小改动/一次性脚本/代码审查】、【审稿】+逐字原话、【已审:<审稿文件>】；文档先跑 `doc-ok.py <文件>` |
 | fix-claim-guard | Stop | 用户在说 bug，回复说"已修复"却没列入口表 | 列 `入口 \| 是否经过修复 \| 核对结果` 表；每轮只拦一次 |
+| eta_guard（bash-guard、fix-claim-guard 调用） | PreToolUse（Bash）、Stop | 回复或 ws-*/later/board/bothouse progress·send·relay·timer·task 命令里报了长于 15 分钟的预计时间、跨天时间，或挂了长于 15 分钟的 `timer add --delay/--at`、`later`，同句没有实测依据或外部等待原因 | 同句写「按实测：N 块 × M 分钟 ÷ P 并行」或等什么（等你/CI/下载）；每轮只拦一次 |
 | promise-guard | Stop | 说了"X 点回来看/跑完告诉你/下一步做 X"，本轮却没有定时器、后台任务或派活 | 设定时器、当轮派出去，或写明「这件事不跟进，原因是 Y」；每轮只拦一次 |
+| choice-ask-guard | Stop | 回复里有要用户拍板的问题时，小模型（intent_judge.py，Haiku）对照产品意图卡（hooks/intent-cards.txt 列的路径）和最近 10 条用户消息判断：能推出答案、或与用户定过的冲突 | 拦回并给出答案或指出冲突的那条；真是方向/花钱放行；超时出错放行；每轮只拦一次。ws-handoff 交接时调同一判断 |
 | wiki-context | UserPromptSubmit | 终端会话里按消息附「可能相关的 wiki 页」（和 gate 同一套检索） | 只是附上下文；bothouse 起的 bot 跳过，因为 gate 已经推了 |
 | subagent-ctx-hook | PreToolUse（所有工具） | 子 agent 上下文到 15 万 token 后还在调工具 | 不放行：拒绝理由里要求写交接（做到哪、文件在哪、下一步）后收工；主会话不管 |
 
-fix-claim-guard 和 promise-guard 认的是中文措辞。
+fix-claim-guard、promise-guard 和 choice-ask-guard 认的是中文措辞。
+
+### long-task 子 agent 类型（Claude Code，跟 bash-guard 一起装）
+
+`setup hooks on`（Claude Code 角色，bash-guard 开着时）在角色目录写 `.claude/agents/long-task.md`：给要中途等 5–60 分钟的活用的子 agent 类型，提示缓存 1 小时（`experimental.cacheTtl: 1h`），后台跑命令、靠完成通知接着干。普通子 agent 的缓存只有 5 分钟，所以 bash-guard 把它们前台命令的 timeout 压到 290 秒，long-task 不压。语言跟人设规则段一样（中文或英文）。关掉 bash-guard 时一起删掉。文件里带 `<!-- conest:agent long-task` 标记；删掉这行或自己写的同名文件，bothouse 不覆盖也不删。
+
+### 代码地图（codemap-inject / codemap-fill）
+
+地图目录默认 `<data_dir>/codemaps/`（环境变量 `CODEMAP_DIR` 可换），`setup hooks on` 只放一份 `README.md`（已存在就不动）。一张地图是一个 `.md`，其中一行以 `keywords:` 开头写触发词（逗号分隔），正文写入口、关键符号和 `文件:行`。选图：去掉派活说明里的路径和网址后命中至少 2 个不同关键词（只写 1 个词的地图命中 1 个即可），prompt 里已写了地图路径的不重复附。地图内容是各自机器上的数据，不随 bothouse 发布。
 
 这些 hook 就是「同类错第 2 次写成检查，不再往规则里加字」的落点：`lessons.py`（由 wiki-context 加载）按 wiki 教训表里的「N 次」提醒，某条到 2 次就在这里加一个 hook 或测试，常驻规则本身加一删一。
 
@@ -110,11 +123,16 @@ DSH 桥支持的事件：SessionStart、UserPromptSubmit、PreToolUse、PostTool
 python3 -I bridge/contrib/hooks/test_hooks.py            # 两种载荷走 run.py：拒绝、放行、开关、zstd 记录上的 Stop、wiki-context
 python3 -I bridge/contrib/hooks/test_dshlog.py           # DSH 记录：多帧 zstd、未压缩、两种混在一起、坏文件；export.py 和 peek.py 读两种结果一致
 python3 -I bridge/contrib/hooks/test_promise_guard.py    # promise-guard 的句子回放
+python3 -I bridge/contrib/hooks/test_doc_ok.py           # doc-ok：Codex/Claude/DSH 会话登记、同会话放行、跨会话拒绝、路径归一化
 python3 -I bridge/contrib/hooks/test_subagent_ctx_hook.py  # subagent-ctx-hook：阈值上下、主会话不管、Codex/context_tokens、经 run.py 跑一次
 cd bridge && go test -tags no_web ./core -run 'TestAgentHooks|TestWithHookRules|TestApplyWizardNewClaudeRoleGetsHooks'
 ```
 
 `test_promise_guard.py` 用固定时钟、临时 HOME 和定时任务夹具。新增 `test_bash_guard_nowait.py`、`test_bash_guard_speed.py` 可直接通过 python3 -I 运行；只把命令作为 hook 输入，不执行被测 shell 命令。DSH 辅助文件不单独注册，既有 run.py 复用它的会话字段读取。
+
+## Grok roles
+
+`setup hooks on --cli grok` 只装 ask-only-guard，写进角色的 `.claude/settings.json`（Grok 读它，项目目录要先信任）。run.py `--grok` 把 Grok 的工具名（run_terminal_command、search_replace、write）换成 Bash/Edit/Write，从 Grok 会话的 updates.jsonl 读用户最新一句。
 
 ## Codex roles
 
@@ -123,3 +141,7 @@ cd bridge && go test -tags no_web ./core -run 'TestAgentHooks|TestWithHookRules|
 Codex loads hooks beside active config layers, including project `.codex` and the user config under CODEX_HOME. Project layers require project trust, and Codex skips hooks whose hash is not recorded as trusted (app-server has no bypass flag). When bothouse starts a Codex app-server session it calls `hooks/list` for the role directory and, for its own untrusted/modified hooks only (commands carrying `--conest-hook` and `--codex`), writes `hooks.state.<key>.trusted_hash` through `config/batchWrite` into that session's CODEX_HOME config.toml, the same write Codex's own app-server uses. User hooks are never auto-trusted; `codex exec` / interactive sessions still need review through `/hooks`. Production launches never add a trust-bypass flag. If that registration fails at any step (reading the role's hooks file, `hooks/list` not listing every bothouse hook, the `config/batchWrite`, or a read-back that still reports them untrusted), the session start returns the error naming the step and the session does not start: running without bash-guard registered is not an acceptable fallback. Restart an existing session after configuration changes.
 
 `run.py --codex` normalizes shell inputs and translates Codex response_item chat records for Stop. `stop_hook_active` is preserved. Other hooks are explicitly rejected until adapted. Tested CLI version: 0.163.0-alpha.11.1; transcript format is not a stable public API. Source: https://learn.chatgpt.com/docs/hooks .
+
+五端的原生参数、后台等价做法、官方协议来源及验收边界见 [跨 CLI 工作流钩子](../../../docs/workflow-hooks.md)。
+
+`doc-ok.py` accepts Codex's shell identity from `CODEX_SESSION_ID`, which is the same value as the hook payload's `session_id`. `CODEX_THREAD_ID` is a thread identifier and is deliberately not used: registering it would not match the guard.

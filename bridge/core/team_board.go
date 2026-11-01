@@ -23,6 +23,9 @@ import (
 // teamBoardInterval is how often the lead refreshes its boards (a var so tests can shorten it).
 var teamBoardInterval = 10 * time.Second
 
+// teamBoardFileCheck: how often the lead looks whether board.jsonl changed (a stat, no read).
+var teamBoardFileCheck = time.Second
+
 const (
 	teamBoardWorkAfter = time.Minute
 	teamBoardTaskRunes = 40
@@ -83,11 +86,23 @@ func (e *Engine) runTeamBoard() {
 		}
 	}
 	cardTries := 0 // retireBoardPyCards runs on the first ticks until done (platforms may still be connecting)
+	// The task board file changes on ws-handoff, [report], [ask] and board update/pause/done: the
+	// boards follow within teamBoardFileCheck instead of the next teamBoardInterval tick (user,
+	// 2026-10-30 approved plan: 表的刷新改成事件驱动).
+	fileTick := time.NewTicker(teamBoardFileCheck)
+	defer fileTick.Stop()
+	var fileMod time.Time
 	for {
 		select {
 		case <-e.ctx.Done():
 			return
 		case <-tick.C:
+		case <-fileTick.C:
+			st, err := os.Stat(filepath.Join(t.dir, teamTaskBoardFile))
+			if err != nil || st.ModTime().Equal(fileMod) {
+				continue
+			}
+			fileMod = st.ModTime()
 		}
 		t = e.team
 		if t == nil {
@@ -272,15 +287,15 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 		return k
 	}
 	// Only open items: no 今天做完 block (user, 2026-10-28: 「完成的也没必要显示」).
-	var items, done []teamTaskBoardItem
-	var pending []*TimerJob
+	var items []teamTaskBoardItem
 	now := time.Now()
 	if e.team != nil {
 		place := e.teamTaskBoardPlacer()
 		items = e.dropGoneTeamTaskBoard(placeTeamTaskBoard(place, readTeamTaskBoard(e.team.dir)))
-		if e.timerScheduler != nil {
-			pending = append([]*TimerJob{}, e.timerScheduler.Store().ListPending()...)
-		}
+	}
+	var links []teamTaskLink
+	for _, f := range files {
+		links = append(links, f.Tasks...)
 	}
 	for _, it := range items { // a chat with task-board items gets a board too (board.py no longer posts its own card)
 		for _, key := range it.chats() {
@@ -315,9 +330,10 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	changed := false
 	for chat, b := range boards {
 		kind := kindOf(chat)
-		if kind == teamBoardSummary && !teamTaskBoardHasEntries(items, done, chat) {
-			// A team chat shows its summary only while it has task-board items here: no empty
-			// board (a side chat that handed off once is a team chat too); an old one is deleted.
+		if kind == teamBoardSummary && !teamTaskBoardHasEntries(items, chat) && b.MessageID == "" {
+			// A team chat gets its table once it has task-board items here (a side chat that handed
+			// off once is a team chat too); after that the one pinned table stays and is edited in
+			// place, also when empty (user, 2026-10-30: 全频道只留一张，不再发新的).
 			kind = teamBoardNone
 		}
 		if kind == teamBoardNone {
@@ -347,7 +363,15 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			})
 			live = live || indexLive
 		} else {
-			content = renderTeamTaskBoardFit(items, done, chat, now, pending, backfillMaxMsgRunes)
+			body := renderTeamTaskTable(items, links, chat, now)
+			if body == "" {
+				body = "现在没有在做或等你看的"
+			}
+			if body == teamTaskTableBody(b.Content) {
+				content = b.Content // unchanged: keep the time it last changed
+			} else {
+				content = teamTaskTableHeader(now) + "\n" + body
+			}
 		}
 		content = cutTeamBoardLines(content, backfillMaxMsgRunes, "")
 		if content == "" {
@@ -399,13 +423,11 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	return changed
 }
 
-// teamTaskBoardHasEntries: chat's task board has an open or done-today item.
-func teamTaskBoardHasEntries(items, done []teamTaskBoardItem, chat string) bool {
-	for _, list := range [][]teamTaskBoardItem{items, done} {
-		for _, it := range list {
-			if it.shownIn(chat) {
-				return true
-			}
+// teamTaskBoardHasEntries: chat's task board has an open item.
+func teamTaskBoardHasEntries(items []teamTaskBoardItem, chat string) bool {
+	for _, it := range items {
+		if it.shownIn(chat) {
+			return true
 		}
 	}
 	return false

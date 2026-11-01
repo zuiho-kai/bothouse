@@ -228,6 +228,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"relay":        runRelay,
 	"sessions":     runSessions,
 	"session":      runSession,
+	"report":       runReport,
 	"agent-sid":    runAgentSID,
 	"daemon":       runDaemon,
 	"feishu":       runFeishu,
@@ -237,6 +238,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"doctor":       runDoctor,
 	"web":          runWeb,
 	"setup":        runSetup,
+	"module":       runModule,
 }
 
 func main() {
@@ -262,27 +264,6 @@ func runMain() {
 	}
 
 	checkUpdateAsync()
-	// When started as a daemon (CC_LOG_FILE set), redirect logs to a rotating file.
-	// Log file setup happens before flag.Parse() so the rotating writer is in
-	// place before any slog output. To still honour --log-max-size, we
-	// pre-scan os.Args here for the flag value; this is a small, deliberate
-	// duplication of flag parsing for one well-known key.
-	var logWriter io.Writer
-	var logCloser io.Closer
-	if logFile := os.Getenv("CC_LOG_FILE"); logFile != "" {
-		maxSize, maxSizeSrc := resolveLogMaxSize(preScanLogMaxSizeFlag(os.Args[1:]))
-		maxBackups, maxBackupsSrc := resolveLogMaxBackups(preScanLogMaxBackupsFlag(os.Args[1:]))
-		fmt.Fprintf(os.Stderr, "log: redirecting to %s with max_size=%d bytes (source: %s), max_backups=%d (source: %s)\n", logFile, maxSize, maxSizeSrc, maxBackups, maxBackupsSrc)
-		w, err := daemon.NewRotatingWriter(logFile, maxSize, maxBackups)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to open log file %s: %v\n", logFile, err)
-			os.Exit(1)
-		}
-		logWriter = w
-		logCloser = w
-		slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo})))
-	}
-
 	rootOpts, err := parseRootCLIOptions(os.Args[1:])
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -291,7 +272,7 @@ func runMain() {
 		os.Exit(2)
 	}
 
-	// Cross-check: the rotating-writer setup above consumed a pre-scanned
+	// Cross-check: the rotating-writer setup below consumes a pre-scanned
 	// value of --log-max-size. Validate the parsed value too so malformed
 	// values surface a clear warning.
 	if strings.TrimSpace(rootOpts.logMaxSize) != "" {
@@ -322,6 +303,24 @@ func runMain() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
 		printUsage()
 		os.Exit(1)
+	}
+
+	// Only the server owns the daemon log. Agent-side commands can inherit
+	// CC_LOG_FILE while running in a read-only sandbox.
+	var logWriter io.Writer
+	var logCloser io.Closer
+	if logFile := os.Getenv("CC_LOG_FILE"); logFile != "" {
+		maxSize, maxSizeSrc := resolveLogMaxSize(preScanLogMaxSizeFlag(os.Args[1:]))
+		maxBackups, maxBackupsSrc := resolveLogMaxBackups(preScanLogMaxBackupsFlag(os.Args[1:]))
+		fmt.Fprintf(os.Stderr, "log: redirecting to %s with max_size=%d bytes (source: %s), max_backups=%d (source: %s)\n", logFile, maxSize, maxSizeSrc, maxBackups, maxBackupsSrc)
+		w, err := daemon.NewRotatingWriter(logFile, maxSize, maxBackups)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to open log file %s: %v\n", logFile, err)
+			os.Exit(1)
+		}
+		logWriter = w
+		logCloser = w
+		slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	}
 
 	core.VersionInfo = fmt.Sprintf("bothouse %s\ncommit: %s\nbuilt: %s", version, commit, buildTime)
@@ -766,6 +765,17 @@ func runMain() {
 			}
 		}
 		relayMgr.SetVisibility(cfg.Relay.Visibility)
+		if cfg.Relay.VoiceResident != nil {
+			idle := 10 * time.Minute // 来源：调研 A 3.5 空闲 TTL 10 分钟。
+			turns := 30              // 来源：调研 A 3.5 累计 30 轮回收。
+			if cfg.Relay.VoiceResidentIdleSecs != nil && *cfg.Relay.VoiceResidentIdleSecs > 0 {
+				idle = time.Duration(*cfg.Relay.VoiceResidentIdleSecs) * time.Second
+			}
+			if cfg.Relay.VoiceResidentMaxTurns != nil && *cfg.Relay.VoiceResidentMaxTurns > 0 {
+				turns = *cfg.Relay.VoiceResidentMaxTurns
+			}
+			relayMgr.SetVoiceResident(*cfg.Relay.VoiceResident, idle, turns)
+		}
 		apiSrv.SetRelayManager(relayMgr)
 
 		// Create shared DirHistory for all engines
@@ -877,7 +887,7 @@ func runMain() {
 	slog.Info("bye")
 }
 
-// errSkipProject: buildProject left the project out (its multi-workspace base_dir could not be
+// errSkipProject: buildProject left the project out (all its platforms are disabled, or its multi-workspace base_dir could not be
 // created). Startup goes on without it, as it always did.
 var errSkipProject = errors.New("project skipped")
 
@@ -893,6 +903,11 @@ type builtProject struct {
 // hot loading only marks that project as failed.
 func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions, proj config.ProjectConfig) (builtProject, error) {
 	var b builtProject
+	active := proj.ActivePlatforms()
+	if len(active) == 0 { // every platform stopped with `module disable`: the role's files stay, it just doesn't run
+		slog.Info("project not started: all its platforms are disabled", "project", proj.Name)
+		return b, errSkipProject
+	}
 	// Inject project-level run_as_user / run_as_env into the agent's
 	// opts map so agents that support isolation can pick them up
 	// without needing their own top-level config plumbing.
@@ -915,7 +930,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	providerWiring := wireAgentProviders(agent, proj.Agent)
 
 	var platforms []core.Platform
-	for _, pc := range proj.Platforms {
+	for _, pc := range active {
 		opts := make(map[string]any, len(pc.Options)+2)
 		for k, v := range pc.Options {
 			opts[k] = v
@@ -966,8 +981,9 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	engine.SetShowWorkdirIndicator(showWorkdir)
 	engine.SetShowQuotaIndicator(proj.ShowQuotaIndicator == nil || *proj.ShowQuotaIndicator)
 	engine.SetShowQuotaStatus(proj.ShowQuotaStatus == nil || *proj.ShowQuotaStatus)
-	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy == nil || *proj.InjectSubagentPolicy)
+	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy != nil && *proj.InjectSubagentPolicy)
 	engine.SetAgentIdentityEnabled(proj.AgentIdentityEnabled())
+	engine.SetTeamModeRulesEnabled(proj.InjectTeamRules == nil || *proj.InjectTeamRules)
 	engine.SetReplyFooterEnabled(showFooter)
 	engine.SetAttachmentSendEnabled(cfg.AttachmentSend != "off")
 	engine.SetFilterExternalSessions(proj.FilterExternalSessions != nil && *proj.FilterExternalSessions)
@@ -1268,6 +1284,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)
 	engine.SetTeamBoard(proj.TeamBoardEnabled())
+	engine.SetTaskReviewAfter(time.Duration(proj.TeamReviewAfterSeconds) * time.Second)
 	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
 	engine.SetDispatchMode(proj.DispatchMode)
 	engine.SetVoiceDesk(proj.VoiceDesk)
@@ -1753,6 +1770,11 @@ Commands:
 
   web                Open the web admin (with no bots configured yet: the setup wizard)
 
+  module             Platforms as optional modules (qq, discord, feishu, dsh, cloud_web)
+    list             Which platforms are enabled / disabled / not configured
+    add <platform>   Turn a platform back on, or show how to add it
+    disable <platform>  Stop a platform, keeping its settings
+
   daemon             Manage bothouse as a background service (systemd/launchd/schtasks)
     install          Install and start the daemon service
     uninstall        Remove the daemon service
@@ -1775,6 +1797,9 @@ Commands:
     list             List all sessions (pipe-friendly)
     show <id>        Show session messages (-n N for last N)
   session new        Reset this agent session after the current turn (--after-turn)
+
+  report             Read-only reports from local data
+    file-frequency   Files read most often (events.jsonl; Claude Code fallback)
 
   handoff            Manually hand the primary role to another connected bot
     status           Show the current primary role and the last switch record
@@ -1949,8 +1974,9 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	engine.SetShowWorkdirIndicator(showWorkdir)
 	engine.SetShowQuotaIndicator(proj.ShowQuotaIndicator == nil || *proj.ShowQuotaIndicator)
 	engine.SetShowQuotaStatus(proj.ShowQuotaStatus == nil || *proj.ShowQuotaStatus)
-	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy == nil || *proj.InjectSubagentPolicy)
+	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy != nil && *proj.InjectSubagentPolicy)
 	engine.SetAgentIdentityEnabled(proj.AgentIdentityEnabled())
+	engine.SetTeamModeRulesEnabled(proj.InjectTeamRules == nil || *proj.InjectTeamRules)
 	engine.SetReplyFooterEnabled(showFooter)
 
 	// Reload auto-compress settings
@@ -1979,6 +2005,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)
 	engine.SetTeamBoard(proj.TeamBoardEnabled())
+	engine.SetTaskReviewAfter(time.Duration(proj.TeamReviewAfterSeconds) * time.Second)
 	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
 	engine.SetDispatchMode(proj.DispatchMode)
 	engine.SetVoiceDesk(proj.VoiceDesk)
@@ -2301,25 +2328,29 @@ func wireImageFresh(engine *core.Engine, proj config.ProjectConfig) {
 // On unless enabled = false; defaults 60 min idle / 80000 tokens come from the
 // maomao fork settings the user chose on 2026-10-14 (~/.cc-connect/config.toml
 // [projects.cold_cache_fresh]: enabled=true, idle_mins=60, min_tokens=80000).
-func coldCacheFreshSettings(c config.ColdCacheFreshConfig) (enabled bool, idleMins, minTokens int) {
+// max_context_tokens defaults to 300000 (user 2026-10-29: fresh session at 300k).
+func coldCacheFreshSettings(c config.ColdCacheFreshConfig) (enabled bool, idleMins, minTokens, maxTokens int) {
 	if c.Enabled != nil && !*c.Enabled {
-		return false, 0, 0
+		return false, 0, 0, 0
 	}
-	idleMins, minTokens = 60, 80000 // source: see comment above (user, 2026-10-14)
+	idleMins, minTokens, maxTokens = 60, 80000, 300000 // source: see comment above
 	if c.IdleMins != nil && *c.IdleMins > 0 {
 		idleMins = *c.IdleMins
 	}
 	if c.MinTokens != nil && *c.MinTokens > 0 {
 		minTokens = *c.MinTokens
 	}
-	return true, idleMins, minTokens
+	if c.MaxContextTokens != nil && *c.MaxContextTokens > 0 {
+		maxTokens = *c.MaxContextTokens
+	}
+	return true, idleMins, minTokens, maxTokens
 }
 
 // wireColdCacheFresh applies [projects.cold_cache_fresh] (maomao fork).
 func wireColdCacheFresh(engine *core.Engine, proj config.ProjectConfig) {
-	enabled, idle, minTokens := coldCacheFreshSettings(proj.ColdCacheFresh)
+	enabled, idle, minTokens, maxTokens := coldCacheFreshSettings(proj.ColdCacheFresh)
 	if !enabled {
-		engine.SetColdCacheFresh(false, 0, 0)
+		engine.SetColdCacheFresh(false, 0, 0, 0)
 		return
 	}
 	if t := proj.AgentSessionIdleTimeoutMins; t != nil && *t > idle {
@@ -2327,7 +2358,7 @@ func wireColdCacheFresh(engine *core.Engine, proj config.ProjectConfig) {
 			"project", proj.Name, "idle_mins", idle, "agent_session_idle_timeout_mins", *t)
 	}
 	warnColdCacheFreshUnsupported(engine.GetAgent(), proj)
-	engine.SetColdCacheFresh(true, time.Duration(idle)*time.Minute, minTokens)
+	engine.SetColdCacheFresh(true, time.Duration(idle)*time.Minute, minTokens, maxTokens)
 }
 
 // warnColdCacheFreshUnsupported logs a role whose agent cannot read its session
@@ -2364,11 +2395,32 @@ func usageLogSources(projects []config.ProjectConfig) []core.UsageLogSource {
 	if d := os.Getenv("CODEX_HOME"); d != "" {
 		codexHome = d
 	}
-	return append([]core.UsageLogSource{
-		core.ClaudeCodeUsageSource{Dir: filepath.Join(claudeDir, "projects")},
-		core.CodexUsageSource{Home: codexHome},
-		&core.DSHUsageSource{Homes: dshUsageHomes(home, projects)},
-	}, pluginUsageLogSources...)
+	sources := []core.UsageLogSource{core.ClaudeCodeUsageSource{Dir: filepath.Join(claudeDir, "projects")}}
+	for _, h := range codexUsageHomes(codexHome, projects) {
+		sources = append(sources, core.CodexUsageSource{Home: h})
+	}
+	sources = append(sources, &core.DSHUsageSource{Homes: dshUsageHomes(home, projects)})
+	return append(sources, pluginUsageLogSources...)
+}
+
+// codexUsageHomes: the default CODEX_HOME plus every other one a role runs
+// Codex with (codex_home option or CODEX_HOME in its env), each listed once.
+func codexUsageHomes(def string, projects []config.ProjectConfig) []string {
+	homes := []string{def}
+	seen := map[string]bool{filepath.Clean(def): true}
+	for _, p := range projects {
+		h := core.CodexHomeFromOptions(p.Agent.Options)
+		if h == "" {
+			continue
+		}
+		h = expandHome(h)
+		if seen[filepath.Clean(h)] {
+			continue
+		}
+		seen[filepath.Clean(h)] = true
+		homes = append(homes, h)
+	}
+	return homes
 }
 
 // dshUsageHomes: $DSH_HOME (else ~/.dsh, DSH's default) plus every DSH_HOME a role sets in its agent env.

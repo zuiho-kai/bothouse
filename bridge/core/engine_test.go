@@ -3414,6 +3414,9 @@ func TestHandleMessage_MultiWorkspacePreservesCCSessionKey(t *testing.T) {
 	deadline := time.After(2 * time.Second)
 	for {
 		if got := wsAgent.EnvValue("CC_SESSION_KEY"); got != "" {
+			if got := wsAgent.EnvValue("CC_AGENT"); got != wsAgent.Name() {
+				t.Fatalf("CC_AGENT = %q, want %q", got, wsAgent.Name())
+			}
 			if got != msg.SessionKey {
 				t.Fatalf("CC_SESSION_KEY = %q, want %q", got, msg.SessionKey)
 			}
@@ -7320,9 +7323,13 @@ type controllableAgent struct {
 	nextSession    AgentSession
 	listFn         func() ([]AgentSessionInfo, error)
 	startSessionFn func(ctx context.Context, sessionID string) (AgentSession, error)
+	sessionEnv     []string
 }
 
 func (a *controllableAgent) Name() string { return "controllable" }
+func (a *controllableAgent) SetSessionEnv(env []string) {
+	a.sessionEnv = env
+}
 func (a *controllableAgent) StartSession(ctx context.Context, sessionID string) (AgentSession, error) {
 	if a.startSessionFn != nil {
 		return a.startSessionFn(ctx, sessionID)

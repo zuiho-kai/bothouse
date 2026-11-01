@@ -48,7 +48,9 @@ type TaskMemberAssignment struct {
 	Name            string `json:"name"`
 	Title           string `json:"title"`
 	// Workspace is the channel the member executes in; empty keeps the source
-	// workspace. It must be another workspace of the source workspace's chat.
+	// workspace. A workspace source needs another workspace of that chat; a
+	// chat-channel source needs one of that chat's workspaces, and the card
+	// opens there.
 	Workspace string `json:"workspace,omitempty"`
 	// Ref names the existing implementation the member should follow (path:line), or
 	// 「无（新建）」 for non-code work. Base is the branch to start from; required when the
@@ -152,23 +154,17 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 	if err := checkAssignRef(req); err != nil {
 		return nil, err
 	}
-	if err := p.checkWorkspaceCard(req.SessionKey); err != nil {
+	if err := p.checkAssignmentCard(req.SessionKey, req.Workspace); err != nil {
 		return nil, err
 	}
 	p.transitionMu.Lock()
 	defer p.transitionMu.Unlock()
-	r, key, resume, err := p.lockAssignmentRun(req)
-	if err != nil {
-		return nil, err
-	}
-	defer r.mu.Unlock()
-	// Normalize selectors so retrying by the returned id is also idempotent.
-	req.TaskID, req.BatchID = r.record.Task.ID, ""
-	// A member may execute in another workspace of the same chat channel; the
-	// source workspace, card and run stay the same, only the execution channel
-	// changes. Canonicalize the selector first (no live checks) so a retry of a
-	// committed assignment matches its grant after the workspace changes hands
-	// or fills up; ownership and occupancy are checked below for new work only.
+	// A member may execute in another workspace of the same chat channel, or
+	// in a workspace of the source chat channel itself; the source run/session
+	// stays the task identity. Canonicalize the selector first (no live checks)
+	// so a retry of a committed assignment matches its grant after the workspace
+	// changes hands or fills up; ownership and occupancy are checked below for
+	// new work only.
 	execSession := req.SessionKey
 	if req.Workspace != "" {
 		platform, wsID, err := taskWorkspaceChannelKey(req.SessionKey, req.Workspace)
@@ -178,6 +174,13 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		req.Workspace = platform + ":" + wsID
 		execSession = req.Workspace
 	}
+	r, key, resume, err := p.lockAssignmentRun(req, p.cardSession(req.SessionKey, execSession))
+	if err != nil {
+		return nil, err
+	}
+	defer r.mu.Unlock()
+	// Normalize selectors so retrying by the returned id is also idempotent.
+	req.TaskID, req.BatchID = r.record.Task.ID, ""
 	if req.ParentID != "" && memberIndex(r.record.Task, req.ParentID) < 0 {
 		return nil, errors.New("unknown parent member")
 	}
@@ -230,9 +233,10 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 		}
 	}
 	// The member executes in execSession, but its facts are delivered on the
-	// source card (task.SessionKey): the bot must be bound in both channels, or
-	// its facts would degrade to a creator-posted "reporter muted" note.
-	for _, session := range taskReporterSessions(req.SessionKey, execSession) {
+	// card's channel (the source workspace, or the workspace holding a
+	// chat-channel source's card): the bot must be bound there, or its facts
+	// would degrade to a creator-posted "reporter muted" note.
+	for _, session := range taskReporterSessions(r.record.Task.cardSessionKey(), execSession) {
 		if _, err := p.taskReporter(req.ReporterProject, r.record.Platform, session, r.publisher); err != nil {
 			// Unbound teammate: the command says what to do, and so does the channel (#587).
 			var nb *notBoundError
@@ -316,7 +320,7 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 // Caller holds transitionMu. Explicit ids may adopt a closed, resumable card;
 // a batch always starts fresh, even after ordinary progress continued an old
 // card. Ownership is published only after the assignment is durably saved.
-func (p *PublicProgress) lockAssignmentRun(req TaskMemberAssignment) (*publicRun, string, bool, error) {
+func (p *PublicProgress) lockAssignmentRun(req TaskMemberAssignment, cardSession string) (*publicRun, string, bool, error) {
 	p.mu.Lock()
 	source := p.runs[req.Run]
 	key := "batch:" + req.BatchID
@@ -353,8 +357,19 @@ func (p *PublicProgress) lockAssignmentRun(req TaskMemberAssignment) (*publicRun
 	}
 	if target == nil && req.TaskID == "" {
 		t := source.record.Task
+		channel := t.ChannelID
+		card := ""
+		if cardSession != "" && cardSession != req.SessionKey {
+			card = cardSession
+			var err error
+			channel, err = source.publisher.TaskCardDestination(cardSession)
+			if err != nil {
+				source.mu.Unlock()
+				return nil, key, false, fmt.Errorf("workspace card: %w", err)
+			}
+		}
 		// Source: task id entropy follows PublicProgress.begin.
-		target = &publicRun{publisher: source.publisher, stopped: source.stopped, record: progressRecord{Platform: source.record.Platform, Lang: source.record.Lang, Reports: map[int64]string{}, Task: &Task{ID: "task-" + randomProgressID(8), SessionKey: req.SessionKey, ChannelID: t.ChannelID, Origin: t.Origin}}}
+		target = &publicRun{publisher: source.publisher, stopped: source.stopped, record: progressRecord{Platform: source.record.Platform, Lang: source.record.Lang, Reports: map[int64]string{}, Task: &Task{ID: "task-" + randomProgressID(8), SessionKey: req.SessionKey, ChannelID: channel, CardSession: card, Origin: t.Origin}}}
 		owned = true
 	}
 	resume := req.TaskID != "" && target != nil && target == source.candidate && source.record.Task.Seq == 0

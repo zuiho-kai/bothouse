@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -371,7 +373,7 @@ func TestReportDedupeSameHandback(t *testing.T) {
 // TestChatLeadPromptAllowsAuthorizedFollowUp: the prompt used to say 「不要再派回工作区」, which
 // contradicted the team rule that an unfinished task keeps its next step.
 func TestChatLeadPromptAllowsAuthorizedFollowUp(t *testing.T) {
-	p := chatLeadPrompt("<#9>", "橘", exitKindReport, "做完了", "", false)
+	p := chatLeadPrompt("", "<#9>", "橘", exitKindReport, "做完了", "", false)
 	for _, want := range []string{"尚未安排", "不要把这件活重新派一遍", "花钱、部署、重启", "用户已经停止的任务"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt lacks %q:\n%s", want, p)
@@ -379,5 +381,55 @@ func TestChatLeadPromptAllowsAuthorizedFollowUp(t *testing.T) {
 	}
 	if strings.Contains(p, "不要再派回工作区") {
 		t.Fatalf("contradictory instruction still present:\n%s", p)
+	}
+}
+
+// Every accepted report path must preserve PR800: delivery is pending verification,
+// never completion. Use the actual bundled board command against isolated data.
+func TestReportDeliveryLeavesPendingVerification(t *testing.T) {
+	for _, mode := range []string{"headline", "fallback", "summary", "enqueue-failure", "restart"} {
+		t.Run(mode, func(t *testing.T) {
+			e, p := reportFixture(t)
+			e.SetTeam(t.TempDir(), "lead", true)
+			gate, err := filepath.Abs(filepath.Join("..", "contrib", "gate"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(gate, filepath.Join(e.dataDir, "gate")); err != nil {
+				t.Fatal(err)
+			}
+			item := teamTaskBoardItem{ID: 46, What: "验证报告", Chat: "discord:chat1", WS: exitWSKey, Dispatcher: e.name}
+			writeReviewBoard(t, e, item)
+			rec := pendingReportForTest("lifecycle")
+			rec.Board = 46
+			switch mode {
+			case "headline":
+				e.postExitHeadline(p, "discord:chat1", "chat1", "ws1", "橘", exitKindReport, rec.Body, exitWSKey, 46, "结果已交回", &item)
+			case "enqueue-failure":
+				e.queueReportWake(&TimerJob{}, rec, func(*TimerJob) error { return errors.New("queue unavailable") })
+			default:
+				e.rememberReport(rec)
+				if mode == "restart" {
+					e.teamExit.mu.Lock()
+					e.teamExit.reportsLoaded = false
+					e.teamExit.reports = nil
+					e.teamExit.mu.Unlock()
+					e.recoverPendingReports(false)
+				} else {
+					text := ""
+					if mode == "summary" {
+						text = "报告已送达，等待独立验收"
+					}
+					e.settleReportRecord(rec.Key, text, nil)
+				}
+			}
+			got := e.boardItemByID(46)
+			if got == nil || got.ReturnedAt.IsZero() || got.DoneAt != "" {
+				t.Fatalf("%s did not leave pending verification: %+v", mode, got)
+			}
+			if !e.exitReportedBefore(46) {
+				t.Fatal("missing delivery receipt for board recovery")
+			}
+		})
 	}
 }
