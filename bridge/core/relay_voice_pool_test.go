@@ -294,6 +294,31 @@ func TestVoiceRelay_FirstEventWatchdogEvictsResidentSession(t *testing.T) {
 	}
 }
 
+// TestVoiceRelay_FirstEventWatchdogDisabledWithoutResident: with
+// relay.voice_resident=false (the default) each turn gets its own session and
+// the relay timeout already bounds it, so a first event slower than the
+// watchdog must not cancel the turn. Regression: the watchdog used to be armed
+// for every voice relay and changed the default behaviour.
+func TestVoiceRelay_FirstEventWatchdogDisabledWithoutResident(t *testing.T) {
+	old := voiceFirstEventWatchdog
+	voiceFirstEventWatchdog = 20 * time.Millisecond
+	t.Cleanup(func() { voiceFirstEventWatchdog = old })
+
+	rm, _, a, _ := voiceFixture(t, t.TempDir()) // resident stays off (default)
+	if _, _, err := rm.submitVoice(voiceReq("slow-default")); err != nil {
+		t.Fatal(err)
+	}
+	session := <-a.sessions
+	<-session.prompts
+	time.Sleep(3 * voiceFirstEventWatchdog) // answer arrives after the watchdog window
+	session.events <- Event{Type: EventText, Content: "slow answer"}
+	session.events <- Event{Type: EventResult, Content: "slow answer", Done: true}
+	r := voiceWait(t, rm, "slow-default")
+	if r.Status != "completed" || r.Text != "slow answer" {
+		t.Fatalf("non-resident turn cancelled by first-event watchdog: %+v", r)
+	}
+}
+
 func containsAll(s string, parts ...string) bool {
 	for _, p := range parts {
 		if !strings.Contains(s, p) {

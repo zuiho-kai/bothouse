@@ -468,12 +468,20 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, key st
 	// Consume events concurrently or a long response/permission can deadlock.
 	sent := make(chan error, 1)
 	sendAt := time.Now()
+	// The first-event watchdog is a resident-pool recovery rule: a session kept
+	// alive across turns must never be reused after it stopped answering. With
+	// relay.voice_resident=false (the default) every turn gets its own session
+	// and the relay timeout already bounds it, so the watchdog must not cancel a
+	// turn whose first event is merely slow.
 	var timedOut atomic.Bool
-	watchdog := time.AfterFunc(voiceFirstEventWatchdog, func() {
-		timedOut.Store(true)
-		cancel()
-	})
-	defer watchdog.Stop()
+	var watchdog *time.Timer
+	if pool != nil && pool.isEnabled() {
+		watchdog = time.AfterFunc(voiceFirstEventWatchdog, func() {
+			timedOut.Store(true)
+			cancel()
+		})
+		defer watchdog.Stop()
+	}
 	defer func() {
 		if timedOut.Load() && err != nil {
 			err = fmt.Errorf("%w: %w", errVoiceFirstEventTimeout, err)
@@ -500,7 +508,9 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, key st
 			}
 			if timings != nil && timings.FirstEventMS == 0 {
 				timings.FirstEventMS = msSince(sendAt)
-				watchdog.Stop()
+				if watchdog != nil {
+					watchdog.Stop()
+				}
 			}
 			if event.SessionID != "" {
 				if err := saveID(event.SessionID, agent.Name()); err != nil {
