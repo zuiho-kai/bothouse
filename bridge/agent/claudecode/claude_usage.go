@@ -301,7 +301,36 @@ func promptActionForScreen(screen string) string {
 
 func claudeTrustDialogVisible(screen string) bool {
 	lower := strings.ToLower(screen)
-	return strings.Contains(lower, "quick safety check") || strings.Contains(lower, "yes, i trust this folder")
+	// A title or a negative option still identifies the dialog, but cannot
+	// authorize an Enter through the generic confirmation fallback.
+	return strings.Contains(lower, "quick safety check") || strings.Contains(trustDialogLetters(screen), "trustthisfolder")
+}
+
+// trustDialogLetters keeps only ASCII letters so option text survives rendering
+// noise. On 2026-11-01 the probe captured
+// "Yes, IGtrust this folder", which never matched "yes, i trust this folder".
+// The extra G's origin is unconfirmed; only this observed affirmative variant
+// is accepted by trustDialogYesLine.
+func trustDialogLetters(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if r >= 'a' && r <= 'z' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// trustDialogYesLine accepts only the affirmative option, including the
+// observed IGtrust rendering. Titles and negative statements are not options.
+func trustDialogYesLine(screen string) bool {
+	for _, line := range strings.Split(screen, "\n") {
+		switch trustDialogLetters(line) {
+		case "yesitrustthisfolder", "yesigtrustthisfolder":
+			return true
+		}
+	}
+	return false
 }
 
 // trustDialogAction answers the folder-trust dialog with "Yes, I trust this
@@ -309,25 +338,43 @@ func claudeTrustDialogVisible(screen string) bool {
 // a bare Enter quits the probe with exit status 1; older versions defaulted
 // to Yes. Move the cursor from wherever it is onto the Yes option, then Enter.
 func trustDialogAction(screen string) string {
-	cursor, yes := -1, -1
+	cursor, yes, no := -1, -1, -1
 	options := 0
+	interrupted := false
 	for _, line := range strings.Split(screen, "\n") {
 		trimmed := strings.TrimSpace(line)
-		lower := strings.ToLower(trimmed)
-		isYes := strings.Contains(lower, "yes, i trust this folder")
-		if !isYes && !strings.Contains(lower, "no, exit") {
+		isYes := trustDialogYesLine(trimmed)
+		isNo := trustDialogLetters(trimmed) == "noexit"
+		selected := strings.HasPrefix(trimmed, "❯") || strings.HasPrefix(trimmed, ">")
+		if !isYes && !isNo {
+			if selected {
+				return "" // Unknown or partially rendered selected option.
+			}
+			if options > 0 && trimmed != "" {
+				interrupted = true
+			}
 			continue
+		}
+		// Never infer arrow distances across an unknown line or duplicate
+		// options left by an incomplete redraw.
+		if interrupted || (isYes && yes >= 0) || (isNo && no >= 0) {
+			return ""
 		}
 		if isYes {
 			yes = options
+		} else {
+			no = options
 		}
-		if strings.HasPrefix(trimmed, "❯") || strings.HasPrefix(trimmed, ">") {
+		if selected {
+			if cursor >= 0 {
+				return ""
+			}
 			cursor = options
 		}
 		options++
 	}
-	if yes < 0 {
-		// Options not rendered yet; Enter now would pick the default.
+	if yes < 0 || no < 0 {
+		// Wait for both known options; a partial menu can shift their positions.
 		return ""
 	}
 	if cursor < 0 {
