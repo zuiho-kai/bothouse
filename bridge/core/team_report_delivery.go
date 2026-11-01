@@ -117,7 +117,7 @@ func (e *Engine) saveReportsLocked() error {
 		slog.Error("report delivery: create dir failed", "path", path, "error", err)
 		return err
 	}
-	if err := os.WriteFile(path, b, 0o600); err != nil {
+	if err := AtomicWriteFile(path, b, 0o600); err != nil {
 		slog.Error("report delivery: save failed", "path", path, "error", err)
 		return err
 	}

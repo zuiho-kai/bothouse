@@ -433,3 +433,75 @@ func TestReportDeliveryLeavesPendingVerification(t *testing.T) {
 		})
 	}
 }
+
+// Drive the real message/agent result/send path; only the agent and platform are fakes.
+func TestCUJ_ReportWakeDeliveryReceipt(t *testing.T) {
+	for _, mode := range []string{"summary", "silent", "send-rejected"} {
+		t.Run(mode, func(t *testing.T) {
+			e, p := reportFixture(t)
+			a := e.agent.(*inputTestAgent)
+			store, err := NewTimerStore(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.timerScheduler = NewTimerScheduler(store)
+			rec := pendingReportForTest("entry")
+			job := &TimerJob{ID: rec.JobID, ReportID: rec.Key, Project: e.name, SessionKey: "discord:chat1", Prompt: "汇总结果", ScheduledAt: time.Now().Add(time.Hour)}
+			if err := store.Add(job); err != nil {
+				t.Fatal(err)
+			}
+			e.rememberReport(rec)
+			e.ReceiveMessage(p, &Message{SessionKey: "discord:chat1", Platform: "discord", ChannelID: "chat1", UserID: "human", Content: job.Prompt, ReplyCtx: "discord:chat1", Mentioned: true, timerJobID: job.ID})
+			inputPrompt(t, a)
+			text := "汇总结果已送达"
+			if mode == "silent" {
+				text = "NO_REPLY"
+			}
+			if mode == "send-rejected" {
+				p.mu.Lock()
+				p.failSends = 1
+				p.mu.Unlock()
+			}
+			inputDone(a, text)
+			inputWait(t, func() bool {
+				e.teamExit.mu.Lock()
+				defer e.teamExit.mu.Unlock()
+				return e.teamExit.reports[rec.Key].delivered()
+			})
+			sent := p.sentTo("discord:chat1")
+			want := text
+			if mode != "summary" {
+				want = "看门修复完成"
+			}
+			count := 0
+			for _, post := range sent {
+				if strings.Contains(post, want) {
+					count++
+				}
+			}
+			if count != 1 {
+				t.Fatalf("%s: expected exactly one delivered result %q, got %#v", mode, want, sent)
+			}
+			e.recoverPendingReports(false)
+			if got := p.sentTo("discord:chat1"); len(got) != len(sent) {
+				t.Fatalf("duplicate after recovery: %#v", got)
+			}
+		})
+	}
+}
+
+func TestReportRecoveryDoesNotReviveStoppedTask(t *testing.T) {
+	e, p := reportFixture(t)
+	e.SetTeam(t.TempDir(), "lead", true)
+	rec := pendingReportForTest("stopped")
+	rec.Board = 46
+	writeReviewBoard(t, e, teamTaskBoardItem{ID: 46, WS: exitWSKey, Paused: "now", PauseWhy: "用户取消"})
+	e.rememberReport(rec)
+	e.recoverPendingReports(false)
+	if got := p.sentTo("discord:chat1"); len(got) != 0 {
+		t.Fatalf("stopped task posted: %#v", got)
+	}
+	if got := e.boardItemByID(46); !got.ReturnedAt.IsZero() {
+		t.Fatal("stopped task marked returned")
+	}
+}
