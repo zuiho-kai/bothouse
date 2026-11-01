@@ -499,6 +499,12 @@ func (e *Engine) quotaTick(now time.Time) {
 		return
 	}
 	if !st.Until.After(now) {
+		if _, reportsUsage := e.agent.(UsageReporter); e.quotaProbeFn == nil && (!reportsUsage || !usageReporterAvailable(e.agent)) {
+			// No query capability is not a failed query. Let the provider's
+			// recorded deadline expire without inventing another exhausted window
+			// or announcing recovery. A future real turn supplies new evidence.
+			return
+		}
 		quotaDomainsMu.Lock()
 		observedUntil := e.domainUntilLocked(st.Scope)
 		quotaDomainsMu.Unlock()
