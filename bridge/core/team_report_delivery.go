@@ -356,7 +356,29 @@ func (e *Engine) reportWakeLive(jobID string) bool {
 		return false
 	}
 	job := e.timerScheduler.Store().Get(jobID)
-	return job != nil && !job.Fired
+	if job != nil && !job.Fired {
+		return true
+	}
+	// ExecuteTimerJob returns after queueAccepted; the timer is then Fired even
+	// though the report turn is still queued or running in this process.
+	e.interactiveMu.Lock()
+	states := make([]*interactiveState, 0, len(e.interactiveStates))
+	for _, state := range e.interactiveStates {
+		states = append(states, state)
+	}
+	e.interactiveMu.Unlock()
+	for _, state := range states {
+		state.mu.Lock()
+		live := state.currentJobID == jobID
+		for _, queued := range state.pendingMessages {
+			live = live || queued.timerJobID == jobID
+		}
+		state.mu.Unlock()
+		if live {
+			return true
+		}
+	}
+	return false
 }
 
 // recoverPendingReports runs at scheduler start and on the team watch. At start the scheduler

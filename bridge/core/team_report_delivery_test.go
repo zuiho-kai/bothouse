@@ -505,3 +505,42 @@ func TestReportRecoveryDoesNotReviveStoppedTask(t *testing.T) {
 		t.Fatal("stopped task marked returned")
 	}
 }
+
+func TestReportFiredTimerStillQueuedBehindUser(t *testing.T) {
+	e, p := reportFixture(t)
+	a := e.agent.(*inputTestAgent)
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.timerScheduler = NewTimerScheduler(store)
+	e.ReceiveMessage(p, &Message{SessionKey: "discord:chat1", Platform: "discord", ChannelID: "chat1", UserID: "human", Content: "先处理我的话", ReplyCtx: "discord:chat1", Mentioned: true})
+	inputPrompt(t, a)
+	rec := pendingReportForTest("busy")
+	rec.CreatedAt = time.Now().Add(-3 * time.Minute)
+	e.rememberReport(rec)
+	silent := true
+	job := &TimerJob{ID: rec.JobID, ReportID: rec.Key, Project: e.name, SessionKey: "discord:chat1", Prompt: "汇总工作区", Silent: &silent, ScheduledAt: time.Now()}
+	if err := store.Add(job); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.ExecuteTimerJob(job); err != nil {
+		t.Fatal(err)
+	}
+	// executeJob marks the timer fired after ExecuteTimerJob returns queueAccepted.
+	store.MarkFired(job.ID, nil)
+	e.recoverPendingReports(true)
+	for _, sent := range p.sentTo("discord:chat1") {
+		if strings.Contains(sent, "看门修复完成") {
+			t.Fatalf("recovery overtook queued wake: %s", sent)
+		}
+	}
+	inputDone(a, "用户请求处理完")
+	inputPrompt(t, a)
+	inputDone(a, "汇总工作区结果")
+	inputWait(t, func() bool {
+		e.teamExit.mu.Lock()
+		defer e.teamExit.mu.Unlock()
+		return e.teamExit.reports[rec.Key].delivered()
+	})
+}
