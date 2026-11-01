@@ -591,11 +591,13 @@ type Engine struct {
 	webStatusFunc func() (url string)
 
 	// Data directory for socket path injection
-	dataDir              string
-	publicProgress       *PublicProgress
-	workspaceChatForTest func(session string) bool
-	productPyBin         atomic.Value   // string: bin dir holding the product python3, resolved once in Start (role_env.go)
-	productPyWG          sync.WaitGroup // the Start-time lookup above; Stop waits for it (role_env.go)
+	dataDir        string
+	publicProgress *PublicProgress
+	// Source: #750/#751; set before Start by the shared authorization layer.
+	externalTaskEventCheck func(ExternalTaskEvent, *Task) error
+	workspaceChatForTest   func(session string) bool
+	productPyBin           atomic.Value   // string: bin dir holding the product python3, resolved once in Start (role_env.go)
+	productPyWG            sync.WaitGroup // the Start-time lookup above; Stop waits for it (role_env.go)
 
 	// Team mode (#139 C): workspace -> chat channel exit and the asks waiting for an answer.
 	teamExit     teamExitState
@@ -657,6 +659,7 @@ type interactiveState struct {
 	resumeFailed             string
 	resumeFailedQueued       *queuedMessage
 	publicProgressRun        string
+	externalTaskInput        *externalInputDelivery
 	resetHandoff             bool // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
 	agentSession             AgentSession
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
@@ -4759,12 +4762,20 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		// The agent session is captured under lock per attempt inside runTurnWithCapacityRetry.
 		e.runTurnWithCapacityRetry(state, session, sessions, interactiveKey, msg.MessageID, turnStart, stopTyping, msg.ReplyCtx, msg.inputTurn,
 			func() {
+				state.mu.Lock()
+				state.externalTaskInput = msg.externalInput
+				state.mu.Unlock()
 				attemptPrompt = e.withPublicProgress(promptContent, state, msg.SessionKey, msg.FromBot, msg.FromVoice || msg.inputTurn != nil)
 			},
 			func(as AgentSession) error {
 				if as == nil {
 					session.SettleHandoff(false)
 					return fmt.Errorf("agent session became nil")
+				}
+				if msg.externalInput != nil {
+					if err := msg.externalInput.beforeSend(); err != nil {
+						return err
+					}
 				}
 				var err error
 				promptContent := attemptPrompt
@@ -4778,6 +4789,9 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 					err = as.Send(promptContent, msg.MessageID, images, msg.Files)
 				}
 				session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
+				if msg.externalInput != nil {
+					err = msg.externalInput.afterSend(err)
+				}
 				return err
 			},
 			func(wait time.Duration) {

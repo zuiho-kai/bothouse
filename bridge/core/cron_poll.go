@@ -49,6 +49,13 @@ func (e *Engine) pollCronJob(job *CronJob) (*CronJob, error) {
 		slog.Debug("poller: no change", "project", e.name, "job", job.ID)
 		return nil, nil
 	}
+	if events, structured, err := structuredPollEvents(out); structured {
+		if err != nil {
+			return nil, err
+		}
+		_, err = e.AcceptExternalTaskEvents(events)
+		return nil, err
+	}
 	e.emitStreamEvent(StreamEventPoll, job.SessionKey, out, map[string]any{"job_id": job.ID, "desc": job.Description})
 	wake := *job
 	wake.Exec = ""
