@@ -25,36 +25,36 @@ var (
 )
 
 type TaskTextRequest struct {
-	TaskID     string
-	Revision   int
-	DeliveryID string
-	SessionKey string
-	Kind       string
-	Text       string
+	TaskID     string `json:"task_id"`
+	Revision   int    `json:"revision"`
+	DeliveryID string `json:"delivery_id"`
+	SessionKey string `json:"session_key"`
+	Kind       string `json:"kind"`
+	Text       string `json:"text"`
 }
 
 type TaskTextPart struct {
-	State     string
-	MessageID string
+	State     string `json:"state"`
+	MessageID string `json:"message_id"`
 }
 
 // TaskTextDelivery is public metadata. Text is only in the private task journal.
 type TaskTextDelivery struct {
-	ID         string
-	TaskID     string
-	Revision   int
-	Project    string
-	Target     string
-	Kind       string
-	BodyRef    string
-	State      string
-	Parts      []TaskTextPart
-	Resolution string
+	ID         string         `json:"id"`
+	TaskID     string         `json:"task_id"`
+	Revision   int            `json:"revision"`
+	Project    string         `json:"project"`
+	Target     string         `json:"target"`
+	Kind       string         `json:"kind"`
+	BodyRef    string         `json:"body_ref"`
+	State      string         `json:"state"`
+	Parts      []TaskTextPart `json:"parts"`
+	Resolution string         `json:"resolution"`
 }
 
 type taskTextRecord struct {
 	TaskTextDelivery
-	Body []string
+	Body []string `json:"body"`
 }
 
 func copyTaskText(d *taskTextRecord) TaskTextDelivery {
@@ -102,6 +102,11 @@ func (p *PublicProgress) QueueTaskText(req TaskTextRequest) (TaskTextDelivery, e
 	}
 	if req.Kind == "question" && r.record.Task.State != TaskStateWaitingUser {
 		return TaskTextDelivery{}, errors.New("question requires a waiting task")
+	}
+	if p.checkTaskText != nil {
+		if err := p.checkTaskText(context.Background(), r.record.Task.Clone(), req.SessionKey); err != nil {
+			return TaskTextDelivery{}, err
+		}
 	}
 	if !strings.HasPrefix(req.SessionKey, r.record.Platform+":") {
 		return TaskTextDelivery{}, errors.New("task target platform mismatch")
@@ -266,7 +271,19 @@ func (p *PublicProgress) flushTaskText(ctx context.Context, r *publicRun) {
 			if d.Parts[i].State != "pending" {
 				continue
 			}
-			if r.record.Task.State == TaskStateCancelled || d.Revision != r.record.Task.RevisionNo() || (d.Kind == "question" && r.record.Task.State != TaskStateWaitingUser) {
+			if p.waitTaskText != nil {
+				platform := r.record.Platform
+				r.mu.Unlock()
+				err := p.waitTaskText(ctx, platform)
+				r.mu.Lock()
+				if err != nil {
+					return
+				}
+				if d.Parts[i].State != "pending" {
+					continue
+				}
+			}
+			if r.record.Task.State == TaskStateCancelled || d.Revision != r.record.Task.RevisionNo() || (d.Kind == "question" && r.record.Task.State != TaskStateWaitingUser && r.record.Task.State != TaskStateFailed) {
 				for j := range d.Parts {
 					if d.Parts[j].State == "pending" {
 						d.Parts[j].State = "cancelled"
@@ -283,9 +300,13 @@ func (p *PublicProgress) flushTaskText(ctx context.Context, r *publicRun) {
 			}
 			// Authorization hook is set before Start; #751 supplies decisions.
 			if p.checkTaskText != nil {
-				if err := p.checkTaskText(ctx, r.record.Task, d.Target); err != nil {
+				if err := p.checkTaskText(ctx, r.record.Task.Clone(), d.Target); err != nil {
 					if errors.Is(err, ErrTaskTextDenied) {
-						d.Parts[i].State = "cancelled"
+						for j := range d.Parts {
+							if d.Parts[j].State == "pending" {
+								d.Parts[j].State = "cancelled"
+							}
+						}
 						d.State = "cancelled"
 						if p.save(r) != nil {
 							return

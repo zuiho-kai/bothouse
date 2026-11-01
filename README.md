@@ -122,6 +122,8 @@ The team's memory is a plain folder of Markdown files. Each incoming message fir
 
 ## How the team works
 
+Task-bound result text can use the send command with task, revision and delivery ID to persist before sending. Each fragment has its own receipt; ambiguous sends remain visible as unknown instead of being blindly retried. See [task text delivery](docs/TASK_TEXT_DELIVERY.md) for usage and platform boundaries.
+
 You say one thing from your phone, computer or browser → the **lead** in the chat channel (the AI you talk to by default) takes it → big work goes to a **workspace**: @coder and @writer in Workspace 1, @researcher in Workspace 2 → they hand it back.
 
 Chat keeps going the whole time; members take the work on and hand it back, and only decisions that need you come back to chat.

@@ -99,7 +99,7 @@ func (r PublicProgressRequest) Validate() error {
 }
 
 type progressRecord struct {
-	TextDeliveries []*taskTextRecord
+	TextDeliveries []*taskTextRecord               `json:"text_deliveries,omitempty"`
 	QuotaReports   map[string]quotaProgressReceipt `json:"quota_reports,omitempty"`
 	Relays         map[string]taskRelayRecord      `json:"relays,omitempty"`
 	Reworks        map[string]taskReworkRecord     `json:"reworks,omitempty"`
@@ -149,6 +149,7 @@ type publicRun struct {
 type PublicProgress struct {
 	textSenders   map[string]TaskTextSender
 	checkTaskText func(context.Context, *Task, string) error
+	waitTaskText  func(context.Context, string) error
 	quotaBlocked  func(string) bool
 	// Lifecycle operations serialize run ownership and durable state transitions.
 	// Delivery never takes this lock; network requests remain independent.
@@ -1024,6 +1025,12 @@ func (e *Engine) EnablePublicProgress() error {
 		return err
 	}
 	e.publicProgress = p
+	p.waitTaskText = func(ctx context.Context, platform string) error {
+		if e.outgoingRL == nil {
+			return nil
+		}
+		return e.outgoingRL.Wait(ctx, platform)
+	}
 	p.resolveReporter = e.resolveTaskReporter
 	p.resolveWorkspace = e.resolveTaskWorkspace
 	p.wakeLead = e.wakeRelayLead

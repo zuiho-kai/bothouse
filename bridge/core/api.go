@@ -56,7 +56,7 @@ type APIServer struct {
 // the dispatch layer in engine.go. See cc-connect internal task
 // t-20260615-cqjbk1.
 type SendRequest struct {
-	TaskText   *TaskTextRequest
+	TaskText   *TaskTextRequest  `json:"task_text,omitempty"`
 	Project    string            `json:"project"`
 	SessionKey string            `json:"session_key"`
 	Message    string            `json:"message"`
@@ -299,6 +299,10 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.TaskText != nil && (req.Message == "" || req.WorkDir != "" || req.CWD != "" || req.DM || req.AtAll || len(req.AtUsers)+len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) != 0 || req.TTSText != "") {
+		http.Error(w, "task text requires plain text and an explicit target", http.StatusBadRequest)
+		return
+	}
 	workDir := req.WorkDir
 	if workDir == "" {
 		workDir = req.CWD
@@ -317,10 +321,6 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Message != "" || len(req.Images) > 0 || len(req.Files) > 0 {
 		if req.TaskText != nil {
-			if workDir != "" || req.DM || req.AtAll || len(req.AtUsers)+len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) != 0 || req.TTSText != "" {
-				http.Error(w, "task text cannot be combined with media, mentions, DM or cwd", http.StatusBadRequest)
-				return
-			}
 			req.TaskText.Text, req.TaskText.SessionKey = req.Message, req.SessionKey
 			d, err := engine.SendTaskText(r.Context(), *req.TaskText)
 			if err != nil {

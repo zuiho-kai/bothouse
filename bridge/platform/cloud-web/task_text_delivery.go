@@ -8,6 +8,17 @@ import (
 func (p *Platform) PrepareTaskText(text string) []string { return []string{text} }
 
 func (p *Platform) SendTaskTextPart(ctx context.Context, target, key, text string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", core.ErrTaskTextNotAccepted
+	}
+	if ws, ok := p.tp.(*wsTransport); ok {
+		ws.mu.RLock()
+		connected := ws.conn != nil
+		ws.mu.RUnlock()
+		if !connected {
+			return "", core.ErrTaskTextNotAccepted
+		}
+	}
 	rctx, err := p.ReconstructReplyCtx(target)
 	if err != nil {
 		return "", core.ErrTaskTextRejected
