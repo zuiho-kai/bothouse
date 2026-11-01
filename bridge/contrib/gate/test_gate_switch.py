@@ -10,6 +10,8 @@ TMP = Path(tempfile.mkdtemp())
 os.environ["GATE_SETUP_DIR"] = str(TMP)  # 不读本机 ~/.cc-connect 里向导写的文件
 os.environ["GATE_TEAM"] = str(HERE / "team.example.json")
 os.environ["SWITCH_LOG"] = str(TMP / "switch.jsonl")
+os.environ["GATE_PLAYBOOK"] = "off"  # 不读本机的主角色手册（lead.playbook），同 test_lead_playbook 的隔离
+os.environ["GATE_DEPT_MANAGER"] = "off"
 # 本机 wiki（同 test_ctxsvc 的样例）：GATE_WIKI 在 ctxsvc 导入时读取
 WIKI = TMP / "wiki"
 (WIKI / "infra").mkdir(parents=True)
@@ -22,10 +24,11 @@ PAGE = {"path": str(WIKI / "infra/vps.md"), "desc": "VPS 一览 | 6: - 代理端
 
 
 def local_imports(module, seen=None):
-    """module.py 直接或间接导入的、本目录里的模块名。"""
+    """module.py 直接或间接导入的、本目录里的模块名。只看模块顶层：函数里 try 着 import 的
+    （ctxsvc 的 board）缺了也能跑，不算必须打包。"""
     seen = set() if seen is None else seen
     tree = ast.parse((HERE / f"{module}.py").read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
+    for node in tree.body:
         names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
             [node.module] if isinstance(node, ast.ImportFrom) and node.module and node.level == 0 else []
         for name in names:
@@ -95,7 +98,7 @@ class ContextRoute(unittest.TestCase):
         Upstream.seen.clear()
         switch.CONFIG["tunnel_port"] = self.upstream.server_address[1]
         switch.state["upstream_ok"] = True
-        ctxsvc.WIKI, ctxsvc._idx = WIKI, None
+        ctxsvc.WIKI, ctxsvc._idx, ctxsvc._idx_at = WIKI, {}, {}  # 索引缓存是按根分的 dict
 
     def test_gpu_mode_answers_from_the_local_wiki_without_forwarding(self):
         out = post(self.port, "/context?bot=sub1", {"key": "discord:1", "text": "代理端口多少", "bot": "sub1"})
@@ -107,7 +110,7 @@ class ContextRoute(unittest.TestCase):
         self.assertEqual(post(self.port, "/context", {"key": "k", "text": "代理端口"}), {"wiki": [PAGE]})
 
     def test_missing_wiki_answers_no_pages(self):
-        ctxsvc.WIKI, ctxsvc._idx = TMP / "nope", None
+        ctxsvc.WIKI, ctxsvc._idx, ctxsvc._idx_at = TMP / "nope", {}, {}
         self.assertEqual(post(self.port, "/context", {"key": "k", "text": "代理端口"}), {"wiki": []})
 
     def test_lookup_error_answers_no_pages_and_keeps_the_gate_up(self):
