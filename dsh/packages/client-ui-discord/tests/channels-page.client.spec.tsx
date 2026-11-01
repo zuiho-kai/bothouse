@@ -573,7 +573,7 @@ describe('channels page', () => {
       openEvents: () => ({ onopen: null, onmessage: null, onerror: null, close() {} }),
       fetch: async (url, init) => {
         let body: unknown = { messages: [] }
-        if (url === '/collab/api/state') body = {
+        if (url.split('?')[0] === '/collab/api/state') body = {
           ...ready,
           rooms: [...ready.rooms, { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 2 }],
         }
