@@ -448,6 +448,56 @@ def park_workspace(it, stop=False):
 STALE_AFTER = 60 * 60
 
 
+EVENTS_TAIL = 8 << 20  # 只读 events.jsonl 末尾这么多字节（桥 20 MB 轮转）
+
+
+def _events_path():
+    return Path(os.environ.get("BOARD_EVENTS") or (SETUP / "events.jsonl")).expanduser()
+
+
+def last_activity(sk):
+    """工作区会话 sk 最近一次真在干活（工具调用、回复）的时刻（epoch 秒），读不到返回 None。
+    来源是桥的统一事件流 <数据目录>/events.jsonl（core/events.go）。"""
+    if not sk:
+        return None
+    path, best = _events_path(), None
+    needle = json.dumps(sk).encode()
+    for f in (path, path.with_name(path.name + ".1")):
+        try:
+            with open(f, "rb") as fh:
+                fh.seek(0, 2)
+                fh.seek(max(0, fh.tell() - EVENTS_TAIL))
+                data = fh.read()
+        except OSError:
+            continue
+        for line in data.splitlines():
+            if needle not in line:
+                continue
+            try:
+                ev = json.loads(line)
+                if ev.get("session_key") != sk or ev.get("type") not in ("tool", "reply"):
+                    continue
+                t = datetime.fromisoformat(ev["time"]).timestamp()
+            except (ValueError, KeyError, TypeError, AttributeError):
+                continue
+            best = t if best is None else max(best, t)
+        if best is not None:
+            break  # 当前文件有就不翻轮转出去的旧文件
+    return best
+
+
+def _touch_progress(nid, stamp):
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None or hit.get("paused"):
+            return None
+        if stamp > hit.get("progress_at", 0):
+            hit["progress_at"] = stamp
+            _write(cur)
+        return hit
+
+
 def pause_stale(now=None):
     now = time.time() if now is None else now
     changed = []
@@ -461,6 +511,14 @@ def pause_stale(now=None):
         if isinstance(at_ts, (int, float)) and at_ts > stamp:
             stamp = at_ts
         if now - stamp < STALE_AFTER:
+            continue
+        # 只认 ws-up/board 更新会把正在调工具的工作区当停滞放掉（2026-11-02 #922 01:47、#925 02:03，
+        # 桥的 10 分钟看门同一时刻还判「有进展」）：先看工作区会话在事件流里的真实动作，一小时内动过就续。
+        act = last_activity(it["ws"])
+        if act is not None and now - act < STALE_AFTER:
+            hit = _touch_progress(it["id"], act)
+            if hit:
+                schedule_stale_check(hit, delay=f"{max(5, int((STALE_AFTER - (now - act)) // 60) + 1)}m")
             continue
         hit = pause(it["id"], "一小时无进展，转待办")
         if hit:
@@ -478,11 +536,11 @@ def _timer_command():
     return f"env {' '.join(env)} {shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve()))} refresh"
 
 
-def schedule_stale_check(it):
+def schedule_stale_check(it, delay="60m"):
     if not it.get("ws") or not _cc_bin() or not it.get("sk"):
         return
     command = _timer_command()
-    r = subprocess.run([_cc_bin(), "timer", "add", "--session-key", it["sk"], "--delay", "60m",
+    r = subprocess.run([_cc_bin(), "timer", "add", "--session-key", it["sk"], "--delay", delay,
                         "--exec", command, "--mute", "--desc", f"检查任务 #{it['id']} 是否停滞"],
                        capture_output=True, text=True)
     if r.returncode:

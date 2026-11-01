@@ -40,3 +40,7 @@ TestCUJ_ReportWakeDeliveryReceipt 从 ReceiveMessage 经 fake agent 的 EventRes
 验收范围缺口仍在：posted ask 已送达后走普通主角色 TimerStore；若 AddJob 写盘失败或主角色不可用，缺少持久唤醒重试，因此可能永久漏唤醒。不能因为改前也失败就豁免原要求，也不能称失败重试全场景通过。此轮未改该逻辑，交主区连同冲突增量安排非作者复审并决定后续修复；在缺口解决或明确调整验收前，不宣称总任务完成。
 
 本轮复用旧全量证据，另跑冲突相关 Report/Headline/CUJ/ChatLead/Proactive/Capacity/Timer race 回归和 vet；最终结果见 PR 和交接。未自验收、未合并、未部署、未重启，未发送真实平台验收消息。
+
+收尾远端核对：克隆的 fetch refspec 仅跟踪 main，origin/develop 不随显式 fetch develop 更新；以 FETCH_HEAD 与 ls-remote 核对后，继续整合真实 develop 788c67a8d602159108387b4f69f9045106c53d32（新增看门续接和任务板活动判定）。该次自动合并无冲突，team_watch.go 保留既有报告恢复扫描及新增看门续接语义；增加 Watch 定向回归。34ea70a3 保留为前述失败对照的精确基线，不混称最新 develop。
+
+最终基线整合验证：Report/Headline/CUJ_Report/ChatLead/Proactive/Capacity race 7.013s 通过，vet通过。加入 Watch 的组合12.703s失败于 TestWatchStartedFires（会话清理与事件读取竞态），在精确788c67a8基线单测0.742s复现；如实保留，未以基线失败豁免总体验收。前一基线上的TimerStore竞态及临时目录清理失败也保留在交审材料。
