@@ -80,9 +80,6 @@ func FindDSHInstallScript() string {
 			return p
 		}
 	}
-	if p, err := ExtractEmbeddedDSH(""); err == nil && fileExists(p) {
-		return p
-	}
 	return ""
 }
 
@@ -222,6 +219,9 @@ func GetDSHStatus(ctx context.Context) DSHStatus {
 		if b, err := os.ReadFile(filepath.Join(dir, f)); err == nil && bytes.Contains(b, []byte("client-ui-discord")) {
 			st.PluginInstalled = true
 		}
+	}
+	if module, err := GetDSHModuleState(); err == nil && module.Installed {
+		st.PluginInstalled = true
 	}
 	return st
 }
