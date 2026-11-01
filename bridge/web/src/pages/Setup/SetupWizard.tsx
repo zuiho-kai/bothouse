@@ -81,7 +81,7 @@ export default function SetupWizard() {
     platformParam === 'qq' || platformParam === 'feishu' || platformParam === 'cloud_web' || platformParam === 'dsh' ? platformParam : 'discord');
   // QQ: NapCat's forward WebSocket; the test is a dry run of the request (nothing written)
   const [qq, setQQ] = useState({ ws_url: 'ws://127.0.0.1:3001', token: '', allow_from: '' });
-  const [qqTest, setQQTest] = useState<{ running: boolean; key?: string; ok?: boolean; message?: string; fix?: string; nickname?: string }>({ running: false });
+  const [qqTest, setQQTest] = useState<{ running: boolean; key?: string; ok?: boolean; message?: string; fix?: string; nickname?: string; note?: string }>({ running: false });
   const qqKey = JSON.stringify(qq);
   const qqNickname = qqTest.key === qqKey ? qqTest.nickname : undefined;
   const platform = picked;
@@ -646,8 +646,10 @@ export default function SetupWizard() {
                   setQQTest({ running: true, key });
                   try {
                     const r = await applyWizard({ ...buildRequest(), dry_run: true });
-                    setQQTest({ running: false, key, ok: r.qq?.code === 'ok' && !r.error,
-                      message: r.error || r.qq?.message, fix: r.qq?.fix, nickname: r.qq?.nickname });
+                    // only the QQ connection is judged here; the rest of the request (CLI, persona …) is checked on save
+                    // a plan error after a good connection (no CLI yet, name taken …) is shown, not hidden; later steps can fix it
+                    setQQTest({ running: false, key, ok: r.qq?.code === 'ok', message: r.qq?.code === 'ok' ? r.qq.message : (r.error || r.qq?.message),
+                      fix: r.qq?.fix, nickname: r.qq?.nickname, note: r.qq?.code === 'ok' ? r.error : undefined });
                   } catch (e: any) {
                     setQQTest({ running: false, key, ok: false, message: e?.message || String(e) });
                   }
@@ -655,7 +657,8 @@ export default function SetupWizard() {
                 {qqTest.running ? <Loader2 size={12} className="animate-spin" /> : null}{qqTest.running ? T.cwTesting : T.cwTest}
               </Button>
               {!qqTest.running && qqTest.key === qqKey && qqTest.message && (qqTest.ok
-                ? <p className="text-emerald-600 flex items-center gap-1" data-testid="qq-test-ok"><CheckCircle2 size={13} />{qqTest.message}</p>
+                ? <div><p className="text-emerald-600 flex items-center gap-1" data-testid="qq-test-ok"><CheckCircle2 size={13} />{qqTest.message}</p>
+                  {qqTest.note && <p className="text-xs text-amber-600" data-testid="qq-test-note">{qqTest.note}</p>}</div>
                 : <div data-testid="qq-test-fail"><p className="text-red-500 flex items-center gap-1"><XCircle size={13} />{qqTest.message}</p>
                   {qqTest.fix && <p className="text-xs text-gray-600 dark:text-gray-400">{qqTest.fix}</p>}</div>)}
             </div>

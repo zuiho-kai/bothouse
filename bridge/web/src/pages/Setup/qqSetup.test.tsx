@@ -48,9 +48,11 @@ describe('QQ in the setup wizard', () => {
     await input('[data-testid="qq-allow-from"]', '12345');
     sent.error = 'a role named "QQ Fixture" already exists; pick another name';
     await click('[data-testid="qq-test-btn"]');
-    expect($('[data-testid="qq-test-fail"]')?.textContent).toContain(sent.error);
-    expect($('[data-testid="qq-test-fail"]')?.textContent).not.toContain('已连上');
-    expect(button(T.next).disabled).toBe(true);
+    // merged with the #813 review fix: the connection passed, so the plan error is shown as a note and
+    // does not block the next steps (a missing CLI or a name is fixed there; save checks the whole request)
+    expect($('[data-testid="qq-test-ok"]')?.textContent).toContain('已连上');
+    expect($('[data-testid="qq-test-note"]')?.textContent).toContain(sent.error);
+    expect(button(T.next).disabled).toBe(false);
   });
 
   it('preselects QQ, tests NapCat before going on, and sends only the QQ platform', async () => {

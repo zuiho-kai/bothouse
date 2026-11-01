@@ -84,3 +84,16 @@ func TestSetModuleDisabled(t *testing.T) {
 		t.Fatal("unknown module accepted")
 	}
 }
+
+// Review of #813: a fresh install has no config file; that is "nothing configured", not an error.
+func TestSetModuleDisabledNoConfig(t *testing.T) {
+	old := ConfigPath
+	defer func() { ConfigPath = old }()
+	ConfigPath = filepath.Join(t.TempDir(), "config.toml")
+	if changed, backup, err := SetModuleDisabled("qq", false); err != nil || changed != nil || backup != "" {
+		t.Fatalf("no config: %v, %q, %v", changed, backup, err)
+	}
+	if _, err := os.Stat(ConfigPath); !os.IsNotExist(err) {
+		t.Fatal("a config file was created")
+	}
+}
