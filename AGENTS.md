@@ -74,3 +74,29 @@
 4. 启动后日志出现 `cloud_web: websocket connected` 就是连上了；把 `bothouse setup hub` 输出里的 `open_url`（本机平台，含登录口令）给用户打开，让用户在频道里发「@名字 你好」。
 
 详细说明：[docs/connect-discord-feishu.md](docs/connect-discord-feishu.md) 第 7 节。
+
+## 不用向导加一个平台：`bothouse module add`（每个平台一条命令）
+
+给 AI 用：不提问、不读 stdin。每个平台自己的参数，内部就是 `setup apply`（追加模式，已有角色不动），成功时打印同一个结果 JSON。
+先加 `--dry-run`（不写任何文件，QQ 照样会真连一次 NapCat 测试），`ok: true` 再去掉它正式跑，然后重启 bothouse。
+缺参数时打印 `missing` 列表（含 `--flag` 和该填什么）、`ok: false`、退出码 1，什么都不写。
+
+```sh
+# QQ：NapCat / OneBot 11；allow_from 必填（你自己的 QQ 号，* = 谁都能指挥）
+bothouse module add qq --ws-url ws://127.0.0.1:3001 --token '<NapCat token，没有就不写>' --allow-from <你的QQ号>
+
+# Discord：token 和服务器 ID 必填，频道和 allow_from 可省（allow_from 默认 = 机器人所有者）
+bothouse module add discord --token '<bot token>' --guild <服务器ID> --channel <频道ID> --allow-from <Discord用户ID>
+
+# 飞书 / Lark：先 bothouse feishu setup 扫码拿到
+bothouse module add feishu --app-id <app_id> --app-secret <app_secret>
+
+# 自建平台：url/token 省掉时用本机向导启动的那个 hub；名字是它在平台里显示的名字
+bothouse module add cloud_web --url <地址> --token '<机器人 token>' --name <名字>
+
+# DSH：不是配置文件里的平台，只提示怎么装插件
+bothouse module add dsh
+```
+
+`--lang zh|en|ja|…` 指定机器人回复语言。已经配好的平台改参数用网页向导或 `setup apply`（`module add` 只追加，不改已有角色）；
+不带参数仍然是把 `module disable` 停用的平台重新打开。

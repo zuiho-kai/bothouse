@@ -482,7 +482,6 @@ func runSetup(args []string) {
 		}
 		_ = enc.Encode(core.PersonaPresets(l))
 	case "apply":
-		initConfigPath(*configFile)
 		var raw []byte
 		var err error
 		switch *jsonPath {
@@ -506,41 +505,9 @@ func runSetup(args []string) {
 		if *lang != "" {
 			req.Language = *lang
 		}
-		// No config yet: plan against an empty one. A dry run writes nothing; a real run writes the
-		// first-run config only when it gets to writing projects, so a run that stops earlier (token
-		// invalid, Discord rate limit …) leaves no config.toml behind and "nothing was written" holds.
-		var store core.WizardStore = configWizardStore{}
-		dataDir := ""
-		_, statErr := os.Stat(config.ConfigPath)
-		switch {
-		case os.IsNotExist(statErr) && req.DryRun:
-			store, dataDir = emptyWizardStore{}, defaultDataDir()
-		case os.IsNotExist(statErr):
-			store, dataDir = bootstrapOnWriteStore{}, defaultDataDir()
-		}
-		wikiSub := ""
-		if dataDir == "" {
-			cfg, err := config.LoadForSetup(config.ConfigPath)
-			if err != nil {
-				fail(err)
-			}
-			dataDir = cfg.DataDir
-			wikiSub = subWikiScript(cfg)
-		}
-		env := core.WizardEnv{Store: store, DataDir: dataDir, AlwaysWriteCmd: true, WikiSubScript: wikiSub}
-		if sock := resolveSocketPath(dataDir); !req.DryRun && fileExistsCmd(sock) && instanceRunning(config.ConfigPath) {
-			env.Cron = socketCron{sock} // the running cc-connect owns the job file: add through it
-		}
-		res := core.ApplyWizard(context.Background(), env, req)
-		if res.Saved {
-			lang := req.Language
-			if lang == "" {
-				lang = core.SystemLanguage()
-			}
-			res.NextSteps = setupNextSteps(lang, *configFile, instanceRunning(config.ConfigPath), res.NeedsUserAction)
-			if res.CloudWeb != nil {
-				res.NextSteps = append(res.NextSteps, cloudWebNextStep(lang, res.CloudWeb.PageURL))
-			}
+		res, err := wizardApplyCLI(req, *configFile)
+		if err != nil {
+			fail(err)
 		}
 		_ = enc.Encode(res)
 		if !res.OK {
@@ -549,6 +516,49 @@ func runSetup(args []string) {
 	default:
 		fail(fmt.Errorf("unknown setup subcommand %q", sub))
 	}
+}
+
+// wizardApplyCLI applies one wizard request. `setup apply` and `module add` (module.go) both come
+// through here, so the two write the same way and print the same result JSON.
+func wizardApplyCLI(req core.WizardRequest, configFile string) (*core.WizardResult, error) {
+	initConfigPath(configFile)
+	// No config yet: plan against an empty one. A dry run writes nothing; a real run writes the
+	// first-run config only when it gets to writing projects, so a run that stops earlier (token
+	// invalid, Discord rate limit …) leaves no config.toml behind and "nothing was written" holds.
+	var store core.WizardStore = configWizardStore{}
+	dataDir := ""
+	_, statErr := os.Stat(config.ConfigPath)
+	switch {
+	case os.IsNotExist(statErr) && req.DryRun:
+		store, dataDir = emptyWizardStore{}, defaultDataDir()
+	case os.IsNotExist(statErr):
+		store, dataDir = bootstrapOnWriteStore{}, defaultDataDir()
+	}
+	wikiSub := ""
+	if dataDir == "" {
+		cfg, err := config.LoadForSetup(config.ConfigPath)
+		if err != nil {
+			return nil, err
+		}
+		dataDir = cfg.DataDir
+		wikiSub = subWikiScript(cfg)
+	}
+	env := core.WizardEnv{Store: store, DataDir: dataDir, AlwaysWriteCmd: true, WikiSubScript: wikiSub}
+	if sock := resolveSocketPath(dataDir); !req.DryRun && fileExistsCmd(sock) && instanceRunning(config.ConfigPath) {
+		env.Cron = socketCron{sock} // the running cc-connect owns the job file: add through it
+	}
+	res := core.ApplyWizard(context.Background(), env, req)
+	if res.Saved {
+		lang := req.Language
+		if lang == "" {
+			lang = core.SystemLanguage()
+		}
+		res.NextSteps = setupNextSteps(lang, configFile, instanceRunning(config.ConfigPath), res.NeedsUserAction)
+		if res.CloudWeb != nil {
+			res.NextSteps = append(res.NextSteps, cloudWebNextStep(lang, res.CloudWeb.PageURL))
+		}
+	}
+	return res, nil
 }
 
 // setupCLIsHint explains an empty or not-logged-in `setup clis` list (printed to stderr).

@@ -74,6 +74,10 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 ## 以后添加或停用平台
 
 - **添加**：管理面板左侧「添加平台」，进同一个向导，选新平台、只配它；已有的角色、记忆、人设、定时任务都不动。已配置的平台在第一页标「已配置」。
+- **不用浏览器加**：`bothouse module add <平台>` 带上这个平台自己的参数，一条命令配好（给 AI 用的非交互入口，见 [AGENTS.md](../AGENTS.md) 末节）：
+  `bothouse module add qq --ws-url ws://127.0.0.1:3001 --allow-from <QQ号>`、`bothouse module add discord --token <token> --guild <服务器ID>`、
+  `bothouse module add feishu --app-id <id> --app-secret <secret>`、`bothouse module add cloud_web --url <地址> --token <token> --name <名字>`。
+  先加 `--dry-run`；缺参数时打印 `missing` 列表、不写文件、退出码非 0。
 - **停用**：`bothouse module disable <平台>`，配置留着，重启后这个平台不再连接；`bothouse module add <平台>` 恢复。
 - **看现状**：`bothouse module list` 列出每个平台是已启用、已停用还是没配置。
 
