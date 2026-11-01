@@ -110,7 +110,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
     setBusy(true); setError('');
     try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
-  const detect = () => run(async () => { const s = await getDSHStatus(); setStatus(s); setStep(s.found ? 1 : 0); });
+  const detect = () => run(async () => { const s = await getDSHStatus(lang); setStatus(s); setStep(s.found ? 1 : 0); });
   // eslint-disable-next-line react-hooks/exhaustive-deps -- detect once on mount
   useEffect(() => { void detect(); }, []);
   useEffect(() => { getCLIs().then((r) => setClis(r.clis)).catch(() => setClis([])); }, []);

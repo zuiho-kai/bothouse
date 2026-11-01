@@ -205,11 +205,11 @@ func bashScriptArg(goos, script string) string {
 }
 
 // GetDSHStatus detects dsh and whether the CoNest plugin is in the profile.
-func GetDSHStatus(ctx context.Context) DSHStatus {
+func GetDSHStatus(ctx context.Context, langs ...string) DSHStatus {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	st := DSHStatus{Profile: DSHProfile, OpenCommand: dshOpenCommand(), InstallScript: FindDSHInstallScript()}
-	st.NodeVersion, st.DependencyError = dshNodeStatus(ctx)
+	st.NodeVersion, st.DependencyError = dshNodeStatus(ctx, langs...)
 	_, pnpmErr := exec.LookPath("pnpm")
 	st.PNPMFound = pnpmErr == nil
 	dshBin, err := LookDSH()
@@ -234,7 +234,7 @@ func InstallDSHPlugin(ctx context.Context, lang string, onLine func(string)) (DS
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	if _, issue := dshNodeStatus(ctx, lang); issue != "" {
-		return GetDSHStatus(ctx), errors.New(issue)
+		return GetDSHStatus(ctx, lang), errors.New(issue)
 	}
 	script := FindDSHInstallScript()
 	if script == "" || !fileExists(script) {
@@ -243,15 +243,15 @@ func InstallDSHPlugin(ctx context.Context, lang string, onLine func(string)) (DS
 		}
 	}
 	if script == "" {
-		return GetDSHStatus(ctx), errors.New("dsh/install.sh not found (set BOTHOUSE_DSH_DIR to the repo's dsh directory)")
+		return GetDSHStatus(ctx, lang), errors.New("dsh/install.sh not found (set BOTHOUSE_DSH_DIR to the repo's dsh directory)")
 	}
 	dshBin, err := LookDSH()
 	if err != nil {
-		return GetDSHStatus(ctx), errDSHMissing
+		return GetDSHStatus(ctx, lang), errDSHMissing
 	}
 	bashBin, err := LookBash()
 	if err != nil {
-		return GetDSHStatus(ctx), err
+		return GetDSHStatus(ctx, lang), err
 	}
 	l := "en"
 	if strings.HasPrefix(strings.ToLower(lang), "zh") {
@@ -292,7 +292,7 @@ func InstallDSHPlugin(ctx context.Context, lang string, onLine func(string)) (DS
 	}
 	_ = pw.Close()
 	<-scanned
-	st := GetDSHStatus(ctx)
+	st := GetDSHStatus(ctx, lang)
 	st.Log = out.String()
 	if err != nil {
 		return st, errors.New("install.sh failed: " + err.Error() + "\n" + tailLines(st.Log, 20))
@@ -313,7 +313,7 @@ func tailLines(s string, n int) string {
 // ── HTTP ──────────────────────────────────────────────────────
 
 func (m *ManagementServer) handleSetupDSHStatus(w http.ResponseWriter, r *http.Request) {
-	mgmtJSON(w, http.StatusOK, GetDSHStatus(r.Context()))
+	mgmtJSON(w, http.StatusOK, GetDSHStatus(r.Context(), r.URL.Query().Get("lang")))
 }
 
 // handleSetupDSHInstall streams the install as NDJSON, one object per line:

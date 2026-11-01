@@ -319,3 +319,42 @@ func TestDSHModuleAllPatchLayers(t *testing.T) {
 		})
 	}
 }
+
+func TestDSHModuleInstallationBundlePriority(t *testing.T) {
+	install, profile := t.TempDir(), t.TempDir()
+	bundle := "@deepseek-ai/dsh-base"
+	writeDSHBundleFixture(t, install, bundle)
+	writeDSHBundleFixture(t, profile, bundle)
+	anchor := filepath.Join(install, "package.json")
+	want := filepath.Join(install, "node_modules", bundle)
+	if got := resolveDSHBundle(bundle, anchor, profile); got != want {
+		t.Fatalf("install must win: %s", got)
+	}
+	writeDSHBundleFixture(t, profile, "bothouse-dsh")
+	want = filepath.Join(profile, "node_modules", "bothouse-dsh")
+	if got := resolveDSHBundle("bothouse-dsh", anchor, profile); got != want {
+		t.Fatalf("profile fallback: %s", got)
+	}
+}
+
+func TestDSHModuleDryRunRejectsGlobalConflict(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DSH_HOME", home)
+	patch := "- insert:\n    - id: bothouse-dsh\n      name: bothouse-dsh\n      disabled: true\n"
+	path := filepath.Join(home, "cordis.patch.yml")
+	if err := os.WriteFile(path, []byte(patch), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, dry := range []bool{true, false} {
+		r := ApplyDSHModule(context.Background(), false, dry, "zh")
+		if r.OK || r.Saved || !strings.Contains(r.Error, "HOME cordis.patch.yml") {
+			t.Fatalf("dry=%v result=%+v", dry, r)
+		}
+	}
+	if got, _ := os.ReadFile(path); string(got) != patch {
+		t.Fatal("changed global policy")
+	}
+	if _, err := os.Stat(filepath.Join(home, "profiles")); !os.IsNotExist(err) {
+		t.Fatal("created profile during rejection")
+	}
+}

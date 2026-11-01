@@ -124,7 +124,7 @@ export interface DSHStatus {
   open_command: string; log?: string; has_deepseek_key?: boolean;
   node_version?: string; pnpm_found?: boolean; dependency_error?: string;
 }
-export const getDSHStatus = () => api.get<DSHStatus>('/setup/dsh/status');
+export const getDSHStatus = (lang = 'en') => api.get<DSHStatus>('/setup/dsh/status?lang=' + encodeURIComponent(lang));
 
 /** One line of the POST /setup/dsh/install NDJSON stream (core/setup_dsh_platform.go handleSetupDSHInstall). */
 export interface DSHInstallEvent { step?: string; line?: string; done?: boolean; status?: DSHStatus; error?: string; log?: string }

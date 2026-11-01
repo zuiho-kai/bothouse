@@ -32,6 +32,54 @@ func dshPluginName(name string) bool {
 	return name == "conest-collab" || name == "bothouse-dsh" || name == "@deepseek-ai/dsh-experimental-client-ui-discord"
 }
 
+// Match DSH app-boot resolveBundleDir: installation first, then profile,
+// walking Node's ancestor node_modules paths without loading plugin code.
+func resolveDSHBundle(bundle, installAnchor, profileDir string) string {
+	for _, anchor := range []string{installAnchor, filepath.Join(profileDir, "package.json")} {
+		if anchor == "" {
+			continue
+		}
+		for dir := filepath.Dir(anchor); ; dir = filepath.Dir(dir) {
+			if filepath.Base(dir) != "node_modules" {
+				candidate := filepath.Join(dir, "node_modules", bundle)
+				if fileExists(filepath.Join(candidate, "package.json")) {
+					return candidate
+				}
+			}
+			if filepath.Dir(dir) == dir {
+				break
+			}
+		}
+	}
+	return filepath.Join(profileDir, "node_modules", bundle)
+}
+
+func dshInstallAnchor() string {
+	bin, err := LookDSH()
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
+		bin = resolved
+	}
+	// npm's Windows shims live beside node_modules, unlike Unix symlinks.
+	shimPackage := filepath.Join(filepath.Dir(bin), "node_modules", "@deepseek-ai", "dsh", "package.json")
+	if fileExists(shimPackage) {
+		return shimPackage
+	}
+	for dir := filepath.Dir(bin); ; dir = filepath.Dir(dir) {
+		path := filepath.Join(dir, "package.json")
+		var pkg struct{ Name string }
+		if data, err := os.ReadFile(path); err == nil && json.Unmarshal(data, &pkg) == nil && pkg.Name == "@deepseek-ai/dsh" {
+			return path
+		}
+		if filepath.Dir(dir) == dir {
+			break
+		}
+	}
+	return ""
+}
+
 func readDSHPatch(path string) (*yaml.Node, error) {
 	doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.SequenceNode}}}
 	raw, err := os.ReadFile(path)
@@ -70,8 +118,9 @@ func dshModuleProfile() (DSHModuleState, []dshModulePlugin, *yaml.Node, error) {
 		return state, nil, nil, err
 	}
 	var layers []*yaml.Node
+	installAnchor := dshInstallAnchor()
 	for _, bundle := range manifest.DSH.Profile.Bundles {
-		packageDir := filepath.Join(dir, "node_modules", bundle)
+		packageDir := resolveDSHBundle(bundle, installAnchor, dir)
 		var pkg struct {
 			DSH struct{ Bundle struct{ Patch string } }
 		}
@@ -181,6 +230,15 @@ func GetDSHModuleState() (DSHModuleState, error) {
 	return st, err
 }
 
+func validateDSHModuleChange(plugins []dshModulePlugin, disabled bool) error {
+	for _, p := range plugins {
+		if p.HomeControlled && p.Disabled != disabled {
+			return fmt.Errorf("DSH plugin %s is controlled by HOME cordis.patch.yml; change its global override in DSH first", p.ID)
+		}
+	}
+	return nil
+}
+
 // Append a valid final override rather than changing an insertion or a guarded
 // patch that Cordis may ignore. Return the actual write decision, not a comparison
 // of the aggregate enabled state (which loses mixed-bundle changes).
@@ -191,10 +249,8 @@ func setDSHModuleDisabled(disabled bool) (DSHModuleState, bool, error) {
 	}
 	// HOME overlays apply last and may affect other profiles. Never silently
 	// overwrite that global policy or claim a profile override can supersede it.
-	for _, p := range plugins {
-		if p.HomeControlled && p.Disabled != disabled {
-			return st, false, fmt.Errorf("DSH plugin %s is controlled by HOME cordis.patch.yml; change its global override in DSH first", p.ID)
-		}
+	if err := validateDSHModuleChange(plugins, disabled); err != nil {
+		return st, false, err
 	}
 	changed := false
 	for _, p := range plugins {
@@ -243,7 +299,7 @@ type DSHModuleResult struct {
 }
 
 func ApplyDSHModule(ctx context.Context, disable, dryRun bool, lang string) DSHModuleResult {
-	st, err := GetDSHModuleState()
+	st, plugins, _, err := dshModuleProfile()
 	r := DSHModuleResult{Platform: "dsh", DryRun: dryRun, DSH: st, NextSteps: []string{}}
 	if err != nil {
 		r.Error = err.Error()
@@ -264,6 +320,10 @@ func ApplyDSHModule(ctx context.Context, disable, dryRun bool, lang string) DSHM
 		}
 	}
 	if dryRun {
+		if err := validateDSHModuleChange(plugins, disable); err != nil {
+			r.Error = err.Error()
+			return r
+		}
 		r.OK = true
 		r.NextSteps = []string{NewI18n(Language(lang)).T(MsgDSHModulePreview)}
 		return r
