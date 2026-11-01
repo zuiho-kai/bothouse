@@ -42,18 +42,39 @@ $textBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromAr
 $format = New-Object System.Drawing.StringFormat
 $format.Alignment = [System.Drawing.StringAlignment]::Center
 $format.LineAlignment = [System.Drawing.StringAlignment]::Center
-$textRect = New-Object System.Drawing.RectangleF(0, [float]($Size * 0.28), $Size, $Size)
+$textRect = New-Object System.Drawing.RectangleF(0, [float]($Size * 0.24), $Size, [float]($Size * 0.70))
 $graphics.DrawString("b", $font, $textBrush, $textRect, $format)
 
-# Write .ico (single 256px frame; Windows scales it) and a .png preview.
+# Write .ico (one 32-bit BGRA frame with alpha) and a .png preview.
+# Icon.FromHandle(GetHicon()).Save() would write a 16-colour (4-bit) icon, so the frame is written directly.
 $outDir = Split-Path -Parent $OutFile
 if ($outDir -and -not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir -Force | Out-Null }
 $pngPath = [System.IO.Path]::ChangeExtension($OutFile, ".png")
 $bitmap.Save($pngPath, [System.Drawing.Imaging.ImageFormat]::Png)
-$hIcon = $bitmap.GetHicon()
-$icon = [System.Drawing.Icon]::FromHandle($hIcon)
+$rect = New-Object System.Drawing.Rectangle(0, 0, $Size, $Size)
+$data = $bitmap.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+$rowBytes = $Size * 4
+$pixels = New-Object byte[] ($rowBytes * $Size)
+for ($y = 0; $y -lt $Size; $y++) {
+    # ICO bitmaps are stored bottom-up.
+    [System.Runtime.InteropServices.Marshal]::Copy([IntPtr]($data.Scan0.ToInt64() + $y * $data.Stride), $pixels, ($Size - 1 - $y) * $rowBytes, $rowBytes)
+}
+$bitmap.UnlockBits($data)
+$maskBytes = [int]([Math]::Ceiling($Size / 32.0) * 4) * $Size
+$imageBytes = 40 + $pixels.Length + $maskBytes
+$dim = if ($Size -ge 256) { 0 } else { $Size }
 $stream = [System.IO.File]::Open($OutFile, [System.IO.FileMode]::Create)
-try { $icon.Save($stream) } finally { $stream.Close() }
+$writer = New-Object System.IO.BinaryWriter($stream)
+try {
+    $writer.Write([UInt16]0); $writer.Write([UInt16]1); $writer.Write([UInt16]1)
+    $writer.Write([byte]$dim); $writer.Write([byte]$dim); $writer.Write([byte]0); $writer.Write([byte]0)
+    $writer.Write([UInt16]1); $writer.Write([UInt16]32); $writer.Write([UInt32]$imageBytes); $writer.Write([UInt32]22)
+    $writer.Write([UInt32]40); $writer.Write([Int32]$Size); $writer.Write([Int32]($Size * 2))
+    $writer.Write([UInt16]1); $writer.Write([UInt16]32); $writer.Write([UInt32]0); $writer.Write([UInt32]($pixels.Length + $maskBytes))
+    $writer.Write([Int32]0); $writer.Write([Int32]0); $writer.Write([UInt32]0); $writer.Write([UInt32]0)
+    $writer.Write($pixels)
+    $writer.Write((New-Object byte[] $maskBytes))
+} finally { $writer.Close() }
 
 $graphics.Dispose()
 $bitmap.Dispose()
