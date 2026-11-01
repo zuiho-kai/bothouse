@@ -415,16 +415,6 @@ func teamHandoffMatchesPausedItem(wsKey string, h TeamHandoff, it teamTaskBoardI
 	if chatOf(it.WSWas) != wsKey && chatOf(it.WS) != wsKey {
 		return false
 	}
-	// ClaimTeamWorkspace permits an empty title; retain its legacy lifecycle semantics.
-	if strings.TrimSpace(h.Title) == "" {
-		return true
-	}
-	// Source: contrib/lead/ws-handoff claim_cmd sends task[:60] without an ellipsis.
-	const handoffTitleRunes = 60
-	what := []rune(it.What)
-	if len(what) > handoffTitleRunes && h.Title == string(what[:handoffTitleRunes]) {
-		return true
-	}
 	return teamHandoffTitleMatchesItem(h.Title, it)
 }
 

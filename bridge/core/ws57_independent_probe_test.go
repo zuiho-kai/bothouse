@@ -77,3 +77,12 @@ func TestWS57LongClaimTitlePreservesLifecycle(t *testing.T) {
 		}
 	}
 }
+
+func TestWS57UntitledOpenHandoffDoesNotResumePausedTask(t *testing.T) {
+	now := time.Now()
+	it := teamTaskBoardItem{ID: 57, What: "paused task", Paused: "11-01 20:00", PauseWhy: "收口暂停", WSWas: "room:ws", Chat: "room:main", Bound: now.Format(time.RFC3339Nano)}
+	h := TeamHandoff{Chat: "room:main", At: now.Add(-time.Hour)}
+	if teamHandoffMatchesPausedItem("room:ws", h, it) {
+		t.Fatal("anonymous handoff resumed explicitly paused task")
+	}
+}
