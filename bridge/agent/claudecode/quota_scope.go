@@ -1,6 +1,7 @@
 package claudecode
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -10,9 +11,14 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/chenhg5/cc-connect/core"
 )
+
+// quotaAuthTimeout bounds the account query. Source: the same 10s probe bound
+// used for agent verification in session.go.
+const quotaAuthTimeout = 10 * time.Second
 
 // authStatus is the account shape reported by `claude auth status`. Only the
 // non-secret identifiers take part in the quota identity; tokens never do.
@@ -24,9 +30,18 @@ type authStatus struct {
 	OrgID       string `json:"orgId"`
 }
 
-// readAuthStatus runs the CLI's own account query. Tests replace it.
-var readAuthStatus = func() (authStatus, error) {
-	out, err := exec.Command("claude", "auth", "status").Output()
+// readAuthStatus runs the CLI's own account query in the agent's real
+// environment, so a CLAUDE_CONFIG_DIR/HOME override asks about the account the
+// agent will actually use. Tests replace it.
+var readAuthStatus = func(env []string, configDir string) (authStatus, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), quotaAuthTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "claude", "auth", "status")
+	cmd.Env = env
+	if configDir != "" {
+		cmd.Dir = configDir
+	}
+	out, err := cmd.Output()
 	if err != nil {
 		return authStatus{}, err
 	}
@@ -38,17 +53,31 @@ var readAuthStatus = func() (authStatus, error) {
 }
 
 // credentialStamp reports when the CLI last wrote the account it is logged into.
-// The account is not in the config directory: on macOS the credentials live in
-// the login keychain and ~/.claude holds no credentials file, so the directory
-// mtime never moves when the user switches accounts.
 // Zero means "unknown", and an unknown stamp is never cached.
-// Source: measured on this machine 2026-11-02 - the keychain item
-// "Claude Code-credentials" exists (mdat readable) and ~/.claude has none.
-var credentialStamp = func(configDir string) int64 {
+// Source: measured on this machine 2026-11-02 - the default config dir holds no
+// credentials file while the login keychain item "Claude Code-credentials"
+// exists. A custom config dir is therefore looked for on disk, and the keychain
+// is consulted only for the default one: the CLI keeps a per-directory store,
+// so assuming the global keychain for every directory would report the wrong
+// account.
+var credentialStamp = defaultCredentialStamp
+
+func defaultCredentialStamp(configDir string) int64 {
 	if info, err := os.Stat(filepath.Join(configDir, ".credentials.json")); err == nil {
 		return info.ModTime().UnixNano()
 	}
-	out, err := exec.Command("security", "find-generic-password", "-s", "Claude Code-credentials").Output()
+	if !isDefaultConfigDir(configDir) {
+		return 0
+	}
+	return keychainStamp()
+}
+
+// keychainStamp reads the login-keychain item's modification date. It is a seam
+// so tests can exercise the default-directory rule without a real keychain.
+var keychainStamp = func() int64 {
+	ctx, cancel := context.WithTimeout(context.Background(), quotaAuthTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "security", "find-generic-password", "-s", "Claude Code-credentials").Output()
 	if err != nil {
 		return 0
 	}
@@ -62,6 +91,14 @@ var credentialStamp = func(configDir string) int64 {
 	return 0
 }
 
+func isDefaultConfigDir(dir string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	return filepath.Clean(dir) == filepath.Join(home, ".claude")
+}
+
 type cachedAccount struct {
 	identity string
 	stamp    int64
@@ -72,7 +109,7 @@ type cachedAccount struct {
 // old account for the life of the process.
 var accountCache sync.Map
 
-func currentAccountIdentity(configDir string) string {
+func currentAccountIdentity(env []string, configDir string) string {
 	stamp := credentialStamp(configDir)
 	if stamp != 0 {
 		if hit, ok := accountCache.Load(configDir); ok {
@@ -81,14 +118,16 @@ func currentAccountIdentity(configDir string) string {
 			}
 		}
 	}
-	st, err := readAuthStatus()
+	st, err := readAuthStatus(env, configDir)
 	identity := "unknown"
 	if err == nil && st.LoggedIn {
 		if key := accountKey(st); key != "" {
 			identity = key
 		}
 	}
-	if stamp != 0 {
+	// A failed or unattributed query is never cached: a transient failure must
+	// be retried, not frozen for as long as the credential stamp holds.
+	if stamp != 0 && identity != "unknown" {
 		accountCache.Store(configDir, cachedAccount{identity: identity, stamp: stamp})
 	}
 	return identity
@@ -98,10 +137,14 @@ func currentAccountIdentity(configDir string) string {
 // quota scope free of addresses and organization ids. The config directory is
 // deliberately not part of it: one account's allowance is the same wherever its
 // credentials point, so two directories must not split into two pools.
+//
+// Both the address and the organization are required: either one alone is not
+// proven to identify an allowance, so a partial answer stays unattributed
+// instead of being trusted as a known account.
 func accountKey(st authStatus) string {
 	email := strings.ToLower(strings.TrimSpace(st.Email))
 	org := strings.ToLower(strings.TrimSpace(st.OrgID))
-	if email == "" && org == "" {
+	if email == "" || org == "" {
 		return ""
 	}
 	parts := []string{email, org, strings.ToLower(strings.TrimSpace(st.ApiProvider))}
@@ -143,7 +186,7 @@ func (a *Agent) QuotaScope(string) (string, string) {
 		}
 		// The directory only locates the credentials; it does not name the
 		// account stored in them.
-		return currentAccountIdentity(root), "account"
+		return currentAccountIdentity(env, root), "account"
 	}
 	b, _ := json.Marshal(identity)
 	return string(b), "account"
