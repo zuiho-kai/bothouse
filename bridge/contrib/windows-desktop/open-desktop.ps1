@@ -12,7 +12,9 @@ param(
     [string]$Browser = "auto",
     [switch]$NoChannel,
     [switch]$ShowToken,
-    [switch]$CreateShortcuts
+    [switch]$CreateShortcuts,
+    [string]$ShortcutDir = "",
+    [string]$IconPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -76,8 +78,9 @@ function Open-AppWindow {
 
 function New-DesktopShortcut {
     param([string]$ScriptPath, [string]$Name)
-    $desktop = [Environment]::GetFolderPath("Desktop")
-    $linkPath = Join-Path $desktop "$Name.lnk"
+    $targetDir = if ($ShortcutDir) { $ShortcutDir } else { [Environment]::GetFolderPath("Desktop") }
+    New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+    $linkPath = Join-Path $targetDir "$Name.lnk"
     $shell = New-Object -ComObject WScript.Shell
     $link = $shell.CreateShortcut($linkPath)
     $link.TargetPath = "powershell.exe"
@@ -85,6 +88,7 @@ function New-DesktopShortcut {
     if (-not $NoChannel -and $ChannelUrl) { $arguments += " -ChannelUrl `"$ChannelUrl`"" }
     $link.Arguments = $arguments
     $link.WorkingDirectory = Split-Path -Parent $ScriptPath
+    if ($IconPath -and (Test-Path $IconPath)) { $link.IconLocation = $IconPath }
     $link.Save()
     Write-Info "created shortcut: $linkPath"
 }
@@ -110,6 +114,10 @@ if (-not $NoChannel -and $ChannelUrl) { Open-AppWindow -BrowserPath $browserPath
 
 # 5) optional shortcuts
 if ($CreateShortcuts) {
+    if (-not $IconPath) {
+        $defaultIcon = Join-Path $PSScriptRoot "bothouse.ico"
+        if (Test-Path $defaultIcon) { $IconPath = $defaultIcon }
+    }
     $scriptPath = $MyInvocation.MyCommand.Path
     New-DesktopShortcut -ScriptPath $scriptPath -Name "bothouse 管理面板"
     if (-not $NoChannel -and $ChannelUrl) {
