@@ -65,6 +65,7 @@ func (e *Engine) capacityStartCooldown() time.Duration {
 	}
 	e.capRound++
 	e.capUntil = time.Now().Add(d)
+	e.capNotified = nil // a new cooldown round gets one notice per channel again
 	return d
 }
 
@@ -72,7 +73,26 @@ func (e *Engine) capacityStartCooldown() time.Duration {
 func (e *Engine) capacityReset() {
 	e.capMu.Lock()
 	e.capRound = 0
+	e.capNotified = nil
 	e.capMu.Unlock()
+}
+
+// capacityRecover ends the cooldown early: the model answered again, or the
+// operator switched model/effort. Waiting out the clock is not required once
+// the condition is gone (2026-11-01 用户「逆天 这个得治疗一下」). Messages held
+// during the cooldown are re-delivered right away, in the order they arrived.
+func (e *Engine) capacityRecover(reason string) {
+	e.capMu.Lock()
+	wasCooling := !e.capUntil.IsZero() || len(e.capPending) > 0
+	e.capUntil = time.Time{}
+	e.capRound = 0
+	e.capNotified = nil
+	e.capMu.Unlock()
+	if !wasCooling {
+		return
+	}
+	slog.Info("capacity cooldown cleared", "reason", reason)
+	e.flushCapacityPending()
 }
 
 // runTurnWithCapacityRetry runs one turn: send + event loop, re-sending up to
@@ -145,7 +165,25 @@ func (e *Engine) deferForCapacity(p Platform, msg Message, agent Agent, sessions
 		return
 	}
 	if cooling {
-		e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("⏳ 模型满载冷却中，这条 %d 分钟后再处理。", mins))
+		// One notice per channel per cooldown round: the rest of the held
+		// messages queue silently instead of repeating "冷却中" (2026-11-01 实例：
+		// 同一时刻刷出三条).
+		channel := msg.ChannelKey
+		if channel == "" {
+			channel = msg.SessionKey
+		}
+		e.capMu.Lock()
+		already := e.capNotified[channel]
+		if !already {
+			if e.capNotified == nil {
+				e.capNotified = map[string]bool{}
+			}
+			e.capNotified[channel] = true
+		}
+		e.capMu.Unlock()
+		if !already {
+			e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("⏳ 模型满载冷却中，这条 %d 分钟后再处理。", mins))
+		}
 	} else {
 		e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("⏳ 模型满载（at capacity），连试 %d 次都失败，冷却 %d 分钟后自动重试这条。", capacityAttempts, mins))
 	}

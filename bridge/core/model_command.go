@@ -196,6 +196,7 @@ func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort
 			return ModelSwitchResult{Message: "this bot has no automatic model tiers configured"}
 		}
 		e.queueSwitch(sessionKey, pendingModelSwitch{auto: true})
+		e.capacityRecover("model switch to auto") // a different model is worth trying now
 		return ModelSwitchResult{OK: true, Message: fmt.Sprintf("from the next message, models are picked automatically again: chat %s, task %s", e.tiers.chatModel, e.tiers.taskModel)}
 	}
 	sw, canModel := agent.(ModelSwitcher)
@@ -249,6 +250,7 @@ func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort
 		return ModelSwitchResult{Message: "nothing to change: give a model and/or --effort"}
 	}
 	e.queueSwitch(sessionKey, pendingModelSwitch{model: target, effort: eff})
+	e.capacityRecover("model switch") // the cooldown was waiting for the old model
 	return ModelSwitchResult{OK: true, Model: target, Effort: eff,
 		Message: "queued: takes effect from the user's next message (the conversation is kept)"}
 }

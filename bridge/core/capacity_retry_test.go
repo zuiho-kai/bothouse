@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -278,7 +279,16 @@ func TestCapacityRetry_DeferredMessagesKeepOrder(t *testing.T) {
 	send("msgB")
 	waitFor(t, "B deferred", func() bool { return strings.Count(joined(p), "冷却中") == 1 })
 	send("msgC")
-	waitFor(t, "C deferred", func() bool { return strings.Count(joined(p), "冷却中") == 2 })
+	// One notice per channel per cooldown round (2026-11-01 用户嫌刷屏), so C
+	// queues silently behind B instead of adding a second notice.
+	waitFor(t, "C held", func() bool {
+		e.capMu.Lock()
+		defer e.capMu.Unlock()
+		return len(e.capPending) == 2
+	})
+	if got := strings.Count(joined(p), "冷却中"); got != 1 {
+		t.Fatalf("cooldown notices = %d, want 1 per channel", got)
+	}
 	// B and C queue behind A from the same sender, so they run as one batched turn (B before C).
 	waitFor(t, "all answered", func() bool { return strings.Contains(joined(p), "reply:2") })
 
@@ -326,5 +336,86 @@ func TestCapacityRetry_CooldownDoubles(t *testing.T) {
 	e.capacityReset()
 	if d := e.capacityStartCooldown(); d != 10*time.Minute {
 		t.Fatalf("after reset cooldown = %v, want 10m", d)
+	}
+}
+
+// A cooldown that is cleared early must re-deliver what it was holding, in
+// order, instead of leaving the messages stuck until the timer fires.
+func TestCapacityRecover_FlushesHeldMessagesAndResetsRound(t *testing.T) {
+	e := NewEngine("test", &resultAgent{}, nil, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	e.capacityStartCooldown()
+	if e.capacityWait() == 0 {
+		t.Fatal("cooldown did not start")
+	}
+	var flushed []string
+	e.capMu.Lock()
+	e.capPending = append(e.capPending, func() { flushed = append(flushed, "first") })
+	e.capPending = append(e.capPending, func() { flushed = append(flushed, "second") })
+	e.capArmed = true
+	e.capMu.Unlock()
+
+	e.capacityRecover("test")
+
+	if got := e.capacityWait(); got != 0 {
+		t.Fatalf("capacityWait() = %s after recover, want 0", got)
+	}
+	e.capMu.Lock()
+	round, armed, pending := e.capRound, e.capArmed, len(e.capPending)
+	e.capMu.Unlock()
+	if round != 0 || armed || pending != 0 {
+		t.Fatalf("after recover: round=%d armed=%v pending=%d, want 0/false/0", round, armed, pending)
+	}
+	if strings.Join(flushed, ",") != "first,second" {
+		t.Fatalf("flushed = %v, want the held messages in order", flushed)
+	}
+}
+
+// Switching model is the operator saying "the old model is the problem", so
+// the cooldown must not keep holding messages until its clock runs out.
+func TestCapacityRecover_ModelSwitchClearsCooldown(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	agent := &stubModelModeAgent{model: "gpt-4.1-mini"}
+	e := NewEngine("test", agent, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	e.capacityStartCooldown()
+	if e.capacityWait() == 0 {
+		t.Fatal("cooldown did not start")
+	}
+
+	res := e.QueueModelSwitch(context.Background(), "test:c1", "gpt-4.1", "", false)
+	if !res.OK {
+		t.Fatalf("switch refused: %s", res.Message)
+	}
+	if got := e.capacityWait(); got != 0 {
+		t.Fatalf("capacityWait() = %s after a model switch, want 0", got)
+	}
+}
+
+// One cooldown round tells each channel once; the rest of the held messages
+// queue silently instead of repeating the notice.
+func TestCapacityNotice_OncePerChannelPerCooldown(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &resultAgent{}, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	e.capacityStartCooldown()
+
+	for i := 0; i < 3; i++ {
+		e.deferForCapacity(p, Message{SessionKey: "test:c1", ChannelKey: "test:c1", Content: "hi", ReplyCtx: "ctx"}, nil, e.sessions, "test:c1", "", time.Hour, true)
+	}
+	if got := strings.Count(joined(p), "冷却中"); got != 1 {
+		t.Fatalf("cooldown notices = %d, want 1 per channel:\n%s", got, joined(p))
+	}
+	e.capMu.Lock()
+	pending := len(e.capPending)
+	e.capMu.Unlock()
+	if pending != 3 {
+		t.Fatalf("held messages = %d, want all 3 kept for re-delivery", pending)
+	}
+
+	// Another channel still gets its own single notice.
+	e.deferForCapacity(p, Message{SessionKey: "test:c2", ChannelKey: "test:c2", Content: "hi", ReplyCtx: "ctx"}, nil, e.sessions, "test:c2", "", time.Hour, true)
+	if got := strings.Count(joined(p), "冷却中"); got != 2 {
+		t.Fatalf("cooldown notices = %d, want 2 after a second channel", got)
 	}
 }

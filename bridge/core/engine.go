@@ -498,6 +498,7 @@ type Engine struct {
 	capRound        int
 	capPending      []func() // messages to re-deliver when the cooldown ends, in order
 	capArmed        bool     // a flush timer is pending
+	capNotified     map[string]bool // channels already told about this cooldown round
 	sessionModelsMu sync.RWMutex
 	sessionModels   map[string]string
 	// Per-session base-instruction files (maomao fork, see session_models.go)
@@ -11659,11 +11660,18 @@ func (e *Engine) switchModel(target string) (string, error) {
 // switchModelOnAgent applies a runtime model selection to the provided agent.
 // When persistConfig is true, config-backed model/provider changes are saved so
 // reloads keep the new default. Workspace-scoped runtime switches pass false.
-func (e *Engine) switchModelOnAgent(agent Agent, target string, persistConfig bool) (string, error) {
+func (e *Engine) switchModelOnAgent(agent Agent, target string, persistConfig bool) (res string, err error) {
 	switcher, ok := agent.(ModelSwitcher)
 	if !ok {
 		return target, nil
 	}
+	// A runtime switch replaces the model the cooldown was waiting for, so it
+	// ends here instead of running out the clock (maomao fork, see capacity_retry.go).
+	defer func() {
+		if err == nil {
+			e.capacityRecover("model switch")
+		}
+	}()
 
 	providerSwitcher, ok := agent.(ProviderSwitcher)
 	if !ok {
