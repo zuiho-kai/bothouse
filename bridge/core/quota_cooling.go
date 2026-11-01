@@ -503,6 +503,22 @@ func (e *Engine) quotaTick(now time.Time) {
 			// No query capability is not a failed query. Let the provider's
 			// recorded deadline expire without inventing another exhausted window
 			// or announcing recovery. A future real turn supplies new evidence.
+			//
+			// The deadline passing still ends the takeover's own premise, so the
+			// automatic lead handoff it caused is unwound here: only the shared
+			// selection this engine wrote is restored, and nothing is announced
+			// (no MsgQuotaLeadRestored, no quota_restored event) because the quota
+			// itself stays unproven.
+			if st.Lead != nil {
+				if sel, ok := readLeadSelectionFull(e.dataDir); ok && sel.Lead == st.Lead.To && sel.At == st.Lead.At {
+					if _, err := e.quotaSwitchLead(e, now); err != nil {
+						slog.Warn("quota expiry: lead restore failed", "project", e.name, "error", err)
+						return
+					}
+				}
+				st.Lead = nil
+				e.saveQuotaLocked()
+			}
 			return
 		}
 		quotaDomainsMu.Lock()
