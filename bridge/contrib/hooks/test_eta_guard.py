@@ -22,7 +22,7 @@ class Text(unittest.TestCase):
         # 前三句是 2026-11-01 用户点名的那类：#875 工作区报「约 30–40 分钟」、橘转「大约半小时」
         for s in ["工作区预计还要约 30–40 分钟", "大约半小时后交回", "我设了一个提醒，1 小时后回来看",
                   "渲染大概要一个半小时", "三张小样我四十分钟后回来看", "about 40 minutes left",
-                  "明早我再看", "下午 6 点前交"]:
+                  "明早我再看", "下午 6 点前交", "没有实测依据，大约半小时后交回"]:
             with self.subTest(s=s):
                 self.assertIsNotNone(eta.check(s, NOW))
 
