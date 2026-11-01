@@ -40,6 +40,17 @@ def adapt(payload):
                                          if isinstance(c, dict) and c.get("type") in ("input_text", "output_text", "text"))
                         if text:
                             entries.append({"type": item["role"], "message": {"content": [{"type": "text", "text": text}]}})
+                    elif item.get("type") == "function_call":
+                        try:
+                            args = json.loads(item.get("arguments") or "{}")
+                        except ValueError:
+                            continue
+                        name = item.get("name") or ""
+                        if name in ("exec_command", "shell_command"):
+                            name = "Bash"
+                            args = dict(args, command=args.get("cmd", args.get("command", "")))
+                        entries.append({"type": "assistant", "message": {"content": [{
+                            "type": "tool_use", "id": item.get("call_id"), "name": name, "input": args}]}})
     except OSError:
         return payload, None
     fd, path = tempfile.mkstemp(prefix="codex-hook-", suffix=".jsonl")

@@ -324,7 +324,7 @@ def iflow_output(out):
 # before transcript_path.
 PROMPT_HOOKS = {"ask-only-guard"}
 # Grok's tool names in its hook payload -> Claude Code's (Grok maps Bash/Edit/Write in matchers, not in the payload)
-GROK_NAMES = {"run_terminal_command": "Bash", "search_replace": "Edit", "write": "Write", "task": "Agent", "spawn_agent": "Agent"}  # hooks that read the user's latest words in PreToolUse
+GROK_NAMES = {"run_terminal_command": "Bash", "search_replace": "Edit", "write": "Write", "spawn_subagent": "Agent"}  # hooks that read the user's latest words in PreToolUse
 CODEX_INJECTED = ("# AGENTS.md instructions", "<environment_context>", "<user_instructions>", "<permissions instructions>")
 TAIL_BYTES = 4 << 20  # a rollout can be large; the latest user message is near its end
 
@@ -664,6 +664,35 @@ def main():
     # what tells the two apart)
     iflow = not cursor and not gemini and os.environ.get("IFLOW_HOOK_EVENT_NAME") in IFLOW_EVENTS
     tmp, turn, sid = None, None, payload.get("session_id") or ""
+    if OPTS["grok"] and payload.get("hook_event_name") in ("Stop", "SubagentStop"):
+        # Grok's official hook transcript is ACP updates.jsonl, not Claude JSONL.
+        entries = []
+        for line in tail_lines(payload.get("transcript_path")):
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            update = (record.get("params") or {}).get("update") or {}
+            kind = update.get("sessionUpdate")
+            if kind in ("user_message_chunk", "agent_message_chunk"):
+                role = "user" if kind == "user_message_chunk" else "assistant"
+                text = parts_text(update.get("content"))
+                if entries and entries[-1]["type"] == role and entries[-1]["message"]["content"][-1]["type"] == "text":
+                    entries[-1]["message"]["content"][-1]["text"] += text
+                else:
+                    entries.append({"type": role, "message": {"content": [{"type": "text", "text": text}]}})
+            elif kind == "tool_call":
+                name_ = (update.get("_meta", {}).get("x.ai/tool") or {}).get("name") or update.get("title")
+                entries.append({"type": "assistant", "message": {"content": [{
+                    "type": "tool_use", "id": update.get("toolCallId"),
+                    "name": GROK_NAMES.get(name_, name_), "input": update.get("rawInput") or {}}]}})
+        fd, tmp = tempfile.mkstemp(prefix="grok-hook-", suffix=".jsonl")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            for entry in entries:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        payload["transcript_path"] = tmp
+        if payload.get("hook_event_name") == "SubagentStop":
+            payload["agent_transcript_path"] = tmp
     if iflow:
         payload = iflow_payload(payload)
     if gemini:
@@ -675,8 +704,17 @@ def main():
         payload["tool_name"] = "Bash"
     if gemini or OPTS["codex"] or OPTS["grok"]:
         payload["hook_cli"] = "gemini" if gemini else ("codex" if OPTS["codex"] else "grok")
+    if OPTS["grok"] and payload.get("subagentType"):
+        payload["agent_type"] = payload["subagentType"]
+        payload["agent_id"] = payload.get("session_id") or "subagent"
     if OPTS["grok"]:  # Grok sends its own tool names (its args already match Claude Code's: command, file_path)
         payload["tool_name"] = GROK_NAMES.get(payload.get("tool_name"), payload.get("tool_name"))
+        if payload["tool_name"] == "Bash":
+            inp = dict(payload.get("tool_input") or {})
+            if "block_until_ms" in inp:
+                inp["timeout"] = inp["block_until_ms"]
+                inp["run_in_background"] = inp["block_until_ms"] == 0
+            payload["tool_input"] = inp
     tool = payload.get("tool_name")
     dsh = not cursor and not gemini and isinstance(tool, str) and (tool in NAMES or tool in ("str_replace_editor", "job_output"))
     if dsh:
@@ -748,6 +786,13 @@ def main():
             st = load_state()
             st[sid] = turn
             write_json(STATE, st)
+    if OPTS["grok"] and payload.get("tool_name") == "Bash":
+        output = json.loads(proc.stdout or "{}")
+        rewritten = output.get("hookSpecificOutput", {}).get("updatedInput")
+        if rewritten is not None:
+            rewritten["block_until_ms"] = rewritten.pop("timeout")
+            rewritten.pop("run_in_background", None)
+            proc.stdout = json.dumps(output, ensure_ascii=False)
     if payload.get("dsh"):
         rewritten = json.loads(proc.stdout or "{}").get("hookSpecificOutput", {}).get("updatedInput")
         if rewritten is not None:
