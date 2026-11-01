@@ -67,16 +67,16 @@ func (e *Engine) workspaceHasOpenHandoffFor(sessionKey string, board int) bool {
 // posts the original instead). Loop guard: the turn runs in the chat channel's session (no
 // workspace, no handoff there), so its reply is never forwarded again; ask ids are stripped so
 // the prompt cannot be taken as the user's answer (routeWorkspaceAnswer).
-func (e *Engine) wakeChatLeadContext(ctx context.Context, p Platform, parent, ws, bot, kind, body, wsSession string, boardID int) bool {
+func (e *Engine) wakeChatLeadContext(ctx context.Context, p Platform, parent, ws, bot, kind, body, wsSession string, boardID int, posted bool, headline string) bool {
 	if _, bound := ctx.Value(proactiveExecutionKey{}).(proactiveExecution); bound {
 		// Timer jobs do not carry task authority. A proactive handback uses the
 		// checked platform path instead of creating an unbound execution.
 		return false
 	}
-	return e.wakeChatLead(p, parent, ws, bot, kind, body, wsSession, boardID)
+	return e.wakeChatLead(p, parent, ws, bot, kind, body, wsSession, boardID, posted, headline)
 }
 
-func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession string, boardID int) bool {
+func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession string, boardID int, posted bool, headline string) bool {
 	if p == nil || parent == "" {
 		return false
 	}
@@ -84,18 +84,36 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 		slog.Error("team exit: forward target is itself a workspace; lead not woken", "parent", parent, "workspace", ws)
 		return false
 	}
-	prompt := chatLeadPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, kind, body, e.workspaceTaskBackground(wsSession, boardID), boardID > 0)
+	prompt := chatLeadPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, kind, body, e.workspaceTaskBackground(wsSession, boardID), posted)
 	prompt = askRef.ReplaceAllString(prompt, "ask-…")
 	board := boardID
 	if it := e.workspaceBoardItem(wsSession, boardID); it != nil {
 		board = it.ID
 	}
-	return e.queueChatLeadTurn(p, parent, ws, "工作区回传 "+ws, prompt, board)
+	rec := &pendingReport{
+		Key:      reportKey(p.Name(), parent, ws, kind, board, body),
+		Platform: p.Name(), Chat: parent, Workspace: ws, Bot: bot,
+		Kind: kind, Body: body, Headline: headline, Board: board,
+		Session: wsSession, Posted: posted, CreatedAt: time.Now(),
+	}
+	if posted {
+		ok, err := e.rememberReportErr(rec)
+		if err != nil {
+			slog.Error("team exit: persist posted wake failed", "error", err)
+			return false
+		}
+		if ok {
+			e.rememberPostedAskWake(rec)
+		}
+		e.retryPostedAskWake(rec.Key)
+		return true
+	}
+	return e.queueChatLeadTurn(p, parent, ws, "工作区回传 "+ws, prompt, board, rec)
 }
 
 // queueChatLeadTurn queues prompt as one silent turn of the team lead in chat channel parent.
 // board > 0: the turn reports on that task-board item; its posts are recorded under it.
-func (e *Engine) queueChatLeadTurn(p Platform, parent, ws, desc, prompt string, board int) bool {
+func (e *Engine) queueChatLeadTurn(p Platform, parent, ws, desc, prompt string, board int, rec *pendingReport) bool {
 	chat := p.Name() + ":" + parent
 	var lead *Engine
 	for _, x := range e.watchEngines() {
@@ -113,6 +131,10 @@ func (e *Engine) queueChatLeadTurn(p Platform, parent, ws, desc, prompt string, 
 		return false
 	}
 	silent := true
+	key := ""
+	if rec != nil {
+		key = rec.Key
+	}
 	job := &TimerJob{
 		ID:            GenerateTimerID(),
 		Project:       lead.name,
@@ -120,13 +142,18 @@ func (e *Engine) queueChatLeadTurn(p Platform, parent, ws, desc, prompt string, 
 		ScheduledAt:   time.Now(),
 		Prompt:        prompt,
 		Description:   desc,
+		ReportID:      key,
 		Silent:        &silent,
 		WaitUserQuiet: true,
 		ReplyBoard:    board,
 		CreatedAt:     time.Now(),
 	}
+	if rec != nil {
+		rec.JobID = job.ID
+		return lead.queueReportWake(job, rec, lead.timerScheduler.AddJob)
+	}
 	if err := lead.timerScheduler.AddJob(job); err != nil {
-		slog.Error("team exit: hand forwarded reply to lead failed", "lead", lead.name, "parent", parent, "workspace", ws, "error", err)
+		slog.Error("team exit: queue lead turn failed", "error", err)
 		return false
 	}
 	return true
@@ -168,13 +195,15 @@ func chatLeadPrompt(dataDir, wsLabel, bot, kind, body, background string, posted
 			"第一段「背景：」说这件事是什么、用户什么时候怎么说的、当初有哪几项、每项是什么，忘了这件事的人也看得懂；" +
 			"第二段说这次做了哪几项、各改成什么、上线没有；第三段「要你做的：」一句，没有就写「要你做的：没有」；第四段「我加的：」列用户原话里没有、自己加的设定，没有就写「我加的：无」。" +
 			"不写编号、工作区代号、分支名、路径、英文标识、表格；细节、过程、文件名不说，用户问了再去工作区取。用户意图已经明确的事，不给 A/B 选项让用户回字母，直接按用户意图办，说一句你怎么办的。\n")
+		b.WriteString("只说待协调、待审核不算汇报：还差什么、下一步谁接要写清楚；没有安排就明说尚未安排。\n")
 		if kind == exitKindAsk {
 			b.WriteString("这是提问：先对照上面的用户原话和本频道最近的用户消息，看用户是不是已经答过或意图已经明确。" +
 				"答过就不问用户，直接用 ws-forward 把答案（附用户原话）转回工作区，再跟用户说一句你怎么定的；" +
 				"真没答过才问用户，只问一句要定什么、为什么，用户答了用 ws-forward 转回。\n")
 		}
 	}
-	b.WriteString("这是回传给你看的，不是新任务：不要再派回工作区，不要 @ 工作区里的 bot。")
+	b.WriteString("这是回传给你看的，不是新的用户指令：不要把这件活重新派一遍，不要 @ 工作区里的 bot。" +
+		"但用户此前已明确要求继续、下一步也已定好的待办，你可以接着做或按现有派工规则交给负责人；花钱、部署、重启，以及用户已经停止的任务，不要自行恢复，先问用户。")
 	return b.String()
 }
 

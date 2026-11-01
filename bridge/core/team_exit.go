@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -55,6 +56,10 @@ type teamExitState struct {
 	asks     map[string]*teamAsk
 	loaded   bool
 	bounces  map[string]int // session key -> consecutive [ask] bounces (team_ask_evidence.go)
+	// reports are the workspace handbacks still waiting for a user-visible post
+	// (team_report_delivery.go); the same mutex guards them.
+	reports       map[string]*pendingReport
+	reportsLoaded bool
 }
 
 const (
@@ -265,7 +270,7 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 	// The format is still wrong after the bounces: the chat channel's lead rewrites it in the same
 	// three parts and posts that (user 10-30: no longer posted as written, 「一大坨根本看不懂」).
 	// The workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
-	if e.wakeChatLeadContext(ctx, p, parent, ws, bot, kind, body, sessionKey, 0) {
+	if e.wakeChatLeadContext(ctx, p, parent, ws, bot, kind, body, sessionKey, 0, false, "") {
 		slog.Info("team exit: handed to the chat lead to rewrite", "kind", kind, "auto", auto, "workspace", ws, "parent", parent)
 		return ""
 	}
@@ -287,8 +292,24 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 		slog.Info("team exit: report for a task already done; not posted again", "board_item", hid, "workspace", ws, "done_at", item.DoneAt)
 		return ""
 	}
-	if e.exitPostedBefore(kind, hid, hline) {
+	if e.exitPostedRecently(kind, hid, hline) {
 		slog.Info("team exit: same headline already posted within the hour; not posted again", "kind", kind, "board_item", hid, "workspace", ws)
+		return ""
+	}
+	rec := &pendingReport{
+		Key:      reportKey(p.Name(), parent, ws, kind, hid, body),
+		Platform: p.Name(), Chat: parent, Workspace: ws, Bot: bot,
+		Kind: kind, Body: body, Headline: hline, Board: hid,
+		Session: sessionKey, CreatedAt: time.Now(),
+	}
+	if execution, bound := ctx.Value(proactiveExecutionKey{}).(proactiveExecution); bound {
+		rec.Authorization = &AuthorizationTurn{
+			Project: execution.source.name, TaskID: execution.taskID, DecisionID: execution.decisionID,
+		}
+	}
+	if ok, err := e.rememberReportErr(rec); err != nil {
+		slog.Error("team exit: persist headline failed", "error", err)
+	} else if !ok {
 		return ""
 	}
 	id := ""
@@ -296,12 +317,22 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 		id = newAskID()
 	}
 	name := teamTaskBoardShort(*item)
-	// User 10-30 「每一行中间加一行换行，聚在一起完全不想看」: a blank line between the parts.
 	text := spaceExitLines(exitHeadlineText(kind, name, hline, id))
 	_, detail := exitSplit(body)
 	if err := e.postWithDetail(ctx, p, rc, name, text, detail); err != nil {
-		slog.Error("team exit: headline post failed", "kind", kind, "parent", parent, "workspace", ws, "error", err)
+		slog.Error("team exit: headline post failed; retaining fallback", "kind", kind, "error", err)
+		if _, err := e.postExitOriginalErr(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, ""); err != nil {
+			e.noteReportFailure(rec, err)
+		} else {
+			e.completeReportDelivery(rec)
+		}
 		return ""
+	}
+	e.exitMarkPosted(kind, hid, hline)
+	if kind == exitKindAsk && rec.Authorization == nil {
+		e.rememberPostedAskWake(rec)
+	} else {
+		e.dropDeliveredReport(rec.Key)
 	}
 	if !postReportDetail {
 		detail = ""
@@ -316,7 +347,7 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 	slog.Info("team exit: headline posted", "kind", kind, "board_item", hid, "workspace", ws, "parent", parent, "detail", detail != "")
 	e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Board: hid, Bot: bot, Forwarded: []string{text}, At: time.Now()})
 	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
-	e.wakeChatLeadContext(ctx, p, parent, ws, bot, kind, body, sessionKey, hid)
+	e.retryPostedAskWake(rec.Key)
 	return id
 }
 
@@ -362,6 +393,13 @@ func (e *Engine) postWithDetail(ctx context.Context, p Platform, rc any, name, t
 // postExitOriginal copies body into the chat channel as 📬 posts (no lead took it). header
 // overrides the first post's header (a headline's details). It returns the forwarded ask id.
 func (e *Engine) postExitOriginal(ctx context.Context, p Platform, rc any, parent, ws, bot, kind, body, sessionKey, header string) string {
+	id, _ := e.postExitOriginalErr(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, header)
+	return id
+}
+
+// postExitOriginalErr is postExitOriginal with the platform error, so a caller that must keep a
+// handback pending (team_report_delivery.go) knows the post did not happen.
+func (e *Engine) postExitOriginalErr(ctx context.Context, p Platform, rc any, parent, ws, bot, kind, body, sessionKey, header string) (string, error) {
 	from := "来自工作区 " + channelLabel(p.Name(), ws) + " 的「" + bot + "」"
 	id := ""
 	var cont string
@@ -387,7 +425,7 @@ func (e *Engine) postExitOriginal(ctx context.Context, p Platform, rc any, paren
 		}
 		if err := e.sendRenderedWithContext(ctx, p, rc, text); err != nil {
 			slog.Error("team exit: forward failed", "parent", parent, "workspace", ws, "error", err)
-			break
+			return id, fmt.Errorf("forward %s to %s: %w", ws, parent, err)
 		}
 		sent = append(sent, text)
 	}
@@ -396,10 +434,10 @@ func (e *Engine) postExitOriginal(ctx context.Context, p Platform, rc any, paren
 	}
 	slog.Info("team exit: forwarded", "kind", kind, "workspace", ws, "parent", parent, "chunks", len(sent))
 	if id == "" || len(sent) == 0 {
-		return ""
+		return "", nil
 	}
 	e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Bot: bot, Forwarded: sent, At: time.Now()})
-	return id
+	return id, nil
 }
 
 // workspaceTaskStopped: the workspace's task was stopped by the user (board pause), so its
