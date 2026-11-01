@@ -4727,10 +4727,15 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	// for the cooldown instead of reaching the agent. Checked before withTurnBlocks so
 	// nothing (wiki pages, team status, handoff) is marked sent for an unsent message.
 	// A local input turn (msg.inputTurn) is never deferred: its caller waits on it.
+	// A real person's new message asks the model once even while cooling down
+	// (2026-11-01: 「复活」之后发一句话就该恢复正常). Bot and scheduled traffic
+	// still waits, so a probe storm cannot keep the model busy.
+	capWait := e.capacityWait()
+	probeCapacity := capWait > 0 && msg.inputTurn == nil && !msg.FromBot && !isScheduledSideKey(interactiveKey)
 	if until := e.quotaCooling(); !until.IsZero() {
 		e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgQuotaCooling, until.Format(time.RFC3339)))
-	} else if wait := e.capacityWait(); wait > 0 && msg.inputTurn == nil {
-		e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, wait, true)
+	} else if capWait > 0 && msg.inputTurn == nil && !probeCapacity {
+		e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, capWait, true)
 	} else {
 		// Local copy, not msg.Content: the caller may still read *msg (data race).
 		content := session.renderReference(msg.Content, msg.Reference)
@@ -4795,8 +4800,11 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 				}
 				return err
 			},
+			probeCapacity,
 			func(wait time.Duration) {
-				e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, wait, false)
+				// cooling: a probe failed while a cooldown was already running, so
+				// the honest notice is "still cooling", not "3 tries failed".
+				e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, wait, probeCapacity)
 			})
 		// Failed local turns can leave queued ordinary messages for the outer
 		// drain. Release only this turn's outbound guard before handing them off.
@@ -7954,6 +7962,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 				session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
 				return err
 			},
+			false, // a message drained from the queue was already offered its probe
 			func(wait time.Duration) {
 				e.deferForCapacity(queued.platform, queuedToMessage(rawQueued), state.agent, sessions, sessionKey, state.workspaceDir, wait, false)
 			})

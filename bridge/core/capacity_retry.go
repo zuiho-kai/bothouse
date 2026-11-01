@@ -103,10 +103,17 @@ func (e *Engine) capacityRecover(reason string) {
 // synchronously before each attempt's send goroutine and event loop start, so
 // per-attempt state it sets up (the public-progress run) is in place before the
 // loop can end and close it.
-func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Session, sessions *SessionManager, key, msgID string, turnStart time.Time, stopTyping func(), replyCtx any, input *inputTurn, beginAttempt func(), send func(as AgentSession) error, giveUp func(wait time.Duration)) {
+// probe asks the model once while a cooldown is already running (a real
+// person sent a new message): success ends the cooldown, failure leaves it
+// exactly as it was, without adding a round or doubling it.
+func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Session, sessions *SessionManager, key, msgID string, turnStart time.Time, stopTyping func(), replyCtx any, input *inputTurn, beginAttempt func(), send func(as AgentSession) error, probe bool, giveUp func(wait time.Duration)) {
 	// maomao fork: the mode override set for this turn (setTurnMode) holds across its capacity
 	// retries and the queued turns chained into it, each of which sets its own; it ends here.
 	defer e.restoreTurnMode(state)
+	attempts := capacityAttempts
+	if probe {
+		attempts = 1 // one question, not the usual three-in-a-row
+	}
 	for attempt := 1; ; attempt++ {
 		state.mu.Lock()
 		as := state.agentSession
@@ -134,12 +141,22 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		state.mu.Unlock()
 		if !failed {
 			e.capacityReset()
+			if probe {
+				e.capacityRecover("probe succeeded") // the model is back: release what is held
+			}
 			return
 		}
-		if attempt >= capacityAttempts || !alive {
+		if attempt >= attempts || !alive {
 			break
 		}
 		slog.Warn("model at capacity, retrying turn", "session_key", key, "attempt", attempt+1)
+	}
+	if probe {
+		// Still at capacity: keep the running cooldown as it is, so a probe
+		// can never push the next retry further away.
+		slog.Warn("model still at capacity after a probe, cooldown unchanged", "session_key", key)
+		giveUp(e.capacityWait())
+		return
 	}
 	d := e.capacityStartCooldown()
 	slog.Warn("model at capacity after retries, cooling down", "session_key", key, "cooldown", d)
