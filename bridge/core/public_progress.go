@@ -145,7 +145,8 @@ type publicRun struct {
 // PublicProgress owns run authorization, durable public facts and delivery.
 // Tokens exist only in memory/prompt, never in the card or journal.
 type PublicProgress struct {
-	quotaBlocked func(string) bool
+	checkAuthorization func(*Task, string) error
+	quotaBlocked       func(string) bool
 	// Lifecycle operations serialize run ownership and durable state transitions.
 	// Delivery never takes this lock; network requests remain independent.
 	transitionMu            sync.Mutex
@@ -1013,6 +1014,7 @@ func (e *Engine) EnablePublicProgress() error {
 		return err
 	}
 	e.publicProgress = p
+	p.checkAuthorization = e.CheckTaskAuthorization
 	p.resolveReporter = e.resolveTaskReporter
 	p.resolveWorkspace = e.resolveTaskWorkspace
 	p.wakeLead = e.wakeRelayLead

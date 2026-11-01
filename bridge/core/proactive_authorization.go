@@ -116,9 +116,10 @@ type authorizationState struct {
 	Effects     map[string]AuthorizationEffect   `json:"effects"`
 }
 type ProactiveAuthorization struct {
-	mu    sync.Mutex
-	path  string
-	state authorizationState
+	invalidations map[chan struct{}]string
+	mu            sync.Mutex
+	path          string
+	state         authorizationState
 }
 
 var ErrAuthorizationDenied = errors.New("authorization denied")
@@ -203,25 +204,13 @@ func (a *ProactiveAuthorization) transaction(change func(*authorizationState) er
 	if err = os.MkdirAll(filepath.Dir(a.path), 0700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(a.path+".tmp", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
+	if err = AtomicWriteFile(a.path, b, 0600); err != nil {
 		return err
 	}
-	_, err = f.Write(b)
-	if err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err == nil {
-		err = closeErr
-	}
-	if err != nil {
+	// Detach caller-owned slices before exposing the committed state.
+	if err = json.Unmarshal(b, &a.state); err != nil {
 		return err
 	}
-	if err = os.Rename(a.path+".tmp", a.path); err != nil {
-		return err
-	}
-	a.state = next
 	return nil
 }
 func (a *ProactiveAuthorization) Snapshot() ([]byte, error) {
@@ -250,7 +239,7 @@ func (a *ProactiveAuthorization) ReplacePolicy(expected uint64, p ProactivePolic
 		return ErrAuthorizationStale
 	}
 	p.Version = expected + 1
-	return a.transaction(func(s *authorizationState) error {
+	err := a.transaction(func(s *authorizationState) error {
 		s.Policy = p
 		seen := map[string]bool{}
 		for _, as := range s.Assignments {
@@ -261,6 +250,10 @@ func (a *ProactiveAuthorization) ReplacePolicy(expected uint64, p ProactivePolic
 		}
 		return nil
 	})
+	if err == nil {
+		a.invalidateLocked("")
+	}
+	return err
 }
 func authorizationEventKey(source, event string) string {
 	b, _ := json.Marshal([]string{source, event})
@@ -413,7 +406,7 @@ func (a *ProactiveAuthorization) Revoke(id, authority string) error {
 	if a.state.Revoked[id] != "" {
 		return nil
 	}
-	return a.transaction(func(s *authorizationState) error {
+	err := a.transaction(func(s *authorizationState) error {
 		s.Revoked[id] = authority
 		seen := map[string]bool{}
 		for _, as := range s.Assignments {
@@ -424,6 +417,10 @@ func (a *ProactiveAuthorization) Revoke(id, authority string) error {
 		}
 		return nil
 	})
+	if err == nil {
+		a.invalidateLocked(id)
+	}
+	return err
 }
 
 // Check immediately before a controlled effect. Durable effect IDs prohibit
@@ -465,4 +462,28 @@ func (a *ProactiveAuthorization) FinishEffect(effectID, result string) error {
 		s.Effects[effectID] = effect
 		return nil
 	})
+}
+
+// Watch subscribes without a check/subscribe race. Closing a subscription signals
+// a committed withdrawal or policy revision, not successful rollback of effects.
+func (a *ProactiveAuthorization) Watch(id string) (<-chan struct{}, func(), error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.checkLocked(id, "", true); err != nil {
+		return nil, nil, err
+	}
+	if a.invalidations == nil {
+		a.invalidations = map[chan struct{}]string{}
+	}
+	ch := make(chan struct{})
+	a.invalidations[ch] = id
+	return ch, func() { a.mu.Lock(); delete(a.invalidations, ch); a.mu.Unlock() }, nil
+}
+func (a *ProactiveAuthorization) invalidateLocked(id string) {
+	for ch, decision := range a.invalidations {
+		if id == "" || decision == id {
+			close(ch)
+			delete(a.invalidations, ch)
+		}
+	}
 }

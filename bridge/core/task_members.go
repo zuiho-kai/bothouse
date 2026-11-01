@@ -180,6 +180,11 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 	}
 	defer r.mu.Unlock()
 	// Normalize selectors so retrying by the returned id is also idempotent.
+	if p.checkAuthorization != nil {
+		if err := p.checkAuthorization(r.record.Task, "task.dispatch"); err != nil {
+			return nil, err
+		}
+	}
 	req.TaskID, req.BatchID = r.record.Task.ID, ""
 	if req.ParentID != "" && memberIndex(r.record.Task, req.ParentID) < 0 {
 		return nil, errors.New("unknown parent member")

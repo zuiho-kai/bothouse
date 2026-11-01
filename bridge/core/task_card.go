@@ -118,6 +118,8 @@ type Task struct {
 	// differs from SessionKey (a chat-channel source opens its card in the
 	// execution workspace). Empty means the card lives in SessionKey.
 	CardSession string `json:"card_session,omitempty"`
+
+	AuthorizationDecisionID string `json:"authorization_decision_id,omitempty"`
 }
 
 // cardSessionKey is the channel that holds the task card: the execution

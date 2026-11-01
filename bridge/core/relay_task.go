@@ -77,6 +77,16 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	if err := source.publicProgress.checkAssignmentCard(req.SessionKey, req.Workspace); err != nil {
 		return nil, err
 	}
+	task, found := source.publicProgress.Task(req.TaskID)
+	if !found {
+		return nil, errors.New("relay: unknown task")
+	}
+	authorizedCtx, releaseAuthorization, err := source.AuthorizedTaskContext(ctx, task, "task.dispatch")
+	if err != nil {
+		return nil, err
+	}
+	defer releaseAuthorization()
+	ctx = authorizedCtx
 	d, cached, err := source.publicProgress.beginTaskRelay(req, name)
 	if err != nil || cached != nil {
 		return cached, err
