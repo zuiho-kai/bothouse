@@ -740,7 +740,9 @@ func (e *Engine) watchStoppedFor(en TurnJournalEntry) string {
 		if stop.IsZero() || h.Title == "" || reopened[h.Title] {
 			continue
 		}
-		if strings.Contains(en.LastUserMessage, h.Title) || mine(h.Owner) && stop.After(en.StartedAt) {
+		// Long titles are cut with "…" in the wake text; match on the part before it.
+		title := strings.TrimSpace(strings.TrimSuffix(h.Title, "…"))
+		if len([]rune(title)) >= 6 && strings.Contains(en.LastUserMessage, title) || mine(h.Owner) && stop.After(en.StartedAt) {
 			return h.Title
 		}
 	}
