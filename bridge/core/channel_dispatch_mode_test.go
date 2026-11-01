@@ -116,3 +116,29 @@ func TestChannelAgentInstructionsPerChannelAndAfterChange(t *testing.T) {
 	p1 = e.withChannelAgentInstructions("hello", "u1", false, p, "room1", nil, nil)
 	assertModeSection(t, p1, DispatchSolo, DispatchTeam, DispatchMixed)
 }
+
+// inject_team_rules = false: a persona-only bot (QQ chat character) gets neither
+// the channel nor the project team-mode rules; the request text is kept.
+func TestTeamModeRulesDisabledSkipsBothPaths(t *testing.T) {
+	e := &Engine{}
+	e.SetDispatchMode(DispatchMixed)
+	p := &modePlatform{byKey: map[string]channelModeSetting{"room1": {mode: DispatchTeam, explicit: true}}}
+	common := strings.SplitN(teamModeRulesText, "\n## ", 2)[0]
+	common = strings.TrimSpace(common)
+	if got := e.withChannelAgentInstructions("hello", "u1", false, p, "room1", nil, nil); !strings.Contains(got, common) {
+		t.Fatalf("default should inject team rules:\n%s", got)
+	}
+	e.SetTeamModeRulesEnabled(false)
+	for name, got := range map[string]string{
+		"channel": e.withChannelAgentInstructions("hello", "u1", false, p, "room1", nil, nil),
+		"project": e.withAgentInstructions("hello", "", true, nil, nil),
+	} {
+		if strings.Contains(got, common) || !strings.Contains(got, "hello") {
+			t.Fatalf("%s path with rules disabled:\n%s", name, got)
+		}
+	}
+	e.SetTeamModeRulesEnabled(true)
+	if got := e.withAgentInstructions("hello", "", true, nil, nil); !strings.Contains(got, common) {
+		t.Fatalf("re-enabled project path lost team rules:\n%s", got)
+	}
+}
