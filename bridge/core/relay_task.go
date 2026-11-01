@@ -132,6 +132,7 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	}()
 	relayCtx, cancel := rm.relayContext(ctx)
 	defer cancel()
+	relayCtx = withProactiveExecution(relayCtx, source, task)
 	// Distinct request sessions prevent concurrent dispatches from sharing a
 	// conversation. This is routing, not a tool/filesystem sandbox.
 	scope := req.TaskID + ":" + fmt.Sprintf("%x", sha256.Sum256([]byte(req.RequestID)))

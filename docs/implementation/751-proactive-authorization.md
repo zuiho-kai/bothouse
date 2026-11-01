@@ -19,6 +19,7 @@
 - `Engine.SyncAuthorizationNotices()`：把授权日志中的撤回/版本变化投影为任务通知，可重放且不重复。
 
 管理员 API 复用已有管理服务鉴权：`GET /api/v1/projects/{name}/authorization` 查询日志；同路径 `/policy` 支持 GET/PUT（PUT 携带当前 `version`）；`POST /revoke/{decisionID}` 撤回。策略授权者由已认证管理入口写入，不相信请求体中的授权者名称。
+未配置管理令牌时，这组接口拒绝访问；管理服务的兼容无令牌模式不能证明管理员身份。
 
 ## 与并行实现的分工
 
@@ -28,4 +29,13 @@
 
 单测覆盖模式、来源与身份、策略变更、并发接单、重启去重、写入失败、管理 API 鉴权、在途结果记录、撤权通知恢复与幂等。派工回归覆盖等待结束后仍在后台执行的任务：撤权必须关闭执行会话并留下失败回执，不能只结束等待。
 
-尚需完成：真实事件入口与执行队列关联、受控权限/外发路径、明确停止与恢复、通知启动重放、全量沙箱测试及最终提交独立审阅。
+任务日志启动和投递重试时重放撤权通知，已经投递过的卡片重新排入投递。继续已有任务先重验授权；明确取消把撤权写入授权日志，重启后不能重新接单。`proactive_permission.go` 保留派工来源任务引用，在每次许可前读取最新任务与策略，且不把普通拒绝提升为允许；它尚待接入公共 Engine 的实际审批分支。
+
+2026-11-01 验证记录：
+
+- 授权、管理 API、PublicProgress、TaskRelay、TaskMember 相关竞态测试通过，`go vet -tags no_web ./core` 通过。
+- 后台派工撤权回归在旧 `relay_task.go` 上失败（`revocation left background executor running`），恢复修改后通过。
+- 全量测试最初在 hook 安装夹具超时。单跑 `TestAgentHooksQoderIFlow` 也在 90 秒超时，堆栈位于 `AtomicWriteFile` 的同步写入。`useRepoHooks` 把整个 bridge 当作文件源；换为正式内嵌 `AgentHookFiles` 后同一测试 2.928 秒通过，不改变生产安装器。
+- `TestSetupCLIsHint` 在本机发现固定路径安装的 CLI，未符合测试的空列表预期；在原始基线 `1aa3bd81` 也复现。全量重跑尚未结束，不能写成全绿。
+
+尚需完成：真实事件入口与执行队列关联、受控权限/外发路径、全量沙箱测试及最终提交独立审阅。
