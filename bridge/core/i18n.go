@@ -717,7 +717,26 @@ const (
 	MsgQuotaCooling      MsgKey = "quota_cooling"
 )
 
+const (
+	MsgDSHModulePreview MsgKey = "dsh_module_preview"
+	MsgDSHModuleRestart MsgKey = "dsh_module_restart"
+)
+
 var messages = map[MsgKey]map[Language]string{
+	MsgDSHModulePreview: {
+		LangEnglish:            "Run without --dry-run to install or enable the DSH plugin in profile web.",
+		LangChinese:            "去掉 --dry-run 后执行，安装或启用 web profile 中的 DSH 插件。",
+		LangTraditionalChinese: "移除 --dry-run 後執行，安裝或啟用 web profile 中的 DSH 外掛。",
+		LangJapanese:           "--dry-run を外して実行すると、web プロファイルの DSH プラグインをインストールまたは有効化します。",
+		LangSpanish:            "Ejecuta sin --dry-run para instalar o activar el complemento DSH del perfil web.",
+	},
+	MsgDSHModuleRestart: {
+		LangEnglish:            "Restart your DSH web profile to apply; roles, history and other platform settings are preserved.",
+		LangChinese:            "重启 DSH web profile 后生效；角色、历史和其他平台设置均保留。",
+		LangTraditionalChinese: "重新啟動 DSH web profile 後生效；角色、歷史和其他平台設定均保留。",
+		LangJapanese:           "DSH の web プロファイルを再起動して適用してください。役割、履歴、他のプラットフォーム設定は保持されます。",
+		LangSpanish:            "Reinicia el perfil web de DSH para aplicar; se conservan roles, historial y otros ajustes.",
+	},
 	MsgTaskListRevision: {
 		LangEnglish:            "revision v%d · %d artifacts (%d input / %d output)",
 		LangChinese:            "修订 v%d · 产物 %d（素材 %d / 交付 %d）",

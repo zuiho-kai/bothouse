@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/chenhg5/cc-connect/tests/testutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -19,7 +20,8 @@ func TestDSHModuleLifecyclePreservesProfile(t *testing.T) {
 			if err := os.MkdirAll(dir, 0700); err != nil {
 				t.Fatal(err)
 			}
-			manifest := []byte("{\"dependencies\":{\"" + bundle + "\":\"link:local\"}}")
+			manifest := []byte("{\"dependencies\":{\"" + bundle + "\":\"link:local\"},\"dsh\":{\"profile\":{\"bundles\":[\"" + bundle + "\"]}}}")
+			writeDSHBundleFixture(t, dir, bundle)
 			path := filepath.Join(dir, "cordis.patch.yml")
 			patch := []byte("# keep my locale\n- id: locale\n  config:\n    preference: zh\n- id: custom\n  config:\n    value: !!js process.env.CUSTOM\n")
 			for name, data := range map[string][]byte{"package.json": manifest, "cordis.patch.yml": patch, "persona.md": []byte("my persona"), "memory.md": []byte("my memory")} {
@@ -93,10 +95,10 @@ func TestDSHModuleDirectInsertAndDynamicOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries := dshModuleEntries(doc.Content[0])
-	if len(entries) != 1 || mapGet(entries[0], "disabled").Value != "true" || !strings.Contains(string(b), "/keep/my/data") {
+	if len(entries) != 2 || mapGet(entries[1], "disabled").Value != "true" || !strings.Contains(string(b), "/keep/my/data") {
 		t.Fatalf("invalid patch: %s", b)
 	}
-	dynamic := "- id: personal-collab\n  name: conest-collab\n  disabled: !!js process.env.DISABLED\n"
+	dynamic := "- insert:\n    - id: personal-collab\n      name: conest-collab\n      disabled: !!js process.env.DISABLED\n"
 	if err := os.WriteFile(path, []byte(dynamic), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +112,7 @@ func TestDSHModuleDirectInsertAndDynamicOverride(t *testing.T) {
 
 func TestDSHModuleFreshReadOnlyAndInstall(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testutil.SetHome(t, home)
 	t.Setenv("DSH_HOME", filepath.Join(home, "dsh"))
 	bin := t.TempDir()
 	oldPath := os.Getenv("PATH")
@@ -132,10 +134,13 @@ func TestDSHModuleFreshReadOnlyAndInstall(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "dsh"), []byte("#!/bin/sh\necho test-version\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(bin, "node"), []byte("#!/bin/sh\necho v22.12.0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+oldPath)
 	script := t.TempDir()
 	t.Setenv("BOTHOUSE_DSH_DIR", script)
-	body := "#!/bin/bash\nset -eu\nmkdir -p \"$DSH_HOME/profiles/web\"\nprintf '%s' '{\"dependencies\":{\"bothouse-dsh\":\"link:local\"}}' > \"$DSH_HOME/profiles/web/package.json\"\nprintf '[]\\n' > \"$DSH_HOME/profiles/web/cordis.patch.yml\"\n"
+	body := "#!/bin/bash\nset -eu\nmkdir -p \"$DSH_HOME/profiles/web\"\nprintf '%s' '{\"dependencies\":{\"bothouse-dsh\":\"link:local\"}}' > \"$DSH_HOME/profiles/web/package.json\"\nprintf '%s\\n' '- insert:' '    - id: bothouse-dsh' '      name: bothouse-dsh' > \"$DSH_HOME/profiles/web/cordis.patch.yml\"\n"
 	if err := os.WriteFile(filepath.Join(script, "install.sh"), []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -152,4 +157,116 @@ func TestDSHModuleFreshReadOnlyAndInstall(t *testing.T) {
 	if !GetDSHStatus(context.Background()).PluginInstalled {
 		t.Fatal("wizard does not see installed bundle")
 	}
+}
+
+func TestDSHDependencyFailureDoesNotExtractOrInstall(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	t.Setenv("DSH_HOME", filepath.Join(home, "dsh"))
+	bin := t.TempDir()
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := os.WriteFile(filepath.Join(bin, "node"), []byte("#!/bin/sh\necho v20.19.0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "dsh"), []byte("#!/bin/sh\necho fixture\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if st := GetDSHStatus(context.Background()); st.DependencyError == "" || st.NodeVersion != "v20.19.0" {
+		t.Fatalf("dependency check: %+v", st)
+	}
+	if _, err := InstallDSHPlugin(context.Background(), "en", nil); err == nil || !strings.Contains(err.Error(), "22.12.0") {
+		t.Fatalf("old runtime not rejected: %v", err)
+	}
+	if result := ApplyDSHModule(context.Background(), false, true, "en"); result.OK || !strings.Contains(result.Error, "22.12.0") {
+		t.Fatalf("dry run runtime check: %+v", result)
+	}
+	if entries, _ := os.ReadDir(home); len(entries) != 0 {
+		t.Fatalf("failed prerequisites wrote files: %v", entries)
+	}
+}
+
+func writeDSHBundleFixture(t *testing.T, profile, name string) {
+	t.Helper()
+	dir := filepath.Join(profile, "node_modules", name)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := []byte("{\"dsh\":{\"bundle\":{\"patch\":\"./cordis.patch.yml\"}}}")
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), manifest, 0600); err != nil {
+		t.Fatal(err)
+	}
+	patch := "- insert:\n    - id: " + name + "\n      name: " + name + "\n"
+	if name == "conest-collab" {
+		patch += "    - id: conest-channels-ui\n      name: '@deepseek-ai/dsh-experimental-client-ui-discord'\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cordis.patch.yml"), []byte(patch), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDSHModuleReviewRegressions(t *testing.T) {
+	for _, patch := range []string{
+		"- id: bothouse-dsh\n  name: another-plugin\n  disabled: false\n",
+		"- id: bothouse-dsh\n  insert:\n    - id: custom\n      name: custom\n  disabled: false\n",
+	} {
+		t.Run(patch, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("DSH_HOME", home)
+			dir := filepath.Join(home, "profiles", DSHProfile)
+			writeDSHBundleFixture(t, dir, "bothouse-dsh")
+			manifest := []byte("{\"dsh\":{\"profile\":{\"bundles\":[\"bothouse-dsh\"]}}}")
+			if err := os.WriteFile(filepath.Join(dir, "package.json"), manifest, 0600); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, "cordis.patch.yml")
+			if err := os.WriteFile(path, []byte(patch), 0600); err != nil {
+				t.Fatal(err)
+			}
+			got := ApplyDSHModule(context.Background(), true, false, "zh")
+			if !got.OK || !got.Saved || !got.DSH.Disabled {
+				t.Fatalf("disable: %+v", got)
+			}
+			raw, _ := os.ReadFile(path)
+			var doc yaml.Node
+			if err := yaml.Unmarshal(raw, &doc); err != nil {
+				t.Fatal(err)
+			}
+			final := doc.Content[0].Content[len(doc.Content[0].Content)-1]
+			if mapGet(final, "insert") != nil || mapGet(final, "name").Value != "bothouse-dsh" || mapGet(final, "disabled").Value != "true" {
+				t.Fatalf("invalid final override: %s", raw)
+			}
+		})
+	}
+	t.Run("dependency only is not installed", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("DSH_HOME", home)
+		dir := filepath.Join(home, "profiles", DSHProfile)
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{\"dependencies\":{\"bothouse-dsh\":\"link:local\"}}"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if st, err := GetDSHModuleState(); err != nil || st.Installed {
+			t.Fatalf("dependency-only state: %+v %v", st, err)
+		}
+	})
+	t.Run("mixed bundles reports actual write", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("DSH_HOME", home)
+		dir := filepath.Join(home, "profiles", DSHProfile)
+		for _, name := range []string{"bothouse-dsh", "conest-collab"} {
+			writeDSHBundleFixture(t, dir, name)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{\"dsh\":{\"profile\":{\"bundles\":[\"bothouse-dsh\",\"conest-collab\"]}}}"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "cordis.patch.yml"), []byte("- id: bothouse-dsh\n  disabled: true\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		got := ApplyDSHModule(context.Background(), false, false, "zh")
+		if !got.OK || !got.Saved || got.DSH.Disabled {
+			t.Fatalf("mixed enable: %+v", got)
+		}
+	})
 }

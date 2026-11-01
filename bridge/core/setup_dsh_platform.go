@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -27,6 +28,9 @@ const DSHProfile = "web"
 
 // DSHStatus is what GET /setup/dsh/status and POST /setup/dsh/install return.
 type DSHStatus struct {
+	NodeVersion     string `json:"node_version,omitempty"`
+	PNPMFound       bool   `json:"pnpm_found"`
+	DependencyError string `json:"dependency_error,omitempty"`
 	Found           bool   `json:"found"`             // dsh is on PATH
 	Version         string `json:"version,omitempty"` // `dsh --version`
 	PluginInstalled bool   `json:"plugin_installed"`  // the profile lists client-ui-discord
@@ -205,6 +209,9 @@ func GetDSHStatus(ctx context.Context) DSHStatus {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	st := DSHStatus{Profile: DSHProfile, OpenCommand: dshOpenCommand(), InstallScript: FindDSHInstallScript()}
+	st.NodeVersion, st.DependencyError = dshNodeStatus(ctx)
+	_, pnpmErr := exec.LookPath("pnpm")
+	st.PNPMFound = pnpmErr == nil
 	dshBin, err := LookDSH()
 	if err != nil {
 		return st
@@ -213,12 +220,6 @@ func GetDSHStatus(ctx context.Context) DSHStatus {
 	st.HasDeepSeekKey = dshHasDeepSeekKey()
 	if out, err := exec.CommandContext(ctx, dshBin, "--version").Output(); err == nil {
 		st.Version = strings.TrimSpace(string(out))
-	}
-	dir := filepath.Join(dshHome(), "profiles", DSHProfile)
-	for _, f := range []string{"package.json", "cordis.patch.yml"} {
-		if b, err := os.ReadFile(filepath.Join(dir, f)); err == nil && bytes.Contains(b, []byte("client-ui-discord")) {
-			st.PluginInstalled = true
-		}
 	}
 	if module, err := GetDSHModuleState(); err == nil && module.Installed {
 		st.PluginInstalled = true
@@ -232,6 +233,9 @@ func GetDSHStatus(ctx context.Context) DSHStatus {
 func InstallDSHPlugin(ctx context.Context, lang string, onLine func(string)) (DSHStatus, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
+	if _, issue := dshNodeStatus(ctx); issue != "" {
+		return GetDSHStatus(ctx), errors.New(issue)
+	}
 	script := FindDSHInstallScript()
 	if script == "" || !fileExists(script) {
 		if p, err := ExtractEmbeddedDSH(""); err == nil && fileExists(p) {
@@ -371,4 +375,26 @@ func dshInstallError(err error, lang string) string {
 		return "插件没装上。常见原因是网络连不上 npm（装依赖那一步要下载），检查网络或代理后点「重试」；下面是安装日志。"
 	}
 	return "The plugins did not install. Usually npm could not be reached while downloading dependencies; check the network or proxy and retry. The install log is below."
+}
+
+// dshNodeStatus checks the runtime only for the selected DSH installation route.
+// 来源：docs/platforms/dsh.md and dsh/collab/package.json require Node >= 22.12.0.
+func dshNodeStatus(ctx context.Context) (string, string) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		return "", "Node >= 22.12.0 is required for DSH; install Node and detect again."
+	}
+	out, err := exec.CommandContext(ctx, node, "--version").Output()
+	version := strings.TrimSpace(string(out))
+	if err != nil {
+		return version, "Could not run node --version; check Node on PATH and detect again."
+	}
+	var major, minor, patch int
+	n, err := fmt.Sscanf(strings.TrimPrefix(version, "v"), "%d.%d.%d", &major, &minor, &patch)
+	if err != nil || n != 3 || major < 22 || (major == 22 && minor < 12) {
+		return version, "Node >= 22.12.0 is required for DSH; upgrade Node and detect again."
+	}
+	return version, ""
 }

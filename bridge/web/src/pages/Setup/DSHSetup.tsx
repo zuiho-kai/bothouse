@@ -214,6 +214,10 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
       </>}
 
       {step === 1 && <>
+        {status?.node_version && <p className="text-sm">Node {status.node_version}</p>}
+        {status?.dependency_error && <p role="alert" className="text-red-500" data-testid="dsh-dependency-error">{status.dependency_error}</p>}
+        {status?.pnpm_found === false && <p className="text-sm">{lang.startsWith('zh') ? '未检测到 pnpm，安装插件时会通过 npm 自动补齐。' : 'pnpm was not detected; the plugin installer will install it using npm.'}</p>}
+        {status?.dependency_error && <Button onClick={detect} disabled={busy}>{t.detect}</Button>}
         <p>DSH {status?.version}{status?.plugin_installed && !busy && !log.length ? ` · ${t.installed}` : ''}</p>
         {(busy || log.length > 0) && <ol className="space-y-1 text-sm" data-testid="dsh-install-progress">
           {INSTALL_STEPS.map((s) => {
@@ -228,7 +232,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
         {log.length > 0 && <details><summary className="text-sm cursor-pointer">{t.showLog}</summary>
           <pre className="text-xs max-h-64 overflow-auto p-2 rounded bg-gray-50 dark:bg-black/40">{log.slice(-200).join('\n')}</pre></details>}
         <div className="flex gap-2">
-          <Button onClick={install} disabled={busy} variant={status?.plugin_installed ? 'secondary' : undefined} data-testid="dsh-install-plugin">
+          <Button onClick={install} disabled={busy || !!status?.dependency_error} variant={status?.plugin_installed ? 'secondary' : undefined} data-testid="dsh-install-plugin">
             {status?.plugin_installed ? t.reinstall : t.install}</Button>
           {status?.plugin_installed && <Button onClick={goRoles} disabled={busy} data-testid="dsh-skip-install">{t.next}</Button>}
         </div>

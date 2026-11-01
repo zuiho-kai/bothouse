@@ -122,6 +122,7 @@ export async function applyWizard(req: WizardRequest): Promise<WizardResult> {
 export interface DSHStatus {
   found: boolean; version?: string; plugin_installed: boolean; profile: string;
   open_command: string; log?: string; has_deepseek_key?: boolean;
+  node_version?: string; pnpm_found?: boolean; dependency_error?: string;
 }
 export const getDSHStatus = () => api.get<DSHStatus>('/setup/dsh/status');
 
