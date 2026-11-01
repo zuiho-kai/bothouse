@@ -4810,7 +4810,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 					session.SettleHandoff(false)
 					return fmt.Errorf("agent session became nil")
 				}
-				if err := e.checkTurnAuthorization(msg.authorization, "task.resume"); err != nil {
+				if err := e.recordTurnBackend(msg.authorization, agent.Name()); err != nil {
 					return err
 				}
 				if msg.externalInput != nil {
@@ -5672,12 +5672,17 @@ func (e *Engine) startUnsolicitedReader(state *interactiveState, session *Sessio
 	// without synchronisation is a data race.
 	state.mu.Lock()
 	agentSession := state.agentSession
+	ref := state.authorization
 	state.mu.Unlock()
 	if agentSession == nil {
 		return
 	}
 
-	ctx, cancel := context.WithCancel(e.ctx)
+	outputCtx, err := e.turnOutputContext(ref)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(outputCtx)
 	done := make(chan struct{})
 
 	state.mu.Lock()
@@ -5700,6 +5705,9 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 	defer close(done)
 	defer cancel()
 
+	send := func(p Platform, replyCtx any, content string) {
+		_ = e.sendWithContextForWorkspace(ctx, p, replyCtx, content, workspaceDir)
+	}
 	events := agentSession.Events()
 
 	var turnActive bool // true after first event, cleared on EventResult
@@ -5759,6 +5767,10 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				state.mu.Unlock()
 				return
 			default:
+			}
+
+			if err := checkProactiveExecution(ctx, "task.resume"); err != nil {
+				return
 			}
 
 			// Mark workspace active on first event.
@@ -5829,7 +5841,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 
 				if fullResponse != "" {
 					for _, chunk := range SplitMessageCodeFenceAware(fullResponse, maxPlatformMessageLen) {
-						e.send(p, markAgentReply(p, replyCtx, session), chunk)
+						send(p, markAgentReply(p, replyCtx, session), chunk)
 					}
 				}
 				// A quota notice is not the workspace's answer: it must not go back as a [report].
@@ -5911,7 +5923,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 						return
 					default:
 					}
-					if err := e.respondTurnPermission(state, agentSession, reqID, result); err != nil {
+					if err := respondTaskPermission(respondCtx, agentSession, reqID, result); err != nil {
 						if respondCtx.Err() == nil {
 							slog.Error("unsolicited: failed to respond permission", "error", err)
 						}
@@ -5922,7 +5934,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					if toolName == "" {
 						toolName = "(unknown)"
 					}
-					e.send(p, replyCtx, fmt.Sprintf(e.i18n.T(MsgBackgroundAutoDenied), toolName))
+					send(p, replyCtx, fmt.Sprintf(e.i18n.T(MsgBackgroundAutoDenied), toolName))
 				}
 
 			case EventError:
@@ -5941,7 +5953,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					if reset, ok := QuotaExhaustedReset(event); ok {
 						userMsg = e.quotaExhaustedMessage(reset, agentSession, nil)
 					}
-					e.send(p, replyCtx, userMsg)
+					send(p, replyCtx, userMsg)
 				}
 				state.mu.Lock()
 				state.eventsNeedResync = true
@@ -5991,7 +6003,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		return
 	}
 	sendOutput := func(p Platform, replyCtx any, content string) {
-		_ = authorizedOutput(outputCtx, func() error { return e.sendWithError(p, replyCtx, content) })
+		_ = authorizedOutput(outputCtx, func() error { return e.sendWithContextForWorkspace(outputCtx, p, replyCtx, content, "") })
 	}
 
 	var chainedQueued *queuedMessage // maomao fork: queued message chained into this loop, if any
@@ -6068,12 +6080,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// lines); maomao fork: the reply context is marked so backfill skips them.
 	sendWorkspace := func(p Platform, replyCtx any, content string) {
 		_ = authorizedOutput(outputCtx, func() error {
-			return e.sendWithErrorForWorkspace(p, markAgentReply(p, replyCtx, session), content, workspaceDir)
+			return e.sendWithContextForWorkspace(outputCtx, p, markAgentReply(p, replyCtx, session), content, workspaceDir)
 		})
 	}
 	sendWorkspaceWithError := func(p Platform, replyCtx any, content string) error {
 		err := authorizedOutput(outputCtx, func() error {
-			return e.sendWithErrorForWorkspace(p, markAgentReply(p, replyCtx, session), content, workspaceDir)
+			return e.sendWithContextForWorkspace(outputCtx, p, markAgentReply(p, replyCtx, session), content, workspaceDir)
 		})
 		if err != nil {
 			input.finish(inputTurnResult{err: fmt.Errorf("reply delivery: %w", err)})
@@ -7530,7 +7542,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						nextSend <- fmt.Errorf("agent session became nil")
 						return
 					}
-					err := e.checkTurnAuthorization(queued.authorization, "task.resume")
+					err := e.recordTurnBackend(queued.authorization, replyAgent.Name())
 					if err == nil {
 						err = as.Send(queuedPrompt, queued.messageID, queued.images, queued.files)
 					}
@@ -8058,7 +8070,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 					session.SettleHandoff(false)
 					return fmt.Errorf("agent session became nil")
 				}
-				err := e.checkTurnAuthorization(queued.authorization, "task.resume")
+				err := e.recordTurnBackend(queued.authorization, queuedAgent.Name())
 				if err == nil {
 					err = as.Send(attemptPrompt, queued.messageID, queued.images, queued.files)
 				}
@@ -13780,12 +13792,17 @@ func (e *Engine) renderOutgoingContentForWorkspace(p Platform, content, workspac
 }
 
 func (e *Engine) sendWithErrorForWorkspace(p Platform, replyCtx any, content, workspaceDir string) error {
-	if err := e.waitOutgoing(p); err != nil {
-		slog.Warn("outgoing rate limit: context cancelled", "platform", p.Name(), "error", err)
-		return err
+	return e.sendWithContextForWorkspace(e.ctx, p, replyCtx, content, workspaceDir)
+}
+
+func (e *Engine) sendWithContextForWorkspace(ctx context.Context, p Platform, replyCtx any, content, workspaceDir string) error {
+	if e.outgoingRL != nil {
+		if err := e.outgoingRL.Wait(ctx, p.Name()); err != nil {
+			return err
+		}
 	}
 	content = e.renderOutgoingContentForWorkspace(p, content, workspaceDir)
-	return e.sendAlreadyRenderedWithError(p, replyCtx, content)
+	return e.sendRenderedWithContext(ctx, p, replyCtx, content)
 }
 
 func (e *Engine) sendForWorkspace(p Platform, replyCtx any, content, workspaceDir string) {
@@ -13850,8 +13867,12 @@ func (e *Engine) sendWithError(p Platform, replyCtx any, content string) error {
 }
 
 func (e *Engine) sendAlreadyRenderedWithError(p Platform, replyCtx any, content string) error {
+	return e.sendRenderedWithContext(e.ctx, p, replyCtx, content)
+}
+
+func (e *Engine) sendRenderedWithContext(ctx context.Context, p Platform, replyCtx any, content string) error {
 	start := time.Now()
-	if err := p.Send(e.ctx, replyCtx, content); err != nil {
+	if err := authorizedOutput(ctx, func() error { return p.Send(ctx, replyCtx, content) }); err != nil {
 		// Check for context_token missing error (common for Weixin platform)
 		if strings.Contains(err.Error(), "missing context_token") {
 			slog.Error("platform send failed: context_token missing",

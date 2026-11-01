@@ -400,8 +400,12 @@ func (a *ProactiveAuthorization) Reassign(id, taskID, role, backend, session str
 		return ErrAuthorizationDenied
 	}
 	found := false
-	for _, as := range a.state.Assignments {
+	for i := len(a.state.Assignments) - 1; i >= 0; i-- {
+		as := a.state.Assignments[i]
 		if as.DecisionID == id && as.TaskID == taskID {
+			if as.Role == role && as.Backend == backend && as.SessionKey == session {
+				return nil
+			}
 			found = true
 			break
 		}

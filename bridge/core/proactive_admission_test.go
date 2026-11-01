@@ -33,6 +33,9 @@ func TestProactivePlatformAdmissionDurableAndEventScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.publicProgress = reopened
+	if reopened.records[task.ID].publisher != nil {
+		t.Fatal("restart enabled a card outside the workspace presentation policy")
+	}
 	if _, err := e.admitPlatformTask(p, msg, d); err != ErrAuthorizationDuplicate {
 		t.Fatal("restart readmitted event")
 	}

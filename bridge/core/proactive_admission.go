@@ -38,10 +38,18 @@ func (e *Engine) admitPlatformTask(p Platform, msg *Message, decision Authorizat
 	task := &Task{ID: id, Agent: e.name, SessionKey: msg.SessionKey, Origin: p.Name(),
 		Title: e.i18n.T(MsgPublicAutoTitle), State: TaskStateInProgress, CreatedAt: time.Now().UTC(),
 		AuthorizationDecisionID: decision.ID}
+	var publisher TaskCardPublisher
+	if sink, ok := p.(TaskCardPublisher); ok && ledger.checkWorkspaceCard(msg.SessionKey) == nil {
+		task.ChannelID, err = sink.TaskCardDestination(msg.SessionKey)
+		if err != nil {
+			return nil, err
+		}
+		publisher = sink
+	}
 	if err := a.Admit(decision.ID, id, e.name, e.agentTypeName(), msg.SessionKey); err != nil {
 		return nil, err
 	}
-	r := &publicRun{record: progressRecord{Task: task, Platform: p.Name(), Lang: e.i18n.CurrentLang(), Reports: map[int64]string{}, Auto: true}}
+	r := &publicRun{publisher: publisher, record: progressRecord{Task: task, Platform: p.Name(), JournalOnly: publisher == nil, Lang: e.i18n.CurrentLang(), Reports: map[int64]string{}, Auto: true}}
 	r.record.ProactivePending = &TurnJournalEntry{
 		TurnID: "admission-" + id, Project: e.name, SessionKey: msg.SessionKey,
 		InteractiveKey: e.interactiveKeyForSessionKey(msg.SessionKey), Platform: p.Name(),

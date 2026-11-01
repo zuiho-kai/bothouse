@@ -4,7 +4,38 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestProactiveOutputRechecksAfterRateLimitWait(t *testing.T) {
+	e, a, d, ctx := proactiveOutputFixture(t)
+	p := &stubPlatformEngine{n: "platform"}
+	e.outgoingRL = NewOutgoingRateLimiter(OutgoingRateLimitCfg{MaxPerSecond: 1, Burst: 1}, nil)
+	if err := e.outgoingRL.Wait(ctx, p.Name()); err != nil {
+		t.Fatal(err)
+	}
+	e.outgoingRL.mu.Lock()
+	before := e.outgoingRL.buckets[p.Name()].lastRefill
+	e.outgoingRL.mu.Unlock()
+	done := make(chan error, 1)
+	go func() { done <- e.sendWithContextForWorkspace(ctx, p, "ctx", "late output", "") }()
+	waitFor(t, "waiting for send budget", func() bool {
+		e.outgoingRL.mu.Lock()
+		defer e.outgoingRL.mu.Unlock()
+		return e.outgoingRL.buckets[p.Name()].lastRefill.After(before)
+	})
+	if err := a.Revoke(d.ID, "human:stop"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err == nil || len(p.getSent()) != 0 {
+			t.Fatal("withdrawn output escaped rate wait")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("send wait did not finish")
+	}
+}
 
 func proactiveOutputFixture(t *testing.T) (*Engine, *ProactiveAuthorization, AuthorizationDecision, context.Context) {
 	t.Helper()

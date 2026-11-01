@@ -42,6 +42,31 @@ type AuthorizationTurn struct {
 	DecisionID string `json:"decision_id"`
 }
 
+// Record the backend actually receiving the turn without changing its source
+// identity or session. Workspace selection does not create another grant.
+func (e *Engine) recordTurnBackend(ref *AuthorizationTurn, backend string) error {
+	if ref == nil {
+		return nil
+	}
+	ctx, err := e.authorizationExecution(ref)
+	if err != nil {
+		return err
+	}
+	if err := checkProactiveExecution(ctx, "task.resume"); err != nil {
+		return err
+	}
+	execution := ctx.Value(proactiveExecutionKey{}).(proactiveExecution)
+	task, ok := execution.source.publicProgress.Task(ref.TaskID)
+	if !ok {
+		return ErrAuthorizationDenied
+	}
+	a, err := execution.source.ProactiveAuthorization()
+	if err != nil {
+		return err
+	}
+	return a.Reassign(ref.DecisionID, task.ID, task.Agent, backend, task.SessionKey)
+}
+
 func (e *Engine) watchTurnAuthorization(ref *AuthorizationTurn) (<-chan struct{}, func(), error) {
 	if ref == nil {
 		return nil, func() {}, nil

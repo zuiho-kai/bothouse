@@ -112,6 +112,7 @@ type progressRecord struct {
 	ArtifactRequests map[string]taskArtifactRecord `json:"artifact_requests,omitempty"`
 	Task             *Task                         `json:"task"`
 	Platform         string                        `json:"platform"`
+	JournalOnly      bool                          `json:"journal_only,omitempty"`
 	Lang             Language                      `json:"lang"`
 	Closed           bool                          `json:"closed"`
 	Accepted         bool                          `json:"accepted,omitempty"`
@@ -260,6 +261,9 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 		}
 		if !platformFound {
 			return nil, errors.New("public progress journal platform unavailable")
+		}
+		if rec.JournalOnly {
+			sink = nil
 		}
 		loadedQuestionSeq := rec.Task.Seq
 		r := &publicRun{record: rec, publisher: sink}
@@ -1183,7 +1187,7 @@ func (p *PublicProgress) journalOnly(token string) bool {
 	return r != nil && r.publisher == nil
 }
 
-const journalProgressPrompt = "[Task progress journal]\nFor accepted multi-step work only, record concise public-safe status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'short status'. Start with --seq 1 --kind start --title 'task title'.RESUME_NOTE Increase seq by one for update/milestone/waiting/result; retry exactly the same seq and content. This platform has no task publisher: success means the journal was saved, NOT that a message or card was delivered. Give the user necessary progress and results in your normal reply. Do not claim a card, thread or delivery receipt exists. Do not repeat task execution to retry delivery. A result is not human acceptance. Do not record casual chat, raw tools, credentials or conversations. This token is for this turn only. Task-member publishing and task-bound relay are not provided by this journal capability.\n[/Task progress journal]\n\n"
+const journalProgressPrompt = "[Task progress journal]\nFor accepted multi-step work only, record concise public-safe status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'short status'. Start with --seq 1 --kind start --title 'task title'.RESUME_NOTE Increase seq by one for update/milestone/waiting/result; retry exactly the same seq and content. This task uses journal-only progress: success means the journal was saved, NOT that a message or card was delivered. Give the user necessary progress and results in your normal reply. Do not claim a card, thread or delivery receipt exists. Do not repeat task execution to retry delivery. A result is not human acceptance. Do not record casual chat, raw tools, credentials or conversations. This token is for this turn only. Task-member publishing and task-bound relay are not provided by this journal capability.\n[/Task progress journal]\n\n"
 
 // Voice cannot delegate; retain task cards without unrelated member/relay instructions.
 func (e *Engine) voiceProgressInstructions(token, session string) string {

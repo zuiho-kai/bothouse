@@ -6,6 +6,39 @@ import (
 	"time"
 )
 
+func TestProactiveBackendChangePreservesDecisionAndSourceSession(t *testing.T) {
+	ledger, _, _, id := taskRelayFixture(t)
+	e := NewEngine("source", &stubAgent{}, nil, "", LangEnglish)
+	e.publicProgress = ledger
+	a, d := authorizeFixtureTask(t, e, id, []string{"task.resume"})
+	ref := &AuthorizationTurn{Project: e.name, TaskID: id, DecisionID: d.ID}
+	if err := e.recordTurnBackend(ref, "replacement-backend"); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	n := len(a.state.Assignments)
+	last := a.state.Assignments[n-1]
+	a.mu.Unlock()
+	if last.DecisionID != d.ID || last.TaskID != id || last.SessionKey != d.SessionKey || last.Backend != "replacement-backend" {
+		t.Fatalf("assignment changed identity: %+v", last)
+	}
+	if err := e.recordTurnBackend(ref, "replacement-backend"); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	count := len(a.state.Assignments)
+	a.mu.Unlock()
+	if count != n {
+		t.Fatal("retry duplicated assignment")
+	}
+	if err := a.Revoke(d.ID, "human:stop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.recordTurnBackend(ref, "third-backend"); err == nil {
+		t.Fatal("backend change revived task")
+	}
+}
+
 func TestProactiveResumeRechecksAfterWaitAndStillReaps(t *testing.T) {
 	for _, phase := range []string{"platform-wait", "delivery-retry", "allowed"} {
 		t.Run(phase, func(t *testing.T) {

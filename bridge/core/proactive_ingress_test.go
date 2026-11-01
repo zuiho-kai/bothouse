@@ -16,58 +16,61 @@ func (p *proactiveIntakePlatform) Start(handler MessageHandler) error {
 }
 
 func TestProactiveRegisteredPlatformIntake(t *testing.T) {
-	for _, mode := range []ProactiveMode{ProactiveOff, ProactiveObserve, ProactiveAuto} {
-		t.Run(string(mode), func(t *testing.T) {
-			p := &proactiveIntakePlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}
-			backend := &abortTurnSession{events: make(chan Event, 8)}
-			e := NewEngine("role", &abortTurnAgent{s: backend}, []Platform{p}, "", LangEnglish)
-			e.SetDataDir(t.TempDir())
-			if err := e.EnablePublicProgress(); err != nil {
-				t.Fatal(err)
-			}
-			a, _ := authorizationFixture(t, mode)
-			policy := a.Policy()
-			policy.Rules[0].Source, policy.Rules[0].EventKind = p.Name(), "message"
-			if err := a.ReplacePolicy(policy.Version, policy); err != nil {
-				t.Fatal(err)
-			}
-			e.proactiveAuthorization = a
-			if err := e.Start(); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = e.Stop() })
-			msg := Message{Platform: p.Name(), MessageID: "event", UserID: "123", SessionKey: "room", Content: "review available", ReplyCtx: "ctx"}
-			p.handler(p, &msg)
-			if mode != ProactiveAuto {
+	for _, name := range []string{"discord", "qq", "feishu", "cloud_web"} {
+		for _, mode := range []ProactiveMode{ProactiveOff, ProactiveObserve, ProactiveAuto} {
+			t.Run(name+"/"+string(mode), func(t *testing.T) {
+				p := &proactiveIntakePlatform{stubPlatformEngine: stubPlatformEngine{n: name}}
+				backend := &abortTurnSession{events: make(chan Event, 8)}
+				e := NewEngine("role", &abortTurnAgent{s: backend}, []Platform{p}, "", LangEnglish)
+				e.SetDataDir(t.TempDir())
+				if err := e.EnablePublicProgress(); err != nil {
+					t.Fatal(err)
+				}
+				a, _ := authorizationFixture(t, mode)
+				policy := a.Policy()
+				policy.Bindings[0].Identities = []AuthorityIdentity{{Platform: name, UserID: "123"}}
+				policy.Rules[0].Source, policy.Rules[0].EventKind = p.Name(), "message"
+				if err := a.ReplacePolicy(policy.Version, policy); err != nil {
+					t.Fatal(err)
+				}
+				e.proactiveAuthorization = a
+				if err := e.Start(); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = e.Stop() })
+				msg := Message{Platform: p.Name(), MessageID: "event", UserID: "123", SessionKey: "room", Content: "review available", ReplyCtx: "ctx"}
+				p.handler(p, &msg)
+				if mode != ProactiveAuto {
+					backend.mu.Lock()
+					count := len(backend.prompts)
+					backend.mu.Unlock()
+					if count != 0 || len(p.getSent()) != 0 {
+						t.Fatal("observation executed or sent output")
+					}
+					if len(e.publicProgress.records) != 0 {
+						t.Fatal("observation created a task")
+					}
+					return
+				}
+				waitFor(t, "admitted execution", func() bool { backend.mu.Lock(); defer backend.mu.Unlock(); return len(backend.prompts) == 1 })
+				if msg.authorization == nil {
+					t.Fatal("intake lost grant")
+				}
+				duplicate := Message{Platform: p.Name(), MessageID: msg.MessageID, UserID: msg.UserID, SessionKey: msg.SessionKey, Content: msg.Content, ReplyCtx: "ctx"}
+				p.handler(p, &duplicate)
 				backend.mu.Lock()
 				count := len(backend.prompts)
+				prompt := backend.prompts[0]
 				backend.mu.Unlock()
-				if count != 0 || len(p.getSent()) != 0 {
-					t.Fatal("observation executed or sent output")
+				if count != 1 || !strings.Contains(prompt, msg.authorization.TaskID) {
+					t.Fatal("duplicate execution or unrelated progress task")
 				}
-				if len(e.publicProgress.records) != 0 {
-					t.Fatal("observation created a task")
+				if err := a.Revoke(msg.authorization.DecisionID, "human:stop"); err != nil {
+					t.Fatal(err)
 				}
-				return
-			}
-			waitFor(t, "admitted execution", func() bool { backend.mu.Lock(); defer backend.mu.Unlock(); return len(backend.prompts) == 1 })
-			if msg.authorization == nil {
-				t.Fatal("intake lost grant")
-			}
-			duplicate := Message{Platform: p.Name(), MessageID: msg.MessageID, UserID: msg.UserID, SessionKey: msg.SessionKey, Content: msg.Content, ReplyCtx: "ctx"}
-			p.handler(p, &duplicate)
-			backend.mu.Lock()
-			count := len(backend.prompts)
-			prompt := backend.prompts[0]
-			backend.mu.Unlock()
-			if count != 1 || !strings.Contains(prompt, msg.authorization.TaskID) {
-				t.Fatal("duplicate execution or unrelated progress task")
-			}
-			if err := a.Revoke(msg.authorization.DecisionID, "human:stop"); err != nil {
-				t.Fatal(err)
-			}
-			waitFor(t, "intake execution cancelled", func() bool { backend.mu.Lock(); defer backend.mu.Unlock(); return backend.cancels > 0 })
-		})
+				waitFor(t, "intake execution cancelled", func() bool { backend.mu.Lock(); defer backend.mu.Unlock(); return backend.cancels > 0 })
+			})
+		}
 	}
 }
 

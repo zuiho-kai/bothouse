@@ -115,6 +115,7 @@ type replyContext struct {
 	// core.Message in dispatchCoreMessage for core's built-in busy rules (core/gate_local.go).
 	mentioned bool
 	direct    bool
+	fromBot   bool
 	// replyTo: the message this one replies to (parent_id); dispatchCoreMessage puts it in
 	// core.Message.Reference so core can find the work it belongs to (core/reply_task.go).
 	replyTo string
@@ -1107,6 +1108,7 @@ func (p *Platform) dispatchCoreMessage(msg *core.Message) {
 	if rc, ok := msg.ReplyCtx.(replyContext); ok {
 		msg.Mentioned = msg.Mentioned || rc.mentioned
 		msg.Direct = msg.Direct || rc.direct
+		msg.FromBot = msg.FromBot || rc.fromBot
 		if rc.replyTo != "" && msg.Reference == nil {
 			// Only the id: the quoted text already is in ExtraContent (fetchQuotedMessage).
 			msg.Reference = &core.MessageReference{ID: rc.replyTo}
@@ -1458,6 +1460,7 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 
 	rctx := replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey,
 		mentioned: chatType == "group" && p.getBotOpenID() != "" && isBotMentioned(mentions, p.getBotOpenID()),
+		fromBot:   sender.SenderType != nil && *sender.SenderType == "app",
 		direct:    chatType == "p2p", replyTo: parentID}
 	slog.Debug(p.tag()+": routed inbound message",
 		"message_id", messageID,
