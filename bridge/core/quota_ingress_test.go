@@ -147,3 +147,35 @@ func TestQuotaPendingSwitchUsesWorkspaceAgent(t *testing.T) {
 		t.Fatal("workspace target blocked after apply")
 	}
 }
+
+type quotaPinnedRelayAgent struct{ quotaJourneyAgent }
+
+func (a *quotaPinnedRelayAgent) StartSession(context.Context, string) (AgentSession, error) {
+	return &quotaJourneySession{inputTestSession: &inputTestSession{events: make(chan Event, 8), prompts: make(chan string, 8), id: "quota-pinned"}, model: "A", sent: a.sent}, nil
+}
+
+func TestQuotaRelayUsesActualSessionPool(t *testing.T) {
+	a := &quotaPinnedRelayAgent{quotaJourneyAgent{model: "B", sent: make(chan string, 8)}}
+	e := NewEngine("quota-pinned", a, nil, "", LangEnglish)
+	e.dataDir = t.TempDir()
+	t.Cleanup(func() { e.cancel(); e.Stop() })
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = e.HandleRelay(ctx, "source", "discord:pinned", "first")
+	if e.quotaCoolingFor(e.quotaScopeFor(a, "A")).IsZero() {
+		t.Fatal("actual session A exhaustion was not recorded")
+	}
+	if !e.quotaCoolingFor(e.quotaScopeFor(a, "B")).IsZero() {
+		t.Fatal("actual session A exhaustion contaminated displayed model B")
+	}
+	<-a.sent
+	_, err := e.HandleRelay(ctx, "source", "discord:pinned", "second")
+	if err == nil {
+		t.Fatal("known exhausted actual session must be rejected")
+	}
+	select {
+	case <-a.sent:
+		t.Fatal("relay sent to exhausted actual pool")
+	default:
+	}
+}

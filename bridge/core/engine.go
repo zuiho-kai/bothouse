@@ -17998,7 +17998,6 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	// Use the engine context (not the relay timeout context) so that the
 	// agent process is not killed when the relay deadline fires. The relay
 	// timeout only controls how long we *wait* for the response.
-	turnScope := e.quotaScopeFor(agent, modelOf(agent))
 	resumeID := session.GetAgentSessionID()
 	agentSession, err := agent.StartSession(e.ctx, resumeID)
 	startedFresh := resumeID == ""
@@ -18017,6 +18016,13 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 			teamOutcome = teamWorkFailed
 			return "", fmt.Errorf("start relay session: %w", err)
 		}
+	}
+	// CLI pins and per-session overrides may differ from the admission model.
+	// Attribute events to the actual session and recheck before its first send.
+	turnScope := e.quotaScopeOfSession(agent, agentSession)
+	if until := e.quotaCoolingFor(turnScope); !until.IsZero() {
+		agentSession.Close()
+		return "", fmt.Errorf("engine %q quota cooling until %s", e.name, until.Format(time.RFC3339))
 	}
 	e.trackRelaySession(agentSession) // #624 K4: Stop closes relay sessions too
 	if startedFresh {
