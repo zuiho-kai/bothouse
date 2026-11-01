@@ -88,7 +88,7 @@ function New-DesktopShortcut {
     if (-not $NoChannel -and $ChannelUrl) { $arguments += " -ChannelUrl `"$ChannelUrl`"" }
     $link.Arguments = $arguments
     $link.WorkingDirectory = Split-Path -Parent $ScriptPath
-    if ($IconPath -and (Test-Path $IconPath)) { $link.IconLocation = $IconPath }
+    if ($IconPath -and (Test-Path $IconPath)) { $link.IconLocation = (Resolve-Path -LiteralPath $IconPath).Path }
     $link.Save()
     Write-Info "created shortcut: $linkPath"
 }
