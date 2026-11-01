@@ -101,7 +101,7 @@ func TestExternalEventsPausedRevokedAndPolicyBlocked(t *testing.T) {
 func TestExternalEventsPollWebhookShareIdentity(t *testing.T) {
 	_, e, a, _, ev := externalEngineFixture(t)
 	b, _ := json.Marshal(map[string]any{"task_events": []ExternalTaskEvent{ev}})
-	job := &CronJob{ID: "fixture", Exec: "printf %s " + shellQuote(string(b)), Poll: true}
+	job := &CronJob{ID: "fixture", Exec: "printf %s " + shellQuoteRelay(string(b)), Poll: true}
 	if wake, err := e.pollCronJob(job); err != nil || wake != nil {
 		t.Fatalf("poll wake=%+v err=%v", wake, err)
 	}
@@ -231,7 +231,7 @@ func TestExternalEventsNonCodeWaitDoesNotWakeUntilSatisfied(t *testing.T) {
 	ev.PayloadRef = "fixture:room-available"
 	ev.ActorKind = "system"
 	b, _ := json.Marshal(map[string]any{"task_events": []ExternalTaskEvent{ev}})
-	if wake, err := e.pollCronJob(&CronJob{ID: "wait", Exec: "printf %s " + shellQuote(string(b)), Poll: true}); err != nil || wake != nil {
+	if wake, err := e.pollCronJob(&CronJob{ID: "wait", Exec: "printf %s " + shellQuoteRelay(string(b)), Poll: true}); err != nil || wake != nil {
 		t.Fatalf("%+v %v", wake, err)
 	}
 	e.flushExternalTaskEvents()
