@@ -55,6 +55,13 @@ func (m *ManagementServer) handleProjectAuthorization(w http.ResponseWriter, r *
 			return
 		}
 		mgmtJSON(w, http.StatusOK, a.Policy())
+	case strings.HasPrefix(rest, "renew/") && r.Method == http.MethodPost:
+		id, err := e.RenewTaskAuthorization(strings.TrimPrefix(rest, "renew/"))
+		if err != nil {
+			mgmtError(w, http.StatusConflict, err.Error())
+			return
+		}
+		mgmtJSON(w, http.StatusOK, map[string]string{"decision_id": id})
 	case strings.HasPrefix(rest, "revoke/") && r.Method == http.MethodPost:
 		id := strings.TrimPrefix(rest, "revoke/")
 		if err = a.Revoke(id, "management:administrator"); err != nil {

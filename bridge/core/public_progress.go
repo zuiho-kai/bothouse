@@ -1064,6 +1064,13 @@ func (e *Engine) EnablePublicProgress() error {
 	p.checkAuthorization = e.CheckTaskAuthorization
 	p.syncAuthorizationNotices = e.SyncAuthorizationNotices
 	p.revokeAuthorization = e.revokeCancelledTask
+	e.SetExternalTaskEventCheck(e.checkExternalTaskAuthorization)
+	p.SetTaskTextCheck(func(ctx context.Context, task *Task, _ string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return e.CheckTaskAuthorization(task, "message.send")
+	})
 	p.waitTaskText = func(ctx context.Context, platform string) error {
 		if e.outgoingRL == nil {
 			return nil

@@ -17876,7 +17876,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 			// Only the wait timed out. The drain now owns both outstanding
 			// Send completion and events; team work stays busy until it ends.
 			draining = true
-			go e.drainRelaySession(agent, agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, nudge, completion)
+			go e.drainRelaySession(context.WithoutCancel(ctx), agent, agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, nudge, completion)
 			if quiet {
 				return strings.Join(textParts, ""), &relayDrainingError{ctx.Err()}
 			}
@@ -17968,11 +17968,15 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				}
 				return "", fmt.Errorf("agent error (no details)")
 			case EventPermissionRequest:
-				// Auto-approve all permissions in relay mode
-				_ = agentSession.RespondPermission(event.RequestID, PermissionResult{
+				// Preserve relay approval only while its source grant remains valid.
+				if err := respondTaskPermission(ctx, agentSession, event.RequestID, PermissionResult{
 					Behavior:     "allow",
 					UpdatedInput: event.ToolInputRaw,
-				})
+				}); err != nil {
+					agentSession.Close()
+					teamOutcome = teamWorkFailed
+					return "", err
+				}
 			}
 		}
 	}
@@ -18052,7 +18056,7 @@ var relayDrainSafety = 10 * time.Minute
 // auto-approves any permission requests, and then closes the session. A 10-minute
 // safety timeout prevents the goroutine from leaking if the agent hangs; task
 // relays leave that to the ten-minute watch (stop and nudge).
-func (e *Engine) drainRelaySession(agent Agent, agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, nudge <-chan string, completion []func(string, error)) {
+func (e *Engine) drainRelaySession(ctx context.Context, agent Agent, agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, nudge <-chan string, completion []func(string, error)) {
 	teamOutcome := teamWorkUnconfirmed
 	completionErr := fmt.Errorf("relay: background execution ended without a confirmed result")
 	defer func() {
@@ -18140,10 +18144,13 @@ func (e *Engine) drainRelaySession(agent Agent, agentSession AgentSession, sessi
 				agentSession.Close()
 				return
 			case EventPermissionRequest:
-				_ = agentSession.RespondPermission(ev.RequestID, PermissionResult{
-					Behavior:     "allow",
-					UpdatedInput: ev.ToolInputRaw,
-				})
+				if err := respondTaskPermission(ctx, agentSession, ev.RequestID, PermissionResult{
+					Behavior: "allow", UpdatedInput: ev.ToolInputRaw,
+				}); err != nil {
+					completionErr, teamOutcome = err, teamWorkFailed
+					agentSession.Close()
+					return
+				}
 			}
 		case <-stop:
 			textParts, response, resultReceived = relayTakeBuffered(events, textParts, response, resultReceived)

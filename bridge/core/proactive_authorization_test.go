@@ -233,3 +233,25 @@ func TestProactiveAuthorizationDiskFailureFailsClosed(t *testing.T) {
 		t.Fatal("failed write granted execution in memory")
 	}
 }
+
+func TestProactiveContextSourcesCannotBecomeAuthorization(t *testing.T) {
+	for _, source := range []string{"wiki", "gate", "context", "context_subscription", "context-only", " WIKI "} {
+		t.Run(source, func(t *testing.T) {
+			a, c := authorizationFixture(t, ProactiveAuto)
+			p := a.Policy()
+			p.Rules[0].Source = source
+			if err := a.ReplacePolicy(p.Version, p); err == nil {
+				t.Fatal("context source accepted in policy")
+			}
+			// Legacy/corrupt policy still cannot turn contextual material into authority.
+			a.mu.Lock()
+			a.state.Policy.Rules[0].Source = source
+			a.mu.Unlock()
+			c.Source = source
+			d, err := a.Evaluate(c)
+			if err != nil || d.Outcome != "denied" {
+				t.Fatalf("decision=%+v err=%v", d, err)
+			}
+		})
+	}
+}

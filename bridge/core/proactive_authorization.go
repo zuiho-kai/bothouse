@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -113,6 +114,7 @@ type authorizationState struct {
 	Assignments []AuthorizationAssignment        `json:"assignments"`
 	Revoked     map[string]string                `json:"revoked"`
 	Notices     []AuthorizationNotice            `json:"notices"`
+	Renewals    []AuthorizationRenewal           `json:"renewals,omitempty"`
 	Effects     map[string]AuthorizationEffect   `json:"effects"`
 }
 type ProactiveAuthorization struct {
@@ -148,6 +150,15 @@ func OpenProactiveAuthorization(path string) (*ProactiveAuthorization, error) {
 	}
 	return a, nil
 }
+
+// These are derived context, never an origin that can attest human authority.
+func contextualAuthorizationSource(source string) bool {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "wiki", "gate", "context", "context_subscription", "context-only":
+		return true
+	}
+	return false
+}
 func validateProactivePolicy(p ProactivePolicy) error {
 	if p.Mode != ProactiveOff && p.Mode != ProactiveObserve && p.Mode != ProactiveAuto {
 		return errors.New("invalid proactive mode")
@@ -171,7 +182,7 @@ func validateProactivePolicy(p ProactivePolicy) error {
 	}
 	rules := map[string]bool{}
 	for _, r := range p.Rules {
-		if r.ID == "" || rules[r.ID] || r.Source == "" || r.SessionKey == "" || r.EventKind == "" || !principals[r.Principal] || len(r.Scopes) == 0 {
+		if r.ID == "" || rules[r.ID] || r.Source == "" || contextualAuthorizationSource(r.Source) || r.SessionKey == "" || r.EventKind == "" || !principals[r.Principal] || len(r.Scopes) == 0 {
 			return errors.New("rule requires unique ID, source, bound principal, session, event kind and scopes")
 		}
 		rules[r.ID] = true
@@ -262,10 +273,13 @@ func authorizationEventKey(source, event string) string {
 func (a *ProactiveAuthorization) Evaluate(c ProactiveCandidate) (AuthorizationDecision, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	return a.evaluateLocked(c)
+}
+func (a *ProactiveAuthorization) evaluateLocked(c ProactiveCandidate) (AuthorizationDecision, error) {
 	p := a.state.Policy
 	d := AuthorizationDecision{EventID: c.EventID, Source: c.Source, EventKind: c.EventKind, Identity: c.Identity, SessionKey: c.SessionKey, Intent: c.Intent, PolicyVersion: p.Version, Outcome: "denied", Reason: "untrusted_candidate", CreatedAt: time.Now().UTC()}
 	switch {
-	case c.EventID == "" || c.Source == "" || !c.Authenticated || !c.Visible || c.ContextOnly || c.ActorKind != "human" || c.Identity.Platform == "" || c.Identity.UserID == "":
+	case c.EventID == "" || c.Source == "" || contextualAuthorizationSource(c.Source) || !c.Authenticated || !c.Visible || c.ContextOnly || c.ActorKind != "human" || c.Identity.Platform == "" || c.Identity.UserID == "":
 	case c.Intent == "explicit":
 		d.Outcome = "explicit_path"
 		d.Reason = "existing_permission_checks_required"

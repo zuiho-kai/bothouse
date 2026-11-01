@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestProactivePermissionRechecksAfterCallerLeaves(t *testing.T) {
@@ -63,5 +64,47 @@ func TestProactivePermissionPreservesExplicitApproval(t *testing.T) {
 	}
 	if session.lastResult.Behavior != "allow" {
 		t.Fatal("explicit approval changed")
+	}
+}
+
+type proactivePermissionSession struct {
+	*controllableAgentSession
+	permissions chan PermissionResult
+}
+
+func (s *proactivePermissionSession) RespondPermission(_ string, result PermissionResult) error {
+	s.permissions <- result
+	return nil
+}
+
+func TestProactiveRelayDrainDeniesStalePermission(t *testing.T) {
+	p, _, _, id := taskRelayFixture(t)
+	e := NewEngine("source", &stubAgent{}, nil, "", LangEnglish)
+	e.publicProgress = p
+	a, d := authorizeFixtureTask(t, e, id, []string{"tool.execute"})
+	task, _ := p.Task(id)
+	ctx := withProactiveExecution(context.Background(), e, task)
+	if err := a.Revoke(d.ID, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	s := &proactivePermissionSession{controllableAgentSession: newControllableSession("drain"), permissions: make(chan PermissionResult, 1)}
+	s.events <- Event{Type: EventPermissionRequest, RequestID: "after-stop"}
+	ended := make(chan teamWorkOutcome, 1)
+	go e.drainRelaySession(ctx, nil, s, &Session{}, NewSessionManager(""), "stub", "relay:key", func(o teamWorkOutcome) { ended <- o }, s.Events(), nil, false, "", nil, nil, nil, nil)
+	select {
+	case outcome := <-ended:
+		if outcome != teamWorkFailed {
+			t.Fatalf("outcome: %v", outcome)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("drain did not stop on denied grant")
+	}
+	select {
+	case result := <-s.permissions:
+		if result.Behavior != "deny" {
+			t.Fatal("drain allowed withdrawn tool")
+		}
+	default:
+		t.Fatal("backend never received denial")
 	}
 }
