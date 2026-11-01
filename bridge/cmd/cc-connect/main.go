@@ -966,6 +966,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	engine.SetShowQuotaStatus(proj.ShowQuotaStatus == nil || *proj.ShowQuotaStatus)
 	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy != nil && *proj.InjectSubagentPolicy)
 	engine.SetAgentIdentityEnabled(proj.AgentIdentityEnabled())
+	engine.SetTeamModeRulesEnabled(proj.InjectTeamRules == nil || *proj.InjectTeamRules)
 	engine.SetReplyFooterEnabled(showFooter)
 	engine.SetAttachmentSendEnabled(cfg.AttachmentSend != "off")
 	engine.SetFilterExternalSessions(proj.FilterExternalSessions != nil && *proj.FilterExternalSessions)
@@ -1952,6 +1953,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	engine.SetShowQuotaStatus(proj.ShowQuotaStatus == nil || *proj.ShowQuotaStatus)
 	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy != nil && *proj.InjectSubagentPolicy)
 	engine.SetAgentIdentityEnabled(proj.AgentIdentityEnabled())
+	engine.SetTeamModeRulesEnabled(proj.InjectTeamRules == nil || *proj.InjectTeamRules)
 	engine.SetReplyFooterEnabled(showFooter)
 
 	// Reload auto-compress settings

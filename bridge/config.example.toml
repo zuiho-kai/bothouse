@@ -775,6 +775,7 @@ name = "my-backend"
 #                                   # 查不到额度时不显示「暂不可查询/暂无数据/查询中/查询失败」，什么都不显示（默认 true 显示）
 # inject_agent_identity = false   # default true; false when the persona file already states identity.
 # inject_subagent_policy = true    # Prefix each turn with the bridge delegation policy (subagents only on explicit human consent; default: false = off)
+# inject_team_rules = false       # default true; false for a chat persona outside the team channels (e.g. a QQ character): skips the per-turn team-mode rules.
 #                                   # 不再在每轮请求前加「子 agent 委派策略」（默认 true 加）
 # disabled_commands = ["restart", "upgrade", "cron"]  # Disable specific commands for this project
 #                                                     # 禁用该项目的指定命令
@@ -1685,6 +1686,17 @@ app_secret = "your-feishu-app-secret"
 # [projects.agent.options]
 # work_dir = "/path/to/project"
 # mode = "suggest"  # "suggest" | "auto-edit" | "full-auto" | "yolo"
+#
+# Optional: isolate bot sessions from Codex desktop (exec and app_server).
+# 可选：将机器人会话与桌面 Codex 隔离（exec 和 app_server 均支持）。
+# codex_home = "/absolute/path/to/.bothouse/codex-home/my-codex-project"
+# Use an absolute path; prepare login/config there, then restart bothouse.
+# 使用绝对路径；先在该目录准备登录和配置，再重启 bothouse。
+# Unset: inherit CODEX_HOME, otherwise use ~/.codex (may share desktop sessions).
+# 不填：继承 CODEX_HOME，否则用 ~/.codex（可能与桌面共用会话）。
+# Existing history is not moved automatically; check copied config's sqlite_home.
+# 旧会话不会自动迁移；复制 Codex 配置时也要检查 sqlite_home。
+# See / 详见: ../docs/codex-session-isolation.md
 #
 # Mode options / 模式说明:
 # - "suggest":   ask permission for every tool call (default, safest) / 每次调用都需确认（默认，最安全）
