@@ -71,7 +71,7 @@ func TestReportPostedAskStillQueuesLead(t *testing.T) {
 	item := &teamTaskBoardItem{ID: 46, What: "等待决定"}
 	body := "[ask] #46 背景：需要确认方向\n做了什么：完成比较\n要你做的：选择方案\n我加的：无"
 	post := func() {
-		e.postExitHeadline(p, "discord:chat1", "chat1", "ws1", "橘", exitKindAsk, body, exitWSKey, 46, "需要确认方向", item)
+		e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindAsk, body, exitWSKey, 46, "需要确认方向", item)
 	}
 	post()
 	jobs := store.List()
@@ -162,7 +162,7 @@ func TestHeadlinePostFailureFallsBackToOriginal(t *testing.T) {
 	e, p := reportFixture(t)
 	p.failSends = 1
 	item := &teamTaskBoardItem{ID: 5, Who: "orange", What: "改桥"}
-	e.postExitHeadline(p, "discord:chat1", "chat1", "ws1", "橘", exitKindReport,
+	e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindReport,
 		"[report] #5 看门修复完成\n细节留在工作区", exitWSKey, 5, "看门修复完成", item)
 
 	sent := p.sentTo("discord:chat1")
@@ -177,7 +177,7 @@ func TestHeadlineFallbackFailureKeepsRecord(t *testing.T) {
 	e, p := reportFixture(t)
 	p.failSends = 2
 	item := &teamTaskBoardItem{ID: 6, Who: "orange", What: "改桥"}
-	e.postExitHeadline(p, "discord:chat1", "chat1", "ws1", "橘", exitKindReport,
+	e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindReport,
 		"[report] #6 看门修复完成\n细节留在工作区", exitWSKey, 6, "看门修复完成", item)
 	if got := p.sentTo("discord:chat1"); len(got) != 0 {
 		t.Fatalf("unexpected post while both sends fail: %#v", got)
@@ -438,7 +438,7 @@ func TestReportDeliveryLeavesPendingVerification(t *testing.T) {
 			rec.Board = 46
 			switch mode {
 			case "headline":
-				e.postExitHeadline(p, "discord:chat1", "chat1", "ws1", "橘", exitKindReport, rec.Body, exitWSKey, 46, "结果已交回", &item)
+				e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindReport, rec.Body, exitWSKey, 46, "结果已交回", &item)
 			case "enqueue-failure":
 				e.queueReportWake(&TimerJob{}, rec, func(*TimerJob) error { return errors.New("queue unavailable") })
 			default:
@@ -599,5 +599,50 @@ func TestReportConcurrentSettlementSendsOnce(t *testing.T) {
 	<-done
 	if got := p.sentTo("discord:chat1"); len(got) != 1 {
 		t.Fatalf("overlapping settlements posted %d copies", len(got))
+	}
+}
+
+// A persisted handback must retain its source authority across restart.
+func TestReportRecoveryPreservesSourceAuthorization(t *testing.T) {
+	for _, revoke := range []bool{false, true} {
+		name := "allowed"
+		if revoke {
+			name = "revoked"
+		}
+		t.Run(name, func(t *testing.T) {
+			e, a, d, ctx := proactiveOutputFixture(t)
+			defer e.Stop()
+			e.dataDir = t.TempDir()
+			p := &reportTestPlatform{exitTestPlatform: exitTestPlatform{
+				inputTestPlatform: inputTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}},
+			}, failSends: 2}
+			e.platforms = []Platform{p}
+			item := &teamTaskBoardItem{ID: 46, What: "报告恢复"}
+			body := "[report] #46 背景：报告恢复\n做了什么：完成比较\n要你做的：没有\n我加的：无"
+			e.postExitHeadline(ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindReport, body, exitWSKey, item.ID, "报告恢复", item)
+			if got := p.sentTo("discord:chat1"); len(got) != 0 {
+				t.Fatalf("rejected output unexpectedly sent: %v", got)
+			}
+			if revoke {
+				if err := a.Revoke(d.ID, "human:stop"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Reload the report file in a new engine; keep the source ledger.
+			restarted := NewEngine(e.name, &stubAgent{}, []Platform{p}, "", LangEnglish)
+			defer restarted.Stop()
+			restarted.dataDir = e.dataDir
+			restarted.publicProgress = e.publicProgress
+			restarted.proactiveAuthorization = a
+			restarted.recoverPendingReports(false)
+			restarted.recoverPendingReports(false)
+			want := 1
+			if revoke {
+				want = 0
+			}
+			if got := len(p.sentTo("discord:chat1")); got != want {
+				t.Fatalf("restart delivered %d reports, want %d (revoked=%v)", got, want, revoke)
+			}
+		})
 	}
 }

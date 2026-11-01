@@ -60,6 +60,11 @@ func (p *PublicProgress) resumeHint(token string) (taskID string, resumeSeq int6
 		return "", 0, "", "", false
 	}
 	r.mu.Lock()
+	if r.boundTaskID != "" {
+		t := r.record.Task
+		defer r.mu.Unlock()
+		return t.ID, r.record.LastSeq + 1, t.State, t.Title, true
+	}
 	cand := r.candidate
 	r.mu.Unlock()
 	if cand == nil {
@@ -117,6 +122,12 @@ func (p *PublicProgress) lockReportRun(r *publicRun, req PublicProgressRequest) 
 		}
 		return nil, errors.New("card cannot be continued with this sequence")
 	}
+	if p.checkAuthorization != nil {
+		if err := p.checkAuthorization(cand.record.Task, "task.resume"); err != nil {
+			cand.mu.Unlock()
+			return nil, err
+		}
+	}
 	return cand, nil
 }
 
@@ -135,6 +146,12 @@ func (p *PublicProgress) lockAdoptedRun(lead, card *publicRun, req PublicProgres
 		!resumableTask(card.record.Task, card.record.Accepted, time.Now()) {
 		card.mu.Unlock()
 		return nil, errors.New("task is not active for this run and session")
+	}
+	if p.checkAuthorization != nil {
+		if err := p.checkAuthorization(card.record.Task, "task.resume"); err != nil {
+			card.mu.Unlock()
+			return nil, err
+		}
 	}
 	return card, nil
 }

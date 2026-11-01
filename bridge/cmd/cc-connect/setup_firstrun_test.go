@@ -138,6 +138,8 @@ func TestSetupHelperProcess(t *testing.T) {
 	switch mode {
 	case "setup":
 		runSetup(args)
+	case "module":
+		runModule(args)
 	case "wizard":
 		rec := os.Getenv("CONEST_TEST_OPENED")
 		openBrowserFn = func(u string) error { return os.WriteFile(rec, []byte(u), 0o600) }

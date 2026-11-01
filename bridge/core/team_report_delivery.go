@@ -37,6 +37,8 @@ const (
 
 // pendingReport is one workspace handback that still needs a user-visible post.
 type pendingReport struct {
+	// Preserve the source grant when a failed headline is retried after restart.
+	Authorization *AuthorizationTurn `json:"authorization,omitempty"`
 	// sending serializes a finishing turn and recovery sweep for this record;
 	// it is process-local so a restart can retry an interrupted delivery.
 	sending     bool
@@ -336,6 +338,10 @@ func (e *Engine) completeReportDelivery(rec *pendingReport) {
 // deliverPendingReport posts the handback as the 📬 record, so the user still sees it when the
 // lead's turn had nothing to say or the platform rejected that turn's send.
 func (e *Engine) deliverPendingReport(rec *pendingReport) error {
+	ctx, err := e.turnOutputContext(rec.Authorization)
+	if err != nil {
+		return fmt.Errorf("restore report authority: %w", err)
+	}
 	var p Platform
 	for _, x := range e.platforms {
 		if x != nil && x.Name() == rec.Platform {
@@ -354,7 +360,7 @@ func (e *Engine) deliverPendingReport(rec *pendingReport) error {
 	if err != nil {
 		return fmt.Errorf("chat %s unreachable: %w", rec.Chat, err)
 	}
-	_, err = e.postExitOriginalErr(p, rc, rec.Chat, rec.Workspace, rec.Bot, rec.Kind, rec.Body, rec.Session, "")
+	_, err = e.postExitOriginalErr(ctx, p, rc, rec.Chat, rec.Workspace, rec.Bot, rec.Kind, rec.Body, rec.Session, "")
 	return err
 }
 

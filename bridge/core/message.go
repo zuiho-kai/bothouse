@@ -362,6 +362,7 @@ type LocationAttachment struct {
 
 // Message represents a unified incoming message from any platform.
 type Message struct {
+	authorization *AuthorizationTurn
 	SessionKey    string // unique key for user context, e.g. "feishu:{chatID}:{userID}"
 	Platform      string
 	MessageID     string // platform message ID for tracing

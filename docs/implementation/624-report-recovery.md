@@ -30,3 +30,13 @@ TestCUJ_ReportWakeDeliveryReceipt 从 ReceiveMessage 经 fake agent 的 EventRes
 平台成功只代表接受发送，不证明用户已读或已验收。平台接受后、送达状态落盘前崩溃仍可能重复投递；普通 Platform.Send 无幂等回执，不声称跨崩溃 exactly-once。多分片原文部分成功后失败，重试也可能重发已成功片段。
 
 持久化失败记录错误，不能保证重启恢复。回滚本 PR 撤销此恢复链路，旧记录保留。未部署、未重启、未改生产配置、未做真实频道端到端验证。
+
+## 2026-11-02 develop 冲突整合
+
+基线从 88b3f7f4 更新至 develop 34ea70a374fad3affd3069027676e17af1fe52a1；此前返工头为 26205723bcc50ffce495958f7af9b49aa24737dc。engine.go 同时保留报告 timer 身份、提前退出结算及授权观察/逐次发送校验；team_auto_return.go 保留授权绑定回传不得创建无授权 timer 的规则，并传递 posted/headline；team_exit.go 的摘要、即时兜底和分片发送沿用授权 context。
+
+仅消解文本冲突会使恢复扫描使用普通 engine context，导致被撤销的报告重新发出。TestReportRecoveryPreservesSourceAuthorization 在该合并状态先红：restart delivered 1 reports, want 0 (revoked=true)。待发记录现在保存 AuthorizationTurn 的来源项目、任务及决定引用，恢复时用现有 turnOutputContext 重新解析；每片发送仍由 sendRenderedWithContext 检查当前授权。新引擎读回记录后，有效授权恰好补送一次，撤销授权不补送；定向回归 0.605s 通过。该修改只衔接双方现有语义，无新增设置或参数。
+
+验收范围缺口仍在：posted ask 已送达后走普通主角色 TimerStore；若 AddJob 写盘失败或主角色不可用，缺少持久唤醒重试，因此可能永久漏唤醒。不能因为改前也失败就豁免原要求，也不能称失败重试全场景通过。此轮未改该逻辑，交主区连同冲突增量安排非作者复审并决定后续修复；在缺口解决或明确调整验收前，不宣称总任务完成。
+
+本轮复用旧全量证据，另跑冲突相关 Report/Headline/CUJ/ChatLead/Proactive/Capacity/Timer race 回归和 vet；最终结果见 PR 和交接。未自验收、未合并、未部署、未重启，未发送真实平台验收消息。
