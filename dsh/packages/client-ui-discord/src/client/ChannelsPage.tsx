@@ -284,7 +284,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, search, jumpTo, openModelSettings, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
   const [editing, setEditing] = useState<{ id: number; text: string } | undefined>(undefined)
@@ -414,7 +414,36 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   const openMessage = (roomId: number, messageId: number): void => {
     setDrawer(undefined)
     setJump({ roomId, messageId })
-    if (roomId !== state.roomId) void selectRoom(roomId)
+    // #147: the hit may be far older than the newest page, so load from it forward.
+    void jumpTo(roomId, messageId)
+  }
+
+  // #147: history search. The panel keeps its own state so a search never touches the draft.
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchScope, setSearchScope] = useState<'all' | 'room'>('all')
+  const [searchMember, setSearchMember] = useState('')
+  const [searchHits, setSearchHits] = useState<readonly ChannelMessage[] | undefined>(undefined)
+  const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState<string | undefined>(undefined)
+  const runSearch = async (): Promise<void> => {
+    const query = searchQuery.trim()
+    if (query === '') {
+      setSearchHits(undefined)
+      return
+    }
+    setSearching(true)
+    setSearchError(undefined)
+    try {
+      setSearchHits(await search(query, {
+        roomId: searchScope === 'room' ? state.roomId : undefined,
+        member: searchMember === '' ? undefined : searchMember,
+      }))
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSearching(false)
+    }
   }
 
   if (state.phase !== 'ready') {
@@ -653,9 +682,51 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           <button type="button" className={css.mobileButton} aria-label={t('showRooms')} aria-expanded={drawer === 'rooms'} onClick={() => setDrawer(drawer === 'rooms' ? undefined : 'rooms')}>☰</button>
           <button type="button" className={css.panelToggle} title={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-label={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-expanded={!roomsHidden} onClick={() => { setRoomsHidden(!roomsHidden) }}>{roomsHidden ? '»' : '«'}</button>
           <span className={css.hash} aria-hidden>#</span><span className={css.roomName}>{room?.name}</span>
+          <button type="button" className={css.panelToggle} title={t('search')} aria-label={t('search')} aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen) }}>⌕</button>
           <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
           <button type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
         </header>
+        {searchOpen && (
+          <div className={css.searchPanel} role="search">
+            <div className={css.searchBar}>
+              <input
+                className={css.searchInput}
+                type="search"
+                value={searchQuery}
+                placeholder={t('searchPlaceholder')}
+                aria-label={t('searchPlaceholder')}
+                autoFocus
+                onChange={event => setSearchQuery(event.target.value)}
+                onKeyDown={(event) => { if (event.key === 'Enter' && !isImeEnter(event)) void runSearch() }}
+              />
+              <select className={css.searchSelect} value={searchScope} aria-label={t('searchScope')} onChange={(event) => { setSearchScope(event.target.value === 'room' ? 'room' : 'all'); if (searchQuery.trim() !== '') void runSearch() }}>
+                <option value="all">{t('searchAllRooms')}</option>
+                <option value="room">{t('searchThisRoom')}</option>
+              </select>
+              <select className={css.searchSelect} value={searchMember} aria-label={t('searchMember')} onChange={(event) => { setSearchMember(event.target.value); if (searchQuery.trim() !== '') void runSearch() }}>
+                <option value="">{t('searchAnyone')}</option>
+                {visibleMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+              <button type="button" className={css.searchButton} onClick={() => { void runSearch() }}>{t('search')}</button>
+            </div>
+            {searching && <div className={css.searchNotice} role="status">{t('loading')}</div>}
+            {!searching && searchError !== undefined && <div className={css.searchNotice} role="alert">{searchError}</div>}
+            {!searching && searchError === undefined && searchHits !== undefined && (searchHits.length === 0
+              ? <div className={css.searchNotice}>{t('searchEmpty')}</div>
+              : <ul className={css.searchResults}>
+                  {searchHits.map(hit => (
+                    <li key={hit.id}>
+                      <button type="button" className={css.searchHit} onClick={() => { openMessage(hit.room_id, hit.id) }}>
+                        <span className={css.searchHitHead}>
+                          #{state.rooms.find(r => r.id === hit.room_id)?.name ?? hit.room_id} · {hit.name} · {new Date(hit.created_at * 1000).toLocaleString()}
+                        </span>
+                        <span className={css.searchHitText}>{hit.text.length > 160 ? `${hit.text.slice(0, 160)}…` : hit.text}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>)}
+          </div>
+        )}
         <div
           ref={logRef}
           className={css.log}

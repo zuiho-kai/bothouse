@@ -1507,3 +1507,17 @@
   max-width: 100%;
   overflow-x: auto;
 }
+
+/* #147: history search panel, under the channel title bar. */
+.searchPanel { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-bottom: 1px solid var(--dsw-alias-border-subtle); background: var(--dsw-alias-bg-secondary); max-height: 45vh; overflow-y: auto; }
+.searchBar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.searchInput { flex: 1 1 160px; min-width: 120px; height: 28px; padding: 0 8px; border: 1px solid var(--dsw-alias-border-subtle); border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-primary); color: var(--dsw-alias-label-primary); font: inherit; }
+.searchSelect { height: 28px; border: 1px solid var(--dsw-alias-border-subtle); border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-primary); color: var(--dsw-alias-label-primary); font: inherit; }
+.searchButton { height: 28px; padding: 0 12px; border: 0; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); font: inherit; cursor: pointer; }
+.searchButton:hover { background: var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover)); }
+.searchNotice { padding: 6px 2px; color: var(--dsw-alias-label-tertiary); font-size: 0.9em; }
+.searchResults { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.searchHit { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 6px 8px; border: 0; border-radius: var(--dsw-radius-sm); background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.searchHit:hover, .searchHit:focus-visible { background: var(--dsw-alias-interactive-bg-hover); }
+.searchHitHead { color: var(--dsw-alias-label-tertiary); font-size: 0.85em; }
+.searchHitText { color: var(--dsw-alias-label-primary); overflow-wrap: anywhere; }

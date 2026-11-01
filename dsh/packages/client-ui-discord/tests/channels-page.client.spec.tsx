@@ -1000,4 +1000,18 @@ describe('multi-line messages and the narrow composer', () => {
     expect(input).toContain('min-width: 0')
     expect(cssText()).toMatch(/@media \(max-width: 600px\) \{\n {2}\.composer \{ padding: 0 8px 8px; \}/)
   })
+
+  it('searches history from the header and jumps to the hit (#147)', async () => {
+    const hit = { id: 9, room_id: 2, author_kind: 'role', author: 'ju', name: '橘', text: 'PR #161 已合进 develop', created_at: 1, card: null, from_turn: null }
+    const search = vi.fn(async () => [hit])
+    const jumpTo = vi.fn(async () => {})
+    render(<ChannelsPage {...props({ ...ready, messages: [] })} search={search} jumpTo={jumpTo} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.search }))
+    const input = screen.getByLabelText(zh.searchPlaceholder) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '161' } })
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    expect(search).toHaveBeenCalledWith('161', { roomId: undefined, member: undefined })
+    await act(async () => { fireEvent.click(screen.getByText('PR #161 已合进 develop').closest('button')!) })
+    expect(jumpTo).toHaveBeenCalledWith(2, 9)
+  })
 })

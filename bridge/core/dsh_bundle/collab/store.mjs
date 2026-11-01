@@ -695,6 +695,23 @@ export class Store {
   /** Up to `limit` messages after `afterId` (exclusive), oldest first. */
   since(roomId, afterId, limit) { return this.q.after.all(roomId, afterId ?? 0, clampLimit(limit)); }
 
+  /**
+   * #147: messages whose text contains `query`, newest first. `roomId` and
+   * `member` narrow the search; drafts (an uncommitted streamed reply) and
+   * deleted messages never match. An empty query matches nothing, so an empty
+   * box does not dump the whole history.
+   */
+  search(query, { roomId, member, limit } = {}) {
+    const needle = String(query ?? '').trim();
+    if (needle === '') return [];
+    const where = ["deleted = 0", 'draft = 0', "text LIKE ? ESCAPE '\\'"];
+    const args = [`%${needle.replace(/[\\%_]/g, c => `\\${c}`)}%`];
+    if (Number.isInteger(roomId)) { where.push('room_id = ?'); args.push(roomId); }
+    if (typeof member === 'string' && member !== '') { where.push('(author = ? OR name = ?)'); args.push(member, member); }
+    args.push(clampLimit(limit));
+    return this.db.prepare(`SELECT * FROM messages WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ?`).all(...args);
+  }
+
   /** Agent messages posted since the last human message, up to and including messageId. */
   relayDepth(roomId, messageId) { return this.q.relay.get(roomId, messageId, roomId, messageId).n; }
 

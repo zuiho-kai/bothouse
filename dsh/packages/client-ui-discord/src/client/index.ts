@@ -66,6 +66,8 @@ export function apply(ctx: ClientContext): void {
     retryMessage: channels.actions.retryMessage,
     editMessage: channels.actions.editMessage,
     withdrawMessage: channels.actions.withdrawMessage,
+    search: channels.actions.search,
+    jumpTo: channels.actions.jumpTo,
   })
   ctx.slots.inject('main', () => {
     let currentStore: SettingsStore | undefined

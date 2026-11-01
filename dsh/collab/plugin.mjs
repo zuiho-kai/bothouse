@@ -262,6 +262,16 @@ export async function apply(ctx, rawConfig) {
         : store.page(roomId, before === null ? undefined : Number(before), url.searchParams.get('limit'));
       return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
     }
+    // #147: history search over stored messages; `room` and `member` narrow it.
+    if (path === '/collab/api/search' && req.method === 'GET') {
+      const room = url.searchParams.get('room');
+      const rows = store.search(url.searchParams.get('q') ?? '', {
+        roomId: room === null ? undefined : Number(room),
+        member: url.searchParams.get('member') ?? undefined,
+        limit: url.searchParams.get('limit'),
+      });
+      return json(res, 200, { hits: rows.map(r => publicMessage(r, store)) });
+    }
     const settings = roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePath: config.workspacePath });
     if (settings !== undefined) return settings;
     const renamed = renameRoomRoute(req, res, path, { store, hub, dsh });

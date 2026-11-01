@@ -476,3 +476,36 @@ it('sends an explicit owner review and updates the task from the API response', 
   expect(calls).toContain('POST /collab/api/tasks/1/review')
   unsubscribe()
 })
+
+it('searches history with room and member filters in the request (#147)', async () => {
+  const { transport, calls } = fakeTransport((url) => {
+    if (url === '/collab/api/state') return json(200, state)
+    if (url.startsWith('/collab/api/search')) return json(200, { hits: [message(7, 'PR #161 已合', 2)] })
+    return json(200, { messages: [] })
+  })
+  const { source, actions } = createChannelSource(transport)
+  const unsubscribe = source.subscribe(() => {})
+  await vi.waitFor(() => expect(source.getSnapshot().roomId).toBe(1))
+  const hits = await actions.search('161', { roomId: 2, member: 'ds' })
+  expect(hits.map(m => m.id)).toEqual([7])
+  expect(calls).toContain('GET /collab/api/search?q=161&room=2&member=ds')
+  unsubscribe()
+})
+
+it('jump loads the hit and everything after it, then switches room (#147)', async () => {
+  const { transport } = fakeTransport((url) => {
+    if (url === '/collab/api/state') return json(200, state)
+    if (url === '/collab/api/rooms/2/messages?before=6&limit=100') {
+      return json(200, { messages: [message(4, 'older', 2), message(5, 'hit', 2)] })
+    }
+    if (url === '/collab/api/rooms/2/messages?after=5&limit=200') return json(200, { messages: [message(6, 'newest', 2)] })
+    return json(200, { messages: [] })
+  })
+  const { source, actions } = createChannelSource(transport)
+  const unsubscribe = source.subscribe(() => {})
+  await vi.waitFor(() => expect(source.getSnapshot().roomId).toBe(1))
+  await actions.jumpTo(2, 5)
+  expect(source.getSnapshot().roomId).toBe(2)
+  expect(source.getSnapshot().messages.map(m => m.id)).toEqual([4, 5, 6])
+  unsubscribe()
+})

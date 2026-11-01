@@ -304,6 +304,10 @@ export interface ChannelActions {
   editMessage(messageId: number, text: string): Promise<void>
   /** Withdraw a message you wrote (#148); stopped names members whose running turn on it was cancelled, stillRunning those it could not reach. */
   withdrawMessage(messageId: number): Promise<{ readonly stopped: readonly string[]; readonly stillRunning: readonly string[] }>
+  /** Search stored messages (#147); newest first. `roomId` and `member` narrow it. */
+  search(query: string, options?: { readonly roomId?: number; readonly member?: string; readonly limit?: number }): Promise<readonly ChannelMessage[]>
+  /** Open a room and load the messages from `messageId` up to the newest (#147), so the jump target is on screen. */
+  jumpTo(roomId: number, messageId: number): Promise<void>
 }
 
 /** Decisions a permission prompt accepts (dsh/collab/cloudweb.mjs PERM_DECISIONS). */
@@ -909,6 +913,41 @@ export function createChannelSource(transport: ChannelTransport): {
       const { stopped, still_running } = await request<{ stopped?: string[]; still_running?: string[] }>(`collab/api/messages/${messageId}`, { method: 'DELETE' })
       if (lifetime === owner && roomId !== undefined) onEvent({ type: 'deleted', id: messageId, room_id: roomId })
       return { stopped: stopped ?? [], stillRunning: still_running ?? [] }
+    },
+    async search(query, options) {
+      const params = new URLSearchParams({ q: query })
+      if (options?.roomId !== undefined) params.set('room', String(options.roomId))
+      if (options?.member !== undefined) params.set('member', options.member)
+      if (options?.limit !== undefined) params.set('limit', String(options.limit))
+      const { hits } = await request<{ hits: ChannelMessage[] }>(`collab/api/search?${params.toString()}`)
+      return hits
+    },
+    async jumpTo(roomId, messageId) {
+      if (snapshot.roomId !== roomId) await selectRoom(roomId)
+      const owner = lifetime
+      // The window that ends at the hit, plus everything after it, so the reader
+      // lands on the matched message and can scroll both ways from there.
+      const { messages: window } = await request<{ messages: ChannelMessage[] }>(
+        `collab/api/rooms/${roomId}/messages?before=${messageId + 1}&limit=${PAGE_SIZE}`,
+      )
+      const rows = [...window]
+      let after: number | undefined = messageId
+      while (after !== undefined) {
+        const { messages } = await request<{ messages: ChannelMessage[] }>(
+          `collab/api/rooms/${roomId}/messages?after=${after}&limit=${CATCH_UP_LIMIT}`,
+        )
+        rows.push(...messages)
+        if (messages.length < CATCH_UP_LIMIT) break
+        const next = messages.at(-1)?.id
+        after = next !== undefined && next > after ? next : undefined
+      }
+      if (lifetime !== owner || snapshot.roomId !== roomId) return
+      const merged = new Map<number, ChannelMessage>(snapshot.messages.map(m => [m.id, m]))
+      for (const row of rows) merged.set(row.id, row)
+      set({
+        messages: [...merged.values()].sort((a, b) => a.id - b.id),
+        hasMoreOlder: window.length >= PAGE_SIZE,
+      })
     },
   }
 

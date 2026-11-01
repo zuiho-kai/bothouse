@@ -209,6 +209,14 @@ export const zh = {
   replyingTo: '回复 {name}',
   replyDeleted: '原消息已删除',
   cancelReply: '取消回复',
+  search: '搜索',
+  searchPlaceholder: '搜索历史消息',
+  searchScope: '搜索范围',
+  searchAllRooms: '全部频道',
+  searchThisRoom: '当前频道',
+  searchMember: '按成员筛选',
+  searchAnyone: '所有人',
+  searchEmpty: '没有匹配的消息',
 } as const
 
 /** English dictionary. */
@@ -416,6 +424,14 @@ export const en: Record<keyof typeof zh, string> = {
   replyingTo: 'Replying to {name}',
   replyDeleted: 'Original message was deleted',
   cancelReply: 'Cancel reply',
+  search: 'Search',
+  searchPlaceholder: 'Search messages',
+  searchScope: 'Search scope',
+  searchAllRooms: 'All channels',
+  searchThisRoom: 'This channel',
+  searchMember: 'Filter by member',
+  searchAnyone: 'Anyone',
+  searchEmpty: 'No matching messages',
 }
 
 /** Keys of the channel panel dictionary. */

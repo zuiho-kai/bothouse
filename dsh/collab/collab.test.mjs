@@ -69,6 +69,33 @@ test('store: client keys dedupe, pages are oldest-first, jobs are created and fi
   assert.throws(() => s.setDispatchMode(1, 'bad'), /dispatch mode/);
 });
 
+test('store: history search matches text, narrows by room and member, skips drafts and deleted rows (#147)', () => {
+  const s = new Store(':memory:');
+  s.ensureRoom(1, 'general');
+  s.ensureRoom(2, 'other');
+  const first = s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'PR #161 已合进 develop' }).message;
+  s.append(1, { authorKind: 'role', author: 'ds', name: '肥鱼', text: '结论写在 PR #161 的第二条评论' });
+  s.append(2, { authorKind: 'role', author: 'cc', name: 'C酱', text: 'PR #161 还要再看一眼' });
+  s.append(2, { authorKind: 'role', author: 'cc', name: 'C酱', text: 'PR #161 正在写', draft: true });
+  const gone = s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'PR #161 的旧版本' }).message;
+  s.remove(gone.id, 'user', 'owner');
+  s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: '进度 100% 完成' });
+
+  // Newest first; the uncommitted draft and the deleted row never match.
+  assert.deepEqual(s.search('161').map(m => m.text), [
+    'PR #161 还要再看一眼', '结论写在 PR #161 的第二条评论', 'PR #161 已合进 develop']);
+  assert.deepEqual(s.search('#161', { roomId: 2 }).map(m => m.text), ['PR #161 还要再看一眼']);
+  assert.equal(s.search('#161', { roomId: 1 }).length, 2);
+  assert.deepEqual(s.search('161', { member: 'ds' }).map(m => m.text), ['结论写在 PR #161 的第二条评论']);
+  assert.deepEqual(s.search('161', { member: '肥鱼' }).map(m => m.text), ['结论写在 PR #161 的第二条评论']);
+  assert.deepEqual(s.search('PR #161 正在写'), []);
+  assert.deepEqual(s.search('   '), []);
+  // LIKE wildcards in the query are literal text, not patterns.
+  assert.deepEqual(s.search('100%').map(m => m.text), ['进度 100% 完成']);
+  assert.deepEqual(s.search('100_'), []);
+  assert.equal(first.id, 1);
+});
+
 test('channel rename API: emits fresh rooms and returns HTTP 400 for invalid names and workspaces', async () => {
   const { Readable } = await import('node:stream');
   const hub = makeHub();

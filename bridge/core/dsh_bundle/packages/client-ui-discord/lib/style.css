@@ -1717,3 +1717,101 @@
   max-width: 100%;
   overflow-x: auto;
 }
+
+.dshc_searchPanel {
+  border-bottom: 1px solid var(--dsw-alias-border-subtle);
+  background: var(--dsw-alias-bg-secondary);
+  flex-direction: column;
+  gap: 6px;
+  max-height: 45vh;
+  padding: 8px;
+  display: flex;
+  overflow-y: auto;
+}
+
+.dshc_searchBar {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  display: flex;
+}
+
+.dshc_searchInput {
+  border: 1px solid var(--dsw-alias-border-subtle);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-primary);
+  min-width: 120px;
+  height: 28px;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  flex: 160px;
+  padding: 0 8px;
+}
+
+.dshc_searchSelect {
+  border: 1px solid var(--dsw-alias-border-subtle);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-primary);
+  height: 28px;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+}
+
+.dshc_searchButton {
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-interactive-bg-hover);
+  height: 28px;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  cursor: pointer;
+  border: 0;
+  padding: 0 12px;
+}
+
+.dshc_searchButton:hover {
+  background: var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover));
+}
+
+.dshc_searchNotice {
+  color: var(--dsw-alias-label-tertiary);
+  padding: 6px 2px;
+  font-size: .9em;
+}
+
+.dshc_searchResults {
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+}
+
+.dshc_searchHit {
+  border-radius: var(--dsw-radius-sm);
+  width: 100%;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  display: flex;
+}
+
+.dshc_searchHit:hover, .dshc_searchHit:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dshc_searchHitHead {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: .85em;
+}
+
+.dshc_searchHitText {
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
