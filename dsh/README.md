@@ -118,3 +118,15 @@ corepack pnpm run build:artifacts
 ### 频道派活方式
 
 频道页的「派活方式」可选单模型多进程、完全团队或混合（默认）。工作区继承所属聊天频道的选择。设置保存在频道数据中，修改后下一轮生效；已开始的一轮继续使用原方式。桥接角色优先使用用户明确选择的频道设置，未选择、查询失败或超时则回落项目 `dispatch_mode` 配置（配置也未设时为 mixed）。Discord、飞书继续使用项目配置。
+
+### 改 dsh 后同步内嵌镜像
+
+一键安装解包的是 `bridge/core/dsh_bundle`（`dsh/collab` 与前端 `lib` 的副本）。改完 `dsh/` 后跑：
+
+    node dsh/scripts/sync-bundle.mjs
+
+它会按 `pnpm-lock.yaml` 重建前端 lib、把 collab 与 lib 同步进镜像，并删掉源里已删除的旧副本。已经构建过、只想拷贝时加 `--skip-build`；只校验不写文件用 `--check`（等价于 `cd bridge && go test -tags no_web ./core -run TestDSHBundle`）。
+
+CI 在 `bridge/core/dsh_bundle_sync_test.go` 里做同一组比对，两边不一致（包括源码新增了模块却没进镜像）会直接失败并提示上面这条命令。
+
+`dsh/install.sh` 不在同步范围内：内嵌副本带着安装时的 bundle 校验（#522），源码副本带着 dsh-acp steer 步骤，两边各自多一块，需要单独合并。

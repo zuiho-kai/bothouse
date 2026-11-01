@@ -15,10 +15,12 @@ import (
 	"testing"
 )
 
-// TestDSHBundleCollabMatchesSource fails when a file in the embedded collab
-// bundle drifts from its source under dsh/collab. A source fix that is not
-// copied into dsh_bundle never reaches installed DSH (see #262: the uuid
-// fallback landed in dsh/collab/page.html but not in the bundled copy).
+// TestDSHBundleCollabMatchesSource fails when the embedded collab bundle and its
+// source under dsh/collab drift apart, in either direction: a source fix that is
+// not copied never reaches installed DSH (see #262: the uuid fallback landed in
+// dsh/collab/page.html but not in the bundled copy), and a new module nobody
+// copied would install a DSH that is missing it (#150). Fix both with
+// `node dsh/scripts/sync-bundle.mjs`.
 func TestDSHBundleCollabMatchesSource(t *testing.T) {
 	bundle := filepath.Join("dsh_bundle", "collab")
 	source := filepath.Join("..", "..", "dsh", "collab")
@@ -40,13 +42,47 @@ func TestDSHBundleCollabMatchesSource(t *testing.T) {
 			return err
 		}
 		if !bytes.Equal(got, want) {
-			t.Errorf("%s: dsh_bundle copy differs from dsh/collab; copy the source file into bridge/core/dsh_bundle/collab", rel)
+			t.Errorf("%s: dsh_bundle copy differs from dsh/collab; run: node dsh/scripts/sync-bundle.mjs", rel)
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The walk above only proves that bundled files still match a source; it cannot see a
+	// source file nobody copied, which is exactly how a one-click install goes stale (#150).
+	err = filepath.WalkDir(source, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(source, p)
+		rel = filepath.ToSlash(rel)
+		if dshBundleSkips(rel) {
+			return nil
+		}
+		if _, statErr := os.Stat(filepath.Join(bundle, filepath.FromSlash(rel))); statErr == nil {
+			return nil // bytes were compared above
+		}
+		// A regression suite the bundle does not ship yet stays source-only, so editing
+		// dsh/collab does not silently grow what the installer unpacks.
+		if strings.HasSuffix(rel, ".test.mjs") {
+			return nil
+		}
+		t.Errorf("%s: dsh/collab file missing from dsh_bundle/collab; run: node dsh/scripts/sync-bundle.mjs", rel)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// dshBundleSkips mirrors the skip list in dsh/scripts/sync-bundle.mjs: local npm
+// metadata and the repo-only test directory never ship inside the embedded bundle.
+func dshBundleSkips(rel string) bool {
+	if rel == ".npmrc" || rel == "package-lock.json" {
+		return true
+	}
+	return strings.HasPrefix(rel, "node_modules/") || strings.HasPrefix(rel, "test/")
 }
 
 const (
