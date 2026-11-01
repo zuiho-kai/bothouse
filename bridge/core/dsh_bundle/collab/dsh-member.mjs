@@ -360,6 +360,8 @@ export class DshMembers {
     this.approvals = ChannelApprovals.of(hub);
     /** Session ids whose owner chose 允许所有: later asks in that Session are allowed without a card (CLI members: `cli:<ACP session id>`). */
     this.allowAll = new Set();
+    /** #117: roomId -> the reason already explained since the last message that reached someone. */
+    this.leadHints = new Map();
     /** Per-turn wiki pages and task board from the local gate, each page once per conversation. */
     this.gateContext = runtime.gateContext ?? new GateContext({ logger: runtime.logger });
     /** The member's own MEMORY.md on the first turn of each conversation (bridge memory_index). */
@@ -503,7 +505,8 @@ export class DshMembers {
     const visible = new Set(this.hub.routableIn(msg.room_id).map(m => m.id));
     const targets = [...this.config.keys()].filter(id => !this.hub.quota?.cooling(id) && visible.has(id) && id !== msg.author && !answered.has(id) && (!target || target === id)
       && (only !== null ? only.has(id) : hit.has(id) || (leadTarget && id === leadID) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name, [...this.config.keys()].filter(o => o !== id).map(o => this.config.get(o).name)))));
-    if (targets.length === 0) return undefined;
+    if (targets.length === 0) return this.unclaimed(msg, { target, only, hit, answered });
+    this.leadHints.delete(msg.room_id);
     // /new goes to the members the message reaches, as on Discord where only the addressed bot handles it.
     if (msg.author_kind === 'user' && isNewCommand(msg.text, this.hub.routableIn(msg.room_id))) {
       return () => {
@@ -520,6 +523,29 @@ export class DshMembers {
     return () => {
       for (const job of jobs) this.enqueue(job, () => this.run(job.id));
     };
+  }
+
+  /**
+   * #117: an unaddressed message that reached no member used to end as silence, so the user
+   * could not tell a channel without a primary role from one whose primary is unavailable.
+   * Say which it is, once per room until some message gets through again.
+   */
+  unclaimed(msg, { target, only, hit, answered }) {
+    if (msg.author_kind !== 'user' || target !== undefined || only !== null || hit.size > 0 || answered.size > 0) return undefined;
+    // Slash commands address the member that handles them; they are not a request to the channel.
+    if (msg.text.trimStart().startsWith('/')) return undefined;
+    const lead = this.hub.primaryIn(msg.room_id);
+    // A bridge bot outside this runtime may still take the message on its own, so stay quiet then.
+    if (lead === undefined && this.hub.routableIn(msg.room_id).some(m => !this.config.has(m.id))) return undefined;
+    const reason = lead === undefined ? 'missing' : 'unavailable';
+    if (this.leadHints.get(msg.room_id) === reason) return undefined;
+    this.leadHints.set(msg.room_id, reason);
+    const text = reason === 'missing'
+      ? '这条消息没有 @ 任何成员，本频道也还没有设置主角色，所以没有 agent 接话。请 @ 一位成员，或在频道设置里选择主角色。'
+      : `这条消息没有 @ 任何成员，本频道的主角色「${lead.name}」现在接不了，所以没有 agent 接话。请 @ 其他成员，或稍后再试。`;
+    return () => this.hub.post(msg.room_id, {
+      authorKind: 'system', author: 'system', name: 'system', clientKey: `lead-unclaimed-${msg.id}`, text,
+    });
   }
 
   /**

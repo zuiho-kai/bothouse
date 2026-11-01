@@ -217,6 +217,47 @@ test('channel primary: unmentioned messages, /new, workspace hints and handbacks
   await dsh.close(); hub.store.close();
 });
 
+test('channel primary: an unaddressed message that reached nobody says why, once per room', async () => {
+  const hub = makeHub();
+  const fake = fakeDsh(); const dsh = fake.attach(hub, [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]);
+  const last = () => hub.store.page(1, undefined, 1)[0];
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '这个怎么弄' });
+  await settle();
+  assert.equal(hub.store.openJobs().length, 0);
+  assert.equal(last().author_kind, 'system', 'a channel without a primary role must answer for its silence');
+  assert.match(last().text, /还没有设置主角色/);
+  // The same silence is explained once, not on every line the user types.
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '有人在吗' });
+  await settle();
+  assert.equal(last().author_kind, 'user');
+  // A slash command addresses a member, it is not chat aimed at the channel.
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '/new' });
+  await settle();
+  assert.equal(last().author_kind, 'user');
+  // A message that gets through resets the hint, so the next silence is explained again.
+  hub.store.setLead(1, 'a');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '现在呢' });
+  await settle();
+  assert.deepEqual(hub.store.openJobs().map(j => j.member_id), ['a']);
+  hub.quota = { cooling: id => id === 'a' };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '再来' });
+  await settle();
+  assert.equal(last().author_kind, 'system');
+  assert.match(last().text, /主角色「A」现在接不了/);
+  hub.quota = undefined;
+  await dsh.close(); hub.store.close();
+});
+
+test('channel primary: a bridge bot in the room keeps the silence hint quiet', async () => {
+  const hub = makeHub();
+  const fake = fakeDsh(); const dsh = fake.attach(hub, [{ id: 'a', name: 'A' }]);
+  hub.setMember({ id: 'ju', name: '橘', kind: 'bot', online: true });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '在吗' });
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].author_kind, 'user', 'the bot may answer on its own');
+  await dsh.close(); hub.store.close();
+});
+
 test('channel primary: task dispatch, handback and acceptance use the channel lead', async () => {
   const hub = makeHub();
   hub.store.ensureRoom(2, 'other');
