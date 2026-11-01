@@ -641,7 +641,8 @@ export default function SetupWizard() {
                   setQQTest({ running: true, key });
                   try {
                     const r = await applyWizard({ ...buildRequest(), dry_run: true });
-                    setQQTest({ running: false, key, ok: r.qq?.code === 'ok' && !r.error, message: r.qq?.message || r.error, fix: r.qq?.fix });
+                    // only the QQ connection is judged here; the rest of the request (CLI, persona …) is checked on save
+                    setQQTest({ running: false, key, ok: r.qq?.code === 'ok', message: r.qq?.message || r.error, fix: r.qq?.fix });
                   } catch (e: any) {
                     setQQTest({ running: false, key, ok: false, message: e?.message || String(e) });
                   }

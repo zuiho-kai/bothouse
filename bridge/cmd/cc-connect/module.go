@@ -11,8 +11,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 	"time"
@@ -150,8 +152,8 @@ func runModule(args []string) {
 		fmt.Printf("Previous config saved to %s. Restart bothouse to apply (bothouse daemon restart).\n", backup)
 		return
 	}
-	// nothing to flip: already in that state
-	cfg, err := config.LoadForSetup(config.ConfigPath)
+	// nothing to flip: already in that state, or never configured
+	cfg, err := loadModuleConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -172,15 +174,20 @@ func runModule(args []string) {
 
 // moduleConfigured: config.toml already has a section for this platform (enabled or disabled).
 func moduleConfigured(mod string) bool {
-	if _, err := os.Stat(config.ConfigPath); err != nil {
-		return false
-	}
-	cfg, err := config.LoadForSetup(config.ConfigPath)
+	cfg, err := loadModuleConfig()
 	if err != nil {
 		return false
 	}
 	_, ok := config.ModuleStates(cfg)[mod]
 	return ok
+}
+
+// loadModuleConfig: no config file yet (fresh install) = nothing configured.
+func loadModuleConfig() (*config.Config, error) {
+	if _, err := os.Stat(config.ConfigPath); errors.Is(err, fs.ErrNotExist) {
+		return &config.Config{}, nil
+	}
+	return config.LoadForSetup(config.ConfigPath)
 }
 
 // moduleMissing is one parameter `module add` needs but did not get: the request field, the flag
@@ -271,7 +278,7 @@ func moduleAddRequest(mod string, f moduleFlags) (core.WizardRequest, []moduleMi
 }
 
 func moduleList() error {
-	cfg, err := config.LoadForSetup(config.ConfigPath)
+	cfg, err := loadModuleConfig()
 	if err != nil {
 		return err
 	}
