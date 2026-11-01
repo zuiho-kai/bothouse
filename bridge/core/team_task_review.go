@@ -236,7 +236,7 @@ func (e *Engine) prepareTaskReview(job *TimerJob, now time.Time) (*TimerJob, err
 	}
 	if root != "" {
 		for _, name := range []string{"board", "ws-handoff"} {
-			command := "env GATE_DIR=" + shellQuote(filepath.Join(root, "gate")) + " " + shellQuote(filepath.Join(root, "lead", name))
+			command := "env GATE_DIR=" + shellQuoteRelay(filepath.Join(root, "gate")) + " " + shellQuoteRelay(filepath.Join(root, "lead", name))
 			prompt = strings.ReplaceAll(prompt, name+" ", command+" ")
 		}
 	}
