@@ -75,13 +75,15 @@ export default function SetupWizard() {
 
   const [step, setStep] = useState(0);
   // /setup?add=1&platform=qq — `bothouse module add qq` points here; the platform comes preselected
-  const platformParam = useSearchParams()[0].get('platform');
+  const [searchParams] = useSearchParams();
+  const platformParam = searchParams.get('platform');
   const [picked, setPlatform] = useState<'qq' | 'discord' | 'feishu' | 'cloud_web' | 'dsh'>(
     platformParam === 'qq' || platformParam === 'feishu' || platformParam === 'cloud_web' || platformParam === 'dsh' ? platformParam : 'discord');
   // QQ: NapCat's forward WebSocket; the test is a dry run of the request (nothing written)
   const [qq, setQQ] = useState({ ws_url: 'ws://127.0.0.1:3001', token: '', allow_from: '' });
-  const [qqTest, setQQTest] = useState<{ running: boolean; key?: string; ok?: boolean; message?: string; fix?: string }>({ running: false });
+  const [qqTest, setQQTest] = useState<{ running: boolean; key?: string; ok?: boolean; message?: string; fix?: string; nickname?: string }>({ running: false });
   const qqKey = JSON.stringify(qq);
+  const qqNickname = qqTest.key === qqKey ? qqTest.nickname : undefined;
   const platform = picked;
   // 自建平台 (cloud_web): the hub on this machine, or someone else's (address + token, tested)
   const [hub, setHub] = useState<LocalHubStatus | null>(null);
@@ -108,7 +110,8 @@ export default function SetupWizard() {
   const { lib, error: libError, reload: reloadLib } = useLibrary(lang);
   const [existing, setExisting] = useState<ExistingBot[]>([]);
   // /setup?add=1 — the panel's "add role / model" entry: keeps every configured role, only adds
-  const addMode = useSearchParams()[0].get('add') === '1';
+  const addMode = searchParams.get('add') === '1';
+  const addPlatformMode = addMode && (searchParams.get('pick') === 'platform' || !!platformParam);
   const newRole = useCallback((): RoleDraft => ({
     nameCustomized: false, keepPersonaName: true, key: keySeq++, token: '', agent_type: '', useProvider: false,
     provider: { vendor: 'deepseek', base_url: '', api_key: '', model: '' }, persona: '', reply_language: sysReply,
@@ -170,12 +173,13 @@ export default function SetupWizard() {
           return r;
         }
         const name = platform === 'discord' && r.info?.username ? r.info.username
+          : platform === 'qq' && qqNickname ? qqNickname
           : platform === 'feishu' ? '' : nextRoleName(r.agent_type || defaultAgent, [...used]);
         used.add(name);
         return { ...r, agent_type: r.agent_type || defaultAgent, name };
       });
     });
-  }, [defaultAgent, configuredNames, platform]);
+  }, [defaultAgent, configuredNames, platform, qqNickname]);
 
   const patchRole = (key: number, p: Partial<RoleDraft>) => setRoles((rs) => rs.map((r) => {
     if (r.key !== key) return r;
@@ -183,6 +187,7 @@ export default function SetupWizard() {
     const taken = [...configuredNames, ...rs.filter((x) => x.key !== key).map((x) => x.name || '')];
     if (p.agent_type && p.agent_type !== r.agent_type && !r.nameCustomized && !r.reuse_project && p.name === undefined) {
       next.name = platform === 'discord' && r.info?.username ? r.info.username
+        : platform === 'qq' && qqNickname ? qqNickname
         : platform === 'feishu' ? '' : nextRoleName(p.agent_type, taken);
     }
     if (next.name !== r.name && next.keepPersonaName !== false && next.personaSlug && p.persona === undefined) {
@@ -483,7 +488,7 @@ export default function SetupWizard() {
       <div className="setup-welcome">
         <span className="setup-home" aria-hidden="true"><House size={26} strokeWidth={1.7} /></span>
         <p className="setup-eyebrow">{T.welcomeEyebrow}</p>
-        <h1>{addMode ? (zh ? '添加角色 / 模型' : 'Add a role / model') : T.welcomeTitle}</h1>
+        <h1>{addPlatformMode ? T.addPlatformTitle : addMode ? (zh ? '添加角色 / 模型' : 'Add a role / model') : T.welcomeTitle}</h1>
         <p className="setup-intro">{addMode ? (zh ? '在现有配置上追加，已有角色不会被改动或删除；重名会被拒绝。' : 'Added next to your current setup. Existing roles are not changed or removed; a taken name is refused.') : T.welcomeIntro}</p>
         {addMode && (state?.projects?.length ?? 0) > 0 && (
           <p className="setup-intro" data-testid="add-mode-existing">{zh ? '已有角色：' : 'Existing roles: '}<b>{(state!.project_display_names || state!.projects!).join(zh ? '、' : ', ')}</b></p>
@@ -506,7 +511,7 @@ export default function SetupWizard() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-bold text-gray-900 dark:text-white">{T.title}</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{picked === 'dsh' ? (zh ? '检测 dsh → 安装插件 → 打开 DSH 网页。角色、CLI 和人设在 DSH 页面上配置。' : 'Detect dsh → install plugins → open DSH web. Configure roles, CLIs and personas in DSH.') : T.subtitle}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400" data-testid="setup-subtitle">{picked === 'dsh' ? (zh ? '检测 dsh → 安装插件 → 打开 DSH 网页。角色、CLI 和人设在 DSH 页面上配置。' : 'Detect dsh → install plugins → open DSH web. Configure roles, CLIs and personas in DSH.') : visibleSteps.map(s => T.steps[s]).join(' → ')}</p>
           {picked !== 'dsh' && roles.some((r) => !keptLang(r)) && (
             <p className="text-sm text-gray-700 dark:text-gray-300 mt-1" data-testid="reply-lang-line">{T.replyLangLine}<b>{langLabel(lang)}</b><span className="text-xs text-gray-500">{T.replyLangHow}</span></p>
           )}
@@ -641,7 +646,8 @@ export default function SetupWizard() {
                   setQQTest({ running: true, key });
                   try {
                     const r = await applyWizard({ ...buildRequest(), dry_run: true });
-                    setQQTest({ running: false, key, ok: r.qq?.code === 'ok' && !r.error, message: r.qq?.message || r.error, fix: r.qq?.fix });
+                    setQQTest({ running: false, key, ok: r.qq?.code === 'ok' && !r.error,
+                      message: r.error || r.qq?.message, fix: r.qq?.fix, nickname: r.qq?.nickname });
                   } catch (e: any) {
                     setQQTest({ running: false, key, ok: false, message: e?.message || String(e) });
                   }
