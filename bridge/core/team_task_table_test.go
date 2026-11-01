@@ -49,7 +49,7 @@ func TestTeamTaskTableWorkspaceFirstDotsSortedAndIdleSummary(t *testing.T) {
 		{ID: 4, What: "搁置盘点", Short: "搁置盘点", Status: "进行中", WS: "feishu:oc_ws4", Chat: "feishu:oc_a",
 			Bound: now.Add(-15 * time.Minute).Format(time.RFC3339), At: "11-01 12:25", ProgressAt: float64(now.Add(-3 * time.Minute).Unix())},
 		{ID: 2, What: "QQ断线修复", Short: "QQ断线修复", Status: "已交接", WS: "feishu:oc_ws2", Chat: "feishu:oc_a",
-			Bound: now.Add(-50 * time.Minute).Format(time.RFC3339), At: "11-01 11:50"},
+			ReturnedAt: now.Add(-10 * time.Minute), Reviewer: "派活人", Bound: now.Add(-50 * time.Minute).Format(time.RFC3339), At: "11-01 11:50"},
 		{ID: 1, What: "任务板重构", Short: "任务板重构PR", Status: "进行中", WS: "feishu:oc_ws1", Chat: "feishu:oc_a",
 			Bound: now.Add(-25 * time.Minute).Format(time.RFC3339), At: "11-01 12:15", ProgressAt: float64(now.Add(-2 * time.Minute).Unix())},
 	})
@@ -58,9 +58,9 @@ func TestTeamTaskTableWorkspaceFirstDotsSortedAndIdleSummary(t *testing.T) {
 	}
 	got := renderTeamTaskTable(items, links, "feishu:oc_a", now)
 	want := strings.Join([]string{
-		"**工作区 3**（空闲：工作区3、5、6）",
+		"**工作区 3**（空闲：工作区2、3、5、6）",
 		"  🟢 工作区1 · 任务板重构PR · 已做 25分钟  [→点进去](https://example.test/t1)",
-		"  🟡 工作区2 · QQ断线修复 · 已交回待核对",
+		"  🟡 工作区2 · QQ断线修复 · 已交回待核对 · 等派活人",
 		"  🟢 工作区4 · 搁置盘点 · 已做 15分钟",
 	}, "\n")
 	if got != want {
@@ -95,13 +95,13 @@ func TestTeamTaskTableEngineIdlePoolAndWSWasEnded(t *testing.T) {
 		{ID: 1, What: "任务板重构PR", Short: "任务板重构PR", Status: "进行中", WS: "discord:ws1", Chat: "discord:main",
 			Bound: bound, At: now.Add(-2 * time.Hour).Format("01-02 15:04")},
 		{ID: 2, What: "QQ断线修复", Short: "QQ断线修复", Status: "已交回", WSWas: "discord:ws2", Chat: "discord:main",
-			At: now.Add(-30 * time.Minute).Format("01-02 15:04"), wsEnded: true},
+			ReturnedAt: now.Add(-30 * time.Minute), Reviewer: "派活人", At: now.Add(-30 * time.Minute).Format("01-02 15:04"), wsEnded: true},
 	})
 	got := renderTeamTaskTable(items, nil, "discord:main", now)
 	want := strings.Join([]string{
-		"**工作区 2**（空闲：工作区3）",
+		"**工作区 2**（空闲：工作区2、3）",
 		"  🟢 工作区1 · 任务板重构PR · 已做 2小时 · 卡住",
-		"  🟡 工作区2 · QQ断线修复 · 已交回待核对",
+		"  🟡 工作区2 · QQ断线修复 · 已交回待核对 · 等派活人",
 	}, "\n")
 	if got != want {
 		t.Fatalf("table:\n%s\nwant:\n%s", got, want)

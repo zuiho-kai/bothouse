@@ -241,7 +241,7 @@ def claim_cmd(chat: str, wid: str, task: str):
     return [cc_bin(), "workspace", "claim", "--session-key", chat, "--title", task[:60], str(wid)]
 
 
-def pick_pool(chat: str, task: str = ""):
+def pick_pool(chat: str, task: str = "", preferred: str = ""):
     """共享池里挑一个工作区并 claim（记一件交接），返回（工作区会话 key <平台>:<id>，工作区名，交接的聊天频道 parent）；
     没有空的、池子又满 MAX_WS 个时返回 None（排队）。
     claim 不带 --owner：交接的 owner 为空时，桥的十分钟看门按本 bot 自己在工作区的发言（IsSelf）
@@ -254,7 +254,7 @@ def pick_pool(chat: str, task: str = ""):
         r = ws_cmd(chat, "list")
     ok = [w for w in r.get("pool") or [] if isinstance(w, dict) and w.get("id")
           and str(w.get("owner") or "") in ("", parent) and int(w.get("open") or 0) < BUSY]
-    ok.sort(key=lambda w: (int(w.get("open") or 0), num(w.get("name"))))
+    ok.sort(key=lambda w: (f"{plat}:{w['id']}" != preferred, int(w.get("open") or 0), num(w.get("name"))))
     for w in ok:
         c = subprocess.run(claim_cmd(chat, w["id"], task), capture_output=True, text=True)
         if c.returncode == 0:
@@ -480,7 +480,8 @@ GUARD = None  # --guard 给的时长；None 用 board.GUARD_DELAY
 
 def start(path, task, chat, nid, project, answer=None):
     """挑空工作区、绑任务板 #nid、叫醒；没空的返回 False（调用方排队）。"""
-    picked = pick_pool(chat, task)
+    previous = next((i for i in board.items() if i["id"] == nid), {})
+    picked = pick_pool(chat, task, previous.get("ws_was", "") if previous.get("review_rejected") else "")
     if picked is None:
         return False
     ws, name, parent = picked
@@ -516,7 +517,8 @@ def resume_answered(nid, answer):
     if it is None or not it.get("chat") or not os.path.isfile(it.get("where") or ""):
         sys.exit(f"ws-handoff: #{nid} 不是 ws-handoff 交的活，没法接回")
     board.resume(nid)
-    board.append_forward(it["where"], f"{board._now()} 用户答复（#{nid}）：{answer}")
+    source = "验收退回" if it.get("review_rejected") else "用户答复"
+    board.append_forward(it["where"], f"{board._now()} {source}（#{nid}）：{answer}")
     _recall.append_to(it["where"])  # 改动前交出的活没有旧定案节，接回时补上（已有就跳过）
     project = os.environ.get("CC_PROJECT", "")
     with _queue() as q:

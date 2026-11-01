@@ -12,7 +12,7 @@ import (
 )
 
 // One task per workspace (user 2026-10-28, approved points 1-3 and「完成一件活的时候，自动清理」):
-//   - a workspace's final [report] closes its board item and resets the session, which frees the
+//   - a workspace's final [report] records pending verification and resets the session, which frees the
 //     workspace (releaseWorkspaceOnReset);
 //   - an [ask] pauses its board item as waiting for the user and frees the workspace; the user's
 //     answer hands the task to a free workspace again (ws-handoff --resume);
@@ -37,6 +37,13 @@ func (e *Engine) runLeadScript(chat, name string, args ...string) ([]byte, error
 		return nil, os.ErrNotExist
 	}
 	bin := filepath.Join(e.dataDir, "collaboration", "lead", name)
+	runtimeDir, err := e.leadRuntimeDir()
+	if err != nil {
+		return nil, err
+	}
+	if runtimeDir != "" {
+		bin = filepath.Join(runtimeDir, "lead", name)
+	}
 	var cmdArgs []string
 	if _, err := os.Stat(bin); err == nil {
 		cmdArgs = append([]string{bin}, args...)
@@ -67,12 +74,15 @@ func (e *Engine) runLeadScript(chat, name string, args ...string) ([]byte, error
 	defer cancel()
 	cmd := exec.CommandContext(ctx, cmdArgs[0], cmdArgs[1:]...)
 	cmd.Env = append(os.Environ(), e.roleSessionEnv(chat)...)
+	if runtimeDir != "" {
+		cmd.Env = append(cmd.Env, "GATE_DIR="+filepath.Join(runtimeDir, "gate"))
+	}
 	cmd.Dir = e.dataDir
 	return cmd.CombinedOutput()
 }
 
 // endWorkspaceTask runs after a workspace's [report]/[ask] headline for board item hid was
-// posted in chat: a report closes the item and resets the session after this turn (the reset
+// posted in chat: a report records pending verification and resets the session after this turn (the reset
 // frees the workspace); an ask pauses the item as waiting for the user and frees the workspace now.
 func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int) {
 	if hid <= 0 || !e.isTeamLead() {
@@ -80,8 +90,21 @@ func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int) {
 	}
 	switch kind {
 	case exitKindReport:
-		if out, err := e.runLeadScript(chat, "board", "update", strconv.Itoa(hid), "已完成"); err != nil {
-			slog.Warn("team workspace: close reported task failed", "board_item", hid, "error", err, "output", strings.TrimSpace(string(out)))
+		reviewer := e.name
+		if it := e.boardItemByID(hid); it != nil {
+			bound, _ := time.Parse(time.RFC3339Nano, it.Bound)
+			if h, ok := e.TeamHandoffOf(sessionKey, chat, bound); ok && h.Sender != "" {
+				reviewer = h.Sender
+			}
+		}
+		if out, err := e.runLeadScript(chat, "board", "returned", strconv.Itoa(hid), reviewer); err != nil {
+			slog.Warn("team workspace: record handback failed", "board_item", hid, "error", err, "output", strings.TrimSpace(string(out)))
+			// Delivery already succeeded. The persisted exit receipt lets the watcher
+			// retry the board write; a script error must not keep this workspace occupied.
+		} else {
+			w := newHandoffWatch(e)
+			w.engines = e.watchEngines
+			w.reconcileTaskReviews(time.Now(), false)
 		}
 		if _, err := e.QueueSessionReset(sessionKey); err != nil {
 			slog.Warn("team workspace: reset after report failed", "session", sessionKey, "error", err)

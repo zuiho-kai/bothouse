@@ -603,6 +603,8 @@ type ProjectConfig struct {
 	// without editing config.toml; team_board = false opts out (TeamBoardEnabled). Ignored on
 	// non-lead projects.
 	TeamBoard *bool `toml:"team_board,omitempty"`
+	// Source: #797. Nonpositive values follow the existing one-hour stuck threshold.
+	TeamReviewAfterSeconds int `toml:"team_review_after_seconds,omitempty"`
 	// TeamWorkspaces (lead only, Discord): give each of the lead's channels a 「工作区1」 channel in
 	// the same category (existing channels are backfilled at start) and allow `bothouse workspace new`
 	// to add 「工作区n+1」 (core/team_workspace.go). Default on for the lead (user 2026-10-24 00:50

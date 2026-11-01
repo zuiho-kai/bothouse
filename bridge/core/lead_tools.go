@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 var LeadToolFS fs.FS
@@ -70,4 +71,43 @@ func InstallLeadTools(dataDir, workDir, agentType string, force bool) (result ma
 		return nil, nil, err
 	}
 	return map[string]string{"tools_dir": bin, "persona_file": persona, "readme": filepath.Join(bin, "README.md")}, skipped, nil
+}
+
+// Internal lifecycle commands must match the running binary, including upgrades with locally
+// customized collaboration tools. Keep a separate managed copy; never overwrite those tools.
+var leadRuntimeMu sync.Mutex
+
+func (e *Engine) leadRuntimeDir() (string, error) {
+	if LeadToolFS == nil || e.dataDir == "" {
+		return "", nil
+	}
+	leadRuntimeMu.Lock()
+	defer leadRuntimeMu.Unlock()
+	root := filepath.Join(e.dataDir, "collaboration", "runtime")
+	err := fs.WalkDir(LeadToolFS, "contrib", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel := strings.TrimPrefix(p, "contrib/")
+		dst := filepath.Join(root, filepath.FromSlash(rel))
+		b, err := fs.ReadFile(LeadToolFS, p)
+		if err != nil {
+			return err
+		}
+		if old, err := os.ReadFile(dst); err == nil && bytes.Equal(old, b) {
+			return nil
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			return err
+		}
+		mode := fs.FileMode(0644)
+		if strings.HasPrefix(rel, "lead/") && !strings.Contains(filepath.Base(rel), ".") {
+			mode = 0755
+		}
+		return AtomicWriteFile(dst, b, mode)
+	})
+	if err != nil {
+		return "", fmt.Errorf("install lifecycle tools: %w", err)
+	}
+	return root, nil
 }

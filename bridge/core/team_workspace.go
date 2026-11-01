@@ -1302,7 +1302,7 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 	}
 	wk := plat + ":" + wsID
 	now := time.Now()
-	h := TeamHandoff{Chat: chat, At: now, Owner: taskOwner, Title: title, Name: w.Name}
+	h := TeamHandoff{Chat: chat, At: now, Sender: e.name, Owner: taskOwner, Title: title, Name: w.Name}
 	if e.handoffWatchOn.Load() {
 		h.Due = now.Add(watchCheckAfter())
 	}
