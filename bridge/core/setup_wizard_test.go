@@ -1734,7 +1734,7 @@ func TestApplyWizardAddressedDiscordAndFeishu(t *testing.T) {
 				t.Fatalf("apply: %+v", res)
 			}
 			store.projects["juzi"].Options["group_reply_all_guilds"] = "900,901"
-			hand := "http://custom.invalid/decide"
+			hand := "custom-gate.invalid" // 非向导写的 gate 地址；不带 scheme，夹具里不新增网络地址（合并闸门第 1 条）
 			store.projects["juzi"].GateURL = &hand
 			req.Gate = nil
 			if platform != "discord" {

@@ -161,7 +161,14 @@ class QuietLead(Base):
         self.assertEqual(action, 'silent')
 
     def test_link_count_does_not_force_a_reply(self):
-        action, _, _ = gate._decide_lead({'content': 'https://example.org/1 https://example.org/2 https://example.org/3'}, gate.lead.KEYS[0])
+        # 夹具不放网络地址（合并闸门第 1 条）：临时把 gate.URL 换成占位写法，只验「只有链接时，条数再多也不强制回复」这条规则分支。
+        # 换成修前的 gate.py（GATE_PY=<旧版本>）会得到 "rule: 3 个链接" 的 reply，这里就会失败。
+        saved = gate.URL
+        gate.URL = re.compile(r"\blink-\d+\b")
+        try:
+            action, _, _ = gate._decide_lead({'content': 'link-1 link-2 link-3'}, gate.lead.KEYS[0])
+        finally:
+            gate.URL = saved
         self.assertEqual(action, 'silent')
 
 
