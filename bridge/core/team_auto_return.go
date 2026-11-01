@@ -80,6 +80,11 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 	if it := e.workspaceBoardItem(wsSession, boardID); it != nil {
 		board = it.ID
 	}
+	// A posted ask still needs the lead to handle it, but its delivery is already
+	// complete. Keep that follow-up outside the report dedupe/retry queue.
+	if posted {
+		return e.queueChatLeadTurn(p, parent, ws, "工作区回传 "+ws, prompt, board, nil)
+	}
 	rec := &pendingReport{
 		Key:      reportKey(p.Name(), parent, ws, kind, board, body),
 		Platform: p.Name(), Chat: parent, Workspace: ws, Bot: bot,

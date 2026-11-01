@@ -59,6 +59,35 @@ func pendingReportForTest(key string) *pendingReport {
 	}
 }
 
+func TestReportPostedAskStillQueuesLead(t *testing.T) {
+	e, p := reportFixture(t)
+	e.platformReady = map[Platform]bool{p: true}
+	e.SetTeam(t.TempDir(), "橘", true)
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.timerScheduler = NewTimerScheduler(store)
+	item := &teamTaskBoardItem{ID: 46, What: "等待决定"}
+	body := "[ask] #46 背景：需要确认方向\n做了什么：完成比较\n要你做的：选择方案\n我加的：无"
+	post := func() {
+		e.postExitHeadline(p, "discord:chat1", "chat1", "ws1", "橘", exitKindAsk, body, exitWSKey, 46, "需要确认方向", item)
+	}
+	post()
+	jobs := store.List()
+	if len(jobs) != 1 {
+		t.Fatalf("posted ask queued %d lead turns, want 1", len(jobs))
+	}
+	if jobs[0].SessionKey != "discord:chat1" || jobs[0].ReplyBoard != 46 {
+		t.Fatalf("wrong lead destination: %+v", jobs[0])
+	}
+	e.recoverPendingReports(true)
+	post()
+	if len(store.List()) != 1 || len(p.sentTo("discord:chat1")) != 1 {
+		t.Fatal("recovery or repeated ask duplicated delivery/wake")
+	}
+}
+
 // TestReportWakeSilentLeadFallsBackToOriginal reproduces the reported gap: the lead's turn
 // produced nothing, and the workspace result has no headline in the chat, so it must be posted
 // as the 📬 record instead of disappearing.
