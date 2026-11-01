@@ -17,10 +17,12 @@
 8. 仅 DSH 提速（本轮的工具调用来自 dsh-cc-compat.py 加的 dsh_turn）：同一轮第二次轮询同一对象拦；
    一串只读查询里第 4 个「一步只跑一条只读查询」的步拦（合并过的步放行），本轮重复的只读命令拦；
    前台联网长命令（git clone/fetch/pull、npm/pip/brew install）拦，改后台。子 agent 会话和外出轮豁免。
-10. 不拦只改：Claude Code 子 agent（非 long-task）前台 Bash 的 timeout 超过 290 秒时压到 290 秒，跑不完自动转后台。"""
+10. 不拦只改：Claude Code 子 agent（非 long-task）前台 Bash 的 timeout 超过 290 秒时压到 290 秒，跑不完自动转后台。
+11. 报预计时间、挂定时（ws-*、later、board、bothouse progress/send/relay/timer/task）长于 15 分钟没写实测依据或外部等待 → 拦（eta_guard.py）。"""
 import ast, json, os, re, shlex, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import plan_gate  # noqa: E402  要方案未批时拦开做（用户 2026-10-28）
+import eta_guard  # noqa: E402  预计/定时长于 15 分钟要实测依据（用户 2026-10-26、2026-11-01）
 
 PROXY_URL = os.environ.get("HOOK_PROXY", "").strip()  # 例：http://127.0.0.1:7890；空 = 不查下载
 _wiki = os.environ.get("GATE_WIKI", "~/wiki").strip()  # 同 bridge/contrib/gate/ctxsvc.py
@@ -534,6 +536,9 @@ def main():
         asked = plan_gate.pending(d.get("transcript_path"))
         if asked:
             deny(plan_gate.message(asked))
+    eta = eta_guard.check_shell(cmd)
+    if eta:
+        deny(eta)
     if (d.get("tool_input") or {}).get("run_in_background"):
         check_background(cmd)
     else:
