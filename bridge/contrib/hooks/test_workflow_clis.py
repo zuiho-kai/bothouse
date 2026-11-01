@@ -1,5 +1,6 @@
 """Regression checks at the shared hook entry; these are not live model acceptance."""
 import json
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -79,6 +80,56 @@ class WorkflowCLIs(unittest.TestCase):
             "tool_input": {"prompt": "fix routing hooks", "description": "repair"}}, "grok")
         self.assertIn(str(self.map), out["hookSpecificOutput"]["updatedInput"]["prompt"])
 
+    def test_codex_dispatch_uses_message_for_review(self):
+        payload = {"hook_event_name": "PreToolUse", "tool_name": "spawn_agent",
+                   "tool_input": {"message": "【免审:调研】inspect routing"}}
+        self.assertEqual(self.call("dispatch-review-guard", payload, "codex"), {})
+        payload["tool_input"]["message"] = "implement routing without review"
+        out = self.call("dispatch-review-guard", payload, "codex")
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_codex_patch_notes_and_code_have_different_outcomes(self):
+        payload = {"hook_event_name": "PreToolUse", "tool_name": "apply_patch",
+                   "cwd": "/workspace/probe", "tool_input": {
+                       "command": "*** Begin Patch\n*** Add File: notes/handoff.md\n+plan\n*** End Patch\n"}}
+        self.assertEqual(self.call("dispatch-review-guard", payload, "codex"), {})
+        payload["tool_input"]["command"] = "*** Begin Patch\n*** Add File: src/main.py\n+print(1)\n*** End Patch\n"
+        out = self.call("dispatch-review-guard", payload, "codex")
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_grok_stop_reads_native_user_message(self):
+        path = self.root / "updates.jsonl"
+        path.write_text(json.dumps({"method": "session/update", "params": {"update": {
+            "sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "修一下这个 bug"}}}}) + "\n")
+        out = self.call("fix-claim-guard", {"hook_event_name": "Stop", "transcript_path": str(path),
+                                          "last_assistant_message": "已修复"}, "grok")
+        self.assertEqual(out["decision"], "block")
+
+    def test_gemini_history_keeps_latest_tool_record(self):
+        spec = importlib.util.spec_from_file_location("workflow_run", RUN)
+        run = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(run)
+        path = self.root / "gemini.jsonl"
+        user = {"id": "u", "type": "user", "content": [{"text": "implement it"}]}
+        message = {"id": "m", "type": "gemini", "content": ""}
+        call = {"id": "c", "name": "run_shell_command", "args": {"command": "ws-handoff notes/task.md task"}}
+        path.write_text("\n".join(json.dumps(d) for d in [
+            {"$set": {"messages": [user]}}, message, dict(message, toolCalls=[call])]) + "\n")
+        converted = run.gemini_transcript({"gemini_transcript_path": str(path),
+                                          "gemini_response": "Dispatched."}, str(self.root))
+        self.addCleanup(lambda: os.unlink(converted))
+        entries = [json.loads(line) for line in Path(converted).read_text().splitlines()]
+        tools = [part for entry in entries for part in entry["message"]["content"]
+                 if isinstance(part, dict) and part.get("type") == "tool_use"]
+        self.assertEqual(len(tools), 1)
+        self.assertEqual(tools[0]["name"], "Bash")
+        self.assertIn("ws-handoff", tools[0]["input"]["command"])
+
+    def test_map_prefix_preserves_review_dispatch(self):
+        prompt = f"【代码地图】先读 {self.map}\n【审稿】检查「这是一段用户原话」"
+        self.assertEqual(self.call("dispatch-review-guard", {"hook_event_name": "PreToolUse",
+            "tool_name": "subagent", "tool_input": {"prompt": prompt}}), {})
+
     def test_polling_denied_for_all_cli_names(self):
         for cli, event, tool in [
             ("", "PreToolUse", "Bash"), ("codex", "PreToolUse", "Bash"),
@@ -94,7 +145,7 @@ class WorkflowCLIs(unittest.TestCase):
     def test_gemini_after_tool_fills_map(self):
         report = f"## 地图要补的条目（{self.map}）\n- router core/router.go:12\n"
         self.call("codemap-fill", {"hook_event_name": "AfterTool", "tool_name": "invoke_agent",
-                                  "tool_input": {}, "tool_response": report})
+                                  "tool_input": {}, "tool_response": {"llmContent": report}})
         self.assertIn("- router core/router.go:12", self.map.read_text())
 
 

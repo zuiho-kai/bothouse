@@ -21,11 +21,12 @@ def adapt(payload):
     if payload.get("tool_name") in ("spawn_agent", "Agent"):
         payload["tool_name"] = "Agent"
         payload["tool_input"] = inp
-    if payload.get("hook_event_name") not in ("Stop", "SubagentStop"):
-        return payload, None
+    source = payload.get("transcript_path")
+    if payload.get("hook_event_name") == "SubagentStop":
+        source = payload.get("agent_transcript_path") or source
     entries = []
     try:
-        with open(payload.get("transcript_path") or "", encoding="utf-8") as f:
+        with open(source or "", encoding="utf-8") as f:
             for line in f:
                 try:
                     event = json.loads(line)
@@ -58,4 +59,6 @@ def adapt(payload):
         for event in entries:
             f.write(json.dumps(event, ensure_ascii=False) + "\n")
     payload["transcript_path"] = path
+    if payload.get("hook_event_name") == "SubagentStop":
+        payload["agent_transcript_path"] = path
     return payload, path

@@ -46,14 +46,13 @@ Gemini CLI runs the same hooks through its own protocol (https://geminicli.com/d
 2. Events become Claude Code's: BeforeTool -> PreToolUse, AfterTool -> PostToolUse, BeforeAgent ->
    UserPromptSubmit, AfterAgent -> Stop (the same "turn ends" moment; fix-claim-guard/promise-guard need it to be
    able to send the agent back to fix its claim, which SessionEnd cannot). session_id/cwd pass through.
-3. Gemini's transcript is its own JSON, not a Claude Code JSONL: for Stop a two-entry transcript is built from
-   the payload's prompt / prompt_response, so the Stop hooks see the turn they check (they only read the last
-   user message and the assistant's final text).
+3. Gemini's JSONL session records (or JSON messages) are converted to a Claude Code transcript, preserving
+   tool calls for plan/promise checks; prompt / prompt_response are used when no session record is available.
 4. Its output is turned back: a Claude Code deny (hookSpecificOutput.permissionDecision, or decision "block")
    becomes Gemini's {"decision": "deny", "reason": ...}; an additionalContext becomes
    hookSpecificOutput.additionalContext on BeforeAgent (added to the prompt) and AfterTool (appended to the tool
    result as <hook_context>; hooks/reference, and gemini-cli 0.63.0 getAdditionalContext() on the AfterTool
-   output). BeforeTool has no such field, so its hints are dropped. Exit 2 means "block" in both protocols and is passed through; stdout is
+   output). BeforeTool has no context field, so its hints are dropped; updatedInput becomes hookSpecificOutput.tool_input. Exit 2 means "block" in both protocols and is passed through; stdout is
    otherwise kept JSON-only, as Gemini requires.
 
 Antigravity (agy) runs the hooks from the role's .agents/hooks.json, each command with --agy <event> (agy's
@@ -219,7 +218,8 @@ def gemini_payload(payload):
     """A Gemini CLI hook payload as Claude Code's shape (session_id/cwd pass through)."""
     ev = payload.get("hook_event_name")
     out = {"session_id": payload.get("session_id") or "", "cwd": payload.get("cwd") or os.getcwd(),
-           "hook_event_name": GEMINI_TO_CLAUDE_EVENT.get(ev, ev), "transcript_path": ""}
+           "hook_event_name": GEMINI_TO_CLAUDE_EVENT.get(ev, ev), "transcript_path": "",
+           "gemini_transcript_path": payload.get("transcript_path")}
     if out["hook_event_name"] in ("PreToolUse", "PostToolUse"):
         name, inp = gemini_tool_input(payload.get("tool_name") or "", payload.get("tool_input"))
         out["tool_name"], out["tool_input"] = name, inp
@@ -234,13 +234,38 @@ def gemini_payload(payload):
 
 
 def gemini_transcript(payload, cwd):
-    """Turn the Stop payload's prompt/prompt_response into a Claude Code transcript (JSONL temp file)."""
+    """Keep native tool history, then append the current Stop response if not yet persisted."""
+    messages = {}
+    for line in tail_lines(payload.pop("gemini_transcript_path", None)):
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        reset = (record.get("$set") or {}).get("messages", record.get("messages"))
+        if isinstance(reset, list):
+            messages = {m["id"]: m for m in reset if isinstance(m, dict) and "id" in m}
+        elif record.get("type") in ("user", "gemini") and record.get("id"):
+            messages[record["id"]] = record
+    entries = []
+    for message in messages.values():
+        role = "user" if message.get("type") == "user" else "assistant"
+        text = parts_text(message.get("content"))
+        content = [{"type": "text", "text": text}] if text else []
+        for call in message.get("toolCalls") or []:
+            name, inp = gemini_tool_input(call.get("name"), call.get("args"))
+            content.append({"type": "tool_use", "id": call.get("id"), "name": name, "input": inp})
+        if content:
+            entries.append({"type": role, "cwd": cwd, "message": {"role": role, "content": content}})
+    if not entries:
+        entries.append({"type": "user", "cwd": cwd, "message": {
+            "role": "user", "content": payload.get("gemini_prompt") or ""}})
+    response = payload.pop("gemini_response", "")
+    if response:
+        entries.append({"type": "assistant", "cwd": cwd, "message": {
+            "role": "assistant", "content": [{"type": "text", "text": response}]}})
     fd, path = tempfile.mkstemp(prefix="gemini-stop-", suffix=".jsonl")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
-        for rec in ({"type": "user", "cwd": cwd, "message": {"role": "user", "content": payload.pop("gemini_prompt", "")}},
-                    {"type": "assistant", "cwd": cwd,
-                     "message": {"role": "assistant", "content": [
-                         {"type": "text", "text": payload.pop("gemini_response", "")}]}}):
+        for rec in entries:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     return path
 
@@ -664,7 +689,7 @@ def main():
     # what tells the two apart)
     iflow = not cursor and not gemini and os.environ.get("IFLOW_HOOK_EVENT_NAME") in IFLOW_EVENTS
     tmp, turn, sid = None, None, payload.get("session_id") or ""
-    if OPTS["grok"] and payload.get("hook_event_name") in ("Stop", "SubagentStop"):
+    if OPTS["grok"] and payload.get("transcript_path"):
         # Grok's official hook transcript is ACP updates.jsonl, not Claude JSONL.
         entries = []
         for line in tail_lines(payload.get("transcript_path")):
@@ -697,9 +722,8 @@ def main():
         payload = iflow_payload(payload)
     if gemini:
         payload = gemini_payload(payload)
-        if payload["hook_event_name"] == "Stop":
-            tmp = gemini_transcript(payload, payload["cwd"])
-            payload["transcript_path"] = tmp
+        tmp = gemini_transcript(payload, payload["cwd"])
+        payload["transcript_path"] = tmp
     if OPTS["kimi"] and payload.get("tool_name") == "bash":
         payload["tool_name"] = "Bash"
     if gemini or OPTS["codex"] or OPTS["grok"]:
@@ -758,7 +782,9 @@ def main():
     if (stop or payload.get("hook_event_name") == "SubagentStop") and path:
         if stop and sub:
             sys.exit(0)
-        recs = wait_for_log(path, records(read_lines(path)))
+        recs = records(read_lines(path))
+        if stop:
+            recs = wait_for_log(path, recs)
         fd, tmp = tempfile.mkstemp(prefix="dsh-stop-", suffix=".jsonl")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             for r in transcript(recs, head.get("cwd") or payload.get("cwd") or ""):

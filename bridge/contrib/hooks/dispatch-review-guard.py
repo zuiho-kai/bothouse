@@ -40,7 +40,7 @@ def deny(msg):
 
 
 def check_agent(prompt):
-    head = prompt.lstrip()
+    head = re.sub(r"^(?:【代码地图】[^\n]*\n)+", "", prompt.lstrip())
     if head.startswith("【审稿】"):
         if not QUOTE.search(prompt):
             deny("派审稿必须逐字引用用户原话（「」或“”），不给自己的转述。")
@@ -124,22 +124,18 @@ def small_edit(tool, inp):
     return 0 < n <= SMALL_EDIT_LINES
 
 
-def main():
-    try:
-        d = json.load(sys.stdin)
-    except Exception:
-        return
+def check_call(d):
     tool, inp = d.get("tool_name", ""), d.get("tool_input", {}) or {}
     if not d.get("agent_id") and tool in ("Agent", "Task", "Edit", "Write", "MultiEdit", "NotebookEdit"):
         p = os.path.realpath(os.path.expanduser(inp.get("file_path") or inp.get("notebook_path") or ""))
-        free = p and any(p == x or p.startswith(os.path.realpath(x) + os.sep) for x in FREE_DIRS + [NOTES_DIR])
+        free = p and any(p == x or p.startswith(os.path.realpath(x) + os.sep) for x in FREE_DIRS + [NOTES_DIR, os.path.join(d.get("cwd") or os.getcwd(), "notes")])
         if not free:
             asked = plan_gate.pending(d.get("transcript_path"))
             if asked:
                 deny(plan_gate.message(asked))
     if tool in ("Agent", "Task"):
         check_bot_model(d.get("cwd", ""), inp)
-        check_agent(inp.get("prompt", ""))
+        check_agent(inp.get("prompt") or inp.get("message") or "")
     elif tool in ("Edit", "Write", "MultiEdit", "NotebookEdit") and not d.get("agent_id"):
         p = os.path.realpath(os.path.expanduser(inp.get("file_path") or inp.get("notebook_path") or ""))
         # notes/ 是方案和交接稿（ws-handoff 必需），按会话 cwd 算，不是代码改动
@@ -150,6 +146,31 @@ def main():
             deny(f"聊天频道主会话只直接改 {SMALL_EDIT_LINES} 行以内的小改（人设里的 hook 规则「分工」）：{p}。"
                  f"大改交工作区（ws-handoff），工作区里直接改；或派给 subagent（小改动在派活 prompt 开头写【免审:小改动】）；"
                  f"若是文档，先跑 `python3 {HERE}/doc-ok.py <文件>` 登记。")
+
+
+def main():
+    try:
+        d = json.load(sys.stdin)
+    except ValueError:
+        return
+    if d.get("tool_name") != "apply_patch":
+        check_call(d)
+        return
+    # Same per-file mapping as the OpenCode adapter (agent_hooks_opencode.go).
+    inp = d.get("tool_input") or {}
+    patch = inp.get("command") or inp.get("patch") or inp.get("input") or ""
+    chunks = re.split(r"^\*\*\* (Add|Update|Delete) File: (.+)\n", patch, flags=re.M)
+    for i in range(1, len(chunks), 3):
+        kind, path, body = chunks[i:i + 3]
+        path = os.path.join(d.get("cwd") or os.getcwd(), path)
+        old = "\n".join(line[1:] for line in body.splitlines() if line.startswith("-"))
+        new = "\n".join(line[1:] for line in body.splitlines() if line.startswith("+"))
+        check_call(dict(d, tool_name="Edit" if kind == "Update" else "Write",
+                        tool_input={"file_path": path, "old_string": old, "new_string": new}))
+        moved = re.search(r"^\*\*\* Move to: (.+)$", body, re.M)
+        if moved:
+            check_call(dict(d, tool_name="Write", tool_input={
+                "file_path": os.path.join(d.get("cwd") or os.getcwd(), moved.group(1))}))
 
 
 if __name__ == "__main__":

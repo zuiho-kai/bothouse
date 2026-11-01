@@ -130,7 +130,11 @@ def hook_text(d):
     t = d.get("last_assistant_message") or ""
     if not t and d.get("hook_event_name") == "PostToolUse":
         response = d.get("tool_response")
-        t = response if isinstance(response, str) else json.dumps(response or {}, ensure_ascii=False).replace("\\n", "\n")
+        if isinstance(response, dict):
+            response = response.get("llmContent") or response.get("output") or response.get("content") or ""
+        if isinstance(response, list):
+            response = "\n".join(part.get("text", "") for part in response if isinstance(part, dict))
+        t = response if isinstance(response, str) else ""
     if not t and d.get("agent_transcript_path"):
         t = transcript_last_text(d["agent_transcript_path"])
     src = "子 agent " + " ".join(x for x in (d.get("agent_type") or "", (d.get("agent_id") or "")[:8]) if x)
