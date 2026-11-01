@@ -6,8 +6,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 	"time"
@@ -94,7 +96,7 @@ func runModule(args []string) {
 		return
 	}
 	// nothing to flip: already in that state, or never configured
-	cfg, err := config.LoadForSetup(config.ConfigPath)
+	cfg, err := loadModuleConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -113,8 +115,16 @@ func runModule(args []string) {
 		moduleLabels[mod], mod, mod)
 }
 
+// loadModuleConfig: no config file yet (fresh install) = nothing configured.
+func loadModuleConfig() (*config.Config, error) {
+	if _, err := os.Stat(config.ConfigPath); errors.Is(err, fs.ErrNotExist) {
+		return &config.Config{}, nil
+	}
+	return config.LoadForSetup(config.ConfigPath)
+}
+
 func moduleList() error {
-	cfg, err := config.LoadForSetup(config.ConfigPath)
+	cfg, err := loadModuleConfig()
 	if err != nil {
 		return err
 	}

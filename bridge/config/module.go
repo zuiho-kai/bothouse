@@ -6,7 +6,9 @@ package config
 // files and are never touched here.
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"time"
 
@@ -73,6 +75,9 @@ func SetModuleDisabled(module string, disabled bool) (changed []string, backup s
 		return nil, "", fmt.Errorf("config path not set")
 	}
 	raw, err := os.ReadFile(ConfigPath)
+	if errors.Is(err, fs.ErrNotExist) { // a fresh install: no module is configured, nothing to change
+		return nil, "", nil
+	}
 	if err != nil {
 		return nil, "", fmt.Errorf("read config: %w", err)
 	}

@@ -18,6 +18,9 @@ vi.mock('@/api/wizard', async (original) => ({
   getMatrix: async () => ({ vendors: [], matrix: [] }), getExistingBots: async () => ({ bots: [] }),
   applyWizard: async (req: WizardRequest) => {
     sent.reqs.push(req);
+    // a new machine without a detected CLI: the plan fails after the QQ test passed (review of #813)
+    if (req.dry_run) return { ok: false, error: 'no supported agent CLI found on this machine', dry_run: true, steps: [], roles: [], jev_ok: false, jev_hint: '', hardware: false, restart_required: false,
+      qq: { code: 'ok', message: '已连上 NapCat，QQ 3889000001（肥鱼）', user_id: '3889000001', nickname: '肥鱼' } };
     return { ok: true, dry_run: !!req.dry_run, saved: !req.dry_run, steps: [], roles: [], jev_ok: false, jev_hint: '', hardware: false, restart_required: !req.dry_run,
       qq: { code: 'ok', message: '已连上 NapCat，QQ 3889000001（肥鱼）', user_id: '3889000001', nickname: '肥鱼' } };
   },

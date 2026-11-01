@@ -1846,10 +1846,8 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			}
 		} else if req.Platform == "qq" {
 			q := req.QQ
-			pw.Options["ws_url"], pw.Options["allow_from"] = q.WSURL, q.AllowFrom
-			if q.Token != "" {
-				pw.Options["token"] = q.Token
-			}
+			// token always written: "" removes an old one, so what was tested is what is saved
+			pw.Options["ws_url"], pw.Options["allow_from"], pw.Options["token"] = q.WSURL, q.AllowFrom, q.Token
 			if q.HTTPURL != "" {
 				pw.Options["http_url"] = q.HTTPURL
 			}

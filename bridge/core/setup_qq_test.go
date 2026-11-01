@@ -125,3 +125,27 @@ func TestApplyWizardQQAddsPlatform(t *testing.T) {
 		t.Fatalf("second run on the same NapCat: saved=%v projects %d → %d", res.Saved, n, len(store.order))
 	}
 }
+
+// Review of #813: a NapCat whose token was removed — the second run tests with no token and must
+// save no token, not keep the old one.
+func TestApplyWizardQQClearingToken(t *testing.T) {
+	noHardware(t)
+	ws := fakeNapCat(t, "") // accepts any token
+	store := newMemStore()
+	env := WizardEnv{Store: store, DataDir: t.TempDir(), CLIs: testCLIs}
+	run := func(token string) *WizardProjectWrite {
+		t.Helper()
+		res := ApplyWizard(context.Background(), env, WizardRequest{Language: "zh", Platform: "qq",
+			QQ: &WizardQQ{WSURL: ws, Token: token, AllowFrom: "12345"}, Roles: []WizardRole{{}}})
+		if !res.Saved || len(store.order) != 1 {
+			t.Fatalf("token %q: saved=%v projects=%v %s", token, res.Saved, store.order, res.Error)
+		}
+		return store.projects[store.order[0]]
+	}
+	if p := run("old"); p.Options["token"] != "old" {
+		t.Fatalf("first run token = %v", p.Options["token"])
+	}
+	if p := run(""); p.Options["token"] != nil && p.Options["token"] != "" {
+		t.Fatalf("cleared token still saved: %v", p.Options["token"])
+	}
+}
