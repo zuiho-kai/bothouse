@@ -3,10 +3,15 @@ package qq
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
+	"github.com/gorilla/websocket"
 )
 
 // Exercise the real OneBot transport: empty output must not create a bubble.
@@ -136,5 +141,79 @@ func TestSendCanceledTurnDoesNotSend(t *testing.T) {
 	defer f.mu.Unlock()
 	if got := len(f.sent["send_group_msg"]); got != 0 {
 		t.Errorf("cancelled output sent to OneBot: %d calls", got)
+	}
+}
+
+// slowUpstream is an OneBot stub that records how many send calls actually
+// reached it, so a test can prove a failure or a timeout did not turn into a
+// second bubble on the QQ side.
+func slowUpstream(t *testing.T, holdMs int, reject bool) (*httptest.Server, *int32) {
+	t.Helper()
+	var sends int32
+	upgrader := websocket.Upgrader{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		for {
+			var req map[string]any
+			if c.ReadJSON(&req) != nil {
+				return
+			}
+			action, _ := req["action"].(string)
+			if action != "send_group_msg" && action != "send_private_msg" {
+				_ = c.WriteJSON(map[string]any{"echo": req["echo"], "status": "ok", "retcode": 0,
+					"data": map[string]any{"user_id": botUserID, "nickname": "TestBot"}})
+				continue
+			}
+			atomic.AddInt32(&sends, 1)
+			time.Sleep(time.Duration(holdMs) * time.Millisecond)
+			if reject {
+				_ = c.WriteJSON(map[string]any{"echo": req["echo"], "status": "failed", "retcode": 1400, "message": "rejected"})
+				continue
+			}
+			_ = c.WriteJSON(map[string]any{"echo": req["echo"], "status": "ok", "retcode": 0,
+				"data": map[string]any{"message_id": 7}})
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &sends
+}
+
+// A rejected send must surface the error and must not be replayed: a replay
+// would put the same bubble in the group twice.
+func TestRejectedSendIsNotReplayed(t *testing.T) {
+	srv, sends := slowUpstream(t, 0, true)
+	p := &Platform{wsURL: "ws" + strings.TrimPrefix(srv.URL, "http")}
+	if err := p.Start(func(core.Platform, *core.Message) {}); err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+	if err := p.Send(context.Background(), &replyContext{messageType: "group", groupID: 42}, "one message"); err == nil {
+		t.Fatal("Send = nil, want the upstream rejection")
+	}
+	if got := atomic.LoadInt32(sends); got != 1 {
+		t.Fatalf("send attempts = %d, want 1 (rejection must not be replayed)", got)
+	}
+}
+
+// A slow upstream that outlives the turn must not leave a second attempt
+// behind after the deadline fires.
+func TestSlowSendTimesOutWithoutReplay(t *testing.T) {
+	srv, sends := slowUpstream(t, 300, false)
+	p := &Platform{wsURL: "ws" + strings.TrimPrefix(srv.URL, "http")}
+	if err := p.Start(func(core.Platform, *core.Message) {}); err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+	if err := p.Send(ctx, &replyContext{messageType: "group", groupID: 42}, "one message"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Send = %v, want context.DeadlineExceeded", err)
+	}
+	if got := atomic.LoadInt32(sends); got != 1 {
+		t.Fatalf("send attempts = %d, want 1 (timeout must not be replayed)", got)
 	}
 }
