@@ -64,6 +64,29 @@ describe('channel source', () => {
     unsubscribe()
   })
 
+  it('saves the relay cap through the channel settings route and updates its chat channel', async () => {
+    const { transport, calls } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') return json(200, { ...state, rooms: [
+        { id: 1, name: 'one', max_relay: 6 },
+        { id: 1000000, name: '工作区1', parent_id: 1, kind: 'workspace', max_relay: 6 },
+      ] })
+      if (url === '/collab/api/rooms/1/settings') {
+        expect(init?.method).toBe('PATCH')
+        expect(JSON.parse(String(init?.body))).toEqual({ max_relay: 8 })
+        return json(200, { lead_id: null, effective_lead_id: null, workspace_path: '', max_relay: 8 })
+      }
+      return json(200, { messages: [] })
+    })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().roomId).toBe(1))
+    await actions.setMaxRelay(1, 8)
+    expect(source.getSnapshot().rooms[0].max_relay).toBe(8)
+    expect(source.getSnapshot().rooms[1].max_relay, 'the workspace shows its chat channel value').toBe(8)
+    expect(calls).toContain('PATCH /collab/api/rooms/1/settings')
+    unsubscribe()
+  })
+
   it('uploads a new member portrait and removes the new member when upload fails so retry stays possible', async () => {
     let fail = false
     const { transport, calls } = fakeTransport((url, init) => {

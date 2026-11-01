@@ -155,6 +155,8 @@ export interface ChannelRoom {
   readonly workspace_path?: string
   readonly dispatch_mode?: DispatchMode
   readonly dispatch_explicit?: boolean
+  /** Relay cap for this channel (#445); workspaces show their chat channel's value. */
+  readonly max_relay?: number
   readonly id: number
   readonly name: string
   /** Absent from older services: treated as a chat channel. */
@@ -291,6 +293,8 @@ export interface ChannelActions {
   removeMember(id: string): Promise<void>
   /** Select the member that owns the primary-role slot for this collab service. */
   setDispatchMode(roomId: number, mode: DispatchMode): Promise<void>
+  /** Set the channel's relay cap (6–20, #445); workspaces write through to their chat channel. */
+  setMaxRelay(roomId: number, maxRelay: number): Promise<void>
   setLead(id: string, roomId?: number): Promise<void>
   setWorkspacePath(roomId: number, path: string): Promise<void>
   renewRoom(roomId: number): Promise<void>
@@ -332,7 +336,7 @@ type ServiceEvent =
   | { readonly type: 'members'; readonly members: readonly ChannelMember[] }
   | { readonly type: 'thinking'; readonly room_id: number; readonly members: readonly string[] }
   | { readonly type: 'rooms'; readonly rooms: readonly ChannelRoom[] }
-  | { readonly type: 'room-settings'; readonly room_id: number; readonly lead_id: string | null; readonly effective_lead_id: string | null; readonly workspace_path: string }
+  | { readonly type: 'room-settings'; readonly room_id: number; readonly lead_id: string | null; readonly effective_lead_id: string | null; readonly workspace_path: string; readonly max_relay?: number }
   | { readonly type: 'task'; readonly task: ChannelTask; readonly chat_id: number }
   | { readonly type: 'lead'; readonly lead_id: string | null; readonly effective_lead_id?: string | null }
 
@@ -466,7 +470,7 @@ export function createChannelSource(transport: ChannelTransport): {
       case 'members': return { ...current, members: event.members }
       case 'thinking': return { ...current, thinking: { ...current.thinking, [String(event.room_id)]: event.members } }
       case 'rooms': return { ...current, rooms: event.rooms.map(r => ({ ...current.rooms.find(old => old.id === r.id), ...r })) }
-      case 'room-settings': return { ...current, rooms: current.rooms.map(r => r.id === event.room_id || r.parent_id === event.room_id ? { ...r, lead_id: event.lead_id, effective_lead_id: event.effective_lead_id, workspace_path: event.workspace_path } : r) }
+      case 'room-settings': return { ...current, rooms: current.rooms.map(r => r.id === event.room_id || r.parent_id === event.room_id ? { ...r, lead_id: event.lead_id, effective_lead_id: event.effective_lead_id, workspace_path: event.workspace_path, max_relay: event.max_relay ?? r.max_relay } : r) }
       case 'lead': return { ...current, leadId: event.lead_id, effectiveLeadId: event.effective_lead_id ?? event.lead_id }
       case 'task': {
         if (current.taskChat === undefined) {
@@ -826,6 +830,11 @@ export function createChannelSource(transport: ChannelTransport): {
       const selected = snapshot.rooms.find(r => r.id === roomId)
       const chatId = selected?.parent_id ?? roomId
       set({ rooms: snapshot.rooms.map(r => r.id === chatId || r.parent_id === chatId ? { ...r, ...result } : r) })
+    },
+    async setMaxRelay(roomId, maxRelay) {
+      const result = await request<{ lead_id: string | null; effective_lead_id: string | null; workspace_path: string; max_relay: number }>(`collab/api/rooms/${roomId}/settings`, json('PATCH', { max_relay: maxRelay }))
+      const chat = snapshot.rooms.find(r => r.id === roomId)?.parent_id ?? roomId
+      if (lifetime !== undefined) onEvent({ type: 'room-settings', room_id: chat, ...result })
     },
     async setLead(id, roomId = snapshot.roomId) {
       if (roomId === undefined) throw new Error('No channel is open')

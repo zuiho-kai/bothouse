@@ -10,6 +10,11 @@ export const MAX_TEXT = 128 * 1024;
 // 「默认混合模型」); the same names as the bridge's dispatch_mode config.
 export const DISPATCH_MODES = ['solo', 'team', 'mixed'];
 export const DEFAULT_DISPATCH_MODE = 'mixed';
+// #445: a chat channel may set its own relay cap; the Issue's acceptance fixes the range
+// (5/21 rejected, 6/20 accepted) and the default (6).
+export const MIN_CHANNEL_MAX_RELAY = 6;
+export const MAX_CHANNEL_MAX_RELAY = 20;
+export const DEFAULT_CHANNEL_MAX_RELAY = 6;
 // v7 is #133 (reply_to), v8 is #139 team mode A, v9 is #139 team mode B tasks, v10 is #177
 // (room_settings.dispatch_explicit); columns are added by ensureSchema() on every open
 // (checked with PRAGMA table_info), so either merge or release order ends with every column;
@@ -66,7 +71,13 @@ export const WORKSPACE_ID_MIN = 1000000;
 export const QUOTE_CHARS = 40;
 
 export class Store {
-  constructor(path) {
+  /**
+   * @param path - SQLite file, or ':memory:'.
+   * @param options - { maxRelay? } instance default for channels that never set one (#445);
+   *   kept configurable so instances that run a tighter loop keep working.
+   */
+  constructor(path, { maxRelay = DEFAULT_CHANNEL_MAX_RELAY } = {}) {
+    this.relayDefault = maxRelay;
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.closed = false;
@@ -188,6 +199,8 @@ export class Store {
       }
       if (!settingColumns.some(c => c.name === 'lead_id')) this.db.exec('ALTER TABLE room_settings ADD COLUMN lead_id TEXT');
       if (!settingColumns.some(c => c.name === 'workspace_path')) this.db.exec('ALTER TABLE room_settings ADD COLUMN workspace_path TEXT');
+      // #445: NULL means the channel never set a cap, so the instance default applies.
+      if (!settingColumns.some(c => c.name === 'max_relay')) this.db.exec('ALTER TABLE room_settings ADD COLUMN max_relay INTEGER');
       this.db.exec('DROP TABLE IF EXISTS collab_settings');
       if (version < SCHEMA_VERSION) this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     });
@@ -540,6 +553,28 @@ export class Store {
     return mode;
   }
 
+  /** A channel's saved relay cap (a workspace reads its chat channel); null when it never set one (#445). */
+  savedMaxRelay(roomId) {
+    const row = this.db.prepare('SELECT max_relay FROM room_settings WHERE room_id = ?').get(this.settingsRoom(roomId));
+    return row?.max_relay ?? null;
+  }
+
+  /** The setting the client shows: the saved cap, else the instance default (#445). */
+  relaySetting(roomId) {
+    return { max_relay: this.savedMaxRelay(roomId) ?? this.relayDefault };
+  }
+
+  /** Set a chat channel's relay cap; only 6–20 (Issue #445), stored on the channel so its workspaces share it. */
+  setMaxRelay(roomId, value) {
+    if (!Number.isInteger(value) || value < MIN_CHANNEL_MAX_RELAY || value > MAX_CHANNEL_MAX_RELAY) {
+      throw new CollabError('invalid', `接力上限必须是 ${MIN_CHANNEL_MAX_RELAY}–${MAX_CHANNEL_MAX_RELAY} 的整数`);
+    }
+    roomId = this.settingsRoom(roomId); // set on a workspace = set on its chat channel
+    this.ensureRoomSettings(roomId);
+    this.db.prepare('UPDATE room_settings SET max_relay = ? WHERE room_id = ?').run(value, roomId);
+    return value;
+  }
+
   /** Keep legacy members visible in all channels, including future ones. */
   migrateMemberRooms() {
     return this.db.prepare("UPDATE members SET rooms = '[]' WHERE rooms IS NULL").run().changes > 0;
@@ -605,7 +640,7 @@ export class Store {
     this.releaseIdleWorkspaces();
     const counts = new Map(this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
       WHERE status IN ('assigned', 'accepted', 'asked', 'rework') GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
-    return this.rooms().map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id) }));
+    return this.rooms().map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id), ...this.relaySetting(r.id) }));
   }
 
   /**

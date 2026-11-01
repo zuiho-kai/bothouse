@@ -102,7 +102,8 @@ export async function apply(ctx, rawConfig) {
   const { WebSocketServer } = require('ws');
   if (typeof createUserMessage !== 'function' || typeof WebSocketServer !== 'function') throw Error('conest-collab: unsupported DSH runtime');
 
-  const store = new Store(join(config.dataDir, 'collab.sqlite3'));
+  // #445: the instance maxRelay stays the default for channels that never set their own cap.
+  const store = new Store(join(config.dataDir, 'collab.sqlite3'), { maxRelay: config.maxRelay });
   for (const room of config.rooms) {
     store.ensureRoom(room.id, store.room(room.id)?.name ?? room.name.trim(), room.workspacePath);
     store.ensureRoomSettings(room.id);
@@ -400,7 +401,7 @@ export function roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePa
   const roomId = Number(match[1]);
   if (store.room(roomId) === undefined) return Promise.resolve(json(res, 404, { error: '频道不存在' }));
   const view = () => ({ lead_id: store.leadId(roomId), effective_lead_id: hub.primaryIn(roomId)?.id ?? null,
-    workspace_path: store.workspacePath(roomId, workspacePath) });
+    workspace_path: store.workspacePath(roomId, workspacePath), max_relay: store.relaySetting(roomId).max_relay });
   if (match[2] === 'renew' && req.method === 'POST') {
     return withBody(req, res, async () => ({ members: await dsh.renewRoom(roomId) }), false);
   }
@@ -421,6 +422,8 @@ export function roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePa
     store.transaction(() => {
       if (body?.lead_id !== undefined) store.setLead(roomId, body.lead_id);
       if (body?.workspace_path !== undefined) store.setWorkspacePath(roomId, body.workspace_path, workspacePath);
+      // #445: 6–20 only; an invalid value rolls the whole PATCH back.
+      if (body?.max_relay !== undefined) store.setMaxRelay(roomId, body.max_relay);
     });
     hub.emit({ type: 'room-settings', room_id: store.settingsRoom(roomId), ...view() });
     return view();
