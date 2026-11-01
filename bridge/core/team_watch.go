@@ -195,12 +195,16 @@ func (s *APIServer) rewatchIfServing() {
 }
 
 func (w *handoffWatch) run(ctx context.Context) {
-	var reconciled time.Time
+	var reconciled, reviewHour time.Time
 	for {
 		if now := w.now(); now.Sub(reconciled) >= teamWorkspaceReconcileEvery {
 			reconciled = now
 			w.reconcileTeamWorkspaces(now)
 		}
+		now := w.now()
+		hour := now.Truncate(teamWorkspaceReconcileEvery)
+		w.reconcileTaskReviews(now, !hour.Equal(reviewHour))
+		reviewHour = hour
 		next := w.tick(w.now())
 		wait := watchIdleWake()
 		if !next.IsZero() {

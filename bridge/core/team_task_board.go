@@ -59,6 +59,11 @@ type teamTaskBoardItem struct {
 	// Card: the item's task card link (board.py link), for an item with no workspace task card.
 	Card string `json:"card"`
 
+	Dispatcher   string    `json:"dispatcher"`
+	Reviewer     string    `json:"reviewer"`
+	ReturnedAt   time.Time `json:"returned_at,omitzero"`
+	reviewAfter  time.Duration
+	reviewerName string
 	// Resolved by placeTeamTaskBoard, not stored.
 	own    string // the chat the item is in
 	parent string // for an item in a workspace: the chat the workspace belongs to
@@ -120,9 +125,11 @@ func teamTaskBoardWaitHours(it teamTaskBoardItem, now time.Time) int {
 
 // teamTaskBoardPlacer tells where items go: which chat a workspace belongs to and its name.
 type teamTaskBoardPlacer struct {
-	mainChat string                         // for items with no chat recorded; "" = not shown
-	parentOf func(ws string) (string, bool) // workspace key → chat key
-	wsName   func(ws string) string         // a workspace's name (TeamWorkspaceName); "" = not recorded
+	reviewAfter  time.Duration
+	reviewerName func(string) string
+	mainChat     string                         // for items with no chat recorded; "" = not shown
+	parentOf     func(ws string) (string, bool) // workspace key → chat key
+	wsName       func(ws string) string         // a workspace's name (TeamWorkspaceName); "" = not recorded
 	// handoffEnded: TeamHandoffEnded (workspace, chat that handed off, bound); nil = unknown.
 	handoffEnded func(ws, chat string, bound time.Time) bool
 	// handoffOf: TeamHandoffOf (workspace, chat that handed off, bound); nil = unknown.
@@ -136,6 +143,8 @@ type teamTaskBoardPlacer struct {
 func (e *Engine) teamTaskBoardPlacer() teamTaskBoardPlacer {
 	return teamTaskBoardPlacer{
 		mainChat:       teamMainChat(e.dataDir),
+		reviewAfter:    e.taskReviewAfter(),
+		reviewerName:   e.taskReviewerName,
 		parentOf:       e.WorkspaceParent,
 		wsName:         e.TeamWorkspaceName,
 		handoffEnded:   e.TeamHandoffEnded,
@@ -184,6 +193,10 @@ var teamTaskBoardUnplaced sync.Map
 // place resolves own/parent/wsName. Old items: sk, else the bare Discord channel ch; with neither
 // the item shows in the main chat, or nowhere (logged once) when no main chat is recorded.
 func (p teamTaskBoardPlacer) place(it *teamTaskBoardItem) {
+	it.reviewAfter = p.reviewAfter
+	if p.reviewerName != nil {
+		it.reviewerName = p.reviewerName(it.Reviewer)
+	}
 	chat := it.Chat
 	if chat != "" && !strings.Contains(chat, ":") {
 		chat = "discord:" + chat // board.py writes the bare Discord channel ID, like ch
@@ -417,7 +430,7 @@ func (it teamTaskBoardItem) shownIn(chat string) bool {
 // from the same placed items the section is rendered from.
 func teamTaskBoardLive(items []teamTaskBoardItem, chat string) bool {
 	for _, it := range items {
-		if it.shownIn(chat) && it.Paused == "" && !it.wsEnded {
+		if it.shownIn(chat) && it.Paused == "" && it.ReturnedAt.IsZero() && !it.wsEnded {
 			return true
 		}
 	}
@@ -469,7 +482,8 @@ const (
 	teamTaskRunning                           // in work
 	teamTaskWaiting                           // waits on the user (看片/拍板/答复)
 	teamTaskPaused                            // paused for another reason: counted only
-	teamTaskHidden                            // finished, or its workspace has ended the handoff
+	teamTaskReview
+	teamTaskHidden // finished, or its workspace has ended the handoff
 )
 
 const (
@@ -577,6 +591,8 @@ func teamTaskBoardReason(texts ...string) string {
 // teamTaskBoardStateOf: the item's state and the text after it (reason or age).
 func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardState, string) {
 	switch {
+	case !it.ReturnedAt.IsZero():
+		return teamTaskReview, taskReviewNote(it, now)
 	case it.Paused != "":
 		if teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
 			return teamTaskWaiting, teamTaskBoardReason(it.PauseWhy, it.Status)
@@ -588,7 +604,7 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 		return teamTaskWaiting, teamTaskBoardReason(it.Status)
 	case it.wsEnded:
 		// Releasing an execution workspace is not acceptance of its still-open board item.
-		return teamTaskStuck, "工作区已结束，待主角色核对"
+		return teamTaskPaused, "工作区已释放，任务暂停"
 	case it.wsStuckWhy != "":
 		return teamTaskStuck, it.wsStuckWhy
 	}
@@ -604,10 +620,10 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 }
 
 // teamTaskBoardMarks: the row mark of each listed state.
-var teamTaskBoardMarks = map[teamTaskBoardState]string{teamTaskStuck: "⚠", teamTaskRunning: "▶", teamTaskWaiting: "⏸"}
+var teamTaskBoardMarks = map[teamTaskBoardState]string{teamTaskStuck: "⚠", teamTaskRunning: "▶", teamTaskWaiting: "⏸", teamTaskReview: "🟡"}
 
 // teamTaskBoardNames: the state's word on the board.
-var teamTaskBoardNames = map[teamTaskBoardState]string{teamTaskStuck: "卡住", teamTaskRunning: "在做", teamTaskWaiting: "等你"}
+var teamTaskBoardNames = map[teamTaskBoardState]string{teamTaskStuck: "卡住", teamTaskRunning: "在做", teamTaskWaiting: "等你", teamTaskReview: "待验收"}
 
 // renderTeamTaskBoard renders a chat channel's task-board section, or "" when it has nothing
 // there. It answers 「整体怎样、哪些等我」 — 卡住 and 等你 one item per line with their reason,
@@ -642,7 +658,7 @@ func renderTeamTaskBoard(items []teamTaskBoardItem, chat string, now time.Time) 
 		return "" // only paused items here: no board (same as before, paused items alone never kept one)
 	}
 	lines := []string{"**任务板**"}
-	for _, state := range []teamTaskBoardState{teamTaskStuck, teamTaskRunning, teamTaskWaiting} {
+	for _, state := range []teamTaskBoardState{teamTaskStuck, teamTaskReview, teamTaskRunning, teamTaskWaiting} {
 		r := rows[state]
 		if len(r) == 0 {
 			continue
@@ -828,7 +844,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		if card != nil && card.UpdatedAt.After(last) {
 			last = card.UpdatedAt
 		}
-		if state == teamTaskPaused || (state != teamTaskWaiting && !it.wsEnded && !last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
+		if state == teamTaskPaused || (state != teamTaskWaiting && state != teamTaskReview && !it.wsEnded && !last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
 			shelved++
 			continue
 		}
@@ -839,15 +855,20 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		short := teamTaskBoardShort(it)
 		span := teamTaskTableSpan(teamTaskTableSince(it, now), now)
 		switch {
-		case it.wsEnded:
+		case state == teamTaskReview:
 			// The workspace handed it back; the lead still has to check it (not acceptance). Its
 			// workspace's newest card belongs to later work, so no link.
-			parts := []string{short, "已交回待核对"}
+			note := taskReviewNote(it, now)
+			mark := "🟡 "
+			if taskReviewOverdue(it, now) {
+				mark = "⚠ "
+			}
+			parts := []string{short, note}
 			if where != "" {
 				usedWS[where] = true
-				parts = []string{where, short, "已交回待核对"}
+				parts = []string{where, short, note}
 			}
-			wsRows = append(wsRows, wsRow{where: where, ended: true, line: "  🟡 " + strings.Join(parts, " · ")})
+			wsRows = append(wsRows, wsRow{where: where, ended: true, line: "  " + mark + strings.Join(parts, " · ")})
 		case state == teamTaskWaiting:
 			parts := []string{short}
 			if span != "" {
@@ -966,7 +987,7 @@ func renderWorkspaceTaskBoardFit(items []teamTaskBoardItem, chat string, now tim
 		return "" // only paused items here: no board (same as before, paused items alone never kept one)
 	}
 	lines := []string{"**这里在做**"}
-	for _, st := range []teamTaskBoardState{teamTaskStuck, teamTaskRunning, teamTaskWaiting} {
+	for _, st := range []teamTaskBoardState{teamTaskStuck, teamTaskReview, teamTaskRunning, teamTaskWaiting} {
 		lines = append(lines, rows[st]...)
 	}
 	if paused > 0 {

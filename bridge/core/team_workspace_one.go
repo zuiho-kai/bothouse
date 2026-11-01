@@ -12,7 +12,7 @@ import (
 )
 
 // One task per workspace (user 2026-10-28, approved points 1-3 and「完成一件活的时候，自动清理」):
-//   - a workspace's final [report] closes its board item and resets the session, which frees the
+//   - a workspace's final [report] records pending verification and resets the session, which frees the
 //     workspace (releaseWorkspaceOnReset);
 //   - an [ask] pauses its board item as waiting for the user and frees the workspace; the user's
 //     answer hands the task to a free workspace again (ws-handoff --resume);
@@ -72,7 +72,7 @@ func (e *Engine) runLeadScript(chat, name string, args ...string) ([]byte, error
 }
 
 // endWorkspaceTask runs after a workspace's [report]/[ask] headline for board item hid was
-// posted in chat: a report closes the item and resets the session after this turn (the reset
+// posted in chat: a report records pending verification and resets the session after this turn (the reset
 // frees the workspace); an ask pauses the item as waiting for the user and frees the workspace now.
 func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int) {
 	if hid <= 0 || !e.isTeamLead() {
@@ -80,9 +80,11 @@ func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int) {
 	}
 	switch kind {
 	case exitKindReport:
-		if out, err := e.runLeadScript(chat, "board", "update", strconv.Itoa(hid), "已完成"); err != nil {
-			slog.Warn("team workspace: close reported task failed", "board_item", hid, "error", err, "output", strings.TrimSpace(string(out)))
+		if out, err := e.runLeadScript(chat, "board", "returned", strconv.Itoa(hid), e.name); err != nil {
+			slog.Warn("team workspace: record handback failed", "board_item", hid, "error", err, "output", strings.TrimSpace(string(out)))
+			return
 		}
+		newHandoffWatch(e).reconcileTaskReviews(time.Now(), false)
 		if _, err := e.QueueSessionReset(sessionKey); err != nil {
 			slog.Warn("team workspace: reset after report failed", "session", sessionKey, "error", err)
 		}

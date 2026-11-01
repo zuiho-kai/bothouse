@@ -413,6 +413,7 @@ type Engine struct {
 	hooks              *HookManager
 	cronScheduler      *CronScheduler
 	timerScheduler     *TimerScheduler
+	teamReviewAfter    time.Duration
 	heartbeatScheduler *HeartbeatScheduler
 
 	commands *CommandRegistry
@@ -2058,6 +2059,9 @@ func (e *Engine) WaitPlatformsReady(timeout time.Duration) error {
 func PlatformReadyTimeout() time.Duration { return timerPlatformReadyTimeout }
 
 func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
+	if job.TaskReview != nil && !e.taskReviewPending(job.TaskReview) {
+		return nil
+	}
 	if until := e.quotaCooling(); !until.IsZero() {
 		slog.Info("quota cooldown: timer skipped", "project", e.name, "job", job.ID, "cooling_until", until)
 		return nil

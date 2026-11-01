@@ -190,8 +190,8 @@ func TestShelvedLifecycle_EndWorkspaceTaskFallsBackToGateBoard(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.endWorkspaceTask("discord:main", "discord:ws1", exitKindReport, 1)
-	if got := readTeamTaskBoard(boardDir); len(got) != 0 {
-		t.Fatalf("expected board item #1 closed via gate/board.py fallback, still open: %+v", got)
+	if got := readTeamTaskBoard(boardDir); len(got) != 1 || got[0].ReturnedAt.IsZero() || got[0].WS != "" {
+		t.Fatalf("expected durable pending handback via gate/board.py fallback: %+v", got)
 	}
 }
 
