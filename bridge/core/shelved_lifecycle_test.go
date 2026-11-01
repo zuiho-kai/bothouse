@@ -31,7 +31,7 @@ func TestShelvedLifecycle_EndedWorkspaceIsNotAcceptance(t *testing.T) {
 		"table": renderTeamTaskTable(items, nil, "feishu:oc_a", now),
 		"board": renderTeamTaskBoard(items, "feishu:oc_a", now),
 	} {
-		if !strings.Contains(got, "尚未验收的交接") || !strings.Contains(got, "待主角色核对") {
+		if !strings.Contains(got, "尚未验收的交接") || (!strings.Contains(got, "待主角色核对") && !strings.Contains(got, "已交回待核对")) {
 			t.Errorf("%s lost unaccepted work: %s", name, got)
 		}
 	}
@@ -153,7 +153,7 @@ func TestShelvedLifecycle_ReconcilesActiveWorkspaceHandoff(t *testing.T) {
 		t.Fatalf("placed items = %d, want 2 (1 rebound + 1 synthesized): %+v", len(items), items)
 	}
 	table := renderTeamTaskTable(items, nil, "discord:main", now)
-	for _, want := range []string{"**在做 2**", "任务板对账修复 · 工作区2", "发布部署实测 · 工作区1"} {
+	for _, want := range []string{"**工作区 2**", "🟢 工作区1 · 发布部署实测", "🟢 工作区2 · 任务板对账修复"} {
 		if !strings.Contains(table, want) {
 			t.Errorf("parent table missing %q:\n%s", want, table)
 		}

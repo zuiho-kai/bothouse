@@ -1557,6 +1557,84 @@ func (e *Engine) TeamOpenWorkspaceHandoffs() map[string]TeamHandoff {
 	return out
 }
 
+// TeamIdleWorkspaceNames returns the sorted names (「工作区n」) of known pool workspaces on chat's
+// platform that currently have no open handoff and are not claimed by an active parent record.
+func (e *Engine) TeamIdleWorkspaceNames(chat string) []string {
+	if e == nil || e.dataDir == "" || chat == "" {
+		return nil
+	}
+	plat, _, _ := strings.Cut(teamChatKey(chat), ":")
+	if plat == "" {
+		return nil
+	}
+	teamWorkspaceStore.mu.Lock()
+	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	nameByID := map[string]string{}
+	busyID := map[string]bool{}
+	for wsKey, list := range st.Handoffs {
+		p, id, _ := strings.Cut(teamChatKey(wsKey), ":")
+		if p != plat || id == "" {
+			continue
+		}
+		for _, h := range list {
+			if isTeamWorkspaceName(h.Name) {
+				nameByID[id] = h.Name
+			}
+			if teamHandoffOpen(h) {
+				busyID[id] = true
+			}
+		}
+	}
+	for parent, list := range st.Parents {
+		p, _, _ := strings.Cut(teamChatKey(parent), ":")
+		if p != plat {
+			continue
+		}
+		for _, w := range list {
+			if isTeamWorkspaceName(w.Name) {
+				nameByID[w.ID] = w.Name
+			}
+			if !w.ReleasePending {
+				busyID[w.ID] = true
+			}
+		}
+	}
+	teamWorkspaceStore.mu.Unlock()
+
+	teamTaskBoardChannels.Lock()
+	liveIDs := teamTaskBoardChannels.ids[plat]
+	teamTaskBoardChannels.Unlock()
+
+	busyName := map[string]bool{}
+	allNames := map[string]bool{}
+	for id, name := range nameByID {
+		if len(liveIDs) > 0 && !liveIDs[id] {
+			continue
+		}
+		allNames[name] = true
+		if busyID[id] {
+			busyName[name] = true
+		}
+	}
+	var out []string
+	for name := range allNames {
+		if !busyName[name] {
+			out = append(out, name)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		ni, nj := teamWorkspaceNum(out[i]), teamWorkspaceNum(out[j])
+		if (ni > 0) != (nj > 0) {
+			return ni > 0
+		}
+		if ni != nj {
+			return ni < nj
+		}
+		return out[i] < out[j]
+	})
+	return out
+}
+
 // ResetTeamWorkspaceSessions gives every session of this engine in workspace key
 // ("<platform>:<id>") a fresh, empty context: the running agent is stopped and the old
 // transcript is not handed on (unlike /new), so the next task there starts clean. Used when a
