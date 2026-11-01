@@ -1020,6 +1020,10 @@ func (p *Platform) callAPI(action string, params map[string]any) (map[string]any
 	}
 
 	p.mu.Lock()
+	if p.conn == nil {
+		p.mu.Unlock()
+		return nil, core.ErrTaskTextNotAccepted
+	}
 	err = p.conn.WriteMessage(websocket.TextMessage, data)
 	p.mu.Unlock()
 	if err != nil {

@@ -99,9 +99,10 @@ func (r PublicProgressRequest) Validate() error {
 }
 
 type progressRecord struct {
-	QuotaReports map[string]quotaProgressReceipt `json:"quota_reports,omitempty"`
-	Relays       map[string]taskRelayRecord      `json:"relays,omitempty"`
-	Reworks      map[string]taskReworkRecord     `json:"reworks,omitempty"`
+	TextDeliveries []*taskTextRecord               `json:"text_deliveries,omitempty"`
+	QuotaReports   map[string]quotaProgressReceipt `json:"quota_reports,omitempty"`
+	Relays         map[string]taskRelayRecord      `json:"relays,omitempty"`
+	Reworks        map[string]taskReworkRecord     `json:"reworks,omitempty"`
 	// ArtifactRequests keeps the receipt of each attach operation by its stable
 	// request id, so a retry after a rework or restart returns the original
 	// artifact instead of attaching it to the current revision.
@@ -121,6 +122,7 @@ type progressRecord struct {
 }
 
 type publicRun struct {
+	textMu     sync.Mutex
 	deliveryMu sync.Mutex
 	mu         sync.Mutex
 	record     progressRecord
@@ -146,6 +148,9 @@ type publicRun struct {
 // Tokens exist only in memory/prompt, never in the card or journal.
 type PublicProgress struct {
 	externalInputs *ExternalEventStore
+	textSenders    map[string]TaskTextSender
+	checkTaskText  func(context.Context, *Task, string) error
+	waitTaskText   func(context.Context, string) error
 	quotaBlocked   func(string) bool
 	// Lifecycle operations serialize run ownership and durable state transitions.
 	// Delivery never takes this lock; network requests remain independent.
@@ -205,6 +210,12 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 	}
 	hash := sha256.Sum256([]byte(project))
 	p := &PublicProgress{dir: filepath.Join(dataDir, "public-progress", hex.EncodeToString(hash[:8])), dataDir: dataDir, project: project, archiveAfter: defaultTaskThreadArchiveAfter, resultReadyArchiveAfter: defaultResultReadyThreadArchiveAfter, runs: map[string]*publicRun{}, records: map[string]*publicRun{}, open: map[string]*publicRun{}, pending: map[string]*publicRun{}, listed: map[string]*publicRun{}}
+	p.textSenders = make(map[string]TaskTextSender)
+	for _, platform := range platforms {
+		if sender, ok := platform.(TaskTextSender); ok {
+			p.textSenders[platform.Name()] = sender
+		}
+	}
 	for _, platform := range platforms {
 		if _, ok := platform.(TaskCardPublisher); ok {
 			p.hasPublisher = true
@@ -241,6 +252,7 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 		if !platformFound {
 			return nil, errors.New("public progress journal platform unavailable")
 		}
+		loadedQuestionSeq := rec.Task.Seq
 		r := &publicRun{record: rec, publisher: sink}
 		if interruptTaskMembers(r.record.Task) {
 			p.memberEvent(r, NewI18n(rec.Lang).T(MsgPublicInterrupted), true)
@@ -249,9 +261,17 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 			}
 		}
 		if !rec.Closed {
+			questionSeq, questionWaiting := loadedQuestionSeq, r.record.Task.State == TaskStateWaitingUser
 			r.record.Closed = true
 			r.record.Task.State = TaskStateFailed
 			p.appendEvent(r, TaskEventFailed, NewI18n(rec.Lang).T(MsgPublicInterrupted), true)
+			if questionWaiting {
+				for _, d := range r.record.TextDeliveries {
+					if d.Kind == "question" && d.QuestionSeq == questionSeq {
+						d.QuestionRecoverySeq = r.record.Task.Seq
+					}
+				}
+			}
 			if err := p.save(r); err != nil {
 				return nil, err
 			}
@@ -625,6 +645,7 @@ func (p *PublicProgress) finishRun(r *publicRun, outcome string, delegated bool)
 
 // Flush retries only delivery of already accepted facts, never agent execution.
 func (p *PublicProgress) Flush(ctx context.Context) {
+	p.FlushTaskText(ctx)
 	p.mu.Lock()
 	runs := make([]*publicRun, 0, len(p.pending))
 	for _, r := range p.pending {
@@ -1021,6 +1042,12 @@ func (e *Engine) EnablePublicProgress() error {
 		return err
 	}
 	e.publicProgress = p
+	p.waitTaskText = func(ctx context.Context, platform string) error {
+		if e.outgoingRL == nil {
+			return nil
+		}
+		return e.outgoingRL.Wait(ctx, platform)
+	}
 	p.resolveReporter = e.resolveTaskReporter
 	p.resolveWorkspace = e.resolveTaskWorkspace
 	p.wakeLead = e.wakeRelayLead
