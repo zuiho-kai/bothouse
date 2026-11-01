@@ -420,6 +420,7 @@ func (e *Engine) deliverTurnResume(en TurnJournalEntry) {
 		return
 	}
 	if err := e.checkTurnAuthorization(en.Authorization, "task.resume"); err != nil {
+		e.failAuthorizedTurn(en.Authorization)
 		slog.Warn("turn resume: authorization denied after orphan cleanup", "turn", en.TurnID, "error", err)
 		return
 	}
@@ -460,6 +461,7 @@ func (e *Engine) deliverTurnResume(en TurnJournalEntry) {
 	noticed := false
 	for {
 		if err := e.checkTurnAuthorization(en.Authorization, "task.resume"); err != nil {
+			e.failAuthorizedTurn(en.Authorization)
 			slog.Warn("turn resume: authorization changed before delivery", "turn", en.TurnID, "error", err)
 			return
 		}

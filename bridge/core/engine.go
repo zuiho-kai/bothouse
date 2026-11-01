@@ -4581,6 +4581,7 @@ func (e *Engine) processInteractiveMessage(p Platform, msg *Message, session *Se
 // ccSessionKey, when non-empty, is used for CC_SESSION_KEY in the agent env; otherwise interactiveKey is used.
 func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session *Session, agent Agent, sessions *SessionManager, interactiveKey string, workspaceDir string, ccSessionKey string) {
 	if err := e.checkTurnAuthorization(msg.authorization, "task.resume"); err != nil {
+		e.failAuthorizedTurn(msg.authorization)
 		session.Unlock()
 		slog.Warn("queued turn authorization denied", "error", err)
 		return
@@ -5996,12 +5997,14 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	state.mu.Unlock()
 	changed, unwatch, watchErr := e.watchTurnAuthorization(ref)
 	if watchErr != nil {
+		e.failAuthorizedTurn(ref)
 		e.stopInteractiveSessionWithOptions(sessionKey, true)
 		return
 	}
 	defer func() { unwatch() }()
 	outputCtx, contextErr := e.turnOutputContext(ref)
 	if contextErr != nil {
+		e.failAuthorizedTurn(ref)
 		e.stopInteractiveSessionWithOptions(sessionKey, true)
 		return
 	}
@@ -7480,11 +7483,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				changed, unwatch, watchErr = e.watchTurnAuthorization(queued.authorization)
 				outputCtx, contextErr = e.turnOutputContext(queued.authorization)
 				if contextErr != nil {
+					e.failAuthorizedTurn(queued.authorization)
+					e.journalTurnEnd(queued.resumedFrom)
 					e.stopInteractiveSessionWithOptions(sessionKey, true)
 					return
 				}
 
 				if watchErr != nil {
+					e.failAuthorizedTurn(queued.authorization)
+					e.journalTurnEnd(queued.resumedFrom)
 					e.stopInteractiveSessionWithOptions(sessionKey, true)
 					return
 				}

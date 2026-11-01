@@ -932,7 +932,7 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 	wasArchived := task.ThreadArchivedAt != nil
 	if wasArchived && hasPendingKeyFact(task, factSeq) {
 		if reopener, ok := r.publisher.(TaskThreadReopener); ok {
-			if err := reopener.ReopenTaskThread(ctx, task); err != nil {
+			if err := reopener.ReopenTaskThread(ctx, p.authorizedTaskView(task, lang)); err != nil {
 				return attempted, err
 			}
 			r.mu.Lock()
@@ -958,7 +958,10 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 			}
 			task.ChannelID = channel
 		}
-		deliveryErr := r.publisher.EnsureTaskCard(ctx, task, lang)
+		view := p.authorizedTaskView(task, lang)
+		deliveryErr := r.publisher.EnsureTaskCard(ctx, view, lang)
+		task.ChannelID, task.MessageID, task.ThreadID = view.ChannelID, view.MessageID, view.ThreadID
+		task.CardURL, task.ThreadTitle = view.CardURL, view.ThreadTitle
 		r.mu.Lock()
 		// Only transport bindings/checkpoints are written back. Newer state and
 		// summaries may have arrived while the HTTP request was in flight.
@@ -987,7 +990,11 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 			// ChannelID is a platform channel ID, not a session key.
 			publisher, err := p.taskReporter(ev.ReporterProject, platform, task.cardSessionKey(), r.publisher)
 			if err == nil {
-				err = publisher.PublishTaskFact(ctx, task, ev, lang)
+				view := p.authorizedTaskView(task, lang)
+				if view != task {
+					ev.Summary, ev.Detail, ev.Pointer = view.LatestProgress, "", false
+				}
+				err = publisher.PublishTaskFact(ctx, view, ev, lang)
 			}
 			if errors.Is(err, ErrTaskFactUndeliverable) && ev.ReporterProject != "" && ev.ReporterProject != p.project {
 				// Persist the replacement first so a retry never goes back to the
@@ -1007,7 +1014,7 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 					return attempted, err
 				}
 				slog.Warn("public progress: reporter cannot post; creator posted note", "task_id", task.ID, "reporter", ev.ReporterProject)
-				err = r.publisher.PublishTaskFact(ctx, task, note, lang)
+				err = r.publisher.PublishTaskFact(ctx, p.authorizedTaskView(task, lang), note, lang)
 			}
 			if err != nil {
 				return attempted, err
