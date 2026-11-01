@@ -373,8 +373,8 @@ func TestClaudeUsageProbeDir_IsStable(t *testing.T) {
 }
 
 // The probe on 2026-11-01 captured the trust dialog as
-// "Yes, IGtrust this folder": a stray character from a cursor-position
-// sequence ended up inside the option text. Exact matching missed it, the
+// "Yes, IGtrust this folder": an extra character of unconfirmed origin
+// appeared inside the option text. Exact matching missed it, the
 // dialog was never answered, and each timed-out probe extended the quota
 // cooldown for cjiang from 16:30 to 16:35 to 16:45.
 func TestPromptActionForScreen_TrustDialogRenderedNoise(t *testing.T) {
@@ -402,5 +402,49 @@ func TestTrustDialogYesLineIgnoresPunctuation(t *testing.T) {
 		if trustDialogYesLine(s) {
 			t.Fatalf("trustDialogYesLine(%q) = true, want false", s)
 		}
+	}
+}
+
+func TestPromptActionForScreen_TrustDialogTitleIsNotYes(t *testing.T) {
+	screen := "Do you trust this folder?\n❯ No, exit\nEnter to confirm"
+	if got := promptActionForScreen(screen); got != "" {
+		t.Fatalf("action on title without affirmative option = %q, want wait", got)
+	}
+	if got := nextClaudeUsageProbeAction(screen, &claudeUsageProbeState{}, time.Now()); got != "" {
+		t.Fatalf("probe action on incomplete trust dialog = %q, want wait", got)
+	}
+}
+
+func TestPromptActionForScreen_TrustDialogRequiresKnownOptions(t *testing.T) {
+	for _, tt := range []struct {
+		name, options, want string
+	}{
+		{"title before default no", "Do you trust this folder?\n❯ No, exit\nYes, I trust this folder", "\x1b[B\r"},
+		{"title before default yes", "Do you trust this folder?\n❯ Yes, I trust this folder\nNo, exit", "\r"},
+		{"numbered noisy yes above no", "1. Yes, IGtrust this folder\n❯ 2. No, exit", "\x1b[A\r"},
+		{"negative do not", "❯ No, exit\nI do not trust this folder", ""},
+		{"negative contraction", "❯ No, exit\nI don't trust this folder", ""},
+		{"selected negative statement", "❯ I don't trust this folder\nYes, I trust this folder", ""},
+		{"yes with negation", "❯ No, exit\nYes, I don't trust this folder", ""},
+		{"yes with extra words", "❯ No, exit\nYes, I trust this folder only after review", ""},
+		{"missing yes", "❯ No, exit", ""},
+		{"missing no", "❯ Yes, I trust this folder", ""},
+		{"missing both", "Do you trust this folder?", ""},
+		{"unknown cursor", "❯ Review files first\nNo, exit\nYes, I trust this folder", ""},
+		{"extra option between known choices", "❯ No, exit\nReview files first\nYes, I trust this folder", ""},
+		{"duplicated yes", "❯ No, exit\nYes, I trust this folder\nYes, I trust this folder", ""},
+		{"duplicated no", "❯ No, exit\nNo, exit\nYes, I trust this folder", ""},
+		{"two cursors", "❯ No, exit\n❯ Yes, I trust this folder", ""},
+		{"fragmented cursor", "❯\nNo, exit\nYes, I trust this folder", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			screen := "Do you trust this folder?\n" + tt.options + "\nEnter to confirm · Esc to cancel"
+			if got := promptActionForScreen(screen); got != tt.want {
+				t.Errorf("prompt action = %q, want %q", got, tt.want)
+			}
+			if got := nextClaudeUsageProbeAction(screen, &claudeUsageProbeState{}, time.Now()); got != tt.want {
+				t.Errorf("probe action = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
