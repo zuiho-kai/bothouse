@@ -699,6 +699,21 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 		}
 		add = append(add, g)
 		events = append(events, ev)
+		if n == "codemap-fill" {
+			// The workspace lead works in its main session and reports there, so its "## 地图要补的条目" section
+			// arrives at the end of a main-session turn, not at SubagentStop: run it at the turn's end too
+			// (Gemini AfterAgent; run.py turns every CLI's turn end into Stop with the reply or a transcript).
+			stop := "Stop"
+			if o.CLI == "gemini" {
+				stop = geminiEvent("Stop")
+			}
+			hs := map[string]any{}
+			for k, v := range hk {
+				hs[k] = v
+			}
+			add = append(add, map[string]any{"hooks": []any{hs}})
+			events = append(events, stop)
+		}
 	}
 	editHooks(m, func(n string) bool { return slices.Contains(names, n) }, add, events)
 	if err := writeSettings(sp, m); err != nil {

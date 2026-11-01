@@ -102,6 +102,14 @@ function run(c, lines, lead, key = 'msg') {
       }
       return c[key];
     }
+    case 'forbid': {
+      const rx = new RegExp(c.re);
+      return lines.some(x => rx.test(x)) ? c[key] : null;
+    }
+    case 'needs_if': {
+      const text = lines.join('\n');
+      return new RegExp(c.trigger_re).test(text) && !new RegExp(c.need_re).test(text) ? c[key] : null;
+    }
     default: throw new HandoffRulesError(`交接规则文件里有不认识的检查类型：${c.type}`);
   }
 }

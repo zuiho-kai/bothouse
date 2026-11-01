@@ -38,7 +38,7 @@ func TestAgentHooksCodexRoleScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ = os.ReadFile(got.SettingsFile)
-	if strings.Count(string(b), "--codex") != len(codexHooks) {
+	if strings.Count(string(b), "--codex") != len(codexHooks)+1 { // codemap-fill runs at SubagentStop and Stop
 		t.Fatal("not idempotent", string(b))
 	}
 	off, err := DisableAgentHooks(opts)

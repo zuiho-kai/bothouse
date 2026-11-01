@@ -1,5 +1,5 @@
 #!/usr/bin/env -S python3 -I
-"""SubagentStop：把子 agent 回报里「## 地图要补的条目（<地图路径>）」一节的条目追加到代码地图末尾
+"""SubagentStop / Stop：把子 agent 回报（或工作区主会话这一轮的最后回复，如 [report] 细节）里「## 地图要补的条目（<地图路径>）」一节的条目追加到代码地图末尾
 （codemap-inject.py 派活时要求子 agent 交付附这一节）。
 
 用法：
@@ -126,8 +126,16 @@ def transcript_last_text(path):
 
 
 def hook_text(d):
-    """SubagentStop：优先 last_assistant_message，没有就读子 agent transcript 最后一段文字。"""
+    """SubagentStop：优先 last_assistant_message，没有就读子 agent transcript 最后一段文字。
+    Stop（主会话一轮结束，工作区交回 [report] 那轮）：last_assistant_message（Claude Code、Codex），
+    gemini_response（run.py 从 Gemini AfterAgent 的 prompt_response 填），都没有就读 transcript_path 最后一段文字
+    （Grok、DSH 的 transcript 由 run.py 转成 Claude Code 格式）。"""
     t = d.get("last_assistant_message") or ""
+    if d.get("hook_event_name") == "Stop":
+        t = t or d.get("gemini_response") or ""
+        if not t and d.get("transcript_path"):
+            t = transcript_last_text(d["transcript_path"])
+        return t, "主会话 " + (d.get("session_id") or "")[:8]
     if not t and d.get("hook_event_name") == "PostToolUse":
         response = d.get("tool_response")
         if isinstance(response, dict):
@@ -150,7 +158,7 @@ def main(argv):
             except ValueError:
                 d = None
             if isinstance(d, dict) and ("hook_event_name" in d or "--hook" in argv):
-                if d.get("hook_event_name", "SubagentStop") not in ("SubagentStop", "PostToolUse"):
+                if d.get("hook_event_name", "SubagentStop") not in ("SubagentStop", "PostToolUse", "Stop"):
                     return
                 text, source = hook_text(d)
             else:
