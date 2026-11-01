@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -49,6 +50,12 @@ func (e *Engine) AdmitProactiveTask(decision string, task *Task, backend string)
 	if err != nil {
 		return err
 	}
+	a.mu.Lock()
+	d, exists := a.state.Decisions[decision]
+	a.mu.Unlock()
+	if !exists || d.SessionKey != task.SessionKey {
+		return ErrAuthorizationDenied
+	}
 	if err = a.Admit(decision, task.ID, task.Agent, backend, task.SessionKey); err != nil {
 		return err
 	}
@@ -82,8 +89,12 @@ func (e *Engine) CheckTaskAuthorization(task *Task, scope string) error {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	for _, as := range a.state.Assignments {
+	for i := len(a.state.Assignments) - 1; i >= 0; i-- {
+		as := a.state.Assignments[i]
 		if as.DecisionID == task.AuthorizationDecisionID && as.TaskID == task.ID {
+			if as.Role != task.Agent || a.state.Decisions[as.DecisionID].SessionKey != task.SessionKey {
+				return ErrAuthorizationDenied
+			}
 			return nil
 		}
 	}
@@ -182,6 +193,61 @@ func (p *PublicProgress) BindAuthorization(taskID, decision string) error {
 	r.record.Task.AuthorizationDecisionID = decision
 	if err := p.save(r); err != nil {
 		r.record.Task.AuthorizationDecisionID = old
+		return err
+	}
+	return nil
+}
+
+// SyncAuthorizationNotices projects durable invalidations into existing task
+// records. A failed projection remains in the authorization ledger for retry.
+func (e *Engine) SyncAuthorizationNotices() error {
+	if e.publicProgress == nil {
+		return nil
+	}
+	a, err := e.ProactiveAuthorization()
+	if err != nil {
+		return err
+	}
+	b, err := a.Snapshot()
+	if err != nil {
+		return err
+	}
+	var state authorizationState
+	if err = json.Unmarshal(b, &state); err != nil {
+		return err
+	}
+	for _, notice := range state.Notices {
+		if err = e.publicProgress.applyAuthorizationNotice(notice); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func (p *PublicProgress) applyAuthorizationNotice(n AuthorizationNotice) error {
+	p.transitionMu.Lock()
+	defer p.transitionMu.Unlock()
+	p.mu.Lock()
+	r := p.records[n.TaskID]
+	p.mu.Unlock()
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t := r.record.Task
+	if t.AuthorizationDecisionID != n.DecisionID {
+		return nil
+	}
+	withdrawn := n.Reason == "withdrawn"
+	if t.AuthorizationNoticeVersion >= n.PolicyVersion && (!withdrawn || t.AuthorizationWithdrawn) {
+		return nil
+	}
+	old := t.Clone()
+	t.AuthorizationNoticeVersion = n.PolicyVersion
+	t.AuthorizationWithdrawn = t.AuthorizationWithdrawn || withdrawn
+	p.appendEvent(r, TaskEventBlocked, NewI18n(r.record.Lang).T(MsgAuthorizationRecheck), false)
+	if err := p.save(r); err != nil {
+		r.record.Task = old
 		return err
 	}
 	return nil

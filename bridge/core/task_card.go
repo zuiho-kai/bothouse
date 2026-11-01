@@ -119,7 +119,9 @@ type Task struct {
 	// execution workspace). Empty means the card lives in SessionKey.
 	CardSession string `json:"card_session,omitempty"`
 
-	AuthorizationDecisionID string `json:"authorization_decision_id,omitempty"`
+	AuthorizationDecisionID    string `json:"authorization_decision_id,omitempty"`
+	AuthorizationNoticeVersion uint64 `json:"authorization_notice_version,omitempty"`
+	AuthorizationWithdrawn     bool   `json:"authorization_withdrawn,omitempty"`
 }
 
 // cardSessionKey is the channel that holds the task card: the execution

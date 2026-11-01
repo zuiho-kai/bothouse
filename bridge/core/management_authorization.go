@@ -44,11 +44,19 @@ func (m *ManagementServer) handleProjectAuthorization(w http.ResponseWriter, r *
 			mgmtError(w, status, err.Error())
 			return
 		}
+		if err = e.SyncAuthorizationNotices(); err != nil {
+			mgmtError(w, http.StatusInternalServerError, "policy committed; task notice pending")
+			return
+		}
 		mgmtJSON(w, http.StatusOK, a.Policy())
 	case strings.HasPrefix(rest, "revoke/") && r.Method == http.MethodPost:
 		id := strings.TrimPrefix(rest, "revoke/")
 		if err = a.Revoke(id, "management:administrator"); err != nil {
 			mgmtError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if err = e.SyncAuthorizationNotices(); err != nil {
+			mgmtError(w, http.StatusInternalServerError, "withdrawal committed; task notice pending")
 			return
 		}
 		mgmtOK(w, "authorization withdrawn")

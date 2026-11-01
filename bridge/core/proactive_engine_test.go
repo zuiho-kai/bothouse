@@ -6,7 +6,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestProactiveEngineObserveDoesNotExecuteOrSend(t *testing.T) {
@@ -25,6 +27,175 @@ func TestProactiveEngineObserveDoesNotExecuteOrSend(t *testing.T) {
 	calls := 0
 	if e.RunAuthorizedEffect(context.Background(), task, "message.send", "send", func(context.Context) error { calls++; return nil }) == nil || calls != 0 {
 		t.Fatal("observe called side effect")
+	}
+}
+
+func TestProactiveRelayRevocationStopsBackgroundDrain(t *testing.T) {
+	p, platform, _, id := taskRelayFixture(t)
+	var starts atomic.Int32
+	sent := make(chan struct{})
+	rm, session := taskRelayManager(t, p, platform, func(string) { close(sent) }, &starts)
+	source := rm.engines["source"]
+	a, c := authorizationFixture(t, ProactiveAuto)
+	policy := a.Policy()
+	policy.Rules[0].Scopes = []string{"task.dispatch"}
+	policy.Rules[0].SessionKey = "discord:room:user"
+	if err := a.ReplacePolicy(policy.Version, policy); err != nil {
+		t.Fatal(err)
+	}
+	c.Scopes, c.SessionKey = []string{"task.dispatch"}, "discord:room:user"
+	source.proactiveAuthorization = a
+	d, err := a.Evaluate(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, _ := p.Task(id)
+	if err := source.AdmitProactiveTask(d.ID, task, "backend"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := relayWatchSend(rm, ctx, id)
+	<-sent
+	cancel()
+	got := relayWatchResult(t, done, "wait should release while executor continues")
+	if got.err == nil || !strings.Contains(got.err.Error(), "execution continues") {
+		t.Fatalf("unexpected wait result: %v", got.err)
+	}
+	select {
+	case <-session.closed:
+		t.Fatal("wait cancellation stopped executor")
+	default:
+	}
+	if err := a.Revoke(d.ID, "owner:stop"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-session.closed:
+	case <-time.After(time.Second):
+		t.Fatal("revocation left background executor running")
+	}
+	relayWatchWait(t, "revoked relay outcome checkpoint", func() bool { record, ok := relayWatchRecord(p, id); return ok && record.Status == "failed" })
+	if _, err := rm.Send(context.Background(), taskRelayRequest(id)); err == nil || starts.Load() != 1 {
+		t.Fatal("revoked relay restarted")
+	}
+}
+
+func TestProactiveEngineRevocationCancelsInFlightAndRecordsOutcome(t *testing.T) {
+	a, c := authorizationFixture(t, ProactiveAuto)
+	e := NewEngine("role", &stubAgent{}, nil, "", LangEnglish)
+	e.proactiveAuthorization = a
+	d, err := e.EvaluateProactiveCandidate(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := &Task{ID: "task", Agent: "role", SessionKey: "room", State: TaskStateInProgress}
+	if err := e.AdmitProactiveTask(d.ID, task, "backend"); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- e.RunAuthorizedEffect(context.Background(), task, "message.send", "in-flight", func(ctx context.Context) error {
+			close(started)
+			<-ctx.Done()
+			// The remote service already accepted the send. Cancellation cannot undo it.
+			return nil
+		})
+	}()
+	<-started
+	if err := a.Revoke(d.ID, "owner:stop"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("revocation did not cancel executor")
+	}
+	snapshot, err := a.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state authorizationState
+	if err := json.Unmarshal(snapshot, &state); err != nil {
+		t.Fatal(err)
+	}
+	effect := state.Effects["in-flight"]
+	if effect.Result != "succeeded" || effect.FinishedAt == nil {
+		t.Fatalf("lost actual result: %+v", effect)
+	}
+	if err := e.RunAuthorizedEffect(context.Background(), task, "message.send", "after-stop", func(context.Context) error { t.Error("executed after stop"); return nil }); err == nil {
+		t.Fatal("stopped task accepted")
+	}
+}
+
+func TestProactiveNoticeRecoveryAndIdempotency(t *testing.T) {
+	dir := t.TempDir()
+	platform := newProgressPlatform()
+	p, err := NewPublicProgress(dir, "role", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := p.begin(platform, "room", LangEnglish, nil)
+	id, err := p.Report(PublicProgressRequest{Project: "role", SessionKey: "room", Run: run, Seq: 1, Kind: "start", Title: "Follow up", Summary: "Waiting for review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, c := authorizationFixture(t, ProactiveAuto)
+	e := NewEngine("role", &stubAgent{}, nil, "", LangEnglish)
+	e.proactiveAuthorization, e.publicProgress = a, p
+	d, err := a.Evaluate(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, _ := p.Task(id)
+	if err := e.AdmitProactiveTask(d.ID, task, "backend"); err != nil {
+		t.Fatal(err)
+	}
+	policy := a.Policy()
+	policy.Mode = ProactiveOff
+	if err := a.ReplacePolicy(policy.Version, policy); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate restart before the committed policy change was projected.
+	e.publicProgress, err = NewPublicProgress(dir, "role", []Platform{platform})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.proactiveAuthorization, err = OpenProactiveAuthorization(a.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.SyncAuthorizationNotices(); err != nil {
+		t.Fatal(err)
+	}
+	task, _ = e.publicProgress.Task(id)
+	if task.AuthorizationDecisionID != d.ID || task.AuthorizationNoticeVersion != policy.Version+1 {
+		t.Fatalf("missing durable notice: %+v", task)
+	}
+	seq := task.Seq
+	if err := e.SyncAuthorizationNotices(); err != nil {
+		t.Fatal(err)
+	}
+	task, _ = e.publicProgress.Task(id)
+	if task.Seq != seq {
+		t.Fatal("duplicate notice on retry")
+	}
+	if err := e.CheckTaskAuthorization(task, "task.resume"); err == nil {
+		t.Fatal("recovery accepted stale decision")
+	}
+	if err := e.proactiveAuthorization.Revoke(d.ID, "owner:stop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.SyncAuthorizationNotices(); err != nil {
+		t.Fatal(err)
+	}
+	task, _ = e.publicProgress.Task(id)
+	if !task.AuthorizationWithdrawn || task.Seq != seq+1 {
+		t.Fatal("withdrawal notice missing")
 	}
 }
 func TestProactiveEngineWaitingAndNonCodeFollowup(t *testing.T) {
@@ -57,6 +228,32 @@ func TestProactiveEngineWaitingAndNonCodeFollowup(t *testing.T) {
 	forged.ID = "unrelated"
 	if e.CheckTaskAuthorization(&forged, "message.send") == nil {
 		t.Fatal("decision reused by another task")
+	}
+}
+
+func TestProactiveEngineDecisionCannotCrossTaskSessionOrRole(t *testing.T) {
+	a, c := authorizationFixture(t, ProactiveAuto)
+	e := NewEngine("role", &stubAgent{}, nil, "", LangEnglish)
+	e.proactiveAuthorization = a
+	d, err := a.Evaluate(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := &Task{ID: "task", Agent: "role", SessionKey: "other-room", State: TaskStateInProgress}
+	if err := e.AdmitProactiveTask(d.ID, task, "backend"); err == nil {
+		t.Fatal("grant crossed source session")
+	}
+	task.SessionKey = c.SessionKey
+	if err := e.AdmitProactiveTask(d.ID, task, "backend"); err != nil {
+		t.Fatal(err)
+	}
+	task.Agent = "other-role"
+	if err := e.CheckTaskAuthorization(task, "message.send"); err == nil {
+		t.Fatal("grant changed role without reassignment")
+	}
+	task.Agent, task.SessionKey = "role", "other-room"
+	if err := e.CheckTaskAuthorization(task, "message.send"); err == nil {
+		t.Fatal("grant crossed session after admission")
 	}
 }
 func TestManagementProactiveAuthorization(t *testing.T) {
