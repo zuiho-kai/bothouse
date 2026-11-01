@@ -289,7 +289,7 @@ func TestTeamBoardLiveFollowsWorkspaceHandoff(t *testing.T) {
 		st := loadTeamWorkspacesLocked(path)
 		st.Handoffs = map[string][]TeamHandoff{"cloud_web:room-2": {
 			{Chat: "cloud_web:room-9", At: at.Add(-time.Hour), Closed: at.Add(-time.Minute)}, // an older task of another chat
-			{Chat: "cloud_web:room-1", Board: 1, At: at, Closed: closed}, // the current board task, not an anonymous old handoff
+			{Chat: "cloud_web:room-1", At: at, Closed: closed},
 		}}
 		if err := saveTeamWorkspacesLocked(path, st); err != nil {
 			t.Fatal(err)
