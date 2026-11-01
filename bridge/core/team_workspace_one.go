@@ -37,6 +37,13 @@ func (e *Engine) runLeadScript(chat, name string, args ...string) ([]byte, error
 		return nil, os.ErrNotExist
 	}
 	bin := filepath.Join(e.dataDir, "collaboration", "lead", name)
+	runtimeDir, err := e.leadRuntimeDir()
+	if err != nil {
+		return nil, err
+	}
+	if runtimeDir != "" {
+		bin = filepath.Join(runtimeDir, "lead", name)
+	}
 	var cmdArgs []string
 	if _, err := os.Stat(bin); err == nil {
 		cmdArgs = append([]string{bin}, args...)
@@ -67,6 +74,9 @@ func (e *Engine) runLeadScript(chat, name string, args ...string) ([]byte, error
 	defer cancel()
 	cmd := exec.CommandContext(ctx, cmdArgs[0], cmdArgs[1:]...)
 	cmd.Env = append(os.Environ(), e.roleSessionEnv(chat)...)
+	if runtimeDir != "" {
+		cmd.Env = append(cmd.Env, "GATE_DIR="+filepath.Join(runtimeDir, "gate"))
+	}
 	cmd.Dir = e.dataDir
 	return cmd.CombinedOutput()
 }

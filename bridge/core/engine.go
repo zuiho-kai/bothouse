@@ -2059,8 +2059,15 @@ func (e *Engine) WaitPlatformsReady(timeout time.Duration) error {
 func PlatformReadyTimeout() time.Duration { return timerPlatformReadyTimeout }
 
 func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
-	if job.TaskReview != nil && !e.taskReviewPending(job.TaskReview) {
-		return nil
+	if job.TaskReview != nil {
+		prepared, err := e.prepareTaskReview(job, time.Now())
+		if err != nil {
+			return err
+		}
+		if prepared == nil {
+			return nil
+		}
+		job = prepared
 	}
 	if until := e.quotaCooling(); !until.IsZero() {
 		slog.Info("quota cooldown: timer skipped", "project", e.name, "job", job.ID, "cooling_until", until)
@@ -7322,6 +7329,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			state.mu.Lock()
 			droppedStale := 0
 			var staleDescs []string // maomao fork: channel task board
+			e.refreshQueuedTaskReviewsLocked(state)
 			for len(state.pendingMessages) > 0 && e.isQueuedUserMessageStaleForDrainLocked(state, state.pendingMessages[0].userMessageTimeMs) {
 				staleDescs = append(staleDescs, state.pendingMessages[0].boardDesc)
 				state.pendingMessages = state.pendingMessages[1:]
@@ -7828,6 +7836,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		state.mu.Lock()
 		droppedStale := 0
 		var staleDescs []string // maomao fork: channel task board
+		e.refreshQueuedTaskReviewsLocked(state)
 		for len(state.pendingMessages) > 0 && e.isQueuedUserMessageStaleForDrainLocked(state, state.pendingMessages[0].userMessageTimeMs) {
 			staleDescs = append(staleDescs, state.pendingMessages[0].boardDesc)
 			state.pendingMessages = state.pendingMessages[1:]

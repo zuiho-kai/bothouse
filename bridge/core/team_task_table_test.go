@@ -58,7 +58,7 @@ func TestTeamTaskTableWorkspaceFirstDotsSortedAndIdleSummary(t *testing.T) {
 	}
 	got := renderTeamTaskTable(items, links, "feishu:oc_a", now)
 	want := strings.Join([]string{
-		"**工作区 3**（空闲：工作区3、5、6）",
+		"**工作区 3**（空闲：工作区2、3、5、6）",
 		"  🟢 工作区1 · 任务板重构PR · 已做 25分钟  [→点进去](https://example.test/t1)",
 		"  🟡 工作区2 · QQ断线修复 · 已交回待核对 · 等派活人",
 		"  🟢 工作区4 · 搁置盘点 · 已做 15分钟",
@@ -99,7 +99,7 @@ func TestTeamTaskTableEngineIdlePoolAndWSWasEnded(t *testing.T) {
 	})
 	got := renderTeamTaskTable(items, nil, "discord:main", now)
 	want := strings.Join([]string{
-		"**工作区 2**（空闲：工作区3）",
+		"**工作区 2**（空闲：工作区2、3）",
 		"  🟢 工作区1 · 任务板重构PR · 已做 2小时 · 卡住",
 		"  🟡 工作区2 · QQ断线修复 · 已交回待核对 · 等派活人",
 	}, "\n")

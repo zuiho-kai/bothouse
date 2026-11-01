@@ -16,7 +16,7 @@
   board add <事情> <分支/PR/路径> <状态> <谁> --short 短名 [--next 几点看]   # 新加一条，打印编号
                                          #   短名（≤10 字）上团队板；不写就从事情去掉「用户点名：」「#N 续：」这类前缀再截
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
-                                         #   状态以收尾词开头（已交回/已完成/已验收/已收口/已结束/done）就直接结束，同 done
+                                         #   状态以收尾词开头（已完成/已验收/已收口/已结束/done）就直接结束，同 done
   board next <编号> <几点> | --restore <JSON>  # 只改「下次看」（later 专用，要 BOARD_LATER=1）；打印改前记录和事情
   board done <编号> <返工次数> [原因]      # 结束：移出任务板，记进 board-done.jsonl；返工次数必填，大于 0 时原因必填
   board rework [天数]                    # 最近 14 天的返工次数和原因
@@ -613,7 +613,7 @@ def returned(nid, reviewer, at=None):
             return False
         if hit.get("returned_at"):
             return True
-        hit["returned_at"] = datetime.fromisoformat(at.replace("Z", "+00:00")).isoformat() if at else _bound_now()
+        hit["returned_at"] = datetime.fromisoformat(re.sub(r"\.\d+", lambda m: m[0][:7].ljust(7, "0"), at).replace("Z", "+00:00")).isoformat() if at else _bound_now()
         hit["reviewer"] = hit.get("dispatcher") or reviewer
         hit["status"], hit["at"] = "已交回待验收", _now()
         if hit.get("chat"):
@@ -678,7 +678,7 @@ def resume(nid):
 
 
 # 收尾词：update 写成这些开头的状态就直接 done（用户 2026-10-28「任务榜完成的为什么不下掉」：
-# 工作区交回时只改状态为「已交回」「done」，没人再跑 board done，条目一直挂着）。和桥 watchBoardClosed 同一组词。
+# 只有明确完成/验收/收口才关闭；「已交回」仍需验收。和桥 watchBoardClosed 同一组词。
 CLOSED_RE = re.compile(r"\s*(?:已验收|验收通过|已收口|已完成|已结束|done\b)", re.I)
 
 

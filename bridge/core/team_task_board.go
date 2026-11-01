@@ -426,12 +426,12 @@ func (it teamTaskBoardItem) shownIn(chat string) bool {
 	return false
 }
 
-// teamTaskBoardLive: chat's task-board section has live work: an open item that is not paused and,
-// for a handoff item, whose workspace is still on it (not wsEnded). The board card's state uses it,
+// teamTaskBoardLive: chat has execution or pending verification. A returned task keeps the
+// aggregate card open without claiming that its released workspace is busy. The card uses it,
 // from the same placed items the section is rendered from.
 func teamTaskBoardLive(items []teamTaskBoardItem, chat string) bool {
 	for _, it := range items {
-		if it.shownIn(chat) && it.Paused == "" && it.ReturnedAt.IsZero() && !it.wsEnded {
+		if it.shownIn(chat) && (!it.ReturnedAt.IsZero() || it.Paused == "" && !it.wsEnded) {
 			return true
 		}
 	}
@@ -845,7 +845,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		if card != nil && card.UpdatedAt.After(last) {
 			last = card.UpdatedAt
 		}
-		if state == teamTaskPaused && !it.wsEnded || (state != teamTaskWaiting && state != teamTaskReview && !it.wsEnded && !last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
+		if state == teamTaskPaused && !it.wsEnded && it.ReviewRejected == "" || (state != teamTaskWaiting && state != teamTaskReview && it.ReviewRejected == "" && !it.wsEnded && !last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
 			shelved++
 			continue
 		}
@@ -857,9 +857,13 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		span := teamTaskTableSpan(teamTaskTableSince(it, now), now)
 		switch {
 		case state == teamTaskPaused:
-			parts := []string{short, "暂停"}
+			note := "暂停"
+			if it.ReviewRejected != "" {
+				note += " · " + boardLabel(it.PauseWhy)
+			}
+			parts := []string{short, note}
 			if where != "" {
-				parts = []string{where, short, "暂停"}
+				parts = []string{where, short, note}
 			}
 			wsRows = append(wsRows, wsRow{where: where, ended: true, line: "  ⏸ " + strings.Join(parts, " · ")})
 		case state == teamTaskReview:
@@ -872,7 +876,6 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 			}
 			parts := []string{short, note}
 			if where != "" {
-				usedWS[where] = true
 				parts = []string{where, short, note}
 			}
 			wsRows = append(wsRows, wsRow{where: where, ended: true, line: "  " + mark + strings.Join(parts, " · ")})

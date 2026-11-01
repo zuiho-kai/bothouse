@@ -679,25 +679,27 @@ const (
 )
 
 const (
-	MsgBoardTasksRunning  MsgKey = "board_tasks_running"
-	MsgBoardTasksWaiting  MsgKey = "board_tasks_waiting"
-	MsgBoardTasksMore     MsgKey = "board_tasks_more"
-	MsgPublicInterrupted  MsgKey = "MsgPublicInterrupted"
-	MsgPublicEnded        MsgKey = "MsgPublicEnded"
-	MsgWatchResume        MsgKey = "watch_resume"
-	MsgWatchIdleEscalate  MsgKey = "watch_idle_escalate"
-	MsgWatchFailEscalate  MsgKey = "watch_fail_escalate"
-	MsgTaskReviewReturned MsgKey = "task_review_returned"
-	MsgTaskReviewOverdue  MsgKey = "task_review_overdue"
-	MsgTaskReviewPrompt   MsgKey = "task_review_prompt"
-	MsgTaskKeyFact        MsgKey = "MsgTaskKeyFact"
-	MsgTaskResultReady    MsgKey = "MsgTaskResultReady"
-	MsgTaskRelayAssigned  MsgKey = "MsgTaskRelayAssigned"
-	MsgTaskRelayProgress  MsgKey = "MsgTaskRelayProgress"
-	MsgTaskRelayResult    MsgKey = "MsgTaskRelayResult"
-	MsgTaskRelayFailed    MsgKey = "MsgTaskRelayFailed"
-	MsgTaskReporterMuted  MsgKey = "MsgTaskReporterMuted"
-	MsgTaskListRevision   MsgKey = "task_list_revision"
+	MsgBoardTasksRunning     MsgKey = "board_tasks_running"
+	MsgBoardTasksWaiting     MsgKey = "board_tasks_waiting"
+	MsgBoardTasksMore        MsgKey = "board_tasks_more"
+	MsgPublicInterrupted     MsgKey = "MsgPublicInterrupted"
+	MsgPublicEnded           MsgKey = "MsgPublicEnded"
+	MsgWatchResume           MsgKey = "watch_resume"
+	MsgWatchIdleEscalate     MsgKey = "watch_idle_escalate"
+	MsgWatchFailEscalate     MsgKey = "watch_fail_escalate"
+	MsgTaskReviewReturned    MsgKey = "task_review_returned"
+	MsgTaskReviewOverdue     MsgKey = "task_review_overdue"
+	MsgTaskReviewPrompt      MsgKey = "task_review_prompt"
+	MsgTaskReviewUnavailable MsgKey = "task_review_unavailable"
+	MsgTaskReviewRoundup     MsgKey = "task_review_roundup"
+	MsgTaskKeyFact           MsgKey = "MsgTaskKeyFact"
+	MsgTaskResultReady       MsgKey = "MsgTaskResultReady"
+	MsgTaskRelayAssigned     MsgKey = "MsgTaskRelayAssigned"
+	MsgTaskRelayProgress     MsgKey = "MsgTaskRelayProgress"
+	MsgTaskRelayResult       MsgKey = "MsgTaskRelayResult"
+	MsgTaskRelayFailed       MsgKey = "MsgTaskRelayFailed"
+	MsgTaskReporterMuted     MsgKey = "MsgTaskReporterMuted"
+	MsgTaskListRevision      MsgKey = "task_list_revision"
 )
 
 const (
@@ -998,6 +1000,20 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "看門：%s「%s」連續叫醒兩次仍未繼續，請主角色接手。",
 		LangJapanese:           "見守り：%s は %s を2回呼びかけても再開していません。主担当に引き継いでください。",
 		LangSpanish:            "Aviso: %s no ha retomado %s tras dos avisos. El rol principal debe hacerse cargo.",
+	},
+	MsgTaskReviewUnavailable: {
+		LangEnglish:            "#%d: dispatcher %s is unavailable; primary role, verify or reassign",
+		LangChinese:            "#%d：派活人 %s 不在线，请主角色核对或接手",
+		LangTraditionalChinese: "#%d：派活人 %s 不在線，請主角色核對或接手",
+		LangJapanese:           "#%d：依頼担当 %s が不在です。主担当が検収または再割当してください",
+		LangSpanish:            "#%d: el coordinador %s no está disponible; el rol principal debe verificar o reasignar",
+	},
+	MsgTaskReviewRoundup: {
+		LangEnglish:            "Hourly pending verification list",
+		LangChinese:            "整点待验收清单",
+		LangTraditionalChinese: "整點待驗收清單",
+		LangJapanese:           "毎時の検収待ち一覧",
+		LangSpanish:            "Lista horaria de verificaciones pendientes",
 	},
 	MsgTaskReviewReturned: {
 		LangEnglish:            "#%d returned; please verify",
