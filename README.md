@@ -1,19 +1,19 @@
 <!-- bothouse-readme-status:v1 -->
 # bothouse repository status / 仓库状态
 
-Last successful update / 最后成功更新: **2026-10-31T19:30:31Z**
+Last successful update / 最后成功更新: **2026-11-01T06:05:06Z**
 
 | Metric / 指标 | Value / 数值 |
 | --- | ---: |
-| Stars | 39 |
+| Stars | 43 |
 | Forks | 5 |
-| Open issues / 未关闭 Issues | 93 |
-| Open PRs / 未关闭 PR | 29 |
-| Closed PRs in 30 days / 30 天内关闭 PR | 587 |
+| Open issues / 未关闭 Issues | 45 |
+| Open PRs / 未关闭 PR | 12 |
+| Closed PRs in 30 days / 30 天内关闭 PR | 617 |
 | Commits in 30 days / 30 天内提交 | 1061 |
 | Latest release / 最新版本 | v0.1.43 |
 
-Window / 统计窗口（UTC）: 2026-10-01T19:30:31Z → 2026-10-31T19:30:31Z.
+Window / 统计窗口（UTC）: 2026-10-02T06:05:06Z → 2026-11-01T06:05:06Z.
 
 Closed PRs include merged PRs. Commits count all history reachable from the default branch, including merge and bot commits. GitHub search can lag behind recent events.
 
