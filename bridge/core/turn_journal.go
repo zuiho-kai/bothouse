@@ -174,6 +174,11 @@ func (j *TurnJournal) saveLocked() error {
 // Supersedes. TurnID, Kind and StartedAt are filled in
 // when empty.
 func (j *TurnJournal) Begin(en TurnJournalEntry) (TurnJournalEntry, error) {
+	return j.begin(en, true)
+}
+
+// A pending turn is durable without replacing the currently running entry.
+func (j *TurnJournal) begin(en TurnJournalEntry, active bool) (TurnJournalEntry, error) {
 	if en.TurnID == "" {
 		en.TurnID = newTurnID()
 	}
@@ -198,7 +203,7 @@ func (j *TurnJournal) Begin(en TurnJournalEntry) (TurnJournalEntry, error) {
 	en.Supersedes = ""
 	cp := en
 	j.entries[en.TurnID] = &cp
-	if en.Kind == TurnKindTurn && en.InteractiveKey != "" {
+	if active && en.Kind == TurnKindTurn && en.InteractiveKey != "" {
 		j.active[en.InteractiveKey] = en.TurnID
 	}
 	return en, j.saveLocked()

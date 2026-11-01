@@ -131,7 +131,13 @@ func (e *Engine) RunAuthorizedEffect(ctx context.Context, task *Task, scope, ope
 	if err != nil {
 		return err
 	}
-	if err = a.BeginEffect(task.AuthorizationDecisionID, scope, operationID); err != nil {
+	if operationID == "" {
+		return errors.New("operation ID required")
+	}
+	// Retry identity belongs to a task, including after explicit policy renewal.
+	// Two independent tasks may legitimately use the same operation name.
+	effectID := authorizationEventKey(task.ID, operationID)
+	if err = a.BeginEffect(task.AuthorizationDecisionID, scope, effectID); err != nil {
 		return err
 	}
 	effectCtx, cancel, watchErr := e.AuthorizedTaskContext(ctx, task, scope)
@@ -146,7 +152,7 @@ func (e *Engine) RunAuthorizedEffect(ctx context.Context, task *Task, scope, ope
 	if err != nil {
 		result = "failed_or_uncertain"
 	}
-	if recordErr := a.FinishEffect(operationID, result); recordErr != nil {
+	if recordErr := a.FinishEffect(effectID, result); recordErr != nil {
 		return errors.Join(err, fmt.Errorf("record effect outcome: %w", recordErr))
 	}
 	return err

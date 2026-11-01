@@ -123,7 +123,7 @@ func TestProactiveEngineRevocationCancelsInFlightAndRecordsOutcome(t *testing.T)
 	if err := json.Unmarshal(snapshot, &state); err != nil {
 		t.Fatal(err)
 	}
-	effect := state.Effects["in-flight"]
+	effect := state.Effects[authorizationEventKey(task.ID, "in-flight")]
 	if effect.Result != "succeeded" || effect.FinishedAt == nil {
 		t.Fatalf("lost actual result: %+v", effect)
 	}
@@ -374,5 +374,33 @@ func TestManagementProactiveRequiresConfiguredAuthentication(t *testing.T) {
 		if resp.StatusCode != http.StatusForbidden {
 			t.Fatalf("tokenless management exposed authorization: %d", resp.StatusCode)
 		}
+	}
+}
+
+func TestProactiveEffectIdentityIsTaskScoped(t *testing.T) {
+	a, c := authorizationFixture(t, ProactiveAuto)
+	e := NewEngine("role", &stubAgent{}, nil, "", LangEnglish)
+	e.proactiveAuthorization = a
+	calls := 0
+	run := func(context.Context) error { calls++; return nil }
+	for _, id := range []string{"task-one", "task-two"} {
+		c.EventID = id
+		d, err := a.Evaluate(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		task := &Task{ID: id, Agent: "role", SessionKey: c.SessionKey, State: TaskStateInProgress}
+		if err := e.AdmitProactiveTask(d.ID, task, "backend"); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.RunAuthorizedEffect(context.Background(), task, "message.send", "result", run); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.RunAuthorizedEffect(context.Background(), task, "message.send", "result", run); err != ErrAuthorizationDuplicate {
+			t.Fatalf("retry executed: %v", err)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("independent tasks collided: %d", calls)
 	}
 }

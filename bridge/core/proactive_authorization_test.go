@@ -34,7 +34,7 @@ func TestProactiveAuthorizationModes(t *testing.T) {
 			if d.Outcome != want {
 				t.Fatalf("%+v", d)
 			}
-			err = a.Admit(d.ID, "task-1", "role", "backend", "workspace")
+			err = a.Admit(d.ID, "task-1", "role", "backend", c.SessionKey)
 			if (err == nil) != (mode == ProactiveAuto) {
 				t.Fatalf("admission %v", err)
 			}
@@ -46,7 +46,7 @@ func TestProactiveAuthorizationModes(t *testing.T) {
 			if err != nil || e.Outcome != "explicit_path" {
 				t.Fatalf("explicit path: %+v %v", e, err)
 			}
-			if a.Admit(e.ID, "explicit-task", "role", "backend", "workspace") == nil {
+			if a.Admit(e.ID, "explicit-task", "role", "backend", c.SessionKey) == nil {
 				t.Fatal("explicit path bypassed original permissions")
 			}
 		})
@@ -121,13 +121,13 @@ func TestProactiveAuthorizationPolicyChangesAtEveryBoundary(t *testing.T) {
 		})
 	}
 }
-func TestProactiveAuthorizationRestartMigrationStopAndDedup(t *testing.T) {
+func TestProactiveAuthorizationRestartBackendSwitchStopAndDedup(t *testing.T) {
 	a, c := authorizationFixture(t, ProactiveAuto)
 	d, err := a.Evaluate(c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = a.Admit(d.ID, "task", "role", "model-a", "old-room"); err != nil {
+	if err = a.Admit(d.ID, "task", "role", "model-a", c.SessionKey); err != nil {
 		t.Fatal(err)
 	}
 	a, err = OpenProactiveAuthorization(a.path)
@@ -138,10 +138,10 @@ func TestProactiveAuthorizationRestartMigrationStopAndDedup(t *testing.T) {
 	if err != nil || again.ID != d.ID || !again.CreatedAt.Equal(d.CreatedAt) {
 		t.Fatal("decision changed on restart")
 	}
-	if err = a.Reassign(d.ID, "task", "role", "model-b", "new-workspace"); err != nil {
+	if err = a.Reassign(d.ID, "task", "role", "model-b", c.SessionKey); err != nil {
 		t.Fatal(err)
 	}
-	if !errors.Is(a.Admit(d.ID, "other-task", "role", "model-b", "new-workspace"), ErrAuthorizationDuplicate) {
+	if !errors.Is(a.Admit(d.ID, "other-task", "role", "model-b", c.SessionKey), ErrAuthorizationDuplicate) {
 		t.Fatal("event admitted twice")
 	}
 	if err = a.Revoke(d.ID, "human:stop"); err != nil {
@@ -253,5 +253,31 @@ func TestProactiveContextSourcesCannotBecomeAuthorization(t *testing.T) {
 				t.Fatalf("decision=%+v err=%v", d, err)
 			}
 		})
+	}
+}
+
+func TestProactiveAssignmentCannotChangeAuthorizedSession(t *testing.T) {
+	a, c := authorizationFixture(t, ProactiveAuto)
+	d, err := a.Evaluate(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Admit(d.ID, "task", "role", "backend", "other-room"); err != ErrAuthorizationDenied {
+		t.Fatalf("wrong session admitted: %v", err)
+	}
+	if err := a.Admit(d.ID, "task", "role", "backend", c.SessionKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Admit(d.ID, "task", "role", "backend", c.SessionKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Admit(d.ID, "task", "other-role", "backend", c.SessionKey); err != ErrAuthorizationDuplicate {
+		t.Fatalf("assignment change hidden as retry: %v", err)
+	}
+	if err := a.Reassign(d.ID, "task", "role", "new-backend", "other-room"); err != ErrAuthorizationDenied {
+		t.Fatalf("reassignment expanded session: %v", err)
+	}
+	if err := a.Reassign(d.ID, "task", "role", "new-backend", c.SessionKey); err != nil {
+		t.Fatal(err)
 	}
 }

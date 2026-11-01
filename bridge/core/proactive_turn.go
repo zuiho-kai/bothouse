@@ -1,6 +1,38 @@
 package core
 
-import "context"
+import (
+	"context"
+	"log/slog"
+)
+
+// User stop and recall paths withdraw the current turn's grant before stopping
+// its backend. Technical session cleanup must not call this method.
+func (e *Engine) revokeInteractiveAuthorization(key string) {
+	e.interactiveMu.Lock()
+	state := e.interactiveStates[key]
+	e.interactiveMu.Unlock()
+	if state == nil {
+		return
+	}
+	state.mu.Lock()
+	ref := state.authorization
+	state.mu.Unlock()
+	if ref == nil {
+		return
+	}
+	ctx, err := e.authorizationExecution(ref)
+	if err == nil {
+		execution := ctx.Value(proactiveExecutionKey{}).(proactiveExecution)
+		var a *ProactiveAuthorization
+		a, err = execution.source.ProactiveAuthorization()
+		if err == nil {
+			err = a.Revoke(ref.DecisionID, "human:stop")
+		}
+	}
+	if err != nil {
+		slog.Error("stop authorization persistence failed", "task_id", ref.TaskID, "error", err)
+	}
+}
 
 // AuthorizationTurn is an opaque reference carried by the internal queue and
 // restart journal. Platform payloads cannot set Message.authorization.
@@ -63,4 +95,17 @@ func turnAuthorizationGroup(en TurnJournalEntry) string {
 		return en.InteractiveKey
 	}
 	return en.InteractiveKey + "\x00" + en.Authorization.Project + "\x00" + en.Authorization.TaskID + "\x00" + en.Authorization.DecisionID
+}
+
+func (e *Engine) journalPendingAuthorizationTurn(q *queuedMessage, key, workspace string) (string, error) {
+	j := e.turnJournalStore()
+	if j == nil {
+		return "", ErrAuthorizationDenied
+	}
+	entry, err := j.begin(TurnJournalEntry{
+		Project: e.name, SessionKey: q.msgSessionKey, InteractiveKey: key, WorkspaceDir: workspace,
+		Platform: q.msgPlatform, Trigger: queuedTurnTrigger(q), LastUserMessage: q.content,
+		Authorization: q.authorization, TimerJobID: q.timerJobID, NoProgressCount: q.resumeNoProgress,
+	}, false)
+	return entry.TurnID, err
 }

@@ -3185,6 +3185,7 @@ func (e *Engine) handleMessageRecall(p Platform, msg *Message) {
 	}
 
 	if sessionKey, ok := e.findCurrentMessageSession(messageID); ok {
+		e.revokeInteractiveAuthorization(sessionKey)
 		if e.stopInteractiveSessionSilently(sessionKey) {
 			slog.Info("active message recalled; session stopped",
 				"platform", p.Name(),
@@ -3419,6 +3420,7 @@ func (e *Engine) stopCurrentMessageIfRecalled(sessionKey string) bool {
 	if !recalled {
 		return false
 	}
+	e.revokeInteractiveAuthorization(sessionKey)
 	if e.stopInteractiveSessionSilently(sessionKey) {
 		slog.Info("active message recalled by fallback probe; session stopped",
 			"platform", platform.Name(),
@@ -3966,6 +3968,15 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		userMessageTimeMs:   msg.UserMessageTimeMs,
 		fromBot:             msg.FromBot,
 		boardDesc:           boardDescOf(msg),
+	}
+	// Mixed explicit/automatic turns keep separate durable queue entries.
+	if q.resumedFrom == "" && (q.authorization != nil || state.authorization != nil) {
+		id, err := e.journalPendingAuthorizationTurn(&q, interactiveKey, state.workspaceDir)
+		if err != nil {
+			slog.Warn("queue authorization journal failed", "error", err)
+			return queueRejected
+		}
+		q.resumedFrom = id
 	}
 	if msg.abortFront {
 		// maomao fork: a gate abort is answered before what queued behind the turn it cancels.
@@ -12028,11 +12039,13 @@ func (e *Engine) cmdStop(p Platform, msg *Message) {
 	// latest forked session, so resuming after /stop is safe and no longer
 	// triggers the recycling loop from issue #830.
 	iKey := e.interactiveKeyForSessionKey(msg.SessionKey)
+	e.revokeInteractiveAuthorization(iKey)
 	if !e.stopInteractiveSession(iKey, p, msg.ReplyCtx) {
 		// Fallback: try suffix scan in case interactiveKeyForSessionKey
 		// resolved a different key than the one used to store the state
 		// (e.g. workspace binding lookup inconsistency).
 		if found := e.findInteractiveKeyForSession(msg.SessionKey); found != "" && found != iKey {
+			e.revokeInteractiveAuthorization(found)
 			if e.stopInteractiveSession(found, p, msg.ReplyCtx) {
 				e.reply(p, msg.ReplyCtx, e.i18n.T(MsgExecutionStopped))
 				return
@@ -12057,6 +12070,7 @@ func (e *Engine) cmdCancel(p Platform, msg *Message) {
 	slog.Info("cmdCancel: stopping execution and creating new session", "session_key", msg.SessionKey)
 
 	// Stop the current execution (like /stop)
+	e.revokeInteractiveAuthorization(interactiveKey)
 	stopped := e.stopInteractiveSession(interactiveKey, p, msg.ReplyCtx)
 	if !stopped {
 		// No execution in progress, but still create a new session

@@ -366,10 +366,13 @@ func (a *ProactiveAuthorization) Admit(id, taskID, role, backend, session string
 		return err
 	}
 	d := a.state.Decisions[id]
+	if session != d.SessionKey {
+		return ErrAuthorizationDenied
+	}
 	key := authorizationEventKey(d.Source, d.EventID)
 	if existing := a.state.Admitted[key]; existing != "" {
 		for _, as := range a.state.Assignments {
-			if existing == id && as.DecisionID == id && as.TaskID == taskID {
+			if existing == id && as.DecisionID == id && as.TaskID == taskID && as.Role == role && as.Backend == backend && as.SessionKey == session {
 				return nil
 			}
 		}
@@ -392,6 +395,9 @@ func (a *ProactiveAuthorization) Reassign(id, taskID, role, backend, session str
 	defer a.mu.Unlock()
 	if err := a.checkLocked(id, "", true); err != nil {
 		return err
+	}
+	if session != a.state.Decisions[id].SessionKey {
+		return ErrAuthorizationDenied
 	}
 	found := false
 	for _, as := range a.state.Assignments {

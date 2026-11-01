@@ -1,6 +1,11 @@
 package core
 
-import "testing"
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"testing"
+)
 
 func TestProactivePolicyRenewalPreservesTaskAndDeniesOldGrant(t *testing.T) {
 	p, _, _, taskID := taskRelayFixture(t)
@@ -72,5 +77,76 @@ func TestProactiveRenewalCannotExpandScopesOrRestoreRemovedRule(t *testing.T) {
 	}
 	if _, err := a.Renew(old.ID, "other-task", "administrator"); err == nil {
 		t.Fatal("different task adopted old authority")
+	}
+}
+
+func TestManagementProactiveRenewalRevalidatesPersistedGrant(t *testing.T) {
+	_, server, e := testManagementServer(t, "test-secret")
+	platform := newProgressPlatform()
+	e.SetDataDir(t.TempDir())
+	if err := e.EnablePublicProgress(); err != nil {
+		t.Fatal(err)
+	}
+	p := e.publicProgress
+	p.workspaceChat = func(string) bool { return true }
+	run := p.begin(platform, "discord:room", LangEnglish, nil)
+	taskID, err := p.Report(PublicProgressRequest{Project: e.name, SessionKey: "discord:room", Run: run, Seq: 1, Kind: "start", Title: "follow-up", Summary: "begin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, old := authorizeFixtureTask(t, e, taskID, []string{"task.resume"})
+	policy := a.Policy()
+	if err := a.ReplacePolicy(policy.Version, policy); err != nil {
+		t.Fatal(err)
+	}
+	request := func(token string) (int, []byte) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, server.URL+"/api/v1/projects/test-project/authorization/renew/"+taskID, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := server.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp.StatusCode, body
+	}
+	if code, _ := request(""); code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated renewal: %d", code)
+	}
+	before, _ := p.Task(taskID)
+	if before.AuthorizationDecisionID != old.ID {
+		t.Fatal("unauthenticated request changed task")
+	}
+	code, body := request("test-secret")
+	if code != http.StatusOK {
+		t.Fatalf("renewal: %d %s", code, body)
+	}
+	var response struct{ Data map[string]string }
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatal(err)
+	}
+	next := response.Data["decision_id"]
+	task, _ := p.Task(taskID)
+	if next == "" || next == old.ID || task.AuthorizationDecisionID != next || a.Check(next, "task.resume") != nil {
+		t.Fatal("endpoint did not renew task grant")
+	}
+	if err := a.Revoke(next, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	policy = a.Policy()
+	if err := a.ReplacePolicy(policy.Version, policy); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := request("test-secret"); code != http.StatusConflict {
+		t.Fatalf("withdrawn task renewed: %d", code)
 	}
 }

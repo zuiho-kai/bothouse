@@ -82,3 +82,80 @@ func TestProactiveQueuedReferenceAndRecoveryIsolation(t *testing.T) {
 		}
 	}
 }
+
+func TestProactiveMixedQueueJournalDoesNotReplaceRunningGrant(t *testing.T) {
+	e := NewEngine("role", &stubAgent{}, nil, "", LangEnglish)
+	e.SetDataDir(t.TempDir())
+	j := e.turnJournalStore()
+	ref := &AuthorizationTurn{Project: e.name, TaskID: "task", DecisionID: "decision"}
+	active, err := j.Begin(TurnJournalEntry{Project: e.name, SessionKey: "room", InteractiveKey: "room", Authorization: ref, LastUserMessage: "automatic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := queuedMessage{msgSessionKey: "room", content: "explicit follow-up", msgPlatform: "platform"}
+	pending, err := e.journalPendingAuthorizationTurn(&q, "room", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j.Active("room") != active.TurnID {
+		t.Fatal("pending entry replaced running turn")
+	}
+	en, ok := j.Get(pending)
+	if !ok || en.Authorization != nil {
+		t.Fatal("explicit queued message inherited automatic grant")
+	}
+	q.resumedFrom = pending
+	id, _ := e.journalQueuedTurn(&q, "room", "", nil)
+	if id != active.TurnID {
+		t.Fatal("unexpected running entry")
+	}
+	if _, ok := j.Get(pending); ok {
+		t.Fatal("dequeued entry remains for duplicate restart")
+	}
+	en, _ = j.Get(id)
+	if en.Authorization != nil || en.LastUserMessage != q.content {
+		t.Fatal("dequeue did not replace grant")
+	}
+}
+
+func TestProactiveExplicitStopPersistsAcrossRestart(t *testing.T) {
+	for _, kind := range []string{"stop", "all", "recall", "technical-cleanup"} {
+		t.Run(kind, func(t *testing.T) {
+			p, _, _, id := taskRelayFixture(t)
+			platform := &stubPlatformEngine{n: "discord"}
+			e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangEnglish)
+			e.publicProgress = p
+			a, d := authorizeFixtureTask(t, e, id, []string{"task.resume"})
+			task, _ := p.Task(id)
+			key := task.SessionKey
+			f := &stopAllFixture{sess: map[string]*abortTurnSession{}, pending: map[string]*pendingPermission{}}
+			addBusyState(e, f, key)
+			state := e.interactiveStates[key]
+			state.authorization = &AuthorizationTurn{Project: e.name, TaskID: id, DecisionID: d.ID}
+			state.currentMessageID = "trigger"
+			msg := &Message{Platform: "discord", SessionKey: key, MessageID: "trigger", ReplyCtx: "ctx"}
+			switch kind {
+			case "stop":
+				e.cmdStop(platform, msg)
+			case "all":
+				e.cmdStopAll(platform, msg)
+			case "recall":
+				e.handleMessageRecall(platform, msg)
+			case "technical-cleanup":
+				e.stopInteractiveSessionWithOptions(key, false)
+			}
+			restored, err := OpenProactiveAuthorization(a.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = restored.Check(d.ID, "task.resume")
+			if kind == "technical-cleanup" {
+				if err != nil {
+					t.Fatalf("technical cleanup withdrew authority: %v", err)
+				}
+			} else if err == nil {
+				t.Fatal("user stop was forgotten on restart")
+			}
+		})
+	}
+}
