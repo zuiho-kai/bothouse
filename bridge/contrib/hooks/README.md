@@ -122,6 +122,7 @@ DSH 桥支持的事件：SessionStart、UserPromptSubmit、PreToolUse、PostTool
 python3 -I bridge/contrib/hooks/test_hooks.py            # 两种载荷走 run.py：拒绝、放行、开关、zstd 记录上的 Stop、wiki-context
 python3 -I bridge/contrib/hooks/test_dshlog.py           # DSH 记录：多帧 zstd、未压缩、两种混在一起、坏文件；export.py 和 peek.py 读两种结果一致
 python3 -I bridge/contrib/hooks/test_promise_guard.py    # promise-guard 的句子回放
+python3 -I bridge/contrib/hooks/test_doc_ok.py           # doc-ok：Codex/Claude/DSH 会话登记、同会话放行、跨会话拒绝、路径归一化
 python3 -I bridge/contrib/hooks/test_subagent_ctx_hook.py  # subagent-ctx-hook：阈值上下、主会话不管、Codex/context_tokens、经 run.py 跑一次
 cd bridge && go test -tags no_web ./core -run 'TestAgentHooks|TestWithHookRules|TestApplyWizardNewClaudeRoleGetsHooks'
 ```
@@ -141,3 +142,5 @@ Codex loads hooks beside active config layers, including project `.codex` and th
 `run.py --codex` normalizes shell inputs and translates Codex response_item chat records for Stop. `stop_hook_active` is preserved. Other hooks are explicitly rejected until adapted. Tested CLI version: 0.163.0-alpha.11.1; transcript format is not a stable public API. Source: https://learn.chatgpt.com/docs/hooks .
 
 五端的原生参数、后台等价做法、官方协议来源及验收边界见 [跨 CLI 工作流钩子](../../../docs/workflow-hooks.md)。
+
+`doc-ok.py` accepts Codex's shell identity from `CODEX_SESSION_ID`, which is the same value as the hook payload's `session_id`. `CODEX_THREAD_ID` is a thread identifier and is deliberately not used: registering it would not match the guard.
