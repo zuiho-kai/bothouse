@@ -127,3 +127,30 @@ func TestRegression797ReleasedWorkspaceIsPaused(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestTaskReviewRecoversDeliveredReceiptOnly(t *testing.T) {
+	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	t.Cleanup(e.cancel)
+	e.SetDataDir(t.TempDir())
+	e.SetTeam(t.TempDir(), "lead", true)
+	e.productPyBin.Store(t.TempDir())
+	gate, err := filepath.Abs(filepath.Join("..", "contrib", "gate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(gate, filepath.Join(e.dataDir, "gate")); err != nil {
+		t.Fatal(err)
+	}
+	writeReviewBoard(t, e,
+		teamTaskBoardItem{ID: 1, What: "delivered", Chat: "room:chat", Dispatcher: "lead"},
+		teamTaskBoardItem{ID: 2, What: "released", Chat: "room:chat", WS: "room:ws"},
+		teamTaskBoardItem{ID: 3, What: "rejected", Chat: "room:chat", ReviewRejected: "missing test"},
+	)
+	e.markExitReported(1)
+	e.markExitReported(3)
+	newHandoffWatch(e).reconcileTaskReviews(time.Now(), false)
+	items := readTeamTaskBoard(e.team.dir)
+	if len(items) != 3 || items[0].ReturnedAt.IsZero() || !items[1].ReturnedAt.IsZero() || !items[2].ReturnedAt.IsZero() {
+		t.Fatalf("receipt recovery confused release/rejection with report: %+v", items)
+	}
+}

@@ -31,7 +31,7 @@ func TestShelvedLifecycle_EndedWorkspaceIsNotAcceptance(t *testing.T) {
 		"table": renderTeamTaskTable(items, nil, "feishu:oc_a", now),
 		"board": renderTeamTaskBoard(items, "feishu:oc_a", now),
 	} {
-		if !strings.Contains(got, "尚未验收的交接") || (!strings.Contains(got, "待主角色核对") && !strings.Contains(got, "已交回待核对")) {
+		if !strings.Contains(got, "尚未验收的交接") || !strings.Contains(got, "暂停") {
 			t.Errorf("%s lost unaccepted work: %s", name, got)
 		}
 	}

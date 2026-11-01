@@ -80,11 +80,20 @@ func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int) {
 	}
 	switch kind {
 	case exitKindReport:
-		if out, err := e.runLeadScript(chat, "board", "returned", strconv.Itoa(hid), e.name); err != nil {
+		reviewer := e.name
+		if it := e.boardItemByID(hid); it != nil {
+			bound, _ := time.Parse(time.RFC3339Nano, it.Bound)
+			if h, ok := e.TeamHandoffOf(sessionKey, chat, bound); ok && h.Sender != "" {
+				reviewer = h.Sender
+			}
+		}
+		if out, err := e.runLeadScript(chat, "board", "returned", strconv.Itoa(hid), reviewer); err != nil {
 			slog.Warn("team workspace: record handback failed", "board_item", hid, "error", err, "output", strings.TrimSpace(string(out)))
 			return
 		}
-		newHandoffWatch(e).reconcileTaskReviews(time.Now(), false)
+		w := newHandoffWatch(e)
+		w.engines = e.watchEngines
+		w.reconcileTaskReviews(time.Now(), false)
 		if _, err := e.QueueSessionReset(sessionKey); err != nil {
 			slog.Warn("team workspace: reset after report failed", "session", sessionKey, "error", err)
 		}

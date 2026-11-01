@@ -604,7 +604,7 @@ def _refuse(nid, why):
              f"或用 ws-handoff 另交一个工作区")
 
 
-def returned(nid, reviewer):
+def returned(nid, reviewer, at=None):
     """Record a delivered report, not acceptance. Repeated reports keep the deadline."""
     with _locked():
         cur = _read()
@@ -613,7 +613,7 @@ def returned(nid, reviewer):
             return False
         if hit.get("returned_at"):
             return True
-        hit["returned_at"] = _bound_now()
+        hit["returned_at"] = datetime.fromisoformat(at.replace("Z", "+00:00")).isoformat() if at else _bound_now()
         hit["reviewer"] = hit.get("dispatcher") or reviewer
         hit["status"], hit["at"] = "已交回待验收", _now()
         if hit.get("chat"):
@@ -639,6 +639,7 @@ def reject(nid, reason):
         hit.pop("returned_at", None)
         hit.pop("reviewer", None)
         hit["paused"] = hit["at"] = _now()
+        hit["review_rejected"] = reason
         hit["pause_why"] = "验收退回：" + reason
         hit["status"] = hit["pause_why"]
         _write(cur)
@@ -654,6 +655,7 @@ def rebind(nid, ws):
             hit["ws"] = hit["sk"] = ws
             hit.pop("returned_at", None)
             hit.pop("reviewer", None)
+            hit.pop("review_rejected", None)
             hit["bound"] = _bound_now()  # reoccupy 刚 claim 了一件新交接
             hit.pop("ws_was", None)
             if ws.startswith("discord:"):
@@ -901,7 +903,7 @@ def pr_final(numbers, now=None, repo=None):
 
 def prune_why(i, its, now, prs, idle_after=None):
     """暂停条目该自动收起返回原因；不收返回 None。prs = pr_final 的结果（{} = 不按 PR 判）。"""
-    if i.get("returned_at") or not i.get("paused") or _asking(i):
+    if i.get("returned_at") or i.get("review_rejected") or not i.get("paused") or _asking(i):
         return None  # 提问等答复的一律不收
     if i.get("unpruned"):
         prs, its = {}, []  # 手动找回过（resume 被拒仍暂停）：①② 的事实不会变，不再按它们收；③从找回时刻重新计，再暂停时清掉
@@ -1109,8 +1111,8 @@ def main(argv):
                 freed = park_workspace(before)  # 「谁」改走了：它在工作区的那件交接放回桥
                 if freed:
                     print("工作区已放回池子，会话已清")
-        elif cmd == "returned" and len(argv) == 3:
-            if not returned(int(argv[1].lstrip("#")), argv[2]):
+        elif cmd == "returned" and len(argv) in (3, 4):
+            if not returned(int(argv[1].lstrip("#")), *argv[2:]):
                 sys.exit("条目不存在，未登记交回")
             print("已交回待验收")
         elif cmd == "reject" and len(argv) == 3 and argv[2].strip():

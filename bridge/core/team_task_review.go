@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 )
 
@@ -76,6 +77,22 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 	}
 	for _, it := range readTeamTaskBoard(e.team.dir) {
 		if it.ReturnedAt.IsZero() || it.Chat == "" {
+			// Upgrade only from a delivered report receipt, never workspace release.
+			if it.Chat != "" && it.ReviewRejected == "" && it.Paused == "" {
+				e.teamExit.mu.Lock()
+				at := e.readExitReported()[strconv.Itoa(it.ID)]
+				e.teamExit.mu.Unlock()
+				bound, _ := time.Parse(time.RFC3339Nano, it.Bound)
+				if !at.IsZero() && !at.Before(bound) {
+					reviewer := it.Dispatcher
+					if reviewer == "" {
+						reviewer = e.name
+					}
+					if out, err := e.runLeadScript(it.Chat, "board", "returned", strconv.Itoa(it.ID), reviewer, at.Format(time.RFC3339Nano)); err != nil {
+						slog.Warn("task review: recover delivered handback failed", "board", it.ID, "error", err, "output", string(out))
+					}
+				}
+			}
 			continue
 		}
 		var reviewer *Engine
@@ -100,11 +117,11 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 		for _, stage := range stages {
 			sum := sha256.Sum256([]byte(fmt.Sprintf("%s/%d/%s/%s", e.team.dir, it.ID, it.ReturnedAt.Format(time.RFC3339Nano), stage)))
 			id := fmt.Sprintf("review-%x", sum)
-			title := fmt.Sprintf("#%d 交回了，请验收", it.ID)
+			title := reviewer.i18n.Tf(MsgTaskReviewReturned, it.ID)
 			if stage == "overdue" {
-				title = fmt.Sprintf("#%d 没人验收，请处理", it.ID)
+				title = reviewer.i18n.Tf(MsgTaskReviewOverdue, it.ID)
 			}
-			prompt := fmt.Sprintf("%s：%s。\n交接：%s\n请先核对实际产物，再收口（board done %d <返工次数>），或记录问题（board reject %d <问题>）后用 ws-handoff --resume %d <问题> 续办；先核对原工作区占用，占用时排队或选空闲区。不得把待核对交给用户，也不得把交回当验收。", title, it.What, it.Where, it.ID, it.ID, it.ID)
+			prompt := reviewer.i18n.Tf(MsgTaskReviewPrompt, title, it.What, it.Where, it.ID)
 			silent := true
 			job := &TimerJob{ID: id, Project: reviewer.name, SessionKey: teamChatKey(it.Chat), ScheduledAt: now,
 				Prompt: prompt, Description: title, Silent: &silent, WaitUserQuiet: true, ReplyBoard: it.ID, CreatedAt: now,

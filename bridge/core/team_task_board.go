@@ -59,11 +59,12 @@ type teamTaskBoardItem struct {
 	// Card: the item's task card link (board.py link), for an item with no workspace task card.
 	Card string `json:"card"`
 
-	Dispatcher   string    `json:"dispatcher"`
-	Reviewer     string    `json:"reviewer"`
-	ReturnedAt   time.Time `json:"returned_at,omitzero"`
-	reviewAfter  time.Duration
-	reviewerName string
+	ReviewRejected string    `json:"review_rejected"`
+	Dispatcher     string    `json:"dispatcher"`
+	Reviewer       string    `json:"reviewer"`
+	ReturnedAt     time.Time `json:"returned_at,omitzero"`
+	reviewAfter    time.Duration
+	reviewerName   string
 	// Resolved by placeTeamTaskBoard, not stored.
 	own    string // the chat the item is in
 	parent string // for an item in a workspace: the chat the workspace belongs to
@@ -620,10 +621,10 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 }
 
 // teamTaskBoardMarks: the row mark of each listed state.
-var teamTaskBoardMarks = map[teamTaskBoardState]string{teamTaskStuck: "⚠", teamTaskRunning: "▶", teamTaskWaiting: "⏸", teamTaskReview: "🟡"}
+var teamTaskBoardMarks = map[teamTaskBoardState]string{teamTaskStuck: "⚠", teamTaskRunning: "▶", teamTaskWaiting: "⏸", teamTaskReview: "🟡", teamTaskPaused: "⏸"}
 
 // teamTaskBoardNames: the state's word on the board.
-var teamTaskBoardNames = map[teamTaskBoardState]string{teamTaskStuck: "卡住", teamTaskRunning: "在做", teamTaskWaiting: "等你", teamTaskReview: "待验收"}
+var teamTaskBoardNames = map[teamTaskBoardState]string{teamTaskStuck: "卡住", teamTaskRunning: "在做", teamTaskWaiting: "等你", teamTaskReview: "待验收", teamTaskPaused: "暂停"}
 
 // renderTeamTaskBoard renders a chat channel's task-board section, or "" when it has nothing
 // there. It answers 「整体怎样、哪些等我」 — 卡住 and 等你 one item per line with their reason,
@@ -638,7 +639,7 @@ func renderTeamTaskBoard(items []teamTaskBoardItem, chat string, now time.Time) 
 			continue
 		}
 		state, note := teamTaskBoardStateOf(it, now)
-		if state == teamTaskPaused {
+		if state == teamTaskPaused && !it.wsEnded {
 			paused++
 			continue
 		}
@@ -658,7 +659,7 @@ func renderTeamTaskBoard(items []teamTaskBoardItem, chat string, now time.Time) 
 		return "" // only paused items here: no board (same as before, paused items alone never kept one)
 	}
 	lines := []string{"**任务板**"}
-	for _, state := range []teamTaskBoardState{teamTaskStuck, teamTaskReview, teamTaskRunning, teamTaskWaiting} {
+	for _, state := range []teamTaskBoardState{teamTaskStuck, teamTaskReview, teamTaskRunning, teamTaskWaiting, teamTaskPaused} {
 		r := rows[state]
 		if len(r) == 0 {
 			continue
@@ -844,17 +845,23 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		if card != nil && card.UpdatedAt.After(last) {
 			last = card.UpdatedAt
 		}
-		if state == teamTaskPaused || (state != teamTaskWaiting && state != teamTaskReview && !it.wsEnded && !last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
+		if state == teamTaskPaused && !it.wsEnded || (state != teamTaskWaiting && state != teamTaskReview && !it.wsEnded && !last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
 			shelved++
 			continue
 		}
 		var where string
-		if (it.parent == chat && it.own != chat || it.wsEnded) && it.wsName != "" {
+		if (it.parent == chat && it.own != chat || it.wsEnded || state == teamTaskReview) && it.wsName != "" {
 			where = boardLabel(it.wsName)
 		}
 		short := teamTaskBoardShort(it)
 		span := teamTaskTableSpan(teamTaskTableSince(it, now), now)
 		switch {
+		case state == teamTaskPaused:
+			parts := []string{short, "暂停"}
+			if where != "" {
+				parts = []string{where, short, "暂停"}
+			}
+			wsRows = append(wsRows, wsRow{where: where, ended: true, line: "  ⏸ " + strings.Join(parts, " · ")})
 		case state == teamTaskReview:
 			// The workspace handed it back; the lead still has to check it (not acceptance). Its
 			// workspace's newest card belongs to later work, so no link.
@@ -987,7 +994,7 @@ func renderWorkspaceTaskBoardFit(items []teamTaskBoardItem, chat string, now tim
 		return "" // only paused items here: no board (same as before, paused items alone never kept one)
 	}
 	lines := []string{"**这里在做**"}
-	for _, st := range []teamTaskBoardState{teamTaskStuck, teamTaskReview, teamTaskRunning, teamTaskWaiting} {
+	for _, st := range []teamTaskBoardState{teamTaskStuck, teamTaskReview, teamTaskRunning, teamTaskWaiting, teamTaskPaused} {
 		lines = append(lines, rows[st]...)
 	}
 	if paused > 0 {
