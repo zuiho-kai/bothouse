@@ -7,7 +7,7 @@ prove that a CLI has trusted the project or executed its hooks.
 | Backend | Code map dispatch | Map completion | Long commands |
 | --- | --- | --- | --- |
 | Claude Code | `Agent` / `Task`, `updatedInput.prompt` | `SubagentStop` | Existing child timeout cap and `long-task` definition |
-| Codex | `spawn_agent`, `updatedInput.message` | `SubagentStop`, converted child rollout | Use native shell sessions; the Bash hook contract only documents rewriting `command`, so this adapter does not claim a portable 290-second timeout cap |
+| Codex | `SubagentStart.additionalContext` with map paths/keywords; the child selects relevant maps | `SubagentStop`, converted child rollout | Use native shell sessions; the Bash hook contract only documents rewriting `command`, so this adapter does not claim a portable 290-second timeout cap |
 | Gemini CLI | `invoke_agent`, `hookSpecificOutput.tool_input.prompt` | `AfterTool` for `invoke_agent` | Use native `is_background`; the shell tool does not expose Claude's per-call `timeout` or its custom-agent cache policy |
 | Grok | `spawn_subagent`, `updatedInput.prompt` | `SubagentStop`, converted ACP transcript | Child `block_until_ms` is capped at 290000; `0` requests immediate background execution |
 | DSH | `subagent` / `subagent_fork`; denial supplies rewritten retry arguments | `SubagentStop`, converted child session | Child `timeoutMs` is capped by denial plus retry; the native shell promotes on timeout when background support is enabled |
@@ -28,10 +28,26 @@ Codex file patches are checked per file, including move destinations. Native
 Codex rollouts and Grok ACP transcripts are normalized before checks that read
 the latest user request, prior tool calls or completion claims.
 
+Codex's encrypted collaboration spawn payload cannot be keyword-matched or
+rewritten as plaintext. Map injection therefore uses `SubagentStart`, with no
+agent-type matcher. That event has no task prompt: the hook supplies the map
+catalogue (paths and keywords, not map contents) as developer context and asks
+the child to read the relevant maps. It does not claim to block dispatch:
+Codex documents that `continue: false` cannot stop `SubagentStart`. The existing
+plaintext dispatch-review check is not coverage for encrypted collaboration
+messages; that review boundary remains unverified.
+
+Inline interpreter polling is checked only in executable `-c` / `-e` / `--eval`
+arguments. Python uses its AST, excluding string literals; Ruby/Perl/Node mask
+strings and comments before detecting loops, including postfix `until`, `loop`,
+`for(;;)` and `setInterval`. This is a common-syntax guard, not a sandbox or a
+complete interpreter: indirect aliases, external scripts and dynamically built
+code are outside this check.
+
 ## Protocol sources
 
 - [Codex hooks](https://learn.chatgpt.com/docs/hooks): local function tools,
-  `spawn_agent` alias, replacement arguments, Bash `command`, `SubagentStop`,
+  `SubagentStart` developer context, replacement arguments, Bash `command`, `SubagentStop`,
   and project/hook trust.
 - [Gemini hook reference](https://geminicli.com/docs/hooks/reference):
   `BeforeTool` input rewriting and `AfterTool` result fields.

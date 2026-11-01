@@ -32,6 +32,41 @@ class WorkflowCLIs(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout or "{}")
 
+    def test_codex_subagent_start_context_without_plaintext_spawn(self):
+        out = self.call("codemap-inject", {"hook_event_name": "SubagentStart",
+            "agent_id": "child", "agent_type": "worker"}, "codex")["hookSpecificOutput"]
+        self.assertEqual(out["hookEventName"], "SubagentStart")
+        self.assertIn(str(self.map), out["additionalContext"])
+        self.assertIn("routing, hooks", out["additionalContext"])
+        self.assertNotIn("updatedInput", out)
+
+    def test_interpreter_polling_and_literal_text_across_cli_protocols(self):
+        commands = [
+            "ruby -e 'while true do sleep 60 end'",
+            "ruby -e 'loop { sleep 60 }'",
+            "perl -e 'sleep 5 until -e \"done.flag\"'",
+            "perl -e 'for(;;){sleep 60}'",
+            "python3 -c 'import time,itertools\nfor _ in itertools.count(): time.sleep(60)'",
+            "python3 -c \"import time; [time.sleep(5) for _ in iter(int, 1)]\"",
+            "node -e 'setInterval(()=>{},60000)'",
+        ]
+        literals = [
+            "python3 -c \"text='while True: time.sleep(60)'; print(text)\"",
+            "python3 -c \"text='while true; do sleep 60; done'; print(text)\"",
+            "ruby -e 'puts \"loop { sleep 60 }\"'",
+            "node -e 'console.log(\"setInterval(()=>{},60000)\")'",
+            "echo python3 -c 'while True: sleep(60)'",
+        ]
+        for cli, event, tool in [("", "PreToolUse", "Bash"), ("codex", "PreToolUse", "Bash"),
+                ("grok", "PreToolUse", "run_terminal_command"), ("", "BeforeTool", "run_shell_command"),
+                ("", "PreToolUse", "bash")]:
+            for command in commands + literals:
+                with self.subTest(cli=cli, tool=tool, command=command):
+                    out = self.call("bash-guard", {"hook_event_name": event, "tool_name": tool,
+                        "tool_input": {"command": command}}, cli)
+                    decision = out.get("decision") or out.get("hookSpecificOutput", {}).get("permissionDecision")
+                    self.assertEqual(decision == "deny", command in commands, out)
+
     def test_codex_message_rewrite_keeps_arguments(self):
         payload = {"hook_event_name": "PreToolUse", "tool_name": "spawn_agent",
                    "tool_input": {"message": "fix routing hooks", "agent_type": "worker"}}

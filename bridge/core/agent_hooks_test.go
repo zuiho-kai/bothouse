@@ -724,6 +724,33 @@ func TestWorkflowHooksInstalledAcrossTeamCLIs(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if cli == "codex" {
+				var settings struct {
+					Hooks map[string][]struct {
+						Matcher string `json:"matcher"`
+						Hooks   []struct {
+							Command string `json:"command"`
+						} `json:"hooks"`
+					} `json:"hooks"`
+				}
+				if err := json.Unmarshal(b, &settings); err != nil {
+					t.Fatal(err)
+				}
+				found := false
+				for _, group := range settings.Hooks["SubagentStart"] {
+					for _, hook := range group.Hooks {
+						if strings.Contains(hook.Command, "codemap-inject") {
+							found = true
+							if group.Matcher != "" {
+								t.Fatal("map start must match every subagent type")
+							}
+						}
+					}
+				}
+				if !found {
+					t.Fatal("missing Codex SubagentStart map context")
+				}
+			}
 			if cli == "gemini" && (strings.Contains(string(b), "SubagentStop") || !strings.Contains(string(b), "invoke_agent")) {
 				t.Fatal(string(b))
 			}

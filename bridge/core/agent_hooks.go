@@ -690,6 +690,10 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 		if o.CLI == "codex" && matcher != "" {
 			matcher = codexMatchers[n]
 		}
+		if o.CLI == "codex" && n == "codemap-inject" {
+			ev = "SubagentStart"
+			matcher = "" // all subagent types; spawn messages may be encrypted
+		}
 		if matcher != "" {
 			g["matcher"] = matcher
 		}
