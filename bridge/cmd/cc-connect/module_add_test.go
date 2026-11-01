@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -69,7 +70,10 @@ func moduleTestConfig(t *testing.T) string {
 }
 
 // Each platform's own flags: the missing ones are listed, and the request carries the rest.
+// cloud_web is the one platform whose url / token may come from this machine's wizard-started
+// hub, so its cases run against a data dir with no hub and name both.
 func TestModuleAddRequestMissingParams(t *testing.T) {
+	noHub := t.TempDir()
 	cases := []struct {
 		mod    string
 		flags  moduleFlags
@@ -82,10 +86,13 @@ func TestModuleAddRequestMissingParams(t *testing.T) {
 		{"discord", moduleFlags{guild: "900"}, []string{"roles[0].token"}},
 		{"feishu", moduleFlags{}, []string{"feishu.app_id", "feishu.app_secret"}},
 		{"feishu", moduleFlags{appID: "cli_1"}, []string{"feishu.app_secret"}},
-		{"cloud_web", moduleFlags{}, nil}, // url/token may come from the local hub; core says so
+		// #814 review: no hub here, so the apply cannot fill them — both are reported.
+		{"cloud_web", moduleFlags{}, []string{"cloud_web.url", "cloud_web.token"}},
+		{"cloud_web", moduleFlags{url: "http://10.0.0.9:8790"}, []string{"cloud_web.token"}},
+		{"cloud_web", moduleFlags{token: "bot"}, []string{"cloud_web.url"}},
 	}
 	for _, c := range cases {
-		req, missing := moduleAddRequest(c.mod, c.flags)
+		req, missing := moduleAddRequest(c.mod, c.flags, noHub)
 		var fields []string
 		for _, m := range missing {
 			fields = append(fields, m.Field)
@@ -105,27 +112,56 @@ func TestModuleAddRequestMissingParams(t *testing.T) {
 	}
 }
 
+// A hub this wizard started still fills cloud_web in by itself (#814 review: keep that), so an
+// empty url / token is not reported as missing.
+func TestModuleAddRequestCloudWebFillsFromLocalHub(t *testing.T) {
+	dataDir := t.TempDir()
+	hub := filepath.Join(dataDir, "hub")
+	if err := os.MkdirAll(hub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	state := `{"port": 8790, "bot_token": "hub-bot-token", "web_token": "hub-web-token"}`
+	if err := os.WriteFile(filepath.Join(hub, "hub.json"), []byte(state), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	req, missing := moduleAddRequest("cloud_web", moduleFlags{name: "福子"}, dataDir)
+	if len(missing) > 0 {
+		t.Fatalf("the started hub fills url and token in; missing = %+v", missing)
+	}
+	if req.CloudWeb == nil || req.CloudWeb.URL != "http://127.0.0.1:8790" || req.CloudWeb.Token != "hub-bot-token" {
+		t.Fatalf("cloud_web request: %+v", req.CloudWeb)
+	}
+
+	// A different address is not this hub: its token is not borrowed for someone else's platform.
+	_, missing = moduleAddRequest("cloud_web", moduleFlags{url: "http://10.0.0.9:8790"}, dataDir)
+	if len(missing) != 1 || missing[0].Field != "cloud_web.token" {
+		t.Fatalf("token must not be filled for another address: %+v", missing)
+	}
+}
+
 // The flags go into the same request fields `setup apply` reads (one role per run, as the
 // platforms require; Discord may carry several).
 func TestModuleAddRequestFields(t *testing.T) {
-	req, missing := moduleAddRequest("qq", moduleFlags{wsURL: "ws://127.0.0.1:3001", token: "t", allowFrom: "1,2", lang: "zh"})
+	noHub := t.TempDir()
+	req, missing := moduleAddRequest("qq", moduleFlags{wsURL: "ws://127.0.0.1:3001", token: "t", allowFrom: "1,2", lang: "zh"}, noHub)
 	if len(missing) > 0 || req.QQ == nil || req.QQ.WSURL != "ws://127.0.0.1:3001" || req.QQ.Token != "t" ||
 		req.QQ.AllowFrom != "1,2" || len(req.Roles) != 1 || req.Language != "zh" {
 		t.Fatalf("qq: %+v %+v", req.QQ, missing)
 	}
 
-	req, missing = moduleAddRequest("discord", moduleFlags{token: "bot", guild: "900", channel: "901", allowFrom: "42"})
+	req, missing = moduleAddRequest("discord", moduleFlags{token: "bot", guild: "900", channel: "901", allowFrom: "42"}, noHub)
 	if len(missing) > 0 || req.Discord == nil || req.Discord.GuildID != "900" || req.Discord.ChannelID != "901" ||
 		len(req.Roles) != 1 || req.Roles[0].Token != "bot" || req.AllowFrom == nil || *req.AllowFrom != "42" {
 		t.Fatalf("discord: %+v %+v", req.Discord, missing)
 	}
 
-	req, missing = moduleAddRequest("feishu", moduleFlags{appID: "cli_1", appSecret: "s"})
+	req, missing = moduleAddRequest("feishu", moduleFlags{appID: "cli_1", appSecret: "s"}, noHub)
 	if len(missing) > 0 || req.Feishu == nil || req.Feishu.AppID != "cli_1" || req.Feishu.AppSecret != "s" {
 		t.Fatalf("feishu: %+v %+v", req.Feishu, missing)
 	}
 
-	req, missing = moduleAddRequest("cloud_web", moduleFlags{url: "http://127.0.0.1:8790", token: "bot", name: "福子"})
+	req, missing = moduleAddRequest("cloud_web", moduleFlags{url: "http://127.0.0.1:8790", token: "bot", name: "福子"}, noHub)
 	if len(missing) > 0 || req.CloudWeb == nil || req.CloudWeb.URL != "http://127.0.0.1:8790" ||
 		req.CloudWeb.Token != "bot" || len(req.Roles) != 1 || req.Roles[0].Name != "福子" {
 		t.Fatalf("cloud_web: %+v %+v", req.CloudWeb, missing)
@@ -213,8 +249,9 @@ func TestModuleAddQQDryRunWritesNothing(t *testing.T) {
 	}
 }
 
-// cloud_web without a local hub: nothing is written and the result names what is missing (core
-// fills url/token from the hub the wizard started; there is none here).
+// cloud_web without a local hub: nothing is written and the report names what is missing (the
+// hub the wizard started would fill url/token in; there is none here). #814 review: the missing
+// list has to carry both, with the flags to ask for, not just an error string.
 func TestModuleAddCloudWebWithoutHubWritesNothing(t *testing.T) {
 	path := moduleTestConfig(t)
 	before, err := os.ReadFile(path)
@@ -223,12 +260,19 @@ func TestModuleAddCloudWebWithoutHubWritesNothing(t *testing.T) {
 	}
 
 	out, code := moduleAddConfigure("cloud_web", moduleFlags{name: "福子"}, path)
-	res, ok := out.(*core.WizardResult)
+	rep, ok := out.(moduleMissingReport)
 	if !ok || code == 0 {
-		t.Fatalf("output %T, exit code %d, want a failed result", out, code)
+		t.Fatalf("output %T, exit code %d, want a missing-parameter report", out, code)
 	}
-	if res.Error == "" || !strings.Contains(res.Error, "url") || !strings.Contains(res.Error, "token") {
-		t.Fatalf("error does not name the missing url/token: %q", res.Error)
+	var fields, flags []string
+	for _, m := range rep.Missing {
+		fields, flags = append(fields, m.Field), append(flags, m.Flag)
+	}
+	if strings.Join(fields, ",") != "cloud_web.url,cloud_web.token" || strings.Join(flags, ",") != "--url,--token" {
+		t.Fatalf("missing = %+v", rep.Missing)
+	}
+	if rep.Error == "" || len(rep.Warnings) != 0 {
+		t.Fatalf("report: %+v", rep)
 	}
 	after, err := os.ReadFile(path)
 	if err != nil {
@@ -298,5 +342,135 @@ func TestModuleDisableRefusesDryRun(t *testing.T) {
 	}
 	if raw, _ := os.ReadFile(path); !strings.Contains(string(raw), "disabled = true") {
 		t.Fatalf("disable without --dry-run wrote no mark:\n%s", raw)
+	}
+}
+
+// #814 review: the command entry, not only moduleAddConfigure, has to report cloud_web's missing
+// parameters as JSON. Nothing is written; both fields are named with the flag to ask for.
+func TestModuleAddCloudWebCommandReportsMissing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("data_dir = \""+filepath.ToSlash(dir)+"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := helper(t, "module", []string{"HOME=" + dir}, "add", "cloud_web", "--name", "福子", "--config", path)
+	out, err := cmd.Output()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() == 0 {
+		t.Fatalf("module add cloud_web exit = %v (stdout %s), want a non-zero exit", err, out)
+	}
+	var rep struct {
+		OK       bool            `json:"ok"`
+		Platform string          `json:"platform"`
+		Error    string          `json:"error"`
+		Missing  []moduleMissing `json:"missing"`
+	}
+	if jerr := json.Unmarshal(out, &rep); jerr != nil {
+		t.Fatalf("stdout is not the missing report JSON: %v\n%s", jerr, out)
+	}
+	var fields []string
+	for _, m := range rep.Missing {
+		fields = append(fields, m.Field)
+		if m.Flag == "" || m.Hint == "" {
+			t.Errorf("%+v has no flag or hint", m)
+		}
+	}
+	if rep.OK || rep.Platform != "cloud_web" || strings.Join(fields, ",") != "cloud_web.url,cloud_web.token" {
+		t.Fatalf("report: %s", out)
+	}
+	if raw, _ := os.ReadFile(path); !bytes.Equal(before, raw) {
+		t.Fatalf("module add cloud_web wrote config.toml:\n%s", raw)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Fatalf("module add cloud_web left files behind: %v", entries)
+	}
+}
+
+// #814 review Standards: Discord and Feishu succeed through the command entry against fake
+// services (the CONEST_*_BASE hooks setup_firstrun_test.go also uses) — a fake server, not a live
+// account. Without these the PR only had request-building tests for those two platforms.
+func TestModuleAddDiscordCommandAgainstFakeAPI(t *testing.T) {
+	srv := fakeDiscordAPI(t, 1<<18, "900")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("data_dir = \""+filepath.ToSlash(dir)+"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := helper(t, "module", []string{
+		"HOME=" + dir, "CONEST_DISCORD_API_BASE=" + srv.URL, "ANTHROPIC_API_KEY=test-key",
+	}, "add", "discord", "--token", testBotToken, "--guild", "900", "--config", path)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("module add discord: %v\n%s", err, out)
+	}
+	var res struct {
+		OK        bool   `json:"ok"`
+		Saved     bool   `json:"saved"`
+		Error     string `json:"error"`
+		AllowFrom string `json:"allow_from"`
+	}
+	if jerr := json.Unmarshal(out, &res); jerr != nil || !res.OK || !res.Saved || res.Error != "" {
+		t.Fatalf("result %s (%v)", out, jerr)
+	}
+	raw, _ := os.ReadFile(path)
+	if !strings.Contains(string(raw), `type = "discord"`) || !strings.Contains(string(raw), `allow_from = "777"`) {
+		t.Fatalf("config:\n%s", raw)
+	}
+}
+
+// fakeFeishuOpen answers the calls the wizard makes for a Feishu bot: a tenant token, then the
+// bot's own name / open_id. Fake server, no live app.
+func fakeFeishuOpen(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/open-apis/auth/v3/tenant_access_token/internal":
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "tenant_access_token": "t-fake", "expire": 7200})
+		case "/open-apis/bot/v3/info":
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "bot": map[string]any{"open_id": "ou_fixture", "app_name": "Feishu Fixture"}})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestModuleAddFeishuCommandAgainstFakeAPI(t *testing.T) {
+	srv := fakeFeishuOpen(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("data_dir = \""+filepath.ToSlash(dir)+"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := helper(t, "module", []string{
+		"HOME=" + dir, "CONEST_FEISHU_OPEN_BASE=" + srv.URL, "ANTHROPIC_API_KEY=test-key",
+	}, "add", "feishu", "--app-id", "cli_fixture", "--app-secret", "fixture-secret", "--config", path)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("module add feishu: %v\n%s", err, out)
+	}
+	var res struct {
+		OK    bool   `json:"ok"`
+		Saved bool   `json:"saved"`
+		Error string `json:"error"`
+	}
+	if jerr := json.Unmarshal(out, &res); jerr != nil || !res.OK || !res.Saved || res.Error != "" {
+		t.Fatalf("result %s (%v)", out, jerr)
+	}
+	raw, _ := os.ReadFile(path)
+	if !strings.Contains(string(raw), `type = "feishu"`) || !strings.Contains(string(raw), `app_id = "cli_fixture"`) ||
+		!strings.Contains(string(raw), `app_secret = "fixture-secret"`) {
+		t.Fatalf("config:\n%s", raw)
+	}
+	if strings.Contains(string(raw), "t-fake") {
+		t.Fatalf("the tenant token must not be written to config.toml:\n%s", raw)
 	}
 }
