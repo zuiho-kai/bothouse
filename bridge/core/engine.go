@@ -493,7 +493,8 @@ type Engine struct {
 	// Model-at-capacity cooldown (maomao fork, see capacity_retry.go)
 	capMu           sync.Mutex
 	capUntil        time.Time
-	quotaUntil      time.Time
+	quotaUntil      time.Time            // legacy unscoped cooldown only
+	quotaDomains    map[string]time.Time // guarded by quotaDomainsMu
 	quotaMu         sync.Mutex
 	quotaState      quotaCoolingState
 	quotaProbeFn    func(ctx context.Context) (usable bool, nextRetry time.Duration, err error)
@@ -655,6 +656,7 @@ type queuedMessage struct {
 
 // interactiveState tracks a running interactive agent session and its permission state.
 type interactiveState struct {
+	quotaScope    quotaScope // immutable attribution captured at session creation
 	authorization *AuthorizationTurn
 	// #618 K4 S1: resumeArmed is set while a resumed turn has not yet shown it
 	// works (no tool step, no first result); resumeFailed holds the error its
@@ -1736,7 +1738,7 @@ func (e *Engine) ActiveSessionKeys() []string {
 // It finds the platform that owns the session key, reconstructs a reply context,
 // and processes the message as if the user sent it.
 func (e *Engine) ExecuteCronJob(job *CronJob) error {
-	if until := e.quotaCooling(); !until.IsZero() {
+	if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
 		slog.Info("quota cooldown: cron skipped", "project", e.name, "job", job.ID, "cooling_until", until)
 		return nil
 	}
@@ -2081,7 +2083,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		}
 		job = prepared
 	}
-	if until := e.quotaCooling(); !until.IsZero() {
+	if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
 		slog.Info("quota cooldown: timer skipped", "project", e.name, "job", job.ID, "cooling_until", until)
 		return nil
 	}
@@ -4636,6 +4638,26 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		return
 	}
 
+	// All interactive ingress paths own the session lock here, including
+	// no-gate messages, scheduled jobs and capacity redelivery.
+	if err := e.applyPendingSwitchOnAgent(agent, interactiveKey, msg.SessionKey, ccSessionKey); err != nil {
+		msg.inputTurn.finish(inputTurnResult{err: err})
+		e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgError, err.Error()))
+		return
+	}
+	// A relay/side session may have applied a switch while this conversation
+	// was idle. Recycle its old process only now, at its next owned turn.
+	if msg.inputTurn == nil {
+		target := e.admissionQuotaScope(agent, interactiveKey, msg.SessionKey, ccSessionKey)
+		e.interactiveMu.Lock()
+		old := e.interactiveStates[interactiveKey]
+		stale := old != nil && old.agentSession != nil && old.quotaScope != target
+		e.interactiveMu.Unlock()
+		if stale {
+			e.cleanupInteractiveState(interactiveKey, nil)
+		}
+	}
+
 	turnStart := time.Now()
 	origMsg := *msg // maomao fork: re-delivered as-is after a capacity cooldown
 
@@ -4776,10 +4798,10 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	// (2026-11-01: 「复活」之后发一句话就该恢复正常). Bots, cron/timer/heartbeat
 	// turns and ws-handoff wake-ups still wait: they are not someone sitting
 	// there, and key suffixes alone do not prove where a message came from.
-	capWait := e.capacityWait()
+	capWait := e.capacityWait(state.quotaScope)
 	probeCapacity := capWait > 0 && msg.inputTurn == nil && !msg.FromBot &&
 		!scheduledTurnUser(msg.UserID) && msg.UserID != "handoff" && !isScheduledSideKey(interactiveKey)
-	if until := e.quotaCooling(); !until.IsZero() {
+	if until := e.quotaCoolingFor(state.quotaScope); !until.IsZero() {
 		e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgQuotaCooling, until.Format(time.RFC3339)))
 	} else if capWait > 0 && msg.inputTurn == nil && !probeCapacity {
 		e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, capWait, true)
@@ -5305,6 +5327,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	}
 	newState := &interactiveState{
 		agentSession:     agentSession,
+		quotaScope:       e.quotaScopeOfSession(agent, agentSession),
 		platform:         p,
 		replyCtx:         replyCtx,
 		agent:            agent,
@@ -5818,7 +5841,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 			if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
 				session.ResetTurnCtx() // maomao fork
 			}
-			e.observeQuotaEvent(event, sessionKey, agentSession)
+			e.observeQuotaEventFor(event, sessionKey, agentSession, state.quotaScope)
 			switch event.Type {
 			case EventText:
 				if event.Content != "" {
@@ -5960,7 +5983,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 
 			case EventError:
 				if event.Error != nil {
-					if until, ok := e.quotaCoolingUntil(event.Error.Error()); ok {
+					if until, ok := e.quotaCoolingUntilFor(state.quotaScope, event.Error.Error()); ok {
 						slog.Warn("provider quota exhausted, cooling down until reset", "session_key", sessionKey, "cooling_until", until.Format(time.RFC3339))
 					}
 					slog.Error("unsolicited agent error", "error", event.Error, "session", sessionKey)
@@ -6024,7 +6047,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}()
 	state.mu.Lock()
 	ref := state.authorization
+	// Like startUnsolicitedReader, retain this turn's session under the lock:
+	// workspace cleanup may concurrently clear the shared pointer.
+	agentSession := state.agentSession
 	state.mu.Unlock()
+	if agentSession == nil {
+		return
+	}
 	changed, unwatch, watchErr := e.watchTurnAuthorization(ref)
 	if watchErr != nil {
 		e.failAuthorizedTurn(ref)
@@ -6184,7 +6213,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		turnDeadlineCh = turnDeadlineTimer.C
 	}
 
-	events := state.agentSession.Events()
+	events := agentSession.Events()
 	stopCh := state.stopSignal()
 
 	// maomao fork: sub-agent table, and the progress card kept alive while the
@@ -6192,7 +6221,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// interval).
 	e.ensureSubTaskTable(state, sessionKey)
 	var subWaitTick <-chan time.Time
-	subReporter, hasSubReporter := state.agentSession.(SubTaskReporter)
+	subReporter, hasSubReporter := agentSession.(SubTaskReporter)
 	if hasSubReporter && cp.Active() && cp.minUpdateInterval > 0 {
 		t := time.NewTicker(cp.minUpdateInterval)
 		defer t.Stop()
@@ -6235,7 +6264,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					stopTyping = nil
 				}
 				e.notifyDroppedQueuedMessages(state, err)
-				if state.agentSession == nil || !state.agentSession.Alive() {
+				if agentSession == nil || !agentSession.Alive() {
 					e.cleanupInteractiveState(sessionKey, state)
 				}
 				state.mu.Lock()
@@ -6282,7 +6311,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		graceLoop:
 			for {
 				select {
-				case evt, ok := <-state.agentSession.Events():
+				case evt, ok := <-agentSession.Events():
 					if !ok || (ok && evt.Done) {
 						// Agent exited cleanly; state is intact, resume will work.
 						slog.Info("agent exited gracefully after max_turn_time stop signal",
@@ -6379,7 +6408,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			return
 		}
 
-		e.observeQuotaEvent(event, sessionKey, state.agentSession)
+		e.observeQuotaEventFor(event, sessionKey, agentSession, state.quotaScope)
 
 		// maomao fork: the agent compacted its context, so the per-turn blocks are gone.
 		if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
@@ -6391,7 +6420,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// Never present these again in platform text/history: the ordinary
 			// EventText/Result stream owns those. Require concrete source ID.
 			if input != nil && input.appendSpeech != nil && event.SessionID == input.expectedID {
-				if state.agentSession.CurrentSessionID() != input.expectedID {
+				if agentSession.CurrentSessionID() != input.expectedID {
 					input.finish(inputTurnResult{err: fmt.Errorf("speech source binding changed")})
 					return
 				}
@@ -6416,7 +6445,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					})
 				}
 				if cardMessageID == nil {
-					card := buildResolvedRichCard(CardStatusThinking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+					card := buildResolvedRichCard(CardStatusThinking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 					if starter, ok := p.(PreviewStarter); ok {
 						handle, err := authorizedOutputValue(outputCtx, func() (any, error) {
 							return starter.SendPreviewStart(outputCtx, markAgentReply(p, replyCtx, session), card)
@@ -6428,7 +6457,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						}
 					}
 				} else if updater, ok := p.(MessageUpdater); ok {
-					card := buildResolvedRichCard(CardStatusThinking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+					card := buildResolvedRichCard(CardStatusThinking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 					if err := authorizedOutput(outputCtx, func() error { return updater.UpdateMessage(outputCtx, cardMessageID, card) }); err != nil {
 						slog.Debug("rich card: failed to update thinking card", "platform", p.Name(), "error", err)
 					}
@@ -6514,7 +6543,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					Summary: truncateIf(event.ToolInput, e.display.ToolMaxLen),
 				})
 				if cardMessageID == nil {
-					card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+					card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 					if starter, ok := p.(PreviewStarter); ok {
 						handle, err := authorizedOutputValue(outputCtx, func() (any, error) {
 							return starter.SendPreviewStart(outputCtx, markAgentReply(p, replyCtx, session), card)
@@ -6526,7 +6555,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						}
 					}
 				} else if updater, ok := p.(MessageUpdater); ok {
-					card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+					card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 					if err := authorizedOutput(outputCtx, func() error { return updater.UpdateMessage(outputCtx, cardMessageID, card) }); err != nil {
 						slog.Debug("rich card: failed to update tool card", "platform", p.Name(), "error", err)
 					}
@@ -6675,7 +6704,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					if hasRichCard {
 						toolSteps = mergeRichToolResult(toolSteps, event, result, e.display.ToolMaxLen)
 						if cardMessageID == nil {
-							card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+							card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 							if starter, ok := p.(PreviewStarter); ok {
 								handle, err := authorizedOutputValue(outputCtx, func() (any, error) {
 									return starter.SendPreviewStart(outputCtx, markAgentReply(p, replyCtx, session), card)
@@ -6687,7 +6716,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 								}
 							}
 						} else if updater, ok := p.(MessageUpdater); ok {
-							card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+							card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 							if err := authorizedOutput(outputCtx, func() error { return updater.UpdateMessage(outputCtx, cardMessageID, card) }); err != nil {
 								slog.Debug("rich card: failed to update tool-result card", "platform", p.Name(), "error", err)
 							}
@@ -6752,7 +6781,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					if len(textParts) == 0 {
 						if hasRichCard {
 							if cardMessageID == nil && !silentHold {
-								card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+								card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 								if starter, ok := p.(PreviewStarter); ok {
 									handle, err := authorizedOutputValue(outputCtx, func() (any, error) {
 										return starter.SendPreviewStart(outputCtx, markAgentReply(p, replyCtx, session), card)
@@ -6778,7 +6807,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							// here using the accumulated partialText so the card emerges
 							// with the post-prefix content already in body.
 							if cardMessageID == nil {
-								card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+								card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 								if starter, ok := p.(PreviewStarter); ok {
 									handle, err := authorizedOutputValue(outputCtx, func() (any, error) {
 										return starter.SendPreviewStart(outputCtx, markAgentReply(p, replyCtx, session), card)
@@ -6815,7 +6844,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 									}
 								}
 								if !streamed {
-									card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+									card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 									if updater, ok := p.(MessageUpdater); ok {
 										if err := authorizedOutput(outputCtx, func() error { return updater.UpdateMessage(outputCtx, cardMessageID, card) }); err == nil {
 											lastRichCardUpdate = time.Now()
@@ -6880,7 +6909,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 			if autoApprove && !isAskQuestion {
 				slog.Debug("auto-approving (approve-all)", "request_id", event.RequestID, "tool", event.ToolName)
-				_ = e.respondTurnPermission(state, state.agentSession, event.RequestID, PermissionResult{
+				_ = e.respondTurnPermission(state, agentSession, event.RequestID, PermissionResult{
 					Behavior:     "allow",
 					UpdatedInput: event.ToolInputRaw,
 				})
@@ -7003,8 +7032,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if input == nil {
 				e.emitStreamEvent(StreamEventReply, sessionKey, event.Content, nil)
 			}
-			// Use state.agentSession.CurrentSessionID() instead of event.SessionID.
-			if input != nil && (event.Error != nil || state.agentSession.CurrentSessionID() != input.expectedID ||
+			// Use agentSession.CurrentSessionID() instead of event.SessionID.
+			if input != nil && (event.Error != nil || agentSession.CurrentSessionID() != input.expectedID ||
 				(event.SessionID != "" && event.SessionID != input.expectedID) || sessions.ActiveSessionID(sessionKey) != session.ID || session.GetAgentSessionID() != input.expectedID) {
 				err := event.Error
 				if err == nil {
@@ -7015,8 +7044,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			// event.SessionID may be empty in some cases, causing the agent_session_id
 			// to not be persisted to disk, breaking session resume on next startup.
-			if state != nil && state.agentSession != nil {
-				if currentID := state.agentSession.CurrentSessionID(); currentID != "" {
+			if state != nil && agentSession != nil {
+				if currentID := agentSession.CurrentSessionID(); currentID != "" {
 					e.journalSessionID(sessionKey, currentID) // #618 K4
 					wasEmpty := session.GetAgentSessionID() == ""
 					if session.GetAgentSessionID() != currentID {
@@ -7067,7 +7096,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// The adapter marked an exhausted quota; say which bot/model ran out so
 			// other bots in the channel are not blamed.
 			if reset, ok := QuotaExhaustedReset(event); ok {
-				fullResponse = e.quotaExhaustedMessage(reset, state.agentSession, replyAgent)
+				fullResponse = e.quotaExhaustedMessage(reset, agentSession, replyAgent)
 			}
 			if input != nil && strings.TrimSpace(fullResponse) == "" {
 				state.mu.Lock()
@@ -7105,7 +7134,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if input == nil && e.autoCompressEnabled && e.autoCompressMaxTokens > 0 {
 				estimate := contextEstimate
 				// 文本估算不含工具输出，远低于真实值（橘 272k 时估算才几万）；有真实用量就取大者。
-				if u := replyFooterSessionContextUsage(state.agentSession); u != nil && u.UsedTokens > estimate {
+				if u := replyFooterSessionContextUsage(agentSession); u != nil && u.UsedTokens > estimate {
 					estimate = u.UsedTokens
 				}
 				now := time.Now()
@@ -7169,7 +7198,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			var statusFooter string
 			var legacyStatusFooter string
 			if !isSilent {
-				footerContext := replyFooterContextText(replyFooterSessionContextUsage(state.agentSession), e.i18n)
+				footerContext := replyFooterContextText(replyFooterSessionContextUsage(agentSession), e.i18n)
 				if e.showContextIndicator {
 					if sdkPlausible {
 						if text := contextIndicatorText(event.InputTokens); text != "" {
@@ -7179,9 +7208,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						footerContext = fmt.Sprintf("[ctx: ~%d%%]", selfPct)
 					}
 				}
-				if status := e.buildClaudeStatusLineFooter(replyAgent, state.agentSession, workspaceDir); status != "" {
+				if status := e.buildClaudeStatusLineFooter(replyAgent, agentSession, workspaceDir); status != "" {
 					statusFooter = status
-				} else if footer := e.buildReplyFooter(replyAgent, state.agentSession, workspaceDir, footerContext); footer != "" {
+				} else if footer := e.buildReplyFooter(replyAgent, agentSession, workspaceDir, footerContext); footer != "" {
 					statusFooter = footer
 					legacyStatusFooter = footer
 				}
@@ -7286,7 +7315,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						silentBody = strings.TrimRight(stripped, " \t\r\n")
 					}
 					if silentBody != "" || len(toolSteps) > 0 {
-						card := buildResolvedRichCard(CardStatusDone, "", toolSteps, silentBody, false, e.composeRichStatusFooter(false, turnStart, e.agent, state.agentSession, state.workspaceDir))
+						card := buildResolvedRichCard(CardStatusDone, "", toolSteps, silentBody, false, e.composeRichStatusFooter(false, turnStart, e.agent, agentSession, state.workspaceDir))
 						if updater, ok := p.(MessageUpdater); ok {
 							if err := authorizedOutput(outputCtx, func() error { return updater.UpdateMessage(outputCtx, cardMessageID, card) }); err != nil {
 								slog.Debug("rich card: failed to finalize card on silent reply", "platform", p.Name(), "error", err)
@@ -7307,7 +7336,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				if splitter, ok := p.(MarkdownTableSplitter); ok {
 					parts = splitter.SplitMarkdownByTables(fullResponse, 5)
 				}
-				richStatusFooter := e.composeRichStatusFooter(false, turnStart, e.agent, state.agentSession, state.workspaceDir)
+				richStatusFooter := e.composeRichStatusFooter(false, turnStart, e.agent, agentSession, state.workspaceDir)
 				if legacyStatusFooter != "" {
 					richStatusFooter = formatElapsed(time.Since(turnStart), false, e.i18n.currentLang()) + "\n" + legacyStatusFooter
 				}
@@ -7559,7 +7588,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// Drain stale events before starting the next turn. Between
 				// EventResult and Send(), the only buffered events would be
 				// stale leftovers (e.g. a deferred EventError from cmd.Wait()).
-				drainEvents(state.agentSession.Events())
+				drainEvents(agentSession.Events())
 
 				if pendingSend != nil {
 					if err := <-pendingSend; err != nil {
@@ -7579,7 +7608,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				queuedPrompt = e.withPublicProgress(queuedPrompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
 
 				state.mu.Lock()
-				as := state.agentSession // capture under lock to avoid race with cleanup
+				as := agentSession // capture under lock to avoid race with cleanup
 				state.mu.Unlock()
 				// The previous turn's mode ends with that turn; this one runs in its own.
 				e.setTurnMode(state, as, queued.modeOverride)
@@ -7720,7 +7749,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			state.mu.Unlock()
 			cp.Finalize(ProgressCardStateFailed)
 			if event.Error != nil {
-				if until, ok := e.quotaCoolingUntil(event.Error.Error()); ok {
+				if until, ok := e.quotaCoolingUntilFor(state.quotaScope, event.Error.Error()); ok {
 					slog.Warn("provider quota exhausted, cooling down until reset", "session_key", sessionKey, "cooling_until", until.Format(time.RFC3339))
 				}
 			}
@@ -7757,7 +7786,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				if errorAnswer != "" {
 					cardAnswer = errorAnswer
 				}
-				errCard := buildResolvedRichCard(CardStatusError, "", toolSteps, cardAnswer, false, e.composeRichStatusFooter(false, turnStart, replyAgent, state.agentSession, workspaceDir))
+				errCard := buildResolvedRichCard(CardStatusError, "", toolSteps, cardAnswer, false, e.composeRichStatusFooter(false, turnStart, replyAgent, agentSession, workspaceDir))
 				if updater, ok := p.(MessageUpdater); ok {
 					if err := authorizedOutput(outputCtx, func() error { return updater.UpdateMessage(outputCtx, cardMessageID, errCard) }); err != nil {
 						slog.Debug("rich card: failed to update error card", "platform", p.Name(), "error", err)
@@ -7832,7 +7861,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						}
 					}
 					if reset, ok := QuotaExhaustedReset(event); ok {
-						userMsg = e.quotaExhaustedMessage(reset, state.agentSession, replyAgent)
+						userMsg = e.quotaExhaustedMessage(reset, agentSession, replyAgent)
 					}
 					if errorAnswer != "" {
 						if !errorAnswerDelivered {
@@ -7845,9 +7874,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// status (or explicit query failure) as a successful reply.
 					var statusFooter string
 					if !errorFooterDelivered {
-						statusFooter = e.buildClaudeStatusLineFooter(replyAgent, state.agentSession, workspaceDir)
+						statusFooter = e.buildClaudeStatusLineFooter(replyAgent, agentSession, workspaceDir)
 						if statusFooter == "" {
-							statusFooter = e.buildReplyFooter(replyAgent, state.agentSession, workspaceDir, "")
+							statusFooter = e.buildReplyFooter(replyAgent, agentSession, workspaceDir, "")
 						}
 					}
 					sendChunksWithStatusFooter(outputCtx, p, replyCtx, userMsg, statusFooter, func(p Platform, replyCtx any, content string) error {
@@ -7858,7 +7887,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// Only drop queued messages if the agent session is dead.
 			// Some agents (e.g. Codex) emit EventError for per-turn failures
 			// while keeping the session alive for subsequent turns.
-			if state.agentSession == nil || !state.agentSession.Alive() {
+			if agentSession == nil || !agentSession.Alive() {
 				e.notifyDroppedQueuedMessages(state, event.Error)
 			}
 			return
@@ -8083,7 +8112,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 
 		e.i18n.DetectAndSet(queued.content)
 		rawQueued := queued // maomao fork: re-delivered as-is after a capacity cooldown
-		if wait := e.capacityWait(); wait > 0 {
+		if wait := e.capacityWait(state.quotaScope); wait > 0 {
 			// Before withTurnBlocks: an unsent message must not mark anything sent.
 			e.deferForCapacity(queued.platform, queuedToMessage(rawQueued), state.agent, sessions, sessionKey, state.workspaceDir, wait, true)
 			continue
@@ -9351,7 +9380,7 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 	}
 	// maomao fork: quota the session already holds (CachedUsageReporter, no I/O) wins.
 	if cached, ok := session.(CachedUsageReporter); ok {
-		e.observeQuotaUsage(cached.CachedUsage(), "")
+		e.observeQuotaUsageFor(cached.CachedUsage(), "", e.quotaScopeFor(agent, replyFooterModel(session, agent)))
 	}
 	if text := replyFooterCachedQuotaText(session, e.i18n); text != "" {
 		return text, true
@@ -9370,7 +9399,7 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 	if session != nil {
 		if reporter, ok := session.(UsageReporter); ok && usageReporterAvailable(session) {
 			if report, err := reporter.GetUsage(ctx); err == nil {
-				e.observeQuotaUsage(report, "")
+				e.observeQuotaUsageFor(report, "", e.quotaScopeFor(agent, replyFooterModel(session, agent)))
 				if text := formatReplyFooterUsage(report, e.i18n); text != "" {
 					return text, true
 				}
@@ -9408,7 +9437,7 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 	if ent.done == nil && !e.replyFooterInflight[agentID] && stale && retryDue {
 		ent.done = make(chan struct{})
 		e.replyFooterInflight[agentID] = true
-		go e.refreshReplyFooterUsage(reporter, agent, model, agentID, ent)
+		go e.refreshReplyFooterUsage(e.quotaScopeFor(agent, model), reporter, agent, model, agentID, ent)
 	}
 	var wait chan struct{}
 	if ent.done != nil && ent.okAt.IsZero() && ent.attemptAt.IsZero() && !ent.waited {
@@ -9441,7 +9470,7 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 
 // refreshReplyFooterUsage runs one agent quota probe. A failed or empty
 // result never replaces the last good quota.
-func (e *Engine) refreshReplyFooterUsage(reporter UsageReporter, agent Agent, model string, agentID any, ent *replyFooterUsageEntry) {
+func (e *Engine) refreshReplyFooterUsage(scope quotaScope, reporter UsageReporter, agent Agent, model string, agentID any, ent *replyFooterUsageEntry) {
 	parent := e.ctx
 	if parent == nil {
 		parent = context.Background()
@@ -9463,7 +9492,7 @@ func (e *Engine) refreshReplyFooterUsage(reporter UsageReporter, agent Agent, mo
 		slog.Debug("reply footer: quota probe failed", "agent", agent.Name(), "model", model, "error", err)
 		failText = e.i18n.T(MsgQuotaFetchFailed)
 	} else {
-		e.observeQuotaUsage(report, "")
+		e.observeQuotaUsageFor(report, "", scope)
 		text = formatReplyFooterUsage(report, e.i18n)
 	}
 
@@ -17983,13 +18012,16 @@ func relayGateQuery(message string) string {
 // at once, unlike the wait timeout: a result already received is returned as
 // done, otherwise the text so far comes back with errRelayWatchStopped.
 func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, ccSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, stop <-chan struct{}, nudge <-chan string, completion ...func(string, error)) (string, error) {
-	if until := e.quotaCooling(); !until.IsZero() {
+	if err := e.applyPendingSwitchOnAgent(agent, relaySessionKey, ccSessionKey, sourceSessionKey); err != nil {
+		return "", err
+	}
+	if until := e.quotaCoolingFor(e.admissionQuotaScope(agent, relaySessionKey, ccSessionKey, sourceSessionKey)); !until.IsZero() {
 		return "", fmt.Errorf("engine %q quota cooling until %s", e.name, until.Format(time.RFC3339))
 	}
 	if e.IsPaused() {
 		return "", fmt.Errorf("engine %q is paused", e.name)
 	}
-	if wait := e.capacityWait(); wait > 0 {
+	if wait := e.capacityWait(e.admissionQuotaScope(agent, relaySessionKey, ccSessionKey, sourceSessionKey)); wait > 0 {
 		return "", fmt.Errorf("relay target is cooling down for %s", wait.Round(time.Second))
 	}
 	if err := ctx.Err(); err != nil {
@@ -18032,6 +18064,13 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 			teamOutcome = teamWorkFailed
 			return "", fmt.Errorf("start relay session: %w", err)
 		}
+	}
+	// CLI pins and per-session overrides may differ from the admission model.
+	// Attribute events to the actual session and recheck before its first send.
+	turnScope := e.quotaScopeOfSession(agent, agentSession)
+	if until := e.quotaCoolingFor(turnScope); !until.IsZero() {
+		agentSession.Close()
+		return "", fmt.Errorf("engine %q quota cooling until %s", e.name, until.Format(time.RFC3339))
 	}
 	e.trackRelaySession(agentSession) // #624 K4: Stop closes relay sessions too
 	if startedFresh {
@@ -18104,7 +18143,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 			// Only the wait timed out. The drain now owns both outstanding
 			// Send completion and events; team work stays busy until it ends.
 			draining = true
-			go e.drainRelaySession(context.WithoutCancel(ctx), agent, agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, nudge, completion)
+			go e.drainRelaySession(turnScope, context.WithoutCancel(ctx), agent, agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, nudge, completion)
 			if quiet {
 				return strings.Join(textParts, ""), &relayDrainingError{ctx.Err()}
 			}
@@ -18144,7 +18183,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				events = nil
 				continue
 			}
-			e.observeQuotaEvent(event, sourceSessionKey, agentSession)
+			e.observeQuotaEventFor(event, sourceSessionKey, agentSession, turnScope)
 			if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
 				session.ResetTurnCtx() // the relay context lost its per-turn blocks (rules, wiki)
 			}
@@ -18189,7 +18228,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				agentSession.Close()
 				teamOutcome = teamWorkFailed
 				if event.Error != nil {
-					if until, ok := e.quotaCoolingUntil(event.Error.Error()); ok {
+					if until, ok := e.quotaCoolingUntilFor(turnScope, event.Error.Error()); ok {
 						slog.Warn("provider quota exhausted, cooling down until reset", "session_key", relaySessionKey, "cooling_until", until.Format(time.RFC3339))
 					}
 					return "", event.Error
@@ -18284,7 +18323,7 @@ var relayDrainSafety = 10 * time.Minute
 // auto-approves any permission requests, and then closes the session. A 10-minute
 // safety timeout prevents the goroutine from leaking if the agent hangs; task
 // relays leave that to the ten-minute watch (stop and nudge).
-func (e *Engine) drainRelaySession(ctx context.Context, agent Agent, agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, nudge <-chan string, completion []func(string, error)) {
+func (e *Engine) drainRelaySession(turnScope quotaScope, ctx context.Context, agent Agent, agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, nudge <-chan string, completion []func(string, error)) {
 	teamOutcome := teamWorkUnconfirmed
 	completionErr := fmt.Errorf("relay: background execution ended without a confirmed result")
 	defer func() {
@@ -18347,7 +18386,7 @@ func (e *Engine) drainRelaySession(ctx context.Context, agent Agent, agentSessio
 				session.SetAgentSessionID(ev.SessionID, agentName)
 				sessions.Save()
 			}
-			e.observeQuotaEvent(ev, relaySessionKey, agentSession)
+			e.observeQuotaEventFor(ev, relaySessionKey, agentSession, turnScope)
 			if c, _ := ev.Metadata[MetaContextCompacted].(bool); c {
 				session.ResetTurnCtx() // as in handleTrackedRelay
 			}

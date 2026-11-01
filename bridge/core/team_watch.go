@@ -305,7 +305,7 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 	// Only a recorded terminal event owns idle wakeups. A missing owner or
 	// event must not silently renew a handoff forever at each deadline.
 	target := w.e.watchTarget(key, h.Owner)
-	if target != nil && !target.quotaCooling().IsZero() {
+	if target != nil && !target.quotaCoolingFor(target.admissionQuotaScope(target.agent, key)).IsZero() {
 		return now.Add(watchRetryDelay) // quota takeover changes the owner; never nudge the cooling role
 	}
 	busy := w.workspaceBusy(key)

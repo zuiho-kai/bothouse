@@ -477,7 +477,7 @@ func (ts *TimerScheduler) executeJob(jobID string) {
 		return
 	}
 	if !job.IsShellJob() {
-		if wait := engine.capacityWait(); wait > 0 {
+		if wait := engine.capacityWait(engine.admissionQuotaScope(engine.agent, job.SessionKey)); wait > 0 {
 			slog.Info("timer: delaying job until provider cooldown ends", "id", jobID, "project", job.Project, "delay", wait)
 			ts.scheduleAt(job, wait)
 			return

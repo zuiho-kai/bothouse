@@ -161,7 +161,7 @@ type PublicProgress struct {
 	textSenders              map[string]TaskTextSender
 	checkTaskText            func(context.Context, *Task, string) error
 	waitTaskText             func(context.Context, string) error
-	quotaBlocked             func(string) bool
+	quotaBlocked             func(string, string) bool
 	// Lifecycle operations serialize run ownership and durable state transitions.
 	// Delivery never takes this lock; network requests remain independent.
 	transitionMu            sync.Mutex
@@ -640,7 +640,7 @@ func (p *PublicProgress) finishRun(r *publicRun, outcome string, delegated bool)
 			slog.Error("task authorization withdrawal persistence failed", "task_id", t.ID, "error", err)
 		}
 	}
-	if p.quotaBlocked != nil && p.quotaBlocked(p.project) {
+	if p.quotaBlocked != nil && p.quotaBlocked(p.project, r.record.Task.SessionKey) {
 		// A provider stop is a pending handoff, not a failed user task.
 		if err := p.save(r); err != nil {
 			slog.Error("quota handoff persistence failed", "error", err)
@@ -1115,10 +1115,10 @@ func (e *Engine) EnablePublicProgress() error {
 	p.notBound = e.noteBound
 	p.workspaceChat = e.isTeamWorkspaceChat
 	p.projectName = e.projectDisplayName
-	p.quotaBlocked = func(project string) bool {
+	p.quotaBlocked = func(project, session string) bool {
 		for _, peer := range e.watchEngines() {
 			if peer.name == project {
-				return !peer.quotaCooling().IsZero()
+				return !peer.quotaCoolingFor(peer.admissionQuotaScope(peer.agent, session)).IsZero()
 			}
 		}
 		return false

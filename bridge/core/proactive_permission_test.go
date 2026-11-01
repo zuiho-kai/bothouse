@@ -90,7 +90,7 @@ func TestProactiveRelayDrainDeniesStalePermission(t *testing.T) {
 	s := &proactivePermissionSession{controllableAgentSession: newControllableSession("drain"), permissions: make(chan PermissionResult, 1)}
 	s.events <- Event{Type: EventPermissionRequest, RequestID: "after-stop"}
 	ended := make(chan teamWorkOutcome, 1)
-	go e.drainRelaySession(ctx, nil, s, &Session{}, NewSessionManager(""), "stub", "relay:key", func(o teamWorkOutcome) { ended <- o }, s.Events(), nil, false, "", nil, nil, nil, nil)
+	go e.drainRelaySession(quotaScope{}, ctx, nil, s, &Session{}, NewSessionManager(""), "stub", "relay:key", func(o teamWorkOutcome) { ended <- o }, s.Events(), nil, false, "", nil, nil, nil, nil)
 	select {
 	case outcome := <-ended:
 		if outcome != teamWorkFailed {
