@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,77 @@ import (
 	"sync"
 	"time"
 )
+
+// admissionQuotaScope checks the requested target even before an idle turn can
+// apply its queued switch. It does not mutate a running conversation.
+func (e *Engine) admissionQuotaScope(agent Agent, keys ...string) quotaScope {
+	model := modelOf(agent)
+	e.modelSwitchMu.Lock()
+	for _, key := range keys {
+		if p, ok := e.pendingSwitch[key]; ok && p.model != "" {
+			model = p.model
+		}
+	}
+	e.modelSwitchMu.Unlock()
+	scope := e.quotaScopeFor(agent, model)
+	e.capMu.Lock()
+	legacy := e.quotaUntil.After(time.Now())
+	e.capMu.Unlock()
+	if !legacy {
+		return scope
+	}
+	e.quotaMu.Lock()
+	verified := e.quotaState.Verified[scope.key()]
+	e.quotaMu.Unlock()
+	if verified {
+		return scope
+	}
+	// Migration cannot guess which old model exhausted the role-level record.
+	// Only a measured target report can release this target from that record.
+	ctx, cancel := context.WithTimeout(e.ctx, 10*time.Second)
+	defer cancel()
+	var report *UsageReport
+	var err error
+	if r, ok := agent.(ModelUsageReporter); ok {
+		report, err = r.GetUsageForModel(ctx, model)
+	} else if r, ok := agent.(UsageReporter); ok && model == modelOf(agent) {
+		report, err = r.GetUsage(ctx)
+	}
+	if err != nil || report == nil {
+		return scope
+	}
+	scope = e.quotaScopeFor(agent, model)
+	if report.QuotaGroup != "" {
+		scope.Group = report.QuotaGroup
+	}
+	measured := false
+	for _, b := range report.Buckets {
+		if report.QuotaGroup != "" && b.QuotaGroup != report.QuotaGroup {
+			continue
+		}
+		if b.LimitReached {
+			e.observeQuotaUsageFor(report, "", scope)
+			return scope
+		}
+		for _, w := range b.Windows {
+			if w.UsedPercent >= 100 {
+				e.observeQuotaUsageFor(report, "", scope)
+				return scope
+			}
+			measured = true
+		}
+	}
+	if measured {
+		e.quotaMu.Lock()
+		if e.quotaState.Verified == nil {
+			e.quotaState.Verified = map[string]bool{}
+		}
+		e.quotaState.Verified[scope.key()] = true
+		e.saveQuotaLocked()
+		e.quotaMu.Unlock()
+	}
+	return scope
+}
 
 // QuotaScopeProvider supplies provider evidence, not a guess based on different
 // model IDs. Empty Group means the sharing boundary is unknown: use the whole

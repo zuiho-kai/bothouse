@@ -655,6 +655,7 @@ type queuedMessage struct {
 
 // interactiveState tracks a running interactive agent session and its permission state.
 type interactiveState struct {
+	quotaScope    quotaScope // immutable attribution captured at session creation
 	authorization *AuthorizationTurn
 	// #618 K4 S1: resumeArmed is set while a resumed turn has not yet shown it
 	// works (no tool step, no first result); resumeFailed holds the error its
@@ -1732,7 +1733,7 @@ func (e *Engine) ActiveSessionKeys() []string {
 // It finds the platform that owns the session key, reconstructs a reply context,
 // and processes the message as if the user sent it.
 func (e *Engine) ExecuteCronJob(job *CronJob) error {
-	if until := e.quotaCooling(); !until.IsZero() {
+	if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
 		slog.Info("quota cooldown: cron skipped", "project", e.name, "job", job.ID, "cooling_until", until)
 		return nil
 	}
@@ -2077,7 +2078,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		}
 		job = prepared
 	}
-	if until := e.quotaCooling(); !until.IsZero() {
+	if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
 		slog.Info("quota cooldown: timer skipped", "project", e.name, "job", job.ID, "cooling_until", until)
 		return nil
 	}
@@ -4768,9 +4769,9 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	// for the cooldown instead of reaching the agent. Checked before withTurnBlocks so
 	// nothing (wiki pages, team status, handoff) is marked sent for an unsent message.
 	// A local input turn (msg.inputTurn) is never deferred: its caller waits on it.
-	if until := e.quotaCooling(); !until.IsZero() {
+	if until := e.quotaCoolingFor(state.quotaScope); !until.IsZero() {
 		e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgQuotaCooling, until.Format(time.RFC3339)))
-	} else if wait := e.capacityWait(); wait > 0 && msg.inputTurn == nil {
+	} else if wait := e.capacityWait(state.quotaScope); wait > 0 && msg.inputTurn == nil {
 		e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, wait, true)
 	} else {
 		// Local copy, not msg.Content: the caller may still read *msg (data race).
@@ -5289,6 +5290,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	}
 	newState := &interactiveState{
 		agentSession:     agentSession,
+		quotaScope:       e.quotaScopeFor(agent, modelOf(agent)),
 		platform:         p,
 		replyCtx:         replyCtx,
 		agent:            agent,
@@ -5802,7 +5804,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 			if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
 				session.ResetTurnCtx() // maomao fork
 			}
-			e.observeQuotaEvent(event, sessionKey, agentSession)
+			e.observeQuotaEventFor(event, sessionKey, agentSession, state.quotaScope)
 			switch event.Type {
 			case EventText:
 				if event.Content != "" {
@@ -5944,7 +5946,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 
 			case EventError:
 				if event.Error != nil {
-					if until, ok := e.quotaCoolingUntil(event.Error.Error()); ok {
+					if until, ok := e.quotaCoolingUntilFor(state.quotaScope, event.Error.Error()); ok {
 						slog.Warn("provider quota exhausted, cooling down until reset", "session_key", sessionKey, "cooling_until", until.Format(time.RFC3339))
 					}
 					slog.Error("unsolicited agent error", "error", event.Error, "session", sessionKey)
@@ -6350,7 +6352,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			return
 		}
 
-		e.observeQuotaEvent(event, sessionKey, state.agentSession)
+		e.observeQuotaEventFor(event, sessionKey, state.agentSession, state.quotaScope)
 
 		// maomao fork: the agent compacted its context, so the per-turn blocks are gone.
 		if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
@@ -7670,7 +7672,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			turnFailed = true
 			cp.Finalize(ProgressCardStateFailed)
 			if event.Error != nil {
-				if until, ok := e.quotaCoolingUntil(event.Error.Error()); ok {
+				if until, ok := e.quotaCoolingUntilFor(state.quotaScope, event.Error.Error()); ok {
 					slog.Warn("provider quota exhausted, cooling down until reset", "session_key", sessionKey, "cooling_until", until.Format(time.RFC3339))
 				}
 			}
@@ -9294,7 +9296,7 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 	}
 	// maomao fork: quota the session already holds (CachedUsageReporter, no I/O) wins.
 	if cached, ok := session.(CachedUsageReporter); ok {
-		e.observeQuotaUsage(cached.CachedUsage(), "")
+		e.observeQuotaUsageFor(cached.CachedUsage(), "", e.quotaScopeFor(agent, replyFooterModel(session, agent)))
 	}
 	if text := replyFooterCachedQuotaText(session, e.i18n); text != "" {
 		return text, true
@@ -9313,7 +9315,7 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 	if session != nil {
 		if reporter, ok := session.(UsageReporter); ok && usageReporterAvailable(session) {
 			if report, err := reporter.GetUsage(ctx); err == nil {
-				e.observeQuotaUsage(report, "")
+				e.observeQuotaUsageFor(report, "", e.quotaScopeFor(agent, replyFooterModel(session, agent)))
 				if text := formatReplyFooterUsage(report, e.i18n); text != "" {
 					return text, true
 				}
@@ -9351,7 +9353,7 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 	if ent.done == nil && !e.replyFooterInflight[agentID] && stale && retryDue {
 		ent.done = make(chan struct{})
 		e.replyFooterInflight[agentID] = true
-		go e.refreshReplyFooterUsage(reporter, agent, model, agentID, ent)
+		go e.refreshReplyFooterUsage(e.quotaScopeFor(agent, model), reporter, agent, model, agentID, ent)
 	}
 	var wait chan struct{}
 	if ent.done != nil && ent.okAt.IsZero() && ent.attemptAt.IsZero() && !ent.waited {
@@ -9384,7 +9386,7 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 
 // refreshReplyFooterUsage runs one agent quota probe. A failed or empty
 // result never replaces the last good quota.
-func (e *Engine) refreshReplyFooterUsage(reporter UsageReporter, agent Agent, model string, agentID any, ent *replyFooterUsageEntry) {
+func (e *Engine) refreshReplyFooterUsage(scope quotaScope, reporter UsageReporter, agent Agent, model string, agentID any, ent *replyFooterUsageEntry) {
 	parent := e.ctx
 	if parent == nil {
 		parent = context.Background()
@@ -9406,7 +9408,7 @@ func (e *Engine) refreshReplyFooterUsage(reporter UsageReporter, agent Agent, mo
 		slog.Debug("reply footer: quota probe failed", "agent", agent.Name(), "model", model, "error", err)
 		failText = e.i18n.T(MsgQuotaFetchFailed)
 	} else {
-		e.observeQuotaUsage(report, "")
+		e.observeQuotaUsageFor(report, "", scope)
 		text = formatReplyFooterUsage(report, e.i18n)
 	}
 
@@ -17923,13 +17925,13 @@ func relayGateQuery(message string) string {
 // at once, unlike the wait timeout: a result already received is returned as
 // done, otherwise the text so far comes back with errRelayWatchStopped.
 func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, ccSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, stop <-chan struct{}, nudge <-chan string, completion ...func(string, error)) (string, error) {
-	if until := e.quotaCooling(); !until.IsZero() {
+	if until := e.quotaCoolingFor(e.admissionQuotaScope(agent, relaySessionKey, ccSessionKey, sourceSessionKey)); !until.IsZero() {
 		return "", fmt.Errorf("engine %q quota cooling until %s", e.name, until.Format(time.RFC3339))
 	}
 	if e.IsPaused() {
 		return "", fmt.Errorf("engine %q is paused", e.name)
 	}
-	if wait := e.capacityWait(); wait > 0 {
+	if wait := e.capacityWait(e.admissionQuotaScope(agent, relaySessionKey, ccSessionKey, sourceSessionKey)); wait > 0 {
 		return "", fmt.Errorf("relay target is cooling down for %s", wait.Round(time.Second))
 	}
 	if err := ctx.Err(); err != nil {
@@ -17954,6 +17956,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	// Use the engine context (not the relay timeout context) so that the
 	// agent process is not killed when the relay deadline fires. The relay
 	// timeout only controls how long we *wait* for the response.
+	turnScope := e.quotaScopeFor(agent, modelOf(agent))
 	resumeID := session.GetAgentSessionID()
 	agentSession, err := agent.StartSession(e.ctx, resumeID)
 	startedFresh := resumeID == ""
@@ -18044,7 +18047,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 			// Only the wait timed out. The drain now owns both outstanding
 			// Send completion and events; team work stays busy until it ends.
 			draining = true
-			go e.drainRelaySession(context.WithoutCancel(ctx), agent, agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, nudge, completion)
+			go e.drainRelaySession(turnScope, context.WithoutCancel(ctx), agent, agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, nudge, completion)
 			if quiet {
 				return strings.Join(textParts, ""), &relayDrainingError{ctx.Err()}
 			}
@@ -18084,7 +18087,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				events = nil
 				continue
 			}
-			e.observeQuotaEvent(event, sourceSessionKey, agentSession)
+			e.observeQuotaEventFor(event, sourceSessionKey, agentSession, turnScope)
 			if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
 				session.ResetTurnCtx() // the relay context lost its per-turn blocks (rules, wiki)
 			}
@@ -18129,7 +18132,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				agentSession.Close()
 				teamOutcome = teamWorkFailed
 				if event.Error != nil {
-					if until, ok := e.quotaCoolingUntil(event.Error.Error()); ok {
+					if until, ok := e.quotaCoolingUntilFor(turnScope, event.Error.Error()); ok {
 						slog.Warn("provider quota exhausted, cooling down until reset", "session_key", relaySessionKey, "cooling_until", until.Format(time.RFC3339))
 					}
 					return "", event.Error
@@ -18224,7 +18227,7 @@ var relayDrainSafety = 10 * time.Minute
 // auto-approves any permission requests, and then closes the session. A 10-minute
 // safety timeout prevents the goroutine from leaking if the agent hangs; task
 // relays leave that to the ten-minute watch (stop and nudge).
-func (e *Engine) drainRelaySession(ctx context.Context, agent Agent, agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, nudge <-chan string, completion []func(string, error)) {
+func (e *Engine) drainRelaySession(turnScope quotaScope, ctx context.Context, agent Agent, agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, nudge <-chan string, completion []func(string, error)) {
 	teamOutcome := teamWorkUnconfirmed
 	completionErr := fmt.Errorf("relay: background execution ended without a confirmed result")
 	defer func() {
@@ -18287,7 +18290,7 @@ func (e *Engine) drainRelaySession(ctx context.Context, agent Agent, agentSessio
 				session.SetAgentSessionID(ev.SessionID, agentName)
 				sessions.Save()
 			}
-			e.observeQuotaEvent(ev, relaySessionKey, agentSession)
+			e.observeQuotaEventFor(ev, relaySessionKey, agentSession, turnScope)
 			if c, _ := ev.Metadata[MetaContextCompacted].(bool); c {
 				session.ResetTurnCtx() // as in handleTrackedRelay
 			}

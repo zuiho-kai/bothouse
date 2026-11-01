@@ -131,11 +131,29 @@ func (e *Engine) observeQuotaEvent(ev Event, session string, as AgentSession) {
 }
 
 func (e *Engine) observeQuotaEventFor(ev Event, session string, as AgentSession, scope quotaScope) {
+	if scope.Provider == "" {
+		scope = e.quotaScopeFor(e.agent, modelOf(e.agent))
+	}
 	if ev.Type != EventResult && ev.Type != EventError {
 		return
 	}
 	now := time.Now()
 	reset, marked := QuotaExhaustedReset(ev)
+	var report *UsageReport
+	if r, ok := as.(CachedUsageReporter); ok {
+		report = r.CachedUsage()
+	}
+	if marked && report == nil {
+		// Ask the failed session, never the newly selected agent/model.
+		if r, ok := as.(UsageReporter); ok && usageReporterAvailable(as) {
+			ctx, cancel := context.WithTimeout(e.ctx, 10*time.Second)
+			report, _ = r.GetUsage(ctx)
+			cancel()
+		}
+	}
+	if report != nil && report.QuotaGroup != "" {
+		scope.Group = report.QuotaGroup
+	}
 	if marked {
 		if until, ok := quotaResetTime(reset, now); ok {
 			e.recordQuotaFor(scope, until, session)
@@ -151,9 +169,7 @@ func (e *Engine) observeQuotaEventFor(ev Event, session string, as AgentSession,
 			}
 		}
 	}
-	if reporter, ok := as.(CachedUsageReporter); ok {
-		e.observeQuotaUsageFor(reporter.CachedUsage(), session, scope)
-	}
+	e.observeQuotaUsageFor(report, session, scope)
 }
 
 func (e *Engine) observeQuotaUsage(report *UsageReport, session string) {
@@ -191,7 +207,7 @@ func (e *Engine) observeQuotaUsageFor(report *UsageReport, session string, scope
 	}
 }
 
-func (e *Engine) startQuotaCooling() {
+func (e *Engine) loadQuotaCooling() {
 	if e.dataDir != "" {
 		b, err := os.ReadFile(e.quotaPath())
 		if err == nil {
@@ -211,6 +227,10 @@ func (e *Engine) startQuotaCooling() {
 			slog.Error("quota cooldown: restore failed", "project", e.name, "error", err)
 		}
 	}
+}
+
+func (e *Engine) startQuotaCooling() {
+	e.loadQuotaCooling()
 	go func() {
 		tick := time.NewTicker(teamPollInterval)
 		defer tick.Stop()
@@ -395,7 +415,18 @@ func (e *Engine) probeQuota(ctx context.Context) (bool, time.Duration, error) {
 	}
 	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	report, err := reporter.GetUsage(fetchCtx)
+	model := modelOf(e.agent)
+	scope := e.quotaScopeFor(e.agent, model)
+	var report *UsageReport
+	var err error
+	if r, ok := e.agent.(ModelUsageReporter); ok {
+		report, err = r.GetUsageForModel(fetchCtx, model)
+	} else {
+		report, err = reporter.GetUsage(fetchCtx)
+	}
+	if modelOf(e.agent) != model || e.quotaScopeFor(e.agent, model) != scope {
+		return false, 0, fmt.Errorf("quota target changed during probe")
+	}
 	if err != nil {
 		return false, 0, err
 	}
@@ -433,6 +464,7 @@ func (e *Engine) quotaTick(now time.Time) {
 	if rm == nil {
 		return
 	}
+	currentUntil := e.quotaCooling()
 	rm.quotaMu.Lock()
 	defer rm.quotaMu.Unlock()
 	e.quotaMu.Lock()
@@ -441,6 +473,18 @@ func (e *Engine) quotaTick(now time.Time) {
 	scope := e.quotaScopeFor(e.agent, modelOf(e.agent))
 	// A new target cannot recover or take over work for an old quota pool.
 	if st.Scope != "" && st.Scope != scope.key() {
+		if currentUntil.IsZero() && st.Lead != nil {
+			sel, ok := readLeadSelectionFull(e.dataDir)
+			if ok && sel.Lead == st.Lead.To && sel.At == st.Lead.At {
+				if _, err := e.quotaSwitchLead(e, now); err != nil {
+					slog.Warn("quota switch: lead restore failed", "error", err)
+					return
+				}
+				e.quotaNotice(st.Session, e.i18n.Tf(MsgQuotaLeadRestored, e.DisplayName()))
+			}
+			st.Lead = nil
+			e.saveQuotaLocked()
+		}
 		return
 	}
 	if st.Until.IsZero() {

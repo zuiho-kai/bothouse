@@ -660,14 +660,15 @@ type CachedUsageReporter interface {
 type UsageReport struct {
 	// QuotaGroup identifies the pool selected for the requested model. Empty
 	// means account-wide/unknown; adapters must not infer model independence.
-	QuotaGroup string
-	Provider   string
-	AccountID  string
-	UserID     string
-	Email      string
-	Plan       string
-	Buckets    []UsageBucket
-	Credits    *UsageCredits
+	QuotaGroup  string
+	QuotaGroups []string // advertised groups, including pools other than the selected model
+	Provider    string
+	AccountID   string
+	UserID      string
+	Email       string
+	Plan        string
+	Buckets     []UsageBucket
+	Credits     *UsageCredits
 }
 
 // UsageBucket groups one logical quota, such as standard requests or code review.

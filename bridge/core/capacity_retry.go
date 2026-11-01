@@ -45,8 +45,17 @@ func isModelCapacityError(msg string) bool {
 }
 
 // capacityWait returns how long the current cooldown still runs (0 = none).
-func (e *Engine) capacityWait() time.Duration {
-	return max(time.Until(e.capacityCoolingUntil()), 0)
+func (e *Engine) capacityWait(scopes ...quotaScope) time.Duration {
+	if len(scopes) == 0 {
+		return max(time.Until(e.capacityCoolingUntil()), 0)
+	}
+	until := e.quotaCoolingFor(scopes[0])
+	e.capMu.Lock()
+	if e.capUntil.After(until) {
+		until = e.capUntil
+	}
+	e.capMu.Unlock()
+	return max(time.Until(until), 0)
 }
 
 // capacityStartCooldown starts the next cooldown: base, then doubling.
@@ -188,12 +197,16 @@ func (e *Engine) capacityCoolingUntil() time.Time {
 }
 
 func (e *Engine) quotaCoolingUntil(msg string) (time.Time, bool) {
+	return e.quotaCoolingUntilFor(e.quotaScopeFor(e.agent, modelOf(e.agent)), msg)
+}
+
+func (e *Engine) quotaCoolingUntilFor(scope quotaScope, msg string) (time.Time, bool) {
 	d, ok := quotaCoolingDuration(msg)
 	if !ok {
 		return time.Time{}, false
 	}
-	e.recordQuota(time.Now().Add(d), "")
-	return e.quotaCooling(), true
+	e.recordQuotaFor(scope, time.Now().Add(d), "")
+	return e.quotaCoolingFor(scope), true
 }
 
 // redeliverMessage mirrors the tail of message dispatch: run now if the
