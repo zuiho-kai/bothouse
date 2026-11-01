@@ -126,8 +126,7 @@ func teamTaskBoardWaitHours(it teamTaskBoardItem, now time.Time) int {
 
 // teamTaskBoardPlacer tells where items go: which chat a workspace belongs to and its name.
 type teamTaskBoardPlacer struct {
-	reviewAfter  time.Duration
-	reviewerName func(string) string
+	reviewerInfo func(string) (string, time.Duration)
 	mainChat     string                         // for items with no chat recorded; "" = not shown
 	parentOf     func(ws string) (string, bool) // workspace key → chat key
 	wsName       func(ws string) string         // a workspace's name (TeamWorkspaceName); "" = not recorded
@@ -144,8 +143,7 @@ type teamTaskBoardPlacer struct {
 func (e *Engine) teamTaskBoardPlacer() teamTaskBoardPlacer {
 	return teamTaskBoardPlacer{
 		mainChat:       teamMainChat(e.dataDir),
-		reviewAfter:    e.taskReviewAfter(),
-		reviewerName:   e.taskReviewerName,
+		reviewerInfo:   e.taskReviewerInfo,
 		parentOf:       e.WorkspaceParent,
 		wsName:         e.TeamWorkspaceName,
 		handoffEnded:   e.TeamHandoffEnded,
@@ -194,9 +192,8 @@ var teamTaskBoardUnplaced sync.Map
 // place resolves own/parent/wsName. Old items: sk, else the bare Discord channel ch; with neither
 // the item shows in the main chat, or nowhere (logged once) when no main chat is recorded.
 func (p teamTaskBoardPlacer) place(it *teamTaskBoardItem) {
-	it.reviewAfter = p.reviewAfter
-	if p.reviewerName != nil {
-		it.reviewerName = p.reviewerName(it.Reviewer)
+	if p.reviewerInfo != nil {
+		it.reviewerName, it.reviewAfter = p.reviewerInfo(it.Reviewer)
 	}
 	chat := it.Chat
 	if chat != "" && !strings.Contains(chat, ":") {

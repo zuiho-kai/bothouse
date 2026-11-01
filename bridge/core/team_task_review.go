@@ -11,11 +11,11 @@ import (
 )
 
 // SetTaskReviewAfter configures the existing stuck threshold for handback verification.
-func (e *Engine) SetTaskReviewAfter(after time.Duration) { e.teamReviewAfter = after }
+func (e *Engine) SetTaskReviewAfter(after time.Duration) { e.teamReviewAfter.Store(int64(after)) }
 
 func (e *Engine) taskReviewAfter() time.Duration {
-	if e.teamReviewAfter > 0 {
-		return e.teamReviewAfter
+	if after := time.Duration(e.teamReviewAfter.Load()); after > 0 {
+		return after
 	}
 	return teamTaskBoardStuckAfter
 }
@@ -42,13 +42,13 @@ func taskReviewNote(it teamTaskBoardItem, now time.Time) string {
 	return "已交回待核对 · 等" + boardLabel(who)
 }
 
-func (e *Engine) taskReviewerName(project string) string {
+func (e *Engine) taskReviewerInfo(project string) (string, time.Duration) {
 	for _, x := range e.watchEngines() {
 		if x.name == project {
-			return x.DisplayName()
+			return x.DisplayName(), x.taskReviewAfter()
 		}
 	}
-	return project
+	return project, e.taskReviewAfter()
 }
 
 // taskReviewRef ties a persisted timer to one handback. Rework creates a new ReturnedAt;

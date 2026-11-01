@@ -332,3 +332,40 @@ func TestTaskReviewWriteFailureReleasesWorkspaceAndReceiptRecovers(t *testing.T)
 		t.Fatal("delivered receipt failed to recover after script repair")
 	}
 }
+
+func TestTaskReviewThresholdReloadWhileWatching(t *testing.T) {
+	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	t.Cleanup(e.cancel)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 100; i++ {
+			e.SetTaskReviewAfter(time.Duration(i) * time.Second)
+		}
+	}()
+	for i := 0; i < 100; i++ {
+		if e.taskReviewAfter() <= 0 {
+			t.Error("invalid threshold during reload")
+		}
+	}
+	<-done
+	e.SetTaskReviewAfter(0)
+	if e.taskReviewAfter() != teamTaskBoardStuckAfter {
+		t.Fatal("default threshold changed")
+	}
+}
+
+func TestTaskReviewTableUsesDispatcherThreshold(t *testing.T) {
+	p := testTaskBoardPlacer()
+	p.reviewerInfo = func(project string) (string, time.Duration) {
+		if project != "dispatcher" {
+			t.Fatal(project)
+		}
+		return "派活人", 2 * time.Hour
+	}
+	now := time.Now()
+	items := placeTeamTaskBoard(p, []teamTaskBoardItem{{ID: 46, What: "verify", Chat: "discord:main", Reviewer: "dispatcher", ReturnedAt: now.Add(-time.Hour)}})
+	if len(items) != 1 || taskReviewOverdue(items[0], now) {
+		t.Fatal("table used display role's threshold instead of dispatcher's")
+	}
+}

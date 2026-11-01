@@ -413,7 +413,7 @@ type Engine struct {
 	hooks              *HookManager
 	cronScheduler      *CronScheduler
 	timerScheduler     *TimerScheduler
-	teamReviewAfter    time.Duration
+	teamReviewAfter    atomic.Int64
 	heartbeatScheduler *HeartbeatScheduler
 
 	commands *CommandRegistry
