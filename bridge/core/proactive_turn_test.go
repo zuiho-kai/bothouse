@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -155,6 +156,41 @@ func TestProactiveExplicitStopPersistsAcrossRestart(t *testing.T) {
 				}
 			} else if err == nil {
 				t.Fatal("user stop was forgotten on restart")
+			}
+		})
+	}
+}
+
+func TestProactiveLiveTurnInvalidationPreservesExplicitQueue(t *testing.T) {
+	for _, change := range []string{"withdrawal", "policy"} {
+		t.Run(change, func(t *testing.T) {
+			ledger, _, _, id := taskRelayFixture(t)
+			platform := &stubPlatformEngine{n: "discord"}
+			backend := &abortTurnSession{events: make(chan Event, 8)}
+			e := NewEngine("source", &abortTurnAgent{s: backend}, []Platform{platform}, "", LangEnglish)
+			e.SetDataDir(t.TempDir())
+			e.publicProgress = ledger
+			t.Cleanup(func() { _ = e.Stop() })
+			a, d := authorizeFixtureTask(t, e, id, []string{"task.resume", "message.send"})
+			task, _ := ledger.Task(id)
+			e.handleMessage(platform, &Message{Platform: "discord", SessionKey: task.SessionKey, MessageID: "auto", UserID: "123", Content: "follow up", ReplyCtx: "ctx", authorization: &AuthorizationTurn{Project: e.name, TaskID: id, DecisionID: d.ID}})
+			waitFor(t, "automatic turn started", func() bool { backend.mu.Lock(); defer backend.mu.Unlock(); return len(backend.prompts) == 1 })
+			e.handleMessage(platform, &Message{Platform: "discord", SessionKey: task.SessionKey, MessageID: "explicit", UserID: "123", Content: "my next request", Mentioned: true, ReplyCtx: "ctx"})
+			if change == "withdrawal" {
+				if err := a.Revoke(d.ID, "owner"); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				policy := a.Policy()
+				if err := a.ReplacePolicy(policy.Version, policy); err != nil {
+					t.Fatal(err)
+				}
+			}
+			waitFor(t, "running backend cancelled", func() bool { backend.mu.Lock(); defer backend.mu.Unlock(); return backend.cancels > 0 })
+			waitFor(t, "explicit queued message processed", func() bool { backend.mu.Lock(); defer backend.mu.Unlock(); return len(backend.prompts) == 2 })
+			waitFor(t, "explicit queued reply delivered", func() bool { return strings.Contains(joined(platform), "好的，已暂停") })
+			if e.checkTurnAuthorization(&AuthorizationTurn{Project: e.name, TaskID: id, DecisionID: d.ID}, "task.resume") == nil {
+				t.Fatal("invalidated automatic task can resume")
 			}
 		})
 	}

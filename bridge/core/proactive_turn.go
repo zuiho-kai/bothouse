@@ -42,6 +42,26 @@ type AuthorizationTurn struct {
 	DecisionID string `json:"decision_id"`
 }
 
+func (e *Engine) watchTurnAuthorization(ref *AuthorizationTurn) (<-chan struct{}, func(), error) {
+	if ref == nil {
+		return nil, func() {}, nil
+	}
+	ctx, err := e.authorizationExecution(ref)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	execution := ctx.Value(proactiveExecutionKey{}).(proactiveExecution)
+	a, err := execution.source.ProactiveAuthorization()
+	if err != nil {
+		return nil, func() {}, err
+	}
+	changed, unwatch, err := a.Watch(ref.DecisionID)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	return changed, unwatch, nil
+}
+
 func (e *Engine) authorizationExecution(ref *AuthorizationTurn) (context.Context, error) {
 	if ref == nil {
 		return context.Background(), nil
