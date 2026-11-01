@@ -99,11 +99,13 @@ func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int) {
 		}
 		if out, err := e.runLeadScript(chat, "board", "returned", strconv.Itoa(hid), reviewer); err != nil {
 			slog.Warn("team workspace: record handback failed", "board_item", hid, "error", err, "output", strings.TrimSpace(string(out)))
-			return
+			// Delivery already succeeded. The persisted exit receipt lets the watcher
+			// retry the board write; a script error must not keep this workspace occupied.
+		} else {
+			w := newHandoffWatch(e)
+			w.engines = e.watchEngines
+			w.reconcileTaskReviews(time.Now(), false)
 		}
-		w := newHandoffWatch(e)
-		w.engines = e.watchEngines
-		w.reconcileTaskReviews(time.Now(), false)
 		if _, err := e.QueueSessionReset(sessionKey); err != nil {
 			slog.Warn("team workspace: reset after report failed", "session", sessionKey, "error", err)
 		}

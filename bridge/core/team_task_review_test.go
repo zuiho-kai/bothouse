@@ -299,3 +299,36 @@ func TestTaskReviewUsesBundledCommandsWithOldInstallation(t *testing.T) {
 		t.Fatal("current resume command missing", err)
 	}
 }
+
+func TestTaskReviewWriteFailureReleasesWorkspaceAndReceiptRecovers(t *testing.T) {
+	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	t.Cleanup(e.cancel)
+	e.SetDataDir(t.TempDir())
+	e.SetTeam(t.TempDir(), "lead", true)
+	e.productPyBin.Store(t.TempDir())
+	if err := e.ClaimTeamWorkspaceFor("room:main", "ws1", "工作区1", "worker", "verify"); err != nil {
+		t.Fatal(err)
+	}
+	old := e.sessions.GetOrCreateActive("room:ws1")
+	writeReviewBoard(t, e, teamTaskBoardItem{ID: 46, What: "verify", Chat: "room:main", WS: "room:ws1", Dispatcher: "lead"})
+	e.markExitReported(46)
+	// No installed scripts: the delivered final report must still end the execution session.
+	e.endWorkspaceTask("room:main", "room:ws1", exitKindReport, 46)
+	if e.sessions.ActiveSessionID("room:ws1") == old.ID {
+		t.Fatal("board write failure kept the old workspace session")
+	}
+	if _, ok := e.WorkspaceParent("ws1"); ok {
+		t.Fatal("board write failure kept the workspace owned")
+	}
+	gate, err := filepath.Abs(filepath.Join("..", "contrib", "gate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(gate, filepath.Join(e.dataDir, "gate")); err != nil {
+		t.Fatal(err)
+	}
+	newHandoffWatch(e).reconcileTaskReviews(time.Now(), false)
+	if it := e.boardItemByID(46); it == nil || it.ReturnedAt.IsZero() {
+		t.Fatal("delivered receipt failed to recover after script repair")
+	}
+}
