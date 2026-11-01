@@ -144,10 +144,28 @@ func (s *TimerStore) save() error {
 }
 
 func (s *TimerStore) Add(job *TimerJob) error {
+	_, err := s.add(job, false)
+	return err
+}
+
+// add can transfer a durable handback wake once by ID. Failed writes must not
+// leave a memory-only job that a later retry mistakes for durable acceptance.
+func (s *TimerStore) add(job *TimerJob, once bool) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if once {
+		for _, existing := range s.jobs {
+			if existing.ID == job.ID {
+				return false, nil
+			}
+		}
+	}
 	s.jobs = append(s.jobs, job)
-	return s.save()
+	if err := s.save(); err != nil {
+		s.jobs = s.jobs[:len(s.jobs)-1]
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *TimerStore) Remove(id string) bool {
@@ -364,12 +382,20 @@ func (ts *TimerScheduler) Stop() {
 }
 
 func (ts *TimerScheduler) AddJob(job *TimerJob) error {
+	return ts.addJob(job, false)
+}
+
+func (ts *TimerScheduler) addJob(job *TimerJob, once bool) error {
 	if err := validateTimerJob(job); err != nil {
 		return err
 	}
 	job.SessionMode = NormalizeCronSessionMode(job.SessionMode)
-	if err := ts.store.Add(job); err != nil {
+	added, err := ts.store.add(job, once)
+	if err != nil {
 		return err
+	}
+	if !added {
+		return nil
 	}
 	defer ts.boardTouch(job) // maomao fork: channel task board
 	delay := time.Until(job.ScheduledAt)

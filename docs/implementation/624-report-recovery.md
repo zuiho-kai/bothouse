@@ -25,7 +25,7 @@ TestCUJ_ReportWakeDeliveryReceipt 从 ReceiveMessage 经 fake agent 的 EventRes
 
 ## 限制与回滚
 
-独立审核发现：ask 摘要已送达时，同 key 的报告回执会拦住后续主角色唤醒。已送达的提问现在走现有普通主角色队列，不再创建待送达报告；摘要仍由原回执去重。TestReportPostedAskStillQueuesLead 在修正前复现零入队，修正后要求入队一次、目标频道和看板正确，恢复扫描及重复提问不重复发送或唤醒。
+独立审核发现：ask 摘要已送达时，同 key 的报告回执会拦住后续主角色唤醒。最初把提问转到普通主角色队列，解决零入队，却没有覆盖队列写盘失败；下面的返工让原报告记录继续持有唤醒责任。TestReportPostedAskStillQueuesLead 保留为正常入口回归，要求入队一次、目标频道和看板正确，恢复扫描及重复提问不重复发送或唤醒。
 
 平台成功只代表接受发送，不证明用户已读或已验收。平台接受后、送达状态落盘前崩溃仍可能重复投递；普通 Platform.Send 无幂等回执，不声称跨崩溃 exactly-once。多分片原文部分成功后失败，重试也可能重发已成功片段。
 
@@ -44,3 +44,15 @@ TestCUJ_ReportWakeDeliveryReceipt 从 ReceiveMessage 经 fake agent 的 EventRes
 收尾远端核对：克隆的 fetch refspec 仅跟踪 main，origin/develop 不随显式 fetch develop 更新；以 FETCH_HEAD 与 ls-remote 核对后，继续整合真实 develop 788c67a8d602159108387b4f69f9045106c53d32（新增看门续接和任务板活动判定）。该次自动合并无冲突，team_watch.go 保留既有报告恢复扫描及新增看门续接语义；增加 Watch 定向回归。34ea70a3 保留为前述失败对照的精确基线，不混称最新 develop。
 
 最终基线整合验证：Report/Headline/CUJ_Report/ChatLead/Proactive/Capacity race 7.013s 通过，vet通过。加入 Watch 的组合12.703s失败于 TestWatchStartedFires（会话清理与事件读取竞态），在精确788c67a8基线单测0.742s复现；如实保留，未以基线失败豁免总体验收。前一基线上的TimerStore竞态及临时目录清理失败也保留在交审材料。
+
+## 2026-11-02 posted ask 写盘失败返工
+
+根因有两层：抬头成功后就把报告记录结清，普通 AddJob 失败没有持久责任方；TimerStore.Add 写盘失败还留着内存 job，会使重试误判为已接受。
+
+现在普通 ask 的源引擎将 Posted 与待入队 Wake 保存在原 team-reports 记录中。抬头已发并不结清唤醒；现有恢复扫描重试同一 timer ID、目标与 prompt，主角色暂不可用时继续保留。TimerStore 在锁内按 ID 接收一次，失败写入回滚内存；成功后才写源记录回执。队列已落盘但源回执未写入时，恢复仍使用原 ID，不再次调度。源记录与 scheduler 使用不同的 job 副本，避免调度写 Fired 与记录序列化竞争。
+
+没有新调度器、参数或开关。取消的看板项不恢复唤醒；主动授权回传仍不能创建无授权 timer，授权恢复和逐片检查沿用前次整合。报告的 returned/待验收生命周期不变，不把入队或发送当任务验收。旧版本已经结清且没有 Wake 的记录不推断重放，以免重复唤醒。
+
+TestReportPostedAskRetriesFailedTimerWrite 在父提交实际路径以目录替代 timer 文件制造原子写失败，先红为“sent ask lost its durable wake responsibility”。回归覆盖同进程重试、重启恢复、连续写失败、队列接受后回执丢失及并发扫描，检查落盘 job 恰好一个、抬头不重发。另覆盖主角色恢复可用、用户取消及主动授权撤销。
+
+初轮相关 race 8.873s 通过、vet 通过；最终头验证与 CI 以交审记录为准。旧全量及已记录的 TimerStore.Get/MarkFired、Watch、临时目录清理风险继续保留，不称全量全绿。未合并、未部署，须非作者审核最终头。

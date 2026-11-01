@@ -329,7 +329,11 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 		return ""
 	}
 	e.exitMarkPosted(kind, hid, hline)
-	e.dropDeliveredReport(rec.Key)
+	if kind == exitKindAsk && rec.Authorization == nil {
+		e.rememberPostedAskWake(rec)
+	} else {
+		e.dropDeliveredReport(rec.Key)
+	}
 	if !postReportDetail {
 		detail = ""
 	}
@@ -343,7 +347,7 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 	slog.Info("team exit: headline posted", "kind", kind, "board_item", hid, "workspace", ws, "parent", parent, "detail", detail != "")
 	e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Board: hid, Bot: bot, Forwarded: []string{text}, At: time.Now()})
 	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
-	e.wakeChatLeadContext(ctx, p, parent, ws, bot, kind, body, sessionKey, hid, true, hline)
+	e.retryPostedAskWake(rec.Key)
 	return id
 }
 

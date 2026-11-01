@@ -35,8 +35,11 @@ const (
 	teamReportRecoveryEvery = time.Minute
 )
 
-// pendingReport is one workspace handback that still needs a user-visible post.
+// pendingReport owns an undelivered handback or an accepted ask's pending lead wake.
 type pendingReport struct {
+	// A posted ask still owes a lead wake. Keep its stable timer ID and prompt
+	// on the source engine until the timer store durably accepts it.
+	Wake *TimerJob `json:"wake,omitempty"`
 	// Preserve the source grant when a failed headline is retried after restart.
 	Authorization *AuthorizationTurn `json:"authorization,omitempty"`
 	// sending serializes a finishing turn and recovery sweep for this record;
@@ -241,6 +244,102 @@ func (e *Engine) dropDeliveredReport(key string) {
 	e.saveReportsLocked()
 }
 
+func (e *Engine) rememberPostedAskWake(rec *pendingReport) {
+	prompt := chatLeadPrompt(e.dataDir, channelLabel(rec.Platform, rec.Workspace), rec.Bot,
+		rec.Kind, rec.Body, e.workspaceTaskBackground(rec.Session, rec.Board), true)
+	silent := true
+	wake := &TimerJob{
+		ID: GenerateTimerID(), SessionKey: rec.Platform + ":" + rec.Chat,
+		ScheduledAt: time.Now(), CreatedAt: time.Now(), Silent: &silent,
+		Prompt:      askRef.ReplaceAllString(prompt, "ask-…"),
+		Description: "工作区回传 " + rec.Workspace, WaitUserQuiet: true, ReplyBoard: rec.Board,
+	}
+	e.teamExit.mu.Lock()
+	defer e.teamExit.mu.Unlock()
+	cur := e.loadReportsLocked()[rec.Key]
+	if cur == nil {
+		cur = rec
+		e.teamExit.reports[rec.Key] = cur
+	}
+	cur.Posted = true
+	cur.Wake = wake
+	if err := e.saveReportsLocked(); err != nil {
+		slog.Error("report delivery: cannot persist posted ask wake", "error", err)
+	}
+}
+
+// retryPostedAskWake transfers responsibility to the existing timer scheduler.
+// The source record survives an unavailable lead or failed timer write. A stable
+// ID also covers a restart after the timer write but before the receipt write.
+func (e *Engine) retryPostedAskWake(key string) {
+	e.teamExit.mu.Lock()
+	rec := e.loadReportsLocked()[key]
+	if rec == nil || rec.delivered() || rec.Wake == nil || rec.sending {
+		e.teamExit.mu.Unlock()
+		return
+	}
+	rec.sending = true
+	copy := *rec
+	job := *rec.Wake
+	e.teamExit.mu.Unlock()
+	defer func() {
+		e.teamExit.mu.Lock()
+		rec.sending = false
+		e.teamExit.mu.Unlock()
+	}()
+	// As on the immediate path, proactive authority cannot become an unbound
+	// timer. User cancellation also invalidates a pending handback wake.
+	if copy.Authorization != nil {
+		return
+	}
+	if _, isWS := e.workspaceOwner(copy.Chat); isWS {
+		slog.Error("report delivery: wake target is itself a workspace", "parent", copy.Chat)
+		return
+	}
+	if _, stopped := e.workspaceTaskStopped(copy.Session, e.boardItemByID(copy.Board)); stopped {
+		e.dropDeliveredReport(key)
+		return
+	}
+	var lead *Engine
+	for _, candidate := range e.watchEngines() {
+		selected := candidate.isTeamLead()
+		if job.Project != "" {
+			selected = candidate.name == job.Project
+		}
+		if selected && candidate.lookupReadyPlatform(copy.Platform) != nil && candidate.timerScheduler != nil {
+			lead = candidate
+			break
+		}
+	}
+	var err error
+	if lead == nil {
+		err = fmt.Errorf("lead unavailable for posted ask")
+	} else {
+		job.Project = lead.name
+		e.teamExit.mu.Lock()
+		rec.Wake = &job
+		err = e.saveReportsLocked()
+		e.teamExit.mu.Unlock()
+		if err == nil {
+			// The scheduler owns its own copy; firing it cannot race a report save.
+			queued := job
+			err = lead.timerScheduler.addJob(&queued, true)
+		}
+	}
+	if err == nil {
+		e.dropDeliveredReport(key)
+		return
+	}
+	e.teamExit.mu.Lock()
+	rec.Attempts++
+	rec.LastError = err.Error()
+	if saveErr := e.saveReportsLocked(); saveErr != nil {
+		slog.Error("report delivery: cannot save wake retry error", "error", saveErr)
+	}
+	e.teamExit.mu.Unlock()
+	slog.Warn("report delivery: posted ask wake retained for retry", "key", key, "error", err)
+}
+
 // reportTextVisible: only text the user can read is a report; an empty or bare NO_REPLY turn,
 // or the "model returned nothing" placeholder, reported nothing.
 func (e *Engine) reportTextVisible(text string) bool {
@@ -420,7 +519,14 @@ func (e *Engine) recoverPendingReports(onlyFailed bool) {
 		}
 		jobID := rec.JobID
 		createdAt := rec.CreatedAt
+		wakePending := rec.Posted && rec.Wake != nil
 		e.teamExit.mu.Unlock()
+		if wakePending {
+			if !onlyFailed || time.Since(createdAt) >= teamReportRecoveryGrace {
+				e.retryPostedAskWake(k)
+			}
+			continue
+		}
 		if e.reportWakeLive(jobID) {
 			continue // queued behind a busy session, waiting, or running now
 		}

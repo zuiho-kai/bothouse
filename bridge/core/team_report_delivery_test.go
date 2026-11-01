@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -85,6 +86,161 @@ func TestReportPostedAskStillQueuesLead(t *testing.T) {
 	post()
 	if len(store.List()) != 1 || len(p.sentTo("discord:chat1")) != 1 {
 		t.Fatal("recovery or repeated ask duplicated delivery/wake")
+	}
+}
+
+func TestReportPostedAskRetriesFailedTimerWrite(t *testing.T) {
+	for _, restart := range []bool{false, true} {
+		name := "same-process"
+		if restart {
+			name = "restart"
+		}
+		t.Run(name, func(t *testing.T) {
+			e, p := reportFixture(t)
+			e.platformReady = map[Platform]bool{p: true}
+			e.SetTeam(t.TempDir(), "橘", true)
+			timerDir := t.TempDir()
+			store, err := NewTimerStore(timerDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.timerScheduler = NewTimerScheduler(store)
+			defer e.timerScheduler.Stop()
+			validPath := store.path
+			// Rename onto a directory fails deterministically, even when run as root.
+			store.path = t.TempDir()
+			item := &teamTaskBoardItem{ID: 46, What: "等待决定"}
+			body := "[ask] #46 背景：需要确认方向\n做了什么：完成比较\n要你做的：选择方案\n我加的：无"
+			e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindAsk, body, exitWSKey, 46, "需要确认方向", item)
+			if len(p.sentTo("discord:chat1")) != 1 {
+				t.Fatal("headline was not sent exactly once")
+			}
+			disk := NewEngine(e.name, &stubAgent{}, []Platform{p}, "", LangEnglish)
+			defer disk.Stop()
+			disk.dataDir = e.dataDir
+			key := reportKey(p.Name(), "chat1", "ws1", exitKindAsk, 46, body)
+			rec := disk.loadReportsLocked()[key]
+			if rec == nil || rec.delivered() || !rec.Posted {
+				t.Fatalf("sent ask lost its durable wake responsibility: %+v", rec)
+			}
+			e.recoverPendingReports(false)
+			e.recoverPendingReports(false)
+			if len(store.List()) != 0 {
+				t.Fatal("failed writes left memory-only timer jobs")
+			}
+			store.path = validPath
+			if restart {
+				disk.platformReady = map[Platform]bool{p: true}
+				disk.SetTeam(t.TempDir(), "橘", true)
+				store, err = NewTimerStore(timerDir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				disk.timerScheduler = NewTimerScheduler(store)
+				defer disk.timerScheduler.Stop()
+				e = disk
+			}
+			e.recoverPendingReports(false)
+			e.recoverPendingReports(false)
+			// Replay the pre-acceptance source snapshot: the timer was persisted
+			// but its receipt may not have reached the source file before a crash.
+			replay := NewEngine(e.name, &stubAgent{}, []Platform{p}, "", LangEnglish)
+			defer replay.Stop()
+			replay.dataDir = e.dataDir
+			replay.platformReady = map[Platform]bool{p: true}
+			replay.SetTeam(t.TempDir(), "橘", true)
+			replay.timerScheduler = e.timerScheduler
+			rec.DeliveredAt = time.Time{}
+			replay.teamExit.reportsLoaded = true
+			replay.teamExit.reports = map[string]*pendingReport{key: rec}
+			var wg sync.WaitGroup
+			for range 8 {
+				wg.Add(1)
+				go func() { defer wg.Done(); replay.recoverPendingReports(false) }()
+			}
+			wg.Wait()
+			reloaded, err := NewTimerStore(timerDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(reloaded.List()) != 1 {
+				t.Fatalf("recovered %d durable wakes, want 1", len(reloaded.List()))
+			}
+			if len(store.List()) != 1 {
+				t.Fatalf("memory has %d wakes, want 1", len(store.List()))
+			}
+			if len(p.sentTo("discord:chat1")) != 1 {
+				t.Fatal("recovery resent headline")
+			}
+		})
+	}
+}
+
+func TestReportPostedAskWaitsForLeadAndHonorsCancellation(t *testing.T) {
+	for _, cancel := range []bool{false, true} {
+		name := "lead-returns"
+		if cancel {
+			name = "cancelled"
+		}
+		t.Run(name, func(t *testing.T) {
+			e, p := reportFixture(t)
+			e.SetTeam(t.TempDir(), "橘", true)
+			item := &teamTaskBoardItem{ID: 46, What: "等待决定"}
+			body := "[ask] #46 背景：需要确认方向\n做了什么：完成比较\n要你做的：选择方案\n我加的：无"
+			e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindAsk, body, exitWSKey, 46, "需要确认方向", item)
+			store, err := NewTimerStore(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.timerScheduler = NewTimerScheduler(store)
+			defer e.timerScheduler.Stop()
+			e.platformReady = map[Platform]bool{p: true}
+			if cancel {
+				writeReviewBoard(t, e, teamTaskBoardItem{ID: 46, WS: exitWSKey, Paused: "now", PauseWhy: "用户取消"})
+			}
+			e.recoverPendingReports(false)
+			e.recoverPendingReports(false)
+			want := 1
+			if cancel {
+				want = 0
+			}
+			if len(store.List()) != want {
+				t.Fatalf("queued %d wakes, want %d", len(store.List()), want)
+			}
+			if len(p.sentTo("discord:chat1")) != 1 {
+				t.Fatal("recovery repeated headline")
+			}
+		})
+	}
+}
+
+func TestReportPostedAskPreservesProactiveBoundary(t *testing.T) {
+	e, a, d, ctx := proactiveOutputFixture(t)
+	defer e.Stop()
+	e.dataDir = t.TempDir()
+	p := &reportTestPlatform{exitTestPlatform: exitTestPlatform{inputTestPlatform: inputTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}}}
+	e.platforms = []Platform{p}
+	e.platformReady = map[Platform]bool{p: true}
+	e.SetTeam(t.TempDir(), "橘", true)
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.timerScheduler = NewTimerScheduler(store)
+	defer e.timerScheduler.Stop()
+	item := &teamTaskBoardItem{ID: 46, What: "等待决定"}
+	body := "[ask] #46 背景：需要确认方向\n做了什么：完成比较\n要你做的：选择方案\n我加的：无"
+	e.postExitHeadline(ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindAsk, body, exitWSKey, 46, "需要确认方向", item)
+	if err := a.Revoke(d.ID, "human:stop"); err != nil {
+		t.Fatal(err)
+	}
+	e.teamExit.reportsLoaded = false
+	e.recoverPendingReports(false)
+	if len(store.List()) != 0 {
+		t.Fatal("proactive ask created an unbound timer")
+	}
+	if len(p.sentTo("discord:chat1")) != 1 {
+		t.Fatal("revoked ask resent headline")
 	}
 }
 
