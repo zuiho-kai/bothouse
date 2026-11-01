@@ -590,11 +590,13 @@ type Engine struct {
 	webStatusFunc func() (url string)
 
 	// Data directory for socket path injection
-	dataDir              string
-	publicProgress       *PublicProgress
-	workspaceChatForTest func(session string) bool
-	productPyBin         atomic.Value   // string: bin dir holding the product python3, resolved once in Start (role_env.go)
-	productPyWG          sync.WaitGroup // the Start-time lookup above; Stop waits for it (role_env.go)
+	dataDir        string
+	publicProgress *PublicProgress
+	// Source: #750/#751; set before Start by the shared authorization layer.
+	externalTaskEventCheck func(ExternalTaskEvent, *Task) error
+	workspaceChatForTest   func(session string) bool
+	productPyBin           atomic.Value   // string: bin dir holding the product python3, resolved once in Start (role_env.go)
+	productPyWG            sync.WaitGroup // the Start-time lookup above; Stop waits for it (role_env.go)
 
 	// Team mode (#139 C): workspace -> chat channel exit and the asks waiting for an answer.
 	teamExit     teamExitState
@@ -4755,6 +4757,11 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 					session.SettleHandoff(false)
 					return fmt.Errorf("agent session became nil")
 				}
+				if msg.externalInput != nil {
+					if err := msg.externalInput.beforeSend(); err != nil {
+						return err
+					}
+				}
 				var err error
 				promptContent := attemptPrompt
 				if msg.inputTurn != nil {
@@ -4767,6 +4774,9 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 					err = as.Send(promptContent, msg.MessageID, images, msg.Files)
 				}
 				session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
+				if msg.externalInput != nil {
+					err = msg.externalInput.afterSend(err)
+				}
 				return err
 			},
 			func(wait time.Duration) {

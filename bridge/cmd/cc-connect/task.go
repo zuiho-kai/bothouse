@@ -69,10 +69,10 @@ func taskCall(client *http.Client, method, path string, body []byte) ([]byte, er
 
 func taskCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: task list|show|accept|assign|artifact|rework [flags]")
+		return errors.New("usage: task list|show|accept|assign|artifact|rework|events|event-source|event-ack [flags]")
 	}
 	if isHelpArg(args[0]) {
-		fmt.Fprintln(out, "usage: task list|show|accept|assign|artifact|rework [flags]  (task <action> -h lists the flags)")
+		fmt.Fprintln(out, "usage: task list|show|accept|assign|artifact|rework|events|event-source|event-ack [flags]  (task <action> -h lists the flags)")
 		return nil
 	}
 	action, rest := args[0], args[1:]
@@ -100,6 +100,11 @@ func taskCommand(args []string, out io.Writer) error {
 	requestID := f.String("request-id", "", "stable operation id for one artifact attach or rework (required); reuse it only when retrying that operation")
 	revision := f.Int("revision", 0, "task revision this artifact is delivered for (artifact only, required; a retry keeps its original revision)")
 	feedback := f.String("feedback", "", "the change request in the owner's words (rework only)")
+	source := f.String("source", "", "stable external source instance (events/event-source/event-ack)")
+	thread := f.String("thread", "", "stable source thread reference (event-source)")
+	eventID := f.String("event-id", "", "external source event id (event-ack)")
+	assignment := f.String("assignment", "", "execution generation from the delivered input (event-ack)")
+	enabled := f.Bool("enabled", false, "enable this source/thread for an existing task (event-source)")
 	limit := f.Int("limit", 10, "how many tasks to list")
 	dataDir := f.String("data-dir", "", "bridge data directory")
 	if err := f.Parse(rest); err != nil {
@@ -115,6 +120,30 @@ func taskCommand(args []string, out io.Writer) error {
 	defer client.CloseIdleConnections()
 
 	switch action {
+	case "events":
+		if *id == "" {
+			return errors.New("id is required")
+		}
+		q := url.Values{"project": {*project}, "task_id": {*id}, "source_instance": {*source}}
+		b, err := taskCall(client, http.MethodGet, "/task/events?"+q.Encode(), nil)
+		if err != nil {
+			return err
+		}
+		return writeJSON(out, b)
+	case "event-source", "event-ack":
+		body, err := json.Marshal(core.ExternalTaskEventRequest{Project: *project, TaskID: *id, SourceInstance: *source, ThreadRef: *thread, Enabled: *enabled, EventID: *eventID, Assignment: *assignment})
+		if err != nil {
+			return err
+		}
+		path := "/task/events/source"
+		if action == "event-ack" {
+			path = "/task/events/ack"
+		}
+		b, err := taskCall(client, http.MethodPost, path, body)
+		if err != nil {
+			return err
+		}
+		return writeJSON(out, b)
 	case "assign":
 		body, err := json.Marshal(core.TaskMemberAssignment{ReporterProject: *reporter, Project: *project, SessionKey: *session, Run: *run, TaskID: *id, BatchID: *batch, MemberID: *member, ParentID: *parent, Name: *name, Title: *title, Ref: *ref, Base: *base, Workspace: *workspace})
 		if err != nil {

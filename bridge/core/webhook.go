@@ -26,14 +26,15 @@ type WebhookServer struct {
 
 // WebhookRequest is the JSON body for POST /hook.
 type WebhookRequest struct {
-	Event      string `json:"event,omitempty"`       // event name for logging (e.g. "git:commit")
-	Project    string `json:"project,omitempty"`      // target project; optional if single project
-	SessionKey string `json:"session_key"`            // target session key (required)
-	Prompt     string `json:"prompt,omitempty"`       // agent prompt (mutually exclusive with exec)
-	Exec       string `json:"exec,omitempty"`         // shell command (mutually exclusive with prompt)
-	WorkDir    string `json:"work_dir,omitempty"`     // working dir for exec
-	Silent     bool   `json:"silent,omitempty"`       // suppress notification
-	Payload    any    `json:"payload,omitempty"`      // arbitrary extra data; appended to prompt context
+	TaskEvents []ExternalTaskEvent `json:"task_events,omitempty"`
+	Event      string              `json:"event,omitempty"`    // event name for logging (e.g. "git:commit")
+	Project    string              `json:"project,omitempty"`  // target project; optional if single project
+	SessionKey string              `json:"session_key"`        // target session key (required)
+	Prompt     string              `json:"prompt,omitempty"`   // agent prompt (mutually exclusive with exec)
+	Exec       string              `json:"exec,omitempty"`     // shell command (mutually exclusive with prompt)
+	WorkDir    string              `json:"work_dir,omitempty"` // working dir for exec
+	Silent     bool                `json:"silent,omitempty"`   // suppress notification
+	Payload    any                 `json:"payload,omitempty"`  // arbitrary extra data; appended to prompt context
 }
 
 func NewWebhookServer(port int, token, path string) *WebhookServer {
@@ -94,12 +95,45 @@ func (ws *WebhookServer) handleHook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req WebhookRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var raw json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	var req WebhookRequest
+	if err := json.Unmarshal(raw, &req); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, structured, err := structuredPollEvents(string(raw)); structured && err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
+	if req.TaskEvents != nil {
+		// Structured events need a configured credential and a separate local
+		// source binding. Their payload cannot authorize shell execution.
+		if ws.token == "" {
+			http.Error(w, "structured task events require webhook authentication", http.StatusForbidden)
+			return
+		}
+		if req.Exec != "" || req.Prompt != "" || req.Payload != nil {
+			http.Error(w, "task_events cannot include prompt, exec or payload", http.StatusBadRequest)
+			return
+		}
+		engine, err := ws.resolveEngine(req.Project)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		result, err := engine.AcceptExternalTaskEvents(req.TaskEvents)
+		status := http.StatusOK
+		if err != nil {
+			status = http.StatusConflict
+		}
+		apiJSON(w, status, result)
+		return
+	}
 	if req.SessionKey == "" {
 		http.Error(w, "session_key is required", http.StatusBadRequest)
 		return

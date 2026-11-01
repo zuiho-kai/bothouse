@@ -145,7 +145,8 @@ type publicRun struct {
 // PublicProgress owns run authorization, durable public facts and delivery.
 // Tokens exist only in memory/prompt, never in the card or journal.
 type PublicProgress struct {
-	quotaBlocked func(string) bool
+	externalInputs *ExternalEventStore
+	quotaBlocked   func(string) bool
 	// Lifecycle operations serialize run ownership and durable state transitions.
 	// Delivery never takes this lock; network requests remain independent.
 	transitionMu            sync.Mutex
@@ -271,6 +272,10 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 		if r.record.CardSeq < r.record.Task.Seq || r.record.FactSeq < r.record.Task.Seq {
 			p.pending[r.record.Task.ID] = r
 		}
+	}
+	p.externalInputs, err = NewExternalEventStore(dataDir, project)
+	if err != nil {
+		return nil, err
 	}
 	return p, nil
 }
@@ -411,7 +416,10 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	if r.record.Task.AssignedProject != "" && r.record.Task.AssignedProject != p.project {
 		return "", errors.New("task ownership transferred")
 	}
-	if IsTerminalState(r.record.Task.State) {
+	// A fresh turn may explicitly continue an interrupted/failed card offered
+	// by resumeHint. The failed run itself, cancellation and acceptance stay
+	// terminal; external inputs cannot perform this continuation.
+	if IsTerminalState(r.record.Task.State) && !(r.record.Task.State == TaskStateFailed && source != r) {
 		return "", errors.New("task is terminal")
 	}
 	if req.Seq != r.record.LastSeq+1 {
@@ -1198,6 +1206,7 @@ func (e *Engine) startPublicProgress() {
 		defer ticker.Stop()
 		for {
 			e.publicProgress.Flush(e.ctx)
+			e.flushExternalTaskEvents()
 			select {
 			case <-e.ctx.Done():
 				return

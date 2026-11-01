@@ -231,7 +231,7 @@ func (s *ExternalEventStore) Route(source, id, assignment string) (ExternalEvent
 	if assignment == "" {
 		return r, errors.New("current assignment required")
 	}
-	if r.State == "delivered" || r.State == "consumed" {
+	if r.State == "delivering" || r.State == "delivered" || r.State == "consumed" {
 		return r, nil
 	}
 	r.State = "routed"
@@ -252,28 +252,35 @@ func (s *ExternalEventStore) Mark(source, id, assignment, state, reason string) 
 	if r.Assignment != assignment {
 		return ErrExternalEventAssignment
 	}
-	if state == "delivered" || state == "consumed" {
+	if state == "delivering" || state == "delivered" || state == "consumed" {
 		if !s.authorized(r.Event) {
 			return ErrExternalEventSource
 		}
 	}
-	if r.State == state {
+	if r.State == state && state != "delivering" {
 		return nil
 	}
 	now := time.Now().UTC()
 	switch state {
-	case "delivered":
+	case "delivering":
 		if r.State != "routed" {
+			return errors.New("input must be routed before delivery starts")
+		}
+	case "delivered":
+		if r.State == "consumed" {
+			return nil
+		}
+		if r.State != "routed" && r.State != "delivering" {
 			return errors.New("input must be routed before delivery")
 		}
 		r.DeliveredAt = &now
 	case "consumed":
-		if r.State != "delivered" {
+		if r.State != "delivered" && r.State != "delivering" {
 			return errors.New("input must be delivered before consumption")
 		}
 		r.ConsumedAt = &now
 	case "rejected", "pending_route":
-		if r.State == "consumed" || r.State == "delivered" {
+		if r.State == "consumed" || r.State == "delivered" || r.State == "delivering" {
 			return errors.New("attempted inputs cannot be automatically rerouted")
 		}
 	default:
