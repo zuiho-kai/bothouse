@@ -15,8 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/chenhg5/cc-connect/core"
 	"github.com/creack/pty"
 )
@@ -30,6 +30,7 @@ const (
 )
 
 var (
+	claudeUsagePromptRe     = regexp.MustCompile("(?m)^[>❯]\\s*$")
 	claudeUsagePercentRe    = regexp.MustCompile(`(?i)\b(\d{1,3})\s*%\s*used\b`)
 	claudeUsageResetLineRe  = regexp.MustCompile(`(?i)^resets\s+(.+?)\s*$`)
 	claudeUsageParenTZRe    = regexp.MustCompile(`^(.*?)\s*\(([^()]+)\)\s*$`)
@@ -249,7 +250,7 @@ func nextClaudeUsageProbeAction(screen string, state *claudeUsageProbeState, now
 
 	// Nothing rendered yet: a wake Enter now could land on the trust dialog
 	// as soon as it mounts.
-	if strings.TrimSpace(screen) == "" {
+	if !claudeUsagePromptRe.MatchString(screen) {
 		return ""
 	}
 
@@ -292,9 +293,6 @@ func promptActionForScreen(screen string) string {
 	if (strings.Contains(lower, "telemetry") || strings.Contains(lower, "help improve") || strings.Contains(lower, "usage data")) &&
 		(strings.Contains(lower, "2. no") || strings.Contains(lower, "2. disable") || strings.Contains(lower, "2. don't")) {
 		return "\x1b[B\r"
-	}
-	if strings.Contains(lower, "enter to confirm") && !usageReady(lower) {
-		return "\r"
 	}
 	return ""
 }
@@ -533,61 +531,55 @@ func detectClaudeUsageOutputError(screen, stderr string) error {
 }
 
 type claudeUsageTerminal struct {
-	mu    sync.RWMutex
-	lines [][]rune
-	row   int
-	col   int
+	mu     sync.RWMutex
+	lines  [][]rune
+	row    int
+	col    int
+	parser *ansi.Parser
 }
 
 func newClaudeUsageTerminal() *claudeUsageTerminal {
-	return &claudeUsageTerminal{
-		lines: [][]rune{nil},
-	}
+	t := &claudeUsageTerminal{lines: [][]rune{nil}, parser: ansi.NewParser()}
+	// Keep decoder state across PTY reads, including split CSI/OSC and UTF-8.
+	t.parser.SetHandler(ansi.Handler{
+		Print:   t.writeRune,
+		Execute: t.executeControl,
+		HandleCsi: func(cmd ansi.Cmd, params ansi.Params) {
+			if cmd.Prefix() != 0 || cmd.Intermediate() != 0 {
+				return
+			}
+			values := make([]string, len(params))
+			for i, p := range params {
+				values[i] = strconv.Itoa(p.Param(0))
+			}
+			t.applyCSI(strings.Join(values, ";"), cmd.Final())
+		},
+	})
+	return t
 }
 
 func (t *claudeUsageTerminal) Write(p []byte) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.parser.Parse(p)
+}
 
-	for i := 0; i < len(p); {
-		switch p[i] {
-		case 0x1b:
-			next := t.consumeEscape(p[i:])
-			if next <= 0 {
-				i++
-			} else {
-				i += next
-			}
-		case '\r':
-			t.col = 0
-			i++
-		case '\n':
-			t.row++
-			t.ensureRow(t.row)
-			i++
-		case '\b':
-			if t.col > 0 {
-				t.col--
-			}
-			i++
-		case '\t':
-			advance := 4 - (t.col % 4)
-			for j := 0; j < advance; j++ {
-				t.writeRune(' ')
-			}
-			i++
-		default:
-			if p[i] < 0x20 || p[i] == 0x7f {
-				i++
-				continue
-			}
-			r, size := utf8.DecodeRune(p[i:])
-			if r == utf8.RuneError && size == 1 {
-				i++
-				continue
-			}
-			t.writeRune(r)
-			i += size
+func (t *claudeUsageTerminal) executeControl(b byte) {
+	switch b {
+	case '\r':
+		t.col = 0
+	case '\n':
+		t.row++
+		t.ensureRow(t.row)
+	case '\b':
+		if t.col > 0 {
+			t.col--
+		}
+	case '\t':
+		// Source: preserve the existing probe renderer's four-column tabs.
+		advance := 4 - (t.col % 4)
+		for j := 0; j < advance; j++ {
+			t.writeRune(' ')
 		}
 	}
 }
@@ -601,34 +593,6 @@ func (t *claudeUsageTerminal) String() string {
 		lines = append(lines, strings.TrimRight(string(line), " "))
 	}
 	return strings.Join(lines, "\n")
-}
-
-func (t *claudeUsageTerminal) consumeEscape(p []byte) int {
-	if len(p) < 2 {
-		return len(p)
-	}
-	switch p[1] {
-	case '[':
-		for i := 2; i < len(p); i++ {
-			if p[i] >= '@' && p[i] <= '~' {
-				t.applyCSI(string(p[2:i]), p[i])
-				return i + 1
-			}
-		}
-		return len(p)
-	case ']':
-		for i := 2; i < len(p); i++ {
-			if p[i] == '\a' {
-				return i + 1
-			}
-			if p[i] == 0x1b && i+1 < len(p) && p[i+1] == '\\' {
-				return i + 2
-			}
-		}
-		return len(p)
-	default:
-		return 2
-	}
 }
 
 func (t *claudeUsageTerminal) applyCSI(params string, final byte) {

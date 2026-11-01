@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"testing"
 	"time"
@@ -76,7 +75,7 @@ func TestQuotaAutoProbe(t *testing.T) {
 		}
 	})
 
-	t.Run("ProbeFailureBacksOffAndPreservesCooling", func(t *testing.T) {
+	t.Run("ExplicitExhaustionBacksOffAndPreservesCooling", func(t *testing.T) {
 		e := setupQuotaTestEngine(t)
 		now := time.Now()
 		expiry := now.Add(-time.Second)
@@ -84,7 +83,7 @@ func TestQuotaAutoProbe(t *testing.T) {
 		probeCalls := 0
 		e.quotaProbeFn = func(ctx context.Context) (bool, time.Duration, error) {
 			probeCalls++
-			return false, 0, errors.New("429 Too Many Requests")
+			return false, 0, nil
 		}
 
 		e.quotaState.Until = expiry

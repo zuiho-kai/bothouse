@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -19,11 +20,13 @@ import (
 // The reset deadline feeds the existing team cooling_until contract. Takeover
 // receipts survive restart independently of the agent's conversation.
 type quotaCoolingState struct {
-	Until      time.Time                `json:"cooling_until"`
-	Session    string                   `json:"session,omitempty"`
-	Lead       *quotaLeadTakeover       `json:"lead,omitempty"`
-	Transfers  map[string]quotaTransfer `json:"transfers,omitempty"`
-	ProbeRound int                      `json:"probe_round,omitempty"`
+	NextProbeAt time.Time                `json:"next_probe_at,omitempty"`
+	ProbeStatus string                   `json:"probe_status,omitempty"`
+	Until       time.Time                `json:"cooling_until"`
+	Session     string                   `json:"session,omitempty"`
+	Lead        *quotaLeadTakeover       `json:"lead,omitempty"`
+	Transfers   map[string]quotaTransfer `json:"transfers,omitempty"`
+	ProbeRound  int                      `json:"probe_round,omitempty"`
 }
 
 // quotaProbeBackoffBase: 沿用 capacity_retry.go 冷却退避策略基线
@@ -132,6 +135,8 @@ func (e *Engine) recordQuota(until time.Time, session string) {
 	}
 	e.quotaState.Until = until
 	e.quotaState.ProbeRound = 0
+	e.quotaState.NextProbeAt = time.Time{}
+	e.quotaState.ProbeStatus = "exhausted"
 	if session != "" {
 		e.quotaState.Session = teamChatKey(session)
 	}
@@ -398,12 +403,17 @@ func (e *Engine) probeQuota(ctx context.Context) (bool, time.Duration, error) {
 	if err != nil {
 		return false, 0, err
 	}
-	if report == nil {
-		return true, 0, nil
+	if report == nil || len(report.Buckets) == 0 {
+		return false, 0, errors.New("quota probe returned no usage evidence")
 	}
 	now := time.Now()
+	known := false
 	for _, bucket := range report.Buckets {
+		if bucket.LimitReached && len(bucket.Windows) == 0 {
+			return false, 0, nil
+		}
 		for _, window := range bucket.Windows {
+			known = true
 			if bucket.LimitReached || window.UsedPercent >= 100 {
 				until := time.Unix(window.ResetAtUnix, 0)
 				if window.ResetAtUnix == 0 && window.ResetAfterSeconds > 0 {
@@ -415,6 +425,9 @@ func (e *Engine) probeQuota(ctx context.Context) (bool, time.Duration, error) {
 				return false, 0, nil
 			}
 		}
+	}
+	if !known {
+		return false, 0, errors.New("quota probe returned no usage windows")
 	}
 	return true, 0, nil
 }
@@ -433,9 +446,12 @@ func (e *Engine) quotaTick(now time.Time) {
 		return
 	}
 	if !st.Until.After(now) {
+		if st.NextProbeAt.After(now) {
+			return
+		}
 		usable, nextWait, err := e.probeQuota(e.ctx)
 		if !usable || err != nil {
-			// 探活失败或仍受限：指数退避顺延冷却时间，零 Token 消耗，不唤醒主对话模型
+			// Retry timing is local policy, not evidence of a provider reset.
 			st.ProbeRound++
 			backoff := quotaProbeBackoffBase
 			for i := 1; i < st.ProbeRound && backoff < quotaProbeBackoffMax; i++ {
@@ -447,18 +463,33 @@ func (e *Engine) quotaTick(now time.Time) {
 			if nextWait > backoff {
 				backoff = nextWait
 			}
+			st.NextProbeAt = now.Add(backoff)
+			if err != nil {
+				st.ProbeStatus = "unknown"
+				e.saveQuotaLocked()
+				slog.Warn("quota auto-probe: usage unknown, probe backed off", "project", e.name, "next_probe_at", st.NextProbeAt, "err", err)
+				return
+			}
+			// Explicit exhaustion retains the existing bounded cooldown fallback
+			// when the provider supplies no reset deadline.
+			st.ProbeStatus = "exhausted"
 			st.Until = now.Add(backoff)
+			if nextWait > 0 {
+				st.Until = now.Add(nextWait)
+			}
 			e.capMu.Lock()
 			e.quotaUntil = st.Until
 			e.capMu.Unlock()
 			e.saveQuotaLocked()
-			slog.Warn("quota auto-probe: quota still exhausted, cooling extended",
-				"project", e.name, "until", st.Until, "round", st.ProbeRound, "err", err)
+			slog.Warn("quota auto-probe: quota still exhausted", "project", e.name, "until", st.Until, "next_probe_at", st.NextProbeAt)
+
 			return
 		}
 
 		// 探活成功：自动解除冷却状态，记录恢复事件
 		st.ProbeRound = 0
+		st.NextProbeAt = time.Time{}
+		st.ProbeStatus = "available"
 		if st.Lead != nil {
 			sel, ok := readLeadSelectionFull(e.dataDir)
 			if ok && sel.Lead == st.Lead.To && sel.At == st.Lead.At {
