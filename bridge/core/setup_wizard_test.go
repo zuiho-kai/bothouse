@@ -1639,3 +1639,148 @@ func TestApplyWizardSingleRoleKeepsOtherTeam(t *testing.T) {
 		t.Errorf("discord lead lost its team defaults: lead=%v ok=%v", lead, ok)
 	}
 }
+
+// Public installer request and saved state, without a model or real platform.
+func TestApplyWizardAddressedMode(t *testing.T) {
+	str := wizardGateTestEnv(t)
+	noLocalHub(t)
+	hub := fakeHub(t, "bot-secret")
+	store := newMemStore()
+	dir := t.TempDir()
+	env := WizardEnv{Store: store, DataDir: dir, CLIs: testCLIs}
+	req := cloudWebReq(hub.URL, "bot-secret", WizardRole{Name: "Juzi"}, WizardRole{Name: "Whale"})
+	if err := json.Unmarshal([]byte("{\"enabled\":true,\"mode\":\"addressed\"}"), &req.Gate); err != nil {
+		t.Fatal(err)
+	}
+	req.DryRun = true
+	res := ApplyWizard(context.Background(), env, req)
+	if !res.OK {
+		t.Fatalf("dry run: %+v", res)
+	}
+	if store.batches != 0 {
+		t.Fatal("dry run wrote config")
+	}
+	if _, err := os.Stat(filepath.Join(dir, setupStateFile)); !os.IsNotExist(err) {
+		t.Fatal("dry run wrote state")
+	}
+	req.DryRun = false
+	res = ApplyWizard(context.Background(), env, req)
+	if !res.Saved {
+		t.Fatalf("apply: %+v", res)
+	}
+	for _, name := range []string{"juzi", "whale"} {
+		p := store.projects[name]
+		if p.Options["group_reply_all"] != false {
+			t.Errorf("%s still answers unaddressed messages: %v", name, p.Options)
+		}
+		if p.GateURL != nil && str(p.GateURL) != "" {
+			t.Errorf("%s requires a gate: %q", name, str(p.GateURL))
+		}
+	}
+	if res.GateStatus != GateStatusOff {
+		t.Errorf("gate status: %s", res.GateStatus)
+	}
+	for _, w := range res.Warnings {
+		if w.Code == "jev_recommended" {
+			t.Error("called-only requires no model")
+		}
+	}
+	req = cloudWebReq(hub.URL, "bot-secret", WizardRole{Name: "NewRole"})
+	req.AppendOnly = true
+	res = ApplyWizard(context.Background(), env, req)
+	if !res.Saved {
+		t.Fatalf("add role: %+v", res)
+	}
+	for name, p := range store.projects {
+		if p.Options["group_reply_all"] != false {
+			t.Errorf("add role lost saved choice: %s %v", name, p.Options)
+		}
+	}
+	req = cloudWebReq(hub.URL, "bot-secret", WizardRole{Name: "Juzi"})
+	if err := json.Unmarshal([]byte("{\"enabled\":true,\"mode\":\"smart\"}"), &req.Gate); err != nil {
+		t.Fatal(err)
+	}
+	res = ApplyWizard(context.Background(), env, req)
+	if !res.Saved {
+		t.Fatalf("smart: %+v", res)
+	}
+	for name, p := range store.projects {
+		if p.Options["group_reply_all"] != true {
+			t.Errorf("smart mode not restored: %s", name)
+		}
+	}
+}
+
+func TestApplyWizardAddressedDiscordAndFeishu(t *testing.T) {
+	for _, platform := range []string{"discord", "feishu", "lark"} {
+		t.Run(platform, func(t *testing.T) {
+			str := wizardGateTestEnv(t)
+			store := newMemStore()
+			env := WizardEnv{Store: store, DataDir: t.TempDir(), CLIs: testCLIs}
+			req := WizardRequest{Platform: platform, Language: "zh", Gate: &WizardGate{Enabled: true, Mode: "addressed"}}
+			if platform == "discord" {
+				a, b := fakeToken("111"), fakeToken("222")
+				fakeDiscord(t, map[string]string{a: "Juzi", b: "Whale"})
+				req.Roles = []WizardRole{{Token: a}, {Token: b}}
+				if err := json.Unmarshal([]byte("{\"guild_id\":\"900\"}"), &req.Discord); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				req.Feishu = &WizardFeishu{AppID: "app_a", AppSecret: "test", PlatformType: platform}
+				req.Roles = []WizardRole{{Name: "Juzi"}}
+			}
+			res := ApplyWizard(context.Background(), env, req)
+			if !res.Saved {
+				t.Fatalf("apply: %+v", res)
+			}
+			store.projects["juzi"].Options["group_reply_all_guilds"] = "900,901"
+			hand := "custom-gate.invalid" // 非向导写的 gate 地址；不带 scheme，夹具里不新增网络地址（合并闸门第 1 条）
+			store.projects["juzi"].GateURL = &hand
+			req.Gate = nil
+			if platform != "discord" {
+				req.Feishu.AppID = "app_b"
+				req.Roles = []WizardRole{{Name: "Whale"}}
+			}
+			res = ApplyWizard(context.Background(), env, req)
+			if !res.Saved {
+				t.Fatalf("reapply/add: %+v", res)
+			}
+			for name, p := range store.projects {
+				if p.Options["group_reply_all"] != false {
+					t.Errorf("%s reply all: %v", name, p.Options)
+				}
+				if guilds, _ := p.Options["group_reply_all_guilds"].(string); platform == "discord" && guilds != "" {
+					t.Errorf("%s guild override still accepts unaddressed messages", name)
+				}
+				if platform != "discord" && p.Options["require_mention"] != true {
+					t.Errorf("%s does not require mention", name)
+				}
+			}
+			if str(store.projects["juzi"].GateURL) != hand {
+				t.Error("custom gate overwritten")
+			}
+		})
+	}
+}
+
+func TestWizardAddressedPreservesOtherPlatform(t *testing.T) {
+	snap := WizardSnapshot{Projects: []WizardExistingProject{{Name: "juzi", AgentType: "codex", WorkDir: t.TempDir(), GateURL: defaultGateURL, GateFallback: "reply",
+		Platforms: map[string]map[string]any{"discord": {"token": fakeToken("111"), "group_reply_all": true}, "cloud_web": {"group_reply_all": true}}}}}
+	req := WizardRequest{Platform: "discord", Gate: &WizardGate{Enabled: true, Mode: "addressed"}}
+	ids := []wizardIdentity{{WizardRole: WizardRole{ReuseProject: "juzi"}, reuse: "juzi"}}
+	pl, err := planWizard(snap, ids, req, SetupState{}, t.TempDir(), "codex", nil, "900", "", "777", false, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range pl.writes {
+		if w.PlatformType != "discord" {
+			t.Errorf("writes other platform: %s", w.PlatformType)
+		}
+		if w.GateURL != nil || w.GateFallback != nil {
+			t.Error("changed project gate needed by another platform")
+		}
+	}
+	if snap.Projects[0].Platforms["cloud_web"]["group_reply_all"] != true {
+		t.Error("mutated another platform")
+	}
+}
