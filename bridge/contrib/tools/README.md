@@ -50,6 +50,13 @@ auto-captions when it has them; for real speech-to-text set `WATCHVID_ASR_URL` t
 Optional: a Bilibili `Cookie` header in `~/.config/watchvid/bilibili.cookie` for higher quality (logged out works,
 about 480P); `WATCHVID_CN_PROXY` for an HTTP proxy with a mainland-China exit when Bilibili blocks your IP.
 
+Site adapters: for a site that neither Bilibili's API nor yt-dlp can read (Douyin needs signed requests), drop a
+`<name>.py` into `~/.config/watchvid/adapters` (or the folders in `$WATCHVID_ADAPTERS`). It defines `MATCH` (a regex
+tried against the link) and `fetch(url, folder)`, which saves `folder/video.mp4` and returns the title and other
+metadata; a matching adapter goes first, everything else works as before. `watchvid-adapters/douyin.py.example` is
+a commented stub that points to existing open-source Douyin extractors (Douyin_TikTok_Download_API, f2); it does no
+scraping until you fill in its `play_url()` with one of them.
+
 ### websearch
 
 `search "query" [n] [engine]` with engine `auto` (default), `global`, `cn`, `baidu`, `sogou`, `so360`, `zhihu`, `bili`.
