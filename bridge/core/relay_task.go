@@ -77,6 +77,13 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	if err := source.publicProgress.checkAssignmentCard(req.SessionKey, req.Workspace); err != nil {
 		return nil, err
 	}
+	task, found := source.publicProgress.Task(req.TaskID)
+	if !found {
+		return nil, errors.New("relay: unknown task")
+	}
+	if err := source.CheckTaskAuthorization(task, "task.dispatch"); err != nil {
+		return nil, err
+	}
 	d, cached, err := source.publicProgress.beginTaskRelay(req, name)
 	if err != nil || cached != nil {
 		return cached, err
@@ -91,12 +98,46 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 		relayStop = d.stop
 		relayNudge = d.nudge
 	}
+	// Authorization follows execution, including the background drain after the
+	// caller's wait expires. Cancelling only the wait context does not stop tools.
+	releaseAuthorization := func() {}
+	if task.AuthorizationDecisionID != "" {
+		a, openErr := source.ProactiveAuthorization()
+		if openErr != nil {
+			return nil, errors.Join(openErr, d.finish("", openErr))
+		}
+		changed, unwatch, watchErr := a.Watch(task.AuthorizationDecisionID)
+		if watchErr != nil {
+			return nil, errors.Join(watchErr, d.finish("", watchErr))
+		}
+		done := make(chan struct{})
+		var once sync.Once
+		releaseAuthorization = func() { once.Do(func() { close(done); unwatch() }) }
+		relayStop = d.stop
+		go func() {
+			select {
+			case <-changed:
+				d.stopWatch()
+			case <-source.ctx.Done():
+				d.stopWatch()
+			case <-done:
+			}
+		}()
+	}
+	background := false
+	defer func() {
+		if !background {
+			releaseAuthorization()
+		}
+	}()
 	relayCtx, cancel := rm.relayContext(ctx)
 	defer cancel()
+	relayCtx = withProactiveExecution(relayCtx, source, task)
 	// Distinct request sessions prevent concurrent dispatches from sharing a
 	// conversation. This is routing, not a tool/filesystem sandbox.
 	scope := req.TaskID + ":" + fmt.Sprintf("%x", sha256.Sum256([]byte(req.RequestID)))
 	response, runErr := target.handleRelay(relayCtx, req.From, req.SessionKey, d.req.Workspace, d.prompt()+req.Message, scope, relayStop, relayNudge, func(response string, runErr error) {
+		defer releaseAuthorization()
 		if err := d.finish(response, runErr); err != nil {
 			slog.Error("relay: background result checkpoint failed", "task_id", req.TaskID, "error", err)
 		}
@@ -106,6 +147,7 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	})
 	var draining *relayDrainingError
 	if errors.As(runErr, &draining) {
+		background = true
 		continuation := "under the ten-minute watch and its outcome will wake this session"
 		if !watchStarted {
 			continuation = "in the background; the source engine is stopping, so the drain's safety limit will end it"

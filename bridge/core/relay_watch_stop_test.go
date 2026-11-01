@@ -339,7 +339,7 @@ func TestPlainRelayDrainKeepsSafetyLimit(t *testing.T) {
 	e := NewEngine("target", &stubAgent{}, nil, "", LangEnglish)
 	ended := make(chan teamWorkOutcome, 1)
 	sess := &Session{}
-	go e.drainRelaySession(nil, s, sess, NewSessionManager(""), "stub", "relay:k", func(o teamWorkOutcome) { ended <- o }, s.Events(), nil, false, "", nil, nil, nil, nil)
+	go e.drainRelaySession(context.Background(), nil, s, sess, NewSessionManager(""), "stub", "relay:k", func(o teamWorkOutcome) { ended <- o }, s.Events(), nil, false, "", nil, nil, nil, nil)
 	select {
 	case <-ended:
 	case <-time.After(5 * time.Second):
