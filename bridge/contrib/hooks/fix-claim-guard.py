@@ -4,7 +4,9 @@
 入口表 = 本轮助手文字里一行表头，含「入口」和「修复/核对」两列（如 入口 | 是否经过修复 | 核对结果）；只有一处入口也列一行。
 只拦一次（stop_hook_active 时放行），避免死循环。
 只在修 bug 的轮次检查：用户这轮原话里没有修/报错/失败这类词就放行（2026-10-15 用户问"为什么慢、谁负责"，回复里讲经过的"修完再跑"被误拦两次，补的表还顶掉了答案）。"""
-import json, re, sys
+import json, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import eta_guard  # noqa: E402  预计时间长于 15 分钟要实测依据（用户 2026-10-26、2026-11-01）
 
 CLAIM = re.compile(r"修完|修好|修复了|已修复|修复完成|全部修复")
 NEG = re.compile(r"[没未不等待才]")
@@ -130,6 +132,10 @@ def main():
     if DENY_OWN.search(QUOTED.sub("", reply)) and not looked_up(d.get("transcript_path", "")):
         print(json.dumps({"decision": "block", "reason": "先查 wiki/代码再说我们没有：回复里否定了自家功能，"
               "本轮却没跑过 search.py/grep/rg/chanlog/codegraph。查完再答，查不了就说没核。"}, ensure_ascii=False))
+        return
+    eta = eta_guard.check(d.get("last_assistant_message") or turn_text(d.get("transcript_path", "")))
+    if eta:
+        print(json.dumps({"decision": "block", "reason": eta}, ensure_ascii=False))
         return
     prompt = last_prompt(d.get("transcript_path", ""))
     if prompt is not None and RELAY in prompt:
