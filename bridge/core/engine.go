@@ -493,7 +493,8 @@ type Engine struct {
 	// Model-at-capacity cooldown (maomao fork, see capacity_retry.go)
 	capMu           sync.Mutex
 	capUntil        time.Time
-	quotaUntil      time.Time
+	quotaUntil      time.Time            // legacy unscoped cooldown only
+	quotaDomains    map[string]time.Time // guarded by quotaDomainsMu
 	quotaMu         sync.Mutex
 	quotaState      quotaCoolingState
 	quotaProbeFn    func(ctx context.Context) (usable bool, nextRetry time.Duration, err error)

@@ -658,17 +658,21 @@ type CachedUsageReporter interface {
 
 // UsageReport is a provider-neutral quota snapshot returned by UsageReporter.
 type UsageReport struct {
-	Provider  string
-	AccountID string
-	UserID    string
-	Email     string
-	Plan      string
-	Buckets   []UsageBucket
-	Credits   *UsageCredits
+	// QuotaGroup identifies the pool selected for the requested model. Empty
+	// means account-wide/unknown; adapters must not infer model independence.
+	QuotaGroup string
+	Provider   string
+	AccountID  string
+	UserID     string
+	Email      string
+	Plan       string
+	Buckets    []UsageBucket
+	Credits    *UsageCredits
 }
 
 // UsageBucket groups one logical quota, such as standard requests or code review.
 type UsageBucket struct {
+	QuotaGroup string // provider-defined sharing domain, when known
 	// ID is the provider's stable bucket id (e.g. Codex limitId), used to
 	// merge updates; Name is for display and may be absent in some updates.
 	ID           string

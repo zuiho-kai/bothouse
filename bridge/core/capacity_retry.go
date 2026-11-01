@@ -46,13 +46,7 @@ func isModelCapacityError(msg string) bool {
 
 // capacityWait returns how long the current cooldown still runs (0 = none).
 func (e *Engine) capacityWait() time.Duration {
-	e.capMu.Lock()
-	defer e.capMu.Unlock()
-	until := e.capUntil
-	if e.quotaUntil.After(until) {
-		until = e.quotaUntil
-	}
-	return max(time.Until(until), 0)
+	return max(time.Until(e.capacityCoolingUntil()), 0)
 }
 
 // capacityStartCooldown starts the next cooldown: base, then doubling.
@@ -181,17 +175,14 @@ func (e *Engine) flushCapacityPending() {
 // capacityCoolingUntil is the end of the running cooldown (zero = none), for
 // the team status board so schedulers can hold off.
 func (e *Engine) capacityCoolingUntil() time.Time {
+	until := e.quotaCooling()
 	e.capMu.Lock()
-	defer e.capMu.Unlock()
-	until := e.capUntil
-	if e.quotaUntil.After(until) {
-		until = e.quotaUntil
+	if e.capUntil.After(until) {
+		until = e.capUntil
 	}
-	if time.Now().Before(until) {
+	e.capMu.Unlock()
+	if until.After(time.Now()) {
 		return until
-	}
-	if time.Now().Before(e.quotaUntil) {
-		return e.quotaUntil
 	}
 	return time.Time{}
 }
@@ -201,14 +192,8 @@ func (e *Engine) quotaCoolingUntil(msg string) (time.Time, bool) {
 	if !ok {
 		return time.Time{}, false
 	}
-	until := time.Now().Add(d)
-	e.capMu.Lock()
-	if until.After(e.quotaUntil) {
-		e.quotaUntil = until
-	}
-	until = e.quotaUntil
-	e.capMu.Unlock()
-	return until, true
+	e.recordQuota(time.Now().Add(d), "")
+	return e.quotaCooling(), true
 }
 
 // redeliverMessage mirrors the tail of message dispatch: run now if the
