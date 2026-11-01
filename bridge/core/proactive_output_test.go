@@ -37,6 +37,34 @@ func TestProactiveOutputRechecksAfterRateLimitWait(t *testing.T) {
 	}
 }
 
+func TestProactiveBackgroundReaderCannotBorrowNextTurnAuthority(t *testing.T) {
+	e, a, d, ctx := proactiveOutputFixture(t)
+	execution := ctx.Value(proactiveExecutionKey{}).(proactiveExecution)
+	p := &stubPlatformEngine{n: "platform"}
+	backend := &abortTurnSession{events: make(chan Event, 1)}
+	state := &interactiveState{agentSession: backend, agent: e.agent, platform: p, replyCtx: "ctx", authorization: &AuthorizationTurn{Project: e.name, TaskID: execution.taskID, DecisionID: d.ID}}
+	session := e.sessions.GetOrCreateActive("room")
+	e.startUnsolicitedReader(state, session, e.sessions, "room", "")
+	t.Cleanup(func() { e.stopUnsolicitedReader(state); _ = e.Stop() })
+	state.mu.Lock()
+	done := state.unsolicitedDone
+	// A later explicit turn must not lend its unscoped state to old output.
+	state.authorization = nil
+	state.mu.Unlock()
+	if err := a.Revoke(d.ID, "human:stop"); err != nil {
+		t.Fatal(err)
+	}
+	backend.events <- Event{Type: EventResult, Content: "old background result"}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("background reader did not reject invalid grant")
+	}
+	if len(p.getSent()) != 0 {
+		t.Fatal("revoked background result escaped")
+	}
+}
+
 func proactiveOutputFixture(t *testing.T) (*Engine, *ProactiveAuthorization, AuthorizationDecision, context.Context) {
 	t.Helper()
 	p, _, _, id := taskRelayFixture(t)
