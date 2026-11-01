@@ -686,6 +686,9 @@ const (
 	MsgPublicInterrupted     MsgKey = "MsgPublicInterrupted"
 	MsgPublicEnded           MsgKey = "MsgPublicEnded"
 	MsgWatchResume           MsgKey = "watch_resume"
+	MsgWatchResumeNotes      MsgKey = "watch_resume_notes"
+	MsgWatchAutoResumed      MsgKey = "watch_auto_resumed"
+	MsgWatchParkedNotice     MsgKey = "watch_parked_notice"
 	MsgWatchIdleEscalate     MsgKey = "watch_idle_escalate"
 	MsgWatchFailEscalate     MsgKey = "watch_fail_escalate"
 	MsgTaskReviewReturned    MsgKey = "task_review_returned"
@@ -1038,6 +1041,27 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "接著做 %s，做完再結束本輪，交回時第一行寫 [report]",
 		LangJapanese:           "%s を続けて完了させてください。完了したら返信の1行目を [report] にしてください",
 		LangSpanish:            "Continúa %s hasta terminarlo; al terminar, empieza la respuesta con [report]",
+	},
+	MsgWatchResumeNotes: {
+		LangEnglish:            "Handoff file: %s (read its last checkpoint first)",
+		LangChinese:            "交接文件：%s（先读最后的检查点）",
+		LangTraditionalChinese: "交接檔案：%s（先讀最後的檢查點）",
+		LangJapanese:           "引き継ぎファイル：%s（まず最後のチェックポイントを読んでください）",
+		LangSpanish:            "Archivo de traspaso: %s (lee primero el último punto de control)",
+	},
+	MsgWatchAutoResumed: {
+		LangEnglish:            "Watch: %s showed no progress on %s; stopped its stuck turn and asked it to continue (once; parked if still no progress)",
+		LangChinese:            "看门：%s「%s」到点没有进展，已停掉卡住的这一轮并叫它接着做（自动续一次，再没进展就暂停）",
+		LangTraditionalChinese: "看門：%s「%s」到點沒有進展，已停掉卡住的這一輪並叫它接著做（自動續一次，再沒進展就暫停）",
+		LangJapanese:           "見守り：%s の %s に進展がないため、止まったターンを停止して続行を指示しました（1回のみ。再び進展がなければ一時停止）",
+		LangSpanish:            "Aviso: %s no avanzó en %s; se detuvo su turno atascado y se le pidió continuar (una vez; si sigue sin avanzar se pausa)",
+	},
+	MsgWatchParkedNotice: {
+		LangEnglish:            "Watch: %s still showed no progress on %s after a resume; the task is paused and the workspace freed. Hand it over again to continue.",
+		LangChinese:            "看门：%s「%s」续过一次仍没有进展，已暂停并放回工作区；要继续请重新交活。",
+		LangTraditionalChinese: "看門：%s「%s」續過一次仍沒有進展，已暫停並放回工作區；要繼續請重新交活。",
+		LangJapanese:           "見守り：%s の %s は再開後も進展がないため一時停止し、ワークスペースを解放しました。続けるには再度引き渡してください。",
+		LangSpanish:            "Aviso: %s siguió sin avanzar en %s tras reanudarlo; la tarea se pausó y el espacio quedó libre. Vuelve a asignarla para continuar.",
 	},
 	MsgWatchIdleEscalate: {
 		LangEnglish:            "Watch: %s has not resumed %s after two wakeups. Primary role, please take over.",
