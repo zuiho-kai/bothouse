@@ -255,6 +255,11 @@ func (g *gateState) decide(ctx context.Context, req gateRequest) gateResponse {
 // (buffered or injected) and must not continue down the normal path. Otherwise it may have
 // rewritten msg.Content (buffered context prepended, insert note) for the normal turn.
 func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interactiveKey string) bool {
+	if msg.authorization != nil {
+		// The durable admission already selected this role. A routing model
+		// cannot merge the task into another turn or widen its authority.
+		return e.checkTurnAuthorization(msg.authorization, "task.resume") != nil
+	}
 	g := e.gate
 	if msg.FromBot && !msg.Mentioned && e.isTeamLead() && isBotErrorNotice(msg.Content) {
 		// maomao fork: a teammate reporting a failure is the lead's job, not background chatter.

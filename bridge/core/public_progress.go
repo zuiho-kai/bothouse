@@ -99,16 +99,20 @@ func (r PublicProgressRequest) Validate() error {
 }
 
 type progressRecord struct {
-	TextDeliveries []*taskTextRecord               `json:"text_deliveries,omitempty"`
-	QuotaReports   map[string]quotaProgressReceipt `json:"quota_reports,omitempty"`
-	Relays         map[string]taskRelayRecord      `json:"relays,omitempty"`
-	Reworks        map[string]taskReworkRecord     `json:"reworks,omitempty"`
+	// Private admission intent, atomically saved with the task until the existing
+	// turn journal owns recovery. Never included in Task/public facts.
+	ProactivePending *TurnJournalEntry               `json:"proactive_pending,omitempty"`
+	TextDeliveries   []*taskTextRecord               `json:"text_deliveries,omitempty"`
+	QuotaReports     map[string]quotaProgressReceipt `json:"quota_reports,omitempty"`
+	Relays           map[string]taskRelayRecord      `json:"relays,omitempty"`
+	Reworks          map[string]taskReworkRecord     `json:"reworks,omitempty"`
 	// ArtifactRequests keeps the receipt of each attach operation by its stable
 	// request id, so a retry after a rework or restart returns the original
 	// artifact instead of attaching it to the current revision.
 	ArtifactRequests map[string]taskArtifactRecord `json:"artifact_requests,omitempty"`
 	Task             *Task                         `json:"task"`
 	Platform         string                        `json:"platform"`
+	JournalOnly      bool                          `json:"journal_only,omitempty"`
 	Lang             Language                      `json:"lang"`
 	Closed           bool                          `json:"closed"`
 	Accepted         bool                          `json:"accepted,omitempty"`
@@ -122,12 +126,15 @@ type progressRecord struct {
 }
 
 type publicRun struct {
-	textMu     sync.Mutex
-	deliveryMu sync.Mutex
-	mu         sync.Mutex
-	record     progressRecord
-	publisher  TaskCardPublisher
-	stopped    func() bool
+	// An inferred turn's capability remains attached to its admitted task.
+	boundTaskID     string
+	boundDecisionID string
+	textMu          sync.Mutex
+	deliveryMu      sync.Mutex
+	mu              sync.Mutex
+	record          progressRecord
+	publisher       TaskCardPublisher
+	stopped         func() bool
 	// candidate is the card still open for this session. A turn adopts it only
 	// when its first report continues the numbering instead of starting anew;
 	// a fresh request always opens its own card.
@@ -147,11 +154,14 @@ type publicRun struct {
 // PublicProgress owns run authorization, durable public facts and delivery.
 // Tokens exist only in memory/prompt, never in the card or journal.
 type PublicProgress struct {
-	externalInputs *ExternalEventStore
-	textSenders    map[string]TaskTextSender
-	checkTaskText  func(context.Context, *Task, string) error
-	waitTaskText   func(context.Context, string) error
-	quotaBlocked   func(string) bool
+	checkAuthorization       func(*Task, string) error
+	syncAuthorizationNotices func() error
+	revokeAuthorization      func(*Task) error
+	externalInputs           *ExternalEventStore
+	textSenders              map[string]TaskTextSender
+	checkTaskText            func(context.Context, *Task, string) error
+	waitTaskText             func(context.Context, string) error
+	quotaBlocked             func(string) bool
 	// Lifecycle operations serialize run ownership and durable state transitions.
 	// Delivery never takes this lock; network requests remain independent.
 	transitionMu            sync.Mutex
@@ -251,6 +261,9 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 		}
 		if !platformFound {
 			return nil, errors.New("public progress journal platform unavailable")
+		}
+		if rec.JournalOnly {
+			sink = nil
 		}
 		loadedQuestionSeq := rec.Task.Seq
 		r := &publicRun{record: rec, publisher: sink}
@@ -367,6 +380,10 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	}
 	p.mu.Lock()
 	r := p.runs[req.Run]
+	if r != nil && r.boundTaskID != "" && req.TaskID != "" && req.TaskID != r.boundTaskID {
+		p.mu.Unlock()
+		return "", ErrAuthorizationDenied
+	}
 	child := p.relayRuns[req.Run]
 	lead := r
 	member := p.memberRuns[req.Run]
@@ -420,6 +437,16 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 		return "", err
 	}
 	defer r.mu.Unlock()
+	if r.boundTaskID != "" {
+		if r.record.Task.AuthorizationDecisionID != r.boundDecisionID {
+			return "", ErrAuthorizationDenied
+		}
+		if p.checkAuthorization != nil {
+			if err := p.checkAuthorization(r.record.Task, "task.resume"); err != nil {
+				return "", err
+			}
+		}
+	}
 	if req.Kind == "start" && r.publisher != nil {
 		if err := p.checkWorkspaceCard(req.SessionKey); err != nil {
 			return "", err
@@ -487,6 +514,12 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 		t.State = TaskStateFailed
 		kind, key = TaskEventFailed, true
 	case "cancelled":
+		if p.revokeAuthorization != nil {
+			if err := p.revokeAuthorization(t); err != nil {
+				r.record = old
+				return "", err
+			}
+		}
 		t.State = TaskStateCancelled
 		kind, key = TaskEventBlocked, true
 	}
@@ -602,6 +635,11 @@ func (p *PublicProgress) finishRun(r *publicRun, outcome string, delegated bool)
 		return
 	} // casual chat never creates a card
 	t := r.record.Task
+	if outcome == "cancelled" && p.revokeAuthorization != nil {
+		if err := p.revokeAuthorization(t); err != nil {
+			slog.Error("task authorization withdrawal persistence failed", "task_id", t.ID, "error", err)
+		}
+	}
 	if p.quotaBlocked != nil && p.quotaBlocked(p.project) {
 		// A provider stop is a pending handoff, not a failed user task.
 		if err := p.save(r); err != nil {
@@ -645,6 +683,11 @@ func (p *PublicProgress) finishRun(r *publicRun, outcome string, delegated bool)
 
 // Flush retries only delivery of already accepted facts, never agent execution.
 func (p *PublicProgress) Flush(ctx context.Context) {
+	if p.syncAuthorizationNotices != nil {
+		if err := p.syncAuthorizationNotices(); err != nil {
+			slog.Warn("authorization notice projection pending", "error", err)
+		}
+	}
 	p.FlushTaskText(ctx)
 	p.mu.Lock()
 	runs := make([]*publicRun, 0, len(p.pending))
@@ -889,7 +932,7 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 	wasArchived := task.ThreadArchivedAt != nil
 	if wasArchived && hasPendingKeyFact(task, factSeq) {
 		if reopener, ok := r.publisher.(TaskThreadReopener); ok {
-			if err := reopener.ReopenTaskThread(ctx, task); err != nil {
+			if err := reopener.ReopenTaskThread(ctx, p.authorizedTaskView(task, lang)); err != nil {
 				return attempted, err
 			}
 			r.mu.Lock()
@@ -915,7 +958,10 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 			}
 			task.ChannelID = channel
 		}
-		deliveryErr := r.publisher.EnsureTaskCard(ctx, task, lang)
+		view := p.authorizedTaskView(task, lang)
+		deliveryErr := r.publisher.EnsureTaskCard(ctx, view, lang)
+		task.ChannelID, task.MessageID, task.ThreadID = view.ChannelID, view.MessageID, view.ThreadID
+		task.CardURL, task.ThreadTitle = view.CardURL, view.ThreadTitle
 		r.mu.Lock()
 		// Only transport bindings/checkpoints are written back. Newer state and
 		// summaries may have arrived while the HTTP request was in flight.
@@ -944,7 +990,11 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 			// ChannelID is a platform channel ID, not a session key.
 			publisher, err := p.taskReporter(ev.ReporterProject, platform, task.cardSessionKey(), r.publisher)
 			if err == nil {
-				err = publisher.PublishTaskFact(ctx, task, ev, lang)
+				view := p.authorizedTaskView(task, lang)
+				if view != task {
+					ev.Summary, ev.Detail, ev.Pointer = view.LatestProgress, "", false
+				}
+				err = publisher.PublishTaskFact(ctx, view, ev, lang)
 			}
 			if errors.Is(err, ErrTaskFactUndeliverable) && ev.ReporterProject != "" && ev.ReporterProject != p.project {
 				// Persist the replacement first so a retry never goes back to the
@@ -964,7 +1014,7 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 					return attempted, err
 				}
 				slog.Warn("public progress: reporter cannot post; creator posted note", "task_id", task.ID, "reporter", ev.ReporterProject)
-				err = r.publisher.PublishTaskFact(ctx, task, note, lang)
+				err = r.publisher.PublishTaskFact(ctx, p.authorizedTaskView(task, lang), note, lang)
 			}
 			if err != nil {
 				return attempted, err
@@ -1042,6 +1092,16 @@ func (e *Engine) EnablePublicProgress() error {
 		return err
 	}
 	e.publicProgress = p
+	p.checkAuthorization = e.CheckTaskAuthorization
+	p.syncAuthorizationNotices = e.SyncAuthorizationNotices
+	p.revokeAuthorization = e.revokeCancelledTask
+	e.SetExternalTaskEventCheck(e.checkExternalTaskAuthorization)
+	p.SetTaskTextCheck(func(ctx context.Context, task *Task, _ string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return e.CheckTaskAuthorization(task, "message.send")
+	})
 	p.waitTaskText = func(ctx context.Context, platform string) error {
 		if e.outgoingRL == nil {
 			return nil
@@ -1063,7 +1123,7 @@ func (e *Engine) EnablePublicProgress() error {
 		}
 		return false
 	}
-	return nil
+	return e.SyncAuthorizationNotices()
 }
 
 func (e *Engine) withPublicProgress(prompt string, state *interactiveState, session string, fromBot, fromVoice bool) string {
@@ -1072,7 +1132,19 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	}
 	state.mu.Lock()
 	platform := state.platform
+	ref := state.authorization
 	state.mu.Unlock()
+	if ref != nil {
+		token, err := e.beginProactiveProgress(ref, state.isStopped)
+		if err != nil {
+			slog.Warn("proactive progress binding denied", "error", err)
+			return prompt
+		}
+		state.mu.Lock()
+		state.publicProgressRun = token
+		state.mu.Unlock()
+		return e.publicProgressInstructions(token, session) + prompt
+	}
 	// The workspace restriction governs card presentation, not durable task
 	// records on platforms without cards. No automatic card is armed there.
 	_, hasCards := platform.(TaskCardPublisher)
@@ -1122,7 +1194,7 @@ func (p *PublicProgress) journalOnly(token string) bool {
 	return r != nil && r.publisher == nil
 }
 
-const journalProgressPrompt = "[Task progress journal]\nFor accepted multi-step work only, record concise public-safe status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'short status'. Start with --seq 1 --kind start --title 'task title'.RESUME_NOTE Increase seq by one for update/milestone/waiting/result; retry exactly the same seq and content. This platform has no task publisher: success means the journal was saved, NOT that a message or card was delivered. Give the user necessary progress and results in your normal reply. Do not claim a card, thread or delivery receipt exists. Do not repeat task execution to retry delivery. A result is not human acceptance. Do not record casual chat, raw tools, credentials or conversations. This token is for this turn only. Task-member publishing and task-bound relay are not provided by this journal capability.\n[/Task progress journal]\n\n"
+const journalProgressPrompt = "[Task progress journal]\nFor accepted multi-step work only, record concise public-safe status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'short status'. Start with --seq 1 --kind start --title 'task title'.RESUME_NOTE Increase seq by one for update/milestone/waiting/result; retry exactly the same seq and content. This task uses journal-only progress: success means the journal was saved, NOT that a message or card was delivered. Give the user necessary progress and results in your normal reply. Do not claim a card, thread or delivery receipt exists. Do not repeat task execution to retry delivery. A result is not human acceptance. Do not record casual chat, raw tools, credentials or conversations. This token is for this turn only. Task-member publishing and task-bound relay are not provided by this journal capability.\n[/Task progress journal]\n\n"
 
 // Voice cannot delegate; retain task cards without unrelated member/relay instructions.
 func (e *Engine) voiceProgressInstructions(token, session string) string {

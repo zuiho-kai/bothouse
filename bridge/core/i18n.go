@@ -673,6 +673,7 @@ const (
 // Automatic task card (public_progress_auto.go).
 const (
 	MsgPublicAutoTitle        MsgKey = "MsgPublicAutoTitle"
+	MsgProactiveTaskAdmitted  MsgKey = "MsgProactiveTaskAdmitted"
 	MsgPublicAutoStartedTools MsgKey = "MsgPublicAutoStartedTools"
 	MsgPublicAutoStartedTime  MsgKey = "MsgPublicAutoStartedTime"
 	MsgPublicAutoMerged       MsgKey = "MsgPublicAutoMerged"
@@ -703,9 +704,10 @@ const (
 )
 
 const (
-	MsgPublicVoiceResult  MsgKey = "MsgPublicVoiceResult"
-	MsgPublicVoiceWaiting MsgKey = "MsgPublicVoiceWaiting"
-	MsgPublicAccepted     MsgKey = "MsgPublicAccepted"
+	MsgPublicVoiceResult    MsgKey = "MsgPublicVoiceResult"
+	MsgPublicVoiceWaiting   MsgKey = "MsgPublicVoiceWaiting"
+	MsgAuthorizationRecheck MsgKey = "MsgAuthorizationRecheck"
+	MsgPublicAccepted       MsgKey = "MsgPublicAccepted"
 )
 
 const (
@@ -802,6 +804,14 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "本輪結果和未完成事項已記錄，請查看任務卡。",
 		LangJapanese:           "結果と残作業はタスクカードを確認してください。",
 		LangSpanish:            "Consulte los resultados y pendientes en la tarjeta.",
+	},
+
+	MsgAuthorizationRecheck: {
+		LangEnglish:            "Authorization changed; this task requires revalidation before further execution.",
+		LangChinese:            "授权已变更；这件任务继续执行前需要重新核验。",
+		LangTraditionalChinese: "授權已變更；這件任務繼續執行前需要重新核驗。",
+		LangJapanese:           "権限が変更されました。タスクを続行する前に再検証が必要です。",
+		LangSpanish:            "La autorización cambió; la tarea requiere una nueva validación antes de continuar.",
 	},
 	MsgPublicAccepted: {
 		LangEnglish:            "Accepted by %s",
@@ -1055,6 +1065,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangEnglish:            "Task in progress",
 		LangChinese:            "处理中的任务",
 		LangTraditionalChinese: "處理中的任務",
+	},
+	MsgProactiveTaskAdmitted: {
+		LangEnglish:            "Follow-up admitted under the configured authorization policy.",
+		LangChinese:            "已按配置的授权策略受理跟进任务。",
+		LangTraditionalChinese: "已按設定的授權策略受理跟進任務。",
+		LangJapanese:           "設定された認可ポリシーに従ってフォローアップを受け付けました。",
+		LangSpanish:            "Seguimiento admitido según la política de autorización configurada.",
 	},
 	MsgPublicAutoStartedTools: {
 		LangEnglish:            "Started working (several tool steps).",

@@ -180,6 +180,11 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 	}
 	defer r.mu.Unlock()
 	// Normalize selectors so retrying by the returned id is also idempotent.
+	if p.checkAuthorization != nil {
+		if err := p.checkAuthorization(r.record.Task, "task.dispatch"); err != nil {
+			return nil, err
+		}
+	}
 	req.TaskID, req.BatchID = r.record.Task.ID, ""
 	if req.ParentID != "" && memberIndex(r.record.Task, req.ParentID) < 0 {
 		return nil, errors.New("unknown parent member")
@@ -344,6 +349,10 @@ func (p *PublicProgress) lockAssignmentRun(req TaskMemberAssignment, cardSession
 		return nil, key, false, errors.New("only the primary role's active run may assign members")
 	}
 	source.mu.Lock()
+	if source.boundTaskID != "" && (req.TaskID != source.boundTaskID || source.record.Task.AuthorizationDecisionID != source.boundDecisionID) {
+		source.mu.Unlock()
+		return nil, key, false, ErrAuthorizationDenied
+	}
 	if source.record.Closed || source.record.Accepted || source.record.Task.SessionKey != req.SessionKey || (source.stopped != nil && source.stopped()) {
 		source.mu.Unlock()
 		return nil, key, false, errors.New("task is not active for this run and session")

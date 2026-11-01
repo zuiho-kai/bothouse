@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	ccconnect "github.com/chenhg5/cc-connect"
 )
 
 // useRepoHooks points AgentHookFS at the scripts in this checkout (the same paths package ccconnect embeds).
@@ -20,7 +22,9 @@ func useRepoHooks(t *testing.T) {
 		t.Skip(err)
 	}
 	old := AgentHookFS
-	AgentHookFS = os.DirFS("..")
+	// Use the production file set: walking the checkout installs every source
+	// file as a hook and performs thousands of unrelated synchronous writes.
+	AgentHookFS = ccconnect.AgentHookFiles
 	t.Cleanup(func() { AgentHookFS = old })
 }
 

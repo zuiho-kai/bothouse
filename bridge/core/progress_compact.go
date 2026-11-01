@@ -536,7 +536,7 @@ func (w *compactProgressWriter) push() bool {
 	if w.handle == nil {
 		if w.starter != nil {
 			callCtx, cancel := w.withAPITimeout()
-			handle, err := w.starter.SendPreviewStart(callCtx, w.replyCtx, w.content)
+			handle, err := authorizedOutputValue(callCtx, func() (any, error) { return w.starter.SendPreviewStart(callCtx, w.replyCtx, w.content) })
 			cancel()
 			if err != nil || handle == nil {
 				slog.Warn("progress writer: SendPreviewStart failed", "platform", w.platform.Name(), "style", w.style, "error", err, "handle_nil", handle == nil)
@@ -549,7 +549,7 @@ func (w *compactProgressWriter) push() bool {
 			return true
 		}
 		callCtx, cancel := w.withAPITimeout()
-		err := w.platform.Send(callCtx, w.replyCtx, w.content)
+		err := authorizedOutput(callCtx, func() error { return w.platform.Send(callCtx, w.replyCtx, w.content) })
 		cancel()
 		if err != nil {
 			slog.Warn("progress writer: initial Send failed", "platform", w.platform.Name(), "style", w.style, "error", err)
@@ -567,7 +567,7 @@ func (w *compactProgressWriter) push() bool {
 	}
 
 	callCtx, cancel := w.withAPITimeout()
-	err := w.updater.UpdateMessage(callCtx, w.handle, w.content)
+	err := authorizedOutput(callCtx, func() error { return w.updater.UpdateMessage(callCtx, w.handle, w.content) })
 	cancel()
 	if err != nil {
 		slog.Warn("progress writer: UpdateMessage failed", "platform", w.platform.Name(), "style", w.style, "error", err)
@@ -665,7 +665,7 @@ func (w *compactProgressWriter) Finalize(state ProgressCardState) bool {
 		return w.content != ""
 	}
 	callCtx, cancel := w.withAPITimeout()
-	err := w.updater.UpdateMessage(callCtx, w.handle, w.content)
+	err := authorizedOutput(callCtx, func() error { return w.updater.UpdateMessage(callCtx, w.handle, w.content) })
 	cancel()
 	if err != nil {
 		slog.Warn("progress writer: Finalize UpdateMessage failed", "platform", w.platform.Name(), "style", w.style, "error", err)
@@ -720,6 +720,7 @@ func (w *compactProgressWriter) payload() string {
 func (w *compactProgressWriter) mirrorWriter() *compactProgressWriter {
 	if w.mirror == nil && w.mirrorFor != nil {
 		if w.mirror = w.mirrorFor(); w.mirror != nil {
+			w.mirror.ctx = w.ctx
 			w.mirrorFor = nil
 			w.moveToMirror()
 		}
@@ -748,7 +749,7 @@ func (w *compactProgressWriter) moveToMirror() {
 			return
 		}
 		callCtx, cancel := w.withAPITimeout()
-		err := cleaner.DeletePreviewMessage(callCtx, w.handle)
+		err := authorizedOutput(callCtx, func() error { return cleaner.DeletePreviewMessage(callCtx, w.handle) })
 		cancel()
 		if err != nil {
 			slog.Warn("progress writer: taking the card down for its thread copy failed", "platform", w.platform.Name(), "error", err)

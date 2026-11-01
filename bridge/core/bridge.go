@@ -57,9 +57,11 @@ type bridgeAdapter struct {
 
 // bridgeReplyCtx carries the information needed to route replies back to the adapter.
 type bridgeReplyCtx struct {
-	Platform   string `json:"platform"`
-	SessionKey string `json:"session_key"`
-	ReplyCtx   string `json:"reply_ctx"`
+	// Live provenance is never serialized or reconstructed from a reply handle.
+	inboundAdapter *bridgeAdapter
+	Platform       string `json:"platform"`
+	SessionKey     string `json:"session_key"`
+	ReplyCtx       string `json:"reply_ctx"`
 
 	progressStyle               string `json:"-"`
 	supportsProgressCardPayload bool   `json:"-"`
@@ -106,17 +108,21 @@ type bridgeRegister struct {
 }
 
 type bridgeMessage struct {
-	Type       string            `json:"type"`
-	MsgID      string            `json:"msg_id"`
-	SessionKey string            `json:"session_key"`
-	UserID     string            `json:"user_id"`
-	UserName   string            `json:"user_name,omitempty"`
-	Content    string            `json:"content"`
-	ReplyCtx   string            `json:"reply_ctx"`
-	Project    string            `json:"project,omitempty"`
-	Images     []bridgeImageData `json:"images,omitempty"`
-	Files      []bridgeFileData  `json:"files,omitempty"`
-	Audio      *bridgeAudioData  `json:"audio,omitempty"`
+	FromBot        *bool             `json:"from_bot,omitempty"`
+	Mentioned      bool              `json:"mentioned,omitempty"`
+	Direct         bool              `json:"direct,omitempty"`
+	AddressedOther bool              `json:"addressed_other,omitempty"`
+	Type           string            `json:"type"`
+	MsgID          string            `json:"msg_id"`
+	SessionKey     string            `json:"session_key"`
+	UserID         string            `json:"user_id"`
+	UserName       string            `json:"user_name,omitempty"`
+	Content        string            `json:"content"`
+	ReplyCtx       string            `json:"reply_ctx"`
+	Project        string            `json:"project,omitempty"`
+	Images         []bridgeImageData `json:"images,omitempty"`
+	Files          []bridgeFileData  `json:"files,omitempty"`
+	Audio          *bridgeAudioData  `json:"audio,omitempty"`
 }
 
 type bridgeCardAction struct {
@@ -319,6 +325,18 @@ var (
 )
 
 func (bp *BridgePlatform) Name() string { return "bridge" }
+
+func (bp *BridgePlatform) AuthenticatedMessageSource(msg *Message) (string, bool) {
+	rc, ok := msg.ReplyCtx.(*bridgeReplyCtx)
+	if !ok || rc.inboundAdapter == nil {
+		return msg.Platform, false
+	}
+	a := rc.inboundAdapter
+	bp.server.mu.RLock()
+	defer bp.server.mu.RUnlock()
+	return a.platform, a.server == bp.server && bp.server.token != "" &&
+		bp.server.adapters[a.platform] == a && msg.Platform == a.platform && rc.SessionKey == msg.SessionKey
+}
 
 func (bp *BridgePlatform) Start(handler MessageHandler) error {
 	bp.handler = handler
@@ -892,13 +910,22 @@ func (a *bridgeAdapter) handleMessage(raw json.RawMessage) {
 	}
 
 	msg := &Message{
-		SessionKey: m.SessionKey,
-		Platform:   a.platform,
-		MessageID:  m.MsgID,
-		UserID:     m.UserID,
-		UserName:   m.UserName,
-		Content:    m.Content,
-		ReplyCtx:   newBridgeReplyCtx(a, m.SessionKey, m.ReplyCtx),
+		SessionKey:     m.SessionKey,
+		Platform:       a.platform,
+		MessageID:      m.MsgID,
+		UserID:         m.UserID,
+		UserName:       m.UserName,
+		Content:        m.Content,
+		ReplyCtx:       newBridgeReplyCtx(a, m.SessionKey, m.ReplyCtx),
+		Mentioned:      m.Mentioned,
+		Direct:         m.Direct,
+		AddressedOther: m.AddressedOther,
+	}
+	// Older adapters omit actor classification; their existing chat path is
+	// preserved, but omission must not attest a human for proactive admission.
+	if m.FromBot != nil {
+		msg.FromBot = *m.FromBot
+		msg.ReplyCtx.(*bridgeReplyCtx).inboundAdapter = a
 	}
 
 	for _, img := range m.Images {
