@@ -30,7 +30,7 @@ var (
 )
 
 const (
-	turnResumeStopNoProgress = "重启后续做两次无进展，已停，需要人看"   // item 19
+	turnResumeStopNoProgress = "重启后续做两次无进展，已停，需要人看"     // item 19
 	turnResumeStopTooOld     = "这件活中断超过两小时，没有自动续做，需要人看" // item 19
 	turnResumeNotice         = "🔁 桥重启打断了上一轮，接着做"
 )
@@ -92,6 +92,9 @@ type turnResumeEnv struct {
 	timerWillRerun func(jobID string) bool
 	// repliedBetween: the entry's session got an assistant reply in [from, to).
 	repliedBetween func(en TurnJournalEntry, from, to time.Time) bool
+	// watchStopped: the assignment this turn worked on was stopped (closed, or given up
+	// after repeated failures); returns the watch title, or "".
+	watchStopped func(en TurnJournalEntry) string
 }
 
 // planTurnResumes decides, for the entries an earlier process left, what to do
@@ -117,6 +120,10 @@ func planTurnResumes(entries []TurnJournalEntry, env turnResumeEnv) []turnResume
 			plans = append(plans, turnResumePlan{entry: en, action: turnResumeDrop, reason: "heartbeat"})
 		case superseded[en.TurnID]:
 			plans = append(plans, turnResumePlan{entry: en, action: turnResumeDrop, reason: "superseded by its resume"})
+		case env.watchStopped != nil && env.watchStopped(en) != "":
+			// A stop applies to every resume path, the restart resume included (user 2026-11-01:
+			// a stopped assignment came back after a bridge restart).
+			plans = append(plans, turnResumePlan{entry: en, action: turnResumeDrop, reason: "assignment stopped: " + env.watchStopped(en)})
 		default:
 			candidates = append(candidates, en)
 		}
@@ -251,6 +258,7 @@ func (e *Engine) ResumeInterruptedTurns() {
 		startTime:      StartTime,
 		timerWillRerun: e.timerWillRerun,
 		repliedBetween: e.repliedBetween,
+		watchStopped:   e.watchStoppedFor,
 	})
 	var deliveries []TurnJournalEntry
 	for _, p := range plans {
@@ -688,4 +696,53 @@ func (e *Engine) takeLiveRelaySessions() []AgentSession {
 	}
 	e.relaySessions.list = nil
 	return out
+}
+
+// watchStoppedFor returns the title of a stopped watch this interrupted turn belongs to, or "".
+// A watch is stopped when it was closed (the user or the primary role stopped it) or when it
+// gave up after repeated failures. The turn belongs to it when the turn's message is the
+// watch's wake (it carries the title), or when the watch is this role's and stopped after the
+// turn began. A newer open watch with the same title means the work was handed out again.
+func (e *Engine) watchStoppedFor(en TurnJournalEntry) string {
+	if e.dataDir == "" || en.InteractiveKey == "" {
+		return ""
+	}
+	key := teamChatKey(en.InteractiveKey)
+	plat, _, _ := strings.Cut(key, ":")
+	p := e.lookupReadyPlatform(plat)
+	mine := func(owner string) bool {
+		if owner == e.name || owner == e.DisplayName() {
+			return true
+		}
+		return p != nil && owner != "" && e.watchOwns(p, owner)
+	}
+	teamWorkspaceStore.mu.Lock()
+	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	var list []TeamHandoff
+	list = append(list, st.ScriptWatches[key]...)
+	for _, h := range st.Handoffs[key] {
+		if h.Idle.Reported && !h.Idle.Returned {
+			list = append(list, h) // a workspace handoff that gave up; normal closes are returns
+		}
+	}
+	reopened := map[string]bool{}
+	for _, h := range st.ScriptWatches[key] {
+		if teamHandoffOpen(h) && !h.Idle.Reported {
+			reopened[h.Title] = true
+		}
+	}
+	teamWorkspaceStore.mu.Unlock()
+	for _, h := range list {
+		stop := h.Closed
+		if stop.IsZero() && h.Idle.Reported {
+			stop = h.Idle.Ended
+		}
+		if stop.IsZero() || h.Title == "" || reopened[h.Title] {
+			continue
+		}
+		if strings.Contains(en.LastUserMessage, h.Title) || mine(h.Owner) && stop.After(en.StartedAt) {
+			return h.Title
+		}
+	}
+	return ""
 }

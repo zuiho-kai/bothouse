@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	ccconnect "github.com/chenhg5/cc-connect"
 	"github.com/chenhg5/cc-connect/config"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -152,7 +153,15 @@ func TestSetupHelperProcess(t *testing.T) {
 
 func helper(t *testing.T, mode string, env []string, args ...string) *exec.Cmd {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestSetupHelperProcess$")
-	cmd.Env = append(os.Environ(), append(env, "CONEST_TEST_HELPER="+mode, "CONEST_TEST_ARGS="+strings.Join(args, "\x1f"))...)
+	var base []string
+	for _, kv := range os.Environ() {
+		// The bridge gives agents BOTHOUSE_DATA_DIR / CC_DATA_DIR; a test HOME alone does
+		// not override them, so the helper would write the live data dir (2026-11-01).
+		if k, _, _ := strings.Cut(kv, "="); k != ccconnect.DataDirEnv && k != "CC_DATA_DIR" {
+			base = append(base, kv)
+		}
+	}
+	cmd.Env = append(base, append(env, "CONEST_TEST_HELPER="+mode, "CONEST_TEST_ARGS="+strings.Join(args, "\x1f"))...)
 	return cmd
 }
 

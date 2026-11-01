@@ -641,8 +641,20 @@ func (s *APIServer) handleTeamIdleWatch(w http.ResponseWriter, r *http.Request) 
 	var found *TeamHandoff
 	for i := range st.ScriptWatches[key] {
 		h := &st.ScriptWatches[key][i]
-		if h.Owner == req.Owner && h.Sender == req.Project && h.At.Equal(at) {
+		// since is whole seconds; a watch registered by the bridge itself keeps sub-second time,
+		// so an exact Equal never matched it and close answered "not registered" (2026-11-01).
+		if h.Owner == req.Owner && h.Sender == req.Project && h.At.Unix() == at.Unix() {
 			found = h
+		}
+	}
+	if found == nil && req.Action == "close" {
+		// Stopping an assignment must not depend on the caller knowing its start second:
+		// close every open watch of this role from this sender in the channel.
+		for i := range st.ScriptWatches[key] {
+			if h := &st.ScriptWatches[key][i]; h.Owner == req.Owner && h.Sender == req.Project && h.Closed.IsZero() {
+				h.Closed = time.Now()
+				found = h
+			}
 		}
 	}
 	if found == nil && req.Action == "register" {
