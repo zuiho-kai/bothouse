@@ -40,19 +40,20 @@ const turnJournalMaxUserMessage = 2000 // runes
 
 // TurnJournalEntry is the on-disk record of one running turn.
 type TurnJournalEntry struct {
-	TurnID          string    `json:"turn_id"`
-	Kind            string    `json:"kind,omitempty"` // TurnKind*; "" reads as TurnKindTurn
-	Project         string    `json:"project"`
-	SessionKey      string    `json:"session_key"`
-	InteractiveKey  string    `json:"interactive_key"`
-	WorkspaceDir    string    `json:"workspace_dir,omitempty"`
-	Platform        string    `json:"platform,omitempty"`
-	Trigger         string    `json:"trigger"`
-	AgentSessionID  string    `json:"agent_session_id,omitempty"`
-	AgentPID        int       `json:"agent_pid,omitempty"`
-	AgentPGID       int       `json:"agent_pgid,omitempty"`
-	LastUserMessage string    `json:"last_user_message,omitempty"`
-	StartedAt       time.Time `json:"started_at"`
+	Authorization   *AuthorizationTurn `json:"authorization,omitempty"`
+	TurnID          string             `json:"turn_id"`
+	Kind            string             `json:"kind,omitempty"` // TurnKind*; "" reads as TurnKindTurn
+	Project         string             `json:"project"`
+	SessionKey      string             `json:"session_key"`
+	InteractiveKey  string             `json:"interactive_key"`
+	WorkspaceDir    string             `json:"workspace_dir,omitempty"`
+	Platform        string             `json:"platform,omitempty"`
+	Trigger         string             `json:"trigger"`
+	AgentSessionID  string             `json:"agent_session_id,omitempty"`
+	AgentPID        int                `json:"agent_pid,omitempty"`
+	AgentPGID       int                `json:"agent_pgid,omitempty"`
+	LastUserMessage string             `json:"last_user_message,omitempty"`
+	StartedAt       time.Time          `json:"started_at"`
 	// ResumedFrom is the TurnID of the interrupted turn this one continues
 	// (empty for an original turn); following it gives the resume chain.
 	ResumedFrom string `json:"resumed_from,omitempty"`
@@ -419,6 +420,7 @@ func (e *Engine) journalTurnBegin(msg *Message, interactiveKey, workspaceDir str
 		return ""
 	}
 	en := TurnJournalEntry{
+		Authorization:   msg.authorization,
 		Project:         e.name,
 		SessionKey:      msg.SessionKey,
 		InteractiveKey:  interactiveKey,
@@ -492,6 +494,7 @@ func (e *Engine) journalQueuedTurn(q *queuedMessage, interactiveKey, workspaceDi
 	if id := j.Active(interactiveKey); id != "" {
 		ok, err := j.Update(id, func(en *TurnJournalEntry) {
 			en.LastUserMessage = q.content
+			en.Authorization = q.authorization
 			en.StartedAt = now
 			en.Trigger = queuedTurnTrigger(q)
 			en.SessionKey = q.msgSessionKey
@@ -519,6 +522,7 @@ func (e *Engine) journalQueuedTurn(q *queuedMessage, interactiveKey, workspaceDi
 		}
 	}
 	en := TurnJournalEntry{
+		Authorization:   q.authorization,
 		Project:         e.name,
 		SessionKey:      q.msgSessionKey,
 		InteractiveKey:  interactiveKey,

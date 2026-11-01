@@ -41,11 +41,12 @@ const turnResumeSummaryRunes = 40
 // turnResumeDelivery rides on the TimerJob a resume is delivered through
 // (ExecuteTimerJob): it turns the job's message into the resumed turn.
 type turnResumeDelivery struct {
-	resumedFrom string // TurnID of the entry this continues (removed when the new one is written)
-	trigger     string // the interrupted turn's trigger, kept
-	timerJobID  string
-	noProgress  int    // the chain's no-progress count, this resume included
-	fallback    string // prompt for a fresh session if the resumed one errors at once (S1)
+	authorization *AuthorizationTurn
+	resumedFrom   string // TurnID of the entry this continues (removed when the new one is written)
+	trigger       string // the interrupted turn's trigger, kept
+	timerJobID    string
+	noProgress    int    // the chain's no-progress count, this resume included
+	fallback      string // prompt for a fresh session if the resumed one errors at once (S1)
 }
 
 // turnResumeHooks lets tests replace delivery, channel notices and reaping.
@@ -132,11 +133,11 @@ func planTurnResumes(entries []TurnJournalEntry, env turnResumeEnv) []turnResume
 	sort.SliceStable(candidates, func(a, b int) bool { return candidates[a].StartedAt.Before(candidates[b].StartedAt) })
 	newest := map[string]int{} // interactive key -> index in candidates
 	for i, en := range candidates {
-		newest[en.InteractiveKey] = i
+		newest[turnAuthorizationGroup(en)] = i
 	}
 	folded := map[int][]string{}
 	for i, en := range candidates {
-		if n := newest[en.InteractiveKey]; n != i {
+		if n := newest[turnAuthorizationGroup(en)]; n != i {
 			if en.LastUserMessage != "" {
 				folded[n] = append(folded[n], en.LastUserMessage)
 			}
@@ -145,7 +146,7 @@ func planTurnResumes(entries []TurnJournalEntry, env turnResumeEnv) []turnResume
 		}
 	}
 	for i, en := range candidates {
-		if newest[en.InteractiveKey] != i {
+		if newest[turnAuthorizationGroup(en)] != i {
 			continue
 		}
 		if f := folded[i]; len(f) > 0 {
@@ -418,6 +419,10 @@ func (e *Engine) deliverTurnResume(en TurnJournalEntry) {
 		}
 		return
 	}
+	if err := e.checkTurnAuthorization(en.Authorization, "task.resume"); err != nil {
+		slog.Warn("turn resume: authorization denied after orphan cleanup", "turn", en.TurnID, "error", err)
+		return
+	}
 	resumable := agentResumesSessions(en.AgentType) && e.restoreResumeSession(en)
 	prompt := buildTurnResumePrompt(en, !resumable)
 	fallback := ""
@@ -436,11 +441,12 @@ func (e *Engine) deliverTurnResume(en TurnJournalEntry) {
 		Handoff:     en.Trigger == TurnTriggerWorkspace,
 		CreatedAt:   time.Now(),
 		resume: &turnResumeDelivery{
-			resumedFrom: en.TurnID,
-			trigger:     en.Trigger,
-			timerJobID:  en.TimerJobID,
-			noProgress:  en.NoProgressCount + 1, // #16: carried on the chain; only progress clears it
-			fallback:    fallback,
+			authorization: en.Authorization,
+			resumedFrom:   en.TurnID,
+			trigger:       en.Trigger,
+			timerJobID:    en.TimerJobID,
+			noProgress:    en.NoProgressCount + 1, // #16: carried on the chain; only progress clears it
+			fallback:      fallback,
 		},
 	}
 	if !e.multiWorkspace && en.WorkspaceDir != "" {
@@ -453,6 +459,10 @@ func (e *Engine) deliverTurnResume(en TurnJournalEntry) {
 	}
 	noticed := false
 	for {
+		if err := e.checkTurnAuthorization(en.Authorization, "task.resume"); err != nil {
+			slog.Warn("turn resume: authorization changed before delivery", "turn", en.TurnID, "error", err)
+			return
+		}
 		if !noticed && e.turnResumeHooks.deliver == nil {
 			if err := e.turnResumeNotify(en, turnResumeNotice); err != nil {
 				slog.Debug("turn resume: notice failed", "turn", en.TurnID, "error", err)

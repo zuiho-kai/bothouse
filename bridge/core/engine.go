@@ -618,7 +618,8 @@ type workspaceInitFlow struct {
 // The message is NOT sent to agent stdin at queue time; the event loop
 // sends it after the current turn completes to avoid mid-turn interference.
 type queuedMessage struct {
-	turnTrigger string // #618 K1: Message.turnTrigger, kept across the queue
+	authorization *AuthorizationTurn
+	turnTrigger   string // #618 K1: Message.turnTrigger, kept across the queue
 	// #618 K4: Message.resumedFrom/timerJobID/resumeNoProgress/resumeFallback, kept across the queue.
 	resumedFrom       string
 	timerJobID        string
@@ -653,6 +654,7 @@ type queuedMessage struct {
 
 // interactiveState tracks a running interactive agent session and its permission state.
 type interactiveState struct {
+	authorization *AuthorizationTurn
 	// #618 K4 S1: resumeArmed is set while a resumed turn has not yet shown it
 	// works (no tool step, no first result); resumeFailed holds the error its
 	// first result was, and resumeFailedQueued the queued message that turn ran
@@ -2236,6 +2238,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		msg.timerJobID = r.timerJobID
 		msg.resumeNoProgress = r.noProgress
 		msg.resumeFallback = r.fallback
+		msg.authorization = r.authorization
 		msg.boardLabel = "♻️ " + boardJobDesc(job.Description, job.Prompt, job.Exec)
 	}
 
@@ -3474,6 +3477,10 @@ func (e *Engine) SetPaused(v bool) {
 }
 
 func (e *Engine) handleMessage(p Platform, msg *Message) {
+	if err := e.checkTurnAuthorization(msg.authorization, "task.resume"); err != nil {
+		slog.Warn("message authorization denied", "error", err)
+		return
+	}
 	if e.IsPaused() {
 		return
 	}
@@ -3932,6 +3939,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		state.queuedBehindCompact = true
 	}
 	q := queuedMessage{
+		authorization:       msg.authorization,
 		messageID:           msg.MessageID,
 		platform:            p,
 		replyCtx:            msg.ReplyCtx,
@@ -4234,7 +4242,7 @@ found:
 		// All questions answered — build response and resolve
 		updatedInput := buildAskQuestionResponse(pending.ToolInput, pending.Questions, pending.Answers)
 
-		if err := as.RespondPermission(pending.RequestID, PermissionResult{
+		if err := e.respondTurnPermission(state, as, pending.RequestID, PermissionResult{
 			Behavior:     "allow",
 			UpdatedInput: updatedInput,
 		}); err != nil {
@@ -4258,7 +4266,7 @@ found:
 		state.approveAll = true
 		state.mu.Unlock()
 
-		if err := as.RespondPermission(pending.RequestID, PermissionResult{
+		if err := e.respondTurnPermission(state, as, pending.RequestID, PermissionResult{
 			Behavior:     "allow",
 			UpdatedInput: pending.ToolInput,
 		}); err != nil {
@@ -4268,7 +4276,7 @@ found:
 			e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPermissionApproveAll))
 		}
 	} else if isAllowResponse(lower) {
-		if err := as.RespondPermission(pending.RequestID, PermissionResult{
+		if err := e.respondTurnPermission(state, as, pending.RequestID, PermissionResult{
 			Behavior:     "allow",
 			UpdatedInput: pending.ToolInput,
 		}); err != nil {
@@ -4278,7 +4286,7 @@ found:
 			e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPermissionAllowed))
 		}
 	} else if isDenyResponse(lower) {
-		if err := as.RespondPermission(pending.RequestID, PermissionResult{
+		if err := e.respondTurnPermission(state, as, pending.RequestID, PermissionResult{
 			Behavior: "deny",
 			Message:  "User denied this tool use.",
 		}); err != nil {
@@ -4548,6 +4556,11 @@ func (e *Engine) processInteractiveMessage(p Platform, msg *Message, session *Se
 // and workspaceDir so that multi-workspace mode can route to per-workspace agents.
 // ccSessionKey, when non-empty, is used for CC_SESSION_KEY in the agent env; otherwise interactiveKey is used.
 func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session *Session, agent Agent, sessions *SessionManager, interactiveKey string, workspaceDir string, ccSessionKey string) {
+	if err := e.checkTurnAuthorization(msg.authorization, "task.resume"); err != nil {
+		session.Unlock()
+		slog.Warn("queued turn authorization denied", "error", err)
+		return
+	}
 	if e.IsPaused() {
 		session.Unlock()
 		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("engine %q is paused", e.name)})
@@ -4646,6 +4659,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		state.recallProbeInFlight = false
 	}
 	state.platform = p
+	state.authorization = msg.authorization
 	state.replyCtx = msg.ReplyCtx
 	state.injectedReplyCtxs = nil
 	state.currentMessageID = msg.MessageID
@@ -4766,6 +4780,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			func() {
 				state.mu.Lock()
 				state.externalTaskInput = msg.externalInput
+				state.authorization = msg.authorization
 				state.mu.Unlock()
 				attemptPrompt = e.withPublicProgress(promptContent, state, msg.SessionKey, msg.FromBot, msg.FromVoice || msg.inputTurn != nil)
 			},
@@ -4773,6 +4788,9 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 				if as == nil {
 					session.SettleHandoff(false)
 					return fmt.Errorf("agent session became nil")
+				}
+				if err := e.checkTurnAuthorization(msg.authorization, "task.resume"); err != nil {
+					return err
 				}
 				if msg.externalInput != nil {
 					if err := msg.externalInput.beforeSend(); err != nil {
@@ -5872,7 +5890,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 						return
 					default:
 					}
-					if err := agentSession.RespondPermission(reqID, result); err != nil {
+					if err := e.respondTurnPermission(state, agentSession, reqID, result); err != nil {
 						if respondCtx.Err() == nil {
 							slog.Error("unsolicited: failed to respond permission", "error", err)
 						}
@@ -6751,7 +6769,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 			if autoApprove && !isAskQuestion {
 				slog.Debug("auto-approving (approve-all)", "request_id", event.RequestID, "tool", event.ToolName)
-				_ = state.agentSession.RespondPermission(event.RequestID, PermissionResult{
+				_ = e.respondTurnPermission(state, state.agentSession, event.RequestID, PermissionResult{
 					Behavior:     "allow",
 					UpdatedInput: event.ToolInputRaw,
 				})
@@ -7364,6 +7382,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				raw := queued                          // maomao fork: raw copy (content not yet expanded), put back if this turn hits capacity
 				chainedQueued = &raw
 				remainingQueue := len(state.pendingMessages)
+				state.authorization = queued.authorization
 				state.platform = queued.platform
 				state.replyCtx = queued.replyCtx
 				state.injectedReplyCtxs = nil
@@ -7430,7 +7449,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						nextSend <- fmt.Errorf("agent session became nil")
 						return
 					}
-					err := as.Send(queuedPrompt, queued.messageID, queued.images, queued.files)
+					err := e.checkTurnAuthorization(queued.authorization, "task.resume")
+					if err == nil {
+						err = as.Send(queuedPrompt, queued.messageID, queued.images, queued.files)
+					}
 					session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
 					nextSend <- err
 				}()
@@ -7886,6 +7908,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 			return true
 		}
 		queued := takeQueuedBatchLocked(state) // a burst from one sender runs as one turn
+		state.authorization = queued.authorization
 		state.platform = queued.platform
 		state.replyCtx = queued.replyCtx
 		state.injectedReplyCtxs = nil
@@ -7951,7 +7974,10 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 					session.SettleHandoff(false)
 					return fmt.Errorf("agent session became nil")
 				}
-				err := as.Send(attemptPrompt, queued.messageID, queued.images, queued.files)
+				err := e.checkTurnAuthorization(queued.authorization, "task.resume")
+				if err == nil {
+					err = as.Send(attemptPrompt, queued.messageID, queued.images, queued.files)
+				}
 				session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
 				return err
 			},
@@ -12363,7 +12389,7 @@ func (e *Engine) processCompressEvents(state *interactiveState, session *Session
 			}
 			return
 		case EventPermissionRequest:
-			_ = state.agentSession.RespondPermission(event.RequestID, PermissionResult{
+			_ = e.respondTurnPermission(state, state.agentSession, event.RequestID, PermissionResult{
 				Behavior:     "allow",
 				UpdatedInput: event.ToolInputRaw,
 			})
