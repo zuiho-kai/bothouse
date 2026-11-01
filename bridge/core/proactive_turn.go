@@ -44,6 +44,16 @@ type AuthorizationTurn struct {
 
 // Record the backend actually receiving the turn without changing its source
 // identity or session. Workspace selection does not create another grant.
+func (e *Engine) recordTurnAgent(ref *AuthorizationTurn, agent Agent) error {
+	if ref == nil {
+		return nil
+	}
+	if agent == nil {
+		return ErrAuthorizationDenied
+	}
+	return e.recordTurnBackend(ref, agent.Name())
+}
+
 func (e *Engine) recordTurnBackend(ref *AuthorizationTurn, backend string) error {
 	if ref == nil {
 		return nil

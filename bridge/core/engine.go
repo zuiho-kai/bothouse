@@ -4813,7 +4813,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 					session.SettleHandoff(false)
 					return fmt.Errorf("agent session became nil")
 				}
-				if err := e.recordTurnBackend(msg.authorization, agent.Name()); err != nil {
+				if err := e.recordTurnAgent(msg.authorization, agent); err != nil {
 					return err
 				}
 				if msg.externalInput != nil {
@@ -7545,7 +7545,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						nextSend <- fmt.Errorf("agent session became nil")
 						return
 					}
-					err := e.recordTurnBackend(queued.authorization, replyAgent.Name())
+					err := e.recordTurnAgent(queued.authorization, replyAgent)
 					if err == nil {
 						err = as.Send(queuedPrompt, queued.messageID, queued.images, queued.files)
 					}
@@ -8073,13 +8073,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 					session.SettleHandoff(false)
 					return fmt.Errorf("agent session became nil")
 				}
-				var err error
-				if queued.authorization != nil {
-					if queuedAgent == nil {
-						return ErrAuthorizationDenied
-					}
-					err = e.recordTurnBackend(queued.authorization, queuedAgent.Name())
-				}
+				err := e.recordTurnAgent(queued.authorization, queuedAgent)
 				if err == nil {
 					err = as.Send(attemptPrompt, queued.messageID, queued.images, queued.files)
 				}

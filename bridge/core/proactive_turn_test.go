@@ -228,3 +228,13 @@ func TestProactiveLiveTurnInvalidationPreservesExplicitQueue(t *testing.T) {
 		})
 	}
 }
+
+func TestProactiveBackendMissingAgentOnlyRejectsAuthorizedTurn(t *testing.T) {
+	e := &Engine{}
+	if err := e.recordTurnAgent(nil, nil); err != nil {
+		t.Fatal("ordinary preexisting session needs no grant", err)
+	}
+	if err := e.recordTurnAgent(&AuthorizationTurn{TaskID: "task", DecisionID: "decision"}, nil); err != ErrAuthorizationDenied {
+		t.Fatalf("missing authorized backend: %v", err)
+	}
+}
