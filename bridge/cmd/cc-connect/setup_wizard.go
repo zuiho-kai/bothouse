@@ -518,6 +518,10 @@ func runSetup(args []string) {
 	}
 }
 
+// wizardCLIs: the local CLIs the apply path plans with; nil = detect what this machine has.
+// Tests set it so the result does not depend on which agent CLI the test machine has.
+var wizardCLIs []core.LocalCLI
+
 // wizardApplyCLI applies one wizard request. `setup apply` and `module add` (module.go) both come
 // through here, so the two write the same way and print the same result JSON.
 func wizardApplyCLI(req core.WizardRequest, configFile string) (*core.WizardResult, error) {
@@ -543,7 +547,7 @@ func wizardApplyCLI(req core.WizardRequest, configFile string) (*core.WizardResu
 		dataDir = cfg.DataDir
 		wikiSub = subWikiScript(cfg)
 	}
-	env := core.WizardEnv{Store: store, DataDir: dataDir, AlwaysWriteCmd: true, WikiSubScript: wikiSub}
+	env := core.WizardEnv{Store: store, DataDir: dataDir, AlwaysWriteCmd: true, WikiSubScript: wikiSub, CLIs: wizardCLIs}
 	if sock := resolveSocketPath(dataDir); !req.DryRun && fileExistsCmd(sock) && instanceRunning(config.ConfigPath) {
 		env.Cron = socketCron{sock} // the running cc-connect owns the job file: add through it
 	}

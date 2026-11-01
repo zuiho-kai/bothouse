@@ -46,9 +46,13 @@ func fakeNapCat(t *testing.T, token string) string {
 }
 
 // moduleTestConfig writes a config.toml whose data_dir is the temp dir (nothing the apply writes
-// lands in the real ~/.bothouse) and points config.ConfigPath at it.
+// lands in the real ~/.bothouse) and points config.ConfigPath at it. It also stands in for a
+// logged-in agent CLI, so the result does not depend on what this machine has installed.
 func moduleTestConfig(t *testing.T) string {
 	t.Helper()
+	oldCLIs := wizardCLIs
+	wizardCLIs = []core.LocalCLI{{AgentType: "claudecode", Label: "Claude Code", Supported: true, Login: "logged_in"}}
+	t.Cleanup(func() { wizardCLIs = oldCLIs })
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	body := "data_dir = \"" + filepath.ToSlash(dir) + "\"\n"
@@ -166,8 +170,8 @@ func TestModuleAddQQConfigures(t *testing.T) {
 	if res.QQ == nil || res.QQ.Code != "ok" || res.QQ.UserID != "3889000001" {
 		t.Fatalf("qq test result: %+v", res.QQ)
 	}
-	if res.OK != (code == 0) {
-		t.Fatalf("exit code %d does not follow ok=%v", code, res.OK)
+	if !res.OK || code != 0 {
+		t.Fatalf("ok=%v exit code %d, warnings=%+v", res.OK, code, res.Warnings)
 	}
 	cfg, err := config.LoadPermissive(path)
 	if err != nil {
