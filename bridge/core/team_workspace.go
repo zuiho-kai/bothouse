@@ -1187,7 +1187,8 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 			}
 		}
 	}
-	if wait := worker.capacityWait(worker.admissionQuotaScope(worker.agent, chat, wsID)); wait > 0 {
+	platform, _, _ := strings.Cut(chat, ":")
+	if wait := worker.capacityWait(worker.admissionQuotaScope(worker.agent, chat, platform+":"+wsID)); wait > 0 {
 		slog.Warn("team workspace claim: project model cooling, task not handed off",
 			"chat", chat, "workspace", wsID, "project", worker.name, "cooling_for", wait)
 		return fmt.Errorf("team workspace claim: %s → %s: %w (resets in %s)",

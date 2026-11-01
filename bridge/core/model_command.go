@@ -190,7 +190,7 @@ type ModelSwitchResult struct {
 
 // QueueModelSwitch validates the request and queues it for the session's next turn.
 func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort string, auto bool) ModelSwitchResult {
-	agent := e.agent
+	agent, _ := e.sessionContextForKey(sessionKey)
 	if auto {
 		if e.tiers == nil {
 			return ModelSwitchResult{Message: "this bot has no automatic model tiers configured"}
@@ -266,7 +266,11 @@ func (e *Engine) queueSwitch(key string, p pendingModelSwitch) {
 // applyPendingSwitch runs before an idle turn starts. keys: the session's interactive key and
 // its session key (CC_SESSION_KEY may be either).
 func (e *Engine) applyPendingSwitch(interactiveKey string, keys ...string) {
-	_ = e.applyPendingSwitchOnAgent(e.agent, interactiveKey, keys...)
+	agent, _ := e.sessionContextForKey(interactiveKey)
+	if len(keys) > 0 {
+		agent, _ = e.sessionContextForKey(keys[len(keys)-1])
+	}
+	_ = e.applyPendingSwitchOnAgent(agent, interactiveKey, keys...)
 }
 
 func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, keys ...string) error {

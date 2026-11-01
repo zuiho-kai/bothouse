@@ -15,6 +15,14 @@ import (
 // admissionQuotaScope checks the requested target even before an idle turn can
 // apply its queued switch. It does not mutate a running conversation.
 func (e *Engine) admissionQuotaScope(agent Agent, keys ...string) quotaScope {
+	if agent == e.agent {
+		for i := len(keys) - 1; i >= 0; i-- {
+			if keys[i] != "" {
+				agent, _ = e.sessionContextForKey(keys[i])
+				break
+			}
+		}
+	}
 	model := modelOf(agent)
 	for _, key := range keys {
 		if m := e.sessionModelFor(key); m != "" {

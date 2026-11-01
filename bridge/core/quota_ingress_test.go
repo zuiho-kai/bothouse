@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -102,10 +103,47 @@ func TestQuotaPendingSwitchIngress(t *testing.T) {
 				t.Fatalf("queued B blocked at %s: %s", entry, strings.Join(p.getSent(), "\n"))
 			}
 			inputWait(t, func() bool { return !e.sessions.GetOrCreateActive(key).Busy() })
-			a.SetModel("A2")
+			if r := e.QueueModelSwitch(context.Background(), key, "A2", "", false); !r.OK {
+				t.Fatal(r.Message)
+			}
+			send("shared-pool")
+			inputWait(t, func() bool { return a.GetModel() == "A2" && !e.sessions.GetOrCreateActive(key).Busy() })
+			select {
+			case model := <-a.sent:
+				t.Fatalf("shared exhausted pool sent to %s", model)
+			default:
+			}
 			if e.quotaCooling().IsZero() {
 				t.Fatal("same shared pool bypassed A cooldown")
 			}
 		})
+	}
+}
+
+func TestQuotaPendingSwitchUsesWorkspaceAgent(t *testing.T) {
+	global := &quotaJourneyAgent{model: "global", sent: make(chan string, 8)}
+	e := NewEngine("quota-workspace", global, nil, "", LangEnglish)
+	e.dataDir = t.TempDir()
+	t.Cleanup(func() { e.cancel(); e.Stop() })
+	e.SetMultiWorkspace(t.TempDir(), filepath.Join(t.TempDir(), "bindings.json"))
+	workspace := normalizeWorkspacePath(t.TempDir())
+	key := "discord:workspace-quota"
+	e.workspaceBindings.Bind("project:"+e.name, "workspace-quota", "fixture", workspace)
+	ws := e.workspacePool.GetOrCreate(workspace)
+	local := &quotaJourneyAgent{model: "A", sent: make(chan string, 8)}
+	ws.agent, ws.sessions = local, NewSessionManager("")
+	e.recordQuotaFor(e.quotaScopeFor(local, "A"), time.Now().Add(time.Hour), key)
+	if r := e.QueueModelSwitch(context.Background(), key, "B", "", false); !r.OK {
+		t.Fatal(r.Message)
+	}
+	if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, key)); !until.IsZero() {
+		t.Fatal("workspace admission used old scope")
+	}
+	e.applyPendingSwitch(workspace+":"+key, key)
+	if local.GetModel() != "B" || global.GetModel() != "global" {
+		t.Fatal("switch affected wrong workspace agent")
+	}
+	if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, key)); !until.IsZero() {
+		t.Fatal("workspace target blocked after apply")
 	}
 }
