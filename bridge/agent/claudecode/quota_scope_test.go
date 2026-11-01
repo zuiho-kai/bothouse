@@ -2,11 +2,25 @@ package claudecode
 
 import (
 	"errors"
-	"os"
 	"sync"
 	"testing"
-	"time"
 )
+
+// quotaFixture replaces the CLI query and the credential stamp, and resets the
+// cache. The returned stamp pointer lets a test simulate the CLI rewriting the
+// stored credentials.
+func quotaFixture(t *testing.T) *int64 {
+	t.Helper()
+	oldAuth, oldStamp := readAuthStatus, credentialStamp
+	stamp := int64(100)
+	credentialStamp = func(string) int64 { return stamp }
+	accountCache = sync.Map{}
+	t.Cleanup(func() {
+		readAuthStatus, credentialStamp = oldAuth, oldStamp
+		accountCache = sync.Map{}
+	})
+	return &stamp
+}
 
 func TestQuotaScopeCredentialSource(t *testing.T) {
 	a := &Agent{activeIdx: -1, configEnv: []string{"ANTHROPIC_API_KEY=fixture-a"}}
@@ -25,28 +39,22 @@ func TestQuotaScopeCredentialSource(t *testing.T) {
 	}
 }
 
-// TestQuotaScope_SameDirectoryAccountSwitchChangesIdentity is the regression for
-// the reported gap: the user swapped the Claude account and stayed blocked by the
-// old account's cooldown because only the config directory identified the account.
+// TestQuotaScope_SameDirectoryAccountSwitchChangesIdentity is the reported bug:
+// the user swapped the Claude account and stayed blocked by the old account's
+// cooldown because only the config directory identified the account.
 func TestQuotaScope_SameDirectoryAccountSwitchChangesIdentity(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	stamp := quotaFixture(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	old := readAuthStatus
-	accountCache = sync.Map{}
-	t.Cleanup(func() { readAuthStatus = old; accountCache = sync.Map{} })
 	a := &Agent{activeIdx: -1}
 
-	first := authStatus{LoggedIn: true, AuthMethod: "claude.ai", ApiProvider: "firstParty", Email: "first@example.com", OrgID: "org-first"}
+	first := authStatus{LoggedIn: true, ApiProvider: "firstParty", Email: "first@example.com", OrgID: "org-first"}
 	readAuthStatus = func() (authStatus, error) { return first, nil }
 	scopeA, _ := a.QuotaScope("")
 
-	// Same directory, different account: the CLI rewrites its files, so the
-	// directory changes too.
-	stampDirectory(t, dir)
+	*stamp++ // the CLI rewrote the stored credentials
 	second := first
-	second.Email = "second@example.com"
-	second.OrgID = "org-second"
+	second.Email, second.OrgID = "second@example.com", "org-second"
 	readAuthStatus = func() (authStatus, error) { return second, nil }
 	scopeB, _ := a.QuotaScope("")
 
@@ -54,102 +62,110 @@ func TestQuotaScope_SameDirectoryAccountSwitchChangesIdentity(t *testing.T) {
 		t.Fatal("swapping the account in the same directory kept the old quota identity")
 	}
 
-	// Switching back must land on the first bucket again, not a third one.
-	stampDirectory(t, dir)
+	*stamp++
 	readAuthStatus = func() (authStatus, error) { return first, nil }
 	if back, _ := a.QuotaScope(""); back != scopeA {
 		t.Fatal("switching back to the first account did not restore its own identity")
 	}
 }
 
-// TestQuotaScope_TokenRefreshKeepsIdentity guards the other direction: a new
-// access token for the same account must not hand out a fresh allowance.
-func TestQuotaScope_TokenRefreshKeepsIdentity(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+// TestQuotaScope_SameAccountDifferentDirectorySharesIdentity guards the pool
+// split: pointing the CLI at another config directory does not create a second
+// allowance for the same account, so an old cooldown still applies.
+func TestQuotaScope_SameAccountDifferentDirectorySharesIdentity(t *testing.T) {
+	quotaFixture(t)
+	readAuthStatus = func() (authStatus, error) {
+		return authStatus{LoggedIn: true, ApiProvider: "firstParty", Email: "same@example.com", OrgID: "org-same"}, nil
+	}
 	t.Setenv("HOME", t.TempDir())
-	old := readAuthStatus
-	accountCache = sync.Map{}
-	t.Cleanup(func() { readAuthStatus = old; accountCache = sync.Map{} })
 	a := &Agent{activeIdx: -1}
 
-	st := authStatus{LoggedIn: true, ApiProvider: "firstParty", Email: "same@example.com", OrgID: "org-same"}
-	readAuthStatus = func() (authStatus, error) { return st, nil }
-	before, _ := a.QuotaScope("")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	first, _ := a.QuotaScope("")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	second, _ := a.QuotaScope("")
+	if first != second {
+		t.Fatal("the same account was split into two allowances by its config directory")
+	}
+}
 
-	stampDirectory(t, dir) // credentials rewritten by a refresh
-	if after, _ := a.QuotaScope(""); after != before {
-		t.Fatal("a token refresh for the same account was treated as a new account")
+// TestQuotaScope_CachedAccountIsRefreshedOnRelogin covers the missed cache: an
+// account switch must be noticed even though an entry already exists.
+func TestQuotaScope_CachedAccountIsRefreshedOnRelogin(t *testing.T) {
+	stamp := quotaFixture(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	a := &Agent{activeIdx: -1}
+	queries := 0
+	readAuthStatus = func() (authStatus, error) {
+		queries++
+		return authStatus{LoggedIn: true, ApiProvider: "firstParty", Email: "a@example.com", OrgID: "org-a"}, nil
+	}
+	before, _ := a.QuotaScope("")
+	a.QuotaScope("")
+	if queries != 1 {
+		t.Fatalf("auth status ran %d times for an unchanged account, want 1", queries)
+	}
+
+	*stamp++
+	readAuthStatus = func() (authStatus, error) {
+		queries++
+		return authStatus{LoggedIn: true, ApiProvider: "firstParty", Email: "b@example.com", OrgID: "org-b"}, nil
+	}
+	after, _ := a.QuotaScope("")
+	if queries != 2 {
+		t.Fatalf("a cached entry hid the new login: auth status ran %d times, want 2", queries)
+	}
+	if after == before {
+		t.Fatal("a cached entry kept the previous account after the user logged in again")
+	}
+}
+
+// TestQuotaScope_UnknownStampIsNotCached keeps the cache honest when the CLI's
+// credential store cannot be located at all: a stale entry must not survive.
+func TestQuotaScope_UnknownStampIsNotCached(t *testing.T) {
+	quotaFixture(t)
+	credentialStamp = func(string) int64 { return 0 }
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	a := &Agent{activeIdx: -1}
+	queries := 0
+	readAuthStatus = func() (authStatus, error) {
+		queries++
+		return authStatus{LoggedIn: true, ApiProvider: "firstParty", Email: "a@example.com", OrgID: "org-a"}, nil
+	}
+	a.QuotaScope("")
+	readAuthStatus = func() (authStatus, error) {
+		queries++
+		return authStatus{LoggedIn: true, ApiProvider: "firstParty", Email: "b@example.com", OrgID: "org-b"}, nil
+	}
+	a.QuotaScope("")
+	if queries != 2 {
+		t.Fatal("an unstamped account was cached, so a later switch could never be seen")
 	}
 }
 
 // TestQuotaScope_AuthQueryFailureDoesNotFabricateIdentity keeps a failed query
 // conservative: it must not mint a new bucket that would bypass a cooldown.
 func TestQuotaScope_AuthQueryFailureDoesNotFabricateIdentity(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	quotaFixture(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	old := readAuthStatus
-	accountCache = sync.Map{}
-	t.Cleanup(func() { readAuthStatus = old; accountCache = sync.Map{} })
 	a := &Agent{activeIdx: -1}
 
 	readAuthStatus = func() (authStatus, error) { return authStatus{}, errors.New("cli missing") }
 	failed, _ := a.QuotaScope("")
-	stampDirectory(t, dir)
 	stillFailed, _ := a.QuotaScope("")
 	if failed != stillFailed {
 		t.Fatal("a failing auth query minted a new identity on every call")
 	}
 
-	// Logged out reports no account either: same conservative bucket.
-	readAuthStatus = func() (authStatus, error) { return authStatus{LoggedIn: false, Email: "leaked@example.com"}, nil }
-	stampDirectory(t, dir)
+	// Logged out reports no account either: the same conservative bucket.
+	readAuthStatus = func() (authStatus, error) {
+		return authStatus{LoggedIn: false, Email: "leaked@example.com"}, nil
+	}
 	loggedOut, _ := a.QuotaScope("")
 	if loggedOut != failed {
 		t.Fatal("logged-out state was treated as a distinct account")
-	}
-	// The unknown bucket must not be the bare directory, or an old cooldown
-	// recorded against the directory would silently transfer.
-	if loggedOut == dir {
-		t.Fatal("unknown account fell back to the bare config directory")
-	}
-}
-
-// TestQuotaScope_CachedUntilCredentialsChange checks the query is not launched
-// per call, and is re-read when the credentials directory changes.
-func TestQuotaScope_CachedUntilCredentialsChange(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	t.Setenv("HOME", t.TempDir())
-	old := readAuthStatus
-	calls := 0
-	readAuthStatus = func() (authStatus, error) {
-		calls++
-		return authStatus{LoggedIn: true, ApiProvider: "firstParty", Email: "c@example.com", OrgID: "o"}, nil
-	}
-	accountCache = sync.Map{}
-	t.Cleanup(func() { readAuthStatus = old; accountCache = sync.Map{} })
-	a := &Agent{activeIdx: -1}
-
-	a.QuotaScope("")
-	a.QuotaScope("")
-	if calls != 1 {
-		t.Fatalf("auth status ran %d times for an unchanged account, want 1", calls)
-	}
-	stampDirectory(t, dir)
-	a.QuotaScope("")
-	if calls != 2 {
-		t.Fatalf("auth status ran %d times after the credentials changed, want 2", calls)
-	}
-}
-
-// stampDirectory moves the directory mtime forward so a rewrite is visible even
-// on filesystems with coarse timestamps.
-func stampDirectory(t *testing.T, dir string) {
-	t.Helper()
-	future := time.Now().Add(2 * time.Second)
-	if err := os.Chtimes(dir, future, future); err != nil {
-		t.Fatal(err)
 	}
 }
