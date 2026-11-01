@@ -186,6 +186,8 @@ def tool_input(name, args):
             args = {"raw": str(args)}
     if not isinstance(args, dict):
         args = {"raw": args}
+    if name == "bash" and "timeoutMs" in args:
+        args = dict(args, timeout=args["timeoutMs"])
     if name == "workflow" and "prompt" not in args:
         args = dict(args, prompt=str(args.get("script") or ""))
     if name == "str_replace_editor":
@@ -221,6 +223,8 @@ def gemini_payload(payload):
     if out["hook_event_name"] in ("PreToolUse", "PostToolUse"):
         name, inp = gemini_tool_input(payload.get("tool_name") or "", payload.get("tool_input"))
         out["tool_name"], out["tool_input"] = name, inp
+        if ev == "AfterTool":
+            out["tool_response"] = payload.get("tool_response")
     elif out["hook_event_name"] == "UserPromptSubmit":
         out["prompt"] = payload.get("prompt") or ""
     elif out["hook_event_name"] == "Stop":
@@ -254,8 +258,10 @@ def gemini_output(out, event):
     if hso.get("permissionDecision") == "deny" or d.get("decision") == "block":
         reason = hso.get("permissionDecisionReason") or d.get("reason") or "blocked by a bothouse hook"
         return json.dumps({"decision": "deny", "reason": reason}, ensure_ascii=False)
+    if hso.get("updatedInput") is not None and event in ("BeforeTool", "PreToolUse"):
+        return json.dumps({"hookSpecificOutput": {"tool_input": hso["updatedInput"]}}, ensure_ascii=False)
     ctx = hso.get("additionalContext")
-    if ctx and event in ("BeforeAgent", "AfterTool"):
+    if ctx and event in ("BeforeAgent", "AfterTool", "UserPromptSubmit", "PostToolUse"):
         return json.dumps({"hookSpecificOutput": {"additionalContext": ctx}}, ensure_ascii=False)
     return ""
 
@@ -318,7 +324,7 @@ def iflow_output(out):
 # before transcript_path.
 PROMPT_HOOKS = {"ask-only-guard"}
 # Grok's tool names in its hook payload -> Claude Code's (Grok maps Bash/Edit/Write in matchers, not in the payload)
-GROK_NAMES = {"run_terminal_command": "Bash", "search_replace": "Edit", "write": "Write"}  # hooks that read the user's latest words in PreToolUse
+GROK_NAMES = {"run_terminal_command": "Bash", "search_replace": "Edit", "write": "Write", "task": "Agent", "spawn_agent": "Agent"}  # hooks that read the user's latest words in PreToolUse
 CODEX_INJECTED = ("# AGENTS.md instructions", "<environment_context>", "<user_instructions>", "<permissions instructions>")
 TAIL_BYTES = 4 << 20  # a rollout can be large; the latest user message is near its end
 
@@ -667,6 +673,8 @@ def main():
             payload["transcript_path"] = tmp
     if OPTS["kimi"] and payload.get("tool_name") == "bash":
         payload["tool_name"] = "Bash"
+    if gemini or OPTS["codex"] or OPTS["grok"]:
+        payload["hook_cli"] = "gemini" if gemini else ("codex" if OPTS["codex"] else "grok")
     if OPTS["grok"]:  # Grok sends its own tool names (its args already match Claude Code's: command, file_path)
         payload["tool_name"] = GROK_NAMES.get(payload.get("tool_name"), payload.get("tool_name"))
     tool = payload.get("tool_name")
@@ -693,6 +701,7 @@ def main():
 
     if dsh or OPTS["dsh_global"]:
         payload["dsh"] = True
+        payload["hook_cli"] = "dsh"
         if path and payload.get("hook_event_name") == "PreToolUse":
             import importlib.util
             spec = importlib.util.spec_from_file_location("dsh_compat", os.path.join(HERE, "dsh-cc-compat.py"))
@@ -708,8 +717,8 @@ def main():
         elif OPTS["codex"] or OPTS["grok"]:  # Codex: the rollout; Grok: its session updates.jsonl
             payload["user_prompt"] = transcript_user_words(payload.get("transcript_path"))
 
-    if stop and path:
-        if sub:
+    if (stop or payload.get("hook_event_name") == "SubagentStop") and path:
+        if stop and sub:
             sys.exit(0)
         recs = wait_for_log(path, records(read_lines(path)))
         fd, tmp = tempfile.mkstemp(prefix="dsh-stop-", suffix=".jsonl")
@@ -717,6 +726,8 @@ def main():
             for r in transcript(recs, head.get("cwd") or payload.get("cwd") or ""):
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         payload["transcript_path"] = tmp
+        if not stop:
+            payload["agent_transcript_path"] = tmp
         turn = last_turn(recs)
         payload["stop_hook_active"] = bool(payload.get("stop_hook_active")) or load_state().get(sid) == turn
 
@@ -737,6 +748,15 @@ def main():
             st = load_state()
             st[sid] = turn
             write_json(STATE, st)
+    if payload.get("dsh"):
+        rewritten = json.loads(proc.stdout or "{}").get("hookSpecificOutput", {}).get("updatedInput")
+        if rewritten is not None:
+            if payload.get("tool_name") == "Bash" and "timeout" in rewritten:
+                rewritten["timeoutMs"] = rewritten.pop("timeout")
+            sys.stdout.write(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                "permissionDecision": "deny", "permissionDecisionReason":
+                "Retry this tool with the following arguments (the DSH bridge cannot rewrite input): " + json.dumps(rewritten, ensure_ascii=False)}}, ensure_ascii=False))
+            sys.exit(0)
     if OPTS["kimi"]:
         try:
             decision = json.loads(proc.stdout or "{}")

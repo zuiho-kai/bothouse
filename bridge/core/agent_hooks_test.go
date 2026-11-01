@@ -700,3 +700,33 @@ func TestSubagentCtxHookDefault(t *testing.T) {
 		t.Fatalf("codex enabled = %v", res.Enabled)
 	}
 }
+
+func TestWorkflowHooksInstalledAcrossTeamCLIs(t *testing.T) {
+	useRepoHooks(t)
+	for _, cli := range []string{"claudecode", "codex", "gemini", "grok", "dsh"} {
+		t.Run(cli, func(t *testing.T) {
+			o := AgentHookOptions{DataDir: t.TempDir(), WorkDir: t.TempDir(), CLI: cli}
+			if cli == "dsh" {
+				o.DSHHome = t.TempDir()
+				o.DSHBridge = filepath.Join(t.TempDir(), "index.js")
+				os.WriteFile(o.DSHBridge, []byte("export {}"), 0600)
+			}
+			got, err := EnableAgentHooks(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"bash-guard", "ask-only-guard", "dispatch-review-guard", "fix-claim-guard", "promise-guard", "codemap-inject", "codemap-fill"} {
+				if !slices.Contains(got.Enabled, name) {
+					t.Errorf("%s missing %s", cli, name)
+				}
+			}
+			b, err := os.ReadFile(got.SettingsFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cli == "gemini" && (strings.Contains(string(b), "SubagentStop") || !strings.Contains(string(b), "invoke_agent")) {
+				t.Fatal(string(b))
+			}
+		})
+	}
+}

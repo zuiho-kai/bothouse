@@ -57,7 +57,8 @@ def main():
     if d.get("tool_name") not in ("Agent", "Task"):
         return
     ti = d.get("tool_input") or {}
-    prompt = ti.get("prompt") or ""
+    key = "message" if d.get("hook_cli") == "codex" and "message" in ti else "prompt"
+    prompt = ti.get(key) or ""
     try:
         hits = pick(prompt)
     except OSError:
@@ -70,7 +71,7 @@ def main():
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
         "permissionDecision": "allow",
-        "updatedInput": {**ti, "prompt": note + prompt},
+        "updatedInput": {**ti, key: note + prompt},
     }}, ensure_ascii=False))
 
 

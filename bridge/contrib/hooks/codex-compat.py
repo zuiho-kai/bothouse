@@ -1,6 +1,6 @@
 """Codex command/rollout adapter. Output decisions use the shared hook protocol.
 Source: https://learn.chatgpt.com/docs/hooks (transcripts are version-dependent).
-Only bash-guard and fix-claim-guard are installed for Codex in this version.
+Dispatch uses spawn_agent.message; hook output must restore that argument name.
 """
 import json
 import os
@@ -18,7 +18,10 @@ def adapt(payload):
         if isinstance(cmd, str):
             inp["command"] = cmd
         payload["tool_input"] = inp
-    if payload.get("hook_event_name") != "Stop":
+    if payload.get("tool_name") in ("spawn_agent", "Agent"):
+        payload["tool_name"] = "Agent"
+        payload["tool_input"] = inp
+    if payload.get("hook_event_name") not in ("Stop", "SubagentStop"):
         return payload, None
     entries = []
     try:

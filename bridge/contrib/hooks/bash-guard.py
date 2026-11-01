@@ -147,7 +147,7 @@ SUB_CAP_MSG = ("这条命令的 timeout 被压到 290 秒（子 agent 提示缓�
 
 def sub_cap(inp, d):
     """子 agent（非 long-task）的前台 Bash timeout 超过 SUB_CAP_MS 时，返回压过的新 tool_input；否则 None。"""
-    if not d.get("agent_id") or d.get("agent_type") == SUB_CAP_AGENT or d.get("dsh") or inp.get("run_in_background"):
+    if not d.get("agent_id") or d.get("agent_type") == SUB_CAP_AGENT or inp.get("run_in_background"):
         return None
     try:
         if float(inp.get("timeout") or 0) <= SUB_CAP_MS:
