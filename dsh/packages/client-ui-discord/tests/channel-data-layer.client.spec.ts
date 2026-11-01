@@ -33,7 +33,7 @@ function harness(
   const transport: ChannelTransport = {
     fetch: (input, init) => {
       calls.push(`${init?.method ?? 'GET'} ${input}`)
-      if (input.endsWith('collab/api/state')) {
+      if (input.includes('collab/api/state')) {
         return Promise.resolve(json(200, { rooms, members: [], thinking: {} }))
       }
       const room = /collab\/api\/rooms\/(\d+)\/messages/.exec(input)
@@ -425,7 +425,7 @@ describe('channel data layer: review fixes', () => {
     const hub = new FakeEventSourceHub()
     const transport: ChannelTransport = {
       fetch: (input, init) => {
-        if (input.endsWith('collab/api/state')) return Promise.resolve(json(200, { rooms, members: [], thinking: {} }))
+        if (input.includes('collab/api/state')) return Promise.resolve(json(200, { rooms, members: [], thinking: {} }))
         if (init?.method === 'POST') {
           const room = Number(/rooms\/(\d+)\/messages/.exec(input)?.[1])
           posts.push({ room, ...(JSON.parse(String(init.body)) as { client_key?: string; text?: string }) })

@@ -769,7 +769,7 @@ export function publicMessage(row, store) {
   const attachments = messageAttachments(row);
   if (attachments.length) out.attachments = attachments;
   if (row.draft) out.draft = true; // #145: a streamed reply in progress; clients count and notify it once, on commit
-> return out;
+  return out;
 }
 
 /** #144: the uploaded files a message carries ([] when none or unreadable). */

@@ -37,7 +37,7 @@ const state = { rooms: [{ id: 1, name: 'general' }, { id: 2, name: 'other' }], m
 describe('channel source', () => {
   it('updates settings only in the addressed channel and its workspaces, then explicitly renews', async () => {
     const { transport, streams, calls } = fakeTransport((url, init) => {
-      if (url === '/collab/api/state') return json(200, { ...state, rooms: [
+      if (url.startsWith('/collab/api/state')) return json(200, { ...state, rooms: [
         { id: 1, name: 'one', effective_lead_id: 'a', workspace_path: '/old' },
         { id: 2, name: 'two', effective_lead_id: 'b', workspace_path: '/two' },
         { id: 1000000, name: '工作区1', parent_id: 1, kind: 'workspace', effective_lead_id: 'a' },
@@ -67,7 +67,7 @@ describe('channel source', () => {
   it('uploads a new member portrait and removes the new member when upload fails so retry stays possible', async () => {
     let fail = false
     const { transport, calls } = fakeTransport((url, init) => {
-      if (url === '/collab/api/state') return json(200, state)
+      if (url.startsWith('/collab/api/state')) return json(200, state)
       if (url === '/collab/api/members') {
         expect(JSON.parse(String(init?.body))).not.toHaveProperty('avatarPng')
         return json(200, { member: { id: 'new' } })
@@ -91,7 +91,7 @@ describe('channel source', () => {
 
   it('renames a room without replacing selection, history or dispatch settings', async () => {
     const { transport } = fakeTransport((url, init) => {
-      if (url === '/collab/api/state') return json(200, { ...state, rooms: [{ id: 1, name: 'general', dispatch_mode: 'team' }] })
+      if (url.startsWith('/collab/api/state')) return json(200, { ...state, rooms: [{ id: 1, name: 'general', dispatch_mode: 'team' }] })
       if (url === '/collab/api/rooms/1') {
         expect(init?.method).toBe('PATCH')
         expect(JSON.parse(String(init?.body))).toEqual({ name: 'renamed' })
@@ -113,7 +113,7 @@ describe('channel source', () => {
     const oldState = deferred<Response>()
     let requests = 0
     const { transport, streams, closed } = fakeTransport((url) => {
-      if (url === '/collab/api/state') return ++requests === 1 ? oldState.promise : json(200, state)
+      if (url.startsWith('/collab/api/state')) return ++requests === 1 ? oldState.promise : json(200, state)
       return json(200, { messages: [] })
     })
     const { source } = createChannelSource(transport)
@@ -133,7 +133,7 @@ describe('channel source', () => {
   it('reconciles every missed page, edits, deletions and presence on reconnect', async () => {
     let reconnected = false
     const { transport, streams } = fakeTransport((url) => {
-      if (url === '/collab/api/state') return json(200, { ...state, members: [{ id: 'ju', name: '橘', kind: 'bot', online: !reconnected }], thinking: reconnected ? {} : { 1: ['ju'] } })
+      if (url.startsWith('/collab/api/state')) return json(200, { ...state, members: [{ id: 'ju', name: '橘', kind: 'bot', online: !reconnected }], thinking: reconnected ? {} : { 1: ['ju'] } })
       if (!reconnected) return json(200, { messages: [message(1, 'old card'), message(2, 'deleted while offline')] })
       const rows = [message(1, 'finished card'), ...Array.from({ length: 450 }, (_, i) => message(i + 3, `reply ${i}`))]
       const after = Number(new URL(url, 'http://test').searchParams.get('after') ?? 0)
@@ -156,7 +156,7 @@ describe('channel source', () => {
     const oldRoom = deferred<Response>()
     let reads = 0
     const { transport, streams } = fakeTransport((url) => {
-      if (url === '/collab/api/state') return json(200, state)
+      if (url.startsWith('/collab/api/state')) return json(200, state)
       if (url.startsWith('/collab/api/rooms/1/')) return ++reads === 2 ? oldRoom.promise : json(200, { messages: [message(1, reads === 1 ? 'first' : 'latest')] })
       return json(200, { messages: [] })
     })
@@ -180,7 +180,7 @@ describe('channel source', () => {
       status, next_check_at: null, assign_msg_id: null, result_msg_id: null, note: null, created_at: 1, updated_at, returned_at: null,
     })
     const { transport, streams, calls } = fakeTransport((url) => {
-      if (url === '/collab/api/state') return json(200, state)
+      if (url.startsWith('/collab/api/state')) return json(200, state)
       if (url === '/collab/api/rooms/2/tasks') return board.promise
       if (url.endsWith('/tasks')) return json(200, { chat_id: 1, tasks: [] })
       return json(200, { messages: [] })
@@ -207,7 +207,7 @@ describe('channel source', () => {
     const baseline = deferred<Response>()
     let loading = false
     const { transport, streams } = fakeTransport((url) => {
-      if (url === '/collab/api/state') return json(200, state)
+      if (url.startsWith('/collab/api/state')) return json(200, state)
       return loading ? baseline.promise : json(200, { messages: [] })
     })
     const { source, actions } = createChannelSource(transport)
@@ -227,7 +227,7 @@ describe('channel source', () => {
     let failing = false
     const { transport, streams } = fakeTransport((url) => {
       if (failing) return json(503, { error: 'temporarily unavailable' })
-      if (url === '/collab/api/state') return json(200, state)
+      if (url.startsWith('/collab/api/state')) return json(200, state)
       return json(200, { messages: [message(1, 'ok')] })
     })
     const { source } = createChannelSource(transport)
@@ -244,7 +244,7 @@ describe('channel source', () => {
 
   it('connects on first subscriber, loads the first room, applies live events, and closes with the last', async () => {
     const { transport, streams, closed, calls } = fakeTransport((url) => {
-      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (url.startsWith('/collab/api/state')) return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
       if (url.startsWith('/collab/api/rooms/1/messages?limit')) return json(200, { messages: [message(1, 'a')] })
       // Reconnect reconciles the whole cached window from its oldest held id
       // (design §4.3), so edits and deletions inside the cache are reconciled.
@@ -287,7 +287,7 @@ describe('channel source', () => {
   it('posts with a client key and surfaces the service refusal', async () => {
     let posted: unknown
     const { transport } = fakeTransport((url, init) => {
-      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (url.startsWith('/collab/api/state')) return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
       if (init?.method === 'POST') {
         posted = JSON.parse(String(init.body))
         return (posted as { text: string }).text === 'bad' ? json(400, { error: 'message text is empty' }) : json(200, { message: message(5, 'hi') })
@@ -309,7 +309,7 @@ describe('channel source', () => {
     const decided = { ...pending, card: { kind: 'permission', status: 'allow' } }
     let posted: { url: string, body: unknown } | undefined
     const { transport } = fakeTransport((url, init) => {
-      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (url.startsWith('/collab/api/state')) return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
       if (init?.method === 'POST') {
         posted = { url, body: JSON.parse(String(init.body)) }
         return (posted.body as { decision: string }).decision === 'deny' ? json(409, { error: 'permission already decided' }) : json(200, { message: decided })
@@ -332,7 +332,7 @@ describe('channel source', () => {
     const edited = { ...mine, text: '改好了', edited_at: 2 }
     const sent: string[] = []
     const { transport } = fakeTransport((url, init) => {
-      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (url.startsWith('/collab/api/state')) return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
       if (init?.method === 'PATCH') {
         sent.push(`PATCH ${url} ${String(init.body)}`)
         return JSON.parse(String(init.body)).text === 'x' ? json(403, { error: 'only your own plain messages can be edited' }) : json(200, { message: edited })
@@ -369,7 +369,7 @@ describe('channel source', () => {
     let posted = false
     const created = { room: { id: 2, name: 'ops', kind: 'chat', parent_id: null }, workspace: { id: 3, name: '工作区1', kind: 'workspace', parent_id: 2 } }
     const { transport } = fakeTransport((url, init) => {
-      if (url === '/collab/api/state') {
+      if (url.startsWith('/collab/api/state')) {
         const rooms = [{ id: 1, name: 'general', kind: 'chat', parent_id: null }, ...(posted ? [created.room, created.workspace] : [])]
         return json(200, { me: 'owner', rooms, members: [], thinking: {} })
       }
@@ -388,7 +388,7 @@ describe('channel source', () => {
   it('sends reply_to only for a reply and degrades a quote whose original is deleted', async () => {
     const posted: unknown[] = []
     const { transport, streams } = fakeTransport((url, init) => {
-      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (url.startsWith('/collab/api/state')) return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
       if (init?.method === 'POST') { posted.push(JSON.parse(String(init.body))); return json(200, { message: message(7, 'r') }) }
       return json(200, { messages: [message(1, 'orig'), { ...message(2, 'reply'), reply_to: { id: 1, author_kind: 'user', author: 'owner', name: '我', text: 'orig' } }] })
     })
@@ -407,7 +407,7 @@ describe('channel source', () => {
     const posted: unknown[] = []
     let fail = true
     const { transport } = fakeTransport((url, init) => {
-      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (url.startsWith('/collab/api/state')) return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
       if (init?.method === 'POST') {
         posted.push(JSON.parse(String(init.body)))
         if (fail) { fail = false; return json(500, { error: 'boom' }) }
@@ -431,7 +431,7 @@ describe('channel source', () => {
   it('posts a retry request to /collab/api/messages/:id/retry (#146)', async () => {
     let retriedUrl: string | undefined
     const { transport } = fakeTransport((url, init) => {
-      if (url === '/collab/api/state') return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
+      if (url.startsWith('/collab/api/state')) return json(200, { rooms: [{ id: 1, name: 'general' }], members: [], thinking: {} })
       if (url === '/collab/api/messages/99/retry' && init?.method === 'POST') {
         retriedUrl = url
         return json(200, { ok: true, member_id: 'ds', trigger_id: 1 })
@@ -459,7 +459,7 @@ describe('messageTooLarge (#144)', () => {
 it('sends an explicit owner review and updates the task from the API response', async () => {
   const returned = { id: 1, room_id: 1, status: 'returned' }
   const { transport, calls } = fakeTransport((url, init) => {
-    if (url === '/collab/api/state') return json(200, state)
+    if (url.startsWith('/collab/api/state')) return json(200, state)
     if (url === '/collab/api/rooms/1/tasks') return json(200, { chat_id: 1, tasks: [returned] })
     if (url === '/collab/api/tasks/1/review') {
       expect(init?.method).toBe('POST')
@@ -480,7 +480,7 @@ it('sends an explicit owner review and updates the task from the API response', 
 describe('unread (#145)', () => {
   it('tracks unread counts and mentions across channels (#145)', async () => {
     const { transport, streams } = fakeTransport((url) => {
-      if (url === '/collab/api/state') {
+      if (url.startsWith('/collab/api/state')) {
         return json(200, {
           me: 'owner',
           rooms: [{ id: 1, name: 'general' }, { id: 2, name: 'dev' }],
@@ -533,7 +533,7 @@ describe('unread (#145)', () => {
       rooms: [{ id: 31, name: 'general', last_message_id: 3 }, { id: 32, name: 'dev', last_message_id: unread === undefined ? 9000 : 9005, ...(unread === undefined ? {} : { unread_count: unread }) }],
       members: [], thinking: {},
     })
-    const first = fakeTransport((url) => url === '/collab/api/state' ? state() : json(200, { messages: [] }))
+    const first = fakeTransport((url) => url.startsWith('/collab/api/state') ? state() : json(200, { messages: [] }))
     first.transport.fetch = ((fetch) => (input: string, init?: RequestInit) => { reads.push(input); return fetch(input, init) })(first.transport.fetch)
     const one = createChannelSource(first.transport)
     const stop = one.source.subscribe(() => {})
@@ -542,7 +542,7 @@ describe('unread (#145)', () => {
     expect(one.source.getSnapshot().unread[32]?.count ?? 0).toBe(0)
     stop()
     // Next open sends the saved cursors and shows the server's per-room count.
-    const second = fakeTransport((url) => url === '/collab/api/state' ? state(2) : json(200, { messages: [] }))
+    const second = fakeTransport((url) => url.startsWith('/collab/api/state') ? state(2) : json(200, { messages: [] }))
     second.transport.fetch = ((fetch) => (input: string, init?: RequestInit) => { reads.push(input); return fetch(input, init) })(second.transport.fetch)
     const two = createChannelSource(second.transport)
     const stop2 = two.source.subscribe(() => {})
@@ -556,7 +556,7 @@ describe('unread (#145)', () => {
     const shown: string[] = []
     vi.stubGlobal('Notification', class { static permission = 'granted'; onclick = null; constructor(title: string) { shown.push(title) } close() {} })
     try {
-      const { transport, streams } = fakeTransport((url) => url === '/collab/api/state'
+      const { transport, streams } = fakeTransport((url) => url.startsWith('/collab/api/state')
         ? json(200, { me: 'owner', rooms: [{ id: 41, name: 'general' }, { id: 42, name: 'dev' }], members: [], thinking: {} })
         : json(200, { messages: [] }))
       const { source } = createChannelSource(transport)

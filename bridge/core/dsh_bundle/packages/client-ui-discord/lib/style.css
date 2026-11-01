@@ -93,6 +93,111 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+.dshc_roomUnread {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+  position: relative;
+}
+
+.dshc_roomUnread:before {
+  content: "";
+  background: var(--dsw-alias-label-primary, #fff);
+  border-radius: 0 4px 4px 0;
+  width: 4px;
+  height: 8px;
+  position: absolute;
+  top: 50%;
+  left: -2px;
+  transform: translateY(-50%);
+}
+
+.dshc_roomMention:before {
+  background: #f23f43;
+  height: 12px;
+}
+
+.dshc_unreadBadge {
+  background: var(--dsw-alias-interactive-bg-hover, #ffffff26);
+  min-width: 18px;
+  height: 18px;
+  color: var(--dsw-alias-label-primary, #fff);
+  box-sizing: border-box;
+  border-radius: 9px;
+  flex-shrink: 0;
+  justify-content: center;
+  align-items: center;
+  margin-left: auto;
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+}
+
+.dshc_unreadMention {
+  color: #fff;
+  background: #f23f43;
+  box-shadow: 0 1px 4px #f23f4366;
+}
+
+.dshc_notifyToggle {
+  border-radius: var(--dsw-radius-sm, 4px);
+  width: 28px;
+  height: 28px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  justify-content: center;
+  align-items: center;
+  margin-left: auto;
+  padding: 0;
+  transition: color .15s, background-color .15s;
+  display: inline-flex;
+}
+
+.dshc_notifyToggle:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dshc_notifyOn {
+  color: var(--dsw-alias-label-primary);
+}
+
+.dshc_notifyOff {
+  color: var(--dsw-alias-label-tertiary);
+  opacity: .6;
+}
+
+.dshc_unreadDivider {
+  text-align: center;
+  align-items: center;
+  margin: 12px 16px;
+  display: flex;
+  position: relative;
+}
+
+.dshc_unreadDivider:before, .dshc_unreadDivider:after {
+  content: "";
+  opacity: .8;
+  background: #f23f43;
+  flex: 1;
+  height: 1px;
+}
+
+.dshc_unreadDividerLabel {
+  color: #fff;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  background: #f23f43;
+  border-radius: 4px;
+  margin: 0 8px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .dshc_hash {
   color: var(--dsw-alias-label-tertiary);
   font-size: 16px;
