@@ -217,3 +217,56 @@ func TestSlowSendTimesOutWithoutReplay(t *testing.T) {
 		t.Fatalf("send attempts = %d, want 1 (timeout must not be replayed)", got)
 	}
 }
+
+// Cancelling one conversation must not cancel another conversation's send. This
+// is the required cross-person isolation red line: if a future shared send queue
+// or retry layer lands, one user's cancel must not silence another user.
+func TestCanceledConversationDoesNotCancelAnother(t *testing.T) {
+	f := newFakeOneBot(t)
+	p, _ := startTestPlatform(t, f)
+	release := f.hold("send_group_msg")
+	defer release()
+
+	ctxA, cancelA := context.WithCancel(context.Background())
+	defer cancelA()
+	doneA := make(chan error, 1)
+	go func() {
+		doneA <- p.Send(ctxA, &replyContext{messageType: "group", groupID: 42}, "conversation A")
+	}()
+
+	deadline := time.After(time.Second)
+	inflight := false
+	for !inflight {
+		select {
+		case action := <-f.actions:
+			if action != "send_group_msg" {
+				continue
+			}
+			inflight = true
+		case <-deadline:
+			t.Fatal("conversation A never reached OneBot")
+		}
+	}
+	cancelA()
+	select {
+	case err := <-doneA:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled conversation A: Send = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled conversation A still waiting for its receipt")
+	}
+
+	// A different conversation must still be delivered.
+	if err := p.Send(context.Background(), &replyContext{messageType: "private", userID: 43}, "conversation B"); err != nil {
+		t.Fatalf("conversation B send = %v", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if got := len(f.sent["send_private_msg"]); got != 1 {
+		t.Fatalf("conversation B sends = %d, want 1 (cancel must not cross conversations)", got)
+	}
+	if got := len(f.sent["send_group_msg"]); got != 1 {
+		t.Fatalf("conversation A send attempts = %d, want 1", got)
+	}
+}
