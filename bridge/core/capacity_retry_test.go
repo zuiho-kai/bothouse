@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -42,6 +43,8 @@ func (s *capacityScriptSession) Send(prompt string, _ string, _ []ImageAttachmen
 	emit := func(next string) {
 		if next == "cap" {
 			s.events <- Event{Type: EventError, Error: errors.New("Selected model is at capacity. Please try a different model.")}
+		} else if next == "503" {
+			s.events <- Event{Type: EventError, Error: errors.New("503 Service Unavailable")}
 		} else if next == "quota" {
 			s.events <- Event{Type: EventError, Error: errors.New("RESOURCE_EXHAUSTED (code 429) Individual quota reached. Resets in 83h59m53s")}
 		} else {
@@ -221,7 +224,7 @@ func TestCapacityRetry_MessageDuringCooldownWaits(t *testing.T) {
 	capacityCooldownBase = 200 * time.Millisecond
 	t.Cleanup(func() { capacityCooldownBase = old })
 
-	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"cap", "cap", "cap", "first", "second"}}
+	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"cap", "cap", "cap", "cap", "first", "second"}}
 	p := &stubPlatformEngine{n: "test"}
 	e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangEnglish)
 
@@ -230,9 +233,11 @@ func TestCapacityRetry_MessageDuringCooldownWaits(t *testing.T) {
 	waitFor(t, "first turn to release the session", func() bool { return !e.sessions.GetOrCreateActive("test:c1").Busy() })
 
 	e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u", UserName: "u", Content: "two", ReplyCtx: "ctx"})
-	waitFor(t, "cooling notice", func() bool { return strings.Contains(joined(p), "冷却中") })
-	if n := sess.sends(); n != 3 {
-		t.Fatalf("a message sent during cooldown reached the model: sends = %d, want 3", n)
+	waitFor(t, "probe attempt", func() bool { return sess.sends() == 4 })
+	// The message during the cooldown asks the model exactly once (that one
+	// attempt fails here); it does not run the usual three-in-a-row.
+	if n := sess.sends(); n != 4 {
+		t.Fatalf("sends = %d, want 3 for the first turn + 1 probe", n)
 	}
 	waitFor(t, "both messages answered", func() bool {
 		out := joined(p)
@@ -266,7 +271,7 @@ func TestCapacityRetry_DeferredMessagesKeepOrder(t *testing.T) {
 	capacityCooldownBase = 200 * time.Millisecond
 	t.Cleanup(func() { capacityCooldownBase = old })
 
-	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"cap", "cap", "cap", "1", "2", "3"}}
+	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"cap", "cap", "cap", "cap", "cap", "1", "2", "3"}}
 	p := &stubPlatformEngine{n: "test"}
 	e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangEnglish)
 	send := func(c string) {
@@ -276,22 +281,40 @@ func TestCapacityRetry_DeferredMessagesKeepOrder(t *testing.T) {
 	waitFor(t, "cooldown", func() bool { return e.capacityWait() > 0 })
 	waitFor(t, "session free", func() bool { return !e.sessions.GetOrCreateActive("test:c1").Busy() })
 	send("msgB")
-	waitFor(t, "B deferred", func() bool { return strings.Count(joined(p), "冷却中") == 1 })
+	waitFor(t, "B held", func() bool {
+		e.capMu.Lock()
+		defer e.capMu.Unlock()
+		return len(e.capPending) == 1
+	})
 	send("msgC")
-	waitFor(t, "C deferred", func() bool { return strings.Count(joined(p), "冷却中") == 2 })
+	// One notice per channel per cooldown round (2026-11-01 用户嫌刷屏): later
+	// messages add no second notice, whether they are probed or held.
+	if got := strings.Count(joined(p), "模型满载"); got != 1 {
+		t.Fatalf("capacity notices = %d, want 1 per channel per round", got)
+	}
 	// B and C queue behind A from the same sender, so they run as one batched turn (B before C).
 	waitFor(t, "all answered", func() bool { return strings.Contains(joined(p), "reply:2") })
 
 	sent := sess.sentPrompts()
-	if len(sent) != 5 {
-		t.Fatalf("sends = %d, want 5 (A x3 at capacity, A, batched B+C): %q", len(sent), sent)
+	// Later messages may each ask the model once while cooling down, so only the
+	// re-delivery order is fixed: A on its own, then B before C in one batch.
+	a := -1
+	for i, prompt := range sent {
+		if i > 2 && strings.Contains(prompt, "msgA") {
+			a = i
+			break
+		}
 	}
-	if !strings.Contains(sent[3], "msgA") {
-		t.Fatalf("first send after cooldown = %q, want msgA", sent[3])
+	if a < 0 {
+		t.Fatalf("msgA was never re-delivered: %q", sent)
 	}
-	b, c := strings.Index(sent[4], "msgB"), strings.Index(sent[4], "msgC")
+	if strings.Contains(sent[a], "msgB") || strings.Contains(sent[a], "msgC") {
+		t.Fatalf("send %d = %q must carry msgA alone", a, sent[a])
+	}
+	last := sent[len(sent)-1]
+	b, c := strings.Index(last, "msgB"), strings.Index(last, "msgC")
 	if b < 0 || c < 0 || b > c {
-		t.Fatalf("batched send = %q, want msgB then msgC", sent[4])
+		t.Fatalf("batched send = %q, want msgB then msgC", last)
 	}
 }
 
@@ -326,5 +349,202 @@ func TestCapacityRetry_CooldownDoubles(t *testing.T) {
 	e.capacityReset()
 	if d := e.capacityStartCooldown(); d != 10*time.Minute {
 		t.Fatalf("after reset cooldown = %v, want 10m", d)
+	}
+}
+
+// A cooldown that is cleared early must re-deliver what it was holding, in
+// order, instead of leaving the messages stuck until the timer fires.
+func TestCapacityRecover_FlushesHeldMessagesAndResetsRound(t *testing.T) {
+	e := NewEngine("test", &resultAgent{}, nil, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	e.capacityStartCooldown()
+	if e.capacityWait() == 0 {
+		t.Fatal("cooldown did not start")
+	}
+	var flushed []string
+	e.capMu.Lock()
+	e.capPending = append(e.capPending, func() { flushed = append(flushed, "first") })
+	e.capPending = append(e.capPending, func() { flushed = append(flushed, "second") })
+	e.capArmed = true
+	e.capMu.Unlock()
+
+	e.capacityRecover("test")
+
+	if got := e.capacityWait(); got != 0 {
+		t.Fatalf("capacityWait() = %s after recover, want 0", got)
+	}
+	e.capMu.Lock()
+	round, armed, pending := e.capRound, e.capArmed, len(e.capPending)
+	e.capMu.Unlock()
+	if round != 0 || armed || pending != 0 {
+		t.Fatalf("after recover: round=%d armed=%v pending=%d, want 0/false/0", round, armed, pending)
+	}
+	if strings.Join(flushed, ",") != "first,second" {
+		t.Fatalf("flushed = %v, want the held messages in order", flushed)
+	}
+}
+
+// A queued switch is not an applied one (review P1): holding the cooldown until
+// the new model is really in place is what keeps held work off the old model.
+func TestCapacityRecover_ModelSwitchMustBeAppliedFirst(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	agent := &stubModelModeAgent{model: "gpt-4.1-mini"}
+	e := NewEngine("test", agent, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	e.capacityStartCooldown()
+	if e.capacityWait() == 0 {
+		t.Fatal("cooldown did not start")
+	}
+
+	res := e.QueueModelSwitch(context.Background(), "test:c1", "gpt-4.1", "", false)
+	if !res.OK {
+		t.Fatalf("switch refused: %s", res.Message)
+	}
+	if got := e.capacityWait(); got == 0 {
+		t.Fatal("a queued switch released the cooldown: held work would go to the old model")
+	}
+
+	if err := e.applyPendingSwitchOnAgent(agent, "test:c1", "test:c1"); err != nil {
+		t.Fatalf("applying the queued switch: %v", err)
+	}
+	if got := e.capacityWait(); got != 0 {
+		t.Fatalf("capacityWait() = %s after the switch was applied, want 0", got)
+	}
+}
+
+// One cooldown round tells each channel once; the rest of the held messages
+// queue silently instead of repeating the notice.
+func TestCapacityNotice_OncePerChannelPerCooldown(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &resultAgent{}, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	e.capacityStartCooldown()
+
+	for i := 0; i < 3; i++ {
+		e.deferForCapacity(p, Message{SessionKey: "test:c1", ChannelKey: "test:c1", Content: "hi", ReplyCtx: "ctx"}, nil, e.sessions, "test:c1", "", time.Hour, true)
+	}
+	if got := strings.Count(joined(p), "冷却中"); got != 1 {
+		t.Fatalf("cooldown notices = %d, want 1 per channel:\n%s", got, joined(p))
+	}
+	e.capMu.Lock()
+	pending := len(e.capPending)
+	e.capMu.Unlock()
+	if pending != 3 {
+		t.Fatalf("held messages = %d, want all 3 kept for re-delivery", pending)
+	}
+
+	// Another channel still gets its own single notice.
+	e.deferForCapacity(p, Message{SessionKey: "test:c2", ChannelKey: "test:c2", Content: "hi", ReplyCtx: "ctx"}, nil, e.sessions, "test:c2", "", time.Hour, true)
+	if got := strings.Count(joined(p), "冷却中"); got != 2 {
+		t.Fatalf("cooldown notices = %d, want 2 after a second channel", got)
+	}
+}
+
+// While cooling down, a real person's new message asks the model directly
+// once instead of waiting out the clock: if it answers, the cooldown ends and
+// everything held is re-delivered (用户 22:07「这个得治疗一下」的后半条).
+func TestCapacityProbe_HumanMessageRecoversDuringCooldown(t *testing.T) {
+	old := capacityCooldownBase
+	capacityCooldownBase = time.Hour // longer than the test: only a probe can end it
+	t.Cleanup(func() { capacityCooldownBase = old })
+
+	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"ok"}}
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	e.capacityStartCooldown()
+
+	e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u", UserName: "u", Content: "hello", ReplyCtx: "ctx"})
+	waitFor(t, "probe answered", func() bool { return strings.Contains(joined(p), "reply:ok") })
+	if got := e.capacityWait(); got != 0 {
+		t.Fatalf("capacityWait() = %s after a successful probe, want 0", got)
+	}
+	if n := sess.sends(); n != 1 {
+		t.Fatalf("sends = %d, want exactly 1 probe attempt", n)
+	}
+}
+
+// A probe that fails must leave the cooldown where it was: no extra round, no
+// doubling, and the message still held for re-delivery.
+func TestCapacityProbe_FailureKeepsCooldownWithoutDoubling(t *testing.T) {
+	old := capacityCooldownBase
+	capacityCooldownBase = time.Hour
+	t.Cleanup(func() { capacityCooldownBase = old })
+
+	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"cap", "cap", "cap"}}
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	e.capacityStartCooldown()
+	e.capMu.Lock()
+	roundBefore, waitBefore := e.capRound, e.capUntil
+	e.capMu.Unlock()
+
+	e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u", UserName: "u", Content: "hello", ReplyCtx: "ctx"})
+	waitFor(t, "still cooling", func() bool { return strings.Contains(joined(p), "冷却中") })
+
+	e.capMu.Lock()
+	roundAfter, waitAfter, pending := e.capRound, e.capUntil, len(e.capPending)
+	e.capMu.Unlock()
+	if roundAfter != roundBefore {
+		t.Fatalf("capRound = %d after a failed probe, want %d (a probe must not add a round)", roundAfter, roundBefore)
+	}
+	if waitAfter.After(waitBefore.Add(time.Minute)) {
+		t.Fatalf("cooldown moved from %s to %s: a failed probe must not extend it", waitBefore, waitAfter)
+	}
+	if pending != 1 {
+		t.Fatalf("held messages = %d, want the probe message kept", pending)
+	}
+	if n := sess.sends(); n != 1 {
+		t.Fatalf("sends = %d, want exactly 1 probe attempt (not the usual 3)", n)
+	}
+}
+
+// A turn that ends in an error event is not proof the model is back (review P1:
+// a 503 was taken as a successful probe and released everything).
+func TestCapacityProbe_ErrorEventDoesNotReleaseCooldown(t *testing.T) {
+	old := capacityCooldownBase
+	capacityCooldownBase = time.Hour
+	t.Cleanup(func() { capacityCooldownBase = old })
+
+	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"503"}}
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	e.capacityStartCooldown()
+
+	e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u", UserName: "u", Content: "hi", ReplyCtx: "ctx"})
+	waitFor(t, "probe attempt", func() bool { return sess.sends() == 1 })
+	time.Sleep(50 * time.Millisecond) // let the turn and its giveUp settle
+	if got := e.capacityWait(); got == 0 {
+		t.Fatal("a 503 turn released the cooldown: the model was never shown to be back")
+	}
+}
+
+// Timer, cron, heartbeat and handoff turns are not a person at the keyboard, so
+// they must not spend a probe (review P1: same-channel timer jobs probed too).
+func TestCapacityProbe_ScheduledSendersDoNotProbe(t *testing.T) {
+	for _, user := range []string{"timer", "cron", "heartbeat", "handoff"} {
+		t.Run(user, func(t *testing.T) {
+			old := capacityCooldownBase
+			capacityCooldownBase = time.Hour
+			t.Cleanup(func() { capacityCooldownBase = old })
+
+			sess := &capacityScriptSession{events: make(chan Event, 8)}
+			p := &stubPlatformEngine{n: "test"}
+			e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangEnglish)
+			t.Cleanup(func() { _ = e.Stop() })
+			e.capacityStartCooldown()
+
+			e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: user, UserName: user, Content: "job", ReplyCtx: "ctx"})
+			waitFor(t, "job held", func() bool {
+				e.capMu.Lock()
+				defer e.capMu.Unlock()
+				return len(e.capPending) == 1
+			})
+			if n := sess.sends(); n != 0 {
+				t.Fatalf("a %q turn reached the model (%d sends) during a cooldown", user, n)
+			}
+		})
 	}
 }

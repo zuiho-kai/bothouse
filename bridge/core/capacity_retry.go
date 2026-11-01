@@ -68,6 +68,7 @@ func (e *Engine) capacityStartCooldown() time.Duration {
 	}
 	e.capRound++
 	e.capUntil = time.Now().Add(d)
+	e.capNotified = nil // a new cooldown round gets one notice per channel again
 	return d
 }
 
@@ -75,7 +76,26 @@ func (e *Engine) capacityStartCooldown() time.Duration {
 func (e *Engine) capacityReset() {
 	e.capMu.Lock()
 	e.capRound = 0
+	e.capNotified = nil
 	e.capMu.Unlock()
+}
+
+// capacityRecover ends the cooldown early: the model answered again, or the
+// operator switched model/effort. Waiting out the clock is not required once
+// the condition is gone (2026-11-01 用户「逆天 这个得治疗一下」). Messages held
+// during the cooldown are re-delivered right away, in the order they arrived.
+func (e *Engine) capacityRecover(reason string) {
+	e.capMu.Lock()
+	wasCooling := !e.capUntil.IsZero() || len(e.capPending) > 0
+	e.capUntil = time.Time{}
+	e.capRound = 0
+	e.capNotified = nil
+	e.capMu.Unlock()
+	if !wasCooling {
+		return
+	}
+	slog.Info("capacity cooldown cleared", "reason", reason)
+	e.flushCapacityPending()
 }
 
 // runTurnWithCapacityRetry runs one turn: send + event loop, re-sending up to
@@ -86,14 +106,22 @@ func (e *Engine) capacityReset() {
 // synchronously before each attempt's send goroutine and event loop start, so
 // per-attempt state it sets up (the public-progress run) is in place before the
 // loop can end and close it.
-func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Session, sessions *SessionManager, key, msgID string, turnStart time.Time, stopTyping func(), replyCtx any, input *inputTurn, beginAttempt func(), send func(as AgentSession) error, giveUp func(wait time.Duration)) {
+// probe asks the model once while a cooldown is already running (a real
+// person sent a new message): success ends the cooldown, failure leaves it
+// exactly as it was, without adding a round or doubling it.
+func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Session, sessions *SessionManager, key, msgID string, turnStart time.Time, stopTyping func(), replyCtx any, input *inputTurn, beginAttempt func(), send func(as AgentSession) error, probe bool, giveUp func(wait time.Duration)) {
 	// maomao fork: the mode override set for this turn (setTurnMode) holds across its capacity
 	// retries and the queued turns chained into it, each of which sets its own; it ends here.
 	defer e.restoreTurnMode(state)
+	attempts := capacityAttempts
+	if probe {
+		attempts = 1 // one question, not the usual three-in-a-row
+	}
 	for attempt := 1; ; attempt++ {
 		state.mu.Lock()
 		as := state.agentSession
 		state.capacityFailed = false
+		state.turnErrored = false
 		state.mu.Unlock()
 		if attempt > 1 && as != nil {
 			drainEvents(as.Events())
@@ -113,16 +141,30 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		state.mu.Lock()
 		failed := state.capacityFailed
 		state.capacityFailed = false
+		errored := state.turnErrored
+		state.turnErrored = false
 		alive := state.agentSession != nil && state.agentSession.Alive()
 		state.mu.Unlock()
 		if !failed {
 			e.capacityReset()
+			// A probe only proves the model is back when the turn actually finished
+			// cleanly: a 503 (or any error event) must leave the cooldown alone.
+			if probe && !errored {
+				e.capacityRecover("probe succeeded") // the model is back: release what is held
+			}
 			return
 		}
-		if attempt >= capacityAttempts || !alive {
+		if attempt >= attempts || !alive {
 			break
 		}
 		slog.Warn("model at capacity, retrying turn", "session_key", key, "attempt", attempt+1)
+	}
+	if probe {
+		// Still at capacity: keep the running cooldown as it is, so a probe
+		// can never push the next retry further away.
+		slog.Warn("model still at capacity after a probe, cooldown unchanged", "session_key", key)
+		giveUp(e.capacityWait())
+		return
 	}
 	d := e.capacityStartCooldown()
 	slog.Warn("model at capacity after retries, cooling down", "session_key", key, "cooldown", d)
@@ -147,10 +189,28 @@ func (e *Engine) deferForCapacity(p Platform, msg Message, agent Agent, sessions
 		e.boardEndHeld(interactiveKey, BoardDoneFailed) // maomao fork: not re-sent
 		return
 	}
-	if cooling {
-		e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("⏳ 模型满载冷却中，这条 %d 分钟后再处理。", mins))
-	} else {
-		e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("⏳ 模型满载（at capacity），连试 %d 次都失败，冷却 %d 分钟后自动重试这条。", capacityAttempts, mins))
+	// One notice per channel per cooldown round, whichever kind it is: the rest
+	// of the held messages queue silently instead of repeating it (2026-11-01 实例：
+	// 同一时刻刷出三条；先失败通知再扣消息也会变成两条).
+	channel := msg.ChannelKey
+	if channel == "" {
+		channel = msg.SessionKey
+	}
+	e.capMu.Lock()
+	already := e.capNotified[channel]
+	if !already {
+		if e.capNotified == nil {
+			e.capNotified = map[string]bool{}
+		}
+		e.capNotified[channel] = true
+	}
+	e.capMu.Unlock()
+	if !already {
+		if cooling {
+			e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("⏳ 模型满载冷却中，这条 %d 分钟后再处理。", mins))
+		} else {
+			e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("⏳ 模型满载（at capacity），连试 %d 次都失败，冷却 %d 分钟后自动重试这条。", capacityAttempts, mins))
+		}
 	}
 	msg.UserMessageTimeMs = 0 // a re-delivery is never "stale"
 	redeliver := func() { e.redeliverMessage(p, &msg, agent, sessions, interactiveKey, workspaceDir) }
