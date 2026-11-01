@@ -37,6 +37,9 @@ const (
 
 // pendingReport is one workspace handback that still needs a user-visible post.
 type pendingReport struct {
+	// sending serializes a finishing turn and recovery sweep for this record;
+	// it is process-local so a restart can retry an interrupted delivery.
+	sending     bool
 	Key         string    `json:"key"` // dedupe key: platform/chat/workspace/kind/board/body
 	JobID       string    `json:"job_id"`
 	Platform    string    `json:"platform"`
@@ -272,12 +275,18 @@ func (e *Engine) settleReportRecord(key, text string, runErr error) {
 	}
 	e.teamExit.mu.Lock()
 	rec := e.loadReportsLocked()[key]
-	if rec == nil || rec.delivered() {
+	if rec == nil || rec.delivered() || rec.sending {
 		e.teamExit.mu.Unlock()
 		return
 	}
+	rec.sending = true
 	recCopy := *rec
 	e.teamExit.mu.Unlock()
+	defer func() {
+		e.teamExit.mu.Lock()
+		rec.sending = false
+		e.teamExit.mu.Unlock()
+	}()
 
 	if runErr == nil && e.reportTextVisible(text) {
 		e.completeReportDelivery(&recCopy)

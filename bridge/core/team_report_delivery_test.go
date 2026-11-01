@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -13,12 +14,16 @@ import (
 // reportTestPlatform records sends and can reject the next N of them.
 type reportTestPlatform struct {
 	exitTestPlatform
-	failSends int
+	failSends  int
+	beforeSend func()
 }
 
 func (p *reportTestPlatform) ReconstructReplyCtx(key string) (any, error) { return key, nil }
 
 func (p *reportTestPlatform) Send(ctx context.Context, rc any, content string) error {
+	if p.beforeSend != nil {
+		p.beforeSend()
+	}
 	p.mu.Lock()
 	if p.failSends > 0 {
 		p.failSends--
@@ -543,4 +548,27 @@ func TestReportFiredTimerStillQueuedBehindUser(t *testing.T) {
 		defer e.teamExit.mu.Unlock()
 		return e.teamExit.reports[rec.Key].delivered()
 	})
+}
+
+func TestReportConcurrentSettlementSendsOnce(t *testing.T) {
+	e, p := reportFixture(t)
+	rec := pendingReportForTest("overlap")
+	e.rememberReport(rec)
+	started, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	p.beforeSend = func() {
+		if calls.Add(1) == 1 {
+			close(started)
+			<-release
+		}
+	}
+	go func() { defer close(done); e.settleReportRecord(rec.Key, "", nil) }()
+	<-started
+	// The watch and a finishing timer can settle the same pending record concurrently.
+	e.settleReportRecord(rec.Key, "", nil)
+	close(release)
+	<-done
+	if got := p.sentTo("discord:chat1"); len(got) != 1 {
+		t.Fatalf("overlapping settlements posted %d copies", len(got))
+	}
 }
