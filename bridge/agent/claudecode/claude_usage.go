@@ -301,7 +301,34 @@ func promptActionForScreen(screen string) string {
 
 func claudeTrustDialogVisible(screen string) bool {
 	lower := strings.ToLower(screen)
-	return strings.Contains(lower, "quick safety check") || strings.Contains(lower, "yes, i trust this folder")
+	return strings.Contains(lower, "quick safety check") || trustDialogYesLine(screen)
+}
+
+// trustDialogLetters keeps only ASCII letters so option text survives rendering
+// noise. The PTY renderer can leave stray characters from cursor-position
+// sequences in the line: on 2026-11-01 the probe captured
+// "Yes, IGtrust this folder", which never matched "yes, i trust this folder".
+// The dialog then went unanswered and the probe timed out, and every timeout
+// pushed the quota cooldown out again.
+func trustDialogLetters(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if r >= 'a' && r <= 'z' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// trustDialogYesLine reports whether the screen contains the "Yes, I trust this
+// folder" option, comparing letters only.
+func trustDialogYesLine(screen string) bool {
+	for _, line := range strings.Split(screen, "\n") {
+		if strings.Contains(trustDialogLetters(line), "trustthisfolder") {
+			return true
+		}
+	}
+	return false
 }
 
 // trustDialogAction answers the folder-trust dialog with "Yes, I trust this
@@ -314,7 +341,7 @@ func trustDialogAction(screen string) string {
 	for _, line := range strings.Split(screen, "\n") {
 		trimmed := strings.TrimSpace(line)
 		lower := strings.ToLower(trimmed)
-		isYes := strings.Contains(lower, "yes, i trust this folder")
+		isYes := trustDialogYesLine(trimmed)
 		if !isYes && !strings.Contains(lower, "no, exit") {
 			continue
 		}

@@ -371,3 +371,36 @@ func TestClaudeUsageProbeDir_IsStable(t *testing.T) {
 		t.Fatalf("fallback probe dir not stable: %q vs %q", a, b)
 	}
 }
+
+// The probe on 2026-11-01 captured the trust dialog as
+// "Yes, IGtrust this folder": a stray character from a cursor-position
+// sequence ended up inside the option text. Exact matching missed it, the
+// dialog was never answered, and each timed-out probe extended the quota
+// cooldown for cjiang from 16:30 to 16:35 to 16:45.
+func TestPromptActionForScreen_TrustDialogRenderedNoise(t *testing.T) {
+	screen := claudeTrustDialogScreen("❯ No, exit", "Yes, IGtrust this folder")
+	if !claudeTrustDialogVisible(screen) {
+		t.Fatal("claudeTrustDialogVisible = false, want true for the noisy render")
+	}
+	if got := promptActionForScreen(screen); got != "\x1b[B\r" {
+		t.Fatalf("promptActionForScreen = %q, want down+enter so Yes is chosen", got)
+	}
+}
+
+func TestTrustDialogYesLineIgnoresPunctuation(t *testing.T) {
+	for _, s := range []string{
+		"Yes, I trust this folder",
+		"Yes, IGtrust this folder",
+		"❯ Yes, I trust this folder",
+		"yes i trust this folder",
+	} {
+		if !trustDialogYesLine(s) {
+			t.Fatalf("trustDialogYesLine(%q) = false, want true", s)
+		}
+	}
+	for _, s := range []string{"No, exit", "Enter to confirm · Esc to cancel", ""} {
+		if trustDialogYesLine(s) {
+			t.Fatalf("trustDialogYesLine(%q) = true, want false", s)
+		}
+	}
+}
