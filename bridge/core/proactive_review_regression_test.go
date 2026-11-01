@@ -3,8 +3,11 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestIndependent751QueuedRevocationHasTerminalFact(t *testing.T) {
@@ -140,4 +143,83 @@ func (p *revokingProgressPlatform) EnsureTaskCard(ctx context.Context, task *Tas
 		return p.afterCard()
 	}
 	return nil
+}
+
+func TestIndependent751EventErrorRevocationDuringWait(t *testing.T) {
+	for _, phase := range []string{"revoked", "allowed", "explicit"} {
+		t.Run(phase, func(t *testing.T) {
+			e, a, d, ctx := proactiveOutputFixture(t)
+			defer e.Stop()
+			p := &stubPlatformEngine{n: "platform"}
+			ex := ctx.Value(proactiveExecutionKey{}).(proactiveExecution)
+			backend := &abortTurnSession{events: make(chan Event, 1)}
+			state := &interactiveState{agentSession: backend, agent: e.agent, platform: p, replyCtx: "ctx", authorization: &AuthorizationTurn{Project: e.name, TaskID: ex.taskID, DecisionID: d.ID}}
+			if phase == "explicit" {
+				state.authorization = nil
+			}
+			session := e.sessions.GetOrCreateActive("room")
+			// Source: same rate-limit fixture as TestProactiveOutputRechecksAfterRateLimitWait.
+			e.outgoingRL = NewOutgoingRateLimiter(OutgoingRateLimitCfg{MaxPerSecond: 1, Burst: 1}, nil)
+			if err := e.outgoingRL.Wait(ctx, p.Name()); err != nil {
+				t.Fatal(err)
+			}
+			e.outgoingRL.mu.Lock()
+			before := e.outgoingRL.buckets[p.Name()].lastRefill
+			e.outgoingRL.mu.Unlock()
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				e.processInteractiveEvents(state, session, e.sessions, "room", "", time.Now(), nil, nil, "")
+			}()
+			backend.events <- Event{Type: EventError, Error: errors.New("backend-private-payload-751")}
+			close(backend.events)
+			waitFor(t, "EventError waiting for send budget", func() bool {
+				e.outgoingRL.mu.Lock()
+				defer e.outgoingRL.mu.Unlock()
+				return e.outgoingRL.buckets[p.Name()].lastRefill.After(before)
+			})
+			if phase == "revoked" {
+				if err := a.Revoke(d.ID, "human:stop"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+				t.Fatal("event loop timeout")
+			}
+			found := false
+			for _, sent := range p.getSent() {
+				if strings.Contains(sent, "backend-private-payload-751") {
+					found = true
+				}
+			}
+			if found != (phase != "revoked") {
+				t.Fatalf("error delivery mismatch: phase=%s sent=%q", phase, p.getSent())
+			}
+		})
+	}
+}
+
+func TestProactiveDroppedQueueErrorKeepsAuthorization(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		t.Run(fmt.Sprint(explicit), func(t *testing.T) {
+			e, a, d, ctx := proactiveOutputFixture(t)
+			defer e.Stop()
+			p := &stubPlatformEngine{n: "platform"}
+			ex := ctx.Value(proactiveExecutionKey{}).(proactiveExecution)
+			ref := &AuthorizationTurn{Project: e.name, TaskID: ex.taskID, DecisionID: d.ID}
+			if explicit {
+				ref = nil
+			}
+			if err := a.Revoke(d.ID, "owner"); err != nil {
+				t.Fatal(err)
+			}
+			state := &interactiveState{pendingMessages: []queuedMessage{{platform: p, replyCtx: "ctx", authorization: ref}}}
+			e.notifyDroppedQueuedMessages(state, errors.New("private queued backend detail"))
+			if got := len(p.getSent()); (got > 0) != explicit {
+				t.Fatalf("explicit=%v sent=%q", explicit, p.getSent())
+			}
+		})
+	}
 }

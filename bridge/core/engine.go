@@ -7799,7 +7799,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							statusFooter = e.buildReplyFooter(replyAgent, state.agentSession, workspaceDir, "")
 						}
 					}
-					sendChunksWithStatusFooter(outputCtx, p, replyCtx, userMsg, statusFooter, e.sendWithError)
+					sendChunksWithStatusFooter(outputCtx, p, replyCtx, userMsg, statusFooter, func(p Platform, replyCtx any, content string) error {
+						return e.sendWithErrorContext(outputCtx, p, replyCtx, content)
+					})
 				}
 			}
 			// Only drop queued messages if the agent session is dead.
@@ -7964,7 +7966,10 @@ func (e *Engine) notifyDroppedQueuedMessages(state *interactiveState, reason err
 		e.boardDropped(boardKey, descs)
 	}
 	for _, q := range remaining {
-		e.send(q.platform, q.replyCtx, fmt.Sprintf(e.i18n.T(MsgError), reason))
+		ctx, err := e.turnOutputContext(q.authorization)
+		if err == nil {
+			_ = e.sendWithErrorContext(ctx, q.platform, q.replyCtx, fmt.Sprintf(e.i18n.T(MsgError), reason))
+		}
 	}
 }
 
@@ -13869,11 +13874,15 @@ func (e *Engine) renderCardForPlatformWorkspace(p Platform, card *Card, workspac
 // sendWithError applies outgoing rate limiting and p.Send. It logs wait
 // cancellation and platform failures, and returns a non-nil error on either.
 func (e *Engine) sendWithError(p Platform, replyCtx any, content string) error {
+	return e.sendWithErrorContext(e.ctx, p, replyCtx, content)
+}
+
+func (e *Engine) sendWithErrorContext(ctx context.Context, p Platform, replyCtx any, content string) error {
 	if err := e.waitOutgoing(p); err != nil {
 		slog.Warn("outgoing rate limit: context cancelled", "platform", p.Name(), "error", err)
 		return err
 	}
-	return e.sendAlreadyRenderedWithError(p, replyCtx, content)
+	return e.sendRenderedWithContext(ctx, p, replyCtx, content)
 }
 
 func (e *Engine) sendAlreadyRenderedWithError(p Platform, replyCtx any, content string) error {
