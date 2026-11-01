@@ -108,6 +108,9 @@ type handoffWatch struct {
 	// engines: the role engines whose sessions in the workspace count as work in progress (all
 	// engines of the bridge once started; the watch's own engine before).
 	engines func() []*Engine
+	// resume stops the stuck turn of workspace key, tells the chat and wakes the workspace to
+	// continue the task (autoResume, set by startHandoffWatch; nil = park at once).
+	resume func(p Platform, key string, h TeamHandoff)
 }
 
 func newHandoffWatch(e *Engine) *handoffWatch {
@@ -164,6 +167,7 @@ func (s *APIServer) startHandoffWatch() {
 	}
 	w := newHandoffWatch(e)
 	w.park = func(key, chat string, at time.Time) (bool, error) { return s.parkAndReset(e, key, chat, at, false) }
+	w.resume = w.autoResume
 	w.engines = func() []*Engine {
 		s.mu.RLock()
 		defer s.mu.RUnlock()
@@ -393,10 +397,37 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 			return due
 		}
 	}
+	// First time without progress after the nudge: stop the stuck turn and wake the workspace to
+	// continue once (a hung request or a killed session otherwise parks the task silently); the
+	// next no-progress check parks.
+	if !h.AutoResumed && h.ParkFails == 0 && w.resume != nil {
+		due := now.Add(watchCheckAfter())
+		ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) {
+			x.AutoResumed = true
+			x.Nudged = true // the resume is the warning: the next check without progress parks
+			x.Renewed = 0
+			x.BusyRenewed = 0
+			x.ReadFails = 0
+			x.Since = now
+			x.Due = due
+		})
+		switch {
+		case err == nil && !ok:
+			return time.Time{}
+		case err == nil:
+			slog.Info("team watch: no progress; stopped the turn and resumed the task once", "workspace", key, "chat", h.Chat)
+			w.resume(p, key, h)
+			return due
+		}
+		slog.Warn("team watch: save auto-resume failed; parking instead", "workspace", key, "error", err)
+	}
 	freed, err := w.park(key, h.Chat, h.At)
 	switch {
 	case err == nil:
 		slog.Info("team watch: no progress at the check time; task parked", "workspace", key, "chat", h.Chat, "freed", freed)
+		if serr := w.send(p, h.Chat, w.e.i18n.Tf(MsgWatchParkedNotice, channelLabel(plat, teamChannelID(key)), h.Title)); serr != nil {
+			slog.Warn("team watch: park notice failed", "chat", h.Chat, "error", serr)
+		}
 		return time.Time{}
 	case errors.Is(err, ErrTeamWorkspaceNotOwned):
 		// Handed back, closed or the workspace went to someone else meanwhile: nothing to park.
@@ -769,4 +800,57 @@ func teamWorkspaceWatchDueLocked(st *teamWorkspaceState, key string) time.Time {
 		}
 	}
 	return due
+}
+
+// autoResume stops the turns running in workspace key (a hung request keeps the session busy
+// without events), posts a notice in the chat the task came from, and wakes the workspace's role
+// to continue the task in the same agent session.
+func (w *handoffWatch) autoResume(p Platform, key string, h TeamHandoff) {
+	plat, _, _ := strings.Cut(key, ":")
+	stopped := 0
+	for _, x := range w.engines() {
+		if x != nil {
+			stopped += x.stopChannel(plat, key)
+		}
+	}
+	sender := w.e.watchSender(h)
+	label := channelLabel(plat, teamChannelID(key))
+	if err := w.send(p, h.Chat, sender.i18n.Tf(MsgWatchAutoResumed, label, h.Title)); err != nil {
+		slog.Warn("team watch: auto-resume notice failed", "chat", h.Chat, "error", err)
+	}
+	text := sender.i18n.Tf(MsgWatchResume, h.Title)
+	if notes := w.e.watchTaskNotes(h); notes != "" {
+		text += "\n" + sender.i18n.Tf(MsgWatchResumeNotes, notes)
+	}
+	slog.Info("team watch: waking the workspace to continue", "workspace", key, "stopped", stopped)
+	owner := h.Owner
+	sp := sender.lookupReadyPlatform(plat)
+	if sp == nil || sender.watchOwns(sp, h.Owner) || owner == "" {
+		sender.wakeWatchRole(key, text, h.Title)
+		return
+	}
+	if err := newHandoffWatch(sender).send(sp, key, strings.TrimSpace(watchMention(plat, owner)+" "+text)); err != nil {
+		slog.Warn("team watch: resume post failed", "workspace", key, "error", err)
+		sender.wakeWatchRole(key, text, h.Title)
+	}
+}
+
+// watchTaskNotes: the handoff file of the board item the watch follows ("" = unknown).
+func (e *Engine) watchTaskNotes(h TeamHandoff) string {
+	if e.team == nil {
+		return ""
+	}
+	id := h.Board
+	if id == 0 {
+		id = watchTaskNumber(h.Title)
+	}
+	if id == 0 {
+		return ""
+	}
+	for _, it := range readTeamTaskBoard(e.team.dir) {
+		if it.ID == id {
+			return strings.TrimSpace(it.Where)
+		}
+	}
+	return ""
 }
