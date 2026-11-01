@@ -99,6 +99,8 @@ func (e *Engine) admissionQuotaScope(agent Agent, keys ...string) quotaScope {
 // QuotaScopeProvider supplies provider evidence, not a guess based on different
 // model IDs. Empty Group means the sharing boundary is unknown: use the whole
 // account conservatively. Account must identify the credential source, not a role.
+// Account "unknown" means identity resolution failed: retain the provider's
+// known cooldowns until an account can be attributed again.
 type QuotaScopeProvider interface {
 	QuotaScope(model string) (account, group string)
 }
@@ -202,6 +204,14 @@ func (e *Engine) saveDomainLocked(key string, until time.Time) {
 func (e *Engine) quotaCoolingFor(scope quotaScope) time.Time {
 	quotaDomainsMu.Lock()
 	until := e.domainUntilLocked(scope.key())
+	if scope.Account == "unknown" {
+		// An identity lookup failure is not evidence of a different allowance.
+		// This persisted guard also covers a restart with no identity cache.
+		guard := quotaScope{Provider: scope.Provider}.key()
+		if known := e.domainUntilLocked(guard); known.After(until) {
+			until = known
+		}
+	}
 	quotaDomainsMu.Unlock()
 	// Old role-only records have no trustworthy model/account attribution.
 	// Retain them until expiry; a positive target probe may exempt only its scope.
@@ -229,6 +239,12 @@ func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session strin
 		until = old
 	}
 	e.saveDomainLocked(key, until)
+	// Only unresolved identities consult this summary. Known independent
+	// accounts and pools continue to use their own exact domain above.
+	guard := quotaScope{Provider: scope.Provider}.key()
+	if old := e.domainUntilLocked(guard); until.After(old) {
+		e.saveDomainLocked(guard, until)
+	}
 	quotaDomainsMu.Unlock()
 	e.quotaMu.Lock()
 	defer e.quotaMu.Unlock()
