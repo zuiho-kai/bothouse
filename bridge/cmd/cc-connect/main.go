@@ -228,6 +228,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"relay":        runRelay,
 	"sessions":     runSessions,
 	"session":      runSession,
+	"report":       runReport,
 	"agent-sid":    runAgentSID,
 	"daemon":       runDaemon,
 	"feishu":       runFeishu,
@@ -1773,6 +1774,9 @@ Commands:
     list             List all sessions (pipe-friendly)
     show <id>        Show session messages (-n N for last N)
   session new        Reset this agent session after the current turn (--after-turn)
+
+  report             Read-only reports from local data
+    file-frequency   Files read most often (events.jsonl; Claude Code fallback)
 
   handoff            Manually hand the primary role to another connected bot
     status           Show the current primary role and the last switch record
