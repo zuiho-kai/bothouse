@@ -500,6 +500,7 @@ type Engine struct {
 	capRound        int
 	capPending      []func() // messages to re-deliver when the cooldown ends, in order
 	capArmed        bool     // a flush timer is pending
+	capNotified     map[string]bool // channels already told about this cooldown round
 	sessionModelsMu sync.RWMutex
 	sessionModels   map[string]string
 	// Per-session base-instruction files (maomao fork, see session_models.go)
@@ -669,6 +670,7 @@ type interactiveState struct {
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
 	turnMode                 string         // maomao fork: mode applied by the running turn's override (setTurnMode); "" when none; guarded by mu
 	capacityFailed           bool           // maomao fork: last turn failed with "model at capacity"
+	turnErrored              bool           // maomao fork: last turn ended with an error event (not a success)
 	promptTooLong            string         // maomao fork: last turn's "prompt is too long" error (takePromptTooLong)
 	promptTooLongQueued      *queuedMessage // maomao fork: the chained queued message that turn was, if any
 	platform                 Platform
@@ -4767,10 +4769,17 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	// for the cooldown instead of reaching the agent. Checked before withTurnBlocks so
 	// nothing (wiki pages, team status, handoff) is marked sent for an unsent message.
 	// A local input turn (msg.inputTurn) is never deferred: its caller waits on it.
+	// A real person's new message asks the model once even while cooling down
+	// (2026-11-01: 「复活」之后发一句话就该恢复正常). Bots, cron/timer/heartbeat
+	// turns and ws-handoff wake-ups still wait: they are not someone sitting
+	// there, and key suffixes alone do not prove where a message came from.
+	capWait := e.capacityWait()
+	probeCapacity := capWait > 0 && msg.inputTurn == nil && !msg.FromBot &&
+		!scheduledTurnUser(msg.UserID) && msg.UserID != "handoff" && !isScheduledSideKey(interactiveKey)
 	if until := e.quotaCooling(); !until.IsZero() {
 		e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgQuotaCooling, until.Format(time.RFC3339)))
-	} else if wait := e.capacityWait(); wait > 0 && msg.inputTurn == nil {
-		e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, wait, true)
+	} else if capWait > 0 && msg.inputTurn == nil && !probeCapacity {
+		e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, capWait, true)
 	} else {
 		// Local copy, not msg.Content: the caller may still read *msg (data race).
 		content := session.renderReference(msg.Content, msg.Reference)
@@ -4839,8 +4848,11 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 				}
 				return err
 			},
+			probeCapacity,
 			func(wait time.Duration) {
-				e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, wait, false)
+				// cooling: a probe failed while a cooldown was already running, so
+				// the honest notice is "still cooling", not "3 tries failed".
+				e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, wait, probeCapacity)
 			})
 		// Failed local turns can leave queued ordinary messages for the outer
 		// drain. Release only this turn's outbound guard before handing them off.
@@ -7667,6 +7679,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventError:
 			turnFailed = true
+			state.mu.Lock()
+			state.turnErrored = true // a turn that ends in error never means "the model is back"
+			state.mu.Unlock()
 			cp.Finalize(ProgressCardStateFailed)
 			if event.Error != nil {
 				if until, ok := e.quotaCoolingUntil(event.Error.Error()); ok {
@@ -8092,6 +8107,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 				session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
 				return err
 			},
+			false, // a message drained from the queue was already offered its probe
 			func(wait time.Duration) {
 				e.deferForCapacity(queued.platform, queuedToMessage(rawQueued), state.agent, sessions, sessionKey, state.workspaceDir, wait, false)
 			})
@@ -11725,6 +11741,9 @@ func (e *Engine) cmdModel(p Platform, msg *Message, args []string) {
 	}
 	e.persistWorkspaceModelOverride(interactiveKey, msg.SessionKey, agent, target)
 	e.cleanupInteractiveState(interactiveKey)
+	// The switch is applied and the old session is gone, so the cooldown that was
+	// waiting on the old model can release its messages (review P1).
+	e.capacityRecover("channel model switch")
 
 	// Keep the existing agent session ID so the next StartSession uses
 	// --resume <id> --model <new>, which lets the CLI agent restore context
@@ -11798,7 +11817,7 @@ func (e *Engine) switchModel(target string) (string, error) {
 // switchModelOnAgent applies a runtime model selection to the provided agent.
 // When persistConfig is true, config-backed model/provider changes are saved so
 // reloads keep the new default. Workspace-scoped runtime switches pass false.
-func (e *Engine) switchModelOnAgent(agent Agent, target string, persistConfig bool) (string, error) {
+func (e *Engine) switchModelOnAgent(agent Agent, target string, persistConfig bool) (res string, err error) {
 	switcher, ok := agent.(ModelSwitcher)
 	if !ok {
 		return target, nil

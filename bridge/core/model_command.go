@@ -318,6 +318,10 @@ func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, k
 	// from /compact; preserve its cancellation record while closing the reader.
 	e.cleanupInteractiveState(interactiveKey, nil)
 	e.sessions.Save()
+	// Only now is the model really switched and the old session released, so the
+	// messages held by the cooldown can be re-delivered (review P1: queued is not
+	// applied).
+	e.capacityRecover("model switch applied")
 	slog.Info("model switch applied", "session", interactiveKey, "from", from, "to", modelOf(agent), "effort", p.effort)
 	return nil
 }
