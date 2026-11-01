@@ -106,6 +106,10 @@
     "linkGlobal": "關聯全域服務商",
     "addCustom": "自訂新增",
     "allLinked": "所有全域服務商已關聯。",
+    "noGlobal": "還沒有全域服務商。請先在「服務商」頁建立。",
+    "noCompatible": "沒有適用於此專案 agent 類型的全域服務商。",
+    "emptyProjectMismatch": "已關聯的全域服務商不適用於此專案的 agent 類型。",
+    "emptyProjectMismatchHint": "在「服務商」頁調整它們的適用類型，或新增自訂服務商。",
     "manageGlobal": "管理全域服務商"
   },
   "cron": {
