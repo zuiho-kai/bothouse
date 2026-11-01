@@ -115,7 +115,8 @@ class T(unittest.TestCase):
                 cf.main([])
         finally:
             sys.stdin = sys.__stdin__
-        self.assertNotIn("z.go", Path(self.map).read_text(encoding="utf-8"))
+        # a main-session turn end (the workspace lead's [report]) fills the map too
+        self.assertIn("- 别的 z.go:1", Path(self.map).read_text(encoding="utf-8"))
 
     def test_default_dir_is_data_dir_codemaps(self):
         os.environ.pop("CODEMAP_DIR", None)

@@ -101,6 +101,12 @@ def _check(c, lines, lead, key="msg"):
                     and all(re.search(r, text) for r in c["need_res"])):
                 return None
         return c[key]
+    if t == "forbid":  # 整份交接里不许出现的写法（11-01 工作区找上一棒的 /tmp 脚本找不到）
+        rx = re.compile(c["re"])
+        return c[key] if any(rx.search(x) for x in lines) else None
+    if t == "needs_if":  # 正文命中 trigger_re 时，正文还要命中 need_re（浏览器活要写标签页 id）
+        text = text_of(lines)
+        return c[key] if re.search(c["trigger_re"], text) and not re.search(c["need_re"], text) else None
     raise RuntimeError(f"交接规则文件里有不认识的检查类型：{t}")
 
 

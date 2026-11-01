@@ -272,6 +272,123 @@ def pick_pool(chat: str, task: str = ""):
     return f"{plat}:{w['id']}", str(w.get("name") or w["id"]), parent
 
 
+SOURCE = "原话出处（程序附）"
+_STAMP = re.compile(r"(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d)([\dxX])")
+
+
+def _window_start(text):
+    """时间窗起点：用户原话那节里最早的「MM-DD HH:MM」（10:2x 按 10:20）往前 10 分钟；没有或早于 3 天前，取交活前 3 小时。"""
+    import datetime as dt
+    now = dt.datetime.now().astimezone()
+    body = text.split(f"## {_QUOTE_SEC}", 1)[1].split("\n## ", 1)[0] if f"## {_QUOTE_SEC}" in text else ""
+    got = []
+    for m in _STAMP.finditer(body):
+        mo, d, h, t, u = m.groups()
+        try:
+            got.append(now.replace(month=int(mo), day=int(d), hour=int(h), minute=int(t) * 10 + (0 if u in "xX" else int(u)),
+                                   second=0, microsecond=0))
+        except ValueError:
+            continue
+    got = [g for g in got if now - dt.timedelta(days=3) <= g <= now]
+    return (min(got) - dt.timedelta(minutes=10)) if got else now - dt.timedelta(hours=3)
+
+
+def append_source(path, chat, project=None):
+    """给交接追加「原话出处」节：聊天频道 id、交活人的会话记录、时间窗，并把时间窗里这个聊天频道的原始对话
+    （用户、主角色和队友的原话，来自桥的会话记录 sessions/<项目>_*.json）导出到 <交接>.原话.md。
+    已有就不再加；出任何错只返回 None，不拦交活。来源：用户 11-01「工作区…他也可以看我们的会话原话啊，解决人类之间这种传递有损的问题」。"""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+        if SOURCE in text or ":" not in (chat or ""):
+            return None
+        project = project or os.environ.get("CC_PROJECT", "")
+        data = Path(os.environ.get("CC_DATA_DIR") or Path.home() / ".bothouse")
+        start = _window_start(text)
+        msgs, agent_ids = [], []
+        for f in sorted((data / "sessions").glob(f"{project}_*.json")):
+            d = json.loads(f.read_text(encoding="utf-8"))
+            sids = (d.get("user_sessions") or {}).get(chat) or []
+            for sid in sids:
+                s = (d.get("sessions") or {}).get(sid) or {}
+                if s.get("agent_session_id"):
+                    agent_ids.append(s["agent_session_id"])
+                for m in s.get("history") or []:
+                    ts = m.get("timestamp") or ""
+                    if ts and ts >= start.isoformat():
+                        msgs.append((ts, m.get("role") or "?", m.get("content") or ""))
+        msgs.sort()
+        dump = Path(path).with_suffix("").as_posix() + ".原话.md"
+        with open(dump, "w", encoding="utf-8") as fh:
+            fh.write(f"# 聊天频道 {chat} 原始对话（{start:%m-%d %H:%M} 到交活，{len(msgs)} 条）\n")
+            fh.write("# user 条里有用户和队友的原话（行头「[时:分] 名字:」）；assistant 是主角色自己说的。\n\n")
+            for ts, role, c in msgs:
+                fh.write(f"### {ts[5:16].replace('T', ' ')} {role}\n{c}\n\n")
+        tr = ""
+        if agent_ids:
+            hits = sorted(Path.home().glob(f".claude/projects/*/{agent_ids[-1]}.jsonl"))
+            tr = str(hits[0]) if hits else ""
+        lines = [f"## {SOURCE}",
+                 "（交活时程序附：开工先读这里的原始对话，再读总部判断那节；交接正文是主角色的转述，和原话冲突时信原话）",
+                 f"- 聊天频道：{chat}",
+                 f"- 时间窗：{start:%m-%d %H:%M} 到交活",
+                 f"- 原话导出：{dump}（{len(msgs)} 条）",
+                 f"- 读原话：sed -n '1,400p' '{dump}'"]
+        if tr:
+            lines.append(f"- 主角色交活时的会话记录：{tr}")
+        lines.append(f"- 时间窗外再找：{Path(__file__).resolve().parent / 'chanlog'} <关键词> --since {start:%m-%d} --full")
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(("" if text.endswith("\n") else "\n") + "\n" + "\n".join(lines) + "\n")
+        return dump
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _codemap():
+    """codemap-inject.py（派子任务附地图的那份选图逻辑，#875 已五家通用）：装好的在数据目录 hooks/，仓库里在 ../hooks/。"""
+    import importlib.util
+    data = os.environ.get("CC_DATA_DIR")
+    for d in ([Path(data) / "hooks"] if data else []) + [Path(__file__).resolve().parent.parent / "hooks",
+                                                          Path.home() / ".bothouse" / "hooks"]:
+        f = d / "codemap-inject.py"
+        if f.is_file():
+            spec = importlib.util.spec_from_file_location("codemap_inject", f)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+    return None
+
+
+def kickoff_maps(path, task):
+    """开工要读的地图和手册。地图：按任务名 + 交接正文用 codemap-inject.pick 挑（同派子任务的规则：去掉路径网址后
+    命中至少 2 个关键词）；手册：本目录的工作区规矩手册 PLAYBOOK。返回开工提示里的一段话，出错只少这一段，不拦交活。
+    来源：用户 11-01「工作区…就没有代码地图那种非常笨，或者说除了代码地图之外，一些操作手册，一些东西他都没有」。"""
+    out = []
+    try:
+        mod = _codemap()
+        if mod:
+            text = task + "\n" + Path(path).read_text(encoding="utf-8", errors="ignore")
+            hits = mod.pick(mod.strip_paths(text))  # 交接里已写了地图路径的也列上
+            if hits:
+                out.append("先读代码地图 " + "、".join(hits) + "，按里面的符号直接定位，不要从头摸代码、找编译器、找上一棒的脚本；"
+                           f"交回 [report] 的细节里附一节「## 地图要补的条目（<地图完整路径>）」，每条一行「- 符号 文件:行」，"
+                           "交回时会自动补进地图。")
+            else:
+                out.append(f"这件活没对上现成的代码地图（地图目录 {mod.MAP_DIR}，每张的 keywords: 行是触发词），"
+                           "开工前先看一眼目录里有没有相关的。")
+    except Exception:  # noqa: BLE001
+        pass
+    here = Path(__file__).resolve().parent
+    manual = here / "PLAYBOOK.zh-CN.md"
+    if manual.is_file():
+        out.append(f"工作区规矩手册：{manual}。")
+    return "".join(out)
+
+
+# 工作区开工清单：替掉「把还没派的活当场派出去」——工作区接的活自己做，开工不再去读派活手册（pm-dispatch.md）
+KICKOFF = ("工作区开工：这件活你自己做，不用读派活手册、不再拆给别人；引用的脚本和状态文件写完整路径，不放 /tmp；"
+           "浏览器活记下标签页 id。")
+
+
 def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=None):
     """叫醒工作区会话。--handoff：这一轮是交过来的活，不是例行定时，桥照常自动开公开任务卡
     （core/public_progress_auto.go timerTurnUser）。不带 --inject-if-busy：工作区正有别的活在跑时这一轮排在后面，
@@ -284,7 +401,8 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
             f"你是工作区频道里的主角色，从主频道接手一整块大活：{task}。"
             f"先读交接 {path}。这块活交活时已在任务板建好 #{nid}，接手后用 board update {nid} <状态> 更新，")
     prompt = (head +
-              f"不要再 board add 这块活；本轮会自动开公开任务卡。接手后发五段式说明，并把还没派的活当场派出去。"
+              f"不要再 board add 这块活；本轮会自动开公开任务卡。接手后发五段式说明。" + KICKOFF + kickoff_maps(path, task) +
+              f"先读交接里「{SOURCE}」的原始对话，再读总部判断那节：总部判断定做什么、为什么、做成什么样算好，照办；怎么做你定。"
               f"交接里的「{_QUOTE_SEC}」和「{_recall.SECTION}」是准绳；旧定案和用户原话冲突、或拿不准用户意思时，"
               f"先问聊天频道的主角色（ws-up --notes {path} \"<问题>\"，不带 --ask），不直接问用户；"
               f"主角色搜 wiki 和历史会话后代用户答，答不了才转用户。"
@@ -461,6 +579,8 @@ def main(argv):
     if _recall.append_to(path):
         print(f"ws-handoff: 已附「{_recall.SECTION}」", file=sys.stderr)
     chat = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+    if append_source(path, chat):
+        print(f"ws-handoff: 已附「{SOURCE}」", file=sys.stderr)
     parent = ""  # 走共享池时交接记在桥里的聊天频道；叫醒失败按它撤掉刚 claim 的那件
     if _team.workspace():
         ws, name = fixed_channel(chat), "工作区"

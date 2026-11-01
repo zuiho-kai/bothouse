@@ -2203,6 +2203,12 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		boardLabel:   "⏰ " + boardJobDesc(job.Description, job.Prompt, job.Exec), // maomao fork: channel task board
 		timerJobID:   job.ID,
 	}
+	// A handoff wake-up (ws-handoff, report bounce, ws-forward) starts or resumes a whole task in a workspace
+	// session: give it the same wiki recall, standing practices and decisions a chat turn gets (cron does the
+	// same above). The prompt names the handoff file, which is how the gate's context service tells a start.
+	if job.Handoff {
+		msg.TurnCtx, msg.TurnCtxQuery = true, content
+	}
 	// #624 K4: a resume delivered through a timer job is the interrupted turn
 	// carried on, not a scheduled run.
 	if r := job.resume; r != nil {
