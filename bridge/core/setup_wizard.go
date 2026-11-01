@@ -36,7 +36,7 @@ import (
 
 type WizardRequest struct {
 	libraryHost string // host of the management page (handleSetupApply): cloud_web loads library pictures from it
-	Platform    string `json:"platform"` // "discord" (default) | "feishu" | "lark" | "cloud_web" (自建平台)
+	Platform    string `json:"platform"` // "discord" (default) | "feishu" | "lark" | "cloud_web" (自建平台) | "qq"
 	Language    string `json:"language,omitempty"`
 	Discord     *struct {
 		GuildID   string `json:"guild_id"`
@@ -44,6 +44,7 @@ type WizardRequest struct {
 	} `json:"discord,omitempty"`
 	Feishu        *WizardFeishu   `json:"feishu,omitempty"`
 	CloudWeb      *WizardCloudWeb `json:"cloud_web,omitempty"` // cloud_web: the platform (setup_cloudweb.go)
+	QQ            *WizardQQ       `json:"qq,omitempty"`        // qq: the NapCat / OneBot connection (setup_qq.go)
 	Roles         []WizardRole    `json:"roles"`
 	FallbackRole  string          `json:"fallback_role,omitempty"`   // project name; default = first role
 	FallbackBotID string          `json:"fallback_bot_id,omitempty"` // or the Discord bot ID (wins; the web wizard sends this)
@@ -190,6 +191,7 @@ type WizardResult struct {
 	HotLoad      *HotLoadResult      `json:"hot_load,omitempty"`
 	ConfigBackup string              `json:"config_backup,omitempty"` // copy of config.toml taken before the write
 	CloudWeb     *CloudWebTestResult `json:"cloud_web,omitempty"`     // cloud_web: the connection test (page_url = the platform's web page)
+	QQ           *QQTestResult       `json:"qq,omitempty"`            // qq: the NapCat connection test
 	Error        string              `json:"error,omitempty"`
 }
 
@@ -776,8 +778,9 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	}
 	cloudWeb := isCloudWebPlatform(req.Platform)
 	isFeishu := req.Platform == "feishu" || req.Platform == "lark"
-	if req.Platform != "discord" && !isFeishu && !cloudWeb {
-		return fail("platform", fmt.Errorf("platform must be discord, feishu, lark or cloud_web"))
+	isQQ := req.Platform == "qq"
+	if req.Platform != "discord" && !isFeishu && !cloudWeb && !isQQ {
+		return fail("platform", fmt.Errorf("platform must be discord, feishu, lark, cloud_web or qq"))
 	}
 	if len(req.Roles) == 0 {
 		return fail("roles", fmt.Errorf("at least one role is required"))
@@ -792,6 +795,28 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	}
 	if isFeishu && (req.Feishu == nil || req.Feishu.AppID == "" || req.Feishu.AppSecret == "") {
 		return fail("role 1", fmt.Errorf("feishu: app_id and app_secret required (scan the QR code first)"))
+	}
+	if isQQ && len(req.Roles) != 1 {
+		return fail("roles", fmt.Errorf("qq: one bot per wizard run (one NapCat = one QQ account)"))
+	}
+	if isQQ {
+		if req.QQ == nil {
+			req.QQ = &WizardQQ{}
+		}
+		if req.QQ.WSURL = strings.TrimSpace(req.QQ.WSURL); req.QQ.WSURL == "" {
+			req.QQ.WSURL = QQDefaultWSURL
+		}
+		a, err := qqAllowFrom(req.QQ.AllowFrom)
+		if err != nil {
+			return fail("qq", err)
+		}
+		if a == "" { // no owner lookup on QQ: an empty list would let anyone in a group command this computer
+			return fail("qq", errors.New(tr3(req.Language,
+				"qq：allow_from 要填你自己的 QQ 号（逗号分隔可填多个）；要让所有人都能指挥机器人填 *",
+				"qq：allow_from にあなたの QQ 番号を入力してください（カンマ区切りで複数可）。誰でも指示できるようにするには *",
+				"qq: allow_from needs your own QQ number (comma-separated for several); * lets anyone command the bot")))
+		}
+		req.QQ.AllowFrom = a
 	}
 	// cloud_web: the platform's address and bot token; empty ones come from the hub this wizard started
 	cwBase, cwToken := "", ""
@@ -921,6 +946,23 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			}
 			addStep(res, step+" discord", nil, stepBotDetail(req.Language, info.Username, info.IntentKnown, info.MessageContent))
 			res.Roles = append(res.Roles, rr)
+		} else if isQQ {
+			// the same connection the bot makes: a wrong address or token writes nothing
+			t := TestQQ(ctx, req.QQ.WSURL, req.QQ.Token, req.Language)
+			if t.Code != "ok" {
+				r := fail(step+" qq", errors.New(t.Message+"; "+t.Fix))
+				r.QQ = &t
+				return r
+			}
+			res.QQ = &t
+			addStep(res, step+" qq", nil, t.Message)
+			w.botID = t.UserID
+			if r.ReuseProject == "" && (r.Name == "" || r.NameCustomized != nil && !*r.NameCustomized) && t.Nickname != "" {
+				w.Name = t.Nickname
+				customized := true
+				w.NameCustomized = &customized
+			}
+			res.Roles = append(res.Roles, WizardRoleResult{BotID: t.UserID})
 		} else if cloudWeb {
 			if r.ReuseProject != "" {
 				p, ok := snap.project(r.ReuseProject)
@@ -1317,6 +1359,13 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	}
 	// a Discord / Feishu run keeps the cloud_web team (planWizard merges it on the next cloud_web run)
 	st.CloudWebURL, st.CloudWebFallback, st.CloudWebTeam = state.CloudWebURL, state.CloudWebFallback, state.CloudWebTeam
+	if isQQ { // adding QQ leaves the Discord / Feishu / cloud_web fields as they were
+		st = state
+		st.Language, st.UpdatedAt = req.Language, time.Now().Format(time.RFC3339)
+		if st.Platform == "" {
+			st.Platform = req.Platform
+		}
+	}
 	if cloudWeb { // the Discord / Feishu fields stay as they were
 		st = state
 		st.Language, st.UpdatedAt = req.Language, time.Now().Format(time.RFC3339)
@@ -1341,8 +1390,8 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	if err := writeJSONFile(filepath.Join(env.DataDir, setupStateFile), st, 0o644); err != nil {
 		return fail("state", err)
 	}
-	wikiSession := cloudWebWikiSession // the self-hosted platform has no fixed channel: the muted jobs need none
-	if !cloudWeb {
+	wikiSession := cloudWebWikiSession // the self-hosted platform (and QQ) has no fixed channel: the muted jobs need none
+	if !cloudWeb && !isQQ {
 		ch := st.ChannelID
 		if ch == "" {
 			ch = state.ChannelID // a run without channel_id keeps the earlier default channel
@@ -1471,6 +1520,9 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		case isFeishuPlatform(req.Platform) && sameFeishuApp(s, req.Feishu, used) != "":
 			// the same Feishu / Lark app is already configured: update it, don't add a second project
 			r.project, r.reused = sameFeishuApp(s, req.Feishu, used), true
+		case req.Platform == "qq" && sameQQAccount(s, req.QQ.WSURL, used) != "":
+			// the same NapCat (= QQ account) is already configured: update it, don't add a second project
+			r.project, r.reused = sameQQAccount(s, req.QQ.WSURL, used), true
 		case cloudWeb && !(req.AppendOnly && autoNamed) && sameCloudWebMember(s, cwBase, w, used) != "":
 			// the same member of the same platform is already configured: update it, don't add name-2
 			r.project, r.reused = sameCloudWebMember(s, cwBase, w, used), true
@@ -1792,6 +1844,15 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			if cur, _ := byProject[r.project].Options["group_reply_all_channels"].(string); channelID != "" && strings.TrimSpace(cur) == "" {
 				pw.Options["group_reply_all_channels"] = channelID
 			}
+		} else if req.Platform == "qq" {
+			q := req.QQ
+			pw.Options["ws_url"], pw.Options["allow_from"] = q.WSURL, q.AllowFrom
+			if q.Token != "" {
+				pw.Options["token"] = q.Token
+			}
+			if q.HTTPURL != "" {
+				pw.Options["http_url"] = q.HTTPURL
+			}
 		} else {
 			f := req.Feishu
 			if f.PlatformType != "" {
@@ -1816,7 +1877,7 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		pl.writes = soloGateWrites(pl.writes, pl.team[0].Project, req.Platform, s, req.gateOn())
 	}
 	// Apply participation at the platform boundary, before unaddressed messages reach a model.
-	if req.Gate != nil && (req.Gate.Mode == "addressed" || req.Gate.Mode == "smart") {
+	if req.Gate != nil && (req.Gate.Mode == "addressed" || req.Gate.Mode == "smart") && req.Platform != "qq" {
 		addressed := req.Gate.Mode == "addressed"
 		for _, member := range pl.team {
 			i := -1
