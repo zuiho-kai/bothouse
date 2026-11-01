@@ -62,6 +62,12 @@
     "sep": "、",
     "missing": "交接里这几项交回没提到：{items}，做了就写结果，没做写原因"
   },
+  "generic": {
+    "_why": "bothouse 的产品能力要所有 CLI 都能用（Claude Code、Codex、Gemini、grok 等），交回 [report] 的「我加的：」那一行写了只给/只装/只做/仅 Claude Code（cc）就退回（同类错第 3 次，任务 #875）；同一行写了「来源：」（某 CLI 做不了的依据）放行。只有桥本体 Go 查。",
+    "cc_only_re": "(只|仅)([^\n，,。；;]{0,8}[^A-Za-z\n，,。；;])?([Cc]laude[\t ]*[Cc]ode|[Cc][Cc]([^A-Za-z]|$))",
+    "source_re": "来源[\t 　]*[：:]",
+    "msg": "「我加的：」写了只做 Claude Code（{hit}）：产品能力要所有 CLI 都能用（Claude Code、Codex、Gemini、grok 等），改成通用再交；某个 CLI 确实做不了，在同一行写「来源：」给出做不了的依据（文档、接口或实测）"
+  },
   "summary": {
     "background_re": "^背景[\t 　]*[：:]",
     "todo_re": "要你(做|定)的[\t 　]*[：:]",

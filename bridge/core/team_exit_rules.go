@@ -65,6 +65,11 @@ type teamExitRulesDoc struct {
 		Sep       string `json:"sep"`
 		Missing   string `json:"missing"`
 	} `json:"scope"`
+	Generic struct {
+		CCOnlyRe string `json:"cc_only_re"`
+		SourceRe string `json:"source_re"`
+		Msg      string `json:"msg"`
+	} `json:"generic"`
 	Jargon struct {
 		LineRe  string `json:"line_re"`
 		URLRe   string `json:"url_re"`
@@ -80,6 +85,7 @@ type teamExitRules struct {
 	background, todo, detail, added                                                    *regexp.Regexp
 	artNotes, artCompare, artImage                                                     *regexp.Regexp
 	scopeSection, scopeItem, scopeKeyStop                                              *regexp.Regexp
+	ccOnly, ccSource                                                                   *regexp.Regexp
 }
 
 // exitRules is read once from the embedded copy; a broken file fails every test that touches it.
@@ -111,6 +117,7 @@ func parseTeamExitRules(b []byte) (*teamExitRules, error) {
 		{&r.added, r.Summary.AddedRe},
 		{&r.artNotes, r.Art.NotesRe}, {&r.artCompare, r.Art.CompareRe}, {&r.artImage, r.Art.ImageRe},
 		{&r.scopeSection, r.Scope.SectionRe}, {&r.scopeItem, r.Scope.ItemRe}, {&r.scopeKeyStop, r.Scope.KeyStopRe},
+		{&r.ccOnly, r.Generic.CCOnlyRe}, {&r.ccSource, r.Generic.SourceRe},
 	} {
 		re, err := regexp.Compile(c.src)
 		if err != nil {
@@ -331,6 +338,23 @@ func scopeReportProblems(notes, body string) []string {
 		return nil
 	}
 	return []string{strings.ReplaceAll(exitRules.Scope.Missing, "{items}", strings.Join(missing, exitRules.Scope.Sep))}
+}
+
+// genericReportProblems: a [report] whose 「我加的：」 line says a product capability was made for
+// Claude Code only (只给/只装/只做/仅 Claude Code or cc) goes back unless the same line gives a
+// 「来源：」 for why another CLI cannot have it (task #875: bothouse capabilities must work on every CLI).
+func genericReportProblems(body string) []string {
+	for _, ln := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
+		loc := exitRules.added.FindStringIndex(ln)
+		if loc == nil {
+			continue
+		}
+		rest := ln[loc[1]:]
+		if hit := exitRules.ccOnly.FindString(rest); hit != "" && !exitRules.ccSource.MatchString(rest) {
+			return []string{strings.ReplaceAll(exitRules.Generic.Msg, "{hit}", strings.TrimSpace(hit))}
+		}
+	}
+	return nil
 }
 
 // jargonProblems: the part for the user names board/PR numbers, workspaces, branches, paths or
