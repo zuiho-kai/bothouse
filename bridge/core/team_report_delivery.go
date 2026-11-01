@@ -316,6 +316,9 @@ func (e *Engine) retryPostedAskWake(key string) {
 		err = fmt.Errorf("lead unavailable for posted ask")
 	} else {
 		job.Project = lead.name
+		// The retry becomes due when handed over, not when the ask was posted:
+		// otherwise startup may discard a newly accepted wake as stale.
+		job.ScheduledAt = time.Now()
 		e.teamExit.mu.Lock()
 		rec.Wake = &job
 		err = e.saveReportsLocked()

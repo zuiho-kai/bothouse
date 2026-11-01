@@ -176,6 +176,71 @@ func TestReportPostedAskRetriesFailedTimerWrite(t *testing.T) {
 	}
 }
 
+func TestReportPostedAskLateAcceptanceSurvivesRestart(t *testing.T) {
+	e, p := reportFixture(t)
+	e.platformReady = map[Platform]bool{p: true}
+	e.SetTeam(t.TempDir(), "橘", true)
+	timerDir := t.TempDir()
+	store, err := NewTimerStore(timerDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.timerScheduler = NewTimerScheduler(store)
+	e.timerScheduler.RegisterEngine(e.name, e)
+	defer e.timerScheduler.Stop()
+	// Keep the accepted job pending through the real capacity gate.
+	e.capMu.Lock()
+	e.capUntil = time.Now().Add(time.Hour)
+	e.capMu.Unlock()
+	validPath := store.path
+	store.path = t.TempDir()
+	body := "[ask] #46 背景：需要确认方向\n做了什么：完成比较\n要你做的：选择方案\n我加的：无"
+	e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindAsk, body, exitWSKey, 46, "需要确认方向", &teamTaskBoardItem{ID: 46, What: "等待决定"})
+	key := reportKey(p.Name(), "chat1", "ws1", exitKindAsk, 46, body)
+	e.teamExit.mu.Lock()
+	rec := e.loadReportsLocked()[key]
+	if rec == nil || rec.Wake == nil {
+		e.teamExit.mu.Unlock()
+		t.Fatal("failed timer write lost wake responsibility")
+	}
+	// Elapse beyond the existing startup grace, without sleeping.
+	rec.Wake.ScheduledAt = time.Now().Add(-2 * missedJobGracePeriod)
+	wakeID := rec.Wake.ID
+	e.teamExit.mu.Unlock()
+	store.path = validPath
+	e.retryPostedAskWake(key)
+	e.timerScheduler.Stop()
+	e.teamExit.mu.Lock()
+	delivered := rec.delivered()
+	e.teamExit.mu.Unlock()
+	if !delivered {
+		t.Fatal("accepted wake left source responsibility pending")
+	}
+	restored, err := NewTimerStore(timerDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduler := NewTimerScheduler(restored)
+	scheduler.RegisterEngine(e.name, e)
+	defer scheduler.Stop()
+	if err := scheduler.Start(); err != nil {
+		t.Fatal(err)
+	}
+	restored.mu.Lock()
+	if len(restored.jobs) != 1 {
+		restored.mu.Unlock()
+		t.Fatal("restart did not retain exactly one durable wake")
+	}
+	job := *restored.jobs[0]
+	restored.mu.Unlock()
+	if job.ID != wakeID || job.Fired || job.LastError != "" {
+		t.Fatalf("restart lost accepted wake: id=%s fired=%v error=%q", job.ID, job.Fired, job.LastError)
+	}
+	if len(p.sentTo("discord:chat1")) != 1 {
+		t.Fatal("restart repeated the ask headline")
+	}
+}
+
 func TestReportPostedAskWaitsForLeadAndHonorsCancellation(t *testing.T) {
 	for _, cancel := range []bool{false, true} {
 		name := "lead-returns"
