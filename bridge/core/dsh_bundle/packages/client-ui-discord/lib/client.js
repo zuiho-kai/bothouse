@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 79a9d7898c26fd8a4dbb904f053c9288ca8683a349abf407d1ba53a8ec300f85
+// dsh-client-source-sha256: 51732729e2bd1e81bb4d9c84a793292ba99e9ca0bbed95f72393ce083fbaeadd
 // dsh-style-sha256: 8de64f320b70b31c6dba515e74187a98284317258d9cb57df3dc16f2eb345641
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -252,7 +252,8 @@ function createChannelSource(transport) {
 					...r,
 					lead_id: event.lead_id,
 					effective_lead_id: event.effective_lead_id,
-					workspace_path: event.workspace_path
+					workspace_path: event.workspace_path,
+					max_relay: event.max_relay ?? r.max_relay
 				} : r)
 			};
 			case "lead": return {
@@ -630,6 +631,15 @@ function createChannelSource(transport) {
 					...r,
 					...result
 				} : r) });
+			},
+			async setMaxRelay(roomId, maxRelay) {
+				const result = await request(`collab/api/rooms/${roomId}/settings`, json("PATCH", { max_relay: maxRelay }));
+				const chat = snapshot.rooms.find((r) => r.id === roomId)?.parent_id ?? roomId;
+				if (lifetime !== void 0) onEvent({
+					type: "room-settings",
+					room_id: chat,
+					...result
+				});
 			},
 			async setLead(id, roomId = snapshot.roomId) {
 				if (roomId === void 0) throw new Error("No channel is open");
@@ -18272,6 +18282,8 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 	});
 }
 // src/client/ChannelSettingsDialog.tsx
+const RELAY_CAP_MIN = 6;
+const RELAY_CAP_MAX = 20;
 const tabs = [
 	"basic",
 	"dispatch",
@@ -18283,15 +18295,17 @@ const tabLabels = {
 	workspace: "settingsWorkspace"
 };
 /** Drafts and save outcomes live for the whole dialog, independently of the selected tab. */
-function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDispatchMode, setLead, setWorkspacePath, renewRoom, t, onClose }) {
+function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDispatchMode, setMaxRelay, setLead, setWorkspacePath, renewRoom, t, onClose }) {
 	const [tab, setTab] = (0, react.useState)("basic");
 	const [name, setName] = (0, react.useState)(room.name);
 	const [mode, setMode] = (0, react.useState)(room.dispatch_mode ?? "mixed");
+	const [relay, setRelay] = (0, react.useState)(String(room.max_relay ?? RELAY_CAP_MIN));
 	const [lead, setLeadDraft] = (0, react.useState)(effectiveLead);
 	const [directory, setDirectory] = (0, react.useState)(room.workspace_path ?? "");
 	const [saved, setSaved] = (0, react.useState)({
 		name: room.name,
 		mode: room.dispatch_mode ?? "mixed",
+		relay: String(room.max_relay ?? RELAY_CAP_MIN),
 		lead: effectiveLead,
 		directory: room.workspace_path ?? ""
 	});
@@ -18304,9 +18318,10 @@ function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDi
 	(0, react.useEffect)(() => {
 		dialogRef.current?.focus();
 	}, []);
+	const relayValid = /^\d+$/.test(relay) && Number(relay) >= RELAY_CAP_MIN && Number(relay) <= RELAY_CAP_MAX;
 	const dirty = {
 		basic: room.kind !== "workspace" && name !== saved.name,
-		dispatch: mode !== saved.mode || lead !== saved.lead,
+		dispatch: mode !== saved.mode || relay !== saved.relay || lead !== saved.lead,
 		workspace: directory !== saved.directory
 	};
 	const close = () => {
@@ -18327,6 +18342,7 @@ function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDi
 	const save = async (target) => {
 		if (saving[target] || !dirty[target]) return;
 		if (target === "basic" && (!name || name.length > 32 || /\s/.test(name))) return;
+		if (target === "dispatch" && !relayValid) return;
 		if (target === "workspace" && (!directory || renewing || renewPending)) return;
 		setSaving((previous) => ({
 			...previous,
@@ -18353,6 +18369,13 @@ function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDi
 					setSaved((previous) => ({
 						...previous,
 						lead
+					}));
+				}
+				if (relay !== saved.relay) {
+					await setMaxRelay(room.id, Number(relay));
+					setSaved((previous) => ({
+						...previous,
+						relay
 					}));
 				}
 			} else {
@@ -18473,51 +18496,75 @@ function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDi
 									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t(room.kind === "workspace" ? "workspaceNameFixed" : "channelNameHint") })
 								]
 							}) }),
-							tab === "dispatch" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-								className: ChannelsPage_module_default.field,
-								role: "radiogroup",
-								"aria-label": t("dispatchMode"),
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("dispatchMode") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-									className: ChannelsPage_module_default.choiceColumn,
+							tab === "dispatch" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									className: ChannelsPage_module_default.field,
+									role: "radiogroup",
+									"aria-label": t("dispatchMode"),
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("dispatchMode") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: ChannelsPage_module_default.choiceColumn,
+										children: [
+											"solo",
+											"team",
+											"mixed"
+										].map((value) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+											className: ChannelsPage_module_default.choice,
+											children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+												type: "radio",
+												name: "settings-dispatch-mode",
+												disabled: saving.dispatch,
+												checked: mode === value,
+												onChange: () => {
+													setMode(value);
+													clearFeedback("dispatch");
+												}
+											}), t(value === "solo" ? "dispatchSolo" : value === "team" ? "dispatchTeam" : "dispatchMixed")]
+										}, value))
+									})]
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: ChannelsPage_module_default.field,
+									children: [t("channelLead"), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
+										className: ChannelsPage_module_default.fieldInput,
+										"aria-label": t("channelLead"),
+										value: lead,
+										disabled: saving.dispatch,
+										onChange: (event) => {
+											setLeadDraft(event.target.value);
+											clearFeedback("dispatch");
+										},
+										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+											value: "",
+											disabled: true,
+											children: t("leadNone")
+										}), members.filter((member) => member.kind !== "human").map((member) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+											value: member.id,
+											children: member.name
+										}, member.id))]
+									})]
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: ChannelsPage_module_default.field,
 									children: [
-										"solo",
-										"team",
-										"mixed"
-									].map((value) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-										className: ChannelsPage_module_default.choice,
-										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-											type: "radio",
-											name: "settings-dispatch-mode",
+										t("settingsRelay"),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+											className: ChannelsPage_module_default.fieldInput,
+											type: "number",
+											min: RELAY_CAP_MIN,
+											max: RELAY_CAP_MAX,
+											step: 1,
+											"aria-label": t("settingsRelay"),
+											value: relay,
 											disabled: saving.dispatch,
-											checked: mode === value,
-											onChange: () => {
-												setMode(value);
+											onChange: (event) => {
+												setRelay(event.target.value);
 												clearFeedback("dispatch");
 											}
-										}), t(value === "solo" ? "dispatchSolo" : value === "team" ? "dispatchTeam" : "dispatchMixed")]
-									}, value))
-								})]
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-								className: ChannelsPage_module_default.field,
-								children: [t("channelLead"), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
-									className: ChannelsPage_module_default.fieldInput,
-									"aria-label": t("channelLead"),
-									value: lead,
-									disabled: saving.dispatch,
-									onChange: (event) => {
-										setLeadDraft(event.target.value);
-										clearFeedback("dispatch");
-									},
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-										value: "",
-										disabled: true,
-										children: t("leadNone")
-									}), members.filter((member) => member.kind !== "human").map((member) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-										value: member.id,
-										children: member.name
-									}, member.id))]
-								})]
-							})] }),
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("settingsRelayHint") })
+									]
+								})
+							] }),
 							tab === "workspace" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
 								className: ChannelsPage_module_default.field,
 								children: [
@@ -18604,7 +18651,7 @@ function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDi
 						form: "channel-settings-form",
 						"aria-busy": Boolean(saving[tab]),
 						className: ChannelsPage_module_default.primaryButton,
-						disabled: saving[tab] || !dirty[tab] || tab === "basic" && (!name || name.length > 32 || /\s/.test(name)) || tab === "workspace" && (!directory || renewing || renewPending),
+						disabled: saving[tab] || !dirty[tab] || tab === "basic" && (!name || name.length > 32 || /\s/.test(name)) || tab === "dispatch" && !relayValid || tab === "workspace" && (!directory || renewing || renewPending),
 						children: t(saving[tab] ? "settingsSaving" : "messageSave")
 					})]
 				})
@@ -19052,7 +19099,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }) {
 	const state = useChannels((snapshot) => snapshot);
 	const [editing, setEditing] = (0, react.useState)(void 0);
 	const [ownNotice, setOwnNotice] = (0, react.useState)(void 0);
@@ -19900,6 +19947,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 				effectiveLead: room.effective_lead_id === void 0 ? state.effectiveLeadId ?? state.leadId ?? "" : room.effective_lead_id ?? "",
 				renameRoom,
 				setDispatchMode,
+				setMaxRelay,
 				setLead,
 				setWorkspacePath,
 				renewRoom,
@@ -19968,6 +20016,8 @@ const zh = {
 	settingsSaved: "已保存",
 	settingsSaving: "保存中…",
 	settingsDiscardConfirm: "还有未保存的改动。关闭将丢弃这些改动，确定关闭吗？",
+	settingsRelay: "接力上限",
+	settingsRelayHint: "Agent 连续接力达到上限后暂停自动接力，等人来 @。6–20 的整数，默认 6。",
 	workingDirectory: "工作目录",
 	workingDirectoryHint: "请输入已存在的绝对目录。只影响写入范围和相对路径，不影响读取；保存后下次新建会话生效。工作区继承所属频道。",
 	renewConfirm: "已更新工作目录，是否立即为该频道重建会话？重建会清空当前对话上下文。",
@@ -20218,6 +20268,8 @@ const en = {
 	settingsSaved: "Saved",
 	settingsSaving: "Saving…",
 	settingsDiscardConfirm: "You have unsaved changes. Closing will discard them. Close anyway?",
+	settingsRelay: "Relay cap",
+	settingsRelayHint: "Agent-to-agent relays stop at this cap until a person @-mentions again. Integer 6–20, default 6.",
 	workingDirectory: "Working directory",
 	workingDirectoryHint: "Enter an existing absolute directory. This affects write scope and relative paths, not reads. It applies to new sessions; workspaces inherit their channel.",
 	renewConfirm: "Working directory updated. Recreate this channel’s sessions now? This clears the current conversation context.",
@@ -20400,6 +20452,7 @@ function apply(ctx) {
 		updateMember: channels.actions.updateMember,
 		removeMember: channels.actions.removeMember,
 		setDispatchMode: channels.actions.setDispatchMode,
+		setMaxRelay: channels.actions.setMaxRelay,
 		setLead: channels.actions.setLead,
 		setWorkspacePath: channels.actions.setWorkspacePath,
 		renewRoom: channels.actions.renewRoom,

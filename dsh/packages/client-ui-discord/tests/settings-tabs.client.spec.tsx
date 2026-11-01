@@ -16,7 +16,7 @@ function props(): ComponentProps<typeof ChannelSettingsDialog> {
   return {
     room: { id: 1, name: 'general', dispatch_mode: 'mixed', workspace_path: '/old' },
     members: [{ id: 'a', name: 'A', kind: 'dsh', online: true }, { id: 'b', name: 'B', kind: 'dsh', online: true }],
-    effectiveLead: 'a', renameRoom: vi.fn(async () => {}), setDispatchMode: vi.fn(async () => {}),
+    effectiveLead: 'a', renameRoom: vi.fn(async () => {}), setDispatchMode: vi.fn(async () => {}), setMaxRelay: vi.fn(async () => {}),
     setLead: vi.fn(async () => {}), setWorkspacePath: vi.fn(async () => {}), renewRoom: vi.fn(async () => {}),
     onClose: vi.fn(), t: ((key: keyof typeof zh) => zh[key]) as ComponentProps<typeof ChannelSettingsDialog>['t'],
   }
@@ -137,6 +137,40 @@ describe('channel settings tabs', () => {
     }
     tab(target)
     expect(screen.getByRole('alert').textContent).toBe('service: exact failure 原因')
+  })
+
+  it('saves the relay cap only when it changes and rejects values outside 6–20', async () => {
+    const p = props()
+    render(<ChannelSettingsDialog {...p} />)
+    tab(zh.settingsDispatch)
+    const field = screen.getByLabelText(zh.settingsRelay) as HTMLInputElement
+    expect(field.value).toBe('6')
+    expect(saveDisabled()).toBe(true)
+    for (const invalid of ['5', '21', '', 'abc']) {
+      change(zh.settingsRelay, invalid)
+      expect(saveDisabled()).toBe(true)
+    }
+    change(zh.settingsRelay, '8')
+    expect(saveDisabled()).toBe(false)
+    await save()
+    expect(p.setMaxRelay).toHaveBeenCalledExactlyOnceWith(1, 8)
+    expect(p.setDispatchMode).not.toHaveBeenCalled()
+    expect(p.setLead).not.toHaveBeenCalled()
+    expect(saveDisabled()).toBe(true)
+    change(zh.settingsRelay, '6')
+    await save()
+    expect(p.setMaxRelay).toHaveBeenLastCalledWith(1, 6)
+  })
+
+  it('starts the relay field at the channel value and keeps both bounds saveable', () => {
+    const p = props()
+    p.room = { ...p.room, max_relay: 20 }
+    render(<ChannelSettingsDialog {...p} />)
+    tab(zh.settingsDispatch)
+    expect((screen.getByLabelText(zh.settingsRelay) as HTMLInputElement).value).toBe('20')
+    expect(saveDisabled()).toBe(true)
+    change(zh.settingsRelay, '6')
+    expect(saveDisabled()).toBe(false)
   })
 
   it('retries only the failed dispatch field after partial success', async () => {
