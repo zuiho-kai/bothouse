@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -44,7 +45,7 @@ func TestWS57HandoffIdentityAndLifecycle(t *testing.T) {
 		{"same task rebound after release", TeamHandoff{Board: 56, Closed: bound.Add(-time.Minute)}, "", teamTaskRunning},
 		{"legacy matching title pause", TeamHandoff{Title: "new task", Parked: bound.Add(time.Minute)}, "", teamTaskPaused},
 		{"legacy different title", TeamHandoff{Title: "old task", Parked: bound.Add(time.Minute)}, "", teamTaskRunning},
-		{"unknown identity", TeamHandoff{Parked: bound.Add(time.Minute)}, "", teamTaskRunning},
+		{"legacy untitled pause", TeamHandoff{Parked: bound.Add(time.Minute)}, "", teamTaskPaused},
 		{"explicit board pause wins", TeamHandoff{Board: 10}, "11-01 19:00", teamTaskPaused},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -55,5 +56,33 @@ func TestWS57HandoffIdentityAndLifecycle(t *testing.T) {
 				t.Fatalf("state=%v reason=%q want=%v", got, why, tc.want)
 			}
 		})
+	}
+}
+
+func TestWS57LongClaimTitlePreservesLifecycle(t *testing.T) {
+	bound := time.Now()
+	what := strings.Repeat("长", 70)
+	for _, closed := range []bool{false, true} {
+		h := TeamHandoff{Title: string([]rune(what)[:60])}
+		if closed {
+			h.Closed = bound.Add(time.Minute)
+		} else {
+			h.Parked = bound.Add(time.Minute)
+		}
+		p := teamTaskBoardPlacer{handoffOf: func(string, string, time.Time) (TeamHandoff, bool) { return h, true }}
+		it := teamTaskBoardItem{ID: 56, What: what, Short: "独立短名", WS: "room:ws", Chat: "room:main", Bound: bound.Format(time.RFC3339Nano)}
+		p.place(&it)
+		if !it.wsEnded {
+			t.Fatal("real claim lifecycle ignored")
+		}
+	}
+}
+
+func TestWS57UntitledOpenHandoffDoesNotResumePausedTask(t *testing.T) {
+	now := time.Now()
+	it := teamTaskBoardItem{ID: 57, What: "paused task", Paused: "11-01 20:00", PauseWhy: "收口暂停", WSWas: "room:ws", Chat: "room:main", Bound: now.Format(time.RFC3339Nano)}
+	h := TeamHandoff{Chat: "room:main", At: now.Add(-time.Hour)}
+	if teamHandoffMatchesPausedItem("room:ws", h, it) {
+		t.Fatal("anonymous handoff resumed explicitly paused task")
 	}
 }

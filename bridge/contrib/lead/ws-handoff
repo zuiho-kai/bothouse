@@ -586,14 +586,6 @@ def main(argv):
     parent = ""  # 走共享池时交接记在桥里的聊天频道；叫醒失败按它撤掉刚 claim 的那件
     if _team.workspace():
         ws, name = fixed_channel(chat), "工作区"
-        # Fixed destinations need the same ownership/handoff record as pool picks.
-        # A failed claim must not publish a binding or wake an unowned workspace.
-        if ":" not in chat or ws.split(":", 1)[0] != chat.split(":", 1)[0]:
-            sys.exit("ws-handoff: 固定工作区必须属于当前聊天平台，且要从桥的聊天会话交接")
-        c = subprocess.run(claim_cmd(chat, ws.split(":", 1)[1], task), capture_output=True, text=True)
-        if c.returncode != 0:
-            sys.exit(f"ws-handoff: 固定工作区认领失败：{c.stderr.strip() or c.stdout.strip()}")
-        parent = chat
     elif ":" not in chat:
         sys.exit("ws-handoff: 没配工作区频道（WS_CHANNEL / 团队文件 \"workspace\"），也不在桥的会话里（CC_SESSION_KEY），没法从池里挑工作区")
     else:
