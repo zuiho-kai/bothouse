@@ -178,6 +178,12 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 				problems, legacy = append(problems, sc...), false
 			}
 		}
+		if kind == exitKindReport {
+			// a capability made for Claude Code only goes back unless it names why the others cannot have it
+			if g := genericReportProblems(body); g != nil {
+				problems, legacy = append(problems, g...), false
+			}
+		}
 	}
 	if problems == nil {
 		// Any reply without a bounced [ask] ends the run of bounces.

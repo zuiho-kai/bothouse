@@ -71,6 +71,27 @@ def intent_gate(text: str):
     return None
 
 
+# 产品活（用户原话/总目标/范围提到产品、bothouse、做成产品能力）的「范围」要写覆盖哪些 CLI：点名 Claude Code 以外的
+# CLI（Codex、Gemini、grok 等）或写「所有 CLI」，跟 CLI 无关的写「CLI：不涉及」；没写就退回。来源：任务 #875，
+# 「产品能力只做 Claude Code」同类错第 3 次（用户 10-30、11-01 两次纠正，要求通用化）。
+PRODUCT_RE = re.compile(r"产品|bothouse", re.I)
+PRODUCT_SECS = ("用户原话", "总目标", "范围")
+CLI_RE = re.compile(r"(所有|全部|各个?|每个)\s*CLI|CLI\s*[:：]\s*不涉及|Codex|Gemini|grok|Kimi|Cursor|iflow|DSH|OpenCode|Qwen|agy", re.I)
+CLI_EXAMPLE = "## 范围\n- 改：…\n- 不改：…\n- CLI：所有 CLI（Claude Code、Codex、Gemini、grok 等）"
+
+
+def generic_gate(text: str):
+    """产品活的「范围」没写覆盖哪些 CLI 时返回报错文字，否则 None。"""
+    lines, lead = text.splitlines(), _handoff_rules.load().get("lead", "")
+    sec = lambda n: [x for seg in _handoff_rules._sections(lines, n, lead) for x in seg]
+    if not any(PRODUCT_RE.search(x) for n in PRODUCT_SECS for x in sec(n)):
+        return None
+    if any(CLI_RE.search(x) for x in sec("范围")):
+        return None
+    return ("这件是产品活（交接提到产品/bothouse），「范围」要写覆盖哪些 CLI：点名 Claude Code 以外的 CLI（Codex、Gemini、grok 等）"
+            "或写「所有 CLI」；只能做部分 CLI 的，写明其它 CLI 做不了的来源；跟 CLI 无关写「CLI：不涉及」。示例：\n" + CLI_EXAMPLE)
+
+
 # 三类活（出图、改用户文档、定方向）派出去前，派活人自己定的决定单列给用户看一眼：交接里写一行「类别：出图」，
 # 加「## 派活人自己定的」节（每条一行，没有写「无」）；不带 --confirmed 时只打出清单不交出，用户看过再带 --confirmed 重跑。
 # 来源：10-30 第三轮重放，只有「派活人单列自己定的主意给用户看」拦住了返工（用户「可以试一下」）。其他类的活不受影响。
@@ -422,6 +443,9 @@ def main(argv):
         err = check_notes(notes)
     except RuntimeError as e:  # 规则文件读不到或写坏：报错不放行
         sys.exit(f"ws-handoff: {e}")
+    if err:
+        sys.exit(f"ws-handoff: {err}")
+    err = generic_gate(notes)
     if err:
         sys.exit(f"ws-handoff: {err}")
     err = intent_gate(notes)
