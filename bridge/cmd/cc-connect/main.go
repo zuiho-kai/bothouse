@@ -2365,11 +2365,32 @@ func usageLogSources(projects []config.ProjectConfig) []core.UsageLogSource {
 	if d := os.Getenv("CODEX_HOME"); d != "" {
 		codexHome = d
 	}
-	return append([]core.UsageLogSource{
-		core.ClaudeCodeUsageSource{Dir: filepath.Join(claudeDir, "projects")},
-		core.CodexUsageSource{Home: codexHome},
-		&core.DSHUsageSource{Homes: dshUsageHomes(home, projects)},
-	}, pluginUsageLogSources...)
+	sources := []core.UsageLogSource{core.ClaudeCodeUsageSource{Dir: filepath.Join(claudeDir, "projects")}}
+	for _, h := range codexUsageHomes(codexHome, projects) {
+		sources = append(sources, core.CodexUsageSource{Home: h})
+	}
+	sources = append(sources, &core.DSHUsageSource{Homes: dshUsageHomes(home, projects)})
+	return append(sources, pluginUsageLogSources...)
+}
+
+// codexUsageHomes: the default CODEX_HOME plus every other one a role runs
+// Codex with (codex_home option or CODEX_HOME in its env), each listed once.
+func codexUsageHomes(def string, projects []config.ProjectConfig) []string {
+	homes := []string{def}
+	seen := map[string]bool{filepath.Clean(def): true}
+	for _, p := range projects {
+		h := core.CodexHomeFromOptions(p.Agent.Options)
+		if h == "" {
+			continue
+		}
+		h = expandHome(h)
+		if seen[filepath.Clean(h)] {
+			continue
+		}
+		seen[filepath.Clean(h)] = true
+		homes = append(homes, h)
+	}
+	return homes
 }
 
 // dshUsageHomes: $DSH_HOME (else ~/.dsh, DSH's default) plus every DSH_HOME a role sets in its agent env.
