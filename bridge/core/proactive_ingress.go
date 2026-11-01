@@ -20,6 +20,12 @@ func (e *Engine) handlePlatformMessage(p Platform, msg *Message) {
 		return
 	}
 	if managed {
+		if d.Outcome == "off" || d.Outcome == "would_accept" {
+			// These modes disable inferred task admission, not ordinary chat.
+			// Keep the existing gate and permissions without a proactive grant.
+			e.handleMessage(p, msg)
+			return
+		}
 		if d.Outcome != "eligible" {
 			return
 		}

@@ -41,11 +41,9 @@ func TestProactiveRegisteredPlatformIntake(t *testing.T) {
 				msg := Message{Platform: p.Name(), MessageID: "event", UserID: "123", SessionKey: "room", Content: "review available", ReplyCtx: "ctx"}
 				p.handler(p, &msg)
 				if mode != ProactiveAuto {
-					backend.mu.Lock()
-					count := len(backend.prompts)
-					backend.mu.Unlock()
-					if count != 0 || len(p.getSent()) != 0 {
-						t.Fatal("observation executed or sent output")
+					waitFor(t, "ordinary chat retained in off/observe", func() bool { backend.mu.Lock(); defer backend.mu.Unlock(); return len(backend.prompts) == 1 })
+					if msg.authorization != nil {
+						t.Fatal("ordinary chat received a proactive grant")
 					}
 					if len(e.publicProgress.records) != 0 {
 						t.Fatal("observation created a task")

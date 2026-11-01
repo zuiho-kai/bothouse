@@ -79,3 +79,48 @@ func TestProactiveUnmatchedIntakePreservesOrdinaryRoute(t *testing.T) {
 		})
 	}
 }
+
+func TestProactiveOffObservePreserveOrdinaryGate(t *testing.T) {
+	for _, mode := range []ProactiveMode{ProactiveOff, ProactiveObserve} {
+		t.Run(string(mode), func(t *testing.T) {
+			e, p, backend := newAdmissionRegressionEngine(t, "discord")
+			a := e.proactiveAuthorization
+			policy := a.Policy()
+			policy.Mode = mode
+			if err := a.ReplacePolicy(policy.Version, policy); err != nil {
+				t.Fatal(err)
+			}
+			e.SetGate(replyWhenMentioned(t).URL, 2000, "context")
+			e.SetGateBurstWindow(1)
+			msg := &Message{Platform: p.Name(), MessageID: "ordinary-context", UserID: "123", SessionKey: "room", Content: "ordinary conversation", ReplyCtx: "ctx"}
+			p.handler(p, msg)
+			waitFor(t, "ordinary gate buffers unaddressed message", func() bool {
+				e.gate.mu.Lock()
+				defer e.gate.mu.Unlock()
+				for _, buffered := range e.gate.gbuf {
+					if len(buffered) > 0 {
+						return true
+					}
+				}
+				return false
+			})
+			backend.mu.Lock()
+			count := len(backend.prompts)
+			backend.mu.Unlock()
+			if count != 0 || len(p.getSent()) != 0 || msg.authorization != nil {
+				t.Fatal("observation bypassed the ordinary gate")
+			}
+			explicit := &Message{Platform: p.Name(), MessageID: "explicit-request", UserID: "123", SessionKey: "room", Content: "please reply", ReplyCtx: "ctx", Mentioned: true}
+			p.handler(p, explicit)
+			waitFor(t, "explicit request still executes", func() bool { backend.mu.Lock(); defer backend.mu.Unlock(); return len(backend.prompts) == 1 })
+			if explicit.authorization != nil {
+				t.Fatal("explicit request acquired inferred authority")
+			}
+			e.publicProgress.mu.Lock()
+			defer e.publicProgress.mu.Unlock()
+			if len(e.publicProgress.records) != 0 {
+				t.Fatal("off/observe created proactive task")
+			}
+		})
+	}
+}

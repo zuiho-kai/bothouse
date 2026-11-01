@@ -28,7 +28,7 @@ DSH 忙时插话（steer）要给 dsh-acp 打 integrations/dsh-acp-steer 的补�
 
 ## 模块与数据归属
 
-主动接单在可信平台回调进入 Engine 前经过 `proactive_ingress.go`：没有安装策略时保留既有路由；明确点名、私聊和命令仍走原权限路径。观察只写本地决策；自动模式将匹配规则的源事件绑定到不可变决策和 Task，再进入已有执行队列。gate 不负责授予权限。
+主动接单在可信平台回调进入 Engine 前经过 `proactive_ingress.go`：没有安装策略时保留既有路由；明确点名、私聊和命令仍走原权限路径。off/observe 不受理推断任务，记录决策后仍将消息交回原聊天路由和门闸，不附加主动授权。自动模式将匹配规则的源事件绑定到不可变决策和 Task，再进入已有执行队列。gate 不负责授予权限。
 
 `proactive_authorization.go` 的项目级私有日志保存策略版本、平台账户绑定、决策、角色/后端分配及撤回通知。Task 日志暂存受理意图，随后转移到既有 turn journal；两次落盘之间中断仍可恢复同一 Task。队列、恢复、进度令牌与后台输出保留原 decision 引用，不能借续验后的决策继续旧操作。任务卡和本地日志沿现有平台能力与工作区规则展示。外部上下文事件永远是 ContextOnly，只复核原任务权限。管理接口、限制与例子见[主动授权](PROACTIVE_AUTHORIZATION.md)。
 
