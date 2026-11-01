@@ -1,6 +1,22 @@
 package core
 
-import "context"
+import (
+	"context"
+	"log/slog"
+)
+
+func (e *Engine) replyToAuthorizedMessage(p Platform, msg *Message, content string) {
+	ctx, err := e.turnOutputContext(msg.authorization)
+	if err != nil {
+		return
+	}
+	if err := e.waitOutgoing(p); err != nil {
+		return
+	}
+	if err := authorizedOutput(ctx, func() error { return p.Reply(ctx, msg.ReplyCtx, content) }); err != nil {
+		slog.Warn("authorized message reply failed", "error", err)
+	}
+}
 
 // Preserve each platform's optional presentation capabilities; enforce authority
 // at the call boundary rather than replacing the adapter with a reduced wrapper.

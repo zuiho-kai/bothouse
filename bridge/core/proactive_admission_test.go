@@ -44,3 +44,55 @@ func TestProactivePlatformAdmissionDurableAndEventScoped(t *testing.T) {
 		t.Fatal("old decision admitted")
 	}
 }
+
+func TestProactiveAdmissionRecoversInterruptedJournalTransfer(t *testing.T) {
+	p := newProgressPlatform()
+	dir := t.TempDir()
+	e := NewEngine("role", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	e.SetDataDir(dir)
+	if err := e.EnablePublicProgress(); err != nil {
+		t.Fatal(err)
+	}
+	a, c := authorizationFixture(t, ProactiveAuto)
+	e.proactiveAuthorization = a
+	d, err := a.Evaluate(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A directory at the write target forces the second durable write to fail.
+	e.turnJournalStore().path = t.TempDir()
+	msg := &Message{SessionKey: c.SessionKey, Content: "private waiting condition"}
+	if _, err := e.admitPlatformTask(p, msg, d); err == nil {
+		t.Fatal("journal transfer should fail")
+	}
+	e.publicProgress.mu.Lock()
+	if len(e.publicProgress.records) != 1 {
+		t.Fatal("admitted task was not kept")
+	}
+	e.publicProgress.mu.Unlock()
+	restarted := NewEngine("role", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	restarted.SetDataDir(dir)
+	restarted.proactiveAuthorization, err = OpenProactiveAuthorization(a.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.EnablePublicProgress(); err != nil {
+		t.Fatal(err)
+	}
+	restarted.restoreProactiveAdmissions()
+	entries := restarted.turnJournalStore().Inherited()
+	if len(entries) != 1 || entries[0].Authorization == nil || entries[0].Authorization.DecisionID != d.ID || entries[0].LastUserMessage != msg.Content {
+		t.Fatalf("admission not restored into startup scan: %+v", entries)
+	}
+	if _, err := restarted.admitPlatformTask(p, msg, d); err != ErrAuthorizationDuplicate {
+		t.Fatalf("restart replay admitted another task: %v", err)
+	}
+	restarted.restoreProactiveAdmissions()
+	if len(restarted.turnJournalStore().Inherited()) != 1 {
+		t.Fatal("restore duplicated intent")
+	}
+	task, ok := restarted.publicProgress.Task(entries[0].Authorization.TaskID)
+	if !ok || restarted.CheckTaskAuthorization(task, "task.resume") != nil {
+		t.Fatal("restored task lost original grant")
+	}
+}

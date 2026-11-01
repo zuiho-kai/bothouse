@@ -2927,6 +2927,7 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 }
 
 func (e *Engine) Start() error {
+	e.restoreProactiveAdmissions()
 	e.resolveRoleProductPython()
 	var startErrs []error
 	readyCount := 0
@@ -2940,7 +2941,7 @@ func (e *Engine) Start() error {
 			// A released workspace is still a workspace (isTeamWorkspaceChat checks Handoffs too).
 			sc.SetSilentChannel(e.isTeamWorkspaceChat)
 		}
-		if err := p.Start(e.handleMessage); err != nil {
+		if err := p.Start(e.handlePlatformMessage); err != nil {
 			slog.Warn("platform start failed", "project", e.name, "platform", p.Name(), "error", err)
 			startErrs = append(startErrs, fmt.Errorf("[%s] start platform %s: %w", e.name, p.Name(), err))
 			continue
@@ -3499,19 +3500,21 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		// lead-only board/workspace services before handling the next message.
 		e.setDynamicTeamLead(e.isTeamLead())
 	}
-	// #139 C: a user reply to a forwarded workspace [ask] goes back to that workspace.
-	if e.routeWorkspaceAnswer(p, msg) {
-		return
+	if msg.authorization == nil {
+		// #139 C: a user reply to a forwarded workspace [ask] goes back to that workspace.
+		if e.routeWorkspaceAnswer(p, msg) {
+			return
+		}
+		// A reply in a workspace to a task that already ended there goes to that task's chat lead.
+		if e.routeEndedTaskReply(p, msg) {
+			return
+		}
+		// A reply to a task card or a workspace report: its quote stays whole and the turn gets
+		// that work's background (reply_task.go). Replies to an open [ask] were taken above.
+		e.noteReplyTaskOf(msg)
+		// A reply to work still running in a workspace is handed there at once, marked as an interrupt.
+		e.forwardReplyToWorkspace(p, msg)
 	}
-	// A reply in a workspace to a task that already ended there goes to that task's chat lead.
-	if e.routeEndedTaskReply(p, msg) {
-		return
-	}
-	// A reply to a task card or a workspace report: its quote stays whole and the turn gets
-	// that work's background (reply_task.go). Replies to an open [ask] were taken above.
-	e.noteReplyTaskOf(msg)
-	// A reply to work still running in a workspace is handed there at once, marked as an interrupt.
-	e.forwardReplyToWorkspace(p, msg)
 	// "/stop all" stops this bot's work in the whole channel. It runs before
 	// any mention/gate filtering so every bot in the channel honours it.
 	// A stop word that calls no bot (no @, no reply) means the same.
@@ -3536,18 +3539,23 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		)
 	}
 
-	e.hooks.Emit(HookEvent{
-		Event:      HookEventMessageReceived,
-		SessionKey: msg.SessionKey,
-		Platform:   msg.Platform,
-		UserID:     msg.UserID,
-		UserName:   msg.UserName,
-		Content:    msg.Content,
-		Extra:      e.agentHookExtra(e.activeAgentSessionID(msg.SessionKey), nil),
-	})
+	if e.checkTurnAuthorization(msg.authorization, "tool.execute") == nil {
+		e.hooks.Emit(HookEvent{
+			Event:      HookEventMessageReceived,
+			SessionKey: msg.SessionKey,
+			Platform:   msg.Platform,
+			UserID:     msg.UserID,
+			UserName:   msg.UserName,
+			Content:    msg.Content,
+			Extra:      e.agentHookExtra(e.activeAgentSessionID(msg.SessionKey), nil),
+		})
+	}
 
 	// Voice message: transcribe to text first
 	if msg.Audio != nil {
+		if e.checkTurnAuthorization(msg.authorization, "tool.execute") != nil {
+			return
+		}
 		// If STT is configured, use it for transcription (more accurate)
 		if e.speech.Enabled && e.speech.STT != nil {
 			e.handleVoiceMessage(p, msg)
@@ -3555,7 +3563,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		}
 		// Fallback: use platform-provided recognition text if available
 		if msg.Content == "" {
-			e.reply(p, msg.ReplyCtx, e.i18n.T(MsgVoiceNotEnabled))
+			e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgVoiceNotEnabled))
 			return
 		}
 		// Use platform recognition with a hint, then continue processing
@@ -3599,7 +3607,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	if !e.checkRateLimit(msg) {
 		slog.Info("message rate limited",
 			"session", msg.SessionKey, "user_id", msg.UserID, "user", msg.UserName)
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgRateLimited))
+		e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgRateLimited))
 		return
 	}
 
@@ -3607,7 +3615,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	if !strings.HasPrefix(content, "/") && !strings.HasPrefix(content, "!") {
 		if word := e.matchBannedWord(content); word != "" {
 			slog.Info("message blocked by banned word", "word", word, "user", msg.UserName)
-			e.reply(p, msg.ReplyCtx, e.i18n.T(MsgBannedWordBlocked))
+			e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgBannedWordBlocked))
 			return
 		}
 	}
@@ -3625,7 +3633,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		wsAgent, wsSessions, err = e.getOrCreateWorkspaceAgent(forcedWorkDir)
 		if err != nil {
 			slog.Error("failed to create send work_dir agent", "work_dir", forcedWorkDir, "err", err)
-			e.reply(p, msg.ReplyCtx, fmt.Sprintf("Failed to initialize workspace: %v", err))
+			e.replyToAuthorizedMessage(p, msg, fmt.Sprintf("Failed to initialize workspace: %v", err))
 			return
 		}
 		resolvedWorkspace = forcedWorkDir
@@ -3635,7 +3643,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		workspace, channelName, err := e.resolveWorkspace(p, channelID)
 		if err != nil {
 			slog.Error("workspace resolution failed", "err", err)
-			e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgWsResolutionError, err))
+			e.replyToAuthorizedMessage(p, msg, e.i18n.Tf(MsgWsResolutionError, err))
 			return
 		}
 		if workspace == "" {
@@ -3665,7 +3673,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 			wsAgent, wsSessions, _, effectiveWorkspace, err = e.workspaceContext(workspace, msg.SessionKey)
 			if err != nil {
 				slog.Error("failed to create workspace agent", "workspace", workspace, "err", err)
-				e.reply(p, msg.ReplyCtx, fmt.Sprintf("Failed to initialize workspace: %v", err))
+				e.replyToAuthorizedMessage(p, msg, fmt.Sprintf("Failed to initialize workspace: %v", err))
 				return
 			}
 			resolvedWorkspace = effectiveWorkspace
@@ -3711,11 +3719,11 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 				}
 			}
 			if disabledCmds["shell"] {
-				e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgCommandDisabled), "!"))
+				e.replyToAuthorizedMessage(p, msg, fmt.Sprintf(e.i18n.T(MsgCommandDisabled), "!"))
 				return
 			}
 			if !e.isAdmin(msg.UserID) {
-				e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgAdminRequired), "!"))
+				e.replyToAuthorizedMessage(p, msg, fmt.Sprintf(e.i18n.T(MsgAdminRequired), "!"))
 				return
 			}
 			slog.Info("audit: command_executed",
@@ -3736,7 +3744,9 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	}
 
 	// maomao fork: video links → watchvid once, result paths appended (media library).
-	e.prepareMedia(msg)
+	if e.checkTurnAuthorization(msg.authorization, "tool.execute") == nil {
+		e.prepareMedia(msg)
+	}
 
 	session := sessions.GetOrCreateActive(msg.SessionKey)
 	sessions.UpdateUserMeta(msg.SessionKey, msg.UserName, msg.ChatName)
@@ -3744,7 +3754,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		return
 	}
 	if e.nativeCompactRejectsUser(interactiveKey) {
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPreviousProcessing))
+		e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgPreviousProcessing))
 		return
 	}
 
@@ -3757,7 +3767,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 			if e.waitForSessionLock(session, recalledStopLockWait) {
 				goto sessionLocked
 			}
-			e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPreviousProcessing))
+			e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgPreviousProcessing))
 			return
 		}
 		// Session is busy — try to queue the message for the running turn
@@ -3768,7 +3778,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 			}
 			return
 		}
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPreviousProcessing))
+		e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgPreviousProcessing))
 		return
 	}
 
@@ -3857,7 +3867,7 @@ func (e *Engine) maybeAutoResetSessionOnIdle(p Platform, msg *Message, sessions 
 		// Notify the user before the potentially long close. The close
 		// returns as soon as the process exits (usually seconds), but
 		// Stop hooks can take up to 120s.
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgSessionClosingGraceful))
+		e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgSessionClosingGraceful))
 	}
 
 	e.cleanupInteractiveState(interactiveKey)
@@ -3869,7 +3879,7 @@ func (e *Engine) maybeAutoResetSessionOnIdle(p Platform, msg *Message, sessions 
 		return nil
 	}
 
-	e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgSessionAutoResetIdle, int(e.resetOnIdle/time.Minute)))
+	e.replyToAuthorizedMessage(p, msg, e.i18n.Tf(MsgSessionAutoResetIdle, int(e.resetOnIdle/time.Minute)))
 	return newSession
 }
 
@@ -3934,7 +3944,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 	}
 	if len(state.pendingMessages) >= e.maxQueuedMessages && !msg.abortFront {
 		depth := len(state.pendingMessages)
-		e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgQueueFull), depth))
+		e.replyToAuthorizedMessage(p, msg, fmt.Sprintf(e.i18n.T(MsgQueueFull), depth))
 		return queueRejected // handled: queue-full reply sent
 	}
 	if behindCompact {
@@ -4004,7 +4014,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		"queue_depth", queueDepth,
 	)
 	if !msg.abortFront { // the abort says "⏹ 已打断" instead (abortForQueuedFront)
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgMessageQueued))
+		e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgMessageQueued))
 	}
 	return queueAccepted
 }
@@ -5952,6 +5962,20 @@ var agentErrorHandlers = []agentErrorHandler{
 }
 
 func (e *Engine) processInteractiveEvents(state *interactiveState, session *Session, sessions *SessionManager, sessionKey string, msgID string, turnStart time.Time, stopTypingFn func(), sendDone <-chan error, replyCtx any, inputs ...*inputTurn) {
+	defer func() {
+		outcome := "failed"
+		if state.isStopped() {
+			outcome = "cancelled"
+		}
+		e.finishPublicProgress(state, outcome)
+	}()
+	var input *inputTurn
+	if len(inputs) > 0 {
+		input = inputs[0]
+	}
+	defer func() {
+		input.finish(inputTurnResult{err: fmt.Errorf("turn stopped, stream closed, or reply delivery failed before completion")})
+	}()
 	state.mu.Lock()
 	ref := state.authorization
 	state.mu.Unlock()
@@ -5970,20 +5994,6 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		_ = authorizedOutput(outputCtx, func() error { return e.sendWithError(p, replyCtx, content) })
 	}
 
-	defer func() {
-		outcome := "failed"
-		if state.isStopped() {
-			outcome = "cancelled"
-		}
-		e.finishPublicProgress(state, outcome)
-	}()
-	var input *inputTurn
-	if len(inputs) > 0 {
-		input = inputs[0]
-	}
-	defer func() {
-		input.finish(inputTurnResult{err: fmt.Errorf("turn stopped, stream closed, or reply delivery failed before completion")})
-	}()
 	var chainedQueued *queuedMessage // maomao fork: queued message chained into this loop, if any
 	// #618 K1: entry begun for a chained queued message when no outer turn had
 	// one (e.g. after a local API turn, which is not journaled); ended here.

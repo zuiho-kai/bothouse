@@ -92,8 +92,15 @@ func (e *Engine) RenewTaskAuthorization(taskID string) (string, error) {
 		return "", err
 	}
 	task.AuthorizationDecisionID = next
+	pending := r.record.ProactivePending
+	if pending != nil {
+		copy := *pending
+		copy.Authorization = &AuthorizationTurn{Project: e.name, TaskID: taskID, DecisionID: next}
+		r.record.ProactivePending = &copy
+	}
 	if err := p.save(r); err != nil {
 		task.AuthorizationDecisionID = old
+		r.record.ProactivePending = pending
 		return "", err
 	}
 	return next, nil

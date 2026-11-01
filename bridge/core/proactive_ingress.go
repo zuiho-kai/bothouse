@@ -1,6 +1,29 @@
 package core
 
-import "strings"
+import (
+	"log/slog"
+	"strings"
+)
+
+// Only the registered platform adapter supplies the authenticated intake.
+// Local API and replay inputs continue through their existing checked paths.
+func (e *Engine) handlePlatformMessage(p Platform, msg *Message) {
+	d, managed, err := e.evaluatePlatformFollowup(p, msg)
+	if err != nil {
+		slog.Warn("platform followup evaluation failed", "error", err)
+		return
+	}
+	if managed {
+		if d.Outcome != "eligible" {
+			return
+		}
+		if _, err := e.admitPlatformTask(p, msg, d); err != nil {
+			slog.Warn("platform followup admission denied", "error", err)
+			return
+		}
+	}
+	e.handleMessage(p, msg)
+}
 
 // evaluatePlatformFollowup is for the authenticated Platform.Start callback,
 // after the adapter's account/channel allowlists. Never call it for webhooks,
@@ -8,7 +31,8 @@ import "strings"
 // attestations. Every adapter uses this same platform-qualified identity rule.
 // The bool identifies an inferred event managed by an installed policy.
 func (e *Engine) evaluatePlatformFollowup(p Platform, msg *Message) (AuthorizationDecision, bool, error) {
-	if msg.Mentioned || msg.Direct || msg.IsPermissionResponse || msg.Recalled || msg.StopAll || strings.HasPrefix(strings.TrimSpace(msg.Content), "/") || (!msg.FromBot && (IsStopAllCommand(msg.Content) || e.isUnaddressedStop(msg))) {
+	command := strings.TrimSpace(e.resolveAlias(msg.Content))
+	if msg.Mentioned || msg.Direct || msg.IsPermissionResponse || msg.Recalled || msg.StopAll || strings.HasPrefix(command, "/") || strings.HasPrefix(command, "!") || (!msg.FromBot && (IsStopAllCommand(msg.Content) || e.isUnaddressedStop(msg))) {
 		// Explicit requests and stop/permission paths retain existing checks.
 		return AuthorizationDecision{}, false, nil
 	}

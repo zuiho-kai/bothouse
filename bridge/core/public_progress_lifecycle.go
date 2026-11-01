@@ -60,6 +60,11 @@ func (p *PublicProgress) resumeHint(token string) (taskID string, resumeSeq int6
 		return "", 0, "", "", false
 	}
 	r.mu.Lock()
+	if r.boundTaskID != "" {
+		t := r.record.Task
+		defer r.mu.Unlock()
+		return t.ID, r.record.LastSeq + 1, t.State, t.Title, true
+	}
 	cand := r.candidate
 	r.mu.Unlock()
 	if cand == nil {

@@ -99,10 +99,13 @@ func (r PublicProgressRequest) Validate() error {
 }
 
 type progressRecord struct {
-	TextDeliveries []*taskTextRecord               `json:"text_deliveries,omitempty"`
-	QuotaReports   map[string]quotaProgressReceipt `json:"quota_reports,omitempty"`
-	Relays         map[string]taskRelayRecord      `json:"relays,omitempty"`
-	Reworks        map[string]taskReworkRecord     `json:"reworks,omitempty"`
+	// Private admission intent, atomically saved with the task until the existing
+	// turn journal owns recovery. Never included in Task/public facts.
+	ProactivePending *TurnJournalEntry               `json:"proactive_pending,omitempty"`
+	TextDeliveries   []*taskTextRecord               `json:"text_deliveries,omitempty"`
+	QuotaReports     map[string]quotaProgressReceipt `json:"quota_reports,omitempty"`
+	Relays           map[string]taskRelayRecord      `json:"relays,omitempty"`
+	Reworks          map[string]taskReworkRecord     `json:"reworks,omitempty"`
 	// ArtifactRequests keeps the receipt of each attach operation by its stable
 	// request id, so a retry after a rework or restart returns the original
 	// artifact instead of attaching it to the current revision.
@@ -122,12 +125,15 @@ type progressRecord struct {
 }
 
 type publicRun struct {
-	textMu     sync.Mutex
-	deliveryMu sync.Mutex
-	mu         sync.Mutex
-	record     progressRecord
-	publisher  TaskCardPublisher
-	stopped    func() bool
+	// An inferred turn's capability remains attached to its admitted task.
+	boundTaskID     string
+	boundDecisionID string
+	textMu          sync.Mutex
+	deliveryMu      sync.Mutex
+	mu              sync.Mutex
+	record          progressRecord
+	publisher       TaskCardPublisher
+	stopped         func() bool
 	// candidate is the card still open for this session. A turn adopts it only
 	// when its first report continues the numbering instead of starting anew;
 	// a fresh request always opens its own card.
@@ -370,6 +376,10 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	}
 	p.mu.Lock()
 	r := p.runs[req.Run]
+	if r != nil && r.boundTaskID != "" && req.TaskID != "" && req.TaskID != r.boundTaskID {
+		p.mu.Unlock()
+		return "", ErrAuthorizationDenied
+	}
 	child := p.relayRuns[req.Run]
 	lead := r
 	member := p.memberRuns[req.Run]
@@ -423,6 +433,16 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 		return "", err
 	}
 	defer r.mu.Unlock()
+	if r.boundTaskID != "" {
+		if r.record.Task.AuthorizationDecisionID != r.boundDecisionID {
+			return "", ErrAuthorizationDenied
+		}
+		if p.checkAuthorization != nil {
+			if err := p.checkAuthorization(r.record.Task, "task.resume"); err != nil {
+				return "", err
+			}
+		}
+	}
 	if req.Kind == "start" && r.publisher != nil {
 		if err := p.checkWorkspaceCard(req.SessionKey); err != nil {
 			return "", err
@@ -1101,7 +1121,19 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	}
 	state.mu.Lock()
 	platform := state.platform
+	ref := state.authorization
 	state.mu.Unlock()
+	if ref != nil {
+		token, err := e.beginProactiveProgress(ref, state.isStopped)
+		if err != nil {
+			slog.Warn("proactive progress binding denied", "error", err)
+			return prompt
+		}
+		state.mu.Lock()
+		state.publicProgressRun = token
+		state.mu.Unlock()
+		return e.publicProgressInstructions(token, session) + prompt
+	}
 	// The workspace restriction governs card presentation, not durable task
 	// records on platforms without cards. No automatic card is armed there.
 	_, hasCards := platform.(TaskCardPublisher)

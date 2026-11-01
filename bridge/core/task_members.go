@@ -349,6 +349,10 @@ func (p *PublicProgress) lockAssignmentRun(req TaskMemberAssignment, cardSession
 		return nil, key, false, errors.New("only the primary role's active run may assign members")
 	}
 	source.mu.Lock()
+	if source.boundTaskID != "" && (req.TaskID != source.boundTaskID || source.record.Task.AuthorizationDecisionID != source.boundDecisionID) {
+		source.mu.Unlock()
+		return nil, key, false, ErrAuthorizationDenied
+	}
 	if source.record.Closed || source.record.Accepted || source.record.Task.SessionKey != req.SessionKey || (source.stopped != nil && source.stopped()) {
 		source.mu.Unlock()
 		return nil, key, false, errors.New("task is not active for this run and session")
