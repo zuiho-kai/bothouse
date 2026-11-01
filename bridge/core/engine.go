@@ -5762,7 +5762,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					e.forwardWorkspaceExit(p, sessionKey, fullResponse) // #139 C: workspace [ask]/[report] -> chat channel
 				}
 
-				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false, time.Time{})
+				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false, false, time.Time{})
 
 				// Safety note: concurrent writes to session.History by the
 				// unsolicited reader and a foreground turn cannot overlap.
@@ -5928,12 +5928,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	silentHold := false  // true while accumulated segment text could still resolve to a bare NO_REPLY marker
 	toolCount := 0
 	watchTurnFinished := false
+	turnFailed := false // an EventError ended this turn: it counts toward the idle watch's failure limit
 	defer func() {
 		if !watchTurnFinished && !state.isStopped() && e.ctx.Err() == nil {
 			state.mu.Lock()
 			p := state.platform
 			state.mu.Unlock()
-			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, e.watchCardResult(state), turnStart)
+			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, turnFailed, e.watchCardResult(state), turnStart)
 		}
 	}()
 	waitStart := time.Now()
@@ -7257,7 +7258,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			watchTurnFinished = true
 			if !state.isStopped() {
-				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, e.watchCardResult(state), turnStart)
+				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, false, e.watchCardResult(state), turnStart)
 			}
 			e.finishPublicProgress(state, progressOutcome)
 
@@ -7500,6 +7501,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			return
 
 		case EventError:
+			turnFailed = true
 			cp.Finalize(ProgressCardStateFailed)
 			if event.Error != nil {
 				if until, ok := e.quotaCoolingUntil(event.Error.Error()); ok {

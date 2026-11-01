@@ -686,6 +686,7 @@ const (
 	MsgPublicEnded       MsgKey = "MsgPublicEnded"
 	MsgWatchResume       MsgKey = "watch_resume"
 	MsgWatchIdleEscalate MsgKey = "watch_idle_escalate"
+	MsgWatchFailEscalate MsgKey = "watch_fail_escalate"
 	MsgTaskKeyFact       MsgKey = "MsgTaskKeyFact"
 	MsgTaskResultReady   MsgKey = "MsgTaskResultReady"
 	MsgTaskRelayAssigned MsgKey = "MsgTaskRelayAssigned"
@@ -994,6 +995,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "看門：%s「%s」連續叫醒兩次仍未繼續，請主角色接手。",
 		LangJapanese:           "見守り：%s は %s を2回呼びかけても再開していません。主担当に引き継いでください。",
 		LangSpanish:            "Aviso: %s no ha retomado %s tras dos avisos. El rol principal debe hacerse cargo.",
+	},
+	MsgWatchFailEscalate: {
+		LangEnglish:            "Watch: %s failed %s twice in a row with errors; automatic resume stopped. Primary role, reassign or take over.",
+		LangChinese:            "看门：%s「%s」连续两次报错，已停止自动接着做，请主角色换人或接手。",
+		LangTraditionalChinese: "看門：%s「%s」連續兩次報錯，已停止自動接著做，請主角色換人或接手。",
+		LangJapanese:           "見守り：%s の %s が2回連続でエラーになったため、自動再開を止めました。主担当は担当替えか引き継ぎをしてください。",
+		LangSpanish:            "Aviso: %s falló dos veces seguidas en %s; se detuvo la reanudación automática. El rol principal debe reasignar o hacerse cargo.",
 	},
 	MsgPublicEnded: {
 		LangEnglish:            "Turn ended; see the final reply. Acceptance is not confirmed.",

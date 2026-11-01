@@ -16,10 +16,16 @@ import (
 // Fifteen seconds lets the completed turn unlock and queued work start first.
 const watchTurnEndDelay = 15 * time.Second
 
+// Turns of one watched assignment that may end in an agent error in a row before
+// the watch stops resuming it and asks the primary role to reassign (user 2026-11-01:
+// four upstream errors each followed by another automatic resume).
+const watchFailLimit = 2
+
 type watchIdleState struct {
 	Returned bool      `json:"returned,omitempty"`
 	Ended    time.Time `json:"ended,omitzero"`
 	Wakes    int       `json:"wakes,omitempty"`
+	Fails    int       `json:"fails,omitempty"` // consecutive turns that ended in an agent error
 	Reported bool      `json:"reported,omitempty"`
 }
 
@@ -223,7 +229,7 @@ func watchBoardClosed(it teamTaskBoardItem) bool {
 // not a deliberate result. A report, handback or explicit result ends the watch.
 // since: when the turn began (zero when unknown); a workspace handoff recorded from this chat
 // after it means the accepted work now belongs to that workspace.
-func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult bool, since time.Time) {
+func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, cardResult bool, since time.Time) {
 	if e.finishWorkspaceReportTurn(key, text) {
 		return // missing delivery owns this wake; do not also arm the idle watch
 	}
@@ -359,15 +365,30 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, cardResult
 	teamWorkspaceStore.mu.Unlock()
 	delegated := e.watchDelegatedWork(key)
 	for _, a := range assignments {
+		giveUp := false
 		h, ok := e.updateIdle(a, func(h *TeamHandoff) {
 			h.Idle.Returned = returned
 			h.Idle.Ended = time.Now()
+			if failed {
+				// Tools run before an error are not progress: keep the wake count.
+				h.Idle.Fails++
+				if !returned && h.Idle.Fails >= watchFailLimit && !h.Idle.Reported {
+					h.Idle.Reported = true
+					giveUp = true
+				}
+				return
+			}
+			h.Idle.Fails = 0
 			if worked {
 				h.Idle.Wakes = 0
 				h.Idle.Reported = false
 			}
 		})
-		if ok && !returned && !delegated {
+		if ok && giveUp {
+			e.escalateIdle(a.key, h, MsgWatchFailEscalate)
+			continue
+		}
+		if ok && !returned && !delegated && !h.Idle.Reported {
 			a.h = h
 			e.armIdleWake(a)
 		}
@@ -438,32 +459,18 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 	if !ok || (!wake && !escalate) {
 		return
 	}
-	plat, _, _ := strings.Cut(a.key, ":")
-	sender := e
-	for _, x := range e.watchEngines() {
-		if (h.Sender != "" && x.name == h.Sender) || (h.Sender == "" && x.isTeamLead()) {
-			sender = x
-			break
-		}
+	if escalate {
+		e.escalateIdle(a.key, h, MsgWatchIdleEscalate)
+		return
 	}
+	plat, _, _ := strings.Cut(a.key, ":")
+	sender := e.watchSender(h)
 	p := sender.lookupReadyPlatform(plat)
 	if p == nil {
 		slog.Warn("idle watch: sender platform unavailable", "workspace", a.key)
 		return
 	}
 	w = newHandoffWatch(sender)
-	if escalate {
-		who := watchMention(plat, h.Owner)
-		if sender.watchOwns(p, h.Owner) {
-			who = sender.DisplayName() // a lone bot does not mention itself
-		}
-		text := sender.i18n.Tf(MsgWatchIdleEscalate, who, h.Title)
-		if err := w.send(p, h.Chat, text); err != nil {
-			slog.Warn("idle watch: escalation failed", "error", err)
-		}
-		sender.wakeWatchRole(h.Chat, text, h.Title)
-		return
-	}
 	owner := h.Owner
 	if m, ok := e.lookupReadyPlatform(plat).(SelfMentioner); ok && m.SelfMention() != "" {
 		owner = m.SelfMention()
@@ -481,6 +488,41 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 	}
 	a.h = h
 	e.armIdleWake(a) // two wake attempts, then one escalation; not a polling loop
+}
+
+func (e *Engine) watchSender(h TeamHandoff) *Engine {
+	for _, x := range e.watchEngines() {
+		if (h.Sender != "" && x.name == h.Sender) || (h.Sender == "" && x.isTeamLead()) {
+			return x
+		}
+	}
+	return e
+}
+
+// escalateIdle stops resuming the assignment: it tells the chat once and wakes the
+// primary role there to take over or reassign.
+func (e *Engine) escalateIdle(key string, h TeamHandoff, msg MsgKey) {
+	plat, _, _ := strings.Cut(key, ":")
+	sender := e.watchSender(h)
+	p := sender.lookupReadyPlatform(plat)
+	if p == nil {
+		slog.Warn("idle watch: sender platform unavailable", "workspace", key)
+		return
+	}
+	who := watchMention(plat, h.Owner)
+	if sender.watchOwns(p, h.Owner) {
+		who = sender.DisplayName() // a lone bot does not mention itself
+	} else if msg == MsgWatchFailEscalate {
+		// Naming, not mentioning: a mention would start one more failing turn.
+		if t := e.watchTarget(key, h.Owner); t != nil {
+			who = t.DisplayName()
+		}
+	}
+	text := sender.i18n.Tf(msg, who, h.Title)
+	if err := newHandoffWatch(sender).send(p, h.Chat, text); err != nil {
+		slog.Warn("idle watch: escalation failed", "error", err)
+	}
+	sender.wakeWatchRole(h.Chat, text, h.Title)
 }
 
 func (e *Engine) wakeWatchRole(key, text, title string) {
