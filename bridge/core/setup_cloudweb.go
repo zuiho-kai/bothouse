@@ -734,6 +734,13 @@ func resolveCloudWeb(dataDir, rawURL, token string) (string, string) {
 	return rawURL, token
 }
 
+// ResolveCloudWeb is resolveCloudWeb for the command line: `module add cloud_web` fills the two
+// parameters from this machine's wizard-started platform first, so it can name the ones that are
+// really missing (#814 review) instead of letting the apply fail with a prose error.
+func ResolveCloudWeb(dataDir, rawURL, token string) (string, string) {
+	return resolveCloudWeb(dataDir, rawURL, token)
+}
+
 // ── team line in the persona ──────────────────────────────────
 
 // teamMarker starts the one-line team section the wizard keeps in the persona of each member of a

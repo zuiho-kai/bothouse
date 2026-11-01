@@ -220,7 +220,8 @@ type moduleMissingReport struct {
 // moduleAddConfigure: one `module add <platform> <flags>` run. Returns what to print (the
 // `setup apply` result JSON, or the missing-parameter report) and the exit code.
 func moduleAddConfigure(mod string, f moduleFlags, configFile string) (any, int) {
-	req, missing := moduleAddRequest(mod, f)
+	dataDir, _ := moduleWizardDataDir(configFile) // "" only when there is no readable config
+	req, missing := moduleAddRequest(mod, f, dataDir)
 	if len(missing) > 0 {
 		flags := make([]string, 0, len(missing))
 		for _, m := range missing {
@@ -239,10 +240,25 @@ func moduleAddConfigure(mod string, f moduleFlags, configFile string) (any, int)
 	return res, 0
 }
 
+// moduleWizardDataDir is the data dir the apply will use, by wizardApplyCLI's rule: the config's
+// when there is one, the default while there is none. `module add cloud_web` looks up this
+// machine's wizard-started platform there (core.ResolveCloudWeb).
+func moduleWizardDataDir(configFile string) (string, error) {
+	initConfigPath(configFile)
+	if _, err := os.Stat(config.ConfigPath); errors.Is(err, fs.ErrNotExist) {
+		return defaultDataDir(), nil
+	}
+	cfg, err := config.LoadForSetup(config.ConfigPath)
+	if err != nil {
+		return "", err
+	}
+	return cfg.DataDir, nil
+}
+
 // moduleAddRequest turns the flags into the wizard request `setup apply` takes for this platform:
 // one request per platform, append_only so an existing role is never merged or overwritten.
 // Required flags that are missing come back as moduleMissing.
-func moduleAddRequest(mod string, f moduleFlags) (core.WizardRequest, []moduleMissing) {
+func moduleAddRequest(mod string, f moduleFlags, dataDir string) (core.WizardRequest, []moduleMissing) {
 	req := core.WizardRequest{Platform: mod, Language: f.lang, AppendOnly: true, DryRun: f.dryRun}
 	var missing []moduleMissing
 	need := func(value, field, flag, hint string) {
@@ -275,9 +291,14 @@ func moduleAddRequest(mod string, f moduleFlags) (core.WizardRequest, []moduleMi
 		req.Feishu = &core.WizardFeishu{AppID: f.appID, AppSecret: f.appSecret}
 		req.Roles = []core.WizardRole{{}}
 	case "cloud_web":
-		// url and token may stay empty: the hub this wizard started on this machine fills both in
-		// (core/setup_cloudweb.go resolveCloudWeb). With no such hub the apply fails and says so.
-		req.CloudWeb = &core.WizardCloudWeb{URL: f.url, Token: f.token}
+		// url and token may stay empty: the hub this wizard started on this machine fills them in
+		// (core/setup_cloudweb.go resolveCloudWeb). What it cannot fill is named here like any
+		// other platform's missing flag, instead of only failing later inside the apply (#814
+		// review): an AI reading the JSON then knows which of the two to ask for.
+		url, token := core.ResolveCloudWeb(dataDir, f.url, f.token)
+		need(url, "cloud_web.url", "--url", "the platform's address, e.g. http://10.0.0.9:8790 (no platform started by this wizard here to fill it in)")
+		need(token, "cloud_web.token", "--token", "the bot token the platform shows when a bot is added (no platform started by this wizard here to fill it in)")
+		req.CloudWeb = &core.WizardCloudWeb{URL: url, Token: token}
 		req.Roles = []core.WizardRole{{Name: f.name}}
 		if f.allowFrom != "" {
 			req.AllowFrom = &f.allowFrom
