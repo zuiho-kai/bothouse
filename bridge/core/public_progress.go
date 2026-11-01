@@ -99,9 +99,10 @@ func (r PublicProgressRequest) Validate() error {
 }
 
 type progressRecord struct {
-	QuotaReports map[string]quotaProgressReceipt `json:"quota_reports,omitempty"`
-	Relays       map[string]taskRelayRecord      `json:"relays,omitempty"`
-	Reworks      map[string]taskReworkRecord     `json:"reworks,omitempty"`
+	TextDeliveries []*taskTextRecord
+	QuotaReports   map[string]quotaProgressReceipt `json:"quota_reports,omitempty"`
+	Relays         map[string]taskRelayRecord      `json:"relays,omitempty"`
+	Reworks        map[string]taskReworkRecord     `json:"reworks,omitempty"`
 	// ArtifactRequests keeps the receipt of each attach operation by its stable
 	// request id, so a retry after a rework or restart returns the original
 	// artifact instead of attaching it to the current revision.
@@ -121,6 +122,7 @@ type progressRecord struct {
 }
 
 type publicRun struct {
+	textMu     sync.Mutex
 	deliveryMu sync.Mutex
 	mu         sync.Mutex
 	record     progressRecord
@@ -145,7 +147,9 @@ type publicRun struct {
 // PublicProgress owns run authorization, durable public facts and delivery.
 // Tokens exist only in memory/prompt, never in the card or journal.
 type PublicProgress struct {
-	quotaBlocked func(string) bool
+	textSenders   map[string]TaskTextSender
+	checkTaskText func(context.Context, *Task, string) error
+	quotaBlocked  func(string) bool
 	// Lifecycle operations serialize run ownership and durable state transitions.
 	// Delivery never takes this lock; network requests remain independent.
 	transitionMu            sync.Mutex
@@ -204,6 +208,12 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 	}
 	hash := sha256.Sum256([]byte(project))
 	p := &PublicProgress{dir: filepath.Join(dataDir, "public-progress", hex.EncodeToString(hash[:8])), dataDir: dataDir, project: project, archiveAfter: defaultTaskThreadArchiveAfter, resultReadyArchiveAfter: defaultResultReadyThreadArchiveAfter, runs: map[string]*publicRun{}, records: map[string]*publicRun{}, open: map[string]*publicRun{}, pending: map[string]*publicRun{}, listed: map[string]*publicRun{}}
+	p.textSenders = make(map[string]TaskTextSender)
+	for _, platform := range platforms {
+		if sender, ok := platform.(TaskTextSender); ok {
+			p.textSenders[platform.Name()] = sender
+		}
+	}
 	for _, platform := range platforms {
 		if _, ok := platform.(TaskCardPublisher); ok {
 			p.hasPublisher = true
@@ -617,6 +627,7 @@ func (p *PublicProgress) finishRun(r *publicRun, outcome string, delegated bool)
 
 // Flush retries only delivery of already accepted facts, never agent execution.
 func (p *PublicProgress) Flush(ctx context.Context) {
+	p.FlushTaskText(ctx)
 	p.mu.Lock()
 	runs := make([]*publicRun, 0, len(p.pending))
 	for _, r := range p.pending {
