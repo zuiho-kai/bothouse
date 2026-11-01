@@ -110,7 +110,7 @@ func TestDrainPendingMessages_StopsIdleReaderBeforeSending(t *testing.T) {
 	// session, an idle reader was started, and new messages enter its queue.
 	for i := 0; i < 3; i++ {
 		msg := &Message{SessionKey: key, Platform: p.Name(), MessageID: fmt.Sprint(i),
-			UserID: "user", Content: fmt.Sprintf("queued-%d", i), ReplyCtx: "ctx"}
+			UserID: fmt.Sprintf("user-%d", i), Content: fmt.Sprintf("queued-%d", i), ReplyCtx: "ctx"} // distinct senders: three separate turns, not one batch
 		if !e.queueMessageForBusySession(p, msg, key) {
 			t.Fatal("message was not queued")
 		}

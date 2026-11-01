@@ -1,7 +1,9 @@
 #!/usr/bin/env -S python3 -I
-# 把本频道收到的结果摘要转给工作区里的主角色：追加到最近一次 ws-handoff 的交接文件「## 转交结果」节，再叫她去读。
-# 用法：ws-forward [--notes <交接文件>] "<摘要>"
+# 把本频道收到的结果摘要转给工作区里的主角色：插进最近一次 ws-handoff 的交接文件「## 转交结果」节末尾，再叫醒她（提示里直接带原文）。
+# 用法：ws-forward [--interrupt] [--notes <交接文件>] "<摘要>"
 #   --notes 转给那份交接对应的工作区（ws-up 给聊天频道的提示里会带上）；不给就转给最近一次交接。
+#   --interrupt 用户改了要求：工作区正在跑就插进当前这一轮（timer --inject-if-busy），提示让它先停下按旧要求做的部分。
+#     桥在用户回复某件活的汇报时自动带上它（reply_task.go forwardReplyToWorkspace）。来源：用户 10-30 复盘，改需求没转进工作区。
 # 最近一次交接记在 <GATE_SETUP_DIR>/ws-handoff-last.json（ws-handoff 写，见 _team.py）。
 # 来源：用户 2026-10-23「如果你觉得已经开始管不过来了，你可以去开新的频道，就叫工作区……」「方便任意人当主角色，并且也能放到仓库」。
 import json, os, subprocess, sys, time
@@ -10,33 +12,46 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _team  # noqa: E402
 
-HEAD = "## 转交结果"
+sys.path.insert(0, os.environ.get("GATE_DIR") or str(Path(__file__).resolve().parent.parent / "gate"))
+import board  # noqa: E402  转交结果节的插入和暂停状态都以任务板为准（../gate/board.py）
+
+PROMPT_MAX = 1500  # 叫醒提示直接带原文；太长的截断，全文在交接文件里
 
 
 def append_result(path: str, summary: str, now: str):
-    with open(path, encoding="utf-8") as fh:
-        text = fh.read()
-    add = ""
-    if HEAD not in text.splitlines():
-        add += ("" if text.endswith("\n") or not text else "\n") + f"\n{HEAD}\n"
-    elif not text.endswith("\n"):
-        add += "\n"
-    add += f"- {now} {summary}\n"
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(add)
+    board.append_forward(path, f"{now} {summary}")
 
 
-def timer_cmd(ws: str, path: str):
-    return [_team.cc_bin() or "cc-connect", "timer", "add", "-s", ws if ":" in ws else f"discord:{ws}", "--delay", "1m", "--timeout-mins", "0",
-            "--desc", "工作区转交", "--prompt", f"主频道转来新结果，读 {path} 末尾「转交结果」节最新一条，接着推进"]
+def wake_prompt(path: str, summary: str, interrupt: bool = False):
+    """叫醒提示直接带这次转的原文，不让工作区去文件里找（找错节读到旧的「接着做」，见 board.append_forward）。"""
+    text = summary if len(summary) <= PROMPT_MAX else summary[:PROMPT_MAX] + f"…（全文见 {path}「转交结果」节最新一条）"
+    hit = board.paused_item(path)
+    if hit:
+        return (f"主频道转来一条话，这件活已暂停（#{hit['id']}）：停手，不要再起后台命令，正在跑的停掉，"
+                f"别按交接里更早的话接着做。原文：{text}")
+    if interrupt:
+        return (f"打断：用户改了要求（已记进 {path}「转交结果」节）。先停下按旧要求做的部分，"
+                f"正在跑的旧命令该停就停，按这条新要求接着做，交回时说明按新要求改了什么：{text}")
+    return f"主频道转来一条话（已记进 {path}「转交结果」节），按这条做：{text}"
+
+
+def timer_cmd(ws: str, path: str, summary: str, interrupt: bool = False):
+    cmd = [_team.cc_bin() or "cc-connect", "timer", "add", "-s", ws if ":" in ws else f"discord:{ws}", "--delay", "1m", "--timeout-mins", "0",
+           "--desc", "工作区转交", "--prompt", wake_prompt(path, summary, interrupt)]
+    if interrupt:  # 工作区正在跑就插进当前这一轮，不排到它跑完之后
+        cmd[cmd.index("--delay") + 1] = "1s"
+        cmd.insert(cmd.index("--timeout-mins"), "--inject-if-busy")
+    return cmd
 
 
 def main(argv):
-    notes = None
+    notes, interrupt = None, False
+    if argv[:1] == ["--interrupt"]:
+        interrupt, argv = True, argv[1:]
     if len(argv) == 3 and argv[0] == "--notes":
         notes, argv = argv[1], argv[2:]
     if len(argv) != 1 or not argv[0].strip():
-        sys.exit('用法：ws-forward [--notes <交接文件>] "<摘要>"')
+        sys.exit('用法：ws-forward [--interrupt] [--notes <交接文件>] "<摘要>"')
     if not _team.LAST.is_file():
         sys.exit(f"ws-forward: 还没跑过 ws-handoff（没有 {_team.LAST}）")
     last = json.loads(_team.LAST.read_text(encoding="utf-8"))
@@ -50,10 +65,23 @@ def main(argv):
         if rec is None:
             sys.exit(f"ws-forward: {path} 没有 ws-handoff 记录")
         last = {"file": rec.get("file") or path, "channel": rec.get("ws_key") or rec["channel"]}
+    done = board.done_item(last["file"])
+    if done:  # 已交回：工作区会话已清空、放回池子，话发过去没人接（用户 10-30「他那边不是返回了吗？为什么没感知」）
+        sys.exit(f"ws-forward: #{done['id']}（{done.get('short') or done.get('what')}）{done.get('done_at', '')} 已交回，工作区已清空。"
+                 f"要接着做就重新 ws-handoff 这份交接：{last['file']}")
+    hit = board.paused_item(last["file"])
+    if hit and hit.get("pause_why") == board.ASK_WHY and not hit.get("ws"):
+        # 提问后工作区已让出（board ask / ws-up --ask）：答复交 ws-handoff --resume 找空工作区接着做，不发去旧工作区
+        r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(hit["id"]), argv[0]])
+        sys.exit(r.returncode)
     append_result(last["file"], argv[0], time.strftime("%Y-%m-%d %H:%M:%S"))
-    r = subprocess.run(timer_cmd(last["channel"], last["file"]), capture_output=True, text=True)
+    r = subprocess.run(timer_cmd(last["channel"], last["file"], argv[0], interrupt), capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"ws-forward: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
+    # 转了新话，工作区要接着做：这件活的兜底定时器从现在重新算（board.arm_guard；暂停的活不挂）
+    for it in board.items():
+        if it.get("where") == last["file"] and it.get("ws") and not it.get("paused"):
+            board.arm_guard(it["id"])
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
 
 

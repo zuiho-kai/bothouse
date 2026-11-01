@@ -57,7 +57,7 @@ class DataDir(unittest.TestCase):
         d = self.home / "data"
         e = {k: v for k, v in os.environ.items() if k not in KEYS}
         e.update(HOME=str(self.home), CC_BIN="false", BOTHOUSE_DATA_DIR=str(d))
-        out = subprocess.run([str(HERE.parent / "lead" / "board"), "add", "task", "-", "doing", "role"],
+        out = subprocess.run([str(HERE.parent / "lead" / "board"), "add", "task", "-", "doing", "role", "--short", "task"],
                              capture_output=True, text=True, env=e)
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertTrue((d / "team" / "board.jsonl").exists())

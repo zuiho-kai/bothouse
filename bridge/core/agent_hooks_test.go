@@ -162,7 +162,7 @@ func TestAgentHooksGemini(t *testing.T) {
 	if res.PersonaFile != filepath.Join(wd, "GEMINI.md") {
 		t.Fatalf("persona = %q", res.PersonaFile)
 	}
-	if !slices.Equal(res.Enabled, AgentHookNames()) {
+	if want, _ := (AgentHookOptions{CLI: "gemini"}).names(); !slices.Equal(res.Enabled, want) {
 		t.Fatalf("enabled = %v", res.Enabled)
 	}
 	if _, err := os.Stat(filepath.Join(wd, ".claude", "settings.json")); !os.IsNotExist(err) {
@@ -205,7 +205,7 @@ func TestAgentHooksGemini(t *testing.T) {
 	if !strings.Contains(txt, `"timeout": 10000`) {
 		t.Fatalf("timeout must be in milliseconds:\n%s", txt)
 	}
-	if on, err := AgentHooksEnabled("gemini", wd); err != nil || !slices.Equal(on, AgentHookNames()) {
+	if on, err := AgentHooksEnabled("gemini", wd); err != nil || !slices.Equal(on, res.Enabled) {
 		t.Fatalf("enabled read back = %v %v", on, err)
 	}
 	p, _ := os.ReadFile(filepath.Join(wd, "GEMINI.md"))
@@ -269,7 +269,7 @@ func TestAgentHooksQoderIFlow(t *testing.T) {
 			if res.PersonaFile != filepath.Join(wd, tc.persona) {
 				t.Fatalf("persona = %q", res.PersonaFile)
 			}
-			if !slices.Equal(res.Enabled, AgentHookNames()) {
+			if want, _ := (AgentHookOptions{CLI: tc.cli}).names(); !slices.Equal(res.Enabled, want) {
 				t.Fatalf("enabled = %v", res.Enabled)
 			}
 			if _, err := os.Stat(filepath.Join(wd, ".claude", "settings.json")); !os.IsNotExist(err) {
@@ -309,7 +309,7 @@ func TestAgentHooksQoderIFlow(t *testing.T) {
 			if !strings.Contains(txt, `"timeout": 10`) {
 				t.Fatalf("timeout must stay in seconds:\n%s", txt)
 			}
-			if on, err := AgentHooksEnabled(tc.cli, wd); err != nil || !slices.Equal(on, AgentHookNames()) {
+			if on, err := AgentHooksEnabled(tc.cli, wd); err != nil || !slices.Equal(on, res.Enabled) {
 				t.Fatalf("enabled read back = %v %v", on, err)
 			}
 			p, _ := os.ReadFile(filepath.Join(wd, tc.persona))
@@ -539,7 +539,7 @@ func TestAgentHooksAntigravity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"bash-guard", "fix-claim-guard", "promise-guard"}
+	want := []string{"bash-guard", "ask-only-guard", "fix-claim-guard", "promise-guard"}
 	if !slices.Equal(res.Enabled, want) || res.SettingsFile != AgyHookFile(wd) {
 		t.Fatalf("res = %+v", res)
 	}
@@ -552,7 +552,8 @@ func TestAgentHooksAntigravity(t *testing.T) {
 		t.Fatalf("user hook dropped:\n%s", b)
 	}
 	pre := m["bothouse"]["PreToolUse"]
-	if len(pre) != 1 || pre[0]["matcher"] != "run_command" {
+	// bash-guard on shell commands; ask-only-guard (#678) also covers the edit tools.
+	if len(pre) != 2 || pre[0]["matcher"] != "run_command" || !strings.Contains(pre[1]["matcher"].(string), "write_to_file") {
 		t.Fatalf("PreToolUse = %v", pre)
 	}
 	h := pre[0]["hooks"].([]any)[0].(map[string]any)
@@ -697,5 +698,62 @@ func TestSubagentCtxHookDefault(t *testing.T) {
 	}
 	if slices.Contains(res.Enabled, "subagent-ctx-hook") {
 		t.Fatalf("codex enabled = %v", res.Enabled)
+	}
+}
+
+func TestWorkflowHooksInstalledAcrossTeamCLIs(t *testing.T) {
+	useRepoHooks(t)
+	for _, cli := range []string{"claudecode", "codex", "gemini", "grok", "dsh"} {
+		t.Run(cli, func(t *testing.T) {
+			o := AgentHookOptions{DataDir: t.TempDir(), WorkDir: t.TempDir(), CLI: cli}
+			if cli == "dsh" {
+				o.DSHHome = t.TempDir()
+				o.DSHBridge = filepath.Join(t.TempDir(), "index.js")
+				os.WriteFile(o.DSHBridge, []byte("export {}"), 0600)
+			}
+			got, err := EnableAgentHooks(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"bash-guard", "ask-only-guard", "dispatch-review-guard", "fix-claim-guard", "promise-guard", "codemap-inject", "codemap-fill"} {
+				if !slices.Contains(got.Enabled, name) {
+					t.Errorf("%s missing %s", cli, name)
+				}
+			}
+			b, err := os.ReadFile(got.SettingsFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cli == "codex" {
+				var settings struct {
+					Hooks map[string][]struct {
+						Matcher string `json:"matcher"`
+						Hooks   []struct {
+							Command string `json:"command"`
+						} `json:"hooks"`
+					} `json:"hooks"`
+				}
+				if err := json.Unmarshal(b, &settings); err != nil {
+					t.Fatal(err)
+				}
+				found := false
+				for _, group := range settings.Hooks["SubagentStart"] {
+					for _, hook := range group.Hooks {
+						if strings.Contains(hook.Command, "codemap-inject") {
+							found = true
+							if group.Matcher != "" {
+								t.Fatal("map start must match every subagent type")
+							}
+						}
+					}
+				}
+				if !found {
+					t.Fatal("missing Codex SubagentStart map context")
+				}
+			}
+			if cli == "gemini" && (strings.Contains(string(b), "SubagentStop") || !strings.Contains(string(b), "invoke_agent")) {
+				t.Fatal(string(b))
+			}
+		})
 	}
 }

@@ -97,27 +97,6 @@ jobs:
       - run: node --version
       - run: node --test tests/test_voice_player.cjs
 
-  wiki-windows:
-    # the role wikis and nightly reflection run on Windows too (sub-wiki.py, llmwiki/filelock.py: msvcrt there)
-    # Windows 机重新在线后改成 self-hosted windows runner（GitHub 托管机因账号扣款失败不可用，2026-10-23 先关掉）。
-    if: false
-    runs-on: windows-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: bridge
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.11'
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: bridge/go.mod
-          cache-dependency-path: bridge/go.sum
-      - run: python -X utf8 -I contrib/wiki/test_rolewiki.py
-      - run: go test -tags no_web -count=1 ./core -run "Wiki|Cron|SubWiki"
-
   # Bridge checks run on GitHub-hosted runners for both same-repo and fork PRs. The work is split into
   # bridge-checks (Node/Python/vitest, builds, vet) and bridge-go (Go tests in parallel shards); the
   # required check names bridge and bridge-fork are summary jobs over them.
@@ -145,40 +124,55 @@ jobs:
           cache-dependency-path: bridge/go.sum
       # node with zlib zstd (what DSH itself needs: dsh-session-persistence-jsonl imports zstdCompress from
       # node:zlib), so the zstd session-log tests in contrib/hooks run instead of being skipped
+      # Steps below keep going after an earlier one fails (but not when the run is cancelled), so one red
+      # test file no longer hides every later check.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: dsh/package-lock.json
       - run: node --test ../integrations/dsh-public-output/*.test.mjs
+        if: ${{ !cancelled() }}
       - run: node --test ../integrations/dsh-acp-subtasks/*.test.mjs
+        if: ${{ !cancelled() }}
       # collab imports @agentclientprotocol/sdk; install from the committed lockfile like dsh/install.sh does
       - run: npx -y pnpm@10 install --frozen-lockfile
+        if: ${{ !cancelled() }}
         working-directory: dsh/collab
       - run: node --test ../dsh/collab/*.test.mjs
+        if: ${{ !cancelled() }}
       - run: python3 -I contrib/hooks/test_hooks.py
-        if: env.RUN_GO == 'true'
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_dshlog.py
-        if: env.RUN_GO == 'true'
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/hooks/test_bash_guard_longwait.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/hooks/test_workflow_clis.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/hooks/test_codemap_inject.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/hooks/test_codemap_fill.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/wiki/test_rolewiki.py
-        if: env.RUN_GO == 'true'
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       # gate tests read config.toml with tomllib (3.11+) and skip below it; pin 3.11 here, after the steps above,
       # so they actually run and the earlier python3 steps keep the runner's own interpreter
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        if: env.RUN_GO == 'true'
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
         with:
           python-version: '3.11'
       - run: python3 -I contrib/gate/test_ctxsvc.py
-        if: env.RUN_GO == 'true'
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_gate_context.py
-        if: env.RUN_GO == 'true'
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_gate_addressee.py
-        if: env.RUN_GO == 'true'
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_lead_playbook.py
-        if: env.RUN_GO == 'true'
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_datadir.py
-        if: env.RUN_GO == 'true'
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - name: Install channel test dependencies
+        if: ${{ !cancelled() }}
         working-directory: .
         # Keep each job's tools isolated, and install the committed dependency tree.
         run: |
@@ -187,18 +181,19 @@ jobs:
           npm ci --prefix "$test_tools" --no-audit --no-fund
           echo "CONEST_VITEST=$test_tools/node_modules/.bin/vitest" >> "$GITHUB_ENV"
       - name: Channel client regressions
+        if: ${{ !cancelled() }}
         working-directory: .
         run: '"$CONEST_VITEST" run --config dsh/vitest.config.mjs'
       - run: go mod verify
-        if: env.RUN_GO == 'true'
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: go build -tags no_web ./...
-        if: env.RUN_GO == 'true'
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       # vet was in bridge-fork; kept now that both share this job
       - run: go vet -tags no_web ./...
-        if: env.RUN_GO == 'true'
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       # Windows is a supported platform (install.ps1): the code and its tests must keep compiling there.
       - run: GOOS=windows GOARCH=amd64 go build -tags no_web ./... && GOOS=windows GOARCH=amd64 go vet -tags no_web ./...
-        if: env.RUN_GO == 'true'
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
 
   bridge-go:
     needs: changes
@@ -239,7 +234,7 @@ jobs:
           names=$(go test -tags no_web -list '.*' ./core | grep -E '^(Test|Fuzz|Example)' | awk -v n="$n" 'NR % 2 == n % 2')
           test -n "$names"
           echo "$(echo "$names" | wc -l) tests in this shard"
-          go test -tags no_web -p 1 -count=1 -run "^($(echo "$names" | paste -sd'|' -))\$" ./core
+          go test -tags no_web -p 1 -count=1 -timeout 8m -run "^($(echo "$names" | paste -sd'|' -))\$" ./core
       - name: Voice relay streaming race checks
         if: matrix.shard == 'core-1'
         run: go test -race -tags no_web ./core -run 'TestVoiceRelayStream|TestVoiceSentenceSplitter' -count=1

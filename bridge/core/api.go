@@ -109,6 +109,8 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/task", s.handleTask)
 	s.mux.HandleFunc("/task/accept", s.handleTaskAccept)
 	s.mux.HandleFunc("/task/assign", s.handleTaskAssign)
+	s.mux.HandleFunc("/task/artifact", s.handleTaskArtifact)
+	s.mux.HandleFunc("/task/rework", s.handleTaskRework)
 	s.mux.HandleFunc("/handoff/status", s.handleHandoffStatus)
 	s.mux.HandleFunc("/handoff/show", s.handleHandoffShow)
 	s.mux.HandleFunc("/handoff/switch", s.handleHandoffSwitch)
@@ -475,6 +477,10 @@ func (s *APIServer) handleCronAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	job.CreatedAt = time.Now()
 
+	if err := CheckAntiSpinCron(job); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err := s.cron.AddJob(job); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -651,6 +657,9 @@ type TimerAddRequest struct {
 	TimeoutMins  *int   `json:"timeout_mins,omitempty"`
 	InjectIfBusy bool   `json:"inject_if_busy,omitempty"`
 	Handoff      bool   `json:"handoff,omitempty"`
+	// ReplyBoard: the turn's posts report on this task-board item (reply_task.go), so a user's
+	// reply to them reaches the work (ws-up --ask: the lead relays a workspace's question).
+	ReplyBoard int `json:"reply_board,omitempty"`
 }
 
 func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
@@ -735,9 +744,16 @@ func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
 		TimeoutMins:  req.TimeoutMins,
 		InjectIfBusy: req.InjectIfBusy,
 		Handoff:      req.Handoff,
+		ReplyBoard:   req.ReplyBoard,
 		CreatedAt:    time.Now(),
 	}
 
+	// Anti-spin only for jobs created through the API (CLI/model); internal wake-ups
+	// (relay drain, watch, auto-return) add timers directly and must not be blocked.
+	if err := CheckAntiSpinTimer(job); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err := s.timer.AddJob(job); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

@@ -263,27 +263,6 @@ func runMain() {
 	}
 
 	checkUpdateAsync()
-	// When started as a daemon (CC_LOG_FILE set), redirect logs to a rotating file.
-	// Log file setup happens before flag.Parse() so the rotating writer is in
-	// place before any slog output. To still honour --log-max-size, we
-	// pre-scan os.Args here for the flag value; this is a small, deliberate
-	// duplication of flag parsing for one well-known key.
-	var logWriter io.Writer
-	var logCloser io.Closer
-	if logFile := os.Getenv("CC_LOG_FILE"); logFile != "" {
-		maxSize, maxSizeSrc := resolveLogMaxSize(preScanLogMaxSizeFlag(os.Args[1:]))
-		maxBackups, maxBackupsSrc := resolveLogMaxBackups(preScanLogMaxBackupsFlag(os.Args[1:]))
-		fmt.Fprintf(os.Stderr, "log: redirecting to %s with max_size=%d bytes (source: %s), max_backups=%d (source: %s)\n", logFile, maxSize, maxSizeSrc, maxBackups, maxBackupsSrc)
-		w, err := daemon.NewRotatingWriter(logFile, maxSize, maxBackups)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to open log file %s: %v\n", logFile, err)
-			os.Exit(1)
-		}
-		logWriter = w
-		logCloser = w
-		slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo})))
-	}
-
 	rootOpts, err := parseRootCLIOptions(os.Args[1:])
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -292,7 +271,7 @@ func runMain() {
 		os.Exit(2)
 	}
 
-	// Cross-check: the rotating-writer setup above consumed a pre-scanned
+	// Cross-check: the rotating-writer setup below consumes a pre-scanned
 	// value of --log-max-size. Validate the parsed value too so malformed
 	// values surface a clear warning.
 	if strings.TrimSpace(rootOpts.logMaxSize) != "" {
@@ -310,6 +289,11 @@ func runMain() {
 	}
 
 	rootConfigPath = rootOpts.configPath
+	if why := testEnvLeak(resolveConfigPath(rootOpts.configPath), os.Args[1:]); why != "" {
+		// a test run must not reach the live bridge or its channels (test_env_guard.go)
+		fmt.Fprintf(os.Stderr, "bothouse: 测试环境拒跑：%s\n", why)
+		os.Exit(3)
+	}
 	if runTopLevelCommand(rootOpts.args) {
 		return
 	}
@@ -318,6 +302,24 @@ func runMain() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
 		printUsage()
 		os.Exit(1)
+	}
+
+	// Only the server owns the daemon log. Agent-side commands can inherit
+	// CC_LOG_FILE while running in a read-only sandbox.
+	var logWriter io.Writer
+	var logCloser io.Closer
+	if logFile := os.Getenv("CC_LOG_FILE"); logFile != "" {
+		maxSize, maxSizeSrc := resolveLogMaxSize(preScanLogMaxSizeFlag(os.Args[1:]))
+		maxBackups, maxBackupsSrc := resolveLogMaxBackups(preScanLogMaxBackupsFlag(os.Args[1:]))
+		fmt.Fprintf(os.Stderr, "log: redirecting to %s with max_size=%d bytes (source: %s), max_backups=%d (source: %s)\n", logFile, maxSize, maxSizeSrc, maxBackups, maxBackupsSrc)
+		w, err := daemon.NewRotatingWriter(logFile, maxSize, maxBackups)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to open log file %s: %v\n", logFile, err)
+			os.Exit(1)
+		}
+		logWriter = w
+		logCloser = w
+		slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	}
 
 	core.VersionInfo = fmt.Sprintf("bothouse %s\ncommit: %s\nbuilt: %s", version, commit, buildTime)
@@ -962,7 +964,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	engine.SetShowWorkdirIndicator(showWorkdir)
 	engine.SetShowQuotaIndicator(proj.ShowQuotaIndicator == nil || *proj.ShowQuotaIndicator)
 	engine.SetShowQuotaStatus(proj.ShowQuotaStatus == nil || *proj.ShowQuotaStatus)
-	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy == nil || *proj.InjectSubagentPolicy)
+	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy != nil && *proj.InjectSubagentPolicy)
 	engine.SetAgentIdentityEnabled(proj.AgentIdentityEnabled())
 	engine.SetReplyFooterEnabled(showFooter)
 	engine.SetAttachmentSendEnabled(cfg.AttachmentSend != "off")
@@ -1948,7 +1950,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	engine.SetShowWorkdirIndicator(showWorkdir)
 	engine.SetShowQuotaIndicator(proj.ShowQuotaIndicator == nil || *proj.ShowQuotaIndicator)
 	engine.SetShowQuotaStatus(proj.ShowQuotaStatus == nil || *proj.ShowQuotaStatus)
-	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy == nil || *proj.InjectSubagentPolicy)
+	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy != nil && *proj.InjectSubagentPolicy)
 	engine.SetAgentIdentityEnabled(proj.AgentIdentityEnabled())
 	engine.SetReplyFooterEnabled(showFooter)
 
@@ -2300,25 +2302,29 @@ func wireImageFresh(engine *core.Engine, proj config.ProjectConfig) {
 // On unless enabled = false; defaults 60 min idle / 80000 tokens come from the
 // maomao fork settings the user chose on 2026-10-14 (~/.cc-connect/config.toml
 // [projects.cold_cache_fresh]: enabled=true, idle_mins=60, min_tokens=80000).
-func coldCacheFreshSettings(c config.ColdCacheFreshConfig) (enabled bool, idleMins, minTokens int) {
+// max_context_tokens defaults to 300000 (user 2026-10-29: fresh session at 300k).
+func coldCacheFreshSettings(c config.ColdCacheFreshConfig) (enabled bool, idleMins, minTokens, maxTokens int) {
 	if c.Enabled != nil && !*c.Enabled {
-		return false, 0, 0
+		return false, 0, 0, 0
 	}
-	idleMins, minTokens = 60, 80000 // source: see comment above (user, 2026-10-14)
+	idleMins, minTokens, maxTokens = 60, 80000, 300000 // source: see comment above
 	if c.IdleMins != nil && *c.IdleMins > 0 {
 		idleMins = *c.IdleMins
 	}
 	if c.MinTokens != nil && *c.MinTokens > 0 {
 		minTokens = *c.MinTokens
 	}
-	return true, idleMins, minTokens
+	if c.MaxContextTokens != nil && *c.MaxContextTokens > 0 {
+		maxTokens = *c.MaxContextTokens
+	}
+	return true, idleMins, minTokens, maxTokens
 }
 
 // wireColdCacheFresh applies [projects.cold_cache_fresh] (maomao fork).
 func wireColdCacheFresh(engine *core.Engine, proj config.ProjectConfig) {
-	enabled, idle, minTokens := coldCacheFreshSettings(proj.ColdCacheFresh)
+	enabled, idle, minTokens, maxTokens := coldCacheFreshSettings(proj.ColdCacheFresh)
 	if !enabled {
-		engine.SetColdCacheFresh(false, 0, 0)
+		engine.SetColdCacheFresh(false, 0, 0, 0)
 		return
 	}
 	if t := proj.AgentSessionIdleTimeoutMins; t != nil && *t > idle {
@@ -2326,7 +2332,7 @@ func wireColdCacheFresh(engine *core.Engine, proj config.ProjectConfig) {
 			"project", proj.Name, "idle_mins", idle, "agent_session_idle_timeout_mins", *t)
 	}
 	warnColdCacheFreshUnsupported(engine.GetAgent(), proj)
-	engine.SetColdCacheFresh(true, time.Duration(idle)*time.Minute, minTokens)
+	engine.SetColdCacheFresh(true, time.Duration(idle)*time.Minute, minTokens, maxTokens)
 }
 
 // warnColdCacheFreshUnsupported logs a role whose agent cannot read its session

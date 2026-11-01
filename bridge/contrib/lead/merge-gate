@@ -1,0 +1,228 @@
+#!/usr/bin/env -S python3 -I
+"""合并前真实入口验证（复盘 10-30 第 4 条）。
+
+出处：jiuwen !9279 只做了假登录态对比，就以「可合并」交出、合进 0.2.8；真登录态下仍报「需要登录」。
+用户 10-30 11:2x 批复盘方案「1-5都改」，第 4 条：PR 合进发布分支前，必须有真实登录态、在用户实际用的入口
+跑过的截图或日志，没有就不合。
+
+用法：
+  merge-gate record --pr <PR> --login '<怎么登录的，真账号>' --entry '<用户实际用的入口>' --proof <截图或日志> [--proof …] [--commit <sha>]
+      给 PR 当前 head（或 --commit）登记一份验证。截图/日志文件必须存在且非空；登录说明里带「假/mock/模拟/未登录」的不收。
+  merge-gate check --pr <PR>
+      目标是发布分支（0.2.8、release/x 这类版本号分支）时，PR 当前 head 必须有登记，否则 exit 1。不是发布分支直接放行。
+  merge-gate guard --cmd '<shell 命令>' [--cwd <目录>]
+      给 ~/.claude/hooks/bash-guard.py 用：命令里有合并、转非草稿、/lgtm /approve /merge 评论、建非草稿发布分支 PR，
+      就按上面检查；不该放行时把原因打到 stdout、exit 1。
+PR 写法：gitcode:openJiuwen/jiuwenswarm!9279、github:Kuddev/bothouse#12，或 gitcode.com / github.com 的 PR 链接。
+登记放 ~/.bothouse/merge-evidence/（MERGE_EVIDENCE_DIR 可改，测试用）。验证跟着 commit 走：PR 再推新提交，旧登记不算。
+"""
+import argparse, json, os, re, shlex, subprocess, sys, time, urllib.request
+
+EVID = os.environ.get('MERGE_EVIDENCE_DIR') or os.path.expanduser('~/.bothouse/merge-evidence')
+RELEASE = re.compile(r'^(v?\d+\.\d+(\.\d+)*|release[/-].+)$')
+FAKE = re.compile(r'假|mock|fake|模拟|伪造|未登录|没登录|无登录', re.I)
+GC_API = 'https://api.gitcode.com/api/v5/repos'
+GC_URL = re.compile(r'api\.gitcode\.com/api/v5/repos/([\w.-]+)/([\w.-]+)/(pulls|issues)(?:/(\d+|\{[^}]*\}|\$\w+))?(/[\w-]+)?')
+HOW = ('先在用户实际用的入口（桌面版、用户的浏览器页面这类）用真实登录态跑一遍，留截图或日志，再登记：\n'
+       "  ~/.bothouse/collaboration/lead/merge-gate record --pr {pr} --login '<真账号怎么登的>' --entry '<入口>' --proof <截图或日志>\n"
+       '出处：复盘 10-30 第 4 条（!9279 只做假登录态对比就合进 0.2.8）。')
+
+
+def parse_pr(s):
+    m = (re.fullmatch(r'(gitcode|github):([\w.-]+/[\w.-]+)[!#](\d+)', s)
+         or re.fullmatch(r'https?://(gitcode|github)\.com/([\w.-]+/[\w.-]+)/(?:pull|pulls|merge_requests)/(\d+)\S*', s))
+    if not m:
+        sys.exit(f'merge-gate: 看不懂 PR「{s}」，写成 gitcode:owner/repo!号、github:owner/repo#号 或 PR 链接')
+    return m.group(1), m.group(2), int(m.group(3))
+
+
+def name(host, repo, n):
+    return f"{host}:{repo}{'!' if host == 'gitcode' else '#'}{n}"
+
+
+def fetch(host, repo, n):
+    """返回 (目标分支, head sha, 是否草稿)；取不到抛 RuntimeError。"""
+    if host == 'gitcode':
+        try:
+            tok = open(os.path.expanduser('~/.config/gitcode/token')).read().strip()
+            req = urllib.request.Request(f'{GC_API}/{repo}/pulls/{n}', headers={'PRIVATE-TOKEN': tok})
+            d = json.load(urllib.request.urlopen(req, timeout=10))
+            return d['base']['ref'], d['head']['sha'], bool(d.get('draft'))
+        except Exception as e:
+            raise RuntimeError(f'查不到 GitCode PR {repo}!{n}：{e}')
+    r = subprocess.run(['gh', 'pr', 'view', str(n), '-R', repo, '--json', 'baseRefName,headRefOid,isDraft'],
+                       capture_output=True, text=True, timeout=15)
+    if r.returncode:
+        raise RuntimeError(f'查不到 GitHub PR {repo}#{n}：{r.stderr.strip()[:200]}')
+    d = json.loads(r.stdout)
+    return d['baseRefName'], d['headRefOid'], bool(d.get('isDraft'))
+
+
+def evid_path(host, repo, n):
+    return os.path.join(EVID, f"{host}-{repo.replace('/', '_')}-{n}.json")
+
+
+def load(host, repo, n):
+    try:
+        return json.load(open(evid_path(host, repo, n)))
+    except (OSError, ValueError):
+        return []
+
+
+def verified(host, repo, n, sha):
+    for r in load(host, repo, n):
+        c = r.get('commit') or ''
+        if len(c) >= 7 and sha.startswith(c) and r.get('proof') and all(
+                os.path.isfile(p) and os.path.getsize(p) > 0 for p in r['proof']):
+            return r
+    return None
+
+
+def check(host, repo, n, why='合并'):
+    """None = 放行；否则返回拒绝原因。"""
+    pr = name(host, repo, n)
+    try:
+        base, sha, _ = fetch(host, repo, n)
+    except RuntimeError as e:
+        return f'{why} {pr} 前要核对真实入口验证，但{e}。查不到就不合。'
+    if not RELEASE.match(base):
+        return None
+    if verified(host, repo, n, sha):
+        return None
+    return (f'{pr} 要{why}进发布分支 {base}，但当前提交 {sha[:10]} 没有真实登录态、用户入口的验证登记。\n'
+            + HOW.format(pr=pr))
+
+
+def cmd_record(a):
+    host, repo, n = parse_pr(a.pr)
+    sha = a.commit
+    if not sha:
+        try:
+            sha = fetch(host, repo, n)[1]
+        except RuntimeError as e:
+            sys.exit(f'merge-gate: {e}；用 --commit 指定')
+    if not re.fullmatch(r'[0-9a-f]{7,40}', sha):
+        sys.exit(f'merge-gate: commit「{sha}」不是 sha')
+    if FAKE.search(a.login):
+        sys.exit('merge-gate: 登录说明里有「假/mock/模拟/未登录」，这不是真实登录态，不登记')
+    bad = [p for p in a.proof if not (os.path.isfile(p) and os.path.getsize(p) > 0)]
+    if bad:
+        sys.exit(f'merge-gate: 截图/日志不存在或是空文件：{" ".join(bad)}')
+    rs = load(host, repo, n)
+    rs.append({'commit': sha, 'login': a.login, 'entry': a.entry, 'proof': [os.path.abspath(p) for p in a.proof],
+               'at': time.strftime('%Y-%m-%dT%H:%M:%S%z')})
+    os.makedirs(EVID, exist_ok=True)
+    with open(evid_path(host, repo, n), 'w') as f:
+        json.dump(rs, f, ensure_ascii=False, indent=1)
+    print(f'merge-gate: 已登记 {name(host, repo, n)} @ {sha[:10]}（入口：{a.entry}）')
+
+
+def gitcode_actions(cmd):
+    """命令里对 GitCode 的「会让 PR 进发布分支」的动作：[(repo, 号或 None, 动作)]。"""
+    out = []
+    for m in GC_URL.finditer(cmd):
+        repo, kind, num, tail = f'{m.group(1)}/{m.group(2)}', m.group(3), m.group(4), m.group(5) or ''
+        n = int(num) if num and num.isdigit() else None
+        if kind == 'pulls' and tail == '/merge':
+            out.append((repo, n, '合并'))
+        elif num and tail == '/comments' and re.search(r'/(lgtm|approve|merge)\b', cmd):
+            out.append((repo, n, '评论批准'))
+        elif kind == 'pulls' and num and not tail and re.search(r'["\']?draft["\']?\s*[:=]\s*(false|False)', cmd):
+            out.append((repo, n, '转非草稿'))
+        elif kind == 'pulls' and not num and re.search(r'\bPOST\b|-d\b|--data|json\s*=|data\s*=', cmd):
+            b = re.search(r'["\']?base["\']?\s*[:=]\s*["\']([\w./-]+)["\']', cmd)
+            if b and RELEASE.match(b.group(1)) and not re.search(r'["\']?draft["\']?\s*[:=]\s*(true|True)', cmd):
+                out.append((repo, None, f'新建（目标 {b.group(1)}，不是草稿）'))
+    return out
+
+
+def gh_merges(cmd, cwd):
+    """gh pr merge [<号|链接|分支>] [-R repo]：[(repo 或 None, 选择子)]。"""
+    out = []
+    for seg in re.split(r'\|\||&&|[;\n|]', cmd):
+        try:
+            t = shlex.split(seg, comments=True)
+        except ValueError:
+            t = seg.split()
+        while t and (re.match(r'^\w+=', t[0]) or t[0] in ('env', 'command', 'time')):
+            t = t[1:]
+        if t[:3] != ['gh', 'pr', 'merge']:
+            continue
+        repo, sel, it = None, None, iter(t[3:])
+        for x in it:
+            if x in ('-R', '--repo'):
+                repo = next(it, None)
+            elif x.startswith('--repo='):
+                repo = x.split('=', 1)[1]
+            elif x in ('-t', '--subject', '-b', '--body', '-F', '--body-file', '--match-head-commit', '-A', '--author-email'):
+                next(it, None)
+            elif not x.startswith('-') and sel is None:
+                sel = x
+        out.append((repo, sel))
+    return out
+
+
+def gh_resolve(repo, sel, cwd):
+    args = ['gh', 'pr', 'view'] + ([sel] if sel else []) + (['-R', repo] if repo else []) + ['--json', 'number,url']
+    r = subprocess.run(args, capture_output=True, text=True, timeout=15, cwd=cwd or None)
+    if r.returncode:
+        raise RuntimeError(r.stderr.strip()[:200])
+    d = json.loads(r.stdout)
+    return parse_pr(d['url'])
+
+
+def cmd_guard(a):
+    cmd = a.cmd
+    for repo, n, act in gitcode_actions(cmd):
+        if n is None and act.startswith('新建'):
+            print(f'要在 GitCode 给 {repo} {act}。发布分支的 PR 先建成草稿（"draft": true），'
+                  '真实入口验完、merge-gate record 登记后，再转非草稿（转的时候会再查一次）。出处：复盘 10-30 第 4 条。')
+            sys.exit(1)
+        if n is None:
+            print(f'要对 GitCode {repo} 的 PR {act}，但命令里看不出 PR 号（变量拼的）。'
+                  '把号直接写进命令，好核对有没有真实入口验证。')
+            sys.exit(1)
+        why = check('gitcode', repo, n, act)
+        if why:
+            print(why)
+            sys.exit(1)
+    for repo, sel in gh_merges(cmd, a.cwd):
+        try:
+            host, r, n = gh_resolve(repo, sel, a.cwd)
+        except (RuntimeError, subprocess.TimeoutExpired) as e:
+            print(f'gh pr merge 前要核对真实入口验证，但查不到是哪个 PR：{e}')
+            sys.exit(1)
+        why = check(host, r, n)
+        if why:
+            print(why)
+            sys.exit(1)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog='merge-gate')
+    sp = ap.add_subparsers(dest='op', required=True)
+    r = sp.add_parser('record')
+    r.add_argument('--pr', required=True)
+    r.add_argument('--commit')
+    r.add_argument('--login', required=True)
+    r.add_argument('--entry', required=True)
+    r.add_argument('--proof', action='append', required=True)
+    c = sp.add_parser('check')
+    c.add_argument('--pr', required=True)
+    g = sp.add_parser('guard')
+    g.add_argument('--cmd', required=True)
+    g.add_argument('--cwd')
+    a = ap.parse_args()
+    if a.op == 'record':
+        cmd_record(a)
+    elif a.op == 'check':
+        why = check(*parse_pr(a.pr))
+        if why:
+            sys.exit(why)
+        print('merge-gate: 可以合（不是发布分支，或当前提交已有真实入口验证）')
+    else:
+        cmd_guard(a)
+
+
+if __name__ == '__main__':
+    main()

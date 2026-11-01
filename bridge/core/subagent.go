@@ -1,7 +1,7 @@
 package core
 
-// withSubagentPolicy applies the policy below unless the project turned it off
-// (inject_subagent_policy = false).
+// withSubagentPolicy applies the policy below when the project turned it on
+// (inject_subagent_policy = true; off by default).
 func (e *Engine) withSubagentPolicy(prompt, userID string, fromBot bool) string {
 	if e.skipSubagentPolicy.Load() {
 		return prompt

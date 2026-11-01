@@ -23,13 +23,17 @@ LATER = re.compile(r"\s*(以后|之后|后|再|才)")
 WHEN = re.compile(r"以后|之后|要等|等到|还没|尚未|待会")
 # 3) 讲别人做的：「发现已经有人先修好了」「龙娘说她修完了」「子 agent 修好了」
 #    橘自己报「也已经并行修完、推上去了」主语是自己，仍要拦。
-OTHER = re.compile(r"有人|别人|他人|她|队友|龙娘|鲸鱼娘|彩虹猫|子\s*agent|subagent|sub\b", re.I)
+OTHER = re.compile(r"有人|别人|他人|她|队友|工作区|龙娘|鲸鱼娘|彩虹猫|子\s*agent|subagent|sub\b", re.I)
 CLAUSE_END = re.compile(r"[，,。.；;！!？?\n|：:]")
+CAN = re.compile(r"(能|可以|可)[^已经，,。.；;！!？?\n|：:]{0,2}$")  # 「能修完」「可以马上修好」是能力，不是声称修完
+RELAY = "[工作区回传]"  # 桥转来的工作区交回：转述别人修的，不是自己修的
 
 def is_claim(text, m):
     if NEG.search(text[max(0, m.start() - 2):m.start()]):  # "还没有修完""等修完再测"
         return False
     if LATER.match(text, m.end()):
+        return False
+    if CAN.search(text[max(0, m.start() - 4):m.start()]):
         return False
     head = text[:m.start()]
     ends = list(CLAUSE_END.finditer(head))
@@ -92,11 +96,44 @@ def turn_text(path):
             out += [b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text"]
     return "\n".join(reversed(out))
 
+# 2026-11-01 复盘：没查就说「我们没有 X」（实际有）。回复否定自家功能、本轮却没跑过查证命令 → 拦一次。
+DENY_OWN = re.compile(r"我们(还)?没(有|做)|没做过|不支持|做不到")
+LOOKUP_CMD = re.compile(r"search\.py|\bgrep\b|\brg\b|chanlog|codegraph|sessions\.py")
+LOOKUP_TOOL = re.compile(r"^(Grep|Glob|grep|glob)$|codegraph")
+
+def looked_up(path):
+    """本轮有没有查证（wiki/代码/历史）的工具调用。读不出来按查过算，不误拦。"""
+    try:
+        lines = open(path, encoding="utf-8").read().splitlines()
+    except OSError:
+        return True
+    for line in reversed(lines):
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        c = (e.get("message") or {}).get("content")
+        if e.get("type") == "user" and not e.get("isMeta") and (isinstance(c, str) or (isinstance(c, list) and any(
+                isinstance(b, dict) and b.get("type") == "text" for b in c))):
+            return False
+        for b in (c if e.get("type") == "assistant" and isinstance(c, list) else []):
+            if isinstance(b, dict) and b.get("type") == "tool_use" and (LOOKUP_TOOL.search(b.get("name") or "")
+                    or LOOKUP_CMD.search(str((b.get("input") or {}).get("command") or ""))):
+                return True
+    return False
+
 def main():
     d = json.load(sys.stdin)
     if d.get("stop_hook_active"):
         return
+    reply = d.get("last_assistant_message") or turn_text(d.get("transcript_path", ""))
+    if DENY_OWN.search(QUOTED.sub("", reply)) and not looked_up(d.get("transcript_path", "")):
+        print(json.dumps({"decision": "block", "reason": "先查 wiki/代码再说我们没有：回复里否定了自家功能，"
+              "本轮却没跑过 search.py/grep/rg/chanlog/codegraph。查完再答，查不了就说没核。"}, ensure_ascii=False))
+        return
     prompt = last_prompt(d.get("transcript_path", ""))
+    if prompt is not None and RELAY in prompt:
+        return
     if prompt is not None and not FIX_ASK.search(user_words(prompt)):
         return
     last = d.get("last_assistant_message") or ""

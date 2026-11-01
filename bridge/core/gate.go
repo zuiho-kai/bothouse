@@ -15,7 +15,8 @@ package core
 //   - "reply":  the user wants an answer. Busy → also injected into the running turn, whose
 //               final reply then covers it. Idle → normal turn.
 // Any gate error or timeout falls back to gate_fallback (default "reply", so the bot never goes deaf);
-// a bot that was @-mentioned replies regardless.
+// a bot that was @-mentioned replies regardless, and a message that @-s another bot only gives context.
+// A gate without a judging model (/decide 503) never falls back to "reply" for what names no one.
 
 import (
 	"bytes"
@@ -101,6 +102,13 @@ type gateRequest struct {
 	// "可以" answering its question from idle chatter. LastReplyAge is seconds since then.
 	LastReply    string `json:"last_reply,omitempty"`
 	LastReplyAge int    `json:"last_reply_age_s,omitempty"`
+	// AddressedOther: the text @-s or names another team bot and not this one (Message.AddressedOther).
+	AddressedOther bool `json:"addressed_other,omitempty"`
+	// NoInsert (maomao fork): busy, and this turn can't take the message mid-turn (agent can't fold
+	// input in, or the turn has stopped moving), so a reply or insert would queue until it ends. The
+	// gate then aborts for a message waiting on her answer (user 2026-10-30: nagging a busy DSH
+	// member queued behind its 24-minute turn).
+	NoInsert bool `json:"no_insert,omitempty"`
 }
 
 // gatePart is one message of a merged burst: what the user wrote, whether it @-ed this bot, and
@@ -192,13 +200,27 @@ func (g *gateState) burstDelay(msg *Message) time.Duration {
 }
 
 // fallbackFor is the action when the gate can't answer: a bot that was @-mentioned
-// still replies (being named directly needs no judgement); otherwise gate_fallback
-// applies (the fallback role "reply", other roles "context").
+// still replies (being named directly needs no judgement); a message @-ing another bot is
+// that bot's to answer ("context"); otherwise gate_fallback applies (the fallback role
+// "reply", other roles "context").
 func (g *gateState) fallbackFor(req gateRequest) string {
 	if req.Mentioned {
 		return "reply"
 	}
+	if req.AddressedOther {
+		return "context"
+	}
 	return g.fallback
+}
+
+// noModelFallback is the action when the gate runs but has no model to judge with (/decide 503,
+// contrib/gate/gate.py NO_JEV): that is not a passing outage, so even the fallback role does not
+// answer every message; only an @-mentioned bot replies.
+func (g *gateState) noModelFallback(req gateRequest) string {
+	if req.Mentioned {
+		return "reply"
+	}
+	return "context"
 }
 
 func (g *gateState) decide(ctx context.Context, req gateRequest) gateResponse {
@@ -215,6 +237,9 @@ func (g *gateState) decide(ctx context.Context, req gateRequest) gateResponse {
 		return gateResponse{Action: g.fallbackFor(req), Reason: "gate unreachable: " + err.Error()}
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		return gateResponse{Action: g.noModelFallback(req), Reason: "gate has no model: 503"}
+	}
 	var out gateResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || resp.StatusCode != http.StatusOK {
 		return gateResponse{Action: g.fallbackFor(req), Reason: fmt.Sprintf("gate bad response: %d %v", resp.StatusCode, err)}
@@ -333,7 +358,8 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	dec := g.decide(e.ctx, gateRequest{
 		SessionKey: msg.SessionKey, Content: userTextOf(msg), Mentioned: msg.Mentioned, FromBot: msg.FromBot, Parts: msg.gateParts, Busy: busy,
 		HasImages: len(msg.Images) > 0, HasFiles: len(msg.Files) > 0, Buffered: gateBuffered,
-		LastReply: last, LastReplyAge: lastAge,
+		LastReply: last, LastReplyAge: lastAge, AddressedOther: msg.AddressedOther,
+		NoInsert: busy && !(g.canInject() && e.turnIdleFor(interactiveKey) < deadTurnAfter),
 	})
 	slog.Info("gate decision", "session", msg.SessionKey, "action", dec.Action, "busy", busy,
 		"mentioned", msg.Mentioned, "buffered", len(buffered), "tier", dec.Tier, "reason", dec.Reason)
@@ -358,7 +384,13 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 
 	if dec.Action == "abort" {
 		// maomao fork: "stop / pause / do X instead" while busy must not wait for the turn to end.
-		if busy {
+		if busy && e.turnCancelKeepsQueue(interactiveKey) && e.turnIdleFor(interactiveKey) < deadTurnAfter {
+			// Queued first, then cancelled (handleMessage → abortForQueuedFront): the cancelled turn's
+			// drain answers this message next. Cancelling first and waiting for the lock lost it to
+			// that drain, which ran a cron turn and an earlier message queued behind the turn first
+			// (10-30: 「暂停」 answered third, 2 min later, after a "queued" notice).
+			msg.abortFront = true
+		} else if busy {
 			if e.stopInteractiveSession(interactiveKey, p, msg.ReplyCtx) {
 				e.reply(p, msg.ReplyCtx, "⏹ 已打断当前这一轮")
 				// Let the cancelled turn release the session (same wait as a recalled message),
@@ -372,7 +404,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		dec.Action = "reply"
 	}
 
-	if busy && g.canInject() {
+	if busy && g.canInject() && !msg.abortFront {
 		if idle := e.turnIdleFor(interactiveKey); idle >= deadTurnAfter {
 			// maomao fork: don't pretend to deliver into a turn that has stopped moving.
 			// The message stays in the channel; backfill hands it to the next turn
@@ -405,10 +437,11 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	if strings.TrimSpace(inject) == "" {
 		inject = "（补充附件，和刚才的消息是一起发的）"
 	}
-	if busy && g.canInject() && e.injectIntoRunningTurn(interactiveKey, inject, msg.ReplyCtx, msg.Images, msg.Files) {
+	if busy && g.canInject() && !msg.abortFront && e.injectIntoRunningTurn(interactiveKey, inject, msg.ReplyCtx, msg.Images, msg.Files) {
 		g.mu.Lock()
 		g.dropBuffered(interactiveKey, len(buffered))
 		g.mu.Unlock()
+		e.noteInjectedMessage(interactiveKey, msg.MessageID)
 		e.reply(p, msg.ReplyCtx, "↪ 已插入")
 		return true
 	}
@@ -427,6 +460,46 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	keepUserText(msg) // board, progress card and team status show the user's words, not these notes
 	msg.Content = content
 	return false
+}
+
+// turnCancelKeepsQueue reports whether stopping interactiveKey's running turn keeps its queue
+// (a turn cancelled in place, or a native /compact): only then can an abort queue first.
+// A session that is closed instead drops its queue (stopInteractiveSessionWithOptions).
+func (e *Engine) turnCancelKeepsQueue(interactiveKey string) bool {
+	e.interactiveMu.Lock()
+	state := e.interactiveStates[interactiveKey]
+	compacting := e.nativeCompactions[interactiveKey] != nil
+	e.interactiveMu.Unlock()
+	if compacting {
+		return true
+	}
+	if state == nil {
+		return false
+	}
+	state.mu.Lock()
+	_, ok := state.agentSession.(AgentSessionCanceller)
+	state.mu.Unlock()
+	return ok
+}
+
+// abortForQueuedFront cancels the running turn after msg (abortFront) was queued first, unless
+// that turn ended meanwhile and its drain already started msg.
+func (e *Engine) abortForQueuedFront(p Platform, msg *Message, interactiveKey string) {
+	e.interactiveMu.Lock()
+	state := e.interactiveStates[interactiveKey]
+	e.interactiveMu.Unlock()
+	if state == nil {
+		return
+	}
+	state.mu.Lock()
+	started := msg.MessageID != "" && state.currentMessageID == msg.MessageID
+	state.mu.Unlock()
+	if started {
+		return
+	}
+	if e.stopInteractiveSession(interactiveKey, p, msg.ReplyCtx) {
+		e.reply(p, msg.ReplyCtx, "⏹ 已打断当前这一轮")
+	}
 }
 
 // buffer keeps text for the next turn of interactiveKey (capped at maxBuffered); gateText is the
@@ -686,10 +759,19 @@ func (e *Engine) turnContext(session *Session, sessionKey, text string) string {
 // (user, cron, timer or queued); teammate status and wiki pages only with
 // turnCtx messages.
 func (e *Engine) withTurnBlocks(session *Session, sessionKey, query, content string, turnCtx bool) string {
+	return e.withTurnBlocksRef(session, sessionKey, query, content, turnCtx, nil)
+}
+
+// withTurnBlocksRef also puts the background of the work a reply quotes (ref, reply_task.go)
+// right before the message, once per agent context.
+func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, content string, turnCtx bool, ref *MessageReference) string {
+	if c := e.replyTaskBlock(session, ref); c != "" {
+		content = c + "\n\n" + content
+	}
 	if c := e.leadHandoffBlock(session, sessionKey); c != "" {
 		content = c + "\n\n" + content
 	}
-	if c := e.handoffBlock(session); c != "" {
+	if c := e.handoffBlock(session, sessionKey); c != "" {
 		content = c + "\n\n" + content
 	}
 	if c := e.memoryBlock(session); c != "" { // before the handoff: the index, then what the old context did

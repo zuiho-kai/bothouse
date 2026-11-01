@@ -113,7 +113,7 @@ func (e *Engine) finishWorkspaceReportTurn(key, text string) bool {
 	e.pendingResetMu.Unlock()
 	if wake {
 		slog.Warn("workspace report missing: preserving session and requesting delivery", "session", key)
-		e.wakeWatchRole(key, fmt.Sprintf("你把活标成完成或等用户，但没交 [report]。保留当前会话，请立即补交上一轮的结果；最后一条回复第一行写 [report]，正文写交付内容和证据，让聊天频道收到。需要用户决定时用带自验证据和类别的 [ask]。不要重新做已经完成的工作。原会话：%s", key), "补交工作区结果")
+		e.wakeWatchRole(key, fmt.Sprintf("你把活标成完成或等用户，但没交 [report]。保留当前会话，请立即补交上一轮的结果；最后一条回复第一行写 [report] #任务板编号 给用户的一两句话，第二行起写交付内容和证据，让聊天频道收到。需要用户决定时用带自验证据和类别的 [ask]。不要重新做已经完成的工作。原会话：%s", key), "补交工作区结果")
 	} else {
 		slog.Error("workspace report recovery exhausted; session reset remains blocked", "session", key)
 	}

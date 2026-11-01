@@ -115,6 +115,12 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	if err := d.finish(response, runErr); err != nil {
 		return nil, fmt.Errorf("relay: result checkpoint failed; do not repeat tools: %w", err)
 	}
+	if runErr != nil && d.leadReleased() {
+		// The lead's turn ended while the run was still inside the wait, so
+		// this error goes back to a command nobody reads (10-31: a dispatch
+		// failed at 23:52 and the workspace sat idle until the user asked).
+		source.wakeRelayLead(req, name, response, runErr)
+	}
 	if errors.Is(runErr, errRelayWatchStopped) && strings.TrimSpace(response) != "" {
 		return nil, fmt.Errorf("relay: %w\n\n部分结果：\n%s", runErr, response)
 	}
@@ -486,6 +492,13 @@ func (d *taskRelay) finish(response string, runErr error) error {
 	return nil
 }
 
+// leadReleased reports whether the lead's turn no longer holds the card.
+func (d *taskRelay) leadReleased() bool {
+	d.r.mu.Lock()
+	defer d.r.mu.Unlock()
+	return !taskRelayActive(d.r)
+}
+
 func shellQuoteRelay(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 
 func (d *taskRelay) prompt() string {
@@ -540,24 +553,27 @@ func (e *Engine) wakeRelayLead(req RelayRequest, worker, response string, runErr
 	case errors.Is(runErr, errRelayWatchInterrupted):
 		outcome = "因桥重启中断（运行已丢失，没有结果）"
 	case runErr != nil:
-		outcome = "后台执行结束但没有确认结果（" + runErr.Error() + "）"
+		outcome = "派工失败（" + truncateRunes(runErr.Error(), 300) + "）"
 	}
 	prompt := fmt.Sprintf("[派工回执] 任务 %s 派给%s的活（请求 %s）%s。先核对实际产物（分支、提交、工作树、PR），再决定验收、续派（同一任务、新的请求号，从检查点接着做）或收口；不要重复已经成功的操作。",
 		req.TaskID, worker, req.RequestID, outcome)
+	if runErr != nil && !errors.Is(runErr, errRelayWatchStopped) && !errors.Is(runErr, errRelayWatchInterrupted) {
+		prompt += "这件活现在没人在做：这一轮就自己接着做，或换一个空着的队友重派，不要等。"
+	}
 	if out := strings.TrimSpace(response); out != "" {
-		prompt += "\n\n" + worker + "交回的内容：\n" + truncateRelay(out, relayLeadWakeLimit)
+		prompt += "\n\n" + worker + "交回的内容：\n" + truncateRelayMore(e.dataDir, "relay-"+req.TaskID, out, relayLeadWakeLimit)
 	}
 	silent := true
 	job := &TimerJob{
-		ID:           GenerateTimerID(),
-		Project:      e.name,
-		SessionKey:   req.SessionKey,
-		ScheduledAt:  time.Now(),
-		Prompt:       prompt,
-		Description:  "派工回执 " + req.TaskID,
-		Silent:       &silent,
-		InjectIfBusy: true,
-		CreatedAt:    time.Now(),
+		ID:            GenerateTimerID(),
+		Project:       e.name,
+		SessionKey:    req.SessionKey,
+		ScheduledAt:   time.Now(),
+		Prompt:        prompt,
+		Description:   "派工回执 " + req.TaskID,
+		Silent:        &silent,
+		WaitUserQuiet: true,
+		CreatedAt:     time.Now(),
 	}
 	if err := e.timerScheduler.AddJob(job); err != nil {
 		slog.Error("relay: wake lead for background outcome failed", "task_id", req.TaskID, "request_id", req.RequestID, "error", err)

@@ -224,7 +224,7 @@ class Runner:
             if message['channel_id'] != self.config['main_channel'] or message.get('author', {}).get('id') != leader:
                 continue
             content = message.get('content', '').strip()
-            if content.startswith(("You've hit your session limit", "You've hit your usage limit", 'API Error:', 'Error: rate_limit')):
+            if re.match(r"You've hit your [\w\- ]{1,30}?\s*limit\b", content) or content.startswith(('API Error:', 'Error: rate_limit')):
                 action['status'] = 'backend_blocked'
                 action['error'] = '本轮时间范围内出现模型限额/后端错误消息；未证明活动完成'
                 action['evidence'] = message_url(self.config, message)

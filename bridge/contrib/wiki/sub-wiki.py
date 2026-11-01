@@ -69,7 +69,7 @@ def hook_env():
         env = {k: e[k] for k in WIN_KEEP if k in e}
     else:
         home = e.get("HOME", str(Path.home()))
-        env = {"HOME": home, "PATH": f"{home}/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin"}
+        env = {"HOME": home, "PATH": f"{home}/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"}  # /usr/local/bin: npm -g claude on Linux
         env.update({k: e[k] for k in POSIX_KEEP if e.get(k)})
         if "USER" not in env:
             import getpass

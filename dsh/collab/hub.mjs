@@ -162,10 +162,10 @@ export class Hub {
     return r;
   }
 
-  commit(id, authorKind, author, text, fromTurn) {
+  commit(id, authorKind, author, text, fromTurn, attachments) {
     const after = [];
     const r = this.store.transaction(() => {
-      const c = this.store.commit(id, authorKind, author, text, fromTurn);
+      const c = this.store.commit(id, authorKind, author, text, fromTurn, attachments);
       if (c?.first) for (const plan of this.planners) { const next = plan(c.message); if (next) after.push(next); }
       return c;
     });

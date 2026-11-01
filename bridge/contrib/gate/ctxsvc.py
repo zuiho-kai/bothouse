@@ -120,13 +120,14 @@ def context(req):
     bot = req.get("bot") or ""
     who = lead.identity(bot) if lead else None
     pb = lead.playbook(bot) if lead else None  # 当主的才有：主角色工作手册（lead.playbook）
+    dm = lead.dept_manager(bot, ws_task(req.get("key") or "")) if lead else None  # 工作区里有活才有：部门经理做法
     text = req.get("text") or ""
     own = role_wiki(bot) if WIKI is not None else None  # GATE_WIKI=off/空 = 什么 wiki 都不推，角色 wiki 也不查
     mine = match_wiki(text, root=own) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
     if WIKI is None:
-        return {"wiki": [x for x in (who, pb) if x] + board_items()}
+        return {"wiki": [x for x in (who, pb, dm) if x] + board_items(req.get("key") or "")}
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
-    return {"wiki": [x for x in (who, pb) if x] + standing_items(roots) + board_items() + match_wiki(text) + mine
+    return {"wiki": [x for x in (who, pb, dm) if x] + standing_items(roots) + board_items(req.get("key") or "") + match_wiki(text) + mine
             + decision_items(text, req.get("key") or "")}  # 主 wiki 在前
 
 
@@ -161,6 +162,7 @@ def _decisions(root):
                 keep.add((rel, n))
     d = search.Index.__new__(search.Index)
     d.desc, d.lines = idx.desc, [l for l in idx.lines if (l[0], l[1]) in keep]
+    d.decay = [1.0] * len(d.lines)  # 定案行算重要，不按日期降分
     n = max(len(d.lines), 1)
     d.avg = sum(len(l[3]) for l in d.lines) / n or 1
     df = collections.Counter(t for l in d.lines for t in set(l[3]))
@@ -301,15 +303,34 @@ def standing_items(roots):
     return out
 
 
-def board_items():
-    """任务板整张附上（board.py）。path 带内容指纹：cc-connect 同一 path 每个会话只推一次（gate.go turnContext），
-    所以板子不变不重复推，一变每个 bot 下一轮各收到一次新板（用户 2026-10-22「他应该能看到为什么从开始找」）。"""
+def ws_task(key=""):
+    """会话 key 所在频道是工作区、任务板上有绑在这里且没暂停的活 → 最早那件的编号，否则 None。"""
+    chat = ":".join(str(key or "").split(":", 2)[:2])
+    if board is None or ":" not in chat or not board._path("board.jsonl").exists():
+        return None
+    try:
+        ids = [i["id"] for i in board.items() if i.get("ws") == chat and not i.get("paused")]
+    except Exception:  # 板子读坏了不挡推页
+        return None
+    return min(ids) if ids else None
+
+
+def board_items(key=""):
+    """任务板附上（board.py）：只列本会话频道的条目和等用户的条目，别处的只计数（用户 2026-10-28「工作区的任务板
+    又长又臭」，方案第 4 条）；全表用 board 命令看。path 带内容指纹：cc-connect 同一 path 每个会话只推一次
+    （gate.go turnContext），所以板子不变不重复推，一变每个 bot 下一轮各收到一次新板（用户 2026-10-22「他应该能看到为什么从开始找」）。"""
     if board is None or not board._path("board.jsonl").exists():  # 没用过任务板就不附（板子清空后文件还在，照推「没有进行中的事」）
         return []
     try:
-        ls = board.lines()
+        its = board.items()
     except Exception:  # 板子读坏了不挡推页
         return []
+    shown = [i for i in its if board.in_chat(i, key) or board.waits_user(i)]
+    rest = [i for i in its if i not in shown]
+    ls = [board.fmt(i) for i in shown]
+    run = sum(1 for i in rest if not i.get("paused"))
+    if rest:
+        ls.append(f"别处还有 {run} 件在做、{len(rest) - run} 件暂停（全表跑 board）")
     body = "\n".join(ls) or "现在没有进行中的事"
     tag = hashlib.sha1(body.encode()).hexdigest()[:6]
-    return [{"path": f"【任务板 {tag}】", "desc": "谁手上有哪件事、做在哪（接手前先看这里；增改结束用 board 命令）\n" + body}]
+    return [{"path": f"【任务板 {tag}】", "desc": "本频道的事和等用户的事（接手前先看这里；增改结束用 board 命令）\n" + body}]

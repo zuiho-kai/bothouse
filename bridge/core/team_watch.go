@@ -192,7 +192,12 @@ func (s *APIServer) rewatchIfServing() {
 }
 
 func (w *handoffWatch) run(ctx context.Context) {
+	var reconciled time.Time
 	for {
+		if now := w.now(); now.Sub(reconciled) >= teamWorkspaceReconcileEvery {
+			reconciled = now
+			w.reconcileTeamWorkspaces(now)
+		}
 		next := w.tick(w.now())
 		wait := watchIdleWake()
 		if !next.IsZero() {
@@ -365,7 +370,11 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		case !ok:
 			return time.Time{} // handed back, closed or parked meanwhile
 		default:
-			if err := w.send(p, key, watchNudgeText(plat, h)); err != nil {
+			nh := h
+			if w.e.watchOwns(p, h.Owner) {
+				nh.Owner = "" // the posting bot owns the task: a lone bot does not mention itself
+			}
+			if err := w.send(p, key, watchNudgeText(plat, nh)); err != nil {
 				slog.Warn("team watch: nudge failed; parking anyway", "workspace", key, "error", err)
 			}
 		}

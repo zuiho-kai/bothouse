@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"log/slog"
 	"strings"
 	"sync/atomic"
@@ -82,10 +84,74 @@ func (e *Engine) SetDispatchMode(mode string) {
 // DispatchMode is this project's dispatch mode.
 func (e *Engine) DispatchMode() string { return e.dispatchMode.get() }
 
-// withTeamModeRules prefixes the team-mode rules of the project's mode on every
-// delivery, like the identity and delegation blocks, so resumed and queued turns see them too.
-func (e *Engine) withTeamModeRules(prompt string) string {
-	return teamModeRulesFor(e.DispatchMode()) + "\n" + prompt
+// withTeamModeRules prefixes the team-mode rules of the project's mode when this
+// delivery must carry them (teamRulesOnce).
+func (e *Engine) withTeamModeRules(prompt string, session *Session, agent Agent) string {
+	e.checkRulesContext(session, agent)
+	return prefixRules(e.teamRulesOnce(teamModeRulesFor(e.DispatchMode()), session, agent), prompt)
+}
+
+func prefixRules(rules, prompt string) string {
+	if rules == "" {
+		return prompt
+	}
+	return rules + "\n" + prompt
+}
+
+// teamRulesOnce returns rules when this delivery must carry them, else "": once per agent context,
+// for every backend. TurnCtxSent.Rules holds a hash of the text sent, and a new session, a
+// compaction (ResetTurnCtx, see checkRulesContext) or a different text (another dispatch mode,
+// edited rules) sends them again. A nil session gets them on every delivery. Before this, every
+// turn repeated about 2,000 characters of rules (2026-10-29 Discord session review).
+func (e *Engine) teamRulesOnce(rules string, session *Session, agent Agent) string {
+	if session == nil {
+		return rules
+	}
+	sum := sha256.Sum256([]byte(rules))
+	if !session.takeTeamRules(hex.EncodeToString(sum[:8])) {
+		return ""
+	}
+	return rules
+}
+
+// A context that shrinks below this share of its last size between turns was compacted.
+const rulesCompactedRatio = 2
+
+// ContextSizeReader is optional for an Agent (maomao fork): the prompt size the agent last
+// reported for a session, 0 when unknown (acp: Grok's turn_completed usage).
+type ContextSizeReader interface {
+	LastContextTokens(sessionID string) int
+}
+
+// checkRulesContext notices a compaction the agent does not report (user 2026-10-30「为什么没有通用化，
+// 并且支持我们现在几个cli」). Agents with ContextCompactionReporter (claudecode, codex) already reset
+// TurnCtx through MetaContextCompacted. Agents whose transcript (SessionHandoffReader: dsh,
+// antigravity) or live usage (ContextSizeReader: acp/Grok) gives the prompt size are compacted when
+// that size falls below half its last value. An agent that reports none of these keeps the rules
+// for the life of its session; a new agent session already starts an empty TurnCtx
+// (SetAgentSessionID).
+func (e *Engine) checkRulesContext(session *Session, agent Agent) {
+	if session == nil {
+		return
+	}
+	if r, ok := agent.(ContextCompactionReporter); ok && r.ReportsContextCompaction() {
+		return
+	}
+	id := session.GetAgentSessionID()
+	if id == "" || id == ContinueSession {
+		return
+	}
+	tokens := 0
+	if r, ok := agent.(SessionHandoffReader); ok {
+		if h, err := r.ReadSessionHandoff(id); err == nil {
+			tokens = h.ContextTokens
+		}
+	} else if r, ok := agent.(ContextSizeReader); ok {
+		tokens = r.LastContextTokens(id)
+	}
+	if tokens > 0 {
+		session.noteContextTokens(tokens)
+	}
 }
 
 // TeamModeWorkspaceInstructions is the shared opening brief for a new workspace in the given mode.

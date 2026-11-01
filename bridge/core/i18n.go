@@ -686,6 +686,7 @@ const (
 	MsgPublicEnded       MsgKey = "MsgPublicEnded"
 	MsgWatchResume       MsgKey = "watch_resume"
 	MsgWatchIdleEscalate MsgKey = "watch_idle_escalate"
+	MsgWatchFailEscalate MsgKey = "watch_fail_escalate"
 	MsgTaskKeyFact       MsgKey = "MsgTaskKeyFact"
 	MsgTaskResultReady   MsgKey = "MsgTaskResultReady"
 	MsgTaskRelayAssigned MsgKey = "MsgTaskRelayAssigned"
@@ -693,6 +694,7 @@ const (
 	MsgTaskRelayResult   MsgKey = "MsgTaskRelayResult"
 	MsgTaskRelayFailed   MsgKey = "MsgTaskRelayFailed"
 	MsgTaskReporterMuted MsgKey = "MsgTaskReporterMuted"
+	MsgTaskListRevision  MsgKey = "task_list_revision"
 )
 
 const (
@@ -711,6 +713,13 @@ const (
 )
 
 var messages = map[MsgKey]map[Language]string{
+	MsgTaskListRevision: {
+		LangEnglish:            "revision v%d · %d artifacts (%d input / %d output)",
+		LangChinese:            "修订 v%d · 产物 %d（素材 %d / 交付 %d）",
+		LangTraditionalChinese: "修訂 v%d · 產物 %d（素材 %d / 交付 %d）",
+		LangJapanese:           "改訂 v%d · 成果物 %d（素材 %d / 納品 %d）",
+		LangSpanish:            "revisión v%d · %d artefactos (%d de entrada / %d de salida)",
+	},
 	MsgQuotaLeadRestored: {
 		LangEnglish:            "Quota recovered: %s is primary again.",
 		LangChinese:            "额度已恢复，主角色切回 %s。",
@@ -974,11 +983,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "Turno interrumpido; revise los resultados antes de reintentar.",
 	},
 	MsgWatchResume: {
-		LangEnglish:            "Continue %s; no reply needed",
-		LangChinese:            "接着做 %s，不用回话",
-		LangTraditionalChinese: "接著做 %s，不用回話",
-		LangJapanese:           "%s を続けてください。返事は不要です",
-		LangSpanish:            "Continúa %s; no hace falta responder",
+		LangEnglish:            "Continue %s and finish it; when done, start the reply with [report]",
+		LangChinese:            "接着做 %s，做完再结束本轮，交回时第一行写 [report]",
+		LangTraditionalChinese: "接著做 %s，做完再結束本輪，交回時第一行寫 [report]",
+		LangJapanese:           "%s を続けて完了させてください。完了したら返信の1行目を [report] にしてください",
+		LangSpanish:            "Continúa %s hasta terminarlo; al terminar, empieza la respuesta con [report]",
 	},
 	MsgWatchIdleEscalate: {
 		LangEnglish:            "Watch: %s has not resumed %s after two wakeups. Primary role, please take over.",
@@ -986,6 +995,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "看門：%s「%s」連續叫醒兩次仍未繼續，請主角色接手。",
 		LangJapanese:           "見守り：%s は %s を2回呼びかけても再開していません。主担当に引き継いでください。",
 		LangSpanish:            "Aviso: %s no ha retomado %s tras dos avisos. El rol principal debe hacerse cargo.",
+	},
+	MsgWatchFailEscalate: {
+		LangEnglish:            "Watch: %s failed %s twice in a row with errors; automatic resume stopped. Primary role, reassign or take over.",
+		LangChinese:            "看门：%s「%s」连续两次报错，已停止自动接着做，请主角色换人或接手。",
+		LangTraditionalChinese: "看門：%s「%s」連續兩次報錯，已停止自動接著做，請主角色換人或接手。",
+		LangJapanese:           "見守り：%s の %s が2回連続でエラーになったため、自動再開を止めました。主担当は担当替えか引き継ぎをしてください。",
+		LangSpanish:            "Aviso: %s falló dos veces seguidas en %s; se detuvo la reanudación automática. El rol principal debe reasignar o hacerse cargo.",
 	},
 	MsgPublicEnded: {
 		LangEnglish:            "Turn ended; see the final reply. Acceptance is not confirmed.",

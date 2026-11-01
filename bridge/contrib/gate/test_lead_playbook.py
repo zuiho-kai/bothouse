@@ -11,6 +11,10 @@ for k in ("GATE_TEAM", "GATE_PLAYBOOK"):
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ctxsvc, lead  # noqa: E402
 
+# 和别的测试一起跑（pytest）时 lead 可能早被别的测试按线上目录导入过，上面的环境变量不再生效；
+# 2026-10-28 17:09 就这样把 set_lead("dsh-claude") 写进了线上 lead.json，桥认不出主角色、任务板全被删。
+lead.LEAD_FILE = Path(os.environ["GATE_LEAD_FILE"])
+
 MARK = "队友空着，就给她们安排活"
 
 
@@ -98,6 +102,56 @@ class SameWord(unittest.TestCase):
         lead.set_lead("claude")
         self.assertTrue(has_playbook("claude"))
         self.assertFalse(has_playbook("dsh:claude"))
+
+
+DM_MARK = "部门经理"
+
+
+class FakeBoard:
+    def __init__(self, items):
+        self._items = items
+        self._f = Path(_tmp) / "board.jsonl"
+        self._f.write_text("")
+
+    def _path(self, name):
+        return self._f
+
+    def items(self):
+        return self._items
+
+    def __getattr__(self, name):  # in_chat、fmt、waits_user 照用真的
+        return getattr(ctxsvc.board if ctxsvc.board is not self else self._real, name)
+
+
+class DeptManager(unittest.TestCase):
+    """工作区里有绑定的活 → 当前主角色收到部门经理做法；聊天频道、当次的、暂停的活都不收。"""
+
+    def setUp(self):
+        self.saved = FakeBoard._real = ctxsvc.board
+        lead.DEPT_MANAGER = Path(__file__).resolve().parent.parent / "lead" / lead.DEPT_MANAGER_NAME
+
+    def tearDown(self):
+        ctxsvc.board = self.saved
+        Path(os.environ["GATE_LEAD_FILE"]).unlink(missing_ok=True)
+
+    def got(self, bot, key):
+        return [x for x in ctxsvc.context({"bot": bot, "text": "在吗", "key": key})["wiki"] if DM_MARK in x["path"]]
+
+    def test_workspace_lead_gets_it(self):
+        ctxsvc.board = FakeBoard([{"id": 7, "what": "a", "ws": "discord:9"}, {"id": 8, "what": "b", "ws": "discord:5", "paused": True}])
+        hit = self.got("", "discord:9:u1")
+        self.assertEqual(len(hit), 1)
+        self.assertIn("#7", hit[0]["path"])
+        self.assertIn("总部", hit[0]["desc"])
+        self.assertEqual(self.got("", "discord:1"), [])  # 聊天频道
+        self.assertEqual(self.got("", "discord:5"), [])  # 暂停的活
+        for k in lead.KEYS[1:]:
+            self.assertEqual(self.got(k, "discord:9"), [], k)  # 当次的
+
+    def test_off(self):
+        ctxsvc.board = FakeBoard([{"id": 7, "what": "a", "ws": "discord:9"}])
+        lead.DEPT_MANAGER = None
+        self.assertEqual(self.got("", "discord:9"), [])
 
 
 HERE = Path(__file__).resolve().parent

@@ -470,6 +470,8 @@ type ColdCacheFreshConfig struct {
 	Enabled   *bool `toml:"enabled,omitempty"`    // default true; false turns it off
 	IdleMins  *int  `toml:"idle_mins,omitempty"`  // minutes since the last reply (default 60); checked only when the agent process starts, so keep it >= agent_session_idle_timeout_mins
 	MinTokens *int  `toml:"min_tokens,omitempty"` // context size worth leaving (default 80000)
+	// MaxContextTokens: once the last reply's context reaches this, the next message starts fresh whatever the idle time (default 300000)
+	MaxContextTokens *int `toml:"max_context_tokens,omitempty"`
 }
 
 // ImageFreshConfig (maomao fork): once the images in a session's context add
@@ -630,9 +632,9 @@ type ProjectConfig struct {
 	// ShowQuotaStatus: nil/true = without a measured quota, show its status
 	// (unavailable / no data / querying / query failed); false = show nothing.
 	ShowQuotaStatus *bool `toml:"show_quota_status,omitempty"`
-	// InjectSubagentPolicy: nil/true = prefix every agent turn with the bridge
+	// InjectSubagentPolicy: true = prefix every agent turn with the bridge
 	// delegation policy (start subagents only on explicit human consent);
-	// false = send the request as is.
+	// nil/false = send the request as is, so roles may open subagents.
 	InjectSubagentPolicy *bool `toml:"inject_subagent_policy,omitempty"`
 	// InjectAgentIdentity: nil/true = prepend the bridge identity block each
 	// turn; false = the persona owns identity (saves prompt tokens).

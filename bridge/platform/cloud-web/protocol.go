@@ -146,6 +146,12 @@ type wireInboundMessage struct {
 	// UserMentionID (maomao fork): the sending bot's <@id>; matched against team_lead_bot to know the
 	// lead dispatched this turn (lead_return.go), as Discord matches the author ID.
 	UserMentionID string `json:"user_mention_id,omitempty"`
+	// ReplyToID/Author/Text: the message this one replies to (DSH collab gateway). The id is the
+	// gateway's message id, the same one a task card's preview_handle and a reply's ack carry,
+	// so core can find the work it belongs to (core/reply_task.go). Absent from older gateways.
+	ReplyToID     string `json:"reply_to_id,omitempty"`
+	ReplyToAuthor string `json:"reply_to_author,omitempty"`
+	ReplyToText   string `json:"reply_to_text,omitempty"`
 }
 
 type wireCardAction struct {
@@ -181,6 +187,8 @@ type replyContext struct {
 	MsgID string
 	lead  string
 	final bool
+	// recordSent gets the id of each message posted with this context (RecordSentMessages).
+	recordSent func(string)
 }
 
 func authHTTP(req *http.Request, token string) {

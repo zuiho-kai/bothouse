@@ -276,6 +276,20 @@ class Hooks(unittest.TestCase):
         p = {"hook_event_name": "Stop", "session_id": "stop3", "transcript_path": "", "stop_hook_active": False}
         self.assertEqual(self.run_hook("fix-claim-guard", p), "")
 
+    def test_stop_deny_own_feature_20261101(self):
+        """回复说「我们没有 X」：本轮查过（grep/search.py）放行，没查过拦。"""
+        def turn(cmd):
+            path = os.path.join(self.tmp, "deny.jsonl")
+            recs = [{"type": "user", "message": {"content": "跨平台共用记忆我们有吗"}},
+                    {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": cmd}}]}},
+                    {"type": "assistant", "message": {"content": [{"type": "text", "text": "跨平台共用记忆我们没有。"}]}}]
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(json.dumps(r, ensure_ascii=False) for r in recs))
+            return self.run_hook("fix-claim-guard", {"hook_event_name": "Stop", "transcript_path": path, "stop_hook_active": False})
+        self.assertIn("先查 wiki/代码再说我们没有", turn("ls ~"))
+        self.assertEqual(turn("python3 ~/wiki/bin/search.py 记忆"), "")
+        self.assertEqual(turn("rg -n memory ~/work"), "")
+
     # ---- switch: run.py off|on|status, what the agent runs when its user asks in chat ----
     def test_switch(self):
         role = os.path.join(self.tmp, "role")

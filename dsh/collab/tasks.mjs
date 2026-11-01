@@ -11,6 +11,7 @@ import { CollabError, MAX_TEXT } from './store.mjs';
 import { mentions, nameCalled, split, withoutLeadingMentions } from './mentions.mjs';
 import { NOTICE_PREFIXES } from './cloudweb.mjs';
 import { exitMark } from './team-exit.mjs';
+import { checkDispatch, HandoffRulesError } from './handoff-rules.mjs';
 
 /** Status codes and their labels (the eight names are a #139 B setting, not user-specified). */
 export const STATUS = {
@@ -53,26 +54,24 @@ const PLACEHOLDERS = WORKING.map(() => '?').join(', ');
 // point) keeps its status but is not in progress: no check timer, not counted. Any status
 // change by its owner or the lead (stance, hand-back, review) resumes it.
 const LIVE = `status IN (${PLACEHOLDERS}) AND paused_at IS NULL`;
-// #574 dispatch fields (same checks as contrib/lead/ws-handoff has_ref_impl/multi_editor/has_base,
-// user 2026-10-25 「交活带参照实现，非代码活写『无（新建）』算过」): `ref` names the existing
-// implementation to follow as `file:line`, or 无（新建） for work with none; when the task says
-// several members edit the same files (「共改文件」/「多人改」) it also needs `base`, the branch to start from.
-const REF_RE = /[~\w.\-/]*[A-Za-z_][~\w.\-/]*:\d+/g;
-const NO_REF = /^无\s*[（(]\s*新建\s*[)）]/;
-export const MISSING_REF = '缺参照实现：写 文件:行，非代码活写「无（新建）」';
-const REF_EXAMPLE = '示例：ref: "dsh/collab/tasks.mjs:226"，或 ref: "无（新建）"';
-const MISSING_BASE = '多人改同组文件要写底分支：base 填分支名，示例：base: "feat/approvals-card"';
+// #574 dispatch fields: `ref` names the existing implementation to follow, `base` the branch to start
+// from when several members edit the same files. The checks and their messages are in the shared
+// handoff rules (handoff-rules.json, also read by ws-handoff); a dispatch runs the ones listed under
+// its `dispatch` key. The rules file not being readable refuses the dispatch (HTTP 500), never skips it.
 const MISSING_REWORK_NOTE = '返工要写原因：note 填为什么打回，示例：note: "没先读现有实现"';
 
-/** True when ref is 无（新建） or holds at least one `path:line` (path with / or ., so 14:30 does not count). */
-export function hasRef(ref) {
-  const s = String(ref ?? '').trim();
-  if (NO_REF.test(s)) return true;
-  return (s.match(REF_RE) ?? []).some(m => m.includes('/') || m.split(':')[0].includes('.'));
+/** Runs a handoff check; a missing or broken rules file becomes a CollabError instead of letting it through. */
+export function withRules(fn) {
+  try {
+    return fn();
+  } catch (e) {
+    if (e instanceof HandoffRulesError) throw new CollabError('rules-missing', e.message);
+    throw e;
+  }
 }
 
-/** The task says several members edit the same files. */
-export function multiEditor(text) { return /共改文件|多人改/.test(String(text ?? '')); }
+/** True when ref passes the shared reference-implementation check on its own. */
+export function hasRef(ref) { return checkDispatch({ title: '', ref }) === null; }
 
 export class Tasks {
   reassignForQuota(task, owner) {
@@ -142,6 +141,9 @@ export class Tasks {
       resetRenewals: this.db.prepare('UPDATE tasks SET renewals = 0 WHERE id = ?'),
       renew: this.db.prepare(`UPDATE tasks SET next_check_at = ?, renewals = ? WHERE id = ? AND ${LIVE} RETURNING *`),
       park: this.db.prepare(`UPDATE tasks SET paused_at = ?, paused_chat = ?, next_check_at = NULL WHERE room_id = ? AND ${LIVE}`),
+      open: this.db.prepare(`SELECT * FROM tasks WHERE status IN (${PLACEHOLDERS}) ORDER BY id`),
+      autoClose: this.db.prepare(`UPDATE tasks SET status = 'returned', next_check_at = NULL, remind_msg_id = NULL,
+        note = ?, returned_at = ?, updated_at = ? WHERE id = ? AND status IN (${PLACEHOLDERS}) RETURNING *`),
       busyOfOwner: this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND ${LIVE} ORDER BY updated_at DESC`),
       allBusy: this.db.prepare(`SELECT * FROM tasks WHERE ${LIVE} ORDER BY updated_at DESC`),
       // A stance line without #id only answers a dispatch the owner has not answered yet.
@@ -160,7 +162,9 @@ export class Tasks {
     };
     hub.onMessage(message => this.fromMessage(message));
     // A member coming online (cloud-web register, DSH member published) gets its pending reminders.
-    this.unsubscribe = hub.subscribe(event => { if (event.type === 'members') this.deliverPending(); });
+    this.unsubscribe = hub.subscribe(event => {
+      if (event.type === 'members') { this.deliverPending(); this.arm(); }
+    });
     if (start) this.start();
   }
 
@@ -284,7 +288,7 @@ export class Tasks {
    * Dispatch: the actor (the lead for this task) assigns `title` in `roomId` to member `owner`.
    * `reason` is the dispatcher's own one-line why-this-member, shown in the record (team mode C).
    * `force` allows assigning even if the member has an in-progress task in any room.
-   * `ref`/`base` (#574): an API dispatch passes ref (string, checked by hasRef) and, for a
+   * `ref`/`base` (#574): an API dispatch passes ref (string, checked by the shared rules) and, for a
    * multi-editor task, base; undefined ref (tasks opened from chat or bridge cards) skips the check.
    */
   assign({ roomId, title, owner, actor, parentTask, reviewOf, messageId, reason, ref, base, force = false }) {
@@ -305,8 +309,8 @@ export class Tasks {
     }
     if (parentTask != null && this.task(parentTask) === undefined) throw new CollabError('task-missing', `task ${parentTask} does not exist`);
     if (messageId != null && this.store.message(messageId) === undefined) throw new CollabError('invalid', `message ${messageId} does not exist`);
-    if (ref !== undefined && !hasRef(ref)) throw new CollabError('invalid', `${MISSING_REF}。${REF_EXAMPLE}`);
-    if (ref !== undefined && multiEditor(text) && !clip(base)) throw new CollabError('invalid', MISSING_BASE);
+    const refError = ref === undefined ? null : withRules(() => checkDispatch({ title: text, ref, base }));
+    if (refError) throw new CollabError('invalid', refError);
     const excludeIds = parentTask != null ? this.ancestorsOf(parentTask) : new Set();
     const busy = this.busyInfo(owner, excludeIds);
     if (busy.busy && !force) {
@@ -724,6 +728,26 @@ export class Tasks {
   tick() {
     if (this.closed || !this.started) return;
     const now = this.now();
+    for (const task of this.q.open.all(...WORKING)) {
+      // Only a member that was actually removed closes its work: a merely offline member, or a
+      // pause the user asked for, must be able to resume later.
+      if (task.owner === HUMAN) continue;
+      const removed = this.db.prepare('SELECT removed FROM members WHERE id = ?').get(task.owner)?.removed === 1;
+      if (!removed) continue;
+      const reason = '负责人已移除，自动收口';
+      const row = this.q.autoClose.get(reason, now, now, task.id, ...WORKING);
+      if (row === undefined) continue;
+      const text = `#${row.id}「${row.title}」${reason}。`;
+      if (row.paused_at != null && row.paused_chat != null && row.paused_chat !== this.chatOf(row.room_id)) {
+        const card = JSON.stringify({ kind: 'task', task_id: row.id, event: 'return' });
+        const message = { authorKind: 'system', author: 'system', name: '任务', text, card };
+        this.hub.post(row.room_id, message);
+        this.hub.post(row.paused_chat, message);
+      } else this.record(row, 'return', text);
+      this.releaseIfDone(row.room_id);
+      this.store.releaseIdleWorkspaces();
+      this.changed(row.id);
+    }
     for (const task of this.q.allBusy.all(...WORKING)) {
       if (this.watched(task) && watchDue(task) <= now) this.watch(task, now);
     }
@@ -860,8 +884,14 @@ export class Tasks {
     if (this.closed) return;
     // Workspace tasks are due at watchDue (also those whose check time an older reminder spent),
     // except in bridge-claimed workspaces; other tasks at their check time.
-    const at = this.q.allBusy.all(...WORKING)
-      .map(t => this.store.room(t.room_id)?.kind !== 'workspace' ? t.next_check_at : this.watched(t) ? watchDue(t) : null)
+    const at = this.q.open.all(...WORKING)
+      .map(t => {
+        if (t.owner === HUMAN) return null;
+        const removed = this.db.prepare('SELECT removed FROM members WHERE id = ?').get(t.owner)?.removed === 1;
+        if (removed) return this.now();
+        if (t.paused_at != null) return null;
+        return this.store.room(t.room_id)?.kind !== 'workspace' ? t.next_check_at : this.watched(t) ? watchDue(t) : null;
+      })
       .filter(t => t != null).sort((a, b) => a - b)[0];
     if (at == null) return;
     const ms = Math.min(MAX_TIMER_MS, Math.max(0, (at - this.now()) * 1000));

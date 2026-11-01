@@ -17,19 +17,16 @@ const (
 	userWordsHeading     = "用户原话"
 )
 
-// workspaceTaskBackground: the task-board line of the item last bound to workspace session
+// workspaceTaskBackground: the task-board line of board item boardID when the reply named it
+// (its headline, team_exit_headline.go), else of the item last bound to workspace session
 // wsSession (open board first, then finished items) and the 用户原话 sections of its handoff
 // file (the item's where). "" when nothing is recorded.
-func (e *Engine) workspaceTaskBackground(wsSession string) string {
+func (e *Engine) workspaceTaskBackground(wsSession string, boardID int) string {
 	dir := e.teamStatusDir()
 	if dir == "" || wsSession == "" {
 		return ""
 	}
-	key := teamChatKey(wsSession)
-	it := lastBoundItem(readTeamTaskBoard(dir), key)
-	if it == nil {
-		it = lastBoundItem(readTeamTaskBoardFile(dir, teamTaskBoardDoneFile), key)
-	}
+	it := e.workspaceBoardItem(wsSession, boardID)
 	if it == nil {
 		return ""
 	}
@@ -45,6 +42,23 @@ func (e *Engine) workspaceTaskBackground(wsSession string) string {
 		line += "\n交接里记的用户原话：\n" + words
 	}
 	return line
+}
+
+// workspaceBoardItem: board item boardID when it exists, else the item last bound to workspace
+// session wsSession (open board first, then finished items); nil when none is recorded.
+func (e *Engine) workspaceBoardItem(wsSession string, boardID int) *teamTaskBoardItem {
+	dir := e.teamStatusDir()
+	if dir == "" || wsSession == "" {
+		return nil
+	}
+	if it := e.boardItemByID(boardID); it != nil {
+		return it
+	}
+	key := teamChatKey(wsSession)
+	if it := lastBoundItem(readTeamTaskBoard(dir), key); it != nil {
+		return it
+	}
+	return lastBoundItem(readTeamTaskBoardFile(dir, teamTaskBoardDoneFile), key)
 }
 
 func lastBoundItem(items []teamTaskBoardItem, key string) *teamTaskBoardItem {
@@ -67,8 +81,21 @@ func lastBoundItem(items []teamTaskBoardItem, key string) *teamTaskBoardItem {
 
 // handoffUserWords: the sections of handoff file path whose heading names 用户原话.
 func handoffUserWords(path string) string {
+	var out []string
+	for _, ln := range strings.Split(handoffSection(path, userWordsHeading), "\n") {
+		if strings.TrimSpace(ln) != "" {
+			out = append(out, ln)
+		}
+	}
+	return truncateRelay(strings.Join(out, "\n"), backgroundWordsLimit)
+}
+
+// handoffSection: the body of every section of handoff file path (ws-handoff's markdown)
+// whose heading line contains heading, in file order, blank lines inside kept and the whole
+// trimmed. "" when path is not an absolute readable file or has no such section.
+func handoffSection(path, heading string) string {
 	path = strings.TrimSpace(path)
-	if path == "" || !filepath.IsAbs(path) {
+	if path == "" || !filepath.IsAbs(path) || heading == "" {
 		return ""
 	}
 	b, err := os.ReadFile(path)
@@ -79,12 +106,21 @@ func handoffUserWords(path string) string {
 	in := false
 	for _, ln := range strings.Split(string(b), "\n") {
 		if strings.HasPrefix(ln, "#") {
-			in = strings.Contains(ln, userWordsHeading)
+			in = strings.Contains(ln, heading)
 			continue
 		}
-		if in && strings.TrimSpace(ln) != "" {
-			out = append(out, ln)
+		if in {
+			out = append(out, strings.TrimRight(ln, " \t\r"))
 		}
 	}
-	return truncateRelay(strings.Join(out, "\n"), backgroundWordsLimit)
+	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+// firstParagraph: s up to its first blank line.
+func firstParagraph(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.Index(s, "\n\n"); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
 }

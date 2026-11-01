@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -445,6 +446,10 @@ func (p *Platform) handleMessage(raw []byte) {
 		// chat_type "direct" (docs/cloud-web.md); a missing chat_type is not taken as a DM.
 		Direct: strings.EqualFold(strings.TrimSpace(m.ChatType), "direct") && !m.FromBot,
 	}
+	if m.ReplyToID != "" {
+		// The gateway already puts the quote in Content, so Full stays empty (renderReference).
+		msg.Reference = &core.MessageReference{ID: m.ReplyToID, Author: m.ReplyToAuthor, Text: m.ReplyToText}
+	}
 
 	p.mu.RLock()
 	h := p.handler
@@ -598,7 +603,51 @@ func (p *Platform) Reply(ctx context.Context, replyCtx any, content string) erro
 	if rc.Agent { // maomao fork: agent output (MarkAgentReply, history.go)
 		frame["agent"] = true
 	}
-	return p.sendWire(ctx, frame)
+	return p.sendRecorded(ctx, rc, frame)
+}
+
+// replyRefSeq numbers the ref_id of recorded reply frames.
+var replyRefSeq atomic.Uint64
+
+// RecordSentMessages implements core.SentMessageRecorder: record gets the gateway id of every
+// reply posted with the returned context. The gateway acks a reply frame that has a ref_id with
+// preview_ack (dsh/collab/cloudweb.mjs); a gateway that does not ack records nothing.
+func (p *Platform) RecordSentMessages(replyCtx any, record func(string)) any {
+	switch rc := replyCtx.(type) {
+	case replyContext:
+		rc.recordSent = record
+		return rc
+	case *replyContext:
+		if rc != nil {
+			c := *rc
+			c.recordSent = record
+			return c
+		}
+	}
+	return replyCtx
+}
+
+// sendRecorded sends frame; when rc records sent ids it asks the gateway for the posted id
+// and records it when the ack comes, without holding up the send.
+func (p *Platform) sendRecorded(ctx context.Context, rc replyContext, frame map[string]any) error {
+	waiter, ok := p.tp.(previewWaiter)
+	if rc.recordSent == nil || !ok {
+		return p.sendWire(ctx, frame)
+	}
+	refID := fmt.Sprintf("reply-%d", replyRefSeq.Add(1))
+	frame["ref_id"] = refID
+	wait := waiter.expectPreviewAck(refID)
+	if err := p.sendWire(ctx, frame); err != nil {
+		_, _ = wait(0)
+		return err
+	}
+	record := rc.recordSent
+	go func() {
+		if id, err := wait(taskCardAckTimeout); err == nil && id != "" {
+			record(id)
+		}
+	}()
+	return nil
 }
 
 // ReplyInPlace implements core.PreviewReplier (#121): the gateway overwrites the streamed
@@ -626,7 +675,7 @@ func (p *Platform) ReplyInPlace(ctx context.Context, previewHandle any, replyCtx
 	if rc.Agent {
 		frame["agent"] = true
 	}
-	return p.sendWire(ctx, frame)
+	return p.sendRecorded(ctx, rc, frame)
 }
 
 func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error {

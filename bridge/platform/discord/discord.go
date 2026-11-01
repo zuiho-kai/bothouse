@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -28,6 +29,7 @@ const maxDiscordLen = 1900
 
 type replyContext struct {
 	recordAgentReply func(string)
+	recordSent       func(string) // maomao fork: every message id this context posts (core.SentMessageRecorder)
 	channelID        string
 	messageID        string
 	threadID         string
@@ -72,9 +74,10 @@ type progressPlatform struct {
 }
 
 type Platform struct {
-	turnSent                   turnSentLog // maomao fork: see turn_sent.go
-	leadReturned               sync.Map    // maomao fork: trigger message ID → time the reply was routed back to the lead
-	cardViews                  cardViews   // maomao fork: 细节/简略 view per card message (card_view.go)
+	turnSent                   turnSentLog                       // maomao fork: see turn_sent.go
+	silentChannel              atomic.Pointer[func(string) bool] // maomao fork: see silent.go
+	leadReturned               sync.Map                          // maomao fork: trigger message ID → time the reply was routed back to the lead
+	cardViews                  cardViews                         // maomao fork: 细节/简略 view per card message (card_view.go)
 	token                      string
 	allowFrom                  string
 	permissionApprovers        []string
@@ -85,6 +88,7 @@ type Platform struct {
 	botName                    string            // maomao fork: this bot's username, for self-mention marking and name calls (mentions.go)
 	auxChannels                map[string]string // maomao fork: main channel ID → log channel ID; see aux_channels.go
 	guildID                    string            // optional: instant guild registration, plus DM-only global commands
+	allowGuilds                map[string]bool   // allow_guilds: only these servers (and "dm") are served; see allow_guilds.go
 	progressStyle              string
 	cardEntries                int
 	cardLineLen                int
@@ -198,6 +202,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		allowBotsFile:              newAllowBotsFile(allowBotsFilePath),
 		teamLead:                   teamLead,
 		guildID:                    guildID,
+		allowGuilds:                parseAllowGuilds(opts),
 		progressStyle:              progressStyle,
 		cardEntries:                cardEntries,
 		cardLineLen:                cardLineLen,
@@ -647,14 +652,14 @@ func (p *Platform) RegisterCommands(commands []core.BotCommandInfo) error {
 	// Guild commands cannot appear in DMs. Keep instant guild registration,
 	// then overwrite the global scope with BotDM-only commands so a guild
 	// never sees a second copy. Without guild_id, one global set serves both.
-	scopes := []string{""}
-	if p.guildID != "" {
-		scopes = []string{p.guildID, ""}
-	}
+	// With allow_guilds, commands go to each allowed server and the global set
+	// is DM-only, so an instance never shows commands in servers it ignores.
+	guilds := p.commandGuilds()
+	scopes := append(append([]string{}, guilds...), "")
 	for _, guildID := range scopes {
 		if guildID == "" {
 			contexts := []discordgo.InteractionContextType{discordgo.InteractionContextBotDM}
-			if p.guildID == "" {
+			if len(guilds) == 0 {
 				contexts = []discordgo.InteractionContextType{discordgo.InteractionContextGuild, discordgo.InteractionContextBotDM}
 			}
 			for _, cmd := range cmds {
@@ -716,12 +721,13 @@ func (p *Platform) buildSession() (*discordgo.Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("discord: create session: %w", err)
 	}
+	var base http.RoundTripper = http.DefaultTransport
 	if p.proxyURL != nil {
-		transport := &http.Transport{Proxy: http.ProxyURL(p.proxyURL)}
-		session.Client = &http.Client{Transport: transport, Timeout: 60 * time.Second}
+		base = &http.Transport{Proxy: http.ProxyURL(p.proxyURL)}
 		session.Dialer = &websocket.Dialer{Proxy: http.ProxyURL(p.proxyURL)}
 		slog.Info("discord: using proxy", "proxy", p.proxyURL.Host)
 	}
+	session.Client = &http.Client{Transport: &silentTransport{base: base, isSilent: p.isSilentChannel}, Timeout: 60 * time.Second}
 
 	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentMessageContent
 
@@ -771,6 +777,9 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	}
 
 	if m.Author.ID == p.botID {
+		return
+	}
+	if !p.guildAllowed(m.GuildID) {
 		return
 	}
 	// maomao fork: other bots get through only if listed in allow_bots or allow_bots_file,
@@ -1039,6 +1048,9 @@ func (p *Platform) isStopping() bool {
 func (p *Platform) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if !rememberDedupID(&p.seenInteractions, i.ID) {
 		slog.Debug("discord: ignoring duplicate interaction", "interaction_id", i.ID, "type", i.Type)
+		return
+	}
+	if !p.guildAllowed(i.GuildID) {
 		return
 	}
 
@@ -2119,21 +2131,32 @@ func discordDisplayName(m *discordgo.MessageCreate) string {
 	return m.Author.Username
 }
 
-// messageReference only proposes shortening this bot's known agent output.
+// messageReference describes the quoted message (its id lets core find the task it belongs
+// to) and only proposes shortening (Short) this bot's known agent output.
 // Session.renderReference checks the current context again at actual delivery.
 func (p *Platform) messageReference(ref *discordgo.Message) *core.MessageReference {
-	if ref == nil || ref.Author == nil || p.botID == "" || ref.Author.ID != p.botID || !p.turnSent.has(ref.ID) || ref.Timestamp.IsZero() {
+	if ref == nil || ref.ID == "" {
 		return nil
+	}
+	author := ""
+	if ref.Author != nil {
+		author = ref.Author.Username
+	}
+	prefix := "[replying to " + author + ": "
+	out := &core.MessageReference{
+		ID:     ref.ID,
+		Full:   prefix + ref.Content + "]\n",
+		Author: author,
+		Text:   ref.Content,
+		SentAt: ref.Timestamp,
+	}
+	if ref.Author == nil || p.botID == "" || ref.Author.ID != p.botID || !p.turnSent.has(ref.ID) || ref.Timestamp.IsZero() {
+		return out
 	}
 	text := []rune(ref.Content)
 	if len(text) > 80 {
 		text = text[:80]
 	}
-	prefix := "[replying to " + ref.Author.Username + ": "
-	return &core.MessageReference{
-		ID:     ref.ID,
-		Full:   prefix + ref.Content + "]\n",
-		Short:  prefix + string(text) + "（你自己的上一条，已在上文）]\n",
-		SentAt: ref.Timestamp,
-	}
+	out.Short = prefix + string(text) + "（你自己的上一条，已在上文）]\n"
+	return out
 }

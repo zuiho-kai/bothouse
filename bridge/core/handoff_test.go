@@ -40,7 +40,7 @@ func TestFreshOnColdCache(t *testing.T) {
 	if n := e.freshOnColdCache(a, s); n != "" {
 		t.Fatalf("disabled but got %q", n)
 	}
-	e.SetColdCacheFresh(true, time.Hour, 80000)
+	e.SetColdCacheFresh(true, time.Hour, 80000, 300000)
 	for _, id := range []string{"warm", "small", "missing"} {
 		s := &Session{AgentSessionID: id}
 		if n := e.freshOnColdCache(a, s); n != "" || s.GetAgentSessionID() != id {
@@ -55,11 +55,52 @@ func TestFreshOnColdCache(t *testing.T) {
 		t.Fatalf("agent id %q handoff %q", s.GetAgentSessionID(), s.HandoffFrom)
 	}
 	// The first turn of the fresh context carries the handoff, once.
-	if b := e.handoffBlock(s); !strings.Contains(b, "/x/old.jsonl") || !strings.Contains(b, "缓存已过期") {
+	if b := e.handoffBlock(s, ""); !strings.Contains(b, "/x/old.jsonl") || !strings.Contains(b, "缓存已过期") {
 		t.Fatalf("handoff block:\n%s", b)
 	}
-	if b := e.handoffBlock(s); b != "" {
+	if b := e.handoffBlock(s, ""); b != "" {
 		t.Fatalf("handoff sent twice:\n%s", b)
+	}
+}
+
+func TestFreshOnContextSize(t *testing.T) {
+	a := &handoffStubAgent{handoffs: map[string]*SessionHandoff{
+		// replied a minute ago: the cold-cache rule keeps it, the size rule must not
+		"big":   {Path: "/x/big.jsonl", LastActivity: time.Now().Add(-time.Minute), ContextTokens: 312000},
+		"under": {LastActivity: time.Now().Add(-time.Minute), ContextTokens: 299999},
+	}}
+	e := NewEngine("test", a, []Platform{&stubPlatformEngine{n: "x"}}, "", LangEnglish)
+	defer e.Stop()
+
+	s := &Session{AgentSessionID: "big"}
+	if n := e.freshOnContextSize(a, s, ""); n != "" {
+		t.Fatalf("cold_cache_fresh off but got %q", n)
+	}
+	e.SetColdCacheFresh(true, time.Hour, 80000, 300000)
+	if n := e.freshOnColdCache(a, s); n != "" {
+		t.Fatalf("cold cache should keep a warm session, got %q", n)
+	}
+	for _, id := range []string{"under", "missing"} {
+		s := &Session{AgentSessionID: id}
+		if n := e.freshOnContextSize(a, s, ""); n != "" || s.GetAgentSessionID() != id {
+			t.Fatalf("%s: should resume, got %q", id, n)
+		}
+	}
+	n := e.freshOnContextSize(a, s, "")
+	if !strings.Contains(n, "31.2 万") {
+		t.Fatalf("notice = %q", n)
+	}
+	if s.GetAgentSessionID() != "" || s.HandoffFrom != "big" {
+		t.Fatalf("agent id %q handoff %q", s.GetAgentSessionID(), s.HandoffFrom)
+	}
+	if b := e.handoffBlock(s, ""); !strings.Contains(b, "/x/big.jsonl") || !strings.Contains(b, "上下文约") {
+		t.Fatalf("handoff block:\n%s", b)
+	}
+	// A configured threshold replaces the default.
+	e.SetColdCacheFresh(true, time.Hour, 80000, 400000)
+	big := &Session{AgentSessionID: "big"}
+	if n := e.freshOnContextSize(a, big, ""); n != "" || big.GetAgentSessionID() != "big" {
+		t.Fatalf("under max_context_tokens 400000: should resume, got %q", n)
 	}
 }
 
@@ -71,7 +112,7 @@ func TestFreshOnImageBloat(t *testing.T) {
 	}}
 	e := NewEngine("test", a, []Platform{&stubPlatformEngine{n: "x"}}, "", LangEnglish)
 	defer e.Stop()
-	e.SetColdCacheFresh(true, time.Hour, 80000)
+	e.SetColdCacheFresh(true, time.Hour, 80000, 300000)
 
 	s := &Session{AgentSessionID: "heavy"}
 	if n := e.freshOnImageBloat(a, s); n != "" || s.GetAgentSessionID() != "heavy" {
@@ -89,7 +130,7 @@ func TestFreshOnImageBloat(t *testing.T) {
 	if s.GetAgentSessionID() != "" || s.HandoffFrom != "heavy" {
 		t.Fatalf("agent id %q handoff %q", s.GetAgentSessionID(), s.HandoffFrom)
 	}
-	if b := e.handoffBlock(s); !strings.Contains(b, "/x/heavy.jsonl") || !strings.Contains(b, "图片") {
+	if b := e.handoffBlock(s, ""); !strings.Contains(b, "/x/heavy.jsonl") || !strings.Contains(b, "图片") {
 		t.Fatalf("handoff block:\n%s", b)
 	}
 }
@@ -100,7 +141,7 @@ func TestFormatHandoffKeepsNewestWithinBudget(t *testing.T) {
 		h.Tail = append(h.Tail, HistoryEntry{Role: "user", Content: strings.Repeat("前", 2000) + "问" + string(rune('A'+i))})
 		h.Tail = append(h.Tail, HistoryEntry{Role: "assistant", Content: "答" + string(rune('A'+i)) + strings.Repeat("后", 2000)})
 	}
-	b := formatHandoff("old", "用户发了 /new", h)
+	b := formatHandoff("old", "用户发了 /new", h, "")
 	if !strings.Contains(b, "压缩摘要") || !strings.Contains(b, "问T") || !strings.Contains(b, "答T") {
 		t.Fatalf("newest turn or summary missing")
 	}
@@ -203,14 +244,14 @@ func TestHandoffFromSurvivesSave(t *testing.T) {
 }
 
 func TestFormatHandoffDropsStaleBlocks(t *testing.T) {
-	h := &SessionHandoff{Tail: []HistoryEntry{{Role: "user", Content: "（队友状态，系统自动附上，不用回应）\n龙娘：忙\n\n（可能相关的 wiki 页，需要时去读）\n- a.md\n\n（频道里你上次看到之后的消息，按时间顺序）\n[10:00] 龙娘: 做完了\n\n你看看"}}}
-	b := formatHandoff("old", "x", h)
+	h := &SessionHandoff{Tail: []HistoryEntry{{Role: "user", Content: "（队友状态，系统自动附上，不用回应）\n龙娘：忙\n\n（可能相关的 wiki 页，需要时去读）\n- a.md\n\n（频道里你上次看到之后的消息，按时间顺序）\n[10:00] 龙娘: 做完了\n\n（最新，回这条）\n你看看"}}}
+	b := formatHandoff("old", "x", h, "")
 	if strings.Contains(b, "队友状态") || strings.Contains(b, "a.md") || !strings.Contains(b, "龙娘: 做完了") || !strings.Contains(b, "你看看") {
 		t.Fatalf("handoff:\n%s", b)
 	}
 	// The removed progress summary and an earlier handoff, both multi-paragraph.
 	old := "（本频道进展总结已大改，以这一版为准）\n## 正在做\n- 修 gate\n\n## 已完成\n- x\n\n已移除：\n- y\n\n" +
-		formatHandoff("older", "x", &SessionHandoff{Tail: []HistoryEntry{{Role: "user", Content: "很旧的话"}}}) + "\n\n真正的问题"
+		formatHandoff("older", "x", &SessionHandoff{Tail: []HistoryEntry{{Role: "user", Content: "很旧的话"}}}, "") + "\n\n真正的问题"
 	if got := strings.TrimSpace(stripStaleBlocks(old)); got != "真正的问题" {
 		t.Fatalf("stripped = %q", got)
 	}
@@ -262,7 +303,7 @@ func TestImageBloatMidTurnInterrupts(t *testing.T) {
 		if strings.Contains(strings.Join(sent, "\n"), "看完了") || len(e.interactiveStates) != 0 {
 			t.Fatalf("turn continued or re-ran: sent %#v states %d", sent, len(e.interactiveStates))
 		}
-		if b := e.handoffBlock(s); !strings.Contains(b, "/x/s1.jsonl") || !strings.Contains(b, "已打断") {
+		if b := e.handoffBlock(s, ""); !strings.Contains(b, "/x/s1.jsonl") || !strings.Contains(b, "已打断") {
 			t.Fatalf("handoff block:\n%s", b)
 		}
 	})
@@ -340,7 +381,7 @@ func TestStripStaleBlocks_ModelSwitchAndTaskLifecycle(t *testing.T) {
 	if got := strings.TrimSpace(stripStaleBlocks(old)); got != "真正的问题" {
 		t.Fatalf("stripped = %q", got)
 	}
-	b := formatHandoff("old", "x", &SessionHandoff{Tail: []HistoryEntry{{Role: "user", Content: old}}})
+	b := formatHandoff("old", "x", &SessionHandoff{Tail: []HistoryEntry{{Role: "user", Content: old}}}, "")
 	if strings.Contains(b, "model-control") || strings.Contains(b, "Task lifecycle") || !strings.Contains(b, "真正的问题") {
 		t.Fatalf("handoff:\n%s", b)
 	}

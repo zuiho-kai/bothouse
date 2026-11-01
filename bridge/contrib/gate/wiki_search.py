@@ -5,12 +5,42 @@
 
     python3 wiki_search.py <wiki 目录> <查询>
 """
-import collections, math, re, sys
+import collections, datetime, math, re, sys
 from pathlib import Path
 
 TOP = 10  # 来源：原 search.py，作者回放评测测的是「前 10 行含目标页」
 MIN_LINE = 6  # 来源：原 search.py，短于 6 字的行（空行、标题碎片）不进索引
 K1, B = 1.2, 0.75  # 来源：原 search.py（BM25 常用默认值）
+# 旧行降分：行里写的日期越旧分越低（用户 2026-10-28 定「给记忆推送按日期和重要度降权」；推送前 10 行 22% 早于 7 天）
+GRACE, HALF, FLOOR = 7, 14, 0.3  # 7 天内不降；之后每 14 天减半；最低留 3 成，旧事实仍搜得到
+_DATE = re.compile(r"(?<![\d-])(?:(20\d\d)-)?(1[0-2]|0?[1-9])-([0-2]?\d|3[01])(?![\d-])")
+_PIN = re.compile(r"用户[^。\n]{0,12}(?:定|原话)|定案|常驻")  # 用户定的、定案：不降（相当于置顶）
+
+
+def age_days(line, today=None):
+    """行里最新日期离今天几天；没日期返回 None。只写月-日的，按今年算，晚于今天就算去年。"""
+    today = today or datetime.date.today()
+    best = None
+    for y, m, d in _DATE.findall(line):
+        try:
+            t = datetime.date(int(y) if y else today.year, int(m), int(d))
+        except ValueError:
+            continue
+        if not y and t > today:
+            t = t.replace(year=t.year - 1)
+        a = (today - t).days
+        if a >= 0 and (best is None or a < best):
+            best = a
+    return best
+
+
+def decay(line, today=None):
+    if _PIN.search(line):
+        return 1.0
+    a = age_days(line, today)
+    if a is None or a <= GRACE:
+        return 1.0
+    return max(FLOOR, 0.5 ** ((a - GRACE) / HALF))
 
 
 def toks(text):
@@ -31,7 +61,7 @@ def _pages(root):
             continue
         # 每一级目录都要有 README.md：没有的是脚本写的数据目录，不是子域
         if all((root.joinpath(*rel.parts[:i]) / "README.md").exists() for i in range(1, len(rel.parts))):
-            yield rel.as_posix(), p.read_text(encoding="utf-8", errors="ignore").split("\n")
+            yield rel.as_posix(), p.read_text(encoding="utf-8-sig", errors="ignore").split("\n")
 
 
 class Index:
@@ -49,6 +79,8 @@ class Index:
             for k in range(start, len(txt)):
                 if len(txt[k].strip()) >= MIN_LINE:
                     self.lines.append((rel, k + 1, txt[k], toks(txt[k])))
+        today = datetime.date.today()
+        self.decay = [decay(l[2], today) for l in self.lines]
         n = max(len(self.lines), 1)
         self.avg = sum(len(l[3]) for l in self.lines) / n or 1
         df = collections.Counter(t for l in self.lines for t in set(l[3]))
@@ -65,6 +97,8 @@ class Index:
             for i, c in self.inv.get(t, ()):
                 dl = len(self.lines[i][3])
                 sc[i] += self.idf[t] * c * (K1 + 1) / (c + K1 * (1 - B + B * dl / self.avg))
+        for i in sc:
+            sc[i] *= self.decay[i]
         top = sorted(sc.items(), key=lambda x: -x[1])[:k]
         return [self.lines[i][:3] for i, _ in top]
 

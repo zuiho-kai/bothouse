@@ -7,7 +7,8 @@
 // one that was consumed is settled from the Session log. Nothing is re-sent,
 // so a prompt is executed at most once.
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { basename, isAbsolute, relative, sep } from 'node:path';
 import { exitTarget } from './team-exit.mjs';
 import { DEFAULT_DISPATCH_MODE, MAX_TEXT } from './store.mjs';
 import { ChannelApprovals, DEFAULT_ACTIONS } from './approvals.mjs';
@@ -34,7 +35,7 @@ export function workspaceHint(hub, later, memberId, roomId) {
  * of the shared file fails tests instead of silently dropping the swap.
  */
 const WORKSPACE_LINE = /^- .*\/collab\/api\/rooms\/\{聊天频道 id\}\/workspaces.*$/m;
-export const DSH_WORKSPACE_RULE = '- 大活（读长文、改代码、等命令）交给工作区：主角色用提示末尾【开工作区】给的本机命令或 curl：POST /collab/api/rooms/{聊天频道 id}/workspaces（头 X-Later-Ticket 带你的票据，只对你和本频道有效）。建工作区=这一条，任务和十分钟看门会自动开；不要调 /tasks（它不认票据）。一次带上标题、接活人（不写就是你自己）和交接正文（用户原话、要做什么、验收标准）；系统建好工作区、开任务、挂十分钟看门并叫醒接活人，交过去的活不再在频道里 @ 另派。DSH 上不用 `bothouse workspace new`。何时交活、交给哪个、要不要新建，由主角色或正在干活的角色决定；一个工作区进行中的活默认达到 3 件就算忙，有把握可往上加。';
+export const DSH_WORKSPACE_RULE = '- 大活（读长文、改代码、等命令）交给工作区：主角色用提示末尾【开工作区】给的本机命令或 curl：POST /collab/api/rooms/{聊天频道 id}/workspaces（头 X-Later-Ticket 带你的票据，只对你和本频道有效）。建工作区=这一条，任务和十分钟看门会自动开；不要调 /tasks（它不认票据）。一次带上标题、接活人（不写就是你自己）和交接正文（用户原话、要做什么、验收标准）；系统建好工作区、开任务、挂十分钟看门并叫醒接活人，交过去的活不再在频道里 @ 另派。DSH 上不用 `bothouse workspace new`。何时交活、交给哪个、要不要新建，由主角色或正在干活的角色决定；一个工作区同一时间只做一件活，满 4 个就排队。';
 export function dshTeamModeRules(mode) {
   const rules = teamModeRules(mode);
   if (!WORKSPACE_LINE.test(rules)) throw new Error('team-mode-rules.md: the workspace line moved; update WORKSPACE_LINE');
@@ -62,6 +63,54 @@ import { attachmentBlocks, namedAttachmentBlocks, nativeAttachmentBlocks, undeli
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
+const MAX_LOCAL_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_LOCAL_IMAGES = 10;
+const IMAGE_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+// Markdown targets may contain spaces; bare paths end at whitespace or punctuation.
+const LOCAL_IMAGE = /!\[([^\]\n]*)\]\((\/[^)\n]+?\.(?:png|jpe?g|gif|webp))\)|(?<![\w/])\/[^\s<>"'`()[\]{}，。；,;]+?\.(?:png|jpe?g|gif|webp)(?![\w/])/gi;
+
+/** Only files physically inside this room's working directory may leave the machine. */
+export function localImageReply(text, workspacePath, files, logger) {
+  if (!files || !workspacePath || !LOCAL_IMAGE.test(text)) return { text, attachments: [] };
+  LOCAL_IMAGE.lastIndex = 0;
+  let root;
+  try { root = realpathSync(workspacePath); } catch { return { text, attachments: [] }; }
+  const attachments = [];
+  const result = text.replace(LOCAL_IMAGE, (match, alt, markdownPath) => {
+    const path = markdownPath ?? match;
+    if (!isAbsolute(path)) return match;
+    let target;
+    try { target = realpathSync(path); } catch (error) {
+      logger?.warn('collab: local image skipped (%s): %s', path, error.message);
+      return match;
+    }
+    const within = relative(root, target);
+    if (within === '..' || within.startsWith(`..${sep}`) || isAbsolute(within)) return match;
+    if (attachments.length >= MAX_LOCAL_IMAGES) {
+      logger?.warn('collab: local image skipped (%s): attachment limit %d', path, MAX_LOCAL_IMAGES);
+      return match;
+    }
+    try {
+      const size = statSync(target).size;
+      if (size > MAX_LOCAL_IMAGE_BYTES) {
+        logger?.warn('collab: local image skipped (%s): exceeds %d bytes', path, MAX_LOCAL_IMAGE_BYTES);
+        return match;
+      }
+      const data = readFileSync(target);
+      if (data.length > MAX_LOCAL_IMAGE_BYTES) {
+        logger?.warn('collab: local image skipped (%s): exceeds %d bytes', path, MAX_LOCAL_IMAGE_BYTES);
+        return match;
+      }
+      const mime = IMAGE_MIME[path.slice(path.lastIndexOf('.') + 1).toLowerCase()];
+      attachments.push(...files.save([{ name: basename(path), mime, data: data.toString('base64') }]));
+      return alt ?? '';
+    } catch (error) {
+      logger?.warn('collab: local image skipped (%s): %s', path, error.message);
+      return match;
+    }
+  });
+  return { text: result, attachments };
+}
 // Agent-to-agent relay cap: after this many agent messages in a row without a
 // human message, agent mentions stop starting DSH turns (prevents loops with bots).
 export const DEFAULT_MAX_RELAY = 6;
@@ -659,8 +708,9 @@ export class DshMembers {
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
       latest = '';
       const reply = this.returnToLead(job, member, text);
-      const committed = draft === undefined ? undefined : this.hub.commit(draft.id, 'role', member.id, reply);
-      const message = committed ?? this.hub.post(job.room_id, { authorKind: 'role', author: member.id, name: member.name, clientKey, text: reply }).message;
+      const converted = localImageReply(reply, cwd, this.rt.files, this.rt.logger);
+      const committed = draft === undefined ? undefined : this.hub.commit(draft.id, 'role', member.id, converted.text, undefined, converted.attachments);
+      const message = committed ?? this.hub.post(job.room_id, { authorKind: 'role', author: member.id, name: member.name, clientKey, text: converted.text, attachments: converted.attachments }).message;
       done = true;
       this.store.finishJob(job.id, 'done', message.id);
     } catch (error) {
@@ -745,9 +795,12 @@ export class DshMembers {
     }
     const kind = reason?.kind;
     const complete = kind === undefined || kind === 'completed' || kind === 'max-tokens';
+    const reply = this.returnToLead(job, member, complete ? text : `${text}\n\n（这一轮没有正常结束：${describeReason(reason)}）`);
+    const cwd = this.store.workspacePath(job.room_id, this.rt.workspacePath);
+    const converted = localImageReply(reply, cwd, this.rt.files, this.rt.logger);
     const { message } = this.hub.post(job.room_id, {
       authorKind: 'role', author: member.id, name: member.name, clientKey: `dsh-job-${job.id}`,
-      text: this.returnToLead(job, member, complete ? text : `${text}\n\n（这一轮没有正常结束：${describeReason(reason)}）`),
+      text: converted.text, attachments: converted.attachments,
     });
     this.store.finishJob(job.id, 'done', message.id);
     return complete;

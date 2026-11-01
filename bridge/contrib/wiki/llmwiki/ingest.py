@@ -40,6 +40,12 @@ WIKI = Path(os.environ.get("WIKI_DIR", HOME_WIKI))  # WIKI_DIR: another wiki (a 
 REPO = WIKI  # the wiki everyone uses; during run() WIKI points at WORK instead
 WORK = REPO / ".ingest-work"  # git worktree where model passes edit; only accepted commits reach REPO
 os.environ.setdefault("WIKI_BIN", str(Path(__file__).resolve().parent))  # a sub wiki's bin/ shims exec this tool
+# A machine with no git identity (a container, a fresh server) cannot commit or cherry-pick a pass ("Please tell me who
+# you are"): every pass ends NOT DELIVERED. Use a fixed one then, like setup_wiki.py's first commit.
+if not subprocess.run(["git", "config", "user.email"], cwd=WIKI if WIKI.exists() else None, capture_output=True, text=True).stdout.strip():
+    for k, v in (("GIT_AUTHOR_NAME", "wiki-ingest"), ("GIT_AUTHOR_EMAIL", "wiki-ingest@localhost"),
+                 ("GIT_COMMITTER_NAME", "wiki-ingest"), ("GIT_COMMITTER_EMAIL", "wiki-ingest@localhost")):
+        os.environ.setdefault(k, v)
 
 # One tool for every wiki (user 2026-10-20 「让他们和你一样的待遇，不要区分」): 橘's ~/wiki runs with the defaults
 # below; a teammate's wiki (contrib/wiki/setup_wiki.py) carries a config.json next to MEMORY.md that says whose it is.
@@ -180,7 +186,8 @@ DREAM_NOTIFY = os.environ.get("WIKI_DREAM_NOTIFY", CFG["dream_notify"])
 SPLIT_ENGINE = os.environ.get("WIKI_SPLIT_ENGINE", CFG["split_engine"])  # Haiku won't split; luna/sol does it before Haiku writes
 SPLIT_AT = 0.9  # a page this full (lines or chars) is split before the next ingest
 NIGHT_BUDGET = int(os.environ.get("WIKI_NIGHT_BUDGET", 5 * 3600))  # seconds; the rest waits for the next night
-QUOTA_TEXT = ("hit your session limit", "usage limit", "rate limit")
+QUOTA_TEXT = ("usage limit", "rate limit")
+QUOTA_RE = re.compile(r"hit your [\w\- ]{1,30}?\s*limit\b")  # session / weekly / 5-hour / later windows
 quota_hit = False  # set by claude() when the subscription refuses the call
 LAST_ENGINE = ""  # engine/model that produced the accepted result of the last model_pass
 LAST_REJECTED = False  # last model_pass: the model finished but its result failed acceptance (vs. a call failure)
@@ -195,7 +202,10 @@ EFFORT = os.environ.get("WIKI_INGEST_EFFORT", "max")  # codex only
 TIER = os.environ.get("WIKI_CODEX_TIER", "")  # codex only: "fast" = Fast mode (service_tier)
 # Other machines (Linux, e.g. the N150) only run the day Haiku pass. After each run they mirror their
 # transcripts, state db and log to the Mac (ssh alias `mac`), whose nightly review then checks their writes too.
-MIRROR_TO = os.environ.get("WIKI_MIRROR_TO", "mac" if sys.platform.startswith("linux") else "")
+# The author's Linux machines mirror to the Mac by default; a wiki the wizard made (.bothouse-main / .bothouse-role) has no
+# "mac" host to send to, so it mirrors only when WIKI_MIRROR_TO names one.
+WIZARD_MADE = (WIKI / ".bothouse-main").exists() or (WIKI / ".bothouse-role").exists()
+MIRROR_TO = os.environ.get("WIKI_MIRROR_TO", "mac" if sys.platform.startswith("linux") and not WIZARD_MADE else "")
 HOSTS = Path(os.path.expanduser(CFG["hosts"] or "/nonexistent-wiki-hosts"))  # on the Mac: <hostname>/{projects/,ingest.sqlite,ingest.log}
 MIRRORED = WIKI / ".mirror.json"  # on the mirroring machine: {transcript path: size already sent}
 SOP_ENGINES = set(os.environ.get("WIKI_SOP_ENGINES", "codex,agy,gemini,claude,haiku,sonnet,opus,dsh").split(","))
@@ -1234,13 +1244,14 @@ def claude(instruction, stdin="", label="?", context=None, model=None):
     claude.ai connectors out, which otherwise make every prefix unique. Keep --tools identical across passes."""
     # autoMemoryDirectory points at this wiki: the memory dir is writable without permission, so with the
     # global ~/wiki setting a trial on a clone would edit the real wiki.
-    # Full tools like luna: Bash runs auto-approved inside Claude Code's sandbox, which (like codex
-    # workspace-write) confines writes to the wiki directory.
+    # Full tools like luna, nothing asked: bypassPermissions, so Bash runs on a machine whose
+    # ~/.claude/settings.json allows nothing (a fresh install, a container) — acceptEdits made -p deny every Bash
+    # call and a pass looped on lint until the timeout. Where Claude Code's sandbox runs, Bash stays inside it.
     settings = {"autoMemoryDirectory": str(WIKI),
                 "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False}}
     cmd = ["claude", "-p", instruction, "--model", model or MODELS["claude"], "--no-session-persistence", "--strict-mcp-config",
            "--settings", json.dumps(settings), "--tools", "Read,Edit,Write,Glob,Grep,Bash",
-           "--permission-mode", "acceptEdits", "--output-format", "json"]
+           "--permission-mode", "bypassPermissions", "--output-format", "json"]
     with tempfile.NamedTemporaryFile("w", suffix=".md", prefix="wiki-ctx-") as f:  # outside WIKI: not committed
         if context:
             f.write(CONTEXT.format(text=context))
@@ -1254,7 +1265,7 @@ def claude(instruction, stdin="", label="?", context=None, model=None):
         log(f"{label} tokens: {record_usage(label, res)}")
     except ValueError:
         out, cost = (r.stdout or r.stderr)[-500:], 0
-    if r.returncode and any(q in out.lower() for q in QUOTA_TEXT):
+    if r.returncode and (QUOTA_RE.search(out.lower()) or any(q in out.lower() for q in QUOTA_TEXT)):
         global quota_hit
         quota_hit = True
     return r.returncode == 0, out.strip(), cost
@@ -1465,7 +1476,10 @@ def remote(*args):
 
 def pull():
     """Several machines ingest into the same repo: rebase onto origin before a pass and before pushing.
-    A conflict is aborted and left for the next run (log.md appends merge via .gitattributes merge=union)."""
+    A conflict is aborted and left for the next run (log.md appends merge via .gitattributes merge=union).
+    A wiki whose branch tracks no remote (one the wizard made) has nothing to sync: skipped, not logged as a failure."""
+    if subprocess.run(["git", "rev-parse", "--abbrev-ref", "@{u}"], cwd=REPO, capture_output=True).returncode:
+        return True
     if not remote("pull", "-q", "--rebase", "--autostash"):
         git("rebase", "--abort", cwd=REPO)
         return False

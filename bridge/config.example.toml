@@ -774,7 +774,7 @@ name = "my-backend"
 # show_quota_status = false        # Without a measured quota, show nothing instead of "unavailable / no data / querying / failed" (default: true)
 #                                   # 查不到额度时不显示「暂不可查询/暂无数据/查询中/查询失败」，什么都不显示（默认 true 显示）
 # inject_agent_identity = false   # default true; false when the persona file already states identity.
-# inject_subagent_policy = false   # Stop prefixing each turn with the bridge delegation policy (default: true = prefix)
+# inject_subagent_policy = true    # Prefix each turn with the bridge delegation policy (subagents only on explicit human consent; default: false = off)
 #                                   # 不再在每轮请求前加「子 agent 委派策略」（默认 true 加）
 # disabled_commands = ["restart", "upgrade", "cron"]  # Disable specific commands for this project
 #                                                     # 禁用该项目的指定命令
@@ -851,6 +851,8 @@ name = "my-backend"
 # idle_mins = 60                 # Minutes since the last reply (default 60); keep >= agent_session_idle_timeout_mins
 #                                # 距上次回复的分钟数（默认 60）；不要小于 agent_session_idle_timeout_mins
 # min_tokens = 80000             # Context size worth leaving (default 80000) / 上下文达到多少才换新会话（默认 80000）
+# max_context_tokens = 300000    # Start fresh at this context size even when not idle (default 300000)
+#                                # 上下文达到多少时不看空闲、下一条直接开新会话（默认 300000）
 
 # Heartbeat — periodic awareness check / 心跳 — 周期性巡检
 # The agent wakes up at a fixed interval to check the environment.
@@ -1363,6 +1365,9 @@ app_secret = "your-feishu-app-secret"
 # token = "your-discord-bot-token"
 # allow_from = "*"  # Allowed Discord user IDs / 允许的 Discord 用户 ID
 # guild_id = ""     # Optional: set for instant slash command registration (per-guild)
+# allow_guilds = "" # Optional: comma-separated server IDs this instance serves; others are ignored.
+#                   # Add "dm" to also answer DMs. Lets one bot token run per-server in several projects or machines.
+#                   # 只服务列出的服务器（逗号分隔），其余服务器的消息和命令一律不收；加 "dm" 才回私聊。
 #                   # 可选：设置后 slash 命令秒级生效（仅该服务器）
 # group_reply_all = false  # If true, respond to ALL guild messages without @mention / 设为 true 群聊无需 @ 也响应
 # group_reply_all_guilds = ""  # Comma-separated guild IDs where group_reply_all is active (overrides group_reply_all)

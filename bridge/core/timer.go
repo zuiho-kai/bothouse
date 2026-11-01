@@ -28,17 +28,24 @@ type TimerJob struct {
 	Mute        bool      `json:"mute,omitempty"`   // suppress ALL messages (start + result)
 	// InjectIfBusy: when the target session is mid-turn, write the prompt into that turn
 	// instead of queuing a new one after it. Falls back to queuing when injection fails.
-	InjectIfBusy bool      `json:"inject_if_busy,omitempty"`
+	InjectIfBusy bool `json:"inject_if_busy,omitempty"`
 	// Handoff: the job wakes a workspace for a handed-over task (ws-handoff). Its turn is
 	// work, not a routine timer, so it runs as user "handoff" and gets the automatic card.
-	Handoff      bool      `json:"handoff,omitempty"`
-	SessionMode  string    `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run
-	Mode         string    `json:"mode,omitempty"`         // permission mode override; "" = use project default
-	TimeoutMins  *int      `json:"timeout_mins,omitempty"` // nil = default 30m; 0 = no limit; >0 = minutes
-	CreatedAt    time.Time `json:"created_at"`
-	Fired        bool      `json:"fired"`
-	FiredAt      time.Time `json:"fired_at,omitempty"`
-	LastError    string    `json:"last_error,omitempty"`
+	Handoff bool `json:"handoff,omitempty"`
+	// WaitUserQuiet: a wake that is not the user (workspace handback, dispatch receipt) waits
+	// until the user has stopped talking in the session (holdForUser).
+	WaitUserQuiet bool      `json:"wait_user_quiet,omitempty"`
+	SessionMode   string    `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run
+	Mode          string    `json:"mode,omitempty"`         // permission mode override; "" = use project default
+	TimeoutMins   *int      `json:"timeout_mins,omitempty"` // nil = default 30m; 0 = no limit; >0 = minutes
+	CreatedAt     time.Time `json:"created_at"`
+	Fired         bool      `json:"fired"`
+	FiredAt       time.Time `json:"fired_at,omitempty"`
+	LastError     string    `json:"last_error,omitempty"`
+
+	// ReplyBoard: the task-board item a lead's turn on a workspace handback reports on; the
+	// turn's posts are recorded under it (reply_task.go).
+	ReplyBoard int `json:"reply_board,omitempty"`
 
 	// resume: set (in memory only) when the job delivers a #624 K4 turn resume.
 	resume *turnResumeDelivery
@@ -434,6 +441,10 @@ func (ts *TimerScheduler) executeJob(jobID string) {
 			ts.scheduleAt(job, wait)
 			return
 		}
+	}
+
+	if ts.holdForUser(engine, job) {
+		return
 	}
 
 	slog.Info("timer: executing job", "id", jobID, "project", job.Project, "prompt", truncateStr(job.Prompt, 60))

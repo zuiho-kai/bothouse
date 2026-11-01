@@ -150,7 +150,7 @@ func TestApplyWizardGateStatus(t *testing.T) {
 			discordReq("900", WizardRole{Token: t1}, WizardRole{Token: t2}))
 	}
 	res := run()
-	if !res.OK || res.GateRunning == nil || *res.GateRunning || !strings.Contains(res.GateHint, "主 bot「Juzi」统一回话") || res.GateStatus == GateStatusOff {
+	if !res.OK || res.GateRunning == nil || *res.GateRunning || !strings.Contains(res.GateHint, "主 bot「Juzi」也只听不回") || res.GateStatus == GateStatusOff {
 		t.Fatalf("no gate: ok=%v running=%v hint=%q", res.OK, res.GateRunning, res.GateHint)
 	}
 	if w := findWarning(res, "gate_not_running"); w != nil {

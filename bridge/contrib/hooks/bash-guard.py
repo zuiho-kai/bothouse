@@ -12,11 +12,15 @@
    提示走 PreToolUse 的 additionalContext，命令照常执行。
 6. 前台干等：gh run watch、gh … --watch、前台 sleep ≥60 秒、until/while … sleep … done 轮询循环（等完成通知，
    不要占着前台；超过 5 分钟缓存全部重写）。run_in_background=true 的不拦，单个 sleep <60 秒不拦。
+   perl/python 里的 while … sleep 循环同样拦。
    DSH：载荷带 dsh_busy（本会话还有子 agent/后台任务在跑）时 job_output wait=true 也拦；DSH 的前台 sleep 一律拦。
 8. 仅 DSH 提速（本轮的工具调用来自 dsh-cc-compat.py 加的 dsh_turn）：同一轮第二次轮询同一对象拦；
    一串只读查询里第 4 个「一步只跑一条只读查询」的步拦（合并过的步放行），本轮重复的只读命令拦；
-   前台联网长命令（git clone/fetch/pull、npm/pip/brew install）拦，改后台。子 agent 会话和外出轮豁免。"""
-import json, os, re, shlex, sys
+   前台联网长命令（git clone/fetch/pull、npm/pip/brew install）拦，改后台。子 agent 会话和外出轮豁免。
+10. 不拦只改：Claude Code 子 agent（非 long-task）前台 Bash 的 timeout 超过 290 秒时压到 290 秒，跑不完自动转后台。"""
+import ast, json, os, re, shlex, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import plan_gate  # noqa: E402  要方案未批时拦开做（用户 2026-10-28）
 
 PROXY_URL = os.environ.get("HOOK_PROXY", "").strip()  # 例：http://127.0.0.1:7890；空 = 不查下载
 _wiki = os.environ.get("GATE_WIKI", "~/wiki").strip()  # 同 bridge/contrib/gate/ctxsvc.py
@@ -24,6 +28,11 @@ WIKI = None if _wiki.lower() in ("", "off") else os.path.realpath(os.path.expand
 
 PROXY = re.compile(r"(^|\s)(-x|--proxy|--socks5\S*)(\s|=)|\b(https?|all)_proxy=|\b(HTTPS?|ALL)_PROXY=|\bproxy_on\b")
 LOCAL = re.compile(r"^(https?://)?(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|[^/]*\.local\b|[^/]*\.ts\.net\b|\[?::1)")
+
+# 直接停/杀桥（launchd 服务 com.bothouse.* 或 bothouse / cc-connect 进程）：只拦改状态的动词，list/print 放行
+RESTART = re.compile(r"\blaunchctl\s+(?:kickstart|stop|bootout|unload|kill|remove)\b[^\n;|&]*(?:com\.bothouse|cc-connect)"
+                     r"|\b(?:kill|pkill|killall)\b[^\n;|&]*\b(?:bothouse|cc-connect)\b")
+
 
 def segments(cmd):
     return [s for s in re.split(r"\|\||&&|[;\n|]", cmd) if s.strip()]
@@ -70,6 +79,9 @@ def deny(reason):
 
 TIMEOUT = re.compile(r"(^|[\s;&|(])(g?timeout\s|perl\s+-e\s+['\"]alarm)")
 TAILPIPE = re.compile(r"\|\s*(tail|head)\b")
+
+# ws-forward 里表示「改方向」的说法：纠正、叫停、改做法、用户嫌不对
+FWD_CHANGE = re.compile(r"纠正|改方向|方向不符|不符合|跑偏|跑完(就|再)|停掉|停下|叫停|别再|不再|改法|改成|改用|换成|一坨屎")
 
 def check_background(cmd):
     if "# long-running-ok" in cmd:
@@ -119,6 +131,52 @@ WAIT_MSG = ("别前台干等：把命令放后台/推完就交付，附 run id �
             "（用户 2026-10-22「超过5分钟就是0缓存重写了」）。")
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$", re.S | re.M)
 POLL_LOOP = re.compile(r"\b(until|while)\b.*?\bdo\b.*?\bsleep\b.*?\bdone\b", re.S)
+def interpreter_poll(program, source):
+    """Inspect executable inline code, never shell-quoted data or string constants."""
+    if re.fullmatch(r"python[\d.]*", program):
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return False
+        for loop in ast.walk(tree):
+            if not isinstance(loop, (ast.While, ast.For, ast.AsyncFor, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                continue
+            if any(isinstance(n, ast.Call) and
+                   ((isinstance(n.func, ast.Attribute) and n.func.attr == "sleep") or
+                    (isinstance(n.func, ast.Name) and n.func.id == "sleep")) for n in ast.walk(loop)):
+                return True
+        return False
+    # Preserve executable shell sleep passed to Node's execSync, then mask
+    # ordinary strings/comments before looking for Ruby/Perl/JS loop syntax.
+    source = re.sub(r"\bexecSync\(\s*(['\"])sleep\s+\d+\1\s*\)", "sleep()", source)
+    source = re.sub(r"(['\"`])(?:\\.|(?!\1).)*?\1|/\*.*?\*/|//[^\n]*|\#[^\n]*", " ", source, flags=re.S)
+    if program in ("node", "nodejs") and re.search(r"\bsetInterval\s*\(", source):
+        return True
+    return bool(re.search(r"\bsleep\b", source) and
+                re.search(r"\b(?:while|until|for|loop)\b", source))
+
+
+# 规则 10：子 agent 的提示缓存只有 5 分钟，前台等更久整段上下文要重写。前台 Bash 的 timeout 超过 SUB_CAP_MS 时
+# 不拦，压到 SUB_CAP_MS（updatedInput）：跑不完 Claude Code 自动转后台，子 agent 立刻拿回控制权。
+# 回放（作者机器 2127 条子 agent 前台命令）：约百条设了 >5 分钟 timeout，多数几秒就完，硬拦每条多一步，所以只压不拦。
+# 主会话、long-task 子 agent（1 小时缓存，见 agents/long-task.*.md）、DSH、后台命令不管。
+SUB_CAP_MS = 290000  # 5 分钟缓存留 10 秒给模型开口
+SUB_CAP_AGENT = "long-task"
+SUB_CAP_MSG = ("这条命令的 timeout 被压到 290 秒（子 agent 提示缓存只有 5 分钟，前台等更久整段上下文要重写）。"
+               "跑不完会自动转后台：转后台后别 sleep/轮询等它，交付收工，交付里写输出文件路径和下一步，"
+               "结果出来再由派活方接手；预计要等 5–60 分钟的活应派 long-task 子 agent。")
+
+
+def sub_cap(inp, d):
+    """子 agent（非 long-task）的前台 Bash timeout 超过 SUB_CAP_MS 时，返回压过的新 tool_input；否则 None。"""
+    if not d.get("agent_id") or d.get("agent_type") == SUB_CAP_AGENT or inp.get("run_in_background"):
+        return None
+    try:
+        if float(inp.get("timeout") or 0) <= SUB_CAP_MS:
+            return None
+    except (TypeError, ValueError):
+        return None
+    return dict(inp, timeout=SUB_CAP_MS)
 
 
 def sleep_secs(arg):
@@ -139,12 +197,39 @@ def check_wait(cmd, busy=None, dsh=False):
     """前台干等：gh run watch / gh … --watch / sleep ≥60 / until|while … sleep … done。
     DSH（dsh=True）任何前台 sleep 都拦；busy（本会话在跑的子 agent/后台任务）非空时提示里列出在跑的东西。"""
     cmd = HEREDOC.sub("", cmd)  # heredoc 正文是写进文件的内容，不是要执行的命令
-    if POLL_LOOP.search(cmd):
+    # shlex keeps the interpreter's quoted source in a single argument.
+    try:
+        lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";&|()\n")
+        lexer.whitespace = " \t\r"
+        lexer.whitespace_split = True
+        words = list(lexer)
+    except ValueError:
+        words = []
+    commands = [[]]
+    for word in words:
+        if word in (";", "&&", "||", "|", "\n"):
+            commands.append([])
+        else:
+            commands[-1].append(word)
+    for args in commands:
+        while args and (re.match(r"^\w+=", args[0]) or args[0] in ("sudo", "env", "time", "command", "exec", "do", "then")):
+            args.pop(0)
+        if not args:
+            continue
+        program = args[0].rsplit("/", 1)[-1]
+        if not re.fullmatch(r"python[\d.]*|perl|ruby|node|nodejs", program):
+            continue
+        for j in range(1, len(args) - 1):
+            if args[j] in ("-c", "-e", "--eval"):
+                if interpreter_poll(program, args[j + 1]):
+                    deny(WAIT_MSG + "\n被拦：解释器中的轮询等待循环。")
+                break
+    # Shell loops cannot be inferred from text quoted as an argument.
+    shell = re.sub(r"(['\"])(?:\\.|(?!\1).)*?\1", " ", cmd, flags=re.S)
+    if POLL_LOOP.search(shell):
         deny(WAIT_MSG + "\n被拦：until/while … sleep … done 轮询循环。")
-    for seg in segments(cmd):
-        t = toks(seg)
-        while t and (re.match(r"^\w+=", t[0]) or t[0] in ("sudo", "env", "time", "command", "exec", "do", "then")):
-            t = t[1:]
+    for t in commands:
+        seg = shlex.join(t)
         if not t:
             continue
         prog = t[0].rsplit("/", 1)[-1]
@@ -445,6 +530,10 @@ def main():
             check_job_poll(str(inp.get("job_id") or ""), turn, d.get("tool_use_id"))
         return
     cmd = inp.get("command", "")
+    if not d.get("agent_id") and plan_gate.bash_blocked(cmd):
+        asked = plan_gate.pending(d.get("transcript_path"))
+        if asked:
+            deny(plan_gate.message(asked))
     if (d.get("tool_input") or {}).get("run_in_background"):
         check_background(cmd)
     else:
@@ -458,9 +547,17 @@ def main():
         if t and t[0] == "pkill" and any(re.match(r"^-[a-zA-Z]*f", a) for a in t[1:]):
             deny("不要用 pkill -f：它会匹配到执行本命令的 wrapper shell，把自己杀掉。"
                  "改用 pid 文件，或 `kill $(pgrep -f '[x]yz')`（方括号让 pattern 不匹配自身）。")
+        if RESTART.search(seg):
+            deny("不要直接 launchctl/kill 正在跑的桥：会把这轮回复和同桥的 bot 一起杀掉。"
+                 "改用 `safe-restart \"原因\" \"重启后接着做的事|无\"`（等本轮回复发出再重启）或 `bothouse daemon restart`。")
         if sys.platform == "darwin" and "# tcc-ok" not in cmd and t[:2] == ["go", "build"] and re.search(r"-o\s+\S*bothouse", seg):
             deny("不要直接 go build -o 覆盖正在用的 bothouse：macOS 上签名会变回 ad-hoc，TCC 授权失效。"
                  "编到别的路径，再用原来的证书 codesign 后替换；确实要覆盖就在命令末尾加 `# tcc-ok`。")
+        if any(x.endswith("ws-forward") for x in t[:1]) and "--interrupt" not in t and "# queue-ok" not in cmd \
+                and FWD_CHANGE.search(seg):
+            deny("这条 ws-forward 是在改工作区的方向（纠正、叫停、改做法），却没加 --interrupt：话会排到工作区这一轮跑完才到，"
+                 "错的那部分会接着跑完。改方向一律加 --interrupt 当场插进去，也不要写「跑完再停」。"
+                 "确实只是补充信息、不改做法，就在命令末尾加 `# queue-ok`。\n被拦的片段：" + seg.strip()[:200])
     direct_ok = not PROXY_URL or "# direct-ok" in cmd or PROXY.search(cmd)
     for seg in ([] if direct_ok else segments(cmd)):
         if not is_download(seg):
@@ -475,6 +572,12 @@ def main():
             f"\n被拦的片段：{seg.strip()[:200]}"
         )
         deny(reason)
+    capped = sub_cap(inp, d)
+    if capped:  # 规则 10：只改 timeout，命令照常执行（别的规则已在上面查过）
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
+                                                 "updatedInput": capped, "additionalContext": SUB_CAP_MSG}},
+                         ensure_ascii=False))
+        sys.exit(0)
     if wiki_cat_pages(cmd, d.get("cwd")) >= WIKI_CAT_MIN:
         hint("这条命令整页 cat 了多页 wiki（照常执行，只是提醒）。下次先 `grep -rn <关键词> <wiki 目录>`（装了 llm-wiki 就用它的 "
              "`bin/search.py <关键词>`）拿 路径:行号，再 `sed -n '<起>,<止>p' <页>` 只读命中段，不整页 cat 多页。")

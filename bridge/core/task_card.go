@@ -109,6 +109,11 @@ type Task struct {
 	FinalNotified      bool         `json:"final_notified"`
 	Events             []TaskEvent  `json:"events,omitempty"`
 	Members            []TaskMember `json:"members,omitempty"`
+
+	// Revision starts at 1 and increases on each recorded rework; 0 in
+	// journals written before rework existed (see RevisionNo).
+	Revision  int            `json:"revision,omitempty"`
+	Artifacts []TaskArtifact `json:"artifacts,omitempty"`
 }
 
 // Clone creates a deep copy of the task.
@@ -118,6 +123,7 @@ func (t *Task) Clone() *Task {
 	}
 	cp := *t
 	cp.Members = append([]TaskMember(nil), t.Members...)
+	cp.Artifacts = append([]TaskArtifact(nil), t.Artifacts...)
 	if t.CompletedAt != nil {
 		tComplete := *t.CompletedAt
 		cp.CompletedAt = &tComplete

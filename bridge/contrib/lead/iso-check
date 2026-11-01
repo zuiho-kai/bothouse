@@ -14,6 +14,11 @@
 #   （$ISO_CHECK_PORTS，空格分隔，缺省 9820）的监听；
 #   桥程序文件（$CC_BIN、PATH 上的 bothouse/cc-connect）的指纹和同目录同名前缀文件列表——测试里跑
 #   `bothouse update` 若连到线上桥，线上桥会自升级换掉程序文件（改名成 .old*），只看目录测不出来。
+# 端口段（10-30 两个工作区的 jiuwen 测试实例都用缺省 5173/19000… 撞车，工作区2 起不来）：before 按工作区号 N
+#   给一段不重叠的端口 42000+N*100 … +99，写进 $ISO_DIR/ports.env，测试实例先 source 它再起。
+#   N 从桥的 `workspace list --json` 按本频道 id 查「工作区N」；不是工作区（聊天频道、DSH）用 0 号段；
+#   ISO_PORT_SLOT 可直接指定（测试用）。段内已有进程监听只警告不拒绝（多半是本工作区上一个实例没停）。
+#   jiuwen 端口全被占时会整组 +1000 换端口，会落进 N+10 号段，所以段里有监听要先停掉旧实例。
 snap() {
   local p port
   local -a paths=(${BOTHOUSE_DATA_DIR:-} ~/.bothouse ~/.cc-connect ${CONEST_COLLAB_DATA:-~/.conest-collab})
@@ -36,6 +41,46 @@ snap() {
   done
 }
 die() { echo "iso-check: $*" >&2; exit 2; }
+# 本会话的工作区号（查不到打 0）。桥的 workspace list 要连线上 api.sock，只读，5 秒超时。
+ws_slot() {
+  [[ -n ${ISO_PORT_SLOT:-} ]] && { echo $ISO_PORT_SLOT; return; }
+  local bin=${CC_BIN:-$(whence -p bothouse)}
+  [[ -z $bin && -x /Applications/Bothouse.app/Contents/MacOS/bothouse ]] && bin=/Applications/Bothouse.app/Contents/MacOS/bothouse
+  [[ -n $bin && $owner == discord:* ]] || { echo 0; return; }
+  python3 -I -c '
+import json, re, subprocess, sys
+bin, key = sys.argv[1], sys.argv[2]
+try:
+    r = subprocess.run([bin, "workspace", "list", "--session-key", key, "--json"], capture_output=True, text=True, timeout=5)
+    ws = json.loads(r.stdout)
+except Exception:
+    print(0); sys.exit()
+cid = key.split(":", 1)[1]
+for w in (ws.get("pool") or []) + (ws.get("workspaces") or []):
+    m = re.fullmatch(r"工作区(\d+)", w.get("name") or "")
+    if m and w.get("id") == cid:
+        print(m.group(1)); sys.exit()
+print(0)' $bin $owner 2>/dev/null || echo 0
+}
+# 写 ports.env：jiuwen 读的两套变量名（JIUWENSWARM_*_PORT 定实例端口组，*_PORT 给子进程和 vite）都写成同一组。
+write_ports() {
+  local d=$1 n=$2 b
+  [[ $n == <-> ]] && (( n <= 71 )) || { echo "iso-check: 工作区号 $n 超出端口段（0-71，42000-49199，再往上是系统临时端口）" >&2; return 1; }
+  b=$(( 42000 + n * 100 ))
+  cat > $d/ports.env <<PORTS
+# iso-check：工作区 $n 的测试端口段 $b-$(( b + 99 ))。先 source 这个文件再起测试实例。
+export ISO_PORT_SLOT=$n ISO_PORT_BASE=$b ISO_PORT_FREE_FROM=$(( b + 50 )) ISO_PORT_FREE_TO=$(( b + 99 ))
+export FRONTEND_PORT=$b JIUWENSWARM_FRONTEND_PORT=$b
+export WEB_PORT=$(( b + 10 )) JIUWENSWARM_WEB_PORT=$(( b + 10 ))
+export GATEWAY_PORT=$(( b + 11 )) JIUWENSWARM_GATEWAY_PORT=$(( b + 11 ))
+export AGENT_SERVER_PORT=$(( b + 20 )) AGENT_PORT=$(( b + 20 )) JIUWENSWARM_AGENT_SERVER_PORT=$(( b + 20 ))
+export JIUWENSWARM_AGENT_HTTP_PORT=$(( b + 21 ))
+export BROWSER_RUNTIME_MCP_PORT=$(( b + 30 ))
+PORTS
+  local busy=$(lsof -nP -iTCP:$b-$(( b + 99 )) -sTCP:LISTEN 2>/dev/null | awk 'NR>1{print $2"("$1")@"$9}' | sort -u | tr '\n' ' ')
+  echo "ISO_PORTS=$d/ports.env（工作区 $n 端口段 $b-$(( b + 99 ))：前端 $b、WEB $(( b + 10 ))、网关 $(( b + 11 ))、AgentServer $(( b + 20 ))；起测试实例前 source 它）"
+  [[ -z $busy ]] || echo "iso-check: 警告：端口段 $b-$(( b + 99 )) 里已有监听：$busy。多半是本工作区上一个测试实例没停，先停掉再起新的。" >&2
+}
 cmd=$1; shift
 owner=${CC_SESSION_KEY:-${CC_SESSION:-$CLAUDE_CODE_SESSION_ID}}; args=()
 while (( $# )); do
@@ -52,12 +97,13 @@ case $cmd in
     b=${d:t}
     mkdir -p $rec && snap > $rec/$b.before && printf '%s\n%s\n' "$owner" "$d" > $rec/$b.owner || { rmdir $d; die "写记录失败"; }
     cat $rec/$b.before
-    echo "ISO_DIR=$d（本次测试的 HOME、数据目录、gocache、worktree 都建在它下面；跑 iso-check after $d 会删掉它）";;
+    write_ports $d $(ws_slot) || { rm -rf $d $rec/$b.before $rec/$b.owner; exit 2; }
+    echo "ISO_DIR=${d}（本次测试的 HOME、数据目录、gocache、worktree 都建在它下面；跑 iso-check after $d 会删掉它）";;
   after)
     d=${args[1]}
     [[ -n $d ]] || die "必须给目录：iso-check after <目录>（before 打出的 ISO_DIR）。不猜「最近一个」。"
     d=${d%/}; b=${d:t}
-    [[ -f $rec/$b.owner && $(sed -n 2p $rec/$b.owner) == $d ]] || die "$d 不是本会话（$owner）登记的隔离目录，拒绝删除和对比。是你的就用建它时的会话键 --owner。"
+    [[ -f $rec/$b.owner && $(sed -n 2p $rec/$b.owner) == $d ]] || die "$d 不是本会话（${owner}）登记的隔离目录，拒绝删除和对比。是你的就用建它时的会话键 --owner。"
     snap > $rec/$b.after
     if isodir $d; then
       chmod -R u+w $d 2>/dev/null; rm -rf $d && echo "iso-check: 已删隔离目录 $d"

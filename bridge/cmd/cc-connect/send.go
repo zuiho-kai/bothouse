@@ -360,7 +360,7 @@ func resolveSocketPath(dataDir string) string {
 		return filepath.Join(dataDir, "run", "api.sock")
 	}
 	// Check CC_DATA_DIR env var for custom data_dir configuration
-	if envDataDir := strings.TrimSpace(os.Getenv("CC_DATA_DIR")); envDataDir != "" {
+	if envDataDir := ccconnect.GuardTestDataDir(strings.TrimSpace(os.Getenv("CC_DATA_DIR"))); envDataDir != "" {
 		return filepath.Join(envDataDir, "run", "api.sock")
 	}
 	if home, err := os.UserHomeDir(); err == nil {
@@ -392,8 +392,8 @@ Options:
       --audio <path>       Send an audio attachment (repeatable)
       --video <path>       Send a video attachment (repeatable)
       --stdin              Read message from stdin (best for long/special-char messages)
-      --at-users <ids>     @ user IDs, comma-separated (DingTalk)
-      --at-all             @ everyone (DingTalk)
+      --at-users <ids>     @ user IDs, comma-separated (DingTalk, QQ, QQBot)
+      --at-all             @ everyone (platform permissions and limits apply)
       --dm                 Send privately to the project owner (first ID in admin_from) (Discord)
   -p, --project <name>     Target project (optional if only one project)
   -s, --session <key>      Target session key (optional, picks first active)
