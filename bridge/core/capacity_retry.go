@@ -118,6 +118,7 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		state.mu.Lock()
 		as := state.agentSession
 		state.capacityFailed = false
+		state.turnErrored = false
 		state.mu.Unlock()
 		if attempt > 1 && as != nil {
 			drainEvents(as.Events())
@@ -137,11 +138,15 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		state.mu.Lock()
 		failed := state.capacityFailed
 		state.capacityFailed = false
+		errored := state.turnErrored
+		state.turnErrored = false
 		alive := state.agentSession != nil && state.agentSession.Alive()
 		state.mu.Unlock()
 		if !failed {
 			e.capacityReset()
-			if probe {
+			// A probe only proves the model is back when the turn actually finished
+			// cleanly: a 503 (or any error event) must leave the cooldown alone.
+			if probe && !errored {
 				e.capacityRecover("probe succeeded") // the model is back: release what is held
 			}
 			return
@@ -181,28 +186,28 @@ func (e *Engine) deferForCapacity(p Platform, msg Message, agent Agent, sessions
 		e.boardEndHeld(interactiveKey, BoardDoneFailed) // maomao fork: not re-sent
 		return
 	}
-	if cooling {
-		// One notice per channel per cooldown round: the rest of the held
-		// messages queue silently instead of repeating "冷却中" (2026-11-01 实例：
-		// 同一时刻刷出三条).
-		channel := msg.ChannelKey
-		if channel == "" {
-			channel = msg.SessionKey
+	// One notice per channel per cooldown round, whichever kind it is: the rest
+	// of the held messages queue silently instead of repeating it (2026-11-01 实例：
+	// 同一时刻刷出三条；先失败通知再扣消息也会变成两条).
+	channel := msg.ChannelKey
+	if channel == "" {
+		channel = msg.SessionKey
+	}
+	e.capMu.Lock()
+	already := e.capNotified[channel]
+	if !already {
+		if e.capNotified == nil {
+			e.capNotified = map[string]bool{}
 		}
-		e.capMu.Lock()
-		already := e.capNotified[channel]
-		if !already {
-			if e.capNotified == nil {
-				e.capNotified = map[string]bool{}
-			}
-			e.capNotified[channel] = true
-		}
-		e.capMu.Unlock()
-		if !already {
+		e.capNotified[channel] = true
+	}
+	e.capMu.Unlock()
+	if !already {
+		if cooling {
 			e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("⏳ 模型满载冷却中，这条 %d 分钟后再处理。", mins))
+		} else {
+			e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("⏳ 模型满载（at capacity），连试 %d 次都失败，冷却 %d 分钟后自动重试这条。", capacityAttempts, mins))
 		}
-	} else {
-		e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("⏳ 模型满载（at capacity），连试 %d 次都失败，冷却 %d 分钟后自动重试这条。", capacityAttempts, mins))
 	}
 	msg.UserMessageTimeMs = 0 // a re-delivery is never "stale"
 	redeliver := func() { e.redeliverMessage(p, &msg, agent, sessions, interactiveKey, workspaceDir) }
