@@ -46,12 +46,12 @@ class Board(unittest.TestCase):
         cli("add", "第三件", "c.md", "已交接", "橘")
         code, out = cli("update", "1", "已交回：报告写完")
         self.assertEqual(code, 0)
-        self.assertIn("已结束", out)
+        self.assertIn("已更新", out)
         self.assertEqual(cli("update", "2", "done")[0], 0)
         self.assertEqual(cli("update", "3", "PR571已合，等新包装上后验")[1], "已更新")  # 不是开头的收尾词不算
-        self.assertEqual([l.split()[0] for l in cli()[1].splitlines()], ["#3"])
+        self.assertEqual([l.split()[0] for l in cli()[1].splitlines()], ["#1", "#3"])
         done = [json.loads(l)["id"] for l in (Path(TMP) / "board-done.jsonl").read_text().splitlines()]
-        self.assertEqual(done, [1, 2])
+        self.assertEqual(done, [2])
 
     def test_done_record_status_is_done(self):
         # #597 N3：结束的条目进 board-done.jsonl 时 status 要是「已完成」，不能带着原来的「进行中」

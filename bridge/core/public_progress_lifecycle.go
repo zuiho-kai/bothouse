@@ -214,7 +214,11 @@ func (p *PublicProgress) Task(taskID string) (*Task, bool) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.record.Task.Clone(), true
+	task := r.record.Task.Clone()
+	for _, d := range r.record.TextDeliveries {
+		task.TextDeliveries = append(task.TextDeliveries, copyTaskText(d))
+	}
+	return task, true
 }
 
 // Tasks lists recent tasks, newest first. An empty session lists every session
@@ -233,7 +237,11 @@ func (p *PublicProgress) Tasks(session string, limit int) []*Task {
 	for _, r := range runs {
 		r.mu.Lock()
 		if session == "" || r.record.Task.SessionKey == session {
-			out = append(out, r.record.Task.Clone())
+			task := r.record.Task.Clone()
+			for _, d := range r.record.TextDeliveries {
+				task.TextDeliveries = append(task.TextDeliveries, copyTaskText(d))
+			}
+			out = append(out, task)
 		}
 		r.mu.Unlock()
 	}

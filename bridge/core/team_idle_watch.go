@@ -217,7 +217,7 @@ func watchIsHandback(text string) bool {
 }
 
 func watchBoardClosed(it teamTaskBoardItem) bool {
-	for _, status := range []string{"已验收", "验收通过", "已收口", "已完成", "已交回", "已结束"} {
+	for _, status := range []string{"已验收", "验收通过", "已收口", "已完成", "已结束"} {
 		if strings.Contains(it.Status, status) {
 			return true
 		}

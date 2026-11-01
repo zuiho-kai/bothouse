@@ -755,6 +755,7 @@ name = "my-backend"
 # team_name = "协调员"               # This bot's name in the team status (default: project name). / 队友状态里的名字。
 # team_status_inject = true        # Main bot only: start each turn with the teammates' status.
 #                                  # 只给主 bot：每轮开头附上队友状态。
+# team_review_after_seconds = 3600 # Source: existing one-hour stuck threshold; dispatcher verification deadline.
 # team_board = false               # Main bot: pinned per-channel team board, on unless set to false.
 #                                  # 主 bot 每频道一张置顶团队状态栏；不写即开，写 false 关闭。
 # Discord options for main + subs go under [projects.platforms.options]:

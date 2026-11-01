@@ -99,9 +99,10 @@ func (r PublicProgressRequest) Validate() error {
 }
 
 type progressRecord struct {
-	QuotaReports map[string]quotaProgressReceipt `json:"quota_reports,omitempty"`
-	Relays       map[string]taskRelayRecord      `json:"relays,omitempty"`
-	Reworks      map[string]taskReworkRecord     `json:"reworks,omitempty"`
+	TextDeliveries []*taskTextRecord               `json:"text_deliveries,omitempty"`
+	QuotaReports   map[string]quotaProgressReceipt `json:"quota_reports,omitempty"`
+	Relays         map[string]taskRelayRecord      `json:"relays,omitempty"`
+	Reworks        map[string]taskReworkRecord     `json:"reworks,omitempty"`
 	// ArtifactRequests keeps the receipt of each attach operation by its stable
 	// request id, so a retry after a rework or restart returns the original
 	// artifact instead of attaching it to the current revision.
@@ -121,6 +122,7 @@ type progressRecord struct {
 }
 
 type publicRun struct {
+	textMu     sync.Mutex
 	deliveryMu sync.Mutex
 	mu         sync.Mutex
 	record     progressRecord
@@ -148,6 +150,10 @@ type PublicProgress struct {
 	checkAuthorization       func(*Task, string) error
 	syncAuthorizationNotices func() error
 	revokeAuthorization      func(*Task) error
+	externalInputs           *ExternalEventStore
+	textSenders              map[string]TaskTextSender
+	checkTaskText            func(context.Context, *Task, string) error
+	waitTaskText             func(context.Context, string) error
 	quotaBlocked             func(string) bool
 	// Lifecycle operations serialize run ownership and durable state transitions.
 	// Delivery never takes this lock; network requests remain independent.
@@ -207,6 +213,12 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 	}
 	hash := sha256.Sum256([]byte(project))
 	p := &PublicProgress{dir: filepath.Join(dataDir, "public-progress", hex.EncodeToString(hash[:8])), dataDir: dataDir, project: project, archiveAfter: defaultTaskThreadArchiveAfter, resultReadyArchiveAfter: defaultResultReadyThreadArchiveAfter, runs: map[string]*publicRun{}, records: map[string]*publicRun{}, open: map[string]*publicRun{}, pending: map[string]*publicRun{}, listed: map[string]*publicRun{}}
+	p.textSenders = make(map[string]TaskTextSender)
+	for _, platform := range platforms {
+		if sender, ok := platform.(TaskTextSender); ok {
+			p.textSenders[platform.Name()] = sender
+		}
+	}
 	for _, platform := range platforms {
 		if _, ok := platform.(TaskCardPublisher); ok {
 			p.hasPublisher = true
@@ -243,6 +255,7 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 		if !platformFound {
 			return nil, errors.New("public progress journal platform unavailable")
 		}
+		loadedQuestionSeq := rec.Task.Seq
 		r := &publicRun{record: rec, publisher: sink}
 		if interruptTaskMembers(r.record.Task) {
 			p.memberEvent(r, NewI18n(rec.Lang).T(MsgPublicInterrupted), true)
@@ -251,9 +264,17 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 			}
 		}
 		if !rec.Closed {
+			questionSeq, questionWaiting := loadedQuestionSeq, r.record.Task.State == TaskStateWaitingUser
 			r.record.Closed = true
 			r.record.Task.State = TaskStateFailed
 			p.appendEvent(r, TaskEventFailed, NewI18n(rec.Lang).T(MsgPublicInterrupted), true)
+			if questionWaiting {
+				for _, d := range r.record.TextDeliveries {
+					if d.Kind == "question" && d.QuestionSeq == questionSeq {
+						d.QuestionRecoverySeq = r.record.Task.Seq
+					}
+				}
+			}
 			if err := p.save(r); err != nil {
 				return nil, err
 			}
@@ -274,6 +295,10 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 		if r.record.CardSeq < r.record.Task.Seq || r.record.FactSeq < r.record.Task.Seq {
 			p.pending[r.record.Task.ID] = r
 		}
+	}
+	p.externalInputs, err = NewExternalEventStore(dataDir, project)
+	if err != nil {
+		return nil, err
 	}
 	return p, nil
 }
@@ -414,7 +439,10 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	if r.record.Task.AssignedProject != "" && r.record.Task.AssignedProject != p.project {
 		return "", errors.New("task ownership transferred")
 	}
-	if IsTerminalState(r.record.Task.State) {
+	// A fresh turn may explicitly continue an interrupted/failed card offered
+	// by resumeHint. The failed run itself, cancellation and acceptance stay
+	// terminal; external inputs cannot perform this continuation.
+	if IsTerminalState(r.record.Task.State) && !(r.record.Task.State == TaskStateFailed && source != r) {
 		return "", errors.New("task is terminal")
 	}
 	if req.Seq != r.record.LastSeq+1 {
@@ -636,6 +664,7 @@ func (p *PublicProgress) Flush(ctx context.Context) {
 			slog.Warn("authorization notice projection pending", "error", err)
 		}
 	}
+	p.FlushTaskText(ctx)
 	p.mu.Lock()
 	runs := make([]*publicRun, 0, len(p.pending))
 	for _, r := range p.pending {
@@ -1035,6 +1064,12 @@ func (e *Engine) EnablePublicProgress() error {
 	p.checkAuthorization = e.CheckTaskAuthorization
 	p.syncAuthorizationNotices = e.SyncAuthorizationNotices
 	p.revokeAuthorization = e.revokeCancelledTask
+	p.waitTaskText = func(ctx context.Context, platform string) error {
+		if e.outgoingRL == nil {
+			return nil
+		}
+		return e.outgoingRL.Wait(ctx, platform)
+	}
 	p.resolveReporter = e.resolveTaskReporter
 	p.resolveWorkspace = e.resolveTaskWorkspace
 	p.wakeLead = e.wakeRelayLead
@@ -1163,14 +1198,18 @@ const publicTaskMembersPrompt = "[Task card members]\nWhen delegation is already
 const publicProgressPrompt = "[Public progress channel]\nFor an accepted multi-step task only, use the shell tool to report short PUBLIC status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'one short public sentence'. The first report must use --seq 1 --kind start --title 'short task title'.RESUME_NOTE Then increase seq by one for each report: update for routine progress; milestone for a verified key finding; waiting for a decision the human must make; result for the final concise result and remaining work. Report at start and meaningful changes only (max 64 reports). Do not open cards for casual chat, questions or status queries. Do not put reasoning, tool output, credentials or full conversations in these reports. Never claim merge, deployment or human verification without evidence. A result is not project acceptance. Keep final spoken replies short; details belong in the card. Retries reuse exactly the same seq and content; never repeat task tools because delivery failed. This run token applies ONLY to this turn; never reuse a token from history. When delegation is authorized, dispatch quietly using RELAY_COMMAND --task TASK_ID --request-id STABLE_DISPATCH_ID --to EXACT_BOUND_PROJECT_ID --message 'bounded assignment'; when the member executes in another workspace of the same chat channel, add --workspace WORKSPACE_ID (the claimed workspace channel, same value as its task assign) so the receipt, progress and result stay in this task thread. Use the card returned by task assign; keep assignment text and report grants out of public facts. Retries reuse the same request ID and content. Worker progress and results appear under its own bot account in that task thread; the creator updates the aggregate card. Do not also send public channel mentions or forward the worker response.\n[/Public progress channel]\n\n"
 
 func (e *Engine) finishPublicProgress(state *interactiveState, outcome string) {
-	if e.publicProgress == nil {
-		return
-	}
 	state.mu.Lock()
 	token := state.publicProgressRun
 	state.publicProgressRun = ""
+	external := state.externalTaskInput
+	state.externalTaskInput = nil
 	state.mu.Unlock()
-	e.publicProgress.finish(token, outcome)
+	if external != nil && outcome == "cancelled" {
+		external.cancelTask()
+	}
+	if e.publicProgress != nil {
+		e.publicProgress.finish(token, outcome)
+	}
 }
 
 // Voice uses the same deliberately public facts as the card, never intermediate
@@ -1220,6 +1259,7 @@ func (e *Engine) startPublicProgress() {
 		defer ticker.Stop()
 		for {
 			e.publicProgress.Flush(e.ctx)
+			e.flushExternalTaskEvents()
 			select {
 			case <-e.ctx.Done():
 				return

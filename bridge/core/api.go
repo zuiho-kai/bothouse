@@ -56,6 +56,7 @@ type APIServer struct {
 // the dispatch layer in engine.go. See cc-connect internal task
 // t-20260615-cqjbk1.
 type SendRequest struct {
+	TaskText   *TaskTextRequest  `json:"task_text,omitempty"`
 	Project    string            `json:"project"`
 	SessionKey string            `json:"session_key"`
 	Message    string            `json:"message"`
@@ -103,6 +104,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	}
 	activeAPISocket.Store(sockPath)
 	s.mux.HandleFunc("/send", s.handleSend)
+	s.mux.HandleFunc("/task-text", s.handleTaskText)
 	s.mux.HandleFunc("/events", s.handleEvents) // unified event stream (events.go)
 	s.mux.HandleFunc("/progress", s.handlePublicProgress)
 	s.mux.HandleFunc("/voice/desk", s.handleVoiceDesk)
@@ -111,6 +113,9 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/task/assign", s.handleTaskAssign)
 	s.mux.HandleFunc("/task/artifact", s.handleTaskArtifact)
 	s.mux.HandleFunc("/task/rework", s.handleTaskRework)
+	s.mux.HandleFunc("/task/events", s.handleTaskEvents)
+	s.mux.HandleFunc("/task/events/source", s.handleTaskEvents)
+	s.mux.HandleFunc("/task/events/ack", s.handleTaskEvents)
 	s.mux.HandleFunc("/handoff/status", s.handleHandoffStatus)
 	s.mux.HandleFunc("/handoff/show", s.handleHandoffShow)
 	s.mux.HandleFunc("/handoff/switch", s.handleHandoffSwitch)
@@ -297,6 +302,10 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.TaskText != nil && (req.Message == "" || req.WorkDir != "" || req.CWD != "" || req.DM || req.AtAll || len(req.AtUsers)+len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) != 0 || req.TTSText != "") {
+		http.Error(w, "task text requires plain text and an explicit target", http.StatusBadRequest)
+		return
+	}
 	workDir := req.WorkDir
 	if workDir == "" {
 		workDir = req.CWD
@@ -314,6 +323,16 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		req.SessionKey = key
 	}
 	if req.Message != "" || len(req.Images) > 0 || len(req.Files) > 0 {
+		if req.TaskText != nil {
+			req.TaskText.Text, req.TaskText.SessionKey = req.Message, req.SessionKey
+			d, err := engine.SendTaskText(r.Context(), *req.TaskText)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			apiJSON(w, http.StatusAccepted, d)
+			return
+		}
 		if err := engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll}); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

@@ -82,33 +82,34 @@ func (ev TaskEvent) ThreadText() string {
 
 // Task represents a persistent, trackable task unit with Discord card and thread bindings.
 type Task struct {
-	ID                 string       `json:"id"`
-	Title              string       `json:"title"`
-	Agent              string       `json:"agent"`
-	AssignedProject    string       `json:"assigned_project,omitempty"`
-	Origin             string       `json:"origin"` // "voice" / "discord"
-	SessionKey         string       `json:"session_key"`
-	State              TaskState    `json:"state"`
-	FactStage          FactStage    `json:"fact_stage"`
-	RequiredSummary    string       `json:"required_summary,omitempty"`
-	LatestProgress     string       `json:"latest_progress,omitempty"`
-	ResultSummary      string       `json:"result_summary,omitempty"`
-	VerificationResult string       `json:"verification_result,omitempty"`
-	DeliverableURL     string       `json:"deliverable_url,omitempty"`
-	NextSteps          string       `json:"next_steps,omitempty"`
-	ChannelID          string       `json:"channel_id,omitempty"`
-	MessageID          string       `json:"message_id,omitempty"`
-	CardURL            string       `json:"card_url,omitempty"` // platform-generated permalink, never supplied by a progress report
-	ThreadID           string       `json:"thread_id,omitempty"`
-	ThreadTitle        string       `json:"thread_title,omitempty"` // name last given to the thread; it follows Title
-	ThreadArchivedAt   *time.Time   `json:"thread_archived_at,omitempty"`
-	Seq                int64        `json:"seq"`
-	CreatedAt          time.Time    `json:"created_at"`
-	UpdatedAt          time.Time    `json:"updated_at"`
-	CompletedAt        *time.Time   `json:"completed_at,omitempty"`
-	FinalNotified      bool         `json:"final_notified"`
-	Events             []TaskEvent  `json:"events,omitempty"`
-	Members            []TaskMember `json:"members,omitempty"`
+	TextDeliveries     []TaskTextDelivery `json:"text_deliveries,omitempty"`
+	ID                 string             `json:"id"`
+	Title              string             `json:"title"`
+	Agent              string             `json:"agent"`
+	AssignedProject    string             `json:"assigned_project,omitempty"`
+	Origin             string             `json:"origin"` // "voice" / "discord"
+	SessionKey         string             `json:"session_key"`
+	State              TaskState          `json:"state"`
+	FactStage          FactStage          `json:"fact_stage"`
+	RequiredSummary    string             `json:"required_summary,omitempty"`
+	LatestProgress     string             `json:"latest_progress,omitempty"`
+	ResultSummary      string             `json:"result_summary,omitempty"`
+	VerificationResult string             `json:"verification_result,omitempty"`
+	DeliverableURL     string             `json:"deliverable_url,omitempty"`
+	NextSteps          string             `json:"next_steps,omitempty"`
+	ChannelID          string             `json:"channel_id,omitempty"`
+	MessageID          string             `json:"message_id,omitempty"`
+	CardURL            string             `json:"card_url,omitempty"` // platform-generated permalink, never supplied by a progress report
+	ThreadID           string             `json:"thread_id,omitempty"`
+	ThreadTitle        string             `json:"thread_title,omitempty"` // name last given to the thread; it follows Title
+	ThreadArchivedAt   *time.Time         `json:"thread_archived_at,omitempty"`
+	Seq                int64              `json:"seq"`
+	CreatedAt          time.Time          `json:"created_at"`
+	UpdatedAt          time.Time          `json:"updated_at"`
+	CompletedAt        *time.Time         `json:"completed_at,omitempty"`
+	FinalNotified      bool               `json:"final_notified"`
+	Events             []TaskEvent        `json:"events,omitempty"`
+	Members            []TaskMember       `json:"members,omitempty"`
 
 	// Revision starts at 1 and increases on each recorded rework; 0 in
 	// journals written before rework existed (see RevisionNo).
