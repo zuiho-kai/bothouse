@@ -1,5 +1,6 @@
 {
   "nav": {
+    "addPlatform": "プラットフォーム追加",
     "addRole": "ロール/モデルを追加",
     "library": "ライブラリ",
     "dashboard": "ダッシュボード",

@@ -1,5 +1,6 @@
 {
   "nav": {
+    "addPlatform": "Add platform",
     "addRole": "Add role / model",
     "library": "Library",
     "dashboard": "Dashboard",

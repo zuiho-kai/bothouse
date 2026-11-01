@@ -13,6 +13,7 @@ import {
   Puzzle,
   Library,
   UserPlus,
+  Blocks,
   Users,
   Laptop,
   X,
@@ -23,6 +24,8 @@ import VersionBadge from './VersionBadge';
 
 const navItems = [
   // add a role / model on top of the current setup (SetupWizard add mode, append_only)
+  // add a platform (QQ / Discord / Feishu / DSH / 自建平台) next to the configured ones (#812)
+  { key: 'addPlatform', path: '/setup?add=1&pick=platform', icon: Blocks },
   { key: 'addRole', path: '/setup?add=1', icon: UserPlus },
   { key: 'dashboard', path: '/', icon: LayoutDashboard },
   { key: 'usage', path: '/usage', icon: Activity },

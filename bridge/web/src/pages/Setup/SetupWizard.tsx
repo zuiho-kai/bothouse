@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Bot, Check, CheckCircle2, Copy, ExternalLink, Globe, House, Loader2, Puzzle, MessageSquare, Plus, RefreshCw, Smartphone, Trash2, XCircle } from 'lucide-react';
+import { Bot, Check, CheckCircle2, Copy, ExternalLink, Globe, House, Loader2, Puzzle, MessageCircle, MessageSquare, Plus, RefreshCw, Smartphone, Trash2, XCircle } from 'lucide-react';
 import { useThemeStore, DEFAULT_THEME } from '@/store/theme';
 import './setup.css';
 import { Badge, Button, Card, Input, Textarea } from '@/components/ui';
@@ -74,7 +74,14 @@ export default function SetupWizard() {
   const sysReply = lang;
 
   const [step, setStep] = useState(0);
-  const [picked, setPlatform] = useState<'discord' | 'feishu' | 'cloud_web' | 'dsh'>('discord');
+  // /setup?add=1&platform=qq — `bothouse module add qq` points here; the platform comes preselected
+  const platformParam = useSearchParams()[0].get('platform');
+  const [picked, setPlatform] = useState<'qq' | 'discord' | 'feishu' | 'cloud_web' | 'dsh'>(
+    platformParam === 'qq' || platformParam === 'feishu' || platformParam === 'cloud_web' || platformParam === 'dsh' ? platformParam : 'discord');
+  // QQ: NapCat's forward WebSocket; the test is a dry run of the request (nothing written)
+  const [qq, setQQ] = useState({ ws_url: 'ws://127.0.0.1:3001', token: '', allow_from: '' });
+  const [qqTest, setQQTest] = useState<{ running: boolean; key?: string; ok?: boolean; message?: string; fix?: string }>({ running: false });
+  const qqKey = JSON.stringify(qq);
   const platform = picked;
   // 自建平台 (cloud_web): the hub on this machine, or someone else's (address + token, tested)
   const [hub, setHub] = useState<LocalHubStatus | null>(null);
@@ -378,7 +385,7 @@ export default function SetupWizard() {
       // so the project name guessed here (projectNames) can differ from the one the server plans
       // adding a role never moves the lead: the server keeps the recorded one, so none is sent
       fallback_role: addMode ? undefined : platform === 'cloud_web' ? nameOf(roles.find((r) => projectOf(r) === fallback) || roles[0])
-        : platform !== 'feishu' ? fallback : undefined,
+        : platform !== 'feishu' && platform !== 'qq' ? fallback : undefined,
       fallback_bot_id: !addMode && platform === 'discord' ? roles.find((r) => projectOf(r) === fallback)?.info?.bot_id : undefined,
       ...(addMode ? { append_only: true } : {}),
     };
@@ -386,6 +393,7 @@ export default function SetupWizard() {
       req.discord = { guild_id: guildID, channel_id: channelID };
       if (allowFromValue.trim()) req.allow_from = allowFromValue.trim();
     }
+    if (platform === 'qq') req.qq = { ws_url: qq.ws_url.trim(), token: mask(qq.token, '<NAPCAT_TOKEN>') || undefined, allow_from: qq.allow_from.trim() };
     if (platform === 'cloud_web') req.cloud_web = cwLocalKnown ? {} : { url: cwURL, token: mask(cw.token, '<PLATFORM_BOT_TOKEN>') };
     if (platform === 'feishu' && feishu) req.feishu = { ...feishu, app_secret: mask(feishu.app_secret, '<APP_SECRET>'), chat_id: chatID };
     if (wikiInfo) {
@@ -440,7 +448,8 @@ export default function SetupWizard() {
   const dshNoLogin = clis?.find((c) => c.agent_type === 'dsh')?.login === 'not_logged_in';
   const stepOK = [
     true,
-    platform === 'discord' ? roles.every((r) => r.info) && !!guildID : platform === 'cloud_web' ? cwOK && !cwNameTwice : !!feishu,
+    platform === 'discord' ? roles.every((r) => r.info) && !!guildID : platform === 'cloud_web' ? cwOK && !cwNameTwice
+      : platform === 'qq' ? !qqTest.running && qqTest.key === qqKey && !!qqTest.ok : !!feishu,
     roles.every((r) => {
       if (!r.agent_type) return false;
       // DSH with no key anywhere fails every turn (core dshModelSetup): its own login, or a provider with a key
@@ -452,12 +461,14 @@ export default function SetupWizard() {
       if (!v?.model && !r.provider.model) return false;                      // no default model: model required
       return true;
     }),
-    true, !!fallback || platform === 'feishu',
+    true, !!fallback || platform === 'feishu' || platform === 'qq',
     // jev: empty (= skip), the one already in use, or tested usable; a failing one is never written — try another or skip
     !jevTest.running && !jevSave.saving && (!jev.base_url ? true : !jev.model ? false : jevUnchanged || jevTest.usable === true), true,
   ];
   // Adding roles preserves participation; every initial install offers the choice.
-  const visibleSteps = (addMode ? [0, 1, 2, 3, 5, 6] : [0, 1, 2, 3, 4, 5, 6]).filter((s) => s !== 5 || gateMode !== 'addressed');
+  const visibleSteps = (addMode ? [0, 1, 2, 3, 5, 6] : [0, 1, 2, 3, 4, 5, 6])
+    .filter((s) => s !== 5 || gateMode !== 'addressed')
+    .filter((s) => platform !== 'qq' || (s !== 4 && s !== 5)); // QQ: one bot, gate and jev are optional extras
   const pos = visibleSteps.indexOf(step);
   const go = (d: number) => setStep(visibleSteps[Math.min(Math.max(pos + d, 0), visibleSteps.length - 1)]);
 
@@ -523,15 +534,16 @@ export default function SetupWizard() {
           <div className="space-y-3">
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{T.platformQ}</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {([['discord', 'Discord', T.discordDesc, MessageSquare], ['feishu', zh ? '飞书 / Lark' : 'Feishu / Lark', T.feishuDesc, Smartphone],
+              {([['qq', 'QQ', T.qqDesc, MessageCircle], ['discord', 'Discord', T.discordDesc, MessageSquare], ['feishu', zh ? '飞书 / Lark' : 'Feishu / Lark', T.feishuDesc, Smartphone],
                 ['dsh', 'DSH', T.dshDesc, Puzzle], ['cloud_web', T.cloudWebLabel, T.cloudWebDesc, Globe]] as const).map(([k, label, desc, Icon]) => (
                 <button key={k} aria-pressed={picked === k} data-testid={`platform-${k}`} onClick={() => {
                   setPlatform(k);
-                  if (k === 'feishu') setRoles((rs) => rs.slice(0, 1));
+                  if (k === 'feishu' || k === 'qq') setRoles((rs) => rs.slice(0, 1));
                   if (k === 'cloud_web' || k === 'dsh') setRoles((rs) => rs.map((r, i) => (i === 0 && !r.name && !r.reuse_project ? { ...r, name: T.cwDefaultName } : r)));
                 }}
                   className={`setup-platform text-left p-4 rounded-xl border transition-all ${picked === k ? 'border-accent bg-accent/5' : 'border-gray-200 dark:border-gray-700 hover:border-accent/50'}`}>
-                  <div className="flex items-center gap-2 font-medium text-gray-900 dark:text-white"><Icon size={16} />{label}{picked === k && <Check size={14} className="text-accent" />}</div>
+                  <div className="flex items-center gap-2 font-medium text-gray-900 dark:text-white"><Icon size={16} />{label}{picked === k && <Check size={14} className="text-accent" />}
+                    {state?.configured_platforms?.[k] && <Badge variant="success">{T.platformConfigured}</Badge>}</div>
                   <p className="text-xs text-gray-500 mt-1">{desc}</p>
                 </button>
               ))}
@@ -615,6 +627,36 @@ export default function SetupWizard() {
         )}
 
         {/* 1 feishu */}
+        {/* 1 QQ (NapCat / OneBot) */}
+        {step === 1 && platform === 'qq' && (
+          <div className="space-y-3" data-testid="qq-step">
+            <p className="text-xs text-gray-500">{T.qqNote}</p>
+            <Input label={T.qqWSURL} value={qq.ws_url} data-testid="qq-ws-url" onChange={(e) => setQQ({ ...qq, ws_url: e.target.value })} />
+            <Input type="password" label={T.qqToken} value={qq.token} data-testid="qq-token" onChange={(e) => setQQ({ ...qq, token: e.target.value.trim() })} />
+            <Input label={T.qqAllowFrom} placeholder="12345678" value={qq.allow_from} data-testid="qq-allow-from" onChange={(e) => setQQ({ ...qq, allow_from: e.target.value })} />
+            <div className="text-sm space-y-1">
+              <Button size="sm" variant="secondary" disabled={qqTest.running || !qq.ws_url.trim() || !qq.allow_from.trim()} data-testid="qq-test-btn"
+                onClick={async () => {
+                  const key = qqKey;
+                  setQQTest({ running: true, key });
+                  try {
+                    const r = await applyWizard({ ...buildRequest(), dry_run: true });
+                    setQQTest({ running: false, key, ok: r.qq?.code === 'ok' && !r.error, message: r.qq?.message || r.error, fix: r.qq?.fix });
+                  } catch (e: any) {
+                    setQQTest({ running: false, key, ok: false, message: e?.message || String(e) });
+                  }
+                }}>
+                {qqTest.running ? <Loader2 size={12} className="animate-spin" /> : null}{qqTest.running ? T.cwTesting : T.cwTest}
+              </Button>
+              {!qqTest.running && qqTest.key === qqKey && qqTest.message && (qqTest.ok
+                ? <p className="text-emerald-600 flex items-center gap-1" data-testid="qq-test-ok"><CheckCircle2 size={13} />{qqTest.message}</p>
+                : <div data-testid="qq-test-fail"><p className="text-red-500 flex items-center gap-1"><XCircle size={13} />{qqTest.message}</p>
+                  {qqTest.fix && <p className="text-xs text-gray-600 dark:text-gray-400">{qqTest.fix}</p>}</div>)}
+            </div>
+            <a className="text-xs text-accent inline-flex items-center gap-0.5" href="https://napneko.github.io/" target="_blank" rel="noreferrer">{T.qqHow}<ExternalLink size={11} /></a>
+          </div>
+        )}
+
         {step === 1 && platform === 'feishu' && (
           !feishu ? (
             <PlatformSetupQR platformType="feishu" projectName="feishu-bot" onComplete={() => {}} onCancel={() => go(-1)}
@@ -911,6 +953,7 @@ export default function SetupWizard() {
                       : <span data-testid="review-reply-lang"> · {T.replyLang}: {langLabel(r.reply_language)}</span>}{!addMode && fallback === projectOf(r) && platform !== 'feishu' && roles.length > 1 ? <Badge variant="info">{T.fallbackTag}</Badge> : null}</li>
                   ))}
                   {platform === 'discord' && <li>• {guilds.find((g) => g.id === guildID)?.name} / #{channels.find((c) => c.id === channelID)?.name}</li>}
+                  {platform === 'qq' && <li data-testid="review-qq">• QQ: {qqTest.message} · {T.qqAllowFrom}: {qq.allow_from}</li>}
                   {platform === 'cloud_web' && <li data-testid="review-cloud-web">• {T.cwReview}{cwURL}{cwLocalKnown ? T.cwLocalTag : ''}</li>}
                   {(jevSave.saved || jevUnchanged) && <li>• jev: {jev.model} @ {jev.base_url} ✓ {T.jevStored}</li>}
                 </ul>

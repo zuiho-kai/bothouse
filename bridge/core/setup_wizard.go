@@ -2395,7 +2395,14 @@ func (m *ManagementServer) handleSetupState(w http.ResponseWriter, r *http.Reque
 	if m.wizardStore != nil {
 		if snap, err := m.wizardStore.Snapshot(); err == nil {
 			names, shown := []string{}, []string{}
+			configured := map[string]bool{} // platform types in config.toml: the "add platform" page marks them
 			for _, p := range snap.Projects {
+				for t := range p.Platforms {
+					if t == "lark" {
+						t = "feishu"
+					}
+					configured[t] = true
+				}
 				names = append(names, p.Name)
 				if p.DisplayName != "" {
 					shown = append(shown, p.DisplayName)
@@ -2405,6 +2412,7 @@ func (m *ManagementServer) handleSetupState(w http.ResponseWriter, r *http.Reque
 			}
 			out["projects"] = names              // the web wizard avoids these names for new bots (same rule as planWizard)
 			out["project_display_names"] = shown // what the panel lists as existing roles (team_name, else name)
+			out["configured_platforms"] = configured
 		}
 	}
 	fb := r.URL.Query().Get("fallback_name") // the wizard passes the bot it is about to pick

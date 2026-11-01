@@ -1,5 +1,6 @@
 {
   "nav": {
+    "addPlatform": "플랫폼 추가",
     "addRole": "역할/모델 추가",
     "library": "라이브러리",
     "dashboard": "대시보드",
