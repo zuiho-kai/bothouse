@@ -144,6 +144,7 @@ function FieldInput({ field, value, onChange, t }: { field: FieldDef; value: any
           {label} {field.required && <span className="text-red-400">*</span>}
         </label>
         <select
+          aria-label={label}
           value={value || field.options[0]}
           onChange={e => onChange(e.target.value)}
           className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent/50"
@@ -181,6 +182,7 @@ function FieldInput({ field, value, onChange, t }: { field: FieldDef; value: any
       </label>
       <div className="relative">
         <input
+          aria-label={label}
           type={isPassword && !showPwd ? 'password' : field.type === 'number' ? 'number' : 'text'}
           value={value || ''}
           onChange={e => onChange(field.type === 'number' ? (e.target.value ? Number(e.target.value) : '') : e.target.value)}

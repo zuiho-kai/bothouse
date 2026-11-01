@@ -1,4 +1,28 @@
 {
+  "qq": {
+    "setupTitle": "連接 QQ",
+    "setupHint": "使用已有的 OneBot / NapCat 連接或 QQ 官方機器人憑證。儲存設定不代表已經連通。",
+    "route": "接入方式",
+    "official": "QQ 官方機器人",
+    "projectID": "新角色識別碼",
+    "projectHint": "填寫未使用的英文字母、數字、連字號或底線組合。",
+    "invalidProject": "識別碼格式不正確或已被使用。",
+    "noCLI": "請先安裝並登入支援的 AI CLI。",
+    "savedRestart": "設定已儲存，重新啟動後生效；尚未驗證真實 QQ 收發。",
+    "restartRequested": "已要求重新啟動，服務啟動後可返回角色清單。",
+    "settingsTitle": "QQ 連接與功能",
+    "settingsHint": "修改後需重新啟動生效。已儲存的設定不代表連接正常。",
+    "httpURL": "OneBot HTTP 位址（選填）",
+    "keepToken": "留空保留已儲存的權杖",
+    "clearToken": "清除已儲存的存取權杖",
+    "sharedHint": "開啟後群組成員共用對話。這不提供個人記憶隔離。",
+    "unavailable": "目前版本尚不可用",
+    "capabilities": {
+      "qq_voice_out": "暫不支援語音回覆。",
+      "qq_command_allow_from": "暫不支援獨立指令白名單，仍受專案管理員設定約束。",
+      "memory_import": "記憶匯入待確認來源與格式。"
+    }
+  },
   "nav": {
     "addRole": "新增角色/模型",
     "library": "角色庫",

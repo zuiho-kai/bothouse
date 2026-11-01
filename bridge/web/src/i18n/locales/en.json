@@ -1,4 +1,28 @@
 {
+  "qq": {
+    "setupTitle": "Connect QQ",
+    "setupHint": "Use an existing OneBot / NapCat connection or official QQ bot credentials. Saving does not verify a live connection.",
+    "route": "Connection type",
+    "official": "QQ Bot (Official)",
+    "projectID": "New role ID",
+    "projectHint": "Use a unique ID with letters, numbers, hyphens or underscores.",
+    "invalidProject": "This ID is invalid or already in use.",
+    "noCLI": "Install and sign in to a supported CLI first.",
+    "savedRestart": "Configuration saved. Restart to apply; live QQ messaging has not been verified.",
+    "restartRequested": "Restart requested. Return to the role list after the service starts.",
+    "settingsTitle": "QQ connection and features",
+    "settingsHint": "Changes take effect after restart. Saved settings do not prove a live connection.",
+    "httpURL": "OneBot HTTP URL (optional)",
+    "keepToken": "Leave blank to keep the saved token",
+    "clearToken": "Clear saved access token",
+    "sharedHint": "When enabled, group members share a conversation. This does not provide private memory isolation.",
+    "unavailable": "Not available in this version",
+    "capabilities": {
+      "qq_voice_out": "Voice replies are not available.",
+      "qq_command_allow_from": "A separate command allowlist is not available. Project administrator settings still apply.",
+      "memory_import": "Memory import is awaiting a confirmed source and format."
+    }
+  },
   "nav": {
     "addRole": "Add role / model",
     "library": "Library",

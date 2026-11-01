@@ -1,4 +1,28 @@
 {
+  "qq": {
+    "setupTitle": "QQ 연결",
+    "setupHint": "기존 OneBot / NapCat 연결 또는 QQ 공식 봇 인증 정보를 사용합니다. 저장만으로 연결이 확인되지는 않습니다.",
+    "route": "연결 방식",
+    "official": "QQ 공식 봇",
+    "projectID": "새 역할 ID",
+    "projectHint": "영문, 숫자, 하이픈, 밑줄로 고유 ID를 입력하세요.",
+    "invalidProject": "잘못된 ID이거나 이미 사용 중입니다.",
+    "noCLI": "지원되는 AI CLI를 설치하고 로그인하세요.",
+    "savedRestart": "설정을 저장했습니다. 적용하려면 재시작하세요. 실제 QQ 송수신은 확인되지 않았습니다.",
+    "restartRequested": "재시작을 요청했습니다. 서비스가 시작되면 역할 목록으로 돌아가세요.",
+    "settingsTitle": "QQ 연결 및 기능",
+    "settingsHint": "변경 사항은 재시작 후 적용됩니다. 저장은 연결 확인을 의미하지 않습니다.",
+    "httpURL": "OneBot HTTP 주소 (선택)",
+    "keepToken": "비워 두면 저장된 토큰 유지",
+    "clearToken": "저장된 토큰 삭제",
+    "sharedHint": "켜면 그룹 구성원이 대화를 공유합니다. 개인 기억은 분리되지 않습니다.",
+    "unavailable": "현재 버전에서 사용 불가",
+    "capabilities": {
+      "qq_voice_out": "음성 응답을 지원하지 않습니다.",
+      "qq_command_allow_from": "별도 명령 허용 목록은 지원하지 않습니다. 프로젝트 관리자 설정이 적용됩니다.",
+      "memory_import": "기억 가져오기는 출처와 형식 확인을 기다리고 있습니다."
+    }
+  },
   "nav": {
     "addRole": "역할/모델 추가",
     "library": "라이브러리",
