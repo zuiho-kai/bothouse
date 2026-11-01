@@ -229,12 +229,10 @@ func (e *Engine) quotaCoolingFor(scope quotaScope) time.Time {
 	return time.Time{}
 }
 
-func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session string) {
-	if !until.After(time.Now()) {
-		return
-	}
+// extendDomainLocked keeps both admission views in sync for every extension.
+// The caller holds quotaDomainsMu; clearing an exact domain is separate.
+func (e *Engine) extendDomainLocked(scope quotaScope, until time.Time) time.Time {
 	key := scope.key()
-	quotaDomainsMu.Lock()
 	if old := e.domainUntilLocked(key); old.After(until) {
 		until = old
 	}
@@ -245,6 +243,16 @@ func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session strin
 	if old := e.domainUntilLocked(guard); until.After(old) {
 		e.saveDomainLocked(guard, until)
 	}
+	return until
+}
+
+func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session string) {
+	if !until.After(time.Now()) {
+		return
+	}
+	key := scope.key()
+	quotaDomainsMu.Lock()
+	until = e.extendDomainLocked(scope, until)
 	quotaDomainsMu.Unlock()
 	e.quotaMu.Lock()
 	defer e.quotaMu.Unlock()

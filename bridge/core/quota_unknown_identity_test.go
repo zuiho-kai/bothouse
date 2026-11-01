@@ -1,9 +1,38 @@
 package core
 
 import (
+	"context"
 	"testing"
 	"time"
 )
+
+// Source: independent review found failed probes extended only the exact domain.
+func TestQuotaUnknownIdentityKeepsProbeExtension(t *testing.T) {
+	e, a := scopedQuotaFixture(t)
+	rm := NewRelayManager(e.dataDir)
+	e.SetRelayManager(rm)
+	rm.RegisterEngine(e.name, e)
+	e.quotaProbeFn = func(context.Context) (bool, time.Duration, error) { return false, 0, nil }
+	known := e.quotaScopeFor(a, a.model)
+	reset := time.Now().Add(time.Minute)
+	e.recordQuotaFor(known, reset, "")
+	e.quotaTick(reset)
+	extended := e.quotaCoolingFor(known)
+	if !extended.After(reset) {
+		t.Fatal("failed probe did not extend the known account cooldown")
+	}
+	a.account = "unknown"
+	unknown := e.quotaScopeFor(a, a.model)
+	if got := e.quotaCoolingFor(unknown); !got.Equal(extended) {
+		t.Fatalf("unresolved identity lost probe extension: got %v, want %v", got, extended)
+	}
+	restarted := NewEngine("restart", a, nil, "", LangEnglish)
+	restarted.dataDir = e.dataDir
+	t.Cleanup(restarted.cancel)
+	if got := restarted.quotaCoolingFor(unknown); !got.Equal(extended) {
+		t.Fatalf("restart lost probe extension: got %v, want %v", got, extended)
+	}
+}
 
 // Source: C酱's independent PR824 review reproduced auth failure changing a
 // cooled account to unknown. Admission must not treat that as new allowance.

@@ -6029,7 +6029,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}()
 	state.mu.Lock()
 	ref := state.authorization
+	// Like startUnsolicitedReader, retain this turn's session under the lock:
+	// workspace cleanup may concurrently clear the shared pointer.
+	agentSession := state.agentSession
 	state.mu.Unlock()
+	if agentSession == nil {
+		return
+	}
 	changed, unwatch, watchErr := e.watchTurnAuthorization(ref)
 	if watchErr != nil {
 		e.failAuthorizedTurn(ref)
@@ -6189,7 +6195,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		turnDeadlineCh = turnDeadlineTimer.C
 	}
 
-	events := state.agentSession.Events()
+	events := agentSession.Events()
 	stopCh := state.stopSignal()
 
 	// maomao fork: sub-agent table, and the progress card kept alive while the
@@ -6197,7 +6203,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// interval).
 	e.ensureSubTaskTable(state, sessionKey)
 	var subWaitTick <-chan time.Time
-	subReporter, hasSubReporter := state.agentSession.(SubTaskReporter)
+	subReporter, hasSubReporter := agentSession.(SubTaskReporter)
 	if hasSubReporter && cp.Active() && cp.minUpdateInterval > 0 {
 		t := time.NewTicker(cp.minUpdateInterval)
 		defer t.Stop()
@@ -6240,7 +6246,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					stopTyping = nil
 				}
 				e.notifyDroppedQueuedMessages(state, err)
-				if state.agentSession == nil || !state.agentSession.Alive() {
+				if agentSession == nil || !agentSession.Alive() {
 					e.cleanupInteractiveState(sessionKey, state)
 				}
 				state.mu.Lock()
@@ -6287,7 +6293,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		graceLoop:
 			for {
 				select {
-				case evt, ok := <-state.agentSession.Events():
+				case evt, ok := <-agentSession.Events():
 					if !ok || (ok && evt.Done) {
 						// Agent exited cleanly; state is intact, resume will work.
 						slog.Info("agent exited gracefully after max_turn_time stop signal",
@@ -6384,7 +6390,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			return
 		}
 
-		e.observeQuotaEventFor(event, sessionKey, state.agentSession, state.quotaScope)
+		e.observeQuotaEventFor(event, sessionKey, agentSession, state.quotaScope)
 
 		// maomao fork: the agent compacted its context, so the per-turn blocks are gone.
 		if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
@@ -6396,7 +6402,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// Never present these again in platform text/history: the ordinary
 			// EventText/Result stream owns those. Require concrete source ID.
 			if input != nil && input.appendSpeech != nil && event.SessionID == input.expectedID {
-				if state.agentSession.CurrentSessionID() != input.expectedID {
+				if agentSession.CurrentSessionID() != input.expectedID {
 					input.finish(inputTurnResult{err: fmt.Errorf("speech source binding changed")})
 					return
 				}
@@ -6421,7 +6427,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					})
 				}
 				if cardMessageID == nil {
-					card := buildResolvedRichCard(CardStatusThinking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+					card := buildResolvedRichCard(CardStatusThinking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 					if starter, ok := p.(PreviewStarter); ok {
 						handle, err := authorizedOutputValue(outputCtx, func() (any, error) {
 							return starter.SendPreviewStart(outputCtx, markAgentReply(p, replyCtx, session), card)
@@ -6433,7 +6439,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						}
 					}
 				} else if updater, ok := p.(MessageUpdater); ok {
-					card := buildResolvedRichCard(CardStatusThinking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+					card := buildResolvedRichCard(CardStatusThinking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 					if err := authorizedOutput(outputCtx, func() error { return updater.UpdateMessage(outputCtx, cardMessageID, card) }); err != nil {
 						slog.Debug("rich card: failed to update thinking card", "platform", p.Name(), "error", err)
 					}
@@ -6519,7 +6525,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					Summary: truncateIf(event.ToolInput, e.display.ToolMaxLen),
 				})
 				if cardMessageID == nil {
-					card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+					card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 					if starter, ok := p.(PreviewStarter); ok {
 						handle, err := authorizedOutputValue(outputCtx, func() (any, error) {
 							return starter.SendPreviewStart(outputCtx, markAgentReply(p, replyCtx, session), card)
@@ -6531,7 +6537,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						}
 					}
 				} else if updater, ok := p.(MessageUpdater); ok {
-					card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+					card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 					if err := authorizedOutput(outputCtx, func() error { return updater.UpdateMessage(outputCtx, cardMessageID, card) }); err != nil {
 						slog.Debug("rich card: failed to update tool card", "platform", p.Name(), "error", err)
 					}
@@ -6680,7 +6686,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					if hasRichCard {
 						toolSteps = mergeRichToolResult(toolSteps, event, result, e.display.ToolMaxLen)
 						if cardMessageID == nil {
-							card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+							card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 							if starter, ok := p.(PreviewStarter); ok {
 								handle, err := authorizedOutputValue(outputCtx, func() (any, error) {
 									return starter.SendPreviewStart(outputCtx, markAgentReply(p, replyCtx, session), card)
@@ -6692,7 +6698,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 								}
 							}
 						} else if updater, ok := p.(MessageUpdater); ok {
-							card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+							card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 							if err := authorizedOutput(outputCtx, func() error { return updater.UpdateMessage(outputCtx, cardMessageID, card) }); err != nil {
 								slog.Debug("rich card: failed to update tool-result card", "platform", p.Name(), "error", err)
 							}
@@ -6757,7 +6763,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					if len(textParts) == 0 {
 						if hasRichCard {
 							if cardMessageID == nil && !silentHold {
-								card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+								card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 								if starter, ok := p.(PreviewStarter); ok {
 									handle, err := authorizedOutputValue(outputCtx, func() (any, error) {
 										return starter.SendPreviewStart(outputCtx, markAgentReply(p, replyCtx, session), card)
@@ -6783,7 +6789,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							// here using the accumulated partialText so the card emerges
 							// with the post-prefix content already in body.
 							if cardMessageID == nil {
-								card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+								card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 								if starter, ok := p.(PreviewStarter); ok {
 									handle, err := authorizedOutputValue(outputCtx, func() (any, error) {
 										return starter.SendPreviewStart(outputCtx, markAgentReply(p, replyCtx, session), card)
@@ -6820,7 +6826,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 									}
 								}
 								if !streamed {
-									card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, state.agentSession, state.workspaceDir))
+									card := buildResolvedRichCard(CardStatusWorking, "", toolSteps, partialText, true, e.composeRichStatusFooter(true, turnStart, e.agent, agentSession, state.workspaceDir))
 									if updater, ok := p.(MessageUpdater); ok {
 										if err := authorizedOutput(outputCtx, func() error { return updater.UpdateMessage(outputCtx, cardMessageID, card) }); err == nil {
 											lastRichCardUpdate = time.Now()
@@ -6885,7 +6891,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 			if autoApprove && !isAskQuestion {
 				slog.Debug("auto-approving (approve-all)", "request_id", event.RequestID, "tool", event.ToolName)
-				_ = e.respondTurnPermission(state, state.agentSession, event.RequestID, PermissionResult{
+				_ = e.respondTurnPermission(state, agentSession, event.RequestID, PermissionResult{
 					Behavior:     "allow",
 					UpdatedInput: event.ToolInputRaw,
 				})
@@ -7008,8 +7014,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if input == nil {
 				e.emitStreamEvent(StreamEventReply, sessionKey, event.Content, nil)
 			}
-			// Use state.agentSession.CurrentSessionID() instead of event.SessionID.
-			if input != nil && (event.Error != nil || state.agentSession.CurrentSessionID() != input.expectedID ||
+			// Use agentSession.CurrentSessionID() instead of event.SessionID.
+			if input != nil && (event.Error != nil || agentSession.CurrentSessionID() != input.expectedID ||
 				(event.SessionID != "" && event.SessionID != input.expectedID) || sessions.ActiveSessionID(sessionKey) != session.ID || session.GetAgentSessionID() != input.expectedID) {
 				err := event.Error
 				if err == nil {
@@ -7020,8 +7026,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			// event.SessionID may be empty in some cases, causing the agent_session_id
 			// to not be persisted to disk, breaking session resume on next startup.
-			if state != nil && state.agentSession != nil {
-				if currentID := state.agentSession.CurrentSessionID(); currentID != "" {
+			if state != nil && agentSession != nil {
+				if currentID := agentSession.CurrentSessionID(); currentID != "" {
 					e.journalSessionID(sessionKey, currentID) // #618 K4
 					wasEmpty := session.GetAgentSessionID() == ""
 					if session.GetAgentSessionID() != currentID {
@@ -7072,7 +7078,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// The adapter marked an exhausted quota; say which bot/model ran out so
 			// other bots in the channel are not blamed.
 			if reset, ok := QuotaExhaustedReset(event); ok {
-				fullResponse = e.quotaExhaustedMessage(reset, state.agentSession, replyAgent)
+				fullResponse = e.quotaExhaustedMessage(reset, agentSession, replyAgent)
 			}
 			if input != nil && strings.TrimSpace(fullResponse) == "" {
 				state.mu.Lock()
@@ -7110,7 +7116,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if input == nil && e.autoCompressEnabled && e.autoCompressMaxTokens > 0 {
 				estimate := contextEstimate
 				// 文本估算不含工具输出，远低于真实值（橘 272k 时估算才几万）；有真实用量就取大者。
-				if u := replyFooterSessionContextUsage(state.agentSession); u != nil && u.UsedTokens > estimate {
+				if u := replyFooterSessionContextUsage(agentSession); u != nil && u.UsedTokens > estimate {
 					estimate = u.UsedTokens
 				}
 				now := time.Now()
@@ -7174,7 +7180,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			var statusFooter string
 			var legacyStatusFooter string
 			if !isSilent {
-				footerContext := replyFooterContextText(replyFooterSessionContextUsage(state.agentSession), e.i18n)
+				footerContext := replyFooterContextText(replyFooterSessionContextUsage(agentSession), e.i18n)
 				if e.showContextIndicator {
 					if sdkPlausible {
 						if text := contextIndicatorText(event.InputTokens); text != "" {
@@ -7184,9 +7190,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						footerContext = fmt.Sprintf("[ctx: ~%d%%]", selfPct)
 					}
 				}
-				if status := e.buildClaudeStatusLineFooter(replyAgent, state.agentSession, workspaceDir); status != "" {
+				if status := e.buildClaudeStatusLineFooter(replyAgent, agentSession, workspaceDir); status != "" {
 					statusFooter = status
-				} else if footer := e.buildReplyFooter(replyAgent, state.agentSession, workspaceDir, footerContext); footer != "" {
+				} else if footer := e.buildReplyFooter(replyAgent, agentSession, workspaceDir, footerContext); footer != "" {
 					statusFooter = footer
 					legacyStatusFooter = footer
 				}
@@ -7291,7 +7297,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						silentBody = strings.TrimRight(stripped, " \t\r\n")
 					}
 					if silentBody != "" || len(toolSteps) > 0 {
-						card := buildResolvedRichCard(CardStatusDone, "", toolSteps, silentBody, false, e.composeRichStatusFooter(false, turnStart, e.agent, state.agentSession, state.workspaceDir))
+						card := buildResolvedRichCard(CardStatusDone, "", toolSteps, silentBody, false, e.composeRichStatusFooter(false, turnStart, e.agent, agentSession, state.workspaceDir))
 						if updater, ok := p.(MessageUpdater); ok {
 							if err := authorizedOutput(outputCtx, func() error { return updater.UpdateMessage(outputCtx, cardMessageID, card) }); err != nil {
 								slog.Debug("rich card: failed to finalize card on silent reply", "platform", p.Name(), "error", err)
@@ -7312,7 +7318,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				if splitter, ok := p.(MarkdownTableSplitter); ok {
 					parts = splitter.SplitMarkdownByTables(fullResponse, 5)
 				}
-				richStatusFooter := e.composeRichStatusFooter(false, turnStart, e.agent, state.agentSession, state.workspaceDir)
+				richStatusFooter := e.composeRichStatusFooter(false, turnStart, e.agent, agentSession, state.workspaceDir)
 				if legacyStatusFooter != "" {
 					richStatusFooter = formatElapsed(time.Since(turnStart), false, e.i18n.currentLang()) + "\n" + legacyStatusFooter
 				}
@@ -7546,7 +7552,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// Drain stale events before starting the next turn. Between
 				// EventResult and Send(), the only buffered events would be
 				// stale leftovers (e.g. a deferred EventError from cmd.Wait()).
-				drainEvents(state.agentSession.Events())
+				drainEvents(agentSession.Events())
 
 				if pendingSend != nil {
 					if err := <-pendingSend; err != nil {
@@ -7566,7 +7572,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				queuedPrompt = e.withPublicProgress(queuedPrompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
 
 				state.mu.Lock()
-				as := state.agentSession // capture under lock to avoid race with cleanup
+				as := agentSession // capture under lock to avoid race with cleanup
 				state.mu.Unlock()
 				// The previous turn's mode ends with that turn; this one runs in its own.
 				e.setTurnMode(state, as, queued.modeOverride)
@@ -7744,7 +7750,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				if errorAnswer != "" {
 					cardAnswer = errorAnswer
 				}
-				errCard := buildResolvedRichCard(CardStatusError, "", toolSteps, cardAnswer, false, e.composeRichStatusFooter(false, turnStart, replyAgent, state.agentSession, workspaceDir))
+				errCard := buildResolvedRichCard(CardStatusError, "", toolSteps, cardAnswer, false, e.composeRichStatusFooter(false, turnStart, replyAgent, agentSession, workspaceDir))
 				if updater, ok := p.(MessageUpdater); ok {
 					if err := authorizedOutput(outputCtx, func() error { return updater.UpdateMessage(outputCtx, cardMessageID, errCard) }); err != nil {
 						slog.Debug("rich card: failed to update error card", "platform", p.Name(), "error", err)
@@ -7819,7 +7825,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						}
 					}
 					if reset, ok := QuotaExhaustedReset(event); ok {
-						userMsg = e.quotaExhaustedMessage(reset, state.agentSession, replyAgent)
+						userMsg = e.quotaExhaustedMessage(reset, agentSession, replyAgent)
 					}
 					if errorAnswer != "" {
 						if !errorAnswerDelivered {
@@ -7832,9 +7838,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// status (or explicit query failure) as a successful reply.
 					var statusFooter string
 					if !errorFooterDelivered {
-						statusFooter = e.buildClaudeStatusLineFooter(replyAgent, state.agentSession, workspaceDir)
+						statusFooter = e.buildClaudeStatusLineFooter(replyAgent, agentSession, workspaceDir)
 						if statusFooter == "" {
-							statusFooter = e.buildReplyFooter(replyAgent, state.agentSession, workspaceDir, "")
+							statusFooter = e.buildReplyFooter(replyAgent, agentSession, workspaceDir, "")
 						}
 					}
 					sendChunksWithStatusFooter(outputCtx, p, replyCtx, userMsg, statusFooter, func(p Platform, replyCtx any, content string) error {
@@ -7845,7 +7851,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// Only drop queued messages if the agent session is dead.
 			// Some agents (e.g. Codex) emit EventError for per-turn failures
 			// while keeping the session alive for subsequent turns.
-			if state.agentSession == nil || !state.agentSession.Alive() {
+			if agentSession == nil || !agentSession.Alive() {
 				e.notifyDroppedQueuedMessages(state, event.Error)
 			}
 			return

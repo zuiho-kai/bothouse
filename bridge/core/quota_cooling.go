@@ -562,7 +562,7 @@ func (e *Engine) quotaTick(now time.Time) {
 			}
 			e.capMu.Unlock()
 			if st.Scope != "" {
-				e.saveDomainLocked(st.Scope, st.Until)
+				st.Until = e.extendDomainLocked(scope, st.Until)
 			}
 			quotaDomainsMu.Unlock()
 			e.saveQuotaLocked()
