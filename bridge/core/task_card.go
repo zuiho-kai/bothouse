@@ -114,6 +114,19 @@ type Task struct {
 	// journals written before rework existed (see RevisionNo).
 	Revision  int            `json:"revision,omitempty"`
 	Artifacts []TaskArtifact `json:"artifacts,omitempty"`
+	// CardSession is the session key of the channel that holds the card when it
+	// differs from SessionKey (a chat-channel source opens its card in the
+	// execution workspace). Empty means the card lives in SessionKey.
+	CardSession string `json:"card_session,omitempty"`
+}
+
+// cardSessionKey is the channel that holds the task card: the execution
+// workspace for a chat-channel source, else the source session.
+func (t *Task) cardSessionKey() string {
+	if t.CardSession != "" {
+		return t.CardSession
+	}
+	return t.SessionKey
 }
 
 // Clone creates a deep copy of the task.
