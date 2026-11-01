@@ -1,5 +1,6 @@
 {
   "nav": {
+    "addPlatform": "Añadir plataforma",
     "addRole": "Añadir rol / modelo",
     "library": "Biblioteca",
     "dashboard": "Panel",

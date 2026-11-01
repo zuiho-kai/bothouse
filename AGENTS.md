@@ -50,6 +50,17 @@
 
 详细说明：[docs/connect-discord-feishu.md](docs/connect-discord-feishu.md) 第 3 节；人用浏览器向导时直接运行 `bothouse`。
 
+## 用户说「配 QQ」「接上 QQ」
+
+同样是装 → `setup apply` → 确认上线，平台换成 QQ（NapCat / OneBot 11）。不用 Discord token。
+
+1. 让用户先在本机启动 NapCat、登录机器人用的 QQ 号，在 NapCat「网络配置」里开一个 WebSocket 服务器（默认 `ws://127.0.0.1:3001`），记下 token（可空）。
+2. 一次问齐：WebSocket 地址、token、**用户自己的 QQ 号**（`allow_from`，必填；`*` = 谁都能指挥，不推荐）、用哪个本机 CLI（`bothouse setup clis`）。
+3. 请求 `{"platform": "qq", "qq": {"ws_url": "<地址>", "token": "<token>", "allow_from": "<QQ号>"}, "roles": [{}]}`，照上一节第 3、4 步先 `--dry-run`（会真连一次 NapCat 测试）再正式跑、看 `ok`。`qq.code` 是 `unreachable` / `unauthorized` 时把 `qq.message` 和 `qq.fix` 告诉用户。
+4. 启动后日志出现 `qq: logged in` 就是连上了，让用户在 QQ 里私聊或在群里 @ 机器人试一句。
+
+详细说明：[docs/platforms/qq.md](docs/platforms/qq.md)。已经配了别的平台再加 QQ：同一请求加 `"append_only": true`，已有角色不动。
+
 ## 用户说「接自建平台」「要一个像 Grok 那样打开就聊的」
 
 也是装 → `setup apply` → 确认上线，只是平台换成自建平台（cloud_web，role-household 的 hub）。不用 Discord token。

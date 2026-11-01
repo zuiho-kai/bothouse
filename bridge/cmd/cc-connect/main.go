@@ -238,6 +238,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"doctor":       runDoctor,
 	"web":          runWeb,
 	"setup":        runSetup,
+	"module":       runModule,
 }
 
 func main() {
@@ -886,7 +887,7 @@ func runMain() {
 	slog.Info("bye")
 }
 
-// errSkipProject: buildProject left the project out (its multi-workspace base_dir could not be
+// errSkipProject: buildProject left the project out (all its platforms are disabled, or its multi-workspace base_dir could not be
 // created). Startup goes on without it, as it always did.
 var errSkipProject = errors.New("project skipped")
 
@@ -902,6 +903,11 @@ type builtProject struct {
 // hot loading only marks that project as failed.
 func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions, proj config.ProjectConfig) (builtProject, error) {
 	var b builtProject
+	active := proj.ActivePlatforms()
+	if len(active) == 0 { // every platform stopped with `module disable`: the role's files stay, it just doesn't run
+		slog.Info("project not started: all its platforms are disabled", "project", proj.Name)
+		return b, errSkipProject
+	}
 	// Inject project-level run_as_user / run_as_env into the agent's
 	// opts map so agents that support isolation can pick them up
 	// without needing their own top-level config plumbing.
@@ -924,7 +930,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	providerWiring := wireAgentProviders(agent, proj.Agent)
 
 	var platforms []core.Platform
-	for _, pc := range proj.Platforms {
+	for _, pc := range active {
 		opts := make(map[string]any, len(pc.Options)+2)
 		for k, v := range pc.Options {
 			opts[k] = v
@@ -1763,6 +1769,11 @@ Commands:
     personas         Example personas
 
   web                Open the web admin (with no bots configured yet: the setup wizard)
+
+  module             Platforms as optional modules (qq, discord, feishu, dsh, cloud_web)
+    list             Which platforms are enabled / disabled / not configured
+    add <platform>   Turn a platform back on, or show how to add it
+    disable <platform>  Stop a platform, keeping its settings
 
   daemon             Manage bothouse as a background service (systemd/launchd/schtasks)
     install          Install and start the daemon service

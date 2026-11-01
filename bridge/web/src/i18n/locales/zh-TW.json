@@ -1,5 +1,6 @@
 {
   "nav": {
+    "addPlatform": "新增平台",
     "addRole": "新增角色/模型",
     "library": "角色庫",
     "dashboard": "總覽",
