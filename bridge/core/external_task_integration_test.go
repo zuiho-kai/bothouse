@@ -351,3 +351,19 @@ func TestExternalEventsAdapterFixtures(t *testing.T) {
 		t.Fatalf("wait event: %+v", events)
 	}
 }
+
+func TestExternalEventsLegacyPollTextAndMalformedEnvelope(t *testing.T) {
+	_, e, _, _, _ := externalEngineFixture(t)
+	for _, out := range []string{"ordinary change", "Change in \"task_events\" field", "{\"status\":\"ready\"}"} {
+		wake, err := e.pollCronJob(&CronJob{ID: "legacy", Exec: "printf %s " + shellQuoteRelay(out), Poll: true})
+		if err != nil || wake == nil || !strings.Contains(wake.Prompt, out) {
+			t.Fatalf("legacy output %q: %+v %v", out, wake, err)
+		}
+	}
+	for _, out := range []string{"{\"task_events\":null}", "{\"task_events\":{}}", "{\"task_events\":"} {
+		wake, err := e.pollCronJob(&CronJob{ID: "invalid", Exec: "printf %s " + shellQuoteRelay(out), Poll: true})
+		if err == nil || wake != nil {
+			t.Fatalf("malformed event woke agent: %q", out)
+		}
+	}
+}

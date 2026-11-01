@@ -62,7 +62,7 @@ func (e *Engine) AcceptExternalTaskEvents(events []ExternalTaskEvent) (ExternalE
 func structuredPollEvents(out string) ([]ExternalTaskEvent, bool, error) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
-		if strings.Contains(out, `"task_events"`) {
+		if strings.HasPrefix(strings.TrimSpace(out), "{") && strings.Contains(out, `"task_events"`) {
 			return nil, true, fmt.Errorf("structured poll output: %w", err)
 		}
 		return nil, false, nil
