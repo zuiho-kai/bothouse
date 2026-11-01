@@ -760,6 +760,20 @@ type CodexProviderConfig struct {
 type PlatformConfig struct {
 	Type    string         `toml:"type"`
 	Options map[string]any `toml:"options"`
+	// Disabled keeps the section (credentials, options) but the bridge neither creates nor
+	// connects it (`bothouse module disable <platform>`, #812).
+	Disabled bool `toml:"disabled,omitempty"`
+}
+
+// ActivePlatforms is the project's platforms without the disabled ones: the ones startup creates.
+func (p ProjectConfig) ActivePlatforms() []PlatformConfig {
+	var out []PlatformConfig
+	for _, pc := range p.Platforms {
+		if !pc.Disabled {
+			out = append(out, pc)
+		}
+	}
+	return out
 }
 
 // AliasConfig maps a trigger string to a command (e.g. "帮助" → "/help").
