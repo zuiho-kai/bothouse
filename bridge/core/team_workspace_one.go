@@ -30,17 +30,42 @@ const (
 )
 
 // runLeadScript runs <dataDir>/collaboration/lead/<name> args… as chat's lead would.
+// When collaboration/lead is not installed yet, "board" falls back to <dataDir>/gate/board.py
+// (installed by GateSupervisor or GateScriptFS) so workspace [report]/[ask] still update the board.
 func (e *Engine) runLeadScript(chat, name string, args ...string) ([]byte, error) {
 	if e == nil || e.dataDir == "" {
 		return nil, os.ErrNotExist
 	}
 	bin := filepath.Join(e.dataDir, "collaboration", "lead", name)
-	if _, err := os.Stat(bin); err != nil {
+	var cmdArgs []string
+	if _, err := os.Stat(bin); err == nil {
+		cmdArgs = append([]string{bin}, args...)
+	} else if name == "board" {
+		gateBoard := filepath.Join(e.dataDir, "gate", "board.py")
+		if _, gerr := os.Stat(gateBoard); gerr != nil && GateScriptFS != nil {
+			_ = installGateScripts(filepath.Join(e.dataDir, "gate"))
+		}
+		if _, gerr := os.Stat(gateBoard); gerr == nil {
+			py := "python3"
+			if v := e.productPyBin.Load(); v != nil {
+				if dir, _ := v.(string); dir != "" {
+					if cand := filepath.Join(dir, "python3"); fileExists(cand) {
+						py = cand
+					}
+				}
+			} else if cand := filepath.Join(AgentToolsDir(e.dataDir), "bin", "python3"); fileExists(cand) {
+				py = cand
+			}
+			cmdArgs = append([]string{py, "-I", gateBoard}, args...)
+		} else {
+			return nil, err
+		}
+	} else {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(e.ctx, leadScriptTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd := exec.CommandContext(ctx, cmdArgs[0], cmdArgs[1:]...)
 	cmd.Env = append(os.Environ(), e.roleSessionEnv(chat)...)
 	cmd.Dir = e.dataDir
 	return cmd.CombinedOutput()

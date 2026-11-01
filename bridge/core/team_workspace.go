@@ -1491,14 +1491,11 @@ func (e *Engine) ParkTeamWorkspaceFor(workspace, chat string, before time.Time) 
 	return true, nil
 }
 
-// TeamHandoffEnded reports whether the workspace has stopped working on chat's task handed off
-// at or before bound: that handoff is closed (the workspace finished it and its session was reset,
-// releaseTeamWorkspace) or paused. The pick is ParkTeamWorkspaceFor's: chat's newest handoff at or
-// before bound (bound zero: chat's newest; chat "": any chat's). false when no such handoff is
-// recorded (not known to have ended). The team board uses it for a handoff item's live state.
-func (e *Engine) TeamHandoffEnded(workspace, chat string, bound time.Time) bool {
+// TeamHandoffOf returns chat's newest handoff to workspace at or before bound (bound zero: chat's
+// newest; chat "": any chat's), using the same pick rule as ParkTeamWorkspaceFor.
+func (e *Engine) TeamHandoffOf(workspace, chat string, bound time.Time) (TeamHandoff, bool) {
 	if e == nil || e.dataDir == "" || workspace == "" {
-		return false
+		return TeamHandoff{}, false
 	}
 	key := teamChatKey(workspace)
 	if chat != "" {
@@ -1514,7 +1511,128 @@ func (e *Engine) TeamHandoffEnded(workspace, chat string, bound time.Time) bool 
 		}
 		pick = i
 	}
-	return pick >= 0 && !teamHandoffOpen(list[pick])
+	if pick < 0 {
+		return TeamHandoff{}, false
+	}
+	return list[pick], true
+}
+
+// TeamHandoffEnded reports whether the workspace has stopped working on chat's task handed off
+// at or before bound: that handoff is closed (the workspace finished it and its session was reset,
+// releaseTeamWorkspace) or paused. The pick is ParkTeamWorkspaceFor's: chat's newest handoff at or
+// before bound (bound zero: chat's newest; chat "": any chat's). false when no such handoff is
+// recorded (not known to have ended). The team board uses it for a handoff item's live state.
+func (e *Engine) TeamHandoffEnded(workspace, chat string, bound time.Time) bool {
+	h, ok := e.TeamHandoffOf(workspace, chat, bound)
+	return ok && !teamHandoffOpen(h)
+}
+
+// TeamOpenWorkspaceHandoffs returns each workspace's newest open, unreturned handoff that carries a
+// task identity (title or board ID) and source chat, so the native board can reconcile active
+// workspace executions even when board.jsonl missed or prematurely paused the item.
+func (e *Engine) TeamOpenWorkspaceHandoffs() map[string]TeamHandoff {
+	if e == nil || e.dataDir == "" {
+		return nil
+	}
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	var out map[string]TeamHandoff
+	for key, list := range st.Handoffs {
+		for i := len(list) - 1; i >= 0; i-- {
+			h := list[i]
+			if !teamHandoffOpen(h) || h.Idle.Returned || h.Chat == "" {
+				continue
+			}
+			if strings.TrimSpace(h.Title) == "" && h.Board <= 0 {
+				continue
+			}
+			if out == nil {
+				out = make(map[string]TeamHandoff)
+			}
+			out[teamChatKey(key)] = h
+			break
+		}
+	}
+	return out
+}
+
+// TeamIdleWorkspaceNames returns the sorted names (「工作区n」) of known pool workspaces on chat's
+// platform that currently have no open handoff and are not claimed by an active parent record.
+func (e *Engine) TeamIdleWorkspaceNames(chat string) []string {
+	if e == nil || e.dataDir == "" || chat == "" {
+		return nil
+	}
+	plat, _, _ := strings.Cut(teamChatKey(chat), ":")
+	if plat == "" {
+		return nil
+	}
+	teamWorkspaceStore.mu.Lock()
+	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	nameByID := map[string]string{}
+	busyID := map[string]bool{}
+	for wsKey, list := range st.Handoffs {
+		p, id, _ := strings.Cut(teamChatKey(wsKey), ":")
+		if p != plat || id == "" {
+			continue
+		}
+		for _, h := range list {
+			if isTeamWorkspaceName(h.Name) {
+				nameByID[id] = h.Name
+			}
+			if teamHandoffOpen(h) {
+				busyID[id] = true
+			}
+		}
+	}
+	for parent, list := range st.Parents {
+		p, _, _ := strings.Cut(teamChatKey(parent), ":")
+		if p != plat {
+			continue
+		}
+		for _, w := range list {
+			if isTeamWorkspaceName(w.Name) {
+				nameByID[w.ID] = w.Name
+			}
+			if !w.ReleasePending {
+				busyID[w.ID] = true
+			}
+		}
+	}
+	teamWorkspaceStore.mu.Unlock()
+
+	teamTaskBoardChannels.Lock()
+	liveIDs := teamTaskBoardChannels.ids[plat]
+	teamTaskBoardChannels.Unlock()
+
+	busyName := map[string]bool{}
+	allNames := map[string]bool{}
+	for id, name := range nameByID {
+		if len(liveIDs) > 0 && !liveIDs[id] {
+			continue
+		}
+		allNames[name] = true
+		if busyID[id] {
+			busyName[name] = true
+		}
+	}
+	var out []string
+	for name := range allNames {
+		if !busyName[name] {
+			out = append(out, name)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		ni, nj := teamWorkspaceNum(out[i]), teamWorkspaceNum(out[j])
+		if (ni > 0) != (nj > 0) {
+			return ni > 0
+		}
+		if ni != nj {
+			return ni < nj
+		}
+		return out[i] < out[j]
+	})
+	return out
 }
 
 // ResetTeamWorkspaceSessions gives every session of this engine in workspace key
