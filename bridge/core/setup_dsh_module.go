@@ -22,9 +22,10 @@ type DSHModuleState struct {
 // dshModuleProfile reads only the selected profile, never extracting embedded
 // resources or initializing DSH. Status and dry runs must leave a fresh HOME empty.
 type dshModulePlugin struct {
-	ID       string
-	Name     string
-	Disabled bool
+	ID             string
+	Name           string
+	Disabled       bool
+	HomeControlled bool
 }
 
 func dshPluginName(name string) bool {
@@ -70,9 +71,6 @@ func dshModuleProfile() (DSHModuleState, []dshModulePlugin, *yaml.Node, error) {
 	}
 	var layers []*yaml.Node
 	for _, bundle := range manifest.DSH.Profile.Bundles {
-		if bundle != "conest-collab" && bundle != "bothouse-dsh" {
-			continue
-		}
 		packageDir := filepath.Join(dir, "node_modules", bundle)
 		var pkg struct {
 			DSH struct{ Bundle struct{ Patch string } }
@@ -102,6 +100,11 @@ func dshModuleProfile() (DSHModuleState, []dshModulePlugin, *yaml.Node, error) {
 		return state, nil, nil, err
 	}
 	layers = append(layers, doc)
+	homePatch, err := readDSHPatch(filepath.Join(dshHome(), "cordis.patch.yml"))
+	if err != nil {
+		return state, nil, nil, err
+	}
+	layers = append(layers, homePatch)
 	var plugins []dshModulePlugin
 	for _, layer := range layers {
 		for _, entry := range layer.Content[0].Content {
@@ -129,6 +132,7 @@ func dshModuleProfile() (DSHModuleState, []dshModulePlugin, *yaml.Node, error) {
 					if err := applyDSHDisabled(&plugin, item); err != nil {
 						return state, nil, nil, err
 					}
+					plugin.HomeControlled = layer == homePatch
 					plugins = append(plugins, plugin)
 				}
 				continue
@@ -142,6 +146,9 @@ func dshModuleProfile() (DSHModuleState, []dshModulePlugin, *yaml.Node, error) {
 				}
 				if name := mapGet(entry, "name"); name != nil && name.Value != plugins[i].Name {
 					continue
+				}
+				if layer == homePatch && mapGet(entry, "disabled") != nil {
+					plugins[i].HomeControlled = true
 				}
 				if err := applyDSHDisabled(&plugins[i], entry); err != nil {
 					return state, nil, nil, err
@@ -162,7 +169,9 @@ func applyDSHDisabled(plugin *dshModulePlugin, entry *yaml.Node) error {
 		if d.Tag != "!!bool" {
 			return fmt.Errorf("DSH plugin %s has a dynamic disabled override; manage it in DSH", plugin.ID)
 		}
-		plugin.Disabled = d.Value == "true"
+		if err := d.Decode(&plugin.Disabled); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -179,6 +188,13 @@ func setDSHModuleDisabled(disabled bool) (DSHModuleState, bool, error) {
 	st, plugins, doc, err := dshModuleProfile()
 	if err != nil || !st.Installed {
 		return st, false, err
+	}
+	// HOME overlays apply last and may affect other profiles. Never silently
+	// overwrite that global policy or claim a profile override can supersede it.
+	for _, p := range plugins {
+		if p.HomeControlled && p.Disabled != disabled {
+			return st, false, fmt.Errorf("DSH plugin %s is controlled by HOME cordis.patch.yml; change its global override in DSH first", p.ID)
+		}
 	}
 	changed := false
 	for _, p := range plugins {
@@ -238,7 +254,7 @@ func ApplyDSHModule(ctx context.Context, disable, dryRun bool, lang string) DSHM
 			r.Error = err.Error()
 			return r
 		}
-		if _, issue := dshNodeStatus(ctx); issue != "" {
+		if _, issue := dshNodeStatus(ctx, lang); issue != "" {
 			r.Error = issue
 			return r
 		}

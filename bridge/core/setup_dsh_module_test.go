@@ -270,3 +270,52 @@ func TestDSHModuleReviewRegressions(t *testing.T) {
 		}
 	})
 }
+
+func TestDSHModuleAllPatchLayers(t *testing.T) {
+	for _, test := range []struct {
+		name, value string
+		home        bool
+	}{
+		{"other-bundle", "true", false}, {"uppercase", "True", false}, {"uppercase-all", "TRUE", false}, {"home", "false", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("DSH_HOME", home)
+			dir := filepath.Join(home, "profiles", DSHProfile)
+			writeDSHBundleFixture(t, dir, "bothouse-dsh")
+			writeDSHBundleFixture(t, dir, "custom-policy")
+			write := func(path, body string) {
+				t.Helper()
+				if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write(filepath.Join(dir, "package.json"), "{\"dsh\":{\"profile\":{\"bundles\":[\"bothouse-dsh\",\"custom-policy\"]}}}")
+			patch := "- id: bothouse-dsh\n  disabled: " + test.value + "\n"
+			target := filepath.Join(dir, "node_modules", "custom-policy", "cordis.patch.yml")
+			if test.home {
+				target = filepath.Join(home, "cordis.patch.yml")
+			}
+			write(target, patch)
+			st, err := GetDSHModuleState()
+			if err != nil || !st.Installed || st.Disabled == test.home {
+				t.Fatalf("state %+v err %v", st, err)
+			}
+			result := ApplyDSHModule(context.Background(), test.home, false, "zh")
+			if test.home {
+				if result.OK || result.Saved || !strings.Contains(result.Error, "HOME cordis.patch.yml") {
+					t.Fatalf("global override: %+v", result)
+				}
+				if _, err := os.Stat(filepath.Join(dir, "cordis.patch.yml")); !os.IsNotExist(err) {
+					t.Fatal("wrote ineffective profile override")
+				}
+			} else if !result.OK || !result.Saved || result.DSH.Disabled {
+				t.Fatalf("enable: %+v", result)
+			}
+			got, _ := os.ReadFile(target)
+			if string(got) != patch {
+				t.Fatal("modified source policy")
+			}
+		})
+	}
+}

@@ -233,7 +233,7 @@ func GetDSHStatus(ctx context.Context) DSHStatus {
 func InstallDSHPlugin(ctx context.Context, lang string, onLine func(string)) (DSHStatus, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	if _, issue := dshNodeStatus(ctx); issue != "" {
+	if _, issue := dshNodeStatus(ctx, lang); issue != "" {
 		return GetDSHStatus(ctx), errors.New(issue)
 	}
 	script := FindDSHInstallScript()
@@ -379,22 +379,27 @@ func dshInstallError(err error, lang string) string {
 
 // dshNodeStatus checks the runtime only for the selected DSH installation route.
 // 来源：docs/platforms/dsh.md and dsh/collab/package.json require Node >= 22.12.0.
-func dshNodeStatus(ctx context.Context) (string, string) {
+func dshNodeStatus(ctx context.Context, langs ...string) (string, string) {
+	lang := "en"
+	if len(langs) > 0 {
+		lang = langs[0]
+	}
+	i18n := NewI18n(Language(lang))
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	node, err := exec.LookPath("node")
 	if err != nil {
-		return "", "Node >= 22.12.0 is required for DSH; install Node and detect again."
+		return "", i18n.T(MsgDSHNodeRequired)
 	}
 	out, err := exec.CommandContext(ctx, node, "--version").Output()
 	version := strings.TrimSpace(string(out))
 	if err != nil {
-		return version, "Could not run node --version; check Node on PATH and detect again."
+		return version, i18n.T(MsgDSHNodeRunFailed)
 	}
 	var major, minor, patch int
 	n, err := fmt.Sscanf(strings.TrimPrefix(version, "v"), "%d.%d.%d", &major, &minor, &patch)
 	if err != nil || n != 3 || major < 22 || (major == 22 && minor < 12) {
-		return version, "Node >= 22.12.0 is required for DSH; upgrade Node and detect again."
+		return version, i18n.T(MsgDSHNodeRequired)
 	}
 	return version, ""
 }
