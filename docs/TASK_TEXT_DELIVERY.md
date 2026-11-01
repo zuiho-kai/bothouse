@@ -9,7 +9,7 @@ PublicProgress journal (0600). It does not rerun an agent to recover a send.
 Use the current task revision from `bothouse task show`:
 
 ~~~sh
-bothouse send --project worker --session discord:CHANNEL +  --task TASK_ID --revision 1 --delivery-id stable-result-id +  --text-kind result --message 'The result text'
+bothouse send --project worker --session discord:CHANNEL --task TASK_ID --revision 1 --delivery-id stable-result-id --text-kind result --message 'The result text'
 ~~~
 
 This returns HTTP 202 and a delivery record in state `pending`. It means the
@@ -27,9 +27,16 @@ part's state and message ID, even without a platform task card. They exclude
 the text. The body hash references the private journal's stored fragment plan;
 it is not a public download URL.
 
+The CLI exposes reconciliation through `task delivery --project worker
+--id TASK_ID --action list`. To resolve an unknown fragment, supply
+`--delivery-id ID --action sent --evidence PLATFORM_MESSAGE_ID`; use
+`not-accepted` only with confirmed absence, or `cancel` for remaining work.
+Pass `--data-dir` when `CC_DATA_DIR` is unavailable. Previously confirmed
+fragments retain their receipts.
+
 For manual reconciliation use the existing local API socket with `POST
-/task-text` and fields `Project`, `TaskID`, `DeliveryID`, `Action`,
-`Evidence`. `list` reads metadata; `sent` records a confirmed message ID;
+/task-text` and fields `project`, `task_id`, `delivery_id`, `action`,
+`evidence`. `list` reads metadata; `sent` records a confirmed message ID;
 `not-accepted` permits retry only after an operator has confirmed absence;
 `cancel` explicitly skips remaining unsent parts. Mutation requires nonempty
 evidence. Evidence is public metadata: use a receipt ID or safe reference,
@@ -80,7 +87,9 @@ if the process exits first, the old sending checkpoint recovers as unknown.
 Cancellation, revision replacement and answered questions prevent pending
 parts from starting. In-flight or unknown parts remain visible as possible
 external side effects. A failed task state caused solely by restart does not
-mean an unanswered question was answered.
+mean an unanswered question was answered. Questions bind to their waiting event
+sequence; only the synthetic restart interruption preserves that sequence. An
+answer, a new waiting event or an explicit failure invalidates the old question.
 
 The project that owns the journal remains the sending role across model swaps
 and workspace release. The persisted destination is reconstructed directly;

@@ -11,6 +11,9 @@ func (p *Platform) SendTaskTextPart(ctx context.Context, target, key, text strin
 	if err := ctx.Err(); err != nil {
 		return "", core.ErrTaskTextNotAccepted
 	}
+	if k, ok := p.tp.(interface{ CapabilitiesKnown() bool }); ok && !k.CapabilitiesKnown() {
+		return "", core.ErrTaskTextNotAccepted
+	}
 	if ws, ok := p.tp.(*wsTransport); ok {
 		ws.mu.RLock()
 		connected := ws.conn != nil
@@ -37,5 +40,9 @@ func (p *Platform) SendTaskTextPart(ctx context.Context, target, key, text strin
 		_, _ = wait(0)
 		return "", err
 	}
-	return wait(taskCardAckTimeout)
+	id, err := wait(taskCardAckTimeout)
+	if err == nil && id == "" {
+		return "", core.ErrTaskTextRejected
+	}
+	return id, err
 }

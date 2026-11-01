@@ -13,7 +13,7 @@ import (
 )
 
 func TestTaskTextFeishuReceiptAndRateLimit(t *testing.T) {
-	for _, code := range []int{0, feishuIMRateLimitCode} {
+	for _, code := range []int{0, feishuIMRateLimitCode, 230002} {
 		calls := 0
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
@@ -27,6 +27,9 @@ func TestTaskTextFeishuReceiptAndRateLimit(t *testing.T) {
 			if body["uuid"] == "" || body["receive_id"] != "oc_room" {
 				t.Error("missing stable key or destination")
 			}
+			if body["uuid"] != feishuUUID("task-text", "delivery-key") {
+				t.Error("must use existing bounded platform UUID")
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": code, "data": map[string]string{"message_id": "om_receipt"}})
 		}))
 		p := &Platform{platformName: "feishu", client: lark.NewClient("fixture-task", "secret", lark.WithOpenBaseUrl(srv.URL), lark.WithEnableTokenCache(false))}
@@ -34,6 +37,10 @@ func TestTaskTextFeishuReceiptAndRateLimit(t *testing.T) {
 		if code == 0 {
 			if id != "om_receipt" || err != nil {
 				t.Fatal(id, err)
+			}
+		} else if code == 230002 {
+			if !errors.Is(err, core.ErrTaskTextRejected) {
+				t.Fatal("permanent refusal misclassified", err)
 			}
 		} else if !errors.Is(err, core.ErrTaskTextNotAccepted) {
 			t.Fatal("rate limit not retryable", err)

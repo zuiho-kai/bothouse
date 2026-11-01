@@ -54,7 +54,9 @@ type TaskTextDelivery struct {
 
 type taskTextRecord struct {
 	TaskTextDelivery
-	Body []string `json:"body"`
+	Body                []string `json:"body"`
+	QuestionSeq         int64
+	QuestionRecoverySeq int64
 }
 
 func copyTaskText(d *taskTextRecord) TaskTextDelivery {
@@ -97,7 +99,7 @@ func (p *PublicProgress) QueueTaskText(req TaskTextRequest) (TaskTextDelivery, e
 		}
 		return copyTaskText(d), nil
 	}
-	if req.Revision != r.record.Task.RevisionNo() || r.record.Task.State == TaskStateCancelled {
+	if req.Revision != r.record.Task.RevisionNo() || taskTextStopped(r.record.Task, p.project, r.record.Accepted) {
 		return TaskTextDelivery{}, errors.New("task cancelled or revision superseded")
 	}
 	if req.Kind == "question" && r.record.Task.State != TaskStateWaitingUser {
@@ -120,6 +122,9 @@ func (p *PublicProgress) QueueTaskText(req TaskTextRequest) (TaskTextDelivery, e
 		return TaskTextDelivery{}, errors.New("empty prepared text")
 	}
 	d := &taskTextRecord{TaskTextDelivery: TaskTextDelivery{ID: req.DeliveryID, TaskID: req.TaskID, Revision: req.Revision, Project: p.project, Target: req.SessionKey, Kind: req.Kind, BodyRef: bodyRef, State: "pending"}, Body: parts}
+	if req.Kind == "question" {
+		d.QuestionSeq = r.record.Task.Seq
+	}
 	for range parts {
 		d.Parts = append(d.Parts, TaskTextPart{State: "pending"})
 	}
@@ -165,6 +170,9 @@ func (p *PublicProgress) ResolveTaskText(taskID, id, action, evidence string) er
 		old := copyTaskText(d)
 		switch action {
 		case "cancel":
+			if d.State == "sent" {
+				return errors.New("sent delivery cannot be cancelled")
+			}
 			for i := range d.Parts {
 				if d.Parts[i].State == "pending" {
 					d.Parts[i].State = "cancelled"
@@ -283,7 +291,7 @@ func (p *PublicProgress) flushTaskText(ctx context.Context, r *publicRun) {
 					continue
 				}
 			}
-			if r.record.Task.State == TaskStateCancelled || d.Revision != r.record.Task.RevisionNo() || (d.Kind == "question" && r.record.Task.State != TaskStateWaitingUser && r.record.Task.State != TaskStateFailed) {
+			if taskTextStopped(r.record.Task, p.project, r.record.Accepted) || d.Revision != r.record.Task.RevisionNo() || !taskTextQuestionOpen(r.record.Task, d) {
 				for j := range d.Parts {
 					if d.Parts[j].State == "pending" {
 						d.Parts[j].State = "cancelled"
@@ -350,6 +358,17 @@ func (p *PublicProgress) flushTaskText(ctx context.Context, r *publicRun) {
 			blocked[d.Target] = false
 		}
 	}
+}
+
+func taskTextStopped(t *Task, project string, accepted bool) bool {
+	return t.State == TaskStateCancelled || t.State == TaskStateCompleted || accepted || (t.AssignedProject != "" && t.AssignedProject != project)
+}
+
+func taskTextQuestionOpen(t *Task, d *taskTextRecord) bool {
+	if d.Kind != "question" {
+		return true
+	}
+	return (t.State == TaskStateWaitingUser && t.Seq == d.QuestionSeq) || (t.State == TaskStateFailed && d.QuestionRecoverySeq != 0 && t.Seq == d.QuestionRecoverySeq)
 }
 
 // SetTaskTextCheck runs immediately before every external send, including

@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -65,5 +66,70 @@ func TestTaskTextCancelInFlightKeepsPossibleSideEffect(t *testing.T) {
 	d := textState(t, p, req.TaskID)[0]
 	if d.Parts[0].State != "sent" || d.Parts[1].State != "cancelled" || len(platform.calls) != 1 {
 		t.Fatalf("cancel erased side effect: %+v", d)
+	}
+}
+
+func TestTaskTextResolveAPIUsesWireFieldNames(t *testing.T) {
+	p, platform, req := newTextJournal(t)
+	queueText(t, p, req)
+	platform.send = func(string, string) (string, error) { return "", errors.New("lost ack") }
+	p.FlushTaskText(t.Context())
+	s := &APIServer{engines: map[string]*Engine{"owner": {publicProgress: p, ctx: t.Context()}}}
+	body, _ := json.Marshal(map[string]string{"project": "owner", "task_id": req.TaskID, "delivery_id": req.DeliveryID, "action": "sent", "evidence": "message-confirmed"})
+	w := httptest.NewRecorder()
+	s.handleTaskText(w, httptest.NewRequest(http.MethodPost, "/task-text", bytes.NewReader(body)))
+	if w.Code != http.StatusOK || textState(t, p, req.TaskID)[0].Parts[0].State != "sent" {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	s.handleTask(w, httptest.NewRequest(http.MethodGet, "/task?project=owner&id="+req.TaskID, nil))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "text_deliveries") || strings.Contains(w.Body.String(), "secret one") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}
+
+func TestTaskTextOldQuestionNotResurrected(t *testing.T) {
+	for _, state := range []TaskState{TaskStateWaitingUser, TaskStateFailed} {
+		t.Run(string(state), func(t *testing.T) {
+			p, platform, req := newTextJournal(t)
+			r, _ := p.taskTextRun(req.TaskID)
+			r.record.Task.State = TaskStateWaitingUser
+			req.Kind = "question"
+			queueText(t, p, req)
+			r.record.Task.Seq++
+			r.record.Task.State = state
+			p.FlushTaskText(t.Context())
+			if len(platform.calls) != 0 || textState(t, p, req.TaskID)[0].State != "cancelled" {
+				t.Fatal("obsolete question sent")
+			}
+		})
+	}
+}
+
+func TestTaskTextSentCannotBeRecalledAndOwnershipChecked(t *testing.T) {
+	p, _, req := newTextJournal(t)
+	queueText(t, p, req)
+	p.FlushTaskText(t.Context())
+	if err := p.ResolveTaskText(req.TaskID, req.DeliveryID, "cancel", "requested"); err == nil {
+		t.Fatal("claimed sent message cancelled")
+	}
+	r, _ := p.taskTextRun(req.TaskID)
+	r.record.Task.AssignedProject = "other"
+	req.DeliveryID = "new"
+	if _, err := p.QueueTaskText(req); err == nil {
+		t.Fatal("old owner admitted work")
+	}
+}
+
+func TestTaskTextStoppedBeforeFlush(t *testing.T) {
+	for _, stop := range []func(*publicRun){func(r *publicRun) { r.record.Accepted = true }, func(r *publicRun) { r.record.Task.State = TaskStateCompleted }, func(r *publicRun) { r.record.Task.AssignedProject = "other" }} {
+		p, platform, req := newTextJournal(t)
+		queueText(t, p, req)
+		r, _ := p.taskTextRun(req.TaskID)
+		stop(r)
+		p.FlushTaskText(t.Context())
+		if len(platform.calls) != 0 || textState(t, p, req.TaskID)[0].State != "cancelled" {
+			t.Fatal("stopped task sent pending text")
+		}
 	}
 }

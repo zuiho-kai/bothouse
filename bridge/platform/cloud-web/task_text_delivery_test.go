@@ -10,10 +10,14 @@ import (
 
 type taskTextTransport struct {
 	ackingTransport
-	lost   bool
-	sent   int
-	target string
+	lost        bool
+	unknownCaps bool
+	rejected    bool
+	sent        int
+	target      string
 }
+
+func (f *taskTextTransport) CapabilitiesKnown() bool { return !f.unknownCaps }
 
 func (f *taskTextTransport) Send(_ context.Context, msg map[string]any) error {
 	f.sent++
@@ -22,10 +26,28 @@ func (f *taskTextTransport) Send(_ context.Context, msg map[string]any) error {
 }
 func (f *taskTextTransport) expectPreviewAck(key string) func(time.Duration) (string, error) {
 	return func(time.Duration) (string, error) {
+		if f.rejected {
+			return "", nil
+		}
 		if f.lost {
 			return "", errors.New("ACK missing")
 		}
 		return "message-1", nil
+	}
+}
+
+func TestTaskTextRegistrationAndExplicitRejection(t *testing.T) {
+	for _, unknown := range []bool{true, false} {
+		f := &taskTextTransport{unknownCaps: unknown, rejected: true, ackingTransport: ackingTransport{caps: capabilitySet([]string{"text", "reconstruct_reply"})}}
+		p := &Platform{name: "cloud_web", tp: f, replyCtxs: map[string]string{}}
+		_, err := p.SendTaskTextPart(context.Background(), "cloud_web:room-1", "id", "body")
+		if unknown {
+			if !errors.Is(err, core.ErrTaskTextNotAccepted) || f.sent != 0 {
+				t.Fatal(err, f.sent)
+			}
+		} else if !errors.Is(err, core.ErrTaskTextRejected) || f.sent != 1 {
+			t.Fatal(err, f.sent)
+		}
 	}
 }
 

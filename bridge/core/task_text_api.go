@@ -6,12 +6,20 @@ import (
 	"net/http"
 )
 
+type TaskTextResolutionRequest struct {
+	Project    string `json:"project"`
+	TaskID     string `json:"task_id"`
+	DeliveryID string `json:"delivery_id"`
+	Action     string `json:"action"`
+	Evidence   string `json:"evidence"`
+}
+
 func (s *APIServer) handleTaskText(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
-	var req struct{ Project, TaskID, DeliveryID, Action, Evidence string }
+	var req TaskTextResolutionRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, s.sendBodyLimit())).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return

@@ -69,13 +69,16 @@ func taskCall(client *http.Client, method, path string, body []byte) ([]byte, er
 
 func taskCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: task list|show|accept|assign|artifact|rework [flags]")
+		return errors.New("usage: task list|show|accept|assign|artifact|rework|delivery [flags]")
 	}
 	if isHelpArg(args[0]) {
-		fmt.Fprintln(out, "usage: task list|show|accept|assign|artifact|rework [flags]  (task <action> -h lists the flags)")
+		fmt.Fprintln(out, "usage: task list|show|accept|assign|artifact|rework|delivery [flags]  (task <action> -h lists the flags)")
 		return nil
 	}
 	action, rest := args[0], args[1:]
+	if action == "delivery" {
+		return taskTextCommand(rest, out)
+	}
 	f := flag.NewFlagSet("task "+action, flag.ContinueOnError)
 	project := f.String("project", os.Getenv("CC_PROJECT"), "project")
 	session := f.String("session", "", "session key (list or assign)")
@@ -200,7 +203,7 @@ func taskCommand(args []string, out io.Writer) error {
 		}
 		return writeJSON(out, b)
 	default:
-		return fmt.Errorf("unknown task action %q (use list, show, accept, assign, artifact or rework)", action)
+		return fmt.Errorf("unknown task action %q (use list, show, accept, assign, artifact, rework or delivery)", action)
 	}
 }
 

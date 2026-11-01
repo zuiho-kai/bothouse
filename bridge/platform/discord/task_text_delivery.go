@@ -14,6 +14,9 @@ func (p *Platform) PrepareTaskText(text string) []string {
 }
 
 func (p *Platform) SendTaskTextPart(ctx context.Context, target, key, text string) (string, error) {
+	if ctx.Err() != nil {
+		return "", core.ErrTaskTextNotAccepted
+	}
 	if p.session == nil {
 		return "", core.ErrTaskTextNotAccepted
 	}
@@ -38,9 +41,14 @@ func (p *Platform) SendTaskTextPart(ctx context.Context, target, key, text strin
 			switch rest.Response.StatusCode {
 			case http.StatusTooManyRequests:
 				return "", core.ErrTaskTextNotAccepted
-			case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound:
-				return "", core.ErrTaskTextRejected
+			case http.StatusBadRequest, http.StatusUnauthorized:
+				if rest.Message != nil {
+					return "", core.ErrTaskTextRejected
+				}
 			}
+		}
+		if discordUnrecoverable(err) {
+			return "", core.ErrTaskTextRejected
 		}
 		return "", err
 	}

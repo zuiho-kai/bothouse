@@ -251,6 +251,7 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 		if !platformFound {
 			return nil, errors.New("public progress journal platform unavailable")
 		}
+		loadedQuestionSeq := rec.Task.Seq
 		r := &publicRun{record: rec, publisher: sink}
 		if interruptTaskMembers(r.record.Task) {
 			p.memberEvent(r, NewI18n(rec.Lang).T(MsgPublicInterrupted), true)
@@ -259,9 +260,17 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 			}
 		}
 		if !rec.Closed {
+			questionSeq, questionWaiting := loadedQuestionSeq, r.record.Task.State == TaskStateWaitingUser
 			r.record.Closed = true
 			r.record.Task.State = TaskStateFailed
 			p.appendEvent(r, TaskEventFailed, NewI18n(rec.Lang).T(MsgPublicInterrupted), true)
+			if questionWaiting {
+				for _, d := range r.record.TextDeliveries {
+					if d.Kind == "question" && d.QuestionSeq == questionSeq {
+						d.QuestionRecoverySeq = r.record.Task.Seq
+					}
+				}
+			}
 			if err := p.save(r); err != nil {
 				return nil, err
 			}

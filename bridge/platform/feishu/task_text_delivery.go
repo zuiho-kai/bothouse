@@ -2,9 +2,6 @@ package feishu
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
 	"fmt"
 	"github.com/chenhg5/cc-connect/core"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
@@ -15,19 +12,23 @@ import (
 func (p *Platform) PrepareTaskText(text string) []string { return []string{text} }
 
 func (p *Platform) SendTaskTextPart(ctx context.Context, target, key, text string) (string, error) {
+	if ctx.Err() != nil || p.client == nil {
+		return "", core.ErrTaskTextNotAccepted
+	}
 	rctx, err := p.ReconstructReplyCtx(target)
 	if err != nil {
 		return "", core.ErrTaskTextRejected
 	}
 	rc := rctx.(replyContext)
 	msgType, body := buildReplyContent(text)
-	hash := sha256.Sum256([]byte(key))
 	req := larkim.NewCreateMessageReqBuilder().ReceiveIdType(larkim.ReceiveIdTypeChatId).
-		Body(larkim.NewCreateMessageReqBodyBuilder().ReceiveId(rc.chatID).MsgType(msgType).Content(body).Uuid(hex.EncodeToString(hash[:])).Build()).Build()
+		Body(larkim.NewCreateMessageReqBodyBuilder().ReceiveId(rc.chatID).MsgType(msgType).Content(body).Uuid(feishuUUID("task-text", key)).Build()).Build()
 	var id string
+	tokenRejected := false
 	// Only the existing token refresh retry is permitted. Do not use the
 	// transient retry wrapper on a possibly accepted message.
 	err = p.withFreshTenantAccessTokenRetry(ctx, "task-text", func(client *lark.Client, options ...larkcore.RequestOptionFunc) error {
+		tokenRejected = false
 		resp, err := client.Im.Message.Create(ctx, req, options...)
 		if err != nil {
 			return err
@@ -38,10 +39,11 @@ func (p *Platform) SendTaskTextPart(ctx context.Context, target, key, text strin
 			}
 			err := fmt.Errorf("feishu: task text code=%d", resp.Code)
 			if isTenantAccessTokenInvalid(err) {
+				tokenRejected = true
 				return err
 			}
 			apiErr := p.imAPIErr("task text rejected", resp.ApiResp, resp.Code, resp.Msg)
-			if errors.Is(apiErr, core.ErrDeliveryUnrecoverable) {
+			if isFeishuIMPermanent(apiErr) {
 				return core.ErrTaskTextRejected
 			}
 			return apiErr
@@ -51,5 +53,8 @@ func (p *Platform) SendTaskTextPart(ctx context.Context, target, key, text strin
 		}
 		return nil
 	})
+	if err != nil && tokenRejected {
+		return "", core.ErrTaskTextNotAccepted
+	}
 	return id, err
 }
