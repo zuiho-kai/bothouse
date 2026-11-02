@@ -201,7 +201,23 @@ export function groupRooms(rooms: readonly ChannelRoom[]): RoomRow[] {
 export type TaskStatus = 'assigned' | 'accepted' | 'asked' | 'declined' | 'escalated' | 'returned' | 'done' | 'rework'
 
 /** One dispatched task (#139 team mode B), as `GET /collab/api/rooms/:id/tasks` serializes it. */
+export interface TaskFileCandidate extends ChannelAttachment {
+  readonly message_id: number
+}
+
+export interface TaskFile {
+  readonly id: number
+  readonly attachment_id: string
+  readonly url: string
+  readonly role: 'source' | 'deliverable'
+  readonly label: string | null
+  readonly name: string
+  readonly mime: string
+  readonly size: number
+}
+
 export interface ChannelTask {
+  readonly files?: readonly TaskFile[]
   readonly id: number
   /** Room the task was dispatched in (the chat channel or one of its workspaces). */
   readonly room_id: number
@@ -267,6 +283,8 @@ export interface ChannelSnapshot {
 
 /** Actions the panel can take; each returns once the service answered. */
 export interface ChannelActions {
+  listTaskFiles(id: number): Promise<{ files: readonly TaskFile[]; candidates: readonly TaskFileCandidate[] }>
+  attachTaskFile(id: number, attachmentId: string, label?: string): Promise<void>
   reviewTask(id: number, verdict: 'done' | 'rework', note?: string): Promise<void>
   /** Show another room and load its recent messages. */
   selectRoom(roomId: number): Promise<void>
@@ -761,6 +779,13 @@ export function createChannelSource(transport: ChannelTransport): {
   }
 
   const actions: ChannelActions = {
+    async listTaskFiles(id) {
+      return request<{ files: TaskFile[]; candidates: TaskFileCandidate[] }>(`collab/api/tasks/${id}/files`)
+    },
+    async attachTaskFile(id, attachmentId, label) {
+      const { files } = await request<{ files: TaskFile[] }>(`collab/api/tasks/${id}/files`, json('POST', { attachment_id: attachmentId, label, role: 'source' }))
+      set({ tasks: (snapshot.tasks ?? []).map(task => task.id === id ? { ...task, files } : task) })
+    },
     async reviewTask(id, verdict, note) {
       const { task } = await request<{ task: ChannelTask }>(`collab/api/tasks/${id}/review`, json('POST', { verdict, note }))
       set({ tasks: (snapshot.tasks ?? []).map(row => row.id === task.id ? task : row) })

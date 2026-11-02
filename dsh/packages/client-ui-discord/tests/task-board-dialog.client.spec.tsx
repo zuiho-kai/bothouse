@@ -132,6 +132,57 @@ for (const [lang, dict] of [['zh', zh], ['en', en]] as const) {
   })
 }
 
+it('downloads delivered files and links an existing original through the task board', async () => {
+  const t = ((key: keyof typeof zh) => zh[key]) as T
+  const result = { id: 3, attachment_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', url: '/collab/api/attachments/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', role: 'deliverable' as const,
+    label: 'new file', name: 'result.txt', mime: 'text/plain', size: 5 }
+  const candidate = { id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', message_id: 23,
+    name: 'original.txt', mime: result.mime, size: 2048 }
+  const onListFiles = vi.fn().mockResolvedValue({ files: [result], candidates: [candidate] })
+  const onAttachFile = vi.fn().mockResolvedValue(undefined)
+  render(<TaskBoard tasks={[task(1, { files: [result] })]} rooms={rooms} chatId={1} roomId={1} t={t}
+    onOpen={vi.fn()} onListFiles={onListFiles} onAttachFile={onAttachFile} />)
+  fireEvent.click(screen.getByRole('button', { name: zh.taskBoardOpen }))
+  const files = screen.getByLabelText(zh.taskFiles)
+  const link = within(files).getByRole('link', { name: 'result.txt' }) as HTMLAnchorElement
+  expect(link.getAttribute('href')).toContain(result.attachment_id)
+  expect(link.getAttribute('download')).toBe('result.txt')
+  expect(link.title).toBe('result.txt')
+  expect(within(files).getAllByRole('link')).toHaveLength(1)
+  expect(files.textContent).not.toMatch(/\b(?:\d+(?:\.\d+)?\s*(?:KB|B)|new file)\b/i)
+  expect(files.querySelector('img')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: zh.taskFileAddSource }))
+  await vi.waitFor(() => expect(onListFiles).toHaveBeenCalledWith(1))
+  fireEvent.change(await screen.findByRole('combobox', { name: zh.taskFileChoose }), { target: { value: candidate.id } })
+  fireEvent.change(screen.getByRole('textbox', { name: zh.taskFileLabel }), { target: { value: '原始账本' } })
+  fireEvent.click(screen.getByRole('button', { name: zh.messageSave }))
+  await vi.waitFor(() => expect(onAttachFile).toHaveBeenCalledWith(1, candidate.id, '原始账本'))
+})
+
+it('omits the entire delivery section for files without owner actions', () => {
+  const t = ((key: keyof typeof zh) => zh[key]) as T
+  render(<TaskBoard tasks={[task(1)]} rooms={rooms} chatId={1} roomId={1} t={t} onOpen={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: zh.taskBoardOpen }))
+  expect(screen.queryByLabelText(zh.taskFiles)).toBeNull()
+  expect(screen.queryByText(zh.taskFiles)).toBeNull()
+  expect(screen.queryByRole('button', { name: zh.taskFileAddSource })).toBeNull()
+})
+
+it('keeps the source action in the heading and hides it after a source is linked', () => {
+  const t = ((key: keyof typeof zh) => zh[key]) as T
+  const source = { id: 4, attachment_id: 'cccccccc-cccc-cccc-cccc-cccccccccccc', url: '/collab/api/attachments/cccccccc-cccc-cccc-cccc-cccccccccccc', role: 'source' as const,
+    label: null, name: 'original.txt', mime: 'text/plain', size: 5 }
+  const props = { rooms, chatId: 1, roomId: 1, t, onOpen: vi.fn(), onListFiles: vi.fn(), onAttachFile: vi.fn() }
+  const { rerender } = render(<TaskBoard {...props} tasks={[task(1)]} />)
+  fireEvent.click(screen.getByRole('button', { name: zh.taskBoardOpen }))
+  const card = screen.getByText('#1 Task 1').closest('[data-task-id]')!
+  expect(card.querySelector('[class*="boardTaskHeader"]')?.querySelector('button')?.textContent).toBe(zh.taskFileAddSource)
+  expect(screen.queryByLabelText(zh.taskFiles)).toBeNull()
+  rerender(<TaskBoard {...props} tasks={[task(1, { files: [source] })]} />)
+  expect(screen.queryByRole('button', { name: zh.taskFileAddSource })).toBeNull()
+  expect(within(screen.getByLabelText(zh.taskFiles)).getByRole('link', { name: source.name }).getAttribute('download')).toBe(source.name)
+})
+
 it('offers explicit owner acceptance and requires a reason for rework', async () => {
   const onReview = vi.fn().mockResolvedValue(undefined)
   const t = ((key: keyof typeof zh) => zh[key]) as T

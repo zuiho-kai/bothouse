@@ -8,7 +8,7 @@
 // so a prompt is executed at most once.
 import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
-import { basename, isAbsolute, relative, sep } from 'node:path';
+import { basename, extname, isAbsolute, relative, sep } from 'node:path';
 import { exitTarget } from './team-exit.mjs';
 import { DEFAULT_DISPATCH_MODE, MAX_TEXT } from './store.mjs';
 import { ChannelApprovals, DEFAULT_ACTIONS } from './approvals.mjs';
@@ -63,54 +63,61 @@ import { attachmentBlocks, namedAttachmentBlocks, nativeAttachmentBlocks, undeli
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
-const MAX_LOCAL_IMAGE_BYTES = 8 * 1024 * 1024;
-const MAX_LOCAL_IMAGES = 10;
+const MAX_LOCAL_FILE_BYTES = 8 * 1024 * 1024;
+const MAX_LOCAL_FILES = 10;
 const IMAGE_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+const FILE_MIME = { txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json', pdf: 'application/pdf', zip: 'application/zip' };
 // Markdown targets may contain spaces; bare paths end at whitespace or punctuation.
-const LOCAL_IMAGE = /!\[([^\]\n]*)\]\((\/[^)\n]+?\.(?:png|jpe?g|gif|webp))\)|(?<![\w/])\/[^\s<>"'`()[\]{}，。；,;]+?\.(?:png|jpe?g|gif|webp)(?![\w/])/gi;
+const LOCAL_FILE = /!?\[([^\]\n]*)\]\((\/[^)\n]+)\)|(?<![\w/])\/[^\s<>"'`()[\]{}，。；,;]+/g;
 
 /** Only files physically inside this room's working directory may leave the machine. */
-export function localImageReply(text, workspacePath, files, logger) {
-  if (!files || !workspacePath || !LOCAL_IMAGE.test(text)) return { text, attachments: [] };
-  LOCAL_IMAGE.lastIndex = 0;
+export function localFileReply(text, workspacePath, files, logger) {
+  if (!files || !workspacePath) return { text, attachments: [] };
   let root;
   try { root = realpathSync(workspacePath); } catch { return { text, attachments: [] }; }
   const attachments = [];
-  const result = text.replace(LOCAL_IMAGE, (match, alt, markdownPath) => {
+  const result = text.replace(LOCAL_FILE, (match, alt, markdownPath) => {
     const path = markdownPath ?? match;
     if (!isAbsolute(path)) return match;
+    const extension = extname(path).slice(1).toLowerCase();
+    if (markdownPath === undefined && !IMAGE_MIME[extension]) return match;
     let target;
     try { target = realpathSync(path); } catch (error) {
-      logger?.warn('collab: local image skipped (%s): %s', path, error.message);
+      logger?.warn('collab: local file skipped (%s): %s', path, error.message);
       return match;
     }
     const within = relative(root, target);
-    if (within === '..' || within.startsWith(`..${sep}`) || isAbsolute(within)) return match;
-    if (attachments.length >= MAX_LOCAL_IMAGES) {
-      logger?.warn('collab: local image skipped (%s): attachment limit %d', path, MAX_LOCAL_IMAGES);
+    if (within === '..' || within.startsWith(`..${sep}`) || isAbsolute(within)) {
+      logger?.warn('collab: local file skipped (%s): outside workspace', path);
+      return match;
+    }
+    if (attachments.length >= MAX_LOCAL_FILES) {
+      logger?.warn('collab: local file skipped (%s): attachment limit %d', path, MAX_LOCAL_FILES);
       return match;
     }
     try {
-      const size = statSync(target).size;
-      if (size > MAX_LOCAL_IMAGE_BYTES) {
-        logger?.warn('collab: local image skipped (%s): exceeds %d bytes', path, MAX_LOCAL_IMAGE_BYTES);
+      const stat = statSync(target);
+      if (!stat.isFile()) return match;
+      if (stat.size > MAX_LOCAL_FILE_BYTES) {
+        logger?.warn('collab: local file skipped (%s): exceeds %d bytes', path, MAX_LOCAL_FILE_BYTES);
         return match;
       }
       const data = readFileSync(target);
-      if (data.length > MAX_LOCAL_IMAGE_BYTES) {
-        logger?.warn('collab: local image skipped (%s): exceeds %d bytes', path, MAX_LOCAL_IMAGE_BYTES);
+      if (data.length > MAX_LOCAL_FILE_BYTES) {
+        logger?.warn('collab: local file skipped (%s): exceeds %d bytes', path, MAX_LOCAL_FILE_BYTES);
         return match;
       }
-      const mime = IMAGE_MIME[path.slice(path.lastIndexOf('.') + 1).toLowerCase()];
+      const mime = IMAGE_MIME[extension] ?? FILE_MIME[extension] ?? 'application/octet-stream';
       attachments.push(...files.save([{ name: basename(path), mime, data: data.toString('base64') }]));
       return alt ?? '';
     } catch (error) {
-      logger?.warn('collab: local image skipped (%s): %s', path, error.message);
+      logger?.warn('collab: local file skipped (%s): %s', path, error.message);
       return match;
     }
   });
   return { text: result, attachments };
 }
+export const localImageReply = localFileReply;
 // Agent-to-agent relay cap: after this many agent messages in a row without a
 // human message, agent mentions stop starting DSH turns (prevents loops with bots).
 export const DEFAULT_MAX_RELAY = 6;
@@ -710,7 +717,7 @@ export class DshMembers {
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
       latest = '';
       const reply = this.returnToLead(job, member, text);
-      const converted = localImageReply(reply, cwd, this.rt.files, this.rt.logger);
+      const converted = localFileReply(reply, cwd, this.rt.files, this.rt.logger);
       const committed = draft === undefined ? undefined : this.hub.commit(draft.id, 'role', member.id, converted.text, undefined, converted.attachments);
       const message = committed ?? this.hub.post(job.room_id, { authorKind: 'role', author: member.id, name: member.name, clientKey, text: converted.text, attachments: converted.attachments }).message;
       done = true;
@@ -799,7 +806,7 @@ export class DshMembers {
     const complete = kind === undefined || kind === 'completed' || kind === 'max-tokens';
     const reply = this.returnToLead(job, member, complete ? text : `${text}\n\n（这一轮没有正常结束：${describeReason(reason)}）`);
     const cwd = this.store.workspacePath(job.room_id, this.rt.workspacePath);
-    const converted = localImageReply(reply, cwd, this.rt.files, this.rt.logger);
+    const converted = localFileReply(reply, cwd, this.rt.files, this.rt.logger);
     const { message } = this.hub.post(job.room_id, {
       authorKind: 'role', author: member.id, name: member.name, clientKey: `dsh-job-${job.id}`,
       text: converted.text, attachments: converted.attachments,

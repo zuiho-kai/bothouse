@@ -6,7 +6,7 @@
  */
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
-import type { ChannelRoom, ChannelTask, TaskStatus } from './channel-source.ts'
+import type { ChannelRoom, ChannelTask, TaskFile, TaskFileCandidate, TaskStatus } from './channel-source.ts'
 import { BOARD_TABS, boardSections, cardMembers, sectionTitle, elapsed, formatDuration, STATUS_KEY, type T } from './task-board.ts'
 import css from './ChannelsPage.module.css'
 
@@ -22,7 +22,7 @@ function Status({ status, t }: { status: TaskStatus; t: T }) {
  * Right-column board for the selected chat channel.
  * @param onOpen - jump to a message in a room (dispatch or delivery).
  */
-export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }: {
+export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview, onListFiles, onAttachFile }: {
   tasks: readonly ChannelTask[]
   rooms: readonly ChannelRoom[]
   chatId: number | undefined
@@ -30,6 +30,8 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }:
   t: T
   onOpen: (roomId: number, messageId: number) => void
   onReview?: (id: number, verdict: 'done' | 'rework', note?: string) => Promise<void>
+  onListFiles?: (id: number) => Promise<{ files: readonly TaskFile[]; candidates: readonly TaskFileCandidate[] }>
+  onAttachFile?: (id: number, attachmentId: string, label?: string) => Promise<void>
 }) {
   const [opened, setOpened] = useState(false)
   const [selectedTab, setSelectedTab] = useState(BOARD_TABS.find(tab => tab.initial)!.id)
@@ -37,6 +39,10 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }:
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
+  const [addingTo, setAddingTo] = useState<number>()
+  const [candidates, setCandidates] = useState<readonly TaskFileCandidate[]>([])
+  const [selectedFile, setSelectedFile] = useState('')
+  const [fileLabel, setFileLabel] = useState('')
   const dialog = useRef<HTMLElement>(null)
   const titleId = useId()
   const tabId = useId()
@@ -76,11 +82,33 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }:
       setSaving(false)
     }
   }
+  const chooseFile = async (task: ChannelTask) => {
+    if (addingTo === task.id) { setAddingTo(undefined); return }
+    setError(undefined)
+    try {
+      const { candidates } = await onListFiles!(task.id)
+      setCandidates(candidates.filter(file => !task.files?.some(linked => linked.attachment_id === file.id && linked.role === 'source')))
+      setSelectedFile('')
+      setFileLabel('')
+      setAddingTo(task.id)
+    } catch (error) { setError(error instanceof Error ? error.message : String(error)) }
+  }
+  const saveFile = async (task: ChannelTask) => {
+    setSaving(true)
+    setError(undefined)
+    try {
+      await onAttachFile!(task.id, selectedFile, fileLabel.trim() || undefined)
+      setAddingTo(undefined)
+    } catch (error) { setError(error instanceof Error ? error.message : String(error)) }
+    finally { setSaving(false) }
+  }
   const row = (task: ChannelTask) => (
     <li key={task.id} className={css.boardTaskCard} data-task-id={task.id} data-status={task.status} data-working={BOARD_TABS.find(tab => tab.initial)!.statuses.includes(task.status)}>
       <div className={css.boardTaskHeader}>
         <span className={css.boardTaskTitle}>#{task.id} {task.title}</span>
         <Status status={task.status} t={t} />
+        {onListFiles && onAttachFile && !task.files?.some(file => file.role === 'source') &&
+          <button type="button" className={`${css.linkButton} ${css.taskSourceAction}`} onClick={() => { void chooseFile(task) }}>{t('taskFileAddSource')}</button>}
       </div>
       <div className={css.taskMeta}>
         <span>{task.owner_name}</span>
@@ -95,6 +123,22 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }:
           <button type="button" className={css.linkButton} disabled={saving} onClick={() => { setReviewing(task.id); setReason(''); setError(undefined) }}>{t('taskSendBack')}</button>
         </>}
       </div>
+      {!!task.files?.length && <div className={css.taskFiles} aria-label={t('taskFiles')}>
+        <strong>{t('taskFiles')}</strong>
+        {task.files.map(file => (
+          <a key={file.id} href={file.url} download={file.name} className={css.taskFile} title={file.name}>
+            {file.name}
+          </a>
+        ))}
+      </div>}
+      {addingTo === task.id && <form className={css.taskFileForm} onSubmit={event => { event.preventDefault(); void saveFile(task) }}>
+        <select aria-label={t('taskFileChoose')} value={selectedFile} onChange={event => setSelectedFile(event.target.value)} required>
+          <option value="">{t(candidates.length ? 'taskFileChoose' : 'taskFileNoCandidates')}</option>
+          {candidates.map(file => <option key={file.id} value={file.id}>{file.name} (#{file.message_id})</option>)}
+        </select>
+        <input aria-label={t('taskFileLabel')} placeholder={t('taskFileLabel')} maxLength={200} value={fileLabel} onChange={event => setFileLabel(event.target.value)} />
+        <button type="submit" disabled={!selectedFile || saving}>{t('messageSave')}</button>
+      </form>}
       {reviewing === task.id && <form onSubmit={event => { event.preventDefault(); void review(task.id, 'rework') }}>
         <label>{t('taskReviewReason')}<input value={reason} required onChange={event => { setReason(event.target.value) }} /></label>
         <button type="submit" disabled={saving || !reason.trim()}>{t('taskReviewSubmit')}</button>
@@ -112,7 +156,7 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }:
         <section ref={dialog} className={`${css.dialog} ${css.taskBoardDialog}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={event => {
           if (event.key === 'Escape') { event.stopPropagation(); close() }
           if (event.key === 'Tab') {
-            const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled):not([tabindex="-1"]), input:not(:disabled), [role="tabpanel"]'))
+            const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled):not([tabindex="-1"]), input:not(:disabled), select:not(:disabled), a[href], [role="tabpanel"]'))
             const first = focusable[0]
             const last = focusable[focusable.length - 1]
             if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last?.focus() }

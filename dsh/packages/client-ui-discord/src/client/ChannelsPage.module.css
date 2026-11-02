@@ -1244,11 +1244,11 @@
 .boardTaskCard {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   min-width: 0;
   padding: 14px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-sm);
   background: var(--dsw-alias-bg-base);
   transition: transform 140ms ease, box-shadow 140ms ease;
 }
@@ -1269,8 +1269,9 @@
 
 .boardTaskHeader {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .boardTaskTitle {
@@ -1290,6 +1291,13 @@
   border-radius: 999px;
   font-size: 11px;
 }
+
+.taskSourceAction { flex: none; margin-left: auto; font-size: 11px; white-space: nowrap; }
+.taskFiles { display: grid; justify-items: start; gap: 4px; min-width: 0; font-size: 12px; }
+.taskFile { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-primary); }
+.taskFileForm { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.taskFileForm select { grid-column: 1 / -1; }
+.taskFileForm select, .taskFileForm input { min-width: 0; padding: 5px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 4px; background: var(--dsw-alias-bg-base); color: inherit; }
 
 .boardTaskCard .taskLinks {
   justify-content: flex-end;

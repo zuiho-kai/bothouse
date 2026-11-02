@@ -1382,6 +1382,50 @@
   font-size: 11px;
 }
 
+.dshc_taskFiles {
+  justify-items: start;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  display: grid;
+}
+
+.dshc_taskFiles > span {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.dshc_taskFile {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  color: var(--dsw-alias-label-primary);
+  display: block;
+  overflow: hidden;
+}
+
+.dshc_taskFiles > .dshc_linkButton {
+  font-size: inherit;
+}
+
+.dshc_taskFileForm {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  display: grid;
+}
+
+.dshc_taskFileForm select {
+  grid-column: 1 / -1;
+}
+
+.dshc_taskFileForm select, .dshc_taskFileForm input {
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  min-width: 0;
+  color: inherit;
+  border-radius: 4px;
+  padding: 5px;
+}
+
 .dshc_boardTaskCard .dshc_taskLinks {
   justify-content: flex-end;
   margin-top: auto;

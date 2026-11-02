@@ -698,20 +698,32 @@ test('DSH member: local images become attachments while outside paths remain unt
   const bare = join(root, 'bare.jpg');
   const forbidden = join(outside, 'private.png');
   const link = join(root, 'linked.png');
-  const big = join(root, 'big.webp');
+  const big = join(root, 'big.txt');
+  const notes = join(root, 'notes.txt');
+  const unknown = join(root, 'payload.custom');
+  const forbiddenText = join(outside, 'private.txt');
+  const linkedText = join(root, 'linked.txt');
   writeFileSync(image, 'png'); writeFileSync(bare, 'jpg'); writeFileSync(forbidden, 'private');
-  writeFileSync(big, Buffer.alloc(8 * 1024 * 1024 + 1));
-  symlinkSync(forbidden, link);
+  writeFileSync(notes, '12345'); writeFileSync(unknown, 'custom');
+  writeFileSync(forbiddenText, 'secret');
+  writeFileSync(big, Buffer.alloc(9 * 1024 * 1024));
+  symlinkSync(forbidden, link); symlinkSync(forbiddenText, linkedText);
   const files = new Attachments(join(root, 'attachments'));
   const warnings = [];
   const logger = { warn: (...args) => warnings.push(args) };
-  const original = `前 ![预览](${image}) 后 ${bare} ${forbidden} ${link} ${big} ${join(root, 'notes.txt')}`;
+  const original = `前 ![预览](${image}) 后 ${bare} ${forbidden} ${link} ${forbiddenText} ${linkedText} [越界](${forbiddenText}) [软链](${linkedText}) [超大](${big}) ${notes} [交付](${notes}) ${unknown} [原始](${unknown})`;
   const result = localImageReply(original, root, files, logger);
-  assert.equal(result.text, `前 预览 后  ${forbidden} ${link} ${big} ${join(root, 'notes.txt')}`);
-  assert.deepEqual(result.attachments.map(a => [a.name, a.mime]), [['图 test.png', 'image/png'], ['bare.jpg', 'image/jpeg']]);
+  assert.equal(result.text, `前 预览 后  ${forbidden} ${link} ${forbiddenText} ${linkedText} [越界](${forbiddenText}) [软链](${linkedText}) [超大](${big}) ${notes} 交付 ${unknown} 原始`);
+  assert.deepEqual(result.attachments.map(a => [a.name, a.mime]), [
+    ['图 test.png', 'image/png'], ['bare.jpg', 'image/jpeg'], ['notes.txt', 'text/plain'], ['payload.custom', 'application/octet-stream'],
+  ]);
   assert.equal(files.read(result.attachments[0].id).toString(), 'png');
-  assert.equal(warnings.length, 1);
-  assert.match(warnings[0][0], /exceeds/);
+  assert.equal(files.read(result.attachments[2].id).toString(), '12345');
+  assert.equal(files.read(result.attachments[2].id).length, 5);
+  assert.equal(warnings.length, 5);
+  assert.match(warnings.at(-1)[0], /exceeds/);
+  assert.ok(warnings.some(w => String(w[1]).includes(forbiddenText) && w[0].includes('outside workspace')));
+  assert.ok(warnings.some(w => String(w[1]).includes(linkedText) && w[0].includes('outside workspace')));
   assert.deepEqual(localImageReply('纯文字', root, files, logger), { text: '纯文字', attachments: [] });
   assert.equal(localImageReply(`![outside](${forbidden})`, root, files, logger).text, `![outside](${forbidden})`);
   const repeated = localImageReply(Array(11).fill(bare).join(' '), root, files, logger);
@@ -741,6 +753,34 @@ test('DSH member: posted reply carries local image bytes', async () => {
   const reply = hub.store.page(1, undefined, 1)[0];
   assert.equal(reply.text, '看图 截图');
   assert.equal(files.read(JSON.parse(reply.attachments)[0].id).toString(), 'proof');
+  await members.close(); hub.store.close();
+});
+
+test('DSH member: posted reply carries local text file bytes', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments } = await import('./attachments.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'member-file-reply-'));
+  const path = join(root, 'verify-12345.txt');
+  writeFileSync(path, '12345');
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const files = new Attachments(join(root, 'attachments'));
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  members.rt.workspacePath = root;
+  members.rt.files = files;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 交文件' });
+  await settle();
+  dsh.turn(dsh.sessions.get(dsh.made[0]), [`交付 [文本](${path})`]);
+  await settle();
+  const reply = hub.store.page(1, undefined, 1)[0];
+  const [attachment] = JSON.parse(reply.attachments);
+  assert.equal(reply.text, '交付 文本');
+  assert.equal(attachment.name, 'verify-12345.txt');
+  assert.equal(attachment.mime, 'text/plain');
+  assert.equal(files.read(attachment.id).toString(), '12345');
+  assert.equal(files.read(attachment.id).length, 5);
   await members.close(); hub.store.close();
 });
 
@@ -1419,7 +1459,7 @@ test('store: a v3 database gains the cli column and keeps its members', async ()
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE members DROP COLUMN cli; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 3');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 12);
   assert.equal(up.member('old').cli, null);
   assert.equal(up.member('old').model, 'm1');
   assert.equal(up.addMember({ id: 'gm', name: 'GM', cli: 'gemini' }).cli, 'gemini');
@@ -1524,7 +1564,7 @@ test('store: a v4 database gains the avatar column and keeps its members', async
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; ALTER TABLE members DROP COLUMN avatar; ALTER TABLE messages DROP COLUMN draft; PRAGMA user_version = 4');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 12);
   assert.equal(up.member('old').avatar, null);
   assert.equal(up.member('old').cli, 'claude');
   assert.equal(up.addMember({ id: 'w', name: 'W', avatar: 'whale' }).avatar, 'whale');
@@ -1652,14 +1692,14 @@ test('CLI directory error: real spawn failure reports channel, cwd and cause wit
   } finally { await members.close(); hub.store.close(); }
 });
 
-test('CLI member: streamed draft commits image attachment on the same row', async () => {
+test('CLI member: streamed draft commits file attachment on the same row', async () => {
   const { mkdtempSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { Attachments } = await import('./attachments.mjs');
   const root = mkdtempSync(join(tmpdir(), 'cli-images-'));
-  const image = join(root, 'result.png');
-  writeFileSync(image, 'result');
+  const image = join(root, 'result.txt');
+  writeFileSync(image, '12345\n');
   const hub = makeHub();
   const fake = fakeDsh();
   const files = new Attachments(join(root, 'attachments'));
@@ -1677,7 +1717,8 @@ test('CLI member: streamed draft commits image attachment on the same row', asyn
   assert.equal(rows.length, 1);
   assert.equal(rows[0].draft, 0);
   assert.equal(rows[0].text, '结果 图');
-  assert.equal(files.read(JSON.parse(rows[0].attachments)[0].id).toString(), 'result');
+  assert.equal(JSON.parse(rows[0].attachments)[0].mime, 'text/plain');
+  assert.equal(files.read(JSON.parse(rows[0].attachments)[0].id).toString(), '12345\n');
   await members.close(); hub.store.close();
 });
 
@@ -2118,7 +2159,7 @@ test('reply: a v6 database gains reply_to and keeps its messages', async () => {
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to; PRAGMA user_version = 6');
   s.close();
   const up = new Store(path);
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 12);
   const old = up.page(1, undefined, 1)[0];
   assert.equal(old.text, '老消息');
   assert.equal(old.reply_to, null);
@@ -2211,6 +2252,71 @@ test('tasks: rooms snapshots track dispatch, return, rework and acceptance witho
   assert.deepEqual(counts(), [0, 0]);
   assert.deepEqual(latest(), [0, 0]);
   assert.equal(events.length, 6);
+  tasks.close(); hub.store.close();
+});
+
+test('task files: delivery links existing bytes once, source must belong to owner and task channel', () => {
+  const { hub, tasks } = makeTasks();
+  hub.store.ensureRoom(2, 'other');
+  const task = tasks.assign({ roomId: 1, title: '改表格', owner: 'ds', actor: 'lead' });
+  const source = { id: 'source-a', name: 'before.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 14 };
+  const result = { id: 'result-a', name: 'after.xlsx', mime: source.mime, size: 21 };
+  const other = { id: 'other-a', name: 'private.xlsx', mime: source.mime, size: 1 };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '原文件', attachments: [source] });
+  hub.post(2, { authorKind: 'user', author: 'owner', name: '我', text: '别的频道', attachments: [other] });
+  const { message: delivery } = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '处理好了', attachments: [result] });
+  tasks.handBack(task.id, { actor: 'ds', messageId: delivery.id });
+  assert.deepEqual(tasks.files(task.id).map(f => [f.attachment_id, f.role]), [['result-a', 'deliverable']]);
+  assert.throws(() => tasks.addFile(task.id, { attachmentId: other.id, role: 'source', actor: 'owner' }), /your message in this channel/);
+  assert.throws(() => tasks.addFile(task.id, { attachmentId: result.id, role: 'source', actor: 'ds' }), /only the owner/);
+  tasks.addFile(task.id, { attachmentId: source.id, label: '原始账本', role: 'source', actor: 'owner' });
+  tasks.addFile(task.id, { attachmentId: source.id, label: '原始账本', role: 'source', actor: 'owner' });
+  assert.deepEqual(tasks.sourceCandidates(task.id).map(f => f.id), [source.id]);
+  assert.deepEqual(tasks.list(1)[0].files.map(f => [f.name, f.role, f.label]), [
+    ['after.xlsx', 'deliverable', null], ['before.xlsx', 'source', '原始账本'],
+  ]);
+  tasks.close(); hub.store.close();
+});
+
+test('task files: a local text reply becomes a downloadable deliverable', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments } = await import('./attachments.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'task-local-file-'));
+  const proof = join(root, 'verify-12345.txt');
+  writeFileSync(proof, '12345\n');
+  const files = new Attachments(join(root, 'attachments'));
+  const { hub, tasks } = makeTasks();
+  const task = tasks.assign({ roomId: 1, title: '交付文本', owner: 'ds', actor: 'lead' });
+  const converted = localImageReply(`[交付文件](${proof})`, root, files);
+  const { message } = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek',
+    text: converted.text, attachments: converted.attachments });
+  tasks.handBack(task.id, { actor: 'ds', messageId: message.id });
+  const [file] = tasks.files(task.id);
+  assert.equal(message.text, '交付文件');
+  assert.equal(file.role, 'deliverable');
+  assert.equal(file.mime, 'text/plain');
+  assert.equal(file.size, 6);
+  assert.equal(file.url, `/collab/api/attachments/${file.attachment_id}`);
+  assert.equal(files.read(file.attachment_id).toString(), '12345\n');
+  tasks.close(); hub.store.close();
+});
+
+test('task files: source on the dispatch follows the task into its workspace', () => {
+  const { hub, tasks } = makeTasks();
+  const ws = hub.store.createWorkspace(1);
+  const source = { id: 'dispatch-file', name: 'input.txt', mime: 'text/plain', size: 5 };
+  const { message } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '请处理附件', attachments: [source] });
+  const task = tasks.assign({ roomId: ws.id, title: '处理输入', owner: 'ds', actor: 'lead', messageId: message.id });
+  assert.deepEqual(tasks.files(task.id).map(f => [f.name, f.role]), [['input.txt', 'source']]);
+  const { message: delivered } = hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[report] 完成' });
+  tasks.handBack(task.id, { actor: 'ds', messageId: delivered.id });
+  hub.store.ensureRoom(2, 'other');
+  hub.store.claimWorkspace(2, ws.id);
+  hub.post(2, { authorKind: 'user', author: 'owner', name: '我', text: '另一个频道', attachments: [{ id: 'new-file', name: 'new.txt', mime: 'text/plain', size: 3 }] });
+  assert.deepEqual(tasks.sourceCandidates(task.id).map(f => f.id), ['dispatch-file']);
+  assert.throws(() => tasks.addFile(task.id, { attachmentId: 'new-file', role: 'source', actor: 'owner' }), /your message in this channel/);
   tasks.close(); hub.store.close();
 });
 
@@ -2477,7 +2583,7 @@ test('tasks: the tasks table is ensured idempotently and survives reopen', async
   const cols = again.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name);
   assert.equal(cols.includes('note'), true, 'a missing column is added back');
   assert.equal(again.db.prepare('SELECT title FROM tasks').get().title, 'kept');
-  assert.equal(again.db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(again.db.prepare('PRAGMA user_version').get().user_version, 12);
   again.close();
 });
 
@@ -2507,6 +2613,18 @@ test('tasks API: owner acts as owner, bots name themselves with the bot token, o
   const board = await call('GET', '/collab/api/rooms/1/tasks', undefined, { human: true });
   assert.deepEqual(board.json.tasks.map(t => [t.title, t.status, t.owner_name]), [['写文档', 'accepted', 'DeepSeek']]);
   assert.equal((await call('GET', '/collab/api/tasks/99', undefined, { human: true })).status, 404);
+  assert.equal((await call('GET', '/collab/api/tasks/99/files', undefined, { human: true })).status, 404);
+  assert.equal((await call('POST', '/collab/api/tasks/99/files', { attachment_id: 'missing', role: 'source' }, { human: true })).status, 404);
+  assert.deepEqual((await call('GET', `/collab/api/tasks/${id}/files`, undefined, { human: true })).json.files, []);
+  const source = { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', name: 'before.txt', mime: 'text/plain', size: 6 };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '原文件', attachments: [source] });
+  const filesPath = `/collab/api/tasks/${id}/files`;
+  assert.deepEqual((await call('GET', filesPath, undefined, { human: true })).json.candidates.map(file => file.id), [source.id]);
+  assert.deepEqual((await call('GET', filesPath, undefined, { token: 't' })).json.candidates, []);
+  assert.equal((await call('POST', filesPath, { attachment_id: source.id, role: 'source' }, { human: true })).status, 200);
+  assert.equal((await call('GET', filesPath, undefined, { human: true })).json.files[0].url, `/collab/api/attachments/${source.id}`);
+  assert.equal((await call('POST', `/collab/api/tasks/${id}/files`, { attachment_id: 'missing', role: 'deliverable' }, { human: true })).status, 400);
+  assert.equal((await call('POST', `/collab/api/tasks/${id}/files`, { attachment_id: 'missing', role: 'source', actor: 'owner' }, { token: 't' })).status, 403);
   assert.equal((await call('POST', '/collab/api/rooms/1/tasks', { title: 'y', owner: 'nobody' }, { human: true })).status, 404);
 });
 
@@ -2568,7 +2686,7 @@ test('store: a v6 database gains kind/parent_id; opening it creates no workspace
   old.db.exec("DELETE FROM rooms WHERE kind = 'workspace'; ALTER TABLE rooms DROP COLUMN parent_id; ALTER TABLE rooms DROP COLUMN kind; PRAGMA user_version = 6");
   old.close();
   const s = new Store(path);
-  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 12);
   assert.deepEqual(plain(s.rooms()), [
     { id: 1, name: 'general', kind: 'chat', parent_id: null },
     { id: 2, name: 'dev', kind: 'chat', parent_id: null },
@@ -2662,11 +2780,11 @@ test('store: a v8 database missing reply_to (#133 shipped after) gains it on ope
   s.ensureRoom(1, 'general');
   s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'old' });
   s.db.exec('ALTER TABLE messages DROP COLUMN reply_to');
-  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 12);
   s.close();
   const up = new Store(path);
   assert.ok(up.db.prepare('PRAGMA table_info(messages)').all().some(c => c.name === 'reply_to'));
-  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(up.db.prepare('PRAGMA user_version').get().user_version, 12);
   assert.equal(up.page(1, undefined, 1)[0].text, 'old');
   up.close();
 });
