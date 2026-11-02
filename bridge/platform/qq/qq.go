@@ -1256,7 +1256,7 @@ func (p *Platform) groupContext(groupID int64) string {
 		if b.Len() == 0 {
 			b.WriteString("[群里刚才的聊天]\n")
 		}
-		fmt.Fprintf(&b, "%s：%s\n", groupSpeakerLabel(l), l.text)
+		fmt.Fprintf(&b, "%s：%s\n", groupSpeakerLabel(l), groupLineBreaks.Replace(l.text))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -1267,14 +1267,26 @@ func (p *Platform) groupContext(groupID int64) string {
 // 来源：任务板 #11 缺口——同群同名两人的历史发言必须能从背景分清归属
 // （2026-11-02 EVIDENCE 6.1；把 ID 放进展示文本的取舍记在那份证据里）。
 func groupSpeakerLabel(l groupLine) string {
+	name := groupLineBreaks.Replace(l.name)
 	if l.userID == 0 {
-		return l.name
+		return name
 	}
-	if l.name == "" {
+	if name == "" {
 		return fmt.Sprintf("[ID:%d]", l.userID)
 	}
-	return fmt.Sprintf("%s[ID:%d]", l.name, l.userID)
+	return fmt.Sprintf("%s[ID:%d]", name, l.userID)
 }
+
+// Parse boundary for the background (#69 审查：正文换行可伪造他人带号行):
+// one rendered line is exactly one stored record, and its label holds the
+// line's only half-width "[ID:". Line breaks in a name or text (LF, CRLF, CR,
+// Unicode line/paragraph separators) render as "⏎", and a typed "[ID:" in a
+// name or text renders full-width "［ID:". Stored data stays raw.
+var groupLineBreaks = strings.NewReplacer(
+	"\r\n", "⏎", "\r", "⏎", "\n", "⏎",
+	"\v", "⏎", "\f", "⏎", "\u0085", "⏎", "\u2028", "⏎", "\u2029", "⏎",
+	"[ID:", "［ID:",
+)
 
 // groupAnchorTTL: how long a "this group has / lacks an allow_groups_with
 // member" answer is reused. Source: existing adapter cache in commit 54848436.
