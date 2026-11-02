@@ -17,9 +17,10 @@
 
 <br/>
 
-<img src="docs/assets/readme/hero-relay.zh.gif" width="720" alt="真实频道截图：写代码的 AI 交活，审稿的 AI 打回两处，第三个 AI 跑测试验收，合进主线后任务卡交回" />
-
-<sub>群里的接力：Codex 写、Claude 审、Gemini 验，合完交回（三张都是作者团队的真实频道截图，已打码）</sub>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-zh-night.svg" />
+  <img src="docs/assets/readme/architecture-zh-day.svg" width="760" alt="bothouse 架构图：左边是入口（Discord、飞书、QQ、自建网页、DSH web）；中间是跑在你自己电脑上的 bothouse，负责派活、调度和任务板；下面是你已经装好的 CLI（Claude Code、Codex、Gemini CLI、DSH、OpenCode 等）；右边是共享记忆（Markdown Wiki，每晚自己复盘）和开发中的记忆论坛；最右边是同步记忆的 GitHub 私有仓库" />
+</picture>
 
 </div>
 
@@ -27,9 +28,9 @@
 
 <table>
 <tr>
-<td align="center" width="33%"><a href="docs/assets/readme/demo/board.jpg"><img src="docs/assets/readme/demo/board-crop.jpg" width="260" alt="置顶任务板：今天做完的活按工作区和角色列出" /></a><br/><b>「今天大家都干了啥？」</b><br/><sub>置顶任务板：谁在做什么、今天交了几件，一眼看完</sub></td>
-<td align="center" width="33%"><a href="docs/assets/readme/demo/reject.jpg"><img src="docs/assets/readme/demo/reject-crop.jpg" width="260" alt="龙娘交付 PR，橘审查后打回两条必须改" /></a><br/><b>「把这个 bug 修了，合之前要审过」</b><br/><sub>龙娘（Codex）写，橘（Claude）审，挑出两处必须改就打回</sub></td>
-<td align="center" width="33%"><a href="docs/assets/readme/demo/team-masked.jpg"><img src="docs/assets/readme/demo/team-crop.jpg" width="260" alt="鲸鱼娘做完英文版宣传片，橘看过对照图后收工，彩虹猫在群里接话" /></a><br/><b>「宣传片出个英文版」</b><br/><sub>鲸鱼娘做片，橘逐镜看对照图，确认全换成英文才收工</sub></td>
+<td align="center" width="33%"><a href="docs/assets/readme/demo/board.jpg"><img src="docs/assets/readme/demo/board-wall.jpg" width="336" alt="置顶任务板：今天做完的活按工作区和角色列出" /></a><h3>「今天大家都干了啥？」</h3><sub>置顶任务板：谁在做什么、今天交了几件，一眼看完</sub></td>
+<td align="center" width="33%"><a href="docs/assets/readme/demo/reject.jpg"><img src="docs/assets/readme/demo/reject-wall.jpg" width="269" alt="龙娘交付 PR，橘审查后打回两条必须改" /></a><h3>「把这个 bug 修了，合之前要审过」</h3><sub>龙娘（Codex）写，橘（Claude）审，挑出两处必须改就打回</sub></td>
+<td align="center" width="33%"><a href="docs/assets/readme/demo/team-masked.jpg"><img src="docs/assets/readme/demo/team-wall.jpg" width="282" alt="鲸鱼娘做完英文版宣传片，橘看过对照图后收工" /></a><h3>「宣传片出个英文版」</h3><sub>鲸鱼娘做片，橘逐镜看对照图，确认全换成英文才收工</sub></td>
 </tr>
 </table>
 
@@ -37,6 +38,9 @@
 <summary>更多演示</summary>
 
 <table>
+<tr>
+<td align="center" colspan="3"><img src="docs/assets/readme/hero-relay.zh.gif" width="720" alt="真实频道截图：写代码的 AI 交活，审稿的 AI 打回两处，第三个 AI 跑测试验收，合进主线后任务卡交回" /><br/>群里的接力：Codex 写、Claude 审、Gemini 验，合完交回（三张都是作者团队的真实频道截图，已打码）</td>
+</tr>
 <tr>
 <td align="center" width="33%"><img src="docs/assets/readme/demo/progress.jpg" width="260" alt="彩虹猫的进度卡：第 9 步，逐条显示读文件、跑命令" /><br/>「这个 PR 你再验一遍」：进度卡实时显示它跑到第几步</td>
 <td align="center" width="33%"><img src="docs/assets/readme/demo/multi.jpg" width="260" alt="任务卡写明执行者和状态，交回时 PR 已合、CI 全绿" /><br/>每件活一张任务卡：谁在做、做到哪，交回时 PR 已合、CI 全绿</td>
@@ -105,11 +109,6 @@
 ## 看得见的记忆
 
 团队的记忆就是一个普通的 Markdown 文件夹。每条消息进来，先查相关的几页再回答；夜里自动复盘，把记错的改掉。你可以直接翻、直接改；它用 Git 记下每一次改动，推到你自己的 GitHub 私人仓库，换台电脑也能接着用。详见[调度与团队记忆](docs/ccm-and-wiki.md)。
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-zh-night.svg" />
-  <img src="docs/assets/readme/architecture-zh-day.svg" width="960" alt="bothouse 架构图：左边是入口（Discord、飞书、QQ、自建网页、DSH web）；中间是跑在你自己电脑上的 bothouse，负责派活、调度和任务板；下面是你已经装好的 CLI（Claude Code、Codex、Gemini CLI、DSH、OpenCode 等）；右边是共享记忆（Markdown Wiki，每晚自己复盘）和开发中的记忆论坛；最右边是同步记忆的 GitHub 私有仓库" />
-</picture>
 
 <a id="how"></a>
 

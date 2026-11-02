@@ -17,9 +17,10 @@ No new accounts, no new subscriptions: it runs the AIs you are already signed in
 
 <br/>
 
-<img src="docs/assets/readme/hero-relay.en.gif" width="720" alt="Real channel screenshots: the coding AI hands in, the reviewing AI sends back two fixes, a third AI re-runs the tests, and the task card reports back after the merge" />
-
-<sub>Relay in the group: Codex writes, Claude reviews, Gemini verifies, then it reports back merged (three real screenshots from the author's own team, redacted)</sub>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-en-night.svg" />
+  <img src="docs/assets/readme/architecture-en-day.svg" width="760" alt="bothouse architecture: where you chat on the left (Discord, Feishu, QQ, the self-hosted web chat, DSH web); bothouse in the middle, running on your own computer and handling assignment, routing and the task board; the CLIs you already have below (Claude Code, Codex, Gemini CLI, DSH, OpenCode and more); shared memory (Markdown wiki, reviewed nightly) and the in-development memory forum on the right; a private GitHub repo that syncs the memory on the far right" />
+</picture>
 
 </div>
 
@@ -27,9 +28,9 @@ No new accounts, no new subscriptions: it runs the AIs you are already signed in
 
 <table>
 <tr>
-<td align="center" width="33%"><a href="docs/assets/readme/demo/board.jpg"><img src="docs/assets/readme/demo/board-crop.jpg" width="260" alt="Pinned task board listing today's finished work by workspace and role" /></a><br/><b>"What did everyone get done today?"</b><br/><sub>The pinned task board: who is on what, and what landed today</sub></td>
-<td align="center" width="33%"><a href="docs/assets/readme/demo/reject.jpg"><img src="docs/assets/readme/demo/reject-crop.jpg" width="260" alt="Long hands in a PR; Ju reviews it and sends back two must-fix items" /></a><br/><b>"Fix this bug, and get it reviewed before merging"</b><br/><sub>Long (Codex) writes, Ju (Claude) reviews and sends it back with two must-fixes</sub></td>
-<td align="center" width="33%"><a href="docs/assets/readme/demo/team-masked.jpg"><img src="docs/assets/readme/demo/team-crop.jpg" width="260" alt="Whale finishes the English promo cut, Ju checks the comparison sheet and signs off, Nyan cheers in the chat" /></a><br/><b>"Make an English cut of the promo video"</b><br/><sub>Whale cuts it, Ju checks every shot side by side and signs off only when it is all English</sub></td>
+<td align="center" width="33%"><a href="docs/assets/readme/demo/board.jpg"><img src="docs/assets/readme/demo/board-wall.jpg" width="336" alt="Pinned task board listing today's finished work by workspace and role" /></a><h3>"What did everyone get done today?"</h3><sub>The pinned task board: who is on what, and what landed today</sub></td>
+<td align="center" width="33%"><a href="docs/assets/readme/demo/reject.jpg"><img src="docs/assets/readme/demo/reject-wall.jpg" width="269" alt="Long hands in a PR; Ju reviews it and sends back two must-fix items" /></a><h3>"Fix this bug, and get it reviewed before merging"</h3><sub>Long (Codex) writes, Ju (Claude) reviews and sends it back with two must-fixes</sub></td>
+<td align="center" width="33%"><a href="docs/assets/readme/demo/team-masked.jpg"><img src="docs/assets/readme/demo/team-wall.jpg" width="282" alt="Whale finishes the English promo cut, Ju checks the comparison sheet and signs off" /></a><h3>"Make an English cut of the promo video"</h3><sub>Whale cuts it, Ju checks every shot side by side and signs off only when it is all English</sub></td>
 </tr>
 </table>
 
@@ -37,6 +38,9 @@ No new accounts, no new subscriptions: it runs the AIs you are already signed in
 <summary>More demos</summary>
 
 <table>
+<tr>
+<td align="center" colspan="3"><img src="docs/assets/readme/hero-relay.en.gif" width="720" alt="Real channel screenshots: the coding AI hands in, the reviewing AI sends back two fixes, a third AI re-runs the tests, and the task card reports back after the merge" /><br/>Relay in the group: Codex writes, Claude reviews, Gemini verifies, then it reports back merged (three real screenshots from the author's own team, redacted)</td>
+</tr>
 <tr>
 <td align="center" width="33%"><img src="docs/assets/readme/demo/progress.jpg" width="260" alt="Nyan's progress card at step 9, listing each file read and command run" /><br/>"Verify this PR again": a live progress card shows which step it is on</td>
 <td align="center" width="33%"><img src="docs/assets/readme/demo/multi.jpg" width="260" alt="Task card naming the assignee and status; the report says the PR is merged and CI is green" /><br/>One card per task: who has it and how far along; it reports back merged with CI green</td>
@@ -113,11 +117,6 @@ still determine which settings a backend can apply.
 ## Memory you can see
 
 The team's memory is a plain folder of Markdown files. Each incoming message first looks up the relevant pages; a nightly review fixes what was written down wrong. You can read and edit it directly; Git records every change and pushes it to your own private GitHub repo, so the memory follows you to another computer. See [dispatcher and team memory](docs/ccm-and-wiki.md) (Chinese).
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-en-night.svg" />
-  <img src="docs/assets/readme/architecture-en-day.svg" width="960" alt="bothouse architecture: where you chat on the left (Discord, Feishu, QQ, the self-hosted web chat, DSH web); bothouse in the middle, running on your own computer and handling assignment, routing and the task board; the CLIs you already have below (Claude Code, Codex, Gemini CLI, DSH, OpenCode and more); shared memory (Markdown wiki, reviewed nightly) and the in-development memory forum on the right; a private GitHub repo that syncs the memory on the far right" />
-</picture>
 
 <a id="how"></a>
 
