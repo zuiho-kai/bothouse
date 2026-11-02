@@ -11,7 +11,7 @@ import (
 func TestReview863IncrementalOverflowCapReachesNextTurn(t *testing.T) {
 	for _, withGate := range []bool{false, true} {
 		t.Run(fmt.Sprintf("gate_%t", withGate), func(t *testing.T) {
-			p := &stubPlatformEngine{n: "qq"}
+			p := &groupQueueStub{stubPlatformEngine{n: "qq"}}
 			as := newPromptCaptureSession()
 			agent := &resultAgent{session: as}
 			e := NewEngine("incremental-review", agent, []Platform{p}, "", LangEnglish)
@@ -53,7 +53,7 @@ func TestReview863IncrementalOverflowCapReachesNextTurn(t *testing.T) {
 // Review-only counterexample: two quoted messages are an existing batch boundary,
 // but giving up a queue place must not promote context back into its own reply.
 func TestReview863IncrementalOverflowAtBatchBoundary(t *testing.T) {
-	p := &stubPlatformEngine{n: "qq"}
+	p := &groupQueueStub{stubPlatformEngine{n: "qq"}}
 	as := newPromptCaptureSession()
 	agent := &resultAgent{session: as}
 	e := NewEngine("incremental-review", agent, []Platform{p}, "", LangEnglish)
@@ -89,10 +89,10 @@ func TestReview863IncrementalOverflowAtBatchBoundary(t *testing.T) {
 // images relative to the numbered, chronological message captions.
 func TestReview863IncrementalOverflowAttachmentOrder(t *testing.T) {
 	state := &interactiveState{pendingMessages: []queuedMessage{
-		{userID: "alice", userName: "Alice", msgPlatform: "qq", msgSessionKey: "qq:group:images",
+		{userID: "alice", userName: "Alice", platform: qqGroup, msgPlatform: "qq", msgSessionKey: "qq:group:images",
 			messageID: "protected", content: "FIRST_IMAGE", mentioned: true,
 			images: []ImageAttachment{{FileName: "first.png"}}, files: []FileAttachment{{FileName: "first.txt"}}},
-		{userID: "bob", userName: "Bob", msgPlatform: "qq", msgSessionKey: "qq:group:images",
+		{userID: "bob", userName: "Bob", platform: qqGroup, msgPlatform: "qq", msgSessionKey: "qq:group:images",
 			messageID: "context", content: "SECOND_IMAGE", overflow: true,
 			images: []ImageAttachment{{FileName: "second.png"}}, files: []FileAttachment{{FileName: "second.txt"}}},
 	}}

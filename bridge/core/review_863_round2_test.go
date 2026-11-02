@@ -7,7 +7,7 @@ import (
 )
 
 func TestReview863Round2VoiceContextBeforeTextHolder(t *testing.T) {
-	p := &stubPlatformEngine{n: "qq"}
+	p := &groupQueueStub{stubPlatformEngine{n: "qq"}}
 	as := newPromptCaptureSession()
 	agent := &resultAgent{session: as}
 	e := NewEngine("round2-review", agent, []Platform{p}, "", LangEnglish)
@@ -38,7 +38,7 @@ func TestReview863Round2VoiceContextBeforeTextHolder(t *testing.T) {
 }
 
 func TestReview863Round2KeepsEachQuotedMessage(t *testing.T) {
-	p := &stubPlatformEngine{n: "qq"}
+	p := &groupQueueStub{stubPlatformEngine{n: "qq"}}
 	as := newPromptCaptureSession()
 	agent := &resultAgent{session: as}
 	e := NewEngine("round2-review", agent, []Platform{p}, "", LangEnglish)
@@ -71,7 +71,7 @@ func TestReview863Round2KeepsEachQuotedMessage(t *testing.T) {
 }
 
 func TestReview863Round2FoldPreservesArrivalOrderAcrossHolder(t *testing.T) {
-	p := &stubPlatformEngine{n: "qq"}
+	p := &groupQueueStub{stubPlatformEngine{n: "qq"}}
 	as := newPromptCaptureSession()
 	e := NewEngine("round2-review", &resultAgent{session: as}, []Platform{p}, "", LangEnglish)
 	defer e.cancel()

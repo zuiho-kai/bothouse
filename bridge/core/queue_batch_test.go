@@ -51,14 +51,14 @@ func TestTruncateRelayMore(t *testing.T) {
 // the newest is marked; a bot or cron turn still waits for its own (user 2026-11-02).
 func TestTakeQueuedBatchLocked_GroupChatAllSenders(t *testing.T) {
 	g := func(id, user, name, content string, mentioned bool) queuedMessage {
-		return queuedMessage{userID: user, userName: name, msgPlatform: "qq", msgSessionKey: "qq:g:1", content: content, messageID: id, mentioned: mentioned}
+		return queuedMessage{userID: user, userName: name, platform: qqGroup, msgPlatform: "qq", msgSessionKey: "qq:g:1", content: content, messageID: id, mentioned: mentioned}
 	}
 	st := &interactiveState{pendingMessages: []queuedMessage{
 		g("m1", "u1", "司空晔", "你呢", false),
 		g("m2", "u2", "石英", "你也说说", false),
 		g("m3", "u3", "三秋", "@肥鱼 在吗", true),
 		g("m4", "u1", "司空晔", "人呢", false),
-		{userID: "b1", msgPlatform: "qq", msgSessionKey: "qq:g:1", content: "队友", messageID: "m5", fromBot: true},
+		{userID: "b1", platform: qqGroup, msgPlatform: "qq", msgSessionKey: "qq:g:1", content: "队友", messageID: "m5", fromBot: true},
 	}}
 	q := takeQueuedBatchLocked(st)
 	if q.messageID != "m4" || !q.mentioned || !strings.Contains(q.content, "你忙时收到的 4 条") ||
@@ -85,7 +85,7 @@ func TestTakeQueuedBatchLocked_GroupChatAllSenders(t *testing.T) {
 // is queued as context itself. The next turn carries all of them, in order, replying to the newest
 // message that held a place.
 func TestGroupQueueFull_MakesRoom(t *testing.T) {
-	p := &stubPlatformEngine{n: "qq"}
+	p := &groupQueueStub{stubPlatformEngine{n: "qq"}}
 	as := newResultAgentSession("unused")
 	e := NewEngine("test", &resultAgent{session: as}, []Platform{p}, "", LangEnglish)
 	defer e.cancel()
@@ -149,9 +149,9 @@ func TestGroupQueueFull_MakesRoom(t *testing.T) {
 // between them and the next message holding a place, or sent as voice, they ride with that message.
 func TestGroupBatch_ContextRidesWithNextHolder(t *testing.T) {
 	g := func(id, content string, overflow, voice bool) queuedMessage {
-		return queuedMessage{userID: "u-" + id, userName: id, msgPlatform: "qq", msgSessionKey: "qq:g:1", messageID: id, content: content, overflow: overflow, fromVoice: voice}
+		return queuedMessage{userID: "u-" + id, userName: id, platform: qqGroup, msgPlatform: "qq", msgSessionKey: "qq:g:1", messageID: id, content: content, overflow: overflow, fromVoice: voice}
 	}
-	cron := queuedMessage{userID: "cron", msgPlatform: "qq", msgSessionKey: "qq:g:1", messageID: "cron", content: "定时"}
+	cron := queuedMessage{userID: "cron", platform: qqGroup, msgPlatform: "qq", msgSessionKey: "qq:g:1", messageID: "cron", content: "定时"}
 	st := &interactiveState{pendingMessages: []queuedMessage{g("a", "旁听一", true, false), cron, g("b", "旁听二", true, true), g("c", "提问", false, false)}}
 	q := takeQueuedBatchLocked(st)
 	if q.messageID != "c" || !strings.Contains(q.content, "旁听一") || !strings.Contains(q.content, "旁听二") ||
@@ -167,8 +167,8 @@ func TestGroupBatch_ContextRidesWithNextHolder(t *testing.T) {
 // with it, and the turn keeps the holder's voice mode.
 func TestGroupBatch_TextContextBeforeVoiceHolder(t *testing.T) {
 	st := &interactiveState{pendingMessages: []queuedMessage{
-		{userID: "a", userName: "A", msgPlatform: "qq", msgSessionKey: "qq:g:1", messageID: "ctx", content: "TEXT_CONTEXT", overflow: true},
-		{userID: "b", userName: "B", msgPlatform: "qq", msgSessionKey: "qq:g:1", messageID: "holder", content: "VOICE_QUESTION", mentioned: true, fromVoice: true},
+		{userID: "a", userName: "A", platform: qqGroup, msgPlatform: "qq", msgSessionKey: "qq:g:1", messageID: "ctx", content: "TEXT_CONTEXT", overflow: true},
+		{userID: "b", userName: "B", platform: qqGroup, msgPlatform: "qq", msgSessionKey: "qq:g:1", messageID: "holder", content: "VOICE_QUESTION", mentioned: true, fromVoice: true},
 	}}
 	q := takeQueuedBatchLocked(st)
 	if q.messageID != "holder" || !q.fromVoice || len(st.pendingMessages) != 0 ||
@@ -176,3 +176,11 @@ func TestGroupBatch_TextContextBeforeVoiceHolder(t *testing.T) {
 		t.Fatalf("batch = %+v", q)
 	}
 }
+
+// groupQueueStub batches every chat it is asked about (GroupQueueBatcher); the capability, not
+// its "qq" name, is what turns the group queue on.
+type groupQueueStub struct{ stubPlatformEngine }
+
+func (*groupQueueStub) BatchGroupQueue(any) bool { return true }
+
+var qqGroup Platform = &groupQueueStub{stubPlatformEngine{n: "qq"}}

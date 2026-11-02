@@ -13,7 +13,7 @@ func TestReview863OverflowContextReachesNextQueuedTurn(t *testing.T) {
 			name = "with_gate"
 		}
 		t.Run(name, func(t *testing.T) {
-			p := &stubPlatformEngine{n: "qq"}
+			p := &groupQueueStub{stubPlatformEngine{n: "qq"}}
 			as := newPromptCaptureSession()
 			agent := &resultAgent{session: as}
 			e := NewEngine("review", agent, []Platform{p}, "", LangEnglish)
@@ -54,7 +54,7 @@ func TestReview863OverflowContextReachesNextQueuedTurn(t *testing.T) {
 }
 
 func TestReview863QueuedRetryKeepsMentionAndDirect(t *testing.T) {
-	original := queuedMessage{userID: "alice", msgPlatform: "qq", msgSessionKey: "qq:private:alice", mentioned: true, direct: true}
+	original := queuedMessage{userID: "alice", platform: qqGroup, msgPlatform: "qq", msgSessionKey: "qq:private:alice", mentioned: true, direct: true}
 	rebuilt := queuedToMessage(original)
 	if !rebuilt.Mentioned || !rebuilt.Direct {
 		t.Fatalf("capacity retry lost routing fields: mentioned=%t direct=%t; want both true", rebuilt.Mentioned, rebuilt.Direct)
@@ -62,7 +62,7 @@ func TestReview863QueuedRetryKeepsMentionAndDirect(t *testing.T) {
 }
 
 func TestReview863MentionedRetryStillAdmittedToFullQueue(t *testing.T) {
-	p := &stubPlatformEngine{n: "qq"}
+	p := &groupQueueStub{stubPlatformEngine{n: "qq"}}
 	as := newPromptCaptureSession()
 	e := NewEngine("review", &resultAgent{session: as}, []Platform{p}, "", LangEnglish)
 	defer e.cancel()
@@ -74,7 +74,7 @@ func TestReview863MentionedRetryStillAdmittedToFullQueue(t *testing.T) {
 	if e.enqueueForBusySession(p, protected, key, nil) != queueAccepted {
 		t.Fatal("initial @ not queued")
 	}
-	retry := queuedToMessage(queuedMessage{userID: "alice", userName: "Alice", msgPlatform: "qq", msgSessionKey: key, messageID: "retry", content: "@bot answer my queued question", mentioned: true})
+	retry := queuedToMessage(queuedMessage{userID: "alice", userName: "Alice", platform: qqGroup, msgPlatform: "qq", msgSessionKey: key, messageID: "retry", content: "@bot answer my queued question", mentioned: true})
 	if got := e.enqueueForBusySession(p, &retry, key, nil); got != queueAccepted {
 		t.Fatalf("previously mentioned retry rejected: outcome=%v pending=%d buffer=%v", got, len(state.pendingMessages), e.gate.buf[key])
 	}
@@ -82,8 +82,8 @@ func TestReview863MentionedRetryStillAdmittedToFullQueue(t *testing.T) {
 
 func TestReview863SingleSenderKeepsEarlierMention(t *testing.T) {
 	state := &interactiveState{pendingMessages: []queuedMessage{
-		{userID: "alice", userName: "Alice", msgPlatform: "qq", msgSessionKey: "qq:group:review", messageID: "one", content: "@bot please answer", mentioned: true},
-		{userID: "alice", userName: "Alice", msgPlatform: "qq", msgSessionKey: "qq:group:review", messageID: "two", content: "extra details"},
+		{userID: "alice", userName: "Alice", platform: qqGroup, msgPlatform: "qq", msgSessionKey: "qq:group:review", messageID: "one", content: "@bot please answer", mentioned: true},
+		{userID: "alice", userName: "Alice", platform: qqGroup, msgPlatform: "qq", msgSessionKey: "qq:group:review", messageID: "two", content: "extra details"},
 	}}
 	merged := takeQueuedBatchLocked(state)
 	if !merged.mentioned || !strings.Contains(merged.content, "（@你）") || !strings.Contains(merged.content, "（最新）") {

@@ -15,7 +15,7 @@ import (
 // quote) ends the batch and waits for its own turn. Caller holds state.mu.
 func takeQueuedBatchLocked(state *interactiveState) queuedMessage {
 	head := state.pendingMessages[0]
-	if batchableQueued(&head) && groupChatQueue(head.msgPlatform, head.direct) {
+	if batchableQueued(&head) && groupChatQueue(head.platform, head.replyCtx, head.direct) {
 		return takeGroupBatchLocked(state)
 	}
 	state.pendingMessages = state.pendingMessages[1:]
@@ -100,13 +100,19 @@ func takeGroupBatchLocked(state *interactiveState) queuedMessage {
 	return mergeQueuedChat(parts)
 }
 
-// groupChatQueue reports whether a busy session's queue for this chat is a QQ group's (user
-// 2026-11-02: QQ 肥鱼 answered a busy group one queued message per turn, minutes late, then said
-// "消息队列已满" to an @). There the queue folds every sender into one turn and, when full, files
-// its oldest un-@-ed message as context instead of turning the new one away. Other platforms keep
-// one sender per turn and the queue-full notice.
-func groupChatQueue(platform string, direct bool) bool {
-	return platform == "qq" && !direct
+// GroupQueueBatcher is implemented by platforms whose busy group chats share one queue (QQ
+// groups, user 2026-11-02: QQ 肥鱼 answered a busy group one queued message per turn, minutes
+// late, then said "消息队列已满" to an @). There the queue folds every sender into one turn and,
+// when full, files its oldest un-@-ed message as context instead of turning the new one away.
+type GroupQueueBatcher interface {
+	BatchGroupQueue(replyCtx any) bool
+}
+
+// groupChatQueue reports whether p batches the queue of replyCtx's chat (GroupQueueBatcher).
+// Private chats and other platforms keep one sender per turn and the queue-full notice.
+func groupChatQueue(p Platform, replyCtx any, direct bool) bool {
+	b, ok := p.(GroupQueueBatcher)
+	return ok && !direct && b.BatchGroupQueue(replyCtx)
 }
 
 func sameQueuedChat(a, b *queuedMessage) bool {

@@ -3987,7 +3987,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		return queueRejected
 	}
 	// Only a person's message makes room; a cron/timer or teammate turn keeps the old rule.
-	groupQueue := groupChatQueue(msg.Platform, msg.Direct) && !msg.FromBot && scheduledFrom == nil &&
+	groupQueue := groupChatQueue(p, msg.ReplyCtx, msg.Direct) && !msg.FromBot && scheduledFrom == nil &&
 		msg.timerJobID == "" && !scheduledTurnUser(msg.UserID)
 	groupOverflow := false
 	if groupQueue && countQueuedLocked(state) >= e.maxQueuedMessages && !msg.abortFront {

@@ -1626,3 +1626,12 @@ func (p *Platform) SendFile(ctx context.Context, replyCtx any, file core.FileAtt
 }
 
 var _ core.FileSender = (*Platform)(nil)
+
+var _ core.GroupQueueBatcher = (*Platform)(nil)
+
+// BatchGroupQueue folds a busy QQ group's queued messages into one turn and lets a full queue
+// keep taking @s (user 2026-11-02); private chats and unknown contexts keep the plain queue.
+func (p *Platform) BatchGroupQueue(replyCtx any) bool {
+	rc, ok := replyCtx.(*replyContext)
+	return ok && rc != nil && rc.messageType == "group"
+}
