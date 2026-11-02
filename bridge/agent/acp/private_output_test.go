@@ -205,9 +205,8 @@ func TestPrivateOutput_PromptCompletionAndErrors(t *testing.T) {
 					}()
 					select {
 					case err := <-done:
-						wantErr := i == 0 && (ending == "rpc_error" || (strict && ending == "cancelled"))
-						if (err != nil) != wantErr {
-							t.Fatalf("err=%v wantErr=%v", err, wantErr)
+						if err != nil {
+							t.Fatalf("terminal failure escaped the ordered event stream: %v", err)
 						}
 					case <-time.After(3 * time.Second):
 						t.Fatal("prompt timed out")

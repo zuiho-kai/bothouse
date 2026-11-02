@@ -7744,6 +7744,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventError:
 			turnFailed = true
+			// A tool may already have changed external state, even when its
+			// progress is hidden. Only capacity failures before tools can replay
+			// the user prompt, including queued turns and cooldown redelivery.
+			retryCapacity := input == nil && toolCount == 0 && event.Error != nil && isModelCapacityError(event.Error.Error())
 			state.mu.Lock()
 			state.turnErrored = true // a turn that ends in error never means "the model is back"
 			state.mu.Unlock()
@@ -7753,7 +7757,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					slog.Warn("provider quota exhausted, cooling down until reset", "session_key", sessionKey, "cooling_until", until.Format(time.RFC3339))
 				}
 			}
-			if event.Error != nil && isModelCapacityError(event.Error.Error()) {
+			if retryCapacity {
 				board.hold() // maomao fork: re-sent by the capacity retry; one board row, no failure
 			} else {
 				board.finish(state, BoardDoneFailed)
@@ -7813,7 +7817,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// #618 K4 M2: the bridge is stopping and ended this turn; it is kept in
 					// the journal and resumed after the restart, so it is no failure.
 					slog.Info("agent error during shutdown suppressed", "session", sessionKey, "error", errMsg)
-				} else if input == nil && isModelCapacityError(errMsg) {
+				} else if retryCapacity {
 					// maomao fork: retried / cooled down by runTurnWithCapacityRetry, which tells the user.
 					// A queued message chained into this loop goes back to the queue head,
 					// so the drain loop retries it (not the turn this loop started with).

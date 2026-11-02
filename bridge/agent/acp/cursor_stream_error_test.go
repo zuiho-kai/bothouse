@@ -46,9 +46,14 @@ func TestCursorStreamedErrorBecomesTypedBackendError(t *testing.T) {
 	servePromptReply(t, rReq, wResp, "\n\nError: v: WritableIterable is closed")
 
 	err := s.Send("hi", "", nil, nil)
-	if err == nil {
-		t.Fatal("Send succeeded after the backend streamed an error")
+	if err != nil {
+		t.Fatalf("terminal failure escaped the ordered event stream: %v", err)
 	}
+	events := drainEvents(s)
+	if len(events) != 1 || events[0].Type != core.EventError {
+		t.Fatalf("events = %+v, want exactly one EventError (no text/result)", events)
+	}
+	err = events[0].Error
 	var backend *core.BackendUnavailableError
 	if !errors.As(err, &backend) {
 		t.Fatalf("Send error is not BackendUnavailableError: %v", err)
@@ -63,10 +68,6 @@ func TestCursorStreamedErrorBecomesTypedBackendError(t *testing.T) {
 		t.Fatalf("quota lookup = (%q, %d calls), want the configured model once", reporter.model, reporter.calls)
 	}
 
-	events := drainEvents(s)
-	if len(events) != 1 || events[0].Type != core.EventError {
-		t.Fatalf("events = %+v, want exactly one EventError (no text/result)", events)
-	}
 	if !errors.As(events[0].Error, &backend) {
 		t.Fatalf("event error = %v, want typed backend error", events[0].Error)
 	}
@@ -191,16 +192,16 @@ func TestCursorStreamedErrorSplitAcrossChunksStillFails(t *testing.T) {
 	servePromptReply(t, rReq, wResp, "\n\nError: v: WritableIterable ", "is closed")
 
 	err := s.Send("hi", "", nil, nil)
-	if err == nil {
-		t.Fatal("Send succeeded after a chunked backend error")
-	}
-	var backend *core.BackendUnavailableError
-	if !errors.As(err, &backend) {
-		t.Fatalf("Send error is not BackendUnavailableError: %v", err)
+	if err != nil {
+		t.Fatalf("terminal failure escaped the ordered event stream: %v", err)
 	}
 	events := drainEvents(s)
 	if len(events) != 1 || events[0].Type != core.EventError {
 		t.Fatalf("events = %+v, want exactly one EventError", events)
+	}
+	var backend *core.BackendUnavailableError
+	if !errors.As(events[0].Error, &backend) {
+		t.Fatalf("event error is not BackendUnavailableError: %v", events[0].Error)
 	}
 }
 

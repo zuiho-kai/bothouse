@@ -14,13 +14,22 @@ type boundaryCapacitySession struct {
 	events  chan Event
 	first   []Event
 	prompts []string
+	lead    chan struct{} // optional successful turn before the queued failure
 }
 
 func (s *boundaryCapacitySession) Send(prompt, _ string, _ []ImageAttachment, _ []FileAttachment) error {
 	s.mu.Lock()
 	s.prompts = append(s.prompts, prompt)
-	first := len(s.prompts) == 1
+	n := len(s.prompts)
 	s.mu.Unlock()
+	if s.lead != nil && n == 1 {
+		go func() {
+			<-s.lead
+			s.events <- Event{Type: EventResult, Content: "leading-answer", Done: true}
+		}()
+		return nil
+	}
+	first := (s.lead == nil && n == 1) || (s.lead != nil && n == 2)
 	if first {
 		for _, event := range s.first {
 			s.events <- event
@@ -77,10 +86,43 @@ func TestCapacityRetry_DoesNotReplayToolBoundary(t *testing.T) {
 			if !strings.Contains(joined(p), "at capacity") {
 				t.Fatalf("failure missing: %q", joined(p))
 			}
+			if got := strings.Count(joined(p), "first-attempt-text"); got > 1 {
+				t.Fatalf("first attempt text repeated %d times: %q", got, joined(p))
+			}
 			if e.capacityWait() != 0 {
 				t.Fatal("unsafe turn queued for capacity redelivery")
 			}
 		})
+	}
+}
+
+func TestCapacityRetry_QueuedToolFailureDoesNotReplayAndNextMessageRuns(t *testing.T) {
+	sess := &boundaryCapacitySession{
+		events: make(chan Event, 8), lead: make(chan struct{}),
+		first: []Event{{Type: EventText, Content: "queued-first-attempt"}, {Type: EventToolUse, ToolName: "fixture-tool"}},
+	}
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	send := func(text string) {
+		e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u", Content: text, ReplyCtx: "ctx"})
+	}
+	send("leading message")
+	waitFor(t, "leading prompt", func() bool { return sess.sends() == 1 })
+	send("queued user work")
+	close(sess.lead)
+	waitFor(t, "queued failure", func() bool { return strings.Contains(joined(p), "at capacity") })
+	waitFor(t, "queue released", func() bool { return !e.sessions.GetOrCreateActive("test:c1").Busy() })
+	if got := sess.sends(); got != 2 {
+		t.Fatalf("prompt sends = %d, want leading and queued prompt once each: %q", got, joined(p))
+	}
+	if strings.Contains(joined(p), "replayed-user-work") || e.capacityWait() != 0 {
+		t.Fatalf("queued work replayed or deferred: %q", joined(p))
+	}
+	send("next explicit request")
+	waitFor(t, "next request answer", func() bool { return strings.Contains(joined(p), "replayed-user-work") })
+	if got := sess.sends(); got != 3 {
+		t.Fatalf("prompt sends = %d, want one for each explicit message", got)
 	}
 }
 
