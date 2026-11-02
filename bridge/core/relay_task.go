@@ -8,23 +8,44 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 )
 
+// relayHandoffRefRE extends the quota takeover's handoff-ref regex with
+// ".prompt": team handoffs are written as "<name>.handoff.prompt" and the board
+// stores that same path in Where, so a receipt must carry it for #72 to match
+// HandoffRefs against Where. Source: #72 shared-interface contract and the live
+// board's where values, 2026-11-02.
+var relayHandoffRefRE = regexp.MustCompile("(?:[A-Za-z]:\\\\|/|~/|[[:alnum:]_.-]+/)[^\\s\"'<>`]+\\.(?:md|txt|prompt)(?::[0-9]+)?")
+
+// taskRelayBoardRef pins the board item a dispatch may report back to: the item
+// id, its bound generation and the task revision at dispatch time. The consumer
+// (team_task_review.go) refuses a return whose generation or revision no longer
+// matches, so a worker's own response text can never name a board item.
+// Source: #72 shared-interface contract, 2026-11-02.
+type taskRelayBoardRef struct {
+	Board    int    `json:"board"`
+	Bound    string `json:"bound"`
+	Revision int    `json:"revision"`
+}
+
 // A receipt is committed before execution. Delivery retries never run tools
 // again, including after restart or an ambiguous execution failure.
 type taskRelayRecord struct {
-	HandoffRefs []string         `json:"handoff_refs,omitempty"`
-	Hash        string           `json:"hash"`
-	Target      string           `json:"target"`
-	Workspace   string           `json:"workspace,omitempty"` // execution workspace (sibling of the source workspace); empty = source
-	Status      string           `json:"status"`              // running, done, failed; running after restart is unresolved
-	Response    string           `json:"response,omitempty"`
-	Error       string           `json:"error,omitempty"`
-	LastSeq     int64            `json:"last_seq,omitempty"`
-	Reports     map[int64]string `json:"reports,omitempty"`
+	HandoffRefs []string            `json:"handoff_refs,omitempty"`
+	BoardRefs   []taskRelayBoardRef `json:"board_refs,omitempty"` // captured before execution; #72 consumes it, never the response text
+	MemberIDs   []string            `json:"member_ids,omitempty"` // assignments captured at dispatch, never later rows
+	Hash        string              `json:"hash"`
+	Target      string              `json:"target"`
+	Workspace   string              `json:"workspace,omitempty"` // execution workspace (sibling of the source workspace); empty = source
+	Status      string              `json:"status"`              // running, done, failed; running after restart is unresolved
+	Response    string              `json:"response,omitempty"`
+	Error       string              `json:"error,omitempty"`
+	LastSeq     int64               `json:"last_seq,omitempty"`
+	Reports     map[int64]string    `json:"reports,omitempty"`
 	// Ten-minute watch (relay_watch.go); kept with the receipt, never a workspace handoff.
 	WatchDue     time.Time `json:"watch_due,omitempty"`
 	WatchFrom    time.Time `json:"watch_from,omitempty"` // this window began (member row updates after it count)
@@ -325,6 +346,37 @@ func (p *PublicProgress) queueTaskRelay(r *publicRun) {
 	p.mu.Unlock()
 }
 
+// relayBoardRefs captures the board items a dispatch may report back to: same
+// chat as the source task, dispatched by this project or by the team lead, and
+// whose handoff path the caller named. Only the dispatch supplies this, never
+// the worker's later response. Source: #72 shared-interface contract, 2026-11-02.
+func (e *Engine) relayBoardRefs(from, sessionKey string, handoffs []string, revision int) []taskRelayBoardRef {
+	if e.team == nil {
+		return nil
+	}
+	chat := sessionKey
+	if parent, ok := e.WorkspaceParent(chat); ok {
+		chat = parent
+	}
+	key, lead := teamChatKey(chat), e.isTeamLead()
+	var refs []taskRelayBoardRef
+	for _, it := range readTeamTaskBoard(e.team.dir) {
+		if it.ID == 0 || it.Bound == "" || teamChatKey(it.Chat) != key {
+			continue
+		}
+		if it.Dispatcher != from && !lead {
+			continue
+		}
+		for _, path := range handoffs {
+			if it.Where != "" && path == it.Where {
+				refs = append(refs, taskRelayBoardRef{Board: it.ID, Bound: it.Bound, Revision: revision})
+				break
+			}
+		}
+	}
+	return refs
+}
+
 func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRelay, *RelayResponse, error) {
 	p.transitionMu.Lock()
 	defer p.transitionMu.Unlock()
@@ -413,7 +465,21 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 	}
 	old := snapshotTaskRelay(r)
 	now := time.Now().UTC()
-	r.record.Relays[req.RequestID] = taskRelayRecord{HandoffRefs: quotaHandoffRefRE.FindAllString(req.Message, -1), Hash: hash, Target: req.To, Workspace: req.Workspace, Status: "running", WatchFrom: now, WatchDue: now.Add(watchCheckAfter())}
+	var memberIDs []string
+	for _, member := range r.record.Task.Members {
+		if member.ReporterProject == req.To && member.Workspace == req.Workspace && member.Live() {
+			memberIDs = append(memberIDs, member.ID)
+		}
+	}
+	handoffs := relayHandoffRefRE.FindAllString(req.Message, -1)
+	// Freeze the board generation before execution: a later return must match
+	// this dispatch, not whatever the board says when the report comes back.
+	// Source: #72 shared-interface contract, 2026-11-02.
+	var boardRefs []taskRelayBoardRef
+	if p.relayBoardRefs != nil {
+		boardRefs = p.relayBoardRefs(req.From, req.SessionKey, handoffs, r.record.Task.RevisionNo())
+	}
+	r.record.Relays[req.RequestID] = taskRelayRecord{MemberIDs: memberIDs, HandoffRefs: handoffs, BoardRefs: boardRefs, Hash: hash, Target: req.To, Workspace: req.Workspace, Status: "running", WatchFrom: now, WatchDue: now.Add(watchCheckAfter())}
 	p.appendEvent(r, TaskEventProgress, NewI18n(r.record.Lang).Tf(MsgTaskRelayAssigned, name), true)
 	// Assignment text may contain a private report grant; never publish it.
 	if err := p.save(r); err != nil {
@@ -499,6 +565,18 @@ func (d *taskRelay) finish(response string, runErr error) error {
 			failureText = reason
 			if p.quotaBlocked == nil || !p.quotaBlocked(d.req.To, d.req.SessionKey) {
 				p.failMembersOnBackendUnavailable(r, d.req.To, reason)
+			}
+		} else {
+			// Ordinary execution failure belongs to this dispatch, not every live
+			// row of the bot. A later assignment or completed result must survive.
+			now := time.Now().UTC()
+			for _, id := range receipt.MemberIDs {
+				if i := memberIndex(r.record.Task, id); i >= 0 && r.record.Task.Members[i].Live() {
+					member := &r.record.Task.Members[i]
+					member.Status = "failed"
+					member.Summary = NewI18n(r.record.Lang).Tf(MsgTaskRelayFailed, d.name)
+					member.UpdatedAt, member.EndedAt = now, now
+				}
 			}
 		}
 		receipt.Status, receipt.Error = "failed", failureText

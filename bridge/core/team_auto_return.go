@@ -77,6 +77,18 @@ func (e *Engine) wakeChatLeadContext(ctx context.Context, p Platform, parent, ws
 }
 
 func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession string, boardID int) bool {
+	return e.wakeChatLeadWithDelivery(p, parent, ws, bot, kind, body, wsSession, boardID, boardID > 0)
+}
+
+// A format fallback still knows the named task, but has not posted its headline.
+func (e *Engine) wakeChatLeadRewriteContext(ctx context.Context, p Platform, parent, ws, bot, kind, body, wsSession string, boardID int) bool {
+	if _, bound := ctx.Value(proactiveExecutionKey{}).(proactiveExecution); bound {
+		return false
+	}
+	return e.wakeChatLeadWithDelivery(p, parent, ws, bot, kind, body, wsSession, boardID, false)
+}
+
+func (e *Engine) wakeChatLeadWithDelivery(p Platform, parent, ws, bot, kind, body, wsSession string, boardID int, posted bool) bool {
 	if p == nil || parent == "" {
 		return false
 	}
@@ -84,12 +96,16 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 		slog.Error("team exit: forward target is itself a workspace; lead not woken", "parent", parent, "workspace", ws)
 		return false
 	}
-	prompt := chatLeadPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, kind, body, e.workspaceTaskBackground(wsSession, boardID), boardID > 0)
-	prompt = askRef.ReplaceAllString(prompt, "ask-…")
-	board := boardID
-	if it := e.workspaceBoardItem(wsSession, boardID); it != nil {
+	// A missing or unknown ID is not evidence that the reply belongs to the
+	// newest occupant of this workspace. Preserve the text without that binding.
+	background := ""
+	board := 0
+	if it := e.boardItemByID(boardID); it != nil {
 		board = it.ID
+		background = e.workspaceTaskBackground(wsSession, boardID)
 	}
+	prompt := chatLeadPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, kind, body, background, posted)
+	prompt = askRef.ReplaceAllString(prompt, "ask-…")
 	return e.queueChatLeadTurn(p, parent, ws, "工作区回传 "+ws, prompt, board)
 }
 
