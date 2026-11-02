@@ -437,6 +437,7 @@ func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs 
 	// enforces this, but filtering here makes the cc-connect spawn argv
 	// the single source of truth.
 	env = core.FilterEnvForSpawn(env, spawnOpts)
+	env = core.MergeEnv(env, []string{"CLAUDE_CODE_ENTRYPOINT=" + core.ClaudeEntrypoint()})
 	cmd.Env = env
 
 	var providerEnvSnapshot []string
