@@ -27,9 +27,9 @@ No new accounts, no new subscriptions: it runs the AIs you are already signed in
 
 <table>
 <tr>
-<td align="center" width="33%"><img src="docs/assets/readme/demo/board.jpg" width="260" alt="Pinned task board listing today's finished work by workspace and role" /><br/><b>"What did everyone get done today?"</b><br/><sub>The pinned task board: who is on what, and what landed today</sub></td>
-<td align="center" width="33%"><img src="docs/assets/readme/demo/reject.jpg" width="260" alt="Long hands in a PR; Ju reviews it and sends back two must-fix items" /><br/><b>"Fix this bug, and get it reviewed before merging"</b><br/><sub>Long (Codex) writes, Ju (Claude) reviews and sends it back with two must-fixes</sub></td>
-<td align="center" width="33%"><img src="docs/assets/readme/demo/team-masked.jpg" width="260" alt="Whale finishes the English promo cut, Ju checks the comparison sheet and signs off, Nyan cheers in the chat" /><br/><b>"Make an English cut of the promo video"</b><br/><sub>Whale cuts it, Ju checks every shot side by side and signs off only when it is all English</sub></td>
+<td align="center" width="33%"><a href="docs/assets/readme/demo/board.jpg"><img src="docs/assets/readme/demo/board-crop.jpg" width="260" alt="Pinned task board listing today's finished work by workspace and role" /></a><br/><b>"What did everyone get done today?"</b><br/><sub>The pinned task board: who is on what, and what landed today</sub></td>
+<td align="center" width="33%"><a href="docs/assets/readme/demo/reject.jpg"><img src="docs/assets/readme/demo/reject-crop.jpg" width="260" alt="Long hands in a PR; Ju reviews it and sends back two must-fix items" /></a><br/><b>"Fix this bug, and get it reviewed before merging"</b><br/><sub>Long (Codex) writes, Ju (Claude) reviews and sends it back with two must-fixes</sub></td>
+<td align="center" width="33%"><a href="docs/assets/readme/demo/team-masked.jpg"><img src="docs/assets/readme/demo/team-crop.jpg" width="260" alt="Whale finishes the English promo cut, Ju checks the comparison sheet and signs off, Nyan cheers in the chat" /></a><br/><b>"Make an English cut of the promo video"</b><br/><sub>Whale cuts it, Ju checks every shot side by side and signs off only when it is all English</sub></td>
 </tr>
 </table>
 

@@ -27,9 +27,9 @@
 
 <table>
 <tr>
-<td align="center" width="33%"><img src="docs/assets/readme/demo/board.jpg" width="260" alt="置顶任务板：今天做完的活按工作区和角色列出" /><br/><b>「今天大家都干了啥？」</b><br/><sub>置顶任务板：谁在做什么、今天交了几件，一眼看完</sub></td>
-<td align="center" width="33%"><img src="docs/assets/readme/demo/reject.jpg" width="260" alt="龙娘交付 PR，橘审查后打回两条必须改" /><br/><b>「把这个 bug 修了，合之前要审过」</b><br/><sub>龙娘（Codex）写，橘（Claude）审，挑出两处必须改就打回</sub></td>
-<td align="center" width="33%"><img src="docs/assets/readme/demo/team-masked.jpg" width="260" alt="鲸鱼娘做完英文版宣传片，橘看过对照图后收工，彩虹猫在群里接话" /><br/><b>「宣传片出个英文版」</b><br/><sub>鲸鱼娘做片，橘逐镜看对照图，确认全换成英文才收工</sub></td>
+<td align="center" width="33%"><a href="docs/assets/readme/demo/board.jpg"><img src="docs/assets/readme/demo/board-crop.jpg" width="260" alt="置顶任务板：今天做完的活按工作区和角色列出" /></a><br/><b>「今天大家都干了啥？」</b><br/><sub>置顶任务板：谁在做什么、今天交了几件，一眼看完</sub></td>
+<td align="center" width="33%"><a href="docs/assets/readme/demo/reject.jpg"><img src="docs/assets/readme/demo/reject-crop.jpg" width="260" alt="龙娘交付 PR，橘审查后打回两条必须改" /></a><br/><b>「把这个 bug 修了，合之前要审过」</b><br/><sub>龙娘（Codex）写，橘（Claude）审，挑出两处必须改就打回</sub></td>
+<td align="center" width="33%"><a href="docs/assets/readme/demo/team-masked.jpg"><img src="docs/assets/readme/demo/team-crop.jpg" width="260" alt="鲸鱼娘做完英文版宣传片，橘看过对照图后收工，彩虹猫在群里接话" /></a><br/><b>「宣传片出个英文版」</b><br/><sub>鲸鱼娘做片，橘逐镜看对照图，确认全换成英文才收工</sub></td>
 </tr>
 </table>
 
