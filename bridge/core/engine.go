@@ -647,6 +647,8 @@ type queuedMessage struct {
 	turnCtx           bool   // maomao fork: see Message.TurnCtx
 	turnCtxQuery      string
 	fromBot           bool
+	mentioned         bool   // Message.Mentioned: a queue-full chat never turns it away (queue_batch.go)
+	direct            bool   // Message.Direct
 	modeOverride      string // maomao fork: see Message.ModeOverride (cron/timer job.Mode)
 	// maomao fork: set for a queued cron/timer turn to its unmuted platform. When the turn starts
 	// it gets the same team note and channel backfill as a cron/timer turn run directly.
@@ -3981,7 +3983,17 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		e.logStaleUserMessageDropped("reject_before_queue", msg, interactiveKey, snap)
 		return queueRejected
 	}
-	if len(state.pendingMessages) >= e.maxQueuedMessages && !msg.abortFront {
+	// Only a person's message makes room; a cron/timer or teammate turn keeps the old rule.
+	groupQueue := groupChatQueue(msg.Platform, msg.Direct) && !msg.FromBot && scheduledFrom == nil &&
+		msg.timerJobID == "" && !scheduledTurnUser(msg.UserID)
+	if len(state.pendingMessages) >= e.maxQueuedMessages && !msg.abortFront && groupQueue {
+		// A busy group chat: the oldest queued message nobody @-ed becomes listen-only context
+		// for the next turn instead of a "queue full" notice (queue_batch.go).
+		if !e.makeRoomInGroupQueueLocked(state, msg, interactiveKey) {
+			return queueRejected // filed as context, no notice
+		}
+	}
+	if len(state.pendingMessages) >= e.maxQueuedMessages && !msg.abortFront && !groupQueue {
 		depth := len(state.pendingMessages)
 		e.replyToAuthorizedMessage(p, msg, fmt.Sprintf(e.i18n.T(MsgQueueFull), depth))
 		return queueRejected // handled: queue-full reply sent
@@ -4017,6 +4029,8 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		channelKey:          msg.ChannelKey,
 		userMessageTimeMs:   msg.UserMessageTimeMs,
 		fromBot:             msg.FromBot,
+		mentioned:           msg.Mentioned,
+		direct:              msg.Direct,
 		boardDesc:           boardDescOf(msg),
 	}
 	// Mixed explicit/automatic turns keep separate durable queue entries.
