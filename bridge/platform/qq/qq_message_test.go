@@ -772,7 +772,7 @@ func TestGroupTurnCarriesRecentChat(t *testing.T) {
 	}
 	f.push(groupMessage(gid, 20002, 2, textSegment("Bob逗你玩呢")))
 	second := awaitMessage(t, msgs)
-	want := "[群里刚才的聊天]\n成员：拉完了\n你：拉完啥了"
+	want := "[群里刚才的聊天]\n成员[ID:20001]：拉完了\n你[ID:10000]：拉完啥了"
 	if second.AmbientChat != want {
 		t.Fatalf("ambient chat = %q, want %q", second.AmbientChat, want)
 	}

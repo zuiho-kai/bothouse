@@ -412,7 +412,7 @@ func (p *Platform) handleMessage(payload map[string]any) {
 		if line == "" && len(parsed.images) > 0 {
 			line = "[图片]"
 		}
-		p.noteGroupLine(groupID, userName, line)
+		p.noteGroupLine(groupID, userID, userName, line)
 	}
 
 	slog.Debug("qq: message received", "type", msgType, "user", userID, "text_len", len(content), "mentioned", mentioned)
@@ -845,7 +845,7 @@ func (p *Platform) sendOne(ctx context.Context, replyCtx any, content string) er
 			return err
 		}
 		p.recordSent(result, content)
-		p.noteGroupLine(rctx.groupID, "你", content)
+		p.noteGroupLine(rctx.groupID, p.selfID, "你", content)
 		return nil
 	}
 
@@ -1209,6 +1209,10 @@ const (
 )
 
 type groupLine struct {
+	// userID 是发言人的稳定平台号（QQ 号），与显示名并列保存：两个人用同一张
+	// 群名片时，只有显示名的背景无法把历史事实归属到人身上。
+	// 来源：任务板 #11 缺口（EVIDENCE 6.1、TestQQ11BackgroundStableAuthorAcceptance FAIL）。
+	userID     int64
 	name, text string
 	at         time.Time
 }
@@ -1218,8 +1222,10 @@ type groupLog struct {
 	lines []groupLine
 }
 
-// noteGroupLine appends one line to the group's recent chat.
-func (p *Platform) noteGroupLine(groupID int64, name, text string) {
+// noteGroupLine appends one line to the group's recent chat. userID is the
+// speaker's stable platform id (0 when unknown, e.g. this bot's own line
+// before get_login_info answered); name is what the group shows.
+func (p *Platform) noteGroupLine(groupID, userID int64, name, text string) {
 	if groupID == 0 || strings.TrimSpace(text) == "" {
 		return
 	}
@@ -1227,7 +1233,7 @@ func (p *Platform) noteGroupLine(groupID int64, name, text string) {
 	g := v.(*groupLog)
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.lines = append(g.lines, groupLine{name: name, text: text, at: time.Now()})
+	g.lines = append(g.lines, groupLine{userID: userID, name: name, text: text, at: time.Now()})
 	if len(g.lines) > groupHistoryMax {
 		g.lines = g.lines[len(g.lines)-groupHistoryMax:]
 	}
@@ -1250,9 +1256,24 @@ func (p *Platform) groupContext(groupID int64) string {
 		if b.Len() == 0 {
 			b.WriteString("[群里刚才的聊天]\n")
 		}
-		fmt.Fprintf(&b, "%s：%s\n", l.name, l.text)
+		fmt.Fprintf(&b, "%s：%s\n", groupSpeakerLabel(l), l.text)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// groupSpeakerLabel renders one background speaker as "名字[ID:20001]". The
+// stable id is appended only when the platform knows it, so an unknown speaker
+// (or the bot's own line before login) keeps the plain "名字" form.
+// 来源：任务板 #11 缺口——同群同名两人的历史发言必须能从背景分清归属
+// （2026-11-02 EVIDENCE 6.1；把 ID 放进展示文本的取舍记在那份证据里）。
+func groupSpeakerLabel(l groupLine) string {
+	if l.userID == 0 {
+		return l.name
+	}
+	if l.name == "" {
+		return fmt.Sprintf("[ID:%d]", l.userID)
+	}
+	return fmt.Sprintf("%s[ID:%d]", l.name, l.userID)
 }
 
 // groupAnchorTTL: how long a "this group has / lacks an allow_groups_with
