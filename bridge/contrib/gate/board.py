@@ -24,6 +24,8 @@
                                          #   条目在工作区里时同时 <桥> workspace park：那里没别的活就放回池子、清会话
                                          #   （恢复后重新 ws-handoff，先复用空着的工作区，不保证回原号）
   board resume <编号>                     # 恢复：回到「在做」
+  board pr <编号> <GitHub PR URL> no-deploy|deploy  # 派活人绑定本代次 PR 和交接部署范围
+  board merged                          # 核对绑定 PR；已合并且不部署仅转待收口，不代替验收
   board link <编号> <卡片链接>             # 给这件事挂一张公开任务卡（Discord 消息链接），board 列表那行末尾出「卡 链接」
   board refresh                          # 把一小时没进展的工作区条目转暂停（停滞检查定时调用），再自动收起没用的暂停条目
   board prune [--dry-run]                # 只做自动收起（--dry-run 只列不动）；收起的条目 board resume <编号> 能找回
@@ -384,6 +386,8 @@ def pause(nid, why=None):
         if hit is None:
             return False
         hit["paused"] = hit["at"] = _now()
+        hit["paused_at"] = _bound_now()
+        hit["paused_by"] = os.environ.get("CC_PROJECT", "")
         hit.pop("unpruned", None)  # 重新暂停：自动收起按新的暂停重新判（见 prune_why）
         ws = hit.pop("ws", None)  # 交接已放回桥（main 里 park）；ws_was 留着，resume 时向桥收回（reoccupy）
         if ws:
@@ -660,6 +664,52 @@ def reoccupy(it, ws):
 def _refuse(nid, why):
     sys.exit(f"#{nid} 不能回到原工作区：{why}，板子没改。把「谁」改成「待接手」（board update {nid} <状态> \"\" 待接手），"
              f"或用 ws-handoff 另交一个工作区")
+
+
+def bind_pr(nid, url, no_deploy):
+    match = re.fullmatch(r"https://github\.com/([\w.-]+/[\w.-]+)/pull/([1-9]\d*)", url)
+    if not match:
+        raise ValueError("需要完整 GitHub PR 链接")
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        actor = os.environ.get("CC_PROJECT", "")
+        if hit is None or not actor or actor != hit.get("dispatcher"):
+            raise ValueError("只有该条目的派活人可以绑定 PR 与部署范围")
+        hit["pr_binding"] = {"url": url, "repo": match[1], "number": int(match[2]),
+                             "no_deploy": no_deploy, "bound": hit.get("bound", "")}
+        _write(cur)
+
+
+def reconcile_merged_prs():
+    """Query outside the board lock, then compare the binding/generation before recording."""
+    for item in _read():
+        binding = item.get("pr_binding") or {}
+        if not binding.get("no_deploy") or item.get("paused") or item.get("pr_merge") or binding.get("bound") != item.get("bound", ""):
+            continue
+        try:
+            result = subprocess.run(["gh", "pr", "view", str(binding["number"]), "--repo", binding["repo"],
+                                     "--json", "state,mergedAt,mergeCommit"], capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                print(f"board: #{item['id']} PR 查询失败，保留原状态", file=sys.stderr)
+                continue
+            pr = json.loads(result.stdout)
+        except (OSError, subprocess.TimeoutExpired, ValueError) as err:
+            print(f"board: #{item['id']} PR 查询失败：{err}", file=sys.stderr)
+            continue
+        if pr.get("state") != "MERGED" or not pr.get("mergedAt"):
+            continue
+        with _locked():
+            cur = _read()
+            hit = next((i for i in cur if i["id"] == item["id"]), None)
+            if hit is None or hit.get("pr_binding") != binding or hit.get("bound", "") != binding["bound"] or hit.get("pr_merge") or hit.get("paused"):
+                continue
+            hit["pr_merge"] = {"url": binding["url"], "merged_at": pr["mergedAt"], "commit": (pr.get("mergeCommit") or {}).get("oid", "")}
+            hit.setdefault("returned_at", _bound_now())
+            hit["reviewer"] = hit.get("dispatcher", "")
+            hit["status"] = "待收口：PR 已合并（不部署），等待验收"
+            hit["at"] = _now()
+            _write(cur)
 
 
 def returned(nid, reviewer, at=None):
@@ -1195,6 +1245,11 @@ def main(argv):
                 freed = park_workspace(before)  # 「谁」改走了：它在工作区的那件交接放回桥
                 if freed:
                     print("工作区已放回池子，会话已清")
+        elif cmd == "pr" and len(argv) == 4 and argv[3] in ("no-deploy", "deploy"):
+            bind_pr(int(argv[1].lstrip("#")), argv[2], argv[3] == "no-deploy")
+            print("已绑定 PR 与部署范围；合并不代表验收")
+        elif cmd == "merged" and len(argv) == 1:
+            reconcile_merged_prs()
         elif cmd == "returned" and len(argv) in (3, 4):
             if not returned(int(argv[1].lstrip("#")), *argv[2:]):
                 sys.exit("条目不存在，未登记交回")

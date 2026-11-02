@@ -38,6 +38,8 @@ type teamTaskBoardItem struct {
 	NextTS   int64  `json:"next_ts"` // epoch of Next, written by board.py when set
 	Paused   string `json:"paused"`
 	PauseWhy string `json:"pause_why"`
+	PausedBy string `json:"paused_by"`
+	PausedAt string `json:"paused_at"`
 	DoneAt   string `json:"done_at"` // board-done.jsonl: "MM-DD HH:MM", local time
 	// AutoPruned: board.py auto_prune moved this paused item to board-done.jsonl (the reason); not
 	// work done, so it stays out of "done today" (board resume brings it back).
@@ -59,12 +61,17 @@ type teamTaskBoardItem struct {
 	// Card: the item's task card link (board.py link), for an item with no workspace task card.
 	Card string `json:"card"`
 
-	ReviewRejected string    `json:"review_rejected"`
-	Dispatcher     string    `json:"dispatcher"`
-	Reviewer       string    `json:"reviewer"`
-	ReturnedAt     time.Time `json:"returned_at,omitzero"`
-	reviewAfter    time.Duration
-	reviewerName   string
+	ReviewRejected string `json:"review_rejected"`
+	Dispatcher     string `json:"dispatcher"`
+	Reviewer       string `json:"reviewer"`
+	PRBinding      *struct {
+		NoDeploy bool   `json:"no_deploy"`
+		Bound    string `json:"bound"`
+	} `json:"pr_binding,omitempty"`
+	PRMerge      map[string]string `json:"pr_merge,omitempty"`
+	ReturnedAt   time.Time         `json:"returned_at,omitzero"`
+	reviewAfter  time.Duration
+	reviewerName string
 	// Resolved by placeTeamTaskBoard, not stored.
 	own    string // the chat the item is in
 	parent string // for an item in a workspace: the chat the workspace belongs to

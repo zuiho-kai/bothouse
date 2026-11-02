@@ -32,6 +32,7 @@ func TestTaskReviewPersistenceAndRouting(t *testing.T) {
 	dir := t.TempDir()
 	e.SetTeam(dir, "worker", false)
 	lead.SetTeam(dir, "派活人", true)
+	lead.SetTaskReviewAfter(time.Hour) // Exercise an explicit configured deadline.
 	data := t.TempDir()
 	store, err := NewTimerStore(data)
 	if err != nil {
@@ -350,7 +351,7 @@ func TestTaskReviewThresholdReloadWhileWatching(t *testing.T) {
 	}
 	<-done
 	e.SetTaskReviewAfter(0)
-	if e.taskReviewAfter() != teamTaskBoardStuckAfter {
+	if e.taskReviewAfter() != watchCheckAfter() {
 		t.Fatal("default threshold changed")
 	}
 }
@@ -367,5 +368,101 @@ func TestTaskReviewTableUsesDispatcherThreshold(t *testing.T) {
 	items := placeTeamTaskBoard(p, []teamTaskBoardItem{{ID: 46, What: "verify", Chat: "discord:main", Reviewer: "dispatcher", ReturnedAt: now.Add(-time.Hour)}})
 	if len(items) != 1 || taskReviewOverdue(items[0], now) {
 		t.Fatal("table used display role's threshold instead of dispatcher's")
+	}
+}
+
+func TestTaskReviewPausedRoundupAndResume(t *testing.T) {
+	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	t.Cleanup(e.cancel)
+	e.SetTeam(t.TempDir(), "lead", true)
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := NewTimerScheduler(store)
+	defer ts.Stop()
+	e.SetTimerScheduler(ts)
+	now := time.Now().Add(24 * time.Hour).Truncate(time.Hour)
+	it := teamTaskBoardItem{ID: 70, What: "paused queued work", Chat: "room:main", Paused: now.Add(-2 * time.Hour).Format("01-02 15:04"), PauseWhy: "用户要求等前置任务"}
+	writeReviewBoard(t, e, it)
+	w := newHandoffWatch(e)
+	w.reconcileTaskReviews(now, true)
+	w.reconcileTaskReviews(now, true)
+	jobs := store.List()
+	if len(jobs) != 2 {
+		t.Fatalf("want one pause reminder and one hourly roundup: %d", len(jobs))
+	}
+	if !strings.Contains(jobs[0].Prompt, it.PauseWhy) || !strings.Contains(jobs[0].Prompt, "恢复") {
+		t.Fatal(jobs[0].Prompt)
+	}
+	it.Paused = ""
+	writeReviewBoard(t, e, it)
+	prepared, err := e.prepareTaskReview(jobs[0], now)
+	if err != nil || prepared != nil {
+		t.Fatalf("resumed work still prompted: %+v %v", prepared, err)
+	}
+}
+
+func TestTaskReviewNoReviewerUsesLeadAndWatchCycle(t *testing.T) {
+	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	t.Cleanup(e.cancel)
+	e.SetTeam(t.TempDir(), "lead", true)
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := NewTimerScheduler(store)
+	defer ts.Stop()
+	e.SetTimerScheduler(ts)
+	now := time.Now().Add(24 * time.Hour).Truncate(time.Hour)
+	it := teamTaskBoardItem{ID: 72, What: "verify return", Chat: "room:main", ReturnedAt: now}
+	writeReviewBoard(t, e, it)
+	w := newHandoffWatch(e)
+	w.reconcileTaskReviews(now, false)
+	w.reconcileTaskReviews(now.Add(watchCheckAfter()), false)
+	jobs := store.List()
+	if len(jobs) != 2 {
+		t.Fatalf("want returned and overdue stages after one watch cycle, got %d", len(jobs))
+	}
+	for _, j := range jobs {
+		if j.Project != "lead" {
+			t.Fatal("unconfigured reviewer not routed to lead")
+		}
+	}
+	writeReviewBoard(t, e)
+	for _, j := range jobs {
+		if p, err := e.prepareTaskReview(j, now.Add(watchCheckAfter())); err != nil || p != nil {
+			t.Fatal("accepted item reminder survived", err)
+		}
+	}
+}
+
+func TestTaskReviewWatchReconcilesBoundNoDeployPR(t *testing.T) {
+	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	t.Cleanup(e.cancel)
+	e.SetDataDir(t.TempDir())
+	e.SetTeam(t.TempDir(), "lead", true)
+	e.productPyBin.Store(t.TempDir())
+	gate, err := filepath.Abs(filepath.Join("..", "contrib", "gate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Symlink(gate, filepath.Join(e.dataDir, "gate")); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	if err = os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\nprintf '%s\\n' '{\"state\":\"MERGED\",\"mergedAt\":\"2026-11-02T00:00:00Z\"}'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	data := []byte("{\"id\":72,\"what\":\"verify\",\"chat\":\"room:main\",\"dispatcher\":\"lead\",\"bound\":\"generation\",\"pr_binding\":{\"url\":\"https://github.com/example/project/pull/830\",\"repo\":\"example/project\",\"number\":830,\"no_deploy\":true,\"bound\":\"generation\"}}\n")
+	if err = os.WriteFile(filepath.Join(e.team.dir, teamTaskBoardFile), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	w := newHandoffWatch(e)
+	w.reconcileTaskReviews(time.Now(), true)
+	it := e.boardItemByID(72)
+	if it == nil || it.ReturnedAt.IsZero() || !strings.Contains(it.Status, "待收口") {
+		t.Fatalf("watch never reconciled bound merged PR: %+v", it)
 	}
 }

@@ -17,13 +17,13 @@ func (e *Engine) taskReviewAfter() time.Duration {
 	if after := time.Duration(e.teamReviewAfter.Load()); after > 0 {
 		return after
 	}
-	return teamTaskBoardStuckAfter
+	return watchCheckAfter() // 来源：#72 沿用团队看门周期，显式配置仍优先。
 }
 
 func taskReviewOverdue(it teamTaskBoardItem, now time.Time) bool {
 	after := it.reviewAfter
 	if after <= 0 {
-		after = teamTaskBoardStuckAfter
+		after = watchCheckAfter()
 	}
 	return !it.ReturnedAt.IsZero() && !now.Before(it.ReturnedAt.Add(after))
 }
@@ -54,6 +54,7 @@ func (e *Engine) taskReviewerInfo(project string) (string, time.Duration) {
 // taskReviewRef ties a persisted timer to one handback. Rework creates a new ReturnedAt;
 // an accepted or rejected task invalidates already queued reminders before they run.
 type taskReviewRef struct {
+	Paused     string          `json:"paused,omitempty"`
 	Board      int             `json:"board"`
 	ReturnedAt time.Time       `json:"returned_at"`
 	Stage      string          `json:"stage,omitempty"`
@@ -66,7 +67,10 @@ func (e *Engine) taskReviewPending(ref *taskReviewRef) bool {
 		return false
 	}
 	for _, it := range readTeamTaskBoard(e.team.dir) {
-		if it.ID == ref.Board && it.ReturnedAt.Equal(ref.ReturnedAt) {
+		if it.ID == ref.Board && ref.Paused != "" {
+			return it.Paused != "" && taskPauseKey(it) == ref.Paused
+		}
+		if it.ID == ref.Board && it.Paused == "" && it.ReviewRejected == "" && it.ReturnedAt.Equal(ref.ReturnedAt) {
 			return true
 		}
 	}
@@ -80,6 +84,17 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 	if e.team == nil {
 		return
 	}
+	// Source: #72 checks merged, explicitly no-deploy work on the existing hourly roundup.
+	if roundup && e.isTeamLead() {
+		for _, it := range readTeamTaskBoard(e.team.dir) {
+			if it.PRBinding != nil && it.PRBinding.NoDeploy && it.PRBinding.Bound == it.Bound && it.PRMerge == nil && it.Paused == "" {
+				if out, err := e.runLeadScript(it.Chat, "board", "merged"); err != nil {
+					slog.Warn("task review: merged PR reconciliation failed", "error", err, "output", string(out))
+				}
+				break
+			}
+		}
+	}
 	type group struct {
 		reviewer *Engine
 		chat     string
@@ -87,6 +102,47 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 	}
 	groups := map[string]*group{}
 	for _, it := range readTeamTaskBoard(e.team.dir) {
+		if it.Paused != "" {
+			if it.Chat == "" {
+				continue
+			}
+			var owner, lead *Engine
+			for _, x := range w.engines() {
+				if x.timerScheduler == nil {
+					continue
+				}
+				if x.name == it.PausedBy {
+					owner = x
+				}
+				if x.isTeamLead() {
+					lead = x
+				}
+			}
+			if owner == nil {
+				owner = lead
+			}
+			if owner == nil {
+				continue
+			}
+			ref := taskReviewRef{Board: it.ID, Paused: taskPauseKey(it), Stage: "paused"}
+			at := taskPausedSince(it, now)
+			if !at.IsZero() && now.Sub(at) >= teamWorkspaceReconcileEvery {
+				ref.Stage = "paused-question"
+				sum := sha256.Sum256([]byte(fmt.Sprintf("%s/%d/%s/pause", e.team.dir, it.ID, ref.Paused)))
+				owner.queueTaskReview(fmt.Sprintf("review-%x", sum), it.Chat, &ref, now)
+			}
+			if roundup {
+				key := owner.name + "/" + it.Chat
+				g := groups[key]
+				if g == nil {
+					g = &group{reviewer: owner, chat: it.Chat}
+					groups[key] = g
+				}
+				ref.Stage = "paused"
+				g.refs = append(g.refs, ref)
+			}
+			continue
+		}
 		if it.ReturnedAt.IsZero() || it.Chat == "" {
 			// Only a delivered-report receipt proves a legacy handback. Release alone does not.
 			if it.Chat != "" && it.ReviewRejected == "" && it.Paused == "" {
@@ -130,7 +186,7 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 		if taskReviewOverdue(it, now) {
 			stage = "overdue"
 		}
-		if unavailable {
+		if unavailable && it.Reviewer != "" {
 			stage = "unavailable"
 		}
 		sum := sha256.Sum256([]byte(fmt.Sprintf("%s/%d/%s/%s/%s", e.team.dir, it.ID, it.ReturnedAt.Format(time.RFC3339Nano), reviewer.name, stage)))
@@ -197,6 +253,16 @@ func (e *Engine) prepareTaskReview(job *TimerJob, now time.Time) (*TimerJob, err
 		if it == nil {
 			continue
 		}
+		if r.Paused != "" {
+			at := taskPausedSince(*it, now)
+			span := teamTaskTableSpan(at, now)
+			prompts = append(prompts, e.i18n.Tf(MsgTaskPausedSummary, it.ID, it.What, span, it.PauseWhy))
+			if r.Stage == "paused-question" {
+				prompts = append(prompts, e.i18n.Tf(MsgTaskPausedResumeQuestion, it.ID))
+			}
+			title = e.i18n.T(MsgTaskReviewRoundup)
+			continue
+		}
 		it.reviewAfter = e.taskReviewAfter()
 		if ref.Stage == "returned" && taskReviewOverdue(*it, now) {
 			continue
@@ -243,6 +309,21 @@ func (e *Engine) prepareTaskReview(job *TimerJob, now time.Time) (*TimerJob, err
 	copy := *job
 	copy.Prompt, copy.Description = prompt, title
 	return &copy, nil
+}
+
+func taskPauseKey(it teamTaskBoardItem) string {
+	if it.PausedAt != "" {
+		return it.PausedAt
+	}
+	return it.Paused
+}
+
+func taskPausedSince(it teamTaskBoardItem, now time.Time) time.Time {
+	if at, err := time.Parse(time.RFC3339Nano, it.PausedAt); err == nil {
+		return at
+	}
+	at, _ := teamTaskBoardLocal(it.Paused, now)
+	return at
 }
 
 // addTaskReviewJob serializes the two callers (report and periodic watch) around the

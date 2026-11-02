@@ -70,3 +70,38 @@ class HandbackReview(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class MergeClosure(unittest.TestCase):
+    def test_bound_merged_pr_enters_review_once_and_never_accepts_itself(self):
+        import board
+        from unittest.mock import patch
+        from subprocess import CompletedProcess
+        tmp = Path(tempfile.mkdtemp())
+        with patch.object(board, "DIR", tmp), patch.dict(os.environ, {"CC_PROJECT":"lead"}), patch.object(board.subprocess,"run",return_value=CompletedProcess([],0,'{"state":"MERGED","mergedAt":"2026-11-02T00:00:00Z","mergeCommit":{"oid":"abc"}}','')):
+            board._write([{"id":72,"what":"test","chat":"room:main","dispatcher":"lead","bound":"2026-11-01T00:00:00Z"}])
+            board.bind_pr(72,"https://github.com/example/project/pull/830",True)
+            board.reconcile_merged_prs()
+            first=board.items()[0]
+            self.assertIn("待收口",first["status"])
+            self.assertTrue(first["returned_at"])
+            self.assertFalse((tmp / "board-done.jsonl").exists())
+            board.reconcile_merged_prs()
+            self.assertEqual(first,board.items()[0])
+            board.reject(72,"missing acceptance")
+            board.reconcile_merged_prs()
+            self.assertNotIn("returned_at",board.items()[0])
+
+    def test_open_closed_deploy_required_and_stale_pr_bindings_do_not_close(self):
+        import board
+        from unittest.mock import patch
+        from subprocess import CompletedProcess
+        for state,no_deploy,stale in [("OPEN",True,False),("CLOSED",True,False),("MERGED",False,False),("MERGED",True,True)]:
+            with self.subTest(state=state,no_deploy=no_deploy,stale=stale):
+                tmp=Path(tempfile.mkdtemp())
+                with patch.object(board,"DIR",tmp),patch.dict(os.environ,{"CC_PROJECT":"lead"}),patch.object(board.subprocess,"run",return_value=CompletedProcess([],0,json.dumps({"state":state,"mergedAt":"2026-11-02T00:00:00Z"}),'')):
+                    board._write([{"id":72,"chat":"room:main","dispatcher":"lead","bound":"old"}])
+                    board.bind_pr(72,"https://github.com/example/project/pull/830",no_deploy)
+                    if stale:
+                        item=board.items()[0]; item["bound"]="new"; board._write([item])
+                    board.reconcile_merged_prs()
+                    self.assertNotIn("returned_at",board.items()[0])
