@@ -50,7 +50,7 @@ func (a *scopedStartupAgent) StartSession(ctx context.Context, id string) (Agent
 }
 
 // Exercise engine startup and reconstruction, rather than only status getters.
-func TestCUJ_ModelScopeConcurrentChannelsAndReload(t *testing.T) {
+func TestModelScopeConcurrentChannelsAndReload(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	a := &scopedStartupAgent{stubModelModeAgent{model: "astra", reasoningEffort: "medium"}}
 	e := NewEngine("test", a, nil, "", LangEnglish)
@@ -142,6 +142,54 @@ func TestQueuedModelScopeInteractiveAliasUsesExecutionKey(t *testing.T) {
 	}
 	if got := e.sessionSettingsFor("discord:work"); got.Model != "sol" || got.ReasoningEffort != "high" {
 		t.Fatal(got)
+	}
+}
+
+func TestQueuedModelScopeConsumesSupersededAliases(t *testing.T) {
+	a := &stubModelModeAgent{}
+	e := NewEngine("test", a, nil, "", LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	e.queueSwitch("/workspace:discord:work", pendingModelSwitch{model: "older"})
+	e.queueSwitch("discord:work", pendingModelSwitch{model: "newer"})
+	if err := e.applyPendingSwitchOnAgent(a, "/workspace:discord:work", "discord:work"); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.pendingSwitch) != 0 || e.sessionModelFor("discord:work") != "newer" {
+		t.Fatal("superseded alias could replay")
+	}
+}
+
+type namedScopedStartupAgent struct{ scopedStartupAgent }
+
+func (a *namedScopedStartupAgent) Name() string { return "test-scoped-directory-default" }
+
+func TestModelScopeTwoChannelsShareLegacyDirectoryDefault(t *testing.T) {
+	global := &namedScopedStartupAgent{scopedStartupAgent{stubModelModeAgent{model: "global", reasoningEffort: "medium"}}}
+	RegisterAgent(global.Name(), func(opts map[string]any) (Agent, error) {
+		model, _ := opts["model"].(string)
+		return &namedScopedStartupAgent{scopedStartupAgent{stubModelModeAgent{model: model, reasoningEffort: "medium"}}}, nil
+	})
+	p := &stubPlatformEngine{n: "discord"}
+	e := NewEngine("test", global, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	e.SetProjectStateStore(NewProjectStateStore(filepath.Join(t.TempDir(), "state.json")))
+	e.SetMultiWorkspace(t.TempDir(), filepath.Join(t.TempDir(), "bindings.json"))
+	dir := normalizeWorkspacePath(t.TempDir())
+	e.projectState.SetWorkspaceModelOverride(dir, "directory-default")
+	for _, channel := range []string{"work", "drame"} {
+		e.workspaceBindings.Bind("project:test", channel, channel, dir)
+	}
+	e.cmdModel(p, &Message{SessionKey: "discord:work"}, []string{"switch", "channel-sol"})
+	for _, tc := range []struct{ key, want string }{{"discord:work", "channel-sol"}, {"discord:drame", "directory-default"}} {
+		a, sessions := e.sessionContextForKey(tc.key)
+		s := sessions.GetOrCreateActive(tc.key)
+		state := e.getOrCreateInteractiveStateWith(dir+":"+tc.key, p, nil, s, sessions, a, tc.key)
+		if got := state.agentSession.(*scopedStartupSession).model; got != tc.want {
+			t.Fatalf("%s started %s, want %s", tc.key, got, tc.want)
+		}
+	}
+	if e.projectState.WorkspaceModelOverride(dir) != "directory-default" || global.model != "global" {
+		t.Fatal("changed legacy defaults")
 	}
 }
 

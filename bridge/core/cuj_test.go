@@ -1928,9 +1928,22 @@ func TestCUJ_F2_ModelSwitchLinkedToAgent(t *testing.T) {
 	s := e.sessions.GetOrCreateActive(key)
 	s.SetAgentSessionID("original-native", a.Name())
 	s.AddHistory("user", "remember")
-	e.ReceiveMessage(p, &Message{SessionKey: key, Content: "/model switch sol"})
+	send := func(channel, command, want string) {
+		t.Helper()
+		p.clearSent()
+		e.ReceiveMessage(p, &Message{SessionKey: channel, Content: command})
+		if got := strings.Join(p.getSent(), "\n"); !strings.Contains(got, want) {
+			t.Fatalf("%s %s reply = %q, want %q", channel, command, got, want)
+		}
+	}
+	send(key, "/model", e.i18n.Tf(MsgModelCurrent, "astra"))
+	send(key, "/model switch sol", e.i18n.Tf(MsgModelChanged, "sol"))
+	send(key, "/reasoning high", e.i18n.Tf(MsgReasoningChanged, "high"))
+	send(key, "/model", e.i18n.Tf(MsgModelCurrent, "sol"))
+	send("test:drame", "/model", e.i18n.Tf(MsgModelCurrent, "astra"))
+	send(key, "/history", "remember")
 	state := e.getOrCreateInteractiveStateWith(key, p, nil, s, e.sessions, nil, key)
-	if got := state.agentSession.(*scopedStartupSession); got.model != "sol" || got.id != "original-native" || len(s.History) != 1 {
+	if got := state.agentSession.(*scopedStartupSession); got.model != "sol" || got.effort != "high" || got.id != "original-native" || len(s.History) != 1 {
 		t.Fatalf("switched session = %+v, history = %v", got, s.History)
 	}
 	if got := e.ModelStatus(context.Background(), "test:drame"); got.Model != "astra" || got.Effort != "medium" {

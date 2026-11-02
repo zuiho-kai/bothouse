@@ -9482,7 +9482,7 @@ func TestHandleCardNav_ModelSwitchesAndRefreshesCard(t *testing.T) {
 	if text := card.RenderText(); !strings.Contains(text, "Model switched to `new-model`.") {
 		t.Fatalf("result card = %q", text)
 	}
-	if agent.model != "new-model" {
+	if got := e.sessionModelFor(sessionKey); got != "new-model" || agent.model != "old" {
 		t.Fatalf("model = %q, want new-model", agent.model)
 	}
 	if refreshed := p.getRefreshedCards(); len(refreshed) != 0 {
@@ -9527,7 +9527,7 @@ func TestHandleCardNav_ModelUsesWorkspaceContext(t *testing.T) {
 		t.Fatalf("result card = %q, want switched workspace model", text)
 	}
 
-	if wsAgent.model != "gpt-4.1" {
+	if got := e.sessionModelFor(sessionKey); got != "gpt-4.1" || wsAgent.model != "workspace-old" {
 		t.Fatalf("workspace agent model = %q, want gpt-4.1", wsAgent.model)
 	}
 	if globalAgent.model != "global-old" {
@@ -9548,14 +9548,18 @@ func TestHandleCardNav_ModelSwitchFailureRefreshesCard(t *testing.T) {
 	p := &stubCardPlatform{stubPlatformEngine: stubPlatformEngine{n: "feishu"}}
 	agent := &stubModelModeAgent{model: "old"}
 	e := NewEngine("test", agent, []Platform{p}, "", LangEnglish)
-	e.modelSaveFunc = func(string) error { return errors.New("save failed") }
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(blocked, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.SetProjectStateStore(NewProjectStateStore(filepath.Join(blocked, "state.json")))
 
 	sessionKey := "feishu:channel1:user1"
 	card := e.handleCardNav("act:/model broken-model", sessionKey)
 	if card == nil {
 		t.Fatal("expected immediate failure card")
 	}
-	if text := card.RenderText(); !strings.Contains(text, "Failed to switch model: save model: save failed") {
+	if text := card.RenderText(); !strings.Contains(text, "Failed to switch model: save session model:") {
 		t.Fatalf("failure card = %q", text)
 	}
 	if refreshed := p.getRefreshedCards(); len(refreshed) != 0 {

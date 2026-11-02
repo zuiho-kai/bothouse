@@ -141,7 +141,7 @@ func (e *Engine) ModelStatus(ctx context.Context, sessionKey string) ModelStatus
 	}
 	if t := e.tiers; t != nil {
 		st.AutoChat, st.AutoTask = t.chatModel, t.taskModel
-		st.AutoPaused = t.manual(sessionKey, time.Now())
+		st.AutoPaused = t.manual(e.interactiveKeyForSessionKey(sessionKey), time.Now())
 	}
 	e.modelSwitchMu.Lock()
 	if p, ok := e.pendingSwitch[sessionKey]; ok {
@@ -209,10 +209,7 @@ func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort
 	if canModel {
 		options = sw.AvailableModels(ctx)
 	}
-	current := modelOf(agent)
-	if model := e.sessionModelFor(sessionKey); model != "" {
-		current = model
-	}
+	current := e.currentSessionModel(sessionKey, agent)
 	target := ""
 	if model = strings.TrimSpace(model); model != "" {
 		if !canModel {
@@ -286,9 +283,11 @@ func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, k
 	e.modelSwitchMu.Lock()
 	var p pendingModelSwitch
 	scopeKey := ""
+	matched := make(map[string]pendingModelSwitch)
 	for _, k := range append([]string{interactiveKey}, keys...) {
 		if v, ok := e.pendingSwitch[k]; ok {
 			p, scopeKey = v, k
+			matched[k] = v
 		}
 	}
 	e.modelSwitchMu.Unlock()
@@ -311,8 +310,10 @@ func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, k
 		}
 	}
 	e.modelSwitchMu.Lock()
-	if e.pendingSwitch[scopeKey] == p {
-		delete(e.pendingSwitch, scopeKey)
+	for key, request := range matched {
+		if e.pendingSwitch[key] == request {
+			delete(e.pendingSwitch, key)
+		}
 	}
 	e.modelSwitchMu.Unlock()
 	if e.tiers != nil {

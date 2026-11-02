@@ -584,6 +584,30 @@ func TestAgent_StartSession(t *testing.T) {
 	}
 }
 
+func TestAgent_StartSessionContextScopesModelAndThinking(t *testing.T) {
+	a := &Agent{cmd: "echo", workDir: t.TempDir(), model: "astra", thinking: "medium"}
+	for _, tc := range []struct {
+		settings      core.SessionSettings
+		model, effort string
+	}{
+		{core.SessionSettings{Model: "sol", ReasoningEffort: "high"}, "sol", "high"},
+		{core.SessionSettings{}, "astra", "medium"},
+	} {
+		s, err := a.StartSession(core.WithSessionSettings(context.Background(), tc.settings), "original")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ps := s.(*piSession)
+		if ps.model != tc.model || ps.thinking != tc.effort || ps.CurrentSessionID() != "original" {
+			t.Fatalf("model=%s thinking=%s id=%s", ps.model, ps.thinking, ps.CurrentSessionID())
+		}
+		_ = s.Close()
+	}
+	if a.model != "astra" || a.thinking != "medium" {
+		t.Fatal("changed shared defaults")
+	}
+}
+
 func TestAgent_StartSession_NoModeNoEnv(t *testing.T) {
 	a := &Agent{cmd: "echo", workDir: "/tmp"} // mode 为空
 
