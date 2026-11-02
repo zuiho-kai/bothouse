@@ -31,7 +31,7 @@ func (p *Platform) SendTaskTextPart(ctx context.Context, target, key, text strin
 	} else {
 		params["user_id"] = rc.userID
 	}
-	result, err := p.callAPI(action, params)
+	result, err := p.callAPIContext(ctx, action, params)
 	if err != nil {
 		return "", err
 	}

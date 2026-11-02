@@ -1,6 +1,8 @@
 package core
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -99,6 +101,53 @@ func TestWorkspaceLateReportDoesNotResetNewTask(t *testing.T) {
 	e.endWorkspaceTask("discord:chat1", exitWSKey, exitKindReport, 65)
 	if e.sessions.ActiveSessionID(exitWSKey) != current.ID {
 		t.Fatal("late old report reset the newer task session")
+	}
+}
+
+func TestWorkspaceCurrentReportAfterOlderBoardWriteFailure(t *testing.T) {
+	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	t.Cleanup(e.cancel)
+	e.SetDataDir(t.TempDir())
+	e.SetTeam(t.TempDir(), "lead", true)
+	e.productPyBin.Store(t.TempDir())
+	if err := e.ClaimTeamWorkspaceFor("discord:chat1", "ws1", "工作区1", "worker", "old"); err != nil {
+		t.Fatal(err)
+	}
+	e.sessions.GetOrCreateActive(exitWSKey)
+	old := teamTaskBoardItem{ID: 65, What: "old", WS: "discord:ws1", Chat: "discord:chat1", Bound: "2026-11-02T01:00:00Z"}
+	writeReviewBoard(t, e, old)
+	// Missing board scripts inject a real write failure. The session is released
+	// while the old board record still claims this workspace.
+	e.endWorkspaceTask("discord:chat1", exitWSKey, exitKindReport, 65)
+	if it := e.boardItemByID(65); it == nil || it.WS == "" || !it.ReturnedAt.IsZero() {
+		t.Fatalf("board failure not reproduced: %+v", it)
+	}
+	if _, ok := e.WorkspaceParent("ws1"); ok {
+		t.Fatal("failed board write did not release workspace")
+	}
+	if err := e.ClaimTeamWorkspaceFor("discord:chat1", "ws1", "工作区1", "worker", "new"); err != nil {
+		t.Fatal(err)
+	}
+	writeReviewBoard(t, e, old, teamTaskBoardItem{ID: 60, What: "new", WS: "discord:ws1", Chat: "discord:chat1", Bound: "2026-11-02T02:00:00Z"})
+	gate, err := filepath.Abs(filepath.Join("..", "contrib", "gate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(gate, filepath.Join(e.dataDir, "gate")); err != nil {
+		t.Fatal(err)
+	}
+	e.sessions.GetOrCreateActive(exitWSKey)
+	e.beginResetTurn(exitWSKey)
+	defer e.endResetTurn(exitWSKey)
+	e.endWorkspaceTask("discord:chat1", exitWSKey, exitKindReport, 60)
+	if it := e.boardItemByID(60); it == nil || it.ReturnedAt.IsZero() || it.WS != "" {
+		t.Fatalf("old failed write blocked current handback: %+v", it)
+	}
+	e.pendingResetMu.Lock()
+	reset := e.pendingReset[exitWSKey]
+	e.pendingResetMu.Unlock()
+	if !reset {
+		t.Fatal("current handback did not queue its session reset")
 	}
 }
 

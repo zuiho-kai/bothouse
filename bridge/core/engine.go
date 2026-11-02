@@ -737,6 +737,9 @@ type interactiveState struct {
 	// the next turn starts. Guarded by mu.
 	turnCancelled bool
 
+	// currentJobID: the timer job this turn is running (a workspace-handback wake settles
+	// against it, team_report_delivery.go); empty for a user turn. Guarded by mu.
+	currentJobID string
 	// queuedBehindCompact: messages queued here while a native /compact held the
 	// session (enqueueForBusySession). Only then may a placeholder state with no
 	// agent session start a turn from its queue (drainOrphanedQueue). Guarded by mu.
@@ -4826,6 +4829,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		state.sideText = ""
 		state.turnDesc = boardDescOf(msg) // maomao fork: channel task board
 		state.turnScheduled = scheduledTurnUser(msg.UserID)
+		state.currentJobID = msg.timerJobID
 		state.mu.Unlock()
 
 		// Run Send concurrently with processInteractiveEvents. Some agents block inside
@@ -4835,6 +4839,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		e.runTurnWithCapacityRetry(state, session, sessions, interactiveKey, msg.MessageID, turnStart, stopTyping, msg.ReplyCtx, msg.inputTurn,
 			func() {
 				state.mu.Lock()
+				state.currentJobID = msg.timerJobID // re-armed for a capacity retry
 				state.externalTaskInput = msg.externalInput
 				state.authorization = msg.authorization
 				state.mu.Unlock()
@@ -6026,6 +6031,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}
 	defer func() {
 		input.finish(inputTurnResult{err: fmt.Errorf("turn stopped, stream closed, or reply delivery failed before completion")})
+	}()
+	// A turn that ends before its EventResult (send rejected, channel closed, bridge stopping)
+	// still owns a pending handback; settle it empty so the fallback posts the result.
+	defer func() {
+		state.mu.Lock()
+		jobID, retrying := state.currentJobID, state.capacityFailed
+		if !retrying {
+			state.currentJobID = ""
+		}
+		state.mu.Unlock()
+		if jobID != "" && !retrying {
+			e.settleReportWake(jobID, "", nil)
+		}
 	}()
 	state.mu.Lock()
 	ref := state.authorization
@@ -7439,6 +7457,23 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				progressOutcome = "cancelled"
 			}
 			watchTurnFinished = true
+			state.mu.Lock()
+			jobID, retrying := state.currentJobID, state.capacityFailed
+			if !retrying {
+				state.currentJobID = ""
+			}
+			state.mu.Unlock()
+			if jobID != "" && !retrying {
+				text := ""
+				if event.Error == nil {
+					if _, exhausted := QuotaExhaustedReset(event); !exhausted {
+						text = baseResponse // the lead's user-visible answer
+					}
+				}
+				// Reaching here means the final reply was sent (a rejected send returns
+				// before this point); settle the pending handback with what the user got.
+				e.settleReportWake(jobID, text, nil)
+			}
 			if !state.isStopped() {
 				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, false, e.watchCardResult(state), turnStart)
 			}
@@ -7519,6 +7554,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				state.currentTurnUserMessageTimeMs = queued.userMessageTimeMs
 				state.turnDesc = queued.boardDesc // maomao fork: channel task board
 				state.turnScheduled = scheduledTurnUser(queued.userID)
+				state.currentJobID = queued.timerJobID
 				state.mu.Unlock()
 				unwatch()
 				changed, unwatch, watchErr = e.watchTurnAuthorization(queued.authorization)
@@ -8119,9 +8155,15 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 
 		slog.Info("processing queued message", "session", sessionKey)
 		e.setTurnMode(state, as, queued.modeOverride) // restored when runTurnWithCapacityRetry returns
+		state.mu.Lock()
+		state.currentJobID = queued.timerJobID
+		state.mu.Unlock()
 		var attemptPrompt string
 		e.runTurnWithCapacityRetry(state, session, sessions, sessionKey, queued.messageID, time.Now(), stopTyping, queued.replyCtx, nil,
 			func() { // per attempt, like the direct turn: a capacity retry needs a live run
+				state.mu.Lock()
+				state.currentJobID = queued.timerJobID // re-armed for a capacity retry
+				state.mu.Unlock()
 				attemptPrompt = e.withPublicProgress(prompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
 			},
 			func(as AgentSession) error {
@@ -13938,6 +13980,14 @@ func (e *Engine) sendAlreadyRenderedWithError(p Platform, replyCtx any, content 
 }
 
 func (e *Engine) sendRenderedWithContext(ctx context.Context, p Platform, replyCtx any, content string) error {
+	// Hidden thinking/tool boundaries can flush a whitespace-only text delta.
+	// It has no standalone message to deliver; media uses separate send paths.
+	// This is the common rendered-text boundary (sendWithError* and sendRaw both
+	// reach it), so the guard stays alongside develop's authorizedOutput/cancel
+	// semantics instead of replacing the thin sendAlreadyRenderedWithError shim.
+	if strings.TrimSpace(content) == "" {
+		return nil
+	}
 	start := time.Now()
 	if err := authorizedOutput(ctx, func() error { return p.Send(ctx, replyCtx, content) }); err != nil {
 		// Check for context_token missing error (common for Weixin platform)
@@ -13998,6 +14048,9 @@ func drainEvents(ch <-chan Event) {
 
 // replyWithError applies outgoing rate limiting and p.Reply.
 func (e *Engine) replyWithError(p Platform, replyCtx any, content string) error {
+	if strings.TrimSpace(content) == "" {
+		return nil
+	}
 	if err := e.waitOutgoing(p); err != nil {
 		slog.Warn("outgoing rate limit: context cancelled", "platform", p.Name(), "error", err)
 		return err

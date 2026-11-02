@@ -35,14 +35,16 @@ type TimerJob struct {
 	Handoff bool `json:"handoff,omitempty"`
 	// WaitUserQuiet: a wake that is not the user (workspace handback, dispatch receipt) waits
 	// until the user has stopped talking in the session (holdForUser).
-	WaitUserQuiet bool      `json:"wait_user_quiet,omitempty"`
-	SessionMode   string    `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run
-	Mode          string    `json:"mode,omitempty"`         // permission mode override; "" = use project default
-	TimeoutMins   *int      `json:"timeout_mins,omitempty"` // nil = default 30m; 0 = no limit; >0 = minutes
-	CreatedAt     time.Time `json:"created_at"`
-	Fired         bool      `json:"fired"`
-	FiredAt       time.Time `json:"fired_at,omitempty"`
-	LastError     string    `json:"last_error,omitempty"`
+	WaitUserQuiet bool `json:"wait_user_quiet,omitempty"`
+	// ReportID ties a workspace-handback wake to its pending-record entry (team_report_delivery.go).
+	ReportID    string    `json:"report_id,omitempty"`
+	SessionMode string    `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run
+	Mode        string    `json:"mode,omitempty"`         // permission mode override; "" = use project default
+	TimeoutMins *int      `json:"timeout_mins,omitempty"` // nil = default 30m; 0 = no limit; >0 = minutes
+	CreatedAt   time.Time `json:"created_at"`
+	Fired       bool      `json:"fired"`
+	FiredAt     time.Time `json:"fired_at,omitempty"`
+	LastError   string    `json:"last_error,omitempty"`
 
 	// ReplyBoard: the task-board item a lead's turn on a workspace handback reports on; the
 	// turn's posts are recorded under it (reply_task.go).
@@ -142,10 +144,28 @@ func (s *TimerStore) save() error {
 }
 
 func (s *TimerStore) Add(job *TimerJob) error {
+	_, err := s.add(job, false)
+	return err
+}
+
+// add can transfer a durable handback wake once by ID. Failed writes must not
+// leave a memory-only job that a later retry mistakes for durable acceptance.
+func (s *TimerStore) add(job *TimerJob, once bool) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if once {
+		for _, existing := range s.jobs {
+			if existing.ID == job.ID {
+				return false, nil
+			}
+		}
+	}
 	s.jobs = append(s.jobs, job)
-	return s.save()
+	if err := s.save(); err != nil {
+		s.jobs = s.jobs[:len(s.jobs)-1]
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *TimerStore) Remove(id string) bool {
@@ -337,6 +357,17 @@ func (ts *TimerScheduler) Start() error {
 			scheduled++
 		}
 	}
+	ts.mu.RLock()
+	engines := make([]*Engine, 0, len(ts.engines))
+	for _, e := range ts.engines {
+		engines = append(engines, e)
+	}
+	ts.mu.RUnlock()
+	for _, e := range engines {
+		// A bridge that stopped between queueing a workspace handback and its turn left the
+		// report pending; post it now instead of waiting for another handback.
+		e.recoverPendingReports(false)
+	}
 	slog.Info("timer: scheduler started", "scheduled", scheduled, "missed_fired", missed, "skipped_stale", skipped, "total", len(jobs))
 	return nil
 }
@@ -351,12 +382,20 @@ func (ts *TimerScheduler) Stop() {
 }
 
 func (ts *TimerScheduler) AddJob(job *TimerJob) error {
+	return ts.addJob(job, false)
+}
+
+func (ts *TimerScheduler) addJob(job *TimerJob, once bool) error {
 	if err := validateTimerJob(job); err != nil {
 		return err
 	}
 	job.SessionMode = NormalizeCronSessionMode(job.SessionMode)
-	if err := ts.store.Add(job); err != nil {
+	added, err := ts.store.add(job, once)
+	if err != nil {
 		return err
+	}
+	if !added {
+		return nil
 	}
 	defer ts.boardTouch(job) // maomao fork: channel task board
 	delay := time.Until(job.ScheduledAt)
@@ -481,6 +520,8 @@ func (ts *TimerScheduler) executeJob(jobID string) {
 	boardTouchJob(engine, job.SessionKey) // maomao fork: off the channel task board's queue
 
 	if err != nil {
+		// A handback wake that never ran must not count as a delivered report.
+		engine.settleReportWake(job.ID, "", err)
 		slog.Error("timer: job failed", "id", jobID, "error", err)
 	} else {
 		slog.Info("timer: job completed", "id", jobID)
