@@ -14,7 +14,9 @@ NODE = shutil.which("node")
 
 BASE = ("# 交接\n## 用户原话\n「x」\n## 总目标\n- z\n## 范围\n- 改：x\n- 不改：y\n"
         "## 已查过什么\n- dsh/collab/tasks.mjs:467 只校验 ref\n## 进度\n| a |\n"
-        "## 相关改动\n- #1 已合\n冲突：无\n## 规矩\n- y\n")
+        "## 相关改动\n- #1 已合\n冲突：无\n## 规矩\n- y\n"
+        "## 总部判断\n- 要的效果：用户要的那个效果写成一句话\n- 好的样子：做成什么样算好写成一句话\n"
+        "- 教训和定案：以前踩过的坑（wiki/a.md:3）\n")
 GOOD = BASE + "## 参照实现\n- bridge/contrib/lead/ws-up:120（差异：不发卡）\n"
 ART_GOAL = GOOD.replace("## 总目标\n- z\n", "## 总目标\n- 给瑞凤画一张 Q版小人\n").replace("- 改：x\n", "- 改：瑞凤小人（3 张）\n")
 ART = [
@@ -110,6 +112,18 @@ class SameResultsTest(unittest.TestCase):
         self.assertIn("已查过什么", R.check(vague) or "")
         self.assertIsNone(R.check(doc))
         self.assertEqual(node(COPIES[0], texts=[gone, vague, doc])["texts"], [R.check(gone), R.check(vague), None])
+
+    def test_hq_judgment_needs_details_and_source(self):
+        section = BASE[BASE.index("## 总部判断"):]
+        cases = [GOOD.replace(section, ""),
+                 GOOD.replace("要的效果：用户要的那个效果写成一句话", "要的效果：好"),
+                 GOOD.replace("（wiki/a.md:3）", "（没有可追溯的来源）"),
+                 GOOD.replace("wiki/a.md:3", "11-01")]
+        results = [R.check(t) for t in cases]
+        self.assertEqual([e is None for e in results], [False, False, False, True])
+        self.assertTrue(all("总部判断" in e for e in results[:3]))
+        for copy in COPIES:
+            self.assertEqual(node(copy, texts=cases)["texts"], results)
 
     def test_art_needs_reference_images(self):
         py = [R.check(t) for t in ART]

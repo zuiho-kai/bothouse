@@ -162,3 +162,25 @@ Codex loads hooks beside active config layers, including project `.codex` and th
 五端的原生参数、后台等价做法、官方协议来源及验收边界见 [跨 CLI 工作流钩子](../../../docs/workflow-hooks.md)。
 
 `doc-ok.py` accepts Codex's shell identity from `CODEX_SESSION_ID`, which is the same value as the hook payload's `session_id`. `CODEX_THREAD_ID` is a thread identifier and is deliberately not used: registering it would not match the guard.
+
+## Artifact delivery checks
+
+`accept.py` stores requirement sheets in `<role>/notes/accept/`. For example:
+
+```sh
+python3 <data_dir>/hooks/accept.py --role /path/to/role add cover "include the required title"
+python3 <data_dir>/hooks/accept.py --role /path/to/role check cover /path/to/cover.png "title checked in final image"
+```
+
+With `bash-guard` enabled, `run.py` runs `deliver-check.py` before attachment
+commands (`bothouse send --image/--file/--video`). Open sheets require a complete
+check of the current file contents; adding a requirement or changing the file
+invalidates the old check. `skip <file> "<reason>"` records unrelated attachments,
+and `done <task>` closes a sheet. Plain text, audio and TTS are unchanged.
+
+The check also requires a current-turn file read when a supported transcript is
+available (Claude/Qoder, DSH conversion, or original Codex rollout image reads).
+Other transcript formats skip the read check and report that limitation on
+stderr; requirement sheets still apply. This is transcript evidence, not visual
+approval. `python3 <data_dir>/hooks/run.py --role /path/to/role off deliver-check`
+disables this check for that role. Helper errors pass through with a diagnostic.
