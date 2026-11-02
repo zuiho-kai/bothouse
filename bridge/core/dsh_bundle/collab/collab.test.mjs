@@ -4846,7 +4846,14 @@ test('CLI member: after /new the fresh context gets its MEMORY.md and the task b
   const data = mkdtempSync(join(tmpdir(), 'collab-mem-'));
   mkdirSync(join(data, 'roles', 'cc', 'wiki'), { recursive: true });
   writeFileSync(join(data, 'roles', 'cc', 'wiki', 'MEMORY.md'), '- [a](a/README.md) — 甲\n');
-  const gate = await fakeGate(() => ({ wiki: [{ ...BOARD, path: '【任务板 aaa111】' }] }));
+  const pushed = new Map(); // gate-side dedup per (key, bot, epoch), as ctxsvc.only_new
+  const gate = await fakeGate(({ body }) => {
+    assert.ok(body.epoch, 'the conversation is named to the gate');
+    const id = JSON.stringify([body.key, body.bot, body.epoch]);
+    const seen = pushed.get(id) ?? new Set();
+    pushed.set(id, seen);
+    return { wiki: [{ ...BOARD, path: '【任务板 aaa111】' }].filter(w => !seen.has(w.path) && seen.add(w.path)) };
+  });
   process.env.BOTHOUSE_DATA_DIR = data;
   process.env.GATE_PORT = String(gate.port);
   try {
@@ -4885,7 +4892,14 @@ test('CLI member: a session that could not be resumed gets its MEMORY.md and the
   const data = mkdtempSync(join(tmpdir(), 'collab-mem-'));
   mkdirSync(join(data, 'roles', 'cc', 'wiki'), { recursive: true });
   writeFileSync(join(data, 'roles', 'cc', 'wiki', 'MEMORY.md'), '- [a](a/README.md) — 甲\n');
-  const gate = await fakeGate(() => ({ wiki: [{ ...BOARD, path: '【任务板 aaa111】' }] }));
+  const pushed = new Map(); // gate-side dedup per (key, bot, epoch), as ctxsvc.only_new
+  const gate = await fakeGate(({ body }) => {
+    assert.ok(body.epoch, 'the conversation is named to the gate');
+    const id = JSON.stringify([body.key, body.bot, body.epoch]);
+    const seen = pushed.get(id) ?? new Set();
+    pushed.set(id, seen);
+    return { wiki: [{ ...BOARD, path: '【任务板 aaa111】' }].filter(w => !seen.has(w.path) && seen.add(w.path)) };
+  });
   process.env.BOTHOUSE_DATA_DIR = data;
   process.env.GATE_PORT = String(gate.port);
   try {

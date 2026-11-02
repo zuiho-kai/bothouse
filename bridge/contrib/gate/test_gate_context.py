@@ -20,6 +20,7 @@ def load_gate(team=None, wiki=None, model="fake"):
     fake.Scorer = Scorer
     sys.modules["scorer"] = fake
     os.environ["GATE_SETUP_DIR"] = tempfile.mkdtemp()  # 不读本机 ~/.cc-connect 里向导写的文件
+    os.environ["BOARD_DIR"] = tempfile.mkdtemp()  # 不读本机的任务板（设了 BOARD_DIR 时它不跟 GATE_SETUP_DIR 走）
     os.environ.pop("GATE_JEV", None)
     os.environ["MEMVOTE_DIR"] = tempfile.mkdtemp()  # 推送记录写临时目录，不写进仓库
     if model:
@@ -66,7 +67,10 @@ class T(unittest.TestCase):
         finally:
             srv.shutdown()
             srv.server_close()
-        self.assertEqual(out, {"wiki": [{"path": (w / "infra/vps.md").as_posix(), "desc": "VPS 一览 | 4: 代理端口 7890 [#9fbdf5b7eb]"}]})
+        row = "4: 代理端口 7890 [#9fbdf5b7eb]"
+        self.assertEqual(out, {"wiki": [{"path": (w / "infra/vps.md").as_posix(), "desc": "VPS 一览 | " + row,
+                                         "head": "VPS 一览", "sep": " | ",
+                                         "rows": [{"id": "#9fbdf5b7eb", "text": row, "group": ""}]}]})
 
     def test_busy_mention_lead_pause_aborts(self):  # 主角色被 @ 或叫名字、正忙、「暂停」→ abort；不忙 → reply
         g = load_gate()
