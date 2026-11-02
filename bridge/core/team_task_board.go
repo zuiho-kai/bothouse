@@ -61,9 +61,10 @@ type teamTaskBoardItem struct {
 	// Card: the item's task card link (board.py link), for an item with no workspace task card.
 	Card string `json:"card"`
 
-	ReviewRejected string `json:"review_rejected"`
-	Dispatcher     string `json:"dispatcher"`
-	Reviewer       string `json:"reviewer"`
+	ReviewRejected string   `json:"review_rejected"`
+	Dispatcher     string   `json:"dispatcher"`
+	Reviewer       string   `json:"reviewer"`
+	RelayReturns   []string `json:"relay_returns,omitempty"`
 	PRBinding      *struct {
 		NoDeploy bool   `json:"no_deploy"`
 		Bound    string `json:"bound"`

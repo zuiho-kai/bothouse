@@ -749,6 +749,7 @@ def returned(nid, reviewer, at=None, bound=None, receipt=None):
             return True
         hit["returned_at"] = datetime.fromisoformat(re.sub(r"\.\d+", lambda m: m[0][:7].ljust(7, "0"), at).replace("Z", "+00:00")).isoformat() if at else _bound_now()
         hit["reviewer"] = hit.get("dispatcher") or reviewer
+        hit.pop("review_rejected", None)  # A new handback supersedes the earlier rejection.
         hit["status"], hit["at"] = "已交回待验收", _now()
         if hit.get("chat"):
             hit["sk"] = hit["chat"]

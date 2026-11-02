@@ -546,6 +546,14 @@ func TestTaskReviewRelayTrustedBinding(t *testing.T) {
 			if !readTeamTaskBoard(e.team.dir)[0].ReturnedAt.IsZero() {
 				t.Fatal("rejected receipt reopened work")
 			}
+			if out, err := e.runLeadScript(it.Chat, "board", "resume", "72"); err != nil {
+				t.Fatalf("resume: %s %v", out, err)
+			}
+			e.applyRelayBoardReturn(task, "new-review", receipt, 72, "generation", 1, now.Add(time.Hour))
+			current := readTeamTaskBoard(e.team.dir)[0]
+			if current.ReturnedAt.IsZero() || !e.taskReviewPending(&taskReviewRef{Board: 72, ReturnedAt: current.ReturnedAt}) {
+				t.Fatal("fresh review still blocked by old rejection")
+			}
 		})
 	}
 }

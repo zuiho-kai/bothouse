@@ -87,7 +87,13 @@ func (e *Engine) applyRelayBoardReturn(task *Task, request string, receipt taskR
 			continue
 		}
 		key := sha256.Sum256([]byte(fmt.Sprintf("%q/%d/%q", task.ID, revision, request)))
-		if out, err := e.runLeadScript(it.Chat, "board", "returned", strconv.Itoa(it.ID), e.name, now.UTC().Format(time.RFC3339Nano), bound, fmt.Sprintf("relay-%x", key)); err != nil {
+		receiptID := fmt.Sprintf("relay-%x", key)
+		for _, consumed := range it.RelayReturns {
+			if consumed == receiptID {
+				return
+			}
+		}
+		if out, err := e.runLeadScript(it.Chat, "board", "returned", strconv.Itoa(it.ID), e.name, now.UTC().Format(time.RFC3339Nano), bound, receiptID); err != nil {
 			slog.Warn("task review: relay return failed", "board", it.ID, "error", err, "output", string(out))
 		}
 		return

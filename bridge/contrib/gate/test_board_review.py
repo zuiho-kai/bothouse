@@ -63,6 +63,7 @@ class HandbackReview(unittest.TestCase):
             cli("returned", "1", "worker")
             self.assertNotEqual(first["returned_at"], item()["returned_at"])
             self.assertNotIn("paused", item())
+            self.assertNotIn("review_rejected", item())
             cli("done", "1", "1", "补入口验证")
             self.assertEqual((Path(tmp) / "board.jsonl").read_text().strip(), "")
             self.assertEqual(json.loads((Path(tmp) / "board-done.jsonl").read_text())["rework"], 1)
