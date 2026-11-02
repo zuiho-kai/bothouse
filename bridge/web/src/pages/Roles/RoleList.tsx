@@ -6,6 +6,7 @@ import {
   Play,
   Bot,
   Layers,
+  Gauge,
   CheckCircle2,
   AlertCircle,
   ExternalLink,
@@ -354,6 +355,36 @@ export default function RoleList() {
                       )}
                     </dd>
                   </div>
+                  {role.quota?.windows && role.quota.windows.length > 0 && (
+                    <div className="py-2" data-testid={`role-quota-${role.name}`}>
+                      <dt className="flex items-center justify-between text-xs text-ink-mute">
+                        <span className="flex items-center gap-1.5">
+                          <Gauge size={12} className="shrink-0" />
+                          模型额度：
+                        </span>
+                        <span className="text-[10px]">（剩余口径）</span>
+                      </dt>
+                      <dd className="mt-1.5 space-y-1.5">
+                        {role.quota.windows.map((w, idx) => {
+                          const remaining = Math.max(0, Math.min(100, w.remaining_percent));
+                          const used = Math.max(0, Math.min(100, w.used_percent));
+                          return (
+                            <div key={w.name || idx} className="space-y-1" data-testid={`quota-window-${w.label || idx}`}>
+                              <div className="flex items-baseline justify-between text-[11px]">
+                                <span className="text-ink-soft">{w.label || w.name}</span>
+                                <span className="font-mono text-[10px] text-ink-soft">
+                                  剩 {remaining}% <span className="text-ink-mute">/ 已用 {used}%</span>
+                                </span>
+                              </div>
+                              <div className="h-1 w-full overflow-hidden rounded-full bg-surface-sunken">
+                                <div className="h-full rounded-full bg-accent" style={{ width: `${remaining}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </dd>
+                    </div>
+                  )}
                 </dl>
 
                 {role.platforms
