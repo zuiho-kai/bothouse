@@ -1487,6 +1487,7 @@ func (p *Platform) SendWithButtons(ctx context.Context, rctx any, content string
 	if len(components) == 0 {
 		return fmt.Errorf("discord: no buttons provided")
 	}
+	content = linkTeamMentions(content, p.botID)
 
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
