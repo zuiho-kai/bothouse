@@ -1181,6 +1181,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	}
 
 	// 4. persona files: new roles always; existing bots only when this request carries a persona (H1)
+	var moodRoles []moodRole // new roles with the diary section: they get the hourly 「想不想说」 (setup_defaults.go)
 	for i, r := range pl.roles {
 		step := fmt.Sprintf("role %d persona", i+1)
 		if r.reused && !r.writesPersona() {
@@ -1220,6 +1221,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 				lang = req.Language
 			}
 			content = WithDiary(content, lang)
+			moodRoles = append(moodRoles, moodRole{r.project, lang})
 		}
 		if err := AtomicWriteFile(path, []byte(WithReplyLanguage(content, r.ReplyLanguage)), 0o644); err != nil {
 			return fail(step, err)
@@ -1406,6 +1408,9 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	// every new role's own wiki + nightly reflection (core/rolewiki.go); the cron jobs below then run its sub-wiki.sh
 	env.WikiSubScript = applyRoleWikis(ctx, res, env, req, pl, clis)
 	applyWizardWiki(res, env, req, pl.fallback, wikiSession)
+	if wikiSession != cloudWebWikiSession { // the hourly check needs a real channel to speak in
+		applyWizardMood(res, env, req, moodRoles, wikiSession)
+	}
 	applyWizardGlobalHooks(res, env, req, pl)
 	res.RestartRequired = true
 	res.Saved = true

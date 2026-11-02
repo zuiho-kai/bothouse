@@ -63,3 +63,24 @@ func TestApplyWizardNewRoleHasDiary(t *testing.T) {
 		t.Errorf("rerun: %q", b)
 	}
 }
+
+func TestAddMoodCronJobs(t *testing.T) {
+	c := &memCron{}
+	roles := []moodRole{{"a", "zh"}, {"b", "en"}, {"c", "ja"}}
+	added, err := AddMoodCronJobs(c, roles, "discord:1")
+	if err != nil || len(added) != 3 {
+		t.Fatalf("added %v err %v", added, err)
+	}
+	want := []string{"0 9-23 * * *", "20 9-23 * * *", "40 9-23 * * *"}
+	for i, j := range c.jobs {
+		if j.CronExpr != want[i] || j.SessionKey != "discord:1" || j.Mute || !strings.Contains(j.Prompt, "NO_REPLY") {
+			t.Fatalf("job %d: %+v", i, j)
+		}
+	}
+	if added, _ := AddMoodCronJobs(c, roles, "discord:1"); len(added) != 0 || len(c.jobs) != 3 {
+		t.Fatalf("second run added %v, jobs %d", added, len(c.jobs))
+	}
+	if !strings.Contains(diarySection("zh"), "心情") || !strings.Contains(diarySection("en"), "NO_REPLY") {
+		t.Fatal("diary section is not the mood diary")
+	}
+}
