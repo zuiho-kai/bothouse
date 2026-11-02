@@ -175,8 +175,8 @@ func TestApplyWizardAddsWikiCron(t *testing.T) {
 		}
 	}
 	st, _ := NewCronStore(dir)
-	if n := len(st.List()); n != 3 {
-		t.Fatalf("want 3 jobs after two runs, got %d", n)
+	if n := len(st.List()); n != 4 { // the three wiki runs + the role's hourly 想不想说 (setup_defaults.go)
+		t.Fatalf("want 4 jobs after two runs, got %d", n)
 	}
 	if j := st.List()[0]; j.SessionKey != "discord:1" || j.Project == "" {
 		t.Fatalf("job: %+v", j)

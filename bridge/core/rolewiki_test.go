@@ -752,10 +752,16 @@ func TestApplyWizardWikiCronSkipsUserMainWiki(t *testing.T) {
 	if !res.Saved {
 		t.Fatalf("apply: %+v", res)
 	}
-	if s := wizardSteps(res)["wiki cron"]; !s.OK || len(cron.jobs) != len(wikiCronJobs) {
-		t.Fatalf("wiki cron = %+v, jobs %d", s, len(cron.jobs))
-	}
+	var wikiJobs []*CronJob
 	for _, j := range cron.jobs {
+		if j.Description != moodCronDesc {
+			wikiJobs = append(wikiJobs, j)
+		}
+	}
+	if s := wizardSteps(res)["wiki cron"]; !s.OK || len(wikiJobs) != len(wikiCronJobs) {
+		t.Fatalf("wiki cron = %+v, jobs %d", s, len(wikiJobs))
+	}
+	for _, j := range wikiJobs {
 		if strings.Contains(j.Exec, "ingest.py") || !strings.Contains(j.Exec, "sub-wiki.py") {
 			t.Fatalf("job runs the user's wiki: %q", j.Exec)
 		}
