@@ -32,6 +32,7 @@ type Platform struct {
 	wsURL                 string // e.g. "ws://127.0.0.1:3001"
 	token                 string // optional access_token
 	allowFrom             string // comma-separated user IDs or "*"
+	commandAllowFrom      string // optional separate sender list for slash-prefixed input
 	shareSessionInChannel bool
 	handler               core.MessageHandler
 	conn                  *websocket.Conn
@@ -90,6 +91,7 @@ func New(opts map[string]any) (core.Platform, error) {
 	}
 	token, _ := opts["token"].(string)
 	allowFrom, _ := opts["allow_from"].(string)
+	commandAllowFrom, _ := opts["command_allow_from"].(string)
 	shareSessionInChannel, _ := opts["share_session_in_channel"].(bool)
 
 	core.CheckAllowFrom("qq", allowFrom)
@@ -101,6 +103,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		wsURL:                 wsURL,
 		token:                 token,
 		allowFrom:             allowFrom,
+		commandAllowFrom:      commandAllowFrom,
 		shareSessionInChannel: shareSessionInChannel,
 		httpURL:               httpURL,
 	}, nil
@@ -257,6 +260,17 @@ func (p *Platform) handleMessage(payload map[string]any) {
 
 	// Parse message content from CQ message array or raw_message
 	parsed := p.parseMessage(payload, msgType, groupID)
+
+	// A slash-prefixed message is a command, and command_allow_from decides who
+	// may submit one. This runs before core gets the message, so built-in
+	// commands, custom commands, skills and unknown commands forwarded to an
+	// agent all follow one policy; core would otherwise hand an unknown command
+	// straight to the agent. Ordinary chat is unaffected: allow_from still
+	// decides who is admitted at all.
+	if strings.HasPrefix(strings.TrimSpace(parsed.text), "/") &&
+		!core.AllowList(p.commandAllowFrom, strconv.FormatInt(userID, 10)) {
+		return
+	}
 
 	// A reply to one of this bot's messages calls the bot just like an @ does
 	// (core/gate_local.go: "an @, a reply to it"). Everyone else's message is
