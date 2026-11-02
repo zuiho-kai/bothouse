@@ -86,6 +86,8 @@ class MergeClosure(unittest.TestCase):
             board.reject(72,"missing acceptance")
             board.reconcile_merged_prs()
             self.assertNotIn("returned_at",board.items()[0])
+            board.rebind(72,"room:new-work")
+            self.assertNotIn("pr_merge",board.items()[0])
             item=board.items()[0]
             item["bound"]="new-generation"
             item.pop("paused",None)

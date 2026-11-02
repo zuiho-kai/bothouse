@@ -64,6 +64,31 @@ class Drain(unittest.TestCase):
             self.assertNotIn("paused", board.items()[0])
             self.assertTrue(any("--drain" in call.args[0] for call in run.call_args_list))
 
+    def test_answered_queued_item_keeps_position_and_dispatches_once(self):
+        board = self.g["board"]
+        queue = Path(self.g["QUEUE"])
+        queue.parent.mkdir(parents=True, exist_ok=True)
+        notes = Path(self.tmp) / "handoff.prompt"
+        notes.write_text("handoff")
+        queue.write_text(json.dumps([
+            {"nid": 69, "path": "earlier", "task": "earlier", "chat": "room:main"},
+            {"nid": 70, "path": str(notes), "task": "paused", "chat": "room:main"},
+        ]))
+        items = [{"id":69}, {"id":70, "what":"paused", "where":str(notes), "chat":"room:main", "paused":"11-02 08:46"}]
+        started = []
+        def start(path, task, chat, nid, project, answer=None):
+            started.append((nid,answer))
+            return True
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(board,"items",return_value=items))
+            stack.enter_context(patch.object(board,"resume",side_effect=lambda nid: items[1].pop("paused")))
+            stack.enter_context(patch.object(board,"append_forward"))
+            stack.enter_context(patch.object(self.g["_recall"],"append_to"))
+            stack.enter_context(patch.dict(self.g,{"start":start}))
+            self.mod["resume_answered"](70,"continue with evidence")
+        self.assertEqual(started,[(69,None),(70,"continue with evidence")])
+        self.assertEqual(json.loads(queue.read_text()),[])
+
     def test_queued_pause_is_not_pruned_while_waiting_for_resume(self):
         board = self.g["board"]
         queue = Path(self.g["QUEUE"])

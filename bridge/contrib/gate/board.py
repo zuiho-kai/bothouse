@@ -792,6 +792,7 @@ def rebind(nid, ws):
             hit.pop("returned_at", None)
             hit.pop("reviewer", None)
             hit.pop("review_rejected", None)
+            hit.pop("pr_merge", None)  # Previous generation's merge is not this handback.
             hit["bound"] = _bound_now()  # reoccupy 刚 claim 了一件新交接
             hit.pop("ws_was", None)
             if ws.startswith("discord:"):
