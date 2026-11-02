@@ -776,6 +776,8 @@ def reject(nid, reason):
         hit.pop("returned_at", None)
         hit.pop("reviewer", None)
         hit["paused"] = hit["at"] = _now()
+        hit["paused_at"] = _bound_now()
+        hit["paused_by"] = os.environ.get("CC_PROJECT", "")
         hit["review_rejected"] = reason
         hit["pause_why"] = "验收退回：" + reason
         hit["status"] = hit["pause_why"]

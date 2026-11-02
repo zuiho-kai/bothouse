@@ -113,6 +113,17 @@ class MergeClosure(unittest.TestCase):
                     self.assertNotIn("returned_at",board.items()[0])
 
 class RelayGeneration(unittest.TestCase):
+    def test_rejection_records_new_pause_identity_and_owner(self):
+        import board
+        from unittest.mock import patch
+        tmp=Path(tempfile.mkdtemp())
+        with patch.object(board,"DIR",tmp), patch.dict(os.environ,{"CC_PROJECT":"reviewer"}):
+            board._write([{"id":72,"returned_at":"2026-11-02T00:00:00Z","paused_at":"old-pause","paused_by":"old-owner"}])
+            board.reject(72,"missing evidence")
+            item=board.items()[0]
+            self.assertNotEqual(item["paused_at"],"old-pause")
+            self.assertEqual(item["paused_by"],"reviewer")
+
     def test_late_relay_cannot_resume_paused_work(self):
         import board
         from unittest.mock import patch
