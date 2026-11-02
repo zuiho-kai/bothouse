@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -34,6 +35,7 @@ type Platform struct {
 	allowFrom             string // comma-separated user IDs or "*"
 	commandAllowFrom      string // optional separate sender list for slash-prefixed input
 	shareSessionInChannel bool
+	project               string // this bot's project name (opts["cc_project"]), named in outbound receipts
 	handler               core.MessageHandler
 	conn                  *websocket.Conn
 	mu                    sync.Mutex
@@ -84,6 +86,13 @@ const quotedTextMaxRunes = 800
 // path uses, so the model reads the situation the same way on both platforms.
 const bareMentionPlaceholder = "（用户 @ 了你，在等你回复：看上面的频道消息判断要你做什么；看不出来就问）"
 
+// Outbound receipt log messages (Issue #842): one per send, so a receipt can be
+// matched to the inbound message_id and the message_id NapCat returned.
+const (
+	outboundReceiptMessage       = "qq: outbound message"
+	outboundReceiptFailedMessage = "qq: outbound message failed"
+)
+
 func New(opts map[string]any) (core.Platform, error) {
 	wsURL, _ := opts["ws_url"].(string)
 	if wsURL == "" {
@@ -93,6 +102,7 @@ func New(opts map[string]any) (core.Platform, error) {
 	allowFrom, _ := opts["allow_from"].(string)
 	commandAllowFrom, _ := opts["command_allow_from"].(string)
 	shareSessionInChannel, _ := opts["share_session_in_channel"].(bool)
+	project, _ := opts["cc_project"].(string)
 
 	core.CheckAllowFrom("qq", allowFrom)
 
@@ -105,6 +115,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		allowFrom:             allowFrom,
 		commandAllowFrom:      commandAllowFrom,
 		shareSessionInChannel: shareSessionInChannel,
+		project:               project,
 		httpURL:               httpURL,
 	}, nil
 }
@@ -313,7 +324,8 @@ func (p *Platform) handleMessage(payload map[string]any) {
 		messageType: msgType,
 		userID:      userID,
 		groupID:     groupID,
-		messageID:   int32(messageID),
+		sessionKey:  sessionKey,
+		inMessageID: strconv.FormatInt(messageID, 10),
 	}
 
 	// ChannelKey is the raw chat id; core adds the platform prefix when it
@@ -733,6 +745,7 @@ func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error
 	if rctx.messageType == "group" {
 		params["group_id"] = rctx.groupID
 		result, err := p.callAPIContext(ctx, "send_group_msg", params)
+		p.logOutbound("send_group_msg", rctx, content, result, err)
 		if err != nil {
 			return err
 		}
@@ -742,6 +755,7 @@ func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error
 
 	params["user_id"] = rctx.userID
 	result, err := p.callAPIContext(ctx, "send_private_msg", params)
+	p.logOutbound("send_private_msg", rctx, content, result, err)
 	if err != nil {
 		return err
 	}
@@ -782,7 +796,12 @@ func (p *Platform) ReplyWithAt(ctx context.Context, replyCtx any, content string
 		params["user_id"] = rctx.userID
 	}
 
+	summary := content
+	if atAll || len(atUsers) > 0 {
+		summary = fmt.Sprintf("[at all=%t users=%v] %s", atAll, atUsers, content)
+	}
 	result, err := p.callAPIContext(ctx, action, params)
+	p.logOutbound(action, rctx, summary, result, err)
 	if err != nil {
 		return fmt.Errorf("qq: ReplyWithAt: %w", err)
 	}
@@ -799,6 +818,38 @@ func (p *Platform) recordSent(result map[string]any, text string) {
 	if id := jsonInt64(result, "message_id"); id != 0 {
 		p.storeQuote(strconv.FormatInt(id, 10), text, true)
 	}
+}
+
+// logOutbound writes one structured receipt for an outbound QQ message, so an
+// inbound message_id can be matched to the message_id NapCat returned for the
+// send that answered it. Every outbound path calls it once per actual send.
+//
+// content is a short description of what went out (text, "[image …]",
+// "[voice …]", "[file …]"), truncated with the existing quotedTextMaxRunes
+// bound (来源: 沿用 platform/qq quotedTextMaxRunes) so a receipt stays as small
+// as a cached quote; content_len is the untruncated rune count.
+//
+// This is logging only: it never changes what, or whether, a message is sent.
+func (p *Platform) logOutbound(action string, rctx *replyContext, content string, result map[string]any, err error) {
+	outID := ""
+	if id := jsonInt64(result, "message_id"); id != 0 {
+		outID = strconv.FormatInt(id, 10)
+	}
+	attrs := []any{
+		"pid", os.Getpid(),
+		"project", p.project,
+		"session_key", rctx.sessionKey,
+		"in_message_id", rctx.inMessageID,
+		"out_message_id", outID,
+		"action", action,
+		"content", truncateRunes(content, quotedTextMaxRunes),
+		"content_len", utf8.RuneCountInString(content),
+	}
+	if err != nil {
+		slog.Warn(outboundReceiptFailedMessage, append(attrs, "error", err)...)
+		return
+	}
+	slog.Info(outboundReceiptMessage, attrs...)
 }
 
 // SendImage sends an image to the conversation.
@@ -818,9 +869,12 @@ func (p *Platform) SendImage(ctx context.Context, replyCtx any, img core.ImageAt
 		"message": segments,
 	}
 
+	summary := fmt.Sprintf("[image %s %d bytes]", img.MimeType, len(img.Data))
+
 	if rctx.messageType == "group" {
 		params["group_id"] = rctx.groupID
-		_, err := p.callAPIContext(ctx, "send_group_msg", params)
+		result, err := p.callAPIContext(ctx, "send_group_msg", params)
+		p.logOutbound("send_group_msg", rctx, summary, result, err)
 		if err != nil {
 			return fmt.Errorf("qq: send image: %w", err)
 		}
@@ -828,7 +882,8 @@ func (p *Platform) SendImage(ctx context.Context, replyCtx any, img core.ImageAt
 	}
 
 	params["user_id"] = rctx.userID
-	_, err := p.callAPIContext(ctx, "send_private_msg", params)
+	result, err := p.callAPIContext(ctx, "send_private_msg", params)
+	p.logOutbound("send_private_msg", rctx, summary, result, err)
 	if err != nil {
 		return fmt.Errorf("qq: send image: %w", err)
 	}
@@ -900,15 +955,18 @@ func (p *Platform) SendAudio(ctx context.Context, replyCtx any, audio []byte, fo
 		params["user_id"] = rctx.userID
 	}
 
+	summary := fmt.Sprintf("[voice %s %d bytes]", format, len(audio))
 	result, err := p.callAPIContext(ctx, action, params)
 	if err != nil {
+		p.logOutbound(action, rctx, summary, result, err)
 		return fmt.Errorf("qq: send audio: %w", err)
 	}
-	id := jsonInt64(result, "message_id")
-	if id == 0 {
-		return fmt.Errorf("qq: send audio: no message_id in reply")
+	if jsonInt64(result, "message_id") == 0 {
+		sendErr := fmt.Errorf("qq: send audio: no message_id in reply")
+		p.logOutbound(action, rctx, summary, result, sendErr)
+		return sendErr
 	}
-	slog.Info("qq: voice sent", "message_id", id, "format", format, "bytes", len(audio))
+	p.logOutbound(action, rctx, summary, result, nil)
 	p.recordSent(result, "[voice]")
 	return nil
 }
@@ -1152,7 +1210,8 @@ type replyContext struct {
 	messageType string // "private" or "group"
 	userID      int64
 	groupID     int64
-	messageID   int32
+	sessionKey  string // conversation key, named in outbound receipts
+	inMessageID string // inbound message that triggered the send; empty for proactive sends
 }
 
 func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
@@ -1164,14 +1223,14 @@ func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
 	if len(parts) == 3 {
 		if parts[1] == "g" {
 			gid, _ := strconv.ParseInt(parts[2], 10, 64)
-			return &replyContext{messageType: "group", groupID: gid}, nil
+			return &replyContext{messageType: "group", groupID: gid, sessionKey: sessionKey}, nil
 		}
 		gid, _ := strconv.ParseInt(parts[1], 10, 64)
 		uid, _ := strconv.ParseInt(parts[2], 10, 64)
-		return &replyContext{messageType: "group", groupID: gid, userID: uid}, nil
+		return &replyContext{messageType: "group", groupID: gid, userID: uid, sessionKey: sessionKey}, nil
 	}
 	uid, _ := strconv.ParseInt(parts[1], 10, 64)
-	return &replyContext{messageType: "private", userID: uid}, nil
+	return &replyContext{messageType: "private", userID: uid, sessionKey: sessionKey}, nil
 }
 
 func (p *Platform) isAllowed(userID int64) bool {
@@ -1271,12 +1330,15 @@ func (p *Platform) SendFile(ctx context.Context, replyCtx any, file core.FileAtt
 		call = p.callHTTPAPIContext
 	}
 
+	summary := fmt.Sprintf("[file %s %d bytes]", name, len(file.Data))
+
 	if rctx.messageType == "group" {
-		_, err := call(ctx, "upload_group_file", map[string]any{
+		result, err := call(ctx, "upload_group_file", map[string]any{
 			"group_id": rctx.groupID,
 			"file":     b64data,
 			"name":     name,
 		})
+		p.logOutbound("upload_group_file", rctx, summary, result, err)
 		if err != nil {
 			return fmt.Errorf("qq: SendFile group: %w", err)
 		}
@@ -1284,12 +1346,13 @@ func (p *Platform) SendFile(ctx context.Context, replyCtx any, file core.FileAtt
 	}
 
 	// Private: use send_private_msg with file segment
-	_, err := call(ctx, "send_private_msg", map[string]any{
+	result, err := call(ctx, "send_private_msg", map[string]any{
 		"user_id": rctx.userID,
 		"message": []map[string]any{
 			{"type": "file", "data": map[string]any{"file": b64data, "name": name}},
 		},
 	})
+	p.logOutbound("send_private_msg", rctx, summary, result, err)
 	if err != nil {
 		return fmt.Errorf("qq: SendFile private: %w", err)
 	}
