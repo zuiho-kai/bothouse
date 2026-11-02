@@ -612,13 +612,49 @@ def state():
     return db
 
 
+# The global memory install (bothouse setup hooks on --global memory, core/global_hooks.go) writes this into a wiki the
+# setup wizard made, whose "transcripts" are only its bot's exported sessions: {"projects": Claude Code's projects dir,
+# "bots": bots.json, "skip": [work dirs]}. User 2026-11-02 「要，向导加个全局安装选项」: Claude Code sessions opened
+# outside bothouse get the same idle/closed ingest. Kept out of config.json (an older ingest.py refuses unknown keys).
+TERMINAL = REPO / ".bothouse-terminal.json"
+
+
+def project_slug(d):
+    """Claude Code's project dir name for a cwd (every non-alphanumeric char as "-", as export.py reads it)."""
+    return re.sub(r"[^A-Za-z0-9]", "-", d)
+
+
+def terminal_sessions():
+    """{session id: file} of this machine's own Claude Code sessions when TERMINAL is there, leaving out the project
+    dirs of bothouse's roles (bots.json workdirs and "skip"): their sessions reach their wikis through export.py."""
+    try:
+        t = json.loads(TERMINAL.read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(t, dict):
+        return {}
+    dirs = [d for d in t.get("skip") or [] if isinstance(d, str)]
+    try:
+        bots = json.loads(Path(os.path.expanduser(t.get("bots") or "")).read_text())
+        dirs += [b.get("workdir") for b in bots.values() if isinstance(b, dict) and isinstance(b.get("workdir"), str)]
+    except (OSError, ValueError, AttributeError):
+        pass
+    skip = set()
+    for d in dirs:
+        d = os.path.expanduser(d)
+        skip |= {project_slug(d), project_slug(os.path.realpath(d))}
+    root = Path(os.path.expanduser(t.get("projects") or "~/.claude/projects"))
+    return {p.stem: p for p in root.glob("*/*.jsonl") if p.parent.name not in skip}
+
+
 def transcripts(hosts=False, live=False):
     """{session id: file} of this wiki's sessions. hosts: other machines' too (MIRROR_TO). live: only what the day
     run ingests: this machine's sessions whose runtime still keeps its own log (not an archived copy)."""
     if ROOT is None:
         return {s.id: s.path for s in sessionlog.sessions(ASSISTANT, hosts=hosts and not live)
                 if not live or (s.host is None and s.primary)}
-    out = {p.stem: p for p in ROOT.glob("*/*.jsonl")}
+    out = terminal_sessions()
+    out.update({p.stem: p for p in ROOT.glob("*/*.jsonl")})
     if hosts and not live:
         out.update({p.stem: p for p in HOSTS.glob("*/projects/*/*.jsonl")})
     return out

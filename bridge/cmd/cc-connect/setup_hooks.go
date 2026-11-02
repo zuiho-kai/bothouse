@@ -16,6 +16,7 @@ import (
 func init() { core.AgentHookFS = ccconnect.AgentHookFiles }
 
 const setupHooksUsage = `Usage: bothouse setup hooks on|off|status --work-dir <dir> [flags]
+       bothouse setup hooks on|off|status --global memory|guards [--only <hooks>]
 
 Tool hooks for one role (the role's work_dir). Claude Code reads them from <dir>/.claude/settings.json.
 DSH reads them through @deepseek-ai/dsh-hooks-claude-code, which "on --cli dsh" mounts in the role's own
@@ -46,6 +47,16 @@ hooks stay untrusted for Codex until bothouse registers their trusted_hash at se
 the hooks feature in <dir>/.codex/config.toml), Cursor <dir>/.cursor/hooks.json, Qoder <dir>/.qoder/settings.json,
 iFlow <dir>/.iflow/settings.json, Kimi <dir>/.bothouse/kimi-home/config.toml.
 
+--global (no --work-dir): the user's own Claude Code settings ($CLAUDE_CONFIG_DIR, else ~/.claude/settings.json),
+so terminal sessions get them too. Off by default. "memory" = wiki-context (relevant wiki pages on each message)
+and wiki-ingest (SessionEnd: file the session into the wiki); with a wizard-made main wiki its idle tidy-up also
+reads the terminal sessions (<wiki>/.bothouse-terminal.json). "guards" = the role hooks above but the memory ones,
+a rules block in <claude dir>/CLAUDE.md and the long-task subagent in <claude dir>/agents (a long-task.md of your
+own is kept). The commands carry --cc-global: they do nothing in a bothouse role's session (CC_PROJECT set) or when
+the project's .claude/settings.json already has the same hook, so nothing runs twice. If you already run the same
+hook yourself, bothouse does not add its own. "off" removes only what bothouse added; settings.json is backed up
+before each change.
+
 Hooks: %s
 
 Flags:
@@ -67,7 +78,8 @@ func runSetupHooks(args []string) {
 		fmt.Fprintf(fs.Output(), setupHooksUsage, strings.Join(core.AgentHookNames(), ", "))
 		fs.PrintDefaults()
 	}
-	workDir := fs.String("work-dir", "", "the role's work_dir (REQUIRED)")
+	workDir := fs.String("work-dir", "", "the role's work_dir (REQUIRED unless --global)")
+	global := fs.String("global", "", "memory | guards: switch the hooks in the user's own Claude Code settings instead of a role's")
 	cli := fs.String("cli", "claudecode", "the role's CLI: claudecode | dsh | gemini | antigravity | pi | opencode | kimi | cursor | codex | qoder | iflow | grok")
 	only := fs.String("only", "", "comma-separated hooks to switch on/off (default: all)")
 	lang := fs.String("lang", "", "language of the persona block: zh | en (default: the persona's reply language, else system)")
@@ -75,9 +87,13 @@ func runSetupHooks(args []string) {
 	dshBridge := fs.String("dsh-bridge", "", "--cli dsh: lib/index.js of @deepseek-ai/dsh-hooks-claude-code (default: found next to the dsh on PATH)")
 	configFile := fs.String("config", "", "path to config file (for its data_dir)")
 	_ = fs.Parse(rest)
-	if action == "" || *workDir == "" {
+	if action == "" || (*workDir == "" && *global == "") {
 		fs.Usage()
 		os.Exit(2)
+	}
+	if *global != "" {
+		runSetupHooksGlobal(action, *global, *only, *lang, *configFile)
+		return
 	}
 	wd, err := filepath.Abs(expandHome(*workDir))
 	if err != nil {
@@ -142,4 +158,54 @@ func expandHome(p string) string {
 		}
 	}
 	return p
+}
+
+// runSetupHooksGlobal: setup hooks on|off|status --global memory|guards.
+func runSetupHooksGlobal(action, kind, only, lang, configFile string) {
+	initConfigPath(configFile)
+	dataDir := defaultDataDir()
+	if _, err := os.Stat(config.ConfigPath); err == nil {
+		if cfg, err := config.LoadForSetup(config.ConfigPath); err == nil && cfg.DataDir != "" {
+			dataDir = cfg.DataDir
+		}
+	}
+	o := core.GlobalHookOptions{DataDir: dataDir, Kind: kind, Lang: lang, RoleDirs: wizardRoleDirs()}
+	if only != "" {
+		o.Only = strings.Split(only, ",")
+	}
+	var res *core.GlobalHookResult
+	var err error
+	switch action {
+	case "on":
+		res, err = core.EnableGlobalHooks(o)
+	case "off":
+		res, err = core.DisableGlobalHooks(o)
+	default:
+		res, err = core.GlobalHooksStatus(o)
+	}
+	if err != nil {
+		fail(err)
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(map[string]any{"ok": true, "result": res})
+}
+
+// wizardRoleDirs: the work dirs of the roles in config.toml (none when there is no config yet).
+func wizardRoleDirs() []string {
+	if _, err := os.Stat(config.ConfigPath); err != nil {
+		return nil
+	}
+	snap, err := config.WizardSnapshot()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, p := range snap {
+		if p.WorkDir != "" {
+			out = append(out, expandHome(p.WorkDir))
+		}
+	}
+	return out
 }
