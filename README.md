@@ -26,13 +26,27 @@ No new accounts, no new subscriptions: it runs the AIs you are already signed in
 
 ## Get things done with one sentence
 
-<table>
-<tr>
-<td align="center" width="33%"><a href="docs/assets/readme/demo/board.jpg"><img src="docs/assets/readme/demo/board-wall.jpg" width="300" alt="Pinned task board listing today's finished work by workspace and role" /></a><h3>"What did everyone get done today?"</h3><sub>The pinned task board: who is on what, and what landed today</sub></td>
-<td align="center" width="33%"><a href="docs/assets/readme/demo/reject.jpg"><img src="docs/assets/readme/demo/reject-wall.jpg" width="300" alt="Long hands in a PR; Ju reviews it and sends back two must-fix items" /></a><h3>"Fix this bug, and get it reviewed before merging"</h3><sub>Long (Codex) writes, Ju (Claude) reviews and sends it back with two must-fixes</sub></td>
-<td align="center" width="33%"><a href="docs/assets/readme/demo/team-masked.jpg"><img src="docs/assets/readme/demo/team-wall.jpg" width="300" alt="Whale finishes the English promo cut, Ju checks the comparison sheet and signs off" /></a><h3>"Make an English cut of the promo video"</h3><sub>Whale cuts it, Ju checks every shot side by side and signs off only when it is all English</sub></td>
-</tr>
-</table>
+<div align="center">
+
+<h3>"What did everyone get done today?"</h3>
+
+<a href="docs/assets/readme/demo/board.jpg"><img src="docs/assets/readme/demo/board-wall.jpg" width="420" alt="Pinned task board listing today's finished work by workspace and role" /></a>
+
+<sub>The pinned task board: who is on what, and what landed today</sub>
+
+<h3>"Fix this bug, and get it reviewed before merging"</h3>
+
+<a href="docs/assets/readme/demo/reject.jpg"><img src="docs/assets/readme/demo/reject-wall.jpg" width="420" alt="Long hands in a PR; Ju reviews it and sends back two must-fix items" /></a>
+
+<sub>Long (Codex) writes, Ju (Claude) reviews and sends it back with two must-fixes</sub>
+
+<h3>"Make an English cut of the promo video"</h3>
+
+<a href="docs/assets/readme/demo/team-masked.jpg"><img src="docs/assets/readme/demo/team-wall.jpg" width="420" alt="Whale finishes the English promo cut, Ju checks the comparison sheet and signs off" /></a>
+
+<sub>Whale cuts it, Ju checks every shot side by side and signs off only when it is all English</sub>
+
+</div>
 
 <details>
 <summary>More demos</summary>
