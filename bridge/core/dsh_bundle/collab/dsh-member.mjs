@@ -848,6 +848,7 @@ export class DshMembers {
     this.hub.quota?.observe(job.member_id, job.room_id, { error: String(notice) });
     const error = friendlyFailure(notice);
     this.hub.setError(job.member_id, error);
+    this.hub.tasks?.failTurn(job.room_id, job.member_id, error, job.trigger_id);
     this.hub.post(job.room_id, {
       authorKind: 'system', author: 'system', name: 'system', text: error, clientKey: `dsh-job-${jobId}-${state}-${Date.now()}`,
       card: JSON.stringify({

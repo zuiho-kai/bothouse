@@ -32,6 +32,7 @@ const DELIVERED = ['returned', 'done'];
 const PENDING_CALL_S = 30 * 60;
 // Default check time after dispatch or rework. Source: user 2026-10-23「这10分钟之内搞不完就滚蛋」.
 export const CHECK_AFTER_S = 10 * 60;
+export const MAX_TASK_RETRIES = 3;
 // Workspace watch (#574 B2, same rule as contrib/lead/d10-fire MAX_RENEW, 0 = no cap): at the
 // check time a workspace task with new role messages since its window opened gets another
 // CHECK_AFTER_S, renewing while there is progress; otherwise it is parked (paused queue).
@@ -144,6 +145,10 @@ export class Tasks {
       open: this.db.prepare(`SELECT * FROM tasks WHERE status IN (${PLACEHOLDERS}) ORDER BY id`),
       autoClose: this.db.prepare(`UPDATE tasks SET status = 'returned', next_check_at = NULL, remind_msg_id = NULL,
         note = ?, returned_at = ?, updated_at = ? WHERE id = ? AND status IN (${PLACEHOLDERS}) RETURNING *`),
+      retry: this.db.prepare(`UPDATE tasks SET room_id = ?, status = 'assigned', paused_at = NULL, paused_chat = NULL,
+        next_check_at = ?, remind_msg_id = NULL, renewals = 0, retry_count = retry_count + 1,
+        note = ?, assign_msg_id = ?, result_msg_id = NULL, returned_at = NULL, updated_at = ?
+        WHERE id = ? AND status = 'returned' AND note LIKE '执行失败：%' AND retry_count < ? RETURNING *`),
       busyOfOwner: this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND ${LIVE} ORDER BY updated_at DESC`),
       allBusy: this.db.prepare(`SELECT * FROM tasks WHERE ${LIVE} ORDER BY updated_at DESC`),
       // A stance line without #id only answers a dispatch the owner has not answered yet.
@@ -209,8 +214,9 @@ export class Tasks {
     // A paused task stays on the board of the chat channel it was paused under (paused_chat), even
     // after its workspace went back to the pool and another chat channel claimed it: a to-do is never lost.
     const rows = this.db.prepare(`SELECT * FROM tasks WHERE (room_id IN (${rooms.map(() => '?').join(', ')})
-      AND (paused_at IS NULL OR paused_chat IS NULL OR paused_chat = ?)) OR (paused_at IS NOT NULL AND paused_chat = ?)
-      ORDER BY id DESC`).all(...rooms, chat, chat);
+      AND (paused_at IS NULL OR paused_chat IS NULL OR paused_chat = ?) AND (file_chat_id IS NULL OR file_chat_id = ?)) OR (paused_at IS NOT NULL AND paused_chat = ?)
+      OR (status = 'returned' AND note LIKE '执行失败：%' AND file_chat_id = ?)
+      ORDER BY id DESC`).all(...rooms, chat, chat, chat, chat);
     return rows.map(r => this.view(r));
   }
 
@@ -259,7 +265,7 @@ export class Tasks {
       owner: t.owner, owner_name: this.nameOf(t.owner), created_by: t.created_by, created_by_name: this.nameOf(t.created_by),
       status: t.status, next_check_at: t.next_check_at, assign_msg_id: t.assign_msg_id, result_msg_id: t.result_msg_id,
       note: t.note, reason: t.reason, ref: t.ref ?? null, base: t.base ?? null, created_at: t.created_at, updated_at: t.updated_at, returned_at: t.returned_at,
-      paused_at: t.paused_at ?? null, files: this.files(t.id),
+      paused_at: t.paused_at ?? null, retry_count: t.retry_count, files: this.files(t.id),
     };
   }
 
@@ -417,6 +423,37 @@ export class Tasks {
     return this.changed(id);
   }
 
+  /** A failed turn already has an error card; return its active task without posting another notice. */
+  failTurn(roomId, owner, reason, triggerId) {
+    const task = this.openOf(roomId, owner);
+    if (!task || (triggerId != null && task.assign_msg_id > triggerId)) return;
+    const now = this.now();
+    const row = this.q.autoClose.get(clip(`执行失败：${reason}${task.retry_count ? `（第 ${task.retry_count + 1} 次执行）` : ''}`), now, now, task.id, ...WORKING);
+    if (!row) return;
+    this.releaseIfDone(row.room_id);
+    this.changed(row.id);
+  }
+
+  retryTask(id, { actor }) {
+    if (actor !== HUMAN) throw new CollabError('forbidden', 'only the owner can retry a failed task');
+    const task = this.mustTask(id);
+    if (task.status !== 'returned' || !task.note?.startsWith('执行失败：')) throw new CollabError('conflict', 'only a failed returned task can be retried');
+    if (task.retry_count >= MAX_TASK_RETRIES) throw new CollabError('conflict', '最多重试 3 次');
+    if (this.busyInfo(task.owner).busy) throw new CollabError('member-busy', 'the original owner is already working');
+    const chat = task.file_chat_id ?? this.chatOf(task.room_id);
+    const workspace = this.inWorkspace(task.room_id) ? this.store.createWorkspace(chat) : null;
+    const roomId = workspace?.id ?? task.room_id;
+    const attempt = task.retry_count + 2;
+    const { message } = this.hub.post(roomId, { authorKind: 'system', author: 'system', name: '交接',
+      text: `@${this.nameOf(task.owner)} 重试 #${id}「${task.title}」（第 ${attempt} 次执行）。\n原交接：${task.reason ?? task.title}\n参照：${task.ref ?? ''}\n底分支：${task.base ?? ''}` });
+    const now = this.now();
+    const row = this.q.retry.get(roomId, now + CHECK_AFTER_S, `第 ${attempt} 次执行`, message.id, now, id, MAX_TASK_RETRIES);
+    if (!row) throw new CollabError('conflict', 'task changed while retrying');
+    if (workspace) this.db.prepare('UPDATE rooms SET claim_task = ? WHERE id = ?').run(-id, workspace.id);
+    this.wake(row.owner, message);
+    return this.changed(id);
+  }
+
   /**
    * A workspace task handed back: its result goes to the chat channel (TeamExit.forwardResult:
    * the [report] body, or the delivery itself) and its dispatcher is woken there on it to review,
@@ -514,6 +551,7 @@ export class Tasks {
       case 'stance': return this.stance(id, { actor, stance: String(body.stance ?? ''), note: body.note });
       case 'return': return this.handBack(id, { actor, messageId: optional(body.message_id) });
       case 'review': return this.review(id, { actor, verdict: String(body.verdict ?? ''), note: body.note });
+      case 'retry': return this.retryTask(id, { actor });
       default: throw new CollabError('invalid', 'action must be assign, stance, return or review');
     }
   }
@@ -656,7 +694,7 @@ export class Tasks {
       // Its next message after a chat-side hand-back accepts it. Workspace tasks need its explicit
       // 【验收】#id / 【返工】#id line (verdictsOf): it may be answering something else meanwhile.
       for (const t of this.q.returnedChat.all(msg.room_id, lead.id)) {
-        if (t.id === reviewing?.id || this.db.prepare(`SELECT id FROM tasks WHERE parent_task = ? AND source = 'review' AND status IN (${PLACEHOLDERS})`).get(t.id, ...WORKING)) continue;
+        if (t.note?.startsWith('执行失败：') || t.id === reviewing?.id || this.db.prepare(`SELECT id FROM tasks WHERE parent_task = ? AND source = 'review' AND status IN (${PLACEHOLDERS})`).get(t.id, ...WORKING)) continue;
         try { this.review(t.id, { actor: lead.id, verdict: 'done' }); } catch { /* changed meanwhile */ }
       }
       const explicit = mentions(text, team);

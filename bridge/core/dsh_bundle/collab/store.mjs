@@ -250,11 +250,12 @@ export class Store {
         ref TEXT,
         base TEXT,
         card_member_id TEXT,
-        renewals INTEGER NOT NULL DEFAULT 0)`);
+        renewals INTEGER NOT NULL DEFAULT 0,
+        retry_count INTEGER NOT NULL DEFAULT 0)`);
     } else {
       const cols = new Set(this.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name));
       for (const [name, type] of [['parent_task', 'INTEGER'], ['next_check_at', 'REAL'], ['result_msg_id', 'INTEGER'],
-        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER'], ['reason', 'TEXT'], ['paused_at', 'REAL'], ['paused_chat', 'INTEGER'], ['source', 'TEXT'], ['ref', 'TEXT'], ['base', 'TEXT'], ['renewals', 'INTEGER NOT NULL DEFAULT 0'], ['card_member_id', 'TEXT']]) {
+        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER'], ['reason', 'TEXT'], ['paused_at', 'REAL'], ['paused_chat', 'INTEGER'], ['source', 'TEXT'], ['ref', 'TEXT'], ['base', 'TEXT'], ['renewals', 'INTEGER NOT NULL DEFAULT 0'], ['retry_count', 'INTEGER NOT NULL DEFAULT 0'], ['card_member_id', 'TEXT']]) {
         if (!cols.has(name)) this.db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
       }
       // #574 B2 upgrade: workspace tasks in work with no check time start their 10-minute watch
@@ -476,7 +477,9 @@ export class Store {
     const r = this.db.prepare('SELECT claim_task, claim_bridge FROM rooms WHERE id = ?').get(roomId);
     if (r === undefined || r.claim_bridge) return false;
     if (r.claim_task == null) return true;
-    const handoff = this.db.prepare('SELECT status FROM tasks WHERE room_id = ? AND id > ? ORDER BY id LIMIT 1').get(roomId, r.claim_task);
+    const handoff = r.claim_task < 0
+      ? this.db.prepare('SELECT status FROM tasks WHERE room_id = ? AND id = ?').get(roomId, -r.claim_task)
+      : this.db.prepare('SELECT status FROM tasks WHERE room_id = ? AND id > ? ORDER BY id LIMIT 1').get(roomId, r.claim_task);
     return handoff !== undefined && (handoff.status === 'returned' || handoff.status === 'done');
   }
 

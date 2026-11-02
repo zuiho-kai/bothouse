@@ -1334,10 +1334,10 @@
 
 .dshc_boardTaskCard {
   border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
   background: var(--dsw-alias-bg-base);
-  border-radius: 12px;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   min-width: 0;
   padding: 14px;
   transition: transform .14s, box-shadow .14s;
@@ -1359,8 +1359,9 @@
 }
 
 .dshc_boardTaskHeader {
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
+  min-width: 0;
   display: flex;
 }
 
@@ -1382,16 +1383,19 @@
   font-size: 11px;
 }
 
+.dshc_taskSourceAction {
+  white-space: nowrap;
+  flex: none;
+  margin-left: auto;
+  font-size: 11px;
+}
+
 .dshc_taskFiles {
   justify-items: start;
   gap: 4px;
   min-width: 0;
   font-size: 12px;
   display: grid;
-}
-
-.dshc_taskFiles > span {
-  color: var(--dsw-alias-label-tertiary);
 }
 
 .dshc_taskFile {
@@ -1401,10 +1405,6 @@
   color: var(--dsw-alias-label-primary);
   display: block;
   overflow: hidden;
-}
-
-.dshc_taskFiles > .dshc_linkButton {
-  font-size: inherit;
 }
 
 .dshc_taskFileForm {

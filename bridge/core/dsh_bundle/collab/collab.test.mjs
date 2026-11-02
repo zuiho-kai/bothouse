@@ -1540,6 +1540,25 @@ test('member failure publishes actionable error and clears it on retry', () => {
   assert.equal(hub.memberView().find(m => m.id === 'ds').error, undefined);
 });
 
+test('member failure settles its workspace task while keeping the original error card', () => {
+  const hub = makeHub();
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  hub.tasks = tasks;
+  const members = fakeDsh().attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const ws = hub.store.createWorkspace(1);
+  const handoff = hub.post(ws.id, { authorKind: 'system', author: 'system', name: '交接', text: '处理请求' }).message;
+  const task = tasks.assign({ roomId: ws.id, title: '处理请求', owner: 'ds', actor: 'owner', messageId: handoff.id });
+  const job = hub.store.addJob('ds', ws.id, handoff.id);
+  members.fail(job.id, 'Request timed out.');
+  assert.equal(tasks.task(task.id).status, 'returned');
+  assert.match(tasks.task(task.id).note, /执行失败：.*Request timed out/);
+  assert.equal(tasks.task(task.id).next_check_at, null);
+  assert.equal(hub.store.workspaceOwner(ws.id), null);
+  const errors = hub.store.page(ws.id, undefined, 100).filter(message => message.card && JSON.parse(message.card).title === '成员出错');
+  assert.equal(errors.length, 1);
+  tasks.close(); hub.store.close();
+});
+
 test('member errors explain setup failures and publish error presence', () => {
   assert.match(friendlyFailure('no API key configured'), /API Key/);
   assert.match(friendlyFailure('model not found'), /模型暂时不可用/);
@@ -2320,6 +2339,93 @@ test('task files: source on the dispatch follows the task into its workspace', (
   tasks.close(); hub.store.close();
 });
 
+test('tasks: failed turn returns without a duplicate notice; owner retries in a free workspace at most three times', () => {
+  const { hub, tasks } = makeTasks();
+  const ws = hub.store.createWorkspace(1);
+  const wake = [];
+  tasks.onWake((owner, message) => { wake.push([owner, message.room_id]); return true; });
+  const original = tasks.assign({ roomId: ws.id, title: '修超时', owner: 'ds', actor: 'lead', reason: '原始交接' });
+  const count = () => hub.store.page(ws.id, undefined, 100).length;
+  const before = count();
+  tasks.failTurn(ws.id, 'ds', 'Request timed out.');
+  assert.equal(count(), before, 'failure does not post another task notification');
+  assert.equal(tasks.task(original.id).status, 'returned');
+  assert.match(tasks.task(original.id).note, /执行失败：Request timed out/);
+  assert.equal(tasks.task(original.id).next_check_at, null);
+  assert.equal(hub.store.workspaceOwner(ws.id), null);
+  assert.throws(() => tasks.retryTask(original.id, { actor: 'lead' }), e => e.code === 'forbidden');
+  for (let n = 1; n <= 3; n++) {
+    const retried = tasks.retryTask(original.id, { actor: 'owner' });
+    assert.equal(retried.status, 'assigned');
+    assert.equal(retried.retry_count, n);
+    assert.equal(retried.note, `第 ${n + 1} 次执行`);
+    assert.equal(retried.room_id, ws.id, 'the free workspace is reclaimed');
+    assert.deepEqual(wake.at(-1), ['ds', ws.id]);
+    tasks.failTurn(ws.id, 'ds', 'Request timed out.');
+    assert.match(tasks.task(original.id).note, new RegExp(`执行失败：.*第 ${n + 1} 次执行`));
+  }
+  assert.equal(wake.length, 3);
+  assert.throws(() => tasks.retryTask(original.id, { actor: 'owner' }), e => e.code === 'conflict' && /3 次/.test(e.message));
+  assert.throws(() => tasks.retryTask(999, { actor: 'owner' }), e => e.code === 'task-missing');
+  assert.equal(tasks.list(1).filter(t => t.id === original.id).length, 1);
+  tasks.close(); hub.store.close();
+});
+
+test('tasks: failed task stays on its original board after workspace reuse and retries in another free workspace', () => {
+  const { hub, tasks } = makeTasks();
+  const ws = hub.store.createWorkspace(1);
+  const task = tasks.assign({ roomId: ws.id, title: '重试换房', owner: 'ds', actor: 'lead' });
+  tasks.failTurn(ws.id, 'ds', 'timeout');
+  hub.store.ensureRoom(2, 'other');
+  hub.store.claimWorkspace(2, ws.id);
+  assert.equal(tasks.list(1).some(row => row.id === task.id), true);
+  assert.equal(tasks.list(2).some(row => row.id === task.id), false);
+  const retry = tasks.retryTask(task.id, { actor: 'owner' });
+  assert.notEqual(retry.room_id, ws.id);
+  assert.equal(hub.store.workspaceOwner(retry.room_id), 1);
+  assert.equal(tasks.list(1).some(row => row.id === task.id), true);
+  tasks.failTurn(retry.room_id, 'ds', 'retry timeout');
+  assert.equal(hub.store.workspaceOwner(retry.room_id), null, 'reused workspace releases after the retry');
+  tasks.close(); hub.store.close();
+});
+
+test('tasks: retry releases a workspace even when it holds newer historical tasks', () => {
+  const { hub, tasks } = makeTasks();
+  const ws = hub.store.createWorkspace(1);
+  const old = tasks.assign({ roomId: ws.id, title: '旧任务', owner: 'ds', actor: 'lead' });
+  tasks.failTurn(ws.id, 'ds', 'timeout');
+  hub.store.ensureRoom(2, 'other');
+  hub.store.claimWorkspace(2, ws.id);
+  const newer = tasks.assign({ roomId: ws.id, title: '新频道任务', owner: 'lead', actor: 'owner' });
+  const retried = tasks.retryTask(old.id, { actor: 'owner' });
+  assert.notEqual(retried.room_id, ws.id);
+  tasks.failTurn(retried.room_id, 'ds', 'timeout');
+  assert.equal(hub.store.workspaceOwner(retried.room_id), null);
+  assert.equal(tasks.task(newer.id).room_id, ws.id);
+  tasks.close(); hub.store.close();
+});
+
+test('tasks: lead chatter does not auto-accept a failed chat-side task', () => {
+  const { hub, tasks } = makeTasks();
+  const task = tasks.assign({ roomId: 1, title: '聊天任务', owner: 'ds', actor: 'lead' });
+  tasks.q.setSource.run('mention', task.id);
+  tasks.failTurn(1, 'ds', 'timeout');
+  hub.store.setLead?.(1, 'lead');
+  hub.post(1, { authorKind: 'role', author: 'lead', name: '橘', text: '继续做别的事' });
+  assert.equal(tasks.task(task.id).status, 'returned');
+  tasks.close(); hub.store.close();
+});
+
+test('tasks: an older failed turn cannot close a newer assignment', () => {
+  const { hub, tasks } = makeTasks();
+  const old = tasks.assign({ roomId: 1, title: '旧任务', owner: 'ds', actor: 'lead' });
+  tasks.failTurn(1, 'ds', 'old timeout');
+  const current = tasks.assign({ roomId: 1, title: '新任务', owner: 'ds', actor: 'lead' });
+  tasks.failTurn(1, 'ds', 'late timeout', old.assign_msg_id);
+  assert.equal(tasks.task(current.id).status, 'assigned');
+  tasks.close(); hub.store.close();
+});
+
 test('tasks: dispatch → 接 → hand back → done, each step leaves one task record', () => {
   const { hub, tasks, clock } = makeTasks();
   const t = tasks.assign({ roomId: 1, title: '写登录页', owner: 'ds', actor: 'lead' });
@@ -2610,8 +2716,11 @@ test('tasks API: owner acts as owner, bots name themselves with the bot token, o
   assert.equal((await call('POST', `/collab/api/tasks/${id}/stance`, { stance: '接', actor: 'ds' }, { token: 't' })).json.task.status, 'accepted');
   assert.equal((await call('POST', `/collab/api/tasks/${id}/return`, { actor: 'ds' }, { token: 't' })).status, 400);
   assert.equal((await call('POST', `/collab/api/tasks/${id}/review`, { verdict: 'done' }, { human: true })).status, 409);
+  tasks.failTurn(1, 'ds', 'Request timed out.');
+  assert.equal((await call('POST', `/collab/api/tasks/${id}/retry`, { actor: 'owner' }, { token: 't' })).status, 403);
+  assert.equal((await call('POST', `/collab/api/tasks/${id}/retry`, {}, { human: true })).json.task.status, 'assigned');
   const board = await call('GET', '/collab/api/rooms/1/tasks', undefined, { human: true });
-  assert.deepEqual(board.json.tasks.map(t => [t.title, t.status, t.owner_name]), [['写文档', 'accepted', 'DeepSeek']]);
+  assert.deepEqual(board.json.tasks.map(t => [t.title, t.status, t.owner_name]), [['写文档', 'assigned', 'DeepSeek']]);
   assert.equal((await call('GET', '/collab/api/tasks/99', undefined, { human: true })).status, 404);
   assert.equal((await call('GET', '/collab/api/tasks/99/files', undefined, { human: true })).status, 404);
   assert.equal((await call('POST', '/collab/api/tasks/99/files', { attachment_id: 'missing', role: 'source' }, { human: true })).status, 404);

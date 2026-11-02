@@ -54,6 +54,22 @@ for (const [lang, dict] of [['zh', zh], ['en', en]] as const) {
       expect(onOpen).toHaveBeenLastCalledWith(10, 6)
       expect(screen.queryByRole('dialog')).toBeNull()
     })
+    it('offers owner retry only for failures and disables it after three retries', async () => {
+      const onRetry = vi.fn().mockResolvedValue(undefined)
+      const tasks = [task(1, { status: 'returned', note: '执行失败：Request timed out.', retry_count: 0 }),
+        task(2, { status: 'returned', note: '执行失败：Request timed out.', retry_count: 3 }),
+        task(3, { status: 'returned', note: '正常交回' })]
+      render(<TaskBoard tasks={tasks} rooms={rooms} chatId={1} roomId={1} t={t} onOpen={vi.fn()} onRetry={onRetry} />)
+      fireEvent.click(screen.getByRole('button', { name: dict.taskBoardOpen }))
+      fireEvent.click(screen.getByRole('tab', { name: `${dict.taskTabReview} 3` }))
+      const first = within(screen.getByRole('tabpanel').querySelector('[data-task-id="1"]') as HTMLElement).getByRole('button', { name: dict.taskRetry })
+      fireEvent.click(first)
+      expect(onRetry).toHaveBeenCalledWith(1)
+      const capped = within(screen.getByRole('tabpanel').querySelector('[data-task-id="2"]') as HTMLElement).getByRole('button', { name: dict.taskRetry }) as HTMLButtonElement
+      expect(capped.disabled).toBe(true)
+      expect(capped.title).toBe(dict.taskRetryLimit)
+      expect(within(screen.getByRole('tabpanel').querySelector('[data-task-id="3"]') as HTMLElement).queryByRole('button', { name: dict.taskRetry })).toBeNull()
+    })
     it('counts and filters every status bucket within the selected channel', () => {
       const statuses = ['assigned', 'accepted', 'asked', 'rework', 'returned', 'declined', 'escalated', 'done'] as const
       render(<TaskBoard tasks={[...statuses.map((status, i) => task(i + 1, { status })), task(99, { room_id: 99 })]} rooms={rooms} chatId={1} roomId={1} t={t} onOpen={vi.fn()} />)

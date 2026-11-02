@@ -22,7 +22,7 @@ function Status({ status, t }: { status: TaskStatus; t: T }) {
  * Right-column board for the selected chat channel.
  * @param onOpen - jump to a message in a room (dispatch or delivery).
  */
-export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview, onListFiles, onAttachFile }: {
+export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview, onRetry, onListFiles, onAttachFile }: {
   tasks: readonly ChannelTask[]
   rooms: readonly ChannelRoom[]
   chatId: number | undefined
@@ -30,6 +30,7 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview, o
   t: T
   onOpen: (roomId: number, messageId: number) => void
   onReview?: (id: number, verdict: 'done' | 'rework', note?: string) => Promise<void>
+  onRetry?: (id: number) => Promise<void>
   onListFiles?: (id: number) => Promise<{ files: readonly TaskFile[]; candidates: readonly TaskFileCandidate[] }>
   onAttachFile?: (id: number, attachmentId: string, label?: string) => Promise<void>
 }) {
@@ -82,6 +83,13 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview, o
       setSaving(false)
     }
   }
+  const retry = async (id: number) => {
+    setSaving(true)
+    setError(undefined)
+    try { await onRetry?.(id) }
+    catch (error) { setError(error instanceof Error ? error.message : String(error)) }
+    finally { setSaving(false) }
+  }
   const chooseFile = async (task: ChannelTask) => {
     if (addingTo === task.id) { setAddingTo(undefined); return }
     setError(undefined)
@@ -114,10 +122,15 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview, o
         <span>{task.owner_name}</span>
         <span>{t('taskElapsed', { d: formatDuration(elapsed(task, now), t) })}</span>
         {task.next_check_at !== null && <span>{t('taskNextCheck', { time: clock(task.next_check_at) })}</span>}
+        {task.note?.startsWith('执行失败：') && <span>{task.note}</span>}
       </div>
       <div className={css.taskLinks}>
         {task.assign_msg_id !== null && <button type="button" className={css.linkButton} onClick={() => { jump(task.room_id, task.assign_msg_id as number) }}>{t('taskOpenAssign')}</button>}
         {task.result_msg_id !== null && <button type="button" className={css.linkButton} onClick={() => { jump(task.room_id, task.result_msg_id as number) }}>{t('taskOpenResult')}</button>}
+        {onRetry !== undefined && task.status === 'returned' && task.note?.startsWith('执行失败：') &&
+          <button type="button" className={css.linkButton} disabled={saving || (task.retry_count ?? 0) >= 3}
+            title={(task.retry_count ?? 0) >= 3 ? t('taskRetryLimit') : undefined}
+            onClick={() => { void retry(task.id) }}>{t('taskRetry')}</button>}
         {onReview !== undefined && ['returned', 'declined', 'escalated'].includes(task.status) && <>
           <button type="button" className={css.linkButton} disabled={saving} onClick={() => { void review(task.id, 'done') }}>{t('taskApprove')}</button>
           <button type="button" className={css.linkButton} disabled={saving} onClick={() => { setReviewing(task.id); setReason(''); setError(undefined) }}>{t('taskSendBack')}</button>

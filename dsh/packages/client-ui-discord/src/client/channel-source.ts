@@ -235,6 +235,7 @@ export interface ChannelTask {
   /** Delivery message bound at hand-back. */
   readonly result_msg_id: number | null
   readonly note: string | null
+  readonly retry_count?: number
   readonly created_at: number
   readonly updated_at: number
   readonly returned_at: number | null
@@ -286,6 +287,7 @@ export interface ChannelActions {
   listTaskFiles(id: number): Promise<{ files: readonly TaskFile[]; candidates: readonly TaskFileCandidate[] }>
   attachTaskFile(id: number, attachmentId: string, label?: string): Promise<void>
   reviewTask(id: number, verdict: 'done' | 'rework', note?: string): Promise<void>
+  retryTask(id: number): Promise<void>
   /** Show another room and load its recent messages. */
   selectRoom(roomId: number): Promise<void>
   /** Post one human message into the selected room, optionally replying to `replyTo`; rejects with the service's reason. */
@@ -788,6 +790,10 @@ export function createChannelSource(transport: ChannelTransport): {
     },
     async reviewTask(id, verdict, note) {
       const { task } = await request<{ task: ChannelTask }>(`collab/api/tasks/${id}/review`, json('POST', { verdict, note }))
+      set({ tasks: (snapshot.tasks ?? []).map(row => row.id === task.id ? task : row) })
+    },
+    async retryTask(id) {
+      const { task } = await request<{ task: ChannelTask }>(`collab/api/tasks/${id}/retry`, json('POST', {}))
       set({ tasks: (snapshot.tasks ?? []).map(row => row.id === task.id ? task : row) })
     },
     selectRoom,
