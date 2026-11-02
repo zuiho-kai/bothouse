@@ -16,19 +16,25 @@ export class GateContext {
     this.timeoutMs = timeoutMs;
     this.fetch = fetchFn;
     this.logger = logger;
-    /** `${member}\0${room}` -> { session, paths: Set } : pages already in that conversation's context. */
+    /** `${member}\0${room}` -> { session, epoch }: the name of that conversation's context for the gate. */
     this.sent = new Map();
   }
 
   /**
-   * The block of pages this (member, room) conversation has not been given yet, and a commit()
-   * that records them as given (call it once the prompt is handed to the agent). The bridge keeps
-   * one list per session (core/gate.go UpdateTurnCtx); here a new `session` starts the list over.
+   * The block of pages this (member, room) conversation has not been given yet. The gate keeps what
+   * it pushed per (key, bot, epoch) and returns only new entries (ctxsvc.only_new, 11-03); here we only
+   * name the context: a new `session`, reset, forget or resetRoom gives a new epoch (as core/gate.go turnEpoch).
    * @returns {Promise<{ block: string, commit: () => void }>} block is '' when there is nothing new.
    */
   async turn({ member, room, session, text }) {
     const none = { block: '', commit: () => {} };
     if (!this.port || typeof this.fetch !== 'function') return none;
+    const key = `${member}\u0000${room}`;
+    let entry = this.sent.get(key);
+    if (entry === undefined || entry.session !== session) {
+      entry = { session, epoch: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}` };
+      this.sent.set(key, entry);
+    }
     let out;
     try {
       const res = await this.fetch(`http://127.0.0.1:${this.port}/context`, {
@@ -36,7 +42,7 @@ export class GateContext {
         headers: { 'Content-Type': 'application/json' },
         // bot = dsh:<member id>: the gate finds the kind "dsh" team entry with that id (lead.member),
         // apart from the bridge bots' keys, which may be the same word.
-        body: JSON.stringify({ key: `dsh:${member}:${room}`, text: text ?? '', bot: `dsh:${member}` }),
+        body: JSON.stringify({ key: `dsh:${member}:${room}`, text: text ?? '', bot: `dsh:${member}`, epoch: entry.epoch }),
         signal: AbortSignal.timeout(this.timeoutMs),
       });
       if (!res.ok) throw new Error(`status ${res.status}`);
@@ -45,22 +51,10 @@ export class GateContext {
       this.logger?.debug?.('collab: gate context fetch failed: %s', error?.message ?? error);
       return none;
     }
-    const key = `${member}\u0000${room}`;
-    let entry = this.sent.get(key);
-    if (entry !== undefined && entry.session !== session) entry = undefined;
-    const known = entry?.paths ?? new Set();
-    const fresh = (Array.isArray(out?.wiki) ? out.wiki : [])
-      .filter(w => w && typeof w.path === 'string' && !known.has(w.path));
+    const fresh = (Array.isArray(out?.wiki) ? out.wiki : []).filter(w => w && typeof w.path === 'string');
     if (fresh.length === 0) return none;
     const block = '（可能相关的 wiki 页，需要时去读）' + fresh.map(w => `\n- ${w.path} — ${w.desc ?? ''}`).join('');
-    return {
-      block,
-      commit: () => {
-        let cur = this.sent.get(key);
-        if (cur === undefined || cur.session !== session) { cur = { session, paths: new Set() }; this.sent.set(key, cur); }
-        for (const w of fresh) cur.paths.add(w.path);
-      },
-    };
+    return { block, commit: () => {} };
   }
 
   /** /new for a (member, room) whose session key does not change (a local CLI member): start it over. */

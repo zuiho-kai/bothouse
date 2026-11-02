@@ -13,7 +13,7 @@ lead 也带 ?bot=，也查她自己的；bot 为空或不在 bots.json 里只查
 
 POST /context {key, text, bot}  → {wiki: [{path, desc}]}，desc = 页描述 | 行号: 原文 | …（cc-connect 原样拼成「- path — desc」）
 """
-import collections, hashlib, json, math, os, re, time
+import collections, hashlib, json, math, os, re, threading, time
 from pathlib import Path
 
 try:
@@ -120,15 +120,15 @@ def match_wiki(text, k=TOP_PAGES, root=None):
         if rel not in pages:
             if len(pages) == k:
                 continue
-            pages[rel] = [idx.desc.get(rel, "")[:DESC_CHARS]]
+            pages[rel] = {"head": idx.desc.get(rel, "")[:DESC_CHARS], "sep": " | ", "rows": []}
         fold = FORUM.label(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root)) if FORUM else ""
-        pages[rel].append(f"{ln}: {fold}{_title(line)}{exp_tag(rel, line)}")  # 只给标题+编号，细节自己按行号读；角色 wiki 的条也能投（编号只看这行内容）
-    return [{"path": _shown(rel, root), "desc": " | ".join(parts)} for rel, parts in pages.items()]
+        pages[rel]["rows"].append(_row(rel, line, f"{ln}: {fold}{_title(line)}{exp_tag(rel, line)}"))  # 只给标题+编号，细节自己按行号读；角色 wiki 的条也能投（编号只看这行内容）
+    return [_render(dict(it, path=_shown(rel, root))) for rel, it in pages.items()]
 
 
 def context(req):
     # 主角色切换过就附上主/次身份段（lead.py）。cc-connect 按 path 每个会话只推一次，path 里带切换时间，
-    # 所以每次切换后每个角色的下一轮各收到一次（用户 2026-10-21「这个我预期可以一句话去换」）
+    # 所以每次切换后每个角色的下一轮各收到一次（only_new 按 path+desc 整块去重）（用户 2026-10-21「这个我预期可以一句话去换」）
     bot = req.get("bot") or ""
     who = lead.identity(bot) if lead else None
     pb = lead.playbook(bot) if lead else None  # 当主的才有：主角色工作手册（lead.playbook）
@@ -137,7 +137,7 @@ def context(req):
     own = role_wiki(bot) if WIKI is not None else None  # GATE_WIKI=off/空 = 什么 wiki 都不推，角色 wiki 也不查
     mine = match_wiki(text, root=own) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
     if WIKI is None:
-        return {"wiki": [x for x in (who, pb, dm) if x] + board_items(req.get("key") or "")}
+        return only_new({"wiki": [x for x in (who, pb, dm) if x] + board_items(req.get("key") or "")}, req)
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
     key = req.get("key") or ""
     dec = decision_items(text, key)
@@ -145,8 +145,9 @@ def context(req):
            + with_lessons(match_wiki(text), text) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
     if MEMVOTE.exists() and any(EXP_TAG.search(w.get("desc", "")) for w in out["wiki"]):
         out["wiki"].append(VOTE_ITEM)  # 固定 path：每个会话只推一次（gate.go turnContext 按 path 去重）
+    out = only_new(out, req)  # 推过的条不再推（同一会话代号内）
     try:
-        exp_log(key, bot, text, out["wiki"])
+        exp_log(key, bot, text, out["wiki"], ep=str(req.get("epoch") or ""))
     except Exception:
         pass
     return out
@@ -265,7 +266,7 @@ def decision_items(text, key=""):
     if not hits:
         return []
     tag = hashlib.sha1("\n".join(sorted(pages)).encode()).hexdigest()[:6]
-    by, size = {}, 0
+    by, size, rows = {}, 0, {}
     for rel, ln, line in hits:  # 按页折叠：页路径只写一次（路径常有 80 字，逐行写占掉一半）
         fold = FORUM.label(FORUM.entry_id(rel, line)) if FORUM else ""
         row = f"  {ln}: {fold}{_title(line)}{exp_tag(rel, line)}"
@@ -273,12 +274,14 @@ def decision_items(text, key=""):
         if size > DEC_BLOCK or sum(map(len, by.values())) >= DEC_ROWS:  # hits 按相关度排，超了就丢后面的
             break
         by.setdefault(rel, []).append(row)
+        rows.setdefault(rel, []).append(_row(rel, line, row, rel))
     body = "\n".join(f"{rel}\n" + "\n".join(v) for rel, v in by.items())
     if _dec_used.get(key, 0) + len(body) > DEC_KEY_CHARS:
         return []
     _dec_used[key] = _dec_used.get(key, 0) + len(body)
-    return [{"path": f"【已定的方向和做法 {tag}】",
-             "desc": f"定过的方向和坑，只列标题（路径相对 {_shown('.').removesuffix('/.')}，按行号读细节），照做别重新探索\n" + body}]
+    return [_render({"path": f"【已定的方向和做法 {tag}】", "sep": "\n",
+                     "head": f"定过的方向和坑，只列标题（路径相对 {_shown('.').removesuffix('/.')}，按行号读细节），照做别重新探索",
+                     "rows": [r for rel in by for r in rows[rel]]})]
 
 
 # ---- 常驻做法短块（<wiki>/STANDING.md）----
@@ -407,9 +410,10 @@ def with_lessons(pages, text):
         path, row = _shown(rel), f"{n}: {_title(ln)}{exp_tag(rel, ln)}"
         page = next((p for p in pages if p["path"] == path), None)
         if page is None:
-            pages.append({"path": path, "desc": "教训表（经验） | " + row})
+            pages.append(_render({"path": path, "head": "教训表（经验）", "sep": " | ", "rows": [_row(rel, ln, row)]}))
         elif f"| {n}: " not in page["desc"]:
-            page["desc"] += " | " + row
+            page["rows"].append(_row(rel, ln, row))
+            _render(page)
     return pages
 
 
@@ -487,6 +491,96 @@ def exp_id(rel, line):
     return f"{rel}#{hashlib.sha1(line.strip().encode()).hexdigest()[:10]}"
 
 
+def _row(rel, line, text, group=""):
+    """推送的一条：id 就是行尾 [#编号]（同 exp_tag），group 是定案块里它上面那行页路径。"""
+    return {"id": "#" + exp_id(rel, line).rpartition("#")[2], "text": text, "group": group}
+
+
+def _render(it):
+    """desc 由 head + rows 拼出（桥按 id 滤掉塞过的 rows 后用同一规则重拼，core/turnctx_dedup.go renderRows）：
+    head 非空打头；每行前若 group 变了先写 group；各段用 sep 连。"""
+    parts, last = ([it["head"]] if it.get("head") else []), ""
+    for r in it["rows"]:
+        if r.get("group") and r["group"] != last:
+            parts.append(r["group"])
+            last = r["group"]
+        parts.append(r["text"])
+    it["desc"] = it["sep"].join(parts)
+    return it
+
+
+# ---- 推过的不再推：「推什么」和「推过没有」都在这里管（用户 11-03：两件事拆在两个程序里是根因）----
+# 按（会话 key, 角色 bot, 会话代号 epoch）记推过的条目编号。epoch 由调用方给，/new、换会话、压缩后换一个新值
+# （桥：core/gate.go turnEpoch；DSH：gate-context.mjs；终端 hook：session_id + 压缩次数）。不带 epoch 的旧调用方照旧全给。
+# 同页的新编号照推，旧编号不重推；页下条目全推过就整页不推。没有编号的块（身份、手册、常驻做法、任务板、投票提示）
+# 整块一个 id（path+desc 的哈希），内容变了才重推。只记在内存：推送服务重启后每个会话最多重推一轮。
+PUSHED_KEEP = 4000  # 最多记这么多个（会话, 代号）；按最近使用淘汰
+_pushed, _pushed_lock = collections.OrderedDict(), threading.Lock()
+
+
+def _rows_of(w):
+    if "rows" in w:
+        return w
+    h = hashlib.sha1((w.get("path", "") + "\0" + w.get("desc", "")).encode()).hexdigest()[:16]
+    return dict(w, head="", sep="\n", rows=[{"id": "txt:" + h, "text": w.get("desc", ""), "group": ""}])
+
+
+def only_new(out, req):
+    epoch = str(req.get("epoch") or "")
+    if not epoch:
+        return out
+    k = (req.get("key") or "", req.get("bot") or "", epoch)
+    items = []
+    with _pushed_lock:
+        seen = _pushed.get(k)
+        if seen is None:
+            seen = _pushed[k] = set()
+            while len(_pushed) > PUSHED_KEEP:
+                _pushed.popitem(last=False)
+        _pushed.move_to_end(k)
+        for w in out.get("wiki", []):
+            w = _rows_of(w)
+            rows = []
+            for r in w["rows"]:
+                if r["id"] not in seen:
+                    seen.add(r["id"])
+                    rows.append(r)
+            if rows:
+                items.append(_render(dict(w, rows=rows)) if rows != w["rows"] else w)
+    return dict(out, wiki=items)
+
+
+def only_new_file(items, key, epoch, state_dir):
+    """终端 hook 用（每轮一个新进程，内存记不住）：同 only_new，推过的编号存 state_dir/<key>.json，代号变了清空。"""
+    f = Path(state_dir) / (str(key).replace("/", "_").replace("\\", "_") + ".json")
+    try:
+        st = json.loads(f.read_text())
+        if not isinstance(st, dict):
+            st = {}
+    except (OSError, ValueError):
+        st = {}
+    k = (str(key), "", str(epoch))
+    with _pushed_lock:
+        _pushed[k] = set(st.get("ids", [])) if st.get("epoch") == str(epoch) else set()
+    out = only_new({"wiki": items}, {"key": str(key), "bot": "", "epoch": str(epoch)})["wiki"]
+    with _pushed_lock:
+        ids = sorted(_pushed.pop(k, set()))
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps({"epoch": str(epoch), "ids": ids}))
+    return out
+
+
+def transcript_epoch(sid, transcript):
+    """终端会话代号：session_id（/clear 会换）+ 会话记录里压缩摘要的条数（压缩后变）。"""
+    n = 0
+    try:
+        with open(transcript, "rb") as fh:
+            n = fh.read().count(b'"isCompactSummary":true')
+    except (OSError, TypeError):
+        pass
+    return f"{sid}:{n}"
+
+
 def exp_tag(rel, line):
     """推送行尾的条目编号（ACE §3.1 bullet id）：助手用到哪条就按它当场投票（memvote.py）。"""
     return f" [#{exp_id(rel, line).rpartition('#')[2]}]"
@@ -553,9 +647,11 @@ def _ref_id(rel, n):
     return f"{rel}:{n}#{exp_id(rel, line).rpartition('#')[2]}"
 
 
-def exp_log(key, bot, text, items):
+def exp_log(key, bot, text, items, ep=""):
     it = exp_task(key) if not bot else None
     rec = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "key": key, "bot": bot, "user": exp_is_user(text),
            "task": it.get("id") if it else None, "q": query(text)[:600], "refs": _refs(items)}
+    if ep:
+        rec["ep"] = ep  # 会话代号（only_new）：同一代号内 refs 不重复
     with open(EXP / "push.jsonl", "a", encoding="utf-8") as fh:
         fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
