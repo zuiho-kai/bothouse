@@ -138,7 +138,13 @@ async function runCall(tool, ccTool, toolInput, sessionID) {
         throw new Error("[bothouse hook blocked] " + ((p.stderr || "").trim() || "blocked"))
       }
       if (p.status !== 0) {
-        const why = p.error ? p.error.message : p.signal ? "killed by " + p.signal : "exit " + p.status
+        // A hook that exits before reading stdin (e.g. the command "exit 1") makes writing the payload fail:
+        // spawnSync then reports error EPIPE while still carrying the child's exit status. The status is the
+        // hook's real outcome, so report that. Naming the pipe error instead made the message depend on timing
+        // (CI saw "spawnSync /bin/sh EPIPE" where the test wants "exit 1").
+        const why = typeof p.status === "number" ? "exit " + p.status
+          : p.signal ? "killed by " + p.signal
+          : p.error ? p.error.message : "no exit status"
         console.error("[bothouse hooks] " + h.command + " failed (" + why + "), " + ccTool + " call let through")
         continue
       }

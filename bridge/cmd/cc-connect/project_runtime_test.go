@@ -291,3 +291,36 @@ func TestHotRemoveUnknownOrNotReady(t *testing.T) {
 	}
 	rt.setReady(true)
 }
+
+// #812: a platform marked disabled (`module disable`) is not created; a project whose platforms
+// are all disabled does not start and is not a hot-load failure.
+func TestDisabledPlatformsNotStarted(t *testing.T) {
+	rt, head := newHotRuntime(t, "hotd-old")
+	off := strings.Replace(hotProject("hotd-off", "", false), "[[projects.platforms]]\n", "[[projects.platforms]]\ndisabled = true\n", 1)
+	writeHotConfig(t, rt.configPath, head+hotProject("hotd-old", "", false)+off)
+
+	res := rt.HotLoad()
+	if len(res.Added) != 0 || len(res.Failed) != 0 || res.Error != "" {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	if got := hotFakePlatformsOf("hotd-off"); len(got) != 0 {
+		t.Fatalf("a disabled platform was created: %+v", got)
+	}
+	cfg, err := rt.loadConfig(rt.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildProject(cfg, rt.configPath, rootCLIOptions{}, cfg.Projects[1]); !errors.Is(err, errSkipProject) {
+		t.Fatalf("buildProject of an all-disabled project = %v, want errSkipProject", err)
+	}
+
+	// one of two disabled: only the other one is built
+	two := hotProject("hotd-two", "", false) + "[[projects.platforms]]\ntype = \"hotfake\"\ndisabled = true\n"
+	writeHotConfig(t, rt.configPath, head+hotProject("hotd-old", "", false)+two)
+	if res := rt.HotLoad(); len(res.Added) != 1 {
+		t.Fatalf("hot load = %+v, want hotd-two added", res)
+	}
+	if got := hotFakePlatformsOf("hotd-two"); len(got) != 1 {
+		t.Fatalf("hotd-two built %d platforms, want 1", len(got))
+	}
+}

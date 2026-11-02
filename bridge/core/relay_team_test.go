@@ -429,7 +429,7 @@ func TestHandleTrackedRelay_TaskScopedTimeoutDrain(t *testing.T) {
 	done := make(chan struct{})
 	var gotErr error
 	go func() {
-		_, gotErr = e.handleTrackedRelay(ctx, "lead", "discord:room:private-user", "PRIVATE-PROMPT", agent, e.sessions, scopedKey, true, nil, nil)
+		_, gotErr = e.handleTrackedRelay(ctx, "lead", "discord:room:private-user", "discord:room:private-user", "PRIVATE-PROMPT", agent, e.sessions, scopedKey, true, nil, nil)
 		close(done)
 	}()
 	t.Cleanup(func() { e.cancel(); waitTeamRelay(t, done); waitTeamRelay(t, s.closed) })
@@ -478,7 +478,7 @@ func TestHandleTrackedRelay_QuietOmitsToolLogs(t *testing.T) {
 	s.events <- Event{Type: EventResult}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	response, err := e.handleTrackedRelay(ctx, "lead", "discord:room", "PRIVATE-PROMPT", agent, e.sessions, "scoped-relay", true, nil, nil)
+	response, err := e.handleTrackedRelay(ctx, "lead", "discord:room", "discord:room", "PRIVATE-PROMPT", agent, e.sessions, "scoped-relay", true, nil, nil)
 	if err != nil || response != "public answer" {
 		t.Fatalf("quiet response = %q, %v", response, err)
 	}
@@ -784,7 +784,7 @@ func TestHandleTrackedRelay_TaskExitWithoutResultFails(t *testing.T) {
 	var resp string
 	var err error
 	go func() {
-		resp, err = e.handleTrackedRelay(context.Background(), "lead", "discord:room:u", "P", agent, e.sessions, "relay:lead:discord:room:task:x", true, nil, nil)
+		resp, err = e.handleTrackedRelay(context.Background(), "lead", "discord:room:u", "discord:room:u", "P", agent, e.sessions, "relay:lead:discord:room:task:x", true, nil, nil)
 		close(done)
 	}()
 	t.Cleanup(func() { e.cancel() })

@@ -17,12 +17,15 @@ import (
 // GATE_SETUP_DIR, so they must not diverge) are set only when the product collaboration tools are
 // installed (<dataDir>/collaboration/lead, the same check as the PATH entry). Without them a role may be
 // running private scripts that find their board through their own defaults; forcing these would move
-// that board to an empty dir. BOARD_DIR is never set: contrib/gate/board.py defaults to
-// <GATE_SETUP_DIR>/team, the same place.
+// that board to an empty dir. When a team status directory is configured, BOARD_DIR follows
+// that authoritative source, which is also read by the native task board.
 func (e *Engine) roleSessionEnv(sessionKey string) []string {
 	env := []string{
 		"CC_PROJECT=" + e.name,
 		"CC_SESSION_KEY=" + sessionKey,
+	}
+	if e.team != nil && e.team.dir != "" {
+		env = append(env, "BOARD_DIR="+e.team.dir)
 	}
 	var path []string
 	if e.dataDir != "" {

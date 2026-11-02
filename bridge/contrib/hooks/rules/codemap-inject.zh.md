@@ -1,0 +1,1 @@
+- 代码地图（codemap-inject、codemap-fill）：派子 agent 时，派活说明命中 `{{CODEMAPS}}` 里某张地图的 keywords，会自动在 prompt 前加「先读地图」；子 agent 照着地图定位，交付末尾附「## 地图要补的条目（<地图路径>）」，每条一行「- 符号 文件:行」，结束时自动补进地图。地图格式见该目录的 README.md。

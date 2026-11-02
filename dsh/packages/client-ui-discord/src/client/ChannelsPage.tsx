@@ -284,7 +284,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
   const [editing, setEditing] = useState<{ id: number; text: string } | undefined>(undefined)
@@ -832,6 +832,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
         effectiveLead={room.effective_lead_id === undefined ? state.effectiveLeadId ?? state.leadId ?? '' : room.effective_lead_id ?? ''}
         renameRoom={renameRoom}
         setDispatchMode={setDispatchMode}
+        setMaxRelay={setMaxRelay}
         setLead={setLead}
         setWorkspacePath={setWorkspacePath}
         renewRoom={renewRoom}

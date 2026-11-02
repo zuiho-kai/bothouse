@@ -1,5 +1,13 @@
 # bothouse 软件架构
 
+## 模型额度归属
+
+额度冷却按后端、账号凭据来源与实际共享额度组记录，路径为数据目录下的 `quota-domains/<归属摘要>.json`；摘要包含凭据身份但不会保存原始凭据。同一个数据目录内的角色共享期限，进程内串行合并并原子落盘。角色原有的 `quota-cooling/<角色>.json` 继续保存交接回执。一个数据目录仍须由一个桥接进程写入。
+
+适配器通过 `QuotaScopeProvider` 提供已知额度组；Antigravity 沿用既有 native/cloud quota 解码器的 Gemini 与第三方组，只有提供方报告独立 Argon bucket 时才分离。Codex 使用既有 OAuth account_id 与账号级额度。没有共享组证据的后端按凭据来源保守共用，模型名不同不构成独立额度证据。第三方 API provider 按端点和凭据身份隔离，同一凭据的模型不擅自拆池。
+
+旧角色级记录无可靠来源，保留为未知归属限制。只有目标模型的成功额度测量才豁免该目标，探测失败或空报告不豁免，也不宣称有额度。豁免与原期限同时保存，切回未经验证的旧目标仍受限。team heartbeat 分开保存容量冷却、旧额度限制与已归属额度，避免重启重新扩散到整个角色。会话和异步页脚探测固定发起时归属，避免迟到结果污染新目标。
+
 DSH 首次向导另走 /setup/dsh/status 与 /setup/dsh/install，复用 dsh/install.sh 安装 web profile；不写 bridge 的机器人/CLI/人设配置。安装后交接 dsh web 启动命令，后续配置归 DSH 页面。安装器及插件资源当前从源码目录定位。
 
 bothouse 把聊天平台与本机智能体连接起来，在会话层增加团队协作、进展反馈与可选的共享记忆。平台入口、模型后端和记忆目录分别配置。
@@ -28,6 +36,10 @@ DSH 忙时插话（steer）要给 dsh-acp 打 integrations/dsh-acp-steer 的补�
 
 ## 模块与数据归属
 
+主动接单在可信平台回调进入 Engine 前经过 `proactive_ingress.go`：没有安装策略时保留既有路由；明确点名、私聊和命令仍走原权限路径。off/observe 不受理推断任务，记录决策后仍将消息交回原聊天路由和门闸，不附加主动授权。自动模式将匹配规则的源事件绑定到不可变决策和 Task，再进入已有执行队列。gate 不负责授予权限。
+
+`proactive_authorization.go` 的项目级私有日志保存策略版本、平台账户绑定、决策、角色/后端分配及撤回通知。Task 日志暂存受理意图，随后转移到既有 turn journal；两次落盘之间中断仍可恢复同一 Task。队列、恢复、进度令牌与后台输出保留原 decision 引用，不能借续验后的决策继续旧操作。任务卡和本地日志沿现有平台能力与工作区规则展示。外部上下文事件永远是 ContextOnly，只复核原任务权限。管理接口、限制与例子见[主动授权](PROACTIVE_AUTHORIZATION.md)。
+
 | 模块 | 职责 |
 | --- | --- |
 | `bridge/core/` | Engine、频道会话、队列、管理 API、向导、技能及上下文注入 |
@@ -52,7 +64,7 @@ core 通过接口使用后端能力；agent 与 platform 适配器不互相导�
 - 主角色与队员的路由通过 gate 与 fallback 配置决定。`team_lead_bot` 把被主角色派发任务的最终回复交回主角色；这不自动迁移另一个角色已经运行的任务。
 - 工作区身份由当前归属、历史交接或平台上的工作区名称确认；释放不清除身份。`new` 的规划和 `claim` 共用此判断，`claim` 拒绝以工作区为来源（包括已有父频道的工作区），要求从原聊天频道发起；拒绝不新增归属、交接或看门记录。
 - 手动换主时，bridge 从持久任务卡、工作区登记和待回答 `[ask]` 生成 `lead-handoff.json`；旧主无需在线，新主在下一轮收到记录。它不迁移 CLI 内部 session 或工具进程，也不自动回切。见[主角色手动交接](LEAD_HANDOFF.md)。
-- 额度事件或五小时额度剩余不足 5% 且有明确恢复时间时，公共层将截止时间持久化为 `quota-cooling/<project>.json` 的 `cooling_until`，并沿用 team 状态里的同名字段。冷却期间定时任务、看门和 relay 不再启动该角色；绑定在同一频道且空闲的成员接手未完成任务，保留原交接。全局主角色通过 gate `/lead`（无 gate 时为 `lead.json`）临时切换，恢复时仅撤销这次自动选择，保留后来的手动选择。DSH 宿主读取相同期限，管理频道主角色与原生任务；宿主回执单独保存为 `.takeover.json`，不覆盖桥的冷却文件。公开卡转交后，新负责人使用自己的轮次令牌续报原卡，结果仍需用户验收。
+- 额度事件或五小时额度剩余不足 5% 且有明确恢复时间时，公共层按本文“模型额度归属”保存所属额度域的期限。bridge 的定时任务、看门和 relay 按目标额度域决定是否启动；team 的 `cooling_until` 保留当前目标状态供外部宿主展示和接手，恢复时不会重新变成角色级限制。绑定在同一频道且空闲的成员接手未完成任务，保留原交接。全局主角色通过 gate `/lead`（无 gate 时为 `lead.json`）临时切换，恢复时仅撤销这次自动选择，保留后来的手动选择。DSH 宿主读取公布的期限管理频道主角色与原生任务；宿主回执单独保存为 `.takeover.json`，不覆盖桥的冷却文件。公开卡转交后，新负责人使用自己的轮次令牌续报原卡，结果仍需用户验收。
 - 自建平台多角色向导给每位成员写稳定的 `mention_id`，给队员写交回对象，并在人设的标记行说明自建平台上的队伍。手写且没有向导标记的人设保留。
 - 共享记忆需要另行安装和配置 wiki / gate。检索出的主题页按需提供给角色；原会话的恢复仍由后端负责，两者不能互相替代。
 - 工具审批、公开进展和任务卡按项目启用；一次任务有结果与真人已验收是不同状态。
@@ -61,6 +73,8 @@ core 通过接口使用后端能力；agent 与 platform 适配器不互相导�
 协议与使用方法见 [自建平台协议](../bridge/docs/cloud-web.md)、[wiki 配置](ccm-and-wiki.md)、[公开进展](PUBLIC_PROGRESS.md)、[工具代批](DELEGATED_PERMISSIONS.md)。
 
 ## 构建与发布
+
+绑定任务的文本投递复用 PublicProgress 的同一任务日志与轮询周期：正文和分片计划在私有记录中持久化，Task 查询只投影状态、目标、正文哈希与逐片回执。发送前先写 sending，进程中断恢复为 unknown，不重跑 agent；明确未受理才重试。平台通过 TaskTextSender 提供一次调用一个分片的能力。卡片事实、工作区 handback、原生 DSH 和语音不进入这个文本队列。详见 [任务文本投递](TASK_TEXT_DELIVERY.md)。
 
 `make hubsrc` 把自建平台源码复制到 Go 嵌入目录，前端构建后随 cc-connect 二进制分发。安装脚本只下载当前仓库 Release 里的预编译包。发布从审核合入 main 的提交构建，流程见 [CONTRIBUTING.md](../CONTRIBUTING.md)。
 
@@ -82,3 +96,7 @@ The bridge entry point creates one `core.UsageLedger` per configured data direct
 [公开答复插件](../integrations/dsh-public-output/README.md) 区分模型历史与展示：模型历史保留统一 JSON，配套 ACP 只输出解码正文。语音的实时正文经私密 relay 切句，由 companion 顺序合成并提供设备音频块，终态不重复。协议、失败行为及远程识别兼容见 [按句语音](VOICE_SENTENCE_STREAM.md)。
 
 语音会话只接续本绑定的对话。语音总台的伙伴状态改为通过本地 `voice-desk` 命令按需读取，不再每轮附加其他频道摘要；跨频道转达仍要求下一轮明确确认。进度卡保留，语音不注入不可用的成员委派教程。ACP 正常关闭先请求后端持久化再停止子进程；可选 `voiceHistory` 使用带来源引用的历史替换事件清除过期包装，保留原始日志和实际对话。
+
+### 外部任务输入
+
+core/external_task_events.go 是私有受理日志；cron_poll.go、webhook.go 只负责入口，external_task_delivery.go 通过已有任务归属和工作区 claim 路由，复用 public-progress 循环。源游标只确认连续持久前缀；消费回执绑定执行代次，公开摘要流不充当受理权威。授权复查接口供独立准入层接线，具体契约与恢复限制见 [实现记录](implementation/750-external-task-events.md)。

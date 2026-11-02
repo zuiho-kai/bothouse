@@ -36,7 +36,7 @@ import (
 
 type WizardRequest struct {
 	libraryHost string // host of the management page (handleSetupApply): cloud_web loads library pictures from it
-	Platform    string `json:"platform"` // "discord" (default) | "feishu" | "lark" | "cloud_web" (自建平台)
+	Platform    string `json:"platform"` // "discord" (default) | "feishu" | "lark" | "cloud_web" (自建平台) | "qq"
 	Language    string `json:"language,omitempty"`
 	Discord     *struct {
 		GuildID   string `json:"guild_id"`
@@ -44,12 +44,13 @@ type WizardRequest struct {
 	} `json:"discord,omitempty"`
 	Feishu        *WizardFeishu   `json:"feishu,omitempty"`
 	CloudWeb      *WizardCloudWeb `json:"cloud_web,omitempty"` // cloud_web: the platform (setup_cloudweb.go)
+	QQ            *WizardQQ       `json:"qq,omitempty"`        // qq: the NapCat / OneBot connection (setup_qq.go)
 	Roles         []WizardRole    `json:"roles"`
 	FallbackRole  string          `json:"fallback_role,omitempty"`   // project name; default = first role
 	FallbackBotID string          `json:"fallback_bot_id,omitempty"` // or the Discord bot ID (wins; the web wizard sends this)
 	Jev           *WizardJev      `json:"jev,omitempty"`
-	// Gate: one primary role routes the team's messages (the gate, core/gate_proc.go). nil = on, so a
-	// request without it (AI, curl, `setup apply`) gets the default.
+	// Gate controls participation. nil keeps this platform's saved choice; a fresh install
+	// defaults to routing through the primary role (core/gate_proc.go).
 	Gate *WizardGate `json:"gate,omitempty"`
 	// AllowFrom: Discord user IDs (comma-separated) the bots take orders from; "*" = anyone in the server.
 	// Not given = the owner of each bot's Discord application (looked up with the token).
@@ -68,11 +69,16 @@ type WizardRequest struct {
 // "context") and gate-team.json, and bothouse starts the gate when python and a jev are there;
 // without them core/gate.go fallbackFor still lets only the lead answer what names no one.
 // false = no gate: the wizard's own gate_url / gate_fallback are cleared, hand-written ones kept.
+// mode addressed also turns off unaddressed group delivery; smart explicitly enables it.
+// An omitted mode preserves the legacy enabled/disabled behavior.
 type WizardGate struct {
-	Enabled bool `json:"enabled"`
+	Enabled bool   `json:"enabled"`
+	Mode    string `json:"mode,omitempty"`
 }
 
-func (r WizardRequest) gateOn() bool { return r.Gate == nil || r.Gate.Enabled }
+func (r WizardRequest) gateOn() bool {
+	return r.Gate == nil || r.Gate.Enabled && r.Gate.Mode != "addressed"
+}
 
 type WizardFeishu struct {
 	AppID        string `json:"app_id"`
@@ -185,6 +191,7 @@ type WizardResult struct {
 	HotLoad      *HotLoadResult      `json:"hot_load,omitempty"`
 	ConfigBackup string              `json:"config_backup,omitempty"` // copy of config.toml taken before the write
 	CloudWeb     *CloudWebTestResult `json:"cloud_web,omitempty"`     // cloud_web: the connection test (page_url = the platform's web page)
+	QQ           *QQTestResult       `json:"qq,omitempty"`            // qq: the NapCat connection test
 	Error        string              `json:"error,omitempty"`
 }
 
@@ -346,10 +353,10 @@ type SetupState struct {
 	CloudWebURL      string           `json:"cloud_web_url,omitempty"`
 	CloudWebFallback string           `json:"cloud_web_fallback,omitempty"`
 	CloudWebTeam     []SetupTeamEntry `json:"cloud_web_team,omitempty"`
-	// GateOff: the user turned the gate off in the wizard (gate.enabled false). A later run without a
-	// gate field (add role, flows that show no gate checkbox, AI) keeps it off; one with the field records the new choice.
-	GateOff   bool   `json:"gate_off,omitempty"`
-	UpdatedAt string `json:"updated_at,omitempty"`
+	// GateModes records explicit choices per platform; GateOff is retained for old clients/state.
+	GateModes map[string]string `json:"gate_modes,omitempty"`
+	GateOff   bool              `json:"gate_off,omitempty"`
+	UpdatedAt string            `json:"updated_at,omitempty"`
 }
 
 type SetupTeamEntry struct {
@@ -771,8 +778,9 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	}
 	cloudWeb := isCloudWebPlatform(req.Platform)
 	isFeishu := req.Platform == "feishu" || req.Platform == "lark"
-	if req.Platform != "discord" && !isFeishu && !cloudWeb {
-		return fail("platform", fmt.Errorf("platform must be discord, feishu, lark or cloud_web"))
+	isQQ := req.Platform == "qq"
+	if req.Platform != "discord" && !isFeishu && !cloudWeb && !isQQ {
+		return fail("platform", fmt.Errorf("platform must be discord, feishu, lark, cloud_web or qq"))
 	}
 	if len(req.Roles) == 0 {
 		return fail("roles", fmt.Errorf("at least one role is required"))
@@ -787,6 +795,28 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	}
 	if isFeishu && (req.Feishu == nil || req.Feishu.AppID == "" || req.Feishu.AppSecret == "") {
 		return fail("role 1", fmt.Errorf("feishu: app_id and app_secret required (scan the QR code first)"))
+	}
+	if isQQ && len(req.Roles) != 1 {
+		return fail("roles", fmt.Errorf("qq: one bot per wizard run (one NapCat = one QQ account)"))
+	}
+	if isQQ {
+		if req.QQ == nil {
+			req.QQ = &WizardQQ{}
+		}
+		if req.QQ.WSURL = strings.TrimSpace(req.QQ.WSURL); req.QQ.WSURL == "" {
+			req.QQ.WSURL = QQDefaultWSURL
+		}
+		a, err := qqAllowFrom(req.QQ.AllowFrom)
+		if err != nil {
+			return fail("qq", err)
+		}
+		if a == "" { // no owner lookup on QQ: an empty list would let anyone in a group command this computer
+			return fail("qq", errors.New(tr3(req.Language,
+				"qq：allow_from 要填你自己的 QQ 号（逗号分隔可填多个）；要让所有人都能指挥机器人填 *",
+				"qq：allow_from にあなたの QQ 番号を入力してください（カンマ区切りで複数可）。誰でも指示できるようにするには *",
+				"qq: allow_from needs your own QQ number (comma-separated for several); * lets anyone command the bot")))
+		}
+		req.QQ.AllowFrom = a
 	}
 	// cloud_web: the platform's address and bot token; empty ones come from the hub this wizard started
 	cwBase, cwToken := "", ""
@@ -916,6 +946,23 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			}
 			addStep(res, step+" discord", nil, stepBotDetail(req.Language, info.Username, info.IntentKnown, info.MessageContent))
 			res.Roles = append(res.Roles, rr)
+		} else if isQQ {
+			// the same connection the bot makes: a wrong address or token writes nothing
+			t := TestQQ(ctx, req.QQ.WSURL, req.QQ.Token, req.Language)
+			if t.Code != "ok" {
+				r := fail(step+" qq", errors.New(t.Message+"; "+t.Fix))
+				r.QQ = &t
+				return r
+			}
+			res.QQ = &t
+			addStep(res, step+" qq", nil, t.Message)
+			w.botID = t.UserID
+			if r.ReuseProject == "" && (r.Name == "" || r.NameCustomized != nil && !*r.NameCustomized) && t.Nickname != "" {
+				w.Name = t.Nickname
+				customized := true
+				w.NameCustomized = &customized
+			}
+			res.Roles = append(res.Roles, WizardRoleResult{BotID: t.UserID})
 		} else if cloudWeb {
 			if r.ReuseProject != "" {
 				p, ok := snap.project(r.ReuseProject)
@@ -1012,8 +1059,21 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	}
 
 	state := LoadSetupState(env.DataDir)
-	if req.Gate == nil && state.GateOff { // no gate field: keep the user's earlier "off"
-		req.Gate = &WizardGate{Enabled: false}
+	if req.Gate != nil && req.Gate.Mode != "" && !req.Gate.Enabled {
+		return fail("gate", fmt.Errorf("gate.enabled must be true when gate.mode is set"))
+	}
+	if req.Gate != nil && req.Gate.Mode != "" && req.Gate.Mode != "smart" && req.Gate.Mode != "addressed" {
+		return fail("gate", fmt.Errorf("gate.mode must be smart or addressed"))
+	}
+	if req.Gate == nil {
+		if mode := state.GateModes[req.Platform]; mode != "" {
+			req.Gate = &WizardGate{Enabled: mode != "off", Mode: mode}
+			if mode == "off" {
+				req.Gate.Mode = ""
+			}
+		} else if len(state.GateModes) == 0 && state.GateOff {
+			req.Gate = &WizardGate{Enabled: false}
+		}
 	}
 	// 2. plan against a config snapshot: names, work dirs, team merge. It runs again
 	//    inside the lock against the config as it is then (H3.4).
@@ -1299,17 +1359,39 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	}
 	// a Discord / Feishu run keeps the cloud_web team (planWizard merges it on the next cloud_web run)
 	st.CloudWebURL, st.CloudWebFallback, st.CloudWebTeam = state.CloudWebURL, state.CloudWebFallback, state.CloudWebTeam
+	if isQQ { // adding QQ leaves the Discord / Feishu / cloud_web fields as they were
+		st = state
+		st.Language, st.UpdatedAt = req.Language, time.Now().Format(time.RFC3339)
+		if st.Platform == "" {
+			st.Platform = req.Platform
+		}
+	}
 	if cloudWeb { // the Discord / Feishu fields stay as they were
 		st = state
 		st.Language, st.UpdatedAt = req.Language, time.Now().Format(time.RFC3339)
 		st.CloudWebURL, st.CloudWebFallback, st.CloudWebTeam = cwBase, pl.fallback, pl.team
 	}
 	st.GateOff = !req.gateOn()
+	st.GateModes = state.GateModes
+	if st.GateModes == nil {
+		st.GateModes = map[string]string{}
+		if state.GateOff && state.Platform != "" {
+			st.GateModes[state.Platform] = "off"
+		}
+	}
+	// Only an explicit participation mode may override existing platform delivery settings.
+	if req.Gate != nil && req.Gate.Mode != "" {
+		st.GateModes[req.Platform] = req.Gate.Mode
+	} else if !req.gateOn() {
+		st.GateModes[req.Platform] = "off"
+	} else {
+		delete(st.GateModes, req.Platform)
+	}
 	if err := writeJSONFile(filepath.Join(env.DataDir, setupStateFile), st, 0o644); err != nil {
 		return fail("state", err)
 	}
-	wikiSession := cloudWebWikiSession // the self-hosted platform has no fixed channel: the muted jobs need none
-	if !cloudWeb {
+	wikiSession := cloudWebWikiSession // the self-hosted platform (and QQ) has no fixed channel: the muted jobs need none
+	if !cloudWeb && !isQQ {
 		ch := st.ChannelID
 		if ch == "" {
 			ch = state.ChannelID // a run without channel_id keeps the earlier default channel
@@ -1438,6 +1520,9 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 		case isFeishuPlatform(req.Platform) && sameFeishuApp(s, req.Feishu, used) != "":
 			// the same Feishu / Lark app is already configured: update it, don't add a second project
 			r.project, r.reused = sameFeishuApp(s, req.Feishu, used), true
+		case req.Platform == "qq" && sameQQAccount(s, req.QQ.WSURL, used) != "":
+			// the same NapCat (= QQ account) is already configured: update it, don't add a second project
+			r.project, r.reused = sameQQAccount(s, req.QQ.WSURL, used), true
 		case cloudWeb && !(req.AppendOnly && autoNamed) && sameCloudWebMember(s, cwBase, w, used) != "":
 			// the same member of the same platform is already configured: update it, don't add name-2
 			r.project, r.reused = sameCloudWebMember(s, cwBase, w, used), true
@@ -1759,6 +1844,13 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			if cur, _ := byProject[r.project].Options["group_reply_all_channels"].(string); channelID != "" && strings.TrimSpace(cur) == "" {
 				pw.Options["group_reply_all_channels"] = channelID
 			}
+		} else if req.Platform == "qq" {
+			q := req.QQ
+			// token always written: "" removes an old one, so what was tested is what is saved
+			pw.Options["ws_url"], pw.Options["allow_from"], pw.Options["token"] = q.WSURL, q.AllowFrom, q.Token
+			if q.HTTPURL != "" {
+				pw.Options["http_url"] = q.HTTPURL
+			}
 		} else {
 			f := req.Feishu
 			if f.PlatformType != "" {
@@ -1781,6 +1873,38 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 	pl.soloShared = len(pl.team) == 1 && otherWizardTeam(s, state, pl.team[0].Project)
 	if (req.Platform == "discord" || cloudWeb || isFeishuPlatform(req.Platform)) && len(pl.team) == 1 && !pl.soloShared {
 		pl.writes = soloGateWrites(pl.writes, pl.team[0].Project, req.Platform, s, req.gateOn())
+	}
+	// Apply participation at the platform boundary, before unaddressed messages reach a model.
+	if req.Gate != nil && (req.Gate.Mode == "addressed" || req.Gate.Mode == "smart") && req.Platform != "qq" {
+		addressed := req.Gate.Mode == "addressed"
+		for _, member := range pl.team {
+			i := -1
+			for n := range pl.writes {
+				if pl.writes[n].Name == member.Project {
+					i = n
+					break
+				}
+			}
+			if i < 0 {
+				pl.writes = append(pl.writes, WizardProjectWrite{Name: member.Project, PlatformType: req.Platform, Options: map[string]any{}})
+				i = len(pl.writes) - 1
+			}
+			w := &pl.writes[i]
+			if w.PlatformType == "" {
+				w.PlatformType = req.Platform
+			}
+			w.Options["group_reply_all"] = !addressed
+			if isFeishuPlatform(req.Platform) {
+				w.Options["require_mention"] = addressed
+			}
+			if req.Platform == "discord" && addressed {
+				w.Options["group_reply_all_guilds"] = ""
+			}
+			// GateURL is project-wide. Keep it when another platform still needs routing.
+			if ex, ok := s.project(member.Project); addressed && ok && len(ex.Platforms) > 1 {
+				w.GateURL, w.GateFallback = nil, nil
+			}
+		}
 	}
 	return pl, nil
 }
@@ -2258,6 +2382,7 @@ func (m *ManagementServer) handleSetupState(w http.ResponseWriter, r *http.Reque
 	out := map[string]any{"system_language": SystemLanguage(), "hardware": HardwarePresent(), "data_dir": m.wizardDataDir}
 	st := LoadSetupState(m.wizardDataDir)
 	out["setup"] = st
+	out["gate_modes"] = st.GateModes
 	out["gate_enabled"] = !st.GateOff // the wizard's gate checkbox starts from this
 	if j, ok := LoadJevConfig(m.wizardDataDir); ok {
 		out["jev"] = map[string]any{"url": j.URL, "model": j.Model, "has_key": j.APIKey != "", "logprobs": j.Logprobs}
@@ -2268,7 +2393,14 @@ func (m *ManagementServer) handleSetupState(w http.ResponseWriter, r *http.Reque
 	if m.wizardStore != nil {
 		if snap, err := m.wizardStore.Snapshot(); err == nil {
 			names, shown := []string{}, []string{}
+			configured := map[string]bool{} // platform types in config.toml: the "add platform" page marks them
 			for _, p := range snap.Projects {
+				for t := range p.Platforms {
+					if t == "lark" {
+						t = "feishu"
+					}
+					configured[t] = true
+				}
 				names = append(names, p.Name)
 				if p.DisplayName != "" {
 					shown = append(shown, p.DisplayName)
@@ -2278,6 +2410,7 @@ func (m *ManagementServer) handleSetupState(w http.ResponseWriter, r *http.Reque
 			}
 			out["projects"] = names              // the web wizard avoids these names for new bots (same rule as planWizard)
 			out["project_display_names"] = shown // what the panel lists as existing roles (team_name, else name)
+			out["configured_platforms"] = configured
 		}
 	}
 	fb := r.URL.Query().Get("fallback_name") // the wizard passes the bot it is about to pick

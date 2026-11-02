@@ -61,7 +61,7 @@ def _pages(root):
             continue
         # 每一级目录都要有 README.md：没有的是脚本写的数据目录，不是子域
         if all((root.joinpath(*rel.parts[:i]) / "README.md").exists() for i in range(1, len(rel.parts))):
-            yield rel.as_posix(), p.read_text(encoding="utf-8", errors="ignore").split("\n")
+            yield rel.as_posix(), p.read_text(encoding="utf-8-sig", errors="ignore").split("\n")
 
 
 class Index:

@@ -37,7 +37,7 @@ func takeQueuedBatchLocked(state *interactiveState) queuedMessage {
 }
 
 func batchableQueued(q *queuedMessage) bool {
-	return !q.fromBot && !scheduledTurnUser(q.userID) && q.userID != "" &&
+	return q.authorization == nil && !q.fromBot && !scheduledTurnUser(q.userID) && q.userID != "" &&
 		q.turnTrigger == "" && q.resumedFrom == "" && q.timerJobID == "" && q.resumeFallback == "" &&
 		q.modeOverride == "" && q.scheduledFrom == nil && !q.scheduledBackfilled
 }

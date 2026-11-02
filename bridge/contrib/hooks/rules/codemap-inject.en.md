@@ -1,0 +1,1 @@
+- Code maps (codemap-inject, codemap-fill): when a subagent's task matches the keywords of a map in `{{CODEMAPS}}`, its prompt gets a note to read that map first; the subagent ends its report with a section "## 地图要补的条目（<map path>）" (that exact heading), one line "- symbol file:line" each, which is appended to the map when it stops. The map format is in that directory's README.md.

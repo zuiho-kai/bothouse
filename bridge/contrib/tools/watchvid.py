@@ -16,6 +16,11 @@ has watchvid-index.md, meta.json and transcript.txt is returned at once; delete 
 
 Sites: Bilibili (BV ids, bilibili.com/video/…, b23.tv; multi-part videos default to p=1) through its web API, with
 bullet comments and top comments; everything else yt-dlp supports (YouTube, …) through yt-dlp.
+Site adapters: a site neither handles (Douyin needs signed requests, for one) can be added without editing this
+script. Put a <name>.py in ~/.config/watchvid/adapters (or the folders in $WATCHVID_ADAPTERS, separated by ":")
+with MATCH (a regex tried against the link) and fetch(url, folder) that saves folder/video.mp4 and returns a meta
+dict (title, url, and optionally site, id, owner, desc, duration, pubdate, stat); optional media_id(url) names the
+output folder. A matching adapter is tried before Bilibili and yt-dlp. See watchvid-adapters/ for an example.
 
 Needs: uv (runs this script and installs requests, jieba, yt-dlp by itself) and ffmpeg + ffprobe on PATH
 (or WATCHVID_FFMPEG / WATCHVID_FFPROBE). Nothing else is required.
@@ -328,6 +333,49 @@ def ytdlp(url, info, d):
     return meta, mp4
 
 
+# ---------- site adapters ----------
+def adapter_dirs():
+    env = os.environ.get("WATCHVID_ADAPTERS")
+    return [Path(x).expanduser() for x in env.split(os.pathsep) if x] if env else [Path.home() / ".config/watchvid/adapters"]
+
+
+def load_adapters(dirs=None):
+    """Every <name>.py in the adapter folders that defines MATCH and fetch; broken ones are skipped with a log line."""
+    import importlib.util
+    found = []
+    for folder in dirs if dirs is not None else adapter_dirs():
+        for f in sorted(folder.glob("*.py")) if folder.is_dir() else []:
+            try:
+                spec = importlib.util.spec_from_file_location(f"watchvid_adapter_{f.stem}", f)
+                mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+                re.compile(mod.MATCH)
+                if not callable(mod.fetch): raise AttributeError("fetch is not callable")
+            except Exception as ex:
+                log(f"adapter {f} skipped: {ex}"); continue
+            mod.NAME = f.stem; found.append(mod)
+    return found
+
+
+def pick_adapter(url, adapters):
+    return next((a for a in adapters if re.search(a.MATCH, url)), None)
+
+
+def adapter_id(ad, url):
+    raw = ad.media_id(url) if callable(getattr(ad, "media_id", None)) else md5(url.encode()).hexdigest()[:12]
+    return "ad-" + re.sub(r"[^\w.-]", "_", f"{ad.NAME}_{raw}")
+
+
+def via_adapter(ad, url, d):
+    mp4 = d / "video.mp4"
+    try:
+        meta = dict(ad.fetch(url, d) or {})
+    except Exception as ex:
+        die(f"adapter {ad.NAME} could not read this link: {ex}")
+    if not mp4.exists(): die(f"adapter {ad.NAME} returned without saving {mp4}")
+    meta.setdefault("site", ad.NAME); meta.setdefault("url", url); meta.setdefault("title", url)
+    return meta, mp4
+
+
 def vtt_lines(text):
     """WebVTT → '[start–end] text' lines; auto-captions repeat each line as it scrolls, so repeats are dropped."""
     def sec(t):
@@ -519,8 +567,12 @@ def main():
     url = args[0]
     t0 = time.time()
     info = None
-    bvid, p_url = resolve(url) if re.search(r"b23\.tv|bilibili\.com|^BV", url) else (None, None)
-    if bvid:
+    ad = pick_adapter(url, load_adapters())
+    bvid, p_url = resolve(url) if not ad and re.search(r"b23\.tv|bilibili\.com|^BV", url) else (None, None)
+    if ad:
+        mid = adapter_id(ad, url)
+        log(f"using adapter {ad.NAME}")
+    elif bvid:
         p = int(p_arg or p_url or 1)
         mid = "bili-" + (bvid if p == 1 else f"{bvid}_p{p}")
     else:
@@ -531,7 +583,7 @@ def main():
     if not keep and all((d / x).exists() for x in ("watchvid-index.md", "meta.json", "transcript.txt")):
         log(f"already parsed: {d}")
         print(idx); return
-    meta, mp4 = bilibili(bvid, p, d) if bvid else ytdlp(url, info, d)
+    meta, mp4 = via_adapter(ad, url, d) if ad else bilibili(bvid, p, d) if bvid else ytdlp(url, info, d)
     dur = probe_duration(mp4) or float(meta.get("duration") or 0)
     frames, ncuts = extract_frames(mp4, d, dur)
     log(f"{len(frames)} frames" + (f" ({ncuts} scene cuts)" if ncuts is not None else " (reused)"))

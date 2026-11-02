@@ -44,6 +44,10 @@ var defaultUsagePrices = map[string]TokenPrice{
 	"deepseek-v4-flash":                   {Input: 0.3, Output: 1.2, CacheRead: 0.006, CacheWrite: 0.0},
 	"deepseek-v4-flash-0731":              {Input: 0.3, Output: 1.2, CacheRead: 0.006, CacheWrite: 0.0},
 	"deepseek-v4-flash-vision-exp":        {Input: 0.3, Output: 1.2, CacheRead: 0.006, CacheWrite: 0.0},
+// deepseek-v4.1-flash is the id DeepSeek documents for deepseek-flash
+// (DeepSeek-V4.1-Flash-1017); rates are its peak-hour prices, added by hand
+// because the cc-switch export predates the model.
+	"deepseek-v4.1-flash":                 {Input: 0.3, Output: 1.2, CacheRead: 0.006, CacheWrite: 0.0},
 	"deepseek-v4-pro":                     {Input: 0.66, Output: 1.98, CacheRead: 0.022, CacheWrite: 0.0},
 	"devstral-2-2512":                     {Input: 0.4, Output: 2.0, CacheRead: 0.04, CacheWrite: 0.0},
 	"devstral-medium":                     {Input: 0.4, Output: 2.0, CacheRead: 0.04, CacheWrite: 0.0},

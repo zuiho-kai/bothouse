@@ -32,6 +32,10 @@ Watch bothouse in 3 minutes: one message goes in; the crew splits the work, take
   <a href="https://x.com/amber_ai_lab/status/2115798143011008545"><img src="docs/assets/readme/promo-cover.en.jpg" width="760" alt="bothouse promo video: an AI team at work — click to play"></a>
 </p>
 
+The setup wizard offers **Only when addressed** for quiet group participation without a routing model. Smart routing can use a local 0.6B model; it must provide logprobs and is not downloaded automatically. See [routing choices](docs/connect-discord-feishu.md#5-jev-和主角色).
+
+## What it looks like
+
 Using Claude Code, Codex and DeepSeek together used to mean switching between terminals and copying messages across. Close a window and the context is gone; step away and the work stops.
 
 So we built **bothouse**: a hub that brings your local CLIs and models into one group. They share one memory, and you direct them from your computer, phone or browser — no extra account, no extra subscription.
@@ -117,6 +121,10 @@ The team's memory is a plain folder of Markdown files. Each incoming message fir
 <a id="how"></a>
 
 ## How the team works
+
+Proactive follow-up has explicit `off`, `observe`, and `auto` policies. Observation records local decisions without starting a proactive worker or sending a proactive confirmation; ordinary chat and explicit requests retain their existing routing and permission checks. Automatic admission requires administrator-bound platform identities and matching rules. Routing and wiki context do not grant execution authority. See [proactive authorization](docs/PROACTIVE_AUTHORIZATION.md) for configuration, audit records, and revocation boundaries.
+
+Task-bound result text can use the send command with task, revision and delivery ID to persist before sending. Each fragment has its own receipt; ambiguous sends remain visible as unknown instead of being blindly retried. See [task text delivery](docs/TASK_TEXT_DELIVERY.md) for usage and platform boundaries.
 
 You say one thing from your phone, computer or browser → the **lead** in the chat channel (the AI you talk to by default) takes it → big work goes to a **workspace**: @coder and @writer in Workspace 1, @researcher in Workspace 2 → they hand it back.
 
@@ -247,7 +255,7 @@ Mature personal assistants and coding tools get compared too:
 
 Contributions are welcome — start with [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). Source builds with the web dashboard need the frontend built before Go and must not pass `no_web`; see [dashboard build](docs/dashboard-source-build.md).
 
-More: [Getting started](docs/GETTING_STARTED.md) · [A team from one CLI](docs/single-cli-team.en.md) · [Discord and Feishu setup](docs/connect-discord-feishu.md) · [Dispatcher and team memory](docs/ccm-and-wiki.md) · [Role packs](docs/persona-packs.md) · [Per-role Wiki and nightly reflection](bridge/contrib/wiki/README.md) · [Guardrails and tools](bridge/contrib/hooks/README.md) · [Usage API](docs/api/usage.md) · [Self-hosted web protocol](bridge/docs/cloud-web.md) · [Architecture](docs/ARCHITECTURE.md) · [Lead collaboration scripts](bridge/contrib/lead/README.md)
+More: [Getting started](docs/GETTING_STARTED.md) · [A team from one CLI](docs/single-cli-team.en.md) · [Discord and Feishu setup](docs/connect-discord-feishu.md) · [Codex bot session isolation](docs/codex-session-isolation.md) · [Dispatcher and team memory](docs/ccm-and-wiki.md) · [Role packs](docs/persona-packs.md) · [Per-role Wiki and nightly reflection](bridge/contrib/wiki/README.md) · [Guardrails and tools](bridge/contrib/hooks/README.md) · [Memory read-frequency report](docs/READ_FREQUENCY.md) · [Cross-CLI workflow hooks](docs/workflow-hooks.md) · [Usage API](docs/api/usage.md) · [Self-hosted web protocol](bridge/docs/cloud-web.md) · [Architecture](docs/ARCHITECTURE.md) · [Lead collaboration scripts](bridge/contrib/lead/README.md)
 
 Most guides are currently in Chinese; the self-hosted web protocol is in English.
 
@@ -308,3 +316,8 @@ Questions, ideas and the teams you build are all welcome.
     <img alt="Star history of zuiho-kai/bothouse" src="https://api.star-history.com/svg?repos=zuiho-kai/bothouse&type=Date" />
   </picture>
 </a>
+
+外部变化需要跟进已有任务时，可用结构化 cron/poll 或鉴权 webhook，并通过本地 task event-source、task events、task event-ack 管理来源与回执。配置、样例及各平台能力边界见 [外部任务事件](docs/implementation/750-external-task-events.md)。
+
+Workspace final reports remain pending until the dispatcher verifies their artifacts. The board distinguishes pending review from paused work; overdue review reminders survive restarts. See [handback verification](docs/implementation/797-handback-verification.md).
+模型额度冷却按账号及已知共享额度组保存：切到独立额度目标不会清空原目标的期限，切回仍受限制；共享额度的模型不能靠切换绕过限制。旧版本的角色级冷却只有在测得目标额度可用后才对该目标放行，无法查询时保留限制。模型切换仍须使用已有入口，由用户明确选择。

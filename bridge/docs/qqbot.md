@@ -108,6 +108,16 @@ One-on-one private messages are supported without @mention.
 私聊消息标成 `Message.Direct`，`core/gate_local.go` 的内置忙碌规则据此认得出这是一个 DM。
 Private messages carry `Message.Direct`, which is how `core/gate_local.go`'s built-in busy rule knows it is a DM.
 
+### 发言者身份 / Sender identity
+
+群聊和私聊使用事件里的 `author.username` 显示昵称；昵称缺失或为空白时回退到 openid。`author.bot` 会传给核心的 `Message.FromBot`，保留机器人发言的来源。昵称仅用于展示，`allow_from`、用户 ID、会话与回复目标仍使用原来的 `member_openid`（群聊）或 `user_openid`（私聊）；改名不会改变会话或授权。
+
+Group and private messages use `author.username` for display, falling back to the openid when absent or blank. `author.bot` maps to `Message.FromBot`. Display names never replace the stable openids used for authorization, sessions or reply routing. Renaming a sender does not change their session or access.
+
+字段依据：[群消息事件](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/group_at_message_create.html)、[私聊事件](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/c2c_message_create.html)。本地模拟 WebSocket 网关验证了这些字段的传递；真实 QQ 昵称展示仍需实机验收。
+
+Sources: [group events](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/group_at_message_create.html), [C2C events](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/c2c_message_create.html). A local simulated WebSocket gateway verifies field propagation; live QQ display still needs acceptance testing.
+
 ## 支持的消息类型 / Supported Message Types
 
 | 类型 / Type | 接收 / Receive | 发送 / Send |
@@ -161,6 +171,12 @@ Long replies include mention tags only in the first chunk, without splitting tag
 **Q: 断线重连？/ Reconnection?**
 - bothouse 内置自动重连机制，断线后会自动尝试恢复（最多 30 次）
 - bothouse has built-in automatic reconnection with resume support (up to 30 attempts)
+
+## 附件下载上限 / Attachment download limit
+
+接收图片或文件的上限是每个 20 MiB（20,971,520 字节，包含边界）。超过上限的附件会跳过并记录 `exceeds download size limit` 警告，不会把截断内容交给模型；同一消息中其他可读取的内容仍按正常流程处理。该警告在运行日志里，当前不会自动向 QQ 发送失败通知。
+
+Incoming images/files are limited to 20 MiB each (20,971,520 bytes, inclusive). Oversized attachments are skipped with an `exceeds download size limit` log warning; truncated bytes are never forwarded to the model. Other readable message content is still processed. This warning appears in runtime logs; no automatic QQ failure notice is sent.
 
 ## 沙箱环境 / Sandbox
 

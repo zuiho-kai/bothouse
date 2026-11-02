@@ -5,6 +5,9 @@
 - 不在同一个局域网（走 DERP 中继或连不上）→ 断开那条 SSH，本地按规则立即回答，
   效果等于没开闸门：主 bot 一律回复，sub 只在被 @ 时回复。
 - 转发出错或超时也立即按规则回答，不让 cc-connect 等满 gate_timeout_ms。
+- /context（每轮相关的 wiki 页）在本机用 ctxsvc 查本机的 wiki（GATE_WIKI，默认 ~/wiki），不转给远端：
+  检索是纯词法 BM25、不用模型；wiki 由本机的 llm-wiki 写在本机，远端 GPU 机器上通常没有。
+  所以闸门在不在线都能推 wiki 页，推出去的路径（~/wiki/...）本机的 agent 也直接能读。
 
 只用标准库：python3 contrib/gate/gate_switch.py
 配置用环境变量（见下面 CONFIG），日志写到 SWITCH_LOG。
@@ -96,6 +99,8 @@ try:
 except Exception as e:  # gate.py 读不了就只用最简单的兜底
     RULES = None
     print(f"gate.py 规则加载失败，off 模式只用简单兜底：{e!r}", flush=True)
+
+import ctxsvc  # noqa: E402  本机 wiki 检索（标准库 + wiki_search）；GATE_WIKI 在导入时读取
 
 state = {"mode": "off", "why": "starting", "tunnel": None, "upstream_ok": False, "since": time.time(),
          "tunnel_started": 0.0, "backoff": 0.0, "retry_at": 0.0, "remote_running": False}
@@ -305,6 +310,8 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urllib.parse.urlsplit(self.path)
+        if url.path == "/context":
+            self._context(); return
         if url.path != "/decide":
             self.send_error(404); return
         bot = urllib.parse.parse_qs(url.query).get("bot", [""])[0]
@@ -325,6 +332,18 @@ class H(BaseHTTPRequestHandler):
         log(event="decide", bot=bot or "lead", route=route, action=resp.get("action"),
             tier=resp.get("tier"), tier_reason=resp.get("tier_reason"),
             content=(req.get("content") or "")[:120], ms=round((time.time() - t) * 1000))
+        self._send(resp)
+
+    def _context(self):
+        """本机 wiki 检索（见文件头）。出错回空结果：这一轮没有 wiki 页，不影响 /decide 和闸门状态。"""
+        body = self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}"
+        t = time.time()
+        try:
+            resp, route = ctxsvc.context(json.loads(body)), "local"
+        except Exception as e:
+            resp, route = {"wiki": []}, f"error: {type(e).__name__}"
+            log(event="context_error", error=repr(e))
+        log(event="context", route=route, pages=len(resp.get("wiki") or []), ms=round((time.time() - t) * 1000))
         self._send(resp)
 
     def _send(self, obj):

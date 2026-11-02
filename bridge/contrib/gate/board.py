@@ -16,7 +16,7 @@
   board add <事情> <分支/PR/路径> <状态> <谁> --short 短名 [--next 几点看]   # 新加一条，打印编号
                                          #   短名（≤10 字）上团队板；不写就从事情去掉「用户点名：」「#N 续：」这类前缀再截
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
-                                         #   状态以收尾词开头（已交回/已完成/已验收/已收口/已结束/done）就直接结束，同 done
+                                         #   状态以收尾词开头（已完成/已验收/已收口/已结束/done）就直接结束，同 done
   board next <编号> <几点> | --restore <JSON>  # 只改「下次看」（later 专用，要 BOARD_LATER=1）；打印改前记录和事情
   board done <编号> <返工次数> [原因]      # 结束：移出任务板，记进 board-done.jsonl；返工次数必填，大于 0 时原因必填
   board rework [天数]                    # 最近 14 天的返工次数和原因
@@ -59,7 +59,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # ../lead/board 从别
 import datadir  # noqa: E402
 
 SETUP = datadir.setup_dir()
-DIR = Path(os.environ.get("BOARD_DIR") or SETUP / "team").expanduser()
+
+
+def _board_dir():
+    if os.environ.get("BOARD_DIR"):
+        return Path(os.environ["BOARD_DIR"]).expanduser()
+    cfg = SETUP / "config.toml"
+    if cfg.is_file():
+        try:
+            m = re.search(r'^\s*team_status_dir\s*=\s*"([^"]+)"', cfg.read_text(encoding="utf-8"), re.M)
+            if m and m.group(1).strip():
+                return Path(m.group(1).strip()).expanduser()
+        except OSError:
+            pass
+    return (SETUP / "team").expanduser()
+
+
+DIR = _board_dir()
 
 
 def _path(name):
@@ -88,10 +104,10 @@ def _read(name="board.jsonl"):
     return out
 
 
-def _write(items):
-    tmp = _path("board.jsonl.tmp")
+def _write(items, name="board.jsonl"):
+    tmp = _path(name + ".tmp")
     tmp.write_text("".join(json.dumps(i, ensure_ascii=False) + "\n" for i in items))
-    os.replace(tmp, _path("board.jsonl"))
+    os.replace(tmp, _path(name))
 
 
 def items():
@@ -209,7 +225,7 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None)
         cur = _read()
         nid = max([i["id"] for i in cur + _read("board-done.jsonl")] + [0]) + 1
         it = {"id": nid, "what": what, "short": (short_name or "").strip()[:SHORT_RUNES] or short_of(what),
-              "where": where, "status": status, "who": who, "at": _now()}
+              "where": where, "status": status, "who": who, "at": _now(), "dispatcher": os.environ.get("CC_PROJECT", "")}
         if nxt:
             it["next"], it["next_ts"] = nxt, _deadline(nxt)
         if _cur_channel():
@@ -432,6 +448,56 @@ def park_workspace(it, stop=False):
 STALE_AFTER = 60 * 60
 
 
+EVENTS_TAIL = 8 << 20  # 只读 events.jsonl 末尾这么多字节（桥 20 MB 轮转）
+
+
+def _events_path():
+    return Path(os.environ.get("BOARD_EVENTS") or (SETUP / "events.jsonl")).expanduser()
+
+
+def last_activity(sk):
+    """工作区会话 sk 最近一次真在干活（工具调用、回复）的时刻（epoch 秒），读不到返回 None。
+    来源是桥的统一事件流 <数据目录>/events.jsonl（core/events.go）。"""
+    if not sk:
+        return None
+    path, best = _events_path(), None
+    needle = json.dumps(sk).encode()
+    for f in (path, path.with_name(path.name + ".1")):
+        try:
+            with open(f, "rb") as fh:
+                fh.seek(0, 2)
+                fh.seek(max(0, fh.tell() - EVENTS_TAIL))
+                data = fh.read()
+        except OSError:
+            continue
+        for line in data.splitlines():
+            if needle not in line:
+                continue
+            try:
+                ev = json.loads(line)
+                if ev.get("session_key") != sk or ev.get("type") not in ("tool", "reply"):
+                    continue
+                t = datetime.fromisoformat(ev["time"]).timestamp()
+            except (ValueError, KeyError, TypeError, AttributeError):
+                continue
+            best = t if best is None else max(best, t)
+        if best is not None:
+            break  # 当前文件有就不翻轮转出去的旧文件
+    return best
+
+
+def _touch_progress(nid, stamp):
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None or hit.get("paused"):
+            return None
+        if stamp > hit.get("progress_at", 0):
+            hit["progress_at"] = stamp
+            _write(cur)
+        return hit
+
+
 def pause_stale(now=None):
     now = time.time() if now is None else now
     changed = []
@@ -441,7 +507,18 @@ def pause_stale(now=None):
         stamp = it.get("progress_at")
         if stamp is None:
             continue
+        at_ts = _ts(it.get("at"), now)
+        if isinstance(at_ts, (int, float)) and at_ts > stamp:
+            stamp = at_ts
         if now - stamp < STALE_AFTER:
+            continue
+        # 只认 ws-up/board 更新会把正在调工具的工作区当停滞放掉（2026-11-02 #922 01:47、#925 02:03，
+        # 桥的 10 分钟看门同一时刻还判「有进展」）：先看工作区会话在事件流里的真实动作，一小时内动过就续。
+        act = last_activity(it["ws"])
+        if act is not None and now - act < STALE_AFTER:
+            hit = _touch_progress(it["id"], act)
+            if hit:
+                schedule_stale_check(hit, delay=f"{max(5, int((STALE_AFTER - (now - act)) // 60) + 1)}m")
             continue
         hit = pause(it["id"], "一小时无进展，转待办")
         if hit:
@@ -459,11 +536,11 @@ def _timer_command():
     return f"env {' '.join(env)} {shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve()))} refresh"
 
 
-def schedule_stale_check(it):
+def schedule_stale_check(it, delay="60m"):
     if not it.get("ws") or not _cc_bin() or not it.get("sk"):
         return
     command = _timer_command()
-    r = subprocess.run([_cc_bin(), "timer", "add", "--session-key", it["sk"], "--delay", "60m",
+    r = subprocess.run([_cc_bin(), "timer", "add", "--session-key", it["sk"], "--delay", delay,
                         "--exec", command, "--mute", "--desc", f"检查任务 #{it['id']} 是否停滞"],
                        capture_output=True, text=True)
     if r.returncode:
@@ -585,6 +662,62 @@ def _refuse(nid, why):
              f"或用 ws-handoff 另交一个工作区")
 
 
+def returned(nid, reviewer, at=None):
+    """Record a delivered report, not acceptance. Repeated reports keep the deadline."""
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        archived = None
+        if hit is None:
+            # Legacy workers may say "done" before their final report (#770). That is
+            # execution completion, not dispatcher acceptance of a delivered artifact.
+            archived = _read("board-done.jsonl")
+            hit = next((i for i in reversed(archived) if i["id"] == nid), None)
+            if hit is None or not hit.get("chat"):
+                return False
+            if hit.get("review_accepted_at"):
+                return True  # a delayed report must not reopen an accepted task
+            hit = dict(hit)
+            for key in ("done_at", "auto_pruned", "returned_at"):
+                hit.pop(key, None)
+            cur.append(hit)
+        if hit.get("returned_at"):
+            return True
+        hit["returned_at"] = datetime.fromisoformat(re.sub(r"\.\d+", lambda m: m[0][:7].ljust(7, "0"), at).replace("Z", "+00:00")).isoformat() if at else _bound_now()
+        hit["reviewer"] = hit.get("dispatcher") or reviewer
+        hit["status"], hit["at"] = "已交回待验收", _now()
+        if hit.get("chat"):
+            hit["sk"] = hit["chat"]
+        if hit.get("ws"):
+            hit["ws_was"] = hit.pop("ws")
+        hit.pop("paused", None)
+        hit.pop("pause_why", None)
+        _back_to_chat(hit)
+        tid = hit.pop("guard", None)
+        _write(cur)
+        if archived is not None:
+            _write([i for i in archived if i["id"] != nid], "board-done.jsonl")
+    _del_timer(tid)
+    return True
+
+
+def reject(nid, reason):
+    """Keep feedback for ws-handoff --resume's occupancy-aware dispatch."""
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None or not hit.get("returned_at"):
+            return False
+        hit.pop("returned_at", None)
+        hit.pop("reviewer", None)
+        hit["paused"] = hit["at"] = _now()
+        hit["review_rejected"] = reason
+        hit["pause_why"] = "验收退回：" + reason
+        hit["status"] = hit["pause_why"]
+        _write(cur)
+    return True
+
+
 def rebind(nid, ws):
     """reoccupy 收回后，条目重新绑上工作区（之后 pause / 改走会再放回）。"""
     with _locked():
@@ -592,6 +725,9 @@ def rebind(nid, ws):
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is not None:
             hit["ws"] = hit["sk"] = ws
+            hit.pop("returned_at", None)
+            hit.pop("reviewer", None)
+            hit.pop("review_rejected", None)
             hit["bound"] = _bound_now()  # reoccupy 刚 claim 了一件新交接
             hit.pop("ws_was", None)
             if ws.startswith("discord:"):
@@ -614,8 +750,8 @@ def resume(nid):
 
 
 # 收尾词：update 写成这些开头的状态就直接 done（用户 2026-10-28「任务榜完成的为什么不下掉」：
-# 工作区交回时只改状态为「已交回」「done」，没人再跑 board done，条目一直挂着）。和桥 watchBoardClosed 同一组词。
-CLOSED_RE = re.compile(r"\s*(?:已验收|验收通过|已收口|已完成|已交回|已结束|done\b)", re.I)
+# 只有明确完成/验收/收口才关闭；「已交回」仍需验收。和桥 watchBoardClosed 同一组词。
+CLOSED_RE = re.compile(r"\s*(?:已验收|验收通过|已收口|已完成|已结束|done\b)", re.I)
 
 
 def done(nid, rework=None, why=None):
@@ -628,6 +764,9 @@ def done(nid, rework=None, why=None):
         tid = hit.pop("guard", None)  # 交回了：撤兜底
         with open(_path("board-done.jsonl"), "a") as f:
             rec = {**hit, "status": "已完成", "done_at": _now()}  # #597 N3：结束记录不带着原来的「进行中」
+            session = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+            if hit.get("returned_at") or (hit.get("chat") and session == hit["chat"]):
+                rec["review_accepted_at"] = _bound_now()
             if rework is not None:  # 不填就不写这两项，汇总时算「未填」
                 rec["rework"] = rework
                 if why:
@@ -839,7 +978,7 @@ def pr_final(numbers, now=None, repo=None):
 
 def prune_why(i, its, now, prs, idle_after=None):
     """暂停条目该自动收起返回原因；不收返回 None。prs = pr_final 的结果（{} = 不按 PR 判）。"""
-    if not i.get("paused") or _asking(i):
+    if i.get("returned_at") or i.get("review_rejected") or not i.get("paused") or _asking(i):
         return None  # 提问等答复的一律不收
     if i.get("unpruned"):
         prs, its = {}, []  # 手动找回过（resume 被拒仍暂停）：①② 的事实不会变，不再按它们收；③从找回时刻重新计，再暂停时清掉
@@ -1047,6 +1186,14 @@ def main(argv):
                 freed = park_workspace(before)  # 「谁」改走了：它在工作区的那件交接放回桥
                 if freed:
                     print("工作区已放回池子，会话已清")
+        elif cmd == "returned" and len(argv) in (3, 4):
+            if not returned(int(argv[1].lstrip("#")), *argv[2:]):
+                sys.exit("条目不存在，未登记交回")
+            print("已交回待验收")
+        elif cmd == "reject" and len(argv) == 3 and argv[2].strip():
+            if not reject(int(argv[1].lstrip("#")), argv[2].strip()):
+                sys.exit("条目不在待验收状态，未退回")
+            print("已记录退回问题；用 ws-handoff --resume <编号> <问题> 续办")
         elif cmd == "done" and 2 <= len(argv) <= 4:
             # 返工次数必填、>0 时原因必填：不填就没法统计哪条规矩起了作用（board rework 汇总里的「未填」）
             nid = int(argv[1].lstrip("#"))

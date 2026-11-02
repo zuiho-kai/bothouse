@@ -18,7 +18,13 @@ def socket_path():
     if os.environ.get("D10_API_SOCKET"):
         return Path(os.environ["D10_API_SOCKET"])
     base = os.environ.get("CC_DATA_DIR")
+    try:
+        import _team
+    except ImportError:
+        _team = None
     if base:
+        if _team is not None:
+            _team.datadir.guard(Path(base).expanduser())  # 测试不连线上桥（datadir.guard）
         return Path(base).expanduser() / "run" / "api.sock"
     try:
         import _team

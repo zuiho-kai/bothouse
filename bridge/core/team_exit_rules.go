@@ -49,8 +49,30 @@ type teamExitRulesDoc struct {
 		AddedRe           string `json:"added_re"`
 		MissingAdded      string `json:"missing_added"`
 	} `json:"summary"`
+	Art struct {
+		NotesRe        string `json:"notes_re"`
+		CompareRe      string `json:"compare_re"`
+		ImageRe        string `json:"image_re"`
+		MissingCompare string `json:"missing_compare"`
+		MissingFile    string `json:"missing_file"`
+	} `json:"art"`
+	Scope struct {
+		SectionRe string `json:"section_re"`
+		ItemRe    string `json:"item_re"`
+		KeyStopRe string `json:"key_stop_re"`
+		KeyTrim   string `json:"key_trim"`
+		KeyRunes  int    `json:"key_runes"`
+		Sep       string `json:"sep"`
+		Missing   string `json:"missing"`
+	} `json:"scope"`
+	Generic struct {
+		CCOnlyRe string `json:"cc_only_re"`
+		SourceRe string `json:"source_re"`
+		Msg      string `json:"msg"`
+	} `json:"generic"`
 	Jargon struct {
 		LineRe  string `json:"line_re"`
+		URLRe   string `json:"url_re"`
 		TableRe string `json:"table_re"`
 		Line    string `json:"line"`
 		Table   string `json:"table"`
@@ -59,8 +81,11 @@ type teamExitRulesDoc struct {
 
 type teamExitRules struct {
 	teamExitRulesDoc
-	headline, selfCheck, category, exempt, noCheck, jargonLine, jargonTable *regexp.Regexp
-	background, todo, detail, added                                         *regexp.Regexp
+	headline, selfCheck, category, exempt, noCheck, jargonLine, jargonTable, jargonURL *regexp.Regexp
+	background, todo, detail, added                                                    *regexp.Regexp
+	artNotes, artCompare, artImage                                                     *regexp.Regexp
+	scopeSection, scopeItem, scopeKeyStop                                              *regexp.Regexp
+	ccOnly, ccSource                                                                   *regexp.Regexp
 }
 
 // exitRules is read once from the embedded copy; a broken file fails every test that touches it.
@@ -87,9 +112,12 @@ func parseTeamExitRules(b []byte) (*teamExitRules, error) {
 	}{
 		{&r.headline, r.HeadlineRe}, {&r.selfCheck, r.Ask.SelfCheckRe}, {&r.category, r.Ask.CategoryRe},
 		{&r.exempt, r.Ask.ExemptRe}, {&r.noCheck, r.Ask.NoCheckRe},
-		{&r.jargonLine, r.Jargon.LineRe}, {&r.jargonTable, r.Jargon.TableRe},
+		{&r.jargonURL, r.Jargon.URLRe}, {&r.jargonLine, r.Jargon.LineRe}, {&r.jargonTable, r.Jargon.TableRe},
 		{&r.background, r.Summary.BackgroundRe}, {&r.todo, r.Summary.TodoRe}, {&r.detail, r.Summary.DetailRe},
 		{&r.added, r.Summary.AddedRe},
+		{&r.artNotes, r.Art.NotesRe}, {&r.artCompare, r.Art.CompareRe}, {&r.artImage, r.Art.ImageRe},
+		{&r.scopeSection, r.Scope.SectionRe}, {&r.scopeItem, r.Scope.ItemRe}, {&r.scopeKeyStop, r.Scope.KeyStopRe},
+		{&r.ccOnly, r.Generic.CCOnlyRe}, {&r.ccSource, r.Generic.SourceRe},
 	} {
 		re, err := regexp.Compile(c.src)
 		if err != nil {
@@ -249,12 +277,92 @@ func askEvidenceProblems(body string) []string {
 	return problems
 }
 
+// artReportProblems lists what a [report] on image work lacks: image work is a task whose handoff
+// notes list reference images (handoff-rules.json art_ref makes image handoffs list them); its
+// report must name a side-by-side image of the references and the result, and a local one must
+// exist. notes is the handoff text ("" when there is none: nothing to check).
+func artReportProblems(notes, body string, exists func(string) bool) []string {
+	if notes == "" || !exitRules.artNotes.MatchString(notes) {
+		return nil
+	}
+	for _, m := range exitRules.artCompare.FindAllStringSubmatch(body, -1) {
+		path := strings.Trim(m[1], "`'\"「」<>()（）")
+		if !exitRules.artImage.MatchString(path) {
+			continue
+		}
+		if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") || exists(path) {
+			return nil
+		}
+		return []string{strings.ReplaceAll(exitRules.Art.MissingFile, "{path}", path)}
+	}
+	return []string{exitRules.Art.MissingCompare}
+}
+
+// scopeReportProblems: a [report] that mentions none of the handoff's 「## 范围」「改」 items
+// anywhere (summary and details) goes back naming them (user 11-01 「我们要提取优秀基因，但是也要
+// 对我们的错误进行一个深刻的检讨和规避」: a handoff item was not done and nobody noticed on return).
+// Each item's key is its text up to the first punctuation, at most key_runes runes; it and the
+// body are compared without whitespace, case-folded. notes "" or no 改 items: nothing to check.
+func scopeReportProblems(notes, body string) []string {
+	if notes == "" {
+		return nil
+	}
+	norm := func(s string) string {
+		return strings.ToLower(strings.Join(strings.Fields(s), ""))
+	}
+	have := norm(body)
+	var missing []string
+	in := false
+	for _, ln := range strings.Split(strings.ReplaceAll(notes, "\r\n", "\n"), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(ln), "#") {
+			in = exitRules.scopeSection.MatchString(strings.TrimSpace(ln))
+			continue
+		}
+		m := exitRules.scopeItem.FindStringSubmatch(ln)
+		if !in || m == nil {
+			continue
+		}
+		key := m[2]
+		if loc := exitRules.scopeKeyStop.FindStringIndex(key); loc != nil {
+			key = key[:loc[0]]
+		}
+		key = strings.TrimSpace(strings.Trim(strings.TrimSpace(key), exitRules.Scope.KeyTrim))
+		if r := []rune(key); exitRules.Scope.KeyRunes > 0 && len(r) > exitRules.Scope.KeyRunes {
+			key = string(r[:exitRules.Scope.KeyRunes])
+		}
+		if k := norm(key); k != "" && !strings.Contains(have, k) {
+			missing = append(missing, key)
+		}
+	}
+	if missing == nil {
+		return nil
+	}
+	return []string{strings.ReplaceAll(exitRules.Scope.Missing, "{items}", strings.Join(missing, exitRules.Scope.Sep))}
+}
+
+// genericReportProblems: a [report] whose 「我加的：」 line says a product capability was made for
+// Claude Code only (只给/只装/只做/仅 Claude Code or cc) goes back unless the same line gives a
+// 「来源：」 for why another CLI cannot have it (task #875: bothouse capabilities must work on every CLI).
+func genericReportProblems(body string) []string {
+	for _, ln := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
+		loc := exitRules.added.FindStringIndex(ln)
+		if loc == nil {
+			continue
+		}
+		rest := ln[loc[1]:]
+		if hit := exitRules.ccOnly.FindString(rest); hit != "" && !exitRules.ccSource.MatchString(rest) {
+			return []string{strings.ReplaceAll(exitRules.Generic.Msg, "{hit}", strings.TrimSpace(hit))}
+		}
+	}
+	return nil
+}
+
 // jargonProblems: the part for the user names board/PR numbers, workspaces, branches, paths or
 // code identifiers, or holds a table (user 10-30 复盘「汇报堆编号、表格、工作区代号，要追问才知道进度」).
 func jargonProblems(line string) []string {
 	var problems []string
 	var hits []string
-	for _, m := range exitRules.jargonLine.FindAllString(line, -1) {
+	for _, m := range exitRules.jargonLine.FindAllString(exitRules.jargonURL.ReplaceAllString(line, " "), -1) {
 		hits = append(hits, strings.TrimLeftFunc(m, jargonLead))
 	}
 	if len(hits) > 0 {

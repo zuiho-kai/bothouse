@@ -71,6 +71,14 @@ allow_from = "*"                 # 允许交互的 QQ 号，"*" 表示所有人
 - `"12345"` — 仅允许 QQ 号 12345 / Only allow QQ user 12345
 - `"12345,67890"` — 允许多个 QQ 号 / Allow multiple QQ users
 
+**`command_allow_from` 配置说明 / `command_allow_from` options:**
+- 未设置、`""` 或 `"*"` — 保持原行为：`allow_from` 放行的人都能发斜杠命令 / Unset, `""` or `"*"`: prior behavior, anyone admitted by `allow_from` may send commands
+- `"12345"` — 只有 QQ 号 12345 能用 `/` 开头的命令触发机器人；其他发送者的命令在进入引擎前就被丢掉，不回复 / Only QQ user 12345 may trigger the bot with a slash-prefixed command; other senders' commands are dropped before the engine and get no reply
+
+命令包括内置命令、自定义命令、技能，以及未知命令（原本会转发给 agent）。普通聊天不受影响，仍只看 `allow_from`。这个设置只决定谁能发命令，不授予特权命令权限（`admin_from`）。
+
+Commands include built-ins, custom commands, skills and unknown commands (which core would otherwise forward to the agent). Ordinary chat is unaffected and still follows `allow_from`. This setting decides who may send commands only; it grants no privileged command access (`admin_from`).
+
 ### 4. 启动 / Start
 
 ```bash
@@ -221,6 +229,10 @@ Set `share_session_in_channel = true` on both, otherwise each person in the grou
 **Q: NapCat 掉线？/ NapCat disconnected?**
 - NapCat 使用 NTQQ 协议，长时间挂机可能需要重新登录 / NapCat may need re-login after long periods
 - 建议使用 Docker restart policy: `--restart unless-stopped`
+
+**Q: 图片或语音没有传给模型？/ An image or voice message did not reach the model?**
+- 检查日志中的 `qq: download image failed` / `qq: download audio failed`。媒体下载只接受 HTTP 200；404、500 或不完整的 206 响应会跳过，不把错误页或残片作为附件。文字和其他成功下载的附件仍会正常处理；不会自动向 QQ 发送失败通知。
+- Check those download warnings in the logs. Media downloads require HTTP 200; error pages and partial responses are skipped. Text and other successful attachments are still processed. No failure notification is automatically sent to QQ.
 
 ## 其他 OneBot 实现 / Other OneBot Implementations
 

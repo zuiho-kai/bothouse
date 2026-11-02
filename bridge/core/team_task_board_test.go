@@ -276,6 +276,7 @@ func TestTeamBoardLiveFollowsWorkspaceHandoff(t *testing.T) {
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
 	allChatsAreWorkspaces(e)
 	defer e.cancel()
+	allChatsAreWorkspaces(e)
 	dataDir := t.TempDir()
 	e.SetDataDir(dataDir)
 	dir := t.TempDir()

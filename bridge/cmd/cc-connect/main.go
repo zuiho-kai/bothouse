@@ -228,6 +228,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"relay":        runRelay,
 	"sessions":     runSessions,
 	"session":      runSession,
+	"report":       runReport,
 	"agent-sid":    runAgentSID,
 	"daemon":       runDaemon,
 	"feishu":       runFeishu,
@@ -237,6 +238,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"doctor":       runDoctor,
 	"web":          runWeb,
 	"setup":        runSetup,
+	"module":       runModule,
 }
 
 func main() {
@@ -763,6 +765,17 @@ func runMain() {
 			}
 		}
 		relayMgr.SetVisibility(cfg.Relay.Visibility)
+		if cfg.Relay.VoiceResident != nil {
+			idle := 10 * time.Minute // 来源：调研 A 3.5 空闲 TTL 10 分钟。
+			turns := 30              // 来源：调研 A 3.5 累计 30 轮回收。
+			if cfg.Relay.VoiceResidentIdleSecs != nil && *cfg.Relay.VoiceResidentIdleSecs > 0 {
+				idle = time.Duration(*cfg.Relay.VoiceResidentIdleSecs) * time.Second
+			}
+			if cfg.Relay.VoiceResidentMaxTurns != nil && *cfg.Relay.VoiceResidentMaxTurns > 0 {
+				turns = *cfg.Relay.VoiceResidentMaxTurns
+			}
+			relayMgr.SetVoiceResident(*cfg.Relay.VoiceResident, idle, turns)
+		}
 		apiSrv.SetRelayManager(relayMgr)
 
 		// Create shared DirHistory for all engines
@@ -874,7 +887,7 @@ func runMain() {
 	slog.Info("bye")
 }
 
-// errSkipProject: buildProject left the project out (its multi-workspace base_dir could not be
+// errSkipProject: buildProject left the project out (all its platforms are disabled, or its multi-workspace base_dir could not be
 // created). Startup goes on without it, as it always did.
 var errSkipProject = errors.New("project skipped")
 
@@ -890,6 +903,11 @@ type builtProject struct {
 // hot loading only marks that project as failed.
 func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions, proj config.ProjectConfig) (builtProject, error) {
 	var b builtProject
+	active := proj.ActivePlatforms()
+	if len(active) == 0 { // every platform stopped with `module disable`: the role's files stay, it just doesn't run
+		slog.Info("project not started: all its platforms are disabled", "project", proj.Name)
+		return b, errSkipProject
+	}
 	// Inject project-level run_as_user / run_as_env into the agent's
 	// opts map so agents that support isolation can pick them up
 	// without needing their own top-level config plumbing.
@@ -912,7 +930,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	providerWiring := wireAgentProviders(agent, proj.Agent)
 
 	var platforms []core.Platform
-	for _, pc := range proj.Platforms {
+	for _, pc := range active {
 		opts := make(map[string]any, len(pc.Options)+2)
 		for k, v := range pc.Options {
 			opts[k] = v
@@ -965,6 +983,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	engine.SetShowQuotaStatus(proj.ShowQuotaStatus == nil || *proj.ShowQuotaStatus)
 	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy != nil && *proj.InjectSubagentPolicy)
 	engine.SetAgentIdentityEnabled(proj.AgentIdentityEnabled())
+	engine.SetTeamModeRulesEnabled(proj.InjectTeamRules == nil || *proj.InjectTeamRules)
 	engine.SetReplyFooterEnabled(showFooter)
 	engine.SetAttachmentSendEnabled(cfg.AttachmentSend != "off")
 	engine.SetFilterExternalSessions(proj.FilterExternalSessions != nil && *proj.FilterExternalSessions)
@@ -1265,6 +1284,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)
 	engine.SetTeamBoard(proj.TeamBoardEnabled())
+	engine.SetTaskReviewAfter(time.Duration(proj.TeamReviewAfterSeconds) * time.Second)
 	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
 	engine.SetDispatchMode(proj.DispatchMode)
 	engine.SetVoiceDesk(proj.VoiceDesk)
@@ -1750,6 +1770,11 @@ Commands:
 
   web                Open the web admin (with no bots configured yet: the setup wizard)
 
+  module             Platforms as optional modules (qq, discord, feishu, dsh, cloud_web)
+    list             Which platforms are enabled / disabled / not configured
+    add <platform>   Turn a platform back on, or show how to add it
+    disable <platform>  Stop a platform, keeping its settings
+
   daemon             Manage bothouse as a background service (systemd/launchd/schtasks)
     install          Install and start the daemon service
     uninstall        Remove the daemon service
@@ -1772,6 +1797,9 @@ Commands:
     list             List all sessions (pipe-friendly)
     show <id>        Show session messages (-n N for last N)
   session new        Reset this agent session after the current turn (--after-turn)
+
+  report             Read-only reports from local data
+    file-frequency   Files read most often (events.jsonl; Claude Code fallback)
 
   handoff            Manually hand the primary role to another connected bot
     status           Show the current primary role and the last switch record
@@ -1948,6 +1976,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	engine.SetShowQuotaStatus(proj.ShowQuotaStatus == nil || *proj.ShowQuotaStatus)
 	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy != nil && *proj.InjectSubagentPolicy)
 	engine.SetAgentIdentityEnabled(proj.AgentIdentityEnabled())
+	engine.SetTeamModeRulesEnabled(proj.InjectTeamRules == nil || *proj.InjectTeamRules)
 	engine.SetReplyFooterEnabled(showFooter)
 
 	// Reload auto-compress settings
@@ -1976,6 +2005,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)
 	engine.SetTeamBoard(proj.TeamBoardEnabled())
+	engine.SetTaskReviewAfter(time.Duration(proj.TeamReviewAfterSeconds) * time.Second)
 	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
 	engine.SetDispatchMode(proj.DispatchMode)
 	engine.SetVoiceDesk(proj.VoiceDesk)
@@ -2365,11 +2395,32 @@ func usageLogSources(projects []config.ProjectConfig) []core.UsageLogSource {
 	if d := os.Getenv("CODEX_HOME"); d != "" {
 		codexHome = d
 	}
-	return append([]core.UsageLogSource{
-		core.ClaudeCodeUsageSource{Dir: filepath.Join(claudeDir, "projects")},
-		core.CodexUsageSource{Home: codexHome},
-		&core.DSHUsageSource{Homes: dshUsageHomes(home, projects)},
-	}, pluginUsageLogSources...)
+	sources := []core.UsageLogSource{core.ClaudeCodeUsageSource{Dir: filepath.Join(claudeDir, "projects")}}
+	for _, h := range codexUsageHomes(codexHome, projects) {
+		sources = append(sources, core.CodexUsageSource{Home: h})
+	}
+	sources = append(sources, &core.DSHUsageSource{Homes: dshUsageHomes(home, projects)})
+	return append(sources, pluginUsageLogSources...)
+}
+
+// codexUsageHomes: the default CODEX_HOME plus every other one a role runs
+// Codex with (codex_home option or CODEX_HOME in its env), each listed once.
+func codexUsageHomes(def string, projects []config.ProjectConfig) []string {
+	homes := []string{def}
+	seen := map[string]bool{filepath.Clean(def): true}
+	for _, p := range projects {
+		h := core.CodexHomeFromOptions(p.Agent.Options)
+		if h == "" {
+			continue
+		}
+		h = expandHome(h)
+		if seen[filepath.Clean(h)] {
+			continue
+		}
+		seen[filepath.Clean(h)] = true
+		homes = append(homes, h)
+	}
+	return homes
 }
 
 // dshUsageHomes: $DSH_HOME (else ~/.dsh, DSH's default) plus every DSH_HOME a role sets in its agent env.

@@ -169,3 +169,15 @@ func TestUsageDSHHomeFromLauncherScript(t *testing.T) {
 		t.Fatalf("bare command gave %q", h)
 	}
 }
+
+func TestUsageCodexHomeFromOptions(t *testing.T) {
+	if h := CodexHomeFromOptions(map[string]any{"codex_home": "/x/opt", "env": map[string]any{"CODEX_HOME": "/x/env"}}); h != "/x/opt" {
+		t.Fatal(h)
+	}
+	if h := CodexHomeFromOptions(map[string]any{"env": map[string]string{"CODEX_HOME": "/x/env"}}); h != "/x/env" {
+		t.Fatal(h)
+	}
+	if h := CodexHomeFromOptions(map[string]any{}); h != "" {
+		t.Fatal(h)
+	}
+}

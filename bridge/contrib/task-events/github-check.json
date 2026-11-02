@@ -1,0 +1,1 @@
+{"repository":{"id":42},"sender":{"id":7,"type":"Bot"},"check_run":{"head_sha":"fixture-sha","html_url":"https://github.com/example/repo/actions/runs/100","conclusion":"success"}}

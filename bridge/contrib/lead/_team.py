@@ -103,7 +103,7 @@ def name_of(proj):
 def api_socket():
     """桥的本地 API socket：CC_DATA_DIR（同 bothouse send 的找法）→ 产品数据目录，下面的 run/api.sock。"""
     base = os.environ.get("CC_DATA_DIR", "").strip()
-    return Path(base).expanduser() / "run" / "api.sock" if base else datadir.data_dir() / "run" / "api.sock"
+    return Path(datadir.guard(Path(base).expanduser())) / "run" / "api.sock" if base else datadir.data_dir() / "run" / "api.sock"
 
 
 class _UnixHTTP(http.client.HTTPConnection):

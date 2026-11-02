@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""chanlog：搜频道里任何人（用户、橘、龙娘、鲸鱼娘、彩虹猫、grok娘）说过的原话。
+
+  chanlog <关键词> [关键词…]        所有词都要出现（同一条消息里）；按时间排，新的在后
+  chanlog 架构图 -w 彩虹猫          只看某人说的（项目名或显示名，模糊匹配）
+  chanlog 架构图 --since 10-31      只看某天之后（MM-DD 或 YYYY-MM-DD）
+  chanlog 架构图 -n 20 -C 400       最多 20 条，每条前后各给 400 字
+  chanlog 架构图 --full             整条原文
+
+来源：bothouse 给每个 bot 存的会话记录 <data_dir>/sessions/<项目>_*.json 的 history。
+  - assistant 消息 = 这个 bot 自己说的话（原文）。
+  - user 消息 = 用户的话，以及桥塞进来的「频道里你上次看到之后的消息」，里面是一行行
+    「[时:分，…] 名字: 话」，按行头认出是谁说的。
+同一句话会出现在好几个 bot 的记录里（每个 bot 都看得到频道），按「说话人+正文前 80 字」去重。
+为什么有它：11-01 工作区要找鲸鱼娘、彩虹猫骂架构图的原话，sessions.py 只搜 Claude 会话、wiki 没记，找不到。
+"""
+import argparse
+import glob
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+DATA = Path(os.environ.get("CC_DATA_DIR") or Path.home() / ".bothouse")
+NAMES = {"maomao": "橘", "longniang": "龙娘", "jingyu": "鲸鱼娘", "caihongmao": "彩虹猫", "grok": "grok娘"}
+LINE = re.compile(r"^\[(\d{1,2}:\d{2})[^\]]*\]\s*([^:：\n]{1,40})[:：]\s?")
+
+
+def speaker_alias(name: str) -> str:
+    """频道行头的名字（如「Claude橘（bot）」「【鲸鱼娘】」）归到人名。"""
+    for proj, disp in NAMES.items():
+        if disp in name or proj in name.lower():
+            return disp
+    return "用户:" + name.strip()  # 不是哪个 bot，就是频道里的真人
+
+
+def records():
+    for f in sorted(glob.glob(str(DATA / "sessions" / "*_*.json"))):
+        proj = Path(f).name.split("_")[0]
+        try:
+            with open(f, encoding="utf-8") as source:
+                d = json.load(source)
+        except Exception:  # noqa: BLE001
+            continue
+        chan = {}
+        for key, ids in (d.get("user_sessions") or {}).items():
+            for sid in ids:
+                chan[sid] = key
+        for sid, s in (d.get("sessions") or {}).items():
+            where = chan.get(sid, s.get("name") or sid)
+            for m in s.get("history") or []:
+                c = m.get("content") or ""
+                ts = m.get("timestamp") or ""
+                if m.get("role") == "assistant":
+                    yield ts, NAMES.get(proj, proj), c, where, f"{proj}/{sid}"
+                    continue
+                # user 消息：拆成频道里的一行行发言；拆不出来的部分算「用户/系统」
+                cur_who, buf, head = None, [], []
+                for ln in c.split("\n"):
+                    mm = LINE.match(ln)
+                    if mm:
+                        if cur_who is not None:
+                            yield ts, cur_who, "\n".join(buf), where, f"{proj}/{sid}"
+                        cur_who, buf = speaker_alias(mm.group(2)), [f"[{mm.group(1)}] " + ln[mm.end():]]
+                    elif cur_who is not None:
+                        buf.append(ln)
+                    else:
+                        head.append(ln)
+                if cur_who is not None:
+                    yield ts, cur_who, "\n".join(buf), where, f"{proj}/{sid}"
+                h = "\n".join(head).strip()
+                if h:
+                    yield ts, "用户/系统", h, where, f"{proj}/{sid}"
+
+
+def since_key(s: str) -> str:
+    return s if len(s) > 5 else "2026-" + s
+
+
+def main():
+    ap = argparse.ArgumentParser(description="搜频道里任何人说过的原话（读 bothouse 各 bot 的会话记录）")
+    ap.add_argument("words", nargs="+")
+    ap.add_argument("-w", "--who", help="只看某人：项目名或显示名，如 jingyu / 鲸鱼娘 / 用户")
+    ap.add_argument("--since", help="MM-DD 或 YYYY-MM-DD")
+    ap.add_argument("-n", type=int, default=12, help="最多几条（取最新的）")
+    ap.add_argument("-C", type=int, default=200, help="关键词前后各给多少字")
+    ap.add_argument("--full", action="store_true", help="整条原文")
+    a = ap.parse_args()
+    who = a.who and NAMES.get(a.who, a.who)
+    seen, hits = set(), []
+    for ts, sp, text, where, src in records():
+        if not all(w.lower() in text.lower() for w in a.words):
+            continue
+        if who and who not in sp:
+            continue
+        if a.since and ts[:10] < since_key(a.since):
+            continue
+        flat = re.sub(r"\s+", "", text).lower()
+        j = flat.find(re.sub(r"\s+", "", a.words[0]).lower())
+        k = (sp, flat[max(0, j - 40): j + 80])  # 同一句被几个 bot 各存一份：按关键词附近的原文去重
+        if k in seen:
+            continue
+        seen.add(k)
+        hits.append((ts, sp, text, where, src))
+    hits.sort(key=lambda h: h[0])
+    for ts, sp, text, where, src in hits[-a.n:]:
+        if a.full:
+            snip = text
+        else:
+            i = text.lower().find(a.words[0].lower())
+            snip = ("…" if i > a.C else "") + text[max(0, i - a.C): i + a.C] + ("…" if i + a.C < len(text) else "")
+        print(f"== {ts[:16].replace('T', ' ')}  {sp}  @{where}  ({src})")
+        print(snip.strip())
+        print()
+    if not hits:
+        print("没搜到。换个词，或去掉 -w/--since；更早的话（10-25 前）不在 bothouse 记录里，搜 wiki 和 sessions.py。", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

@@ -132,6 +132,27 @@ key 只留在 bothouse 里。所以任何 OpenAI 兼容接口都能挂到这四�
 
 ## 5. jev 和主角色
 
+安装向导的「群聊参与方式」现在明确提供：
+
+| 方式 | 适合什么情况 | 是否需要小模型 |
+| --- | --- | --- |
+| 智能分流 | 希望系统判断未点名的追问该谁接 | 规则之外需可用 jev；没有时主角色兜底回复 |
+| 仅被点名时回复 | 希望主控少插话，优先节省资源 | 不需要 Python、jev 或本地 0.6B 推理 |
+| 关闭分流 | 保留旧的各机器人回复设置 | 不启用向导 gate；可能每个机器人都回复 |
+
+「仅被点名」在群聊使用 @；Discord 也支持回复该角色的消息，自建平台也支持开头叫名字。私聊、明确的队友交回和停手命令沿用平台现有规则；飞书已参与的线程仍可继续。未点名的追问不会被猜测为发给上一个角色。选择会保存，重新打开向导或添加角色时保持；作用于当前平台的整支团队，不改其他平台和手写 gate URL。同一个项目若在其他平台还使用 gate，该 gate 会保留。「关闭分流」不是安静模式。
+
+AI / CLI 安装同样支持，在原来的安装请求里加：
+
+~~~json
+"gate": {"enabled": true, "mode": "addressed"}
+~~~
+
+这是请求中的一个字段。`mode: "smart"` 恢复智能分流和未点名消息接收；省略 `gate` 保留该平台已保存的选择，老的 `{"enabled": false}` 仍保持原来的关闭行为。`--dry-run` 不保存选择或配置。
+
+本地 **Qwen3 0.6B** 的说明已有，但向导不会下载或启动模型。若继续用智能分流，先自行起 OpenAI 兼容接口，例如 Apple 芯片上的 `mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit`，再在 jev 步骤填 Base URL 和模型名，并通过概率测试（logprobs）。它省去远程路由 API 的费用，仍占本机内存和算力；角色执行任务所用模型的费用另算。完全不运行路由模型的便宜替代就是「仅被点名时回复」。
+
+
 - **jev 用来判断群里一句话该哪个角色回**：gate 每条消息先走规则（@ 了谁、开头叫了谁），规则判不了再让 jev 读几个选项的概率。
 - 推荐：硅基流动（如免费 Qwen 小模型）、OpenRouter、DeepSeek、MiniMax、本地小模型（如 Qwen 0.6B）。
   不推荐 Claude、GPT：它们的接口不给概率。jev 也不能复用 Claude Code / Codex 的本地登录，同样是因为拿不到概率。
@@ -189,6 +210,10 @@ bothouse 只是接进去：每个角色作为一个成员连平台的机器人�
   `bothouse setup apply --json` 发 `{"platform": "cloud_web", "roles": [{"name": "<名字>"}]}`（本机向导起的平台地址和 token 自动填；连别人的加
   `"cloud_web": {"url": "<地址>", "token": "<token>"}`）。字段见 `bothouse setup apply -h`。
 - 以后要接的 DSH 网页走同一个协议，只是多一个预设（`bridge/core/setup_cloudweb.go` 的 `cloudWebPresets`，`allow_from` 不同）。
+
+## 8. Codex 会话不要混进桌面
+
+Codex 角色默认可能与桌面共用 `~/.codex`，所以平台聊天也会出现在桌面会话列表。给该角色的 `[projects.agent.options]` 配置独立 `codex_home`，先准备好登录与模型配置，再重启 bothouse。已有会话需要按 ID 迁移并验证恢复，随后才能归档桌面旧副本；换工作目录不能隔离存储。完整步骤见 [Codex 机器人与桌面会话隔离](codex-session-isolation.md)。
 
 ## 附录 A：手动接 Discord
 

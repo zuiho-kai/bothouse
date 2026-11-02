@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { wizardGate } from './wizardGate';
 
 describe('wizardGate', () => {
+  it('saves called-only and smart modes and preserves skipped steps', () => {
+    expect(wizardGate(true, true, 'addressed')).toEqual({ enabled: true, mode: 'addressed' });
+    expect(wizardGate(true, false, 'smart')).toEqual({ enabled: true, mode: 'smart' });
+    expect(wizardGate(true, true, 'off')).toEqual({ enabled: false });
+    expect(wizardGate(false, true, 'addressed')).toBeUndefined();
+  });
   it('is on when the checkbox is shown and ticked (the default)', () => {
     expect(wizardGate(true, true)).toEqual({ enabled: true });
   });

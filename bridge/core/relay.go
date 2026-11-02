@@ -248,8 +248,8 @@ type RelayRequest struct {
 	To         string `json:"to"`          // target project name
 	SessionKey string `json:"session_key"` // source session key (contains platform + chatID)
 	// Workspace is the explicit execution channel for a task relay: a workspace
-	// of the same chat channel as the source workspace. Empty keeps the
-	// target in the source session.
+	// of the source workspace's chat, or a workspace of the source chat channel
+	// itself. Empty keeps the target in the source session.
 	Workspace string `json:"workspace,omitempty"`
 	Message   string `json:"message"`
 	// UserText (voice mode) is the speaker's own words without the entry prompt in Message.
@@ -327,7 +327,11 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 		}
 		return nil, notBound(req.To, detail)
 	}
-	if wait := targetEngine.capacityWait(); wait > 0 {
+	targetKey := req.SessionKey
+	if req.Workspace != "" {
+		targetKey = platform + ":" + req.Workspace
+	}
+	if wait := targetEngine.capacityWait(targetEngine.admissionQuotaScope(targetEngine.agent, req.SessionKey, targetKey)); wait > 0 {
 		return nil, fmt.Errorf("relay: target engine %q is cooling down for %s", req.To, wait.Round(time.Second))
 	}
 	sourceEngine.clearNotBound(req.SessionKey, req.To)

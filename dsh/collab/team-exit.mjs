@@ -17,6 +17,7 @@ const SELF_CHECK = new RegExp(RULES.ask.self_check_re);
 const CATEGORY = new RegExp(RULES.ask.category_re);
 const EXEMPT = new RegExp(RULES.ask.exempt_re);
 const NO_CHECK = new RegExp(RULES.ask.no_check_re);
+const JARGON_URL = new RegExp(RULES.jargon.url_re, 'g');
 const JARGON_LINE = new RegExp(RULES.jargon.line_re, 'g');
 const JARGON_TABLE = new RegExp(RULES.jargon.table_re);
 const BACKGROUND = new RegExp(RULES.summary.background_re);
@@ -102,7 +103,7 @@ export function summaryProblems(summary) {
 /** The part for the user names numbers, workspaces, branches, paths or identifiers, or has a table (Go: jargonProblems). */
 export function jargonProblems(line) {
   const problems = [];
-  const hits = [...String(line).matchAll(JARGON_LINE)].map(m => m[0].replace(/^[^~/`#!_\-0-9A-Za-z＃！工]+/u, ''));
+  const hits = [...String(line).replace(JARGON_URL, ' ').matchAll(JARGON_LINE)].map(m => m[0].replace(/^[^~/`#!_\-0-9A-Za-z＃！工]+/u, ''));
   if (hits.length) problems.push(RULES.jargon.line.replaceAll('{hits}', hits.join('、')));
   if (JARGON_TABLE.test(line)) problems.push(RULES.jargon.table);
   return problems;

@@ -198,6 +198,7 @@ func TestTaskIndexCreatesBoardWithoutToolActivityAndKeepsHistory(t *testing.T) {
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
 	allChatsAreWorkspaces(e)
 	defer e.cancel()
+	allChatsAreWorkspaces(e)
 	boards := map[string]*boardChat{}
 	files := []teamFile{{Project: "fish", Name: "肥鱼", Tasks: []teamTaskLink{{ID: "t1", SessionKey: "discord:111", Title: "验证语音", URL: "https://example.test/card/1", State: TaskStateWaitingUser}}}}
 	if !e.updateTeamBoards(files, boards) || p.posts != 1 {

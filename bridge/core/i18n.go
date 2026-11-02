@@ -673,33 +673,44 @@ const (
 // Automatic task card (public_progress_auto.go).
 const (
 	MsgPublicAutoTitle        MsgKey = "MsgPublicAutoTitle"
+	MsgProactiveTaskAdmitted  MsgKey = "MsgProactiveTaskAdmitted"
 	MsgPublicAutoStartedTools MsgKey = "MsgPublicAutoStartedTools"
 	MsgPublicAutoStartedTime  MsgKey = "MsgPublicAutoStartedTime"
 	MsgPublicAutoMerged       MsgKey = "MsgPublicAutoMerged"
 )
 
 const (
-	MsgBoardTasksRunning MsgKey = "board_tasks_running"
-	MsgBoardTasksWaiting MsgKey = "board_tasks_waiting"
-	MsgBoardTasksMore    MsgKey = "board_tasks_more"
-	MsgPublicInterrupted MsgKey = "MsgPublicInterrupted"
-	MsgPublicEnded       MsgKey = "MsgPublicEnded"
-	MsgWatchResume       MsgKey = "watch_resume"
-	MsgWatchIdleEscalate MsgKey = "watch_idle_escalate"
-	MsgTaskKeyFact       MsgKey = "MsgTaskKeyFact"
-	MsgTaskResultReady   MsgKey = "MsgTaskResultReady"
-	MsgTaskRelayAssigned MsgKey = "MsgTaskRelayAssigned"
-	MsgTaskRelayProgress MsgKey = "MsgTaskRelayProgress"
-	MsgTaskRelayResult   MsgKey = "MsgTaskRelayResult"
-	MsgTaskRelayFailed   MsgKey = "MsgTaskRelayFailed"
-	MsgTaskReporterMuted MsgKey = "MsgTaskReporterMuted"
-	MsgTaskListRevision  MsgKey = "task_list_revision"
+	MsgBoardTasksRunning     MsgKey = "board_tasks_running"
+	MsgBoardTasksWaiting     MsgKey = "board_tasks_waiting"
+	MsgBoardTasksMore        MsgKey = "board_tasks_more"
+	MsgPublicInterrupted     MsgKey = "MsgPublicInterrupted"
+	MsgPublicEnded           MsgKey = "MsgPublicEnded"
+	MsgWatchResume           MsgKey = "watch_resume"
+	MsgWatchResumeNotes      MsgKey = "watch_resume_notes"
+	MsgWatchAutoResumed      MsgKey = "watch_auto_resumed"
+	MsgWatchParkedNotice     MsgKey = "watch_parked_notice"
+	MsgWatchIdleEscalate     MsgKey = "watch_idle_escalate"
+	MsgWatchFailEscalate     MsgKey = "watch_fail_escalate"
+	MsgTaskReviewReturned    MsgKey = "task_review_returned"
+	MsgTaskReviewOverdue     MsgKey = "task_review_overdue"
+	MsgTaskReviewPrompt      MsgKey = "task_review_prompt"
+	MsgTaskReviewUnavailable MsgKey = "task_review_unavailable"
+	MsgTaskReviewRoundup     MsgKey = "task_review_roundup"
+	MsgTaskKeyFact           MsgKey = "MsgTaskKeyFact"
+	MsgTaskResultReady       MsgKey = "MsgTaskResultReady"
+	MsgTaskRelayAssigned     MsgKey = "MsgTaskRelayAssigned"
+	MsgTaskRelayProgress     MsgKey = "MsgTaskRelayProgress"
+	MsgTaskRelayResult       MsgKey = "MsgTaskRelayResult"
+	MsgTaskRelayFailed       MsgKey = "MsgTaskRelayFailed"
+	MsgTaskReporterMuted     MsgKey = "MsgTaskReporterMuted"
+	MsgTaskListRevision      MsgKey = "task_list_revision"
 )
 
 const (
-	MsgPublicVoiceResult  MsgKey = "MsgPublicVoiceResult"
-	MsgPublicVoiceWaiting MsgKey = "MsgPublicVoiceWaiting"
-	MsgPublicAccepted     MsgKey = "MsgPublicAccepted"
+	MsgPublicVoiceResult    MsgKey = "MsgPublicVoiceResult"
+	MsgPublicVoiceWaiting   MsgKey = "MsgPublicVoiceWaiting"
+	MsgAuthorizationRecheck MsgKey = "MsgAuthorizationRecheck"
+	MsgPublicAccepted       MsgKey = "MsgPublicAccepted"
 )
 
 const (
@@ -711,7 +722,42 @@ const (
 	MsgQuotaCooling      MsgKey = "quota_cooling"
 )
 
+const (
+	MsgDSHNodeRequired  MsgKey = "dsh_node_required"
+	MsgDSHNodeRunFailed MsgKey = "dsh_node_run_failed"
+	MsgDSHModulePreview MsgKey = "dsh_module_preview"
+	MsgDSHModuleRestart MsgKey = "dsh_module_restart"
+)
+
 var messages = map[MsgKey]map[Language]string{
+	MsgDSHNodeRequired: {
+		LangEnglish:            "Node >= 22.12.0 is required for DSH; install or upgrade Node and detect again.",
+		LangChinese:            "DSH 需要 Node >= 22.12.0；请安装或升级 Node 后重新检测。",
+		LangTraditionalChinese: "DSH 需要 Node >= 22.12.0；請安裝或升級 Node 後重新偵測。",
+		LangJapanese:           "DSH には Node >= 22.12.0 が必要です。インストールまたは更新後に再検出してください。",
+		LangSpanish:            "DSH requiere Node >= 22.12.0; instala o actualiza Node y detecta de nuevo.",
+	},
+	MsgDSHNodeRunFailed: {
+		LangEnglish:            "Could not run node --version; check Node on PATH and detect again.",
+		LangChinese:            "无法运行 node --version；请检查 PATH 中的 Node 后重新检测。",
+		LangTraditionalChinese: "無法執行 node --version；請檢查 PATH 中的 Node 後重新偵測。",
+		LangJapanese:           "node --version を実行できません。PATH の Node を確認して再検出してください。",
+		LangSpanish:            "No se pudo ejecutar node --version; comprueba Node en PATH y detecta de nuevo.",
+	},
+	MsgDSHModulePreview: {
+		LangEnglish:            "Run without --dry-run to install or enable the DSH plugin in profile web.",
+		LangChinese:            "去掉 --dry-run 后执行，安装或启用 web profile 中的 DSH 插件。",
+		LangTraditionalChinese: "移除 --dry-run 後執行，安裝或啟用 web profile 中的 DSH 外掛。",
+		LangJapanese:           "--dry-run を外して実行すると、web プロファイルの DSH プラグインをインストールまたは有効化します。",
+		LangSpanish:            "Ejecuta sin --dry-run para instalar o activar el complemento DSH del perfil web.",
+	},
+	MsgDSHModuleRestart: {
+		LangEnglish:            "Restart your DSH web profile to apply; roles, history and other platform settings are preserved.",
+		LangChinese:            "重启 DSH web profile 后生效；角色、历史和其他平台设置均保留。",
+		LangTraditionalChinese: "重新啟動 DSH web profile 後生效；角色、歷史和其他平台設定均保留。",
+		LangJapanese:           "DSH の web プロファイルを再起動して適用してください。役割、履歴、他のプラットフォーム設定は保持されます。",
+		LangSpanish:            "Reinicia el perfil web de DSH para aplicar; se conservan roles, historial y otros ajustes.",
+	},
 	MsgTaskListRevision: {
 		LangEnglish:            "revision v%d · %d artifacts (%d input / %d output)",
 		LangChinese:            "修订 v%d · 产物 %d（素材 %d / 交付 %d）",
@@ -796,6 +842,14 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "本輪結果和未完成事項已記錄，請查看任務卡。",
 		LangJapanese:           "結果と残作業はタスクカードを確認してください。",
 		LangSpanish:            "Consulte los resultados y pendientes en la tarjeta.",
+	},
+
+	MsgAuthorizationRecheck: {
+		LangEnglish:            "Authorization changed; this task requires revalidation before further execution.",
+		LangChinese:            "授权已变更；这件任务继续执行前需要重新核验。",
+		LangTraditionalChinese: "授權已變更；這件任務繼續執行前需要重新核驗。",
+		LangJapanese:           "権限が変更されました。タスクを続行する前に再検証が必要です。",
+		LangSpanish:            "La autorización cambió; la tarea requiere una nueva validación antes de continuar.",
 	},
 	MsgPublicAccepted: {
 		LangEnglish:            "Accepted by %s",
@@ -988,12 +1042,76 @@ var messages = map[MsgKey]map[Language]string{
 		LangJapanese:           "%s を続けて完了させてください。完了したら返信の1行目を [report] にしてください",
 		LangSpanish:            "Continúa %s hasta terminarlo; al terminar, empieza la respuesta con [report]",
 	},
+	MsgWatchResumeNotes: {
+		LangEnglish:            "Handoff file: %s (read its last checkpoint first)",
+		LangChinese:            "交接文件：%s（先读最后的检查点）",
+		LangTraditionalChinese: "交接檔案：%s（先讀最後的檢查點）",
+		LangJapanese:           "引き継ぎファイル：%s（まず最後のチェックポイントを読んでください）",
+		LangSpanish:            "Archivo de traspaso: %s (lee primero el último punto de control)",
+	},
+	MsgWatchAutoResumed: {
+		LangEnglish:            "Watch: %s showed no progress on %s; stopped its stuck turn and asked it to continue (once; parked if still no progress)",
+		LangChinese:            "看门：%s「%s」到点没有进展，已停掉卡住的这一轮并叫它接着做（自动续一次，再没进展就暂停）",
+		LangTraditionalChinese: "看門：%s「%s」到點沒有進展，已停掉卡住的這一輪並叫它接著做（自動續一次，再沒進展就暫停）",
+		LangJapanese:           "見守り：%s の %s に進展がないため、止まったターンを停止して続行を指示しました（1回のみ。再び進展がなければ一時停止）",
+		LangSpanish:            "Aviso: %s no avanzó en %s; se detuvo su turno atascado y se le pidió continuar (una vez; si sigue sin avanzar se pausa)",
+	},
+	MsgWatchParkedNotice: {
+		LangEnglish:            "Watch: %s still showed no progress on %s after a resume; the task is paused and the workspace freed. Hand it over again to continue.",
+		LangChinese:            "看门：%s「%s」续过一次仍没有进展，已暂停并放回工作区；要继续请重新交活。",
+		LangTraditionalChinese: "看門：%s「%s」續過一次仍沒有進展，已暫停並放回工作區；要繼續請重新交活。",
+		LangJapanese:           "見守り：%s の %s は再開後も進展がないため一時停止し、ワークスペースを解放しました。続けるには再度引き渡してください。",
+		LangSpanish:            "Aviso: %s siguió sin avanzar en %s tras reanudarlo; la tarea se pausó y el espacio quedó libre. Vuelve a asignarla para continuar.",
+	},
 	MsgWatchIdleEscalate: {
 		LangEnglish:            "Watch: %s has not resumed %s after two wakeups. Primary role, please take over.",
 		LangChinese:            "看门：%s「%s」连续叫醒两次仍未继续，请主角色接手。",
 		LangTraditionalChinese: "看門：%s「%s」連續叫醒兩次仍未繼續，請主角色接手。",
 		LangJapanese:           "見守り：%s は %s を2回呼びかけても再開していません。主担当に引き継いでください。",
 		LangSpanish:            "Aviso: %s no ha retomado %s tras dos avisos. El rol principal debe hacerse cargo.",
+	},
+	MsgTaskReviewUnavailable: {
+		LangEnglish:            "#%d: dispatcher %s is unavailable; primary role, verify or reassign",
+		LangChinese:            "#%d：派活人 %s 不在线，请主角色核对或接手",
+		LangTraditionalChinese: "#%d：派活人 %s 不在線，請主角色核對或接手",
+		LangJapanese:           "#%d：依頼担当 %s が不在です。主担当が検収または再割当してください",
+		LangSpanish:            "#%d: el coordinador %s no está disponible; el rol principal debe verificar o reasignar",
+	},
+	MsgTaskReviewRoundup: {
+		LangEnglish:            "Hourly pending verification list",
+		LangChinese:            "整点待验收清单",
+		LangTraditionalChinese: "整點待驗收清單",
+		LangJapanese:           "毎時の検収待ち一覧",
+		LangSpanish:            "Lista horaria de verificaciones pendientes",
+	},
+	MsgTaskReviewReturned: {
+		LangEnglish:            "#%d returned; please verify",
+		LangChinese:            "#%d 交回了，请验收",
+		LangTraditionalChinese: "#%d 交回了，請驗收",
+		LangJapanese:           "#%d が返却されました。検収してください",
+		LangSpanish:            "#%d entregada; verifica el resultado",
+	},
+	MsgTaskReviewOverdue: {
+		LangEnglish:            "#%d is overdue for verification",
+		LangChinese:            "#%d 没人验收，请处理",
+		LangTraditionalChinese: "#%d 尚未驗收，請處理",
+		LangJapanese:           "#%d の検収が遅れています",
+		LangSpanish:            "#%d sigue pendiente de verificación",
+	},
+	MsgTaskReviewPrompt: {
+		LangEnglish:            "%s: %s. Handoff: %s. Verify artifacts first. Accept with board done %[4]d <rework-count>, or record feedback with board reject %[4]d <feedback> and continue through ws-handoff --resume %[4]d <feedback>. Check workspace occupancy; use a free workspace or queue. The dispatcher owns verification, not the user. A returned report is not acceptance.",
+		LangChinese:            "%s：%s。交接：%s。先核对实际产物，再收口（board done %[4]d <返工次数>），或记录问题（board reject %[4]d <问题>）后用 ws-handoff --resume %[4]d <问题> 续办。先核对原工作区占用，占用时排队或选空闲区。不得把待核对交给用户，不得把交回当验收。",
+		LangTraditionalChinese: "%s：%s。交接：%s。先核對產物，再用 board done %[4]d <返工次數> 收口，或 board reject %[4]d <問題> 記錄問題並 ws-handoff --resume %[4]d <問題> 續辦。先核對工作區占用，忙碌時排隊或選空閒區。驗收歸派活人，不交給使用者；交回不等於驗收。",
+		LangJapanese:           "%s：%s。引継ぎ：%s。成果物を検証し、board done %[4]d <修正回数> で承認するか、board reject %[4]d <問題> に記録し ws-handoff --resume %[4]d <問題> で再開してください。空き作業区がなければ待機してください。依頼担当が検収してください。返却は承認ではありません。",
+		LangSpanish:            "%s: %s. Traspaso: %s. Verifica los artefactos y acepta con board done %[4]d <revisiones>, o registra problemas con board reject %[4]d <problemas> y continúa con ws-handoff --resume %[4]d <problemas>. Comprueba la ocupación; usa un espacio libre o la cola. La verificación corresponde al coordinador, no al usuario. Entrega no significa aceptación.",
+	},
+
+	MsgWatchFailEscalate: {
+		LangEnglish:            "Watch: %s failed %s twice in a row with errors; automatic resume stopped. Primary role, reassign or take over.",
+		LangChinese:            "看门：%s「%s」连续两次报错，已停止自动接着做，请主角色换人或接手。",
+		LangTraditionalChinese: "看門：%s「%s」連續兩次報錯，已停止自動接著做，請主角色換人或接手。",
+		LangJapanese:           "見守り：%s の %s が2回連続でエラーになったため、自動再開を止めました。主担当は担当替えか引き継ぎをしてください。",
+		LangSpanish:            "Aviso: %s falló dos veces seguidas en %s; se detuvo la reanudación automática. El rol principal debe reasignar o hacerse cargo.",
 	},
 	MsgPublicEnded: {
 		LangEnglish:            "Turn ended; see the final reply. Acceptance is not confirmed.",
@@ -1006,6 +1124,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangEnglish:            "Task in progress",
 		LangChinese:            "处理中的任务",
 		LangTraditionalChinese: "處理中的任務",
+	},
+	MsgProactiveTaskAdmitted: {
+		LangEnglish:            "Follow-up admitted under the configured authorization policy.",
+		LangChinese:            "已按配置的授权策略受理跟进任务。",
+		LangTraditionalChinese: "已按設定的授權策略受理跟進任務。",
+		LangJapanese:           "設定された認可ポリシーに従ってフォローアップを受け付けました。",
+		LangSpanish:            "Seguimiento admitido según la política de autorización configurada.",
 	},
 	MsgPublicAutoStartedTools: {
 		LangEnglish:            "Started working (several tool steps).",

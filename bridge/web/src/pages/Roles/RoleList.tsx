@@ -12,10 +12,53 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
-import { Card, Badge, Button, EmptyState } from '@/components/ui';
+import { Card, Button, EmptyState } from '@/components/ui';
 import { listRoles, restartRole, setRolePaused, type RoleInfo } from '@/api/roles';
 import { roleLabel } from '@/lib/roleIdentity';
 import { shownName } from '@/api/projects';
+
+/** 角色状态四态：在忙 / 空闲 / 不在线 / 已暂停。
+ *  用颜色、图标、卡片描边和明暗一起区分，不只靠一个小圆点。 */
+function roleStateOf(role: RoleInfo) {
+  if (role.paused) {
+    return {
+      label: '已暂停',
+      pill: 'bg-violet-500/10 text-violet-600 dark:text-violet-300 border-violet-500/30',
+      dot: 'bg-violet-500',
+      pulse: false,
+      stripe: 'bg-gradient-to-b from-violet-400 to-purple-500',
+      card: 'border-violet-400/30',
+    };
+  }
+  if (!role.online) {
+    return {
+      label: '不在线',
+      pill: 'bg-gray-500/10 text-gray-500 dark:text-gray-400 border-gray-400/30',
+      dot: 'bg-gray-400',
+      pulse: false,
+      stripe: 'bg-gray-400/40',
+      card: 'border-dashed border-gray-300 dark:border-white/[0.10]',
+    };
+  }
+  if (role.busy) {
+    return {
+      label: '在忙',
+      pill: 'bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-500/40',
+      dot: 'bg-amber-500',
+      pulse: true,
+      stripe: 'bg-gradient-to-b from-amber-400 to-orange-500',
+      card: 'border-amber-400/40',
+    };
+  }
+  return {
+    label: '空闲',
+    pill: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/30',
+    dot: 'bg-emerald-500',
+    pulse: false,
+    stripe: 'bg-gradient-to-b from-emerald-400 to-teal-500',
+    card: 'border-emerald-400/25',
+  };
+}
 
 export default function RoleList() {
   const { t } = useTranslation();
@@ -121,9 +164,14 @@ export default function RoleList() {
             const isRestarting = !!actionLoading[`restart-${role.name}`];
             const isPausing = !!actionLoading[`pause-${role.name}`];
             const shown = shownName(role);
+            const state = roleStateOf(role);
 
             return (
-              <Card key={role.name} className="flex flex-col justify-between p-5 hover:border-accent/40 transition-all">
+              <Card
+                key={role.name}
+                className={`relative overflow-hidden flex flex-col justify-between p-5 transition-all hover:shadow-lg hover:shadow-black/[0.04] ${state.card} ${role.online ? '' : 'opacity-75'}`}
+              >
+                <span aria-hidden className={`absolute inset-y-0 left-0 w-1 ${state.stripe}`} />
                 <div className="space-y-4">
                   {/* Top: Name & Badges */}
                   <div className="flex items-start justify-between gap-2">
@@ -150,11 +198,18 @@ export default function RoleList() {
                       </div>
                     </div>
 
-                    {/* Online status */}
-                    <Badge variant={role.online ? 'success' : 'default'} className="gap-1">
-                      <span className={`w-1.5 h-1.5 rounded-full ${role.online ? 'bg-emerald-500' : 'bg-gray-400'}`} />
-                      {role.online ? '在线' : '离线'}
-                    </Badge>
+                    {/* Status: 在忙 / 空闲 / 不在线 / 已暂停 */}
+                    <span
+                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wide ${state.pill}`}
+                    >
+                      <span className="relative flex h-2 w-2">
+                        {state.pulse && (
+                          <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${state.dot}`} />
+                        )}
+                        <span className={`relative inline-flex h-2 w-2 rounded-full ${state.dot}`} />
+                      </span>
+                      {state.label}
+                    </span>
                   </div>
 
                   {/* 4 Required items: Status, Current task, Current model, Controls */}
@@ -165,7 +220,15 @@ export default function RoleList() {
                         <Activity size={13} className="text-gray-400" />
                         当前在忙：
                       </span>
-                      <span className={`font-medium max-w-[150px] truncate ${role.busy ? 'text-amber-500' : 'text-gray-700 dark:text-gray-300'}`}>
+                      <span
+                        className={`max-w-[150px] truncate font-medium ${
+                          role.online && role.busy
+                            ? 'text-amber-600 dark:text-amber-300'
+                            : role.online
+                              ? 'text-gray-700 dark:text-gray-300'
+                              : 'text-gray-400'
+                        }`}
+                      >
                         {role.current_task}
                       </span>
                     </div>

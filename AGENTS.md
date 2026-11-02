@@ -35,7 +35,8 @@
      不登录也能存配置，但结果里会有阻塞的 `agent_not_logged_in`，机器人答不出话。
    - **机器人用什么语言回**：问用户，写 `"language": "<代码>"`（`zh`、`zh-TW`、`en`、`ja`、`ko`… 原样写进人设）。不问时按本机 locale（`LANG`），服务器常是 en_US，所以最好问；
      结果里每个角色的 `reply_language` / `reply_language_from` 写着选了什么、从哪来，另有一条 `reply_language_default` 提醒。要改：在 role 里加 `"reply_language": "<代码>"` 再跑一次（已配好的机器人只改人设里回复语言那一行），或直接改 `persona_file` 里 `<!-- conest:reply-language -->` 下面那一行。
-   - 不用问：jev（可选，不填也能跑）、人设（可选，`bothouse setup personas` 有示例）、主角色（默认第一个）、`allow_from`（默认 = 机器人所有者，用 token 自动查；查不到时结果会要你问用户的 Discord 用户 ID）、gate（可选，不装也能用）。
+   - **群聊参与方式**：想少插话、也不跑小模型，安装请求加 `"gate": {"enabled": true, "mode": "addressed"}`，群聊需 @（Discord 也可回复该角色，自建平台也可开头叫名字）；想接未点名的追问，用 `"mode": "smart"` 并配置可返回 logprobs 的 jev。用户已说明要安静时直接选 addressed；添加角色省略 gate 会保留已保存选择。「关闭分流」会沿用各机器人设置，不能当成安静模式。具体成本见 docs/connect-discord-feishu.md 第 5 节。
+   - 不用问：jev（可选，不填也能跑）、人设（可选，`bothouse setup personas` 有示例）、主角色（默认第一个）、`allow_from`（默认 = 机器人所有者，用 token 自动查；查不到时结果会要你问用户的 Discord 用户 ID）。
    - 飞书：`"platform": "feishu"`，先让用户跑 `bothouse feishu setup` 扫码拿 app_id/app_secret，一次只接一个机器人。
 3. **执行**：字段说明看 `bothouse setup apply -h`。把请求写进权限 600 的临时文件（token 不打印、不进日志、不进仓库），
    先 `bothouse setup apply --json <文件> --dry-run`（不写任何文件），再去掉 `--dry-run` 跑。最小请求：
@@ -48,6 +49,17 @@
    不要动用户已在运行的 bothouse 进程，除非用户同意。
 
 详细说明：[docs/connect-discord-feishu.md](docs/connect-discord-feishu.md) 第 3 节；人用浏览器向导时直接运行 `bothouse`。
+
+## 用户说「配 QQ」「接上 QQ」
+
+同样是装 → `setup apply` → 确认上线，平台换成 QQ（NapCat / OneBot 11）。不用 Discord token。
+
+1. 让用户先在本机启动 NapCat、登录机器人用的 QQ 号，在 NapCat「网络配置」里开一个 WebSocket 服务器（默认 `ws://127.0.0.1:3001`），记下 token（可空）。
+2. 一次问齐：WebSocket 地址、token、**用户自己的 QQ 号**（`allow_from`，必填；`*` = 谁都能指挥，不推荐）、用哪个本机 CLI（`bothouse setup clis`）。
+3. 请求 `{"platform": "qq", "qq": {"ws_url": "<地址>", "token": "<token>", "allow_from": "<QQ号>"}, "roles": [{}]}`，照上一节第 3、4 步先 `--dry-run`（会真连一次 NapCat 测试）再正式跑、看 `ok`。`qq.code` 是 `unreachable` / `unauthorized` 时把 `qq.message` 和 `qq.fix` 告诉用户。
+4. 启动后日志出现 `qq: logged in` 就是连上了，让用户在 QQ 里私聊或在群里 @ 机器人试一句。
+
+详细说明：[docs/platforms/qq.md](docs/platforms/qq.md)。已经配了别的平台再加 QQ：同一请求加 `"append_only": true`，已有角色不动。
 
 ## 用户说「接自建平台」「要一个像 Grok 那样打开就聊的」
 
@@ -62,3 +74,29 @@
 4. 启动后日志出现 `cloud_web: websocket connected` 就是连上了；把 `bothouse setup hub` 输出里的 `open_url`（本机平台，含登录口令）给用户打开，让用户在频道里发「@名字 你好」。
 
 详细说明：[docs/connect-discord-feishu.md](docs/connect-discord-feishu.md) 第 7 节。
+
+## 不用向导加一个平台：`bothouse module add`（每个平台一条命令）
+
+给 AI 用：不提问、不读 stdin。每个平台自己的参数，内部就是 `setup apply`（追加模式，已有角色不动），成功时打印同一个结果 JSON。
+先加 `--dry-run`（不写任何文件，QQ 照样会真连一次 NapCat 测试），`ok: true` 再去掉它正式跑，然后重启 bothouse。
+缺参数时打印 `missing` 列表（含 `--flag` 和该填什么）、`ok: false`、退出码 1，什么都不写。
+
+```sh
+# QQ：NapCat / OneBot 11；allow_from 必填（你自己的 QQ 号，* = 谁都能指挥）
+bothouse module add qq --ws-url ws://127.0.0.1:3001 --token '<NapCat token，没有就不写>' --allow-from <你的QQ号>
+
+# Discord：token 和服务器 ID 必填，频道和 allow_from 可省（allow_from 默认 = 机器人所有者）
+bothouse module add discord --token '<bot token>' --guild <服务器ID> --channel <频道ID> --allow-from <Discord用户ID>
+
+# 飞书 / Lark：先 bothouse feishu setup 扫码拿到
+bothouse module add feishu --app-id <app_id> --app-secret <app_secret>
+
+# 自建平台：url/token 省掉时用本机向导启动的那个 hub；名字是它在平台里显示的名字
+bothouse module add cloud_web --url <地址> --token '<机器人 token>' --name <名字>
+
+# DSH：安装或恢复 web profile 插件，JSON 输出；可先加 --dry-run 只检查
+bothouse module add dsh
+```
+
+`--lang zh|en|ja|…` 指定机器人回复语言。已经配好的平台改参数用网页向导或 `setup apply`（`module add` 只追加，不改已有角色）；
+不带参数仍然是把 `module disable` 停用的平台重新打开。

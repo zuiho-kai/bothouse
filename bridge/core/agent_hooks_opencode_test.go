@@ -151,4 +151,56 @@ try {
 	}
 }
 
+// TestOpenCodePluginHookExitBeforeStdinRead: a hook that exits without reading stdin (here the command
+// "exit 1") makes writing the payload fail with EPIPE, but the child's exit status survives in the same
+// spawnSync result. The line on stderr must name the hook's exit status; naming the pipe error instead made
+// the message depend on timing and flaked on CI (#159). The patch is far larger than the kernel pipe buffer,
+// so the child is gone before the write completes and EPIPE happens every run instead of once in a while.
+func TestOpenCodePluginHookExitBeforeStdinRead(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not on PATH")
+	}
+	wd, err := filepath.EvalSymlinks(t.TempDir()) // the plugin resolves its dir through import.meta.url (macOS /private/var)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureOpenCodeHookPlugin(wd); err != nil {
+		t.Fatal(err)
+	}
+	settings := `{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"exit 1"}]}]}}`
+	if err := os.MkdirAll(filepath.Join(wd, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wd, ".claude", "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := filepath.Join(t.TempDir(), "run.mjs")
+	js := `const mod = await import(process.argv[2])
+const before = (await mod.BothouseHooks({}))["tool.execute.before"]
+// 1 MiB of new content: larger than any pipe buffer, so the hook is gone before stdin is written
+const big = "x".repeat(1024 * 1024)
+const patch = "*** Begin Patch\n*** Update File: big.txt\n@@\n-old\n+" + big + "\n*** End Patch"
+await before({ tool: "apply_patch", sessionID: "s", callID: "c" }, { args: { patchText: patch } })
+console.log("DONE")
+`
+	if err := os.WriteFile(runner, []byte(js), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(node, runner, OpenCodePluginPath(wd)).CombinedOutput()
+	s := string(out)
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, s)
+	}
+	if strings.Contains(s, "EPIPE") {
+		t.Fatalf("stderr named the pipe error instead of the exit status:\n%s", s)
+	}
+	if !strings.Contains(s, "[bothouse hooks] exit 1 failed (exit 1), Edit call let through") {
+		t.Fatalf("missing stderr line with the hook's exit status:\n%s", s)
+	}
+	if !strings.Contains(s, "DONE") {
+		t.Fatalf("hook made the call fail instead of letting it through:\n%s", s)
+	}
+}
+
 func strconvQuote(s string) string { b, _ := json.Marshal(s); return string(b) }

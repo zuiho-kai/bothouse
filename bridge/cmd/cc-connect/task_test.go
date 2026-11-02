@@ -89,12 +89,24 @@ func TestTaskCLI(t *testing.T) {
 	if err := json.Unmarshal(ack.Bytes(), &started); err != nil {
 		t.Fatal(err)
 	}
+	var events bytes.Buffer
+	if err := call(append(append([]string{"event-source"}, base...), "--id", started.TaskID, "--source", "fixture", "--thread", "room:42", "--enabled"), &events); err != nil {
+		t.Fatal("source registration", err)
+	}
+	events.Reset()
+	if err := call(append(append([]string{"events"}, base...), "--id", started.TaskID, "--source", "fixture"), &events); err != nil || !strings.Contains(events.String(), "inputs") {
+		t.Fatal("private event lookup", err, events.String())
+	}
+	events.Reset()
+	if err := call(append(append([]string{"event-ack"}, base...), "--source", "fixture", "--event-id", "unknown", "--assignment", "old"), &events); err == nil || !strings.Contains(err.Error()+events.String(), "404") {
+		t.Fatal("unknown acknowledgement accepted", err)
+	}
 	var assigned bytes.Buffer
-	if err := call(append(append([]string{"assign"}, base...), append(run, "--id", started.TaskID, "--member", "forged", "--reporter-project", "unregistered", "--title", "Review", "--ref", "core/task_members.go:35")...), &assigned); err == nil || !strings.Contains(err.Error(), "HTTP 409") {
+	if err := call(append(append([]string{"assign"}, base...), append(run, "--id", started.TaskID, "--member", "forged", "--reporter-project", "unregistered", "--title", "Review", "--ref", "core/task_members.go:35")...), &assigned); err == nil || !strings.Contains(err.Error()+assigned.String(), "HTTP 409") {
 		t.Fatal("CLI reporter project did not reach server-side identity validation", err)
 	}
 	assigned.Reset()
-	if err := call(append(append([]string{"assign"}, base...), append(run, "--id", started.TaskID, "--member", "reviewer", "--name", "Reviewer", "--title", "Review")...), &assigned); err == nil || !strings.Contains(err.Error(), "缺参照实现") {
+	if err := call(append(append([]string{"assign"}, base...), append(run, "--id", started.TaskID, "--member", "reviewer", "--name", "Reviewer", "--title", "Review")...), &assigned); err == nil || !strings.Contains(err.Error()+assigned.String(), "缺参照实现") {
 		t.Fatal("CLI assignment without --ref was not rejected by the server", err)
 	}
 	assigned.Reset()

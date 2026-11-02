@@ -32,6 +32,7 @@ type Platform struct {
 	wsURL                 string // e.g. "ws://127.0.0.1:3001"
 	token                 string // optional access_token
 	allowFrom             string // comma-separated user IDs or "*"
+	commandAllowFrom      string // optional separate sender list for slash-prefixed input
 	shareSessionInChannel bool
 	handler               core.MessageHandler
 	conn                  *websocket.Conn
@@ -90,6 +91,7 @@ func New(opts map[string]any) (core.Platform, error) {
 	}
 	token, _ := opts["token"].(string)
 	allowFrom, _ := opts["allow_from"].(string)
+	commandAllowFrom, _ := opts["command_allow_from"].(string)
 	shareSessionInChannel, _ := opts["share_session_in_channel"].(bool)
 
 	core.CheckAllowFrom("qq", allowFrom)
@@ -101,6 +103,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		wsURL:                 wsURL,
 		token:                 token,
 		allowFrom:             allowFrom,
+		commandAllowFrom:      commandAllowFrom,
 		shareSessionInChannel: shareSessionInChannel,
 		httpURL:               httpURL,
 	}, nil
@@ -258,6 +261,17 @@ func (p *Platform) handleMessage(payload map[string]any) {
 	// Parse message content from CQ message array or raw_message
 	parsed := p.parseMessage(payload, msgType, groupID)
 
+	// A slash-prefixed message is a command, and command_allow_from decides who
+	// may submit one. This runs before core gets the message, so built-in
+	// commands, custom commands, skills and unknown commands forwarded to an
+	// agent all follow one policy; core would otherwise hand an unknown command
+	// straight to the agent. Ordinary chat is unaffected: allow_from still
+	// decides who is admitted at all.
+	if strings.HasPrefix(strings.TrimSpace(parsed.text), "/") &&
+		!core.AllowList(p.commandAllowFrom, strconv.FormatInt(userID, 10)) {
+		return
+	}
+
 	// A reply to one of this bot's messages calls the bot just like an @ does
 	// (core/gate_local.go: "an @, a reply to it"). Everyone else's message is
 	// context only.
@@ -399,24 +413,8 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 				})
 			}
 		case "record":
-			if url, ok := data["url"].(string); ok && url != "" {
-				audioData, _, err := downloadFile(url)
-				if err != nil {
-					slog.Warn("qq: download audio failed", "error", err)
-					continue
-				}
-				format := "silk"
-				if f, ok := data["file"].(string); ok {
-					if strings.HasSuffix(f, ".amr") {
-						format = "amr"
-					} else if strings.HasSuffix(f, ".mp3") {
-						format = "mp3"
-					}
-				}
-				out.audio = &core.AudioAttachment{
-					Data:   audioData,
-					Format: format,
-				}
+			if audio := p.fetchRecord(data); audio != nil {
+				out.audio = audio
 			}
 		case "file":
 			name, _ := data["name"].(string)
@@ -833,6 +831,84 @@ func (p *Platform) SendImage(ctx context.Context, replyCtx any, img core.ImageAt
 
 var _ core.ImageSender = (*Platform)(nil)
 
+// fetchRecord returns a received voice message in a format core speech can
+// read. QQ voice is silk, which stock ffmpeg cannot demux, so NapCat is asked
+// to transcode it first (get_record out_format=mp3 returns base64). If that
+// fails, the segment URL is downloaded as before.
+func (p *Platform) fetchRecord(data map[string]any) *core.AudioAttachment {
+	file, _ := data["file"].(string)
+	if file != "" {
+		result, err := p.callAPI("get_record", map[string]any{"file": file, "out_format": "mp3"})
+		if err == nil {
+			if b64, _ := result["base64"].(string); b64 != "" {
+				if audio, err := base64.StdEncoding.DecodeString(b64); err == nil && len(audio) > 0 {
+					return &core.AudioAttachment{MimeType: "audio/mpeg", Data: audio, Format: "mp3"}
+				}
+			}
+			slog.Warn("qq: get_record returned no audio", "file", file)
+		} else {
+			slog.Warn("qq: get_record failed, falling back to segment url", "file", file, "error", err)
+		}
+	}
+
+	url, _ := data["url"].(string)
+	if url == "" {
+		return nil
+	}
+	audio, _, err := downloadFile(url)
+	if err != nil {
+		slog.Warn("qq: download audio failed", "error", err)
+		return nil
+	}
+	format := "silk"
+	switch {
+	case strings.HasSuffix(file, ".amr"):
+		format = "amr"
+	case strings.HasSuffix(file, ".mp3"):
+		format = "mp3"
+	}
+	return &core.AudioAttachment{Data: audio, Format: format}
+}
+
+// SendAudio sends synthesized speech as a QQ voice message. NapCat accepts
+// common formats in a record segment and encodes them to silk itself.
+// Implements core.AudioSender.
+func (p *Platform) SendAudio(ctx context.Context, replyCtx any, audio []byte, format string) error {
+	rctx, ok := replyCtx.(*replyContext)
+	if !ok {
+		return fmt.Errorf("qq: SendAudio: invalid reply context type %T", replyCtx)
+	}
+	if len(audio) == 0 {
+		return fmt.Errorf("qq: SendAudio: empty audio")
+	}
+
+	segments := []map[string]any{
+		{"type": "record", "data": map[string]any{"file": "base64://" + base64.StdEncoding.EncodeToString(audio)}},
+	}
+	params := map[string]any{"message": segments}
+	action := "send_private_msg"
+	if rctx.messageType == "group" {
+		params["group_id"] = rctx.groupID
+		action = "send_group_msg"
+	} else {
+		params["user_id"] = rctx.userID
+	}
+
+	result, err := p.callAPI(action, params)
+	if err != nil {
+		return fmt.Errorf("qq: send audio: %w", err)
+	}
+	id := jsonInt64(result, "message_id")
+	if id == 0 {
+		return fmt.Errorf("qq: send audio: no message_id in reply")
+	}
+	slog.Info("qq: voice sent", "message_id", id, "format", format, "bytes", len(audio))
+	p.recordSent(result, "[voice]")
+	return nil
+}
+
+var _ core.AudioSender = (*Platform)(nil)
+
 func (p *Platform) Stop() error {
 	if p.cancel != nil {
 		p.cancel()
@@ -958,6 +1034,10 @@ func (p *Platform) callAPI(action string, params map[string]any) (map[string]any
 	}
 
 	p.mu.Lock()
+	if p.conn == nil {
+		p.mu.Unlock()
+		return nil, core.ErrTaskTextNotAccepted
+	}
 	err = p.conn.WriteMessage(websocket.TextMessage, data)
 	p.mu.Unlock()
 	if err != nil {
@@ -1013,6 +1093,10 @@ func (p *Platform) callHTTPAPI(action string, params map[string]any) (map[string
 		return nil, fmt.Errorf("qq: HTTP %s failed: %w", action, err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("qq: HTTP %s returned HTTP %d", action, resp.StatusCode)
+	}
 
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -1119,6 +1203,10 @@ func downloadFile(url string) ([]byte, string, error) {
 		return nil, "", err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {

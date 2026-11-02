@@ -62,6 +62,10 @@ Request JSON (only the fields marked REQUIRED must be given; everything else has
                      apiKeyEnv names; that setup is copied into the role) or the apply is refused
   fallback_role      project that answers when no one is addressed (default: first role); cloud_web: the
                      role's display name works too
+  gate               {"enabled": true, "mode": "addressed"}: group replies only when addressed,
+                     no routing model required. mode "smart" enables unaddressed delivery + routing.
+                     Omitted = keep this platform's saved choice; enabled false keeps legacy off behavior.
+                     Custom gate URLs and other platforms are preserved. No model is downloaded.
   fallback_bot_id    the same, by Discord bot ID
   allow_from         Discord user IDs (comma-separated) the bots take orders from; "*" = anyone in the server.
                      Default: the owner of each bot's Discord application (looked up with the token).
