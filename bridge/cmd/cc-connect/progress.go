@@ -33,6 +33,11 @@ func parseProgressArgs(args []string) (core.PublicProgressRequest, string, error
 	var req core.PublicProgressRequest
 	var dataDir string
 	f := flag.NewFlagSet("progress", flag.ContinueOnError)
+	f.Usage = func() {
+		fmt.Fprintln(f.Output(), "usage: bothouse progress --run RUN_TOKEN --seq N --kind KIND --message 'short status' [flags]\n")
+		fmt.Fprintln(f.Output(), core.ProgressHelp())
+		f.PrintDefaults()
+	}
 	f.StringVar(&req.Project, "project", os.Getenv("CC_PROJECT"), "project")
 	f.StringVar(&req.SessionKey, "session", os.Getenv("CC_SESSION_KEY"), "session")
 	f.StringVar(&req.Run, "run", "", "current turn token from prompt (required)")

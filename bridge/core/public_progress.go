@@ -1184,11 +1184,40 @@ func (e *Engine) beginPublicProgress(platform Platform, session string, stopped 
 	return token
 }
 
+// Per-turn progress text is one line naming the task in progress, or nothing.
+// The full instructions below used to be prepended to every turn (about 1.3k
+// tokens even for casual chat and scheduled check-ins); they now live in
+// `bothouse progress --help` (ProgressHelp). The run token stays in the line so
+// an open task can still be continued.
 func (e *Engine) publicProgressInstructions(token, session string) string {
-	if e.publicProgress.journalOnly(token) {
-		return e.progressInstructions(token, session, journalProgressPrompt+taskArtifactsPrompt)
+	return e.currentTaskLine(token)
+}
+
+// currentTaskLine is the only progress text a turn carries: the open task's
+// title and how to continue it, or "" when the session has no task in progress.
+func (e *Engine) currentTaskLine(token string) string {
+	taskID, resumeSeq, state, title, ok := e.publicProgress.resumeHint(token)
+	if !ok || state == TaskStateResultReady || IsTerminalState(state) { // a delivered result is not work in progress
+		return ""
 	}
-	return e.progressInstructions(token, session, publicProgressPrompt+publicTaskMembersPrompt+taskArtifactsPrompt)
+	return "[在做] " + title + "（续报 bothouse progress --run " + token + " --task " + taskID + " --seq " +
+		strconv.FormatInt(resumeSeq, 10) + "，用法 --help）\n\n"
+}
+
+// ProgressHelp is the agent guide formerly injected each turn, for
+// `bothouse progress --help`. Commands are written with the bare executable;
+// project, session and data dir default from CC_PROJECT/CC_SESSION_KEY/CC_DATA_DIR.
+func ProgressHelp() string {
+	return strings.NewReplacer(
+		"ASSIGN_COMMAND", "bothouse task assign",
+		"COMMAND", "bothouse progress",
+		"RUN_TOKEN", "RUN_TOKEN(from the [在做] line)",
+		"RESUME_NOTE", "",
+		"RELAY_COMMAND", "bothouse relay send",
+		"TASK_COMMAND artifact", "bothouse task artifact",
+		"TASK_COMMAND rework", "bothouse task rework",
+		"TASK_COMMAND show", "bothouse task show",
+	).Replace(publicProgressPrompt + publicTaskMembersPrompt + taskArtifactsPrompt + journalProgressPrompt)
 }
 
 func (p *PublicProgress) journalOnly(token string) bool {
@@ -1202,10 +1231,7 @@ const journalProgressPrompt = "[Task progress journal]\nFor accepted multi-step 
 
 // Voice cannot delegate; retain task cards without unrelated member/relay instructions.
 func (e *Engine) voiceProgressInstructions(token, session string) string {
-	if e.publicProgress.journalOnly(token) {
-		return e.progressInstructions(token, session, journalProgressPrompt)
-	}
-	return e.progressInstructions(token, session, voiceProgressPrompt)
+	return e.currentTaskLine(token)
 }
 
 const voiceProgressPrompt = "[Public progress channel]\nOnly for accepted multi-step work, report public status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'short status'. Start with --seq 1 --kind start --title 'task title'.RESUME_NOTE Increment seq for update/milestone/waiting/result; retry the same seq/content. Report only meaningful changes (max 64). No cards for chat or questions. Keep reasoning, tools, credentials and conversations private. Report verified facts; result is not human acceptance. This token is for this turn only. Keep the spoken reply short.\n[/Public progress channel]\n\n"
