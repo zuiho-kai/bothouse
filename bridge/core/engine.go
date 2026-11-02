@@ -4054,8 +4054,8 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		"queue_depth", queueDepth,
 	)
 	if !msg.abortFront { // the abort says "⏹ 已打断" instead (abortForQueuedFront)
-		// Timer turns have no human waiting; the receipt is channel noise (11-02 restart burst).
-		if !e.skipQueuedNotice.Load() && msg.timerJobID == "" {
+		// Cron/timer/heartbeat turns have no human waiting; the receipt is channel noise (11-02 restart burst).
+		if !e.skipQueuedNotice.Load() && msg.timerJobID == "" && scheduledFrom == nil && !scheduledTurnUser(msg.UserID) {
 			e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgMessageQueued))
 		}
 	}
