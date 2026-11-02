@@ -336,6 +336,7 @@ class WsPoolTest(unittest.TestCase):
         self.assertIn("--forward", argv)
         self.assertNotIn("--handoff", argv)
         self.assertEqual(argv[argv.index("--delay") + 1], "1m")
+        self.assertEqual(argv[argv.index("-s") + 1], "test:1")  # 还是叫醒原来那个工作区：归属没变
 
         r = subprocess.run([sys.executable, "-I", str(HERE / "ws-forward"), "--interrupt", "--notes", notes, "验收改成别的"],
                            capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
@@ -345,6 +346,7 @@ class WsPoolTest(unittest.TestCase):
         self.assertIn("--forward", argv)
         self.assertIn("--inject-if-busy", argv)
         self.assertEqual(argv[argv.index("--delay") + 1], "1s")
+        self.assertEqual(argv[argv.index("-s") + 1], "test:1")
 
     def test_forward_failure_records_undelivered(self):
         """#75：叫不醒就不算送到 —— timer 失败时交接里要留下「没送到」的事实，退出码非 0。"""
