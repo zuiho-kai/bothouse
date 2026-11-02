@@ -80,7 +80,10 @@ type Session struct {
 // to another conversation, or the agent compacts. A --resume that only forks a
 // new id keeps it.
 type TurnCtxSent struct {
-	Wiki           []string        `json:"wiki,omitempty"`
+	// Epoch names this agent context to the gate (POST /context "epoch"); the gate keeps what it
+	// already pushed per (key, bot, epoch) and returns only new entries. A new context gets a new
+	// epoch because TurnCtx is dropped with it (11-03: the gate alone decides what was pushed).
+	Epoch          string          `json:"epoch,omitempty"`
 	ReferenceSince time.Time       `json:"-"`              // deliberately unknown after a bridge restart
 	ReferenceIDs   map[string]bool `json:"-"`              // agent output sent by this context only
 	Team           string          `json:"team,omitempty"` // teammate status key (without elapsed times)
@@ -192,7 +195,6 @@ func (t *TurnCtxSent) clone() *TurnCtxSent {
 		return nil
 	}
 	c := *t
-	c.Wiki = append([]string(nil), t.Wiki...)
 	if t.ReferenceIDs != nil {
 		c.ReferenceIDs = make(map[string]bool, len(t.ReferenceIDs))
 		for id, sent := range t.ReferenceIDs {

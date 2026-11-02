@@ -21,13 +21,14 @@ package core
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -749,8 +750,9 @@ func (g *gateState) post(ctx context.Context, path string, req any, out any) err
 }
 
 // turnContext returns the wiki pages matching this message as a block to put
-// before it ("" when the gate has nothing or is down). Each page goes into an
-// agent context once.
+// before it ("" when the gate has nothing or is down). The gate drops what it
+// already pushed into this agent context (by entry id, per epoch); the bridge
+// only names the context (turnEpoch) and does not parse the entries.
 func (e *Engine) turnContext(session *Session, sessionKey, text string) string {
 	g := e.gate
 	if g == nil {
@@ -760,23 +762,34 @@ func (e *Engine) turnContext(session *Session, sessionKey, text string) string {
 	defer cancel()
 	var out gateContextResponse
 	// bot: the gate_url's ?bot= (a sub); ctxsvc then searches her own wiki first (maomao fork, 2026-10-20)
-	if err := g.post(ctx, "/context", map[string]string{"key": sessionKey, "text": text, "bot": g.bot()}, &out); err != nil {
+	req := map[string]string{"key": sessionKey, "text": text, "bot": g.bot(), "epoch": turnEpoch(session)}
+	if err := g.post(ctx, "/context", req, &out); err != nil {
 		slog.Warn("gate: context fetch failed", "session", sessionKey, "error", err)
 		return ""
 	}
 	var wiki []string
-	session.UpdateTurnCtx(func(t *TurnCtxSent) {
-		for _, w := range out.Wiki {
-			if !slices.Contains(t.Wiki, w.Path) {
-				t.Wiki = append(t.Wiki, w.Path)
-				wiki = append(wiki, "\n- "+w.Path+" — "+w.Desc)
-			}
-		}
-	})
+	for _, w := range out.Wiki {
+		wiki = append(wiki, "\n- "+w.Path+" — "+w.Desc)
+	}
 	if len(wiki) == 0 {
 		return ""
 	}
 	return "（可能相关的 wiki 页，需要时去读）" + strings.Join(wiki, "")
+}
+
+// turnEpoch is this agent context's name for the gate's push dedup: made on first use and
+// dropped with TurnCtx (/new, switched conversation, compaction), so a new context gets a new one.
+func turnEpoch(session *Session) string {
+	var ep string
+	session.UpdateTurnCtx(func(t *TurnCtxSent) {
+		if t.Epoch == "" {
+			b := make([]byte, 8)
+			_, _ = rand.Read(b)
+			t.Epoch = hex.EncodeToString(b)
+		}
+		ep = t.Epoch
+	})
+	return ep
 }
 
 // withTurnBlocks puts the teammate status, wiki pages and handoff the
