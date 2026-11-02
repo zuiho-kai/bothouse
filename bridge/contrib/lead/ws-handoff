@@ -501,14 +501,19 @@ def start(path, task, chat, nid, project, answer=None):
 def drain():
     """排队的活先排先接，接到没有空工作区为止（桥放回工作区后调，core/team_workspace_one.go drainTeamWorkspaceQueue）。"""
     with _queue() as q:
-        while q:
-            x = q[0]
-            if not any(i["id"] == x["nid"] for i in board.items()):
-                q.pop(0)  # 板上已没有（做完、撤掉）：不再接
+        index = 0
+        while index < len(q):
+            x = q[index]
+            it = next((i for i in board.items() if i["id"] == x["nid"]), None)
+            if it is None:
+                q.pop(index)
+                continue
+            if it.get("paused"):
+                index += 1  # 用户 2026-11-02：暂停保留原队列位置，恢复后继续接。
                 continue
             if not start(x["path"], x["task"], x["chat"], x["nid"], x.get("project"), x.get("answer")):
                 break
-            q.pop(0)
+            q.pop(index)
 
 
 def resume_answered(nid, answer):
@@ -516,11 +521,20 @@ def resume_answered(nid, answer):
     it = next((i for i in board.items() if i["id"] == nid), None)
     if it is None or not it.get("chat") or not os.path.isfile(it.get("where") or ""):
         sys.exit(f"ws-handoff: #{nid} 不是 ws-handoff 交的活，没法接回")
-    board.resume(nid)
     source = "验收退回" if it.get("review_rejected") else "用户答复"
     board.append_forward(it["where"], f"{board._now()} {source}（#{nid}）：{answer}")
     _recall.append_to(it["where"])  # 改动前交出的活没有旧定案节，接回时补上（已有就跳过）
     project = os.environ.get("CC_PROJECT", "")
+    in_queue = False
+    with _queue() as q:
+        for entry in q:
+            if entry["nid"] == nid:
+                entry["answer"] = answer
+                entry["project"] = project
+                in_queue = True
+    board.resume(nid)
+    if in_queue:
+        return drain()  # 用户 2026-11-02：答复续办也保留原位置，不重复派发。
     with _queue() as q:
         if not start(it["where"], it["what"], it["chat"], nid, project, answer):
             board.update(nid, "排队")
