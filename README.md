@@ -110,11 +110,6 @@ still determine which settings a backend can apply.
 
 <a id="memory"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/memory-en-night.svg" />
-  <img src="docs/assets/readme/banner/memory-en-day.svg" width="960" alt="" />
-</picture>
-
 ## Memory you can see
 
 The team's memory is a plain folder of Markdown files. Each incoming message first looks up the relevant pages; a nightly review fixes what was written down wrong. You can read and edit it directly; Git records every change and pushes it to your own private GitHub repo, so the memory follows you to another computer. See [dispatcher and team memory](docs/ccm-and-wiki.md) (Chinese).
@@ -269,11 +264,6 @@ Most guides are currently in Chinese; the self-hosted web protocol is in English
 
 <a id="community"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/community-en-night.svg" />
-  <img src="docs/assets/readme/banner/community-en-day.svg" width="960" alt="" />
-</picture>
-
 ## Community
 
 Questions, ideas and the teams you build are all welcome.
@@ -286,11 +276,6 @@ Questions, ideas and the teams you build are all welcome.
 | [linux.do](https://linux.do) | Chinese community forum |
 
 <a id="repository-status"></a>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/status-en-night.svg" />
-  <img src="docs/assets/readme/banner/status-en-day.svg" width="960" alt="" />
-</picture>
 
 ## Repository status
 

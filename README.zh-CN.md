@@ -102,11 +102,6 @@
 
 <a id="memory"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/memory-zh-night.svg" />
-  <img src="docs/assets/readme/banner/memory-zh-day.svg" width="960" alt="" />
-</picture>
-
 ## 看得见的记忆
 
 团队的记忆就是一个普通的 Markdown 文件夹。每条消息进来，先查相关的几页再回答；夜里自动复盘，把记错的改掉。你可以直接翻、直接改；它用 Git 记下每一次改动，推到你自己的 GitHub 私人仓库，换台电脑也能接着用。详见[调度与团队记忆](docs/ccm-and-wiki.md)。
@@ -255,11 +250,6 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 
 <a id="community"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/community-zh-night.svg" />
-  <img src="docs/assets/readme/banner/community-zh-day.svg" width="960" alt="" />
-</picture>
-
 ## 社区
 
 问题、想法，还有你搭起来的团队，都欢迎带来。
@@ -272,11 +262,6 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 | [linux.do](https://linux.do) | 中文社区讨论 |
 
 <a id="repository-status"></a>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/status-zh-night.svg" />
-  <img src="docs/assets/readme/banner/status-zh-day.svg" width="960" alt="" />
-</picture>
 
 ## 仓库状态
 
