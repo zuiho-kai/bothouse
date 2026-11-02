@@ -1,5 +1,6 @@
 """ws-handoff --drain: a paused queued item is not picked up (2026-11-02 #70: paused by the user,
 still in ws-queue.json, removed by hand so a freed workspace would not start it)."""
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
@@ -38,7 +39,8 @@ class Drain(unittest.TestCase):
         queue.write_text(json.dumps(waiting))
         items[0]["paused"] = ""
         items.append({"id": 72})
-        with patch.object(self.g["board"], "items", return_value=items),                 patch.dict(self.g, {"start": lambda path, task, chat, nid, *a: started.append(nid) or True}):
+        with patch.object(self.g["board"], "items", return_value=items), \
+                patch.dict(self.g, {"start": lambda path, task, chat, nid, *a: started.append(nid) or True}):
             self.mod["drain"]()
         self.assertEqual(started, [71, 70, 72])
         self.assertEqual(json.loads(queue.read_text()), [])
@@ -50,7 +52,12 @@ class Drain(unittest.TestCase):
         queue.parent.mkdir(parents=True, exist_ok=True)
         queue.write_text(json.dumps([{"nid": 70}]))
         item = {"id": 70, "paused": "11-02 08:46", "who": "工作区1", "ws_was": "room:old", "chat": "room:main"}
-        with patch.object(board, "DIR", Path(self.tmp)), patch.object(board, "SETUP", queue.parent), patch.object(board, "auto_prune", return_value=[]), patch.object(board, "reoccupy", side_effect=AssertionError("must use queued position")), patch.object(board.subprocess, "run") as run:
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(board, "DIR", Path(self.tmp)))
+            stack.enter_context(patch.object(board, "SETUP", queue.parent))
+            stack.enter_context(patch.object(board, "auto_prune", return_value=[]))
+            stack.enter_context(patch.object(board, "reoccupy", side_effect=AssertionError("must use queued position")))
+            run = stack.enter_context(patch.object(board.subprocess, "run"))
             run.return_value.returncode = 0
             board._write([item])
             board.main(["resume", "70"])

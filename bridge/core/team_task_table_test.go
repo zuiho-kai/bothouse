@@ -49,7 +49,7 @@ func TestTeamTaskTableWorkspaceFirstDotsSortedAndIdleSummary(t *testing.T) {
 		{ID: 4, What: "搁置盘点", Short: "搁置盘点", Status: "进行中", WS: "feishu:oc_ws4", Chat: "feishu:oc_a",
 			Bound: now.Add(-15 * time.Minute).Format(time.RFC3339), At: "11-01 12:25", ProgressAt: float64(now.Add(-3 * time.Minute).Unix())},
 		{ID: 2, What: "QQ断线修复", Short: "QQ断线修复", Status: "已交接", WS: "feishu:oc_ws2", Chat: "feishu:oc_a",
-			ReturnedAt: now.Add(-10 * time.Minute), Reviewer: "派活人", Bound: now.Add(-50 * time.Minute).Format(time.RFC3339), At: "11-01 11:50"},
+			ReturnedAt: now.Add(-5 * time.Minute), Reviewer: "派活人", Bound: now.Add(-50 * time.Minute).Format(time.RFC3339), At: "11-01 11:50"},
 		{ID: 1, What: "任务板重构", Short: "任务板重构PR", Status: "进行中", WS: "feishu:oc_ws1", Chat: "feishu:oc_a",
 			Bound: now.Add(-25 * time.Minute).Format(time.RFC3339), At: "11-01 12:15", ProgressAt: float64(now.Add(-2 * time.Minute).Unix())},
 	})
@@ -95,7 +95,7 @@ func TestTeamTaskTableEngineIdlePoolAndWSWasEnded(t *testing.T) {
 		{ID: 1, What: "任务板重构PR", Short: "任务板重构PR", Status: "进行中", WS: "discord:ws1", Chat: "discord:main",
 			Bound: bound, At: now.Add(-2 * time.Hour).Format("01-02 15:04")},
 		{ID: 2, What: "QQ断线修复", Short: "QQ断线修复", Status: "已交回", WSWas: "discord:ws2", Chat: "discord:main",
-			ReturnedAt: now.Add(-30 * time.Minute), Reviewer: "派活人", At: now.Add(-30 * time.Minute).Format("01-02 15:04"), wsEnded: true},
+			ReturnedAt: now.Add(-5 * time.Minute), Reviewer: "派活人", At: now.Add(-30 * time.Minute).Format("01-02 15:04"), wsEnded: true},
 	})
 	got := renderTeamTaskTable(items, nil, "discord:main", now)
 	want := strings.Join([]string{

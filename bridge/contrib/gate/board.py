@@ -676,8 +676,11 @@ def bind_pr(nid, url, no_deploy):
         actor = os.environ.get("CC_PROJECT", "")
         if hit is None or not actor or actor != hit.get("dispatcher"):
             raise ValueError("只有该条目的派活人可以绑定 PR 与部署范围")
-        hit["pr_binding"] = {"url": url, "repo": match[1], "number": int(match[2]),
-                             "no_deploy": no_deploy, "bound": hit.get("bound", "")}
+        binding = {"url": url, "repo": match[1], "number": int(match[2]),
+                   "no_deploy": no_deploy, "bound": hit.get("bound", "")}
+        if hit.get("pr_binding") != binding:
+            hit.pop("pr_merge", None)
+        hit["pr_binding"] = binding
         _write(cur)
 
 
