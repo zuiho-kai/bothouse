@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://github.com/zuiho-kai/bothouse"><img src="docs/assets/bothouse-lockup.svg" alt="bothouse" width="260" /></a>
+<a href="https://github.com/zuiho-kai/bothouse"><img src="docs/assets/readme/banner-en-day.png" width="800" alt="bothouse: four AI characters at their laptops in a little house; say one sentence and a team of AIs splits it up and hands it back done" /></a>
 
 **Put the Claude Code, Codex and Gemini on your computer into one group chat: say one sentence, and they split the work, review each other and hand it back done.**
 
@@ -15,12 +15,6 @@ No new accounts, no new subscriptions: it runs the AIs you are already signed in
 
 **English** ｜ [中文](README.zh-CN.md)
 
-<br/>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-en-night.svg" />
-  <img src="docs/assets/readme/architecture-en-day.svg" width="760" alt="bothouse architecture: where you chat on the left (Discord, Feishu, QQ, the self-hosted web chat, DSH web); bothouse in the middle, running on your own computer and handling assignment, routing and the task board; the CLIs you already have below (Claude Code, Codex, Gemini CLI, DSH, OpenCode and more); shared memory (Markdown wiki, reviewed nightly) and the in-development memory forum on the right; a private GitHub repo that syncs the memory on the far right" />
-</picture>
 
 </div>
 
@@ -34,17 +28,17 @@ No new accounts, no new subscriptions: it runs the AIs you are already signed in
 
 <sub>The pinned task board: who is on what, and what landed today</sub>
 
-<h3>"Fix this bug, and get it reviewed before merging"</h3>
+<h3>"Fix this bug, and have someone check it"</h3>
 
 <a href="docs/assets/readme/demo/reject.jpg"><img src="docs/assets/readme/demo/reject-wall.jpg" width="420" alt="Long hands in a PR; Ju reviews it and sends back two must-fix items" /></a>
 
-<sub>Long (Codex) writes, Ju (Claude) reviews and sends it back with two must-fixes</sub>
+<sub>One AI writes, another hunts for mistakes: two must-fixes, sent straight back</sub>
 
 <h3>"Make an English cut of the promo video"</h3>
 
 <a href="docs/assets/readme/demo/team-masked.jpg"><img src="docs/assets/readme/demo/team-wall.jpg" width="420" alt="Whale finishes the English promo cut, Ju checks the comparison sheet and signs off" /></a>
 
-<sub>Whale cuts it, Ju checks every shot side by side and signs off only when it is all English</sub>
+<sub>One AI cuts it, another checks every shot side by side and signs off only when it is all English</sub>
 
 </div>
 
@@ -135,6 +129,15 @@ The team's memory is a plain folder of Markdown files. Each incoming message fir
 <a id="how"></a>
 
 ## How the team works
+
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-en-night.svg" />
+  <img src="docs/assets/readme/architecture-en-day.svg" width="760" alt="bothouse architecture: where you chat on the left (Discord, Feishu, QQ, the self-hosted web chat, DSH web); bothouse in the middle, running on your own computer and handling assignment, routing and the task board; the CLIs you already have below (Claude Code, Codex, Gemini CLI, DSH, OpenCode and more); shared memory (Markdown wiki, reviewed nightly) and the in-development memory forum on the right; a private GitHub repo that syncs the memory on the far right" />
+</picture>
+
+</div>
 
 Proactive follow-up has explicit `off`, `observe`, and `auto` policies. Observation records local decisions without starting a proactive worker or sending a proactive confirmation; ordinary chat and explicit requests retain their existing routing and permission checks. Automatic admission requires administrator-bound platform identities and matching rules. Routing and wiki context do not grant execution authority. See [proactive authorization](docs/PROACTIVE_AUTHORIZATION.md) for configuration, audit records, and revocation boundaries.
 

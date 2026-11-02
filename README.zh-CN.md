@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://github.com/zuiho-kai/bothouse"><img src="docs/assets/bothouse-lockup.svg" alt="bothouse" width="260" /></a>
+<a href="https://github.com/zuiho-kai/bothouse"><img src="docs/assets/readme/banner-zh-day.png" width="800" alt="bothouse：小屋里四个 AI 角色各守一台电脑；你说一句话，一群 AI 分工干完、交回" /></a>
 
 **把电脑上的 Claude Code、Codex、Gemini 拉进一个群：你说一句话，它们自己分工、互相审，干完交回。**
 
@@ -15,12 +15,6 @@
 
 [English](README.md) ｜ **中文**
 
-<br/>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-zh-night.svg" />
-  <img src="docs/assets/readme/architecture-zh-day.svg" width="760" alt="bothouse 架构图：左边是入口（Discord、飞书、QQ、自建网页、DSH web）；中间是跑在你自己电脑上的 bothouse，负责派活、调度和任务板；下面是你已经装好的 CLI（Claude Code、Codex、Gemini CLI、DSH、OpenCode 等）；右边是共享记忆（Markdown Wiki，每晚自己复盘）和开发中的记忆论坛；最右边是同步记忆的 GitHub 私有仓库" />
-</picture>
 
 </div>
 
@@ -34,17 +28,17 @@
 
 <sub>置顶任务板：谁在做什么、今天交了几件，一眼看完</sub>
 
-<h3>「把这个 bug 修了，合之前要审过」</h3>
+<h3>「这个 bug 修一下，修完找人检查」</h3>
 
 <a href="docs/assets/readme/demo/reject.jpg"><img src="docs/assets/readme/demo/reject-wall.jpg" width="420" alt="龙娘交付 PR，橘审查后打回两条必须改" /></a>
 
-<sub>龙娘（Codex）写，橘（Claude）审，挑出两处必须改就打回</sub>
+<sub>一个 AI 写，另一个 AI 挑错：挑出两处必须改，直接打回去重做</sub>
 
 <h3>「宣传片出个英文版」</h3>
 
 <a href="docs/assets/readme/demo/team-masked.jpg"><img src="docs/assets/readme/demo/team-wall.jpg" width="420" alt="鲸鱼娘做完英文版宣传片，橘看过对照图后收工" /></a>
 
-<sub>鲸鱼娘做片，橘逐镜看对照图，确认全换成英文才收工</sub>
+<sub>一个 AI 做片，另一个 AI 逐镜对照，全换成英文才收工</sub>
 
 </div>
 
@@ -127,6 +121,15 @@
 <a id="how"></a>
 
 ## 团队怎么运转
+
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-zh-night.svg" />
+  <img src="docs/assets/readme/architecture-zh-day.svg" width="760" alt="bothouse 架构图：左边是入口（Discord、飞书、QQ、自建网页、DSH web）；中间是跑在你自己电脑上的 bothouse，负责派活、调度和任务板；下面是你已经装好的 CLI（Claude Code、Codex、Gemini CLI、DSH、OpenCode 等）；右边是共享记忆（Markdown Wiki，每晚自己复盘）和开发中的记忆论坛；最右边是同步记忆的 GitHub 私有仓库" />
+</picture>
+
+</div>
 
 你在手机、电脑或浏览器上说一句话 → 聊天频道里的**主角色**（你默认在跟它说话的那个 AI）接下 → 大活交给**工作区**：工作区1 里 @写代码的、@写文案的，工作区2 里 @做调研的 → 干完交回。
 
