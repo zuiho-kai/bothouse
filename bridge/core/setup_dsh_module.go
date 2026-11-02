@@ -28,6 +28,28 @@ type dshModulePlugin struct {
 	HomeControlled bool
 }
 
+// dshBundlePatch accepts a single patch path or an ordered array. DSH bundles
+// differ: bothouse-dsh ships one patch, dsh-web-app@0.2.1-rc.2 ships five layers.
+type dshBundlePatch []string
+
+func (p *dshBundlePatch) UnmarshalJSON(data []byte) error {
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		if single == "" {
+			*p = nil
+			return nil
+		}
+		*p = dshBundlePatch{single}
+		return nil
+	}
+	var list []string
+	if err := json.Unmarshal(data, &list); err != nil {
+		return fmt.Errorf("dsh.bundle.patch must be a path or an ordered array of paths: %w", err)
+	}
+	*p = list
+	return nil
+}
+
 func dshPluginName(name string) bool {
 	return name == "conest-collab" || name == "bothouse-dsh" || name == "@deepseek-ai/dsh-experimental-client-ui-discord"
 }
@@ -122,7 +144,7 @@ func dshModuleProfile() (DSHModuleState, []dshModulePlugin, *yaml.Node, error) {
 	for _, bundle := range manifest.DSH.Profile.Bundles {
 		packageDir := resolveDSHBundle(bundle, installAnchor, dir)
 		var pkg struct {
-			DSH struct{ Bundle struct{ Patch string } }
+			DSH struct{ Bundle struct{ Patch dshBundlePatch } }
 		}
 		raw, err := os.ReadFile(filepath.Join(packageDir, "package.json"))
 		if err != nil {
@@ -131,18 +153,21 @@ func dshModuleProfile() (DSHModuleState, []dshModulePlugin, *yaml.Node, error) {
 		if err := json.Unmarshal(raw, &pkg); err != nil {
 			return state, nil, nil, err
 		}
-		if pkg.DSH.Bundle.Patch == "" {
+		if len(pkg.DSH.Bundle.Patch) == 0 {
 			return state, nil, nil, fmt.Errorf("DSH bundle %s has no patch", bundle)
 		}
-		patchPath := filepath.Join(packageDir, pkg.DSH.Bundle.Patch)
-		if _, err := os.Stat(patchPath); err != nil {
-			return state, nil, nil, err
+		// dsh-web-app@0.2.1-rc.2 ships several ordered layers; keep upstream order.
+		for _, patch := range pkg.DSH.Bundle.Patch {
+			patchPath := filepath.Join(packageDir, patch)
+			if _, err := os.Stat(patchPath); err != nil {
+				return state, nil, nil, err
+			}
+			layer, err := readDSHPatch(patchPath)
+			if err != nil {
+				return state, nil, nil, err
+			}
+			layers = append(layers, layer)
 		}
-		layer, err := readDSHPatch(patchPath)
-		if err != nil {
-			return state, nil, nil, err
-		}
-		layers = append(layers, layer)
 	}
 	doc, err := readDSHPatch(filepath.Join(dir, "cordis.patch.yml"))
 	if err != nil {
