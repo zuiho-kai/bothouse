@@ -269,7 +269,7 @@ func (sp *streamPreview) flushLocked(text string) {
 		// First preview: try to send a new preview message
 		if starter, ok := sp.platform.(PreviewStarter); ok {
 			slog.Debug("stream preview: sending first preview via SendPreviewStart", "text_len", len(text))
-			handle, err := starter.SendPreviewStart(sp.ctx, sp.replyCtx, text)
+			handle, err := authorizedOutputValue(sp.ctx, func() (any, error) { return starter.SendPreviewStart(sp.ctx, sp.replyCtx, text) })
 			if err != nil {
 				slog.Debug("stream preview: start failed, degrading", "error", err)
 				sp.degraded = true
@@ -277,7 +277,7 @@ func (sp *streamPreview) flushLocked(text string) {
 			}
 			sp.previewMsgID = handle
 		} else {
-			if err := sp.platform.Send(sp.ctx, sp.replyCtx, text); err != nil {
+			if err := authorizedOutput(sp.ctx, func() error { return sp.platform.Send(sp.ctx, sp.replyCtx, text) }); err != nil {
 				slog.Debug("stream preview: initial send failed", "error", err)
 				sp.degraded = true
 				return
@@ -292,7 +292,7 @@ func (sp *streamPreview) flushLocked(text string) {
 
 	// Update existing preview message
 	slog.Debug("stream preview: updating via UpdateMessage", "text_len", len(text))
-	if err := updater.UpdateMessage(sp.ctx, sp.previewMsgID, text); err != nil {
+	if err := authorizedOutput(sp.ctx, func() error { return updater.UpdateMessage(sp.ctx, sp.previewMsgID, text) }); err != nil {
 		slog.Debug("stream preview: update failed, degrading", "error", err)
 		sp.degraded = true
 		return
@@ -325,7 +325,7 @@ func (sp *streamPreview) freeze() {
 			}
 			if !sp.commitLocked(replier, text, sp.replyCtx) && strings.TrimSpace(text) != "" {
 				// No final send follows a frozen segment, so deliver it as a normal reply.
-				if err := sp.platform.Reply(sp.ctx, sp.replyCtx, text); err != nil {
+				if err := authorizedOutput(sp.ctx, func() error { return sp.platform.Reply(sp.ctx, sp.replyCtx, text) }); err != nil {
 					slog.Warn("stream preview: frozen segment reply failed", "error", err)
 				}
 			}
@@ -339,7 +339,7 @@ func (sp *streamPreview) freeze() {
 				if sp.transform != nil {
 					text = sp.transform(text)
 				}
-				_ = updater.UpdateMessage(sp.ctx, sp.previewMsgID, text)
+				_ = authorizedOutput(sp.ctx, func() error { return updater.UpdateMessage(sp.ctx, sp.previewMsgID, text) })
 			}
 		}
 	}
@@ -414,7 +414,7 @@ func (sp *streamPreview) discard() {
 	if sp.previewMsgID != nil {
 		if cleaner, ok := sp.platform.(PreviewCleaner); ok {
 			slog.Debug("stream preview discard: deleting preview")
-			if err := cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID); err != nil {
+			if err := authorizedOutput(sp.ctx, func() error { return cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID) }); err != nil {
 				slog.Warn("stream preview: deleting the stale preview failed; the message may be duplicated",
 					"preview_id", sp.previewMsgID, "error", err)
 			}
@@ -465,7 +465,7 @@ func (sp *streamPreview) finish(finalText, statusFooter string) bool {
 			// Try to recover degraded preview via UpdateMessage before falling back to delete
 			if finalText != "" {
 				if updater, ok := sp.platform.(MessageUpdater); ok {
-					if err := updater.UpdateMessage(sp.ctx, sp.previewMsgID, finalText); err == nil {
+					if err := authorizedOutput(sp.ctx, func() error { return updater.UpdateMessage(sp.ctx, sp.previewMsgID, finalText) }); err == nil {
 						if sp.pendingStatus != "" {
 							if statusUpdater, ok := sp.platform.(PreviewStatusUpdater); ok {
 								statusUpdater.SetPreviewStatus(sp.previewMsgID, sp.pendingStatus)
@@ -479,7 +479,7 @@ func (sp *streamPreview) finish(finalText, statusFooter string) bool {
 			}
 			if cleaner, ok := sp.platform.(PreviewCleaner); ok {
 				slog.Debug("stream preview finish: deleting stale preview (degraded)")
-				if err := cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID); err != nil {
+				if err := authorizedOutput(sp.ctx, func() error { return cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID) }); err != nil {
 					slog.Warn("stream preview: deleting the stale preview failed; the message may be duplicated",
 						"preview_id", sp.previewMsgID, "error", err)
 				}
@@ -501,7 +501,7 @@ func (sp *streamPreview) finish(finalText, statusFooter string) bool {
 	// gives up (loudly) when that fails too.
 	if cleaner, ok := sp.platform.(PreviewCleaner); ok && !keepPreview {
 		slog.Debug("stream preview finish: deleting preview (PreviewCleaner)")
-		delErr := cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID)
+		delErr := authorizedOutput(sp.ctx, func() error { return cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID) })
 		if delErr == nil {
 			return false
 		}
@@ -510,7 +510,7 @@ func (sp *streamPreview) finish(finalText, statusFooter string) bool {
 
 		text := appendReplyFooter(finalText, statusFooter)
 		if updater, isUpdater := sp.platform.(MessageUpdater); isUpdater && text != "" {
-			if err := updater.UpdateMessage(sp.ctx, sp.previewMsgID, text); err == nil {
+			if err := authorizedOutput(sp.ctx, func() error { return updater.UpdateMessage(sp.ctx, sp.previewMsgID, text) }); err == nil {
 				if sp.pendingStatus != "" {
 					if statusUpdater, ok := sp.platform.(PreviewStatusUpdater); ok {
 						statusUpdater.SetPreviewStatus(sp.previewMsgID, sp.pendingStatus)
@@ -568,7 +568,9 @@ func (sp *streamPreview) finish(finalText, statusFooter string) bool {
 	// footer renders with small/dim styling separate from the response body.
 	if statusFooter != "" {
 		if sfu, ok := sp.platform.(StatusFooterUpdater); ok {
-			if err := sfu.UpdateMessageWithStatusFooter(sp.ctx, sp.previewMsgID, finalText, statusFooter); err == nil {
+			if err := authorizedOutput(sp.ctx, func() error {
+				return sfu.UpdateMessageWithStatusFooter(sp.ctx, sp.previewMsgID, finalText, statusFooter)
+			}); err == nil {
 				slog.Debug("stream preview finish: success via UpdateMessageWithStatusFooter")
 				return true
 			} else {
@@ -579,12 +581,12 @@ func (sp *streamPreview) finish(finalText, statusFooter string) bool {
 		finalText = appendReplyFooter(finalText, statusFooter)
 	}
 
-	if err := updater.UpdateMessage(sp.ctx, sp.previewMsgID, finalText); err != nil {
+	if err := authorizedOutput(sp.ctx, func() error { return updater.UpdateMessage(sp.ctx, sp.previewMsgID, finalText) }); err != nil {
 		slog.Debug("stream preview finish: final update FAILED, cleaning up preview", "error", err)
 		// Update failed (e.g. text too long for platform edit API).
 		// Try to delete the stale preview so caller can send a fresh message.
 		if cleaner, ok := sp.platform.(PreviewCleaner); ok {
-			if err := cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID); err != nil {
+			if err := authorizedOutput(sp.ctx, func() error { return cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID) }); err != nil {
 				slog.Warn("stream preview: deleting the stale preview failed; the message may be duplicated",
 					"preview_id", sp.previewMsgID, "error", err)
 			}
@@ -608,17 +610,17 @@ func (sp *streamPreview) commitLocked(replier PreviewReplier, text string, reply
 	sp.previewMsgID = nil
 	if strings.TrimSpace(text) == "" {
 		if cleaner, ok := sp.platform.(PreviewCleaner); ok {
-			if err := cleaner.DeletePreviewMessage(sp.ctx, handle); err != nil {
+			if err := authorizedOutput(sp.ctx, func() error { return cleaner.DeletePreviewMessage(sp.ctx, handle) }); err != nil {
 				slog.Warn("stream preview: deleting the stale preview failed; the message may be duplicated",
 					"preview_id", handle, "error", err)
 			}
 		}
 		return false
 	}
-	if err := replier.ReplyInPlace(sp.ctx, handle, replyCtx, text); err != nil {
+	if err := authorizedOutput(sp.ctx, func() error { return replier.ReplyInPlace(sp.ctx, handle, replyCtx, text) }); err != nil {
 		slog.Debug("stream preview: reply in place failed, deleting preview", "error", err)
 		if cleaner, ok := sp.platform.(PreviewCleaner); ok {
-			if derr := cleaner.DeletePreviewMessage(sp.ctx, handle); derr != nil {
+			if derr := authorizedOutput(sp.ctx, func() error { return cleaner.DeletePreviewMessage(sp.ctx, handle) }); derr != nil {
 				slog.Warn("stream preview: deleting the stale preview failed; the message may be duplicated",
 					"preview_id", handle, "error", derr)
 			}

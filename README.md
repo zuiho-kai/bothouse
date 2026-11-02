@@ -122,6 +122,8 @@ The team's memory is a plain folder of Markdown files. Each incoming message fir
 
 ## How the team works
 
+Proactive follow-up has explicit `off`, `observe`, and `auto` policies. Observation records local decisions without starting a proactive worker or sending a proactive confirmation; ordinary chat and explicit requests retain their existing routing and permission checks. Automatic admission requires administrator-bound platform identities and matching rules. Routing and wiki context do not grant execution authority. See [proactive authorization](docs/PROACTIVE_AUTHORIZATION.md) for configuration, audit records, and revocation boundaries.
+
 Task-bound result text can use the send command with task, revision and delivery ID to persist before sending. Each fragment has its own receipt; ambiguous sends remain visible as unknown instead of being blindly retried. See [task text delivery](docs/TASK_TEXT_DELIVERY.md) for usage and platform boundaries.
 
 You say one thing from your phone, computer or browser → the **lead** in the chat channel (the AI you talk to by default) takes it → big work goes to a **workspace**: @coder and @writer in Workspace 1, @researcher in Workspace 2 → they hand it back.
@@ -318,3 +320,4 @@ Questions, ideas and the teams you build are all welcome.
 外部变化需要跟进已有任务时，可用结构化 cron/poll 或鉴权 webhook，并通过本地 task event-source、task events、task event-ack 管理来源与回执。配置、样例及各平台能力边界见 [外部任务事件](docs/implementation/750-external-task-events.md)。
 
 Workspace final reports remain pending until the dispatcher verifies their artifacts. The board distinguishes pending review from paused work; overdue review reminders survive restarts. See [handback verification](docs/implementation/797-handback-verification.md).
+模型额度冷却按账号及已知共享额度组保存：切到独立额度目标不会清空原目标的期限，切回仍受限制；共享额度的模型不能靠切换绕过限制。旧版本的角色级冷却只有在测得目标额度可用后才对该目标放行，无法查询时保留限制。模型切换仍须使用已有入口，由用户明确选择。

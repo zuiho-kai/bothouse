@@ -59,7 +59,8 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 | **DSH**（实验） | 在 DeepSeek 的 DSH 网页里用 | DSH、Node ≥ 22.12、pnpm | [DSH](platforms/dsh.md) |
 | **自建平台** | 自己的聊天网页，打开就聊 | uv（本机一键起） | [自建平台](connect-discord-feishu.md#7-自建平台) |
 
-每个平台都还要本机一个已登录的 CLI（`claude`、`codex`、`gemini`……）；多个角色可以全选同一个。
+QQ、Discord、飞书和自建平台还要本机一个已登录的 CLI（`claude`、`codex`、`gemini`……）；多个角色可以全选同一个。
+DSH 的成员在 DSH 网页里配置，可以直接使用 DeepSeek，也可接本机 CLI。
 不用浏览器也行：对 Claude Code / Codex 说「帮我把 bothouse 配好接上 QQ（或 Discord）」，它按 [AGENTS.md](../AGENTS.md) 一次问齐，跑 `bothouse setup apply`。
 配置写在 `~/.bothouse/config.toml`（Windows 是 `%USERPROFILE%\.bothouse\config.toml`）。
 
@@ -74,10 +75,14 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 ## 以后添加或停用平台
 
 - **添加**：管理面板左侧「添加平台」，进同一个向导，选新平台、只配它；已有的角色、记忆、人设、定时任务都不动。已配置的平台在第一页标「已配置」。
+- **不用浏览器加**：`bothouse module add <平台>` 带上这个平台自己的参数，一条命令配好（给 AI 用的非交互入口，见 [AGENTS.md](../AGENTS.md) 末节）：
+  `bothouse module add qq --ws-url ws://127.0.0.1:3001 --allow-from <QQ号>`、`bothouse module add discord --token <token> --guild <服务器ID>`、
+  `bothouse module add feishu --app-id <id> --app-secret <secret>`、`bothouse module add cloud_web --url <地址> --token <token> --name <名字>`。
+  先加 `--dry-run`；缺参数时打印 `missing` 列表、不写文件、退出码非 0。
 - **停用**：`bothouse module disable <平台>`，配置留着，重启后这个平台不再连接；`bothouse module add <平台>` 恢复。
 - **看现状**：`bothouse module list` 列出每个平台是已启用、已停用还是没配置。
 
-平台名：`qq`、`discord`、`feishu`、`dsh`、`cloud_web`（自建平台）。命令只改配置文件里的平台段，改前把原文件备份成 `config.toml.bak-<时间>`。
+平台名：`qq`、`discord`、`feishu`、`dsh`、`cloud_web`（自建平台）。QQ、Discord、飞书、自建平台命令只改配置文件里的平台段，改前把原文件备份成 `config.toml.bak-<时间>`；DSH 改自己的 web profile 原生 patch 并备份，详见 [DSH 页](platforms/dsh.md)。
 
 ## 进阶，可不装
 

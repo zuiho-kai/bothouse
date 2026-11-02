@@ -212,9 +212,19 @@ func (s quotaSummary) report(model string) (*core.UsageReport, error) {
 			}
 		}
 	}
-	report := &core.UsageReport{Provider: "Antigravity"}
+	report := &core.UsageReport{Provider: "Antigravity", QuotaGroup: prefix}
+	seen := map[string]bool{}
 	for _, g := range s.Response.Groups {
-		bucket := core.UsageBucket{Name: g.DisplayName, Allowed: true}
+		for _, b := range g.Buckets {
+			group := strings.TrimSuffix(b.BucketID, b.Window)
+			if b.BucketID != "" && !seen[group] {
+				report.QuotaGroups = append(report.QuotaGroups, group)
+				seen[group] = true
+			}
+		}
+	}
+	for _, g := range s.Response.Groups {
+		bucket := core.UsageBucket{Name: g.DisplayName, Allowed: true, QuotaGroup: prefix}
 		for _, b := range g.Buckets {
 			if !strings.HasPrefix(b.BucketID, prefix) || (prefix == "gemini-" && strings.HasPrefix(b.BucketID, "gemini-argon-")) {
 				continue

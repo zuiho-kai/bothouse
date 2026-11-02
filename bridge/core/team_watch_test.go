@@ -57,7 +57,7 @@ func TestWatchNoProgressNudgesAndParks(t *testing.T) {
 		t.Fatal("the workspace must be back in the pool")
 	}
 	w.tick(h.Due.Add(time.Hour))
-	if n := len(p.sentTo("discord:ws1")); n != 1 {
+	if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
 		t.Fatalf("nudge once, got %d", n)
 	}
 }
@@ -128,7 +128,7 @@ func TestWatchParkFailureRetriesThenReports(t *testing.T) {
 	if calls != watchParkRetries {
 		t.Fatalf("park tried %d times, want %d", calls, watchParkRetries)
 	}
-	if n := len(p.sentTo("discord:ws1")); n != 1 {
+	if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
 		t.Fatalf("nudged once across retries, got %d", n)
 	}
 	rep := p.sentTo("discord:chatA")
@@ -151,11 +151,11 @@ func TestWatchSurvivesReload(t *testing.T) {
 	}
 	w := newHandoffWatch(e)
 	w.tick(h.Due.Add(3 * time.Hour)) // missed while down: fires on start
-	if n := len(p.sentTo("discord:ws1")); n != 1 {
+	if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
 		t.Fatalf("missed check fires once after restart, got %d", n)
 	}
 	w.tick(h.Due.Add(4 * time.Hour))
-	if n := len(p.sentTo("discord:ws1")); n != 1 {
+	if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
 		t.Fatalf("and only once, got %d", n)
 	}
 }
@@ -257,7 +257,7 @@ func TestWatchWaitsForReadyPlatform(t *testing.T) {
 	e.markPlatformReady(p)
 	watchAfterWarning(t, w, h.Due.Add(5*watchRetryDelay))
 	w.tick(h.Due.Add(6 * watchRetryDelay))
-	if n := len(p.sentTo("discord:ws1")); n != 1 {
+	if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
 		t.Fatalf("ready: one nudge, got %d", n)
 	}
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() {
@@ -290,8 +290,9 @@ func TestWatchStartedFires(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if !handoffsOf(e, "discord:ws1")[0].Parked.IsZero() {
-			if n := len(p.sentTo("discord:ws1")); n != 1 {
-				t.Fatalf("one nudge, got %d", n)
+			// The resumed turn counts as progress, so a nudge may follow it before the park.
+			if n := len(watchNudges(p.sentTo("discord:ws1"))); n < 1 || n > 2 {
+				t.Fatalf("one nudge per window, got %d", n)
 			}
 			return
 		}
@@ -344,7 +345,7 @@ func TestWatchStartsWithAPIServer(t *testing.T) {
 	for time.Now().Before(deadline) {
 		if !handoffsOf(e, "discord:ws1")[0].Parked.IsZero() {
 			time.Sleep(50 * time.Millisecond)
-			if n := len(p.sentTo("discord:ws1")); n != 1 {
+			if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
 				t.Fatalf("one nudge, got %d", n)
 			}
 			return
@@ -389,7 +390,7 @@ func TestWatchMovesWithTeamWorkspaceEngine(t *testing.T) {
 	for time.Now().Before(deadline) {
 		if !handoffsOf(orange, "discord:ws1")[0].Parked.IsZero() {
 			time.Sleep(100 * time.Millisecond)
-			if n := len(p.sentTo("discord:ws1")); n != 1 {
+			if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
 				t.Fatalf("one watcher: one nudge, got %d", n)
 			}
 			return
@@ -1187,5 +1188,49 @@ func TestWatchRenewsWhileProgressByDefault(t *testing.T) {
 	watchAfterWarning(t, w, now)
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
 		t.Fatalf("quiet window: nudged once and parked, got %+v, sent %v", got, p.out)
+	}
+}
+
+// watchNudges keeps the nudge posts: a started watch also wakes the workspace once (auto-resume),
+// and that resumed turn may post its own reply.
+func watchNudges(posts []string) []string {
+	var out []string
+	for _, s := range posts {
+		if strings.Contains(s, "到了检查时间还没交回") {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// #925: a check without progress after the nudge first stops the stuck turn and wakes the
+// workspace to continue (once, telling nobody is parked yet); only the next check without
+// progress parks, and the chat the task came from is told.
+func TestWatchResumesOnceBeforeParking(t *testing.T) {
+	e, p, w, h := watchFixture(t, "u1", "叠板")
+	var resumed []string
+	w.resume = func(_ Platform, key string, _ TeamHandoff) { resumed = append(resumed, key) }
+	next := w.tick(h.Due) // nudge
+	if next.IsZero() {
+		t.Fatal("the nudge keeps the handoff watched")
+	}
+	next = w.tick(next) // no progress: resume instead of parking
+	got := handoffsOf(e, "discord:ws1")[0]
+	if len(resumed) != 1 || resumed[0] != "discord:ws1" || !got.Parked.IsZero() || !got.AutoResumed || next.IsZero() {
+		t.Fatalf("first no-progress check must resume once, not park: resumed %v next %v %+v", resumed, next, got)
+	}
+	if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
+		t.Fatalf("the resume replaces the second nudge, got %d nudges", n)
+	}
+	if next := w.tick(next); !next.IsZero() {
+		t.Fatalf("second no-progress check parks, next %v", next)
+	}
+	got = handoffsOf(e, "discord:ws1")[0]
+	if got.Parked.IsZero() || len(resumed) != 1 {
+		t.Fatalf("must park after one resume: resumed %v %+v", resumed, got)
+	}
+	chat := strings.Join(p.sentTo("discord:chatA"), "\n")
+	if !strings.Contains(chat, e.i18n.Tf(MsgWatchParkedNotice, "<#ws1>", "叠板")) {
+		t.Fatalf("the chat must be told the task is paused, got %q", chat)
 	}
 }

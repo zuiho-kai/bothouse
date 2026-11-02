@@ -352,6 +352,9 @@ type TeamHandoff struct {
 	BusyRenewed int       `json:"busy_renewed,omitempty"` // renewals given only because a session was busy
 	Nudged      bool      `json:"nudged,omitempty"`
 	ParkFails   int       `json:"park_fails,omitempty"`
+	// AutoResumed: a check found no progress once and, instead of parking, stopped the stuck turn
+	// and woke the workspace to continue; the next no-progress check parks.
+	AutoResumed bool `json:"auto_resumed,omitempty"`
 	// ReadFails: checks whose progress signal could not be read (the channel history request
 	// failed); retried like ParkFails, then counted as no progress. Since: the start of the
 	// window being checked, kept while a read is retried (a retry moves Due, not the window;
@@ -1187,7 +1190,8 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 			}
 		}
 	}
-	if wait := worker.capacityWait(); wait > 0 {
+	platform, _, _ := strings.Cut(chat, ":")
+	if wait := worker.capacityWait(worker.admissionQuotaScope(worker.agent, chat, platform+":"+wsID)); wait > 0 {
 		slog.Warn("team workspace claim: project model cooling, task not handed off",
 			"chat", chat, "workspace", wsID, "project", worker.name, "cooling_for", wait)
 		return fmt.Errorf("team workspace claim: %s → %s: %w (resets in %s)",

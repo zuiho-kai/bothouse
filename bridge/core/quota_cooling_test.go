@@ -11,6 +11,13 @@ import (
 	"time"
 )
 
+type quotaTakeoverAgent struct {
+	*inputTestAgent
+	account string
+}
+
+func (a *quotaTakeoverAgent) QuotaScope(string) (string, string) { return a.account, "account" }
+
 func TestQuotaResetTime(t *testing.T) {
 	now := time.Date(2026, 10, 27, 13, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
@@ -80,7 +87,7 @@ func TestQuotaTakeoverIsolationJourney(t *testing.T) {
 				as := &inputTestSession{events: make(chan Event, 32), prompts: make(chan string, 32), id: name}
 				a := &inputTestAgent{session: as, requested: make(chan string, 32)}
 				p := &exitTestPlatform{inputTestPlatform: inputTestPlatform{stubPlatformEngine: stubPlatformEngine{n: plat}}}
-				e := NewEngine(name, a, []Platform{p}, "", LangChinese)
+				e := NewEngine(name, &quotaTakeoverAgent{inputTestAgent: a, account: name}, []Platform{p}, "", LangChinese)
 				e.dataDir = dir
 				e.team = &teamState{dir: filepath.Join(dir, "team"), name: name, inject: name == "orange", seen: map[string]*teamSession{}}
 				os.MkdirAll(e.team.dir, 0700)
@@ -94,6 +101,7 @@ func TestQuotaTakeoverIsolationJourney(t *testing.T) {
 			}
 			t.Cleanup(ts.Stop)
 			source := engines["orange"]
+			source.quotaProbeFn = func(context.Context) (bool, time.Duration, error) { return true, 0, nil }
 			chat, ws := plat+":chat", plat+":ws"
 			cardPlatform := newProgressPlatform()
 			cardPlatform.n = plat
@@ -252,7 +260,7 @@ func TestQuotaTaskCardTakeoverContinuesOriginalJournal(t *testing.T) {
 
 func TestQuotaRelayWatchDoesNotNudgeCoolingMember(t *testing.T) {
 	p, d, now := relayWatchFixture(t)
-	p.quotaBlocked = func(project string) bool { return project == d.req.To }
+	p.quotaBlocked = func(project, session string) bool { return project == d.req.To }
 	p.relayWatchTick(now.Add(watchCheckAfter()))
 	select {
 	case <-d.nudge:

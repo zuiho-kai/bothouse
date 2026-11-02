@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -66,6 +67,15 @@ func (e *Engine) workspaceHasOpenHandoffFor(sessionKey string, board int) bool {
 // posts the original instead). Loop guard: the turn runs in the chat channel's session (no
 // workspace, no handoff there), so its reply is never forwarded again; ask ids are stripped so
 // the prompt cannot be taken as the user's answer (routeWorkspaceAnswer).
+func (e *Engine) wakeChatLeadContext(ctx context.Context, p Platform, parent, ws, bot, kind, body, wsSession string, boardID int) bool {
+	if _, bound := ctx.Value(proactiveExecutionKey{}).(proactiveExecution); bound {
+		// Timer jobs do not carry task authority. A proactive handback uses the
+		// checked platform path instead of creating an unbound execution.
+		return false
+	}
+	return e.wakeChatLead(p, parent, ws, bot, kind, body, wsSession, boardID)
+}
+
 func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession string, boardID int) bool {
 	if p == nil || parent == "" {
 		return false
