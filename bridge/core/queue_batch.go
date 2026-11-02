@@ -33,12 +33,11 @@ func takeQueuedBatchLocked(state *interactiveState) queuedMessage {
 		state.pendingMessages = state.pendingMessages[1:]
 	}
 	if len(parts) == 1 {
+		head.overflow = false
 		return head
 	}
-	for i := range parts[1:] {
-		if parts[i+1].userID != head.userID {
-			return mergeQueuedChat(parts)
-		}
+	if group {
+		return mergeQueuedChat(parts)
 	}
 	return mergeQueued(parts)
 }
@@ -60,13 +59,23 @@ func sameQueuedChat(a, b *queuedMessage) bool {
 // mergeQueuedChat is mergeQueued for several senders of one group chat: each part names its
 // sender, and the last one is marked latest (the same wording as the gate's backfill).
 func mergeQueuedChat(parts []queuedMessage) queuedMessage {
-	out := mergeQueued(parts)
+	// Reply to the newest message that held a place in the queue; a message filed as context
+	// (overflow) only rides along.
+	reply := len(parts) - 1
+	for reply > 0 && parts[reply].overflow {
+		reply--
+	}
+	ordered := append(append([]queuedMessage(nil), parts[:reply]...), parts[reply+1:]...)
+	out := mergeQueued(append(ordered, parts[reply]))
+	out.overflow = false
 	var b strings.Builder
 	fmt.Fprintf(&b, "（你忙时收到的 %d 条，按时间顺序；挑最该接的一条回一次即可）\n", len(parts))
 	for i, p := range parts {
 		b.WriteString("\n")
-		if i == len(parts)-1 {
+		if i == reply && i == len(parts)-1 {
 			b.WriteString("（最新）\n")
+		} else if i == reply {
+			b.WriteString("（回这条）\n") // context-only messages came after it
 		}
 		name := p.userName
 		if name == "" {
@@ -95,42 +104,73 @@ func mergeQueuedChat(parts []queuedMessage) queuedMessage {
 	return out
 }
 
+// countQueuedLocked is the queue depth that counts against the cap: messages filed as context
+// (overflow) ride along with the next turn without holding a place. Caller holds state.mu.
+func countQueuedLocked(state *interactiveState) int {
+	n := 0
+	for i := range state.pendingMessages {
+		if !state.pendingMessages[i].overflow {
+			n++
+		}
+	}
+	return n
+}
+
+// maxQueuedOverflow caps the context-only messages kept in one queue; source: follows the gate's
+// maxBuffered (the most overheard messages a turn is handed).
+const maxQueuedOverflow = maxBuffered
+
 // makeRoomInGroupQueueLocked frees a place in a full group-chat queue for msg (groupChatQueue):
 // the oldest queued message that is a plain human message nobody @-ed (and not from an admin_from
-// owner) leaves the queue and becomes listen-only context, which the gate hands to the next turn.
-// With none to move, an @ or the owner still joins the queue (over the cap), and anything else is
-// filed as context itself. Reports whether msg should be queued. Caller holds state.mu.
-func (e *Engine) makeRoomInGroupQueueLocked(state *interactiveState, msg *Message, interactiveKey string) bool {
+// owner) gives up its place but stays in the queue as context only (overflow), so the next turn
+// of this chat still carries it, in order. With none to move, an @ or the owner still takes a
+// place (over the cap), and anything else is queued as context only itself. Reports whether msg
+// joins as context only. Caller holds state.mu.
+func (e *Engine) makeRoomInGroupQueueLocked(state *interactiveState, msg *Message, interactiveKey string) (overflow bool) {
+	defer e.trimQueuedOverflowLocked(state, interactiveKey)
 	for i := range state.pendingMessages {
-		q := state.pendingMessages[i]
-		if !batchableQueued(&q) || q.mentioned || e.isDMOwner(q.userID) {
+		q := &state.pendingMessages[i]
+		if q.overflow || !batchableQueued(q) || q.mentioned || e.isDMOwner(q.userID) {
 			continue
 		}
-		state.pendingMessages = append(state.pendingMessages[:i:i], state.pendingMessages[i+1:]...)
-		e.fileQueuedAsContext(interactiveKey, &Message{Content: q.content, AmbientChat: q.ambientChat,
-			Images: q.images, Files: q.files, UserID: q.userID, UserName: q.userName})
-		e.boardDropped(interactiveKey, []string{q.boardDesc})
-		slog.Info("queue full: oldest un-mentioned message moved to context",
-			"session", msg.SessionKey, "moved_user", q.userName, "queue_depth", len(state.pendingMessages))
-		return true
+		q.overflow = true
+		slog.Info("queue full: oldest un-mentioned message kept as context",
+			"session", msg.SessionKey, "moved_user", q.userName, "queue_depth", countQueuedLocked(state))
+		return false
 	}
 	if msg.Mentioned || e.isDMOwner(msg.UserID) {
 		slog.Info("queue full: mentioned message queued over the cap", "session", msg.SessionKey, "user", msg.UserName)
-		return true
+		return false
 	}
-	e.fileQueuedAsContext(interactiveKey, msg)
-	slog.Info("queue full: message filed as context", "session", msg.SessionKey, "user", msg.UserName)
-	return false
+	slog.Info("queue full: message queued as context", "session", msg.SessionKey, "user", msg.UserName)
+	return true
 }
 
-// fileQueuedAsContext keeps msg for the next turn as the gate keeps a message it chose not to
-// answer (gateState.bufferContext); without a gate it is only logged.
-func (e *Engine) fileQueuedAsContext(interactiveKey string, msg *Message) {
-	if e.gate != nil {
-		e.gate.bufferContext(interactiveKey, msg)
+// trimQueuedOverflowLocked keeps at most maxQueuedOverflow context-only messages; older ones go
+// to the gate's listen-only buffer (logged only without a gate). Caller holds state.mu.
+func (e *Engine) trimQueuedOverflowLocked(state *interactiveState, interactiveKey string) {
+	n := 0
+	for i := range state.pendingMessages {
+		if state.pendingMessages[i].overflow {
+			n++
+		}
+	}
+	for i := 0; n > maxQueuedOverflow && i < len(state.pendingMessages); {
+		q := state.pendingMessages[i]
+		if !q.overflow {
+			i++
+			continue
+		}
+		state.pendingMessages = append(state.pendingMessages[:i:i], state.pendingMessages[i+1:]...)
+		n--
+		if e.gate != nil {
+			e.gate.bufferContext(interactiveKey, &Message{Content: q.content, AmbientChat: q.ambientChat,
+				Images: q.images, Files: q.files, UserID: q.userID, UserName: q.userName})
+		}
+		e.boardDropped(interactiveKey, []string{q.boardDesc})
+		slog.Info("queue full: oldest context-only message moved to the gate buffer", "user", q.userName)
 	}
 }
-
 func batchableQueued(q *queuedMessage) bool {
 	return q.authorization == nil && !q.fromBot && !scheduledTurnUser(q.userID) && q.userID != "" &&
 		q.turnTrigger == "" && q.resumedFrom == "" && q.timerJobID == "" && q.resumeFallback == "" &&

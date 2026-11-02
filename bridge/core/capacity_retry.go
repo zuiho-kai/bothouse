@@ -300,6 +300,8 @@ func queuedToMessage(q queuedMessage) Message {
 		Files:         q.files,
 		FromVoice:     q.fromVoice,
 		FromBot:       q.fromBot,
+		Mentioned:     q.mentioned,
+		Direct:        q.direct,
 		UserID:        q.userID,
 		UserName:      q.userName,
 		TurnCtx:       q.turnCtx,

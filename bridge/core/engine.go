@@ -649,6 +649,7 @@ type queuedMessage struct {
 	fromBot           bool
 	mentioned         bool   // Message.Mentioned: a queue-full chat never turns it away (queue_batch.go)
 	direct            bool   // Message.Direct
+	overflow          bool   // context only: a full group queue gave its place away (queue_batch.go)
 	modeOverride      string // maomao fork: see Message.ModeOverride (cron/timer job.Mode)
 	// maomao fork: set for a queued cron/timer turn to its unmuted platform. When the turn starts
 	// it gets the same team note and channel backfill as a cron/timer turn run directly.
@@ -3986,12 +3987,11 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 	// Only a person's message makes room; a cron/timer or teammate turn keeps the old rule.
 	groupQueue := groupChatQueue(msg.Platform, msg.Direct) && !msg.FromBot && scheduledFrom == nil &&
 		msg.timerJobID == "" && !scheduledTurnUser(msg.UserID)
-	if len(state.pendingMessages) >= e.maxQueuedMessages && !msg.abortFront && groupQueue {
-		// A busy group chat: the oldest queued message nobody @-ed becomes listen-only context
-		// for the next turn instead of a "queue full" notice (queue_batch.go).
-		if !e.makeRoomInGroupQueueLocked(state, msg, interactiveKey) {
-			return queueRejected // filed as context, no notice
-		}
+	groupOverflow := false
+	if groupQueue && countQueuedLocked(state) >= e.maxQueuedMessages && !msg.abortFront {
+		// A busy group chat: the oldest queued message nobody @-ed becomes context for the next
+		// turn instead of a "queue full" notice (queue_batch.go).
+		groupOverflow = e.makeRoomInGroupQueueLocked(state, msg, interactiveKey)
 	}
 	if len(state.pendingMessages) >= e.maxQueuedMessages && !msg.abortFront && !groupQueue {
 		depth := len(state.pendingMessages)
@@ -4031,6 +4031,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		fromBot:             msg.FromBot,
 		mentioned:           msg.Mentioned,
 		direct:              msg.Direct,
+		overflow:            groupOverflow,
 		boardDesc:           boardDescOf(msg),
 	}
 	// Mixed explicit/automatic turns keep separate durable queue entries.

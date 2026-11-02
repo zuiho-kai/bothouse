@@ -80,8 +80,10 @@ func TestTakeQueuedBatchLocked_GroupChatAllSenders(t *testing.T) {
 	}
 }
 
-// A full QQ group queue never says "queue full": the oldest un-@-ed message becomes context,
-// an @ is queued even over the cap, and an un-@-ed message with no room becomes context itself.
+// A full QQ group queue never says "queue full": the oldest un-@-ed message gives up its place but
+// stays queued as context, an @ is queued even over the cap, and an un-@-ed message with no room
+// is queued as context itself. The next turn carries all of them, in order, replying to the newest
+// message that held a place.
 func TestGroupQueueFull_MakesRoom(t *testing.T) {
 	p := &stubPlatformEngine{n: "qq"}
 	as := newResultAgentSession("unused")
@@ -95,35 +97,44 @@ func TestGroupQueueFull_MakesRoom(t *testing.T) {
 	msg := func(id, user, content string, mentioned bool) *Message {
 		return &Message{SessionKey: key, Platform: "qq", MessageID: id, UserID: user, UserName: user, Content: content, Mentioned: mentioned, ReplyCtx: "r"}
 	}
-	for _, m := range []*Message{msg("m1", "u1", "最早", false), msg("m2", "u2", "@她", true)} {
-		if !e.queueMessageForBusySession(p, m, key) {
-			t.Fatal("queue")
-		}
-	}
-	e.queueMessageForBusySession(p, msg("m3", "u3", "第三条", false), key)
 	ids := func() (s []string) {
 		for _, q := range state.pendingMessages {
-			s = append(s, q.messageID)
+			id := q.messageID
+			if q.overflow {
+				id += "*"
+			}
+			s = append(s, id)
 		}
-		return
+		return strings.Split(strings.Join(s, ","), ",")
 	}
-	if got := strings.Join(ids(), ","); got != "m2,m3" {
-		t.Fatalf("queue = %s, want m2,m3", got)
+	for _, m := range []*Message{msg("m1", "u1", "最早", false), msg("m2", "u2", "@她", true),
+		msg("m3", "u3", "第三条", false), // m1 gives its place
+		msg("m4", "u4", "@她 二", true), // m3 gives its place
+		msg("m5", "u5", "@她 三", true), // nothing to give: over the cap
+		msg("m6", "u6", "路过", false),  // no room: context itself
+	} {
+		if e.enqueueForBusySession(p, m, key, nil) != queueAccepted {
+			t.Fatalf("%s not queued", m.MessageID)
+		}
 	}
-	if b := e.gate.buf[key]; len(b) != 1 || b[0] != "最早" {
-		t.Fatalf("context = %q", b)
-	}
-	e.queueMessageForBusySession(p, msg("m4", "u4", "@她 二", true), key) // m3 moves to context
-	e.queueMessageForBusySession(p, msg("m5", "u5", "@她 三", true), key) // nothing to move: over the cap
-	if got := strings.Join(ids(), ","); got != "m2,m4,m5" {
-		t.Fatalf("queue = %s, want m2,m4,m5", got)
-	}
-	e.queueMessageForBusySession(p, msg("m6", "u6", "路过", false), key) // no room: itself context
-	if got := strings.Join(ids(), ","); got != "m2,m4,m5" {
+	if got := strings.Join(ids(), ","); got != "m1*,m2,m3*,m4,m5,m6*" {
 		t.Fatalf("queue = %s", got)
 	}
-	if b := strings.Join(e.gate.buf[key], "|"); b != "最早|第三条|路过" {
-		t.Fatalf("context = %q", b)
+	if countQueuedLocked(state) != 3 || len(e.gate.buf[key]) != 0 {
+		t.Fatalf("depth = %d, gate buffer = %q", countQueuedLocked(state), e.gate.buf[key])
+	}
+	q := takeQueuedBatchLocked(state)
+	if q.messageID != "m5" || !q.mentioned || len(state.pendingMessages) != 0 {
+		t.Fatalf("batch = %+v left %d", q, len(state.pendingMessages))
+	}
+	order := []string{"最早", "@她\n", "第三条", "@她 二", "（回这条）\n[5] u5（@你）：\n@她 三", "路过"}
+	at := -1
+	for _, w := range order {
+		j := strings.Index(q.content, w)
+		if j <= at {
+			t.Fatalf("%q out of order in:\n%s", w, q.content)
+		}
+		at = j
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
