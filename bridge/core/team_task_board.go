@@ -1039,13 +1039,17 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		lines = append(lines, waiting...)
 	}
 	if len(wsRows) > 0 {
-		lines = append(lines, fmt.Sprintf("**工作区 %d**%s", len(wsRows), teamTaskTableIdleSuffix(idlePool, usedWS)))
+		header := fmt.Sprintf("**待处理 %d**", len(wsRows))
+		if len(usedWS) > 0 {
+			header = fmt.Sprintf("**工作区 %d**", len(usedWS))
+		}
+		lines = append(lines, header+teamTaskTableIdleSuffix(idlePool, usedWS))
 		for _, r := range wsRows {
 			lines = append(lines, r.line)
 		}
 	}
 	if len(idle) > 0 {
-		lines = append(lines, fmt.Sprintf("**未开工 %d**", len(idle)))
+		lines = append(lines, fmt.Sprintf("**待安排 %d**", len(idle)))
 		lines = append(lines, idle...)
 	}
 	if len(lines) == 0 {

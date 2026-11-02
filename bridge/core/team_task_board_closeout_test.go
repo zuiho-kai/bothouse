@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -112,5 +113,39 @@ func TestTeamTaskBoardConsolidationChainAndReversibleView(t *testing.T) {
 	got = renderWorkspaceTaskBoardFit(items, "room:work", now, backfillMaxMsgRunes)
 	if !strings.Contains(got, "底层从项") {
 		t.Fatal(got)
+	}
+}
+
+func TestTeamTaskTableCountsOccupiedWorkspacesOnly(t *testing.T) {
+	now := time.Date(2026, 11, 2, 19, 0, 0, 0, time.Local)
+	items := []teamTaskBoardItem{
+		{ID: 1, Short: "执行任务", own: "room:ws1", parent: "room:main", wsName: "工作区1", WS: "room:ws1"},
+		{ID: 2, Short: "作者交回", own: "room:main", wsName: "工作区2", ReturnedAt: now},
+		{ID: 3, Short: "入口待验", own: "room:main", Paused: "11-02 18:00", Status: "待发布验证", ReviewRejected: "未验"},
+		{ID: 4, Short: "完成任务", own: "room:main", Status: "完成"},
+	}
+	got := renderTeamTaskTable(items, nil, "room:main", now)
+	if !strings.Contains(got, "**工作区 1**") || strings.Count(got, "🟢") != 1 || strings.Contains(got, "完成任务") {
+		t.Fatalf("review and paused rows must not inflate occupied workspace count:\n%s", got)
+	}
+	got = renderTeamTaskTable(items[1:], nil, "room:main", now)
+	if strings.Contains(got, "**工作区") || !strings.Contains(got, "作者交回") || !strings.Contains(got, "入口待验") {
+		t.Fatalf("pending reviews alone do not occupy a workspace:\n%s", got)
+	}
+}
+
+func TestTeamTaskTableConsolidationPreservesSixWorkspaceRows(t *testing.T) {
+	now := time.Date(2026, 11, 2, 19, 0, 0, 0, time.Local)
+	var items []teamTaskBoardItem
+	for n := 1; n <= 6; n++ {
+		ws := fmt.Sprintf("room:ws%d", n)
+		items = append(items, teamTaskBoardItem{ID: n, Short: fmt.Sprintf("执行任务%d", n), own: ws, parent: "room:main", wsName: fmt.Sprintf("工作区%d", n), WS: ws})
+	}
+	items = append(items, teamTaskBoardItem{ID: 7, Short: "重复待验", own: "room:main", Paused: "11-02 18:00", PauseWhy: "并入 #1", ReturnedAt: now})
+	before, _ := json.Marshal(items)
+	got := renderTeamTaskTable(items, nil, "room:main", now)
+	after, _ := json.Marshal(items)
+	if !strings.Contains(got, "**工作区 6**") || strings.Count(got, "🟢") != 6 || strings.Contains(got, "重复待验") || !reflect.DeepEqual(before, after) {
+		t.Fatalf("display-only consolidation changed the six independent workspace rows:\n%s", got)
 	}
 }
