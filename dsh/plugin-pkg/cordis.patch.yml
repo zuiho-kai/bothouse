@@ -1,0 +1,8 @@
+# Applied by `dsh plugin add bothouse-dsh`: one plugin row; the channels UI is this package's ./client export.
+# Paths default to $CONEST_COLLAB_DATA / $CONEST_COLLAB_WORKSPACE, else ~/.conest-collab and the cwd.
+- insert:
+    - id: bothouse-dsh
+      name: bothouse-dsh
+      config:
+        dataDir: !!js process.env.CONEST_COLLAB_DATA || (process.env.HOME + '/.conest-collab')
+        workspacePath: !!js process.env.CONEST_COLLAB_WORKSPACE || process.cwd()
