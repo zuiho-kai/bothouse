@@ -440,6 +440,7 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, key st
 	// that channel is already verified by voiceTarget.
 	if token := e.voicePublicProgress(ctx, req.SessionKey); token != "" {
 		progressToken = token
+		e.publicProgress.setTurn(req.SessionKey, token) // CLI omits --run: fetch this turn's token
 		prompt = e.voiceProgressInstructions(token, req.SessionKey) + prompt
 	}
 	prompt = "[Bothouse voice context]\n" + prompt + "\n[/Bothouse voice context]\n\n" + req.Message
