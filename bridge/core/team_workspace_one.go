@@ -91,9 +91,19 @@ func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int) {
 	// A late exit may refer to a previous task after this workspace was reused.
 	// Its delivery receipt can reconcile that task; it cannot reset or park the
 	// session now executing a different, explicitly bound board item.
+	current := e.boardItemByID(hid)
 	for _, it := range readTeamTaskBoard(e.teamStatusDir()) {
 		if it.ID != hid && it.WS != "" && teamChatKey(it.WS) == teamChatKey(sessionKey) &&
 			it.Paused == "" && !watchBoardClosed(it) {
+			// A failed board write can leave an older task bound after its
+			// session was released. It must not block a newer binding's exit.
+			if current != nil && teamChatKey(current.WS) == teamChatKey(sessionKey) {
+				bound, err := time.Parse(time.RFC3339Nano, current.Bound)
+				other, otherErr := time.Parse(time.RFC3339Nano, it.Bound)
+				if err == nil && otherErr == nil && bound.After(other) {
+					continue
+				}
+			}
 			slog.Info("team workspace: late exit does not end another task", "board_item", hid, "active_item", it.ID, "session", sessionKey)
 			return
 		}
