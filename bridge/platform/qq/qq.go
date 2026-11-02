@@ -722,6 +722,9 @@ func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error
 	if !ok {
 		return fmt.Errorf("qq: invalid reply context")
 	}
+	if strings.TrimSpace(content) == "" {
+		return nil
+	}
 
 	params := map[string]any{
 		"message": plainAtToCQ(content),
@@ -729,7 +732,7 @@ func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error
 
 	if rctx.messageType == "group" {
 		params["group_id"] = rctx.groupID
-		result, err := p.callAPI("send_group_msg", params)
+		result, err := p.callAPIContext(ctx, "send_group_msg", params)
 		if err != nil {
 			return err
 		}
@@ -738,7 +741,7 @@ func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error
 	}
 
 	params["user_id"] = rctx.userID
-	result, err := p.callAPI("send_private_msg", params)
+	result, err := p.callAPIContext(ctx, "send_private_msg", params)
 	if err != nil {
 		return err
 	}
@@ -753,6 +756,9 @@ func (p *Platform) ReplyWithAt(ctx context.Context, replyCtx any, content string
 	rctx, ok := replyCtx.(*replyContext)
 	if !ok {
 		return fmt.Errorf("qq: ReplyWithAt: invalid reply context type %T", replyCtx)
+	}
+	if strings.TrimSpace(content) == "" && len(atUsers) == 0 && !atAll {
+		return nil
 	}
 
 	segments := make([]map[string]any, 0, len(atUsers)+2)
@@ -776,7 +782,7 @@ func (p *Platform) ReplyWithAt(ctx context.Context, replyCtx any, content string
 		params["user_id"] = rctx.userID
 	}
 
-	result, err := p.callAPI(action, params)
+	result, err := p.callAPIContext(ctx, action, params)
 	if err != nil {
 		return fmt.Errorf("qq: ReplyWithAt: %w", err)
 	}
@@ -814,7 +820,7 @@ func (p *Platform) SendImage(ctx context.Context, replyCtx any, img core.ImageAt
 
 	if rctx.messageType == "group" {
 		params["group_id"] = rctx.groupID
-		_, err := p.callAPI("send_group_msg", params)
+		_, err := p.callAPIContext(ctx, "send_group_msg", params)
 		if err != nil {
 			return fmt.Errorf("qq: send image: %w", err)
 		}
@@ -822,7 +828,7 @@ func (p *Platform) SendImage(ctx context.Context, replyCtx any, img core.ImageAt
 	}
 
 	params["user_id"] = rctx.userID
-	_, err := p.callAPI("send_private_msg", params)
+	_, err := p.callAPIContext(ctx, "send_private_msg", params)
 	if err != nil {
 		return fmt.Errorf("qq: send image: %w", err)
 	}
@@ -894,7 +900,7 @@ func (p *Platform) SendAudio(ctx context.Context, replyCtx any, audio []byte, fo
 		params["user_id"] = rctx.userID
 	}
 
-	result, err := p.callAPI(action, params)
+	result, err := p.callAPIContext(ctx, action, params)
 	if err != nil {
 		return fmt.Errorf("qq: send audio: %w", err)
 	}
@@ -1013,6 +1019,16 @@ func (p *Platform) loadQuote(messageID string) (quoteEntry, bool) {
 // ── OneBot API call via WebSocket ───────────────────────────────
 
 func (p *Platform) callAPI(action string, params map[string]any) (map[string]any, error) {
+	return p.callAPIContext(context.Background(), action, params)
+}
+
+// callAPIContext stops waiting when the owning turn is cancelled. Once the
+// write has started, cancellation does not prove OneBot rejected the message:
+// callers must not replay it automatically.
+func (p *Platform) callAPIContext(ctx context.Context, action string, params map[string]any) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	seq := p.echoSeq.Add(1)
 	echo := strconv.FormatInt(seq, 10)
 
@@ -1034,6 +1050,10 @@ func (p *Platform) callAPI(action string, params map[string]any) (map[string]any
 	}
 
 	p.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		p.mu.Unlock()
+		return nil, err
+	}
 	if p.conn == nil {
 		p.mu.Unlock()
 		return nil, core.ErrTaskTextNotAccepted
@@ -1045,6 +1065,8 @@ func (p *Platform) callAPI(action string, params map[string]any) (map[string]any
 	}
 
 	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	case raw := <-ch:
 		var resp struct {
 			Status  string          `json:"status"`
@@ -1071,6 +1093,10 @@ func (p *Platform) callAPI(action string, params map[string]any) (map[string]any
 // file-path issues across Windows/WSL/Docker boundaries.
 // Requires http_url to be configured.
 func (p *Platform) callHTTPAPI(action string, params map[string]any) (map[string]any, error) {
+	return p.callHTTPAPIContext(context.Background(), action, params)
+}
+
+func (p *Platform) callHTTPAPIContext(ctx context.Context, action string, params map[string]any) (map[string]any, error) {
 	if p.httpURL == "" {
 		return nil, fmt.Errorf("qq: http_url not configured")
 	}
@@ -1079,7 +1105,7 @@ func (p *Platform) callHTTPAPI(action string, params map[string]any) (map[string
 		return nil, err
 	}
 	url := p.httpURL + "/" + action
-	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -1240,13 +1266,13 @@ func (p *Platform) SendFile(ctx context.Context, replyCtx any, file core.FileAtt
 	b64data := "base64://" + base64.StdEncoding.EncodeToString(file.Data)
 
 	// Pick API caller: prefer HTTP for large payloads, fall back to WebSocket.
-	call := p.callAPI
+	call := p.callAPIContext
 	if p.httpURL != "" {
-		call = p.callHTTPAPI
+		call = p.callHTTPAPIContext
 	}
 
 	if rctx.messageType == "group" {
-		_, err := call("upload_group_file", map[string]any{
+		_, err := call(ctx, "upload_group_file", map[string]any{
 			"group_id": rctx.groupID,
 			"file":     b64data,
 			"name":     name,
@@ -1258,7 +1284,7 @@ func (p *Platform) SendFile(ctx context.Context, replyCtx any, file core.FileAtt
 	}
 
 	// Private: use send_private_msg with file segment
-	_, err := call("send_private_msg", map[string]any{
+	_, err := call(ctx, "send_private_msg", map[string]any{
 		"user_id": rctx.userID,
 		"message": []map[string]any{
 			{"type": "file", "data": map[string]any{"file": b64data, "name": name}},
