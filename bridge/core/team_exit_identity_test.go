@@ -101,3 +101,37 @@ func TestWorkspaceLateReportDoesNotResetNewTask(t *testing.T) {
 		t.Fatal("late old report reset the newer task session")
 	}
 }
+
+func TestWorkspaceLateReportDeliveryAndReplayAcrossPlatforms(t *testing.T) {
+	for _, platform := range []string{"discord", "feishu", "cloud_web", "qq"} {
+		t.Run(platform, func(t *testing.T) {
+			e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
+			p.n = platform
+			e.SetTeam(t.TempDir(), "橘", true)
+			ws, chat := platform+":ws1:u1", platform+":chat1"
+			writeReviewBoard(t, e,
+				teamTaskBoardItem{ID: 65, What: "旧预算核验", WSWas: platform + ":ws1", Chat: chat, Bound: "2026-11-02T01:00:00Z"},
+				teamTaskBoardItem{ID: 60, What: "新稳定性任务", WS: platform + ":ws1", Chat: chat, Bound: "2026-11-02T02:00:00Z"},
+			)
+			current := e.sessions.GetOrCreateActive(ws)
+			report := "[report] #65 背景：旧预算核验。\n做了什么：用量复算完成。\n要你做的：没有。\n我加的：无。"
+			e.forwardWorkspaceExit(p, ws, report)
+			sent := p.sentTo(chat)
+			if len(sent) != 1 || !strings.Contains(sent[0], "旧预算核验") || strings.Contains(sent[0], "新稳定性任务") {
+				t.Fatalf("wrong public result: %v", sent)
+			}
+			if e.sessions.ActiveSessionID(ws) != current.ID || !e.exitReportedBefore(65) || e.exitReportedBefore(60) {
+				t.Fatal("late report changed new session or wrong receipt")
+			}
+			// A new engine reads the persisted delivery journal after restart.
+			restarted, _, p2 := exitFixture(t, mapParent{"ws1": "chat1"})
+			p2.n = platform
+			restarted.dataDir = e.dataDir
+			restarted.SetTeam(e.teamStatusDir(), "橘", true)
+			restarted.forwardWorkspaceExit(p2, ws, report)
+			if len(p2.sentTo(chat)) != 0 {
+				t.Fatal("restart replay posted a duplicate report")
+			}
+		})
+	}
+}

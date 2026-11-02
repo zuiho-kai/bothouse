@@ -17,6 +17,7 @@ import (
 // again, including after restart or an ambiguous execution failure.
 type taskRelayRecord struct {
 	HandoffRefs []string         `json:"handoff_refs,omitempty"`
+	MemberIDs   []string         `json:"member_ids,omitempty"` // assignments captured at dispatch, never later rows
 	Hash        string           `json:"hash"`
 	Target      string           `json:"target"`
 	Workspace   string           `json:"workspace,omitempty"` // execution workspace (sibling of the source workspace); empty = source
@@ -413,7 +414,13 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 	}
 	old := snapshotTaskRelay(r)
 	now := time.Now().UTC()
-	r.record.Relays[req.RequestID] = taskRelayRecord{HandoffRefs: quotaHandoffRefRE.FindAllString(req.Message, -1), Hash: hash, Target: req.To, Workspace: req.Workspace, Status: "running", WatchFrom: now, WatchDue: now.Add(watchCheckAfter())}
+	var memberIDs []string
+	for _, member := range r.record.Task.Members {
+		if member.ReporterProject == req.To && member.Workspace == req.Workspace && member.Live() {
+			memberIDs = append(memberIDs, member.ID)
+		}
+	}
+	r.record.Relays[req.RequestID] = taskRelayRecord{MemberIDs: memberIDs, HandoffRefs: quotaHandoffRefRE.FindAllString(req.Message, -1), Hash: hash, Target: req.To, Workspace: req.Workspace, Status: "running", WatchFrom: now, WatchDue: now.Add(watchCheckAfter())}
 	p.appendEvent(r, TaskEventProgress, NewI18n(r.record.Lang).Tf(MsgTaskRelayAssigned, name), true)
 	// Assignment text may contain a private report grant; never publish it.
 	if err := p.save(r); err != nil {
@@ -499,6 +506,18 @@ func (d *taskRelay) finish(response string, runErr error) error {
 			failureText = reason
 			if p.quotaBlocked == nil || !p.quotaBlocked(d.req.To, d.req.SessionKey) {
 				p.failMembersOnBackendUnavailable(r, d.req.To, reason)
+			}
+		} else {
+			// Ordinary execution failure belongs to this dispatch, not every live
+			// row of the bot. A later assignment or completed result must survive.
+			now := time.Now().UTC()
+			for _, id := range receipt.MemberIDs {
+				if i := memberIndex(r.record.Task, id); i >= 0 && r.record.Task.Members[i].Live() {
+					member := &r.record.Task.Members[i]
+					member.Status = "failed"
+					member.Summary = NewI18n(r.record.Lang).Tf(MsgTaskRelayFailed, d.name)
+					member.UpdatedAt, member.EndedAt = now, now
+				}
 			}
 		}
 		receipt.Status, receipt.Error = "failed", failureText
