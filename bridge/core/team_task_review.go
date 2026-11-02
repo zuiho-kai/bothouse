@@ -37,11 +37,7 @@ func taskReviewNote(it teamTaskBoardItem, now time.Time) string {
 		who = "派活人"
 	}
 	if it.PRMerge != nil {
-		note := "PR已合并 · 待收口 · 等" + boardLabel(who)
-		if taskReviewOverdue(it, now) {
-			note += " · 没人验收"
-		}
-		return note
+		return "PR已合并 · 待收口 · 等" + boardLabel(who)
 	}
 	if taskReviewOverdue(it, now) {
 		return "没人验收 · 等" + boardLabel(who)

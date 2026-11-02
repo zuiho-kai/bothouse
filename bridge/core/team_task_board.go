@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -649,6 +650,47 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 	return teamTaskRunning, teamTaskBoardAgo(last, now)
 }
 
+// Reuse board.py's explicit merge notation. Consolidation is a view: pending review,
+// rejection, and source records remain intact. A missing/foreign target or a cycle
+// must not hide the only visible copy of unfinished work; user decisions stay visible.
+var teamTaskBoardMergeRef = regexp.MustCompile(`并入(?:主线)?\s*#(\d+)`)
+
+func teamTaskBoardDisplayItems(items []teamTaskBoardItem, chat string, now time.Time) []teamTaskBoardItem {
+	byID := make(map[int]teamTaskBoardItem)
+	for _, it := range items {
+		if state, _ := teamTaskBoardStateOf(it, now); it.shownIn(chat) && state != teamTaskHidden {
+			byID[it.ID] = it
+		}
+	}
+	var out []teamTaskBoardItem
+	for _, it := range items {
+		if !it.shownIn(chat) {
+			continue
+		}
+		current := it
+		seen := map[int]bool{it.ID: true}
+		merged := false
+		for current.Paused != "" && !teamTaskBoardWaitUser.MatchString(current.PauseWhy) && !teamOtherQuiet.MatchString(current.Status) {
+			ref := teamTaskBoardMergeRef.FindStringSubmatch(current.PauseWhy + " " + current.Status)
+			if ref == nil {
+				break
+			}
+			id, err := strconv.Atoi(ref[1])
+			target, ok := byID[id]
+			if err != nil || !ok || seen[id] {
+				merged = false
+				break
+			}
+			seen[id] = true
+			current, merged = target, true
+		}
+		if !merged {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
 // teamTaskBoardMarks: the row mark of each listed state.
 var teamTaskBoardMarks = map[teamTaskBoardState]string{teamTaskStuck: "⚠", teamTaskRunning: "▶", teamTaskWaiting: "⏸", teamTaskReview: "🟡", teamTaskPaused: "⏸"}
 
@@ -661,6 +703,7 @@ var teamTaskBoardNames = map[teamTaskBoardState]string{teamTaskStuck: "卡住", 
 // name. Items must be placed (placeTeamTaskBoard). Done items are not shown (user, 2026-10-28:
 // 「完成的也没必要显示」).
 func renderTeamTaskBoard(items []teamTaskBoardItem, chat string, now time.Time) string {
+	items = teamTaskBoardDisplayItems(items, chat, now)
 	rows := map[teamTaskBoardState][]string{}
 	paused := 0
 	for _, it := range items {
@@ -847,6 +890,7 @@ func teamTaskTableIdleSuffix(idle []string, used map[string]bool) string {
 // renderTeamTaskTable renders the table body (no header line) for chat, "" when the chat has no
 // open item. links: the task cards (readTeamFiles' Tasks), for each row's thread.
 func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat string, now time.Time) string {
+	items = teamTaskBoardDisplayItems(items, chat, now)
 	type wsRow struct {
 		where string
 		ended bool
@@ -895,7 +939,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		case state == teamTaskPaused:
 			note := "暂停"
 			if it.ReviewRejected != "" {
-				note += " · " + boardLabel(it.PauseWhy)
+				note += " · " + teamTaskBoardReason(it.Status, it.ReviewRejected, it.PauseWhy)
 			}
 			parts := []string{short, note}
 			if where != "" {
@@ -1034,6 +1078,7 @@ func renderTeamTaskBoardFit(items []teamTaskBoardItem, chat string, now time.Tim
 // per line (卡住, 在做, 等你), paused ones counted. Nothing from other channels (user, 2026-10-28:
 // 「不应该挂到其他频道，其他频道自己收敛」). "" when nothing to show.
 func renderWorkspaceTaskBoardFit(items []teamTaskBoardItem, chat string, now time.Time, budget int) string {
+	items = teamTaskBoardDisplayItems(items, chat, now)
 	rows := map[teamTaskBoardState][]string{}
 	paused := 0
 	for _, it := range items {
