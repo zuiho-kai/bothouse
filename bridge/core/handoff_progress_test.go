@@ -48,6 +48,18 @@ func TestTimerAddRequest_HandoffReachesJob(t *testing.T) {
 	}
 }
 
+// #75: ws-forward's --forward mark must reach the job the same way --handoff does, so the
+// API does not take a forwarded notice for a status poll.
+func TestTimerAddRequest_ForwardReachesJob(t *testing.T) {
+	var req TimerAddRequest
+	if err := json.Unmarshal([]byte(`{"session_key":"discord:1","delay":"1m","prompt":"p","forward":true}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	if !req.Forward {
+		t.Fatal("forward not decoded")
+	}
+}
+
 // toolResultSession answers every Send with two tool calls and a result, enough
 // for the automatic card to open (autoProgressTools).
 type toolResultSession struct {

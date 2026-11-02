@@ -27,11 +27,12 @@ func IsSpinPollingPrompt(prompt string) bool {
 }
 
 // CheckAntiSpinTimer validates a TimerJob against anti-spin rules.
-// Shell execution timers (Exec != ""), system handoff dispatches (Handoff == true)
-// and long-interval timers are allowed.
+// Shell execution timers (Exec != ""), system handoff dispatches (Handoff == true),
+// forwarded notices (Forward == true, the lead's ws-forward wake-up) and long-interval
+// timers are allowed.
 // Short-interval prompt-based timers that poll state are rejected.
 func CheckAntiSpinTimer(j *TimerJob) error {
-	if j == nil || j.Exec != "" || j.Handoff {
+	if j == nil || j.Exec != "" || j.Handoff || j.Forward {
 		return nil
 	}
 	if !IsSpinPollingPrompt(j.Prompt) && !IsSpinPollingPrompt(j.Description) {

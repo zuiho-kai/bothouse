@@ -121,3 +121,48 @@ func TestAntiSpinGuard(t *testing.T) {
 		}
 	})
 }
+
+// #75: the lead forwards the user's new words into a workspace with a one-shot 1m wake-up
+// whose text carries the user's own wording — which can mention 状态/回执/额度. That is a
+// delivery, not a status poll, so it must reach the workspace; the same text without the
+// forward mark stays blocked, so the guard itself is untouched.
+func TestAntiSpinForwardNotice(t *testing.T) {
+	prompt := "主频道转来一条话（已记进 /notes/x.md「转交结果」节），按这条做：额度恢复了没，回执发我"
+
+	plain := &TimerJob{
+		ID:          "fwd-plain",
+		SessionKey:  "discord:ws-3",
+		Description: "工作区转交",
+		Prompt:      prompt,
+		ScheduledAt: time.Now().Add(1 * time.Minute),
+	}
+	if err := CheckAntiSpinTimer(plain); !errors.Is(err, ErrAntiSpinBlocked) {
+		t.Fatalf("forwarded text without the mark must stay blocked at 1m, got %v", err)
+	}
+
+	notice := &TimerJob{
+		ID:          "fwd-1",
+		SessionKey:  "discord:ws-3",
+		Description: "工作区转交",
+		Prompt:      prompt,
+		Forward:     true,
+		ScheduledAt: time.Now().Add(1 * time.Minute),
+	}
+	if err := CheckAntiSpinTimer(notice); err != nil {
+		t.Fatalf("ws-forward notice must reach the workspace, got %v", err)
+	}
+
+	// --interrupt folds into the running turn; the mark must not change that.
+	interrupt := &TimerJob{
+		ID:           "fwd-2",
+		SessionKey:   "discord:ws-3",
+		Description:  "工作区转交",
+		Prompt:       prompt,
+		Forward:      true,
+		InjectIfBusy: true,
+		ScheduledAt:  time.Now().Add(1 * time.Second),
+	}
+	if err := CheckAntiSpinTimer(interrupt); err != nil {
+		t.Fatalf("ws-forward --interrupt notice must reach the workspace, got %v", err)
+	}
+}
