@@ -844,8 +844,15 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		ended bool
 		line  string
 	}
+	type runRow struct {
+		where, short, span, url string
+		last, bound             time.Time
+		stuck                   bool
+	}
 	var waiting, idle []string
 	var wsRows []wsRow
+	var running []runRow
+	liveBound := map[string]time.Time{}
 	usedWS := map[string]bool{}
 	var idlePool []string
 	shelved, open := 0, 0
@@ -914,22 +921,46 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 			idle = append(idle, "  · "+short)
 		default:
 			usedWS[where] = true
-			parts := []string{where, short}
-			if span != "" {
-				parts = append(parts, "已做 "+span)
+			bound, _ := time.Parse(time.RFC3339Nano, it.Bound)
+			if bound.After(liveBound[where]) {
+				liveBound[where] = bound
 			}
-			if state == teamTaskStuck {
-				parts = append(parts, "卡住")
-			}
-			row := "  🟢 " + strings.Join(parts, " · ")
-			if url := teamTaskTableRowURL(it, card); url != "" {
-				row += "  [→点进去](" + url + ")"
-			}
-			wsRows = append(wsRows, wsRow{where: where, ended: false, line: row})
+			running = append(running, runRow{where: where, short: short, span: span, url: teamTaskTableRowURL(it, card),
+				last: last, bound: bound, stuck: state == teamTaskStuck || !last.IsZero() && now.Sub(last) >= teamTaskBoardStuckAfter})
 		}
 	}
 	if open == 0 {
 		return ""
+	}
+	// A workspace does one thing at a time: only its newest bound item is 🟢. The others, and any
+	// item with no progress for teamTaskBoardStuckAfter, show when they last moved instead of
+	// 「已做」 since binding (user, 2026-11-02: 「这种已做很久的怎么回事」).
+	for _, r := range running {
+		var parts []string
+		mark, ended := "  🟢 ", false
+		switch {
+		case r.stuck || !r.bound.Equal(liveBound[r.where]):
+			mark, ended = "  ⚠ ", true
+			parts = []string{r.where, r.short}
+			if ago := teamTaskTableSpan(r.last, now); ago != "" {
+				parts = append(parts, "上次进展 "+ago+"前")
+			}
+			if r.stuck {
+				parts = append(parts, "卡住")
+			} else {
+				parts = append(parts, "没在跑")
+			}
+		default:
+			parts = []string{r.where, r.short}
+			if r.span != "" {
+				parts = append(parts, "已做 "+r.span)
+			}
+		}
+		row := mark + strings.Join(parts, " · ")
+		if r.url != "" {
+			row += "  [→点进去](" + r.url + ")"
+		}
+		wsRows = append(wsRows, wsRow{where: r.where, ended: ended, line: row})
 	}
 	sort.SliceStable(wsRows, func(i, j int) bool {
 		ni, nj := teamWorkspaceNum(wsRows[i].where), teamWorkspaceNum(wsRows[j].where)

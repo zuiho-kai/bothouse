@@ -503,8 +503,9 @@ def drain():
     with _queue() as q:
         while q:
             x = q[0]
-            if not any(i["id"] == x["nid"] for i in board.items()):
-                q.pop(0)  # 板上已没有（做完、撤掉）：不再接
+            it = next((i for i in board.items() if i["id"] == x["nid"]), None)
+            if it is None or it.get("paused"):
+                q.pop(0)  # 板上已没有（做完、撤掉）或已暂停：不再接；恢复时 --resume 或重新交活再排
                 continue
             if not start(x["path"], x["task"], x["chat"], x["nid"], x.get("project"), x.get("answer")):
                 break
