@@ -726,6 +726,8 @@ def returned(nid, reviewer, at=None, bound=None, receipt=None):
             receipts = hit.setdefault("relay_returns", [])
             if receipt in receipts:
                 return True
+            if hit.get("paused"):
+                return False  # A late relay must never undo an explicit pause.
             receipts.append(receipt)
         archived = None
         if hit is None:

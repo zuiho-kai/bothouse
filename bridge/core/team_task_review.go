@@ -58,6 +58,42 @@ func (e *Engine) taskReviewerInfo(project string) (string, time.Duration) {
 	return project, e.taskReviewAfter()
 }
 
+// applyRelayBoardReturn consumes dispatch metadata, never a board number in a
+// worker's response. The caller serializes task revision changes while applying it.
+func (e *Engine) applyRelayBoardReturn(task *Task, request string, receipt taskRelayRecord, board int, bound string, revision int, now time.Time) {
+	if e.team == nil || task == nil || task.Agent != e.name || request == "" || bound == "" ||
+		revision != task.RevisionNo() || receipt.Status != "done" || receipt.Error != "" ||
+		task.State == TaskStateCompleted || task.State == TaskStateCancelled ||
+		(task.AssignedProject != "" && task.AssignedProject != e.name) {
+		return
+	}
+	if err := e.CheckTaskAuthorization(task, "task.dispatch"); err != nil {
+		return
+	}
+	chat := task.SessionKey
+	if parent, ok := e.WorkspaceParent(chat); ok {
+		chat = parent
+	}
+	for _, it := range readTeamTaskBoard(e.team.dir) {
+		if it.ID != board || it.Bound != bound || it.Chat == "" || teamChatKey(it.Chat) != teamChatKey(chat) ||
+			it.Paused != "" || (it.Dispatcher != e.name && !e.isTeamLead()) {
+			continue
+		}
+		matched := false
+		for _, path := range receipt.HandoffRefs {
+			matched = matched || (it.Where != "" && path == it.Where)
+		}
+		if !matched {
+			continue
+		}
+		key := sha256.Sum256([]byte(fmt.Sprintf("%q/%d/%q", task.ID, revision, request)))
+		if out, err := e.runLeadScript(it.Chat, "board", "returned", strconv.Itoa(it.ID), e.name, now.UTC().Format(time.RFC3339Nano), bound, fmt.Sprintf("relay-%x", key)); err != nil {
+			slog.Warn("task review: relay return failed", "board", it.ID, "error", err, "output", string(out))
+		}
+		return
+	}
+}
+
 // taskReviewRef ties a persisted timer to one handback. Rework creates a new ReturnedAt;
 // an accepted or rejected task invalidates already queued reminders before they run.
 type taskReviewRef struct {

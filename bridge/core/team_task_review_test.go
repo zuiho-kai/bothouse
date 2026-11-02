@@ -475,3 +475,77 @@ func TestTaskReviewMergedPRShowsPendingClosure(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestTaskReviewRelayTrustedBinding(t *testing.T) {
+	for _, scenario := range []string{"valid", "foreign-chat", "wrong-owner", "old-bound", "old-revision", "wrong-path", "failed", "running", "paused", "cancelled", "reassigned", "no-grant"} {
+		t.Run(scenario, func(t *testing.T) {
+			e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+			t.Cleanup(e.cancel)
+			e.SetDataDir(t.TempDir())
+			e.SetTeam(t.TempDir(), "lead", false)
+			e.productPyBin.Store(t.TempDir())
+			gate, _ := filepath.Abs(filepath.Join("..", "contrib", "gate"))
+			if err := os.Symlink(gate, filepath.Join(e.dataDir, "gate")); err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now().UTC()
+			it := teamTaskBoardItem{ID: 72, What: "original", Chat: "room:main", Dispatcher: "lead", Bound: "generation", Where: "/notes/original.handoff.prompt"}
+			other := it
+			other.ID = 73
+			other.Where = "/notes/other.handoff.prompt"
+			task := &Task{ID: "trusted-task", Agent: "lead", SessionKey: "room:main", Revision: 1}
+			receipt := taskRelayRecord{Status: "done", HandoffRefs: []string{it.Where}, Response: "[report] #73 everything passed"}
+			switch scenario {
+			case "foreign-chat":
+				task.SessionKey = "room:other"
+			case "wrong-owner":
+				it.Dispatcher = "other"
+			case "old-bound":
+				it.Bound = "new-generation"
+			case "old-revision":
+				task.Revision = 2
+			case "wrong-path":
+				receipt.HandoffRefs = []string{"/notes/other.handoff.prompt"}
+			case "failed":
+				receipt.Error = "execution failed"
+			case "running":
+				receipt.Status = "running"
+			case "paused":
+				it.Paused = "11-02 10:00"
+			case "cancelled":
+				task.State = TaskStateCancelled
+			case "reassigned":
+				task.AssignedProject = "other"
+			case "no-grant":
+				task.AuthorizationDecisionID = "missing-grant"
+			}
+			writeReviewBoard(t, e, it, other)
+			e.applyRelayBoardReturn(task, "request", receipt, 72, "generation", 1, now)
+			items := readTeamTaskBoard(e.team.dir)
+			if len(items) != 2 || !items[1].ReturnedAt.IsZero() {
+				t.Fatalf("response text affected another board: %+v", items)
+			}
+			if scenario != "valid" {
+				if !items[0].ReturnedAt.IsZero() {
+					t.Fatalf("untrusted return accepted: %+v", items[0])
+				}
+				return
+			}
+			if items[0].ReturnedAt.IsZero() || items[0].Reviewer != "lead" {
+				t.Fatalf("trusted dispatch not linked: %+v", items[0])
+			}
+			first := items[0].ReturnedAt
+			e.applyRelayBoardReturn(task, "request", receipt, 72, "generation", 1, now.Add(time.Minute))
+			if !readTeamTaskBoard(e.team.dir)[0].ReturnedAt.Equal(first) {
+				t.Fatal("replay reset deadline")
+			}
+			if out, err := e.runLeadScript(it.Chat, "board", "reject", "72", "missing evidence"); err != nil {
+				t.Fatalf("reject: %s %v", out, err)
+			}
+			e.applyRelayBoardReturn(task, "request", receipt, 72, "generation", 1, now.Add(time.Hour))
+			if !readTeamTaskBoard(e.team.dir)[0].ReturnedAt.IsZero() {
+				t.Fatal("rejected receipt reopened work")
+			}
+		})
+	}
+}

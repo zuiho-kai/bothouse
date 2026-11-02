@@ -110,6 +110,16 @@ class MergeClosure(unittest.TestCase):
                     self.assertNotIn("returned_at",board.items()[0])
 
 class RelayGeneration(unittest.TestCase):
+    def test_late_relay_cannot_resume_paused_work(self):
+        import board
+        from unittest.mock import patch
+        tmp = Path(tempfile.mkdtemp())
+        with patch.object(board, "DIR", tmp):
+            item = {"id":72, "chat":"room:main", "bound":"generation", "paused":"11-02 10:00"}
+            board._write([item])
+            self.assertFalse(board.returned(72, "lead", "2026-11-02T00:00:00Z", "generation", "late-receipt"))
+            self.assertEqual(board.items(), [item])
+
     def test_trusted_return_is_atomic_and_rejected_receipt_does_not_reopen(self):
         import board
         from unittest.mock import patch
