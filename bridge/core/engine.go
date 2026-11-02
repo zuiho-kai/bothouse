@@ -5167,7 +5167,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			}
 			if notice != "" {
 				sessions.Save()
-				go e.send(p, markSystemNotice(p, replyCtx), notice)
+				go e.sendSystemNotice(p, replyCtx, notice)
 				wantID, needRecycle = "", true
 			}
 		}
@@ -5235,15 +5235,15 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	if input == nil {
 		if notice := e.freshOnColdCache(agent, session); notice != "" {
 			sessions.Save()
-			go e.send(p, markSystemNotice(p, replyCtx), notice)
+			go e.sendSystemNotice(p, replyCtx, notice)
 		}
 		if notice := e.freshOnContextSize(agent, session, contextFreshChat(p, sessionKey)); notice != "" {
 			sessions.Save()
-			go e.send(p, markSystemNotice(p, replyCtx), notice)
+			go e.sendSystemNotice(p, replyCtx, notice)
 		}
 		if notice := e.freshOnImageBloat(agent, session); notice != "" {
 			sessions.Save()
-			go e.send(p, markSystemNotice(p, replyCtx), notice)
+			go e.sendSystemNotice(p, replyCtx, notice)
 		}
 	}
 
@@ -6735,7 +6735,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					sessions.Save()
 					cp.Finalize(ProgressCardStateFailed)
 					sp.discard()
-					sendOutput(p, markSystemNotice(p, replyCtx), notice)
+					if !e.noticeKeptOut(p, replyCtx, notice) {
+						sendOutput(p, markSystemNotice(p, replyCtx), notice)
+					}
 					e.cleanupInteractiveState(sessionKey, state)
 					return
 				}
@@ -8595,8 +8597,12 @@ func (e *Engine) handleCommand(p Platform, msg *Message, raw string) bool {
 			e.executeSkill(p, msg, skill, args)
 			return true
 		}
-		// Not a cc-connect command — notify user, then fall through to agent
-		e.send(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgUnknownCommand), "/"+cmd))
+		// Not a cc-connect command — notify user, then fall through to agent.
+		// In a QQ group it is usually meant for another bot: say nothing there.
+		notice := fmt.Sprintf(e.i18n.T(MsgUnknownCommand), "/"+cmd)
+		if !e.noticeKeptOut(p, msg.ReplyCtx, notice) {
+			e.send(p, msg.ReplyCtx, notice)
+		}
 		return false
 	}
 	return true
