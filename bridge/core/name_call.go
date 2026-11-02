@@ -83,3 +83,66 @@ func callFollows(rest, sep string) bool {
 	}
 	return false
 }
+
+var leadingMentionRe = regexp.MustCompile(`^<@[!&]?\d+>`)
+
+// LinkLeadingNames rewrites teammates' names that open a line as a call (the NameCalled rule) into
+// real mentions, so a bot writing "grok娘，帮我…" reaches her: platforms drop a bot's message to
+// another bot unless it carries an explicit mention (issue #971, 2026-11-03: 橘's "grok娘，…" never
+// arrived). ids maps each teammate name and alias to its id; self are the sender's own names, kept as
+// text. A name mid-line ("刚才龙娘写的…") or not followed by a call ("龙娘刚才…") is left alone, and
+// so is text inside ``` fences.
+func LinkLeadingNames(text string, ids map[string]string, self []string, mention func(id string) string) string {
+	if len(ids) == 0 || text == "" {
+		return text
+	}
+	all := append([]string(nil), self...)
+	for n := range ids {
+		all = append(all, n)
+	}
+	sort.Slice(all, func(i, j int) bool { return len(all[i]) > len(all[j]) })
+	parts := strings.Split(text, "```")
+	for i := 0; i < len(parts); i += 2 { // even parts are outside code fences
+		lines := strings.Split(parts[i], "\n")
+		for j, line := range lines {
+			lines[j] = linkLeadingLine(line, all, ids, self, mention)
+		}
+		parts[i] = strings.Join(lines, "\n")
+	}
+	return strings.Join(parts, "```")
+}
+
+func linkLeadingLine(line string, all []string, ids map[string]string, self []string, mention func(string) string) string {
+	rest := strings.TrimLeft(line, " \t")
+	var b strings.Builder
+	b.WriteString(line[:len(line)-len(rest)])
+	sep, hit := "", false
+	for matched := true; matched; {
+		matched = false
+		tok := leadingMentionRe.FindString(rest)
+		piece := tok
+		if tok == "" {
+			for _, n := range all {
+				if strings.HasPrefix(rest, n) {
+					tok, piece = n, n
+					if id, ok := ids[n]; ok && !slices.Contains(self, n) {
+						piece, hit = mention(id), true
+					}
+					break
+				}
+			}
+		}
+		if tok == "" {
+			break
+		}
+		after := rest[len(tok):]
+		rest = strings.TrimLeft(after, " \t，,、和跟与/")
+		sep, matched = after[:len(after)-len(rest)], true
+		b.WriteString(piece + sep)
+	}
+	if !hit || !callFollows(rest, sep) {
+		return line
+	}
+	b.WriteString(rest)
+	return b.String()
+}
