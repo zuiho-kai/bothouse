@@ -44,15 +44,15 @@ func (e *Engine) workspaceTaskBackground(wsSession string, boardID int) string {
 	return line
 }
 
-// workspaceBoardItem: board item boardID when it exists, else the item last bound to workspace
-// session wsSession (open board first, then finished items); nil when none is recorded.
+// workspaceBoardItem resolves an explicit ID without guessing another task.
+// Only an absent ID falls back to the workspace's last binding (open, then finished).
 func (e *Engine) workspaceBoardItem(wsSession string, boardID int) *teamTaskBoardItem {
 	dir := e.teamStatusDir()
 	if dir == "" || wsSession == "" {
 		return nil
 	}
-	if it := e.boardItemByID(boardID); it != nil {
-		return it
+	if boardID > 0 {
+		return e.boardItemByID(boardID)
 	}
 	key := teamChatKey(wsSession)
 	if it := lastBoundItem(readTeamTaskBoard(dir), key); it != nil {

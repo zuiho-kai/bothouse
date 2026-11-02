@@ -259,13 +259,13 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		rc = e.recordReplyTask(p, rc, hid)
 		return e.postExitHeadline(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, hid, hline, item)
 	}
-	if it := e.workspaceBoardItem(sessionKey, 0); it != nil {
+	if it := e.boardItemByID(hid); it != nil {
 		rc = e.recordReplyTask(p, rc, it.ID)
 	}
 	// The format is still wrong after the bounces: the chat channel's lead rewrites it in the same
 	// three parts and posts that (user 10-30: no longer posted as written, 「一大坨根本看不懂」).
 	// The workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
-	if e.wakeChatLeadContext(ctx, p, parent, ws, bot, kind, body, sessionKey, 0) {
+	if e.wakeChatLeadRewriteContext(ctx, p, parent, ws, bot, kind, body, sessionKey, hid) {
 		slog.Info("team exit: handed to the chat lead to rewrite", "kind", kind, "auto", auto, "workspace", ws, "parent", parent)
 		return ""
 	}

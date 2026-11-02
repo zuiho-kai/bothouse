@@ -28,10 +28,76 @@ func TestWorkspaceLegacyReportKeepsNamedTask(t *testing.T) {
 	if len(jobs) != 1 {
 		t.Fatalf("expected one lead rewrite, got %d", len(jobs))
 	}
+	inputWait(t, func() bool {
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		return store.jobs[0].Fired
+	})
 	if jobs[0].ReplyBoard != 65 || strings.Contains(jobs[0].Prompt, "任务板 #60") || !strings.Contains(jobs[0].Prompt, "任务板 #65") {
 		t.Fatalf("old report attributed to another task: board=%d prompt=%s", jobs[0].ReplyBoard, jobs[0].Prompt)
 	}
 	if !strings.Contains(jobs[0].Prompt, "没有贴进本频道") {
 		t.Fatal("a rewrite must not claim that the report was already posted")
+	}
+}
+
+func TestWorkspaceRewriteUnknownOrUnmarkedIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name, reply string
+		want        int
+	}{
+		{"unknown explicit ID", "[report] #999 背景：旧任务。\n用量核完。", 0},
+		{"no explicit ID", "[report] 背景：旧任务。\n用量核完。", 0},
+		{"missing marker stays local", "#65 背景：旧任务。\n用量核完。", -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
+			e.SetTeam(t.TempDir(), "橘", true)
+			e.markPlatformReady(p)
+			if err := e.ClaimTeamWorkspaceFor("discord:chat1", "ws1", "工作区1", "", "新任务"); err != nil {
+				t.Fatal(err)
+			}
+			writeReviewBoard(t, e,
+				teamTaskBoardItem{ID: 65, What: "旧任务", WSWas: "discord:ws1", Chat: "discord:chat1", Bound: "2026-11-02T01:00:00Z"},
+				teamTaskBoardItem{ID: 60, What: "新任务", WS: "discord:ws1", Chat: "discord:chat1", Bound: "2026-11-02T02:00:00Z"},
+			)
+			store, err := NewTimerStore(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			ts := NewTimerScheduler(store)
+			t.Cleanup(ts.Stop)
+			e.SetTimerScheduler(ts)
+			e.teamExit.bounces = map[string]int{exitWSKey: exitRules.Bounce.WakeLimit}
+			e.forwardWorkspaceExit(p, exitWSKey, tc.reply)
+			jobs := store.List()
+			if tc.want == -1 {
+				if len(jobs) != 0 {
+					t.Fatal("unmarked process reply was forwarded")
+				}
+				return
+			}
+			if len(jobs) != 1 {
+				t.Fatalf("rewrite jobs=%d", len(jobs))
+			}
+			inputWait(t, func() bool { store.mu.Lock(); defer store.mu.Unlock(); return store.jobs[0].Fired })
+			if jobs[0].ReplyBoard != tc.want || strings.Contains(jobs[0].Prompt, "任务板 #60") {
+				t.Fatalf("wrong attribution: board=%d prompt=%s", jobs[0].ReplyBoard, jobs[0].Prompt)
+			}
+		})
+	}
+}
+
+func TestWorkspaceLateReportDoesNotResetNewTask(t *testing.T) {
+	e, _, _ := exitFixture(t, mapParent{"ws1": "chat1"})
+	e.SetTeam(t.TempDir(), "橘", true)
+	writeReviewBoard(t, e,
+		teamTaskBoardItem{ID: 65, What: "旧任务", WSWas: "discord:ws1", Chat: "discord:chat1", Bound: "2026-11-02T01:00:00Z"},
+		teamTaskBoardItem{ID: 60, What: "新任务", WS: "discord:ws1", Chat: "discord:chat1", Bound: "2026-11-02T02:00:00Z"},
+	)
+	current := e.sessions.GetOrCreateActive(exitWSKey)
+	e.endWorkspaceTask("discord:chat1", exitWSKey, exitKindReport, 65)
+	if e.sessions.ActiveSessionID(exitWSKey) != current.ID {
+		t.Fatal("late old report reset the newer task session")
 	}
 }
