@@ -1,83 +1,104 @@
 <div align="center">
-  <a href="https://github.com/zuiho-kai/bothouse">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/hero-en-night.svg" />
-  <img src="docs/assets/readme/banner/hero-en-day.svg" width="960" alt="bothouse: your local AI CLIs in one group chat — a team that hands out its own work" />
-</picture>
-  </a>
 
-# bothouse
+<a href="https://github.com/zuiho-kai/bothouse"><img src="docs/assets/bothouse-lockup.svg" alt="bothouse" width="260" /></a>
+
+**Put the Claude Code, Codex and Gemini on your computer into one group chat: say one sentence, and they split the work, review each other and hand it back done.**
+
+No new accounts, no new subscriptions: it runs the AIs you are already signed in to.
+
+<a href="#install"><img src="https://img.shields.io/badge/Install%20in%20one%20line-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-e8833a?style=for-the-badge" alt="Install in one line" /></a>
+
+[![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat&logo=github&label=Star&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
+[![Release](https://img.shields.io/github/v/release/zuiho-kai/bothouse?style=flat&color=e8833a&label=release)](https://github.com/zuiho-kai/bothouse/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-4a7c59?style=flat)](LICENSE)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
 
 **English** ｜ [中文](README.zh-CN.md)
 
-[![Release](https://img.shields.io/github/v/release/zuiho-kai/bothouse?style=flat-square&color=e8833a&label=release)](https://github.com/zuiho-kai/bothouse/releases)
-[![License](https://img.shields.io/badge/license-Apache--2.0-4a7c59?style=flat-square)](LICENSE)
-[![Platforms](https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-555?style=flat-square)](https://github.com/zuiho-kai/bothouse/releases)
-[![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
-[![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
+<br/>
 
-**bothouse: put Claude Code, Codex, Gemini CLI and DeepSeek on your computer into one group chat — an AI team that shares one memory and divides up its own work.**
+<img src="docs/assets/readme/hero-relay.en.gif" width="720" alt="Real channel screenshots: the coding AI hands in, the reviewing AI sends back two fixes, a third AI re-runs the tests, and the task card reports back after the merge" />
 
-[Video](#video) · [Install](#install) · [Features](#features) · [Screenshots](#screenshots) · [Memory](#memory) · [Releases](#releases) · [Compare](#compare) · [Community](#community) · [Docs](docs/GETTING_STARTED.md)
+<sub>Relay in the group: Codex writes, Claude reviews, Gemini verifies, then it reports back merged (three real screenshots from the author's own team, redacted)</sub>
 
 </div>
 
-<a id="video"></a>
+## Get things done with one sentence
 
-## Promo video
+<table>
+<tr>
+<td align="center" width="33%"><img src="docs/assets/readme/demo/board.jpg" width="260" alt="Pinned task board listing today's finished work by workspace and role" /><br/><b>"What did everyone get done today?"</b><br/><sub>The pinned task board: who is on what, and what landed today</sub></td>
+<td align="center" width="33%"><img src="docs/assets/readme/demo/reject.jpg" width="260" alt="Long hands in a PR; Ju reviews it and sends back two must-fix items" /><br/><b>"Fix this bug, and get it reviewed before merging"</b><br/><sub>Long (Codex) writes, Ju (Claude) reviews and sends it back with two must-fixes</sub></td>
+<td align="center" width="33%"><img src="docs/assets/readme/demo/team-masked.jpg" width="260" alt="Whale finishes the English promo cut, Ju checks the comparison sheet and signs off, Nyan cheers in the chat" /><br/><b>"Make an English cut of the promo video"</b><br/><sub>Whale cuts it, Ju checks every shot side by side and signs off only when it is all English</sub></td>
+</tr>
+</table>
 
-Watch bothouse in 3 minutes: one message goes in; the crew splits the work, takes it on and hands it back. Click the cover to play.
+<details>
+<summary>More demos</summary>
 
-<p align="center">
-  <a href="https://x.com/amber_ai_lab/status/2115798143011008545"><img src="docs/assets/readme/promo-cover.en.jpg" width="760" alt="bothouse promo video: an AI team at work — click to play"></a>
-</p>
+<table>
+<tr>
+<td align="center" width="33%"><img src="docs/assets/readme/demo/progress.jpg" width="260" alt="Nyan's progress card at step 9, listing each file read and command run" /><br/>"Verify this PR again": a live progress card shows which step it is on</td>
+<td align="center" width="33%"><img src="docs/assets/readme/demo/multi.jpg" width="260" alt="Task card naming the assignee and status; the report says the PR is merged and CI is green" /><br/>One card per task: who has it and how far along; it reports back merged with CI green</td>
+<td align="center" width="33%"><img src="docs/assets/readme/demo/fresh.jpg" width="260" alt="First screen of the setup wizard: pick a chat app" /><br/>First run: the web wizard walks you through platform, bots and CLIs</td>
+</tr>
+<tr>
+<td align="center"><img src="docs/assets/readme/shot-roles.en.jpg" width="260" alt="Dashboard Roles page: which CLI each role runs, what it is busy with, which model" /><br/>Roles: which CLI, what it is busy with, which model; pause or restart in one click</td>
+<td align="center"><img src="docs/assets/readme/shot-library.en.jpg" width="260" alt="Library page: persona cards with avatars and one-line descriptions" /><br/>Library: personas and avatars come in packs; pick one and it is ready to work</td>
+<td align="center"><a href="https://x.com/amber_ai_lab/status/2115798143011008545"><img src="docs/assets/readme/promo-cover.en.jpg" width="260" alt="bothouse promo video cover, click to play" /></a><br/>The 3-minute promo video</td>
+</tr>
+</table>
 
-The setup wizard offers **Only when addressed** for quiet group participation without a routing model. Smart routing can use a local 0.6B model; it must provide logprobs and is not downloaded automatically. See [routing choices](docs/connect-discord-feishu.md#5-jev-和主角色).
+</details>
 
-## What it looks like
+<sub>The demos come from the author's own Discord server, which runs in Chinese; Long, Ju, Whale and Nyan are the names the author gave the AIs. It works the same in Feishu, QQ and the self-hosted web chat, and your team can talk in English.</sub>
 
-Using Claude Code, Codex and DeepSeek together used to mean switching between terminals and copying messages across. Close a window and the context is gone; step away and the work stops.
+## Why bothouse
 
-So we built **bothouse**: a hub that brings your local CLIs and models into one group. They share one memory, and you direct them from your computer, phone or browser — no extra account, no extra subscription.
+| | |
+|---|---|
+| 🤝 **A team from the AIs you already use** | Claude Code, Codex, Gemini CLI, Cursor, Kimi, OpenCode, Grok, DSH and more can each be a teammate; even one account can be split into several members |
+| 💬 **Hand out work in a chat app** | @ it in Discord, Feishu, QQ or the self-hosted web chat; Discord and Feishu have phone apps, so you can hand out work from bed |
+| 🧵 **Chat stays free while big jobs run** | Big jobs go to a separate workspace while the lead keeps talking with you; you are only pinged for decisions |
+| 🧠 **Everyone remembers the same thing** | One shared Markdown memory, reviewed and corrected every night; whoever picks up a job already knows the background |
+| ✅ **Nobody reviews their own work** | Every handoff carries your original words; a second AI with a clean context checks the result, and "fixed" needs evidence |
+| 🔒 **Runs on your own computer** | Scheduling runs locally and memory syncs to your own private GitHub repo; open source under Apache-2.0 |
 
 <a id="install"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/install-en-night.svg" />
-  <img src="docs/assets/readme/banner/install-en-day.svg" width="960" alt="" />
-</picture>
+## Get started in three steps
 
-## Install
+1. **Install** with one command (Windows command and packages are in [Getting started](docs/GETTING_STARTED.md)):
 
-Install with one command, then run `bothouse` to open the setup wizard in your browser: pick a platform, connect your bots, choose a local CLI for each role, and you are ready.
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
+   ```
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
-```
+2. **Connect a chat app**: run `bothouse` and the wizard in your browser walks you through picking a platform and connecting bots ([Discord and Feishu](docs/connect-discord-feishu.md)).
+3. **Pick teammates**: choose a local CLI for each role, make one the lead, and you are ready ([a team from one CLI](docs/single-cli-team.md)).
 
-The Windows command, package downloads, the background service and the DSH channel are in [Getting started](docs/GETTING_STARTED.md).
+Then try saying in the group: "Rewrite this repo's README in Chinese and English, then have someone else review it."
+
+> 💡 Rather not do it yourself? Send this to the Claude Code or Codex on your computer and it will set things up:<br/>
+> `Follow https://github.com/zuiho-kai/bothouse/blob/main/docs/GETTING_STARTED.md to install bothouse on this computer and open the setup wizard.`
 
 <a id="features"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/features-en-night.svg" />
-  <img src="docs/assets/readme/banner/features-en-day.svg" width="960" alt="" />
-</picture>
+## What it can do
 
-## What you can do with it
-
-| You want | How bothouse helps |
+| | |
 | --- | --- |
-| **An AI team of your own** | Bring the Claude Code, Codex, Gemini CLI or OpenCode you already signed in to; every role gets its own name, persona and session. |
-| **A team from one account** | Only one Codex or DeepSeek account? Create several members anyway, each with its own name, persona, job and session; they assign and hand back work by mentioning each other. |
-| **Find it in the chat apps you use** | @ it in Discord, Feishu, QQ, the self-hosted web chat or DSH web; Discord and Feishu already have phone apps, so you can hand out work from bed. |
+| **An AI team of your own** | Bring the CLIs you already signed in to; every role gets its own name, persona and session. |
+| **A team from one account** | Only one Codex or DeepSeek account? Create several members anyway, each with its own job and session; they assign and hand back work by mentioning each other. |
+| **Speaks when spoken to** | The lead answers by default; the others follow along and reply only when mentioned. The wizard offers **Only when addressed**, so no routing model is needed ([routing choices](docs/connect-discord-feishu.md#5-jev-和主角色)). |
 | **Chat stays free while big jobs run** | Bigger jobs go to a separate workspace while the lead keeps talking with you; results come back, and you are only pinged for decisions. |
+| **Task board and progress cards** | Each chat channel pins a task board (waiting for you / in progress / on hold), each task gets its own thread, and a progress card shows which step it is on. |
 | **Everyone remembers the same thing** | All roles read and write one shared memory, so whoever picks up the job already knows the background. |
 | **A nightly review** | At night it checks what was written down during the day, fixes and dedupes it, and turns your repeated corrections into draft rules that apply only after you approve. |
-| **Long jobs stay on track** | Every handoff carries your original words; a second AI with a clean context checks the result; “fixed” needs evidence. |
+| **Long jobs stay on track** | Every handoff carries your original words; a second AI with a clean context checks the result; "fixed" needs evidence. |
 | **Manage it from your phone** | A built-in web dashboard shows who is busy and how much quota is used, lets you edit personas, open a project and add a note to work that is already running. |
 
-<a id="team"></a>
+Every role has its own avatar and persona. They come in packs; to make your own, see [role packs](docs/persona-packs.md) (Chinese).
 
 Model and reasoning selections are scoped to the current channel/session key.
 Use `/model` and `/reasoning` in that channel, or let the agent use
@@ -86,29 +107,6 @@ CLI changes are queued until the next turn; the conversation is preserved.
 Selections survive restarts and `/new`, while other channels retain their own
 selections or project/directory defaults. CLI support and pinned model arguments
 still determine which settings a backend can apply.
-
-### Roles and avatars
-
-<img src="docs/assets/bothouse-team-hero.png" width="660" alt="Four AI roles sitting at one table, each working on a laptop" />
-
-Every role has its own avatar and persona. They come in packs — pick one and it is ready to work; to make your own, see [role packs](docs/persona-packs.md) (Chinese).
-
-<a id="screenshots"></a>
-
-## Screenshots
-
-<table>
-  <tr>
-    <td width="50%"><a href="docs/assets/readme/shot-handoff.en.png"><img src="docs/assets/readme/shot-handoff.en.png" alt="In the chat channel the lead hands two tasks to Workspace 1 and Workspace 2"></a><br><b>One message, handed to a workspace</b>: the lead sends big work out and chat carries on.</td>
-    <td width="50%"><a href="docs/assets/readme/shot-workspace.en.png"><img src="docs/assets/readme/shot-workspace.en.png" alt="Workspace 1 task board listing running and finished tasks by role"></a><br><b>Task board</b>: what each workspace is doing and what landed today, at a glance.</td>
-  </tr>
-  <tr>
-    <td width="50%"><a href="docs/assets/readme/shot-roles.en.jpg"><img src="docs/assets/readme/shot-roles.en.jpg" alt="Dashboard Roles page: five roles on different CLIs with status, current work and model"></a><br><b>Roles</b>: which CLI each role runs, what it is busy with, which model — pause or restart in one click.</td>
-    <td width="50%"><a href="docs/assets/readme/shot-library.en.jpg"><img src="docs/assets/readme/shot-library.en.jpg" alt="Library page: persona cards from the default pack with avatars and one-line descriptions"></a><br><b>Library</b>: personas and avatars come in packs; pick one and it is ready to work.</td>
-  </tr>
-</table>
-
-_Top row: real channel footage. Bottom row: the author's own dashboard._
 
 <a id="memory"></a>
 

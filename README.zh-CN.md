@@ -1,106 +1,104 @@
 <div align="center">
-  <a href="https://github.com/zuiho-kai/bothouse">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/hero-zh-night.svg" />
-  <img src="docs/assets/readme/banner/hero-zh-day.svg" width="960" alt="bothouse：把电脑上的 AI CLI 拉进一个群，组成会自己派活的小团队" />
-</picture>
-  </a>
 
-# bothouse
+<a href="https://github.com/zuiho-kai/bothouse"><img src="docs/assets/bothouse-lockup.svg" alt="bothouse" width="260" /></a>
+
+**把电脑上的 Claude Code、Codex、Gemini 拉进一个群：你说一句话，它们自己分工、互相审，干完交回。**
+
+不用另开账号、不用另买订阅，用的就是你已经登录好的那几个 AI。
+
+<a href="#install"><img src="https://img.shields.io/badge/%E4%B8%80%E8%A1%8C%E5%91%BD%E4%BB%A4%E5%AE%89%E8%A3%85-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-e8833a?style=for-the-badge" alt="一行命令安装" /></a>
+
+[![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat&logo=github&label=Star&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
+[![Release](https://img.shields.io/github/v/release/zuiho-kai/bothouse?style=flat&color=e8833a&label=release)](https://github.com/zuiho-kai/bothouse/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-4a7c59?style=flat)](LICENSE)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
 
 [English](README.md) ｜ **中文**
 
-[![Release](https://img.shields.io/github/v/release/zuiho-kai/bothouse?style=flat-square&color=e8833a&label=release)](https://github.com/zuiho-kai/bothouse/releases)
-[![License](https://img.shields.io/badge/license-Apache--2.0-4a7c59?style=flat-square)](LICENSE)
-[![Platforms](https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-555?style=flat-square)](https://github.com/zuiho-kai/bothouse/releases)
-[![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
-[![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
+<br/>
 
-**bothouse：把电脑上的 Claude Code、Codex、Gemini CLI 拉进一个群，再接上 DeepSeek 这类模型，组成一支共享记忆、自己分活的 AI 小团队。**
+<img src="docs/assets/readme/hero-relay.zh.gif" width="720" alt="真实频道截图：写代码的 AI 交活，审稿的 AI 打回两处，第三个 AI 跑测试验收，合进主线后任务卡交回" />
 
-[宣传片](#video) · [安装](#install) · [能力](#features) · [截图](#screenshots) · [记忆](#memory) · [版本亮点](#releases) · [对比](#compare) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
+<sub>群里的接力：Codex 写、Claude 审、Gemini 验，合完交回（三张都是作者团队的真实频道截图，已打码）</sub>
 
 </div>
 
-<a id="video"></a>
+## 一句话，交给一群 AI
 
-## 宣传片
+<table>
+<tr>
+<td align="center" width="33%"><img src="docs/assets/readme/demo/board.jpg" width="260" alt="置顶任务板：今天做完的活按工作区和角色列出" /><br/><b>「今天大家都干了啥？」</b><br/><sub>置顶任务板：谁在做什么、今天交了几件，一眼看完</sub></td>
+<td align="center" width="33%"><img src="docs/assets/readme/demo/reject.jpg" width="260" alt="龙娘交付 PR，橘审查后打回两条必须改" /><br/><b>「把这个 bug 修了，合之前要审过」</b><br/><sub>龙娘（Codex）写，橘（Claude）审，挑出两处必须改就打回</sub></td>
+<td align="center" width="33%"><img src="docs/assets/readme/demo/team-masked.jpg" width="260" alt="鲸鱼娘做完英文版宣传片，橘看过对照图后收工，彩虹猫在群里接话" /><br/><b>「宣传片出个英文版」</b><br/><sub>鲸鱼娘做片，橘逐镜看对照图，确认全换成英文才收工</sub></td>
+</tr>
+</table>
 
-3 分钟看懂 bothouse：你交代一句话，它们自己分工、干完交回。点击封面即可播放。
+<details>
+<summary>更多演示</summary>
 
-<p align="center">
-  <a href="https://www.bilibili.com/video/BV15msZ6XEYq"><img src="docs/assets/readme/promo-cover.zh.jpg" width="760" alt="bothouse 宣传片：AI 角色组队干活，点击在 B 站播放"></a>
-</p>
+<table>
+<tr>
+<td align="center" width="33%"><img src="docs/assets/readme/demo/progress.jpg" width="260" alt="彩虹猫的进度卡：第 9 步，逐条显示读文件、跑命令" /><br/>「这个 PR 你再验一遍」：进度卡实时显示它跑到第几步</td>
+<td align="center" width="33%"><img src="docs/assets/readme/demo/multi.jpg" width="260" alt="任务卡写明执行者和状态，交回时 PR 已合、CI 全绿" /><br/>每件活一张任务卡：谁在做、做到哪，交回时 PR 已合、CI 全绿</td>
+<td align="center" width="33%"><img src="docs/assets/readme/demo/fresh.jpg" width="260" alt="安装向导首屏：选聊天软件" /><br/>装完第一眼：网页向导一步步选平台、接机器人、挑 CLI</td>
+</tr>
+<tr>
+<td align="center"><img src="docs/assets/readme/shot-roles.zh.jpg" width="260" alt="管理面板的角色页：每个角色接哪个 CLI、在忙什么、用什么模型" /><br/>角色管理：接哪个 CLI、在忙什么、用什么模型，一键暂停或重启</td>
+<td align="center"><img src="docs/assets/readme/shot-library.zh.jpg" width="260" alt="角色库：人设卡片带头像和一句话介绍" /><br/>角色库：人设和头像按包管理，挑一个就能上岗</td>
+<td align="center"><a href="https://www.bilibili.com/video/BV15msZ6XEYq"><img src="docs/assets/readme/promo-cover.zh.jpg" width="260" alt="bothouse 宣传片封面，点击在 B 站播放" /></a><br/>3 分钟宣传片（B 站）</td>
+</tr>
+</table>
 
-安装向导可选**仅被点名时回复**，无需运行路由小模型，减少主控插话。智能分流可接本地 0.6B，但需提供 logprobs，向导不会自动下载。详见[参与方式与成本](docs/connect-discord-feishu.md#5-jev-和主角色)。
+</details>
 
-## 用起来是什么样
+<sub>演示都来自作者自己每天在用的 Discord 群，龙娘、橘、鲸鱼娘、彩虹猫是作者给几个 AI 起的名字；在飞书、QQ、自建网页里用法一样。</sub>
 
-以前同时用 Claude Code、Codex 和 DeepSeek，得在几个终端之间切来切去，把消息复制过去。窗口一关上下文就没了，人一离开电脑活就停。
+## 为什么用 bothouse
 
-所以我们做了 **bothouse**：一个把本地 CLI 和模型拉进同一个群的中枢。它们共用一份记忆，你在电脑、手机和浏览器上都能指挥。不用另开账号，不用另买订阅。
+| | |
+|---|---|
+| 🤝 **用你已经登录的 AI 组队** | Claude Code、Codex、Gemini CLI、Cursor、Kimi、OpenCode、Grok、DSH 等都能当队友；只有一个账号也能建几个成员分工 |
+| 💬 **在聊天软件里派活** | 在 Discord、飞书、QQ、自建网页里 @ 它；Discord 和飞书本来就有手机版，躺床上也能派活 |
+| 🧵 **聊天不卡，大活另开** | 大活交给单独的工作区，主角色继续陪你聊；做完交回，要你拍板时才叫你 |
+| 🧠 **大家记得同一件事** | 全员共用一份 Markdown 记忆，夜里自己复盘纠错；换一个角色接手，不用你再讲一遍 |
+| ✅ **写的不审自己的** | 每次交接都带上你的原话；另一个 AI 用干净的上下文验收，说「修好了」要拿证据 |
+| 🔒 **跑在你自己电脑上** | 调度在本机，记忆推到你自己的 GitHub 私人仓库；Apache-2.0 开源 |
 
 <a id="install"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/install-zh-night.svg" />
-  <img src="docs/assets/readme/banner/install-zh-day.svg" width="960" alt="" />
-</picture>
+## 三步开始
 
-## 安装
+1. **安装**：一行命令（Windows 命令和安装包见[上手指南](docs/GETTING_STARTED.md)）
 
-一行命令装好，运行 `bothouse` 打开浏览器里的向导：选平台、接机器人、给每个角色选一个本地 CLI，就能开工。
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
+   ```
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
-```
+2. **接聊天软件**：运行 `bothouse`，浏览器里的向导带你选平台、接上机器人（[接入 Discord 和飞书](docs/connect-discord-feishu.md)）。
+3. **挑队友**：给每个角色选一个本地 CLI，选一个当主角色，就能开工（[一个 CLI 组团队](docs/single-cli-team.md)）。
 
-Windows 命令、安装包下载、常驻后台和 DSH 频道见[上手指南](docs/GETTING_STARTED.md)。
+然后在群里试一句：「把这个仓库的 README 改成中英两版，改完让另一个人审一遍」。
+
+> 💡 懒得自己装？把这句发给电脑上的 Claude Code 或 Codex，它会帮你装好：<br/>
+> `照 https://github.com/zuiho-kai/bothouse/blob/main/docs/GETTING_STARTED.md 在这台电脑上装好 bothouse，并打开安装向导。`
 
 <a id="features"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/features-zh-night.svg" />
-  <img src="docs/assets/readme/banner/features-zh-day.svg" width="960" alt="" />
-</picture>
+## 能做什么
 
-## 能用它做什么
-
-| 你想要 | bothouse 怎么帮你 |
+| | |
 | --- | --- |
-| **一支自己的 AI 小团队** | 把已经登录好的 Claude Code、Codex、Gemini CLI、OpenCode 拉进群，每个角色有自己的名字、人设和会话。 |
+| **一支自己的 AI 小团队** | 把已经登录好的 CLI 拉进群，每个角色有自己的名字、人设和会话。 |
 | **一个账号也能组队** | 只有一个 Codex 或一个 DeepSeek 账号？照样建几个成员，分工各管一摊，在群里 @ 来 @ 去地派活。 |
-| **在常用的聊天软件里找它** | 在 Discord、飞书、QQ、自建网页或 DSH web 里 @ 它；Discord 和飞书本来就有手机版，躺床上也能派活。 |
+| **叫到才开口** | 默认主角色接话，其他角色跟着看，被 @ 或点名才回；向导里可选仅被点名时回复，不用跑路由小模型（[参与方式与成本](docs/connect-discord-feishu.md#5-jev-和主角色)）。 |
 | **聊天不卡，大活另开** | 大一点的活交给单独的工作区去做，主角色继续陪你聊；做完交回，需要你拍板时才叫你。 |
+| **任务板和进度卡** | 每个聊天频道钉一张任务板（等你看 / 在做 / 搁置），每件活一个子话题，进度卡实时显示跑到第几步。 |
 | **大家记得同一件事** | 所有角色读写同一份记忆，换一个角色接手，不用你再讲一遍背景。 |
 | **晚上自己复盘** | 夜里核对白天记下的东西，纠错去重；你反复纠正的地方会整理成候选规则，你点头才生效。 |
 | **长任务不跑偏** | 每次交接都带上你的原话；另一个 AI 用干净的上下文验收；说「修好了」要拿证据。 |
 | **在手机上管** | 自带网页面板：看谁在忙、用了多少额度、改人设、给正在跑的活插话。 |
 
-<a id="team"></a>
-
-### 角色和头像
-
-<img src="docs/assets/bothouse-team-hero.png" width="660" alt="四个 AI 角色围坐在同一张桌前，各自对着电脑干活" />
-
-每个角色都有自己的头像和人设，按包管理，挑一个就能上岗；想自己做一个，见[角色包](docs/persona-packs.md)。
-
-<a id="screenshots"></a>
-
-## 截图
-
-<table>
-  <tr>
-    <td width="50%"><a href="docs/assets/readme/shot-handoff.zh.png"><img src="docs/assets/readme/shot-handoff.zh.png" alt="聊天频道里主角色把两件活分别派给工作区1和工作区2"></a><br><b>一句话交给工作区</b>：主角色把大活派出去，聊天频道照常说话。</td>
-    <td width="50%"><a href="docs/assets/readme/shot-workspace.zh.png"><img src="docs/assets/readme/shot-workspace.zh.png" alt="工作区1的任务板：进行中和今天做完的活，按角色列出"></a><br><b>任务板</b>：哪个工作区在做什么、今天交了什么，一眼看完。</td>
-  </tr>
-  <tr>
-    <td width="50%"><a href="docs/assets/readme/shot-roles.zh.jpg"><img src="docs/assets/readme/shot-roles.zh.jpg" alt="管理面板的角色页：五个角色分别接不同的 CLI，显示在线状态、当前在忙和模型"></a><br><b>角色管理</b>：每个角色接哪个 CLI、在忙什么、用什么模型，一键暂停或重启。</td>
-    <td width="50%"><a href="docs/assets/readme/shot-library.zh.jpg"><img src="docs/assets/readme/shot-library.zh.jpg" alt="角色库页面：默认包里的人设卡片，带头像和一句话介绍"></a><br><b>角色库</b>：人设和头像按包管理，挑一个就能上岗。</td>
-  </tr>
-</table>
-
-_上面两张是真实频道录屏，下面两张是作者自己在用的管理面板。_
+每个角色都有自己的头像和人设，按包管理；想自己做一个，见[角色包](docs/persona-packs.md)。
 
 <a id="memory"></a>
 
