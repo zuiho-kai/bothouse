@@ -120,8 +120,9 @@ type replyFooterUsageKey struct {
 }
 
 type replyFooterUsageEntry struct {
-	text      string    // last successful quota text
-	okAt      time.Time // when text was fetched; zero if never
+	report    *UsageReport // last successful quota report
+	text      string       // last successful quota text
+	okAt      time.Time    // when text was fetched; zero if never
 	failText  string    // set when the latest attempt failed
 	attemptAt time.Time // when the latest attempt finished
 	done      chan struct{}
@@ -9503,7 +9504,7 @@ func (e *Engine) refreshReplyFooterUsage(scope quotaScope, reporter UsageReporte
 	defer e.replyFooterMu.Unlock()
 	ent.attemptAt = time.Now()
 	if text != "" {
-		ent.text, ent.okAt, ent.failText = text, ent.attemptAt, ""
+		ent.report, ent.text, ent.okAt, ent.failText = report, text, ent.attemptAt, ""
 	} else {
 		ent.failText = failText
 	}
@@ -9529,6 +9530,67 @@ func usageReporterAvailable(v any) bool {
 	}
 	_, ok := v.(UsageReporter)
 	return ok
+}
+
+// CachedQuotaReport returns the engine's last known in-memory quota snapshot
+// for the specified model scope without performing any I/O or probe.
+// Returns nil if no quota has been cached for the exact model scope.
+func (e *Engine) CachedQuotaReport(activeSession AgentSession, targetModel ...string) *UsageReport {
+	if e == nil {
+		return nil
+	}
+	model := ""
+	if len(targetModel) > 0 && targetModel[0] != "" && targetModel[0] != "未知" {
+		model = targetModel[0]
+	} else if activeSession != nil {
+		model = replyFooterModel(activeSession, e.agent)
+	} else if e.agent != nil {
+		model = replyFooterModel(nil, e.agent)
+	}
+
+	// 1. Try active session if it matches the target model
+	if activeSession != nil {
+		sessModel := replyFooterModel(activeSession, e.agent)
+		if model == "" || sessModel == "" || sessModel == model {
+			if reporter, ok := activeSession.(CachedUsageReporter); ok {
+				if report := reporter.CachedUsage(); report != nil {
+					return report
+				}
+			}
+		}
+	}
+
+	// 2. Try agent itself if it matches the target model
+	if e.agent != nil {
+		agentModel := replyFooterModel(nil, e.agent)
+		if model == "" || agentModel == "" || agentModel == model {
+			if reporter, ok := e.agent.(CachedUsageReporter); ok {
+				if report := reporter.CachedUsage(); report != nil {
+					return report
+				}
+			}
+		}
+	}
+
+	// 3. Exact match in replyFooterUsage for the agent and model
+	if model != "" {
+		e.replyFooterMu.Lock()
+		defer e.replyFooterMu.Unlock()
+		if e.replyFooterUsage != nil {
+			agentID := replyFooterAgentID(e.agent)
+			ent := e.replyFooterUsage[replyFooterUsageKey{agent: agentID, model: model}]
+			if ent == nil && agentID != nil {
+				ent = e.replyFooterUsage[replyFooterUsageKey{agent: nil, model: model}]
+			}
+			if ent != nil && ent.report != nil {
+				if ent.okAt.IsZero() || time.Since(ent.okAt) < replyFooterUsageMaxAge {
+					return ent.report
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // replyFooterCachedQuotaText formats the quota a session already holds

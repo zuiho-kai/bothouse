@@ -13,6 +13,21 @@ type PlatformStatus struct {
 	Ready bool   `json:"ready"`
 }
 
+// RoleQuotaWindow represents a measured quota window (e.g. 5-hour limit, weekly limit).
+type RoleQuotaWindow struct {
+	Name              string `json:"name"`
+	Label             string `json:"label,omitempty"`
+	UsedPercent       int    `json:"used_percent"`
+	RemainingPercent  int    `json:"remaining_percent"`
+	WindowSeconds     int    `json:"window_seconds,omitempty"`
+	ResetAfterSeconds int    `json:"reset_after_seconds,omitempty"`
+}
+
+// RoleQuota holds the cached quota window snapshot for a role.
+type RoleQuota struct {
+	Windows []RoleQuotaWindow `json:"windows,omitempty"`
+}
+
 // RoleInfo represents the status of a role/engine in bothouse.
 type RoleInfo struct {
 	Name          string           `json:"name"`
@@ -25,6 +40,80 @@ type RoleInfo struct {
 	Paused        bool             `json:"paused"`
 	Platforms     []PlatformStatus `json:"platforms"`
 	SessionsCount int              `json:"sessions_count"`
+	Quota         *RoleQuota       `json:"quota,omitempty"`
+}
+
+// roleQuotaFromReport formats the cached UsageReport into RoleQuota without doing I/O.
+// Returns nil when report has no usable windows.
+func roleQuotaFromReport(report *UsageReport) *RoleQuota {
+	if report == nil {
+		return nil
+	}
+	primary, secondary := selectUsageWindows(report)
+	var windows []RoleQuotaWindow
+	for _, w := range []*UsageWindow{primary, secondary} {
+		if w == nil {
+			continue
+		}
+		seconds := w.WindowSeconds
+		if seconds <= 0 && w.Name != "" {
+			switch strings.ToLower(strings.TrimSpace(w.Name)) {
+			case "5h":
+				// 沿用 engine.go selectUsageWindows 标准 5 小时窗口秒数
+				seconds = 18000
+			case "weekly", "week":
+				// 沿用 engine.go selectUsageWindows 标准 7 天周窗口秒数
+				seconds = 604800
+			}
+		}
+
+		label := usageWindowShortLabel(LangChinese, seconds)
+		name := usageWindowLabel(LangChinese, seconds)
+		if label == "" {
+			if w.Name != "" {
+				label = w.Name
+			} else if seconds > 0 {
+				label = fmt.Sprintf("%ds", seconds)
+			} else {
+				label = "额度"
+			}
+		}
+		if name == "" || name == "额度窗口" {
+			if w.Name != "" {
+				name = w.Name
+			} else {
+				name = label
+			}
+		}
+
+		used := w.UsedPercent
+		if used < 0 {
+			used = 0
+		}
+		if used > 100 {
+			used = 100
+		}
+		remaining := 100 - used
+		if remaining < 0 {
+			remaining = 0
+		}
+		if remaining > 100 {
+			remaining = 100
+		}
+
+		windows = append(windows, RoleQuotaWindow{
+			Name:              name,
+			Label:             label,
+			UsedPercent:       used,
+			RemainingPercent:  remaining,
+			WindowSeconds:     seconds,
+			ResetAfterSeconds: w.ResetAfterSeconds,
+		})
+	}
+	if len(windows) == 0 {
+		return nil
+	}
+	return &RoleQuota{Windows: windows}
 }
 
 // ── Roles API ──────────────────────────────────────────────────
@@ -130,6 +219,11 @@ func (m *ManagementServer) handleRoles(w http.ResponseWriter, r *http.Request) {
 
 		paused := e.IsPaused()
 
+		var quota *RoleQuota
+		if report := e.CachedQuotaReport(activeSession, model); report != nil {
+			quota = roleQuotaFromReport(report)
+		}
+
 		roles = append(roles, RoleInfo{
 			Name:          name,
 			DisplayName:   e.DisplayName(),
@@ -141,6 +235,7 @@ func (m *ManagementServer) handleRoles(w http.ResponseWriter, r *http.Request) {
 			Paused:        paused,
 			Platforms:     platforms,
 			SessionsCount: len(e.sessions.AllSessions()),
+			Quota:         quota,
 		})
 	}
 

@@ -9,6 +9,7 @@ import {
   Bot,
   Cpu,
   Layers,
+  Gauge,
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
@@ -266,6 +267,53 @@ export default function RoleList() {
                         )}
                       </div>
                     </div>
+
+                    {/* Quota Windows (5h, weekly, etc.) */}
+                    {role.quota?.windows && role.quota.windows.length > 0 && (
+                      <div
+                        className="pt-2 border-t border-gray-100 dark:border-white/[0.04] space-y-1.5"
+                        data-testid={`role-quota-${role.name}`}
+                      >
+                        <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
+                          <span className="flex items-center gap-1.5 font-medium">
+                            <Gauge size={13} className="text-gray-400" />
+                            模型额度：
+                          </span>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                            （剩余口径）
+                          </span>
+                        </div>
+                        <div className="space-y-1.5 pt-0.5">
+                          {role.quota.windows.map((w, idx) => {
+                            const remaining = Math.max(0, Math.min(100, w.remaining_percent));
+                            const used = Math.max(0, Math.min(100, w.used_percent));
+
+                            return (
+                              <div
+                                key={w.name || idx}
+                                className="space-y-1 bg-white/60 dark:bg-white/[0.02] p-1.5 rounded border border-gray-100 dark:border-white/[0.04]"
+                                data-testid={`quota-window-${w.label || idx}`}
+                              >
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="font-medium text-gray-700 dark:text-gray-200">
+                                    {w.label || w.name}
+                                  </span>
+                                  <span className="font-mono text-[10px] text-gray-600 dark:text-gray-400">
+                                    剩 {remaining}% <span className="text-gray-400 dark:text-gray-500">/ 已用 {used}%</span>
+                                  </span>
+                                </div>
+                                <div className="w-full bg-gray-200/80 dark:bg-gray-700/60 h-1.5 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full transition-all duration-300 bg-accent"
+                                    style={{ width: `${remaining}%` }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
