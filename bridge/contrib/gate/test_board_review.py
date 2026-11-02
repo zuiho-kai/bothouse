@@ -105,3 +105,20 @@ class MergeClosure(unittest.TestCase):
                         item=board.items()[0]; item["bound"]="new"; board._write([item])
                     board.reconcile_merged_prs()
                     self.assertNotIn("returned_at",board.items()[0])
+
+class RelayGeneration(unittest.TestCase):
+    def test_trusted_return_is_atomic_and_rejected_receipt_does_not_reopen(self):
+        import board
+        from unittest.mock import patch
+        tmp=Path(tempfile.mkdtemp())
+        with patch.object(board,"DIR",tmp):
+            board._write([{"id":72,"chat":"room:main","dispatcher":"lead","bound":"generation"}])
+            self.assertTrue(board.returned(72,"lead","2026-11-02T00:00:00Z","generation","task:1:request"))
+            board.reject(72,"must fix")
+            self.assertTrue(board.returned(72,"lead","2026-11-02T00:00:00Z","generation","task:1:request"))
+            self.assertNotIn("returned_at",board.items()[0])
+            item=board.items()[0]; item["bound"]="next-generation"; board._write([item])
+            self.assertFalse(board.returned(72,"lead","2026-11-02T00:00:00Z","generation","task:1:new-request"))
+            self.assertEqual(item,board.items()[0])
+            board._write([])
+            self.assertFalse(board.returned(72,"lead","2026-11-02T00:00:00Z","generation","task:1:request"))

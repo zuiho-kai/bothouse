@@ -712,11 +712,18 @@ def reconcile_merged_prs():
             _write(cur)
 
 
-def returned(nid, reviewer, at=None):
+def returned(nid, reviewer, at=None, bound=None, receipt=None):
     """Record a delivered report, not acceptance. Repeated reports keep the deadline."""
     with _locked():
         cur = _read()
         hit = next((i for i in cur if i["id"] == nid), None)
+        if bound is not None:
+            if not bound or not receipt or hit is None or hit.get("bound") != bound:
+                return False
+            receipts = hit.setdefault("relay_returns", [])
+            if receipt in receipts:
+                return True
+            receipts.append(receipt)
         archived = None
         if hit is None:
             # Legacy workers may say "done" before their final report (#770). That is
@@ -732,6 +739,8 @@ def returned(nid, reviewer, at=None):
                 hit.pop(key, None)
             cur.append(hit)
         if hit.get("returned_at"):
+            if bound is not None:
+                _write(cur)
             return True
         hit["returned_at"] = datetime.fromisoformat(re.sub(r"\.\d+", lambda m: m[0][:7].ljust(7, "0"), at).replace("Z", "+00:00")).isoformat() if at else _bound_now()
         hit["reviewer"] = hit.get("dispatcher") or reviewer
@@ -1250,7 +1259,7 @@ def main(argv):
             print("已绑定 PR 与部署范围；合并不代表验收")
         elif cmd == "merged" and len(argv) == 1:
             reconcile_merged_prs()
-        elif cmd == "returned" and len(argv) in (3, 4):
+        elif cmd == "returned" and len(argv) in (3, 4, 6):
             if not returned(int(argv[1].lstrip("#")), *argv[2:]):
                 sys.exit("条目不存在，未登记交回")
             print("已交回待验收")

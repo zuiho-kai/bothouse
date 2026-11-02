@@ -466,3 +466,12 @@ func TestTaskReviewWatchReconcilesBoundNoDeployPR(t *testing.T) {
 		t.Fatalf("watch never reconciled bound merged PR: %+v", it)
 	}
 }
+
+func TestTaskReviewMergedPRShowsPendingClosure(t *testing.T) {
+	now := time.Now()
+	it := teamTaskBoardItem{ID: 72, What: "merged no deploy", own: "room:main", Chat: "room:main", ReturnedAt: now, Reviewer: "lead", PRMerge: map[string]string{"commit": "abc"}}
+	got := renderTeamTaskTable([]teamTaskBoardItem{it}, nil, "room:main", now)
+	if !strings.Contains(got, "待收口") || !strings.Contains(got, "PR已合并") {
+		t.Fatal(got)
+	}
+}
