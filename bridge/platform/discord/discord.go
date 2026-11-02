@@ -147,7 +147,11 @@ func New(opts map[string]any) (core.Platform, error) {
 		return nil, fmt.Errorf("discord: permission_approvers requires share_session_in_channel=true")
 	}
 	threadIsolation, _ := opts["thread_isolation"].(bool)
-	respondToAtEveryoneAndHere, _ := opts["respond_to_at_everyone_and_here"].(bool)
+	// @everyone/@here (飞书 @所有人) counts as calling every bot unless explicitly turned off.
+	respondToAtEveryoneAndHere := true
+	if v, ok := opts["respond_to_at_everyone_and_here"].(bool); ok {
+		respondToAtEveryoneAndHere = v
+	}
 	// Unset progress_style means "card" on every platform (core
 	// normalizeProgressStyle): the progress card shows up without config. Users
 	// can opt back into the old per-step messages with progress_style = "legacy".
