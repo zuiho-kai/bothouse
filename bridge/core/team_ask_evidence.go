@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -20,15 +21,26 @@ const askBounceWait = 2 * time.Minute
 // replying bot, so it fixes the [ask]/[report] instead of waiting on a user who never saw it.
 // Both wait for the asking turn to end: the notice then follows the bot's own
 // reply, and the new turn needs no queue notice.
-func (e *Engine) bounceWorkspaceExit(ctx context.Context, p Platform, rec ReplyContextReconstructor, sessionKey, kind string, problems []string) {
+func (e *Engine) bounceWorkspaceExit(ctx context.Context, p Platform, rec ReplyContextReconstructor, sessionKey, kind string, problems []string) bool {
 	text := exitBounceText(kind, problems)
 	e.teamExit.mu.Lock()
 	if e.teamExit.bounces == nil {
 		e.teamExit.bounces = map[string]int{}
 	}
 	e.teamExit.bounces[sessionKey]++
-	wake := e.teamExit.bounces[sessionKey] <= exitRules.Bounce.WakeLimit
+	n := e.teamExit.bounces[sessionKey]
 	e.teamExit.mu.Unlock()
+	// A bounce only helps when a repair turn follows. A timer turn carries task authority that
+	// ExecuteHeartbeat cannot preserve, and past wake_limit no turn is woken: in both cases the
+	// caller forwards the answer with the check note instead of dropping it (user 11-02
+	// 「为什么老是没发回来」: first-turn reports bounced with no repair turn and were lost).
+	_, bound := ctx.Value(proactiveExecutionKey{}).(proactiveExecution)
+	if bound || n > exitRules.Bounce.WakeLimit {
+		slog.Warn("team exit: bounced but no repair turn can follow; forwarding with the check note",
+			"kind", kind, "session", sessionKey, "timer_turn", bound, "bounces", n, "problems", strings.Join(problems, " / "))
+		return false
+	}
+	slog.Info("team exit: bounced to the workspace for a repair turn", "kind", kind, "session", sessionKey, "bounces", n, "problems", strings.Join(problems, " / "))
 	session := e.sessions.GetOrCreateActive(sessionKey)
 	go func() {
 		deadline := time.Now().Add(askBounceWait)
@@ -51,18 +63,11 @@ func (e *Engine) bounceWorkspaceExit(ctx context.Context, p Platform, rec ReplyC
 			slog.Warn("team exit: ask bounce post failed", "session", sessionKey, "error", err)
 			return
 		}
-		if _, bound := ctx.Value(proactiveExecutionKey{}).(proactiveExecution); bound {
-			// ExecuteHeartbeat cannot preserve the original decision. Never turn
-			// an authorized result into an unrestricted repair turn.
-			return
-		}
-		if !wake {
-			return
-		}
 		if err := e.ExecuteHeartbeat(sessionKey, "【系统退回了你的 ["+kind+"]】"+text, true); err != nil {
 			slog.Warn("team exit: ask bounce turn failed", "session", sessionKey, "error", err)
 		}
 	}()
+	return true
 }
 
 func (e *Engine) clearAskBounces(sessionKey string) {

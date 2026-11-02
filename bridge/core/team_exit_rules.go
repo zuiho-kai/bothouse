@@ -448,3 +448,9 @@ func exitTaskPick(named int, items []exitTaskCand) int {
 	}
 	return pick
 }
+
+// exitBounceNote is what goes with an answer forwarded although the check found problems (no
+// repair turn could follow the bounce): the user sees the answer and what it lacks.
+func exitBounceNote(problems []string) string {
+	return "（系统核对：" + strings.Join(problems, exitRules.Bounce.Sep) + "）"
+}

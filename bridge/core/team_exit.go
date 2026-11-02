@@ -156,6 +156,9 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 
 func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, sessionKey, reply string) string {
 	if err := checkProactiveExecution(ctx, "message.send"); err != nil {
+		if strings.TrimSpace(reply) != "" {
+			slog.Warn("team exit: task authorization refused the send; nothing forwarded", "session", sessionKey, "error", err)
+		}
 		return ""
 	}
 	reply = stripFillerLines(reply)
@@ -236,8 +239,19 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		return ""
 	}
 	if problems != nil {
-		e.bounceWorkspaceExit(ctx, p, rec, sessionKey, kind, problems)
-		return ""
+		if e.bounceWorkspaceExit(ctx, p, rec, sessionKey, kind, problems) {
+			return ""
+		}
+		// No repair turn will come: forward it as is, with what the check found, so the user
+		// still gets the answer and sees the gap.
+		note := exitBounceNote(problems)
+		if item != nil && strings.TrimSpace(hline) != "" {
+			hline, legacy = hline+"\n"+note, false
+		} else {
+			body, legacy = body+"\n\n"+note, true
+		}
+		problems = nil
+		e.clearAskBounces(sessionKey)
 	}
 	if item != nil && item.isTest() {
 		// test work: the answer stays in the workspace and the log, the task still closes or yields
