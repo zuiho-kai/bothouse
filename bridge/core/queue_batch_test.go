@@ -144,3 +144,21 @@ func TestGroupQueueFull_MakesRoom(t *testing.T) {
 		}
 	}
 }
+
+// Context-only messages of a busy group never get a turn of their own: with a cron turn queued
+// between them and the next message holding a place, or sent as voice, they ride with that message.
+func TestGroupBatch_ContextRidesWithNextHolder(t *testing.T) {
+	g := func(id, content string, overflow, voice bool) queuedMessage {
+		return queuedMessage{userID: "u-" + id, userName: id, msgPlatform: "qq", msgSessionKey: "qq:g:1", messageID: id, content: content, overflow: overflow, fromVoice: voice}
+	}
+	cron := queuedMessage{userID: "cron", msgPlatform: "qq", msgSessionKey: "qq:g:1", messageID: "cron", content: "定时"}
+	st := &interactiveState{pendingMessages: []queuedMessage{g("a", "旁听一", true, false), cron, g("b", "旁听二", true, true), g("c", "提问", false, false)}}
+	q := takeQueuedBatchLocked(st)
+	if q.messageID != "c" || !strings.Contains(q.content, "旁听一") || !strings.Contains(q.content, "旁听二") ||
+		strings.Index(q.content, "旁听一") > strings.Index(q.content, "提问") {
+		t.Fatalf("batch = %+v", q)
+	}
+	if len(st.pendingMessages) != 1 || st.pendingMessages[0].messageID != "cron" {
+		t.Fatalf("left = %+v", st.pendingMessages)
+	}
+}

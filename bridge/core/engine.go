@@ -658,6 +658,8 @@ type queuedMessage struct {
 	scheduledBackfilled bool
 	// maomao fork: the channel task board's text for this message (boardDescOf).
 	boardDesc string
+	// older context-only messages folded into this one (queue_batch.go trimQueuedOverflowLocked)
+	contextBefore []queuedMessage
 }
 
 // interactiveState tracks a running interactive agent session and its permission state.

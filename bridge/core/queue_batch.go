@@ -15,15 +15,17 @@ import (
 // quote) ends the batch and waits for its own turn. Caller holds state.mu.
 func takeQueuedBatchLocked(state *interactiveState) queuedMessage {
 	head := state.pendingMessages[0]
+	if batchableQueued(&head) && groupChatQueue(head.msgPlatform, head.direct) {
+		return takeGroupBatchLocked(state)
+	}
 	state.pendingMessages = state.pendingMessages[1:]
 	if !batchableQueued(&head) {
 		return head
 	}
 	parts := []queuedMessage{head}
-	group := groupChatQueue(head.msgPlatform, head.direct)
 	for len(state.pendingMessages) > 0 {
 		next := state.pendingMessages[0]
-		if !batchableQueued(&next) || !(sameQueuedThread(&head, &next) || group && sameQueuedChat(&head, &next)) {
+		if !batchableQueued(&next) || !sameQueuedThread(&head, &next) {
 			break
 		}
 		if next.reference != nil && batchReference(parts) != nil {
@@ -33,13 +35,68 @@ func takeQueuedBatchLocked(state *interactiveState) queuedMessage {
 		state.pendingMessages = state.pendingMessages[1:]
 	}
 	if len(parts) == 1 {
-		head.overflow = false
 		return head
 	}
-	if group {
-		return mergeQueuedChat(parts)
-	}
 	return mergeQueued(parts)
+}
+
+// takeGroupBatchLocked is takeQueuedBatchLocked for a busy group chat (groupChatQueue): the plain
+// messages at the head from every sender run as one turn, and every context-only message of the
+// chat (overflow) anywhere in the queue rides along with it; such a message never gets a turn of
+// its own while a message holding a place is queued. A second quote still ends the run of
+// messages that hold a place (a context-only one keeps its quote in its own text). Caller holds
+// state.mu.
+func takeGroupBatchLocked(state *interactiveState) queuedMessage {
+	head := state.pendingMessages[0]
+	take := make([]bool, len(state.pendingMessages))
+	var ref *MessageReference
+	holder := -1 // the newest taken message that holds a place
+	run := true  // still in the run at the head
+	for i := range state.pendingMessages {
+		q := &state.pendingMessages[i]
+		if q.overflow && batchableQueued(q) && sameChatAnyVoice(&head, q) {
+			take[i] = true // context rides along whatever stands between (voice or not)
+			continue
+		}
+		if !batchableQueued(q) || !sameQueuedChat(&head, q) {
+			run = false
+			continue
+		}
+		if !run || (q.reference != nil && ref != nil) {
+			run = false
+			continue
+		}
+		if q.reference != nil {
+			ref = q.reference
+		}
+		take[i], holder = true, i
+	}
+	if holder < 0 {
+		// Only context is queued at the head: it rides with the chat's next message that holds a
+		// place, if one is queued.
+		for i := range state.pendingMessages {
+			if q := &state.pendingMessages[i]; !q.overflow && batchableQueued(q) && sameQueuedChat(&head, q) {
+				take[i], holder = true, i
+				break
+			}
+		}
+	}
+	var parts, rest []queuedMessage
+	for i, q := range state.pendingMessages {
+		if take[i] {
+			parts = append(parts, q.contextBefore...)
+			q.contextBefore = nil
+			parts = append(parts, q)
+		} else {
+			rest = append(rest, q)
+		}
+	}
+	state.pendingMessages = rest
+	if len(parts) == 1 {
+		parts[0].overflow = false
+		return parts[0]
+	}
+	return mergeQueuedChat(parts)
 }
 
 // groupChatQueue reports whether a busy session's queue for this chat is a QQ group's (user
@@ -52,8 +109,12 @@ func groupChatQueue(platform string, direct bool) bool {
 }
 
 func sameQueuedChat(a, b *queuedMessage) bool {
+	return sameChatAnyVoice(a, b) && a.fromVoice == b.fromVoice
+}
+
+func sameChatAnyVoice(a, b *queuedMessage) bool {
 	return a.msgSessionKey == b.msgSessionKey && a.channelKey == b.channelKey &&
-		a.msgPlatform == b.msgPlatform && a.platform == b.platform && a.fromVoice == b.fromVoice
+		a.msgPlatform == b.msgPlatform && a.platform == b.platform
 }
 
 // mergeQueuedChat is mergeQueued for several senders of one group chat: each part names its
@@ -65,9 +126,13 @@ func mergeQueuedChat(parts []queuedMessage) queuedMessage {
 	for reply > 0 && parts[reply].overflow {
 		reply--
 	}
-	ordered := append(append([]queuedMessage(nil), parts[:reply]...), parts[reply+1:]...)
-	out := mergeQueued(append(ordered, parts[reply]))
-	out.overflow = false
+	// Attachments and the rest follow the parts in arrival order; who and what the reply goes to
+	// come from the reply part.
+	all := mergeQueued(parts)
+	out := parts[reply]
+	out.ambientChat, out.reference, out.boardDesc = all.ambientChat, all.reference, all.boardDesc
+	out.images, out.files, out.turnCtx, out.turnCtxQuery = all.images, all.files, all.turnCtx, all.turnCtxQuery
+	out.overflow, out.contextBefore = false, nil
 	var b strings.Builder
 	fmt.Fprintf(&b, "（你忙时收到的 %d 条，按时间顺序；挑最该接的一条回一次即可）\n", len(parts))
 	for i, p := range parts {
@@ -146,31 +211,29 @@ func (e *Engine) makeRoomInGroupQueueLocked(state *interactiveState, msg *Messag
 	return true
 }
 
-// trimQueuedOverflowLocked keeps at most maxQueuedOverflow context-only messages; older ones go
-// to the gate's listen-only buffer (logged only without a gate). Caller holds state.mu.
+// trimQueuedOverflowLocked keeps at most maxQueuedOverflow context-only messages as queue
+// entries: past that, the oldest one is folded into the next one (contextBefore), so every
+// accepted message still reaches the chat's next turn, in order. Caller holds state.mu.
 func (e *Engine) trimQueuedOverflowLocked(state *interactiveState, interactiveKey string) {
-	n := 0
+	var idx []int
 	for i := range state.pendingMessages {
 		if state.pendingMessages[i].overflow {
-			n++
+			idx = append(idx, i)
 		}
 	}
-	for i := 0; n > maxQueuedOverflow && i < len(state.pendingMessages); {
-		q := state.pendingMessages[i]
-		if !q.overflow {
-			i++
-			continue
-		}
-		state.pendingMessages = append(state.pendingMessages[:i:i], state.pendingMessages[i+1:]...)
-		n--
-		if e.gate != nil {
-			e.gate.bufferContext(interactiveKey, &Message{Content: q.content, AmbientChat: q.ambientChat,
-				Images: q.images, Files: q.files, UserID: q.userID, UserName: q.userName})
-		}
-		e.boardDropped(interactiveKey, []string{q.boardDesc})
-		slog.Info("queue full: oldest context-only message moved to the gate buffer", "user", q.userName)
+	if len(idx) <= maxQueuedOverflow {
+		return
 	}
+	oldest, next := idx[0], idx[1]
+	q := state.pendingMessages[oldest]
+	folded := append(q.contextBefore, q)
+	folded[len(folded)-1].contextBefore = nil
+	n := &state.pendingMessages[next]
+	n.contextBefore = append(folded, n.contextBefore...)
+	state.pendingMessages = append(state.pendingMessages[:oldest:oldest], state.pendingMessages[oldest+1:]...)
+	e.boardDropped(interactiveKey, []string{q.boardDesc}) // the board keeps one row per entry
 }
+
 func batchableQueued(q *queuedMessage) bool {
 	return q.authorization == nil && !q.fromBot && !scheduledTurnUser(q.userID) && q.userID != "" &&
 		q.turnTrigger == "" && q.resumedFrom == "" && q.timerJobID == "" && q.resumeFallback == "" &&
