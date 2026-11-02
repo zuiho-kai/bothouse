@@ -306,6 +306,14 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 		slog.Info("team exit: report for a task already done; not posted again", "board_item", hid, "workspace", ws, "done_at", item.DoneAt)
 		return ""
 	}
+	// One handoff gets one report in the chat channel. A bounced report queues a repair turn; when
+	// another turn of the same workspace reports the item first, the repair's report is a second
+	// copy of the same answer (user 11-02「同一件回报贴了两条」). A new handoff (rework) re-binds
+	// the item, so its report is posted.
+	if kind == exitKindReport && e.exitReportedSinceBound(hid, item.Bound) {
+		slog.Info("team exit: report for this handoff already posted; not posted again", "board_item", hid, "workspace", ws, "bound", item.Bound)
+		return ""
+	}
 	if e.exitPostedRecently(kind, hid, hline) {
 		slog.Info("team exit: same headline already posted within the hour; not posted again", "kind", kind, "board_item", hid, "workspace", ws)
 		return ""
