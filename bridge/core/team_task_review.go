@@ -100,6 +100,36 @@ func (e *Engine) applyRelayBoardReturn(task *Task, request string, receipt taskR
 	}
 }
 
+// Consume committed dispatch links on the existing watch cycle, including after
+// restart. Keep revision changes serialized until the board's atomic write has
+// checked the captured generation; a snapshot alone would admit stale rework.
+func (e *Engine) reconcileRelayBoardReturns(now time.Time) {
+	p := e.publicProgress
+	if p == nil || e.team == nil {
+		return
+	}
+	p.transitionMu.Lock()
+	defer p.transitionMu.Unlock()
+	p.mu.Lock()
+	runs := make([]*publicRun, 0, len(p.records))
+	for _, r := range p.records {
+		runs = append(runs, r)
+	}
+	p.mu.Unlock()
+	for _, r := range runs {
+		r.mu.Lock()
+		for request, receipt := range r.record.Relays {
+			if receipt.Status != "done" {
+				continue
+			}
+			for _, ref := range receipt.BoardRefs {
+				e.applyRelayBoardReturn(r.record.Task, request, receipt, ref.Board, ref.Bound, ref.Revision, now)
+			}
+		}
+		r.mu.Unlock()
+	}
+}
+
 // taskReviewRef ties a persisted timer to one handback. Rework creates a new ReturnedAt;
 // an accepted or rejected task invalidates already queued reminders before they run.
 type taskReviewRef struct {
@@ -132,6 +162,9 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 	e := w.e
 	if e.team == nil {
 		return
+	}
+	for _, source := range w.engines() {
+		source.reconcileRelayBoardReturns(now)
 	}
 	// Source: #72 checks merged, explicitly no-deploy work on the existing hourly roundup.
 	if roundup && e.isTeamLead() {
