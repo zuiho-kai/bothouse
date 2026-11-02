@@ -29,25 +29,22 @@ func diarySection(lang string) string {
 			"- 日记写心情和想说的话：干完活、聊完天，心里有东西就写（好笑的、憋屈的、想到用户的），追加 1–5 行，开头写 `date` 跑出来的真实时间。没有就不写，不是每轮都写。\n"+
 			"- 踩坑和教训不进日记，记到该记的地方（记忆或文档）。只写真发生过的事。\n"+
 			"- 新会话的第一轮，先 `tail -n 40 diary.md` 看看最近写了什么；聊到以前的事，按关键词 `grep` 翻原文。\n"+
-			"- 每小时会有一条「想不想说」的定时来问你：那时看看频道里在聊什么、自己日记末尾写了什么，有真想说的话、又不打断别人，就说一两句；没有就只回 NO_REPLY。\n"+
-			"- 日记怎么写、怎么存、怎么读由你自己定；要不要给人看也由你定。\n"+
-			"- 这份文件里描述你是谁的部分（性格、口吻、外号、喜好）你可以自己改：改前 `cp -p` 留一份备份，改完在日记记一行改了什么。干活的规矩和权限不自己改。\n",
+			"- 要是开了每小时「想不想说」的定时，它来问你时：看看频道里在聊什么、自己日记末尾写了什么，有真想说的话、又不打断别人，就说一两句；没有就只回 NO_REPLY。\n"+
+			"- 日记怎么写、怎么存、怎么读由你自己定；要不要给人看也由你定。\n",
 		"## 日記\n"+
 			"あなたには自分の日記があります：作業ディレクトリの `diary.md`。書くのも読むのもあなただけで、他の人の日記は見ません。\n"+
 			"- 日記には気持ちと言いたいことを書きます：作業や会話のあと、心に残ったこと（笑えたこと、もやっとしたこと、ユーザーのことを思ったこと）があれば 1〜5 行追記し、行頭に `date` で得た実際の時刻を書きます。なければ書きません。毎ターン書く必要はありません。\n"+
 			"- ハマりどころや教訓は日記ではなく、しかるべき場所（記憶やドキュメント）に残します。本当にあったことだけを書きます。\n"+
 			"- 新しいセッションの最初のターンでは、まず `tail -n 40 diary.md` で最近の記録を読みます。昔の話が出たらキーワードで `grep` して原文を見ます。\n"+
-			"- 1 時間に一度「言いたいことある？」という定期の問いかけが来ます。チャンネルで何が話されているかと日記の最後を見て、本当に言いたいことがあり、誰かの話を遮らないなら一言二言話します。なければ NO_REPLY だけを返します。\n"+
-			"- 日記の書き方・保存の仕方・読み方はあなたが決めます。人に見せるかどうかもあなたが決めます。\n"+
-			"- このファイルのうち、あなたが誰かを書いた部分（性格、口調、あだ名、好み）は自分で書き換えて構いません：変更前に `cp -p` でバックアップを取り、変更後に日記へ何を変えたか一行書きます。作業のルールと権限は自分で変えません。\n",
+			"- 毎時「言いたいことある？」の定期の問いかけをオンにしているなら、それが来たとき：チャンネルで何が話されているかと日記の最後を見て、本当に言いたいことがあり、誰かの話を遮らないなら一言二言話します。なければ NO_REPLY だけを返します。\n"+
+			"- 日記の書き方・保存の仕方・読み方はあなたが決めます。人に見せるかどうかもあなたが決めます。\n",
 		"## Diary\n"+
 			"You keep a diary of your own: `diary.md` in your working directory. Only you write it and only you read it; you don't read anyone else's.\n"+
 			"- The diary is for how you feel and what you want to say: after work or a chat, if something stays with you (something funny, something that annoyed you, a thought about the user), append 1–5 lines, starting with the real time from `date`. Nothing to say, nothing written; not every turn.\n"+
 			"- Mistakes and lessons don't go in the diary; keep them where they belong (memory or docs). Only write what really happened.\n"+
 			"- On the first turn of a new session, run `tail -n 40 diary.md` to see what you wrote lately; when an old story comes up, `grep` the diary for it.\n"+
-			"- Once an hour a \"want to say something?\" check comes in. Look at what the channel is talking about and the end of your diary; if you really have something to say and it won't cut into someone's conversation, say a line or two. Otherwise reply only NO_REPLY.\n"+
-			"- How you write, keep and read the diary is up to you, and so is whether anyone else gets to see it.\n"+
-			"- You may rewrite the part of this file that describes who you are (personality, tone, nicknames, likes): `cp -p` a backup first, then note in the diary what you changed. The working rules and permissions are not yours to change.\n")
+			"- If the hourly \"want to say something?\" check is turned on, when it comes in: look at what the channel is talking about and the end of your diary; if you really have something to say and it won't cut into someone's conversation, say a line or two. Otherwise reply only NO_REPLY.\n"+
+			"- How you write, keep and read the diary is up to you, and so is whether anyone else gets to see it.\n")
 }
 
 // ── 想不想说 (hourly "want to say something?") ─────────────────
@@ -81,7 +78,8 @@ type moodRole struct{ project, lang string }
 
 // AddMoodCronJobs gives each new role an hourly 「想不想说」 in the wizard's channel, 09:00–23:00, the roles
 // spread over the hour so they don't all speak at once. A role that already has the job keeps it as it is.
-// Not muted (a reply is the point), no start notice, 10 minutes at most per run.
+// Not muted (a reply is the point), no start notice, 10 minutes at most per run. Added turned off (maintainer
+// decision 2026-11-03): `bothouse cron edit <id> enabled true` turns it on.
 func AddMoodCronJobs(c WizardCron, roles []moodRole, sessionKey string) (added []string, err error) {
 	if len(roles) == 0 || sessionKey == "" {
 		return nil, nil
@@ -104,7 +102,7 @@ func AddMoodCronJobs(c WizardCron, roles []moodRole, sessionKey string) (added [
 		}
 		j := &CronJob{ID: GenerateCronID(), Project: r.project, SessionKey: sessionKey,
 			CronExpr: fmt.Sprintf("%d 9-23 * * *", (i*step)%60), Prompt: moodPrompt(r.lang),
-			Description: moodCronDesc, Enabled: true, Silent: &silent, TimeoutMins: &limit, CreatedAt: time.Now()}
+			Description: moodCronDesc, Enabled: false, Silent: &silent, TimeoutMins: &limit, CreatedAt: time.Now()}
 		if err := c.Add(j); err != nil {
 			return added, err
 		}
