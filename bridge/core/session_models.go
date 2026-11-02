@@ -10,8 +10,8 @@ import (
 //
 // [projects.session_models] maps a session key to a model, so one channel can
 // run on a cheaper model while the rest of the project keeps the agent default.
-// The agent is shared by all sessions, so the engine sets the model on it right
-// before each StartSession, the same way it sets the per-session env.
+// The shared agent keeps its defaults; startup context carries the channel model
+// and effort. SessionModelInjector remains compatible with legacy consumers.
 
 // SetSessionModels replaces the session key → model map. Blank keys and
 // values are dropped.

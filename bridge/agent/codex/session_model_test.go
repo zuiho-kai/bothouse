@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -19,6 +20,12 @@ func TestHelperFakeAppServerRecorder(t *testing.T) {
 		t.Skip("helper process")
 	}
 	record := os.Getenv("CODEX_FAKE_TURN_FILE")
+	effort := ""
+	for _, arg := range os.Args {
+		if strings.HasPrefix(arg, "model_reasoning_effort=") {
+			effort = strings.Trim(strings.TrimPrefix(arg, "model_reasoning_effort="), "\"")
+		}
+	}
 	dec := json.NewDecoder(os.Stdin)
 	enc := json.NewEncoder(os.Stdout)
 	for {
@@ -42,7 +49,7 @@ func TestHelperFakeAppServerRecorder(t *testing.T) {
 				_, _ = w.Write(append(b, '\n'))
 				_ = w.Close()
 			}
-			result = map[string]any{"thread": map[string]any{"id": "thread-1"}, "model": req.Params["model"]}
+			result = map[string]any{"thread": map[string]any{"id": "thread-1"}, "model": req.Params["model"], "reasoningEffort": effort}
 		case "turn/start":
 			b, _ := json.Marshal(req.Params)
 			f, _ := os.OpenFile(record, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
@@ -51,6 +58,66 @@ func TestHelperFakeAppServerRecorder(t *testing.T) {
 			result = map[string]any{"turn": map[string]any{"id": "turn-1"}}
 		}
 		_ = enc.Encode(map[string]any{"id": req.ID, "result": result})
+	}
+}
+
+func TestSessionModel_ContextScopesConcurrentTransport(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell shim")
+	}
+	binDir := t.TempDir()
+	script := "#!/bin/sh\nexec \"$CODEX_FAKE_TEST_BIN\" -test.run='^TestHelperFakeAppServerRecorder$' -- \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(binDir, "codex"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	record := filepath.Join(t.TempDir(), "turns.jsonl")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CODEX_FAKE_APPSERVER", "1")
+	t.Setenv("CODEX_FAKE_TEST_BIN", os.Args[0])
+	t.Setenv("CODEX_FAKE_TURN_FILE", record)
+	ag, err := New(map[string]any{"work_dir": t.TempDir(), "backend": "app_server", "model": "astra", "reasoning_effort": "medium"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := ag.(*Agent)
+	// Legacy injection from another start must not override an empty context snapshot.
+	a.SetSessionModel("stale-other-channel")
+	var wg sync.WaitGroup
+	for _, settings := range []core.SessionSettings{{Model: "sol", ReasoningEffort: "high"}, {}} {
+		wg.Add(1)
+		go func(settings core.SessionSettings) {
+			defer wg.Done()
+			s, err := a.StartSession(core.WithSessionSettings(context.Background(), settings), "")
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			defer s.Close()
+			if err := s.Send("hello", "", nil, nil); err != nil {
+				t.Error(err)
+			}
+		}(settings)
+	}
+	wg.Wait()
+	b, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make(map[string]string)
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var params map[string]any
+		if err := json.Unmarshal([]byte(line), &params); err != nil {
+			t.Fatal(err)
+		}
+		model, _ := params["model"].(string)
+		effort, _ := params["effort"].(string)
+		got[model] = effort
+	}
+	if len(got) != 2 || got["sol"] != "high" || got["astra"] != "medium" {
+		t.Fatalf("actual turn/start settings: %v", got)
+	}
+	if a.GetModel() != "astra" || a.GetReasoningEffort() != "medium" {
+		t.Fatal("shared defaults changed")
 	}
 }
 

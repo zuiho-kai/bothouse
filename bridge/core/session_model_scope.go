@@ -23,10 +23,16 @@ func WithSessionSettings(ctx context.Context, settings SessionSettings) context.
 	return context.WithValue(ctx, sessionSettingsContextKey{}, settings)
 }
 
+// SessionSettingsFromContext returns the immutable startup snapshot, when set.
+func SessionSettingsFromContext(ctx context.Context) (SessionSettings, bool) {
+	settings, ok := ctx.Value(sessionSettingsContextKey{}).(SessionSettings)
+	return settings, ok
+}
+
 // SessionModelAndEffort resolves startup overrides while retaining CLI defaults
 // for empty fields. Every model-switching adapter uses this at its snapshot seam.
 func SessionModelAndEffort(ctx context.Context, model, effort string) (string, string) {
-	if settings, ok := ctx.Value(sessionSettingsContextKey{}).(SessionSettings); ok {
+	if settings, ok := SessionSettingsFromContext(ctx); ok {
 		if settings.Model != "" {
 			model = settings.Model
 		}
@@ -92,6 +98,11 @@ func (e *Engine) saveSessionSelection(key, model, effort string) error {
 }
 
 func (e *Engine) sessionEffortFor(key string, agent Agent) string {
+	if getter, ok := e.liveModelSession(key).(interface{ GetReasoningEffort() string }); ok {
+		if effort := getter.GetReasoningEffort(); effort != "" {
+			return effort
+		}
+	}
 	if effort := e.sessionSelection(key).Effort; effort != "" {
 		return effort
 	}

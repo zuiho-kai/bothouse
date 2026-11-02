@@ -79,6 +79,14 @@ The Windows command, package downloads, the background service and the DSH chann
 
 <a id="team"></a>
 
+Model and reasoning selections are scoped to the current channel/session key.
+Use `/model` and `/reasoning` in that channel, or let the agent use
+`cc-connect model list --json` followed by `model set <exact-id> --effort <level>`.
+CLI changes are queued until the next turn; the conversation is preserved.
+Selections survive restarts and `/new`, while other channels retain their own
+selections or project/directory defaults. CLI support and pinned model arguments
+still determine which settings a backend can apply.
+
 ### Roles and avatars
 
 <img src="docs/assets/bothouse-team-hero.png" width="660" alt="Four AI roles sitting at one table, each working on a laptop" />

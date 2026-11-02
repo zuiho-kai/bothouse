@@ -541,6 +541,11 @@ func (a *Agent) startSessionWith(ctx context.Context, sessionID string, forceExe
 		baseURL = a.providers[a.activeIdx].ForProtocol(core.ProtocolResponses).BaseURL
 	}
 	sessionModel, instrFile, instrText := a.sessionModel, a.sessionInstr, a.sessionInstrText
+	if settings == nil {
+		if snapshot, ok := core.SessionSettingsFromContext(ctx); ok {
+			settings = &snapshot
+		}
+	}
 	if settings != nil {
 		sessionModel = strings.TrimSpace(settings.Model)
 		if settings.ReasoningEffort != "" {

@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -64,7 +65,7 @@ func TestQueueModelSwitchAppliesBeforeNextTurn(t *testing.T) {
 		t.Fatalf("pending = %q", st.Pending)
 	}
 	e.applyPendingSwitch("discord:1")
-	if agent.model != "xiao/gpt-6-sol" {
+	if got := e.sessionModelFor("discord:1"); got != "xiao/gpt-6-sol" || agent.model != "xiao/gpt-6-astra" {
 		t.Fatalf("model after apply = %q", agent.model)
 	}
 	// Hand-picked model holds off automatic tiers; "auto" releases it.
@@ -99,6 +100,8 @@ func TestQueuedModelSwitchPersistsModelAndEffort(t *testing.T) {
 		models: []ModelOption{{Name: "xiao/gpt-6-astra"}, {Name: "xiao/gpt-6.1-sol"}}}
 	e := NewEngine("test", agent, []Platform{&stubPlatformEngine{n: "test"}}, "", LangEnglish)
 	t.Cleanup(func() { e.Stop() })
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	e.SetProjectStateStore(NewProjectStateStore(statePath))
 	var savedModel, savedEffort string
 	e.SetModelSaveFunc(func(m string) error { savedModel = m; return nil })
 	e.SetReasoningEffortSaveFunc(func(v string) error { savedEffort = v; return nil })
@@ -109,7 +112,8 @@ func TestQueuedModelSwitchPersistsModelAndEffort(t *testing.T) {
 		t.Fatal("persisted before the switch was applied")
 	}
 	e.applyPendingSwitch("discord:1")
-	if savedModel != "xiao/gpt-6.1-sol" || savedEffort != "high" {
+	persisted := NewProjectStateStore(statePath).state.SessionModelOverrides["discord:1"]
+	if persisted.Model != "xiao/gpt-6.1-sol" || persisted.Effort != "high" || savedModel != "" || savedEffort != "" {
 		t.Fatalf("persisted model=%q effort=%q", savedModel, savedEffort)
 	}
 }

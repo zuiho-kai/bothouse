@@ -156,7 +156,7 @@ func (e *Engine) ModelStatus(ctx context.Context, sessionKey string) ModelStatus
 
 // Snapshot the current channel's session before querying runtime metadata;
 // agent getters may perform I/O and must not hold engine/state locks.
-func (e *Engine) currentSessionModel(sessionKey string, agent Agent) string {
+func (e *Engine) liveModelSession(sessionKey string) AgentSession {
 	key := e.interactiveKeyForSessionKey(sessionKey)
 	e.interactiveMu.Lock()
 	state := e.interactiveStates[key]
@@ -167,13 +167,16 @@ func (e *Engine) currentSessionModel(sessionKey string, agent Agent) string {
 		session = state.agentSession
 		state.mu.Unlock()
 	}
+	return session
+}
+
+func (e *Engine) currentSessionModel(sessionKey string, agent Agent) string {
+	session := e.liveModelSession(sessionKey)
 	// Keep the catalog ID intact (some agents use JSON-array IDs). Footer
 	// display normalization would prevent matching the current catalog option.
-	for _, source := range []any{session} {
-		if getter, ok := source.(interface{ GetModel() string }); ok {
-			if model := strings.TrimSpace(getter.GetModel()); model != "" {
-				return model
-			}
+	if getter, ok := session.(interface{ GetModel() string }); ok {
+		if model := strings.TrimSpace(getter.GetModel()); model != "" {
+			return model
 		}
 	}
 	if model := e.sessionModelFor(sessionKey); model != "" {
@@ -292,8 +295,18 @@ func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, k
 	if scopeKey == "" {
 		return nil
 	}
+	// Startup uses CC_SESSION_KEY. An interactive key can include a directory
+	// prefix, so apply requests made with that alias to the execution key.
+	selectionKey := scopeKey
+	if scopeKey == interactiveKey {
+		for _, key := range keys {
+			if key != "" {
+				selectionKey = key
+			}
+		}
+	}
 	if !p.auto {
-		if err := e.saveSessionSelection(scopeKey, p.model, p.effort); err != nil {
+		if err := e.saveSessionSelection(selectionKey, p.model, p.effort); err != nil {
 			return err
 		}
 	}

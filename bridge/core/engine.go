@@ -657,7 +657,8 @@ type queuedMessage struct {
 
 // interactiveState tracks a running interactive agent session and its permission state.
 type interactiveState struct {
-	quotaScope    quotaScope // immutable attribution captured at session creation
+	modelSettings SessionSettings // immutable startup selection; effort-only changes also recycle
+	quotaScope    quotaScope      // immutable attribution captured at session creation
 	authorization *AuthorizationTurn
 	// #618 K4 S1: resumeArmed is set while a resumed turn has not yet shown it
 	// works (no tool step, no first result); resumeFailed holds the error its
@@ -5068,6 +5069,11 @@ func adoptPendingFromPlaceholder(existing, newState *interactiveState) {
 // When agentOverride is non-nil it is used instead of e.agent to start the session.
 // ccSessionKey, when non-empty, is used for CC_SESSION_KEY env injection; otherwise sessionKey is used.
 func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, replyCtx any, session *Session, sessions *SessionManager, agentOverride Agent, ccSessionKey string, inputs ...*inputTurn) *interactiveState {
+	ccKey := sessionKey
+	if ccSessionKey != "" {
+		ccKey = ccSessionKey
+	}
+	settings := e.sessionSettingsFor(ccKey)
 	e.interactiveMu.Lock()
 	defer e.interactiveMu.Unlock()
 	var input *inputTurn
@@ -5091,7 +5097,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		// - the process has not reported an ID yet (startup; empty want is OK).
 		// If wantID is empty (/new, cleared session) but the process already has
 		// a concrete ID, reusing would keep --resume context — recycle (#238).
-		needRecycle := currentID != "" && (wantID == "" || wantID != currentID)
+		needRecycle := (currentID != "" && (wantID == "" || wantID != currentID)) || state.modelSettings != settings
 		if input != nil {
 			_, supported := state.agentSession.(StrictResumeSession)
 			if !supported || currentID != input.expectedID {
@@ -5137,11 +5143,6 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	agent := e.agent
 	if agentOverride != nil {
 		agent = agentOverride
-	}
-
-	ccKey := sessionKey
-	if ccSessionKey != "" {
-		ccKey = ccSessionKey
 	}
 
 	// Inject per-session env vars so the agent subprocess can call `cc-connect cron add` etc.
@@ -5227,9 +5228,9 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		if !ok || !strict.SupportsStrictResume() {
 			return &interactiveState{startErr: "strict resume unsupported"}
 		}
-		agentSession, err = strict.StartSessionStrict(WithSessionSettings(e.ctx, e.sessionSettingsFor(ccKey)), startSessionID)
+		agentSession, err = strict.StartSessionStrict(WithSessionSettings(e.ctx, settings), startSessionID)
 	} else {
-		agentSession, err = agent.StartSession(WithSessionSettings(e.ctx, e.sessionSettingsFor(ccKey)), startSessionID)
+		agentSession, err = agent.StartSession(WithSessionSettings(e.ctx, settings), startSessionID)
 	}
 	startElapsed := time.Since(startAt)
 	if err != nil {
@@ -5247,7 +5248,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			}
 			sessions.Save()
 			startAt = time.Now()
-			agentSession, err = agent.StartSession(WithSessionSettings(e.ctx, e.sessionSettingsFor(ccKey)), "")
+			agentSession, err = agent.StartSession(WithSessionSettings(e.ctx, settings), "")
 			startElapsed = time.Since(startAt)
 			startedFresh = true
 			if err == nil {
@@ -5322,6 +5323,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		session.MarkFreshContext()
 	}
 	newState := &interactiveState{
+		modelSettings:    settings,
 		agentSession:     agentSession,
 		quotaScope:       e.quotaScopeOfSession(agent, agentSession),
 		platform:         p,
@@ -14205,47 +14207,12 @@ func (e *Engine) handleModelCardAction(args, sessionKey string) *Card {
 
 	resolved, err := e.selectSessionModel(sessionKey, target)
 	interactiveKey := e.interactiveKeyForSessionKey(sessionKey)
-	e.cleanupInteractiveState(interactiveKey)
 	if err == nil {
+		e.cleanupInteractiveState(interactiveKey)
 		sessions.Save()
 	}
 
 	return e.renderModelSwitchResultCard(resolved, err)
-}
-
-func (e *Engine) persistWorkspaceModelOverride(interactiveKey, sessionKey string, agent Agent, model string) {
-	if e.projectState == nil || !e.multiWorkspace || model == "" {
-		return
-	}
-	if agent == e.agent {
-		return
-	}
-	workspace := workspaceModelOverrideKey(interactiveKey, sessionKey, agent)
-	if workspace == "" {
-		return
-	}
-	e.projectState.SetWorkspaceModelOverride(workspace, model)
-	e.projectState.Save()
-}
-
-func workspaceModelOverrideKey(interactiveKey, sessionKey string, agent Agent) string {
-	if wd, ok := agent.(interface{ GetWorkDir() string }); ok {
-		if dir := strings.TrimSpace(wd.GetWorkDir()); dir != "" {
-			return normalizeWorkspacePath(dir)
-		}
-	}
-	return workspaceFromInteractiveKey(interactiveKey, sessionKey)
-}
-
-func workspaceFromInteractiveKey(interactiveKey, sessionKey string) string {
-	if interactiveKey == "" || sessionKey == "" || interactiveKey == sessionKey {
-		return ""
-	}
-	suffix := ":" + sessionKey
-	if !strings.HasSuffix(interactiveKey, suffix) {
-		return ""
-	}
-	return strings.TrimSuffix(interactiveKey, suffix)
 }
 
 // executeCardAction performs the side-effect for act: prefixed actions
@@ -17968,7 +17935,7 @@ func relayGateQuery(message string) string {
 // at once, unlike the wait timeout: a result already received is returned as
 // done, otherwise the text so far comes back with errRelayWatchStopped.
 func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, ccSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, stop <-chan struct{}, nudge <-chan string, completion ...func(string, error)) (string, error) {
-	if err := e.applyPendingSwitchOnAgent(agent, relaySessionKey, ccSessionKey, sourceSessionKey); err != nil {
+	if err := e.applyPendingSwitchOnAgent(agent, relaySessionKey, ccSessionKey); err != nil {
 		return "", err
 	}
 	if until := e.quotaCoolingFor(e.admissionQuotaScope(agent, relaySessionKey, ccSessionKey, sourceSessionKey)); !until.IsZero() {

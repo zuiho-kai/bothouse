@@ -226,12 +226,12 @@ func (a *Agent) startSessionWithEnv(ctx context.Context, sessionID string, sessi
 			model = m
 		}
 	}
-	if m := modelFromArgs(extraArgs); m != "" {
-		model = m // the session reports the model that runs (see GetModel)
-	}
 	a.mu.Unlock()
 
 	model, _ = core.SessionModelAndEffort(ctx, model, "")
+	if m := modelFromArgs(extraArgs); m != "" {
+		model = m // pinned CLI args still determine the model that actually runs
+	}
 
 	if streamJSON {
 		s, err := newStreamSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout, stallTimeout)
