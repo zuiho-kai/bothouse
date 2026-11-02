@@ -47,6 +47,32 @@ func (s *APIServer) handlePublicProgress(w http.ResponseWriter, r *http.Request)
 	apiJSON(w, 200, map[string]string{"task_id": id, "status": "recorded"})
 }
 
+// handleProgressRun returns the run token of a session's turn in progress, for
+// `bothouse progress` and `bothouse task assign` called without --run.
+func (s *APIServer) handleProgressRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	q := r.URL.Query()
+	project, session := q.Get("project"), q.Get("session")
+	if project == "" || session == "" {
+		inputHTTPError(w, 400, errors.New("project and session required (CC_PROJECT / CC_SESSION_KEY)"))
+		return
+	}
+	p := s.progressFor(project)
+	if p == nil {
+		inputHTTPError(w, 409, errors.New("public progress unavailable"))
+		return
+	}
+	token, ok := p.CurrentRun(session)
+	if !ok {
+		inputHTTPError(w, 404, fmt.Errorf("session %s has no turn token now: task cards are issued only during a turn in a workspace channel (or on platforms without cards); pass --run if you have one", session))
+		return
+	}
+	apiJSON(w, 200, map[string]string{"run": token})
+}
+
 func (s *APIServer) handleTaskAssign(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)

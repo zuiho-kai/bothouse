@@ -80,6 +80,7 @@ stdout / stderr / exit code of the hook are passed through.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -123,7 +124,7 @@ GEMINI_TO_CLAUDE_EVENT = {"BeforeTool": "PreToolUse", "AfterTool": "PostToolUse"
 STATE = os.path.join(HERE, "state", "dsh-stop.json")
 DSH_ROLES = os.path.join(HERE, "dsh-roles.json")  # {role work_dir: {"hooks": [...], "dsh_home": ...}}
 OPTS = {"role": None, "dsh_home": None, "dsh_global": False, "agy": None, "kimi": False,
-        "cursor": False, "codex": False, "grok": False}  # {session_id: turn already blocked once}
+        "cursor": False, "codex": False, "grok": False, "cc_global": False, "wiki": None}  # {session_id: turn already blocked once}
 # 来源：实测，验收时日志在钩子开始后约 0.15 秒内写到；留足余量又不拖住回复（Stop 超时设的是 30 秒）
 STOP_WAIT = 3.0
 MODEL_HEAD, MODEL_END = "[bothouse model-control instructions]", "[/bothouse model-control instructions]"
@@ -522,7 +523,7 @@ LEGACY_SWITCH = os.path.join(".claude", "conest-hooks.json")
 
 def hook_names():
     return sorted(f[:-3] for f in os.listdir(HERE)
-                  if f.endswith(".py") and f not in ("run.py", "doc-ok.py", "dshlog.py", "dsh-cc-compat.py", "codex-compat.py", "lessons.py", "ctxsvc.py", "wiki_search.py")
+                  if f.endswith(".py") and f not in ("run.py", "doc-ok.py", "dshlog.py", "dsh-cc-compat.py", "codex-compat.py", "lessons.py", "ctxsvc.py", "wiki_search.py", "accept.py")
                   and not f.startswith("test_"))
 
 
@@ -583,7 +584,7 @@ def parse_args(argv):
     rest, i = [], 0
     while i < len(argv):
         a = argv[i]
-        if a in ("--role", "--dsh-home", "--agy") and i + 1 < len(argv):
+        if a in ("--role", "--dsh-home", "--agy", "--wiki") and i + 1 < len(argv):
             OPTS[a[2:].replace("-", "_")] = argv[i + 1] or None
             i += 2
             continue
@@ -597,10 +598,40 @@ def parse_args(argv):
             OPTS["codex"] = True
         elif a == "--grok":
             OPTS["grok"] = True
+        elif a == "--cc-global":
+            OPTS["cc_global"] = True
         elif a != "--conest-hook":
             rest.append(a)
         i += 1
     return rest
+
+
+ROLE_HOOK = re.compile(r"""run\.py['"]? --conest-hook (?:.* )?([a-z-]+)$|[/\\]hooks[/\\]run\.py['"]? ([a-z-]+)$""")
+
+
+def project_has(name, project):
+    """--cc-global (the copy in the user's own Claude Code settings, core/global_hooks.go): True when the session's
+    project settings (<project>/.claude/settings.json or settings.local.json, the files Claude Code merges with the
+    user's) already run this hook as a role's copy (setup hooks on): that copy runs, this one passes, so the hook
+    takes effect once. The user's own settings dir (--role) is not a project."""
+    user = os.path.realpath(OPTS["role"]) if OPTS["role"] else None
+    for f in ("settings.json", "settings.local.json"):
+        d = os.path.join(project, ".claude")
+        if user and os.path.realpath(d) == user:
+            continue
+        try:
+            with open(os.path.join(d, f), encoding="utf-8") as fh:
+                hooks = (json.load(fh) or {}).get("hooks") or {}
+        except (OSError, ValueError, AttributeError):
+            continue
+        for groups in hooks.values() if isinstance(hooks, dict) else []:
+            for g in groups if isinstance(groups, list) else []:
+                for h in (g.get("hooks") or []) if isinstance(g, dict) else []:
+                    cmd = (h.get("command") or "").strip() if isinstance(h, dict) else ""
+                    m = ROLE_HOOK.search(cmd)
+                    if m and "--cc-global" not in cmd and name in m.groups():
+                        return True
+    return False
 
 
 def dsh_role(start):
@@ -655,6 +686,14 @@ def main():
         payload = {}
     if not isinstance(payload, dict):
         payload = {}
+    if OPTS["cc_global"]:
+        # installed into the user's own Claude Code settings for every session on this machine: a bot that bothouse
+        # started (CC_PROJECT) and a project whose settings run the role's copy keep theirs, so no hook runs twice
+        if os.environ.get("CC_PROJECT") or project_has(name, os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or os.getcwd()):
+            pass_exit()
+    if OPTS["wiki"]:
+        # the memory wiki of a global install (not ~/wiki): wiki-context reads GATE_WIKI, ingest.py WIKI_DIR
+        os.environ["GATE_WIKI"] = os.environ["WIKI_DIR"] = OPTS["wiki"]
     if OPTS["dsh_global"]:
         # the DSH-wide hook file applies to every directory DSH runs in: only bothouse's DSH roles count
         wd, entry = dsh_role(payload.get("cwd") or os.getcwd())
@@ -673,7 +712,9 @@ def main():
         spec = importlib.util.spec_from_file_location("codex_compat", os.path.join(HERE, "codex-compat.py"))
         compat = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(compat)
+        delivery_transcript = payload.get("transcript_path")
         payload, codex_tmp = compat.adapt(payload)
+        payload["delivery_transcript_path"] = delivery_transcript
     cursor = OPTS["cursor"] or payload.get("hook_event_name") == "beforeShellExecution"
     if cursor:
         OPTS["cursor"] = True
@@ -795,9 +836,13 @@ def main():
         turn = last_turn(recs)
         payload["stop_hook_active"] = bool(payload.get("stop_hook_active")) or load_state().get(sid) == turn
 
+    proc = None
     try:
-        proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(payload, ensure_ascii=False),
-                              capture_output=True, text=True)
+        if name == "bash-guard" and payload.get("hook_event_name") == "PreToolUse" and "deliver-check" not in off:
+            proc = deliver_check(payload, path)
+        if proc is None:
+            proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(payload, ensure_ascii=False),
+                                  capture_output=True, text=True)
     finally:
         if tmp:
             os.unlink(tmp)
@@ -861,6 +906,42 @@ def main():
         sys.stdout.write(stop_full_reply(payload.get("hook_event_name"), proc.stdout))
     sys.stderr.write(proc.stderr)
     sys.exit(proc.returncode)
+
+
+def deliver_check(payload, dsh_log):
+    """Run deliver-check.py before bash-guard. Its result is returned only when it denies (then bash-guard is
+    skipped); otherwise None and bash-guard runs as before. DSH: the session log becomes a Claude Code transcript
+    as for Stop, so the check can see this turn's reads."""
+    target = os.path.join(HERE, "deliver-check.py")
+    cmd = str((payload.get("tool_input") or {}).get("command") or "")
+    if not os.path.isfile(target) or "bothouse" not in cmd or "send" not in cmd:
+        return None
+    p = dict(payload, bothouse_role=role_dir(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or None))
+    if p.get("delivery_transcript_path"):
+        # The normalized Codex transcript omits image reads and their timestamps.
+        p["transcript_path"] = p["delivery_transcript_path"]
+    tmp = None
+    try:
+        if dsh_log:
+            fd, tmp = tempfile.mkstemp(prefix="dsh-dc-", suffix=".jsonl")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                for r in transcript(records(read_lines(dsh_log)), payload.get("cwd") or ""):
+                    f.write(json.dumps(r, ensure_ascii=False) + "\n")
+            p["transcript_path"] = tmp
+        proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(p, ensure_ascii=False),
+                              capture_output=True, text=True)
+    finally:
+        if tmp:
+            os.unlink(tmp)
+    try:
+        d = json.loads(proc.stdout or "{}")
+    except ValueError:
+        return None
+    if isinstance(d, dict) and (d.get("hookSpecificOutput") or {}).get("permissionDecision") == "deny":
+        return proc
+    if proc.stderr:
+        sys.stderr.write(proc.stderr)
+    return None
 
 
 # A blocked Stop: the model often writes only an addendum afterwards, and the channel gets that addendum alone
@@ -993,9 +1074,13 @@ def run_agy(target, raw, event):
         except (OSError, ValueError):
             st = {}
         payload["stop_hook_active"] = step is not None and st.get(sid) == step
+    proc = None
     try:
-        proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(payload, ensure_ascii=False),
-                              capture_output=True, text=True)
+        if event == "PreToolUse" and os.path.basename(target) == "bash-guard.py" and "deliver-check" not in load_off(role_dir(payload["cwd"])):
+            proc = deliver_check(payload, None)
+        if proc is None:
+            proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(payload, ensure_ascii=False),
+                                  capture_output=True, text=True)
     finally:
         if tmp:
             os.unlink(tmp)

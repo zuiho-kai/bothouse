@@ -9,6 +9,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,11 +31,22 @@ func init() {
 // via forward WebSocket. It receives message events and sends messages back
 // through the same WS connection.
 type Platform struct {
-	wsURL                 string // e.g. "ws://127.0.0.1:3001"
-	token                 string // optional access_token
-	allowFrom             string // comma-separated user IDs or "*"
+	wsURL     string // e.g. "ws://127.0.0.1:3001"
+	token     string // optional access_token
+	allowFrom string // comma-separated user IDs or "*"
+	// allowGroupsWith: comma-separated user IDs; a group message from anyone
+	// passes when one of them is in that group (option allow_groups_with).
+	// Private chats still follow allowFrom only.
+	allowGroupsWith  []string
+	groupAnchorCache sync.Map // groupID -> groupAnchorEntry
+	groupHistory     sync.Map // groupID -> *groupLog: recent lines, so a turn sees what the group was saying
+	// saveImagesDir: when set (option save_images_dir), every received image is also
+	// written there and the path is added to this turn only.
+	saveImagesDir         string
+	splitReplyBubbles     bool
 	commandAllowFrom      string // optional separate sender list for slash-prefixed input
 	shareSessionInChannel bool
+	project               string // this bot's project name (opts["cc_project"]), named in outbound receipts
 	handler               core.MessageHandler
 	conn                  *websocket.Conn
 	mu                    sync.Mutex
@@ -62,7 +75,8 @@ var teamPlatforms sync.Map
 // quoteEntry is one message kept for reply quoting.
 type quoteEntry struct {
 	content string
-	self    bool // this bot sent it, so a reply to it calls the bot
+	name    string // who wrote it; the quote must not read as the quoting person's words
+	self    bool   // this bot sent it, so a reply to it calls the bot
 	at      time.Time
 }
 
@@ -80,9 +94,20 @@ const quoteCacheMaxItems = 1000
 const quotedTextMaxRunes = 800
 
 // bareMentionPlaceholder starts a turn when a person @-ed the bot without
-// saying anything. Source: 沿用 platform/discord, the same words its bare-@
-// path uses, so the model reads the situation the same way on both platforms.
-const bareMentionPlaceholder = "（用户 @ 了你，在等你回复：看上面的频道消息判断要你做什么；看不出来就问）"
+// saying anything. Describe the event without prescribing a persona response.
+const bareMentionPlaceholder = "（对方只 @ 了你一下，没说别的）"
+
+// forwardOnlyPlaceholder is the turn text when someone sends only a merged
+// forward: the event itself, so the forwarded lines stay in ExtraContent and
+// are never read as this sender's words.
+const forwardOnlyPlaceholder = "（对方转发了一段聊天记录，没说别的）"
+
+// Outbound receipt log messages (Issue #842): one per send, so a receipt can be
+// matched to the inbound message_id and the message_id NapCat returned.
+const (
+	outboundReceiptMessage       = "qq: outbound message"
+	outboundReceiptFailedMessage = "qq: outbound message failed"
+)
 
 func New(opts map[string]any) (core.Platform, error) {
 	wsURL, _ := opts["ws_url"].(string)
@@ -91,8 +116,19 @@ func New(opts map[string]any) (core.Platform, error) {
 	}
 	token, _ := opts["token"].(string)
 	allowFrom, _ := opts["allow_from"].(string)
+	var allowGroupsWith []string
+	if raw, _ := opts["allow_groups_with"].(string); raw != "" {
+		for _, id := range strings.Split(raw, ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				allowGroupsWith = append(allowGroupsWith, id)
+			}
+		}
+	}
 	commandAllowFrom, _ := opts["command_allow_from"].(string)
 	shareSessionInChannel, _ := opts["share_session_in_channel"].(bool)
+	project, _ := opts["cc_project"].(string)
+	saveImagesDir, _ := opts["save_images_dir"].(string)
+	splitReplyBubbles, _ := opts["split_bubbles"].(bool)
 
 	core.CheckAllowFrom("qq", allowFrom)
 
@@ -103,8 +139,12 @@ func New(opts map[string]any) (core.Platform, error) {
 		wsURL:                 wsURL,
 		token:                 token,
 		allowFrom:             allowFrom,
+		allowGroupsWith:       allowGroupsWith,
 		commandAllowFrom:      commandAllowFrom,
+		saveImagesDir:         saveImagesDir,
+		splitReplyBubbles:     splitReplyBubbles,
 		shareSessionInChannel: shareSessionInChannel,
+		project:               project,
 		httpURL:               httpURL,
 	}, nil
 }
@@ -242,7 +282,7 @@ func (p *Platform) handleMessage(payload map[string]any) {
 		return
 	}
 
-	if !p.isAllowed(userID) {
+	if !p.isAllowed(userID) && !(msgType == "group" && p.groupHasAnchor(groupID)) {
 		return
 	}
 
@@ -260,6 +300,10 @@ func (p *Platform) handleMessage(payload map[string]any) {
 
 	// Parse message content from CQ message array or raw_message
 	parsed := p.parseMessage(payload, msgType, groupID)
+	// A merged forward is other people's old messages: it goes to the model as
+	// labelled material (ExtraContent below), never as the sender's own words.
+	forwarded, fwdImages := p.expandForwards(parsed.forwards)
+	parsed.images = append(parsed.images, fwdImages...)
 
 	// A slash-prefixed message is a command, and command_allow_from decides who
 	// may submit one. This runs before core gets the message, so built-in
@@ -279,7 +323,13 @@ func (p *Platform) handleMessage(payload map[string]any) {
 	var quoted []string
 	if id := parsed.replyTo; id != "" {
 		if entry, ok := p.loadQuote(id); ok {
-			quoted = append(quoted, entry.content)
+			// Keep the quoted speaker's name: a bare quote read as the quoting
+			// person's words is the same mix-up as an unlabelled chat line.
+			line := entry.content
+			if entry.name != "" {
+				line = entry.name + "：" + line
+			}
+			quoted = append(quoted, line)
 			mentioned = mentioned || entry.self
 		}
 	}
@@ -287,6 +337,20 @@ func (p *Platform) handleMessage(payload map[string]any) {
 	// A bare @ or quote of the bot still calls it. Resolve quotes first so
 	// these messages are not mistaken for empty input.
 	content := parsed.text
+	saved := p.saveImages(messageID, parsed.images)
+	previews := parsed.images[:0]
+	for _, img := range parsed.images {
+		img.Data, img.MimeType = shrinkImage(img.Data, img.MimeType)
+		if len(img.Data) == 0 {
+			content = strings.TrimSpace(content + "\n[图片过大且无法生成安全预览]")
+			continue
+		}
+		previews = append(previews, img)
+	}
+	parsed.images = previews
+	if content == "" && forwarded != "" {
+		content = forwardOnlyPlaceholder
+	}
 	if content == "" && len(parsed.images) == 0 && len(parsed.files) == 0 && parsed.audio == nil && !mentioned {
 		return
 	}
@@ -296,7 +360,7 @@ func (p *Platform) handleMessage(payload map[string]any) {
 
 	// Store the person's own words, not the bare-@ placeholder: a later reply to
 	// a poke should not quote the placeholder back as if they had said it.
-	p.storeQuote(strconv.FormatInt(messageID, 10), parsed.text, false)
+	p.storeQuote(strconv.FormatInt(messageID, 10), parsed.text, userName, false)
 
 	var sessionKey string
 	if msgType == "group" {
@@ -313,7 +377,8 @@ func (p *Platform) handleMessage(payload map[string]any) {
 		messageType: msgType,
 		userID:      userID,
 		groupID:     groupID,
-		messageID:   int32(messageID),
+		sessionKey:  sessionKey,
+		inMessageID: strconv.FormatInt(messageID, 10),
 	}
 
 	// ChannelKey is the raw chat id; core adds the platform prefix when it
@@ -351,9 +416,28 @@ func (p *Platform) handleMessage(payload map[string]any) {
 		Mentioned:      mentioned,
 		AddressedOther: addressedOther,
 		Direct:         msgType != "group",
+		GroupChat:      msgType == "group",
 	}
 	if len(quoted) > 0 {
 		msg.ExtraContent = "[引用消息]\n" + strings.Join(quoted, "\n")
+	}
+	if saved != "" {
+		msg.ExtraContent = strings.TrimSpace(msg.ExtraContent + "\n" + saved)
+	}
+	if forwarded != "" {
+		msg.ExtraContent = strings.TrimSpace(msg.ExtraContent + "\n\n" + forwarded)
+	}
+	if msgType == "group" {
+		if recent := p.groupContext(groupID); recent != "" {
+			// Background for this turn only: core keeps it out of the gate's silent buffer
+			// (a buffered message must not repeat the chat it was written in).
+			msg.AmbientChat = strings.TrimSpace(recent)
+		}
+		line := content
+		if line == "" && len(parsed.images) > 0 {
+			line = "[图片]"
+		}
+		p.noteGroupLine(groupID, userID, userName, line)
 	}
 
 	slog.Debug("qq: message received", "type", msgType, "user", userID, "text_len", len(content), "mentioned", mentioned)
@@ -366,9 +450,10 @@ type parsedMessage struct {
 	images    []core.ImageAttachment
 	files     []core.FileAttachment
 	audio     *core.AudioAttachment
-	mentioned bool   // an "at" segment addressed this bot
-	other     bool   // an "at" segment named a teammate bot, not this one
-	replyTo   string // message ID of the "reply" segment, empty when not a reply
+	mentioned bool             // an "at" segment addressed this bot
+	other     bool             // an "at" segment named a teammate bot, not this one
+	replyTo   string           // message ID of the "reply" segment, empty when not a reply
+	forwards  []map[string]any // "forward" segments (merged chat logs), expanded in handleMessage
 }
 
 func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID int64) parsedMessage {
@@ -549,6 +634,8 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 				name = qq
 			}
 			textParts = append(textParts, "@"+name)
+		case "forward":
+			out.forwards = append(out.forwards, data)
 		case "reply":
 			out.replyTo, _ = data["id"].(string)
 		}
@@ -718,9 +805,45 @@ func (p *Platform) Reply(ctx context.Context, replyCtx any, content string) erro
 
 // Send sends a message to the conversation identified by replyCtx.
 func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error {
+	// Optionally send blank-line separated paragraphs as individual messages.
+	if parts := splitBubbles(content); p.splitReplyBubbles && len(parts) > 1 {
+		for _, part := range parts {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := p.sendOne(ctx, replyCtx, part); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return p.sendOne(ctx, replyCtx, content)
+}
+
+// splitBubbles 按空行拆段；含代码块时不拆，避免把代码切碎。
+func splitBubbles(content string) []string {
+	if strings.Contains(content, "```") {
+		return []string{content}
+	}
+	var out []string
+	for _, seg := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n\n") {
+		if seg = strings.TrimSpace(seg); seg != "" {
+			out = append(out, seg)
+		}
+	}
+	if len(out) == 0 {
+		return []string{content}
+	}
+	return out
+}
+
+func (p *Platform) sendOne(ctx context.Context, replyCtx any, content string) error {
 	rctx, ok := replyCtx.(*replyContext)
 	if !ok {
 		return fmt.Errorf("qq: invalid reply context")
+	}
+	if strings.TrimSpace(content) == "" {
+		return nil
 	}
 
 	params := map[string]any{
@@ -729,16 +852,19 @@ func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error
 
 	if rctx.messageType == "group" {
 		params["group_id"] = rctx.groupID
-		result, err := p.callAPI("send_group_msg", params)
+		result, err := p.callAPIContext(ctx, "send_group_msg", params)
+		p.logOutbound("send_group_msg", rctx, content, result, err)
 		if err != nil {
 			return err
 		}
 		p.recordSent(result, content)
+		p.noteGroupLine(rctx.groupID, p.selfID, "你", content)
 		return nil
 	}
 
 	params["user_id"] = rctx.userID
-	result, err := p.callAPI("send_private_msg", params)
+	result, err := p.callAPIContext(ctx, "send_private_msg", params)
+	p.logOutbound("send_private_msg", rctx, content, result, err)
 	if err != nil {
 		return err
 	}
@@ -753,6 +879,9 @@ func (p *Platform) ReplyWithAt(ctx context.Context, replyCtx any, content string
 	rctx, ok := replyCtx.(*replyContext)
 	if !ok {
 		return fmt.Errorf("qq: ReplyWithAt: invalid reply context type %T", replyCtx)
+	}
+	if strings.TrimSpace(content) == "" && len(atUsers) == 0 && !atAll {
+		return nil
 	}
 
 	segments := make([]map[string]any, 0, len(atUsers)+2)
@@ -776,7 +905,12 @@ func (p *Platform) ReplyWithAt(ctx context.Context, replyCtx any, content string
 		params["user_id"] = rctx.userID
 	}
 
-	result, err := p.callAPI(action, params)
+	summary := content
+	if atAll || len(atUsers) > 0 {
+		summary = fmt.Sprintf("[at all=%t users=%v] %s", atAll, atUsers, content)
+	}
+	result, err := p.callAPIContext(ctx, action, params)
+	p.logOutbound(action, rctx, summary, result, err)
 	if err != nil {
 		return fmt.Errorf("qq: ReplyWithAt: %w", err)
 	}
@@ -791,8 +925,41 @@ var _ core.AtMentionSender = (*Platform)(nil)
 // shows to the model.
 func (p *Platform) recordSent(result map[string]any, text string) {
 	if id := jsonInt64(result, "message_id"); id != 0 {
-		p.storeQuote(strconv.FormatInt(id, 10), text, true)
+		// "你" matches how groupContext labels this bot's own lines.
+		p.storeQuote(strconv.FormatInt(id, 10), text, "你", true)
 	}
+}
+
+// logOutbound writes one structured receipt for an outbound QQ message, so an
+// inbound message_id can be matched to the message_id NapCat returned for the
+// send that answered it. Every outbound path calls it once per actual send.
+//
+// content is a short description of what went out (text, "[image …]",
+// "[voice …]", "[file …]"), truncated with the existing quotedTextMaxRunes
+// bound (来源: 沿用 platform/qq quotedTextMaxRunes) so a receipt stays as small
+// as a cached quote; content_len is the untruncated rune count.
+//
+// This is logging only: it never changes what, or whether, a message is sent.
+func (p *Platform) logOutbound(action string, rctx *replyContext, content string, result map[string]any, err error) {
+	outID := ""
+	if id := jsonInt64(result, "message_id"); id != 0 {
+		outID = strconv.FormatInt(id, 10)
+	}
+	attrs := []any{
+		"pid", os.Getpid(),
+		"project", p.project,
+		"session_key", rctx.sessionKey,
+		"in_message_id", rctx.inMessageID,
+		"out_message_id", outID,
+		"action", action,
+		"content", truncateRunes(content, quotedTextMaxRunes),
+		"content_len", utf8.RuneCountInString(content),
+	}
+	if err != nil {
+		slog.Warn(outboundReceiptFailedMessage, append(attrs, "error", err)...)
+		return
+	}
+	slog.Info(outboundReceiptMessage, attrs...)
 }
 
 // SendImage sends an image to the conversation.
@@ -812,9 +979,12 @@ func (p *Platform) SendImage(ctx context.Context, replyCtx any, img core.ImageAt
 		"message": segments,
 	}
 
+	summary := fmt.Sprintf("[image %s %d bytes]", img.MimeType, len(img.Data))
+
 	if rctx.messageType == "group" {
 		params["group_id"] = rctx.groupID
-		_, err := p.callAPI("send_group_msg", params)
+		result, err := p.callAPIContext(ctx, "send_group_msg", params)
+		p.logOutbound("send_group_msg", rctx, summary, result, err)
 		if err != nil {
 			return fmt.Errorf("qq: send image: %w", err)
 		}
@@ -822,7 +992,8 @@ func (p *Platform) SendImage(ctx context.Context, replyCtx any, img core.ImageAt
 	}
 
 	params["user_id"] = rctx.userID
-	_, err := p.callAPI("send_private_msg", params)
+	result, err := p.callAPIContext(ctx, "send_private_msg", params)
+	p.logOutbound("send_private_msg", rctx, summary, result, err)
 	if err != nil {
 		return fmt.Errorf("qq: send image: %w", err)
 	}
@@ -894,15 +1065,18 @@ func (p *Platform) SendAudio(ctx context.Context, replyCtx any, audio []byte, fo
 		params["user_id"] = rctx.userID
 	}
 
-	result, err := p.callAPI(action, params)
+	summary := fmt.Sprintf("[voice %s %d bytes]", format, len(audio))
+	result, err := p.callAPIContext(ctx, action, params)
 	if err != nil {
+		p.logOutbound(action, rctx, summary, result, err)
 		return fmt.Errorf("qq: send audio: %w", err)
 	}
-	id := jsonInt64(result, "message_id")
-	if id == 0 {
-		return fmt.Errorf("qq: send audio: no message_id in reply")
+	if jsonInt64(result, "message_id") == 0 {
+		sendErr := fmt.Errorf("qq: send audio: no message_id in reply")
+		p.logOutbound(action, rctx, summary, result, sendErr)
+		return sendErr
 	}
-	slog.Info("qq: voice sent", "message_id", id, "format", format, "bytes", len(audio))
+	p.logOutbound(action, rctx, summary, result, nil)
 	p.recordSent(result, "[voice]")
 	return nil
 }
@@ -961,12 +1135,12 @@ func (p *Platform) warmGroupName(groupID int64) {
 
 // storeQuote remembers a message for reply quoting, dropping entries that are
 // too old or when the cache is full.
-func (p *Platform) storeQuote(messageID, content string, self bool) {
+func (p *Platform) storeQuote(messageID, content, name string, self bool) {
 	content = strings.TrimSpace(content)
 	if messageID == "" || content == "" {
 		return
 	}
-	p.quoteCache.Store(messageID, quoteEntry{content: truncateRunes(content, quotedTextMaxRunes), self: self, at: time.Now()})
+	p.quoteCache.Store(messageID, quoteEntry{content: truncateRunes(content, quotedTextMaxRunes), name: strings.TrimSpace(name), self: self, at: time.Now()})
 
 	now := time.Now()
 	var expired, total int
@@ -1013,6 +1187,16 @@ func (p *Platform) loadQuote(messageID string) (quoteEntry, bool) {
 // ── OneBot API call via WebSocket ───────────────────────────────
 
 func (p *Platform) callAPI(action string, params map[string]any) (map[string]any, error) {
+	return p.callAPIContext(context.Background(), action, params)
+}
+
+// callAPIContext stops waiting when the owning turn is cancelled. Once the
+// write has started, cancellation does not prove OneBot rejected the message:
+// callers must not replay it automatically.
+func (p *Platform) callAPIContext(ctx context.Context, action string, params map[string]any) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	seq := p.echoSeq.Add(1)
 	echo := strconv.FormatInt(seq, 10)
 
@@ -1034,6 +1218,10 @@ func (p *Platform) callAPI(action string, params map[string]any) (map[string]any
 	}
 
 	p.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		p.mu.Unlock()
+		return nil, err
+	}
 	if p.conn == nil {
 		p.mu.Unlock()
 		return nil, core.ErrTaskTextNotAccepted
@@ -1045,6 +1233,8 @@ func (p *Platform) callAPI(action string, params map[string]any) (map[string]any
 	}
 
 	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	case raw := <-ch:
 		var resp struct {
 			Status  string          `json:"status"`
@@ -1071,6 +1261,10 @@ func (p *Platform) callAPI(action string, params map[string]any) (map[string]any
 // file-path issues across Windows/WSL/Docker boundaries.
 // Requires http_url to be configured.
 func (p *Platform) callHTTPAPI(action string, params map[string]any) (map[string]any, error) {
+	return p.callHTTPAPIContext(context.Background(), action, params)
+}
+
+func (p *Platform) callHTTPAPIContext(ctx context.Context, action string, params map[string]any) (map[string]any, error) {
 	if p.httpURL == "" {
 		return nil, fmt.Errorf("qq: http_url not configured")
 	}
@@ -1079,7 +1273,7 @@ func (p *Platform) callHTTPAPI(action string, params map[string]any) (map[string
 		return nil, err
 	}
 	url := p.httpURL + "/" + action
-	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -1126,7 +1320,8 @@ type replyContext struct {
 	messageType string // "private" or "group"
 	userID      int64
 	groupID     int64
-	messageID   int32
+	sessionKey  string // conversation key, named in outbound receipts
+	inMessageID string // inbound message that triggered the send; empty for proactive sends
 }
 
 func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
@@ -1138,14 +1333,170 @@ func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
 	if len(parts) == 3 {
 		if parts[1] == "g" {
 			gid, _ := strconv.ParseInt(parts[2], 10, 64)
-			return &replyContext{messageType: "group", groupID: gid}, nil
+			return &replyContext{messageType: "group", groupID: gid, sessionKey: sessionKey}, nil
 		}
 		gid, _ := strconv.ParseInt(parts[1], 10, 64)
 		uid, _ := strconv.ParseInt(parts[2], 10, 64)
-		return &replyContext{messageType: "group", groupID: gid, userID: uid}, nil
+		return &replyContext{messageType: "group", groupID: gid, userID: uid, sessionKey: sessionKey}, nil
 	}
 	uid, _ := strconv.ParseInt(parts[1], 10, 64)
-	return &replyContext{messageType: "private", userID: uid}, nil
+	return &replyContext{messageType: "private", userID: uid, sessionKey: sessionKey}, nil
+}
+
+// saveImages writes the images into saveImagesDir and returns one line per file
+// for the message text ("" when the option is off or nothing was written).
+func (p *Platform) saveImages(messageID int64, images []core.ImageAttachment) string {
+	if p.saveImagesDir == "" || len(images) == 0 {
+		return ""
+	}
+	if err := os.MkdirAll(p.saveImagesDir, 0o755); err != nil {
+		slog.Warn("qq: save_images_dir unusable", "dir", p.saveImagesDir, "error", err)
+		return ""
+	}
+	var lines []string
+	for i, img := range images {
+		ext := map[string]string{"image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}[img.MimeType]
+		if ext == "" {
+			ext = ".jpg"
+		}
+		path := filepath.Join(p.saveImagesDir, fmt.Sprintf("%d-%d%s", messageID, i+1, ext))
+		if err := os.WriteFile(path, img.Data, 0o644); err != nil {
+			slog.Warn("qq: save image failed", "path", path, "error", err)
+			continue
+		}
+		lines = append(lines, "[图片已存到 "+path+"]")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// groupHistoryMax / groupHistoryWindow bound what a group turn is shown of the
+// chat before it. Source: existing adapter defaults in commit 9d2cc80b.
+const (
+	groupHistoryMax    = 10
+	groupHistoryWindow = 15 * time.Minute
+)
+
+type groupLine struct {
+	// userID 是发言人的稳定平台号（QQ 号），与显示名并列保存：两个人用同一张
+	// 群名片时，只有显示名的背景无法把历史事实归属到人身上。
+	// 来源：任务板 #11 缺口（EVIDENCE 6.1、TestQQ11BackgroundStableAuthorAcceptance FAIL）。
+	userID     int64
+	name, text string
+	at         time.Time
+}
+
+type groupLog struct {
+	mu    sync.Mutex
+	lines []groupLine
+}
+
+// noteGroupLine appends one line to the group's recent chat. userID is the
+// speaker's stable platform id (0 when unknown, e.g. this bot's own line
+// before get_login_info answered); name is what the group shows.
+func (p *Platform) noteGroupLine(groupID, userID int64, name, text string) {
+	if groupID == 0 || strings.TrimSpace(text) == "" {
+		return
+	}
+	v, _ := p.groupHistory.LoadOrStore(groupID, &groupLog{})
+	g := v.(*groupLog)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.lines = append(g.lines, groupLine{userID: userID, name: name, text: text, at: time.Now()})
+	if len(g.lines) > groupHistoryMax {
+		g.lines = g.lines[len(g.lines)-groupHistoryMax:]
+	}
+}
+
+// groupContext renders the recent chat before the current message, or "".
+func (p *Platform) groupContext(groupID int64) string {
+	v, ok := p.groupHistory.Load(groupID)
+	if !ok {
+		return ""
+	}
+	g := v.(*groupLog)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var b strings.Builder
+	for _, l := range g.lines {
+		if time.Since(l.at) > groupHistoryWindow {
+			continue
+		}
+		if b.Len() == 0 {
+			b.WriteString("[群里刚才的聊天]\n")
+		}
+		fmt.Fprintf(&b, "%s：%s\n", groupSpeakerLabel(l), groupLineBreaks.Replace(l.text))
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// groupSpeakerLabel renders one background speaker as "名字[ID:20001]". The
+// stable id is appended only when the platform knows it, so an unknown speaker
+// (or the bot's own line before login) keeps the plain "名字" form.
+// 来源：任务板 #11 缺口——同群同名两人的历史发言必须能从背景分清归属
+// （2026-11-02 EVIDENCE 6.1；把 ID 放进展示文本的取舍记在那份证据里）。
+func groupSpeakerLabel(l groupLine) string {
+	name := groupLineBreaks.Replace(l.name)
+	if l.userID == 0 {
+		return name
+	}
+	if name == "" {
+		return fmt.Sprintf("[ID:%d]", l.userID)
+	}
+	return fmt.Sprintf("%s[ID:%d]", name, l.userID)
+}
+
+// Parse boundary for the background (#69 审查：正文换行可伪造他人带号行):
+// one rendered line is exactly one stored record, and its label holds the
+// line's only half-width "[ID:". Line breaks in a name or text (LF, CRLF, CR,
+// Unicode line/paragraph separators) render as "⏎", and a typed "[ID:" in a
+// name or text renders full-width "［ID:". Stored data stays raw.
+var groupLineBreaks = strings.NewReplacer(
+	"\r\n", "⏎", "\r", "⏎", "\n", "⏎",
+	"\v", "⏎", "\f", "⏎", "\u0085", "⏎", "\u2028", "⏎", "\u2029", "⏎",
+	"[ID:", "［ID:",
+)
+
+// groupAnchorTTL: how long a "this group has / lacks an allow_groups_with
+// member" answer is reused. Source: existing adapter cache in commit 54848436.
+const groupAnchorTTL = 10 * time.Minute
+
+type groupAnchorEntry struct {
+	ok bool
+	at time.Time
+}
+
+// groupHasAnchor reports whether one of allowGroupsWith is a member of the
+// group (OneBot get_group_member_info). A lookup error that is not a plain
+// "not a member" refusal is not cached, so a dropped connection retries.
+func (p *Platform) groupHasAnchor(groupID int64) bool {
+	if len(p.allowGroupsWith) == 0 || groupID == 0 {
+		return false
+	}
+	if v, ok := p.groupAnchorCache.Load(groupID); ok {
+		if e := v.(groupAnchorEntry); time.Since(e.at) < groupAnchorTTL {
+			return e.ok
+		}
+	}
+	found, cacheable := false, true
+	for _, id := range p.allowGroupsWith {
+		uid, err := strconv.ParseInt(id, 10, 64)
+		if err != nil {
+			continue
+		}
+		_, err = p.callAPI("get_group_member_info", map[string]any{"group_id": groupID, "user_id": uid})
+		if err == nil {
+			found = true
+			break
+		}
+		if !strings.Contains(err.Error(), "retcode=") {
+			cacheable = false
+			slog.Warn("qq: allow_groups_with lookup failed", "group_id", groupID, "error", err)
+		}
+	}
+	if found || cacheable {
+		p.groupAnchorCache.Store(groupID, groupAnchorEntry{ok: found, at: time.Now()})
+	}
+	return found
 }
 
 func (p *Platform) isAllowed(userID int64) bool {
@@ -1240,17 +1591,20 @@ func (p *Platform) SendFile(ctx context.Context, replyCtx any, file core.FileAtt
 	b64data := "base64://" + base64.StdEncoding.EncodeToString(file.Data)
 
 	// Pick API caller: prefer HTTP for large payloads, fall back to WebSocket.
-	call := p.callAPI
+	call := p.callAPIContext
 	if p.httpURL != "" {
-		call = p.callHTTPAPI
+		call = p.callHTTPAPIContext
 	}
 
+	summary := fmt.Sprintf("[file %s %d bytes]", name, len(file.Data))
+
 	if rctx.messageType == "group" {
-		_, err := call("upload_group_file", map[string]any{
+		result, err := call(ctx, "upload_group_file", map[string]any{
 			"group_id": rctx.groupID,
 			"file":     b64data,
 			"name":     name,
 		})
+		p.logOutbound("upload_group_file", rctx, summary, result, err)
 		if err != nil {
 			return fmt.Errorf("qq: SendFile group: %w", err)
 		}
@@ -1258,12 +1612,13 @@ func (p *Platform) SendFile(ctx context.Context, replyCtx any, file core.FileAtt
 	}
 
 	// Private: use send_private_msg with file segment
-	_, err := call("send_private_msg", map[string]any{
+	result, err := call(ctx, "send_private_msg", map[string]any{
 		"user_id": rctx.userID,
 		"message": []map[string]any{
 			{"type": "file", "data": map[string]any{"file": b64data, "name": name}},
 		},
 	})
+	p.logOutbound("send_private_msg", rctx, summary, result, err)
 	if err != nil {
 		return fmt.Errorf("qq: SendFile private: %w", err)
 	}

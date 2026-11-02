@@ -176,13 +176,13 @@ func TestAgentNativeCompactUsesSessionInstructionsAndPermissionProfile(t *testin
 	for _, backend := range []string{"exec", "app_server"} {
 		t.Run(backend, func(t *testing.T) {
 			record := filepath.Join(t.TempDir(), "resume.json")
-			a := &Agent{workDir: t.TempDir(), model: "new-model", reasoningEffort: "high", mode: "full-auto", backend: backend, cmd: os.Args[0], cliExtraArgs: []string{"-test.run=^TestCompactHelperProcess$", "--"}, activeIdx: -1, configEnv: []string{"CONEST_COMPACT_HELPER=ok", "CONEST_COMPACT_RECORD=" + record}, codexHome: t.TempDir(), permissionProfile: "chat-only"}
+			a := &Agent{workDir: t.TempDir(), model: "new-model", reasoningEffort: "medium", mode: "full-auto", backend: backend, cmd: os.Args[0], cliExtraArgs: []string{"-test.run=^TestCompactHelperProcess$", "--"}, activeIdx: -1, configEnv: []string{"CONEST_COMPACT_HELPER=ok", "CONEST_COMPACT_RECORD=" + record}, codexHome: t.TempDir(), permissionProfile: "chat-only"}
 			// Another channel's session start left its settings on the shared agent.
 			a.SetSessionModel("other-channel-model")
 			a.SetSessionInstructions("/x/other.md", "other channel prompt")
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			if err := a.CompactSessionWith(ctx, "thread-original", core.SessionSettings{Model: "new-model", InstructionsPath: "/x/chat.md", InstructionsText: "chat channel prompt"}); err != nil {
+			if err := a.CompactSessionWith(ctx, "thread-original", core.SessionSettings{Model: "new-model", ReasoningEffort: "high", InstructionsPath: "/x/chat.md", InstructionsText: "chat channel prompt"}); err != nil {
 				t.Fatal(err)
 			}
 			a.mu.RLock()

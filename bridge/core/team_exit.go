@@ -156,6 +156,9 @@ func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) stri
 
 func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, sessionKey, reply string) string {
 	if err := checkProactiveExecution(ctx, "message.send"); err != nil {
+		if strings.TrimSpace(reply) != "" {
+			slog.Warn("team exit: task authorization refused the send; nothing forwarded", "session", sessionKey, "error", err)
+		}
 		return ""
 	}
 	reply = stripFillerLines(reply)
@@ -236,8 +239,19 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		return ""
 	}
 	if problems != nil {
-		e.bounceWorkspaceExit(ctx, p, rec, sessionKey, kind, problems)
-		return ""
+		if e.bounceWorkspaceExit(ctx, p, rec, sessionKey, kind, problems) {
+			return ""
+		}
+		// No repair turn will come: forward it as is, with what the check found, so the user
+		// still gets the answer and sees the gap.
+		note := exitBounceNote(problems)
+		if item != nil && strings.TrimSpace(hline) != "" {
+			hline, legacy = hline+"\n"+note, false
+		} else {
+			body, legacy = body+"\n\n"+note, true
+		}
+		problems = nil
+		e.clearAskBounces(sessionKey)
 	}
 	if item != nil && item.isTest() {
 		// test work: the answer stays in the workspace and the log, the task still closes or yields
@@ -259,18 +273,23 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		slog.Info("team exit: unmarked reply after bounces; kept in the workspace", "workspace", ws, "parent", parent)
 		return ""
 	}
+	if kind == exitKindReport && item != nil && e.exitReportedSinceBound(hid, item.Bound) {
+		// Same rule as postExitHeadline, for the lead-rewrite and original-post paths below.
+		slog.Info("team exit: report for this handoff already posted; not posted again", "board_item", hid, "workspace", ws, "bound", item.Bound, "legacy", legacy)
+		return ""
+	}
 	if !legacy {
 		// The 📬 posts report on board item hid: a reply to them brings its background (reply_task.go).
 		rc = e.recordReplyTask(p, rc, hid)
 		return e.postExitHeadline(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, hid, hline, item)
 	}
-	if it := e.workspaceBoardItem(sessionKey, 0); it != nil {
+	if it := e.boardItemByID(hid); it != nil {
 		rc = e.recordReplyTask(p, rc, it.ID)
 	}
 	// The format is still wrong after the bounces: the chat channel's lead rewrites it in the same
 	// three parts and posts that (user 10-30: no longer posted as written, 「一大坨根本看不懂」).
 	// The workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
-	if e.wakeChatLeadContext(ctx, p, parent, ws, bot, kind, body, sessionKey, 0, false, "") {
+	if e.wakeChatLeadContext(ctx, p, parent, ws, bot, kind, body, sessionKey, hid, false, "") {
 		slog.Info("team exit: handed to the chat lead to rewrite", "kind", kind, "auto", auto, "workspace", ws, "parent", parent)
 		return ""
 	}
@@ -290,6 +309,14 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 	// a report already posted for this item makes a later one a late-nudge answer.
 	if kind == exitKindReport && item.DoneAt != "" && item.AutoPruned == "" && e.exitReportedBefore(hid) {
 		slog.Info("team exit: report for a task already done; not posted again", "board_item", hid, "workspace", ws, "done_at", item.DoneAt)
+		return ""
+	}
+	// One handoff gets one report in the chat channel. A bounced report queues a repair turn; when
+	// another turn of the same workspace reports the item first, the repair's report is a second
+	// copy of the same answer (user 11-02「同一件回报贴了两条」). A new handoff (rework) re-binds
+	// the item, so its report is posted.
+	if kind == exitKindReport && e.exitReportedSinceBound(hid, item.Bound) {
+		slog.Info("team exit: report for this handoff already posted; not posted again", "board_item", hid, "workspace", ws, "bound", item.Bound)
 		return ""
 	}
 	if e.exitPostedRecently(kind, hid, hline) {

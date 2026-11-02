@@ -491,19 +491,20 @@ type Engine struct {
 	resetOnIdle        time.Duration
 	// Per-session model overrides (maomao fork, see session_models.go)
 	// Model-at-capacity cooldown (maomao fork, see capacity_retry.go)
-	capMu           sync.Mutex
-	capUntil        time.Time
-	quotaUntil      time.Time            // legacy unscoped cooldown only
-	quotaDomains    map[string]time.Time // guarded by quotaDomainsMu
-	quotaMu         sync.Mutex
-	quotaState      quotaCoolingState
-	quotaProbeFn    func(ctx context.Context) (usable bool, nextRetry time.Duration, err error)
-	capRound        int
-	capPending      []func()        // messages to re-deliver when the cooldown ends, in order
-	capArmed        bool            // a flush timer is pending
-	capNotified     map[string]bool // channels already told about this cooldown round
-	sessionModelsMu sync.RWMutex
-	sessionModels   map[string]string
+	capMu             sync.Mutex
+	capUntil          time.Time
+	quotaUntil        time.Time            // legacy unscoped cooldown only
+	quotaDomains      map[string]time.Time // guarded by quotaDomainsMu
+	quotaMu           sync.Mutex
+	quotaState        quotaCoolingState
+	quotaProbeFn      func(ctx context.Context) (usable bool, nextRetry time.Duration, err error)
+	capRound          int
+	capPending        []func()        // messages to re-deliver when the cooldown ends, in order
+	capArmed          bool            // a flush timer is pending
+	capNotified       map[string]bool // channels already told about this cooldown round
+	sessionModelsMu   sync.RWMutex
+	sessionModels     map[string]string
+	sessionSelections map[string]sessionModelSelection
 	// Per-session base-instruction files (maomao fork, see session_models.go)
 	sessionInstructions map[string]sessionInstructions
 
@@ -524,6 +525,7 @@ type Engine struct {
 	// (project option inject_subagent_policy = false). Default false = inject.
 	skipSubagentPolicy atomic.Bool
 	skipAgentIdentity  atomic.Bool
+	skipQueuedNotice   atomic.Bool // queued_notice=false suppresses only the queue receipt.
 	// skipTeamModeRules drops the per-turn team-mode rules block
 	// (project option inject_team_rules = false). Default false = inject.
 	skipTeamModeRules  atomic.Bool
@@ -631,6 +633,7 @@ type queuedMessage struct {
 	platform          Platform
 	replyCtx          any
 	content           string
+	ambientChat       string // background to include once when queued messages are batched
 	reference         *MessageReference
 	images            []ImageAttachment
 	files             []FileAttachment
@@ -656,7 +659,8 @@ type queuedMessage struct {
 
 // interactiveState tracks a running interactive agent session and its permission state.
 type interactiveState struct {
-	quotaScope    quotaScope // immutable attribution captured at session creation
+	modelSettings SessionSettings // immutable startup selection; effort-only changes also recycle
+	quotaScope    quotaScope      // immutable attribution captured at session creation
 	authorization *AuthorizationTurn
 	// #618 K4 S1: resumeArmed is set while a resumed turn has not yet shown it
 	// works (no tool step, no first result); resumeFailed holds the error its
@@ -3596,20 +3600,13 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	}
 
 	content := strings.TrimSpace(msg.Content)
-	if content == "" && msg.ExtraContent == "" && len(msg.Images) == 0 && len(msg.Files) == 0 && msg.Location == nil {
+	if content == "" && msg.ExtraContent == "" && msg.AmbientChat == "" && len(msg.Images) == 0 && len(msg.Files) == 0 && msg.Location == nil {
 		return
 	}
 
-	// Resolve aliases on user text BEFORE merging ExtraContent, so reply
-	// quotes and platform context survive alias resolution (PR #420 fix).
-	content = e.resolveAlias(content)
-	if msg.ExtraContent != "" {
-		if content == "" {
-			msg.Content = msg.ExtraContent
-		} else {
-			msg.Content = msg.ExtraContent + "\n" + content
-		}
-	} else {
+	// Route commands and permissions using the sender's words, never group context.
+	content = e.resolveAlias(strings.TrimSpace(userTextOf(msg)))
+	if !msg.contentMerged {
 		msg.Content = content
 	}
 
@@ -3751,6 +3748,38 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 
 	if e.discardStaleUserMessageIfNeeded(interactiveKey, msg) {
 		return
+	}
+
+	// A message held for its gate burst re-enters handleMessage (mediaDone above) with the
+	// same platform blocks still on it, so they are merged once: merging them again put the
+	// group's recent chat into the prompt twice.
+	if !msg.contentMerged {
+		keepUserText(msg)
+		body := content
+		// A multi-party chat's own words need the speaker's name; otherwise the newest message
+		// reads as if the previous speaker said it. GroupChat
+		// and UserName are structured fields, so this works with an empty AmbientChat too (first
+		// message, after restart, quote-only). Commands, bridge payloads and DMs keep their raw
+		// text so command parsing and DM routing do not change.
+		body = senderText(msg, body)
+		var head []string
+		if msg.AmbientChat != "" {
+			head = append(head, msg.AmbientChat)
+		}
+		if msg.ExtraContent != "" {
+			head = append(head, msg.ExtraContent)
+		}
+		if len(head) > 0 {
+			if body == "" {
+				content = strings.Join(head, "\n")
+			} else {
+				content = strings.Join(head, "\n") + "\n" + body
+			}
+		} else {
+			content = body
+		}
+		msg.Content = content
+		msg.contentMerged = true
 	}
 
 	// maomao fork: video links → watchvid once, result paths appended (media library).
@@ -3966,6 +3995,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		platform:            p,
 		replyCtx:            msg.ReplyCtx,
 		content:             msg.Content,
+		ambientChat:         msg.AmbientChat,
 		reference:           msg.Reference,
 		images:              msg.Images,
 		files:               msg.Files,
@@ -4024,7 +4054,10 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		"queue_depth", queueDepth,
 	)
 	if !msg.abortFront { // the abort says "⏹ 已打断" instead (abortForQueuedFront)
-		e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgMessageQueued))
+		// Cron/timer/heartbeat turns have no human waiting; the receipt is channel noise (11-02 restart burst).
+		if !e.skipQueuedNotice.Load() && msg.timerJobID == "" && scheduledFrom == nil && !scheduledTurnUser(msg.UserID) {
+			e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgMessageQueued))
+		}
 	}
 	return queueAccepted
 }
@@ -5072,6 +5105,11 @@ func adoptPendingFromPlaceholder(existing, newState *interactiveState) {
 // When agentOverride is non-nil it is used instead of e.agent to start the session.
 // ccSessionKey, when non-empty, is used for CC_SESSION_KEY env injection; otherwise sessionKey is used.
 func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, replyCtx any, session *Session, sessions *SessionManager, agentOverride Agent, ccSessionKey string, inputs ...*inputTurn) *interactiveState {
+	ccKey := sessionKey
+	if ccSessionKey != "" {
+		ccKey = ccSessionKey
+	}
+	settings := e.sessionSettingsFor(ccKey)
 	e.interactiveMu.Lock()
 	defer e.interactiveMu.Unlock()
 	var input *inputTurn
@@ -5095,7 +5133,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		// - the process has not reported an ID yet (startup; empty want is OK).
 		// If wantID is empty (/new, cleared session) but the process already has
 		// a concrete ID, reusing would keep --resume context — recycle (#238).
-		needRecycle := currentID != "" && (wantID == "" || wantID != currentID)
+		needRecycle := (currentID != "" && (wantID == "" || wantID != currentID)) || state.modelSettings != settings
 		if input != nil {
 			_, supported := state.agentSession.(StrictResumeSession)
 			if !supported || currentID != input.expectedID {
@@ -5141,11 +5179,6 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	agent := e.agent
 	if agentOverride != nil {
 		agent = agentOverride
-	}
-
-	ccKey := sessionKey
-	if ccSessionKey != "" {
-		ccKey = ccSessionKey
 	}
 
 	// Inject per-session env vars so the agent subprocess can call `cc-connect cron add` etc.
@@ -5231,9 +5264,9 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		if !ok || !strict.SupportsStrictResume() {
 			return &interactiveState{startErr: "strict resume unsupported"}
 		}
-		agentSession, err = strict.StartSessionStrict(e.ctx, startSessionID)
+		agentSession, err = strict.StartSessionStrict(WithSessionSettings(e.ctx, settings), startSessionID)
 	} else {
-		agentSession, err = agent.StartSession(e.ctx, startSessionID)
+		agentSession, err = agent.StartSession(WithSessionSettings(e.ctx, settings), startSessionID)
 	}
 	startElapsed := time.Since(startAt)
 	if err != nil {
@@ -5251,7 +5284,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			}
 			sessions.Save()
 			startAt = time.Now()
-			agentSession, err = agent.StartSession(e.ctx, "")
+			agentSession, err = agent.StartSession(WithSessionSettings(e.ctx, settings), "")
 			startElapsed = time.Since(startAt)
 			startedFresh = true
 			if err == nil {
@@ -5326,6 +5359,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		session.MarkFreshContext()
 	}
 	newState := &interactiveState{
+		modelSettings:    settings,
 		agentSession:     agentSession,
 		quotaScope:       e.quotaScopeOfSession(agent, agentSession),
 		platform:         p,
@@ -7383,7 +7417,16 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// side-channel messages and segmentStart stays 0, so keep normal finalize flow.
 				if segmentStart < len(textParts) {
 					unsent := strings.Join(textParts[segmentStart:], "")
-					if unsent != "" {
+					// The text before the tool call already went out, so the whole-reply
+					// NO_REPLY check above does not cover this remainder after a tool call.
+					if isSilentReply(unsent) {
+						unsent = ""
+					} else if stripped, ok := stripTrailingSilent(unsent); ok {
+						unsent = stripped
+					}
+					if unsent == "" {
+						sp.discard()
+					} else {
 						if !sp.finish(unsent, statusFooter) && !sendChunksWithStatusFooter(outputCtx, p, markFinalReply(p, replyCtx, session), unsent, statusFooter, sendWorkspaceWithError) {
 							return
 						}
@@ -11805,12 +11848,11 @@ func (e *Engine) cmdModel(p Platform, msg *Message, args []string) {
 		target = resolveModelSwitchTarget(target, models)
 	}
 
-	target, err = e.switchModelOnAgent(agent, target, agent == e.agent)
+	target, err = e.selectSessionModel(msg.SessionKey, target)
 	if err != nil {
 		e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgModelChangeFailed, err))
 		return
 	}
-	e.persistWorkspaceModelOverride(interactiveKey, msg.SessionKey, agent, target)
 	e.cleanupInteractiveState(interactiveKey)
 	// The switch is applied and the old session is gone, so the cooldown that was
 	// waiting on the old model can release its messages (review P1).
@@ -11954,7 +11996,7 @@ func (e *Engine) cmdReasoning(p Platform, msg *Message, args []string) {
 			efforts := switcher.AvailableReasoningEfforts()
 
 			var sb strings.Builder
-			current := switcher.GetReasoningEffort()
+			current := e.sessionEffortFor(msg.SessionKey, agent)
 			if current == "" {
 				sb.WriteString(e.i18n.T(MsgReasoningDefault))
 			} else {
@@ -11990,7 +12032,7 @@ func (e *Engine) cmdReasoning(p Platform, msg *Message, args []string) {
 			e.replyWithButtons(p, msg.ReplyCtx, sb.String(), buttons)
 			return
 		}
-		e.replyWithCard(p, msg.ReplyCtx, e.renderReasoningCard())
+		e.replyWithCard(p, msg.ReplyCtx, e.renderReasoningCard(msg.SessionKey))
 		return
 	}
 
@@ -12012,13 +12054,11 @@ func (e *Engine) cmdReasoning(p Platform, msg *Message, args []string) {
 		return
 	}
 
-	switcher.SetReasoningEffort(target)
-	e.persistReasoningEffort(e.agent, target)
+	if err := e.saveSessionSelection(msg.SessionKey, "", target); err != nil {
+		e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgError, err))
+		return
+	}
 	e.cleanupInteractiveState(e.interactiveKeyForSessionKey(msg.SessionKey))
-
-	s := sessions.GetOrCreateActive(msg.SessionKey)
-	s.SetAgentSessionID("", "")
-	s.ClearHistory()
 	sessions.Save()
 
 	e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgReasoningChanged, target))
@@ -13980,6 +14020,14 @@ func (e *Engine) sendAlreadyRenderedWithError(p Platform, replyCtx any, content 
 }
 
 func (e *Engine) sendRenderedWithContext(ctx context.Context, p Platform, replyCtx any, content string) error {
+	// Hidden thinking/tool boundaries can flush a whitespace-only text delta.
+	// It has no standalone message to deliver; media uses separate send paths.
+	// This is the common rendered-text boundary (sendWithError* and sendRaw both
+	// reach it), so the guard stays alongside develop's authorizedOutput/cancel
+	// semantics instead of replacing the thin sendAlreadyRenderedWithError shim.
+	if strings.TrimSpace(content) == "" {
+		return nil
+	}
 	start := time.Now()
 	if err := authorizedOutput(ctx, func() error { return p.Send(ctx, replyCtx, content) }); err != nil {
 		// Check for context_token missing error (common for Weixin platform)
@@ -14040,6 +14088,9 @@ func drainEvents(ch <-chan Event) {
 
 // replyWithError applies outgoing rate limiting and p.Reply.
 func (e *Engine) replyWithError(p Platform, replyCtx any, content string) error {
+	if strings.TrimSpace(content) == "" {
+		return nil
+	}
 	if err := e.waitOutgoing(p); err != nil {
 		slog.Warn("outgoing rate limit: context cancelled", "platform", p.Name(), "error", err)
 		return err
@@ -14156,7 +14207,7 @@ func (e *Engine) handleCardNav(action string, sessionKey string) *Card {
 	case "/model":
 		return e.renderModelCard(sessionKey)
 	case "/reasoning":
-		return e.renderReasoningCard()
+		return e.renderReasoningCard(sessionKey)
 	case "/mode":
 		return e.renderModeCard()
 	case "/lang":
@@ -14247,52 +14298,14 @@ func (e *Engine) handleModelCardAction(args, sessionKey string) *Card {
 		cancel()
 	}
 
-	resolved, err := e.switchModelOnAgent(agent, target, agent == e.agent)
+	resolved, err := e.selectSessionModel(sessionKey, target)
 	interactiveKey := e.interactiveKeyForSessionKey(sessionKey)
 	if err == nil {
-		e.persistWorkspaceModelOverride(interactiveKey, sessionKey, agent, resolved)
-	}
-	e.cleanupInteractiveState(interactiveKey)
-	if err == nil {
+		e.cleanupInteractiveState(interactiveKey)
 		sessions.Save()
 	}
 
 	return e.renderModelSwitchResultCard(resolved, err)
-}
-
-func (e *Engine) persistWorkspaceModelOverride(interactiveKey, sessionKey string, agent Agent, model string) {
-	if e.projectState == nil || !e.multiWorkspace || model == "" {
-		return
-	}
-	if agent == e.agent {
-		return
-	}
-	workspace := workspaceModelOverrideKey(interactiveKey, sessionKey, agent)
-	if workspace == "" {
-		return
-	}
-	e.projectState.SetWorkspaceModelOverride(workspace, model)
-	e.projectState.Save()
-}
-
-func workspaceModelOverrideKey(interactiveKey, sessionKey string, agent Agent) string {
-	if wd, ok := agent.(interface{ GetWorkDir() string }); ok {
-		if dir := strings.TrimSpace(wd.GetWorkDir()); dir != "" {
-			return normalizeWorkspacePath(dir)
-		}
-	}
-	return workspaceFromInteractiveKey(interactiveKey, sessionKey)
-}
-
-func workspaceFromInteractiveKey(interactiveKey, sessionKey string) string {
-	if interactiveKey == "" || sessionKey == "" || interactiveKey == sessionKey {
-		return ""
-	}
-	suffix := ":" + sessionKey
-	if !strings.HasSuffix(interactiveKey, suffix) {
-		return ""
-	}
-	return strings.TrimSuffix(interactiveKey, suffix)
 }
 
 // executeCardAction performs the side-effect for act: prefixed actions
@@ -14339,7 +14352,8 @@ func (e *Engine) executeCardAction(cmd, args, sessionKey string) {
 		if args == "" {
 			return
 		}
-		switcher, ok := e.agent.(ReasoningEffortSwitcher)
+		agent, sessions := e.sessionContextForKey(sessionKey)
+		switcher, ok := agent.(ReasoningEffortSwitcher)
 		if !ok {
 			return
 		}
@@ -14350,13 +14364,12 @@ func (e *Engine) executeCardAction(cmd, args, sessionKey string) {
 		}
 		for _, effort := range efforts {
 			if effort == target {
-				switcher.SetReasoningEffort(target)
-				e.persistReasoningEffort(e.agent, target)
+				if err := e.saveSessionSelection(sessionKey, "", target); err != nil {
+					slog.Error("reasoning selection failed", "session", sessionKey, "error", err)
+					return
+				}
 				e.cleanupInteractiveState(interactiveKey)
-				s := e.sessions.GetOrCreateActive(sessionKey)
-				s.SetAgentSessionID("", "")
-				s.ClearHistory()
-				e.sessions.Save()
+				sessions.Save()
 				return
 			}
 		}
@@ -14860,10 +14873,8 @@ func (e *Engine) pushDeleteModeResultCard(sessionKey string) {
 }
 
 func (e *Engine) performModelSwitchAsync(sessionKey string, state *interactiveState, agent Agent, sessions *SessionManager, target string) {
-	resolved, err := e.switchModelOnAgent(agent, target, agent == e.agent)
+	resolved, err := e.selectSessionModel(sessionKey, target)
 	if err == nil {
-		interactiveKey := e.interactiveKeyForSessionKey(sessionKey)
-		e.persistWorkspaceModelOverride(interactiveKey, sessionKey, agent, resolved)
 		sessions.Save()
 	}
 
@@ -15158,14 +15169,19 @@ func (e *Engine) renderModelSwitchResultCard(target string, err error) *Card {
 		Build()
 }
 
-func (e *Engine) renderReasoningCard() *Card {
-	switcher, ok := e.agent.(ReasoningEffortSwitcher)
+func (e *Engine) renderReasoningCard(keys ...string) *Card {
+	key := ""
+	if len(keys) > 0 {
+		key = keys[0]
+	}
+	agent, _ := e.sessionContextForKey(key)
+	switcher, ok := agent.(ReasoningEffortSwitcher)
 	if !ok {
 		return e.simpleCard(e.i18n.T(MsgCardTitleReasoning), "orange", e.i18n.T(MsgReasoningNotSupported))
 	}
 
 	efforts := switcher.AvailableReasoningEfforts()
-	current := switcher.GetReasoningEffort()
+	current := e.sessionEffortFor(key, agent)
 
 	var sb strings.Builder
 	if current == "" {
@@ -18012,7 +18028,7 @@ func relayGateQuery(message string) string {
 // at once, unlike the wait timeout: a result already received is returned as
 // done, otherwise the text so far comes back with errRelayWatchStopped.
 func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSessionKey, ccSessionKey, message string, agent Agent, sessions *SessionManager, relaySessionKey string, quiet bool, stop <-chan struct{}, nudge <-chan string, completion ...func(string, error)) (string, error) {
-	if err := e.applyPendingSwitchOnAgent(agent, relaySessionKey, ccSessionKey, sourceSessionKey); err != nil {
+	if err := e.applyPendingSwitchOnAgent(agent, relaySessionKey, ccSessionKey); err != nil {
 		return "", err
 	}
 	if until := e.quotaCoolingFor(e.admissionQuotaScope(agent, relaySessionKey, ccSessionKey, sourceSessionKey)); !until.IsZero() {
@@ -18047,7 +18063,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	// agent process is not killed when the relay deadline fires. The relay
 	// timeout only controls how long we *wait* for the response.
 	resumeID := session.GetAgentSessionID()
-	agentSession, err := agent.StartSession(e.ctx, resumeID)
+	agentSession, err := agent.StartSession(WithSessionSettings(e.ctx, e.sessionSettingsFor(ccSessionKey)), resumeID)
 	startedFresh := resumeID == ""
 	if err != nil {
 		// Resume failed — fall back to a fresh session so the relay is not
@@ -18057,7 +18073,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				"relay_key", relaySessionKey, "error", err)
 			session.SetAgentSessionID("", agent.Name())
 			sessions.Save()
-			agentSession, err = agent.StartSession(e.ctx, "")
+			agentSession, err = agent.StartSession(WithSessionSettings(e.ctx, e.sessionSettingsFor(ccSessionKey)), "")
 			startedFresh = true
 		}
 		if err != nil {
@@ -18637,6 +18653,21 @@ func (e *Engine) cmdBindSetup(p Platform, msg *Message) {
 	case setupOK:
 		e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgRelaySetupOK), baseName))
 	}
+}
+
+// senderText prefixes a multi-party message's own words with the sender's display name.
+// GroupChat and UserName are structured platform fields, so the label does not depend on
+// AmbientChat: the first message after start/reconnect, and a quote-only message, keep
+// their author too. DMs, bot payloads and commands stay raw so routing and command parsing
+// are unchanged.
+func senderText(msg *Message, text string) string {
+	// GroupChat is the structured signal; AmbientChat is kept as a compatibility fallback
+	// for a platform that has not set GroupChat yet (it can only exist in a group anyway).
+	if (!msg.GroupChat && msg.AmbientChat == "") || msg.FromBot || msg.Direct || text == "" || msg.UserName == "" ||
+		strings.HasPrefix(text, "/") || strings.HasPrefix(text, "!") {
+		return text
+	}
+	return strings.NewReplacer("\n", " ", "\r", "").Replace(msg.UserName) + "：" + text
 }
 
 // buildSenderPrompt prepends a sender identity header to content when
@@ -19386,7 +19417,9 @@ var silentReplyRe = regexp.MustCompile(`(?i)^\s*NO_REPLY\s*$`)
 // silentReplyTrailingRe matches a trailing NO_REPLY marker preceded by whitespace or
 // markdown emphasis (`*`). Lets agents that narrate their reasoning before the marker
 // still suppress the marker from the delivered text (mirroring OpenClaw's stripSilentToken).
-var silentReplyTrailingRe = regexp.MustCompile(`(?i)(?:^|\s+|\*+)NO_REPLY\s*$`)
+// With tool progress hidden, text segments around tool calls are joined with no separator,
+// so the marker can sit right after CJK text or punctuation; group 1 preserves that character.
+var silentReplyTrailingRe = regexp.MustCompile(`(?i)(?:^|\s+|\*+|([^\x00-\x7F]|[.!?,;:)\]]))NO_REPLY\s*$`)
 
 // isSilentReply reports whether text is exactly a NO_REPLY marker.
 func isSilentReply(text string) bool {
@@ -19397,7 +19430,7 @@ func isSilentReply(text string) bool {
 // along with whether a strip occurred. Caller must first check isSilentReply for the
 // bare-marker case; this helper assumes mixed content.
 func stripTrailingSilent(text string) (string, bool) {
-	stripped := silentReplyTrailingRe.ReplaceAllString(text, "")
+	stripped := silentReplyTrailingRe.ReplaceAllString(text, "${1}")
 	if stripped == text {
 		return text, false
 	}

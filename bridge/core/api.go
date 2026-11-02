@@ -107,6 +107,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/task-text", s.handleTaskText)
 	s.mux.HandleFunc("/events", s.handleEvents) // unified event stream (events.go)
 	s.mux.HandleFunc("/progress", s.handlePublicProgress)
+	s.mux.HandleFunc("/progress/run", s.handleProgressRun) // CLI fetches the turn token the prompt no longer carries
 	s.mux.HandleFunc("/voice/desk", s.handleVoiceDesk)
 	s.mux.HandleFunc("/task", s.handleTask)
 	s.mux.HandleFunc("/task/accept", s.handleTaskAccept)
@@ -676,6 +677,7 @@ type TimerAddRequest struct {
 	TimeoutMins  *int   `json:"timeout_mins,omitempty"`
 	InjectIfBusy bool   `json:"inject_if_busy,omitempty"`
 	Handoff      bool   `json:"handoff,omitempty"`
+	Forward      bool   `json:"forward,omitempty"`
 	// ReplyBoard: the turn's posts report on this task-board item (reply_task.go), so a user's
 	// reply to them reaches the work (ws-up --ask: the lead relays a workspace's question).
 	ReplyBoard int `json:"reply_board,omitempty"`
@@ -763,6 +765,7 @@ func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
 		TimeoutMins:  req.TimeoutMins,
 		InjectIfBusy: req.InjectIfBusy,
 		Handoff:      req.Handoff,
+		Forward:      req.Forward,
 		ReplyBoard:   req.ReplyBoard,
 		CreatedAt:    time.Now(),
 	}

@@ -15,7 +15,14 @@ type nativeCompactAgent struct {
 }
 
 func (a *nativeCompactAgent) CompactSession(ctx context.Context, id string) error {
-	a.called <- id + ":" + a.GetModel()
+	return a.CompactSessionWith(ctx, id, SessionSettings{})
+}
+func (a *nativeCompactAgent) CompactSessionWith(ctx context.Context, id string, settings SessionSettings) error {
+	model := a.GetModel()
+	if settings.Model != "" {
+		model = settings.Model
+	}
+	a.called <- id + ":" + model
 	select {
 	case err := <-a.release:
 		return err

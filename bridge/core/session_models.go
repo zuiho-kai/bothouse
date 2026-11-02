@@ -10,8 +10,8 @@ import (
 //
 // [projects.session_models] maps a session key to a model, so one channel can
 // run on a cheaper model while the rest of the project keeps the agent default.
-// The agent is shared by all sessions, so the engine sets the model on it right
-// before each StartSession, the same way it sets the per-session env.
+// The shared agent keeps its defaults; startup context carries the channel model
+// and effort. SessionModelInjector remains compatible with legacy consumers.
 
 // SetSessionModels replaces the session key → model map. Blank keys and
 // values are dropped.
@@ -30,6 +30,9 @@ func (e *Engine) SetSessionModels(m map[string]string) {
 
 // sessionModelFor returns the model mapped to sessionKey, or "" for the default.
 func (e *Engine) sessionModelFor(sessionKey string) string {
+	if model := e.sessionSelection(sessionKey).Model; model != "" {
+		return model
+	}
 	e.sessionModelsMu.RLock()
 	defer e.sessionModelsMu.RUnlock()
 	return e.sessionModels[sessionKey]
@@ -92,8 +95,13 @@ func (e *Engine) applySessionInstructions(agent Agent, sessionKey string) {
 // sessionSettingsFor returns sessionKey's per-session overrides without
 // touching the shared agent (native compaction passes them as arguments).
 func (e *Engine) sessionSettingsFor(sessionKey string) SessionSettings {
+	selection := e.sessionSelection(sessionKey)
 	e.sessionModelsMu.RLock()
 	defer e.sessionModelsMu.RUnlock()
 	si := e.sessionInstructions[sessionKey]
-	return SessionSettings{Model: e.sessionModels[sessionKey], InstructionsPath: si.path, InstructionsText: si.text}
+	model := e.sessionModels[sessionKey]
+	if selection.Model != "" {
+		model = selection.Model
+	}
+	return SessionSettings{Model: model, ReasoningEffort: selection.Effort, InstructionsPath: si.path, InstructionsText: si.text}
 }

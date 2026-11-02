@@ -75,24 +75,33 @@ func TestWorkspaceReportNeedsNoEvidence(t *testing.T) {
 	}
 }
 
-// Only the first exitRules.Bounce.WakeLimit bounces in a row wake the bot; a good ask resets.
+// Only the first exitRules.Bounce.WakeLimit bounces in a row wake the bot. The next one gets no
+// repair turn, so it is forwarded with the check note and ends the run (2756def4); a good ask resets too.
 func TestAskBounceWakeLimit(t *testing.T) {
 	e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
+	exitBoardItem(t, e, 7, "选方案")
 	e.cancel() // no posts or turns: only the counter is under test
-	for i := 0; i < exitRules.Bounce.WakeLimit+1; i++ {
+	count := func() int {
+		e.teamExit.mu.Lock()
+		defer e.teamExit.mu.Unlock()
+		return e.teamExit.bounces[exitWSKey]
+	}
+	for i := 0; i < exitRules.Bounce.WakeLimit; i++ {
 		e.forwardWorkspaceExit(p, exitWSKey, "[ask]\n问一下")
 	}
-	e.teamExit.mu.Lock()
-	n := e.teamExit.bounces[exitWSKey]
-	e.teamExit.mu.Unlock()
-	if n != exitRules.Bounce.WakeLimit+1 {
+	if n := count(); n != exitRules.Bounce.WakeLimit {
 		t.Fatalf("bounces = %d", n)
 	}
-	e.forwardWorkspaceExit(p, exitWSKey, "[ask]\n问一下\n自验：无需\n类别：方向")
-	e.teamExit.mu.Lock()
-	n = e.teamExit.bounces[exitWSKey]
-	e.teamExit.mu.Unlock()
-	if n != 0 {
+	e.forwardWorkspaceExit(p, exitWSKey, "[ask]\n问一下")
+	if n := count(); n != 0 {
+		t.Fatalf("bounce past the wake limit was not forwarded: bounces = %d", n)
+	}
+	e.forwardWorkspaceExit(p, exitWSKey, "[ask]\n又问")
+	if n := count(); n != 1 {
+		t.Fatalf("bad ask after the forward would not wake: bounces = %d", n)
+	}
+	e.forwardWorkspaceExit(p, exitWSKey, "[ask] #7 背景：你让我做这件事。\n选哪条路？\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向")
+	if n := count(); n != 0 {
 		t.Fatalf("good ask did not reset bounces: %d", n)
 	}
 }

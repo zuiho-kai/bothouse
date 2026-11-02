@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTaskTextOneBotReceipt(t *testing.T) {
@@ -44,5 +45,42 @@ func TestTaskTextOneBotReceipt(t *testing.T) {
 	q := &Platform{}
 	if _, err := q.SendTaskTextPart(context.Background(), "qq:g:12345", "key", "body"); !errors.Is(err, core.ErrTaskTextNotAccepted) {
 		t.Fatal(err)
+	}
+}
+
+// A cancelled turn must stop waiting on the OneBot receipt instead of
+// blocking until the round trip finishes.
+func TestTaskTextSendHonorsCanceledRequest(t *testing.T) {
+	f := newFakeOneBot(t)
+	p, _ := startTestPlatform(t, f)
+	release := f.hold("send_group_msg")
+	defer release()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.SendTaskTextPart(ctx, "qq:g:42", "key", "body")
+		done <- err
+	}()
+	timeout := time.After(time.Second)
+	for {
+		select {
+		case action := <-f.actions:
+			if action != "send_group_msg" {
+				continue
+			}
+			cancel()
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("SendTaskTextPart = %v, want context.Canceled", err)
+				}
+				return
+			case <-time.After(time.Second):
+				t.Fatal("cancelled task text send still waiting for OneBot receipt")
+			}
+		case <-timeout:
+			t.Fatal("no send_group_msg observed")
+		}
 	}
 }

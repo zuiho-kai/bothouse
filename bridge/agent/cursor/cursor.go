@@ -206,6 +206,8 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	}
 	a.mu.RUnlock()
 
+	model, _ = core.SessionModelAndEffort(ctx, model, "")
+
 	return newCursorSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv)
 }
 

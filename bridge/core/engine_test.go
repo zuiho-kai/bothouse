@@ -4558,16 +4558,16 @@ func TestCmdModel_UpdatesActiveProviderModel(t *testing.T) {
 
 	e.cmdModel(p, msg, []string{"switch", "gpt"})
 
-	if agent.model != "gpt-4.1" {
+	if got := e.sessionModelFor(msg.SessionKey); got != "gpt-4.1" {
 		t.Fatalf("agent model = %q, want gpt-4.1", agent.model)
 	}
-	if got := agent.GetActiveProvider(); got == nil || got.Model != "gpt-4.1" {
+	if got := agent.GetActiveProvider(); got == nil || got.Model != "gpt-4.1-mini" {
 		t.Fatalf("active provider model = %#v, want gpt-4.1", got)
 	}
-	if got := agent.GetModel(); got != "gpt-4.1" {
+	if got := agent.GetModel(); got != "gpt-4.1-mini" {
 		t.Fatalf("GetModel() = %q, want gpt-4.1", got)
 	}
-	if savedProvider != "openai" || savedModel != "gpt-4.1" {
+	if savedProvider != "" || savedModel != "" {
 		t.Fatalf("saved provider/model = %q/%q, want openai/gpt-4.1", savedProvider, savedModel)
 	}
 	if active := e.sessions.GetOrCreateActive(msg.SessionKey); active.AgentSessionID != "existing-session" {
@@ -4583,7 +4583,7 @@ func TestCmdModel_DirectNameDoesNotNeedModelListMatch(t *testing.T) {
 
 	e.cmdModel(p, msg, []string{"switch", "custom/provider-model"})
 
-	if agent.model != "custom/provider-model" {
+	if got := e.sessionModelFor(msg.SessionKey); got != "custom/provider-model" {
 		t.Fatalf("agent model = %q, want custom/provider-model", agent.model)
 	}
 	if agent.calls != 0 {
@@ -4599,7 +4599,7 @@ func TestCmdModel_AliasWithPunctuationStillResolves(t *testing.T) {
 
 	e.cmdModel(p, msg, []string{"switch", "gpt-4.1"})
 
-	if agent.model != "openai/gpt-4.1" {
+	if got := e.sessionModelFor(msg.SessionKey); got != "openai/gpt-4.1" {
 		t.Fatalf("agent model = %q, want openai/gpt-4.1", agent.model)
 	}
 	if agent.calls != 1 {
@@ -4615,7 +4615,7 @@ func TestCmdModel_AliasStillResolvesOnColdStart(t *testing.T) {
 
 	e.cmdModel(p, msg, []string{"switch", "gpt"})
 
-	if agent.model != "gpt-4.1" {
+	if got := e.sessionModelFor(msg.SessionKey); got != "gpt-4.1" {
 		t.Fatalf("agent model = %q, want gpt-4.1", agent.model)
 	}
 }
@@ -4628,7 +4628,7 @@ func TestCmdModel_LegacySyntaxStillWorks(t *testing.T) {
 
 	e.cmdModel(p, msg, []string{"gpt"})
 
-	if agent.model != "gpt-4.1" {
+	if got := e.sessionModelFor(msg.SessionKey); got != "gpt-4.1" {
 		t.Fatalf("agent model = %q, want gpt-4.1", agent.model)
 	}
 }
@@ -4656,10 +4656,10 @@ func TestCmdModel_SavesModelWhenNoActiveProvider(t *testing.T) {
 	msg := &Message{SessionKey: "test:user1", ReplyCtx: "ctx"}
 	e.cmdModel(p, msg, []string{"switch", "gpt"})
 
-	if agent.model != "gpt-4.1" {
+	if got := e.sessionModelFor(msg.SessionKey); got != "gpt-4.1" {
 		t.Fatalf("agent model = %q, want gpt-4.1", agent.model)
 	}
-	if savedModel != "gpt-4.1" {
+	if savedModel != "" {
 		t.Fatalf("saved model = %q, want gpt-4.1", savedModel)
 	}
 }
@@ -4677,9 +4677,11 @@ func TestCmdModel_DoesNotClaimSuccessWhenModelSaveFails(t *testing.T) {
 		},
 	}
 	e := NewEngine("test", agent, []Platform{p}, "", LangEnglish)
-	e.SetModelSaveFunc(func(model string) error {
-		return errors.New("disk full")
-	})
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(blocked, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.SetProjectStateStore(NewProjectStateStore(filepath.Join(blocked, "state.json")))
 
 	msg := &Message{SessionKey: "test:user1", ReplyCtx: "ctx"}
 	s := e.sessions.GetOrCreateActive(msg.SessionKey)
@@ -4688,7 +4690,7 @@ func TestCmdModel_DoesNotClaimSuccessWhenModelSaveFails(t *testing.T) {
 
 	e.cmdModel(p, msg, []string{"switch", "gpt"})
 
-	if agent.model != "gpt-4.1-mini" {
+	if got := e.currentSessionModel(msg.SessionKey, agent); got != "gpt-4.1-mini" {
 		t.Fatalf("agent model = %q, want unchanged gpt-4.1-mini", agent.model)
 	}
 	if active := e.sessions.GetOrCreateActive(msg.SessionKey); active.AgentSessionID != "existing-session" {
@@ -4733,7 +4735,7 @@ func TestCmdModel_MultiWorkspaceUsesWorkspaceAgentAndSessions(t *testing.T) {
 
 	e.cmdModel(p, msg, []string{"switch", "gpt"})
 
-	if wsAgent.model != "gpt-4.1" {
+	if got := e.sessionModelFor(msg.SessionKey); got != "gpt-4.1" {
 		t.Fatalf("workspace agent model = %q, want gpt-4.1", wsAgent.model)
 	}
 	if globalAgent.model != "gpt-4.1-mini" {
@@ -4777,7 +4779,7 @@ func TestCmdModel_MultiWorkspaceSwitchDoesNotMutateProviderModel(t *testing.T) {
 
 	e.cmdModel(p, msg, []string{"switch", "gpt"})
 
-	if wsAgent.model != "gpt-4.1" {
+	if got := e.sessionModelFor(msg.SessionKey); got != "gpt-4.1" {
 		t.Fatalf("workspace agent model = %q, want gpt-4.1", wsAgent.model)
 	}
 	if got := wsAgent.GetActiveProvider(); got == nil || got.Model != "gpt-4.1-mini" {
@@ -4829,7 +4831,7 @@ func TestCmdModel_MultiWorkspacePersistsWorkspaceModelForRecreatedAgent(t *testi
 	if globalAgent.model != "global-old" {
 		t.Fatalf("global agent model = %q, want unchanged", globalAgent.model)
 	}
-	if got := e.projectState.WorkspaceModelOverride(wsDir); got != "gpt-4.1" {
+	if got := e.projectState.WorkspaceModelOverride(wsDir); got != "" {
 		t.Fatalf("WorkspaceModelOverride(%q) = %q, want gpt-4.1", wsDir, got)
 	}
 
@@ -4847,7 +4849,10 @@ func TestCmdModel_MultiWorkspacePersistsWorkspaceModelForRecreatedAgent(t *testi
 	if !ok {
 		t.Fatalf("workspace agent type = %T, want *namedStubModelModeAgent", recreatedRaw)
 	}
-	if recreated.model != "gpt-4.1" {
+	if got := NewProjectStateStore(e.projectState.storePath).state.SessionModelOverrides[msg.SessionKey].Model; got != "gpt-4.1" {
+		t.Fatalf("persisted session model = %q", got)
+	}
+	if recreated.model != "global-old" {
 		t.Fatalf("recreated workspace model = %q, want persisted workspace model gpt-4.1", recreated.model)
 	}
 }
@@ -5474,7 +5479,7 @@ func TestCmdReasoning_UsesInlineButtonsOnButtonOnlyPlatform(t *testing.T) {
 	}
 }
 
-func TestCmdReasoning_SwitchesEffortAndResetsSession(t *testing.T) {
+func TestCmdReasoning_SwitchesEffortAndPreservesSession(t *testing.T) {
 	p := &stubPlatformEngine{n: "plain"}
 	agent := &stubModelModeAgent{}
 	e := NewEngine("test", agent, []Platform{p}, "", LangEnglish)
@@ -5486,13 +5491,13 @@ func TestCmdReasoning_SwitchesEffortAndResetsSession(t *testing.T) {
 
 	e.cmdReasoning(p, msg, []string{"3"})
 
-	if agent.reasoningEffort != "high" {
+	if got := e.sessionEffortFor(msg.SessionKey, agent); got != "high" || agent.reasoningEffort != "" {
 		t.Fatalf("reasoning effort = %q, want high", agent.reasoningEffort)
 	}
-	if s.GetAgentSessionID() != "" {
+	if s.GetAgentSessionID() != "existing-session" {
 		t.Fatalf("AgentSessionID = %q, want cleared", s.GetAgentSessionID())
 	}
-	if len(s.History) != 0 {
+	if len(s.History) != 1 {
 		t.Fatalf("history length = %d, want 0", len(s.History))
 	}
 	if len(p.sent) != 1 || !strings.Contains(p.sent[0], "Reasoning effort switched to `high`") {
@@ -5548,10 +5553,10 @@ func TestCmdReasoning_MultiWorkspaceSavesToWorkspaceSessions(t *testing.T) {
 
 	e.cmdReasoning(p, msg, []string{"3"}) // selects "high"
 
-	if wsAgent.reasoningEffort != "high" {
+	if got := e.sessionEffortFor(msg.SessionKey, wsAgent); got != "high" || wsAgent.reasoningEffort != "" {
 		t.Fatalf("workspace agent reasoning effort = %q, want high", wsAgent.reasoningEffort)
 	}
-	if got := wsSession.GetAgentSessionID(); got != "" {
+	if got := wsSession.GetAgentSessionID(); got != "ws-session-id" {
 		t.Fatalf("workspace session id = %q, want cleared", got)
 	}
 	if got := globalSession.GetAgentSessionID(); got != "global-session-id" {
@@ -9477,7 +9482,7 @@ func TestHandleCardNav_ModelSwitchesAndRefreshesCard(t *testing.T) {
 	if text := card.RenderText(); !strings.Contains(text, "Model switched to `new-model`.") {
 		t.Fatalf("result card = %q", text)
 	}
-	if agent.model != "new-model" {
+	if got := e.sessionModelFor(sessionKey); got != "new-model" || agent.model != "old" {
 		t.Fatalf("model = %q, want new-model", agent.model)
 	}
 	if refreshed := p.getRefreshedCards(); len(refreshed) != 0 {
@@ -9522,7 +9527,7 @@ func TestHandleCardNav_ModelUsesWorkspaceContext(t *testing.T) {
 		t.Fatalf("result card = %q, want switched workspace model", text)
 	}
 
-	if wsAgent.model != "gpt-4.1" {
+	if got := e.sessionModelFor(sessionKey); got != "gpt-4.1" || wsAgent.model != "workspace-old" {
 		t.Fatalf("workspace agent model = %q, want gpt-4.1", wsAgent.model)
 	}
 	if globalAgent.model != "global-old" {
@@ -9543,14 +9548,18 @@ func TestHandleCardNav_ModelSwitchFailureRefreshesCard(t *testing.T) {
 	p := &stubCardPlatform{stubPlatformEngine: stubPlatformEngine{n: "feishu"}}
 	agent := &stubModelModeAgent{model: "old"}
 	e := NewEngine("test", agent, []Platform{p}, "", LangEnglish)
-	e.modelSaveFunc = func(string) error { return errors.New("save failed") }
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(blocked, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.SetProjectStateStore(NewProjectStateStore(filepath.Join(blocked, "state.json")))
 
 	sessionKey := "feishu:channel1:user1"
 	card := e.handleCardNav("act:/model broken-model", sessionKey)
 	if card == nil {
 		t.Fatal("expected immediate failure card")
 	}
-	if text := card.RenderText(); !strings.Contains(text, "Failed to switch model: save model: save failed") {
+	if text := card.RenderText(); !strings.Contains(text, "Failed to switch model: save session model:") {
 		t.Fatalf("failure card = %q", text)
 	}
 	if refreshed := p.getRefreshedCards(); len(refreshed) != 0 {
@@ -14527,6 +14536,9 @@ func TestStripTrailingSilent(t *testing.T) {
 		{"marker not at end", "NO_REPLY then more", "NO_REPLY then more", false},
 		{"marker with suffix token", "Hello NO_REPLY_EXTRA", "Hello NO_REPLY_EXTRA", false},
 		{"marker touching prior letters", "somethingNO_REPLY", "somethingNO_REPLY", false},
+		{"glued after CJK segment", "哦 是这张NO_REPLY", "哦 是这张", true},
+		{"glued after CJK punctuation", "好的。NO_REPLY", "好的。", true},
+		{"glued after ascii punctuation", "done.NO_REPLY", "done.", true},
 		{"empty", "", "", false},
 	}
 	for _, tc := range cases {

@@ -43,7 +43,7 @@ func parseObservationLine(line []byte) *observation {
 	}
 
 	// Skip cc-connect's own sessions
-	if ep, _ := raw["entrypoint"].(string); ep == "sdk-cli" {
+	if ep, _ := raw["entrypoint"].(string); IsBridgeEntrypoint(ep) {
 		return nil
 	}
 

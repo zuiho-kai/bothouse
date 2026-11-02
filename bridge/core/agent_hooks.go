@@ -1027,7 +1027,11 @@ func LongTaskAgentPath(workDir string) string {
 // long-task's alone. A long-task.md without longTaskAgentMark is never written over or removed. Returns the file
 // path when it is ours and in place ("" otherwise).
 func syncLongTaskAgent(workDir, persona, lang string, on bool) (string, error) {
-	p := LongTaskAgentPath(workDir)
+	return syncLongTaskAgentAt(LongTaskAgentPath(workDir), persona, lang, on)
+}
+
+// syncLongTaskAgentAt is syncLongTaskAgent for the file p (a role's project agents dir or the global one).
+func syncLongTaskAgentAt(p, persona, lang string, on bool) (string, error) {
 	old, err := os.ReadFile(p)
 	if err != nil && !os.IsNotExist(err) {
 		return "", err

@@ -80,6 +80,10 @@ cp config.example.json config.json         # 中文：设 "language": "zh"，再
 `~/.claude/CLAUDE.md`、`launchd/install.sh` 装定时整理。**第一次运行会把所有历史会话整理一遍，可能跑几个小时、花不少额度**，
 先 `python3 bin/ingest.py --status` 看有多少。
 
+不想手配 settings：向导最后一步勾「全局安装 → 记忆」，或 `bothouse setup hooks on --global memory`。它把「每条消息附相关 wiki 页」和
+SessionEnd 整理两条 hook 装进 `~/.claude/settings.json`，默认关。bothouse 的角色会话里这两条自动跳过，不会和 gate 推的重复；
+你已经手装过同样的 hook 就不再加。详见 [contrib/hooks/README.md](../bridge/contrib/hooks/README.md)「全局安装」。
+
 接到 gate：gate 的 `POST /context` 每轮按这条消息在 wiki 里逐行检索（BM25，不用模型），把最相关的 3 页和命中的行交给 ccm，
 ccm 拼在消息前面：
 

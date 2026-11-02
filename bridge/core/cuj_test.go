@@ -1918,9 +1918,37 @@ func TestCUJ_F1_ProviderSwitchLinkedToAgent(t *testing.T) {
 	t.Log("CUJ-F1: provider switching is per-agent; covered by agent/*_test.go provider tests")
 }
 
-// CUJ-F2 · /model switches model — same pattern as F1, agent-managed.
+// CUJ-F2 · /model changes the addressed channel and preserves its native conversation.
 func TestCUJ_F2_ModelSwitchLinkedToAgent(t *testing.T) {
-	t.Log("CUJ-F2: model switching is per-agent; covered by agent/*_test.go model tests")
+	a := &scopedStartupAgent{stubModelModeAgent{model: "astra", reasoningEffort: "medium"}}
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", a, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	key := "test:work"
+	s := e.sessions.GetOrCreateActive(key)
+	s.SetAgentSessionID("original-native", a.Name())
+	s.AddHistory("user", "remember")
+	send := func(channel, command, want string) {
+		t.Helper()
+		p.clearSent()
+		e.ReceiveMessage(p, &Message{SessionKey: channel, Content: command})
+		if got := strings.Join(p.getSent(), "\n"); !strings.Contains(got, want) {
+			t.Fatalf("%s %s reply = %q, want %q", channel, command, got, want)
+		}
+	}
+	send(key, "/model", e.i18n.Tf(MsgModelCurrent, "astra"))
+	send(key, "/model switch sol", e.i18n.Tf(MsgModelChanged, "sol"))
+	send(key, "/reasoning high", e.i18n.Tf(MsgReasoningChanged, "high"))
+	send(key, "/model", e.i18n.Tf(MsgModelCurrent, "sol"))
+	send("test:drame", "/model", e.i18n.Tf(MsgModelCurrent, "astra"))
+	send(key, "/history", "remember")
+	state := e.getOrCreateInteractiveStateWith(key, p, nil, s, e.sessions, nil, key)
+	if got := state.agentSession.(*scopedStartupSession); got.model != "sol" || got.effort != "high" || got.id != "original-native" || len(s.History) != 1 {
+		t.Fatalf("switched session = %+v, history = %v", got, s.History)
+	}
+	if got := e.ModelStatus(context.Background(), "test:drame"); got.Model != "astra" || got.Effort != "medium" {
+		t.Fatal(got)
+	}
 }
 
 // CUJ-F3 · /lang switches i18n locale; next reply uses new language.
@@ -2698,7 +2726,8 @@ func TestCUJ_Progress4_JournalOnlyRepliesAndQueries(t *testing.T) {
 		e.ReceiveMessage(p, &Message{SessionKey: inputTestKey, Platform: p.Name(), MessageID: id, UserID: "human", Content: content, Mentioned: true, ReplyCtx: "local"})
 		return inputPrompt(t, a)
 	}
-	first := progressToken(t, send("journal-start", "prepare a draft"))
+	send("journal-start", "prepare a draft")
+	first := turnToken(t, e, inputTestKey)
 	req := PublicProgressRequest{Project: e.name, SessionKey: inputTestKey, Run: first, Seq: 1, Kind: "start", Title: "draft", Summary: "working"}
 	id, err := e.publicProgress.Report(req)
 	if err != nil {
@@ -2711,7 +2740,8 @@ func TestCUJ_Progress4_JournalOnlyRepliesAndQueries(t *testing.T) {
 	inputDone(a, "Here is the draft; it has not been accepted yet.")
 	inputWait(t, func() bool { return !session.Busy() })
 
-	second := progressToken(t, send("journal-follow-up", "revise the same draft"))
+	send("journal-follow-up", "revise the same draft")
+	second := turnToken(t, e, inputTestKey)
 	if first == second {
 		t.Fatal("follow-up reused the previous turn grant")
 	}
@@ -2765,12 +2795,14 @@ func TestCUJ_Progress1_QuietQueueAndFailure(t *testing.T) {
 		return id
 	}
 	send("one", "检查绑定")
-	first := progressToken(t, inputPrompt(t, a))
+	inputPrompt(t, a)
+	first := turnToken(t, e, inputTestKey)
 	id1 := report(first)
 	a.session.events <- Event{Type: EventThinking, Content: "PRIVATE_SENTINEL"}
 	send("two", "第二个任务")
 	inputDone(a, "第一个结果")
-	second := progressToken(t, inputPrompt(t, a))
+	inputPrompt(t, a)
+	second := turnToken(t, e, inputTestKey)
 	id2 := report(second)
 	if first == second {
 		t.Fatal("queued turn reused token")
@@ -2835,7 +2867,8 @@ func TestCUJ_Progress3_ContinueAndAcceptSameCard(t *testing.T) {
 		e.updateTeamBoards(files, boards)
 		return p.board.content[inputTestKey]
 	}
-	token := progressToken(t, send("one", "检查语音绑定"))
+	send("one", "检查语音绑定")
+	token := turnToken(t, e, inputTestKey)
 	id := report(token, 1, "start")
 	report(token, 2, "waiting")
 	inputDone(a, "请确认绑定")
@@ -2846,10 +2879,13 @@ func TestCUJ_Progress3_ContinueAndAcceptSameCard(t *testing.T) {
 	first := p.task(id)
 
 	prompt := send("two", "继续调整同一个绑定")
-	if !strings.Contains(prompt, id) || !strings.Contains(prompt, "--seq 3 --kind update") {
-		t.Fatal("continuation instructions missing")
+	if !strings.Contains(prompt, "[在做]") || !strings.Contains(prompt, "--task "+id) || !strings.Contains(prompt, "--seq 3") || strings.Contains(prompt, "--run ") {
+		t.Fatal("continuation instructions missing or carry a run token")
 	}
-	token = progressToken(t, prompt)
+	token = turnToken(t, e, inputTestKey)
+	if got, ok := e.publicProgress.CurrentRun(inputTestKey); !ok || got != token {
+		t.Fatal("CurrentRun does not serve the turn token the CLI needs")
+	}
 	if next := report(token, 3, "update"); next != id {
 		t.Fatal("continuation created another card")
 	}

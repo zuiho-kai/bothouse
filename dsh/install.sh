@@ -35,26 +35,45 @@ if ! command -v pnpm >/dev/null; then
   fi
 fi
 
-# dsh-web-app must match the running dsh version, so take it from the local dsh install if present.
+# dsh-web-app must match the running dsh version. Resolve it from the real dsh package the
+# way Node does: walk the ancestor node_modules, which covers nested and hoisted layouts.
 DSH_BIN="$(command -v dsh || true)"
+DSH_DIR=""
 WEB_APP=""
 if [ -n "$DSH_BIN" ]; then
   DSH_JS="$(node -e 'try { console.log(require("fs").realpathSync(process.argv[1])) } catch(e){}' "$DSH_BIN" 2>/dev/null || true)"
   if [ -n "$DSH_JS" ]; then
     DSH_DIR="$(cd "$(dirname "$DSH_JS")/.." && pwd 2>/dev/null || true)"
-    if [ -n "$DSH_DIR" ] && [ -d "$DSH_DIR/node_modules/@deepseek-ai/dsh-web-app" ]; then
-      WEB_APP="$DSH_DIR/node_modules/@deepseek-ai/dsh-web-app"
-    fi
   fi
 fi
 # On Windows npm writes `dsh` as a plain shim file, not a symlink, so realpath above lands in the
-# npm prefix rather than the package; look the package up under the global node_modules instead.
-if [ -z "$WEB_APP" ] && command -v npm >/dev/null; then
-  NPM_ROOT="$(npm root -g 2>/dev/null || true)"
-  if [ -n "$NPM_ROOT" ] && [ -d "$NPM_ROOT/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app" ]; then
-    DSH_DIR="$NPM_ROOT/@deepseek-ai/dsh"
-    WEB_APP="$DSH_DIR/node_modules/@deepseek-ai/dsh-web-app"
+# npm prefix rather than the package; only then look the package up under the global node_modules.
+if [ -z "$DSH_DIR" ] || [ ! -f "$DSH_DIR/package.json" ]; then
+  if command -v npm >/dev/null; then
+    NPM_ROOT="$(npm root -g 2>/dev/null || true)"
+    if [ -n "$NPM_ROOT" ] && [ -f "$NPM_ROOT/@deepseek-ai/dsh/package.json" ]; then
+      DSH_DIR="$NPM_ROOT/@deepseek-ai/dsh"
+    fi
   fi
+fi
+if [ -n "$DSH_DIR" ]; then
+  DIR="$DSH_DIR"
+  while :; do
+    if [ "$(basename "$DIR")" != "node_modules" ] && [ -f "$DIR/node_modules/@deepseek-ai/dsh-web-app/package.json" ]; then
+      WEB_APP="$DIR/node_modules/@deepseek-ai/dsh-web-app"
+      break
+    fi
+    PARENT="$(dirname "$DIR")"
+    [ "$PARENT" = "$DIR" ] && break
+    DIR="$PARENT"
+  done
+fi
+# Never borrow a web-app from another DSH install: only a resolved local DSH that is
+# missing its own web-app is an error. With no dsh at all (e.g. unit fixtures) the
+# plugin step below still installs collab+ui, matching the pre-existing behavior.
+if [ -n "$DSH_DIR" ] && [ -f "$DSH_DIR/package.json" ] && [ -z "$WEB_APP" ]; then
+  echo "dsh is installed at $DSH_DIR but its matching dsh-web-app is missing; install a matching dsh-web-app instead of reusing another DSH" >&2
+  exit 1
 fi
 
 echo "== step: acp steer"
@@ -105,7 +124,7 @@ if [ -n "$LANG_PREF" ] && command -v node >/dev/null; then
   # `preference`) in the profile's cordis.patch.yml; the Settings > Language row writes the same place.
   PATCH="${DSH_HOME:-$HOME/.dsh}/profiles/$PROFILE/cordis.patch.yml"
   echo "== set default UI language: $LANG_PREF ($PATCH)"
-  NODE_PATH="$DSH_DIR/node_modules" node - "$PATCH" "$LANG_PREF" <<'JS'
+  NODE_PATH="$HERE/collab/node_modules" node - "$PATCH" "$LANG_PREF" <<'JS'
 const fs = require("fs");
 const YAML = require("yaml");
 const [file, lang] = process.argv.slice(2);

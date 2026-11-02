@@ -24,11 +24,12 @@ func TestCapacityRetry_ResendGetsLivePublicProgressToken(t *testing.T) {
 
 	e.handleMessage(p, &Message{SessionKey: "discord:c1", Platform: "discord", UserID: "u", UserName: "u", Content: "long task", ReplyCtx: "ctx"})
 	waitFor(t, "second attempt sent", func() bool { return sess.sends() == 2 })
-	sent := sess.sentPrompts()
-	first, second := progressToken(t, sent[0]), progressToken(t, sent[1])
-	if first == second {
-		t.Fatal("capacity retry re-sent the first attempt's (already closed) progress token")
+	for _, prompt := range sess.sentPrompts() {
+		if strings.Contains(prompt, "--run ") {
+			t.Fatalf("attempt without an open task carried a run token: %q", prompt)
+		}
 	}
+	second := turnToken(t, e, "discord:c1")
 	if _, err := e.publicProgress.Report(PublicProgressRequest{Project: "test", SessionKey: "discord:c1", Run: second, Seq: 1, Kind: "start", Title: "task", Summary: "working"}); err != nil {
 		t.Fatalf("report with the retry's token rejected: %v", err)
 	}

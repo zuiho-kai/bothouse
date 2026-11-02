@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -100,11 +99,11 @@ func TestProgressCLI(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("no prompt")
 	}
-	m := regexp.MustCompile("--run ([a-f0-9]{64})").FindStringSubmatch(prompt)
-	if len(m) != 2 {
-		t.Fatal("missing progress instructions")
+	// A fresh turn carries no token; the CLI fetches it from the bridge.
+	if strings.Contains(prompt, "--run ") {
+		t.Fatal("prompt still carries a run token", prompt)
 	}
-	args := []string{"--data-dir", dir, "--project", "fish", "--session", "test:room", "--run", m[1], "--seq", "1", "--kind", "start", "--title", "Check", "--message", "Checking binding"}
+	args := []string{"--data-dir", dir, "--project", "fish", "--session", "test:room", "--seq", "1", "--kind", "start", "--title", "Check", "--message", "Checking binding"}
 	var out bytes.Buffer
 	if binary := os.Getenv("CONEST_PROGRESS_BINARY"); binary != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

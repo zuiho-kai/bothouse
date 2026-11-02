@@ -750,6 +750,7 @@ type SessionScopedCompressor interface {
 // SessionSettings are a session's per-session overrides; "" = agent default.
 type SessionSettings struct {
 	Model            string
+	ReasoningEffort  string
 	InstructionsPath string
 	InstructionsText string
 }

@@ -91,6 +91,8 @@ DSH 的成员在 DSH 网页里配置，可以直接使用 DeepSeek，也可接�
 - **gate（分流）**：多个角色时让 AI 判断一句话该谁回。没有 gate 时，被 @ 的角色照常回，其余消息由主角色回。见[线 1](ccm-and-wiki.md) 第 3 步。
 - **jev**：gate 用来做判断的模型（OpenAI 兼容、给出选项概率）。在向导的 jev 页填，或跳过。没填 gate 会报错并提示怎么填。
 - **wiki 记忆**：角色共用、自己会长的记忆。见[线 1](ccm-and-wiki.md) 第 4 步。
+- **全局安装（默认关）**：向导最后一步有两个勾选项，让你在终端里开的 Claude Code 也用上 bothouse 的记忆 hook 和守门 hook。
+  命令行是 `bothouse setup hooks on|off --global memory|guards`。机器人自己的会话会跳过全局那份，不会跑两遍。见 [hooks 说明](../bridge/contrib/hooks/README.md)「全局安装」。
 - **语音**：电脑语音伙伴是独立扩展（`companion/`），现状见 [MULTI_VOICE.md](MULTI_VOICE.md)。
 
 ## 各部分怎么连

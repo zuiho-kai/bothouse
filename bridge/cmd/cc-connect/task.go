@@ -81,11 +81,11 @@ func taskCommand(args []string, out io.Writer) error {
 	}
 	f := flag.NewFlagSet("task "+action, flag.ContinueOnError)
 	project := f.String("project", os.Getenv("CC_PROJECT"), "project")
-	session := f.String("session", "", "session key (list or assign)")
+	session := f.String("session", "", "session key (list or assign; assign defaults to CC_SESSION_KEY)")
 	id := f.String("id", "", "task id")
 	batch := f.String("batch", "", "stable delegation batch id; opens a fresh card without --id (assign only)")
 	actor := f.String("by", "", "who confirmed the acceptance")
-	run := f.String("run", "", "primary role's current run token (assign only)")
+	run := f.String("run", "", "primary role's current run token (assign only; omitted = fetched from the bridge)")
 	member := f.String("member", "", "unique member execution id (assign only)")
 	name := f.String("name", "", "member display name (assign only)")
 	reporter := f.String("reporter-project", "", "configured bot project id; native children inherit their owning bot (assign only)")
@@ -116,9 +116,10 @@ func taskCommand(args []string, out io.Writer) error {
 	if f.NArg() != 0 {
 		return errors.New("unexpected positional arguments")
 	}
-	if *project == "" || *dataDir == "" {
-		return errors.New("project and data-dir are required")
+	if *project == "" {
+		return errors.New("project is required (CC_PROJECT)")
 	}
+	// data-dir is optional: the socket path falls back to CC_DATA_DIR (resolveSocketPath).
 	client := taskClient(*dataDir)
 	defer client.CloseIdleConnections()
 
@@ -148,6 +149,16 @@ func taskCommand(args []string, out io.Writer) error {
 		}
 		return writeJSON(out, b)
 	case "assign":
+		if *session == "" {
+			*session = os.Getenv("CC_SESSION_KEY")
+		}
+		if *run == "" {
+			r, err := currentRun(*dataDir, *project, *session)
+			if err != nil {
+				return err
+			}
+			*run = r
+		}
 		body, err := json.Marshal(core.TaskMemberAssignment{ReporterProject: *reporter, Project: *project, SessionKey: *session, Run: *run, TaskID: *id, BatchID: *batch, MemberID: *member, ParentID: *parent, Name: *name, Title: *title, Ref: *ref, Base: *base, Workspace: *workspace})
 		if err != nil {
 			return err

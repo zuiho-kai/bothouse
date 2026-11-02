@@ -189,6 +189,8 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	}
 	a.mu.Unlock()
 
+	model, _ = core.SessionModelAndEffort(ctx, model, "")
+
 	return newKimiSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout, flagSupport)
 }
 

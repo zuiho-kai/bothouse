@@ -69,15 +69,11 @@ func TestTaskCLI(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("no prompt")
 	}
-	m := regexp.MustCompile("--run ([a-f0-9]{64})").FindStringSubmatch(prompt)
-	if len(m) != 2 {
-		t.Fatal("missing progress instructions")
-	}
-	if strings.Contains(prompt, "ASSIGN_COMMAND") || !strings.Contains(prompt, "task assign --project 'fish'") {
-		t.Fatal("missing member assignment instructions")
+	if strings.Contains(prompt, "--run ") || strings.Contains(prompt, "ASSIGN_COMMAND") {
+		t.Fatal("prompt still carries a run token or the assignment guide")
 	}
 	base := []string{"--data-dir", dir, "--project", "fish"}
-	run := []string{"--session", "test:room", "--run", m[1]}
+	run := []string{"--session", "test:room"} // --run omitted: fetched from the bridge
 
 	var ack bytes.Buffer
 	if err := report(append(append([]string{}, base...), append(run, "--seq", "1", "--kind", "start", "--title", "整理任务卡", "--message", "开始整理")...), &ack); err != nil {

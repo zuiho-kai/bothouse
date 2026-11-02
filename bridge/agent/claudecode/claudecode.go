@@ -550,6 +550,8 @@ func (a *Agent) startSessionWithEnv(ctx context.Context, sessionID string, voice
 	disableVerbose := a.routerURL != ""
 	a.mu.Unlock()
 
+	model, effort = core.SessionModelAndEffort(ctx, model, effort)
+
 	return newClaudeSession(ctx, workDir, a.cmd, a.cliExtraArgs, a.cmdArgsFlag, model, effort, sessionID, mode, systemPrompt, appendSystemPrompt, tools, disTools, pluginDirs, extraEnv, platformPrompt, disableVerbose, a.spawnOpts, maxTok, a.ccDataDir, a.voiceStream)
 }
 

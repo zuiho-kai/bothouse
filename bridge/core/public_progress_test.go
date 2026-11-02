@@ -208,6 +208,63 @@ func progressToken(t *testing.T, prompt string) string {
 	return parts[1]
 }
 
+// turnToken returns the run token the engine issued for the session's current
+// turn. A prompt carries the token only in the "[在做]" line of an open task, so
+// a fresh turn's token is read from the engine state instead of the prompt.
+func turnToken(t *testing.T, e *Engine, session string) string {
+	t.Helper()
+	e.interactiveMu.Lock()
+	states := make([]*interactiveState, 0, len(e.interactiveStates))
+	for _, state := range e.interactiveStates { // keyed by agent session, not always the chat session
+		states = append(states, state)
+	}
+	e.interactiveMu.Unlock()
+	for _, state := range states {
+		state.mu.Lock()
+		token := state.publicProgressRun
+		state.mu.Unlock()
+		if token == "" {
+			continue
+		}
+		e.publicProgress.mu.Lock()
+		r := e.publicProgress.runs[token]
+		e.publicProgress.mu.Unlock()
+		if r == nil {
+			continue
+		}
+		r.mu.Lock()
+		owner := r.record.Task.SessionKey
+		r.mu.Unlock()
+		if owner == session {
+			return token
+		}
+	}
+	// Voice relay turns keep their token outside interactiveStates; accept the
+	// session's only live run.
+	found := ""
+	e.publicProgress.mu.Lock()
+	runs := make(map[string]*publicRun, len(e.publicProgress.runs))
+	for token, r := range e.publicProgress.runs {
+		runs[token] = r
+	}
+	e.publicProgress.mu.Unlock()
+	for token, r := range runs {
+		r.mu.Lock()
+		owner := r.record.Task.SessionKey
+		r.mu.Unlock()
+		if owner == session {
+			if found != "" {
+				t.Fatalf("several live runs for %s", session)
+			}
+			found = token
+		}
+	}
+	if found == "" {
+		t.Fatal("missing current run token")
+	}
+	return found
+}
+
 func TestPublicProgressVoiceKeepsOnlyExplicitReceipt(t *testing.T) {
 	api, e, a, _, s := inputFixture(t)
 	p := newProgressPlatform()
@@ -222,7 +279,8 @@ func TestPublicProgressVoiceKeepsOnlyExplicitReceipt(t *testing.T) {
 	if code != 202 {
 		t.Fatal(code)
 	}
-	run := progressToken(t, inputPrompt(t, a))
+	inputPrompt(t, a)
+	run := turnToken(t, e, inputTestKey)
 	report := PublicProgressRequest{Project: "gge", SessionKey: inputTestKey, Run: run, Seq: 1, Kind: "start", Title: "检查配置", Summary: "正在检查"}
 	if _, err := e.publicProgress.Report(report); err != nil {
 		t.Fatal(err)
@@ -360,8 +418,10 @@ func TestPublicProgressLongVoiceReceiptPreservesCaveat(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := &interactiveState{platform: platform}
-	prompt := e.withPublicProgress("task", state, "room", false, true)
-	run := progressToken(t, prompt)
+	if prompt := e.withPublicProgress("task", state, "room", false, true); prompt != "task" {
+		t.Fatalf("turn without an open task carried progress text: %q", prompt)
+	}
+	run := state.publicProgressRun
 	req := PublicProgressRequest{Project: "gge", SessionKey: "room", Run: run, Seq: 1, Kind: "start", Title: "task", Summary: "start"}
 	if _, err := e.publicProgress.Report(req); err != nil {
 		t.Fatal(err)
@@ -397,13 +457,13 @@ func TestPublicProgressPromptResolvesDataDirBeforeAgentChangesDirectory(t *testi
 	}
 	state := &interactiveState{platform: platform}
 	prompt := e.withPublicProgress("literal RUN_TOKEN COMMAND", state, "room", false, false)
-	quotedDir := "'" + strings.ReplaceAll(absDir, "'", "'\"'\"'") + "'"
-	if !strings.Contains(prompt, "--data-dir "+quotedDir) {
-		t.Fatal("progress command must preserve the absolute bridge data directory")
+	// The per-turn text no longer carries the command template (it moved to
+	// `bothouse progress --help`); with no open task the prompt is untouched.
+	if prompt != "literal RUN_TOKEN COMMAND" {
+		t.Fatalf("turn without an open task modified the prompt: %q", prompt)
 	}
-	progressToken(t, prompt)
-	if !strings.HasSuffix(prompt, "literal RUN_TOKEN COMMAND") {
-		t.Fatal("template replacement modified user content")
+	if state.publicProgressRun == "" {
+		t.Fatal("engine did not issue a run token")
 	}
 	e.finishPublicProgress(state, "result")
 }
@@ -425,8 +485,8 @@ func (p *cronProgressPlatform) PublishTaskFact(context.Context, *Task, TaskEvent
 	return nil
 }
 
-// TestPublicProgressCronTurnGetsRunToken verifies that the turn a cron job runs
-// carries a current-run token, so the agent can open a task card from it.
+// TestPublicProgressCronTurnGetsRunToken verifies that a cron turn with no open
+// task carries no progress text: the guide lives in `bothouse progress --help`.
 func TestPublicProgressCronTurnGetsRunToken(t *testing.T) {
 	store, err := NewCronStore(t.TempDir())
 	if err != nil {
@@ -452,5 +512,7 @@ func TestPublicProgressCronTurnGetsRunToken(t *testing.T) {
 	if len(agentSession.sentPrompts) != 1 {
 		t.Fatalf("sentPrompts = %d, want 1", len(agentSession.sentPrompts))
 	}
-	progressToken(t, agentSession.sentPrompts[0])
+	if p := agentSession.sentPrompts[0]; strings.Contains(p, "[在做]") || strings.Contains(p, "[Public progress channel]") || strings.Contains(p, "--run ") {
+		t.Fatalf("cron turn without an open task carried progress text: %q", p)
+	}
 }
