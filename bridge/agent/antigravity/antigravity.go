@@ -231,6 +231,8 @@ func (a *Agent) startSessionWithEnv(ctx context.Context, sessionID string, sessi
 	}
 	a.mu.Unlock()
 
+	model, _ = core.SessionModelAndEffort(ctx, model, "")
+
 	if streamJSON {
 		s, err := newStreamSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout, stallTimeout)
 		if err == nil {

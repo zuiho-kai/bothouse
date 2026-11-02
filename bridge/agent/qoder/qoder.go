@@ -119,6 +119,8 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	extraEnv = append(extraEnv, a.sessionEnv...)
 	a.mu.Unlock()
 
+	model, _ = core.SessionModelAndEffort(ctx, model, "")
+
 	return newQoderSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv)
 }
 

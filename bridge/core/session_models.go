@@ -30,6 +30,9 @@ func (e *Engine) SetSessionModels(m map[string]string) {
 
 // sessionModelFor returns the model mapped to sessionKey, or "" for the default.
 func (e *Engine) sessionModelFor(sessionKey string) string {
+	if model := e.sessionSelection(sessionKey).Model; model != "" {
+		return model
+	}
 	e.sessionModelsMu.RLock()
 	defer e.sessionModelsMu.RUnlock()
 	return e.sessionModels[sessionKey]
@@ -92,8 +95,13 @@ func (e *Engine) applySessionInstructions(agent Agent, sessionKey string) {
 // sessionSettingsFor returns sessionKey's per-session overrides without
 // touching the shared agent (native compaction passes them as arguments).
 func (e *Engine) sessionSettingsFor(sessionKey string) SessionSettings {
+	selection := e.sessionSelection(sessionKey)
 	e.sessionModelsMu.RLock()
 	defer e.sessionModelsMu.RUnlock()
 	si := e.sessionInstructions[sessionKey]
-	return SessionSettings{Model: e.sessionModels[sessionKey], InstructionsPath: si.path, InstructionsText: si.text}
+	model := e.sessionModels[sessionKey]
+	if selection.Model != "" {
+		model = selection.Model
+	}
+	return SessionSettings{Model: model, ReasoningEffort: selection.Effort, InstructionsPath: si.path, InstructionsText: si.text}
 }

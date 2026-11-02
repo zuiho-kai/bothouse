@@ -130,7 +130,7 @@ func (e *Engine) ModelStatus(ctx context.Context, sessionKey string) ModelStatus
 		st.Model = modelOf(agent) // ACP agents learn the current model while listing
 	}
 	if rs, ok := agent.(ReasoningEffortSwitcher); ok {
-		st.Effort = rs.GetReasoningEffort()
+		st.Effort = e.sessionEffortFor(sessionKey, agent)
 		st.Efforts = rs.AvailableReasoningEfforts()
 	}
 	if model := e.currentSessionModel(sessionKey, agent); model != "" {
@@ -169,14 +169,17 @@ func (e *Engine) currentSessionModel(sessionKey string, agent Agent) string {
 	}
 	// Keep the catalog ID intact (some agents use JSON-array IDs). Footer
 	// display normalization would prevent matching the current catalog option.
-	for _, source := range []any{session, agent} {
+	for _, source := range []any{session} {
 		if getter, ok := source.(interface{ GetModel() string }); ok {
 			if model := strings.TrimSpace(getter.GetModel()); model != "" {
 				return model
 			}
 		}
 	}
-	return ""
+	if model := e.sessionModelFor(sessionKey); model != "" {
+		return model
+	}
+	return modelOf(agent)
 }
 
 // ModelSwitchResult tells the agent what was queued, or why not.
@@ -204,6 +207,9 @@ func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort
 		options = sw.AvailableModels(ctx)
 	}
 	current := modelOf(agent)
+	if model := e.sessionModelFor(sessionKey); model != "" {
+		current = model
+	}
 	target := ""
 	if model = strings.TrimSpace(model); model != "" {
 		if !canModel {
@@ -276,56 +282,42 @@ func (e *Engine) applyPendingSwitch(interactiveKey string, keys ...string) {
 func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, keys ...string) error {
 	e.modelSwitchMu.Lock()
 	var p pendingModelSwitch
-	found := false
+	scopeKey := ""
 	for _, k := range append([]string{interactiveKey}, keys...) {
 		if v, ok := e.pendingSwitch[k]; ok {
-			p, found = v, true
-			delete(e.pendingSwitch, k)
+			p, scopeKey = v, k
 		}
 	}
 	e.modelSwitchMu.Unlock()
-	if !found {
+	if scopeKey == "" {
 		return nil
 	}
-	if p.auto {
-		if e.tiers != nil {
-			e.tiers.clearManual(interactiveKey)
-		}
-		slog.Info("model switch applied", "session", interactiveKey, "auto", true)
-		return nil
-	}
-	from := modelOf(agent)
-	changed := false
-	if p.model != "" && p.model != from {
-		// Persist like /model does: a restart must not fall back to the config default.
-		if _, err := e.switchModelOnAgent(agent, p.model, agent == e.agent); err != nil {
-			slog.Warn("model switch failed", "session", interactiveKey, "model", p.model, "error", err)
+	if !p.auto {
+		if err := e.saveSessionSelection(scopeKey, p.model, p.effort); err != nil {
 			return err
 		}
-		changed = true
 	}
-	if p.effort != "" {
-		if rs, ok := agent.(ReasoningEffortSwitcher); ok && rs.GetReasoningEffort() != p.effort {
-			rs.SetReasoningEffort(p.effort)
-			e.persistReasoningEffort(agent, p.effort)
-			changed = true
+	e.modelSwitchMu.Lock()
+	if e.pendingSwitch[scopeKey] == p {
+		delete(e.pendingSwitch, scopeKey)
+	}
+	e.modelSwitchMu.Unlock()
+	if e.tiers != nil {
+		if p.auto {
+			e.tiers.clearManual(interactiveKey)
+		} else {
+			e.tiers.setManual(interactiveKey, manualTierHold)
 		}
 	}
-	if e.tiers != nil {
-		e.tiers.setManual(interactiveKey, manualTierHold)
+	if p.auto {
+		return nil
 	}
-	if !changed {
-		slog.Info("model switch: already on the requested model", "session", interactiveKey, "model", from)
-		return nil // nothing to restart
-	}
-	// Applying a queued model is part of native compaction setup when called
-	// from /compact; preserve its cancellation record while closing the reader.
+	// Only the addressed live process is recycled; its saved native ID and
+	// conversation history survive. Shared agent/config defaults are untouched.
 	e.cleanupInteractiveState(interactiveKey, nil)
-	e.sessions.Save()
-	// Only now is the model really switched and the old session released, so the
-	// messages held by the cooldown can be re-delivered (review P1: queued is not
-	// applied).
+	_, sessions := e.sessionContextForKey(scopeKey)
+	sessions.Save()
 	e.capacityRecover("model switch applied")
-	slog.Info("model switch applied", "session", interactiveKey, "from", from, "to", modelOf(agent), "effort", p.effort)
+	slog.Info("model switch applied", "session", scopeKey, "model", p.model, "effort", p.effort)
 	return nil
 }

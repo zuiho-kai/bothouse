@@ -9,9 +9,10 @@ import (
 )
 
 type projectStateData struct {
-	WorkDirOverride         string            `json:"work_dir_override,omitempty"`
-	WorkspaceDirOverrides   map[string]string `json:"workspace_dir_overrides,omitempty"`
-	WorkspaceModelOverrides map[string]string `json:"workspace_model_overrides,omitempty"`
+	SessionModelOverrides   map[string]sessionModelSelection `json:"session_model_overrides,omitempty"`
+	WorkDirOverride         string                           `json:"work_dir_override,omitempty"`
+	WorkspaceDirOverrides   map[string]string                `json:"workspace_dir_overrides,omitempty"`
+	WorkspaceModelOverrides map[string]string                `json:"workspace_model_overrides,omitempty"`
 }
 
 // ProjectStateStore persists lightweight runtime state for one project.
@@ -125,13 +126,16 @@ func (ps *ProjectStateStore) saveLocked() {
 		slog.Error("project_state: failed to marshal", "error", err)
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(ps.storePath), 0o755); err != nil {
-		slog.Error("project_state: failed to create dir", "path", ps.storePath, "error", err)
-		return
-	}
-	if err := AtomicWriteFile(ps.storePath, data, 0o644); err != nil {
+	if err := ps.write(data); err != nil {
 		slog.Error("project_state: failed to write", "path", ps.storePath, "error", err)
 	}
+}
+
+func (ps *ProjectStateStore) write(data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(ps.storePath), 0o755); err != nil {
+		return err
+	}
+	return AtomicWriteFile(ps.storePath, data, 0o644)
 }
 
 func (ps *ProjectStateStore) load() {

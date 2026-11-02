@@ -491,19 +491,20 @@ type Engine struct {
 	resetOnIdle        time.Duration
 	// Per-session model overrides (maomao fork, see session_models.go)
 	// Model-at-capacity cooldown (maomao fork, see capacity_retry.go)
-	capMu           sync.Mutex
-	capUntil        time.Time
-	quotaUntil      time.Time            // legacy unscoped cooldown only
-	quotaDomains    map[string]time.Time // guarded by quotaDomainsMu
-	quotaMu         sync.Mutex
-	quotaState      quotaCoolingState
-	quotaProbeFn    func(ctx context.Context) (usable bool, nextRetry time.Duration, err error)
-	capRound        int
-	capPending      []func()        // messages to re-deliver when the cooldown ends, in order
-	capArmed        bool            // a flush timer is pending
-	capNotified     map[string]bool // channels already told about this cooldown round
-	sessionModelsMu sync.RWMutex
-	sessionModels   map[string]string
+	capMu             sync.Mutex
+	capUntil          time.Time
+	quotaUntil        time.Time            // legacy unscoped cooldown only
+	quotaDomains      map[string]time.Time // guarded by quotaDomainsMu
+	quotaMu           sync.Mutex
+	quotaState        quotaCoolingState
+	quotaProbeFn      func(ctx context.Context) (usable bool, nextRetry time.Duration, err error)
+	capRound          int
+	capPending        []func()        // messages to re-deliver when the cooldown ends, in order
+	capArmed          bool            // a flush timer is pending
+	capNotified       map[string]bool // channels already told about this cooldown round
+	sessionModelsMu   sync.RWMutex
+	sessionModels     map[string]string
+	sessionSelections map[string]sessionModelSelection
 	// Per-session base-instruction files (maomao fork, see session_models.go)
 	sessionInstructions map[string]sessionInstructions
 
@@ -5226,9 +5227,9 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		if !ok || !strict.SupportsStrictResume() {
 			return &interactiveState{startErr: "strict resume unsupported"}
 		}
-		agentSession, err = strict.StartSessionStrict(e.ctx, startSessionID)
+		agentSession, err = strict.StartSessionStrict(WithSessionSettings(e.ctx, e.sessionSettingsFor(ccKey)), startSessionID)
 	} else {
-		agentSession, err = agent.StartSession(e.ctx, startSessionID)
+		agentSession, err = agent.StartSession(WithSessionSettings(e.ctx, e.sessionSettingsFor(ccKey)), startSessionID)
 	}
 	startElapsed := time.Since(startAt)
 	if err != nil {
@@ -5246,7 +5247,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			}
 			sessions.Save()
 			startAt = time.Now()
-			agentSession, err = agent.StartSession(e.ctx, "")
+			agentSession, err = agent.StartSession(WithSessionSettings(e.ctx, e.sessionSettingsFor(ccKey)), "")
 			startElapsed = time.Since(startAt)
 			startedFresh = true
 			if err == nil {
@@ -11763,12 +11764,11 @@ func (e *Engine) cmdModel(p Platform, msg *Message, args []string) {
 		target = resolveModelSwitchTarget(target, models)
 	}
 
-	target, err = e.switchModelOnAgent(agent, target, agent == e.agent)
+	target, err = e.selectSessionModel(msg.SessionKey, target)
 	if err != nil {
 		e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgModelChangeFailed, err))
 		return
 	}
-	e.persistWorkspaceModelOverride(interactiveKey, msg.SessionKey, agent, target)
 	e.cleanupInteractiveState(interactiveKey)
 	// The switch is applied and the old session is gone, so the cooldown that was
 	// waiting on the old model can release its messages (review P1).
@@ -11912,7 +11912,7 @@ func (e *Engine) cmdReasoning(p Platform, msg *Message, args []string) {
 			efforts := switcher.AvailableReasoningEfforts()
 
 			var sb strings.Builder
-			current := switcher.GetReasoningEffort()
+			current := e.sessionEffortFor(msg.SessionKey, agent)
 			if current == "" {
 				sb.WriteString(e.i18n.T(MsgReasoningDefault))
 			} else {
@@ -11948,7 +11948,7 @@ func (e *Engine) cmdReasoning(p Platform, msg *Message, args []string) {
 			e.replyWithButtons(p, msg.ReplyCtx, sb.String(), buttons)
 			return
 		}
-		e.replyWithCard(p, msg.ReplyCtx, e.renderReasoningCard())
+		e.replyWithCard(p, msg.ReplyCtx, e.renderReasoningCard(msg.SessionKey))
 		return
 	}
 
@@ -11970,13 +11970,11 @@ func (e *Engine) cmdReasoning(p Platform, msg *Message, args []string) {
 		return
 	}
 
-	switcher.SetReasoningEffort(target)
-	e.persistReasoningEffort(e.agent, target)
+	if err := e.saveSessionSelection(msg.SessionKey, "", target); err != nil {
+		e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgError, err))
+		return
+	}
 	e.cleanupInteractiveState(e.interactiveKeyForSessionKey(msg.SessionKey))
-
-	s := sessions.GetOrCreateActive(msg.SessionKey)
-	s.SetAgentSessionID("", "")
-	s.ClearHistory()
 	sessions.Save()
 
 	e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgReasoningChanged, target))
@@ -14114,7 +14112,7 @@ func (e *Engine) handleCardNav(action string, sessionKey string) *Card {
 	case "/model":
 		return e.renderModelCard(sessionKey)
 	case "/reasoning":
-		return e.renderReasoningCard()
+		return e.renderReasoningCard(sessionKey)
 	case "/mode":
 		return e.renderModeCard()
 	case "/lang":
@@ -14205,11 +14203,8 @@ func (e *Engine) handleModelCardAction(args, sessionKey string) *Card {
 		cancel()
 	}
 
-	resolved, err := e.switchModelOnAgent(agent, target, agent == e.agent)
+	resolved, err := e.selectSessionModel(sessionKey, target)
 	interactiveKey := e.interactiveKeyForSessionKey(sessionKey)
-	if err == nil {
-		e.persistWorkspaceModelOverride(interactiveKey, sessionKey, agent, resolved)
-	}
 	e.cleanupInteractiveState(interactiveKey)
 	if err == nil {
 		sessions.Save()
@@ -14297,7 +14292,8 @@ func (e *Engine) executeCardAction(cmd, args, sessionKey string) {
 		if args == "" {
 			return
 		}
-		switcher, ok := e.agent.(ReasoningEffortSwitcher)
+		agent, sessions := e.sessionContextForKey(sessionKey)
+		switcher, ok := agent.(ReasoningEffortSwitcher)
 		if !ok {
 			return
 		}
@@ -14308,13 +14304,12 @@ func (e *Engine) executeCardAction(cmd, args, sessionKey string) {
 		}
 		for _, effort := range efforts {
 			if effort == target {
-				switcher.SetReasoningEffort(target)
-				e.persistReasoningEffort(e.agent, target)
+				if err := e.saveSessionSelection(sessionKey, "", target); err != nil {
+					slog.Error("reasoning selection failed", "session", sessionKey, "error", err)
+					return
+				}
 				e.cleanupInteractiveState(interactiveKey)
-				s := e.sessions.GetOrCreateActive(sessionKey)
-				s.SetAgentSessionID("", "")
-				s.ClearHistory()
-				e.sessions.Save()
+				sessions.Save()
 				return
 			}
 		}
@@ -14818,10 +14813,8 @@ func (e *Engine) pushDeleteModeResultCard(sessionKey string) {
 }
 
 func (e *Engine) performModelSwitchAsync(sessionKey string, state *interactiveState, agent Agent, sessions *SessionManager, target string) {
-	resolved, err := e.switchModelOnAgent(agent, target, agent == e.agent)
+	resolved, err := e.selectSessionModel(sessionKey, target)
 	if err == nil {
-		interactiveKey := e.interactiveKeyForSessionKey(sessionKey)
-		e.persistWorkspaceModelOverride(interactiveKey, sessionKey, agent, resolved)
 		sessions.Save()
 	}
 
@@ -15116,14 +15109,19 @@ func (e *Engine) renderModelSwitchResultCard(target string, err error) *Card {
 		Build()
 }
 
-func (e *Engine) renderReasoningCard() *Card {
-	switcher, ok := e.agent.(ReasoningEffortSwitcher)
+func (e *Engine) renderReasoningCard(keys ...string) *Card {
+	key := ""
+	if len(keys) > 0 {
+		key = keys[0]
+	}
+	agent, _ := e.sessionContextForKey(key)
+	switcher, ok := agent.(ReasoningEffortSwitcher)
 	if !ok {
 		return e.simpleCard(e.i18n.T(MsgCardTitleReasoning), "orange", e.i18n.T(MsgReasoningNotSupported))
 	}
 
 	efforts := switcher.AvailableReasoningEfforts()
-	current := switcher.GetReasoningEffort()
+	current := e.sessionEffortFor(key, agent)
 
 	var sb strings.Builder
 	if current == "" {
@@ -18005,7 +18003,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	// agent process is not killed when the relay deadline fires. The relay
 	// timeout only controls how long we *wait* for the response.
 	resumeID := session.GetAgentSessionID()
-	agentSession, err := agent.StartSession(e.ctx, resumeID)
+	agentSession, err := agent.StartSession(WithSessionSettings(e.ctx, e.sessionSettingsFor(ccSessionKey)), resumeID)
 	startedFresh := resumeID == ""
 	if err != nil {
 		// Resume failed — fall back to a fresh session so the relay is not
@@ -18015,7 +18013,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				"relay_key", relaySessionKey, "error", err)
 			session.SetAgentSessionID("", agent.Name())
 			sessions.Save()
-			agentSession, err = agent.StartSession(e.ctx, "")
+			agentSession, err = agent.StartSession(WithSessionSettings(e.ctx, e.sessionSettingsFor(ccSessionKey)), "")
 			startedFresh = true
 		}
 		if err != nil {
