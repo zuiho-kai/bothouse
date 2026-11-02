@@ -33,6 +33,11 @@ type TimerJob struct {
 	// Handoff: the job wakes a workspace for a handed-over task (ws-handoff). Its turn is
 	// work, not a routine timer, so it runs as user "handoff" and gets the automatic card.
 	Handoff bool `json:"handoff,omitempty"`
+	// Forward: a one-shot notice the lead forwards into a workspace (ws-forward: the user's
+	// new words for work already handed over). It is a delivery, not a status poll, so the
+	// anti-spin guard lets it through (anti_spin.go); unlike Handoff it changes nothing about
+	// the turn's user, card or inject-if-busy behaviour, so --interrupt still folds in.
+	Forward bool `json:"forward,omitempty"`
 	// WaitUserQuiet: a wake that is not the user (workspace handback, dispatch receipt) waits
 	// until the user has stopped talking in the session (holdForUser).
 	WaitUserQuiet bool `json:"wait_user_quiet,omitempty"`

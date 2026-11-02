@@ -325,6 +325,42 @@ class WsPoolTest(unittest.TestCase):
         self.assertIn("按这条做：用户说先别做", prompt)
         self.assertNotIn("接着推进", prompt)
 
+    def test_forward_wakes_as_delivery_not_status_poll(self):
+        """#75：转交通知是一次性投递，不是状态轮询 —— 桥的防循环按 Forward 放行（core/anti_spin.go）。
+        不能拿 --handoff 顶替：那条路这一轮以 handoff 身份跑并跳过注入，紧急转交会失效。"""
+        notes = self.note("x")
+        self.handoff(notes, "X")
+        self.forward(notes, "用户说先别做")
+        argv = [c for c in map(json.loads, Path(str(self.fake) + ".calls").read_text().splitlines())
+                if c[:2] == ["timer", "add"] and "工作区转交" in c][-1]
+        self.assertIn("--forward", argv)
+        self.assertNotIn("--handoff", argv)
+        self.assertEqual(argv[argv.index("--delay") + 1], "1m")
+
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-forward"), "--interrupt", "--notes", notes, "验收改成别的"],
+                           capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        argv = [c for c in map(json.loads, Path(str(self.fake) + ".calls").read_text().splitlines())
+                if c[:2] == ["timer", "add"] and "工作区转交" in c][-1]
+        self.assertIn("--forward", argv)
+        self.assertIn("--inject-if-busy", argv)
+        self.assertEqual(argv[argv.index("--delay") + 1], "1s")
+
+    def test_forward_failure_records_undelivered(self):
+        """#75：叫不醒就不算送到 —— timer 失败时交接里要留下「没送到」的事实，退出码非 0。"""
+        notes = self.note("x")
+        self.handoff(notes, "X")
+        f = Path(str(self.fake) + ".json")
+        f.write_text(json.dumps({"ws": [{"id": "1", "name": "工作区1", "owner": "test:100", "open": 1, "parked": 0}],
+                                 "timer_fail": True}))
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-forward"), "--notes", notes, "用户说先别做"],
+                           capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("timer add 失败", r.stderr)
+        text = Path(notes).read_text(encoding="utf-8")
+        self.assertIn("用户说先别做", text)
+        self.assertIn("没送到工作区", text)
+
     def test_pause_writes_stop_into_section_and_forward_says_stop(self):
         notes = self.note("x")
         self.handoff(notes, "X")
