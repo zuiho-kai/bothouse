@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -46,6 +47,9 @@ type voiceRelayResult struct {
 	// and once completed, the public text after them. Cleared on failure.
 	Sentences []string `json:"sentences,omitempty"`
 	Rest      string   `json:"rest,omitempty"`
+	// Measured per-turn breakdown; the work-mode first-audio target is judged
+	// from these numbers, never from estimates.
+	Timings *voiceRelayTimings `json:"timings,omitempty"`
 }
 type voiceRelayEntry struct {
 	Digest string           `json:"digest"`
@@ -66,6 +70,7 @@ type voiceRelayStore struct {
 	busy          map[string]bool
 	path          string
 	fault         error
+	pool          *voiceSessionPool
 }
 
 func (rm *RelayManager) initVoiceRelay(dataDir string) {
@@ -73,6 +78,7 @@ func (rm *RelayManager) initVoiceRelay(dataDir string) {
 	v.Entries = make(map[string]*voiceRelayEntry)
 	v.Conversations = make(map[string]voiceRelayConversation)
 	v.busy = make(map[string]bool)
+	v.pool = newVoiceSessionPool()
 	if dataDir == "" {
 		return
 	}
@@ -101,6 +107,13 @@ func (rm *RelayManager) initVoiceRelay(dataDir string) {
 		}
 	}
 	v.saveLocked()
+}
+
+// SetVoiceResident enables reuse of one live voice session per relay key.
+// Off by default (relay.voice_resident) so it can be rolled out one device at
+// a time; measured saving and recovery rules: notes/voice-latency-plan-a-20261028.md 3.5.
+func (rm *RelayManager) SetVoiceResident(enabled bool, idle time.Duration, maxTurns int) {
+	rm.voice.pool.configure(enabled, idle, maxTurns)
 }
 
 func (v *voiceRelayStore) saveLocked() error {
@@ -207,6 +220,9 @@ func (rm *RelayManager) submitVoice(req RelayRequest) (voiceRelayResult, int, er
 
 func (rm *RelayManager) runVoice(ctx context.Context, e *Engine, req RelayRequest, key string, prior voiceRelayConversation) {
 	v := &rm.voice
+	// Measured from the turn's own submit; the work-mode target is judged here.
+	submitAt := time.Now()
+	timings := &voiceRelayTimings{}
 	saveID := func(id, agent string) error {
 		if id == "" || id == ContinueSession {
 			return fmt.Errorf("voice relay did not identify its conversation")
@@ -243,13 +259,22 @@ func (rm *RelayManager) runVoice(ctx context.Context, e *Engine, req RelayReques
 			} else {
 				added = split.feed(delta)
 			}
+			if len(added) > 0 && len(entry.Result.Sentences) == 0 {
+				timings.FirstSentenceMS = msSince(submitAt)
+			}
 			entry.Result.Sentences = append(entry.Result.Sentences, added...)
 		}
 	}
-	text, closeErr, err := e.collectVoiceRelay(ctx, req, prior, saveID, progress)
+	text, closeErr, err := e.collectVoiceRelay(ctx, req, key, prior, v.pool, timings, saveID, progress)
+	timings.TotalMS = msSince(submitAt)
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	entry := v.Entries[req.RequestID]
+	if req.Stream {
+		// Timings are part of the streaming voice contract; non-stream receipts
+		// keep their existing six-field shape.
+		entry.Result.Timings = timings
+	}
 	if err == nil && split != nil && !strings.HasPrefix(text, strings.Join(entry.Result.Sentences, "")) {
 		err = fmt.Errorf("final voice answer changed its published prefix")
 	}
@@ -272,11 +297,15 @@ func (rm *RelayManager) runVoice(ctx context.Context, e *Engine, req RelayReques
 	}
 	if entry.Result.Status != "running" {
 		_ = v.saveLocked()
+		logVoiceTurn(req, timings, entry.Result.Status)
 		return
 	}
 	if err != nil {
 		entry.Result.Status = "failed"
 		entry.Result.Error = "voice relay failed; no complete public answer; check conversation before retrying"
+		if errors.Is(err, errVoiceFirstEventTimeout) {
+			entry.Result.Error = "voice relay: no first event before watchdog; session dropped, check conversation before retrying"
+		}
 		entry.Result.Sentences = nil
 	} else {
 		entry.Result.Status = "completed"
@@ -291,6 +320,18 @@ func (rm *RelayManager) runVoice(ctx context.Context, e *Engine, req RelayReques
 		entry.Result.Error = "receipt persistence failed; outcome unknown"
 		entry.Result.Sentences, entry.Result.Rest = nil, ""
 	}
+	logVoiceTurn(req, timings, entry.Result.Status)
+}
+
+// logVoiceTurn records the measured breakdown the work-mode first-audio target
+// is judged from; estimates are never logged as results.
+func logVoiceTurn(req RelayRequest, t *voiceRelayTimings, status string) {
+	if t == nil {
+		return
+	}
+	slog.Info("voice relay turn", "session_key", req.SessionKey, "status", status,
+		"resident", t.Resident, "start_ms", t.StartMS, "first_event_ms", t.FirstEventMS,
+		"first_sentence_ms", t.FirstSentenceMS, "total_ms", t.TotalMS)
 }
 
 // collectVoiceRelay shares relay workspace resolution, but has a fail-closed
@@ -299,7 +340,7 @@ func (rm *RelayManager) runVoice(ctx context.Context, e *Engine, req RelayReques
 // progress (stream requests only) receives public text deltas, and a boundary
 // when a tool call ends the current assistant message. closeErr reports a failure
 // to persist the session; it never replaces the turn's own result.
-func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior voiceRelayConversation, saveID func(string, string) error, progress func(string, bool)) (answer string, closeErr error, err error) {
+func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, key string, prior voiceRelayConversation, pool *voiceSessionPool, timings *voiceRelayTimings, saveID func(string, string) error, progress func(string, bool)) (answer string, closeErr error, err error) {
 	submitted := false
 	defer func() {
 		if err != nil && !submitted {
@@ -336,16 +377,37 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 	if req.Stream {
 		stream = "1"
 	}
-	session, err := starter.StartVoiceRelay(ctx, prior.ID, []string{
+	var session AgentSession
+	started := time.Now()
+	var reused bool
+	env := []string{
 		"CC_PROJECT=" + e.name, "CC_SESSION_KEY=" + req.SessionKey, "CC_AGENT=" + agent.Name(), "CC_VOICE_STREAM=" + stream,
-	})
+	}
+	if pool == nil {
+		session, err = starter.StartVoiceRelay(ctx, prior.ID, env)
+	} else {
+		session, reused, err = pool.acquire(ctx, key, req.Stream, prior, starter, env)
+	}
 	if err != nil {
 		return "", nil, err
+	}
+	if timings != nil {
+		timings.Resident = reused
+		if !reused {
+			timings.StartMS = msSince(started)
+		}
 	}
 	defer func() {
 		// The answer may already have been spoken (stream mode), so a persist failure
 		// must not turn a delivered turn into a failure; it only risks the next turn
 		// not resuming this context.
+		if pool != nil && pool.isEnabled() {
+			// Resident: a clean turn returns the session to the pool and Close
+			// runs on eviction; a failed, cancelled or timed-out turn is evicted
+			// and closed asynchronously, never blocking this receipt.
+			pool.release(key, session, err == nil && ctx.Err() == nil)
+			return
+		}
 		if closeErr = session.Close(); closeErr != nil && err == nil {
 			slog.Warn("voice relay: persist session failed; answer kept, next turn may not resume this context",
 				"session_key", req.SessionKey, "error", closeErr)
@@ -405,6 +467,26 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 	// ACP Send waits for the full prompt RPC, including permission responses.
 	// Consume events concurrently or a long response/permission can deadlock.
 	sent := make(chan error, 1)
+	sendAt := time.Now()
+	// The first-event watchdog is a resident-pool recovery rule: a session kept
+	// alive across turns must never be reused after it stopped answering. With
+	// relay.voice_resident=false (the default) every turn gets its own session
+	// and the relay timeout already bounds it, so the watchdog must not cancel a
+	// turn whose first event is merely slow.
+	var timedOut atomic.Bool
+	var watchdog *time.Timer
+	if pool != nil && pool.isEnabled() {
+		watchdog = time.AfterFunc(voiceFirstEventWatchdog, func() {
+			timedOut.Store(true)
+			cancel()
+		})
+		defer watchdog.Stop()
+	}
+	defer func() {
+		if timedOut.Load() && err != nil {
+			err = fmt.Errorf("%w: %w", errVoiceFirstEventTimeout, err)
+		}
+	}()
 	submitted = true // From here on, failure may follow tool execution.
 	go func() { sent <- send() }()
 	var text strings.Builder
@@ -423,6 +505,12 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, prior 
 			}
 			if ctx.Err() != nil {
 				return "", nil, ctx.Err()
+			}
+			if timings != nil && timings.FirstEventMS == 0 {
+				timings.FirstEventMS = msSince(sendAt)
+				if watchdog != nil {
+					watchdog.Stop()
+				}
 			}
 			if event.SessionID != "" {
 				if err := saveID(event.SessionID, agent.Name()); err != nil {

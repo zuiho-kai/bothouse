@@ -202,7 +202,7 @@ Options:
       --data-dir <path>      Data directory (default: ~/.bothouse)
       --task <id>            Existing source task; details go to its thread
       --request-id <id>      Stable dispatch ID (required with --task)
-      --workspace <id>       Execute the task in this sibling workspace (same chat channel)
+      --workspace <id>       Execute the task in this workspace of the source chat
   -h, --help                 Show this help
 
 Examples:

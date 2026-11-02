@@ -94,6 +94,7 @@ func (e *Engine) stopChannel(platform, sessionKey string) int {
 
 	stopped := 0
 	for _, k := range keys {
+		e.revokeInteractiveAuthorization(k)
 		if e.stopInteractiveSessionWithOptions(k, true) {
 			stopped++
 		}

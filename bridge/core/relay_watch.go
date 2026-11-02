@@ -202,7 +202,7 @@ func (p *PublicProgress) relayWatchRun(r *publicRun, live map[string]*taskRelay,
 		if rc.Status != "running" || rc.WatchDue.IsZero() || rc.WatchDone {
 			continue
 		}
-		if p.quotaBlocked != nil && p.quotaBlocked(rc.Target) {
+		if p.quotaBlocked != nil && p.quotaBlocked(rc.Target, r.record.Task.SessionKey) {
 			// Leave the receipt for takeover; never nudge a cooling backend.
 			rc.WatchDue = now.Add(watchCheckAfter())
 			r.record.Relays[id] = rc

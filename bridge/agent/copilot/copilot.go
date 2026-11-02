@@ -165,6 +165,8 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	}
 	a.mu.RUnlock()
 
+	model, _ = core.SessionModelAndEffort(ctx, model, "")
+
 	return newCopilotSession(ctx, workDir, cmd, extraArgs, model, mode, sessionID, extraEnv, provider)
 }
 
@@ -198,7 +200,7 @@ type probeSession struct {
 }
 
 type probeSnapshot struct {
-	cmd  string
+	cmd     string
 	workDir string
 	env     []string
 }

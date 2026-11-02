@@ -8,23 +8,44 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 )
 
+// relayHandoffRefRE extends the quota takeover's handoff-ref regex with
+// ".prompt": team handoffs are written as "<name>.handoff.prompt" and the board
+// stores that same path in Where, so a receipt must carry it for #72 to match
+// HandoffRefs against Where. Source: #72 shared-interface contract and the live
+// board's where values, 2026-11-02.
+var relayHandoffRefRE = regexp.MustCompile("(?:[A-Za-z]:\\\\|/|~/|[[:alnum:]_.-]+/)[^\\s\"'<>`]+\\.(?:md|txt|prompt)(?::[0-9]+)?")
+
+// taskRelayBoardRef pins the board item a dispatch may report back to: the item
+// id, its bound generation and the task revision at dispatch time. The consumer
+// (team_task_review.go) refuses a return whose generation or revision no longer
+// matches, so a worker's own response text can never name a board item.
+// Source: #72 shared-interface contract, 2026-11-02.
+type taskRelayBoardRef struct {
+	Board    int    `json:"board"`
+	Bound    string `json:"bound"`
+	Revision int    `json:"revision"`
+}
+
 // A receipt is committed before execution. Delivery retries never run tools
 // again, including after restart or an ambiguous execution failure.
 type taskRelayRecord struct {
-	HandoffRefs []string         `json:"handoff_refs,omitempty"`
-	Hash        string           `json:"hash"`
-	Target      string           `json:"target"`
-	Workspace   string           `json:"workspace,omitempty"` // execution workspace (sibling of the source workspace); empty = source
-	Status      string           `json:"status"`              // running, done, failed; running after restart is unresolved
-	Response    string           `json:"response,omitempty"`
-	Error       string           `json:"error,omitempty"`
-	LastSeq     int64            `json:"last_seq,omitempty"`
-	Reports     map[int64]string `json:"reports,omitempty"`
+	HandoffRefs []string            `json:"handoff_refs,omitempty"`
+	BoardRefs   []taskRelayBoardRef `json:"board_refs,omitempty"` // captured before execution; #72 consumes it, never the response text
+	MemberIDs   []string            `json:"member_ids,omitempty"` // assignments captured at dispatch, never later rows
+	Hash        string              `json:"hash"`
+	Target      string              `json:"target"`
+	Workspace   string              `json:"workspace,omitempty"` // execution workspace (sibling of the source workspace); empty = source
+	Status      string              `json:"status"`              // running, done, failed; running after restart is unresolved
+	Response    string              `json:"response,omitempty"`
+	Error       string              `json:"error,omitempty"`
+	LastSeq     int64               `json:"last_seq,omitempty"`
+	Reports     map[int64]string    `json:"reports,omitempty"`
 	// Ten-minute watch (relay_watch.go); kept with the receipt, never a workspace handoff.
 	WatchDue     time.Time `json:"watch_due,omitempty"`
 	WatchFrom    time.Time `json:"watch_from,omitempty"` // this window began (member row updates after it count)
@@ -64,7 +85,7 @@ func (e *Engine) handleRelay(ctx context.Context, fromProject, sourceSessionKey,
 	if taskScope != "" {
 		key += ":task:" + taskScope
 	}
-	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, message, agent, sessions, key, taskScope != "", stop, nudge, complete)
+	return e.handleTrackedRelay(ctx, fromProject, sourceSessionKey, resolveKey, message, agent, sessions, key, taskScope != "", stop, nudge, complete)
 }
 
 func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, target *Engine, name string) (*RelayResponse, error) {
@@ -74,7 +95,14 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	if source.publicProgress == nil {
 		return nil, errors.New("relay: task cards are not enabled on source")
 	}
-	if err := source.publicProgress.checkWorkspaceCard(req.SessionKey); err != nil {
+	if err := source.publicProgress.checkAssignmentCard(req.SessionKey, req.Workspace); err != nil {
+		return nil, err
+	}
+	task, found := source.publicProgress.Task(req.TaskID)
+	if !found {
+		return nil, errors.New("relay: unknown task")
+	}
+	if err := source.CheckTaskAuthorization(task, "task.dispatch"); err != nil {
 		return nil, err
 	}
 	d, cached, err := source.publicProgress.beginTaskRelay(req, name)
@@ -91,12 +119,46 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 		relayStop = d.stop
 		relayNudge = d.nudge
 	}
+	// Authorization follows execution, including the background drain after the
+	// caller's wait expires. Cancelling only the wait context does not stop tools.
+	releaseAuthorization := func() {}
+	if task.AuthorizationDecisionID != "" {
+		a, openErr := source.ProactiveAuthorization()
+		if openErr != nil {
+			return nil, errors.Join(openErr, d.finish("", openErr))
+		}
+		changed, unwatch, watchErr := a.Watch(task.AuthorizationDecisionID)
+		if watchErr != nil {
+			return nil, errors.Join(watchErr, d.finish("", watchErr))
+		}
+		done := make(chan struct{})
+		var once sync.Once
+		releaseAuthorization = func() { once.Do(func() { close(done); unwatch() }) }
+		relayStop = d.stop
+		go func() {
+			select {
+			case <-changed:
+				d.stopWatch()
+			case <-source.ctx.Done():
+				d.stopWatch()
+			case <-done:
+			}
+		}()
+	}
+	background := false
+	defer func() {
+		if !background {
+			releaseAuthorization()
+		}
+	}()
 	relayCtx, cancel := rm.relayContext(ctx)
 	defer cancel()
+	relayCtx = withProactiveExecution(relayCtx, source, task)
 	// Distinct request sessions prevent concurrent dispatches from sharing a
 	// conversation. This is routing, not a tool/filesystem sandbox.
 	scope := req.TaskID + ":" + fmt.Sprintf("%x", sha256.Sum256([]byte(req.RequestID)))
 	response, runErr := target.handleRelay(relayCtx, req.From, req.SessionKey, d.req.Workspace, d.prompt()+req.Message, scope, relayStop, relayNudge, func(response string, runErr error) {
+		defer releaseAuthorization()
 		if err := d.finish(response, runErr); err != nil {
 			slog.Error("relay: background result checkpoint failed", "task_id", req.TaskID, "error", err)
 		}
@@ -106,6 +168,7 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	})
 	var draining *relayDrainingError
 	if errors.As(runErr, &draining) {
+		background = true
 		continuation := "under the ten-minute watch and its outcome will wake this session"
 		if !watchStarted {
 			continuation = "in the background; the source engine is stopping, so the drain's safety limit will end it"
@@ -114,6 +177,12 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	}
 	if err := d.finish(response, runErr); err != nil {
 		return nil, fmt.Errorf("relay: result checkpoint failed; do not repeat tools: %w", err)
+	}
+	if runErr != nil && d.leadReleased() {
+		// The lead's turn ended while the run was still inside the wait, so
+		// this error goes back to a command nobody reads (10-31: a dispatch
+		// failed at 23:52 and the workspace sat idle until the user asked).
+		source.wakeRelayLead(req, name, response, runErr)
 	}
 	if errors.Is(runErr, errRelayWatchStopped) && strings.TrimSpace(response) != "" {
 		return nil, fmt.Errorf("relay: %w\n\n部分结果：\n%s", runErr, response)
@@ -277,6 +346,37 @@ func (p *PublicProgress) queueTaskRelay(r *publicRun) {
 	p.mu.Unlock()
 }
 
+// relayBoardRefs captures the board items a dispatch may report back to: same
+// chat as the source task, dispatched by this project or by the team lead, and
+// whose handoff path the caller named. Only the dispatch supplies this, never
+// the worker's later response. Source: #72 shared-interface contract, 2026-11-02.
+func (e *Engine) relayBoardRefs(from, sessionKey string, handoffs []string, revision int) []taskRelayBoardRef {
+	if e.team == nil {
+		return nil
+	}
+	chat := sessionKey
+	if parent, ok := e.WorkspaceParent(chat); ok {
+		chat = parent
+	}
+	key, lead := teamChatKey(chat), e.isTeamLead()
+	var refs []taskRelayBoardRef
+	for _, it := range readTeamTaskBoard(e.team.dir) {
+		if it.ID == 0 || it.Bound == "" || teamChatKey(it.Chat) != key {
+			continue
+		}
+		if it.Dispatcher != from && !lead {
+			continue
+		}
+		for _, path := range handoffs {
+			if it.Where != "" && path == it.Where {
+				refs = append(refs, taskRelayBoardRef{Board: it.ID, Bound: it.Bound, Revision: revision})
+				break
+			}
+		}
+	}
+	return refs
+}
+
 func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRelay, *RelayResponse, error) {
 	p.transitionMu.Lock()
 	defer p.transitionMu.Unlock()
@@ -355,16 +455,31 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 			return nil, nil, fmt.Errorf("relay: workspace: %w", err)
 		}
 	}
-	// Bound in the source workspace (facts land on its card) and, when set, in
-	// the execution workspace (the target runs there).
-	for _, session := range taskReporterSessions(req.SessionKey, req.Workspace) {
+	// Bound in the card's channel (the source workspace, or the workspace
+	// holding a chat-channel source's card) and, when set, in the execution
+	// workspace (the target runs there).
+	for _, session := range taskReporterSessions(r.record.Task.cardSessionKey(), req.Workspace) {
 		if _, err := p.taskReporter(req.To, r.record.Platform, session, r.publisher); err != nil {
 			return nil, nil, fmt.Errorf("relay: reporter: %w", err)
 		}
 	}
 	old := snapshotTaskRelay(r)
 	now := time.Now().UTC()
-	r.record.Relays[req.RequestID] = taskRelayRecord{HandoffRefs: quotaHandoffRefRE.FindAllString(req.Message, -1), Hash: hash, Target: req.To, Workspace: req.Workspace, Status: "running", WatchFrom: now, WatchDue: now.Add(watchCheckAfter())}
+	var memberIDs []string
+	for _, member := range r.record.Task.Members {
+		if member.ReporterProject == req.To && member.Workspace == req.Workspace && member.Live() {
+			memberIDs = append(memberIDs, member.ID)
+		}
+	}
+	handoffs := relayHandoffRefRE.FindAllString(req.Message, -1)
+	// Freeze the board generation before execution: a later return must match
+	// this dispatch, not whatever the board says when the report comes back.
+	// Source: #72 shared-interface contract, 2026-11-02.
+	var boardRefs []taskRelayBoardRef
+	if p.relayBoardRefs != nil {
+		boardRefs = p.relayBoardRefs(req.From, req.SessionKey, handoffs, r.record.Task.RevisionNo())
+	}
+	r.record.Relays[req.RequestID] = taskRelayRecord{MemberIDs: memberIDs, HandoffRefs: handoffs, BoardRefs: boardRefs, Hash: hash, Target: req.To, Workspace: req.Workspace, Status: "running", WatchFrom: now, WatchDue: now.Add(watchCheckAfter())}
 	p.appendEvent(r, TaskEventProgress, NewI18n(r.record.Lang).Tf(MsgTaskRelayAssigned, name), true)
 	// Assignment text may contain a private report grant; never publish it.
 	if err := p.save(r); err != nil {
@@ -448,8 +563,20 @@ func (d *taskRelay) finish(response string, runErr error) error {
 		failureText = runErr.Error()
 		if reason, ok := BackendUnavailableText(runErr, r.record.Lang); ok {
 			failureText = reason
-			if p.quotaBlocked == nil || !p.quotaBlocked(d.req.To) {
+			if p.quotaBlocked == nil || !p.quotaBlocked(d.req.To, d.req.SessionKey) {
 				p.failMembersOnBackendUnavailable(r, d.req.To, reason)
+			}
+		} else {
+			// Ordinary execution failure belongs to this dispatch, not every live
+			// row of the bot. A later assignment or completed result must survive.
+			now := time.Now().UTC()
+			for _, id := range receipt.MemberIDs {
+				if i := memberIndex(r.record.Task, id); i >= 0 && r.record.Task.Members[i].Live() {
+					member := &r.record.Task.Members[i]
+					member.Status = "failed"
+					member.Summary = NewI18n(r.record.Lang).Tf(MsgTaskRelayFailed, d.name)
+					member.UpdatedAt, member.EndedAt = now, now
+				}
 			}
 		}
 		receipt.Status, receipt.Error = "failed", failureText
@@ -484,6 +611,13 @@ func (d *taskRelay) finish(response string, runErr error) error {
 	p.mu.Unlock()
 	p.queueTaskRelay(r)
 	return nil
+}
+
+// leadReleased reports whether the lead's turn no longer holds the card.
+func (d *taskRelay) leadReleased() bool {
+	d.r.mu.Lock()
+	defer d.r.mu.Unlock()
+	return !taskRelayActive(d.r)
 }
 
 func shellQuoteRelay(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
@@ -540,10 +674,13 @@ func (e *Engine) wakeRelayLead(req RelayRequest, worker, response string, runErr
 	case errors.Is(runErr, errRelayWatchInterrupted):
 		outcome = "因桥重启中断（运行已丢失，没有结果）"
 	case runErr != nil:
-		outcome = "后台执行结束但没有确认结果（" + runErr.Error() + "）"
+		outcome = "派工失败（" + truncateRunes(runErr.Error(), 300) + "）"
 	}
 	prompt := fmt.Sprintf("[派工回执] 任务 %s 派给%s的活（请求 %s）%s。先核对实际产物（分支、提交、工作树、PR），再决定验收、续派（同一任务、新的请求号，从检查点接着做）或收口；不要重复已经成功的操作。",
 		req.TaskID, worker, req.RequestID, outcome)
+	if runErr != nil && !errors.Is(runErr, errRelayWatchStopped) && !errors.Is(runErr, errRelayWatchInterrupted) {
+		prompt += "这件活现在没人在做：这一轮就自己接着做，或换一个空着的队友重派，不要等。"
+	}
 	if out := strings.TrimSpace(response); out != "" {
 		prompt += "\n\n" + worker + "交回的内容：\n" + truncateRelayMore(e.dataDir, "relay-"+req.TaskID, out, relayLeadWakeLimit)
 	}

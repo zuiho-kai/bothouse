@@ -86,9 +86,9 @@ func TestCUJ_QuotaExhaustedTurnEndsOnceWithAttributedNotice(t *testing.T) {
 				t.Fatalf("cooldown notice missing: %q", out)
 			}
 			// Advance the deadline instead of paying for a retry during cooldown.
-			e.capMu.Lock()
-			e.quotaUntil = time.Now().Add(-time.Second)
-			e.capMu.Unlock()
+			quotaDomainsMu.Lock()
+			e.saveDomainLocked(e.quotaScopeFor(e.agent, modelOf(e.agent)).key(), time.Now().Add(-time.Second))
+			quotaDomainsMu.Unlock()
 			p.clearSent()
 			send("third")
 			inputPrompt(t, &inputTestAgent{session: as.inputTestSession})

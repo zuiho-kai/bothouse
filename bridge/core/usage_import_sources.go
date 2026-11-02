@@ -90,6 +90,22 @@ func (s CodexUsageSource) Files() ([]string, error) {
 	return append(a, b...), nil
 }
 
+// CodexHomeFromOptions returns the CODEX_HOME an agent's options use: the
+// codex_home option, else CODEX_HOME in its env, else "".
+func CodexHomeFromOptions(opts map[string]any) string {
+	if v, ok := opts["codex_home"].(string); ok && v != "" {
+		return v
+	}
+	switch m := opts["env"].(type) {
+	case map[string]string:
+		return m["CODEX_HOME"]
+	case map[string]any:
+		v, _ := m["CODEX_HOME"].(string)
+		return v
+	}
+	return ""
+}
+
 // codexSessionIDLen is the length of the UUID at the end of a rollout file name.
 const codexSessionIDLen = 36 // SPEC: canonical UUID text form 8-4-4-4-12
 

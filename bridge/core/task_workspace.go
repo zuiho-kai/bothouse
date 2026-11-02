@@ -31,17 +31,13 @@ func taskWorkspaceChannelKey(sourceSessionKey, workspace string) (platform, wsID
 }
 
 // resolveTaskWorkspace validates an explicit execution workspace for a task
-// whose card lives in the source workspace sourceSessionKey. Task cards only
-// live in workspace channels (#453), so a cross-workspace dispatch goes from
-// workspace A (card, reports and watch stay on A's card) to another workspace
-// B of the same chat channel: WorkspaceParent(A) == WorkspaceParent(B). B must
-// already be claimed (claim it first). The claim itself records one handoff in
-// work, so B is busy only when it has more than teamWorkspaceBusy in work: the
-// claim for this dispatch plus some other task. A second claim of B by the same
-// chat channel is not refused (ClaimTeamWorkspaceFor only refuses other
-// channels), so a claim made for another task still lets this dispatch in;
-// closing that gap needs the task id recorded on the claim. It returns the
-// normalized "<platform>:<workspace id>" key.
+// owned by sourceSessionKey. The source may be a workspace A or the chat
+// channel that owns the workspaces. Task cards only live in workspace channels
+// (#453), so a dispatch from a workspace A goes to a sibling workspace B of the
+// same chat (WorkspaceParent(A) == WorkspaceParent(B)); a dispatch from the
+// chat channel goes to one of its own workspaces (Parent(B) == chat). B must
+// already be claimed (claim it first) and have fewer than teamWorkspaceBusy
+// tasks in work. It returns the normalized "<platform>:<workspace id>" key.
 func (e *Engine) resolveTaskWorkspace(sourceSessionKey, workspace string) (string, error) {
 	platform, wsID, err := taskWorkspaceChannelKey(sourceSessionKey, workspace)
 	if err != nil {
@@ -51,15 +47,20 @@ func (e *Engine) resolveTaskWorkspace(sourceSessionKey, workspace string) (strin
 	if err != nil {
 		return "", fmt.Errorf("source session: %w", err)
 	}
-	sourceParent, ok := e.WorkspaceParent(platform + ":" + sourceID)
-	if !ok {
-		return "", errors.New("source session is not a workspace of a chat channel; dispatch from a workspace")
+	sourceChannel := platform + ":" + sourceID
+	sourceChat, isWorkspace := e.WorkspaceParent(sourceChannel)
+	if !isWorkspace {
+		// The source is the chat channel itself, not one of its workspaces.
+		sourceChat = teamChatKey(sourceChannel)
+		if len(e.TeamWorkspacesOf(sourceChat)) == 0 {
+			return "", errors.New("source session is not a workspace or a chat channel with workspaces; dispatch from a workspace or a chat channel")
+		}
 	}
 	parent, ok := e.WorkspaceParent(platform + ":" + wsID)
 	if !ok {
 		return "", fmt.Errorf("workspace %q is not a recorded workspace of this chat; claim it first", wsID)
 	}
-	if parent != sourceParent {
+	if parent != sourceChat {
 		return "", fmt.Errorf("workspace %q belongs to another chat channel", wsID)
 	}
 	teamWorkspaceStore.mu.Lock()

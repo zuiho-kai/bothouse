@@ -1,0 +1,44 @@
+"""Example watchvid adapter for Douyin (抖音). Not active: copy it to ~/.config/watchvid/adapters/douyin.py and
+fill in play_url() before it does anything.
+
+Why an adapter: Douyin pages need signed requests (a_bogus / X-Bogus) and fresh cookies, which yt-dlp alone cannot
+produce, so a Douyin link fails there with "Fresh cookies needed". Existing open-source projects already solve the
+signing; pick one, run it yourself, and let play_url() ask it for the video:
+  - Evil0ctal/Douyin_TikTok_Download_API  https://github.com/Evil0ctal/Douyin_TikTok_Download_API
+    (self-hosted web API; Douyin, TikTok, Bilibili)
+  - Johnserf-Seed/f2  https://github.com/Johnserf-Seed/f2  (Python library and CLI)
+Their APIs change with Douyin; read their current docs. Use only what their licenses and the site's terms allow,
+and never commit cookies.
+
+Contract (see watchvid --help):
+  MATCH            regex tried against the link
+  media_id(url)    optional; names the output folder (default: a hash of the link)
+  fetch(url, d)    save d/"video.mp4" and return a meta dict: title, url, and optionally site, id, owner, desc,
+                   duration (seconds), pubdate, stat {view, like, reply}. Raise with a clear message on failure;
+                   watchvid prints it and stops.
+"""
+import re
+
+MATCH = r"(^|//)(v\.|www\.|m\.)?(douyin|iesdouyin)\.com/"
+
+
+def media_id(url):
+    m = re.search(r"/video/(\d+)", url)
+    return m.group(1) if m else re.sub(r"\W", "_", url.rsplit("/", 2)[-2] if url.endswith("/") else url.rsplit("/", 1)[-1])
+
+
+def play_url(url):
+    """Return (direct mp4 URL, meta dict) for a Douyin link, using the extractor you chose above."""
+    raise RuntimeError("Douyin adapter is not set up: fill in play_url() in ~/.config/watchvid/adapters/douyin.py "
+                       "with an extractor such as Douyin_TikTok_Download_API or f2")
+
+
+def fetch(url, d):
+    src, meta = play_url(url)
+    import requests  # watchvid's own dependency, installed by uv
+    with requests.get(src, stream=True, timeout=60, headers={"User-Agent": "Mozilla/5.0"}) as r:  # 60s: one short clip
+        r.raise_for_status()
+        with open(d / "video.mp4", "wb") as f:
+            for chunk in r.iter_content(1 << 20):
+                f.write(chunk)
+    return dict(meta, site="douyin", url=url)

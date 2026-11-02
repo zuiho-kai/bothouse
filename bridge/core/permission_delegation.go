@@ -96,7 +96,7 @@ func (e *Engine) handleDelegatedPermission(p Platform, msg *Message, state *inte
 	} else {
 		result.Message = "Denied by an operator-authorized permission delegate."
 	}
-	if err := as.RespondPermission(pending.RequestID, result); err != nil {
+	if err := e.respondTurnPermission(state, as, pending.RequestID, result); err != nil {
 		slog.Error("delegated permission failed", "actor", msg.UserID, "approval_id", pending.ApprovalID, "error", err)
 		e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgError), err))
 		return true // Keep the request for human review or a deliberate retry.

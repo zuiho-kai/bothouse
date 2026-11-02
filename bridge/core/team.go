@@ -192,7 +192,10 @@ type teamFile struct {
 	Tasks    []teamTaskLink `json:"tasks,omitempty"`
 	// CoolingUntil (maomao fork): the bot's model is cooling down after "at
 	// capacity" until then; schedulers (outing-tick) hold off.
-	CoolingUntil time.Time `json:"cooling_until,omitzero"`
+	CapacityUntil    time.Time `json:"capacity_until,omitzero"`
+	LegacyQuotaUntil time.Time `json:"legacy_quota_until,omitzero"`
+	QuotaScoped      bool      `json:"quota_scoped,omitempty"`
+	CoolingUntil     time.Time `json:"cooling_until,omitzero"`
 	// Mention (maomao fork): how teammates address this bot on its platform (SelfMentioner),
 	// so a voice-desk dispatch can hand work to it in the right channel.
 	Mention string `json:"mention,omitempty"`
@@ -250,7 +253,14 @@ func (e *Engine) SetTeam(dir, name string, inject bool) {
 			var saved teamFile
 			if err := json.Unmarshal(data, &saved); err != nil {
 				slog.Warn("team: cannot decode saved cooldown", "path", path, "error", err)
-			} else if saved.Project == e.name && saved.CoolingUntil.After(time.Now()) {
+			} else if saved.QuotaScoped && saved.Project == e.name {
+				e.capMu.Lock()
+				e.capUntil = saved.CapacityUntil
+				if saved.LegacyQuotaUntil.After(e.quotaUntil) {
+					e.quotaUntil = saved.LegacyQuotaUntil
+				}
+				e.capMu.Unlock()
+			} else if !saved.QuotaScoped && saved.Project == e.name && saved.CoolingUntil.After(time.Now()) {
 				e.capMu.Lock()
 				if saved.CoolingUntil.After(e.quotaUntil) {
 					e.quotaUntil = saved.CoolingUntil
@@ -362,12 +372,18 @@ func (e *Engine) runTeamWriter() {
 			f.Tasks = e.publicProgress.taskLinks()
 		}
 		sort.Slice(f.Sessions, func(i, j int) bool { return f.Sessions[i].Key < f.Sessions[j].Key })
+		f.QuotaScoped = true
+		e.capMu.Lock()
+		f.CapacityUntil, f.LegacyQuotaUntil = e.capUntil, e.quotaUntil
+		e.capMu.Unlock()
 		f.CoolingUntil = e.capacityCoolingUntil().Truncate(time.Second) // whole seconds: outing-tick parses it with Python fromisoformat
 		body, _ := json.Marshal(struct {
-			S []teamEntry
-			C time.Time
-			T []teamTaskLink
-		}{f.Sessions, f.CoolingUntil, f.Tasks})
+			S        []teamEntry
+			C        time.Time
+			Capacity time.Time
+			Legacy   time.Time
+			T        []teamTaskLink
+		}{f.Sessions, f.CoolingUntil, f.CapacityUntil, f.LegacyQuotaUntil, f.Tasks})
 		if string(body) == string(last) && now.Sub(lastWrite) < teamHeartbeat {
 			continue
 		}

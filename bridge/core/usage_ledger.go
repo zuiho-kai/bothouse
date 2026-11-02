@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -83,6 +84,41 @@ func UsagePricesWithDefaults(configured map[string]TokenPrice) map[string]TokenP
 		p[k] = v
 	}
 	return p
+}
+
+// priceSuffixes are trailing id segments that name a variant of a priced model
+// without changing its rate (date stamps, preview/trial markers, provider
+// variants). They are trimmed only when the remaining id has a price.
+var priceSuffixes = []string{"-trial", "-preview", "-latest", "-exp", "-free", "-n"}
+
+// lookupPrice finds the rate for a model id. Logs record ids exactly as the
+// caller wrote them ("xiao/gpt-6-astra", "gemini-4-argon-trial"), while the price
+// tables key on the bare model name, so an exact match is tried first and then
+// the provider prefix and variant suffixes are trimmed.
+func lookupPrice(prices map[string]TokenPrice, model string) (TokenPrice, bool) {
+	if p, ok := prices[model]; ok {
+		return p, true
+	}
+	base := model
+	if i := strings.LastIndex(base, "/"); i >= 0 {
+		base = base[i+1:]
+	}
+	if p, ok := prices[base]; ok {
+		return p, true
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, suf := range priceSuffixes {
+			if strings.HasSuffix(base, suf) && len(base) > len(suf) {
+				base = strings.TrimSuffix(base, suf)
+				changed = true
+				if p, ok := prices[base]; ok {
+					return p, true
+				}
+			}
+		}
+	}
+	return TokenPrice{}, false
 }
 
 // syntheticModel is what Claude Code logs for messages it makes up locally
@@ -236,7 +272,7 @@ func (l *UsageLedger) aggregate(records []UsageRecord, group string) []UsageAggr
 		if !r.Known {
 			dst.Unknown++
 		}
-		if price, ok := l.prices[r.Model]; ok && r.Known {
+		if price, ok := lookupPrice(l.prices, r.Model); ok && r.Known {
 			cost := (float64(r.Input)*price.Input + float64(r.Output)*price.Output + float64(r.CacheRead)*price.CacheRead + float64(r.CacheWrite)*price.CacheWrite) / 1e6
 			if dst.EstimatedCost == nil {
 				dst.EstimatedCost = new(float64)

@@ -745,7 +745,7 @@ func (cs *CronScheduler) runJob(job *CronJob, manual bool) {
 		return
 	}
 	if !job.IsShellJob() {
-		if wait := engine.capacityWait(); wait > 0 {
+		if wait := engine.capacityWait(engine.admissionQuotaScope(engine.agent, job.SessionKey)); wait > 0 {
 			slog.Info("cron: skipping job during provider cooldown", "id", job.ID, "project", job.Project, "cooling_for", wait)
 			return
 		}

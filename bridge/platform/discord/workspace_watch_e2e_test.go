@@ -178,8 +178,8 @@ func stopBotBursts(p *Platform) {
 
 // Create 「工作区1」 beside the chat channel on Discord, claim it with the watch on, and at the
 // check time (shortened to 1s by BOTHOUSE_WATCH_TEST_SECONDS, as the runbook does) the watch reads
-// the workspace's Discord history, finds no progress and posts one nudge in that channel; then a
-// second `workspace new` adopts nothing busy and creates no duplicate while the task is parked.
+// the workspace's Discord history, nudges, resumes once, then parks if there is still no
+// progress (#825). A second `workspace new` reuses the parked workspace.
 func TestDiscordWorkspaceWatchEndToEnd(t *testing.T) {
 	t.Setenv("BOTHOUSE_WATCH_TEST_SECONDS", "1")
 	rest := newGuildREST()
@@ -228,13 +228,7 @@ func TestDiscordWorkspaceWatchEndToEnd(t *testing.T) {
 	if reads == 0 {
 		t.Fatal("the watch must read the workspace's Discord history for progress")
 	}
-	time.Sleep(1500 * time.Millisecond) // a second check time passes: no second nudge
-	if got := rest.postsTo("103"); len(got) != 1 {
-		t.Fatalf("parked after one nudge, got %v", got)
-	}
-	if got := rest.postsTo("100"); len(got) != 0 {
-		t.Fatalf("nothing posted in the chat channel: %v", got)
-	}
+	assertWatchResumesThenParks(t, rest, owner, "G39 串测")
 
 	// The parked workspace is free again: the next `workspace new` adopts it, no new channel.
 	_, w2, err := e.NewTeamWorkspace("discord:100:u1")
@@ -250,7 +244,7 @@ func TestDiscordWorkspaceWatchEndToEnd(t *testing.T) {
 }
 
 // A bridge restart between the claim and the check time: the new bridge re-arms the watch from
-// the team workspace file and the nudge still reaches the Discord workspace channel once.
+// the team workspace file and the nudge/resume/park sequence still reaches Discord once.
 func TestDiscordWorkspaceWatchSurvivesRestart(t *testing.T) {
 	t.Setenv("BOTHOUSE_WATCH_TEST_SECONDS", "1")
 	rest := newGuildREST()
@@ -275,9 +269,27 @@ func TestDiscordWorkspaceWatchSurvivesRestart(t *testing.T) {
 	if len(posts) != 1 || !strings.Contains(posts[0], "<@u9>") || !strings.Contains(posts[0], "到了检查时间还没交回") {
 		t.Fatalf("after restart: one nudge in the workspace channel, got %v (unexpected %v)", posts, rest.unexpected)
 	}
-	time.Sleep(1500 * time.Millisecond)
-	if got := rest.postsTo("103"); len(got) != 1 {
-		t.Fatalf("after restart: still one nudge, got %v", got)
+	assertWatchResumesThenParks(t, rest, "u9", "重启")
+}
+
+// Source: #825 deliberately adds one resume and two chat notices. Check those
+// effects and that the watch stops after parking, rather than ignoring extra posts.
+func assertWatchResumesThenParks(t *testing.T, rest *guildREST, owner, title string) {
+	t.Helper()
+	i18n := core.NewI18n(core.LangEnglish)
+	posts := waitPosts(t, rest, "103", 2, 5*time.Second)
+	wantResume := "<@" + owner + "> " + i18n.Tf(core.MsgWatchResume, title)
+	if len(posts) != 2 || posts[1] != wantResume {
+		t.Fatalf("want one nudge then one resume, got %v", posts)
+	}
+	chat := waitPosts(t, rest, "100", 2, 5*time.Second)
+	if len(chat) != 2 || chat[0] != i18n.Tf(core.MsgWatchAutoResumed, "<#103>", title) ||
+		chat[1] != i18n.Tf(core.MsgWatchParkedNotice, "<#103>", title) {
+		t.Fatalf("want resume then park notices in the originating chat, got %v", chat)
+	}
+	time.Sleep(1500 * time.Millisecond) // existing test window: another check must not post again
+	if len(rest.postsTo("103")) != 2 || len(rest.postsTo("100")) != 2 {
+		t.Fatal("parked watch posted another nudge, resume or notice")
 	}
 }
 

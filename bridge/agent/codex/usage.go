@@ -58,6 +58,16 @@ func (a *Agent) GetUsage(ctx context.Context) (*core.UsageReport, error) {
 	return a.fetchUsage(ctx, http.DefaultClient, tokens)
 }
 
+// Source: auth.json account_id and the account-wide rate_limit returned by
+// the existing usage endpoint. Different Codex model IDs do not prove a new pool.
+func (a *Agent) QuotaScope(string) (string, string) {
+	if tokens, err := a.readOAuthTokens(os.ReadFile); err == nil {
+		return tokens.AccountID, "account"
+	}
+	home, _ := a.usageCodexHome()
+	return home, "account"
+}
+
 // SupportsUsageReporting implements core.UsageCapability: the account quota
 // exists only when this agent's CODEX_HOME holds a ChatGPT login. A relay or
 // API-key home has none, and the process's own ~/.codex may be another

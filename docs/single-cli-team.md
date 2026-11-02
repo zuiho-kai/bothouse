@@ -24,7 +24,7 @@
 | 自建平台（cloud_web） | bothouse 安装向导 → 自建平台 | 每个角色一个不同名字；无需 Discord token，CLI 可以相同 |
 | 飞书 | bothouse 安装向导 → 飞书 | 当前向导支持单角色，不作为这份多成员教程的入口 |
 
-首次安装 DSH 插件见 [README 的 DSH 入口](../README.zh-CN.md#dsh-频道实验)。Discord / 自建平台见[接入指南](connect-discord-feishu.md)。DSH 模型成员直接使用 DSH 配置的模型；“DeepSeek”在这里指模型，不是要求安装一个名为 DeepSeek 的 CLI。
+首次安装 DSH 插件见 [上手指南的 DSH 入口](platforms/dsh.md)。Discord / 自建平台见[接入指南](connect-discord-feishu.md)。DSH 模型成员直接使用 DSH 配置的模型；“DeepSeek”在这里指模型，不是要求安装一个名为 DeepSeek 的 CLI。
 
 ## 在 DSH 里创建三个成员
 

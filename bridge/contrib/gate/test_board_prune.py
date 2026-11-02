@@ -315,6 +315,23 @@ class Timers(unittest.TestCase):
         board.main(["pause", "1"])
         self.assertEqual(self.calls(), [])
 
+    def test_pause_stale_uses_newer_at_over_expired_progress_at(self):
+        """progress_at 已过期但 at 较新时不应被 pause_stale 暂停；两者都过期才暂停。"""
+        expired_prog = NOW - 2 * board.STALE_AFTER
+        board._write([
+            {"id": 1, "what": "刚更新过状态", "where": "-", "status": "推进中", "who": "工作区1橘",
+             "ws": "discord:ws1", "sk": "discord:ws1", "chat": "discord:100",
+             "at": "10-26 10:40", "progress_at": expired_prog},
+            {"id": 2, "what": "确实停滞", "where": "-", "status": "推进中", "who": "工作区2橘",
+             "ws": "discord:ws2", "sk": "discord:ws2", "chat": "discord:100",
+             "at": "10-26 08:30", "progress_at": expired_prog},
+        ])
+        changed = board.pause_stale(now=NOW)
+        self.assertEqual([i["id"] for i in changed], [2])
+        by_id = {i["id"]: i for i in board._read()}
+        self.assertNotIn("paused", by_id[1])
+        self.assertEqual(by_id[2].get("pause_why"), "一小时无进展，转待办")
+
 
 if __name__ == "__main__":
     try:

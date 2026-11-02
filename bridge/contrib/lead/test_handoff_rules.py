@@ -16,6 +16,30 @@ BASE = ("# 交接\n## 用户原话\n「x」\n## 总目标\n- z\n## 范围\n- 改
         "## 已查过什么\n- dsh/collab/tasks.mjs:467 只校验 ref\n## 进度\n| a |\n"
         "## 相关改动\n- #1 已合\n冲突：无\n## 规矩\n- y\n")
 GOOD = BASE + "## 参照实现\n- bridge/contrib/lead/ws-up:120（差异：不发卡）\n"
+ART_GOAL = GOOD.replace("## 总目标\n- z\n", "## 总目标\n- 给瑞凤画一张 Q版小人\n").replace("- 改：x\n", "- 改：瑞凤小人（3 张）\n")
+ART = [
+    ART_GOAL,
+    ART_GOAL + "## 参考图\n- ~/art/ref/官方立绘.png\n",
+    ART_GOAL + "## 参考图\n- ~/art/ref/官方立绘.png\n- https://example.com/fan/1.jpg\n",
+    ART_GOAL + "参考图：~/a/1.webp、~/a/2.PNG\n",
+    ART_GOAL + "原创：无现成图\n## 参考图\n- ~/a/style1.png\n- ~/a/style2.jpg\n",
+    ART_GOAL + "原创：无现成图\n## 参考图\n- ~/a/style1.png\n- ~/a/style2.jpg\n先出 3 张小样给用户挑\n",
+    ART_GOAL.replace("- 改：瑞凤小人（3 张）\n", "- 改：出图检查（bridge/contrib/lead/handoff-rules.json）\n"),
+    GOOD.replace("## 总目标\n- z\n", "## 总目标\n- 修计划表的封面字段映射\n").replace("- 改：x\n", "- 改：dsh/collab/tasks.mjs 的 cover 字段\n"),
+    GOOD.replace("## 用户原话\n「x」\n", "## 用户原话\n「画个流程图给我看」\n"),
+]
+EX_TRIG = GOOD.replace("「x」", "「你看别人的readme 学习一下」\n上文：用户发 https://github.com/a/b")
+EX_TABLE = ("## 照抄对象\n- 范本：https://github.com/a/b README\n- 范本第 1 部分 横幅 → 我们第 1 部分 横幅\n"
+            "- 范本第 2 部分 明暗图 -> 我们第 2 部分 截图\n- 范本第 3 部分 安装 → 我们第 3 部分 安装\n- 验收：并排截图\n")
+EX = [
+    EX_TRIG, EX_TRIG + EX_TABLE,
+    EX_TRIG + EX_TABLE.replace("- 范本第 3 部分 安装 → 我们第 3 部分 安装\n", ""),
+    EX_TRIG + EX_TABLE.replace("并排截图", "看着差不多"),
+    EX_TRIG + EX_TABLE.replace("https://github.com/a/b", "a/b"),
+    GOOD.replace("「x」", "「参考一下别人怎么做」"),
+    GOOD.replace("「x」", "「[replying to 橘: 照着改] 好」\n- https://example.com"),
+    GOOD.replace("「x」", "「照着《深入理解计算机系统》第 3 章写」"),
+]
 FIXTURES = [
     GOOD, BASE, "", "随便写几句", GOOD.replace("## 总目标\n", "## 其他\n"),
     BASE + "## 参照实现\n- 还没找，14:30 再说\n## 其他\n- a.py:3\n",
@@ -37,6 +61,10 @@ FIXTURES = [
     GOOD.replace("- dsh/collab/tasks.mjs:467 只校验 ref\n", "- 看过了，没问题\n"),
     GOOD.replace("- dsh/collab/tasks.mjs:467 只校验 ref\n", "- 无（没查过）\n"),
     GOOD.replace("- dsh/collab/tasks.mjs:467 只校验 ref\n", "- ~/work/codemaps/bothouse-bridge.md「编译与测试」节\n"),
+    # 出图类活（art_ref）：缺参考图、只 1 张、2 张、原创缺小样、原创带小样、改代码的活放行、普通活放行
+    *ART,
+    # 用户原话给了范本：要「照抄对象」节（链接 + 3 行对照 + 并排截图）
+    *EX,
 ]
 DISPATCH = [
     {"title": "改派活校验", "ref": ""}, {"title": "改派活校验", "ref": "看着办"}, {"title": "x", "ref": "14:30 前做完"},
@@ -82,6 +110,19 @@ class SameResultsTest(unittest.TestCase):
         self.assertIn("已查过什么", R.check(vague) or "")
         self.assertIsNone(R.check(doc))
         self.assertEqual(node(COPIES[0], texts=[gone, vague, doc])["texts"], [R.check(gone), R.check(vague), None])
+
+    def test_art_needs_reference_images(self):
+        py = [R.check(t) for t in ART]
+        self.assertEqual([e is None for e in py], [False, False, True, True, False, True, True, True, True])
+        self.assertIn("参考图", py[0])
+        self.assertIn("1 张", py[1])
+        self.assertIn("小样", py[4])
+        self.assertEqual(node(COPIES[0], texts=ART)["texts"], py)
+    def test_exemplar_needs_mapping_table(self):
+        got = [R.check(t) for t in EX]
+        self.assertEqual([e is None for e in got], [False, True, False, False, False, True, True, False])
+        self.assertIn("照抄对象", got[0])
+        self.assertEqual(node(COPIES[0], texts=EX)["texts"], got)
 
     def test_dispatch_uses_the_same_rules(self):
         got = node(COPIES[0], dispatch=DISPATCH)["dispatch"]

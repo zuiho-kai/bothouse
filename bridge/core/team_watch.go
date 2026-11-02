@@ -4,7 +4,7 @@ package core
 // workspace records a check time (TeamHandoff.Due = claim + watchCheckAfter). At the check time
 // a handoff still in work either shows progress (renewed by watchCheckAfter, silently,
 // while it shows real progress; watchMaxRenew 0 = no cap) or is nudged once in the workspace
-// channel and parked (ParkTeamWorkspaceFor, the same path as `bothouse workspace park`). A
+// channel. A second quiet check parks it (ParkTeamWorkspaceFor, as workspace park does). A
 // renewal justified only by a session still being busy is capped at watchBusyMaxRenew, so a
 // stuck turn cannot hold the workspace forever (PR #430 review P1). Same rule as the DSH
 // gateway's task watch (dsh/collab/tasks.mjs CHECK_AFTER_S, MAX_RENEWALS) and the lead's
@@ -55,9 +55,11 @@ func watchCheckAfter() time.Duration { return time.Duration(watchCheckAfterNs.Lo
 var watchMaxRenew = 0
 
 // watchBusyMaxRenew caps renewals granted only because a session of the workspace is still in
-// a turn (no owner post and no finished turn in the window). Without it a stuck turn that
-// holds the session renews forever under watchMaxRenew = 0 (PR #430 review P1). Two checks =
-// 30 minutes, the old cap. Source: the pre-#429 watchMaxRenew default of 2.
+// a turn with no agent event in the window (a stuck turn). A busy turn that keeps producing tool
+// calls/results or text events is real progress (workspaceEventActive) and does not use this
+// budget. Without the cap a stuck turn that holds the session renews forever under
+// watchMaxRenew = 0 (PR #430 review P1). Two checks = 30 minutes, the old cap. Source: the
+// pre-#429 watchMaxRenew default of 2.
 const watchBusyMaxRenew = 2
 
 // Live native background work retains its six-renewal budget.
@@ -66,8 +68,9 @@ const watchMaxBackgroundRenew = 6
 // watchCanRenew: a watch renewed n times may renew again on progress.
 func watchCanRenew(n int) bool { return watchMaxRenew <= 0 || n < watchMaxRenew }
 
-// watchProgress says why a check found progress. A busy-only renewal has its own budget;
-// real progress (a post, a finished turn on Feishu) is unlimited and resets that budget.
+// watchProgress says why a check found progress. A busy-only renewal (no agent event in the
+// window) has its own budget; real progress (a post, a finished turn on Feishu, a tool/text
+// event from a busy turn) is unlimited and resets that budget.
 type watchProgress int
 
 const (
@@ -105,6 +108,9 @@ type handoffWatch struct {
 	// engines: the role engines whose sessions in the workspace count as work in progress (all
 	// engines of the bridge once started; the watch's own engine before).
 	engines func() []*Engine
+	// resume stops the stuck turn of workspace key, tells the chat and wakes the workspace to
+	// continue the task (autoResume, set by startHandoffWatch; nil = park at once).
+	resume func(p Platform, key string, h TeamHandoff)
 }
 
 func newHandoffWatch(e *Engine) *handoffWatch {
@@ -161,6 +167,7 @@ func (s *APIServer) startHandoffWatch() {
 	}
 	w := newHandoffWatch(e)
 	w.park = func(key, chat string, at time.Time) (bool, error) { return s.parkAndReset(e, key, chat, at, false) }
+	w.resume = w.autoResume
 	w.engines = func() []*Engine {
 		s.mu.RLock()
 		defer s.mu.RUnlock()
@@ -192,12 +199,22 @@ func (s *APIServer) rewatchIfServing() {
 }
 
 func (w *handoffWatch) run(ctx context.Context) {
-	var reconciled time.Time
+	var reconciled, recovered, reviewHour time.Time
 	for {
 		if now := w.now(); now.Sub(reconciled) >= teamWorkspaceReconcileEvery {
 			reconciled = now
 			w.reconcileTeamWorkspaces(now)
 		}
+		if now := w.now(); now.Sub(recovered) >= teamReportRecoveryEvery {
+			recovered = now
+			for _, eng := range w.engines() {
+				eng.recoverPendingReports(true)
+			}
+		}
+		now := w.now()
+		hour := now.Truncate(teamWorkspaceReconcileEvery)
+		w.reconcileTaskReviews(now, !hour.Equal(reviewHour))
+		reviewHour = hour
 		next := w.tick(w.now())
 		wait := watchIdleWake()
 		if !next.IsZero() {
@@ -288,7 +305,7 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 	// Only a recorded terminal event owns idle wakeups. A missing owner or
 	// event must not silently renew a handoff forever at each deadline.
 	target := w.e.watchTarget(key, h.Owner)
-	if target != nil && !target.quotaCooling().IsZero() {
+	if target != nil && !target.quotaCoolingFor(target.admissionQuotaScope(target.agent, key)).IsZero() {
 		return now.Add(watchRetryDelay) // quota takeover changes the owner; never nudge the cooling role
 	}
 	busy := w.workspaceBusy(key)
@@ -342,6 +359,7 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 				x.Renewed++
 				x.ReadFails = 0
 				x.Since = time.Time{}
+				x.Nudged = false
 				if progressed == watchProgressBusy {
 					x.BusyRenewed++
 				} else {
@@ -359,11 +377,16 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		}
 	}
 
-	// No progress (or renewals used up): nudge once in the workspace channel, then park. Nudged
+	// No progress (or renewals used up): nudge, then allow one check window to respond. Nudged
 	// is saved before the send: a task handed back meanwhile gets no nudge, and a crash between
 	// the two loses at most that one nudge, never sends it twice.
 	if !h.Nudged {
-		ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) { x.Nudged = true })
+		due := now.Add(watchCheckAfter())
+		ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) {
+			x.Nudged = true
+			x.Due = due
+			x.Since = now
+		})
 		switch {
 		case err != nil:
 			slog.Warn("team watch: save nudge failed; parking without it", "workspace", key, "error", err)
@@ -375,14 +398,42 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 				nh.Owner = "" // the posting bot owns the task: a lone bot does not mention itself
 			}
 			if err := w.send(p, key, watchNudgeText(plat, nh)); err != nil {
-				slog.Warn("team watch: nudge failed; parking anyway", "workspace", key, "error", err)
+				slog.Warn("team watch: nudge failed; preserving the response window", "workspace", key, "error", err)
 			}
+			return due
 		}
+	}
+	// First time without progress after the nudge: stop the stuck turn and wake the workspace to
+	// continue once (a hung request or a killed session otherwise parks the task silently); the
+	// next no-progress check parks.
+	if !h.AutoResumed && h.ParkFails == 0 && w.resume != nil {
+		due := now.Add(watchCheckAfter())
+		ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) {
+			x.AutoResumed = true
+			x.Nudged = true // the resume is the warning: the next check without progress parks
+			x.Renewed = 0
+			x.BusyRenewed = 0
+			x.ReadFails = 0
+			x.Since = now
+			x.Due = due
+		})
+		switch {
+		case err == nil && !ok:
+			return time.Time{}
+		case err == nil:
+			slog.Info("team watch: no progress; stopped the turn and resumed the task once", "workspace", key, "chat", h.Chat)
+			w.resume(p, key, h)
+			return due
+		}
+		slog.Warn("team watch: save auto-resume failed; parking instead", "workspace", key, "error", err)
 	}
 	freed, err := w.park(key, h.Chat, h.At)
 	switch {
 	case err == nil:
 		slog.Info("team watch: no progress at the check time; task parked", "workspace", key, "chat", h.Chat, "freed", freed)
+		if serr := w.send(p, h.Chat, w.e.i18n.Tf(MsgWatchParkedNotice, channelLabel(plat, teamChannelID(key)), h.Title)); serr != nil {
+			slog.Warn("team watch: park notice failed", "chat", h.Chat, "error", serr)
+		}
 		return time.Time{}
 	case errors.Is(err, ErrTeamWorkspaceNotOwned):
 		// Handed back, closed or the workspace went to someone else meanwhile: nothing to park.
@@ -431,18 +482,24 @@ var watchLeadingMentions = regexp.MustCompile(`^(?:(?:<@[!&]?\d+>|@[^\s【\[]+|\
 
 var watchFeishuMention = regexp.MustCompile(`user_id="([^"]+)"`)
 
-// workspaceProgress: the task in workspace key showed progress since `since`. Either a session of
-// the workspace is running a turn now (Session.Busy, checked first: a long turn is not stopped), or
-// the owner posted in the workspace channel since then, not counting status and stance lines. A
-// platform that cannot read channel history (Feishu) uses the sessions instead: a session of the
-// workspace ended a turn since then (Session.UpdatedAt; B9 plan 9b item 2). An error: the history
-// request failed (check retries it).
+// workspaceProgress: the task in workspace key showed progress since `since`. A busy session that
+// produced an agent event in the window (tool call/result, text stream: interactiveState.lastEventAt)
+// counts as real progress, so a working DSH/ACP member is not parked as a stuck turn. A busy session
+// without events is a busy-only renewal, capped by watchBusyMaxRenew. Otherwise the owner posted in
+// the workspace channel since then, not counting status and stance lines. A platform that cannot
+// read channel history (Feishu) uses the sessions instead: a session of the workspace ended a turn
+// since then (Session.UpdatedAt; B9 plan 9b item 2). An error: the history request failed (check
+// retries it).
 func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.Time) (watchProgress, error) {
 	running, pushed := w.workspaceBackgroundProgress(key, since)
 	if pushed || running && h.Renewed < watchMaxBackgroundRenew {
 		return watchProgressReal, nil
 	}
 	if !running && w.workspaceBusy(key) {
+		if w.workspaceEventActive(key, since) {
+			slog.Info("team watch: a busy session is producing agent events", "workspace", key, "chat", h.Chat)
+			return watchProgressReal, nil
+		}
 		if h.BusyRenewed < watchBusyMaxRenew {
 			slog.Info("team watch: a session of the workspace is running a turn", "workspace", key, "chat", h.Chat, "busy_renew", h.BusyRenewed)
 			return watchProgressBusy, nil
@@ -477,7 +534,7 @@ func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) 
 		e.interactiveMu.Lock()
 		var states []*interactiveState
 		for k, state := range e.interactiveStates {
-			if chatOf(k) == key {
+			if _, ok := interactiveSessionInWorkspace(k, key); ok {
 				states = append(states, state)
 			}
 		}
@@ -575,6 +632,53 @@ func (w *handoffWatch) workspaceBusy(key string) bool {
 		return busy
 	})
 	return busy
+}
+
+// interactiveSessionInWorkspace: the session key of an interactiveStates entry when it belongs to
+// workspace key. A multi-workspace engine keys the map "<workspace path>:<session key>"
+// (interactiveKeyForSessionKey); a single-workspace engine keys the session directly. A shared
+// channel session and a per-user session "<workspace>:<user>" both belong to the workspace.
+func interactiveSessionInWorkspace(stateKey, workspaceKey string) (string, bool) {
+	if stateKey == workspaceKey || strings.HasPrefix(stateKey, workspaceKey+":") {
+		return stateKey, true
+	}
+	i := strings.LastIndex(stateKey, ":"+workspaceKey)
+	if i > 0 && strings.ContainsAny(stateKey[:i], `/\`) {
+		session := stateKey[i+1:]
+		if session == workspaceKey || strings.HasPrefix(session, workspaceKey+":") {
+			return session, true
+		}
+	}
+	return "", false
+}
+
+// workspaceEventActive: any session of workspace key received an agent event at or after since.
+// Any session of the workspace counts (Issue #518's wording), so a sibling session can keep a
+// stuck task alive and hold its workspace slot; per-task isolation is a separate requirement and
+// not part of this fix. interactiveState.lastEventAt is bumped on every event from the agent
+// (tool call/result, text stream) and when a turn starts. A turn that only holds its session lock
+// without events leaves it older than the window, so the busy cap applies.
+func (w *handoffWatch) workspaceEventActive(key string, since time.Time) bool {
+	for _, e := range w.engines() {
+		if e == nil {
+			continue
+		}
+		e.interactiveMu.Lock()
+		var states []*interactiveState
+		for k, state := range e.interactiveStates {
+			if _, ok := interactiveSessionInWorkspace(k, key); !ok {
+				continue
+			}
+			states = append(states, state)
+		}
+		e.interactiveMu.Unlock()
+		for _, state := range states {
+			if at := state.lastEventAt.Load(); at != 0 && at >= since.UnixNano() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ownerSpoke: owner posted progress in the channel of workspace key at or after since. No owner
@@ -702,4 +806,57 @@ func teamWorkspaceWatchDueLocked(st *teamWorkspaceState, key string) time.Time {
 		}
 	}
 	return due
+}
+
+// autoResume stops the turns running in workspace key (a hung request keeps the session busy
+// without events), posts a notice in the chat the task came from, and wakes the workspace's role
+// to continue the task in the same agent session.
+func (w *handoffWatch) autoResume(p Platform, key string, h TeamHandoff) {
+	plat, _, _ := strings.Cut(key, ":")
+	stopped := 0
+	for _, x := range w.engines() {
+		if x != nil {
+			stopped += x.stopChannel(plat, key)
+		}
+	}
+	sender := w.e.watchSender(h)
+	label := channelLabel(plat, teamChannelID(key))
+	if err := w.send(p, h.Chat, sender.i18n.Tf(MsgWatchAutoResumed, label, h.Title)); err != nil {
+		slog.Warn("team watch: auto-resume notice failed", "chat", h.Chat, "error", err)
+	}
+	text := sender.i18n.Tf(MsgWatchResume, h.Title)
+	if notes := w.e.watchTaskNotes(h); notes != "" {
+		text += "\n" + sender.i18n.Tf(MsgWatchResumeNotes, notes)
+	}
+	slog.Info("team watch: waking the workspace to continue", "workspace", key, "stopped", stopped)
+	owner := h.Owner
+	sp := sender.lookupReadyPlatform(plat)
+	if sp == nil || sender.watchOwns(sp, h.Owner) || owner == "" {
+		sender.wakeWatchRole(key, text, h.Title)
+		return
+	}
+	if err := newHandoffWatch(sender).send(sp, key, strings.TrimSpace(watchMention(plat, owner)+" "+text)); err != nil {
+		slog.Warn("team watch: resume post failed", "workspace", key, "error", err)
+		sender.wakeWatchRole(key, text, h.Title)
+	}
+}
+
+// watchTaskNotes: the handoff file of the board item the watch follows ("" = unknown).
+func (e *Engine) watchTaskNotes(h TeamHandoff) string {
+	if e.team == nil {
+		return ""
+	}
+	id := h.Board
+	if id == 0 {
+		id = watchTaskNumber(h.Title)
+	}
+	if id == 0 {
+		return ""
+	}
+	for _, it := range readTeamTaskBoard(e.team.dir) {
+		if it.ID == id {
+			return strings.TrimSpace(it.Where)
+		}
+	}
+	return ""
 }

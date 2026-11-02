@@ -304,6 +304,85 @@ test('dispatch mode: a workspace inherits its chat channel setting (PR #138 revi
   assert.equal(s.dispatchMode(1), 'team', 'setting a workspace sets its chat channel');
 });
 
+test('relay cap settings: only 6–20, isolated per channel, workspaces inherit and persist (#445)', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-relay-')), 'relay.sqlite3');
+  const s = new Store(path);
+  s.ensureRoom(1, 'general');
+  s.ensureRoom(2, 'other');
+  const ws = s.createWorkspace(1);
+  assert.deepEqual(s.relaySetting(1), { max_relay: 6 }, 'the default cap is 6');
+  assert.deepEqual(s.relaySetting(ws.id), { max_relay: 6 }, 'a workspace follows its chat channel');
+  for (const bad of [5, 21, 0, -1, 6.5, '8', null, undefined, NaN]) {
+    assert.throws(() => s.setMaxRelay(1, bad), /6–20/, `${String(bad)} must be rejected`);
+  }
+  assert.equal(s.relaySetting(1).max_relay, 6, 'rejected values leave the cap unchanged');
+  s.setMaxRelay(1, 8);
+  s.setMaxRelay(2, 20);
+  assert.equal(s.relaySetting(1).max_relay, 8);
+  assert.equal(s.relaySetting(2).max_relay, 20, 'channels are isolated');
+  assert.equal(s.relaySetting(ws.id).max_relay, 8, 'the workspace reads its chat channel');
+  s.setMaxRelay(ws.id, 20);
+  assert.equal(s.relaySetting(1).max_relay, 20, 'setting a workspace writes its chat channel');
+  assert.equal(s.relaySetting(2).max_relay, 20);
+  s.setMaxRelay(1, 6);
+  s.close();
+  const reopened = new Store(path);
+  try {
+    assert.equal(reopened.relaySetting(1).max_relay, 6, 'the setting survives reopening');
+    assert.equal(reopened.relaySetting(2).max_relay, 20);
+  } finally {
+    reopened.close();
+  }
+});
+
+test('channel settings API: GET returns and PATCH accepts the relay cap, invalid values roll back (#445)', async () => {
+  const { Readable } = await import('node:stream');
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  const call = async (method, body, roomId = 1) => {
+    const req = body === undefined ? { method } : Object.assign(Readable.from([Buffer.from(JSON.stringify(body))]), { method });
+    let status, result;
+    await roomSettingsRoute(req, { writeHead(s) { status = s; }, end(b) { result = JSON.parse(b); } }, `/collab/api/rooms/${roomId}/settings`, { store: hub.store, hub, workspacePath: '/old' });
+    return { status, result };
+  };
+  assert.equal((await call('GET')).result.max_relay, 6);
+  for (const bad of [5, 21]) {
+    const rejected = await call('PATCH', { max_relay: bad });
+    assert.equal(rejected.status, 400);
+    assert.match(rejected.result.error, /6–20/);
+  }
+  assert.equal((await call('GET')).result.max_relay, 6, 'rejected values are not stored');
+  assert.equal((await call('PATCH', { max_relay: 8, lead_id: 'nobody' })).status, 400, 'a rejected field rolls the cap back too');
+  assert.equal((await call('GET')).result.max_relay, 6);
+  const saved = await call('PATCH', { max_relay: 20 });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.result.max_relay, 20);
+  assert.equal((await call('GET', undefined, 2)).result.max_relay, 6, 'another channel keeps its own value');
+  hub.store.close();
+});
+
+test('relay cap: the channel setting wins over the instance default and pauses on the 7th, 9th and 21st message (#445)', async () => {
+  for (const cap of [6, 8, 20]) {
+    const hub = makeHub();
+    const dsh = fakeDsh();
+    dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }], { maxRelay: 6 });
+    hub.setMember({ id: 'ju', name: '橘', kind: 'bot', online: true });
+    hub.store.setMaxRelay(1, cap);
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 开始' });
+    for (let i = 1; i <= cap; i++) hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: `@DeepSeek ${i}` });
+    await settle();
+    assert.equal(hub.store.openJobs().length, cap, `cap ${cap}: mentions within the cap still start jobs`);
+    hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '@DeepSeek 越过上限' });
+    await settle();
+    const last = hub.store.page(1, undefined, 1)[0];
+    assert.equal(last.author_kind, 'system', `cap ${cap}: message ${cap + 1} pauses the relay`);
+    assert.match(last.text, new RegExp(`连续接力 ${cap} 次以上`));
+    hub.store.close();
+  }
+});
+
 test('primary role: shared lead state routes explicitly selected roles and keeps fallback display-only', async () => {
   const { mkdtempSync, readFileSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');

@@ -130,7 +130,7 @@ func (e *Engine) ModelStatus(ctx context.Context, sessionKey string) ModelStatus
 		st.Model = modelOf(agent) // ACP agents learn the current model while listing
 	}
 	if rs, ok := agent.(ReasoningEffortSwitcher); ok {
-		st.Effort = rs.GetReasoningEffort()
+		st.Effort = e.sessionEffortFor(sessionKey, agent)
 		st.Efforts = rs.AvailableReasoningEfforts()
 	}
 	if model := e.currentSessionModel(sessionKey, agent); model != "" {
@@ -141,7 +141,7 @@ func (e *Engine) ModelStatus(ctx context.Context, sessionKey string) ModelStatus
 	}
 	if t := e.tiers; t != nil {
 		st.AutoChat, st.AutoTask = t.chatModel, t.taskModel
-		st.AutoPaused = t.manual(sessionKey, time.Now())
+		st.AutoPaused = t.manual(e.interactiveKeyForSessionKey(sessionKey), time.Now())
 	}
 	e.modelSwitchMu.Lock()
 	if p, ok := e.pendingSwitch[sessionKey]; ok {
@@ -156,7 +156,7 @@ func (e *Engine) ModelStatus(ctx context.Context, sessionKey string) ModelStatus
 
 // Snapshot the current channel's session before querying runtime metadata;
 // agent getters may perform I/O and must not hold engine/state locks.
-func (e *Engine) currentSessionModel(sessionKey string, agent Agent) string {
+func (e *Engine) liveModelSession(sessionKey string) AgentSession {
 	key := e.interactiveKeyForSessionKey(sessionKey)
 	e.interactiveMu.Lock()
 	state := e.interactiveStates[key]
@@ -167,16 +167,22 @@ func (e *Engine) currentSessionModel(sessionKey string, agent Agent) string {
 		session = state.agentSession
 		state.mu.Unlock()
 	}
+	return session
+}
+
+func (e *Engine) currentSessionModel(sessionKey string, agent Agent) string {
+	session := e.liveModelSession(sessionKey)
 	// Keep the catalog ID intact (some agents use JSON-array IDs). Footer
 	// display normalization would prevent matching the current catalog option.
-	for _, source := range []any{session, agent} {
-		if getter, ok := source.(interface{ GetModel() string }); ok {
-			if model := strings.TrimSpace(getter.GetModel()); model != "" {
-				return model
-			}
+	if getter, ok := session.(interface{ GetModel() string }); ok {
+		if model := strings.TrimSpace(getter.GetModel()); model != "" {
+			return model
 		}
 	}
-	return ""
+	if model := e.sessionModelFor(sessionKey); model != "" {
+		return model
+	}
+	return modelOf(agent)
 }
 
 // ModelSwitchResult tells the agent what was queued, or why not.
@@ -190,7 +196,7 @@ type ModelSwitchResult struct {
 
 // QueueModelSwitch validates the request and queues it for the session's next turn.
 func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort string, auto bool) ModelSwitchResult {
-	agent := e.agent
+	agent, _ := e.sessionContextForKey(sessionKey)
 	if auto {
 		if e.tiers == nil {
 			return ModelSwitchResult{Message: "this bot has no automatic model tiers configured"}
@@ -203,7 +209,7 @@ func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort
 	if canModel {
 		options = sw.AvailableModels(ctx)
 	}
-	current := modelOf(agent)
+	current := e.currentSessionModel(sessionKey, agent)
 	target := ""
 	if model = strings.TrimSpace(model); model != "" {
 		if !canModel {
@@ -266,58 +272,66 @@ func (e *Engine) queueSwitch(key string, p pendingModelSwitch) {
 // applyPendingSwitch runs before an idle turn starts. keys: the session's interactive key and
 // its session key (CC_SESSION_KEY may be either).
 func (e *Engine) applyPendingSwitch(interactiveKey string, keys ...string) {
-	_ = e.applyPendingSwitchOnAgent(e.agent, interactiveKey, keys...)
+	agent, _ := e.sessionContextForKey(interactiveKey)
+	if len(keys) > 0 {
+		agent, _ = e.sessionContextForKey(keys[len(keys)-1])
+	}
+	_ = e.applyPendingSwitchOnAgent(agent, interactiveKey, keys...)
 }
 
 func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, keys ...string) error {
 	e.modelSwitchMu.Lock()
 	var p pendingModelSwitch
-	found := false
+	scopeKey := ""
+	matched := make(map[string]pendingModelSwitch)
 	for _, k := range append([]string{interactiveKey}, keys...) {
 		if v, ok := e.pendingSwitch[k]; ok {
-			p, found = v, true
-			delete(e.pendingSwitch, k)
+			p, scopeKey = v, k
+			matched[k] = v
 		}
 	}
 	e.modelSwitchMu.Unlock()
-	if !found {
+	if scopeKey == "" {
 		return nil
 	}
-	if p.auto {
-		if e.tiers != nil {
-			e.tiers.clearManual(interactiveKey)
+	// Startup uses CC_SESSION_KEY. An interactive key can include a directory
+	// prefix, so apply requests made with that alias to the execution key.
+	selectionKey := scopeKey
+	if scopeKey == interactiveKey {
+		for _, key := range keys {
+			if key != "" {
+				selectionKey = key
+			}
 		}
-		slog.Info("model switch applied", "session", interactiveKey, "auto", true)
-		return nil
 	}
-	from := modelOf(agent)
-	changed := false
-	if p.model != "" && p.model != from {
-		// Persist like /model does: a restart must not fall back to the config default.
-		if _, err := e.switchModelOnAgent(agent, p.model, agent == e.agent); err != nil {
-			slog.Warn("model switch failed", "session", interactiveKey, "model", p.model, "error", err)
+	if !p.auto {
+		if err := e.saveSessionSelection(selectionKey, p.model, p.effort); err != nil {
 			return err
 		}
-		changed = true
 	}
-	if p.effort != "" {
-		if rs, ok := agent.(ReasoningEffortSwitcher); ok && rs.GetReasoningEffort() != p.effort {
-			rs.SetReasoningEffort(p.effort)
-			e.persistReasoningEffort(agent, p.effort)
-			changed = true
+	e.modelSwitchMu.Lock()
+	for key, request := range matched {
+		if e.pendingSwitch[key] == request {
+			delete(e.pendingSwitch, key)
 		}
 	}
+	e.modelSwitchMu.Unlock()
 	if e.tiers != nil {
-		e.tiers.setManual(interactiveKey, manualTierHold)
+		if p.auto {
+			e.tiers.clearManual(interactiveKey)
+		} else {
+			e.tiers.setManual(interactiveKey, manualTierHold)
+		}
 	}
-	if !changed {
-		slog.Info("model switch: already on the requested model", "session", interactiveKey, "model", from)
-		return nil // nothing to restart
+	if p.auto {
+		return nil
 	}
-	// Applying a queued model is part of native compaction setup when called
-	// from /compact; preserve its cancellation record while closing the reader.
+	// Only the addressed live process is recycled; its saved native ID and
+	// conversation history survive. Shared agent/config defaults are untouched.
 	e.cleanupInteractiveState(interactiveKey, nil)
-	e.sessions.Save()
-	slog.Info("model switch applied", "session", interactiveKey, "from", from, "to", modelOf(agent), "effort", p.effort)
+	_, sessions := e.sessionContextForKey(scopeKey)
+	sessions.Save()
+	e.capacityRecover("model switch applied")
+	slog.Info("model switch applied", "session", scopeKey, "model", p.model, "effort", p.effort)
 	return nil
 }

@@ -38,10 +38,35 @@
     "wake_limit": 2
   },
   "jargon": {
-    "line_re": "[#＃!！][0-9]+|工作区[\t ]*[0-9]+|(^|[^A-Za-z0-9_])(fix|feat|feature|chore|refactor|hotfix|release|wip|origin|longniang)/[A-Za-z0-9._-]+|(^|[^A-Za-z0-9_.])~?/[A-Za-z][A-Za-z0-9._-]*/[A-Za-z0-9._/-]*|[A-Za-z0-9_-]+[.](go|mjs|js|ts|py|md|json|jsonl|toml|yaml|yml|sh|log|html|png|jpg)|`[^`\n]+`|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+|[a-z][a-z0-9]*-[a-z0-9-]*[a-z0-9]|[a-z]{2,}[A-Z][a-z]+[A-Za-z0-9]*",
+    "line_re": "[#＃!！][0-9]+|工作区[\t ]*[0-9]+|(^|[^A-Za-z0-9_])(fix|feat|feature|chore|refactor|hotfix|release|wip|origin|longniang)/[A-Za-z0-9._-]+|(^|[^A-Za-z0-9_.])~?/[A-Za-z][A-Za-z0-9._-]*/[A-Za-z0-9._/-]*|[A-Za-z0-9_-]+[.](go|mjs|js|ts|py|md|json|jsonl|toml|yaml|yml|sh|log|html|png|jpg)|`[^`\n]+`|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+|[a-z][a-z0-9]*-[a-z0-9-]*[a-z0-9]|(^|[^A-Za-z0-9])[a-z]{2,}[A-Z][a-z]+[A-Za-z0-9]*",
     "table_re": "(^|\n)[\t ]*[|][^\n]*[|][\t ]*\n[\t ]*[|]?[\t ]*:?-{3,}",
     "line": "给用户的那段写了编号、代号、路径或英文标识（{hits}），换成大白话：说这件活是什么、现在怎样",
-    "table": "给用户的那段有表格，改成几句话"
+    "table": "给用户的那段有表格，改成几句话",
+    "url_re": "https?://[^\\s<>\"`，。；！？、（）]+"
+  },
+  "art": {
+    "_why": "出图类活交回要带参考图和成品并排的对照图（用户 11-01「每次都给我画一坨屎出来」）。出图活 = 任务板这件的交接文件里有「参考图」节或「参考图：」行（handoff-rules.json 的 art_ref 逼出图活写它）。只有桥本体 Go 查（要读交接文件）；本机路径的图要真的存在。",
+    "notes_re": "(^|\n)[\t ]*(#+[^\n]*参考图|[>*-]*[\t 　]*参考图[\t 　]*[：:])",
+    "compare_re": "对照图[\t 　]*[：:][\t 　]*([^\t\n 　，,、；;]+)",
+    "image_re": "^https?://|[.](png|jpg|jpeg|webp|gif|avif|PNG|JPG|JPEG|WEBP)$",
+    "missing_compare": "这件是出图活（交接里有参考图），交回要带一张参考图和成品并排的对照图：在细节里写一行「对照图：<图片路径或链接>」（原创活放参考和小样并排）",
+    "missing_file": "对照图 {path} 不存在，先生成那张并排图再交"
+  },
+  "scope": {
+    "_why": "交接「## 范围」里写了要改的项，交回一项都没提就退回（用户 11-01「我们要提取优秀基因，但是也要对我们的错误进行一个深刻的检讨和规避」：交接要求的项工作区没做、交回也没人发现）。每条「改：」/「- 改」取冒号后到第一个标点为止、最多 key_runes 个字作关键词，去掉空白后在交回全文（含细节）里找。交接没有范围节或没有改项不查。只有桥本体 Go 查（要读交接文件）。",
+    "section_re": "^#+[\t 　]*范围",
+    "item_re": "^[\t 　]*(改[\t 　]*[：:]|-[\t 　]*改[\t 　]*[：:]?)[\t 　]*(.*)$",
+    "key_stop_re": "[，,。.；;、：:（()）！!？?]",
+    "key_trim": "`'\"「」『』<>*",
+    "key_runes": 12,
+    "sep": "、",
+    "missing": "交接里这几项交回没提到：{items}，做了就写结果，没做写原因"
+  },
+  "generic": {
+    "_why": "bothouse 的产品能力要所有 CLI 都能用（Claude Code、Codex、Gemini、grok 等），交回 [report] 的「我加的：」那一行写了只给/只装/只做/仅 Claude Code（cc）就退回（同类错第 3 次，任务 #875）；同一行写了「来源：」（某 CLI 做不了的依据）放行。只有桥本体 Go 查。",
+    "cc_only_re": "(只|仅)([^\n，,。；;]{0,8}[^A-Za-z\n，,。；;])?([Cc]laude[\t ]*[Cc]ode|[Cc][Cc]([^A-Za-z]|$))",
+    "source_re": "来源[\t 　]*[：:]",
+    "msg": "「我加的：」写了只做 Claude Code（{hit}）：产品能力要所有 CLI 都能用（Claude Code、Codex、Gemini、grok 等），改成通用再交；某个 CLI 确实做不了，在同一行写「来源：」给出做不了的依据（文档、接口或实测）"
   },
   "summary": {
     "background_re": "^背景[\t 　]*[：:]",

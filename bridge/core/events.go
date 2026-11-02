@@ -22,6 +22,7 @@ const (
 	StreamEventTool    = "tool"
 	StreamEventReply   = "reply"
 	StreamEventPoll    = "poll"
+	StreamEventQuota   = "quota"
 )
 
 const (

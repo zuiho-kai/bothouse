@@ -1,5 +1,6 @@
 {
   "nav": {
+    "addPlatform": "新增平台",
     "addRole": "新增角色/模型",
     "library": "角色庫",
     "dashboard": "總覽",
@@ -106,6 +107,10 @@
     "linkGlobal": "關聯全域服務商",
     "addCustom": "自訂新增",
     "allLinked": "所有全域服務商已關聯。",
+    "noGlobal": "還沒有全域服務商。請先在「服務商」頁建立。",
+    "noCompatible": "沒有適用於此專案 agent 類型的全域服務商。",
+    "emptyProjectMismatch": "已關聯的全域服務商不適用於此專案的 agent 類型。",
+    "emptyProjectMismatchHint": "在「服務商」頁調整它們的適用類型，或新增自訂服務商。",
     "manageGlobal": "管理全域服務商"
   },
   "cron": {
@@ -364,7 +369,9 @@
     "logLevel": "記錄層級",
     "appearance": "外觀",
     "theme": "主題",
-    "themeHint": "預設是黃白明亮。只儲存在這個瀏覽器裡，不用按儲存。"
+    "themeHint": "預設是黃白明亮。只儲存在這個瀏覽器裡，不用按儲存。",
+    "tokenUnit": "Token 用量單位",
+    "tokenUnitHint": "設定 Token 用量的顯示單位（支援原數、百萬 M、十億 B），懸停可查看完整原數。只儲存在這個瀏覽器裡，不用按儲存。"
   },
   "globalProviders": {
     "title": "服務商管理",

@@ -46,14 +46,13 @@ Gemini CLI runs the same hooks through its own protocol (https://geminicli.com/d
 2. Events become Claude Code's: BeforeTool -> PreToolUse, AfterTool -> PostToolUse, BeforeAgent ->
    UserPromptSubmit, AfterAgent -> Stop (the same "turn ends" moment; fix-claim-guard/promise-guard need it to be
    able to send the agent back to fix its claim, which SessionEnd cannot). session_id/cwd pass through.
-3. Gemini's transcript is its own JSON, not a Claude Code JSONL: for Stop a two-entry transcript is built from
-   the payload's prompt / prompt_response, so the Stop hooks see the turn they check (they only read the last
-   user message and the assistant's final text).
+3. Gemini's JSONL session records (or JSON messages) are converted to a Claude Code transcript, preserving
+   tool calls for plan/promise checks; prompt / prompt_response are used when no session record is available.
 4. Its output is turned back: a Claude Code deny (hookSpecificOutput.permissionDecision, or decision "block")
    becomes Gemini's {"decision": "deny", "reason": ...}; an additionalContext becomes
    hookSpecificOutput.additionalContext on BeforeAgent (added to the prompt) and AfterTool (appended to the tool
    result as <hook_context>; hooks/reference, and gemini-cli 0.63.0 getAdditionalContext() on the AfterTool
-   output). BeforeTool has no such field, so its hints are dropped. Exit 2 means "block" in both protocols and is passed through; stdout is
+   output). BeforeTool has no context field, so its hints are dropped; updatedInput becomes hookSpecificOutput.tool_input. Exit 2 means "block" in both protocols and is passed through; stdout is
    otherwise kept JSON-only, as Gemini requires.
 
 Antigravity (agy) runs the hooks from the role's .agents/hooks.json, each command with --agy <event> (agy's
@@ -186,6 +185,8 @@ def tool_input(name, args):
             args = {"raw": str(args)}
     if not isinstance(args, dict):
         args = {"raw": args}
+    if name == "bash" and "timeoutMs" in args:
+        args = dict(args, timeout=args["timeoutMs"])
     if name == "workflow" and "prompt" not in args:
         args = dict(args, prompt=str(args.get("script") or ""))
     if name == "str_replace_editor":
@@ -217,10 +218,13 @@ def gemini_payload(payload):
     """A Gemini CLI hook payload as Claude Code's shape (session_id/cwd pass through)."""
     ev = payload.get("hook_event_name")
     out = {"session_id": payload.get("session_id") or "", "cwd": payload.get("cwd") or os.getcwd(),
-           "hook_event_name": GEMINI_TO_CLAUDE_EVENT.get(ev, ev), "transcript_path": ""}
+           "hook_event_name": GEMINI_TO_CLAUDE_EVENT.get(ev, ev), "transcript_path": "",
+           "gemini_transcript_path": payload.get("transcript_path")}
     if out["hook_event_name"] in ("PreToolUse", "PostToolUse"):
         name, inp = gemini_tool_input(payload.get("tool_name") or "", payload.get("tool_input"))
         out["tool_name"], out["tool_input"] = name, inp
+        if ev == "AfterTool":
+            out["tool_response"] = payload.get("tool_response")
     elif out["hook_event_name"] == "UserPromptSubmit":
         out["prompt"] = payload.get("prompt") or ""
     elif out["hook_event_name"] == "Stop":
@@ -230,13 +234,38 @@ def gemini_payload(payload):
 
 
 def gemini_transcript(payload, cwd):
-    """Turn the Stop payload's prompt/prompt_response into a Claude Code transcript (JSONL temp file)."""
+    """Keep native tool history, then append the current Stop response if not yet persisted."""
+    messages = {}
+    for line in tail_lines(payload.pop("gemini_transcript_path", None)):
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        reset = (record.get("$set") or {}).get("messages", record.get("messages"))
+        if isinstance(reset, list):
+            messages = {m["id"]: m for m in reset if isinstance(m, dict) and "id" in m}
+        elif record.get("type") in ("user", "gemini") and record.get("id"):
+            messages[record["id"]] = record
+    entries = []
+    for message in messages.values():
+        role = "user" if message.get("type") == "user" else "assistant"
+        text = parts_text(message.get("content"))
+        content = [{"type": "text", "text": text}] if text else []
+        for call in message.get("toolCalls") or []:
+            name, inp = gemini_tool_input(call.get("name"), call.get("args"))
+            content.append({"type": "tool_use", "id": call.get("id"), "name": name, "input": inp})
+        if content:
+            entries.append({"type": role, "cwd": cwd, "message": {"role": role, "content": content}})
+    if not entries:
+        entries.append({"type": "user", "cwd": cwd, "message": {
+            "role": "user", "content": payload.get("gemini_prompt") or ""}})
+    response = payload.pop("gemini_response", "")
+    if response:
+        entries.append({"type": "assistant", "cwd": cwd, "message": {
+            "role": "assistant", "content": [{"type": "text", "text": response}]}})
     fd, path = tempfile.mkstemp(prefix="gemini-stop-", suffix=".jsonl")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
-        for rec in ({"type": "user", "cwd": cwd, "message": {"role": "user", "content": payload.pop("gemini_prompt", "")}},
-                    {"type": "assistant", "cwd": cwd,
-                     "message": {"role": "assistant", "content": [
-                         {"type": "text", "text": payload.pop("gemini_response", "")}]}}):
+        for rec in entries:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     return path
 
@@ -254,8 +283,10 @@ def gemini_output(out, event):
     if hso.get("permissionDecision") == "deny" or d.get("decision") == "block":
         reason = hso.get("permissionDecisionReason") or d.get("reason") or "blocked by a bothouse hook"
         return json.dumps({"decision": "deny", "reason": reason}, ensure_ascii=False)
+    if hso.get("updatedInput") is not None and event in ("BeforeTool", "PreToolUse"):
+        return json.dumps({"hookSpecificOutput": {"tool_input": hso["updatedInput"]}}, ensure_ascii=False)
     ctx = hso.get("additionalContext")
-    if ctx and event in ("BeforeAgent", "AfterTool"):
+    if ctx and event in ("BeforeAgent", "AfterTool", "UserPromptSubmit", "PostToolUse"):
         return json.dumps({"hookSpecificOutput": {"additionalContext": ctx}}, ensure_ascii=False)
     return ""
 
@@ -318,7 +349,7 @@ def iflow_output(out):
 # before transcript_path.
 PROMPT_HOOKS = {"ask-only-guard"}
 # Grok's tool names in its hook payload -> Claude Code's (Grok maps Bash/Edit/Write in matchers, not in the payload)
-GROK_NAMES = {"run_terminal_command": "Bash", "search_replace": "Edit", "write": "Write"}  # hooks that read the user's latest words in PreToolUse
+GROK_NAMES = {"run_terminal_command": "Bash", "search_replace": "Edit", "write": "Write", "spawn_subagent": "Agent"}  # hooks that read the user's latest words in PreToolUse
 CODEX_INJECTED = ("# AGENTS.md instructions", "<environment_context>", "<user_instructions>", "<permissions instructions>")
 TAIL_BYTES = 4 << 20  # a rollout can be large; the latest user message is near its end
 
@@ -658,17 +689,56 @@ def main():
     # what tells the two apart)
     iflow = not cursor and not gemini and os.environ.get("IFLOW_HOOK_EVENT_NAME") in IFLOW_EVENTS
     tmp, turn, sid = None, None, payload.get("session_id") or ""
+    if OPTS["grok"] and payload.get("transcript_path"):
+        # Grok's official hook transcript is ACP updates.jsonl, not Claude JSONL.
+        entries = []
+        for line in tail_lines(payload.get("transcript_path")):
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            update = (record.get("params") or {}).get("update") or {}
+            kind = update.get("sessionUpdate")
+            if kind in ("user_message_chunk", "agent_message_chunk"):
+                role = "user" if kind == "user_message_chunk" else "assistant"
+                text = parts_text(update.get("content"))
+                if entries and entries[-1]["type"] == role and entries[-1]["message"]["content"][-1]["type"] == "text":
+                    entries[-1]["message"]["content"][-1]["text"] += text
+                else:
+                    entries.append({"type": role, "message": {"content": [{"type": "text", "text": text}]}})
+            elif kind == "tool_call":
+                name_ = (update.get("_meta", {}).get("x.ai/tool") or {}).get("name") or update.get("title")
+                entries.append({"type": "assistant", "message": {"content": [{
+                    "type": "tool_use", "id": update.get("toolCallId"),
+                    "name": GROK_NAMES.get(name_, name_), "input": update.get("rawInput") or {}}]}})
+        fd, tmp = tempfile.mkstemp(prefix="grok-hook-", suffix=".jsonl")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            for entry in entries:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        payload["transcript_path"] = tmp
+        if payload.get("hook_event_name") == "SubagentStop":
+            payload["agent_transcript_path"] = tmp
     if iflow:
         payload = iflow_payload(payload)
     if gemini:
         payload = gemini_payload(payload)
-        if payload["hook_event_name"] == "Stop":
-            tmp = gemini_transcript(payload, payload["cwd"])
-            payload["transcript_path"] = tmp
+        tmp = gemini_transcript(payload, payload["cwd"])
+        payload["transcript_path"] = tmp
     if OPTS["kimi"] and payload.get("tool_name") == "bash":
         payload["tool_name"] = "Bash"
+    if gemini or OPTS["codex"] or OPTS["grok"]:
+        payload["hook_cli"] = "gemini" if gemini else ("codex" if OPTS["codex"] else "grok")
+    if OPTS["grok"] and payload.get("subagentType"):
+        payload["agent_type"] = payload["subagentType"]
+        payload["agent_id"] = payload.get("session_id") or "subagent"
     if OPTS["grok"]:  # Grok sends its own tool names (its args already match Claude Code's: command, file_path)
         payload["tool_name"] = GROK_NAMES.get(payload.get("tool_name"), payload.get("tool_name"))
+        if payload["tool_name"] == "Bash":
+            inp = dict(payload.get("tool_input") or {})
+            if "block_until_ms" in inp:
+                inp["timeout"] = inp["block_until_ms"]
+                inp["run_in_background"] = inp["block_until_ms"] == 0
+            payload["tool_input"] = inp
     tool = payload.get("tool_name")
     dsh = not cursor and not gemini and isinstance(tool, str) and (tool in NAMES or tool in ("str_replace_editor", "job_output"))
     if dsh:
@@ -693,6 +763,7 @@ def main():
 
     if dsh or OPTS["dsh_global"]:
         payload["dsh"] = True
+        payload["hook_cli"] = "dsh"
         if path and payload.get("hook_event_name") == "PreToolUse":
             import importlib.util
             spec = importlib.util.spec_from_file_location("dsh_compat", os.path.join(HERE, "dsh-cc-compat.py"))
@@ -708,15 +779,19 @@ def main():
         elif OPTS["codex"] or OPTS["grok"]:  # Codex: the rollout; Grok: its session updates.jsonl
             payload["user_prompt"] = transcript_user_words(payload.get("transcript_path"))
 
-    if stop and path:
-        if sub:
+    if (stop or payload.get("hook_event_name") == "SubagentStop") and path:
+        if stop and sub:
             sys.exit(0)
-        recs = wait_for_log(path, records(read_lines(path)))
+        recs = records(read_lines(path))
+        if stop:
+            recs = wait_for_log(path, recs)
         fd, tmp = tempfile.mkstemp(prefix="dsh-stop-", suffix=".jsonl")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             for r in transcript(recs, head.get("cwd") or payload.get("cwd") or ""):
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         payload["transcript_path"] = tmp
+        if not stop:
+            payload["agent_transcript_path"] = tmp
         turn = last_turn(recs)
         payload["stop_hook_active"] = bool(payload.get("stop_hook_active")) or load_state().get(sid) == turn
 
@@ -737,6 +812,22 @@ def main():
             st = load_state()
             st[sid] = turn
             write_json(STATE, st)
+    if OPTS["grok"] and payload.get("tool_name") == "Bash":
+        output = json.loads(proc.stdout or "{}")
+        rewritten = output.get("hookSpecificOutput", {}).get("updatedInput")
+        if rewritten is not None:
+            rewritten["block_until_ms"] = rewritten.pop("timeout")
+            rewritten.pop("run_in_background", None)
+            proc.stdout = json.dumps(output, ensure_ascii=False)
+    if payload.get("dsh"):
+        rewritten = json.loads(proc.stdout or "{}").get("hookSpecificOutput", {}).get("updatedInput")
+        if rewritten is not None:
+            if payload.get("tool_name") == "Bash" and "timeout" in rewritten:
+                rewritten["timeoutMs"] = rewritten.pop("timeout")
+            sys.stdout.write(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                "permissionDecision": "deny", "permissionDecisionReason":
+                "Retry this tool with the following arguments (the DSH bridge cannot rewrite input): " + json.dumps(rewritten, ensure_ascii=False)}}, ensure_ascii=False))
+            sys.exit(0)
     if OPTS["kimi"]:
         try:
             decision = json.loads(proc.stdout or "{}")

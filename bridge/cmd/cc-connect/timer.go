@@ -40,7 +40,8 @@ func runTimer(args []string) {
 func runTimerAdd(args []string) {
 	var project, sessionKey, delay, atTime, prompt, execCmd, desc, dataDir, sessionMode string
 	var timeoutMins *int
-	var mute, silent, injectIfBusy, handoff bool
+	var mute, silent, injectIfBusy, handoff, forward bool
+	var replyBoard int
 
 	var positional []string
 	for i := 0; i < len(args); i++ {
@@ -108,6 +109,18 @@ func runTimerAdd(args []string) {
 			injectIfBusy = true
 		case "--handoff":
 			handoff = true
+		case "--forward":
+			forward = true
+		case "--reply-board":
+			if i+1 < len(args) {
+				i++
+				v, err := strconv.Atoi(strings.TrimPrefix(args[i], "#"))
+				if err != nil || v <= 0 {
+					fmt.Fprintf(os.Stderr, "Error: invalid --reply-board: %s\n", args[i])
+					os.Exit(1)
+				}
+				replyBoard = v
+			}
 		case "--help", "-h":
 			printTimerAddUsage()
 			return
@@ -175,6 +188,12 @@ func runTimerAdd(args []string) {
 	}
 	if handoff {
 		body["handoff"] = true
+	}
+	if forward {
+		body["forward"] = true
+	}
+	if replyBoard > 0 {
+		body["reply_board"] = replyBoard
 	}
 	if timeoutMins != nil {
 		body["timeout_mins"] = *timeoutMins
@@ -436,6 +455,8 @@ Options:
       --silent               Suppress timer start notification (result still sent)
       --inject-if-busy       If the session is mid-turn, add the prompt to that turn instead of queuing
       --handoff              Wake-up for a handed-over task (ws-handoff): the turn opens the automatic progress card
+      --forward              One-shot notice the lead forwards into a workspace (ws-forward): a delivery, not a status poll
+      --reply-board <id>     The turn's posts report on task-board item <id>: a reply to them reaches that work
       --data-dir <path>      Data directory (default: ~/.bothouse)
   -h, --help                 Show this help
 

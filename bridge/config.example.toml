@@ -311,6 +311,9 @@ level = "info" # debug, info, warn, error
 # [relay]
 # timeout_secs = 120        # Max relay wait in seconds; 0 = disabled (default: 120) / relay 最大等待秒数；0 = 禁用（默认 120）
 # visibility = "full"       # "full" (default), "summary", or "none" / 群内可见消息：完整、摘要或不显示
+# voice_resident = false    # Reuse one live ACP voice session per relay key; off by default, enable per device / 每个 relay key 复用一条常驻 ACP 语音会话；默认关，灰度开
+# voice_resident_idle_secs = 600   # Close an idle resident session (default: 600) / 空闲回收秒数（默认 600）
+# voice_resident_max_turns = 30    # Recycle a resident session after N turns (default: 30) / 累计 N 轮回收（默认 30）
 
 # =============================================================================
 # Auto-Compress / 自动压缩
@@ -752,6 +755,7 @@ name = "my-backend"
 # team_name = "协调员"               # This bot's name in the team status (default: project name). / 队友状态里的名字。
 # team_status_inject = true        # Main bot only: start each turn with the teammates' status.
 #                                  # 只给主 bot：每轮开头附上队友状态。
+# team_review_after_seconds = 3600 # Source: existing one-hour stuck threshold; dispatcher verification deadline.
 # team_board = false               # Main bot: pinned per-channel team board, on unless set to false.
 #                                  # 主 bot 每频道一张置顶团队状态栏；不写即开，写 false 关闭。
 # Discord options for main + subs go under [projects.platforms.options]:
@@ -775,6 +779,7 @@ name = "my-backend"
 #                                   # 查不到额度时不显示「暂不可查询/暂无数据/查询中/查询失败」，什么都不显示（默认 true 显示）
 # inject_agent_identity = false   # default true; false when the persona file already states identity.
 # inject_subagent_policy = true    # Prefix each turn with the bridge delegation policy (subagents only on explicit human consent; default: false = off)
+# inject_team_rules = false       # default true; false for a chat persona outside the team channels (e.g. a QQ character): skips the per-turn team-mode rules.
 #                                   # 不再在每轮请求前加「子 agent 委派策略」（默认 true 加）
 # disabled_commands = ["restart", "upgrade", "cron"]  # Disable specific commands for this project
 #                                                     # 禁用该项目的指定命令
@@ -1686,6 +1691,17 @@ app_secret = "your-feishu-app-secret"
 # work_dir = "/path/to/project"
 # mode = "suggest"  # "suggest" | "auto-edit" | "full-auto" | "yolo"
 #
+# Optional: isolate bot sessions from Codex desktop (exec and app_server).
+# 可选：将机器人会话与桌面 Codex 隔离（exec 和 app_server 均支持）。
+# codex_home = "/absolute/path/to/.bothouse/codex-home/my-codex-project"
+# Use an absolute path; prepare login/config there, then restart bothouse.
+# 使用绝对路径；先在该目录准备登录和配置，再重启 bothouse。
+# Unset: inherit CODEX_HOME, otherwise use ~/.codex (may share desktop sessions).
+# 不填：继承 CODEX_HOME，否则用 ~/.codex（可能与桌面共用会话）。
+# Existing history is not moved automatically; check copied config's sqlite_home.
+# 旧会话不会自动迁移；复制 Codex 配置时也要检查 sqlite_home。
+# See / 详见: ../docs/codex-session-isolation.md
+#
 # Mode options / 模式说明:
 # - "suggest":   ask permission for every tool call (default, safest) / 每次调用都需确认（默认，最安全）
 # - "auto-edit": auto-approve file edits, ask for shell commands / 文件编辑自动通过，Shell 命令仍需确认
@@ -1788,6 +1804,10 @@ app_secret = "your-feishu-app-secret"
 #                                  # 可选：OneBot HTTP API 地址，用于文件发送。OneBot 在 WSL/Docker 中时必须配置。
 # allow_from = "*"                 # allowed QQ user IDs, e.g. "12345,67890" or "*" for all
 #                                  # 允许的 QQ 号，如 "12345,67890"，"*" 表示所有
+# command_allow_from = "12345"      # Optional: only these senders may submit slash-prefixed input.
+#                                   # Applies in groups and DMs, including unknown commands forwarded to agents.
+#                                   # 独立限制斜杠命令发送者；普通聊天仍按 allow_from 放行。
+#                                   # 未设置、空字符串或 * 保持原行为；不会授予 admin_from 权限。
 # share_session_in_channel = false  # If true, all users in a group share one agent session / 群聊共享会话
 #                                   # Team mode (several roles in one group) needs true / 团队模式（同群多角色）需要 true
 

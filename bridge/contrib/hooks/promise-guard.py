@@ -115,6 +115,8 @@ JOBS = os.path.join(_DATA, "crons", "jobs.json")
 # 作者自己的后台派活命令（如 gpt、dsx）写进 HOOK_DETACHED_CMDS，用 | 隔开
 _EXTRA = "".join(r"|\b" + re.escape(x.strip()) + r"\s" for x in os.environ.get("HOOK_DETACHED_CMDS", "").split("|") if x.strip())
 DETACHED_CMD = re.compile(r"\bnohup\b|\bsetsid\b|&\s*(?:disown)?\s*$|bothouse\s|launchctl\s|systemd-run\s" + _EXTRA, re.M)
+# 交给工作区（ws-handoff/ws-forward）：工作区交回由桥推回本频道叫醒主角色，等同跑完叫醒，不用再挂定时器轮询
+WS_PUSH = re.compile(r"\bws-(?:handoff|forward)\b")
 # 后台任务的 id（Bash 后台、超时转后台、后台 Agent）和完成通知里的 id。前台 Agent 的结果里也有 agentId，所以只认 "Async agent launched" 后面那个
 BG_ID = re.compile(r"(?:running in background with ID: |moved to the background \(ID: |Async agent launched.{0,300}?agentId: )([A-Za-z0-9]+)", re.S)
 DONE_ID = re.compile(r"<task-id>([A-Za-z0-9]+)</task-id>")
@@ -252,6 +254,8 @@ def receipts(tools, errs, ctx=None):
                 have |= {"bg", "dispatch"}
             elif DETACHED_CMD.search(cmd):
                 have.add("dispatch")
+            if WS_PUSH.search(cmd):
+                have |= {"bg", "dispatch"}
         elif name == "Agent":
             have.add("dispatch")
             # Agent 默认后台跑（工具说明："Subagents run in the background by default"）

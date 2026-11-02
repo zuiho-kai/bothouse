@@ -42,7 +42,7 @@ func TestWatchNoProgressNudgesAndParks(t *testing.T) {
 	if next := w.tick(h.Due.Add(-time.Second)); !next.Equal(h.Due) || len(p.sentTo("discord:ws1")) != 0 {
 		t.Fatalf("before the check time nothing happens; next %v, sent %v", next, p.out)
 	}
-	if next := w.tick(h.Due); !next.IsZero() {
+	if next := watchAfterWarning(t, w, h.Due); !next.IsZero() {
 		t.Fatalf("parked handoff must not be checked again, next %v", next)
 	}
 	sent := p.sentTo("discord:ws1")
@@ -57,7 +57,7 @@ func TestWatchNoProgressNudgesAndParks(t *testing.T) {
 		t.Fatal("the workspace must be back in the pool")
 	}
 	w.tick(h.Due.Add(time.Hour))
-	if n := len(p.sentTo("discord:ws1")); n != 1 {
+	if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
 		t.Fatalf("nudge once, got %d", n)
 	}
 }
@@ -87,7 +87,7 @@ func TestWatchParksWhenNudgeFails(t *testing.T) {
 	e.platforms = []Platform{stub}
 	e.platformReady = map[Platform]bool{}
 	e.markPlatformReady(stub)
-	w.tick(h.Due)
+	watchAfterWarning(t, w, h.Due)
 	got := handoffsOf(e, "discord:ws1")[0]
 	if got.Parked.IsZero() || !got.Nudged {
 		t.Fatalf("send failed: still parked (nudged is marked before the send): %+v", got)
@@ -98,7 +98,7 @@ func TestWatchParkNotOwnedStops(t *testing.T) {
 	e, _, w, h := watchFixture(t, "u1", "")
 	calls := 0
 	w.park = func(string, string, time.Time) (bool, error) { calls++; return false, ErrTeamWorkspaceNotOwned }
-	if next := w.tick(h.Due); !next.IsZero() {
+	if next := watchAfterWarning(t, w, h.Due); !next.IsZero() {
 		t.Fatalf("not owned: watch ends, next %v", next)
 	}
 	if got := handoffsOf(e, "discord:ws1")[0]; !got.Due.IsZero() {
@@ -114,7 +114,7 @@ func TestWatchParkFailureRetriesThenReports(t *testing.T) {
 	e, p, w, h := watchFixture(t, "u1", "")
 	calls := 0
 	w.park = func(string, string, time.Time) (bool, error) { calls++; return false, errors.New("disk full") }
-	now := h.Due
+	now := w.tick(h.Due) // warn before exercising park retries
 	for i := 1; i < watchParkRetries; i++ {
 		next := w.tick(now)
 		if !next.Equal(now.Add(watchRetryDelay)) {
@@ -128,7 +128,7 @@ func TestWatchParkFailureRetriesThenReports(t *testing.T) {
 	if calls != watchParkRetries {
 		t.Fatalf("park tried %d times, want %d", calls, watchParkRetries)
 	}
-	if n := len(p.sentTo("discord:ws1")); n != 1 {
+	if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
 		t.Fatalf("nudged once across retries, got %d", n)
 	}
 	rep := p.sentTo("discord:chatA")
@@ -151,11 +151,11 @@ func TestWatchSurvivesReload(t *testing.T) {
 	}
 	w := newHandoffWatch(e)
 	w.tick(h.Due.Add(3 * time.Hour)) // missed while down: fires on start
-	if n := len(p.sentTo("discord:ws1")); n != 1 {
+	if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
 		t.Fatalf("missed check fires once after restart, got %d", n)
 	}
 	w.tick(h.Due.Add(4 * time.Hour))
-	if n := len(p.sentTo("discord:ws1")); n != 1 {
+	if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
 		t.Fatalf("and only once, got %d", n)
 	}
 }
@@ -193,7 +193,7 @@ func TestWatchRenewsOnProgressAtMostTwice(t *testing.T) {
 	if len(p.out) != 0 {
 		t.Fatalf("renewals are silent, got %v", p.out)
 	}
-	w.tick(now)
+	watchAfterWarning(t, w, now)
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || got.Renewed != watchMaxRenew {
 		t.Fatalf("after %d renewals the task is parked: %+v", watchMaxRenew, got)
 	}
@@ -255,9 +255,9 @@ func TestWatchWaitsForReadyPlatform(t *testing.T) {
 		t.Fatalf("not ready: nothing sent or parked: %+v %v", got, p.out)
 	}
 	e.markPlatformReady(p)
-	w.tick(h.Due.Add(5 * watchRetryDelay))
+	watchAfterWarning(t, w, h.Due.Add(5*watchRetryDelay))
 	w.tick(h.Due.Add(6 * watchRetryDelay))
-	if n := len(p.sentTo("discord:ws1")); n != 1 {
+	if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
 		t.Fatalf("ready: one nudge, got %d", n)
 	}
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() {
@@ -290,8 +290,9 @@ func TestWatchStartedFires(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if !handoffsOf(e, "discord:ws1")[0].Parked.IsZero() {
-			if n := len(p.sentTo("discord:ws1")); n != 1 {
-				t.Fatalf("one nudge, got %d", n)
+			// The resumed turn counts as progress, so a nudge may follow it before the park.
+			if n := len(watchNudges(p.sentTo("discord:ws1"))); n < 1 || n > 2 {
+				t.Fatalf("one nudge per window, got %d", n)
 			}
 			return
 		}
@@ -344,7 +345,7 @@ func TestWatchStartsWithAPIServer(t *testing.T) {
 	for time.Now().Before(deadline) {
 		if !handoffsOf(e, "discord:ws1")[0].Parked.IsZero() {
 			time.Sleep(50 * time.Millisecond)
-			if n := len(p.sentTo("discord:ws1")); n != 1 {
+			if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
 				t.Fatalf("one nudge, got %d", n)
 			}
 			return
@@ -389,7 +390,7 @@ func TestWatchMovesWithTeamWorkspaceEngine(t *testing.T) {
 	for time.Now().Before(deadline) {
 		if !handoffsOf(orange, "discord:ws1")[0].Parked.IsZero() {
 			time.Sleep(100 * time.Millisecond)
-			if n := len(p.sentTo("discord:ws1")); n != 1 {
+			if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
 				t.Fatalf("one watcher: one nudge, got %d", n)
 			}
 			return
@@ -603,7 +604,7 @@ func TestWatchStanceAndOtherPostsAreNoProgress(t *testing.T) {
 	}
 	p.post("ws1", "someone-else", "我在干活", at)
 	p.post("ws1", k5aOwner, "这条在派活之前", h.At.Add(-time.Minute))
-	w.tick(h.Due)
+	watchAfterWarning(t, w, h.Due)
 	got := handoffsOf(e, "discord:ws1")[0]
 	if got.Renewed != 0 || got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
 		t.Fatalf("no progress: nudged once and parked, got %+v, sent %v", got, p.out)
@@ -627,7 +628,7 @@ func TestWatchOwnerPostsRenewAtMostTwice(t *testing.T) {
 		t.Fatalf("renewals are silent, got %v", p.out)
 	}
 	p.post("ws1", k5aOwner, "进度：还在做", now.Add(-time.Second))
-	if next := w.tick(now); !next.IsZero() {
+	if next := watchAfterWarning(t, w, now); !next.IsZero() {
 		t.Fatalf("third check stops the watch, next %v", next)
 	}
 	got := handoffsOf(e, "discord:ws1")[0]
@@ -642,7 +643,7 @@ func TestWatchOwnerPostsRenewAtMostTwice(t *testing.T) {
 // No post and no turn running: stopped at the first check.
 func TestWatchNoSignalStops(t *testing.T) {
 	e, p, w, h := progressFixture(t, k5aOwner)
-	if next := w.tick(h.Due); !next.IsZero() {
+	if next := watchAfterWarning(t, w, h.Due); !next.IsZero() {
 		t.Fatalf("stopped, next %v", next)
 	}
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || got.Renewed != 0 || len(p.sentTo("discord:ws1")) != 1 {
@@ -669,9 +670,203 @@ func TestWatchBusySessionIsNotStopped(t *testing.T) {
 	}
 	w.tick(next)
 	next = handoffsOf(e, "discord:ws1")[0].Due
-	w.tick(next)
+	watchAfterWarning(t, w, next)
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Renewed != watchMaxRenew || got.Parked.IsZero() {
 		t.Fatalf("busy but renewals used up: parked, got %+v", got)
+	}
+}
+
+// A busy turn that keeps producing agent events (tool calls/results, text stream) is real
+// progress, not a busy-only renewal: it renews past watchBusyMaxRenew and never parks. Before
+// this fix the third check parked it as a stuck turn.
+func TestWatchBusySessionWithEventsRenewsBeyondBusyLimit(t *testing.T) {
+	e, p, w, h := progressFixture(t, "")
+	s := e.sessions.GetOrCreateActive("discord:ws1:u1")
+	if !s.TryLock() {
+		t.Fatal("lock")
+	}
+	defer s.Unlock()
+	state := &interactiveState{}
+	e.interactiveStates["discord:ws1:u1"] = state
+	now := h.Due
+	for i := 1; i <= watchBusyMaxRenew+2; i++ {
+		state.lastEventAt.Store(now.Add(-time.Minute).UnixNano())
+		next := w.tick(now)
+		got := handoffsOf(e, "discord:ws1")[0]
+		if next.IsZero() || !got.Parked.IsZero() || got.Renewed != i || len(p.out) != 0 {
+			t.Fatalf("check %d with agent events: renewed as real progress, got %+v, next %v, sent %v", i, got, next, p.out)
+		}
+		now = next
+	}
+	if got := handoffsOf(e, "discord:ws1")[0]; got.BusyRenewed != 0 {
+		t.Fatalf("agent events must count as real progress, got %d busy renewals: %+v", got.BusyRenewed, got)
+	}
+}
+
+// A busy turn with no agent event since the window began is still only a busy renewal and stays
+// capped at watchBusyMaxRenew (#452): after two renewals the workspace is parked.
+func TestWatchBusySessionWithoutEventsStaysCapped(t *testing.T) {
+	e, p, w, h := progressFixture(t, "")
+	s := e.sessions.GetOrCreateActive("discord:ws1:u1")
+	if !s.TryLock() {
+		t.Fatal("lock")
+	}
+	defer s.Unlock()
+	state := &interactiveState{}
+	state.lastEventAt.Store(h.At.Add(-time.Hour).UnixNano())
+	e.interactiveStates["discord:ws1:u1"] = state
+	now := h.Due
+	for i := 1; i <= watchBusyMaxRenew; i++ {
+		next := w.tick(now)
+		got := handoffsOf(e, "discord:ws1")[0]
+		if next.IsZero() || !got.Parked.IsZero() || got.Renewed != i || got.BusyRenewed != i {
+			t.Fatalf("busy check %d without events: renewed only as busy, got %+v, next %v", i, got, next)
+		}
+		now = next
+	}
+	if next := watchAfterWarning(t, w, now); !next.IsZero() {
+		t.Fatalf("busy renewals used up: parked, next %v", next)
+	}
+	got := handoffsOf(e, "discord:ws1")[0]
+	if got.Parked.IsZero() || got.BusyRenewed != watchBusyMaxRenew || len(p.sentTo("discord:ws1")) != 1 {
+		t.Fatalf("busy without events must still park after %d renewals, got %+v, sent %v", watchBusyMaxRenew, got, p.out)
+	}
+}
+
+// In multi-workspace mode interactiveStates is keyed "<workspace path>:<session key>" (see
+// interactiveKeyForSessionKey); the watch must see that state as a session of the workspace,
+// not compare chatOf() of the prefixed key with the workspace key.
+func TestWatchMultiWorkspacePrefixedStateCountsAsEvent(t *testing.T) {
+	e, _, w, h := progressFixture(t, "")
+	wsDir := t.TempDir()
+	e.multiWorkspace = true
+	e.workspaceBindings = NewWorkspaceBindingManager(filepath.Join(t.TempDir(), "bindings.json"))
+	e.workspaceBindings.Bind("project:"+e.name, "discord:ws1", "ws1", wsDir)
+	iKey := e.interactiveKeyForSessionKey("discord:ws1:u1")
+	if iKey == "discord:ws1:u1" {
+		t.Fatalf("precondition: expected a workspace-prefixed interactive key")
+	}
+	state := &interactiveState{}
+	state.lastEventAt.Store(h.At.Add(time.Minute).UnixNano())
+	e.interactiveStates[iKey] = state
+	if !w.workspaceEventActive("discord:ws1", h.At) {
+		t.Fatalf("prefixed state key %q is not recognized as an event of workspace discord:ws1", iKey)
+	}
+}
+
+// Same prefix, through the production path: workspaceProgress must see the prefixed state and
+// renew as real progress.
+func TestWatchMultiWorkspacePrefixedStateRenewsHandoff(t *testing.T) {
+	e, _, w, h := progressFixture(t, "")
+	wsDir := t.TempDir()
+	e.multiWorkspace = true
+	e.workspaceBindings = NewWorkspaceBindingManager(filepath.Join(t.TempDir(), "bindings.json"))
+	e.workspaceBindings.Bind("project:"+e.name, "discord:ws1", "ws1", wsDir)
+	iKey := e.interactiveKeyForSessionKey("discord:ws1:u1")
+	if iKey == "discord:ws1:u1" {
+		t.Fatalf("precondition: expected a workspace-prefixed interactive key")
+	}
+	s := e.sessions.GetOrCreateActive("discord:ws1:u1")
+	if !s.TryLock() {
+		t.Fatal("lock")
+	}
+	defer s.Unlock()
+	state := &interactiveState{}
+	state.lastEventAt.Store(h.At.Add(time.Minute).UnixNano())
+	e.interactiveStates[iKey] = state
+	if kind, err := w.workspaceProgress("discord:ws1", h, h.At); kind != watchProgressReal || err != nil {
+		t.Fatalf("prefixed active handoff: progress = %v, %v; want real", kind, err)
+	}
+}
+
+// The background-task probe uses the same workspace match; a prefixed interactive key must not
+// hide a live background task from the watch either.
+func TestWatchMultiWorkspacePrefixedBackgroundCounts(t *testing.T) {
+	e, _, w, h := progressFixture(t, "")
+	mate, _, _ := exitFixture(t, nil)
+	w.engines = func() []*Engine { return []*Engine{e, mate} }
+	wsDir := t.TempDir()
+	mate.multiWorkspace = true
+	mate.workspaceBindings = NewWorkspaceBindingManager(filepath.Join(t.TempDir(), "bindings.json"))
+	mate.workspaceBindings.Bind("project:"+mate.name, "discord:ws1", "ws1", wsDir)
+	key := mate.interactiveKeyForSessionKey("discord:ws1:mate")
+	if key == "discord:ws1:mate" {
+		t.Fatalf("precondition: expected a workspace-prefixed interactive key")
+	}
+	bg := &bgTaskSession{controllableAgentSession: newControllableSession("bg")}
+	bg.set(1, time.Time{})
+	mate.interactiveStates[key] = &interactiveState{agentSession: bg}
+	if running, pushed := w.workspaceBackgroundProgress("discord:ws1", h.At); !running || pushed {
+		t.Fatalf("prefixed background state %q not counted: running=%v pushed=%v", key, running, pushed)
+	}
+}
+
+// Issue #518's wording is workspace-wide: any session of the workspace with agent events counts
+// as real progress, so a sibling session can keep a stuck handoff alive and hold its slot. That
+// trade-off is intentional for now; per-task isolation is a separate requirement. This test
+// documents it so a later change does not silently flip the semantics.
+func TestWatchSiblingSessionEventsRenewStuckHandoff(t *testing.T) {
+	e, _, w, h := progressFixture(t, "")
+	stuck := e.sessions.GetOrCreateActive("discord:ws1:u1")
+	if !stuck.TryLock() {
+		t.Fatal("lock stuck session")
+	}
+	defer stuck.Unlock()
+	stuckState := &interactiveState{}
+	stuckState.lastEventAt.Store(h.At.Add(-time.Hour).UnixNano())
+	e.interactiveStates["discord:ws1:u1"] = stuckState
+
+	sibling := e.sessions.GetOrCreateActive("discord:ws1:u2")
+	if !sibling.TryLock() {
+		t.Fatal("lock sibling session")
+	}
+	defer sibling.Unlock()
+	siblingState := &interactiveState{}
+	e.interactiveStates["discord:ws1:u2"] = siblingState
+
+	now := h.Due
+	for i := 1; i <= watchBusyMaxRenew+2; i++ {
+		siblingState.lastEventAt.Store(now.Add(-time.Minute).UnixNano())
+		next := w.tick(now)
+		got := handoffsOf(e, "discord:ws1")[0]
+		if next.IsZero() || !got.Parked.IsZero() {
+			t.Fatalf("window %d: sibling events must renew the workspace, got %+v, next %v", i, got, next)
+		}
+		if got.Renewed != i || got.BusyRenewed != 0 {
+			t.Fatalf("window %d: sibling events count as real progress; renewed=%d busy_renewed=%d", i, got.Renewed, got.BusyRenewed)
+		}
+		now = next
+	}
+}
+
+// P3: lastEventAt must be updated by the real event loop (processInteractiveEvents), not only by
+// a test storing it directly. The loop consumes an agent event and the watch sees the state as
+// active even when its interactive key carries a workspace path prefix.
+func TestWatchProcessInteractiveEventsUpdatesLastEventAt(t *testing.T) {
+	e, p, w, h := progressFixture(t, "")
+	wsDir := t.TempDir()
+	e.multiWorkspace = true
+	e.workspaceBindings = NewWorkspaceBindingManager(filepath.Join(t.TempDir(), "bindings.json"))
+	e.workspaceBindings.Bind("project:"+e.name, "discord:ws1", "ws1", wsDir)
+	key := e.interactiveKeyForSessionKey("discord:ws1:u1")
+	if key == "discord:ws1:u1" {
+		t.Fatalf("precondition: expected a workspace-prefixed interactive key")
+	}
+	session := e.sessions.GetOrCreateActive("discord:ws1:u1")
+	as := newControllableSession("p3")
+	state := &interactiveState{agentSession: as, platform: p, replyCtx: "discord:ws1:u1"}
+	state.lastEventAt.Store(h.At.Add(-time.Hour).UnixNano())
+	e.interactiveStates[key] = state
+
+	as.events <- Event{Type: EventText, Content: "工具输出"}
+	as.events <- Event{Type: EventResult, Content: "完成", Done: true}
+	e.processInteractiveEvents(state, session, e.sessions, "discord:ws1:u1", "m1", time.Now(), nil, nil, nil)
+
+	if state.lastEventAt.Load() <= h.At.UnixNano() {
+		t.Fatalf("processInteractiveEvents did not update lastEventAt: %d <= %d", state.lastEventAt.Load(), h.At.UnixNano())
+	}
+	if !w.workspaceEventActive("discord:ws1", h.At) {
+		t.Fatalf("event updated state key %q but the watch did not recognize it", key)
 	}
 }
 
@@ -711,7 +906,7 @@ func TestWatchSignalErrorRetriesThenNoProgress(t *testing.T) {
 		}
 		now = next
 	}
-	if next := w.tick(now); !next.IsZero() {
+	if next := watchAfterWarning(t, w, now); !next.IsZero() {
 		t.Fatalf("retries used up: stopped, next %v", next)
 	}
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || got.Renewed != 0 || len(p.sentTo("discord:ws1")) != 1 {
@@ -789,7 +984,7 @@ func TestWatchFeishuUsesSessionUpdate(t *testing.T) {
 		t.Fatalf("a turn ended in the window renews silently, got %+v, sent %v", got, p.out)
 	}
 	// Next window: no turn since then: nudged and parked, not retried (no read error).
-	if next := w.tick(got.Due); !next.IsZero() {
+	if next := watchAfterWarning(t, w, got.Due); !next.IsZero() {
 		t.Fatalf("no turn in the window: stopped, next %v", next)
 	}
 	if got := handoffsOf(e, "feishu:ws1")[0]; got.Parked.IsZero() || got.ReadFails != 0 || len(p.sentTo("feishu:ws1")) != 1 {
@@ -838,7 +1033,7 @@ func TestWatchBackgroundWorkRenewsThenIdleParks(t *testing.T) {
 			}
 			bg.set(0, h.Due)
 			child.set(1, SubTask{ID: "child", Status: SubTaskCompleted, EndedAt: h.Due})
-			if next := w.tick(next); !next.IsZero() {
+			if next := watchAfterWarning(t, w, next); !next.IsZero() {
 				t.Fatalf("idle task must park: %v", next)
 			}
 			got = handoffsOf(e, "discord:ws1")[0]
@@ -881,7 +1076,7 @@ func TestWatchWorkspaceBranchPushRenews(t *testing.T) {
 	if next.IsZero() {
 		t.Fatal("the new push must renew the first check")
 	}
-	w.tick(next)
+	watchAfterWarning(t, w, next)
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
 		t.Fatalf("old push must not renew: %+v", got)
 	}
@@ -903,7 +1098,7 @@ func TestWatchBackgroundRenewsBeyondOrdinaryLimit(t *testing.T) {
 		now = next
 	}
 	bg.set(0, time.Time{})
-	if next := w.tick(now); !next.IsZero() {
+	if next := watchAfterWarning(t, w, now); !next.IsZero() {
 		t.Fatalf("background ended without output: must park, next %v", next)
 	}
 }
@@ -926,7 +1121,7 @@ func TestWatchDeadBackgroundSessionParks(t *testing.T) {
 				bg.alive = false
 			}
 			e.interactiveStates["discord:ws1:owner"] = &interactiveState{agentSession: as}
-			if next := w.tick(h.Due); !next.IsZero() {
+			if next := watchAfterWarning(t, w, h.Due); !next.IsZero() {
 				t.Fatalf("dead process must not renew: %v", next)
 			}
 			got := handoffsOf(e, "discord:ws1")[0]
@@ -955,7 +1150,7 @@ func TestWatchBackgroundRenewalCapSurvivesReload(t *testing.T) {
 		teamWorkspaceStore.mu.Unlock()
 		w = newHandoffWatch(e)
 	}
-	if next := w.tick(now); !next.IsZero() {
+	if next := watchAfterWarning(t, w, now); !next.IsZero() {
 		t.Fatalf("six renewals exhausted: must park, next %v", next)
 	}
 	got := handoffsOf(e, "discord:ws1")[0]
@@ -990,8 +1185,52 @@ func TestWatchRenewsWhileProgressByDefault(t *testing.T) {
 		now = next
 	}
 	progress = watchProgressNone
-	w.tick(now)
+	watchAfterWarning(t, w, now)
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
 		t.Fatalf("quiet window: nudged once and parked, got %+v, sent %v", got, p.out)
+	}
+}
+
+// watchNudges keeps the nudge posts: a started watch also wakes the workspace once (auto-resume),
+// and that resumed turn may post its own reply.
+func watchNudges(posts []string) []string {
+	var out []string
+	for _, s := range posts {
+		if strings.Contains(s, "到了检查时间还没交回") {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// #925: a check without progress after the nudge first stops the stuck turn and wakes the
+// workspace to continue (once, telling nobody is parked yet); only the next check without
+// progress parks, and the chat the task came from is told.
+func TestWatchResumesOnceBeforeParking(t *testing.T) {
+	e, p, w, h := watchFixture(t, "u1", "叠板")
+	var resumed []string
+	w.resume = func(_ Platform, key string, _ TeamHandoff) { resumed = append(resumed, key) }
+	next := w.tick(h.Due) // nudge
+	if next.IsZero() {
+		t.Fatal("the nudge keeps the handoff watched")
+	}
+	next = w.tick(next) // no progress: resume instead of parking
+	got := handoffsOf(e, "discord:ws1")[0]
+	if len(resumed) != 1 || resumed[0] != "discord:ws1" || !got.Parked.IsZero() || !got.AutoResumed || next.IsZero() {
+		t.Fatalf("first no-progress check must resume once, not park: resumed %v next %v %+v", resumed, next, got)
+	}
+	if n := len(watchNudges(p.sentTo("discord:ws1"))); n != 1 {
+		t.Fatalf("the resume replaces the second nudge, got %d nudges", n)
+	}
+	if next := w.tick(next); !next.IsZero() {
+		t.Fatalf("second no-progress check parks, next %v", next)
+	}
+	got = handoffsOf(e, "discord:ws1")[0]
+	if got.Parked.IsZero() || len(resumed) != 1 {
+		t.Fatalf("must park after one resume: resumed %v %+v", resumed, got)
+	}
+	chat := strings.Join(p.sentTo("discord:chatA"), "\n")
+	if !strings.Contains(chat, e.i18n.Tf(MsgWatchParkedNotice, "<#ws1>", "叠板")) {
+		t.Fatalf("the chat must be told the task is paused, got %q", chat)
 	}
 }

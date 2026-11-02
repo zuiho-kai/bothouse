@@ -15,6 +15,9 @@ func TestDSHPlatformInstallLanguageAndIsolation(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "dsh"), []byte("#!/bin/sh\necho test-dsh\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(bin, "node"), []byte("#!/bin/sh\necho v22.12.0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	script := t.TempDir()
 	home := t.TempDir()
@@ -25,7 +28,7 @@ set -eu
 [ "$1" = web ]
 [ "$2" = --lang ]
 mkdir -p "$DSH_HOME/profiles/web"
-printf 'client-ui-discord\nlocale: %s\n' "$3" > "$DSH_HOME/profiles/web/cordis.patch.yml"
+printf '%s\n' '- insert:' '    - id: bothouse-dsh' '      name: bothouse-dsh' '- id: locale' '  config:' "    locale: $3" > "$DSH_HOME/profiles/web/cordis.patch.yml"
 echo "installed $3"
 `
 	if err := os.WriteFile(filepath.Join(script, "install.sh"), []byte(body), 0644); err != nil {

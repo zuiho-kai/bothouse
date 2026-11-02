@@ -23,6 +23,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// The sidebar's "add platform" and "add role" both open /setup with different queries: a fresh
+// wizard for each, not the step the other one was on.
+function SetupRoute() {
+  const [params] = useSearchParams();
+  return <SetupWizard key={params.toString()} />;
+}
+
 // After logging in from a link like /login?token=…&next=/setup, go to `next` (same-site paths only).
 function AfterLogin() {
   const [params] = useSearchParams();
@@ -39,7 +46,7 @@ export default function App() {
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<Dashboard />} />
         <Route path="usage" element={<Usage />} />
-        <Route path="setup" element={<SetupWizard />} />
+        <Route path="setup" element={<SetupRoute />} />
         <Route path="roles" element={<RoleList />} />
         <Route path="devices" element={<DeviceList />} />
         <Route path="projects" element={<ProjectList />} />

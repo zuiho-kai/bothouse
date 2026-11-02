@@ -19,7 +19,7 @@ class WsGuardTest(unittest.TestCase):
                         f"n=sum(1 for _ in open({str(self.calls)!r}))\nprint(f'Timer created: t{{n}}')\n")
         fake.chmod(0o755)
         self.notes = self.tmp / "notes.md"
-        self.notes.write_text("# 用户原话\n- 做\n# 总目标\n# 进度\n# 相关改动\n冲突：无\n# 规矩\n# 参照实现\n无（新建）\n", encoding="utf-8")
+        self.notes.write_text("# 用户原话\n- 做\n# 总目标\n# 范围\n改：测试\n不改：无\n# 已查过什么\n无（没查过）\n# 进度\n# 相关改动\n冲突：无\n# 规矩\n# 参照实现\n无（新建）\n", encoding="utf-8")
         self.env = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": str(self.tmp), "GATE_SETUP_DIR": str(self.setup),
                     "BOARD_DIR": str(self.tmp / "board"), "BOTHOUSE_DATA_DIR": str(self.tmp / "data"),
                     "CC_BIN": str(fake), "CC_PROJECT": "lead-proj", "WS_CHANNEL": "900", "CC_SESSION_KEY": "test:100"}

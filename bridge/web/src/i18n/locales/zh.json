@@ -1,5 +1,6 @@
 {
   "nav": {
+    "addPlatform": "添加平台",
     "addRole": "添加角色/模型",
     "library": "角色库",
     "dashboard": "概览",
@@ -107,6 +108,10 @@
     "linkGlobal": "关联全局服务商",
     "addCustom": "自定义添加",
     "allLinked": "所有全局服务商已关联。",
+    "noGlobal": "还没有全局服务商。请先在“服务商”页创建。",
+    "noCompatible": "没有适用于该项目 agent 类型的全局服务商。",
+    "emptyProjectMismatch": "已关联的全局服务商不适用于该项目的 agent 类型。",
+    "emptyProjectMismatchHint": "在“服务商”页调整它们的适用类型，或添加自定义服务商。",
     "manageGlobal": "管理全局服务商"
   },
   "cron": {
@@ -365,7 +370,9 @@
     "logLevel": "日志级别",
     "appearance": "外观",
     "theme": "主题",
-    "themeHint": "默认是黄白明亮。只保存在这个浏览器里，不用点保存。"
+    "themeHint": "默认是黄白明亮。只保存在这个浏览器里，不用点保存。",
+    "tokenUnit": "Token 用量单位",
+    "tokenUnitHint": "设置 Token 用量的显示单位（支持原数、百万 M、十亿 B），悬停可查看完整原数。只保存在这个浏览器里，不用点保存。"
   },
   "globalProviders": {
     "title": "服务商管理",
@@ -466,6 +473,22 @@
   "usage": {
     "title": "用量",
     "subtitle": "每一天的消耗，每一小时的节奏。",
+    "tokenUnit": "显示单位",
+    "unitRaw": "完整原数",
+    "unitM": "M (百万)",
+    "unitB": "B (十亿)",
+    "unitRawShort": "原数",
+    "unitMShort": "M",
+    "unitBShort": "B",
+    "dateRange": "时间段",
+    "startDate": "开始日期",
+    "endDate": "结束日期",
+    "resetRange": "重置时间段",
+    "customTokens": "所选时段 token",
+    "customRoles": "按角色 · 所选时段",
+    "customModels": "按模型 · 所选时段",
+    "dateRangeInvalid": "起止日期无效：结束日期须晚于或等于开始日期",
+    "dateRangeTooLong": "起止日期跨度不能超过一年",
     "roles": "按角色 · 近一年",
     "models": "按模型 · 近一年",
     "allRoles": "全部角色",

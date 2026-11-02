@@ -1,0 +1,1 @@
+- Guard against spin polling (anti-spin-guard): prohibit using short-interval timers (<10m) to wake LLMs for repetitive state polling (e.g. quota receipts, usage reset); use --poll lightweight script mode instead or rely on cooldown auto-probe.

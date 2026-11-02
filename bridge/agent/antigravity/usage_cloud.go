@@ -65,14 +65,15 @@ var googleClientSecretLen = len("GOCSPX-") + googleClientSecretBody
 // quotaState caches the last quota report and the in-memory access token.
 // The zero value is ready to use.
 type quotaState struct {
-	mu        sync.Mutex
-	report    *core.UsageReport
-	inflight  chan struct{}
-	lastErr   error
-	token     string
-	tokenExp  time.Time
-	secret    string
-	binSecret map[string][]string // binary path -> client secret candidates
+	mu         sync.Mutex
+	report     *core.UsageReport
+	cacheModel string
+	inflight   chan struct{}
+	lastErr    error
+	token      string
+	tokenExp   time.Time
+	secret     string
+	binSecret  map[string][]string // binary path -> client secret candidates
 
 	// test hooks
 	httpClient *http.Client
@@ -117,7 +118,7 @@ func (a *Agent) cloudUsage(ctx context.Context, model string) (*core.UsageReport
 		q.inflight = done
 		go q.refresh(cmd, model, done)
 	}
-	if q.report != nil {
+	if q.report != nil && q.cacheModel == model {
 		// Warm cache: answer now, the refresh above lands for the next call,
 		// so a reply never waits on the network once we have a snapshot.
 		cached := cloneReport(q.report)
@@ -134,8 +135,14 @@ func (a *Agent) cloudUsage(ctx context.Context, model string) (*core.UsageReport
 
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.report != nil {
+	if q.report != nil && q.cacheModel == model {
 		return cloneReport(q.report), nil
+	}
+	if q.lastErr == nil && ctx.Err() == nil && q.cacheModel != model {
+		q.mu.Unlock()
+		r, err := a.cloudUsage(ctx, model)
+		q.mu.Lock()
+		return r, err
 	}
 	if q.lastErr != nil {
 		return nil, q.lastErr
@@ -159,6 +166,7 @@ func (q *quotaState) refresh(cmd, model string, done chan struct{}) {
 	q.mu.Lock()
 	if err == nil {
 		q.report = report
+		q.cacheModel = model
 		q.lastErr = nil
 	} else {
 		q.lastErr = err
@@ -240,7 +248,13 @@ type cloudQuotaSummary struct {
 // The group that serves the current model goes first, because the footer
 // shows the first bucket that has windows.
 func mapQuotaSummary(payload cloudQuotaSummary, model string, now time.Time) *core.UsageReport {
-	report := &core.UsageReport{Provider: "antigravity"}
+	argon := false
+	for _, g := range payload.Groups {
+		for _, b := range g.Buckets {
+			argon = argon || strings.HasPrefix(b.BucketID, "gemini-argon-")
+		}
+	}
+	report := &core.UsageReport{Provider: "antigravity", QuotaGroup: quotaGroupForModel(model, argon)}
 	preferred := -1
 	wantThirdParty := isThirdPartyModel(model)
 	for i, g := range payload.Groups {
@@ -261,6 +275,13 @@ func mapQuotaSummary(payload cloudQuotaSummary, model string, now time.Time) *co
 	}
 	for _, i := range order {
 		g := payload.Groups[i]
+		group := ""
+		for _, b := range g.Buckets {
+			if b.BucketID != "" {
+				group = strings.TrimSuffix(b.BucketID, b.Window)
+				break
+			}
+		}
 		var windows []core.UsageWindow
 		limitReached := false
 		for _, b := range g.Buckets {
@@ -284,11 +305,15 @@ func mapQuotaSummary(payload cloudQuotaSummary, model string, now time.Time) *co
 			}
 			windows = append(windows, w)
 		}
+		if group != "" {
+			report.QuotaGroups = append(report.QuotaGroups, group)
+		}
 		if len(windows) == 0 {
 			continue
 		}
 		report.Buckets = append(report.Buckets, core.UsageBucket{
 			Name:         g.DisplayName,
+			QuotaGroup:   group,
 			Allowed:      !limitReached,
 			LimitReached: limitReached,
 			Windows:      windows,

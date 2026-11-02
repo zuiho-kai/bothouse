@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"log/slog"
 	"time"
 )
@@ -19,7 +20,7 @@ const askBounceWait = 2 * time.Minute
 // replying bot, so it fixes the [ask]/[report] instead of waiting on a user who never saw it.
 // Both wait for the asking turn to end: the notice then follows the bot's own
 // reply, and the new turn needs no queue notice.
-func (e *Engine) bounceWorkspaceExit(p Platform, rec ReplyContextReconstructor, sessionKey, kind string, problems []string) {
+func (e *Engine) bounceWorkspaceExit(ctx context.Context, p Platform, rec ReplyContextReconstructor, sessionKey, kind string, problems []string) {
 	text := exitBounceText(kind, problems)
 	e.teamExit.mu.Lock()
 	if e.teamExit.bounces == nil {
@@ -33,12 +34,12 @@ func (e *Engine) bounceWorkspaceExit(p Platform, rec ReplyContextReconstructor, 
 		deadline := time.Now().Add(askBounceWait)
 		for session.Busy() && time.Now().Before(deadline) {
 			select {
-			case <-e.ctx.Done():
+			case <-ctx.Done():
 				return
 			case <-time.After(20 * time.Millisecond):
 			}
 		}
-		if e.ctx.Err() != nil {
+		if ctx.Err() != nil {
 			return
 		}
 		rc, err := rec.ReconstructReplyCtx(sessionKey)
@@ -46,8 +47,14 @@ func (e *Engine) bounceWorkspaceExit(p Platform, rec ReplyContextReconstructor, 
 			slog.Warn("team exit: workspace unreachable for ask bounce", "session", sessionKey, "error", err)
 			return
 		}
-		if err := p.Send(e.ctx, rc, exitPrefix+" "+text); err != nil {
+		if err := e.sendRenderedWithContext(ctx, p, rc, exitPrefix+" "+text); err != nil {
 			slog.Warn("team exit: ask bounce post failed", "session", sessionKey, "error", err)
+			return
+		}
+		if _, bound := ctx.Value(proactiveExecutionKey{}).(proactiveExecution); bound {
+			// ExecuteHeartbeat cannot preserve the original decision. Never turn
+			// an authorized result into an unrestricted repair turn.
+			return
 		}
 		if !wake {
 			return

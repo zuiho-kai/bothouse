@@ -31,7 +31,7 @@ func runWorkspace(args []string) {
 	stop := fs.Bool("stop", false, "park: also stop the turn running in the workspace when it is freed (the user stopped the task)")
 	owner := fs.String("owner", "", "claim: who the task goes to (platform user/bot id), mentioned if the ten-minute check finds no progress")
 	title := fs.String("title", "", "claim: the task's short name, shown in that nudge")
-	_ = fs.Parse(rest)
+	_ = parseWorkspaceFlags(fs, rest)
 	if *session == "" {
 		workspaceFail(fmt.Errorf("no channel: run this inside a bothouse agent session or pass --session-key discord:<channel id>"))
 	}
@@ -125,6 +125,27 @@ func runWorkspace(args []string) {
 	}
 }
 
+func parseWorkspaceFlags(fs *flag.FlagSet, args []string) error {
+	var positional []string
+	for len(args) > 0 {
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		rest := fs.Args()
+		consumed := len(args) - len(rest)
+		if consumed > 0 && args[consumed-1] == "--" {
+			positional = append(positional, rest...)
+			break
+		}
+		if len(rest) == 0 {
+			break
+		}
+		positional = append(positional, rest[0])
+		args = rest[1:]
+	}
+	return fs.Parse(append([]string{"--"}, positional...))
+}
+
 func printWorkspaceUsage() {
 	fmt.Println(`Usage: bothouse workspace <new|list|claim|park> [<workspace id>] [--session-key discord:<channel id>] [--json]
 
@@ -132,7 +153,9 @@ func printWorkspaceUsage() {
   list   list this chat channel's workspaces and the category's shared pool
   claim  record this chat channel as the one handing off to <workspace id> (also resumes a paused task);
          [--owner <id>] [--title <short name>]: who the task goes to and what it is, for the
-         ten-minute check (no progress then: a nudge in the workspace and the task is paused)
+         ten-minute check (no progress: nudge first, pause after one more quiet window).
+         A configured project name is resolved to its ready platform user ID; without one,
+         the claim fails. Options may appear before or after the workspace ID.
   park   pause one task of <workspace id> (default: this workspace); with no other task in
          work there the workspace goes back to the pool and its sessions are reset;
          --chat <chat key> [--before <RFC 3339>]: only that chat channel's task, refused

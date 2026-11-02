@@ -172,3 +172,19 @@ func TestTeamExitRulesNotHardcoded(t *testing.T) {
 		}
 	}
 }
+
+func TestJargonProductNamesAndLinks(t *testing.T) {
+	for _, text := range []string{"DeepSeek 与 OpenClaw 并排图已补", "邀请：https://discord.gg/fooBar，文档 https://example.com/a-b/file.md#123"} {
+		if got := jargonProblems(text); len(got) != 0 {
+			t.Errorf("%q: %v", text, got)
+		}
+	}
+}
+
+func TestJargonStillRejectsInternalIdentifiers(t *testing.T) {
+	for _, text := range []string{"fooBar", "~/x/y", "#123", "https://discord.gg/ok 后面 fooBar"} {
+		if got := jargonProblems(text); len(got) == 0 {
+			t.Errorf("%q was allowed", text)
+		}
+	}
+}
