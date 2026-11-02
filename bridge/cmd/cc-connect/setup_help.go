@@ -22,6 +22,10 @@ const setupUsage = `Usage:
                          Tool hooks (bash-guard, dispatch-review-guard, …) for one role: switch them on or off in
                          <dir>/.claude/settings.json and keep the rules block in its persona in step.
                          New Claude Code roles from the wizard get all of them. Run "setup hooks -h" for more.
+  bothouse setup hooks on|off|status --global memory|guards [--only a,b]
+                         The same for your own Claude Code (~/.claude/settings.json), so terminal sessions get
+                         them too; off by default. memory = wiki pages on each message + filing sessions into the
+                         wiki; guards = the role guards. Skipped inside bothouse's roles, so nothing runs twice.
   bothouse setup lead install --work-dir <dir> [--agent <type>] [--config <path>]
   bothouse setup tools on|off|status --work-dir <dir> [--agent claudecode|codex|acp|…] [--only a,b] [--lang zh|en]
                          Small tools for one role (peek: what the other bots are doing; watchvid: turn a video
@@ -87,6 +91,11 @@ Request JSON (only the fields marked REQUIRED must be given; everything else has
                      sonnet | opus | codex:high | agy. Omitted = keep (ingest.py's defaults: haiku, codex:high,
                      codex:high); written to the wiki's config.json. With a wiki, the three scheduled runs (every
                      30 min; 03:00 Mon-Sat; 03:00 Sun) are also added as muted cron jobs (step "wiki cron"), once.
+  global_memory      optional true/false: also put the memory hooks (wiki-context, wiki-ingest) into your own Claude
+                     Code settings (~/.claude/settings.json), so terminal sessions get them. Omitted = keep;
+                     off by default. Same as "setup hooks on|off --global memory".
+  global_guards      optional true/false: the same for the guard hooks (plus their rules block in ~/.claude/CLAUDE.md
+                     and the long-task subagent). Same as "setup hooks on|off --global guards".
   dry_run            true = same as --dry-run: check everything (token, server, intent), write nothing
 
 Minimal Discord request:

@@ -51,6 +51,23 @@ DSH 角色加 `--cli dsh`（人设是 `AGENTS.md`）。关掉会把这个角色�
 
 bothouse 写的 hook 命令都带 `--conest-hook` 标记，`off` 只删带标记的（以及旧版写的 `…/hooks/run.py <名字>`），用户自己的 hook 不动。`run.py` 被删掉时命令直接放行（exit 0），不会把所有工具调用都拦下。
 
+## 全局安装（终端里的 Claude Code 也用，默认关）
+
+上面装的 hook 只在 bothouse 起的角色里跑。想让自己在终端开的 Claude Code 也用上，在向导最后一步勾「全局安装」的两项，或用命令：
+
+```sh
+bothouse setup hooks on --global memory      # 记忆：每条消息附相关 wiki 页（wiki-context）+ 会话结束整理进 wiki（wiki-ingest）
+bothouse setup hooks on --global guards      # 守门：角色用的守门 hook（不含记忆两条），规则段写进 ~/.claude/CLAUDE.md，long-task 子 agent 放进 ~/.claude/agents
+bothouse setup hooks off --global guards --only bash-guard   # 只关一条
+bothouse setup hooks status --global memory
+```
+
+- 写的是 `~/.claude/settings.json`（设了 `CLAUDE_CONFIG_DIR` 就写那里）。只增删 bothouse 加的那几条，其余键和顺序不动；每次改之前备份成 `settings.json.bothouse-<时间>.bak`，内容没变就不写。
+- **不会跑两遍**：全局命令带 `--cc-global`。bothouse 起的角色会话（有 `CC_PROJECT`）里直接放行；项目自己的 `.claude/settings.json` 已有同一条 hook 时也放行，由项目那份跑。你自己已经装了同样的 hook（比如手装的 `wiki-context.py`、`ingest.py --hook`），bothouse 不再加。
+- 记忆的 wiki 用 `$WIKI_DIR`，默认 `~/wiki`。向导建的主 wiki 本来只读机器人的会话；开了记忆后它多一个 `.bothouse-terminal.json`，定时空闲整理也读终端会话（角色目录的会话跳过，它们走各自的 wiki）。关掉记忆时这个文件一起删。
+- `off` 只删 bothouse 加的：settings 里带 `--cc-global` 的命令、CLAUDE.md 里 `<!-- conest:hooks -->` 那段、带 bothouse 标记的 `long-task.md`。你自己的 `long-task.md` 不覆盖也不删。
+- 临时停用一条：`<数据目录>/hooks/run.py --role ~/.claude off bash-guard`（写 `~/.claude/.bothouse/conest-hooks.json`）。
+
 ## 有哪些 hook
 
 | hook | 事件 | 管什么 | 怎么放行 |

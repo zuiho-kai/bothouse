@@ -58,8 +58,12 @@ type WizardRequest struct {
 	AllowFrom *string `json:"allow_from,omitempty"`
 	// Wiki: the models of the memory wiki's work (core/setup_wiki.go); nil or "" = keep. With a wiki
 	// (~/wiki/bin/ingest.py), the wizard also adds its scheduled runs as muted cron jobs.
-	Wiki   *WizardWiki `json:"wiki,omitempty"`
-	DryRun bool        `json:"dry_run,omitempty"`
+	Wiki *WizardWiki `json:"wiki,omitempty"`
+	// GlobalMemory / GlobalGuards: also put the memory hooks / the guard hooks into the user's own Claude Code
+	// settings (core/global_hooks.go), so terminal sessions get them. nil = keep; off by default.
+	GlobalMemory *bool `json:"global_memory,omitempty"`
+	GlobalGuards *bool `json:"global_guards,omitempty"`
+	DryRun       bool  `json:"dry_run,omitempty"`
 	// AppendOnly: the panel's "add role/model" entry. Every role must become a new project; a role
 	// that would update an existing one (reuse_project, same bot, same name) is refused, not merged.
 	AppendOnly bool `json:"append_only,omitempty"`
@@ -1131,6 +1135,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			}
 		}
 		res.JevHint = JevHint(req.Language, usable, res.Hardware, pl.fallbackName)
+		applyWizardGlobalHooks(res, env, req, pl)
 		finishWizardResult(res, req, pl, usable)
 		return res
 	}
@@ -1401,6 +1406,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	// every new role's own wiki + nightly reflection (core/rolewiki.go); the cron jobs below then run its sub-wiki.sh
 	env.WikiSubScript = applyRoleWikis(ctx, res, env, req, pl, clis)
 	applyWizardWiki(res, env, req, pl.fallback, wikiSession)
+	applyWizardGlobalHooks(res, env, req, pl)
 	res.RestartRequired = true
 	res.Saved = true
 	if after, err := env.Store.Snapshot(); err == nil {
@@ -2425,6 +2431,8 @@ func (m *ManagementServer) handleSetupState(w http.ResponseWriter, r *http.Reque
 	if w := LoadWikiSetup(); w != nil {
 		out["wiki"] = w
 	}
+	out["global_memory"] = GlobalHooksOn(GlobalMemory) // the wizard's two "global install" checkboxes start from these
+	out["global_guards"] = GlobalHooksOn(GlobalGuards)
 	j, ok := LoadJevConfig(m.wizardDataDir)
 	out["jev_hint"] = JevHint(r.URL.Query().Get("lang"), ok && j.Logprobs, out["hardware"].(bool), fb)
 	mgmtJSON(w, http.StatusOK, out)

@@ -28,6 +28,8 @@ export interface SetupStateResp {
   jev_hint: string;
   /** the memory wiki (core/setup_wiki.go); absent = no ~/wiki/bin/ingest.py on this machine */
   wiki?: { dir: string; engines: WikiEngine[]; defaults: WizardWiki; current: WizardWiki };
+  /** bothouse's memory / guard hooks are in the user's own Claude Code settings (core/global_hooks.go) */
+  global_memory?: boolean; global_guards?: boolean;
 }
 export interface WikiEngine { id: string; label: string; agent_type: string }
 /** model of each kind of wiki work; omitted = keep */
@@ -53,6 +55,8 @@ export interface WizardRequest {
   gate?: { enabled: boolean; mode?: 'smart' | 'addressed' };
   allow_from?: string;
   wiki?: WizardWiki;
+  /** also install the memory / guard hooks into ~/.claude (terminal Claude Code); omitted = keep */
+  global_memory?: boolean; global_guards?: boolean;
   dry_run?: boolean;
   append_only?: boolean; // the panel's add-role entry: only new roles, a taken name is refused
 }

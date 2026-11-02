@@ -97,8 +97,12 @@ const zh = {
   wikiDaily: '日常整理', wikiDailyHelp: '每半小时把新聊天记进 wiki。',
   wikiNight: '夜间复核', wikiNightHelp: '每晚检查当天记的对不对、写反思，周日做一次全面体检。',
   wikiSplit: '拆页', wikiSplitHelp: '某页或某类写满时，把它拆成几页。', wikiDefault: '默认',
+  globalTitle: '全局安装（终端里的 Claude Code 也用）', globalNote: '装进 ~/.claude，在 bot 会话里自动跳过，不会跑两遍。取消勾选只删 bothouse 加的。',
+  globalMemory: '记忆：每条消息附相关 wiki 页，会话结束整理进 wiki，空闲整理也读终端会话',
+  globalGuards: '守门：bot 角色用的守门 hook 和规则，外加 long-task 子 agent',
   stepNames: { config: '配置', 'project name': '项目名', team: '组队', jev: 'jev', fallback_role: '主角色', 'gate team': 'gate 组队', state: '向导状态',
-    discord: 'Discord', persona: '人设', provider: '第三方 API', cloud_web: '自建平台', wiki: '记忆 wiki 模型', 'wiki cron': '记忆 wiki 定时整理' } as Record<string, string>,
+    discord: 'Discord', persona: '人设', provider: '第三方 API', cloud_web: '自建平台', wiki: '记忆 wiki 模型', 'wiki cron': '记忆 wiki 定时整理',
+    'global memory hooks': '全局记忆 hook', 'global guards hooks': '全局守门 hook' } as Record<string, string>,
 } as const;
 
 type Texts = { [K in keyof typeof zh]: (typeof zh)[K] extends readonly string[] ? readonly string[]
@@ -201,8 +205,12 @@ const en: Texts = {
   wikiDaily: 'Daily notes', wikiDailyHelp: 'Every 30 minutes, puts new chats into the wiki.',
   wikiNight: 'Night review', wikiNightHelp: "Every night, checks the day's notes and writes a reflection; a full check-up on Sundays.",
   wikiSplit: 'Page split', wikiSplitHelp: 'Splits a page or section that is full.', wikiDefault: 'default',
+  globalTitle: 'Install globally (for Claude Code in your terminal too)', globalNote: 'Goes into ~/.claude. Bot sessions skip it, so nothing runs twice. Unticking removes only what bothouse added.',
+  globalMemory: 'Memory: relevant wiki pages on each message, sessions filed into the wiki, idle tidy-up reads terminal sessions too',
+  globalGuards: 'Guards: the guard hooks and rules the bot roles use, plus the long-task subagent',
   stepNames: { config: 'config', 'project name': 'project name', team: 'team', jev: 'jev', fallback_role: 'primary role', 'gate team': 'gate team', state: 'wizard state',
-    discord: 'Discord', persona: 'persona', provider: 'third-party API', cloud_web: 'self-hosted platform', wiki: 'memory wiki models', 'wiki cron': 'memory wiki scheduled runs' },
+    discord: 'Discord', persona: 'persona', provider: 'third-party API', cloud_web: 'self-hosted platform', wiki: 'memory wiki models', 'wiki cron': 'memory wiki scheduled runs',
+    'global memory hooks': 'global memory hooks', 'global guards hooks': 'global guard hooks' },
 };
 
 const ja: Texts = {
@@ -302,8 +310,12 @@ const ja: Texts = {
   wikiDaily: '日々の整理', wikiDailyHelp: '30 分ごとに新しい会話を wiki に記録します。',
   wikiNight: '夜の見直し', wikiNightHelp: '毎晩その日の記録を確認して振り返りを書き、日曜は全体を点検します。',
   wikiSplit: 'ページ分割', wikiSplitHelp: 'いっぱいになったページや分類を分けます。', wikiDefault: '既定',
+  globalTitle: 'グローバルにインストール（ターミナルの Claude Code でも使う）', globalNote: '~/.claude に入れます。bot のセッションでは自動で飛ばすので二重に動きません。チェックを外すと bothouse が入れた分だけ消します。',
+  globalMemory: '記憶：メッセージごとに関連 wiki ページを添え、会話終了時に wiki へ整理、空き時間の整理もターミナルの会話を読む',
+  globalGuards: 'ガード：bot ロールのガード hook とルール、それに long-task サブエージェント',
   stepNames: { config: '設定', 'project name': 'プロジェクト名', team: 'チーム', jev: 'jev', fallback_role: 'メインロール', 'gate team': 'gate チーム', state: 'ウィザード状態',
-    discord: 'Discord', persona: 'ペルソナ', provider: 'サードパーティ API', cloud_web: '自前プラットフォーム', wiki: '記憶 wiki のモデル', 'wiki cron': '記憶 wiki の定期整理' },
+    discord: 'Discord', persona: 'ペルソナ', provider: 'サードパーティ API', cloud_web: '自前プラットフォーム', wiki: '記憶 wiki のモデル', 'wiki cron': '記憶 wiki の定期整理',
+    'global memory hooks': 'グローバル記憶 hook', 'global guards hooks': 'グローバルガード hook' },
 };
 
 export type WizardTexts = Texts;

@@ -141,6 +141,10 @@ export default function SetupWizard() {
   // memory wiki models: start from what is in effect; only the ones changed go into the request
   const [wikiPick, setWikiPick] = useState<WizardWiki>({});
   const wikiInfo = state?.wiki;
+  // the two "install globally" checkboxes: null = what the machine has now (off by default)
+  const [globalPick, setGlobalPick] = useState<{ memory: boolean | null; guards: boolean | null }>({ memory: null, guards: null });
+  const globalMemory = globalPick.memory ?? !!state?.global_memory;
+  const globalGuards = globalPick.guards ?? !!state?.global_guards;
 
   useEffect(() => {
     // the routing checkbox starts from the saved choice (off stays off); no value = on
@@ -406,6 +410,8 @@ export default function SetupWizard() {
       (['daily', 'night', 'split'] as const).forEach((k) => { if (wikiPick[k] && wikiPick[k] !== wikiInfo.current[k]) w[k] = wikiPick[k]; });
       if (Object.keys(w).length) req.wiki = w;
     }
+    req.global_memory = globalMemory;
+    req.global_guards = globalGuards;
     if (maskSecrets && jev.base_url) req.jev = { base_url: jev.base_url, api_key: mask(jev.api_key, '<JEV_KEY>'), model: jev.model };
     // the submitted request and the copyable AI command carry the same routing setting
     const gate = wizardGate(visibleSteps.includes(4), gateMode !== 'off', gateMode);
@@ -982,6 +988,14 @@ export default function SetupWizard() {
                     ))}
                   </div>
                 )}
+                <div className="space-y-2" data-testid="global-hooks">
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">{T.globalTitle}</p>
+                  <p className="text-xs text-gray-500">{T.globalNote}</p>
+                  <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={globalMemory} data-testid="global-memory"
+                    onChange={(e) => setGlobalPick({ ...globalPick, memory: e.target.checked })} />{T.globalMemory}</label>
+                  <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={globalGuards} data-testid="global-guards"
+                    onChange={(e) => setGlobalPick({ ...globalPick, guards: e.target.checked })} />{T.globalGuards}</label>
+                </div>
                 {platform === 'discord' && (
                   <div className="space-y-1">
                     <Input label={T.allowFromLabel} value={allowFromValue} data-testid="allow-from" onChange={(e) => setAllowFrom(e.target.value)} />
