@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """该自己定还是该问：小模型对照「产品意图卡」和用户最近原话，判断一段草稿（要发给用户的问题，或要交给工作区的交接）。
 三选一：self = 按用户定过的话能推出答案，不该问（附答案和依据）；conflict = 与用户定过的冲突（附哪条和合定案的做法）；
-pass = 真是方向/花钱，或与定案无关，放行。超时、出错、没装 claude 一律 pass，不卡回复、不卡交接。
+pass = 真是方向/花钱，或与定案无关，放行。
+判断前先用草稿里的问题搜 ~/wiki（bin/search.py），命中的定案行一起喂给模型；回复里问「要不要开工/说一声做」这类授权题，
+用户最近的话或 wiki 里有「先给方案/先别做/没让你做/等我说做」就直接放行，不调模型（2026-11-02 事故）。超时、出错、没装 claude 一律 pass，不卡回复、不卡交接。
 来源：用户 2026-10-31「这个太笨了……我不想什么事情都要我说，你自己思考」「有没有更好的办法，更智能的办法」——
 关键词拦截只认字面、推不出答案，换成带意图卡的模型判断。
 调用方：choice-ask-guard.py（Stop，发问出口）、../lead/ws-handoff（交接出口）。
@@ -9,7 +11,7 @@ pass = 真是方向/花钱，或与定案无关，放行。超时、出错、没
 意图卡：本文件同目录 intent-cards.txt 一行一个路径（# 开头是注释，~ 可用）；没有这个文件就只看用户原话。
 模型：Haiku（claude -p，无工具、不读设置、不挂 hook）；每次延迟和花费记到 ~/.bothouse/logs/intent-judge.tsv。
 命令行：intent_judge.py --file <交接文件>  → 打一行 JSON 结果（pass 时 exit 0，否则 exit 3）。"""
-import json, os, subprocess, sys, tempfile, time
+import json, os, re, subprocess, sys, tempfile, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -17,22 +19,34 @@ CARDS = HERE / "intent-cards.txt"
 LOG = Path.home() / ".bothouse" / "logs" / "intent-judge.tsv"
 MODEL = os.environ.get("INTENT_JUDGE_MODEL", "haiku")
 TIMEOUT = 20  # 秒；Stop hook 总超时 30 秒（settings.json 现值），留余量
+# wiki 定案：判断前用草稿里的问题去搜 wiki，命中行一起喂给模型。
+# 来源：2026-11-02 判断器只看最近 10 条用户话，漏了 work-process.md:27（10-29「你先给我方案，你先别做」），
+# 把橘问「说一声做」判成 self，橘被逼着直接开工，用户「不符合预期，你先别做，我都没让你做」。
+SEARCH = Path.home() / "wiki" / "bin" / "search.py"
+WIKI_TOP = 6  # 喂给模型的命中行数
+# 「要不要开工」这类授权题：用户定过「先给方案、等我说做」，这种问题只有用户能答，一律放行（不调模型）
+GO_ASK = re.compile(r"说一声[「“\"]?(做|开工|开始|动手)|说[「“\"]?做[」”\"]?[我就]|要不要(开工|开做|动手|开始做|现在做|我去做|我做|交给工作区)"
+                    r"|(开不开工|做不做|动不动手)|(要|需要)我(现在)?(去)?(做|开工|动手)(吗|么|？|\?)|等你(一句话|说做|点头|同意)"
+                    r"|你点头|批准(后|了)?(我)?(就)?(开工|做|动手)")
+WAIT_GO = re.compile(r"先给(我)?方案|先别做|没让你做|没说做|等我说|说[「“\"]?做[」”\"]?(再|才)|别直接做|你先别")
+GO_QUERY = "先给方案 先别做 没让你做 等我说做 说做才开工"
 
 SYSTEM = """你是一个判断器。助手（产品经理）准备把一段话发给用户，或把一份交接交给执行者。你判断这里面要用户拍板的事，助手是不是本该自己定。
 用户最讨厌两件事：一是拿按他以前的话或常识就能推出答案的事来问他（他说「我不想什么事情都要我说，你自己思考」）；二是做法和他已经定过的事冲突。
 
 判断步骤：
 1. 找出草稿里交给用户拍板的问题、选项，或者交接里定下的做法。只是陈述、反问自己、引用别人的话、问队友的，不算。
-2. 对照「产品意图卡」和「用户最近的话」：
+2. 对照「产品意图卡」「wiki 里用户定过的」和「用户最近的话」：
    - 草稿把问题交给用户，而按卡上的原则、用户原话或明显常识能推出答案 → self（哪怕选项里有一个和定案相反，只要合定案的那个就在选项里，也算 self）。
    - 草稿自己推荐的做法、交接里定下的做法违背卡上某条或用户原话（哪怕用户没直接说过这个问题），或者合定案的做法根本不在草稿里 → conflict。
    - 卡上没写的事不算冲突：卡只列用户定过的，没列的不等于被否定。
    - 卡和原话都推不出来、用户没选过的路线（方向），或要花用户的钱、要用户本人动手/看成品才能定 → pass。
    - 草稿里没有要用户拍板的事 → pass。
+   - 草稿问的是「要不要开工/说一声做我就做/要我做吗」这类授权：用户定过「先给方案，等我说做」，这类只有用户能答 → pass，绝不判 self（不能替用户授权）。
 3. 拿不准就 pass。不要因为问题看起来重要就 pass；看能不能推出来。
 
 只输出一个 JSON 对象，不要别的字：
-{"verdict":"self|conflict|pass","question":"被判断的那个问题或做法，一句话","answer":"你推出的答案或合定案的做法（pass 时空）","basis":"依据：卡上哪条或用户哪天哪句原话（pass 时写为什么放行）"}"""
+{"verdict":"self|conflict|pass","question":"被判断的那个问题或做法，一句话","answer":"你推出的答案或合定案的做法（pass 时空）","basis":"依据：卡上哪条、wiki 哪条（文件:行）或用户哪天哪句原话（pass 时写为什么放行）"}"""
 
 
 def load_cards():
@@ -53,6 +67,40 @@ def load_cards():
     return "\n\n".join(out)
 
 
+def _ask_lines(draft):
+    """草稿里像在问的行（问号、要不要、你定……），拿来当检索词；没有就用开头一段。"""
+    ls = [l.strip() for l in draft.splitlines() if re.search(r"[？?]|你定|拍板|选哪|要不要|要你做|说一声", l)]
+    return (" ".join(ls) or draft)[:400]
+
+
+def wiki_hits(query, top=WIKI_TOP):
+    """search.py 命中行（`路径:行  原文`），只要行、不要页描述；出错返回 []。"""
+    try:
+        p = subprocess.run([sys.executable, "-I", str(SEARCH), query], capture_output=True, text=True, timeout=5)
+    except Exception:
+        return []
+    return [l.strip().replace(str(Path.home()), "~") for l in p.stdout.splitlines()
+            if l.strip() and not l.startswith((" ", "\t"))][:top]
+
+
+def go_ask_pass(draft, user_msgs):
+    """授权题且用户定过「等我说做」→ 放行理由，否则 None。"""
+    body = re.sub(r"```.*?```", "", draft, flags=re.S)
+    m = GO_ASK.search(body)
+    if not m:
+        return None
+    for u in reversed(list(user_msgs)):
+        w = WAIT_GO.search(u)
+        if w:
+            return f"问的是开不开工（「{m.group(0)}」），用户本会话说过「{w.group(0)}」：开工只有用户能批，放行"
+    # 用户定案页（preferences/）排前面，规则候选、复盘页在后
+    for h in sorted(wiki_hits(GO_QUERY, top=10), key=lambda h: "/preferences/" not in h):
+        w = WAIT_GO.search(h)
+        if w:
+            return f"问的是开不开工（「{m.group(0)}」），wiki 定案 {h[:160]}：开工只有用户能批，放行"
+    return None
+
+
 def _log(kind, verdict, ms, cost, q):
     try:
         LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -64,12 +112,20 @@ def _log(kind, verdict, ms, cost, q):
 
 def judge(draft, user_msgs=(), kind="reply"):
     """返回 dict(verdict, question, answer, basis, ms, cost)；出任何错都返回 verdict=pass。"""
-    cards = load_cards()
-    prompt = (f"## 产品意图卡\n{cards or '（没有）'}\n\n"
-              f"## 用户最近的话（旧→新）\n" + ("\n".join(f"- {m}" for m in user_msgs) or "（没有）") +
-              f"\n\n## 草稿（{'要发给用户的回复' if kind == 'reply' else '要交给执行者的交接'}）\n{draft}")
     t0 = time.time()
     res = {"verdict": "pass", "question": "", "answer": "", "basis": "", "ms": 0, "cost": 0}
+    if kind == "reply":
+        why = go_ask_pass(draft, user_msgs)
+        if why:
+            res.update(question="开不开工", basis=why, ms=int((time.time() - t0) * 1000))
+            _log(kind, "pass-go", res["ms"], 0, draft.strip()[:60])
+            return res
+    cards = load_cards()
+    hits = wiki_hits(_ask_lines(draft))
+    prompt = (f"## 产品意图卡\n{cards or '（没有）'}\n\n"
+              f"## wiki 里用户定过的（按草稿里的问题检索命中，文件:行  原文）\n" + ("\n".join(f"- {h}" for h in hits) or "（没有命中）") +
+              f"\n\n## 用户最近的话（旧→新）\n" + ("\n".join(f"- {m}" for m in user_msgs) or "（没有）") +
+              f"\n\n## 草稿（{'要发给用户的回复' if kind == 'reply' else '要交给执行者的交接'}）\n{draft}")
     try:
         p = subprocess.run(
             ["claude", "-p", "--model", MODEL, "--tools", "", "--setting-sources", "", "--strict-mcp-config",
