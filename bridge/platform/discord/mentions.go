@@ -14,15 +14,24 @@ import (
 // Discord shows that as text and the addressed bot never sees it as a mention (maomao fork).
 // Aliases are each bot's username plus the username without its leading ASCII part
 // ("Claude橘" → "橘"). Text inside ``` fences is left alone.
+//
+// A teammate's name opening a line as a call ("grok娘，帮我…") becomes <@id> too: Discord delivers a
+// bot's message to another bot only with an explicit mention, so the name alone never reached her
+// (issue #971). The opening rule is core.NameCalled's, so "龙娘刚才写的…" stays text.
 func linkTeamMentions(content, selfID string) string {
-	if !strings.Contains(content, "@") {
-		return content
-	}
 	alias := map[string]string{}
+	var self []string
 	teamPlatforms.Range(func(k, v any) bool {
 		id, _ := k.(string)
 		p, _ := v.(*Platform)
-		if id == "" || id == selfID || p == nil || p.botName == "" {
+		if id == selfID && p != nil && p.botName != "" {
+			self = append(self, p.botName)
+			if short := strings.TrimLeftFunc(p.botName, func(r rune) bool { return r < unicode.MaxASCII }); short != "" && short != p.botName {
+				self = append(self, short)
+			}
+			return true
+		}
+		if id == "" || p == nil || p.botName == "" {
 			return true
 		}
 		alias[p.botName] = id
@@ -33,7 +42,10 @@ func linkTeamMentions(content, selfID string) string {
 		}
 		return true
 	})
-	return replaceMentions(content, alias)
+	if strings.Contains(content, "@") {
+		content = replaceMentions(content, alias)
+	}
+	return core.LinkLeadingNames(content, alias, self, func(id string) string { return "<@" + id + ">" })
 }
 
 func replaceMentions(content string, alias map[string]string) string {
