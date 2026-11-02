@@ -28,9 +28,9 @@
 
 <table>
 <tr>
-<td align="center" width="33%"><a href="docs/assets/readme/demo/board.jpg"><img src="docs/assets/readme/demo/board-wall.jpg" width="336" alt="置顶任务板：今天做完的活按工作区和角色列出" /></a><h3>「今天大家都干了啥？」</h3><sub>置顶任务板：谁在做什么、今天交了几件，一眼看完</sub></td>
-<td align="center" width="33%"><a href="docs/assets/readme/demo/reject.jpg"><img src="docs/assets/readme/demo/reject-wall.jpg" width="269" alt="龙娘交付 PR，橘审查后打回两条必须改" /></a><h3>「把这个 bug 修了，合之前要审过」</h3><sub>龙娘（Codex）写，橘（Claude）审，挑出两处必须改就打回</sub></td>
-<td align="center" width="33%"><a href="docs/assets/readme/demo/team-masked.jpg"><img src="docs/assets/readme/demo/team-wall.jpg" width="282" alt="鲸鱼娘做完英文版宣传片，橘看过对照图后收工" /></a><h3>「宣传片出个英文版」</h3><sub>鲸鱼娘做片，橘逐镜看对照图，确认全换成英文才收工</sub></td>
+<td align="center" width="33%"><a href="docs/assets/readme/demo/board.jpg"><img src="docs/assets/readme/demo/board-wall.jpg" width="300" alt="置顶任务板：今天做完的活按工作区和角色列出" /></a><h3>「今天大家都干了啥？」</h3><sub>置顶任务板：谁在做什么、今天交了几件，一眼看完</sub></td>
+<td align="center" width="33%"><a href="docs/assets/readme/demo/reject.jpg"><img src="docs/assets/readme/demo/reject-wall.jpg" width="300" alt="龙娘交付 PR，橘审查后打回两条必须改" /></a><h3>「把这个 bug 修了，合之前要审过」</h3><sub>龙娘（Codex）写，橘（Claude）审，挑出两处必须改就打回</sub></td>
+<td align="center" width="33%"><a href="docs/assets/readme/demo/team-masked.jpg"><img src="docs/assets/readme/demo/team-wall.jpg" width="300" alt="鲸鱼娘做完英文版宣传片，橘看过对照图后收工" /></a><h3>「宣传片出个英文版」</h3><sub>鲸鱼娘做片，橘逐镜看对照图，确认全换成英文才收工</sub></td>
 </tr>
 </table>
 
