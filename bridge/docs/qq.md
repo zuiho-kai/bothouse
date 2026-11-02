@@ -1,5 +1,60 @@
 # QQ 平台接入指南 / QQ Platform Setup Guide
 
+## 可选群聊行为 / Optional group behavior
+
+在已有 QQ 项目的平台选项中按需添加；以下号码均为示例，请替换为自己的配置。
+
+~~~toml
+[projects.platforms.options]
+ws_url = "ws://127.0.0.1:3001"
+allow_from = "12345"
+allow_groups_with = "12345"       # Optional: accept others in groups containing this user
+split_bubbles = false            # Opt in to one message per blank-line-separated paragraph
+save_images_dir = "/path/to/received-images" # Optional; omit to avoid writing images
+share_session_in_channel = false
+~~~
+
+- **群授权**：未设置 allow_groups_with 时维持 allow_from。设置后，群成员查询确认指定用户在群里才放行其他人的消息；成员查询失败不会放行。成员状态缓存 10 分钟，指定用户退出群后权限变化可能延迟到缓存到期。私聊仍只按 allow_from。注意：这也允许群内其他成员使用普通命令（如 /stop、/new）；只应在可信群启用，管理员命令仍由原有管理员检查控制。
+- **拆条**：split_bubbles 默认关闭；开启后按空行顺序发送，含代码围栏的回复保持一条。中途失败会停止后续发送，已发送的消息不会撤回。显式 ReplyWithAt 发送入口保持单条消息。
+- **图片**：设置 save_images_dir 才落盘，保存收到的原始字节（包括 GIF 动画）；交给模型的超大图片预览会缩小；超出 2 MiB 且无法解码（如未支持的 WebP）或缩小后仍超限时，省略预览并附文字提示，已保存的原件不变。此目录由使用者管理，当前不会自动清理。
+- **群前文与引用**：每群保留最近 10 条、15 分钟内的聊天作为当前轮背景；当前发言、引用和合并转发分别标注发送者。静默缓冲及排队合批不重复存入旧背景；命令、权限与判断服务使用本条原始文字。图片保存路径只出现在当前轮附加上下文，不进入群前文。群前文会向同群会话提供近期消息，敏感会话请勿共用群聊。
+- **合并转发**：以素材块展开文本及图片，限制文本长度；转发中的发言人不替代当前发送者，文本标明其中的要求不是当前指令。这是模型上下文提示，不是执行权限隔离。
+- **静默尾段**：工具调用后的 NO_REPLY 标记不作为文字气泡发送。
+
+排队回执属于项目配置，在对应的 [[projects]] 表内设置 queued_notice = false 可静默排队；不改变排队顺序，省略时仍显示回执。不要把该字段放进 platforms.options。
+
+English: group allow-list extension, paragraph splitting and original-image storage are optional. Splitting defaults off. Group membership is cached for ten minutes; DMs keep their original allow-list. Recent group context and forwarded material retain speaker labels. The project-level queued_notice option only hides the receipt, not the queue.
+
+## 可选判断模型 / Optional judging model
+
+无需模型也可使用原有的点名回复方式。已有多角色团队分发可继续使用 [gate / jev](../../docs/ccm-and-wiki.md)。若只需判断 QQ 群消息是否接话，可使用独立的 [QQ gate](../contrib/qq-gate/README.md)：默认关闭判断，支持自部署 OpenAI 兼容服务、远程 API，以及自定义 HTTP 判断服务，不要求返回 token 概率。
+
+服务和桥接分开运行；先复制其中的脱敏示例，再按 README 设置 QQ_GATE_CONFIG。在对应 [[projects]] 中启用：
+
+~~~toml
+gate_url = "http://127.0.0.1:13013/decide"
+gate_timeout_ms = 3000
+gate_fallback = "silent"
+~~~
+
+API 密钥通过配置指定的环境变量读取，不写入示例。判断超时、连接失败或输出不明确时不主动接话；明确 @ 的消息仍可回答。停止使用时移除该项目 gate_url，恢复桥接自身的路由方式。先在隔离配置与测试群验证，不能把模拟测试视为真实账号验收。
+
+English: the optional QQ gate supports self-hosted or remote APIs without logprobs. It is a separate service and defaults to addressed-only replies. Errors stay quiet; explicit mentions remain answerable. Remove gate_url to return to the bridge's built-in routing.
+
+## 图片工具与恢复 / Image tools and recovery
+
+生成图片的服务由使用者选择，本适配器不附带角色立绘、私人提示词或固定的生图服务。服务生成本地图片后，复用已有发送入口（仅在用户授权的会话执行）：
+
+~~~sh
+bothouse send --project YOUR_PROJECT --session 'qq:g:GROUP_ID' --image /path/to/generated.png
+~~~
+
+该命令发送已有文件，不负责生图。只有发送回执成功才可记为已发送；响应丢失时先核对实际消息，不要自动重复发送。生成过程与发送过程应分别记录，API 密钥、生成素材和输出文件放在仓库之外。
+
+恢复时先区分 QQ 登录状态、OneBot 连接、桥进程、模型会话四层。保留正在使用的配置、二进制版本与运行数据备份；恢复相同配置和数据目录后再核对连接日志及会话。桥已有轮次 journal 与恢复机制，本变更不引入另一套重启脚本或调度器。不能只凭模型会话是否存在判断 QQ 离线期间是否收到消息；应分别查 OneBot 接收记录与桥接处理记录。更换版本必须由用户授权，回退使用已备份的版本与配置，不清空运行数据。
+
+English: image generation stays with a user-selected service; send its output with the existing --image CLI. Recovery should distinguish QQ login, OneBot transport, the bridge process and the model session. Keep versioned backups and inspect receipts before retrying external sends; this change adds no production restart mechanism.
+
 bothouse 通过 [OneBot v11](https://github.com/botuniverse/onebot-11) 协议连接 QQ，需要搭配一个 OneBot 实现（如 NapCat）使用。
 
 bothouse connects to QQ via the [OneBot v11](https://github.com/botuniverse/onebot-11) protocol. You need a OneBot implementation (e.g., NapCat) running alongside.

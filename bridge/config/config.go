@@ -651,6 +651,8 @@ type ProjectConfig struct {
 	// InjectAgentIdentity: nil/true = prepend the bridge identity block each
 	// turn; false = the persona owns identity (saves prompt tokens).
 	InjectAgentIdentity *bool `toml:"inject_agent_identity,omitempty"`
+	// QueuedNotice: nil/true sends a queue receipt; false queues silently.
+	QueuedNotice *bool `toml:"queued_notice,omitempty"`
 	// InjectTeamRules: nil/true = prepend the team-mode rules each turn;
 	// false = skip them (a chat persona outside the team channels).
 	InjectTeamRules *bool `toml:"inject_team_rules,omitempty"`

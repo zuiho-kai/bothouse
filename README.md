@@ -158,6 +158,8 @@ Discord and Feishu already have phone and desktop apps, so there is no extra wra
 
 QQ / NapCat users can configure the [OneBot adapter](bridge/docs/qq.md) manually.
 
+The OneBot guide also covers optional paragraph splitting, original-image storage, labelled forwarded chats and a [judging model](bridge/contrib/qq-gate/README.md) using a self-hosted service or remote API. Personal prompts and model credentials are supplied by the operator.
+
 <details>
 <summary><b>Everyday actions in DSH Channels</b></summary>
 

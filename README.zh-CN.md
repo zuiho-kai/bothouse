@@ -146,6 +146,8 @@ Discord 和飞书本来就有手机和电脑客户端，不用再包一层 App�
 
 QQ / NapCat 用户可手动配 [OneBot 适配器](bridge/docs/qq.md)。
 
+接入指南也包含可选拆条、原图保存、带发言者标签的合并转发，以及支持自部署服务或远程 API 的[判断模型](bridge/contrib/qq-gate/README.md)。个人提示词和模型凭据由使用者自行配置。
+
 <details>
 <summary><b>DSH 频道里的常用操作</b></summary>
 
