@@ -735,6 +735,15 @@ def rebind(nid, ws):
             _write(cur)
 
 
+def queued(nid):
+    """Paused queue entries keep their place until explicitly resumed (user 2026-11-02)."""
+    try:
+        entries = json.loads((SETUP / "ws-queue.json").read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return False
+    return any(isinstance(entry, dict) and entry.get("nid") == nid for entry in entries)
+
+
 def resume(nid):
     """None：没有这条；False：它没在暂停；True：已恢复。"""
     with _locked():
@@ -978,7 +987,7 @@ def pr_final(numbers, now=None, repo=None):
 
 def prune_why(i, its, now, prs, idle_after=None):
     """暂停条目该自动收起返回原因；不收返回 None。prs = pr_final 的结果（{} = 不按 PR 判）。"""
-    if i.get("returned_at") or i.get("review_rejected") or not i.get("paused") or _asking(i):
+    if i.get("returned_at") or i.get("review_rejected") or not i.get("paused") or _asking(i) or queued(i.get("id")):
         return None  # 提问等答复的一律不收
     if i.get("unpruned"):
         prs, its = {}, []  # 手动找回过（resume 被拒仍暂停）：①② 的事实不会变，不再按它们收；③从找回时刻重新计，再暂停时清掉
@@ -1244,7 +1253,8 @@ def main(argv):
             if unprune(nid):  # 自动收起的：先从完成记录拿回板上（还暂停着），再照常恢复
                 print(f"#{nid} 已从自动收起里找回")
             cur = next((i for i in items() if i["id"] == nid), None)
-            back = cur.get("ws_was") if cur and cur.get("paused") and WS_NAME_RE.match(cur.get("who") or "") else None
+            in_queue = queued(nid)
+            back = cur.get("ws_was") if not in_queue and cur and cur.get("paused") and WS_NAME_RE.match(cur.get("who") or "") else None
             why = reoccupy(cur, back) if back else None
             if why:
                 _refuse(nid, why)
@@ -1254,6 +1264,11 @@ def main(argv):
             if r is None:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
             print("已恢复" if r else f"#{nid} 没在暂停")
+            if in_queue:
+                script = Path(__file__).resolve().parent.parent / "lead" / "ws-handoff"
+                result = subprocess.run([sys.executable, "-I", str(script), "--drain"], timeout=60)
+                if result.returncode != 0:
+                    sys.exit("已恢复，队列派发失败；条目仍在原队列位置，请重试 ws-handoff --drain")
         elif cmd == "link" and len(argv) == 3:
             nid = int(argv[1].lstrip("#"))
             try:
