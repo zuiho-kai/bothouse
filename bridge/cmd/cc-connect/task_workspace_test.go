@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -69,13 +68,12 @@ func TestTaskWsCLI(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("source never started")
 	}
-	m := regexp.MustCompile("--run ([a-f0-9]{64})").FindStringSubmatch(prompt)
-	if len(m) != 2 {
-		t.Fatal("missing source run token")
+	if strings.Contains(prompt, "--run ") {
+		t.Fatal("prompt still carries a run token")
 	}
 
 	var ack bytes.Buffer
-	if err := progressCommand([]string{"--data-dir", dir, "--project", "fish", "--session", "test:room:user", "--run", m[1], "--seq", "1", "--kind", "start", "--title", "Workspace card", "--message", "start"}, &ack); err != nil {
+	if err := progressCommand([]string{"--data-dir", dir, "--project", "fish", "--session", "test:room:user", "--seq", "1", "--kind", "start", "--title", "Workspace card", "--message", "start"}, &ack); err != nil {
 		t.Fatal(err)
 	}
 	var started struct {
@@ -86,7 +84,7 @@ func TestTaskWsCLI(t *testing.T) {
 	}
 
 	var assigned bytes.Buffer
-	if err := taskCommand([]string{"assign", "--data-dir", dir, "--project", "fish", "--session", "test:room:user", "--run", m[1], "--id", started.TaskID, "--member", "m1", "--reporter-project", "worker", "--title", "Do work", "--ref", "无（新建）", "--workspace", "ws1"}, &assigned); err != nil {
+	if err := taskCommand([]string{"assign", "--data-dir", dir, "--project", "fish", "--session", "test:room:user", "--id", started.TaskID, "--member", "m1", "--reporter-project", "worker", "--title", "Do work", "--ref", "无（新建）", "--workspace", "ws1"}, &assigned); err != nil {
 		t.Fatalf("assign: %v %s", err, assigned.String())
 	}
 	var grant core.TaskMemberGrant

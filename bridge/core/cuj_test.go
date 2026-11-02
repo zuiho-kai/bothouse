@@ -2879,10 +2879,13 @@ func TestCUJ_Progress3_ContinueAndAcceptSameCard(t *testing.T) {
 	first := p.task(id)
 
 	prompt := send("two", "继续调整同一个绑定")
-	if !strings.Contains(prompt, "[在做]") || !strings.Contains(prompt, "--task "+id) || !strings.Contains(prompt, "--seq 3") {
-		t.Fatal("continuation instructions missing")
+	if !strings.Contains(prompt, "[在做]") || !strings.Contains(prompt, "--task "+id) || !strings.Contains(prompt, "--seq 3") || strings.Contains(prompt, "--run ") {
+		t.Fatal("continuation instructions missing or carry a run token")
 	}
-	token = progressToken(t, prompt)
+	token = turnToken(t, e, inputTestKey)
+	if got, ok := e.publicProgress.CurrentRun(inputTestKey); !ok || got != token {
+		t.Fatal("CurrentRun does not serve the turn token the CLI needs")
+	}
 	if next := report(token, 3, "update"); next != id {
 		t.Fatal("continuation created another card")
 	}

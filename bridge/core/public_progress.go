@@ -191,8 +191,11 @@ type PublicProgress struct {
 	// maomao), "" if the project is unknown. Cards show it instead of the project id.
 	projectName func(project string) string
 	runs        map[string]*publicRun
-	relayRuns   map[string]*taskRelay
-	memberRuns  map[string]*taskMemberRun
+	// turns maps a chat session to the run token of its turn in progress, so the
+	// CLI can omit --run: prompts no longer carry the token (CurrentRun).
+	turns      map[string]string
+	relayRuns  map[string]*taskRelay
+	memberRuns map[string]*taskMemberRun
 	// Batch keys belong to the authorizing turn, never the session's open slot.
 	delegations map[string]map[string]*publicRun
 	// records indexes every task this project has ever journalled, so a task can
@@ -222,7 +225,7 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 		return nil, fmt.Errorf("public progress data directory: %w", err)
 	}
 	hash := sha256.Sum256([]byte(project))
-	p := &PublicProgress{dir: filepath.Join(dataDir, "public-progress", hex.EncodeToString(hash[:8])), dataDir: dataDir, project: project, archiveAfter: defaultTaskThreadArchiveAfter, resultReadyArchiveAfter: defaultResultReadyThreadArchiveAfter, runs: map[string]*publicRun{}, records: map[string]*publicRun{}, open: map[string]*publicRun{}, pending: map[string]*publicRun{}, listed: map[string]*publicRun{}}
+	p := &PublicProgress{dir: filepath.Join(dataDir, "public-progress", hex.EncodeToString(hash[:8])), dataDir: dataDir, project: project, archiveAfter: defaultTaskThreadArchiveAfter, resultReadyArchiveAfter: defaultResultReadyThreadArchiveAfter, runs: map[string]*publicRun{}, turns: map[string]string{}, records: map[string]*publicRun{}, open: map[string]*publicRun{}, pending: map[string]*publicRun{}, listed: map[string]*publicRun{}}
 	p.textSenders = make(map[string]TaskTextSender)
 	for _, platform := range platforms {
 		if sender, ok := platform.(TaskTextSender); ok {
@@ -582,6 +585,11 @@ func (p *PublicProgress) finish(token, outcome string) {
 	p.mu.Lock()
 	r := p.runs[token]
 	delete(p.runs, token)
+	for session, t := range p.turns {
+		if t == token {
+			delete(p.turns, session)
+		}
+	}
 	cards := p.delegations[token]
 	delete(p.delegations, token)
 	p.mu.Unlock()
@@ -1147,6 +1155,7 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 		state.mu.Lock()
 		state.publicProgressRun = token
 		state.mu.Unlock()
+		e.publicProgress.setTurn(session, token)
 		return e.publicProgressInstructions(token, session) + prompt
 	}
 	// The workspace restriction governs card presentation, not durable task
@@ -1163,6 +1172,7 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	state.publicProgressRun = token
 	desc, scheduled := state.turnDesc, state.turnScheduled
 	state.mu.Unlock()
+	e.publicProgress.setTurn(session, token)
 	// Journal-only turns must disable tool-count activation as well as timers.
 	e.publicProgress.armAuto(token, desc, scheduled || fromVoice || !hasCards)
 	return e.publicProgressInstructions(token, session) + prompt
@@ -1187,8 +1197,8 @@ func (e *Engine) beginPublicProgress(platform Platform, session string, stopped 
 // Per-turn progress text is one line naming the task in progress, or nothing.
 // The full instructions below used to be prepended to every turn (about 1.3k
 // tokens even for casual chat and scheduled check-ins); they now live in
-// `bothouse progress --help` (ProgressHelp). The run token stays in the line so
-// an open task can still be continued.
+// `bothouse progress --help` (ProgressHelp). The run token is not in the prompt
+// either: the CLI asks the bridge for the session's current token (CurrentRun).
 func (e *Engine) publicProgressInstructions(token, session string) string {
 	return e.currentTaskLine(token)
 }
@@ -1200,24 +1210,48 @@ func (e *Engine) currentTaskLine(token string) string {
 	if !ok || state == TaskStateResultReady || IsTerminalState(state) { // a delivered result is not work in progress
 		return ""
 	}
-	return "[在做] " + title + "（续报 bothouse progress --run " + token + " --task " + taskID + " --seq " +
-		strconv.FormatInt(resumeSeq, 10) + "，用法 --help）\n\n"
+	return "[在做] " + title + "（续报 bothouse progress --task " + taskID + " --seq " + strconv.FormatInt(resumeSeq, 10) + "）\n\n"
+}
+
+func (p *PublicProgress) setTurn(session, token string) {
+	p.mu.Lock()
+	if p.turns == nil {
+		p.turns = map[string]string{}
+	}
+	p.turns[session] = token
+	p.mu.Unlock()
+}
+
+// CurrentRun is the run token of the session's turn in progress. Prompts do not
+// carry it; `bothouse progress` and `bothouse task assign` fetch it when --run
+// is omitted. ok is false between turns and in chat channels where no task
+// token is issued (cards open only in workspace channels).
+func (p *PublicProgress) CurrentRun(session string) (string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	token, ok := p.turns[session]
+	if ok && p.runs[token] == nil {
+		return "", false
+	}
+	return token, ok
 }
 
 // ProgressHelp is the agent guide formerly injected each turn, for
 // `bothouse progress --help`. Commands are written with the bare executable;
-// project, session and data dir default from CC_PROJECT/CC_SESSION_KEY/CC_DATA_DIR.
+// project, session and data dir default from CC_PROJECT/CC_SESSION_KEY/CC_DATA_DIR,
+// and --run defaults to the current turn's token fetched from the bridge.
 func ProgressHelp() string {
-	return strings.NewReplacer(
+	return "--run is optional: without it the CLI asks the bridge for this session's current turn token.\n\n" + strings.NewReplacer(
+		"ASSIGN_COMMAND --run RUN_TOKEN", "bothouse task assign",
+		"COMMAND --run RUN_TOKEN", "bothouse progress",
 		"ASSIGN_COMMAND", "bothouse task assign",
 		"COMMAND", "bothouse progress",
-		"RUN_TOKEN", "RUN_TOKEN(from the [在做] line)",
 		"RESUME_NOTE", "",
 		"RELAY_COMMAND", "bothouse relay send",
 		"TASK_COMMAND artifact", "bothouse task artifact",
 		"TASK_COMMAND rework", "bothouse task rework",
 		"TASK_COMMAND show", "bothouse task show",
-	).Replace(publicProgressPrompt + publicTaskMembersPrompt + taskArtifactsPrompt + journalProgressPrompt)
+	).Replace(publicProgressPrompt+publicTaskMembersPrompt+taskArtifactsPrompt+journalProgressPrompt)
 }
 
 func (p *PublicProgress) journalOnly(token string) bool {

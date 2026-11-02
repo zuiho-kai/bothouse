@@ -106,14 +106,10 @@ func TestQuietCLI(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("source never started")
 	}
-	if !strings.Contains(prompt, "relay send --from 'source'") || strings.Contains(prompt, "RELAY_COMMAND") {
-		t.Fatal("no usable quiet dispatch instructions")
+	if strings.Contains(prompt, "RELAY_COMMAND") || strings.Contains(prompt, "--run ") {
+		t.Fatal("prompt still carries the guide or a run token")
 	}
-	match := regexp.MustCompile("--run ([a-f0-9]{64})").FindStringSubmatch(prompt)
-	if len(match) != 2 {
-		t.Fatal("no task token")
-	}
-	data, err := quietLocalCLI([]string{"progress", "--data-dir", dir, "--project", "source", "--session", "test:room:user", "--run", match[1], "--seq", "1", "--kind", "start", "--title", "Local test", "--message", "Working"})
+	data, err := quietLocalCLI([]string{"progress", "--data-dir", dir, "--project", "source", "--session", "test:room:user", "--seq", "1", "--kind", "start", "--title", "Local test", "--message", "Working"})
 	if err != nil {
 		t.Fatalf("start: %v %s", err, data)
 	}

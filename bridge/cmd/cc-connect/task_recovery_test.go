@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -143,9 +142,9 @@ func splitShellWords(t *testing.T, s string) []string {
 	return args
 }
 
-// A resumed card's note must produce a complete progress command. Pull the
-// command out of the real prompt, then run the same parser/API path the agent
-// is told to use; the note used to omit --message, so this failed validation.
+// The "[在做]" line of a card still open from an earlier turn must yield a
+// working progress command: run the same parser/API path the agent is told to
+// use, with only --kind/--message added and no --run (the CLI fetches it).
 func TestResumeNoteCommandParsesAndRuns(t *testing.T) {
 	// Keep the Unix socket path short: t.TempDir() under /var/folders can
 	// exceed the platform's sockaddr_un limit on macOS.
@@ -190,13 +189,13 @@ func TestResumeNoteCommandParsesAndRuns(t *testing.T) {
 	}
 	e.ReceiveMessage(p, &core.Message{SessionKey: "test:room", Platform: "test", MessageID: "one", UserID: "human", Content: "Do a task", Mentioned: true})
 	prompt := waitPrompt()
-	m := regexp.MustCompile("--run ([a-f0-9]{64})").FindStringSubmatch(prompt)
-	if len(m) != 2 {
-		t.Fatal("missing progress instructions")
+	if strings.Contains(prompt, "--run ") {
+		t.Fatal("prompt still carries a run token")
 	}
-	run := m[1]
+	t.Setenv("CC_PROJECT", "fish")
+	t.Setenv("CC_SESSION_KEY", "test:room")
 	var out bytes.Buffer
-	startArgs := []string{"--data-dir", dir, "--project", "fish", "--session", "test:room", "--run", run, "--seq", "1", "--kind", "start", "--title", "Check", "--message", "Checking binding"}
+	startArgs := []string{"--data-dir", dir, "--seq", "1", "--kind", "start", "--title", "Check", "--message", "Checking binding"}
 	if err := progressCommand(startArgs, &out); err != nil {
 		t.Fatalf("start progress: %v", err)
 	}
@@ -205,52 +204,46 @@ func TestResumeNoteCommandParsesAndRuns(t *testing.T) {
 		t.Fatalf("no durable task ACK: %v (%s)", err, out.String())
 	}
 	taskID := startReply["task_id"]
+	out.Reset()
+	if err := progressCommand([]string{"--data-dir", dir, "--task", taskID, "--seq", "2", "--kind", "waiting", "--message", "Need a decision"}, &out); err != nil {
+		t.Fatalf("waiting progress: %v", err)
+	}
+	a.session.events <- core.Event{Type: core.EventResult, Content: "asked", Done: true}
 
-	a.session.events <- core.Event{Type: core.EventResult, Content: "checked", Done: true}
-	deadline := time.After(6 * time.Second)
-waitReady:
-	for {
-		select {
-		case card := <-p.delivered:
-			if card.ID == taskID && card.State == core.TaskStateResultReady {
-				break waitReady
-			}
-		case <-deadline:
-			t.Fatal("first turn did not finish")
+	// Between turns there is no token to fetch.
+	for deadline := time.Now().Add(3 * time.Second); ; {
+		_, err := currentRun(dir, "fish", "test:room")
+		if err != nil && strings.Contains(err.Error(), "no turn token") {
+			break
 		}
+		if time.Now().After(deadline) {
+			t.Fatalf("token still served after the turn ended (or unclear error): %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	e.ReceiveMessage(p, &core.Message{SessionKey: "test:room", Platform: "test", MessageID: "two", UserID: "human", Content: "Continue it", Mentioned: true})
 	prompt = waitPrompt()
-	const marker = "Continue it with "
+	const marker = "（续报 "
 	start := strings.Index(prompt, marker)
-	if start < 0 {
-		t.Fatalf("resume note missing from prompt: %s", prompt)
+	if !strings.Contains(prompt, "[在做] Check") || start < 0 || strings.Contains(prompt, "--run ") {
+		t.Fatalf("open task line missing or carries a token: %s", prompt)
 	}
 	start += len(marker)
-	end := strings.Index(prompt[start:], " only when this turn is follow-up")
+	end := strings.Index(prompt[start:], "）")
 	if end < 0 {
-		t.Fatalf("resume note command end missing: %s", prompt[start:])
+		t.Fatalf("open task line end missing: %s", prompt[start:])
 	}
 	args := splitShellWords(t, prompt[start:start+end])
-	if len(args) < 3 || args[1] != "progress" {
-		t.Fatalf("resume command does not start with an executable then progress: %v", args)
-	}
-	hasMessage := false
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--message" && i+1 < len(args) && args[i+1] != "" {
-			hasMessage = true
-		}
-	}
-	if !hasMessage {
-		t.Fatalf("resume command has no --message: %v", args)
+	if len(args) < 3 || args[0] != "bothouse" || args[1] != "progress" {
+		t.Fatalf("task line command is not bothouse progress: %v", args)
 	}
 	out.Reset()
-	if err := progressCommand(args[2:], &out); err != nil {
-		t.Fatalf("resume command rejected by CLI: %v", err)
+	if err := progressCommand(append(append([]string{"--data-dir", dir}, args[2:]...), "--kind", "update", "--message", "Continuing"), &out); err != nil {
+		t.Fatalf("task line command rejected by CLI: %v", err)
 	}
 	var resumeReply map[string]string
 	if err := json.Unmarshal(out.Bytes(), &resumeReply); err != nil || resumeReply["task_id"] != taskID {
-		t.Fatalf("resume command did not reach the card: %v (%s)", err, out.String())
+		t.Fatalf("task line command did not reach the card: %v (%s)", err, out.String())
 	}
 }

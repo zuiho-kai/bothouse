@@ -10,7 +10,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -34,13 +36,13 @@ func parseProgressArgs(args []string) (core.PublicProgressRequest, string, error
 	var dataDir string
 	f := flag.NewFlagSet("progress", flag.ContinueOnError)
 	f.Usage = func() {
-		fmt.Fprint(f.Output(), "usage: bothouse progress --run RUN_TOKEN --seq N --kind KIND --message 'short status' [flags]\n\n")
+		fmt.Fprint(f.Output(), "usage: bothouse progress [--run RUN_TOKEN] --seq N --kind KIND --message 'short status' [flags]\n\n")
 		fmt.Fprintln(f.Output(), core.ProgressHelp())
 		f.PrintDefaults()
 	}
 	f.StringVar(&req.Project, "project", os.Getenv("CC_PROJECT"), "project")
 	f.StringVar(&req.SessionKey, "session", os.Getenv("CC_SESSION_KEY"), "session")
-	f.StringVar(&req.Run, "run", "", "current turn token from prompt (required)")
+	f.StringVar(&req.Run, "run", "", "current turn token; omitted = fetched from the bridge for this session's turn")
 	f.StringVar(&req.TaskID, "task", "", "delegation card id; each card has its own sequence")
 	f.Int64Var(&req.Seq, "seq", 0, "sequence, beginning at 1")
 	f.StringVar(&req.Kind, "kind", "", "start/update/milestone/waiting/result (member also: failed/cancelled)")
@@ -53,13 +55,45 @@ func parseProgressArgs(args []string) (core.PublicProgressRequest, string, error
 	if f.NArg() != 0 {
 		return req, dataDir, errors.New("unexpected positional arguments")
 	}
+	if req.Run == "" { // filled from the bridge in progressCommand; check the rest now
+		probe := req
+		probe.Run = strings.Repeat("0", 64)
+		return req, dataDir, probe.Validate()
+	}
 	return req, dataDir, req.Validate()
+}
+
+// currentRun asks the bridge for the run token of the session's turn in
+// progress: prompts no longer carry it.
+func currentRun(dataDir, project, session string) (string, error) {
+	if project == "" || session == "" {
+		return "", errors.New("--run omitted and CC_PROJECT/CC_SESSION_KEY not set; pass --project and --session")
+	}
+	client := taskClient(dataDir)
+	defer client.CloseIdleConnections()
+	q := url.Values{"project": {project}, "session": {session}}
+	b, err := taskCall(client, http.MethodGet, "/progress/run?"+q.Encode(), nil)
+	if err != nil {
+		return "", fmt.Errorf("current turn token: %w", err)
+	}
+	var got struct {
+		Run string `json:"run"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil || got.Run == "" {
+		return "", fmt.Errorf("current turn token: unexpected bridge reply %q", b)
+	}
+	return got.Run, nil
 }
 
 func progressCommand(args []string, out io.Writer) error {
 	req, dataDir, err := parseProgressArgs(args)
 	if err != nil {
 		return err
+	}
+	if req.Run == "" {
+		if req.Run, err = currentRun(dataDir, req.Project, req.SessionKey); err != nil {
+			return err
+		}
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
