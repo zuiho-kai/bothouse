@@ -98,8 +98,10 @@ export async function apply(ctx, rawConfig) {
   const config = resolveConfig(rawConfig);
   const require = dshRequire();
   const { createUserMessage } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-llm')).href);
-  // ws is CommonJS; its WebSocketServer is not a statically detectable named export.
-  const { WebSocketServer } = require('ws');
+  // ws is declared by this package and resolved from this file, so the server never borrows a
+  // transitive copy from the surrounding DSH runtime. It is CommonJS; its WebSocketServer is
+  // not a statically detectable named export.
+  const { WebSocketServer } = createRequire(import.meta.url)('ws');
   if (typeof createUserMessage !== 'function' || typeof WebSocketServer !== 'function') throw Error('conest-collab: unsupported DSH runtime');
 
   // #445: the instance maxRelay stays the default for channels that never set their own cap.
