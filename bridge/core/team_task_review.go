@@ -208,12 +208,17 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 			}
 			ref := taskReviewRef{Board: it.ID, Paused: taskPauseKey(it), Stage: "paused"}
 			at := taskPausedSince(it, now)
+			asked := false
 			if !at.IsZero() && now.Sub(at) >= teamWorkspaceReconcileEvery {
 				ref.Stage = "paused-question"
 				sum := sha256.Sum256([]byte(fmt.Sprintf("%s/%d/%s/pause", e.team.dir, it.ID, ref.Paused)))
-				owner.queueTaskReview(fmt.Sprintf("review-%x", sum), it.Chat, &ref, now)
+				id := fmt.Sprintf("review-%x", sum)
+				asked = owner.timerScheduler.store.Get(id) == nil
+				owner.queueTaskReview(id, it.Chat, &ref, now)
 			}
-			if roundup {
+			// The fresh paused-question already covers this item; listing it in the
+			// same-scan roundup fired a second identical reminder (11-02 #589/#705 x2).
+			if roundup && !asked {
 				key := owner.name + "/" + it.Chat
 				g := groups[key]
 				if g == nil {
