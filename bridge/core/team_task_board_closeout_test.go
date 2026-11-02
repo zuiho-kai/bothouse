@@ -42,9 +42,9 @@ func TestTeamTaskBoardMergedReviewsAreDisplayOnly(t *testing.T) {
 func TestTeamTaskTableRejectedReasonIsShort(t *testing.T) {
 	now := time.Date(2026, 11, 2, 19, 0, 0, 0, time.Local)
 	history := strings.Repeat("旧审核经过不应放在置顶", 30)
-	it := teamTaskBoardItem{ID: 1, Short: "入口验收", own: "room:main", Paused: "11-02 18:00", PauseWhy: "验收退回：" + history, ReviewRejected: history, Status: "代码已验；待发布入口验证"}
+	it := teamTaskBoardItem{ID: 1, Short: "入口验收", Who: "owner", own: "room:main", Paused: "11-02 18:00", PauseWhy: "验收退回：" + history, ReviewRejected: history, Status: "代码已验；待发布入口验证"}
 	got := renderTeamTaskTable([]teamTaskBoardItem{it}, nil, "room:main", now)
-	if strings.Contains(got, history) || !strings.Contains(got, it.Status) || strings.Contains(got, "未开工") {
+	if strings.Contains(got, history) || !strings.Contains(got, it.Status) || !strings.Contains(got, it.Who) || strings.Contains(got, "未开工") {
 		t.Fatalf("show current short stop, retain history in detail:\n%s", got)
 	}
 }
