@@ -680,30 +680,32 @@ const (
 )
 
 const (
-	MsgBoardTasksRunning     MsgKey = "board_tasks_running"
-	MsgBoardTasksWaiting     MsgKey = "board_tasks_waiting"
-	MsgBoardTasksMore        MsgKey = "board_tasks_more"
-	MsgPublicInterrupted     MsgKey = "MsgPublicInterrupted"
-	MsgPublicEnded           MsgKey = "MsgPublicEnded"
-	MsgWatchResume           MsgKey = "watch_resume"
-	MsgWatchResumeNotes      MsgKey = "watch_resume_notes"
-	MsgWatchAutoResumed      MsgKey = "watch_auto_resumed"
-	MsgWatchParkedNotice     MsgKey = "watch_parked_notice"
-	MsgWatchIdleEscalate     MsgKey = "watch_idle_escalate"
-	MsgWatchFailEscalate     MsgKey = "watch_fail_escalate"
-	MsgTaskReviewReturned    MsgKey = "task_review_returned"
-	MsgTaskReviewOverdue     MsgKey = "task_review_overdue"
-	MsgTaskReviewPrompt      MsgKey = "task_review_prompt"
-	MsgTaskReviewUnavailable MsgKey = "task_review_unavailable"
-	MsgTaskReviewRoundup     MsgKey = "task_review_roundup"
-	MsgTaskKeyFact           MsgKey = "MsgTaskKeyFact"
-	MsgTaskResultReady       MsgKey = "MsgTaskResultReady"
-	MsgTaskRelayAssigned     MsgKey = "MsgTaskRelayAssigned"
-	MsgTaskRelayProgress     MsgKey = "MsgTaskRelayProgress"
-	MsgTaskRelayResult       MsgKey = "MsgTaskRelayResult"
-	MsgTaskRelayFailed       MsgKey = "MsgTaskRelayFailed"
-	MsgTaskReporterMuted     MsgKey = "MsgTaskReporterMuted"
-	MsgTaskListRevision      MsgKey = "task_list_revision"
+	MsgBoardTasksRunning        MsgKey = "board_tasks_running"
+	MsgBoardTasksWaiting        MsgKey = "board_tasks_waiting"
+	MsgBoardTasksMore           MsgKey = "board_tasks_more"
+	MsgPublicInterrupted        MsgKey = "MsgPublicInterrupted"
+	MsgPublicEnded              MsgKey = "MsgPublicEnded"
+	MsgWatchResume              MsgKey = "watch_resume"
+	MsgWatchResumeNotes         MsgKey = "watch_resume_notes"
+	MsgWatchAutoResumed         MsgKey = "watch_auto_resumed"
+	MsgWatchParkedNotice        MsgKey = "watch_parked_notice"
+	MsgWatchIdleEscalate        MsgKey = "watch_idle_escalate"
+	MsgWatchFailEscalate        MsgKey = "watch_fail_escalate"
+	MsgTaskReviewReturned       MsgKey = "task_review_returned"
+	MsgTaskReviewOverdue        MsgKey = "task_review_overdue"
+	MsgTaskReviewPrompt         MsgKey = "task_review_prompt"
+	MsgTaskReviewUnavailable    MsgKey = "task_review_unavailable"
+	MsgTaskReviewRoundup        MsgKey = "task_review_roundup"
+	MsgTaskPausedSummary        MsgKey = "task_paused_summary"
+	MsgTaskPausedResumeQuestion MsgKey = "task_paused_resume_question"
+	MsgTaskKeyFact              MsgKey = "MsgTaskKeyFact"
+	MsgTaskResultReady          MsgKey = "MsgTaskResultReady"
+	MsgTaskRelayAssigned        MsgKey = "MsgTaskRelayAssigned"
+	MsgTaskRelayProgress        MsgKey = "MsgTaskRelayProgress"
+	MsgTaskRelayResult          MsgKey = "MsgTaskRelayResult"
+	MsgTaskRelayFailed          MsgKey = "MsgTaskRelayFailed"
+	MsgTaskReporterMuted        MsgKey = "MsgTaskReporterMuted"
+	MsgTaskListRevision         MsgKey = "task_list_revision"
 )
 
 const (
@@ -1083,6 +1085,20 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "整點待驗收清單",
 		LangJapanese:           "毎時の検収待ち一覧",
 		LangSpanish:            "Lista horaria de verificaciones pendientes",
+	},
+	MsgTaskPausedSummary: {
+		LangEnglish:            "#%d %s: paused for %s. Reason: %s. Keep it paused until explicitly resumed.",
+		LangChinese:            "#%d %s：已暂停 %s。原因：%s。没有明确恢复指令就保持暂停。",
+		LangTraditionalChinese: "#%d %s：已暫停 %s。原因：%s。沒有明確恢復指令就保持暫停。",
+		LangJapanese:           "#%d %s：%s 一時停止中。理由：%s。明示的な再開指示まで停止を維持してください。",
+		LangSpanish:            "#%d %s: pausada durante %s. Motivo: %s. Mantén la pausa hasta recibir una orden explícita.",
+	},
+	MsgTaskPausedResumeQuestion: {
+		LangEnglish:            "#%d has remained paused for a roundup cycle. Ask the pausing owner whether to resume; if unavailable, the primary role decides. Do not resume automatically.",
+		LangChinese:            "#%d 已暂停超过一个收口周期。点名问暂停人是否恢复；暂停人不在则由主角色处理，不自动恢复。",
+		LangTraditionalChinese: "#%d 已暫停超過一個收口週期。點名問暫停人是否恢復；暫停人不在則由主角色處理，不自動恢復。",
+		LangJapanese:           "#%d は集約周期を超えて停止中です。停止した担当に再開するか確認し、不在なら主担当に引き継いでください。自動再開しないでください。",
+		LangSpanish:            "#%d sigue pausada tras un ciclo. Pregunta al responsable si debe reanudarse; si no está disponible, consulta al rol principal. No reanudes automáticamente.",
 	},
 	MsgTaskReviewReturned: {
 		LangEnglish:            "#%d returned; please verify",
