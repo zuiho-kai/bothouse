@@ -273,6 +273,11 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		slog.Info("team exit: unmarked reply after bounces; kept in the workspace", "workspace", ws, "parent", parent)
 		return ""
 	}
+	if kind == exitKindReport && item != nil && e.exitReportedSinceBound(hid, item.Bound) {
+		// Same rule as postExitHeadline, for the lead-rewrite and original-post paths below.
+		slog.Info("team exit: report for this handoff already posted; not posted again", "board_item", hid, "workspace", ws, "bound", item.Bound, "legacy", legacy)
+		return ""
+	}
 	if !legacy {
 		// The 📬 posts report on board item hid: a reply to them brings its background (reply_task.go).
 		rc = e.recordReplyTask(p, rc, hid)
