@@ -523,7 +523,7 @@ LEGACY_SWITCH = os.path.join(".claude", "conest-hooks.json")
 
 def hook_names():
     return sorted(f[:-3] for f in os.listdir(HERE)
-                  if f.endswith(".py") and f not in ("run.py", "doc-ok.py", "dshlog.py", "dsh-cc-compat.py", "codex-compat.py", "lessons.py", "ctxsvc.py", "wiki_search.py")
+                  if f.endswith(".py") and f not in ("run.py", "doc-ok.py", "dshlog.py", "dsh-cc-compat.py", "codex-compat.py", "lessons.py", "ctxsvc.py", "wiki_search.py", "accept.py")
                   and not f.startswith("test_"))
 
 
@@ -712,7 +712,9 @@ def main():
         spec = importlib.util.spec_from_file_location("codex_compat", os.path.join(HERE, "codex-compat.py"))
         compat = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(compat)
+        delivery_transcript = payload.get("transcript_path")
         payload, codex_tmp = compat.adapt(payload)
+        payload["delivery_transcript_path"] = delivery_transcript
     cursor = OPTS["cursor"] or payload.get("hook_event_name") == "beforeShellExecution"
     if cursor:
         OPTS["cursor"] = True
@@ -834,9 +836,13 @@ def main():
         turn = last_turn(recs)
         payload["stop_hook_active"] = bool(payload.get("stop_hook_active")) or load_state().get(sid) == turn
 
+    proc = None
     try:
-        proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(payload, ensure_ascii=False),
-                              capture_output=True, text=True)
+        if name == "bash-guard" and payload.get("hook_event_name") == "PreToolUse" and "deliver-check" not in off:
+            proc = deliver_check(payload, path)
+        if proc is None:
+            proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(payload, ensure_ascii=False),
+                                  capture_output=True, text=True)
     finally:
         if tmp:
             os.unlink(tmp)
@@ -900,6 +906,42 @@ def main():
         sys.stdout.write(stop_full_reply(payload.get("hook_event_name"), proc.stdout))
     sys.stderr.write(proc.stderr)
     sys.exit(proc.returncode)
+
+
+def deliver_check(payload, dsh_log):
+    """Run deliver-check.py before bash-guard. Its result is returned only when it denies (then bash-guard is
+    skipped); otherwise None and bash-guard runs as before. DSH: the session log becomes a Claude Code transcript
+    as for Stop, so the check can see this turn's reads."""
+    target = os.path.join(HERE, "deliver-check.py")
+    cmd = str((payload.get("tool_input") or {}).get("command") or "")
+    if not os.path.isfile(target) or "bothouse" not in cmd or "send" not in cmd:
+        return None
+    p = dict(payload, bothouse_role=role_dir(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or None))
+    if p.get("delivery_transcript_path"):
+        # The normalized Codex transcript omits image reads and their timestamps.
+        p["transcript_path"] = p["delivery_transcript_path"]
+    tmp = None
+    try:
+        if dsh_log:
+            fd, tmp = tempfile.mkstemp(prefix="dsh-dc-", suffix=".jsonl")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                for r in transcript(records(read_lines(dsh_log)), payload.get("cwd") or ""):
+                    f.write(json.dumps(r, ensure_ascii=False) + "\n")
+            p["transcript_path"] = tmp
+        proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(p, ensure_ascii=False),
+                              capture_output=True, text=True)
+    finally:
+        if tmp:
+            os.unlink(tmp)
+    try:
+        d = json.loads(proc.stdout or "{}")
+    except ValueError:
+        return None
+    if isinstance(d, dict) and (d.get("hookSpecificOutput") or {}).get("permissionDecision") == "deny":
+        return proc
+    if proc.stderr:
+        sys.stderr.write(proc.stderr)
+    return None
 
 
 # A blocked Stop: the model often writes only an addendum afterwards, and the channel gets that addendum alone
@@ -1032,9 +1074,13 @@ def run_agy(target, raw, event):
         except (OSError, ValueError):
             st = {}
         payload["stop_hook_active"] = step is not None and st.get(sid) == step
+    proc = None
     try:
-        proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(payload, ensure_ascii=False),
-                              capture_output=True, text=True)
+        if event == "PreToolUse" and os.path.basename(target) == "bash-guard.py" and "deliver-check" not in load_off(role_dir(payload["cwd"])):
+            proc = deliver_check(payload, None)
+        if proc is None:
+            proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(payload, ensure_ascii=False),
+                                  capture_output=True, text=True)
     finally:
         if tmp:
             os.unlink(tmp)
