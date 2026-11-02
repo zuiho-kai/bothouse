@@ -1,5 +1,7 @@
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -12,4 +14,11 @@ test('collab declares and resolves its own ws', () => {
   const require = createRequire(new URL('./plugin.mjs', import.meta.url));
   const ws = require('ws');
   assert.equal(typeof (ws.WebSocketServer ?? ws.Server), 'function', 'ws must resolve from the plugin itself');
+});
+
+// A module-level syntax error (e.g. two `const dsh` in one scope) only shows up when
+// DSH actually imports the plugin, so catch it here before shipping.
+test('collab plugin parses', () => {
+  const plugin = fileURLToPath(new URL('./plugin.mjs', import.meta.url));
+  execFileSync(process.execPath, ['--check', plugin], { stdio: 'pipe' });
 });

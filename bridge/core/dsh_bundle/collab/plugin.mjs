@@ -96,8 +96,8 @@ export function installApprovalAnswerer(ctx, dsh) {
 
 export async function apply(ctx, rawConfig) {
   const config = resolveConfig(rawConfig);
-  const dsh = dshRequire();
-  const { createUserMessage } = await import(pathToFileURL(dsh.resolve('@deepseek-ai/dsh-llm')).href);
+  const require = dshRequire();
+  const { createUserMessage } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-llm')).href);
   // ws is declared by this package and resolved from this file, so the server never borrows a
   // transitive copy from the surrounding DSH runtime. It is CommonJS; its WebSocketServer is
   // not a statically detectable named export.
