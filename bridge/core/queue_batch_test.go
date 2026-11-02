@@ -162,3 +162,17 @@ func TestGroupBatch_ContextRidesWithNextHolder(t *testing.T) {
 		t.Fatalf("left = %+v", st.pendingMessages)
 	}
 }
+
+// The reverse of a voice context before a text holder: text context before a voice holder rides
+// with it, and the turn keeps the holder's voice mode.
+func TestGroupBatch_TextContextBeforeVoiceHolder(t *testing.T) {
+	st := &interactiveState{pendingMessages: []queuedMessage{
+		{userID: "a", userName: "A", msgPlatform: "qq", msgSessionKey: "qq:g:1", messageID: "ctx", content: "TEXT_CONTEXT", overflow: true},
+		{userID: "b", userName: "B", msgPlatform: "qq", msgSessionKey: "qq:g:1", messageID: "holder", content: "VOICE_QUESTION", mentioned: true, fromVoice: true},
+	}}
+	q := takeQueuedBatchLocked(st)
+	if q.messageID != "holder" || !q.fromVoice || len(st.pendingMessages) != 0 ||
+		strings.Index(q.content, "TEXT_CONTEXT") < 0 || strings.Index(q.content, "TEXT_CONTEXT") > strings.Index(q.content, "VOICE_QUESTION") {
+		t.Fatalf("batch = %+v", q)
+	}
+}
