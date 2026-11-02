@@ -34,7 +34,7 @@ func parseProgressArgs(args []string) (core.PublicProgressRequest, string, error
 	var dataDir string
 	f := flag.NewFlagSet("progress", flag.ContinueOnError)
 	f.Usage = func() {
-		fmt.Fprintln(f.Output(), "usage: bothouse progress --run RUN_TOKEN --seq N --kind KIND --message 'short status' [flags]\n")
+		fmt.Fprint(f.Output(), "usage: bothouse progress --run RUN_TOKEN --seq N --kind KIND --message 'short status' [flags]\n\n")
 		fmt.Fprintln(f.Output(), core.ProgressHelp())
 		f.PrintDefaults()
 	}
