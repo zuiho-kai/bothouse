@@ -1627,6 +1627,14 @@ func (p *Platform) SendFile(ctx context.Context, replyCtx any, file core.FileAtt
 
 var _ core.FileSender = (*Platform)(nil)
 
+// QuietSystemNotices keeps the bridge's own notices (unknown slash command,
+// ♻️ new session) out of QQ groups, where a slash command is usually meant for
+// another bot; private chats still get them (user 2026-11-03).
+func (p *Platform) QuietSystemNotices(replyCtx any) bool {
+	rc, ok := replyCtx.(*replyContext)
+	return ok && rc != nil && rc.messageType == "group"
+}
+
 var _ core.GroupQueueBatcher = (*Platform)(nil)
 
 // BatchGroupQueue folds a busy QQ group's queued messages into one turn and lets a full queue
