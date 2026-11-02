@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -56,18 +55,15 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("no prompt")
 	}
-	if !strings.Contains(prompt, "[Task progress journal]") || strings.Contains(prompt, "[Task card members]") {
-		t.Fatalf("no-card platform got the wrong progress instructions: %s", prompt)
-	}
-	if !strings.Contains(prompt, "NOT that a message or card was delivered") {
-		t.Fatal("journal prompt does not state the recording/delivery boundary")
-	}
-	m := regexp.MustCompile("--run ([a-f0-9]{64})").FindStringSubmatch(prompt)
-	if len(m) != 2 {
-		t.Fatal("missing journal run token")
+	if strings.Contains(prompt, "[Task progress journal]") || strings.Contains(prompt, "--run ") {
+		t.Fatalf("a fresh turn carries progress instructions or a token: %s", prompt)
 	}
 	base := []string{"--data-dir", dir, "--project", "fish"}
-	run := []string{"--session", "test:room", "--run", m[1]}
+	run := []string{"--session", "test:room"} // --run omitted: fetched from the bridge
+	turnRun, err := currentRun(dir, "fish", "test:room")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var ack bytes.Buffer
 	if err := progressCommand(append(append(append([]string{}, base...), run...), "--seq", "1", "--kind", "start", "--title", "封面", "--message", "收到，开始做"), &ack); err != nil {
@@ -227,7 +223,7 @@ func TestTaskArtifactReworkCLI(t *testing.T) {
 	if shown.Task.RevisionNo() != 3 || len(shown.Task.Artifacts) != 4 || shown.Task.State != core.TaskStateInProgress {
 		t.Fatalf("status query lost the loop: rev=%d artifacts=%d state=%s", shown.Task.RevisionNo(), len(shown.Task.Artifacts), shown.Task.State)
 	}
-	if strings.Contains(show.String(), m[1]) {
+	if strings.Contains(show.String(), turnRun) {
 		t.Fatal("task query exposed the turn capability")
 	}
 

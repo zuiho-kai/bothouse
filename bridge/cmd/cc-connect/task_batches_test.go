@@ -82,11 +82,10 @@ func TestTaskBatchesCLI(t *testing.T) {
 		e.ReceiveMessage(p, &core.Message{SessionKey: "test:room", Platform: "test", MessageID: id, UserID: "human", Content: "Delegate independent tasks", Mentioned: true})
 		select {
 		case prompt := <-a.session.prompts:
-			m := regexp.MustCompile("--run ([a-f0-9]{64})").FindStringSubmatch(prompt)
-			if len(m) == 2 {
-				return m[1]
+			if strings.Contains(prompt, "--run ") {
+				t.Fatal("prompt still carries a run token")
 			}
-			t.Fatal("missing current run")
+			return "" // the lead omits --run; the CLI fetches the turn token
 		case <-time.After(3 * time.Second):
 			t.Fatal("no prompt")
 		}
@@ -94,7 +93,7 @@ func TestTaskBatchesCLI(t *testing.T) {
 	}
 	assign := func(run, batch, id, member string) core.TaskMemberGrant {
 		t.Helper()
-		args := []string{"--session", "test:room", "--run", run, "--member", member, "--name", member, "--title", "Work " + batch, "--ref", "无（新建）"}
+		args := []string{"--session", "test:room", "--member", member, "--name", member, "--title", "Work " + batch, "--ref", "无（新建）"}
 		if id != "" {
 			args = append(args, "--id", id)
 		} else {
@@ -108,7 +107,10 @@ func TestTaskBatchesCLI(t *testing.T) {
 	}
 	report := func(run, id, seq, kind string) {
 		t.Helper()
-		args := []string{"--session", "test:room", "--run", run, "--seq", seq, "--kind", kind, "--message", kind}
+		args := []string{"--session", "test:room", "--seq", seq, "--kind", kind, "--message", kind}
+		if run != "" { // member grants carry their own token
+			args = append(args, "--run", run)
+		}
 		if id != "" {
 			args = append(args, "--task", id)
 		}

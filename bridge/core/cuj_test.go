@@ -2726,7 +2726,8 @@ func TestCUJ_Progress4_JournalOnlyRepliesAndQueries(t *testing.T) {
 		e.ReceiveMessage(p, &Message{SessionKey: inputTestKey, Platform: p.Name(), MessageID: id, UserID: "human", Content: content, Mentioned: true, ReplyCtx: "local"})
 		return inputPrompt(t, a)
 	}
-	first := progressToken(t, send("journal-start", "prepare a draft"))
+	send("journal-start", "prepare a draft")
+	first := turnToken(t, e, inputTestKey)
 	req := PublicProgressRequest{Project: e.name, SessionKey: inputTestKey, Run: first, Seq: 1, Kind: "start", Title: "draft", Summary: "working"}
 	id, err := e.publicProgress.Report(req)
 	if err != nil {
@@ -2739,7 +2740,8 @@ func TestCUJ_Progress4_JournalOnlyRepliesAndQueries(t *testing.T) {
 	inputDone(a, "Here is the draft; it has not been accepted yet.")
 	inputWait(t, func() bool { return !session.Busy() })
 
-	second := progressToken(t, send("journal-follow-up", "revise the same draft"))
+	send("journal-follow-up", "revise the same draft")
+	second := turnToken(t, e, inputTestKey)
 	if first == second {
 		t.Fatal("follow-up reused the previous turn grant")
 	}
@@ -2793,12 +2795,14 @@ func TestCUJ_Progress1_QuietQueueAndFailure(t *testing.T) {
 		return id
 	}
 	send("one", "检查绑定")
-	first := progressToken(t, inputPrompt(t, a))
+	inputPrompt(t, a)
+	first := turnToken(t, e, inputTestKey)
 	id1 := report(first)
 	a.session.events <- Event{Type: EventThinking, Content: "PRIVATE_SENTINEL"}
 	send("two", "第二个任务")
 	inputDone(a, "第一个结果")
-	second := progressToken(t, inputPrompt(t, a))
+	inputPrompt(t, a)
+	second := turnToken(t, e, inputTestKey)
 	id2 := report(second)
 	if first == second {
 		t.Fatal("queued turn reused token")
@@ -2863,7 +2867,8 @@ func TestCUJ_Progress3_ContinueAndAcceptSameCard(t *testing.T) {
 		e.updateTeamBoards(files, boards)
 		return p.board.content[inputTestKey]
 	}
-	token := progressToken(t, send("one", "检查语音绑定"))
+	send("one", "检查语音绑定")
+	token := turnToken(t, e, inputTestKey)
 	id := report(token, 1, "start")
 	report(token, 2, "waiting")
 	inputDone(a, "请确认绑定")
@@ -2874,10 +2879,13 @@ func TestCUJ_Progress3_ContinueAndAcceptSameCard(t *testing.T) {
 	first := p.task(id)
 
 	prompt := send("two", "继续调整同一个绑定")
-	if !strings.Contains(prompt, id) || !strings.Contains(prompt, "--seq 3 --kind update") {
-		t.Fatal("continuation instructions missing")
+	if !strings.Contains(prompt, "[在做]") || !strings.Contains(prompt, "--task "+id) || !strings.Contains(prompt, "--seq 3") || strings.Contains(prompt, "--run ") {
+		t.Fatal("continuation instructions missing or carry a run token")
 	}
-	token = progressToken(t, prompt)
+	token = turnToken(t, e, inputTestKey)
+	if got, ok := e.publicProgress.CurrentRun(inputTestKey); !ok || got != token {
+		t.Fatal("CurrentRun does not serve the turn token the CLI needs")
+	}
 	if next := report(token, 3, "update"); next != id {
 		t.Fatal("continuation created another card")
 	}

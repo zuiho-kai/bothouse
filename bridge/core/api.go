@@ -107,6 +107,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/task-text", s.handleTaskText)
 	s.mux.HandleFunc("/events", s.handleEvents) // unified event stream (events.go)
 	s.mux.HandleFunc("/progress", s.handlePublicProgress)
+	s.mux.HandleFunc("/progress/run", s.handleProgressRun) // CLI fetches the turn token the prompt no longer carries
 	s.mux.HandleFunc("/voice/desk", s.handleVoiceDesk)
 	s.mux.HandleFunc("/task", s.handleTask)
 	s.mux.HandleFunc("/task/accept", s.handleTaskAccept)

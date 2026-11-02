@@ -662,45 +662,25 @@ func TestTaskRelayReclaimsFinishedAutomaticCard(t *testing.T) {
 	}
 }
 
-// The resume note is generated before the dispatch. If the agent follows it
-// after the card was auto-reclaimed, the advertised command must carry the
-// explicit task id so progress goes to the reclaimed card, not the run's
-// empty record.
+// A card whose result was delivered is not work in progress, so the next turn
+// carries no "[在做]" line for it. Progress that names the card explicitly
+// (--task, as the resume hint gives it) still reaches the reclaimed card, not
+// the run's empty record.
 func TestTaskRelayResumeNoteAdvertisesExplicitTaskForReclaimedCard(t *testing.T) {
 	p, platform, run, id := taskRelayFixture(t)
 	p.finish(run, "result")
 	next := p.begin(platform, "discord:room:user", LangChinese, nil)
-	_, resumeSeq, _, _, ok := p.resumeHint(next)
+	_, resumeSeq, state, _, ok := p.resumeHint(next)
 	if !ok {
 		t.Fatal("resume hint missing for the closed card")
 	}
 	var starts atomic.Int32
 	rm, _ := taskRelayManager(t, p, platform, nil, &starts)
 	instructions := rm.engines["source"].publicProgressInstructions(next, "discord:room:user")
-	taskArg := ""
-	fields := strings.Fields(instructions)
-	for i := 0; i+1 < len(fields); i++ {
-		if fields[i] == "--task" && fields[i+1] == id {
-			taskArg = id
-			break
-		}
+	if state != TaskStateResultReady || instructions != "" {
+		t.Fatalf("delivered card advertised as in progress (%s): %q", state, instructions)
 	}
-	if taskArg == "" {
-		t.Fatalf("resume note must advertise --task %s: %s", id, instructions)
-	}
-	noteStart := strings.Index(instructions, "A card from earlier in this session")
-	if noteStart < 0 {
-		t.Fatalf("resume note missing from instructions: %s", instructions)
-	}
-	noteEnd := strings.Index(instructions[noteStart:], "; when the human asked for something else")
-	if noteEnd < 0 {
-		t.Fatalf("resume note end missing from instructions: %s", instructions)
-	}
-	note := instructions[noteStart : noteStart+noteEnd]
-	if !strings.Contains(note, "--run "+next) {
-		t.Fatalf("resume note must include --run %s: %s", next, note)
-	}
-
+	taskArg := id
 	if _, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target"); err != nil {
 		t.Fatal(err)
 	}
