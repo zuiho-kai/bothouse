@@ -204,33 +204,34 @@ func TestTaskArtifactPrompt(t *testing.T) {
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"[Task artifacts]", "--request-id STABLE_ATTACH_ID", "--revision CURRENT_REVISION", "--request-id", "input material is history", "not an upload, publication or delivery"}
-	// taskCommand consumes the action before parsing flags. Validate the actual
-	// generated prefixes, not just isolated action words in the template.
+	// The artifact guide moved from every turn to `bothouse progress --help`.
+	help := ProgressHelp()
+	want := []string{"[Task artifacts]", "[Task card members]", "--request-id STABLE_ATTACH_ID", "--revision CURRENT_REVISION", "input material is history", "not an upload, publication or delivery"}
+	// taskCommand consumes the action before parsing flags; the help must name
+	// the real command prefix, not a template placeholder.
 	for _, action := range []string{"artifact", "rework", "show"} {
-		want = append(want, " task "+action+" --project "+shellQuoteRelay(e.name)+" --data-dir "+shellQuoteRelay(dir)+" --id TASK_ID")
-	}
-	state := &interactiveState{platform: platform}
-	prompt := e.withPublicProgress("user content", state, "test:room:user", false, false)
-	for _, s := range want {
-		if !strings.Contains(prompt, s) {
-			t.Fatalf("journal prompt missing %q", s)
-		}
-	}
-	e.finishPublicProgress(state, "result")
-
-	e.workspaceChatForTest = func(string) bool { return true }
-	cardState := &interactiveState{platform: newProgressPlatform()}
-	cardPrompt := e.withPublicProgress("user content", cardState, "test:room:user", false, false)
-	if !strings.Contains(cardPrompt, "[Task artifacts]") || !strings.Contains(cardPrompt, "[Task card members]") {
-		t.Fatalf("card prompt missing artifact instructions: %s", cardPrompt)
+		want = append(want, "bothouse task "+action+" --id TASK_ID")
 	}
 	for _, s := range want {
-		if !strings.Contains(cardPrompt, s) {
-			t.Fatalf("card prompt missing %q", s)
+		if !strings.Contains(help, s) {
+			t.Fatalf("progress --help missing %q", s)
 		}
 	}
-	e.finishPublicProgress(cardState, "result")
+	if strings.Contains(help, "TASK_COMMAND") {
+		t.Fatal("progress --help left a TASK_COMMAND placeholder")
+	}
+	for _, workspace := range []bool{false, true} {
+		e.workspaceChatForTest = func(string) bool { return workspace }
+		var p Platform = platform
+		if workspace {
+			p = newProgressPlatform()
+		}
+		state := &interactiveState{platform: p}
+		if prompt := e.withPublicProgress("user content", state, "test:room:user", false, false); prompt != "user content" {
+			t.Fatalf("turn without an open task carried the artifact guide: %q", prompt)
+		}
+		e.finishPublicProgress(state, "result")
+	}
 }
 
 // TestTaskReworkRequestIDIdempotencyAndConflict: one rework action carries one

@@ -38,13 +38,13 @@ func TestVoiceRelay_SpokenTaskOpensCardOnVoiceChannel(t *testing.T) {
 	}
 	s := <-a.sessions
 	prompt := <-s.prompts
-	if !strings.Contains(prompt, "--session 'discord:voice:thread-a'") || !strings.HasSuffix(prompt, "build a page") {
-		t.Fatalf("voice prompt lacks card instructions: %q", prompt)
+	if strings.Contains(prompt, "--run ") || !strings.HasSuffix(prompt, "build a page") {
+		t.Fatalf("voice turn without an open task carried progress text: %q", prompt)
 	}
 	if strings.Contains(prompt, "[Task card members]") || strings.Contains(prompt, "relay send") || !strings.Contains(prompt, "Do not start subagents") {
 		t.Fatal("voice imported delegation instructions or lost its policy")
 	}
-	run := progressToken(t, prompt)
+	run := turnToken(t, e, "discord:voice:thread-a")
 	id, err := e.publicProgress.Report(PublicProgressRequest{Project: "target", SessionKey: "discord:voice:thread-a", Run: run, Seq: 1, Kind: "start", Title: "page", Summary: "started"})
 	if err != nil {
 		t.Fatal(err)

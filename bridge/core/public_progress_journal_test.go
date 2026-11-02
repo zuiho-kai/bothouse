@@ -242,8 +242,8 @@ func TestPublicProgressJournalOnlyEnginePrompt(t *testing.T) {
 	state := &interactiveState{platform: platform}
 	session := "test:room:user"
 	prompt := e.withPublicProgress("user content", state, session, false, false)
-	if !strings.Contains(prompt, "[Task progress journal]") || strings.Contains(prompt, "[Task card members]") || !strings.Contains(prompt, "NOT that a message or card was delivered") {
-		t.Fatalf("incorrect journal-only instructions: %s", prompt)
+	if prompt != "user content" {
+		t.Fatalf("journal turn without an open task carried progress text: %q", prompt)
 	}
 	run := state.publicProgressRun
 	if run == "" {
@@ -270,8 +270,8 @@ func TestPublicProgressJournalOnlyEnginePrompt(t *testing.T) {
 	e.finishPublicProgress(state, "result")
 	resumed := &interactiveState{platform: platform}
 	prompt = e.withPublicProgress("follow-up", resumed, session, false, false)
-	if !strings.Contains(prompt, "title \"postcard\"") || !strings.Contains(prompt, "A task record from earlier") {
-		t.Fatalf("resume instructions changed the original title: %s", prompt)
+	if prompt != "follow-up" { // a delivered result is not work in progress
+		t.Fatalf("follow-up after a delivered result carried a task line: %q", prompt)
 	}
 	e.finishPublicProgress(resumed, "result")
 	if got := e.withPublicProgress("bot message", state, session, true, false); got != "bot message" {

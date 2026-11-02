@@ -60,7 +60,8 @@ func TestCUJ_Progress2_PinnedIndexLifecycle(t *testing.T) {
 		return p.board.content[inputTestKey]
 	}
 	send("one", "检查语音绑定")
-	token := progressToken(t, inputPrompt(t, a))
+	inputPrompt(t, a)
+	token := turnToken(t, e, inputTestKey)
 	id := report(token, 1, "start")
 	if text := refresh(TaskStateInProgress, 1); !strings.Contains(text, "https://example.test/cards/"+id) {
 		t.Fatal("real entry did not publish index link", text)
@@ -81,7 +82,8 @@ func TestCUJ_Progress2_PinnedIndexLifecycle(t *testing.T) {
 		t.Fatal("historical card/facts lost")
 	}
 	send("two", "再检查另一个绑定")
-	token = progressToken(t, inputPrompt(t, a))
+	inputPrompt(t, a)
+	token = turnToken(t, e, inputTestKey)
 	report(token, 1, "start")
 	refresh(TaskStateInProgress, 1)
 	a.session.events <- Event{Type: EventError, Error: errors.New("fixture failure")}
