@@ -21,6 +21,7 @@ def load_gate(team=None, wiki=None, model="fake"):
     sys.modules["scorer"] = fake
     os.environ["GATE_SETUP_DIR"] = tempfile.mkdtemp()  # 不读本机 ~/.cc-connect 里向导写的文件
     os.environ.pop("GATE_JEV", None)
+    os.environ["MEMVOTE_DIR"] = tempfile.mkdtemp()  # 推送记录写临时目录，不写进仓库
     if model:
         os.environ["GATE_MODEL"] = model  # 没有 jev 时用显式的本机模型打分；拿到的是上面的假 scorer
     else:
@@ -34,6 +35,7 @@ def load_gate(team=None, wiki=None, model="fake"):
         sys.modules.pop(m, None)
     g = importlib.import_module("gate")
     g.lead.PLAYBOOK = None  # 这里只测 wiki 页；主角色工作手册的注入在 test_lead_playbook.py
+    sys.modules["ctxsvc"].MEMVOTE = Path(os.environ["MEMVOTE_DIR"]) / "none.py"  # 投票提示在 test_memory_forum.py 测
     return g
 
 
@@ -64,7 +66,7 @@ class T(unittest.TestCase):
         finally:
             srv.shutdown()
             srv.server_close()
-        self.assertEqual(out, {"wiki": [{"path": (w / "infra/vps.md").as_posix(), "desc": "VPS 一览 | 4: - 代理端口 7890"}]})
+        self.assertEqual(out, {"wiki": [{"path": (w / "infra/vps.md").as_posix(), "desc": "VPS 一览 | 4: 代理端口 7890 [#9fbdf5b7eb]"}]})
 
     def test_busy_mention_lead_pause_aborts(self):  # 主角色被 @ 或叫名字、正忙、「暂停」→ abort；不忙 → reply
         g = load_gate()
