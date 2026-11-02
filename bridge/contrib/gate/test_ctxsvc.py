@@ -29,6 +29,13 @@ class T(unittest.TestCase):
         self.addCleanup(home_patch.stop)
         # 这里只测 wiki 页；任务板注入在 test_board.py，置空免得读到本机默认 BOARD_DIR 的板子
         self.old_board, ctxsvc.board = ctxsvc.board, None
+        # 推送记录写进临时目录；没装 memvote 时不附投票提示（投票和画像、经验的推送在下面单独测）
+        exp = tempfile.TemporaryDirectory()
+        self.addCleanup(exp.cleanup)
+        for k, v in (("EXP", Path(exp.name)), ("MEMVOTE", Path(exp.name) / "none.py"), ("PROFILE", "")):
+            p = patch.object(ctxsvc, k, v)
+            p.start()
+            self.addCleanup(p.stop)
         if ctxsvc.lead:  # 这里只测 wiki 页；主角色工作手册的注入在 test_lead_playbook.py
             self.old_pb, ctxsvc.lead.PLAYBOOK = ctxsvc.lead.PLAYBOOK, None
 
@@ -57,7 +64,7 @@ class T(unittest.TestCase):
             ctxsvc.WIKI, ctxsvc._idx = Path(d), {}
             got = ctxsvc.context({"key": "discord:1", "text": "代理端口多少"})
             self.assertEqual(got, {"wiki": [{"path": (Path(d) / "infra/vps.md").as_posix(),
-                                             "desc": "VPS 一览 | 6: - 代理端口 7890"}]})
+                                             "desc": "VPS 一览 | 6: 代理端口 7890" + ctxsvc.exp_tag("infra/vps.md", "- 代理端口 7890")}]})
 
     def test_utf8_wiki_with_cp936_default(self):
         read_text = Path.read_text
@@ -72,7 +79,7 @@ class T(unittest.TestCase):
             with patch.object(Path, "read_text", cp936_read_text):
                 got = ctxsvc.match_wiki("代理端口多少")
             self.assertEqual(got, [{"path": (Path(d) / "infra/vps.md").as_posix(),
-                                   "desc": "VPS 一览 | 6: - 代理端口 7890"}])
+                                   "desc": "VPS 一览 | 6: 代理端口 7890" + ctxsvc.exp_tag("infra/vps.md", "- 代理端口 7890")}])
 
     def test_utf8_bom_preserves_description(self):
         with tempfile.TemporaryDirectory() as d:
@@ -80,7 +87,7 @@ class T(unittest.TestCase):
             ctxsvc.WIKI, ctxsvc._idx = Path(d), {}
             got = ctxsvc.match_wiki("代理端口多少")
             self.assertEqual(got, [{"path": (Path(d) / "infra/vps.md").as_posix(),
-                                   "desc": "VPS 一览 | 6: - 代理端口 7890"}])
+                                   "desc": "VPS 一览 | 6: 代理端口 7890" + ctxsvc.exp_tag("infra/vps.md", "- 代理端口 7890")}])
 
     def test_wiki_off_or_missing(self):
         ctxsvc.WIKI, ctxsvc._idx = None, {}

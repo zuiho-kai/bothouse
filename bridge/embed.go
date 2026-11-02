@@ -12,5 +12,5 @@ var ConfigExampleTOML string
 // (contrib/hooks/agents), the code map directory's README (contrib/hooks/codemaps) and the gate's wiki lookup
 // wiki-context reuses, installed by "cc-connect setup hooks" and the setup wizard (core/agent_hooks.go).
 //
-//go:embed contrib/hooks/*.py contrib/hooks/rules/*.md contrib/hooks/agents/*.md contrib/hooks/codemaps/*.md contrib/gate/ctxsvc.py contrib/gate/wiki_search.py
+//go:embed contrib/hooks/*.py contrib/hooks/rules/*.md contrib/hooks/agents/*.md contrib/hooks/codemaps/*.md contrib/gate/ctxsvc.py contrib/gate/wiki_search.py contrib/gate/forum_scores.py
 var AgentHookFiles embed.FS
