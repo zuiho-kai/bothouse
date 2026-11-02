@@ -115,6 +115,19 @@ func (e *Engine) exitReportedBefore(id int) bool {
 	return seen && time.Since(at) <= exitReportedKeep
 }
 
+// exitReportedSinceBound: board item id's [report] was already posted after the item was bound
+// (RFC3339 bound) to its current handoff. An unknown bind time never counts.
+func (e *Engine) exitReportedSinceBound(id int, bound string) bool {
+	b, err := time.Parse(time.RFC3339Nano, bound)
+	if e.dataDir == "" || err != nil {
+		return false
+	}
+	e.teamExit.mu.Lock()
+	defer e.teamExit.mu.Unlock()
+	at, seen := e.readExitReported()[strconv.Itoa(id)]
+	return seen && at.After(b)
+}
+
 // markExitReported records that board item id's [report] was posted in the chat channel.
 func (e *Engine) markExitReported(id int) {
 	if e.dataDir == "" {
