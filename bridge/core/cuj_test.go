@@ -1918,9 +1918,37 @@ func TestCUJ_F1_ProviderSwitchLinkedToAgent(t *testing.T) {
 	t.Log("CUJ-F1: provider switching is per-agent; covered by agent/*_test.go provider tests")
 }
 
-// CUJ-F2 · /model switches model — same pattern as F1, agent-managed.
+// CUJ-F2 · /model changes the addressed channel and preserves its native conversation.
 func TestCUJ_F2_ModelSwitchLinkedToAgent(t *testing.T) {
-	t.Log("CUJ-F2: model switching is per-agent; covered by agent/*_test.go model tests")
+	a := &scopedStartupAgent{stubModelModeAgent{model: "astra", reasoningEffort: "medium"}}
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", a, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	key := "test:work"
+	s := e.sessions.GetOrCreateActive(key)
+	s.SetAgentSessionID("original-native", a.Name())
+	s.AddHistory("user", "remember")
+	send := func(channel, command, want string) {
+		t.Helper()
+		p.clearSent()
+		e.ReceiveMessage(p, &Message{SessionKey: channel, Content: command})
+		if got := strings.Join(p.getSent(), "\n"); !strings.Contains(got, want) {
+			t.Fatalf("%s %s reply = %q, want %q", channel, command, got, want)
+		}
+	}
+	send(key, "/model", e.i18n.Tf(MsgModelCurrent, "astra"))
+	send(key, "/model switch sol", e.i18n.Tf(MsgModelChanged, "sol"))
+	send(key, "/reasoning high", e.i18n.Tf(MsgReasoningChanged, "high"))
+	send(key, "/model", e.i18n.Tf(MsgModelCurrent, "sol"))
+	send("test:drame", "/model", e.i18n.Tf(MsgModelCurrent, "astra"))
+	send(key, "/history", "remember")
+	state := e.getOrCreateInteractiveStateWith(key, p, nil, s, e.sessions, nil, key)
+	if got := state.agentSession.(*scopedStartupSession); got.model != "sol" || got.effort != "high" || got.id != "original-native" || len(s.History) != 1 {
+		t.Fatalf("switched session = %+v, history = %v", got, s.History)
+	}
+	if got := e.ModelStatus(context.Background(), "test:drame"); got.Model != "astra" || got.Effort != "medium" {
+		t.Fatal(got)
+	}
 }
 
 // CUJ-F3 · /lang switches i18n locale; next reply uses new language.

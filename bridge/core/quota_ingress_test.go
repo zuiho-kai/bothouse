@@ -27,8 +27,9 @@ func (a *quotaJourneyAgent) QuotaScope(model string) (string, string) {
 	}
 	return "journey-account", model
 }
-func (a *quotaJourneyAgent) StartSession(context.Context, string) (AgentSession, error) {
-	return &quotaJourneySession{inputTestSession: &inputTestSession{events: make(chan Event, 8), prompts: make(chan string, 8), id: "quota-journey"}, model: a.GetModel(), sent: a.sent}, nil
+func (a *quotaJourneyAgent) StartSession(ctx context.Context, _ string) (AgentSession, error) {
+	model, _ := SessionModelAndEffort(ctx, a.GetModel(), "")
+	return &quotaJourneySession{inputTestSession: &inputTestSession{events: make(chan Event, 8), prompts: make(chan string, 8), id: "quota-journey"}, model: model, sent: a.sent}, nil
 }
 
 type quotaJourneySession struct {
@@ -107,7 +108,7 @@ func TestQuotaPendingSwitchIngress(t *testing.T) {
 				t.Fatal(r.Message)
 			}
 			send("shared-pool")
-			inputWait(t, func() bool { return a.GetModel() == "A2" && !e.sessions.GetOrCreateActive(key).Busy() })
+			inputWait(t, func() bool { return e.sessionModelFor(key) == "A2" && !e.sessions.GetOrCreateActive(key).Busy() })
 			select {
 			case model := <-a.sent:
 				t.Fatalf("shared exhausted pool sent to %s", model)
@@ -140,7 +141,7 @@ func TestQuotaPendingSwitchUsesWorkspaceAgent(t *testing.T) {
 		t.Fatal("workspace admission used old scope")
 	}
 	e.applyPendingSwitch(workspace+":"+key, key)
-	if local.GetModel() != "B" || global.GetModel() != "global" {
+	if e.sessionModelFor(key) != "B" || local.GetModel() != "A" || global.GetModel() != "global" {
 		t.Fatal("switch affected wrong workspace agent")
 	}
 	if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, key)); !until.IsZero() {

@@ -541,8 +541,16 @@ func (a *Agent) startSessionWith(ctx context.Context, sessionID string, forceExe
 		baseURL = a.providers[a.activeIdx].ForProtocol(core.ProtocolResponses).BaseURL
 	}
 	sessionModel, instrFile, instrText := a.sessionModel, a.sessionInstr, a.sessionInstrText
+	if settings == nil {
+		if snapshot, ok := core.SessionSettingsFromContext(ctx); ok {
+			settings = &snapshot
+		}
+	}
 	if settings != nil {
 		sessionModel = strings.TrimSpace(settings.Model)
+		if settings.ReasoningEffort != "" {
+			reasoningEffort = settings.ReasoningEffort
+		}
 		instrFile, instrText = strings.TrimSpace(settings.InstructionsPath), strings.TrimSpace(settings.InstructionsText)
 	}
 	if sessionModel != "" {
@@ -550,6 +558,8 @@ func (a *Agent) startSessionWith(ctx context.Context, sessionID string, forceExe
 	}
 	provName, provAPIKey, provWireAPI, provHeaders := a.activeProviderCodexConfig()
 	a.mu.Unlock()
+
+	model, reasoningEffort = core.SessionModelAndEffort(ctx, model, reasoningEffort)
 
 	if provName != "" {
 		if err := ensureCodexProviderConfig(codexHome, provName, baseURL, provWireAPI, provHeaders); err != nil {

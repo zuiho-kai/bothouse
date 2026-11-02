@@ -156,6 +156,8 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	extraEnv = append(extraEnv, core.InjectedAgentEnv(mode)...)
 	rpc := a.rpc
 	a.mu.Unlock()
+	model, thinking = core.SessionModelAndEffort(ctx, model, thinking)
+
 	return newPiSession(ctx, a.cmd, extraArgs, a.workDir, model, mode, thinking, rpc, sessionID, extraEnv)
 }
 
@@ -417,9 +419,9 @@ func settingsPath() string {
 
 // piSettings represents the structure of pi's settings.json relevant fields.
 type piSettings struct {
-	EnabledModels  []string `json:"enabledModels"`
-	DefaultModel   string   `json:"defaultModel"`
-	DefaultProvider string  `json:"defaultProvider"`
+	EnabledModels   []string `json:"enabledModels"`
+	DefaultModel    string   `json:"defaultModel"`
+	DefaultProvider string   `json:"defaultProvider"`
 }
 
 // readSettings reads and parses pi's settings.json.

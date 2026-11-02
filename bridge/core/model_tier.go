@@ -109,7 +109,7 @@ func (e *Engine) applyModelTier(p Platform, msg *Message, tag string) {
 		slog.Warn("model tier: no session context", "session", msg.SessionKey, "error", err)
 		return
 	}
-	switcher, ok := agent.(ModelSwitcher)
+	_, ok := agent.(ModelSwitcher)
 	if !ok {
 		return
 	}
@@ -122,22 +122,12 @@ func (e *Engine) applyModelTier(p Platform, msg *Message, tag string) {
 	}
 	model, effort := t.target(tier)
 
-	changed := false
-	from := switcher.GetModel()
-	if from != model {
-		if _, err := e.switchModelOnAgent(agent, model, false); err != nil {
-			slog.Warn("model tier: switch failed", "session", msg.SessionKey, "model", model, "error", err)
-			return
-		}
-		changed = true
+	from := e.currentSessionModel(msg.SessionKey, agent)
+	if from == model && (effort == "" || e.sessionEffortFor(msg.SessionKey, agent) == effort) {
+		return
 	}
-	if effort != "" {
-		if rs, ok := agent.(ReasoningEffortSwitcher); ok && rs.GetReasoningEffort() != effort {
-			rs.SetReasoningEffort(effort)
-			changed = true
-		}
-	}
-	if !changed {
+	if err := e.saveSessionSelection(msg.SessionKey, model, effort); err != nil {
+		slog.Warn("model tier: switch failed", "session", msg.SessionKey, "error", err)
 		return
 	}
 	// Same as /model: the next StartSession uses --resume <id> with the new model, so the CLI

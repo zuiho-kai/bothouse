@@ -283,6 +283,8 @@ func (a *Agent) startSessionWithEnv(ctx context.Context, sessionID string, stric
 	extra = append(extra, sessionEnv...)
 	a.mu.RUnlock()
 
+	model, effort = core.SessionModelAndEffort(ctx, model, effort)
+
 	cfg := acpSessionConfig{
 		command:         command,
 		args:            allArgs,

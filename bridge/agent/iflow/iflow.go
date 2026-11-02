@@ -162,6 +162,8 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	}
 	a.mu.Unlock()
 
+	model, _ = core.SessionModelAndEffort(ctx, model, "")
+
 	return newIFlowSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, toolTimeoutSec)
 }
 
