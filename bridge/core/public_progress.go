@@ -207,6 +207,9 @@ type PublicProgress struct {
 	// wakeLead queues a turn in the dispatching session for a background task outcome
 	// (Engine.wakeRelayLead); nil when no engine has enabled public progress.
 	wakeLead func(req RelayRequest, worker, response string, runErr error)
+	// relayBoardRefs pins the board item a dispatch may report back to, captured
+	// before execution (Engine.relayBoardRefs); nil without a team board.
+	relayBoardRefs func(from, sessionKey string, handoffs []string, revision int) []taskRelayBoardRef
 }
 
 func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicProgress, error) {
@@ -1111,6 +1114,7 @@ func (e *Engine) EnablePublicProgress() error {
 	p.resolveReporter = e.resolveTaskReporter
 	p.resolveWorkspace = e.resolveTaskWorkspace
 	p.wakeLead = e.wakeRelayLead
+	p.relayBoardRefs = e.relayBoardRefs
 	p.reporterName = e.taskReporterName
 	p.notBound = e.noteBound
 	p.workspaceChat = e.isTeamWorkspaceChat

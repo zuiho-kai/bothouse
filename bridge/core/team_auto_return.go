@@ -84,12 +84,16 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 		slog.Error("team exit: forward target is itself a workspace; lead not woken", "parent", parent, "workspace", ws)
 		return false
 	}
-	prompt := chatLeadPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, kind, body, e.workspaceTaskBackground(wsSession, boardID), posted)
-	prompt = askRef.ReplaceAllString(prompt, "ask-…")
-	board := boardID
-	if it := e.workspaceBoardItem(wsSession, boardID); it != nil {
+	// A missing or unknown ID is not evidence that the reply belongs to the
+	// newest occupant of this workspace. Preserve the text without that binding.
+	background := ""
+	board := 0
+	if it := e.boardItemByID(boardID); it != nil {
 		board = it.ID
+		background = e.workspaceTaskBackground(wsSession, boardID)
 	}
+	prompt := chatLeadPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, kind, body, background, posted)
+	prompt = askRef.ReplaceAllString(prompt, "ask-…")
 	rec := &pendingReport{
 		Key:      reportKey(p.Name(), parent, ws, kind, board, body),
 		Platform: p.Name(), Chat: parent, Workspace: ws, Bot: bot,
