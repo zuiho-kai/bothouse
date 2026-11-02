@@ -758,17 +758,17 @@ func renderTeamTaskBoard(items []teamTaskBoardItem, chat string, now time.Time) 
 //	📋 任务表（12:20 更新）
 //	**等你看 1**
 //	  · 全双工权限卡回复稿 · 等了 2小时  [→点进去](thread)
-//	**工作区 3**（空闲：工作区3、5、6）
+//	**工作区 2**（空闲：工作区3、5、6）
 //	  🟢 工作区1 · 任务板重构PR · 已做 25分钟  [→点进去](thread)
 //	  🟡 工作区2 · QQ断线修复 · 已交回待核对
 //	  🟢 工作区4 · 搁置盘点 · 已做 15分钟  [→点进去](thread)
-//	**未开工 1**
+//	**待安排 1**
 //	  · 强制汇报
 //	（另有 4 件搁置，超过一天没动或已暂停）
 //
 // Workspace rows put the workspace name and status dot (🟢 busy, 🟡 handed back awaiting check)
 // at the start of the line, sorted by workspace number; progress words stay in the workspace.
-// An open item no workspace is working on is 未开工. 搁置 (paused for another reason, or no
+// An open item no workspace is working on is 待安排. 搁置 (paused for another reason, or no
 // activity for a day) is only counted; done items are left off. 卡住 is a busy row that says so.
 const (
 	teamTaskTableHead = "📋 任务表"
@@ -945,6 +945,9 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 			if where != "" {
 				parts = []string{where, short, note}
 			}
+			if strings.TrimSpace(it.Who) != "" {
+				parts = append(parts, shortLabel(it.Who, teamTaskBoardShortRunes))
+			}
 			wsRows = append(wsRows, wsRow{where: where, ended: true, line: "  ⏸ " + strings.Join(parts, " · ")})
 		case state == teamTaskReview:
 			// The workspace handed it back; the lead still has to check it (not acceptance). Its
@@ -970,7 +973,11 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 			}
 			waiting = append(waiting, row)
 		case where == "":
-			idle = append(idle, "  · "+short)
+			row := "  · " + short
+			if strings.TrimSpace(it.Who) != "" {
+				row += " · " + shortLabel(it.Who, teamTaskBoardShortRunes)
+			}
+			idle = append(idle, row)
 		default:
 			usedWS[where] = true
 			bound, _ := time.Parse(time.RFC3339Nano, it.Bound)
