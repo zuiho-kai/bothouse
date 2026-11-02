@@ -192,12 +192,10 @@ named_task = scorer.prepare(NAMED_PROMPT, options=["A", "B"], prefill="答案：
 
 
 def called_names(content):
-    """开头连着的名字 → 被叫的成员 key 集合（"" = 主 bot）。"""
-    m = LEADING.match(content)
-    if not m:
-        return set()
-    lead = m.group(0)
-    return {k for k, ns in NAMES.items() if any(n in lead for n in ns)}
+    """每行开头连着的名字 → 被叫的成员 key 集合（"" = 主 bot）。"""
+    # 每一行的开头都算（规矩写的是「行首」，不只整条消息的第一行）
+    leads = [m.group(0) for line in content.splitlines() if (m := LEADING.match(line))]
+    return {k for k, ns in NAMES.items() for lead in leads if any(n in lead for n in ns)}
 
 
 def mentions_name(content, bot):
