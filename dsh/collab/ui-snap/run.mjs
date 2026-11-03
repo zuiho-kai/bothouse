@@ -1,8 +1,11 @@
 // 截图回归（Issue #98 U7）。
 //
-// 只做测试，不改页面：用临时 HTTP 宿主把 dsh/collab/page.html 与
-// dsh/collab/desk/index.html 喂固定状态，桌面 1440 / 手机 390 × 亮/暗各截一张，
-// 与 baseline/ 下的基准图做像素差，并检查横向溢出和被裁切的文字。
+// 只做测试，不改页面。重点在频道/聊天页：用临时 HTTP 宿主把 dsh/collab/page.html
+// 喂固定状态，桌面 1440 / 手机 390 × 亮/暗各截一张，与 baseline/ 做像素差，
+// 并检查横向溢出与被裁切的文字。
+//
+// 工作台（desk/index.html）按用户 2026-11-03 16:26 的定调只做一条冒烟：
+// 能打开、不报错、关键元素在、不横向溢出；不比像素、不判裁切。
 //
 // 浏览器用 puppeteer-core + 本机 Chrome；没装时整条跳过。更新基准：
 //   PUPPETEER_MODULE=/abs/node_modules/puppeteer-core node dsh/collab/ui-snap/run.mjs --update
@@ -323,8 +326,32 @@ async function shoot(browser, url, viewport, theme, path, pageName) {
   }
 }
 
-export async function runSnapshots({ update = false } = {}) {
-  const puppeteer = loadPuppeteer();
+/** 工作台冒烟：能打开、不报错、关键元素在、不横向溢出；不比像素、不判裁切。 */
+async function smokeDesk(browser, url, viewport) {
+  const page = await browser.newPage();
+  const errors = [];
+  const onConsole = (msg) => {
+    if (msg.type() === 'error') errors.push('console: ' + msg.text().slice(0, 200));
+  };
+  const onPageError = (err) => errors.push('pageerror: ' + String(err).slice(0, 200));
+  page.on('console', onConsole);
+  page.on('pageerror', onPageError);
+  try {
+    await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 1, isMobile: viewport.mobile, hasTouch: viewport.mobile });
+    await page.evaluateOnNewDocument(DATE_INIT);
+    await page.goto(url, { waitUntil: 'load' });
+    await page.evaluate(() => document.fonts.ready);
+    await sleep(300);
+    const checks = await collectChecks(page, 'desk');
+    return { errors, overflow: checks.overflow, dom: checks.dom };
+  } finally {
+    page.off('console', onConsole);
+    page.off('pageerror', onPageError);
+    await page.close();
+  }
+}
+
+export async function runSnapshots({ update = false } = {}) {  const puppeteer = loadPuppeteer();
   const executablePath = findChrome();
   if (!puppeteer) return { skip: '没装 puppeteer-core；设置 PUPPETEER_MODULE 指向已安装的 puppeteer-core 目录后重跑。' };
   if (!executablePath) return { skip: '没找到 Chrome/Chromium；设置 CHROME_PATH 后重跑。' };
@@ -346,44 +373,56 @@ export async function runSnapshots({ update = false } = {}) {
   const results = [];
   try {
     if (update) mkdirSync(BASELINE, { recursive: true });
+    // 像素回归只覆盖频道/聊天页（用户 2026-11-03 16:26 定：工作台只留冒烟）。
     for (const viewport of VIEWPORTS) {
       for (const theme of THEMES) {
-        for (const [pageName, url] of [['channel', `${host.url}/collab`], ['desk', `${host.url}/collab/desk`]]) {
-          const name = `${pageName}-${viewport.name}-${theme}`;
-          const actualPath = update ? join(BASELINE, `${name}.png`) : join(artifacts, `${name}.png`);
-          const checks = await shoot(browser, url, viewport, theme, actualPath, pageName);
-          const record = { case: name, checks, diff: null };
-          if (!checks.dom.ok) failures.push({ case: name, message: '页面没渲染出预期内容：' + checks.dom.detail });
-          if (checks.overflow.length) failures.push({ case: name, message: '横向溢出：' + checks.overflow.join('；') });
-          if (checks.clipped.length) failures.push({ case: name, message: '文字被裁切：' + checks.clipped.map((c) => `${c.text} @ ${c.parent}(${c.axis})`).join('；') });
-          if (!update) {
-            const baselinePath = join(BASELINE, `${name}.png`);
-            const diff = await comparePng(browser, readFileSync(baselinePath), readFileSync(actualPath));
-            record.diff = diff;
-            if (diff.size) {
-              failures.push({ case: name, message: `尺寸变了：基准 ${diff.baseline.join('×')}，实际 ${diff.actual.join('×')}` });
-            } else if (diff.ratio > MAX_DIFF_RATIO) {
-              let diffFile = '';
-              if (diff.diffUrl) {
-                diffFile = join(artifacts, `${name}-diff.png`);
-                writeFileSync(diffFile, Buffer.from(diff.diffUrl.split(',')[1], 'base64'));
-              }
-              failures.push({
-                case: name,
-                message: `像素差 ${(diff.ratio * 100).toFixed(3)}% > ${(MAX_DIFF_RATIO * 100).toFixed(1)}%（${diff.changed} 像素，最大通道差 ${diff.maxDelta}${diff.bbox ? `，bbox ${diff.bbox.w}×${diff.bbox.h}` : ''}）${diffFile ? `；diff ${diffFile}` : ''}`,
-              });
+        const pageName = 'channel';
+        const name = `${pageName}-${viewport.name}-${theme}`;
+        const actualPath = update ? join(BASELINE, `${name}.png`) : join(artifacts, `${name}.png`);
+        const checks = await shoot(browser, `${host.url}/collab`, viewport, theme, actualPath, pageName);
+        const record = { case: name, checks, diff: null };
+        if (!checks.dom.ok) failures.push({ case: name, message: '页面没渲染出预期内容：' + checks.dom.detail });
+        if (checks.overflow.length) failures.push({ case: name, message: '横向溢出：' + checks.overflow.join('；') });
+        if (checks.clipped.length) failures.push({ case: name, message: '文字被裁切：' + checks.clipped.map((c) => `${c.text} @ ${c.parent}(${c.axis})`).join('；') });
+        if (!update) {
+          const baselinePath = join(BASELINE, `${name}.png`);
+          const diff = await comparePng(browser, readFileSync(baselinePath), readFileSync(actualPath));
+          record.diff = diff;
+          if (diff.size) {
+            failures.push({ case: name, message: `尺寸变了：基准 ${diff.baseline.join('×')}，实际 ${diff.actual.join('×')}` });
+          } else if (diff.ratio > MAX_DIFF_RATIO) {
+            let diffFile = '';
+            if (diff.diffUrl) {
+              diffFile = join(artifacts, `${name}-diff.png`);
+              writeFileSync(diffFile, Buffer.from(diff.diffUrl.split(',')[1], 'base64'));
             }
+            failures.push({
+              case: name,
+              message: `像素差 ${(diff.ratio * 100).toFixed(3)}% > ${(MAX_DIFF_RATIO * 100).toFixed(1)}%（${diff.changed} 像素，最大通道差 ${diff.maxDelta}${diff.bbox ? `，bbox ${diff.bbox.w}×${diff.bbox.h}` : ''}）${diffFile ? `；diff ${diffFile}` : ''}`,
+            });
           }
-          results.push(record);
         }
+        results.push(record);
       }
     }
+
+    // 工作台只冒烟：能打开、不抛错、关键元素在、不横向溢出，不比像素（用户 2026-11-03 16:26 定）。
+    for (const viewport of VIEWPORTS) {
+      const name = `desk-${viewport.name}-smoke`;
+      const smoke = await smokeDesk(browser, `${host.url}/collab/desk`, viewport);
+      results.push({ case: name, checks: { dom: smoke.dom, overflow: smoke.overflow, clipped: [] }, errors: smoke.errors, diff: null });
+      if (!smoke.dom.ok) failures.push({ case: name, message: '工作台没渲染出预期内容：' + smoke.dom.detail });
+      if (smoke.overflow.length) failures.push({ case: name, message: '工作台横向溢出：' + smoke.overflow.join('；') });
+      if (smoke.errors.length) failures.push({ case: name, message: '工作台报错：' + smoke.errors.join('；') });
+    }
+
     if (update) {
       const version = await browser.version();
       writeFileSync(join(BASELINE, 'manifest.json'), JSON.stringify({
         version: 1, fixtureVersion: FIXTURE_VERSION, generatedAt: new Date().toISOString(),
         platform: process.platform, arch: process.arch, browser: version,
         fixedClock: FIXED_CLOCK, viewports: VIEWPORTS.map((v) => v.name), themes: THEMES,
+        pixelPages: ['channel'], smokePages: ['desk'],
         pixelDelta: PIXEL_DELTA, maxDiffRatio: MAX_DIFF_RATIO,
       }, null, 2) + '\n');
     }
@@ -402,7 +441,10 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
   } else {
     for (const record of result.results) {
       const diff = record.diff && !record.diff.size ? `像素差 ${(record.diff.ratio * 100).toFixed(3)}%` : '';
-      console.log(`${record.checks.overflow.length || record.checks.clipped.length || (record.diff && record.diff.ratio > MAX_DIFF_RATIO) ? 'FAIL' : 'PASS'} ${record.case}${diff ? ' — ' + diff : ''}`);
+      const bad = !record.checks.dom.ok || record.checks.overflow.length || record.checks.clipped.length
+        || (record.errors && record.errors.length)
+        || (record.diff && (record.diff.size || record.diff.ratio > MAX_DIFF_RATIO));
+      console.log(`${bad ? 'FAIL' : 'PASS'} ${record.case}${diff ? ' — ' + diff : ''}`);
     }
     for (const failure of result.failures) console.log(`FAIL ${failure.case} — ${failure.message}`);
     console.log(`artifacts: ${result.artifacts}`);

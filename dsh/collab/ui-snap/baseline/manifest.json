@@ -1,7 +1,7 @@
 {
   "version": 1,
   "fixtureVersion": 1,
-  "generatedAt": "2026-11-03T07:27:39.575Z",
+  "generatedAt": "2026-11-03T08:31:38.267Z",
   "platform": "darwin",
   "arch": "arm64",
   "browser": "Chrome/156.0.8078.80",
@@ -13,6 +13,12 @@
   "themes": [
     "light",
     "dark"
+  ],
+  "pixelPages": [
+    "channel"
+  ],
+  "smokePages": [
+    "desk"
   ],
   "pixelDelta": 16,
   "maxDiffRatio": 0.001
