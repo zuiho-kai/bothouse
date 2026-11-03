@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>团队工作台 · CoNest</title>
+<link rel="icon" href="data:,">
 <style>
 :root{--bg:#0a0d13;--panel:#111722;--panel2:#0c121b;--line:#243044;--line2:#1a2434;--text:#e7edf7;--muted:#8ea0b8;--gold:#ffc56b;--teal:#5eead4;--red:#ff6b6b;--blue:#7dd3fc;--wood:#8a5a36;--ok:#34d399}
 *{box-sizing:border-box}
@@ -299,7 +300,7 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
 <script type="application/json" id="roster">
 {
   "version": 1,
-  "note": "成员 → 头像对照表。project 是 Issue #876 事件契约的键；显示名以运行时 /collab/api/state 为准，name/aliases 只用于解析任务板 who 文本和 @ 文本。avatar 为空表示用名字首字母圆形徽标。",
+  "note": "成员 → 头像对照表。project 是 Issue #876 事件契约的键；显示名以 roster.name 为准（state.name 可能只是 agent 的 display_name，如 DeepSeek），name/aliases 也用于解析 who 与 @ 文本。avatar 为空表示用名字首字母圆形徽标。",
   "defaultAvatar": "",
   "members": [
     {
@@ -390,41 +391,8 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
   ]
 }
 </script>
-<script type="text/plain" id="fixtureData">
-{"type":"members","members":[{"id":"lead","name":"队长","kind":"dsh","online":true,"avatar":"orange"},{"id":"ayan","name":"阿岩","kind":"dsh","online":true,"avatar":"dragon"},{"id":"ayou","name":"阿柚","kind":"bot","online":true,"avatar":"whale"},{"id":"ache","name":"阿澈","kind":"bot","online":true,"avatar":"rainbow"},{"id":"alan","name":"阿岚","kind":"dsh","online":false,"avatar":"lanxi"}]}
-{"ts":"2026-11-03T09:02:00+08:00","id":"21","kind":"created","from":"lead","to":"ayou","title":"整理发布说明"}
-{"ts":"2026-11-03T09:03:00+08:00","id":"21","kind":"assigned","from":"lead","to":"ayou","title":"整理发布说明"}
-{"type":"thinking","ts":"2026-11-03T09:04:00+08:00","room_id":1,"members":["ayou"]}
-{"type":"message","ts":"2026-11-03T09:10:00+08:00","message":{"id":101,"room_id":1,"author":"ayou","author_kind":"bot","name":"阿柚","text":"@队长 初稿好了，缺一段回滚说明","created_at":1793668200}}
-{"ts":"2026-11-03T09:12:00+08:00","id":"21","kind":"returned","from":"lead","to":"ayou","title":"整理发布说明"}
-{"ts":"2026-11-03T09:14:00+08:00","id":"21","kind":"rejected","from":"lead","to":"ayou","title":"整理发布说明","note":"缺回滚步骤"}
-{"type":"thinking","ts":"2026-11-03T09:15:00+08:00","room_id":1,"members":["ayou"]}
-{"ts":"2026-11-03T09:38:00+08:00","id":"21","kind":"returned","from":"lead","to":"ayou","title":"整理发布说明"}
-{"ts":"2026-11-03T09:39:00+08:00","id":"21","kind":"done","from":"lead","to":"ayou","title":"整理发布说明"}
-{"type":"thinking","ts":"2026-11-03T09:40:00+08:00","room_id":1,"members":[]}
-{"ts":"2026-11-03T09:50:00+08:00","id":"22","kind":"created","from":"lead","to":"ayan","title":"修 CI 超时"}
-{"ts":"2026-11-03T09:51:00+08:00","id":"22","kind":"assigned","from":"lead","to":"ayan","title":"修 CI 超时"}
-{"type":"thinking","ts":"2026-11-03T09:52:00+08:00","room_id":1,"members":["ayan"]}
-{"type":"message","ts":"2026-11-03T10:02:00+08:00","message":{"id":102,"room_id":1,"author":"ayan","author_kind":"bot","name":"阿岩","text":"@阿澈 这条超时日志帮看下","created_at":1793671320}}
-{"ts":"2026-11-03T10:10:00+08:00","id":"22","kind":"paused","from":"lead","to":"ayan","title":"修 CI 超时","note":"等上游镜像"}
-{"type":"thinking","ts":"2026-11-03T10:11:00+08:00","room_id":1,"members":[]}
-{"ts":"2026-11-03T10:15:00+08:00","id":"23","kind":"assigned","from":"lead","to":"ache","title":"手机竖屏验收"}
-{"type":"thinking","ts":"2026-11-03T10:16:00+08:00","room_id":1,"members":["ache"]}
-{"ts":"2026-11-03T10:31:00+08:00","id":"23","kind":"returned","from":"lead","to":"ache","title":"手机竖屏验收"}
-{"ts":"2026-11-03T10:33:00+08:00","id":"23","kind":"rejected","from":"lead","to":"ache","title":"手机竖屏验收","note":"工位名牌溢出"}
-{"type":"thinking","ts":"2026-11-03T10:34:00+08:00","room_id":1,"members":["ache"]}
-{"ts":"2026-11-03T10:52:00+08:00","id":"23","kind":"returned","from":"lead","to":"ache","title":"手机竖屏验收"}
-{"ts":"2026-11-03T10:53:00+08:00","id":"23","kind":"done","from":"lead","to":"ache","title":"手机竖屏验收"}
-{"type":"thinking","ts":"2026-11-03T10:54:00+08:00","room_id":1,"members":[]}
-{"ts":"2026-11-03T10:58:00+08:00","id":"24","kind":"assigned","from":"lead","to":"alan","title":"补回放接口文档"}
-{"ts":"2026-11-03T11:00:00+08:00","id":"24","kind":"returned","from":"lead","to":"alan","title":"补回放接口文档"}
-{"ts":"2026-11-03T11:01:00+08:00","id":"24","kind":"done","from":"lead","to":"alan","title":"补回放接口文档"}
-{"ts":"2026-11-03T11:05:00+08:00","id":"25","kind":"created","from":"lead","to":"","title":"整理周报"}
-{"ts":"2026-11-03T11:06:00+08:00","id":"25","kind":"assigned","from":"lead","to":"ache","title":"整理周报"}
-{"type":"thinking","ts":"2026-11-03T11:07:00+08:00","room_id":1,"members":["ache"]}
-{"ts":"2026-11-03T11:12:00+08:00","id":"25","kind":"returned","from":"lead","to":"ache","title":"整理周报"}
-{"ts":"2026-11-03T11:13:00+08:00","id":"25","kind":"done","from":"lead","to":"ache","title":"整理周报"}
-{"type":"thinking","ts":"2026-11-03T11:14:00+08:00","room_id":1,"members":[]}
+<script type="application/json" id="fixtureData">
+[{"type":"members","members":[{"id":"lead","name":"队长","kind":"dsh","online":true,"avatar":"orange"},{"id":"ayan","name":"阿岩","kind":"dsh","online":true,"avatar":"dragon"},{"id":"ayou","name":"阿柚","kind":"bot","online":true,"avatar":"whale"},{"id":"ache","name":"阿澈","kind":"bot","online":true,"avatar":"rainbow"},{"id":"alan","name":"阿岚","kind":"dsh","online":false,"avatar":"lanxi"}]},{"ts":"2026-11-03T09:02:00+08:00","id":"21","kind":"created","from":"lead","to":"ayou","title":"整理发布说明"},{"ts":"2026-11-03T09:03:00+08:00","id":"21","kind":"assigned","from":"lead","to":"ayou","title":"整理发布说明"},{"type":"thinking","ts":"2026-11-03T09:04:00+08:00","room_id":1,"members":["ayou"]},{"type":"message","ts":"2026-11-03T09:10:00+08:00","message":{"id":101,"room_id":1,"author":"ayou","author_kind":"bot","name":"阿柚","text":"@队长 初稿好了，缺一段回滚说明","created_at":1793668200}},{"ts":"2026-11-03T09:12:00+08:00","id":"21","kind":"returned","from":"lead","to":"ayou","title":"整理发布说明"},{"ts":"2026-11-03T09:14:00+08:00","id":"21","kind":"rejected","from":"lead","to":"ayou","title":"整理发布说明","note":"缺回滚步骤"},{"type":"thinking","ts":"2026-11-03T09:15:00+08:00","room_id":1,"members":["ayou"]},{"ts":"2026-11-03T09:38:00+08:00","id":"21","kind":"returned","from":"lead","to":"ayou","title":"整理发布说明"},{"ts":"2026-11-03T09:39:00+08:00","id":"21","kind":"done","from":"lead","to":"ayou","title":"整理发布说明"},{"type":"thinking","ts":"2026-11-03T09:40:00+08:00","room_id":1,"members":[]},{"ts":"2026-11-03T09:50:00+08:00","id":"22","kind":"created","from":"lead","to":"ayan","title":"修 CI 超时"},{"ts":"2026-11-03T09:51:00+08:00","id":"22","kind":"assigned","from":"lead","to":"ayan","title":"修 CI 超时"},{"type":"thinking","ts":"2026-11-03T09:52:00+08:00","room_id":1,"members":["ayan"]},{"type":"message","ts":"2026-11-03T10:02:00+08:00","message":{"id":102,"room_id":1,"author":"ayan","author_kind":"bot","name":"阿岩","text":"@阿澈 这条超时日志帮看下","created_at":1793671320}},{"ts":"2026-11-03T10:10:00+08:00","id":"22","kind":"paused","from":"lead","to":"ayan","title":"修 CI 超时","note":"等上游镜像"},{"type":"thinking","ts":"2026-11-03T10:11:00+08:00","room_id":1,"members":[]},{"ts":"2026-11-03T10:15:00+08:00","id":"23","kind":"assigned","from":"lead","to":"ache","title":"手机竖屏验收"},{"type":"thinking","ts":"2026-11-03T10:16:00+08:00","room_id":1,"members":["ache"]},{"ts":"2026-11-03T10:31:00+08:00","id":"23","kind":"returned","from":"lead","to":"ache","title":"手机竖屏验收"},{"ts":"2026-11-03T10:33:00+08:00","id":"23","kind":"rejected","from":"lead","to":"ache","title":"手机竖屏验收","note":"工位名牌溢出"},{"type":"thinking","ts":"2026-11-03T10:34:00+08:00","room_id":1,"members":["ache"]},{"ts":"2026-11-03T10:52:00+08:00","id":"23","kind":"returned","from":"lead","to":"ache","title":"手机竖屏验收"},{"ts":"2026-11-03T10:53:00+08:00","id":"23","kind":"done","from":"lead","to":"ache","title":"手机竖屏验收"},{"type":"thinking","ts":"2026-11-03T10:54:00+08:00","room_id":1,"members":[]},{"ts":"2026-11-03T10:58:00+08:00","id":"24","kind":"assigned","from":"lead","to":"alan","title":"补回放接口文档"},{"ts":"2026-11-03T11:00:00+08:00","id":"24","kind":"returned","from":"lead","to":"alan","title":"补回放接口文档"},{"ts":"2026-11-03T11:01:00+08:00","id":"24","kind":"done","from":"lead","to":"alan","title":"补回放接口文档"},{"ts":"2026-11-03T11:05:00+08:00","id":"25","kind":"created","from":"lead","to":"","title":"整理周报"},{"ts":"2026-11-03T11:06:00+08:00","id":"25","kind":"assigned","from":"lead","to":"ache","title":"整理周报"},{"type":"thinking","ts":"2026-11-03T11:07:00+08:00","room_id":1,"members":["ache"]},{"ts":"2026-11-03T11:12:00+08:00","id":"25","kind":"returned","from":"lead","to":"ache","title":"整理周报"},{"ts":"2026-11-03T11:13:00+08:00","id":"25","kind":"done","from":"lead","to":"ache","title":"整理周报"},{"type":"thinking","ts":"2026-11-03T11:14:00+08:00","room_id":1,"members":[]}]
 </script>
 <script>
 const $ = id => document.getElementById(id);
@@ -445,6 +413,15 @@ const colorOf = s => PALETTE[hashOf(s) % PALETTE.length];
 const shirtOf = s => SHIRTS[hashOf(s) % SHIRTS.length];
 
 const ROSTER = (() => { try { return JSON.parse($('roster').textContent) ?? { members: [] }; } catch { return { members: [] }; } })();
+const FIXTURE = (() => { try { const v = JSON.parse($('fixtureData').textContent); return Array.isArray(v) ? v : []; } catch { return []; } })();
+// 仅 ?fixture=1 的演示成员；真实模式一律用 /collab/api/state 的成员。
+const DEMO_MEMBERS = [
+  { id: "lead", name: "队长", kind: "dsh", avatar: "orange", online: true },
+  { id: "ayan", name: "阿岩", kind: "dsh", avatar: "dragon", online: true },
+  { id: "ayou", name: "阿柚", kind: "bot", avatar: "whale", online: true },
+  { id: "ache", name: "阿澈", kind: "bot", avatar: "rainbow", online: true },
+  { id: "alan", name: "阿岚", kind: "dsh", avatar: "lanxi", online: false },
+];
 
 const S = {
   me: null, memberList: [], byId: new Map(), alias: new Map(), rosterFor: new Map(),
@@ -466,6 +443,7 @@ function indexMembers(list) {
   S.memberList = (Array.isArray(list) ? list : []).filter(m => m && m.kind !== 'human' && m.id);
   S.byId = new Map(); S.alias = new Map(); S.rosterFor = new Map();
   for (const m of S.memberList) {
+    S.byId.set(m.id, m);
     const rm = matchRoster(m);
     S.rosterFor.set(m.id, rm);
     for (const k of [m.id, m.name, rm?.project, rm?.name, ...(rm?.aliases ?? [])]) if (k) S.alias.set(norm(k), m);
@@ -491,10 +469,14 @@ function resolveRef(ref) {
   return null;
 }
 
-const displayName = m => m?.name || S.rosterFor.get(m?.id)?.name || m?.id || '未知';
+// roster 是团队称呼的权威来源（state.name 可能只是 agent 的 display_name，如 DeepSeek）。
+const displayName = m => S.rosterFor.get(m?.id)?.name || m?.name || m?.id || '未知';
 function avatarSpec(m) {
   const rm = S.rosterFor.get(m.id);
-  const v = String(m.avatar || rm?.avatar || '').trim();
+  const own = String(m.avatar || '').trim();
+  const custom = /^https?:\/\//i.test(own) || own.startsWith('upload:');
+  // 上传/外链头像优先；内置角色图以 roster 为准，roster 写空就不借用别人的图。
+  const v = custom ? own : (rm ? String(rm.avatar || '').trim() : own);
   if (/^https?:\/\//i.test(v)) return { src: v };
   if (v.startsWith('upload:')) return { src: '/collab/avatars/uploads/' + encodeURIComponent(v.slice(7).replace(/\.png$/i, '')) + '.png' };
   if (v) return { src: '/collab/avatars/' + encodeURIComponent(v.replace(/\.png$/i, '')) + '.png' };
@@ -737,14 +719,14 @@ function setMembers(list) {
   renderSeats();
 }
 
-/** G 哥复核：returned/rejected 的 from 是派活人、to 是干活人；有 active 记录时以记录里的干活人为准。 */
+/**
+ * 事件契约（真实 A 路）：from 是派活人，to 是干活人。
+ * 回传光只在绘制处反向一次：beam(worker, dispatcher)。这里不再做第二次方向猜测。
+ * active 记录只在 to 缺失时兜底，不覆盖事件里的 to。
+ */
 function workerAndDispatcher(rec, from, to) {
-  if (!rec && from && to && S.lead && to.id === S.lead && from.id !== S.lead) return { worker: from, dispatcher: to };
-  const worker = rec ? S.byId.get(rec.memberId) : to;
-  let dispatcher = from;
-  if (worker && dispatcher && dispatcher.id === worker.id) dispatcher = to;
-  if (!dispatcher && to && to.id !== worker?.id) dispatcher = to;
-  return { worker, dispatcher };
+  const worker = to || (rec ? S.byId.get(rec.memberId) : null);
+  return { worker, dispatcher: from };
 }
 
 function setTask(member, rec) {
@@ -914,6 +896,8 @@ function setModeUI(mode) {
 async function goLive() {
   disconnectLive();
   stopReplay();
+  S.fixture = false;
+  $('fixtureBadge').hidden = true;
   resetScene();
   setModeUI('live');
   setConn('wait', '连接中');
@@ -1079,82 +1063,74 @@ async function loadReplayWindow(auto = false) {
   }
 }
 
-function assetBase() {
-  const path = location.pathname;
-  if (path.endsWith('/')) return path;
-  if (path.endsWith('.html')) return path.slice(0, path.lastIndexOf('/') + 1);
-  return path + '/';
-}
-
 async function loadFixture() {
   S.fixture = true;
   $('fixtureBadge').hidden = false;
   setModeUI('replay');
+  // B 路的 desk 路由只内联 index.html，不服务同目录文件；fixture 必须内联读取。
   let lines = [];
-  try {
-    const res = await fetch(assetBase() + 'fixture.sample.jsonl', { cache: 'no-store' });
-    if (res.ok) lines = (await res.text()).split('\n').filter(line => line.trim());
-  } catch { /* the page usually ships without a static route for the sample file */ }
-  if (!lines.length) {
-    lines = ($('fixtureData').textContent || '').split('\n').filter(line => line.trim());
-  }
+  try { lines = JSON.parse($('fixtureData').textContent || '[]'); } catch { lines = []; }
   const events = [];
   for (const line of lines) {
     try { events.push(typeof line === 'string' ? JSON.parse(line) : line); } catch { /* skip bad sample line */ }
   }
   const membersEvent = events.find(ev => ev.type === 'members' && Array.isArray(ev.members));
-  if (membersEvent) { indexMembers(membersEvent.members); S.lead = S.memberList[0]?.id ?? null; renderSeats(); }
+  indexMembers(membersEvent ? membersEvent.members : DEMO_MEMBERS);
+  S.lead = S.memberList[0]?.id ?? null;
+  renderSeats();
   setThinkingRooms({});
   setReplayEvents(normalizeReplay(events.filter(ev => ev.type !== 'members')));
   const params = new URLSearchParams(location.search);
   if (params.get('autoplay') === '1' && R.events.length) setTimeout(startReplay, 500);
 }
 function tickClock() {
-  const now = new Date();
+  const d = new Date();
   const p = n => String(n).padStart(2, '0');
-  $('clockDigital').textContent = `${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}`;
-  const hour = (now.getHours() % 12) + now.getMinutes() / 60;
-  const minute = now.getMinutes() + now.getSeconds() / 60;
-  const second = now.getSeconds() + now.getMilliseconds() / 1000;
-  const h = q('#wallClock .h'), m = q('#wallClock .m'), s = q('#wallClock .s');
+  $('clockDigital').textContent = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  const sec = d.getSeconds() + d.getMilliseconds() / 1000;
+  const min = d.getMinutes() + sec / 60;
+  const hour = (d.getHours() % 12) + min / 60;
+  const clock = $('wallClock');
+  const h = q('.hand.h', clock), m = q('.hand.m', clock), sHand = q('.hand.s', clock);
   if (h) h.style.transform = `rotate(${hour * 30}deg)`;
-  if (m) m.style.transform = `rotate(${minute * 6}deg)`;
-  if (s) s.style.transform = `rotate(${second * 6}deg)`;
+  if (m) m.style.transform = `rotate(${min * 6}deg)`;
+  if (sHand) sHand.style.transform = `rotate(${sec * 6}deg)`;
 }
 
-function bindControls() {
-  $('modeLive').addEventListener('click', () => { if (S.mode !== 'live') goLive(); });
-  $('modeReplay').addEventListener('click', () => {
-    if (S.fixture) return;
-    setModeUI('replay');
-    loadReplayWindow(false);
-  });
-  $('loadReplay').addEventListener('click', () => { if (!S.fixture) loadReplayWindow(false); });
-  $('playPause').addEventListener('click', toggleReplay);
-  $('speed').addEventListener('change', (event) => { R.speed = Number(event.target.value) || 1; });
-  $('progress').addEventListener('change', (event) => seekReplay(event.target.value));
-  for (const button of document.querySelectorAll('.presets .mini')) {
-    button.addEventListener('click', () => {
-      setRangePreset(button.dataset.range);
-      if (!S.fixture && S.mode === 'replay') loadReplayWindow(false);
-    });
-  }
+function wireUI() {
+  $('modeLive').onclick = () => { goLive(); };
+  $('modeReplay').onclick = () => { pauseReplay(); setModeUI('replay'); };
+  $('loadReplay').onclick = () => { loadReplayWindow(true); };
+  $('playPause').onclick = () => { toggleReplay(); };
+  $('speed').onchange = () => { R.speed = Number($('speed').value) || 4; };
+  // 进度条按事件条数定位；拖动后立刻重建场景，不等计时器。
+  $('progress').oninput = () => { seekReplay($('progress').value); };
+  for (const button of document.querySelectorAll('[data-range]')) button.onclick = () => setRangePreset(button.dataset.range);
   window.addEventListener('resize', syncBeamViewBox);
 }
 
-(function boot() {
-  bindControls();
+async function boot() {
   setDefaultRange();
+  wireUI();
   tickClock();
   setInterval(tickClock, 1000);
+  syncBeamViewBox();
   const params = new URLSearchParams(location.search);
-  if (params.get('fixture') === '1') {
-    setConn('replay', '示例回放');
-    loadFixture().catch(error => toast(`示例数据载入失败：${error.message}`));
-    return;
+  if (params.get('fixture') === '1') { await loadFixture(); return; }
+  await goLive();
+  const from = params.get('from'), to = params.get('to');
+  if (from && to) {
+    const f = Date.parse(from), t = Date.parse(to);
+    if (Number.isFinite(f) && Number.isFinite(t)) {
+      $('from').value = toLocalInput(new Date(f));
+      $('to').value = toLocalInput(new Date(t));
+      await loadReplayWindow(false);
+    }
   }
-  goLive();
-})();
+}
+
+boot();
+
 </script>
 </body>
 </html>

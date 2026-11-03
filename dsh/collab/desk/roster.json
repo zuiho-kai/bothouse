@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "成员 → 头像对照表。project 是 Issue #876 事件契约的键；显示名以运行时 /collab/api/state 为准，name/aliases 只用于解析任务板 who 文本和 @ 文本。avatar 为空表示用名字首字母圆形徽标。",
+  "note": "成员 → 头像对照表。project 是 Issue #876 事件契约的键；显示名以 roster.name 为准（state.name 可能只是 agent 的 display_name，如 DeepSeek），name/aliases 也用于解析 who 与 @ 文本。avatar 为空表示用名字首字母圆形徽标。",
   "defaultAvatar": "",
   "members": [
     {
