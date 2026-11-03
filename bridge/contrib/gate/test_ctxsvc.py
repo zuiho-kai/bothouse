@@ -18,6 +18,13 @@ def make_wiki(d, encoding="utf-8"):
     (Path(d) / "data" / "x.md").write_text("- 代理端口 7890 也在这里\n", encoding="utf-8")
 
 
+def vps_page(d):
+    """make_wiki 里 vps.md 那页推出来的样子：desc 照旧，另带 head/sep/rows，rows 的 id 是行尾编号（ctxsvc.only_new 按它去重）。"""
+    row = "6: 代理端口 7890" + ctxsvc.exp_tag("infra/vps.md", "- 代理端口 7890")
+    return {"path": (d / "infra/vps.md").as_posix(), "desc": "VPS 一览 | " + row,
+            "head": "VPS 一览", "sep": " | ", "rows": [{"id": "#9fbdf5b7eb", "text": row, "group": ""}]}
+
+
 class T(unittest.TestCase):
     def setUp(self):
         self.old = ctxsvc.WIKI
@@ -63,8 +70,7 @@ class T(unittest.TestCase):
             make_wiki(d)
             ctxsvc.WIKI, ctxsvc._idx = Path(d), {}
             got = ctxsvc.context({"key": "discord:1", "text": "代理端口多少"})
-            self.assertEqual(got, {"wiki": [{"path": (Path(d) / "infra/vps.md").as_posix(),
-                                             "desc": "VPS 一览 | 6: 代理端口 7890" + ctxsvc.exp_tag("infra/vps.md", "- 代理端口 7890")}]})
+            self.assertEqual(got, {"wiki": [vps_page(Path(d))]})
 
     def test_utf8_wiki_with_cp936_default(self):
         read_text = Path.read_text
@@ -78,16 +84,36 @@ class T(unittest.TestCase):
             # Emulate the default before pathlib resolves it; works on Python 3.9 and in UTF-8 mode.
             with patch.object(Path, "read_text", cp936_read_text):
                 got = ctxsvc.match_wiki("代理端口多少")
-            self.assertEqual(got, [{"path": (Path(d) / "infra/vps.md").as_posix(),
-                                   "desc": "VPS 一览 | 6: 代理端口 7890" + ctxsvc.exp_tag("infra/vps.md", "- 代理端口 7890")}])
+            self.assertEqual(got, [vps_page(Path(d))])
 
     def test_utf8_bom_preserves_description(self):
         with tempfile.TemporaryDirectory() as d:
             make_wiki(d, encoding="utf-8-sig")
             ctxsvc.WIKI, ctxsvc._idx = Path(d), {}
             got = ctxsvc.match_wiki("代理端口多少")
-            self.assertEqual(got, [{"path": (Path(d) / "infra/vps.md").as_posix(),
-                                   "desc": "VPS 一览 | 6: 代理端口 7890" + ctxsvc.exp_tag("infra/vps.md", "- 代理端口 7890")}])
+            self.assertEqual(got, [vps_page(Path(d))])
+
+    def test_only_new_by_entry_id_and_epoch(self):
+        # 去重只在 ctxsvc 按（key, bot, epoch）记条目编号（用户 11-03「按标题为粒度…出现过就不再推这个标题，除非开了新会话」）：
+        # 同页的新条照推，推过的条同一代号不再推，换代号整页重推
+        with tempfile.TemporaryDirectory() as d:
+            make_wiki(d)
+            ctxsvc.WIKI, ctxsvc._idx = Path(d), {}
+            req = {"key": "discord:only-new", "bot": "a", "text": "代理端口多少", "epoch": "e1"}
+            first = vps_page(Path(d))
+            self.assertEqual(ctxsvc.context(req), {"wiki": [first]})
+            with (Path(d) / "infra" / "vps.md").open("a", encoding="utf-8") as f:
+                f.write("- 代理端口 7891 备用\n")
+            ctxsvc._idx = {}
+            row = "7: 代理端口 7891 备用" + ctxsvc.exp_tag("infra/vps.md", "- 代理端口 7891 备用")
+            new = {"id": row.rpartition(" [")[2][:-1], "text": row, "group": ""}
+            self.assertEqual(ctxsvc.context(req), {"wiki": [dict(first, desc="VPS 一览 | " + row, rows=[new])]},
+                             "同页的新条照推，推过的不带")
+            self.assertEqual(ctxsvc.context(req), {"wiki": []}, "同一代号：推过的不再推")
+            self.assertEqual(ctxsvc.context(dict(req, bot="b"))["wiki"][0]["rows"], first["rows"] + [new], "别的角色另记")
+            self.assertEqual(ctxsvc.context(dict(req, epoch="e2")), {"wiki": [dict(first, desc=first["desc"] + " | " + row,
+                                                                               rows=first["rows"] + [new])]},
+                             "新会话代号：整页重推")
 
     def test_wiki_off_or_missing(self):
         ctxsvc.WIKI, ctxsvc._idx = None, {}

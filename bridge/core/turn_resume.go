@@ -664,7 +664,7 @@ func (e *Engine) retryFreshOnResumeError(p Platform, msg Message, errMsg string,
 	}
 	sessions.Save()
 	slog.Info("turn resume: resumed session failed, re-running on a fresh session", "old_agent_session", id, "error", errMsg)
-	e.send(p, markSystemNotice(p, msg.ReplyCtx), "♻️ 续做时旧会话报错，开新会话带上原消息重来一次")
+	e.sendSystemNotice(p, msg.ReplyCtx, "♻️ 续做时旧会话报错，开新会话带上原消息重来一次")
 	msg.Content = msg.resumeFallback
 	msg.resumeFallback = ""
 	return e.rerunOnFreshSession(p, msg, old, session, sessions, agent, interactiveKey, workspaceDir, ccSessionKey)
