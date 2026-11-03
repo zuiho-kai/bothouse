@@ -31,14 +31,14 @@ WIKI = None if _env.lower() in ("", "off") else Path(_env).expanduser()
 TTL = 300  # 来源：作者本机 ctxsvc.py 沿用的 300 秒重建索引（wiki 改了最迟这么久后查得到）
 TOP_PAGES = 3  # 来源：作者本机 ctxsvc.py，每轮推前 3 页（回放评测按前 3 页口径）
 DESC_CHARS = 40  # 页描述只当标题用（作者 11-02：推送只给标题和编号，细节 agent 自己按行号读），原 120
-TITLE_CHARS = 24  # 每条只给开头这么多字当标题 + [#编号]，不贴原文段落
+TITLE_CHARS = 0  # 已停用：每条给整行 + [#编号]（11-03 起不截断）
 
 
 def _title(line):
-    """一行 wiki 原文 → 短标题：去掉「- 」「经验：」等前缀，截 TITLE_CHARS 字。"""
+    """一行 wiki 原文 → 短标题：去掉「- 」「经验：」等前缀，不截断。"""
     t = re.sub(r"^[-*\s]+", "", line.strip())
     t = re.sub(r"^(?:经验|用户定|助手定)[：:]\s*", "", t).replace("**", "").replace("`", "")
-    return t[:TITLE_CHARS] + ("…" if len(t) > TITLE_CHARS else "")
+    return t  # 不截断：截 24 字时定案正文会被截没（11-03 实测：立绘那条只剩日期和前半句）
 
 _bots_env = os.environ.get("GATE_WIKI_BOTS", "").strip()
 BOTS = Path(_bots_env).expanduser() if _bots_env else None  # bots.json（core/rolewiki.go addRole 写）；没有 = 只查主 wiki
