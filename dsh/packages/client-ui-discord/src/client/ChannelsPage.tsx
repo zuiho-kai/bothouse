@@ -3,7 +3,7 @@
  * activity panel, in a conversation-first layout. All data arrives through the
  * injected `useChannels` hook; posting goes through the injected actions.
  */
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { softBreaksToHard } from './softBreaks.ts'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
@@ -23,6 +23,7 @@ import { Avatar, AvatarStack } from './Avatar.tsx'
 import { PermissionCard, type PermissionCardData } from './PermissionCard.tsx'
 import { DecideTray, openQuestions } from './DecideTray.tsx'
 import type { NS } from './locales.ts'
+import { createLiveTracker, ENTER_STAGGER_MS, lastOwnEditable, prefersReducedMotion, trackLive, unreadCount, WITHDRAW_UNDO_MS } from './chat-motion.ts'
 import css from './ChannelsPage.module.css'
 import { setScheme, useScheme } from './scheme.ts'
 
@@ -181,9 +182,11 @@ interface OwnActions {
 }
 
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped }: {
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter }: {
   message: ChannelMessage
   grouped: boolean
+  /** Stagger slot when this row arrived live (#115); undefined for history. */
+  enter: number | undefined
   cardView: CardView
   onCardView: (view: CardView) => void
   own: OwnActions | undefined
@@ -235,11 +238,15 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
     </div>
   )
 
+  // #115: a row that arrived live rises in once (yours from the composer); history never animates.
+  const enterClass = enter === undefined ? '' : message.author_kind === 'user' ? css.enterOwn : css.enter
+  const enterStyle = enter ? { animationDelay: `${enter * ENTER_STAGGER_MS}ms` } : undefined
+
   // #113: a system notice (task reminders, joins) is a centered divider, not a member speaking;
   // a member failure posted by the system is an inline error bar with its retry right there.
   if (message.author_kind === 'system' && (role === 'none' || role === 'task')) {
     return (
-      <div className={[css.systemRecord, focused ? css.focused : ''].filter(Boolean).join(' ')} data-message-id={message.id} role="note">
+      <div className={[css.systemRecord, enterClass, focused ? css.focused : ''].filter(Boolean).join(' ')} style={enterStyle} data-message-id={message.id} role="note">
         <div className={css.systemLine}>
           <span className={css.systemText} title={fullTime}><MarkdownText text={markdown} labels={labels} /></span>
         </div>
@@ -250,7 +257,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   }
   if (message.author_kind === 'system' && role === 'failure') {
     return (
-      <div className={[css.errorBar, focused ? css.focused : ''].filter(Boolean).join(' ')} data-message-id={message.id} data-state={card?.state} role="alert">
+      <div className={[css.errorBar, enterClass, focused ? css.focused : ''].filter(Boolean).join(' ')} style={enterStyle} data-message-id={message.id} data-state={card?.state} role="alert">
         <span className={css.errorIcon} aria-hidden>!</span>
         <div className={css.errorText}><MarkdownText text={markdown} labels={labels} /></div>
         {retryButtons}
@@ -258,7 +265,10 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
     )
   }
 
-  const classes = [css.message, grouped ? css.grouped : '', message.author_kind === 'user' ? css.own : '', focused ? css.focused : ''].filter(Boolean).join(' ')
+  const classes = [
+    css.message, grouped ? css.grouped : '', message.author_kind === 'user' ? css.own : '', focused ? css.focused : '',
+    enterClass, enter !== undefined && message.author_kind !== 'user' ? css.enterGlow : '',
+  ].filter(Boolean).join(' ')
   // A task opened from this message (an @ dispatch, a handoff) shows its card here: the server posts
   // no 派活 record beside it (dsh/collab/tasks.mjs assign). A task record carries its own card, and a
   // sub-task anchored here too is a row of its parent's card.
@@ -270,7 +280,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   // A finished run in the brief view folds to its summary line; running or detailed shows the steps.
   const progressFolded = role === 'progress' && cardView === 'brief' && card?.state === 'completed'
   return (
-    <div className={classes} data-message-id={message.id}>
+    <div className={classes} data-message-id={message.id} style={enterStyle}>
       {grouped
         ? <time className={css.gutterTime} title={fullTime} dateTime={new Date(message.created_at * 1000).toISOString()}>{clockOf(message.created_at)}</time>
         : member === undefined || message.author_kind === 'system'
@@ -347,7 +357,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                   )}
                 </div>
                 {!progressFolded && progressLines.length > 1 && (
-                  <div className={`${css.text} ${css.runSteps}`}><MarkdownText text={stepsMarkdown} labels={labels} /></div>
+                  <div className={`${css.text} ${css.runSteps}`} data-card-text><MarkdownText text={stepsMarkdown} labels={labels} /></div>
                 )}
                 {retryButtons}
               </div>
@@ -453,7 +463,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, answerTask, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, openModelSettings, answerTask, t }: ChannelsPageProps) {
   const scheme = useScheme()
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
@@ -485,6 +495,23 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   const replying = state.roomId === undefined ? undefined : replies[state.roomId]
   const logRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
+  // #115 reading position: whether the reader is at the bottom, where unread rows
+  // start (and whether the reader already reached them), and an older page in flight.
+  const [atBottom, setAtBottom] = useState(true)
+  const [unread, setUnread] = useState<{ roomId: number; fromId: number; seen: boolean } | undefined>(undefined)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const olderAnchor = useRef<{ height: number; top: number } | undefined>(undefined)
+  const live = useRef(createLiveTracker())
+  // #115 withdraw with undo: the row hidden for a few seconds before the request goes out.
+  const [pendingWithdraw, setPendingWithdraw] = useState<{ id: number; commit: () => void } | undefined>(undefined)
+  const withdrawTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const pendingWithdrawRef = useRef(pendingWithdraw)
+  pendingWithdrawRef.current = pendingWithdraw
+  // Leaving the page carries out a pending withdrawal instead of dropping it.
+  useEffect(() => () => {
+    clearTimeout(withdrawTimer.current)
+    pendingWithdrawRef.current?.commit()
+  }, [])
   const inputRef = useRef<HTMLTextAreaElement>(null)
   // Caret offset in the draft; drives which `@query` (if any) is being typed.
   const [caret, setCaret] = useState(0)
@@ -597,6 +624,13 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     const roomId = state.roomId
     saveCardView(roomId, view)
     setCardViews(views => ({ ...views, [roomId]: view }))
+    // The switched card text fades in instead of jumping (#115).
+    if (prefersReducedMotion()) return
+    requestAnimationFrame(() => {
+      logRef.current?.querySelectorAll('[data-card-text]').forEach((el) => {
+        el.animate?.([{ opacity: 0.25 }, { opacity: 1 }], { duration: 180, easing: 'cubic-bezier(.2,0,0,1)' })
+      })
+    })
   }
 
   // Close the avatar menu on a press outside it (same document-press approach
@@ -610,10 +644,31 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     return () => { document.removeEventListener('mousedown', onPress) }
   }, [avatarMenu])
 
-  // Follow new messages only while the reader is already at the bottom.
-  useEffect(() => {
+  // Rows that arrived live animate in once; the first fill, a room switch and older pages do not.
+  const fresh = useMemo(() => trackLive(live.current, state.roomId, state.messages), [state.messages, state.roomId])
+
+  // An older page keeps the row the reader was looking at in place (#115).
+  useLayoutEffect(() => {
     const log = logRef.current
-    if (log !== null && stickRef.current) log.scrollTop = log.scrollHeight
+    const anchor = olderAnchor.current
+    if (log === null || anchor === undefined) return
+    olderAnchor.current = undefined
+    log.scrollTop = log.scrollHeight - anchor.height + anchor.top
+  }, [state.messages])
+
+  // Follow new messages only while the reader is already at the bottom; otherwise
+  // mark where the unread rows start so the divider and the pill can show them.
+  const handled = useRef<{ roomId: number | undefined; id: number }>({ roomId: undefined, id: Number.NEGATIVE_INFINITY })
+  useEffect(() => {
+    const roomId = state.roomId
+    const lastId = state.messages.length === 0 ? Number.NEGATIVE_INFINITY : (state.messages[state.messages.length - 1] as ChannelMessage).id
+    const since = handled.current.roomId === roomId ? handled.current.id : lastId
+    handled.current = { roomId, id: Math.max(since, lastId) }
+    const log = logRef.current
+    if (log !== null && stickRef.current) { log.scrollTop = log.scrollHeight; return }
+    if (roomId === undefined) return
+    const first = state.messages.find(m => m.id > since && fresh.has(m.id) && m.author_kind !== 'user')
+    if (first !== undefined && (unread === undefined || unread.roomId !== roomId || unread.seen)) setUnread({ roomId, fromId: first.id, seen: false })
   }, [state.messages, state.roomId])
 
   // #113: the permission tray takes room from the log, never covers it; stay at the latest message.
@@ -622,6 +677,36 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     const log = logRef.current
     if (log !== null && stickRef.current) log.scrollTop = log.scrollHeight
   }, [pendingKey])
+
+  // Switching rooms clears the unread mark and fades the new room's rows in.
+  useEffect(() => {
+    setUnread(undefined)
+    setAtBottom(true)
+    const log = logRef.current
+    if (log === null || prefersReducedMotion()) return
+    log.animate?.([{ opacity: 0, transform: 'translateX(6px)' }, { opacity: 1, transform: 'none' }], { duration: 200, easing: 'cubic-bezier(.2,0,0,1)' })
+  }, [state.roomId])
+
+  const scrollToLatest = (): void => {
+    const log = logRef.current
+    if (log === null) return
+    stickRef.current = true
+    setAtBottom(true)
+    if (typeof log.scrollTo === 'function') log.scrollTo({ top: log.scrollHeight, behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+    else log.scrollTop = log.scrollHeight
+  }
+
+  const pageBack = (): void => {
+    const log = logRef.current
+    if (log === null || loadingOlder || state.hasMoreOlder !== true || state.messages.length === 0) return
+    olderAnchor.current = { height: log.scrollHeight, top: log.scrollTop }
+    setLoadingOlder(true)
+    loadOlder().then((added) => { if (added === 0) olderAnchor.current = undefined }, (error: unknown) => {
+      olderAnchor.current = undefined
+      const roomId = state.roomId
+      if (roomId !== undefined) setErrors(previous => ({ ...previous, [roomId]: error instanceof Error ? error.message : String(error) }))
+    }).finally(() => { setLoadingOlder(false) })
+  }
 
   // Task board link (#139 B): once the target room's messages are in, scroll to and mark the message.
   const [jump, setJump] = useState<{ roomId: number; messageId: number } | undefined>(undefined)
@@ -729,18 +814,40 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
       editingOther: editing !== undefined && editing.id !== m.id,
       onStartEdit: () => { setOwnNotice(undefined); setEditing({ id: m.id, text: m.text }) },
       onEditChange: (text) => { setEditing({ id: m.id, text }) },
-      onEditCancel: () => { setEditing(undefined) },
+      onEditCancel: () => { setEditing(undefined); pendingCaret.current = caret },
       onEditSave: () => {
         if (editing?.id !== m.id || !editing.text.trim()) return
         if (editing.text === m.text) { setEditing(undefined); return }
-        editMessage(m.id, editing.text).then(() => { setEditing(undefined) }, (error: unknown) => {
+        editMessage(m.id, editing.text).then(() => { setEditing(undefined); pendingCaret.current = caret }, (error: unknown) => {
           setOwnNotice(error instanceof Error ? error.message : String(error))
         })
       },
       onWithdraw: () => {
-        if (!window.confirm(t('withdrawConfirm'))) return
+        // #115: no confirm dialog; the row hides at once and the request goes out after a short undo window.
         setOwnNotice(undefined)
-        withdrawMessage(m.id).then(({ stopped, stillRunning }) => {
+        clearTimeout(withdrawTimer.current)
+        pendingWithdrawRef.current?.commit()
+        let done = false
+        const commit = (): void => {
+          if (done) return
+          done = true
+          clearTimeout(withdrawTimer.current)
+          setPendingWithdraw(current => (current?.id === m.id ? undefined : current))
+          sendWithdraw(m.id)
+        }
+        setPendingWithdraw({ id: m.id, commit })
+        withdrawTimer.current = setTimeout(commit, WITHDRAW_UNDO_MS)
+      },
+    }
+  }
+
+  const undoWithdraw = (): void => {
+    clearTimeout(withdrawTimer.current)
+    setPendingWithdraw(undefined)
+  }
+
+  const sendWithdraw = (id: number): void => {
+        withdrawMessage(id).then(({ stopped, stillRunning }) => {
           const notes = [
             ...(stopped.length > 0 ? [t('withdrawStopped', { names: stopped.join('、') })] : []),
             ...(stillRunning.length > 0 ? [t('withdrawRunning', { names: stillRunning.join('、') })] : []),
@@ -749,8 +856,6 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
         }, (error: unknown) => {
           setOwnNotice(error instanceof Error ? error.message : String(error))
         })
-      },
-    }
   }
 
   const confirmRemove = (member: ChannelMember): void => {
@@ -792,6 +897,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     setSending(previous => ({ ...previous, [roomId]: true }))
     setErrors(previous => ({ ...previous, [roomId]: undefined }))
     stickRef.current = true
+    setUnread(undefined)
     const replyTo = replies[roomId]?.id
     ;(files.length > 0 ? send(text, replyTo, files) : replyTo === undefined ? send(text) : send(text, replyTo)).then(() => {
       setDrafts(previous => ({ ...previous, [roomId]: '' }))
@@ -837,6 +943,16 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
       if (event.key === 'Escape') {
         event.preventDefault()
         setDismissedAt(mention?.start)
+        return
+      }
+    }
+    // #115: ↑ in an empty composer edits your last message, as in most chat apps.
+    if (event.key === 'ArrowUp' && draft === '' && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && !isImeEnter(event)) {
+      const last = lastOwnEditable(state.messages, pendingWithdraw?.id)
+      if (last !== undefined) {
+        event.preventDefault()
+        setOwnNotice(undefined)
+        setEditing({ id: last.id, text: last.text })
         return
       }
     }
@@ -924,6 +1040,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
           <button ref={membersToggleRef} type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
         </header>
+        {/* #115: the log and its floating pill/undo toast share one box, so they sit just above the composer and any tray. */}
+        <div className={css.logWrap}>
         <div
           ref={logRef}
           className={css.log}
@@ -931,7 +1049,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           aria-live="polite"
           onScroll={(event) => {
             const el = event.currentTarget
-            stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40
+            const bottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 40
+            stickRef.current = bottom
+            if (bottom !== atBottom) setAtBottom(bottom)
+            if (bottom && unread !== undefined && !unread.seen) setUnread({ ...unread, seen: true })
+            // Same 40px margin as the bottom check: near the top, page further back.
+            if (el.scrollTop <= 40) pageBack()
           }}
         >
           {!visibleMembers.some(m => m.kind !== 'human') && (
@@ -940,11 +1063,18 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
               <button type="button" className={css.primaryButton} onClick={() => { setDialog(null) }}>{t('addMember')}</button>
             </div>
           )}
+          {loadingOlder && <div className={css.olderLoading} role="status">{t('loadingOlder')}</div>}
           {state.messages.length === 0
             ? <div className={css.empty}>{t('empty')}</div>
-            : state.messages.map((m, index) => (
-                <MessageRow
+            : state.messages.map((m, index) => [
+                unread !== undefined && unread.roomId === state.roomId && unread.fromId === m.id
+                  ? <div key={`unread-${m.id}`} className={css.unreadDivider} role="separator">{t('newMessagesDivider')}</div>
+                  : null,
+                pendingWithdraw?.id === m.id
+                  ? <div key={m.id} className={css.withdrawnRow} data-message-id={m.id}>{t('withdrawPending')}</div>
+                  : <MessageRow
                   key={m.id}
+                  enter={fresh.get(m.id)}
                   message={m}
                   grouped={continues(state.messages[index - 1], m)}
                   member={byId.get(m.author)}
@@ -963,10 +1093,25 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
                   focused={focusedId === m.id}
                   onReply={startReply}
                   own={ownActions(m)}
-                />
-              ))}
+                />,
+              ])}
         </div>
-        <div className={css.working} aria-live="polite">{typingNames.length > 0 ? t('workingList', { names: typingNames.join('、') }) : ''}</div>
+        {pendingWithdraw !== undefined && (
+          <div className={css.undoToast} role="status">
+            <span>{t('withdrawToast')}</span>
+            <button type="button" className={css.undoButton} onClick={undoWithdraw}>{t('withdrawUndo')}</button>
+            <span className={css.undoBar} style={{ animationDuration: `${WITHDRAW_UNDO_MS}ms` }} aria-hidden="true" />
+          </div>
+        )}
+        {!atBottom && state.messages.length > 0 && (
+          <button type="button" className={css.jumpLatest} onClick={scrollToLatest}>
+            <span aria-hidden="true">↓</span> {t('jumpLatest')}
+            {unread !== undefined && unread.roomId === state.roomId && !unread.seen && unreadCount(state.messages, unread.fromId) > 0
+              && <span className={css.jumpCount}>{t('jumpLatestCount', { count: unreadCount(state.messages, unread.fromId) })}</span>}
+          </button>
+        )}
+        </div>
+        <div className={css.working} aria-live="polite">{typingNames.length > 0 && <><span className={css.typingDots} aria-hidden="true"><i /><i /><i /></span>{t('workingList', { names: typingNames.join('、') })}</>}</div>
         {/* #113/#125: questions and pending permission requests stay pinned above the composer while the log scrolls. */}
         <DecideTray
           questions={questions}
