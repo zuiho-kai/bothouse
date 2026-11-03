@@ -245,6 +245,9 @@
   .msg.cont { padding-top: 2px; }
   .msg.cont .avatar,
   .msg.cont .head { display: none; }
+  /* 连续消息隐藏头像后内容列前面没有占位，网格会自动把它排进第一列（头像宽），
+     长回复被挤成窄柱。给内容列一个类名并显式钉在第二列。 */
+  .msg > .col { grid-column: 2; min-width: 0; }
   .msg .stamp {
     display: none;
     position: absolute;
@@ -616,7 +619,7 @@ function messageNode(m) {
   row.dataset.system = system ? '1' : '0';
   const member = state.members.find(x => x.id === m.author);
   row.append(avatar(m.author, m.name));
-  const col = el('div');
+  const col = el('div', 'col');
   const head = el('div', 'head');
   const who = el('span', 'who', m.name);
   if (member && kindLabel[member.kind]) who.append(el('span', 'tag', kindLabel[member.kind]));
