@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui';
 import { AvatarLibrary, PackManager, PersonaLibrary, useLibrary } from '@/components/library';
@@ -17,12 +17,22 @@ export default function LibraryPage() {
   const tabs: [Tab, string][] = [['personas', T.tabPersonas], ['avatars', T.tabAvatars], ['packs', T.tabPacks]];
 
   // tablist 用左右键切换、Home/End 跳首末：键盘用户不必 Tab 到每个页签再回车（WAI-ARIA tabs 模式）。
+  // 选中与 DOM 焦点一起移到新页签，否则焦点留在已是 tabIndex=-1 的旧页签上，回车会跳回去。
+  const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
+  const selectAndFocus = (k: Tab) => {
+    setTab(k);
+    tabRefs.current[k]?.focus();
+  };
   const onTabKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const i = tabs.findIndex(([k]) => k === tab);
-    if (e.key === 'ArrowRight') { e.preventDefault(); setTab(tabs[(i + 1) % tabs.length][0]); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); setTab(tabs[(i - 1 + tabs.length) % tabs.length][0]); }
-    else if (e.key === 'Home') { e.preventDefault(); setTab(tabs[0][0]); }
-    else if (e.key === 'End') { e.preventDefault(); setTab(tabs[tabs.length - 1][0]); }
+    let next: Tab | undefined;
+    if (e.key === 'ArrowRight') next = tabs[(i + 1) % tabs.length][0];
+    else if (e.key === 'ArrowLeft') next = tabs[(i - 1 + tabs.length) % tabs.length][0];
+    else if (e.key === 'Home') next = tabs[0][0];
+    else if (e.key === 'End') next = tabs[tabs.length - 1][0];
+    if (!next) return;
+    e.preventDefault();
+    selectAndFocus(next);
   };
 
   return (
@@ -44,6 +54,7 @@ export default function LibraryPage() {
             type="button"
             role="tab"
             id={`library-tab-${k}`}
+            ref={(el) => { tabRefs.current[k] = el; }}
             aria-selected={tab === k}
             aria-controls={`library-panel-${k}`}
             tabIndex={tab === k ? 0 : -1}

@@ -29,7 +29,7 @@ export default function Layout() {
       )}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header onMenuClick={() => setMobileMenuOpen(true)} />
-        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4 sm:p-6">
+        <main className="ui-safe-main flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4 sm:p-6">
           <div className="flex flex-1 flex-col">
             <Outlet />
           </div>

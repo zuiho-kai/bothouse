@@ -216,8 +216,26 @@ body {
 
 /* 安全区：只在系统真报了 inset 的地方生效（iPhone 刘海 / 底部横条），桌面和安卓算出 0，不影响。
    外壳统一加一次，页面自己不用重复加。 */
-.ui-safe-top {
+/* 顶栏（Header 与侧栏品牌行）：安全区要加在 3.5rem 原高之上，否则只是把内容往下挤，44px 按钮被切。 */
+.ui-safe-bar {
+  height: calc(3.5rem + env(safe-area-inset-top, 0px));
   padding-top: env(safe-area-inset-top, 0px);
+}
+/* 主内容滚动区底部：在原 p-4 / sm:p-6 之上再让出底部横条。 */
+.ui-safe-main {
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 640px) {
+  .ui-safe-main {
+    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+/* 手机抽屉是 fixed，脱离了根容器的 .ui-safe-x，自己让出左侧（横屏刘海）；md 以上回到外壳内，不重复加。 */
+@media (max-width: 767.98px) {
+  .ui-safe-drawer {
+    width: calc(16rem + env(safe-area-inset-left, 0px));
+    padding-left: env(safe-area-inset-left, 0px);
+  }
 }
 .ui-safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);

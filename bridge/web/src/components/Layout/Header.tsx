@@ -67,8 +67,8 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   return (
     <header
       className={cn(
-        // 顶部安全区由外壳统一让出（iPhone 刘海），页面不用各自加
-        'ui-safe-top relative z-20 flex h-14 shrink-0 items-center justify-end gap-1 px-4',
+        // 顶部安全区由外壳统一让出（iPhone 刘海），加在原高之上；页面不用各自加
+        'ui-safe-bar relative z-20 flex shrink-0 items-center justify-end gap-1 px-4',
         'border-b border-hairline bg-surface',
       )}
     >

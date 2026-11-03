@@ -59,7 +59,7 @@ export default function Sidebar({
       <aside
         id="mobile-navigation"
         className={cn(
-          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col md:relative md:z-auto md:h-screen md:translate-x-0',
+          'ui-safe-drawer fixed inset-y-0 left-0 z-40 flex w-64 flex-col md:relative md:z-auto md:h-screen md:translate-x-0',
           // 侧栏也是浮层：与顶栏同一块玻璃，宽度与位移用状态档 320ms
           'border-r border-hairline bg-surface',
           'transition-[width,transform] duration-state ease-ui-out',
@@ -71,7 +71,7 @@ export default function Sidebar({
         {/* Brand */}
         <div
           className={cn(
-            'ui-safe-top flex h-14 shrink-0 items-center border-b border-hairline px-4',
+            'ui-safe-bar flex shrink-0 items-center border-b border-hairline px-4',
             collapsed ? 'justify-center' : 'gap-0',
           )}
         >
