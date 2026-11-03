@@ -287,6 +287,7 @@ html,body{background:var(--bg);color:var(--text)}
 .btn.primary:hover{background:linear-gradient(180deg,#3a3a40,#1a1a1e)}
 .field input,.field select{background:#fff;border-color:var(--line);color:#111}
 .pill{background:#fff;border-color:var(--line);color:#71717a}
+.pill.galaxy{text-decoration:none;color:#7c3aed}.pill.galaxy:hover{border-color:#a78bfa}
 .pill.live{color:#059669}.pill.replay{color:#2563eb}.pill.wait{color:#b45309}.pill.err{color:#dc2626}
 .badge{background:#fff7ed;border-color:#fed7aa;color:#9a3412}
 .stats{color:#71717a}
@@ -492,7 +493,7 @@ html,body{background:var(--bg);color:var(--text)}
 <div class="app">
 <header class="topbar">
   <div class="brand"><span class="mark" aria-hidden="true"></span><div><h1>团队工作台</h1><p class="sub" id="subtitle">办公室里每一道光，都是一条真实事件</p></div></div>
-  <div class="topright"><span class="badge fixture" id="fixtureBadge" hidden>示例数据 · 非真实事件</span><span class="clock" id="clockDigital">--:--:--</span><span class="pill wait" id="conn">连接中</span></div>
+  <div class="topright"><a class="pill galaxy" href="/collab/wiki-galaxy">Wiki 星河</a><span class="badge fixture" id="fixtureBadge" hidden>示例数据 · 非真实事件</span><span class="clock" id="clockDigital">--:--:--</span><span class="pill wait" id="conn">连接中</span></div>
 </header>
 <section class="bar">
   <div class="modes" role="tablist" aria-label="模式"><button class="mode on" id="modeLive" role="tab" aria-selected="true">实时</button><button class="mode" id="modeReplay" role="tab" aria-selected="false">回放</button></div>
