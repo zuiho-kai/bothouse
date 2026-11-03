@@ -229,6 +229,45 @@ func TestTakeOverOrphanDSHWebFromAPublicURLAnnouncement(t *testing.T) {
 
 func dshBoolPtr(v bool) *bool { return &v }
 
+func TestConfigureDSHReusesSelectedNativeGateway(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	t.Setenv("DSH_HOME", filepath.Join(home, ".dsh"))
+	t.Setenv("CONEST_COLLAB_DATA", filepath.Join(home, "collab"))
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	patch := filepath.Join(dshHome(), "profiles", DSHProfile, "cordis.patch.yml")
+	if err := os.MkdirAll(filepath.Dir(patch), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	original := "- id: llm-pi-ai\n  config:\n    providers:\n      fixture-deepseek:\n        apiKeyEnv: FIXTURE_DSH_NATIVE_KEY\n- id: agent-default-model\n  config:\n    provider: fixture-deepseek\n    model: fixture-model\n"
+	if err := os.WriteFile(patch, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cred := filepath.Join(dshHome(), ".credentials.yaml")
+	credentials := "version: 1\nrefs:\n  FIXTURE_DSH_NATIVE_KEY: fixture-key\n"
+	if err := os.WriteFile(cred, []byte(credentials), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ConfigureDSH(DSHConfigureRequest{Members: []DSHMember{{Name: "DSH"}}})
+	if err != nil {
+		t.Fatalf("existing native model must not require a second official key: %v", err)
+	}
+	if res.KeySaved || res.Members != 1 {
+		t.Fatalf("configure: %+v", res)
+	}
+	got, err := os.ReadFile(cred)
+	if err != nil || string(got) != credentials {
+		t.Fatalf("existing credentials changed: %v", err)
+	}
+	selection := dshPatchEntryConfig(patch, "agent-default-model")
+	if selection == nil || mapGet(selection, "provider").Value != "fixture-deepseek" || mapGet(selection, "model").Value != "fixture-model" {
+		t.Fatal("existing model selection changed")
+	}
+	if !dshNativeModelConfigured("") {
+		t.Fatal("existing native provider credential reference changed")
+	}
+}
+
 func TestConfigureDSHReusesHomeDotenvKey(t *testing.T) {
 	home := t.TempDir()
 	testutil.SetHome(t, home)

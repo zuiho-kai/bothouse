@@ -55,8 +55,9 @@ const TEXT = {
     install: '安装插件', reinstall: '重新安装', installed: '插件已经装好了。', next: '下一步',
     stepNames: { download: '准备插件文件', deps: '安装依赖', plugin: '装进 DSH' } as Record<string, string>,
     showLog: '查看安装日志',
-    rolesTitle: '谁住进 #general', rolesNote: '每个角色用本机已登录的 CLI 回话，或者用 DSH 已登录的账号、已配置的模型或新的 DeepSeek API Key。',
-    name: '名字（@ 时用）', runner: '用什么回话', deepseek: 'DeepSeek 模型（账号或 Key）',
+    rolesTitle: '谁住进 #general', rolesNote: '默认使用 DSH 当前的原生模型，也可以选本机已登录的 CLI。',
+    name: '名字（@ 时用）', runner: '用什么回话', deepseek: 'DSH 原生模型',
+    nativeHas: '沿用 DSH 当前模型和已有凭据；可在 DSH 的模型设置中修改。',
     optional: '可选：自定义名字、性格与说话风格、职责', keepName: '保留我的名字',
     noPersona: '默认不附加角色人设，可以直接开始工作。', noName: '名字不能为空。',
     loggedIn: '已登录', notLoggedIn: '未登录', persona: '人设', addRole: '再加一个角色', remove: '删掉',
@@ -81,8 +82,9 @@ const TEXT = {
     install: 'プラグインをインストール', reinstall: '再インストール', installed: 'プラグインはインストール済みです。', next: '次へ',
     stepNames: { download: 'ファイルを準備', deps: '依存関係をインストール', plugin: 'DSH に組み込む' } as Record<string, string>,
     showLog: 'インストールログを見る',
-    rolesTitle: '#general に住むキャラ', rolesNote: 'キャラはログイン済みのローカル CLI、DSH のアカウント、設定済みのモデル、または新しい DeepSeek API Key で返事します。',
-    name: '名前（@ で使う）', runner: '返事に使うもの', deepseek: 'DeepSeek モデル（アカウントまたは Key）',
+    rolesTitle: '#general に住むキャラ', rolesNote: 'デフォルトでは DSH の現在のネイティブモデルを使います。ログイン済みのローカル CLI も選べます。',
+    name: '名前（@ で使う）', runner: '返事に使うもの', deepseek: 'DSH ネイティブモデル',
+    nativeHas: 'DSH の現在のモデルと認証情報を引き継ぎます。変更は DSH のモデル設定で行えます。',
     optional: '任意：名前、性格・話し方、役割', keepName: '自分の名前を残す',
     noPersona: 'デフォルトでは人格を付けず、そのまま働けます。', noName: '名前を入力してください。',
     loggedIn: 'ログイン済み', notLoggedIn: '未ログイン', persona: 'ペルソナ', addRole: 'キャラを追加', remove: '削除',
@@ -107,8 +109,9 @@ const TEXT = {
     install: 'Install plugins', reinstall: 'Reinstall', installed: 'The plugins are already installed.', next: 'Next',
     stepNames: { download: 'Prepare plugin files', deps: 'Install dependencies', plugin: 'Add to DSH' } as Record<string, string>,
     showLog: 'Show install log',
-    rolesTitle: 'Who lives in #general', rolesNote: 'Each role replies through a signed-in local CLI, an existing DSH account or model, or a new DeepSeek API key.',
-    name: 'Name (used with @)', runner: 'Replies with', deepseek: 'DeepSeek model (account or key)',
+    rolesTitle: 'Who lives in #general', rolesNote: 'Use the current native DSH model by default, or choose a signed-in local CLI.',
+    name: 'Name (used with @)', runner: 'Replies with', deepseek: 'Native DSH model',
+    nativeHas: 'Reuse the current DSH model and credentials. Change them in DSH model settings.',
     optional: 'Optional: name, personality, speaking style and responsibilities', keepName: 'Keep my name',
     noPersona: 'Ready to work without a persona.', noName: 'A name is required.',
     loggedIn: 'signed in', notLoggedIn: 'not signed in', persona: 'Persona', addRole: 'Add another role', remove: 'Remove',
@@ -368,7 +371,8 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
           );
         })}
         <Button variant="secondary" onClick={() => setRoles((rs) => [...rs, newRole(rs.map((x) => x.name))])} data-testid="dsh-add-role">{t.addRole}</Button>
-        {needsKey && <div className="space-y-1">
+        {needsKey && status?.native_model_configured && <p className="text-sm text-gray-500" data-testid="dsh-native-configured">{t.nativeHas}</p>}
+        {needsKey && !status?.native_model_configured && <div className="space-y-1">
           <Input label={t.key} type="password" autoComplete="off" value={apiKey} placeholder={status?.has_deepseek_key ? t.keyHas : 'sk-…'}
             onChange={(e) => setApiKey(e.target.value)} data-testid="dsh-api-key" />
           <p className="text-xs text-gray-500">{t.keyHelp}</p>
