@@ -17,6 +17,8 @@ export class Hub {
     this.members = new Map();
     /** roomId -> Set<memberId> currently working */
     this.thinking = new Map();
+    /** id -> optional busy fields published by the team-status reader (#876). */
+    this.presence = new Map();
     this.listeners = [];
     this.planners = [];
     this.subscribers = new Set();
@@ -62,6 +64,7 @@ export class Hub {
 
   removeMember(id) {
     if (!this.members.delete(id)) return;
+    this.presence.delete(id);
     for (const room of this.thinking.keys()) this.setThinking(room, id, false);
     this.emit({ type: 'members', members: this.memberView() });
   }
@@ -70,7 +73,27 @@ export class Hub {
     const m = this.members.get(id);
     if (m === undefined || m.online === online) return;
     m.online = online;
-    if (!online) for (const room of this.thinking.keys()) this.setThinking(room, id, false);
+    if (!online) {
+      this.presence.delete(id);
+      for (const room of this.thinking.keys()) this.setThinking(room, id, false);
+    }
+    this.emit({ type: 'members', members: this.memberView() });
+  }
+
+  /**
+   * Publish optional busy fields on one member (#876). undefined clears them;
+   * unchanged values do not emit, so a 2s poll never floods the SSE stream.
+   */
+  setPresence(id, presence) {
+    if (!this.members.has(id)) return;
+    const prev = this.presence.get(id);
+    if (presence === undefined) {
+      if (prev === undefined) return;
+      this.presence.delete(id);
+    } else {
+      if (JSON.stringify(prev) === JSON.stringify(presence)) return;
+      this.presence.set(id, presence);
+    }
     this.emit({ type: 'members', members: this.memberView() });
   }
 
@@ -78,6 +101,7 @@ export class Hub {
     const member = this.members.get(id);
     if (member === undefined) return;
     member.error = error;
+    if (error !== undefined) this.presence.delete(id);
     this.emit({ type: 'members', members: this.memberView() });
   }
 
@@ -94,6 +118,7 @@ export class Hub {
     return this.memberList().map(({ id, name, kind, online, model, cli, permissionPreset, persona, nameCustomized, avatar, avatarVersion, source, error, rooms }) => ({
       id, name, kind, ...(rooms ? { rooms } : {}), online: online !== false && !error, ...(error ? { error } : {}), ...(avatar ? { avatar, ...(avatarVersion ? { avatarVersion } : {}) } : {}),
       ...(kind === 'dsh' ? { model: model ?? null, ...(cli ? { cli, ...(permissionPreset ? { permissionPreset } : {}) } : {}), ...(nameCustomized === undefined ? {} : { nameCustomized }), persona: persona ?? '', editable: source === 'ui' } : {}),
+      ...(this.presence.get(id) ?? {}),
     }));
   }
 
