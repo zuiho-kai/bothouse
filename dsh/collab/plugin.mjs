@@ -24,6 +24,7 @@ import { LeadState } from './lead-state.mjs';
 import { Attachments, INLINE_IMAGE } from './attachments.mjs';
 import { Later, registerLater } from './later.mjs';
 import { QuotaCooling, quotaDirectory } from './quota-cooling.mjs';
+import { DeskEvents, deskRoute } from './desk.mjs';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -78,7 +79,11 @@ export function resolveConfig(config, env = process.env) {
   const leadFile = c.leadFile ?? join(env.BOTHOUSE_DATA_DIR ?? join(env.HOME ?? '.', '.bothouse'), 'lead.json');
   if (!isAbsolute(leadFile)) throw Error('conest-collab: leadFile must be an absolute path');
   const fallbackLead = String(c.fallbackLead ?? env.CONEST_FALLBACK_LEAD ?? '').trim();
-  return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我' };
+  // #876: board events sit next to board.jsonl; BOARD_DIR is the same switch gate/board.py reads,
+  // and an explicit config value wins so tests never point at the live board.
+  const boardDir = String(c.boardDir ?? env.BOARD_DIR ?? '').trim() || undefined;
+  if (boardDir !== undefined && !isAbsolute(boardDir)) throw Error('conest-collab: boardDir must be an absolute path');
+  return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, boardDir, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我' };
 }
 
 /** Resolve a package from the running DSH installation, never a second copy. */
@@ -149,6 +154,9 @@ export async function apply(ctx, rawConfig) {
   tasks.start();
   later.start();
   quota.start();
+  // #876: only the plugin's own tail touches board-events.jsonl; board.py writes it.
+  const desk = new DeskEvents(hub, { boardDir: config.boardDir, logger: ctx.logger });
+  desk.start();
   if (!config.botToken) ctx.logger.warn(`conest-collab: ${config.botTokenEnv} is unset; cc-connect bots cannot connect`);
 
   const owner = req => ctx.connection.requestRejection(req) === undefined;
@@ -170,6 +178,7 @@ export async function apply(ctx, rawConfig) {
     },
   }), 'conest-collab: cloud-web upgrade');
   ctx.effect(() => async () => {
+    desk.stop();
     quota.close();
     later.close();
     tasks.close();
@@ -207,9 +216,11 @@ export async function apply(ctx, rawConfig) {
     const opened = workspacesRoute(req, res, url, { store, hub, gateway, owner, later, tasks, dsh });
     if (opened !== undefined) return opened;
     if (!owner(req)) {
-      if (path === '/collab' && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
+      if ((path === '/collab' || path === '/collab/desk') && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
       return refuse(req, res);
     }
+    const deskHandled = deskRoute(req, res, url, { store, boardDir: config.boardDir });
+    if (deskHandled !== undefined) return deskHandled;
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/personas' && req.method === 'GET') return json(res, 200, personaLibrary(url.searchParams.get('lang') ?? 'zh'));
     if (path === '/collab/api/state' && req.method === 'GET') {
