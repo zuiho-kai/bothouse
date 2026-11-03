@@ -4698,7 +4698,14 @@ const until = async (f) => { for (let i = 0; i < 400 && !f(); i++) await new Pro
 const BOARD = { path: '【任务板 abc123】', desc: '谁手上有哪件事、做在哪\n#7 修登录 · 龙娘' };
 
 test('DSH member: each turn carries the gate wiki and task board, a page only once per conversation', async () => {
-  const gate = await fakeGate(({ body }) => ({ wiki: [BOARD, { path: '~/wiki/a.md', desc: body.text.includes('部署') ? '部署步骤' : 'a' }] }));
+  // the gate drops what it pushed per epoch (ctxsvc.only_new); the member only names its context
+  const pushed = new Map();
+  const gate = await fakeGate(({ body }) => {
+    const seen = pushed.get(body.epoch) ?? new Set();
+    pushed.set(body.epoch, seen);
+    const all = [BOARD, { path: '~/wiki/a.md', desc: body.text.includes('部署') ? '部署步骤' : 'a' }];
+    return { wiki: all.filter(w => !seen.has(w.path) && seen.add(w.path)) };
+  });
   process.env.GATE_PORT = String(gate.port);
   try {
     const hub = makeHub();
@@ -4712,13 +4719,16 @@ test('DSH member: each turn carries the gate wiki and task board, a page only on
     assert.match(first, /- ~\/wiki\/a\.md — 部署步骤/);
     assert.match(first, /- 【任务板 abc123】 — 谁手上有哪件事、做在哪\n#7 修登录 · 龙娘/);
     assert.ok(first.indexOf('wiki 页') < first.indexOf('【我】@DeepSeek'), 'the block comes before the channel messages');
-    assert.deepEqual(gate.calls[0].body, { key: 'dsh:ds:1', text: '@DeepSeek 怎么部署', bot: 'dsh:ds' });
+    const { epoch, ...rest } = gate.calls[0].body;
+    assert.deepEqual(rest, { key: 'dsh:ds:1', text: '@DeepSeek 怎么部署', bot: 'dsh:ds' });
+    assert.ok(epoch, 'the conversation is named to the gate');
     dsh.turn(agent, ['好']);
     await until(() => hub.store.job(1).state === 'done');
     hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 再说一遍' });
     await until(() => agent.prompts.length === 2);
     const second = agent.prompts[1].content[0].text;
     assert.equal(gate.calls.length, 2, 'the gate is asked every turn');
+    assert.equal(gate.calls[1].body.epoch, epoch, 'same conversation, same epoch');
     assert.doesNotMatch(second, /wiki 页|【任务板/, 'pages already given are not given again');
   } finally {
     delete process.env.GATE_PORT;
@@ -4728,7 +4738,12 @@ test('DSH member: each turn carries the gate wiki and task board, a page only on
 
 test('CLI member: the gate block goes into the prompt; a changed board goes out again', async () => {
   let tag = 'aaa111';
-  const gate = await fakeGate(() => ({ wiki: [{ ...BOARD, path: `【任务板 ${tag}】` }] }));
+  const pushed = new Map(); // gate-side dedup per epoch, as ctxsvc.only_new
+  const gate = await fakeGate(({ body }) => {
+    const seen = pushed.get(body.epoch) ?? new Set();
+    pushed.set(body.epoch, seen);
+    return { wiki: [{ ...BOARD, path: `【任务板 ${tag}】` }].filter(w => !seen.has(w.path) && seen.add(w.path)) };
+  });
   process.env.GATE_PORT = String(gate.port);
   try {
     const hub = makeHub();
@@ -4831,7 +4846,14 @@ test('CLI member: after /new the fresh context gets its MEMORY.md and the task b
   const data = mkdtempSync(join(tmpdir(), 'collab-mem-'));
   mkdirSync(join(data, 'roles', 'cc', 'wiki'), { recursive: true });
   writeFileSync(join(data, 'roles', 'cc', 'wiki', 'MEMORY.md'), '- [a](a/README.md) — 甲\n');
-  const gate = await fakeGate(() => ({ wiki: [{ ...BOARD, path: '【任务板 aaa111】' }] }));
+  const pushed = new Map(); // gate-side dedup per (key, bot, epoch), as ctxsvc.only_new
+  const gate = await fakeGate(({ body }) => {
+    assert.ok(body.epoch, 'the conversation is named to the gate');
+    const id = JSON.stringify([body.key, body.bot, body.epoch]);
+    const seen = pushed.get(id) ?? new Set();
+    pushed.set(id, seen);
+    return { wiki: [{ ...BOARD, path: '【任务板 aaa111】' }].filter(w => !seen.has(w.path) && seen.add(w.path)) };
+  });
   process.env.BOTHOUSE_DATA_DIR = data;
   process.env.GATE_PORT = String(gate.port);
   try {
@@ -4870,7 +4892,14 @@ test('CLI member: a session that could not be resumed gets its MEMORY.md and the
   const data = mkdtempSync(join(tmpdir(), 'collab-mem-'));
   mkdirSync(join(data, 'roles', 'cc', 'wiki'), { recursive: true });
   writeFileSync(join(data, 'roles', 'cc', 'wiki', 'MEMORY.md'), '- [a](a/README.md) — 甲\n');
-  const gate = await fakeGate(() => ({ wiki: [{ ...BOARD, path: '【任务板 aaa111】' }] }));
+  const pushed = new Map(); // gate-side dedup per (key, bot, epoch), as ctxsvc.only_new
+  const gate = await fakeGate(({ body }) => {
+    assert.ok(body.epoch, 'the conversation is named to the gate');
+    const id = JSON.stringify([body.key, body.bot, body.epoch]);
+    const seen = pushed.get(id) ?? new Set();
+    pushed.set(id, seen);
+    return { wiki: [{ ...BOARD, path: '【任务板 aaa111】' }].filter(w => !seen.has(w.path) && seen.add(w.path)) };
+  });
   process.env.BOTHOUSE_DATA_DIR = data;
   process.env.GATE_PORT = String(gate.port);
   try {

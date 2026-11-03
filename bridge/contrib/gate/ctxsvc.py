@@ -1,4 +1,4 @@
-"""每轮上下文的长层：cc-connect（maomao 分支）每轮开头 POST /context 来取「可能相关的 wiki 页」。
+"""每轮上下文的长层：bothouse 每轮开头 POST /context 来取「可能相关的 wiki 页」。
 
 用 wiki_search.py 的逐行 BM25（纯词法，不用模型）查这条消息，把命中行折成页，列出前几页和命中行。
 同一页同一会话只推一次由 cc-connect 管（core/gate.go turnContext）。
@@ -13,7 +13,7 @@ lead 也带 ?bot=，也查她自己的；bot 为空或不在 bots.json 里只查
 
 POST /context {key, text, bot}  → {wiki: [{path, desc}]}，desc = 页描述 | 行号: 原文 | …（cc-connect 原样拼成「- path — desc」）
 """
-import collections, hashlib, json, math, os, re, time
+import collections, hashlib, json, math, os, re, threading, time
 from pathlib import Path
 
 try:
@@ -30,7 +30,15 @@ _env = os.environ.get("GATE_WIKI", "~/wiki").strip()
 WIKI = None if _env.lower() in ("", "off") else Path(_env).expanduser()
 TTL = 300  # 来源：作者本机 ctxsvc.py 沿用的 300 秒重建索引（wiki 改了最迟这么久后查得到）
 TOP_PAGES = 3  # 来源：作者本机 ctxsvc.py，每轮推前 3 页（回放评测按前 3 页口径）
-DESC_CHARS = 120  # 来源：作者本机 ctxsvc.py 的页描述截断
+DESC_CHARS = 40  # 页描述只当标题用（作者 11-02：推送只给标题和编号，细节 agent 自己按行号读），原 120
+TITLE_CHARS = 0  # 已停用：每条给整行 + [#编号]（11-03 起不截断）
+
+
+def _title(line):
+    """一行 wiki 原文 → 短标题：去掉「- 」「经验：」等前缀，不截断。"""
+    t = re.sub(r"^[-*\s]+", "", line.strip())
+    t = re.sub(r"^(?:经验|用户定|助手定)[：:]\s*", "", t).replace("**", "").replace("`", "")
+    return t  # 不截断：截 24 字时定案正文会被截没（11-03 实测：立绘那条只剩日期和前半句）
 
 _bots_env = os.environ.get("GATE_WIKI_BOTS", "").strip()
 BOTS = Path(_bots_env).expanduser() if _bots_env else None  # bots.json（core/rolewiki.go addRole 写）；没有 = 只查主 wiki
@@ -86,6 +94,30 @@ def query(text):
     return _BLOCKS.sub("", text).strip()
 
 
+# 查询带前两轮作者的话：开工那句常没有话题词（「这个你修一下」），话题在前两轮里。
+# 作者 11-03 用 17 条真实案例离线对照：这轮 + 前两轮拼起来，命中 3→10，不用模型。
+PREV_TURNS = 2  # 来源：上面的离线对照（取前 2 轮 10/17，只取 1 轮 6/17）
+_prev = {}  # 会话 key → 最近几句作者的话（已清洗），旧在前；进程内，重启清空
+
+
+def with_prev(q, prev):
+    """这轮 + 前 PREV_TURNS 轮作者的话（新在前），空格拼起来当查询。和这轮一样的不重复拼。"""
+    return " ".join([q] + [p for p in prev if p and p != q][:PREV_TURNS]).strip()
+
+
+def turn_query(text, key=""):
+    """检索用的查询：作者的话 → 拼上同一 key 前两轮作者的话，并记下这句；不是作者的话（派活、系统消息）只用这句。
+    同一 key 几个角色都会来问同一句：和最近一条相同就不重复记。"""
+    q = query(text)
+    if not key or not exp_is_user(text):
+        return q
+    seen = _prev.setdefault(key, collections.deque(maxlen=PREV_TURNS + 1))  # 多留一条：别的角色已记下这轮时，去掉它仍剩前两轮
+    out = with_prev(q, list(reversed(seen)))
+    if not seen or seen[-1] != q:
+        seen.append(q)
+    return out
+
+
 def _same(a, b):
     """两个目录是不是同一个库（按真实路径：bots.json 里主角色的 wiki 可以直接指向主 wiki，或经软链接）。"""
     return b is not None and os.path.realpath(a) == os.path.realpath(b)
@@ -105,30 +137,45 @@ def match_wiki(text, k=TOP_PAGES, root=None):
         return []
     idx = _index(root)
     pages = {}
-    for rel, ln, line in idx.search(query(text)):  # 前 10 行，按首次出现排页
+    hits = idx.search(query(text))  # 前 10 行
+    if FORUM:  # 记忆论坛：低分折叠沉底不隐藏，按 reddit confidence 稳定重排（forum_scores.py）；角色 wiki 同一份
+        hits = FORUM.rerank(hits, None if _same(root, WIKI) else root)
+    for rel, ln, line in hits:  # 按首次出现排页
         if rel not in pages:
             if len(pages) == k:
                 continue
-            pages[rel] = [idx.desc.get(rel, "")[:DESC_CHARS]]
-        pages[rel].append(f"{ln}: {line.strip()}")
-    return [{"path": _shown(rel, root), "desc": " | ".join(parts)} for rel, parts in pages.items()]
+            pages[rel] = {"head": idx.desc.get(rel, "")[:DESC_CHARS], "sep": " | ", "rows": []}
+        fold = FORUM.label(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root)) if FORUM else ""
+        pages[rel]["rows"].append(_row(rel, line, f"{ln}: {fold}{_title(line)}{exp_tag(rel, line)}"))  # 只给标题+编号，细节自己按行号读；角色 wiki 的条也能投（编号只看这行内容）
+    return [_render(dict(it, path=_shown(rel, root))) for rel, it in pages.items()]
 
 
 def context(req):
     # 主角色切换过就附上主/次身份段（lead.py）。cc-connect 按 path 每个会话只推一次，path 里带切换时间，
-    # 所以每次切换后每个角色的下一轮各收到一次（用户 2026-10-21「这个我预期可以一句话去换」）
+    # 所以每次切换后每个角色的下一轮各收到一次（only_new 按 path+desc 整块去重）（用户 2026-10-21「这个我预期可以一句话去换」）
     bot = req.get("bot") or ""
     who = lead.identity(bot) if lead else None
     pb = lead.playbook(bot) if lead else None  # 当主的才有：主角色工作手册（lead.playbook）
     dm = lead.dept_manager(bot, ws_task(req.get("key") or "")) if lead else None  # 工作区里有活才有：部门经理做法
     text = req.get("text") or ""
+    tq = turn_query(text, req.get("key") or "")  # 推页和经验用：这轮 + 前两轮作者的话（定案块仍只看这轮，它要判开工）
     own = role_wiki(bot) if WIKI is not None else None  # GATE_WIKI=off/空 = 什么 wiki 都不推，角色 wiki 也不查
-    mine = match_wiki(text, root=own) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
+    mine = match_wiki(tq, root=own) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
     if WIKI is None:
-        return {"wiki": [x for x in (who, pb, dm) if x] + board_items(req.get("key") or "")}
+        return only_new({"wiki": [x for x in (who, pb, dm) if x] + board_items(req.get("key") or "")}, req)
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
-    return {"wiki": [x for x in (who, pb, dm) if x] + standing_items(roots) + board_items(req.get("key") or "") + match_wiki(text) + mine
-            + decision_items(text, req.get("key") or "")}  # 主 wiki 在前
+    key = req.get("key") or ""
+    dec = decision_items(text, key)
+    out = {"wiki": [x for x in (who, pb, dm) if x] + standing_items(roots) + board_items(key)
+           + with_lessons(match_wiki(tq), tq) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
+    if MEMVOTE.exists() and any(EXP_TAG.search(w.get("desc", "")) for w in out["wiki"]):
+        out["wiki"].append(VOTE_ITEM)  # 固定 path：每个会话只推一次（gate.go turnContext 按 path 去重）
+    out = only_new(out, req)  # 推过的条不再推（同一会话代号内）
+    try:
+        exp_log(key, bot, text, out["wiki"], tq, ep=str(req.get("epoch") or ""))
+    except Exception:
+        pass
+    return out
 
 
 # ---- 已定的方向和做法（llm-wiki 页的「关键事实」「决策与踩坑」两段）----
@@ -139,6 +186,7 @@ DEC_HEADS = ("决策", "关键事实", "decision", "key fact")  # 页模板的�
 DEC_PER_PAGE = 8  # 来源：上面的离线对比，各页 8 行
 DEC_TOP = 10  # 来源：同上，全库决策段前 10 行（= wiki_search.TOP）
 DEC_LINE = 100  # 每行截断字数：整块压在 3000 字内（作者定的每轮增量上限）
+DEC_ROWS = 8  # 只给标题+编号，最多这么多条（原来几十行原文，每轮占几千字）
 _dec, _dec_of = {}, {}
 _MD = re.compile(r"(?:~|/)[^\s`'\"（）()「」]*?\.md")  # 交接文件（ws-handoff 叫醒语里写着它的路径）
 
@@ -206,6 +254,7 @@ def decisions(text, root=None):
     for hit in d.search(q):
         if hit not in out:
             out.append(hit)
+    out = FORUM.rerank(out) if FORUM else out  # 低分折叠沉底，不移除（forum_scores.py）
     return pages, out
 
 
@@ -242,20 +291,22 @@ def decision_items(text, key=""):
     if not hits:
         return []
     tag = hashlib.sha1("\n".join(sorted(pages)).encode()).hexdigest()[:6]
-    by, size = {}, 0
+    by, size, rows = {}, 0, {}
     for rel, ln, line in hits:  # 按页折叠：页路径只写一次（路径常有 80 字，逐行写占掉一半）
-        row = f"  {ln}: {line.strip().removeprefix('- ')[:DEC_LINE]}"
+        fold = FORUM.label(FORUM.entry_id(rel, line)) if FORUM else ""
+        row = f"  {ln}: {fold}{_title(line)}{exp_tag(rel, line)}"
         size += len(row) + 1 + (0 if rel in by else len(rel) + 1)
-        if size > DEC_BLOCK:  # hits 按相关度排，超了就丢后面的
+        if size > DEC_BLOCK or sum(map(len, by.values())) >= DEC_ROWS:  # hits 按相关度排，超了就丢后面的
             break
         by.setdefault(rel, []).append(row)
+        rows.setdefault(rel, []).append(_row(rel, line, row, rel))
     body = "\n".join(f"{rel}\n" + "\n".join(v) for rel, v in by.items())
     if _dec_used.get(key, 0) + len(body) > DEC_KEY_CHARS:
         return []
     _dec_used[key] = _dec_used.get(key, 0) + len(body)
-    return [{"path": f"【已定的方向和做法 {tag}】",
-             "desc": f"以前定过的方向、流程和踩过的坑（路径相对 {_shown('.').removesuffix('/.')}，要细节按行号读）。"
-                     "开工、交活、派活前先对照：照着做，别重新探索；交给队友或工作区时，把相关的几条写进交接\n" + body}]
+    return [_render({"path": f"【已定的方向和做法 {tag}】", "sep": "\n",
+                     "head": f"定过的方向和坑，只列标题（路径相对 {_shown('.').removesuffix('/.')}，按行号读细节），照做别重新探索",
+                     "rows": [r for rel in by for r in rows[rel]]})]
 
 
 # ---- 常驻做法短块（<wiki>/STANDING.md）----
@@ -300,7 +351,95 @@ def standing_items(roots):
             continue
         if body:
             out.append({"path": f"【常驻做法 {tag}】", "desc": STANDING_HOW.format(path=shown) + "\n" + body})
+    # 用户画像：GATE_PROFILE 指的页（相对主 wiki 或绝对路径）的「## 现状」一节，同常驻做法按内容指纹每个会话推一次；没配不推
+    m = re.search(r"^## 现状\n(.*?)(?=^## |\Z)", _read(roots[0] / PROFILE) if roots and PROFILE else "", re.S | re.M)
+    if m and m.group(1).strip():
+        body = m.group(1).strip()
+        out.append({"path": f"【懂你 {hashlib.sha1(body.encode()).hexdigest()[:6]}】",
+                    "desc": f"用户画像（{_shown(PROFILE, roots[0])}）：照这些懂用户，说话做事贴用户的判断和口味\n" + body})
     return out
+
+
+def _read(f):
+    try:
+        return f.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+# ---- 经验（教训表里按本轮话题命中的条，并进 wiki 推荐）----
+# 经验 = 教训表「关键事实」里「- 经验：」开头的行（缩进的「- MM-DD …」一条是踩一次坑）；没有教训表就不推。
+# 排序：论坛票（forum_scores.rank_key，低分折叠沉底）→ 踩坑次数 → 最近一次。
+PROFILE = os.environ.get("GATE_PROFILE", "").strip()  # 用户画像页；空 = 不推画像
+LESSON_NAME = "rule-candidates-recurrence.md"
+LESSON_HEAD = "- 经验："
+LESSON_TOP = 3
+_lesson_rel = {}
+
+
+def lessons(root=None):
+    """[(rel, 行号, 原行, 踩坑次数, 最近 MM-DD)]，按推送顺序排好。"""
+    root = root or WIKI
+    if root is None:
+        return []
+    rel = _lesson_rel.get(root)
+    if rel is None or not (root / rel).exists():
+        hits = sorted(p for p in root.glob("**/" + LESSON_NAME) if not any(x.startswith(".") for x in p.relative_to(root).parts))
+        rel = _lesson_rel[root] = hits[0].relative_to(root).as_posix() if hits else ""
+    if not rel:
+        return []
+    out, lines = [], _read(root / rel).split("\n")
+    for n, ln in enumerate(lines, 1):
+        if not ln.startswith(LESSON_HEAD):
+            continue
+        ev = []
+        for x in lines[n:]:
+            if not x.startswith("  "):
+                break
+            if (d := re.match(r"\s+- (\d\d-\d\d) ", x)):
+                ev.append(d.group(1))
+        out.append((rel, n, ln, len(ev), max(ev, default="")))
+    out.sort(key=lambda x: x[4], reverse=True)  # 稳定排序：先按最近，再按次数，最后按论坛分（主键）
+    out.sort(key=lambda x: -x[3])
+    out.sort(key=lambda x: FORUM.rank_key(FORUM.entry_id(x[0], x[2])) if FORUM else (False, 0))
+    return [x for x in out if exp_alive(x[0], x[2])]
+
+
+LESSON_MIN_TOKENS = 2  # 命中门槛：和这句话至少共享 2 个词（离线试：闲聊 0 个，「嘉立创下单参数」2 个、「交板子前查什么」4 个）
+
+
+def lesson_hits(text):
+    """按这轮话题挑经验：不固定取论坛分最高前三，
+    和这句话共享词够多才算命中，命中的按共享词 idf 和排，再按论坛分（lessons() 的顺序）取前 LESSON_TOP。"""
+    if WIKI is None:
+        return []
+    q = set(search.toks(query(text)))
+    if not q:
+        return []
+    idf = _index(WIKI).idf
+    hits = []
+    for i, e in enumerate(lessons()):
+        sh = q & set(search.toks(e[2]))
+        if len(sh) >= LESSON_MIN_TOKENS:
+            hits.append((-sum(idf.get(t, 0) for t in sh), i, e))
+    return [e for _, _, e in sorted(hits)[:LESSON_TOP]]
+
+
+def with_lessons(pages, text):
+    """命中的经验并进 wiki 推荐：同一页就接在那页后面，否则作为一页附上（只给标题+编号，同推页格式 | 行号: 标题 [#编号]）。"""
+    try:
+        hits = lesson_hits(text)
+    except Exception:  # 教训表读坏了不挡推页
+        return pages
+    for rel, n, ln, k, d in hits:
+        path, row = _shown(rel), f"{n}: {_title(ln)}{exp_tag(rel, ln)}"
+        page = next((p for p in pages if p["path"] == path), None)
+        if page is None:
+            pages.append(_render({"path": path, "head": "教训表（经验）", "sep": " | ", "rows": [_row(rel, ln, row)]}))
+        elif f"| {n}: " not in page["desc"]:
+            page["rows"].append(_row(rel, ln, row))
+            _render(page)
+    return pages
 
 
 def ws_task(key=""):
@@ -334,3 +473,216 @@ def board_items(key=""):
     body = "\n".join(ls) or "现在没有进行中的事"
     tag = hashlib.sha1(body.encode()).hexdigest()[:6]
     return [{"path": f"【任务板 {tag}】", "desc": "本频道的事和等用户的事（接手前先看这里；增改结束用 board 命令）\n" + body}]
+
+
+# ---- 记忆论坛（推送的条带编号，agent 用 memvote.py 投票；照 ExpeL §4.2 / ACE §3.1）----
+# 推过的条目记 push.jsonl（页:行号#内容指纹），memvote 按它认短编号；重要度到 0 的经验条不再推。
+MEMVOTE = Path(__file__).resolve().parent / "memvote.py"  # 投票命令；gate 目录里装了才提示投票
+EXP = Path(os.environ.get("MEMVOTE_DIR") or MEMVOTE.parent)  # 推送记录、分数、票的目录（同 memvote.EXP）
+SCORES = Path(os.environ.get("FORUM_SCORES") or EXP / "scores.json").expanduser()  # 隔离测试可换副本；同 forum_scores.path()
+_NOT_USER = re.compile(r"^(?:\[[^\]\n]+ → [^\]\n]+\]|【|\[(?:report|ask)\]|[⏰📬🔁✅❌⚠️]|你是工作区频道里的主角色)")
+_sc, _sc_at = {}, 0.0
+
+
+def exp_scores():
+    global _sc, _sc_at
+    try:
+        m = SCORES.stat().st_mtime
+    except OSError:
+        return {}
+    if m != _sc_at:
+        try:
+            _sc, _sc_at = json.loads(SCORES.read_text(encoding="utf-8")), m
+        except (OSError, ValueError):
+            return _sc
+    return _sc
+
+
+def _forum():
+    """记忆论坛排序：同目录 forum_scores.py（gate 目录和终端 hook 目录都装了）；没有就不重排。"""
+    try:
+        import forum_scores
+    except ImportError:
+        return None
+    return forum_scores
+
+
+FORUM = _forum()
+EXP_INIT = 2  # ExpeL §4.2「initial importance count of two」
+
+
+def exp_id(rel, line):
+    """条目的稳定编号 = 页 + 这行内容的指纹（ACE §3.1 每条有 unique identifier）；页改了行号也不串分。"""
+    return f"{rel}#{hashlib.sha1(line.strip().encode()).hexdigest()[:10]}"
+
+
+def _row(rel, line, text, group=""):
+    """推送的一条：id 就是行尾 [#编号]（同 exp_tag），group 是定案块里它上面那行页路径。"""
+    return {"id": "#" + exp_id(rel, line).rpartition("#")[2], "text": text, "group": group}
+
+
+def _render(it):
+    """desc 由 head + rows 拼出（桥按 id 滤掉塞过的 rows 后用同一规则重拼，core/turnctx_dedup.go renderRows）：
+    head 非空打头；每行前若 group 变了先写 group；各段用 sep 连。"""
+    parts, last = ([it["head"]] if it.get("head") else []), ""
+    for r in it["rows"]:
+        if r.get("group") and r["group"] != last:
+            parts.append(r["group"])
+            last = r["group"]
+        parts.append(r["text"])
+    it["desc"] = it["sep"].join(parts)
+    return it
+
+
+# ---- 推过的不再推：「推什么」和「推过没有」都在这里管（用户 11-03：两件事拆在两个程序里是根因）----
+# 按（会话 key, 角色 bot, 会话代号 epoch）记推过的条目编号。epoch 由调用方给，/new、换会话、压缩后换一个新值
+# （桥：core/gate.go turnEpoch；DSH：gate-context.mjs；终端 hook：session_id + 压缩次数）。不带 epoch 的旧调用方照旧全给。
+# 同页的新编号照推，旧编号不重推；页下条目全推过就整页不推。没有编号的块（身份、手册、常驻做法、任务板、投票提示）
+# 整块一个 id（path+desc 的哈希），内容变了才重推。只记在内存：推送服务重启后每个会话最多重推一轮。
+PUSH_GAP = 20  # 推过的条隔 20 轮内不再推，超过就重推（作者 11-03 定）
+PUSHED_KEEP = 4000  # 最多记这么多个（会话, 代号）；按最近使用淘汰
+_pushed, _pushed_lock = collections.OrderedDict(), threading.Lock()
+
+
+def _rows_of(w):
+    if "rows" in w:
+        return w
+    h = hashlib.sha1((w.get("path", "") + "\0" + w.get("desc", "")).encode()).hexdigest()[:16]
+    return dict(w, head="", sep="\n", rows=[{"id": "txt:" + h, "text": w.get("desc", ""), "group": ""}])
+
+
+def only_new(out, req):
+    epoch = str(req.get("epoch") or "")
+    if not epoch:
+        return out
+    k = (req.get("key") or "", req.get("bot") or "", epoch)
+    items = []
+    with _pushed_lock:
+        seen = _pushed.get(k)
+        if seen is None:
+            seen = _pushed[k] = {}  # 条目编号 → 上次推的轮次；"#" 记本会话轮次
+            while len(_pushed) > PUSHED_KEEP:
+                _pushed.popitem(last=False)
+        _pushed.move_to_end(k)
+        n = seen["#"] = seen.get("#", 0) + 1
+        for w in out.get("wiki", []):
+            w = _rows_of(w)
+            rows = []
+            for r in w["rows"]:
+                last = seen.get(r["id"])
+                if last is None or n - last >= PUSH_GAP:
+                    seen[r["id"]] = n
+                    rows.append(r)
+            if rows:
+                items.append(_render(dict(w, rows=rows)) if rows != w["rows"] else w)
+    return dict(out, wiki=items)
+
+
+def only_new_file(items, key, epoch, state_dir):
+    """终端 hook 用（每轮一个新进程，内存记不住）：同 only_new，推过的编号存 state_dir/<key>.json，代号变了清空。"""
+    f = Path(state_dir) / (str(key).replace("/", "_").replace("\\", "_") + ".json")
+    try:
+        st = json.loads(f.read_text())
+        if not isinstance(st, dict):
+            st = {}
+    except (OSError, ValueError):
+        st = {}
+    k = (str(key), "", str(epoch))
+    with _pushed_lock:
+        ids = st.get("ids", {}) if st.get("epoch") == str(epoch) else {}
+        _pushed[k] = dict(ids) if isinstance(ids, dict) else {}  # 旧格式（编号列表）不认，重推一轮
+    out = only_new({"wiki": items}, {"key": str(key), "bot": "", "epoch": str(epoch)})["wiki"]
+    with _pushed_lock:
+        ids = _pushed.pop(k, {})
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps({"epoch": str(epoch), "ids": ids}))
+    return out
+
+
+def transcript_epoch(sid, transcript):
+    """终端会话代号：session_id（/clear 会换）+ 会话记录里压缩摘要的条数（压缩后变）。"""
+    n = 0
+    try:
+        with open(transcript, "rb") as fh:
+            n = fh.read().count(b'"isCompactSummary":true')
+    except (OSError, TypeError):
+        pass
+    return f"{sid}:{n}"
+
+
+def exp_tag(rel, line):
+    """推送行尾的条目编号（ACE §3.1 bullet id）：助手用到哪条就按它当场投票（memvote.py）。"""
+    return f" [#{exp_id(rel, line).rpartition('#')[2]}]"
+
+
+EXP_TAG = re.compile(r" \[#([0-9a-f]{10})\]")
+# 照抄 ACE Generator（arXiv 2510.04618 附录提示词）：「Pay attention to common mistakes listed in the playbook and avoid
+# them」，回答时报出「bullet_ids … relevant, helpful」。五家 CLI 都有 shell，所以报编号用命令，不改各家回复格式。
+VOTE_ITEM = {"path": "【记忆投票（每轮必做）】", "desc": (
+    "推给你的记忆只给标题和行尾 [#编号]，要看原文按页路径和行号读。编号所有角色、所有频道共用一份分数。开工前照这些条做，特别是写着踩过的坑，避开它。"
+    "投票是这一轮任务的一部分：回复发出前，先用 shell 给你真正用到的条投票，再回复——"
+    f"照它做对了 `python3 {_shown(MEMVOTE, Path('/'))} +编号`；内容错了或过时、照它做会错 `… -编号`；"
+    "投错了改投反向即可，撤回用 `… x编号`；没用到的不投。一次可写多个编号，每人每条只算一票")}
+
+
+def exp_alive(rel, line, root=None):
+    """root 是别的库（角色 wiki）时，编号里的页写成推送路径（~/…），同 _refs 记推送、forum_scores.page_key。"""
+    if root is not None and WIKI is not None and not _same(root, WIKI):
+        rel = _shown(rel, root)
+    return exp_scores().get(exp_id(rel, line), EXP_INIT) > 0
+
+
+def exp_is_user(text):
+    q = query(text)
+    return bool(q) and not _NOT_USER.search(q) and "（定时任务" not in text
+
+
+def exp_task(key):
+    """这个频道当前在做的那件活：本频道的、没暂停、不是测试活，取最近交出/绑定的一件。"""
+    if board is None or not key:
+        return None
+    its = [i for i in board.items() if board.in_chat(i, key) and not i.get("paused") and not board.is_test(i.get("what"))]
+    return max(its, key=lambda i: (i.get("bound") or "", i.get("id") or 0), default=None)
+
+
+def _refs(items):
+    """推出去的条目 → ["相对主 wiki 的页:行号", …]（命中行和定案块里的行）。"""
+    base = _shown(".").removesuffix("/.") + "/"
+    out = []
+    for w in items:
+        p, d = w.get("path", ""), w.get("desc", "")
+        if p.startswith("【"):
+            if "定案" not in p and "已定的方向" not in p and "经验" not in p:
+                continue
+            rel = None
+            for ln in d.split("\n")[1:]:
+                m = re.match(r"\s+(\d+):", ln)
+                if m and rel:
+                    out.append(_ref_id(rel, m.group(1)))
+                elif ln and not ln.startswith(" "):
+                    rel = ln.strip()
+        else:
+            rel = p[len(base):] if p.startswith(base) else p
+            out += [_ref_id(rel, n) for n in re.findall(r"\| (\d+): ", d)]
+    return out
+
+
+def _ref_id(rel, n):
+    """推送时就记下这行内容的指纹：「页:行号#指纹」，晚上打分按指纹认条，不怕白天改页挪了行。"""
+    try:
+        line = (WIKI / rel).read_text(encoding="utf-8", errors="ignore").split("\n")[int(n) - 1]
+    except (OSError, ValueError, IndexError, TypeError):
+        return f"{rel}:{n}"
+    return f"{rel}:{n}#{exp_id(rel, line).rpartition('#')[2]}"
+
+
+def exp_log(key, bot, text, items, tq="", ep=""):
+    it = exp_task(key) if not bot else None
+    rec = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "key": key, "bot": bot, "user": exp_is_user(text),
+           "task": it.get("id") if it else None, "q": query(text)[:600], "refs": _refs(items)}
+    if ep:
+        rec["ep"] = ep  # 会话代号（only_new）：同一代号内 refs 不重复
+    if tq and tq != rec["q"]:
+        rec["qx"] = tq[:1200]  # 实际检索用的查询（带了前两轮），夜间打分仍按 q 认这轮
+    with open(EXP / "push.jsonl", "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(rec, ensure_ascii=False) + "\n")

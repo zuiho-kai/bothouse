@@ -38,6 +38,11 @@ func (*DSHUsageSource) Name() string { return "dsh" }
 
 var dshLogNames = []string{"session.v4.jsonl.zstd", "session.v4.jsonl"}
 
+// dshHandoffLogNames adds the v3 log an older DSH still writes (QQ 肥鱼's DSH, 2026-11-02:
+// session.v3.jsonl.zstd only, same assistant/message usage lines), so the session-size checks
+// (cold_cache_fresh) see it; the usage import keeps v4 only.
+var dshHandoffLogNames = append(append([]string(nil), dshLogNames...), "session.v3.jsonl.zstd", "session.v3.jsonl")
+
 func (s *DSHUsageSource) Files() ([]string, error) {
 	var out []string
 	seen := map[string]bool{}
@@ -454,7 +459,7 @@ func FindDSHSessionLog(home, id string) string {
 	if home == "" || id == "" || strings.ContainsAny(id, `/\*?[`) {
 		return ""
 	}
-	for _, name := range dshLogNames {
+	for _, name := range dshHandoffLogNames {
 		if m, _ := filepath.Glob(filepath.Join(home, "sessions", "*", id, name)); len(m) > 0 {
 			return m[0]
 		}

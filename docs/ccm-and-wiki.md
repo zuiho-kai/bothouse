@@ -89,12 +89,18 @@ ccm 拼在消息前面：
 
 ```
 （可能相关的 wiki 页，需要时去读）
-- ~/wiki/infra/vps.md — VPS 一览 | 6: - 代理端口 7890
+- ~/wiki/infra/vps.md — VPS 一览 | 6: 代理端口 7890 [#9fbdf5b7eb]
 ```
+
+每条命中行只给开头约 24 字当标题，加行尾编号；agent 要细节按页路径和行号去读。
 
 - wiki 目录用 `GATE_WIKI` 指（默认 `~/wiki`）；设成 `off` 或空就不推。目录不存在也不推，不报错。
 - wiki 页应保存为 UTF-8（可带 BOM）；`wiki_search.py` 和 `/context` 的词法检索支持 Windows 中文系统（cp936），无需设置 `PYTHONUTF8=1`。返回的路径统一使用 `/`，家目录下仍缩写为 `~/...`。此支持范围仅涵盖词法检索；本篇 shell 安装命令、launchd 和本机模型后端仍按各自的平台要求使用。
 - 同一页同一个会话只推一次（ccm 记着）。wiki 改了最迟 5 分钟后检索得到。
+- 用户画像：设 `GATE_PROFILE=<页路径>`（相对主 wiki，或绝对路径）后，那一页「## 现状」一节每个会话推一次（内容变了再推）；不设就不推。
+- 经验：主 wiki 里有教训表 `rule-candidates-recurrence.md` 时，它「- 经验：」开头的行和本轮消息共用至少 2 个词才推，最多 3 条，并进上面的页推荐。
+- 记忆论坛：推出去的行都带 `[#编号]`；agent 用 gate 目录里的 `memvote.py +编号`（赞）、`-编号`（踩）、`x编号`（撤回）投票，一个角色一条一票，可改可撤。
+  票记在 gate 目录的 `votes.jsonl`、`scores.json`，推送记录在 `push.jsonl`。排序照 Reddit 评论的 best：低分（赞减踩低于 -4）的条折叠沉底，不删除。
 - 只有 `MEMORY.md` → 域目录（有 `README.md`）→ 主题页这样的页会被检索；根目录的 `MEMORY.md`、`log.md`、各 `README.md` 不算。
 
 ## 5. 起 ccm

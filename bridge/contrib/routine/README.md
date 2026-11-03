@@ -28,6 +28,16 @@ the agent `CC_PROJECT` and `CC_SESSION_KEY`, so it can run `cc-connect cron add`
 `discord:<频道 ID>`）即可；想跑命令就用 `--exec`。也可以直接在频道里跟角色说「每天晚上九点在这里发个总结」，
 角色自己会用 `cc-connect cron add` 给当前频道加上。
 
+## 想不想说 / Want to say something? (added off for new roles)
+
+The setup wizard gives every new role a mood diary (`diary.md` in its folder; see the `## Diary` section it adds to
+the persona) and an hourly job described `想不想说 · mood` in the wizard's channel, 09:00–23:00, roles spread over
+the hour. Each time the role looks at the chat and the end of its diary; it says a line or two only when it really
+has something and won't cut in, otherwise it replies `NO_REPLY` and nothing is posted. The job is added turned off; turn it on with
+`bothouse cron edit <id> enabled true` (`bothouse cron list` shows the id).
+
+中文：向导给每个新角色一本心情日记，并在向导选的频道挂一条每小时（9–23 点、各角色错开）的「想不想说」：有真话才说一两句，没有就 NO_REPLY 不出声。这条定时建好时是关着的，想要就 `bothouse cron edit <id> enabled true` 打开。
+
 ## News digest (`newsdigest.py`, off by default)
 
 A daily digest of free public RSS by topic. Nothing happens until you turn it on in a JSON config

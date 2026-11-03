@@ -1,0 +1,1464 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>团队工作台 · CoNest</title>
+<link rel="icon" href="data:,">
+<style>
+:root{--bg:#0a0d13;--panel:#111722;--panel2:#0c121b;--line:#243044;--line2:#1a2434;--text:#e7edf7;--muted:#8ea0b8;--gold:#ffc56b;--teal:#5eead4;--red:#ff6b6b;--blue:#7dd3fc;--wood:#8a5a36;--ok:#34d399}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;min-height:100%}
+body{background:radial-gradient(1200px 620px at 50% -10%,#172235 0,#0a0d13 62%);color:var(--text);font:14px/1.45 system-ui,-apple-system,"PingFang SC","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+.app{max-width:1680px;margin:0 auto;min-height:100dvh;padding:12px 16px 10px;display:flex;flex-direction:column;gap:10px}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:2px}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.mark{width:40px;height:40px;border-radius:12px;background:linear-gradient(145deg,#f6bd68,#b7742e 46%,#58381e);box-shadow:inset 0 0 0 1px #ffd79a55,0 8px 22px #0008;position:relative;flex:0 0 auto}
+.mark:before{content:"";position:absolute;inset:9px;border-radius:7px;border:2px solid #2b1a0d;background:repeating-linear-gradient(90deg,#2b1a0d 0 2px,transparent 2px 6px)}
+.brand h1{font-size:19px;line-height:1.2;margin:0;letter-spacing:.4px}
+.sub{margin:2px 0 0;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topright{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.clock{font:600 15px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1px;color:#cfe0f5}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;border:1px solid var(--line);background:#0b1119;font-size:11px;color:var(--muted);white-space:nowrap}
+.pill:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor}
+.pill.live{color:var(--ok)}
+.pill.wait{color:#d7a94b}
+.pill.err{color:var(--red)}
+.pill.replay{color:var(--blue)}
+.badge{font-size:11px;padding:4px 9px;border-radius:8px;border:1px solid #7b5a2d;background:#2a1f0f;color:#f5c97b;white-space:nowrap}
+.bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#121a27,#0c121b);box-shadow:0 6px 20px #0006}
+.modes{display:flex;padding:3px;background:#0a0f17;border:1px solid var(--line);border-radius:10px;gap:2px}
+.mode{border:0;background:transparent;color:var(--muted);padding:6px 14px;border-radius:8px;font-weight:600;font-size:13px}
+.mode.on{background:#243349;color:#fff;box-shadow:inset 0 0 0 1px #ffffff14}
+.replaybar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;min-width:0}
+.field{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}
+.field input,.field select{background:#0a0f17;border:1px solid var(--line);border-radius:8px;padding:5px 7px;color:var(--text);font-size:12px;color-scheme:dark}
+.field input[type=datetime-local]{width:168px}
+.presets{display:flex;gap:5px}
+.btn{border:1px solid var(--line);background:#16202e;color:#dbe7f6;border-radius:9px;padding:6px 12px;font-size:12px;font-weight:600;white-space:nowrap}
+.btn:hover{border-color:#3b5270;background:#1b2839}
+.btn.primary{background:linear-gradient(180deg,#f3c577,#d89a45);border-color:#e0ad5b;color:#241605}
+.btn.primary:hover{background:linear-gradient(180deg,#ffd48d,#e2a34d)}
+.btn:disabled{opacity:.4;cursor:default}
+.mini{border:1px solid var(--line);background:#0d141e;color:var(--muted);border-radius:7px;padding:4px 8px;font-size:11px}
+.mini:hover{color:var(--text);border-color:#3b5270}
+.progress{flex:1 1 90px;min-width:80px;max-width:240px;accent-color:#e2a34d;height:4px}
+.vclock{font:600 12px ui-monospace,Menlo,monospace;color:var(--gold);min-width:44px;text-align:right}
+.stats{margin-left:auto;font:12px ui-monospace,Menlo,monospace;color:var(--muted);white-space:nowrap}
+main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px}
+.side{border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg,#101723,#0b1119);padding:12px;display:flex;flex-direction:column;min-height:0}
+.side h2{margin:0 0 8px;font-size:11px;letter-spacing:2px;color:var(--muted);display:flex;justify-content:space-between;align-items:center;text-transform:uppercase}
+.count{font:11px ui-monospace,Menlo,monospace;color:#5f7089;letter-spacing:0}
+.log{list-style:none;margin:0;padding:0;overflow:auto;flex:1;display:flex;flex-direction:column;gap:3px;min-height:60px}
+.log li{padding:6px 8px;border-radius:9px;background:#ffffff05;border:1px solid #ffffff08;animation:logIn .25s ease-out}
+.log .l1{display:flex;align-items:center;gap:6px;font-size:12px;min-width:0}
+.log .t{font:11px ui-monospace,Menlo,monospace;color:#65758c;flex:0 0 auto}
+.log .route{color:#b9c8dc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log .l2{font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{font-size:10px;padding:1px 6px;border-radius:99px;font-weight:700;letter-spacing:.4px;flex:0 0 auto}
+.chip.created{background:#2b3b52;color:#a9c4e6}
+.chip.assigned{background:#4a3412;color:#ffcf85}
+.chip.returned{background:#123c34;color:#7dedd2}
+.chip.rejected{background:#46191c;color:#ff9b9b}
+.chip.paused{background:#26303d;color:#9fb0c4}
+.chip.done{background:#173b28;color:#8ce7ae}
+.chip.at{background:#123246;color:#9fd8ff}
+.bubble .fish{position:relative;display:inline-block;width:12px;height:6px;margin-left:2px;border-radius:50%;background:#7fc9ff;box-shadow:0 0 6px #7fc9ff55}
+.bubble .fish:before{content:"";position:absolute;right:-5px;top:1px;border-left:5px solid #7fc9ff;border-top:2px solid transparent;border-bottom:2px solid transparent}
+.bubble .fish:after{content:"";position:absolute;left:2px;top:2px;width:2px;height:2px;border-radius:50%;background:#0b1622}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;font-size:11px;color:var(--muted)}
+.lg{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.lg:before{content:"";width:16px;height:2px;border-radius:2px;background:currentColor}
+.lg.assign{color:var(--gold)}.lg.return{color:var(--teal)}.lg.reject{color:var(--red)}.lg.at{color:var(--blue)}.lg.pause{color:#8b98ab}
+.foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 4px 2px;color:var(--muted);font-size:12px;min-height:20px}
+.ticker{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.foot-note{flex:0 0 auto;opacity:.65}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);max-width:min(560px,92vw);padding:9px 14px;border-radius:10px;background:#1c2636ee;border:1px solid #38485e;color:#e8eef8;font-size:12px;box-shadow:0 10px 32px #000a;z-index:90}
+.empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px;letter-spacing:1px;pointer-events:none}
+@keyframes logIn{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+.stage{position:relative;height:clamp(600px,calc(100vh - 236px),860px);min-height:600px;border:1px solid #2b3b52;border-radius:20px;overflow:hidden;background:#0a0f17;box-shadow:0 18px 48px #0009,inset 0 0 90px #0007;isolation:isolate}
+.stage:after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(120% 82% at 50% 38%,transparent 58%,#0000007a);z-index:19}
+.wall{position:absolute;inset:0 0 auto;height:142px;background:linear-gradient(180deg,#1b283b,#141e2d 72%,#101827);border-bottom:2px solid #334764;box-shadow:inset 0 -16px 26px #0007;z-index:2}
+.wall:after{content:"";position:absolute;left:0;right:0;bottom:0;height:9px;background:linear-gradient(180deg,#2c3d53,#1d2a3c);border-top:1px solid #456183}
+.window{position:absolute;top:24px;width:148px;height:78px;border:5px solid #2b3c52;border-radius:5px;overflow:hidden;background:linear-gradient(180deg,#0c2036,#173754 55%,#0a1727);box-shadow:inset 0 0 26px #52a8ff2e,0 2px 0 #0007}
+.window i{position:absolute;top:0;bottom:0;width:2px;background:#2b3c52;z-index:2}
+.window i:nth-child(1){left:33%}.window i:nth-child(2){left:66%}.window i:nth-child(3){display:none}
+.window .city{position:absolute;left:0;right:0;bottom:0;height:44%;background:repeating-linear-gradient(90deg,transparent 0 9px,#0a1625 9px 13px,transparent 13px 22px,#132131 22px 26px,transparent 26px 37px),linear-gradient(180deg,transparent,#08121e)}
+.window .city:after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 12% 30%,#ffd98a 0 1px,transparent 2px),radial-gradient(circle at 44% 52%,#9fd8ff 0 1px,transparent 2px),radial-gradient(circle at 72% 26%,#ffd98a 0 1px,transparent 2px),radial-gradient(circle at 88% 64%,#9fd8ff 0 1px,transparent 2px);opacity:.8}
+.w1{left:56px}.w2{left:222px}
+.whiteboard{position:absolute;top:22px;left:414px;width:226px;height:88px;border:4px solid #3a4c60;border-radius:3px;background:linear-gradient(160deg,#e6edf0,#cfdae0);box-shadow:0 3px 0 #0006;overflow:hidden}
+.whiteboard:before{content:"";position:absolute;right:8px;bottom:6px;width:62px;height:1px;background:#9fb3c4;transform:rotate(-12deg);box-shadow:0 3px 0 #b8c8d4}
+.whiteboard b{position:absolute;height:2px;background:#7f95aa;border-radius:2px}
+.whiteboard b:nth-child(1){left:16px;top:18px;width:92px}
+.whiteboard b:nth-child(2){left:16px;top:32px;width:128px;background:#c05c5c}
+.whiteboard b:nth-child(3){left:16px;top:46px;width:70px}
+.whiteboard b:nth-child(4){left:16px;top:60px;width:110px;background:#4f8f74}
+.wallclock{position:absolute;top:30px;right:116px;width:62px;height:62px;border-radius:50%;background:linear-gradient(160deg,#eef3f8,#c9d5e1);border:5px solid #26364a;box-shadow:0 4px 10px #0007,inset 0 0 0 2px #ffffff88}
+.hand{position:absolute;left:50%;bottom:50%;transform-origin:50% 100%;background:#203045;border-radius:2px}
+.hand.h{width:4px;height:15px;margin-left:-2px}
+.hand.m{width:3px;height:21px;margin-left:-1.5px}
+.hand.s{width:1px;height:22px;margin-left:-.5px;background:#d84b4b}
+.pin{position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:#203045}
+.sign{position:absolute;top:38px;right:16px;padding:6px 9px;border:1px solid #4a5f79;border-radius:4px;background:#1a2638;color:#a8bdd6;font:600 9px/1 ui-monospace,Menlo,monospace;letter-spacing:1.5px;box-shadow:0 2px 0 #0006}
+.floor{position:absolute;inset:142px 0 0;background:radial-gradient(900px 400px at 50% 0,#2b384b 0,#1a2433 56%,#121a27 100%);z-index:0}
+.floor:before{content:"";position:absolute;inset:0;background-image:linear-gradient(#ffffff09 1px,transparent 1px),linear-gradient(90deg,#ffffff09 1px,transparent 1px);background-size:54px 54px;transform:perspective(820px) rotateX(16deg) scale(1.12);transform-origin:50% 0;opacity:.85;-webkit-mask-image:linear-gradient(180deg,#000 0,#000 62%,transparent 100%);mask-image:linear-gradient(180deg,#000 0,#000 62%,transparent 100%)}
+.floor:after{content:"";position:absolute;inset:0;background:radial-gradient(420px 170px at 18% 8%,#ffd9a014,transparent 65%),radial-gradient(460px 190px at 78% 12%,#7fd0ff10,transparent 65%),radial-gradient(700px 300px at 50% 100%,#0008,transparent 70%)}
+.rug{position:absolute;left:50%;top:55%;width:66%;height:50%;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(closest-side,#1e3a58 0,#172b42 58%,#12213400 100%);opacity:.6;box-shadow:inset 0 0 70px #0a1421;z-index:1}
+.plant{position:absolute;width:56px;height:74px;z-index:2;filter:drop-shadow(0 10px 12px #0009)}
+.plant:before{content:"";position:absolute;left:50%;bottom:0;width:34px;height:26px;transform:translateX(-50%);background:linear-gradient(180deg,#6b4d32,#3b2a1a);border-radius:3px 3px 7px 7px;box-shadow:inset 0 3px 0 #8d684378}
+.plant:after{content:"";position:absolute;left:50%;bottom:22px;width:18px;height:46px;transform:translateX(-50%) rotate(-6deg);background:#2f8f5e;border-radius:60% 60% 45% 45%;box-shadow:-15px 8px 0 -2px #369e6b,15px 11px 0 -3px #277a50,-9px 23px 0 -5px #3aa873,10px 27px 0 -6px #216b47,0 5px 0 -6px #4fbd86}
+.p1{left:14px;bottom:10px}.p2{right:16px;bottom:8px}.p3{left:10px;top:152px;transform:scale(.82);transform-origin:bottom center;opacity:.8}
+/* Column count follows the live member count (--cols set in renderSeats): 1-5 seats fill one row,
+   6-8 two rows, 9-12 three rows, capped at 4 columns so a desk never gets narrower than ~200px. */
+.seats{position:absolute;left:1.2%;right:1.2%;top:164px;bottom:10px;display:grid;grid-template-columns:repeat(var(--cols,4),minmax(0,1fr));grid-auto-rows:1fr;gap:2px 10px;z-index:3}
+.seat{position:relative;min-height:0;display:flex;align-items:flex-end;justify-content:center}
+/* Room reads from the front: the person sits NEAREST us facing the room (we see their face), the
+   desk is behind them, and the monitor beyond the desk shows its back. Chair therefore sits at the
+   far side of the person, not in front of them. */
+.chair{position:absolute;left:50%;top:26px;width:74px;height:70px;transform:translateX(-50%);border-radius:50% 50% 40% 40%;background:radial-gradient(circle at 50% 28%,#3d4e65,#222e40 70%);box-shadow:inset 0 -10px 0 #18222f,0 8px 14px #0007;z-index:1}
+.person{position:absolute;left:50%;top:auto;bottom:-8px;width:150px;height:150px;transform:translateX(-50%);z-index:6}
+.body{position:absolute;left:50%;top:70px;width:100px;height:76px;transform:translateX(-50%);border-radius:46% 46% 16% 16%;background:linear-gradient(180deg,var(--shirt,#3b5270),#202d44);box-shadow:inset 0 2px 0 #ffffff1f;z-index:3}
+.aura{position:absolute;left:50%;top:48px;width:132px;height:132px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle,#ffc56b33 0,#ffc56b10 46%,transparent 68%);opacity:0;z-index:4}
+.avatar{position:absolute;left:50%;top:0;width:84px;height:84px;transform:translateX(-50%);border-radius:50%;background:#111a26;border:3px solid #d8b27655;box-shadow:0 7px 18px #0009;overflow:visible;z-index:5}
+.avatar img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+.avatar .init{display:grid;place-items:center;width:100%;height:100%;border-radius:50%;font-weight:800;font-size:30px;color:#fff;text-shadow:0 2px 4px #0008}
+.avatar .dot{position:absolute;right:-1px;bottom:4px;width:14px;height:14px;border-radius:50%;background:var(--ok);border:3px solid #0e1621;box-shadow:0 0 8px #34d39966}
+.avatar .crown{position:absolute;left:50%;top:-13px;transform:translateX(-50%);font-size:15px;line-height:1;color:#ffd37a;text-shadow:0 2px 4px #000,0 0 10px #ffc56b66;filter:drop-shadow(0 2px 3px #0009)}
+.tasktag{position:absolute;left:50%;top:-4px;transform:translate(-50%,-100%);max-width:148px;padding:3px 8px;border-radius:6px;border:1px solid #ffc56b66;background:#1b2230ee;color:#ffe1a9;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 4px 14px #0009;z-index:8}
+.bubble{position:absolute;left:calc(50% + 44px);top:6px;display:flex;align-items:center;gap:3px;padding:5px 7px;border-radius:9px;border:1px solid #33465f;background:#0e1622ee;color:#cfe4ff;font-size:11px;min-height:16px;box-shadow:0 4px 12px #0009;z-index:9;white-space:nowrap}
+.bubble:after{content:"";position:absolute;left:4px;bottom:-4px;width:7px;height:7px;background:#0e1622;border-right:1px solid #33465f;border-bottom:1px solid #33465f;transform:rotate(45deg)}
+.bubble .td{width:4px;height:4px;border-radius:50%;background:#9fd0ff}
+.bubble .fish{width:15px;height:7px;border-radius:50% 50% 50% 50%;background:#7dd3fc;position:relative;opacity:.85}
+.bubble .fish:after{content:"";position:absolute;right:-6px;top:1px;width:0;height:0;border-top:4px solid transparent;border-bottom:4px solid transparent;border-left:6px solid #7dd3fc}
+.desk{position:relative;width:min(92%,252px);height:100px;margin-bottom:2px;z-index:4}
+.desk:before{content:"";position:absolute;left:5%;right:5%;bottom:-16px;height:22px;background:radial-gradient(ellipse at 50% 0,#000b,transparent 70%)}
+.desktop{position:absolute;left:0;right:0;bottom:0;height:58px;border-radius:6px;background:linear-gradient(180deg,#a46c3f,#7a4a29 55%,#5d371f);box-shadow:inset 0 2px 0 #d29a6680,inset 0 -3px 0 #3e2413,0 8px 18px #0008;z-index:2}
+.desktop:before{content:"";position:absolute;left:0;right:0;bottom:-11px;height:13px;border-radius:0 0 6px 6px;background:linear-gradient(180deg,#5b361e,#3e2412);box-shadow:inset 0 2px 0 #0004}
+.keyboard{position:absolute;left:8%;bottom:9px;width:42%;height:15px;background:linear-gradient(180deg,#2d3744,#1b232d);border-radius:3px;transform:skewX(-8deg);box-shadow:0 1px 0 #0006,inset 0 1px 0 #ffffff1a}
+.keyboard:after{content:"";position:absolute;inset:3px 4px;background:repeating-linear-gradient(90deg,#5b6b7e 0 1px,transparent 1px 5px),repeating-linear-gradient(180deg,#5b6b7e 0 1px,transparent 1px 4px);opacity:.45}
+.mug{position:absolute;right:11%;bottom:10px;width:16px;height:18px;border-radius:3px 3px 6px 6px;background:linear-gradient(180deg,#e8eef6,#b9c6d6);box-shadow:inset -3px 0 0 #ffffff66;z-index:3}
+.mug:after{content:"";position:absolute;right:-6px;top:5px;width:7px;height:8px;border:2px solid #c9d5e3;border-left:0;border-radius:0 5px 5px 0}
+.papers{position:absolute;right:24%;bottom:11px;width:26px;height:17px;background:#e9edf2;border-radius:2px;transform:rotate(-7deg);box-shadow:0 1px 2px #0005;opacity:.9;z-index:3}
+.plate{position:absolute;left:50%;bottom:2px;transform:translateX(-50%);max-width:78%;padding:1px 6px;border-radius:3px;background:#2a1b0f;box-shadow:inset 0 1px 0 #ffffff22,0 1px 0 #0006;color:#f6d9a9;font:700 10px/1.5 ui-monospace,Menlo,monospace;letter-spacing:.6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:4}
+/* The monitor faces the person sitting at the desk, so from the room we see its BACK: a matte
+   shell, a vent band and the small badge, never the screen content. */
+.monitor{position:absolute;left:50%;top:-30px;width:84px;height:52px;transform:translateX(-50%);z-index:3}
+.screen{position:absolute;inset:0;border-radius:5px 5px 3px 3px;border:2px solid #141a21;background:linear-gradient(168deg,#3a434f 0%,#262d37 44%,#1a2027 100%);box-shadow:0 8px 15px #0009,inset 0 1px 0 #ffffff26,inset 0 -2px 3px #0006}
+/* Vent band across the lower shell. */
+.screen:before{content:"";position:absolute;left:16%;right:16%;bottom:22%;height:7px;background:repeating-linear-gradient(180deg,#0000004d 0 1px,transparent 1px 3px);opacity:.85}
+/* Badge in the middle of the back panel. */
+.screen:after{content:"";position:absolute;left:50%;top:26%;width:11px;height:11px;margin-left:-5.5px;border-radius:3px;background:radial-gradient(circle at 35% 30%,#8c9aab,#39434f 68%);box-shadow:inset 0 1px 0 #ffffff33}
+.stand{position:absolute;left:50%;top:49px;width:8px;height:12px;transform:translateX(-50%);background:#2a3542}
+.base{position:absolute;left:50%;top:60px;width:34px;height:5px;transform:translateX(-50%);background:#222c38;border-radius:3px}
+.status{position:absolute;right:2%;top:-17px;padding:1px 6px;border-radius:99px;background:#0c121ccc;color:#b8c7dc;font-size:10px;white-space:nowrap;z-index:6}
+.seat.idle .person{animation:bob 4.6s ease-in-out infinite}
+.seat.idle:nth-child(2n) .person{animation-delay:-1.7s}
+.seat.idle:nth-child(3n) .person{animation-delay:-3.1s}
+.seat.idle .bubble{opacity:.9}
+.seat.working .avatar{border-color:#ffc56b;box-shadow:0 0 0 2px #ffc56b44,0 0 22px #ffc56b55,0 7px 18px #0009}
+.seat.working .aura{opacity:1;animation:auraPulse 1.9s ease-in-out infinite}
+.seat.working .desk{filter:drop-shadow(0 0 16px #ffc56b33)}
+/* Working: the light comes from the far side of the panel, so the shell picks up a warm rim and
+   the vent band leaks a little of it — the room never sees screen content. */
+/* 干活中：光从屏幕正面溢出，我们只看到背板边缘的暖光和格栅里透出的一点亮度。 */
+.seat.working .screen{box-shadow:0 8px 16px #0000001c,inset 0 1px 0 #fff,inset 0 -3px 6px #0000000f,0 0 20px #ffcf8a3d,0 0 5px #ffcf8a40}
+.seat.working .screen:before{background:repeating-linear-gradient(180deg,#e0a76066 0 1px,transparent 1px 3px);animation:ventGlow 1.6s ease-in-out infinite}
+.seat.working .keyboard:after,.seat.thinking .keyboard:after{animation:keyFlash .5s steps(2) infinite}
+.seat.working .person{animation:workBob 2.2s ease-in-out infinite}
+.seat.thinking .avatar{border-color:#7dd3fc;box-shadow:0 0 0 2px #7dd3fc33,0 0 20px #7dd3fc44}
+.seat.thinking .aura{opacity:.95;background:radial-gradient(circle,#7dd3fc33 0,#7dd3fc0d 48%,transparent 70%);animation:auraPulse 1.4s ease-in-out infinite}
+.seat.thinking .bubble{border-color:#3b6c92}
+.seat.offline{filter:saturate(.15);opacity:.55}
+.seat.offline .person{animation:none}
+.seat.offline .screen{background:linear-gradient(168deg,#eef0f3,#dfe2e8);box-shadow:inset 0 1px 0 #fff,0 6px 12px #00000012}
+.seat.offline .screen:before,.seat.offline .screen:after{opacity:.12}
+.seat.offline .status{color:#7a8798}
+.seat.lead .desk{box-shadow:0 0 0 1px #ffc56b2e}
+.seat.lead .plate{color:#ffe2ab;background:#382312}
+.bubble .td{animation:td 1s ease-in-out infinite}
+.bubble .td:nth-child(2){animation-delay:.16s}
+.bubble .td:nth-child(3){animation-delay:.32s}
+.bubble .zzz{font:700 11px/1 ui-monospace,Menlo,monospace;color:#a9c8ff;animation:zzzFloat 2.6s ease-in-out infinite}
+.bubble .zzz:nth-child(2){animation-delay:.5s;font-size:13px}
+.bubble .fish{animation:fishBob 2.4s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-3px)}}
+@keyframes workBob{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-2px)}}
+@keyframes auraPulse{0%,100%{opacity:.6;transform:translate(-50%,-50%) scale(.94)}50%{opacity:1;transform:translate(-50%,-50%) scale(1.08)}}
+@keyframes td{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:1;transform:translateY(-2px)}}
+@keyframes zzzFloat{0%,100%{opacity:.35;transform:translateY(1px)}50%{opacity:1;transform:translateY(-3px)}}
+@keyframes fishBob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-2px) rotate(2deg)}}
+@keyframes keyFlash{0%,100%{opacity:.22}50%{opacity:1}}
+@keyframes codePulse{0%,100%{opacity:.55;transform:translateY(0)}50%{opacity:1;transform:translateY(2px)}}
+@keyframes ventGlow{0%,100%{opacity:.35}50%{opacity:.85}}
+.seat.flash-gold .desk{animation:goldFlash 1.4s ease-out}
+.seat.flash-good .desk{animation:goodFlash 1.4s ease-out}
+.seat.flash-bad .desk{animation:badFlash 1.4s ease-out}
+.seat.flash-bad{animation:seatShake .45s}
+@keyframes goldFlash{0%,100%{filter:none}35%{filter:drop-shadow(0 0 22px #ffc56b) brightness(1.12)}}
+@keyframes goodFlash{0%,100%{filter:none}35%{filter:drop-shadow(0 0 20px #5eead4) brightness(1.1)}}
+@keyframes badFlash{0%,100%{filter:none}25%,60%{filter:drop-shadow(0 0 20px #ff6b6b) brightness(1.1)}}
+@keyframes seatShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-2px)}40%{transform:translateX(2px)}60%{transform:translateX(-1px)}80%{transform:translateX(1px)}}
+.beams{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:20;overflow:visible}
+.beam{--beam:#ffc56b;animation:beamOut 2.6s ease-out forwards}
+.beam.return{--beam:#5eead4}.beam.reject{--beam:#ff6b6b}.beam.at{--beam:#7dd3fc}.beam.pause{--beam:#9aa8bc}
+.beam path{fill:none;stroke:var(--beam);stroke-linecap:round}
+.beam .glow{stroke-width:11;opacity:.2;filter:blur(3px)}
+.beam .trace{stroke-width:2.4;opacity:.95;filter:drop-shadow(0 0 6px var(--beam))}
+.beam .flow{stroke-width:1.5;stroke-dasharray:8 20;opacity:.85;animation:beamFlow 1s linear infinite}
+.beam .spark{fill:var(--beam);filter:drop-shadow(0 0 5px var(--beam))}
+@keyframes beamFlow{to{stroke-dashoffset:-28}}
+@keyframes beamOut{0%,72%{opacity:1}100%{opacity:0}}
+.pop{position:absolute;left:50%;bottom:105px;transform:translateX(-50%);padding:3px 8px;border-radius:7px;border:1px solid #ffc56b55;background:#0d1622ee;color:#ffe0a8;font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px;z-index:12;animation:popUp 1.9s ease-out forwards;box-shadow:0 4px 14px #0009}
+.pop.good{color:#8ff0d6;border-color:#5eead455}
+.pop.bad{color:#ffaaaa;border-color:#ff6b6b55}
+.pop.info{color:#cfe4ff;border-color:#7dd3fc44}
+@keyframes popUp{0%{opacity:0;transform:translate(-50%,6px)}12%{opacity:1;transform:translate(-50%,0)}78%{opacity:1;transform:translate(-50%,0)}100%{opacity:0;transform:translate(-50%,-8px)}}
+.toast{animation:toastIn .18s ease-out}
+@keyframes toastIn{from{opacity:0;transform:translate(-50%,6px)}to{opacity:1;transform:translate(-50%,0)}}
+.mode:focus-visible,.btn:focus-visible,.mini:focus-visible,.field input:focus-visible,.field select:focus-visible,.progress:focus-visible{outline:2px solid #7dd3fc;outline-offset:1px}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important}}
+@media (max-width:1180px){main{grid-template-columns:minmax(0,1fr)}.side{display:none}}
+@media (max-width:900px){.replaybar{flex:1 1 100%;order:3}.stats{margin-left:auto}.field input[type=datetime-local]{width:150px}}
+@media (max-width:760px){
+.app{padding:8px 8px 6px;gap:8px;overflow-x:hidden}
+.brand{gap:8px}.mark{width:34px;height:34px;border-radius:10px}.brand h1{font-size:16px}.sub{font-size:11px}
+.topright{gap:6px}.clock{font-size:12px}.pill{font-size:10px;padding:3px 8px}.badge{font-size:10px;padding:3px 7px}
+.bar{padding:7px 8px;gap:8px}.mode{padding:6px 12px;font-size:12px}.stats{font-size:11px}
+.replaybar{gap:6px}.field{flex:1 1 140px;font-size:11px}.field input,.field select{font-size:11px;padding:4px 6px}
+.field input[type=datetime-local]{width:100%}.presets{flex:0 0 auto}.btn{padding:6px 10px}.speed{flex:0 0 auto}
+.progress{flex:1 1 100%;max-width:none;order:6}.vclock{order:5}.mini{padding:4px 7px;font-size:10px}
+.stage{height:auto;min-height:0;padding:104px 0 12px;border-radius:16px}
+.wall{height:96px}.wall:after{height:7px}.window{top:15px;height:60px;width:116px;border-width:3px}.w1{left:16px}.w2{display:none}
+.whiteboard,.sign{display:none}
+.wallclock{top:20px;right:14px;width:48px;height:48px;border-width:4px}.hand.h{height:11px}.hand.m{height:16px}.hand.s{height:17px}
+.floor{inset:96px 0 0}.floor:before{background-size:38px 38px}
+.rug{width:90%;height:60%;top:58%}
+.plant{transform:scale(.7);transform-origin:bottom left}.p1{left:4px;bottom:4px}.p2{right:4px;bottom:2px;transform-origin:bottom right}.p3{display:none}
+.seats{position:relative;left:auto;right:auto;top:auto;bottom:auto;padding:0 8px;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:200px;gap:4px 2px}
+.seat{min-height:0}
+.chair{width:66px;height:62px;top:4px}
+.person{height:140px;top:4px;width:130px}
+.body{top:60px;width:88px;height:66px}
+.avatar{width:72px;height:72px;border-width:2px}.avatar .init{font-size:26px}
+.avatar .dot{width:12px;height:12px;bottom:2px}
+.tasktag{max-width:120px;padding:2px 6px;font-size:10px;top:-2px}
+.bubble{left:calc(50% + 38px);top:2px;padding:4px 6px;font-size:10px;min-height:14px}
+.desk{width:100%;max-width:214px;height:90px}
+.desktop{height:52px}.desktop:before{height:11px;bottom:-9px}
+.monitor{width:70px;height:44px}.stand{top:41px;height:10px}.base{top:50px;width:30px}
+.screen:after{box-shadow:0 5px 0 #9fe8ff55,0 10px 0 #9fe8ff77,0 15px 0 #9fe8ff33}
+.plate{font-size:9px;bottom:1px;max-width:76%}.status{font-size:9px;top:-14px}
+.keyboard{height:12px}.mug{width:14px;height:16px;bottom:8px}.papers{width:22px;height:15px;bottom:9px}
+.foot{font-size:11px}.foot-note{display:none}
+.toast{bottom:14px;font-size:11px;max-width:94vw}
+.pop{bottom:94px;max-width:140px}
+}
+@media (max-width:420px){
+.sub{display:none}.topright .clock{display:none}
+.seats{grid-auto-rows:190px}
+.desk{max-width:190px}
+.seat .tasktag{max-width:104px}
+}
+@media (min-width:761px) and (max-height:700px){.stage{height:580px;min-height:580px}}
+/* ===== M 路画面层 v2（2026-11-03 返工）：浅色高级感 · 细线流光 ===== */
+:root{
+  --bg:#f1f2f4;--panel:#ffffff;--panel2:#f4f4f5;--line:#e4e4e7;--line2:#ededf0;
+  --text:#111112;--muted:#71717a;--gold:#a15c11;--teal:#0f766e;--red:#dc2626;--blue:#2563eb;
+  --wood:#c9a074;--ok:#059669;
+  --shadow:0 1px 2px #00000008,0 18px 50px -18px #00000026;
+}
+html,body{background:var(--bg);color:var(--text)}
+.app{gap:14px}
+.topbar{padding:6px 2px}
+.mark{background:linear-gradient(145deg,#f3d9b0,#c99a5e 46%,#8a5a2b);box-shadow:inset 0 0 0 1px #ffffff88,0 6px 16px #0000001a}
+.mark:before{border-color:#5b3a1a;background:repeating-linear-gradient(90deg,#5b3a1a 0 2px,transparent 2px 6px)}
+.brand h1{font-size:20px;letter-spacing:.2px}
+.sub{color:var(--ink3,#85858c)}
+.bar{background:#fff;border:1px solid var(--line);box-shadow:0 1px 2px #00000008;border-radius:16px}
+.modes{background:#f2f2f4;border-color:#e7e7ea}
+.mode{color:#71717a}.mode.on{background:#fff;color:#111;box-shadow:0 1px 2px #00000014,inset 0 0 0 1px #e4e4e7}
+.btn{background:#fff;border-color:var(--line);color:#3f3f46}
+.btn:hover{background:#fafafa;border-color:#d4d4d8}
+.btn.primary{background:linear-gradient(180deg,#2b2b2f,#111112);border-color:#111;color:#fff;box-shadow:0 2px 6px #00000026}
+.btn.primary:hover{background:linear-gradient(180deg,#3a3a40,#1a1a1e)}
+.field input,.field select{background:#fff;border-color:var(--line);color:#111}
+.pill{background:#fff;border-color:var(--line);color:#71717a}
+.pill.galaxy{text-decoration:none;color:#7c3aed}.pill.galaxy:hover{border-color:#a78bfa}
+.pill.live{color:#059669}.pill.replay{color:#2563eb}.pill.wait{color:#b45309}.pill.err{color:#dc2626}
+.badge{background:#fff7ed;border-color:#fed7aa;color:#9a3412}
+.stats{color:#71717a}
+.side{background:#fff;border-color:var(--line);box-shadow:0 1px 2px #00000008}
+.side h2{color:#a1a1aa}.count{color:#a1a1aa}
+.log li{background:#fcfcfd;border:1px solid #eeeef1}
+.log .t{color:#a1a1aa}.log .route{color:#3f3f46}.log .l2{color:#71717a}
+.chip.created{background:#f4f4f5;color:#52525b}
+.chip.assigned{background:#fef3e2;color:#9a5b10}
+.chip.returned{background:#e7f7f4;color:#0f766e}
+.chip.rejected{background:#fdecec;color:#b91c1c}
+.chip.paused{background:#f4f4f5;color:#71717a}
+.chip.done{background:#e9f8ef;color:#047857}
+.chip.at{background:#eaf2fe;color:#1d4ed8}
+.legend{color:#a1a1aa}
+.foot{color:#a1a1aa}
+.toast{background:#111112;border-color:#27272a;color:#fafafa;box-shadow:0 12px 32px #00000033}
+
+
+/* 房间：白墙、浅地板、很淡的等距线 */
+.stage{background:#fdfcfa;border:1px solid #e6e4e0;border-radius:24px;
+  box-shadow:0 1px 2px #00000008,0 24px 60px -24px #0000002e;overflow:hidden}
+.stage:after{background:radial-gradient(120% 86% at 50% 30%,transparent 62%,#0000000a)}
+.wall{background:linear-gradient(180deg,#fefdfb,#f6f4f1 72%,#efedea);border-bottom:1px solid #e6e6ea;box-shadow:inset 0 -18px 28px #00000005}
+.wall:after{background:linear-gradient(180deg,#fbfbfc,#ececef);border-top:1px solid #e2e2e6}
+.window{border-color:#dcdce1;background:linear-gradient(180deg,#eaf4ff,#dcecfd 55%,#f6fbff);box-shadow:inset 0 0 30px #8fbdf32e,0 2px 0 #0000000a}
+.window i{background:#dcdce1}
+.window .city{background:repeating-linear-gradient(90deg,transparent 0 9px,#dbe7f4 9px 13px,transparent 13px 22px,#e8f0fa 22px 26px,transparent 26px 37px),linear-gradient(180deg,transparent,#eef5fc)}
+.whiteboard{border-color:#d9d9de;background:linear-gradient(160deg,#fbfcfe,#f2f5f9);box-shadow:inset 0 0 0 1px #fff,0 2px 0 #0000000d}
+.whiteboard:before{background:#d5dde6}
+.whiteboard b{background:#b8c4d2}
+.whiteboard b:nth-child(2){background:#e0a3a3}
+.whiteboard b:nth-child(4){background:#a7cdb9}
+.wallclock{background:linear-gradient(160deg,#fff,#f3f4f6);border-color:#d9d9de;box-shadow:0 3px 8px #00000012,inset 0 0 0 2px #fff}
+.hand{background:#3f3f46}.hand.s{background:#dc2626}.pin{background:#3f3f46}
+.sign{background:#fff;border-color:#e4e4e7;color:#71717a;box-shadow:0 1px 2px #0000000a}
+.floor{background:radial-gradient(1000px 420px at 50% 0,#ffffff 0,#f7f7f9 56%,#f1f1f4 100%)}
+.floor:before{
+  background-image:
+    repeating-linear-gradient(116.57deg,#0000000b 0 1px,transparent 1px 64px),
+    repeating-linear-gradient(63.43deg,#0000000b 0 1px,transparent 1px 64px);
+  transform:none;opacity:.9;
+  -webkit-mask-image:radial-gradient(74% 68% at 50% 40%,#000 0,#000 64%,transparent 100%);
+  mask-image:radial-gradient(74% 68% at 50% 40%,#000 0,#000 64%,transparent 100%);
+}
+.floor:after{background:radial-gradient(460px 190px at 16% 10%,#ffd9a01f,transparent 66%),radial-gradient(520px 210px at 82% 8%,#9cc7ff1a,transparent 68%),radial-gradient(760px 320px at 50% 106%,#0000000d,transparent 72%)}
+.rug{background:radial-gradient(closest-side,#eef2f8 0,#f2f4f8 58%,#f2f4f800 100%);opacity:.9;box-shadow:inset 0 0 60px #00000008}
+.plant:before{background:linear-gradient(180deg,#e3d3c1,#c9b49c)}
+.plant:after{background:#5fae83;box-shadow:-15px 8px 0 -2px #6cbb90,15px 11px 0 -3px #4c9d75,-9px 23px 0 -5px #75c39a,10px 27px 0 -6px #448a66,0 5px 0 -6px #86d0a9}
+
+/* 工位：白卡片感 + 坐姿 */
+.seats{top:150px;bottom:14px;grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));gap:16px 14px;z-index:3}
+.seat:nth-child(3n+2){transform:translateY(12px)}
+.seat:nth-child(3n){transform:translateY(4px)}
+.chair{top:auto;bottom:92px;width:88px;height:80px;z-index:1;
+  background:radial-gradient(circle at 50% 28%,#e3e6ec,#cfd4dd 72%);
+  box-shadow:inset 0 -10px 0 #c2c8d2,0 8px 16px #00000014}
+.person{top:auto;bottom:58px;width:160px;height:150px;z-index:3}
+.body{top:auto;bottom:0;width:104px;height:82px;border-radius:44% 44% 14% 14%;
+  background:linear-gradient(180deg,var(--shirt,#8fa6c4),#6b7f9e 82%);
+  box-shadow:inset 0 2px 0 #ffffff66,inset 0 -10px 16px #0000001a}
+.avatar{width:104px;height:104px;border:3px solid #fff;background:#fff;z-index:5;
+  box-shadow:0 0 0 1px #00000012,0 10px 24px #00000024}
+.avatar:before{content:"";position:absolute;inset:-16px;border-radius:50%;z-index:-1;
+  background:radial-gradient(circle,#ffcf8a2e 0,#ffcf8a0d 52%,transparent 74%)}
+.avatar img{border-radius:50%;filter:saturate(1.05) contrast(1.02)}
+.avatar .dot{width:15px;height:15px;right:0;bottom:2px;border:3px solid #fff}
+.avatar .init{font-size:36px;color:#fff}
+
+.desk{width:min(96%,304px);height:112px;margin-bottom:0;z-index:4}
+.desk:before{left:2%;right:2%;bottom:-14px;height:26px;background:radial-gradient(ellipse at 50% 0,#0000001f,transparent 72%)}
+.desktop{height:66px;border-radius:9px 9px 5px 5px;
+  background:linear-gradient(180deg,#f0dcc2,#e2c6a4 52%,#d3b08a);
+  box-shadow:inset 0 2px 0 #ffffffb3,inset 0 -4px 0 #b8946d,0 10px 22px #0000001c}
+.desktop:before{bottom:-14px;height:16px;background:linear-gradient(180deg,#d8c0a2,#c2a27c);box-shadow:inset 0 2px 0 #ffffff59}
+.desk:after{content:"";position:absolute;right:-9px;bottom:8px;width:10px;height:64px;
+  background:linear-gradient(180deg,#dcc3a4,#bb9a74);transform:skewY(-16deg);border-radius:0 3px 3px 0;z-index:1}
+/* 显示器正对坐在工位上的人，所以我们看到的是背面：磨砂背板 + 通风格栅 + 中间小徽标，
+   不是屏幕内容。 */
+.monitor{width:96px;height:58px;top:-2px}
+.screen{border:3px solid #dcdce2;background:linear-gradient(168deg,#f4f5f8 0%,#e7e9ee 42%,#d9dbe2 100%);
+  box-shadow:0 8px 16px #0000001c,inset 0 1px 0 #fff,inset 0 -3px 6px #0000000f}
+.screen:before{content:"";position:absolute;left:22%;right:22%;bottom:20%;height:8px;
+  background:repeating-linear-gradient(180deg,#0000002e 0 1px,transparent 1px 3px);opacity:.7}
+.screen:after{content:"";position:absolute;left:50%;top:24%;width:12px;height:12px;margin-left:-6px;
+  border-radius:3px;background:radial-gradient(circle at 35% 30%,#fff,#b8bcc6 70%);
+  box-shadow:inset 0 1px 0 #fff,0 1px 2px #0000001a}
+.stand{top:55px;height:12px;background:#cfcfd6}.base{top:67px;width:38px;background:#c4c4cc}
+.keyboard{background:linear-gradient(180deg,#e8e8ec,#d9d9df);box-shadow:0 1px 0 #00000012,inset 0 1px 0 #fff}
+.keyboard:after{background:repeating-linear-gradient(90deg,#b6b6bf 0 1px,transparent 1px 5px),repeating-linear-gradient(180deg,#b6b6bf 0 1px,transparent 1px 4px);opacity:.5}
+.mug{background:linear-gradient(180deg,#fff,#eceef2);box-shadow:inset -3px 0 0 #ffffff}
+.mug:after{border-color:#dfe1e7}
+.papers{background:#fff;box-shadow:0 1px 3px #0000001a}
+.plate{bottom:3px;font-size:11px;padding:2px 8px;background:#fff;color:#3f3f46;
+  box-shadow:inset 0 1px 0 #fff,0 2px 5px #0000001a;border:1px solid #ececf0}
+.status{left:8px;right:auto;top:-24px;background:#fff;color:#52525b;font-size:11px;padding:2px 8px;
+  border:1px solid #ececf0;border-radius:99px;box-shadow:0 2px 6px #00000012;z-index:7}
+.tasktag{top:-2px;border:1px solid #fed7aa;background:#fffbeb;color:#92400e;font-size:12px;padding:4px 9px;box-shadow:0 4px 12px #00000014}
+.bubble{background:#fff;border:1px solid #e7e7ea;color:#52525b;box-shadow:0 4px 12px #00000014}
+.bubble:after{background:#fff;border-right:1px solid #e7e7ea;border-bottom:1px solid #e7e7ea}
+.bubble .fish{background:#94a3b8}.bubble .fish:after{border-left-color:#94a3b8}
+.bubble .td{background:#94a3b8}
+.bubble .zzz{color:#94a3b8}
+
+/* 台灯：暖光收着 */
+.lamp{position:absolute;right:5%;top:-34px;width:58px;height:104px;z-index:6;pointer-events:none}
+.lamp .arm{position:absolute;left:50%;bottom:0;width:3px;height:56px;margin-left:-1.5px;background:linear-gradient(180deg,#d4d4da,#b9b9c1);border-radius:2px}
+.lamp .shade{position:absolute;left:50%;top:6px;width:46px;height:20px;margin-left:-23px;
+  background:linear-gradient(180deg,#3f3f46,#27272a);border-radius:7px 7px 3px 3px;
+  box-shadow:inset 0 -2px 0 #ffd9a099,0 3px 6px #0000001f;transform:rotate(-6deg)}
+.lamp .shade:after{content:"";position:absolute;left:50%;bottom:-3px;width:9px;height:4px;margin-left:-4.5px;
+  border-radius:50%;background:#fff3d6;box-shadow:0 0 10px #ffcf8a,0 0 22px #ffcf8a66}
+.lamp .cone{position:absolute;left:50%;top:24px;width:78px;height:74px;margin-left:-39px;
+  background:linear-gradient(180deg,#ffd9a03d,#ffcf8a12 60%,transparent);
+  clip-path:polygon(28% 0,72% 0,100% 100%,0 100%);opacity:.55;transition:opacity .3s}
+.lamp .pool{position:absolute;left:50%;top:96px;width:132px;height:40px;margin-left:-66px;
+  background:radial-gradient(ellipse at 50% 40%,#ffcf8a45,#ffcf8a14 58%,transparent 76%);opacity:.8}
+.seat.working .lamp .cone,.seat.working .lamp .pool{opacity:1}
+.seat.offline .lamp .cone,.seat.offline .lamp .pool{opacity:.08}
+
+/* 状态：干净的金/蓝圈，不发光 */
+.seat.idle{filter:saturate(.96)}
+.seat.working .avatar{border-color:#fff;box-shadow:0 0 0 3px #f0b45a66,0 10px 24px #00000024}
+.seat.thinking .avatar{border-color:#fff;box-shadow:0 0 0 3px #7fb3e166,0 10px 24px #00000024}
+.seat.working .desk{filter:drop-shadow(0 10px 22px #0000001f) drop-shadow(0 0 14px #f0b45a2e)}
+.seat.offline{filter:grayscale(.7) opacity(.72)}
+.seat.tick .desk{animation:rttick .4s cubic-bezier(.2,.8,.2,1)}
+.seat.hit .desk{animation:rthit .45s cubic-bezier(.36,.07,.19,.97)}
+@keyframes rttick{40%{transform:scale(1.035)}}
+@keyframes rthit{20%{transform:translateX(-5px)}40%{transform:translateX(4px)}60%{transform:translateX(-2px)}80%{transform:translateX(1px)}}
+@keyframes rtflow{to{stroke-dashoffset:-8}}
+
+/* 流光：细线 + 沿线小圆点包 */
+.beam{animation:none}
+.beam path{fill:none;stroke-linecap:round}
+.beam .base{stroke:#e6e6ea;stroke-width:1.4}
+.beam .trace{stroke:#8a8a94;stroke-width:1.6;stroke-dasharray:3 5;animation:rtflow .7s linear infinite}
+.beam.at .trace{stroke:#2563eb;stroke-width:1.4;opacity:.7}
+.beam.return .trace{stroke:#0f766e}
+.beam.reject .trace{stroke:#dc2626;stroke-dasharray:2 5}
+.beam .dot{fill:#111112;filter:drop-shadow(0 0 3px #85858c)}
+.beam.return .dot{fill:#fff;stroke:#0f766e;stroke-width:2}
+.beam.reject .dot{fill:#dc2626;stroke:#fff;stroke-width:1.5}
+.beam .halo{fill:none;stroke:#11111218;stroke-width:9}
+/* @ 细光：更淡的细线 + 流动虚线 + 一颗小圆点走过（实时与回放共用同一段动画） */
+.beam.at{animation:atOut 1.5s ease-out forwards}
+.beam.at .base{stroke:#dbeafe;stroke-width:1.2}
+.beam.at .trace{stroke:#2563eb;stroke-width:1.2;stroke-dasharray:2 6;opacity:.9}
+.beam.at .dot{fill:#2563eb;filter:drop-shadow(0 0 4px #2563eb66)}
+@keyframes atOut{0%,72%{opacity:1}100%{opacity:0}}
+
+@media (max-width:760px){
+  .stage{border-radius:18px}
+  .seats{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 2px}
+  .seat:nth-child(3n+2),.seat:nth-child(3n){transform:none}
+  .chair{bottom:78px;width:72px;height:66px}
+  .person{bottom:50px;width:140px;height:132px}
+  .body{width:92px;height:72px}
+  .avatar{width:86px;height:86px;border-width:2px}.avatar .init{font-size:28px}
+  .desk{width:100%;max-width:220px;height:98px}
+  .desktop{height:56px}.desktop:before{height:13px;bottom:-12px}
+  .desk:after{width:8px;height:54px;right:-7px}
+  .monitor{width:78px;height:48px}.stand{top:45px;height:10px}.base{top:55px;width:32px}
+  .lamp{width:44px;height:80px;top:-26px;right:6%}
+  .lamp .arm{height:42px}.lamp .shade{width:34px;margin-left:-17px;height:16px}
+  .lamp .cone{width:58px;margin-left:-29px;height:56px;top:20px}
+  .lamp .pool{width:104px;height:32px;margin-left:-52px;top:74px}
+  .status{font-size:9px;top:-16px;left:4px}.tasktag{font-size:10px;padding:2px 6px}
+}
+
+
+/* 精修层：极淡的暖冷渐变、顶部光泽、卡片层次 */
+.app{background:
+  radial-gradient(900px 430px at 16% -10%,#ffe6c4 0,transparent 62%),
+  radial-gradient(820px 400px at 92% -6%,#d9e9ff 0,transparent 64%)}
+.stage:before{content:"";position:absolute;left:26px;right:26px;top:0;height:1px;z-index:30;pointer-events:none;
+  background:linear-gradient(90deg,transparent,#e6c39a,#a8c6e8 55%,transparent);opacity:.85}
+.stage{box-shadow:0 1px 2px #0000000a,0 30px 70px -30px #00000033}
+.side{box-shadow:0 1px 2px #0000000a,0 20px 44px -26px #0000002e}
+.log li{box-shadow:0 1px 2px #00000008;background:#fff}
+.log li:hover{background:#fcfcfd}
+.log .l1{font-size:12.5px}
+.log .l2{color:#8a8a92}
+.stats,.clock,.vclock{font-variant-numeric:tabular-nums}
+.sub{color:#8a8a92}
+.foot{color:#8a8a92}
+.bar{box-shadow:0 1px 2px #0000000a,0 10px 24px -18px #0000002e}
+.floor{background:
+  radial-gradient(680px 300px at 50% 6%,#fffefa 0,#f8f6f2 52%,#efeeec 100%)}
+.floor:after{background:
+  radial-gradient(520px 210px at 22% 14%,#ffd9a02b,transparent 62%),
+  radial-gradient(560px 230px at 80% 6%,#bcd7ff24,transparent 64%),
+  radial-gradient(760px 300px at 50% 104%,#00000012,transparent 70%)}
+.desk{filter:drop-shadow(0 16px 22px #00000018)}
+.seat.working .desk{filter:drop-shadow(0 16px 22px #0000001c) drop-shadow(0 0 16px #e8b2682e)}
+.seat.idle .desk{filter:drop-shadow(0 14px 20px #00000014)}
+.avatar{box-shadow:0 0 0 1px #00000010,0 10px 22px #00000020}
+.seat.working .avatar{box-shadow:0 0 0 3px #efb56777,0 10px 22px #00000020}
+.plate{letter-spacing:.4px}
+</style>
+</head>
+<body>
+<div class="app">
+<header class="topbar">
+  <div class="brand"><span class="mark" aria-hidden="true"></span><div><h1>团队工作台</h1><p class="sub" id="subtitle">办公室里每一道光，都是一条真实事件</p></div></div>
+  <div class="topright"><a class="pill galaxy" href="/collab/wiki-galaxy">Wiki 星河</a><span class="badge fixture" id="fixtureBadge" hidden>示例数据 · 非真实事件</span><span class="clock" id="clockDigital">--:--:--</span><span class="pill wait" id="conn">连接中</span></div>
+</header>
+<section class="bar">
+  <div class="modes" role="tablist" aria-label="模式"><button class="mode on" id="modeLive" role="tab" aria-selected="true">实时</button><button class="mode" id="modeReplay" role="tab" aria-selected="false">回放</button></div>
+  <div class="replaybar" id="replayBar" hidden>
+    <label class="field">从<input type="datetime-local" id="from"></label>
+    <label class="field">到<input type="datetime-local" id="to"></label>
+    <span class="presets"><button class="mini" data-range="1h">近 1 小时</button><button class="mini" data-range="tonight">昨晚</button></span>
+    <button class="btn primary" id="loadReplay">载入</button>
+    <button class="btn" id="playPause" disabled>▶</button>
+    <label class="field speed">速度<select id="speed"><option value="1">1×</option><option value="4" selected>4×</option><option value="16">16×</option></select></label>
+    <input class="progress" id="progress" type="range" min="0" max="100" value="0" disabled aria-label="回放进度">
+    <span class="vclock" id="virtualClock">--:--</span>
+  </div>
+  <div class="stats" id="stats">在线 0/0 · 进行中 0</div>
+</section>
+<main>
+  <section class="stage" id="stage">
+    <div class="wall">
+      <div class="window w1"><i></i><i></i><i></i><span class="city"></span></div>
+      <div class="window w2"><i></i><i></i><i></i><span class="city"></span></div>
+      <div class="whiteboard"><b></b><b></b><b></b><b></b></div>
+      <div class="wallclock" id="wallClock" aria-hidden="true"><span class="hand h"></span><span class="hand m"></span><span class="hand s"></span><span class="pin"></span></div>
+      <div class="sign">TEAM DESK</div>
+    </div>
+    <div class="floor"></div>
+    <div class="rug"></div>
+    <div class="plant p1"></div><div class="plant p2"></div><div class="plant p3"></div>
+    <div class="seats" id="seats"></div>
+    <svg class="beams" id="beams" aria-hidden="true"></svg>
+    <div class="empty" id="empty" hidden>还没有成员接入，等 member 事件</div>
+  </section>
+  <aside class="side">
+    <h2>实况 <span class="count" id="eventCount">0</span></h2>
+    <ol class="log" id="eventLog"></ol>
+    <div class="legend"><span class="lg assign">派活</span><span class="lg return">交回</span><span class="lg reject">打回</span><span class="lg at">@</span><span class="lg pause">暂停</span></div>
+  </aside>
+</main>
+<footer class="foot"><div class="ticker" id="ticker">等待事件…</div><div class="foot-note">只画真实事件 · 空闲时安静摸鱼</div></footer>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script type="application/json" id="roster">
+{
+  "version": 1,
+  "note": "成员 → 头像对照表。project 是 Issue #876 事件契约的键；显示名以 roster.name 为准（state.name 可能只是 agent 的 display_name，如 DeepSeek），name/aliases 也用于解析 who 与 @ 文本。avatar 为空表示用名字首字母圆形徽标。",
+  "defaultAvatar": "",
+  "members": [
+    {
+      "project": "gge",
+      "name": "G哥",
+      "role": "lead",
+      "avatar": "dragon",
+      "deployed": true,
+      "aliases": [
+        "G哥",
+        "g哥",
+        "Codex",
+        "codex",
+        "龙娘"
+      ]
+    },
+    {
+      "project": "cjiang",
+      "name": "C酱",
+      "role": "sub",
+      "avatar": "orange",
+      "deployed": true,
+      "aliases": [
+        "C酱",
+        "c酱",
+        "Claude",
+        "claude",
+        "橘"
+      ]
+    },
+    {
+      "project": "deep",
+      "name": "肥鱼",
+      "role": "sub",
+      "avatar": "whale",
+      "deployed": true,
+      "aliases": [
+        "肥鱼",
+        "大肥鱼",
+        "鲸鱼",
+        "鲸鱼娘",
+        "Deep",
+        "deep",
+        "DeepSeek",
+        "deepseek",
+        "深度求索"
+      ]
+    },
+    {
+      "project": "gjiang",
+      "name": "大豆包",
+      "role": "sub",
+      "avatar": "rainbow",
+      "deployed": true,
+      "aliases": [
+        "大豆包",
+        "豆包",
+        "G酱",
+        "g酱",
+        "Gemini",
+        "gemini",
+        "彩虹猫"
+      ]
+    },
+    {
+      "project": "cursor",
+      "name": "Cursor",
+      "role": "sub",
+      "avatar": "",
+      "deployed": true,
+      "aliases": [
+        "Cursor",
+        "cursor"
+      ]
+    },
+    {
+      "project": "grok",
+      "name": "Grok",
+      "role": "sub",
+      "avatar": "",
+      "deployed": false,
+      "aliases": [
+        "Grok",
+        "grok",
+        "渡鸦"
+      ]
+    }
+  ]
+}
+</script>
+<script type="application/json" id="fixtureData">
+[{"type":"members","members":[{"id":"lead","name":"队长","kind":"dsh","online":true,"avatar":"orange"},{"id":"ayan","name":"阿岩","kind":"dsh","online":true,"avatar":"dragon"},{"id":"ayou","name":"阿柚","kind":"bot","online":true,"avatar":"whale"},{"id":"ache","name":"阿澈","kind":"bot","online":true,"avatar":"rainbow"},{"id":"alan","name":"阿岚","kind":"dsh","online":false,"avatar":"lanxi"}]},{"ts":"2026-11-03T09:02:00+08:00","id":"21","kind":"created","from":"lead","to":"ayou","title":"整理发布说明"},{"ts":"2026-11-03T09:03:00+08:00","id":"21","kind":"assigned","from":"lead","to":"ayou","title":"整理发布说明"},{"type":"thinking","ts":"2026-11-03T09:04:00+08:00","room_id":1,"members":["ayou"]},{"type":"message","ts":"2026-11-03T09:10:00+08:00","message":{"id":101,"room_id":1,"author":"ayou","author_kind":"bot","name":"阿柚","text":"@队长 初稿好了，缺一段回滚说明","created_at":1793668200}},{"ts":"2026-11-03T09:12:00+08:00","id":"21","kind":"returned","from":"lead","to":"ayou","title":"整理发布说明"},{"ts":"2026-11-03T09:14:00+08:00","id":"21","kind":"rejected","from":"lead","to":"ayou","title":"整理发布说明","note":"缺回滚步骤"},{"type":"thinking","ts":"2026-11-03T09:15:00+08:00","room_id":1,"members":["ayou"]},{"ts":"2026-11-03T09:38:00+08:00","id":"21","kind":"returned","from":"lead","to":"ayou","title":"整理发布说明"},{"ts":"2026-11-03T09:39:00+08:00","id":"21","kind":"done","from":"lead","to":"ayou","title":"整理发布说明"},{"type":"thinking","ts":"2026-11-03T09:40:00+08:00","room_id":1,"members":[]},{"ts":"2026-11-03T09:50:00+08:00","id":"22","kind":"created","from":"lead","to":"ayan","title":"修 CI 超时"},{"ts":"2026-11-03T09:51:00+08:00","id":"22","kind":"assigned","from":"lead","to":"ayan","title":"修 CI 超时"},{"type":"thinking","ts":"2026-11-03T09:52:00+08:00","room_id":1,"members":["ayan"]},{"type":"message","ts":"2026-11-03T10:02:00+08:00","message":{"id":102,"room_id":1,"author":"ayan","author_kind":"bot","name":"阿岩","text":"@阿澈 这条超时日志帮看下","created_at":1793671320}},{"ts":"2026-11-03T10:10:00+08:00","id":"22","kind":"paused","from":"lead","to":"ayan","title":"修 CI 超时","note":"等上游镜像"},{"type":"thinking","ts":"2026-11-03T10:11:00+08:00","room_id":1,"members":[]},{"ts":"2026-11-03T10:15:00+08:00","id":"23","kind":"assigned","from":"lead","to":"ache","title":"手机竖屏验收"},{"type":"thinking","ts":"2026-11-03T10:16:00+08:00","room_id":1,"members":["ache"]},{"ts":"2026-11-03T10:31:00+08:00","id":"23","kind":"returned","from":"lead","to":"ache","title":"手机竖屏验收"},{"ts":"2026-11-03T10:33:00+08:00","id":"23","kind":"rejected","from":"lead","to":"ache","title":"手机竖屏验收","note":"工位名牌溢出"},{"type":"thinking","ts":"2026-11-03T10:34:00+08:00","room_id":1,"members":["ache"]},{"ts":"2026-11-03T10:52:00+08:00","id":"23","kind":"returned","from":"lead","to":"ache","title":"手机竖屏验收"},{"ts":"2026-11-03T10:53:00+08:00","id":"23","kind":"done","from":"lead","to":"ache","title":"手机竖屏验收"},{"type":"thinking","ts":"2026-11-03T10:54:00+08:00","room_id":1,"members":[]},{"ts":"2026-11-03T10:58:00+08:00","id":"24","kind":"assigned","from":"lead","to":"alan","title":"补回放接口文档"},{"ts":"2026-11-03T11:00:00+08:00","id":"24","kind":"returned","from":"lead","to":"alan","title":"补回放接口文档"},{"ts":"2026-11-03T11:01:00+08:00","id":"24","kind":"done","from":"lead","to":"alan","title":"补回放接口文档"},{"ts":"2026-11-03T11:05:00+08:00","id":"25","kind":"created","from":"lead","to":"","title":"整理周报"},{"ts":"2026-11-03T11:06:00+08:00","id":"25","kind":"assigned","from":"lead","to":"ache","title":"整理周报"},{"type":"thinking","ts":"2026-11-03T11:07:00+08:00","room_id":1,"members":["ache"]},{"ts":"2026-11-03T11:12:00+08:00","id":"25","kind":"returned","from":"lead","to":"ache","title":"整理周报"},{"ts":"2026-11-03T11:13:00+08:00","id":"25","kind":"done","from":"lead","to":"ache","title":"整理周报"},{"type":"thinking","ts":"2026-11-03T11:14:00+08:00","room_id":1,"members":[]}]
+</script>
+<script>
+const $ = id => document.getElementById(id);
+const q = (sel, root = document) => root.querySelector(sel);
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const svgEl = (tag, attrs = {}) => { const n = document.createElementNS(SVG_NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); return n; };
+const norm = v => String(v ?? '').trim().toLowerCase().replace(/[\s\u3000]+/g, '');
+const msOf = v => { if (typeof v === 'number') return v < 1e12 ? v * 1000 : v; const n = Date.parse(String(v ?? '')); return Number.isFinite(n) ? n : null; };
+const fmtTime = v => { const n = msOf(v); if (n == null) return '--:--'; const d = new Date(n); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+const fmtFull = v => { const n = msOf(v); if (n == null) return '--'; const d = new Date(n); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`; };
+const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+const KIND = { created: '新建', assigned: '派活', returned: '交回', rejected: '打回', paused: '暂停', done: '完成', at: '@' };
+const PALETTE = ['#e0a458', '#6cb6ff', '#59d3a5', '#c78df2', '#f08a8a', '#78d0d8', '#d9b36c'];
+const SHIRTS = ['#3b5270', '#4a3d68', '#2f5d55', '#5a4430', '#3c4f73', '#5a3f52'];
+const hashOf = s => [...String(s ?? '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+const colorOf = s => PALETTE[hashOf(s) % PALETTE.length];
+const shirtOf = s => SHIRTS[hashOf(s) % SHIRTS.length];
+
+const ROSTER = (() => { try { return JSON.parse($('roster').textContent) ?? { members: [] }; } catch { return { members: [] }; } })();
+const FIXTURE = (() => { try { const v = JSON.parse($('fixtureData').textContent); return Array.isArray(v) ? v : []; } catch { return []; } })();
+// 仅 ?fixture=1 的演示成员；真实模式一律用 /collab/api/state 的成员。
+const DEMO_MEMBERS = [
+  { id: "lead", name: "队长", kind: "dsh", avatar: "orange", online: true },
+  { id: "ayan", name: "阿岩", kind: "dsh", avatar: "dragon", online: true },
+  { id: "ayou", name: "阿柚", kind: "bot", avatar: "whale", online: true },
+  { id: "ache", name: "阿澈", kind: "bot", avatar: "rainbow", online: true },
+  { id: "alan", name: "阿岚", kind: "dsh", avatar: "lanxi", online: false },
+];
+
+const S = {
+  me: null, memberList: [], byId: new Map(), alias: new Map(), rosterFor: new Map(),
+  lead: null, active: new Map(), thinkingRooms: new Map(), thinking: new Set(), dispatched: new Set(),
+  fixture: false, mode: 'live', eventCount: 0, logLimit: 80,
+  replay: { events: [], idx: 0, timer: null, playing: false, speed: 4, loaded: false, auto: false },
+};
+
+function matchRoster(m) {
+  const id = norm(m.id), name = norm(m.name);
+  for (const rm of ROSTER.members ?? []) {
+    const cand = [rm.project, rm.name, ...(rm.aliases ?? [])];
+    if (cand.some(k => norm(k) === id || norm(k) === name)) return rm;
+  }
+  return undefined;
+}
+
+function indexMembers(list) {
+  S.memberList = (Array.isArray(list) ? list : []).filter(m => m && m.kind !== 'human' && m.id);
+  S.byId = new Map(); S.alias = new Map(); S.rosterFor = new Map();
+  for (const m of S.memberList) {
+    S.byId.set(m.id, m);
+    const rm = matchRoster(m);
+    S.rosterFor.set(m.id, rm);
+    for (const k of [m.id, m.name, rm?.project, rm?.name, ...(rm?.aliases ?? [])]) if (k) S.alias.set(norm(k), m);
+  }
+  for (const id of [...S.active.keys()]) if (!S.byId.has(id)) S.active.delete(id);
+}
+
+function resolveRef(ref) {
+  const raw = String(ref ?? '').trim();
+  if (!raw) return null;
+  const direct = S.alias.get(norm(raw));
+  if (direct) return direct;
+  let s = raw.replace(/（[^）]*）|\([^)]*\)/g, '').replace(/工作区\s*\d*/g, '');
+  for (const part of s.split(/[；;\/、,，]+/)) {
+    let k = norm(part);
+    if (!k) continue;
+    if (S.alias.has(k)) return S.alias.get(k);
+    k = k.replace(/^(?:给|派给|由)/, '');
+    if (S.alias.has(k)) return S.alias.get(k);
+    const ascii = k.match(/[a-z0-9_-]{2,}/);
+    if (ascii && S.alias.has(ascii[0])) return S.alias.get(ascii[0]);
+  }
+  return null;
+}
+
+// roster 是团队称呼的权威来源（state.name 可能只是 agent 的 display_name，如 DeepSeek）。
+const displayName = m => S.rosterFor.get(m?.id)?.name || m?.name || m?.id || '未知';
+function avatarSpec(m) {
+  const rm = S.rosterFor.get(m.id);
+  const own = String(m.avatar || '').trim();
+  const custom = /^https?:\/\//i.test(own) || own.startsWith('upload:');
+  // 上传/外链头像优先；内置角色图以 roster 为准，roster 写空就不借用别人的图。
+  const v = custom ? own : (rm ? String(rm.avatar || '').trim() : own);
+  if (/^https?:\/\//i.test(v)) return { src: v };
+  if (v.startsWith('upload:')) return { src: '/collab/avatars/uploads/' + encodeURIComponent(v.slice(7).replace(/\.png$/i, '')) + '.png' };
+  if (v) return { src: '/collab/avatars/' + encodeURIComponent(v.replace(/\.png$/i, '')) + '.png' };
+  return { init: Array.from(displayName(m))[0] || '?', color: colorOf(m.id) };
+}
+
+function findActive(id) {
+  for (const [memberId, rec] of S.active) if (rec.id === id) return { memberId, rec };
+  return null;
+}
+function setTask(member, rec) {
+  if (!member) return;
+  for (const [id, cur] of S.active) if (cur.id === rec.id && id !== member.id) S.active.delete(id);
+  S.active.set(member.id, rec);
+}
+function clearTask(memberId) { S.active.delete(memberId); }
+function initBadge(m) {
+  const n = el('span', 'init', Array.from(displayName(m))[0] || '?');
+  n.style.background = `linear-gradient(145deg,${colorOf(m.id)},#182231 70%)`;
+  return n;
+}
+
+function seatNode(m) {
+  const seat = el('div', 'seat');
+  seat.dataset.id = m.id;
+  seat.style.setProperty('--shirt', shirtOf(m.id));
+  const chair = el('div', 'chair');
+  const person = el('div', 'person');
+  const aura = el('div', 'aura');
+  const body = el('div', 'body');
+  const avatar = el('div', 'avatar');
+  const spec = avatarSpec(m);
+  if (spec.src) {
+    const img = el('img');
+    img.alt = ''; img.decoding = 'async'; img.src = spec.src;
+    img.addEventListener('error', () => img.replaceWith(initBadge(m)));
+    avatar.append(img);
+  } else avatar.append(initBadge(m));
+  avatar.append(el('span', 'dot'));
+  const crown = el('span', 'crown', '♛'); crown.hidden = true; avatar.append(crown);
+  const tasktag = el('div', 'tasktag'); tasktag.hidden = true;
+  const bubble = el('div', 'bubble'); bubble.hidden = true;
+  person.append(aura, body, avatar, tasktag, bubble);
+  const desk = el('div', 'desk');
+  const monitor = el('div', 'monitor');
+  monitor.append(el('div', 'screen'), el('div', 'stand'), el('div', 'base'));
+  const desktop = el('div', 'desktop');
+  const plate = el('div', 'plate', displayName(m));
+  desktop.append(el('div', 'keyboard'), el('div', 'papers'), el('div', 'mug'), plate);
+  const status = el('div', 'status', '摸鱼中');
+  const lamp = el('div', 'lamp');
+  lamp.append(el('div', 'arm'), el('div', 'shade'), el('div', 'cone'), el('div', 'pool'));
+  desk.append(monitor, desktop, status, lamp);
+  seat.append(chair, person, desk);
+  seat.title = displayName(m);
+  return seat;
+}
+
+function rosterRank(m) {
+  const at = (ROSTER.members ?? []).indexOf(S.rosterFor.get(m.id));
+  return at < 0 ? 99 : at;
+}
+function orderedMembers() {
+  const list = [...S.memberList];
+  list.sort((a, b) => rosterRank(a) - rosterRank(b) || displayName(a).localeCompare(displayName(b), 'zh'));
+  const lead = S.lead ? S.byId.get(S.lead) : undefined;
+  if (lead) {
+    const at = list.indexOf(lead);
+    if (at > 0) { list.splice(at, 1); list.unshift(lead); }
+  }
+  return list;
+}
+
+// Column count from the live roster (3-12 seats must all look intentional): up to 4 seats keep one
+// row, 5-8 split into two rows, 9-12 into three; never more than 4 columns, so a desk keeps a
+// readable width. Source: this task's requirement that 3..12 seats all lay out well.
+function seatColumns(n) {
+  if (n <= 5) return Math.max(1, n);
+  if (n <= 8) return Math.ceil(n / 2);
+  return Math.min(4, Math.ceil(n / 3));
+}
+
+function renderSeats() {
+  const order = orderedMembers();
+  const nodes = order.map(seatNode);
+  S.seatNodes = new Map(order.map((m, i) => [m.id, nodes[i]]));
+  const seats = $('seats');
+  seats.style.setProperty('--cols', String(seatColumns(order.length)));
+  seats.replaceChildren(...nodes);
+  setEmpty();
+  paintAll();
+}
+
+function paintBubble(node, kind) {
+  const bubble = q('.bubble', node);
+  if (kind === 'off') { bubble.hidden = true; bubble.dataset.kind = ''; return; }
+  bubble.hidden = false;
+  if (bubble.dataset.kind === kind) return;
+  bubble.dataset.kind = kind;
+  bubble.replaceChildren();
+  if (kind === 'idle') {
+    bubble.append(el('span', 'zzz', 'z'), el('span', 'zzz', 'z'), el('span', 'fish'));
+  } else {
+    for (let i = 0; i < 3; i++) bubble.append(el('span', 'td'));
+  }
+}
+
+function paintSeat(m) {
+  const node = S.seatNodes?.get(m.id);
+  if (!node) return;
+  const rec = S.active.get(m.id);
+  const thinking = S.thinking.has(m.id);
+  const online = m.online !== false;
+  const kind = !online ? 'off' : rec ? 'work' : thinking ? 'think' : 'idle';
+  node.classList.toggle('offline', !online);
+  node.classList.toggle('working', kind === 'work');
+  node.classList.toggle('thinking', kind === 'think');
+  node.classList.toggle('idle', kind === 'idle');
+  node.classList.toggle('lead', S.lead === m.id);
+  q('.crown', node).hidden = S.lead !== m.id;
+  q('.avatar .dot', node).style.background = !online ? '#64748b' : rec ? '#ffc56b' : thinking ? '#7dd3fc' : '#34d399';
+  const tag = q('.tasktag', node);
+  if (rec) {
+    tag.hidden = false;
+    tag.textContent = `#${rec.id || '?'} ${rec.title || ''}`.trim();
+    tag.title = `${rec.title || ''}${rec.note ? ' · ' + rec.note : ''}`;
+  } else { tag.hidden = true; tag.title = ''; }
+  const status = q('.status', node);
+  status.textContent = !online ? '离线' : rec ? '干活中' : thinking ? '思考中…' : '摸鱼中';
+  paintBubble(node, kind);
+  q('.plate', node).textContent = displayName(m);
+  node.title = `${displayName(m)} · ${status.textContent}`;
+}
+
+function paintAll() {
+  for (const m of S.memberList) paintSeat(m);
+  updateStats();
+}
+
+function updateStats() {
+  const online = S.memberList.filter(m => m.online !== false).length;
+  $('stats').textContent = `在线 ${online}/${S.memberList.length} · 进行中 ${S.active.size}`;
+}
+
+function setEmpty() {
+  const empty = $('empty');
+  empty.hidden = S.memberList.length > 0;
+  if (!S.memberList.length) empty.textContent = S.fixture ? '示例成员载入中…' : '还没有成员接入 DSH';
+}
+
+function setTicker(kind, ts, fromName, toName, text, note) {
+  const route = [fromName, toName].filter(Boolean).join(' → ');
+  // 底部一行只给人看：去掉 dispatcher= / ws_was= 这类原始键值
+  const clean = v => String(v ?? '').replace(/[a-z_]+=[^\s·，]+/gi, '').replace(/\s{2,}/g, ' ').trim();
+  const body = [clean(text), clean(note)].filter(Boolean).join(' · ');
+  $('ticker').textContent = `最新：${fmtTime(ts)} ${KIND[kind] ?? kind} ${route}${body ? ' · ' + body : ''}`;
+}
+
+function addLog(kind, ts, fromName, toName, text, note) {
+  const list = $('eventLog');
+  const li = el('li');
+  const l1 = el('div', 'l1');
+  l1.append(el('span', 't', fmtTime(ts)), el('span', 'chip ' + kind, KIND[kind] ?? kind));
+  l1.append(el('span', 'route', [fromName, toName].filter(Boolean).join(' → ')));
+  li.append(l1, el('div', 'l2', [text, note].filter(Boolean).join(' · ') || '—'));
+  list.prepend(li);
+  while (list.children.length > S.logLimit) list.lastChild.remove();
+  S.eventCount += 1;
+  $('eventCount').textContent = S.eventCount;
+  setTicker(kind, ts, fromName, toName, text, note);
+}
+
+function setLead(id) {
+  const next = id && S.byId.has(id) ? id : null;
+  if (S.lead === next) { paintAll(); return; }
+  S.lead = next;
+  renderSeats();
+}
+function syncBeamViewBox() {
+  const stage = $('stage'), svg = $('beams');
+  svg.setAttribute('viewBox', `0 0 ${Math.max(1, stage.clientWidth)} ${Math.max(1, stage.clientHeight)}`);
+}
+
+function avatarCenter(id) {
+  const node = S.seatNodes?.get(id);
+  if (!node) return null;
+  const avatar = q('.avatar', node);
+  const a = avatar.getBoundingClientRect(), stage = $('stage').getBoundingClientRect();
+  return { x: a.left - stage.left + a.width / 2, y: a.top - stage.top + a.height / 2 };
+}
+
+function beam(from, to, kind = 'assign') {
+  if (!from || !to || from.id === to.id) return;
+  const a = avatarCenter(from.id), b = avatarCenter(to.id);
+  if (!a || !b) return;
+  syncBeamViewBox();
+  const dx = b.x - a.x, dy = b.y - a.y, dist = Math.hypot(dx, dy);
+  const lift = kind === 'at' ? Math.min(64, 24 + dist * 0.08) : Math.min(110, 32 + dist * 0.12);
+  const cx = (a.x + b.x) / 2, cy = Math.min(a.y, b.y) - lift;
+  const d = `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+  const g = svgEl('g', { class: `beam ${kind}` });
+  g.append(svgEl('path', { d, class: 'base' }));
+  g.append(svgEl('path', { d, class: 'trace' }));
+  $('beams').append(g);
+  // @ 细光：线短暂变成流动虚线，一颗小圆点从作者这边走过（实时与回放共用）。
+  if (kind === 'at') {
+    const dot = svgEl('circle', { class: 'dot', r: 2.6, cx: a.x, cy: a.y });
+    g.append(dot);
+    const line = q('.base', g), len = line.getTotalLength();
+    // 沿用 887 细线流光 1.5s 的淡出窗口：小圆点 760ms 走完，剩下的时间留给线淡出。
+    const dur = 760, t0 = performance.now();
+    const step = now => {
+      const k = Math.min(1, (now - t0) / dur);
+      const e = 1 - Math.pow(1 - k, 3);
+      const pt = line.getPointAtLength(len * e);
+      dot.setAttribute('cx', pt.x); dot.setAttribute('cy', pt.y);
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+    setTimeout(() => g.remove(), 1500);
+    return;
+  }
+  const dot = svgEl('circle', { class: 'dot', r: kind === 'return' ? 4 : 4.5, cx: a.x, cy: a.y });
+  g.append(dot);
+  const line = q('.base', g), len = line.getTotalLength();
+  const dur = 420, t0 = performance.now();
+  const step = now => {
+    const k = Math.min(1, (now - t0) / dur);
+    const e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    const pt = line.getPointAtLength(len * e);
+    dot.setAttribute('cx', pt.x); dot.setAttribute('cy', pt.y);
+    if (k < 1) { requestAnimationFrame(step); return; }
+    const node = S.seatNodes?.get(to.id);
+    if (node) {
+      node.classList.remove('tick', 'hit');
+      void node.offsetWidth;
+      node.classList.add(kind === 'reject' ? 'hit' : 'tick');
+      setTimeout(() => node.classList.remove('tick', 'hit'), 620);
+    }
+    setTimeout(() => g.remove(), 280);
+  };
+  requestAnimationFrame(step);
+}
+
+function flashSeat(memberId, cls) {
+  const node = S.seatNodes?.get(memberId);
+  if (!node) return;
+  node.classList.remove(cls);
+  void node.offsetWidth;
+  node.classList.add(cls);
+  setTimeout(() => node.classList.remove(cls), 1500);
+}
+
+function deskPop(memberId, text, kind = 'info') {
+  const node = S.seatNodes?.get(memberId);
+  if (!node || !text) return;
+  const pop = el('div', `pop ${kind}`, text);
+  node.append(pop);
+  setTimeout(() => pop.remove(), 1900);
+}
+
+let toastTimer;
+function toast(text) {
+  const box = $('toast');
+  box.textContent = text;
+  box.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { box.hidden = true; }, 3600);
+}
+function recomputeThinking() {
+  S.thinking = new Set();
+  for (const set of S.thinkingRooms.values()) for (const id of set) S.thinking.add(id);
+}
+function setThinkingRooms(map) {
+  S.thinkingRooms = new Map();
+  for (const [room, list] of Object.entries(map ?? {})) if (Array.isArray(list) && list.length) S.thinkingRooms.set(String(room), new Set(list));
+  recomputeThinking();
+}
+function applyThinking(ev) {
+  const room = String(ev.room_id ?? '');
+  const set = new Set(Array.isArray(ev.members) ? ev.members : []);
+  if (set.size) S.thinkingRooms.set(room, set); else S.thinkingRooms.delete(room);
+  recomputeThinking();
+  paintAll();
+}
+
+function setMembers(list) {
+  indexMembers(list);
+  if (S.lead && !S.byId.has(S.lead)) S.lead = null;
+  renderSeats();
+}
+
+/**
+ * 事件契约（真实 A 路）：from 是派活人，to 是干活人。
+ * 回传光只在绘制处反向一次：beam(worker, dispatcher)。这里不再做第二次方向猜测。
+ * active 记录只在 to 缺失时兜底，不覆盖事件里的 to。
+ */
+function workerAndDispatcher(rec, from, to) {
+  const worker = to || (rec ? S.byId.get(rec.memberId) : null);
+  return { worker, dispatcher: from };
+}
+
+function setTask(member, rec) {
+  if (rec.id) for (const [memberId, old] of S.active) if (old.id === rec.id && memberId !== member.id) S.active.delete(memberId);
+  S.active.set(member.id, { ...rec, memberId: member.id });
+}
+function clearTask(memberId) { S.active.delete(memberId); }
+function findActive(taskId) {
+  if (!taskId) return null;
+  for (const [memberId, rec] of S.active) if (rec.id === taskId) return { ...rec, memberId };
+  return null;
+}
+
+// <dispatch-model>
+/** 同一次派活的稳定键：taskId>memberId。 */
+function dispatchKey(id, toId) { return `${id}>${toId}`; }
+/** 只有本次派活周期内没画过才放行。 */
+function dispatchAllowed(id, toId, dispatched) {
+  return !!id && !!toId && !dispatched.has(dispatchKey(id, toId));
+}
+/** 结束本次派活：清掉该任务的所有去重键，交回/打回后再派同一个人仍会画光。 */
+function forgetDispatch(id, dispatched) {
+  if (!id) return;
+  const prefix = id + '>';
+  for (const key of [...dispatched]) if (key.startsWith(prefix)) dispatched.delete(key);
+}
+// </dispatch-model>
+
+function dispatchBeamOnce(id, from, to) {
+  if (!dispatchAllowed(id, to.id, S.dispatched)) return;
+  S.dispatched.add(dispatchKey(id, to.id));
+  beam(from, to, 'assign');
+}
+
+function applyTask(ev, animate = true) {
+  const id = String(ev.id ?? '');
+  const kind = String(ev.kind ?? '');
+  const from = resolveRef(ev.from);
+  const to = resolveRef(ev.to);
+  const title = String(ev.title ?? '');
+  const note = String(ev.note ?? '');
+  const ts = ev.ts ?? Date.now();
+  const fromName = from ? displayName(from) : (ev.from || '—');
+  const toName = to ? displayName(to) : (ev.to || '—');
+  const header = id ? `#${id} ${title}`.trim() : title;
+
+  if (kind === 'created' || kind === 'assigned') {
+    if (to) {
+      const prev = S.active.get(to.id);
+      setTask(to, { id, title: title || prev?.title || '', note: note || prev?.note || '', from: from?.id ?? prev?.from ?? null, to: to.id });
+      if (kind === 'created' && from && animate) dispatchBeamOnce(id, from, to);
+      if (kind === 'assigned' && from && animate) dispatchBeamOnce(id, from, to);
+      if (animate) flashSeat(to.id, 'flash-gold');
+    }
+  } else if (kind === 'returned' || kind === 'rejected') {
+    const { worker, dispatcher } = workerAndDispatcher(findActive(id), from, to);
+    if (kind === 'returned') {
+      if (worker && dispatcher && animate) beam(worker, dispatcher, 'return');
+      if (worker) {
+        clearTask(worker.id);
+        if (animate) { flashSeat(worker.id, 'flash-good'); deskPop(worker.id, '✓ 交回', 'good'); }
+      }
+      forgetDispatch(id, S.dispatched);
+    } else {
+      if (worker && dispatcher && animate) beam(dispatcher, worker, 'reject');
+      if (worker && animate) { flashSeat(worker.id, 'flash-bad'); deskPop(worker.id, `✕ 打回${note ? '：' + note : ''}`, 'bad'); }
+      forgetDispatch(id, S.dispatched);
+    }
+  } else if (kind === 'paused' || kind === 'done') {
+    const { worker } = workerAndDispatcher(findActive(id), from, to);
+    if (worker) {
+      clearTask(worker.id);
+      if (animate) {
+        if (kind === 'done') { flashSeat(worker.id, 'flash-good'); deskPop(worker.id, '✓ 完成', 'good'); }
+        else deskPop(worker.id, `暂停${note ? '：' + note : ''}`, 'info');
+      }
+    }
+    forgetDispatch(id, S.dispatched);
+  }
+  addLog(kind, ts, fromName, toName, header, note);
+  paintAll();
+}
+
+function applyMessage(ev, animate = true) {
+  const message = ev.message ?? ev;
+  const text = String(message.text ?? '');
+  if (!text || message.author_kind === 'user' || message.author_kind === 'human') return;
+  const author = S.byId.get(message.author) || resolveRef(message.name) || resolveRef(message.author);
+  if (!author) return;
+  const targets = new Set();
+  // #876 P: 回放接口直接给被 @ 的成员 id；实时事件没有这个字段，就按 hub 的同一套规则
+  // （mentions.mjs）从文本认：``` 代码块里的不算，多个名字重叠时最长优先。
+  if (Array.isArray(message.mentions)) {
+    for (const id of message.mentions) {
+      const other = S.byId.get(id);
+      if (other && other.id !== author.id) targets.add(other);
+    }
+  } else {
+    const outside = text.split('```').filter((_, i) => i % 2 === 0).join(' ');
+    const pairs = [];
+    for (const other of S.memberList) {
+      if (other.id === author.id) continue;
+      const rm = S.rosterFor.get(other.id);
+      for (const n of [other.name, other.id, rm?.name, ...(rm?.aliases ?? [])].filter(Boolean)) pairs.push(['@' + n, other]);
+    }
+    pairs.sort((a, b) => b[0].length - a[0].length);
+    // 逐位扫描、命中即跳过整段，和 mentions.mjs 的 matchAll(最长优先) 等价：
+    // 否则 "@阿柚子" 会同时命中 "@阿柚子" 和 "@阿柚" 两个名字。
+    for (let i = 0; i < outside.length;) {
+      const hit = pairs.find(([alias]) => outside.startsWith(alias, i));
+      if (hit === undefined) { i += 1; continue; }
+      targets.add(hit[1]);
+      i += hit[0].length;
+    }
+  }
+  if (!targets.size) return;
+  if (animate) for (const target of targets) beam(author, target, 'at');
+  const ts = ev.ts ?? (message.created_at ? message.created_at * 1000 : Date.now());
+  addLog('at', ts, displayName(author), [...targets].map(displayName).join('、'), text.slice(0, 70), '');
+}
+
+function applyEvent(ev, animate = true) {
+  if (!ev || typeof ev !== 'object') return;
+  if (ev.type === 'task') applyTask(ev, animate);
+  else if (ev.type === 'thinking') applyThinking(ev);
+  else if (ev.type === 'message') applyMessage(ev, animate);
+  else if (ev.type === 'members') setMembers(ev.members);
+  else if (ev.type === 'lead') setLead(ev.effective_lead_id ?? ev.lead_id);
+}
+S.logLimit = S.logLimit || 80;
+
+async function api(path) {
+  const res = await fetch(path, { credentials: 'same-origin', cache: 'no-store' });
+  if (!res.ok) {
+    let message = res.statusText;
+    try { const body = await res.json(); message = body.error || message; } catch { /* not JSON */ }
+    throw new Error(`${message} (${res.status})`);
+  }
+  return res.json();
+}
+
+function setConn(kind, text) {
+  const pill = $('conn');
+  pill.classList.remove('live', 'wait', 'err', 'replay');
+  if (kind) pill.classList.add(kind);
+  pill.textContent = text;
+}
+
+function disconnectLive() {
+  if (S.es) { S.es.close(); S.es = null; }
+}
+
+async function loadState() {
+  const state = await api('/collab/api/state');
+  S.me = state.me ?? null;
+  indexMembers(state.members ?? []);
+  const lead = state.effective_lead_id ?? state.lead_id ?? null;
+  S.lead = lead && S.byId.has(lead) ? lead : null;
+  setThinkingRooms(state.thinking ?? {});
+  renderSeats();
+}
+
+function connectLive() {
+  disconnectLive();
+  const es = new EventSource('/collab/api/events');
+  S.es = es;
+  es.onopen = () => { if (S.es === es && S.mode === 'live') setConn('live', '实时已连接'); };
+  es.onmessage = (message) => {
+    // 已切回放或已换连接时，忽略在途回调，避免历史场景混入实时事件。
+    if (S.es !== es || S.mode !== 'live') return;
+    try { applyEvent(JSON.parse(message.data), true); } catch (error) { console.warn('desk event', error); }
+  };
+  es.onerror = () => { if (S.es === es && S.mode === 'live') setConn('wait', '重连中…'); };
+}
+
+function resetScene(clearLog = true) {
+  stopReplayTimer();
+  S.active.clear();
+  S.thinkingRooms.clear();
+  S.thinking.clear();
+  S.dispatched.clear();
+  $('beams').replaceChildren();
+  for (const node of S.seatNodes?.values() ?? []) for (const pop of node.querySelectorAll('.pop')) pop.remove();
+  if (clearLog) {
+    $('eventLog').replaceChildren();
+    S.eventCount = 0;
+    $('eventCount').textContent = '0';
+    $('ticker').textContent = '等待事件…';
+  }
+  paintAll();
+}
+
+function setModeUI(mode) {
+  S.mode = mode;
+  const live = mode === 'live';
+  $('modeLive').classList.toggle('on', live);
+  $('modeReplay').classList.toggle('on', !live);
+  $('modeLive').setAttribute('aria-selected', String(live));
+  $('modeReplay').setAttribute('aria-selected', String(!live));
+  $('replayBar').hidden = live;
+  if (!live) { disconnectLive(); setConn('replay', '回放模式'); }
+}
+
+async function goLive() {
+  disconnectLive();
+  stopReplay();
+  S.fixture = false;
+  $('fixtureBadge').hidden = true;
+  resetScene();
+  setModeUI('live');
+  setConn('wait', '连接中');
+  try {
+    await loadState();
+    connectLive();
+  } catch (error) {
+    setConn('err', '连接失败');
+    toast(`加载失败：${error.message}`);
+  }
+}
+const R = (S.replay = { events: [], idx: 0, playing: false, speed: 4, timer: null, loaded: false });
+
+function toLocalInput(date) {
+  const p = n => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`;
+}
+
+function setDefaultRange() {
+  const now = new Date();
+  $('to').value = toLocalInput(now);
+  $('from').value = toLocalInput(new Date(now.getTime() - 2 * 3600e3));
+}
+
+function setRangePreset(name) {
+  const now = new Date();
+  if (name === '1h') {
+    $('to').value = toLocalInput(now);
+    $('from').value = toLocalInput(new Date(now.getTime() - 3600e3));
+  } else if (name === 'tonight') {
+    const from = new Date(now); from.setDate(from.getDate() - 1); from.setHours(20, 0, 0, 0);
+    const to = new Date(now); to.setHours(8, 0, 0, 0);
+    $('from').value = toLocalInput(from); $('to').value = toLocalInput(to);
+  }
+}
+
+function eventMs(ev) {
+  if (ev.type === 'message') {
+    const message = ev.message ?? ev;
+    if (typeof message.created_at === 'number') return message.created_at * 1000;
+  }
+  const raw = ev.ts ?? ev.created_at;
+  if (typeof raw === 'number') return raw > 1e12 ? raw : raw * 1000;
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? ms : NaN;
+}
+
+function normalizeReplay(data) {
+  let list = Array.isArray(data) ? data : data?.events ?? data?.items ?? [];
+  if (!Array.isArray(list)) list = [];
+  if (!list.length && (Array.isArray(data?.board) || Array.isArray(data?.messages))) {
+    list = [...(data.board ?? []).map(e => ({ ...e, type: 'task' })), ...(data.messages ?? []).map(m => ({ type: 'message', message: m }))];
+  }
+  return list
+    .map(ev => {
+      if (!ev || typeof ev !== 'object') return null;
+      const out = ev.type === 'task' || ev.kind ? { ...ev, type: 'task' } : ev;
+      const ms = eventMs(out);
+      return Number.isFinite(ms) ? { ...out, _ms: ms } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a._ms - b._ms);
+}
+
+function stopReplayTimer() {
+  if (R.timer) clearTimeout(R.timer);
+  R.timer = null;
+}
+function pauseReplay() {
+  R.playing = false;
+  stopReplayTimer();
+  const button = $('playPause');
+  if (button) { button.textContent = '▶'; button.setAttribute('aria-label', '播放'); }
+}
+function stopReplay() {
+  pauseReplay();
+  R.events = []; R.idx = 0; R.loaded = false;
+}
+
+function updateReplayUI() {
+  $('playPause').disabled = !R.loaded || !R.events.length;
+  $('playPause').textContent = R.playing ? '⏸' : '▶';
+  $('playPause').setAttribute('aria-label', R.playing ? '暂停' : '播放');
+  $('progress').disabled = !R.loaded || !R.events.length;
+  $('progress').max = String(Math.max(1, R.events.length));
+  $('progress').value = String(R.idx);
+  if (R.events.length) $('virtualClock').textContent = fmtTime(R.events[R.idx > 0 ? R.idx - 1 : 0]._ms);
+  else $('virtualClock').textContent = '--:--';
+}
+
+function setReplayEvents(events) {
+  R.events = events;
+  R.idx = 0;
+  R.loaded = true;
+  R.playing = false;
+  stopReplayTimer();
+  updateReplayUI();
+  if (!events.length) {
+    $('virtualClock').textContent = '--:--';
+    toast('这个时间段没有记录的事件');
+  }
+}
+
+function stepReplay() {
+  if (!R.playing) return;
+  const ev = R.events[R.idx];
+  if (!ev) { pauseReplay(); return; }
+  applyEvent(ev, true);
+  R.idx += 1;
+  updateReplayUI();
+  if (R.idx >= R.events.length) {
+    pauseReplay();
+    toast('回放结束');
+    return;
+  }
+  const gap = Math.min(2400, Math.max(350, R.events[R.idx]._ms - ev._ms)) / R.speed;
+  R.timer = setTimeout(stepReplay, gap);
+}
+
+function startReplay() {
+  if (!R.events.length) return;
+  if (R.idx >= R.events.length) {
+    resetScene(true);
+    R.idx = 0;
+  }
+  R.playing = true;
+  updateReplayUI();
+  stepReplay();
+}
+
+function toggleReplay() {
+  if (R.playing) pauseReplay(); else startReplay();
+  updateReplayUI();
+}
+
+function seekReplay(value) {
+  const target = Math.max(0, Math.min(R.events.length, Number(value)));
+  const was = R.playing;
+  pauseReplay();
+  resetScene(true);
+  for (let i = 0; i < target; i++) applyEvent(R.events[i], false);
+  R.idx = target;
+  updateReplayUI();
+  if (was) startReplay();
+}
+
+async function loadReplayWindow(auto = false) {
+  setModeUI('replay');
+  pauseReplay();
+  const from = Date.parse($('from').value);
+  const to = Date.parse($('to').value);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) { toast('请选择有效的时间段'); return; }
+  resetScene(true);
+  setReplayEvents([]);
+  try {
+    const query = `from=${encodeURIComponent(new Date(from).toISOString())}&to=${encodeURIComponent(new Date(to).toISOString())}`;
+    const data = await api('/collab/api/desk/replay?' + query);
+    setReplayEvents(normalizeReplay(data));
+    if (auto && R.events.length) startReplay();
+  } catch (error) {
+    toast(`回放载入失败：${error.message}`);
+    updateReplayUI();
+  }
+}
+
+async function loadFixture() {
+  S.fixture = true;
+  $('fixtureBadge').hidden = false;
+  setModeUI('replay');
+  // B 路的 desk 路由只内联 index.html，不服务同目录文件；fixture 必须内联读取。
+  let lines = [];
+  try { lines = JSON.parse($('fixtureData').textContent || '[]'); } catch { lines = []; }
+  const events = [];
+  for (const line of lines) {
+    try { events.push(typeof line === 'string' ? JSON.parse(line) : line); } catch { /* skip bad sample line */ }
+  }
+  const membersEvent = events.find(ev => ev.type === 'members' && Array.isArray(ev.members));
+  indexMembers(membersEvent ? membersEvent.members : DEMO_MEMBERS);
+  S.lead = S.memberList[0]?.id ?? null;
+  renderSeats();
+  setThinkingRooms({});
+  setReplayEvents(normalizeReplay(events.filter(ev => ev.type !== 'members')));
+  const params = new URLSearchParams(location.search);
+  if (params.get('autoplay') === '1' && R.events.length) setTimeout(startReplay, 500);
+}
+function tickClock() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  $('clockDigital').textContent = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  const sec = d.getSeconds() + d.getMilliseconds() / 1000;
+  const min = d.getMinutes() + sec / 60;
+  const hour = (d.getHours() % 12) + min / 60;
+  const clock = $('wallClock');
+  const h = q('.hand.h', clock), m = q('.hand.m', clock), sHand = q('.hand.s', clock);
+  if (h) h.style.transform = `rotate(${hour * 30}deg)`;
+  if (m) m.style.transform = `rotate(${min * 6}deg)`;
+  if (sHand) sHand.style.transform = `rotate(${sec * 6}deg)`;
+}
+
+function wireUI() {
+  $('modeLive').onclick = () => { goLive(); };
+  $('modeReplay').onclick = () => { pauseReplay(); setModeUI('replay'); };
+  $('loadReplay').onclick = () => { loadReplayWindow(true); };
+  $('playPause').onclick = () => { toggleReplay(); };
+  $('speed').onchange = () => { R.speed = Number($('speed').value) || 4; };
+  // 进度条按事件条数定位；拖动后立刻重建场景，不等计时器。
+  $('progress').oninput = () => { seekReplay($('progress').value); };
+  for (const button of document.querySelectorAll('[data-range]')) button.onclick = () => setRangePreset(button.dataset.range);
+  window.addEventListener('resize', syncBeamViewBox);
+}
+
+async function boot() {
+  setDefaultRange();
+  wireUI();
+  tickClock();
+  setInterval(tickClock, 1000);
+  syncBeamViewBox();
+  const params = new URLSearchParams(location.search);
+  if (params.get('fixture') === '1') { await loadFixture(); return; }
+  const from = params.get('from'), to = params.get('to');
+  if (from && to) {
+    const f = Date.parse(from), t = Date.parse(to);
+    if (Number.isFinite(f) && Number.isFinite(t)) {
+      // 时间窗入口直接进回放：先断开实时，再载入历史，避免边连边混。
+      setModeUI('replay');
+      $('from').value = toLocalInput(new Date(f));
+      $('to').value = toLocalInput(new Date(t));
+      try { await loadState(); } catch (error) { setConn('err', '状态加载失败'); }
+      await loadReplayWindow(false);
+      return;
+    }
+  }
+  await goLive();
+}
+
+boot();
+
+</script>
+</body>
+</html>

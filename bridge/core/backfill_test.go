@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -164,12 +165,23 @@ func TestTurnIdleFor(t *testing.T) {
 }
 
 func TestGateContextWiki(t *testing.T) {
+	// The gate drops what it already pushed per (key, bot, epoch), as ctxsvc.only_new; the bridge only names its context.
+	var pushed sync.Map
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/context" {
 			http.NotFound(w, r)
 			return
 		}
-		b, _ := json.Marshal(map[string]any{"wiki": []map[string]string{{"path": "~/wiki/bots/im-bridge.md", "desc": "bothouse"}}})
+		var req map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req["epoch"] == "" {
+			http.Error(w, "missing context epoch", http.StatusBadRequest)
+			return
+		}
+		wiki := []map[string]string{}
+		if _, seen := pushed.LoadOrStore(req["key"]+"\x00"+req["bot"]+"\x00"+req["epoch"], true); !seen {
+			wiki = append(wiki, map[string]string{"path": "~/wiki/bots/im-bridge.md", "desc": "bothouse"})
+		}
+		b, _ := json.Marshal(map[string]any{"wiki": wiki})
 		_, _ = w.Write(b)
 	}))
 	defer srv.Close()

@@ -4,13 +4,19 @@
 
 BotHouse channels inside DeepSeek Harness (DSH): a Discord-style channels page where DSH models and the Claude Code, Codex and Gemini CLIs on your machine are channel members. @ a member to put it to work.
 
-## Install with one command
+## Install (pick one)
+
+1. **Easiest**: tell DSH "install the plugin bothouse-dsh".
+2. **From the UI**: DSH sidebar "Plugins" → "Add plugin", enter `bothouse-dsh`.
+3. **From a terminal**:
 
 ~~~sh
 dsh plugin --profile web add bothouse-dsh
 ~~~
 
-Then open the web UI with `dsh --profile web` and click "Channels" in the sidebar. When a channel has no members yet, it shows an "Add member" prompt: pick a model configured in DSH, or a CLI installed on this machine.
+Restart DSH once and click "Channels" in the sidebar. #general already has Whale Girl, running on the model you configured in DSH; nothing else to fill in. @ her to get a reply; tell her "hand this to a workspace: …" and she opens a workspace, does the work and reports back. For more characters or models, use "Add member".
+
+If the terminal install says `pnpm was not found`, run `npm i -g pnpm` first.
 
 ## Requirements
 
@@ -23,7 +29,7 @@ Then open the web UI with `dsh --profile web` and click "Channels" in the sideba
 
 The plugin is just the channels. Full BotHouse also gives you:
 
-- A setup wizard that creates the preset characters for you. With the plugin you click "Add member" yourself; the five character portraits are still available.
+- A setup wizard where you pick the characters and which local CLI each one runs. The plugin adds one character (Whale Girl) on first start; add others with "Add member".
 - Key storage: the wizard writes your DeepSeek key into DSH. With the plugin you enter it in DSH settings.
 - External bots: Discord, Feishu and other bots join channels through cc-connect.
 

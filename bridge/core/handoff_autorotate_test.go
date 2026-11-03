@@ -32,7 +32,7 @@ func TestFreshOnContextSizeScope(t *testing.T) {
 	}
 	e.SetAutoCompressConfig(false, 0, 0)
 
-	chat.TurnCtx = &TurnCtxSent{Wiki: []string{"a.md"}, Team: "k"}
+	chat.TurnCtx = &TurnCtxSent{Epoch: "ep1", Team: "k"}
 	if n := e.freshOnContextSize(a, chat, "discord:chat1"); !strings.Contains(n, "31.2 万") {
 		t.Fatalf("chat channel: notice = %q", n)
 	}

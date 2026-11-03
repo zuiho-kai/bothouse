@@ -224,7 +224,7 @@ func (e *Engine) retryFreshOnPromptTooLong(p Platform, msg Message, errMsg strin
 		return false
 	}
 	sessions.Save()
-	e.send(p, markSystemNotice(p, msg.ReplyCtx), notice)
+	e.sendSystemNotice(p, msg.ReplyCtx, notice)
 	return e.rerunOnFreshSession(p, msg, old, session, sessions, agent, interactiveKey, workspaceDir, ccSessionKey)
 }
 

@@ -4,13 +4,19 @@
 
 把 BotHouse 的「频道」装进 DeepSeek Harness（DSH）：Discord 式的频道页，DSH 里的模型和本机的 Claude Code、Codex、Gemini 都能当频道成员，@ 谁谁干活。
 
-## 一条命令安装
+## 安装（三选一）
+
+1. **最省事**：在 DSH 里对它说「帮我装插件 bothouse-dsh」。
+2. **点界面**：DSH 侧栏「插件」→「添加插件」，填 `bothouse-dsh`。
+3. **命令行**：
 
 ~~~sh
 dsh plugin --profile web add bothouse-dsh
 ~~~
 
-然后 `dsh --profile web` 打开网页，点左侧「频道」。第一次进频道没有成员时，页面会引导你「添加成员」：选 DSH 里已配好的模型，或本机已装的 CLI。
+装完重启一次 DSH，点左侧「频道」。#general 里已经有鲸鱼娘，用的是你在 DSH 里配好的那个模型，不用再填任何东西。@鲸鱼娘 就回话；对她说「交给工作区做：……」，她会开工作区干完再交回。想要多角色、多模型，再点「添加成员」。
+
+命令行装时提示 `pnpm was not found`：先 `npm i -g pnpm` 再装。
 
 ## 需要什么
 
@@ -23,7 +29,7 @@ dsh plugin --profile web add bothouse-dsh
 
 插件版只有频道本身。完整版 BotHouse 另外提供：
 
-- 安装向导：一路点完，自动建好预置角色成员。插件版要自己点「添加成员」，五张角色头像照样可选。
+- 安装向导：可以选角色、选每个角色用哪个本机 CLI。插件版第一次启动自动放进鲸鱼娘一个角色，其余要自己点「添加成员」。
 - 代存 Key：向导替你把 DeepSeek Key 写进 DSH。插件版在 DSH 设置里自己填。
 - 外部 bot：通过 cc-connect 把 Discord、飞书等外部 bot 接进频道。
 

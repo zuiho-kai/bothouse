@@ -647,6 +647,9 @@ type queuedMessage struct {
 	turnCtx           bool   // maomao fork: see Message.TurnCtx
 	turnCtxQuery      string
 	fromBot           bool
+	mentioned         bool   // Message.Mentioned: a queue-full chat never turns it away (queue_batch.go)
+	direct            bool   // Message.Direct
+	overflow          bool   // context only: a full group queue gave its place away (queue_batch.go)
 	modeOverride      string // maomao fork: see Message.ModeOverride (cron/timer job.Mode)
 	// maomao fork: set for a queued cron/timer turn to its unmuted platform. When the turn starts
 	// it gets the same team note and channel backfill as a cron/timer turn run directly.
@@ -655,6 +658,8 @@ type queuedMessage struct {
 	scheduledBackfilled bool
 	// maomao fork: the channel task board's text for this message (boardDescOf).
 	boardDesc string
+	// older context-only messages folded into this one (queue_batch.go trimQueuedOverflowLocked)
+	contextBefore []queuedMessage
 }
 
 // interactiveState tracks a running interactive agent session and its permission state.
@@ -3981,7 +3986,10 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		e.logStaleUserMessageDropped("reject_before_queue", msg, interactiveKey, snap)
 		return queueRejected
 	}
-	if len(state.pendingMessages) >= e.maxQueuedMessages && !msg.abortFront {
+	// Only a person's message makes room; a cron/timer or teammate turn keeps the old rule.
+	groupQueue := groupChatQueue(p, msg.ReplyCtx, msg.Direct) && !msg.FromBot && scheduledFrom == nil &&
+		msg.timerJobID == "" && !scheduledTurnUser(msg.UserID)
+	if len(state.pendingMessages) >= e.maxQueuedMessages && !msg.abortFront && !groupQueue {
 		depth := len(state.pendingMessages)
 		e.replyToAuthorizedMessage(p, msg, fmt.Sprintf(e.i18n.T(MsgQueueFull), depth))
 		return queueRejected // handled: queue-full reply sent
@@ -4017,6 +4025,8 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		channelKey:          msg.ChannelKey,
 		userMessageTimeMs:   msg.UserMessageTimeMs,
 		fromBot:             msg.FromBot,
+		mentioned:           msg.Mentioned,
+		direct:              msg.Direct,
 		boardDesc:           boardDescOf(msg),
 	}
 	// Mixed explicit/automatic turns keep separate durable queue entries.
@@ -4027,6 +4037,13 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 			return queueRejected
 		}
 		q.resumedFrom = id
+	}
+	// Room is made only for a message that is accepted (its journal entry, if any, is written);
+	// one that cannot ride as context (journaled, so never batchable) holds a place.
+	if groupQueue && countQueuedLocked(state) >= e.maxQueuedMessages && !msg.abortFront {
+		// A busy group chat: the oldest queued message nobody @-ed becomes context for the next
+		// turn instead of a "queue full" notice (queue_batch.go).
+		q.overflow = e.makeRoomInGroupQueueLocked(state, msg, interactiveKey) && batchableQueued(&q)
 	}
 	if msg.abortFront {
 		// maomao fork: a gate abort is answered before what queued behind the turn it cancels.
@@ -5153,7 +5170,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			}
 			if notice != "" {
 				sessions.Save()
-				go e.send(p, markSystemNotice(p, replyCtx), notice)
+				go e.sendSystemNotice(p, replyCtx, notice)
 				wantID, needRecycle = "", true
 			}
 		}
@@ -5221,15 +5238,15 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	if input == nil {
 		if notice := e.freshOnColdCache(agent, session); notice != "" {
 			sessions.Save()
-			go e.send(p, markSystemNotice(p, replyCtx), notice)
+			go e.sendSystemNotice(p, replyCtx, notice)
 		}
 		if notice := e.freshOnContextSize(agent, session, contextFreshChat(p, sessionKey)); notice != "" {
 			sessions.Save()
-			go e.send(p, markSystemNotice(p, replyCtx), notice)
+			go e.sendSystemNotice(p, replyCtx, notice)
 		}
 		if notice := e.freshOnImageBloat(agent, session); notice != "" {
 			sessions.Save()
-			go e.send(p, markSystemNotice(p, replyCtx), notice)
+			go e.sendSystemNotice(p, replyCtx, notice)
 		}
 	}
 
@@ -6721,7 +6738,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					sessions.Save()
 					cp.Finalize(ProgressCardStateFailed)
 					sp.discard()
-					sendOutput(p, markSystemNotice(p, replyCtx), notice)
+					if !e.noticeKeptOut(p, replyCtx, notice) {
+						sendOutput(p, markSystemNotice(p, replyCtx), notice)
+					}
 					e.cleanupInteractiveState(sessionKey, state)
 					return
 				}
@@ -8581,8 +8600,12 @@ func (e *Engine) handleCommand(p Platform, msg *Message, raw string) bool {
 			e.executeSkill(p, msg, skill, args)
 			return true
 		}
-		// Not a cc-connect command — notify user, then fall through to agent
-		e.send(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgUnknownCommand), "/"+cmd))
+		// Not a cc-connect command — notify user, then fall through to agent.
+		// In a QQ group it is usually meant for another bot: say nothing there.
+		notice := fmt.Sprintf(e.i18n.T(MsgUnknownCommand), "/"+cmd)
+		if !e.noticeKeptOut(p, msg.ReplyCtx, notice) {
+			e.send(p, msg.ReplyCtx, notice)
+		}
 		return false
 	}
 	return true

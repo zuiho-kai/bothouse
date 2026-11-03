@@ -4,7 +4,7 @@ import { personaLibrary } from './personas.mjs';
 //   - insert:
 //       - id: conest-collab
 //         name: /abs/path/dsh/collab/plugin.mjs
-//         config: { dataDir, workspacePath, leadFile?, fallbackLead?, botTokenEnv?, ownerName?, rooms?, dshMembers?, maxRelay? }
+//         config: { dataDir, workspacePath, leadFile?, fallbackLead?, botTokenEnv?, ownerName?, rooms?, dshMembers?, maxRelay?, boardDir?, teamStatusDir?, wikiDir? }
 import { createRequire } from 'node:module';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -24,6 +24,9 @@ import { LeadState } from './lead-state.mjs';
 import { Attachments, INLINE_IMAGE } from './attachments.mjs';
 import { Later, registerLater } from './later.mjs';
 import { QuotaCooling, quotaDirectory } from './quota-cooling.mjs';
+import { DeskEvents, deskRoute } from './desk.mjs';
+import { wikiGalaxyRoute } from './wiki-galaxy.mjs';
+import { TeamStatus } from './team-status.mjs';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -78,7 +81,19 @@ export function resolveConfig(config, env = process.env) {
   const leadFile = c.leadFile ?? join(env.BOTHOUSE_DATA_DIR ?? join(env.HOME ?? '.', '.bothouse'), 'lead.json');
   if (!isAbsolute(leadFile)) throw Error('conest-collab: leadFile must be an absolute path');
   const fallbackLead = String(c.fallbackLead ?? env.CONEST_FALLBACK_LEAD ?? '').trim();
-  return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我' };
+  // #876: board events sit next to board.jsonl; BOARD_DIR is the same switch gate/board.py reads,
+  // and an explicit config value wins so tests never point at the live board.
+  const boardDir = String(c.boardDir ?? env.BOARD_DIR ?? '').trim() || undefined;
+  if (boardDir !== undefined && !isAbsolute(boardDir)) throw Error('conest-collab: boardDir must be an absolute path');
+  // #876 K: busy/idle and board events share one team directory; an explicit value or
+  // CONEST_TEAM_STATUS_DIR wins, and boardDir is the fallback so one setting covers both.
+  const teamStatusRaw = c.teamStatusDir ?? (String(env.CONEST_TEAM_STATUS_DIR ?? '').trim() || boardDir);
+  const teamStatusDir = teamStatusRaw == null ? undefined : String(teamStatusRaw).trim() || undefined;
+  if (teamStatusDir !== undefined && !isAbsolute(teamStatusDir)) throw Error('conest-collab: teamStatusDir must be an absolute path');
+  // Wiki 星河读的 wiki 目录：配置或 CONEST_WIKI_DIR，都没给就是 ~/wiki（只读）。
+  const wikiDir = String(c.wikiDir ?? env.CONEST_WIKI_DIR ?? '').trim() || (env.HOME ? join(env.HOME, 'wiki') : undefined);
+  if (wikiDir !== undefined && !isAbsolute(wikiDir)) throw Error('conest-collab: wikiDir must be an absolute path');
+  return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, boardDir, teamStatusDir, wikiDir, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我' };
 }
 
 /** Resolve a package from the running DSH installation, never a second copy. */
@@ -140,6 +155,9 @@ export async function apply(ctx, rawConfig) {
   roster.load(config.dshMembers);
   const wizard = await roster.importWizard(join(config.dataDir, 'wizard-members.json'), ctx.logger);
   if (wizard.length) ctx.logger.info('conest-collab: added wizard members %s', wizard.join(', '));
+  // Same catalog the add-member picker shows (GET /collab/api/personas defaults to zh).
+  const seeded = await roster.seedDefaults(join(config.dataDir, 'default-members.json'), 'zh', ctx.logger);
+  if (seeded.length) ctx.logger.info('conest-collab: added default members %s', seeded.join(', '));
   ctx.on('session/event', (session, event) => dsh.onSessionEvent(session, event));
   ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => dsh.onClaimed(agent.session.id, message.id, turn));
   ctx.on('agent/inbox/discarded', ({ agent, message }) => dsh.onDiscarded(agent.session.id, message.id));
@@ -149,6 +167,12 @@ export async function apply(ctx, rawConfig) {
   tasks.start();
   later.start();
   quota.start();
+  // #876: only the plugin's own tail touches board-events.jsonl; board.py writes it.
+  const desk = new DeskEvents(hub, { boardDir: config.boardDir, logger: ctx.logger });
+  desk.start();
+  // #876 K: read-only busy/idle from the shared team directory; no bridge change.
+  const teamStatus = config.teamStatusDir === undefined ? undefined : new TeamStatus(hub, config.teamStatusDir, { logger: ctx.logger });
+  teamStatus?.start();
   if (!config.botToken) ctx.logger.warn(`conest-collab: ${config.botTokenEnv} is unset; cc-connect bots cannot connect`);
 
   const owner = req => ctx.connection.requestRejection(req) === undefined;
@@ -170,6 +194,8 @@ export async function apply(ctx, rawConfig) {
     },
   }), 'conest-collab: cloud-web upgrade');
   ctx.effect(() => async () => {
+    teamStatus?.stop();
+    desk.stop();
     quota.close();
     later.close();
     tasks.close();
@@ -207,9 +233,14 @@ export async function apply(ctx, rawConfig) {
     const opened = workspacesRoute(req, res, url, { store, hub, gateway, owner, later, tasks, dsh });
     if (opened !== undefined) return opened;
     if (!owner(req)) {
-      if (path === '/collab' && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
+      if ((path === '/collab' || path === '/collab/desk' || path === '/collab/wiki-galaxy') && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
       return refuse(req, res);
     }
+    // #876 P: 回放里的 @ 用 hub 的成员表解析（routable = 真实角色，不含主人）。
+    const deskHandled = deskRoute(req, res, url, { store, boardDir: config.boardDir, members: hub.routable() });
+    if (deskHandled !== undefined) return deskHandled;
+    const galaxyHandled = wikiGalaxyRoute(req, res, url, { wikiDir: config.wikiDir });
+    if (galaxyHandled !== undefined) return galaxyHandled;
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/personas' && req.method === 'GET') return json(res, 200, personaLibrary(url.searchParams.get('lang') ?? 'zh'));
     if (path === '/collab/api/state' && req.method === 'GET') {
