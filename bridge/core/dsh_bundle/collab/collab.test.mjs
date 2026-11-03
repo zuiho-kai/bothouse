@@ -193,6 +193,30 @@ test('channel primary: independent choices persist, inherit to workspaces and fa
   store.close();
 });
 
+test('channel primary: an unset channel with one Agent defaults to it; with several it waits for a choice', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const store = new Store(join(mkdtempSync(join(tmpdir(), 'collab-solo-primary-')), 'db'));
+  store.ensureRoom(1, 'solo');
+  const hub = new Hub(store, quiet, { selected: () => undefined });
+  store.ensureRoom(2, 'other');
+  hub.setMember({ id: 'me', name: '我', kind: 'human', online: true });
+  hub.setMember({ id: 'a', name: 'a', kind: 'dsh', online: true, rooms: [1] });
+  hub.setMember({ id: 'x', name: 'x', kind: 'dsh', online: true, rooms: [2] });
+  assert.equal(hub.primaryIn(1).id, 'a', 'the only Agent in the channel answers un-@ messages');
+  hub.setMember({ id: 'b', name: 'b', kind: 'dsh', online: true, rooms: [1] });
+  assert.equal(hub.primaryIn(1), undefined, 'several Agents: nobody until the owner picks');
+  store.setLead(1, 'b');
+  assert.equal(hub.primaryIn(1).id, 'b', 'an explicit choice still wins');
+  const global = new Hub(store, quiet, { selected: () => 'x' });
+  global.setMember({ id: 'a', name: 'a', kind: 'dsh', online: true, rooms: [1] });
+  global.setMember({ id: 'x', name: 'x', kind: 'dsh', online: true });
+  global.setMember({ id: 'y', name: 'y', kind: 'dsh', online: true, rooms: [2] });
+  assert.equal(global.primaryIn(2).id, 'x', 'an inherited global choice in the channel is kept');
+  store.close();
+});
+
 test('channel primary: unmentioned messages, /new, workspace hints and handbacks follow their own channel', async () => {
   const hub = makeHub(); hub.store.ensureRoom(2, 'other');
   const fake = fakeDsh(); const dsh = fake.attach(hub, [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]);
@@ -271,7 +295,8 @@ test('channel settings API: validates directories before writing and survives co
   // 频道设置里选回「未选择（按原配置）」时，下拉框送的是空串：等同 null，清掉本频道的选择而不是报错。
   assert.equal((await call({ lead_id: '' })).status, 200);
   assert.equal(hub.store.leadId(1), null);
-  assert.equal(hub.primaryIn(1), undefined);
+  // Owner 2026-11-03: a channel left unset with a single Agent defaults to that Agent.
+  assert.equal(hub.primaryIn(1).id, 'a');
   hub.store.ensureRoom(1, 'general', '/config');
   assert.equal(hub.store.workspacePath(1, '/old'), dir);
   hub.store.close();
