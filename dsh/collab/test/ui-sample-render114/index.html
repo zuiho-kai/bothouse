@@ -1034,7 +1034,8 @@ const ACT = {
       measure('追加正文后图片不重载', kept ? '是（同一节点、同一网址）' : '否', kept ? 'ok' : 'bad');
     };
     if (img) { if (img.complete && img.naturalWidth) settle(); else { img.addEventListener('load', settle, { once: true }); setTimeout(settle, 1200); } }
-    measure('附件样式', '图片内联 + 文件卡各一', 'ok');
+    const imgs = row.querySelectorAll('.att-img').length, files = row.querySelectorAll('.att-file').length;
+    measure('附件样式', imgs + ' 张内联图 · ' + files + ' 个文件卡', imgs === 1 && files === 1 ? 'ok' : 'bad');
   },
   quote() {
     const target = store.find(m => m.author_kind === 'role');
@@ -1101,9 +1102,16 @@ const ACT = {
     ];
     calls.forEach((c, i) => setTimeout(() => say({ card: JSON.stringify({ kind: 'tool', ...c }), author_kind: 'role', author: 'm-cj', name: 'C酱', text: c.summary }), i * 130));
     setTimeout(() => {
-      measure('工具行条数', String(log.querySelectorAll('.tool-row').length) + ' 行');
-      measure('对齐方式', '居中、灰色小字', 'ok');
-      measure('失败态', '红色标注', 'ok');
+      const lines = [...log.querySelectorAll('.tool-row .tool-line')];
+      const first = lines[0];
+      const line = first.getBoundingClientRect(), rowBox = first.parentElement.getBoundingClientRect();
+      const centered = Math.abs((line.left + line.right) / 2 - (rowBox.left + rowBox.right) / 2) < 2;
+      const cs = getComputedStyle(first);
+      const failed = lines.filter(l => l.classList.contains('failed')).length;
+      measure('工具行条数', lines.length + ' 行', lines.length === calls.length ? 'ok' : 'bad');
+      measure('对齐方式', centered ? '居中' : '未居中', centered ? 'ok' : 'bad');
+      measure('字号 / 颜色', cs.fontSize + ' / ' + cs.color, cs.fontSize === '12px' ? 'ok' : 'bad');
+      measure('失败态', failed ? failed + ' 行标红' : '没有失败行', failed === 1 ? 'ok' : 'bad');
     }, 600);
   },
   stick() {

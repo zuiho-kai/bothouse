@@ -74,8 +74,8 @@
     "pageOverflow": false
   },
   "recording": {
-    "frames": 64,
-    "seconds": 8.4,
+    "frames": 65,
+    "seconds": 6.3,
     "mp4": "shots/flow.mp4"
   },
   "shots": {
