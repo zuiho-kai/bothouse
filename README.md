@@ -27,7 +27,7 @@ First-class on Discord, DSH and QQ; the agent CLIs you are already signed in to 
 
 ## DSH users: install in one sentence, then turn one DeepSeek into a whole team
 
-Tell DSH "install the plugin bothouse-dsh" and it is installed. A lead is already in the channel, so with one model and one role you can start chatting and handing out work right away.
+Tell DSH "install the plugin bothouse-dsh, pinned to the newest version on npm" and it is installed. A lead is already in the channel, so with one model and one role you can start chatting and handing out work right away.
 
 Want a crew? Say one sentence to the lead:
 
@@ -44,7 +44,7 @@ The roles are created and added to the channel; the lead splits the work, hands 
 dsh plugin --profile web add "bothouse-dsh@$(npm view bothouse-dsh version)"
 ```
 
-Naming the version installs the newest release on npm right away. You can also open the DSH sidebar → "Plugins" → "Add plugin" and enter `bothouse-dsh`. To add members one by one, or use Codex / Claude Code as members, see [a team from one CLI](docs/single-cli-team.en.md).
+Naming the version installs the newest release on npm right away. You can also open the DSH sidebar → "Plugins" → "Add plugin" and enter `bothouse-dsh@<newest version on npm>`. Without a version, the pnpm that DSH uses holds back fresh releases and you get an older one. To add members one by one, or use Codex / Claude Code as members, see [a team from one CLI](docs/single-cli-team.en.md).
 
 </details>
 

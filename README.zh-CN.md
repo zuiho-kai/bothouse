@@ -27,7 +27,7 @@
 
 ## DSH 用户：一句话装上，一个 DeepSeek 拉出一整个团队
 
-在 DSH 里说一句「帮我装插件 bothouse-dsh」，就装好了。装完频道里已经有一个主角色，单模型、单角色直接开聊、直接派活。
+在 DSH 里说一句「帮我装插件 bothouse-dsh，按 npm 上的最新版本号装」，就装好了。装完频道里已经有一个主角色，单模型、单角色直接开聊、直接派活。
 
 想要一群角色？对主角色说一句：
 
@@ -44,7 +44,7 @@
 dsh plugin --profile web add "bothouse-dsh@$(npm view bothouse-dsh version)"
 ```
 
-带上版本号能直接装到 npm 上的最新版。也可以在 DSH 侧栏「插件」→「添加插件」里填 `bothouse-dsh`。一个个手动加成员、选 Codex / Claude Code 当成员，见[同模型多成员指南](docs/single-cli-team.md#在-dsh-里创建三个成员)。
+带上版本号能直接装到 npm 上的最新版。也可以在 DSH 侧栏「插件」→「添加插件」里填 `bothouse-dsh@<npm 上的最新版本号>`。不带版本号的话，DSH 用的 pnpm 会暂缓刚发布的版本，装到的是旧版。一个个手动加成员、选 Codex / Claude Code 当成员，见[同模型多成员指南](docs/single-cli-team.md#在-dsh-里创建三个成员)。
 
 </details>
 
