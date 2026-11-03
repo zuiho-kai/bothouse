@@ -31,17 +31,18 @@ const DSHProfile = "web"
 
 // DSHStatus is what GET /setup/dsh/status and POST /setup/dsh/install return.
 type DSHStatus struct {
-	NodeVersion     string `json:"node_version,omitempty"`
-	PNPMFound       bool   `json:"pnpm_found"`
-	DependencyError string `json:"dependency_error,omitempty"`
-	Found           bool   `json:"found"`             // dsh is on PATH
-	Version         string `json:"version,omitempty"` // `dsh --version`
-	PluginInstalled bool   `json:"plugin_installed"`  // the profile lists client-ui-discord
-	Profile         string `json:"profile"`
-	OpenCommand     string `json:"open_command"` // run this to open the DSH web page
-	InstallScript   string `json:"install_script,omitempty"`
-	Log             string `json:"log,omitempty"`    // install.sh output (install only)
-	HasDeepSeekKey  bool   `json:"has_deepseek_key"` // legacy name: an existing model login/key lets the wizard leave the key empty
+	NativeModelConfigured bool   `json:"native_model_configured"` // selected model credential is present; not a live authentication check
+	NodeVersion           string `json:"node_version,omitempty"`
+	PNPMFound             bool   `json:"pnpm_found"`
+	DependencyError       string `json:"dependency_error,omitempty"`
+	Found                 bool   `json:"found"`             // dsh is on PATH
+	Version               string `json:"version,omitempty"` // `dsh --version`
+	PluginInstalled       bool   `json:"plugin_installed"`  // the profile lists client-ui-discord
+	Profile               string `json:"profile"`
+	OpenCommand           string `json:"open_command"` // run this to open the DSH web page
+	InstallScript         string `json:"install_script,omitempty"`
+	Log                   string `json:"log,omitempty"`    // install.sh output (install only)
+	HasDeepSeekKey        bool   `json:"has_deepseek_key"` // a DeepSeek key is stored or exported (wizard can leave the field empty)
 	// DeepSeek Harness Desktop (setup_dsh_desktop.go), the wizard's default route
 	DesktopApp             string `json:"desktop_app,omitempty"`          // the installed app, "" when none
 	DesktopProfileReady    bool   `json:"desktop_profile_ready"`          // opened once: its profile exists
@@ -269,7 +270,7 @@ func bashScriptArg(goos, script string) string {
 func GetDSHStatus(ctx context.Context, langs ...string) DSHStatus {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	st := DSHStatus{Profile: DSHProfile, OpenCommand: dshOpenCommand(), InstallScript: FindDSHInstallScript(), HasDeepSeekKey: dshHasUsableModel()}
+	st := DSHStatus{Profile: DSHProfile, OpenCommand: dshOpenCommand(), InstallScript: FindDSHInstallScript()}
 	st.DesktopApp = dshDesktopApp()
 	st.DesktopDownloadURL = dshDesktopDownloadURLFor(runtime.GOOS, runtime.GOARCH)
 	if st.DesktopApp != "" {
@@ -293,6 +294,8 @@ func GetDSHStatus(ctx context.Context, langs ...string) DSHStatus {
 		return st
 	}
 	st.Found = true
+	st.HasDeepSeekKey = dshHasDeepSeekKey()
+	st.NativeModelConfigured = dshNativeModelConfigured("")
 	if out, err := exec.CommandContext(ctx, dshBin, "--version").Output(); err == nil {
 		st.Version = strings.TrimSpace(string(out))
 	}

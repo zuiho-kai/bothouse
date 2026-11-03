@@ -131,7 +131,7 @@ export async function applyWizard(req: WizardRequest): Promise<WizardResult> {
 
 export interface DSHStatus {
   found: boolean; version?: string; plugin_installed: boolean; profile: string;
-  open_command: string; log?: string; has_deepseek_key?: boolean;
+  open_command: string; log?: string; has_deepseek_key?: boolean; native_model_configured?: boolean;
   node_version?: string; pnpm_found?: boolean; dependency_error?: string;
   /** DeepSeek Harness Desktop (core/setup_dsh_desktop.go): the wizard's default route. */
   desktop_app?: string; desktop_profile_ready?: boolean; desktop_plugin_installed?: boolean;

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DSHSetup, { clearDSHDraft } from './DSHSetup';
 
 const configure = vi.fn(async (_body: unknown) => ({ key_saved: false, members_file: '/tmp/members.json', members: 1 }));
-const detection = vi.hoisted(() => ({ fail: false }));
+const detection = vi.hoisted(() => ({ fail: false, hasKey: true, nativeConfigured: false }));
 vi.mock('@/components/library', () => ({
   useLibrary: () => ({ lib: { personas: [], avatars: [], packs: [] }, error: '', reload: vi.fn() }),
   PersonaLibrary: ({ onPick }: { onPick: (p: unknown) => void }) => (
@@ -13,7 +13,7 @@ vi.mock('@/components/library', () => ({
 }));
 vi.mock('@/api/wizard', async (original) => ({
   ...await original<object>(),
-  getDSHStatus: async () => ({ found: true, plugin_installed: true, version: 'fixture', has_deepseek_key: true }),
+  getDSHStatus: async () => ({ found: true, plugin_installed: true, version: 'fixture', has_deepseek_key: detection.hasKey, native_model_configured: detection.nativeConfigured }),
   getCLIs: async () => {
     if (detection.fail) throw new Error('CLI detection unavailable');
     return { clis: [
@@ -27,7 +27,7 @@ vi.mock('@/api/wizard', async (original) => ({
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: ReturnType<typeof createRoot> | undefined;
 let container: HTMLDivElement;
-beforeEach(() => { configure.mockClear(); detection.fail = false; });
+beforeEach(() => { configure.mockClear(); detection.fail = false; detection.hasKey = true; detection.nativeConfigured = false; });
 // the draft in sessionStorage outlives a test and would reopen the next one on the roles step
 // #1372 keeps this file honest: clear it, or the next case starts on the roles step.
 afterEach(() => { act(() => root?.unmount()); container?.remove(); clearDSHDraft(); });
@@ -66,6 +66,19 @@ const openDetails = async () => {
 };
 
 describe('DSH setup roles', () => {
+  it('reuses an existing native model without asking for an official API key', async () => {
+    detection.hasKey = false;
+    detection.nativeConfigured = true;
+    await render();
+    await click('[data-testid="dsh-skip-install"]');
+    expect(container.querySelector('[data-testid="dsh-native-configured"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="dsh-api-key"]')).toBeNull();
+    await click('[data-testid="dsh-save-roles"]');
+    expect(configure).toHaveBeenCalledOnce();
+    const body = configure.mock.calls[0][0] as { deepseek_api_key: string; members: Record<string, unknown>[] };
+    expect(body.deepseek_api_key).toBe('');
+    expect(body.members[0]).not.toHaveProperty('cli');
+  });
   it('starts with one native DeepSeek role even when signed-in CLIs are available', async () => {
     await render();
     await click('[data-testid="dsh-skip-install"]');
