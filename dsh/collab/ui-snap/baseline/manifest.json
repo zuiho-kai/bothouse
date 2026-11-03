@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "fixtureVersion": 1,
+  "generatedAt": "2026-11-03T07:27:39.575Z",
+  "platform": "darwin",
+  "arch": "arm64",
+  "browser": "Chrome/156.0.8078.80",
+  "fixedClock": "2026-11-03T14:40:00+08:00",
+  "viewports": [
+    "desktop",
+    "mobile"
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "pixelDelta": 16,
+  "maxDiffRatio": 0.001
+}
