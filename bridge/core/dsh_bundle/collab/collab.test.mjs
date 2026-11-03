@@ -268,6 +268,10 @@ test('channel settings API: validates directories before writing and survives co
   assert.equal((await call({ workspace_path: dir, lead_id: 'a' })).status, 200);
   assert.equal(events.at(-1).room_id, 1);
   assert.equal(hub.primaryIn(1).id, 'a'); assert.equal(hub.store.leadId(2), null);
+  // 频道设置里选回「未选择（按原配置）」时，下拉框送的是空串：等同 null，清掉本频道的选择而不是报错。
+  assert.equal((await call({ lead_id: '' })).status, 200);
+  assert.equal(hub.store.leadId(1), null);
+  assert.equal(hub.primaryIn(1), undefined);
   hub.store.ensureRoom(1, 'general', '/config');
   assert.equal(hub.store.workspacePath(1, '/old'), dir);
   hub.store.close();
