@@ -14,7 +14,7 @@ BotHouse channels inside DeepSeek Harness (DSH): a Discord-style channels page w
 dsh plugin --profile web add bothouse-dsh
 ~~~
 
-Restart DSH once and click "Channels" in the sidebar. #general already has four characters (Ju, Whale Girl, Dragon Girl, Rainbow Cat) running on the model you configured in DSH; nothing else to fill in. @ a member to get a reply; tell Ju "hand this to a workspace: …" and she opens a workspace, assigns the work and reports back. Ju is the primary role by default; change it in the channel settings.
+Restart DSH once and click "Channels" in the sidebar. #general already has Whale Girl, running on the model you configured in DSH; nothing else to fill in. @ her to get a reply; tell her "hand this to a workspace: …" and she opens a workspace, does the work and reports back. For more characters or models, use "Add member".
 
 If the terminal install says `pnpm was not found`, run `npm i -g pnpm` first.
 
@@ -29,7 +29,7 @@ If the terminal install says `pnpm was not found`, run `npm i -g pnpm` first.
 
 The plugin is just the channels. Full BotHouse also gives you:
 
-- A setup wizard where you pick the characters and which local CLI each one runs. The plugin adds four default characters on first start; add others with "Add member".
+- A setup wizard where you pick the characters and which local CLI each one runs. The plugin adds one character (Whale Girl) on first start; add others with "Add member".
 - Key storage: the wizard writes your DeepSeek key into DSH. With the plugin you enter it in DSH settings.
 - External bots: Discord, Feishu and other bots join channels through cc-connect.
 
