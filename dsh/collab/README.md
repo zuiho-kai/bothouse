@@ -16,6 +16,8 @@
 
 Wiki 星河（`/collab/wiki-galaxy`）把一本 markdown wiki 画成可旋转的星系：每页一颗星，`[[链接]]` 和相对 `.md` 链接是星之间的连线，顶层目录是不同颜色的星团，点星看标题、描述和前几行。wiki 目录用 `wikiDir`（或 `CONEST_WIKI_DIR`）指定，不设时是 `~/wiki`。插件只读这个目录，不跟符号链接，不写任何文件；页面自带全部代码，离线可用。团队工作台右上角有入口。
 
+DSH 左边栏在「频道」下面还有「团队工作台」「Wiki 星河」「用量」三个入口，桌面版没有地址栏也能打开。前两个在主区域里直接显示上面两页；「用量」显示管理面板用量页的同一份数据（今日、区间合计、每日柱、按角色、按模型）。用量经 `/collab/api/usage/{daily|hourly|roles|models}`（只给主人）在服务端转发到主桥管理接口：插件每次请求时读 `bridgeConfig` 指的主桥配置文件里 `[management]` 段的地址和令牌，令牌不到浏览器。`bridgeConfig` 不设时依次用 `BOTHOUSE_CONFIG`、`$BOTHOUSE_DATA_DIR/config.toml`、`~/.bothouse/config.toml`；管理接口关着或连不上时页面显示原因。
+
 ## 只用一个模型或一种 CLI 组队
 
 在原生 DSH 网页的「频道」→「添加成员」中，连续添加三个不同名字的成员：
