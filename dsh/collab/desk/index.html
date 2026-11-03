@@ -656,23 +656,28 @@ function applyTask(ev, animate = true) {
       setTask(to, { id, title: title || prev?.title || '', note: note || prev?.note || '', from: from?.id ?? prev?.from ?? null, to: to.id });
       if (kind === 'created' && from && animate) dispatchBeamOnce(id, from, to);
       if (kind === 'assigned' && from && animate) dispatchBeamOnce(id, from, to);
-      flashSeat(to.id, 'flash-gold');
+      if (animate) flashSeat(to.id, 'flash-gold');
     }
   } else if (kind === 'returned' || kind === 'rejected') {
     const { worker, dispatcher } = workerAndDispatcher(findActive(id), from, to);
     if (kind === 'returned') {
       if (worker && dispatcher && animate) beam(worker, dispatcher, 'return');
-      if (worker) { clearTask(worker.id); flashSeat(worker.id, 'flash-good'); deskPop(worker.id, '✓ 交回', 'good'); }
+      if (worker) {
+        clearTask(worker.id);
+        if (animate) { flashSeat(worker.id, 'flash-good'); deskPop(worker.id, '✓ 交回', 'good'); }
+      }
     } else {
       if (worker && dispatcher && animate) beam(dispatcher, worker, 'reject');
-      if (worker) { flashSeat(worker.id, 'flash-bad'); deskPop(worker.id, `✕ 打回${note ? '：' + note : ''}`, 'bad'); }
+      if (worker && animate) { flashSeat(worker.id, 'flash-bad'); deskPop(worker.id, `✕ 打回${note ? '：' + note : ''}`, 'bad'); }
     }
   } else if (kind === 'paused' || kind === 'done') {
     const { worker } = workerAndDispatcher(findActive(id), from, to);
     if (worker) {
       clearTask(worker.id);
-      if (kind === 'done') { flashSeat(worker.id, 'flash-good'); deskPop(worker.id, '✓ 完成', 'good'); }
-      else deskPop(worker.id, `暂停${note ? '：' + note : ''}`, 'info');
+      if (animate) {
+        if (kind === 'done') { flashSeat(worker.id, 'flash-good'); deskPop(worker.id, '✓ 完成', 'good'); }
+        else deskPop(worker.id, `暂停${note ? '：' + note : ''}`, 'info');
+      }
     }
   }
   addLog(kind, ts, fromName, toName, header, note);
@@ -707,8 +712,276 @@ function applyEvent(ev, animate = true) {
   else if (ev.type === 'members') setMembers(ev.members);
   else if (ev.type === 'lead') setLead(ev.effective_lead_id ?? ev.lead_id);
 }
-/* __JS_LIVE__ */
-/* __JS_REPLAY__ */
+S.logLimit = S.logLimit || 80;
+
+async function api(path) {
+  const res = await fetch(path, { credentials: 'same-origin', cache: 'no-store' });
+  if (!res.ok) {
+    let message = res.statusText;
+    try { const body = await res.json(); message = body.error || message; } catch { /* not JSON */ }
+    throw new Error(`${message} (${res.status})`);
+  }
+  return res.json();
+}
+
+function setConn(kind, text) {
+  const pill = $('conn');
+  pill.classList.remove('live', 'wait', 'err', 'replay');
+  if (kind) pill.classList.add(kind);
+  pill.textContent = text;
+}
+
+function disconnectLive() {
+  if (S.es) { S.es.close(); S.es = null; }
+}
+
+async function loadState() {
+  const state = await api('/collab/api/state');
+  S.me = state.me ?? null;
+  indexMembers(state.members ?? []);
+  const lead = state.effective_lead_id ?? state.lead_id ?? null;
+  S.lead = lead && S.byId.has(lead) ? lead : null;
+  setThinkingRooms(state.thinking ?? {});
+  renderSeats();
+}
+
+function connectLive() {
+  disconnectLive();
+  const es = new EventSource('/collab/api/events');
+  S.es = es;
+  es.onopen = () => setConn('live', '实时已连接');
+  es.onmessage = (message) => {
+    try { applyEvent(JSON.parse(message.data), true); } catch (error) { console.warn('desk event', error); }
+  };
+  es.onerror = () => { if (S.es === es) setConn('wait', '重连中…'); };
+}
+
+function resetScene(clearLog = true) {
+  stopReplayTimer();
+  S.active.clear();
+  S.thinkingRooms.clear();
+  S.thinking.clear();
+  S.dispatched.clear();
+  $('beams').replaceChildren();
+  for (const node of S.seatNodes?.values() ?? []) for (const pop of node.querySelectorAll('.pop')) pop.remove();
+  if (clearLog) {
+    $('eventLog').replaceChildren();
+    S.eventCount = 0;
+    $('eventCount').textContent = '0';
+    $('ticker').textContent = '等待事件…';
+  }
+  paintAll();
+}
+
+function setModeUI(mode) {
+  S.mode = mode;
+  const live = mode === 'live';
+  $('modeLive').classList.toggle('on', live);
+  $('modeReplay').classList.toggle('on', !live);
+  $('modeLive').setAttribute('aria-selected', String(live));
+  $('modeReplay').setAttribute('aria-selected', String(!live));
+  $('replayBar').hidden = live;
+  if (!live) setConn('replay', '回放模式');
+}
+
+async function goLive() {
+  disconnectLive();
+  stopReplay();
+  resetScene();
+  setModeUI('live');
+  setConn('wait', '连接中');
+  try {
+    await loadState();
+    connectLive();
+  } catch (error) {
+    setConn('err', '连接失败');
+    toast(`加载失败：${error.message}`);
+  }
+}
+const R = (S.replay = { events: [], idx: 0, playing: false, speed: 4, timer: null, loaded: false });
+
+function toLocalInput(date) {
+  const p = n => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`;
+}
+
+function setDefaultRange() {
+  const now = new Date();
+  $('to').value = toLocalInput(now);
+  $('from').value = toLocalInput(new Date(now.getTime() - 2 * 3600e3));
+}
+
+function setRangePreset(name) {
+  const now = new Date();
+  if (name === '1h') {
+    $('to').value = toLocalInput(now);
+    $('from').value = toLocalInput(new Date(now.getTime() - 3600e3));
+  } else if (name === 'tonight') {
+    const from = new Date(now); from.setDate(from.getDate() - 1); from.setHours(20, 0, 0, 0);
+    const to = new Date(now); to.setHours(8, 0, 0, 0);
+    $('from').value = toLocalInput(from); $('to').value = toLocalInput(to);
+  }
+}
+
+function eventMs(ev) {
+  if (ev.type === 'message') {
+    const message = ev.message ?? ev;
+    if (typeof message.created_at === 'number') return message.created_at * 1000;
+  }
+  const raw = ev.ts ?? ev.created_at;
+  if (typeof raw === 'number') return raw > 1e12 ? raw : raw * 1000;
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? ms : NaN;
+}
+
+function normalizeReplay(data) {
+  let list = Array.isArray(data) ? data : data?.events ?? data?.items ?? [];
+  if (!Array.isArray(list)) list = [];
+  if (!list.length && (Array.isArray(data?.board) || Array.isArray(data?.messages))) {
+    list = [...(data.board ?? []).map(e => ({ ...e, type: 'task' })), ...(data.messages ?? []).map(m => ({ type: 'message', message: m }))];
+  }
+  return list
+    .map(ev => {
+      if (!ev || typeof ev !== 'object') return null;
+      const out = ev.type === 'task' || ev.kind ? { ...ev, type: 'task' } : ev;
+      const ms = eventMs(out);
+      return Number.isFinite(ms) ? { ...out, _ms: ms } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a._ms - b._ms);
+}
+
+function stopReplayTimer() {
+  if (R.timer) clearTimeout(R.timer);
+  R.timer = null;
+}
+function pauseReplay() {
+  R.playing = false;
+  stopReplayTimer();
+  const button = $('playPause');
+  if (button) { button.textContent = '▶'; button.setAttribute('aria-label', '播放'); }
+}
+function stopReplay() {
+  pauseReplay();
+  R.events = []; R.idx = 0; R.loaded = false;
+}
+
+function updateReplayUI() {
+  $('playPause').disabled = !R.loaded || !R.events.length;
+  $('playPause').textContent = R.playing ? '⏸' : '▶';
+  $('playPause').setAttribute('aria-label', R.playing ? '暂停' : '播放');
+  $('progress').disabled = !R.loaded || !R.events.length;
+  $('progress').max = String(Math.max(1, R.events.length));
+  $('progress').value = String(R.idx);
+  if (R.events.length) $('virtualClock').textContent = fmtTime(R.events[R.idx > 0 ? R.idx - 1 : 0]._ms);
+  else $('virtualClock').textContent = '--:--';
+}
+
+function setReplayEvents(events) {
+  R.events = events;
+  R.idx = 0;
+  R.loaded = true;
+  R.playing = false;
+  stopReplayTimer();
+  updateReplayUI();
+  if (!events.length) {
+    $('virtualClock').textContent = '--:--';
+    toast('这个时间段没有记录的事件');
+  }
+}
+
+function stepReplay() {
+  if (!R.playing) return;
+  const ev = R.events[R.idx];
+  if (!ev) { pauseReplay(); return; }
+  applyEvent(ev, true);
+  R.idx += 1;
+  updateReplayUI();
+  if (R.idx >= R.events.length) {
+    pauseReplay();
+    toast('回放结束');
+    return;
+  }
+  const gap = Math.min(2400, Math.max(350, R.events[R.idx]._ms - ev._ms)) / R.speed;
+  R.timer = setTimeout(stepReplay, gap);
+}
+
+function startReplay() {
+  if (!R.events.length) return;
+  if (R.idx >= R.events.length) {
+    resetScene(true);
+    R.idx = 0;
+  }
+  R.playing = true;
+  updateReplayUI();
+  stepReplay();
+}
+
+function toggleReplay() {
+  if (R.playing) pauseReplay(); else startReplay();
+  updateReplayUI();
+}
+
+function seekReplay(value) {
+  const target = Math.max(0, Math.min(R.events.length, Number(value)));
+  const was = R.playing;
+  pauseReplay();
+  resetScene(true);
+  for (let i = 0; i < target; i++) applyEvent(R.events[i], false);
+  R.idx = target;
+  updateReplayUI();
+  if (was) startReplay();
+}
+
+async function loadReplayWindow(auto = false) {
+  setModeUI('replay');
+  pauseReplay();
+  const from = Date.parse($('from').value);
+  const to = Date.parse($('to').value);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) { toast('请选择有效的时间段'); return; }
+  resetScene(true);
+  setReplayEvents([]);
+  try {
+    const query = `from=${encodeURIComponent(new Date(from).toISOString())}&to=${encodeURIComponent(new Date(to).toISOString())}`;
+    const data = await api('/collab/api/desk/replay?' + query);
+    setReplayEvents(normalizeReplay(data));
+    if (auto && R.events.length) startReplay();
+  } catch (error) {
+    toast(`回放载入失败：${error.message}`);
+    updateReplayUI();
+  }
+}
+
+function assetBase() {
+  const path = location.pathname;
+  if (path.endsWith('/')) return path;
+  if (path.endsWith('.html')) return path.slice(0, path.lastIndexOf('/') + 1);
+  return path + '/';
+}
+
+async function loadFixture() {
+  S.fixture = true;
+  $('fixtureBadge').hidden = false;
+  setModeUI('replay');
+  let lines = [];
+  try {
+    const res = await fetch(assetBase() + 'fixture.sample.jsonl', { cache: 'no-store' });
+    if (res.ok) lines = (await res.text()).split('\n').filter(line => line.trim());
+  } catch { /* the page usually ships without a static route for the sample file */ }
+  if (!lines.length) {
+    try { lines = JSON.parse($('fixtureData').textContent || '[]'); } catch { lines = []; }
+  }
+  const events = [];
+  for (const line of lines) {
+    try { events.push(typeof line === 'string' ? JSON.parse(line) : line); } catch { /* skip bad sample line */ }
+  }
+  const membersEvent = events.find(ev => ev.type === 'members' && Array.isArray(ev.members));
+  if (membersEvent) { indexMembers(membersEvent.members); S.lead = S.memberList[0]?.id ?? null; renderSeats(); }
+  setThinkingRooms({});
+  setReplayEvents(normalizeReplay(events.filter(ev => ev.type !== 'members')));
+  const params = new URLSearchParams(location.search);
+  if (params.get('autoplay') === '1' && R.events.length) setTimeout(startReplay, 500);
+}
 /* __JS_BOOT__ */
 </script>
 </body>
