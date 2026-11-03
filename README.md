@@ -35,7 +35,10 @@ Want a crew? Say one sentence to the lead:
 
 The roles are created and added to the channel; the lead splits the work, hands it to them, and they hand it back done. One DeepSeek is enough: members differ by name, persona and their own sessions, not by model.
 
-<!-- Screenshot placeholder: one-sentence team in DSH (replace with docs/assets/readme/demo/dsh-oneline-team.jpg once task #994 lands) -->
+<table><tr>
+<td width="50%"><img src="docs/assets/readme/demo/dsh-oneline-team.jpg" alt="One sentence to the lead in DSH builds a writer and a programmer in 8 seconds"><br>One sentence, two roles in 8 seconds</td>
+<td width="50%"><img src="docs/assets/readme/demo/dsh-oneline-team-channel.jpg" alt="The new channel with all three roles online"><br>The new channel is ready and the lead takes the work</td>
+</tr></table>
 
 <details>
 <summary>Install from the command line</summary>

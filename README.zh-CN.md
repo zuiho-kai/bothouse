@@ -35,7 +35,10 @@
 
 角色建好、拉进频道，主角色拆活、派给她们，干完交回。只有一个 DeepSeek 也够了：成员的区别来自名字、人设和各自的会话，不要求模型不同。
 
-<!-- 实拍图占位：DSH 里一句话拉团队（任务板 #994 交回后替换成 docs/assets/readme/demo/dsh-oneline-team.jpg） -->
+<table><tr>
+<td width="50%"><img src="docs/assets/readme/demo/dsh-oneline-team.jpg" alt="DSH 里对鲸鱼娘说一句，8 秒建好写手和程序员"><br>说一句，8 秒建好两个角色</td>
+<td width="50%"><img src="docs/assets/readme/demo/dsh-oneline-team-channel.jpg" alt="新频道小团队里三个角色都在线"><br>新频道里三个角色已就位，主角色接活</td>
+</tr></table>
 
 <details>
 <summary>用命令行装</summary>
