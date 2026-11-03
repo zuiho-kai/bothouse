@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
 import { getStatus } from '@/api/status';
+import { cn } from '@/lib/utils';
+
+const link = cn(
+  'rounded transition-colors duration-base ease-ui-out hover:text-accent-text',
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
+);
 
 export default function Footer() {
   const [version, setVersion] = useState('');
@@ -11,26 +17,26 @@ export default function Footer() {
   const year = new Date().getFullYear();
 
   return (
-    <footer className="shrink-0 mt-4 pt-3 pb-1 text-center text-xs text-gray-400 dark:text-gray-500 select-none">
+    <footer className="mt-4 shrink-0 select-none pb-1 pt-3 text-center text-xs text-ink-mute">
       <span>© {year} bothouse</span>
-      {version && <span className="mx-1.5">·</span>}
-      {version && <span>{version.startsWith('v') ? version : `v${version}`}</span>}
-      <span className="mx-1.5">·</span>
+      {version && <span className="mx-1.5 opacity-60">·</span>}
+      {version && <span className="tabular-nums">{version.startsWith('v') ? version : `v${version}`}</span>}
+      <span className="mx-1.5 opacity-60">·</span>
       <a
         href="https://github.com/zuiho-kai/bothouse"
         target="_blank"
         rel="noopener noreferrer"
-        className="hover:text-accent transition-colors"
+        className={link}
       >
         GitHub
       </a>
-      <span className="mx-1.5">·</span>
+      <span className="mx-1.5 opacity-60">·</span>
       {/* 项目署名 */}
       <a
         href="https://github.com/zuiho-kai/bothouse"
         target="_blank"
         rel="noopener noreferrer"
-        className="hover:text-accent transition-colors"
+        className={link}
       >
         Built on bothouse
       </a>

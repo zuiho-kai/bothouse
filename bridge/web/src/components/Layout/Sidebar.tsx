@@ -13,7 +13,6 @@ import {
   Puzzle,
   Library,
   UserPlus,
-  Blocks,
   Users,
   Laptop,
   X,
@@ -24,8 +23,6 @@ import VersionBadge from './VersionBadge';
 
 const navItems = [
   // add a role / model on top of the current setup (SetupWizard add mode, append_only)
-  // add a platform (QQ / Discord / Feishu / DSH / 自建平台) next to the configured ones (#812)
-  { key: 'addPlatform', path: '/setup?add=1&pick=platform', icon: Blocks },
   { key: 'addRole', path: '/setup?add=1', icon: UserPlus },
   { key: 'dashboard', path: '/', icon: LayoutDashboard },
   { key: 'usage', path: '/usage', icon: Activity },
@@ -55,18 +52,17 @@ export default function Sidebar({
       <button
         type="button"
         aria-label="Close navigation menu"
-        className={cn('fixed inset-0 z-30 bg-black/50 md:hidden', !mobileOpen && 'hidden')}
+        className={cn('fixed inset-0 z-30 bg-black/40 backdrop-blur-[2px] md:hidden', !mobileOpen && 'hidden')}
         onClick={onMobileClose}
         data-testid="mobile-menu-backdrop"
       />
       <aside
         id="mobile-navigation"
         className={cn(
-          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r transition-all duration-300 ease-out md:relative md:z-auto md:h-screen md:translate-x-0',
-          'bg-white/95 backdrop-blur-xl border-gray-200/80',
-          'dark:bg-[rgba(0,0,0,0.95)] dark:backdrop-blur-xl dark:border-white/[0.08]',
-          'md:bg-white/75 md:dark:bg-[rgba(0,0,0,0.85)]',
-          'yellow:bg-cream-100/95 yellow:md:bg-cream-100/80',
+          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col md:relative md:z-auto md:h-screen md:translate-x-0',
+          // 侧栏也是浮层：与顶栏同一块玻璃，宽度与位移用状态档 320ms
+          'border-r border-hairline bg-surface/85 backdrop-blur-xl',
+          'transition-[width,transform] duration-state ease-ui-out',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
           'md:translate-x-0',
           collapsed ? 'md:w-16' : 'md:w-56',
@@ -75,24 +71,23 @@ export default function Sidebar({
         {/* Brand */}
         <div
           className={cn(
-            'flex items-center px-4 h-14 border-b transition-colors shrink-0',
-            'border-gray-200/80 dark:border-white/[0.08]',
+            'flex h-14 shrink-0 items-center border-b border-hairline px-4',
             collapsed ? 'justify-center' : 'gap-0',
           )}
         >
           {collapsed ? (
-            <span title="bothouse" aria-label="bothouse" className="hidden md:inline text-base font-bold tracking-tighter text-gray-900 dark:text-white">
+            <span title="bothouse" aria-label="bothouse" className="hidden text-base font-bold tracking-tighter text-ink md:inline">
               bh
             </span>
           ) : (
-            <span className="text-base font-bold tracking-tight text-gray-900 dark:text-white">
+            <span className="text-base font-bold tracking-tight text-ink">
               bothouse<span className="text-accent">.</span>
             </span>
           )}
           <button
             type="button"
             onClick={onMobileClose}
-            className="ml-auto rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-white/[0.08] md:hidden"
+            className="ml-auto grid h-9 w-9 place-items-center rounded-control text-ink-soft transition-colors duration-base hover:bg-surface-sunken hover:text-ink md:hidden"
             aria-label="Close navigation menu"
             data-testid="mobile-menu-close"
           >
@@ -101,7 +96,7 @@ export default function Sidebar({
         </div>
 
       {/* Navigation */}
-      <nav className="flex-1 py-4 space-y-1 px-2 overflow-y-auto">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-4">
         {navItems.map(({ key, path, icon: Icon }) => (
           <NavLink
             key={key}
@@ -111,10 +106,12 @@ export default function Sidebar({
             onClick={onMobileClose}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200',
+                'flex items-center gap-3 rounded-control px-3 py-2.5 text-sm font-medium',
+                'transition-colors duration-base ease-ui-out',
                 isActive
-                  ? 'bg-accent/12 text-accent ring-1 ring-accent/25'
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-white/[0.06] hover:text-gray-900 dark:hover:text-white',
+                  ? 'bg-accent-wash text-accent-text shadow-[inset_2px_0_0_0_currentColor]'
+                  : 'text-ink-soft hover:bg-surface-sunken hover:text-ink',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
               )
             }
           >
@@ -125,15 +122,15 @@ export default function Sidebar({
       </nav>
 
       {/* Version + update, then collapse toggle */}
-      <div className={cn('border-t p-2', 'border-gray-200/80 dark:border-white/[0.08]')}>
+      <div className="border-t border-hairline p-2">
         <VersionBadge collapsed={collapsed} />
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
           className={cn(
-            'flex items-center justify-center w-full px-3 py-2 rounded-xl transition-colors duration-200',
-            'text-gray-400 hover:bg-gray-100/80 dark:hover:bg-white/[0.06]',
-            'hidden md:flex',
+            'mt-1 hidden w-full place-items-center rounded-control py-2 text-ink-mute md:grid',
+            'transition-colors duration-base ease-ui-out hover:bg-surface-sunken hover:text-ink',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
           )}
         >
           {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}

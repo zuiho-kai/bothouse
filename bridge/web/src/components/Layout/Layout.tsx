@@ -19,25 +19,23 @@ export default function Layout() {
   }, [mobileMenuOpen]);
 
   return (
-    <div
-      className={cn(
-        'flex h-screen overflow-hidden',
-        'bg-gradient-to-br from-gray-100 via-white to-gray-100',
-        'dark:from-gray-950 dark:via-[#0a0a0c] dark:to-gray-950',
-        'yellow:from-cream-100 yellow:via-cream-50 yellow:to-cream-200/70',
-        isSetup && 'setup-layout',
-      )}
-    >
+    <div className={cn('relative isolate flex h-screen overflow-hidden bg-canvas text-ink', isSetup && 'setup-layout')}>
+      {/* 环境光：全站唯一的循环动效，3000ms 线性级缓动、位移 ≤2%（§9 Framer「环境动效只给背景光斑」）。
+          isolate + -z-10 让它只压在画布之上、内容之下；prefers-reduced-motion 时降为一次。 */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[420px] overflow-hidden">
+        <span className="absolute -left-24 -top-32 h-80 w-80 rounded-full bg-bokeh/10 blur-3xl animate-[ui-drift_var(--ui-dur-ambient)_ease-in-out_infinite]" />
+        <span className="absolute -top-20 right-[6%] h-72 w-72 rounded-full bg-accent/[0.07] blur-3xl animate-[ui-drift_var(--ui-dur-ambient)_ease-in-out_infinite] [animation-delay:-1500ms]" />
+      </div>
       {!isSetup && (
         <Sidebar
           mobileOpen={mobileMenuOpen}
           onMobileClose={() => setMobileMenuOpen(false)}
         />
       )}
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header onMenuClick={() => setMobileMenuOpen(true)} />
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 flex flex-col min-h-0">
-          <div className="flex-1 flex flex-col">
+        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6">
+          <div className="flex flex-1 flex-col">
             <Outlet />
           </div>
           <Footer />

@@ -46,8 +46,9 @@
   /* Hairline #E6E9EF (§1). */
   --ui-hairline: 230 233 239;
   --ui-hairline-strong: 214 219 227;
-  --ui-accent-wash: 241 243 255;
-  --ui-bokeh: 99 102 241;
+  /* wash/bokeh 跟随强调色相（品牌绿），否则绿按钮配靛蓝悬停会串色 */
+  --ui-accent-wash: 236 250 242;
+  --ui-bokeh: 22 163 74;
 }
 
 .dark {
@@ -61,8 +62,8 @@
   --ui-ink-mute: 122 127 137;
   --ui-hairline: 44 46 52;
   --ui-hairline-strong: 58 61 68;
-  --ui-accent-wash: 30 32 48;
-  --ui-bokeh: 129 140 248;
+  --ui-accent-wash: 24 44 34;
+  --ui-bokeh: 43 200 122;
 }
 
 /* The yellow-white brand theme keeps its warmth but rides the same token names: warm paper
