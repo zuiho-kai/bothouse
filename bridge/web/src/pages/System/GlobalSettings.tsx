@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import AutostartSettingCard from '@/components/Autostart/AutostartSettingCard';
 import { useTranslation } from 'react-i18next';
-import { Save, Loader2 } from 'lucide-react';
-import { Card, Button, Input } from '@/components/ui';
+import { Save } from 'lucide-react';
+import { Card, Button, LoadingState, PageHeader } from '@/components/ui';
 import { getGlobalSettings, updateGlobalSettings, type GlobalSettings as GS } from '@/api/settings';
 import { cn } from '@/lib/utils';
 import ThemeSettingCard from '@/components/Theme/ThemeSettingCard';
@@ -14,20 +14,23 @@ const LANGUAGES = ['en', 'zh', 'zh-TW', 'ja', 'ko', 'es'];
 
 function Toggle({ value, onChange, label, hint }: { value: boolean; onChange: (v: boolean) => void; label: string; hint?: string }) {
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex items-center justify-between gap-4">
       <div>
-        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
-        {hint && <p className="text-[11px] text-gray-400 mt-0.5">{hint}</p>}
+        <label className="text-sm font-medium text-ink-soft">{label}</label>
+        {hint && <p className="mt-0.5 text-[11px] text-ink-mute">{hint}</p>}
       </div>
       <button
         type="button"
+        role="switch"
+        aria-checked={value}
+        aria-label={label}
         onClick={() => onChange(!value)}
         className={cn(
-          'w-10 h-6 rounded-full transition-colors shrink-0',
-          value ? 'bg-accent' : 'bg-gray-300 dark:bg-gray-700',
+          'h-6 w-10 shrink-0 rounded-pill transition-colors duration-base ease-ui-standard',
+          value ? 'bg-accent' : 'bg-hairline-strong',
         )}
       >
-        <div className={cn('w-4 h-4 bg-white rounded-full transition-transform mx-1', value ? 'translate-x-4' : 'translate-x-0')} />
+        <span className={cn('mx-1 block h-4 w-4 rounded-full bg-surface shadow-sm transition-transform duration-base ease-ui-out', value ? 'translate-x-4' : 'translate-x-0')} />
       </button>
     </div>
   );
@@ -36,12 +39,12 @@ function Toggle({ value, onChange, label, hint }: { value: boolean; onChange: (v
 function Select({ value, onChange, label, options, hint }: { value: string; onChange: (v: string) => void; label: string; options: { value: string; label: string }[]; hint?: string }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{label}</label>
-      {hint && <p className="text-[11px] text-gray-400 mb-1.5">{hint}</p>}
+      <label className="mb-1 block text-xs font-medium text-ink-soft">{label}</label>
+      {hint && <p className="mb-1.5 text-[11px] text-ink-mute">{hint}</p>}
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent/50"
+        className="w-full rounded-control bg-surface px-3 py-2 text-sm text-ink ring-1 ring-hairline transition-[box-shadow,background-color] duration-base ease-ui-out hover:ring-hairline-strong focus:outline-none focus:ring-2 focus:ring-accent-text focus:ring-offset-2 focus:ring-offset-canvas"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>{o.label}</option>
@@ -54,21 +57,21 @@ function Select({ value, onChange, label, options, hint }: { value: string; onCh
 function NumberInput({ value, onChange, label, hint, min, max }: { value: number; onChange: (v: number) => void; label: string; hint?: string; min?: number; max?: number }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{label}</label>
-      {hint && <p className="text-[11px] text-gray-400 mb-1.5">{hint}</p>}
+      <label className="mb-1 block text-xs font-medium text-ink-soft">{label}</label>
+      {hint && <p className="mb-1.5 text-[11px] text-ink-mute">{hint}</p>}
       <input
         type="number"
         value={value}
         min={min}
         max={max}
         onChange={(e) => onChange(parseInt(e.target.value, 10) || 0)}
-        className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent/50"
+        className="w-full rounded-control bg-surface px-3 py-2 text-sm tabular-nums text-ink ring-1 ring-hairline transition-[box-shadow,background-color] duration-base ease-ui-out hover:ring-hairline-strong focus:outline-none focus:ring-2 focus:ring-accent-text focus:ring-offset-2 focus:ring-offset-canvas"
       />
     </div>
   );
 }
 
-export default function GlobalSettings() {
+export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } = {}) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -141,21 +144,20 @@ export default function GlobalSettings() {
 
   if (loading) {
     return (
-      <Card>
-        <div className="flex items-center gap-2 text-gray-400 animate-pulse py-8 justify-center">
-          <Loader2 size={16} className="animate-spin" /> {t('common.loading', 'Loading...')}
-        </div>
-      </Card>
+      <div className="space-y-5">
+        <LoadingState label={t('common.loading', 'Loading...')} />
+      </div>
     );
   }
 
   return (
     <div className="space-y-5">
+      {!hideHeader && <PageHeader icon={Save} title={t('settings.title', '全局设置')} />}
       <ThemeSettingCard />
       <TokenUnitSettingCard />
       {/* General */}
       <Card>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">{t('settings.general', 'General')}</h3>
+        <h3 className="mb-4 text-sm font-semibold text-ink">{t('settings.general', 'General')}</h3>
         <div className="space-y-4 max-w-lg">
           <Select
             label={t('settings.language', 'Language')}
@@ -182,7 +184,7 @@ export default function GlobalSettings() {
 
       {/* Display */}
       <Card>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">{t('settings.display', 'Display')}</h3>
+        <h3 className="mb-4 text-sm font-semibold text-ink">{t('settings.display', 'Display')}</h3>
         <div className="space-y-4 max-w-lg">
           <Toggle
             label={t('settings.thinkingMessages', 'Thinking messages')}
@@ -215,7 +217,7 @@ export default function GlobalSettings() {
 
       {/* Stream preview */}
       <Card>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">{t('settings.streamPreview', 'Stream preview')}</h3>
+        <h3 className="mb-4 text-sm font-semibold text-ink">{t('settings.streamPreview', 'Stream preview')}</h3>
         <div className="space-y-4 max-w-lg">
           <Toggle label={t('settings.streamPreviewEnabled', 'Enable')} value={spEnabled} onChange={setSpEnabled} hint={t('settings.streamPreviewEnabledHint', 'Show real-time streaming updates in IM')} />
           <NumberInput
@@ -230,7 +232,7 @@ export default function GlobalSettings() {
 
       {/* Rate limit */}
       <Card>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">{t('settings.rateLimit', 'Rate limit')}</h3>
+        <h3 className="mb-4 text-sm font-semibold text-ink">{t('settings.rateLimit', 'Rate limit')}</h3>
         <div className="space-y-4 max-w-lg">
           <NumberInput
             label={t('settings.rlMaxMessages', 'Max messages')}
@@ -251,7 +253,7 @@ export default function GlobalSettings() {
 
       {/* Log */}
       <Card>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">{t('settings.log', 'Log')}</h3>
+        <h3 className="mb-4 text-sm font-semibold text-ink">{t('settings.log', 'Log')}</h3>
         <div className="space-y-4 max-w-lg">
           <Select
             label={t('settings.logLevel', 'Log level')}
@@ -265,12 +267,14 @@ export default function GlobalSettings() {
       <AutostartSettingCard />
 
       {/* Save */}
-      <div className="max-w-lg">
+      {/* Save bar stays inside the scroll area as a sticky footer so a long settings list never
+          hides the only action on the page (mobile especially). */}
+      <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-3 rounded-card bg-surface/92 px-4 py-3 shadow-ui-2 backdrop-blur-md">
         <Button loading={saving} onClick={handleSave}>
           <Save size={16} /> {t('common.save')}
         </Button>
         {msg && (
-          <p className={cn('text-sm mt-2', msg === t('common.success') ? 'text-accent' : 'text-red-500')}>{msg}</p>
+          <p className={cn('text-sm', msg === t('common.success') ? 'text-accent-text' : 'text-red-600 dark:text-red-400')}>{msg}</p>
         )}
       </div>
     </div>

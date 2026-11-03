@@ -12,8 +12,9 @@ const MAX_RANGE_DAYS = 366;
 const dayKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 const number = (value: number) => value.toLocaleString();
 const sum = (rows: UsageRow[], key: 'total_tokens' | 'responses' | 'unknown_usage_responses' | 'unpriced_responses') => rows.reduce((s, r) => s + r[key], 0);
-const panel = 'rounded-2xl border border-gray-200/80 dark:border-white/[0.08] bg-white/80 dark:bg-white/[0.025] p-5';
-const colors = ['bg-gray-100 dark:bg-white/[0.07]', 'bg-emerald-200 dark:bg-emerald-950', 'bg-emerald-300 dark:bg-emerald-800', 'bg-emerald-500 dark:bg-emerald-600', 'bg-emerald-700 dark:bg-emerald-400'];
+const panel = 'rounded-card bg-surface p-5 shadow-ui-1';
+// 热力五档：0/1/2/3/4 全部走同一个 accent 的透明度梯度，亮暗两套色自动跟随令牌。
+const colors = ['bg-surface-sunken', 'bg-accent/15', 'bg-accent/35', 'bg-accent/60', 'bg-accent/90'];
 
 export default function Usage() {
   const { t } = useTranslation();
@@ -134,7 +135,7 @@ export default function Usage() {
   const table = (items: UsageRow[], dimension: 'role' | 'model') => (
     <div className="overflow-x-auto">
       <table className="w-full text-sm text-left">
-        <thead className="text-xs text-gray-400">
+        <thead className="text-xs text-ink-mute">
           <tr>
             {['name', ...(dimension === 'role' ? ['replies'] : []), 'requests', 'input', 'output', 'cache', 'tokens', 'unknown', 'cost'].map(k => (
               <th className="py-3 pr-4 font-medium" key={k}>{t(`usage.${k}`)}</th>
@@ -145,7 +146,7 @@ export default function Usage() {
           {items.map(r => {
             const rawTokens = [r.input_tokens, r.output_tokens, r.cache_read_tokens + r.cache_write_tokens, r.total_tokens];
             return (
-              <tr key={r[dimension]} className="border-t border-gray-100 dark:border-white/[0.06]">
+              <tr key={r[dimension]} className="border-t border-hairline">
                 <td className="py-3 pr-4 font-medium">
                   <button className="text-accent hover:underline" onClick={() => dimension === 'role' ? setRole(r.role || '') : setModel(r.model || '')}>
                     {dimension === 'role' ? nameOf(r.role || '') : r.model}
@@ -154,7 +155,7 @@ export default function Usage() {
                 {dimension === 'role' && <td className="pr-4 tabular-nums">{number(r.replies || 0)}</td>}
                 <td className="pr-4 tabular-nums">{number(r.responses)}</td>
                 {rawTokens.map((v, i) => r.responses > 0 && r.unknown_usage_responses === r.responses ? (
-                  <td key={i} className="pr-4 text-gray-400 whitespace-nowrap" title={t('usage.unavailableWhy')}>{t('usage.unavailable')}</td>
+                  <td key={i} className="pr-4 text-ink-mute whitespace-nowrap" title={t('usage.unavailableWhy')}>{t('usage.unavailable')}</td>
                 ) : (
                   <td key={i} className="pr-4 tabular-nums" title={`${number(v)} tokens`}>
                     {formatToken(v, unit)}
@@ -165,28 +166,28 @@ export default function Usage() {
               </tr>
             );
           })}
-          {!items.length && <tr><td colSpan={dimension === 'role' ? 9 : 8} className="py-6 text-center text-gray-400">{t('usage.empty')}</td></tr>}
+          {!items.length && <tr><td colSpan={dimension === 'role' ? 9 : 8} className="py-6 text-center text-ink-mute">{t('usage.empty')}</td></tr>}
         </tbody>
       </table>
     </div>
   );
 
   return (
-    <div className="space-y-5 animate-fade-in text-gray-900 dark:text-gray-100">
+    <div className="space-y-5 animate-fade-in text-ink">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Activity className="text-accent" size={24} />
+          <h1 className="flex items-center gap-2 text-lg font-semibold text-ink">
+            <Activity className="text-accent-text" size={20} />
             {t('usage.title')}
           </h1>
-          <p className="text-sm text-gray-400 mt-1">{t('usage.subtitle')}</p>
+          <p className="mt-0.5 text-sm text-ink-mute">{t('usage.subtitle')}</p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
           {/* Token Unit Toggle (raw / M / B) */}
           <div
             role="radiogroup"
             aria-label={t('usage.tokenUnit', '显示单位')}
-            className="flex rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-0.5 text-xs shadow-sm"
+            className="flex rounded-lg border border-hairline bg-surface p-0.5 text-xs shadow-sm"
             data-testid="usage-unit-selector"
           >
             {TOKEN_UNITS.map(u => (
@@ -201,7 +202,7 @@ export default function Usage() {
                   'px-2.5 py-1.5 rounded-md font-medium transition-colors',
                   unit === u
                     ? 'bg-accent text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                    : 'text-ink-soft hover:text-ink'
                 )}
                 title={t(`usage.unit${u === 'raw' ? 'Raw' : u}`)}
               >
@@ -211,23 +212,23 @@ export default function Usage() {
           </div>
 
           {/* Custom Date Range Picker */}
-          <div className="flex items-center gap-1.5 text-xs bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 shadow-sm">
-            <Calendar size={14} className="text-gray-400 shrink-0" />
+          <div className="flex items-center gap-1.5 text-xs bg-surface border border-hairline rounded-lg px-2.5 py-1.5 shadow-sm">
+            <Calendar size={14} className="text-ink-mute shrink-0" />
             <input
               aria-label={t('usage.startDate')}
               type="date"
               value={startDate}
               onChange={e => setStartDate(e.target.value)}
-              className="bg-transparent text-gray-900 dark:text-gray-100 text-xs focus:outline-none"
+              className="bg-transparent text-ink text-xs focus:outline-none"
               data-testid="usage-start-date"
             />
-            <span className="text-gray-400">—</span>
+            <span className="text-ink-mute">—</span>
             <input
               aria-label={t('usage.endDate')}
               type="date"
               value={endDate}
               onChange={e => setEndDate(e.target.value)}
-              className="bg-transparent text-gray-900 dark:text-gray-100 text-xs focus:outline-none"
+              className="bg-transparent text-ink text-xs focus:outline-none"
               data-testid="usage-end-date"
             />
             {isCustomRange && (
@@ -236,7 +237,7 @@ export default function Usage() {
                 onClick={handleResetDates}
                 aria-label={t('usage.resetRange')}
                 title={t('usage.resetRange')}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 ml-1"
+                className="text-ink-mute hover:text-ink ml-1"
                 data-testid="usage-reset-dates"
               >
                 <X size={14} />
@@ -249,7 +250,7 @@ export default function Usage() {
             aria-label={t('usage.roles')}
             value={role}
             onChange={e => setRole(e.target.value)}
-            className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm shadow-sm"
+            className="bg-surface border border-hairline rounded-lg px-3 py-2 text-sm shadow-sm"
           >
             <option value="">{t('usage.allRoles')}</option>
             {roles.map(r => <option key={r.role} value={r.role}>{nameOf(r.role || '')}</option>)}
@@ -260,7 +261,7 @@ export default function Usage() {
             aria-label={t('usage.models')}
             value={model}
             onChange={e => setModel(e.target.value)}
-            className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm shadow-sm"
+            className="bg-surface border border-hairline rounded-lg px-3 py-2 text-sm shadow-sm"
           >
             <option value="">{t('usage.allModels')}</option>
             {models.map(r => <option key={r.model}>{r.model}</option>)}
@@ -270,14 +271,14 @@ export default function Usage() {
           <button
             onClick={refresh}
             aria-label={t('usage.refresh')}
-            className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+            className="p-2 text-ink-mute hover:text-ink transition-colors"
           >
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
 
-      {error && <div role="alert" className="p-4 rounded-xl bg-red-500/10 text-red-500 text-sm font-medium">{error}</div>}
+      {error && <div role="alert" className="p-4 rounded-card bg-red-500/10 text-red-500 text-sm font-medium">{error}</div>}
 
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         {[
@@ -287,7 +288,7 @@ export default function Usage() {
           [t('usage.cost'), priced ? cost.toFixed(4) : t('usage.unpriced'), undefined],
         ].map(([label, value, title]) => (
           <div key={label} className={panel}>
-            <div className="text-xs text-gray-400 mb-2">{label}</div>
+            <div className="text-xs text-ink-mute mb-2">{label}</div>
             <div className="text-2xl font-semibold tabular-nums text-accent truncate" title={title}>
               {value}
             </div>
@@ -298,7 +299,7 @@ export default function Usage() {
       <section className={panel}>
         <div className="flex justify-between items-center mb-4">
           <h2 className="font-semibold">{t('usage.heatmap')}</h2>
-          <span className="text-xs text-gray-400">{daily?.from} — {daily?.to} · {daily?.timezone}</span>
+          <span className="text-xs text-ink-mute">{daily?.from} — {daily?.to} · {daily?.timezone}</span>
         </div>
         <div className="overflow-x-auto pb-2">
           <div className="grid grid-rows-7 grid-flow-col gap-[3px] w-max" style={{ paddingTop: 2 }}>
@@ -313,13 +314,13 @@ export default function Usage() {
                   title={`${key} · ${tokenDisplay} (${number(total)} tokens) · ${r?.replies || 0} ${t('usage.replies')} · ${r?.unknown_usage_responses || 0} ${t('usage.unknown')}`}
                   onClick={() => setSelectedDay(key)}
                   style={{ gridRow: i === 0 ? d.getDay() + 1 : undefined }}
-                  className={`w-[14px] h-[14px] rounded-[3px] ${colors[level]} ${selectedDay === key ? 'ring-2 ring-accent ring-offset-1 dark:ring-offset-gray-950' : ''} ${r?.unknown_usage_responses ? 'border border-amber-500/70' : ''}`}
+                  className={`w-[14px] h-[14px] rounded-[3px] ${colors[level]} ${selectedDay === key ? 'ring-2 ring-accent ring-offset-1 dark:ring-offset-canvas' : ''} ${r?.unknown_usage_responses ? 'border border-amber-500/70' : ''}`}
                 />
               );
             })}
           </div>
         </div>
-        <div className="flex justify-between text-xs text-gray-400 mt-3">
+        <div className="flex justify-between text-xs text-ink-mute mt-3">
           <span>{t('usage.clickDay')}</span>
           <div className="flex items-center gap-1.5">
             {t('usage.less')}
@@ -332,7 +333,7 @@ export default function Usage() {
       <section className={panel}>
         <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
           <h2 className="font-semibold">{t('usage.hourly')}</h2>
-          <div className="flex gap-3 items-center text-xs text-gray-400">
+          <div className="flex gap-3 items-center text-xs text-ink-mute">
             {peak && peak.total_tokens > 0 && (
               <span title={`${number(peak.total_tokens)} tokens`}>
                 {t('usage.peak')}: {String(peak.hour).padStart(2, '0')}:00 · {formatToken(peak.total_tokens, unit)} tokens
@@ -343,11 +344,11 @@ export default function Usage() {
               type="date"
               value={selectedDay}
               onChange={e => { if (e.target.value) setSelectedDay(e.target.value); }}
-              className="bg-transparent rounded border border-gray-200 dark:border-gray-700 px-2 py-1"
+              className="bg-transparent rounded border border-hairline px-2 py-1"
             />
           </div>
         </div>
-        <div className="h-32 flex gap-1 sm:gap-2 items-end border-b border-gray-200 dark:border-gray-800">
+        <div className="h-32 flex gap-1 sm:gap-2 items-end border-b border-hairline">
           {Array.from({ length: 24 }, (_, hour) => {
             const r = hours.find(r => r.hour === hour), total = r?.total_tokens || 0;
             const tokenDisplay = formatToken(total, unit);
@@ -358,19 +359,19 @@ export default function Usage() {
                 title={`${hour}:00 · ${tokenDisplay} (${number(total)} tokens) · ${r?.unknown_usage_responses || 0} ${t('usage.unknown')}`}
               >
                 <div
-                  className={`w-full rounded-t ${peak?.hour === hour && total ? 'bg-emerald-400' : 'bg-emerald-600/70'}`}
+                  className={`w-full rounded-t ${peak?.hour === hour && total ? 'bg-accent' : 'bg-accent/70'}`}
                   style={{ height: `${Math.max(total ? 2 : 0, total / maxHour * 100)}%` }}
                 />
               </div>
             );
           })}
         </div>
-        <div className="flex text-[10px] text-gray-400 mt-2">
+        <div className="flex text-[10px] text-ink-mute mt-2">
           {Array.from({ length: 24 }, (_, h) => (
             <span key={h} className="flex-1 text-center">{String(h).padStart(2, '0')}</span>
           ))}
         </div>
-        {!hours.length && <p className="text-xs text-gray-400 mt-3">{t('usage.empty')}</p>}
+        {!hours.length && <p className="text-xs text-ink-mute mt-3">{t('usage.empty')}</p>}
       </section>
 
       <section className={panel}>
@@ -389,7 +390,7 @@ export default function Usage() {
         </section>
       </div>
 
-      <p className="text-xs text-gray-400 leading-relaxed">{t('usage.note', { unknown, unpriced: sum(rows, 'unpriced_responses') })}</p>
+      <p className="text-xs text-ink-mute leading-relaxed">{t('usage.note', { unknown, unpriced: sum(rows, 'unpriced_responses') })}</p>
     </div>
   );
 }

@@ -2,9 +2,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import {
-  Activity, Server, Layers, MessageSquare, Clock, ChevronRight,
+  Server, Layers, MessageSquare, Clock, ChevronRight, Gauge,
 } from 'lucide-react';
-import { StatCard, Badge, EmptyState } from '@/components/ui';
+import { StatCard, Badge, EmptyState, PageHeader, LoadingState, Bars, Ring } from '@/components/ui';
 import { getStatus, type SystemStatus } from '@/api/status';
 import { listProjects, shownName, shownNames, type ProjectSummary } from '@/api/projects';
 import { listSessions, type Session } from '@/api/sessions';
@@ -56,118 +56,171 @@ export default function Dashboard() {
     return () => window.removeEventListener('cc:refresh', handler);
   }, [fetchData]);
 
-  if (loading && !status) {
-    return <div className="flex items-center justify-center h-64 text-gray-400"><Activity className="animate-pulse" size={24} /></div>;
-  }
-
-  if (error) {
-    return <div className="text-center py-16 text-red-500">{error}</div>;
-  }
+  // 两处派生数据都直接来自 status/projects，不引入新的请求，也不推测缺失值。
+  const platformCount = status?.connected_platforms?.length ?? 0;
+  const projectRows = projects.map((p) => ({
+    label: shownName(p),
+    value: p.sessions_count ?? 0,
+    display: String(p.sessions_count ?? 0),
+  }));
 
   return (
-    <div className="space-y-8 animate-fade-in ">
-      {/* 屏幕标题：应用界面房规要求画布顶端有一个 h1 命名本屏（18–28px、句首大写） */}
-      <h1 className="text-2xl font-semibold tracking-tight text-ink">{t('nav.dashboard')}</h1>
+    <div className="space-y-8 animate-fade-in">
+      <PageHeader
+        icon={Gauge}
+        title={t('dashboard.title')}
+        description={t('dashboard.version') + ' ' + (status?.version || '-')}
+        actions={
+          <Badge variant="outline">
+            {t('dashboard.uptime')} {status ? formatUptime(status.uptime_seconds) : '-'}
+          </Badge>
+        }
+      />
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard label={t('dashboard.version')} value={status?.version || '-'} accent />
-        <StatCard label={t('dashboard.uptime')} value={status ? formatUptime(status.uptime_seconds) : '-'} />
-        <StatCard label={t('dashboard.platforms')} value={status?.connected_platforms?.length ?? 0} />
-        <StatCard label={t('dashboard.projects')} value={status?.projects_count ?? 0} />
-      </div>
+      {loading && !status ? (
+        <LoadingState label={t('common.loading')} />
+      ) : error ? (
+        <div className="rounded-card bg-red-500/10 p-4 text-sm text-red-700 ring-1 ring-red-500/25 dark:text-red-400">{error}</div>
+      ) : (
+        <>
+          {/* Stats */}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <StatCard label={t('dashboard.version')} value={status?.version || '-'} accent />
+            <StatCard label={t('dashboard.uptime')} value={status ? formatUptime(status.uptime_seconds) : '-'} />
+            <StatCard label={t('dashboard.platforms')} value={platformCount} />
+            <StatCard label={t('dashboard.projects')} value={status?.projects_count ?? 0} />
+          </div>
 
-      {/* Projects */}
-      <section>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">
-            <Server size={14} className="text-gray-400" />
-            {t('nav.projects')}
-          </h3>
-          <Link to="/projects" className="text-xs text-accent hover:underline flex items-center gap-0.5">
-            {t('common.viewAll')} <ChevronRight size={12} />
-          </Link>
-        </div>
-        {projects.length === 0 ? (
-          <div className="rounded-xl border border-gray-200/80 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-8">
-            <EmptyState message={t('projects.noProjects')} icon={Layers} />
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-3">
-            {projects.slice(0, MAX_ITEMS).map((p) => (
-              <Link
-                key={p.name}
-                to={`/chat/${p.name}`}
-                className="block min-w-0 overflow-hidden p-4 rounded-xl border border-gray-200/80 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] hover:border-accent/40 hover:shadow-md hover:shadow-accent/5 transition-all"
-              >
-                <div className="flex items-center gap-2.5 mb-3">
-                  <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
-                    <Server size={14} className="text-accent" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{shownName(p)}</p>
-                    <p className="text-xs text-gray-400 font-mono truncate">{p.agent_type}</p>
-                  </div>
+          {/* Monitoring strip: one share ring + one ranking bar, both fed by real counts. */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="rounded-card bg-surface p-5 shadow-ui-1">
+              <p className="text-xs font-medium uppercase tracking-wide text-ink-mute">
+                {t('dashboard.platforms')}
+              </p>
+              <div className="mt-3 flex items-center gap-4">
+                <Ring
+                  ratio={platformCount > 0 ? 1 : 0}
+                  display={String(platformCount)}
+                  label={t('dashboard.platforms')}
+                />
+                <div className="text-xs text-ink-mute">
+                  {platformCount > 0
+                    ? status?.connected_platforms?.join(' · ')
+                    : t('dashboard.noData')}
                 </div>
-                <div className="flex flex-wrap gap-1 mb-2">
-                  {p.platforms?.slice(0, 3).map((pl) => (
-                    <Badge key={pl} className="text-xs">{pl}</Badge>
-                  ))}
-                  {(p.platforms?.length ?? 0) > 3 && (
-                    <Badge className="text-xs">+{p.platforms!.length - 3}</Badge>
-                  )}
-                </div>
-                <p className="text-xs text-gray-400">{p.sessions_count} sessions</p>
-              </Link>
-            ))}
-          </div>
-        )}
-      </section>
+              </div>
+            </div>
 
-      {/* Recent Sessions */}
-      <section>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">
-            <MessageSquare size={14} className="text-gray-400" />
-            {t('dashboard.recentSessions')}
-          </h3>
-          <Link to="/chat" className="text-xs text-accent hover:underline flex items-center gap-0.5">
-            {t('common.viewAll')} <ChevronRight size={12} />
-          </Link>
-        </div>
-        {recentSessions.length === 0 ? (
-          <div className="rounded-xl border border-gray-200/80 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-8">
-            <p className="text-xs text-gray-400 text-center">{t('sessions.noSessions')}</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-3">
-            {recentSessions.map((sess) => (
-              <Link
-                key={`${sess.project}-${sess.id}`}
-                to={`/chat/${sess.project}`}
-                className="block min-w-0 overflow-hidden p-4 rounded-xl border border-gray-200/80 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] hover:border-accent/40 hover:shadow-md hover:shadow-accent/5 transition-all"
-              >
-                <div className="flex items-center gap-2.5 mb-3">
-                  <div className={`w-2 h-2 rounded-full shrink-0 ${sess.active ? 'bg-green-400' : 'bg-gray-300 dark:bg-gray-600'}`} />
-                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                    {sess.name || sess.id}
-                  </p>
-                </div>
-                <Badge className="text-xs mb-2">{shownNames(projects)(sess.project)}</Badge>
-                {sess.last_message && (
-                  <p className="text-xs text-gray-400 truncate mb-2">
-                    {sess.last_message.content.slice(0, 60)}
-                  </p>
+            <div className="rounded-card bg-surface p-5 shadow-ui-1 lg:col-span-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-ink-mute">
+                {t('dashboard.projects')}
+              </p>
+              <div className="mt-3">
+                {projectRows.length === 0 ? (
+                  <p className="py-6 text-center text-xs text-ink-mute">{t('dashboard.noData')}</p>
+                ) : (
+                  <Bars data={projectRows.slice(0, MAX_ITEMS)} labelWidth={88} />
                 )}
-                <div className="flex items-center gap-1 text-xs text-gray-400">
-                  <Clock size={10} />
-                  {formatTime(sess.updated_at)}
-                </div>
-              </Link>
-            ))}
+              </div>
+            </div>
           </div>
-        )}
-      </section>
+
+          {/* Projects */}
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+                <Server size={14} strokeWidth={1.6} className="text-ink-mute" />
+                {t('nav.projects')}
+              </h3>
+              <Link to="/projects" className="flex items-center gap-0.5 text-xs text-accent-text hover:underline">
+                {t('common.viewAll')} <ChevronRight size={12} />
+              </Link>
+            </div>
+            {projects.length === 0 ? (
+              <div className="rounded-card bg-surface p-8 shadow-ui-1">
+                <EmptyState message={t('projects.noProjects')} icon={Layers} />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
+                {projects.slice(0, MAX_ITEMS).map((p) => (
+                  <Link
+                    key={p.name}
+                    to={`/chat/${p.name}`}
+                    className="block min-w-0 overflow-hidden rounded-card bg-surface p-4 shadow-ui-1 transition-[box-shadow,transform] duration-state ease-ui-standard hover:-translate-y-0.5 hover:shadow-ui-2"
+                  >
+                    <div className="mb-3 flex items-center gap-2.5">
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-card bg-accent-wash text-accent-text ring-1 ring-accent/15">
+                        <Server size={14} strokeWidth={1.6} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-ink">{shownName(p)}</p>
+                        <p className="truncate font-mono text-xs text-ink-mute">{p.agent_type}</p>
+                      </div>
+                    </div>
+                    <div className="mb-2 flex flex-wrap gap-1">
+                      {p.platforms?.slice(0, 3).map((pl) => (
+                        <Badge key={pl}>{pl}</Badge>
+                      ))}
+                      {(p.platforms?.length ?? 0) > 3 && (
+                        <Badge>+{p.platforms!.length - 3}</Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-ink-mute">{p.sessions_count} sessions</p>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Recent Sessions */}
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+                <MessageSquare size={14} strokeWidth={1.6} className="text-ink-mute" />
+                {t('dashboard.recentSessions')}
+              </h3>
+              <Link to="/chat" className="flex items-center gap-0.5 text-xs text-accent-text hover:underline">
+                {t('common.viewAll')} <ChevronRight size={12} />
+              </Link>
+            </div>
+            {recentSessions.length === 0 ? (
+              <div className="rounded-card bg-surface p-8 shadow-ui-1">
+                <EmptyState message={t('sessions.noSessions')} icon={MessageSquare} />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
+                {recentSessions.map((sess) => (
+                  <Link
+                    key={`${sess.project}-${sess.id}`}
+                    to={`/chat/${sess.project}`}
+                    className="block min-w-0 overflow-hidden rounded-card bg-surface p-4 shadow-ui-1 transition-[box-shadow,transform] duration-state ease-ui-standard hover:-translate-y-0.5 hover:shadow-ui-2"
+                  >
+                    <div className="mb-3 flex items-center gap-2.5">
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${sess.active ? 'bg-emerald-500' : 'bg-hairline-strong'}`}
+                        aria-hidden
+                      />
+                      <p className="truncate text-sm font-medium text-ink">
+                        {sess.name || sess.id}
+                      </p>
+                    </div>
+                    <Badge className="mb-2">{shownNames(projects)(sess.project)}</Badge>
+                    {sess.last_message && (
+                      <p className="mb-2 truncate text-xs text-ink-mute">
+                        {sess.last_message.content.slice(0, 60)}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-1 text-xs text-ink-mute">
+                      <Clock size={10} />
+                      {formatTime(sess.updated_at)}
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      )}
     </div>
   );
 }
