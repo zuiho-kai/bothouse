@@ -64,6 +64,10 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
 .chip.rejected{background:#46191c;color:#ff9b9b}
 .chip.paused{background:#26303d;color:#9fb0c4}
 .chip.done{background:#173b28;color:#8ce7ae}
+.chip.at{background:#123246;color:#9fd8ff}
+.bubble .fish{position:relative;display:inline-block;width:12px;height:6px;margin-left:2px;border-radius:50%;background:#7fc9ff;box-shadow:0 0 6px #7fc9ff55}
+.bubble .fish:before{content:"";position:absolute;right:-5px;top:1px;border-left:5px solid #7fc9ff;border-top:2px solid transparent;border-bottom:2px solid transparent}
+.bubble .fish:after{content:"";position:absolute;left:2px;top:2px;width:2px;height:2px;border-radius:50%;background:#0b1622}
 .legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;font-size:11px;color:var(--muted)}
 .lg{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
 .lg:before{content:"";width:16px;height:2px;border-radius:2px;background:currentColor}
@@ -380,7 +384,153 @@ function setTask(member, rec) {
   S.active.set(member.id, rec);
 }
 function clearTask(memberId) { S.active.delete(memberId); }
-/* __JS_RENDER__ */
+function initBadge(m) {
+  const n = el('span', 'init', Array.from(displayName(m))[0] || '?');
+  n.style.background = `linear-gradient(145deg,${colorOf(m.id)},#182231 70%)`;
+  return n;
+}
+
+function seatNode(m) {
+  const seat = el('div', 'seat');
+  seat.dataset.id = m.id;
+  seat.style.setProperty('--shirt', shirtOf(m.id));
+  const chair = el('div', 'chair');
+  const person = el('div', 'person');
+  const aura = el('div', 'aura');
+  const body = el('div', 'body');
+  const avatar = el('div', 'avatar');
+  const spec = avatarSpec(m);
+  if (spec.src) {
+    const img = el('img');
+    img.alt = ''; img.decoding = 'async'; img.src = spec.src;
+    img.addEventListener('error', () => img.replaceWith(initBadge(m)));
+    avatar.append(img);
+  } else avatar.append(initBadge(m));
+  avatar.append(el('span', 'dot'));
+  const crown = el('span', 'crown', '♛'); crown.hidden = true; avatar.append(crown);
+  const tasktag = el('div', 'tasktag'); tasktag.hidden = true;
+  const bubble = el('div', 'bubble'); bubble.hidden = true;
+  person.append(aura, body, avatar, tasktag, bubble);
+  const desk = el('div', 'desk');
+  const monitor = el('div', 'monitor');
+  monitor.append(el('div', 'screen'), el('div', 'stand'), el('div', 'base'));
+  const desktop = el('div', 'desktop');
+  const plate = el('div', 'plate', displayName(m));
+  desktop.append(el('div', 'keyboard'), el('div', 'papers'), el('div', 'mug'), plate);
+  const status = el('div', 'status', '摸鱼中');
+  desk.append(monitor, desktop, status);
+  seat.append(chair, person, desk);
+  seat.title = displayName(m);
+  return seat;
+}
+
+function rosterRank(m) {
+  const at = (ROSTER.members ?? []).indexOf(S.rosterFor.get(m.id));
+  return at < 0 ? 99 : at;
+}
+function orderedMembers() {
+  const list = [...S.memberList];
+  list.sort((a, b) => rosterRank(a) - rosterRank(b) || displayName(a).localeCompare(displayName(b), 'zh'));
+  const lead = S.lead ? S.byId.get(S.lead) : undefined;
+  if (lead) {
+    const at = list.indexOf(lead);
+    if (at > 0) { list.splice(at, 1); list.unshift(lead); }
+  }
+  return list;
+}
+
+function renderSeats() {
+  const order = orderedMembers();
+  const nodes = order.map(seatNode);
+  S.seatNodes = new Map(order.map((m, i) => [m.id, nodes[i]]));
+  $('seats').replaceChildren(...nodes);
+  setEmpty();
+  paintAll();
+}
+
+function paintBubble(node, kind) {
+  const bubble = q('.bubble', node);
+  if (kind === 'off') { bubble.hidden = true; bubble.dataset.kind = ''; return; }
+  bubble.hidden = false;
+  if (bubble.dataset.kind === kind) return;
+  bubble.dataset.kind = kind;
+  bubble.replaceChildren();
+  if (kind === 'idle') {
+    bubble.append(el('span', 'zzz', 'z'), el('span', 'zzz', 'z'), el('span', 'fish'));
+  } else {
+    for (let i = 0; i < 3; i++) bubble.append(el('span', 'td'));
+  }
+}
+
+function paintSeat(m) {
+  const node = S.seatNodes?.get(m.id);
+  if (!node) return;
+  const rec = S.active.get(m.id);
+  const thinking = S.thinking.has(m.id);
+  const online = m.online !== false;
+  const kind = !online ? 'off' : rec ? 'work' : thinking ? 'think' : 'idle';
+  node.classList.toggle('offline', !online);
+  node.classList.toggle('working', kind === 'work');
+  node.classList.toggle('thinking', kind === 'think');
+  node.classList.toggle('idle', kind === 'idle');
+  node.classList.toggle('lead', S.lead === m.id);
+  q('.crown', node).hidden = S.lead !== m.id;
+  q('.avatar .dot', node).style.background = !online ? '#64748b' : rec ? '#ffc56b' : thinking ? '#7dd3fc' : '#34d399';
+  const tag = q('.tasktag', node);
+  if (rec) {
+    tag.hidden = false;
+    tag.textContent = `#${rec.id || '?'} ${rec.title || ''}`.trim();
+    tag.title = `${rec.title || ''}${rec.note ? ' · ' + rec.note : ''}`;
+  } else { tag.hidden = true; tag.title = ''; }
+  const status = q('.status', node);
+  status.textContent = !online ? '离线' : rec ? '干活中' : thinking ? '思考中…' : '摸鱼中';
+  paintBubble(node, kind);
+  q('.plate', node).textContent = displayName(m);
+  node.title = `${displayName(m)} · ${status.textContent}`;
+}
+
+function paintAll() {
+  for (const m of S.memberList) paintSeat(m);
+  updateStats();
+}
+
+function updateStats() {
+  const online = S.memberList.filter(m => m.online !== false).length;
+  $('stats').textContent = `在线 ${online}/${S.memberList.length} · 进行中 ${S.active.size}`;
+}
+
+function setEmpty() {
+  const empty = $('empty');
+  empty.hidden = S.memberList.length > 0;
+  if (!S.memberList.length) empty.textContent = S.fixture ? '示例成员载入中…' : '还没有成员接入 DSH';
+}
+
+function setTicker(kind, ts, fromName, toName, text, note) {
+  const route = [fromName, toName].filter(Boolean).join(' → ');
+  const body = [text, note].filter(Boolean).join(' · ');
+  $('ticker').textContent = `最新：${fmtTime(ts)} ${KIND[kind] ?? kind} ${route}${body ? ' · ' + body : ''}`;
+}
+
+function addLog(kind, ts, fromName, toName, text, note) {
+  const list = $('eventLog');
+  const li = el('li');
+  const l1 = el('div', 'l1');
+  l1.append(el('span', 't', fmtTime(ts)), el('span', 'chip ' + kind, KIND[kind] ?? kind));
+  l1.append(el('span', 'route', [fromName, toName].filter(Boolean).join(' → ')));
+  li.append(l1, el('div', 'l2', [text, note].filter(Boolean).join(' · ') || '—'));
+  list.prepend(li);
+  while (list.children.length > S.logLimit) list.lastChild.remove();
+  S.eventCount += 1;
+  $('eventCount').textContent = S.eventCount;
+  setTicker(kind, ts, fromName, toName, text, note);
+}
+
+function setLead(id) {
+  const next = id && S.byId.has(id) ? id : null;
+  if (S.lead === next) { paintAll(); return; }
+  S.lead = next;
+  renderSeats();
+}
 /* __JS_BEAMS__ */
 /* __JS_EVENTS__ */
 /* __JS_LIVE__ */
