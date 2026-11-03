@@ -1135,7 +1135,7 @@ function dispatchBeamOnce(id, from, to) {
   beam(from, to, 'assign');
 }
 
-function applyTask(ev, animate = true) {
+function applyTask(ev, animate = true, quiet = false) {
   // 实时流上 tasks.mjs 也发 `{type:'task', task:{…}, chat_id, active}`（给聊天面板用的任务对象），
   // 那不是板事件的形态（id/kind/from/to/title，由 gate 的 board.py 写进 board-events.jsonl）。
   // 两种都照画，任务动作会多出一行「— → —」的空记录，实时就和回放对不上了。
@@ -1184,7 +1184,7 @@ function applyTask(ev, animate = true) {
     }
     forgetDispatch(id, S.dispatched);
   }
-  addLog(kind, ts, fromName, toName, header, note);
+  if (!quiet) addLog(kind, ts, fromName, toName, header, note);
   paintAll();
 }
 
@@ -1267,6 +1267,12 @@ async function loadState() {
   renderSeats();
 }
 
+// 刷新/第一次打开时进行中的任务要从板上补回来，否则工位和「进行中」要等下一个事件才对。
+async function loadDeskState() {
+  const data = await api(ROOT + '/collab/api/desk/state');
+  for (const ev of data.tasks ?? []) applyTask({ ...ev, type: 'task' }, false, true);
+}
+
 function connectLive() {
   disconnectLive();
   const es = new EventSource(ROOT + '/collab/api/events');
@@ -1318,11 +1324,15 @@ async function goLive() {
   setConn('wait', '连接中');
   try {
     await loadState();
-    connectLive();
   } catch (error) {
     setConn('err', '连接失败');
     toast(`加载失败：${error.message}`);
+    return;
   }
+  try {
+    await loadDeskState();
+  } catch { /* 进行中的任务补不回来，不影响实时事件 */ }
+  connectLive();
 }
 const R = (S.replay = { events: [], idx: 0, playing: false, speed: 4, timer: null, loaded: false });
 
