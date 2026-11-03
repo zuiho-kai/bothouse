@@ -138,6 +138,14 @@ func mergeQueuedChat(parts []queuedMessage) queuedMessage {
 	all := mergeQueued(parts)
 	out := parts[reply]
 	out.ambientChat, out.reference, out.boardDesc = all.ambientChat, all.reference, all.boardDesc
+	// The quote of the messages holding a place (at most one, takeGroupBatchLocked) is the turn's;
+	// a context-only message's quote stays in its own text and is used only when none quotes.
+	for _, p := range parts {
+		if !p.overflow && p.reference != nil {
+			out.reference = p.reference
+			break
+		}
+	}
 	out.images, out.files, out.turnCtx, out.turnCtxQuery = all.images, all.files, all.turnCtx, all.turnCtxQuery
 	out.overflow, out.contextBefore = false, nil
 	var b strings.Builder

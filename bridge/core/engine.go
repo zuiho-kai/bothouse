@@ -3989,12 +3989,6 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 	// Only a person's message makes room; a cron/timer or teammate turn keeps the old rule.
 	groupQueue := groupChatQueue(p, msg.ReplyCtx, msg.Direct) && !msg.FromBot && scheduledFrom == nil &&
 		msg.timerJobID == "" && !scheduledTurnUser(msg.UserID)
-	groupOverflow := false
-	if groupQueue && countQueuedLocked(state) >= e.maxQueuedMessages && !msg.abortFront {
-		// A busy group chat: the oldest queued message nobody @-ed becomes context for the next
-		// turn instead of a "queue full" notice (queue_batch.go).
-		groupOverflow = e.makeRoomInGroupQueueLocked(state, msg, interactiveKey)
-	}
 	if len(state.pendingMessages) >= e.maxQueuedMessages && !msg.abortFront && !groupQueue {
 		depth := len(state.pendingMessages)
 		e.replyToAuthorizedMessage(p, msg, fmt.Sprintf(e.i18n.T(MsgQueueFull), depth))
@@ -4033,7 +4027,6 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		fromBot:             msg.FromBot,
 		mentioned:           msg.Mentioned,
 		direct:              msg.Direct,
-		overflow:            groupOverflow,
 		boardDesc:           boardDescOf(msg),
 	}
 	// Mixed explicit/automatic turns keep separate durable queue entries.
@@ -4044,6 +4037,13 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 			return queueRejected
 		}
 		q.resumedFrom = id
+	}
+	// Room is made only for a message that is accepted (its journal entry, if any, is written);
+	// one that cannot ride as context (journaled, so never batchable) holds a place.
+	if groupQueue && countQueuedLocked(state) >= e.maxQueuedMessages && !msg.abortFront {
+		// A busy group chat: the oldest queued message nobody @-ed becomes context for the next
+		// turn instead of a "queue full" notice (queue_batch.go).
+		q.overflow = e.makeRoomInGroupQueueLocked(state, msg, interactiveKey) && batchableQueued(&q)
 	}
 	if msg.abortFront {
 		// maomao fork: a gate abort is answered before what queued behind the turn it cancels.

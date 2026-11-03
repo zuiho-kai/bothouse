@@ -631,6 +631,9 @@ func (e *Engine) journalSyncQueued(state *interactiveState, interactiveKey strin
 	msgs := make([]string, 0, len(state.pendingMessages))
 	for _, q := range state.pendingMessages {
 		if q.resumedFrom == "" {
+			for _, c := range q.contextBefore { // folded context goes right before its holder
+				msgs = append(msgs, c.content)
+			}
 			msgs = append(msgs, q.content)
 		}
 	}
