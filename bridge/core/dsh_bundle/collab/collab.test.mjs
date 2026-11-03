@@ -1533,6 +1533,27 @@ test('member failure publishes actionable error and clears it on retry', () => {
   assert.equal(hub.memberView().find(m => m.id === 'ds').error, undefined);
 });
 
+test('an unreachable provider names the setting to check instead of echoing the transport error', () => {
+  assert.match(friendlyFailure('DeepSeek 这一轮没有给出回复（error：Connection error.）'), /连不上模型服务/);
+  assert.match(friendlyFailure('fetch failed'), /连不上模型服务/);
+});
+
+test('a turn interrupted by a restart keeps the member healthy and offers a retry', () => {
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const trigger = hub.store.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'hello' }).message;
+  const job = hub.store.addJob('ds', 1, trigger.id);
+  members.fail(job.id, 'DeepSeek 上次被重启打断，这条没有完成，需要的话请重新 @。', 'interrupted');
+  const notice = hub.store.page(1, undefined, 1)[0];
+  assert.equal(notice.text, 'DeepSeek 上次被重启打断，这条没有完成，需要的话请重新 @。');
+  const card = JSON.parse(notice.card);
+  assert.equal(card.title, '被中断');
+  assert.equal(card.action, 'retry');
+  const view = hub.memberView().find(m => m.id === 'ds');
+  assert.equal(view.error, undefined);
+  assert.equal(view.online, true);
+});
+
 test('member errors explain setup failures and publish error presence', () => {
   assert.match(friendlyFailure('no API key configured'), /API Key/);
   assert.match(friendlyFailure('model not found'), /模型暂时不可用/);
