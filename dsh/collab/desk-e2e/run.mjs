@@ -155,11 +155,12 @@ try {
 }
 
 // ---------- 3. 事件流 ----------
-async function waitTaskEvent(url, timeoutMs) {
+async function waitTaskEvent(url, timeoutMs, onConnected) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return undefined;
     const reader = res.body.getReader();
     let buffer = '';
     for (;;) {
@@ -170,7 +171,11 @@ async function waitTaskEvent(url, timeoutMs) {
       for (let i; (i = buffer.indexOf('\n\n')) >= 0;) {
         const frame = buffer.slice(0, i);
         buffer = buffer.slice(i + 2);
-        if (frame.startsWith(':')) continue;  // `: connected` / `: ping`
+        if (frame.startsWith(':')) {
+          // 服务端先发 `: connected`：这一帧到了才算订阅真的建立。
+          if (frame.includes('connected')) onConnected?.();
+          continue;
+        }
         const line = frame.split('\n').find(l => l.startsWith('data:'));
         if (!line) continue;
         let event;
@@ -188,9 +193,12 @@ async function waitTaskEvent(url, timeoutMs) {
 
 if (host) {
   console.log('== 3/4 /collab/api/events 是否转发 task ==');
-  const subscription = waitTaskEvent(`${host.url}/collab/api/events`, EVENT_TIMEOUT_MS);
-  // 等订阅真的建立（服务端先发 `: connected`）再写事件，否则事件可能在没人听的时候就被尾随走。
-  await new Promise(r => setTimeout(r, 1500));
+  let markConnected;
+  const connected = new Promise(resolve => { markConnected = resolve; });
+  const subscription = waitTaskEvent(`${host.url}/collab/api/events`, EVENT_TIMEOUT_MS, markConnected);
+  // 真的等到服务端的 `: connected` 帧再写事件；等不到就是订阅没建立，直接判失败。
+  const ready = await Promise.race([connected.then(() => true), new Promise(r => setTimeout(() => r(false), 5000))]);
+  if (!ready) record('SSE 订阅', false, '5s 内没收到 `: connected` 首帧');
   try {
     probeId = board('add', '端到端驱动：事件流探针', 'notes/desk/E.handoff.md', '排队', 'C酱', '--short', 'E2E探针').replace('#', '');
   } catch (error) {
