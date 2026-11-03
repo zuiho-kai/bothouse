@@ -124,7 +124,7 @@
     flex-direction: column;
   }
   #roomsPane { border-right: 1px solid var(--rail); }
-  #membersPane { border-left: 1px solid var(--rail); }
+  #members { border-left: 1px solid var(--rail); }
   .pane-head {
     position: sticky;
     top: 0;
@@ -432,7 +432,7 @@
 
   @media (max-width: 768px) {
     body { grid-template-columns: minmax(0, 1fr); }
-    #roomsPane, #membersPane {
+    #roomsPane, #members {
       position: fixed;
       top: 0;
       bottom: 0;
@@ -446,9 +446,9 @@
       padding-bottom: env(safe-area-inset-bottom);
     }
     #roomsPane { left: 0; transform: translateX(-100%); }
-    #membersPane { right: 0; transform: translateX(100%); }
+    #members { right: 0; transform: translateX(100%); }
     body[data-drawer="rooms"] #roomsPane,
-    body[data-drawer="members"] #membersPane { transform: translateX(0); }
+    body[data-drawer="members"] #members { transform: translateX(0); }
     /* 44px：验收达标线「手机点按目标 ≥44px」 */
     .icon-btn { display: inline-grid; width: 44px; height: 44px; }
     .mode { max-width: 140px; min-height: 44px; }
@@ -486,7 +486,7 @@
       <option value="solo">单模型多进程</option>
       <option value="team">完全团队</option>
     </select>
-    <button class="icon-btn" id="openMembers" type="button" aria-label="打开成员列表" aria-controls="membersPane" aria-expanded="false">
+    <button class="icon-btn" id="openMembers" type="button" aria-label="打开成员列表" aria-controls="members" aria-expanded="false">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M17 3.13a4 4 0 0 1 0 7.75"/></svg>
     </button>
   </div>
@@ -495,7 +495,7 @@
   <form id="form" class="composer"><textarea id="input" rows="1" placeholder="发消息，@成员 让它干活（Enter 发送，Shift+Enter 换行）" disabled></textarea></form>
 </main>
 
-<aside id="membersPane" class="members" aria-label="成员"></aside>
+<aside id="members" class="members" aria-label="成员"></aside>
 <div class="scrim" id="scrim" aria-hidden="true"></div>
 
 <script>
@@ -546,7 +546,7 @@ function setDrawer(which, trigger) {
   $('scrim').classList.toggle('show', !!which);
   $('openRooms').setAttribute('aria-expanded', String(which === 'rooms'));
   $('openMembers').setAttribute('aria-expanded', String(which === 'members'));
-  const pane = which === 'rooms' ? $('roomsPane') : which === 'members' ? $('membersPane') : null;
+  const pane = which === 'rooms' ? $('roomsPane') : which === 'members' ? $('members') : null;
   if (pane) pane.querySelector('button, select')?.focus({ preventScroll: true });
   else if (drawerTrigger) { drawerTrigger.focus({ preventScroll: true }); drawerTrigger = null; }
 }
@@ -591,7 +591,7 @@ function renderMembers() {
       nodes.push(row);
     }
   }
-  $('membersPane').replaceChildren(...nodes);
+  $('members').replaceChildren(...nodes);
   const names = visible.filter(m => busy.has(m.id)).map(m => m.name);
   $('thinking').textContent = names.length ? `${names.join('、')} 正在处理…` : '';
 }
