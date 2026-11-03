@@ -18,7 +18,7 @@ import { CapabilityList } from './CapabilityList.tsx'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
 import { ChannelSettingsDialog } from './ChannelSettingsDialog.tsx'
-import { Avatar } from './Avatar.tsx'
+import { Avatar, AvatarStack } from './Avatar.tsx'
 import { PermissionCard, type PermissionCardData } from './PermissionCard.tsx'
 import type { NS } from './locales.ts'
 import css from './ChannelsPage.module.css'
@@ -87,6 +87,54 @@ function saveCardView(roomId: number, view: CardView): void {
   try { globalThis.localStorage?.setItem(CARD_VIEW_KEY + roomId, view) } catch (error) { void error /* storage unavailable: keep the choice in memory */ }
 }
 
+/** Card metadata stored in `ChannelMessage.card` (progress, permission, task, failure, …). */
+interface CardMeta { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string; steps?: number }
+
+export function parseCard(message: ChannelMessage): CardMeta | undefined {
+  if (message.card === null) return undefined
+  try { return JSON.parse(message.card) as CardMeta } catch (error) { void error /* unreadable card metadata: render the text alone */ }
+  return undefined
+}
+
+/**
+ * Where a card sits in the layout (#113): a progress card is a slim run strip
+ * under its author's reply, a member failure is an inline error bar, a pending
+ * permission request is pinned above the composer, a task notice from the
+ * system is a centered divider; anything else keeps the plain card.
+ */
+export type CardRole = 'none' | 'progress' | 'failure' | 'permission' | 'task' | 'other'
+export function cardRole(card: CardMeta | undefined): CardRole {
+  if (card === undefined) return 'none'
+  if (card.kind === 'permission') return 'permission'
+  if (card.kind === 'task') return 'task'
+  if (card.kind === undefined && card.action === undefined && (typeof card.steps === 'number' || typeof card.brief === 'string' || card.state === 'running' || card.state === 'completed')) return 'progress'
+  if (card.action === 'configure-model' || card.state === 'failed' || card.state === 'retried') return 'failure'
+  return 'other'
+}
+
+/** A pending permission request: its buttons live in the tray above the composer. */
+export function pendingPermission(message: ChannelMessage): boolean {
+  const card = parseCard(message)
+  return card?.kind === 'permission' && card.state === 'pending'
+}
+
+// 来源：沿用 #98 规范「连续消息合在一起显示」；5 分钟窗口沿用 Slack/Discord 连续消息合并的惯例。
+const GROUP_WINDOW_SEC = 300
+
+/** Same author, close in time, plain or progress: the row drops its avatar and name. */
+export function continues(previous: ChannelMessage | undefined, message: ChannelMessage): boolean {
+  if (previous === undefined || previous.author_kind === 'system' || message.author_kind === 'system') return false
+  if (previous.author !== message.author || previous.author_kind !== message.author_kind) return false
+  if (message.reply_to !== undefined || message.created_at - previous.created_at > GROUP_WINDOW_SEC) return false
+  const role = cardRole(parseCard(message))
+  const before = cardRole(parseCard(previous))
+  return (role === 'none' || role === 'progress') && (before === 'none' || before === 'progress')
+}
+
+function clockOf(seconds: number): string {
+  return new Date(seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
 /** #148: inline editor state for one of your own messages. */
 interface OwnActions {
   editing: string | undefined
@@ -98,8 +146,9 @@ interface OwnActions {
 }
 
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onRetry, retrying, tasks, focused, cardView, onCardView, own }: {
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped }: {
   message: ChannelMessage
+  grouped: boolean
   cardView: CardView
   onCardView: (view: CardView) => void
   own: OwnActions | undefined
@@ -118,23 +167,69 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   retrying: boolean
 }) {
   const labels = useMemo(() => ({ code: { copyLabel: t('copyCode'), copiedLabel: t('copiedCode') }, footnotes: t('footnotes') }), [t])
-  let card: { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string } | undefined
-  if (message.card !== null) {
-    try { card = JSON.parse(message.card) as { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string } } catch (error) { void error /* unreadable card metadata: render the text alone */ }
-  }
+  const card = parseCard(message)
+  const role = cardRole(card)
   // Parse once per text change: MessageRow re-renders on every composer keystroke.
   const shown = typeof card?.brief === 'string' && cardView === 'brief' ? card.brief : message.text
   const markdown = useMemo(() => softBreaksToHard(shown), [shown])
-  const classes = [css.message, message.author_kind === 'system' ? css.system : '', focused ? css.focused : ''].filter(Boolean).join(' ')
+  const steps = role === 'progress' ? shown.slice(shown.indexOf('\n') + 1) : ''
+  const stepsMarkdown = useMemo(() => (steps === '' ? '' : softBreaksToHard(steps)), [steps])
+  const fullTime = new Date(message.created_at * 1000).toLocaleString()
+
+  const retryButtons = (role === 'failure' || card?.state === 'failed') && card !== undefined && (
+    <div className={css.cardButtons}>
+      {card.state !== 'retried' && (
+        <button type="button" className={css.secondaryButton} disabled={retrying} onClick={() => onRetry(message.id)}>
+          {retrying ? t('retrying') : t('retry')}
+        </button>
+      )}
+      {card.action === 'configure-model' && (
+        <button type="button" className={css.secondaryButton} onClick={onConfigure}>
+          {t('configureModel')}
+        </button>
+      )}
+    </div>
+  )
+
+  // #113: a system notice (task reminders, joins) is a centered divider, not a member speaking;
+  // a member failure posted by the system is an inline error bar with its retry right there.
+  if (message.author_kind === 'system' && (role === 'none' || role === 'task')) {
+    return (
+      <div className={[css.systemRecord, focused ? css.focused : ''].filter(Boolean).join(' ')} data-message-id={message.id} role="note">
+        <div className={css.systemLine}>
+          <span className={css.systemText} title={fullTime}><MarkdownText text={markdown} labels={labels} /></span>
+        </div>
+        {/* A task record keeps its live card, centered under the line. */}
+        {card?.kind === 'task' && typeof card.task_id === 'number' && <div className={`${css.card} ${css.taskRecord}`}><TaskCard taskId={card.task_id} tasks={tasks} t={t} /></div>}
+      </div>
+    )
+  }
+  if (message.author_kind === 'system' && role === 'failure') {
+    return (
+      <div className={[css.errorBar, focused ? css.focused : ''].filter(Boolean).join(' ')} data-message-id={message.id} data-state={card?.state} role="alert">
+        <span className={css.errorIcon} aria-hidden>!</span>
+        <div className={css.errorText}><MarkdownText text={markdown} labels={labels} /></div>
+        {retryButtons}
+      </div>
+    )
+  }
+
+  const classes = [css.message, grouped ? css.grouped : '', message.author_kind === 'user' ? css.own : '', focused ? css.focused : ''].filter(Boolean).join(' ')
   // A task opened from this message (an @ dispatch, a handoff) shows its card here: the server posts
   // no 派活 record beside it (dsh/collab/tasks.mjs assign). A task record carries its own card, and a
   // sub-task anchored here too is a row of its parent's card.
   const anchored = card?.kind === 'task' ? [] : tasks.filter(task => task.assign_msg_id === message.id)
   const anchoredIds = new Set(anchored.map(task => task.id))
   const taskCards = anchored.filter(task => task.parent_task === null || !anchoredIds.has(task.parent_task))
+  const progressLines = role === 'progress' ? shown.split('\n') : []
+
+  // A finished run in the brief view folds to its summary line; running or detailed shows the steps.
+  const progressFolded = role === 'progress' && cardView === 'brief' && card?.state === 'completed'
   return (
     <div className={classes} data-message-id={message.id}>
-      {member === undefined || message.author_kind === 'system'
+      {grouped
+        ? <time className={css.gutterTime} title={fullTime} dateTime={new Date(message.created_at * 1000).toISOString()}>{clockOf(message.created_at)}</time>
+        : member === undefined || message.author_kind === 'system'
         ? <Avatar id={message.author} name={message.name} avatar={member?.avatar} avatarVersion={member?.avatarVersion} />
         : (
             // Avatar opens this author's member menu; `data-avatar-menu` marks the
@@ -153,10 +248,10 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
           )}
       <div className={css.messageBody}>
         {message.reply_to !== undefined && <Quote quote={message.reply_to} t={t} />}
-        <div className={css.messageHead}>
-          <span className={css.author}>{message.name}</span>
-          <KindTag name={message.name} kind={member?.kind} cli={member?.cli} t={t} />
-          <time className={css.time}>{new Date(message.created_at * 1000).toLocaleString()}</time>
+        <div className={grouped ? `${css.messageHead} ${css.messageHeadGrouped}` : css.messageHead}>
+          {!grouped && <span className={css.author}>{message.name}</span>}
+          {!grouped && <KindTag name={message.name} kind={member?.kind} cli={member?.cli} t={t} />}
+          {!grouped && <time className={css.time} title={fullTime} dateTime={new Date(message.created_at * 1000).toISOString()}>{clockOf(message.created_at)}</time>}
           {message.edited_at !== undefined && <span className={css.edited} title={new Date(message.edited_at * 1000).toLocaleString()}>{t('messageEdited')}</span>}
           {own !== undefined && own.editing === undefined && (
             <span className={css.ownActions}>
@@ -188,11 +283,15 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
             )
           : card === undefined
           ? <>{message.text !== '' && <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>}<AttachmentList attachments={message.attachments} t={t} /></>
-          : (
-              <div className={css.card} data-state={card.state}>
-                <div className={css.cardHead}>
-                  <div className={css.cardTitle}>{card.title}</div>
-                  {/* Only progress cards carry a 简略 rendering; older cards and other kinds show their text as before. */}
+          : role === 'progress'
+          ? (
+              // #113: the run is a slim strip under the reply — spinner, step and time — that folds
+              // to a summary once done; 简略/细节 stays as the strip's own switch.
+              <div className={css.runStrip} data-state={card.state ?? 'running'}>
+                <div className={css.runHead}>
+                  <span className={css.runIcon} aria-hidden />
+                  <span className={css.runTitle}>{card.title}</span>
+                  <span className={css.runSummary}>{progressLines[0]}</span>
                   {typeof card.brief === 'string' && (
                     <div className={css.cardViews} role="group" aria-label={t('cardView')}>
                       {(['detail', 'brief'] as const).map(view => (
@@ -203,31 +302,57 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                     </div>
                   )}
                 </div>
+                {!progressFolded && progressLines.length > 1 && (
+                  <div className={`${css.text} ${css.runSteps}`}><MarkdownText text={stepsMarkdown} labels={labels} /></div>
+                )}
+                {retryButtons}
+              </div>
+            )
+          : role === 'permission' && card.state === 'pending'
+          ? (
+              // #113: the buttons are pinned above the composer so scrolling never loses them.
+              <div className={css.permInline}>
+                <span className={css.permLock} aria-hidden>●</span>
                 <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>
-                {(card.state === 'failed' || card.action === 'configure-model') && (
-                  <div className={css.cardButtons}>
-                    {card.state !== 'retried' && (
-                      <button type="button" className={css.secondaryButton} disabled={retrying} onClick={() => onRetry(message.id)}>
-                        {retrying ? t('retrying') : t('retry')}
-                      </button>
-                    )}
-                    {card.action === 'configure-model' && (
-                      <button type="button" className={css.secondaryButton} onClick={onConfigure}>
-                        {t('configureModel')}
-                      </button>
-                    )}
+                <span className={css.permWaiting}>{t('permPending')}</span>
+              </div>
+            )
+          : (
+              <div className={css.card} data-state={card.state} data-role={role}>
+                {card.title !== undefined && card.kind !== 'permission' && (
+                  <div className={css.cardHead}>
+                    <div className={css.cardTitle}>{card.title}</div>
                   </div>
                 )}
+                <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>
+                {retryButtons}
                 {card.kind === 'permission' && <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />}
                 {card.kind === 'task' && typeof card.task_id === 'number' && <TaskCard taskId={card.task_id} tasks={tasks} t={t} />}
               </div>
             )}
-        {taskCards.map(task => <div key={task.id} className={css.card} data-anchored-task={task.id}><TaskCard taskId={task.id} tasks={tasks} t={t} /></div>)}
+        {taskCards.map(task => <div key={task.id} className={`${css.card} ${css.taskAnchor}`} data-anchored-task={task.id}><TaskCard taskId={task.id} tasks={tasks} t={t} /></div>)}
       </div>
       {/* System notices and progress cards are not conversation turns, so they take no reply. */}
       {message.author_kind !== 'system' && card === undefined && (
         <button type="button" className={css.replyButton} title={t('reply')} aria-label={t('reply')} onClick={() => { onReply(message) }}>↩</button>
       )}
+    </div>
+  )
+}
+
+/** One pending permission request in the tray above the composer (#113). */
+function PermTrayItem({ message, author, t, onDecide }: { message: ChannelMessage; author: ChannelMember | undefined; t: T; onDecide: ChannelActions['decidePermission'] }) {
+  const labels = useMemo(() => ({ code: { copyLabel: t('copyCode'), copiedLabel: t('copiedCode') }, footnotes: t('footnotes') }), [t])
+  const markdown = useMemo(() => softBreaksToHard(message.text), [message.text])
+  const card = useMemo(() => parseCard(message), [message])
+  return (
+    <div className={css.permTrayItem} data-message-id={message.id}>
+      <Avatar id={message.author} name={message.name} avatar={author?.avatar} avatarVersion={author?.avatarVersion} small />
+      <div className={css.permTrayText}>
+        <span className={css.permTrayWho}>{t('permAsks', { name: message.name })}</span>
+        <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>
+      </div>
+      <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />
     </div>
   )
 }
@@ -259,11 +384,11 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
             </span>
             <span className={css.memberText}>
               <span className={css.memberName}>{m.name}<KindTag name={m.name} kind={m.kind} cli={m.cli} t={t} /></span>
-              <span className={css.memberStatus}>{m.error ? t('memberFailed') : busy.has(m.id) ? t('working') : m.online ? t('online') : t('offline')}</span>
               {m.kind === 'dsh' && m.cli === undefined && (
                 <span className={css.memberModel}>{m.model ? `${m.model.provider}/${m.model.model}` : t('defaultModel')}</span>
               )}
             </span>
+            <span className={css.memberStatus} data-status={m.error ? 'error' : busy.has(m.id) ? 'busy' : m.online ? 'online' : 'offline'}>{m.error ? t('memberFailed') : busy.has(m.id) ? t('working') : m.online ? t('online') : t('offline')}</span>
           </button>
           {m.kind === 'dsh' && (m.editable === true
             ? (
@@ -399,6 +524,13 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     if (log !== null && stickRef.current) log.scrollTop = log.scrollHeight
   }, [state.messages, state.roomId])
 
+  // #113: the permission tray takes room from the log, never covers it; stay at the latest message.
+  const pendingKey = state.messages.filter(pendingPermission).map(m => m.id).join(',')
+  useEffect(() => {
+    const log = logRef.current
+    if (log !== null && stickRef.current) log.scrollTop = log.scrollHeight
+  }, [pendingKey])
+
   // Task board link (#139 B): once the target room's messages are in, scroll to and mark the message.
   const [jump, setJump] = useState<{ roomId: number; messageId: number } | undefined>(undefined)
   const [focusedId, setFocusedId] = useState<number | undefined>(undefined)
@@ -437,6 +569,17 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   ])
   const byId = new Map(visibleMembers.map(m => [m.id, m]))
   const typingNames = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? []).map(id => byId.get(id)?.name ?? id)
+  // #113 activity: who is at work in this channel (here or in one of its workspaces) and on what.
+  const channelRooms = new Set(state.rooms.filter(r => r.id === channelId || r.parent_id === channelId).map(r => r.id))
+  const openTasks = (state.tasks ?? []).filter(task => ['assigned', 'accepted', 'asked', 'rework'].includes(task.status))
+  const activity = visibleMembers.filter(m => m.kind !== 'human').flatMap((m) => {
+    const where = [...channelRooms].find(id => (state.thinking[String(id)] ?? []).includes(m.id))
+    const task = openTasks.find(task => task.owner === m.id && channelRooms.has(task.room_id))
+    if (where === undefined && task === undefined) return []
+    return [{ member: m, room: state.rooms.find(r => r.id === (where ?? task?.room_id)), task, thinking: where !== undefined }]
+  })
+  const pendingPerms = state.messages.filter(pendingPermission)
+  const channelActive = room === undefined ? 0 : state.rooms.filter(r => channelRooms.has(r.id)).reduce((n, r) => n + (r.active ?? 0), 0)
   const mention = activeMention(draft, caret)
   const candidates = mention === undefined || mention.start === dismissedAt ? [] : rankMembers(visibleMembers, mention.query)
   const popupOpen = mention !== undefined && candidates.length > 0
@@ -633,7 +776,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           // #139: workspaces sit indented under their chat channel and always show their
           // in-progress count; a chat channel shows it only when something is in progress.
           const active = r.active ?? 0
-          const showActive = depth === 1 || r.kind === 'workspace' || active > 0
+          // #113: a count only when something runs; idle workspaces no longer repeat 「进行中 0 件」.
+          const showActive = active > 0
+          const workers = (state.thinking[String(r.id)] ?? []).map(id => state.members.find(m => m.id === id)).filter((m): m is ChannelMember => m !== undefined)
           return (
             <button
               key={r.id}
@@ -643,6 +788,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
               onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
             >
               <span className={css.hash} aria-hidden>#</span><span className={css.roomLabel}>{r.name}</span>
+              <AvatarStack members={workers} />
               {showActive && <span className={active > 0 ? `${css.activeCount} ${css.activeBusy}` : css.activeCount}>{t('activeTasks', { count: active })}</span>}
             </button>
           )
@@ -653,6 +799,16 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           <button type="button" className={css.mobileButton} aria-label={t('showRooms')} aria-expanded={drawer === 'rooms'} onClick={() => setDrawer(drawer === 'rooms' ? undefined : 'rooms')}>☰</button>
           <button type="button" className={css.panelToggle} title={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-label={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-expanded={!roomsHidden} onClick={() => { setRoomsHidden(!roomsHidden) }}>{roomsHidden ? '»' : '«'}</button>
           <span className={css.hash} aria-hidden>#</span><span className={css.roomName}>{room?.name}</span>
+          <span className={css.headMeta}>
+            {t('headMembers', { count: visibleMembers.length })}
+            {channelActive > 0 && <> · {t('activeTasks', { count: channelActive })}</>}
+          </span>
+          {activity.length > 0 && (
+            <span className={css.headActivity} title={activity.map(a => a.member.name).join('、')}>
+              <span className={css.headActivityText}>{t('headBusy', { names: activity.slice(0, 2).map(a => a.member.name).join('、') })}</span>
+              <AvatarStack members={activity.map(a => a.member)} />
+            </span>
+          )}
           <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
           <button type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
         </header>
@@ -674,10 +830,11 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           )}
           {state.messages.length === 0
             ? <div className={css.empty}>{t('empty')}</div>
-            : state.messages.map(m => (
+            : state.messages.map((m, index) => (
                 <MessageRow
                   key={m.id}
                   message={m}
+                  grouped={continues(state.messages[index - 1], m)}
                   member={byId.get(m.author)}
                   t={t}
                   onConfigure={() => { if (!openModelSettings()) setModelsOpen(true) }}
@@ -698,6 +855,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
               ))}
         </div>
         <div className={css.working} aria-live="polite">{typingNames.length > 0 ? t('workingList', { names: typingNames.join('、') }) : ''}</div>
+        {pendingPerms.length > 0 && (
+          // #113: pending permission requests stay pinned above the composer while the log scrolls.
+          <div className={css.permTray} role="region" aria-label={t('permTray', { count: pendingPerms.length })}>
+            {pendingPerms.map(m => <PermTrayItem key={m.id} message={m} author={byId.get(m.author)} t={t} onDecide={decidePermission} />)}
+          </div>
+        )}
         <div className={css.composer} ref={composerRef}>
           {draft === '/' && !capabilitiesDismissed && <CapabilityList key={state.roomId} t={t} onClose={() => { setCapabilitiesDismissed(true) }} />}
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
@@ -813,11 +976,26 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
         </div>
       </section>
       <aside className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}>
-        <div className={css.membersHead} aria-hidden="true" />
+        <div className={css.membersHead}><span className={css.membersHeadTitle}>{t('activityPanel')}</span></div>
         <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { setDrawer(undefined); setSettingsOpen(true) }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9.5 3-.7 2.3-2 .9-2.2-.6-2.5 4.3 1.6 1.7v2.3l-1.6 1.7 2.5 4.3 2.2-.6 2 .9.7 2.3h5l.7-2.3 2-.9 2.2.6 2.5-4.3-1.6-1.7v-2.3l1.6-1.7-2.5-4.3-2.2.6-2-.9L14.5 3Z" /><circle cx="12" cy="12.75" r="3" /></svg>
           {t('channelSettings')}
         </button>
+        {activity.length > 0 && (
+          <section className={css.activityNow} aria-label={t('activityNow')}>
+            <h3 className={css.groupTitle}>{t('activityNow')}</h3>
+            {activity.map(a => (
+              <button key={a.member.id} type="button" className={css.activityItem} onClick={() => { pickFromList(a.member) }}>
+                <Avatar id={a.member.id} name={a.member.name} avatar={a.member.avatar} avatarVersion={a.member.avatarVersion} small />
+                <span className={css.activityText}>
+                  <span className={css.activityName}>{a.member.name}</span>
+                  <span className={css.activityWhat}>{a.task !== undefined ? `#${a.task.id} ${a.task.title}` : t('activityThinking')}{a.room !== undefined && a.room.id !== state.roomId ? ` · ${a.room.name}` : ''}</span>
+                </span>
+                {a.thinking && <span className={css.activityPulse} aria-hidden />}
+              </button>
+            ))}
+          </section>
+        )}
         <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} />
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}

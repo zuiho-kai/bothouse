@@ -1507,3 +1507,160 @@
   max-width: 100%;
   overflow-x: auto;
 }
+
+/* ───────────── #113 layout and cards ─────────────
+   Three columns: channels (who is at work shows on the row), conversation,
+   activity (now → task board → members). Cards sit where they belong: a run is
+   a slim strip under its reply, a failure is an inline bar with retry, a system
+   notice is a centered divider, a pending permission request is pinned above
+   the composer. Sizes follow notes/ui/design-spec-channels.md (来源：#98 规范
+   §2 字号阶梯、§3 圆角). */
+@media (min-width: 901px) {
+  .page { grid-template-columns: 232px minmax(0, 1fr) 272px; }
+  .page.roomsHidden { grid-template-columns: minmax(0, 1fr) 272px; }
+  .page.membersHidden { grid-template-columns: 232px minmax(0, 1fr); }
+  .page.roomsHidden.membersHidden { grid-template-columns: minmax(0, 1fr); }
+}
+.rooms { padding-top: 4px; }
+.room { min-height: 34px; padding: 6px 10px; border-radius: var(--dsw-radius-md); transition: background-color .15s ease, color .15s ease; }
+.workspace { position: relative; min-height: 30px; padding-left: 28px; font-size: 13px; }
+.workspace::before { content: ''; position: absolute; left: 15px; top: 0; bottom: 50%; width: 7px; border-left: 1px solid var(--dsw-alias-border-l2); border-bottom: 1px solid var(--dsw-alias-border-l2); border-bottom-left-radius: 4px; }
+.workspace .hash { display: none; }
+.roomActive { color: var(--dsw-alias-label-primary); background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent); box-shadow: inset 2px 0 0 var(--dsw-alias-state-business-primary); font-weight: 600; }
+.activeCount { margin-left: 0; padding: 0 6px; border-radius: 999px; font-size: 11px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.activeBusy { color: var(--dsw-alias-state-business-primary); background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent); }
+.roomLabel { flex: 1 1 auto; min-width: 0; }
+.avatarStack { display: inline-flex; flex: none; align-items: center; padding-left: 4px; }
+.stackDot { width: 18px; height: 18px; margin-left: -6px; border: 2px solid var(--dsw-alias-bg-layer-2); border-radius: 50%; background-size: cover; background-position: center; }
+.room .stackDot { width: 16px; height: 16px; }
+.roomActive .stackDot { border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, var(--dsw-alias-bg-layer-2)); }
+
+/* Title bar: name, a quiet count line, and who is busy right now. */
+.chatHead { gap: 8px; height: 52px; }
+.roomName { font-size: 15px; letter-spacing: -0.01em; white-space: nowrap; }
+.headMeta { overflow: hidden; color: var(--dsw-alias-label-tertiary); font-size: 12px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.headActivity { display: inline-flex; flex: none; gap: 6px; align-items: center; margin-left: auto; color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 500; }
+.headActivity .stackDot { width: 22px; height: 22px; border-color: var(--dsw-alias-bg-base); }
+.headActivity + .panelToggleEnd { margin-left: 4px; }
+.membersHead { display: flex; align-items: center; height: 52px; padding: 0 4px; }
+.membersHeadTitle { color: var(--dsw-alias-label-tertiary); font-size: 11px; font-weight: 650; letter-spacing: .08em; }
+
+/* Messages: hours:minutes only (full time on hover); a run of one author reads as one block. */
+.log { padding: 12px 0 16px; }
+.message { grid-template-columns: 36px minmax(0, 1fr); gap: 12px; padding: 8px 20px 2px; transition: background-color .15s ease; }
+.message.grouped { padding-top: 1px; }
+.message:hover { background: color-mix(in srgb, var(--dsw-alias-interactive-bg-hover) 70%, transparent); }
+.messageHead { gap: 8px; margin-bottom: 2px; }
+.messageHeadGrouped { margin-bottom: 0; }
+.messageHeadGrouped:not(:has(*)) { display: none; }
+.author { font-size: 13px; }
+.time, .edited { font-size: 11px; font-variant-numeric: tabular-nums; }
+.gutterTime { align-self: start; padding-top: 3px; color: var(--dsw-alias-label-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; text-align: right; opacity: 0; transition: opacity .15s ease; }
+.message:hover .gutterTime { opacity: 1; }
+.text { line-height: 1.6; }
+
+/* Your own messages read as a soft bubble on the right. */
+.own { grid-template-columns: minmax(0, 1fr) 36px; }
+.own > :first-child { grid-column: 2; grid-row: 1; }
+.own > .messageBody { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; align-items: flex-end; }
+.own .messageHead { flex-direction: row-reverse; }
+.own .ownActions { margin-left: 0; margin-right: auto; }
+.own > .messageBody > .text { max-width: min(560px, 100%); padding: 8px 14px; border-radius: 16px 6px 16px 16px; color: var(--dsw-alias-label-primary); background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 16%, var(--dsw-alias-bg-layer-2)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 28%, transparent); }
+.own > .messageBody > .quote { align-self: flex-end; }
+.own .replyButton { right: auto; left: 16px; }
+.own.grouped > .messageBody > .text { border-radius: 16px 6px 6px 16px; }
+
+/* System notice: a centered divider, not a member speaking; a task record keeps its card under it. */
+.systemRecord { display: flex; flex-direction: column; align-items: center; padding-bottom: 4px; }
+.systemRecord > .systemLine { align-self: stretch; }
+.taskRecord { width: min(480px, calc(100% - 40px)); box-sizing: border-box; margin-top: 0; }
+.systemLine { display: flex; gap: 12px; align-items: center; padding: 10px 32px; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+.systemLine::before, .systemLine::after { content: ''; flex: 1 1 24px; min-width: 24px; height: 1px; background: var(--dsw-alias-border-l2); }
+.systemText { max-width: min(640px, 80%); text-align: center; }
+.systemText p { margin: 0; }
+
+/* Failure: an inline bar where it happened, with retry right there. */
+.errorBar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 6px 20px 6px 68px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent); border-radius: 12px; background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 9%, transparent); font-size: 13px; }
+.errorBar .cardButtons { margin: 0 0 0 auto; }
+.errorBar .secondaryButton { padding: 3px 10px; font-size: 12px; }
+.errorBar[data-state='retried'] { opacity: .65; }
+.errorIcon { display: grid; flex: none; place-items: center; width: 18px; height: 18px; border-radius: 50%; color: #fff; background: var(--dsw-alias-state-error-primary); font-size: 12px; font-weight: 700; }
+.errorText { flex: 1 1 200px; min-width: 0; color: var(--dsw-alias-label-primary); }
+.errorText p { margin: 0; }
+
+/* Run strip: spinner, step and time under the reply; folds to its summary once done. */
+.runStrip { display: inline-flex; flex-direction: column; max-width: 100%; margin-top: 4px; padding: 5px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2)); font-size: 12px; }
+.runStrip[data-state='running'] { border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, var(--dsw-alias-border-l2)); }
+.runStrip[data-state='failed'] { border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2)); }
+.runHead { display: flex; gap: 8px; align-items: center; min-width: 0; color: var(--dsw-alias-label-secondary); }
+.runTitle { flex: none; color: var(--dsw-alias-label-primary); font-weight: 600; }
+.runSummary { overflow: hidden; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.runHead .cardViews { margin-left: 8px; }
+.runHead .cardViewButton { border-radius: 999px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+.runHead .cardViewButton[aria-pressed='true'] { color: var(--dsw-alias-label-primary); }
+.runIcon { position: relative; flex: none; width: 12px; height: 12px; border-radius: 50%; }
+.runStrip[data-state='running'] .runIcon { border: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 25%, transparent); border-top-color: var(--dsw-alias-state-business-primary); animation: channels-spin .8s linear infinite; }
+.runStrip[data-state='completed'] .runIcon { background: #23a55a; }
+.runStrip[data-state='completed'] .runIcon::after { content: ''; position: absolute; left: 4px; top: 2px; width: 3px; height: 6px; border: solid #fff; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
+.runStrip[data-state='failed'] .runIcon { background: var(--dsw-alias-state-error-primary); }
+.runSteps { margin-top: 4px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.55; }
+.runSteps p { margin: 0; }
+.runStrip .cardButtons { margin-top: 6px; }
+@keyframes channels-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .runStrip[data-state='running'] .runIcon { animation-duration: 2.4s; } }
+
+/* Plain cards (task records, older card kinds) and the task card under a dispatch. */
+.card { margin-top: 6px; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2); border-left-width: 1px; border-radius: 14px; background: var(--dsw-alias-bg-layer-2); }
+.card[data-state='failed'] { border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 40%, var(--dsw-alias-border-l2)); }
+.taskAnchor { max-width: 560px; box-shadow: inset 3px 0 0 var(--channels-accent-warm, #d08a2e); }
+
+/* Permission: a quiet line in the log; the decision lives in the tray above the composer. */
+.permInline { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; color: var(--dsw-alias-label-secondary); }
+.permInline .text { flex: 0 1 auto; min-width: 0; }
+.permInline .text p { margin: 0; }
+.permLock { flex: none; color: var(--dsw-alias-state-warning-primary, #e9a23b); font-size: 9px; }
+.permWaiting { flex: none; color: var(--dsw-alias-state-warning-primary, #e9a23b); font-size: 11px; font-weight: 600; }
+.permTray { display: flex; flex-direction: column; gap: 6px; max-height: 40%; margin: 0 16px 8px; overflow-y: auto; }
+.permTrayItem { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2)); border-radius: 14px; background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2)); box-shadow: 0 6px 20px -12px rgb(0 0 0 / .35); }
+.permTrayText { flex: 1 1 240px; min-width: 0; font-size: 13px; }
+.permTrayText .text p { margin: 0; }
+.permTrayWho { color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 600; }
+.permTrayItem .permActions { flex-wrap: nowrap; margin: 0; }
+.permTrayItem .permScope { display: none; }
+
+/* Activity column: now → task board → members, one compact row each. */
+.members { flex-direction: column; padding: 0 10px 16px; }
+@media (min-width: 901px) { .members { display: flex; } .membersHidden > .members { display: none; } }
+.members.drawerOpen { display: flex; }
+.activityNow { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+.activityItem { display: flex; gap: 10px; align-items: center; width: 100%; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; color: inherit; background: var(--dsw-alias-bg-base); font: inherit; text-align: left; cursor: pointer; }
+.activityItem + .activityItem { margin-top: 4px; }
+.activityItem:hover { border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 40%, var(--dsw-alias-border-l2)); }
+.activityItem:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color); }
+.activityText { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.activityName { font-size: 13px; font-weight: 600; }
+.activityWhat { overflow: hidden; color: var(--dsw-alias-label-tertiary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.activityPulse { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--dsw-alias-state-business-primary); animation: channels-pulse 1.6s ease-in-out infinite; }
+@keyframes channels-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .activityPulse { animation: none; } }
+.member { padding: 6px 8px; }
+.memberText { flex: 1; }
+.memberStatus { flex: none; margin-left: auto; font-size: 11px; }
+.memberStatus[data-status='busy'] { color: var(--dsw-alias-state-business-primary); font-weight: 600; }
+.memberStatus[data-status='error'] { color: var(--dsw-alias-state-error-primary); font-weight: 600; }
+.memberActions { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); padding-left: 8px; background: var(--dsw-alias-bg-layer-2); }
+.addMemberButton { border-radius: 10px; }
+
+@media (max-width: 900px) {
+  .headMeta, .headActivityText { display: none; }
+  .chatHead { padding: 0 8px; }
+  .mobileButton { white-space: nowrap; }
+  .headActivity ~ .mobileButton:last-child { margin-left: 4px; }
+  .message { padding-left: 12px; padding-right: 12px; }
+  .errorBar { margin-left: 12px; margin-right: 12px; }
+  .permTray { margin: 0 8px 8px; }
+  .permTrayItem .permActions { flex-wrap: wrap; }
+  .systemLine { padding: 8px 12px; }
+  .systemText { max-width: 90%; }
+  .memberActions { position: static; transform: none; padding-left: 0; background: transparent; }
+}
