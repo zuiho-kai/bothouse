@@ -12,6 +12,8 @@
 
 用 `install.sh` 装进 profile 时，配置来自 `cordis.patch.yml`：`dataDir` 默认取环境变量 `CONEST_COLLAB_DATA`，没设就是 `~/.conest-collab`（频道消息 `collab.sqlite3` 存在这里）；`workspacePath` 默认取 `CONEST_COLLAB_WORKSPACE`，没设就是启动 DSH 时的当前目录。测试或多开时把 `CONEST_COLLAB_DATA` 指到别的目录，免得写进默认库。
 
+团队工作台（`/collab/desk`）的输入来自任务板共享目录：`BOARD_DIR` 下的 `board-events.jsonl` 提供派活/交回事件，同目录的 `<project>.json` 提供各 bot 忙闲。忙闲目录可单独用 `teamStatusDir`（或 `CONEST_TEAM_STATUS_DIR`）指定；不设时沿用 `BOARD_DIR`。插件只读这些文件，不写任务板，也不改桥。状态文件里的 project 先按成员 id、再按显示名匹配；匹配不到就跳过，不新建成员。
+
 ## 只用一个模型或一种 CLI 组队
 
 在原生 DSH 网页的「频道」→「添加成员」中，连续添加三个不同名字的成员：
