@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -476,8 +477,8 @@ func (e *Engine) deliverTurnResume(en TurnJournalEntry) {
 		// goes down counts as one without progress at the next start); a
 		// delivery that failed is rolled back so it is not counted.
 		e.markTurnResumed(en.TurnID, time.Now())
-		err := deliver(en, job)
-		if err == nil {
+		err := e.runTurnResumeTimed(en, job, deliver)
+		if err == nil || errors.Is(err, errTurnResumeTimedOut) {
 			return
 		}
 		e.markTurnResumed(en.TurnID, time.Time{})
@@ -759,4 +760,55 @@ func (e *Engine) watchStoppedFor(en TurnJournalEntry) string {
 		}
 	}
 	return ""
+}
+
+// ---- a resumed scheduled turn keeps its schedule's time limit ----
+
+var errTurnResumeTimedOut = errors.New("resumed scheduled turn timed out")
+
+// turnResumeTimeout is the time limit a resumed turn carries on: a cron/timer
+// turn keeps its job's limit (nil timeout = the 30m default, 0 = none), as when it
+// ran from the scheduler; a workspace wake-up keeps its job's limit only when the
+// job still says so; anything else (a user's own turn) has none. Before, a timer
+// turn resumed after a restart went through ExecuteTimerJob directly, outside the
+// scheduler's wait, so no limit applied: 11-03 caihongmao's outing turn resumed at
+// 20:12 and held her session until 23:52.
+func (e *Engine) turnResumeTimeout(en TurnJournalEntry) time.Duration {
+	switch en.Trigger {
+	case TurnTriggerTimer, TurnTriggerWorkspace:
+		if en.TimerJobID != "" && e.timerScheduler != nil && e.timerScheduler.store != nil {
+			if job := e.timerScheduler.store.Get(en.TimerJobID); job != nil {
+				return job.ExecutionTimeout()
+			}
+		}
+		if en.Trigger == TurnTriggerTimer {
+			return defaultTimerJobTimeout
+		}
+	case TurnTriggerCron:
+		// The journal does not name the cron job; its default limit applies.
+		return (&CronJob{}).ExecutionTimeout()
+	}
+	return 0
+}
+
+// runTurnResumeTimed delivers the resume and, when the interrupted turn had a
+// time limit, stops it once that runs out (counted from the resume), the same way
+// the scheduler stops a timed-out run (StopScheduledTurn).
+func (e *Engine) runTurnResumeTimed(en TurnJournalEntry, job *TimerJob, deliver func(TurnJournalEntry, *TimerJob) error) error {
+	limit := e.turnResumeTimeout(en)
+	if limit <= 0 {
+		return deliver(en, job)
+	}
+	done := make(chan error, 1)
+	go func() { done <- deliver(en, job) }()
+	t := time.NewTimer(limit)
+	defer t.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-t.C:
+		stopped := e.StopScheduledTurn(job.ID)
+		slog.Warn("turn resume: resumed scheduled turn timed out; stopping it", "turn", en.TurnID, "trigger", en.Trigger, "limit", limit, "stopped", stopped)
+		return errTurnResumeTimedOut
+	}
 }
