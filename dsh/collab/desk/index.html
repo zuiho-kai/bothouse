@@ -140,7 +140,68 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
 .stand{position:absolute;left:50%;top:49px;width:8px;height:12px;transform:translateX(-50%);background:#2a3542}
 .base{position:absolute;left:50%;top:60px;width:34px;height:5px;transform:translateX(-50%);background:#222c38;border-radius:3px}
 .status{position:absolute;right:2%;top:-17px;padding:1px 6px;border-radius:99px;background:#0c121ccc;color:#b8c7dc;font-size:10px;white-space:nowrap;z-index:6}
-/* __CSS_STATE__ */
+.seat.idle .person{animation:bob 4.6s ease-in-out infinite}
+.seat.idle:nth-child(2n) .person{animation-delay:-1.7s}
+.seat.idle:nth-child(3n) .person{animation-delay:-3.1s}
+.seat.idle .bubble{opacity:.9}
+.seat.working .avatar{border-color:#ffc56b;box-shadow:0 0 0 2px #ffc56b44,0 0 22px #ffc56b55,0 7px 18px #0009}
+.seat.working .aura{opacity:1;animation:auraPulse 1.9s ease-in-out infinite}
+.seat.working .desk{filter:drop-shadow(0 0 16px #ffc56b33)}
+.seat.working .screen{box-shadow:0 0 0 1px #000,0 7px 13px #0008,inset 0 0 22px #6ee7ff66,0 0 16px #6ee7ff33}
+.seat.working .screen:after{animation:codePulse 1.1s ease-in-out infinite}
+.seat.working .keyboard:after,.seat.thinking .keyboard:after{animation:keyFlash .5s steps(2) infinite}
+.seat.working .person{animation:workBob 2.2s ease-in-out infinite}
+.seat.thinking .avatar{border-color:#7dd3fc;box-shadow:0 0 0 2px #7dd3fc33,0 0 20px #7dd3fc44}
+.seat.thinking .aura{opacity:.95;background:radial-gradient(circle,#7dd3fc33 0,#7dd3fc0d 48%,transparent 70%);animation:auraPulse 1.4s ease-in-out infinite}
+.seat.thinking .bubble{border-color:#3b6c92}
+.seat.offline{filter:saturate(.15);opacity:.55}
+.seat.offline .person{animation:none}
+.seat.offline .screen{background:#070b10;box-shadow:0 0 0 1px #000,inset 0 0 10px #000}
+.seat.offline .screen:before,.seat.offline .screen:after{opacity:.12}
+.seat.offline .status{color:#7a8798}
+.seat.lead .desk{box-shadow:0 0 0 1px #ffc56b2e}
+.seat.lead .plate{color:#ffe2ab;background:#382312}
+.bubble .td{animation:td 1s ease-in-out infinite}
+.bubble .td:nth-child(2){animation-delay:.16s}
+.bubble .td:nth-child(3){animation-delay:.32s}
+.bubble .zzz{font:700 11px/1 ui-monospace,Menlo,monospace;color:#a9c8ff;animation:zzzFloat 2.6s ease-in-out infinite}
+.bubble .zzz:nth-child(2){animation-delay:.5s;font-size:13px}
+.bubble .fish{animation:fishBob 2.4s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-3px)}}
+@keyframes workBob{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-2px)}}
+@keyframes auraPulse{0%,100%{opacity:.6;transform:translate(-50%,-50%) scale(.94)}50%{opacity:1;transform:translate(-50%,-50%) scale(1.08)}}
+@keyframes td{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:1;transform:translateY(-2px)}}
+@keyframes zzzFloat{0%,100%{opacity:.35;transform:translateY(1px)}50%{opacity:1;transform:translateY(-3px)}}
+@keyframes fishBob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-2px) rotate(2deg)}}
+@keyframes keyFlash{0%,100%{opacity:.22}50%{opacity:1}}
+@keyframes codePulse{0%,100%{opacity:.55;transform:translateY(0)}50%{opacity:1;transform:translateY(2px)}}
+.seat.flash-gold .desk{animation:goldFlash 1.4s ease-out}
+.seat.flash-good .desk{animation:goodFlash 1.4s ease-out}
+.seat.flash-bad .desk{animation:badFlash 1.4s ease-out}
+.seat.flash-bad{animation:seatShake .45s}
+@keyframes goldFlash{0%,100%{filter:none}35%{filter:drop-shadow(0 0 22px #ffc56b) brightness(1.12)}}
+@keyframes goodFlash{0%,100%{filter:none}35%{filter:drop-shadow(0 0 20px #5eead4) brightness(1.1)}}
+@keyframes badFlash{0%,100%{filter:none}25%,60%{filter:drop-shadow(0 0 20px #ff6b6b) brightness(1.1)}}
+@keyframes seatShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-2px)}40%{transform:translateX(2px)}60%{transform:translateX(-1px)}80%{transform:translateX(1px)}}
+.beams{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:20;overflow:visible}
+.beam{--beam:#ffc56b;animation:beamOut 2.6s ease-out forwards}
+.beam.return{--beam:#5eead4}.beam.reject{--beam:#ff6b6b}.beam.at{--beam:#7dd3fc}.beam.pause{--beam:#9aa8bc}
+.beam path{fill:none;stroke:var(--beam);stroke-linecap:round}
+.beam .glow{stroke-width:11;opacity:.2;filter:blur(3px)}
+.beam .trace{stroke-width:2.4;opacity:.95;filter:drop-shadow(0 0 6px var(--beam))}
+.beam .flow{stroke-width:1.5;stroke-dasharray:8 20;opacity:.85;animation:beamFlow 1s linear infinite}
+.beam .spark{fill:var(--beam);filter:drop-shadow(0 0 5px var(--beam))}
+@keyframes beamFlow{to{stroke-dashoffset:-28}}
+@keyframes beamOut{0%,72%{opacity:1}100%{opacity:0}}
+.pop{position:absolute;left:50%;bottom:105px;transform:translateX(-50%);padding:3px 8px;border-radius:7px;border:1px solid #ffc56b55;background:#0d1622ee;color:#ffe0a8;font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px;z-index:12;animation:popUp 1.9s ease-out forwards;box-shadow:0 4px 14px #0009}
+.pop.good{color:#8ff0d6;border-color:#5eead455}
+.pop.bad{color:#ffaaaa;border-color:#ff6b6b55}
+.pop.info{color:#cfe4ff;border-color:#7dd3fc44}
+@keyframes popUp{0%{opacity:0;transform:translate(-50%,6px)}12%{opacity:1;transform:translate(-50%,0)}78%{opacity:1;transform:translate(-50%,0)}100%{opacity:0;transform:translate(-50%,-8px)}}
+.toast{animation:toastIn .18s ease-out}
+@keyframes toastIn{from{opacity:0;transform:translate(-50%,6px)}to{opacity:1;transform:translate(-50%,0)}}
+.mode:focus-visible,.btn:focus-visible,.mini:focus-visible,.field input:focus-visible,.field select:focus-visible,.progress:focus-visible{outline:2px solid #7dd3fc;outline-offset:1px}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important}}
 /* __CSS_MOBILE__ */
 </style>
 </head>
