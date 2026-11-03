@@ -562,6 +562,7 @@ type Engine struct {
 	// Interactive agent session management
 	interactiveMu     sync.Mutex
 	interactiveStates map[string]*interactiveState // key = sessionKey
+	scheduledTurns    map[string]string            // scheduled run id -> interactive key (scheduled_timeout.go)
 	nativeCompactions map[string]*nativeCompaction // guarded by interactiveMu
 
 	// handoffWatchOn: the API server's handoff watch runs on this engine (team_watch.go
@@ -1966,7 +1967,9 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 			iKey = workspaceDir + ":" + iKey
 		}
 		prevHistLen := session.HistoryLen()
+		e.noteScheduledTurn(job.ID, iKey)
 		e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, runSessionKey)
+		e.forgetScheduledTurn(job.ID, iKey)
 		e.cleanupInteractiveState(iKey)
 		// Empty-response detection via session history delta: processInteractiveMessageWith
 		// always adds a "user" entry (prevHistLen+1), then an "assistant" entry on success
@@ -2004,7 +2007,9 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	e.startScheduledTurn(msg, session)
 
 	prevHistLen := session.HistoryLen()
+	e.noteScheduledTurn(job.ID, iKey)
 	e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, sessionKey)
+	e.forgetScheduledTurn(job.ID, iKey)
 	// Same empty-response detection as the useNewSession path above.
 	if !job.Mute && session.HistoryLen() < prevHistLen+2 {
 		return fmt.Errorf("cron job %q produced an empty response", job.ID)
@@ -2314,7 +2319,9 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		if workspaceDir != "" {
 			iKey = workspaceDir + ":" + iKey
 		}
+		e.noteScheduledTurn(job.ID, iKey)
 		e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, runSessionKey)
+		e.forgetScheduledTurn(job.ID, iKey)
 		e.cleanupInteractiveState(iKey)
 		return nil
 	}
@@ -2356,7 +2363,9 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		e.teamNoteTurn(msg, session)
 	}
 
+	e.noteScheduledTurn(job.ID, iKey)
 	e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, sessionKey)
+	e.forgetScheduledTurn(job.ID, iKey)
 	return nil
 }
 
@@ -2871,6 +2880,7 @@ func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sy
 // ExecuteHeartbeat runs a heartbeat check by injecting a synthetic message
 // into the main session, similar to cron but designed for periodic awareness.
 func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error {
+	runID := heartbeatRunID(sessionKey) // before the workspace prefix is stripped below
 	if e.IsPaused() {
 		return fmt.Errorf("engine %q is paused", e.name)
 	}
@@ -2941,7 +2951,9 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 		return fmt.Errorf("session %q is busy", sessionKey)
 	}
 
+	e.noteScheduledTurn(runID, msg.SessionKey)
 	e.processInteractiveMessage(targetPlatform, msg, session)
+	e.forgetScheduledTurn(runID, msg.SessionKey)
 	return nil
 }
 
