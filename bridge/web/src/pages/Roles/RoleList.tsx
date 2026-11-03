@@ -25,31 +25,31 @@ function roleStateOf(role: RoleInfo): RoleTone {
     return {
       label: '已暂停',
       dot: 'bg-ink-mute',
-      pill: 'text-ink-soft ring-hairline-strong',
-      ring: 'ring-hairline-strong',
+      pill: 'text-ink-soft border-hairline-strong',
+      ring: 'border-hairline',
     };
   }
   if (!role.online) {
     return {
       label: '不在线',
-      dot: 'bg-transparent ring-1 ring-inset ring-ink-mute',
-      pill: 'text-ink-mute ring-hairline',
-      ring: 'ring-hairline',
+      dot: 'bg-transparent border border-ink-mute',
+      pill: 'text-ink-mute border-hairline',
+      ring: 'border-hairline',
     };
   }
   if (role.busy) {
     return {
       label: '在忙',
       dot: 'bg-accent',
-      pill: 'text-accent bg-accent-wash ring-accent/25',
-      ring: 'ring-accent/30',
+      pill: 'text-accent bg-accent-wash border-accent/25',
+      ring: 'border-hairline',
     };
   }
   return {
     label: '空闲',
     dot: 'bg-ink-soft',
-    pill: 'text-ink-soft bg-surface-sunken ring-hairline',
-    ring: 'ring-hairline',
+    pill: 'text-ink-soft bg-surface-sunken border-hairline',
+    ring: 'border-hairline',
   };
 }
 
@@ -166,11 +166,11 @@ export default function RoleList() {
       {loading && roles.length === 0 ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3" aria-hidden>
           {Array.from({ length: SKELETON_SEATS }).map((_, i) => (
-            <div key={i} className="h-[188px] rounded-card bg-surface-sunken ring-1 ring-hairline" />
+            <div key={i} className="h-[188px] rounded-card bg-surface-sunken border border-hairline" />
           ))}
         </div>
       ) : roles.length === 0 ? (
-        <div className="rounded-card bg-surface p-8 ring-1 ring-hairline">
+        <div className="rounded-card bg-surface p-8 border border-hairline">
           <EmptyState icon={Bot} message={t('roles.noRoles', '暂无角色配置')} />
         </div>
       ) : (
@@ -185,7 +185,7 @@ export default function RoleList() {
               <article
                 key={role.name}
                 className={cn(
-                  'flex flex-col rounded-card bg-surface p-5 ring-1',
+                  'flex flex-col rounded-card bg-surface p-5 border',
                   'transition-colors duration-state ease-ui-standard',
                   state.ring,
                 )}
@@ -193,10 +193,10 @@ export default function RoleList() {
                 {/* 名字 + 标识 + 状态词。不做首字母彩块或描边方托：每个对象都带同一枚装饰，正是被点名的模板痕迹。 */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="font-semibold text-ink">
+                    <p className="text-[15px] font-semibold text-ink">
                       {roleLabel(shown, role.agent_type)}
                     </p>
-                    <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink-mute">
+                    <p className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-mute">
                       <Bot size={11} className="shrink-0" />
                       <span className="truncate">{role.agent_type}</span>
                       {shown !== role.name && (
@@ -207,7 +207,7 @@ export default function RoleList() {
                   </div>
                   <span
                     className={cn(
-                      'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1',
+                      'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium border',
                       state.pill,
                     )}
                   >
@@ -219,10 +219,10 @@ export default function RoleList() {
                 {/* 三个字段按 dl 排，行线是真实字段分隔，不是装饰 */}
                 <dl className="mt-4 divide-y divide-hairline">
                   <div className="flex items-baseline justify-between gap-3 py-2">
-                    <dt className="shrink-0 text-[11px] text-ink-mute">当前在忙</dt>
+                    <dt className="shrink-0 text-xs text-ink-mute">当前在忙</dt>
                     <dd
                       className={cn(
-                        'min-w-0 truncate text-right text-xs font-medium',
+                        'min-w-0 truncate text-right text-[13px] font-medium',
                         role.online && role.busy ? 'text-ink' : 'text-ink-soft',
                       )}
                     >
@@ -230,14 +230,14 @@ export default function RoleList() {
                     </dd>
                   </div>
                   <div className="flex items-baseline justify-between gap-3 py-2">
-                    <dt className="shrink-0 text-[11px] text-ink-mute">当前模型</dt>
-                    <dd className="min-w-0 truncate text-right font-mono text-[11px] text-ink-soft">
+                    <dt className="shrink-0 text-xs text-ink-mute">当前模型</dt>
+                    <dd className="min-w-0 truncate text-right font-mono text-xs text-ink-soft">
                       {role.model || '—'}
                     </dd>
                   </div>
                   <div className="flex items-start justify-between gap-3 py-2">
-                    <dt className="shrink-0 text-[11px] text-ink-mute">连接平台</dt>
-                    <dd className="flex min-w-0 flex-wrap justify-end gap-x-2.5 gap-y-1 text-right text-[11px] text-ink-soft">
+                    <dt className="shrink-0 text-xs text-ink-mute">连接平台</dt>
+                    <dd className="flex min-w-0 flex-wrap justify-end gap-x-2.5 gap-y-1 text-right text-xs text-ink-soft">
                       {role.platforms && role.platforms.length > 0 ? (
                         role.platforms.map((p) => (
                           <span key={p.name} className="inline-flex items-center gap-1">

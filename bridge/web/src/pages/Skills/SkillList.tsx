@@ -80,7 +80,7 @@ export default function SkillList() {
               className={cn(
                 'rounded-control px-4 py-1.5 text-sm font-medium transition-colors duration-base ease-ui-out',
                 tab === key
-                  ? 'bg-surface text-ink ring-1 ring-hairline'
+                  ? 'bg-surface text-ink border border-hairline'
                   : 'text-ink-soft hover:text-ink',
               )}
             >
@@ -140,12 +140,12 @@ function LocalSkills({
         <div className="w-48 shrink-0 space-y-2">
           <div className="h-3 w-16 rounded-control bg-surface-sunken" />
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-11 rounded-control bg-surface-sunken ring-1 ring-hairline" />
+            <div key={i} className="h-11 rounded-control bg-surface-sunken border border-hairline" />
           ))}
         </div>
         <div className="min-w-0 flex-1 space-y-2">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-[86px] rounded-card bg-surface-sunken ring-1 ring-hairline" />
+            <div key={i} className="h-[86px] rounded-card bg-surface-sunken border border-hairline" />
           ))}
         </div>
       </div>
@@ -154,7 +154,7 @@ function LocalSkills({
 
   if (projects.length === 0) {
     return (
-      <div className="rounded-card bg-surface p-8 ring-1 ring-hairline">
+      <div className="rounded-card bg-surface p-8 border border-hairline">
         <EmptyState message={t('skills.noSkills')} hint={t('skills.noSkillsHint')} icon={Puzzle} />
       </div>
     );
@@ -174,7 +174,7 @@ function LocalSkills({
                 'flex w-full items-center gap-2.5 rounded-control px-3 py-2 text-left text-sm',
                 'transition-colors duration-base ease-ui-out',
                 activeProject === p.project
-                  ? 'bg-accent-wash text-ink ring-1 ring-accent/25'
+                  ? 'bg-accent-wash text-ink border border-accent/25'
                   : 'text-ink-soft hover:bg-surface-sunken hover:text-ink',
               )}
             >
@@ -211,7 +211,7 @@ function LocalSkills({
             )}
 
             {(!current.skills || current.skills.length === 0) ? (
-              <div className="rounded-card bg-surface p-6 ring-1 ring-hairline">
+              <div className="rounded-card bg-surface p-6 border border-hairline">
                 <EmptyState message={t('skills.emptyProject')} icon={Puzzle} />
               </div>
             ) : (
@@ -219,16 +219,14 @@ function LocalSkills({
                 {current.skills.map(s => (
                   <Card key={s.name + s.source} className="!py-3">
                     <div className="flex items-start gap-3">
-                      {/* 一枚 1px 描边圆托，不是彩色方块：同一栏每个对象都套同一块彩色托，正是被点名的模板痕迹。 */}
-                      <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-surface ring-1 ring-hairline">
-                        <Puzzle size={13} strokeWidth={1.5} className="text-ink-mute" />
-                      </span>
+                      {/* 每行都套同一枚托（不管描边还是填色）仍是模板习惯；只留一枚裸图标 */}
+                      <Puzzle size={14} strokeWidth={1.5} className="mt-1 shrink-0 text-ink-mute" />
                       <div className="min-w-0 flex-1">
                         <h3 className="text-sm font-medium text-ink">{s.display_name || s.name}</h3>
                         {s.description && (
-                          <p className="mt-0.5 line-clamp-2 text-xs text-ink-soft">{s.description}</p>
+                          <p className="mt-0.5 line-clamp-2 text-[13px] text-ink-soft">{s.description}</p>
                         )}
-                        <p className="mt-1 truncate font-mono text-[11px] text-ink-mute">{s.source}</p>
+                        <p className="mt-1 truncate font-mono text-xs text-ink-mute">{s.source}</p>
                       </div>
                     </div>
                   </Card>
@@ -257,7 +255,7 @@ function RecommendedSkills({
     return (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-hidden>
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-[196px] rounded-card bg-surface-sunken ring-1 ring-hairline" />
+          <div key={i} className="h-[196px] rounded-card bg-surface-sunken border border-hairline" />
         ))}
       </div>
     );
@@ -265,7 +263,7 @@ function RecommendedSkills({
 
   if (presets.length === 0) {
     return (
-      <div className="rounded-card bg-surface p-8 ring-1 ring-hairline">
+      <div className="rounded-card bg-surface p-8 border border-hairline">
         <EmptyState message={t('skills.noPresets')} hint={t('skills.noPresetsHint')} icon={Sparkles} />
         <div className="mt-2 flex justify-center">
           <Button variant="ghost" size="sm" onClick={onRefresh}>
@@ -295,7 +293,7 @@ function PricingBadge({ pricing, t }: { pricing: SkillPreset['pricing']; t: (k: 
 
   if (pricing.type === 'free') {
     return (
-      <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-500/25 dark:text-emerald-400">
+      <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-500/25 dark:text-emerald-400">
         {t('skills.free')}
       </span>
     );
@@ -303,7 +301,7 @@ function PricingBadge({ pricing, t }: { pricing: SkillPreset['pricing']; t: (k: 
 
   if (pricing.type === 'freemium') {
     return (
-      <span className="inline-flex items-center rounded-full bg-transparent px-2 py-0.5 text-[11px] font-medium text-ink-soft ring-1 ring-hairline-strong">
+      <span className="inline-flex items-center rounded-full bg-transparent px-2 py-0.5 text-[11px] font-medium text-ink-soft border border-hairline-strong">
         {t('skills.freemium')}
       </span>
     );
@@ -314,7 +312,7 @@ function PricingBadge({ pricing, t }: { pricing: SkillPreset['pricing']; t: (k: 
   const symbol = currency === 'CNY' ? '¥' : currency === 'EUR' ? '€' : '$';
 
   return (
-    <span className="inline-flex items-center rounded-full bg-transparent px-2 py-0.5 text-[11px] font-medium tabular-nums text-ink-soft ring-1 ring-hairline-strong">
+    <span className="inline-flex items-center rounded-full bg-transparent px-2 py-0.5 text-[11px] font-medium tabular-nums text-ink-soft border border-hairline-strong">
       {symbol}{price}
     </span>
   );
@@ -337,7 +335,7 @@ function SkillPresetCard({
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-medium text-ink">{s.display_name || s.name}</h3>
             {s.featured && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-amber-500/25 dark:text-amber-400">
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 border border-amber-500/25 dark:text-amber-400">
                 <Star size={10} strokeWidth={2} />
                 {t('skills.featured')}
               </span>

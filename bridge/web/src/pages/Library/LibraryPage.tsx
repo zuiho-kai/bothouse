@@ -77,7 +77,7 @@ export default function LibraryPage() {
               <div className="space-y-3" aria-hidden>
                 <div className="h-4 w-40 rounded-control bg-surface-sunken" />
                 {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="h-14 rounded-card bg-surface-sunken ring-1 ring-hairline" />
+                  <div key={i} className="h-14 rounded-card bg-surface-sunken border border-hairline" />
                 ))}
               </div>
             )
