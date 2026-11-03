@@ -20,7 +20,7 @@
 
 First-class on Discord, DSH and QQ; the Claude Code, Codex, Antigravity, DSH and Grok you already signed in to join as teammates.
 
-[Video](#video) · [DSH users](#dsh) · [Install](#install) · [Features](#features) · [Screenshots](#screenshots) · [Memory](#memory) · [Releases](#releases) · [Compare](#compare) · [Community](#community) · [Docs](docs/GETTING_STARTED.md)
+[Video](#video) · [DSH users](#dsh) · [Install](#install) · [Features](#features) · [Screenshots](#screenshots) · [Memory](#memory) · [Compare](#compare) · [Community](#community) · [Docs](docs/GETTING_STARTED.md)
 
 </div>
 
@@ -218,19 +218,6 @@ bothouse runs on your home computer with a built-in web dashboard. Tailscale let
 Network notes: start Tailscale first, then bothouse. Without `host`, it listens on all interfaces, so set it explicitly for remote access. With the bridge enabled, port 9810 also listens on all interfaces. To keep it on the tailnet, block 9810 on LAN and public interfaces with the host firewall.
 
 </details>
-
-<a id="releases"></a>
-
-## Release highlights
-
-Full history in [Releases](https://github.com/zuiho-kai/bothouse/releases).
-
-| Version | What's new |
-| --- | --- |
-| **[0.1.43](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.43)** (2026-10-31) | A burst of messages sent while a role is busy is **answered as one turn**; truncated handbacks **save the full text first** and say where to read it; QQ group @ mentions; images in DSH can be viewed, copied and downloaded; a real desktop window on Windows. |
-| **[0.1.42](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.42)** (2026-10-30) | Each chat channel pins a **task board** (waiting for you / running / parked); **every task gets its own thread**; teammates always hand back results in four plain-language parts; replies about running work go straight to its workspace. |
-| **[0.1.41](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.41)** (2026-10-30) | `/model` shows the model a channel is **actually using**; a workspace question pauses only the task it names; `bothouse-dsh` is published to npm with each release. |
-| **[0.1.40](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.40)** (2026-10-29) | A reply blocked by a hook is no longer cut to its last line; Grok roles get the ask-only guard too. |
 
 <a id="compare"></a>
 
