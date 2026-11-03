@@ -147,7 +147,10 @@
   .pane-head .brand {
     width: 22px; height: 22px;
     border-radius: var(--r-sm);
-    background: linear-gradient(135deg, var(--accent), #9b59b6);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: 12px; font-weight: 700;
+    display: grid; place-items: center;
     flex: none;
   }
 
@@ -190,8 +193,10 @@
     z-index: 3;
   }
   .topbar .title {
-    font-weight: 700;
-    font-size: var(--fs-lg);
+    margin: 0;
+    font-weight: 650;
+    font-size: var(--fs-xl);
+    line-height: 28px;
     color: var(--text-strong);
     white-space: nowrap;
     overflow: hidden;
@@ -250,6 +255,7 @@
     font-size: var(--fs-xs);
     line-height: 1.4;
     color: var(--faint);
+    font-variant-numeric: tabular-nums;
   }
   .msg.cont:hover .stamp { display: block; }
 
@@ -270,10 +276,10 @@
 
   .head { display: flex; align-items: baseline; gap: var(--sp-2); min-width: 0; }
   .who { font-weight: 600; font-size: var(--fs-md); color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .when { color: var(--faint); font-size: var(--fs-xs); white-space: nowrap; flex: none; }
+  .when { color: var(--faint); font-size: var(--fs-xs); white-space: nowrap; flex: none; font-variant-numeric: tabular-nums; }
   .body { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; color: var(--text); }
   .tag {
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.6;
     background: var(--accent);
     color: var(--on-accent);
@@ -470,7 +476,7 @@
 </head>
 <body>
 <aside id="roomsPane">
-  <div class="pane-head"><span class="brand" aria-hidden="true"></span>CoNest</div>
+  <div class="pane-head"><span class="brand" aria-hidden="true">C</span>CoNest</div>
   <nav class="rooms" id="rooms" aria-label="频道"></nav>
 </aside>
 
@@ -479,7 +485,7 @@
     <button class="icon-btn" id="openRooms" type="button" aria-label="打开频道列表" aria-controls="roomsPane" aria-expanded="false">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
     </button>
-    <span class="title" id="title">#</span>
+    <h1 class="title" id="title">#</h1>
     <span class="spacer"></span>
     <select id="mode" class="mode" aria-label="派活方式">
       <option value="mixed">混合</option>
@@ -509,7 +515,10 @@ const uuid = () => {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 };
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
-const palette = ['#5865f2', '#eb459e', '#3ba55c', '#faa61a', '#ed4245', '#00a8fc', '#9b59b6', '#e67e22'];
+// 身份色只 3 种（design-spec-channels 第 0 节第 3 条：同屏角色色 ≤3）；来源：该规范，不用彩虹哈希
+// taste-skill-ignore purple：靛蓝是 design-spec-channels.md 定死的唯一强调色（用户 ClawChat 标杆，不照抄其橙），
+// 按 SKILL.md「已有品牌」条款保留品牌色；taste-skill 明说禁 indigo 是 owner 口味而非研究结论。
+const palette = ['#4F46E5', '#B45309', '#0F766E']; // taste-skill-ignore 靛蓝为 design-spec 唯一强调色（用户标杆），按 SKILL.md 已有品牌条款保留
 const color = id => palette[[...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % palette.length];
 const kindLabel = { dsh: 'DSH', bot: 'Agent', human: '' };
 const cardStateLabel = { pending: '待确认', running: '进行中', completed: '已完成', failed: '失败', cancelled: '已取消' };
