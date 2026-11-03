@@ -34,6 +34,14 @@ corepack pnpm run build:artifacts
 
 **当前状态（2026-10-21）**：频道服务、DSH 原生成员和 cloud_web 网关已实现，真实 cc-connect + Claude Code 已在隔离环境回复。原生 `client-ui-discord` 已提供侧栏「频道」、频道切换、消息流、成员/工作状态、中英文本和主题适配；用户已确认页面正常。本轮补齐断线恢复、快速切换与发送草稿回归。真实 DeepSeek 回复尚待验证，阶段 2 的创建频道、@ 菜单等仍未完成，未部署。安装、验证和边界见 [collab/README.md](collab/README.md)。
 
+## 向导配置原生成员
+
+管理面板的 DSH 向导默认创建一个原生角色；本机已安装或已登录的 CLI 留作手动选项，检测 CLI 失败也不会阻断原生配置。新增角色同样默认使用原生运行时，不会沿用上一位角色选择的 CLI。
+
+原生 API 路径需要 DeepSeek API Key。已有启动环境变量、`$DSH_HOME/.credentials.yaml` 的 `refs.DEEPSEEK_API_KEY`，或 `$DSH_HOME/.env` 中的 Key 都可复用，向导中留空即可；只有提交新 Key 时才更新凭据文件。这里检测的是凭据是否存在，最终来源优先级由 DSH 决定，不会把账号登录记录当作 API Key。
+
+向导通过既有 `POST /setup/dsh/configure` 写入角色导入文件，插件启动时沿用现有导入逻辑；`members` 省略 `cli` 表示 DSH 原生成员。配置保存成功仅表示导入已准备，不代表角色全部导入或模型已真实回复。
+
 ## 目标
 
 1. **频道**：网页里是 Discord 的样子——服务器栏、频道、消息流、成员列表。真人和 AI 都是频道成员，@谁谁干活。

@@ -116,11 +116,10 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
   useEffect(() => { getCLIs().then((r) => setClis(r.clis)).catch(() => setClis([])); }, []);
 
   const runners = clis.filter((c) => c.supported && CLI_OF[c.agent_type]);
-  const defaultRunner = () => (runners.find((c) => c.login === 'logged_in') || runners[0])?.agent_type || DEEPSEEK;
   const backendOf = (runner: string) => (runner === DEEPSEEK ? 'dsh' : runner);
   const usedNames = (rs: Role[], except: number) => rs.filter((r) => r.key !== except).map((r) => r.name).filter(Boolean);
   const newRole = (taken: string[]): Role => {
-    const runner = defaultRunner();
+    const runner = DEEPSEEK;
     return {
       key: nextKey.current++,
       name: nextRoleName(backendOf(runner), taken),
@@ -132,7 +131,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
       avatar: '',
     };
   };
-  // Enter the roles step with one role: named after its CLI, no persona.
+  // Start with one native role; installed CLIs remain explicit alternatives.
   const goRoles = () => { setRoles((rs) => (rs.length ? rs : [newRole([])])); setStep(2); };
   const patch = (key: number, p: Partial<Role>) => setRoles((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r)));
   // Renaming a role also renames the "你是谁" reference in a picked persona, matching the

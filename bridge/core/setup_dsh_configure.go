@@ -143,9 +143,9 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 	return res, nil
 }
 
-// dshHasDeepSeekKey: a DeepSeek key is already stored or exported (dsh-credentials-local precedence).
+// dshHasDeepSeekKey checks presence only; DSH resolves credential precedence at runtime.
 func dshHasDeepSeekKey() bool {
-	if os.Getenv("DEEPSEEK_API_KEY") != "" {
+	if os.Getenv("DEEPSEEK_API_KEY") != "" || dshDotenvHas(dshHome(), "DEEPSEEK_API_KEY") {
 		return true
 	}
 	b, err := os.ReadFile(filepath.Join(dshHome(), ".credentials.yaml"))

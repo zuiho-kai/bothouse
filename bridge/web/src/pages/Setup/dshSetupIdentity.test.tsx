@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DSHSetup from './DSHSetup';
 
 const configure = vi.fn(async (_body: unknown) => ({ key_saved: false, members_file: '/tmp/members.json', members: 1 }));
+const detection = vi.hoisted(() => ({ fail: false }));
 vi.mock('@/components/library', () => ({
   useLibrary: () => ({ lib: { personas: [], avatars: [], packs: [] }, error: '', reload: vi.fn() }),
   PersonaLibrary: ({ onPick }: { onPick: (p: unknown) => void }) => (
@@ -13,16 +14,19 @@ vi.mock('@/components/library', () => ({
 vi.mock('@/api/wizard', async (original) => ({
   ...await original<object>(),
   getDSHStatus: async () => ({ found: true, plugin_installed: true, version: 'fixture', has_deepseek_key: true }),
-  getCLIs: async () => ({ clis: [
+  getCLIs: async () => {
+    if (detection.fail) throw new Error('CLI detection unavailable');
+    return { clis: [
     { agent_type: 'codex', label: 'Codex', supported: true, login: 'logged_in', path: '/fixture/codex' },
     { agent_type: 'claudecode', label: 'Claude Code', supported: true, login: 'logged_in', path: '/fixture/claude' },
-  ] }),
+    ] };
+  },
   configureDSH: (body: unknown) => configure(body),
 }));
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: ReturnType<typeof createRoot> | undefined;
 let container: HTMLDivElement;
-beforeEach(() => { configure.mockClear(); });
+beforeEach(() => { configure.mockClear(); detection.fail = false; });
 afterEach(() => { act(() => root?.unmount()); container?.remove(); });
 
 const render = async () => {
@@ -56,9 +60,44 @@ const openDetails = async () => {
 };
 
 describe('DSH setup roles', () => {
+  it('starts with one native DeepSeek role even when signed-in CLIs are available', async () => {
+    await render();
+    await click('[data-testid="dsh-skip-install"]');
+    expect(container.querySelectorAll('[data-testid^="dsh-role-runner-"]')).toHaveLength(1);
+    expect(container.querySelector<HTMLSelectElement>('[data-testid="dsh-role-runner-0"]')?.value).toBe('deepseek');
+    await click('[data-testid="dsh-save-roles"]');
+    expect(configure).toHaveBeenCalledOnce();
+    const body = configure.mock.calls[0][0] as { members: Record<string, unknown>[] };
+    expect(body.members).toHaveLength(1);
+    expect(body.members[0]).not.toHaveProperty('cli');
+  });
+
+  it('keeps native setup usable when optional CLI detection fails', async () => {
+    detection.fail = true;
+    await render();
+    await click('[data-testid="dsh-skip-install"]');
+    expect(container.querySelector<HTMLSelectElement>('[data-testid="dsh-role-runner-0"]')?.value).toBe('deepseek');
+    await click('[data-testid="dsh-save-roles"]');
+    expect(configure).toHaveBeenCalledOnce();
+    expect(container.querySelector('[data-testid="dsh-error"]')).toBeNull();
+  });
+
+  it('adds another native role after explicitly choosing an optional CLI', async () => {
+    await render();
+    await click('[data-testid="dsh-skip-install"]');
+    await select('[data-testid="dsh-role-runner-0"]', 'codex');
+    await click('[data-testid="dsh-add-role"]');
+    expect(container.querySelector<HTMLSelectElement>('[data-testid="dsh-role-runner-1"]')?.value).toBe('deepseek');
+    await click('[data-testid="dsh-save-roles"]');
+    const body = configure.mock.calls[0][0] as { members: Record<string, unknown>[] };
+    expect(body.members[0]).toHaveProperty('cli', 'codex');
+    expect(body.members[1]).not.toHaveProperty('cli');
+  });
+
   it('starts with the CLI name and no persona, and follows a backend switch until the name is edited', async () => {
     await render();
     await click('[data-testid="dsh-skip-install"]');
+    await select('[data-testid="dsh-role-runner-0"]', 'codex');
     expect(container.querySelector<HTMLInputElement>('[data-testid="dsh-role-name-0"]')?.value).toBe('Codex');
     expect(container.querySelector<HTMLTextAreaElement>('[data-testid="dsh-role-persona-0"]')?.value).toBe('');
     await select('[data-testid="dsh-role-runner-0"]', 'claudecode');
@@ -73,6 +112,7 @@ describe('DSH setup roles', () => {
   it('rewrites the picked persona identity when the name is edited afterwards', async () => {
     await render();
     await click('[data-testid="dsh-skip-install"]');
+    await select('[data-testid="dsh-role-runner-0"]', 'codex');
     await openDetails();
     await click('[data-testid="pick-fixture"]');
     expect(container.querySelector<HTMLTextAreaElement>('[data-testid="dsh-role-persona-0"]')?.value).toBe('# 角色：Codex\n\n你是「Codex」——白发。\n');
