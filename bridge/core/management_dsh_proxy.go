@@ -239,10 +239,16 @@ func dshRewriteHTML(res *http.Response) error {
 
 const dshShellBase = `<base href="/">`
 
-// dshPathShim runs before DSH's own scripts. Paths already under /dsh/ (relative URLs resolved
-// against the rewritten base) are left alone.
-const dshPathShim = `<script>(()=>{const P=` + "`" + dshProxyPrefix + "`" + `,L=location;` +
-	`const fix=u=>{try{const x=new URL(u,L.href);if(x.host!==L.host||x.pathname===P||x.pathname.startsWith(P+"/"))return u;x.pathname=P+x.pathname;return x.href}catch{return u}};` +
+// dshShimRoutes matches the root routes DSH's client code calls on its own server (source: its
+// shell bundles as served by dsh web on 11-03 — "/api/<method>", "/api/remote.mux", "/plugins/events",
+// "/open-in-app/..."; none use /api/v1, which is the panel's API).
+const dshShimRoutes = `/^\/(api(\/(?!v1(\/|$))|$)|plugins\/|open-in-app\/)/`
+
+// dshPathShim runs before DSH's own scripts. It prefixes only DSH's own root routes (dshShimRoutes)
+// on this page's origin (http(s) or the matching ws(s)); everything else, including the panel's
+// /api/v1 and paths already under /dsh/, is left alone.
+const dshPathShim = `<script>(()=>{const P=` + "`" + dshProxyPrefix + "`" + `,L=location,R=` + dshShimRoutes + `;` +
+	`const fix=u=>{try{const x=new URL(u,L.href);if(x.host!==L.host||x.protocol.replace(/^ws/,"http")!==L.protocol||!R.test(x.pathname))return u;x.pathname=P+x.pathname;return x.href}catch{return u}};` +
 	`const F=fetch;window.fetch=function(i,o){if(i instanceof Request){const v=fix(i.url);if(v!==i.url)i=new Request(v,i)}else i=fix(i);return F.call(this,i,o)};` +
 	`const O=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u,...r){return O.call(this,m,fix(u),...r)};` +
 	`for(const k of["EventSource","WebSocket"]){const C=window[k];if(!C)continue;const W=new Proxy(C,{construct(t,a){a[0]=fix(a[0]);return Reflect.construct(t,a)}});window[k]=W}` +
