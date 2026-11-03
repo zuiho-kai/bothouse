@@ -61,7 +61,7 @@ export default function Sidebar({
         className={cn(
           'fixed inset-y-0 left-0 z-40 flex w-64 flex-col md:relative md:z-auto md:h-screen md:translate-x-0',
           // 侧栏也是浮层：与顶栏同一块玻璃，宽度与位移用状态档 320ms
-          'border-r border-hairline bg-surface/85 backdrop-blur-xl',
+          'border-r border-hairline bg-surface',
           'transition-[width,transform] duration-state ease-ui-out',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
           'md:translate-x-0',
@@ -71,7 +71,7 @@ export default function Sidebar({
         {/* Brand */}
         <div
           className={cn(
-            'flex h-14 shrink-0 items-center border-b border-hairline px-4',
+            'ui-safe-top flex h-14 shrink-0 items-center border-b border-hairline px-4',
             collapsed ? 'justify-center' : 'gap-0',
           )}
         >
@@ -108,8 +108,9 @@ export default function Sidebar({
               cn(
                 'flex items-center gap-3 rounded-control px-3 py-2.5 text-sm font-medium',
                 'transition-colors duration-base ease-ui-out',
+                // 房规：强调色不上外壳；选中用中性灰底 + 文字提亮，不用彩色底和左竖条
                 isActive
-                  ? 'bg-accent-wash text-accent-text shadow-[inset_2px_0_0_0_currentColor]'
+                  ? 'bg-surface-sunken font-semibold text-ink'
                   : 'text-ink-soft hover:bg-surface-sunken hover:text-ink',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
               )
@@ -122,7 +123,7 @@ export default function Sidebar({
       </nav>
 
       {/* Version + update, then collapse toggle */}
-      <div className="border-t border-hairline p-2">
+      <div className="ui-safe-bottom border-t border-hairline p-2">
         <VersionBadge collapsed={collapsed} />
         <button
           type="button"

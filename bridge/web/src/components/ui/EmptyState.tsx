@@ -10,8 +10,8 @@ interface EmptyStateProps {
   className?: string;
 }
 
-// Empty is a state, not an error: the icon sits inside a hairline disc with one 3%-opacity accent
-// wash behind it (§2 "1px ring instead of shadow", §9 ambient drift at 3000ms only).
+// 空态是一个状态，不是插画面：只有一枚 1px 描边的圆托图标、一句说明和一个下一步。
+// 不做循环装饰动效（房规：动效只作反馈），底色靠画布本身（§2「1px 描边代替阴影」）。
 export function EmptyState({ message, icon: Icon = InboxIcon, hint, className }: EmptyStateProps) {
   return (
     <div
@@ -20,17 +20,14 @@ export function EmptyState({ message, icon: Icon = InboxIcon, hint, className }:
         className
       )}
     >
-      <div className="relative mb-4 grid h-16 w-16 place-items-center">
-        <span
-          aria-hidden
-          className="absolute inset-0 rounded-pill bg-accent-wash animate-[ui-drift_3200ms_ease-in-out_infinite]"
-        />
-        <span className="relative grid h-12 w-12 place-items-center rounded-pill bg-surface ring-1 ring-hairline">
+      {/* 空态是一句话，不是一个插画面：只留 1px 描边的圆托图标，不做循环装饰动效 */}
+      <div className="mb-4 grid h-16 w-16 place-items-center">
+        <span className="grid h-12 w-12 place-items-center rounded-pill border border-hairline bg-surface">
           <Icon size={22} strokeWidth={1.25} className="text-ink-mute" />
         </span>
       </div>
-      <p className="text-sm font-medium text-ink-soft">{message}</p>
-      {hint && <p className="mt-1 text-xs text-ink-mute max-w-xs">{hint}</p>}
+      <p className="text-sm font-medium text-ink">{message}</p>
+      {hint && <p className="mt-1 max-w-xs text-[13px] text-ink-soft">{hint}</p>}
     </div>
   );
 }

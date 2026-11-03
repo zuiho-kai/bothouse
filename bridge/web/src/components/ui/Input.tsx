@@ -9,8 +9,8 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 // darker accent) because the fill accent is only 2.2:1 on white in the yellow theme.
 const field =
   'w-full px-3 py-2 text-sm rounded-control text-ink bg-surface ' +
-  'ring-1 ring-hairline hover:ring-hairline-strong ' +
-  'transition-[box-shadow,background-color] duration-base ease-ui-out ' +
+  'border border-hairline hover:border-hairline-strong ' +
+  'transition-[border-color,box-shadow,background-color] duration-base ease-ui-out ' +
   'placeholder:text-ink-mute ' +
   'focus:outline-none focus:ring-2 focus:ring-accent-text focus:ring-offset-2 focus:ring-offset-canvas ' +
   'disabled:opacity-60 disabled:cursor-not-allowed';

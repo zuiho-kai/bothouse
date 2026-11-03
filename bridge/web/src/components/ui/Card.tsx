@@ -7,17 +7,18 @@ interface CardProps {
   hover?: boolean;
 }
 
-// Elevation ladder: L1 at rest (ring + near shadow), L2 on hover (12/40 far shadow). Cards never
-// animate width/height — only transform + shadow + border colour (§3 "卡片状态切换").
+// 静置卡片只有 1px 边框：应用界面房规「边框或阴影，不可同时」，阴影留给真正浮起来的东西。
+// hover 只改 transform 与边框色，不改宽高（§3「卡片状态切换」不重排）。
 export function Card({ children, className, hover }: CardProps) {
   return (
     <div
       className={cn(
-        'relative rounded-card p-5 animate-float-in',
-        'bg-surface shadow-ui-1',
+        'relative rounded-card p-5',
+        // 房规：静置卡片「边框或阴影，不可同时」；浮层才用阴影
+        'border border-hairline bg-surface',
         'transition-[box-shadow,transform,background-color] duration-state ease-ui-standard',
         hover &&
-          'cursor-pointer hover:-translate-y-0.5 hover:shadow-ui-2 focus-visible:outline-none focus-visible:shadow-ui-2',
+          'cursor-pointer hover:-translate-y-0.5 hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text',
         className
       )}
     >
@@ -35,7 +36,7 @@ interface StatCardProps {
 export function StatCard({ label, value, accent }: StatCardProps) {
   return (
     <Card hover>
-      <p className="text-xs font-medium text-ink-mute uppercase tracking-wide">{label}</p>
+      <p className="text-[13px] font-medium text-ink-soft">{label}</p>
       <p className={cn('text-2xl font-bold mt-1 tabular-nums', accent ? 'text-accent' : 'text-ink')}>
         {value}
       </p>

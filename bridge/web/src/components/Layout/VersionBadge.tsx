@@ -188,7 +188,8 @@ export default function VersionBadge({ collapsed }: { collapsed: boolean }) {
           {error && (
             <details className="opacity-80">
               <summary className="cursor-pointer select-none">{t('update.details')}</summary>
-              <div className="mt-1 font-mono text-[11px] [overflow-wrap:anywhere]">{error}</div>
+              {/* 错误文本是句子不是代码：用正文字体，只保留强制断行 */}
+              <div className="mt-1 text-[11px] leading-relaxed text-ink-soft [overflow-wrap:anywhere]">{error}</div>
             </details>
           )}
           <div className="flex items-center gap-3">

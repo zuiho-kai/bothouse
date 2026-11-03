@@ -35,7 +35,7 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-black/45 backdrop-blur-[2px] animate-[ui-rise_240ms_var(--ui-ease-out)]"
+        className="absolute inset-0 bg-black/45 animate-[ui-rise_240ms_var(--ui-ease-out)]"
         onClick={onClose}
         role="presentation"
       />
