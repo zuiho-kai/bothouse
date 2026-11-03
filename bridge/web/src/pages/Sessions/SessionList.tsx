@@ -1,34 +1,47 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
-import { MessageSquare, Circle, Filter, User, Bot } from 'lucide-react';
-import { Badge, EmptyState } from '@/components/ui';
-import { listProjects, shownName, shownNames, type ProjectSummary } from '@/api/projects';
-import { listSessions, type Session } from '@/api/sessions';
+import { MessagesSquare, Trash2, X } from 'lucide-react';
+import { Badge, Button, EmptyState, Modal } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { listProjects, shownName, type ProjectSummary } from '@/api/projects';
+import { deleteSession, listSessions, type Session } from '@/api/sessions';
+import { SessionCard, SessionRow, sessionKey } from './SessionCard';
+import { SessionDrawer } from './SessionDrawer';
+import { SessionFiltersBar } from './SessionFilters';
+import {
+  emptySessionFilters,
+  filterSessions,
+  flattenSessions,
+  sessionProjectFacets,
+  sessionTotals,
+  type FlatSession,
+  type SessionFilters,
+  type SessionView,
+} from './sessionListModel';
 
-interface FlatSession extends Session {
-  _project: string;
-}
+/** 视图存本机，理由同项目页：没有账号体系，localStorage 是唯一能记住偏好的地方。 */
+const VIEW_KEY = 'cc.sessions.view';
 
-function timeAgo(iso: string, t: (k: string) => string): string {
-  if (!iso) return '';
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return t('sessions.justNow');
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return `${days}d`;
+function initialView(): SessionView {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'row' ? 'row' : 'card';
+  } catch {
+    return 'card';
+  }
 }
 
 export default function SessionList() {
   const { t } = useTranslation();
-  const [allData, setAllData] = useState<{ project: string; sessions: Session[] }[]>([]);
+  const [data, setData] = useState<{ project: string; sessions: Session[] }[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [selectedProject, setSelectedProject] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState<SessionFilters>(emptySessionFilters);
+  const [view, setView] = useState<SessionView>(initialView);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [preview, setPreview] = useState<FlatSession | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [note, setNote] = useState('');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -45,7 +58,7 @@ export default function SessionList() {
           }
         })
       );
-      setAllData(results);
+      setData(results);
     } finally {
       setLoading(false);
     }
@@ -58,92 +71,219 @@ export default function SessionList() {
     return () => window.removeEventListener('cc:refresh', handler);
   }, [fetchData]);
 
-  const filtered = useMemo<FlatSession[]>(() => {
-    const src = selectedProject
-      ? allData.filter((d) => d.project === selectedProject)
-      : allData;
-    return src
-      .flatMap((d) => d.sessions.map((s) => ({ ...s, _project: d.project })))
-      .sort((a, b) => (b.updated_at || b.created_at || '').localeCompare(a.updated_at || a.created_at || ''));
-  }, [allData, selectedProject]);
+  const all = useMemo(() => flattenSessions(data), [data]);
+  const shown = useMemo(() => filterSessions(all, filters), [all, filters]);
+  const facets = useMemo(() => sessionProjectFacets(data, projects), [data, projects]);
+  const totals = useMemo(() => sessionTotals(all), [all]);
+  const projectLabel = useMemo(() => {
+    const byName = new Map(projects.map((p) => [p.name, shownName(p)]));
+    return (name: string) => byName.get(name) || name;
+  }, [projects]);
 
-  if (loading && allData.length === 0) {
-    return <div className="flex items-center justify-center h-64 text-gray-400 animate-pulse">Loading...</div>;
+  const toggleSelect = useCallback((key: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const changeView = (next: SessionView) => {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      /* 隐私模式下写不进，本轮仍然生效 */
+    }
+  };
+
+  const selectedKeys = useMemo(() => [...selected], [selected]);
+  const allShownSelected = shown.length > 0 && shown.every((s) => selected.has(sessionKey(s)));
+
+  const toggleSelectAll = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allShownSelected) shown.forEach((s) => next.delete(sessionKey(s)));
+      else shown.forEach((s) => next.add(sessionKey(s)));
+      return next;
+    });
+  };
+
+  const runDelete = async () => {
+    setDeleting(true);
+    setNote('');
+    const failed: string[] = [];
+    for (const key of selectedKeys) {
+      const [project, id] = key.split('::');
+      try {
+        await deleteSession(project, id);
+      } catch {
+        failed.push(key);
+      }
+    }
+    setDeleting(false);
+    setConfirmDelete(false);
+    setSelected(new Set());
+    await fetchData();
+    if (failed.length) {
+      setNote(t('sessions.deleteFailed', '{{count}} 条没删掉。', { count: failed.length }));
+    }
+  };
+
+  if (loading && all.length === 0) {
+    return (
+      <div className="grid flex-1 place-items-center py-24">
+        <span className="animate-pulse text-sm text-ink-mute">{t('common.loading')}</span>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-4 animate-fade-in ">
-      {/* Filter bar */}
-      <div className="flex items-center gap-3">
-        <Filter size={16} className="text-gray-400" />
-        <select
-          value={selectedProject}
-          onChange={(e) => setSelectedProject(e.target.value)}
-          className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent/50"
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-ink">{t('sessions.title')}</h1>
+          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-mute">
+            <span className="tabular-nums">
+              {totals.sessions} {t('sessions.title')}
+            </span>
+            {totals.live > 0 && (
+              <span className="inline-flex items-center gap-1.5 tabular-nums text-emerald-600 dark:text-emerald-400">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inset-0 animate-ping rounded-full bg-emerald-500/60 motion-reduce:animate-none" />
+                  <span className="relative h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                </span>
+                {totals.live} {t('sessions.active')}
+              </span>
+            )}
+            <span className="tabular-nums">
+              {totals.projects} {t('projects.title')}
+            </span>
+          </p>
+        </div>
+      </header>
+
+      <SessionFiltersBar
+        filters={filters}
+        facets={facets}
+        view={view}
+        onChange={setFilters}
+        onViewChange={changeView}
+        shown={shown.length}
+        total={all.length}
+      />
+
+      <div
+        data-testid="session-bulk-bar"
+        className={cn(
+          'sticky top-0 z-20 flex min-h-11 flex-wrap items-center gap-2 overflow-hidden rounded-card px-3 py-1',
+          'bg-surface/90 shadow-ui-gloss-1 backdrop-blur transition-all duration-state ease-ui-standard',
+          selectedKeys.length > 0
+            ? 'pointer-events-auto translate-y-0 opacity-100'
+            : 'pointer-events-none -translate-y-1 opacity-0'
+        )}
+        aria-hidden={selectedKeys.length === 0}
+      >
+        <button
+          type="button"
+          onClick={toggleSelectAll}
+          className="min-h-11 px-1 text-xs font-medium text-accent-text hover:underline focus-visible:outline-none sm:min-h-0"
         >
-          <option value="">{t('sessions.allProjects')}</option>
-          {projects.map((p) => (
-            <option key={p.name} value={p.name}>{shownName(p)}</option>
-          ))}
-        </select>
-        <span className="text-xs text-gray-400">
-          {filtered.length} {t('nav.sessions').toLowerCase()}
+          {allShownSelected ? t('projects.unselectAll', '取消全选') : t('projects.selectAll', '全选当前')}
+        </button>
+        <Badge variant="info" className="tabular-nums">
+          {selectedKeys.length}
+        </Badge>
+        <span className="hidden min-w-0 flex-1 truncate text-xs text-ink-mute sm:block">
+          {t('sessions.selectedHint', '批量删除只删会话记录，不影响项目配置')}
         </span>
+        <Button size="sm" variant="danger" className="ml-auto h-11 sm:ml-0 sm:h-7" onClick={() => setConfirmDelete(true)}>
+          <Trash2 size={13} /> {t('common.delete')}
+        </Button>
+        <button
+          type="button"
+          onClick={() => setSelected(new Set())}
+          aria-label={t('projects.clearSelection', '清空选择')}
+          className="grid h-11 w-11 place-items-center rounded-control text-ink-mute hover:bg-surface-sunken hover:text-ink sm:h-8 sm:w-8"
+        >
+          <X size={15} />
+        </button>
       </div>
 
-      {filtered.length === 0 ? (
-        <EmptyState message={t('sessions.noSessions')} icon={MessageSquare} />
+      {note && (
+        <p className="rounded-control bg-surface-sunken px-3 py-2 text-xs text-ink-soft" role="status">
+          {note}
+        </p>
+      )}
+
+      {shown.length === 0 ? (
+        all.length === 0 ? (
+          <EmptyState
+            message={t('sessions.noSessions')}
+            icon={MessagesSquare}
+            hint={t('sessions.emptyHint', '在任意平台的对话里给机器人发一句话，会话就会出现在这里。')}
+          />
+        ) : (
+          <EmptyState
+            message={t('sessions.noMatch', '没有符合筛选的会话')}
+            icon={MessagesSquare}
+            hint={t('sessions.noMatchHint', '换个关键词，或清掉项目与状态筛选。')}
+          />
+        )
+      ) : view === 'card' ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {shown.map((s) => (
+            <SessionCard
+              key={sessionKey(s)}
+              session={s}
+              projectLabel={projectLabel(s._project)}
+              selected={selected.has(sessionKey(s))}
+              onToggleSelect={toggleSelect}
+              onPreview={setPreview}
+            />
+          ))}
+        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
-          {filtered.map((s) => (
-            <Link key={`${s._project}-${s.id}`} to={`/sessions/${s._project}/${s.id}`}>
-              <div className={cn(
-                'group relative rounded-xl border p-4 transition-all duration-200 cursor-pointer h-full',
-                'bg-white/60 dark:bg-white/[0.03] backdrop-blur-sm',
-                'border-gray-200/80 dark:border-white/[0.06]',
-                'hover:border-accent/40 hover:shadow-md hover:shadow-accent/5 hover:-translate-y-0.5',
-              )}>
-                {/* Top: name + time */}
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <MessageSquare size={14} className={s.live ? 'text-accent shrink-0' : 'text-gray-400 shrink-0'} />
-                    <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                      {s.name || s.user_name || s.id.slice(0, 8)}
-                    </span>
-                    {s.live && <Circle size={5} className="fill-emerald-500 text-emerald-500 shrink-0" />}
-                  </div>
-                  <span className="text-[10px] text-gray-400 shrink-0 mt-0.5">
-                    {timeAgo(s.updated_at || s.created_at, t)}
-                  </span>
-                </div>
-
-                {/* Last message preview */}
-                <div className="mb-2.5 min-h-[2.5rem]">
-                  {s.last_message ? (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 leading-relaxed">
-                      {s.last_message.role === 'user' ? (
-                        <User size={10} className="inline mr-1 -mt-0.5 opacity-60" />
-                      ) : (
-                        <Bot size={10} className="inline mr-1 -mt-0.5 opacity-60" />
-                      )}
-                      {s.last_message.content.replace(/\n/g, ' ').slice(0, 100)}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-gray-400 dark:text-gray-500 italic">{t('sessions.noMessages')}</p>
-                  )}
-                </div>
-
-                {/* Bottom: badges + count */}
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <Badge>{shownNames(projects)(s._project)}</Badge>
-                  {s.platform && <Badge variant="info">{s.platform}</Badge>}
-                  <span className="text-[10px] text-gray-400 ml-auto">{s.history_count} msgs</span>
-                </div>
-              </div>
-            </Link>
+        <div className="flex flex-col gap-1.5">
+          {shown.map((s) => (
+            <SessionRow
+              key={sessionKey(s)}
+              session={s}
+              projectLabel={projectLabel(s._project)}
+              selected={selected.has(sessionKey(s))}
+              onToggleSelect={toggleSelect}
+              onPreview={setPreview}
+            />
           ))}
         </div>
       )}
+
+      <SessionDrawer
+        session={preview}
+        projectLabel={preview ? projectLabel(preview._project) : ''}
+        onClose={() => setPreview(null)}
+      />
+
+      <Modal
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title={t('sessions.deleteTitle', '删除会话')}
+      >
+        <p className="text-sm text-ink-soft">
+          {t('sessions.deleteBody', '将删除选中的 {{count}} 条会话记录，此操作不可撤销。', {
+            count: selectedKeys.length,
+          })}
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setConfirmDelete(false)} disabled={deleting}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="danger" onClick={runDelete} loading={deleting}>
+            {t('common.delete')}
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }
