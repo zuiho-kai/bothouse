@@ -994,6 +994,34 @@ function regroup() {
   }
 }
 
+// 正文按块对比：同一段文字算同一块，直接留用原来的节点。代码块只比语言和代码本身，
+// 不比「复制」按钮的字，否则点过复制的代码块会被当成新块重建，横向滚动位置跟着丢。
+const isCodeBlock = n => n.classList.contains('md-pre');
+const codeLang = n => n.querySelector('.md-lang')?.textContent || '';
+const blockSig = n => isCodeBlock(n)
+  ? 'pre|' + codeLang(n) + '|' + (n.querySelector('pre code')?.textContent ?? '')
+  : n.tagName + '|' + n.textContent;
+// 正文原地更新：内容没变的块复用，代码块长高时只换里面的字并保住横向滚动位置，其余块才替换。
+function patchBody(body, fresh) {
+  const oldNodes = [...body.children];
+  const newNodes = [...fresh.children];
+  let i = 0;
+  for (; i < oldNodes.length && i < newNodes.length; i++) {
+    const old = oldNodes[i], next = newNodes[i];
+    if (blockSig(old) === blockSig(next)) continue;
+    if (isCodeBlock(old) && isCodeBlock(next) && codeLang(old) === codeLang(next)) {
+      const pre = old.querySelector('pre');
+      const left = pre.scrollLeft;
+      pre.querySelector('code').textContent = next.querySelector('pre code').textContent;
+      pre.scrollLeft = left;
+      continue;
+    }
+    old.replaceWith(next);
+  }
+  for (; i < newNodes.length; i++) body.append(newNodes[i]);
+  for (; i < oldNodes.length; i++) oldNodes[i].remove();
+}
+
 function upsert(m) {
   if (m.room_id !== state.room) return;
   const log = $('log');
@@ -1001,12 +1029,11 @@ function upsert(m) {
   const existing = log.querySelector(`[data-id="${m.id}"]`);
   // 重复推送（重连补拉、同一条事件到两次）内容没变就不重建，避免闪一下、丢掉代码块的横向滚动位置。
   if (existing && existing.dataset.sig === messageSig(m)) return;
-  // 流式输出：同一条消息只涨正文、外框没变时原地换文字，不重建整行（图片不重载、不闪、不跳）。
+  // 流式输出：同一条消息只涨正文、外框没变时按块原地更新，不重建整行（图片不重载、代码块不回到最左、不闪、不跳）。
   if (existing && !m.card && existing.dataset.frame === frameSig(m)) {
     const body = existing.querySelector(':scope > div > .body');
     if (body) {
-      const fresh = renderBody(m.text, 'body');
-      body.replaceChildren(...fresh.childNodes);
+      patchBody(body, renderBody(m.text, 'body'));
       existing.dataset.sig = messageSig(m);
       followBottom(log, stick);
       return;

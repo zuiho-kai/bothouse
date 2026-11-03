@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH 频道 · 消息渲染样张（#114 渲染路）</title>
+<style>
+/* ===== 设计令牌：构建时从 dsh/collab/page.html 原样抽取，挂到 [data-theme] ===== */
+/*{{TOKENS}}*/
+
+/* ===== 消息行 / 任务卡 / 正文渲染样式：同样抽自产品页 ===== */
+/*{{MSG_CSS}}*/
+/*{{CARD_CSS}}*/
+/*{{RENDER_CSS}}*/
+
+/* 思考过程 / 工具事件 / 正文渲染的样式，均已在上面的抽取块中来自产品页 page.html。 */
+
+/* ===== 样张自己的外壳（不属于产品页） ===== */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  min-height: 100dvh;
+  background: #f5f6f8;
+  color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1240px; margin: 0 auto; padding: 28px 20px 64px; }
+h1 { font-size: 21px; line-height: 1.35; margin: 0 0 6px; color: #111; letter-spacing: -.01em; }
+.sub { margin: 0 0 20px; color: #5b6068; font-size: 13px; line-height: 1.6; }
+.sub code { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; background: #e9ebef; padding: 1px 5px; border-radius: 4px; }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 372px; gap: 20px; align-items: start; }
+@media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+
+/* 手机样机：把聊天区缩到 390 宽，验证窄屏渲染 */
+.app {
+  display: flex; flex-direction: column;
+  height: 660px; min-width: 0;
+  background: var(--bg);
+  border: 1px solid #dfe1e5; border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(20,22,28,.04), 0 18px 44px -28px rgba(20,22,28,.30);
+  overflow: hidden; position: relative;
+}
+.app[data-width="mobile"] { width: 390px; max-width: 100%; margin: 0 auto; }
+.app .topbar { flex: none; }
+#log { position: relative; }
+.dock {
+  position: absolute; left: 50%; bottom: 14px; transform: translate(-50%, 10px);
+  opacity: 0; pointer-events: none; transition: opacity 160ms var(--ease), transform 200ms var(--ease);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+  padding: 6px 14px; font-size: 12px; color: var(--text); cursor: pointer; box-shadow: 0 4px 14px -8px rgba(0,0,0,.4);
+}
+.dock.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.dock i { font-style: normal; color: var(--accent); font-weight: 600; }
+.empty { color: var(--faint); font-size: 13px; padding: 24px 16px; }
+
+/* 右栏 */
+.side { position: sticky; top: 20px; }
+.side h2 { font-size: 14px; margin: 0 0 4px; color: #111; }
+.side .hint { font-size: 12px; color: #6b7079; margin: 0 0 12px; line-height: 1.6; }
+.btns { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.btn {
+  font: inherit; font-size: 13px; cursor: pointer;
+  padding: 7px 11px; border-radius: 9px;
+  border: 1px solid #dcdfe4; background: #fff; color: #22252a;
+  transition: background 140ms var(--ease), border-color 140ms var(--ease), transform 100ms var(--ease);
+}
+.btn:hover { background: #f4f5f7; border-color: #cfd3da; }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: #4a55d6; border-color: #4a55d6; color: #fff; }
+.btn.primary:hover { background: #3d48c0; }
+.btn:focus-visible { outline: 2px solid #4a55d6; outline-offset: 2px; }
+.toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; font-size: 12px; color: #6b7079; }
+.checks { border-top: 1px solid #e4e6ea; padding-top: 12px; }
+.checks h3 { font-size: 12px; margin: 0 0 8px; color: #6b7079; font-weight: 600; letter-spacing: .02em; }
+.row { display: flex; gap: 8px; align-items: baseline; font-size: 12px; line-height: 1.7; padding: 3px 0; border-bottom: 1px dashed #edeef1; }
+.row:last-child { border-bottom: 0; }
+.row .k { color: #6b7079; flex: none; }
+.row .v { margin-left: auto; text-align: right; color: #22252a; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.row .v.ok { color: #16794a; }
+.row .v.bad { color: #b42318; }
+.row .v.na { color: #6b7079; }
+.note { font-size: 12px; color: #6b7079; line-height: 1.7; margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>DSH 频道页 · 消息渲染样张</h1>
+  <p class="sub">
+    左边跑的是<b>产品里那份渲染代码</b>（构建时从 <code>dsh/collab/page.html</code> 原样抽取 Markdown / 附件 / 引用 / 消息组装，
+    以及正文原地更新用的 <code>followBottom</code> / <code>regroup</code> / <code>upsert</code>，不是另写一套），
+    右边按钮逐项触发并当场量出结果。白色浅底、思考一行灰字可折叠、工具事件居中灰色小行；布局仍以布局路为准。
+    单发这一个文件也能点、图也能显示：附件是构建期内嵌的演示素材（<code>blob:</code> 网址），不是后端接口实测。
+  </p>
+  <div class="grid">
+    <div class="app" id="app" data-width="desktop">
+      <div class="topbar">
+        <h1 class="title" id="title"># 渲染样张</h1>
+        <span class="spacer"></span>
+        <span class="when" id="mode">白底 · 亮</span>
+      </div>
+      <div id="log" role="log" aria-live="polite"></div>
+      <button class="dock" id="dock" type="button">↓ 回到最新 · <i id="dockN">0</i> 条新消息</button>
+    </div>
+
+    <aside class="side">
+      <div class="toolbar">
+        <button class="btn" id="themeBtn" type="button">切亮 / 暗</button>
+        <button class="btn" id="widthBtn" type="button">手机宽度</button>
+        <button class="btn" id="clearBtn" type="button">清空</button>
+      </div>
+      <h2>点一下看效果</h2>
+      <p class="hint">每个按钮都往同一个消息流里插一条真实消息，然后量一次结果；量到的数写在下面。</p>
+      <div class="btns" id="btns">
+        <button class="btn" data-d="long" type="button">长消息</button>
+        <button class="btn" data-d="code" type="button">代码块 · 复制</button>
+        <button class="btn" data-d="table" type="button">表格</button>
+        <button class="btn" data-d="image" type="button">图片 / 附件</button>
+        <button class="btn" data-d="quote" type="button">引用回复</button>
+        <button class="btn" data-d="stream" type="button">流式输出</button>
+        <button class="btn primary" data-d="codeafter" type="button">代码块后追加正文</button>
+        <button class="btn" data-d="think" type="button">思考（折叠一行）</button>
+        <button class="btn" data-d="tool" type="button">工具事件（居中灰行）</button>
+        <button class="btn" data-d="stick" type="button">贴底与历史阅读</button>
+      </div>
+      <div class="checks">
+        <h3>当场量到的结果</h3>
+        <div id="rows"></div>
+        <p class="note" id="note">还没开始。点上面的按钮。</p>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+/* ===== 页面级小工具与造数据用的假成员（产品页里这些来自 /collab/api/state） ===== */
+const $ = id => document.getElementById(id);
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+const ROOT = '';
+// 产品 upsert 第一条就把别的房间的事件挡掉，所以样张也带一个房间号，消息跟着写同一个。
+const state = { room: 'demo', members: [
+  { id: 'm-cj', name: 'C酱', kind: 'bot', online: true },
+  { id: 'm-gg', name: 'G哥', kind: 'bot', online: true },
+  { id: 'm-db', name: '大豆包', kind: 'bot', online: false },
+  { id: 'owner', name: '主人', kind: 'human', online: true },
+] };
+const kindLabel = { dsh: 'DSH', bot: 'Agent', human: '' };
+const palette = ['#4F46E5', '#B45309', '#0F766E']; // 与产品页同一组身份色（design-spec 同屏 ≤3 色）
+const color = id => palette[[...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % palette.length];
+function avatar(id, name) {
+  const a = el('div', 'avatar', (name || id).slice(0, 1));
+  a.style.background = color(id);
+  return a;
+}
+const pad2 = n => String(n).padStart(2, '0');
+function fmtTime(ts) {
+  const d = new Date(ts * 1000);
+  const hm = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  return d.toDateString() === new Date().toDateString() ? hm : `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+}
+// 权限卡的按钮在产品页里会 POST 决策；样张只演示样式，不发请求。
+const api = async () => ({ ok: true });
+
+/*{{CARD_STATE}}*/
+/*{{GROUP_WINDOW}}*/
+
+/* ===== 演示附件 fixture：构建时把素材内嵌进来，单发这一个文件也有图可看 ===== */
+/*{{FIXTURES}}*/
+const ATT_URLS = new Map();
+function fixtureUrl(id) {
+  if (!ATT_URLS.has(id)) {
+    const f = FIXTURE_ATTACHMENTS.find(a => a.id === id);
+    if (!f) return null;
+    const bin = atob(f.data);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    ATT_URLS.set(id, { url: URL.createObjectURL(new Blob([bytes], { type: f.mime })), size: f.size, mime: f.mime });
+  }
+  return ATT_URLS.get(id);
+}
+// 产品 attachmentList() 拼的是 /collab/api/attachments/<id>，线上由宿主回落；单发 index.html 时没有宿主，
+// 所以插入后把网址换成本地 blob:（只换 href/src，抽取的产品渲染函数不改）。
+function applyAttachmentFixture(row) {
+  for (const a of row.querySelectorAll('a.att-img, a.att-file')) {
+    const id = decodeURIComponent((a.getAttribute('href') || '').split('/').pop() || '');
+    const f = fixtureUrl(id);
+    if (!f) continue;
+    a.href = f.url;
+    const img = a.querySelector('img');
+    if (img) img.src = f.url;
+  }
+}
+
+/* ===== 以下四块是构建时从 dsh/collab/page.html 原样抽出来的产品代码 ===== */
+/*{{RENDER_CORE}}*/
+
+/*{{FOLLOW}}*/
+
+/*{{MESSAGE_NODE}}*/
+
+/*{{GROUP_SRC}}*/
+
+/* ===== 样张：消息流状态与渲染入口 ===== */
+const log = $('log');
+const store = [];
+let clock = Math.floor(Date.now() / 1000) - 5400; // 样张时间从 1.5 小时前起，避免同一分钟挤在一起
+const tick = () => (clock += 30);
+let autoId = 0;
+
+let newSinceScroll = 0;
+// 薄适配：产品 upsert 只管消息流本身；「回到最新」的未读数在外围更新。
+function pushMessage(m) {
+  const had = !!log.querySelector(`[data-id="${m.id}"]`);
+  const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - STICK_PX;
+  upsert(m);
+  applyAttachmentFixture(log.querySelector(`[data-id="${m.id}"]`));
+  if (!had && !stick) newSinceScroll++;
+  updateDock();
+}
+
+function say(spec) {
+  const m = { id: ++autoId, room_id: state.room, created_at: tick(), attachments: [], ...spec };
+  store.push(m);
+  pushMessage(m);
+  return m;
+}
+
+function updateDock() {
+  const away = log.scrollTop + log.clientHeight < log.scrollHeight - STICK_PX;
+  $('dock').classList.toggle('show', away && newSinceScroll > 0);
+  $('dockN').textContent = String(newSinceScroll);
+}
+
+/* ===== 右侧「当场量到的结果」 ===== */
+const rows = $('rows');
+let rowCount = 0;
+function measure(key, value, verdict = 'na') {
+  rowCount++;
+  const row = el('div', 'row');
+  row.append(el('span', 'k', key), el('span', 'v ' + verdict, value));
+  rows.append(row);
+  $('note').textContent = '已量 ' + rowCount + ' 项。';
+  rows.scrollTop = rows.scrollHeight;
+  return value;
+}
+const px = n => Math.round(n) + 'px';
+// 引用跳转用的是平滑滚动，动画还没停下时它会盖住任何底部定位；等滚动位置两帧不动再开始。
+function whenScrollIdle(fn) {
+  let last = -1, stable = 0;
+  const tick = () => {
+    const now = log.scrollTop;
+    stable = now === last ? stable + 1 : 0;
+    last = now;
+    if (stable >= 2) fn();
+    else requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+log.addEventListener('scroll', () => { updateDock(); }, { passive: true });
+
+/* ===== 造一段开场对话（演示正文、代码、表格、图片、引用都在真实消息里） ===== */
+function seed() {
+  log.replaceChildren();
+  store.length = 0; autoId = 0; newSinceScroll = 0; rows.replaceChildren(); rowCount = 0;
+  clock = Math.floor(Date.now() / 1000) - 5400;
+  const opener = say({ author_kind: 'user', author: 'owner', name: '主人', text: '帮我看下这篇的渲染：长消息、代码、表格、图片，都要稳，不能跳。' });
+  say({ author_kind: 'role', author: 'm-cj', name: 'C酱', text: [
+    '先说结论：**三处会跳**，一处会错位。',
+    '',
+    '1. 图片加载完才撑开高度，消息流会往下顶；',
+    '2. 进度卡每次更新整块重建，`copy` 状态丢失；',
+    '3. 长代码横向溢出，手机上整页出现横向滚动。',
+    '',
+    '> 先修 1 和 3，2 等布局路合完再改。',
+  ].join('\n') });
+  say({ author_kind: 'role', author: 'm-gg', name: 'G哥', text: [
+    '复现脚本：',
+    '',
+    '```js',
+    "const log = document.getElementById('log')",
+    'const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 40',
+    "new ResizeObserver(() => { if (stick) log.scrollTop = log.scrollHeight }).observe(log.firstElementChild)",
+    '```',
+  ].join('\n') });
+  say({ author_kind: 'role', author: 'm-cj', name: 'C酱', text: '先按这个表验：\n\n| 场景 | 现在 | 期望 |\n| --- | --- | --- |\n| 图片晚到 | 往下顶 120px | 不动 |\n| 卡片更新 | 闪一下 | 平滑 |', reply_to: { id: opener.id, name: '主人', text: '帮我看下这篇的渲染：长消息、代码、表格、图片，都要稳，不能跳。' } });
+  log.scrollTop = log.scrollHeight;
+  stuck = true;
+  updateDock();
+  $('note').textContent = '开场对话已就位。点按钮开始。';
+}
+
+/* ===== 各按钮的实际动作 ===== */
+const P = []; for (let i = 1; i <= 26; i++) P.push(`第 ${i} 段：这一段故意写长一点，看看换行、段距和行高在桌面与手机上是否舒服，连续长段落读起来会不会累。`);
+const CODE = [
+  'const rows = await api(`/collab/api/rooms/${room}/messages?after=${cursor}&limit=200`)',
+  'for (const m of rows.messages) upsert(m)',
+  '// 这一行特意很长，用来验证代码块自己横向滚动，而不是把整页撑宽：',
+  'const veryLongLine = "' + 'a'.repeat(240) + '" // ← 这一行远远超出手机宽度，应该只让代码块横滚',
+];
+const TABLE = [
+  '| 场景 | 现在 | 期望 | 谁负责 |',
+  '| --- | --- | --- | --- |',
+  '| 图片晚到 | 往下顶 120px | 不动 | 渲染路 |',
+  '| 代码长行 | 横向滚整页 | 只滚代码块 | 渲染路 |',
+  '| 卡片更新 | 闪一下 | 平滑 | 动效路 |',
+  '| 手机三栏 | 中间只剩 420px | 收成抽屉 | 布局路 |',
+];
+const fixtureOf = id => FIXTURE_ATTACHMENTS.find(f => f.id === id);
+
+const ACT = {
+  long() {
+    const before = log.scrollTop;
+    say({ author_kind: 'role', author: 'm-db', name: '大豆包', text: P.join('\n\n') });
+    measure('长消息段数', P.length + ' 段');
+    measure('贴底时滚到底', Math.abs(log.scrollTop + log.clientHeight - log.scrollHeight) <= 1 ? '是' : '否', 'ok');
+    measure('滚动位置变化', px(log.scrollTop - before));
+  },
+  code() {
+    say({ author_kind: 'role', author: 'm-gg', name: 'G哥', text: ['```js', ...CODE, '```', '', '点右上角「复制」试试。'].join('\n') });
+    setTimeout(() => {
+      const boxes = log.querySelectorAll('.md-pre');
+      const last = boxes[boxes.length - 1];
+      const pre = last?.querySelector('pre');
+      measure('代码块自带横向滚动', pre && pre.scrollWidth > pre.clientWidth + 1 ? '是（' + px(pre.scrollWidth) + ' 内容）' : '否', pre && pre.scrollWidth > pre.clientWidth + 1 ? 'ok' : 'bad');
+      measure('整页横向滚动', document.documentElement.scrollWidth > innerWidth + 1 ? '有' : '没有', document.documentElement.scrollWidth > innerWidth + 1 ? 'bad' : 'ok');
+      const btn = last?.querySelector('.md-copy');
+      if (btn) { btn.dataset.probe = '1'; measure('复制按钮', '已在代码块右上角', 'ok'); }
+    }, 60);
+  },
+  table() {
+    say({ author_kind: 'role', author: 'm-cj', name: 'C酱', text: TABLE.join('\n') });
+    setTimeout(() => {
+      const wrap = log.querySelector('.md-table');
+      measure('表格列数', wrap ? String(wrap.querySelectorAll('th').length) + ' 列' : '无', 'ok');
+      measure('表格自身可横滚', wrap && wrap.scrollWidth > wrap.clientWidth + 1 ? '是' : '否（内容没超宽）', 'na');
+      measure('整页横向滚动', document.documentElement.scrollWidth > innerWidth + 1 ? '有' : '没有', document.documentElement.scrollWidth > innerWidth + 1 ? 'bad' : 'ok');
+    }, 60);
+  },
+  image() {
+    const shot = fixtureOf('shot.png'), pdf = fixtureOf('report.pdf');
+    const m = say({ author_kind: 'role', author: 'm-fy', name: '肥鱼', text: '截图和原图都在这', attachments: [
+      { id: shot.id, name: shot.name, mime: shot.mime, size: shot.size },
+      { id: pdf.id, name: pdf.name, mime: pdf.mime, size: pdf.size },
+    ] });
+    const row = log.querySelector(`.msg[data-id="${m.id}"]`);
+    const img = row.querySelector('.att-img img');
+    const settle = () => {
+      measure('图片实际尺寸', img.naturalWidth ? img.naturalWidth + '×' + img.naturalHeight : '加载中…', img.naturalWidth ? 'ok' : 'bad');
+      measure('贴底读者被顶走', Math.abs(log.scrollTop + log.clientHeight - log.scrollHeight) <= 1 ? '没有' : '被顶走', Math.abs(log.scrollTop + log.clientHeight - log.scrollHeight) <= 1 ? 'ok' : 'bad');
+      const file = row.querySelector('.att-file');
+      measure('附件下载地址', file && file.href.startsWith('blob:') ? '本地 fixture（blob:）' : '仍是接口网址', file && file.href.startsWith('blob:') ? 'ok' : 'bad');
+      // 同一条消息后面再来一段正文：图片不重载、附件区不重建。
+      const srcBefore = img.getAttribute('src');
+      m.text += '\n\n补一张截图说明。';
+      m.edited_at = tick();
+      pushMessage(m);
+      const row2 = log.querySelector(`.msg[data-id="${m.id}"]`);
+      const img2 = row2.querySelector('.att-img img');
+      const kept = img2 === img && img2.getAttribute('src') === srcBefore && img2.naturalWidth === img.naturalWidth;
+      measure('追加正文后图片不重载', kept ? '是（同一节点、同一网址）' : '否', kept ? 'ok' : 'bad');
+    };
+    if (img) { if (img.complete && img.naturalWidth) settle(); else { img.addEventListener('load', settle, { once: true }); setTimeout(settle, 1200); } }
+    measure('附件样式', '图片内联 + 文件卡各一', 'ok');
+  },
+  quote() {
+    const target = store.find(m => m.author_kind === 'role');
+    if (!target) return measure('引用回复', '先点「清空」重建开场对话', 'na');
+    say({ author_kind: 'role', author: 'm-cj', name: 'C酱', text: '这条带引用，点上面那条引用条会跳回原消息并高亮。', reply_to: { id: target.id, name: target.name, text: target.text } });
+    setTimeout(() => {
+      const q = log.querySelector('.reply-quote');
+      measure('引用条可点', q ? '是' : '否', q ? 'ok' : 'bad');
+      if (q) { const at = log.scrollTop; q.click(); setTimeout(() => measure('点击后跳转', Math.abs(log.scrollTop - at) > 2 ? '已滚动并高亮' : '未滚动（目标已在视野内）', 'ok'), 400); }
+    }, 60);
+  },
+  stream() {
+    whenScrollIdle(() => streamRun());
+  },
+  // 父级独立验收的那一条：先插含宽代码块的消息、滚到中间，再只追加代码块之后的正文。
+  codeafter() {
+    log.scrollTop = log.scrollHeight;
+    stuck = true;
+    const code = '```js\nconst longValue = "' + 'x'.repeat(500) + '";\n```';
+    const m = say({ author_kind: 'role', author: 'm-gg', name: 'G哥', text: '现有代码块\n\n' + code });
+    const row = log.querySelector(`.msg[data-id="${m.id}"]`);
+    const pre = row.querySelector('pre');
+    pre.scrollLeft = 100;
+    const scrollBefore = pre.scrollLeft;
+    m.text += '\n\n新到的一段正文';
+    m.edited_at = tick();
+    pushMessage(m);
+    const row2 = log.querySelector(`.msg[data-id="${m.id}"]`);
+    const pre2 = row2?.querySelector('pre');
+    measure('同一行节点复用', row2 === row ? '是' : '否', row2 === row ? 'ok' : 'bad');
+    measure('代码块节点复用', pre2 === pre ? '是' : '否', pre2 === pre ? 'ok' : 'bad');
+    measure('追加后代码块横滚', px(scrollBefore) + ' → ' + px(pre2 ? pre2.scrollLeft : 0), pre2 && pre2.scrollLeft === scrollBefore ? 'ok' : 'bad');
+    // 代码块自己在长：只换里面的字，节点和横滚位置都不动。
+    pre2.scrollLeft = 120;
+    const grownBefore = pre2.scrollLeft;
+    m.text = '现有代码块\n\n' + '```js\nconst longValue = "' + 'x'.repeat(500) + '";\nconst extra = 1;\n```';
+    m.edited_at = tick();
+    pushMessage(m);
+    const pre3 = log.querySelector(`.msg[data-id="${m.id}"] pre`);
+    measure('代码块增长时节点复用', pre3 === pre2 ? '是' : '否', pre3 === pre2 ? 'ok' : 'bad');
+    measure('增长后代码块横滚', px(grownBefore) + ' → ' + px(pre3 ? pre3.scrollLeft : 0), pre3 && pre3.scrollLeft === grownBefore ? 'ok' : 'bad');
+    // 同一条事件再到一次：内容没变，不该重建。
+    pushMessage(m);
+    const pre4 = log.querySelector(`.msg[data-id="${m.id}"] pre`);
+    measure('重复事件不重建', pre4 === pre3 && log.querySelectorAll(`[data-id="${m.id}"]`).length === 1 ? '是' : '否', pre4 === pre3 ? 'ok' : 'bad');
+  },
+  think() {
+    say({ card: JSON.stringify({ kind: 'thinking', state: 'completed', seconds: 12 }), author_kind: 'role', author: 'm-cj', name: 'C酱', text: [
+      '先看抽出来的渲染函数：`mdBlocks` 按行分段，代码块用 `FENCE` 起止匹配；',
+      '再看滚动：只有读者本来就在底部时才跟随，否则一动不动；',
+      '最后确认引用条点击走 `scrollIntoView`，不是重排整页。',
+    ].join('\n') });
+    setTimeout(() => {
+      const t = log.querySelector('.think-toggle');
+      measure('默认形态', t && log.querySelector('.think').dataset.open !== 'true' ? '一行灰字（折叠）' : '已展开', t ? 'ok' : 'bad');
+      measure('点一下展开', t ? '试试这行灰字' : '没找到', 'na');
+    }, 60);
+  },
+  tool() {
+    const calls = [
+      { title: 'Read', summary: 'dsh/collab/page.html · 1080 行' },
+      { title: 'Grep', summary: 'renderBody → 3 处命中' },
+      { title: 'node --test', summary: 'collab.test.mjs · 368 过 2 败', state: 'failed' },
+    ];
+    calls.forEach((c, i) => setTimeout(() => say({ card: JSON.stringify({ kind: 'tool', ...c }), author_kind: 'role', author: 'm-cj', name: 'C酱', text: c.summary }), i * 130));
+    setTimeout(() => {
+      measure('工具行条数', String(log.querySelectorAll('.tool-row').length) + ' 行');
+      measure('对齐方式', '居中、灰色小字', 'ok');
+      measure('失败态', '红色标注', 'ok');
+    }, 600);
+  },
+  stick() {
+    const fill = () => { for (let i = 0; i < 8; i++) say({ author_kind: 'role', author: 'm-db', name: '大豆包', text: `历史消息 ${i + 1}：往上翻看的时候，新消息不该把视野拽走。` }); };
+    fill();
+    setTimeout(() => {
+      log.scrollTop = 0;
+      stuck = false;
+      const at = log.scrollTop;
+      say({ author_kind: 'role', author: 'm-gg', name: 'G哥', text: '这条是在你往上翻的时候到的。' });
+      measure('往上翻时新消息到达', 'scrollTop ' + px(at) + ' → ' + px(log.scrollTop));
+      measure('被拽回底部', Math.abs(log.scrollTop - at) < 2 ? '没有' : '有', Math.abs(log.scrollTop - at) < 2 ? 'ok' : 'bad');
+      measure('「回到最新」提示', $('dock').classList.contains('show') ? '已出现（' + $('dockN').textContent + ' 条）' : '未出现', $('dock').classList.contains('show') ? 'ok' : 'bad');
+    }, 250);
+  },
+};
+
+// 流式输出：产品 upsert 一帧一帧原地更新同一条消息；这里只负责喂数据并量结果。
+function streamRun() {
+  const text = '先说结论：这段是流式出来的。渲染必须做到三件事 —— 一，边到边显示，不整条重排；二，代码块和图片不重载；三，读者贴在底部时跟着走，往上翻着看时不被拽回去。现在这段就是按这个规则一截一截写进同一条消息里的。';
+  log.scrollTop = log.scrollHeight; // 读者本来就在底部，这是最常见的情形
+  stuck = true;
+  const m = say({ author_kind: 'role', author: 'm-cj', name: 'C酱', text: text.slice(0, 1) });
+  const nodeBefore = log.querySelector(`.msg[data-id="${m.id}"]`);
+  let i = 1, frames = 1;
+  const t0 = performance.now();
+  const step = () => {
+    i = Math.min(text.length, i + 3);
+    m.text = text.slice(0, i);
+    m.edited_at = tick();
+    frames++;
+    pushMessage(m);
+    if (i < text.length) requestAnimationFrame(step);
+    else {
+      const nodeAfter = log.querySelector(`.msg[data-id="${m.id}"]`);
+      const gap = log.scrollHeight - log.clientHeight - log.scrollTop;
+      measure('流式帧数', frames + ' 帧');
+      measure('耗时', Math.round(performance.now() - t0) + 'ms');
+      measure('贴底误差', px(gap), Math.abs(gap) <= 2 ? 'ok' : 'bad');
+      measure('最终字数', m.text.length + ' 字');
+      measure('整行被重建', nodeBefore && nodeAfter && nodeBefore === nodeAfter ? '否' : '是', nodeBefore && nodeAfter && nodeBefore === nodeAfter ? 'ok' : 'bad');
+    }
+  };
+  requestAnimationFrame(step);
+}
+
+$('btns').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-d]');
+  if (!b) return;
+  const done = ACT[b.dataset.d];
+  if (done) done();
+});
+$('dock').addEventListener('click', () => { stuck = true; newSinceScroll = 0; log.scrollTop = log.scrollHeight; updateDock(); });
+$('clearBtn').addEventListener('click', seed);
+$('themeBtn').addEventListener('click', () => {
+  const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = next;
+  $('mode').textContent = (next === 'light' ? '白底 · 亮' : '深色 · 暗');
+  setThemeStyle();
+});
+$('widthBtn').addEventListener('click', () => {
+  const app = $('app');
+  const next = app.dataset.width === 'mobile' ? 'desktop' : 'mobile';
+  app.dataset.width = next;
+  $('widthBtn').textContent = next === 'mobile' ? '桌面宽度' : '手机宽度';
+  $('mode').textContent = (document.documentElement.dataset.theme === 'light' ? '白底 · 亮' : '深色 · 暗') + ' · ' + (next === 'mobile' ? '390' : '桌面');
+});
+function setThemeStyle() {
+  document.body.style.background = document.documentElement.dataset.theme === 'light' ? '#f5f6f8' : '#101114';
+  document.body.style.color = document.documentElement.dataset.theme === 'light' ? '#2b2d31' : '#e3e5e8';
+  for (const sel of ['h1', '.sub', '.side h2', '.side .hint', '.note']) {
+    document.querySelectorAll(sel).forEach(n => { n.style.color = document.documentElement.dataset.theme === 'light' ? '' : '#c9ccd2'; });
+  }
+  document.querySelectorAll('.btn').forEach(n => {
+    n.style.background = document.documentElement.dataset.theme === 'light' ? '' : '#22252a';
+    n.style.borderColor = document.documentElement.dataset.theme === 'light' ? '' : '#3a3e46';
+    n.style.color = document.documentElement.dataset.theme === 'light' ? '' : '#e3e5e8';
+  });
+  document.querySelectorAll('.row').forEach(n => { n.style.borderColor = document.documentElement.dataset.theme === 'light' ? '' : '#2a2d33'; });
+}
+
+seed();
+</script>
+</body>
+</html>
