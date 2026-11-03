@@ -351,6 +351,30 @@ const MAX_BACKOFF_MS = 30_000
 /** Messages requested per page, both for the first read and for `loadOlder`. */
 const PAGE_SIZE = 100
 
+/** Browser storage key holding the channel the owner had open before a reload. */
+const ROOM_KEY = 'dsh-collab.room'
+
+/** Remember the open channel so reopening the panel returns to it instead of the first one. */
+const rememberRoom = (roomId: number): void => {
+  try {
+    globalThis.localStorage?.setItem(ROOM_KEY, String(roomId))
+  } catch (error) {
+    void error // storage unavailable (private mode, disabled): the panel just opens the first channel
+  }
+}
+
+/** Channel id remembered by an earlier visit, or undefined when absent or unreadable. */
+const rememberedRoom = (): number | undefined => {
+  try {
+    const raw = globalThis.localStorage?.getItem(ROOM_KEY)
+    const id = raw === null || raw === undefined || raw === '' ? Number.NaN : Number(raw)
+    return Number.isInteger(id) ? id : undefined
+  } catch (error) {
+    void error // storage unavailable: fall back to the service's first channel
+    return undefined
+  }
+}
+
 /** Messages requested per catch-up read after a reconnect. */
 const CATCH_UP_LIMIT = 200
 
@@ -532,7 +556,12 @@ export function createChannelSource(transport: ChannelTransport): {
         'collab/api/state', { signal: read.controller.signal },
       )
       if (!current()) return
-      const roomId = state.rooms.some(r => r.id === previous.roomId) ? previous.roomId : state.rooms[0]?.id
+      // #112: reopening the panel starts from `previous` empty, so fall back to the
+      // channel this browser had open, then to the service's first channel.
+      const remembered = previous.roomId === undefined ? rememberedRoom() : undefined
+      const roomId = state.rooms.some(r => r.id === previous.roomId) ? previous.roomId
+        : state.rooms.some(r => r.id === remembered) ? remembered
+        : state.rooms[0]?.id
       const rows: ChannelMessage[] = []
       let hasMoreOlder = false
       if (roomId !== undefined) {
@@ -616,6 +645,8 @@ export function createChannelSource(transport: ChannelTransport): {
   const selectRoom = async (roomId: number): Promise<void> => {
     // Any page still in flight for the previous window is stale from here on.
     historyEpoch += 1
+    // #112: a reload reopens this channel instead of the service's first one.
+    rememberRoom(roomId)
     // The old board is not this room's: task events wait in earlyTasks until loadBoard.
     if (roomId !== snapshot.roomId) earlyTasks.clear()
     const shown = outbox.filter(entry => entry.roomId === roomId)

@@ -315,6 +315,7 @@ func queuedToMessage(q queuedMessage) Message {
 		turnTrigger:         q.turnTrigger,
 		resumedFrom:         q.resumedFrom,
 		timerJobID:          q.timerJobID,
+		cronJobID:           q.cronJobID,
 		resumeNoProgress:    q.resumeNoProgress,
 		resumeFallback:      q.resumeFallback,
 		scheduledBackfilled: q.scheduledBackfilled,

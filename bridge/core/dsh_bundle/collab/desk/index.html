@@ -1136,6 +1136,10 @@ function dispatchBeamOnce(id, from, to) {
 }
 
 function applyTask(ev, animate = true) {
+  // 实时流上 tasks.mjs 也发 `{type:'task', task:{…}, chat_id, active}`（给聊天面板用的任务对象），
+  // 那不是板事件的形态（id/kind/from/to/title，由 gate 的 board.py 写进 board-events.jsonl）。
+  // 两种都照画，任务动作会多出一行「— → —」的空记录，实时就和回放对不上了。
+  if (ev.task && typeof ev.task === 'object') return;
   const id = String(ev.id ?? '');
   const kind = String(ev.kind ?? '');
   const from = resolveRef(ev.from);
