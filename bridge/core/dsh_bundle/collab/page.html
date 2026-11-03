@@ -466,6 +466,129 @@
     .composer { padding-bottom: var(--sp-2); }
     #log { padding-top: var(--sp-2); }
   }
+  /* ---------- U3：交互动效与易用性 ----------
+     动效全部只用 transform / opacity，时长与曲线取自 notes/ui/design-spec-channels.md 第 5 节。 */
+  .log-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .log-wrap > #log { flex: 1; }
+
+  /* 回到最新：离底才出现，带未读数；点击回底清零 */
+  .jump-latest {
+    position: absolute;
+    right: var(--sp-3);
+    bottom: var(--sp-3);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    min-height: 36px;
+    padding: 0 var(--sp-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-full);
+    background: var(--surface-2);
+    color: var(--text-strong);
+    font-size: var(--fs-sm);
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(6px);
+    pointer-events: none;
+    transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+  }
+  .jump-latest[data-show="1"] { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  /* 44px：达标线「手机点按目标 ≥44px」 */
+  @media (max-width: 768px) { .jump-latest { min-height: 44px; } }
+  .jump-count {
+    display: inline-grid;
+    place-items: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: var(--r-full);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 新消息进场 180ms：规范第 5 节 */
+  @keyframes msg-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .msg.enter { animation: msg-enter 180ms var(--ease); }
+
+  /* 任务卡状态切换 320ms，只动 transform/opacity/border-color：规范第 4 节 */
+  .card { transition: border-color 320ms var(--ease), opacity 320ms var(--ease), transform 320ms var(--ease); }
+
+  /* 正在输入：三点只用 transform 位移与 opacity */
+  .typing { display: inline-flex; align-items: center; gap: var(--sp-2); }
+  .typing-dots { display: inline-flex; gap: 3px; }
+  .typing-dots i {
+    width: 4px;
+    height: 4px;
+    border-radius: var(--r-full);
+    background: currentColor;
+    animation: typing-bob 900ms var(--ease) infinite;
+  }
+  .typing-dots i:nth-child(2) { animation-delay: 120ms; }
+  .typing-dots i:nth-child(3) { animation-delay: 240ms; }
+  @keyframes typing-bob {
+    0%, 60%, 100% { transform: translateY(0); opacity: .45; }
+    30% { transform: translateY(-3px); opacity: 1; }
+  }
+
+  /* @ 成员补全 */
+  .composer { position: relative; }
+  .mention-pop {
+    position: absolute;
+    left: var(--pad-x);
+    right: var(--pad-x);
+    bottom: calc(100% - var(--sp-2));
+    max-height: 220px;
+    overflow-y: auto;
+    padding: var(--sp-1);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    box-shadow: var(--shadow);
+    z-index: 3;
+  }
+  .mention-pop[hidden] { display: none; }
+  .mention-opt {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-2);
+    width: 100%;
+    min-height: 36px;
+    padding: 0 var(--sp-2);
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+  }
+  .mention-opt[aria-selected="true"] { background: var(--hover); }
+  .mention-opt .who-name { font-size: var(--fs-sm); }
+  .mention-opt .who-id { color: var(--muted); font-size: var(--fs-xs); }
+
+  /* 发送中 / 失败重试 */
+  .send-state {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-height: 24px;
+    padding-bottom: var(--sp-1);
+    color: var(--muted);
+    font-size: var(--fs-xs);
+  }
+  .send-state[hidden] { display: none; }
+  .send-state[data-kind="error"] { color: var(--danger); }
+  .send-state .btn { min-height: 24px; padding: 0 var(--sp-2); font-size: var(--fs-xs); }
+
+  /* 达标线：reduced-motion 下动画降级，信息不丢 */
+  @media (prefers-reduced-motion: reduce) {
+    .msg.enter { animation: none; }
+    .typing-dots i { animation: none; opacity: .6; }
+    .jump-latest { transition: none; }
+  }
 </style>
 </head>
 <body>
@@ -490,16 +613,26 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M17 3.13a4 4 0 0 1 0 7.75"/></svg>
     </button>
   </div>
-  <div id="log" role="log" aria-live="polite" aria-busy="true"></div>
-  <div id="thinking"></div>
-  <form id="form" class="composer"><textarea id="input" rows="1" placeholder="发消息，@成员 让它干活（Enter 发送，Shift+Enter 换行）" disabled></textarea></form>
+  <div class="log-wrap">
+    <div id="log" role="log" aria-live="polite" aria-busy="true"></div>
+    <button class="jump-latest" id="jumpLatest" type="button" data-show="0" aria-label="回到最新">
+      <span class="jump-count" id="jumpCount" hidden></span>
+      <span>回到最新</span>
+    </button>
+  </div>
+  <div id="thinking" aria-live="polite"></div>
+  <form id="form" class="composer">
+    <div class="send-state" id="sendState" role="status" hidden></div>
+    <div class="mention-pop" id="mentionPop" role="listbox" aria-label="选择要 @ 的成员" hidden></div>
+    <textarea id="input" rows="1" placeholder="发消息，@成员 让它干活（Enter 发送，Shift+Enter 换行）" disabled></textarea>
+  </form>
 </main>
 
 <aside id="membersPane" class="members" aria-label="成员"></aside>
 <div class="scrim" id="scrim" aria-hidden="true"></div>
 
 <script>
-const state = { me: 'owner', rooms: [], members: [], thinking: {}, room: null, synced: 0, mode: 'mixed' };
+const state = { me: 'owner', rooms: [], members: [], thinking: {}, room: null, synced: 0, mode: 'mixed', unseen: 0, hydrating: false };
 const $ = id => document.getElementById(id);
 // crypto.randomUUID only exists in secure contexts (https/localhost); plain-http LAN/Tailscale pages fall back to getRandomValues.
 const uuid = () => {
@@ -593,7 +726,15 @@ function renderMembers() {
   }
   $('membersPane').replaceChildren(...nodes);
   const names = visible.filter(m => busy.has(m.id)).map(m => m.name);
-  $('thinking').textContent = names.length ? `${names.join('、')} 正在处理…` : '';
+  // 谁在想的「正在输入」指示：文字 + 三点；室内无人时整块清空
+  const box = $('thinking');
+  if (!names.length) { box.replaceChildren(); return; }
+  const line = el('span', 'typing');
+  const dots = el('span', 'typing-dots');
+  dots.setAttribute('aria-hidden', 'true');
+  dots.append(el('i'), el('i'), el('i'));
+  line.append(dots, el('span', '', `${names.join('、')} 正在输入…`));
+  box.replaceChildren(line);
 }
 
 function messageNode(m) {
@@ -656,18 +797,45 @@ function regroup() {
   }
 }
 
+// 贴底判定沿用原实现的 40px 容差；离底时才出「回到最新」（U3 交接：不在底部时出按钮带未读数）。
+const NEAR_BOTTOM_PX = 40;
+
+function atBottom() {
+  const log = $('log');
+  return log.scrollTop + log.clientHeight >= log.scrollHeight - NEAR_BOTTOM_PX;
+}
+
+function refreshJump() {
+  if (!$('jumpLatest')) return;
+  const show = !atBottom();
+  const btn = $('jumpLatest');
+  btn.dataset.show = show ? '1' : '0';
+  if (!show) state.unseen = 0;
+  const count = $('jumpCount');
+  count.hidden = state.unseen === 0;
+  count.textContent = state.unseen > 99 ? '99+' : String(state.unseen);
+  btn.setAttribute('aria-label', state.unseen ? `回到最新，${state.unseen} 条未读` : '回到最新');
+}
+
 function upsert(m) {
   if (m.room_id !== state.room) return;
   const log = $('log');
-  const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 40;
+  const stick = atBottom();
   const existing = log.querySelector(`[data-id="${m.id}"]`);
   if (existing) existing.replaceWith(messageNode(m));
   else {
+    const node = messageNode(m);
     const after = [...log.children].find(n => n.dataset.id != null && Number(n.dataset.id) > m.id);
-    log.insertBefore(messageNode(m), after || null);
+    log.insertBefore(node, after || null);
+    // 首屏回填（hydrating）不播进场动画、不数未读；只有真·新到达才算
+    if (!state.hydrating) {
+      node.classList.add('enter');
+      if (!stick && m.author !== state.me) state.unseen += 1;
+    }
   }
   regroup();
   if (stick) log.scrollTop = log.scrollHeight;
+  refreshJump();
 }
 
 async function api(path, init) {
@@ -687,7 +855,7 @@ function showState(kind, title, detail, retry) {
 }
 
 async function openRoom(id) {
-  state.room = id; state.synced = 0;
+  state.room = id; state.synced = 0; state.unseen = 0; state.hydrating = true;
   $('log').replaceChildren(showState('loading', '正在加载消息…'));
   $('log').setAttribute('aria-busy', 'true');
   $('input').disabled = true;
@@ -705,7 +873,9 @@ async function openRoom(id) {
     if (!log.querySelector('.msg')) log.append(showState('empty', '还没有消息', ''));
     $('log').setAttribute('aria-busy', 'false');
     $('input').disabled = false;
+    state.hydrating = false;
     $('log').scrollTop = $('log').scrollHeight;
+    refreshJump();
   } catch (err) {
     if (state.room !== id) return;
     $('log').replaceChildren(showState('error', '加载失败', err.message, () => openRoom(id)));
@@ -729,12 +899,13 @@ $('mode').addEventListener('change', async (e) => {
 async function catchUp() {
   const room = state.room;
   if (room == null) return;
+  state.hydrating = true;
   for (;;) {
     const { messages } = await api(`/collab/api/rooms/${room}/messages?after=${state.synced}&limit=200`);
     if (state.room !== room) return;
     messages.forEach(upsert);
     if (messages.length) state.synced = messages[messages.length - 1].id;
-    if (messages.length < 200) return;
+    if (messages.length < 200) { state.hydrating = false; return; }
   }
 }
 
@@ -750,22 +921,155 @@ function connect() {
   };
 }
 
+function autosize() {
+  const input = $('input');
+  input.style.height = 'auto';
+  input.style.height = input.scrollHeight + 'px';
+}
+
+// ---------- @ 成员补全 ----------
+function mentionTargets() {
+  const room = state.rooms.find(r => r.id === state.room);
+  const channel = room?.parent_id ?? room?.id;
+  return state.members.filter(m => !m.rooms?.length || m.rooms.includes(channel));
+}
+
+// 光标前最后一个 @ 之后的词就是查询词；@ 必须在行首或空白之后（与后端 mentions 的别名规则一致）。
+function mentionQuery() {
+  const input = $('input');
+  const caret = input.selectionStart ?? 0;
+  const hit = /(?:^|\s)@([^\s@]*)$/.exec(input.value.slice(0, caret));
+  return hit ? { query: hit[1], start: caret - hit[1].length - 1 } : null;
+}
+
+let mentionIndex = 0;
+
+function closeMentions() {
+  const pop = $('mentionPop');
+  pop.hidden = true;
+  pop.replaceChildren();
+  mentionIndex = 0;
+}
+
+function renderMentions() {
+  const pop = $('mentionPop');
+  const q = mentionQuery();
+  if (!q) { closeMentions(); return; }
+  const list = mentionTargets().filter(m => m.name.toLowerCase().includes(q.query.toLowerCase()));
+  if (!list.length) { closeMentions(); return; }
+  mentionIndex = Math.max(0, Math.min(mentionIndex, list.length - 1));
+  pop.dataset.start = String(q.start);
+  pop.replaceChildren(...list.map((m, i) => {
+    const b = el('button', 'mention-opt', '');
+    b.type = 'button';
+    b.setAttribute('role', 'option');
+    b.setAttribute('aria-selected', String(i === mentionIndex));
+    b.dataset.name = m.name;
+    // mousedown 抢先于 blur，避免点选时补全先被关掉
+    b.onmousedown = (e) => { e.preventDefault(); pickMention(m.name); };
+    b.append(el('span', 'who-name', m.name), el('span', 'who-id', '@' + m.id));
+    return b;
+  }));
+  pop.hidden = false;
+}
+
+function pickMention(name) {
+  const input = $('input');
+  const pop = $('mentionPop');
+  const start = Number(pop.dataset.start);
+  const caret = input.selectionStart ?? input.value.length;
+  const before = input.value.slice(0, start);
+  const insert = '@' + name + ' ';
+  input.value = before + insert + input.value.slice(caret);
+  const pos = before.length + insert.length;
+  input.setSelectionRange(pos, pos);
+  closeMentions();
+  input.focus();
+  autosize();
+}
+
+function moveMention(step) {
+  const pop = $('mentionPop');
+  const opts = [...pop.children];
+  if (!opts.length) return;
+  mentionIndex = (mentionIndex + step + opts.length) % opts.length;
+  opts.forEach((o, i) => o.setAttribute('aria-selected', String(i === mentionIndex)));
+  opts[mentionIndex].scrollIntoView({ block: 'nearest' });
+}
+
+// ---------- 发送中 / 失败重试 ----------
+// 失败重试复用同一个 client_key：服务端按 key 幂等，重试不会发出两条。
+let pendingSend = null;
+
+function setSendState(kind, text, retry) {
+  const box = $('sendState');
+  box.replaceChildren();
+  box.hidden = !text;
+  box.dataset.kind = kind || '';
+  if (!text) return;
+  box.append(el('span', '', text));
+  if (retry) {
+    const b = el('button', 'btn', '重试');
+    b.type = 'button';
+    b.onclick = retry;
+    box.append(b);
+  }
+}
+
+async function postMessage(text) {
+  const key = pendingSend && pendingSend.text === text ? pendingSend.key : uuid();
+  pendingSend = { text, key };
+  setSendState('sending', '发送中…');
+  try {
+    const { message } = await api(`/collab/api/rooms/${state.room}/messages`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, client_key: key }),
+    });
+    upsert(message);
+    pendingSend = null;
+    setSendState('', '');
+    return true;
+  } catch (err) {
+    setSendState('error', '发送失败：' + err.message, () => { postMessage(text); });
+    return false;
+  }
+}
+
 $('input').addEventListener('keydown', (e) => {
+  const pop = $('mentionPop');
+  const open = !pop.hidden;
+  // Esc 只关补全，不动草稿
+  if (e.key === 'Escape') { if (open) { e.preventDefault(); closeMentions(); } return; }
+  if (open) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); moveMention(e.key === 'ArrowDown' ? 1 : -1); return; }
+    if ((e.key === 'Enter' && !e.shiftKey && !e.isComposing) || e.key === 'Tab') {
+      const sel = pop.children[mentionIndex];
+      if (sel) { e.preventDefault(); pickMention(sel.dataset.name); return; }
+    }
+  }
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('form').requestSubmit(); }
 });
-$('input').addEventListener('input', (e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; });
+$('input').addEventListener('input', () => { autosize(); renderMentions(); });
+$('input').addEventListener('click', () => { renderMentions(); });
+$('input').addEventListener('blur', () => { closeMentions(); });
 $('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const text = $('input').value.trim();
   if (!text || state.room == null) return;
-  $('input').value = ''; $('input').style.height = 'auto';
-  try {
-    const { message } = await api(`/collab/api/rooms/${state.room}/messages`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text, client_key: uuid() }),
-    });
-    upsert(message);
-  } catch (err) { $('input').value = text; alert('发送失败：' + err.message); }
+  closeMentions();
+  $('input').value = ''; autosize();
+  const ok = await postMessage(text);
+  // 失败把原文放回输入框，方便改完再发；重试按钮仍用同一个 client_key
+  if (!ok) { $('input').value = text; autosize(); }
+});
+
+$('log').addEventListener('scroll', refreshJump, { passive: true });
+$('jumpLatest').addEventListener('click', () => {
+  const log = $('log');
+  log.scrollTop = log.scrollHeight;
+  state.unseen = 0;
+  refreshJump();
+  $('input').focus();
 });
 
 (async () => {
