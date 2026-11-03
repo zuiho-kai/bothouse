@@ -115,6 +115,52 @@ test('派活去重只限同一次派活，交回/打回后可再次画光', () =
   assert.equal((html.match(/forgetDispatch\(id, S\.dispatched\)/g) ?? []).length, 3, 'returned/rejected/paused-done end the cycle');
 });
 
+test('members.busy 驱动忙碌工位与频道气泡，busy 变 false 回落空闲', () => {
+  const block = html.split('// <seat-state>')[1]?.split('// </seat-state>')[0];
+  assert.ok(block, 'seat-state block');
+  const model = new Function(block + '\nreturn { seatKind, busyLabel };')();
+  const busy = { online: true, busy: true, busy_chats: ['工作区1', '工作区2'], busy_count: 3, busy_task: '整理发布说明' };
+  assert.equal(model.seatKind(busy, false, false), 'busy');
+  assert.equal(model.seatKind(busy, true, true), 'busy', 'busy wins over task and thinking');
+  assert.equal(model.busyLabel(busy), '工作区1 · 工作区2 +1', 'channels list plus relay count');
+  assert.equal(model.seatKind({ online: false, busy: true }, false, false), 'off', 'offline wins');
+  assert.equal(model.seatKind({ online: true, busy: false }, true, false), 'work');
+  assert.equal(model.seatKind({ online: true, busy: false }, false, true), 'think');
+  assert.equal(model.seatKind({ online: true, busy: false }, false, false), 'idle');
+  assert.equal(model.busyLabel({ busy_chats: ['工作区1'] }), '工作区1');
+  assert.equal(model.busyLabel({ busy_chats: [], busy_task: '修 CI' }), '修 CI');
+  assert.match(html, /\.seat\.busy \.keyboard:after\{animation:keyFlash/, 'busy seat types');
+});
+
+test('忙碌工位在最后一列 / 窄屏时气泡向左展开，右缘不超出舞台', () => {
+  // 舞台宽与列心为实测：390 手机 374、500 手机 484、1440 桌面 1096
+  const block = html.split('// <bubble-side>')[1]?.split('// </bubble-side>')[0];
+  assert.ok(block, 'bubble-side block');
+  const { bubbleSide } = new Function(block + '\nreturn { bubbleSide };')();
+  const pad = 10;
+  assert.equal(bubbleSide({ centerX: 280, bubbleW: 132, stageW: 374, pad }), 'left', '390 手机最右列向左');
+  assert.equal(bubbleSide({ centerX: 362, bubbleW: 132, stageW: 484, pad }), 'left', '500 手机最右列向左（含 44px 偏移）');
+  assert.equal(bubbleSide({ centerX: 890, bubbleW: 130, stageW: 1096, pad }), 'right', '桌面最右列放得下');
+  assert.equal(bubbleSide({ centerX: 120, bubbleW: 190, stageW: 1096, pad }), 'right', '左列始终朝右');
+  assert.match(html, /\.bubble-left \.bubble\{left:auto;right:calc\(50% \+ 34px\)\}/, 'leftward variant exists');
+  assert.match(html, /paintBubble\(node, kind, m\)/, 'bubble receives the member for channel text');
+});
+
+test('原始字段过滤是公共函数：底部、实况列表、任务标题都用，孤括号一并清掉', () => {
+  const block = html.split('// <note-clean>')[1]?.split('// </note-clean>')[0];
+  assert.ok(block, 'note-clean block');
+  const { cleanNote } = new Function(block + '\nreturn { cleanNote };')();
+  assert.equal(cleanNote('dispatcher=deep ws_was=true 交回候选'), '交回候选');
+  assert.equal(cleanNote('（板面 dispatcher=deep）'), '（板面）', 'key removed, bracket pair kept balanced');
+  assert.equal(cleanNote('（板面'), '板面', 'lone opening bracket dropped');
+  assert.equal(cleanNote('(ws_was=1)'), '', 'empty pair collapses');
+  assert.equal(cleanNote('缺回滚步骤'), '缺回滚步骤', 'plain text untouched');
+  assert.equal(cleanNote('见 src=data/x.json'), '见');
+  assert.match(html, /\[cleanNote\(text\), cleanNote\(note\)\]/, 'log list filters too');
+  assert.match(html, /tag\.title = `\$\{cleanNote\(rec\.title\)\}/, 'task tag title filters too');
+  assert.ok((html.match(/cleanNote\(/g) ?? []).length >= 6, 'shared helper used everywhere');
+});
+
 test('preview server: page, state and replay window', async () => {
   const server = createPreviewServer();
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

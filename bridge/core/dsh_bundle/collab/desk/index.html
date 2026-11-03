@@ -413,6 +413,18 @@ html,body{background:var(--bg);color:var(--text)}
 .beam.reject .dot{fill:#dc2626;stroke:#fff;stroke-width:1.5}
 .beam .halo{fill:none;stroke:#11111218;stroke-width:9}
 
+/* 忙碌工位：淡紫光环 + 打字节奏，浅色底不发光 */
+.seat.busy .avatar{border-color:#fff;box-shadow:0 0 0 3px #a78bfa66,0 10px 24px #00000020}
+.seat.busy .aura{opacity:1;background:radial-gradient(circle,#a78bfa2e 0,#a78bfa0d 48%,transparent 70%);animation:auraPulse 1.9s ease-in-out infinite}
+.seat.busy .screen:after{animation:codePulse 1.1s ease-in-out infinite}
+.seat.busy .keyboard:after{animation:keyFlash .5s steps(2) infinite}
+.seat.busy .person{animation:workBob 2.2s ease-in-out infinite}
+.seat.busy .bubble{border-color:#ded8f7;background:#fff;color:#4c3fa8;max-width:190px}
+.busy-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;min-width:0}
+/* 最右列/窄屏：气泡向左展开，尾巴贴右边 */
+.bubble-left .bubble{left:auto;right:calc(50% + 34px)}
+.bubble-left .bubble:after{left:auto;right:4px;border-right:0;border-left:1px solid #e7e7ea}
+
 @media (max-width:760px){
   .stage{border-radius:18px}
   .seats{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 2px}
@@ -430,6 +442,8 @@ html,body{background:var(--bg);color:var(--text)}
   .lamp .cone{width:58px;margin-left:-29px;height:56px;top:20px}
   .lamp .pool{width:104px;height:32px;margin-left:-52px;top:74px}
   .status{font-size:9px;top:-16px;left:4px}.tasktag{font-size:10px;padding:2px 6px}
+  .seat.busy .bubble{max-width:132px}.busy-text{max-width:96px}
+  .bubble-left .bubble{right:calc(50% + 28px)}
 }
 
 
@@ -770,17 +784,70 @@ function renderSeats() {
   paintAll();
 }
 
-function paintBubble(node, kind) {
+// <seat-state>
+/** 工位状态优先级：离线 > 团队忙闲 > 任务 > 中枢思考 > 空闲。 */
+function seatKind(m, hasTask, isThinking) {
+  if (!m || m.online === false) return 'off';
+  if (m.busy === true) return 'busy';
+  if (hasTask) return 'work';
+  if (isThinking) return 'think';
+  return 'idle';
+}
+/** 忙的频道列表；relay 等无频道会话用 +N 表示，没有频道时退回任务名。 */
+function busyLabel(m) {
+  const chats = Array.isArray(m?.busy_chats) ? m.busy_chats.filter(Boolean) : [];
+  const count = Number.isFinite(m?.busy_count) ? m.busy_count : chats.length;
+  const others = Math.max(0, count - chats.length);
+  if (chats.length) return chats.join(' · ') + (others ? ` +${others}` : '');
+  if (m?.busy_chat) return m.busy_chat;
+  return String(m?.busy_task || '').trim() || '处理中';
+}
+function busyTitle(m) {
+  const items = Array.isArray(m?.busy_items) ? m.busy_items : [];
+  if (items.length) return items.map(i => `${i.chat || i.project || 'relay'}${i.task ? '：' + i.task : ''}`).join('\n');
+  return busyLabel(m);
+}
+// </seat-state>
+
+// <bubble-side>
+/** 气泡默认朝右；右缘会出舞台时改朝左，避免窄屏最右列被裁。
+ *  offset=44 是 CSS 里气泡左边距（calc(50% + 44px)），实测 390/500 由它决定是否出界。 */
+function bubbleSide({ centerX, bubbleW, stageW, pad = 8, offset = 44 }) {
+  return centerX + offset + bubbleW + pad > stageW ? 'left' : 'right';
+}
+// </bubble-side>
+
+function paintBubble(node, kind, m) {
   const bubble = q('.bubble', node);
-  if (kind === 'off') { bubble.hidden = true; bubble.dataset.kind = ''; return; }
+  if (kind === 'off') { bubble.hidden = true; bubble.dataset.kind = ''; bubble.dataset.label = ''; bubble.title = ''; return; }
   bubble.hidden = false;
-  if (bubble.dataset.kind === kind) return;
-  bubble.dataset.kind = kind;
-  bubble.replaceChildren();
-  if (kind === 'idle') {
-    bubble.append(el('span', 'zzz', 'z'), el('span', 'zzz', 'z'), el('span', 'fish'));
-  } else {
-    for (let i = 0; i < 3; i++) bubble.append(el('span', 'td'));
+  if (kind === 'busy') {
+    const label = busyLabel(m);
+    const title = busyTitle(m);
+    if (bubble.dataset.kind !== 'busy' || bubble.dataset.label !== label) {
+      bubble.dataset.kind = 'busy'; bubble.dataset.label = label;
+      bubble.replaceChildren();
+      for (let i = 0; i < 3; i++) bubble.append(el('span', 'td'));
+      bubble.append(el('span', 'busy-text', '忙 ' + label));
+    }
+    bubble.title = title;
+  } else if (bubble.dataset.kind !== kind) {
+    bubble.dataset.kind = kind; bubble.dataset.label = ''; bubble.title = '';
+    bubble.replaceChildren();
+    if (kind === 'idle') {
+      bubble.append(el('span', 'zzz', 'z'), el('span', 'zzz', 'z'), el('span', 'fish'));
+    } else {
+      for (let i = 0; i < 3; i++) bubble.append(el('span', 'td'));
+    }
+  }
+  // 靠右列 / 窄屏：量一下右缘，超出舞台就向左展开
+  const stage = $('stage');
+  if (stage) {
+    const box = node.getBoundingClientRect(), sb = stage.getBoundingClientRect();
+    const centerX = box.left - sb.left + box.width / 2;
+    const bubbleW = bubble.offsetWidth || 120;
+    const side = bubbleSide({ centerX, bubbleW, stageW: stage.clientWidth, pad: 10 });
+    node.classList.toggle('bubble-left', side === 'left');
   }
 }
 
@@ -790,25 +857,26 @@ function paintSeat(m) {
   const rec = S.active.get(m.id);
   const thinking = S.thinking.has(m.id);
   const online = m.online !== false;
-  const kind = !online ? 'off' : rec ? 'work' : thinking ? 'think' : 'idle';
+  const kind = seatKind(m, !!rec, thinking);
   node.classList.toggle('offline', !online);
+  node.classList.toggle('busy', kind === 'busy');
   node.classList.toggle('working', kind === 'work');
   node.classList.toggle('thinking', kind === 'think');
   node.classList.toggle('idle', kind === 'idle');
   node.classList.toggle('lead', S.lead === m.id);
   q('.crown', node).hidden = S.lead !== m.id;
-  q('.avatar .dot', node).style.background = !online ? '#64748b' : rec ? '#ffc56b' : thinking ? '#7dd3fc' : '#34d399';
+  q('.avatar .dot', node).style.background = !online ? '#a1a1aa' : kind === 'busy' ? '#8b7bd8' : rec ? '#b0741f' : thinking ? '#2563eb' : '#059669';
   const tag = q('.tasktag', node);
   if (rec) {
     tag.hidden = false;
     tag.textContent = `#${rec.id || '?'} ${rec.title || ''}`.trim();
-    tag.title = `${rec.title || ''}${rec.note ? ' · ' + rec.note : ''}`;
+    tag.title = `${cleanNote(rec.title)}${cleanNote(rec.note) ? ' · ' + cleanNote(rec.note) : ''}`;
   } else { tag.hidden = true; tag.title = ''; }
   const status = q('.status', node);
-  status.textContent = !online ? '离线' : rec ? '干活中' : thinking ? '思考中…' : '摸鱼中';
-  paintBubble(node, kind);
+  status.textContent = !online ? '离线' : kind === 'busy' ? '忙碌' : rec ? '干活中' : thinking ? '思考中…' : '摸鱼中';
+  paintBubble(node, kind, m);
   q('.plate', node).textContent = displayName(m);
-  node.title = `${displayName(m)} · ${status.textContent}`;
+  node.title = `${displayName(m)} · ${status.textContent}${kind === 'busy' ? '\n' + busyTitle(m) : ''}`;
 }
 
 function paintAll() {
@@ -827,11 +895,36 @@ function setEmpty() {
   if (!S.memberList.length) empty.textContent = S.fixture ? '示例成员载入中…' : '还没有成员接入 DSH';
 }
 
+// <note-clean>
+/** 只给人看的文案：去掉 dispatcher= / ws_was= 这类原始键值，
+ *  再按配对清掉过滤后留下的孤括号（实测底部曾留半个「（板面」）。 */
+function cleanNote(v) {
+  let out = String(v ?? '').replace(/\b[a-z][a-z0-9_]*=[^\s）)\]】]+/gi, ' ');
+  for (const [open, close] of [['（', '）'], ['(', ')'], ['【', '】'], ['[', ']']]) {
+    out = out.split(open + close).join(' ');
+    let depth = 0;
+    const stray = [];
+    for (let i = 0; i < out.length; i++) {
+      if (out[i] === open) depth += 1;
+      else if (out[i] === close) { if (depth > 0) depth -= 1; else stray.push(i); }
+    }
+    for (const i of stray.reverse()) out = out.slice(0, i) + out.slice(i + 1);
+    for (let i = out.length - 1; i >= 0 && depth > 0; i--) if (out[i] === open) { out = out.slice(0, i) + out.slice(i + 1); depth -= 1; }
+  }
+  return out
+    .replace(/[（(]\s*[）)]/g, ' ')
+    .replace(/[【\[]\s*[】\]]/g, ' ')
+    .replace(/\s+([）)\]】])/g, '$1')
+    .replace(/([（(【[])\s+/g, '$1')
+    .replace(/\s*[·、,，;；]\s*(?=[·、,，;；]|$)/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+// </note-clean>
+
 function setTicker(kind, ts, fromName, toName, text, note) {
   const route = [fromName, toName].filter(Boolean).join(' → ');
-  // 底部一行只给人看：去掉 dispatcher= / ws_was= 这类原始键值
-  const clean = v => String(v ?? '').replace(/[a-z_]+=[^\s·，]+/gi, '').replace(/\s{2,}/g, ' ').trim();
-  const body = [clean(text), clean(note)].filter(Boolean).join(' · ');
+  const body = [cleanNote(text), cleanNote(note)].filter(Boolean).join(' · ');
   $('ticker').textContent = `最新：${fmtTime(ts)} ${KIND[kind] ?? kind} ${route}${body ? ' · ' + body : ''}`;
 }
 
@@ -841,7 +934,7 @@ function addLog(kind, ts, fromName, toName, text, note) {
   const l1 = el('div', 'l1');
   l1.append(el('span', 't', fmtTime(ts)), el('span', 'chip ' + kind, KIND[kind] ?? kind));
   l1.append(el('span', 'route', [fromName, toName].filter(Boolean).join(' → ')));
-  li.append(l1, el('div', 'l2', [text, note].filter(Boolean).join(' · ') || '—'));
+  li.append(l1, el('div', 'l2', [cleanNote(text), cleanNote(note)].filter(Boolean).join(' · ') || '—'));
   list.prepend(li);
   while (list.children.length > S.logLimit) list.lastChild.remove();
   S.eventCount += 1;
@@ -1026,7 +1119,7 @@ function applyTask(ev, animate = true) {
       forgetDispatch(id, S.dispatched);
     } else {
       if (worker && dispatcher && animate) beam(dispatcher, worker, 'reject');
-      if (worker && animate) { flashSeat(worker.id, 'flash-bad'); deskPop(worker.id, `✕ 打回${note ? '：' + note : ''}`, 'bad'); }
+      if (worker && animate) { flashSeat(worker.id, 'flash-bad'); deskPop(worker.id, `✕ 打回${cleanNote(note) ? '：' + cleanNote(note) : ''}`, 'bad'); }
       forgetDispatch(id, S.dispatched);
     }
   } else if (kind === 'paused' || kind === 'done') {
@@ -1035,7 +1128,7 @@ function applyTask(ev, animate = true) {
       clearTask(worker.id);
       if (animate) {
         if (kind === 'done') { flashSeat(worker.id, 'flash-good'); deskPop(worker.id, '✓ 完成', 'good'); }
-        else deskPop(worker.id, `暂停${note ? '：' + note : ''}`, 'info');
+        else deskPop(worker.id, `暂停${cleanNote(note) ? '：' + cleanNote(note) : ''}`, 'info');
       }
     }
     forgetDispatch(id, S.dispatched);
