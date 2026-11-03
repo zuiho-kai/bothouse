@@ -133,7 +133,7 @@ A workspace takes the job with your original words and the project memory; it ge
 
 ### 3. Many agents, many models, many roles: the lead splits the work — no semantic routing
 
-Only whoever is @-mentioned speaks; the rest read along and stay quiet, so five AIs in one group never talk over each other. Only unaddressed messages go to a small model that picks who answers: it returns a single choice and can be a free small model or a local Qwen 0.6B. Or pick **Only when addressed** in the wizard and skip that model entirely ([routing choices](docs/connect-discord-feishu.md#5-jev-和主角色)).
+Only whoever is @-mentioned speaks; the rest read along and stay quiet, so five AIs in one group never talk over each other. Only unaddressed messages go to a small model that picks who answers: it returns a single choice and can be a free small model or a local Qwen 0.6B ([routing choices](docs/connect-discord-feishu.md#5-jev-和主角色)).
 
 The real work is split by the lead agent (Opus, in the author's setup) and handed out by ability and quota. Claude Code, Codex, Antigravity, DSH, Grok, Gemini CLI, Cursor, Kimi and OpenCode can all be teammates; with one account you can still create several members, each with its own job.
 
