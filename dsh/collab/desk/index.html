@@ -202,7 +202,49 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
 @keyframes toastIn{from{opacity:0;transform:translate(-50%,6px)}to{opacity:1;transform:translate(-50%,0)}}
 .mode:focus-visible,.btn:focus-visible,.mini:focus-visible,.field input:focus-visible,.field select:focus-visible,.progress:focus-visible{outline:2px solid #7dd3fc;outline-offset:1px}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important}}
-/* __CSS_MOBILE__ */
+@media (max-width:1180px){main{grid-template-columns:minmax(0,1fr)}.side{display:none}}
+@media (max-width:900px){.replaybar{flex:1 1 100%;order:3}.stats{margin-left:auto}.field input[type=datetime-local]{width:150px}}
+@media (max-width:760px){
+.app{padding:8px 8px 6px;gap:8px;overflow-x:hidden}
+.brand{gap:8px}.mark{width:34px;height:34px;border-radius:10px}.brand h1{font-size:16px}.sub{font-size:11px}
+.topright{gap:6px}.clock{font-size:12px}.pill{font-size:10px;padding:3px 8px}.badge{font-size:10px;padding:3px 7px}
+.bar{padding:7px 8px;gap:8px}.mode{padding:6px 12px;font-size:12px}.stats{font-size:11px}
+.replaybar{gap:6px}.field{flex:1 1 140px;font-size:11px}.field input,.field select{font-size:11px;padding:4px 6px}
+.field input[type=datetime-local]{width:100%}.presets{flex:0 0 auto}.btn{padding:6px 10px}.speed{flex:0 0 auto}
+.progress{flex:1 1 100%;max-width:none;order:6}.vclock{order:5}.mini{padding:4px 7px;font-size:10px}
+.stage{height:auto;min-height:0;padding:104px 0 12px;border-radius:16px}
+.wall{height:96px}.wall:after{height:7px}.window{top:15px;height:60px;width:116px;border-width:3px}.w1{left:16px}.w2{display:none}
+.whiteboard,.sign{display:none}
+.wallclock{top:20px;right:14px;width:48px;height:48px;border-width:4px}.hand.h{height:11px}.hand.m{height:16px}.hand.s{height:17px}
+.floor{inset:96px 0 0}.floor:before{background-size:38px 38px}
+.rug{width:90%;height:60%;top:58%}
+.plant{transform:scale(.7);transform-origin:bottom left}.p1{left:4px;bottom:4px}.p2{right:4px;bottom:2px;transform-origin:bottom right}.p3{display:none}
+.seats{position:relative;left:auto;right:auto;top:auto;bottom:auto;padding:0 8px;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:200px;gap:4px 2px}
+.seat{min-height:0}
+.chair{width:66px;height:62px;top:4px}
+.person{height:140px;top:4px;width:130px}
+.body{top:60px;width:88px;height:66px}
+.avatar{width:72px;height:72px;border-width:2px}.avatar .init{font-size:26px}
+.avatar .dot{width:12px;height:12px;bottom:2px}
+.tasktag{max-width:120px;padding:2px 6px;font-size:10px;top:-2px}
+.bubble{left:calc(50% + 38px);top:2px;padding:4px 6px;font-size:10px;min-height:14px}
+.desk{width:100%;max-width:214px;height:90px}
+.desktop{height:52px}.desktop:before{height:11px;bottom:-9px}
+.monitor{width:70px;height:44px}.stand{top:41px;height:10px}.base{top:50px;width:30px}
+.screen:after{box-shadow:0 5px 0 #9fe8ff55,0 10px 0 #9fe8ff77,0 15px 0 #9fe8ff33}
+.plate{font-size:9px;bottom:1px;max-width:76%}.status{font-size:9px;top:-14px}
+.keyboard{height:12px}.mug{width:14px;height:16px;bottom:8px}.papers{width:22px;height:15px;bottom:9px}
+.foot{font-size:11px}.foot-note{display:none}
+.toast{bottom:14px;font-size:11px;max-width:94vw}
+.pop{bottom:94px;max-width:140px}
+}
+@media (max-width:420px){
+.sub{display:none}.topright .clock{display:none}
+.seats{grid-auto-rows:190px}
+.desk{max-width:190px}
+.seat .tasktag{max-width:104px}
+}
+@media (min-width:761px) and (max-height:700px){.stage{height:580px;min-height:580px}}
 </style>
 </head>
 <body>
