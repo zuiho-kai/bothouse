@@ -24,7 +24,7 @@ import { LeadState } from './lead-state.mjs';
 import { Attachments, INLINE_IMAGE } from './attachments.mjs';
 import { Later, registerLater } from './later.mjs';
 import { QuotaCooling, quotaDirectory } from './quota-cooling.mjs';
-import { DeskEvents, deskRoute } from './desk.mjs';
+import { DeskEvents, DESK_NAMES_FILE, deskRoute } from './desk.mjs';
 import { wikiGalaxyRoute } from './wiki-galaxy.mjs';
 import { defaultBridgeConfig, panelRoute } from './panel.mjs';
 import { TeamStatus } from './team-status.mjs';
@@ -241,7 +241,7 @@ export async function apply(ctx, rawConfig) {
       return refuse(req, res);
     }
     // #876 P: 回放里的 @ 用 hub 的成员表解析（routable = 真实角色，不含主人）。
-    const deskHandled = deskRoute(req, res, url, { store, boardDir: config.boardDir, members: hub.routable() });
+    const deskHandled = deskRoute(req, res, url, { store, boardDir: config.boardDir, members: hub.routable(), namesFile: join(config.dataDir, DESK_NAMES_FILE) });
     if (deskHandled !== undefined) return deskHandled;
     const galaxyHandled = wikiGalaxyRoute(req, res, url, { wikiDir: config.wikiDir });
     if (galaxyHandled !== undefined) return galaxyHandled;

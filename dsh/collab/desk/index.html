@@ -65,6 +65,9 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
 .seat.offline .label{opacity:.55}.seat.offline .label .dot{background:#6c7380;box-shadow:none}
 .seat.lead .label{background:#3a2a10e6;color:#ffe08a}
 .seat.walking .label{opacity:.82}
+.label .name{cursor:text}
+.label .name:hover{text-decoration:underline dotted}
+.label input.rename{width:9em;font:inherit;font-size:11px;font-weight:700;color:#fff;background:#0b0910;border:0;outline:1px solid #ffa53a;padding:0 3px;margin:0}
 .tasktag{max-width:200px;overflow:hidden;text-overflow:ellipsis;padding:2px 7px;background:#ffa53a;color:#241605;font-size:11px;font-weight:700;box-shadow:0 0 0 2px #0b0910;pointer-events:auto;animation:tagIn .25s steps(3)}
 .bubble{display:flex;gap:3px;padding:4px 6px;background:#e9f4ff;box-shadow:0 0 0 2px #0b0910}
 .bubble i{width:4px;height:4px;background:#2d5ea3;animation:dotp 1.2s steps(1) infinite}
@@ -150,12 +153,12 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
 <script type="application/json" id="roster">
 {
   "version": 1,
-  "note": "成员 → 头像对照表。project 是 Issue #876 事件契约的键；显示名以 roster.name 为准（state.name 可能只是 agent 的 display_name，如 DeepSeek），name/aliases 也用于解析 who 与 @ 文本。avatar 为空表示用名字首字母圆形徽标。",
+  "note": "成员 → 头像对照表。project 是 Issue #876 事件契约的键；显示名默认取 roster.name（模型本名），页面上点名牌改的名字存服务端 desk-names.json，优先于它（state.name 可能只是 agent 的 display_name，如 DeepSeek），name/aliases 也用于解析 who 与 @ 文本。avatar 为空表示用名字首字母圆形徽标。",
   "defaultAvatar": "",
   "members": [
     {
       "project": "gge",
-      "name": "G哥",
+      "name": "GPT",
       "role": "lead",
       "avatar": "dragon",
       "deployed": true,
@@ -164,12 +167,14 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
         "g哥",
         "Codex",
         "codex",
-        "龙娘"
+        "龙娘",
+        "GPT",
+        "gpt"
       ]
     },
     {
       "project": "cjiang",
-      "name": "C酱",
+      "name": "Claude",
       "role": "sub",
       "avatar": "orange",
       "deployed": true,
@@ -183,7 +188,7 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
     },
     {
       "project": "deep",
-      "name": "肥鱼",
+      "name": "DeepSeek",
       "role": "sub",
       "avatar": "whale",
       "deployed": true,
@@ -201,7 +206,7 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
     },
     {
       "project": "gjiang",
-      "name": "大豆包",
+      "name": "Gemini",
       "role": "sub",
       "avatar": "rainbow",
       "deployed": true,
@@ -235,7 +240,8 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
       "aliases": [
         "Grok",
         "grok",
-        "渡鸦"
+        "渡鸦",
+        "grok娘"
       ]
     }
   ]
@@ -280,7 +286,7 @@ const DEMO_MEMBERS = [
 ];
 
 const S = {
-  me: null, memberList: [], byId: new Map(), alias: new Map(), rosterFor: new Map(),
+  me: null, memberList: [], byId: new Map(), alias: new Map(), rosterFor: new Map(), names: {},
   lead: null, active: new Map(), thinkingRooms: new Map(), thinking: new Set(), dispatched: new Set(),
   fixture: false, mode: 'live', eventCount: 0, logLimit: 80,
   replay: { events: [], idx: 0, timer: null, playing: false, speed: 4, loaded: false, auto: false },
@@ -326,7 +332,8 @@ function resolveRef(ref) {
 }
 
 // roster 是团队称呼的权威来源（state.name 可能只是 agent 的 display_name，如 DeepSeek）。
-const displayName = m => S.rosterFor.get(m?.id)?.name || m?.name || m?.id || '未知';
+// 名牌：用户点名牌改的名字（服务端存）> roster 默认的模型本名。
+const displayName = m => S.names[m?.id] || S.rosterFor.get(m?.id)?.name || m?.name || m?.id || '未知';
 function avatarSpec(m) {
   const rm = S.rosterFor.get(m.id);
   const own = String(m.avatar || '').trim();
@@ -879,11 +886,52 @@ function seatNode(m) {
   const bubble = el('div', 'bubble'); bubble.hidden = true;
   const emote = el('div', 'emote'); emote.hidden = true;
   const label = el('div', 'label');
-  label.append(el('span', 'dot'), el('span', 'name', displayName(m)), el('span', 'status', ''));
+  const name = el('span', 'name', displayName(m));
+  name.title = '点一下改名，清空恢复默认';
+  name.onclick = (e) => { e.stopPropagation(); startRename(m, label, name); };
+  label.append(el('span', 'dot'), name, el('span', 'status', ''));
   stack.append(tasktag, bubble, emote, label);
   seat.append(stack);
   seat.title = displayName(m);
   return seat;
+}
+
+function startRename(m, label, name) {
+  if (q('input.rename', label)) return;
+  const input = document.createElement('input');
+  input.className = 'rename';
+  input.maxLength = 24;
+  input.value = S.names[m.id] || displayName(m);
+  input.placeholder = S.rosterFor.get(m.id)?.name || m.name || m.id;
+  name.hidden = true;
+  name.after(input);
+  input.focus(); input.select();
+  let done = false;
+  const finish = async (save) => {
+    if (done) return; done = true;
+    const value = input.value.replace(/\s+/g, ' ').trim();
+    input.remove(); name.hidden = false;
+    if (!save || value === displayName(m)) return;
+    const prev = S.names[m.id];
+    if (value) S.names[m.id] = value; else delete S.names[m.id];
+    paintAll();
+    if (S.fixture) return;
+    try {
+      const body = await api(ROOT + '/collab/api/desk/names', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: m.id, name: value }) });
+      S.names = body.names ?? S.names;
+    } catch (error) {
+      if (prev) S.names[m.id] = prev; else delete S.names[m.id];
+      toast('改名没存上：' + error.message);
+    }
+    paintAll();
+  };
+  input.onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Enter') finish(true); else if (e.key === 'Escape') finish(false); };
+  input.onblur = () => finish(true);
+  input.onclick = (e) => e.stopPropagation();
+}
+
+async function loadNames() {
+  try { S.names = (await api(ROOT + '/collab/api/desk/names')).names ?? {}; } catch { S.names = {}; }
 }
 
 function rosterRank(m) {
@@ -1184,8 +1232,8 @@ function applyEvent(ev, animate = true) {
 }
 S.logLimit = S.logLimit || 80;
 
-async function api(path) {
-  const res = await fetch(path, { credentials: 'same-origin', cache: 'no-store' });
+async function api(path, init = {}) {
+  const res = await fetch(path, { credentials: 'same-origin', cache: 'no-store', ...init });
   if (!res.ok) {
     let message = res.statusText;
     try { const body = await res.json(); message = body.error || message; } catch { /* not JSON */ }
@@ -1206,7 +1254,7 @@ function disconnectLive() {
 }
 
 async function loadState() {
-  const state = await api(ROOT + '/collab/api/state');
+  const [state] = await Promise.all([api(ROOT + '/collab/api/state'), loadNames()]);
   S.me = state.me ?? null;
   indexMembers(state.members ?? []);
   const lead = state.effective_lead_id ?? state.lead_id ?? null;

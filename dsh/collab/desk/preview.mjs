@@ -13,6 +13,8 @@ import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { tmpdir } from 'node:os';
+import { DESK_NAMES_FILE, deskRoute } from '../desk.mjs';
 
 const DIR = fileURLToPath(new URL('.', import.meta.url));
 const AVATAR_DIR = join(DIR, '..', 'avatars');
@@ -63,6 +65,8 @@ export function createPreviewServer() {
   return createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://preview.invalid');
     const path = url.pathname.replace(/\/+$/, '');
+    // 名牌改名走插件同一份实现；文件放 PREVIEW_DATA_DIR（默认系统临时目录）。
+    if (path === '/collab/api/desk/names') return deskRoute(req, res, url, { namesFile: join(process.env.PREVIEW_DATA_DIR || tmpdir(), DESK_NAMES_FILE) }) ?? json(res, 405, { error: 'method not allowed' });
     if (req.method !== 'GET') return json(res, 405, { error: 'method not allowed' });
 
     if (path === '/collab' || path === '/collab/desk') return file(res, 'index.html');

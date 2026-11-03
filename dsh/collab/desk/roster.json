@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "note": "成员 → 头像对照表。project 是 Issue #876 事件契约的键；显示名以 roster.name 为准（state.name 可能只是 agent 的 display_name，如 DeepSeek），name/aliases 也用于解析 who 与 @ 文本。avatar 为空表示用名字首字母圆形徽标。",
+  "note": "成员 → 头像对照表。project 是 Issue #876 事件契约的键；显示名默认取 roster.name（模型本名），页面上点名牌改的名字存服务端 desk-names.json，优先于它（state.name 可能只是 agent 的 display_name，如 DeepSeek），name/aliases 也用于解析 who 与 @ 文本。avatar 为空表示用名字首字母圆形徽标。",
   "defaultAvatar": "",
   "members": [
     {
       "project": "gge",
-      "name": "G哥",
+      "name": "GPT",
       "role": "lead",
       "avatar": "dragon",
       "deployed": true,
@@ -14,12 +14,14 @@
         "g哥",
         "Codex",
         "codex",
-        "龙娘"
+        "龙娘",
+        "GPT",
+        "gpt"
       ]
     },
     {
       "project": "cjiang",
-      "name": "C酱",
+      "name": "Claude",
       "role": "sub",
       "avatar": "orange",
       "deployed": true,
@@ -33,7 +35,7 @@
     },
     {
       "project": "deep",
-      "name": "肥鱼",
+      "name": "DeepSeek",
       "role": "sub",
       "avatar": "whale",
       "deployed": true,
@@ -51,7 +53,7 @@
     },
     {
       "project": "gjiang",
-      "name": "大豆包",
+      "name": "Gemini",
       "role": "sub",
       "avatar": "rainbow",
       "deployed": true,
@@ -85,7 +87,8 @@
       "aliases": [
         "Grok",
         "grok",
-        "渡鸦"
+        "渡鸦",
+        "grok娘"
       ]
     }
   ]
