@@ -11,8 +11,8 @@
 //      检查 board-events.jsonl 的 kind/from/to 是否符合 Issue #876 的 Event contract。
 //   2. 路由：最小宿主起插件，GET /collab/desk 必须是 200 的 HTML；不是就 FAIL。
 //   3. 事件流：先等到 SSE 的 `: connected` 首帧，再写一条真实事件，15 秒内必须收到 type=task。
-//   4. 画面：Playwright 打开页面，桌面 1440x900 与手机 390x844 各截图；录制中真造两条事件（换人、交回），
-//      实时录 15 秒，光柱应当跟着飞。页面接好回放控件时，另录一段回放样片。
+//   4. 画面：Playwright 打开页面，桌面 1440x900 与手机 390x844 各截图；录制中由 C酱 派给 肥鱼、再交回、再打回，
+//      实时录 15 秒，三道光（派活/交回/退回）应当依次飞出。页面接好回放控件时，另录一段回放样片。
 //
 // 隔离：HOME、BOTHOUSE_DATA_DIR、GATE_SETUP_DIR、BOARD_DIR、CC_BIN 全指向 mktemp 目录，
 // 其中 CC_BIN 是一个假程序，保证 board.py 的 pause/done 不会碰真桥的定时器与工作区。
@@ -85,7 +85,12 @@ const env = {
 
 /** 跑一条真实 board 命令；返回 stdout。 */
 function board(...args) {
-  return execFileSync('python3', [BOARD_PY, ...args], { encoding: 'utf8', env }).trim();
+  return boardAs('deep', ...args);
+}
+
+/** 同上，但指定派活人（CC_PROJECT）：样片要让「一个人派给另一个人」，不能自己派自己。 */
+function boardAs(dispatcher, ...args) {
+  return execFileSync('python3', [BOARD_PY, ...args], { encoding: 'utf8', env: { ...env, CC_PROJECT: dispatcher } }).trim();
 }
 
 /** 任务板事件文件（board.py 写、插件读）。 */
@@ -259,11 +264,14 @@ if (host && deskOk && pageState !== 'ok') {
         await context.close();
       }
 
-      // 录屏：实时态 15 秒，录制中途造两条真实事件（换人、交回），光柱应当跟着飞。
+      // 录屏：实时态 15 秒，录制中造三条真实事件（C酱 派给 肥鱼 → 交回 → 打回），三道光应当依次飞出。
       // 回放另算一段，只在页面真的接好回放控件时才录；没接线就记 SKIP，不拿静止画面冒充样片。
-      if (probeId === undefined) {
-        record('录屏', false, '没有可驱动的任务编号，跳过录屏');
-      } else {
+      {
+        // 成员表：把事件里的名字归一成成员，用来查「派活人和接活人是不是同一个人」。
+        const state = await (await fetch(`${host.url}/collab/api/state`)).json();
+        const members = Array.isArray(state.members) ? state.members : [];
+        const memberOf = ref => members.find(m => m.id === ref || m.name === ref || (m.aliases ?? []).includes(ref));
+
         for (const [label, viewport, mobile] of [['desktop', DESKTOP, false], ['mobile', MOBILE, true]]) {
           const context = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, recordVideo: { dir: dirs.shots, size: viewport } });
           const page = await context.newPage();
@@ -271,16 +279,30 @@ if (host && deskOk && pageState !== 'ok') {
           page.on('pageerror', e => errors.push(String(e)));
           await page.goto(`${host.url}/collab/desk`, { waitUntil: 'domcontentloaded' });
           await page.waitForTimeout(2000);
-          board('update', probeId, '进行中', '', '肥鱼');   // 第一道光：换人
-          await page.waitForTimeout(1600);                  // 尾随 1 秒一轮，留出光柱画出来的时间
-          const beams = await page.locator('#beams .beam').count();
-          board('returned', probeId, 'C酱');                // 第二道光：交回
-          await page.waitForTimeout(4000);
-          await page.waitForTimeout(VIDEO_SECONDS * 1000 - 8100);
+          // 每个视口各造一条自己的样片任务：cj（C酱 的成员 id）派给 肥鱼——两个人，才画得出光。
+          const sample = boardAs('cj', 'add', `端到端驱动：派活样片 ${label}`, 'notes/desk/E.sample.md', '排队', '肥鱼', '--short', '样片').replace('#', '');
+          await page.waitForTimeout(1800);                  // 尾随 1 秒一轮，留出光柱画出来的时间
+          const assignBeams = await page.locator('#beams .beam.assign').count();
+          const created = readEvents().find(e => e.id === sample && e.kind === 'created');
+          const mFrom = created && memberOf(created.from);
+          const mTo = created && memberOf(created.to);
+          const crossPerson = Boolean(mFrom && mTo && mFrom.id !== mTo.id);
+          record(`样片事件 ${label}`, crossPerson, created
+            ? `${created.from}→${created.to} 归一成 ${mFrom?.id ?? '未识别'}→${mTo?.id ?? '未识别'}`
+            : '没读到 created 事件');
+
+          boardAs('cj', 'returned', sample, 'C酱');        // 第二道光：交回（肥鱼→C酱）
+          await page.waitForTimeout(1800);
+          const returnBeams = await page.locator('#beams .beam.return').count();
+          boardAs('cj', 'reject', sample, '样片演示：打回');  // 第三道光：退回（C酱→肥鱼）
+          await page.waitForTimeout(1800);
+          const rejectBeams = await page.locator('#beams .beam.reject').count();
+          await page.waitForTimeout(VIDEO_SECONDS * 1000 - 7500);
           const video = page.video();
           await context.close();
-          record(`实时录屏 ${label}`, errors.length === 0 && beams > 0,
-            errors.length ? errors[0] : `${await video.path()}；画到 ${beams} 道光`);
+          record(`实时录屏 ${label}`, errors.length === 0 && crossPerson && assignBeams > 0 && returnBeams > 0 && rejectBeams > 0,
+            errors.length ? errors[0]
+              : `${await video.path()}；光柱 派活 ${assignBeams} / 交回 ${returnBeams} / 退回 ${rejectBeams}`);
         }
 
         const window = replayWindow(readEvents());
