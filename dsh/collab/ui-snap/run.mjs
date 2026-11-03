@@ -8,7 +8,7 @@
 // 能打开、不报错、关键元素在、不横向溢出；不比像素、不判裁切。
 //
 // 浏览器用 puppeteer-core + 本机 Chrome；没装时整条跳过。更新基准：
-//   PUPPETEER_MODULE=/abs/node_modules/puppeteer-core node dsh/collab/ui-snap/run.mjs --update
+//   PUPPETEER_MODULE=/abs/node_modules/puppeteer-core node dsh/collab/ui-snap/run.mjs --update --reason "<页面哪里变了>"
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -169,6 +169,17 @@ async function startHost() {
 /** 页面内检查：横向溢出 + 被 overflow:hidden/clip 祖先切掉的文字。 */
 function collectChecks(page, pageName) {
   return page.evaluate((kind) => {
+    // 越界部分若已被页面内层 overflow:hidden/clip 的容器（右界在视口内）切掉，就画不到视口外，
+    // 也不会撑出横向滚动（例：工作台台灯的装饰光晕被房间 .stage 切掉）。body/html 不算内层：
+    // 被它们切掉正是要抓的内容出界。position:fixed 不受祖先 overflow 裁切，遇到即停。
+    const clippedInside = (el) => {
+      for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+        const ps = getComputedStyle(p);
+        if ((ps.overflowX === 'hidden' || ps.overflowX === 'clip') && p.getBoundingClientRect().right <= winW + 2) return true;
+        if (ps.position === 'fixed') return false;
+      }
+      return false;
+    };
     const overflow = [];
     const docW = document.documentElement.scrollWidth;
     const winW = window.innerWidth;
@@ -178,7 +189,7 @@ function collectChecks(page, pageName) {
       if (r.width <= 0 || r.height <= 0) continue;
       const s = getComputedStyle(el);
       if (s.display === 'none' || s.visibility === 'hidden' || s.position === 'fixed') continue;
-      if (r.right > winW + 2 && r.left < winW) {
+      if (r.right > winW + 2 && r.left < winW && !clippedInside(el)) {
         overflow.push(`${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${el.classList.length ? '.' + [...el.classList].join('.') : ''} right=${Math.round(r.right)}`);
       }
       if (overflow.length >= 8) break;
@@ -209,7 +220,11 @@ function collectChecks(page, pageName) {
         const pr = parent.getBoundingClientRect();
         const clipX = s.overflowX === 'hidden' || s.overflowX === 'clip';
         const clipY = s.overflowY === 'hidden' || s.overflowY === 'clip';
-        if (!clipX && !clipY) { parent = parent.parentElement; continue; }
+        if (!clipX && !clipY) {
+          if (s.position === 'fixed') break;
+          parent = parent.parentElement;
+          continue;
+        }
         // 省略号/行截断是显式设计，不算破裂裁切。
         if (s.textOverflow === 'ellipsis' || (s.webkitLineClamp && s.webkitLineClamp !== 'none')) break;
         for (const rect of rects) {
@@ -228,6 +243,8 @@ function collectChecks(page, pageName) {
           break;
         }
         if (clipped.length >= 8) break;
+        // position:fixed 的包含块是视口，祖先的 overflow 裁不到它（例：手机端收起的侧栏抽屉）。
+        if (s.position === 'fixed') break;
         parent = parent.parentElement;
       }
       if (clipped.length >= 8) break;
@@ -351,7 +368,8 @@ async function smokeDesk(browser, url, viewport) {
   }
 }
 
-export async function runSnapshots({ update = false } = {}) {  const puppeteer = loadPuppeteer();
+export async function runSnapshots({ update = false, reason = '' } = {}) {
+  const puppeteer = loadPuppeteer();
   const executablePath = findChrome();
   if (!puppeteer) return { skip: '没装 puppeteer-core；设置 PUPPETEER_MODULE 指向已安装的 puppeteer-core 目录后重跑。' };
   if (!executablePath) return { skip: '没找到 Chrome/Chromium；设置 CHROME_PATH 后重跑。' };
@@ -361,14 +379,21 @@ export async function runSnapshots({ update = false } = {}) {  const puppeteer =
 
   const artifacts = mkdtempSync(join(tmpdir(), 'ui-snap-'));
   const host = await startHost();
-  const browser = await puppeteer.launch({
-    executablePath,
-    headless: true,
-    // --no-sandbox / --disable-dev-shm-usage：本机与 CI 容器里渲染进程没有命名空间权限，
-    // 不带这两项时 newPage 之后 setViewport 直接 Session closed（实测 Chrome 156）。
-    args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-first-run', '--hide-scrollbars', '--lang=zh-CN', '--font-render-hinting=none'],
-    env: { ...process.env, TZ: 'Asia/Shanghai', LANG: 'zh_CN.UTF-8' },
-  });
+  // 宿主先起；浏览器启动失败或关闭失败都要关宿主，否则监听句柄留着，node --test 不会自然退出。
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      executablePath,
+      headless: true,
+      // --no-sandbox / --disable-dev-shm-usage：本机与 CI 容器里渲染进程没有命名空间权限，
+      // 不带这两项时 newPage 之后 setViewport 直接 Session closed（实测 Chrome 156）。
+      args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-first-run', '--hide-scrollbars', '--lang=zh-CN', '--font-render-hinting=none'],
+      env: { ...process.env, TZ: 'Asia/Shanghai', LANG: 'zh_CN.UTF-8' },
+    });
+  } catch (err) {
+    await host.close();
+    throw err;
+  }
   const failures = [];
   const results = [];
   try {
@@ -424,18 +449,28 @@ export async function runSnapshots({ update = false } = {}) {  const puppeteer =
         fixedClock: FIXED_CLOCK, viewports: VIEWPORTS.map((v) => v.name), themes: THEMES,
         pixelPages: ['channel'], smokePages: ['desk'],
         pixelDelta: PIXEL_DELTA, maxDiffRatio: MAX_DIFF_RATIO,
+        reason,
       }, null, 2) + '\n');
     }
   } finally {
-    await browser.close();
-    await host.close();
+    try {
+      await browser.close();
+    } finally {
+      await host.close();
+    }
   }
   return { skip: undefined, failures, results, artifacts };
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   const update = process.argv.includes('--update');
-  const result = await runSnapshots({ update });
+  const reasonAt = process.argv.indexOf('--reason');
+  const reason = reasonAt > 0 ? process.argv[reasonAt + 1] ?? '' : '';
+  if (update && !reason) {
+    console.error('--update 需要 --reason "<页面哪里变了、为什么换基准>"，写进 manifest。');
+    process.exit(2);
+  }
+  const result = await runSnapshots({ update, reason });
   if (result.skip) {
     console.log('SKIP ' + result.skip);
   } else {
