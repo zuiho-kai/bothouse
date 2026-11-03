@@ -16,6 +16,93 @@ const panel = 'rounded-card bg-surface p-5 ring-1 ring-hairline';
 // 热力五档：0/1/2/3/4 全部走同一个 accent 的透明度梯度，亮暗两套色自动跟随令牌。
 const colors = ['bg-surface-sunken', 'bg-accent/15', 'bg-accent/35', 'bg-accent/60', 'bg-accent/90'];
 
+export type DatePreset = 'today' | 'thisWeek' | 'thisMonth' | 'last7Days' | 'all';
+
+export function getPresetRange(preset: DatePreset, now = new Date()): { from: string; to: string } {
+  const todayStr = dayKey(now);
+  if (preset === 'today') {
+    return { from: todayStr, to: todayStr };
+  }
+  if (preset === 'thisWeek') {
+    // 来源: 沿用标准 ISO-8601 周初(周一)至今天作为「本周」
+    const day = now.getDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + diffToMonday);
+    return { from: dayKey(monday), to: todayStr };
+  }
+  if (preset === 'thisMonth') {
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { from: dayKey(firstDay), to: todayStr };
+  }
+  if (preset === 'last7Days') {
+    const start = new Date(now);
+    start.setDate(now.getDate() - 6);
+    return { from: dayKey(start), to: todayStr };
+  }
+  return { from: '', to: '' };
+}
+
+export function getActivePreset(start: string, end: string, now = new Date()): DatePreset | null {
+  if (!start && !end) return 'all';
+  const presets: DatePreset[] = ['today', 'thisWeek', 'thisMonth', 'last7Days'];
+  for (const p of presets) {
+    const range = getPresetRange(p, now);
+    if (range.from === start && range.to === end) {
+      return p;
+    }
+  }
+  return null;
+}
+
+function TokenBreakdownBar({
+  input,
+  output,
+  cache,
+  total,
+  unit,
+}: {
+  input: number;
+  output: number;
+  cache: number;
+  total: number;
+  unit: TokenUnit;
+}) {
+  const { t } = useTranslation();
+  const sumParts = input + output + cache;
+  const base = sumParts > 0 ? sumParts : total;
+  const inPct = base > 0 ? (input / base) * 100 : 0;
+  const outPct = base > 0 ? (output / base) * 100 : 0;
+  const cachePct = base > 0 ? (cache / base) * 100 : 0;
+
+  return (
+    <div className="mt-3 pt-2.5 border-t border-hairline/60 space-y-1.5" data-testid="usage-breakdown-bar">
+      <div
+        className="h-1.5 w-full bg-surface-sunken rounded-full overflow-hidden flex"
+        title={`${t('usage.input', '输入')}: ${inPct.toFixed(0)}% · ${t('usage.output', '输出')}: ${outPct.toFixed(0)}% · ${t('usage.cache', '缓存')}: ${cachePct.toFixed(0)}%`}
+      >
+        {inPct > 0 && <div style={{ width: `${inPct}%` }} className="bg-sky-500 transition-all" />}
+        {outPct > 0 && <div style={{ width: `${outPct}%` }} className="bg-amber-500 transition-all" />}
+        {cachePct > 0 && <div style={{ width: `${cachePct}%` }} className="bg-emerald-500 transition-all" />}
+      </div>
+      <div className="flex items-center justify-between text-[11px] text-ink-mute tabular-nums gap-1">
+        <span className="flex items-center gap-1 text-sky-600 dark:text-sky-400 min-w-0" title={`${t('usage.input', '输入')}: ${number(input)} tokens`}>
+          <span className="w-1.5 h-1.5 rounded-full bg-sky-500 shrink-0" />
+          <span className="truncate">{t('usage.input', '输入')} {formatToken(input, unit)}</span>
+        </span>
+        <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 min-w-0" title={`${t('usage.output', '输出')}: ${number(output)} tokens`}>
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+          <span className="truncate">{t('usage.output', '输出')} {formatToken(output, unit)}</span>
+        </span>
+        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 min-w-0" title={`${t('usage.cache', '缓存')}: ${number(cache)} tokens`}>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+          <span className="truncate">{t('usage.cache', '缓存')} {formatToken(cache, unit)}</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export default function Usage() {
   const { t } = useTranslation();
   const { unit, setUnit } = useUsageSettingsStore();
@@ -45,6 +132,19 @@ export default function Usage() {
   const handleResetDates = () => {
     setStartDate('');
     setEndDate('');
+    setError('');
+  };
+
+  const activePreset = getActivePreset(startDate, endDate);
+
+  const handleSelectPreset = (preset: DatePreset) => {
+    if (preset === 'all') {
+      handleResetDates();
+      return;
+    }
+    const range = getPresetRange(preset);
+    setStartDate(range.from);
+    setEndDate(range.to);
     setError('');
   };
 
@@ -126,6 +226,16 @@ export default function Usage() {
   const priced = rows.some(r => r.estimated_cost !== undefined);
   const isCustomRange = Boolean(startDate || endDate);
 
+  const todayInput = today?.input_tokens || 0;
+  const todayOutput = today?.output_tokens || 0;
+  const todayCache = (today?.cache_read_tokens || 0) + (today?.cache_write_tokens || 0);
+  const todayTotal = today?.total_tokens || 0;
+
+  const totalTokens = sum(rows, 'total_tokens');
+  const totalInput = rows.reduce((s, r) => s + (r.input_tokens || 0), 0);
+  const totalOutput = rows.reduce((s, r) => s + (r.output_tokens || 0), 0);
+  const totalCache = rows.reduce((s, r) => s + ((r.cache_read_tokens || 0) + (r.cache_write_tokens || 0)), 0);
+
   const unitLabels: Record<TokenUnit, string> = {
     raw: t('usage.unitRawShort', '原数'),
     M: 'M',
@@ -137,31 +247,78 @@ export default function Usage() {
       <table className="w-full text-sm text-left">
         <thead className="text-xs text-ink-mute">
           <tr>
-            {['name', ...(dimension === 'role' ? ['replies'] : []), 'requests', 'input', 'output', 'cache', 'tokens', 'unknown', 'cost'].map(k => (
-              <th className={`py-3 pr-4 font-medium ${k === 'name' ? '' : 'text-right'}`} key={k}>{t(`usage.${k}`)}</th>
-            ))}
+            {['name', ...(dimension === 'role' ? ['replies'] : []), 'requests', 'input', 'output', 'cache', 'tokens', 'unknown', 'cost'].map(k => {
+              let headerClass = `py-3 pr-4 font-medium ${k === 'name' ? '' : 'text-right'}`;
+              let dotClass = '';
+              if (k === 'input') {
+                headerClass += ' text-sky-600 dark:text-sky-400';
+                dotClass = 'bg-sky-500';
+              } else if (k === 'output') {
+                headerClass += ' text-amber-600 dark:text-amber-400';
+                dotClass = 'bg-amber-500';
+              } else if (k === 'cache') {
+                headerClass += ' text-emerald-600 dark:text-emerald-400';
+                dotClass = 'bg-emerald-500';
+              } else if (k === 'tokens') {
+                headerClass += ' font-semibold text-ink';
+              }
+              return (
+                <th className={headerClass} key={k}>
+                  {dotClass ? (
+                    <span className="inline-flex items-center justify-end gap-1">
+                      <span className={`w-1.5 h-1.5 rounded-full ${dotClass} shrink-0`} />
+                      {t(`usage.${k}`)}
+                    </span>
+                  ) : (
+                    t(`usage.${k}`)
+                  )}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
           {items.map(r => {
-            const rawTokens = [r.input_tokens, r.output_tokens, r.cache_read_tokens + r.cache_write_tokens, r.total_tokens];
+            const cacheTokens = r.cache_read_tokens + r.cache_write_tokens;
+            const tokenCols = [
+              { key: 'input', val: r.input_tokens, color: 'text-sky-600 dark:text-sky-400 font-mono' },
+              { key: 'output', val: r.output_tokens, color: 'text-amber-600 dark:text-amber-400 font-mono font-medium' },
+              { key: 'cache', val: cacheTokens, color: 'text-emerald-600 dark:text-emerald-400 font-mono' },
+              { key: 'tokens', val: r.total_tokens, color: 'text-ink font-mono font-semibold' },
+            ];
+            const sumParts = r.input_tokens + r.output_tokens + cacheTokens;
+            const base = sumParts > 0 ? sumParts : r.total_tokens;
+            const inPct = base > 0 ? (r.input_tokens / base) * 100 : 0;
+            const outPct = base > 0 ? (r.output_tokens / base) * 100 : 0;
+            const cachePct = base > 0 ? (cacheTokens / base) * 100 : 0;
+
             return (
-              <tr key={r[dimension]} className="border-t border-hairline">
+              <tr key={r[dimension]} className="border-t border-hairline hover:bg-surface-raised/40 transition-colors">
                 <td className="py-3 pr-4 font-medium">
                   <button className="text-accent hover:underline" onClick={() => dimension === 'role' ? setRole(r.role || '') : setModel(r.model || '')}>
                     {dimension === 'role' ? nameOf(r.role || '') : r.model}
                   </button>
                 </td>
-                {dimension === 'role' && <td className="pr-4 tabular-nums text-right">{number(r.replies || 0)}</td>}
-                <td className="pr-4 tabular-nums text-right">{number(r.responses)}</td>
-                {rawTokens.map((v, i) => r.responses > 0 && r.unknown_usage_responses === r.responses ? (
-                  <td key={i} className="pr-4 text-ink-mute whitespace-nowrap" title={t('usage.unavailableWhy')}>{t('usage.unavailable')}</td>
+                {dimension === 'role' && <td className="pr-4 tabular-nums text-right text-ink-soft">{number(r.replies || 0)}</td>}
+                <td className="pr-4 tabular-nums text-right text-ink-soft">{number(r.responses)}</td>
+                {tokenCols.map(({ key, val, color }) => r.responses > 0 && r.unknown_usage_responses === r.responses ? (
+                  <td key={key} className="pr-4 text-ink-mute whitespace-nowrap" title={t('usage.unavailableWhy')}>{t('usage.unavailable')}</td>
                 ) : (
-                  <td key={i} className="pr-4 tabular-nums text-right" title={`${number(v)} tokens`}>
-                    {formatToken(v, unit)}
+                  <td key={key} className={`pr-4 tabular-nums text-right ${color}`} title={`${t(`usage.${key}`)}: ${number(val)} tokens`}>
+                    <div>{formatToken(val, unit)}</div>
+                    {key === 'tokens' && r.total_tokens > 0 && (
+                      <div
+                        className="h-1 w-16 ml-auto bg-surface-sunken rounded-full overflow-hidden flex mt-1"
+                        title={`${t('usage.input')}: ${inPct.toFixed(0)}% · ${t('usage.output')}: ${outPct.toFixed(0)}% · ${t('usage.cache')}: ${cachePct.toFixed(0)}%`}
+                      >
+                        {inPct > 0 && <div style={{ width: `${inPct}%` }} className="bg-sky-500" />}
+                        {outPct > 0 && <div style={{ width: `${outPct}%` }} className="bg-amber-500" />}
+                        {cachePct > 0 && <div style={{ width: `${cachePct}%` }} className="bg-emerald-500" />}
+                      </div>
+                    )}
                   </td>
                 ))}
-                <td className="pr-4 tabular-nums text-right" title={t('usage.unavailableWhy')}>{number(r.unknown_usage_responses)}</td>
+                <td className="pr-4 tabular-nums text-right text-ink-mute" title={t('usage.unavailableWhy')}>{number(r.unknown_usage_responses)}</td>
                 <td className="whitespace-nowrap text-right tabular-nums">{r.estimated_cost === undefined ? '—' : r.estimated_cost.toFixed(4)}{r.unpriced_responses > 0 && ' *'}</td>
               </tr>
             );
@@ -183,6 +340,42 @@ export default function Usage() {
           <p className="mt-0.5 text-sm text-ink-mute">{t('usage.subtitle')}</p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
+          {/* Quick Date Presets */}
+          <div
+            role="group"
+            aria-label={t('usage.quickFilters', '快捷筛选')}
+            className="flex rounded-lg border border-hairline bg-surface p-0.5 text-xs shadow-sm"
+            data-testid="usage-date-presets"
+          >
+            {(['today', 'thisWeek', 'thisMonth', 'last7Days', 'all'] as const).map(p => {
+              const isActive = activePreset === p;
+              const labelMap: Record<DatePreset, string> = {
+                today: t('usage.presetToday', '今日'),
+                thisWeek: t('usage.presetThisWeek', '本周'),
+                thisMonth: t('usage.presetThisMonth', '本月'),
+                last7Days: t('usage.presetLast7Days', '近7天'),
+                all: t('usage.presetAll', '全部'),
+              };
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => handleSelectPreset(p)}
+                  data-testid={`usage-preset-${p}`}
+                  className={cn(
+                    'px-2.5 py-1.5 rounded-md font-medium transition-colors',
+                    isActive
+                      ? 'bg-accent text-white shadow-sm'
+                      : 'text-ink-soft hover:text-ink'
+                  )}
+                  title={labelMap[p]}
+                >
+                  {labelMap[p]}
+                </button>
+              );
+            })}
+          </div>
+
           {/* Token Unit Toggle (raw / M / B) */}
           <div
             role="radiogroup"
@@ -281,19 +474,58 @@ export default function Usage() {
       {error && <div role="alert" className="p-4 rounded-card bg-red-500/10 text-red-500 text-sm font-medium">{error}</div>}
 
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-        {[
-          [t('usage.todayTokens'), formatToken(today?.total_tokens || 0, unit), `${number(today?.total_tokens || 0)} tokens`],
-          [t('usage.todayResponses'), number(today?.replies || 0), `${number(today?.replies || 0)}`],
-          [isCustomRange ? t('usage.customTokens') : t('usage.yearTokens'), formatToken(sum(rows, 'total_tokens'), unit), `${number(sum(rows, 'total_tokens'))} tokens`],
-          [t('usage.cost'), priced ? cost.toFixed(4) : t('usage.unpriced'), undefined],
-        ].map(([label, value, title]) => (
-          <div key={label} className={panel}>
-            <div className="text-xs text-ink-mute mb-2">{label}</div>
-            <div className="text-2xl font-semibold tabular-nums text-ink truncate" title={title}>
-              {value}
+        {/* Card 1: Today Tokens */}
+        <div className={cn(panel, 'flex flex-col justify-between')}>
+          <div>
+            <div className="text-xs text-ink-mute mb-2">{t('usage.todayTokens')}</div>
+            <div className="text-2xl font-semibold tabular-nums text-ink truncate" title={`${number(todayTotal)} tokens`}>
+              {formatToken(todayTotal, unit)}
             </div>
           </div>
-        ))}
+          <TokenBreakdownBar input={todayInput} output={todayOutput} cache={todayCache} total={todayTotal} unit={unit} />
+        </div>
+
+        {/* Card 2: Today Responses */}
+        <div className={cn(panel, 'flex flex-col justify-between')}>
+          <div>
+            <div className="text-xs text-ink-mute mb-2">{t('usage.todayResponses')}</div>
+            <div className="text-2xl font-semibold tabular-nums text-ink truncate" title={`${number(today?.replies || 0)}`}>
+              {number(today?.replies || 0)}
+            </div>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-hairline/60 text-[11px] text-ink-mute flex items-center justify-between">
+            <span>{t('usage.requests')}: {number(today?.responses || 0)}</span>
+            <span>{t('usage.unknown')}: {number(today?.unknown_usage_responses || 0)}</span>
+          </div>
+        </div>
+
+        {/* Card 3: Custom / Year Tokens */}
+        <div className={cn(panel, 'flex flex-col justify-between')}>
+          <div>
+            <div className="text-xs text-ink-mute mb-2">{isCustomRange ? t('usage.customTokens') : t('usage.yearTokens')}</div>
+            <div className="text-2xl font-semibold tabular-nums text-ink truncate" title={`${number(totalTokens)} tokens`}>
+              {formatToken(totalTokens, unit)}
+            </div>
+          </div>
+          <TokenBreakdownBar input={totalInput} output={totalOutput} cache={totalCache} total={totalTokens} unit={unit} />
+        </div>
+
+        {/* Card 4: Estimated Cost */}
+        <div className={cn(panel, 'flex flex-col justify-between')}>
+          <div>
+            <div className="text-xs text-ink-mute mb-2">{t('usage.cost')}</div>
+            <div className="text-2xl font-semibold tabular-nums text-ink truncate">
+              {priced ? cost.toFixed(4) : t('usage.unpriced')}
+            </div>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-hairline/60 text-[11px] text-ink-mute truncate">
+            {priced ? (
+              <span>{t('usage.note', { unknown, unpriced: sum(rows, 'unpriced_responses') }).split('。')[0]}</span>
+            ) : (
+              <span>{t('usage.unpriced')}</span>
+            )}
+          </div>
+        </div>
       </div>
 
       <section className={panel}>
