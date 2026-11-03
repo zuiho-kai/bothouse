@@ -1,21 +1,9 @@
 import { useTranslation } from 'react-i18next';
-import {
-  X, MessageSquare, Circle, User, Bot, Plus,
-} from 'lucide-react';
-import { Badge } from '@/components/ui';
+import { X, MessageSquare, Plus } from 'lucide-react';
 import type { Session } from '@/api/sessions';
 import { cn } from '@/lib/utils';
-
-function timeAgo(iso: string): string {
-  if (!iso) return '';
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return '<1m';
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
-}
+import Avatar from './parts/Avatar';
+import { formatRelative, useChatCopy } from './copy';
 
 interface Props {
   open: boolean;
@@ -28,33 +16,44 @@ interface Props {
 
 export default function SessionDrawer({ open, onClose, sessions, currentSessionId, onSelect, onNewSession }: Props) {
   const { t } = useTranslation();
+  const copy = useChatCopy();
 
   return (
     <>
-      {/* Backdrop */}
       {open && (
-        <div className="fixed inset-0 bg-black/20 dark:bg-black/40 z-40 transition-opacity" onClick={onClose} />
+        <div
+          className="fixed inset-0 z-40 bg-black/20 transition-opacity duration-200 dark:bg-black/50"
+          onClick={onClose}
+        />
       )}
 
-      {/* Drawer */}
-      <div
+      <aside
+        aria-label={t('chat.sessions')}
+        aria-hidden={!open}
         className={cn(
-          'fixed top-0 right-0 h-full w-80 z-50 flex flex-col transition-transform duration-300 ease-out',
-          'bg-white/95 backdrop-blur-xl border-l border-gray-200/80 shadow-2xl shadow-black/15',
-          'dark:bg-[rgba(15,15,15,0.97)] dark:border-white/[0.08] dark:shadow-black/50',
+          'fixed right-0 top-0 z-50 flex h-full w-[320px] max-w-[88vw] flex-col transition-transform duration-300 ease-out',
           open ? 'translate-x-0' : 'translate-x-full',
         )}
+        style={{
+          background: 'var(--ch-panel)',
+          borderLeft: '1px solid var(--ch-line)',
+          boxShadow: 'var(--ch-e3)',
+          color: 'var(--ch-ink)',
+        }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 h-14 border-b border-gray-200/80 dark:border-white/[0.08] shrink-0">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{t('chat.sessions')}</h3>
+        <header
+          className="flex h-14 shrink-0 items-center justify-between px-4"
+          style={{ borderBottom: '1px solid var(--ch-line)' }}
+        >
+          <h3 className="text-[14px] font-semibold">{t('chat.sessions')}</h3>
           <div className="flex items-center gap-1">
             {onNewSession && (
               <button
                 type="button"
                 onClick={onNewSession}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-accent hover:bg-accent/10 transition-colors"
+                className="ch-focus flex h-9 w-9 items-center justify-center rounded-full text-[color:var(--ch-ink3)] transition-colors hover:text-[color:var(--ch-accent-ink)]"
                 title={t('cmd.new')}
+                aria-label={t('cmd.new')}
               >
                 <Plus size={16} />
               </button>
@@ -62,69 +61,78 @@ export default function SessionDrawer({ open, onClose, sessions, currentSessionI
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.06] transition-colors"
+              className="ch-focus flex h-9 w-9 items-center justify-center rounded-full text-[color:var(--ch-ink3)] transition-colors hover:text-[color:var(--ch-ink)]"
+              aria-label={t('common.close', 'Close')}
             >
               <X size={16} />
             </button>
           </div>
-        </div>
+        </header>
 
-        {/* Session list */}
-        <div className="flex-1 overflow-y-auto py-2 px-2">
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {sessions.length === 0 ? (
-            <div className="text-center text-sm text-gray-400 py-8">{t('sessions.noSessions')}</div>
+            <div className="px-3 py-10 text-center text-[13px] text-[color:var(--ch-ink3)]">
+              {t('sessions.noSessions')}
+            </div>
           ) : (
             sessions.map((s) => {
               const isCurrent = s.id === currentSessionId;
+              const label = s.name || s.user_name || s.id.slice(0, 8);
+              const ts = s.updated_at || s.created_at;
               return (
                 <button
                   key={s.id}
                   type="button"
                   onClick={() => onSelect(s)}
-                  className={cn(
-                    'w-full text-left p-3 rounded-xl mb-1 transition-all duration-200',
-                    isCurrent
-                      ? 'bg-accent/10 ring-1 ring-accent/30'
-                      : 'hover:bg-gray-100/80 dark:hover:bg-white/[0.04]',
-                  )}
+                  aria-current={isCurrent}
+                  data-active={isCurrent}
+                  className="ch-row ch-focus flex w-full items-start gap-3 px-2.5 py-2.5 text-left"
                 >
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <MessageSquare
-                        size={13}
-                        className={cn(s.live ? 'text-accent' : 'text-gray-400', 'shrink-0')}
-                      />
-                      <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                        {s.name || s.user_name || s.id.slice(0, 8)}
+                  <Avatar name={label} size={40} live={s.live} />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-baseline gap-2">
+                      <span className="truncate text-[13.5px] font-semibold leading-5">{label}</span>
+                      <span className="ml-auto shrink-0 text-[11px] tabular-nums text-[color:var(--ch-ink3)]">
+                        {formatRelative(ts, copy)}
                       </span>
-                      {s.live && <Circle size={4} className="fill-emerald-500 text-emerald-500 shrink-0" />}
-                    </div>
-                    <span className="text-[10px] text-gray-400 shrink-0 mt-0.5">
-                      {timeAgo(s.updated_at || s.created_at)}
                     </span>
-                  </div>
-
-                  {s.last_message && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 leading-relaxed mb-1.5 pl-5">
-                      {s.last_message.role === 'user' ? (
-                        <User size={9} className="inline mr-0.5 -mt-0.5 opacity-60" />
-                      ) : (
-                        <Bot size={9} className="inline mr-0.5 -mt-0.5 opacity-60" />
+                    {s.last_message ? (
+                      <span className="mt-0.5 block truncate text-[12px] leading-[18px] text-[color:var(--ch-ink2)]">
+                        {s.last_message.content.replace(/\n/g, ' ')}
+                      </span>
+                    ) : (
+                      <span className="mt-0.5 block truncate text-[12px] leading-[18px] text-[color:var(--ch-ink3)]">
+                        {t('chat.noMessages')}
+                      </span>
+                    )}
+                    <span className="mt-1 flex items-center gap-1.5">
+                      {s.platform && (
+                        <span
+                          className="rounded-full px-1.5 py-[1px] text-[10px] leading-4 text-[color:var(--ch-ink3)]"
+                          style={{ boxShadow: 'inset 0 0 0 1px var(--ch-line)' }}
+                        >
+                          {s.platform}
+                        </span>
                       )}
-                      {s.last_message.content.replace(/\n/g, ' ').slice(0, 80)}
-                    </p>
-                  )}
-
-                  <div className="flex items-center gap-1.5 pl-5">
-                    {s.platform && <Badge variant="info" className="text-[9px] px-1 py-0">{s.platform}</Badge>}
-                    <span className="text-[10px] text-gray-400 ml-auto">{s.history_count} msgs</span>
-                  </div>
+                      <span className="ml-auto text-[10px] tabular-nums text-[color:var(--ch-ink3)]">
+                        {copy.messages(s.history_count)}
+                      </span>
+                    </span>
+                  </span>
                 </button>
               );
             })
           )}
         </div>
-      </div>
+
+        <div
+          className="flex shrink-0 items-center gap-1.5 px-4 py-2 text-[11px] text-[color:var(--ch-ink3)]"
+          style={{ borderTop: '1px solid var(--ch-line)' }}
+        >
+          <MessageSquare size={12} />
+          {copy.showingCount(sessions.length, sessions.length)}
+        </div>
+      </aside>
     </>
   );
 }

@@ -36,7 +36,7 @@ function InlineMd({ text }: { text: string }) {
     <>
       {parts.map((p, i) =>
         p.startsWith('**') && p.endsWith('**')
-          ? <strong key={i} className="font-semibold text-gray-900 dark:text-white">{p.slice(2, -2)}</strong>
+          ? <strong key={i} className="font-semibold text-[color:var(--ch-ink)]">{p.slice(2, -2)}</strong>
           : <span key={i}>{p}</span>
       )}
     </>
@@ -45,7 +45,7 @@ function InlineMd({ text }: { text: string }) {
 
 function Prose({ children }: { children: string }) {
   return (
-    <div className="prose prose-sm max-w-none dark:prose-invert prose-p:my-1.5 prose-p:leading-relaxed prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:font-semibold prose-li:my-0.5 prose-ul:my-1 prose-ol:my-1 prose-a:text-accent prose-a:no-underline hover:prose-a:underline prose-strong:font-semibold prose-code:text-[0.85em] prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:bg-gray-100 prose-code:dark:bg-gray-800 prose-code:font-mono prose-blockquote:border-l-2 prose-blockquote:border-gray-300 prose-blockquote:dark:border-gray-600 prose-blockquote:pl-3 prose-blockquote:not-italic prose-blockquote:text-gray-500">
+    <div className="prose prose-sm max-w-none dark:prose-invert prose-p:my-1.5 prose-p:leading-relaxed prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:font-semibold prose-li:my-0.5 prose-ul:my-1 prose-ol:my-1 prose-a:text-accent prose-a:no-underline hover:prose-a:underline prose-strong:font-semibold prose-code:text-[0.85em] prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:bg-[var(--ch-sub)] prose-code:font-mono prose-blockquote:border-l-2 prose-blockquote:border-[color:var(--ch-edge)] prose-blockquote:pl-3 prose-blockquote:not-italic prose-blockquote:text-[color:var(--ch-ink2)]">
       <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
         {children}
       </Markdown>
@@ -58,7 +58,7 @@ function CardContent({ card, onAction }: { card: any; onAction?: (v: string) => 
   return (
     <div className="space-y-4">
       {card.header?.title && (
-        <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+        <h3 className="text-base font-semibold text-[color:var(--ch-ink)]">
           {card.header.title}
         </h3>
       )}
@@ -75,12 +75,12 @@ function ElementRenderer({ el, onAction }: { el: any; onAction?: (v: string) => 
   }
 
   if (el.type === 'divider') {
-    return <div className="border-t border-gray-200/60 dark:border-gray-700/40" />;
+    return <div className="border-t border-[color:var(--ch-line)]" />;
   }
 
   if (el.type === 'note') {
     return (
-      <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">
+      <p className="text-[11px] text-[color:var(--ch-ink3)] leading-relaxed">
         {el.text}
       </p>
     );
@@ -99,7 +99,7 @@ function ElementRenderer({ el, onAction }: { el: any; onAction?: (v: string) => 
                 ? 'bg-accent text-black hover:bg-accent-dim shadow-sm'
                 : btn.btn_type === 'danger'
                 ? 'bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700',
+                : 'bg-[var(--ch-sub)] text-[color:var(--ch-ink2)] hover:bg-[var(--ch-hover)]',
             )}
           >
             {btn.text}
@@ -115,15 +115,15 @@ function ElementRenderer({ el, onAction }: { el: any; onAction?: (v: string) => 
     return (
       <button
         onClick={() => onAction?.(el.btn_value)}
-        className="w-full flex items-center gap-3 py-2.5 px-3 -mx-3 rounded-xl hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors text-left group"
+        className="w-full flex items-center gap-3 py-2.5 px-3 -mx-3 rounded-xl hover:bg-[var(--ch-hover)] transition-colors text-left group"
       >
         {isCommand ? (
           <>
             <code className="shrink-0 w-24 text-xs font-mono font-medium text-accent">{parsed.cmd}</code>
-            <span className="flex-1 text-sm text-gray-500 dark:text-gray-400 truncate">{parsed.desc}</span>
+            <span className="flex-1 text-sm text-[color:var(--ch-ink2)] truncate">{parsed.desc}</span>
           </>
         ) : (
-          <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 truncate min-w-0">
+          <span className="flex-1 text-sm text-[color:var(--ch-ink2)] truncate min-w-0">
             <InlineMd text={el.text} />
           </span>
         )}
@@ -131,7 +131,7 @@ function ElementRenderer({ el, onAction }: { el: any; onAction?: (v: string) => 
           'shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all',
           el.btn_type === 'primary'
             ? 'bg-accent/15 text-accent group-hover:bg-accent/25'
-            : 'text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 group-hover:bg-accent/15 group-hover:text-accent',
+            : 'text-[color:var(--ch-ink3)] bg-[var(--ch-sub)] group-hover:bg-accent/15 group-hover:text-accent',
         )}>
           {el.btn_text}
         </span>
@@ -144,7 +144,7 @@ function ElementRenderer({ el, onAction }: { el: any; onAction?: (v: string) => 
       <select
         defaultValue={el.init_value}
         onChange={(e) => onAction?.(e.target.value)}
-        className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/80 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors"
+        className="w-full px-3 py-2 text-sm rounded-lg border border-[color:var(--ch-edge)] bg-white dark:bg-gray-800/80 text-[color:var(--ch-ink)] focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors"
       >
         {el.options?.map((opt: any, j: number) => (
           <option key={j} value={opt.value}>{opt.text}</option>
@@ -168,18 +168,23 @@ export default function CommandResultPanel({ result, onClose, onCardAction }: Pr
   return (
     <>
       <div
-        className="fixed inset-0 bg-black/15 dark:bg-black/30 z-40 transition-opacity"
+        className="fixed inset-0 z-40 bg-black/20 transition-opacity dark:bg-black/50"
         onClick={onClose}
       />
 
       <div className={cn(
-        'fixed top-0 right-0 h-full w-[400px] max-w-[90vw] z-50 flex flex-col',
+        'chat-page fixed right-0 top-0 z-50 flex h-full w-[400px] max-w-[90vw] flex-col',
         'translate-x-0 transition-transform duration-300 ease-out',
-        'bg-white dark:bg-[#111] border-l border-gray-200/80 dark:border-white/[0.06]',
-        'shadow-xl shadow-black/8 dark:shadow-black/40',
-      )}>
+      )}
+        style={{
+          background: 'var(--ch-panel)',
+          borderLeft: '1px solid var(--ch-line)',
+          boxShadow: 'var(--ch-e3)',
+          color: 'var(--ch-ink)',
+        }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 h-14 border-b border-gray-100 dark:border-white/[0.06] shrink-0">
+        <div className="flex h-14 shrink-0 items-center justify-between px-5" style={{ borderBottom: '1px solid var(--ch-line)' }}>
           <div className="flex items-center gap-2.5 min-w-0">
             {Icon && (
               <div className="w-7 h-7 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
@@ -187,14 +192,14 @@ export default function CommandResultPanel({ result, onClose, onCardAction }: Pr
               </div>
             )}
             <div className="min-w-0">
-              <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{label}</div>
-              <div className="font-mono text-[10px] text-gray-400">{result.command}</div>
+              <div className="truncate text-[14px] font-medium text-[color:var(--ch-ink)]">{label}</div>
+              <div className="font-mono text-[10px] text-[color:var(--ch-ink3)]">{result.command}</div>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.06] transition-colors"
+            className="ch-focus flex h-9 w-9 items-center justify-center rounded-full text-[color:var(--ch-ink3)] transition-colors hover:text-[color:var(--ch-ink)]"
           >
             <X size={16} />
           </button>

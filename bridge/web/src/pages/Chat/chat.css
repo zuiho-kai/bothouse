@@ -1,0 +1,178 @@
+/* Chat page design tokens.
+   Values come from the shared UI design spec delivered for #98 (warm surfaces, three shadow
+   steps, motion curve); dark mode is the same warm family, not a cold gray. Contrast of every
+   text/surface pair is measured by the screenshot pass and reported in the PR. */
+
+.chat-page {
+  --ch-canvas: #fbf7f1;
+  --ch-panel: #ffffff;
+  --ch-sub: #fffcf7;
+  --ch-ink: #221b15;
+  --ch-ink2: #5b4e42;
+  --ch-ink3: #82715f;
+  --ch-line: rgba(34, 27, 21, 0.08);
+  --ch-edge: rgba(34, 27, 21, 0.12);
+  --ch-hover: rgba(120, 90, 50, 0.06);
+  --ch-active: #fbf3e8;
+  --ch-own: rgba(242, 153, 74, 0.16);
+  --ch-own-edge: rgba(242, 153, 74, 0.34);
+  --ch-accent: #f2994a;
+  --ch-accent-ink: #a84f16;
+  --ch-e1: 0 1px 2px rgba(60, 40, 20, 0.06);
+  --ch-e2: 0 1px 2px rgba(60, 40, 20, 0.04), 0 8px 24px -8px rgba(60, 40, 20, 0.12);
+  --ch-e3: 0 2px 4px rgba(60, 40, 20, 0.04), 0 24px 60px -16px rgba(60, 40, 20, 0.16);
+  --ch-bubble: inset 0 1px 0 rgba(255, 255, 255, 0.92), inset 0 0 0 1px var(--ch-edge),
+    0 1px 1px rgba(60, 40, 20, 0.03), 0 10px 26px -18px rgba(60, 40, 20, 0.28);
+  --ch-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ch-fast: 140ms;
+  --ch-norm: 200ms;
+  background: var(--ch-canvas);
+  color: var(--ch-ink);
+}
+
+.dark .chat-page {
+  --ch-canvas: #14100d;
+  --ch-panel: #1c1714;
+  --ch-sub: #211b17;
+  --ch-ink: #f4ece1;
+  --ch-ink2: #cdbfad;
+  --ch-ink3: #a9998a;
+  --ch-line: rgba(255, 245, 230, 0.09);
+  --ch-edge: rgba(255, 245, 230, 0.13);
+  --ch-hover: rgba(255, 235, 210, 0.06);
+  --ch-active: #2a221c;
+  --ch-own: rgba(242, 153, 74, 0.2);
+  --ch-own-edge: rgba(242, 153, 74, 0.4);
+  --ch-accent-ink: #f0a86a;
+  --ch-e1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --ch-e2: 0 1px 2px rgba(0, 0, 0, 0.32), 0 8px 24px -8px rgba(0, 0, 0, 0.55);
+  --ch-e3: 0 2px 4px rgba(0, 0, 0, 0.3), 0 24px 60px -16px rgba(0, 0, 0, 0.7);
+  --ch-bubble: inset 0 1px 0 rgba(255, 255, 255, 0.06), inset 0 0 0 1px var(--ch-edge),
+    0 10px 26px -20px rgba(0, 0, 0, 0.9);
+}
+
+.chat-page .ch-panel {
+  background: var(--ch-panel);
+  border: 1px solid var(--ch-line);
+  border-radius: 24px;
+  box-shadow: var(--ch-e2);
+}
+
+.chat-page .ch-row {
+  border-radius: 16px;
+  transition: background-color var(--ch-fast) var(--ch-ease), box-shadow var(--ch-fast) var(--ch-ease);
+}
+.chat-page .ch-row:hover {
+  background: var(--ch-hover);
+}
+.chat-page .ch-row[data-active='true'] {
+  background: var(--ch-active);
+  box-shadow: inset 2px 0 0 var(--ch-accent);
+}
+
+.chat-page .ch-bubble {
+  max-width: min(640px, 78%);
+  border-radius: 18px;
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 22px;
+  animation: ch-msg-in 180ms var(--ch-ease) both;
+}
+.chat-page .ch-bubble-ai {
+  background: var(--ch-panel);
+  color: var(--ch-ink);
+  border-bottom-left-radius: 6px;
+  box-shadow: var(--ch-bubble);
+}
+.chat-page .ch-bubble-own {
+  background: var(--ch-own);
+  color: var(--ch-ink);
+  border-bottom-right-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--ch-own-edge), 0 8px 22px -16px rgba(33, 27, 22, 0.5);
+}
+
+.chat-page .ch-avatar {
+  background: hsl(var(--av-h) 62% 90%);
+  color: hsl(var(--av-h) 48% 26%);
+}
+.dark .chat-page .ch-avatar {
+  background: hsl(var(--av-h) 30% 24%);
+  color: hsl(var(--av-h) 70% 86%);
+}
+
+.chat-page .ch-glass {
+  background: color-mix(in srgb, var(--ch-panel) 88%, transparent);
+  backdrop-filter: blur(20px) saturate(140%);
+  box-shadow: var(--ch-e3);
+}
+
+.chat-page .ch-enter {
+  animation: ch-fade-up 180ms var(--ch-ease) both;
+}
+
+/* Text steps. Values are the three ink levels of the spec (>= 4.5:1 on the canvas). */
+.chat-page .ch-ink {
+  color: var(--ch-ink);
+}
+.chat-page .ch-ink2 {
+  color: var(--ch-ink2);
+}
+.chat-page .ch-ink3 {
+  color: var(--ch-ink3);
+}
+
+.chat-page .ch-focus:focus-visible {
+  outline: 2px solid var(--ch-accent-ink);
+  outline-offset: 2px;
+}
+
+@keyframes ch-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ch-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ch-dots {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+.chat-page .ch-dot {
+  animation: ch-dots 1.2s var(--ch-ease) infinite;
+}
+
+/* Reduce motion: keep the information (who is thinking, what arrived), drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .chat-page .ch-bubble,
+  .chat-page .ch-enter,
+  .chat-page .ch-row,
+  .chat-page .ch-dot {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}

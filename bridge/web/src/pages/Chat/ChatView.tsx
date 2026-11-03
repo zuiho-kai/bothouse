@@ -1,12 +1,11 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link } from 'react-router-dom';
 import {
-  ArrowLeft, Send, User, Bot, Circle, WifiOff,
+  ArrowLeft, ArrowDown, Send, User, Bot, Circle, WifiOff,
   Copy, Check, FileText, Image as ImageIcon, Loader2,
-  Slash, ChevronDown,
+  Slash, ChevronDown, Smile, Plus,
 } from 'lucide-react';
-import { Badge, Button } from '@/components/ui';
 import { listSessions, getSession, type Session, type SessionDetail } from '@/api/sessions';
 import { getProject, shownName } from '@/api/projects';
 import {
@@ -20,6 +19,17 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { cn } from '@/lib/utils';
+import Avatar from './parts/Avatar';
+import { formatClock, formatDayLabel, useChatCopy } from './copy';
+import './chat.css';
+
+// The composer grows with its text up to six lines, then scrolls (a message longer than that is
+// easier to read in the stream than in the box).
+const COMPOSER_MAX_ROWS = 6;
+// A scroll position within this many pixels of the bottom still counts as "following the stream";
+// about half a bubble, so a little slack never stops the auto-follow.
+const STICK_SLACK_PX = 80;
+const EMOJI = ['😀', '😄', '😊', '🙂', '😉', '😍', '🤔', '😅', '😮', '😢', '😭', '😂', '👍', '👌', '🙏', '💪', '🎉', '🔥', '✅', '❌', '❤️', '⭐', '🚀', '☕'];
 
 // ── Markdown renderers ───────────────────────────────────────
 
@@ -33,7 +43,8 @@ function CopyButton({ code }: { code: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="absolute top-2 right-2 p-1.5 rounded-md bg-gray-200/80 dark:bg-gray-700/80 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+      className="ch-focus absolute right-2 top-2 z-10 rounded-md bg-[var(--ch-sub)] p-1.5 text-[color:var(--ch-ink3)] opacity-0 transition-opacity hover:text-[color:var(--ch-ink)] group-hover:opacity-100"
+      title="Copy"
     >
       {copied ? <Check size={12} /> : <Copy size={12} />}
     </button>
@@ -45,14 +56,17 @@ function PreBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) 
   const lang = codeEl?.className?.replace(/^language-/, '') || '';
   const code = typeof codeEl?.children === 'string' ? codeEl.children.replace(/\n$/, '') : '';
   return (
-    <div className="not-prose relative group my-4">
+    <div className="not-prose group relative my-3">
       {lang && (
-        <div className="absolute top-0 left-0 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 rounded-tl-lg rounded-br-lg border-b border-r border-gray-200 dark:border-gray-700 font-mono">
+        <div className="absolute left-0 top-0 rounded-tl-lg rounded-br-lg border-b border-r border-[color:var(--ch-line)] bg-[var(--ch-sub)] px-2.5 py-1 font-mono text-[10px] font-medium uppercase tracking-wider text-[color:var(--ch-ink3)]">
           {lang}
         </div>
       )}
       <CopyButton code={code} />
-      <pre className="overflow-x-auto rounded-lg bg-[#fafafa] dark:bg-[#0d1117] border border-gray-200 dark:border-gray-700/60 p-4 pt-8 text-[13px] leading-[1.6] font-mono" {...props}>
+      <pre
+        className="overflow-x-auto rounded-[14px] border border-[color:var(--ch-line)] bg-[var(--ch-sub)] p-4 pt-8 font-mono text-[13px] leading-[1.6]"
+        {...props}
+      >
         {children}
       </pre>
     </div>
@@ -62,7 +76,10 @@ function PreBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) 
 function InlineCode({ children, className, ...props }: React.HTMLAttributes<HTMLElement>) {
   if (className) return <code className={className} {...props}>{children}</code>;
   return (
-    <code className="px-1.5 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800 text-pink-600 dark:text-pink-400 text-[0.875em] font-mono border border-gray-200/60 dark:border-gray-700/40" {...props}>
+    <code
+      className="rounded-md border border-[color:var(--ch-line)] bg-[var(--ch-sub)] px-1.5 py-0.5 font-mono text-[0.875em] text-[color:var(--ch-accent-ink)]"
+      {...props}
+    >
       {children}
     </code>
   );
@@ -73,16 +90,16 @@ function RenderMarkdown({ content }: { content: string }) {
     <div className={cn(
       'prose max-w-none dark:prose-invert',
       'prose-headings:font-semibold prose-headings:tracking-tight',
-      'prose-h1:text-xl prose-h1:mt-5 prose-h1:mb-3 prose-h1:pb-1.5 prose-h1:border-b prose-h1:border-gray-200 dark:prose-h1:border-gray-700',
+      'prose-h1:text-xl prose-h1:mt-5 prose-h1:mb-3 prose-h1:pb-1.5 prose-h1:border-b prose-h1:border-[color:var(--ch-line)]',
       'prose-h2:text-lg prose-h2:mt-5 prose-h2:mb-2',
       'prose-h3:text-base prose-h3:mt-4 prose-h3:mb-2',
-      'prose-p:my-2.5 prose-p:leading-relaxed',
+      'prose-p:my-2.5 prose-p:leading-[22px]',
       'prose-li:my-0.5', 'prose-ul:my-2 prose-ol:my-2',
       'prose-a:text-accent prose-a:no-underline hover:prose-a:underline',
-      'prose-strong:text-gray-900 dark:prose-strong:text-white prose-strong:font-semibold',
-      'prose-blockquote:border-l-[3px] prose-blockquote:border-accent/40 prose-blockquote:bg-accent/[0.03] prose-blockquote:rounded-r-lg prose-blockquote:py-0.5 prose-blockquote:px-4 prose-blockquote:my-3 prose-blockquote:not-italic prose-blockquote:text-gray-600 dark:prose-blockquote:text-gray-300',
-      'prose-hr:my-5 prose-hr:border-gray-200 dark:prose-hr:border-gray-700',
-      'prose-table:text-sm prose-th:bg-gray-50 dark:prose-th:bg-gray-800 prose-th:px-3 prose-th:py-2 prose-td:px-3 prose-td:py-2',
+      'prose-strong:font-semibold',
+      'prose-blockquote:border-l-[3px] prose-blockquote:border-accent/40 prose-blockquote:bg-accent/[0.04] prose-blockquote:rounded-r-lg prose-blockquote:py-0.5 prose-blockquote:px-4 prose-blockquote:my-3 prose-blockquote:not-italic',
+      'prose-hr:my-5 prose-hr:border-[color:var(--ch-line)]',
+      'prose-table:text-sm prose-th:px-3 prose-th:py-2 prose-td:px-3 prose-td:py-2',
       'prose-img:rounded-lg prose-img:shadow-sm',
     )}>
       <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={{ pre: PreBlock as any, code: InlineCode as any }}>
@@ -106,6 +123,13 @@ interface ChatMsg {
   fileSize?: number;
   streaming?: boolean;
   timestamp?: string;
+  /** Epoch ms; every message gets one at creation so ordering and day breaks are stable. */
+  ts: number;
+}
+
+function tsOf(iso?: string): number {
+  const t = iso ? new Date(iso).getTime() : NaN;
+  return Number.isNaN(t) ? Date.now() : t;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -124,7 +148,7 @@ function InlineMd({ text }: { text: string }) {
     <>
       {parts.map((p, i) =>
         p.startsWith('**') && p.endsWith('**')
-          ? <strong key={i} className="font-semibold text-gray-900 dark:text-white">{p.slice(2, -2)}</strong>
+          ? <strong key={i} className="font-semibold">{p.slice(2, -2)}</strong>
           : <span key={i}>{p}</span>
       )}
     </>
@@ -138,7 +162,7 @@ function CardBlock({ card, onAction }: { card: any; onAction: (v: string) => voi
   return (
     <div className="space-y-3">
       {card.header?.title && (
-        <div className="text-sm font-semibold text-gray-900 dark:text-white">{card.header.title}</div>
+        <div className="text-sm font-semibold">{card.header.title}</div>
       )}
       {card.elements?.map((el: any, i: number) => (
         <CardElement key={i} el={el} onAction={onAction} />
@@ -149,18 +173,23 @@ function CardBlock({ card, onAction }: { card: any; onAction: (v: string) => voi
 
 function CardElement({ el, onAction }: { el: any; onAction: (v: string) => void }) {
   if (el.type === 'markdown') return <RenderMarkdown content={el.content} />;
-  if (el.type === 'divider') return <div className="border-t border-gray-200/60 dark:border-gray-700/40" />;
-  if (el.type === 'note') return <p className="text-[11px] text-gray-400 dark:text-gray-500">{el.text}</p>;
+  if (el.type === 'divider') return <div className="border-t border-[color:var(--ch-line)]" />;
+  if (el.type === 'note') return <p className="text-[11px] text-[color:var(--ch-ink3)]">{el.text}</p>;
   if (el.type === 'actions') {
     return (
       <div className="flex flex-wrap gap-2">
         {el.buttons?.map((btn: any, j: number) => (
-          <button key={j} onClick={() => onAction(btn.value)} className={cn(
-            'px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150',
-            btn.btn_type === 'primary' ? 'bg-accent text-black hover:bg-accent-dim shadow-sm' :
-            btn.btn_type === 'danger' ? 'bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20' :
-            'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700',
-          )}>
+          <button
+            key={j}
+            onClick={() => onAction(btn.value)}
+            className={cn(
+              'ch-focus rounded-[10px] px-3 py-1.5 text-xs font-semibold transition-all duration-150',
+              btn.btn_type === 'primary'
+                ? 'bg-[var(--ch-accent)] text-black hover:brightness-[1.04]'
+                : 'text-[color:var(--ch-ink2)] hover:text-[color:var(--ch-ink)]',
+            )}
+            style={btn.btn_type === 'primary' ? undefined : { boxShadow: 'inset 0 0 0 1px var(--ch-edge)' }}
+          >
             {btn.text}
           </button>
         ))}
@@ -171,26 +200,26 @@ function CardElement({ el, onAction }: { el: any; onAction: (v: string) => void 
     const parsed = parseListItemText(el.text);
     const isCommand = parsed.cmd.startsWith('/');
     return (
-      <button
-        onClick={() => onAction(el.btn_value)}
-        className="w-full flex items-center gap-3 py-2 text-left group"
-      >
+      <button onClick={() => onAction(el.btn_value)} className="ch-focus group flex w-full items-center gap-3 py-2 text-left">
         {isCommand ? (
           <>
-            <code className="shrink-0 w-20 text-xs font-mono font-medium text-accent">{parsed.cmd}</code>
-            <span className="flex-1 text-sm text-gray-500 dark:text-gray-400 truncate">{parsed.desc}</span>
+            <code className="w-20 shrink-0 font-mono text-xs font-medium text-[color:var(--ch-accent-ink)]">{parsed.cmd}</code>
+            <span className="flex-1 truncate text-sm text-[color:var(--ch-ink2)]">{parsed.desc}</span>
           </>
         ) : (
-          <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 truncate min-w-0">
+          <span className="min-w-0 flex-1 truncate text-sm text-[color:var(--ch-ink2)]">
             <InlineMd text={el.text} />
           </span>
         )}
-        <span className={cn(
-          'shrink-0 px-2 py-0.5 rounded-md text-[11px] font-medium transition-all',
-          el.btn_type === 'primary'
-            ? 'bg-accent/15 text-accent group-hover:bg-accent/25'
-            : 'text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 group-hover:bg-accent/15 group-hover:text-accent',
-        )}>
+        <span
+          className={cn(
+            'shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all',
+            el.btn_type === 'primary'
+              ? 'bg-accent/15 text-[color:var(--ch-accent-ink)] group-hover:bg-accent/25'
+              : 'text-[color:var(--ch-ink3)] group-hover:bg-accent/15 group-hover:text-[color:var(--ch-accent-ink)]',
+          )}
+          style={el.btn_type === 'primary' ? undefined : { boxShadow: 'inset 0 0 0 1px var(--ch-line)' }}
+        >
           {el.btn_text}
         </span>
       </button>
@@ -201,7 +230,7 @@ function CardElement({ el, onAction }: { el: any; onAction: (v: string) => void 
       <select
         defaultValue={el.init_value}
         onChange={(e) => onAction(e.target.value)}
-        className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/80 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent/40"
+        className="w-full rounded-[12px] border border-[color:var(--ch-edge)] bg-[var(--ch-panel)] px-3 py-2 text-sm text-[color:var(--ch-ink)] focus:outline-none focus:ring-2 focus:ring-accent/40"
       >
         {el.options?.map((opt: any, j: number) => (
           <option key={j} value={opt.value}>{opt.text}</option>
@@ -219,7 +248,11 @@ function ButtonsBlock({ content, buttons, onAction }: { content: string; buttons
       {buttons.map((row, i) => (
         <div key={i} className="flex flex-wrap gap-2">
           {row.map((btn, j) => (
-            <button key={j} onClick={() => onAction(btn.data)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-accent text-black hover:bg-accent-dim transition-colors">
+            <button
+              key={j}
+              onClick={() => onAction(btn.data)}
+              className="ch-focus rounded-[10px] bg-[var(--ch-accent)] px-3 py-1.5 text-xs font-semibold text-black transition-[filter] hover:brightness-[1.04]"
+            >
               {btn.text}
             </button>
           ))}
@@ -231,44 +264,44 @@ function ButtonsBlock({ content, buttons, onAction }: { content: string; buttons
 
 function FileBlock({ name, size }: { name: string; size?: number }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-      <FileText size={16} className="text-gray-400 shrink-0" />
+    <div className="flex items-center gap-2 rounded-[12px] border border-[color:var(--ch-line)] bg-[var(--ch-sub)] px-3 py-2">
+      <FileText size={16} className="shrink-0 text-[color:var(--ch-ink3)]" />
       <div className="min-w-0">
-        <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{name}</div>
-        {size !== undefined && <div className="text-xs text-gray-400">{(size / 1024).toFixed(1)} KB</div>}
+        <div className="truncate text-sm font-medium">{name}</div>
+        {size !== undefined && <div className="text-xs text-[color:var(--ch-ink3)]">{(size / 1024).toFixed(1)} KB</div>}
       </div>
     </div>
   );
 }
 
 function ImageBlock({ url }: { url: string }) {
-  return <img src={url} alt="" className="max-w-sm rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm" />;
+  return <img src={url} alt="" className="max-w-sm rounded-[12px] border border-[color:var(--ch-line)]" />;
 }
 
 function StatusBadge({ status }: { status: BridgeStatus }) {
   const { t } = useTranslation();
   if (status === 'connected') {
     return (
-      <span className="flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 rounded-full">
+      <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
         <Circle size={5} className="fill-current" /> {t('sessions.bridgeConnected')}
       </span>
     );
   }
   if (status === 'connecting' || status === 'registering') {
     return (
-      <span className="flex items-center gap-1 text-[10px] text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 px-1.5 py-0.5 rounded-full">
+      <span className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
         <Loader2 size={9} className="animate-spin" /> {t('sessions.bridgeConnecting')}
       </span>
     );
   }
   return (
-    <span className="flex items-center gap-1 text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded-full">
+    <span className="flex items-center gap-1 rounded-full bg-[var(--ch-hover)] px-2 py-0.5 text-[10px] font-medium text-[color:var(--ch-ink3)]">
       <WifiOff size={9} /> {t('sessions.bridgeDisconnected')}
     </span>
   );
 }
 
-function MsgCopyButton({ text }: { text: string }) {
+function MsgCopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
     navigator.clipboard.writeText(text);
@@ -278,8 +311,9 @@ function MsgCopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="absolute -bottom-3 right-2 p-1 rounded-md bg-gray-100/90 dark:bg-gray-700/90 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 opacity-0 group-hover/msg:opacity-100 transition-opacity shadow-sm"
-      title="Copy"
+      className="ch-focus absolute -top-2 right-2 rounded-full bg-[var(--ch-panel)] p-1 text-[color:var(--ch-ink3)] opacity-0 shadow-[var(--ch-e1)] transition-opacity hover:text-[color:var(--ch-ink)] group-hover/msg:opacity-100 focus-visible:opacity-100"
+      title={copied ? label : label}
+      aria-label={label}
     >
       {copied ? <Check size={12} /> : <Copy size={12} />}
     </button>
@@ -290,6 +324,7 @@ function MsgCopyButton({ text }: { text: string }) {
 
 export default function ChatView() {
   const { t } = useTranslation();
+  const copy = useChatCopy();
   const { name: projectName } = useParams<{ name: string }>();
   const [shown, setShown] = useState('');
   useEffect(() => {
@@ -313,8 +348,13 @@ export default function ChatView() {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [cmdResult, setCmdResult] = useState<CommandResult | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
+  const [unread, setUnread] = useState(0);
 
   const messagesEnd = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const previewHandleCounter = useRef(0);
   const cmdBtnRef = useRef<HTMLButtonElement>(null);
   const sessionKeyRef = useRef('');
@@ -322,6 +362,8 @@ export default function ChatView() {
   const pendingCmdRef = useRef<string | null>(null);
   // Mirrors cmdResult.command so card-action callbacks can route follow-ups back to the panel
   const cmdPanelRef = useRef<string | null>(null);
+  // True while the reader is at the bottom and wants new messages to arrive in view.
+  const stickRef = useRef(true);
 
   // Web platform uses its own per-project session key by default.
   // Only use the original session's key when the user explicitly switches via the drawer.
@@ -330,6 +372,16 @@ export default function ChatView() {
     ? currentSession.session_key
     : webSessionKey;
   sessionKeyRef.current = sessionKey;
+
+  const toMessages = (history: { role: string; content: string; timestamp: string }[]) =>
+    history.map((h, i) => ({
+      id: `hist-${i}`,
+      role: h.role as 'user' | 'assistant',
+      content: h.content,
+      format: 'markdown' as const,
+      timestamp: h.timestamp,
+      ts: tsOf(h.timestamp),
+    }));
 
   // Load project sessions and auto-select latest
   const fetchData = useCallback(async () => {
@@ -350,15 +402,7 @@ export default function ChatView() {
         const latest = sorted[0];
         const detail = await getSession(projectName, latest.id, 200);
         setCurrentSession(detail);
-        if (detail.history) {
-          setMessages(detail.history.map((h, i) => ({
-            id: `hist-${i}`,
-            role: h.role as 'user' | 'assistant',
-            content: h.content,
-            format: 'markdown',
-            timestamp: h.timestamp,
-          })));
-        }
+        if (detail.history) setMessages(toMessages(detail.history));
       } else {
         setCurrentSession(null);
         setMessages([]);
@@ -366,6 +410,9 @@ export default function ChatView() {
     } finally {
       setLoading(false);
     }
+    stickRef.current = true;
+    setAwayFromBottom(false);
+    setUnread(0);
   }, [projectName]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -384,20 +431,14 @@ export default function ChatView() {
     try {
       const detail = await getSession(projectName, s.id, 200);
       setCurrentSession(detail);
-      if (detail.history) {
-        setMessages(detail.history.map((h, i) => ({
-          id: `hist-${i}`,
-          role: h.role as 'user' | 'assistant',
-          content: h.content,
-          format: 'markdown',
-          timestamp: h.timestamp,
-        })));
-      } else {
-        setMessages([]);
-      }
+      if (detail.history) setMessages(toMessages(detail.history));
+      else setMessages([]);
     } finally {
       setLoading(false);
     }
+    stickRef.current = true;
+    setAwayFromBottom(false);
+    setUnread(0);
   }, [projectName]);
 
   // Handle bridge incoming messages — only process messages for the current session
@@ -433,7 +474,7 @@ export default function ChatView() {
           updated[streamIdx] = { ...updated[streamIdx], content: msg.content, format: (msg as any).format === 'markdown' ? 'markdown' : 'text', streaming: false };
           return updated;
         }
-        return [...prev, { id: `reply-${Date.now()}`, role: 'assistant', content: msg.content, format: (msg as any).format === 'markdown' ? 'markdown' : 'text' }];
+        return [...prev, { id: `reply-${Date.now()}`, role: 'assistant', content: msg.content, format: (msg as any).format === 'markdown' ? 'markdown' : 'text', ts: Date.now() }];
       });
       setTyping(false);
     } else if (msg.type === 'reply_stream') {
@@ -446,7 +487,7 @@ export default function ChatView() {
             updated[idx] = { ...updated[idx], content: stream.full_text, streaming: false };
             return updated;
           }
-          return [...prev, { id: `stream-done-${Date.now()}`, role: 'assistant', content: stream.full_text, format: 'markdown' }];
+          return [...prev, { id: `stream-done-${Date.now()}`, role: 'assistant', content: stream.full_text, format: 'markdown', ts: Date.now() }];
         });
         setTyping(false);
       } else {
@@ -457,16 +498,16 @@ export default function ChatView() {
             updated[idx] = { ...updated[idx], content: stream.full_text };
             return updated;
           }
-          return [...prev, { id: `stream-${Date.now()}`, role: 'assistant', content: stream.full_text, format: 'markdown', streaming: true }];
+          return [...prev, { id: `stream-${Date.now()}`, role: 'assistant', content: stream.full_text, format: 'markdown', streaming: true, ts: Date.now() }];
         });
       }
     } else if (msg.type === 'card') {
       const card = msg as Extract<BridgeIncoming, { type: 'card' }>;
-      setMessages(prev => [...prev, { id: `card-${Date.now()}`, role: 'assistant', content: '', format: 'card', card: card.card }]);
+      setMessages(prev => [...prev, { id: `card-${Date.now()}`, role: 'assistant', content: '', format: 'card', card: card.card, ts: Date.now() }]);
       setTyping(false);
     } else if (msg.type === 'buttons') {
       const btns = msg as Extract<BridgeIncoming, { type: 'buttons' }>;
-      setMessages(prev => [...prev, { id: `btn-${Date.now()}`, role: 'assistant', content: btns.content, format: 'buttons', buttons: btns.buttons }]);
+      setMessages(prev => [...prev, { id: `btn-${Date.now()}`, role: 'assistant', content: btns.content, format: 'buttons', buttons: btns.buttons, ts: Date.now() }]);
       setTyping(false);
     } else if (msg.type === 'typing_start') {
       setTyping(true);
@@ -476,7 +517,7 @@ export default function ChatView() {
       const ps = msg as Extract<BridgeIncoming, { type: 'preview_start' }>;
       const handle = `web-preview-${++previewHandleCounter.current}`;
       sendPreviewAck(ps.ref_id, handle);
-      setMessages(prev => [...prev, { id: `stream-${handle}`, role: 'assistant', content: ps.content, format: 'markdown', streaming: true }]);
+      setMessages(prev => [...prev, { id: `stream-${handle}`, role: 'assistant', content: ps.content, format: 'markdown', streaming: true, ts: Date.now() }]);
     } else if (msg.type === 'update_message') {
       const um = msg as Extract<BridgeIncoming, { type: 'update_message' }>;
       setMessages(prev => {
@@ -504,10 +545,52 @@ export default function ChatView() {
     onMessage: handleBridgeMessage,
   });
 
-  // Scroll to bottom on new messages
+  // Follow the stream only while the reader is at the bottom; otherwise count what arrived and
+  // offer the jump button instead of yanking the view away.
+  const scrollToEnd = useCallback((smooth: boolean) => {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    messagesEnd.current?.scrollIntoView({ behavior: smooth && !reduce ? 'smooth' : 'auto', block: 'end' });
+  }, []);
+
   useEffect(() => {
-    messagesEnd.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, typing]);
+    if (stickRef.current) {
+      scrollToEnd(true);
+      setUnread(0);
+    } else {
+      setUnread(n => n + 1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length]);
+
+  useEffect(() => {
+    if (stickRef.current) scrollToEnd(true);
+  }, [typing, scrollToEnd]);
+
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const atBottom = gap < STICK_SLACK_PX;
+    stickRef.current = atBottom;
+    setAwayFromBottom(!atBottom);
+    if (atBottom) setUnread(0);
+  };
+
+  const jumpToLatest = () => {
+    stickRef.current = true;
+    setAwayFromBottom(false);
+    setUnread(0);
+    scrollToEnd(true);
+  };
+
+  // Composer auto-grows with its content up to the row cap.
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    const line = 22;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, line * COMPOSER_MAX_ROWS + 20)}px`;
+  }, [input]);
 
   // Send message
   const handleSend = useCallback(() => {
@@ -521,20 +604,23 @@ export default function ChatView() {
     if (isKnownCmd && !chatCommands.has(cmdToken)) {
       pendingCmdRef.current = cmdToken;
     } else {
-      setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content }]);
+      setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content, ts: Date.now() }]);
     }
     bridgeSend(content);
     setTimeout(() => setSending(false), 300);
   }, [input, bridgeStatus, bridgeSend]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
     }
     if (e.key === '/' && !input) {
       e.preventDefault();
       setCmdOpen(true);
+    }
+    if (e.key === 'Escape') {
+      setEmojiOpen(false);
     }
   };
 
@@ -547,7 +633,7 @@ export default function ChatView() {
     if (bridgeStatus !== 'connected') return;
 
     if (chatCommands.has(cmd.cmd)) {
-      setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: cmd.cmd }]);
+      setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: cmd.cmd, ts: Date.now() }]);
     } else {
       pendingCmdRef.current = cmd.cmd;
     }
@@ -566,185 +652,314 @@ export default function ChatView() {
   const handleNewSession = useCallback(() => {
     if (bridgeStatus !== 'connected') return;
     setUserPickedSession(false);
-    setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: '/new' }]);
+    setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: '/new', ts: Date.now() }]);
     bridgeSend('/new');
     setDrawerOpen(false);
   }, [bridgeStatus, bridgeSend]);
 
+  const insertEmoji = (emoji: string) => {
+    setInput(v => v + emoji);
+    setEmojiOpen(false);
+    composerRef.current?.focus();
+  };
+
   const canSend = bridgeStatus === 'connected';
+  const autoSessionLabel = userPickedSession && currentSession
+    ? (currentSession.name || currentSession.id.slice(0, 8))
+    : t('chat.defaultSession');
+  const headerName = shown || projectName || '';
+  const peerName = currentSession?.chat_name || currentSession?.name || headerName;
+  const selfName = currentSession?.user_name || '我';
+  const isThinking = typing && !messages.some(m => m.streaming);
 
   if (loading && !currentSession && sessions.length === 0) {
-    return <div className="flex items-center justify-center h-64 text-gray-400 animate-pulse">Loading...</div>;
+    return (
+      <div className="flex h-64 items-center justify-center text-sm text-gray-400 animate-pulse">
+        Loading…
+      </div>
+    );
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between pb-3 border-b border-gray-200 dark:border-gray-800 shrink-0">
-        <div className="flex items-center gap-3">
-          <Link to="/chat" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-            <ArrowLeft size={18} className="text-gray-400" />
+    <div className="chat-page -m-1 flex min-h-0 flex-1 flex-col sm:-m-2">
+      <div className="ch-panel flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* Header */}
+        <header
+          className="flex shrink-0 items-center gap-3 px-3 py-2.5 sm:px-4"
+          style={{ borderBottom: '1px solid var(--ch-line)' }}
+        >
+          <Link
+            to="/chat"
+            className="ch-focus -ml-1 rounded-full p-2 text-[color:var(--ch-ink3)] transition-colors hover:text-[color:var(--ch-ink)]"
+            aria-label={copy.listTitle}
+          >
+            <ArrowLeft size={18} />
           </Link>
-          <div>
+          <Avatar name={peerName} size={40} live={bridgeStatus === 'connected'} />
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{shown || projectName}</h2>
+              <h1 className="ch-ink truncate text-[15px] font-semibold leading-5">{headerName}</h1>
               <StatusBadge status={bridgeStatus} />
             </div>
+            <div className="mt-0.5 flex items-center gap-1.5">
+              {isThinking ? (
+                <span className="flex items-center gap-1 text-[12px] text-[color:var(--ch-accent-ink)]">
+                  <span className="flex gap-[3px]">
+                    <span className="ch-dot h-1 w-1 rounded-full bg-current" style={{ animationDelay: '0ms' }} />
+                    <span className="ch-dot h-1 w-1 rounded-full bg-current" style={{ animationDelay: '150ms' }} />
+                    <span className="ch-dot h-1 w-1 rounded-full bg-current" style={{ animationDelay: '300ms' }} />
+                  </span>
+                  {copy.thinkingHint}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setDrawerOpen(true)}
+                  className="ch-focus flex items-center gap-1 rounded-full text-[12px] text-[color:var(--ch-ink3)] transition-colors hover:text-[color:var(--ch-accent-ink)]"
+                  aria-label={copy.selectChat}
+                >
+                  {autoSessionLabel}
+                  <ChevronDown size={12} />
+                </button>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            className="ch-focus hidden items-center gap-1 rounded-full px-2.5 py-1.5 text-[12px] text-[color:var(--ch-ink3)] transition-colors hover:text-[color:var(--ch-ink)] sm:flex"
+            style={{ boxShadow: 'inset 0 0 0 1px var(--ch-line)' }}
+          >
+            {t('chat.sessions')}
+          </button>
+        </header>
+
+        {/* Messages */}
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={scrollRef}
+            onScroll={onScroll}
+            className="h-full overflow-y-auto px-3 py-4 sm:px-5 sm:py-6"
+          >
+            {messages.length === 0 && !loading && (
+              <div className="flex h-full flex-col items-center justify-center py-12 text-center">
+                <Avatar name={peerName} size={56} />
+                <p className="ch-ink mt-4 text-[15px] font-medium">{t('chat.emptyHint')}</p>
+                <p className="ch-ink3 mt-1 text-[12px]">{t('chat.slashHint')}</p>
+              </div>
+            )}
+
+            {messages.map((msg, i) => {
+              const isUser = msg.role === 'user';
+              const prev = messages[i - 1];
+              const sameAuthor = !!prev && prev.role === msg.role;
+              const newDay = !prev || formatDayLabel(new Date(prev.ts).toISOString(), copy) !== formatDayLabel(new Date(msg.ts).toISOString(), copy);
+              const isEmpty = !msg.content && !msg.card && !msg.buttons && !msg.imageUrl && !msg.fileName;
+              return (
+                <div key={msg.id}>
+                  {newDay && (
+                    <div className="my-4 flex items-center gap-3">
+                      <span className="h-px flex-1" style={{ background: 'var(--ch-line)' }} />
+                      <span className="ch-ink3 text-[11px] font-medium">
+                        {formatDayLabel(new Date(msg.ts).toISOString(), copy)}
+                      </span>
+                      <span className="h-px flex-1" style={{ background: 'var(--ch-line)' }} />
+                    </div>
+                  )}
+                  <div
+                    className={cn('flex items-end gap-2.5', isUser ? 'justify-end' : 'justify-start', sameAuthor ? 'mt-1' : 'mt-4')}
+                  >
+                    {!isUser && (
+                      <div className={cn('w-8 shrink-0', sameAuthor && 'opacity-0')}>
+                        {!sameAuthor && <Avatar name={peerName} size={28} />}
+                      </div>
+                    )}
+                    <div
+                      className={cn(
+                        'ch-bubble group/msg relative',
+                        isUser ? 'ch-bubble-own' : 'ch-bubble-ai',
+                        msg.streaming && 'animate-pulse',
+                      )}
+                    >
+                      {isEmpty ? (
+                        <p className="text-xs italic text-[color:var(--ch-ink3)]">
+                          {t('chat.unsupportedMessage', '[Unsupported message]')}
+                        </p>
+                      ) : msg.format === 'card' ? (
+                        <CardBlock card={msg.card} onAction={handleCardAction} />
+                      ) : msg.format === 'buttons' && msg.buttons ? (
+                        <ButtonsBlock content={msg.content} buttons={msg.buttons} onAction={handleCardAction} />
+                      ) : msg.format === 'image' && msg.imageUrl ? (
+                        <ImageBlock url={msg.imageUrl} />
+                      ) : msg.format === 'file' && msg.fileName ? (
+                        <FileBlock name={msg.fileName} size={msg.fileSize} />
+                      ) : isUser ? (
+                        <div className="whitespace-pre-wrap">{msg.content}</div>
+                      ) : (
+                        <RenderMarkdown content={msg.content} />
+                      )}
+                      {msg.streaming && (
+                        <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/60 align-text-bottom" />
+                      )}
+                      <div className="mt-1 flex items-center justify-end gap-1">
+                        <span className="ch-ink3 text-[11px] tabular-nums">{formatClock(new Date(msg.ts).toISOString())}</span>
+                      </div>
+                      {!isUser && !msg.streaming && msg.content && (
+                        <MsgCopyButton text={msg.content} label={copy.copied} />
+                      )}
+                    </div>
+                    {isUser && (
+                      <div className={cn('w-8 shrink-0', sameAuthor && 'opacity-0')}>
+                        {!sameAuthor && <Avatar name={selfName} size={28} />}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {isThinking && (
+              <div className="mt-4 flex items-end gap-2.5">
+                <Avatar name={peerName} size={28} />
+                <div className="ch-bubble ch-bubble-ai">
+                  <div className="flex items-center gap-1.5 py-1">
+                    <span className="ch-dot h-1.5 w-1.5 rounded-full bg-[color:var(--ch-ink3)]" style={{ animationDelay: '0ms' }} />
+                    <span className="ch-dot h-1.5 w-1.5 rounded-full bg-[color:var(--ch-ink3)]" style={{ animationDelay: '150ms' }} />
+                    <span className="ch-dot h-1.5 w-1.5 rounded-full bg-[color:var(--ch-ink3)]" style={{ animationDelay: '300ms' }} />
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEnd} />
+          </div>
+
+          {/* Jump to latest */}
+          {awayFromBottom && (
             <button
               type="button"
-              onClick={() => setDrawerOpen(true)}
-              className="flex items-center gap-1 text-xs text-gray-500 hover:text-accent transition-colors mt-0.5"
+              onClick={jumpToLatest}
+              className="ch-focus ch-enter absolute bottom-4 right-4 flex items-center gap-1.5 rounded-full px-3 py-2 text-[12px] font-medium"
+              style={{ background: 'var(--ch-panel)', boxShadow: 'var(--ch-e2)', color: 'var(--ch-ink)' }}
+              aria-label={copy.scrollLatest}
             >
-              <span>{userPickedSession && currentSession
-                ? (currentSession.name || currentSession.id.slice(0, 8))
-                : t('chat.defaultSession')}</span>
-              <ChevronDown size={12} />
+              <ArrowDown size={14} className="text-[color:var(--ch-accent-ink)]" />
+              {unread > 0 ? copy.newMessages(unread) : copy.backToLatest}
             </button>
-          </div>
+          )}
         </div>
-      </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto py-6 space-y-5">
-        {messages.length === 0 && !loading && (
-          <div className="flex flex-col items-center justify-center h-full text-center py-12">
-            <div className="w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
-              <Bot size={32} className="text-accent" />
-            </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">{t('chat.emptyHint')}</p>
-            <p className="text-xs text-gray-400 dark:text-gray-500">{t('chat.slashHint')}</p>
-          </div>
-        )}
-        {messages.map((msg) => {
-          const isUser = msg.role === 'user';
-          const isEmpty = !msg.content && !msg.card && !msg.buttons && !msg.imageUrl && !msg.fileName;
-          return (
-            <div key={msg.id} className={cn('flex gap-3', isUser ? 'justify-end' : 'justify-start')}>
-              {!isUser && (
-                <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0 mt-1">
-                  <Bot size={16} className="text-accent" />
-                </div>
-              )}
-              <div className={cn(
-                'group/msg relative rounded-2xl px-5 py-3.5 text-sm',
-                isUser
-                  ? 'max-w-[70%] bg-accent text-black rounded-br-md'
-                  : 'max-w-[85%] bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700/60 text-gray-900 dark:text-gray-100 rounded-bl-md shadow-sm',
-                msg.streaming && 'animate-pulse-subtle',
-              )}>
-                {isEmpty ? (
-                  <p className="text-xs text-gray-400 dark:text-gray-500 italic">{t('chat.unsupportedMessage', '[Unsupported message]')}</p>
-                ) : msg.format === 'card' ? (
-                  <CardBlock card={msg.card} onAction={handleCardAction} />
-                ) : msg.format === 'buttons' && msg.buttons ? (
-                  <ButtonsBlock content={msg.content} buttons={msg.buttons} onAction={handleCardAction} />
-                ) : msg.format === 'image' && msg.imageUrl ? (
-                  <ImageBlock url={msg.imageUrl} />
-                ) : msg.format === 'file' && msg.fileName ? (
-                  <FileBlock name={msg.fileName} size={msg.fileSize} />
-                ) : isUser ? (
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
-                ) : (
-                  <RenderMarkdown content={msg.content} />
-                )}
-                {msg.streaming && (
-                  <span className="inline-block w-1.5 h-4 bg-accent/60 rounded-sm ml-0.5 animate-pulse" />
-                )}
-                {!isUser && !msg.streaming && msg.content && (
-                  <MsgCopyButton text={msg.content} />
+        {/* Composer */}
+        <div className="shrink-0 px-3 pb-3 pt-2 sm:px-4">
+          {canSend ? (
+            <div
+              className="relative flex items-end gap-1.5 rounded-[20px] p-1.5"
+              style={{ background: 'var(--ch-sub)', boxShadow: 'inset 0 0 0 1px var(--ch-edge)' }}
+            >
+              <div className="relative">
+                <button
+                  ref={cmdBtnRef}
+                  type="button"
+                  onClick={() => setCmdOpen(!cmdOpen)}
+                  className={cn(
+                    'ch-focus flex h-9 w-9 items-center justify-center rounded-full transition-colors',
+                    cmdOpen ? 'text-[color:var(--ch-accent-ink)]' : 'text-[color:var(--ch-ink3)] hover:text-[color:var(--ch-ink)]',
+                  )}
+                  style={cmdOpen ? { background: 'var(--ch-own)' } : undefined}
+                  title={t('chat.commands')}
+                  aria-label={t('chat.commands')}
+                >
+                  <Slash size={18} />
+                </button>
+                <CommandPalette
+                  open={cmdOpen}
+                  onClose={() => setCmdOpen(false)}
+                  onSelect={handleCmdSelect}
+                  anchorRef={cmdBtnRef}
+                />
+              </div>
+
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setEmojiOpen(v => !v)}
+                  className={cn(
+                    'ch-focus flex h-9 w-9 items-center justify-center rounded-full transition-colors',
+                    emojiOpen ? 'text-[color:var(--ch-accent-ink)]' : 'text-[color:var(--ch-ink3)] hover:text-[color:var(--ch-ink)]',
+                  )}
+                  style={emojiOpen ? { background: 'var(--ch-own)' } : undefined}
+                  title={copy.emoji}
+                  aria-label={copy.emoji}
+                >
+                  <Smile size={18} />
+                </button>
+                {emojiOpen && (
+                  <div
+                    className="ch-enter absolute bottom-full left-0 z-50 mb-2 grid w-[248px] grid-cols-8 gap-1 rounded-[16px] p-2"
+                    style={{ background: 'var(--ch-panel)', boxShadow: 'var(--ch-e3)', border: '1px solid var(--ch-line)' }}
+                  >
+                    {EMOJI.map(e => (
+                      <button
+                        key={e}
+                        type="button"
+                        onClick={() => insertEmoji(e)}
+                        className="ch-focus flex h-6 w-6 items-center justify-center rounded-md text-[16px] leading-none transition-colors hover:bg-[var(--ch-hover)]"
+                      >
+                        {e}
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
-              {isUser && (
-                <div className="w-8 h-8 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center shrink-0 mt-1">
-                  <User size={16} className="text-gray-500" />
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {typing && !messages.some(m => m.streaming) && (
-          <div className="flex gap-3 justify-start">
-            <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0 mt-1">
-              <Bot size={16} className="text-accent" />
-            </div>
-            <div className="rounded-2xl px-5 py-3.5 text-sm bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700/60 rounded-bl-md shadow-sm">
-              <div className="flex gap-1.5">
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              </div>
-            </div>
-          </div>
-        )}
-        <div ref={messagesEnd} />
-      </div>
 
-      {/* Input area */}
-      <div className="border-t border-gray-200 dark:border-gray-800 pt-3 shrink-0">
-        {canSend ? (
-          <div className="relative flex items-end gap-2">
-            {/* Command palette trigger */}
-            <div className="relative">
               <button
-                ref={cmdBtnRef}
                 type="button"
-                onClick={() => setCmdOpen(!cmdOpen)}
-                className={cn(
-                  'p-3 rounded-xl transition-all duration-200',
-                  cmdOpen
-                    ? 'bg-accent/15 text-accent ring-1 ring-accent/30'
-                    : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.06]',
-                )}
-                title={t('chat.commands')}
+                onClick={() => composerRef.current?.focus()}
+                className="ch-focus flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[color:var(--ch-ink3)] transition-colors hover:text-[color:var(--ch-ink)]"
+                title={copy.attachHint}
+                aria-label={copy.attachHint}
               >
-                <Slash size={18} />
+                <Plus size={18} />
               </button>
-              <CommandPalette
-                open={cmdOpen}
-                onClose={() => setCmdOpen(false)}
-                onSelect={handleCmdSelect}
-                anchorRef={cmdBtnRef}
-              />
-            </div>
 
-            {/* Text input */}
-            <div className="flex-1 relative">
-              <input
+              <textarea
+                ref={composerRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={t('chat.inputPlaceholder')}
-                className="w-full px-4 py-3 text-sm rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-colors placeholder:text-gray-400"
-                disabled={sending}
+                rows={1}
+                aria-label={t('chat.inputPlaceholder')}
+                className="max-h-[152px] min-h-[36px] flex-1 resize-none bg-transparent px-1 py-2 text-[14px] leading-[22px] text-[color:var(--ch-ink)] outline-none placeholder:text-[color:var(--ch-ink3)]"
               />
-            </div>
 
-            {/* Send button */}
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={sending || !input.trim()}
-              className="p-3 rounded-xl bg-accent text-black hover:bg-accent-dim transition-colors disabled:opacity-50 flex items-center"
-            >
-              {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-            </button>
-          </div>
-        ) : !bridgeCfg ? (
-          <div className="flex items-center gap-2 px-4 py-3 text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-xl">
-            <WifiOff size={14} />
-            <span>{t('sessions.bridgeNotAvailable')}</span>
-          </div>
-        ) : bridgeStatus === 'disconnected' || bridgeStatus === 'error' ? (
-          <div className="flex items-center gap-2 px-4 py-3 text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-xl">
-            <WifiOff size={14} />
-            <span>{t('sessions.bridgeDisconnected')}</span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 px-4 py-3 text-sm text-gray-400 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
-            <Loader2 size={14} className="animate-spin" />
-            <span>{t('sessions.bridgeConnecting')}</span>
-          </div>
-        )}
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={sending || !input.trim()}
+                className="ch-focus mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-black transition-[filter,transform] hover:brightness-[1.04] active:translate-y-px disabled:opacity-40"
+                style={{ background: 'var(--ch-accent)' }}
+                aria-label={copy.startChat}
+              >
+                {sending ? <Loader2 size={17} className="animate-spin" /> : <Send size={17} />}
+              </button>
+            </div>
+          ) : !bridgeCfg ? (
+            <div className="flex items-center gap-2 rounded-[16px] bg-amber-500/10 px-4 py-3 text-[13px] text-amber-700 dark:text-amber-400">
+              <WifiOff size={14} />
+              <span>{t('sessions.bridgeNotAvailable')}</span>
+            </div>
+          ) : bridgeStatus === 'disconnected' || bridgeStatus === 'error' ? (
+            <div className="flex items-center gap-2 rounded-[16px] bg-amber-500/10 px-4 py-3 text-[13px] text-amber-700 dark:text-amber-400">
+              <WifiOff size={14} />
+              <span>{t('sessions.bridgeDisconnected')}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-[16px] px-4 py-3 text-[13px] text-[color:var(--ch-ink3)]" style={{ background: 'var(--ch-sub)' }}>
+              <Loader2 size={14} className="animate-spin" />
+              <span>{t('sessions.bridgeConnecting')}</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Session drawer */}
