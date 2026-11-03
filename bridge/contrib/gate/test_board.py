@@ -356,6 +356,11 @@ class BoardEvents(unittest.TestCase):
         self.assertEqual(evs[4]["note"], "等显卡")
         self.assertIsNotNone(datetime.fromisoformat(evs[0]["ts"]).tzinfo)
 
+    def test_workspace_prefix_without_number(self):
+        board.add("无数字工作区", "-", "进行中", "工作区gge", short_name="无数字")
+        board.add("带数字工作区", "-", "进行中", "工作区1gge", short_name="带数字")
+        self.assertEqual([e["to"] for e in self.events()], ["gge", "gge"])
+
     def test_returned_and_reject_entry_points(self):
         board.add("被验收的活", "-", "进行中", "肥鱼", short_name="验收")
         self.assertTrue(board.returned(1, "C酱"))

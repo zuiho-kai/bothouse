@@ -191,13 +191,13 @@ def short(it):
 EVENTS = "board-events.jsonl"
 _EVENT_SPLIT = re.compile(r"[、,，/]")
 _EVENT_TAG = re.compile(r"[（(].*$")
-_EVENT_WS = re.compile(r"^工作区\d+\s*")
+_EVENT_WS = re.compile(r"^工作区\d*\s*")
 _RETURNED_RE = re.compile(r"已交|交回|result_ready", re.I)
 _REJECTED_RE = re.compile(r"退回|打回|返工")
 
 
 def _member(who):
-    """who 里第一个成员名：「肥鱼（复审）」「肥鱼、C酱」「工作区1肥鱼」都取 肥鱼。"""
+    """who 里第一个成员名：「肥鱼（复审）」「肥鱼、C酱」「工作区1肥鱼」「工作区gge」都取后面的成员名。"""
     s = _EVENT_TAG.sub("", _EVENT_SPLIT.split(str(who or ""), 1)[0]).strip()
     return _EVENT_WS.sub("", s).strip()
 
