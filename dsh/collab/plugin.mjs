@@ -229,7 +229,8 @@ export async function apply(ctx, rawConfig) {
       if ((path === '/collab' || path === '/collab/desk') && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
       return refuse(req, res);
     }
-    const deskHandled = deskRoute(req, res, url, { store, boardDir: config.boardDir });
+    // #876 P: 回放里的 @ 用 hub 的成员表解析（routable = 真实角色，不含主人）。
+    const deskHandled = deskRoute(req, res, url, { store, boardDir: config.boardDir, members: hub.routable() });
     if (deskHandled !== undefined) return deskHandled;
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/personas' && req.method === 'GET') return json(res, 200, personaLibrary(url.searchParams.get('lang') ?? 'zh'));
