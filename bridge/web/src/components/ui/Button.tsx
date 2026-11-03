@@ -8,19 +8,33 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
 }
 
+// One transition for every variant: colour + elevation + a 1px press. Durations and curves come
+// from the token ladder (--ui-dur-base 240ms / --ui-dur-press 120ms, --ui-ease-out) instead of
+// ad-hoc values, so all buttons move at the same rhythm.
+const base =
+  'relative inline-flex items-center justify-center gap-2 overflow-hidden font-medium select-none ' +
+  'transition-[background-color,box-shadow,transform,color,border-color] duration-base ease-ui-out ' +
+  'active:translate-y-px active:duration-press ' +
+  'focus-visible:outline-none focus-visible:shadow-ui-ring ' +
+  'disabled:opacity-50 disabled:pointer-events-none';
+
 const variants = {
-  primary: 'bg-accent text-white dark:text-black yellow:text-gray-900 hover:bg-accent-dim font-medium dark:shadow-[0_0_20px_-6px_rgba(66,255,156,0.55)]',
+  // Filled accent with a top-edge gloss instead of a coloured glow (glow reads cheap, §4).
+  primary:
+    'bg-accent text-white dark:text-black yellow:text-gray-900 shadow-ui-gloss-1 ' +
+    'hover:bg-accent-dim hover:shadow-ui-gloss-2',
   secondary:
-    'bg-gray-100/90 dark:bg-white/[0.08] text-gray-700 dark:text-gray-300 hover:bg-gray-200/90 dark:hover:bg-white/[0.12] border border-transparent dark:border-white/[0.06]',
-  danger: 'bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20',
+    'bg-surface-sunken text-ink-soft shadow-ui-1 hover:bg-accent-wash hover:text-ink hover:shadow-ui-2',
+  danger: 'bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20 shadow-ui-1',
   ghost:
-    'text-gray-500 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-white/[0.06] hover:text-gray-700 dark:hover:text-gray-200',
+    'text-ink-soft hover:bg-surface-sunken hover:text-ink focus-visible:bg-surface-sunken',
 };
 
+// Control radius is 8px for sm/md; lg steps to the card radius (14) so a big CTA reads as a card.
 const sizes = {
-  sm: 'px-3 py-1.5 text-xs rounded-lg',
-  md: 'px-4 py-2 text-sm rounded-lg',
-  lg: 'px-6 py-2.5 text-sm rounded-xl',
+  sm: 'px-3 py-1.5 text-xs rounded-control',
+  md: 'px-4 py-2 text-sm rounded-control',
+  lg: 'px-6 py-2.5 text-sm rounded-card',
 };
 
 export function Button({
@@ -34,17 +48,13 @@ export function Button({
 }: ButtonProps) {
   return (
     <button
-      className={cn(
-        'inline-flex items-center justify-center gap-2 font-medium transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none',
-        variants[variant],
-        sizes[size],
-        className
-      )}
+      className={cn(base, variants[variant], sizes[size], className)}
       disabled={disabled || loading}
+      aria-busy={loading || undefined}
       {...props}
     >
       {loading && (
-        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" aria-hidden>
+        <svg className="animate-spin h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden>
           <circle
             className="opacity-25"
             cx="12"
