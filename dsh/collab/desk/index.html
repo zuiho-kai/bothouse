@@ -295,7 +295,91 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
 <script type="application/json" id="roster">{"members":[]}</script>
 <script type="application/json" id="fixtureData">[]</script>
 <script>
-/* __JS_MODEL__ */
+const $ = id => document.getElementById(id);
+const q = (sel, root = document) => root.querySelector(sel);
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const svgEl = (tag, attrs = {}) => { const n = document.createElementNS(SVG_NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); return n; };
+const norm = v => String(v ?? '').trim().toLowerCase().replace(/[\s\u3000]+/g, '');
+const msOf = v => { if (typeof v === 'number') return v < 1e12 ? v * 1000 : v; const n = Date.parse(String(v ?? '')); return Number.isFinite(n) ? n : null; };
+const fmtTime = v => { const n = msOf(v); if (n == null) return '--:--'; const d = new Date(n); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+const fmtFull = v => { const n = msOf(v); if (n == null) return '--'; const d = new Date(n); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`; };
+const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+const KIND = { created: '新建', assigned: '派活', returned: '交回', rejected: '打回', paused: '暂停', done: '完成', at: '@' };
+const PALETTE = ['#e0a458', '#6cb6ff', '#59d3a5', '#c78df2', '#f08a8a', '#78d0d8', '#d9b36c'];
+const SHIRTS = ['#3b5270', '#4a3d68', '#2f5d55', '#5a4430', '#3c4f73', '#5a3f52'];
+const hashOf = s => [...String(s ?? '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+const colorOf = s => PALETTE[hashOf(s) % PALETTE.length];
+const shirtOf = s => SHIRTS[hashOf(s) % SHIRTS.length];
+
+const ROSTER = (() => { try { return JSON.parse($('roster').textContent) ?? { members: [] }; } catch { return { members: [] }; } })();
+const FIXTURE = (() => { try { const v = JSON.parse($('fixtureData').textContent); return Array.isArray(v) ? v : []; } catch { return []; } })();
+
+const S = {
+  me: null, memberList: [], byId: new Map(), alias: new Map(), rosterFor: new Map(),
+  lead: null, active: new Map(), thinkingRooms: new Map(), thinking: new Set(), dispatched: new Set(),
+  fixture: false, mode: 'live', eventCount: 0, logLimit: 80,
+  replay: { events: [], idx: 0, timer: null, playing: false, speed: 4, loaded: false, auto: false },
+};
+
+function matchRoster(m) {
+  const id = norm(m.id), name = norm(m.name);
+  for (const rm of ROSTER.members ?? []) {
+    const cand = [rm.project, rm.name, ...(rm.aliases ?? [])];
+    if (cand.some(k => norm(k) === id || norm(k) === name)) return rm;
+  }
+  return undefined;
+}
+
+function indexMembers(list) {
+  S.memberList = (Array.isArray(list) ? list : []).filter(m => m && m.kind !== 'human' && m.id);
+  S.byId = new Map(); S.alias = new Map(); S.rosterFor = new Map();
+  for (const m of S.memberList) {
+    const rm = matchRoster(m);
+    S.rosterFor.set(m.id, rm);
+    for (const k of [m.id, m.name, rm?.project, rm?.name, ...(rm?.aliases ?? [])]) if (k) S.alias.set(norm(k), m);
+  }
+  for (const id of [...S.active.keys()]) if (!S.byId.has(id)) S.active.delete(id);
+}
+
+function resolveRef(ref) {
+  const raw = String(ref ?? '').trim();
+  if (!raw) return null;
+  const direct = S.alias.get(norm(raw));
+  if (direct) return direct;
+  let s = raw.replace(/（[^）]*）|\([^)]*\)/g, '').replace(/工作区\s*\d*/g, '');
+  for (const part of s.split(/[；;\/、,，]+/)) {
+    let k = norm(part);
+    if (!k) continue;
+    if (S.alias.has(k)) return S.alias.get(k);
+    k = k.replace(/^(?:给|派给|由)/, '');
+    if (S.alias.has(k)) return S.alias.get(k);
+    const ascii = k.match(/[a-z0-9_-]{2,}/);
+    if (ascii && S.alias.has(ascii[0])) return S.alias.get(ascii[0]);
+  }
+  return null;
+}
+
+const displayName = m => m?.name || S.rosterFor.get(m?.id)?.name || m?.id || '未知';
+function avatarSpec(m) {
+  const rm = S.rosterFor.get(m.id);
+  const v = String(m.avatar || rm?.avatar || '').trim();
+  if (/^https?:\/\//i.test(v)) return { src: v };
+  if (v.startsWith('upload:')) return { src: '/collab/avatars/uploads/' + encodeURIComponent(v.slice(7).replace(/\.png$/i, '')) + '.png' };
+  if (v) return { src: '/collab/avatars/' + encodeURIComponent(v.replace(/\.png$/i, '')) + '.png' };
+  return { init: Array.from(displayName(m))[0] || '?', color: colorOf(m.id) };
+}
+
+function findActive(id) {
+  for (const [memberId, rec] of S.active) if (rec.id === id) return { memberId, rec };
+  return null;
+}
+function setTask(member, rec) {
+  if (!member) return;
+  for (const [id, cur] of S.active) if (cur.id === rec.id && id !== member.id) S.active.delete(id);
+  S.active.set(member.id, rec);
+}
+function clearTask(memberId) { S.active.delete(memberId); }
 /* __JS_RENDER__ */
 /* __JS_BEAMS__ */
 /* __JS_EVENTS__ */
