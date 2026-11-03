@@ -953,6 +953,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
         event.preventDefault()
         setOwnNotice(undefined)
         setEditing({ id: last.id, text: last.text })
+        requestAnimationFrame(() => { logRef.current?.querySelector(`[data-message-id="${last.id}"]`)?.scrollIntoView?.({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' }) })
         return
       }
     }
