@@ -628,6 +628,7 @@ type queuedMessage struct {
 	// #618 K4: Message.resumedFrom/timerJobID/resumeNoProgress/resumeFallback, kept across the queue.
 	resumedFrom       string
 	timerJobID        string
+	cronJobID         string
 	resumeNoProgress  int
 	resumeFallback    string
 	messageID         string
@@ -750,6 +751,8 @@ type interactiveState struct {
 	// currentJobID: the timer job this turn is running (a workspace-handback wake settles
 	// against it, team_report_delivery.go); empty for a user turn. Guarded by mu.
 	currentJobID string
+	// scheduledWatch: the token of the time limit armed for this turn (armScheduledTurnTimeout); 0 none.
+	scheduledWatch uint64
 	// queuedBehindCompact: messages queued here while a native /compact held the
 	// session (enqueueForBusySession). Only then may a placeholder state with no
 	// agent session start a turn from its queue (drainOrphanedQueue). Guarded by mu.
@@ -1898,6 +1901,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 
 	msg := &Message{
 		turnTrigger:  TurnTriggerCron,
+		cronJobID:    job.ID,
 		SessionKey:   sessionKey,
 		Platform:     platformName,
 		UserID:       "cron",
@@ -4034,6 +4038,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		turnTrigger:         msg.turnTrigger,
 		resumedFrom:         msg.resumedFrom,
 		timerJobID:          msg.timerJobID,
+		cronJobID:           msg.cronJobID,
 		resumeNoProgress:    msg.resumeNoProgress,
 		resumeFallback:      msg.resumeFallback,
 		scheduledBackfilled: msg.scheduledBackfilled,
@@ -4898,6 +4903,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		state.turnScheduled = scheduledTurnUser(msg.UserID)
 		state.currentJobID = msg.timerJobID
 		state.mu.Unlock()
+		e.armScheduledTurnTimeout(state, interactiveKey, msg.turnTrigger, msg.timerJobID, msg.cronJobID, msg.UserID)
 
 		// Run Send concurrently with processInteractiveEvents. Some agents block inside
 		// Send until the prompt turn finishes (e.g. ACP session/prompt); they may emit
@@ -7635,6 +7641,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				state.turnScheduled = scheduledTurnUser(queued.userID)
 				state.currentJobID = queued.timerJobID
 				state.mu.Unlock()
+				e.armScheduledTurnTimeout(state, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.userID)
 				unwatch()
 				changed, unwatch, watchErr = e.watchTurnAuthorization(queued.authorization)
 				outputCtx, contextErr = e.turnOutputContext(queued.authorization)
@@ -8241,6 +8248,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		state.mu.Lock()
 		state.currentJobID = queued.timerJobID
 		state.mu.Unlock()
+		e.armScheduledTurnTimeout(state, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.userID)
 		var attemptPrompt string
 		e.runTurnWithCapacityRetry(state, session, sessions, sessionKey, queued.messageID, time.Now(), stopTyping, queued.replyCtx, nil,
 			func() { // per attempt, like the direct turn: a capacity retry needs a live run

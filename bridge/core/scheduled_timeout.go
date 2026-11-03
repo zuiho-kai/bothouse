@@ -3,6 +3,8 @@ package core
 import (
 	"log/slog"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // scheduledTurns maps a running scheduled turn (cron job, timer job, heartbeat) to the
@@ -45,3 +47,68 @@ func (e *Engine) StopScheduledTurn(runID string) bool {
 }
 
 func heartbeatRunID(sessionKey string) string { return "heartbeat:" + sessionKey }
+
+// scheduledTurnCovered reports whether a scheduler (or a restart resume) already waits on a turn
+// under iKey with its own time limit (noteScheduledTurn).
+func (e *Engine) scheduledTurnCovered(iKey string) bool {
+	scheduledTurnsMu.Lock()
+	defer scheduledTurnsMu.Unlock()
+	for _, k := range e.scheduledTurns {
+		if k == iKey {
+			return true
+		}
+	}
+	return false
+}
+
+// scheduledTurnLimit is the time limit of a cron/timer turn: a timer turn its job's (the 30m
+// default when the job is gone), a cron turn its cron job's (the default when the job is gone), a workspace wake-up only its job's own; none for anything else.
+func (e *Engine) scheduledTurnLimit(trigger, timerJobID, cronJobID string) time.Duration {
+	if trigger == TurnTriggerCron && cronJobID != "" && e.cronScheduler != nil && e.cronScheduler.store != nil {
+		if job := e.cronScheduler.store.Get(cronJobID); job != nil {
+			return job.ExecutionTimeout()
+		}
+	}
+	return e.turnResumeTimeout(TurnJournalEntry{Trigger: trigger, TimerJobID: timerJobID})
+}
+
+var scheduledWatchSeq atomic.Uint64
+
+// armScheduledTurnTimeout runs as every turn starts. A cron/timer turn that no scheduler waits
+// on (it queued behind another turn and started after the scheduler moved on, or came back
+// after a capacity cooldown) gets its job's time limit here and is stopped when it runs out,
+// as StopScheduledTurn stops a direct run. 11-03 caihongmao: her queued outing turns had no
+// limit at all. Any turn start replaces the token, so a later turn on the session is never
+// stopped by an earlier turn's limit.
+func (e *Engine) armScheduledTurnTimeout(state *interactiveState, iKey, trigger, timerJobID, cronJobID, userID string) {
+	if state == nil {
+		return
+	}
+	state.mu.Lock()
+	state.scheduledWatch = 0
+	state.mu.Unlock()
+	if !scheduledTurnUser(userID) || userID == "heartbeat" || e.scheduledTurnCovered(iKey) {
+		return
+	}
+	limit := e.scheduledTurnLimit(trigger, timerJobID, cronJobID)
+	if limit <= 0 {
+		return
+	}
+	tok := scheduledWatchSeq.Add(1)
+	state.mu.Lock()
+	state.scheduledWatch = tok
+	state.mu.Unlock()
+	time.AfterFunc(limit, func() {
+		state.mu.Lock()
+		same := state.scheduledWatch == tok
+		state.mu.Unlock()
+		if !same {
+			return
+		}
+		if j := e.turnJournalStore(); j != nil && j.Active(iKey) == "" {
+			return // the turn already ended
+		}
+		stopped := e.stopInteractiveSession(iKey, nil, nil)
+		slog.Warn("queued scheduled turn timed out; stopping it", "project", e.name, "session", iKey, "trigger", trigger, "timer_job", timerJobID, "cron_job", cronJobID, "limit", limit, "stopped", stopped)
+	})
+}
