@@ -16,9 +16,9 @@
 [![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
 
-**botHouse：一个单 / 多 agent 的团队协作平台。一个人、一个模型也能用，一个团队也能用，大家共享同一份项目记忆。**
+**botHouse：一个单 / 多 agent 的团队协作平台。团队成员，或者自己单人、单模型都能用，不同会话和模型共享同一份项目记忆。**
 
-主力支持 Discord、DSH、QQ 接入；Claude Code、Codex、反重力、DSH、Grok 这些你已经登录好的 agent CLI，直接当队友。
+主力支持 Discord、DSH、QQ 接入，可以接入不同的 agent CLI：Claude Code、Codex、反重力、DSH、Grok。
 
 [宣传片](#video) · [DSH 用户](#dsh) · [安装](#install) · [能力](#features) · [截图](#screenshots) · [记忆](#memory) · [对比](#compare) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
 
@@ -36,31 +36,18 @@
 
 <a id="dsh"></a>
 
-## DSH 用户：一句话装上，一个 DeepSeek 拉出一整个团队
+## DSH 用户也能玩：一句话装上，单模型拉多角色
 
-在 DSH 里说一句「帮我装插件 bothouse-dsh，按 npm 上的最新版本号装」，就装好了。装完频道里已经有一个主角色，单模型、单角色直接开聊、直接派活；DSH 已有的插件照常用。
+在 DSH 里说一句「帮我装 bothouse-dsh」就能装上。单模型单角色也能玩，DSH 已有的插件照常用，热门插件也在做适配。
 
-想要一群角色？对主角色说一句：
+想拉单模型多角色，对主角色说一句：
 
 > 帮我搭一个小团队：写手、程序员，模型都用 deepseek-v4.1-flash，拉个频道
 
-角色建好、拉进频道，主角色拆活、派给她们，干完交回。只有一个 DeepSeek 也够了：成员的区别来自名字、人设和各自的会话，不要求模型不同。
-
 <table><tr>
-<td width="50%"><img src="docs/assets/readme/demo/dsh-oneline-team.jpg" alt="DSH 里对鲸鱼娘说一句，8 秒建好写手和程序员"><br>说一句，8 秒建好两个角色</td>
-<td width="50%"><img src="docs/assets/readme/demo/dsh-oneline-team-channel.jpg" alt="新频道小团队里三个角色都在线"><br>新频道里三个角色已就位，主角色接活</td>
+<td width="50%"><img src="docs/assets/readme/demo/dsh-oneline-team.jpg" alt="DSH 里对主角色说一句，建好写手和程序员"><br>说一句，建好两个角色</td>
+<td width="50%"><img src="docs/assets/readme/demo/dsh-oneline-team-channel.jpg" alt="新频道里三个角色都在"><br>新频道里角色已就位</td>
 </tr></table>
-
-<details>
-<summary>用命令行装</summary>
-
-```sh
-dsh plugin --profile web add "bothouse-dsh@$(npm view bothouse-dsh version)"
-```
-
-带上版本号能直接装到 npm 上的最新版。也可以在 DSH 侧栏「插件」→「添加插件」里填 `bothouse-dsh@<npm 上的最新版本号>`。不带版本号的话，DSH 用的 pnpm 会暂缓刚发布的版本，装到的是旧版。一个个手动加成员、选 Codex / Claude Code 当成员，见[同模型多成员指南](docs/single-cli-team.md#在-dsh-里创建三个成员)。
-
-</details>
 
 ## 用起来是什么样
 
@@ -97,10 +84,10 @@ Windows 命令、安装包下载、常驻后台和 DSH 频道见[上手指南](d
 | 你想要 | bothouse 怎么帮你 |
 | --- | --- |
 | **一支自己的 AI 小团队** | 把已经登录好的 Claude Code、Codex、反重力、DSH、Grok、Gemini CLI、OpenCode 拉进群，每个角色有自己的名字、人设和会话。 |
-| **一个人、一个模型也能用** | 单模型单角色直接开聊、直接派活。只有一个 Codex 或一个 DeepSeek 账号？照样建几个成员，分工各管一摊，在群里 @ 来 @ 去地派活。 |
-| **DSH 里一句话拉团队** | 在 DSH 里说一句就装好插件；再对主角色说一句，写手、程序员这些角色就建好、拉进频道。 |
+| **一个账号也能组队** | 单模型单角色也能玩。只有一个 Codex 或一个 DeepSeek 账号？照样建几个成员，分工各管一摊，在群里 @ 来 @ 去地派活。 |
+| **DSH 用户也能玩** | 在 DSH 里说一句「帮我装 bothouse-dsh」就能装上，单模型也能拉多角色；DSH 已有的插件照常用。 |
 | **在常用的聊天软件里找它** | 在 Discord、飞书、QQ、自建网页或 DSH web 里 @ 它；Discord 和飞书本来就有手机版，躺床上也能派活。 |
-| **聊天不卡，大活另开** | 大一点的活交给单独的工作区去做，主角色继续陪你聊；工作区看得到你的原话和项目记忆，做完交回，需要你拍板时才叫你。 |
+| **聊天不卡，大活另开** | 大一点的活交给单独的工作区去做，主角色继续陪你聊；工作区也能查看你的原话和项目记忆，做完交回，需要你拍板时才叫你。 |
 | **大家记得同一件事** | 所有角色读写同一份记忆，换一个角色接手，不用你再讲一遍背景。 |
 | **晚上自己复盘** | 夜里核对白天记下的东西，纠错去重；你反复纠正的地方会整理成候选规则，你点头才生效。 |
 | **长任务不跑偏** | 每次交接都带上你的原话；另一个 AI 用干净的上下文验收；说「修好了」要拿证据。 |
@@ -142,7 +129,7 @@ _上面两张是真实频道录屏，下面两张是作者自己在用的管理�
 
 团队的记忆就是一个普通的 Markdown 文件夹。每条消息进来，先查相关的几页再回答；夜里自动复盘，把记错的改掉。你可以直接翻、直接改；它用 Git 记下每一次改动，推到你自己的 GitHub 私人仓库，换台电脑也能接着用。
 
-- **记忆论坛**：每轮按关键词挑出相关记忆，只注入标题，角色要用再去翻原文。用上的、用错的都会投票，好用的记忆往前排，过时的沉底。开销很小，但能有效解决返工和个人习惯的问题，少一点「同一件事说第二遍」。这个思路是从 vLLM 那边学来的。
+- **记忆论坛**：每轮按关键词挑出相关记忆，只注入标题，角色要用再去翻原文。开销很小，但能有效解决返工和个人习惯的问题，减少「同一件事说第二遍」。这个思路是从 vLLM 那边学来的。
 - **开销小**：不上知识图谱那套增删改查，也不常驻向量库，开销和内存都小。
 
 详见[调度与团队记忆](docs/ccm-and-wiki.md)。
@@ -161,7 +148,7 @@ _上面两张是真实频道录屏，下面两张是作者自己在用的管理�
 聊天频道一直不停；只有要你拍板的事才回到聊天频道，别的不打扰你。
 
 - **主 agent 拆活，不搞语义路由**：真正的活由主角色拆好，按能力和额度派出去。默认主角色接话，其他角色跟着看，被 @ 或点名才回，五个 AI 在一个群里也不会一起抢话。没点名的消息由轻量调度模块 jev（一个只做选择题的小模型）判断该谁接；它能用硅基流动的免费小模型，也能用本地 Qwen 0.6B。
-- **工作区接活不从头摸**：工作区接活时带着你的原话和项目记忆；首轮就注入代码地图和项目地图，交回时把新摸清的位置补进地图，下一个接手的不用从头读代码。
+- **工作区首轮注入**：工作区也能查看你的原话和项目记忆；为了减少工作区每次新开始的开销，首轮注入代码地图和项目地图。
 - **共享记忆**：基于我们开源的 llm-wiki 扩展成多角色共用的记忆，存在本地 Markdown 里，能直接读、直接改，Git 记录团队学到的东西。
 - **夜间复盘**：会话结束、闲置 30 分钟或出错时，快模型把进度记进 Wiki。夜里换更慢但更细的免费模型，对照原始对话纠错补漏，周日再全量查一遍。引用你的话会被代码逐字核对，编造的引用直接拒掉。
 - **护栏和工具**：拦危险命令；说「修好了」要附验证证据，说「稍后看」要挂定时器；在群里一句话就能关掉某项检查。自带的工具有：看队友进度、视频抽帧和转写、联网搜索，还有查分身（子 agent）干了多久、现在什么状态。
@@ -177,7 +164,7 @@ Discord 和飞书本来就有手机和电脑客户端，不用再包一层 App�
 | 自建网页 | 团队模式 | 本地运行、像 Discord 的网页，多角色、@、派活交回 |
 | 飞书（Lark） | 单角色 | 和接上的一个角色对话 |
 | QQ 官方机器人 | 手动配置 | 群聊/私聊，群里 @ 人、@全体，见 [QQ 机器人](bridge/docs/qqbot.md) |
-| DSH web | 插件 | DSH 网页里的频道页：多成员、主角色、工作区、任务板，一句话拉团队，见 [DSH 频道](dsh/collab/README.md) |
+| DSH web | 主力支持 | DSH web 里的频道页，见 [DSH 频道](dsh/collab/README.md) |
 
 QQ / NapCat 用户可手动配 [OneBot 适配器](bridge/docs/qq.md)。
 
@@ -267,8 +254,8 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 - **角色包和插件市场**：人设、记忆模板和工具打包一键装，逛社区角色。
 - **可携带的记忆和语义搜索**：Wiki 跟着人走，关键词之外加语义检索。
 - **工作区自动清理**：最后一件活交完就清上下文。
-- **更多群聊平台**：完整团队模式扩到 Telegram、Slack、QQ 和企业微信。
-- **DSH 热门插件深度适配**：DSH 生态里的热门插件，在 bothouse 团队里开箱即用。
+- **更多群聊平台**：完整团队模式扩到 Telegram、Slack 和企业微信。
+- **DSH 热门插件深度适配**：复用 DSH 插件生态，热门插件我们也会做深度适配。
 - **硬件适配**：适配小智硬件，让她们从屏幕里走出来，让 botHouse 落到现实里。
 
 <a id="docs"></a>
@@ -277,7 +264,7 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 
 欢迎贡献，先读 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [AGENTS.md](AGENTS.md)。带网页面板的源码构建要先构建前端、再编译 Go，且不加 `no_web`，见[面板构建](docs/dashboard-source-build.md)。
 
-更多见[上手指南](docs/GETTING_STARTED.md) · [DSH 插件](docs/platforms/dsh.md) · [一个 CLI 组团队](docs/single-cli-team.md) · [接入 Discord 和飞书](docs/connect-discord-feishu.md) · [参与方式与成本](docs/connect-discord-feishu.md#5-jev-和主角色) · [模型与推理档位](docs/model-and-reasoning.md) · [主动跟进授权](docs/PROACTIVE_AUTHORIZATION.md) · [任务结果发送回执](docs/TASK_TEXT_DELIVERY.md) · [Codex 会话隔离](docs/codex-session-isolation.md) · [调度与团队记忆](docs/ccm-and-wiki.md) · [角色包](docs/persona-packs.md) · [分角色 Wiki 与夜间反思](bridge/contrib/wiki/README.md) · [护栏和工具](bridge/contrib/hooks/README.md) · [记忆读取频率报告](docs/READ_FREQUENCY.md) · [用量接口](docs/api/usage.md) · [自建网页协议](bridge/docs/cloud-web.md) · [架构](docs/ARCHITECTURE.md) · [主角色协作脚本](bridge/contrib/lead/README.md)
+更多见[上手指南](docs/GETTING_STARTED.md) · [一个 CLI 组团队](docs/single-cli-team.md) · [接入 Discord 和飞书](docs/connect-discord-feishu.md) · [参与方式与成本](docs/connect-discord-feishu.md#5-jev-和主角色) · [Codex 会话隔离](docs/codex-session-isolation.md) · [调度与团队记忆](docs/ccm-and-wiki.md) · [角色包](docs/persona-packs.md) · [分角色 Wiki 与夜间反思](bridge/contrib/wiki/README.md) · [护栏和工具](bridge/contrib/hooks/README.md) · [记忆读取频率报告](docs/READ_FREQUENCY.md) · [用量接口](docs/api/usage.md) · [自建网页协议](bridge/docs/cloud-web.md) · [架构](docs/ARCHITECTURE.md) · [主角色协作脚本](bridge/contrib/lead/README.md)
 
 <a id="community"></a>
 
