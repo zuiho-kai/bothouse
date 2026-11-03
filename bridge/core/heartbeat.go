@@ -383,6 +383,7 @@ func (hs *HeartbeatScheduler) execute(entry *heartbeatEntry) {
 	case err = <-done:
 	case <-time.After(timeout):
 		err = fmt.Errorf("heartbeat timed out after %v", timeout)
+		entry.engine.StopScheduledTurn(heartbeatRunID(cfg.SessionKey))
 	}
 
 	hs.mu.Lock()

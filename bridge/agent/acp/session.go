@@ -852,7 +852,7 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 			_, detail := splitCursorStreamError(streamErrCandidate)
 			backendErr := s.backendErrorForStream(detail)
 			s.emit(core.Event{Type: core.EventError, SessionID: sid, Error: backendErr})
-			return fmt.Errorf("acp: session/prompt: %w", backendErr)
+			return nil
 		}
 	}
 	if strict {
@@ -867,8 +867,15 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 		err = fmt.Errorf("acp: prompt did not complete successfully (%s)", result.StopReason)
 	}
 	if err != nil {
+		if s.ctx.Err() != nil {
+			// A closed session cannot deliver events. Report cancellation only
+			// through Send, rather than publishing a competing terminal event.
+			return fmt.Errorf("acp: session/prompt: %w", s.ctx.Err())
+		}
+		// Prompt updates and their terminal outcome share one ordered stream.
+		// Returning this error as well would race those updates in the engine.
 		s.emit(core.Event{Type: core.EventError, Error: err})
-		return fmt.Errorf("acp: session/prompt: %w", err)
+		return nil
 	}
 	slog.Debug("acp: session/prompt response", "session_id", sid, "response_len", len(res))
 	if !validResult || result.StopReason != "end_turn" {
@@ -1055,7 +1062,7 @@ func (s *acpSession) Close() error {
 		done := make(chan struct{})
 		go func() {
 			s.wg.Wait()
-			// RPC cancellation wakes Send, which still publishes its error.
+			// RPC cancellation wakes Send, which reports cancellation to its caller.
 			// Wait for that producer as well as the reader/permission workers.
 			s.sendMu.Lock()
 			close(s.events)

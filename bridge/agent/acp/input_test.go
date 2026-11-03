@@ -151,11 +151,12 @@ func TestStrictPromptCompletionAndSessionIsolation(t *testing.T) {
 				_, _ = s.tr.call(s.ctx, "test/barrier", nil)
 			}
 			<-done
-			if (err == nil) != tc.ok {
-				t.Fatalf("error=%v want success=%v", err, tc.ok)
+			if err != nil {
+				t.Fatalf("terminal failure escaped the ordered event stream: %v", err)
 			}
 			var text string
 			success := false
+			failures := 0
 			for len(s.events) > 0 {
 				ev := <-s.events
 				if ev.Type == core.EventText {
@@ -164,9 +165,15 @@ func TestStrictPromptCompletionAndSessionIsolation(t *testing.T) {
 				if ev.Type == core.EventResult {
 					success = true
 				}
+				if ev.Type == core.EventError {
+					failures++
+				}
 			}
 			if success != tc.ok {
 				t.Fatalf("success=%v for %s", success, tc.name)
+			}
+			if (tc.ok && failures != 0) || (!tc.ok && failures != 1) {
+				t.Fatalf("terminal failures=%d, success=%v", failures, tc.ok)
 			}
 			if strings.Contains(text, "old") || strings.Contains(text, "late") {
 				t.Fatalf("unrelated output escaped: %q", text)

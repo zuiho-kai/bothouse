@@ -7,15 +7,18 @@ interface CardProps {
   hover?: boolean;
 }
 
+// 静置卡片只有 1px 边框：应用界面房规「边框或阴影，不可同时」，阴影留给真正浮起来的东西。
+// hover 只改 transform 与边框色，不改宽高（§3「卡片状态切换」不重排）。
 export function Card({ children, className, hover }: CardProps) {
   return (
     <div
       className={cn(
-        'rounded-xl p-5 transition-all duration-200 animate-float-in',
-        'bg-white/80 backdrop-blur-md border border-gray-200/90',
-        'dark:bg-[rgba(0,0,0,0.55)] dark:backdrop-blur-xl dark:border-white/[0.08]',
+        'relative rounded-card p-5',
+        // 房规：静置卡片「边框或阴影，不可同时」；浮层才用阴影
+        'border border-hairline bg-surface',
+        'transition-[box-shadow,transform,background-color] duration-state ease-ui-standard',
         hover &&
-          'hover:-translate-y-1 hover:shadow-lg hover:shadow-black/5 dark:hover:shadow-black/30 cursor-pointer',
+          'cursor-pointer hover:-translate-y-0.5 hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text',
         className
       )}
     >
@@ -32,16 +35,9 @@ interface StatCardProps {
 
 export function StatCard({ label, value, accent }: StatCardProps) {
   return (
-    <Card hover>
-      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-        {label}
-      </p>
-      <p
-        className={cn(
-          'text-2xl font-bold mt-1',
-          accent ? 'text-accent' : 'text-gray-900 dark:text-white'
-        )}
-      >
+    <Card>
+      <p className="text-[13px] font-medium text-ink-soft">{label}</p>
+      <p className={cn('mt-1 text-2xl font-semibold tabular-nums', accent ? 'text-accent-text' : 'text-ink')}>
         {value}
       </p>
     </Card>

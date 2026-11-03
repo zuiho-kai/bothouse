@@ -40,7 +40,7 @@ function PreBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) 
   return (
     <div className="not-prose relative group my-4">
       {lang && (
-        <div className="absolute top-0 left-0 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 rounded-tl-lg rounded-br-lg border-b border-r border-gray-200 dark:border-gray-700 font-mono">
+        <div className="absolute top-0 left-0 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 rounded-tl-lg rounded-br-lg border-b border-r border-gray-200 dark:border-gray-700 font-mono" data-ui="code-lang">
           {lang}
         </div>
       )}
@@ -66,7 +66,7 @@ function RenderMarkdown({ content }: { content: string }) {
     <div className={cn(
       'prose max-w-none dark:prose-invert',
       'prose-headings:font-semibold prose-headings:tracking-tight',
-      'prose-h1:text-xl prose-h1:mt-5 prose-h1:mb-3 prose-h1:pb-1.5 prose-h1:border-b prose-h1:border-gray-200 dark:prose-h1:border-gray-700',
+      'prose-h1:text-xl prose-h1:mt-5 prose-h1:mb-3 prose-h1:pb-1.5 prose-h1:border-b prose-h1:border-gray-200 dark:prose-h1:border-gray-700', // taste-skill-ignore: markdown h1 下划线是正文排版，不是页面分割线
       'prose-h2:text-lg prose-h2:mt-5 prose-h2:mb-2',
       'prose-h3:text-base prose-h3:mt-4 prose-h3:mb-2',
       'prose-p:my-2.5 prose-p:leading-relaxed',
@@ -76,7 +76,7 @@ function RenderMarkdown({ content }: { content: string }) {
       'prose-blockquote:border-l-[3px] prose-blockquote:border-accent/40 prose-blockquote:bg-accent/[0.03] prose-blockquote:rounded-r-lg prose-blockquote:py-0.5 prose-blockquote:px-4 prose-blockquote:my-3 prose-blockquote:not-italic prose-blockquote:text-gray-600 dark:prose-blockquote:text-gray-300',
       'prose-hr:my-5 prose-hr:border-gray-200 dark:prose-hr:border-gray-700',
       'prose-table:text-sm prose-th:bg-gray-50 dark:prose-th:bg-gray-800 prose-th:px-3 prose-th:py-2 prose-td:px-3 prose-td:py-2',
-      'prose-img:rounded-lg prose-img:shadow-sm',
+      'prose-img:rounded-lg',
     )}>
       <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={{ pre: PreBlock as any, code: InlineCode as any }}>
         {content}
@@ -123,7 +123,7 @@ function CardBlock({ card, onAction }: { card: any; onAction: (v: string) => voi
 
 function CardElement({ el, onAction }: { el: any; onAction: (v: string) => void }) {
   if (el.type === 'markdown') return <RenderMarkdown content={el.content} />;
-  if (el.type === 'divider') return <hr className="border-gray-200 dark:border-gray-700" />;
+  if (el.type === 'divider') return <hr data-ui="card-divider" className="border-gray-200 dark:border-gray-700" />;
   if (el.type === 'note') return <p className="text-xs text-gray-400">{el.text}</p>;
   if (el.type === 'actions') {
     return (
@@ -170,8 +170,8 @@ function CardElement({ el, onAction }: { el: any; onAction: (v: string) => void 
 function colorToBg(c?: string) {
   const map: Record<string, string> = {
     blue: 'bg-blue-600', green: 'bg-green-600', red: 'bg-red-600', orange: 'bg-orange-500',
-    purple: 'bg-purple-600', grey: 'bg-gray-600', turquoise: 'bg-teal-600', violet: 'bg-violet-600',
-    indigo: 'bg-indigo-600', wathet: 'bg-sky-500', yellow: 'bg-yellow-500', carmine: 'bg-rose-600',
+    purple: 'bg-purple-600', grey: 'bg-gray-600', turquoise: 'bg-teal-600', violet: 'bg-violet-600', // taste-skill-ignore: 平台卡片官方色名映射，取值来自消息数据
+    indigo: 'bg-indigo-600', wathet: 'bg-sky-500', yellow: 'bg-yellow-500', carmine: 'bg-rose-600', // taste-skill-ignore: 同上，非页面强调色
   };
   return map[c || ''] || 'bg-gray-800';
 }
@@ -210,7 +210,7 @@ function FileBlock({ name, size }: { name: string; size?: number }) {
 }
 
 function ImageBlock({ url }: { url: string }) {
-  return <img src={url} alt="" className="max-w-sm rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm" />;
+  return <img src={url} alt="" className="max-w-sm rounded-lg border border-gray-200 dark:border-gray-700" />;
 }
 
 // ── Connection status badge ──────────────────────────────────
@@ -248,7 +248,7 @@ function SessionMsgCopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="absolute -bottom-3 right-2 p-1 rounded-md bg-gray-100/90 dark:bg-gray-700/90 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 opacity-0 group-hover/msg:opacity-100 transition-opacity shadow-sm"
+      className="absolute -bottom-3 right-2 p-1 rounded-md bg-gray-100/90 dark:bg-gray-700/90 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 opacity-0 group-hover/msg:opacity-100 transition-opacity"
       title="Copy"
     >
       {copied ? <Check size={12} /> : <Copy size={12} />}
@@ -443,7 +443,7 @@ export default function SessionChat() {
   }, [bridgeStatus, sendCardAction]);
 
   if (loading && !session) {
-    return <div className="flex items-center justify-center h-64 text-gray-400 animate-pulse">Loading...</div>;
+    return <div className="flex items-center justify-center h-64 text-gray-400">{t('common.loading')}</div>;
   }
 
   const canSend = bridgeStatus === 'connected';
@@ -451,7 +451,7 @@ export default function SessionChat() {
   return (
     <div className="flex flex-col flex-1 min-h-0 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between pb-4 border-b border-gray-200 dark:border-gray-800">
+      <div data-ui="chat-header" className="flex items-center justify-between pb-4 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center gap-3">
           <Link to="/sessions" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
             <ArrowLeft size={18} className="text-gray-400" />
@@ -492,7 +492,7 @@ export default function SessionChat() {
                 'group/msg relative rounded-2xl px-5 py-3.5 text-sm',
                 isUser
                   ? 'max-w-[70%] bg-accent text-black rounded-br-md'
-                  : 'max-w-[85%] bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700/60 text-gray-900 dark:text-gray-100 rounded-bl-md shadow-sm',
+                  : 'max-w-[85%] bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700/60 text-gray-900 dark:text-gray-100 rounded-bl-md',
                 msg.streaming && 'animate-pulse-subtle',
               )}>
                 {isEmpty ? (
@@ -530,7 +530,7 @@ export default function SessionChat() {
             <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0 mt-1">
               <Bot size={16} className="text-accent" />
             </div>
-            <div className="rounded-2xl px-5 py-3.5 text-sm bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700/60 rounded-bl-md shadow-sm">
+            <div className="rounded-2xl px-5 py-3.5 text-sm bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700/60 rounded-bl-md">
               <div className="flex gap-1.5">
                 <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                 <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -543,7 +543,7 @@ export default function SessionChat() {
       </div>
 
       {/* Input */}
-      <div className="border-t border-gray-200 dark:border-gray-800 pt-3 pb-1 shrink-0">
+      <div data-ui="chat-composer-rule" className="border-t border-gray-200 dark:border-gray-800 pt-3 pb-1 shrink-0">
         {canSend ? (
           <div className="flex gap-3">
             <input

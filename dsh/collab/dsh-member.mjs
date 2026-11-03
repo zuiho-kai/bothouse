@@ -203,7 +203,32 @@ export function friendlyFailure(raw) {
   if (/model.{0,30}(not found|unavailable|not available|unsupported)|unknown model|模型.*不可用|404/i.test(text)) return '这个模型暂时不可用，请检查模型名称或换一个模型。';
   if (/login|log.?in|auth|unauthorized|401|未登录/i.test(text)) return '模型或 CLI 还没有登录，或登录已过期。请先登录后再试。';
   if (/exit|ENOENT|spawn|没有输出文字/i.test(text)) return '本机 CLI 未能正常运行或已退出，请检查安装和登录状态。';
+  // A Host older than this plugin has no scope lease on its preset registry, so no member can be
+  // composed. Name the cause and the fix instead of showing the bare TypeError.
+  if (/agentPresets\.\w+ is not a function/i.test(text)) return '当前 DSH 宿主缺少频道插件需要的预设接口（agentPresets），成员无法启动。请把 DSH 升级到与本插件匹配的版本后重试。';
   return `这次没能完成，请检查配置后重试。原始错误：${text}`;
+}
+
+/**
+ * Lease one preset revision while an Agent joins it, or undefined when the Host's
+ * registry has no scope lease. `acquireScope` shipped in a later registry than
+ * `resolve`/`mount`, so a Host can serve presets without it; the lease only keeps
+ * that revision alive during assembly. Skipping it there keeps members usable
+ * instead of failing every turn with a bare "is not a function" TypeError.
+ * @param ctx - Host context carrying the preset registry.
+ * @param presetId - Preset identity the Agent joins.
+ * @returns Something with an async disposer, or undefined when unsupported.
+ */
+export async function presetScope(ctx, presetId) {
+  const registry = ctx?.agentPresets;
+  if (typeof registry?.acquireScope !== 'function') return undefined;
+  return await registry.acquireScope(presetId);
+}
+
+/** Release a presetScope result; a Host without the lease releases nothing. */
+export async function releasePresetScope(scope) {
+  const dispose = scope?.[Symbol.asyncDispose];
+  if (typeof dispose === 'function') await dispose();
 }
 
 /**
@@ -911,7 +936,7 @@ export class DshMembers {
   async createAgent(member, room) {
     const { ctx } = this.rt;
     const preset = await ctx.agentPresets.resolve(member.agentPreset);
-    const scope = await ctx.agentPresets.acquireScope(preset.id);
+    const scope = await presetScope(ctx, preset.id);
     const sessionId = `collab-${randomUUID()}`;
     let handle;
     let workspace;
@@ -932,7 +957,7 @@ export class DshMembers {
         },
       });
     } finally {
-      await scope[Symbol.asyncDispose]();
+      await releasePresetScope(scope);
     }
     await workspace.attachSession(sessionId);
     // setup ran before the Agent existed, so record it here: liveAgent must not hook it again.
@@ -1006,7 +1031,7 @@ export class DshMembers {
     // Installing only the request hook left a resumed Session with just the
     // built-in tools after a DSH restart.
     const preset = await ctx.agentPresets.resolve(member.agentPreset);
-    const scope = await ctx.agentPresets.acquireScope(preset.id);
+    const scope = await presetScope(ctx, preset.id);
     let handle;
     try {
       handle = await ctx.agents.resume({
@@ -1018,7 +1043,7 @@ export class DshMembers {
         },
       });
     } finally {
-      await scope[Symbol.asyncDispose]();
+      await releasePresetScope(scope);
     }
     this.hooked.add(handle.agent);
     if (member.permissionPreset !== undefined) ctx.permissionPresets.set(handle.agent.session, member.permissionPreset);

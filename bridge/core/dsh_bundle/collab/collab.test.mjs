@@ -1068,6 +1068,35 @@ test('DSH member: the preset scope is released when Workspace creation fails', a
   assert.match(hub.store.page(1, undefined, 1)[0].text, /频道 #general 的工作目录 \/w 无法打开/);
 });
 
+test('DSH member: a Host preset registry without acquireScope still serves the member', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  // An older Host exposes resolve/mount but no scope lease; that must not turn every turn into
+  // "ctx.agentPresets.acquireScope is not a function".
+  delete dsh.ctx.agentPresets.acquireScope;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek hi' });
+  await settle();
+  assert.equal(dsh.made.length, 1);
+  assert.equal(dsh.sessions.get(dsh.made[0]).prompts.length, 1);
+  dsh.turn(dsh.sessions.get(dsh.made[0]), ['在的']);
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '在的');
+  assert.equal(hub.memberView().find(m => m.id === 'ds').error, undefined);
+});
+
+test('DSH member: a Host missing the preset interface explains the upgrade instead of a bare TypeError', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  delete dsh.ctx.agentPresets.acquireScope;
+  delete dsh.ctx.agentPresets.resolve;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek hi' });
+  await settle();
+  assert.match(hub.store.page(1, undefined, 1)[0].text, /当前 DSH 宿主缺少频道插件需要的预设接口/);
+  assert.doesNotMatch(hub.store.page(1, undefined, 1)[0].text, /is not a function/);
+});
+
 test('DSH member: the prompt always contains the trigger, however much is unread', async () => {
   const hub = makeHub();
   const dsh = fakeDsh();

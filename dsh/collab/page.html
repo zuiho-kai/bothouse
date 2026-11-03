@@ -505,6 +505,8 @@
 <div class="scrim" id="scrim" aria-hidden="true"></div>
 
 <script>
+// 经面板 /dsh/ 转发时页面挂在前缀下：接口和链接都按当前地址带上前缀，直连时前缀为空。
+const ROOT = (location.pathname.match(/^(.*?)\/collab(?:\/|$)/) || ['', ''])[1];
 const state = { me: 'owner', rooms: [], members: [], thinking: {}, room: null, synced: 0, mode: 'mixed' };
 const $ = id => document.getElementById(id);
 // crypto.randomUUID only exists in secure contexts (https/localhost); plain-http LAN/Tailscale pages fall back to getRandomValues.
@@ -527,7 +529,7 @@ const GROUP_WINDOW_MS = 5 * 60 * 1000;
 // 768px 是 U2 交接里定的窄屏阈值
 const narrow = window.matchMedia('(max-width: 768px)');
 
-const avatarSrc = v => !v ? '' : /^https?:/.test(v) ? v : '/collab/avatars/' + encodeURIComponent(v) + '.png';
+const avatarSrc = v => !v ? '' : /^https?:/.test(v) ? v : ROOT + '/collab/avatars/' + encodeURIComponent(v) + '.png';
 function avatar(id, name) {
   const m = state.members.find(m => m.id === id);
   const a = el('div', 'avatar', (name || id).slice(0, 1)); a.style.background = color(id);
@@ -634,7 +636,7 @@ function messageNode(m) {
       const bar = el('div', 'actions');
       for (const a of meta.actions) {
         const b = el('button', '', a.label);
-        b.onclick = () => { bar.querySelectorAll('button').forEach(x => { x.disabled = true; }); api(`/collab/api/messages/${m.id}/permission`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ decision: a.decision }) }); };
+        b.onclick = () => { bar.querySelectorAll('button').forEach(x => { x.disabled = true; }); api(`${ROOT}/collab/api/messages/${m.id}/permission`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ decision: a.decision }) }); };
         bar.append(b);
       }
       card.append(bar);
@@ -702,10 +704,10 @@ async function openRoom(id) {
   $('input').disabled = true;
   closeDrawer();
   try {
-    const setting = await api(`/collab/api/rooms/${id}/mode`);
+    const setting = await api(`${ROOT}/collab/api/rooms/${id}/mode`);
     state.mode = setting.dispatch_mode;
     renderRooms(); renderMembers();
-    const { messages } = await api(`/collab/api/rooms/${id}/messages?limit=100`);
+    const { messages } = await api(`${ROOT}/collab/api/rooms/${id}/messages?limit=100`);
     if (state.room !== id) return;
     const log = $('log');
     log.querySelector('.state')?.remove();
@@ -725,7 +727,7 @@ async function openRoom(id) {
 $('mode').addEventListener('change', async (e) => {
   if (state.room == null) return;
   try {
-    const result = await api(`/collab/api/rooms/${state.room}/mode`, {
+    const result = await api(`${ROOT}/collab/api/rooms/${state.room}/mode`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ dispatch_mode: e.target.value }),
     });
@@ -739,7 +741,7 @@ async function catchUp() {
   const room = state.room;
   if (room == null) return;
   for (;;) {
-    const { messages } = await api(`/collab/api/rooms/${room}/messages?after=${state.synced}&limit=200`);
+    const { messages } = await api(`${ROOT}/collab/api/rooms/${room}/messages?after=${state.synced}&limit=200`);
     if (state.room !== room) return;
     messages.forEach(upsert);
     if (messages.length) state.synced = messages[messages.length - 1].id;
@@ -748,7 +750,7 @@ async function catchUp() {
 }
 
 function connect() {
-  const es = new EventSource('/collab/api/events');
+  const es = new EventSource(ROOT + '/collab/api/events');
   es.onopen = () => catchUp().catch(console.warn);
   es.onmessage = (e) => {
     const ev = JSON.parse(e.data);
@@ -769,7 +771,7 @@ $('form').addEventListener('submit', async (e) => {
   if (!text || state.room == null) return;
   $('input').value = ''; $('input').style.height = 'auto';
   try {
-    const { message } = await api(`/collab/api/rooms/${state.room}/messages`, {
+    const { message } = await api(`${ROOT}/collab/api/rooms/${state.room}/messages`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ text, client_key: uuid() }),
     });
@@ -778,7 +780,7 @@ $('form').addEventListener('submit', async (e) => {
 });
 
 (async () => {
-  const s = await api('/collab/api/state');
+  const s = await api(ROOT + '/collab/api/state');
   Object.assign(state, { me: s.me, rooms: s.rooms, members: s.members, thinking: s.thinking });
   connect();
   await openRoom(s.rooms[0].id);

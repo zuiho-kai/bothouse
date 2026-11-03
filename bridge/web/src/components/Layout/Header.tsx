@@ -20,6 +20,16 @@ const languages = [
   { code: 'ru', label: 'RU' },
 ];
 
+// 顶栏是「浮层」：玻璃底 + 1px hairline，只在这里用 backdrop-filter（§4 玻璃只给顶栏/命令面板/弹层）。
+// 交互档与 Modal 关闭按钮同一套：图标按钮 36px、可达焦点环 accent-text。
+const iconBtn = cn(
+  // 手机 44px、指针设备 36px（README 达标线：手机点按目标 ≥44px）
+  'grid h-11 w-11 place-items-center rounded-control text-ink-soft sm:h-9 sm:w-9',
+  'transition-colors duration-base ease-ui-out',
+  'hover:bg-surface-sunken hover:text-ink',
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
+);
+
 export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const { t, i18n } = useTranslation();
   const { theme, setTheme } = useThemeStore();
@@ -54,25 +64,19 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
     setLangOpen(false);
   };
 
-  const btnCls = cn(
-    'p-2 rounded-lg transition-all duration-200',
-    'text-gray-500 dark:text-gray-400',
-    'hover:bg-gray-100/90 dark:hover:bg-white/[0.08] hover:text-gray-800 dark:hover:text-white',
-  );
-
   return (
     <header
       className={cn(
-        'h-14 flex items-center justify-end gap-1 px-4 shrink-0 relative z-20',
-        'border-b border-gray-200/80 dark:border-white/[0.08]',
-        'bg-white/70 backdrop-blur-xl dark:bg-[rgba(0,0,0,0.72)] yellow:bg-cream-100/70',
+        // 顶部安全区由外壳统一让出（iPhone 刘海），加在原高之上；页面不用各自加
+        'ui-safe-bar relative z-20 flex shrink-0 items-center justify-end gap-1 px-4',
+        'border-b border-hairline bg-surface',
       )}
     >
       {!isSetup && (
         <button
           type="button"
           onClick={onMenuClick}
-          className={cn(btnCls, 'mr-auto md:hidden')}
+          className={cn(iconBtn, 'mr-auto md:hidden')}
           aria-label="Open navigation menu"
           aria-controls="mobile-navigation"
           data-testid="mobile-menu-button"
@@ -80,33 +84,39 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
           <Menu size={20} />
         </button>
       )}
-      {isSetup && <span className="mr-auto text-base font-bold tracking-tight text-gray-900 dark:text-white">bothouse<span className="text-accent">.</span></span>}
-      <button type="button" onClick={handleRefresh} className={btnCls} aria-label={t('common.refresh')}>
+      {isSetup && (
+        <span className="mr-auto text-base font-bold tracking-tight text-ink">
+          bothouse<span className="text-accent">.</span>
+        </span>
+      )}
+      <button type="button" onClick={handleRefresh} className={iconBtn} aria-label={t('common.refresh')}>
         <RefreshCw size={16} className={spinning ? 'animate-spin' : ''} />
       </button>
 
       {/* Language */}
       <div className="relative" ref={langRef}>
-        <button type="button" onClick={() => setLangOpen(!langOpen)} className={cn(btnCls, 'flex items-center gap-1')}>
+        <button type="button" onClick={() => setLangOpen(!langOpen)} className={cn(iconBtn, 'w-auto gap-1 px-2')}>
           <Languages size={16} />
-          <span className="text-xs hidden sm:inline">{languages.find(l => l.code === i18n.language)?.label}</span>
+          <span className="hidden text-xs sm:inline">{languages.find(l => l.code === i18n.language)?.label}</span>
         </button>
         {langOpen && (
-          <div className={cn(
-            'absolute right-0 top-full mt-1 w-36 rounded-xl py-1 z-50 overflow-hidden',
-            'bg-white/95 backdrop-blur-xl border border-gray-200/80 shadow-xl shadow-black/10',
-            'dark:bg-[rgba(0,0,0,0.88)] dark:border-white/[0.1] dark:shadow-black/40',
-          )}>
+          <div
+            className={cn(
+              'absolute right-0 top-full z-50 mt-1.5 w-36 overflow-hidden rounded-card p-1',
+              'border border-hairline bg-surface shadow-ui-2',
+              'animate-[ui-rise_240ms_var(--ui-ease-out)]',
+            )}
+          >
             {languages.map(l => (
               <button
                 key={l.code}
                 type="button"
                 onClick={() => changeLang(l.code)}
                 className={cn(
-                  'w-full text-left px-3 py-1.5 text-sm transition-colors',
+                  'w-full rounded-control px-3 py-1.5 text-left text-sm transition-colors duration-base ease-ui-out',
                   i18n.language === l.code
-                    ? 'text-accent font-medium bg-accent/10'
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100/80 dark:hover:bg-white/[0.06]',
+                    ? 'bg-accent-wash font-medium text-accent-text'
+                    : 'text-ink-soft hover:bg-surface-sunken hover:text-ink',
                 )}
               >
                 {l.label}
@@ -118,7 +128,7 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
 
       {/* Theme */}
       <button type="button" onClick={() => setTheme(isSetup ? nextWizard : NEXT_THEME[theme])}
-        className={cn(btnCls, isSetup && 'flex items-center gap-2 text-xs border border-gray-200 dark:border-white/10')}
+        className={cn(iconBtn, isSetup && 'w-auto gap-2 px-2 text-xs ring-1 ring-hairline')}
         aria-label={isSetup ? T.switchStyle : t('theme.toggle')} title={isSetup ? undefined : t(`theme.${theme}`)} data-testid="theme-toggle">
         <ThemeIcon size={16} />
         {isSetup && <span>{wizardStyleLabel[nextWizard]}</span>}
@@ -128,10 +138,7 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
       <button
         type="button"
         onClick={logout}
-        className={cn(
-          'p-2 rounded-lg transition-all duration-200',
-          'text-gray-400 hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400',
-        )}
+        className={cn(iconBtn, 'text-ink-mute hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400')}
         aria-label={t('login.logout')}
       >
         <LogOut size={16} />

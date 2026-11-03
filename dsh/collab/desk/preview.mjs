@@ -13,6 +13,8 @@ import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { tmpdir } from 'node:os';
+import { DESK_NAMES_FILE, deskRoute } from '../desk.mjs';
 
 const DIR = fileURLToPath(new URL('.', import.meta.url));
 const AVATAR_DIR = join(DIR, '..', 'avatars');
@@ -21,11 +23,11 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.json': 'application/json;
 
 /** The five demo roles used by ?fixture=1 (kept in sync with index.html DEMO_MEMBERS). */
 export const DEMO_MEMBERS = [
-  { id: "lead", name: "队长", kind: "dsh", avatar: "orange", online: true },
-  { id: "ayan", name: "阿岩", kind: "dsh", avatar: "dragon", online: true },
-  { id: "ayou", name: "阿柚", kind: "bot", avatar: "whale", online: true },
-  { id: "ache", name: "阿澈", kind: "bot", avatar: "rainbow", online: true },
-  { id: "alan", name: "阿岚", kind: "dsh", avatar: "lanxi", online: false },
+  { id: "ju", name: "橘", kind: "dsh", avatar: "orange", online: true },
+  { id: "longniang", name: "龙娘", kind: "dsh", avatar: "dragon", online: true },
+  { id: "jingyu", name: "鲸鱼娘", kind: "bot", avatar: "whale", online: true },
+  { id: "caihongmao", name: "彩虹猫", kind: "bot", avatar: "rainbow", online: true },
+  { id: "grok", name: "grok娘", kind: "dsh", avatar: "", online: true },
 ];
 
 /** Fixture rows (task-shaped, no `type`), oldest first. Bad lines are skipped. */
@@ -63,6 +65,8 @@ export function createPreviewServer() {
   return createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://preview.invalid');
     const path = url.pathname.replace(/\/+$/, '');
+    // 名牌改名走插件同一份实现；文件放 PREVIEW_DATA_DIR（默认系统临时目录）。
+    if (path === '/collab/api/desk/names') return deskRoute(req, res, url, { namesFile: join(process.env.PREVIEW_DATA_DIR || tmpdir(), DESK_NAMES_FILE) }) ?? json(res, 405, { error: 'method not allowed' });
     if (req.method !== 'GET') return json(res, 405, { error: 'method not allowed' });
 
     if (path === '/collab' || path === '/collab/desk') return file(res, 'index.html');
@@ -78,7 +82,7 @@ export function createPreviewServer() {
 
     if (path === '/collab/api/state') {
       return json(res, 200, {
-        me: 'owner', lead_id: 'lead', effective_lead_id: 'lead',
+        me: 'owner', lead_id: 'ju', effective_lead_id: 'ju',
         rooms: [{ id: 1, name: 'general' }], members: DEMO_MEMBERS, thinking: {},
       });
     }

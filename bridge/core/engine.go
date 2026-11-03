@@ -562,6 +562,7 @@ type Engine struct {
 	// Interactive agent session management
 	interactiveMu     sync.Mutex
 	interactiveStates map[string]*interactiveState // key = sessionKey
+	scheduledTurns    map[string]string            // scheduled run id -> interactive key (scheduled_timeout.go)
 	nativeCompactions map[string]*nativeCompaction // guarded by interactiveMu
 
 	// handoffWatchOn: the API server's handoff watch runs on this engine (team_watch.go
@@ -1966,7 +1967,9 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 			iKey = workspaceDir + ":" + iKey
 		}
 		prevHistLen := session.HistoryLen()
+		e.noteScheduledTurn(job.ID, iKey)
 		e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, runSessionKey)
+		e.forgetScheduledTurn(job.ID, iKey)
 		e.cleanupInteractiveState(iKey)
 		// Empty-response detection via session history delta: processInteractiveMessageWith
 		// always adds a "user" entry (prevHistLen+1), then an "assistant" entry on success
@@ -2004,7 +2007,9 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	e.startScheduledTurn(msg, session)
 
 	prevHistLen := session.HistoryLen()
+	e.noteScheduledTurn(job.ID, iKey)
 	e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, sessionKey)
+	e.forgetScheduledTurn(job.ID, iKey)
 	// Same empty-response detection as the useNewSession path above.
 	if !job.Mute && session.HistoryLen() < prevHistLen+2 {
 		return fmt.Errorf("cron job %q produced an empty response", job.ID)
@@ -2314,7 +2319,9 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		if workspaceDir != "" {
 			iKey = workspaceDir + ":" + iKey
 		}
+		e.noteScheduledTurn(job.ID, iKey)
 		e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, runSessionKey)
+		e.forgetScheduledTurn(job.ID, iKey)
 		e.cleanupInteractiveState(iKey)
 		return nil
 	}
@@ -2356,7 +2363,9 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		e.teamNoteTurn(msg, session)
 	}
 
+	e.noteScheduledTurn(job.ID, iKey)
 	e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, sessionKey)
+	e.forgetScheduledTurn(job.ID, iKey)
 	return nil
 }
 
@@ -2871,6 +2880,7 @@ func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sy
 // ExecuteHeartbeat runs a heartbeat check by injecting a synthetic message
 // into the main session, similar to cron but designed for periodic awareness.
 func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error {
+	runID := heartbeatRunID(sessionKey) // before the workspace prefix is stripped below
 	if e.IsPaused() {
 		return fmt.Errorf("engine %q is paused", e.name)
 	}
@@ -2941,7 +2951,9 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 		return fmt.Errorf("session %q is busy", sessionKey)
 	}
 
+	e.noteScheduledTurn(runID, msg.SessionKey)
 	e.processInteractiveMessage(targetPlatform, msg, session)
+	e.forgetScheduledTurn(runID, msg.SessionKey)
 	return nil
 }
 
@@ -3702,7 +3714,12 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		interactiveKey = resolvedWorkspace + ":" + msg.SessionKey
 	}
 
-	if len(msg.Images) == 0 && strings.HasPrefix(content, "/") {
+	// A held gate burst re-enters handleMessage with the same *Message (the release
+	// timer in gate.go), so the slash command is handled once: running it again posted
+	// the unknown-command notice twice (~1s apart) and would execute a real command
+	// twice as well.
+	if len(msg.Images) == 0 && strings.HasPrefix(content, "/") && !msg.cmdDone {
+		msg.cmdDone = true
 		if e.handleCommand(p, msg, content) {
 			return
 		}
@@ -7806,6 +7823,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventError:
 			turnFailed = true
+			// A tool may already have changed external state, even when its
+			// progress is hidden. Only capacity failures before tools can replay
+			// the user prompt, including queued turns and cooldown redelivery.
+			retryCapacity := input == nil && toolCount == 0 && event.Error != nil && isModelCapacityError(event.Error.Error())
 			state.mu.Lock()
 			state.turnErrored = true // a turn that ends in error never means "the model is back"
 			state.mu.Unlock()
@@ -7815,7 +7836,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					slog.Warn("provider quota exhausted, cooling down until reset", "session_key", sessionKey, "cooling_until", until.Format(time.RFC3339))
 				}
 			}
-			if event.Error != nil && isModelCapacityError(event.Error.Error()) {
+			if retryCapacity {
 				board.hold() // maomao fork: re-sent by the capacity retry; one board row, no failure
 			} else {
 				board.finish(state, BoardDoneFailed)
@@ -7875,7 +7896,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// #618 K4 M2: the bridge is stopping and ended this turn; it is kept in
 					// the journal and resumed after the restart, so it is no failure.
 					slog.Info("agent error during shutdown suppressed", "session", sessionKey, "error", errMsg)
-				} else if input == nil && isModelCapacityError(errMsg) {
+				} else if retryCapacity {
 					// maomao fork: retried / cooled down by runTurnWithCapacityRetry, which tells the user.
 					// A queued message chained into this loop goes back to the queue head,
 					// so the drain loop retries it (not the turn this loop started with).

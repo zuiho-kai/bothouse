@@ -406,6 +406,11 @@ type Message struct {
 	contentMerged bool
 	BackfillRan   bool
 	mediaDone     bool       // maomao fork: prepareMedia already ran (a held gate burst re-enters handleMessage)
+	// maomao fork: handleCommand already ran for this message. The gate's burst
+	// timer releases a held message by re-entering handleMessage with the same
+	// *Message, so without this flag a slash command ran (and an unknown command
+	// posted its notice) once per entry — issue #651 follow-up.
+	cmdDone bool
 	userText      string     // maomao fork: Content before media notes were appended — the gate's input
 	userTextSet   bool       // maomao fork: userText is set (see userTextOf)
 	gateParts     []gatePart // maomao fork: the messages an idle gate burst folded into this one, as each was (gate.go)

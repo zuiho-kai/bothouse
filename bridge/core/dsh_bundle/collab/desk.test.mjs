@@ -6,6 +6,7 @@ import { mkdtempSync, writeFileSync, appendFileSync, truncateSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from './store.mjs';
+import { readFileSync } from 'node:fs';
 import { DeskEvents, deskReplay, deskRoute, readBoardEvents, BOARD_EVENTS_FILE, REPLAY_MAX } from './desk.mjs';
 import { resolveConfig } from './plugin.mjs';
 
@@ -177,4 +178,38 @@ test('desk: boardDir 从配置或 BOARD_DIR 来，相对路径拒绝', () => {
   assert.equal(resolveConfig(base, { BOARD_DIR: '/tmp/board' }).boardDir, '/tmp/board');
   assert.equal(resolveConfig({ ...base, boardDir: '/tmp/cfg' }, { BOARD_DIR: '/tmp/board' }).boardDir, '/tmp/cfg');
   assert.throws(() => resolveConfig({ ...base, boardDir: 'rel/board' }, {}), /absolute path/);
+});
+test('desk names: PUT saves a custom nametag, GET returns it, empty name restores default', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join: pjoin } = await import('node:path');
+  const { Readable } = await import('node:stream');
+  const { DESK_NAMES_FILE } = await import('./desk.mjs');
+  const namesFile = pjoin(mkdtempSync(pjoin(tmpdir(), 'desk-names-')), 'sub', DESK_NAMES_FILE);
+  const call = async (method, body) => {
+    const req = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]);
+    req.method = method;
+    const res = fakeRes();
+    await deskRoute(req, res, new URL('http://x/collab/api/desk/names'), { namesFile });
+    return { status: res.status, body: JSON.parse(res.body) };
+  };
+  assert.deepEqual((await call('GET')).body, { names: {} });
+  assert.deepEqual((await call('PUT', { id: 'cjiang', name: '  小橘  ' })).body, { names: { cjiang: '小橘' } });
+  assert.deepEqual((await call('GET')).body, { names: { cjiang: '小橘' } });
+  assert.equal((await call('PUT', { id: 'cjiang', name: 'x'.repeat(25) })).status, 400);
+  assert.equal((await call('PUT', { name: 'a' })).status, 400);
+  assert.deepEqual((await call('PUT', { id: 'cjiang', name: '' })).body, { names: {} });
+});
+
+test('roster defaults nametags to model names and keeps old nicknames as aliases', () => {
+  const roster = JSON.parse(readFileSync(new URL('./desk/roster.json', import.meta.url), 'utf8'));
+  const by = Object.fromEntries(roster.members.map(m => [m.project, m]));
+  assert.equal(by.cjiang.name, 'Claude'); assert.ok(by.cjiang.aliases.includes('C酱'));
+  assert.equal(by.deep.name, 'DeepSeek'); assert.ok(by.deep.aliases.includes('肥鱼'));
+  assert.equal(by.gge.name, 'GPT'); assert.ok(by.gge.aliases.includes('G哥'));
+  assert.equal(by.gjiang.name, 'Gemini'); assert.ok(by.gjiang.aliases.includes('大豆包'));
+  assert.equal(by.grok.name, 'Grok');
+  const page = readFileSync(new URL('./desk/index.html', import.meta.url), 'utf8');
+  const embedded = JSON.parse(page.split('<script type="application/json" id="roster">')[1].split('</script>')[0]);
+  assert.deepEqual(embedded, roster);
 });

@@ -17,7 +17,7 @@ func TestTeamTaskTableRowsAreNameWorkspaceAge(t *testing.T) {
 		{ID: 3, What: "选择发布范围", Status: "等待用户答复", Paused: "11-01 00:30", PauseWhy: "等待用户答复：发布范围", At: "11-01 00:30", SK: "feishu:oc_a"},
 	})
 	got := renderTeamTaskTable(items, nil, "feishu:oc_a", now)
-	want := "**等你看 1**\n  · 选择发布范围 · 等了 1小时\n**工作区 1**\n  🟢 工作区1 · 任务板重构PR · 已做 25分钟\n**未开工 1**\n  · 强制汇报"
+	want := "**等你看 1**\n  · 选择发布范围 · 等了 1小时\n**工作区 1**\n  🟢 工作区1 · 任务板重构PR · 已做 25分钟\n**待安排 1**\n  · 强制汇报"
 	if got != want {
 		t.Fatalf("table:\n%s\nwant:\n%s", got, want)
 	}
@@ -58,7 +58,7 @@ func TestTeamTaskTableWorkspaceFirstDotsSortedAndIdleSummary(t *testing.T) {
 	}
 	got := renderTeamTaskTable(items, links, "feishu:oc_a", now)
 	want := strings.Join([]string{
-		"**工作区 3**（空闲：工作区2、3、5、6）",
+		"**工作区 2**（空闲：工作区2、3、5、6）",
 		"  🟢 工作区1 · 任务板重构PR · 已做 25分钟  [→点进去](https://example.test/t1)",
 		"  🟡 工作区2 · QQ断线修复 · 已交回待核对 · 等派活人",
 		"  🟢 工作区4 · 搁置盘点 · 已做 15分钟",
@@ -99,7 +99,7 @@ func TestTeamTaskTableEngineIdlePoolAndWSWasEnded(t *testing.T) {
 	})
 	got := renderTeamTaskTable(items, nil, "discord:main", now)
 	want := strings.Join([]string{
-		"**工作区 2**（空闲：工作区2、3）",
+		"**工作区 1**（空闲：工作区2、3）",
 		"  ⚠ 工作区1 · 任务板重构PR · 上次进展 2小时前 · 卡住",
 		"  🟡 工作区2 · QQ断线修复 · 已交回待核对 · 等派活人",
 	}, "\n")
@@ -137,7 +137,7 @@ func TestTeamTaskTableShowsLastProgressAndOneLiveRowPerWorkspace(t *testing.T) {
 	})
 	got := renderTeamTaskTable(items, nil, "discord:main", now)
 	want := strings.Join([]string{
-		"**工作区 5**",
+		"**工作区 3**",
 		"  🟢 工作区1 · 肥鱼并行推进 · 已做 5分钟",
 		"  ⚠ 工作区1 · 可选模块 · 上次进展 12小时前 · 卡住",
 		"  ⚠ 工作区1 · QQ卡顿治理 · 上次进展 30分钟前 · 没在跑",

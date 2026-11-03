@@ -2,8 +2,8 @@
 //
 // 事件契约见 Issue #876：`board-events.jsonl` 与 board.jsonl 同目录（BOARD_DIR），
 // 一行一个 JSON，只追加；这里只读不改，写入归 gate 的 board.py。
-import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { closeSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { CollabError, publicMessage } from './store.mjs';
 // #876 P: 回放消息的 @ 由这里解析，规则与 hub 路由同一套（mentions.mjs），页面不再自己猜文本。
 import { mentions as mentionsOf } from './mentions.mjs';
@@ -130,8 +130,56 @@ export function deskPage() {
   try { return readFileSync(new URL('./desk/index.html', import.meta.url), 'utf8'); } catch { return PLACEHOLDER_PAGE; }
 }
 
-/** /collab/desk 与 /collab/api/desk/replay；返回 true 表示已处理，未匹配返回 undefined。 */
-export function deskRoute(req, res, url, { store, boardDir, members = [] }) {
+// 名牌自定义名：成员 id → 名字，存插件数据目录，刷新、换设备都还在；空名 = 恢复默认（roster.name）。
+export const DESK_NAMES_FILE = 'desk-names.json';
+export const DESK_NAME_MAX = 24;
+
+export function readDeskNames(file) {
+  if (!file) return {};
+  try {
+    const value = JSON.parse(readFileSync(file, 'utf8'));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch { return {}; }
+}
+
+/** 改一个成员的名牌名；name 去空白后为空就删掉，回到默认名。返回改后的全表。 */
+export function setDeskName(file, id, name) {
+  const key = String(id ?? '').trim();
+  if (!key) throw new CollabError('invalid', 'id is required');
+  const value = String(name ?? '').replace(/\s+/g, ' ').trim();
+  if (Array.from(value).length > DESK_NAME_MAX) throw new CollabError('invalid', `name must be at most ${DESK_NAME_MAX} characters`);
+  const names = readDeskNames(file);
+  if (value) names[key] = value; else delete names[key];
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(names, null, 2) + '\n');
+  renameSync(tmp, file);
+  return names;
+}
+
+function sendJson(res, status, value) {
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+  res.end(JSON.stringify(value));
+}
+
+async function namesRoute(req, res, namesFile) {
+  if (!namesFile) return sendJson(res, 404, { error: 'desk names are not configured' });
+  if (req.method === 'GET') return sendJson(res, 200, { names: readDeskNames(namesFile) });
+  let raw = '';
+  try {
+    for await (const chunk of req) { raw += chunk; if (raw.length > 4096) return sendJson(res, 413, { error: 'body too large' }); }
+    const body = JSON.parse(raw || '{}');
+    return sendJson(res, 200, { names: setDeskName(namesFile, body?.id, body?.name) });
+  } catch (error) {
+    if (error instanceof CollabError) return sendJson(res, 400, { error: error.message, code: error.code });
+    if (error instanceof SyntaxError) return sendJson(res, 400, { error: 'invalid JSON body' });
+    return sendJson(res, 500, { error: 'save failed' });
+  }
+}
+
+/** /collab/desk、/collab/api/desk/replay、/collab/api/desk/names；返回 true（或 Promise）表示已处理，未匹配返回 undefined。 */
+export function deskRoute(req, res, url, { store, boardDir, members = [], namesFile } = {}) {
+  if (url.pathname.replace(/\/+$/, '') === '/collab/api/desk/names' && (req.method === 'GET' || req.method === 'PUT')) return namesRoute(req, res, namesFile);
   if (url.pathname.replace(/\/+$/, '') !== '/collab/desk' && url.pathname.replace(/\/+$/, '') !== '/collab/api/desk/replay') return undefined;
   if (req.method !== 'GET') return undefined;
   if (url.pathname.replace(/\/+$/, '') === '/collab/desk') {

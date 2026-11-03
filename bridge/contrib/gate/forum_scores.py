@@ -12,9 +12,11 @@
 - 改票、撤票照 Stack Overflow，由 memvote.py 实现；这里只读它的记录。
 
 票从哪来（赞、踩分开数，Wilson 要两个数）：
-- votes.jsonl（memvote.py 写：voter/id/vote 1|-1|0/by），每个投票人对每条取最后一行 = 现在这一票（改票、撤票即回滚）。
-- legacy_votes.json（可选）：{编号: [赞, 踩]}，导入的历史票。
-这两个文件和 scores.json 在同一目录：默认本文件所在目录（bothouse 装的 gate 目录），FORUM_SCORES 指向别的 scores.json 时取它旁边的。
+- 只认外部信号：votes.jsonl 里 by=outcome 的行（score_night.py 写：被引用那轮用户下一句不是纠正 +1、是纠正 -1，
+  照 MemOS mem_feedback），逐行累加成赞、踩，交给下面同一个 Wilson 排序和折叠阈值。
+- 角色自报的 by=self 只是「引用」记录（照 ACE Generator 自报 bullet_ids），不算赞；模型代投（night、legacy_votes.json
+  等）不再算票。
+votes.jsonl 和 scores.json 在同一目录：默认本文件所在目录（bothouse 装的 gate 目录），FORUM_SCORES 指向别的 scores.json 时取它旁边的。
 条目编号同 ctxsvc.exp_id：页 + 这行内容的 sha1 前 10 位；主 wiki 的页用相对路径，别的库（角色 wiki）用 ~/ 开头的全路径。
 分数所有角色、所有频道共用一份。"""
 import hashlib, json, math, os
@@ -46,29 +48,21 @@ def _mtime(p):
 def tally():
     """{编号: [赞, 踩]}（真投的票，不含自带的那个赞）。两份文件按修改时间重读。"""
     d = path().parent
-    votes, legacy = d / "votes.jsonl", d / "legacy_votes.json"
-    stamp = (votes, _mtime(votes), _mtime(legacy))
+    votes = d / "votes.jsonl"
+    stamp = (votes, _mtime(votes))
     if _cache.get("stamp") == stamp:
         return _cache["data"]
-    out = {}
-    try:
-        for k, (u, n) in json.loads(legacy.read_text(encoding="utf-8")).items():
-            out[k] = [u, n]
-    except (OSError, ValueError):
-        pass
-    cur = {}
+    out = {}  # 只认外部信号（by=outcome）；角色自报（by=self）是引用，模型代投（night、legacy）不算票
     try:
         for ln in votes.read_text(encoding="utf-8").splitlines():
             try:
                 r = json.loads(ln)
-                cur[(r.get("voter"), r.get("id"))] = r.get("vote", 0)
             except ValueError:
-                pass
+                continue
+            if r.get("by") == "outcome" and r.get("vote") in (1, -1):  # 一行一次成功/失败，累加
+                out.setdefault(r.get("id"), [0, 0])[0 if r["vote"] == 1 else 1] += 1
     except OSError:
         pass
-    for (_, cid), v in cur.items():
-        if v in (1, -1):
-            out.setdefault(cid, [0, 0])[0 if v == 1 else 1] += 1
     _cache.update(stamp=stamp, data=out)
     return out
 

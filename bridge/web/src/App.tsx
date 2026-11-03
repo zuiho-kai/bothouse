@@ -6,6 +6,8 @@ import Dashboard from '@/pages/Dashboard';
 import Usage from '@/pages/Usage';
 import ProjectList from '@/pages/Projects/ProjectList';
 import ProjectDetail from '@/pages/Projects/ProjectDetail';
+import SessionList from '@/pages/Sessions/SessionList';
+import SessionChat from '@/pages/Sessions/SessionChat';
 import ChatList from '@/pages/Chat/ChatList';
 import ChatView from '@/pages/Chat/ChatView';
 import CronList from '@/pages/Cron/CronList';
@@ -16,6 +18,7 @@ import SkillList from '@/pages/Skills/SkillList';
 import SetupWizard from '@/pages/Setup/SetupWizard';
 import RoleList from '@/pages/Roles/RoleList';
 import DeviceList from '@/pages/Devices/DeviceList';
+import BridgeAdapters from '@/pages/Bridge/BridgeAdapters';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -51,7 +54,10 @@ export default function App() {
         <Route path="devices" element={<DeviceList />} />
         <Route path="projects" element={<ProjectList />} />
         <Route path="projects/:name" element={<ProjectDetail />} />
+        <Route path="sessions" element={<SessionList />} />
+        <Route path="sessions/:project/:id" element={<SessionChat />} />
         <Route path="providers" element={<ProviderList />} />
+        <Route path="bridge" element={<BridgeAdapters />} />
         <Route path="skills" element={<SkillList />} />
         <Route path="chat" element={<ChatList />} />
         <Route path="chat/:name" element={<ChatView />} />

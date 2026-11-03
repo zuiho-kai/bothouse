@@ -2,6 +2,8 @@
  * Browser entry of the Discord shell: a "Channels" entry in the left sidebar
  * whose main panel shows the CoNest collab channels (rooms, messages, members).
  * The panel talks to the collab Host plugin over its same-origin HTTP API.
+ * Team desk, wiki galaxy and bothouse panel entries (#105) sit right below it, so the
+ * desktop app (no address bar) reaches the collab pages and the management panel too.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -12,6 +14,8 @@ import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { browserTransport, createChannelSource } from './channel-source.ts'
 import { ChannelsIcon } from './ChannelsIcon.tsx'
 import { ChannelsPage, type ChannelsInjected } from './ChannelsPage.tsx'
+import { EmbedPage } from './EmbedPage.tsx'
+import { DeskIcon, GalaxyIcon, PanelIcon } from './PanelIcons.tsx'
 import { en, NS, zh, type ChannelsKey } from './locales.ts'
 
 export type { ChannelsInjected, ChannelsPageProps } from './ChannelsPage.tsx'
@@ -28,6 +32,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 type SettingsStore = StoreHandle<object, { openSection(draft: object, id: string): void }>
 
 const PANEL_ID = 'channels' as MainPanelId
+const DESK_ID = 'collab-desk' as MainPanelId
+const GALAXY_ID = 'wiki-galaxy' as MainPanelId
+const BOTHOUSE_ID = 'bothouse-panel' as MainPanelId
 
 /** Required browser services. */
 export const inject = ['slots', 'locale', 'layout']
@@ -100,4 +107,21 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     label: () => t('panel'),
   }, ChannelsIcon))
+
+  // #105: the collab pages and the management panel (forwarded by collab, which keeps the
+  // panel token server-side) as main panels; order keeps them right under Channels.
+  const embeds = [
+    { id: DESK_ID, path: 'collab/desk', label: 'panelDesk', icon: DeskIcon, order: 6 },
+    { id: GALAXY_ID, path: 'collab/wiki-galaxy', label: 'panelGalaxy', icon: GalaxyIcon, order: 7 },
+    { id: BOTHOUSE_ID, path: 'collab/panel/', label: 'panelBothouse', icon: PanelIcon, order: 8 },
+  ] as const
+  for (const page of embeds) {
+    ctx.slots.inject('main', () => ctx.slots.register({
+      name: 'main', key: page.id, locale: NS,
+      inject: () => ({ path: page.path, title: t(page.label) }),
+    }, EmbedPage))
+    ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+      name: 'sidebar.panellist', id: page.id, order: page.order, locale: NS, label: () => t(page.label),
+    }, page.icon))
+  }
 }

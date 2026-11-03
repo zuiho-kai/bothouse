@@ -1,4 +1,6 @@
-const API_BASE = '/api/v1';
+import { withBase } from '@/lib/basePath';
+
+const API_BASE = withBase('/api/v1');
 
 type UnauthorizedHandler = () => void;
 

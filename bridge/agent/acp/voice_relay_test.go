@@ -157,18 +157,25 @@ func TestVoiceRelayACP_OnlyNormalCompletion(t *testing.T) {
 						err = s.Send("test prompt", "test-request", nil, nil)
 					}
 					wantOK := stop == "end_turn"
-					if (err == nil) != wantOK {
-						t.Errorf("Send error=%v, want normal completion=%v", err, wantOK)
+					if err != nil {
+						t.Errorf("terminal failure escaped the ordered event stream: %v", err)
 					}
 					complete := false
+					failures := 0
 					for len(s.(*acpSession).events) > 0 {
 						ev := <-s.Events()
 						if ev.Type == core.EventResult && ev.Done {
 							complete = true
 						}
+						if ev.Type == core.EventError {
+							failures++
+						}
 					}
 					if complete != wantOK {
 						t.Fatalf("completed=%v, stop=%q", complete, stop)
+					}
+					if (wantOK && failures != 0) || (!wantOK && failures != 1) {
+						t.Fatalf("terminal failures=%d, stop=%q", failures, stop)
 					}
 				})
 			}

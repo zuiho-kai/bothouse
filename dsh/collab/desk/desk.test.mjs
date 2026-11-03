@@ -49,14 +49,14 @@ test('inline fixture equals fixture.sample.jsonl and keeps the dispatcher -> wor
     assert.ok(ts >= last, 'ordered');
     last = ts;
     if (row.kind === 'returned' || row.kind === 'done') {
-      assert.equal(row.from, 'lead', 'from is the dispatcher');
-      assert.ok(ids.has(row.to) && row.to !== 'lead', 'to is the worker');
+      assert.equal(row.from, 'ju', 'from is the dispatcher');
+      assert.ok(ids.has(row.to) && row.to !== 'ju', 'to is the worker');
     }
     for (const ref of [row.from, row.to]) if (ref) assert.ok(ids.has(ref), 'unknown member ' + ref);
   }
-  assert.equal(inline.find((row) => row.id === '21' && row.kind === 'created').to, 'ayou');
+  assert.equal(inline.find((row) => row.id === '21' && row.kind === 'created').to, 'jingyu');
   assert.equal(inline.find((row) => row.id === '25' && row.kind === 'created').to, '', 'created without an assignee');
-  assert.equal(inline.find((row) => row.id === '25' && row.kind === 'assigned').to, 'ache');
+  assert.equal(inline.find((row) => row.id === '25' && row.kind === 'assigned').to, 'caihongmao');
 });
 
 test('page is self-contained and only talks to the three agreed endpoints', () => {
@@ -85,10 +85,9 @@ test('event semantics: returned goes worker -> dispatcher, dispatch draws once, 
 
 test('@ 细光：流动虚线 + 小圆点走过，实时和回放共用同一条动画', () => {
   const beamFn = html.slice(html.indexOf('function beam('), html.indexOf('function flashSeat'));
-  assert.match(beamFn, /if \(kind === 'at'\) \{[\s\S]*?class: 'dot'/, '@ 要画小圆点');
-  assert.match(beamFn, /getPointAtLength\(len \* e\)[\s\S]*?setAttribute\('cx'/, '小圆点沿路径走');
-  assert.match(html, /\.beam\.at \.trace\{[^}]*stroke-dasharray/, '@ 线是流动虚线');
-  assert.match(html, /\.beam\.at \.dot\{/, '@ 圆点有自己的细光样式');
+  assert.match(beamFn, /P\.beams\.push\(\{ from: from\.id, to: to\.id, kind/, '流光进像素画布的飞行队列');
+  assert.match(html, /if \(b\.kind === 'at' && i % 2\) continue;/, '@ 拖尾是细虚点');
+  assert.match(html, /else if \(b\.kind === 'at'\) \{ px\(ctx, p\.x - 1, p\.y - 1, 2, 2/, '@ 光点是细小的一颗');
   const apply = html.slice(html.indexOf('function applyMessage'), html.indexOf('function applyEvent'));
   assert.match(apply, /beam\(author, target, 'at'\)/, '实时与回放都从 applyMessage 画 @');
   const step = html.slice(html.indexOf('function stepReplay'), html.indexOf('function startReplay'));
@@ -117,13 +116,13 @@ test('派活去重只限同一次派活，交回/打回后可再次画光', () =
   assert.ok(block, 'dispatch model block');
   const model = new Function(block + '\nreturn { dispatchKey, dispatchAllowed, forgetDispatch };')();
   const set = new Set();
-  assert.equal(model.dispatchAllowed('21', 'ayou', set), true, 'first dispatch draws');
-  set.add(model.dispatchKey('21', 'ayou'));
-  assert.equal(model.dispatchAllowed('21', 'ayou', set), false, 'created+assigned same cycle draws once');
-  assert.equal(model.dispatchAllowed('21', 'ache', set), true, 'another worker is a different dispatch');
+  assert.equal(model.dispatchAllowed('21', 'jingyu', set), true, 'first dispatch draws');
+  set.add(model.dispatchKey('21', 'jingyu'));
+  assert.equal(model.dispatchAllowed('21', 'jingyu', set), false, 'created+assigned same cycle draws once');
+  assert.equal(model.dispatchAllowed('21', 'caihongmao', set), true, 'another worker is a different dispatch');
   model.forgetDispatch('21', set);
   assert.equal(set.size, 0, 'return/reject clears only this task keys');
-  assert.equal(model.dispatchAllowed('21', 'ayou', set), true, 're-dispatch after return draws again');
+  assert.equal(model.dispatchAllowed('21', 'jingyu', set), true, 're-dispatch after return draws again');
   assert.equal((html.match(/forgetDispatch\(id, S\.dispatched\)/g) ?? []).length, 3, 'returned/rejected/paused-done end the cycle');
 });
 
@@ -139,7 +138,7 @@ test('preview server: page, state and replay window', async () => {
 
     const state = await (await fetch(base + '/collab/api/state')).json();
     assert.equal(state.members.length, 5);
-    assert.equal(state.effective_lead_id, 'lead');
+    assert.equal(state.effective_lead_id, 'ju');
 
     const from = encodeURIComponent('2026-11-03T09:02:00+08:00');
     const to = encodeURIComponent('2026-11-03T09:14:00+08:00');

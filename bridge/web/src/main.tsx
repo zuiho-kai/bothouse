@@ -7,6 +7,7 @@ import './i18n';
 import { useAuthStore } from './store/auth';
 import { useThemeStore } from './store/theme';
 import { api } from './api/client';
+import { BASE_PATH } from './lib/basePath';
 
 useAuthStore.getState().init();
 useThemeStore.getState().init();
@@ -17,7 +18,7 @@ api.setOnUnauthorized(() => {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={BASE_PATH || undefined}>
       <App />
     </BrowserRouter>
   </React.StrictMode>,

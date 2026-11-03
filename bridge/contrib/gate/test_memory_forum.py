@@ -71,22 +71,29 @@ class T(unittest.TestCase):
         with patch.object(ctxsvc, "MEMVOTE", self.d / "none.py"):
             self.assertNotIn("【记忆投票（每轮必做）】", self.paths("嘉立创下单板厚参数怎么选"))
 
-    def test_vote_change_and_collapse(self):
+    def test_self_report_is_citation_outcome_is_vote(self):
         line = "- 经验：发版前先看流水线有没有旧 run 在跑"
         cid = ctxsvc.exp_id("tooling/rule-candidates-recurrence.md", line)
         h = cid.rpartition("#")[2]
         with patch.dict(os.environ, {"CC_PROJECT": "a"}):
-            self.assertEqual(memvote.main(["-" + h]), 0)
-            self.assertEqual(memvote.main(["+" + h]), 0)  # 改投：同一角色一条只算一票
+            self.assertEqual(memvote.main(["+" + h]), 0)
+            self.assertEqual(memvote.main(["+" + h]), 0)  # 每次报都记一行引用，不去重
+        rows = [json.loads(x) for x in (self.exp / "votes.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([(r["by"], r["id"]) for r in rows], [("self", cid), ("self", cid)])
+        self.assertFalse((self.exp / "scores.json").exists())  # 引用不动分数
+        memvote.record("b", [(cid, 1)], by="night")  # 模型代投不算票
         forum_scores._cache.clear()
-        self.assertEqual(forum_scores.counts(cid), (2, 0))
-        for v in "bcdefgh":
-            memvote.record(v, [(cid, -1)])
+        self.assertEqual(forum_scores.counts(cid), (1, 0))  # 只剩自带的那个赞
+        memvote.outcome([(cid, 1)], key="discord:1")
+        memvote.outcome([(cid, 1)], key="discord:1")  # 成功逐行累加
         forum_scores._cache.clear()
-        self.assertTrue(forum_scores.collapsed(cid))  # 赞 2 踩 7：低于 -4 折叠
+        self.assertEqual(forum_scores.counts(cid), (3, 0))
+        for _ in range(8):
+            memvote.outcome([(cid, -1)])
+        forum_scores._cache.clear()
+        self.assertTrue(forum_scores.collapsed(cid))  # 赞 3 踩 8：低于 -4 折叠
         hits = [("tooling/rule-candidates-recurrence.md", 9, line), ("tooling/rule-candidates-recurrence.md", 7, "- 别的")]
         self.assertEqual(forum_scores.rerank(hits)[-1][2], line)  # 沉底，不删
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,6 +28,54 @@ export default {
         },
         // Yellow-white surfaces (promo-collab/film-promo/page.html:3).
         cream: { 50: '#FFFCF5', 100: '#FFF4D9', 200: '#FFE9B8' },
+        // Semantic surface/text ramp (#98 U9). Values live in index.css: light by default, .dark
+        // and .theme-yellow override the same names, so one class works in all three looks.
+        surface: 'rgb(var(--ui-surface) / <alpha-value>)',
+        'surface-raised': 'rgb(var(--ui-surface-raised) / <alpha-value>)',
+        'surface-sunken': 'rgb(var(--ui-surface-sunken) / <alpha-value>)',
+        canvas: 'rgb(var(--ui-canvas) / <alpha-value>)',
+        'canvas-tint': 'rgb(var(--ui-canvas-tint) / <alpha-value>)',
+        hairline: 'rgb(var(--ui-hairline) / <alpha-value>)',
+        'hairline-strong': 'rgb(var(--ui-hairline-strong) / <alpha-value>)',
+        ink: 'rgb(var(--ui-ink) / <alpha-value>)',
+        'ink-soft': 'rgb(var(--ui-ink-soft) / <alpha-value>)',
+        'ink-mute': 'rgb(var(--ui-ink-mute) / <alpha-value>)',
+        'accent-wash': 'rgb(var(--ui-accent-wash) / <alpha-value>)',
+        bokeh: 'rgb(var(--ui-bokeh) / <alpha-value>)',
+      },
+      // Radius ladder (index.css --ui-radius-*): control 8 / card 14 / panel 18 (§3).
+      borderRadius: {
+        control: 'var(--ui-radius-control)',
+        card: 'var(--ui-radius-card)',
+        panel: 'var(--ui-radius-panel)',
+      },
+      // Elevation ladder (index.css --ui-shadow-*): ring + near shadow, then 12/40 far shadow,
+      // then five same-direction micro shadows (§3, §5).
+      boxShadow: {
+        'ui-1': 'var(--ui-shadow-1)',
+        'ui-2': 'var(--ui-shadow-2)',
+        'ui-3': 'var(--ui-shadow-3)',
+        'ui-gloss': 'var(--ui-gloss)',
+        // Combined keys: two shadow utilities would overwrite each other, so elevation + gloss
+        // ship as one declaration.
+        'ui-gloss-1': 'var(--ui-shadow-1), var(--ui-gloss)',
+        'ui-gloss-2': 'var(--ui-shadow-2), var(--ui-gloss)',
+        'ui-ring': 'var(--ui-ring)',
+      },
+      // Ring colour must clear 3:1 on the surface; the fill accent in the yellow theme (#F2994A on
+      // #FFFCF5) is only 2.2:1, so focus rings use the accent-text step (5.1:1).
+      ringColor: {
+        accent: 'rgb(var(--color-accent) / <alpha-value>)',
+        'accent-text': 'rgb(var(--color-accent-text) / <alpha-value>)',
+      },
+      transitionDuration: {
+        press: 'var(--ui-dur-press)',
+        base: 'var(--ui-dur-base)',
+        state: 'var(--ui-dur-state)',
+      },
+      transitionTimingFunction: {
+        'ui-out': 'var(--ui-ease-out)',
+        'ui-standard': 'var(--ui-ease-standard)',
       },
       // Text uses its own accent variable: the yellow-white accent #F2994A is too light for text
       // (2.2:1), so text-accent there is a darker orange (>= 4.5:1). Elsewhere it equals the accent.
