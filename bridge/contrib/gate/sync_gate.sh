@@ -31,7 +31,7 @@ mkdir -p "$TMP/$NAME"
 cp "$HERE/gate.py" "$TMP/$NAME/gate.py"
 cp "$HERE/scorer_torch.py" "$TMP/$NAME/scorer.py"
 # gate.py 运行时要 import 的同目录模块（ctxsvc 又用到 wiki_search，gate/lead 用 datadir）；漏一个远端闸门就起不来。
-GATE_MODULES="ctxsvc.py datadir.py forum_scores.py lead.py memvote.py scorer_remote.py wiki_search.py"
+GATE_MODULES="ctxsvc.py datadir.py forum_scores.py lead.py memvote.py score_night.py scorer_remote.py wiki_search.py"
 for f in $GATE_MODULES; do cp "$HERE/$f" "$TMP/$NAME/$f"; done
 cp "$TEAM" "$TMP/$NAME/gate-team.json"
 COPYFILE_DISABLE=1 tar -C "$TMP" -czf "$TMP/$NAME.tgz" "$NAME"

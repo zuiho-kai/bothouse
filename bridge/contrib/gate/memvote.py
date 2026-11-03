@@ -11,8 +11,12 @@
   memvote.py +编号 -编号 x编号 …   编号 = 推送行尾 [#编号]；+ 用到且对，- 内容错了/过时，x 撤回我的票
 
 记录格式（forum_scores.py 读同一份）：votes.jsonl 每行一次动作
-  {"t", "voter": 角色, "id": "页#指纹", "vote": 1|-1|0, "by": "self"|"night", "key": 会话, "agent": CLI}
-  某角色对某条的当前票 = 它对这条的最后一行；0 = 撤回。分数 scores.json 只按「新票 - 旧票」增减，历史分数原样保留。
+  {"t", "voter": 角色, "id": "页#指纹", "vote": 1|-1|0, "by": "self"|"outcome", "key": 会话, "agent": CLI}
+
+只认外部信号：角色自报（by="self"）只当「引用」记录——照 ACE 官方代码 Generator 自报 bullet_ids（ace/logger.py），
+每次报都追加一行（cite()），不去重、不动 scores.json，论坛排序不算赞（forum_scores.py）。
+这条到底有没有用，由同目录 score_night.py 看被引用那轮用户下一句是不是纠正，记 by="outcome"（outcome()）。
+record()（SO 一人一票、改投撤回）留给旧数据和测试用，命令行不再走它。
 """
 import fcntl, hashlib, json, os, re, sys, time
 from pathlib import Path
@@ -106,6 +110,29 @@ def record(voter, items, by="self", key="", agent=""):
     return out
 
 
+def _append(recs):
+    with open(LOCK, "w") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        with open(VOTES, "a", encoding="utf-8") as fh:
+            fh.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in recs)
+    return recs
+
+
+def cite(voter, items, key="", agent=""):
+    """角色自报用到的条（ACE Generator bullet_ids）：items = [(编号, 1|-1|0)]，逐条追加一行 by="self"，不去重、不改分数。"""
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    return _append([{"t": now, "voter": voter, "id": cid, "vote": v, "by": "self", "key": key, "agent": agent}
+                    for cid, v in items])
+
+
+def outcome(items, key="", turn=""):
+    """被引用那轮的结果（MemOS mem_feedback：用户纠正带着那轮用到的记忆编号）：items = [(编号, 1 成功 | -1 失败)]。
+    每次一行 by="outcome"，论坛排序逐行累加成赞、踩（不按一人一票去重）。"""
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    return _append([{"t": now, "voter": "user", "id": cid, "vote": v, "by": "outcome", "key": key, "turn": turn,
+                     "agent": "score_night"} for cid, v in items])
+
+
 def main(args):
     voter = os.environ.get("CC_PROJECT") or "terminal"  # 终端会话没有 CC_PROJECT，算一个账号
     want, bad = [], []
@@ -120,12 +147,10 @@ def main(args):
     for v, h in want:
         cid = full_id(h, sc)
         (items.append((cid, v)) if cid else miss.append(h))
-    word = {1: "赞", -1: "踩", 0: "无票"}
+    word = {1: "用到", -1: "内容有错", 0: "撤回"}
     lines = [f"#{h} 找不到这条（编号抄错了？）" for h in miss]
-    for cid, old, new, s in record(voter, items, key=os.environ.get("CC_SESSION_KEY", ""),
-                                   agent=os.environ.get("CC_AGENT", "")):
-        h = cid.rpartition("#")[2]
-        lines.append(f"#{h} 已是{word[new]}，没变（分数 {s}）" if old == new else f"#{h} {word[old]} → {word[new]}，分数 {s}")
+    for r in cite(voter, items, key=os.environ.get("CC_SESSION_KEY", ""), agent=os.environ.get("CC_AGENT", "")):
+        lines.append(f"#{r['id'].rpartition('#')[2]} 已记：{word[r['vote']]}")
     print("\n".join(lines))
     return 0
 

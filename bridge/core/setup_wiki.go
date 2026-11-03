@@ -454,4 +454,43 @@ func applyWizardWiki(res *WizardResult, env WizardEnv, req WizardRequest, projec
 		detail += "already there: " + strings.Join(kept, ", ")
 	}
 	addStep(res, "wiki cron", err, detail)
+	if mainDir != "" && env.DataDir != "" {
+		ok, ferr := AddForumCronJob(c, project, sessionKey, filepath.Join(env.DataDir, "gate"), mainDir)
+		fd := "already there: " + forumCronDesc
+		if ok {
+			fd = "added: " + forumCronDesc
+		}
+		addStep(res, "forum cron", ferr, fd)
+	}
+}
+
+// forumCronDesc: the nightly memory-forum settlement (contrib/gate/score_night.py). The same description means
+// the same job (no duplicates).
+const forumCronDesc = "记忆论坛夜间结算"
+
+// AddForumCronJob adds the nightly run of the gate's score_night.py unless it is there: it reads the gate's push
+// log, turns a cited entry into one success (the user's next message is not a correction) or one failure (it is),
+// and moves lines a correction overturns into the page's 「## 历史」 (the main wiki's bin/invalidate.py). Only for
+// a main wiki the wizard made (that one is written; the user's own is never written). 05:30 = the author's launchd
+// job (com.zuiho.gate-exp-score), after the wiki's 03:00 nightly. Muted: nothing goes to the channel.
+func AddForumCronJob(c WizardCron, project, sessionKey, gateDir, wikiDir string) (bool, error) {
+	jobs, err := c.List()
+	if err != nil {
+		return false, err
+	}
+	for _, j := range jobs {
+		if j.Description == forumCronDesc {
+			return false, nil
+		}
+	}
+	cmd := shellRun(wikiPython(), "-X", "utf8", "-I", cmdQuote(filepath.Join(gateDir, "score_night.py")))
+	if runtime.GOOS == "windows" {
+		cmd = "$env:GATE_WIKI=" + cmdQuote(wikiDir) + "; " + cmd
+	} else {
+		cmd = "GATE_WIKI=" + cmdQuote(wikiDir) + " " + cmd
+	}
+	noLimit := 0
+	j := &CronJob{ID: GenerateCronID(), Project: project, SessionKey: sessionKey, CronExpr: "30 5 * * *",
+		Exec: cmd, Description: forumCronDesc, Enabled: true, Mute: true, TimeoutMins: &noLimit, CreatedAt: time.Now()}
+	return true, c.Add(j)
 }

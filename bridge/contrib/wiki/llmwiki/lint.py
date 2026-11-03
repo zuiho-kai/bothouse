@@ -16,7 +16,7 @@ MAX_TOPICS, README_LINE = 15, 120
 PAGE_LINES, PAGE_CHARS = 60, 4000
 WARN = 0.8
 BODY_LINE = 300  # one bullet = one fact; longer lines dodge PAGE_LINES and are unreadable
-SECTIONS = ("现状", "关键事实", "决策与踩坑", "待办")
+SECTIONS = ("现状", "关键事实", "决策与踩坑", "待办", "历史")  # 历史 optional: superseded lines kept verbatim (invalidate.py)
 # verification bookkeeping that leaked onto a page instead of fixing the fact
 META = re.compile(r"不声称|未见用户确认|不记作现行|（用户告知）|\(用户告知\)|本会话中")
 # 待办 holds tasks the user agreed to; an unanswered proposal goes to log.md only (user 2026-10-16 「可以的」 to the

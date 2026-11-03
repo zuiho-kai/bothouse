@@ -32,6 +32,7 @@ import filelock  # exclusive file lock on Mac/Linux/Windows
 import daypack  # the day's objective record (cost, slow commands, promises) dream's 今日反思 reads
 import lint  # MAX_TOPICS and README topic counting: split_pass must count topics exactly as lint does
 import sessionlog  # the unified session record: every runtime's sessions, one format (sessionlog.py docstring)
+import invalidate  # write-time contradiction check (Graphiti): superseded lines → the page's 「## 历史」
 LINK = lint.LINK  # README entry → link target
 
 HOME_WIKI = Path.home() / "wiki"
@@ -1469,7 +1470,22 @@ def model_pass(label, instruction, stdin="", context=None, engine=None, sids=(),
         ok = finished(ok, out, n == len(extra_contexts) + 1)
         log(f"{label} part {n}/{len(extra_contexts) + 1} ${c2:.3f}: {out[-400:]}")
 
+    asked = {}
+
+    def ask(prompt):  # the contradiction check runs on this pass's own engine; one input (fix pass, re-check) asked once
+        if prompt not in asked:
+            ok_, out_, c_ = once(prompt, label=label + " invalidate")
+            log(f"{label} invalidate ${c_:.3f}: {out_[-200:]}")
+            asked[prompt] = out_ if ok_ else ""
+        return asked[prompt]
+
     def accept():
+        # write-time contradiction check (Graphiti, invalidate.py): old lines this pass's new facts overturn move,
+        # unchanged, into the same page's 「## 历史」, then the usual acceptance runs
+        try:
+            invalidate.run(WIKI, ask=ask, log=lambda m: log(f"{label} {m}"))
+        except Exception as e:  # noqa: BLE001 — a failed check never blocks this pass's write; logged
+            log(f"{label} invalidate failed: {type(e).__name__}: {e}")
         return "\n".join(e for e in (acceptance(sids, max_delete, kind), check and check()) if e)
 
     def settle(answer):
