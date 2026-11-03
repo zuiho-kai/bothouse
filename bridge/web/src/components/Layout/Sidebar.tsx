@@ -15,6 +15,7 @@ import {
   UserPlus,
   Users,
   Laptop,
+  Network,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -30,6 +31,7 @@ const navItems = [
   { key: 'devices', path: '/devices', icon: Laptop },
   { key: 'projects', path: '/projects', icon: FolderKanban },
   { key: 'providers', path: '/providers', icon: Plug },
+  { key: 'bridge', path: '/bridge', icon: Network },
   { key: 'skills', path: '/skills', icon: Puzzle },
   { key: 'chat', path: '/chat', icon: MessageSquare },
   { key: 'cron', path: '/cron', icon: Clock },

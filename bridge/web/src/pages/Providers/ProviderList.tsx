@@ -4,7 +4,7 @@ import {
   Plug, Plus, Trash2, Pencil, ExternalLink, Star, Sparkles, X, Eye, EyeOff, Check,
   Download,
 } from 'lucide-react';
-import { Card, Button, Badge, Modal, Input } from '@/components/ui';
+import { Card, Button, Badge, Modal, Input, PageHeader, EmptyState, LoadingState } from '@/components/ui';
 import {
   listGlobalProviders, addGlobalProvider, updateGlobalProvider, removeGlobalProvider,
   fetchProviderPresets, listCCSwitchProviders, importCCSwitchProviders,
@@ -96,38 +96,35 @@ export default function ProviderList() {
   };
 
   return (
-    <div className="space-y-6 ">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
-            {t('globalProviders.title')}
-          </h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {t('globalProviders.subtitle')}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => setShowCCSwitchModal(true)}>
-            <Download size={16} className="mr-1.5" /> {t('globalProviders.importCCSwitch')}
-          </Button>
-          <Button onClick={() => { setEditProvider(null); setShowAddModal(true); }}>
-            <Plus size={16} className="mr-1.5" /> {t('globalProviders.add')}
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-5 animate-fade-in">
+      <PageHeader
+        icon={Plug}
+        title={t('globalProviders.title')}
+        description={t('globalProviders.subtitle')}
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => setShowCCSwitchModal(true)}>
+              <Download size={16} /> {t('globalProviders.importCCSwitch')}
+            </Button>
+            <Button onClick={() => { setEditProvider(null); setShowAddModal(true); }}>
+              <Plus size={16} /> {t('globalProviders.add')}
+            </Button>
+          </>
+        }
+      />
 
-      {/* Tabs */}
-      <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06] w-fit">
+      {/* Tabs ride the sunken track with a raised pill: the same ladder the sidebar uses. */}
+      <div className="flex w-fit gap-1 rounded-control bg-surface-sunken p-1 ring-1 ring-hairline">
         {(['providers', 'presets'] as const).map(key => (
           <button
             key={key}
             onClick={() => setTab(key)}
+            aria-pressed={tab === key}
             className={cn(
-              'px-4 py-1.5 rounded-lg text-sm font-medium transition-all',
+              'rounded-control px-4 py-1.5 text-sm font-medium transition-[background-color,color,box-shadow] duration-base ease-ui-out',
               tab === key
-                ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300',
+                ? 'bg-surface text-ink ring-1 ring-hairline'
+                : 'text-ink-soft hover:text-ink',
             )}
           >
             {t(`globalProviders.tab.${key}`)}
@@ -177,7 +174,7 @@ export default function ProviderList() {
 
       {/* Delete confirm */}
       <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title={t('common.confirmDelete')}>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+        <p className="text-sm text-ink-soft mb-4">
           {t('globalProviders.deleteHint', { name: deleteTarget })}
         </p>
         <div className="flex justify-end gap-2">
@@ -209,28 +206,22 @@ function ProviderGrid({
   onDelete: (name: string) => void;
   t: (k: string) => string;
 }) {
-  if (loading) return <p className="text-sm text-gray-400">{t('common.loading')}</p>;
+  if (loading) return <LoadingState label={t('common.loading')} />;
   if (providers.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <Plug size={40} className="text-gray-300 dark:text-gray-600 mb-3" />
-        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{t('globalProviders.empty')}</p>
-        <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{t('globalProviders.emptyHint')}</p>
-      </div>
-    );
+    return <EmptyState icon={Plug} message={t('globalProviders.empty')} hint={t('globalProviders.emptyHint')} />;
   }
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {providers.map(p => (
-        <Card key={p.name} className="group relative">
+        <Card key={p.name} className="group relative hover:ring-hairline-strong">
           <div className="flex items-start justify-between">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <Plug size={16} className="text-accent shrink-0" />
-                <h3 className="font-medium text-gray-900 dark:text-white truncate">{p.name}</h3>
+                <Plug size={16} className="text-ink-mute shrink-0" />
+                <h3 className="font-medium text-ink truncate">{p.name}</h3>
               </div>
               {p.base_url && (
-                <p className="mt-1 text-xs text-gray-400 dark:text-gray-500 truncate">{p.base_url}</p>
+                <p className="mt-1 text-xs text-ink-mute truncate">{p.base_url}</p>
               )}
               {p.model && (
                 <Badge className="mt-2">{p.model}</Badge>
@@ -249,16 +240,18 @@ function ProviderGrid({
                 <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">thinking: {p.thinking}</p>
               )}
             </div>
-            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex gap-1 ring-1 ring-hairline rounded-control bg-surface/85 backdrop-blur-sm transition-opacity duration-base md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
               <button
                 onClick={() => onEdit(p)}
-                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-white/[0.06] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                aria-label={`${t('globalProviders.edit')} ${p.name}`}
+                className="grid h-11 w-11 place-items-center rounded-control text-ink-mute hover:bg-surface-sunken hover:text-ink md:h-8 md:w-8"
               >
                 <Pencil size={14} />
               </button>
               <button
                 onClick={() => onDelete(p.name)}
-                className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 text-gray-400 hover:text-red-500"
+                aria-label={`${t('common.delete')} ${p.name}`}
+                className="grid h-11 w-11 place-items-center rounded-control text-ink-mute hover:bg-red-500/10 hover:text-red-500 md:h-8 md:w-8"
               >
                 <Trash2 size={14} />
               </button>
@@ -283,14 +276,14 @@ function PresetGrid({
   t: (k: string, opts?: any) => string;
   lang: string;
 }) {
-  if (loading) return <p className="text-sm text-gray-400">{t('common.loading')}</p>;
+  if (loading) return <LoadingState label={t('common.loading')} />;
   if (presets.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <Sparkles size={40} className="text-gray-300 dark:text-gray-600 mb-3" />
-        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{t('globalProviders.noPresets')}</p>
-        <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{t('globalProviders.noPresetsHint')}</p>
-        <Button variant="ghost" onClick={onRefresh} className="mt-3">{t('common.refresh')}</Button>
+      <div>
+        <EmptyState icon={Sparkles} message={t('globalProviders.noPresets')} hint={t('globalProviders.noPresetsHint')} />
+        <div className="flex justify-center">
+          <Button variant="ghost" onClick={onRefresh}>{t('common.refresh')}</Button>
+        </div>
       </div>
     );
   }
@@ -308,9 +301,9 @@ function PresetGrid({
             )}
             <div className="space-y-3 flex-1">
               <div>
-                <h3 className="font-medium text-gray-900 dark:text-white">{p.display_name || p.name}</h3>
+                <h3 className="font-medium text-ink">{p.display_name || p.name}</h3>
                 {(p.description || p.description_zh) && (
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 line-clamp-2">
+                  <p className="mt-1 text-xs text-ink-soft line-clamp-2">
                     {lang.startsWith('zh') && p.description_zh ? p.description_zh : p.description}
                   </p>
                 )}
@@ -336,7 +329,7 @@ function PresetGrid({
                 ) : null;
               })()}
             </div>
-            <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 dark:border-white/[0.06]">
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-hairline dark:border-white/[0.06]">
               {p.invite_url ? (
                 <a
                   href={p.invite_url}
@@ -386,7 +379,7 @@ function ModelBadges({ models, limit = 3 }: { models: string[]; limit?: number }
       {expanded && remaining > 0 && (
         <button
           onClick={() => setExpanded(false)}
-          className="text-[11px] text-gray-400 hover:text-gray-600 hover:underline"
+          className="text-[11px] text-ink-mute hover:text-ink-soft hover:underline"
         >
           less
         </button>
@@ -431,14 +424,14 @@ function ModelListEditor({
                   'inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs transition-colors',
                   isDefault
                     ? 'bg-accent/15 text-accent border border-accent/30'
-                    : 'bg-gray-100 dark:bg-white/[0.06] text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/10',
+                    : 'bg-surface-sunken text-ink-soft hover:bg-hairline-strong',
                 )}
               >
                 {onSetDefault && !isDefault && (
                   <button
                     type="button"
                     onClick={() => onSetDefault(m.model)}
-                    className="text-gray-400 hover:text-accent transition-colors"
+                    className="text-ink-mute hover:text-accent transition-colors"
                     title="Set as default"
                   >
                     <Check size={12} />
@@ -449,7 +442,7 @@ function ModelListEditor({
                 <button
                   type="button"
                   onClick={() => removeModel(m.model)}
-                  className="text-gray-400 hover:text-red-500 transition-colors"
+                  className="text-ink-mute hover:text-red-500 transition-colors"
                 >
                   <X size={12} />
                 </button>
@@ -542,7 +535,7 @@ function AgentConfigEditor({
   return (
     <div className="space-y-3 pt-2">
       <div>
-        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+        <label className="block text-xs font-medium text-ink-soft mb-1">
           {t('globalProviders.form.baseUrl')}
         </label>
         <Input
@@ -552,7 +545,7 @@ function AgentConfigEditor({
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+        <label className="block text-xs font-medium text-ink-soft mb-1">
           {t('globalProviders.form.model')}
         </label>
         <Input
@@ -562,7 +555,7 @@ function AgentConfigEditor({
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+        <label className="block text-xs font-medium text-ink-soft mb-1">
           {t('globalProviders.form.models')}
         </label>
         <ModelListEditor
@@ -574,17 +567,16 @@ function AgentConfigEditor({
       </div>
       {agentType === 'codex' && (
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+          <label className="block text-xs font-medium text-ink-soft mb-1">
             {t('globalProviders.form.codexWireApi')}
           </label>
           <select
             value={config.wire_api || ''}
             onChange={e => onChange({ ...config, wire_api: e.target.value || undefined })}
             className={cn(
-              'w-full rounded-xl border px-3 py-2 text-sm outline-none transition-colors',
-              'border-gray-200 bg-white text-gray-900',
-              'dark:border-white/10 dark:bg-white/[0.04] dark:text-white',
-              'focus:border-accent focus:ring-1 focus:ring-accent/30',
+              'w-full rounded-card border px-3 py-2 text-sm outline-none transition-colors',
+              'bg-surface text-ink ring-1 ring-hairline hover:ring-hairline-strong',
+              'focus:outline-none focus:ring-2 focus:ring-accent-text focus:ring-offset-2 focus:ring-offset-canvas',
             )}
           >
             <option value="">default</option>
@@ -665,7 +657,7 @@ function ProviderFormModal({
         <div className="space-y-4">
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-ink-soft mb-1">
               {t('globalProviders.form.name')} *
             </label>
             <Input
@@ -678,7 +670,7 @@ function ProviderFormModal({
 
           {/* API Key */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-ink-soft mb-1">
               API Key
             </label>
             <div className="relative">
@@ -692,7 +684,7 @@ function ProviderFormModal({
               <button
                 type="button"
                 onClick={() => setShowKey(!showKey)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-mute hover:text-ink-soft"
               >
                 {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
@@ -701,7 +693,7 @@ function ProviderFormModal({
 
           {/* Agent Types */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-ink-soft mb-1">
               {t('globalProviders.form.agentTypes')}
             </label>
             <div className="flex flex-wrap gap-2">
@@ -718,7 +710,7 @@ function ProviderFormModal({
                       'px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors',
                       selected
                         ? 'bg-accent/10 text-accent border-accent/30'
-                        : 'bg-transparent text-gray-400 border-gray-200 dark:border-white/10 hover:border-gray-300',
+                        : 'bg-transparent text-ink-mute border-hairline hover:border-hairline-strong',
                     )}
                   >
                     {at}
@@ -726,14 +718,14 @@ function ProviderFormModal({
                 );
               })}
             </div>
-            <p className="mt-1 text-xs text-gray-400">{t('globalProviders.form.agentTypesHint')}</p>
+            <p className="mt-1 text-xs text-ink-mute">{t('globalProviders.form.agentTypesHint')}</p>
           </div>
 
           {/* Base URL / Model / Models — flat when <= 1 agent, tabbed when >= 2 */}
           {!multiAgent ? (
             <>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-ink-soft mb-1">
                   {t('globalProviders.form.baseUrl')}
                 </label>
                 <Input
@@ -743,7 +735,7 @@ function ProviderFormModal({
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-ink-soft mb-1">
                   {t('globalProviders.form.model')}
                 </label>
                 <Input
@@ -751,10 +743,10 @@ function ProviderFormModal({
                   onChange={e => set('model', e.target.value)}
                   placeholder="claude-sonnet-4-20250514"
                 />
-                <p className="mt-1 text-xs text-gray-400">{t('globalProviders.form.modelHint')}</p>
+                <p className="mt-1 text-xs text-ink-mute">{t('globalProviders.form.modelHint')}</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-ink-soft mb-1">
                   {t('globalProviders.form.models')}
                 </label>
                 <ModelListEditor
@@ -763,12 +755,12 @@ function ProviderFormModal({
                   defaultModel={form.model}
                   onSetDefault={model => set('model', model)}
                 />
-                <p className="mt-1 text-xs text-gray-400">{t('globalProviders.form.modelsHint')}</p>
+                <p className="mt-1 text-xs text-ink-mute">{t('globalProviders.form.modelsHint')}</p>
               </div>
             </>
           ) : (
-            <div className="rounded-xl border border-gray-200 dark:border-white/10 overflow-hidden">
-              <p className="px-3 pt-3 text-xs text-gray-400">{t('globalProviders.form.perAgentHint')}</p>
+            <div className="rounded-card border border-hairline dark:border-white/10 overflow-hidden">
+              <p className="px-3 pt-3 text-xs text-ink-mute">{t('globalProviders.form.perAgentHint')}</p>
               <div className="flex gap-1 px-3 pt-2 pb-0">
                 {agents.map(at => (
                   <button
@@ -778,15 +770,15 @@ function ProviderFormModal({
                     className={cn(
                       'px-3 py-1.5 rounded-t-lg text-xs font-medium transition-colors',
                       (activeAgentTab || agents[0]) === at
-                        ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm'
-                        : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300',
+                        ? 'bg-surface text-ink ring-1 ring-hairline'
+                        : 'text-ink-mute hover:text-ink-soft dark:hover:text-ink-mute',
                     )}
                   >
                     {at}
                   </button>
                 ))}
               </div>
-              <div className="px-3 pb-3 bg-white dark:bg-white/[0.02]">
+              <div className="px-3 pb-3 bg-surface">
                 {agents.map(at => {
                   if ((activeAgentTab || agents[0]) !== at) return null;
                   return (
@@ -805,17 +797,16 @@ function ProviderFormModal({
 
           {/* Thinking */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-ink-soft mb-1">
               Thinking
             </label>
             <select
               value={form.thinking || ''}
               onChange={e => set('thinking', e.target.value)}
               className={cn(
-                'w-full rounded-xl border px-3 py-2 text-sm outline-none transition-colors',
-                'border-gray-200 bg-white text-gray-900',
-                'dark:border-white/10 dark:bg-white/[0.04] dark:text-white',
-                'focus:border-accent focus:ring-1 focus:ring-accent/30',
+                'w-full rounded-card border px-3 py-2 text-sm outline-none transition-colors',
+                'bg-surface text-ink ring-1 ring-hairline hover:ring-hairline-strong',
+                'focus:outline-none focus:ring-2 focus:ring-accent-text focus:ring-offset-2 focus:ring-offset-canvas',
               )}
             >
               <option value="">{t('globalProviders.form.thinkingDefault')}</option>
@@ -903,20 +894,20 @@ function CCSwitchImportModal({
         )}
 
         {error && (
-          <div className="rounded-xl border border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-900/10 p-4 text-sm text-amber-700 dark:text-amber-400">
+          <div className="rounded-card border border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-900/10 p-4 text-sm text-amber-700 dark:text-amber-400">
             {error}
           </div>
         )}
 
         {!loading && !error && providers.length === 0 && (
-          <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
+          <p className="text-sm text-ink-soft text-center py-4">
             {t('globalProviders.ccSwitch.empty')}
           </p>
         )}
 
         {!loading && !error && providers.length > 0 && !result && (
           <>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-ink-soft">
               {t('globalProviders.ccSwitch.hint', { count: providers.length })}
             </p>
             <div className="max-h-72 overflow-y-auto space-y-1">
@@ -926,12 +917,12 @@ function CCSwitchImportModal({
                   <label
                     key={p.name}
                     className={cn(
-                      'flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors cursor-pointer',
+                      'flex items-center gap-3 rounded-card px-3 py-2.5 transition-colors cursor-pointer',
                       exists
                         ? 'opacity-50 cursor-not-allowed'
                         : selected.has(p.name)
                           ? 'bg-accent/10 dark:bg-accent/5'
-                          : 'hover:bg-gray-50 dark:hover:bg-white/[0.04]',
+                          : 'hover:bg-surface-sunken',
                     )}
                   >
                     <input
@@ -939,11 +930,11 @@ function CCSwitchImportModal({
                       checked={selected.has(p.name)}
                       disabled={exists}
                       onChange={() => !exists && toggle(p.name)}
-                      className="rounded border-gray-300 dark:border-white/20 text-accent focus:ring-accent/30"
+                      className="rounded border-hairline-strong accent-text focus:ring-accent/30"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                        <span className="text-sm font-medium text-ink truncate">
                           {p.name}
                         </span>
                         <Badge variant={p.app_type === 'claude' ? 'default' : 'info'}>
@@ -952,7 +943,7 @@ function CCSwitchImportModal({
                         {p.is_current && <Badge variant="success">{t('globalProviders.ccSwitch.active')}</Badge>}
                         {exists && <Badge variant="warning">{t('globalProviders.ccSwitch.exists')}</Badge>}
                       </div>
-                      <div className="text-xs text-gray-400 mt-0.5 truncate">
+                      <div className="text-xs text-ink-mute mt-0.5 truncate">
                         {p.model && <span>{p.model}</span>}
                         {p.model && p.base_url && <span> · </span>}
                         {p.base_url && <span>{p.base_url}</span>}
@@ -973,7 +964,7 @@ function CCSwitchImportModal({
 
         {result && (
           <>
-            <div className="rounded-xl border border-green-200 dark:border-green-500/20 bg-green-50 dark:bg-green-900/10 p-4 text-sm text-green-700 dark:text-green-400">
+            <div className="rounded-card border border-green-200 dark:border-green-500/20 bg-green-50 dark:bg-green-900/10 p-4 text-sm text-green-700 dark:text-green-400">
               {t('globalProviders.ccSwitch.result', { imported: result.imported?.length || 0, skipped: result.skipped?.length || 0 })}
             </div>
             <div className="flex justify-end">

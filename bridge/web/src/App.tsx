@@ -16,6 +16,7 @@ import SkillList from '@/pages/Skills/SkillList';
 import SetupWizard from '@/pages/Setup/SetupWizard';
 import RoleList from '@/pages/Roles/RoleList';
 import DeviceList from '@/pages/Devices/DeviceList';
+import BridgeAdapters from '@/pages/Bridge/BridgeAdapters';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="projects" element={<ProjectList />} />
         <Route path="projects/:name" element={<ProjectDetail />} />
         <Route path="providers" element={<ProviderList />} />
+        <Route path="bridge" element={<BridgeAdapters />} />
         <Route path="skills" element={<SkillList />} />
         <Route path="chat" element={<ChatList />} />
         <Route path="chat/:name" element={<ChatView />} />
