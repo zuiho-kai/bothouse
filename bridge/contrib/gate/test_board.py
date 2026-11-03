@@ -369,6 +369,15 @@ class BoardEvents(unittest.TestCase):
         self.assertEqual([e["kind"] for e in evs], ["created", "returned", "rejected"])
         self.assertEqual(evs[-1]["note"], "缺复现证据")
 
+    def test_ws_handoff_dispatch_is_assigned_not_returned(self):
+        # ws-handoff 派活写的是「已交接」+「工作区N主角色」（bridge/contrib/lead/ws-handoff:488）：
+        # 这是光飞出去；不能因为状态含「已交」就记成 returned，否则接活的人永远不亮
+        board.add("派出去的活", "-", "进行中", "待接手", short_name="派活")
+        board.update(1, "已交接", who="工作区1gge")
+        evs = self.events()
+        self.assertEqual([e["kind"] for e in evs], ["created", "assigned"])
+        self.assertEqual(evs[-1]["to"], "gge")
+
     def test_append_only_and_write_failure_isolated(self):
         board.add("A", "-", "进行中", "肥鱼", short_name="A")
         before = (Path(TMP) / board.EVENTS).read_text()

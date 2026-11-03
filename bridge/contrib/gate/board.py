@@ -192,7 +192,7 @@ EVENTS = "board-events.jsonl"
 _EVENT_SPLIT = re.compile(r"[、,，/]")
 _EVENT_TAG = re.compile(r"[（(].*$")
 _EVENT_WS = re.compile(r"^工作区\d*\s*")
-_RETURNED_RE = re.compile(r"已交|交回|result_ready", re.I)
+_RETURNED_RE = re.compile(r"已交回|交回|result_ready", re.I)
 _REJECTED_RE = re.compile(r"退回|打回|返工")
 
 
