@@ -26,7 +26,7 @@ import { Later, registerLater } from './later.mjs';
 import { QuotaCooling, quotaDirectory } from './quota-cooling.mjs';
 import { DeskEvents, deskRoute } from './desk.mjs';
 import { wikiGalaxyRoute } from './wiki-galaxy.mjs';
-import { defaultBridgeConfig, usageRoute } from './usage.mjs';
+import { defaultBridgeConfig, panelRoute } from './panel.mjs';
 import { TeamStatus } from './team-status.mjs';
 
 export const name = 'conest-collab';
@@ -94,7 +94,7 @@ export function resolveConfig(config, env = process.env) {
   // Wiki 星河读的 wiki 目录：配置或 CONEST_WIKI_DIR，都没给就是 ~/wiki（只读）。
   const wikiDir = String(c.wikiDir ?? env.CONEST_WIKI_DIR ?? '').trim() || (env.HOME ? join(env.HOME, 'wiki') : undefined);
   if (wikiDir !== undefined && !isAbsolute(wikiDir)) throw Error('conest-collab: wikiDir must be an absolute path');
-  // #105 侧栏「用量」：读这份主桥配置的 [management] 段，在服务端转发用量查询（令牌不进浏览器）。
+  // #105 侧栏「bothouse」：读这份主桥配置的 [management] 段，在服务端转发管理面板（令牌不进浏览器）。
   const bridgeConfig = String(c.bridgeConfig ?? '').trim() || defaultBridgeConfig(env);
   if (!isAbsolute(bridgeConfig)) throw Error('conest-collab: bridgeConfig must be an absolute path');
   return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, boardDir, teamStatusDir, wikiDir, bridgeConfig, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我' };
@@ -245,8 +245,8 @@ export async function apply(ctx, rawConfig) {
     if (deskHandled !== undefined) return deskHandled;
     const galaxyHandled = wikiGalaxyRoute(req, res, url, { wikiDir: config.wikiDir });
     if (galaxyHandled !== undefined) return galaxyHandled;
-    const usageHandled = usageRoute(req, res, url, { bridgeConfig: config.bridgeConfig });
-    if (usageHandled !== undefined) return usageHandled;
+    const panelHandled = panelRoute(req, res, url, { bridgeConfig: config.bridgeConfig });
+    if (panelHandled !== undefined) return panelHandled;
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/personas' && req.method === 'GET') return json(res, 200, personaLibrary(url.searchParams.get('lang') ?? 'zh'));
     if (path === '/collab/api/state' && req.method === 'GET') {

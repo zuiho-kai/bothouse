@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '@/api/client';
+import { proxySignsRequests } from '@/lib/basePath';
 
 interface AuthState {
   token: string;
@@ -27,6 +28,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ token: '', serverUrl: '', isAuthenticated: false });
   },
   init: () => {
+    // Behind a signing proxy the page holds no token; the proxy adds it server-side.
+    if (proxySignsRequests()) {
+      set({ token: '', serverUrl: '', isAuthenticated: true });
+      return;
+    }
     const token = localStorage.getItem('cc_token') || '';
     const serverUrl = localStorage.getItem('cc_server_url') || '';
     if (token) {
