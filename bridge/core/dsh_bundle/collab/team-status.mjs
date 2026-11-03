@@ -77,7 +77,7 @@ export function readStatusFile(path, now, staleAfterMs = TEAM_STALE_AFTER_MS) {
   const updated = parseTime(entry.updated);
   if (updated === undefined) return { error: 'shape' };
   if (now - updated > staleAfterMs) return { error: 'stale' };
-  return { entry };
+  return { entry, updated };
 }
 
 export class TeamStatus {
@@ -138,32 +138,35 @@ export class TeamStatus {
       return;
     }
     this.warned.delete('dir');
+    const now = this.now();
     const byMember = new Map();
     const keep = new Set();
     for (const name of names) {
       if (!STATUS_FILE.test(name) || name.startsWith('board')) continue;
       const path = join(this.dir, name);
-      const loaded = readStatusFile(path, this.now(), this.staleAfterMs);
+      const loaded = readStatusFile(path, now, this.staleAfterMs);
       if (loaded.error !== undefined) {
         if (loaded.error === 'stale' || loaded.error === 'gone') {
           this.fileOwner.delete(name);
         } else {
           this.warnOnce(`file:${name}`, 'conest-collab: bad team status file %s', path);
-          // A writer may be mid-replace; keep the last good state instead of flashing idle.
+          // A writer may be mid-replace; keep the last good state, but only for the
+          // same 60s window a readable file would still be valid in.
           const previous = this.fileOwner.get(name);
-          if (previous !== undefined) keep.add(previous);
+          if (previous !== undefined && now - previous.updated <= this.staleAfterMs) keep.add(previous.id);
+          else this.fileOwner.delete(name);
         }
         continue;
       }
       this.warned.delete(`file:${name}`);
-      const { entry } = loaded;
+      const { entry, updated } = loaded;
       const member = this.resolve(entry.project, entry.name);
       if (member === undefined) {
         this.warnOnce(`member:${entry.project}`, 'conest-collab: no hub member for team project %s; busy state skipped', entry.project);
         continue;
       }
       this.warned.delete(`member:${entry.project}`);
-      this.fileOwner.set(name, member.id);
+      this.fileOwner.set(name, { id: member.id, updated });
       if (member.online === false || member.error) continue;
       const list = byMember.get(member.id) ?? [];
       list.push(entry);

@@ -135,6 +135,25 @@ test('a stale or deleted status clears the previous busy state', () => {
   assert.equal(member(hub).busy, true, 'a half-written file must not clear the last good state');
 });
 
+test('a bad status file stops keeping the last good state after the 60s window', () => {
+  const hub = makeHub();
+  const dir = tempDir();
+  let clock = NOW;
+  const poller = new TeamStatus(hub, dir, { logger: quiet, now: () => clock });
+  writeStatus(dir, 'deep.json', status());
+  poller.poll();
+  assert.equal(member(hub).busy, true);
+
+  writeFileSync(join(dir, 'deep.json'), '{not json');
+  clock = NOW + 30_000;
+  poller.poll();
+  assert.equal(member(hub).busy, true, 'inside the window the last good state is kept');
+
+  clock = NOW + 61_000;
+  poller.poll();
+  assert.equal(member(hub).busy, undefined, 'the existing 60s boundary still applies to a bad file');
+});
+
 test('an unreadable directory clears the last busy state', () => {
   const hub = makeHub();
   const dir = tempDir();
