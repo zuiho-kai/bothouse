@@ -11,7 +11,8 @@
 //      检查 board-events.jsonl 的 kind/from/to 是否符合 Issue #876 的 Event contract。
 //   2. 路由：最小宿主起插件，GET /collab/desk 必须是 200 的 HTML；不是就 FAIL。
 //   3. 事件流：先等到 SSE 的 `: connected` 首帧，再写一条真实事件，15 秒内必须收到 type=task。
-//   4. 画面：Playwright 打开页面，桌面 1440x900 与手机 390x844 各截图；再用回放模式录 15 秒。
+//   4. 画面：Playwright 打开页面，桌面 1440x900 与手机 390x844 各截图；录制中真造两条事件（换人、交回），
+//      实时录 15 秒，光柱应当跟着飞。页面接好回放控件时，另录一段回放样片。
 //
 // 隔离：HOME、BOTHOUSE_DATA_DIR、GATE_SETUP_DIR、BOARD_DIR、CC_BIN 全指向 mktemp 目录，
 // 其中 CC_BIN 是一个假程序，保证 board.py 的 pause/done 不会碰真桥的定时器与工作区。
@@ -56,6 +57,7 @@ for (const d of [dirs.home, dirs.data, dirs.gate, dirs.board, dirs.ws, dirname(d
 }
 
 const results = [];
+let probeId;   // 第 3 步造的探针任务，第 4 步录屏时再驱动它换人/交回，让光柱在镜头里飞
 function record(step, ok, detail) {
   results.push({ step, ok, detail });
   const mark = ok === true ? 'PASS' : ok === 'skip' ? 'SKIP' : 'FAIL';
@@ -121,14 +123,28 @@ try {
 console.log('== 2/4 起最小宿主，看 /collab/desk ==');
 let host;
 let deskOk = false;
+let pageState = 'ok';   // ok / placeholder（B 的占位页）/ skeleton（C 的骨架，缺 live/replay 脚本）
 try {
-  host = await startHost({ dataDir: dirs.data, workspacePath: dirs.ws, leadFile: dirs.lead, boardDir: dirs.board });
+  // 光柱要有起点和终点：办公桌上得有两个成员，名字与任务板里的 from/to 对得上。
+  host = await startHost({
+    dataDir: dirs.data,
+    workspacePath: dirs.ws,
+    leadFile: dirs.lead,
+    boardDir: dirs.board,
+    dshMembers: [
+      { id: 'fish', name: '肥鱼', model: { provider: 'deepseek', model: 'deepseek-v4.1-flash' }, rooms: [1] },
+      { id: 'cj', name: 'C酱', model: { provider: 'deepseek', model: 'deepseek-v4.1-flash' }, rooms: [1] },
+    ],
+  });
   record('插件启动', true, host.routes.map(r => r.path).join(', '));
   const desk = await fetch(`${host.url}/collab/desk`);
   const body = await desk.text();
   if (desk.status === 200 && /<html|<!doctype/i.test(body)) {
     deskOk = true;
     record('/collab/desk', true, `${desk.status}，${body.length} 字节`);
+    // 能出样片的页面要同时满足：有办公室地图（#beams）且没有 __JS_LIVE__ 之类的脚本占位。
+    if (!/<svg[^>]*id="beams"/.test(body)) pageState = 'placeholder';
+    else if (body.includes('__JS_LIVE__') || body.includes('__JS_REPLAY__')) pageState = 'skeleton';
   } else {
     record('/collab/desk', false, `${desk.status}，不是 HTML 页面（路由缺失或坏了）`);
   }
@@ -176,7 +192,7 @@ if (host) {
   // 等订阅真的建立（服务端先发 `: connected`）再写事件，否则事件可能在没人听的时候就被尾随走。
   await new Promise(r => setTimeout(r, 1500));
   try {
-    board('add', '端到端驱动：事件流探针', 'notes/desk/E.handoff.md', '排队', 'C酱', '--short', 'E2E探针');
+    probeId = board('add', '端到端驱动：事件流探针', 'notes/desk/E.handoff.md', '排队', 'C酱', '--short', 'E2E探针').replace('#', '');
   } catch (error) {
     record('task 事件转发', false, `造事件失败：${String(error.stderr || error.message).split('\n')[0]}`);
   }
@@ -208,8 +224,13 @@ function replayWindow(list) {
   return { from: localDatetime(Math.min(...times) - 60_000), to: localDatetime(Math.max(...times) + 60_000) };
 }
 
-if (host && deskOk) {
-  console.log('== 4/4 Playwright 截图与回放录屏 ==');
+if (host && deskOk && pageState !== 'ok') {
+  console.log('== 4/4 Playwright 截图与录屏 ==');
+  record('画面', 'skip', pageState === 'placeholder'
+    ? '页面还是占位页（没有办公室地图），C 路合入后重跑才出样片'
+    : '页面还是骨架（缺 __JS_LIVE__ / __JS_REPLAY__ 脚本），接线后重跑才出真样片');
+} else if (host && deskOk) {
+  console.log('== 4/4 Playwright 截图与录屏 ==');
   const playwright = await loadPlaywright();
   if (playwright === undefined) {
     record('Playwright', 'skip', '没装：npm i -D playwright && npx playwright install chromium（或设 PW_MODULE 指向已装入口）');
@@ -230,10 +251,10 @@ if (host && deskOk) {
         await context.close();
       }
 
-      // 录屏：回放模式 15 秒，桌面与手机各一段。
-      const window = replayWindow(readEvents());
-      if (window === undefined) {
-        record('回放录屏', false, '没有事件可回放');
+      // 录屏：实时态 15 秒，录制中途造两条真实事件（换人、交回），光柱应当跟着飞。
+      // 回放另算一段，只在页面真的接好回放控件时才录；没接线就记 SKIP，不拿静止画面冒充样片。
+      if (probeId === undefined) {
+        record('录屏', false, '没有可驱动的任务编号，跳过录屏');
       } else {
         for (const [label, viewport, mobile] of [['desktop', DESKTOP, false], ['mobile', MOBILE, true]]) {
           const context = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, recordVideo: { dir: dirs.shots, size: viewport } });
@@ -241,22 +262,65 @@ if (host && deskOk) {
           const errors = [];
           page.on('pageerror', e => errors.push(String(e)));
           await page.goto(`${host.url}/collab/desk`, { waitUntil: 'domcontentloaded' });
-          if (await page.locator('#modeReplay').count() === 0) {
-            record(`回放录屏 ${label}`, false, '页面没有回放控件（是占位页？）');
-            await context.close();
-            continue;
-          }
-          await page.click('#modeReplay');
-          await page.fill('#from', window.from);
-          await page.fill('#to', window.to);
-          await page.click('#loadReplay');
-          await page.waitForTimeout(500);
-          const play = page.locator('#playPause');
-          if (await play.count()) await play.click().catch(() => {});
-          await page.waitForTimeout(VIDEO_SECONDS * 1000 - 1000);
+          await page.waitForTimeout(2000);
+          board('update', probeId, '进行中', '', '肥鱼');   // 第一道光：换人
+          await page.waitForTimeout(1600);                  // 尾随 1 秒一轮，留出光柱画出来的时间
+          const beams = await page.locator('#beams .beam').count();
+          board('returned', probeId, 'C酱');                // 第二道光：交回
+          await page.waitForTimeout(4000);
+          await page.waitForTimeout(VIDEO_SECONDS * 1000 - 8100);
           const video = page.video();
           await context.close();
-          record(`回放录屏 ${label}`, errors.length === 0, errors.length ? errors[0] : await video.path());
+          record(`实时录屏 ${label}`, errors.length === 0 && beams > 0,
+            errors.length ? errors[0] : `${await video.path()}；画到 ${beams} 道光`);
+        }
+
+        const window = replayWindow(readEvents());
+        if (window === undefined) {
+          record('回放录屏', false, '没有事件可回放');
+        } else {
+          // 先问回放接口要这段窗口的数据：条数为 0 说明窗口算错或板文件没读到。
+          const query = new URLSearchParams({ from: new Date(window.from).toISOString(), to: new Date(window.to).toISOString() });
+          const replay = await (await fetch(`${host.url}/collab/api/desk/replay?${query}`)).json();
+          const replayCount = Array.isArray(replay.events) ? replay.events.length : 0;
+          record('回放数据', replayCount > 0, replayCount > 0 ? `${replayCount} 条事件（${window.from}~${window.to}）` : `窗口 ${window.from}~${window.to} 内 0 条事件`);
+
+          // 结构探测：点「回放」后回放条应当现身。没现身就是页面还没接这组控件。
+          const probeContext = await browser.newContext({ viewport: DESKTOP });
+          const probePage = await probeContext.newPage();
+          await probePage.goto(`${host.url}/collab/desk`, { waitUntil: 'domcontentloaded' });
+          const wired = await probePage.evaluate(() => {
+            document.querySelector('#modeReplay')?.click();
+            return document.querySelector('#replayBar')?.hidden === false;
+          });
+          await probeContext.close();
+
+          if (!wired) {
+            record('回放录屏', 'skip', '页面回放控件还没接线（只有骨架），样片以实时录屏为准');
+          } else {
+            for (const [label, viewport, mobile] of [['desktop', DESKTOP, false], ['mobile', MOBILE, true]]) {
+              const context = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, recordVideo: { dir: dirs.shots, size: viewport } });
+              const page = await context.newPage();
+              const errors = [];
+              page.on('pageerror', e => errors.push(String(e)));
+              await page.goto(`${host.url}/collab/desk`, { waitUntil: 'domcontentloaded' });
+              await page.click('#modeReplay');
+              await page.fill('#from', window.from);
+              await page.fill('#to', window.to);
+              await page.click('#loadReplay');
+              // 载入完成前播放键是禁用的；等它可用再点，别让点击重试把录屏拖成半分钟。
+              const play = page.locator('#playPause');
+              const enabled = await page.waitForFunction(() => {
+                const button = document.querySelector('#playPause');
+                return button !== null && button.disabled === false;
+              }, undefined, { timeout: 5000 }).then(() => true).catch(() => false);
+              if (enabled) await play.click({ timeout: 2000 }).catch(() => {});
+              await page.waitForTimeout(VIDEO_SECONDS * 1000 - 900);
+              const video = page.video();
+              await context.close();
+              record(`回放录屏 ${label}`, errors.length === 0 && enabled, errors.length ? errors[0] : `${await video.path()}（播放键${enabled ? '已启用' : '未启用'}）`);
+            }
+          }
         }
       }
     } finally {

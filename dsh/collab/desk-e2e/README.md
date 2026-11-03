@@ -50,7 +50,7 @@ node dsh/collab/desk-e2e/run.mjs --out ./out
 | 1 | 真实 `board.py` 的 add / update / returned / reject / pause / done 是否各写一行 `board-events.jsonl`；`kind` 是否齐全，`ts/id/from/to/title` 是否完整 | FAIL：文件缺失、kind 缺失或字段不全 |
 | 2 | 最小宿主起插件；`/collab/desk` 必须是 200 的 HTML；`/collab/api/state` 返回成员 | FAIL：路由缺失或返回的不是页面 |
 | 3 | 先等到 SSE 的 `: connected` 首帧再写一条真实事件，15 秒内必须收到 `type=task` | FAIL：超时或帧不完整 |
-| 4 | Playwright：实时态桌面 1440×900、手机 390×844 各一张截图；回放模式各录 15 秒 | 没装 Playwright 记 SKIP；页面没有回放控件（占位页）记 FAIL |
+| 4 | Playwright：实时态桌面 1440×900、手机 390×844 各一张截图；录制中真造两条事件，实时录 15 秒并核对页面真的画出了光柱（`#beams .beam`）；页面接好回放控件时另录一段回放 | 没装 Playwright 记 SKIP；页面还是占位页或骨架（无地图 / 有 `__JS_LIVE__` 占位）记 SKIP，不产假样片；页面就绪但没画出光柱记 FAIL |
 
 第 2、3 步是硬门槛：B 路已经在 `develop` 里，路由或事件流不通就是真问题，不再降级成 SKIP。
 
@@ -58,7 +58,8 @@ node dsh/collab/desk-e2e/run.mjs --out ./out
 
 - 不连桥、不发消息、不部署、不改线上配置。
 - 事件用 `CC_PROJECT=deep` 造 `from`，`who` 造 `to`，与真实派活的写法一致。
-- 回放录屏会把本轮造出的全部事件放进窗口（前后各留一分钟），因此样片里能看到 created / assigned / returned / rejected / paused / done 的完整过程，而不是只有光柱闪一下。
+- 录屏以实时态为主：镜头里先造「换人」再造「交回」，两道光对应两条真实事件，脚本会数 `#beams .beam` 确认页面真的画了，而不是只交一段视频。
+- 回放样片只在页面把回放控件接好后才录；现有 C 路页面还是骨架时，脚本明确跳过画面阶段，不拿静止画面冒充样片。
 - 画面对的是 C 路提供的页面；C 未合入时是 B 的占位页（只有事件列表），这时第 4 步会明确报「没有回放控件」。
 
 ## 测试
