@@ -4,7 +4,7 @@ import { personaLibrary } from './personas.mjs';
 //   - insert:
 //       - id: conest-collab
 //         name: /abs/path/dsh/collab/plugin.mjs
-//         config: { dataDir, workspacePath, leadFile?, fallbackLead?, botTokenEnv?, ownerName?, rooms?, dshMembers?, maxRelay?, boardDir?, teamStatusDir? }
+//         config: { dataDir, workspacePath, leadFile?, fallbackLead?, botTokenEnv?, ownerName?, rooms?, dshMembers?, maxRelay?, boardDir?, teamStatusDir?, wikiDir? }
 import { createRequire } from 'node:module';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -25,6 +25,7 @@ import { Attachments, INLINE_IMAGE } from './attachments.mjs';
 import { Later, registerLater } from './later.mjs';
 import { QuotaCooling, quotaDirectory } from './quota-cooling.mjs';
 import { DeskEvents, deskRoute } from './desk.mjs';
+import { wikiGalaxyRoute } from './wiki-galaxy.mjs';
 import { TeamStatus } from './team-status.mjs';
 
 export const name = 'conest-collab';
@@ -89,7 +90,10 @@ export function resolveConfig(config, env = process.env) {
   const teamStatusRaw = c.teamStatusDir ?? (String(env.CONEST_TEAM_STATUS_DIR ?? '').trim() || boardDir);
   const teamStatusDir = teamStatusRaw == null ? undefined : String(teamStatusRaw).trim() || undefined;
   if (teamStatusDir !== undefined && !isAbsolute(teamStatusDir)) throw Error('conest-collab: teamStatusDir must be an absolute path');
-  return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, boardDir, teamStatusDir, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我' };
+  // Wiki 星河读的 wiki 目录：配置或 CONEST_WIKI_DIR，都没给就是 ~/wiki（只读）。
+  const wikiDir = String(c.wikiDir ?? env.CONEST_WIKI_DIR ?? '').trim() || (env.HOME ? join(env.HOME, 'wiki') : undefined);
+  if (wikiDir !== undefined && !isAbsolute(wikiDir)) throw Error('conest-collab: wikiDir must be an absolute path');
+  return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, boardDir, teamStatusDir, wikiDir, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我' };
 }
 
 /** Resolve a package from the running DSH installation, never a second copy. */
@@ -229,12 +233,14 @@ export async function apply(ctx, rawConfig) {
     const opened = workspacesRoute(req, res, url, { store, hub, gateway, owner, later, tasks, dsh });
     if (opened !== undefined) return opened;
     if (!owner(req)) {
-      if ((path === '/collab' || path === '/collab/desk') && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
+      if ((path === '/collab' || path === '/collab/desk' || path === '/collab/wiki-galaxy') && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
       return refuse(req, res);
     }
     // #876 P: 回放里的 @ 用 hub 的成员表解析（routable = 真实角色，不含主人）。
     const deskHandled = deskRoute(req, res, url, { store, boardDir: config.boardDir, members: hub.routable() });
     if (deskHandled !== undefined) return deskHandled;
+    const galaxyHandled = wikiGalaxyRoute(req, res, url, { wikiDir: config.wikiDir });
+    if (galaxyHandled !== undefined) return galaxyHandled;
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/personas' && req.method === 'GET') return json(res, 200, personaLibrary(url.searchParams.get('lang') ?? 'zh'));
     if (path === '/collab/api/state' && req.method === 'GET') {
