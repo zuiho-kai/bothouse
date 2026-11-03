@@ -442,7 +442,10 @@ export function roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePa
   if (req.method === 'GET') return Promise.resolve(json(res, 200, view()));
   if (req.method !== 'PATCH') return undefined;
   return withBody(req, res, body => {
-    if (body?.lead_id !== undefined && body.lead_id !== null && !hub.routableIn(roomId).some(m => m.id === body.lead_id)) {
+    // The settings dialog's「未选择（按原配置）」option sends the select's empty value: clear the
+    // channel's own choice so the primary falls back to the instance-wide one, exactly like null.
+    const leadId = body?.lead_id === '' ? null : body?.lead_id;
+    if (leadId !== undefined && leadId !== null && !hub.routableIn(roomId).some(m => m.id === leadId)) {
       throw new CollabError('invalid', '请选择本频道的主角色');
     }
     if (body?.workspace_path !== undefined) {
@@ -453,7 +456,7 @@ export function roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePa
       if (!stat.isDirectory()) throw new CollabError('invalid', '工作目录必须是目录，不能是文件');
     }
     store.transaction(() => {
-      if (body?.lead_id !== undefined) store.setLead(roomId, body.lead_id);
+      if (leadId !== undefined) store.setLead(roomId, leadId);
       if (body?.workspace_path !== undefined) store.setWorkspacePath(roomId, body.workspace_path, workspacePath);
       // #445: 6–20 only; an invalid value rolls the whole PATCH back.
       if (body?.max_relay !== undefined) store.setMaxRelay(roomId, body.max_relay);
