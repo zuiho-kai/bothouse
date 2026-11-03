@@ -52,7 +52,9 @@ export const NOTICE_PREFIXES = ['📬', '✅', '↪', '⏳', '🔄', '⏹', '⏸
 const FOOTER = /(?:^|\n+)\*[^*\n]*·[^*]*\*\s*$/s;
 const BARE_MENTION = '（只 @ 了你，没写内容：看上面的频道消息判断要你做什么；看不出来就问）';
 export const PROGRESS_PREFIX = '__cc_connect_progress_card_v1__:';
-const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败' };
+// cancelled (#913): a card whose turn was cut without an outcome — a restarted bridge, a
+// cancelled DSH job. page.html styles it like any other card state.
+const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败', cancelled: '已取消' };
 const RESERVED_IDS = new Set(['user', 'system']);
 const MAX_NAME = 64;
 
@@ -245,7 +247,38 @@ export class CloudWebGateway {
     this.hub.dropDrafts('role', id);
     // ...and its pending permission requests are gone with the old process.
     this.approvals.expireWhere(p => p.meta?.gateway === this && p.meta.bot === id);
+    // ...and the progress cards it already posted would stay 「处理中」 forever: the old
+    // process held the only handle, and the turn it resumes posts a second card (#913).
+    this.closeStaleCards(id);
     return bot;
+  }
+
+  /**
+   * #913: close the progress cards a bot left running. A restarted cc-connect keeps no
+   * message ids, so nothing will ever edit those rows again, while its resumed turn posts
+   * a fresh card; the room then shows two 「处理中」 and no way to tell which is alive.
+   * They are closed as 已取消 (page.html already styles that state) and keep their steps,
+   * plus a line saying the turn was cut, so the history stays readable.
+   *
+   * Every card row this member posted is looked at, not the last page of one room: the
+   * room may have carried a hundred messages since (a busy channel, a workshop), and a
+   * running card there must still be closed. Only this member's own rows are touched,
+   * and only rows still `running`: a card the resumed turn reopens by its own handle goes
+   * back to 处理中 on the next frame.
+   */
+  closeStaleCards(memberId) {
+    for (const row of this.hub.store.authorCards('role', memberId)) {
+      let card;
+      try { card = JSON.parse(row.card); } catch { continue; }
+      if (card?.state !== 'running') continue;
+      const note = '⏹ 已中断（桥重启），这一步不会再更新';
+      const brief = typeof card.brief === 'string' && card.brief !== '' ? `${card.brief}\n${note}` : note;
+      // The stored title is already rendered ("CC · 处理中"): swap only its state label,
+      // so the card keeps its agent name.
+      const label = ` · ${CARD_STATES[card.state] ?? ''}`;
+      const agent = typeof card.title === 'string' && card.title.endsWith(label) ? card.title.slice(0, -label.length) : (card.title ?? 'Agent');
+      this.hub.edit(row.id, 'role', memberId, `${row.text}\n${note}`, JSON.stringify({ ...card, state: 'cancelled', title: `${agent} · ${CARD_STATES.cancelled}`, brief }));
+    }
   }
 
   /** Forward one new channel message to every connected bot except its author. */

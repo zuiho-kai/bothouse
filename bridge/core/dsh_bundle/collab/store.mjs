@@ -121,6 +121,10 @@ export class Store {
         AND draft = 1 AND deleted = 0 AND card IS NULL`),
       authorDrafts: this.db.prepare(`SELECT * FROM messages WHERE author_kind = ? AND author = ?
         AND draft = 1 AND deleted = 0 AND card IS NULL ORDER BY id`),
+      // #913: every live card row one author posted, in every room. A restarted bridge
+      // holds no handle on them, so they must be found without a message window.
+      authorCards: this.db.prepare(`SELECT * FROM messages WHERE author_kind = ? AND author = ?
+        AND card IS NOT NULL AND deleted = 0 ORDER BY id`),
       addJob: this.db.prepare(`INSERT INTO jobs (member_id, room_id, trigger_id, state, created_at)
         VALUES (?, ?, ?, 'pending', ?) ON CONFLICT(member_id, trigger_id) DO NOTHING RETURNING *`),
       job: this.db.prepare('SELECT * FROM jobs WHERE id = ?'),
@@ -720,6 +724,10 @@ export class Store {
   drafts(authorKind, author) {
     // WebSocket close events may arrive after plugin teardown has closed SQLite.
     return this.closed ? [] : this.q.authorDrafts.all(authorKind, author);
+  }
+  /** Every live progress-card row one author posted (#913), oldest first. */
+  authorCards(authorKind, author) {
+    return this.closed ? [] : this.q.authorCards.all(authorKind, author);
   }
 
   /** Up to `limit` messages before `beforeId` (exclusive), oldest first. */
