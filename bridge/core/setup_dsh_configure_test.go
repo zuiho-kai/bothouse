@@ -231,7 +231,7 @@ func dshBoolPtr(v bool) *bool { return &v }
 
 func TestConfigureDSHReusesHomeDotenvKey(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testutil.SetHome(t, home)
 	t.Setenv("DSH_HOME", filepath.Join(home, ".dsh"))
 	t.Setenv("CONEST_COLLAB_DATA", filepath.Join(home, "collab"))
 	t.Setenv("DEEPSEEK_API_KEY", "")
