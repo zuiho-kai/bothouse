@@ -3702,7 +3702,12 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		interactiveKey = resolvedWorkspace + ":" + msg.SessionKey
 	}
 
-	if len(msg.Images) == 0 && strings.HasPrefix(content, "/") {
+	// A held gate burst re-enters handleMessage with the same *Message (the release
+	// timer in gate.go), so the slash command is handled once: running it again posted
+	// the unknown-command notice twice (~1s apart) and would execute a real command
+	// twice as well.
+	if len(msg.Images) == 0 && strings.HasPrefix(content, "/") && !msg.cmdDone {
+		msg.cmdDone = true
 		if e.handleCommand(p, msg, content) {
 			return
 		}
