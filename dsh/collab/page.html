@@ -243,8 +243,12 @@
   }
   .msg:hover { background: var(--hover-soft); }
   .msg.cont { padding-top: 2px; }
-  .msg.cont .avatar,
+  /* 连续发言只把头像画成透明，不能 display:none：头像那一格没了，正文列会顶到第一列，
+     整条消息只剩 --avatar 宽（40px），卡片和正文就变成一列一个字母的竖条。 */
+  .msg.cont .avatar { visibility: hidden; }
   .msg.cont .head { display: none; }
+  /* 正文列固定落在第二列，即使头像被隐藏也不会顶到第一列。 */
+  .msg > :not(.avatar) { grid-column: 2; min-width: 0; }
   .msg .stamp {
     display: none;
     position: absolute;
@@ -307,12 +311,14 @@
   .card[data-state="completed"] { --card-accent: var(--ok); --card-tint: rgba(35, 165, 90, .16); --card-text: #7ee2a8; }
   .card[data-state="failed"] { --card-accent: var(--danger); --card-tint: rgba(242, 63, 67, .16); --card-text: #ff9a9c; }
   .card[data-state="cancelled"] { --card-accent: var(--muted); --card-tint: rgba(127, 127, 127, .14); --card-text: var(--muted); }
+  .card[data-state="stopped"] { --card-accent: var(--muted); --card-tint: rgba(127, 127, 127, .14); --card-text: var(--muted); }
   @media (prefers-color-scheme: light) {
     .card { --card-text: #3b46b8; --card-tint: rgba(74, 85, 214, .12); }
     .card[data-state="running"] { --card-text: #6d4a00; --card-tint: rgba(240, 178, 50, .18); }
     .card[data-state="completed"] { --card-text: #146c3a; --card-tint: rgba(26, 127, 67, .12); }
     .card[data-state="failed"] { --card-text: #a52327; --card-tint: rgba(194, 43, 47, .12); }
     .card[data-state="cancelled"] { --card-text: #545861; --card-tint: rgba(84, 88, 97, .12); }
+    .card[data-state="stopped"] { --card-text: #545861; --card-tint: rgba(84, 88, 97, .12); }
   }
   .card-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .card .title { font-weight: 600; font-size: var(--fs-sm); color: var(--text-strong); }
@@ -523,7 +529,7 @@ const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls)
 const palette = ['#4F46E5', '#B45309', '#0F766E']; // taste-skill-ignore 靛蓝为 design-spec 唯一强调色（用户标杆），按 SKILL.md 已有品牌条款保留
 const color = id => palette[[...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % palette.length];
 const kindLabel = { dsh: 'DSH', bot: 'Agent', human: '' };
-const cardStateLabel = { pending: '待确认', running: '进行中', completed: '已完成', failed: '失败', cancelled: '已取消' };
+const cardStateLabel = { pending: '待确认', running: '进行中', completed: '已完成', failed: '失败', cancelled: '已取消', stopped: '已停止', retried: '已重试' };
 // 5 分钟：同一人连续发言合并头像与昵称的窗口，沿用 Discord 的习惯（交接要求「按同一人连续发言分组」）
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 // 768px 是 U2 交接里定的窄屏阈值
@@ -677,6 +683,9 @@ function upsert(m) {
     const after = [...log.children].find(n => n.dataset.id != null && Number(n.dataset.id) > m.id);
     log.insertBefore(messageNode(m), after || null);
   }
+  // 「还没有消息」只是打开空频道时的占位：第一条消息（本地发的、SSE 推来的、重连补来的）一到就得收起，
+  // 否则它会一直压在真实消息上面，直到手动切换频道或刷新。
+  log.querySelector('.state.empty')?.remove();
   regroup();
   if (stick) log.scrollTop = log.scrollHeight;
 }
