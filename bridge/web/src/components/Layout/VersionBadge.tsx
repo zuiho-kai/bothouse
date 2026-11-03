@@ -134,7 +134,7 @@ export default function VersionBadge({ collapsed }: { collapsed: boolean }) {
   if (collapsed) {
     return (
       <div className="flex flex-col items-center gap-1 pb-1" data-testid="version-badge">
-        <span className="text-[10px] leading-none text-gray-400 dark:text-gray-500 truncate max-w-full" title={title}>{current}</span>
+        <span className="max-w-full truncate text-[10px] leading-none text-ink-mute" title={title}>{current}</span>
         {showUpdate && (
           <button
             type="button"
@@ -158,7 +158,7 @@ export default function VersionBadge({ collapsed }: { collapsed: boolean }) {
 
   return (
     <div className="px-2 pb-1 space-y-1.5" data-testid="version-badge">
-      <div className="text-xs text-gray-400 dark:text-gray-500 select-none" title={title}>
+      <div className="select-none text-xs text-ink-mute" title={title}>
         bothouse {current}
         {info.dev && <span className="ml-1">· {t('update.devShort')}</span>}
       </div>

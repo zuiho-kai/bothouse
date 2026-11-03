@@ -23,7 +23,8 @@ const languages = [
 // 顶栏是「浮层」：玻璃底 + 1px hairline，只在这里用 backdrop-filter（§4 玻璃只给顶栏/命令面板/弹层）。
 // 交互档与 Modal 关闭按钮同一套：图标按钮 36px、可达焦点环 accent-text。
 const iconBtn = cn(
-  'grid h-9 w-9 place-items-center rounded-control text-ink-soft',
+  // 手机 44px、指针设备 36px（README 达标线：手机点按目标 ≥44px）
+  'grid h-11 w-11 place-items-center rounded-control text-ink-soft sm:h-9 sm:w-9',
   'transition-colors duration-base ease-ui-out',
   'hover:bg-surface-sunken hover:text-ink',
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',

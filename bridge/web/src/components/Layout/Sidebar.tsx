@@ -52,7 +52,7 @@ export default function Sidebar({
       <button
         type="button"
         aria-label="Close navigation menu"
-        className={cn('fixed inset-0 z-30 bg-black/40 backdrop-blur-[2px] md:hidden', !mobileOpen && 'hidden')}
+        className={cn('fixed inset-0 z-30 bg-black/40 md:hidden', !mobileOpen && 'hidden')}
         onClick={onMobileClose}
         data-testid="mobile-menu-backdrop"
       />
@@ -87,7 +87,7 @@ export default function Sidebar({
           <button
             type="button"
             onClick={onMobileClose}
-            className="ml-auto grid h-9 w-9 place-items-center rounded-control text-ink-soft transition-colors duration-base hover:bg-surface-sunken hover:text-ink md:hidden"
+            className="ml-auto grid h-11 w-11 place-items-center rounded-control text-ink-soft transition-colors duration-base hover:bg-surface-sunken hover:text-ink md:hidden"
             aria-label="Close navigation menu"
             data-testid="mobile-menu-close"
           >
