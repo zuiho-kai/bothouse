@@ -461,6 +461,87 @@ html,body{background:var(--bg);color:var(--text)}
 .avatar{box-shadow:0 0 0 1px #00000010,0 10px 22px #00000020}
 .seat.working .avatar{box-shadow:0 0 0 3px #efb56777,0 10px 22px #00000020}
 .plate{letter-spacing:.4px}
+
+/* ===== U5 控件层（2026-11-03）：浅色调色板，对齐 notes/desk/magpie-beam-ref.md ===== */
+/* 参照的 --ink3 #85858c 在白底只有 3.66:1，正文/12px 标签统一用 #71717a（4.83:1，来源：WCAG 2.2 AA 实测计算）。 */
+/* 用户 15:10：背景不要黑乎乎；控件、弹层、滑杆统一用参照里的浅色，不再写死深色夜景。 */
+.transport{display:flex;align-items:center;gap:4px}
+.btn.icon{width:34px;padding:6px 0;text-align:center;font-size:13px;line-height:1}
+.seek{display:flex;align-items:center;gap:8px;flex:1 1 170px;min-width:130px}
+.seek .progress{flex:1;min-width:80px;height:36px;margin:0;background:transparent;-webkit-appearance:none;appearance:none}
+/* 轨道/滑块自绘：原生 4px 轨道在手机上点不中（点按目标 44px，来源：WCAG 2.2 Target Size 与 UI 计划达标线）。 */
+.seek .progress::-webkit-slider-runnable-track{height:8px;border-radius:99px;background:linear-gradient(90deg,#111112 var(--fill,0%),#e4e4e7 var(--fill,0%))}
+.seek .progress::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;margin-top:-8px;border-radius:50%;background:#fff;border:1.5px solid #111112;box-shadow:0 1px 3px #0000002e}
+.seek .progress::-moz-range-track{height:8px;border-radius:99px;background:#e4e4e7}
+.seek .progress::-moz-range-progress{height:8px;border-radius:99px;background:#111112}
+.seek .progress::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;border:1.5px solid #111112;box-shadow:0 1px 3px #0000002e}
+.seek .progress:disabled{opacity:.45;cursor:default}
+.seekmeta{font:11px ui-monospace,Menlo,monospace;color:#71717a;min-width:56px;text-align:right}
+.kbdhint{font-size:11px;color:#71717a;white-space:nowrap}
+.filterbar{display:flex;align-items:center;gap:6px;margin:0 0 8px}
+.filterbar label{font-size:11px;color:#71717a;flex:0 0 auto}
+.filterbar select{flex:1 1 auto;min-width:0;background:#fff;border:1px solid #e4e4e7;border-radius:8px;color:#111112;font-size:12px;padding:5px 7px}
+.filterbar select:focus-visible{outline:2px solid #85858c;outline-offset:1px}
+.log li[role=button]{cursor:pointer}
+.log li[role=button]:hover{border-color:#e4e4e7;background:#fafafa}
+.log li[role=button]:focus-visible{outline:2px solid #85858c;outline-offset:1px}
+.log-empty{padding:14px 8px;color:#71717a;font-size:12px;text-align:center;border:1px dashed #e4e4e7;border-radius:10px;list-style:none}
+.seat{border-radius:14px}
+.seat:focus-visible{outline:2px solid #85858c;outline-offset:-2px}
+/* 光柱命中区：极细的 trace 点不中，叠一条透明宽描边；路径沿用画面层自己算的，不改走法。 */
+.beam{cursor:pointer}
+.beam .hit{fill:none;stroke:#fff;stroke-opacity:0;stroke-width:18;pointer-events:stroke}
+.beam .hit:focus-visible{stroke:#85858c;stroke-opacity:.55;outline:none}
+.detail{position:fixed;inset:0;z-index:120;display:grid;place-items:end center;padding:14px;background:#11111247;-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+.detailCard{position:relative;width:min(560px,100%);max-height:min(80dvh,680px);overflow:auto;overscroll-behavior:contain;border:1px solid #e4e4e7;border-radius:16px;background:#fff;box-shadow:0 1px 2px #0000000a,0 24px 64px -12px #0000002e;padding:16px 16px calc(14px + env(safe-area-inset-bottom));animation:detailIn .2s ease-out}
+@keyframes detailIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.detailClose{position:absolute;right:10px;top:10px;width:36px;height:36px;border-radius:10px;border:1px solid #e4e4e7;background:#f1f1f2;color:#111112;font-size:15px;line-height:1}
+.detailClose:hover{background:#e4e4e7}
+.detailClose:focus-visible{outline:2px solid #85858c;outline-offset:1px}
+.detailHead{display:flex;align-items:center;gap:8px;padding-right:44px;flex-wrap:wrap}
+.detailHead h3{margin:0;font-size:16px;line-height:1.35;color:#111112}
+.detail .chip{background:#f1f1f2;color:#4a4a50;border:1px solid #e4e4e7}
+.detailMeta{margin-top:6px;font-size:12px;color:#71717a;line-height:1.6;overflow-wrap:anywhere}
+.detailBody{margin-top:10px;font-size:13px;line-height:1.6;overflow-wrap:anywhere;color:#111112}
+.detailBody h4{margin:12px 0 6px;font-size:11px;letter-spacing:1px;color:#71717a;text-transform:uppercase}
+.detailBody p{margin:0}
+.detailActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.detailNote{color:#4a4a50}
+.recRow{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:1px solid #e4e4e7;background:#fafafa;border-radius:9px;padding:7px 8px;margin-top:4px;font-size:12px;color:#111112}
+.recRow:hover{background:#f1f1f2}
+.recRow:focus-visible{outline:2px solid #85858c;outline-offset:1px}
+.recRow .recT{font:11px ui-monospace,Menlo,monospace;color:#71717a;flex:0 0 auto}
+.recRow .recText{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.taskline{padding:9px 10px;border-radius:10px;border:1px solid #e4e4e7;background:#fafafa}
+.dim{color:#71717a}
+/* 手机/平板也能看到实况流：原来 ≤1180px 直接 display:none，等于筛选在手机上不存在。
+   来源：UI 计划要求手机可筛选；390×844 竖屏实测放在场景下方、各占半屏可滚。 */
+@media (max-width:1180px){
+  main{grid-template-columns:minmax(0,1fr)}
+  .side{display:flex;max-height:52vh}
+}
+@media (max-width:760px), (orientation:landscape) and (max-height:560px){
+  .mode,.btn,.mini,.detailClose{min-height:44px;min-width:44px}
+  .btn.icon{width:44px}
+  .mini{min-width:44px}
+  .field input,.field select,.filterbar select{min-height:44px}
+  .seek{flex:1 1 100%}
+  .seek .progress{height:44px}
+  .seek .progress::-webkit-slider-thumb{width:28px;height:28px;margin-top:-10px}
+  .seek .progress::-moz-range-thumb{width:28px;height:28px}
+  .seekmeta{text-align:left}
+  .kbdhint{display:none}
+  .detail{padding:0}
+  .detailCard{width:100%;max-height:82dvh;border-radius:16px 16px 0 0;border-bottom:0}
+}
+/* 手机横屏：收起页脚与副标题，把高度让给控件和场景；场景尺寸仍由画面层自己定。 */
+@media (orientation:landscape) and (max-height:560px){
+  .app{padding:6px 10px;gap:6px}
+  .topbar .sub{display:none}
+  .foot{display:none}
+  .bar{padding:6px 8px;gap:6px}
+  .side{max-height:40vh}
+}
 </style>
 </head>
 <body>
@@ -470,16 +551,24 @@ html,body{background:var(--bg);color:var(--text)}
   <div class="topright"><span class="badge fixture" id="fixtureBadge" hidden>示例数据 · 非真实事件</span><span class="clock" id="clockDigital">--:--:--</span><span class="pill wait" id="conn">连接中</span></div>
 </header>
 <section class="bar">
-  <div class="modes" role="tablist" aria-label="模式"><button class="mode on" id="modeLive" role="tab" aria-selected="true">实时</button><button class="mode" id="modeReplay" role="tab" aria-selected="false">回放</button></div>
+  <div class="modes" role="tablist" aria-label="模式"><button class="mode on" id="modeLive" role="tab" aria-selected="true" aria-controls="stage">实时</button><button class="mode" id="modeReplay" role="tab" aria-selected="false" aria-controls="replayBar">回放</button></div>
   <div class="replaybar" id="replayBar" hidden>
-    <label class="field">从<input type="datetime-local" id="from"></label>
-    <label class="field">到<input type="datetime-local" id="to"></label>
+    <label class="field">从<input type="datetime-local" id="from" aria-label="回放开始时间"></label>
+    <label class="field">到<input type="datetime-local" id="to" aria-label="回放结束时间"></label>
     <span class="presets"><button class="mini" data-range="1h">近 1 小时</button><button class="mini" data-range="tonight">昨晚</button></span>
     <button class="btn primary" id="loadReplay">载入</button>
-    <button class="btn" id="playPause" disabled>▶</button>
-    <label class="field speed">速度<select id="speed"><option value="1">1×</option><option value="4" selected>4×</option><option value="16">16×</option></select></label>
-    <input class="progress" id="progress" type="range" min="0" max="100" value="0" disabled aria-label="回放进度">
-    <span class="vclock" id="virtualClock">--:--</span>
+    <span class="transport" role="group" aria-label="回放控制">
+      <button class="btn icon" id="stepBack" disabled aria-label="后退一条（←）" title="后退一条（←）">⏮</button>
+      <button class="btn icon" id="playPause" disabled aria-label="播放（空格）" title="播放（空格）">▶</button>
+      <button class="btn icon" id="stepFwd" disabled aria-label="前进一条（→）" title="前进一条（→）">⏭</button>
+    </span>
+    <label class="field speed">速度<select id="speed" aria-label="回放速度"><option value="1">1×</option><option value="4" selected>4×</option><option value="16">16×</option></select></label>
+    <div class="seek">
+      <input class="progress" id="progress" type="range" min="0" max="100" value="0" step="1" disabled aria-label="回放进度" aria-valuetext="第 0 条，共 0 条">
+      <span class="seekmeta" id="seekMeta">0/0</span>
+    </div>
+    <span class="vclock" id="virtualClock" aria-hidden="true">--:--</span>
+    <span class="kbdhint">空格 播放/暂停 · ←/→ 单步</span>
   </div>
   <div class="stats" id="stats">在线 0/0 · 进行中 0</div>
 </section>
@@ -499,8 +588,13 @@ html,body{background:var(--bg);color:var(--text)}
     <svg class="beams" id="beams" aria-hidden="true"></svg>
     <div class="empty" id="empty" hidden>还没有成员接入，等 member 事件</div>
   </section>
-  <aside class="side">
+  <aside class="side" aria-label="实况事件流">
     <h2>实况 <span class="count" id="eventCount">0</span></h2>
+    <div class="filterbar">
+      <label for="logFilter">角色</label>
+      <select id="logFilter" aria-label="按角色筛选事件流"><option value="">全部角色</option></select>
+      <button class="mini" id="filterClear" hidden>清除</button>
+    </div>
     <ol class="log" id="eventLog"></ol>
     <div class="legend"><span class="lg assign">派活</span><span class="lg return">交回</span><span class="lg reject">打回</span><span class="lg at">@</span><span class="lg pause">暂停</span></div>
   </aside>
@@ -508,6 +602,15 @@ html,body{background:var(--bg);color:var(--text)}
 <footer class="foot"><div class="ticker" id="ticker">等待事件…</div><div class="foot-note">只画真实事件 · 空闲时安静摸鱼</div></footer>
 </div>
 <div class="toast" id="toast" hidden></div>
+<div class="detail" id="detail" hidden>
+  <div class="detailCard" role="dialog" aria-modal="true" aria-labelledby="detailTitle" tabindex="-1">
+    <button class="detailClose" id="detailClose" type="button" aria-label="关闭（Esc）">✕</button>
+    <div class="detailHead"><span class="chip" id="detailChip"></span><h3 id="detailTitle">事件出处</h3></div>
+    <div class="detailMeta" id="detailMeta"></div>
+    <div class="detailBody" id="detailBody"></div>
+    <div class="detailActions" id="detailActions"></div>
+  </div>
+</div>
 <script type="application/json" id="roster">
 {
   "version": 1,
@@ -638,6 +741,7 @@ const S = {
   me: null, memberList: [], byId: new Map(), alias: new Map(), rosterFor: new Map(),
   lead: null, active: new Map(), thinkingRooms: new Map(), thinking: new Set(), dispatched: new Set(),
   fixture: false, mode: 'live', eventCount: 0, logLimit: 80,
+  origins: new Map(), current: null, logFilter: '', detailReturn: null,
   replay: { events: [], idx: 0, timer: null, playing: false, speed: 4, loaded: false, auto: false },
 };
 
@@ -713,6 +817,10 @@ function initBadge(m) {
 function seatNode(m) {
   const seat = el('div', 'seat');
   seat.dataset.id = m.id;
+  // U5：工位本身就是「查看这个人的任务/消息出处」的按钮，键盘也能到。
+  seat.tabIndex = 0;
+  seat.setAttribute('role', 'button');
+  seat.setAttribute('aria-label', `查看 ${displayName(m)} 的任务与消息出处`);
   seat.style.setProperty('--shirt', shirtOf(m.id));
   const chair = el('div', 'chair');
   const person = el('div', 'person');
@@ -768,6 +876,7 @@ function renderSeats() {
   $('seats').replaceChildren(...nodes);
   setEmpty();
   paintAll();
+  syncFilterOptions();
 }
 
 function paintBubble(node, kind) {
@@ -842,10 +951,20 @@ function addLog(kind, ts, fromName, toName, text, note) {
   l1.append(el('span', 't', fmtTime(ts)), el('span', 'chip ' + kind, KIND[kind] ?? kind));
   l1.append(el('span', 'route', [fromName, toName].filter(Boolean).join(' → ')));
   li.append(l1, el('div', 'l2', [text, note].filter(Boolean).join(' · ') || '—'));
+  // U5：每条记录带上出处键与涉及角色，详情与筛选都从真实事件来，不另造数据。
+  const rec = S.current;
+  if (rec) {
+    li.dataset.key = rec.key;
+    li.dataset.members = [rec.from, rec.to, rec.author].filter(Boolean).join(' ');
+    li.tabIndex = 0;
+    li.setAttribute('role', 'button');
+    li.setAttribute('aria-label', `查看出处：${KIND[kind] ?? kind} ${[fromName, toName].filter(Boolean).join(' → ')} ${text}`.trim());
+  }
   list.prepend(li);
-  while (list.children.length > S.logLimit) list.lastChild.remove();
+  const rows = () => [...list.children].filter(node => node.id !== 'logEmpty');
+  while (rows().length > S.logLimit) rows().pop().remove();
   S.eventCount += 1;
-  $('eventCount').textContent = S.eventCount;
+  applyLogFilter();
   setTicker(kind, ts, fromName, toName, text, note);
 }
 
@@ -877,9 +996,21 @@ function beam(from, to, kind = 'assign') {
   const lift = kind === 'at' ? Math.min(64, 24 + dist * 0.08) : Math.min(110, 32 + dist * 0.12);
   const cx = (a.x + b.x) / 2, cy = Math.min(a.y, b.y) - lift;
   const d = `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+  // U5：光柱的出处挂在这一组上，点线、点圆点或键盘落到命中层都能打开。
+  const rec = S.current;
   const g = svgEl('g', { class: `beam ${kind}` });
+  if (rec?.key) g.dataset.key = rec.key;
   g.append(svgEl('path', { d, class: 'base' }));
   g.append(svgEl('path', { d, class: 'trace' }));
+  // 透明宽描边做命中区：极细的线点不中，视觉仍由画面层画。
+  if (rec?.key) {
+    const hit = svgEl('path', { d, class: 'hit' });
+    hit.dataset.key = rec.key;
+    hit.setAttribute('tabindex', '0');
+    hit.setAttribute('role', 'button');
+    hit.setAttribute('aria-label', `光柱出处：${rec.text || kind}`);
+    g.append(hit);
+  }
   $('beams').append(g);
   // @ 只做流动虚线，不投包
   if (kind === 'at') { setTimeout(() => g.remove(), 1200); return; }
@@ -1066,6 +1197,10 @@ function applyMessage(ev, animate = true) {
 
 function applyEvent(ev, animate = true) {
   if (!ev || typeof ev !== 'object') return;
+  // U5：先按真实事件算出出处记录，addLog/beam 只读它；事件语义不变，也不补造事件。
+  S.current = ev.type === 'task' ? remember(recordTask(ev))
+    : ev.type === 'message' ? remember(recordMessage(ev))
+    : null;
   if (ev.type === 'task') applyTask(ev, animate);
   else if (ev.type === 'thinking') applyThinking(ev);
   else if (ev.type === 'message') applyMessage(ev, animate);
@@ -1124,13 +1259,16 @@ function resetScene(clearLog = true) {
   S.thinkingRooms.clear();
   S.thinking.clear();
   S.dispatched.clear();
+  S.origins.clear();
+  S.current = null;
+  closeDetail(false);
   $('beams').replaceChildren();
   for (const node of S.seatNodes?.values() ?? []) for (const pop of node.querySelectorAll('.pop')) pop.remove();
   if (clearLog) {
     $('eventLog').replaceChildren();
     S.eventCount = 0;
-    $('eventCount').textContent = '0';
     $('ticker').textContent = '等待事件…';
+    applyLogFilter();
   }
   paintAll();
 }
@@ -1231,13 +1369,21 @@ function stopReplay() {
 }
 
 function updateReplayUI() {
-  $('playPause').disabled = !R.loaded || !R.events.length;
+  const total = R.events.length;
+  const ready = R.loaded && total > 0;
+  $('playPause').disabled = !ready;
+  $('stepBack').disabled = !ready;
+  $('stepFwd').disabled = !ready;
   $('playPause').textContent = R.playing ? '⏸' : '▶';
-  $('playPause').setAttribute('aria-label', R.playing ? '暂停' : '播放');
-  $('progress').disabled = !R.loaded || !R.events.length;
-  $('progress').max = String(Math.max(1, R.events.length));
+  $('playPause').setAttribute('aria-label', R.playing ? '暂停（空格）' : '播放（空格）');
+  $('progress').disabled = !ready;
+  $('progress').max = String(Math.max(1, total));
   $('progress').value = String(R.idx);
-  if (R.events.length) $('virtualClock').textContent = fmtTime(R.events[R.idx > 0 ? R.idx - 1 : 0]._ms);
+  $('seekMeta').textContent = `${R.idx}/${total}`;
+  $('progress').style.setProperty('--fill', total ? `${Math.round((R.idx / total) * 100)}%` : '0%');
+  const at = total ? R.events[clamp(R.idx - 1, 0, total - 1)] : null;
+  $('progress').setAttribute('aria-valuetext', at ? `第 ${R.idx} 条，共 ${total} 条 · ${fmtTime(at._ms)}` : '没有事件');
+  if (at) $('virtualClock').textContent = fmtTime(at._ms);
   else $('virtualClock').textContent = '--:--';
 }
 
@@ -1350,6 +1496,307 @@ function tickClock() {
   if (sHand) sHand.style.transform = `rotate(${sec * 6}deg)`;
 }
 
+// ===== U5 控件层：单步定位、事件出处、按角色筛选（2026-11-03） =====
+// <seek-model>
+/** 单步/拖动定位：夹在 0..total，键盘、按钮和滑杆共用同一套边界。 */
+function stepIndex(idx, delta, total) {
+  const next = Number(idx) + Number(delta);
+  if (!Number.isFinite(next)) return 0;
+  return Math.max(0, Math.min(Number(total) || 0, next));
+}
+// </seek-model>
+
+// <filter-model>
+/** 事件流按角色筛选：members 是空格分隔的成员 id；空筛选显示全部。 */
+function matchesFilter(members, filterId) {
+  return !filterId || String(members || '').split(' ').includes(filterId);
+}
+// </filter-model>
+
+// 详情里最多列这么多条最近记录；来源：手机 390×844 详情单屏可扫约 6 行（U5 实测）。
+const DETAIL_RECENT = 6;
+
+function recordTask(ev) {
+  const id = String(ev.id ?? '');
+  const kind = String(ev.kind ?? '');
+  const from = resolveRef(ev.from);
+  const to = resolveRef(ev.to);
+  const rec = {
+    type: 'task', taskId: id, kind, ms: msOf(ev.ts) ?? Date.now(),
+    from: from?.id ?? null, to: to?.id ?? null,
+    fromName: from ? displayName(from) : String(ev.from || '—'),
+    toName: to ? displayName(to) : String(ev.to || '—'),
+    title: String(ev.title ?? ''), note: String(ev.note ?? ''),
+  };
+  rec.text = `${id ? '#' + id + ' ' : ''}${rec.title}`.trim();
+  rec.key = `task:${id}:${kind}:${rec.ms}`;
+  return rec;
+}
+
+function recordMessage(ev) {
+  const message = ev.message ?? ev;
+  const author = S.byId.get(message.author) || resolveRef(message.name) || resolveRef(message.author);
+  const ms = msOf(ev.ts) ?? msOf(message.created_at) ?? Date.now();
+  const rec = {
+    type: 'message', room: String(message.room_id ?? ''), messageId: String(message.id ?? ''), ms,
+    author: author?.id ?? null,
+    authorName: author ? displayName(author) : String(message.name || message.author || '—'),
+    text: String(message.text ?? ''),
+  };
+  rec.key = rec.messageId ? `message:${rec.room}:${rec.messageId}` : `message:${rec.room}:${ms}`;
+  return rec;
+}
+
+/** 出处表只留最近 S.logLimit 条，和事件流同一上限，不额外定新数字。 */
+function remember(rec) {
+  if (!rec) return null;
+  S.origins.set(rec.key, rec);
+  while (S.origins.size > S.logLimit) S.origins.delete(S.origins.keys().next().value);
+  return rec;
+}
+
+function syncFilterOptions() {
+  const select = $('logFilter');
+  if (!select) return;
+  const options = [new Option('全部角色', '')];
+  for (const m of orderedMembers()) options.push(new Option(displayName(m), m.id));
+  select.replaceChildren(...options);
+  if (S.logFilter && !S.byId.has(S.logFilter)) S.logFilter = '';
+  select.value = S.logFilter;
+  select.disabled = options.length <= 1;
+}
+
+function syncLogEmpty() {
+  const list = $('eventLog');
+  let empty = $('logEmpty');
+  if (!empty) { empty = el('li', 'log-empty'); empty.id = 'logEmpty'; list.append(empty); }
+  const shown = [...list.children].filter(node => node.id !== 'logEmpty' && !node.hidden).length;
+  empty.textContent = S.logFilter ? '这个角色还没有记录' : '当前没有事发生';
+  empty.hidden = shown > 0;
+}
+
+function applyLogFilter() {
+  const list = $('eventLog');
+  let total = 0, shown = 0;
+  for (const node of list.children) {
+    if (node.id === 'logEmpty') continue;
+    total += 1;
+    const visible = matchesFilter(node.dataset.members, S.logFilter);
+    node.hidden = !visible;
+    if (visible) shown += 1;
+  }
+  $('eventCount').textContent = S.logFilter ? `${shown}/${total}` : String(total);
+  $('filterClear').hidden = !S.logFilter;
+  syncLogEmpty();
+}
+
+function setLogFilter(id) {
+  S.logFilter = id && S.byId.has(id) ? id : '';
+  $('logFilter').value = S.logFilter;
+  applyLogFilter();
+}
+
+function stepBy(delta) {
+  if (!R.loaded || !R.events.length) return;
+  pauseReplay();
+  seekReplay(stepIndex(R.idx, delta, R.events.length));
+}
+
+function recRow(rec) {
+  const row = el('button', 'recRow');
+  row.type = 'button';
+  const label = rec.type === 'message' ? '消息' : (KIND[rec.kind] ?? '记录');
+  row.append(el('span', `chip ${rec.kind || (rec.type === 'message' ? 'at' : 'created')}`, label));
+  row.append(el('span', 'recT', fmtTime(rec.ms)), el('span', 'recText', rec.text || '—'));
+  row.onclick = () => showDetail(rec);
+  return row;
+}
+
+/** 从实时任务状态还原一条当前任务记录，只用于详情展示，不写回事件流。 */
+function taskRecOf(active) {
+  const found = [...S.origins.values()]
+    .filter(r => r.type === 'task' && String(r.taskId) === String(active.id))
+    .sort((a, b) => b.ms - a.ms)[0];
+  if (found) return found;
+  const to = S.byId.get(active.memberId);
+  const rec = {
+    type: 'task', taskId: String(active.id || ''), kind: 'assigned', ms: Date.now(),
+    from: active.from ?? null, to: active.memberId ?? null,
+    fromName: S.byId.get(active.from) ? displayName(S.byId.get(active.from)) : '—',
+    toName: to ? displayName(to) : '—',
+    title: active.title || '', note: active.note || '',
+    key: `task:${active.id}:active`,
+  };
+  rec.text = `${active.id ? '#' + active.id + ' ' : ''}${rec.title}`.trim();
+  return rec;
+}
+
+function showDetail(rec) {
+  if (!rec) return;
+  const chip = $('detailChip'), title = $('detailTitle'), meta = $('detailMeta');
+  const body = $('detailBody'), actions = $('detailActions');
+  body.replaceChildren(); actions.replaceChildren();
+  const addAction = (text, fn) => {
+    const button = el('button', 'btn', text);
+    button.type = 'button';
+    button.onclick = fn;
+    actions.append(button);
+  };
+
+  if (rec.type === 'member') {
+    const m = S.byId.get(rec.memberId);
+    if (!m) { toast('这个成员不在当前工作台'); return; }
+    chip.textContent = '角色';
+    title.textContent = displayName(m);
+    meta.textContent = `${m.online === false ? '离线' : '在线'} · ${S.lead === m.id ? '主角色' : '成员'} · ${m.kind || 'bot'}`;
+    const active = S.active.get(m.id);
+    if (active) {
+      const line = el('div', 'taskline');
+      line.append(el('p', 'detailNote', `当前任务 #${active.id || '?'} ${active.title || ''}`.trim()));
+      if (active.note) line.append(el('p', 'dim', active.note));
+      body.append(line);
+    } else {
+      body.append(el('p', 'dim', '目前没有进行中的任务。'));
+    }
+    const related = [...S.origins.values()]
+      .filter(r => (r.type === 'task' && (r.from === m.id || r.to === m.id)) || (r.type === 'message' && r.author === m.id))
+      .sort((a, b) => b.ms - a.ms).slice(0, DETAIL_RECENT);
+    body.append(el('h4', null, `最近记录${related.length ? ` · ${related.length} 条` : ''}`));
+    if (!related.length) body.append(el('p', 'dim', '当前没有事发生'));
+    else for (const r of related) body.append(recRow(r));
+    addAction(`只看 ${displayName(m)}`, () => setLogFilter(m.id));
+    if (active) addAction('打开当前任务', () => showDetail(taskRecOf(active)));
+    showCard();
+    return;
+  }
+
+  if (rec.type === 'message') {
+    chip.textContent = '消息';
+    title.textContent = rec.messageId ? `频道消息 #${rec.messageId}` : '频道消息';
+    meta.textContent = `来源：频道 ${rec.room ? '#' + rec.room : '—'} · ${fmtFull(rec.ms)} · ${rec.authorName}`;
+    body.append(el('p', 'detailNote', rec.text || '（空消息）'));
+    if (rec.author) addAction(`只看 ${rec.authorName}`, () => setLogFilter(rec.author));
+    showCard();
+    return;
+  }
+
+  chip.textContent = KIND[rec.kind] ?? '任务';
+  title.textContent = rec.taskId ? `任务 #${rec.taskId}` : '任务记录';
+  meta.textContent = `来源：任务板事件流 · ${fmtFull(rec.ms)} · ${rec.fromName} → ${rec.toName}`;
+  const line = el('div', 'taskline');
+  line.append(el('p', 'detailNote', rec.text || '（无标题）'));
+  if (rec.note) line.append(el('p', 'dim', `备注：${rec.note}`));
+  body.append(line);
+  const same = [...S.origins.values()]
+    .filter(r => r.type === 'task' && rec.taskId && r.taskId === rec.taskId)
+    .sort((a, b) => a.ms - b.ms);
+  if (same.length) {
+    body.append(el('h4', null, `任务板记录 · ${same.length} 条`));
+    for (const r of same) body.append(recRow(r));
+  }
+  if (rec.to) addAction(`只看 ${rec.toName}`, () => setLogFilter(rec.to));
+  if (rec.from) addAction(`只看 ${rec.fromName}`, () => setLogFilter(rec.from));
+  showCard();
+}
+
+function showCard() {
+  const box = $('detail');
+  S.detailReturn = document.activeElement;
+  box.hidden = false;
+  q('.detailCard', box).focus({ preventScroll: true });
+}
+
+function closeDetail(restore = true) {
+  const box = $('detail');
+  if (!box || box.hidden) return;
+  box.hidden = true;
+  S.detailRec = null;
+  const back = S.detailReturn;
+  S.detailReturn = null;
+  if (restore && back?.focus) { try { back.focus({ preventScroll: true }); } catch { /* 节点已被重绘 */ } }
+}
+
+function openDetailByKey(key) {
+  const rec = S.origins.get(key);
+  if (!rec) { toast('这条记录已不在当前窗口'); return; }
+  showDetail(rec);
+}
+
+function openMember(id) {
+  const m = S.byId.get(id);
+  if (!m) return;
+  showDetail({ type: 'member', memberId: m.id, key: `member:${m.id}` });
+}
+
+function wireControl() {
+  $('detailClose').onclick = () => closeDetail();
+  $('detail').addEventListener('click', (event) => { if (event.target === $('detail')) closeDetail(); });
+  $('logFilter').onchange = () => setLogFilter($('logFilter').value);
+  $('filterClear').onclick = () => setLogFilter('');
+  $('stepBack').onclick = () => stepBy(-1);
+  $('stepFwd').onclick = () => stepBy(1);
+  // 事件流：整行是出处入口，鼠标和键盘都开。
+  $('eventLog').addEventListener('click', (event) => {
+    const row = event.target.closest('li[data-key]');
+    if (row) openDetailByKey(row.dataset.key);
+  });
+  $('eventLog').addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const row = event.target.closest('li[data-key]');
+    if (!row) return;
+    event.preventDefault(); event.stopPropagation();
+    openDetailByKey(row.dataset.key);
+  });
+  // 工位：点人或键盘 Enter/空格看这个人的任务与消息出处。
+  $('seats').addEventListener('click', (event) => {
+    const seat = event.target.closest('.seat');
+    if (seat) openMember(seat.dataset.id);
+  });
+  $('seats').addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const seat = event.target.closest('.seat');
+    if (!seat) return;
+    event.preventDefault(); event.stopPropagation();
+    openMember(seat.dataset.id);
+  });
+  // 光柱：透明宽描边命中，点光看这次派活/交回/打回的出处。
+  $('beams').addEventListener('click', (event) => {
+    const route = event.target.closest?.('.beam');
+    if (route?.dataset.key) openDetailByKey(route.dataset.key);
+  });
+  $('beams').addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const route = event.target.closest?.('.beam');
+    if (!route?.dataset.key) return;
+    event.preventDefault(); event.stopPropagation();
+    openDetailByKey(route.dataset.key);
+  });
+  // 模式切换按 ARIA tabs 的左右键习惯走，不劫持页面滚动。
+  for (const [button, mode] of [[$('modeLive'), 'live'], [$('modeReplay'), 'replay']]) {
+    button.addEventListener('keydown', (event) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      event.preventDefault();
+      if (mode === 'live') { pauseReplay(); setModeUI('replay'); $('modeReplay').focus(); }
+      else { goLive(); $('modeLive').focus(); }
+    });
+  }
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      if (!$('detail').hidden) { closeDetail(); event.preventDefault(); }
+      return;
+    }
+    if (event.target.closest?.('input,select,textarea,button,[contenteditable="true"]')) return;
+    if (event.key === ' ' || event.code === 'Space') {
+      if (S.mode === 'replay' && R.loaded && R.events.length) { toggleReplay(); event.preventDefault(); }
+      else if (S.mode === 'replay') toast('先载入一个时间段');
+      return;
+    }
+    if (S.mode !== 'replay' || !R.loaded || !R.events.length) return;
+    if (event.key === 'ArrowLeft') { stepBy(-1); event.preventDefault(); }
+    else if (event.key === 'ArrowRight') { stepBy(1); event.preventDefault(); }
+  });
+}
+
 function wireUI() {
   $('modeLive').onclick = () => { goLive(); };
   $('modeReplay').onclick = () => { pauseReplay(); setModeUI('replay'); };
@@ -1360,6 +1807,7 @@ function wireUI() {
   $('progress').oninput = () => { seekReplay($('progress').value); };
   for (const button of document.querySelectorAll('[data-range]')) button.onclick = () => setRangePreset(button.dataset.range);
   window.addEventListener('resize', syncBeamViewBox);
+  wireControl();
 }
 
 async function boot() {
@@ -1368,6 +1816,8 @@ async function boot() {
   tickClock();
   setInterval(tickClock, 1000);
   syncBeamViewBox();
+  syncFilterOptions();
+  applyLogFilter();
   const params = new URLSearchParams(location.search);
   if (params.get('fixture') === '1') { await loadFixture(); return; }
   const from = params.get('from'), to = params.get('to');
