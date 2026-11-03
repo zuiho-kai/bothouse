@@ -534,6 +534,9 @@ html,body{background:var(--bg);color:var(--text)}
   .detail{padding:0}
   .detailCard{width:100%;max-height:82dvh;border-radius:16px 16px 0 0;border-bottom:0}
 }
+/* 手机竖屏：画面层的桌面 .seats{top:150px} 在 ≤760px 没有复位，会把工位整体下移 150px、
+   最后一行被 stage 的 overflow:hidden 裁掉；这里只复位偏移，列数与尺寸仍由画面层定。 */
+@media (max-width:760px){.seats{top:auto;bottom:auto}}
 /* 手机横屏：收起页脚与副标题，把高度让给控件和场景；场景尺寸仍由画面层自己定。 */
 @media (orientation:landscape) and (max-height:560px){
   .app{padding:6px 10px;gap:6px}
