@@ -52,7 +52,8 @@ test('desk-e2e：真实 board 事件 → 插件转发 → 桌面页可访问', {
 // 动作都会多画一行「— → —」的空记录，回放却只有板事件那一行，实时与回放对不上。
 test('desk 页：applyTask 挡掉 hub 的 task 对象事件', () => {
   const page = readFileSync(new URL('./desk/index.html', import.meta.url), 'utf8');
-  const body = page.slice(page.indexOf('function applyTask(ev, animate = true) {'));
+  // 参数可扩展（例如 quiet），锚点只认函数名，守卫要求不变。
+  const body = page.slice(page.search(/function applyTask\(/));
   assert.ok(body.length > 0, '页面里找不到 applyTask');
   assert.ok(body.slice(0, 900).includes("if (ev.task && typeof ev.task === 'object') return;"),
     'applyTask 开头缺「忽略 hub task 对象事件」的守卫');
