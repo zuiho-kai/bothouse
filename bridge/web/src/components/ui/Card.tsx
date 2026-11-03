@@ -35,9 +35,9 @@ interface StatCardProps {
 
 export function StatCard({ label, value, accent }: StatCardProps) {
   return (
-    <Card hover>
+    <Card>
       <p className="text-[13px] font-medium text-ink-soft">{label}</p>
-      <p className={cn('text-2xl font-bold mt-1 tabular-nums', accent ? 'text-accent' : 'text-ink')}>
+      <p className={cn('mt-1 text-2xl font-semibold tabular-nums', accent ? 'text-accent-text' : 'text-ink')}>
         {value}
       </p>
     </Card>

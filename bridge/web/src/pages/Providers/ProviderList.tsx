@@ -123,7 +123,7 @@ export default function ProviderList() {
             className={cn(
               'rounded-control px-4 py-1.5 text-sm font-medium transition-[background-color,color,box-shadow] duration-base ease-ui-out',
               tab === key
-                ? 'bg-surface text-ink shadow-ui-1'
+                ? 'bg-surface text-ink ring-1 ring-hairline'
                 : 'text-ink-soft hover:text-ink',
             )}
           >
@@ -213,11 +213,11 @@ function ProviderGrid({
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {providers.map(p => (
-        <Card key={p.name} className="group relative hover:shadow-ui-2">
+        <Card key={p.name} className="group relative hover:ring-hairline-strong">
           <div className="flex items-start justify-between">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <Plug size={16} className="text-accent shrink-0" />
+                <Plug size={16} className="text-ink-mute shrink-0" />
                 <h3 className="font-medium text-ink truncate">{p.name}</h3>
               </div>
               {p.base_url && (
@@ -770,7 +770,7 @@ function ProviderFormModal({
                     className={cn(
                       'px-3 py-1.5 rounded-t-lg text-xs font-medium transition-colors',
                       (activeAgentTab || agents[0]) === at
-                        ? 'bg-surface text-ink shadow-ui-1'
+                        ? 'bg-surface text-ink ring-1 ring-hairline'
                         : 'text-ink-mute hover:text-ink-soft dark:hover:text-ink-mute',
                     )}
                   >

@@ -43,7 +43,7 @@ interface SectionProps {
 // adds the label row — no second shadow stack, no second border.
 export function Section({ title, description, actions, children, className }: SectionProps) {
   return (
-    <section className={cn('rounded-card bg-surface p-5 shadow-ui-1', className)}>
+    <section className={cn('rounded-card bg-surface p-5 ring-1 ring-hairline', className)}>
       {(title || actions) && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div>

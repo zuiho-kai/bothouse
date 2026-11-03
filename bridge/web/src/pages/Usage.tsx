@@ -12,7 +12,7 @@ const MAX_RANGE_DAYS = 366;
 const dayKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 const number = (value: number) => value.toLocaleString();
 const sum = (rows: UsageRow[], key: 'total_tokens' | 'responses' | 'unknown_usage_responses' | 'unpriced_responses') => rows.reduce((s, r) => s + r[key], 0);
-const panel = 'rounded-card bg-surface p-5 shadow-ui-1';
+const panel = 'rounded-card bg-surface p-5 ring-1 ring-hairline';
 // 热力五档：0/1/2/3/4 全部走同一个 accent 的透明度梯度，亮暗两套色自动跟随令牌。
 const colors = ['bg-surface-sunken', 'bg-accent/15', 'bg-accent/35', 'bg-accent/60', 'bg-accent/90'];
 
@@ -138,7 +138,7 @@ export default function Usage() {
         <thead className="text-xs text-ink-mute">
           <tr>
             {['name', ...(dimension === 'role' ? ['replies'] : []), 'requests', 'input', 'output', 'cache', 'tokens', 'unknown', 'cost'].map(k => (
-              <th className="py-3 pr-4 font-medium" key={k}>{t(`usage.${k}`)}</th>
+              <th className={`py-3 pr-4 font-medium ${k === 'name' ? '' : 'text-right'}`} key={k}>{t(`usage.${k}`)}</th>
             ))}
           </tr>
         </thead>
@@ -152,17 +152,17 @@ export default function Usage() {
                     {dimension === 'role' ? nameOf(r.role || '') : r.model}
                   </button>
                 </td>
-                {dimension === 'role' && <td className="pr-4 tabular-nums">{number(r.replies || 0)}</td>}
-                <td className="pr-4 tabular-nums">{number(r.responses)}</td>
+                {dimension === 'role' && <td className="pr-4 tabular-nums text-right">{number(r.replies || 0)}</td>}
+                <td className="pr-4 tabular-nums text-right">{number(r.responses)}</td>
                 {rawTokens.map((v, i) => r.responses > 0 && r.unknown_usage_responses === r.responses ? (
                   <td key={i} className="pr-4 text-ink-mute whitespace-nowrap" title={t('usage.unavailableWhy')}>{t('usage.unavailable')}</td>
                 ) : (
-                  <td key={i} className="pr-4 tabular-nums" title={`${number(v)} tokens`}>
+                  <td key={i} className="pr-4 tabular-nums text-right" title={`${number(v)} tokens`}>
                     {formatToken(v, unit)}
                   </td>
                 ))}
-                <td className="pr-4 tabular-nums" title={t('usage.unavailableWhy')}>{number(r.unknown_usage_responses)}</td>
-                <td className="whitespace-nowrap">{r.estimated_cost === undefined ? '—' : r.estimated_cost.toFixed(4)}{r.unpriced_responses > 0 && ' *'}</td>
+                <td className="pr-4 tabular-nums text-right" title={t('usage.unavailableWhy')}>{number(r.unknown_usage_responses)}</td>
+                <td className="whitespace-nowrap text-right tabular-nums">{r.estimated_cost === undefined ? '—' : r.estimated_cost.toFixed(4)}{r.unpriced_responses > 0 && ' *'}</td>
               </tr>
             );
           })}
@@ -289,7 +289,7 @@ export default function Usage() {
         ].map(([label, value, title]) => (
           <div key={label} className={panel}>
             <div className="text-xs text-ink-mute mb-2">{label}</div>
-            <div className="text-2xl font-semibold tabular-nums text-accent truncate" title={title}>
+            <div className="text-2xl font-semibold tabular-nums text-ink truncate" title={title}>
               {value}
             </div>
           </div>

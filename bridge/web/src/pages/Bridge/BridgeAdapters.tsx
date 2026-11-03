@@ -54,7 +54,7 @@ export default function BridgeAdapters() {
           {adapters.map((a, i) => (
             <article
               key={`${a.platform}-${a.project}-${i}`}
-              className="rounded-card bg-surface p-5 shadow-ui-1 transition-[box-shadow,transform] duration-state ease-ui-standard hover:-translate-y-0.5 hover:shadow-ui-2"
+              className="rounded-card bg-surface p-5 ring-1 ring-hairline transition-[box-shadow,background-color] duration-state ease-ui-standard hover:ring-hairline-strong"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">

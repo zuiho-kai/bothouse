@@ -94,7 +94,7 @@ export default function DeviceList() {
               <div className="space-y-4">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-2.5">
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-card bg-accent-wash text-accent-text ring-1 ring-accent/20">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-control bg-surface-sunken text-ink-mute ring-1 ring-hairline">
                       <Radio size={19} strokeWidth={1.6} />
                     </span>
                     <div className="min-w-0">

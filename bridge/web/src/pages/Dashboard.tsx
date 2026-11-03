@@ -93,7 +93,7 @@ export default function Dashboard() {
 
           {/* Monitoring strip: one share ring + one ranking bar, both fed by real counts. */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="rounded-card bg-surface p-5 shadow-ui-1">
+            <div className="rounded-card bg-surface p-5 ring-1 ring-hairline">
               <p className="text-xs font-medium uppercase tracking-wide text-ink-mute">
                 {t('dashboard.platforms')}
               </p>
@@ -111,7 +111,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="rounded-card bg-surface p-5 shadow-ui-1 lg:col-span-2">
+            <div className="rounded-card bg-surface p-5 ring-1 ring-hairline lg:col-span-2">
               <p className="text-xs font-medium uppercase tracking-wide text-ink-mute">
                 {t('dashboard.projects')}
               </p>
@@ -137,7 +137,7 @@ export default function Dashboard() {
               </Link>
             </div>
             {projects.length === 0 ? (
-              <div className="rounded-card bg-surface p-8 shadow-ui-1">
+              <div className="rounded-card bg-surface p-8 ring-1 ring-hairline">
                 <EmptyState message={t('projects.noProjects')} icon={Layers} />
               </div>
             ) : (
@@ -146,10 +146,10 @@ export default function Dashboard() {
                   <Link
                     key={p.name}
                     to={`/chat/${p.name}`}
-                    className="block min-w-0 overflow-hidden rounded-card bg-surface p-4 shadow-ui-1 transition-[box-shadow,transform] duration-state ease-ui-standard hover:-translate-y-0.5 hover:shadow-ui-2"
+                    className="block min-w-0 overflow-hidden rounded-card bg-surface p-4 ring-1 ring-hairline transition-[box-shadow,background-color] duration-state ease-ui-standard hover:ring-hairline-strong"
                   >
                     <div className="mb-3 flex items-center gap-2.5">
-                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-card bg-accent-wash text-accent-text ring-1 ring-accent/15">
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-control bg-surface-sunken text-ink-mute ring-1 ring-hairline">
                         <Server size={14} strokeWidth={1.6} />
                       </span>
                       <div className="min-w-0 flex-1">
@@ -184,7 +184,7 @@ export default function Dashboard() {
               </Link>
             </div>
             {recentSessions.length === 0 ? (
-              <div className="rounded-card bg-surface p-8 shadow-ui-1">
+              <div className="rounded-card bg-surface p-8 ring-1 ring-hairline">
                 <EmptyState message={t('sessions.noSessions')} icon={MessageSquare} />
               </div>
             ) : (
@@ -193,7 +193,7 @@ export default function Dashboard() {
                   <Link
                     key={`${sess.project}-${sess.id}`}
                     to={`/chat/${sess.project}`}
-                    className="block min-w-0 overflow-hidden rounded-card bg-surface p-4 shadow-ui-1 transition-[box-shadow,transform] duration-state ease-ui-standard hover:-translate-y-0.5 hover:shadow-ui-2"
+                    className="block min-w-0 overflow-hidden rounded-card bg-surface p-4 ring-1 ring-hairline transition-[box-shadow,background-color] duration-state ease-ui-standard hover:ring-hairline-strong"
                   >
                     <div className="mb-3 flex items-center gap-2.5">
                       <span

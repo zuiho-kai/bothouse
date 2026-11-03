@@ -335,9 +335,9 @@ export default function CronList() {
               key={job.id}
               onClick={() => openEdit(job)}
               className={cn(
-                'group relative cursor-pointer rounded-card bg-surface p-4 shadow-ui-1 transition-[box-shadow,transform,border-color,opacity] duration-state ease-ui-standard',
+                'group relative cursor-pointer rounded-card bg-surface p-4 ring-1 ring-hairline transition-[box-shadow,transform,border-color,opacity] duration-state ease-ui-standard',
                 job.enabled
-                  ? 'hover:-translate-y-0.5 hover:shadow-ui-2'
+                  ? 'hover:-translate-y-0.5 hover:ring-hairline-strong'
                   : 'opacity-60 hover:opacity-85 ring-1 ring-hairline',
               )}
             >
