@@ -7,495 +7,116 @@
 <title>团队工作台 · CoNest</title>
 <link rel="icon" href="data:,">
 <style>
-:root{--bg:#0a0d13;--panel:#111722;--panel2:#0c121b;--line:#243044;--line2:#1a2434;--text:#e7edf7;--muted:#8ea0b8;--gold:#ffc56b;--teal:#5eead4;--red:#ff6b6b;--blue:#7dd3fc;--wood:#8a5a36;--ok:#34d399}
+:root{--bg:#17131f;--panel:#231d30;--panel2:#1b1626;--ink:#0b0910;--line:#3a3150;--text:#f3ecff;--muted:#a99cc4;--gold:#ffa53a;--teal:#3ddc97;--red:#ff5a5f;--blue:#5fb0ff;--ok:#3ddc97;--px:3px}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{margin:0;min-height:100%}
-body{background:radial-gradient(1200px 620px at 50% -10%,#172235 0,#0a0d13 62%);color:var(--text);font:14px/1.45 system-ui,-apple-system,"PingFang SC","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+body{background:#17131f;background-image:radial-gradient(#ffffff0a 1px,transparent 1px);background-size:12px 12px;color:var(--text);font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,"PingFang SC",monospace;-webkit-font-smoothing:antialiased}
 button,input,select{font:inherit;color:inherit}
 button{cursor:pointer}
-.app{max-width:1680px;margin:0 auto;min-height:100dvh;padding:12px 16px 10px;display:flex;flex-direction:column;gap:10px}
-.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:2px}
-.brand{display:flex;align-items:center;gap:12px;min-width:0}
-.mark{width:40px;height:40px;border-radius:12px;background:linear-gradient(145deg,#f6bd68,#b7742e 46%,#58381e);box-shadow:inset 0 0 0 1px #ffd79a55,0 8px 22px #0008;position:relative;flex:0 0 auto}
-.mark:before{content:"";position:absolute;inset:9px;border-radius:7px;border:2px solid #2b1a0d;background:repeating-linear-gradient(90deg,#2b1a0d 0 2px,transparent 2px 6px)}
-.brand h1{font-size:19px;line-height:1.2;margin:0;letter-spacing:.4px}
-.sub{margin:2px 0 0;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.topright{display:flex;align-items:center;gap:10px;flex:0 0 auto}
-.clock{font:600 15px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1px;color:#cfe0f5}
-.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;border:1px solid var(--line);background:#0b1119;font-size:11px;color:var(--muted);white-space:nowrap}
-.pill:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor}
-.pill.live{color:var(--ok)}
-.pill.wait{color:#d7a94b}
-.pill.err{color:var(--red)}
-.pill.replay{color:var(--blue)}
-.badge{font-size:11px;padding:4px 9px;border-radius:8px;border:1px solid #7b5a2d;background:#2a1f0f;color:#f5c97b;white-space:nowrap}
-.bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#121a27,#0c121b);box-shadow:0 6px 20px #0006}
-.modes{display:flex;padding:3px;background:#0a0f17;border:1px solid var(--line);border-radius:10px;gap:2px}
-.mode{border:0;background:transparent;color:var(--muted);padding:6px 14px;border-radius:8px;font-weight:600;font-size:13px}
-.mode.on{background:#243349;color:#fff;box-shadow:inset 0 0 0 1px #ffffff14}
+/* 像素边框：不用圆角，用四向硬阴影拼出缺角方框 */
+.pxbox{background:var(--panel);box-shadow:0 calc(-1*var(--px)) 0 0 var(--ink),0 var(--px) 0 0 var(--ink),calc(-1*var(--px)) 0 0 0 var(--ink),var(--px) 0 0 0 var(--ink),0 calc(var(--px)*2) 0 0 #00000055}
+.app{max-width:1720px;margin:0 auto;min-height:100dvh;padding:14px 18px 10px;display:flex;flex-direction:column;gap:14px}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:4px 2px}
+.brand{display:flex;align-items:center;gap:14px;min-width:0}
+.mark{width:36px;height:36px;flex:0 0 auto;background:
+ linear-gradient(#ffa53a,#ffa53a) 6px 6px/24px 6px no-repeat,
+ linear-gradient(#5fb0ff,#5fb0ff) 6px 15px/16px 6px no-repeat,
+ linear-gradient(#3ddc97,#3ddc97) 6px 24px/20px 6px no-repeat,#2b2340;box-shadow:0 -3px 0 #0b0910,0 3px 0 #0b0910,-3px 0 0 #0b0910,3px 0 0 #0b0910}
+.brand h1{font-size:20px;line-height:1.2;margin:0;letter-spacing:2px;text-shadow:2px 2px 0 #0b0910,0 0 18px #ffa53a55}
+.sub{margin:3px 0 0;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topright{display:flex;align-items:center;gap:12px;flex:0 0 auto}
+.clock{font:700 16px/1 ui-monospace,Menlo,monospace;letter-spacing:2px;color:#ffe9b8;text-shadow:2px 2px 0 #0b0910}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 10px;background:var(--panel2);font-size:12px;color:var(--muted);white-space:nowrap;text-decoration:none;box-shadow:0 -2px 0 #0b0910,0 2px 0 #0b0910,-2px 0 0 #0b0910,2px 0 0 #0b0910}
+.pill:before{content:"";width:8px;height:8px;background:currentColor;box-shadow:0 0 8px currentColor}
+.pill.live{color:var(--ok)}.pill.wait{color:#e6b450}.pill.err{color:var(--red)}.pill.replay{color:var(--blue)}
+.pill.galaxy{color:#c9a7ff}.pill.galaxy:hover{color:#fff}
+.badge{font-size:11px;padding:4px 9px;background:#3a2a10;color:#ffd38a;white-space:nowrap;box-shadow:0 0 0 2px #0b0910}
+.bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 12px}
+.modes{display:flex;gap:4px}
+.mode{border:0;background:var(--panel2);color:var(--muted);padding:6px 16px;font-weight:700;font-size:13px;box-shadow:inset 0 -3px 0 #00000055}
+.mode.on{background:#ffa53a;color:#241605;box-shadow:inset 0 -3px 0 #b8651a}
 .replaybar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;min-width:0}
 .field{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}
-.field input,.field select{background:#0a0f17;border:1px solid var(--line);border-radius:8px;padding:5px 7px;color:var(--text);font-size:12px;color-scheme:dark}
-.field input[type=datetime-local]{width:168px}
+.field input,.field select{background:var(--panel2);border:2px solid #0b0910;padding:4px 6px;color:var(--text);font-size:12px;color-scheme:dark}
+.field input[type=datetime-local]{width:176px}
 .presets{display:flex;gap:5px}
-.btn{border:1px solid var(--line);background:#16202e;color:#dbe7f6;border-radius:9px;padding:6px 12px;font-size:12px;font-weight:600;white-space:nowrap}
-.btn:hover{border-color:#3b5270;background:#1b2839}
-.btn.primary{background:linear-gradient(180deg,#f3c577,#d89a45);border-color:#e0ad5b;color:#241605}
-.btn.primary:hover{background:linear-gradient(180deg,#ffd48d,#e2a34d)}
+.btn{border:0;background:#3a3150;color:#f3ecff;padding:6px 12px;font-size:12px;font-weight:700;white-space:nowrap;box-shadow:inset 0 -3px 0 #00000066,0 0 0 2px #0b0910}
+.btn:hover{background:#4a3f66}
+.btn.primary{background:#ffa53a;color:#241605;box-shadow:inset 0 -3px 0 #b8651a,0 0 0 2px #0b0910}
 .btn:disabled{opacity:.4;cursor:default}
-.mini{border:1px solid var(--line);background:#0d141e;color:var(--muted);border-radius:7px;padding:4px 8px;font-size:11px}
-.mini:hover{color:var(--text);border-color:#3b5270}
-.progress{flex:1 1 90px;min-width:80px;max-width:240px;accent-color:#e2a34d;height:4px}
-.vclock{font:600 12px ui-monospace,Menlo,monospace;color:var(--gold);min-width:44px;text-align:right}
+.mini{border:0;background:var(--panel2);color:var(--muted);padding:4px 8px;font-size:11px;box-shadow:0 0 0 2px #0b0910}
+.mini:hover{color:var(--text)}
+.progress{flex:1 1 90px;min-width:80px;max-width:240px;accent-color:#ffa53a;height:4px}
+.vclock{font:700 12px ui-monospace,Menlo,monospace;color:var(--gold);min-width:44px;text-align:right}
 .stats{margin-left:auto;font:12px ui-monospace,Menlo,monospace;color:var(--muted);white-space:nowrap}
-main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px}
-.side{border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg,#101723,#0b1119);padding:12px;display:flex;flex-direction:column;min-height:0}
-.side h2{margin:0 0 8px;font-size:11px;letter-spacing:2px;color:var(--muted);display:flex;justify-content:space-between;align-items:center;text-transform:uppercase}
-.count{font:11px ui-monospace,Menlo,monospace;color:#5f7089;letter-spacing:0}
-.log{list-style:none;margin:0;padding:0;overflow:auto;flex:1;display:flex;flex-direction:column;gap:3px;min-height:60px}
-.log li{padding:6px 8px;border-radius:9px;background:#ffffff05;border:1px solid #ffffff08;animation:logIn .25s ease-out}
+main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+.stagewrap{padding:6px;background:#0b0910;box-shadow:0 6px 0 #00000055}
+.stage{position:relative;width:100%;aspect-ratio:384/216;overflow:hidden;background:#2a2035;isolation:isolate}
+#office{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges}
+.seats{position:absolute;inset:0;pointer-events:none;z-index:2}
+.seat{position:absolute;left:0;top:0;width:0;height:0}
+.stack{position:absolute;left:0;bottom:0;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:4px;white-space:nowrap}
+.label{display:flex;align-items:center;gap:5px;padding:2px 7px;background:#1b1626e6;color:#fff;font-size:11px;font-weight:700;line-height:1.35;box-shadow:0 -2px 0 #0b0910,0 2px 0 #0b0910,-2px 0 0 #0b0910,2px 0 0 #0b0910;pointer-events:auto}
+.label .dot{width:6px;height:6px;background:#3ddc97;box-shadow:0 0 6px #3ddc97}
+.label .status{color:var(--muted);font-weight:400;font-size:10px}
+.seat.working .label .dot{background:#ffa53a;box-shadow:0 0 6px #ffa53a}
+.seat.thinking .label .dot{background:#5fb0ff;box-shadow:0 0 6px #5fb0ff}
+.seat.offline .label{opacity:.55}.seat.offline .label .dot{background:#6c7380;box-shadow:none}
+.seat.lead .label{background:#3a2a10e6;color:#ffe08a}
+.seat.walking .label{opacity:.82}
+.tasktag{max-width:200px;overflow:hidden;text-overflow:ellipsis;padding:2px 7px;background:#ffa53a;color:#241605;font-size:11px;font-weight:700;box-shadow:0 0 0 2px #0b0910;pointer-events:auto;animation:tagIn .25s steps(3)}
+.bubble{display:flex;gap:3px;padding:4px 6px;background:#e9f4ff;box-shadow:0 0 0 2px #0b0910}
+.bubble i{width:4px;height:4px;background:#2d5ea3;animation:dotp 1.2s steps(1) infinite}
+.bubble i:nth-child(2){animation-delay:.3s}.bubble i:nth-child(3){animation-delay:.6s}
+.emote{padding:1px 6px;background:#fff8e6;color:#3a2a10;font-size:11px;box-shadow:0 0 0 2px #0b0910;animation:bob 1.4s steps(2) infinite}
+.pop{position:absolute;left:0;bottom:56px;transform:translateX(-50%);padding:3px 8px;font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 0 0 2px #0b0910;animation:popUp 1.9s steps(12) forwards;z-index:3}
+.pop.good{background:#3ddc97;color:#06281a}.pop.bad{background:#ff5a5f;color:#2a0507}.pop.info{background:#a3acb9;color:#111}.pop.warn{background:#ffd166;color:#3a2a10;font-size:16px;padding:1px 8px}
+@keyframes popUp{0%{opacity:0;transform:translate(-50%,8px)}12%{opacity:1;transform:translate(-50%,0)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-14px)}}
+@keyframes dotp{0%{opacity:.25}50%{opacity:1}}
+@keyframes bob{0%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+@keyframes tagIn{from{transform:scale(.6)}to{transform:scale(1)}}
+.side{padding:12px;display:flex;flex-direction:column;min-height:0;max-height:calc((100vw - 380px) * 216 / 384)}
+.side h2{margin:0 0 10px;font-size:12px;letter-spacing:3px;color:#ffe9b8;display:flex;justify-content:space-between;align-items:center;text-shadow:2px 2px 0 #0b0910}
+.count{font:11px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:0}
+.log{list-style:none;margin:0;padding:0;overflow:auto;flex:1;display:flex;flex-direction:column;gap:6px;min-height:60px}
+.log li{padding:6px 8px;background:var(--panel2);box-shadow:inset 3px 0 0 #3a3150;animation:logIn .25s steps(3)}
 .log .l1{display:flex;align-items:center;gap:6px;font-size:12px;min-width:0}
-.log .t{font:11px ui-monospace,Menlo,monospace;color:#65758c;flex:0 0 auto}
-.log .route{color:#b9c8dc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log .t{font:11px ui-monospace,Menlo,monospace;color:#7d7096;flex:0 0 auto}
+.log .route{color:#e3d9f5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .log .l2{font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.chip{font-size:10px;padding:1px 6px;border-radius:99px;font-weight:700;letter-spacing:.4px;flex:0 0 auto}
-.chip.created{background:#2b3b52;color:#a9c4e6}
-.chip.assigned{background:#4a3412;color:#ffcf85}
-.chip.returned{background:#123c34;color:#7dedd2}
-.chip.rejected{background:#46191c;color:#ff9b9b}
-.chip.paused{background:#26303d;color:#9fb0c4}
-.chip.done{background:#173b28;color:#8ce7ae}
-.chip.at{background:#123246;color:#9fd8ff}
-.bubble .fish{position:relative;display:inline-block;width:12px;height:6px;margin-left:2px;border-radius:50%;background:#7fc9ff;box-shadow:0 0 6px #7fc9ff55}
-.bubble .fish:before{content:"";position:absolute;right:-5px;top:1px;border-left:5px solid #7fc9ff;border-top:2px solid transparent;border-bottom:2px solid transparent}
-.bubble .fish:after{content:"";position:absolute;left:2px;top:2px;width:2px;height:2px;border-radius:50%;background:#0b1622}
-.legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;font-size:11px;color:var(--muted)}
+@keyframes logIn{from{opacity:0;transform:translateX(6px)}to{opacity:1;transform:none}}
+.chip{font-size:10px;padding:1px 6px;font-weight:800;letter-spacing:.4px;flex:0 0 auto}
+.chip.created{background:#3a3150;color:#d5c8f0}
+.chip.assigned{background:#ffa53a;color:#241605}
+.chip.returned{background:#3ddc97;color:#06281a}
+.chip.rejected{background:#ff5a5f;color:#2a0507}
+.chip.paused{background:#a3acb9;color:#111}
+.chip.done{background:#2f9e6e;color:#eafff4}
+.chip.at{background:#5fb0ff;color:#06213a}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:11px;color:var(--muted)}
 .lg{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
-.lg:before{content:"";width:16px;height:2px;border-radius:2px;background:currentColor}
-.lg.assign{color:var(--gold)}.lg.return{color:var(--teal)}.lg.reject{color:var(--red)}.lg.at{color:var(--blue)}.lg.pause{color:#8b98ab}
+.lg:before{content:"";width:8px;height:8px;background:currentColor}
+.lg.assign{color:var(--gold)}.lg.return{color:var(--teal)}.lg.reject{color:var(--red)}.lg.at{color:var(--blue)}.lg.pause{color:#a3acb9}
 .foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 4px 2px;color:var(--muted);font-size:12px;min-height:20px}
 .ticker{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .foot-note{flex:0 0 auto;opacity:.65}
-.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);max-width:min(560px,92vw);padding:9px 14px;border-radius:10px;background:#1c2636ee;border:1px solid #38485e;color:#e8eef8;font-size:12px;box-shadow:0 10px 32px #000a;z-index:90}
-.empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px;letter-spacing:1px;pointer-events:none}
-@keyframes logIn{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
-.stage{position:relative;height:clamp(600px,calc(100vh - 236px),860px);min-height:600px;border:1px solid #2b3b52;border-radius:20px;overflow:hidden;background:#0a0f17;box-shadow:0 18px 48px #0009,inset 0 0 90px #0007;isolation:isolate}
-.stage:after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(120% 82% at 50% 38%,transparent 58%,#0000007a);z-index:19}
-.wall{position:absolute;inset:0 0 auto;height:142px;background:linear-gradient(180deg,#1b283b,#141e2d 72%,#101827);border-bottom:2px solid #334764;box-shadow:inset 0 -16px 26px #0007;z-index:2}
-.wall:after{content:"";position:absolute;left:0;right:0;bottom:0;height:9px;background:linear-gradient(180deg,#2c3d53,#1d2a3c);border-top:1px solid #456183}
-.window{position:absolute;top:24px;width:148px;height:78px;border:5px solid #2b3c52;border-radius:5px;overflow:hidden;background:linear-gradient(180deg,#0c2036,#173754 55%,#0a1727);box-shadow:inset 0 0 26px #52a8ff2e,0 2px 0 #0007}
-.window i{position:absolute;top:0;bottom:0;width:2px;background:#2b3c52;z-index:2}
-.window i:nth-child(1){left:33%}.window i:nth-child(2){left:66%}.window i:nth-child(3){display:none}
-.window .city{position:absolute;left:0;right:0;bottom:0;height:44%;background:repeating-linear-gradient(90deg,transparent 0 9px,#0a1625 9px 13px,transparent 13px 22px,#132131 22px 26px,transparent 26px 37px),linear-gradient(180deg,transparent,#08121e)}
-.window .city:after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 12% 30%,#ffd98a 0 1px,transparent 2px),radial-gradient(circle at 44% 52%,#9fd8ff 0 1px,transparent 2px),radial-gradient(circle at 72% 26%,#ffd98a 0 1px,transparent 2px),radial-gradient(circle at 88% 64%,#9fd8ff 0 1px,transparent 2px);opacity:.8}
-.w1{left:56px}.w2{left:222px}
-.whiteboard{position:absolute;top:22px;left:414px;width:226px;height:88px;border:4px solid #3a4c60;border-radius:3px;background:linear-gradient(160deg,#e6edf0,#cfdae0);box-shadow:0 3px 0 #0006;overflow:hidden}
-.whiteboard:before{content:"";position:absolute;right:8px;bottom:6px;width:62px;height:1px;background:#9fb3c4;transform:rotate(-12deg);box-shadow:0 3px 0 #b8c8d4}
-.whiteboard b{position:absolute;height:2px;background:#7f95aa;border-radius:2px}
-.whiteboard b:nth-child(1){left:16px;top:18px;width:92px}
-.whiteboard b:nth-child(2){left:16px;top:32px;width:128px;background:#c05c5c}
-.whiteboard b:nth-child(3){left:16px;top:46px;width:70px}
-.whiteboard b:nth-child(4){left:16px;top:60px;width:110px;background:#4f8f74}
-.wallclock{position:absolute;top:30px;right:116px;width:62px;height:62px;border-radius:50%;background:linear-gradient(160deg,#eef3f8,#c9d5e1);border:5px solid #26364a;box-shadow:0 4px 10px #0007,inset 0 0 0 2px #ffffff88}
-.hand{position:absolute;left:50%;bottom:50%;transform-origin:50% 100%;background:#203045;border-radius:2px}
-.hand.h{width:4px;height:15px;margin-left:-2px}
-.hand.m{width:3px;height:21px;margin-left:-1.5px}
-.hand.s{width:1px;height:22px;margin-left:-.5px;background:#d84b4b}
-.pin{position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:#203045}
-.sign{position:absolute;top:38px;right:16px;padding:6px 9px;border:1px solid #4a5f79;border-radius:4px;background:#1a2638;color:#a8bdd6;font:600 9px/1 ui-monospace,Menlo,monospace;letter-spacing:1.5px;box-shadow:0 2px 0 #0006}
-.floor{position:absolute;inset:142px 0 0;background:radial-gradient(900px 400px at 50% 0,#2b384b 0,#1a2433 56%,#121a27 100%);z-index:0}
-.floor:before{content:"";position:absolute;inset:0;background-image:linear-gradient(#ffffff09 1px,transparent 1px),linear-gradient(90deg,#ffffff09 1px,transparent 1px);background-size:54px 54px;transform:perspective(820px) rotateX(16deg) scale(1.12);transform-origin:50% 0;opacity:.85;-webkit-mask-image:linear-gradient(180deg,#000 0,#000 62%,transparent 100%);mask-image:linear-gradient(180deg,#000 0,#000 62%,transparent 100%)}
-.floor:after{content:"";position:absolute;inset:0;background:radial-gradient(420px 170px at 18% 8%,#ffd9a014,transparent 65%),radial-gradient(460px 190px at 78% 12%,#7fd0ff10,transparent 65%),radial-gradient(700px 300px at 50% 100%,#0008,transparent 70%)}
-.rug{position:absolute;left:50%;top:55%;width:66%;height:50%;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(closest-side,#1e3a58 0,#172b42 58%,#12213400 100%);opacity:.6;box-shadow:inset 0 0 70px #0a1421;z-index:1}
-.plant{position:absolute;width:56px;height:74px;z-index:2;filter:drop-shadow(0 10px 12px #0009)}
-.plant:before{content:"";position:absolute;left:50%;bottom:0;width:34px;height:26px;transform:translateX(-50%);background:linear-gradient(180deg,#6b4d32,#3b2a1a);border-radius:3px 3px 7px 7px;box-shadow:inset 0 3px 0 #8d684378}
-.plant:after{content:"";position:absolute;left:50%;bottom:22px;width:18px;height:46px;transform:translateX(-50%) rotate(-6deg);background:#2f8f5e;border-radius:60% 60% 45% 45%;box-shadow:-15px 8px 0 -2px #369e6b,15px 11px 0 -3px #277a50,-9px 23px 0 -5px #3aa873,10px 27px 0 -6px #216b47,0 5px 0 -6px #4fbd86}
-.p1{left:14px;bottom:10px}.p2{right:16px;bottom:8px}.p3{left:10px;top:152px;transform:scale(.82);transform-origin:bottom center;opacity:.8}
-/* Column count follows the live member count (--cols set in renderSeats): 1-5 seats fill one row,
-   6-8 two rows, 9-12 three rows, capped at 4 columns so a desk never gets narrower than ~200px. */
-.seats{position:absolute;left:1.2%;right:1.2%;top:164px;bottom:10px;display:grid;grid-template-columns:repeat(var(--cols,4),minmax(0,1fr));grid-auto-rows:1fr;gap:2px 10px;z-index:3}
-.seat{position:relative;min-height:0;display:flex;align-items:flex-end;justify-content:center}
-/* Room reads from the front: the person sits NEAREST us facing the room (we see their face), the
-   desk is behind them, and the monitor beyond the desk shows its back. Chair therefore sits at the
-   far side of the person, not in front of them. */
-.chair{position:absolute;left:50%;top:26px;width:74px;height:70px;transform:translateX(-50%);border-radius:50% 50% 40% 40%;background:radial-gradient(circle at 50% 28%,#3d4e65,#222e40 70%);box-shadow:inset 0 -10px 0 #18222f,0 8px 14px #0007;z-index:1}
-.person{position:absolute;left:50%;top:auto;bottom:-8px;width:150px;height:150px;transform:translateX(-50%);z-index:6}
-.body{position:absolute;left:50%;top:70px;width:100px;height:76px;transform:translateX(-50%);border-radius:46% 46% 16% 16%;background:linear-gradient(180deg,var(--shirt,#3b5270),#202d44);box-shadow:inset 0 2px 0 #ffffff1f;z-index:3}
-.aura{position:absolute;left:50%;top:48px;width:132px;height:132px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle,#ffc56b33 0,#ffc56b10 46%,transparent 68%);opacity:0;z-index:4}
-.avatar{position:absolute;left:50%;top:0;width:84px;height:84px;transform:translateX(-50%);border-radius:50%;background:#111a26;border:3px solid #d8b27655;box-shadow:0 7px 18px #0009;overflow:visible;z-index:5}
-.avatar img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
-.avatar .init{display:grid;place-items:center;width:100%;height:100%;border-radius:50%;font-weight:800;font-size:30px;color:#fff;text-shadow:0 2px 4px #0008}
-.avatar .dot{position:absolute;right:-1px;bottom:4px;width:14px;height:14px;border-radius:50%;background:var(--ok);border:3px solid #0e1621;box-shadow:0 0 8px #34d39966}
-.avatar .crown{position:absolute;left:50%;top:-13px;transform:translateX(-50%);font-size:15px;line-height:1;color:#ffd37a;text-shadow:0 2px 4px #000,0 0 10px #ffc56b66;filter:drop-shadow(0 2px 3px #0009)}
-.tasktag{position:absolute;left:50%;top:-4px;transform:translate(-50%,-100%);max-width:148px;padding:3px 8px;border-radius:6px;border:1px solid #ffc56b66;background:#1b2230ee;color:#ffe1a9;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 4px 14px #0009;z-index:8}
-.bubble{position:absolute;left:calc(50% + 44px);top:6px;display:flex;align-items:center;gap:3px;padding:5px 7px;border-radius:9px;border:1px solid #33465f;background:#0e1622ee;color:#cfe4ff;font-size:11px;min-height:16px;box-shadow:0 4px 12px #0009;z-index:9;white-space:nowrap}
-.bubble:after{content:"";position:absolute;left:4px;bottom:-4px;width:7px;height:7px;background:#0e1622;border-right:1px solid #33465f;border-bottom:1px solid #33465f;transform:rotate(45deg)}
-.bubble .td{width:4px;height:4px;border-radius:50%;background:#9fd0ff}
-.bubble .fish{width:15px;height:7px;border-radius:50% 50% 50% 50%;background:#7dd3fc;position:relative;opacity:.85}
-.bubble .fish:after{content:"";position:absolute;right:-6px;top:1px;width:0;height:0;border-top:4px solid transparent;border-bottom:4px solid transparent;border-left:6px solid #7dd3fc}
-.desk{position:relative;width:min(92%,252px);height:100px;margin-bottom:2px;z-index:4}
-.desk:before{content:"";position:absolute;left:5%;right:5%;bottom:-16px;height:22px;background:radial-gradient(ellipse at 50% 0,#000b,transparent 70%)}
-.desktop{position:absolute;left:0;right:0;bottom:0;height:58px;border-radius:6px;background:linear-gradient(180deg,#a46c3f,#7a4a29 55%,#5d371f);box-shadow:inset 0 2px 0 #d29a6680,inset 0 -3px 0 #3e2413,0 8px 18px #0008;z-index:2}
-.desktop:before{content:"";position:absolute;left:0;right:0;bottom:-11px;height:13px;border-radius:0 0 6px 6px;background:linear-gradient(180deg,#5b361e,#3e2412);box-shadow:inset 0 2px 0 #0004}
-.keyboard{position:absolute;left:8%;bottom:9px;width:42%;height:15px;background:linear-gradient(180deg,#2d3744,#1b232d);border-radius:3px;transform:skewX(-8deg);box-shadow:0 1px 0 #0006,inset 0 1px 0 #ffffff1a}
-.keyboard:after{content:"";position:absolute;inset:3px 4px;background:repeating-linear-gradient(90deg,#5b6b7e 0 1px,transparent 1px 5px),repeating-linear-gradient(180deg,#5b6b7e 0 1px,transparent 1px 4px);opacity:.45}
-.mug{position:absolute;right:11%;bottom:10px;width:16px;height:18px;border-radius:3px 3px 6px 6px;background:linear-gradient(180deg,#e8eef6,#b9c6d6);box-shadow:inset -3px 0 0 #ffffff66;z-index:3}
-.mug:after{content:"";position:absolute;right:-6px;top:5px;width:7px;height:8px;border:2px solid #c9d5e3;border-left:0;border-radius:0 5px 5px 0}
-.papers{position:absolute;right:24%;bottom:11px;width:26px;height:17px;background:#e9edf2;border-radius:2px;transform:rotate(-7deg);box-shadow:0 1px 2px #0005;opacity:.9;z-index:3}
-.plate{position:absolute;left:50%;bottom:2px;transform:translateX(-50%);max-width:78%;padding:1px 6px;border-radius:3px;background:#2a1b0f;box-shadow:inset 0 1px 0 #ffffff22,0 1px 0 #0006;color:#f6d9a9;font:700 10px/1.5 ui-monospace,Menlo,monospace;letter-spacing:.6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:4}
-/* The monitor faces the person sitting at the desk, so from the room we see its BACK: a matte
-   shell, a vent band and the small badge, never the screen content. */
-.monitor{position:absolute;left:50%;top:-30px;width:84px;height:52px;transform:translateX(-50%);z-index:3}
-.screen{position:absolute;inset:0;border-radius:5px 5px 3px 3px;border:2px solid #141a21;background:linear-gradient(168deg,#3a434f 0%,#262d37 44%,#1a2027 100%);box-shadow:0 8px 15px #0009,inset 0 1px 0 #ffffff26,inset 0 -2px 3px #0006}
-/* Vent band across the lower shell. */
-.screen:before{content:"";position:absolute;left:16%;right:16%;bottom:22%;height:7px;background:repeating-linear-gradient(180deg,#0000004d 0 1px,transparent 1px 3px);opacity:.85}
-/* Badge in the middle of the back panel. */
-.screen:after{content:"";position:absolute;left:50%;top:26%;width:11px;height:11px;margin-left:-5.5px;border-radius:3px;background:radial-gradient(circle at 35% 30%,#8c9aab,#39434f 68%);box-shadow:inset 0 1px 0 #ffffff33}
-.stand{position:absolute;left:50%;top:49px;width:8px;height:12px;transform:translateX(-50%);background:#2a3542}
-.base{position:absolute;left:50%;top:60px;width:34px;height:5px;transform:translateX(-50%);background:#222c38;border-radius:3px}
-.status{position:absolute;right:2%;top:-17px;padding:1px 6px;border-radius:99px;background:#0c121ccc;color:#b8c7dc;font-size:10px;white-space:nowrap;z-index:6}
-.seat.idle .person{animation:bob 4.6s ease-in-out infinite}
-.seat.idle:nth-child(2n) .person{animation-delay:-1.7s}
-.seat.idle:nth-child(3n) .person{animation-delay:-3.1s}
-.seat.idle .bubble{opacity:.9}
-.seat.working .avatar{border-color:#ffc56b;box-shadow:0 0 0 2px #ffc56b44,0 0 22px #ffc56b55,0 7px 18px #0009}
-.seat.working .aura{opacity:1;animation:auraPulse 1.9s ease-in-out infinite}
-.seat.working .desk{filter:drop-shadow(0 0 16px #ffc56b33)}
-/* Working: the light comes from the far side of the panel, so the shell picks up a warm rim and
-   the vent band leaks a little of it — the room never sees screen content. */
-/* 干活中：光从屏幕正面溢出，我们只看到背板边缘的暖光和格栅里透出的一点亮度。 */
-.seat.working .screen{box-shadow:0 8px 16px #0000001c,inset 0 1px 0 #fff,inset 0 -3px 6px #0000000f,0 0 20px #ffcf8a3d,0 0 5px #ffcf8a40}
-.seat.working .screen:before{background:repeating-linear-gradient(180deg,#e0a76066 0 1px,transparent 1px 3px);animation:ventGlow 1.6s ease-in-out infinite}
-.seat.working .keyboard:after,.seat.thinking .keyboard:after{animation:keyFlash .5s steps(2) infinite}
-.seat.working .person{animation:workBob 2.2s ease-in-out infinite}
-.seat.thinking .avatar{border-color:#7dd3fc;box-shadow:0 0 0 2px #7dd3fc33,0 0 20px #7dd3fc44}
-.seat.thinking .aura{opacity:.95;background:radial-gradient(circle,#7dd3fc33 0,#7dd3fc0d 48%,transparent 70%);animation:auraPulse 1.4s ease-in-out infinite}
-.seat.thinking .bubble{border-color:#3b6c92}
-.seat.offline{filter:saturate(.15);opacity:.55}
-.seat.offline .person{animation:none}
-.seat.offline .screen{background:linear-gradient(168deg,#eef0f3,#dfe2e8);box-shadow:inset 0 1px 0 #fff,0 6px 12px #00000012}
-.seat.offline .screen:before,.seat.offline .screen:after{opacity:.12}
-.seat.offline .status{color:#7a8798}
-.seat.lead .desk{box-shadow:0 0 0 1px #ffc56b2e}
-.seat.lead .plate{color:#ffe2ab;background:#382312}
-.bubble .td{animation:td 1s ease-in-out infinite}
-.bubble .td:nth-child(2){animation-delay:.16s}
-.bubble .td:nth-child(3){animation-delay:.32s}
-.bubble .zzz{font:700 11px/1 ui-monospace,Menlo,monospace;color:#a9c8ff;animation:zzzFloat 2.6s ease-in-out infinite}
-.bubble .zzz:nth-child(2){animation-delay:.5s;font-size:13px}
-.bubble .fish{animation:fishBob 2.4s ease-in-out infinite}
-@keyframes bob{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-3px)}}
-@keyframes workBob{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-2px)}}
-@keyframes auraPulse{0%,100%{opacity:.6;transform:translate(-50%,-50%) scale(.94)}50%{opacity:1;transform:translate(-50%,-50%) scale(1.08)}}
-@keyframes td{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:1;transform:translateY(-2px)}}
-@keyframes zzzFloat{0%,100%{opacity:.35;transform:translateY(1px)}50%{opacity:1;transform:translateY(-3px)}}
-@keyframes fishBob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-2px) rotate(2deg)}}
-@keyframes keyFlash{0%,100%{opacity:.22}50%{opacity:1}}
-@keyframes codePulse{0%,100%{opacity:.55;transform:translateY(0)}50%{opacity:1;transform:translateY(2px)}}
-@keyframes ventGlow{0%,100%{opacity:.35}50%{opacity:.85}}
-.seat.flash-gold .desk{animation:goldFlash 1.4s ease-out}
-.seat.flash-good .desk{animation:goodFlash 1.4s ease-out}
-.seat.flash-bad .desk{animation:badFlash 1.4s ease-out}
-.seat.flash-bad{animation:seatShake .45s}
-@keyframes goldFlash{0%,100%{filter:none}35%{filter:drop-shadow(0 0 22px #ffc56b) brightness(1.12)}}
-@keyframes goodFlash{0%,100%{filter:none}35%{filter:drop-shadow(0 0 20px #5eead4) brightness(1.1)}}
-@keyframes badFlash{0%,100%{filter:none}25%,60%{filter:drop-shadow(0 0 20px #ff6b6b) brightness(1.1)}}
-@keyframes seatShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-2px)}40%{transform:translateX(2px)}60%{transform:translateX(-1px)}80%{transform:translateX(1px)}}
-.beams{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:20;overflow:visible}
-.beam{--beam:#ffc56b;animation:beamOut 2.6s ease-out forwards}
-.beam.return{--beam:#5eead4}.beam.reject{--beam:#ff6b6b}.beam.at{--beam:#7dd3fc}.beam.pause{--beam:#9aa8bc}
-.beam path{fill:none;stroke:var(--beam);stroke-linecap:round}
-.beam .glow{stroke-width:11;opacity:.2;filter:blur(3px)}
-.beam .trace{stroke-width:2.4;opacity:.95;filter:drop-shadow(0 0 6px var(--beam))}
-.beam .flow{stroke-width:1.5;stroke-dasharray:8 20;opacity:.85;animation:beamFlow 1s linear infinite}
-.beam .spark{fill:var(--beam);filter:drop-shadow(0 0 5px var(--beam))}
-@keyframes beamFlow{to{stroke-dashoffset:-28}}
-@keyframes beamOut{0%,72%{opacity:1}100%{opacity:0}}
-.pop{position:absolute;left:50%;bottom:105px;transform:translateX(-50%);padding:3px 8px;border-radius:7px;border:1px solid #ffc56b55;background:#0d1622ee;color:#ffe0a8;font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px;z-index:12;animation:popUp 1.9s ease-out forwards;box-shadow:0 4px 14px #0009}
-.pop.good{color:#8ff0d6;border-color:#5eead455}
-.pop.bad{color:#ffaaaa;border-color:#ff6b6b55}
-.pop.info{color:#cfe4ff;border-color:#7dd3fc44}
-@keyframes popUp{0%{opacity:0;transform:translate(-50%,6px)}12%{opacity:1;transform:translate(-50%,0)}78%{opacity:1;transform:translate(-50%,0)}100%{opacity:0;transform:translate(-50%,-8px)}}
-.toast{animation:toastIn .18s ease-out}
-@keyframes toastIn{from{opacity:0;transform:translate(-50%,6px)}to{opacity:1;transform:translate(-50%,0)}}
-.mode:focus-visible,.btn:focus-visible,.mini:focus-visible,.field input:focus-visible,.field select:focus-visible,.progress:focus-visible{outline:2px solid #7dd3fc;outline-offset:1px}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);max-width:min(560px,92vw);padding:9px 14px;background:#231d30;color:#f3ecff;font-size:12px;box-shadow:0 0 0 3px #0b0910,0 10px 32px #000a;z-index:90}
+.empty{position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:14px;letter-spacing:2px;pointer-events:none;text-shadow:2px 2px 0 #0b0910;z-index:3}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important}}
-@media (max-width:1180px){main{grid-template-columns:minmax(0,1fr)}.side{display:none}}
-@media (max-width:900px){.replaybar{flex:1 1 100%;order:3}.stats{margin-left:auto}.field input[type=datetime-local]{width:150px}}
-@media (max-width:760px){
-.app{padding:8px 8px 6px;gap:8px;overflow-x:hidden}
-.brand{gap:8px}.mark{width:34px;height:34px;border-radius:10px}.brand h1{font-size:16px}.sub{font-size:11px}
-.topright{gap:6px}.clock{font-size:12px}.pill{font-size:10px;padding:3px 8px}.badge{font-size:10px;padding:3px 7px}
-.bar{padding:7px 8px;gap:8px}.mode{padding:6px 12px;font-size:12px}.stats{font-size:11px}
-.replaybar{gap:6px}.field{flex:1 1 140px;font-size:11px}.field input,.field select{font-size:11px;padding:4px 6px}
-.field input[type=datetime-local]{width:100%}.presets{flex:0 0 auto}.btn{padding:6px 10px}.speed{flex:0 0 auto}
-.progress{flex:1 1 100%;max-width:none;order:6}.vclock{order:5}.mini{padding:4px 7px;font-size:10px}
-.stage{height:auto;min-height:0;padding:104px 0 12px;border-radius:16px}
-.wall{height:96px}.wall:after{height:7px}.window{top:15px;height:60px;width:116px;border-width:3px}.w1{left:16px}.w2{display:none}
-.whiteboard,.sign{display:none}
-.wallclock{top:20px;right:14px;width:48px;height:48px;border-width:4px}.hand.h{height:11px}.hand.m{height:16px}.hand.s{height:17px}
-.floor{inset:96px 0 0}.floor:before{background-size:38px 38px}
-.rug{width:90%;height:60%;top:58%}
-.plant{transform:scale(.7);transform-origin:bottom left}.p1{left:4px;bottom:4px}.p2{right:4px;bottom:2px;transform-origin:bottom right}.p3{display:none}
-.seats{position:relative;left:auto;right:auto;top:auto;bottom:auto;padding:0 8px;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:200px;gap:4px 2px}
-.seat{min-height:0}
-.chair{width:66px;height:62px;top:4px}
-.person{height:140px;top:4px;width:130px}
-.body{top:60px;width:88px;height:66px}
-.avatar{width:72px;height:72px;border-width:2px}.avatar .init{font-size:26px}
-.avatar .dot{width:12px;height:12px;bottom:2px}
-.tasktag{max-width:120px;padding:2px 6px;font-size:10px;top:-2px}
-.bubble{left:calc(50% + 38px);top:2px;padding:4px 6px;font-size:10px;min-height:14px}
-.desk{width:100%;max-width:214px;height:90px}
-.desktop{height:52px}.desktop:before{height:11px;bottom:-9px}
-.monitor{width:70px;height:44px}.stand{top:41px;height:10px}.base{top:50px;width:30px}
-.screen:after{box-shadow:0 5px 0 #9fe8ff55,0 10px 0 #9fe8ff77,0 15px 0 #9fe8ff33}
-.plate{font-size:9px;bottom:1px;max-width:76%}.status{font-size:9px;top:-14px}
-.keyboard{height:12px}.mug{width:14px;height:16px;bottom:8px}.papers{width:22px;height:15px;bottom:9px}
-.foot{font-size:11px}.foot-note{display:none}
-.toast{bottom:14px;font-size:11px;max-width:94vw}
-.pop{bottom:94px;max-width:140px}
-}
-@media (max-width:420px){
-.sub{display:none}.topright .clock{display:none}
-.seats{grid-auto-rows:190px}
-.desk{max-width:190px}
-.seat .tasktag{max-width:104px}
-}
-@media (min-width:761px) and (max-height:700px){.stage{height:580px;min-height:580px}}
-/* ===== M 路画面层 v2（2026-11-03 返工）：浅色高级感 · 细线流光 ===== */
-:root{
-  --bg:#f1f2f4;--panel:#ffffff;--panel2:#f4f4f5;--line:#e4e4e7;--line2:#ededf0;
-  --text:#111112;--muted:#71717a;--gold:#a15c11;--teal:#0f766e;--red:#dc2626;--blue:#2563eb;
-  --wood:#c9a074;--ok:#059669;
-  --shadow:0 1px 2px #00000008,0 18px 50px -18px #00000026;
-}
-html,body{background:var(--bg);color:var(--text)}
-.app{gap:14px}
-.topbar{padding:6px 2px}
-.mark{background:linear-gradient(145deg,#f3d9b0,#c99a5e 46%,#8a5a2b);box-shadow:inset 0 0 0 1px #ffffff88,0 6px 16px #0000001a}
-.mark:before{border-color:#5b3a1a;background:repeating-linear-gradient(90deg,#5b3a1a 0 2px,transparent 2px 6px)}
-.brand h1{font-size:20px;letter-spacing:.2px}
-.sub{color:var(--ink3,#85858c)}
-.bar{background:#fff;border:1px solid var(--line);box-shadow:0 1px 2px #00000008;border-radius:16px}
-.modes{background:#f2f2f4;border-color:#e7e7ea}
-.mode{color:#71717a}.mode.on{background:#fff;color:#111;box-shadow:0 1px 2px #00000014,inset 0 0 0 1px #e4e4e7}
-.btn{background:#fff;border-color:var(--line);color:#3f3f46}
-.btn:hover{background:#fafafa;border-color:#d4d4d8}
-.btn.primary{background:linear-gradient(180deg,#2b2b2f,#111112);border-color:#111;color:#fff;box-shadow:0 2px 6px #00000026}
-.btn.primary:hover{background:linear-gradient(180deg,#3a3a40,#1a1a1e)}
-.field input,.field select{background:#fff;border-color:var(--line);color:#111}
-.pill{background:#fff;border-color:var(--line);color:#71717a}
-.pill.galaxy{text-decoration:none;color:#7c3aed}.pill.galaxy:hover{border-color:#a78bfa}
-.pill.live{color:#059669}.pill.replay{color:#2563eb}.pill.wait{color:#b45309}.pill.err{color:#dc2626}
-.badge{background:#fff7ed;border-color:#fed7aa;color:#9a3412}
-.stats{color:#71717a}
-.side{background:#fff;border-color:var(--line);box-shadow:0 1px 2px #00000008}
-.side h2{color:#a1a1aa}.count{color:#a1a1aa}
-.log li{background:#fcfcfd;border:1px solid #eeeef1}
-.log .t{color:#a1a1aa}.log .route{color:#3f3f46}.log .l2{color:#71717a}
-.chip.created{background:#f4f4f5;color:#52525b}
-.chip.assigned{background:#fef3e2;color:#9a5b10}
-.chip.returned{background:#e7f7f4;color:#0f766e}
-.chip.rejected{background:#fdecec;color:#b91c1c}
-.chip.paused{background:#f4f4f5;color:#71717a}
-.chip.done{background:#e9f8ef;color:#047857}
-.chip.at{background:#eaf2fe;color:#1d4ed8}
-.legend{color:#a1a1aa}
-.foot{color:#a1a1aa}
-.toast{background:#111112;border-color:#27272a;color:#fafafa;box-shadow:0 12px 32px #00000033}
-
-
-/* 房间：白墙、浅地板、很淡的等距线 */
-.stage{background:#fdfcfa;border:1px solid #e6e4e0;border-radius:24px;
-  box-shadow:0 1px 2px #00000008,0 24px 60px -24px #0000002e;overflow:hidden}
-.stage:after{background:radial-gradient(120% 86% at 50% 30%,transparent 62%,#0000000a)}
-.wall{background:linear-gradient(180deg,#fefdfb,#f6f4f1 72%,#efedea);border-bottom:1px solid #e6e6ea;box-shadow:inset 0 -18px 28px #00000005}
-.wall:after{background:linear-gradient(180deg,#fbfbfc,#ececef);border-top:1px solid #e2e2e6}
-.window{border-color:#dcdce1;background:linear-gradient(180deg,#eaf4ff,#dcecfd 55%,#f6fbff);box-shadow:inset 0 0 30px #8fbdf32e,0 2px 0 #0000000a}
-.window i{background:#dcdce1}
-.window .city{background:repeating-linear-gradient(90deg,transparent 0 9px,#dbe7f4 9px 13px,transparent 13px 22px,#e8f0fa 22px 26px,transparent 26px 37px),linear-gradient(180deg,transparent,#eef5fc)}
-.whiteboard{border-color:#d9d9de;background:linear-gradient(160deg,#fbfcfe,#f2f5f9);box-shadow:inset 0 0 0 1px #fff,0 2px 0 #0000000d}
-.whiteboard:before{background:#d5dde6}
-.whiteboard b{background:#b8c4d2}
-.whiteboard b:nth-child(2){background:#e0a3a3}
-.whiteboard b:nth-child(4){background:#a7cdb9}
-.wallclock{background:linear-gradient(160deg,#fff,#f3f4f6);border-color:#d9d9de;box-shadow:0 3px 8px #00000012,inset 0 0 0 2px #fff}
-.hand{background:#3f3f46}.hand.s{background:#dc2626}.pin{background:#3f3f46}
-.sign{background:#fff;border-color:#e4e4e7;color:#71717a;box-shadow:0 1px 2px #0000000a}
-.floor{background:radial-gradient(1000px 420px at 50% 0,#ffffff 0,#f7f7f9 56%,#f1f1f4 100%)}
-.floor:before{
-  background-image:
-    repeating-linear-gradient(116.57deg,#0000000b 0 1px,transparent 1px 64px),
-    repeating-linear-gradient(63.43deg,#0000000b 0 1px,transparent 1px 64px);
-  transform:none;opacity:.9;
-  -webkit-mask-image:radial-gradient(74% 68% at 50% 40%,#000 0,#000 64%,transparent 100%);
-  mask-image:radial-gradient(74% 68% at 50% 40%,#000 0,#000 64%,transparent 100%);
-}
-.floor:after{background:radial-gradient(460px 190px at 16% 10%,#ffd9a01f,transparent 66%),radial-gradient(520px 210px at 82% 8%,#9cc7ff1a,transparent 68%),radial-gradient(760px 320px at 50% 106%,#0000000d,transparent 72%)}
-.rug{background:radial-gradient(closest-side,#eef2f8 0,#f2f4f8 58%,#f2f4f800 100%);opacity:.9;box-shadow:inset 0 0 60px #00000008}
-.plant:before{background:linear-gradient(180deg,#e3d3c1,#c9b49c)}
-.plant:after{background:#5fae83;box-shadow:-15px 8px 0 -2px #6cbb90,15px 11px 0 -3px #4c9d75,-9px 23px 0 -5px #75c39a,10px 27px 0 -6px #448a66,0 5px 0 -6px #86d0a9}
-
-/* 工位：白卡片感 + 坐姿 */
-.seats{top:150px;bottom:14px;grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));gap:16px 14px;z-index:3}
-.seat:nth-child(3n+2){transform:translateY(12px)}
-.seat:nth-child(3n){transform:translateY(4px)}
-.chair{top:auto;bottom:92px;width:88px;height:80px;z-index:1;
-  background:radial-gradient(circle at 50% 28%,#e3e6ec,#cfd4dd 72%);
-  box-shadow:inset 0 -10px 0 #c2c8d2,0 8px 16px #00000014}
-.person{top:auto;bottom:58px;width:160px;height:150px;z-index:3}
-.body{top:auto;bottom:0;width:104px;height:82px;border-radius:44% 44% 14% 14%;
-  background:linear-gradient(180deg,var(--shirt,#8fa6c4),#6b7f9e 82%);
-  box-shadow:inset 0 2px 0 #ffffff66,inset 0 -10px 16px #0000001a}
-.avatar{width:104px;height:104px;border:3px solid #fff;background:#fff;z-index:5;
-  box-shadow:0 0 0 1px #00000012,0 10px 24px #00000024}
-.avatar:before{content:"";position:absolute;inset:-16px;border-radius:50%;z-index:-1;
-  background:radial-gradient(circle,#ffcf8a2e 0,#ffcf8a0d 52%,transparent 74%)}
-.avatar img{border-radius:50%;filter:saturate(1.05) contrast(1.02)}
-.avatar .dot{width:15px;height:15px;right:0;bottom:2px;border:3px solid #fff}
-.avatar .init{font-size:36px;color:#fff}
-
-.desk{width:min(96%,304px);height:112px;margin-bottom:0;z-index:4}
-.desk:before{left:2%;right:2%;bottom:-14px;height:26px;background:radial-gradient(ellipse at 50% 0,#0000001f,transparent 72%)}
-.desktop{height:66px;border-radius:9px 9px 5px 5px;
-  background:linear-gradient(180deg,#f0dcc2,#e2c6a4 52%,#d3b08a);
-  box-shadow:inset 0 2px 0 #ffffffb3,inset 0 -4px 0 #b8946d,0 10px 22px #0000001c}
-.desktop:before{bottom:-14px;height:16px;background:linear-gradient(180deg,#d8c0a2,#c2a27c);box-shadow:inset 0 2px 0 #ffffff59}
-.desk:after{content:"";position:absolute;right:-9px;bottom:8px;width:10px;height:64px;
-  background:linear-gradient(180deg,#dcc3a4,#bb9a74);transform:skewY(-16deg);border-radius:0 3px 3px 0;z-index:1}
-/* 显示器正对坐在工位上的人，所以我们看到的是背面：磨砂背板 + 通风格栅 + 中间小徽标，
-   不是屏幕内容。 */
-.monitor{width:96px;height:58px;top:-2px}
-.screen{border:3px solid #dcdce2;background:linear-gradient(168deg,#f4f5f8 0%,#e7e9ee 42%,#d9dbe2 100%);
-  box-shadow:0 8px 16px #0000001c,inset 0 1px 0 #fff,inset 0 -3px 6px #0000000f}
-.screen:before{content:"";position:absolute;left:22%;right:22%;bottom:20%;height:8px;
-  background:repeating-linear-gradient(180deg,#0000002e 0 1px,transparent 1px 3px);opacity:.7}
-.screen:after{content:"";position:absolute;left:50%;top:24%;width:12px;height:12px;margin-left:-6px;
-  border-radius:3px;background:radial-gradient(circle at 35% 30%,#fff,#b8bcc6 70%);
-  box-shadow:inset 0 1px 0 #fff,0 1px 2px #0000001a}
-.stand{top:55px;height:12px;background:#cfcfd6}.base{top:67px;width:38px;background:#c4c4cc}
-.keyboard{background:linear-gradient(180deg,#e8e8ec,#d9d9df);box-shadow:0 1px 0 #00000012,inset 0 1px 0 #fff}
-.keyboard:after{background:repeating-linear-gradient(90deg,#b6b6bf 0 1px,transparent 1px 5px),repeating-linear-gradient(180deg,#b6b6bf 0 1px,transparent 1px 4px);opacity:.5}
-.mug{background:linear-gradient(180deg,#fff,#eceef2);box-shadow:inset -3px 0 0 #ffffff}
-.mug:after{border-color:#dfe1e7}
-.papers{background:#fff;box-shadow:0 1px 3px #0000001a}
-.plate{bottom:3px;font-size:11px;padding:2px 8px;background:#fff;color:#3f3f46;
-  box-shadow:inset 0 1px 0 #fff,0 2px 5px #0000001a;border:1px solid #ececf0}
-.status{left:8px;right:auto;top:-24px;background:#fff;color:#52525b;font-size:11px;padding:2px 8px;
-  border:1px solid #ececf0;border-radius:99px;box-shadow:0 2px 6px #00000012;z-index:7}
-.tasktag{top:-2px;border:1px solid #fed7aa;background:#fffbeb;color:#92400e;font-size:12px;padding:4px 9px;box-shadow:0 4px 12px #00000014}
-.bubble{background:#fff;border:1px solid #e7e7ea;color:#52525b;box-shadow:0 4px 12px #00000014}
-.bubble:after{background:#fff;border-right:1px solid #e7e7ea;border-bottom:1px solid #e7e7ea}
-.bubble .fish{background:#94a3b8}.bubble .fish:after{border-left-color:#94a3b8}
-.bubble .td{background:#94a3b8}
-.bubble .zzz{color:#94a3b8}
-
-/* 台灯：暖光收着 */
-.lamp{position:absolute;right:5%;top:-34px;width:58px;height:104px;z-index:6;pointer-events:none}
-.lamp .arm{position:absolute;left:50%;bottom:0;width:3px;height:56px;margin-left:-1.5px;background:linear-gradient(180deg,#d4d4da,#b9b9c1);border-radius:2px}
-.lamp .shade{position:absolute;left:50%;top:6px;width:46px;height:20px;margin-left:-23px;
-  background:linear-gradient(180deg,#3f3f46,#27272a);border-radius:7px 7px 3px 3px;
-  box-shadow:inset 0 -2px 0 #ffd9a099,0 3px 6px #0000001f;transform:rotate(-6deg)}
-.lamp .shade:after{content:"";position:absolute;left:50%;bottom:-3px;width:9px;height:4px;margin-left:-4.5px;
-  border-radius:50%;background:#fff3d6;box-shadow:0 0 10px #ffcf8a,0 0 22px #ffcf8a66}
-.lamp .cone{position:absolute;left:50%;top:24px;width:78px;height:74px;margin-left:-39px;
-  background:linear-gradient(180deg,#ffd9a03d,#ffcf8a12 60%,transparent);
-  clip-path:polygon(28% 0,72% 0,100% 100%,0 100%);opacity:.55;transition:opacity .3s}
-.lamp .pool{position:absolute;left:50%;top:96px;width:132px;height:40px;margin-left:-66px;
-  background:radial-gradient(ellipse at 50% 40%,#ffcf8a45,#ffcf8a14 58%,transparent 76%);opacity:.8}
-.seat.working .lamp .cone,.seat.working .lamp .pool{opacity:1}
-.seat.offline .lamp .cone,.seat.offline .lamp .pool{opacity:.08}
-
-/* 状态：干净的金/蓝圈，不发光 */
-.seat.idle{filter:saturate(.96)}
-.seat.working .avatar{border-color:#fff;box-shadow:0 0 0 3px #f0b45a66,0 10px 24px #00000024}
-.seat.thinking .avatar{border-color:#fff;box-shadow:0 0 0 3px #7fb3e166,0 10px 24px #00000024}
-.seat.working .desk{filter:drop-shadow(0 10px 22px #0000001f) drop-shadow(0 0 14px #f0b45a2e)}
-.seat.offline{filter:grayscale(.7) opacity(.72)}
-.seat.tick .desk{animation:rttick .4s cubic-bezier(.2,.8,.2,1)}
-.seat.hit .desk{animation:rthit .45s cubic-bezier(.36,.07,.19,.97)}
-@keyframes rttick{40%{transform:scale(1.035)}}
-@keyframes rthit{20%{transform:translateX(-5px)}40%{transform:translateX(4px)}60%{transform:translateX(-2px)}80%{transform:translateX(1px)}}
-@keyframes rtflow{to{stroke-dashoffset:-8}}
-
-/* 流光：细线 + 沿线小圆点包 */
-.beam{animation:none}
-.beam path{fill:none;stroke-linecap:round}
-.beam .base{stroke:#e6e6ea;stroke-width:1.4}
-.beam .trace{stroke:#8a8a94;stroke-width:1.6;stroke-dasharray:3 5;animation:rtflow .7s linear infinite}
-.beam.at .trace{stroke:#2563eb;stroke-width:1.4;opacity:.7}
-.beam.return .trace{stroke:#0f766e}
-.beam.reject .trace{stroke:#dc2626;stroke-dasharray:2 5}
-.beam .dot{fill:#111112;filter:drop-shadow(0 0 3px #85858c)}
-.beam.return .dot{fill:#fff;stroke:#0f766e;stroke-width:2}
-.beam.reject .dot{fill:#dc2626;stroke:#fff;stroke-width:1.5}
-.beam .halo{fill:none;stroke:#11111218;stroke-width:9}
-/* @ 细光：更淡的细线 + 流动虚线 + 一颗小圆点走过（实时与回放共用同一段动画） */
-.beam.at{animation:atOut 1.5s ease-out forwards}
-.beam.at .base{stroke:#dbeafe;stroke-width:1.2}
-.beam.at .trace{stroke:#2563eb;stroke-width:1.2;stroke-dasharray:2 6;opacity:.9}
-.beam.at .dot{fill:#2563eb;filter:drop-shadow(0 0 4px #2563eb66)}
-@keyframes atOut{0%,72%{opacity:1}100%{opacity:0}}
-
-@media (max-width:760px){
-  .stage{border-radius:18px}
-  .seats{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 2px}
-  .seat:nth-child(3n+2),.seat:nth-child(3n){transform:none}
-  .chair{bottom:78px;width:72px;height:66px}
-  .person{bottom:50px;width:140px;height:132px}
-  .body{width:92px;height:72px}
-  .avatar{width:86px;height:86px;border-width:2px}.avatar .init{font-size:28px}
-  .desk{width:100%;max-width:220px;height:98px}
-  .desktop{height:56px}.desktop:before{height:13px;bottom:-12px}
-  .desk:after{width:8px;height:54px;right:-7px}
-  .monitor{width:78px;height:48px}.stand{top:45px;height:10px}.base{top:55px;width:32px}
-  .lamp{width:44px;height:80px;top:-26px;right:6%}
-  .lamp .arm{height:42px}.lamp .shade{width:34px;margin-left:-17px;height:16px}
-  .lamp .cone{width:58px;margin-left:-29px;height:56px;top:20px}
-  .lamp .pool{width:104px;height:32px;margin-left:-52px;top:74px}
-  .status{font-size:9px;top:-16px;left:4px}.tasktag{font-size:10px;padding:2px 6px}
-}
-
-
-/* 精修层：极淡的暖冷渐变、顶部光泽、卡片层次 */
-.app{background:
-  radial-gradient(900px 430px at 16% -10%,#ffe6c4 0,transparent 62%),
-  radial-gradient(820px 400px at 92% -6%,#d9e9ff 0,transparent 64%)}
-.stage:before{content:"";position:absolute;left:26px;right:26px;top:0;height:1px;z-index:30;pointer-events:none;
-  background:linear-gradient(90deg,transparent,#e6c39a,#a8c6e8 55%,transparent);opacity:.85}
-.stage{box-shadow:0 1px 2px #0000000a,0 30px 70px -30px #00000033}
-.side{box-shadow:0 1px 2px #0000000a,0 20px 44px -26px #0000002e}
-.log li{box-shadow:0 1px 2px #00000008;background:#fff}
-.log li:hover{background:#fcfcfd}
-.log .l1{font-size:12.5px}
-.log .l2{color:#8a8a92}
-.stats,.clock,.vclock{font-variant-numeric:tabular-nums}
-.sub{color:#8a8a92}
-.foot{color:#8a8a92}
-.bar{box-shadow:0 1px 2px #0000000a,0 10px 24px -18px #0000002e}
-.floor{background:
-  radial-gradient(680px 300px at 50% 6%,#fffefa 0,#f8f6f2 52%,#efeeec 100%)}
-.floor:after{background:
-  radial-gradient(520px 210px at 22% 14%,#ffd9a02b,transparent 62%),
-  radial-gradient(560px 230px at 80% 6%,#bcd7ff24,transparent 64%),
-  radial-gradient(760px 300px at 50% 104%,#00000012,transparent 70%)}
-.desk{filter:drop-shadow(0 16px 22px #00000018)}
-.seat.working .desk{filter:drop-shadow(0 16px 22px #0000001c) drop-shadow(0 0 16px #e8b2682e)}
-.seat.idle .desk{filter:drop-shadow(0 14px 20px #00000014)}
-.avatar{box-shadow:0 0 0 1px #00000010,0 10px 22px #00000020}
-.seat.working .avatar{box-shadow:0 0 0 3px #efb56777,0 10px 22px #00000020}
-.plate{letter-spacing:.4px}
+@media (max-width:1180px){main{grid-template-columns:minmax(0,1fr)}.side{max-height:360px}}
+@media (max-width:900px){.replaybar{flex:1 1 100%;order:3}.field input[type=datetime-local]{width:150px}}
+@media (max-width:760px){.app{padding:10px 8px}.sub{display:none}.label{font-size:9px;padding:1px 4px}.label .status{display:none}.tasktag{font-size:9px;max-width:110px}.emote{font-size:9px}.clock{font-size:13px}}
+@media (max-width:420px){.topright .clock{display:none}.brand h1{font-size:16px}}
 </style>
 </head>
 <body>
 <div class="app">
 <header class="topbar">
-  <div class="brand"><span class="mark" aria-hidden="true"></span><div><h1>团队工作台</h1><p class="sub" id="subtitle">办公室里每一道光，都是一条真实事件</p></div></div>
+  <div class="brand"><span class="mark" aria-hidden="true"></span><div><h1>团队工作台</h1><p class="sub" id="subtitle">每一道像素光，都是一条真实事件</p></div></div>
   <div class="topright"><a class="pill galaxy" href="/collab/wiki-galaxy">Wiki 星河</a><span class="badge fixture" id="fixtureBadge" hidden>示例数据 · 非真实事件</span><span class="clock" id="clockDigital">--:--:--</span><span class="pill wait" id="conn">连接中</span></div>
 </header>
-<section class="bar">
+<section class="bar pxbox">
   <div class="modes" role="tablist" aria-label="模式"><button class="mode on" id="modeLive" role="tab" aria-selected="true">实时</button><button class="mode" id="modeReplay" role="tab" aria-selected="false">回放</button></div>
   <div class="replaybar" id="replayBar" hidden>
     <label class="field">从<input type="datetime-local" id="from"></label>
@@ -510,22 +131,14 @@ html,body{background:var(--bg);color:var(--text)}
   <div class="stats" id="stats">在线 0/0 · 进行中 0</div>
 </section>
 <main>
+  <div class="stagewrap">
   <section class="stage" id="stage">
-    <div class="wall">
-      <div class="window w1"><i></i><i></i><i></i><span class="city"></span></div>
-      <div class="window w2"><i></i><i></i><i></i><span class="city"></span></div>
-      <div class="whiteboard"><b></b><b></b><b></b><b></b></div>
-      <div class="wallclock" id="wallClock" aria-hidden="true"><span class="hand h"></span><span class="hand m"></span><span class="hand s"></span><span class="pin"></span></div>
-      <div class="sign">TEAM DESK</div>
-    </div>
-    <div class="floor"></div>
-    <div class="rug"></div>
-    <div class="plant p1"></div><div class="plant p2"></div><div class="plant p3"></div>
+    <canvas id="office" width="384" height="216" aria-label="像素办公室"></canvas>
     <div class="seats" id="seats"></div>
-    <svg class="beams" id="beams" aria-hidden="true"></svg>
     <div class="empty" id="empty" hidden>还没有成员接入，等 member 事件</div>
   </section>
-  <aside class="side">
+  </div>
+  <aside class="side pxbox">
     <h2>实况 <span class="count" id="eventCount">0</span></h2>
     <ol class="log" id="eventLog"></ol>
     <div class="legend"><span class="lg assign">派活</span><span class="lg return">交回</span><span class="lg reject">打回</span><span class="lg at">@</span><span class="lg pause">暂停</span></div>
@@ -723,54 +336,522 @@ function avatarSpec(m) {
   return { init: Array.from(displayName(m))[0] || '?', color: colorOf(m.id) };
 }
 
-function findActive(id) {
-  for (const [memberId, rec] of S.active) if (rec.id === id) return { memberId, rec };
-  return null;
+// ── 像素办公室渲染层 ──────────────────────────────────────────────
+// 画面全在一块 384×216 的低分辨率画布上，CSS 放大成像素风；名字、任务、气泡是叠在上面的 DOM。
+// 只有真实事件改变角色状态：空闲的人在屋里溜达摸鱼，派活/思考时走回工位坐下干活。
+const PX = { W: 384, H: 216, T: 8 };
+const GW = PX.W / PX.T, GH = Math.ceil(PX.H / PX.T);
+const BEAM_COLOR = { assign: '#ffa53a', return: '#3ddc97', reject: '#ff5a5f', at: '#5fb0ff', pause: '#a3acb9' };
+const REDUCED = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const P = { agents: new Map(), desks: new Map(), beams: [], parts: [], grid: null, bg: null, bgKey: '', ctx: null, last: 0, poiUsed: new Map() };
+
+// 角色像素造型：按内置头像（roster.avatar）选，其余成员按 id 散列出发色和衣服色。
+const STYLES = {
+  orange: { hair: '#ee7d2e', hl: '#ffb066', skin: '#ffe2cc', top: '#fff4e8', acc: '#26201f', bottom: '#e46f24', shoe: '#3a2622', long: true, bow: true, book: true },
+  dragon: { hair: '#2f7c7f', hl: '#5fb3a9', skin: '#ffe0c6', top: '#1f3a4c', acc: '#f2cf7a', bottom: '#12263a', shoe: '#0c1622', horns: true },
+  whale: { hair: '#5aa8ee', hl: '#a6d6ff', skin: '#ffe6d4', top: '#eaf5ff', acc: '#2e6fb8', bottom: '#2d5ea3', shoe: '#1d3557', fin: true },
+  rainbow: { hair: '#f6d6ff', hl: '#ffffff', rainbow: ['#ff8fa3', '#ffbf69', '#fff07c', '#8ee89c', '#7cc6ff', '#c3a0ff'], skin: '#ffe6d4', top: '#ffffff', acc: '#c78df2', bottom: '#9b6be0', shoe: '#4b3a6b', ears: true },
+  lanxi: { hair: '#6c5ce0', hl: '#a59bff', skin: '#ffe2cc', top: '#2e2b52', acc: '#a3e4ff', bottom: '#1e1b3a', shoe: '#14122a', long: true },
+};
+function styleOf(m) {
+  const rm = S.rosterFor.get(m.id);
+  const slug = String((rm && rm.avatar) || m.avatar || '').replace(/\.png$/i, '');
+  if (STYLES[slug]) return STYLES[slug];
+  const h = hashOf(m.id);
+  return { hair: colorOf(m.id), hl: '#ffffff', skin: '#ffe0c8', top: shirtOf(m.id), acc: PALETTE[(h >> 3) % PALETTE.length], bottom: '#2a3142', shoe: '#151922', long: h % 3 === 0 };
 }
-function setTask(member, rec) {
-  if (!member) return;
-  for (const [id, cur] of S.active) if (cur.id === rec.id && id !== member.id) S.active.delete(id);
-  S.active.set(member.id, rec);
+
+// 12×17 模板：H 发 h 高光 S 肤 E 眼 P 腮红 T 衣 A 点缀 B 下装 K 鞋。腿那三行按走路帧换。
+const T_FRONT = ['....HHHH....', '..HHhhHHHH..', '.HHHHHHHHHH.', '.HHSSSSSSHH.', '.HSSSSSSSSH.', '.HSEESSEESH.', '.HSSSSSSSSH.', '..SPSSSSPS..', '...TTTTTT...', '..TTTAATTT..', '.STTTTTTTTS.', '.STTTTTTTTS.', '..TTTTTTTT..', '...BBBBBB...'];
+const T_BACK = ['....HHHH....', '..HHhhHHHH..', '.HHHHHHHHHH.', '.HHHHHHHHHH.', '.HHHHHHHHHH.', '.HHHHHHHHHH.', '.HHHHHHHHHH.', '..HHHHHHHH..', '...TTTTTT...', '..TTTTTTTT..', '.STTTTTTTTS.', '.STTTTTTTTS.', '..TTTTTTTT..', '...BBBBBB...'];
+const T_SIDE = ['...HHHH.....', '..HHhhHHH...', '.HHHHHHHHH..', '.HHHHSSSSS..', '.HHHSSSSSS..', '.HHHSSSSES..', '.HHHSSSSSS..', '..HHSSSPS...', '....TTTT....', '...TTTTTT...', '...TTSTTT...', '...TTSTTT...', '...TTTTTT...', '...BBBBBB...'];
+const LEGS = {
+  stand: ['...BB..BB...', '...BB..BB...', '...KK..KK...'],
+  walkA: ['...BB..BB...', '..BB....BB..', '..KK....KK..'],
+  walkB: ['...BB..BB...', '....BBBB....', '....KKKK....'],
+  sit: ['..BBBBBBBB..', '..BB....BB..', '..KK....KK..'],
+};
+
+function px(ctx, x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), w, h); }
+
+function drawChar(ctx, cx, footY, st, view, legs, opts = {}) {
+  const ox0 = Math.round(cx - 12), oy0 = Math.round(footY - 34);
+  ctx.save(); ctx.setTransform(2, 0, 0, 2, ox0, oy0);
+  const ox = 0, oy = 0;
+  const flip = view === 'left';
+  const rows = (view === 'back' ? T_BACK : view === 'front' ? T_FRONT : T_SIDE).concat(LEGS[legs] || LEGS.stand);
+  const pal = { H: st.hair, h: st.hl, S: st.skin, E: '#2b2233', P: '#ffb3b3', T: st.top, A: st.acc, B: st.bottom, K: st.shoe };
+  // 阴影
+  ctx.fillStyle = 'rgba(20,12,30,.28)'; ctx.fillRect(ox + 2, oy + 16, 8, 2);
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    for (let c = 0; c < 12; c++) {
+      let k = row[c];
+      if (st.long && (view === 'front' || view === 'back') && r >= 7 && r <= 12 && (c === 1 || c === 10) && k !== 'S') k = 'H';
+      if (st.long && view === 'back' && r >= 8 && r <= 11 && c >= 2 && c <= 9) k = 'H';
+      if (k === '.') continue;
+      let color = pal[k];
+      if (st.rainbow && (k === 'H' || k === 'h') && (r <= 2 || (c + r) % 4 === 0)) color = st.rainbow[(c + r) % st.rainbow.length];
+      if (opts.blink && k === 'E') color = st.skin;
+      ctx.fillStyle = color;
+      ctx.fillRect(ox + (flip ? 11 - c : c), oy + r, 1, 1);
+    }
+  }
+  const dot = (x, y, c) => px(ctx, ox + (flip ? 11 - x : x), oy + y, 1, 1, c);
+  let top = 0;
+  if (st.horns) { dot(2, -1, st.acc); dot(2, -2, st.acc); dot(1, -3, st.acc); dot(9, -1, st.acc); dot(9, -2, st.acc); dot(10, -3, st.acc); top = -3; }
+  if (st.ears) { for (const [x, y] of [[1, 0], [1, -1], [2, -1], [1, -2], [10, 0], [10, -1], [9, -1], [10, -2]]) dot(x, y, st.rainbow ? st.rainbow[5] : st.hair); dot(2, 0, '#ffc2d6'); dot(9, 0, '#ffc2d6'); top = -2; }
+  if (st.fin) { dot(5, -1, st.acc); dot(6, -1, st.acc); dot(6, -2, st.acc); dot(7, -3, st.acc); top = -3; }
+  if (st.bow && view !== 'left') { dot(9, 1, '#1b1b1f'); dot(11, 1, '#1b1b1f'); dot(10, 0, '#1b1b1f'); dot(10, 2, '#1b1b1f'); dot(10, 1, '#ffffff'); }
+  if (st.book && view === 'front' && legs !== 'sit') { px(ctx, ox + 4, oy + 10, 4, 3, '#8b4f2a'); px(ctx, ox + 4, oy + 10, 4, 1, '#f4e3c3'); }
+  if (opts.crown) {
+    const y = oy + top - 3;
+    px(ctx, ox + 4, y + 1, 4, 1, '#ffcf3f'); px(ctx, ox + 4, y, 1, 1, '#ffcf3f'); px(ctx, ox + 7, y, 1, 1, '#ffcf3f'); px(ctx, ox + 5, y - 1, 2, 2, '#ffcf3f'); px(ctx, ox + 5, y + 1, 2, 1, '#ff5a5f');
+  }
+  ctx.restore();
 }
-function clearTask(memberId) { S.active.delete(memberId); }
-function initBadge(m) {
-  const n = el('span', 'init', Array.from(displayName(m))[0] || '?');
-  n.style.background = `linear-gradient(145deg,${colorOf(m.id)},#182231 70%)`;
-  return n;
+
+// ── 版面：墙、窗、白板、书架、饮水机、咖啡机、沙发，工位按人数排成 1-3 排 ──
+const FURN = [
+  { k: 'shelf', x: 290, y: 14, w: 36, h: 42 },
+  { k: 'cooler', x: 334, y: 30, w: 12, h: 28 },
+  { k: 'coffee', x: 352, y: 36, w: 26, h: 22 },
+  { k: 'sofa', x: 6, y: 178, w: 54, h: 26 },
+  { k: 'plant', x: 4, y: 40, w: 12, h: 18 },
+  { k: 'plant', x: 366, y: 186, w: 12, h: 18 },
+  { k: 'plant', x: 268, y: 40, w: 12, h: 18 },
+];
+const POIS = [
+  { x: 50, y: 62, face: 'back', act: 'window' }, { x: 122, y: 62, face: 'back', act: 'window' },
+  { x: 210, y: 62, face: 'back', act: 'board' }, { x: 300, y: 64, face: 'back', act: 'book' },
+  { x: 318, y: 64, face: 'back', act: 'book' }, { x: 340, y: 66, face: 'back', act: 'water' },
+  { x: 364, y: 66, face: 'back', act: 'coffee' }, { x: 20, y: 198, face: 'front', act: 'sofa', sit: true },
+  { x: 46, y: 198, face: 'front', act: 'sofa', sit: true }, { x: 352, y: 128, face: 'left', act: 'stretch' },
+  { x: 352, y: 176, face: 'left', act: 'phone' },
+];
+const EMOTE = { window: '☁', board: '✎', book: '📖', water: '💧', coffee: '☕', sofa: 'z z', stretch: '♪', phone: '…' };
+
+function deskLayout(n) {
+  const rows = n <= 4 ? 1 : 2;
+  const ys = rows === 1 ? [104] : [84, 150];
+  const cols = Math.ceil(n / rows);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const r = Math.floor(i / cols), c = i % cols;
+    const inRow = Math.min(cols, n - r * cols);
+    const span = 250, x0 = 66;
+    const x = Math.round(x0 + span * (c + 0.5) / inRow);
+    out.push({ x, y: ys[r] });
+  }
+  return out;
+}
+
+function buildGrid() {
+  const g = new Uint8Array(GW * GH);
+  const block = (x, y, w, h) => {
+    for (let ty = Math.max(0, Math.floor(y / PX.T)); ty <= Math.min(GH - 1, Math.floor((y + h - 1) / PX.T)); ty++)
+      for (let tx = Math.max(0, Math.floor(x / PX.T)); tx <= Math.min(GW - 1, Math.floor((x + w - 1) / PX.T)); tx++) g[ty * GW + tx] = 1;
+  };
+  block(0, 0, PX.W, 56);
+  for (const f of FURN) if (f.k !== 'sofa') block(f.x, f.y, f.w, f.h + 2); else block(f.x, f.y, f.w, 8);
+  for (const d of P.desks.values()) block(d.x - 20, d.y - 24, 40, 34);
+  P.grid = g;
+}
+const walkable = (tx, ty) => tx >= 0 && ty >= 0 && tx < GW && ty < GH && !P.grid[ty * GW + tx];
+function nearestOpen(tx, ty) {
+  if (walkable(tx, ty)) return [tx, ty];
+  for (let r = 1; r < 8; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (walkable(tx + dx, ty + dy)) return [tx + dx, ty + dy];
+  return [tx, ty];
+}
+function findPath(x0, y0, x1, y1) {
+  const [sx, sy] = nearestOpen(Math.floor(x0 / PX.T), Math.floor(y0 / PX.T));
+  const [ex, ey] = nearestOpen(Math.floor(x1 / PX.T), Math.floor(y1 / PX.T));
+  const prev = new Int32Array(GW * GH).fill(-1);
+  const start = sy * GW + sx, end = ey * GW + ex;
+  const queue = [start]; prev[start] = start;
+  for (let qi = 0; qi < queue.length; qi++) {
+    const cur = queue[qi];
+    if (cur === end) break;
+    const cx = cur % GW, cy = (cur / GW) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = cx + dx, ny = cy + dy;
+      if (!walkable(nx, ny) && !(nx === ex && ny === ey)) continue;
+      const ni = ny * GW + nx;
+      if (nx < 0 || ny < 0 || nx >= GW || ny >= GH || prev[ni] !== -1) continue;
+      prev[ni] = cur; queue.push(ni);
+    }
+  }
+  const pts = [{ x: x1, y: y1 }];
+  if (prev[end] === -1) return pts;
+  // 只留拐点，走起来是横平竖直的格子路线
+  const tiles = [];
+  for (let i = end; i !== start; i = prev[i]) tiles.push(i);
+  tiles.reverse();
+  const center = i => ({ x: (i % GW) * PX.T + PX.T / 2, y: ((i / GW) | 0) * PX.T + PX.T / 2 });
+  const out = [];
+  for (let i = 0; i < tiles.length - 1; i++) {
+    const a = center(i ? tiles[i - 1] : start), b = center(tiles[i]), c = center(tiles[i + 1]);
+    if ((b.x - a.x) * (c.y - b.y) !== (b.y - a.y) * (c.x - b.x)) out.push(b);
+  }
+  out.push(...pts);
+  return out;
+}
+
+// ── 角色行为 ──
+function seatPoint(d) { return { x: d.x, y: d.y + 40 }; }
+function agentFor(m, d) {
+  let a = P.agents.get(m.id);
+  const seat = seatPoint(d);
+  if (!a) {
+    a = { id: m.id, x: seat.x, y: seat.y, path: [], state: 'sit', view: 'front', frame: 0, ft: 0, timer: 1.5 + Math.random() * 6, poi: null, mode: 'idle', react: null, flash: null, bob: Math.random() * 6 };
+    P.agents.set(m.id, a);
+  }
+  a.desk = d;
+  if (a.state === 'sit') { a.x = seat.x; a.y = seat.y; }
+  else if (a.path.length) a.path = findPath(a.x, a.y, a.path[a.path.length - 1].x, a.path[a.path.length - 1].y);
+  return a;
+}
+function releasePoi(a) { if (a.poi) { P.poiUsed.delete(a.poi); a.poi = null; } }
+function goTo(a, x, y, run = false) {
+  a.path = findPath(a.x, a.y, x, y);
+  a.state = 'walk'; a.run = run;
+}
+function goDesk(a, run) { releasePoi(a); const s = seatPoint(a.desk); a.target = 'desk'; goTo(a, s.x, s.y, run); }
+function wander(a) {
+  releasePoi(a);
+  const free = POIS.filter(p => !P.poiUsed.has(p));
+  if (free.length && Math.random() < 0.8) {
+    const p = free[(Math.random() * free.length) | 0];
+    P.poiUsed.set(p, a.id); a.poi = p; a.target = 'poi';
+    goTo(a, p.x, p.y);
+  } else {
+    a.target = 'spot';
+    goTo(a, 60 + Math.random() * 280, 66 + Math.random() * 140);
+  }
+}
+function updateAgent(a, dt) {
+  a.bob += dt;
+  if (a.react && performance.now() - a.react.t0 > 900) a.react = null;
+  if (a.mode === 'off') { releasePoi(a); a.state = 'gone'; const s = seatPoint(a.desk); a.x = s.x; a.y = s.y; a.path = []; return; }
+  if (a.state === 'gone') { a.state = 'sit'; a.timer = 2 + Math.random() * 4; }
+  const busy = a.mode === 'work' || a.mode === 'think';
+  if (busy && a.state !== 'sit' && a.target !== 'desk') goDesk(a, true);
+  if (a.state === 'walk') {
+    const speed = a.run ? 48 : 20;
+    let step = speed * dt;
+    while (step > 0 && a.path.length) {
+      const p = a.path[0], dx = p.x - a.x, dy = p.y - a.y, d = Math.hypot(dx, dy);
+      if (Math.abs(dx) > Math.abs(dy)) a.view = dx > 0 ? 'right' : 'left'; else if (d > 0.01) a.view = dy > 0 ? 'front' : 'back';
+      if (d <= step) { a.x = p.x; a.y = p.y; a.path.shift(); step -= d; } else { a.x += dx / d * step; a.y += dy / d * step; step = 0; }
+    }
+    a.ft += dt * (a.run ? 2 : 1);
+    if (!a.path.length) {
+      if (a.target === 'desk') { a.state = 'sit'; a.timer = 6 + Math.random() * 12; }
+      else { a.state = 'stay'; a.timer = 4 + Math.random() * 8; if (a.poi) a.view = a.poi.face; }
+    }
+    return;
+  }
+  if (a.state === 'sit') {
+    a.view = busy ? 'back' : 'front';
+    if (!busy && !REDUCED) { a.timer -= dt; if (a.timer <= 0) wander(a); }
+    return;
+  }
+  if (a.state === 'stay') {
+    a.timer -= dt;
+    if (a.timer <= 0) { if (Math.random() < 0.4) goDesk(a, false); else wander(a); }
+  }
+}
+
+// ── 背景（缓存，按时段重画窗外天色） ──
+function skyFor(h) {
+  if (h >= 6 && h < 16) return { top: '#7ec8ff', bot: '#cdeeff', night: 0 };
+  if (h >= 16 && h < 19) return { top: '#ff9a6b', bot: '#ffd38a', night: 0.35 };
+  if (h >= 5 && h < 6) return { top: '#3c4a8c', bot: '#f2a38a', night: 0.6 };
+  return { top: '#0d1035', bot: '#27306b', night: 1 };
+}
+function drawWindow(ctx, x, y, w, h, sky) {
+  px(ctx, x - 2, y - 2, w + 4, h + 4, '#5b4636');
+  for (let i = 0; i < h; i++) { const t = i / h; ctx.fillStyle = t < 0.5 ? sky.top : sky.bot; ctx.fillRect(x, y + i, w, 1); }
+  // 城市剪影
+  const hs = [10, 16, 8, 20, 12, 18, 9, 14, 22, 11];
+  for (let i = 0; i < w; i += 6) {
+    const bh = hs[(i / 6 + x) % hs.length];
+    px(ctx, x + i, y + h - bh, 5, bh, sky.night > 0.5 ? '#1a1d3d' : '#8fa6c9');
+    if (sky.night > 0.5) for (let wy = y + h - bh + 2; wy < y + h - 1; wy += 3) if ((wy * 7 + i * 3 + x) % 5 < 2) px(ctx, x + i + 1 + ((wy + i) % 3), wy, 1, 1, '#ffe08a');
+  }
+  if (sky.night > 0.5) { for (let i = 0; i < 6; i++) px(ctx, x + (i * 13 + x) % w, y + 2 + (i * 5) % 10, 1, 1, '#ffffff'); px(ctx, x + w - 12, y + 3, 4, 4, '#fff6c8'); }
+  px(ctx, x + w / 2 - 1, y, 2, h, '#5b4636'); px(ctx, x, y + Math.round(h * 0.45), w, 1, '#5b4636');
+  px(ctx, x, y + h, w, 2, '#8a6a50');
+}
+function buildBackground(sky) {
+  const c = document.createElement('canvas'); c.width = PX.W; c.height = PX.H;
+  const ctx = c.getContext('2d');
+  // 墙
+  px(ctx, 0, 0, PX.W, 48, '#e9d8c4');
+  for (let x = 0; x < PX.W; x += 8) px(ctx, x, 0, 1, 40, '#e1ccb4');
+  px(ctx, 0, 40, PX.W, 8, '#b98d66'); px(ctx, 0, 40, PX.W, 1, '#d6ad84'); px(ctx, 0, 47, PX.W, 1, '#7a5a40');
+  // 地板
+  for (let y = 48; y < PX.H; y += 6) {
+    px(ctx, 0, y, PX.W, 6, ((y / 6) | 0) % 2 ? '#c99a6b' : '#c4945f');
+    px(ctx, 0, y + 5, PX.W, 1, '#a8794d');
+    for (let x = ((y * 7) % 40); x < PX.W; x += 40) px(ctx, x, y, 1, 5, '#a8794d');
+  }
+  // 地毯
+  px(ctx, 58, 64, 268, 142, '#8c4a5e'); px(ctx, 61, 67, 262, 136, '#a85a6f');
+  for (let x = 66; x < 320; x += 10) for (let y = 72; y < 200; y += 10) px(ctx, x + ((y / 10) % 2) * 5, y, 2, 2, '#b96b80');
+  px(ctx, 64, 70, 256, 1, '#d98a9c'); px(ctx, 64, 199, 256, 1, '#d98a9c');
+  // 窗、白板、钟位、标牌
+  drawWindow(ctx, 22, 8, 56, 26, sky); drawWindow(ctx, 94, 8, 56, 26, sky);
+  px(ctx, 174, 8, 72, 30, '#9aa3ad'); px(ctx, 176, 10, 68, 26, '#f7fbff');
+  const lines = [['#ff6b6b', 30], ['#4dabf7', 46], ['#51cf66', 22], ['#f59f00', 38]];
+  lines.forEach(([c2, w], i) => px(ctx, 180, 14 + i * 5, w, 2, c2));
+  px(ctx, 230, 30, 10, 3, '#ffd43b'); px(ctx, 176, 38, 68, 2, '#7d858f');
+  return c;
+}
+function drawFurniture(ctx, f, t) {
+  if (f.k === 'shelf') {
+    px(ctx, f.x, f.y, f.w, f.h, '#6b4429'); px(ctx, f.x + 2, f.y + 2, f.w - 4, f.h - 4, '#4a2d1a');
+    const bc = ['#e8590c', '#1c7ed6', '#37b24d', '#f08c00', '#ae3ec9', '#e03131', '#fab005'];
+    for (let s = 0; s < 3; s++) {
+      const sy = f.y + 4 + s * 13;
+      for (let i = 0, x = f.x + 3; x < f.x + f.w - 5; i++) { const w = 3 + ((i + s) % 2); const h = 8 + ((i * 3 + s) % 3); px(ctx, x, sy + 11 - h, w, h, bc[(i + s * 2) % bc.length]); x += w + 1; }
+      px(ctx, f.x + 2, sy + 11, f.w - 4, 2, '#6b4429');
+    }
+  } else if (f.k === 'cooler') {
+    px(ctx, f.x, f.y + 10, f.w, f.h - 10, '#dfe6ee'); px(ctx, f.x + 2, f.y, f.w - 4, 11, '#8fd3ff'); px(ctx, f.x + 3, f.y + 1, 2, 8, '#c8ecff');
+    px(ctx, f.x + 4, f.y + 16, 4, 2, '#4dabf7'); px(ctx, f.x, f.y + f.h - 1, f.w, 1, '#9aa5b1');
+  } else if (f.k === 'coffee') {
+    px(ctx, f.x, f.y + 8, f.w, f.h - 8, '#7a4e2d'); px(ctx, f.x, f.y + 8, f.w, 2, '#9a6a44');
+    px(ctx, f.x + 4, f.y - 4, 12, 12, '#2f2f36'); px(ctx, f.x + 6, f.y - 2, 8, 3, '#ff6b6b'); px(ctx, f.x + 8, f.y + 4, 4, 3, '#fff');
+    px(ctx, f.x + 19, f.y + 4, 4, 4, '#f1f3f5');
+    if (!REDUCED) for (let i = 0; i < 3; i++) { const k = (t / 900 + i / 3) % 1; px(ctx, f.x + 9 + Math.round(Math.sin(k * 6 + i) * 1), f.y + 2 - Math.round(k * 8), 1, 1, `rgba(255,255,255,${0.7 - k * 0.7})`); }
+  } else if (f.k === 'sofa') {
+    px(ctx, f.x, f.y, f.w, 10, '#c0566b'); px(ctx, f.x, f.y, f.w, 2, '#d9738a');
+  } else if (f.k === 'plant') {
+    px(ctx, f.x + 2, f.y + 11, 8, 7, '#b5653b'); px(ctx, f.x + 2, f.y + 11, 8, 1, '#d98455');
+    const lv = [[5, 0], [3, 2], [7, 2], [1, 4], [5, 4], [9, 4], [3, 6], [7, 6], [5, 8], [1, 8], [9, 8]];
+    for (const [x, y] of lv) px(ctx, f.x + x, f.y + y, 2, 3, (x + y) % 4 ? '#3fae5a' : '#2b8a3e');
+  }
+}
+function drawSofaFront(ctx, f) {
+  px(ctx, f.x, f.y + 14, f.w, 12, '#a8445a'); px(ctx, f.x, f.y + 8, 6, 18, '#b84d63'); px(ctx, f.x + f.w - 6, f.y + 8, 6, 18, '#b84d63');
+  px(ctx, f.x + 6, f.y + 14, f.w - 12, 2, '#d9738a');
+}
+function drawClock(ctx, now) {
+  const cx = 262, cy = 22, r = 9;
+  for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) { const d = x * x + y * y; if (d <= r * r) px(ctx, cx + x, cy + y, 1, 1, d > (r - 1.6) ** 2 ? '#5b4636' : '#fffaf0'); }
+  const d = new Date(now);
+  const hand = (ang, len, c) => { for (let i = 0; i <= len; i++) px(ctx, cx + Math.round(Math.sin(ang) * i), cy - Math.round(Math.cos(ang) * i), 1, 1, c); };
+  hand(((d.getHours() % 12) + d.getMinutes() / 60) / 12 * Math.PI * 2, 4, '#2b2233');
+  hand((d.getMinutes() + d.getSeconds() / 60) / 60 * Math.PI * 2, 6, '#2b2233');
+  hand(d.getSeconds() / 60 * Math.PI * 2, 7, '#ff5a5f');
+}
+
+// ── 工位 ──
+function drawDesk(ctx, d, a, mode, t) {
+  const { x, y } = d;
+  // 显示器（屏幕朝外，工作时能看到滚动代码）
+  px(ctx, x - 11, y - 22, 22, 15, '#2b2f3a');
+  const sx = x - 9, sy = y - 20, sw = 18, sh = 11;
+  if (mode === 'off') px(ctx, sx, sy, sw, sh, '#0d0f14');
+  else if (mode === 'work') {
+    px(ctx, sx, sy, sw, sh, '#0f2233');
+    const cs = ['#7ee787', '#79c0ff', '#ffa657', '#d2a8ff', '#ff7b72'];
+    const scroll = Math.floor(t / 260) + hashOf(d.id);
+    for (let i = 0; i < 5; i++) { const h = hashOf(String(scroll + i)); px(ctx, sx + 1 + (h % 3), sy + 1 + i * 2, 4 + (h % 10), 1, cs[h % cs.length]); }
+  } else if (mode === 'think') {
+    px(ctx, sx, sy, sw, sh, '#1d3f66');
+    for (let i = 0; i < 3; i++) if (Math.floor(t / 300) % 4 > i) px(ctx, sx + 5 + i * 3, sy + 5, 2, 2, '#bde3ff');
+  } else {
+    px(ctx, sx, sy, sw, sh, '#232a3d');
+    const k = Math.floor(t / 600) % 12; px(ctx, sx + 2 + (k < 6 ? k : 12 - k) * 2, sy + 3 + (k % 3) * 2, 2, 2, '#5fb0ff');
+  }
+  px(ctx, x - 2, y - 7, 4, 3, '#2b2f3a');
+  // 桌面与桌脚
+  px(ctx, x - 18, y - 5, 36, 7, '#d9a066'); px(ctx, x - 18, y - 5, 36, 1, '#f0bd84');
+  px(ctx, x - 18, y + 2, 36, 7, '#a86f3e'); px(ctx, x - 18, y + 2, 36, 1, '#8a5a32');
+  px(ctx, x - 17, y + 9, 3, 2, '#6b4429'); px(ctx, x + 14, y + 9, 3, 2, '#6b4429');
+  // 键盘、杯子、台灯、名牌
+  px(ctx, x - 8, y - 3, 16, 3, '#e9ecef');
+  if (mode === 'work' && !REDUCED && Math.floor(t / 120) % 2) px(ctx, x - 6 + (Math.floor(t / 120) * 5) % 12, y - 3, 2, 1, '#adb5bd');
+  px(ctx, x - 16, y - 6, 4, 4, '#fff'); px(ctx, x - 12, y - 5, 1, 2, '#fff');
+  px(ctx, x + 14, y - 14, 1, 10, '#555b66'); px(ctx, x + 11, y - 16, 6, 3, mode === 'work' ? '#ffd166' : '#3d4350');
+  px(ctx, x - 6, y + 4, 12, 3, mode === 'off' ? '#6c7380' : '#f4e3c3');
+}
+function drawChairBack(ctx, d) {
+  const { x, y } = d;
+  px(ctx, x - 9, y + 24, 18, 12, '#3b4a6b'); px(ctx, x - 9, y + 24, 18, 2, '#55688f'); px(ctx, x - 7, y + 36, 14, 3, '#2f3c58'); px(ctx, x - 1, y + 39, 2, 2, '#2b3346');
+}
+
+// ── 流光：沿弧线飞的像素光点，带拖尾；到达时炸开小方块，接的人有反应 ──
+function headOf(id) {
+  const a = P.agents.get(id);
+  if (!a || a.state === 'gone') return null;
+  return { x: a.x, y: a.y - (a.state === 'sit' ? 28 : 30) };
+}
+function burst(x, y, color, n = 10) {
+  for (let i = 0; i < n; i++) { const ang = Math.PI * 2 * i / n + Math.random() * 0.4; const sp = 18 + Math.random() * 26; P.parts.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 10, life: 0.7, max: 0.7, color }); }
+}
+function drawBeams(ctx, now, dt) {
+  for (const b of P.beams) {
+    const A = headOf(b.from), B = headOf(b.to);
+    if (!A || !B) { b.dead = true; continue; }
+    const k = Math.min(1, (now - b.t0) / b.dur);
+    const e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    const dist = Math.hypot(B.x - A.x, B.y - A.y);
+    const lift = Math.min(70, 16 + dist * 0.3);
+    const cx = (A.x + B.x) / 2, cy = Math.min(A.y, B.y) - lift;
+    const at = s => ({ x: (1 - s) * (1 - s) * A.x + 2 * (1 - s) * s * cx + s * s * B.x, y: (1 - s) * (1 - s) * A.y + 2 * (1 - s) * s * cy + s * s * B.y });
+    const color = BEAM_COLOR[b.kind] || '#fff';
+    // 拖尾：@ 是细虚点，其余是渐隐方块
+    const tail = b.kind === 'at' ? 14 : 18;
+    for (let i = tail; i >= 1; i--) {
+      const s = e - i * 0.018;
+      if (s <= 0) continue;
+      if (b.kind === 'at' && i % 2) continue;
+      const p = at(s);
+      ctx.globalAlpha = (1 - i / tail) * 0.85;
+      const size = b.kind === 'at' ? 1 : i < tail / 3 ? 2 : 1;
+      px(ctx, p.x, p.y, size, size, color);
+    }
+    ctx.globalAlpha = 1;
+    const p = at(e);
+    if (b.kind === 'assign') { px(ctx, p.x - 3, p.y - 2, 7, 5, color); px(ctx, p.x - 2, p.y - 1, 5, 3, '#fff7e6'); px(ctx, p.x - 1, p.y, 1, 1, color); px(ctx, p.x + 1, p.y, 1, 1, color); px(ctx, p.x, p.y + 1, 1, 1, color); }
+    else if (b.kind === 'at') { px(ctx, p.x - 1, p.y - 1, 2, 2, '#e7f3ff'); }
+    else { px(ctx, p.x - 2, p.y - 2, 5, 5, color); px(ctx, p.x - 1, p.y - 1, 3, 3, '#ffffff'); }
+    ctx.globalAlpha = 0.35; px(ctx, p.x - 4, p.y - 4, 9, 9, color); ctx.globalAlpha = 1;
+    if (k >= 1) {
+      b.dead = true;
+      burst(B.x, B.y, color, b.kind === 'at' ? 6 : 12);
+      const ag = P.agents.get(b.to);
+      if (ag) ag.react = { kind: b.kind, t0: now };
+      if (b.kind === 'assign') deskPop(b.to, '！', 'warn');
+    }
+  }
+  P.beams = P.beams.filter(b => !b.dead);
+  for (const p of P.parts) {
+    p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 60 * dt;
+    ctx.globalAlpha = Math.max(0, p.life / p.max); px(ctx, p.x, p.y, 2, 2, p.color);
+  }
+  ctx.globalAlpha = 1;
+  P.parts = P.parts.filter(p => p.life > 0);
+}
+
+// ── 夜间：屋里暗下来，屏幕和台灯是光源 ──
+let darkCanvas;
+function drawLights(ctx, night, now) {
+  if (night <= 0) return;
+  darkCanvas = darkCanvas || Object.assign(document.createElement('canvas'), { width: PX.W, height: PX.H });
+  const d = darkCanvas.getContext('2d');
+  d.globalCompositeOperation = 'source-over';
+  d.clearRect(0, 0, PX.W, PX.H);
+  d.fillStyle = `rgba(14,10,40,${0.5 * night})`; d.fillRect(0, 0, PX.W, PX.H);
+  d.globalCompositeOperation = 'destination-out';
+  const hole = (x, y, r, s = 1) => { const g = d.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(0,0,0,${s})`); g.addColorStop(1, 'rgba(0,0,0,0)'); d.fillStyle = g; d.fillRect(x - r, y - r, r * 2, r * 2); };
+  for (const dsk of P.desks.values()) {
+    const a = P.agents.get(dsk.id);
+    const mode = a ? a.mode : 'off';
+    if (mode !== 'off') hole(dsk.x, dsk.y - 12, mode === 'idle' ? 18 : 28, mode === 'idle' ? 0.6 : 0.95);
+    if (mode === 'work') hole(dsk.x + 15, dsk.y - 6, 26, 0.9);
+  }
+  hole(364, 50, 26, 0.7); hole(340, 44, 16, 0.5);
+  ctx.drawImage(darkCanvas, 0, 0);
+  ctx.globalCompositeOperation = 'lighter';
+  for (const dsk of P.desks.values()) {
+    const a = P.agents.get(dsk.id);
+    if (a && a.mode === 'work') { const g = ctx.createRadialGradient(dsk.x + 15, dsk.y - 8, 0, dsk.x + 15, dsk.y - 8, 22); g.addColorStop(0, `rgba(255,190,90,${0.22 * night})`); g.addColorStop(1, 'rgba(255,190,90,0)'); ctx.fillStyle = g; ctx.fillRect(dsk.x - 10, dsk.y - 30, 50, 46); }
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const ctx = P.ctx;
+  if (!ctx) return;
+  const dt = Math.min(0.1, (now - (P.last || now)) / 1000);
+  P.last = now;
+  const wall = Date.now();
+  const hour = new Date(wall).getHours();
+  const sky = skyFor(hour);
+  const key = `${hour}`;
+  if (P.bgKey !== key || !P.bg) { P.bg = buildBackground(sky); P.bgKey = key; }
+  ctx.drawImage(P.bg, 0, 0);
+  drawClock(ctx, wall);
+  for (const a of P.agents.values()) updateAgent(a, dt);
+  // 按脚下的 y 排序画，近的盖住远的
+  const list = [];
+  for (const f of FURN) { list.push({ y: f.y + f.h, draw: () => drawFurniture(ctx, f, now) }); if (f.k === 'sofa') list.push({ y: f.y + 26, draw: () => drawSofaFront(ctx, f) }); }
+  for (const d of P.desks.values()) {
+    const a = P.agents.get(d.id);
+    list.push({ y: d.y + 10, draw: () => drawDesk(ctx, d, a, a ? a.mode : 'off', now) });
+    const busySeat = a && a.state === 'sit' && (a.mode === 'work' || a.mode === 'think');
+    list.push({ y: busySeat ? d.y + 41 : d.y + 12, draw: () => drawChairBack(ctx, d) });
+  }
+  for (const a of P.agents.values()) {
+    if (a.state === 'gone') continue;
+    const m = S.byId.get(a.id);
+    if (!m) continue;
+    const st = styleOf(m);
+    let legs = 'stand', yOff = 0, xOff = 0;
+    if (a.state === 'walk') legs = Math.floor(a.ft * 6) % 2 ? 'walkA' : 'walkB';
+    else if (a.state === 'sit' || (a.state === 'stay' && a.poi && a.poi.sit)) legs = 'sit';
+    if (a.state === 'walk' && Math.floor(a.ft * 6) % 2) yOff = -1;
+    if (a.state === 'sit' && a.mode === 'work' && !REDUCED) yOff = Math.floor(now / 220) % 2 ? 0 : -1;
+    if (a.state === 'stay' && a.poi && a.poi.act === 'stretch' && Math.floor(now / 500) % 2) yOff = -1;
+    if (a.react) {
+      const k = (now - a.react.t0) / 900;
+      if (a.react.kind === 'reject') xOff = Math.round(Math.sin(k * 40) * 2 * (1 - k));
+      else yOff -= Math.round(Math.abs(Math.sin(k * Math.PI * 2)) * 3 * (1 - k));
+    }
+    const view = a.state === 'sit' ? (a.mode === 'work' || a.mode === 'think' ? 'back' : 'front') : a.view;
+    const footY = a.state === 'sit' ? a.y - 2 : a.y;
+    const baseY = a.state === 'sit' ? a.desk.y + 40 : a.y;
+    const blink = Math.floor((now / 1000 + a.bob) % 4.2 * 10) === 0;
+    list.push({ y: baseY, draw: () => {
+      if (a.flash) {
+        const k = (now - a.flash.t0) / 1200;
+        if (k >= 1) a.flash = null;
+        else { ctx.globalAlpha = 1 - k; const r = 6 + Math.round(k * 8); px(ctx, a.x - r, footY, r * 2, 1, a.flash.color); px(ctx, a.x - r + 2, footY - 2, 1, 1, a.flash.color); px(ctx, a.x + r - 3, footY - 2, 1, 1, a.flash.color); ctx.globalAlpha = 1; }
+      }
+      drawChar(ctx, a.x + xOff, footY + yOff, st, view, legs, { crown: S.lead === a.id, blink });
+    } });
+  }
+  list.sort((p, q2) => p.y - q2.y);
+  for (const it of list) it.draw();
+  drawLights(ctx, sky.night, now);
+  drawBeams(ctx, now, dt);
+  placeOverlays(now);
+}
+
+// ── DOM 叠层：名字、任务、气泡跟着角色走 ──
+function placeOverlays(now) {
+  for (const [id, node] of S.seatNodes ?? []) {
+    const a = P.agents.get(id);
+    if (!a) continue;
+    const sitting = a.state === 'sit' || a.state === 'gone';
+    const x = sitting ? a.desk.x : a.x;
+    const y = sitting ? a.desk.y - 25 : a.y - 38;
+    const l = (x / PX.W * 100).toFixed(2) + '%', t = (y / PX.H * 100).toFixed(2) + '%';
+    if (node.style.left !== l) node.style.left = l;
+    if (node.style.top !== t) node.style.top = t;
+    const emo = q('.emote', node);
+    const want = a.state === 'stay' && a.poi ? EMOTE[a.poi.act] || '' : (a.state === 'sit' && a.mode === 'idle' ? 'z z' : '');
+    if (emo.textContent !== want) { emo.textContent = want; emo.hidden = !want; }
+    node.classList.toggle('walking', a.state === 'walk');
+  }
 }
 
 function seatNode(m) {
   const seat = el('div', 'seat');
   seat.dataset.id = m.id;
-  seat.style.setProperty('--shirt', shirtOf(m.id));
-  const chair = el('div', 'chair');
-  const person = el('div', 'person');
-  const aura = el('div', 'aura');
-  const body = el('div', 'body');
-  const avatar = el('div', 'avatar');
-  const spec = avatarSpec(m);
-  if (spec.src) {
-    const img = el('img');
-    img.alt = ''; img.decoding = 'async'; img.src = spec.src;
-    img.addEventListener('error', () => img.replaceWith(initBadge(m)));
-    avatar.append(img);
-  } else avatar.append(initBadge(m));
-  avatar.append(el('span', 'dot'));
-  const crown = el('span', 'crown', '♛'); crown.hidden = true; avatar.append(crown);
+  const stack = el('div', 'stack');
   const tasktag = el('div', 'tasktag'); tasktag.hidden = true;
   const bubble = el('div', 'bubble'); bubble.hidden = true;
-  person.append(aura, body, avatar, tasktag, bubble);
-  const desk = el('div', 'desk');
-  const monitor = el('div', 'monitor');
-  monitor.append(el('div', 'screen'), el('div', 'stand'), el('div', 'base'));
-  const desktop = el('div', 'desktop');
-  const plate = el('div', 'plate', displayName(m));
-  desktop.append(el('div', 'keyboard'), el('div', 'papers'), el('div', 'mug'), plate);
-  const status = el('div', 'status', '摸鱼中');
-  const lamp = el('div', 'lamp');
-  lamp.append(el('div', 'arm'), el('div', 'shade'), el('div', 'cone'), el('div', 'pool'));
-  desk.append(monitor, desktop, status, lamp);
-  seat.append(chair, person, desk);
+  const emote = el('div', 'emote'); emote.hidden = true;
+  const label = el('div', 'label');
+  label.append(el('span', 'dot'), el('span', 'name', displayName(m)), el('span', 'status', ''));
+  stack.append(tasktag, bubble, emote, label);
+  seat.append(stack);
   seat.title = displayName(m);
   return seat;
 }
@@ -790,38 +871,19 @@ function orderedMembers() {
   return list;
 }
 
-// Column count from the live roster (3-12 seats must all look intentional): up to 4 seats keep one
-// row, 5-8 split into two rows, 9-12 into three; never more than 4 columns, so a desk keeps a
-// readable width. Source: this task's requirement that 3..12 seats all lay out well.
-function seatColumns(n) {
-  if (n <= 5) return Math.max(1, n);
-  if (n <= 8) return Math.ceil(n / 2);
-  return Math.min(4, Math.ceil(n / 3));
-}
-
 function renderSeats() {
   const order = orderedMembers();
+  const spots = deskLayout(order.length);
+  P.desks = new Map(order.map((m, i) => [m.id, { id: m.id, ...spots[i] }]));
+  buildGrid();
+  P.poiUsed.clear();
+  for (const id of [...P.agents.keys()]) if (!P.desks.has(id)) P.agents.delete(id);
+  for (const m of order) { const a = agentFor(m, P.desks.get(m.id)); a.poi = null; if (a.state === 'stay' || a.state === 'walk') goDesk(a, false); }
   const nodes = order.map(seatNode);
   S.seatNodes = new Map(order.map((m, i) => [m.id, nodes[i]]));
-  const seats = $('seats');
-  seats.style.setProperty('--cols', String(seatColumns(order.length)));
-  seats.replaceChildren(...nodes);
+  $('seats').replaceChildren(...nodes);
   setEmpty();
   paintAll();
-}
-
-function paintBubble(node, kind) {
-  const bubble = q('.bubble', node);
-  if (kind === 'off') { bubble.hidden = true; bubble.dataset.kind = ''; return; }
-  bubble.hidden = false;
-  if (bubble.dataset.kind === kind) return;
-  bubble.dataset.kind = kind;
-  bubble.replaceChildren();
-  if (kind === 'idle') {
-    bubble.append(el('span', 'zzz', 'z'), el('span', 'zzz', 'z'), el('span', 'fish'));
-  } else {
-    for (let i = 0; i < 3; i++) bubble.append(el('span', 'td'));
-  }
 }
 
 function paintSeat(m) {
@@ -831,26 +893,24 @@ function paintSeat(m) {
   const thinking = S.thinking.has(m.id);
   const online = m.online !== false;
   const kind = !online ? 'off' : rec ? 'work' : thinking ? 'think' : 'idle';
-  node.classList.toggle('offline', !online);
-  node.classList.toggle('working', kind === 'work');
-  node.classList.toggle('thinking', kind === 'think');
-  node.classList.toggle('idle', kind === 'idle');
+  const a = P.agents.get(m.id);
+  if (a) a.mode = kind;
+  for (const k of ['off', 'work', 'think', 'idle']) node.classList.toggle(k === 'off' ? 'offline' : k === 'work' ? 'working' : k === 'think' ? 'thinking' : 'idle', kind === k);
   node.classList.toggle('lead', S.lead === m.id);
-  q('.crown', node).hidden = S.lead !== m.id;
-  q('.avatar .dot', node).style.background = !online ? '#64748b' : rec ? '#ffc56b' : thinking ? '#7dd3fc' : '#34d399';
   const tag = q('.tasktag', node);
   if (rec) {
     tag.hidden = false;
     tag.textContent = `#${rec.id || '?'} ${rec.title || ''}`.trim();
     tag.title = `${rec.title || ''}${rec.note ? ' · ' + rec.note : ''}`;
   } else { tag.hidden = true; tag.title = ''; }
-  const status = q('.status', node);
-  status.textContent = !online ? '离线' : rec ? '干活中' : thinking ? '思考中…' : '摸鱼中';
-  paintBubble(node, kind);
-  q('.plate', node).textContent = displayName(m);
-  node.title = `${displayName(m)} · ${status.textContent}`;
+  const statusText = !online ? '离线' : rec ? '干活中' : thinking ? '思考中' : '摸鱼中';
+  q('.status', node).textContent = statusText;
+  q('.name', node).textContent = displayName(m);
+  const bubble = q('.bubble', node);
+  bubble.hidden = kind !== 'think';
+  if (kind === 'think' && !bubble.children.length) for (let i = 0; i < 3; i++) bubble.append(el('i'));
+  node.title = `${displayName(m)} · ${statusText}`;
 }
-
 function paintAll() {
   for (const m of S.memberList) paintSeat(m);
   updateStats();
@@ -895,79 +955,18 @@ function setLead(id) {
   S.lead = next;
   renderSeats();
 }
-function syncBeamViewBox() {
-  const stage = $('stage'), svg = $('beams');
-  svg.setAttribute('viewBox', `0 0 ${Math.max(1, stage.clientWidth)} ${Math.max(1, stage.clientHeight)}`);
-}
-
-function avatarCenter(id) {
-  const node = S.seatNodes?.get(id);
-  if (!node) return null;
-  const avatar = q('.avatar', node);
-  const a = avatar.getBoundingClientRect(), stage = $('stage').getBoundingClientRect();
-  return { x: a.left - stage.left + a.width / 2, y: a.top - stage.top + a.height / 2 };
-}
 
 function beam(from, to, kind = 'assign') {
   if (!from || !to || from.id === to.id) return;
-  const a = avatarCenter(from.id), b = avatarCenter(to.id);
-  if (!a || !b) return;
-  syncBeamViewBox();
-  const dx = b.x - a.x, dy = b.y - a.y, dist = Math.hypot(dx, dy);
-  const lift = kind === 'at' ? Math.min(64, 24 + dist * 0.08) : Math.min(110, 32 + dist * 0.12);
-  const cx = (a.x + b.x) / 2, cy = Math.min(a.y, b.y) - lift;
-  const d = `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
-  const g = svgEl('g', { class: `beam ${kind}` });
-  g.append(svgEl('path', { d, class: 'base' }));
-  g.append(svgEl('path', { d, class: 'trace' }));
-  $('beams').append(g);
-  // @ 细光：线短暂变成流动虚线，一颗小圆点从作者这边走过（实时与回放共用）。
-  if (kind === 'at') {
-    const dot = svgEl('circle', { class: 'dot', r: 2.6, cx: a.x, cy: a.y });
-    g.append(dot);
-    const line = q('.base', g), len = line.getTotalLength();
-    // 沿用 887 细线流光 1.5s 的淡出窗口：小圆点 760ms 走完，剩下的时间留给线淡出。
-    const dur = 760, t0 = performance.now();
-    const step = now => {
-      const k = Math.min(1, (now - t0) / dur);
-      const e = 1 - Math.pow(1 - k, 3);
-      const pt = line.getPointAtLength(len * e);
-      dot.setAttribute('cx', pt.x); dot.setAttribute('cy', pt.y);
-      if (k < 1) requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-    setTimeout(() => g.remove(), 1500);
-    return;
-  }
-  const dot = svgEl('circle', { class: 'dot', r: kind === 'return' ? 4 : 4.5, cx: a.x, cy: a.y });
-  g.append(dot);
-  const line = q('.base', g), len = line.getTotalLength();
-  const dur = 420, t0 = performance.now();
-  const step = now => {
-    const k = Math.min(1, (now - t0) / dur);
-    const e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
-    const pt = line.getPointAtLength(len * e);
-    dot.setAttribute('cx', pt.x); dot.setAttribute('cy', pt.y);
-    if (k < 1) { requestAnimationFrame(step); return; }
-    const node = S.seatNodes?.get(to.id);
-    if (node) {
-      node.classList.remove('tick', 'hit');
-      void node.offsetWidth;
-      node.classList.add(kind === 'reject' ? 'hit' : 'tick');
-      setTimeout(() => node.classList.remove('tick', 'hit'), 620);
-    }
-    setTimeout(() => g.remove(), 280);
-  };
-  requestAnimationFrame(step);
+  if (!P.agents.has(from.id) || !P.agents.has(to.id)) return;
+  // @ 是一颗细小光点沿虚线拖尾飞过；派活是一封小信，交回/打回是方块光球。
+  P.beams.push({ from: from.id, to: to.id, kind, t0: performance.now(), dur: kind === 'at' ? 800 : 1000 });
 }
 
+const FLASH = { 'flash-gold': '#ffa53a', 'flash-good': '#3ddc97', 'flash-bad': '#ff5a5f' };
 function flashSeat(memberId, cls) {
-  const node = S.seatNodes?.get(memberId);
-  if (!node) return;
-  node.classList.remove(cls);
-  void node.offsetWidth;
-  node.classList.add(cls);
-  setTimeout(() => node.classList.remove(cls), 1500);
+  const a = P.agents.get(memberId);
+  if (a) a.flash = { color: FLASH[cls] || '#ffffff', t0: performance.now() };
 }
 
 function deskPop(memberId, text, kind = 'info') {
@@ -976,6 +975,13 @@ function deskPop(memberId, text, kind = 'info') {
   const pop = el('div', `pop ${kind}`, text);
   node.append(pop);
   setTimeout(() => pop.remove(), 1900);
+}
+
+function startOffice() {
+  const cv = $('office');
+  P.ctx = cv.getContext('2d');
+  P.ctx.imageSmoothingEnabled = false;
+  requestAnimationFrame(frame);
 }
 
 let toastTimer;
@@ -1198,7 +1204,7 @@ function resetScene(clearLog = true) {
   S.thinkingRooms.clear();
   S.thinking.clear();
   S.dispatched.clear();
-  $('beams').replaceChildren();
+  P.beams = []; P.parts = [];
   for (const node of S.seatNodes?.values() ?? []) for (const pop of node.querySelectorAll('.pop')) pop.remove();
   if (clearLog) {
     $('eventLog').replaceChildren();
@@ -1414,14 +1420,6 @@ function tickClock() {
   const d = new Date();
   const p = n => String(n).padStart(2, '0');
   $('clockDigital').textContent = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-  const sec = d.getSeconds() + d.getMilliseconds() / 1000;
-  const min = d.getMinutes() + sec / 60;
-  const hour = (d.getHours() % 12) + min / 60;
-  const clock = $('wallClock');
-  const h = q('.hand.h', clock), m = q('.hand.m', clock), sHand = q('.hand.s', clock);
-  if (h) h.style.transform = `rotate(${hour * 30}deg)`;
-  if (m) m.style.transform = `rotate(${min * 6}deg)`;
-  if (sHand) sHand.style.transform = `rotate(${sec * 6}deg)`;
 }
 
 function wireUI() {
@@ -1433,7 +1431,6 @@ function wireUI() {
   // 进度条按事件条数定位；拖动后立刻重建场景，不等计时器。
   $('progress').oninput = () => { seekReplay($('progress').value); };
   for (const button of document.querySelectorAll('[data-range]')) button.onclick = () => setRangePreset(button.dataset.range);
-  window.addEventListener('resize', syncBeamViewBox);
 }
 
 async function boot() {
@@ -1441,7 +1438,7 @@ async function boot() {
   wireUI();
   tickClock();
   setInterval(tickClock, 1000);
-  syncBeamViewBox();
+  startOffice();
   const params = new URLSearchParams(location.search);
   if (params.get('fixture') === '1') { await loadFixture(); return; }
   const from = params.get('from'), to = params.get('to');
