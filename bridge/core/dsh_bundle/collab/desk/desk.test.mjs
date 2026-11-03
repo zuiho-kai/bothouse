@@ -115,6 +115,25 @@ test('派活去重只限同一次派活，交回/打回后可再次画光', () =
   assert.equal((html.match(/forgetDispatch\(id, S\.dispatched\)/g) ?? []).length, 3, 'returned/rejected/paused-done end the cycle');
 });
 
+test('members.busy 驱动忙碌工位与频道气泡，busy 变 false 回落空闲', () => {
+  const block = html.split('// <seat-state>')[1]?.split('// </seat-state>')[0];
+  assert.ok(block, 'seat-state block');
+  const model = new Function(block + '\nreturn { seatKind, busyLabel };')();
+  const busy = { online: true, busy: true, busy_chats: ['工作区1', '工作区2'], busy_count: 3, busy_task: '整理发布说明' };
+  assert.equal(model.seatKind(busy, false, false), 'busy');
+  assert.equal(model.seatKind(busy, true, true), 'busy', 'busy wins over task and thinking');
+  assert.equal(model.busyLabel(busy), '工作区1 · 工作区2 +1', 'channels list plus relay count');
+  assert.equal(model.seatKind({ online: false, busy: true }, false, false), 'off', 'offline wins');
+  assert.equal(model.seatKind({ online: true, busy: false }, true, false), 'work');
+  assert.equal(model.seatKind({ online: true, busy: false }, false, true), 'think');
+  assert.equal(model.seatKind({ online: true, busy: false }, false, false), 'idle');
+  assert.equal(model.busyLabel({ busy_chats: ['工作区1'] }), '工作区1');
+  assert.equal(model.busyLabel({ busy_chats: [], busy_task: '修 CI' }), '修 CI');
+  assert.match(html, /node\.classList\.toggle\('busy', kind === 'busy'\)/, 'busy class reaches the seat');
+  assert.match(html, /paintBubble\(node, kind, m\)/, 'bubble receives the member for channel text');
+  assert.match(html, /\.seat\.busy \.keyboard:after\{animation:keyFlash/, 'busy seat types');
+});
+
 test('preview server: page, state and replay window', async () => {
   const server = createPreviewServer();
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

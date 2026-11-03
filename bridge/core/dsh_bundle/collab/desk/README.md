@@ -31,6 +31,14 @@
 - 中枢/lead 不写死：从 `/collab/api/state` 的 `effective_lead_id`（或 `lead_id`）取。
 - 只在 state 里出现的成员才建工位；`deployed:false` 的成员不会亮灯。
 
+## 忙闲（团队状态）
+
+`members` 事件和 `/collab/api/state` 的成员可带团队状态字段：`busy`、`busy_since`、`busy_task`、`busy_chat`、`busy_chats`、`busy_count`、`busy_items`。页面只读，不写状态文件。
+
+- 工位状态优先级：**离线 > 忙碌 > 有任务 > 中枢思考 > 摸鱼**。`busy: true` 时紫色光环、键盘闪动、身体起伏并冒气泡；`busy` 变回 `false` 就回到任务/思考/摸鱼。
+- 气泡显示 `busy_chats` 的频道列表；`busy_count` 大于频道数时，多出的无频道会话（如 relay）以 `+N` 表示。悬停标题列出每个频道及其任务。
+- 频道名过长时气泡截断省略，手机窄屏也不横向溢出。
+
 ## 为什么 roster 和 fixture 内联
 
 B 路的 `deskRoute` 只返回 `index.html`，不服务同目录的 `roster.json` / `fixture.sample.jsonl`。页面因此把这两份数据内联进 HTML，装进 `dsh_bundle` 后也能直接用；磁盘上的同名文件保留给人看和本地预览，测试会校验内联副本与文件完全一致，避免漂移。
@@ -55,7 +63,7 @@ node dsh/collab/desk/preview.mjs --port 8791
 node --test dsh/collab/desk/desk.test.mjs
 ```
 
-覆盖：内联 roster/fixture 与磁盘文件一致、成员/头像规则、returned 方向、created/assigned 去重、成员索引、运行时 lead、页面自包含、预览服务器的 page/state/replay。
+覆盖：内联 roster/fixture 与磁盘文件一致、成员/头像规则、busy 忙碌态与频道气泡、returned 方向、created/assigned 去重、成员索引、运行时 lead、页面自包含、预览服务器的 page/state/replay。
 
 ## 边界
 
