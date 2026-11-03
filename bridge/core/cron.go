@@ -769,6 +769,7 @@ func (cs *CronScheduler) runJob(job *CronJob, manual bool) {
 	case err = <-done:
 	case <-timeoutC:
 		err = fmt.Errorf("job timed out after %v", job.ExecutionTimeout())
+		engine.StopScheduledTurn(job.ID)
 	case <-cs.stopCh:
 		slog.Info("cron: scheduler stopped before job finished; result not recorded", "id", job.ID, "manual", manual)
 		return
