@@ -228,3 +228,70 @@ func TestTakeOverOrphanDSHWebFromAPublicURLAnnouncement(t *testing.T) {
 }
 
 func dshBoolPtr(v bool) *bool { return &v }
+
+func TestConfigureDSHReusesHomeDotenvKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("DSH_HOME", filepath.Join(home, ".dsh"))
+	t.Setenv("CONEST_COLLAB_DATA", filepath.Join(home, "collab"))
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	if err := os.MkdirAll(dshHome(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dotenv := filepath.Join(dshHome(), ".env")
+	original := []byte("DEEPSEEK_API_KEY=sk-dotenv-fixture\n")
+	if err := os.WriteFile(dotenv, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !dshHasDeepSeekKey() {
+		t.Fatal("status must recognize the key DSH loads from its home .env")
+	}
+	res, err := ConfigureDSH(DSHConfigureRequest{Members: []DSHMember{{Name: "DSH"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.KeySaved || res.Members != 1 {
+		t.Fatalf("unexpected configure result: %+v", res)
+	}
+	if _, err := os.Stat(filepath.Join(dshHome(), ".credentials.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("must not copy the dotenv key to the credential store: %v", err)
+	}
+	got, err := os.ReadFile(dotenv)
+	if err != nil || string(got) != string(original) {
+		t.Fatalf("dotenv changed: %v", err)
+	}
+}
+
+func TestDSHHasDeepSeekKeySources(t *testing.T) {
+	for _, tc := range []struct {
+		name, env, credential, dotenv string
+		want                          bool
+	}{
+		{name: "missing"},
+		{name: "exported", env: "fixture-key", want: true},
+		{name: "stored", credential: "version: 1\nrefs:\n  DEEPSEEK_API_KEY: fixture-key\n", want: true},
+		{name: "home dotenv", dotenv: "export DEEPSEEK_API_KEY=\"fixture-key\"\n", want: true},
+		{name: "empty dotenv", dotenv: "DEEPSEEK_API_KEY=''\n"},
+		{name: "unrelated dotenv", dotenv: "OPENAI_API_KEY=fixture-key\n"},
+		{name: "account is not an API key", credential: "version: 1\nrecords:\n  deepseek-account/test: {}\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("DSH_HOME", home)
+			t.Setenv("DEEPSEEK_API_KEY", tc.env)
+			if tc.credential != "" {
+				if err := os.WriteFile(filepath.Join(home, ".credentials.yaml"), []byte(tc.credential), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.dotenv != "" {
+				if err := os.WriteFile(filepath.Join(home, ".env"), []byte(tc.dotenv), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := dshHasDeepSeekKey(); got != tc.want {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
