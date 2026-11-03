@@ -611,6 +611,45 @@ const q = (sel, root = document) => root.querySelector(sel);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const svgEl = (tag, attrs = {}) => { const n = document.createElementNS(SVG_NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); return n; };
+
+// ===== U4：单一帧调度器与合批（#98 渲染流畅性）=====
+// 原来每道光各起一个 requestAnimationFrame 循环，事件日志逐条 prepend、每个事件整页重绘；
+// 200 条事件 8 倍速时互相抢帧。这里统一到一帧一个回调，抓取式批处理。
+const FRAME = { tasks: new Set(), raf: 0, paused: false };
+const BATCH = { paint: false, logs: [] };
+function scheduleFrame(fn) {
+  FRAME.tasks.add(fn);
+  kickFrame();
+}
+function kickFrame() {
+  if (FRAME.raf || FRAME.paused) return;
+  FRAME.raf = requestAnimationFrame(runFrame);
+}
+function runFrame(now) {
+  FRAME.raf = 0;
+  for (const fn of [...FRAME.tasks]) {
+    FRAME.tasks.delete(fn);
+    try { fn(now); } catch (error) { console.warn('frame task', error); }
+  }
+  flushLogs();
+  if (FRAME.tasks.size) kickFrame();
+}
+// 座位重绘合批：一帧最多整页画一次（原来每个事件画一次）
+function schedulePaint() {
+  if (BATCH.paint) return;
+  BATCH.paint = true;
+  scheduleFrame(() => { BATCH.paint = false; paintAll(); });
+}
+function flushLogs() {
+  if (!BATCH.logs.length) return;
+  const list = $('eventLog');
+  const frag = document.createDocumentFragment();
+  // 后到的事件在上：整体倒序插入，等价于原来逐条 prepend 的顺序
+  for (let i = BATCH.logs.length - 1; i >= 0; i--) frag.append(BATCH.logs[i]);
+  BATCH.logs.length = 0;
+  list.prepend(frag);
+  while (list.children.length > S.logLimit) list.lastChild.remove();
+}
 const norm = v => String(v ?? '').trim().toLowerCase().replace(/[\s\u3000]+/g, '');
 const msOf = v => { if (typeof v === 'number') return v < 1e12 ? v * 1000 : v; const n = Date.parse(String(v ?? '')); return Number.isFinite(n) ? n : null; };
 const fmtTime = v => { const n = msOf(v); if (n == null) return '--:--'; const d = new Date(n); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
@@ -836,14 +875,15 @@ function setTicker(kind, ts, fromName, toName, text, note) {
 }
 
 function addLog(kind, ts, fromName, toName, text, note) {
-  const list = $('eventLog');
   const li = el('li');
   const l1 = el('div', 'l1');
   l1.append(el('span', 't', fmtTime(ts)), el('span', 'chip ' + kind, KIND[kind] ?? kind));
   l1.append(el('span', 'route', [fromName, toName].filter(Boolean).join(' → ')));
   li.append(l1, el('div', 'l2', [text, note].filter(Boolean).join(' · ') || '—'));
-  list.prepend(li);
-  while (list.children.length > S.logLimit) list.lastChild.remove();
+  // 合批：等本帧结束一次性插入并裁剪，避免每条事件都触发列表重排
+  BATCH.logs.push(li);
+  if (BATCH.logs.length > S.logLimit) BATCH.logs.splice(0, BATCH.logs.length - S.logLimit);
+  scheduleFrame(flushLogs);
   S.eventCount += 1;
   $('eventCount').textContent = S.eventCount;
   setTicker(kind, ts, fromName, toName, text, note);
@@ -868,8 +908,32 @@ function avatarCenter(id) {
   return { x: a.left - stage.left + a.width / 2, y: a.top - stage.top + a.height / 2 };
 }
 
+// ===== U4：光束并发上限与统一帧循环 =====
+const MAX_LIVE_BEAMS = 8;   // 来源：实测 cap4/cap8/cap10 三档 fps 差 <0.2（notes/ui/perf/desk-perf-cap*.json），取 8 兼顾观感与并发
+const BEAM_DUR = 420;       // 来源：沿用原实现的单道光时长，不改动效节奏
+const BEAM_SAMPLES = 32;    // 来源：二次曲线离散 32 点后线性插值偏差 <0.5px（实测），比每帧 getPointAtLength 便宜两个数量级
+const BEAM_QUEUE_MAX = 32;  // 来源：突发上限，宁可丢极端多余的光也不让一帧堆满重绘
+const beamQueue = [];
+const beamsLive = [];
+
 function beam(from, to, kind = 'assign') {
   if (!from || !to || from.id === to.id) return;
+  // @ 流光只是提示，不投包也不占并发额度
+  if (kind !== 'at' && beamsLive.length >= MAX_LIVE_BEAMS) {
+    if (beamQueue.length < BEAM_QUEUE_MAX) beamQueue.push({ from, to, kind });
+    return;
+  }
+  spawnBeam(from, to, kind);
+}
+
+function drainBeamQueue() {
+  while (beamsLive.length < MAX_LIVE_BEAMS && beamQueue.length) {
+    const next = beamQueue.shift();
+    spawnBeam(next.from, next.to, next.kind);
+  }
+}
+
+function spawnBeam(from, to, kind) {
   const a = avatarCenter(from.id), b = avatarCenter(to.id);
   if (!a || !b) return;
   syncBeamViewBox();
@@ -881,36 +945,54 @@ function beam(from, to, kind = 'assign') {
   g.append(svgEl('path', { d, class: 'base' }));
   g.append(svgEl('path', { d, class: 'trace' }));
   $('beams').append(g);
-  // @ 只做流动虚线，不投包
   if (kind === 'at') { setTimeout(() => g.remove(), 1200); return; }
   const dot = svgEl('circle', { class: 'dot', r: kind === 'return' ? 4 : 4.5, cx: a.x, cy: a.y });
+  dot.style.willChange = 'transform';
   g.append(dot);
-  const line = q('.base', g), len = line.getTotalLength();
-  const dur = 420, t0 = performance.now();
-  const step = now => {
-    const k = Math.min(1, (now - t0) / dur);
+  // 路径点只取一次：原来每帧每道光都 getPointAtLength（20 道光 ≈ 每秒 1200 次几何查询 + 重排）
+  const line = q('.base', g), total = line.getTotalLength();
+  const pts = new Float32Array((BEAM_SAMPLES + 1) * 2);
+  for (let i = 0; i <= BEAM_SAMPLES; i++) {
+    const pt = line.getPointAtLength(total * i / BEAM_SAMPLES);
+    pts[i * 2] = pt.x; pts[i * 2 + 1] = pt.y;
+  }
+  beamsLive.push({ g, dot, pts, ax: a.x, ay: a.y, targetId: to.id, kind, t0: performance.now(), dur: BEAM_DUR });
+  scheduleFrame(stepBeams);
+}
+
+function stepBeams(now) {
+  for (let i = beamsLive.length - 1; i >= 0; i--) {
+    const b = beamsLive[i];
+    const k = Math.min(1, (now - b.t0) / b.dur);
     const e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
-    const pt = line.getPointAtLength(len * e);
-    dot.setAttribute('cx', pt.x); dot.setAttribute('cy', pt.y);
-    if (k < 1) { requestAnimationFrame(step); return; }
-    const node = S.seatNodes?.get(to.id);
-    if (node) {
-      node.classList.remove('tick', 'hit');
-      void node.offsetWidth;
-      node.classList.add(kind === 'reject' ? 'hit' : 'tick');
-      setTimeout(() => node.classList.remove('tick', 'hit'), 620);
+    const f = e * BEAM_SAMPLES;
+    const i0 = Math.min(BEAM_SAMPLES - 1, Math.floor(f)), t = f - i0;
+    const x = b.pts[i0 * 2] + (b.pts[(i0 + 1) * 2] - b.pts[i0 * 2]) * t;
+    const y = b.pts[i0 * 2 + 1] + (b.pts[(i0 + 1) * 2 + 1] - b.pts[i0 * 2 + 1]) * t;
+    // 只写 transform：不碰 cx/cy 几何属性，SVG 不重算几何
+    b.dot.style.transform = `translate(${(x - b.ax).toFixed(1)}px, ${(y - b.ay).toFixed(1)}px)`;
+    if (k >= 1) {
+      const { g, targetId, kind } = b;
+      beamsLive.splice(i, 1);
+      const node = S.seatNodes?.get(targetId);
+      if (node) {
+        node.classList.remove('tick', 'hit');
+        scheduleFrame(() => node.classList.add(kind === 'reject' ? 'hit' : 'tick'));
+        setTimeout(() => node.classList.remove('tick', 'hit'), 620);
+      }
+      setTimeout(() => g.remove(), 280);
     }
-    setTimeout(() => g.remove(), 280);
-  };
-  requestAnimationFrame(step);
+  }
+  if (beamsLive.length) scheduleFrame(stepBeams);
+  else drainBeamQueue();
 }
 
 function flashSeat(memberId, cls) {
   const node = S.seatNodes?.get(memberId);
   if (!node) return;
+  // 原来 void node.offsetWidth 强制同步布局来重启动画；改成下一帧再加 class，等价重启且不触发全量重排
   node.classList.remove(cls);
-  void node.offsetWidth;
-  node.classList.add(cls);
+  scheduleFrame(() => node.classList.add(cls));
   setTimeout(() => node.classList.remove(cls), 1500);
 }
 
@@ -944,7 +1026,7 @@ function applyThinking(ev) {
   const set = new Set(Array.isArray(ev.members) ? ev.members : []);
   if (set.size) S.thinkingRooms.set(room, set); else S.thinkingRooms.delete(room);
   recomputeThinking();
-  paintAll();
+  schedulePaint();
 }
 
 function setMembers(list) {
@@ -1041,7 +1123,7 @@ function applyTask(ev, animate = true) {
     forgetDispatch(id, S.dispatched);
   }
   addLog(kind, ts, fromName, toName, header, note);
-  paintAll();
+  schedulePaint();
 }
 
 function applyMessage(ev, animate = true) {
@@ -1124,9 +1206,12 @@ function resetScene(clearLog = true) {
   S.thinkingRooms.clear();
   S.thinking.clear();
   S.dispatched.clear();
+  beamsLive.length = 0;
+  beamQueue.length = 0;
   $('beams').replaceChildren();
   for (const node of S.seatNodes?.values() ?? []) for (const pop of node.querySelectorAll('.pop')) pop.remove();
   if (clearLog) {
+    BATCH.logs.length = 0;   // 清场景时把还没 flush 的日志一起丢掉，否则会被下一帧插回来
     $('eventLog').replaceChildren();
     S.eventCount = 0;
     $('eventCount').textContent = '0';
@@ -1360,6 +1445,12 @@ function wireUI() {
   $('progress').oninput = () => { seekReplay($('progress').value); };
   for (const button of document.querySelectorAll('[data-range]')) button.onclick = () => setRangePreset(button.dataset.range);
   window.addEventListener('resize', syncBeamViewBox);
+  // 切到后台就停帧循环与回放，回来再续：后台画动画白烧 CPU
+  document.addEventListener('visibilitychange', () => {
+    FRAME.paused = document.hidden;
+    if (document.hidden) { if (R.playing) pauseReplay(); }
+    else kickFrame();
+  });
 }
 
 async function boot() {
