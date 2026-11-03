@@ -28,17 +28,18 @@ const DSHProfile = "web"
 
 // DSHStatus is what GET /setup/dsh/status and POST /setup/dsh/install return.
 type DSHStatus struct {
-	NodeVersion     string `json:"node_version,omitempty"`
-	PNPMFound       bool   `json:"pnpm_found"`
-	DependencyError string `json:"dependency_error,omitempty"`
-	Found           bool   `json:"found"`             // dsh is on PATH
-	Version         string `json:"version,omitempty"` // `dsh --version`
-	PluginInstalled bool   `json:"plugin_installed"`  // the profile lists client-ui-discord
-	Profile         string `json:"profile"`
-	OpenCommand     string `json:"open_command"` // run this to open the DSH web page
-	InstallScript   string `json:"install_script,omitempty"`
-	Log             string `json:"log,omitempty"`    // install.sh output (install only)
-	HasDeepSeekKey  bool   `json:"has_deepseek_key"` // a DeepSeek key is stored or exported (wizard can leave the field empty)
+	NativeModelConfigured bool   `json:"native_model_configured"` // selected model credential is present; not a live authentication check
+	NodeVersion           string `json:"node_version,omitempty"`
+	PNPMFound             bool   `json:"pnpm_found"`
+	DependencyError       string `json:"dependency_error,omitempty"`
+	Found                 bool   `json:"found"`             // dsh is on PATH
+	Version               string `json:"version,omitempty"` // `dsh --version`
+	PluginInstalled       bool   `json:"plugin_installed"`  // the profile lists client-ui-discord
+	Profile               string `json:"profile"`
+	OpenCommand           string `json:"open_command"` // run this to open the DSH web page
+	InstallScript         string `json:"install_script,omitempty"`
+	Log                   string `json:"log,omitempty"`    // install.sh output (install only)
+	HasDeepSeekKey        bool   `json:"has_deepseek_key"` // a DeepSeek key is stored or exported (wizard can leave the field empty)
 }
 
 func dshHome() string {
@@ -218,6 +219,7 @@ func GetDSHStatus(ctx context.Context, langs ...string) DSHStatus {
 	}
 	st.Found = true
 	st.HasDeepSeekKey = dshHasDeepSeekKey()
+	st.NativeModelConfigured = dshNativeModelConfigured("")
 	if out, err := exec.CommandContext(ctx, dshBin, "--version").Output(); err == nil {
 		st.Version = strings.TrimSpace(string(out))
 	}

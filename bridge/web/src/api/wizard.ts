@@ -126,7 +126,7 @@ export async function applyWizard(req: WizardRequest): Promise<WizardResult> {
 
 export interface DSHStatus {
   found: boolean; version?: string; plugin_installed: boolean; profile: string;
-  open_command: string; log?: string; has_deepseek_key?: boolean;
+  open_command: string; log?: string; has_deepseek_key?: boolean; native_model_configured?: boolean;
   node_version?: string; pnpm_found?: boolean; dependency_error?: string;
 }
 export const getDSHStatus = (lang = 'en') => api.get<DSHStatus>('/setup/dsh/status?lang=' + encodeURIComponent(lang));
