@@ -138,3 +138,27 @@ test('preview server: page, state and replay window', async () => {
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('share module stays a separate file, inlined by the route (#876 分享)', async () => {
+  // 页面本身仍要自包含：只有一行占位，没有外部 src。
+  assert.equal((html.match(/id="shareBtn"/g) || []).length, 1, 'one share button');
+  assert.equal((html.match(/<!--DESK_SHARE_JS-->/g) || []).length, 1, 'one placeholder line');
+  assert.doesNotMatch(html, /DESK_SHARE_JS[\s\S]{0,40}<script/i, 'placeholder stays a comment in the file');
+
+  // 分享逻辑在独立文件里，可被 Node 直接导入（不依赖 DOM）。
+  const share = await import('./share.js');
+  for (const name of ['capturePng', 'recordClip', 'shareOrDownload', 'bindShare', 'stageToSvg', 'drawWatermark']) {
+    assert.equal(typeof share[name], 'function', name);
+  }
+  assert.ok(share.CLIP_SECONDS > 0, 'clip length');
+  assert.ok(share.CLIP_FPS > 0 && share.CLIP_FPS <= 30, 'clip fps');
+  assert.match(share.WATERMARK_TEXT, /CoNest/, 'team watermark');
+
+  // 路由返回的页面把脚本内联进去，浏览器拿到的仍是单文件。
+  const { deskPage } = await import('../desk.mjs');
+  const served = deskPage();
+  assert.doesNotMatch(served, /<script[^>]+src=/i, 'served page has no external script');
+  assert.match(served, /<script type="module">/, 'share module inlined');
+  assert.ok(!served.includes('<!--DESK_SHARE_JS-->'), 'placeholder replaced');
+  assert.ok(served.includes('function bindShare'), 'inlined share code present');
+});

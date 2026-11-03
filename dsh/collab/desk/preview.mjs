@@ -47,6 +47,18 @@ function json(res, code, body) {
   res.end(JSON.stringify(body));
 }
 
+/** 页面里 <!--DESK_SHARE_JS--> 由分享模块内联替换，和插件 deskPage() 的行为保持一致。 */
+function pageWithShare(res) {
+  let html;
+  try { html = readFileSync(join(DIR, 'index.html'), 'utf8'); } catch { return json(res, 404, { error: 'not found' }); }
+  try {
+    const script = readFileSync(join(DIR, 'share.js'), 'utf8');
+    html = html.replace('<!--DESK_SHARE_JS-->', `<script type="module">\n${script}\n</script>`);
+  } catch { html = html.replace('<!--DESK_SHARE_JS-->', ''); }
+  res.writeHead(200, { 'content-type': TYPES['.html'], 'cache-control': 'no-store' });
+  res.end(html);
+}
+
 function file(res, name) {
   let bytes;
   try { bytes = readFileSync(join(DIR, name)); } catch { return json(res, 404, { error: 'not found' }); }
@@ -65,7 +77,7 @@ export function createPreviewServer() {
     const path = url.pathname.replace(/\/+$/, '');
     if (req.method !== 'GET') return json(res, 405, { error: 'method not allowed' });
 
-    if (path === '/collab' || path === '/collab/desk') return file(res, 'index.html');
+    if (path === '/collab' || path === '/collab/desk') return pageWithShare(res);
     if (path === '/collab/desk/roster.json') return file(res, 'roster.json');
     if (path === '/collab/desk/fixture.sample.jsonl') return file(res, 'fixture.sample.jsonl');
     if (path === '/collab/desk/README.md') return file(res, 'README.md');

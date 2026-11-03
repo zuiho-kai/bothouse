@@ -215,6 +215,8 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
 .brand{gap:8px}.mark{width:34px;height:34px;border-radius:10px}.brand h1{font-size:16px}.sub{font-size:11px}
 .topright{gap:6px}.clock{font-size:12px}.pill{font-size:10px;padding:3px 8px}.badge{font-size:10px;padding:3px 7px}
 .bar{padding:7px 8px;gap:8px}.mode{padding:6px 12px;font-size:12px}.stats{font-size:11px}
+.btn.share{border-color:#ffc56b66;color:#ffe2b2;background:#2a1e10}
+.btn.share:disabled{opacity:.6}
 .replaybar{gap:6px}.field{flex:1 1 140px;font-size:11px}.field input,.field select{font-size:11px;padding:4px 6px}
 .field input[type=datetime-local]{width:100%}.presets{flex:0 0 auto}.btn{padding:6px 10px}.speed{flex:0 0 auto}
 .progress{flex:1 1 100%;max-width:none;order:6}.vclock{order:5}.mini{padding:4px 7px;font-size:10px}
@@ -378,7 +380,7 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
 <div class="app">
 <header class="topbar">
   <div class="brand"><span class="mark" aria-hidden="true"></span><div><h1>团队工作台</h1><p class="sub" id="subtitle">办公室里每一道光，都是一条真实事件</p></div></div>
-  <div class="topright"><span class="badge fixture" id="fixtureBadge" hidden>示例数据 · 非真实事件</span><span class="clock" id="clockDigital">--:--:--</span><span class="pill wait" id="conn">连接中</span></div>
+  <div class="topright"><button class="btn share" id="shareBtn" type="button" title="把当前画面和最近一段回放分享出去">分享</button><span class="badge fixture" id="fixtureBadge" hidden>示例数据 · 非真实事件</span><span class="clock" id="clockDigital">--:--:--</span><span class="pill wait" id="conn">连接中</span></div>
 </header>
 <section class="bar">
   <div class="modes" role="tablist" aria-label="模式"><button class="mode on" id="modeLive" role="tab" aria-selected="true">实时</button><button class="mode" id="modeReplay" role="tab" aria-selected="false">回放</button></div>
@@ -1279,5 +1281,6 @@ async function boot() {
 boot();
 
 </script>
+<!--DESK_SHARE_JS-->
 </body>
 </html>

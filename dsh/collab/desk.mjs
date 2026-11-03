@@ -118,9 +118,18 @@ export function deskReplay({ store, boardDir, from, to }) {
   return { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(), events: kept.map(m => m.event) };
 }
 
-/** 桌面页：C 路提供的 dsh/collab/desk/index.html；还没落地时给一个能看事件流的占位页。 */
+/** 桌面页：C 路提供的 dsh/collab/desk/index.html；还没落地时给一个能看事件流的占位页。
+ *  分享模块是同目录的独立文件 share.js（#876 分享）：页面里只留一行占位，这里把脚本内联进返回的 HTML，
+ *  页面因此仍是自包含单文件（不引外部 src，装进 dsh_bundle 也能直接用）。 */
 export function deskPage() {
-  try { return readFileSync(new URL('./desk/index.html', import.meta.url), 'utf8'); } catch { return PLACEHOLDER_PAGE; }
+  let html;
+  try { html = readFileSync(new URL('./desk/index.html', import.meta.url), 'utf8'); } catch { return PLACEHOLDER_PAGE; }
+  try {
+    const script = readFileSync(new URL('./desk/share.js', import.meta.url), 'utf8');
+    return html.replace('<!--DESK_SHARE_JS-->', `<script type="module">\n${script}\n</script>`);
+  } catch {
+    return html.replace('<!--DESK_SHARE_JS-->', ''); // 没有分享模块就退化成没有分享按钮的页面
+  }
 }
 
 /** /collab/desk 与 /collab/api/desk/replay；返回 true 表示已处理，未匹配返回 undefined。 */
