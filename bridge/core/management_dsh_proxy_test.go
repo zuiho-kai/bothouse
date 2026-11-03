@@ -2,12 +2,14 @@ package core
 
 import (
 	"bufio"
+	"compress/gzip"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -73,6 +75,24 @@ func newProxyFakeDSH(t *testing.T) *proxyFakeDSH {
 			}
 		case "/redir":
 			http.Redirect(w, r, "/collab/", http.StatusFound)
+		case "/", "/collab/":
+			body := `<html><head><base href="/"><link rel="manifest" href="./m.webmanifest" /><script src="/plugins/??a/client.js"></script>` +
+				`<script>globalThis.B={"url":"/plugins/??b/client.js"}</script></head></html>`
+			if r.URL.Path == "/collab/" {
+				body = `<html><head><script>fetch('/collab/api/state')</script></head></html>`
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+				w.Header().Set("Content-Encoding", "gzip")
+				gz := gzip.NewWriter(w)
+				_, _ = io.WriteString(gz, body)
+				_ = gz.Close()
+				return
+			}
+			_, _ = io.WriteString(w, body)
+		case "/m.webmanifest":
+			w.Header().Set("Content-Type", "application/manifest+json")
+			_, _ = io.WriteString(w, `{"start_url": "/", "icons": [{"src": "/favicon.svg"}]}`)
 		default:
 			body, _ := io.ReadAll(r.Body)
 			_ = json.NewEncoder(w).Encode(map[string]string{
@@ -427,5 +447,110 @@ func TestDSHProxyOpenWhenPanelHasNoToken(t *testing.T) {
 	res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d, want 200 (panel without token is open, same as /api/)", res.StatusCode)
+	}
+}
+
+func TestDSHProxyRewritesAppShellUnderPrefix(t *testing.T) {
+	panel := setupDSHProxyTest(t, newProxyFakeDSH(t), "secret")
+	c := dshSignIn(t, panel, "secret")
+	get := func(path, accept string) string {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, panel.URL+path, nil)
+		req.Header.Set("Accept", accept)
+		req.Header.Set("Accept-Encoding", "gzip") // as browsers send; the proxy must still rewrite
+		res, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		if res.StatusCode != http.StatusOK || res.Header.Get("Content-Encoding") != "" {
+			t.Fatalf("%s: status %d, encoding %q", path, res.StatusCode, res.Header.Get("Content-Encoding"))
+		}
+		b, _ := io.ReadAll(res.Body)
+		if res.ContentLength >= 0 && res.ContentLength != int64(len(b)) {
+			t.Fatalf("%s: Content-Length %d, body %d bytes", path, res.ContentLength, len(b))
+		}
+		return string(b)
+	}
+	shell := get("/dsh/", "text/html,application/xhtml+xml")
+	for _, want := range []string{`<base href="/dsh/"><script>`, `src="/dsh/plugins/??a/client.js"`, `"url":"/dsh/plugins/??b/client.js"`, `crossorigin="use-credentials"`} {
+		if !strings.Contains(shell, want) {
+			t.Fatalf("shell lacks %s:\n%s", want, shell)
+		}
+	}
+	if strings.Contains(shell, `"/plugins/`) {
+		t.Fatalf("shell still has root /plugins/ URLs:\n%s", shell)
+	}
+	// Pages without DSH's root base tag (the collab pages) pass through untouched.
+	if page := get("/dsh/collab/", "text/html"); page != `<html><head><script>fetch('/collab/api/state')</script></head></html>` {
+		t.Fatalf("collab page rewritten: %s", page)
+	}
+	if m := get("/dsh/m.webmanifest", "*/*"); m != `{"start_url": "/dsh/", "icons": [{"src": "/dsh/favicon.svg"}]}` {
+		t.Fatalf("manifest = %s", m)
+	}
+}
+
+// TestDSHPathShimRewritesOnlyDSHRoutes runs the injected shim in node and checks every request
+// entry point: DSH routes get /dsh, while the panel API, already-prefixed paths, other origins and
+// other schemes stay as given.
+func TestDSHPathShimRewritesOnlyDSHRoutes(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skipf("node not available: %v", err)
+	}
+	shim := strings.TrimSuffix(strings.TrimPrefix(dshPathShim, "<script>"), "</script>")
+	harness := `const seen=[];globalThis.window=globalThis;globalThis.location=new URL("https://panel.test:9820/dsh/");
+globalThis.fetch=(i)=>{seen.push(typeof i==="string"?i:i.url)};
+globalThis.XMLHttpRequest=class{open(m,u){seen.push(u)}};
+globalThis.EventSource=class{constructor(u){seen.push(u)}};
+globalThis.WebSocket=class{constructor(u){seen.push(u)}};
+` + shim + `;
+const cases=JSON.parse(process.argv[1]),out={};
+for(const [entry,url] of cases){seen.length=0;
+ if(entry==="fetch")fetch(url);else if(entry==="request")fetch(new Request(new URL(url,location.href)));
+ else if(entry==="xhr")new XMLHttpRequest().open("GET",url);else new window[entry](url);
+ out[entry+" "+url]=seen[0]}
+console.log(JSON.stringify(out))`
+	type tc struct{ entry, in, want string }
+	var cases []tc
+	for _, e := range []string{"fetch", "xhr", "EventSource"} {
+		cases = append(cases,
+			tc{e, "/api/session.export", "https://panel.test:9820/dsh/api/session.export"},
+			tc{e, "/api", "https://panel.test:9820/dsh/api"},
+			tc{e, "/plugins/events", "https://panel.test:9820/dsh/plugins/events"},
+			tc{e, "/open-in-app/apps", "https://panel.test:9820/dsh/open-in-app/apps"},
+			tc{e, "/api/v1/status", "/api/v1/status"},
+			tc{e, "/api/v1", "/api/v1"},
+			tc{e, "/apiary", "/apiary"},
+			tc{e, "/dsh/api/x", "/dsh/api/x"},
+			tc{e, "/collab/api/state", "/collab/api/state"},
+			tc{e, "https://other.test/api/x", "https://other.test/api/x"},
+			tc{e, "http://panel.test:9820/api/x", "http://panel.test:9820/api/x"},
+		)
+	}
+	cases = append(cases,
+		tc{"request", "/api/session.export", "https://panel.test:9820/dsh/api/session.export"},
+		tc{"request", "/api/v1/status", "https://panel.test:9820/api/v1/status"},
+		tc{"WebSocket", "wss://panel.test:9820/api/remote.mux", "wss://panel.test:9820/dsh/api/remote.mux"},
+		tc{"WebSocket", "wss://panel.test:9820/api/v1/ws", "wss://panel.test:9820/api/v1/ws"},
+		tc{"WebSocket", "ws://panel.test:9820/api/remote.mux", "ws://panel.test:9820/api/remote.mux"},
+		tc{"WebSocket", "wss://other.test/api/remote.mux", "wss://other.test/api/remote.mux"},
+	)
+	pairs := make([][2]string, len(cases))
+	for i, c := range cases {
+		pairs[i] = [2]string{c.entry, c.in}
+	}
+	arg, _ := json.Marshal(pairs)
+	out, err := exec.Command("node", "-e", harness, string(arg)).CombinedOutput()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, out)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("node output: %v\n%s", err, out)
+	}
+	for _, c := range cases {
+		if g := got[c.entry+" "+c.in]; g != c.want {
+			t.Errorf("%s(%q) = %q, want %q", c.entry, c.in, g, c.want)
+		}
 	}
 }

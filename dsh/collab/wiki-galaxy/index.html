@@ -55,6 +55,9 @@ canvas.drag{cursor:grabbing}
 <div class="msg" id="msg"></div>
 <div class="hint">拖动旋转 · 滚轮缩放 · 点星看页</div>
 <script>
+// 经面板 /dsh/ 转发时页面挂在前缀下：接口和链接都按当前地址带上前缀，直连时前缀为空。
+const ROOT = (location.pathname.match(/^(.*?)\/collab(?:\/|$)/) || ['', ''])[1];
+document.querySelectorAll('a[href^="/collab"]').forEach(a => a.setAttribute('href', ROOT + a.getAttribute('href')));
 'use strict';
 // 视觉取向参照 leesingx/dsh-Memory-Galaxy（旋臂星系）与 Agentage Galaxy（按文件夹分色星团）。
 const PALETTE = { '': '#fff1c9', ai: '#ff7ab6', bots: '#7dd3fc', hopover: '#b79cff', infra: '#4ade80', mac: '#e5e7eb', misc: '#fbbf24', projects: '#fb923c', refs: '#60a5fa', tooling: '#5eead4' };
@@ -314,7 +317,7 @@ function select(n) {
 async function load() {
   let data;
   try {
-    const res = await fetch('/collab/api/wiki-galaxy', { credentials: 'same-origin' });
+    const res = await fetch(ROOT + '/collab/api/wiki-galaxy', { credentials: 'same-origin' });
     if (!res.ok) throw new Error(String(res.status));
     data = await res.json();
   } catch (error) {
