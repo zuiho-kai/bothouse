@@ -94,6 +94,30 @@ def query(text):
     return _BLOCKS.sub("", text).strip()
 
 
+# 查询带前两轮作者的话：开工那句常没有话题词（「这个你修一下」），话题在前两轮里。
+# 作者 11-03 用 17 条真实案例离线对照：这轮 + 前两轮拼起来，命中 3→10，不用模型。
+PREV_TURNS = 2  # 来源：上面的离线对照（取前 2 轮 10/17，只取 1 轮 6/17）
+_prev = {}  # 会话 key → 最近几句作者的话（已清洗），旧在前；进程内，重启清空
+
+
+def with_prev(q, prev):
+    """这轮 + 前 PREV_TURNS 轮作者的话（新在前），空格拼起来当查询。和这轮一样的不重复拼。"""
+    return " ".join([q] + [p for p in prev if p and p != q][:PREV_TURNS]).strip()
+
+
+def turn_query(text, key=""):
+    """检索用的查询：作者的话 → 拼上同一 key 前两轮作者的话，并记下这句；不是作者的话（派活、系统消息）只用这句。
+    同一 key 几个角色都会来问同一句：和最近一条相同就不重复记。"""
+    q = query(text)
+    if not key or not exp_is_user(text):
+        return q
+    seen = _prev.setdefault(key, collections.deque(maxlen=PREV_TURNS + 1))  # 多留一条：别的角色已记下这轮时，去掉它仍剩前两轮
+    out = with_prev(q, list(reversed(seen)))
+    if not seen or seen[-1] != q:
+        seen.append(q)
+    return out
+
+
 def _same(a, b):
     """两个目录是不是同一个库（按真实路径：bots.json 里主角色的 wiki 可以直接指向主 wiki，或经软链接）。"""
     return b is not None and os.path.realpath(a) == os.path.realpath(b)
@@ -134,20 +158,21 @@ def context(req):
     pb = lead.playbook(bot) if lead else None  # 当主的才有：主角色工作手册（lead.playbook）
     dm = lead.dept_manager(bot, ws_task(req.get("key") or "")) if lead else None  # 工作区里有活才有：部门经理做法
     text = req.get("text") or ""
+    tq = turn_query(text, req.get("key") or "")  # 推页和经验用：这轮 + 前两轮作者的话（定案块仍只看这轮，它要判开工）
     own = role_wiki(bot) if WIKI is not None else None  # GATE_WIKI=off/空 = 什么 wiki 都不推，角色 wiki 也不查
-    mine = match_wiki(text, root=own) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
+    mine = match_wiki(tq, root=own) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
     if WIKI is None:
         return only_new({"wiki": [x for x in (who, pb, dm) if x] + board_items(req.get("key") or "")}, req)
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
     key = req.get("key") or ""
     dec = decision_items(text, key)
     out = {"wiki": [x for x in (who, pb, dm) if x] + standing_items(roots) + board_items(key)
-           + with_lessons(match_wiki(text), text) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
+           + with_lessons(match_wiki(tq), tq) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
     if MEMVOTE.exists() and any(EXP_TAG.search(w.get("desc", "")) for w in out["wiki"]):
         out["wiki"].append(VOTE_ITEM)  # 固定 path：每个会话只推一次（gate.go turnContext 按 path 去重）
     out = only_new(out, req)  # 推过的条不再推（同一会话代号内）
     try:
-        exp_log(key, bot, text, out["wiki"], ep=str(req.get("epoch") or ""))
+        exp_log(key, bot, text, out["wiki"], tq, ep=str(req.get("epoch") or ""))
     except Exception:
         pass
     return out
@@ -651,11 +676,13 @@ def _ref_id(rel, n):
     return f"{rel}:{n}#{exp_id(rel, line).rpartition('#')[2]}"
 
 
-def exp_log(key, bot, text, items, ep=""):
+def exp_log(key, bot, text, items, tq="", ep=""):
     it = exp_task(key) if not bot else None
     rec = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "key": key, "bot": bot, "user": exp_is_user(text),
            "task": it.get("id") if it else None, "q": query(text)[:600], "refs": _refs(items)}
     if ep:
         rec["ep"] = ep  # 会话代号（only_new）：同一代号内 refs 不重复
+    if tq and tq != rec["q"]:
+        rec["qx"] = tq[:1200]  # 实际检索用的查询（带了前两轮），夜间打分仍按 q 认这轮
     with open(EXP / "push.jsonl", "a", encoding="utf-8") as fh:
         fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
