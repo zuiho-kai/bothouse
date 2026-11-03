@@ -43,6 +43,16 @@ node dsh/collab/desk-e2e/run.mjs --out ./out
 
 退出码：有任何 FAIL 时为 1；全 PASS 或只剩 SKIP 时为 0。
 
+## 延迟量测（T 路）
+
+同一套临时环境与宿主，但只量「真派活到页面出光」的时间：
+
+```sh
+node dsh/collab/desk-e2e/latency.mjs [--out ./out]
+```
+
+真跑 `add → returned → reject → returned → done`，桌面与手机各一遍，每步给出「命令耗时」与「从命令开始到对应光柱出现」的毫秒数，并核对光柱真的画出了曲线（SVG 路径条数与包围盒）。门槛 5 秒，超出或漏光退出码为 1。开着测之前会先静止 2 秒做对照，确认页面不会自己冒光。
+
 ## 它检查什么
 
 | 步 | 检查 | 不满足时 |
