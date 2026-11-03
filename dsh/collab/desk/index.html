@@ -870,7 +870,7 @@ function paintSeat(m) {
   if (rec) {
     tag.hidden = false;
     tag.textContent = `#${rec.id || '?'} ${rec.title || ''}`.trim();
-    tag.title = `${rec.title || ''}${rec.note ? ' · ' + rec.note : ''}`;
+    tag.title = `${cleanNote(rec.title)}${cleanNote(rec.note) ? ' · ' + cleanNote(rec.note) : ''}`;
   } else { tag.hidden = true; tag.title = ''; }
   const status = q('.status', node);
   status.textContent = !online ? '离线' : kind === 'busy' ? '忙碌' : rec ? '干活中' : thinking ? '思考中…' : '摸鱼中';
@@ -895,11 +895,36 @@ function setEmpty() {
   if (!S.memberList.length) empty.textContent = S.fixture ? '示例成员载入中…' : '还没有成员接入 DSH';
 }
 
+// <note-clean>
+/** 只给人看的文案：去掉 dispatcher= / ws_was= 这类原始键值，
+ *  再按配对清掉过滤后留下的孤括号（实测底部曾留半个「（板面」）。 */
+function cleanNote(v) {
+  let out = String(v ?? '').replace(/\b[a-z][a-z0-9_]*=[^\s）)\]】]+/gi, ' ');
+  for (const [open, close] of [['（', '）'], ['(', ')'], ['【', '】'], ['[', ']']]) {
+    out = out.split(open + close).join(' ');
+    let depth = 0;
+    const stray = [];
+    for (let i = 0; i < out.length; i++) {
+      if (out[i] === open) depth += 1;
+      else if (out[i] === close) { if (depth > 0) depth -= 1; else stray.push(i); }
+    }
+    for (const i of stray.reverse()) out = out.slice(0, i) + out.slice(i + 1);
+    for (let i = out.length - 1; i >= 0 && depth > 0; i--) if (out[i] === open) { out = out.slice(0, i) + out.slice(i + 1); depth -= 1; }
+  }
+  return out
+    .replace(/[（(]\s*[）)]/g, ' ')
+    .replace(/[【\[]\s*[】\]]/g, ' ')
+    .replace(/\s+([）)\]】])/g, '$1')
+    .replace(/([（(【[])\s+/g, '$1')
+    .replace(/\s*[·、,，;；]\s*(?=[·、,，;；]|$)/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+// </note-clean>
+
 function setTicker(kind, ts, fromName, toName, text, note) {
   const route = [fromName, toName].filter(Boolean).join(' → ');
-  // 底部一行只给人看：去掉 dispatcher= / ws_was= 这类原始键值
-  const clean = v => String(v ?? '').replace(/[a-z_]+=[^\s·，]+/gi, '').replace(/\s{2,}/g, ' ').trim();
-  const body = [clean(text), clean(note)].filter(Boolean).join(' · ');
+  const body = [cleanNote(text), cleanNote(note)].filter(Boolean).join(' · ');
   $('ticker').textContent = `最新：${fmtTime(ts)} ${KIND[kind] ?? kind} ${route}${body ? ' · ' + body : ''}`;
 }
 
@@ -909,7 +934,7 @@ function addLog(kind, ts, fromName, toName, text, note) {
   const l1 = el('div', 'l1');
   l1.append(el('span', 't', fmtTime(ts)), el('span', 'chip ' + kind, KIND[kind] ?? kind));
   l1.append(el('span', 'route', [fromName, toName].filter(Boolean).join(' → ')));
-  li.append(l1, el('div', 'l2', [text, note].filter(Boolean).join(' · ') || '—'));
+  li.append(l1, el('div', 'l2', [cleanNote(text), cleanNote(note)].filter(Boolean).join(' · ') || '—'));
   list.prepend(li);
   while (list.children.length > S.logLimit) list.lastChild.remove();
   S.eventCount += 1;
@@ -1094,7 +1119,7 @@ function applyTask(ev, animate = true) {
       forgetDispatch(id, S.dispatched);
     } else {
       if (worker && dispatcher && animate) beam(dispatcher, worker, 'reject');
-      if (worker && animate) { flashSeat(worker.id, 'flash-bad'); deskPop(worker.id, `✕ 打回${note ? '：' + note : ''}`, 'bad'); }
+      if (worker && animate) { flashSeat(worker.id, 'flash-bad'); deskPop(worker.id, `✕ 打回${cleanNote(note) ? '：' + cleanNote(note) : ''}`, 'bad'); }
       forgetDispatch(id, S.dispatched);
     }
   } else if (kind === 'paused' || kind === 'done') {
@@ -1103,7 +1128,7 @@ function applyTask(ev, animate = true) {
       clearTask(worker.id);
       if (animate) {
         if (kind === 'done') { flashSeat(worker.id, 'flash-good'); deskPop(worker.id, '✓ 完成', 'good'); }
-        else deskPop(worker.id, `暂停${note ? '：' + note : ''}`, 'info');
+        else deskPop(worker.id, `暂停${cleanNote(note) ? '：' + cleanNote(note) : ''}`, 'info');
       }
     }
     forgetDispatch(id, S.dispatched);
