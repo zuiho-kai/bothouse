@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"compress/gzip"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -73,6 +74,24 @@ func newProxyFakeDSH(t *testing.T) *proxyFakeDSH {
 			}
 		case "/redir":
 			http.Redirect(w, r, "/collab/", http.StatusFound)
+		case "/", "/collab/":
+			body := `<html><head><base href="/"><link rel="manifest" href="./m.webmanifest" /><script src="/plugins/??a/client.js"></script>` +
+				`<script>globalThis.B={"url":"/plugins/??b/client.js"}</script></head></html>`
+			if r.URL.Path == "/collab/" {
+				body = `<html><head><script>fetch('/collab/api/state')</script></head></html>`
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+				w.Header().Set("Content-Encoding", "gzip")
+				gz := gzip.NewWriter(w)
+				_, _ = io.WriteString(gz, body)
+				_ = gz.Close()
+				return
+			}
+			_, _ = io.WriteString(w, body)
+		case "/m.webmanifest":
+			w.Header().Set("Content-Type", "application/manifest+json")
+			_, _ = io.WriteString(w, `{"start_url": "/", "icons": [{"src": "/favicon.svg"}]}`)
 		default:
 			body, _ := io.ReadAll(r.Body)
 			_ = json.NewEncoder(w).Encode(map[string]string{
@@ -427,5 +446,45 @@ func TestDSHProxyOpenWhenPanelHasNoToken(t *testing.T) {
 	res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d, want 200 (panel without token is open, same as /api/)", res.StatusCode)
+	}
+}
+
+func TestDSHProxyRewritesAppShellUnderPrefix(t *testing.T) {
+	panel := setupDSHProxyTest(t, newProxyFakeDSH(t), "secret")
+	c := dshSignIn(t, panel, "secret")
+	get := func(path, accept string) string {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, panel.URL+path, nil)
+		req.Header.Set("Accept", accept)
+		req.Header.Set("Accept-Encoding", "gzip") // as browsers send; the proxy must still rewrite
+		res, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		if res.StatusCode != http.StatusOK || res.Header.Get("Content-Encoding") != "" {
+			t.Fatalf("%s: status %d, encoding %q", path, res.StatusCode, res.Header.Get("Content-Encoding"))
+		}
+		b, _ := io.ReadAll(res.Body)
+		if res.ContentLength >= 0 && res.ContentLength != int64(len(b)) {
+			t.Fatalf("%s: Content-Length %d, body %d bytes", path, res.ContentLength, len(b))
+		}
+		return string(b)
+	}
+	shell := get("/dsh/", "text/html,application/xhtml+xml")
+	for _, want := range []string{`<base href="/dsh/"><script>`, `src="/dsh/plugins/??a/client.js"`, `"url":"/dsh/plugins/??b/client.js"`, `crossorigin="use-credentials"`} {
+		if !strings.Contains(shell, want) {
+			t.Fatalf("shell lacks %s:\n%s", want, shell)
+		}
+	}
+	if strings.Contains(shell, `"/plugins/`) {
+		t.Fatalf("shell still has root /plugins/ URLs:\n%s", shell)
+	}
+	// Pages without DSH's root base tag (the collab pages) pass through untouched.
+	if page := get("/dsh/collab/", "text/html"); page != `<html><head><script>fetch('/collab/api/state')</script></head></html>` {
+		t.Fatalf("collab page rewritten: %s", page)
+	}
+	if m := get("/dsh/m.webmanifest", "*/*"); m != `{"start_url": "/dsh/", "icons": [{"src": "/dsh/favicon.svg"}]}` {
+		t.Fatalf("manifest = %s", m)
 	}
 }

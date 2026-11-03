@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -9,10 +10,12 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -29,7 +32,8 @@ import (
 //     DSH cookie in memory, and injects it into every upstream request; Host is rewritten to the
 //     loopback address and Origin/Sec-Fetch-* are dropped.
 //
-// DSH's pages use relative URLs (`<base href="./">`), so stripping the /dsh prefix is enough; SSE
+// DSH's app shell is root-absolute (`<base href="/">`, `/plugins/...`), so HTML responses get those
+// rewritten under /dsh/ (dshRewriteHTML); the collab pages derive their prefix from location. SSE
 // (`collab/api/events`) streams with FlushInterval=-1 and WebSocket upgrades (`api/remote.mux`) are
 // handled natively by httputil.ReverseProxy.
 
@@ -180,6 +184,10 @@ func (m *ManagementServer) handleDSHProxy(w http.ResponseWriter, r *http.Request
 				out.URL.RawPath = strings.TrimPrefix(pr.In.URL.RawPath, dshProxyPrefix)
 			}
 			out.Host = target // DSH's Host fence admits loopback only
+			if strings.Contains(pr.In.Header.Get("Accept"), "text/html") || strings.HasSuffix(out.URL.Path, ".webmanifest") {
+				// Let the transport negotiate (and transparently decode) gzip so the body can be rewritten.
+				out.Header.Del("Accept-Encoding")
+			}
 			for _, h := range []string{"Origin", "Referer", "Authorization", "Cookie", "Sec-Fetch-Site", "Sec-Fetch-Mode", "Sec-Fetch-Dest", "Sec-Fetch-User"} {
 				out.Header.Del(h)
 			}
@@ -191,7 +199,7 @@ func (m *ManagementServer) handleDSHProxy(w http.ResponseWriter, r *http.Request
 			if loc := res.Header.Get("Location"); loc != "" {
 				res.Header.Set("Location", dshRewriteLocation(loc, target))
 			}
-			return nil
+			return dshRewriteHTML(res)
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			dshProxyPage(w, http.StatusBadGateway, fmt.Sprintf("连不上频道页（DSH，%s）/ cannot reach the channels page: %v", target, err))
@@ -199,6 +207,53 @@ func (m *ManagementServer) handleDSHProxy(w http.ResponseWriter, r *http.Request
 	}
 	rp.ServeHTTP(w, r)
 }
+
+// dshRewriteHTML moves DSH's root-absolute app shell under /dsh/: the `<base href="/">` that its
+// relative assets resolve against, the `/plugins/` bundle URLs in attributes and the boot JSON, and,
+// since its client code also calls fixed root routes (`/api`, `/api/remote.mux`, `/plugins/events`,
+// `/open-in-app/...`), a shim ahead of every script that prefixes same-origin root paths given to
+// fetch, XMLHttpRequest, EventSource and WebSocket. Pages without that base tag pass through; the
+// web app manifest gets its root paths prefixed.
+func dshRewriteHTML(res *http.Response) error {
+	ct := res.Header.Get("Content-Type")
+	html, manifest := strings.HasPrefix(ct, "text/html"), strings.HasPrefix(ct, "application/manifest+json")
+	if !html && !manifest || res.Header.Get("Content-Encoding") != "" {
+		return nil
+	}
+	b, err := io.ReadAll(res.Body)
+	res.Body.Close()
+	if err != nil {
+		return err
+	}
+	if s := string(b); manifest {
+		// The web app manifest's id/start_url/scope/icons are root paths too.
+		b = []byte(strings.ReplaceAll(s, `": "/`, `": "`+dshProxyPrefix+`/`))
+	} else if strings.Contains(s, dshShellBase) {
+		b = []byte(dshHTMLReplacer.Replace(s))
+	}
+	res.Body = io.NopCloser(bytes.NewReader(b))
+	res.ContentLength = int64(len(b))
+	res.Header.Set("Content-Length", strconv.Itoa(len(b)))
+	return nil
+}
+
+const dshShellBase = `<base href="/">`
+
+// dshPathShim runs before DSH's own scripts. Paths already under /dsh/ (relative URLs resolved
+// against the rewritten base) are left alone.
+const dshPathShim = `<script>(()=>{const P=` + "`" + dshProxyPrefix + "`" + `,L=location;` +
+	`const fix=u=>{try{const x=new URL(u,L.href);if(x.host!==L.host||x.pathname===P||x.pathname.startsWith(P+"/"))return u;x.pathname=P+x.pathname;return x.href}catch{return u}};` +
+	`const F=fetch;window.fetch=function(i,o){if(i instanceof Request){const v=fix(i.url);if(v!==i.url)i=new Request(v,i)}else i=fix(i);return F.call(this,i,o)};` +
+	`const O=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u,...r){return O.call(this,m,fix(u),...r)};` +
+	`for(const k of["EventSource","WebSocket"]){const C=window[k];if(!C)continue;const W=new Proxy(C,{construct(t,a){a[0]=fix(a[0]);return Reflect.construct(t,a)}});window[k]=W}` +
+	`})()</script>`
+
+var dshHTMLReplacer = strings.NewReplacer(
+	dshShellBase, `<base href="`+dshProxyPrefix+`/">`+dshPathShim,
+	`"/plugins/`, `"`+dshProxyPrefix+`/plugins/`,
+	// Manifest fetches omit cookies unless asked, and /dsh/ needs the panel cookie.
+	`<link rel="manifest" `, `<link rel="manifest" crossorigin="use-credentials" `,
+)
 
 // dshRewriteLocation keeps DSH redirects under /dsh/: absolute loopback URLs and root-relative
 // paths get the prefix; relative ones ("./") already resolve under it.
