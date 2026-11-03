@@ -514,6 +514,7 @@ def _render(it):
 # （桥：core/gate.go turnEpoch；DSH：gate-context.mjs；终端 hook：session_id + 压缩次数）。不带 epoch 的旧调用方照旧全给。
 # 同页的新编号照推，旧编号不重推；页下条目全推过就整页不推。没有编号的块（身份、手册、常驻做法、任务板、投票提示）
 # 整块一个 id（path+desc 的哈希），内容变了才重推。只记在内存：推送服务重启后每个会话最多重推一轮。
+PUSH_GAP = 20  # 推过的条隔 20 轮内不再推，超过就重推（作者 11-03 定）
 PUSHED_KEEP = 4000  # 最多记这么多个（会话, 代号）；按最近使用淘汰
 _pushed, _pushed_lock = collections.OrderedDict(), threading.Lock()
 
@@ -534,16 +535,18 @@ def only_new(out, req):
     with _pushed_lock:
         seen = _pushed.get(k)
         if seen is None:
-            seen = _pushed[k] = set()
+            seen = _pushed[k] = {}  # 条目编号 → 上次推的轮次；"#" 记本会话轮次
             while len(_pushed) > PUSHED_KEEP:
                 _pushed.popitem(last=False)
         _pushed.move_to_end(k)
+        n = seen["#"] = seen.get("#", 0) + 1
         for w in out.get("wiki", []):
             w = _rows_of(w)
             rows = []
             for r in w["rows"]:
-                if r["id"] not in seen:
-                    seen.add(r["id"])
+                last = seen.get(r["id"])
+                if last is None or n - last >= PUSH_GAP:
+                    seen[r["id"]] = n
                     rows.append(r)
             if rows:
                 items.append(_render(dict(w, rows=rows)) if rows != w["rows"] else w)
@@ -561,10 +564,11 @@ def only_new_file(items, key, epoch, state_dir):
         st = {}
     k = (str(key), "", str(epoch))
     with _pushed_lock:
-        _pushed[k] = set(st.get("ids", [])) if st.get("epoch") == str(epoch) else set()
+        ids = st.get("ids", {}) if st.get("epoch") == str(epoch) else {}
+        _pushed[k] = dict(ids) if isinstance(ids, dict) else {}  # 旧格式（编号列表）不认，重推一轮
     out = only_new({"wiki": items}, {"key": str(key), "bot": "", "epoch": str(epoch)})["wiki"]
     with _pushed_lock:
-        ids = sorted(_pushed.pop(k, set()))
+        ids = _pushed.pop(k, {})
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(json.dumps({"epoch": str(epoch), "ids": ids}))
     return out
