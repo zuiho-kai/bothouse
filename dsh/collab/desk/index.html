@@ -1,23 +1,72 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>团队工作台</title>
-<style>body{font:14px/1.6 system-ui,sans-serif;margin:0;padding:24px;background:#0f1115;color:#e6e8eb}
-h1{font-size:18px;margin:0 0 8px}p{color:#8b949e;margin:0 0 16px}
-ol{padding-left:20px;font-family:ui-monospace,monospace;font-size:12px}</style></head>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>团队工作台 · CoNest</title>
+<style>
+/* __CSS_BASE__ */
+/* __CSS_SCENE__ */
+/* __CSS_STATE__ */
+/* __CSS_MOBILE__ */
+</style>
+</head>
 <body>
-<h1>团队工作台</h1>
-<p>办公室地图页由前端路补充；这里是占位页，只接真实事件流，不造假光柱。</p>
-<ol id="events"></ol>
+<div class="app">
+<header class="topbar">
+  <div class="brand"><span class="mark" aria-hidden="true"></span><div><h1>团队工作台</h1><p class="sub" id="subtitle">办公室里每一道光，都是一条真实事件</p></div></div>
+  <div class="topright"><span class="badge fixture" id="fixtureBadge" hidden>示例数据 · 非真实事件</span><span class="clock" id="clockDigital">--:--:--</span><span class="pill wait" id="conn">连接中</span></div>
+</header>
+<section class="bar">
+  <div class="modes" role="tablist" aria-label="模式"><button class="mode on" id="modeLive" role="tab" aria-selected="true">实时</button><button class="mode" id="modeReplay" role="tab" aria-selected="false">回放</button></div>
+  <div class="replaybar" id="replayBar" hidden>
+    <label class="field">从<input type="datetime-local" id="from"></label>
+    <label class="field">到<input type="datetime-local" id="to"></label>
+    <span class="presets"><button class="mini" data-range="1h">近 1 小时</button><button class="mini" data-range="tonight">昨晚</button></span>
+    <button class="btn primary" id="loadReplay">载入</button>
+    <button class="btn" id="playPause" disabled>▶</button>
+    <label class="field speed">速度<select id="speed"><option value="1">1×</option><option value="4" selected>4×</option><option value="16">16×</option></select></label>
+    <input class="progress" id="progress" type="range" min="0" max="100" value="0" disabled aria-label="回放进度">
+    <span class="vclock" id="virtualClock">--:--</span>
+  </div>
+  <div class="stats" id="stats">在线 0/0 · 进行中 0</div>
+</section>
+<main>
+  <section class="stage" id="stage">
+    <div class="wall">
+      <div class="window w1"><i></i><i></i><i></i><span class="city"></span></div>
+      <div class="window w2"><i></i><i></i><i></i><span class="city"></span></div>
+      <div class="whiteboard"><b></b><b></b><b></b><b></b></div>
+      <div class="wallclock" id="wallClock" aria-hidden="true"><span class="hand h"></span><span class="hand m"></span><span class="hand s"></span><span class="pin"></span></div>
+      <div class="sign">TEAM DESK</div>
+    </div>
+    <div class="floor"></div>
+    <div class="rug"></div>
+    <div class="plant p1"></div><div class="plant p2"></div><div class="plant p3"></div>
+    <div class="seats" id="seats"></div>
+    <svg class="beams" id="beams" aria-hidden="true"></svg>
+    <div class="empty" id="empty" hidden>还没有成员接入，等 member 事件</div>
+  </section>
+  <aside class="side">
+    <h2>实况 <span class="count" id="eventCount">0</span></h2>
+    <ol class="log" id="eventLog"></ol>
+    <div class="legend"><span class="lg assign">派活</span><span class="lg return">交回</span><span class="lg reject">打回</span><span class="lg at">@</span><span class="lg pause">暂停</span></div>
+  </aside>
+</main>
+<footer class="foot"><div class="ticker" id="ticker">等待事件…</div><div class="foot-note">只画真实事件 · 空闲时安静摸鱼</div></footer>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script type="application/json" id="roster">{"members":[]}</script>
+<script type="application/json" id="fixtureData">[]</script>
 <script>
-const list = document.getElementById('events');
-const add = text => { const li = document.createElement('li'); li.textContent = text; list.prepend(li); };
-const source = new EventSource('/collab/api/events');
-source.onmessage = message => {
-  let event;
-  try { event = JSON.parse(message.data); } catch { return; }
-  if (event.type === 'task') add([event.ts, event.kind, event.from, '→', event.to, event.title].filter(Boolean).join(' '));
-};
+/* __JS_MODEL__ */
+/* __JS_RENDER__ */
+/* __JS_BEAMS__ */
+/* __JS_EVENTS__ */
+/* __JS_LIVE__ */
+/* __JS_REPLAY__ */
+/* __JS_BOOT__ */
 </script>
 </body>
 </html>
