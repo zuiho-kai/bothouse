@@ -117,7 +117,7 @@ def timer_cmd(chat: str, text: str, ask: bool, notes: str, proj: str, task: str 
                   f"和你自己核实过的分开说；用户有回话要转给工作区时用 {fwd} \"<回话>\"")
     # --delay 1s：timer 只收正数延迟，上报不用多等
     cmd = [cc_bin(), "timer", "add", "-p", proj, "-s", chat, "--delay", "1s", "--timeout-mins", "0",
-           "--inject-if-busy", "--silent", "--desc", "工作区提问" if ask else "工作区上报", "--prompt", prompt]
+           "--inject-if-busy", "--silent", "--forward", "--desc", "工作区提问" if ask else "工作区上报", "--prompt", prompt]
     if ask and board_id and timer_has_reply_board():
         # 主角色转述这个问题的消息记在这件活名下：用户直接回复那条，桥自动把答复转回工作区
         # （reply_task.go forwardReplyToWorkspace；11-01 #855 用户答了「我打开了」没转过去，工作区又问）

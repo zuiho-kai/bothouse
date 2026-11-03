@@ -83,6 +83,18 @@ test('event semantics: returned goes worker -> dispatcher, dispatch draws once, 
   assert.doesNotMatch(html, /S\.lead = 'gge'/);
 });
 
+test('@ 细光：流动虚线 + 小圆点走过，实时和回放共用同一条动画', () => {
+  const beamFn = html.slice(html.indexOf('function beam('), html.indexOf('function flashSeat'));
+  assert.match(beamFn, /if \(kind === 'at'\) \{[\s\S]*?class: 'dot'/, '@ 要画小圆点');
+  assert.match(beamFn, /getPointAtLength\(len \* e\)[\s\S]*?setAttribute\('cx'/, '小圆点沿路径走');
+  assert.match(html, /\.beam\.at \.trace\{[^}]*stroke-dasharray/, '@ 线是流动虚线');
+  assert.match(html, /\.beam\.at \.dot\{/, '@ 圆点有自己的细光样式');
+  const apply = html.slice(html.indexOf('function applyMessage'), html.indexOf('function applyEvent'));
+  assert.match(apply, /beam\(author, target, 'at'\)/, '实时与回放都从 applyMessage 画 @');
+  const step = html.slice(html.indexOf('function stepReplay'), html.indexOf('function startReplay'));
+  assert.match(step, /applyEvent\(ev, true\)/, '回放播放也走动画，才能看到小圆点');
+});
+
 test('hidden 元素不被组件 display 覆盖（空态与回放条）', () => {
   assert.match(html, /\[hidden\]\{display:none!important\}/, 'hidden 必须有全局强制规则');
   assert.match(html, /\.empty\{[^}]*display:grid/, '空态组件自身会覆盖 hidden，正是回归来源');
