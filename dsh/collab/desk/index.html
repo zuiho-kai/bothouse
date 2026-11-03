@@ -869,7 +869,7 @@ function paintSeat(m) {
   const tag = q('.tasktag', node);
   if (rec) {
     tag.hidden = false;
-    tag.textContent = `#${rec.id || '?'} ${rec.title || ''}`.trim();
+    tag.textContent = `#${rec.id || '?'} ${cleanNote(rec.title)}`.trim();
     tag.title = `${cleanNote(rec.title)}${cleanNote(rec.note) ? ' · ' + cleanNote(rec.note) : ''}`;
   } else { tag.hidden = true; tag.title = ''; }
   const status = q('.status', node);

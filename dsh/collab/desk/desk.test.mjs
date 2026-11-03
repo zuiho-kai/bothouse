@@ -158,6 +158,7 @@ test('原始字段过滤是公共函数：底部、实况列表、任务标题�
   assert.equal(cleanNote('见 src=data/x.json'), '见');
   assert.match(html, /\[cleanNote\(text\), cleanNote\(note\)\]/, 'log list filters too');
   assert.match(html, /tag\.title = `\$\{cleanNote\(rec\.title\)\}/, 'task tag title filters too');
+  assert.match(html, /tag\.textContent = `#\$\{rec\.id \|\| '\?'\} \$\{cleanNote\(rec\.title\)\}`\.trim\(\)/, 'task tag text filters too');
   assert.ok((html.match(/cleanNote\(/g) ?? []).length >= 6, 'shared helper used everywhere');
 });
 
