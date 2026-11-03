@@ -699,10 +699,10 @@ async function openRoom(id) {
     const { messages } = await api(`/collab/api/rooms/${id}/messages?limit=100`);
     if (state.room !== id) return;
     const log = $('log');
-    log.replaceChildren();
+    log.querySelector('.state')?.remove();
     messages.forEach(upsert);
     state.synced = messages.length ? messages[messages.length - 1].id : 0;
-    if (!messages.length) log.replaceChildren(showState('empty', '还没有消息', ''));
+    if (!log.querySelector('.msg')) log.append(showState('empty', '还没有消息', ''));
     $('log').setAttribute('aria-busy', 'false');
     $('input').disabled = false;
     $('log').scrollTop = $('log').scrollHeight;
@@ -744,7 +744,7 @@ function connect() {
   es.onmessage = (e) => {
     const ev = JSON.parse(e.data);
     if (ev.type === 'message') upsert(ev.message);
-    else if (ev.type === 'deleted') $('log').querySelector(`[data-id="${ev.id}"]`)?.remove();
+    else if (ev.type === 'deleted') { $('log').querySelector(`[data-id="${ev.id}"]`)?.remove(); regroup(); }
     else if (ev.type === 'members') { state.members = ev.members; renderMembers(); }
     else if (ev.type === 'thinking') { state.thinking[ev.room_id] = ev.members; renderMembers(); }
   };
