@@ -14,7 +14,7 @@ import { Hub } from './hub.mjs';
 import { TeamExit } from './team-exit.mjs';
 import { CloudWebGateway, WS_PATH } from './cloudweb.mjs';
 import { DshMembers } from './dsh-member.mjs';
-import { Roster } from './roster.mjs';
+import { Roster, rowToMember } from './roster.mjs';
 import { Tasks, WORKING } from './tasks.mjs';
 import { createCliMember } from './cli-member.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
@@ -236,6 +236,8 @@ export async function apply(ctx, rawConfig) {
     if (routed !== undefined) return routed;
     const opened = workspacesRoute(req, res, url, { store, hub, gateway, owner, later, tasks, dsh });
     if (opened !== undefined) return opened;
+    const team = teamRoute(req, res, url, { store, hub, later, roster });
+    if (team !== undefined) return team;
     if (!owner(req)) {
       if ((path === '/collab' || path === '/collab/desk' || path === '/collab/wiki-galaxy') && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
       return refuse(req, res);
@@ -636,6 +638,74 @@ function ticketWorkspace(req, res, roomId, { store, hub, gateway, later, tasks, 
     if (!dsh?.nudge(taskOwner, message)) gateway.nudge?.(taskOwner, message);
     return { workspace, task: tasks.task(task.id) };
   });
+}
+
+/**
+ * 一句话拉团队 (user 11-04: DSH 用户一句话拉单模型多角色): the primary role of a channel, with its
+ * (member, room) later ticket, creates a new chat channel and its roles in one call.
+ *   POST /collab/api/rooms/{id}/team  { channel, members: [{ name, persona?, model? }], model? }
+ * model is a model id ("deepseek-v4.1-flash") or "provider/model"; absent = DSH's default model.
+ * The new roles join only the new channel; the caller becomes its primary role and joins it too.
+ */
+export function teamRoute(req, res, url, { store, hub, later, roster }) {
+  const m = /^\/collab\/api\/rooms\/(\d+)\/team\/?$/.exec(url.pathname);
+  if (m === null || req.method !== 'POST') return undefined;
+  const claims = req.headers['x-later-ticket'] === undefined ? undefined : later?.verify(req.headers['x-later-ticket']);
+  if (!claims) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
+  const roomId = Number(m[1]);
+  if (claims.room !== roomId) return Promise.resolve(json(res, 403, { error: 'ticket is for another room' }));
+  if (hub.primaryIn(roomId)?.id !== claims.member) return Promise.resolve(json(res, 403, { error: 'only the primary role builds teams' }));
+  return withBody(req, res, async body => buildTeam(body, claims.member, { store, hub, roster }));
+}
+
+const TEAM_AVATARS = ['orange', 'dragon', 'rainbow', 'lanxi', 'whale'];
+const MAX_TEAM = 8;
+
+/** Find a model by id or provider/id among DSH's routes; undefined input = DSH default (no model on the member). */
+export async function resolveTeamModel(roster, wanted) {
+  const want = String(wanted ?? '').trim();
+  if (!want) return undefined;
+  const routes = await roster.models();
+  const slash = want.indexOf('/');
+  for (const route of routes) {
+    for (const model of route.models) {
+      const exact = slash > 0 && route.provider === want.slice(0, slash) && model.id === want.slice(slash + 1);
+      if (exact || model.id.toLowerCase() === want.toLowerCase()) return { provider: route.provider, model: model.id };
+    }
+  }
+  const known = routes.flatMap(r => r.models.map(x => x.id)).slice(0, 20).join(', ') || '（DSH 没报出可用模型）';
+  throw new CollabError('invalid', `模型 ${want} 在 DSH 里找不到；可用：${known}`);
+}
+
+export async function buildTeam(body, leadId, { store, hub, roster }) {
+  const channel = String(body?.channel ?? '').trim().replace(/^#/, '');
+  if (!channel || channel.length > 32 || /\s/.test(channel)) throw new CollabError('invalid', 'channel must be 1-32 characters without spaces');
+  const wanted = Array.isArray(body?.members) ? body.members : [];
+  if (wanted.length === 0 || wanted.length > MAX_TEAM) throw new CollabError('invalid', `members must list 1-${MAX_TEAM} roles`);
+  const names = wanted.map(x => String(x?.name ?? '').trim());
+  if (names.some(n => !n) || new Set(names.map(n => n.toLowerCase())).size !== names.length) throw new CollabError('invalid', 'every role needs a distinct name');
+  const shared = await resolveTeamModel(roster, body?.model);
+  const models = [];
+  for (const x of wanted) models.push(x?.model === undefined || x?.model === '' ? shared : await resolveTeamModel(roster, x.model));
+  // Check every role before anything is written, so a bad name leaves no half-built channel behind.
+  for (const [i, x] of wanted.entries()) await roster.validate({ name: names[i], persona: String(x?.persona ?? ''), avatar: TEAM_AVATARS[i % TEAM_AVATARS.length] });
+  const room = store.createRoom(channel);
+  const created = [];
+  for (const [i, x] of wanted.entries()) {
+    const model = models[i];
+    created.push(await roster.create({ name: names[i], persona: String(x?.persona ?? ''), rooms: [room.id], avatar: TEAM_AVATARS[i % TEAM_AVATARS.length], ...(model ? { model } : {}) }));
+  }
+  const lead = store.member(leadId);
+  if (lead?.source === 'ui' && lead.rooms && lead.rooms !== '[]') {
+    await roster.update(leadId, { ...rowToMember(lead), rooms: [...JSON.parse(lead.rooms), room.id] });
+  }
+  store.setLead(room.id, leadId);
+  hub.emit({ type: 'rooms', rooms: store.roomsView() });
+  const label = model => (model ? model.model : 'DSH 默认模型');
+  const leadName = hub.members.get(leadId)?.name ?? leadId;
+  hub.post(room.id, { authorKind: 'system', author: 'system', name: '建团队',
+    text: `【已建团队】${leadName} 拉好了 #${channel}：${created.map((c, i) => `${c.name}（${label(models[i])}）`).join('、')}。${leadName} 是本频道主角色，直接在这里说需求。` });
+  return { room, lead: leadId, members: created.map((c, i) => ({ id: c.id, name: c.name, model: label(models[i]) })) };
 }
 
 const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, 'member-busy': 409 };
