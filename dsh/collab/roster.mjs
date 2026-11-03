@@ -9,6 +9,8 @@ import { PERMISSION_PRESETS } from './cli-member.mjs';
 import { personaLibrary } from './personas.mjs';
 
 const MAX_NAME = 32;
+/** The preset a plugin-only install starts with: 鲸鱼娘, the DeepSeek character, matching DSH's own model. */
+const DEFAULT_ROLE = 'jingyu';
 const MAX_PERSONA = 4000;
 const RESERVED = new Set(['owner', 'user', 'system']);
 const MODEL_LIST_TIMEOUT_MS = 5_000;
@@ -100,8 +102,8 @@ export class Roster {
 
   /**
    * Plugin-only installs (`dsh plugin add bothouse-dsh`) have no setup wizard: on the very first start,
-   * with no member ever stored, add the preset roles that ship an avatar as DSH members on DSH's own
-   * default model, so the channel can be used right away; the first of them becomes the primary role. Runs once (marker file); a channel that ever
+   * with no member ever stored, add one preset role (鲸鱼娘) as a DSH member on DSH's own default model, so
+   * the channel can be used right away; it becomes the primary role. Runs once (marker file); a channel that ever
    * had members, or the wizard's roles, is left alone. Returns the names added.
    */
   async seedDefaults(markerPath, lang, logger) {
@@ -109,7 +111,8 @@ export class Roster {
     const added = [];
     if (this.store.db.prepare('SELECT COUNT(*) AS n FROM members').get().n === 0) {
       let lead;
-      for (const p of personaLibrary(lang).filter(x => x.avatar)) {
+      // One role on DSH's one model is the default (user 11-03: 单模型单角色开箱就用); more are added from the UI.
+      for (const p of personaLibrary(lang).filter(x => x.slug === DEFAULT_ROLE)) {
         try {
           const member = await this.create({ name: p.name, persona: p.text, avatar: p.avatar });
           lead ??= member;
@@ -118,8 +121,7 @@ export class Roster {
           logger?.warn?.('conest-collab: default member %s not added: %s', p.name, error?.message ?? error);
         }
       }
-      // Workspaces open only through a channel's primary role; the first preset (橘, the PM) takes
-      // channels that have none, so「交给工作区」works without a trip to the channel settings.
+      // Workspaces open only through a channel's primary role; the default role takes channels that have none, so「交给工作区」works without a trip to the channel settings.
       if (lead !== undefined) {
         for (const room of this.store.rooms()) if (room.kind === 'chat' && this.store.leadId(room.id) === null) this.store.setLead(room.id, lead.id);
       }
