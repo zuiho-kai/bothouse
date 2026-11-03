@@ -38,7 +38,9 @@ function arg(name, fallback) {
   return i >= 0 ? process.argv[i + 1] : fallback;
 }
 
-const outDir = resolve(arg('--out', ''));
+// 不传 --out 时不能用 resolve('')：那会变成当前目录，把截图撒进仓库根。
+const outArg = arg('--out', undefined);
+const outDir = outArg ? resolve(outArg) : '';
 const keep = process.argv.includes('--keep');
 const root = mkdtempSync(join(tmpdir(), 'desk-e2e-'));
 const dirs = {
