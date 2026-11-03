@@ -175,6 +175,14 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   const steps = role === 'progress' ? shown.slice(shown.indexOf('\n') + 1) : ''
   const stepsMarkdown = useMemo(() => (steps === '' ? '' : softBreaksToHard(steps)), [steps])
   const fullTime = new Date(message.created_at * 1000).toLocaleString()
+  const editButtonRef = useRef<HTMLButtonElement>(null)
+  const wasEditing = useRef(false)
+  const isEditing = own?.editing !== undefined
+  useEffect(() => {
+    // The edit button is recreated after save/cancel; the old DOM node is detached.
+    if (wasEditing.current && !isEditing) editButtonRef.current?.focus()
+    wasEditing.current = isEditing
+  }, [isEditing])
 
   const retryButtons = (role === 'failure' || card?.state === 'failed') && card !== undefined && (
     <div className={css.cardButtons}>
@@ -255,7 +263,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
           {message.edited_at !== undefined && <span className={css.edited} title={new Date(message.edited_at * 1000).toLocaleString()}>{t('messageEdited')}</span>}
           {own !== undefined && own.editing === undefined && (
             <span className={css.ownActions}>
-              <button type="button" className={css.linkButton} onClick={own.onStartEdit}>{t('messageEdit')}</button>
+              <button ref={editButtonRef} type="button" className={css.linkButton} onClick={own.onStartEdit}>{t('messageEdit')}</button>
               <button type="button" className={css.linkButton} onClick={own.onWithdraw}>{t('messageWithdraw')}</button>
             </span>
           )}
@@ -452,6 +460,51 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   const [dialog, setDialog] = useState<ChannelMember | null | undefined>(undefined)
   const [modelsOpen, setModelsOpen] = useState(false)
   const [drawer, setDrawer] = useState<'rooms' | 'members' | undefined>(undefined)
+  const roomsRef = useRef<HTMLElement>(null)
+  const membersRef = useRef<HTMLElement>(null)
+  const chatRef = useRef<HTMLElement>(null)
+  const roomsToggleRef = useRef<HTMLButtonElement>(null)
+  const membersToggleRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (drawer === undefined) return
+    const surface = drawer === 'rooms' ? roomsRef.current : membersRef.current
+    const opener = drawer === 'rooms' ? roomsToggleRef.current : membersToggleRef.current
+    if (surface === null) return
+    const background = [chatRef.current, drawer === 'rooms' ? membersRef.current : roomsRef.current]
+      .filter((node): node is HTMLElement => node !== null)
+    const previousInert = background.map(node => node.inert)
+    background.forEach(node => { node.inert = true })
+    const controls = (): HTMLElement[] => Array.from(surface.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+    )).filter(node => node.tabIndex >= 0 && node.getClientRects().length > 0)
+    ;(controls()[0] ?? surface).focus()
+    const onKey = (event: globalThis.KeyboardEvent): void => {
+      // A nested task/settings dialog owns its own focus cycle and Escape.
+      const target = event.target as HTMLElement
+      const nested = target.closest('[role="dialog"][aria-modal="true"]')
+      if (nested !== null && nested !== surface) return
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        setDrawer(undefined)
+      } else if (event.key === 'Tab') {
+        const items = controls()
+        const first = items[0]
+        const last = items[items.length - 1]
+        if (!items.includes(document.activeElement as HTMLElement) ||
+            (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+          event.preventDefault()
+          ;(event.shiftKey ? last ?? surface : first ?? surface).focus()
+        }
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      background.forEach((node, index) => { node.inert = previousInert[index] as boolean })
+      opener?.focus()
+    }
+  }, [drawer])
   // Wide-window side columns hidden by the user (#124); narrow windows use the drawers instead.
   const [roomsHidden, setRoomsHidden] = useState(false)
   const [membersHidden, setMembersHidden] = useState(false)
@@ -461,9 +514,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   const [retryingId, setRetryingId] = useState<number | undefined>(undefined)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const settingsButtonRef = useRef<HTMLButtonElement>(null)
+  const settingsReturnRef = useRef<HTMLButtonElement | null>(null)
   useEffect(() => {
     if (!settingsOpen) return
-    const opener = settingsButtonRef.current
+    const opener = settingsReturnRef.current
     return () => { opener?.focus() }
   }, [settingsOpen])
   useEffect(() => { setSettingsOpen(false) }, [state.roomId])
@@ -748,9 +802,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   }
 
   return (
-    <div className={[css.page, roomsHidden ? css.roomsHidden : '', membersHidden ? css.membersHidden : ''].filter(Boolean).join(' ')} onKeyDown={event => { if (event.key === 'Escape') setDrawer(undefined) }}>
+    <div className={[css.page, roomsHidden ? css.roomsHidden : '', membersHidden ? css.membersHidden : ''].filter(Boolean).join(' ')}>
       {drawer !== undefined && <button className={css.drawerBackdrop} aria-label={t('closeDrawer')} onClick={() => setDrawer(undefined)} />}
-      <nav className={drawer === 'rooms' ? `${css.rooms} ${css.drawerOpen}` : css.rooms} aria-label={t('rooms')}>
+      <nav ref={roomsRef} className={drawer === 'rooms' ? `${css.rooms} ${css.drawerOpen}` : css.rooms} aria-label={t('rooms')} role={drawer === 'rooms' ? 'dialog' : undefined} aria-modal={drawer === 'rooms' ? true : undefined} tabIndex={drawer === 'rooms' ? -1 : undefined}>
         <div className={css.groupHead}>
           <h3 className={css.groupTitle}>{t('rooms')}</h3>
           <button type="button" className={css.iconButton} title={t('newRoom')} aria-label={t('newRoom')} onClick={() => { setNewRoom(''); setRoomError(undefined) }}>+</button>
@@ -794,9 +848,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           )
         })}
       </nav>
-      <section className={css.chat}>
+      <section ref={chatRef} className={css.chat}>
         <header className={css.chatHead}>
-          <button type="button" className={css.mobileButton} aria-label={t('showRooms')} aria-expanded={drawer === 'rooms'} onClick={() => setDrawer(drawer === 'rooms' ? undefined : 'rooms')}>☰</button>
+          <button ref={roomsToggleRef} type="button" className={css.mobileButton} aria-label={t('showRooms')} aria-expanded={drawer === 'rooms'} onClick={() => setDrawer(drawer === 'rooms' ? undefined : 'rooms')}>☰</button>
           <button type="button" className={css.panelToggle} title={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-label={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-expanded={!roomsHidden} onClick={() => { setRoomsHidden(!roomsHidden) }}>{roomsHidden ? '»' : '«'}</button>
           <span className={css.hash} aria-hidden>#</span><span className={css.roomName}>{room?.name}</span>
           <span className={css.headMeta}>
@@ -810,7 +864,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
             </span>
           )}
           <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
-          <button type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
+          <button ref={membersToggleRef} type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
         </header>
         <div
           ref={logRef}
@@ -975,9 +1029,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           </div>
         </div>
       </section>
-      <aside className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members}>
+      <aside ref={membersRef} className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members} role={drawer === 'members' ? 'dialog' : undefined} aria-modal={drawer === 'members' ? true : undefined} aria-label={t('activityPanel')} tabIndex={drawer === 'members' ? -1 : undefined}>
         <div className={css.membersHead}><span className={css.membersHeadTitle}>{t('activityPanel')}</span></div>
-        <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { setDrawer(undefined); setSettingsOpen(true) }}>
+        <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { settingsReturnRef.current = drawer === 'members' ? membersToggleRef.current : settingsButtonRef.current; setDrawer(undefined); setSettingsOpen(true) }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9.5 3-.7 2.3-2 .9-2.2-.6-2.5 4.3 1.6 1.7v2.3l-1.6 1.7 2.5 4.3 2.2-.6 2 .9.7 2.3h5l.7-2.3 2-.9 2.2.6 2.5-4.3-1.6-1.7v-2.3l1.6-1.7-2.5-4.3-2.2.6-2-.9L14.5 3Z" /><circle cx="12" cy="12.75" r="3" /></svg>
           {t('channelSettings')}
         </button>

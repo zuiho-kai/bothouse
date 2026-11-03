@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 4dec95acd58cc0ba5ea90edee7732b959b3c167b50174e7d39c233902af6c9f4
+// dsh-client-source-sha256: 929594beb513fe47688d47c3cd57239a1ff1f0c4ab35047596162f07917b2aa5
 // dsh-style-sha256: 64684194a1ee88bde411133c950868761c94b59fbf4c7305dcf3484af45a16c5
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -18914,6 +18914,13 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 	const steps = role === "progress" ? shown.slice(shown.indexOf("\n") + 1) : "";
 	const stepsMarkdown = (0, react.useMemo)(() => steps === "" ? "" : softBreaksToHard(steps), [steps]);
 	const fullTime = (/* @__PURE__ */ new Date(message.created_at * 1e3)).toLocaleString();
+	const editButtonRef = (0, react.useRef)(null);
+	const wasEditing = (0, react.useRef)(false);
+	const isEditing = own?.editing !== void 0;
+	(0, react.useEffect)(() => {
+		if (wasEditing.current && !isEditing) editButtonRef.current?.focus();
+		wasEditing.current = isEditing;
+	}, [isEditing]);
 	const retryButtons = (role === "failure" || card?.state === "failed") && card !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: ChannelsPage_module_default.cardButtons,
 		children: [card.state !== "retried" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
@@ -19069,6 +19076,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 							own !== void 0 && own.editing === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 								className: ChannelsPage_module_default.ownActions,
 								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									ref: editButtonRef,
 									type: "button",
 									className: ChannelsPage_module_default.linkButton,
 									onClick: own.onStartEdit,
@@ -19417,6 +19425,49 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 	const [dialog, setDialog] = (0, react.useState)(void 0);
 	const [modelsOpen, setModelsOpen] = (0, react.useState)(false);
 	const [drawer, setDrawer] = (0, react.useState)(void 0);
+	const roomsRef = (0, react.useRef)(null);
+	const membersRef = (0, react.useRef)(null);
+	const chatRef = (0, react.useRef)(null);
+	const roomsToggleRef = (0, react.useRef)(null);
+	const membersToggleRef = (0, react.useRef)(null);
+	(0, react.useEffect)(() => {
+		if (drawer === void 0) return;
+		const surface = drawer === "rooms" ? roomsRef.current : membersRef.current;
+		const opener = drawer === "rooms" ? roomsToggleRef.current : membersToggleRef.current;
+		if (surface === null) return;
+		const background = [chatRef.current, drawer === "rooms" ? membersRef.current : roomsRef.current].filter((node) => node !== null);
+		const previousInert = background.map((node) => node.inert);
+		background.forEach((node) => {
+			node.inert = true;
+		});
+		const controls = () => Array.from(surface.querySelectorAll("button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex=\"-1\"])")).filter((node) => node.tabIndex >= 0 && node.getClientRects().length > 0);
+		(controls()[0] ?? surface).focus();
+		const onKey = (event) => {
+			const nested = event.target.closest("[role=\"dialog\"][aria-modal=\"true\"]");
+			if (nested !== null && nested !== surface) return;
+			if (event.key === "Escape") {
+				event.preventDefault();
+				event.stopPropagation();
+				setDrawer(void 0);
+			} else if (event.key === "Tab") {
+				const items = controls();
+				const first = items[0];
+				const last = items[items.length - 1];
+				if (!items.includes(document.activeElement) || (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+					event.preventDefault();
+					(event.shiftKey ? last ?? surface : first ?? surface).focus();
+				}
+			}
+		};
+		document.addEventListener("keydown", onKey);
+		return () => {
+			document.removeEventListener("keydown", onKey);
+			background.forEach((node, index) => {
+				node.inert = previousInert[index];
+			});
+			opener?.focus();
+		};
+	}, [drawer]);
 	const [roomsHidden, setRoomsHidden] = (0, react.useState)(false);
 	const [membersHidden, setMembersHidden] = (0, react.useState)(false);
 	const [newRoom, setNewRoom] = (0, react.useState)(void 0);
@@ -19425,9 +19476,10 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 	const [retryingId, setRetryingId] = (0, react.useState)(void 0);
 	const [settingsOpen, setSettingsOpen] = (0, react.useState)(false);
 	const settingsButtonRef = (0, react.useRef)(null);
+	const settingsReturnRef = (0, react.useRef)(null);
 	(0, react.useEffect)(() => {
 		if (!settingsOpen) return;
-		const opener = settingsButtonRef.current;
+		const opener = settingsReturnRef.current;
 		return () => {
 			opener?.focus();
 		};
@@ -19777,9 +19829,6 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 			roomsHidden ? ChannelsPage_module_default.roomsHidden : "",
 			membersHidden ? ChannelsPage_module_default.membersHidden : ""
 		].filter(Boolean).join(" "),
-		onKeyDown: (event) => {
-			if (event.key === "Escape") setDrawer(void 0);
-		},
 		children: [
 			drawer !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 				className: ChannelsPage_module_default.drawerBackdrop,
@@ -19787,8 +19836,12 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 				onClick: () => setDrawer(void 0)
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("nav", {
+				ref: roomsRef,
 				className: drawer === "rooms" ? `${ChannelsPage_module_default.rooms} ${ChannelsPage_module_default.drawerOpen}` : ChannelsPage_module_default.rooms,
 				"aria-label": t("rooms"),
+				role: drawer === "rooms" ? "dialog" : void 0,
+				"aria-modal": drawer === "rooms" ? true : void 0,
+				tabIndex: drawer === "rooms" ? -1 : void 0,
 				children: [
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: ChannelsPage_module_default.groupHead,
@@ -19874,12 +19927,14 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 				]
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+				ref: chatRef,
 				className: ChannelsPage_module_default.chat,
 				children: [
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("header", {
 						className: ChannelsPage_module_default.chatHead,
 						children: [
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								ref: roomsToggleRef,
 								type: "button",
 								className: ChannelsPage_module_default.mobileButton,
 								"aria-label": t("showRooms"),
@@ -19931,6 +19986,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 								children: membersHidden ? "«" : "»"
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								ref: membersToggleRef,
 								type: "button",
 								className: ChannelsPage_module_default.mobileButton,
 								"aria-label": t("showMembers"),
@@ -20189,7 +20245,12 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 				]
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("aside", {
+				ref: membersRef,
 				className: drawer === "members" ? `${ChannelsPage_module_default.members} ${ChannelsPage_module_default.drawerOpen}` : ChannelsPage_module_default.members,
+				role: drawer === "members" ? "dialog" : void 0,
+				"aria-modal": drawer === "members" ? true : void 0,
+				"aria-label": t("activityPanel"),
+				tabIndex: drawer === "members" ? -1 : void 0,
 				children: [
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: ChannelsPage_module_default.membersHead,
@@ -20204,6 +20265,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 						className: `${ChannelsPage_module_default.addMemberButton} ${ChannelsPage_module_default.settingsButton}`,
 						disabled: room === void 0,
 						onClick: () => {
+							settingsReturnRef.current = drawer === "members" ? membersToggleRef.current : settingsButtonRef.current;
 							setDrawer(void 0);
 							setSettingsOpen(true);
 						},

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // #113: where messages and cards sit — grouped runs, system dividers, inline failures,
 // the permission tray above the composer, and the activity column.
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChannelsPage, cardRole, continues, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
 import type { ChannelMessage, ChannelSnapshot } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
@@ -94,4 +94,64 @@ it('lists who is at work in the channel and its workspaces in the activity colum
   expect(screen.getByText(zh.headBusy.replace('{names}', '鲸'))).toBeTruthy()
   // The workspace row keeps its plain name: the busy avatars are decorative.
   expect(screen.getByRole('button', { name: '工作区1' })).toBeTruthy()
+})
+
+describe('mobile drawer focus lifecycle (#117)', () => {
+  beforeEach(() => {
+    // jsdom has no layout; browser regressions separately check real visibility.
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList)
+  })
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it.each(['rooms', 'members'] as const)('takes focus, traps Tab and restores the %s opener on Escape', kind => {
+    const view = render(<ChannelsPage {...props(base)} />)
+    const opener = screen.getByRole('button', { name: kind === 'rooms' ? zh.showRooms : zh.showMembers })
+    fireEvent.click(opener)
+    const drawer = screen.getByRole('dialog', { name: kind === 'rooms' ? zh.rooms : zh.activityPanel })
+    expect(drawer.contains(document.activeElement)).toBe(true)
+    expect(view.container.querySelector('section')?.inert).toBe(true)
+    const controls = Array.from(drawer.querySelectorAll<HTMLElement>('button:not(:disabled)'))
+    controls[controls.length - 1]?.focus()
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Tab' })
+    expect(document.activeElement).toBe(controls[0])
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(controls[controls.length - 1])
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+    expect(view.container.querySelector('section')?.inert).toBeFalsy()
+  })
+
+  it('restores the room opener after selecting a room or pressing the backdrop', () => {
+    const selectRoom = vi.fn()
+    render(<ChannelsPage {...props(base, { selectRoom })} />)
+    const opener = screen.getByRole('button', { name: zh.showRooms })
+    fireEvent.click(opener)
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'general' }))
+    expect(selectRoom).toHaveBeenCalledWith(1)
+    expect(document.activeElement).toBe(opener)
+    fireEvent.click(opener)
+    fireEvent.click(screen.getByRole('button', { name: zh.closeDrawer }))
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it('returns to the activity opener when a settings dialog closes after the drawer', () => {
+    render(<ChannelsPage {...props(base)} />)
+    const opener = screen.getByRole('button', { name: zh.showMembers })
+    fireEvent.click(opener)
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: zh.channelSettings }))
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    expect(document.activeElement).toBe(opener)
+  })
+})
+
+it.each(['Escape', 'Enter'])('returns to the recreated edit button after %s', async key => {
+  const editMessage = vi.fn(async () => {})
+  render(<ChannelsPage {...props({ ...base, messages: [msg(1, { author_kind: 'user', author: 'me', name: '我' })] }, { editMessage })} />)
+  fireEvent.click(screen.getByRole('button', { name: zh.messageEdit }))
+  const editor = screen.getByRole('textbox', { name: zh.messageEdit })
+  fireEvent.change(editor, { target: { value: 'changed' } })
+  fireEvent.keyDown(editor, { key })
+  await waitFor(() => { expect(document.activeElement).toBe(screen.getByRole('button', { name: zh.messageEdit })) })
+  expect(editMessage).toHaveBeenCalledTimes(key === 'Enter' ? 1 : 0)
 })
