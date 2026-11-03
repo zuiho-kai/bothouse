@@ -1,4 +1,5 @@
 import { backendLabel, roleLabel } from '@/lib/roleIdentity';
+import { withBase } from '@/lib/basePath';
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link, useNavigate } from 'react-router-dom';
@@ -184,7 +185,7 @@ export default function ProjectDetail() {
     new Promise<void>((resolve) => {
       const start = Date.now();
       const poll = () => {
-        fetch('/api/v1/status')
+        fetch(withBase('/api/v1/status'))
           .then((r) => { if (r.ok) resolve(); else throw new Error(); })
           .catch(() => {
             if (Date.now() - start > maxMs) { resolve(); return; }

@@ -11,6 +11,8 @@ it.each([true, false])('injects channel actions and uses the settings shell when
   const shellStore = { spec: {}, create: vi.fn() }
   const openSection = vi.fn()
   const cleanups: (() => void)[] = []
+  const sidebarIds: string[] = []
+  const mainKeys: string[] = []
   const ctx = {
     effect: (effect: () => (() => void)) => { cleanups.push(effect()) },
     locale: { register: () => () => {}, bind: () => (key: string) => key },
@@ -18,8 +20,10 @@ it.each([true, false])('injects channel actions and uses the settings shell when
       entriesOfSlot: () => available ? [{ store: shellStore }] : [],
       subscribe: () => () => {},
       inject: (_slot: string, register: () => (() => void)) => { cleanups.push(register()) },
-      register: (definition: { name: string; inject?: () => ChannelsInjected }) => {
-        if (definition.name === 'main') injectMain = definition.inject
+      register: (definition: { name: string; key?: string; id?: string; inject?: () => ChannelsInjected }) => {
+        if (definition.name === 'main') mainKeys.push(definition.key!)
+        if (definition.name === 'main' && definition.key === 'channels') injectMain = definition.inject
+        if (definition.name === 'sidebar.panellist') sidebarIds.push(definition.id!)
         return () => {}
       },
     },
@@ -29,6 +33,9 @@ it.each([true, false])('injects channel actions and uses the settings shell when
     apply(ctx as unknown as Parameters<typeof apply>[0])
     const channels = createSource.mock.results[0].value as ReturnType<typeof channelSource.createChannelSource>
     expect(injectMain).toBeTypeOf('function')
+    // #105: desk, wiki galaxy and the bothouse panel sit next to channels, each with its own main panel.
+    expect(sidebarIds).toEqual(['channels', 'collab-desk', 'wiki-galaxy', 'bothouse-panel'])
+    expect(mainKeys).toEqual(['channels', 'collab-desk', 'wiki-galaxy', 'bothouse-panel'])
     const injected = injectMain!({ openSection })
     expect(injected.openModelSettings()).toBe(available)
     if (available) expect(openSection).toHaveBeenCalledWith('models')

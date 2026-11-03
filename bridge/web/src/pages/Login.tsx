@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { withBase } from '@/lib/basePath';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Zap, AlertCircle, Languages } from 'lucide-react';
@@ -115,7 +116,7 @@ export default function Login() {
         <div className="bg-white/90 dark:bg-[rgba(15,15,20,0.9)] backdrop-blur-xl border border-gray-200/50 dark:border-gray-800 rounded-2xl shadow-2xl shadow-black/10 dark:shadow-black/40 p-8">
           {/* Logo */}
           <div className="flex justify-center mb-6">
-            <img src="/favicon.svg" alt="bothouse" className="w-14 h-14 rounded-2xl shadow-lg" />
+            <img src={withBase('/favicon.svg')} alt="bothouse" className="w-14 h-14 rounded-2xl shadow-lg" />
           </div>
           
           <h1 className="text-2xl font-bold text-center text-gray-900 dark:text-white mb-1">{t('login.title')}</h1>

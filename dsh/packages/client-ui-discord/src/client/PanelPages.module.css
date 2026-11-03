@@ -1,0 +1,18 @@
+/* #105 sidebar pages: framed collab pages (desk, wiki galaxy) and the bothouse panel. */
+.embed {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding-top: var(--dsh-frame-top-clearance, 0px);
+  background: var(--dsw-alias-bg-base);
+}
+
+.frame {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--dsw-alias-bg-base);
+}

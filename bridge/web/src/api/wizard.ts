@@ -1,4 +1,5 @@
 import api from './client';
+import { withBase } from '@/lib/basePath';
 
 export interface LocalCLI {
   agent_type: string; label: string; binary: string; path: string; version?: string;
@@ -113,7 +114,7 @@ export const saveProjectPersona = (project: string, content: string) =>
 
 /** POST /setup/apply returns ok:false with the result in data; keep the result either way. */
 export async function applyWizard(req: WizardRequest): Promise<WizardResult> {
-  const res = await fetch('/api/v1/setup/apply', {
+  const res = await fetch(withBase('/api/v1/setup/apply'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(api.getToken() ? { Authorization: `Bearer ${api.getToken()}` } : {}) },
     body: JSON.stringify(req),
@@ -135,7 +136,7 @@ export interface DSHInstallEvent { step?: string; line?: string; done?: boolean;
 
 /** Runs the plugin install, calling onEvent per streamed line; resolves with the final status or throws the readable error. */
 export async function installDSHPlugin(lang: string, onEvent: (e: DSHInstallEvent) => void): Promise<DSHStatus> {
-  const res = await fetch('/api/v1/setup/dsh/install', {
+  const res = await fetch(withBase('/api/v1/setup/dsh/install'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(api.getToken() ? { Authorization: `Bearer ${api.getToken()}` } : {}) },
     body: JSON.stringify({ lang }),

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { withBase } from '@/lib/basePath';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Bot, Check, CheckCircle2, Copy, ExternalLink, Globe, House, Loader2, Puzzle, MessageCircle, MessageSquare, Plus, RefreshCw, Smartphone, Trash2, XCircle } from 'lucide-react';
@@ -501,11 +502,11 @@ export default function SetupWizard() {
         )}
         <div className="setup-team" aria-label={T.teamCliNames}>
           {[
-            { src: '/avatars/orange.png', name: 'Claude' },
-            { src: '/avatars/dragon.png', name: 'Codex' },
-            { src: '/avatars/rainbow.png', name: 'Gemini' },
-            { src: '/avatars/whale.png', name: 'DSH (DeepSeek Harness)' },
-            { src: '/avatars/lanxi.png', name: 'MiniMax' },
+            { src: withBase('/avatars/orange.png'), name: 'Claude' },
+            { src: withBase('/avatars/dragon.png'), name: 'Codex' },
+            { src: withBase('/avatars/rainbow.png'), name: 'Gemini' },
+            { src: withBase('/avatars/whale.png'), name: 'DSH (DeepSeek Harness)' },
+            { src: withBase('/avatars/lanxi.png'), name: 'MiniMax' },
           ].map(({ src, name }) => (
             <span key={name} title={name}>
               <img src={src} alt={name} width={42} height={42} />

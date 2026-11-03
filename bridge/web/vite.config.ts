@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 
 export default defineConfig({
+  // Relative asset URLs resolve against <base href> in index.html, so the panel also works
+  // when a proxy mounts it under a sub-path (src/lib/basePath.ts).
+  base: './',
   plugins: [react()],
   resolve: {
     alias: {
