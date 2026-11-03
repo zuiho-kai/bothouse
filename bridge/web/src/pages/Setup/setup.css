@@ -22,7 +22,7 @@
 }
 .theme-yellow .setup-welcome h1 { color: #2a2420; }
 .theme-yellow :is(.setup-intro, .setup-team small) { color: #6b5f52; }
-:root.theme-yellow .setup-layout .setup-card { border-color: #e9e1d2; box-shadow: 0 12px 40px -16px rgb(120 80 30 / .16); }
+:root.theme-yellow .setup-layout .setup-card { border-color: #e9e1d2; box-shadow: 0 1px 2px rgb(120 80 30 / .06); }
 .setup-layout main { padding: 32px 24px 16px; }
 .setup-welcome { text-align: center; padding: 4px 0 8px; }
 .setup-home {
@@ -30,14 +30,14 @@
   color: rgb(var(--color-accent-text)); background: rgb(var(--color-accent) / .09);
 }
 .setup-eyebrow {
-  margin: 16px 0 8px; font-size: 11px; letter-spacing: .16em;
+  margin: 16px 0 8px; font-size: 12px; letter-spacing: .16em;
   font-weight: 700; color: rgb(var(--color-accent-text));
 }
 .setup-welcome h1 { font-size: clamp(26px, 4vw, 38px); font-weight: 750; letter-spacing: -.035em; color: #272938; }
 .setup-intro { margin: 12px auto 0; max-width: 540px; color: #676c80; font-size: 14px; line-height: 1.8; }
 .setup-team { display: flex; justify-content: center; gap: 12px; margin-top: 20px; }
 .setup-team span { display: flex; flex-direction: column; align-items: center; gap: 5px; }
-.setup-team small { font-size: 10px; color: #676c80; }
+.setup-team small { font-size: 12px; color: #676c80; }
 .setup-team img {
   width: 42px;
   height: 42px;
@@ -53,9 +53,10 @@
 .setup-steps { justify-content: center; }
 .setup-steps span { padding: 7px 12px; }
 .setup-card { padding: 28px; border-radius: 24px; }
+.dark .setup-card { backdrop-filter: none; background: #14141c; }
 :root:not(.dark) .setup-card {
-  background: #fff; border-color: #e5e7f2;
-  box-shadow: 0 12px 40px -16px rgb(54 60 105 / .16);
+  background: #fff; border-color: #e5e7f2; backdrop-filter: none;
+  box-shadow: 0 1px 2px rgb(54 60 105 / .06);
 }
 .setup-platform { min-height: 142px; border-radius: 16px; }
 .setup-platform p { line-height: 1.8; margin-top: 12px; }
