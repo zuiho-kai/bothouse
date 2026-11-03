@@ -8,6 +8,7 @@
   cc-connect 把 team 目录下的 *.json 当队友状态文件读，core/team.go teamSummary）。
 - 读：ctxsvc.context 把整张板附进每个 bot 每轮的上下文（板子变了才重推）；gate 判收件人时也读（gate.addressee）。
 - 写：../lead/board（本文件的命令行）。
+- 事件：add/update/pause/交回/退回/done 往同目录 board-events.jsonl 追一行，供团队工作台地图飞光（Issue #876）。
 - BOARD_DIR：环境变量，默认 <GATE_SETUP_DIR>/team（GATE_SETUP_DIR 不设 = 产品数据目录，见 datadir.py，同 gate 和 lead.py）；
   建议设成 cc-connect 的 team_status_dir，和队友状态放一起。
 
@@ -185,6 +186,48 @@ def short(it):
     return it.get("short") or short_of(it.get("what"))
 
 
+# 团队工作台（Issue #876）：任务板每变一次，往 board-events.jsonl 追一行，供协作插件读来点亮地图上的派活光。
+# 格式固定（ts/id/kind/from/to/title，note 可选），改之前先和读的一方对齐；写事件失败不能影响任务板本身。
+EVENTS = "board-events.jsonl"
+_EVENT_SPLIT = re.compile(r"[、,，/]")
+_EVENT_TAG = re.compile(r"[（(].*$")
+_EVENT_WS = re.compile(r"^工作区\d+\s*")
+_RETURNED_RE = re.compile(r"已交|交回|result_ready", re.I)
+_REJECTED_RE = re.compile(r"退回|打回|返工")
+
+
+def _member(who):
+    """who 里第一个成员名：「肥鱼（复审）」「肥鱼、C酱」「工作区1肥鱼」都取 肥鱼。"""
+    s = _EVENT_TAG.sub("", _EVENT_SPLIT.split(str(who or ""), 1)[0]).strip()
+    return _EVENT_WS.sub("", s).strip()
+
+
+def event(nid, kind, it, note=None):
+    rec = {"ts": datetime.now().astimezone().isoformat(timespec="seconds"),
+           "id": str(nid), "kind": kind,
+           "from": str(it.get("dispatcher") or ""), "to": _member(it.get("who")),
+           "title": short(it)}
+    if note:
+        rec["note"] = str(note)
+    try:
+        with open(_path(EVENTS), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except (OSError, TypeError, ValueError) as e:
+        print(f"board: 事件没写进 {EVENTS}（{e}），任务板已照常更新", file=sys.stderr)
+
+
+def _update_event(nid, status, before, hit):
+    """update 的这次变化对应哪种事：收尾词交给 done 记，退回归退回，交回归交回，换人归派活。"""
+    if CLOSED_RE.match(status):
+        return
+    if _REJECTED_RE.search(status):
+        event(nid, "rejected", hit, status)
+    elif _RETURNED_RE.search(status):
+        event(nid, "returned", hit, status)
+    elif hit.get("who") != before.get("who"):
+        event(nid, "assigned", hit)
+
+
 def _cur_channel():
     k = os.environ.get("CC_SESSION_KEY", "")  # 形如 discord:<频道 id>
     c = k.removeprefix("discord:")
@@ -245,6 +288,7 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None)
                 it["ch"] = ws.split(":", 1)[1]
         cur.append(it)
         _write(cur)
+        event(nid, "created", it)
     return nid
 
 
@@ -311,6 +355,7 @@ def update(nid, status, where=None, who=None, nxt=None):
         if not hit.get("ch") and _cur_channel():
             hit["ch"] = _cur_channel()
         _write(cur)
+        _update_event(nid, status, before, hit)
     _del_timer(tid)
     return before
 
@@ -399,6 +444,7 @@ def pause(nid, why=None):
             hit.pop("pause_why", None)
         tid = hit.pop("guard", None)  # 暂停、提问让出（ask 也走这里）：不再等工作区交回
         _write(cur)
+        event(nid, "paused", hit, why)
     _del_timer(tid)
     return {**hit, "ws": ws} if ws else hit
 
@@ -760,6 +806,7 @@ def returned(nid, reviewer, at=None, bound=None, receipt=None):
         _back_to_chat(hit)
         tid = hit.pop("guard", None)
         _write(cur)
+        event(nid, "returned", hit)
         if archived is not None:
             _write([i for i in archived if i["id"] != nid], "board-done.jsonl")
     _del_timer(tid)
@@ -782,6 +829,7 @@ def reject(nid, reason):
         hit["pause_why"] = "验收退回：" + reason
         hit["status"] = hit["pause_why"]
         _write(cur)
+        event(nid, "rejected", hit, reason)
     return True
 
 
@@ -849,6 +897,7 @@ def done(nid, rework=None, why=None):
                 if why:
                     rec["rework_why"] = why
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        event(nid, "done", hit)
     _del_timer(tid)
     return True
 

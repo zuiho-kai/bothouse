@@ -1,5 +1,6 @@
 """任务板（board.py）和它进每轮上下文（ctxsvc.board_items）的最小测试：python3 -I test_board.py"""
-import json, os, subprocess, sys, tempfile, unittest
+import contextlib, io, json, os, subprocess, sys, tempfile, unittest
+from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -318,6 +319,65 @@ esac
 
     def test_open_pr_hint_off_without_repo(self):
         self.assertIsNone(board.open_pr_hint())
+
+
+class BoardEvents(unittest.TestCase):
+    """任务板事件流（Issue #876）：每次真实变化追加一行，页面按 kind 飞光。"""
+
+    def setUp(self):
+        for f in Path(TMP).glob("board*"):
+            f.unlink()
+        os.environ["CC_PROJECT"] = "lead"
+        os.environ["CC_BIN"] = "false"
+        board.set_prune_conf(on=False)
+
+    def tearDown(self):
+        os.environ.pop("CC_PROJECT", None)
+
+    def events(self):
+        p = Path(TMP) / board.EVENTS
+        return [json.loads(l) for l in p.read_text().splitlines()] if p.exists() else []
+
+    def test_add_update_pause_done_kinds(self):
+        board.add("修登录页", "a.md", "进行中", "肥鱼（复审）", short_name="登录")
+        board.update(1, "改派", who="G哥")
+        board.update(1, "已交回：报告到了")
+        board.update(1, "打回：少证据")
+        board.pause(1, "等显卡")
+        board.resume(1)
+        board.done(1, 0)
+        evs = self.events()
+        self.assertEqual([e["kind"] for e in evs],
+                         ["created", "assigned", "returned", "rejected", "paused", "done"])
+        self.assertEqual((evs[0]["id"], evs[0]["from"], evs[0]["to"], evs[0]["title"]),
+                         ("1", "lead", "肥鱼", "登录"))
+        self.assertEqual(evs[1]["to"], "G哥")
+        self.assertEqual(evs[3]["note"], "打回：少证据")
+        self.assertEqual(evs[4]["note"], "等显卡")
+        self.assertIsNotNone(datetime.fromisoformat(evs[0]["ts"]).tzinfo)
+
+    def test_returned_and_reject_entry_points(self):
+        board.add("被验收的活", "-", "进行中", "肥鱼", short_name="验收")
+        self.assertTrue(board.returned(1, "C酱"))
+        self.assertTrue(board.reject(1, "缺复现证据"))
+        evs = self.events()
+        self.assertEqual([e["kind"] for e in evs], ["created", "returned", "rejected"])
+        self.assertEqual(evs[-1]["note"], "缺复现证据")
+
+    def test_append_only_and_write_failure_isolated(self):
+        board.add("A", "-", "进行中", "肥鱼", short_name="A")
+        before = (Path(TMP) / board.EVENTS).read_text()
+        old = board.EVENTS
+        board.EVENTS = "no-such-dir/board-events.jsonl"
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                board.add("B", "-", "进行中", "G哥", short_name="B")
+        finally:
+            board.EVENTS = old
+        self.assertEqual(len(board.items()), 2)  # 事件写不进去，板子照样加
+        self.assertIn("事件没写进", err.getvalue())
+        self.assertTrue((Path(TMP) / board.EVENTS).read_text().startswith(before))  # 只追加，旧行不动
 
 
 if __name__ == "__main__":
