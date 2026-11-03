@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: c6169b4843e9e2e6d885ef37f3a5ee6a3047260c3c6abdb4e3c4c58e93175a1f
+// dsh-client-source-sha256: 4cdb6b6bd9c4f3a8ef008fced3e4c011501f74d835505b158ecc38bde39ca3a8
 // dsh-style-sha256: f5d384a5b03e6c383f622d9f8cb3563fb1695e55146740801d238d6606619709
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -104,6 +104,24 @@ const INITIAL = {
 const MAX_BACKOFF_MS = 3e4;
 /** Messages requested per page, both for the first read and for `loadOlder`. */
 const PAGE_SIZE = 100;
+/** Browser storage key holding the channel the owner had open before a reload. */
+const ROOM_KEY = "dsh-collab.room";
+/** Remember the open channel so reopening the panel returns to it instead of the first one. */
+const rememberRoom = (roomId) => {
+	try {
+		globalThis.localStorage?.setItem(ROOM_KEY, String(roomId));
+	} catch (error) {}
+};
+/** Channel id remembered by an earlier visit, or undefined when absent or unreadable. */
+const rememberedRoom = () => {
+	try {
+		const raw = globalThis.localStorage?.getItem(ROOM_KEY);
+		const id = raw === null || raw === void 0 || raw === "" ? NaN : Number(raw);
+		return Number.isInteger(id) ? id : void 0;
+	} catch (error) {
+		return;
+	}
+};
 /** Messages requested per catch-up read after a reconnect. */
 const CATCH_UP_LIMIT = 200;
 /** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
@@ -319,7 +337,8 @@ function createChannelSource(transport) {
 		try {
 			const state = await request("collab/api/state", { signal: read.controller.signal });
 			if (!current()) return;
-			const roomId = state.rooms.some((r) => r.id === previous.roomId) ? previous.roomId : state.rooms[0]?.id;
+			const remembered = previous.roomId === void 0 ? rememberedRoom() : void 0;
+			const roomId = state.rooms.some((r) => r.id === previous.roomId) ? previous.roomId : state.rooms.some((r) => r.id === remembered) ? remembered : state.rooms[0]?.id;
 			const rows = [];
 			let hasMoreOlder = false;
 			if (roomId !== void 0) {
@@ -391,6 +410,7 @@ function createChannelSource(transport) {
 	};
 	const selectRoom = async (roomId) => {
 		historyEpoch += 1;
+		rememberRoom(roomId);
 		if (roomId !== snapshot.roomId) earlyTasks.clear();
 		const shown = outbox.filter((entry) => entry.roomId === roomId);
 		set(roomId === snapshot.roomId ? {

@@ -26,7 +26,7 @@ export function teamModeRules(mode = DEFAULT_DISPATCH_MODE) {
 /** #597 G24: the open-workspace command, for the selected primary role only, never in bridge prompts. */
 export function workspaceHint(hub, later, memberId, roomId) {
   if (!later?.workspaceInstructions || hub?.primaryIn?.(roomId)?.id !== memberId) return '';
-  return later.workspaceInstructions(memberId, roomId);
+  return later.workspaceInstructions(memberId, roomId) + (later.teamInstructions?.(memberId, roomId) ?? '');
 }
 /**
  * #597 G24: DSH members have no bridge session, so the shared line about `bothouse workspace new` /
