@@ -3664,6 +3664,36 @@ test('#148 withdrawing stops a DSH turn already running, keeps its queue, posts 
   assert.notEqual(hub.store.message(bot.id), undefined);
 });
 
+test('#123 withdrawing a running DSH turn closes its progress card as 已停止, not 失败', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const call = route(hub, gw, members);
+  const { message: m } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 跑起来' });
+  await settle();
+  const ds = dsh.sessions.get(hub.store.binding('ds', 1).session_id);
+  dsh.turn(ds, [], null);
+  const n = ds.turns;
+  dsh.emit(ds, 'tool/call', { turn: n, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"sleep 60"}' });
+  await settle();
+  const cardRow = () => hub.store.page(1, undefined, 10).find(r => r.card !== null);
+  assert.equal(JSON.parse(cardRow().card).state, 'running');
+  assert.deepEqual((await call('DELETE', `/collab/api/messages/${m.id}`)).json.stopped, ['DeepSeek']);
+  await settle();
+  const card = JSON.parse(cardRow().card);
+  assert.equal(card.state, 'stopped', 'the owner stopped it, so the card must not read as failed');
+  assert.equal(card.title, 'DeepSeek · 已停止');
+});
+
+test('channel page (#123): grouped messages keep the avatar column and the empty placeholder is cleared', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const page = await readFile(new URL('./page.html', import.meta.url), 'utf8');
+  assert.match(page, /\.msg\.cont \.avatar \{ visibility: hidden; \}/, 'hiding the avatar must keep its grid slot');
+  assert.match(page, /\.msg > :not\(\.avatar\) \{ grid-column: 2; min-width: 0; \}/, 'the message column stays in column 2');
+  assert.match(page, /log\.querySelector\('\.state\.empty'\)\?\.remove\(\)/, 'the first message takes the empty placeholder down');
+});
+
 function route(hub, gateway, dsh) {
   return async (method, path, body) => {
     const req = new EventEmitter();
