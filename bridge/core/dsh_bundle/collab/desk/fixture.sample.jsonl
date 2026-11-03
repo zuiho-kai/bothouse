@@ -32,3 +32,10 @@
 {"ts":"2026-11-03T11:12:00+08:00","id":"25","kind":"returned","from":"ju","to":"caihongmao","title":"整理周报"}
 {"ts":"2026-11-03T11:13:00+08:00","id":"25","kind":"done","from":"ju","to":"caihongmao","title":"整理周报"}
 {"type":"thinking","ts":"2026-11-03T11:14:00+08:00","room_id":1,"members":[]}
+{"ts":"2026-11-03T11:20:00+08:00","id":"26","kind":"assigned","from":"ju","to":"jingyu","title":"润色更新日志"}
+{"ts":"2026-11-03T11:21:00+08:00","id":"27","kind":"assigned","from":"ju","to":"jingyu","title":"写群公告"}
+{"ts":"2026-11-03T11:22:00+08:00","id":"28","kind":"created","from":"","to":"ju","title":"工作台分身"}
+{"ts":"2026-11-03T11:23:00+08:00","id":"29","kind":"created","from":"","to":"ju","title":"README 第三版"}
+{"ts":"2026-11-03T11:24:00+08:00","id":"30","kind":"created","from":"","to":"ju","title":"模拟盘复盘"}
+{"ts":"2026-11-03T11:30:00+08:00","id":"29","kind":"returned","from":"","to":"ju","title":"README 第三版"}
+{"ts":"2026-11-03T11:32:00+08:00","id":"30","kind":"rejected","from":"","to":"ju","title":"模拟盘复盘","note":"缺对照表"}
