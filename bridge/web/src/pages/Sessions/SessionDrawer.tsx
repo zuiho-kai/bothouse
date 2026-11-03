@@ -55,7 +55,7 @@ export function SessionDrawer({ session, projectLabel, onClose }: DrawerProps) {
     <div className="fixed inset-0 z-[9998]" role="presentation">
       <div
         className={cn(
-          'absolute inset-0 bg-black/25 backdrop-blur-[1px] transition-opacity duration-state ease-ui-standard',
+          'absolute inset-0 bg-black/25 transition-opacity duration-state ease-ui-standard',
           entered ? 'opacity-100' : 'opacity-0'
         )}
         onClick={onClose}
@@ -71,7 +71,7 @@ export function SessionDrawer({ session, projectLabel, onClose }: DrawerProps) {
           entered ? 'translate-x-0' : 'translate-x-full'
         )}
       >
-        <header className="flex items-start justify-between gap-3 border-b border-hairline px-5 py-4">
+        <header data-ui="drawer-header" className="flex items-start justify-between gap-3 border-b border-hairline px-5 py-4">
           <div className="min-w-0">
             <h2 className="truncate text-base font-semibold tracking-tight text-ink">{session.name}</h2>
             <p className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-mute">
@@ -97,7 +97,7 @@ export function SessionDrawer({ session, projectLabel, onClose }: DrawerProps) {
             <Field label={t('sessions.platform')}>{session.platform || '-'}</Field>
             <Field label={t('projects.agent', 'Agent')}>{session.agent_type || '-'}</Field>
             <Field label={t('sessions.sessionKey')}>
-              <span className="font-mono text-[11px] text-ink-soft">{session.session_key || '-'}</span>
+              <code className="font-mono text-xs text-ink-soft">{session.session_key || '-'}</code>
             </Field>
             <Field label={t('sessions.history')}>
               <span className="inline-flex items-center gap-1 tabular-nums">
@@ -117,12 +117,12 @@ export function SessionDrawer({ session, projectLabel, onClose }: DrawerProps) {
             {session.chat_name && <Field label={t('chat.chat', '会话名')}>{session.chat_name}</Field>}
           </section>
 
-          <h3 className="mb-2 mt-5 text-xs font-medium uppercase tracking-wide text-ink-mute">
+          <h3 className="mb-2 mt-5 text-xs font-medium text-ink-mute">
             {t('sessions.lastMessage', '最后一条')}
           </h3>
           {last ? (
             <div className="rounded-card bg-surface-sunken p-3">
-              <div className="mb-1.5 flex items-center gap-1.5 text-[11px] text-ink-mute">
+              <div className="mb-1.5 flex items-center gap-1.5 text-xs text-ink-mute">
                 {last.role === 'user' ? <User size={12} /> : <Bot size={12} className="text-accent-text" />}
                 <span>{last.role}</span>
                 {last.timestamp && <span className="ml-auto tabular-nums">{formatTime(last.timestamp)}</span>}
@@ -136,7 +136,7 @@ export function SessionDrawer({ session, projectLabel, onClose }: DrawerProps) {
           )}
         </div>
 
-        <footer className="border-t border-hairline p-4">
+        <footer data-ui="drawer-footer" className="border-t border-hairline p-4">
           <Link
             to={`/sessions/${session._project}/${session.id}`}
             className={cn(
@@ -150,7 +150,7 @@ export function SessionDrawer({ session, projectLabel, onClose }: DrawerProps) {
             <ArrowRight size={15} />
           </Link>
           {!session.live && (
-            <p className="mt-2 text-center text-[11px] text-ink-mute">{t('sessions.notLiveHint')}</p>
+            <p className="mt-2 text-center text-xs text-ink-mute">{t('sessions.notLiveHint')}</p>
           )}
         </footer>
       </aside>

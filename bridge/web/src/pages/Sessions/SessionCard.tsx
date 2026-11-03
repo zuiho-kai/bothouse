@@ -19,9 +19,6 @@ export const sessionKey = (s: FlatSession) => `${s._project}::${s.id}`;
 function LiveDot({ live }: { live: boolean }) {
   return (
     <span className="relative inline-flex h-2 w-2 shrink-0" aria-hidden>
-      {live && (
-        <span className="absolute inset-0 animate-ping rounded-full bg-emerald-500/60 motion-reduce:animate-none" />
-      )}
       <span className={cn('relative h-2 w-2 rounded-full', live ? 'bg-emerald-500' : 'bg-ink-mute/50')} />
     </span>
   );
@@ -57,10 +54,10 @@ function SelectBox({
     >
       <span
         className={cn(
-          'grid h-6 w-6 place-items-center rounded-[7px] transition-all duration-state ease-ui-standard',
+          'grid h-6 w-6 place-items-center rounded-[7px] transition-[background-color,opacity,box-shadow] duration-state ease-ui-standard',
           selected
             ? 'bg-accent-text text-white opacity-100 ring-1 ring-accent-text'
-            : 'bg-surface text-transparent ring-1 ring-hairline opacity-0 group-hover/session:opacity-100 group-focus-within/session:opacity-100'
+            : 'bg-surface text-ink-mute ring-1 ring-hairline opacity-0 group-hover/session:opacity-100 group-focus-within/session:opacity-100'
         )}
       >
         <Check size={14} strokeWidth={3} />
@@ -72,10 +69,10 @@ function SelectBox({
 function Preview({ session }: { session: FlatSession }) {
   const { t } = useTranslation();
   const last = session.last_message;
-  if (!last) return <span className="text-xs text-ink-mute">{t('sessions.noMessages')}</span>;
+  if (!last) return <span className="text-[13px] text-ink-mute">{t('sessions.noMessages')}</span>;
   const fromUser = last.role === 'user';
   return (
-    <span className="flex items-center gap-1.5 text-xs text-ink-soft">
+    <span className="flex items-center gap-1.5 text-[13px] text-ink-soft">
       {fromUser ? (
         <User size={12} strokeWidth={1.75} className="shrink-0 text-ink-mute" />
       ) : (
@@ -93,12 +90,14 @@ export function SessionCard({ session, projectLabel, selected, onToggleSelect, o
 
   return (
     <article
+      data-ui="session-card"
+      data-entrance=""
       data-selected={selected || undefined}
       className={cn(
-        'group/session relative flex h-full flex-col rounded-card bg-surface p-4 shadow-ui-gloss-1',
-        'transition-[box-shadow,transform] duration-state ease-ui-standard',
-        'hover:-translate-y-0.5 hover:shadow-ui-gloss-2',
-        selected && 'shadow-[0_0_0_2px_rgb(var(--color-accent-text)/0.45),var(--ui-shadow-2)]'
+        'group/session relative flex h-full flex-col rounded-card border border-hairline bg-surface p-4',
+        'transition-[border-color,transform] duration-state ease-ui-standard',
+        'hover:-translate-y-0.5 hover:border-hairline-strong',
+        selected && 'ring-2 ring-accent-text'
       )}
     >
       <div className="mb-2 flex items-center gap-2">
@@ -108,10 +107,10 @@ export function SessionCard({ session, projectLabel, selected, onToggleSelect, o
           onToggle={() => onToggleSelect(sessionKey(session))}
         />
         <LiveDot live={session.live} />
-        <span className="min-w-0 flex-1 truncate text-[11px] uppercase tracking-wide text-ink-mute">
+        <span className="min-w-0 flex-1 truncate text-[13px] text-ink-mute">
           {projectLabel}
         </span>
-        <span className="shrink-0 text-[11px] tabular-nums text-ink-mute">{updated}</span>
+        <span className="shrink-0 text-[13px] tabular-nums text-ink-mute">{updated}</span>
       </div>
 
       <button
@@ -130,7 +129,7 @@ export function SessionCard({ session, projectLabel, selected, onToggleSelect, o
               {session.platform}
             </Badge>
           )}
-          <span className="inline-flex items-center gap-1 text-[11px] tabular-nums text-ink-mute">
+          <span className="inline-flex items-center gap-1 text-[13px] tabular-nums text-ink-mute">
             <MessageSquareText size={12} strokeWidth={1.75} />
             {session.history_count ?? 0}
           </span>
@@ -145,7 +144,7 @@ export function SessionCard({ session, projectLabel, selected, onToggleSelect, o
       <Link
         to={`/sessions/${session._project}/${session.id}`}
         aria-label={t('sessions.enterSession')}
-        className="absolute bottom-2 right-2 grid h-11 w-11 place-items-center rounded-control text-ink-mute opacity-0 transition-all duration-base ease-ui-out hover:bg-surface-sunken hover:text-ink focus-visible:opacity-100 focus-visible:outline-none focus-visible:shadow-ui-ring group-hover/session:opacity-100 sm:h-8 sm:w-8"
+        className="absolute bottom-2 right-2 grid h-11 w-11 place-items-center rounded-control text-ink-mute opacity-0 transition-[opacity,color,background-color] duration-base ease-ui-out hover:bg-surface-sunken hover:text-ink focus-visible:opacity-100 focus-visible:outline-none focus-visible:shadow-ui-ring group-hover/session:opacity-100 sm:h-8 sm:w-8"
       >
         <ChevronRight size={16} />
       </Link>
@@ -160,11 +159,13 @@ export function SessionRow({ session, projectLabel, selected, onToggleSelect, on
 
   return (
     <div
+      data-ui="session-row"
+      data-entrance=""
       data-selected={selected || undefined}
       className={cn(
-        'group/session relative flex items-center gap-3 rounded-card bg-surface px-3 py-2.5 shadow-ui-gloss-1',
-        'transition-[box-shadow,background-color] duration-base ease-ui-out hover:shadow-ui-gloss-2',
-        selected && 'shadow-[0_0_0_2px_rgb(var(--color-accent-text)/0.45),var(--ui-shadow-2)]'
+        'group/session relative flex items-center gap-3 rounded-card border border-hairline bg-surface px-3 py-2.5',
+        'transition-[border-color,background-color] duration-base ease-ui-out hover:border-hairline-strong',
+        selected && 'ring-2 ring-accent-text'
       )}
     >
       <SelectBox
@@ -181,16 +182,16 @@ export function SessionRow({ session, projectLabel, selected, onToggleSelect, on
       >
         <span className="min-w-0 flex-[1.2]">
           <span className="block truncate text-sm font-medium text-ink">{session.name}</span>
-          <span className="block truncate text-[11px] text-ink-mute">{projectLabel}</span>
+          <span className="block truncate text-[13px] text-ink-mute">{projectLabel}</span>
         </span>
         <span className="hidden min-w-0 flex-[2] sm:block">
           <Preview session={session} />
         </span>
-        <span className="hidden w-16 shrink-0 truncate text-[11px] text-ink-mute md:block">
+        <span className="hidden w-16 shrink-0 truncate text-[13px] text-ink-mute md:block">
           {session.platform}
         </span>
-        <span className="w-9 shrink-0 text-right text-[11px] tabular-nums text-ink-mute">{updated}</span>
-        <span className="hidden w-8 shrink-0 text-right text-[11px] tabular-nums text-ink-mute sm:block">
+        <span className="w-9 shrink-0 text-right text-[13px] tabular-nums text-ink-mute">{updated}</span>
+        <span className="hidden w-8 shrink-0 text-right text-[13px] tabular-nums text-ink-mute sm:block">
           {session.history_count ?? 0}
         </span>
       </button>

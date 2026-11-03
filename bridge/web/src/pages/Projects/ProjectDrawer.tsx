@@ -64,7 +64,7 @@ export function ProjectDrawer({ project, onClose }: DrawerProps) {
     <div className="fixed inset-0 z-[9998]" role="presentation">
       <div
         className={cn(
-          'absolute inset-0 bg-black/25 backdrop-blur-[1px] transition-opacity duration-state ease-ui-standard',
+          'absolute inset-0 bg-black/25 transition-opacity duration-state ease-ui-standard',
           entered ? 'opacity-100' : 'opacity-0'
         )}
         onClick={onClose}
@@ -80,7 +80,7 @@ export function ProjectDrawer({ project, onClose }: DrawerProps) {
           entered ? 'translate-x-0' : 'translate-x-full'
         )}
       >
-        <header className="flex items-start justify-between gap-3 border-b border-hairline px-5 py-4">
+        <header data-ui="drawer-header" className="flex items-start justify-between gap-3 border-b border-hairline px-5 py-4">
           <div className="min-w-0">
             <h2 className="truncate text-base font-semibold tracking-tight text-ink">{shownName(project)}</h2>
             <p className="mt-0.5 truncate text-xs text-ink-mute">{project.name}</p>
@@ -114,9 +114,9 @@ export function ProjectDrawer({ project, onClose }: DrawerProps) {
             </Field>
             {detail?.work_dir && (
               <Field label={t('projects.workDir', '工作目录')}>
-                <span className="font-mono text-[11px] text-ink-soft" title={detail.work_dir}>
+                <code className="font-mono text-xs text-ink-soft" title={detail.work_dir}>
                   {detail.work_dir}
-                </span>
+                </code>
               </Field>
             )}
             {detail?.settings?.language && (
@@ -124,7 +124,7 @@ export function ProjectDrawer({ project, onClose }: DrawerProps) {
             )}
           </section>
 
-          <h3 className="mb-2 mt-5 text-xs font-medium uppercase tracking-wide text-ink-mute">
+          <h3 className="mb-2 mt-5 text-xs font-medium text-ink-mute">
             {t('projects.platforms', '平台')}
           </h3>
           {platforms.length === 0 ? (
@@ -149,7 +149,7 @@ export function ProjectDrawer({ project, onClose }: DrawerProps) {
           )}
         </div>
 
-        <footer className="border-t border-hairline p-4">
+        <footer data-ui="drawer-footer" className="border-t border-hairline p-4">
           <Link
             to={`/projects/${project.name}`}
             className={cn(

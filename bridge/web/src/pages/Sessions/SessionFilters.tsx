@@ -28,8 +28,8 @@ function Chip({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'inline-flex h-11 shrink-0 items-center gap-1.5 rounded-pill px-3 text-xs font-medium sm:h-8',
-        'ring-1 transition-all duration-base ease-ui-out',
+        'inline-flex h-11 shrink-0 items-center gap-1.5 rounded-pill px-3 text-[13px] font-medium sm:h-8',
+        'ring-1 transition-[background-color,color,box-shadow] duration-base ease-ui-out',
         'focus-visible:outline-none focus-visible:shadow-ui-ring',
         active
           ? 'bg-accent-wash text-accent-text ring-accent-text/40'
@@ -127,7 +127,7 @@ export function SessionFiltersBar({
       </div>
 
       <div className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-0.5">
-        <span className="shrink-0 text-xs tabular-nums text-ink-mute">
+        <span className="shrink-0 text-[13px] tabular-nums text-ink-mute">
           {shown === total ? total : `${shown} / ${total}`}
         </span>
         <Chip active={filters.onlyLive} onClick={() => onChange({ ...filters, onlyLive: !filters.onlyLive })}>
@@ -143,7 +143,7 @@ export function SessionFiltersBar({
         >
           {t('sessions.withMessages', '有消息')}
         </Chip>
-        {facets.length > 0 && <span className="mx-0.5 h-5 w-px shrink-0 bg-hairline" aria-hidden />}
+        {facets.length > 0 && <span data-ui="facet-divider" className="mx-0.5 h-5 w-px shrink-0 bg-hairline" aria-hidden />}
         {facets.map((f) => (
           <Chip key={f.key} active={filters.projects.includes(f.key)} onClick={() => toggleProject(f.key)}>
             {f.label}

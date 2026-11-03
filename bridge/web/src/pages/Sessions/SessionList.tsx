@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { MessagesSquare, Trash2, X } from 'lucide-react';
 import { Badge, Button, EmptyState, Modal } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { useEntrance } from '@/lib/useEntrance';
 import { listProjects, shownName, type ProjectSummary } from '@/api/projects';
 import { deleteSession, listSessions, type Session } from '@/api/sessions';
 import { SessionCard, SessionRow, sessionKey } from './SessionCard';
@@ -32,6 +33,7 @@ function initialView(): SessionView {
 
 export default function SessionList() {
   const { t } = useTranslation();
+  const scope = useEntrance<HTMLDivElement>();
   const [data, setData] = useState<{ project: string; sessions: Session[] }[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -134,7 +136,7 @@ export default function SessionList() {
   if (loading && all.length === 0) {
     return (
       <div className="grid flex-1 place-items-center py-24">
-        <span className="animate-pulse text-sm text-ink-mute">{t('common.loading')}</span>
+        <span className="text-sm text-ink-mute" role="status">{t('common.loading')}</span>
       </div>
     );
   }
@@ -144,15 +146,14 @@ export default function SessionList() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight text-ink">{t('sessions.title')}</h1>
-          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-mute">
+          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-mute">
             <span className="tabular-nums">
               {totals.sessions} {t('sessions.title')}
             </span>
             {totals.live > 0 && (
               <span className="inline-flex items-center gap-1.5 tabular-nums text-emerald-600 dark:text-emerald-400">
                 <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inset-0 animate-ping rounded-full bg-emerald-500/60 motion-reduce:animate-none" />
-                  <span className="relative h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                 </span>
                 {totals.live} {t('sessions.active')}
               </span>
@@ -176,9 +177,10 @@ export default function SessionList() {
 
       <div
         data-testid="session-bulk-bar"
+        data-ui="bulk-bar"
         className={cn(
           'sticky top-0 z-20 flex min-h-11 flex-wrap items-center gap-2 overflow-hidden rounded-card px-3 py-1',
-          'bg-surface/90 shadow-ui-gloss-1 backdrop-blur transition-all duration-state ease-ui-standard',
+          'border border-hairline bg-surface transition-[border-color] duration-state ease-ui-standard',
           selectedKeys.length > 0
             ? 'pointer-events-auto translate-y-0 opacity-100'
             : 'pointer-events-none -translate-y-1 opacity-0'
@@ -188,14 +190,14 @@ export default function SessionList() {
         <button
           type="button"
           onClick={toggleSelectAll}
-          className="min-h-11 px-1 text-xs font-medium text-accent-text hover:underline focus-visible:outline-none sm:min-h-0"
+          className="min-h-11 px-1 text-[13px] font-medium text-accent-text hover:underline focus-visible:outline-none sm:min-h-0"
         >
           {allShownSelected ? t('projects.unselectAll', '取消全选') : t('projects.selectAll', '全选当前')}
         </button>
         <Badge variant="info" className="tabular-nums">
           {selectedKeys.length}
         </Badge>
-        <span className="hidden min-w-0 flex-1 truncate text-xs text-ink-mute sm:block">
+        <span className="hidden min-w-0 flex-1 truncate text-[13px] text-ink-mute sm:block">
           {t('sessions.selectedHint', '批量删除只删会话记录，不影响项目配置')}
         </span>
         <Button size="sm" variant="danger" className="ml-auto h-11 sm:ml-0 sm:h-7" onClick={() => setConfirmDelete(true)}>
@@ -212,7 +214,7 @@ export default function SessionList() {
       </div>
 
       {note && (
-        <p className="rounded-control bg-surface-sunken px-3 py-2 text-xs text-ink-soft" role="status">
+        <p className="rounded-control bg-surface-sunken px-3 py-2 text-[13px] text-ink-soft" role="status">
           {note}
         </p>
       )}
@@ -232,7 +234,7 @@ export default function SessionList() {
           />
         )
       ) : view === 'card' ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div ref={scope} className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {shown.map((s) => (
             <SessionCard
               key={sessionKey(s)}
@@ -245,7 +247,7 @@ export default function SessionList() {
           ))}
         </div>
       ) : (
-        <div className="flex flex-col gap-1.5">
+        <div ref={scope} className="flex flex-col gap-1.5">
           {shown.map((s) => (
             <SessionRow
               key={sessionKey(s)}

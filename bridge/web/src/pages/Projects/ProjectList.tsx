@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { FolderKanban, Plus, Settings2, Trash2, X } from 'lucide-react';
 import { Badge, Button, EmptyState, Modal } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { useEntrance } from '@/lib/useEntrance';
 import { deleteProject, listProjects, type ProjectSummary } from '@/api/projects';
 import { ProjectCard, ProjectRow } from './ProjectCard';
 import { ProjectDrawer } from './ProjectDrawer';
@@ -34,6 +35,7 @@ export default function ProjectList() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  const scope = useEntrance<HTMLDivElement>();
 
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -138,7 +140,7 @@ export default function ProjectList() {
   if (loading && projects.length === 0) {
     return (
       <div className="grid flex-1 place-items-center py-24">
-        <span className="text-sm text-ink-mute animate-pulse">{t('common.loading')}</span>
+        <span className="text-sm text-ink-mute" role="status">{t('common.loading')}</span>
       </div>
     );
   }
@@ -148,7 +150,7 @@ export default function ProjectList() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight text-ink">{t('projects.title')}</h1>
-          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-mute">
+          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-mute">
             <span className="tabular-nums">
               {totals.projects} {t('projects.title')}
             </span>
@@ -190,9 +192,10 @@ export default function ProjectList() {
       {/* 批量条：只在选中时出现，贴着内容顶部；高度固定，不跳版。 */}
       <div
         data-testid="project-bulk-bar"
+        data-ui="bulk-bar"
         className={cn(
           'sticky top-0 z-20 flex min-h-11 flex-wrap items-center gap-2 overflow-hidden rounded-card px-3 py-1',
-          'bg-surface/90 backdrop-blur shadow-ui-gloss-1 transition-all duration-state ease-ui-standard',
+          'border border-hairline bg-surface transition-[border-color] duration-state ease-ui-standard',
           selectedNames.length > 0
             ? 'pointer-events-auto translate-y-0 opacity-100'
             : 'pointer-events-none -translate-y-1 opacity-0'
@@ -202,14 +205,14 @@ export default function ProjectList() {
         <button
           type="button"
           onClick={toggleSelectAll}
-          className="min-h-11 px-1 text-xs font-medium text-accent-text hover:underline focus-visible:outline-none sm:min-h-0"
+          className="min-h-11 px-1 text-[13px] font-medium text-accent-text hover:underline focus-visible:outline-none sm:min-h-0"
         >
           {allShownSelected ? t('projects.unselectAll', '取消全选') : t('projects.selectAll', '全选当前')}
         </button>
         <Badge variant="info" className="tabular-nums">
           {selectedNames.length}
         </Badge>
-        <span className="hidden min-w-0 flex-1 truncate text-xs text-ink-mute sm:block">
+        <span className="hidden min-w-0 flex-1 truncate text-[13px] text-ink-mute sm:block">
           {t('projects.selectedHint', '已选中的项目可批量删除')}
         </span>
         <Button size="sm" variant="danger" className="ml-auto h-11 sm:ml-0 sm:h-7" onClick={() => setConfirmDelete(true)}>
@@ -226,7 +229,7 @@ export default function ProjectList() {
       </div>
 
       {deleteNote && (
-        <p className="rounded-control bg-surface-sunken px-3 py-2 text-xs text-ink-soft" role="status">
+        <p className="rounded-control bg-surface-sunken px-3 py-2 text-[13px] text-ink-soft" role="status">
           {deleteNote}
         </p>
       )}
@@ -246,7 +249,7 @@ export default function ProjectList() {
           />
         )
       ) : view === 'grid' ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div ref={scope} className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {shown.map((p) => (
             <ProjectCard
               key={p.name}
@@ -258,7 +261,7 @@ export default function ProjectList() {
           ))}
         </div>
       ) : (
-        <div className="flex flex-col gap-1.5">
+        <div ref={scope} className="flex flex-col gap-1.5">
           {shown.map((p) => (
             <ProjectRow
               key={p.name}
@@ -292,7 +295,7 @@ export default function ProjectList() {
             count: selectedNames.length,
           })}
         </p>
-        <ul className="mt-3 max-h-40 space-y-1 overflow-y-auto text-xs text-ink-mute">
+        <ul className="mt-3 max-h-40 space-y-1 overflow-y-auto text-[13px] text-ink-mute">
           {selectedNames.map((n) => (
             <li key={n} className="truncate">
               {n}

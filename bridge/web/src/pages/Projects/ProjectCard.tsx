@@ -21,7 +21,7 @@ function Monogram({ name, size = 'md' }: { name: string; size?: 'md' | 'sm' }) {
       className={cn(
         'grid shrink-0 place-items-center rounded-control font-semibold ring-1 ring-hairline',
         'bg-accent-wash text-accent-text',
-        size === 'md' ? 'h-10 w-10 text-sm' : 'h-8 w-8 text-xs'
+        size === 'md' ? 'h-10 w-10 text-sm' : 'h-8 w-8 text-[13px]'
       )}
     >
       {monogram(name)}
@@ -61,10 +61,10 @@ function SelectBox({
     >
       <span
         className={cn(
-          'grid h-6 w-6 place-items-center rounded-[7px] transition-all duration-state ease-ui-standard',
+          'grid h-6 w-6 place-items-center rounded-[7px] transition-[background-color,opacity,box-shadow] duration-state ease-ui-standard',
           selected
             ? 'bg-accent-text text-white opacity-100 ring-1 ring-accent-text'
-            : 'bg-surface text-transparent ring-1 ring-hairline opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100'
+            : 'bg-surface text-ink-mute ring-1 ring-hairline opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100'
         )}
       >
         <Check size={14} strokeWidth={3} />
@@ -100,12 +100,14 @@ export function ProjectCard({ project, selected, onToggleSelect, onPreview }: Pr
 
   return (
     <article
+      data-ui="project-card"
+      data-entrance=""
       data-selected={selected || undefined}
       className={cn(
-        'group/card relative flex h-full flex-col rounded-card bg-surface p-4 shadow-ui-gloss-1',
-        'transition-[box-shadow,transform] duration-state ease-ui-standard',
-        'hover:-translate-y-0.5 hover:shadow-ui-gloss-2',
-        selected && 'shadow-[0_0_0_2px_rgb(var(--color-accent-text)/0.45),var(--ui-shadow-2)]'
+        'group/card relative flex h-full flex-col rounded-card border border-hairline bg-surface p-4',
+        'transition-[border-color,transform] duration-state ease-ui-standard',
+        'hover:-translate-y-0.5 hover:border-hairline-strong',
+        selected && 'ring-2 ring-accent-text'
       )}
     >
       <SelectBox
@@ -124,7 +126,7 @@ export function ProjectCard({ project, selected, onToggleSelect, onPreview }: Pr
           <Monogram name={name} />
           <div className="min-w-0 flex-1 pt-0.5">
             <h3 className="truncate text-[15px] font-semibold tracking-tight text-ink">{name}</h3>
-            <p className="mt-0.5 truncate text-xs text-ink-mute">{project.agent_type}</p>
+            <p className="mt-0.5 truncate text-[13px] text-ink-mute">{project.agent_type}</p>
           </div>
         </div>
 
@@ -132,11 +134,11 @@ export function ProjectCard({ project, selected, onToggleSelect, onPreview }: Pr
           {platforms.length > 0 ? (
             <PlatformTags platforms={platforms} />
           ) : (
-            <span className="text-xs text-ink-mute">{t('projects.noPlatforms', '未连接平台')}</span>
+            <span className="text-[13px] text-ink-mute">{t('projects.noPlatforms', '未连接平台')}</span>
           )}
         </div>
 
-        <div className="mt-auto flex items-center gap-3 pt-3 text-xs text-ink-soft">
+        <div className="mt-auto flex items-center gap-3 pt-3 text-[13px] text-ink-soft">
           <span className="inline-flex items-center gap-1 tabular-nums">
             <MessageSquareText size={13} strokeWidth={1.75} className="text-ink-mute" />
             {project.sessions_count ?? 0}
@@ -173,11 +175,13 @@ export function ProjectRow({ project, selected, onToggleSelect, onPreview }: Pro
 
   return (
     <div
+      data-ui="project-row"
+      data-entrance=""
       data-selected={selected || undefined}
       className={cn(
-        'group/card relative flex items-center gap-3 rounded-card bg-surface px-3 py-2.5 shadow-ui-gloss-1',
-        'transition-[box-shadow,background-color] duration-base ease-ui-out hover:shadow-ui-gloss-2',
-        selected && 'shadow-[0_0_0_2px_rgb(var(--color-accent-text)/0.45),var(--ui-shadow-2)]'
+        'group/card relative flex items-center gap-3 rounded-card border border-hairline bg-surface px-3 py-2.5',
+        'transition-[border-color,background-color] duration-base ease-ui-out hover:border-hairline-strong',
+        selected && 'ring-2 ring-accent-text'
       )}
     >
       <SelectBox
@@ -194,12 +198,12 @@ export function ProjectRow({ project, selected, onToggleSelect, onPreview }: Pro
         <Monogram name={name} size="sm" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-ink">{name}</span>
-          <span className="block truncate text-[11px] text-ink-mute">{project.agent_type}</span>
+          <span className="block truncate text-[13px] text-ink-mute">{project.agent_type}</span>
         </span>
         <span className="hidden shrink-0 items-center gap-1 sm:flex">
           <PlatformTags platforms={platforms} max={2} />
         </span>
-        <span className="w-14 shrink-0 text-right text-xs tabular-nums text-ink-soft">
+        <span className="w-14 shrink-0 text-right text-[13px] tabular-nums text-ink-soft">
           {project.sessions_count ?? 0}
         </span>
         {project.heartbeat_enabled ? (

@@ -29,8 +29,8 @@ function Toggle({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'inline-flex h-11 items-center gap-1.5 rounded-pill px-3 text-xs font-medium sm:h-8',
-        'ring-1 transition-all duration-base ease-ui-out',
+        'inline-flex h-11 items-center gap-1.5 rounded-pill px-3 text-[13px] font-medium sm:h-8',
+        'ring-1 transition-[background-color,color,box-shadow] duration-base ease-ui-out',
         'focus-visible:outline-none focus-visible:shadow-ui-ring',
         active
           ? 'bg-accent-wash text-accent-text ring-accent-text/40'
@@ -128,7 +128,7 @@ export function ProjectFilterBar({
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 text-xs tabular-nums text-ink-mute">
+        <span className="mr-1 text-[13px] tabular-nums text-ink-mute">
           {shown === total ? total : `${shown} / ${total}`}
         </span>
         {facets.map((f) => (
@@ -137,7 +137,7 @@ export function ProjectFilterBar({
             <span className="tabular-nums text-ink-mute">{f.count}</span>
           </Toggle>
         ))}
-        {facets.length > 0 && <span className="mx-1 h-5 w-px bg-hairline" aria-hidden />}
+        {facets.length > 0 && <span data-ui="facet-divider" className="mx-1 h-5 w-px bg-hairline" aria-hidden />}
         <Toggle
           active={filters.onlyHeartbeat}
           onClick={() => onChange({ ...filters, onlyHeartbeat: !filters.onlyHeartbeat })}
