@@ -32,6 +32,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const insertNote = "（以下是补充信息，不是提问。若它不改变你之前的结论、也无需动作，只回复 NO_REPLY；否则简短回应。）"
@@ -805,27 +806,33 @@ func (e *Engine) withTurnBlocks(session *Session, sessionKey, query, content str
 // withTurnBlocksRef also puts the background of the work a reply quotes (ref, reply_task.go)
 // right before the message, once per agent context.
 func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, content string, turnCtx bool, ref *MessageReference) string {
-	if c := e.replyTaskBlock(session, ref); c != "" {
+	// Record how many characters each block adds every turn (11-02 reflection: a turn read 7k more and nobody
+	// could say what was injected). One log line per turn that injected anything: "turn blocks injected".
+	var sizes []any
+	total := 0
+	add := func(name, c string) {
+		if c == "" {
+			return
+		}
+		n := utf8.RuneCountInString(c)
+		sizes = append(sizes, name, n)
+		total += n
 		content = c + "\n\n" + content
 	}
-	if c := e.leadHandoffBlock(session, sessionKey); c != "" {
-		content = c + "\n\n" + content
-	}
-	if c := e.handoffBlock(session, sessionKey); c != "" {
-		content = c + "\n\n" + content
-	}
-	if c := e.memoryBlock(session); c != "" { // before the handoff: the index, then what the old context did
-		content = c + "\n\n" + content
-	}
+	defer func() {
+		if total > 0 {
+			slog.Info("turn blocks injected", append([]any{"session", sessionKey, "chars", total}, sizes...)...)
+		}
+	}()
+	add("reply_task", e.replyTaskBlock(session, ref))
+	add("lead_handoff", e.leadHandoffBlock(session, sessionKey))
+	add("handoff", e.handoffBlock(session, sessionKey))
+	add("memory", e.memoryBlock(session)) // before the handoff: the index, then what the old context did
 	if !turnCtx {
 		return content
 	}
-	if c := e.turnContext(session, sessionKey, query); c != "" {
-		content = c + "\n\n" + content
-	}
-	if sum := e.teamBlock(session, sessionKey); sum != "" {
-		content = sum + "\n\n" + content
-	}
+	add("turn_ctx", e.turnContext(session, sessionKey, query))
+	add("team", e.teamBlock(session, sessionKey))
 	return content
 }
 
