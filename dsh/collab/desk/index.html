@@ -531,8 +531,182 @@ function setLead(id) {
   S.lead = next;
   renderSeats();
 }
-/* __JS_BEAMS__ */
-/* __JS_EVENTS__ */
+function syncBeamViewBox() {
+  const stage = $('stage'), svg = $('beams');
+  svg.setAttribute('viewBox', `0 0 ${Math.max(1, stage.clientWidth)} ${Math.max(1, stage.clientHeight)}`);
+}
+
+function avatarCenter(id) {
+  const node = S.seatNodes?.get(id);
+  if (!node) return null;
+  const avatar = q('.avatar', node);
+  const a = avatar.getBoundingClientRect(), stage = $('stage').getBoundingClientRect();
+  return { x: a.left - stage.left + a.width / 2, y: a.top - stage.top + a.height / 2 };
+}
+
+function beam(from, to, kind = 'assign') {
+  if (!from || !to || from.id === to.id) return;
+  const a = avatarCenter(from.id), b = avatarCenter(to.id);
+  if (!a || !b) return;
+  syncBeamViewBox();
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const lift = kind === 'at' ? Math.min(100, 44 + Math.hypot(dx, dy) * 0.12) : Math.min(200, 76 + Math.hypot(dx, dy) * 0.22);
+  const cx = (a.x + b.x) / 2, cy = Math.min(a.y, b.y) - lift;
+  const d = `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+  const g = svgEl('g', { class: `beam ${kind}` });
+  for (const cls of ['glow', 'trace', 'flow']) g.append(svgEl('path', { d, class: cls }));
+  const spark = svgEl('circle', { class: 'spark', r: '3.4', cx: a.x, cy: a.y });
+  spark.append(svgEl('animateMotion', { dur: '1.15s', repeatCount: '2', path: d }));
+  g.append(spark);
+  $('beams').append(g);
+  setTimeout(() => g.remove(), 2700);
+}
+
+function flashSeat(memberId, cls) {
+  const node = S.seatNodes?.get(memberId);
+  if (!node) return;
+  node.classList.remove(cls);
+  void node.offsetWidth;
+  node.classList.add(cls);
+  setTimeout(() => node.classList.remove(cls), 1500);
+}
+
+function deskPop(memberId, text, kind = 'info') {
+  const node = S.seatNodes?.get(memberId);
+  if (!node || !text) return;
+  const pop = el('div', `pop ${kind}`, text);
+  node.append(pop);
+  setTimeout(() => pop.remove(), 1900);
+}
+
+let toastTimer;
+function toast(text) {
+  const box = $('toast');
+  box.textContent = text;
+  box.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { box.hidden = true; }, 3600);
+}
+function recomputeThinking() {
+  S.thinking = new Set();
+  for (const set of S.thinkingRooms.values()) for (const id of set) S.thinking.add(id);
+}
+function setThinkingRooms(map) {
+  S.thinkingRooms = new Map();
+  for (const [room, list] of Object.entries(map ?? {})) if (Array.isArray(list) && list.length) S.thinkingRooms.set(String(room), new Set(list));
+  recomputeThinking();
+}
+function applyThinking(ev) {
+  const room = String(ev.room_id ?? '');
+  const set = new Set(Array.isArray(ev.members) ? ev.members : []);
+  if (set.size) S.thinkingRooms.set(room, set); else S.thinkingRooms.delete(room);
+  recomputeThinking();
+  paintAll();
+}
+
+function setMembers(list) {
+  indexMembers(list);
+  if (S.lead && !S.byId.has(S.lead)) S.lead = null;
+  renderSeats();
+}
+
+/** G 哥复核：returned/rejected 的 from 是派活人、to 是干活人；有 active 记录时以记录里的干活人为准。 */
+function workerAndDispatcher(rec, from, to) {
+  if (!rec && from && to && S.lead && to.id === S.lead && from.id !== S.lead) return { worker: from, dispatcher: to };
+  const worker = rec ? S.byId.get(rec.memberId) : to;
+  let dispatcher = from;
+  if (worker && dispatcher && dispatcher.id === worker.id) dispatcher = to;
+  if (!dispatcher && to && to.id !== worker?.id) dispatcher = to;
+  return { worker, dispatcher };
+}
+
+function setTask(member, rec) {
+  if (rec.id) for (const [memberId, old] of S.active) if (old.id === rec.id && memberId !== member.id) S.active.delete(memberId);
+  S.active.set(member.id, { ...rec, memberId: member.id });
+}
+function clearTask(memberId) { S.active.delete(memberId); }
+function findActive(taskId) {
+  if (!taskId) return null;
+  for (const [memberId, rec] of S.active) if (rec.id === taskId) return { ...rec, memberId };
+  return null;
+}
+
+function dispatchBeamOnce(id, from, to) {
+  const key = `${id}>${to.id}`;
+  if (S.dispatched.has(key)) return;
+  S.dispatched.add(key);
+  beam(from, to, 'assign');
+}
+
+function applyTask(ev, animate = true) {
+  const id = String(ev.id ?? '');
+  const kind = String(ev.kind ?? '');
+  const from = resolveRef(ev.from);
+  const to = resolveRef(ev.to);
+  const title = String(ev.title ?? '');
+  const note = String(ev.note ?? '');
+  const ts = ev.ts ?? Date.now();
+  const fromName = from ? displayName(from) : (ev.from || '—');
+  const toName = to ? displayName(to) : (ev.to || '—');
+  const header = id ? `#${id} ${title}`.trim() : title;
+
+  if (kind === 'created' || kind === 'assigned') {
+    if (to) {
+      const prev = S.active.get(to.id);
+      setTask(to, { id, title: title || prev?.title || '', note: note || prev?.note || '', from: from?.id ?? prev?.from ?? null, to: to.id });
+      if (kind === 'created' && from && animate) dispatchBeamOnce(id, from, to);
+      if (kind === 'assigned' && from && animate) dispatchBeamOnce(id, from, to);
+      flashSeat(to.id, 'flash-gold');
+    }
+  } else if (kind === 'returned' || kind === 'rejected') {
+    const { worker, dispatcher } = workerAndDispatcher(findActive(id), from, to);
+    if (kind === 'returned') {
+      if (worker && dispatcher && animate) beam(worker, dispatcher, 'return');
+      if (worker) { clearTask(worker.id); flashSeat(worker.id, 'flash-good'); deskPop(worker.id, '✓ 交回', 'good'); }
+    } else {
+      if (worker && dispatcher && animate) beam(dispatcher, worker, 'reject');
+      if (worker) { flashSeat(worker.id, 'flash-bad'); deskPop(worker.id, `✕ 打回${note ? '：' + note : ''}`, 'bad'); }
+    }
+  } else if (kind === 'paused' || kind === 'done') {
+    const { worker } = workerAndDispatcher(findActive(id), from, to);
+    if (worker) {
+      clearTask(worker.id);
+      if (kind === 'done') { flashSeat(worker.id, 'flash-good'); deskPop(worker.id, '✓ 完成', 'good'); }
+      else deskPop(worker.id, `暂停${note ? '：' + note : ''}`, 'info');
+    }
+  }
+  addLog(kind, ts, fromName, toName, header, note);
+  paintAll();
+}
+
+function applyMessage(ev, animate = true) {
+  const message = ev.message ?? ev;
+  const text = String(message.text ?? '');
+  if (!text || message.author_kind === 'user' || message.author_kind === 'human') return;
+  const author = S.byId.get(message.author) || resolveRef(message.name) || resolveRef(message.author);
+  if (!author) return;
+  const targets = new Set();
+  for (const other of S.memberList) {
+    if (other.id === author.id) continue;
+    const rm = S.rosterFor.get(other.id);
+    const names = [other.name, other.id, rm?.name, ...(rm?.aliases ?? [])].filter(Boolean);
+    if (names.some(n => text.includes('@' + n))) targets.add(other);
+    if (targets.size >= 4) break;
+  }
+  if (!targets.size) return;
+  if (animate) for (const target of targets) beam(author, target, 'at');
+  const ts = ev.ts ?? (message.created_at ? message.created_at * 1000 : Date.now());
+  addLog('at', ts, displayName(author), [...targets].map(displayName).join('、'), text.slice(0, 70), '');
+}
+
+function applyEvent(ev, animate = true) {
+  if (!ev || typeof ev !== 'object') return;
+  if (ev.type === 'task') applyTask(ev, animate);
+  else if (ev.type === 'thinking') applyThinking(ev);
+  else if (ev.type === 'message') applyMessage(ev, animate);
+  else if (ev.type === 'members') setMembers(ev.members);
+  else if (ev.type === 'lead') setLead(ev.effective_lead_id ?? ev.lead_id);
+}
 /* __JS_LIVE__ */
 /* __JS_REPLAY__ */
 /* __JS_BOOT__ */
