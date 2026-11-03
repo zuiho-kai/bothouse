@@ -4,7 +4,7 @@ import {
   Clock, Play, Plus, Trash2, Terminal, MessageSquare, Power,
   ChevronDown,
 } from 'lucide-react';
-import { Button, Badge, Modal, Input, Textarea, EmptyState } from '@/components/ui';
+import { Button, Badge, Modal, Input, Textarea, EmptyState, PageHeader, LoadingState } from '@/components/ui';
 import { listCronJobs, createCronJob, updateCronJob, deleteCronJob, triggerCronJob, type CronJob } from '@/api/cron';
 import { listProjects, shownName, shownNames, type ProjectSummary } from '@/api/projects';
 import { listSessions, type Session } from '@/api/sessions';
@@ -70,11 +70,10 @@ function CronPicker({ value, onChange }: { value: string; onChange: (v: string) 
           value={selectValue}
           onChange={e => handleSelect(e.target.value)}
           className={cn(
-            'w-full px-3 py-2 text-sm rounded-lg transition-all duration-200 appearance-none pr-8',
-            'border border-gray-300/90 dark:border-white/[0.1]',
-            'bg-white/90 backdrop-blur-sm dark:bg-[rgba(0,0,0,0.45)]',
-            'text-gray-900 dark:text-white',
-            'focus:outline-none focus:ring-2 focus:ring-accent/45 focus:border-accent',
+            'w-full appearance-none rounded-control px-3 py-2 pr-8 text-sm',
+            'bg-surface text-ink ring-1 ring-hairline hover:ring-hairline-strong',
+            'transition-[box-shadow,background-color] duration-base ease-ui-out',
+            'focus:outline-none focus:ring-2 focus:ring-accent-text focus:ring-offset-2 focus:ring-offset-canvas',
           )}
         >
           <option value="" disabled>{isZh ? '选择执行频率' : 'Select schedule'}</option>
@@ -85,7 +84,7 @@ function CronPicker({ value, onChange }: { value: string; onChange: (v: string) 
           ))}
           <option value={CUSTOM_VALUE}>{isZh ? '✏ 自定义表达式' : '✏ Custom expression'}</option>
         </select>
-        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-mute" />
       </div>
       {custom && (
         <Input
@@ -109,23 +108,22 @@ function Select({ label, value, onChange, options, placeholder }: {
 }) {
   return (
     <div className="space-y-1.5">
-      {label && <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>}
+      {label && <label className="block text-sm font-medium text-ink-soft">{label}</label>}
       <div className="relative">
         <select
           value={value}
           onChange={e => onChange(e.target.value)}
           className={cn(
-            'w-full px-3 py-2 text-sm rounded-lg transition-all duration-200 appearance-none pr-8',
-            'border border-gray-300/90 dark:border-white/[0.1]',
-            'bg-white/90 backdrop-blur-sm dark:bg-[rgba(0,0,0,0.45)]',
-            'text-gray-900 dark:text-white',
-            'focus:outline-none focus:ring-2 focus:ring-accent/45 focus:border-accent',
+            'w-full appearance-none rounded-control px-3 py-2 pr-8 text-sm',
+            'bg-surface text-ink ring-1 ring-hairline hover:ring-hairline-strong',
+            'transition-[box-shadow,background-color] duration-base ease-ui-out',
+            'focus:outline-none focus:ring-2 focus:ring-accent-text focus:ring-offset-2 focus:ring-offset-canvas',
           )}
         >
           {placeholder && <option value="">{placeholder}</option>}
           {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
-        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-mute" />
       </div>
     </div>
   );
@@ -141,17 +139,16 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={cn(
-          'relative w-9 h-5 rounded-full transition-colors duration-200 shrink-0',
-          checked ? 'bg-accent' : 'bg-gray-300 dark:bg-gray-600',
+          'relative h-5 w-9 shrink-0 rounded-full transition-colors duration-base ease-ui-standard',
+          checked ? 'bg-accent' : 'bg-hairline-strong',
         )}
       >
         <span className={cn(
-          'block w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform duration-200',
+          'mt-[3px] block h-3.5 w-3.5 rounded-full bg-surface shadow-sm transition-transform duration-base ease-ui-out',
           checked ? 'translate-x-[18px]' : 'translate-x-[3px]',
-          'mt-[3px]',
         )} />
       </button>
-      {label && <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>}
+      {label && <span className="text-sm text-ink-soft">{label}</span>}
     </label>
   );
 }
@@ -314,18 +311,22 @@ export default function CronList() {
     }
   };
 
-  if (loading && jobs.length === 0) {
-    return <div className="flex items-center justify-center h-64 text-gray-400 animate-pulse">Loading...</div>;
-  }
-
   return (
-    <div className="space-y-4 animate-fade-in ">
-      <div className="flex justify-between items-center">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('cron.title')}</h2>
-        <Button onClick={openAdd}><Plus size={16} /> {t('cron.add')}</Button>
-      </div>
+    <div className="space-y-5 animate-fade-in">
+      <PageHeader
+        icon={Clock}
+        title={t('cron.title')}
+        description={t('cron.schedule')}
+        actions={
+          <Button onClick={openAdd}>
+            <Plus size={16} /> {t('cron.add')}
+          </Button>
+        }
+      />
 
-      {jobs.length === 0 ? (
+      {loading && jobs.length === 0 ? (
+        <LoadingState label={t('common.loading')} />
+      ) : jobs.length === 0 ? (
         <EmptyState message={t('cron.noJobs')} icon={Clock} />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -334,56 +335,55 @@ export default function CronList() {
               key={job.id}
               onClick={() => openEdit(job)}
               className={cn(
-                'relative p-4 rounded-xl border transition-all cursor-pointer group',
-                'bg-white dark:bg-white/[0.02]',
+                'group relative cursor-pointer rounded-card bg-surface p-4 shadow-ui-1 transition-[box-shadow,transform,border-color,opacity] duration-state ease-ui-standard',
                 job.enabled
-                  ? 'border-gray-200/80 dark:border-white/[0.06] hover:border-accent/40 hover:shadow-md hover:shadow-accent/5'
-                  : 'border-dashed border-gray-300/60 dark:border-white/[0.04] opacity-60 hover:opacity-80',
+                  ? 'hover:-translate-y-0.5 hover:shadow-ui-2'
+                  : 'opacity-60 hover:opacity-85 ring-1 ring-hairline',
               )}
             >
               {/* Header */}
-              <div className="flex items-center gap-2 mb-2">
+              <div className="mb-2 flex items-center gap-2 pr-16">
                 {job.prompt ? (
-                  <MessageSquare size={14} className="text-blue-400 shrink-0" />
+                  <MessageSquare size={14} className="shrink-0 text-accent-text" />
                 ) : (
-                  <Terminal size={14} className="text-amber-400 shrink-0" />
+                  <Terminal size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
                 )}
-                <span className="font-medium text-sm text-gray-900 dark:text-white truncate">
+                <span className="truncate text-sm font-medium text-ink">
                   {job.description || job.id}
                 </span>
               </div>
 
               {/* Schedule badge + mode badge */}
-              <div className="flex items-center gap-2 mb-3">
-                <span className="inline-flex items-center gap-1 text-[11px] font-mono bg-accent/10 text-accent px-2 py-0.5 rounded-md">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-control bg-accent-wash px-2 py-0.5 font-mono text-[11px] text-accent-text ring-1 ring-accent/20">
                   <Clock size={10} />
                   {describeCron(job.cron_expr)}
                 </span>
-                {job.silent && <Badge variant="default" className="text-[10px] px-1.5 py-0">silent</Badge>}
-                <Badge variant="default" className="text-[10px] px-1.5 py-0">{job.mode || t('cron.modeDefault')}</Badge>
+                {job.silent && <Badge variant="outline" className="px-1.5 py-0 text-[10px]">silent</Badge>}
+                <Badge variant="default" className="px-1.5 py-0 text-[10px]">{job.mode || t('cron.modeDefault')}</Badge>
               </div>
 
               {/* Info */}
-              <div className="space-y-1 text-xs text-gray-500 dark:text-gray-400">
+              <div className="space-y-1 text-xs text-ink-soft">
                 <div className="flex items-center gap-1.5">
-                  <span className="font-medium w-12 shrink-0 text-gray-400">{t('cron.project')}</span>
+                  <span className="w-12 shrink-0 font-medium text-ink-mute">{t('cron.project')}</span>
                   <span className="truncate">{shownNames(projects)(job.project)}</span>
                 </div>
                 {job.prompt && (
                   <div className="flex items-start gap-1.5">
-                    <span className="font-medium w-12 shrink-0 text-gray-400">{t('cron.prompt')}</span>
+                    <span className="w-12 shrink-0 font-medium text-ink-mute">{t('cron.prompt')}</span>
                     <span className="line-clamp-2">{job.prompt}</span>
                   </div>
                 )}
                 {job.exec && (
                   <div className="flex items-center gap-1.5">
-                    <span className="font-medium w-12 shrink-0 text-gray-400">{t('cron.exec')}</span>
+                    <span className="w-12 shrink-0 font-medium text-ink-mute">{t('cron.exec')}</span>
                     <code className="truncate text-[11px]">{job.exec}</code>
                   </div>
                 )}
                 {job.last_run && (
-                  <div className="flex items-center gap-1.5 pt-1 border-t border-gray-100 dark:border-white/[0.04] mt-1">
-                    <span className="font-medium w-12 shrink-0 text-gray-400">{t('cron.lastRun')}</span>
+                  <div className="mt-1 flex items-center gap-1.5 border-t border-hairline pt-1">
+                    <span className="w-12 shrink-0 font-medium text-ink-mute">{t('cron.lastRun')}</span>
                     <span>{formatTime(job.last_run)}</span>
                   </div>
                 )}
@@ -395,15 +395,15 @@ export default function CronList() {
 
               {/* Action buttons (top right) */}
               <div
-                className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute right-3 top-3 flex items-center gap-1 rounded-control bg-surface/85 backdrop-blur-sm ring-1 ring-hairline transition-opacity duration-base md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
                 onClick={e => e.stopPropagation()}
               >
                 <button
                   onClick={() => handleTrigger(job)}
                   disabled={triggeringId === job.id}
                   className={cn(
-                    'p-1.5 rounded-lg transition-colors',
-                    'text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-900/20 disabled:opacity-50 disabled:cursor-wait',
+                    'grid h-11 w-11 place-items-center rounded-control transition-colors duration-base md:h-8 md:w-8',
+                    'text-accent-text hover:bg-accent-wash disabled:cursor-wait disabled:opacity-50',
                   )}
                   title={t('cron.trigger')}
                 >
@@ -412,10 +412,10 @@ export default function CronList() {
                 <button
                   onClick={() => handleToggleEnabled(job)}
                   className={cn(
-                    'p-1.5 rounded-lg transition-colors',
+                    'grid h-11 w-11 place-items-center rounded-control transition-colors duration-base md:h-8 md:w-8',
                     job.enabled
-                      ? 'text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'
-                      : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-white/[0.06]',
+                      ? 'text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400'
+                      : 'text-ink-mute hover:bg-surface-sunken',
                   )}
                   title={job.enabled ? 'Disable' : 'Enable'}
                 >
@@ -423,7 +423,7 @@ export default function CronList() {
                 </button>
                 <button
                   onClick={() => handleDelete(job.id)}
-                  className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  className="grid h-11 w-11 place-items-center rounded-control text-red-500 transition-colors duration-base hover:bg-red-500/10 md:h-8 md:w-8 dark:text-red-400"
                   title={t('cron.delete')}
                 >
                   <Trash2 size={14} />
@@ -451,7 +451,7 @@ export default function CronList() {
           />
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+            <label className="mb-1.5 block text-sm font-medium text-ink-soft">
               {t('cron.schedule')}
             </label>
             <CronPicker value={form.cron_expr} onChange={v => setForm({ ...form, cron_expr: v })} />
@@ -466,7 +466,7 @@ export default function CronList() {
 
           {/* Task type: prompt or exec, mutually exclusive */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+            <label className="mb-1.5 block text-sm font-medium text-ink-soft">
               {t('cron.taskType')}
             </label>
             <div className="flex gap-2">
@@ -477,7 +477,7 @@ export default function CronList() {
                   'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-all',
                   form._type === 'prompt'
                     ? 'bg-accent/15 text-accent ring-1 ring-accent/30'
-                    : 'bg-gray-50 dark:bg-white/[0.04] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/[0.08]',
+                    : 'bg-surface-sunken text-ink-soft hover:bg-accent-wash hover:text-ink',
                 )}
               >
                 <MessageSquare size={14} /> {t('cron.prompt')}
@@ -489,7 +489,7 @@ export default function CronList() {
                   'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-all',
                   form._type === 'exec'
                     ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/30'
-                    : 'bg-gray-50 dark:bg-white/[0.04] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/[0.08]',
+                    : 'bg-surface-sunken text-ink-soft hover:bg-accent-wash hover:text-ink',
                 )}
               >
                 <Terminal size={14} /> {t('cron.exec')}
@@ -535,7 +535,7 @@ export default function CronList() {
             <Toggle checked={form.silent} onChange={v => setForm({ ...form, silent: v })} label={t('cron.silent')} />
           </div>
 
-          <div className="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-white/[0.06]">
+          <div className="flex justify-end gap-2 border-t border-hairline pt-3">
             <Button variant="secondary" onClick={() => setShowForm(false)}>{t('common.cancel')}</Button>
             <Button onClick={handleSave} loading={saving}>
               {isEdit ? t('common.save') : t('cron.add')}
