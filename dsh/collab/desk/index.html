@@ -431,6 +431,12 @@ html,body{background:var(--bg);color:var(--text)}
 .beam.return .dot{fill:#fff;stroke:#0f766e;stroke-width:2}
 .beam.reject .dot{fill:#dc2626;stroke:#fff;stroke-width:1.5}
 .beam .halo{fill:none;stroke:#11111218;stroke-width:9}
+/* @ 细光：更淡的细线 + 流动虚线 + 一颗小圆点走过（实时与回放共用同一段动画） */
+.beam.at{animation:atOut 1.5s ease-out forwards}
+.beam.at .base{stroke:#dbeafe;stroke-width:1.2}
+.beam.at .trace{stroke:#2563eb;stroke-width:1.2;stroke-dasharray:2 6;opacity:.9}
+.beam.at .dot{fill:#2563eb;filter:drop-shadow(0 0 4px #2563eb66)}
+@keyframes atOut{0%,72%{opacity:1}100%{opacity:0}}
 
 @media (max-width:760px){
   .stage{border-radius:18px}
@@ -911,8 +917,24 @@ function beam(from, to, kind = 'assign') {
   g.append(svgEl('path', { d, class: 'base' }));
   g.append(svgEl('path', { d, class: 'trace' }));
   $('beams').append(g);
-  // @ 只做流动虚线，不投包
-  if (kind === 'at') { setTimeout(() => g.remove(), 1200); return; }
+  // @ 细光：线短暂变成流动虚线，一颗小圆点从作者这边走过（实时与回放共用）。
+  if (kind === 'at') {
+    const dot = svgEl('circle', { class: 'dot', r: 2.6, cx: a.x, cy: a.y });
+    g.append(dot);
+    const line = q('.base', g), len = line.getTotalLength();
+    // 沿用 887 细线流光 1.5s 的淡出窗口：小圆点 760ms 走完，剩下的时间留给线淡出。
+    const dur = 760, t0 = performance.now();
+    const step = now => {
+      const k = Math.min(1, (now - t0) / dur);
+      const e = 1 - Math.pow(1 - k, 3);
+      const pt = line.getPointAtLength(len * e);
+      dot.setAttribute('cx', pt.x); dot.setAttribute('cy', pt.y);
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+    setTimeout(() => g.remove(), 1500);
+    return;
+  }
   const dot = svgEl('circle', { class: 'dot', r: kind === 'return' ? 4 : 4.5, cx: a.x, cy: a.y });
   g.append(dot);
   const line = q('.base', g), len = line.getTotalLength();
@@ -1081,12 +1103,30 @@ function applyMessage(ev, animate = true) {
   const author = S.byId.get(message.author) || resolveRef(message.name) || resolveRef(message.author);
   if (!author) return;
   const targets = new Set();
-  for (const other of S.memberList) {
-    if (other.id === author.id) continue;
-    const rm = S.rosterFor.get(other.id);
-    const names = [other.name, other.id, rm?.name, ...(rm?.aliases ?? [])].filter(Boolean);
-    if (names.some(n => text.includes('@' + n))) targets.add(other);
-    if (targets.size >= 4) break;
+  // #876 P: 回放接口直接给被 @ 的成员 id；实时事件没有这个字段，就按 hub 的同一套规则
+  // （mentions.mjs）从文本认：``` 代码块里的不算，多个名字重叠时最长优先。
+  if (Array.isArray(message.mentions)) {
+    for (const id of message.mentions) {
+      const other = S.byId.get(id);
+      if (other && other.id !== author.id) targets.add(other);
+    }
+  } else {
+    const outside = text.split('```').filter((_, i) => i % 2 === 0).join(' ');
+    const pairs = [];
+    for (const other of S.memberList) {
+      if (other.id === author.id) continue;
+      const rm = S.rosterFor.get(other.id);
+      for (const n of [other.name, other.id, rm?.name, ...(rm?.aliases ?? [])].filter(Boolean)) pairs.push(['@' + n, other]);
+    }
+    pairs.sort((a, b) => b[0].length - a[0].length);
+    // 逐位扫描、命中即跳过整段，和 mentions.mjs 的 matchAll(最长优先) 等价：
+    // 否则 "@阿柚子" 会同时命中 "@阿柚子" 和 "@阿柚" 两个名字。
+    for (let i = 0; i < outside.length;) {
+      const hit = pairs.find(([alias]) => outside.startsWith(alias, i));
+      if (hit === undefined) { i += 1; continue; }
+      targets.add(hit[1]);
+      i += hit[0].length;
+    }
   }
   if (!targets.size) return;
   if (animate) for (const target of targets) beam(author, target, 'at');
