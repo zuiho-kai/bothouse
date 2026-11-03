@@ -4,7 +4,7 @@ import { personaLibrary } from './personas.mjs';
 //   - insert:
 //       - id: conest-collab
 //         name: /abs/path/dsh/collab/plugin.mjs
-//         config: { dataDir, workspacePath, leadFile?, fallbackLead?, botTokenEnv?, ownerName?, rooms?, dshMembers?, maxRelay? }
+//         config: { dataDir, workspacePath, leadFile?, fallbackLead?, botTokenEnv?, ownerName?, rooms?, dshMembers?, maxRelay?, boardDir?, teamStatusDir? }
 import { createRequire } from 'node:module';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -25,6 +25,7 @@ import { Attachments, INLINE_IMAGE } from './attachments.mjs';
 import { Later, registerLater } from './later.mjs';
 import { QuotaCooling, quotaDirectory } from './quota-cooling.mjs';
 import { DeskEvents, deskRoute } from './desk.mjs';
+import { TeamStatus } from './team-status.mjs';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -83,7 +84,12 @@ export function resolveConfig(config, env = process.env) {
   // and an explicit config value wins so tests never point at the live board.
   const boardDir = String(c.boardDir ?? env.BOARD_DIR ?? '').trim() || undefined;
   if (boardDir !== undefined && !isAbsolute(boardDir)) throw Error('conest-collab: boardDir must be an absolute path');
-  return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, boardDir, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我' };
+  // #876 K: busy/idle and board events share one team directory; an explicit value or
+  // CONEST_TEAM_STATUS_DIR wins, and boardDir is the fallback so one setting covers both.
+  const teamStatusRaw = c.teamStatusDir ?? (String(env.CONEST_TEAM_STATUS_DIR ?? '').trim() || boardDir);
+  const teamStatusDir = teamStatusRaw == null ? undefined : String(teamStatusRaw).trim() || undefined;
+  if (teamStatusDir !== undefined && !isAbsolute(teamStatusDir)) throw Error('conest-collab: teamStatusDir must be an absolute path');
+  return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, boardDir, teamStatusDir, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我' };
 }
 
 /** Resolve a package from the running DSH installation, never a second copy. */
@@ -157,6 +163,9 @@ export async function apply(ctx, rawConfig) {
   // #876: only the plugin's own tail touches board-events.jsonl; board.py writes it.
   const desk = new DeskEvents(hub, { boardDir: config.boardDir, logger: ctx.logger });
   desk.start();
+  // #876 K: read-only busy/idle from the shared team directory; no bridge change.
+  const teamStatus = config.teamStatusDir === undefined ? undefined : new TeamStatus(hub, config.teamStatusDir, { logger: ctx.logger });
+  teamStatus?.start();
   if (!config.botToken) ctx.logger.warn(`conest-collab: ${config.botTokenEnv} is unset; cc-connect bots cannot connect`);
 
   const owner = req => ctx.connection.requestRejection(req) === undefined;
@@ -178,6 +187,7 @@ export async function apply(ctx, rawConfig) {
     },
   }), 'conest-collab: cloud-web upgrade');
   ctx.effect(() => async () => {
+    teamStatus?.stop();
     desk.stop();
     quota.close();
     later.close();
