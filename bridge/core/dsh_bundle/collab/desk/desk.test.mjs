@@ -85,10 +85,9 @@ test('event semantics: returned goes worker -> dispatcher, dispatch draws once, 
 
 test('@ 细光：流动虚线 + 小圆点走过，实时和回放共用同一条动画', () => {
   const beamFn = html.slice(html.indexOf('function beam('), html.indexOf('function flashSeat'));
-  assert.match(beamFn, /if \(kind === 'at'\) \{[\s\S]*?class: 'dot'/, '@ 要画小圆点');
-  assert.match(beamFn, /getPointAtLength\(len \* e\)[\s\S]*?setAttribute\('cx'/, '小圆点沿路径走');
-  assert.match(html, /\.beam\.at \.trace\{[^}]*stroke-dasharray/, '@ 线是流动虚线');
-  assert.match(html, /\.beam\.at \.dot\{/, '@ 圆点有自己的细光样式');
+  assert.match(beamFn, /P\.beams\.push\(\{ from: from\.id, to: to\.id, kind/, '流光进像素画布的飞行队列');
+  assert.match(html, /if \(b\.kind === 'at' && i % 2\) continue;/, '@ 拖尾是细虚点');
+  assert.match(html, /else if \(b\.kind === 'at'\) \{ px\(ctx, p\.x - 1, p\.y - 1, 2, 2/, '@ 光点是细小的一颗');
   const apply = html.slice(html.indexOf('function applyMessage'), html.indexOf('function applyEvent'));
   assert.match(apply, /beam\(author, target, 'at'\)/, '实时与回放都从 applyMessage 画 @');
   const step = html.slice(html.indexOf('function stepReplay'), html.indexOf('function startReplay'));
