@@ -76,11 +76,43 @@ test('event semantics: returned goes worker -> dispatcher, dispatch draws once, 
   assert.match(html, /function workerAndDispatcher/);
   assert.match(html, /beam\(worker, dispatcher, 'return'\)/, 'return light must fly back to the dispatcher');
   assert.match(html, /function dispatchBeamOnce/);
-  assert.match(html, /S\.dispatched\.has\(key\)/, 'created+assigned must not draw twice');
+  assert.match(html, /if \(!dispatchAllowed\(id, to\.id, S\.dispatched\)\) return;/, 'created+assigned must not draw twice in one assignment');
   assert.match(html, /kind === 'created' && from && animate\) dispatchBeamOnce/, 'created with an assignee is a dispatch');
   assert.match(html, /S\.byId\.set\(m\.id, m\)/, 'member index must be populated');
   assert.match(html, /state\.effective_lead_id \?\? state\.lead_id/, 'lead is read at runtime');
   assert.doesNotMatch(html, /S\.lead = 'gge'/);
+});
+
+test('hidden 元素不被组件 display 覆盖（空态与回放条）', () => {
+  assert.match(html, /\[hidden\]\{display:none!important\}/, 'hidden 必须有全局强制规则');
+  assert.match(html, /\.empty\{[^}]*display:grid/, '空态组件自身会覆盖 hidden，正是回归来源');
+  assert.match(html, /\.replaybar\{[^}]*display:flex/, '回放条自身会覆盖 hidden，正是回归来源');
+});
+
+test('回放模式断开实时 SSE，并丢弃在途回调', () => {
+  const setMode = html.slice(html.indexOf('function setModeUI'), html.indexOf('async function goLive'));
+  assert.match(setMode, /if \(!live\) \{ disconnectLive\(\); setConn\('replay', '回放模式'\); \}/);
+  assert.match(html, /if \(S\.es !== es \|\| S\.mode !== 'live'\) return;/, '旧连接或回放中的回调必须丢弃');
+  const load = html.slice(html.indexOf('async function loadReplayWindow'), html.indexOf('async function loadFixture'));
+  assert.match(load, /setModeUI\('replay'\)/, '载入回放先切模式并断流');
+  const boot = html.slice(html.indexOf('async function boot'), html.lastIndexOf('boot();'));
+  assert.match(boot, /if \(from && to\)[\s\S]*?setModeUI\('replay'\)[\s\S]*?await loadReplayWindow\(false\);[\s\S]*?return;/, '时间窗入口直接进回放');
+  assert.ok(boot.indexOf("setModeUI('replay')") < boot.indexOf('await goLive()'), '时间窗入口不应先连实时');
+});
+
+test('派活去重只限同一次派活，交回/打回后可再次画光', () => {
+  const block = html.split('// <dispatch-model>')[1]?.split('// </dispatch-model>')[0];
+  assert.ok(block, 'dispatch model block');
+  const model = new Function(block + '\nreturn { dispatchKey, dispatchAllowed, forgetDispatch };')();
+  const set = new Set();
+  assert.equal(model.dispatchAllowed('21', 'ayou', set), true, 'first dispatch draws');
+  set.add(model.dispatchKey('21', 'ayou'));
+  assert.equal(model.dispatchAllowed('21', 'ayou', set), false, 'created+assigned same cycle draws once');
+  assert.equal(model.dispatchAllowed('21', 'ache', set), true, 'another worker is a different dispatch');
+  model.forgetDispatch('21', set);
+  assert.equal(set.size, 0, 'return/reject clears only this task keys');
+  assert.equal(model.dispatchAllowed('21', 'ayou', set), true, 're-dispatch after return draws again');
+  assert.equal((html.match(/forgetDispatch\(id, S\.dispatched\)/g) ?? []).length, 3, 'returned/rejected/paused-done end the cycle');
 });
 
 test('preview server: page, state and replay window', async () => {

@@ -9,6 +9,7 @@
 <style>
 :root{--bg:#0a0d13;--panel:#111722;--panel2:#0c121b;--line:#243044;--line2:#1a2434;--text:#e7edf7;--muted:#8ea0b8;--gold:#ffc56b;--teal:#5eead4;--red:#ff6b6b;--blue:#7dd3fc;--wood:#8a5a36;--ok:#34d399}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0;min-height:100%}
 body{background:radial-gradient(1200px 620px at 50% -10%,#172235 0,#0a0d13 62%);color:var(--text);font:14px/1.45 system-ui,-apple-system,"PingFang SC","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
 button,input,select{font:inherit;color:inherit}
@@ -740,10 +741,24 @@ function findActive(taskId) {
   return null;
 }
 
+// <dispatch-model>
+/** 同一次派活的稳定键：taskId>memberId。 */
+function dispatchKey(id, toId) { return `${id}>${toId}`; }
+/** 只有本次派活周期内没画过才放行。 */
+function dispatchAllowed(id, toId, dispatched) {
+  return !!id && !!toId && !dispatched.has(dispatchKey(id, toId));
+}
+/** 结束本次派活：清掉该任务的所有去重键，交回/打回后再派同一个人仍会画光。 */
+function forgetDispatch(id, dispatched) {
+  if (!id) return;
+  const prefix = id + '>';
+  for (const key of [...dispatched]) if (key.startsWith(prefix)) dispatched.delete(key);
+}
+// </dispatch-model>
+
 function dispatchBeamOnce(id, from, to) {
-  const key = `${id}>${to.id}`;
-  if (S.dispatched.has(key)) return;
-  S.dispatched.add(key);
+  if (!dispatchAllowed(id, to.id, S.dispatched)) return;
+  S.dispatched.add(dispatchKey(id, to.id));
   beam(from, to, 'assign');
 }
 
@@ -775,9 +790,11 @@ function applyTask(ev, animate = true) {
         clearTask(worker.id);
         if (animate) { flashSeat(worker.id, 'flash-good'); deskPop(worker.id, '✓ 交回', 'good'); }
       }
+      forgetDispatch(id, S.dispatched);
     } else {
       if (worker && dispatcher && animate) beam(dispatcher, worker, 'reject');
       if (worker && animate) { flashSeat(worker.id, 'flash-bad'); deskPop(worker.id, `✕ 打回${note ? '：' + note : ''}`, 'bad'); }
+      forgetDispatch(id, S.dispatched);
     }
   } else if (kind === 'paused' || kind === 'done') {
     const { worker } = workerAndDispatcher(findActive(id), from, to);
@@ -788,6 +805,7 @@ function applyTask(ev, animate = true) {
         else deskPop(worker.id, `暂停${note ? '：' + note : ''}`, 'info');
       }
     }
+    forgetDispatch(id, S.dispatched);
   }
   addLog(kind, ts, fromName, toName, header, note);
   paintAll();
@@ -858,11 +876,13 @@ function connectLive() {
   disconnectLive();
   const es = new EventSource('/collab/api/events');
   S.es = es;
-  es.onopen = () => setConn('live', '实时已连接');
+  es.onopen = () => { if (S.es === es && S.mode === 'live') setConn('live', '实时已连接'); };
   es.onmessage = (message) => {
+    // 已切回放或已换连接时，忽略在途回调，避免历史场景混入实时事件。
+    if (S.es !== es || S.mode !== 'live') return;
     try { applyEvent(JSON.parse(message.data), true); } catch (error) { console.warn('desk event', error); }
   };
-  es.onerror = () => { if (S.es === es) setConn('wait', '重连中…'); };
+  es.onerror = () => { if (S.es === es && S.mode === 'live') setConn('wait', '重连中…'); };
 }
 
 function resetScene(clearLog = true) {
@@ -890,7 +910,7 @@ function setModeUI(mode) {
   $('modeLive').setAttribute('aria-selected', String(live));
   $('modeReplay').setAttribute('aria-selected', String(!live));
   $('replayBar').hidden = live;
-  if (!live) setConn('replay', '回放模式');
+  if (!live) { disconnectLive(); setConn('replay', '回放模式'); }
 }
 
 async function goLive() {
@@ -1117,16 +1137,20 @@ async function boot() {
   syncBeamViewBox();
   const params = new URLSearchParams(location.search);
   if (params.get('fixture') === '1') { await loadFixture(); return; }
-  await goLive();
   const from = params.get('from'), to = params.get('to');
   if (from && to) {
     const f = Date.parse(from), t = Date.parse(to);
     if (Number.isFinite(f) && Number.isFinite(t)) {
+      // 时间窗入口直接进回放：先断开实时，再载入历史，避免边连边混。
+      setModeUI('replay');
       $('from').value = toLocalInput(new Date(f));
       $('to').value = toLocalInput(new Date(t));
+      try { await loadState(); } catch (error) { setConn('err', '状态加载失败'); }
       await loadReplayWindow(false);
+      return;
     }
   }
+  await goLive();
 }
 
 boot();
