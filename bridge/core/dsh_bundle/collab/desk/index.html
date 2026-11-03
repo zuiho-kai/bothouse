@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>团队工作台</title>
+<style>body{font:14px/1.6 system-ui,sans-serif;margin:0;padding:24px;background:#0f1115;color:#e6e8eb}
+h1{font-size:18px;margin:0 0 8px}p{color:#8b949e;margin:0 0 16px}
+ol{padding-left:20px;font-family:ui-monospace,monospace;font-size:12px}</style></head>
+<body>
+<h1>团队工作台</h1>
+<p>办公室地图页由前端路补充；这里是占位页，只接真实事件流，不造假光柱。</p>
+<ol id="events"></ol>
+<script>
+const list = document.getElementById('events');
+const add = text => { const li = document.createElement('li'); li.textContent = text; list.prepend(li); };
+const source = new EventSource('/collab/api/events');
+source.onmessage = message => {
+  let event;
+  try { event = JSON.parse(message.data); } catch { return; }
+  if (event.type === 'task') add([event.ts, event.kind, event.from, '→', event.to, event.title].filter(Boolean).join(' '));
+};
+</script>
+</body>
+</html>
