@@ -546,6 +546,30 @@
   .notice-text { font-style: normal; color: var(--muted); }
   .notice-text .md-p { margin: 0; }
 
+  /* 思考过程：收成一行灰字，点开才看推理。不占头像列、不改对话节奏。 */
+  .msg.think-row, .msg.tool-row { display: block; }
+  .think { margin: 2px 0 var(--sp-2); }
+  .think-toggle {
+    all: unset; display: inline-flex; align-items: baseline; gap: 6px; cursor: pointer;
+    color: var(--faint); font-size: var(--fs-sm); line-height: 1.5; border-radius: var(--r-sm);
+  }
+  .think-toggle:hover { color: var(--muted); }
+  .think-toggle .chev { font-size: 11px; transition: transform var(--dur) var(--ease); }
+  .think-toggle[aria-expanded="true"] .chev { transform: rotate(90deg); }
+  .think-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 220ms var(--ease); }
+  .think[data-open="true"] .think-body { grid-template-rows: 1fr; }
+  .think-body > div { overflow: hidden; color: var(--muted); font-size: var(--fs-sm); border-left: 2px solid var(--line); padding-left: var(--sp-3); margin: 4px 0 2px; }
+  .think-text .md-p { margin: 0 0 var(--sp-1); }
+
+  /* 工具事件：居中一行灰字，像分隔提示，不当成一条对话，也不打断阅读。 */
+  .msg.tool-row { padding-top: 1px; padding-bottom: 1px; }
+  .tool-line { display: flex; justify-content: center; align-items: baseline; gap: 6px; color: var(--faint); font-size: var(--fs-xs); line-height: 1.6; }
+  .tool-line .tl-dot { flex: none; width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .6; }
+  .tool-line .tl-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+  .tool-line .tl-sum { max-width: min(70%, 520px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tool-line.failed .tl-name, .tool-line.failed .tl-sum { color: var(--danger); }
+  @media (prefers-reduced-motion: reduce) { .think-body { transition: none; } }
+
   @media (prefers-reduced-motion: reduce) {
     .msg.flash { animation: none; outline: 2px solid var(--accent); outline-offset: -2px; }
   }
@@ -841,10 +865,64 @@ const STICK_PX = 40; // 沿用原 upsert 的贴底判定阈值
 let stuck = true;
 function keepBottom() { const log = $('log'); if (stuck) log.scrollTop = log.scrollHeight; }
 $('log').addEventListener('scroll', () => { const log = $('log'); stuck = log.scrollTop + log.clientHeight >= log.scrollHeight - STICK_PX; }, { passive: true });
+// 刚插进去的这一帧，字体与换行还没算成最终高度：贴底时再跟一帧，底部不留缝（流式输出最常见）。
+function followBottom(log, stick) {
+  if (!stick) return;
+  log.scrollTop = log.scrollHeight;
+  requestAnimationFrame(() => { if (stuck) log.scrollTop = log.scrollHeight; });
+}
 if ('ResizeObserver' in window) new ResizeObserver(keepBottom).observe($('log'));
 const messageSig = m => JSON.stringify([m.text, m.card, m.edited_at, m.attachments, m.reply_to]);
+// 外框签名：附件、引用、作者这些决定「整行长相」的东西。只有正文在变时（流式输出）原地换文字，
+// 不重建整行 —— 图片不重载、引用条不闪、代码块的横向滚动位置不丢。
+const frameSig = m => JSON.stringify([m.attachments, m.reply_to, m.author_kind, m.author]);
+
+// 思考过程：默认一行灰字，点一下展开；运行中显示「思考中…」。
+function thinkingNode(m, meta) {
+  const row = el('div', 'msg think-row');
+  row.dataset.id = m.id;
+  row.dataset.sig = messageSig(m);
+  row.dataset.frame = frameSig(m);
+  const box = el('div', 'think');
+  const btn = el('button', 'think-toggle');
+  btn.type = 'button';
+  btn.setAttribute('aria-expanded', 'false');
+  const secs = Number(meta.seconds);
+  btn.append(el('span', 'think-label', meta.state === 'running' ? '思考中…' : (secs > 0 ? `思考了 ${secs} 秒` : '思考过程')));
+  btn.append(el('span', 'chev', '›'));
+  const body = el('div', 'think-body');
+  const inner = el('div');
+  inner.append(renderBody(meta.detail || m.text || '', 'think-text'));
+  body.append(inner);
+  btn.onclick = () => {
+    const open = box.dataset.open === 'true';
+    box.dataset.open = String(!open);
+    btn.setAttribute('aria-expanded', String(!open));
+  };
+  box.append(btn, body);
+  row.append(box);
+  return row;
+}
+
+// 工具事件：居中一行灰字；失败时整行标红，仍然只有一行。
+function toolNode(m, meta) {
+  const row = el('div', 'msg tool-row');
+  row.dataset.id = m.id;
+  row.dataset.sig = messageSig(m);
+  row.dataset.frame = frameSig(m);
+  const line = el('div', 'tool-line' + (meta.state === 'failed' ? ' failed' : ''));
+  line.append(el('span', 'tl-dot'), el('span', 'tl-name', meta.title || '工具'));
+  const sum = meta.summary || String(m.text || '').split('\n')[0];
+  if (sum) line.append(el('span', 'tl-sum', sum));
+  row.append(line);
+  return row;
+}
 
 function messageNode(m) {
+  let meta = {}; try { meta = JSON.parse(m.card || '{}'); } catch {}
+  // 思考与工具事件不是对话：收成一行，不占头像和昵称。
+  if (meta.kind === 'thinking') return thinkingNode(m, meta);
+  if (meta.kind === 'tool') return toolNode(m, meta);
   const system = m.author_kind === 'system';
   const row = el('div', 'msg' + (system ? ' system' : ''));
   row.dataset.id = m.id;
@@ -852,6 +930,7 @@ function messageNode(m) {
   row.dataset.ts = m.created_at;
   row.dataset.system = system ? '1' : '0';
   row.dataset.sig = messageSig(m);
+  row.dataset.frame = frameSig(m);
   // 系统通知（交接、派活记录等）不是对话：收成居中一行灰字，不占头像和昵称。
   if (system && !m.card) {
     row.classList.add('notice');
@@ -922,13 +1001,24 @@ function upsert(m) {
   const existing = log.querySelector(`[data-id="${m.id}"]`);
   // 重复推送（重连补拉、同一条事件到两次）内容没变就不重建，避免闪一下、丢掉代码块的横向滚动位置。
   if (existing && existing.dataset.sig === messageSig(m)) return;
+  // 流式输出：同一条消息只涨正文、外框没变时原地换文字，不重建整行（图片不重载、不闪、不跳）。
+  if (existing && !m.card && existing.dataset.frame === frameSig(m)) {
+    const body = existing.querySelector(':scope > div > .body');
+    if (body) {
+      const fresh = renderBody(m.text, 'body');
+      body.replaceChildren(...fresh.childNodes);
+      existing.dataset.sig = messageSig(m);
+      followBottom(log, stick);
+      return;
+    }
+  }
   if (existing) existing.replaceWith(messageNode(m));
   else {
     const after = [...log.children].find(n => n.dataset.id != null && Number(n.dataset.id) > m.id);
     log.insertBefore(messageNode(m), after || null);
   }
   regroup();
-  if (stick) log.scrollTop = log.scrollHeight;
+  followBottom(log, stick);
 }
 
 async function api(path, init) {
