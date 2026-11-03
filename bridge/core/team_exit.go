@@ -258,6 +258,7 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		// as usual (core/test_noise.go)
 		slog.Info("team exit: test item; nothing posted in the chat channel",
 			"kind", kind, "board_item", hid, "workspace", ws, "parent", parent, "headline", truncateStr(hline, 120))
+		takeWorkspaceImages(sessionKey, time.Time{})
 		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
 		return ""
 	}
@@ -291,9 +292,15 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 	// The workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
 	if e.wakeChatLeadContext(ctx, p, parent, ws, bot, kind, body, sessionKey, hid, false, "") {
 		slog.Info("team exit: handed to the chat lead to rewrite", "kind", kind, "auto", auto, "workspace", ws, "parent", parent)
+		// the lead rewrites the text only; the images go to the chat channel now
+		e.postExitImages(ctx, p, rc, sessionKey, body, item)
 		return ""
 	}
-	return e.postExitOriginal(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, "")
+	id, err := e.postExitOriginalErr(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, "")
+	if err == nil {
+		e.postExitImages(ctx, p, rc, sessionKey, body, item)
+	}
+	return id
 }
 
 // postExitHeadline posts the part for the user (background, what was done, what the user is to
@@ -351,10 +358,13 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 		if _, err := e.postExitOriginalErr(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, ""); err != nil {
 			e.noteReportFailure(rec, err)
 		} else {
+			e.postExitImages(ctx, p, rc, sessionKey, body, item)
 			e.completeReportDelivery(rec)
 		}
 		return ""
 	}
+	// the images the workspace sent or the report names go right under the headline
+	e.postExitImages(ctx, p, rc, sessionKey, body, item)
 	e.exitMarkPosted(kind, hid, hline)
 	if kind == exitKindAsk && rec.Authorization == nil {
 		e.rememberPostedAskWake(rec)
