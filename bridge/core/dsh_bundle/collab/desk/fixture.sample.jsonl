@@ -1,0 +1,34 @@
+{"type":"members","members":[{"id":"lead","name":"队长","kind":"dsh","online":true,"avatar":"orange"},{"id":"ayan","name":"阿岩","kind":"dsh","online":true,"avatar":"dragon"},{"id":"ayou","name":"阿柚","kind":"bot","online":true,"avatar":"whale"},{"id":"ache","name":"阿澈","kind":"bot","online":true,"avatar":"rainbow"},{"id":"alan","name":"阿岚","kind":"dsh","online":false,"avatar":"lanxi"}]}
+{"ts":"2026-11-03T09:02:00+08:00","id":"21","kind":"created","from":"lead","to":"ayou","title":"整理发布说明"}
+{"ts":"2026-11-03T09:03:00+08:00","id":"21","kind":"assigned","from":"lead","to":"ayou","title":"整理发布说明"}
+{"type":"thinking","ts":"2026-11-03T09:04:00+08:00","room_id":1,"members":["ayou"]}
+{"type":"message","ts":"2026-11-03T09:10:00+08:00","message":{"id":101,"room_id":1,"author":"ayou","author_kind":"bot","name":"阿柚","text":"@队长 初稿好了，缺一段回滚说明","created_at":1793668200}}
+{"ts":"2026-11-03T09:12:00+08:00","id":"21","kind":"returned","from":"lead","to":"ayou","title":"整理发布说明"}
+{"ts":"2026-11-03T09:14:00+08:00","id":"21","kind":"rejected","from":"lead","to":"ayou","title":"整理发布说明","note":"缺回滚步骤"}
+{"type":"thinking","ts":"2026-11-03T09:15:00+08:00","room_id":1,"members":["ayou"]}
+{"ts":"2026-11-03T09:38:00+08:00","id":"21","kind":"returned","from":"lead","to":"ayou","title":"整理发布说明"}
+{"ts":"2026-11-03T09:39:00+08:00","id":"21","kind":"done","from":"lead","to":"ayou","title":"整理发布说明"}
+{"type":"thinking","ts":"2026-11-03T09:40:00+08:00","room_id":1,"members":[]}
+{"ts":"2026-11-03T09:50:00+08:00","id":"22","kind":"created","from":"lead","to":"ayan","title":"修 CI 超时"}
+{"ts":"2026-11-03T09:51:00+08:00","id":"22","kind":"assigned","from":"lead","to":"ayan","title":"修 CI 超时"}
+{"type":"thinking","ts":"2026-11-03T09:52:00+08:00","room_id":1,"members":["ayan"]}
+{"type":"message","ts":"2026-11-03T10:02:00+08:00","message":{"id":102,"room_id":1,"author":"ayan","author_kind":"bot","name":"阿岩","text":"@阿澈 这条超时日志帮看下","created_at":1793671320}}
+{"ts":"2026-11-03T10:10:00+08:00","id":"22","kind":"paused","from":"lead","to":"ayan","title":"修 CI 超时","note":"等上游镜像"}
+{"type":"thinking","ts":"2026-11-03T10:11:00+08:00","room_id":1,"members":[]}
+{"ts":"2026-11-03T10:15:00+08:00","id":"23","kind":"assigned","from":"lead","to":"ache","title":"手机竖屏验收"}
+{"type":"thinking","ts":"2026-11-03T10:16:00+08:00","room_id":1,"members":["ache"]}
+{"ts":"2026-11-03T10:31:00+08:00","id":"23","kind":"returned","from":"lead","to":"ache","title":"手机竖屏验收"}
+{"ts":"2026-11-03T10:33:00+08:00","id":"23","kind":"rejected","from":"lead","to":"ache","title":"手机竖屏验收","note":"工位名牌溢出"}
+{"type":"thinking","ts":"2026-11-03T10:34:00+08:00","room_id":1,"members":["ache"]}
+{"ts":"2026-11-03T10:52:00+08:00","id":"23","kind":"returned","from":"lead","to":"ache","title":"手机竖屏验收"}
+{"ts":"2026-11-03T10:53:00+08:00","id":"23","kind":"done","from":"lead","to":"ache","title":"手机竖屏验收"}
+{"type":"thinking","ts":"2026-11-03T10:54:00+08:00","room_id":1,"members":[]}
+{"ts":"2026-11-03T10:58:00+08:00","id":"24","kind":"assigned","from":"lead","to":"alan","title":"补回放接口文档"}
+{"ts":"2026-11-03T11:00:00+08:00","id":"24","kind":"returned","from":"lead","to":"alan","title":"补回放接口文档"}
+{"ts":"2026-11-03T11:01:00+08:00","id":"24","kind":"done","from":"lead","to":"alan","title":"补回放接口文档"}
+{"ts":"2026-11-03T11:05:00+08:00","id":"25","kind":"created","from":"lead","to":"","title":"整理周报"}
+{"ts":"2026-11-03T11:06:00+08:00","id":"25","kind":"assigned","from":"lead","to":"ache","title":"整理周报"}
+{"type":"thinking","ts":"2026-11-03T11:07:00+08:00","room_id":1,"members":["ache"]}
+{"ts":"2026-11-03T11:12:00+08:00","id":"25","kind":"returned","from":"lead","to":"ache","title":"整理周报"}
+{"ts":"2026-11-03T11:13:00+08:00","id":"25","kind":"done","from":"lead","to":"ache","title":"整理周报"}
+{"type":"thinking","ts":"2026-11-03T11:14:00+08:00","room_id":1,"members":[]}

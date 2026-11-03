@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "note": "成员 → 头像对照表。project 是 Issue #876 事件契约的键；显示名以 roster.name 为准（state.name 可能只是 agent 的 display_name，如 DeepSeek），name/aliases 也用于解析 who 与 @ 文本。avatar 为空表示用名字首字母圆形徽标。",
+  "defaultAvatar": "",
+  "members": [
+    {
+      "project": "gge",
+      "name": "G哥",
+      "role": "lead",
+      "avatar": "dragon",
+      "deployed": true,
+      "aliases": [
+        "G哥",
+        "g哥",
+        "Codex",
+        "codex",
+        "龙娘"
+      ]
+    },
+    {
+      "project": "cjiang",
+      "name": "C酱",
+      "role": "sub",
+      "avatar": "orange",
+      "deployed": true,
+      "aliases": [
+        "C酱",
+        "c酱",
+        "Claude",
+        "claude",
+        "橘"
+      ]
+    },
+    {
+      "project": "deep",
+      "name": "肥鱼",
+      "role": "sub",
+      "avatar": "whale",
+      "deployed": true,
+      "aliases": [
+        "肥鱼",
+        "大肥鱼",
+        "鲸鱼",
+        "鲸鱼娘",
+        "Deep",
+        "deep",
+        "DeepSeek",
+        "deepseek",
+        "深度求索"
+      ]
+    },
+    {
+      "project": "gjiang",
+      "name": "大豆包",
+      "role": "sub",
+      "avatar": "rainbow",
+      "deployed": true,
+      "aliases": [
+        "大豆包",
+        "豆包",
+        "G酱",
+        "g酱",
+        "Gemini",
+        "gemini",
+        "彩虹猫"
+      ]
+    },
+    {
+      "project": "cursor",
+      "name": "Cursor",
+      "role": "sub",
+      "avatar": "",
+      "deployed": true,
+      "aliases": [
+        "Cursor",
+        "cursor"
+      ]
+    },
+    {
+      "project": "grok",
+      "name": "Grok",
+      "role": "sub",
+      "avatar": "",
+      "deployed": false,
+      "aliases": [
+        "Grok",
+        "grok",
+        "渡鸦"
+      ]
+    }
+  ]
+}
