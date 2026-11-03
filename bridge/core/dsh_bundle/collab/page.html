@@ -62,9 +62,12 @@
     --avatar: 40px;
     --avatar-sm: 32px;
 
-    /* 动效 */
+    /* 动效。--ease 对应 gsap 的 power3.out 手感（gsap-core 的推荐缓动之一）。 */
     --dur: 160ms;
     --ease: cubic-bezier(.2, .8, .2, 1);
+    /* 260ms 与 60ms：来源见 .msg.enter 注释（taste-skill 第 9 节错开区间 + gsap 默认时长收短） */
+    --enter-dur: 260ms;
+    --enter-stagger: 60ms;
   }
 
   @media (prefers-color-scheme: light) {
@@ -99,9 +102,11 @@
   }
 
   * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
+  /* U14 P4：外层不滚动、不把滚动冒泡出去，iOS 侧滑返回才不被吞 */
+  html, body { height: 100%; margin: 0; overscroll-behavior: none; }
   body {
-    height: 100dvh;
+    /* --app-h 由 watchKeyboard() 按 visualViewport 写；没有该 API 时退回 100dvh */
+    height: var(--app-h, 100dvh);
     overflow: hidden;
     display: grid;
     grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--members-w);
@@ -113,6 +118,14 @@
   }
   button { font: inherit; color: inherit; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* 按压反馈：只动 transform（gsap-performance：位移用 transform，不动 layout）。
+     1px 是视觉最小步进，不是可调参数。 */
+  .icon-btn, .mode, .rooms button, .card .actions button, .state .btn, .mention-opt {
+    transition: background-color var(--dur) var(--ease), transform 90ms var(--ease);
+  }
+  .icon-btn:active, .mode:active, .rooms button:active,
+  .card .actions button:active, .state .btn:active, .mention-opt:active { transform: translateY(1px); }
+  .jump-latest:active { transform: translateY(1px) scale(.98); }
 
   /* ---------- 侧栏 ---------- */
   aside {
@@ -509,9 +522,13 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* 新消息进场 180ms：规范第 5 节 */
-  @keyframes msg-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-  .msg.enter { animation: msg-enter 180ms var(--ease); }
+  /* 新消息进场：位移 16px 取自 taste-skill 第 9 节（入场 16–32px）的下限，消息流克制；
+     260ms 取自 gsap-core 默认 duration 0.5s 收短到消息粒度；同一批按 60ms 递增错开。 */
+  @keyframes msg-enter { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  .msg.enter {
+    animation: msg-enter var(--enter-dur) var(--ease) backwards;
+    animation-delay: calc(var(--enter-i, 0) * var(--enter-stagger));
+  }
 
   /* 任务卡状态切换 320ms，只动 transform/opacity/border-color：规范第 4 节 */
   .card { transition: border-color 320ms var(--ease), opacity 320ms var(--ease), transform 320ms var(--ease); }
@@ -817,6 +834,21 @@ function refreshJump() {
   btn.setAttribute('aria-label', state.unseen ? `回到最新，${state.unseen} 条未读` : '回到最新');
 }
 
+// 同一批到达的消息按 60ms 递增错开（gsap 的 stagger 做法；连续 5 条封顶，
+// 再多就同时进，避免长队列排队到看不出是即时消息）。批窗口取 5 个错开步长。
+const ENTER_STAGGER_MS = 60;
+const ENTER_MAX = 5;
+let enterBatch = { at: 0, n: 0 };
+
+function enterIndex() {
+  const now = performance.now();
+  if (now - enterBatch.at > ENTER_STAGGER_MS * ENTER_MAX) enterBatch = { at: now, n: 0 };
+  else enterBatch.at = now;
+  const i = Math.min(enterBatch.n, ENTER_MAX - 1);
+  enterBatch.n += 1;
+  return i;
+}
+
 function upsert(m) {
   if (m.room_id !== state.room) return;
   const log = $('log');
@@ -829,6 +861,7 @@ function upsert(m) {
     log.insertBefore(node, after || null);
     // 首屏回填（hydrating）不播进场动画、不数未读；只有真·新到达才算
     if (!state.hydrating) {
+      node.style.setProperty('--enter-i', String(enterIndex()));
       node.classList.add('enter');
       if (!stick && m.author !== state.me) state.unseen += 1;
     }
@@ -1063,6 +1096,22 @@ $('form').addEventListener('submit', async (e) => {
   if (!ok) { $('input').value = text; autosize(); }
 });
 
+// 软键盘避让：iOS/Android 弹键盘时只有 visualViewport 会变，100dvh 不会。
+// U14 实测 iPhone 上输入框在 top=775、键盘顶 464，靠贴底定位躲不开，所以把页面高度压到可视区。
+function watchKeyboard() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const apply = () => {
+    document.documentElement.style.setProperty('--app-h', Math.round(vv.height) + 'px');
+    // 键盘弹起会把可视区压矮，正贴底的会话要重新贴底，否则最后一条被挡住
+    const log = $('log');
+    if (log && atBottom()) log.scrollTop = log.scrollHeight;
+  };
+  vv.addEventListener('resize', apply);
+  vv.addEventListener('scroll', apply);
+  apply();
+}
+
 $('log').addEventListener('scroll', refreshJump, { passive: true });
 $('jumpLatest').addEventListener('click', () => {
   const log = $('log');
@@ -1075,6 +1124,7 @@ $('jumpLatest').addEventListener('click', () => {
 (async () => {
   const s = await api('/collab/api/state');
   Object.assign(state, { me: s.me, rooms: s.rooms, members: s.members, thinking: s.thinking });
+  watchKeyboard();
   connect();
   await openRoom(s.rooms[0].id);
 })().catch(err => {

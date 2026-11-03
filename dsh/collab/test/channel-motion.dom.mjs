@@ -16,7 +16,12 @@ export class El {
     this._class = '';
     this.attrs = {};
     this.dataset = {};
-    this.style = {};
+    // 页面用 style.setProperty 写 CSS 变量（如 --enter-i），普通对象不够
+    this.style = {
+      setProperty(k, v) { this[k] = String(v); },
+      removeProperty(k) { delete this[k]; },
+      getPropertyValue(k) { return this[k] ?? ''; },
+    };
     this.listeners = new Map();
     this.hidden = false;
     this.disabled = false;
@@ -95,8 +100,10 @@ export function makeDocument(ids) {
   for (const id of ids) byId.set(id, new El('div'));
   // 抽屉用 document.body.dataset.drawer 记状态，Esc 解除，所以要有 body 与 activeElement
   const body = new El('body');
+  const documentElement = new El('html');
   const document = {
     body,
+    documentElement,
     activeElement: body,
     getElementById: id => byId.get(id) || null,
     createElement: tag => new El(tag),

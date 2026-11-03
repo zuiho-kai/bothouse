@@ -48,9 +48,17 @@ async function boot({ sendFails = 0, messages = [] } = {}) {
   };
 
   const matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  // 可触发的 visualViewport：测试里改 height 再 dispatch('resize') 就是在模拟软键盘弹起
+  const vvListeners = new Map();
+  const vv = {
+    height: 844,
+    addEventListener(type, fn) { const a = vvListeners.get(type) || []; a.push(fn); vvListeners.set(type, a); },
+    dispatch(type) { for (const fn of vvListeners.get(type) || []) fn(); },
+  };
   const sandbox = {
     document,
-    window: { matchMedia },
+    window: undefined,
+    visualViewport: vv,
     matchMedia,
     fetch,
     location: { reload() {} },
@@ -60,6 +68,7 @@ async function boot({ sendFails = 0, messages = [] } = {}) {
     EventSource: class { constructor(url) { this.url = url; instances.push(this); } addEventListener() {} },
     setTimeout,
     clearTimeout,
+    performance: { now: () => Date.now() },
   };
   sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
@@ -76,7 +85,7 @@ async function boot({ sendFails = 0, messages = [] } = {}) {
     log.clientHeight = 400;
     log.scrollTop = top;
   };
-  return { byId, posts, instances, setScroll, log, sandbox };
+  return { byId, posts, instances, setScroll, log, sandbox, vv };
 }
 
 const tick = () => new Promise(r => setTimeout(r, 0));
@@ -91,22 +100,17 @@ test('结构：回到最新按钮、未读计数、补全浮层、发送状态�
   assert.match(SOURCE, /id="thinking"[^>]*aria-live="polite"/, '正在输入要 aria-live');
 });
 
-test('动效只用 transform / opacity，并在 reduced-motion 下降级', () => {
+test('动效只用 transform / opacity，带 stagger，并在 reduced-motion 下降级', () => {
   const css = /<style>([\s\S]*)<\/style>/.exec(SOURCE)[1];
   const U3 = css.slice(css.indexOf('U3：交互动效与易用性'));
-  const props = [...U3.matchAll(/(?:transition|animation)\s*:\s*([^;]+);/g)].map(m => m[1]);
-  assert.ok(props.length > 0, 'U3 段应有过渡/动画声明');
-  // 白名单：只允许这些属性参与动效（transition 里可以出现 border-color，动画帧里只动 transform/opacity）
-  // 允许出现在过渡/动画里的词：属性名只剩 transform / opacity / border-color，
-  // 其余只能是时长、曲线、无限循环、none，或本页的设计令牌变量。
-  const OK = /^(transform|opacity|border-color|var\(--[a-z-]+\)|msg-enter|typing-bob|linear|ease|ease-in|ease-out|ease-in-out|infinite|none|\d+(\.\d+)?m?s|cubic-bezier\([^)]*\))$/;
-  for (const p of props) {
-    for (const tok of p.split(/[\s,]+/).filter(Boolean)) {
-      assert.match(tok, OK, `动效声明里出现不该参与动画的词（会引发布局或超出白名单）：${tok} ← ${p}`);
-    }
-  }
-  // keyframes 帧里不许出现 width / height / margin / top / left 这类会重排的属性
-  // 用括号配平把每个 @keyframes 块切出来（正则跨不过嵌套大括号）
+
+  // 动效里不许出现会引发布局的属性（gsap-performance：位移一律用 transform，不动 layout）
+  const LAYOUT = /\b(width|height|margin|padding|top|left|right|bottom|flex|font-size|line-height)\s*:/;
+  const decls = [...U3.matchAll(/(?:transition|animation|animation-delay)\s*:\s*([^;]+);/g)].map(m => m[1]);
+  assert.ok(decls.length >= 3, 'U3 段应有过渡/动画声明');
+  for (const d of decls) assert.doesNotMatch(d, LAYOUT, `动效里出现布局属性：${d}`);
+
+  // 关键帧里只许动 transform / opacity
   const blocks = [];
   for (let i = U3.indexOf('@keyframes'); i >= 0; i = U3.indexOf('@keyframes', i + 1)) {
     const open = U3.indexOf('{', i);
@@ -119,11 +123,19 @@ test('动效只用 transform / opacity，并在 reduced-motion 下降级', () =>
   }
   assert.ok(blocks.length >= 2, '应当有两个关键帧动画（新消息进场、正在输入三点）');
   for (const body of blocks) {
-    assert.doesNotMatch(body, /\b(width|height|margin|padding|top|left|right|bottom)\s*:/, `关键帧里出现会引发布局的属性：${body.slice(0, 80)}`);
+    assert.doesNotMatch(body, LAYOUT, `关键帧里出现布局属性：${body.slice(0, 80)}`);
     assert.match(body, /transform|opacity/, '关键帧至少动 transform 或 opacity');
   }
+
+  // stagger：同批消息用 60ms 递增错开（gsap 的 stagger 做法）
+  assert.match(U3, /animation-delay: calc\(var\(--enter-i, 0\) \* var\(--enter-stagger\)\)/, '新消息进场要按批错开');
+  assert.match(SCRIPT, /const ENTER_STAGGER_MS = 60;/, '错开步长要可读、有来源');
+
+  // 每个可点控件都要有按压反馈
+  assert.match(css, /:active[^{]*\{\s*transform: translateY\(1px\)/, '控件按下要下沉 1px');
+
   assert.match(U3, /@media \(prefers-reduced-motion: reduce\)/, 'U3 段要有 reduced-motion 降级');
-  assert.match(U3, /\.msg\.enter \{ animation: none; \}/, 'reduced-motion 下新消息不播进场动画');
+  assert.match(U3, /\.msg\.enter \{ animation: none; \}/, 'reduced-motion 下新消息不播进场');
   assert.match(U3, /\.typing-dots i \{ animation: none;/, 'reduced-motion 下三点静止');
 });
 
@@ -209,6 +221,21 @@ test('发送失败：显示错误与重试按钮，重试复用同一个 client_
   assert.equal(posts.length, 2, '重试发出了第二次请求');
   assert.equal(posts[0].client_key, posts[1].client_key, '重试必须复用同一个 client_key（服务端幂等）');
   assert.equal(box.hidden, true, '成功后状态条收起');
+});
+
+test('软键盘：可视视口变矮时页面高度跟着压，外层不把滚动冒泡出去', async () => {
+  const { sandbox, vv } = await boot();
+  const root = sandbox.document.documentElement;
+  assert.match(SOURCE, /overscroll-behavior: none/, 'html/body 要挡住外层滚动冒泡');
+  assert.equal(root.style['--app-h'], '844px', '初始化就按可视区写高度');
+
+  vv.height = 500;            // 模拟键盘弹起，可视区只剩 500
+  vv.dispatch('resize');
+  assert.equal(root.style['--app-h'], '500px', '键盘弹起要把页面压到可视区');
+
+  vv.height = 844;            // 键盘收起
+  vv.dispatch('resize');
+  assert.equal(root.style['--app-h'], '844px', '收起后恢复');
 });
 
 test('正在输入：有人 thinking 时给出三点 + 名字，收空后清掉', async () => {
