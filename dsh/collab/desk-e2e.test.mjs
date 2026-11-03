@@ -46,3 +46,14 @@ test('desk-e2e：真实 board 事件 → 插件转发 → 桌面页可访问', {
   assert.match(output, /PASS\t事件落盘/);
   assert.match(output, /PASS\t插件启动/);
 });
+
+// 页面没有单测骨架（脚本内联在 HTML 里），这条是结构护栏：applyTask 开头必须挡掉 tasks.mjs 经 hub
+// 发的 `{type:'task', task:{…}}`，那不是板事件的形态（id/kind/from/to）。挡掉之前，实时流里每个任务
+// 动作都会多画一行「— → —」的空记录，回放却只有板事件那一行，实时与回放对不上。
+test('desk 页：applyTask 挡掉 hub 的 task 对象事件', () => {
+  const page = readFileSync(new URL('./desk/index.html', import.meta.url), 'utf8');
+  const body = page.slice(page.indexOf('function applyTask(ev, animate = true) {'));
+  assert.ok(body.length > 0, '页面里找不到 applyTask');
+  assert.ok(body.slice(0, 900).includes("if (ev.task && typeof ev.task === 'object') return;"),
+    'applyTask 开头缺「忽略 hub task 对象事件」的守卫');
+});
