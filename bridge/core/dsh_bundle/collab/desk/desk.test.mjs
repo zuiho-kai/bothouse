@@ -26,7 +26,7 @@ test('inline roster equals roster.json and maps the six known members', () => {
   const byProject = Object.fromEntries(inline.members.map((m) => [m.project, m]));
   for (const project of ['gge', 'cjiang', 'deep', 'gjiang', 'cursor', 'grok']) assert.ok(byProject[project], project);
   assert.equal(byProject.gge.avatar, 'dragon');
-  assert.equal(byProject.deep.name, '肥鱼');
+  assert.equal(byProject.deep.name, 'DeepSeek');
   assert.equal(byProject.cursor.avatar, '', 'cursor must fall back to an initial badge');
   assert.equal(byProject.grok.avatar, '', 'grok must fall back to an initial badge');
   assert.doesNotMatch(JSON.stringify(inline), /cc-connect|\/Users\/|~\/|notes\/desk/, 'no internal paths in the shipped roster');
@@ -34,10 +34,10 @@ test('inline roster equals roster.json and maps the six known members', () => {
 
 test('inline fixture equals fixture.sample.jsonl and keeps the dispatcher -> worker contract', () => {
   const inline = inlineJson('fixtureData');
-  assert.equal(inline.length, 34, 'members + 21 task + thinking + message rows');
+  assert.equal(inline.length, 41, 'members + 28 task + thinking + message rows');
   const taskRows = inline.filter((row) => row.kind);
   assert.deepEqual(taskRows, rows);
-  assert.equal(rows.length, 21);
+  assert.equal(rows.length, 28);
   const membersEvent = inline.find((row) => row.type === 'members');
   assert.ok(membersEvent && membersEvent.members.length === 5);
   const ids = new Set(membersEvent.members.map((m) => m.id));
@@ -48,7 +48,8 @@ test('inline fixture equals fixture.sample.jsonl and keeps the dispatcher -> wor
     assert.ok(Number.isFinite(ts));
     assert.ok(ts >= last, 'ordered');
     last = ts;
-    if (row.kind === 'returned' || row.kind === 'done') {
+    // 橘自己在工作区里干的活（分身演示）：派活人空着，干活的人是 ju。
+    if ((row.kind === 'returned' || row.kind === 'done') && !(row.from === '' && row.to === 'ju')) {
       assert.equal(row.from, 'ju', 'from is the dispatcher');
       assert.ok(ids.has(row.to) && row.to !== 'ju', 'to is the worker');
     }
@@ -74,7 +75,8 @@ test('page is self-contained and only talks to the three agreed endpoints', () =
 
 test('event semantics: returned goes worker -> dispatcher, dispatch draws once, ids are indexed', () => {
   assert.match(html, /function workerAndDispatcher/);
-  assert.match(html, /beam\(worker, dispatcher, 'return'\)/, 'return light must fly back to the dispatcher');
+  assert.match(html, /beam\(body, dispatcher, 'return'\)/, 'return light must fly back to the dispatcher (from the clone that did it)');
+  assert.match(html, /const body = worker \? bodyRef\(worker.id, id\) : null;/, 'worker body is taken before the task is cleared');
   assert.match(html, /function dispatchBeamOnce/);
   assert.match(html, /if \(!dispatchAllowed\(id, to\.id, S\.dispatched\)\) return;/, 'created+assigned must not draw twice in one assignment');
   assert.match(html, /kind === 'created' && from && animate\) dispatchBeamOnce/, 'created with an assignee is a dispatch');
