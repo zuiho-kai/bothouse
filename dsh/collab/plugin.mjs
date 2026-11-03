@@ -151,6 +151,9 @@ export async function apply(ctx, rawConfig) {
   roster.load(config.dshMembers);
   const wizard = await roster.importWizard(join(config.dataDir, 'wizard-members.json'), ctx.logger);
   if (wizard.length) ctx.logger.info('conest-collab: added wizard members %s', wizard.join(', '));
+  // Same catalog the add-member picker shows (GET /collab/api/personas defaults to zh).
+  const seeded = await roster.seedDefaults(join(config.dataDir, 'default-members.json'), 'zh', ctx.logger);
+  if (seeded.length) ctx.logger.info('conest-collab: added default members %s', seeded.join(', '));
   ctx.on('session/event', (session, event) => dsh.onSessionEvent(session, event));
   ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => dsh.onClaimed(agent.session.id, message.id, turn));
   ctx.on('agent/inbox/discarded', ({ agent, message }) => dsh.onDiscarded(agent.session.id, message.id));

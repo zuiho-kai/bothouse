@@ -6,6 +6,7 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { CollabError } from './store.mjs';
 import { checkAvatar } from './avatars.mjs';
 import { PERMISSION_PRESETS } from './cli-member.mjs';
+import { personaLibrary } from './personas.mjs';
 
 const MAX_NAME = 32;
 const MAX_PERSONA = 4000;
@@ -94,6 +95,36 @@ export class Roster {
     }
     writeFileSync(path.replace(/\.json$/, '') + '.imported.json', JSON.stringify({ members: imported }, null, 2), { mode: 0o600 });
     unlinkSync(path);
+    return added;
+  }
+
+  /**
+   * Plugin-only installs (`dsh plugin add bothouse-dsh`) have no setup wizard: on the very first start,
+   * with no member ever stored, add the preset roles that ship an avatar as DSH members on DSH's own
+   * default model, so the channel can be used right away; the first of them becomes the primary role. Runs once (marker file); a channel that ever
+   * had members, or the wizard's roles, is left alone. Returns the names added.
+   */
+  async seedDefaults(markerPath, lang, logger) {
+    if (existsSync(markerPath)) return [];
+    const added = [];
+    if (this.store.db.prepare('SELECT COUNT(*) AS n FROM members').get().n === 0) {
+      let lead;
+      for (const p of personaLibrary(lang).filter(x => x.avatar)) {
+        try {
+          const member = await this.create({ name: p.name, persona: p.text, avatar: p.avatar });
+          lead ??= member;
+          added.push(member.name);
+        } catch (error) {
+          logger?.warn?.('conest-collab: default member %s not added: %s', p.name, error?.message ?? error);
+        }
+      }
+      // Workspaces open only through a channel's primary role; the first preset (橘, the PM) takes
+      // channels that have none, so「交给工作区」works without a trip to the channel settings.
+      if (lead !== undefined) {
+        for (const room of this.store.rooms()) if (room.kind === 'chat' && this.store.leadId(room.id) === null) this.store.setLead(room.id, lead.id);
+      }
+    }
+    writeFileSync(markerPath, JSON.stringify({ added, at: new Date().toISOString() }) + '\n', { mode: 0o600 });
     return added;
   }
 

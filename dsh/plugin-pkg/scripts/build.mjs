@@ -3,7 +3,7 @@
 // release (dsh/upstream.pin.json, client-ui-discord devDependencies); bump all three together.
 import { execSync } from 'node:child_process'
 import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 const root = join(import.meta.dirname, '..')
 const collabSrc = join(root, '../collab')
@@ -19,6 +19,14 @@ for (const f of readdirSync(collabSrc)) {
 for (const f of readdirSync(join(collabSrc, 'avatars'))) {
   if (f.endsWith('.png')) cpSync(join(collabSrc, 'avatars', f), join(root, 'collab/avatars', f))
 }
+// Files the plugin reads next to its modules at run time (new URL('./…', import.meta.url)); a missing one
+// breaks the installed plugin (0.1.45 shipped without personas.json and failed to load at all).
+for (const f of ['personas.json', 'team-exit-rules.json', 'team-mode-rules.md', 'desk/index.html']) {
+  mkdirSync(join(root, 'collab', dirname(f)), { recursive: true })
+  cpSync(join(collabSrc, f), join(root, 'collab', f))
+}
+// The handoff rules live in the bridge (contrib/lead); a checkout reads them from there, a package needs its own copy.
+cpSync(join(root, '../../bridge/contrib/lead/handoff-rules.json'), join(root, 'collab/handoff-rules.json'))
 
 const run = (cmd) => execSync(cmd, { cwd: uiSrc, stdio: 'inherit' })
 run('npx -y pnpm@10 install --ignore-workspace --config.confirmModulesPurge=false')

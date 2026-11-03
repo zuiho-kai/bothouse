@@ -15,6 +15,9 @@
   "files": [
     "collab/*.mjs",
     "collab/page.html",
+    "collab/*.json",
+    "collab/team-mode-rules.md",
+    "collab/desk/index.html",
     "collab/avatars/*.png",
     "client/client.js",
     "cordis.patch.yml",
