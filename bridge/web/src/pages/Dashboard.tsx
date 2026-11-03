@@ -66,6 +66,9 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8 animate-fade-in ">
+      {/* 屏幕标题：应用界面房规要求画布顶端有一个 h1 命名本屏（18–28px、句首大写） */}
+      <h1 className="text-2xl font-semibold tracking-tight text-ink">{t('nav.dashboard')}</h1>
+
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label={t('dashboard.version')} value={status?.version || '-'} accent />

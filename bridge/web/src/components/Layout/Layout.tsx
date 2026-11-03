@@ -19,25 +19,18 @@ export default function Layout() {
   }, [mobileMenuOpen]);
 
   return (
-    <div
-      className={cn(
-        'flex h-screen overflow-hidden',
-        'bg-gradient-to-br from-gray-100 via-white to-gray-100',
-        'dark:from-gray-950 dark:via-[#0a0a0c] dark:to-gray-950',
-        'yellow:from-cream-100 yellow:via-cream-50 yellow:to-cream-200/70',
-        isSetup && 'setup-layout',
-      )}
-    >
+    <div className={cn('ui-safe-x relative flex h-screen overflow-hidden bg-canvas text-ink', isSetup && 'setup-layout')}>
+      {/* 画布是平的：应用界面不做背景装饰动效（房规：动效只作反馈，饰光与色球是模板味）。 */}
       {!isSetup && (
         <Sidebar
           mobileOpen={mobileMenuOpen}
           onMobileClose={() => setMobileMenuOpen(false)}
         />
       )}
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header onMenuClick={() => setMobileMenuOpen(true)} />
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 flex flex-col min-h-0">
-          <div className="flex-1 flex flex-col">
+        <main className="ui-safe-main flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4 sm:p-6">
+          <div className="flex flex-1 flex-col">
             <Outlet />
           </div>
           <Footer />

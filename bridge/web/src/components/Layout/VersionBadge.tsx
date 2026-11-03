@@ -134,7 +134,7 @@ export default function VersionBadge({ collapsed }: { collapsed: boolean }) {
   if (collapsed) {
     return (
       <div className="flex flex-col items-center gap-1 pb-1" data-testid="version-badge">
-        <span className="text-[10px] leading-none text-gray-400 dark:text-gray-500 truncate max-w-full" title={title}>{current}</span>
+        <span className="max-w-full truncate text-[10px] leading-none text-ink-mute" title={title}>{current}</span>
         {showUpdate && (
           <button
             type="button"
@@ -158,7 +158,7 @@ export default function VersionBadge({ collapsed }: { collapsed: boolean }) {
 
   return (
     <div className="px-2 pb-1 space-y-1.5" data-testid="version-badge">
-      <div className="text-xs text-gray-400 dark:text-gray-500 select-none" title={title}>
+      <div className="select-none text-xs text-ink-mute" title={title}>
         bothouse {current}
         {info.dev && <span className="ml-1">· {t('update.devShort')}</span>}
       </div>
@@ -188,7 +188,8 @@ export default function VersionBadge({ collapsed }: { collapsed: boolean }) {
           {error && (
             <details className="opacity-80">
               <summary className="cursor-pointer select-none">{t('update.details')}</summary>
-              <div className="mt-1 font-mono text-[11px] [overflow-wrap:anywhere]">{error}</div>
+              {/* 错误文本是句子不是代码：用正文字体，只保留强制断行 */}
+              <div className="mt-1 text-[11px] leading-relaxed text-ink-soft [overflow-wrap:anywhere]">{error}</div>
             </details>
           )}
           <div className="flex items-center gap-3">
