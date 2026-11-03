@@ -535,7 +535,9 @@ function fmtTime(ts) {
 }
 
 /* ---------- 窄屏抽屉 ---------- */
-function setDrawer(which) {
+let drawerTrigger = null;
+function setDrawer(which, trigger) {
+  if (which && !document.body.dataset.drawer) drawerTrigger = trigger || document.activeElement;
   if (!which) {
     delete document.body.dataset.drawer;
   } else {
@@ -546,11 +548,11 @@ function setDrawer(which) {
   $('openMembers').setAttribute('aria-expanded', String(which === 'members'));
   const pane = which === 'rooms' ? $('roomsPane') : which === 'members' ? $('membersPane') : null;
   if (pane) pane.querySelector('button, select')?.focus({ preventScroll: true });
-  else if (document.activeElement && document.activeElement.closest('#roomsPane, #membersPane')) document.activeElement.blur();
+  else if (drawerTrigger) { drawerTrigger.focus({ preventScroll: true }); drawerTrigger = null; }
 }
 const closeDrawer = () => setDrawer(null);
-$('openRooms').addEventListener('click', () => setDrawer('rooms'));
-$('openMembers').addEventListener('click', () => setDrawer('members'));
+$('openRooms').addEventListener('click', () => setDrawer('rooms', $('openRooms')));
+$('openMembers').addEventListener('click', () => setDrawer('members', $('openMembers')));
 $('scrim').addEventListener('click', closeDrawer);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.dataset.drawer) closeDrawer(); });
 narrow.addEventListener('change', closeDrawer);
