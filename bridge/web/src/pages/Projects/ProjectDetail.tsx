@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Plug, Heart, Settings, Layers, Zap, Pause, Play,
-  Trash2, Plus, Check, Clock, ExternalLink, Link2, UserRound,
+  Trash2, Plus, Check, X, Clock, ExternalLink, Link2, UserRound,
 } from 'lucide-react';
 import PersonaPanel from './PersonaPanel';
 import { Card, Badge, Button, Input, Modal, EmptyState } from '@/components/ui';
@@ -21,8 +21,8 @@ const PLATFORM_OPTIONS: { key: string; label: string; color: string; abbr: strin
   { key: 'feishu', label: 'Feishu / Lark', abbr: 'FS', color: 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400', qr: true },
   { key: 'weixin', label: 'WeChat', abbr: 'WX', color: 'bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400', qr: true },
   { key: 'telegram', label: 'Telegram', abbr: 'TG', color: 'bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400' },
-  { key: 'discord', label: 'Discord', abbr: 'DC', color: 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400' },
-  { key: 'slack', label: 'Slack', abbr: 'SK', color: 'bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400' },
+  { key: 'discord', label: 'Discord', abbr: 'DC', color: 'bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300' },
+  { key: 'slack', label: 'Slack', abbr: 'SK', color: 'bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400' },
   { key: 'dingtalk', label: 'DingTalk', abbr: 'DT', color: 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400' },
   { key: 'wecom', label: 'WeChat Work', abbr: 'WC', color: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' },
   { key: 'qq', label: 'QQ (OneBot)', abbr: 'QQ', color: 'bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400' },
@@ -31,7 +31,7 @@ const PLATFORM_OPTIONS: { key: string; label: string; color: string; abbr: strin
   { key: 'line', label: 'LINE', abbr: 'LN', color: 'bg-lime-50 dark:bg-lime-900/30 text-lime-600 dark:text-lime-400' },
   { key: 'weibo', label: 'Weibo (微博)', abbr: 'WB', color: 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400' },
   { key: 'tuitui', label: 'TuiTui (推推)', abbr: 'TT', color: 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300' },
-  { key: 'cloud_web', label: 'Cloud Web (自建 IM)', abbr: 'CW', color: 'bg-violet-50 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400' },
+  { key: 'cloud_web', label: 'Cloud Web (自建 IM)', abbr: 'CW', color: 'bg-stone-100 dark:bg-stone-800/50 text-stone-600 dark:text-stone-300' },
 ];
 
 // Permission mode options per agent type. The values must match the keys
@@ -304,7 +304,7 @@ export default function ProjectDetail() {
   ];
 
   if (loading && !project) {
-    return <div className="flex items-center justify-center h-64 text-gray-400 animate-pulse">Loading...</div>;
+    return <div className="flex items-center justify-center h-64 text-gray-400">{t('common.loading')}</div>;
   }
 
   const headerName = nameTouched
@@ -330,9 +330,9 @@ export default function ProjectDetail() {
             key={key}
             onClick={() => setTab(key)}
             className={cn(
-              'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
+              'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
               tab === key
-                ? 'bg-gray-900 dark:bg-gray-700 text-white shadow-md'
+                ? 'bg-gray-900 dark:bg-gray-700 text-white'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
             )}
           >
@@ -356,7 +356,7 @@ export default function ProjectDetail() {
             <div className="flex flex-wrap gap-2">
               {project.platforms?.map((p) => (
                 <Badge key={p.type} variant={p.connected ? 'success' : 'danger'}>
-                  <Plug size={12} className="mr-1" /> {p.type} {p.connected ? '✓' : '✗'}
+                  <Plug size={12} className="mr-1" /> {p.type} {p.connected ? <Check size={12} className="ml-1 text-emerald-600 dark:text-emerald-400" aria-label="connected" /> : <X size={12} className="ml-1 text-rose-600 dark:text-rose-400" aria-label="offline" />}
                 </Badge>
               ))}
             </div>
@@ -485,11 +485,11 @@ export default function ProjectDetail() {
               {/* Toggle */}
               <div className="flex rounded-lg bg-gray-100 dark:bg-gray-800 p-0.5">
                 <button
-                  className={cn('flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all', addMode === 'pick' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500')}
+                  className={cn('flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors', addMode === 'pick' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white' : 'text-gray-500')}
                   onClick={() => setAddMode('pick')}
                 >{t('providers.linkGlobal', 'Link global')}</button>
                 <button
-                  className={cn('flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all', addMode === 'custom' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500')}
+                  className={cn('flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors', addMode === 'custom' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white' : 'text-gray-500')}
                   onClick={() => setAddMode('custom')}
                 >{t('providers.addCustom', 'Add custom')}</button>
               </div>
