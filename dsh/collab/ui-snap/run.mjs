@@ -337,7 +337,9 @@ export async function runSnapshots({ update = false } = {}) {
   const browser = await puppeteer.launch({
     executablePath,
     headless: true,
-    args: ['--disable-gpu', '--no-first-run', '--hide-scrollbars', '--lang=zh-CN', '--font-render-hinting=none'],
+    // --no-sandbox / --disable-dev-shm-usage：本机与 CI 容器里渲染进程没有命名空间权限，
+    // 不带这两项时 newPage 之后 setViewport 直接 Session closed（实测 Chrome 156）。
+    args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-first-run', '--hide-scrollbars', '--lang=zh-CN', '--font-render-hinting=none'],
     env: { ...process.env, TZ: 'Asia/Shanghai', LANG: 'zh_CN.UTF-8' },
   });
   const failures = [];
