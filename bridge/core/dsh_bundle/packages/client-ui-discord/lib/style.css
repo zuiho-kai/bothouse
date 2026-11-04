@@ -3630,6 +3630,7 @@
 
 .dshc_msgTool[data-tip]:after {
   content: attr(data-tip);
+  z-index: 3;
   background: var(--dsw-alias-label-primary);
   color: var(--dsw-alias-label-primary-inverted);
   white-space: nowrap;
@@ -3639,7 +3640,7 @@
   padding: 2px 6px;
   font-size: 11px;
   position: absolute;
-  bottom: calc(100% + 4px);
+  top: calc(100% + 4px);
   left: 50%;
   transform: translateX(-50%);
 }

@@ -1267,7 +1267,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
                   key={m.id}
                   enter={fresh.get(m.id)}
                   message={m}
-                  grouped={continues(state.messages[index - 1], m)}
+                  // #1017: a command line or its folded answer above is no bubble to group under.
+                  grouped={continues(state.messages[index - 1], m) && !answerIds.has(state.messages[index - 1]?.id ?? -1) && !(state.messages[index - 1]?.author_kind === 'user' && commandLine(state.messages[index - 1]?.text ?? '') !== undefined)}
                   member={byId.get(m.author)}
                   t={t}
                   onConfigure={() => { if (!openModelSettings()) setModelsOpen(true) }}

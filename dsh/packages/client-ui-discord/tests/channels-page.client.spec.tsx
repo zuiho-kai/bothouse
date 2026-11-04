@@ -274,6 +274,8 @@ describe('channels page', () => {
     fireEvent.click(answer)
     expect(answer.textContent).toContain('下一条消息生效')
     expect(screen.getByText('正文回复')).toBeTruthy()
+    // The bot's next real reply keeps its own header: the hidden answer above it is not a bubble to group under.
+    expect((document.querySelector('[data-message-id="3"]') as HTMLElement).className).not.toContain(css.grouped)
   })
   it('puts a message on the task board for the primary role and copies its Markdown', async () => {
     const dispatchTask = vi.fn(async () => {})
