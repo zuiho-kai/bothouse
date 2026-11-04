@@ -117,8 +117,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      # Go is set up for dsh-only PRs too: the embedded client bundle check below is a Go test.
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        if: env.RUN_GO == 'true'
         with:
           go-version-file: bridge/go.mod
           cache-dependency-path: bridge/go.sum
@@ -204,6 +204,12 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: .
         run: '"$CONEST_VITEST" run --config dsh/vitest.config.mjs'
+      # A PR that edits dsh/packages/client-ui-discord without rebuilding the embedded bundle skipped bridge-go
+      # (go=false) and only failed on develop (runs 41836087833, 41838005851, 41846409429). Run the bundle
+      # checks here whenever bridge-go is skipped; when it runs, its core shards already cover them.
+      - name: Embedded DSH bundle matches source
+        if: ${{ !cancelled() && env.RUN_GO != 'true' }}
+        run: go test -tags no_web -count=1 -run '^(TestDSHBundle|TestExtractEmbeddedDSH)' ./core
       - run: go mod verify
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: go build -tags no_web ./...
@@ -246,7 +252,12 @@ jobs:
           set -euo pipefail
           core=$(go list -tags no_web ./core)
           if [ "$SHARD" = rest ]; then
-            go test -tags no_web -p 1 -count=1 $(go list -tags no_web ./... | grep -vxF "$core")
+            pkgs=$(go list -tags no_web ./... | grep -vxF "$core")
+            # -p 1 also serialises compiling ~40 test binaries (about half of this shard's ~330s, run
+            # 41860995508). Compile them in parallel first without running anything; the serial run then
+            # only links from the warm build cache. Execution stays -p 1.
+            go test -tags no_web -count=1 -c -o /dev/null $pkgs > /dev/null
+            go test -tags no_web -p 1 -count=1 $pkgs
             exit 0
           fi
           # Every top-level Test/Fuzz/Example in ./core goes to exactly one of the two core shards.
