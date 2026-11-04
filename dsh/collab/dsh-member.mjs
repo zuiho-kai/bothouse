@@ -26,7 +26,7 @@ export function teamModeRules(mode = DEFAULT_DISPATCH_MODE) {
 /** #597 G24: the open-workspace command, for the selected primary role only, never in bridge prompts. */
 export function workspaceHint(hub, later, memberId, roomId) {
   if (!later?.workspaceInstructions || hub?.primaryIn?.(roomId)?.id !== memberId) return '';
-  return later.workspaceInstructions(memberId, roomId);
+  return later.workspaceInstructions(memberId, roomId) + (later.teamInstructions?.(memberId, roomId) ?? '');
 }
 /**
  * #597 G24: DSH members have no bridge session, so the shared line about `bothouse workspace new` /
@@ -201,6 +201,9 @@ export function friendlyFailure(raw) {
   const text = String(raw);
   if (/no.{0,12}(api.?key|key)|missing.{0,12}(key|credential)|api.?key.{0,12}(missing|not set|required)|未配置.*key/i.test(text)) return '还没有配置模型的 API Key，请先去配置模型。';
   if (/model.{0,30}(not found|unavailable|not available|unsupported)|unknown model|模型.*不可用|404/i.test(text)) return '这个模型暂时不可用，请检查模型名称或换一个模型。';
+  // An unreachable provider is a setting or network problem. Echoing the transport wording
+  // ("Connection error.") behind "请检查配置" told the user nothing about which setting to fix.
+  if (/connection error|econnrefused|econnreset|enotfound|etimedout|eai_again|fetch failed|socket hang up|network ?(error|request failed)|timed out|timeout/i.test(text)) return '连不上模型服务：中转站地址或网络不通。请检查设置里的模型地址和 Key，或换一个中转站再试。';
   if (/login|log.?in|auth|unauthorized|401|未登录/i.test(text)) return '模型或 CLI 还没有登录，或登录已过期。请先登录后再试。';
   if (/exit|ENOENT|spawn|没有输出文字/i.test(text)) return '本机 CLI 未能正常运行或已退出，请检查安装和登录状态。';
   // A Host older than this plugin has no scope lease on its preset registry, so no member can be
@@ -863,6 +866,24 @@ export class DshMembers {
     if (this.closed) return;
     const job = this.store.job(jobId);
     if (job === undefined || !this.store.finishJob(jobId, state)) return;
+    // A restart is not a configuration problem: the member is healthy and only the turn it was
+    // running is lost, so it takes a retry button and leaves the member online. Reporting it as
+    // "成员出错 / 去配置模型" also cooled the provider quota for what was a process restart.
+    if (state === 'interrupted') {
+      this.hub.setError(job.member_id, undefined);
+      this.hub.post(job.room_id, {
+        authorKind: 'system', author: 'system', name: 'system', text: String(notice), clientKey: `dsh-job-${jobId}-${state}-${Date.now()}`,
+        card: JSON.stringify({
+          title: '被中断',
+          state: 'failed',
+          action: 'retry',
+          job_id: jobId,
+          member_id: job.member_id,
+          trigger_id: job.trigger_id,
+        }),
+      });
+      return;
+    }
     this.hub.quota?.observe(job.member_id, job.room_id, { error: String(notice) });
     const error = friendlyFailure(notice);
     this.hub.setError(job.member_id, error);

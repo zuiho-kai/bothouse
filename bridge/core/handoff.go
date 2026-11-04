@@ -296,7 +296,72 @@ func (e *Engine) handoffBlock(session *Session, sessionKey string) string {
 		slog.Warn("handoff: read old session failed", "agent_session", id, "error", err)
 		return ""
 	}
-	return formatHandoff(id, reason, h, e.handoffTaskLines(sessionKey))
+	tasks := e.handoffTaskLines(sessionKey)
+	full := formatHandoff(id, reason, h, tasks)
+	cid := StashCtx(e.dataDir, full)
+	if cid == "" { // no store: the whole handoff as before
+		return full
+	}
+	return formatHandoffIndex(id, reason, h, tasks, cid)
+}
+
+// Index form of the handoff (user 2026-11-04 「做」: only titles and [#编号], the rest fetched on demand).
+const (
+	handoffIndexUserTurns = 3   // the user's last few messages, as short lines
+	handoffIndexLineRunes = 120 // each user line and the stop point
+)
+
+// formatHandoffIndex is the handoff a fresh context gets: the user's last few messages as short lines, where
+// the old context stopped (its last reply, first line) and the channel's open tasks as 「#编号 标题 · 停点」;
+// everything else (summary, the dialogue, each task's goal) is the full handoff stored as cid.
+func formatHandoffIndex(id, reason string, h *SessionHandoff, tasks, cid string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s 已换掉（%s）。下面只列用户原话和停点，可能过时，和频道原文冲突时信原文，要做什么以用户的新消息为准；交接全文（压缩摘要、之后的对话、每件活的总目标）[#%s]，跑 `%s %s` 取；会话记录 %s）",
+		handoffHead, id, reason, cid, ctxCmd(), cid, h.Path)
+	var said []string
+	stop := ""
+	seen := map[string]bool{}
+	for i := len(h.Tail) - 1; i >= 0 && len(said) < handoffIndexUserTurns; i-- {
+		t := h.Tail[i]
+		if t.Role != "user" {
+			if stop == "" && len(said) == 0 {
+				if first := firstLine(t.Content); first != "" {
+					stop = "[" + stamp(t.Timestamp) + " 你] " + clipRunes(first, handoffIndexLineRunes, false)
+				}
+			}
+			continue
+		}
+		text := oneLine(slimHandoffEntry(stripStaleBlocks(t.Content)))
+		if text == "" || seen[text] {
+			continue
+		}
+		seen[text] = true
+		said = append(said, "["+stamp(t.Timestamp)+"] "+clipRunes(text, handoffIndexLineRunes, true))
+	}
+	if len(said) > 0 {
+		b.WriteString("\n\n## 用户最近说的（新的在下）\n")
+		for i := len(said) - 1; i >= 0; i-- {
+			b.WriteString(said[i] + "\n")
+		}
+	} else {
+		b.WriteString("\n")
+	}
+	if stop != "" {
+		b.WriteString("\n## 停点\n" + stop + "\n")
+	}
+	if tasks != "" {
+		b.WriteString("\n## 本频道没做完的活（编号 标题 · 停点）\n")
+		for _, l := range strings.Split(tasks, "\n") {
+			if g := strings.Index(l, " · 总目标："); g >= 0 {
+				if st := strings.Index(l[g:], " · 停点："); st >= 0 {
+					l = l[:g] + l[g+st:]
+				}
+			}
+			b.WriteString(l + "\n")
+		}
+	}
+	b.WriteString(handoffEnd)
+	return b.String()
 }
 
 const (

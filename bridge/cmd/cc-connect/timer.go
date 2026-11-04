@@ -134,7 +134,7 @@ func runTimerAdd(args []string) {
 		project = os.Getenv("CC_PROJECT")
 	}
 	if sessionKey == "" {
-		sessionKey = os.Getenv("CC_SESSION_KEY")
+		sessionKey = envSessionKey()
 	}
 
 	// Positional: <delay_or_time> <prompt...>

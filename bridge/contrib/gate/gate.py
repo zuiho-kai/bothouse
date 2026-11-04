@@ -158,9 +158,16 @@ def busy_action(req, bot, content, addressed):
     要她停 → abort；等她回话 → 这一轮插得进就插（addressed 走 reply，否则 insert），插不进（cc-connect 发 no_insert）就打断后回；
     补充 → 插入（插不进时 cc-connect 排队，不打断）；无关 → 不改（addressed 照 reply，否则记作增量）。"""
     key = (bot, req.get("session_key") or "")
+    if addressed and (STOP_WORDS.fullmatch(content) or REDIRECT.match(content)):
+        current_task[key] = content[-500:]
+        return "abort", "busy rule: 停止或改做", None
     sc = sub_task.score(SUB_SUFFIX.format(name=lead.NAME[bot], task=current_task.get(key, "")[:500], msg=content[:1500]))
     stuck = bool(req.get("no_insert"))
-    if sc.choice == 3:
+    # 来源：#955 普通问候被 D=.464 误停；A/B/C 都保留当前任务，合并为继续一侧，
+    # 停止的证据必须胜过继续，而非只胜过每个被拆开的子类。不加可调阈值，平手保留。
+    if sc.choice == 3 and sc.probs[3] <= sum(sc.probs[:3]):
+        action, why = ("reply" if addressed else "context"), "停止证据不足，保留当前任务"
+    elif sc.choice == 3:
         action, why = "abort", "要她停"
     elif sc.choice == 2:
         action, why = ("abort", "等她回话、这一轮插不进") if stuck else ("reply" if addressed else "insert", "等她回话")

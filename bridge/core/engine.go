@@ -628,6 +628,7 @@ type queuedMessage struct {
 	// #618 K4: Message.resumedFrom/timerJobID/resumeNoProgress/resumeFallback, kept across the queue.
 	resumedFrom       string
 	timerJobID        string
+	cronJobID         string
 	resumeNoProgress  int
 	resumeFallback    string
 	messageID         string
@@ -677,7 +678,8 @@ type interactiveState struct {
 	resumeFailedQueued       *queuedMessage
 	publicProgressRun        string
 	externalTaskInput        *externalInputDelivery
-	resetHandoff             bool // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
+	resetHandoff             bool            // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
+	abortCloseDone           <-chan struct{} // gate abort: actual Close completion before resuming the same session; guarded by mu
 	agentSession             AgentSession
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
 	turnMode                 string         // maomao fork: mode applied by the running turn's override (setTurnMode); "" when none; guarded by mu
@@ -750,6 +752,8 @@ type interactiveState struct {
 	// currentJobID: the timer job this turn is running (a workspace-handback wake settles
 	// against it, team_report_delivery.go); empty for a user turn. Guarded by mu.
 	currentJobID string
+	// scheduledWatch: the token of the time limit armed for this turn (armScheduledTurnTimeout); 0 none.
+	scheduledWatch uint64
 	// queuedBehindCompact: messages queued here while a native /compact held the
 	// session (enqueueForBusySession). Only then may a placeholder state with no
 	// agent session start a turn from its queue (drainOrphanedQueue). Guarded by mu.
@@ -1898,6 +1902,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 
 	msg := &Message{
 		turnTrigger:  TurnTriggerCron,
+		cronJobID:    job.ID,
 		SessionKey:   sessionKey,
 		Platform:     platformName,
 		UserID:       "cron",
@@ -3989,7 +3994,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 
 	// Allow queueing when agentSession is nil (session is starting up,
 	// issue #565). Only reject if the session was established and died.
-	if state.agentSession != nil && !state.agentSession.Alive() {
+	if state.agentSession != nil && !state.agentSession.Alive() && !msg.abortFront {
 		return queueUnavailable
 	}
 
@@ -4034,6 +4039,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		turnTrigger:         msg.turnTrigger,
 		resumedFrom:         msg.resumedFrom,
 		timerJobID:          msg.timerJobID,
+		cronJobID:           msg.cronJobID,
 		resumeNoProgress:    msg.resumeNoProgress,
 		resumeFallback:      msg.resumeFallback,
 		scheduledBackfilled: msg.scheduledBackfilled,
@@ -4898,6 +4904,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		state.turnScheduled = scheduledTurnUser(msg.UserID)
 		state.currentJobID = msg.timerJobID
 		state.mu.Unlock()
+		e.armScheduledTurnTimeout(state, interactiveKey, msg.turnTrigger, msg.timerJobID, msg.cronJobID, msg.UserID, false)
 
 		// Run Send concurrently with processInteractiveEvents. Some agents block inside
 		// Send until the prompt turn finishes (e.g. ACP session/prompt); they may emit
@@ -5647,15 +5654,17 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 	e.interactiveMu.Unlock()
 }
 
-func (e *Engine) closeAgentSessionAsync(sessionKey string, agentSession AgentSession) {
-	if agentSession == nil {
-		return
-	}
-	go e.closeAgentSessionWithTimeout(sessionKey, agentSession)
+func (e *Engine) closeAgentSessionWithTimeout(sessionKey string, agentSession AgentSession) {
+	e.closeAgentSessionAndSignal(sessionKey, agentSession, nil)
 }
 
-func (e *Engine) closeAgentSessionWithTimeout(sessionKey string, agentSession AgentSession) {
+// closed is owned by this call and signals actual Close completion, even when
+// the cleanup budget expires first. A replacement must not resume earlier.
+func (e *Engine) closeAgentSessionAndSignal(sessionKey string, agentSession AgentSession, closed chan struct{}) {
 	if agentSession == nil {
+		if closed != nil {
+			close(closed)
+		}
 		return
 	}
 
@@ -5675,7 +5684,10 @@ func (e *Engine) closeAgentSessionWithTimeout(sessionKey string, agentSession Ag
 	defer e.hooks.Emit(HookEvent{Event: HookEventAgentClosed, SessionKey: sessionKey,
 		Extra: map[string]any{"agent_session_id": agentID}})
 
-	done := make(chan struct{})
+	done := closed
+	if done == nil {
+		done = make(chan struct{})
+	}
 	go func() {
 		agentSession.Close()
 		close(done)
@@ -7635,6 +7647,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				state.turnScheduled = scheduledTurnUser(queued.userID)
 				state.currentJobID = queued.timerJobID
 				state.mu.Unlock()
+				e.armScheduledTurnTimeout(state, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.userID, true)
 				unwatch()
 				changed, unwatch, watchErr = e.watchTurnAuthorization(queued.authorization)
 				outputCtx, contextErr = e.turnOutputContext(queued.authorization)
@@ -8146,6 +8159,31 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 	for {
 		e.stopUnsolicitedReader(state)
 		state.mu.Lock()
+		if state.stopped && state.resetHandoff {
+			// A gate abort had to close the process. This worker still owns the
+			// conversation lock: move unsent messages to the replacement state
+			// and hand that lock to its drain, without replaying the cancelled task.
+			closed := state.abortCloseDone
+			state.mu.Unlock()
+			if closed != nil {
+				select {
+				case <-closed:
+				case <-e.ctx.Done():
+					session.Unlock()
+					return true
+				}
+			}
+			state.mu.Lock()
+			held := state.pendingMessages
+			state.pendingMessages = nil
+			agent, workspaceDir := state.agent, state.workspaceDir
+			state.mu.Unlock()
+			if len(held) > 0 {
+				e.handOffQueuedAfterReset(sessions, held[0].msgSessionKey, sessionKey, held, agent, workspaceDir)
+			}
+			e.drainOrphanedQueue(session, sessions, sessionKey, agent, workspaceDir)
+			return true
+		}
 		droppedStale := 0
 		var staleDescs []string // maomao fork: channel task board
 		e.refreshQueuedTaskReviewsLocked(state)
@@ -8241,6 +8279,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		state.mu.Lock()
 		state.currentJobID = queued.timerJobID
 		state.mu.Unlock()
+		e.armScheduledTurnTimeout(state, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.userID, true)
 		var attemptPrompt string
 		e.runTurnWithCapacityRetry(state, session, sessions, sessionKey, queued.messageID, time.Now(), stopTyping, queued.replyCtx, nil,
 			func() { // per attempt, like the direct turn: a capacity retry needs a live run
@@ -12367,11 +12406,19 @@ func (e *Engine) stopInteractiveSession(sessionKey string, quietPlatform Platfor
 	return e.stopInteractiveSessionWithOptions(sessionKey, true)
 }
 
+func (e *Engine) stopInteractiveSessionForAbort(sessionKey string) bool {
+	return e.stopInteractiveSessionWithQueue(sessionKey, true, true)
+}
+
 func (e *Engine) stopInteractiveSessionSilently(sessionKey string) bool {
 	return e.stopInteractiveSessionWithOptions(sessionKey, false)
 }
 
 func (e *Engine) stopInteractiveSessionWithOptions(sessionKey string, notifyQueued bool) bool {
+	return e.stopInteractiveSessionWithQueue(sessionKey, notifyQueued, false)
+}
+
+func (e *Engine) stopInteractiveSessionWithQueue(sessionKey string, notifyQueued, keepQueued bool) bool {
 	e.interactiveMu.Lock()
 	if op := e.nativeCompactions[sessionKey]; op != nil {
 		op.cancel()
@@ -12445,6 +12492,14 @@ func (e *Engine) stopInteractiveSessionWithOptions(sessionKey string, notifyQueu
 	}
 
 normalCleanup:
+	var closed chan struct{}
+	if keepQueued {
+		closed = make(chan struct{})
+		state.mu.Lock()
+		state.resetHandoff = true
+		state.abortCloseDone = closed
+		state.mu.Unlock()
+	}
 	state.markStopped()
 	delete(e.interactiveStates, sessionKey)
 	e.interactiveMu.Unlock()
@@ -12459,7 +12514,7 @@ normalCleanup:
 		state.pendingMessages = nil
 		state.mu.Unlock()
 	}
-	e.closeAgentSessionAsync(sessionKey, agentSession)
+	go e.closeAgentSessionAndSignal(sessionKey, agentSession, closed)
 
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventSessionEnded,
@@ -13305,6 +13360,8 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 			return err
 		}
 	}
+	// a workspace's images go back to the chat channel with its [report]/[ask] (team_exit_images.go)
+	e.noteWorkspaceImages(sessionKey, images)
 	for _, file := range files {
 		if err := e.waitOutgoing(p); err != nil {
 			return err
@@ -13399,6 +13456,7 @@ func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []Ima
 			return err
 		}
 	}
+	e.noteWorkspaceImages(target.sessionKey, images)
 	for _, file := range files {
 		if err := e.waitOutgoing(target.platform); err != nil {
 			return err

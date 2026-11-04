@@ -119,7 +119,7 @@ def reads_this_turn(path):
         t, when = e.get("type"), ts(e.get("timestamp"))
         if t == "assistant":
             for c in (e.get("message") or {}).get("content") or []:
-                if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") == "Read":
+                if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") in ("Read", "read_image"):
                     inp = c.get("input") or {}
                     fp = inp.get("file_path") or inp.get("path") or inp.get("absolute_path")
                     if isinstance(fp, str) and fp:

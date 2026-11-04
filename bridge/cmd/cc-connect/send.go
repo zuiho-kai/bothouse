@@ -213,7 +213,7 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 			return req, "", fmt.Errorf("--dm cannot be combined with --session")
 		}
 	} else if req.SessionKey == "" {
-		req.SessionKey = strings.TrimSpace(os.Getenv("CC_SESSION_KEY"))
+		req.SessionKey = strings.TrimSpace(envSessionKey())
 	}
 	if req.Message == "" {
 		req.Message = strings.Join(positional, " ")

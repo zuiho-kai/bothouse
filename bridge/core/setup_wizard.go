@@ -1841,6 +1841,12 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			if cur, _ := byProject[r.project].Options["guild_id"].(string); guildID != "" && cur == "" {
 				pw.Options["guild_id"] = guildID
 			}
+			// a new bot serves only the wizard's server (plus DMs): the same bot token run by another
+			// instance (another machine or container) would otherwise answer every server it is in.
+			// Existing bots keep what they have, so a rerun never cuts off servers they already serve.
+			if _, set := byProject[r.project].Options["allow_guilds"]; !r.reused && !set && guildID != "" {
+				pw.Options["allow_guilds"] = guildID + ",dm"
+			}
 			// allow_from: new bots, existing ones that still let anyone in, and ones a failed run
 			// closed with AllowFromUnset (so a rerun with the user's ID takes); a real list is kept
 			if cur, _ := byProject[r.project].Options["allow_from"].(string); allowFrom != "" &&

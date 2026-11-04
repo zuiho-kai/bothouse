@@ -133,7 +133,7 @@ func runCronAdd(args []string) {
 		project = os.Getenv("CC_PROJECT")
 	}
 	if sessionKey == "" {
-		sessionKey = os.Getenv("CC_SESSION_KEY")
+		sessionKey = envSessionKey()
 	}
 
 	// If cron expr not provided via --cron, try positional: first 5 fields are cron, rest is prompt/exec

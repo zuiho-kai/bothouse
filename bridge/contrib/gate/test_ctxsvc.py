@@ -1,4 +1,5 @@
 """ctxsvc 查询清洗、推页格式、wiki 路径可配的测试，不加载模型：python3 -I contrib/gate/test_ctxsvc.py"""
+import re
 import json, sys, tempfile, unittest
 from pathlib import Path, PureWindowsPath
 from unittest.mock import patch
@@ -114,6 +115,25 @@ class T(unittest.TestCase):
             self.assertEqual(ctxsvc.context(dict(req, epoch="e2")), {"wiki": [dict(first, desc=first["desc"] + " | " + row,
                                                                                rows=first["rows"] + [new])]},
                              "新会话代号：整页重推")
+
+    def test_whole_blocks_become_catalog_and_changes_push_only_changed_lines(self):
+        # 用户 11-04「做」：整块正文的材料只推「标题 — 一句话 [#编号]」，正文按编号取；内容变了只补变的行
+        body = "说明这块是什么\n" + "\n".join(f"- 第 {i} 条做法，写得比较长一点免得太短" for i in range(12))
+        req = {"key": "discord:doc", "bot": "a", "epoch": "d1"}
+        got = ctxsvc.only_new({"wiki": [{"path": "【常驻做法 abc123】", "desc": body}]}, req)["wiki"]
+        self.assertEqual([w["path"] for w in got], ["【取正文】", "【常驻做法 abc123】"])
+        self.assertIn("说明这块是什么（全文 13 行）", got[1]["desc"])
+        cid = re.search(r"\[#([0-9a-f]{8})\]$", got[1]["desc"]).group(1)
+        self.assertIn("第 11 条做法", (ctxsvc.store_dir() / f"{cid}.md").read_text(encoding="utf-8"), "正文存进正文库")
+        self.assertEqual(ctxsvc.only_new({"wiki": [{"path": "【常驻做法 abc123】", "desc": body}]}, req)["wiki"], [], "不变不重推")
+        changed = body.replace("第 3 条做法", "第 3 条做法改过")
+        got = ctxsvc.only_new({"wiki": [{"path": "【常驻做法 def456】", "desc": changed}]}, req)["wiki"]
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["path"], "【常驻做法 有变动】")
+        self.assertEqual(got[0]["desc"].split("\n")[1:], ["- 第 3 条做法改过，写得比较长一点免得太短"], "只补改了的那行")
+        self.assertIn("删了 1 行", got[0]["desc"])
+        self.assertEqual([(w["path"], w["desc"]) for w in ctxsvc.only_new({"wiki": [{"path": "【短块】", "desc": "短"}]}, req)["wiki"]],
+                         [("【短块】", "短")], "短块原样给")
 
     def test_wiki_off_or_missing(self):
         ctxsvc.WIKI, ctxsvc._idx = None, {}

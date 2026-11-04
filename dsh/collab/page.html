@@ -243,7 +243,9 @@
   }
   .msg:hover { background: var(--hover-soft); }
   .msg.cont { padding-top: 2px; }
-  .msg.cont .avatar,
+  /* 续行只隐藏头像，不从网格里移除：头像一旦 display:none，正文会顶到第一列，
+     被 40px 的头像列宽挤成一字一行（#112）。 */
+  .msg.cont .avatar { visibility: hidden; }
   .msg.cont .head { display: none; }
   .msg .stamp {
     display: none;
@@ -258,6 +260,27 @@
     font-variant-numeric: tabular-nums;
   }
   .msg.cont:hover .stamp { display: block; }
+  /* 自己的消息：悬停时右上角出现「撤回」，撤回会连同这条消息发起的回答一起停下。 */
+  .msg .ops {
+    position: absolute;
+    top: 2px;
+    right: max(var(--pad-x), env(safe-area-inset-right));
+    display: none;
+    gap: 4px;
+  }
+  .msg:hover .ops, .msg:focus-within .ops { display: flex; }
+  .msg .ops button {
+    font: inherit;
+    font-size: var(--fs-xs);
+    line-height: 1.4;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    padding: 1px 6px;
+    cursor: pointer;
+  }
+  .msg .ops button:hover { color: var(--text-strong); background: var(--hover); }
 
   .avatar {
     width: var(--avatar);
@@ -1007,6 +1030,21 @@ function messageNode(m) {
   } else if (m.text) col.append(renderBody(m.text, 'body'));
   if (Array.isArray(m.attachments) && m.attachments.length) col.append(attachmentList(m.attachments));
   row.append(col);
+  // 自己发的普通消息：悬停出现「撤回」。撤回后后端广播 deleted，这一行随之消失；
+  // 这条消息触发的回答也会一起停下（后端 recall 会取消对应 turn）。
+  if (!system && !m.card && m.author === state.me) {
+    const ops = el('div', 'ops');
+    const b = el('button', '', '撤回');
+    b.type = 'button';
+    b.title = '撤回这条消息（正在进行的回答也会停下）';
+    b.onclick = async () => {
+      if (!confirm('撤回这条消息？正在进行的回答也会停下。')) return;
+      try { await api(`${ROOT}/collab/api/messages/${m.id}`, { method: 'DELETE' }); }
+      catch (err) { alert('撤回失败：' + err.message); }
+    };
+    ops.append(b);
+    row.append(ops);
+  }
   return row;
 }
 
@@ -1062,6 +1100,8 @@ function patchBody(body, fresh) {
 function upsert(m) {
   if (m.room_id !== state.room) return;
   const log = $('log');
+  // 消息一到，空态/加载态就不再成立；否则第一条实时消息会顶着“还没有消息”显示（#112）。
+  log.querySelector('.state')?.remove();
   const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - STICK_PX;
   const existing = log.querySelector(`[data-id="${m.id}"]`);
   // 重复推送（重连补拉、同一条事件到两次）内容没变就不重建，避免闪一下、丢掉代码块的横向滚动位置。

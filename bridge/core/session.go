@@ -43,6 +43,9 @@ type Session struct {
 	// (maomao fork, channel backfill). Persisted so a restart still knows what
 	// the agent missed while cc-connect was down.
 	LastSeenMsgID string `json:"last_seen_msg_id,omitempty"`
+	// Side marks a one-off cron/timer run session (NewSideSession, maomao fork). Its posts are
+	// not the channel's main session's own text, so they are not marked agent output platform-wide.
+	Side bool `json:"side,omitempty"`
 	// TurnCtx records which per-turn context blocks the agent's current context
 	// already holds (maomao fork), so each is sent once per context, not every turn.
 	TurnCtx *TurnCtxSent `json:"turn_ctx,omitempty"`
@@ -489,6 +492,7 @@ func (sm *SessionManager) NewSideSession(userKey, name string) *Session {
 		Name:      name,
 		CreatedAt: now,
 		UpdatedAt: now,
+		Side:      true,
 	}
 	sm.sessions[id] = s
 	sm.userSessions[userKey] = append(sm.userSessions[userKey], id)
