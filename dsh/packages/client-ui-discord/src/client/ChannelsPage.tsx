@@ -18,6 +18,8 @@ import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { ProgressCard, channelProgress } from './ProgressCard.tsx'
 import { StepChips, chipsOf } from './StepChips.tsx'
 import { CapabilityList } from './CapabilityList.tsx'
+import { SlashMenu } from './SlashMenu.tsx'
+import { addressCommand, matchCommands, slashQuery, type SlashCommand } from './slash-commands.ts'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
 import { ChannelSettingsDialog } from './ChannelSettingsDialog.tsx'
@@ -41,6 +43,8 @@ export interface ChannelsInjected extends ChannelActions {
 export type ChannelsPageProps = PropsRuntime<'main'> & InjectFace<ChannelsInjected> & PropsLocale<typeof NS> & {
   /** Direct reply to a member's question from the 等你定 tray; absent until the reply endpoint is live (#107/#118). */
   readonly answerTask?: (taskId: number, text: string) => Promise<void>
+  /** #1016 转任务 on a message; absent hides the button. */
+  readonly dispatchTask?: ChannelActions['dispatchTask']
 }
 
 type T = TranslateNS<typeof NS>
@@ -185,7 +189,7 @@ interface OwnActions {
 }
 
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter }: {
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter }: {
   message: ChannelMessage
   grouped: boolean
   /** Stagger slot when this row arrived live (#115); undefined for history. */
@@ -204,6 +208,8 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   onMention: (member: ChannelMember) => void
   onDecide: ChannelActions['decidePermission']
   onReply: (message: ChannelMessage) => void
+  /** #1016 转任务; undefined hides the button (no primary role or no endpoint). */
+  onTask: ((message: ChannelMessage) => Promise<void>) | undefined
   onRetry: (messageId: number) => void
   retrying: boolean
 }) {
@@ -217,6 +223,28 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   const stepsMarkdown = useMemo(() => (steps === '' ? '' : softBreaksToHard(steps)), [steps])
   const fullTime = new Date(message.created_at * 1000).toLocaleString()
   const editButtonRef = useRef<HTMLButtonElement>(null)
+  // #1016 message tools: a short confirmation on the button that was used.
+  const [toolNote, setToolNote] = useState<{ tool: 'copy' | 'task'; text: string } | undefined>(undefined)
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => { clearTimeout(noteTimer.current) }, [])
+  const note = (tool: 'copy' | 'task', text: string): void => {
+    clearTimeout(noteTimer.current)
+    setToolNote({ tool, text })
+    noteTimer.current = setTimeout(() => { setToolNote(undefined) }, 2000)
+  }
+  const copy = (): void => {
+    const done = (): void => { note('copy', t('toolCopied')) }
+    const clip = globalThis.navigator?.clipboard
+    if (clip === undefined) { note('copy', t('toolCopyFailed')); return }
+    clip.writeText(message.text).then(done, () => { note('copy', t('toolCopyFailed')) })
+  }
+  const toTask = (): void => {
+    if (onTask === undefined || toolNote?.tool === 'task') return
+    setToolNote({ tool: 'task', text: t('toolTasking') })
+    onTask(message).then(() => { note('task', t('toolTasked')) }, (error: unknown) => {
+      note('task', t('toolTaskFailed', { message: error instanceof Error ? error.message : String(error) }))
+    })
+  }
   const wasEditing = useRef(false)
   const isEditing = own?.editing !== undefined
   useEffect(() => {
@@ -395,7 +423,13 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
       </div>
       {/* System notices and progress cards are not conversation turns, so they take no reply. */}
       {message.author_kind !== 'system' && card === undefined && (
-        <button type="button" className={css.replyButton} title={t('reply')} aria-label={t('reply')} onClick={() => { onReply(message) }}>↩</button>
+        // #1016: hover toolbar — copy the Markdown, reply with a quote, put the message on the task board.
+        <span className={css.msgTools} data-message-tools>
+          {toolNote !== undefined && <span className={css.msgToolNote} role="status">{toolNote.text}</span>}
+          {message.text !== '' && <button type="button" className={css.msgTool} title={t('toolCopy')} aria-label={t('toolCopy')} onClick={copy}>{t('toolCopy')}</button>}
+          <button type="button" className={`${css.msgTool} ${css.replyButton}`} title={t('reply')} aria-label={t('reply')} onClick={() => { onReply(message) }}>↩ {t('reply')}</button>
+          {onTask !== undefined && message.text.trim() !== '' && <button type="button" className={css.msgTool} title={t('toolTaskHint')} aria-label={t('toolTask')} disabled={toolNote?.tool === 'task' && toolNote.text === t('toolTasking')} onClick={toTask}>{t('toolTask')}</button>}
+        </span>
       )}
     </div>
   )
@@ -470,7 +504,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, openModelSettings, answerTask, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, openModelSettings, answerTask, t }: ChannelsPageProps) {
   const scheme = useScheme()
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
@@ -599,7 +633,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   }, [settingsOpen])
   useEffect(() => { setSettingsOpen(false) }, [state.roomId])
   const [capabilitiesDismissed, setCapabilitiesDismissed] = useState(false)
-  useEffect(() => { setCapabilitiesDismissed(false) }, [state.roomId])
+  // #1016: the capability help moved behind /help; the / menu runs commands.
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [slashHighlight, setSlashHighlight] = useState(0)
+  useEffect(() => { setCapabilitiesDismissed(false); setHelpOpen(false) }, [state.roomId])
   const composerRef = useRef<HTMLDivElement>(null)
   // `@` start of the popup currently shown, read by the outside-click listener.
   const openMentionAt = useRef<number | undefined>(undefined)
@@ -612,7 +649,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
       const at = openMentionAt.current
       if (composerRef.current?.contains(event.target as Node) === true) return
       if (at !== undefined) setDismissedAt(at)
-      if (draft === '/' && !capabilitiesDismissed) setCapabilitiesDismissed(true)
+      if (slashQuery(draft) !== undefined && !capabilitiesDismissed) setCapabilitiesDismissed(true)
+      setHelpOpen(false)
     }
     document.addEventListener('mousedown', onPress)
     return () => { document.removeEventListener('mousedown', onPress) }
@@ -793,6 +831,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   const popupOpen = mention !== undefined && candidates.length > 0
   openMentionAt.current = popupOpen ? mention.start : undefined
   const selected = Math.min(highlight, Math.max(candidates.length - 1, 0))
+  // #1016 / commands go to the primary role when it is a bothouse bot (only those run bridge commands).
+  const commandTarget = lead?.kind === 'bot' ? lead : undefined
+  const slash = slashQuery(draft)
+  const slashCommands = slash === undefined || capabilitiesDismissed || popupOpen ? [] : matchCommands(slash, key => t(key))
+  const slashOpen = slashCommands.length > 0
+  const slashSelected = Math.min(slashHighlight, Math.max(slashCommands.length - 1, 0))
+  // #1016 interrupt bar: bothouse bots working in this room take /stop and /ps.
+  const workingBots = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? [])
+    .map(id => byId.get(id)).filter((m): m is ChannelMember => m !== undefined && m.kind === 'bot')
 
   const setDraft = (text: string, nextCaret: number): void => {
     const roomId = state.roomId
@@ -907,9 +954,61 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     })
   }
 
+  /** Send one command line now, keeping the draft unless it was the command itself. */
+  const sendCommand = (text: string, clearDraft: boolean): void => {
+    const roomId = state.roomId
+    if (roomId === undefined) return
+    setErrors(previous => ({ ...previous, [roomId]: undefined }))
+    stickRef.current = true
+    send(text).then(() => {
+      if (clearDraft) setDrafts(previous => ({ ...previous, [roomId]: '' }))
+    }, (error: unknown) => {
+      setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message: error instanceof Error ? error.message : String(error) }) }))
+    })
+  }
+
+  const noTarget = (): void => {
+    const roomId = state.roomId
+    if (roomId !== undefined) setErrors(previous => ({ ...previous, [roomId]: t('slashNoLead') }))
+  }
+
+  const runSlash = (command: SlashCommand): void => {
+    const run = command.run
+    setSlashHighlight(0)
+    if (run.kind === 'panel') {
+      setDraft('', 0)
+      if (run.panel === 'help') { setCapabilitiesDismissed(false); setHelpOpen(true); return }
+      chatRef.current?.querySelector<HTMLButtonElement>(`button[aria-label="${t('taskBoardOpen')}"]`)?.click()
+      return
+    }
+    if (run.kind === 'send' && run.broadcast === true) { sendCommand(run.text, true); return }
+    if (commandTarget === undefined) { noTarget(); return }
+    const line = `@${commandTarget.name} ${run.text}`
+    if (run.kind === 'fill') { setCapabilitiesDismissed(true); setDraft(line, line.length); return }
+    sendCommand(line, true)
+  }
+
+  // #1016 three interrupts while bots are working here.
+  const stopStep = (): void => { for (const m of workingBots) sendCommand(`@${m.name} /stop`, false) }
+  const stopAll = (): void => { sendCommand('/stop all', false) }
+  const steer = (): void => {
+    const m = workingBots.find(x => x.id === commandTarget?.id) ?? workingBots[0]
+    if (m === undefined) return
+    const line = `@${m.name} /ps `
+    setCapabilitiesDismissed(true)
+    setDraft(line + draft.replace(/^@\S+ \/ps /, ''), line.length)
+  }
+
+  const toTask = dispatchTask === undefined || state.roomId === undefined || leadId == null ? undefined : async (message: ChannelMessage): Promise<void> => {
+    const line = message.text.split('\n').map(x => x.trim()).find(Boolean) ?? ''
+    // 40 characters keeps the board row on one line (TaskBoard titles); the card links back to the full message.
+    const title = line.length > 40 ? `${line.slice(0, 40)}…` : line
+    await dispatchTask(message.room_id, { title, owner: leadId, messageId: message.id })
+  }
+
   const submit = (): void => {
     const roomId = state.roomId
-    const text = draft.trim()
+    const text = addressCommand(draft.trim(), commandTarget?.name)
     const files = roomId === undefined ? [] : pendingFiles[roomId] ?? []
     if ((!text && files.length === 0) || roomId === undefined || pendingRooms.current.has(roomId)) return
     if (files.length > 0 && messageTooLarge(text, files)) {
@@ -947,9 +1046,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (draft === '/' && !capabilitiesDismissed && !isImeEnter(event)) {
+    if (slashOpen && !isImeEnter(event)) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        const step = event.key === 'ArrowDown' ? 1 : -1
+        setSlashHighlight((slashSelected + step + slashCommands.length) % slashCommands.length)
+        return
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); runSlash(slashCommands[slashSelected] as SlashCommand); return }
       if (event.key === 'Escape') { event.preventDefault(); setCapabilitiesDismissed(true); return }
-      if (event.key === 'Enter') { event.preventDefault(); return }
     }
     if (popupOpen && !isImeEnter(event)) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -1120,6 +1225,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
                   tasks={state.tasks ?? []}
                   focused={focusedId === m.id}
                   onReply={startReply}
+                  onTask={toTask}
                   own={ownActions(m)}
                 />,
               ])}
@@ -1139,7 +1245,17 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           </button>
         )}
         </div>
-        <div className={css.working} aria-live="polite">{typingNames.length > 0 && <><span className={css.typingDots} aria-hidden="true"><i /><i /><i /></span>{t('workingList', { names: typingNames.join('、') })}</>}</div>
+        <div className={css.working} aria-live="polite">
+          {typingNames.length > 0 && <><span className={css.typingDots} aria-hidden="true"><i /><i /><i /></span>{t('workingList', { names: typingNames.join('、') })}</>}
+          {/* #1016: stop this step (/stop to who is working), stop everything here (/stop all), or steer the running turn (/ps). */}
+          {workingBots.length > 0 && (
+            <span className={css.interrupts} role="group" aria-label={t('interruptGroup')}>
+              <button type="button" className={css.interruptButton} title={t('interruptStepHint')} onClick={stopStep}>{t('interruptStep')}</button>
+              <button type="button" className={css.interruptButton} title={t('interruptAllHint')} onClick={stopAll}>{t('interruptAll')}</button>
+              <button type="button" className={css.interruptButton} title={t('interruptSteerHint')} onClick={steer}>{t('interruptSteer')}</button>
+            </span>
+          )}
+        </div>
         {/* #113/#125: questions and pending permission requests stay pinned above the composer while the log scrolls. */}
         <DecideTray
           questions={questions}
@@ -1154,7 +1270,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           isImeEnter={isImeEnter}
         />
         <div className={css.composer} ref={composerRef}>
-          {draft === '/' && !capabilitiesDismissed && <CapabilityList key={state.roomId} t={t} onClose={() => { setCapabilitiesDismissed(true) }} />}
+          {helpOpen && <CapabilityList key={state.roomId} t={t} onClose={() => { setHelpOpen(false) }} />}
+          {slashOpen && <SlashMenu commands={slashCommands} selected={slashSelected} target={commandTarget?.name} t={t} onPick={runSlash} onHover={setSlashHighlight} />}
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
           {ownNotice !== undefined && <div className={css.sendError} role="status">{ownNotice}</div>}
           {popupOpen && (
@@ -1219,17 +1336,19 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
               disabled={state.roomId === undefined || sending[state.roomId] === true}
               placeholder={t(compactComposer() ? 'placeholderShort' : 'placeholder', { room: room?.name ?? '' })}
               role="combobox"
-              aria-expanded={popupOpen}
-              aria-controls="channel-mention-list"
+              aria-expanded={popupOpen || slashOpen}
+              aria-controls={slashOpen ? 'channel-slash-list' : 'channel-mention-list'}
               aria-autocomplete="list"
-              aria-activedescendant={popupOpen ? `channel-mention-${(candidates[selected] as ChannelMember).id}` : undefined}
+              aria-activedescendant={popupOpen ? `channel-mention-${(candidates[selected] as ChannelMember).id}` : slashOpen ? `channel-slash-${slashSelected}` : undefined}
               onChange={(event) => {
                 const roomId = state.roomId
                 const value = event.target.value
                 if (roomId !== undefined) setDrafts(previous => ({ ...previous, [roomId]: value }))
                 setCapabilitiesDismissed(false)
+                setHelpOpen(false)
                 setCaret(event.target.selectionStart)
                 setHighlight(0)
+                setSlashHighlight(0)
               }}
               onSelect={(event) => { setCaret(event.currentTarget.selectionStart) }}
               onKeyDown={onKeyDown}

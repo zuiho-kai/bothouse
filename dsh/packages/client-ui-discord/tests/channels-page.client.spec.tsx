@@ -156,58 +156,112 @@ describe('channels page', () => {
     expect(dialog.getByText(zh.workspaceNameFixed)).toBeTruthy()
   })
 
-  it('shows only six existing capabilities for a slash draft, with usage and no side effects', () => {
+  it('opens the / command menu, runs a picked command at the primary role, and keeps the capability help behind /help', async () => {
     const send = vi.fn(async () => {})
     render(<ChannelsPage {...props(ready, send)} />)
-    expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
-    expect(screen.queryByRole('button', { name: zh.capabilities })).toBeNull()
-    const input = screen.getByRole('combobox')
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
     fireEvent.change(input, { target: { value: 'ordinary message' } })
-    expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
+    expect(screen.queryByRole('region', { name: zh.slashTitle })).toBeNull()
     fireEvent.change(input, { target: { value: '/' } })
+    const menu = within(screen.getByRole('region', { name: zh.slashTitle }))
+    expect(menu.getAllByRole('option').map(o => /^\/[a-z]+(?: all)?/.exec(o.textContent ?? '')?.[0])).toEqual(['/stop', '/stop all', '/ps', '/new', '/model', '/reasoning', '/cron', '/status', '/usage', '/compress', '/board', '/help'])
+    expect(menu.getByText(zh.slashTitleLead.replace('{name}', '橘'))).toBeTruthy()
+    // Filter, then Enter runs the highlighted command.
+    fireEvent.change(input, { target: { value: '/mo' } })
+    expect(within(screen.getByRole('region', { name: zh.slashTitle })).getAllByRole('option')[0]?.textContent).toContain('/model')
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    expect(send).toHaveBeenCalledExactlyOnceWith('@橘 /model')
+    // /stop all is not addressed: every bot takes it.
+    fireEvent.change(input, { target: { value: '/' } })
+    await act(async () => { fireEvent.click(within(screen.getByRole('region', { name: zh.slashTitle })).getByText(zh.slashStopAll)) })
+    expect(send).toHaveBeenLastCalledWith('/stop all')
+    // /ps fills the composer instead of sending.
+    fireEvent.change(input, { target: { value: '/ps' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(input.value).toBe('@橘 /ps ')
+    expect(send).toHaveBeenCalledTimes(2)
+    // /help shows the existing capability help, with no side effects.
+    fireEvent.change(input, { target: { value: '/help' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
     const help = within(screen.getByRole('region', { name: zh.capabilities }))
-    expect(help.getAllByRole('button')).toHaveLength(8) // seven capabilities and close
-    for (const [name, usage] of [
-      [zh.capabilityTaskBoard, zh.capabilityTaskBoardHelp],
-      [zh.capabilityLater, zh.capabilityLaterHelp],
-      [zh.capabilityReminder, zh.capabilityReminderHelp],
-      [zh.capabilityWorkspace, zh.capabilityWorkspaceHelp],
-      [zh.capabilityLead, zh.capabilityLeadHelp],
-      [zh.capabilityDm, zh.capabilityDmHelp],
-    ]) {
+    for (const [name, usage] of [[zh.capabilityTaskBoard, zh.capabilityTaskBoardHelp], [zh.capabilityLead, zh.capabilityLeadHelp]]) {
       fireEvent.click(help.getByRole('button', { name }))
       expect(help.getByRole('status').textContent).toBe(usage)
     }
+    fireEvent.click(help.getByRole('button', { name: zh.close }))
+    expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
+    expect(send).toHaveBeenCalledTimes(2)
+  })
+  it('addresses a typed command with arguments to the primary role', async () => {
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props(ready, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '/model gpt-6' } })
+    expect(screen.queryByRole('region', { name: zh.slashTitle })).toBeNull()
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    expect(send).toHaveBeenCalledExactlyOnceWith('@橘 /model gpt-6')
+  })
+  it('refuses an addressed command when the primary role is not a bothouse bot', async () => {
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props({ ...ready, members: [{ id: 'ju', name: '橘', kind: 'dsh', online: true }] }, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '/new' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(send).not.toHaveBeenCalled()
-    expect((input as HTMLTextAreaElement).value).toBe('/')
-    fireEvent.keyDown(input, { key: 'Escape' })
-    expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
-    fireEvent.change(input, { target: { value: '' } })
-    fireEvent.change(input, { target: { value: '/' } })
-    expect(screen.getByRole('region', { name: zh.capabilities })).toBeTruthy()
-    fireEvent.click(within(screen.getByRole('region', { name: zh.capabilities })).getByRole('button', { name: zh.close }))
-    expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
-    fireEvent.change(input, { target: { value: '/ordinary' } })
-    expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
+    expect(screen.getByRole('alert').textContent).toBe(zh.slashNoLead)
   })
-  it('closes the capability list on an outside press and preserves the slash draft', () => {
+  it('closes the command menu on an outside press and preserves the slash draft', () => {
     render(<ChannelsPage {...props(ready)} />)
     const input = screen.getByRole('combobox') as HTMLTextAreaElement
     fireEvent.change(input, { target: { value: '/' } })
-    expect(screen.getByRole('region', { name: zh.capabilities })).toBeTruthy()
+    expect(screen.getByRole('region', { name: zh.slashTitle })).toBeTruthy()
     fireEvent.mouseDown(screen.getByRole('log').parentElement as HTMLElement)
-    expect(screen.queryByRole('region', { name: zh.capabilities })).toBeNull()
+    expect(screen.queryByRole('region', { name: zh.slashTitle })).toBeNull()
     expect(input.value).toBe('/')
   })
-  it('sends the slash draft with Enter after the capability list is dismissed', async () => {
+  it('sends the slash draft with Enter after the command menu is dismissed', async () => {
     const send = vi.fn(async () => {})
     render(<ChannelsPage {...props(ready, send)} />)
     const input = screen.getByRole('combobox') as HTMLTextAreaElement
     fireEvent.change(input, { target: { value: '/' } })
-    fireEvent.click(within(screen.getByRole('region', { name: zh.capabilities })).getByRole('button', { name: zh.close }))
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByRole('region', { name: zh.slashTitle })).toBeNull()
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
     expect(send).toHaveBeenCalledExactlyOnceWith('/')
+  })
+  it('offers three interrupts while a bot works here', async () => {
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props(ready, send)} />)
+    const bar = within(screen.getByRole('group', { name: zh.interruptGroup }))
+    await act(async () => { fireEvent.click(bar.getByRole('button', { name: zh.interruptStep })) })
+    expect(send).toHaveBeenLastCalledWith('@橘 /stop')
+    await act(async () => { fireEvent.click(bar.getByRole('button', { name: zh.interruptAll })) })
+    expect(send).toHaveBeenLastCalledWith('/stop all')
+    fireEvent.click(bar.getByRole('button', { name: zh.interruptSteer }))
+    expect((screen.getByRole('combobox') as HTMLTextAreaElement).value).toBe('@橘 /ps ')
+    expect(send).toHaveBeenCalledTimes(2)
+  })
+  it('hides the interrupts when no bot is working', () => {
+    render(<ChannelsPage {...props({ ...ready, thinking: {} })} />)
+    expect(screen.queryByRole('group', { name: zh.interruptGroup })).toBeNull()
+  })
+  it('puts a message on the task board for the primary role and copies its Markdown', async () => {
+    const dispatchTask = vi.fn(async () => {})
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(globalThis.navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const long = '第一行要做的事'.repeat(8)
+    render(<ChannelsPage {...props({ ...ready, messages: [{ ...ready.messages[0]!, text: `\n${long}\n细节` }] })} dispatchTask={dispatchTask} />)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: zh.toolTask })) })
+    expect(dispatchTask).toHaveBeenCalledExactlyOnceWith(1, { title: `${long.slice(0, 40)}…`, owner: 'ju', messageId: 1 })
+    expect(screen.getByText(zh.toolTasked)).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: zh.toolCopy })) })
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(`\n${long}\n细节`)
+    expect(screen.getByText(zh.toolCopied)).toBeTruthy()
+  })
+  it('hides 转任务 without the endpoint', () => {
+    render(<ChannelsPage {...props(ready)} />)
+    expect(screen.queryByRole('button', { name: zh.toolTask })).toBeNull()
+    expect(screen.getByRole('button', { name: zh.reply })).toBeTruthy()
   })
   it('selects dispatch mode and reports a failed save', async () => {
     const save = vi.fn(async () => { throw Error('save failed') })

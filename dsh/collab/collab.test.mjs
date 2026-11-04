@@ -492,6 +492,20 @@ test('mentions: own mention removed, others rewritten, fences ignored, bare name
   }
 });
 
+test('cloud-web: a mentioned slash command goes to the bot bare, without the later instructions (#1016)', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  gw.later = { instructions: () => '\n【一次性回查】ticket\n' };
+  const ju = connect(gw, 'bot=ju&name=橘');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 /model deepseek-v4' });
+  await tick();
+  assert.equal(ju.of('message').at(-1).content, '/model deepseek-v4');
+  assert.equal(ju.of('message').at(-1).mentioned, true);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 看看日志' });
+  await tick();
+  assert.equal(ju.of('message').at(-1).content, '看看日志\n【一次性回查】ticket\n');
+});
+
 test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replaces', async () => {
   const hub = makeHub();
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
