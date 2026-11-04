@@ -16,6 +16,7 @@ import {
   UserPlus,
   Users,
   Laptop,
+  Smartphone,
   Network,
   Sparkles,
   X,
@@ -33,6 +34,8 @@ const navItems = [
   { key: 'devices', path: '/devices', icon: Laptop },
   // #145：Wiki 星河从 DSH 一级入口收进 bothouse，作为这里的子页面
   { key: 'wikiGalaxy', path: '/wiki-galaxy', icon: Sparkles },
+  // 接入应用 (#150): which outside apps (QQ / Discord / 飞书) are wired, one row each
+  { key: 'apps', path: '/apps', icon: Smartphone },
   { key: 'projects', path: '/projects', icon: FolderKanban },
   { key: 'sessions', path: '/sessions', icon: MessagesSquare },
   { key: 'providers', path: '/providers', icon: Plug },
