@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -179,6 +180,7 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 		refs     []taskReviewRef
 	}
 	groups := map[string]*group{}
+	load := map[string]int{} // reviews handed to each role in this scan: spread a batch of handbacks
 	for _, it := range readTeamTaskBoard(e.team.dir) {
 		if it.Paused != "" {
 			if it.Chat == "" {
@@ -245,25 +247,18 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 			}
 			continue
 		}
-		var reviewer *Engine
+		unavailable := true
 		for _, x := range w.engines() {
 			if x.name == it.Reviewer && x.timerScheduler != nil {
-				reviewer = x
+				unavailable = false
 				break
 			}
 		}
-		unavailable := reviewer == nil
-		if unavailable {
-			for _, x := range w.engines() {
-				if x.isTeamLead() && x.timerScheduler != nil {
-					reviewer = x
-					break
-				}
-			}
-		}
+		reviewer, fresh := w.pickTaskReviewer(it, load, now)
 		if reviewer == nil {
 			continue
-		} // board keeps its owner; next scan retries when the role returns.
+		} // board keeps its owner; next scan retries when a role is free of cooldown.
+		load[reviewer.name]++
 		it.reviewAfter = reviewer.taskReviewAfter()
 		stage := "returned"
 		if taskReviewOverdue(it, now) {
@@ -272,12 +267,11 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 		if unavailable && it.Reviewer != "" {
 			stage = "unavailable"
 		}
-		sum := sha256.Sum256([]byte(fmt.Sprintf("%s/%d/%s/%s/%s", e.team.dir, it.ID, it.ReturnedAt.Format(time.RFC3339Nano), reviewer.name, stage)))
-		id := fmt.Sprintf("review-%x", sum)
+		id := taskReviewJobID(e.team.dir, it, reviewer.name, stage)
 		ref := taskReviewRef{Board: it.ID, ReturnedAt: it.ReturnedAt, Stage: stage}
 		prior := reviewer.timerScheduler.store.Get(id)
 		if prior == nil {
-			reviewer.queueTaskReview(id, it.Chat, &ref, now)
+			reviewer.queueTaskReviewIn(id, it.Chat, &ref, now, fresh)
 		} else if roundup && prior.Fired && prior.ScheduledAt.Before(now.Truncate(teamWorkspaceReconcileEvery)) {
 			key := reviewer.name + "/" + it.Chat
 			g := groups[key]
@@ -295,10 +289,145 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 	}
 }
 
+// taskReviewStages: every stage a handback's verification job can have, for finding the job
+// already queued for it (taskReviewJobID).
+var taskReviewStages = []string{"returned", "overdue", "unavailable"}
+
+func taskReviewJobID(dir string, it teamTaskBoardItem, reviewer, stage string) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s/%d/%s/%s/%s", dir, it.ID, it.ReturnedAt.Format(time.RFC3339Nano), reviewer, stage)))
+	return fmt.Sprintf("review-%x", sum)
+}
+
+// taskReviewAuthor: role x is named in the item's owner text (「工作区1C酱」, 「肥鱼（作者…）」),
+// so it wrote or drove the work and must not verify it (user 2026-11-04「作者不审自己」).
+// A coordinator named there is excluded too: wrongly skipping a role only narrows the pool.
+func taskReviewAuthor(it teamTaskBoardItem, x *Engine) bool {
+	if it.Who == "" {
+		return false
+	}
+	return strings.Contains(it.Who, x.name) || strings.Contains(it.Who, x.DisplayName())
+}
+
+func (e *Engine) reviewCooling(chat string) bool {
+	return e.capacityWait(e.admissionQuotaScope(e.agent, chat)) > 0
+}
+
+// pickTaskReviewer chooses who verifies handback it (user 2026-11-04 10:4x: the lead alone cannot
+// keep up; hand reviews out, even to a busy role in a new conversation; no fixed cap):
+//   - a job already queued for this handback keeps its role, unless that role is cooling and the
+//     job has not run: then it is withdrawn and the handback goes to someone else (#112 waited on
+//     a role cooling for 624h);
+//   - never the author; never a cooling role;
+//   - the designated reviewer first, then the role with the fewest reviews handed out this scan;
+//     an idle role reviews in its channel session, and when every candidate is busy the first
+//     one reviews in a fresh side session (new_per_run) next to its running work.
+//
+// No candidate (all authors or cooling): nil, the next scan tries again.
+func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]int, now time.Time) (*Engine, bool) {
+	chat := teamChatKey(it.Chat)
+	dir := w.e.team.dir
+	skip := map[string]bool{}
+	back := false // the designated reviewer is present again: an "unavailable" stand-in does not stick
+	for _, x := range w.engines() {
+		back = back || (it.Reviewer != "" && x.name == it.Reviewer && x.timerScheduler != nil)
+	}
+	for _, x := range w.engines() {
+		if x.timerScheduler == nil {
+			continue
+		}
+		for _, stage := range taskReviewStages {
+			if back && stage == "unavailable" {
+				continue
+			}
+			id := taskReviewJobID(dir, it, x.name, stage)
+			prior := x.timerScheduler.store.Get(id)
+			if prior == nil {
+				continue
+			}
+			if !prior.Fired && x.reviewCooling(chat) {
+				x.timerScheduler.RemoveJob(id)
+				skip[x.name] = true
+				slog.Info("task review: reviewer cooling, handing the review to another role", "board", it.ID, "from", x.name)
+				continue
+			}
+			return x, prior.UsesNewSessionPerRun()
+		}
+	}
+	var designated *Engine
+	var pool []*Engine
+	for _, x := range w.engines() {
+		if x.timerScheduler == nil || skip[x.name] || taskReviewAuthor(it, x) || x.reviewCooling(chat) {
+			continue
+		}
+		if p, _, _ := x.timerTargetPlatform(chat); p == nil {
+			continue // cannot reply on the handback's platform: its timer would fail (platform not found)
+		}
+		if x.name == it.Reviewer {
+			designated = x
+			continue
+		}
+		pool = append(pool, x)
+	}
+	sort.SliceStable(pool, func(i, j int) bool {
+		if load[pool[i].name] != load[pool[j].name] {
+			return load[pool[i].name] < load[pool[j].name]
+		}
+		if pool[i].isTeamLead() != pool[j].isTeamLead() {
+			return pool[i].isTeamLead()
+		}
+		return pool[i].name < pool[j].name
+	})
+	if designated != nil {
+		pool = append([]*Engine{designated}, pool...)
+	}
+	for _, x := range pool {
+		if !x.quotaBusy(chat) && !x.taskReviewQueuedIn(chat) {
+			return x, false
+		}
+	}
+	if len(pool) > 0 {
+		return pool[0], true
+	}
+	return nil, false
+}
+
+// taskReviewQueuedIn: a review job of e for chat is waiting to run in the channel session, so
+// that session is already taken; another review in this batch goes to a free role or a side
+// session instead of queueing behind it.
+func (e *Engine) taskReviewQueuedIn(chat string) bool {
+	for _, j := range e.timerScheduler.store.List() {
+		if j.Project == e.name && j.TaskReview != nil && !j.Fired && !j.UsesNewSessionPerRun() && teamChatKey(j.SessionKey) == chat {
+			return true
+		}
+	}
+	return false
+}
+
+// taskReviewSessionAtRun: the channel session got busy after the review was queued, so the
+// review runs in a side session instead of queueing behind that work (user 2026-11-04
+// 「新对话来审核」). The hourly roundup keeps the channel session.
+func (e *Engine) taskReviewSessionAtRun(job *TimerJob) *TimerJob {
+	if job.TaskReview == nil || job.TaskReview.Stage == "roundup" || job.UsesNewSessionPerRun() || !e.quotaBusy(job.SessionKey) {
+		return job
+	}
+	j := *job
+	j.SessionMode = "new_per_run"
+	return &j
+}
+
 func (e *Engine) queueTaskReview(id, chat string, ref *taskReviewRef, now time.Time) {
+	e.queueTaskReviewIn(id, chat, ref, now, false)
+}
+
+// queueTaskReviewIn: fresh runs the verification in a new side session of the role, so a busy
+// role reviews without waiting for, or disturbing, the conversation it is working in.
+func (e *Engine) queueTaskReviewIn(id, chat string, ref *taskReviewRef, now time.Time, fresh bool) {
 	silent := true
 	job := &TimerJob{ID: id, Project: e.name, SessionKey: teamChatKey(chat), ScheduledAt: now,
 		Silent: &silent, WaitUserQuiet: true, ReplyBoard: ref.Board, CreatedAt: now, TaskReview: ref}
+	if fresh {
+		job.SessionMode = "new_per_run"
+	}
 	prepared, err := e.prepareTaskReview(job, now)
 	if err != nil {
 		slog.Warn("task review: prepare reminder", "error", err)
