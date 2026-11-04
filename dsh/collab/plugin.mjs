@@ -10,6 +10,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, CollabError, publicMessage } from './store.mjs';
+import { InstanceLock, LOCK_FILE, lockBusyMessage } from './instance-lock.mjs';
 import { startBotPort } from './bot-port.mjs';
 import { Hub } from './hub.mjs';
 import { TeamExit } from './team-exit.mjs';
@@ -134,6 +135,15 @@ export async function apply(ctx, rawConfig) {
   const { WebSocketServer } = createRequire(import.meta.url)('ws');
   if (typeof createUserMessage !== 'function' || typeof WebSocketServer !== 'function') throw Error('conest-collab: unsupported DSH runtime');
 
+  // #1019: a second DSH on the same data directory refuses to start the plugin instead of
+  // sharing collab.sqlite3 (the panel's 「打开 DSH」 used to start one beside a running host).
+  const lockPath = join(config.dataDir, LOCK_FILE);
+  const lock = InstanceLock.acquire(lockPath);
+  if (lock === undefined) throw Error(lockBusyMessage(lockPath));
+  // Until teardown is registered, a failed startup still frees the lock; after that teardown frees
+  // it last, once the store is closed (cordis runs disposers concurrently, not in order).
+  let teardownOwnsLock = false;
+  ctx.effect(() => () => { if (!teardownOwnsLock) lock.release(); }, 'conest-collab: instance lock');
   // #1044: an install from before had the desk, panel and other-computers pages; checked before Store creates the file.
   const collabExisted = existsSync(join(config.dataDir, 'collab.sqlite3'));
   // #445: the instance maxRelay stays the default for channels that never set their own cap.
@@ -256,7 +266,9 @@ export async function apply(ctx, rawConfig) {
     // Drain DSH jobs first: a job still awaiting its Agent must not touch a closed store.
     await dsh.close();
     store.close();
+    lock.release();
   }, 'conest-collab: teardown');
+  teardownOwnsLock = true;
 
   ctx.logger.info('conest-collab: %d room(s), %d DSH member(s), cloud-web %s', config.rooms.length, config.dshMembers.length, config.botToken ? 'on' : 'off');
 
