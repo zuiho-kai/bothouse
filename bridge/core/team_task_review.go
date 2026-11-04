@@ -415,6 +415,15 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 				slog.Info("task review: reviewer cooling, handing the review to another role", "board", it.ID, "from", x.name)
 				continue
 			}
+			// The queued review has waited behind the role's own work for a full watch window:
+			// hand it to an idle teammate (user 2026-11-04 23:2x「派活的角色忙超过 10 分钟，就转给空着的队友去验收」;
+			// window 来源：沿用 watchCheckAfter，团队看门的 10 分钟).
+			if !prior.Fired && !prior.UsesNewSessionPerRun() && x.quotaBusy(chat) && !now.Before(prior.ScheduledAt.Add(watchCheckAfter())) {
+				x.timerScheduler.RemoveJob(id)
+				skip[x.name] = true
+				slog.Info("task review: reviewer busy past the watch window, handing the review to an idle role", "board", it.ID, "from", x.name)
+				continue
+			}
 			return x, prior.UsesNewSessionPerRun()
 		}
 	}

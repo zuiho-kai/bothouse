@@ -751,7 +751,7 @@ def reconcile_merged_prs():
             continue
         try:
             result = subprocess.run(["gh", "pr", "view", str(binding["number"]), "--repo", binding["repo"],
-                                     "--json", "state,mergedAt,mergeCommit"], capture_output=True, text=True, timeout=30)
+                                     "--json", "state,mergedAt,mergeCommit,statusCheckRollup"], capture_output=True, text=True, timeout=30)
             if result.returncode != 0:
                 print(f"board: #{item['id']} PR 查询失败，保留原状态", file=sys.stderr)
                 continue
@@ -772,6 +772,28 @@ def reconcile_merged_prs():
             hit["status"] = "待收口：PR 已合并（不部署），等待验收"
             hit["at"] = _now()
             _write(cur)
+            simple = REVIEW_TIERS.get(hit.get("review_tier") or "simple") != "complex"
+        # 小活合并且检查都过就自动收口，大活（board tier complex）仍等人看
+        # （用户 2026-11-04 23:2x「小活交回时，只要检查都过了就自动收口，大活才需要人看」）。
+        if simple and checks_green(pr.get("statusCheckRollup")):
+            ended = done(item["id"], 0)
+            if ended:
+                _park_done(ended)
+                print(f"board: #{item['id']} PR 已合并、检查全过，小活自动收口")
+
+
+CHECK_OK = {"SUCCESS", "SKIPPED", "NEUTRAL"}
+
+
+def checks_green(rollup):
+    """GitHub statusCheckRollup 全部成功/跳过才算过；没有检查记录不算过（不能凭空收口）。"""
+    if not rollup:
+        return False
+    for c in rollup:
+        state = (c.get("conclusion") or c.get("state") or "").upper()
+        if state not in CHECK_OK:
+            return False
+    return True
 
 
 REVIEW_TIERS = {"simple": "simple", "简单": "simple", "complex": "complex", "复杂": "complex"}
