@@ -164,7 +164,13 @@
     "platform": "平台",
     "capabilities": "能力",
     "connectedAt": "连接时间",
-    "noAdapters": "暂无桥接适配器"
+    "connectedPlatforms": "已连接平台",
+    "noPlatforms": "暂无已连接平台",
+    "noPlatformsHint": "还没有角色连上任何平台。到「项目」页给角色接一个平台。",
+    "externalAdapters": "外接适配器",
+    "bridgeDisabled": "桥接服务未启用",
+    "bridgeDisabledHint": "这些平台由角色直接连接；外接客户端（如桌面托盘）接入还需要在配置里打开桥接服务。",
+    "noAdapters": "暂无外接适配器"
   },
   "system": {
     "title": "系统",

@@ -518,7 +518,7 @@ func (m *ManagementServer) handleStatus(w http.ResponseWriter, r *http.Request) 
 		platforms = append(platforms, p)
 	}
 
-	var adapters []map[string]any
+	adapters := []map[string]any{}
 	if m.bridgeServer != nil {
 		adapters = m.listBridgeAdapters()
 	}
@@ -1835,6 +1835,11 @@ func (m *ManagementServer) handleBridgeAdapters(w http.ResponseWriter, r *http.R
 		return
 	}
 	adapters := m.listBridgeAdapters()
+	if adapters == nil {
+		// Same shape as /devices: an empty list, not JSON null, so a client never has to special-case
+		// "bridge server not running" from "no adapters registered".
+		adapters = []map[string]any{}
+	}
 	mgmtJSON(w, http.StatusOK, map[string]any{"adapters": adapters})
 }
 

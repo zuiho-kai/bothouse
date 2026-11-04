@@ -159,8 +159,14 @@
     "title": "브리지",
     "platform": "플랫폼",
     "capabilities": "기능",
-    "connectedAt": "연결 일시",
-    "noAdapters": "브리지 어댑터가 없습니다"
+    "connectedAt": "연결 시각",
+    "connectedPlatforms": "연결된 플랫폼",
+    "noPlatforms": "연결된 플랫폼 없음",
+    "noPlatformsHint": "아직 어떤 역할도 플랫폼에 연결되지 않았습니다. 프로젝트 페이지에서 추가하세요.",
+    "externalAdapters": "외부 어댑터",
+    "bridgeDisabled": "브리지 서비스가 꺼져 있습니다",
+    "bridgeDisabledHint": "이 플랫폼들은 역할이 직접 연결합니다. 데스크톱 트레이 같은 외부 클라이언트는 설정에서 브리지 서비스를 켜야 합니다.",
+    "noAdapters": "외부 어댑터 없음"
   },
   "system": {
     "title": "시스템",

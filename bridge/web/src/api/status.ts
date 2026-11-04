@@ -6,6 +6,8 @@ export interface SystemStatus {
   connected_platforms: string[];
   projects_count: number;
   bridge_adapters: { platform: string; project: string; capabilities: string[] }[];
+  /** Present only when the bridge WebSocket server is running (management.go handleStatus). */
+  bridge?: { enabled: boolean; port: number; path: string; token: string; token_set: boolean };
 }
 
 export const getStatus = () => api.get<SystemStatus>('/status');

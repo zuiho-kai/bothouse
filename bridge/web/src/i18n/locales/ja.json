@@ -159,8 +159,14 @@
     "title": "ブリッジ",
     "platform": "プラットフォーム",
     "capabilities": "機能",
-    "connectedAt": "接続日時",
-    "noAdapters": "ブリッジアダプターがありません"
+    "connectedAt": "接続時刻",
+    "connectedPlatforms": "接続中のプラットフォーム",
+    "noPlatforms": "接続中のプラットフォームはありません",
+    "noPlatformsHint": "まだどのロールもプラットフォームに接続していません。「プロジェクト」ページで追加してください。",
+    "externalAdapters": "外部アダプター",
+    "bridgeDisabled": "ブリッジサービスは無効です",
+    "bridgeDisabledHint": "これらのプラットフォームはロールが直接接続しています。デスクトップトレイなどの外部クライアントには、設定でブリッジサービスを有効にする必要があります。",
+    "noAdapters": "外部アダプターはありません"
   },
   "system": {
     "title": "システム",
