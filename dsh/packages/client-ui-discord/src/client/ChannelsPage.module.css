@@ -1765,6 +1765,22 @@
   .askForm { flex-basis: 100%; }
 }
 
+/* #125 teammates in the title bar with a busy/idle dot (owner's 11:53 sample v1). */
+.headTeam { display: inline-flex; flex: none; align-items: center; margin-left: auto; }
+.mate, .mateMore { position: relative; display: inline-flex; align-items: center; justify-content: center; margin-left: -6px; padding: 0; border: 2px solid var(--dsw-alias-bg-base); border-radius: 50%; background: var(--dsw-alias-bg-base); cursor: pointer; }
+.mate:first-child { margin-left: 0; }
+.mate .avatar { margin: 0; }
+.mateMore { width: 28px; height: 28px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 600; }
+.mateDot { position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; box-sizing: border-box; border: 2px solid var(--dsw-alias-bg-base); border-radius: 50%; background: var(--dsw-alias-label-tertiary); }
+.mate[data-state='busy'] .mateDot { background: #23a55a; animation: channels-pulse 1.6s ease-in-out infinite; }
+.mate[data-state='idle'] .mateDot { background: var(--dsw-alias-bg-base); box-shadow: inset 0 0 0 1.5px var(--dsw-alias-label-tertiary); }
+.mate[data-state='error'] .mateDot { background: var(--dsw-alias-state-error-primary); }
+.mate[data-state='offline'] { opacity: .55; }
+@keyframes channels-pulse { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, #23a55a 25%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .mate[data-state='busy'] .mateDot { animation: none; } }
+@media (max-width: 760px) { .headTeam { display: none; } }
+.chatHead > .headTeam + .taskBoardTrigger { margin-left: 12px; }
+
 /* #125 task board beside the chat (owner's 11:53 sample v1: 右侧详情并排面板, its 1100px breakpoint).
    The dock takes a grid column only while the board is in it; at ≤1100px the board stays a drawer. */
 .sideDock { display: none; }

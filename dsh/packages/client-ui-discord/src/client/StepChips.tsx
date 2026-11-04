@@ -20,8 +20,11 @@ export function chipsOf(card: { chips?: unknown } | undefined): StepChip[] | und
 
 const LABEL = { ok: 'stepOk', failed: 'stepFailed', running: 'stepRunning', unknown: 'stepUnknown' } as const
 
-export function StepChips({ chips, t }: { chips: readonly StepChip[]; t: T }) {
+export function StepChips({ chips: given, runState, t }: { chips: readonly StepChip[]; runState?: string; t: T }) {
   const [open, setOpen] = useState<number>()
+  // A step can only still run while its run does: once the card is done, failed or cancelled,
+  // an open step has no reported outcome.
+  const chips = runState === 'running' ? given : given.map(c => c.state === 'running' ? { ...c, state: 'unknown' as const } : c)
   const shown = open === undefined ? undefined : chips[open]
   return (
     <div className={css.stepChips} role="group" aria-label={t('stepChips')}>

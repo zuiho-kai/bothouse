@@ -121,7 +121,10 @@ function toolSteps(items) {
   const failed = it => typeof it.success === 'boolean' ? !it.success
     : (Number.isInteger(it.exit_code) && it.exit_code !== 0) || ['failed', 'failure', 'error'].includes(String(it.status ?? '').trim().toLowerCase());
   // 沿用 progressCardOf 正文每行截断 120 字。
-  const clip = v => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const clip = v => {
+    const text = String(v ?? '').replace(/\s+/g, ' ').trim();
+    return text.length > 120 ? `${text.slice(0, 119)}…` : text;
+  };
   for (const it of items) {
     if (it === null || typeof it !== 'object') continue;
     const tool = String(it.tool ?? '').trim();
@@ -300,7 +303,9 @@ export class CloudWebGateway {
       // so the card keeps its agent name.
       const label = ` · ${CARD_STATES[card.state] ?? ''}`;
       const agent = typeof card.title === 'string' && card.title.endsWith(label) ? card.title.slice(0, -label.length) : (card.title ?? 'Agent');
-      this.hub.edit(row.id, 'role', memberId, `${row.text}\n${note}`, JSON.stringify({ ...card, state: 'cancelled', title: `${agent} · ${CARD_STATES.cancelled}`, brief }));
+      // A cut turn reports no outcome for its open steps.
+      const chips = Array.isArray(card.chips) ? card.chips.map(c => c?.state === 'running' ? { ...c, state: 'unknown' } : c) : card.chips;
+      this.hub.edit(row.id, 'role', memberId, `${row.text}\n${note}`, JSON.stringify({ ...card, state: 'cancelled', title: `${agent} · ${CARD_STATES.cancelled}`, brief, chips }));
     }
   }
 
