@@ -240,3 +240,117 @@ test('watch: upgrading an old store gives in-work workspace tasks 10 minutes fro
   tasks.close();
   store.close();
 });
+
+// Review handover (user 11-05「派活的角色忙超过 10 分钟，就转给空着的队友去验收。小活交回时，只要检查都过了
+// 就自动收口，大活才需要人看」).
+function reviewSetup({ prStatus } = {}) {
+  const { hub } = setup();
+  hub.setMember({ id: 'kimi', name: 'Kimi', kind: 'dsh', online: true });
+  const ws = hub.store.createWorkspace(1);
+  let now = 10000;
+  const tasks = new Tasks(hub, { now: () => now, setTimer: () => ({}), clearTimer() {}, prStatus });
+  hub.teamExit = { forwardResult: msg => hub.post(1, { authorKind: 'system', author: 'system', name: 'system', text: msg.text }).message };
+  const woken = [];
+  tasks.onWake((id, msg) => { woken.push([id, msg.text, msg.room_id]); return true; });
+  const handoff = text => hub.post(ws.id, { authorKind: 'system', author: 'system', name: '交接', text }).message;
+  const open = (text = '【交接】DeepSeek：改文案') => tasks.assign({ roomId: ws.id, title: '改文案', owner: 'ds', actor: 'lead', messageId: handoff(text).id });
+  const deliver = (t, text) => {
+    const msg = hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text }).message;
+    return tasks.handBack(t.id, { actor: 'ds', messageId: msg.id });
+  };
+  return { hub, ws, tasks, woken, open, deliver, at: s => { now = 10000 + s; tasks.tick(); }, settle: () => new Promise(r => setImmediate(r)) };
+}
+
+test('review handover: a dispatcher busy 10 minutes after the hand-back hands the review to a free teammate, never the author', () => {
+  const { hub, tasks, woken, open, deliver, at } = reviewSetup();
+  const t = open();
+  deliver(t, '[report] #1 背景：改文案\n改完了\n要你做的：看一眼新文案');
+  assert.equal(woken.at(-1)[0], 'lead', 'the dispatcher is woken first');
+  hub.thinking.set(1, new Set(['lead']));
+  at(CHECK_AFTER_S - 1);
+  assert.equal(tasks.list(1).filter(r => r.parent_task === t.id).length, 0, 'not before 10 minutes');
+  at(CHECK_AFTER_S);
+  const review = tasks.list(1).find(r => r.parent_task === t.id);
+  assert.equal(review.owner, 'kimi', 'a free teammate, not the author ds');
+  const [id, text, room] = woken.at(-1);
+  assert.equal(id, 'kimi');
+  assert.equal(room, 1, 'woken in the chat channel');
+  assert.match(text, /转给你验收/);
+  assert.match(text, /要你做的：看一眼新文案/, 'carries the report');
+  assert.match(text, new RegExp(`【验收】#${t.id}`));
+  assert.ok(hub.store.page(1, undefined, 200).some(m => /转给你验收/.test(m.text)), 'the handover shows in the chat channel');
+  tasks.review(t.id, { actor: 'kimi', verdict: 'done' });
+  assert.equal(tasks.task(t.id).status, 'done');
+  assert.equal(tasks.task(review.id).status, 'done');
+  tasks.close();
+});
+
+test('review handover: with every teammate busy it keeps waiting and looks again every 10 minutes', () => {
+  const { hub, tasks, open, deliver, at } = reviewSetup();
+  const t = open();
+  deliver(t, '[report] #1 背景：改文案\n要你做的：看一眼');
+  hub.thinking.set(1, new Set(['lead', 'kimi']));
+  at(CHECK_AFTER_S);
+  assert.equal(tasks.list(1).filter(r => r.parent_task === t.id).length, 0, 'the author ds is free but never reviews');
+  assert.equal(tasks.task(t.id).next_check_at, 10000 + 2 * CHECK_AFTER_S);
+  hub.thinking.set(1, new Set(['lead']));
+  at(2 * CHECK_AFTER_S);
+  assert.equal(tasks.list(1).find(r => r.parent_task === t.id)?.owner, 'kimi');
+  tasks.close();
+});
+
+test('review handover: an idle dispatcher is woken once more before the review moves on', () => {
+  const { tasks, woken, open, deliver, at } = reviewSetup();
+  const t = open();
+  deliver(t, '[report] #1 背景：改文案\n要你做的：看一眼');
+  at(CHECK_AFTER_S);
+  assert.equal(woken.at(-1)[0], 'lead');
+  assert.match(woken.at(-1)[1], /还没验收/);
+  at(2 * CHECK_AFTER_S);
+  assert.equal(tasks.list(1).find(r => r.parent_task === t.id)?.owner, 'kimi');
+  tasks.close();
+});
+
+test('auto close: a report whose PRs are all merged and green closes itself, no dispatcher woken', async () => {
+  const seen = [];
+  const { hub, tasks, woken, open, deliver, settle } = reviewSetup({ prStatus: async url => { seen.push(url); return { merged: true, green: true }; } });
+  const t = open();
+  deliver(t, '[report] #1 背景：改文案\nPR https://github.com/a/b/pull/12 已合\n要你做的：没有');
+  await settle();
+  assert.deepEqual(seen, ['https://github.com/a/b/pull/12']);
+  assert.equal(tasks.task(t.id).status, 'done');
+  assert.ok(hub.store.page(1, undefined, 200).some(m => /已自动收口：PR #12 已合、检查全绿/.test(m.text)));
+  assert.equal(woken.filter(([id]) => id === 'lead').length, 0);
+  tasks.close();
+});
+
+test('auto close: a red check, a user ask or a release handoff waits for a person', async () => {
+  const red = reviewSetup({ prStatus: async () => ({ merged: true, green: false }) });
+  const t1 = red.open();
+  red.deliver(t1, '[report] #1 背景：x\nhttps://github.com/a/b/pull/3\n要你做的：没有');
+  await red.settle();
+  assert.equal(red.tasks.task(t1.id).status, 'returned');
+  assert.equal(red.woken.at(-1)[0], 'lead', 'woken once the check says no');
+  red.tasks.close();
+  const calls = [];
+  const asks = reviewSetup({ prStatus: async () => { calls.push(1); return { merged: true, green: true }; } });
+  const t2 = asks.open();
+  asks.deliver(t2, '[report] #1 背景：x\nhttps://github.com/a/b/pull/4\n要你做的：确认要不要上线');
+  const t3 = asks.open('【交接】DeepSeek：发版\n范围\n- 改：发版说明和 tag');
+  asks.deliver(t3, '[report] #1 背景：x\nhttps://github.com/a/b/pull/5\n要你做的：没有');
+  await asks.settle();
+  assert.equal(calls.length, 0, 'no PR check for work a person must see');
+  assert.equal(asks.tasks.task(t2.id).status, 'returned');
+  assert.equal(asks.tasks.task(t3.id).status, 'returned');
+  asks.tasks.close();
+});
+
+test('auto close: a read-only handoff (改：无) closes on its report', () => {
+  const { tasks, woken, open, deliver } = reviewSetup();
+  const t = open('【交接】DeepSeek：核对迁移\n- 改：无\n- 不改：产品源码');
+  deliver(t, '[report] #1 背景：核对\n31 项核对完\n要你做的：没有');
+  assert.equal(tasks.task(t.id).status, 'done');
+  assert.match(tasks.task(t.id).note, /只查不改/);
+  assert.equal(woken.filter(([id]) => id === 'lead').length, 0);
+  tasks.close();
+});
