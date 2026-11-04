@@ -29,6 +29,7 @@ it.each([
   { kind: 'task', state: 'completed', steps: 0 },
   { state: 'completed' },
   { state: 'completed', steps: 1, chips: [{ tool: 'bash', state: 'failed' }] },
+  { state: 'completed', steps: 1, brief: '第 1 步 · 8秒\n❌ bash · 失败' },
 ])('keeps a meaningful or unknown progress card: %j', card => {
   const view = show(card)
   expect(view.container.querySelector('[data-message-id="2"]')).toBeTruthy()

@@ -161,6 +161,7 @@ function trivialProgress(message: ChannelMessage): boolean {
   return cardRole(card) === 'progress' && card?.state === 'completed'
     && typeof card.steps === 'number' && Number.isInteger(card.steps) && card.steps >= 0 && card.steps <= 1
     && !chipsOf(card)?.some(chip => chip.state === 'failed')
+    && !(card.brief ?? message.text).split('\n').some(line => line.startsWith('❌ '))
 }
 
 // 来源：沿用 #98 规范「连续消息合在一起显示」；5 分钟窗口沿用 Slack/Discord 连续消息合并的惯例。
