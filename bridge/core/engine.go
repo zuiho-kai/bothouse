@@ -504,6 +504,9 @@ type Engine struct {
 	capArmed          bool            // a flush timer is pending
 	capNotified       map[string]bool // channels already told about this cooldown round
 	capWhy            string          // #134: why this cooldown round started, for its notice ("" = at capacity)
+	capSwitchedTo     string          // #134: fallback model the failing turn switched to, for its notice
+	capFallbackUsed   bool            // #134: this failure streak already switched once (no ping-pong)
+	fallbackModels    []string        // #134: fallback_models from config (model_fallback.go)
 	sessionModelsMu   sync.RWMutex
 	sessionModels     map[string]string
 	turnModels        map[string]string // interactive key → model one scheduled side turn starts on
@@ -688,6 +691,7 @@ type interactiveState struct {
 	turnMode                 string         // maomao fork: mode applied by the running turn's override (setTurnMode); "" when none; guarded by mu
 	capacityFailed           bool           // maomao fork: last turn failed with "model at capacity"
 	capacityErr              string         // #134: that failure's error text (429 waits use its Retry-After)
+	capacityAttempt          int            // #134: which send of runTurnWithCapacityRetry is running (1 = first)
 	turnErrored              bool           // maomao fork: last turn ended with an error event (not a success)
 	promptTooLong            string         // maomao fork: last turn's "prompt is too long" error (takePromptTooLong)
 	promptTooLongQueued      *queuedMessage // maomao fork: the chained queued message that turn was, if any
@@ -7857,6 +7861,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// progress is hidden. Only capacity failures before tools can replay
 			// the user prompt, including queued turns and cooldown redelivery.
 			retryCapacity := input == nil && toolCount == 0 && event.Error != nil && (isModelCapacityError(event.Error.Error()) || isTransientError(event.Error.Error()))
+			if !retryCapacity && input == nil && toolCount == 0 && event.Error != nil && isRetryOnceError(event.Error.Error()) {
+				state.mu.Lock()
+				retryCapacity = state.capacityAttempt <= 1 // #134: these get one re-send; a second failure is a normal one
+				state.mu.Unlock()
+			}
 			state.mu.Lock()
 			state.turnErrored = true // a turn that ends in error never means "the model is back"
 			state.mu.Unlock()

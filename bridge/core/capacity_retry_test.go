@@ -49,6 +49,8 @@ func (s *capacityScriptSession) Send(prompt string, _ string, _ []ImageAttachmen
 			s.events <- Event{Type: EventError, Error: errors.New("exceeded retry limit, last status: 429 Too Many Requests")}
 		} else if next == "rlra" {
 			s.events <- Event{Type: EventError, Error: errors.New("429 Too Many Requests; Retry-After: 0.2s")}
+		} else if next == "once" {
+			s.events <- Event{Type: EventError, Error: errors.New("json-rpc -32603: Internal error: turn failed: 公开答复生成失败；工具操作可能已完成，请核对成果后再要求补充结论。")}
 		} else if next == "quota" {
 			s.events <- Event{Type: EventError, Error: errors.New("RESOURCE_EXHAUSTED (code 429) Individual quota reached. Resets in 83h59m53s")}
 		} else {

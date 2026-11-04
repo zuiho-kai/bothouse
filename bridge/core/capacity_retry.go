@@ -95,6 +95,22 @@ func isTransientError(msg string) bool {
 	return transientErrorRE.MatchString(msg)
 }
 
+// ---- #134: errors of unclear cause get exactly one re-send (主区定案 2026-11-04 17:5x) ----
+//
+// Seen in the live logs without a clear temporary/permanent cause: ACP's "prompt did not complete
+// successfully", DSH's 「上游模型请求失败」 and 「公开答复生成失败」. One re-send after a backoff
+// step; a second failure takes the normal error path (and counts for the team watch). Not retried
+// at all (same 定案): antigravity "stream turn failed" (the CLI exited non-zero) and codex "turn
+// interrupted" (mostly a person stopping the turn) — neither matches any list here.
+var retryOnceErrorRE = regexp.MustCompile(`(?i)prompt did not complete successfully|上游模型请求失败|公开答复生成失败`)
+
+func isRetryOnceError(msg string) bool {
+	if isTransientError(msg) || permanentErrorRE.MatchString(msg) {
+		return false
+	}
+	return retryOnceErrorRE.MatchString(msg)
+}
+
 var retryAfterRE = regexp.MustCompile(`(?i)(?:retry[- _]after|try again in)[":=\s]*([0-9]+(?:\.[0-9]+)?)\s*(ms|s|sec|secs|seconds?|m|min|minutes?)?`)
 
 // rateLimitRetryAfter: the wait the error text asks for (Retry-After), if any.
@@ -156,6 +172,7 @@ func (e *Engine) capacityStartCooldown() time.Duration {
 	e.capRound++
 	e.capUntil = time.Now().Add(d)
 	e.capNotified = nil // a new cooldown round gets one notice per channel again
+	e.capSwitchedTo = ""
 	return d
 }
 
@@ -164,6 +181,8 @@ func (e *Engine) capacityReset() {
 	e.capMu.Lock()
 	e.capRound = 0
 	e.capNotified = nil
+	e.capFallbackUsed = false // a turn got through: the next failure streak may switch again
+	e.capSwitchedTo = ""
 	e.capMu.Unlock()
 }
 
@@ -206,7 +225,9 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 	}
 	lastErr := ""
 	for attempt := 1; ; attempt++ {
-		if attempt > 1 && isTransientError(lastErr) {
+		// #134: an "at capacity" re-send waits too (主区 17:54: 立即重发改成等待退避), as do the
+		// retry-once errors.
+		if attempt > 1 && (isTransientError(lastErr) || isModelCapacityError(lastErr) || isRetryOnceError(lastErr)) {
 			wait := rateLimitDelay(lastErr, attempt)
 			slog.Warn("rate limited, waiting before retry", "session_key", key, "attempt", attempt, "wait", wait)
 			if !e.sleepCtx(wait) {
@@ -217,6 +238,7 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		as := state.agentSession
 		state.capacityFailed = false
 		state.turnErrored = false
+		state.capacityAttempt = attempt
 		state.mu.Unlock()
 		if attempt > 1 && as != nil {
 			drainEvents(as.Events())
@@ -265,7 +287,6 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		giveUp(e.capacityWait())
 		return
 	}
-	d := e.capacityStartCooldown()
 	why := "模型满载（at capacity）"
 	switch {
 	case isRateLimitError(lastErr):
@@ -273,6 +294,15 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 	case isTransientError(lastErr):
 		why = "上游临时故障（断流、超时或过载）"
 	}
+	if to := e.switchToFallbackModel(key); to != "" {
+		// #134: re-send on the fallback model after one backoff step, no bot-wide cooldown.
+		e.capMu.Lock()
+		e.capWhy = why
+		e.capMu.Unlock()
+		giveUp(rateLimitBackoffBase)
+		return
+	}
+	d := e.capacityStartCooldown()
 	if ra, ok := rateLimitRetryAfter(lastErr); ok && ra > d {
 		d = ra
 		e.capMu.Lock()
@@ -316,6 +346,7 @@ func (e *Engine) deferForCapacity(p Platform, msg Message, agent Agent, sessions
 	if why == "" {
 		why = "模型满载（at capacity）"
 	}
+	switchedTo := e.capSwitchedTo
 	already := e.capNotified[channel]
 	if !already {
 		if e.capNotified == nil {
@@ -325,7 +356,9 @@ func (e *Engine) deferForCapacity(p Platform, msg Message, agent Agent, sessions
 	}
 	e.capMu.Unlock()
 	if !already {
-		if cooling {
+		if switchedTo != "" && !cooling {
+			e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("🔁 %s，连试 %d 次都失败，已切到备用模型 %s（对话保留），稍后用它重试这条。", why, capacityAttempts, switchedTo))
+		} else if cooling {
 			e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("⏳ 模型满载冷却中，这条 %d 分钟后再处理。", mins))
 		} else {
 			e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("⏳ %s，连试 %d 次都失败，冷却 %d 分钟后自动重试这条。", why, capacityAttempts, mins))

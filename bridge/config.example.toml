@@ -761,6 +761,12 @@ name = "my-backend"
 #                                  # 主 bot 用默认 reply；sub 用 context（闸门挂了只听不说，不会几个 sub 一起开口）。
 # chat_model = ""                  # With task_model: the gate's chat/task tag picks the model per idle turn.
 # task_model = ""                  # 两个都填时，闸门判「聊天/干活」，空闲时每轮按它换模型。
+# fallback_models = ["xiao/gpt-6-astra", "xiao/gpt-6.1-sol"]
+#                                  # A turn failing 3 times in a row with a temporary error (429, at capacity, 5xx,
+#                                  # cut-off stream) switches to the next model in this list, keeps the conversation
+#                                  # and says so in the channel. Empty (default) = never switch.
+#                                  # 同一轮连续 3 次临时错误（限流、满载、5xx、断流）就切到列表里下一个模型，
+#                                  # 对话保留，频道里说一句；不填就不切。两个互为备用就都写上。
 # team_status_dir = "~/.bothouse/team"   # Every bot: write busy/idle per channel to <dir>/<project>.json.
 #                                          # A non-empty dir shared by two or more projects on one platform is also
 #                                          # their team: those members may relay/派活 in a new channel without /bind.
