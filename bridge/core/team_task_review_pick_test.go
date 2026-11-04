@@ -5,9 +5,15 @@ import (
 	"time"
 )
 
+// reviewTestPlatforms: the platforms the review tests' chats run on ("room:…", "discord:…"); a
+// role must be able to reply on the handback's platform to be picked.
+func reviewTestPlatforms() []Platform {
+	return []Platform{&stubPlatformEngine{n: "room"}, &stubPlatformEngine{n: "discord"}}
+}
+
 func reviewPickRole(t *testing.T, name, team, dir string, ts *TimerScheduler, lead bool) *Engine {
 	t.Helper()
-	x := NewEngine(name, &stubAgent{}, nil, "", LangChinese)
+	x := NewEngine(name, &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 	t.Cleanup(x.cancel)
 	x.dataDir = t.TempDir()
 	x.SetTeam(dir, team, lead)
@@ -100,5 +106,34 @@ func TestTaskReviewAutoPickBusyUsesFreshSession(t *testing.T) {
 	jobs := store.List()
 	if len(jobs) != 1 || jobs[0].Project != "deep" || !jobs[0].UsesNewSessionPerRun() {
 		t.Fatalf("busy reviewer: %+v; want deep in a new session", jobs)
+	}
+}
+
+// The channel session turns busy between queueing and running: the review moves to a side
+// session at run time; the hourly roundup stays in the channel session.
+func TestTaskReviewBusyAtRunUsesFreshSession(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := NewTimerScheduler(store)
+	defer ts.Stop()
+	deep := reviewPickRole(t, "deep", "肥鱼", dir, ts, false)
+	job := &TimerJob{ID: "r", Project: "deep", SessionKey: "room:chat", TaskReview: &taskReviewRef{Board: 1, Stage: "returned"}}
+	if got := deep.taskReviewSessionAtRun(job); got.UsesNewSessionPerRun() {
+		t.Fatal("idle session: review should stay in the channel session")
+	}
+	s := deep.sessions.GetOrCreateActive("room:chat")
+	if !s.TryLock() {
+		t.Fatal("lock")
+	}
+	defer s.Unlock()
+	if got := deep.taskReviewSessionAtRun(job); !got.UsesNewSessionPerRun() || job.UsesNewSessionPerRun() {
+		t.Fatalf("busy at run: fresh=%v, original mutated=%v", got.UsesNewSessionPerRun(), job.UsesNewSessionPerRun())
+	}
+	roundup := &TimerJob{ID: "u", Project: "deep", SessionKey: "room:chat", TaskReview: &taskReviewRef{Stage: "roundup"}}
+	if deep.taskReviewSessionAtRun(roundup).UsesNewSessionPerRun() {
+		t.Fatal("roundup moved out of the channel session")
 	}
 }

@@ -2091,6 +2091,29 @@ func (e *Engine) WaitPlatformsReady(timeout time.Duration) error {
 // timer job gives an async platform (timerPlatformReadyTimeout).
 func PlatformReadyTimeout() time.Duration { return timerPlatformReadyTimeout }
 
+// timerTargetPlatform resolves the platform a timer job's session key runs on, as
+// ExecuteTimerJob does: nil when this engine has no such platform. The returned
+// session key drops a multi-workspace prefix.
+func (e *Engine) timerTargetPlatform(sessionKey string) (Platform, string, string) {
+	platformName := ""
+	if idx := strings.Index(sessionKey, ":"); idx > 0 {
+		platformName = sessionKey[:idx]
+	}
+	for _, p := range e.platforms {
+		if p.Name() == platformName {
+			return p, platformName, sessionKey
+		}
+	}
+	// Multi-workspace fallback: strip workspace prefix from session key.
+	for _, p := range e.platforms {
+		needle := ":" + p.Name() + ":"
+		if idx := strings.Index(sessionKey, needle); idx >= 0 {
+			return p, p.Name(), sessionKey[idx+1:]
+		}
+	}
+	return nil, platformName, sessionKey
+}
+
 func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	if job.TaskReview != nil {
 		prepared, err := e.prepareTaskReview(job, time.Now())
@@ -2100,7 +2123,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		if prepared == nil {
 			return nil
 		}
-		job = prepared
+		job = e.taskReviewSessionAtRun(prepared)
 	}
 	if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
 		slog.Info("quota cooldown: timer skipped", "project", e.name, "job", job.ID, "cooling_until", until)
@@ -2124,31 +2147,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		Extra:      map[string]any{"job_id": job.ID, "job_description": job.Description},
 	})
 
-	sessionKey := job.SessionKey
-	platformName := ""
-	if idx := strings.Index(sessionKey, ":"); idx > 0 {
-		platformName = sessionKey[:idx]
-	}
-
-	var targetPlatform Platform
-	for _, p := range e.platforms {
-		if p.Name() == platformName {
-			targetPlatform = p
-			break
-		}
-	}
-	// Multi-workspace fallback: strip workspace prefix from session key.
-	if targetPlatform == nil {
-		for _, p := range e.platforms {
-			needle := ":" + p.Name() + ":"
-			if idx := strings.Index(sessionKey, needle); idx >= 0 {
-				targetPlatform = p
-				platformName = p.Name()
-				sessionKey = sessionKey[idx+1:]
-				break
-			}
-		}
-	}
+	targetPlatform, platformName, sessionKey := e.timerTargetPlatform(job.SessionKey)
 	if targetPlatform == nil {
 		return fmt.Errorf("platform %q not found for session %q", platformName, sessionKey)
 	}

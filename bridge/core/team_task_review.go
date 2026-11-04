@@ -359,6 +359,9 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 		if x.timerScheduler == nil || skip[x.name] || taskReviewAuthor(it, x) || x.reviewCooling(chat) {
 			continue
 		}
+		if p, _, _ := x.timerTargetPlatform(chat); p == nil {
+			continue // cannot reply on the handback's platform: its timer would fail (platform not found)
+		}
 		if x.name == it.Reviewer {
 			designated = x
 			continue
@@ -378,7 +381,7 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 		pool = append([]*Engine{designated}, pool...)
 	}
 	for _, x := range pool {
-		if !x.quotaBusy(chat) {
+		if !x.quotaBusy(chat) && !x.taskReviewQueuedIn(chat) {
 			return x, false
 		}
 	}
@@ -386,6 +389,30 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 		return pool[0], true
 	}
 	return nil, false
+}
+
+// taskReviewQueuedIn: a review job of e for chat is waiting to run in the channel session, so
+// that session is already taken; another review in this batch goes to a free role or a side
+// session instead of queueing behind it.
+func (e *Engine) taskReviewQueuedIn(chat string) bool {
+	for _, j := range e.timerScheduler.store.List() {
+		if j.Project == e.name && j.TaskReview != nil && !j.Fired && !j.UsesNewSessionPerRun() && teamChatKey(j.SessionKey) == chat {
+			return true
+		}
+	}
+	return false
+}
+
+// taskReviewSessionAtRun: the channel session got busy after the review was queued, so the
+// review runs in a side session instead of queueing behind that work (user 2026-11-04
+// 「新对话来审核」). The hourly roundup keeps the channel session.
+func (e *Engine) taskReviewSessionAtRun(job *TimerJob) *TimerJob {
+	if job.TaskReview == nil || job.TaskReview.Stage == "roundup" || job.UsesNewSessionPerRun() || !e.quotaBusy(job.SessionKey) {
+		return job
+	}
+	j := *job
+	j.SessionMode = "new_per_run"
+	return &j
 }
 
 func (e *Engine) queueTaskReview(id, chat string, ref *taskReviewRef, now time.Time) {
