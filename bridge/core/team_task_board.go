@@ -76,8 +76,12 @@ type teamTaskBoardItem struct {
 	PRMerge map[string]string `json:"pr_merge,omitempty"`
 	// ReleaseHold: board hold — saved its stop point for a central release; the watch neither
 	// counts its errors nor wakes it, and the next bridge process resumes it (team_release_hold.go).
-	ReleaseHold  *teamReleaseHold `json:"release_hold,omitempty"`
-	ReturnedAt   time.Time        `json:"returned_at,omitzero"`
+	ReleaseHold *teamReleaseHold `json:"release_hold,omitempty"`
+	// AwaitDeploy: merged, waits for the central release (board merged on a deploy binding);
+	// Deployed: board deployed saw it in the running build, now 待上线验收.
+	AwaitDeploy  map[string]string `json:"await_deploy,omitempty"`
+	Deployed     map[string]string `json:"deployed,omitempty"`
+	ReturnedAt   time.Time         `json:"returned_at,omitzero"`
 	reviewAfter  time.Duration
 	reviewerName string
 	// Resolved by placeTeamTaskBoard, not stored.
@@ -124,6 +128,10 @@ func readTeamTaskBoard(dir string) []teamTaskBoardItem {
 // "等待用户答复"). Same pattern as board.py WAIT_USER_RE (those items are kept by auto_prune's idle
 // rule); change both together.
 var teamTaskBoardWaitUser = regexp.MustCompile(`等待?用户`)
+
+// teamTaskBoardAwaitRelease: a status that says the item waits on the central release
+// (board.py merged writes 「等发布：…」; leads have written 「随集中发布上线…」 by hand).
+var teamTaskBoardAwaitRelease = regexp.MustCompile(`^\s*(?:等发布|随集中发布)`)
 
 // teamTaskBoardWaitHours: whole hours a paused item has waited on the user, 0 below one hour or
 // when it does not wait on the user. Paused is "MM-DD HH:MM" local without a year: this year,
@@ -629,6 +637,8 @@ func teamTaskBoardReason(texts ...string) string {
 // teamTaskBoardStateOf: the item's state and the text after it (reason or age).
 func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardState, string) {
 	switch {
+	case it.AwaitDeploy != nil && it.Paused == "":
+		return teamTaskRelease, "已合并，等上线"
 	case !it.ReturnedAt.IsZero():
 		return teamTaskReview, taskReviewNote(it, now)
 	case it.Paused != "":
@@ -638,6 +648,9 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 		return teamTaskPaused, ""
 	case it.ReleaseHold != nil:
 		return teamTaskRelease, "为发布暂停"
+	case teamTaskBoardAwaitRelease.MatchString(it.Status):
+		// Hand-written 「等发布…」 status (before board pr bound the PR): waits on the release, not 卡住.
+		return teamTaskRelease, teamTaskBoardReason(strings.TrimPrefix(strings.TrimSpace(it.Status), "等发布"))
 	case strings.HasPrefix(strings.TrimSpace(it.Status), "完成"):
 		return teamTaskHidden, ""
 	case teamOtherQuiet.MatchString(it.Status):

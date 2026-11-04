@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -130,6 +131,9 @@ func (e *Engine) resumeReleaseHolds() {
 	if e.team == nil || e.dataDir == "" || !e.sleepCtx(releaseHoldResumeDelay) {
 		return
 	}
+	// The commit now running is a deployment: items waiting for it move to 待上线验收 first, so a
+	// held one is resumed under the state the release leaves it in.
+	e.markDeployed()
 	for e.resumeReleaseHoldsPass() > 0 {
 		if !e.sleepCtx(releaseHoldRetryEvery) {
 			return
@@ -271,4 +275,36 @@ func (e *Engine) releaseHoldAssignment(id int) (idleAssignment, bool) {
 		}
 	}
 	return idleAssignment{}, false
+}
+
+// markDeployed: the team lead's check that merged items waiting on a release (AwaitDeploy) are in
+// the build this bridge runs (CurrentCommit); board.py moves those to 待上线验收 and the review
+// scan then assigns a non-author (user 2026-11-04 「可以」: 部署成功自动转「待上线验收」并派肥鱼验).
+// Runs after a restart and on the hourly roundup (a failed GitHub lookup is retried there).
+func (e *Engine) markDeployed() {
+	commit := strings.TrimSpace(CurrentCommit)
+	if e.team == nil || !e.isTeamLead() || !deployCommitRE.MatchString(commit) {
+		return
+	}
+	waiting := false
+	for _, it := range readTeamTaskBoard(e.team.dir) {
+		if it.AwaitDeploy != nil {
+			waiting = true
+			break
+		}
+	}
+	if !waiting {
+		return
+	}
+	if out, err := markDeployedRun(e, commit); err != nil {
+		slog.Warn("release: board deployed failed", "commit", commit, "error", err, "output", string(out))
+	}
+}
+
+// deployCommitRE: a git object name board deployed accepts (dev builds report "none" or "").
+var deployCommitRE = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+
+// markDeployedRun runs board deployed; a variable so tests need no Python or GitHub.
+var markDeployedRun = func(e *Engine, commit string) ([]byte, error) {
+	return e.runLeadScript(teamMainChat(e.dataDir), "board", "deployed", commit)
 }
