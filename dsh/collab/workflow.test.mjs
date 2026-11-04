@@ -354,3 +354,23 @@ test('auto close: a read-only handoff (改：无) closes on its report', () => {
   assert.equal(woken.filter(([id]) => id === 'lead').length, 0);
   tasks.close();
 });
+
+test('review handover: a reviewer that fails (no model key) or goes offline hands the review on', () => {
+  const { hub, tasks, woken, open, deliver, at } = reviewSetup();
+  hub.setMember({ id: 'gm', name: 'Gemini', kind: 'dsh', online: true });
+  const t = open();
+  deliver(t, '[report] #1 背景：改文案\n要你做的：看一眼');
+  hub.thinking.set(1, new Set(['lead']));
+  at(CHECK_AFTER_S);
+  const first = tasks.list(1).find(r => r.parent_task === t.id);
+  hub.setError(first.owner, '还没填模型密钥，填好就能用。');
+  at(2 * CHECK_AFTER_S);
+  const next = tasks.list(1).filter(r => r.parent_task === t.id && r.owner !== first.owner);
+  assert.equal(next.length, 1, 'moved to the other free teammate');
+  assert.notEqual(next[0].owner, 'ds');
+  assert.ok(woken.some(([id, text]) => id === next[0].owner && /掉线或出错/.test(text)), 'the new reviewer is woken on the handover');
+  tasks.review(t.id, { actor: next[0].owner, verdict: 'done' });
+  assert.equal(tasks.task(t.id).status, 'done');
+  assert.ok(tasks.list(1).filter(r => r.parent_task === t.id).every(r => r.status === 'done'), 'every delegated review closes with the verdict');
+  tasks.close();
+});

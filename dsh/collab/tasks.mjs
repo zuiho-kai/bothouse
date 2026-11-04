@@ -522,11 +522,16 @@ export class Tasks {
     const chat = this.chatOf(task.room_id);
     const lead = task.created_by;
     const how = `验收 #${task.id}：回复里单独一行写【验收】#${task.id}；要返工就单独一行写【返工】#${task.id} 原因。`;
-    if (this.q.openReviews.get(task.id, ...WORKING) !== undefined) {
+    // A delegated review waits on its reviewer, unless that reviewer went offline or failed (a turn
+    // error, e.g. no model key): then the review moves on to another free teammate.
+    const reviews = this.q.openReviews.all(task.id, ...WORKING);
+    const unreachable = id => { const m = this.hub.members.get(id); return m === undefined || m.online === false || Boolean(m.error); };
+    if (reviews.some(r => !unreachable(r.owner))) {
       this.q.setReviewCheck.get(next, null, task.id);
       return;
     }
-    if (!this.memberBusy(lead) && task.remind_msg_id == null) {
+    const tried = new Set(reviews.map(r => r.owner));
+    if (!reviews.length && !this.memberBusy(lead) && task.remind_msg_id == null) {
       const { message } = this.hub.post(chat, { authorKind: 'system', author: 'system', name: '任务',
         card: JSON.stringify({ kind: 'task', task_id: task.id, event: 'remind' }),
         text: `@${this.nameOf(lead)} #${task.id}「${task.title}」交回 ${CHECK_AFTER_S / 60} 分钟还没验收。${how}` });
@@ -535,7 +540,7 @@ export class Tasks {
       this.changed(task.id);
       return;
     }
-    const reviewer = this.hub.routableIn(chat).find(m => m.id !== task.owner && m.id !== lead && m.kind !== 'human' && !this.memberBusy(m.id));
+    const reviewer = this.hub.routableIn(chat).find(m => m.id !== task.owner && m.id !== lead && !tried.has(m.id) && m.kind !== 'human' && !this.memberBusy(m.id));
     if (reviewer === undefined) {
       this.q.setReviewCheck.get(next, null, task.id);
       return;
@@ -543,7 +548,8 @@ export class Tasks {
     const result = task.result_msg_id == null ? undefined : this.store.message(task.result_msg_id);
     const body = result === undefined ? '' : (exitMark(result.text, { lastLine: true, team: this.hub.routable() })?.body ?? String(result.text));
     const cut = String(body).trim().length > BRIEF_HANDOFF ? `${String(body).trim().slice(0, BRIEF_HANDOFF)}…` : String(body).trim();
-    const why = this.memberBusy(lead) ? `${this.nameOf(lead)} 在忙` : `${this.nameOf(lead)} 提醒后仍没验收`;
+    const why = reviews.length ? `${reviews.map(r => this.nameOf(r.owner)).join('、')} 掉线或出错`
+      : this.memberBusy(lead) ? `${this.nameOf(lead)} 在忙` : `${this.nameOf(lead)} 提醒后仍没验收`;
     const { message } = this.hub.post(chat, { authorKind: 'system', author: 'system', name: '任务',
       text: `@${reviewer.name} #${task.id}「${task.title}」交回超过 ${CHECK_AFTER_S / 60} 分钟，${why}，转给你验收（写的人 ${this.nameOf(task.owner)} 不验收自己的活）。`
         + `${cut ? `\n\n交回内容：\n${cut}` : ''}\n\n${how}` });
