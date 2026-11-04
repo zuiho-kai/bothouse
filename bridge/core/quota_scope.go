@@ -259,6 +259,8 @@ func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session strin
 	e.quotaState.Scope = key
 	e.quotaState.Until = until
 	e.quotaState.ProbeRound = 0
+	e.quotaState.NextProbeAt = time.Time{}
+	e.quotaState.ProbeStatus = "exhausted"
 	if session != "" {
 		e.quotaState.Session = teamChatKey(session)
 	}

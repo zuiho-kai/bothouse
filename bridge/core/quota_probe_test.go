@@ -97,18 +97,18 @@ func TestQuotaAutoProbe(t *testing.T) {
 		if probeCalls != 1 {
 			t.Fatalf("expected 1 probe call, got %d", probeCalls)
 		}
-		if e.quotaCooling().IsZero() {
-			t.Fatal("expected quota cooling to remain active after failed probe")
+		if !e.quotaState.Until.Equal(expiry) || !e.quotaUntil.Equal(expiry) {
+			t.Fatal("failed probe must preserve the provider deadline")
 		}
 		if e.quotaState.ProbeRound != 1 {
 			t.Fatalf("expected ProbeRound 1, got %d", e.quotaState.ProbeRound)
 		}
 		expectedUntil := now.Add(quotaProbeBackoffBase)
-		if e.quotaState.Until.Sub(expectedUntil).Abs() > time.Second {
-			t.Fatalf("expected Until ~%v, got %v", expectedUntil, e.quotaState.Until)
+		if !e.quotaState.NextProbeAt.Equal(expectedUntil) {
+			t.Fatalf("expected next probe at %v, got %v", expectedUntil, e.quotaState.NextProbeAt)
 		}
 
-		// Verify persisted state holds extended Until and probe round
+		// Provider reset and local retry are persisted independently.
 		b, err := os.ReadFile(e.quotaPath())
 		if err != nil {
 			t.Fatal(err)
@@ -120,19 +120,19 @@ func TestQuotaAutoProbe(t *testing.T) {
 		if saved.ProbeRound != 1 {
 			t.Fatalf("expected persisted ProbeRound 1, got %d", saved.ProbeRound)
 		}
-		if saved.Until.Before(now) {
-			t.Fatalf("expected persisted Until in the future, got %v", saved.Until)
+		if !saved.Until.Equal(expiry) || !saved.NextProbeAt.Equal(expectedUntil) {
+			t.Fatalf("incorrect persisted provider/reset state: %+v", saved)
 		}
 
 		// Tick 2: when next expiry arrives, backoff doubles
-		nextNow := e.quotaState.Until.Add(time.Second)
+		nextNow := e.quotaState.NextProbeAt.Add(time.Second)
 		e.quotaTick(nextNow)
 		if e.quotaState.ProbeRound != 2 {
 			t.Fatalf("expected ProbeRound 2, got %d", e.quotaState.ProbeRound)
 		}
 		expectedUntil2 := nextNow.Add(quotaProbeBackoffBase * 2)
-		if e.quotaState.Until.Sub(expectedUntil2).Abs() > time.Second {
-			t.Fatalf("expected Until ~%v, got %v", expectedUntil2, e.quotaState.Until)
+		if !e.quotaState.NextProbeAt.Equal(expectedUntil2) || !e.quotaState.Until.Equal(expiry) {
+			t.Fatalf("backoff must change only next probe time: %+v", e.quotaState)
 		}
 	})
 
