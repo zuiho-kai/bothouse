@@ -77,16 +77,28 @@ func TestTimerSchedulerRequeuesWhenPlatformNotReady(t *testing.T) {
 		t.Fatalf("AddJob: %v", err)
 	}
 
+	// get copies the job under the store lock: MarkFired writes it from the scheduler goroutine.
+	get := func() *TimerJob {
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		for _, j := range store.jobs {
+			if j.ID == "notready1" {
+				c := *j
+				return &c
+			}
+		}
+		return nil
+	}
 	// Several ready-timeouts pass with the platform still down.
 	time.Sleep(700 * time.Millisecond)
-	if got := store.Get("notready1"); got == nil || got.Fired {
+	if got := get(); got == nil || got.Fired {
 		t.Fatalf("job fired while platform not ready: %+v", got)
 	}
 
 	e.OnPlatformReady(p)
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		got := store.Get("notready1")
+		got := get()
 		if got != nil && got.Fired {
 			if strings.Contains(got.LastError, "not ready") {
 				t.Fatalf("job fired with not-ready error after platform became ready: %q", got.LastError)
