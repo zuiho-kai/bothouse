@@ -159,6 +159,15 @@ export function pendingPermission(message: ChannelMessage): boolean {
   return card?.kind === 'permission' && card.state === 'pending'
 }
 
+/** 用户 2026-11-04：完成的零/一步进度不占聊天行；失败步骤仍须可见。 */
+function trivialProgress(message: ChannelMessage): boolean {
+  const card = parseCard(message)
+  return cardRole(card) === 'progress' && card?.state === 'completed'
+    && typeof card.steps === 'number' && Number.isInteger(card.steps) && card.steps >= 0 && card.steps <= 1
+    && !chipsOf(card)?.some(chip => chip.state === 'failed')
+    && !(card.brief ?? message.text).split('\n').some(line => line.startsWith('❌ '))
+}
+
 // 来源：沿用 #98 规范「连续消息合在一起显示」；5 分钟窗口沿用 Slack/Discord 连续消息合并的惯例。
 const GROUP_WINDOW_SEC = 300
 
@@ -738,6 +747,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     return () => { document.removeEventListener('mousedown', onPress) }
   }, [avatarMenu])
 
+  // Filter before grouping and reading-position tracking; keep raw history for paging.
+  // Task cards anchored to a progress message must remain reachable.
+  const visibleMessages = useMemo(() => state.messages.filter(m => !trivialProgress(m) || state.tasks?.some(task => task.assign_msg_id === m.id)), [state.messages, state.tasks])
+
   // Rows that arrived live animate in once; the first fill, a room switch and older pages do not.
   const fresh = useMemo(() => trackLive(live.current, state.roomId, state.messages), [state.messages, state.roomId])
 
@@ -761,9 +774,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     const log = logRef.current
     if (log !== null && stickRef.current) { log.scrollTop = log.scrollHeight; return }
     if (roomId === undefined) return
-    const first = state.messages.find(m => m.id > since && fresh.has(m.id) && m.author_kind !== 'user')
+    const first = visibleMessages.find(m => m.id > since && fresh.has(m.id) && m.author_kind !== 'user')
     if (first !== undefined && (unread === undefined || unread.roomId !== roomId || unread.seen)) setUnread({ roomId, fromId: first.id, seen: false })
-  }, [state.messages, state.roomId])
+  }, [state.messages, state.roomId, visibleMessages])
 
   // #113: the permission tray takes room from the log, never covers it; stay at the latest message.
   const pendingKey = state.messages.filter(pendingPermission).map(m => m.id).join(',')
@@ -854,6 +867,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     ...openTaskOwners,
   ])
   const byId = new Map(visibleMembers.map(m => [m.id, m]))
+  // A progress update may hide the original unread row; place the divider at
+  // the next visible unread message without losing the original reading boundary.
+  const firstUnread = unread !== undefined && unread.roomId === state.roomId
+    ? visibleMessages.find(m => m.id >= unread.fromId && m.author_kind !== 'user')?.id : undefined
+  const visibleUnreadCount = unread !== undefined && unread.roomId === state.roomId && !unread.seen
+    ? unreadCount(visibleMessages, unread.fromId) : 0
   const typingNames = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? []).map(id => byId.get(id)?.name ?? id)
   // #113 activity: who is at work in this channel (here or in one of its workspaces) and on what.
   const channelRooms = new Set(state.rooms.filter(r => r.id === channelId || r.parent_id === channelId).map(r => r.id))
@@ -1252,10 +1271,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
             </div>
           )}
           {loadingOlder && <div className={css.olderLoading} role="status">{t('loadingOlder')}</div>}
-          {state.messages.length === 0
+          {visibleMessages.length === 0
             ? <div className={css.empty}>{t('empty')}</div>
-            : state.messages.map((m, index) => [
-                unread !== undefined && unread.roomId === state.roomId && unread.fromId === m.id
+            : visibleMessages.map((m, index) => [
+                firstUnread === m.id
                   ? <div key={`unread-${m.id}`} className={css.unreadDivider} role="separator">{t('newMessagesDivider')}</div>
                   : null,
                 pendingWithdraw?.id === m.id
@@ -1268,7 +1287,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
                   enter={fresh.get(m.id)}
                   message={m}
                   // #1017: a command line or its folded answer above is no bubble to group under.
-                  grouped={continues(state.messages[index - 1], m) && !answerIds.has(state.messages[index - 1]?.id ?? -1) && !(state.messages[index - 1]?.author_kind === 'user' && commandLine(state.messages[index - 1]?.text ?? '') !== undefined)}
+                  grouped={continues(visibleMessages[index - 1], m) && !answerIds.has(visibleMessages[index - 1]?.id ?? -1) && !(visibleMessages[index - 1]?.author_kind === 'user' && commandLine(visibleMessages[index - 1]?.text ?? '') !== undefined)}
                   member={byId.get(m.author)}
                   t={t}
                   onConfigure={() => { if (!openModelSettings()) setModelsOpen(true) }}
@@ -1299,8 +1318,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
         {!atBottom && state.messages.length > 0 && (
           <button type="button" className={css.jumpLatest} onClick={scrollToLatest}>
             <span aria-hidden="true">↓</span> {t('jumpLatest')}
-            {unread !== undefined && unread.roomId === state.roomId && !unread.seen && unreadCount(state.messages, unread.fromId) > 0
-              && <span className={css.jumpCount}>{t('jumpLatestCount', { count: unreadCount(state.messages, unread.fromId) })}</span>}
+            {visibleUnreadCount > 0
+              && <span className={css.jumpCount}>{t('jumpLatestCount', { count: visibleUnreadCount })}</span>}
           </button>
         )}
         </div>

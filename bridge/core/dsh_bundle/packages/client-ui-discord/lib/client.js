@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 0918a1919664bab8dba3869a40cf81620b69a81c981c03ad3cb1b6e69f23c38e
+// dsh-client-source-sha256: 589b7228a1e38bf54f40cadcfad066620af149aa4608bb5a7dc6f8c40034334b
 // dsh-style-sha256: 41d49825a91b36fda27e38aaee1ef4ff19157e806af7f4d410a6ba7fe9786848
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -19978,6 +19978,11 @@ function pendingPermission(message) {
 	const card = parseCard(message);
 	return card?.kind === "permission" && card.state === "pending";
 }
+/** 用户 2026-11-04：完成的零/一步进度不占聊天行；失败步骤仍须可见。 */
+function trivialProgress(message) {
+	const card = parseCard(message);
+	return cardRole(card) === "progress" && card?.state === "completed" && typeof card.steps === "number" && Number.isInteger(card.steps) && card.steps >= 0 && card.steps <= 1 && !chipsOf(card)?.some((chip) => chip.state === "failed") && !(card.brief ?? message.text).split("\n").some((line) => line.startsWith("❌ "));
+}
 const GROUP_WINDOW_SEC = 300;
 /** Same author, close in time, plain or progress: the row drops its avatar and name. */
 function continues(previous, message) {
@@ -20840,6 +20845,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 			document.removeEventListener("mousedown", onPress);
 		};
 	}, [avatarMenu]);
+	const visibleMessages = (0, react.useMemo)(() => state.messages.filter((m) => !trivialProgress(m) || state.tasks?.some((task) => task.assign_msg_id === m.id)), [state.messages, state.tasks]);
 	const fresh = (0, react.useMemo)(() => trackLive(live.current, state.roomId, state.messages), [state.messages, state.roomId]);
 	(0, react.useLayoutEffect)(() => {
 		const log = logRef.current;
@@ -20866,13 +20872,17 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 			return;
 		}
 		if (roomId === void 0) return;
-		const first = state.messages.find((m) => m.id > since && fresh.has(m.id) && m.author_kind !== "user");
+		const first = visibleMessages.find((m) => m.id > since && fresh.has(m.id) && m.author_kind !== "user");
 		if (first !== void 0 && (unread === void 0 || unread.roomId !== roomId || unread.seen)) setUnread({
 			roomId,
 			fromId: first.id,
 			seen: false
 		});
-	}, [state.messages, state.roomId]);
+	}, [
+		state.messages,
+		state.roomId,
+		visibleMessages
+	]);
 	const pendingKey = state.messages.filter(pendingPermission).map((m) => m.id).join(",");
 	(0, react.useEffect)(() => {
 		const log = logRef.current;
@@ -20988,6 +20998,8 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 	const openTaskOwners = new Set((state.tasks ?? []).filter(isLiveTask).map((t) => t.owner));
 	const busy = /* @__PURE__ */ new Set([...state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? [], ...openTaskOwners]);
 	const byId = new Map(visibleMembers.map((m) => [m.id, m]));
+	const firstUnread = unread !== void 0 && unread.roomId === state.roomId ? visibleMessages.find((m) => m.id >= unread.fromId && m.author_kind !== "user")?.id : void 0;
+	const visibleUnreadCount = unread !== void 0 && unread.roomId === state.roomId && !unread.seen ? unreadCount(visibleMessages, unread.fromId) : 0;
 	const typingNames = (state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? []).map((id) => byId.get(id)?.name ?? id);
 	const channelRooms = new Set(state.rooms.filter((r) => r.id === channelId || r.parent_id === channelId).map((r) => r.id));
 	const leadId = room?.effective_lead_id === void 0 ? state.effectiveLeadId ?? state.leadId : room.effective_lead_id;
@@ -21650,10 +21662,10 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 										role: "status",
 										children: t("loadingOlder")
 									}),
-									state.messages.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									visibleMessages.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 										className: ChannelsPage_module_default.empty,
 										children: t("empty")
-									}) : state.messages.map((m, index) => [unread !== void 0 && unread.roomId === state.roomId && unread.fromId === m.id ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									}) : visibleMessages.map((m, index) => [firstUnread === m.id ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 										className: ChannelsPage_module_default.unreadDivider,
 										role: "separator",
 										children: t("newMessagesDivider")
@@ -21670,7 +21682,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 									}, m.id) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MessageRow, {
 										enter: fresh.get(m.id),
 										message: m,
-										grouped: continues(state.messages[index - 1], m) && !answerIds.has(state.messages[index - 1]?.id ?? -1) && !(state.messages[index - 1]?.author_kind === "user" && commandLine(state.messages[index - 1]?.text ?? "") !== void 0),
+										grouped: continues(visibleMessages[index - 1], m) && !answerIds.has(visibleMessages[index - 1]?.id ?? -1) && !(visibleMessages[index - 1]?.author_kind === "user" && commandLine(visibleMessages[index - 1]?.text ?? "") !== void 0),
 										member: byId.get(m.author),
 										t,
 										onConfigure: () => {
@@ -21726,9 +21738,9 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 									}),
 									" ",
 									t("jumpLatest"),
-									unread !== void 0 && unread.roomId === state.roomId && !unread.seen && unreadCount(state.messages, unread.fromId) > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									visibleUnreadCount > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 										className: ChannelsPage_module_default.jumpCount,
-										children: t("jumpLatestCount", { count: unreadCount(state.messages, unread.fromId) })
+										children: t("jumpLatestCount", { count: visibleUnreadCount })
 									})
 								]
 							})
