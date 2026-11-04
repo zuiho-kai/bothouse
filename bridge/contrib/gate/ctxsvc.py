@@ -589,7 +589,7 @@ def store_dir():
         import datadir
     except ImportError:
         return None
-    return Path(datadir.guard(datadir.data_dir())) / "ctx"
+    return Path(getattr(datadir, "guard", lambda p: p)(datadir.data_dir())) / "ctx"  # 旧 datadir 没有 guard
 
 
 _pruned = [0.0]
