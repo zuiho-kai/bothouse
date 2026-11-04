@@ -16,8 +16,13 @@ func runCtx(args []string) {
 	fs := flag.NewFlagSet("ctx", flag.ExitOnError)
 	dataDir := fs.String("data-dir", "", "data directory (default: $CC_DATA_DIR or ~/.bothouse)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: bothouse ctx <编号> [<编号>…]\n  打印每轮注入里只给了标题和 [#编号] 的那条的正文")
+		fmt.Fprintln(fs.Output(), "usage: bothouse ctx <编号> [<编号>…]\n  打印每轮注入里只给了标题和 [#编号] 的那条的正文")
 		fs.PrintDefaults()
+	}
+	if len(args) > 0 && (args[0] == "help" || args[0] == "-h" || args[0] == "--help") {
+		fs.SetOutput(os.Stdout)
+		fs.Usage()
+		return
 	}
 	_ = fs.Parse(args)
 	if fs.NArg() == 0 {
