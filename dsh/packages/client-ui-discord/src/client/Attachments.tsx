@@ -192,3 +192,4 @@ export function PendingAttachments({ files, onRemove, removeLabel }: {
     </div>
   )
 }
+// probe: stale bundle check, do not merge
