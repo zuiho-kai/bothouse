@@ -6177,6 +6177,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	var segmentStart int // index into textParts: text before this has been sent/displayed
 	silentHold := false  // true while accumulated segment text could still resolve to a bare NO_REPLY marker
 	toolCount := 0
+	var toolStartAt time.Time // last tool call's start, for the tool_done stream event (session_seal.go)
 	watchTurnFinished := false
 	turnFailed := false // an EventError ended this turn: it counts toward the idle watch's failure limit
 	defer func() {
@@ -6605,6 +6606,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventToolUse:
 			toolCount++
+			toolStartAt = time.Now()
 			e.teamNoteWork(sessionKey)
 			state.mu.Lock()
 			state.resumeArmed = false // #618 K4 S1: the resumed session works
@@ -6757,6 +6759,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 
 		case EventToolResult:
+			e.emitToolDone(sessionKey, event, toolStartAt)
 			// maomao fork: images piled up inside this turn; interrupt it the way an
 			// idle timeout does (close the agent session) and leave a fresh session
 			// with a handoff for the next message. The turn is not re-run.
