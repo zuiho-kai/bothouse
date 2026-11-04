@@ -678,7 +678,8 @@ type interactiveState struct {
 	resumeFailedQueued       *queuedMessage
 	publicProgressRun        string
 	externalTaskInput        *externalInputDelivery
-	resetHandoff             bool // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
+	resetHandoff             bool            // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
+	abortCloseDone           <-chan struct{} // gate abort: actual Close completion before resuming the same session; guarded by mu
 	agentSession             AgentSession
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
 	turnMode                 string         // maomao fork: mode applied by the running turn's override (setTurnMode); "" when none; guarded by mu
@@ -3993,7 +3994,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 
 	// Allow queueing when agentSession is nil (session is starting up,
 	// issue #565). Only reject if the session was established and died.
-	if state.agentSession != nil && !state.agentSession.Alive() {
+	if state.agentSession != nil && !state.agentSession.Alive() && !msg.abortFront {
 		return queueUnavailable
 	}
 
@@ -5653,15 +5654,17 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 	e.interactiveMu.Unlock()
 }
 
-func (e *Engine) closeAgentSessionAsync(sessionKey string, agentSession AgentSession) {
-	if agentSession == nil {
-		return
-	}
-	go e.closeAgentSessionWithTimeout(sessionKey, agentSession)
+func (e *Engine) closeAgentSessionWithTimeout(sessionKey string, agentSession AgentSession) {
+	e.closeAgentSessionAndSignal(sessionKey, agentSession, nil)
 }
 
-func (e *Engine) closeAgentSessionWithTimeout(sessionKey string, agentSession AgentSession) {
+// closed is owned by this call and signals actual Close completion, even when
+// the cleanup budget expires first. A replacement must not resume earlier.
+func (e *Engine) closeAgentSessionAndSignal(sessionKey string, agentSession AgentSession, closed chan struct{}) {
 	if agentSession == nil {
+		if closed != nil {
+			close(closed)
+		}
 		return
 	}
 
@@ -5681,7 +5684,10 @@ func (e *Engine) closeAgentSessionWithTimeout(sessionKey string, agentSession Ag
 	defer e.hooks.Emit(HookEvent{Event: HookEventAgentClosed, SessionKey: sessionKey,
 		Extra: map[string]any{"agent_session_id": agentID}})
 
-	done := make(chan struct{})
+	done := closed
+	if done == nil {
+		done = make(chan struct{})
+	}
 	go func() {
 		agentSession.Close()
 		close(done)
@@ -8153,6 +8159,31 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 	for {
 		e.stopUnsolicitedReader(state)
 		state.mu.Lock()
+		if state.stopped && state.resetHandoff {
+			// A gate abort had to close the process. This worker still owns the
+			// conversation lock: move unsent messages to the replacement state
+			// and hand that lock to its drain, without replaying the cancelled task.
+			closed := state.abortCloseDone
+			state.mu.Unlock()
+			if closed != nil {
+				select {
+				case <-closed:
+				case <-e.ctx.Done():
+					session.Unlock()
+					return true
+				}
+			}
+			state.mu.Lock()
+			held := state.pendingMessages
+			state.pendingMessages = nil
+			agent, workspaceDir := state.agent, state.workspaceDir
+			state.mu.Unlock()
+			if len(held) > 0 {
+				e.handOffQueuedAfterReset(sessions, held[0].msgSessionKey, sessionKey, held, agent, workspaceDir)
+			}
+			e.drainOrphanedQueue(session, sessions, sessionKey, agent, workspaceDir)
+			return true
+		}
 		droppedStale := 0
 		var staleDescs []string // maomao fork: channel task board
 		e.refreshQueuedTaskReviewsLocked(state)
@@ -12375,11 +12406,19 @@ func (e *Engine) stopInteractiveSession(sessionKey string, quietPlatform Platfor
 	return e.stopInteractiveSessionWithOptions(sessionKey, true)
 }
 
+func (e *Engine) stopInteractiveSessionForAbort(sessionKey string) bool {
+	return e.stopInteractiveSessionWithQueue(sessionKey, true, true)
+}
+
 func (e *Engine) stopInteractiveSessionSilently(sessionKey string) bool {
 	return e.stopInteractiveSessionWithOptions(sessionKey, false)
 }
 
 func (e *Engine) stopInteractiveSessionWithOptions(sessionKey string, notifyQueued bool) bool {
+	return e.stopInteractiveSessionWithQueue(sessionKey, notifyQueued, false)
+}
+
+func (e *Engine) stopInteractiveSessionWithQueue(sessionKey string, notifyQueued, keepQueued bool) bool {
 	e.interactiveMu.Lock()
 	if op := e.nativeCompactions[sessionKey]; op != nil {
 		op.cancel()
@@ -12453,6 +12492,14 @@ func (e *Engine) stopInteractiveSessionWithOptions(sessionKey string, notifyQueu
 	}
 
 normalCleanup:
+	var closed chan struct{}
+	if keepQueued {
+		closed = make(chan struct{})
+		state.mu.Lock()
+		state.resetHandoff = true
+		state.abortCloseDone = closed
+		state.mu.Unlock()
+	}
 	state.markStopped()
 	delete(e.interactiveStates, sessionKey)
 	e.interactiveMu.Unlock()
@@ -12467,7 +12514,7 @@ normalCleanup:
 		state.pendingMessages = nil
 		state.mu.Unlock()
 	}
-	e.closeAgentSessionAsync(sessionKey, agentSession)
+	go e.closeAgentSessionAndSignal(sessionKey, agentSession, closed)
 
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventSessionEnded,
