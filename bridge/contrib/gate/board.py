@@ -26,6 +26,8 @@
                                          #   （恢复后重新 ws-handoff，先复用空着的工作区，不保证回原号）
   board resume <编号>                     # 恢复：回到「在做」
   board pr <编号> <GitHub PR URL> no-deploy|deploy  # 派活人绑定本代次 PR 和交接部署范围
+  board tier <编号> simple|complex         # 验收档位：不标=简单档（设置里选的便宜模型先审）；审的人拿不准标 complex，
+                                         #   桥换复杂档的审核人再审一遍（用户 2026-11-04「简单的交给便宜模型」）
   board merged                          # 核对绑定 PR；已合并且不部署仅转待收口，不代替验收
   board link <编号> <卡片链接>             # 给这件事挂一张公开任务卡（Discord 消息链接），board 列表那行末尾出「卡 链接」
   board refresh                          # 把一小时没进展的工作区条目转暂停（停滞检查定时调用），再自动收起没用的暂停条目
@@ -761,6 +763,21 @@ def reconcile_merged_prs():
             _write(cur)
 
 
+REVIEW_TIERS = {"simple": "simple", "简单": "simple", "complex": "complex", "复杂": "complex"}
+
+
+def set_tier(nid, tier):
+    """验收档位记在条目 review_tier 上，桥的复盘扫描（core/team_task_review.go）按它选审核人。"""
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None:
+            return False
+        hit["review_tier"] = REVIEW_TIERS[tier]
+        _write(cur)
+    return True
+
+
 def returned(nid, reviewer, at=None, bound=None, receipt=None):
     """Record a delivered report, not acceptance. Repeated reports keep the deadline."""
     with _locked():
@@ -1317,6 +1334,10 @@ def main(argv):
             print("已绑定 PR 与部署范围；合并不代表验收")
         elif cmd == "merged" and len(argv) == 1:
             reconcile_merged_prs()
+        elif cmd == "tier" and len(argv) == 3 and argv[2] in REVIEW_TIERS:
+            if not set_tier(int(argv[1].lstrip("#")), argv[2]):
+                sys.exit("条目不存在，未改档位")
+            print("已改验收档位：" + REVIEW_TIERS[argv[2]])
         elif cmd == "returned" and len(argv) in (3, 4, 6):
             if not returned(int(argv[1].lstrip("#")), *argv[2:]):
                 sys.exit("条目不存在，未登记交回")

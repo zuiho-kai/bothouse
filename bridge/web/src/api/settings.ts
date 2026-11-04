@@ -13,6 +13,10 @@ export interface GlobalSettings {
   stream_preview_interval_ms: number;
   rate_limit_max_messages: number;
   rate_limit_window_secs: number;
+  /** role (project name) that verifies simple handbacks; "" = no preference */
+  review_simple_role?: string;
+  /** role that verifies handbacks escalated with board tier <id> complex */
+  review_complex_role?: string;
 }
 
 export const getGlobalSettings = () => api.get<GlobalSettings>('/settings');

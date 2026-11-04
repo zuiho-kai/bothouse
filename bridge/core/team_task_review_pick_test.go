@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -135,5 +136,63 @@ func TestTaskReviewBusyAtRunUsesFreshSession(t *testing.T) {
 	roundup := &TimerJob{ID: "u", Project: "deep", SessionKey: "room:chat", TaskReview: &taskReviewRef{Stage: "roundup"}}
 	if deep.taskReviewSessionAtRun(roundup).UsesNewSessionPerRun() {
 		t.Fatal("roundup moved out of the channel session")
+	}
+}
+
+// [team_review] picks the role per tier: unmarked goes to the simple (cheap) role; board tier
+// complex queues a second verification with the complex role (主角色代答 A+C, 2026-11-04).
+func TestTaskReviewTierRoles(t *testing.T) {
+	SetTeamReviewTiers("deep", "gge")
+	t.Cleanup(func() { SetTeamReviewTiers("", "") })
+	dir := t.TempDir()
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := NewTimerScheduler(store)
+	defer ts.Stop()
+	lead := reviewPickRole(t, "cjiang", "C酱", dir, ts, true)
+	gge := reviewPickRole(t, "gge", "G哥", dir, ts, false)
+	deep := reviewPickRole(t, "deep", "肥鱼", dir, ts, false)
+	grok := reviewPickRole(t, "grok", "大豆包", dir, ts, false)
+	now := time.Now().Add(24 * time.Hour).Truncate(time.Hour)
+	it := teamTaskBoardItem{ID: 401, What: "a", Chat: "room:chat", Who: "工作区1C酱", Reviewer: "cjiang", ReturnedAt: now}
+	writeReviewBoard(t, lead, it)
+	w := newHandoffWatch(lead)
+	w.engines = func() []*Engine { return []*Engine{lead, grok, gge, deep} }
+	w.reconcileTaskReviews(now, false)
+	jobs := store.List()
+	if len(jobs) != 1 || jobs[0].Project != "deep" {
+		t.Fatalf("unmarked handback: %+v; want the simple-tier role deep", jobs)
+	}
+	if !strings.Contains(jobs[0].Prompt, "board tier 401 complex") && !strings.Contains(jobs[0].Prompt, "tier 401 complex") {
+		t.Fatalf("simple review does not say how to escalate: %s", jobs[0].Prompt)
+	}
+	store.MarkFired(jobs[0].ID, nil)
+	it.ReviewTier = "complex"
+	writeReviewBoard(t, lead, it)
+	w.reconcileTaskReviews(now, false)
+	var complexJobs []*TimerJob
+	for _, j := range store.List() {
+		if !j.Fired {
+			complexJobs = append(complexJobs, j)
+		}
+	}
+	if len(complexJobs) != 1 || complexJobs[0].Project != "gge" {
+		t.Fatalf("escalated handback: %+v; want one new review by gge", complexJobs)
+	}
+	// The simple review already ran: the complex re-review still runs.
+	if p, err := gge.prepareTaskReview(complexJobs[0], now); err != nil || p == nil {
+		t.Fatalf("complex review after a finished simple one: %v, %v", p, err)
+	}
+	// An hourly roundup still carrying the simple-tier ref drops it; the complex ref stays.
+	simpleRef := *jobs[0].TaskReview
+	roundup := &TimerJob{ID: "u", Project: "deep", SessionKey: "room:chat", TaskReview: &taskReviewRef{Stage: "roundup", Hour: now, Items: []taskReviewRef{simpleRef}}}
+	if p, err := deep.prepareTaskReview(roundup, now); err != nil || p != nil {
+		t.Fatalf("roundup kept the superseded simple review: %+v, %v", p, err)
+	}
+	roundup.TaskReview.Items = []taskReviewRef{*complexJobs[0].TaskReview}
+	if p, err := deep.prepareTaskReview(roundup, now); err != nil || p == nil {
+		t.Fatalf("roundup dropped the complex review: %v", err)
 	}
 }

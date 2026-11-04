@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Save } from 'lucide-react';
 import { Card, Button, LoadingState, PageHeader } from '@/components/ui';
 import { getGlobalSettings, updateGlobalSettings, type GlobalSettings as GS } from '@/api/settings';
+import { listRoles, type RoleInfo } from '@/api/roles';
 import { cn } from '@/lib/utils';
 import ThemeSettingCard from '@/components/Theme/ThemeSettingCard';
 import TokenUnitSettingCard from '@/components/Usage/TokenUnitSettingCard';
@@ -89,6 +90,9 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
   const [spInterval, setSpInterval] = useState(1500);
   const [rlMax, setRlMax] = useState(20);
   const [rlWindow, setRlWindow] = useState(60);
+  const [reviewSimple, setReviewSimple] = useState('');
+  const [reviewComplex, setReviewComplex] = useState('');
+  const [roles, setRoles] = useState<RoleInfo[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -106,6 +110,8 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
       setSpInterval(s.stream_preview_interval_ms ?? 1500);
       setRlMax(s.rate_limit_max_messages ?? 20);
       setRlWindow(s.rate_limit_window_secs ?? 60);
+      setReviewSimple(s.review_simple_role ?? '');
+      setReviewComplex(s.review_complex_role ?? '');
     } catch {
       // ignore
     } finally {
@@ -114,6 +120,19 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    listRoles().then((r) => setRoles(r.roles ?? [])).catch(() => setRoles([]));
+  }, []);
+
+  // Each role runs its own model, so picking the role picks the model; the label names both.
+  const reviewOptions = (current: string) => {
+    const opts = [{ value: '', label: t('settings.reviewAuto', 'Automatic (any free non-author role)') }];
+    for (const r of roles) {
+      opts.push({ value: r.name, label: `${r.display_name || r.name}${r.model ? ` · ${r.model}` : ''}` });
+    }
+    if (current && !roles.some((r) => r.name === current)) opts.push({ value: current, label: current });
+    return opts;
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -132,6 +151,8 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
         stream_preview_interval_ms: spInterval,
         rate_limit_max_messages: rlMax,
         rate_limit_window_secs: rlWindow,
+        review_simple_role: reviewSimple,
+        review_complex_role: reviewComplex,
       });
       setMsg(t('common.success'));
       setTimeout(() => setMsg(''), 3000);
@@ -247,6 +268,27 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
             onChange={setRlWindow}
             min={1}
             hint={t('settings.rlWindowSecsHint', 'Time window in seconds')}
+          />
+        </div>
+      </Card>
+
+      {/* Review models (user 2026-11-04「简单的交给便宜模型 这个可以在我们dsh插件设置里设置」) */}
+      <Card>
+        <h3 className="mb-4 text-sm font-semibold text-ink">{t('settings.review', 'Review models')}</h3>
+        <div className="space-y-4 max-w-lg">
+          <Select
+            label={t('settings.reviewSimple', 'Simple reviews')}
+            value={reviewSimple}
+            onChange={setReviewSimple}
+            options={reviewOptions(reviewSimple)}
+            hint={t('settings.reviewSimpleHint', 'Handbacks not marked complex are verified here first; pick a cheap model')}
+          />
+          <Select
+            label={t('settings.reviewComplex', 'Complex reviews')}
+            value={reviewComplex}
+            onChange={setReviewComplex}
+            options={reviewOptions(reviewComplex)}
+            hint={t('settings.reviewComplexHint', 'Used after a reviewer runs board tier <id> complex')}
           />
         </div>
       </Card>
