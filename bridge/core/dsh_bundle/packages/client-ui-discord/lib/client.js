@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 80286a6aabb36eacf1c73a39ed967a56f5e7f4ab989d3bc290c6d72cf5c5af2b
+// dsh-client-source-sha256: a7409ca60f3ca46be3ec2aaae046e6ef8f756c26f1e5bddd4fe4208626b67bc7
 // dsh-style-sha256: 2e640033692a63b951ba23a41d830ebca956e67e0c0a9a38ba6618e25b4b480c
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -17180,13 +17180,6 @@ function DeliveryPreview({ page, task, t, onReview, onRevise }) {
 				},
 				children: t("deliveryFull")
 			}),
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
-				className: ChannelsPage_module_default.secondaryButton,
-				href: page.src,
-				target: "_blank",
-				rel: "noreferrer",
-				children: t("deliveryOpen")
-			}),
 			waiting && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 				type: "button",
 				className: ChannelsPage_module_default.secondaryButton,
@@ -22328,7 +22321,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 										enterKeyHint: "send",
 										value: draft,
 										disabled: state.roomId === void 0 || sending[state.roomId] === true,
-										placeholder: dmWith !== void 0 ? t("placeholderDm", { name: state.members.find((m) => m.id === dmWith)?.name ?? room?.name ?? "" }) : t(compactComposer() ? "placeholderShort" : "placeholder", { room: room?.name ?? "" }),
+										placeholder: t(compactComposer() ? "placeholderShort" : "placeholder", { room: room?.name ?? "" }),
 										role: "combobox",
 										"aria-expanded": popupOpen || slashOpen,
 										"aria-controls": slashOpen ? "channel-slash-list" : "channel-mention-list",
@@ -22823,7 +22816,6 @@ const zh = {
 	dmOpen: "发私信",
 	dmOpenFailed: "打不开私聊：{message}",
 	deliveryFull: "全屏",
-	deliveryOpen: "新标签打开",
 	deliveryRevise: "继续改",
 	deliveryAccept: "收下",
 	deliveryAccepted: "已收下",
@@ -22845,7 +22837,6 @@ const zh = {
 	kindGemini: "Gemini",
 	placeholderShort: "发消息到 #{room}",
 	placeholder: "发消息到 #{room}，@成员 派活（回车发送，Shift+回车换行）",
-	placeholderDm: "私信给 {name}（回车发送，Shift+回车换行）",
 	loading: "正在连接频道服务…",
 	unavailable: "频道服务未启用：在 collab.yml 中配置服务后，用 --patch collab.yml 启动 DSH。",
 	unauthorized: "还没有登录 DSH，请刷新页面。",
@@ -23151,7 +23142,6 @@ const en = {
 	dmOpen: "Message privately",
 	dmOpenFailed: "Could not open the private chat: {message}",
 	deliveryFull: "Full screen",
-	deliveryOpen: "Open in new tab",
 	deliveryRevise: "Keep editing",
 	deliveryAccept: "Accept",
 	deliveryAccepted: "Accepted",
@@ -23173,7 +23163,6 @@ const en = {
 	kindGemini: "Gemini",
 	placeholderShort: "Message #{room}",
 	placeholder: "Message #{room}; @ a member to put it to work (Enter sends, Shift+Enter for a new line)",
-	placeholderDm: "Message {name} privately (Enter to send, Shift+Enter for a new line)",
 	loading: "Connecting to the channel service…",
 	unavailable: "The channel service is off: configure it in collab.yml, then start DSH with --patch collab.yml.",
 	unauthorized: "Not signed in to DSH; reload the page.",

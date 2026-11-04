@@ -67,7 +67,6 @@ export function DeliveryPreview({ page, task, t, onReview, onRevise }: {
   const actions = (inDialog: boolean) => (
     <div className={css.deliveryActions}>
       {!inDialog && <button type="button" className={css.secondaryButton} onClick={() => { setFull(true) }}>{t('deliveryFull')}</button>}
-      <a className={css.secondaryButton} href={page.src} target="_blank" rel="noreferrer">{t('deliveryOpen')}</a>
       {waiting && <button type="button" className={css.secondaryButton} onClick={() => { setFull(false); onRevise() }}>{t('deliveryRevise')}</button>}
       {waiting && <button type="button" className={css.primaryButton} disabled={state === 'saving'} onClick={accept}>{t('deliveryAccept')}</button>}
       {task?.status === 'done' && <span className={css.deliveryDone}>{t('deliveryAccepted')}</span>}
