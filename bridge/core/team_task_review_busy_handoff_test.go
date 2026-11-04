@@ -45,6 +45,6 @@ func TestTaskReviewBusyPastWindowMovesToIdle(t *testing.T) {
 	w.reconcileTaskReviews(jobs[0].ScheduledAt.Add(watchCheckAfter()+time.Minute), false)
 	got := store.List()
 	if len(got) != 1 || got[0].Project != "deep" {
-		for _, j := range got { t.Logf("job %s %s fired=%v at=%v", j.ID[:16], j.Project, j.Fired, j.ScheduledAt) }; t.Fatalf("busy past the window: %d jobs; want deep", len(got))
+		t.Fatalf("busy past the window: %+v; want deep", got)
 	}
 }
