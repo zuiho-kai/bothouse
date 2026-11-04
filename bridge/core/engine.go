@@ -6071,7 +6071,12 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					if reset, ok := QuotaExhaustedReset(event); ok {
 						userMsg = e.quotaExhaustedMessage(reset, agentSession, nil)
 					}
-					send(p, replyCtx, userMsg)
+					// The message embeds the backend's own error text. In a group
+					// that text must not reach the chat (upstream safety-filter
+					// output, account ids); private chats keep it for diagnosis.
+					if !e.errorKeptOutOfChat(p, replyCtx, userMsg) {
+						send(p, replyCtx, userMsg)
+					}
 				}
 				state.mu.Lock()
 				state.eventsNeedResync = true
@@ -7969,9 +7974,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							statusFooter = e.buildReplyFooter(replyAgent, agentSession, workspaceDir, "")
 						}
 					}
-					sendChunksWithStatusFooter(outputCtx, p, replyCtx, userMsg, statusFooter, func(p Platform, replyCtx any, content string) error {
-						return e.sendWithErrorContext(outputCtx, p, replyCtx, content)
-					})
+					// Same rule as the unsolicited-error path above: the group
+					// must not receive the backend's raw error text.
+					if !e.errorKeptOutOfChat(p, replyCtx, userMsg) {
+						sendChunksWithStatusFooter(outputCtx, p, replyCtx, userMsg, statusFooter, func(p Platform, replyCtx any, content string) error {
+							return e.sendWithErrorContext(outputCtx, p, replyCtx, content)
+						})
+					}
 				}
 			}
 			// Only drop queued messages if the agent session is dead.
