@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"sync"
@@ -111,6 +112,8 @@ type handoffWatch struct {
 	// resume stops the stuck turn of workspace key, tells the chat and wakes the workspace to
 	// continue the task (autoResume, set by startHandoffWatch; nil = park at once).
 	resume func(p Platform, key string, h TeamHandoff)
+	// beat: when the main loop last started an iteration (UnixNano; sweepLoop reports a stall).
+	beat atomic.Int64
 }
 
 func newHandoffWatch(e *Engine) *handoffWatch {
@@ -199,12 +202,10 @@ func (s *APIServer) rewatchIfServing() {
 }
 
 func (w *handoffWatch) run(ctx context.Context) {
-	var reconciled, recovered, reviewHour time.Time
+	go w.sweepLoop(ctx)
+	var recovered, reviewHour time.Time
 	for {
-		if now := w.now(); now.Sub(reconciled) >= teamWorkspaceReconcileEvery {
-			reconciled = now
-			w.reconcileTeamWorkspaces(now)
-		}
+		w.beat.Store(w.now().UnixNano())
 		if now := w.now(); now.Sub(recovered) >= teamReportRecoveryEvery {
 			recovered = now
 			for _, eng := range w.engines() {
@@ -226,6 +227,35 @@ func (w *handoffWatch) run(ctx context.Context) {
 			wait = time.Millisecond
 		}
 		t := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return
+		case <-t.C:
+		}
+	}
+}
+
+// sweepLoop runs the hourly workspace release on its own goroutine. 2026-11-03 the
+// shared loop below stopped after 23:35 (its last 10-minute check); the hourly release
+// last ran 22:25 and nothing was freed until the 11-04 10:28 restart freed 11 workspaces
+// at once. A stall in a review, recovery or check step must not keep paused or finished
+// work holding workspaces, so the release no longer waits behind them. It also reports a
+// stalled main loop once per stall with every goroutine's stack, so the next stall names
+// the blocking call instead of leaving only silence in the log.
+func (w *handoffWatch) sweepLoop(ctx context.Context) {
+	var reported int64
+	for {
+		now := w.now()
+		freed := w.reconcileTeamWorkspaces(now)
+		slog.Info("team workspace: hourly sweep", "freed", len(freed))
+		if beat := w.beat.Load(); beat != 0 && beat != reported && now.Sub(time.Unix(0, beat)) >= teamWorkspaceReconcileEvery {
+			reported = beat
+			var stacks strings.Builder
+			_ = pprof.Lookup("goroutine").WriteTo(&stacks, 2) // same dump as net/http/pprof goroutine?debug=2
+			slog.Error("team workspace watch: main loop stalled", "since", time.Unix(0, beat).Format(time.RFC3339), "stacks", stacks.String())
+		}
+		t := time.NewTimer(teamWorkspaceReconcileEvery)
 		select {
 		case <-ctx.Done():
 			t.Stop()
