@@ -810,6 +810,27 @@ func (p *Platform) DeletePreviewMessage(ctx context.Context, previewHandle any) 
 	})
 }
 
+// ReportQueue implements core.QueueReporter (#1020): the gateway shows which
+// of the owner's messages ("hub-<id>") wait behind this session's running turn.
+func (p *Platform) ReportQueue(ctx context.Context, replyCtx any, msgIDs []string) error {
+	rc, err := parseReplyCtx(replyCtx)
+	if err != nil {
+		return err
+	}
+	if !p.hasCap(capQueue) {
+		return nil
+	}
+	if msgIDs == nil {
+		msgIDs = []string{}
+	}
+	return p.sendWire(ctx, map[string]any{
+		"type":        "queue",
+		"session_key": rc.SessionKey,
+		"reply_ctx":   rc.ReplyCtx,
+		"msg_ids":     msgIDs,
+	})
+}
+
 func (p *Platform) StartTyping(ctx context.Context, replyCtx any) (stop func()) {
 	rc, err := parseReplyCtx(replyCtx)
 	if err != nil || !p.hasCap(capTyping) {

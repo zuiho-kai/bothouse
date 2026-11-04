@@ -2118,3 +2118,59 @@
 .permSessionButton { padding: 4px 6px; border: 0; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .permSessionButton:hover { color: var(--dsw-alias-label-primary); }
 .permSessionButton:disabled { opacity: .5; cursor: default; }
+
+/* #1020 排队: the count sits in the typing line, the tag on each waiting message; a waiting
+   message keeps its 撤回 in view (no hover needed), since withdrawing is why the tag is there. */
+.queuedButton {
+  padding: 0 6px;
+  border: 1px solid var(--dsw-alias-border-default, rgba(0, 0, 0, .12));
+  border-radius: 9px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+}
+.queuedButton:hover { color: var(--dsw-alias-label-primary); }
+.queuedTag {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(234, 160, 40, .14);
+  color: #a76a06;
+  font-size: 11px;
+  line-height: 16px;
+}
+[data-queued] .ownActions { opacity: 1; }
+
+/* #1020 记忆来源: a quiet badge under the reply; opened, one line per entry (title, then page and 编号). */
+.memory { margin-top: 4px; }
+.memoryBadge {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--dsw-alias-fill-secondary, rgba(0, 0, 0, .05));
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  cursor: pointer;
+}
+.memoryBadge:hover, .memoryBadge[aria-expanded='true'] { color: var(--dsw-alias-label-secondary); }
+.memoryList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 560px;
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--dsw-alias-border-default, rgba(0, 0, 0, .12));
+  list-style: none;
+  font-size: 12px;
+}
+.memoryItem { display: flex; flex-direction: column; }
+.memoryTitle { color: var(--dsw-alias-label-secondary); line-height: 1.5; }
+.memoryPage { color: var(--dsw-alias-label-tertiary); font-size: 11px; font-family: var(--dsw-font-mono, ui-monospace, monospace); }

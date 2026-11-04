@@ -16,7 +16,7 @@ export const WS_PATH = '/cloud-web/ws';
 // a `buttons` frame (bridge platform/cloud-web SendWithButtons) instead of plain
 // text (#120); cards are not declared, so cc-connect degrades them to text
 // (bridge docs/cloud-web.md "Handshake").
-export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place', 'buttons', 'tasks', 'dispatch_mode'];
+export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place', 'buttons', 'tasks', 'dispatch_mode', 'queue'];
 // Permission decisions the Channel page and text replies may send. Values are the
 // button data cc-connect's sendPermissionPrompt uses (bridge core/engine.go).
 /**
@@ -259,7 +259,8 @@ export class CloudWebGateway {
     // avatar=<built-in slug> or an http(s) image URL (cc-connect's own library); anything else falls back to the initial badge.
     let avatar = '';
     try { avatar = checkAvatar(url.searchParams.get('avatar'), { allowUrl: true }); } catch { avatar = ''; }
-    const member = { id, name, rooms, kind: 'bot', mentionId: /^\d+$/.test(mentionId) ? mentionId : '', online: true, ...(avatar ? { avatar } : {}) };
+    // voter: the bridge project, as which its agent cites memories (memvote.py CC_PROJECT; memory-sources.mjs).
+    const member = { id, name, rooms, kind: 'bot', mentionId: /^\d+$/.test(mentionId) ? mentionId : '', online: true, ...(avatar ? { avatar } : {}), voter: project || id };
     const bot = { ws, member };
     const old = this.bots.get(id);
     this.bots.set(id, bot);
@@ -553,6 +554,14 @@ export class CloudWebGateway {
           return;
         }
         this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text: '', attachments });
+        return;
+      }
+      case 'queue': {
+        // #1020: the owner's messages ("hub-<id>") waiting behind this bot's running turn here (bridge core/queue_report.go).
+        const room = roomOf(d, this.hub.store);
+        if (room === undefined || !Array.isArray(d.msg_ids)) return;
+        const ids = d.msg_ids.map(x => /^hub-(\d+)$/.exec(String(x))?.[1]).filter(Boolean).map(Number);
+        this.hub.setQueue(room, member.id, ids);
         return;
       }
       case 'typing_start':

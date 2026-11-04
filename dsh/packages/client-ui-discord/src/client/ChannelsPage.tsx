@@ -9,7 +9,7 @@ import { softBreaksToHard } from './softBreaks.ts'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ChannelActions, ChannelMember, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, OutgoingAttachment } from './channel-source.ts'
+import type { ChannelActions, ChannelMember, ChannelMemory, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, OutgoingAttachment } from './channel-source.ts'
 import { MAX_MESSAGE_BODY, messageTooLarge } from './channel-source.ts'
 import { AttachmentList, PendingAttachments, useComposerAttachments } from './Attachments.tsx'
 import { groupRooms } from './channel-source.ts'
@@ -185,6 +185,28 @@ function clockOf(seconds: number): string {
   return new Date(seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+/** #1020: the memory entries a reply used — a small badge that opens to their titles. */
+function MemoryBadge({ items, t }: { items: readonly ChannelMemory[]; t: T }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className={css.memory}>
+      <button type="button" className={css.memoryBadge} aria-expanded={open} onClick={() => { setOpen(!open) }}>
+        <span aria-hidden="true">◇</span> {t('memoryBadge', { count: items.length })}
+      </button>
+      {open && (
+        <ul className={css.memoryList} aria-label={t('memoryList')}>
+          {items.map(item => (
+            <li key={item.id} className={css.memoryItem}>
+              <span className={css.memoryTitle}>{item.title || t('memoryMoved')}</span>
+              <span className={css.memoryPage}>{item.page} #{item.ref}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 /** #148: inline editor state for one of your own messages. */
 interface OwnActions {
   editing: string | undefined
@@ -198,7 +220,7 @@ interface OwnActions {
 }
 
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter }: {
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor }: {
   message: ChannelMessage
   grouped: boolean
   /** Stagger slot when this row arrived live (#115); undefined for history. */
@@ -221,6 +243,8 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   onTask: ((message: ChannelMessage) => Promise<void>) | undefined
   onRetry: (messageId: number) => void
   retrying: boolean
+  /** #1020: names of the members this own message waits for (queued behind their turn); undefined when it does not wait. */
+  queuedFor?: readonly string[]
 }) {
   const labels = useMemo(() => ({ code: { copyLabel: t('copyCode'), copiedLabel: t('copiedCode') }, footnotes: t('footnotes') }), [t])
   const card = parseCard(message)
@@ -321,7 +345,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   const progressFolded = role === 'progress' && cardView === 'brief' && card?.state === 'completed'
   const chips = role === 'progress' ? chipsOf(card) : undefined
   return (
-    <div className={classes} data-message-id={message.id} style={enterStyle}>
+    <div className={classes} data-message-id={message.id} data-queued={queuedFor !== undefined || undefined} style={enterStyle}>
       {grouped
         ? <time className={css.gutterTime} title={fullTime} dateTime={new Date(message.created_at * 1000).toISOString()}>{clockOf(message.created_at)}</time>
         : member === undefined || message.author_kind === 'system'
@@ -349,6 +373,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
           {!grouped && <KindTag name={message.name} kind={member?.kind} cli={member?.cli} t={t} />}
           {!grouped && <time className={css.time} title={fullTime} dateTime={new Date(message.created_at * 1000).toISOString()}>{clockOf(message.created_at)}</time>}
           {message.edited_at !== undefined && <span className={css.edited} title={new Date(message.edited_at * 1000).toLocaleString()}>{t('messageEdited')}</span>}
+          {queuedFor !== undefined && <span className={css.queuedTag} title={t('queuedFor', { names: queuedFor.join('、') })}>{t('queuedTag')}</span>}
           {own !== undefined && own.editing === undefined && (
             <span className={css.ownActions}>
               <button ref={editButtonRef} type="button" className={css.linkButton} onClick={own.onStartEdit}>{t('messageEdit')}</button>
@@ -430,6 +455,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
               </div>
             )}
         {taskCards.map(task => <div key={task.id} className={`${css.card} ${css.taskAnchor}`} data-anchored-task={task.id}><TaskCard taskId={task.id} tasks={tasks} t={t} /></div>)}
+        {message.memories !== undefined && message.memories.length > 0 && <MemoryBadge items={message.memories} t={t} />}
       </div>
       {/* System notices and progress cards are not conversation turns, so they take no reply. */}
       {message.author_kind !== 'system' && card === undefined && (
@@ -874,6 +900,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   const visibleUnreadCount = unread !== undefined && unread.roomId === state.roomId && !unread.seen
     ? unreadCount(visibleMessages, unread.fromId) : 0
   const typingNames = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? []).map(id => byId.get(id)?.name ?? id)
+  // #1020: the owner's messages waiting behind a member's running turn here, and for whom.
+  const queuedFor = new Map<number, string[]>()
+  for (const [memberId, ids] of Object.entries(state.roomId === undefined ? {} : state.queued?.[String(state.roomId)] ?? {})) {
+    for (const id of ids) queuedFor.set(id, [...(queuedFor.get(id) ?? []), byId.get(memberId)?.name ?? memberId])
+  }
+  const jumpToQueued = (): void => {
+    const first = Math.min(...queuedFor.keys())
+    document.querySelector(`[data-message-id="${first}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }
   // #113 activity: who is at work in this channel (here or in one of its workspaces) and on what.
   const channelRooms = new Set(state.rooms.filter(r => r.id === channelId || r.parent_id === channelId).map(r => r.id))
   // Match the settings selector: an explicit room null must not fall back to the global role.
@@ -1305,6 +1340,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
                   onReply={startReply}
                   onTask={toTask}
                   own={ownActions(m)}
+                  queuedFor={queuedFor.get(m.id)}
                 />,
               ])}
         </div>
@@ -1325,6 +1361,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
         </div>
         <div className={css.working} aria-live="polite">
           {typingNames.length > 0 && <><span className={css.typingDots} aria-hidden="true"><i /><i /><i /></span>{t('workingList', { names: typingNames.join('、') })}</>}
+          {queuedFor.size > 0 && <button type="button" className={css.queuedButton} title={t('queuedJump')} onClick={jumpToQueued}>{t('queuedCount', { count: queuedFor.size })}</button>}
         </div>
         {/* #113/#125: questions and pending permission requests stay pinned above the composer while the log scrolls. */}
         <DecideTray

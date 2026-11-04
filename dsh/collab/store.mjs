@@ -56,6 +56,8 @@ const COLUMNS = [
   ['rooms', 'claim_seq', 'INTEGER NOT NULL DEFAULT 0'],
   ['rooms', 'workspace_path', 'TEXT'], // Optional chat directory; workspace rooms inherit their current parent.
   ['messages', 'edited_at', 'REAL'], // v11 (#148): when the owner last edited their own message; NULL if never.
+  // #1020 (no version bump, so an older build still opens the file): JSON list of the memory entries a reply used ({id, ref, page, title}); NULL when none.
+  ['messages', 'memories', 'TEXT'],
   // #597 G34: when a role last changed the row in place (a streamed draft growing, a progress card
   // edited, the draft committed); NULL if never. The task watch counts it as progress (Tasks.progressed).
   ['messages', 'changed_at', 'REAL'],
@@ -104,6 +106,7 @@ export class Store {
       byId: this.db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0'),
       edit: this.db.prepare('UPDATE messages SET text = ?, card = ?, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
       commit: this.db.prepare('UPDATE messages SET text = ?, from_turn = ?, attachments = ?, draft = 0, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 AND card IS NULL AND draft = 1 RETURNING *'),
+      setMemories: this.db.prepare('UPDATE messages SET memories = ? WHERE id = ? RETURNING *'),
       editUser: this.db.prepare(`UPDATE messages SET text = ?, edited_at = ? WHERE id = ? AND author_kind = 'user' AND author = ?
         AND deleted = 0 AND draft = 0 AND card IS NULL RETURNING *`),
       del: this.db.prepare('UPDATE messages SET deleted = 1 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
@@ -676,6 +679,9 @@ export class Store {
 
   message(id) { return this.q.byId.get(id); }
 
+  /** #1020: record the memory entries a reply used; returns the updated row. */
+  setMemories(id, items) { return this.q.setMemories.get(items?.length ? JSON.stringify(items) : null, id); }
+
   /**
    * What a reply quotes: undefined for a plain message; `{ id, deleted: true }`
    * when the original is gone (no author or text leaks); else id, author, and
@@ -802,7 +808,15 @@ export function publicMessage(row, store) {
   if (quote !== undefined) out.reply_to = quote;
   const attachments = messageAttachments(row);
   if (attachments.length) out.attachments = attachments;
+  const memories = messageMemories(row);
+  if (memories.length) out.memories = memories;
   return out;
+}
+
+/** #1020: the memory entries a reply used ([] when none or unreadable). */
+export function messageMemories(row) {
+  if (!row?.memories) return [];
+  try { const list = JSON.parse(row.memories); return Array.isArray(list) ? list : []; } catch { return []; }
 }
 
 /** #144: the uploaded files a message carries ([] when none or unreadable). */

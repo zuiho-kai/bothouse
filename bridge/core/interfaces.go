@@ -312,6 +312,14 @@ type SessionIDValidator interface {
 // "processing" indicator (typing bubble, emoji reaction, etc.) while the
 // agent is working. StartTyping is called when processing begins and returns
 // a stop function that the caller must invoke when processing ends.
+// QueueReporter is an optional interface for platforms that show which user
+// messages wait in a session's queue behind the running turn (#1020 排队 N 条).
+// msgIDs are the platform message ids in queue order; empty means nothing waits.
+// The engine reports only changes (queue_report.go).
+type QueueReporter interface {
+	ReportQueue(ctx context.Context, replyCtx any, msgIDs []string) error
+}
+
 type TypingIndicator interface {
 	StartTyping(ctx context.Context, replyCtx any) (stop func())
 }

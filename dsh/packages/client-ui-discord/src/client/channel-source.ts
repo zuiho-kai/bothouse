@@ -26,6 +26,16 @@ export interface ChannelMessage {
   readonly attachments?: readonly ChannelAttachment[]
   /** Unix seconds of the author's last edit (#148); absent if never edited. */
   readonly edited_at?: number
+  /** #1020: memory entries this reply used (cited by its author); absent when none. */
+  readonly memories?: readonly ChannelMemory[]
+}
+
+/** #1020: one memory entry a reply used: `ref` is the 编号 in the push, `title` its wiki line ('' if the page moved). */
+export interface ChannelMemory {
+  readonly id: string
+  readonly ref: string
+  readonly page: string
+  readonly title: string
 }
 
 /** One stored attachment; its bytes are at `attachmentUrl(id)`. */
@@ -251,6 +261,8 @@ export interface ChannelSnapshot {
   readonly members: readonly ChannelMember[]
   /** Room id → ids of members currently working there. */
   readonly thinking: Readonly<Record<string, readonly string[]>>
+  /** #1020: room id → member id → ids of the owner's messages waiting behind that member's running turn. */
+  readonly queued?: Readonly<Record<string, Readonly<Record<string, readonly number[]>>>>
   /** Selected room's messages, ascending by id. */
   readonly messages: readonly ChannelMessage[]
   /** The selected primary role for the collab service, or null when no role is connected. */
@@ -339,6 +351,7 @@ type ServiceEvent =
   | { readonly type: 'deleted'; readonly id: number; readonly room_id: number }
   | { readonly type: 'members'; readonly members: readonly ChannelMember[] }
   | { readonly type: 'thinking'; readonly room_id: number; readonly members: readonly string[] }
+  | { readonly type: 'queue'; readonly room_id: number; readonly queued: Readonly<Record<string, readonly number[]>> }
   | { readonly type: 'rooms'; readonly rooms: readonly ChannelRoom[] }
   | { readonly type: 'room-settings'; readonly room_id: number; readonly lead_id: string | null; readonly effective_lead_id: string | null; readonly workspace_path: string; readonly max_relay?: number }
   | { readonly type: 'task'; readonly task: ChannelTask; readonly chat_id: number }
@@ -497,6 +510,7 @@ export function createChannelSource(transport: ChannelTransport): {
           : current
       case 'members': return { ...current, members: event.members }
       case 'thinking': return { ...current, thinking: { ...current.thinking, [String(event.room_id)]: event.members } }
+      case 'queue': return { ...current, queued: { ...current.queued, [String(event.room_id)]: event.queued } }
       case 'rooms': return { ...current, rooms: event.rooms.map(r => ({ ...current.rooms.find(old => old.id === r.id), ...r })) }
       case 'room-settings': return { ...current, rooms: current.rooms.map(r => r.id === event.room_id || r.parent_id === event.room_id ? { ...r, lead_id: event.lead_id, effective_lead_id: event.effective_lead_id, workspace_path: event.workspace_path, max_relay: event.max_relay ?? r.max_relay } : r) }
       case 'lead': return { ...current, leadId: event.lead_id, effectiveLeadId: event.effective_lead_id ?? event.lead_id }
@@ -556,7 +570,7 @@ export function createChannelSource(transport: ChannelTransport): {
     const previous = snapshot
     const current = (): boolean => lifetime === owner && pending === read && !read.controller.signal.aborted
     try {
-      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; lead_id?: string | null; effective_lead_id?: string | null }>(
+      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; queued?: Record<string, Record<string, number[]>>; lead_id?: string | null; effective_lead_id?: string | null }>(
         'collab/api/state', { signal: read.controller.signal },
       )
       if (!current()) return
@@ -630,7 +644,7 @@ export function createChannelSource(transport: ChannelTransport): {
       if (!keepBoard) earlyTasks.clear()
       let next: ChannelSnapshot = {
         phase: 'ready', error: undefined, rooms: state.rooms, roomId,
-        members: state.members, thinking: state.thinking, messages: rows, hasMoreOlder,
+        members: state.members, thinking: state.thinking, queued: state.queued ?? {}, messages: rows, hasMoreOlder,
         leadId: state.lead_id ?? null, effectiveLeadId: state.effective_lead_id ?? state.lead_id ?? null,
         tasks: keepBoard ? previous.tasks : [], taskChat: keepBoard ? previous.taskChat : undefined,
         outbox: outbox.filter(entry => entry.roomId === roomId),
