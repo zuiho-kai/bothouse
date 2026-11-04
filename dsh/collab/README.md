@@ -141,6 +141,8 @@ group_reply_all = false       # 见下方「只在被 @ 时回答」
 - 没有 gate：`group_reply_all = false`。只处理 @ 它的消息；代价是看不到频道里其他人的发言（离线补历史也只在 gate 路径上运行）。
 - 有 gate（线上 maomao 的做法）：`group_reply_all = true`，加 `gate_url` 与 `gate_fallback = "context"`。没 @ 的消息只听不答，被 @ 时带上频道上下文，掉线期间的消息经本插件的历史接口补回。
 
+**桌面版（端口每次随机）**：DSH 桌面版启动 Web 宿主时端口固定传 0，主桥配不了固定地址。给桌面 profile 的 conest-collab 配 `botPort: <端口>`（或环境变量 `CONEST_COLLAB_BOT_PORT`），插件另开 `127.0.0.1:<端口>`，只接 `/cloud-web/ws` 握手和 `/api/rooms/…` 补历史，口令同上；主桥再给每个项目加一段 cloud_web 指向这个端口。不配不开。
+
 同一个 bot id 再次连接会顶掉旧连接。成员 id 不能与 DSH 成员或 `owner`/`user`/`system` 重名。
 
 ## 行为约定

@@ -4,12 +4,13 @@ import { personaLibrary } from './personas.mjs';
 //   - insert:
 //       - id: conest-collab
 //         name: /abs/path/dsh/collab/plugin.mjs
-//         config: { dataDir, workspacePath, leadFile?, fallbackLead?, botTokenEnv?, ownerName?, rooms?, dshMembers?, maxRelay?, boardDir?, teamStatusDir?, wikiDir?, bridgeConfig? }
+//         config: { dataDir, workspacePath, leadFile?, fallbackLead?, botTokenEnv?, botPort?, ownerName?, rooms?, dshMembers?, maxRelay?, boardDir?, teamStatusDir?, wikiDir?, bridgeConfig? }
 import { createRequire } from 'node:module';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, CollabError, publicMessage } from './store.mjs';
+import { startBotPort } from './bot-port.mjs';
 import { Hub } from './hub.mjs';
 import { TeamExit } from './team-exit.mjs';
 import { CloudWebGateway, WS_PATH } from './cloudweb.mjs';
@@ -84,6 +85,10 @@ export function resolveConfig(config, env = process.env) {
   if (!Number.isSafeInteger(maxRelay) || maxRelay < 0) throw Error('conest-collab: maxRelay must be a non-negative integer');
   const botTokenEnv = c.botTokenEnv ?? 'CONEST_COLLAB_BOT_TOKEN';
   const botToken = env[botTokenEnv] ?? '';
+  // #142 桌面版宿主端口每次随机：给一个固定端口另开 bot 接入（bot-port.mjs）。配置或 CONEST_COLLAB_BOT_PORT，都没给就不开。
+  const botPortRaw = c.botPort ?? (String(env.CONEST_COLLAB_BOT_PORT ?? '').trim() || undefined);
+  const botPort = botPortRaw === undefined ? undefined : Number(botPortRaw);
+  if (botPort !== undefined && !(Number.isSafeInteger(botPort) && botPort > 0 && botPort < 65536)) throw Error('conest-collab: botPort must be a TCP port number');
   const leadFile = c.leadFile ?? join(env.BOTHOUSE_DATA_DIR ?? join(env.HOME ?? '.', '.bothouse'), 'lead.json');
   if (!isAbsolute(leadFile)) throw Error('conest-collab: leadFile must be an absolute path');
   const fallbackLead = String(c.fallbackLead ?? env.CONEST_FALLBACK_LEAD ?? '').trim();
@@ -102,7 +107,7 @@ export function resolveConfig(config, env = process.env) {
   // #105 侧栏「bothouse」：读这份主桥配置的 [management] 段，在服务端转发管理面板（令牌不进浏览器）。
   const bridgeConfig = String(c.bridgeConfig ?? '').trim() || defaultBridgeConfig(env);
   if (!isAbsolute(bridgeConfig)) throw Error('conest-collab: bridgeConfig must be an absolute path');
-  return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, boardDir, teamStatusDir, wikiDir, bridgeConfig, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我' };
+  return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, boardDir, teamStatusDir, wikiDir, bridgeConfig, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, botPort, ownerName: c.ownerName ?? '我' };
 }
 
 /** Resolve a package from the running DSH installation, never a second copy. */
@@ -210,18 +215,22 @@ export async function apply(ctx, rawConfig) {
 
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/collab', handler: (req, res) => browserRoute(req, res) }), 'conest-collab: /collab');
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/api/rooms', handler: (req, res) => historyRoute(req, res) }), 'conest-collab: /api/rooms');
-  ctx.effect(() => ctx.webServer.registerUpgrade({
-    path: WS_PATH,
-    handler: (req, socket, head) => {
-      const url = new URL(req.url ?? '/', 'http://collab.invalid');
-      later.origin ??= localOrigin(req);
-      if (!gateway.authorized(req, url)) {
-        socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
-        return;
-      }
-      wss.handleUpgrade(req, socket, head, ws => gateway.accept(ws, url));
-    },
-  }), 'conest-collab: cloud-web upgrade');
+  const botUpgrade = (req, socket, head) => {
+    const url = new URL(req.url ?? '/', 'http://collab.invalid');
+    later.origin ??= localOrigin(req);
+    if (!gateway.authorized(req, url)) {
+      socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, ws => gateway.accept(ws, url));
+  };
+  ctx.effect(() => ctx.webServer.registerUpgrade({ path: WS_PATH, handler: botUpgrade }), 'conest-collab: cloud-web upgrade');
+  if (config.botPort !== undefined && config.botToken) {
+    const listening = startBotPort({ port: config.botPort, path: WS_PATH, upgrade: botUpgrade, history: (req, res) => historyRoute(req, res), logger: ctx.logger })
+      .then(l => { ctx.logger.info('conest-collab: bot port 127.0.0.1:%d', l.port); return l; },
+        err => { ctx.logger.warn('conest-collab: bot port %d not opened: %s', config.botPort, err.message); return undefined; });
+    ctx.effect(() => async () => { (await listening)?.close(); }, 'conest-collab: bot port');
+  }
   ctx.effect(() => async () => {
     teamStatus?.stop();
     desk.stop();
