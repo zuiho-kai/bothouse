@@ -15,6 +15,7 @@ import { AttachmentList, PendingAttachments, useComposerAttachments } from './At
 import { groupRooms } from './channel-source.ts'
 import { boardGroupOf, isLiveTask } from './task-board.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
+import { ProgressCard, channelProgress } from './ProgressCard.tsx'
 import { StepChips, chipsOf } from './StepChips.tsx'
 import { CapabilityList } from './CapabilityList.tsx'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
@@ -939,6 +940,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
             stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40
           }}
         >
+          {/* #125: 本频道进展 stays at the top of the log while it scrolls. */}
+          <ProgressCard lines={channelProgress(state.tasks ?? [], channelRooms)} t={t} onOpen={openMessage} />
           {!visibleMembers.some(m => m.kind !== 'human') && (
             <div className={css.guide}>
               <div>{t('guideNoMembers')}</div>
