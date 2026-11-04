@@ -6512,6 +6512,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			session.ResetTurnCtx()
 		}
 
+		// A boundary ends the current segment even when quiet mode joins the
+		// surrounding prose. Remove its control marker before the next text.
+		if (event.Type == EventToolUse || event.Type == EventThinking || event.Type == EventPermissionRequest) && len(textParts) > segmentStart {
+			segment := strings.Join(textParts[segmentStart:], "")
+			if clean := stripSilentReply(segment); clean != segment {
+				textParts = append(textParts[:segmentStart], clean)
+			}
+		}
+
 		switch event.Type {
 		case EventSpeechText:
 			// Never present these again in platform text/history: the ordinary
@@ -19564,8 +19573,9 @@ func IsSilentReply(text string) bool {
 // along with whether a strip occurred. Caller must first check isSilentReply for the
 // bare-marker case; this helper assumes mixed content.
 func stripTrailingSilent(text string) (string, bool) {
-	stripped := silentReplyTrailingRe.ReplaceAllString(text, "${1}")
-	if stripped == text {
+	trimmed := strings.TrimRightFunc(text, unicode.IsSpace)
+	stripped := silentReplyTrailingRe.ReplaceAllString(trimmed, "${1}")
+	if stripped == trimmed {
 		return text, false
 	}
 	return strings.TrimRightFunc(stripped, unicode.IsSpace), true
