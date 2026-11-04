@@ -6255,6 +6255,26 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		return err
 	}
 
+	var sentReplySegments []string // successful narration deliveries in this turn only
+	sendReplySegment := func(p Platform, replyCtx any, segment string) {
+		if capability, ok := p.(RepeatedReplySuppressor); !ok || !capability.SuppressRepeatedReplyText() {
+			for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
+				sendWorkspace(p, replyCtx, chunk)
+			}
+			return
+		}
+		segment = unsentReplyText(p, segment, sentReplySegments)
+		if strings.TrimSpace(segment) == "" {
+			return
+		}
+		for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
+			if err := sendWorkspaceWithError(p, replyCtx, chunk); err != nil {
+				return
+			}
+		}
+		sentReplySegments = append(sentReplySegments, segment)
+	}
+
 	// Streaming card: aggregate entire turn into a single updatable card.
 	var streamCard StreamingCard
 	var cardToolCalls []cardToolEntry  // track tool calls for card content
@@ -6585,9 +6605,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					} else {
 						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
-							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
-								sendWorkspace(p, replyCtx, chunk)
-							}
+							sendReplySegment(p, replyCtx, segment)
 						}
 					}
 					segmentStart = len(textParts)
@@ -6610,9 +6628,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					if !previewActive {
 						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
-							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
-								sendWorkspace(p, replyCtx, chunk)
-							}
+							sendReplySegment(p, replyCtx, segment)
 						}
 					}
 					segmentStart = len(textParts)
@@ -6684,9 +6700,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					} else {
 						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
-							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
-								sendWorkspace(p, replyCtx, chunk)
-							}
+							sendReplySegment(p, replyCtx, segment)
 						}
 					}
 					segmentStart = len(textParts)
@@ -6742,9 +6756,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					if !previewActive {
 						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
-							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
-								sendWorkspace(p, replyCtx, chunk)
-							}
+							sendReplySegment(p, replyCtx, segment)
 						}
 					}
 					segmentStart = len(textParts)
@@ -7032,9 +7044,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				if !previewActive {
 					segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 					if segment != "" {
-						for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
-							sendWorkspace(p, replyCtx, chunk)
-						}
+						sendReplySegment(p, replyCtx, segment)
 					}
 				}
 				segmentStart = len(textParts)
@@ -7493,6 +7503,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// side-channel messages and segmentStart stays 0, so keep normal finalize flow.
 				if segmentStart < len(textParts) {
 					unsent := strings.Join(textParts[segmentStart:], "")
+					unsent = unsentReplyText(p, unsent, sentReplySegments)
 					// The text before the tool call already went out, so the whole-reply
 					// NO_REPLY check above does not cover this remainder after a tool call.
 					if isSilentReply(unsent) {
@@ -7765,6 +7776,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// Reset per-turn state for the next turn
 				msgID = queued.messageID
 				textParts = nil
+				sentReplySegments = nil
 				segmentStart = 0
 				toolCount = 0
 				watchTurnFinished = false
@@ -8074,6 +8086,7 @@ channelClosed:
 			sp.discard()
 			if segmentStart < len(textParts) {
 				unsent := strings.Join(textParts[segmentStart:], "")
+				unsent = unsentReplyText(p, unsent, sentReplySegments)
 				if unsent != "" {
 					for _, chunk := range SplitMessageCodeFenceAware(unsent, maxPlatformMessageLen) {
 						if err := sendWorkspaceWithError(p, replyCtx, chunk); err != nil {

@@ -15,6 +15,13 @@ type Platform interface {
 	Stop() error
 }
 
+// RepeatedReplySuppressor opts a platform into suppressing narration that the
+// model repeats across tool boundaries within one turn. Other platforms retain
+// their existing presentation behavior.
+type RepeatedReplySuppressor interface {
+	SuppressRepeatedReplyText() bool
+}
+
 // ConfiguredTeamLead reports whether a platform has a configured primary role.
 // It lets the local no-gate path suppress unaddressed group messages for subs.
 type ConfiguredTeamLead interface {
