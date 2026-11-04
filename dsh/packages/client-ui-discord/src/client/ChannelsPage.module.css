@@ -1664,3 +1664,8 @@
   .systemText { max-width: 90%; }
   .memberActions { position: static; transform: none; padding-left: 0; background: transparent; }
 }
+
+/* 白色默认（来源：用户 11-03「学一下这种设计？ 白色」、11-04 10:48「白色整体风格…这些你来做」）：标题栏切深色/白色按钮，样式沿用 panelToggle。 */
+.schemeToggle { margin-left: auto; }
+.headActivity + .schemeToggle { margin-left: 4px; }
+.schemeToggle + .panelToggleEnd { margin-left: 4px; }
