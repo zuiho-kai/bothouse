@@ -18,6 +18,8 @@ import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { ProgressCard, channelProgress } from './ProgressCard.tsx'
 import { StepChips, chipsOf, compactBrief } from './StepChips.tsx'
 import { CapabilityList } from './CapabilityList.tsx'
+import { SlashMenu } from './SlashMenu.tsx'
+import { addressCommand, answerFailed, commandAnswers, commandLine, matchCommands, slashQuery, type SlashCommand } from './slash-commands.ts'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
 import { ChannelSettingsDialog } from './ChannelSettingsDialog.tsx'
@@ -41,6 +43,8 @@ export interface ChannelsInjected extends ChannelActions {
 export type ChannelsPageProps = PropsRuntime<'main'> & InjectFace<ChannelsInjected> & PropsLocale<typeof NS> & {
   /** Direct reply to a member's question from the 等你定 tray; absent until the reply endpoint is live (#107/#118). */
   readonly answerTask?: (taskId: number, text: string) => Promise<void>
+  /** #1016 转任务 on a message; absent hides the button. */
+  readonly dispatchTask?: ChannelActions['dispatchTask']
 }
 
 type T = TranslateNS<typeof NS>
@@ -155,6 +159,15 @@ export function pendingPermission(message: ChannelMessage): boolean {
   return card?.kind === 'permission' && card.state === 'pending'
 }
 
+/** 用户 2026-11-04：完成的零/一步进度不占聊天行；失败步骤仍须可见。 */
+function trivialProgress(message: ChannelMessage): boolean {
+  const card = parseCard(message)
+  return cardRole(card) === 'progress' && card?.state === 'completed'
+    && typeof card.steps === 'number' && Number.isInteger(card.steps) && card.steps >= 0 && card.steps <= 1
+    && !chipsOf(card)?.some(chip => chip.state === 'failed')
+    && !(card.brief ?? message.text).split('\n').some(line => line.startsWith('❌ '))
+}
+
 // 来源：沿用 #98 规范「连续消息合在一起显示」；5 分钟窗口沿用 Slack/Discord 连续消息合并的惯例。
 const GROUP_WINDOW_SEC = 300
 
@@ -185,7 +198,7 @@ interface OwnActions {
 }
 
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter }: {
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter }: {
   message: ChannelMessage
   grouped: boolean
   /** Stagger slot when this row arrived live (#115); undefined for history. */
@@ -204,6 +217,8 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   onMention: (member: ChannelMember) => void
   onDecide: ChannelActions['decidePermission']
   onReply: (message: ChannelMessage) => void
+  /** #1016 转任务; undefined hides the button (no primary role or no endpoint). */
+  onTask: ((message: ChannelMessage) => Promise<void>) | undefined
   onRetry: (messageId: number) => void
   retrying: boolean
 }) {
@@ -217,6 +232,28 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   const stepsMarkdown = useMemo(() => (steps === '' ? '' : softBreaksToHard(steps)), [steps])
   const fullTime = new Date(message.created_at * 1000).toLocaleString()
   const editButtonRef = useRef<HTMLButtonElement>(null)
+  // #1016 message tools: a short confirmation on the button that was used.
+  const [toolNote, setToolNote] = useState<{ tool: 'copy' | 'task'; text: string } | undefined>(undefined)
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => { clearTimeout(noteTimer.current) }, [])
+  const note = (tool: 'copy' | 'task', text: string): void => {
+    clearTimeout(noteTimer.current)
+    setToolNote({ tool, text })
+    noteTimer.current = setTimeout(() => { setToolNote(undefined) }, 2000)
+  }
+  const copy = (): void => {
+    const done = (): void => { note('copy', t('toolCopied')) }
+    const clip = globalThis.navigator?.clipboard
+    if (clip === undefined) { note('copy', t('toolCopyFailed')); return }
+    clip.writeText(message.text).then(done, () => { note('copy', t('toolCopyFailed')) })
+  }
+  const toTask = (): void => {
+    if (onTask === undefined || toolNote?.tool === 'task') return
+    setToolNote({ tool: 'task', text: t('toolTasking') })
+    onTask(message).then(() => { note('task', t('toolTasked')) }, (error: unknown) => {
+      note('task', t('toolTaskFailed', { message: error instanceof Error ? error.message : String(error) }))
+    })
+  }
   const wasEditing = useRef(false)
   const isEditing = own?.editing !== undefined
   useEffect(() => {
@@ -293,7 +330,8 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
             // Avatar opens this author's member menu; `data-avatar-menu` marks the
             // area an outside press must not land in to keep the menu open.
             <span className={css.avatarAnchor} data-avatar-menu onKeyDown={(event) => { if (event.key === 'Escape') onCloseMenu() }}>
-              <button type="button" className={css.avatarButton} aria-label={t('memberMenu', { name: member.name })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={onAvatar}>
+              <button type="button" className={css.avatarButton} aria-label={t('memberMenu', { name: member.name })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={onAvatar}
+                onContextMenu={(event) => { event.preventDefault(); onMention(member) }}>
                 <Avatar id={member.id} name={message.name} avatar={member.avatar} avatarVersion={member.avatarVersion} />
               </button>
               {menuOpen && (
@@ -395,7 +433,20 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
       </div>
       {/* System notices and progress cards are not conversation turns, so they take no reply. */}
       {message.author_kind !== 'system' && card === undefined && (
-        <button type="button" className={css.replyButton} title={t('reply')} aria-label={t('reply')} onClick={() => { onReply(message) }}>↩</button>
+        // #1016: hover toolbar — copy the Markdown, reply with a quote, put the message on the task board.
+        <span className={css.msgTools} data-message-tools>
+          {toolNote !== undefined && <span className={css.msgToolNote} role="status">{toolNote.text}</span>}
+          {/* #1017: icons with a label 80 ms after hover (data-tip); aria-label keeps the name for readers. */}
+          {message.text !== '' && <button type="button" className={css.msgTool} data-tip={t('toolCopy')} aria-label={t('toolCopy')} onClick={copy}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h8" /></svg>
+          </button>}
+          <button type="button" className={`${css.msgTool} ${css.replyButton}`} data-tip={t('reply')} aria-label={t('reply')} onClick={() => { onReply(message) }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 6 6v5" /></svg>
+          </button>
+          {onTask !== undefined && message.text.trim() !== '' && <button type="button" className={css.msgTool} data-tip={t('toolTaskHint')} aria-label={t('toolTask')} disabled={toolNote?.tool === 'task' && toolNote.text === t('toolTasking')} onClick={toTask}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="m8.5 12 2.5 2.5 4.5-5" /></svg>
+          </button>}
+        </span>
       )}
     </div>
   )
@@ -414,6 +465,35 @@ function PermTrayItem({ message, author, t, onDecide }: { message: ChannelMessag
         <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>
       </div>
       <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />
+    </div>
+  )
+}
+
+/**
+ * #1017: an owner's bot command (`@橘 /model x`, `/stop all`) as one thin line — who it went to,
+ * the command, and the bot's answer folded in (first line; click for all of it).
+ */
+function CommandRow({ message, target, command, answer, t }: {
+  message: ChannelMessage
+  target: string | undefined
+  command: string
+  answer: ChannelMessage | undefined
+  t: T
+}) {
+  const [open, setOpen] = useState(false)
+  const failed = answer !== undefined && answerFailed(answer.text)
+  const first = answer?.text.split('\n').map(x => x.trim()).find(Boolean) ?? ''
+  const more = answer !== undefined && answer.text.trim() !== first
+  return (
+    <div className={css.cmdLine} data-message-id={message.id} data-failed={failed} title={new Date(message.created_at * 1000).toLocaleString()}>
+      <span>{target === undefined ? t('cmdToAll') : t('cmdTo', { name: target })}</span>
+      <code>{command}</code>
+      <span aria-hidden="true">·</span>
+      {answer === undefined
+        ? <span>{t('cmdSent')}</span>
+        : more
+          ? <button type="button" className={css.cmdResult} aria-expanded={open} onClick={() => { setOpen(!open) }}>{open ? answer.text : first}</button>
+          : <span className={css.cmdResult}>{first}</span>}
     </div>
   )
 }
@@ -470,7 +550,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, openModelSettings, answerTask, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, openModelSettings, answerTask, t }: ChannelsPageProps) {
   const scheme = useScheme()
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
@@ -599,7 +679,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   }, [settingsOpen])
   useEffect(() => { setSettingsOpen(false) }, [state.roomId])
   const [capabilitiesDismissed, setCapabilitiesDismissed] = useState(false)
-  useEffect(() => { setCapabilitiesDismissed(false) }, [state.roomId])
+  // #1016: the capability help moved behind /help; the / menu runs commands.
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [slashHighlight, setSlashHighlight] = useState(0)
+  // #1017 the stop key's feedback: 正在停止 until the bot stops answering, then 已停止.
+  const [stopping, setStopping] = useState<{ botId: string; name: string; phase: 'stopping' | 'stopped' } | undefined>(undefined)
+  useEffect(() => { setCapabilitiesDismissed(false); setHelpOpen(false); setStopping(undefined) }, [state.roomId])
   const composerRef = useRef<HTMLDivElement>(null)
   // `@` start of the popup currently shown, read by the outside-click listener.
   const openMentionAt = useRef<number | undefined>(undefined)
@@ -612,7 +697,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
       const at = openMentionAt.current
       if (composerRef.current?.contains(event.target as Node) === true) return
       if (at !== undefined) setDismissedAt(at)
-      if (draft === '/' && !capabilitiesDismissed) setCapabilitiesDismissed(true)
+      if (slashQuery(draft) !== undefined && !capabilitiesDismissed) setCapabilitiesDismissed(true)
+      setHelpOpen(false)
     }
     document.addEventListener('mousedown', onPress)
     return () => { document.removeEventListener('mousedown', onPress) }
@@ -661,6 +747,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     return () => { document.removeEventListener('mousedown', onPress) }
   }, [avatarMenu])
 
+  // Filter before grouping and reading-position tracking; keep raw history for paging.
+  // Task cards anchored to a progress message must remain reachable.
+  const visibleMessages = useMemo(() => state.messages.filter(m => !trivialProgress(m) || state.tasks?.some(task => task.assign_msg_id === m.id)), [state.messages, state.tasks])
+
   // Rows that arrived live animate in once; the first fill, a room switch and older pages do not.
   const fresh = useMemo(() => trackLive(live.current, state.roomId, state.messages), [state.messages, state.roomId])
 
@@ -684,9 +774,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     const log = logRef.current
     if (log !== null && stickRef.current) { log.scrollTop = log.scrollHeight; return }
     if (roomId === undefined) return
-    const first = state.messages.find(m => m.id > since && fresh.has(m.id) && m.author_kind !== 'user')
+    const first = visibleMessages.find(m => m.id > since && fresh.has(m.id) && m.author_kind !== 'user')
     if (first !== undefined && (unread === undefined || unread.roomId !== roomId || unread.seen)) setUnread({ roomId, fromId: first.id, seen: false })
-  }, [state.messages, state.roomId])
+  }, [state.messages, state.roomId, visibleMessages])
 
   // #113: the permission tray takes room from the log, never covers it; stay at the latest message.
   const pendingKey = state.messages.filter(pendingPermission).map(m => m.id).join(',')
@@ -749,6 +839,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     if (roomId !== state.roomId) void selectRoom(roomId)
   }
 
+  // #1017 stop key: 正在停止 turns into 已停止 once the bot no longer answers in this room.
+  const stillAnswering = stopping !== undefined && state.roomId !== undefined && (state.thinking[String(state.roomId)] ?? []).includes(stopping.botId)
+  useEffect(() => {
+    if (stopping === undefined) return
+    if (stopping.phase === 'stopping' && !stillAnswering) { setStopping({ ...stopping, phase: 'stopped' }); return }
+    // 已停止 shows for a moment; a stop the bot never confirms gives the key back after 30 s.
+    const timer = setTimeout(() => { setStopping(undefined) }, stopping.phase === 'stopped' ? 2000 : 30_000)
+    return () => { clearTimeout(timer) }
+  }, [stopping, stillAnswering])
   if (state.phase !== 'ready') {
     const notice = state.phase === 'unavailable' ? t('unavailable')
       : state.phase === 'unauthorized' ? t('unauthorized')
@@ -768,6 +867,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     ...openTaskOwners,
   ])
   const byId = new Map(visibleMembers.map(m => [m.id, m]))
+  // A progress update may hide the original unread row; place the divider at
+  // the next visible unread message without losing the original reading boundary.
+  const firstUnread = unread !== undefined && unread.roomId === state.roomId
+    ? visibleMessages.find(m => m.id >= unread.fromId && m.author_kind !== 'user')?.id : undefined
+  const visibleUnreadCount = unread !== undefined && unread.roomId === state.roomId && !unread.seen
+    ? unreadCount(visibleMessages, unread.fromId) : 0
   const typingNames = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? []).map(id => byId.get(id)?.name ?? id)
   // #113 activity: who is at work in this channel (here or in one of its workspaces) and on what.
   const channelRooms = new Set(state.rooms.filter(r => r.id === channelId || r.parent_id === channelId).map(r => r.id))
@@ -793,6 +898,22 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   const popupOpen = mention !== undefined && candidates.length > 0
   openMentionAt.current = popupOpen ? mention.start : undefined
   const selected = Math.min(highlight, Math.max(candidates.length - 1, 0))
+  // #1016 / commands go to the primary role when it is a bothouse bot (only those run bridge commands).
+  const commandTarget = lead?.kind === 'bot' ? lead : undefined
+  const slash = slashQuery(draft)
+  const slashCommands = slash === undefined || capabilitiesDismissed || popupOpen ? [] : matchCommands(slash, key => t(key))
+  const slashOpen = slashCommands.length > 0
+  const slashSelected = Math.min(slashHighlight, Math.max(slashCommands.length - 1, 0))
+  // #1017: bothouse bots answering in this room; the send key stops one of them (the primary
+  // role first) while the draft is empty. 停频道全部 and 改方向 live in the / menu only.
+  const workingBots = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? [])
+    .map(id => byId.get(id)).filter((m): m is ChannelMember => m !== undefined && m.kind === 'bot')
+  const stopTarget = workingBots.find(m => m.id === commandTarget?.id) ?? workingBots[0]
+  const roomFiles = state.roomId === undefined ? [] : pendingFiles[state.roomId] ?? []
+  const stopMode = (stopTarget !== undefined || stopping?.phase === 'stopping') && draft.trim() === '' && roomFiles.length === 0
+  // #1017: owner command lines and the bridge's answers to them, shown as one thin line.
+  const answers = commandAnswers(state.messages, id => byId.get(id)?.name)
+  const answerIds = new Set([...answers.values()].map(m => m.id))
 
   const setDraft = (text: string, nextCaret: number): void => {
     const roomId = state.roomId
@@ -907,9 +1028,61 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     })
   }
 
+  /** Send one command line now, keeping the draft unless it was the command itself; resolves to whether it went out. */
+  const sendCommand = (text: string, clearDraft: boolean): Promise<boolean> => {
+    const roomId = state.roomId
+    if (roomId === undefined) return Promise.resolve(false)
+    setErrors(previous => ({ ...previous, [roomId]: undefined }))
+    stickRef.current = true
+    return send(text).then(() => {
+      if (clearDraft) setDrafts(previous => ({ ...previous, [roomId]: '' }))
+      return true
+    }, (error: unknown) => {
+      setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message: error instanceof Error ? error.message : String(error) }) }))
+      return false
+    })
+  }
+
+  const noTarget = (): void => {
+    const roomId = state.roomId
+    if (roomId !== undefined) setErrors(previous => ({ ...previous, [roomId]: t('slashNoLead') }))
+  }
+
+  const runSlash = (command: SlashCommand): void => {
+    const run = command.run
+    setSlashHighlight(0)
+    if (run.kind === 'panel') {
+      setDraft('', 0)
+      if (run.panel === 'help') { setCapabilitiesDismissed(false); setHelpOpen(true); return }
+      chatRef.current?.querySelector<HTMLButtonElement>(`button[aria-label="${t('taskBoardOpen')}"]`)?.click()
+      return
+    }
+    if (run.kind === 'send' && run.broadcast === true) { sendCommand(run.text, true); return }
+    if (commandTarget === undefined) { noTarget(); return }
+    const line = `@${commandTarget.name} ${run.text}`
+    if (run.kind === 'fill') { setCapabilitiesDismissed(true); setDraft(line, line.length); return }
+    sendCommand(line, true)
+  }
+
+  // #1017 the stop key: /stop to one bot — this reply of it, the session stays. 正在停止 until the
+  // bot is no longer answering here, then 已停止 for a moment.
+  const stopReply = (): void => {
+    if (stopTarget === undefined || stopping?.phase === 'stopping') return
+    const target = stopTarget
+    setStopping({ botId: target.id, name: target.name, phase: 'stopping' })
+    void sendCommand(`@${target.name} /stop`, false).then((sent) => { if (!sent) setStopping(undefined) })
+  }
+
+  const toTask = dispatchTask === undefined || state.roomId === undefined || leadId == null ? undefined : async (message: ChannelMessage): Promise<void> => {
+    const line = message.text.split('\n').map(x => x.trim()).find(Boolean) ?? ''
+    // 40 characters keeps the board row on one line (TaskBoard titles); the card links back to the full message.
+    const title = line.length > 40 ? `${line.slice(0, 40)}…` : line
+    await dispatchTask(message.room_id, { title, owner: leadId, messageId: message.id })
+  }
+
   const submit = (): void => {
     const roomId = state.roomId
-    const text = draft.trim()
+    const text = addressCommand(draft.trim(), commandTarget?.name)
     const files = roomId === undefined ? [] : pendingFiles[roomId] ?? []
     if ((!text && files.length === 0) || roomId === undefined || pendingRooms.current.has(roomId)) return
     if (files.length > 0 && messageTooLarge(text, files)) {
@@ -947,9 +1120,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (draft === '/' && !capabilitiesDismissed && !isImeEnter(event)) {
+    if (slashOpen && !isImeEnter(event)) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        const step = event.key === 'ArrowDown' ? 1 : -1
+        setSlashHighlight((slashSelected + step + slashCommands.length) % slashCommands.length)
+        return
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); runSlash(slashCommands[slashSelected] as SlashCommand); return }
       if (event.key === 'Escape') { event.preventDefault(); setCapabilitiesDismissed(true); return }
-      if (event.key === 'Enter') { event.preventDefault(); return }
     }
     if (popupOpen && !isImeEnter(event)) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -1092,19 +1271,23 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
             </div>
           )}
           {loadingOlder && <div className={css.olderLoading} role="status">{t('loadingOlder')}</div>}
-          {state.messages.length === 0
+          {visibleMessages.length === 0
             ? <div className={css.empty}>{t('empty')}</div>
-            : state.messages.map((m, index) => [
-                unread !== undefined && unread.roomId === state.roomId && unread.fromId === m.id
+            : visibleMessages.map((m, index) => [
+                firstUnread === m.id
                   ? <div key={`unread-${m.id}`} className={css.unreadDivider} role="separator">{t('newMessagesDivider')}</div>
                   : null,
                 pendingWithdraw?.id === m.id
                   ? <div key={m.id} className={css.withdrawnRow} data-message-id={m.id}>{t('withdrawPending')}</div>
+                  : answerIds.has(m.id) ? null
+                  : m.author_kind === 'user' && m.card === null && commandLine(m.text) !== undefined
+                  ? <CommandRow key={m.id} message={m} target={commandLine(m.text)?.target} command={commandLine(m.text)?.command ?? ''} answer={answers.get(m.id)} t={t} />
                   : <MessageRow
                   key={m.id}
                   enter={fresh.get(m.id)}
                   message={m}
-                  grouped={continues(state.messages[index - 1], m)}
+                  // #1017: a command line or its folded answer above is no bubble to group under.
+                  grouped={continues(visibleMessages[index - 1], m) && !answerIds.has(visibleMessages[index - 1]?.id ?? -1) && !(visibleMessages[index - 1]?.author_kind === 'user' && commandLine(visibleMessages[index - 1]?.text ?? '') !== undefined)}
                   member={byId.get(m.author)}
                   t={t}
                   onConfigure={() => { if (!openModelSettings()) setModelsOpen(true) }}
@@ -1120,6 +1303,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
                   tasks={state.tasks ?? []}
                   focused={focusedId === m.id}
                   onReply={startReply}
+                  onTask={toTask}
                   own={ownActions(m)}
                 />,
               ])}
@@ -1134,12 +1318,14 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
         {!atBottom && state.messages.length > 0 && (
           <button type="button" className={css.jumpLatest} onClick={scrollToLatest}>
             <span aria-hidden="true">↓</span> {t('jumpLatest')}
-            {unread !== undefined && unread.roomId === state.roomId && !unread.seen && unreadCount(state.messages, unread.fromId) > 0
-              && <span className={css.jumpCount}>{t('jumpLatestCount', { count: unreadCount(state.messages, unread.fromId) })}</span>}
+            {visibleUnreadCount > 0
+              && <span className={css.jumpCount}>{t('jumpLatestCount', { count: visibleUnreadCount })}</span>}
           </button>
         )}
         </div>
-        <div className={css.working} aria-live="polite">{typingNames.length > 0 && <><span className={css.typingDots} aria-hidden="true"><i /><i /><i /></span>{t('workingList', { names: typingNames.join('、') })}</>}</div>
+        <div className={css.working} aria-live="polite">
+          {typingNames.length > 0 && <><span className={css.typingDots} aria-hidden="true"><i /><i /><i /></span>{t('workingList', { names: typingNames.join('、') })}</>}
+        </div>
         {/* #113/#125: questions and pending permission requests stay pinned above the composer while the log scrolls. */}
         <DecideTray
           questions={questions}
@@ -1154,7 +1340,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           isImeEnter={isImeEnter}
         />
         <div className={css.composer} ref={composerRef}>
-          {draft === '/' && !capabilitiesDismissed && <CapabilityList key={state.roomId} t={t} onClose={() => { setCapabilitiesDismissed(true) }} />}
+          {helpOpen && <CapabilityList key={state.roomId} t={t} onClose={() => { setHelpOpen(false) }} />}
+          {slashOpen && <SlashMenu commands={slashCommands} selected={slashSelected} target={commandTarget?.name} grouped={slash === ''} t={t} onPick={runSlash} onHover={setSlashHighlight} />}
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
           {ownNotice !== undefined && <div className={css.sendError} role="status">{ownNotice}</div>}
           {popupOpen && (
@@ -1219,17 +1406,19 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
               disabled={state.roomId === undefined || sending[state.roomId] === true}
               placeholder={t(compactComposer() ? 'placeholderShort' : 'placeholder', { room: room?.name ?? '' })}
               role="combobox"
-              aria-expanded={popupOpen}
-              aria-controls="channel-mention-list"
+              aria-expanded={popupOpen || slashOpen}
+              aria-controls={slashOpen ? 'channel-slash-list' : 'channel-mention-list'}
               aria-autocomplete="list"
-              aria-activedescendant={popupOpen ? `channel-mention-${(candidates[selected] as ChannelMember).id}` : undefined}
+              aria-activedescendant={popupOpen ? `channel-mention-${(candidates[selected] as ChannelMember).id}` : slashOpen ? `channel-slash-${slashSelected}` : undefined}
               onChange={(event) => {
                 const roomId = state.roomId
                 const value = event.target.value
                 if (roomId !== undefined) setDrafts(previous => ({ ...previous, [roomId]: value }))
                 setCapabilitiesDismissed(false)
+                setHelpOpen(false)
                 setCaret(event.target.selectionStart)
                 setHighlight(0)
+                setSlashHighlight(0)
               }}
               onSelect={(event) => { setCaret(event.currentTarget.selectionStart) }}
               onKeyDown={onKeyDown}
@@ -1251,18 +1440,35 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
               </button>
               {/* Touch keyboards may not send Enter (or insert a newline instead), so the composer always
                   has a send button, as the desktop chat does; it runs the same submit as Enter. */}
-              <button
-                type="button"
-                className={css.sendButton}
-                title={t('sendButton')}
-                aria-label={t('sendButton')}
-                disabled={state.roomId === undefined || sending[state.roomId] === true || (draft.trim() === '' && (pendingFiles[state.roomId] ?? []).length === 0)}
-                // Keep focus (and the soft keyboard) in the textarea when tapped.
-                onMouseDown={(event) => { event.preventDefault() }}
-                onClick={submit}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg>
-              </button>
+              {stopping !== undefined && <span className={css.stopNote} role="status">{t(stopping.phase === 'stopping' ? 'stopPending' : 'stopDone', { name: stopping.name })}</span>}
+              {stopMode ? (
+                // #1017: while a bot answers and the draft is empty, the send key stops that bot's reply.
+                <button
+                  type="button"
+                  className={`${css.sendButton} ${css.stopButton}`}
+                  title={t('stopReply', { name: (stopTarget ?? stopping)?.name ?? '' })}
+                  aria-label={t('stopReply', { name: (stopTarget ?? stopping)?.name ?? '' })}
+                  data-phase={stopping?.phase}
+                  aria-disabled={stopping?.phase === 'stopping'}
+                  onMouseDown={(event) => { event.preventDefault() }}
+                  onClick={stopReply}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2.5" fill="currentColor" /></svg>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={css.sendButton}
+                  title={t('sendButton')}
+                  aria-label={t('sendButton')}
+                  disabled={state.roomId === undefined || sending[state.roomId] === true || (draft.trim() === '' && (pendingFiles[state.roomId] ?? []).length === 0)}
+                  // Keep focus (and the soft keyboard) in the textarea when tapped.
+                  onMouseDown={(event) => { event.preventDefault() }}
+                  onClick={submit}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg>
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -199,7 +199,7 @@ const INTERRUPTED = Symbol('interrupted');
 export function friendlyFailure(raw) {
   if (raw?.code === 'COLLAB_CLI_START') return raw.message;
   const text = String(raw);
-  if (/no.{0,12}(api.?key|key)|missing.{0,12}(key|credential)|api.?key.{0,12}(missing|not set|required)|未配置.*key/i.test(text)) return '还没有配置模型的 API Key，请先去配置模型。';
+  if (/no.{0,12}(api.?key|key)|missing.{0,12}(key|credential)|api.?key.{0,12}(missing|not set|required)|未配置.*key/i.test(text)) return '还没填模型密钥，填好就能用。';
   if (/model.{0,30}(not found|unavailable|not available|unsupported)|unknown model|模型.*不可用|404/i.test(text)) return '这个模型暂时不可用，请检查模型名称或换一个模型。';
   // An unreachable provider is a setting or network problem. Echoing the transport wording
   // ("Connection error.") behind "请检查配置" told the user nothing about which setting to fix.

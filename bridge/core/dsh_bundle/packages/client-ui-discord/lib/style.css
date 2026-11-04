@@ -417,25 +417,73 @@
 }
 
 .dshc_replyButton {
-  opacity: 0;
   border-radius: var(--dsw-radius-xs);
   color: var(--dsw-alias-label-tertiary);
   background: var(--dsw-alias-bg-layer-2);
   cursor: pointer;
   border: 0;
   padding: 0 6px;
-  position: absolute;
-  top: 4px;
-  right: 16px;
 }
 
-.dshc_message:hover .dshc_replyButton, .dshc_message:focus-within .dshc_replyButton, .dshc_replyButton:focus-visible {
+.dshc_msgTools {
+  z-index: 1;
+  border: 1px solid var(--dsw-alias-separator, #7f7f7f40);
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-primary, #fff));
+  opacity: 0;
+  pointer-events: none;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  display: inline-flex;
+  position: absolute;
+  top: 2px;
+  right: 16px;
+  box-shadow: 0 2px 6px #00000014;
+}
+
+.dshc_msgTool {
+  border-radius: var(--dsw-radius-sm, 6px);
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.dshc_msgTool:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.dshc_msgTool:disabled {
+  cursor: default;
+  opacity: .6;
+}
+
+.dshc_msgToolNote {
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.dshc_message:hover .dshc_msgTools, .dshc_message:focus-within .dshc_msgTools, .dshc_msgTools:has(.dshc_msgToolNote) {
   opacity: 1;
+  pointer-events: auto;
 }
 
 @media (hover: none) {
-  .dshc_replyButton {
+  .dshc_msgTools {
+    box-shadow: none;
     opacity: 1;
+    pointer-events: auto;
+    background: none;
+    border: 0;
+    margin-top: 2px;
+    position: static;
   }
 }
 
@@ -470,8 +518,11 @@
 .dshc_working {
   min-height: 20px;
   color: var(--dsw-alias-label-tertiary);
+  align-items: center;
+  gap: 6px;
   padding: 0 16px;
   font-size: 12px;
+  display: flex;
 }
 
 .dshc_composer {
@@ -2021,7 +2072,7 @@
   align-self: flex-end;
 }
 
-.dshc_own .dshc_replyButton {
+.dshc_own .dshc_msgTools {
   left: 16px;
   right: auto;
 }
@@ -3459,6 +3510,165 @@
 
 .dshc_sidePanel .dshc_boardCardGrid {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.dshc_slashPopup {
+  z-index: 6;
+  width: min(360px, 100% - 32px);
+  animation: none;
+  right: auto;
+}
+
+.dshc_slashGroup {
+  color: var(--dsw-alias-label-tertiary);
+  padding: 6px 8px 2px;
+  font-size: 11px;
+}
+
+.dshc_slashItem {
+  border-radius: var(--dsw-radius-sm);
+  cursor: pointer;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  display: flex;
+}
+
+.dshc_slashActive {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dshc_slashName {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+}
+
+.dshc_slashMeta {
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.dshc_sendButton.dshc_stopButton {
+  background: var(--dsw-alias-label-primary);
+}
+
+.dshc_stopNote + .dshc_sendButton {
+  margin-left: 8px;
+}
+
+.dshc_sendButton.dshc_stopButton[data-phase="stopping"] {
+  opacity: .6;
+  cursor: progress;
+}
+
+.dshc_stopNote {
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.dshc_cmdLine {
+  color: var(--dsw-alias-label-tertiary);
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 1px 16px 1px 72px;
+  font-size: 12px;
+  display: flex;
+}
+
+.dshc_cmdLine code {
+  color: var(--dsw-alias-label-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.dshc_cmdResult {
+  min-width: 0;
+  max-width: 60ch;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.dshc_cmdResult[aria-expanded="true"] {
+  white-space: pre-line;
+  max-width: none;
+}
+
+.dshc_cmdLine[data-failed="true"] .dshc_cmdResult {
+  color: var(--dsw-alias-danger, #d94848);
+}
+
+@media (width <= 720px) {
+  .dshc_cmdLine {
+    padding-left: 16px;
+  }
+}
+
+.dshc_msgTool {
+  justify-content: center;
+  align-items: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  position: relative;
+}
+
+.dshc_msgTool[data-tip]:after {
+  content: attr(data-tip);
+  z-index: 3;
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.dshc_msgTool[data-tip]:hover:after, .dshc_msgTool[data-tip]:focus-visible:after {
+  opacity: 1;
+  transition: opacity 0s 80ms;
+}
+
+.dshc_permSessionButton {
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 4px 6px;
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+.dshc_permSessionButton:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.dshc_permSessionButton:disabled {
+  opacity: .5;
+  cursor: default;
 }
 [data-dc-scheme="light"] {
   --dsw-static-amber-100: #fef5e7;

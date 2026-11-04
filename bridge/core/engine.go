@@ -1492,7 +1492,8 @@ func (e *Engine) SetAdminFrom(adminFrom string) {
 	e.userRolesMu.Unlock()
 	if af == "" && !shellDisabled {
 		slog.Warn("admin_from is not set — privileged commands (/shell, /show, /dir, /restart, /upgrade) are blocked. "+
-			"Set admin_from in config to enable them, or use disabled_commands to hide them.",
+			"Set admin_from (your user ID, see /whoami) at the [[projects]] level of config.toml — not under "+
+			"[projects.platforms.options] — to enable them, or use disabled_commands to hide them.",
 			"project", e.name)
 	}
 }

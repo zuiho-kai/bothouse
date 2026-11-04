@@ -270,6 +270,8 @@ export interface ChannelSnapshot {
 /** Actions the panel can take; each returns once the service answered. */
 export interface ChannelActions {
   reviewTask(id: number, verdict: 'done' | 'rework', note?: string): Promise<void>
+  /** #1016 转任务: put a message on the task board for `owner` (POST collab/api/rooms/{id}/tasks). */
+  dispatchTask?(roomId: number, task: { readonly title: string; readonly owner: string; readonly messageId: number }): Promise<void>
   /** Show another room and load its recent messages. */
   selectRoom(roomId: number): Promise<void>
   /** Post one human message into the selected room, optionally replying to `replyTo`; rejects with the service's reason. */
@@ -797,6 +799,12 @@ export function createChannelSource(transport: ChannelTransport): {
     async reviewTask(id, verdict, note) {
       const { task } = await request<{ task: ChannelTask }>(`collab/api/tasks/${id}/review`, json('POST', { verdict, note }))
       set({ tasks: (snapshot.tasks ?? []).map(row => row.id === task.id ? task : row) })
+    },
+    async dispatchTask(roomId, { title, owner, messageId }) {
+      // ref 无（新建）: a message turned into a task points at no existing code (dsh/collab/handoff-rules.mjs checkDispatch);
+      // force: a busy owner still gets it on the board, as a later item.
+      const { task } = await request<{ task: ChannelTask }>(`collab/api/rooms/${roomId}/tasks`, json('POST', { title, owner, ref: '无（新建）', message_id: messageId, force: true }))
+      set({ tasks: [...(snapshot.tasks ?? []).filter(row => row.id !== task.id), task] })
     },
     selectRoom,
     async send(text, replyTo, attachments) {

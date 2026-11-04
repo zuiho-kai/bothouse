@@ -215,6 +215,9 @@ type WizardProjectWrite struct {
 	// non-ASCII name maps to role-N); written as team_name, which the panel shows. "" = leave
 	DisplayName    string
 	NameCustomized *bool
+	// AdminFrom: project-level admin_from (the owner `send --dm` writes to), written only
+	// when the project has none. "" = leave
+	AdminFrom string
 }
 
 // WizardExistingProject is one [[projects]] entry as read from config.toml.
@@ -224,6 +227,7 @@ type WizardExistingProject struct {
 	Platforms                          map[string]map[string]any // platform type → options (first of each type)
 	GateURL, GateFallback              string
 	DisplayName                        string // team_name ("" = Name)
+	AdminFrom                          string // project-level admin_from
 }
 
 // WizardSnapshot is config.toml's projects at one moment.
@@ -1855,6 +1859,14 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 				if allowFrom == AllowFromUnset {
 					pl.allowFromUnset = append(pl.allowFromUnset, r.Name)
 				}
+			}
+			// admin_from: the bots' owners (looked up with the token, not typed by the user) also
+			// own the DM that `send --dm` writes to and the admin commands. Without it the DM fails
+			// and /shell is blocked; they can already command the agent through allow_from.
+			// An existing admin_from is kept.
+			if ex, _ := s.project(r.project); req.AllowFrom == nil && allowFrom != "" && allowFrom != AllowFromUnset &&
+				allowFrom != "*" && strings.TrimSpace(ex.AdminFrom) == "" {
+				pw.AdminFrom = allowFrom
 			}
 			// the wizard's default chat channel: listening without an @ stays in it (platform/discord
 			// group_reply_all_channels); an existing value is kept

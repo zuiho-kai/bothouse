@@ -164,15 +164,12 @@ export function DecideTray({ questions, permissionCount, permissions, t, onAnswe
     if (!asked.has(reply.task.id) && inFlight(reply)) rows.push(reply)
   }
   if (rows.length === 0 && permissionCount === 0) return null
-  const head = [
-    rows.length > 0 ? t('trayAsks', { count: String(rows.length) }) : '',
-    permissionCount > 0 ? t('trayPerms', { count: String(permissionCount) }) : '',
-  ].filter(Boolean).join(' · ')
+  // #1017: one count of what waits on the user (「等你点头 · 2 件」), questions and permissions together.
+  const head = t('trayAsks', { count: String(rows.length + permissionCount) })
   return (
     <section className={css.decideTray} role="region" aria-label={t('decideTray')} data-open={open}>
       <button type="button" className={css.decideTrayHead} aria-expanded={open} onClick={() => { setOpen(!open) }}>
         <strong>{head}</strong>
-        <small>{t('trayPinned')}</small>
         <span className={css.decideTrayToggle}>{t(open ? 'trayCollapse' : 'trayExpand')}</span>
       </button>
       {/* Folded rows stay mounted (hidden), so a running countdown or a draft is not lost. */}
