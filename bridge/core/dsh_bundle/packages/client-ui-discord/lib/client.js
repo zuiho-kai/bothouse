@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: f5b11ade3bbecac2fb89b6625f58b9ecc032a856f3f04e60de62fffb710e7c4c
+// dsh-client-source-sha256: 9a9407a7e22654a4184a980ad33890754201dc4f606807e14f405f2a0dd4c814
 // dsh-style-sha256: 9b9da2fcc3bedc1889ef0cd8f89bb0dda19cb69e914bf4db0ae7713ddbb08a07
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -18885,58 +18885,8 @@ function PermissionCard({ messageId, card, t, onDecide }) {
 function openQuestions(tasks, rooms) {
 	return tasks.filter((task) => task.status === "asked" && task.paused_at == null && rooms.has(task.room_id)).sort((a, b) => a.updated_at - b.updated_at);
 }
-function AskItem({ task, t, onAnswer, isImeEnter }) {
-	const [draft, setDraft] = (0, react.useState)("");
-	const [phase, setPhase] = (0, react.useState)({ kind: "draft" });
-	const [error, setError] = (0, react.useState)();
-	const timer = (0, react.useRef)(void 0);
-	(0, react.useEffect)(() => () => {
-		clearInterval(timer.current);
-	}, []);
-	const deliver = (text) => {
-		clearInterval(timer.current);
-		setPhase({
-			kind: "sent",
-			text
-		});
-		onAnswer?.(task.id, text).catch((e) => {
-			setPhase({ kind: "draft" });
-			setDraft(text);
-			setError(e instanceof Error ? e.message : String(e));
-		});
-	};
-	const send = () => {
-		const text = draft.trim();
-		if (text === "" || phase.kind === "pending") return;
-		setError(void 0);
-		if (onAnswer === void 0) {
-			setPhase({ kind: "unavailable" });
-			return;
-		}
-		setDraft("");
-		setPhase({
-			kind: "pending",
-			text,
-			left: 5
-		});
-		let left = 5;
-		clearInterval(timer.current);
-		timer.current = setInterval(() => {
-			left -= 1;
-			if (left <= 0) deliver(text);
-			else setPhase({
-				kind: "pending",
-				text,
-				left
-			});
-		}, 1e3);
-	};
-	const undo = () => {
-		if (phase.kind !== "pending") return;
-		clearInterval(timer.current);
-		setDraft(phase.text);
-		setPhase({ kind: "draft" });
-	};
+function AskItem({ reply, t, onDraft, onSend, onUndo, isImeEnter }) {
+	const { task, draft, phase, error } = reply;
 	let tail;
 	if (phase.kind === "pending") tail = /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 		className: ChannelsPage_module_default.askDone,
@@ -18944,7 +18894,7 @@ function AskItem({ task, t, onAnswer, isImeEnter }) {
 		children: [t("askReplied", { text: phase.text }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 			type: "button",
 			className: ChannelsPage_module_default.linkButton,
-			onClick: undo,
+			onClick: onUndo,
 			children: t("askUndo", { n: String(phase.left) })
 		})]
 	});
@@ -18957,7 +18907,7 @@ function AskItem({ task, t, onAnswer, isImeEnter }) {
 		className: ChannelsPage_module_default.askForm,
 		onSubmit: (event) => {
 			event.preventDefault();
-			send();
+			onSend();
 		},
 		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
 			className: ChannelsPage_module_default.askInput,
@@ -18965,13 +18915,12 @@ function AskItem({ task, t, onAnswer, isImeEnter }) {
 			placeholder: t("askPlaceholder"),
 			"aria-label": t("askReplyTo", { id: String(task.id) }),
 			onChange: (event) => {
-				setDraft(event.target.value);
-				if (phase.kind === "unavailable") setPhase({ kind: "draft" });
+				onDraft(event.target.value);
 			},
 			onKeyDown: (event) => {
 				if (event.key === "Enter" && !event.shiftKey && !isImeEnter(event)) {
 					event.preventDefault();
-					send();
+					onSend();
 				}
 			}
 		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
@@ -19030,6 +18979,12 @@ function AskItem({ task, t, onAnswer, isImeEnter }) {
 		]
 	});
 }
+/** A reply keeps its row while it counts down or after it failed, even once the task left `asked`,
+* so the user can still undo it or see the error. Drafts and delivered replies of tasks no longer
+* asked are not shown. */
+function inFlight(reply) {
+	return reply.phase.kind === "pending" || reply.error !== void 0;
+}
 /**
 * The folding tray. `permissions` is the existing permission list (rendered by the page), so
 * its buttons and server-driven states stay exactly as before; the tray only adds the header
@@ -19037,8 +18992,118 @@ function AskItem({ task, t, onAnswer, isImeEnter }) {
 */
 function DecideTray({ questions, permissionCount, permissions, t, onAnswer, isImeEnter }) {
 	const [open, setOpen] = (0, react.useState)(true);
-	if (questions.length === 0 && permissionCount === 0) return null;
-	const head = [questions.length > 0 ? t("trayAsks", { count: String(questions.length) }) : "", permissionCount > 0 ? t("trayPerms", { count: String(permissionCount) }) : ""].filter(Boolean).join(" · ");
+	const [replies, setReplies] = (0, react.useState)(/* @__PURE__ */ new Map());
+	const timers = (0, react.useRef)(/* @__PURE__ */ new Map());
+	const answerRef = (0, react.useRef)(onAnswer);
+	answerRef.current = onAnswer;
+	(0, react.useEffect)(() => () => {
+		for (const id of timers.current.values()) clearInterval(id);
+	}, []);
+	const asked = new Map(questions.map((task) => [task.id, task]));
+	const patch = (taskId, change) => {
+		setReplies((prev) => {
+			const known = prev.get(taskId);
+			const task = asked.get(taskId) ?? known?.task;
+			if (task === void 0) return prev;
+			const next = new Map(prev);
+			const changed = change(known ?? {
+				draft: "",
+				phase: { kind: "draft" },
+				task
+			});
+			if (changed === void 0) next.delete(taskId);
+			else next.set(taskId, changed);
+			return next;
+		});
+	};
+	const stop = (taskId) => {
+		clearInterval(timers.current.get(taskId));
+		timers.current.delete(taskId);
+	};
+	const deliver = (taskId, text) => {
+		stop(taskId);
+		patch(taskId, (r) => ({
+			...r,
+			phase: {
+				kind: "sent",
+				text
+			}
+		}));
+		answerRef.current?.(taskId, text).catch((e) => {
+			patch(taskId, (r) => ({
+				...r,
+				phase: { kind: "draft" },
+				draft: text,
+				error: e instanceof Error ? e.message : String(e)
+			}));
+		});
+	};
+	const send = (taskId) => {
+		const reply = replies.get(taskId);
+		const text = (reply?.draft ?? "").trim();
+		if (text === "" || reply?.phase.kind === "pending") return;
+		if (onAnswer === void 0) {
+			patch(taskId, (r) => ({
+				...r,
+				error: void 0,
+				phase: { kind: "unavailable" }
+			}));
+			return;
+		}
+		patch(taskId, (r) => ({
+			...r,
+			draft: "",
+			error: void 0,
+			phase: {
+				kind: "pending",
+				text,
+				left: 5
+			}
+		}));
+		let left = 5;
+		stop(taskId);
+		timers.current.set(taskId, setInterval(() => {
+			left -= 1;
+			if (left <= 0) deliver(taskId, text);
+			else patch(taskId, (r) => ({
+				...r,
+				phase: {
+					kind: "pending",
+					text,
+					left
+				}
+			}));
+		}, 1e3));
+	};
+	const undo = (taskId) => {
+		stop(taskId);
+		patch(taskId, (r) => r.phase.kind === "pending" ? {
+			...r,
+			draft: r.phase.text,
+			phase: { kind: "draft" }
+		} : r);
+	};
+	const draftOf = (taskId, text) => {
+		patch(taskId, (r) => ({
+			...r,
+			draft: text,
+			phase: r.phase.kind === "unavailable" ? { kind: "draft" } : r.phase
+		}));
+	};
+	const rows = questions.map((task) => {
+		const known = replies.get(task.id);
+		return known === void 0 ? {
+			draft: "",
+			phase: { kind: "draft" },
+			task
+		} : {
+			...known,
+			task
+		};
+	});
+	for (const reply of replies.values()) if (!asked.has(reply.task.id) && inFlight(reply)) rows.push(reply);
+	if (rows.length === 0 && permissionCount === 0) return null;
+	const head = [rows.length > 0 ? t("trayAsks", { count: String(rows.length) }) : "", permissionCount > 0 ? t("trayPerms", { count: String(permissionCount) }) : ""].filter(Boolean).join(" · ");
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 		className: ChannelsPage_module_default.decideTray,
 		role: "region",
@@ -19059,15 +19124,26 @@ function DecideTray({ questions, permissionCount, permissions, t, onAnswer, isIm
 					children: t(open ? "trayCollapse" : "trayExpand")
 				})
 			]
-		}), open && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [questions.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-			className: ChannelsPage_module_default.askList,
-			children: questions.map((task) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(AskItem, {
-				task,
-				t,
-				onAnswer,
-				isImeEnter
-			}, task.id))
-		}), permissions] })]
+		}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+			hidden: !open,
+			children: [rows.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ChannelsPage_module_default.askList,
+				children: rows.map((reply) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(AskItem, {
+					reply,
+					t,
+					onDraft: (text) => {
+						draftOf(reply.task.id, text);
+					},
+					onSend: () => {
+						send(reply.task.id);
+					},
+					onUndo: () => {
+						undo(reply.task.id);
+					},
+					isImeEnter
+				}, reply.task.id))
+			}), permissions]
+		})]
 	});
 }
 // src/client/ChannelsPage.tsx

@@ -60,9 +60,55 @@ it('folds questions and permissions under one header', () => {
   fireEvent.click(head)
   expect(head.getAttribute('aria-expanded')).toBe('false')
   expect(within(tray()).queryByRole('button', { name: '允许' })).toBeNull()
-  expect(within(tray()).queryByText('问题7')).toBeNull()
+  expect(within(tray()).queryByRole('textbox')).toBeNull()
   fireEvent.click(head)
-  expect(within(tray()).getByText('问题7')).toBeTruthy()
+  expect(within(tray()).getByRole('textbox', { name: tr('askReplyTo', { id: 7 }) })).toBeTruthy()
+})
+
+it('keeps a draft while the tray is folded', () => {
+  render(<ChannelsPage {...props({ ...base, tasks: [task(7)] })} />)
+  fireEvent.change(within(tray()).getByRole('textbox', { name: tr('askReplyTo', { id: 7 }) }), { target: { value: '抽屉' } })
+  const head = within(tray()).getByRole('button', { name: new RegExp(tr('trayAsks', { count: 1 })) })
+  fireEvent.click(head)
+  fireEvent.click(head)
+  expect((within(tray()).getByRole('textbox', { name: tr('askReplyTo', { id: 7 }) }) as HTMLInputElement).value).toBe('抽屉')
+})
+
+it('still sends a counting-down reply when the tray is folded meanwhile', async () => {
+  vi.useFakeTimers()
+  const answerTask = vi.fn(async () => {})
+  render(<ChannelsPage {...props({ ...base, tasks: [task(7)] }, { answerTask })} />)
+  fireEvent.change(within(tray()).getByRole('textbox', { name: tr('askReplyTo', { id: 7 }) }), { target: { value: '抽屉' } })
+  fireEvent.click(within(tray()).getByRole('button', { name: zh.askSend }))
+  fireEvent.click(within(tray()).getByRole('button', { name: new RegExp(tr('trayAsks', { count: 1 })) }))
+  await act(async () => { vi.advanceTimersByTime(UNDO_SECONDS * 1000) })
+  expect(answerTask).toHaveBeenCalledWith(7, '抽屉')
+})
+
+it('keeps a counting-down reply undoable after the task leaves asked', async () => {
+  vi.useFakeTimers()
+  const answerTask = vi.fn(async () => {})
+  const p = props({ ...base, tasks: [task(7)] }, { answerTask })
+  const view = render(<ChannelsPage {...p} />)
+  fireEvent.change(within(tray()).getByRole('textbox', { name: tr('askReplyTo', { id: 7 }) }), { target: { value: '抽屉' } })
+  fireEvent.click(within(tray()).getByRole('button', { name: zh.askSend }))
+  view.rerender(<ChannelsPage {...props({ ...base, tasks: [task(7, { status: 'accepted' })] }, { answerTask })} />)
+  await act(async () => { vi.advanceTimersByTime(1000) })
+  fireEvent.click(within(tray()).getByRole('button', { name: tr('askUndo', { n: UNDO_SECONDS - 1 }) }))
+  await act(async () => { vi.advanceTimersByTime(UNDO_SECONDS * 1000) })
+  expect(answerTask).not.toHaveBeenCalled()
+})
+
+it('shows the failure of a reply whose task already left asked', async () => {
+  vi.useFakeTimers()
+  const answerTask = vi.fn(async () => { throw new Error('HTTP 409') })
+  const view = render(<ChannelsPage {...props({ ...base, tasks: [task(7)] }, { answerTask })} />)
+  fireEvent.change(within(tray()).getByRole('textbox', { name: tr('askReplyTo', { id: 7 }) }), { target: { value: '抽屉' } })
+  fireEvent.click(within(tray()).getByRole('button', { name: zh.askSend }))
+  view.rerender(<ChannelsPage {...props({ ...base, tasks: [task(7, { status: 'accepted' })] }, { answerTask })} />)
+  await act(async () => { vi.advanceTimersByTime(UNDO_SECONDS * 1000) })
+  expect(answerTask).toHaveBeenCalledWith(7, '抽屉')
+  expect(within(tray()).getByRole('alert').textContent).toBe('HTTP 409')
 })
 
 it('greys the ↑ send button while the reply is empty', () => {

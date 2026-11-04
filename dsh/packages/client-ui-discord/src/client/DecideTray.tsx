@@ -21,66 +21,35 @@ export function openQuestions(tasks: readonly ChannelTask[], rooms: ReadonlySet<
 }
 
 type Phase = { kind: 'draft' } | { kind: 'pending'; text: string; left: number } | { kind: 'sent'; text: string } | { kind: 'unavailable' }
+/** One question's reply state. It lives in the tray, not the row, so folding the tray or the task
+ * leaving `asked` mid-countdown neither drops the draft nor silently cancels a reply (#972 review). */
+type Reply = { draft: string; phase: Phase; error?: string; task: ChannelTask }
 
-function AskItem({ task, t, onAnswer, isImeEnter }: {
-  task: ChannelTask
+function AskItem({ reply, t, onDraft, onSend, onUndo, isImeEnter }: {
+  reply: Reply
   t: T
-  onAnswer: ((taskId: number, text: string) => Promise<void>) | undefined
+  onDraft: (text: string) => void
+  onSend: () => void
+  onUndo: () => void
   isImeEnter: (event: { nativeEvent: Event }) => boolean
 }) {
-  const [draft, setDraft] = useState('')
-  const [phase, setPhase] = useState<Phase>({ kind: 'draft' })
-  const [error, setError] = useState<string>()
-  const timer = useRef<ReturnType<typeof setInterval>>(undefined)
-  useEffect(() => () => { clearInterval(timer.current) }, [])
-
-  const deliver = (text: string): void => {
-    clearInterval(timer.current)
-    setPhase({ kind: 'sent', text })
-    onAnswer?.(task.id, text).catch((e: unknown) => {
-      setPhase({ kind: 'draft' })
-      setDraft(text)
-      setError(e instanceof Error ? e.message : String(e))
-    })
-  }
-  const send = (): void => {
-    const text = draft.trim()
-    if (text === '' || phase.kind === 'pending') return
-    setError(undefined)
-    if (onAnswer === undefined) { setPhase({ kind: 'unavailable' }); return }
-    setDraft('')
-    setPhase({ kind: 'pending', text, left: UNDO_SECONDS })
-    let left = UNDO_SECONDS
-    clearInterval(timer.current)
-    timer.current = setInterval(() => {
-      left -= 1
-      if (left <= 0) deliver(text)
-      else setPhase({ kind: 'pending', text, left })
-    }, 1000)
-  }
-  const undo = (): void => {
-    if (phase.kind !== 'pending') return
-    clearInterval(timer.current)
-    setDraft(phase.text)
-    setPhase({ kind: 'draft' })
-  }
-
+  const { task, draft, phase, error } = reply
   let tail: ReactNode
   if (phase.kind === 'pending') {
     tail = <span className={css.askDone} role="status">{t('askReplied', { text: phase.text })}
-      <button type="button" className={css.linkButton} onClick={undo}>{t('askUndo', { n: String(phase.left) })}</button>
+      <button type="button" className={css.linkButton} onClick={onUndo}>{t('askUndo', { n: String(phase.left) })}</button>
     </span>
   } else if (phase.kind === 'sent') {
     tail = <span className={css.askDone} role="status">{t('askReplied', { text: phase.text })}</span>
   } else {
-    tail = <form className={css.askForm} onSubmit={(event) => { event.preventDefault(); send() }}>
+    tail = <form className={css.askForm} onSubmit={(event) => { event.preventDefault(); onSend() }}>
       <input
         className={css.askInput}
         value={draft}
         placeholder={t('askPlaceholder')}
         aria-label={t('askReplyTo', { id: String(task.id) })}
-        onChange={(event) => { setDraft(event.target.value); if (phase.kind === 'unavailable') setPhase({ kind: 'draft' }) }}
-        onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !isImeEnter(event)) { event.preventDefault(); send() } }}
+        onChange={(event) => { onDraft(event.target.value) }}
+        onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !isImeEnter(event)) { event.preventDefault(); onSend() } }}
       />
       <button type="submit" className={css.askSend} title={t('askSend')} aria-label={t('askSend')} disabled={draft.trim() === ''}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg>
@@ -101,6 +70,13 @@ function AskItem({ task, t, onAnswer, isImeEnter }: {
   )
 }
 
+/** A reply keeps its row while it counts down or after it failed, even once the task left `asked`,
+ * so the user can still undo it or see the error. Drafts and delivered replies of tasks no longer
+ * asked are not shown. */
+function inFlight(reply: Reply): boolean {
+  return reply.phase.kind === 'pending' || reply.error !== undefined
+}
+
 /**
  * The folding tray. `permissions` is the existing permission list (rendered by the page), so
  * its buttons and server-driven states stay exactly as before; the tray only adds the header
@@ -115,9 +91,69 @@ export function DecideTray({ questions, permissionCount, permissions, t, onAnswe
   isImeEnter: (event: { nativeEvent: Event }) => boolean
 }) {
   const [open, setOpen] = useState(true)
-  if (questions.length === 0 && permissionCount === 0) return null
+  const [replies, setReplies] = useState<ReadonlyMap<number, Reply>>(new Map())
+  const timers = useRef(new Map<number, ReturnType<typeof setInterval>>())
+  // Latest props for the countdown callbacks, which outlive the render that started them.
+  const answerRef = useRef(onAnswer)
+  answerRef.current = onAnswer
+  useEffect(() => () => { for (const id of timers.current.values()) clearInterval(id) }, [])
+
+  const asked = new Map(questions.map(task => [task.id, task]))
+  const patch = (taskId: number, change: (reply: Reply) => Reply | undefined): void => {
+    setReplies(prev => {
+      const known = prev.get(taskId)
+      const task = asked.get(taskId) ?? known?.task
+      if (task === undefined) return prev
+      const next = new Map(prev)
+      const changed = change(known ?? { draft: '', phase: { kind: 'draft' }, task })
+      if (changed === undefined) next.delete(taskId)
+      else next.set(taskId, changed)
+      return next
+    })
+  }
+  const stop = (taskId: number): void => {
+    clearInterval(timers.current.get(taskId))
+    timers.current.delete(taskId)
+  }
+  const deliver = (taskId: number, text: string): void => {
+    stop(taskId)
+    patch(taskId, r => ({ ...r, phase: { kind: 'sent', text } }))
+    answerRef.current?.(taskId, text).catch((e: unknown) => {
+      patch(taskId, r => ({ ...r, phase: { kind: 'draft' }, draft: text, error: e instanceof Error ? e.message : String(e) }))
+    })
+  }
+  const send = (taskId: number): void => {
+    const reply = replies.get(taskId)
+    const text = (reply?.draft ?? '').trim()
+    if (text === '' || reply?.phase.kind === 'pending') return
+    if (onAnswer === undefined) { patch(taskId, r => ({ ...r, error: undefined, phase: { kind: 'unavailable' } })); return }
+    patch(taskId, r => ({ ...r, draft: '', error: undefined, phase: { kind: 'pending', text, left: UNDO_SECONDS } }))
+    let left = UNDO_SECONDS
+    stop(taskId)
+    timers.current.set(taskId, setInterval(() => {
+      left -= 1
+      if (left <= 0) deliver(taskId, text)
+      else patch(taskId, r => ({ ...r, phase: { kind: 'pending', text, left } }))
+    }, 1000))
+  }
+  const undo = (taskId: number): void => {
+    stop(taskId)
+    patch(taskId, r => r.phase.kind === 'pending' ? { ...r, draft: r.phase.text, phase: { kind: 'draft' } } : r)
+  }
+  const draftOf = (taskId: number, text: string): void => {
+    patch(taskId, r => ({ ...r, draft: text, phase: r.phase.kind === 'unavailable' ? { kind: 'draft' } : r.phase }))
+  }
+
+  const rows: Reply[] = questions.map(task => {
+    const known = replies.get(task.id)
+    return known === undefined ? { draft: '', phase: { kind: 'draft' }, task } : { ...known, task }
+  })
+  for (const reply of replies.values()) {
+    if (!asked.has(reply.task.id) && inFlight(reply)) rows.push(reply)
+  }
+  if (rows.length === 0 && permissionCount === 0) return null
   const head = [
-    questions.length > 0 ? t('trayAsks', { count: String(questions.length) }) : '',
+    rows.length > 0 ? t('trayAsks', { count: String(rows.length) }) : '',
     permissionCount > 0 ? t('trayPerms', { count: String(permissionCount) }) : '',
   ].filter(Boolean).join(' · ')
   return (
@@ -127,12 +163,17 @@ export function DecideTray({ questions, permissionCount, permissions, t, onAnswe
         <small>{t('trayPinned')}</small>
         <span className={css.decideTrayToggle}>{t(open ? 'trayCollapse' : 'trayExpand')}</span>
       </button>
-      {open && <>
-        {questions.length > 0 && <div className={css.askList}>
-          {questions.map(task => <AskItem key={task.id} task={task} t={t} onAnswer={onAnswer} isImeEnter={isImeEnter} />)}
+      {/* Folded rows stay mounted (hidden), so a running countdown or a draft is not lost. */}
+      <div hidden={!open}>
+        {rows.length > 0 && <div className={css.askList}>
+          {rows.map(reply => <AskItem key={reply.task.id} reply={reply} t={t}
+            onDraft={(text) => { draftOf(reply.task.id, text) }}
+            onSend={() => { send(reply.task.id) }}
+            onUndo={() => { undo(reply.task.id) }}
+            isImeEnter={isImeEnter} />)}
         </div>}
         {permissions}
-      </>}
+      </div>
     </section>
   )
 }
