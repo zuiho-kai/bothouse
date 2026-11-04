@@ -55,8 +55,8 @@
   --idle <小时> 写它；所有角色的命令和桥跑的定时都只读它。文件没有 = 开、24 小时；文件坏了 = 不收并警告一行。
   返工汇总和团队板「今天做完」都不算自动收起的记录。
 """
-import json, os, re, shlex, shutil, subprocess, sys, time
-from contextlib import contextmanager
+import json, os, re, shlex, shutil, subprocess, sys, tempfile, time
+from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -398,7 +398,13 @@ def link(nid, url):
 FORWARD_HEAD = "## 转交结果"
 
 
-def append_forward(path, line):
+def _forward_bytes(path, line):
+    """读原文、插进「## 转交结果」节，返回要写回去的完整字节；这里一个字都不写。
+
+    「先算好再换文件」是这次返工的关键：原来先 open(path, "w") 截断再写，写到一半抛异常
+    （比如摘要里带半截代理对，utf-8 编不出来）就把整份交接文件的后半截丢了——工作区接着读
+    的时候看到的是残缺的「接着做」。
+    """
     with open(path, encoding="utf-8") as fh:
         lines = fh.read().splitlines()
     entry = f"- {line}"
@@ -409,8 +415,50 @@ def append_forward(path, line):
         lines[end:end] = [entry]
     else:
         lines += ([""] if lines and lines[-1].strip() else []) + [FORWARD_HEAD, entry]
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(lines) + "\n")
+    text = "\n".join(lines) + "\n"
+    try:
+        return text.encode("utf-8")
+    except UnicodeEncodeError as e:
+        # 单靠 encode 的默认报错看不出是哪一行，这里说清是哪来的、还能怎么办。
+        raise ValueError(
+            f"转交结果这一行写不进交接文件：第 {e.start} 个字符不是合法 UTF-8"
+            "（多半是上游摘要里的半截代理对）；文件没有改动）"
+        ) from None
+
+
+def append_forward(path, line):
+    """把 line 追加进交接文件的「## 转交结果」节，整份内容原子替换。
+
+    先写同目录临时文件 + fsync，再 os.replace：中途失败时原文件一个字节都不变，
+    也不会出现「写了一半」的交接文件被工作区读到。
+    """
+    data = _forward_bytes(path, line)
+    target = os.path.abspath(path)
+    d = os.path.dirname(target) or "."
+    try:
+        mode = os.stat(target).st_mode & 0o777
+    except FileNotFoundError:
+        mode = None
+    fd, tmp = tempfile.mkstemp(prefix=".forward-", suffix=".tmp", dir=d)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        if mode is not None:
+            os.chmod(tmp, mode)  # mkstemp 建的是 0600，别悄悄改掉原文件的权限
+        os.replace(tmp, target)
+    except BaseException:
+        with suppress(OSError):
+            os.unlink(tmp)
+        raise
+    # 目录项也落盘：替换完立刻断电，别人看到的仍是旧文件或新文件，不会是空文件。
+    with suppress(OSError):
+        dfd = os.open(d, os.O_RDONLY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
 
 
 def paused_item(path):
