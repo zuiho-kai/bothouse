@@ -21,6 +21,7 @@ import { MemberDialog } from './MemberDialog.tsx'
 import { ChannelSettingsDialog } from './ChannelSettingsDialog.tsx'
 import { Avatar, AvatarStack } from './Avatar.tsx'
 import { PermissionCard, type PermissionCardData } from './PermissionCard.tsx'
+import { DecideTray, openQuestions } from './DecideTray.tsx'
 import type { NS } from './locales.ts'
 import css from './ChannelsPage.module.css'
 import { setScheme, useScheme } from './scheme.ts'
@@ -33,7 +34,10 @@ export interface ChannelsInjected extends ChannelActions {
 }
 
 /** Full props of the channels main panel. */
-export type ChannelsPageProps = PropsRuntime<'main'> & InjectFace<ChannelsInjected> & PropsLocale<typeof NS>
+export type ChannelsPageProps = PropsRuntime<'main'> & InjectFace<ChannelsInjected> & PropsLocale<typeof NS> & {
+  /** Direct reply to a member's question from the 等你定 tray; absent until the reply endpoint is live (#107/#118). */
+  readonly answerTask?: (taskId: number, text: string) => Promise<void>
+}
 
 type T = TranslateNS<typeof NS>
 
@@ -449,7 +453,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, answerTask, t }: ChannelsPageProps) {
   const scheme = useScheme()
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
@@ -674,6 +678,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     return [{ member: m, room: state.rooms.find(r => r.id === (where ?? task?.room_id)), task, thinking: where !== undefined }]
   })
   const pendingPerms = state.messages.filter(pendingPermission)
+  const questions = openQuestions(state.tasks ?? [], channelRooms)
   const channelActive = room === undefined ? 0 : state.rooms.filter(r => channelRooms.has(r.id)).reduce((n, r) => n + (r.active ?? 0), 0)
   const mention = activeMention(draft, caret)
   const candidates = mention === undefined || mention.start === dismissedAt ? [] : rankMembers(visibleMembers, mention.query)
@@ -962,12 +967,19 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
               ))}
         </div>
         <div className={css.working} aria-live="polite">{typingNames.length > 0 ? t('workingList', { names: typingNames.join('、') }) : ''}</div>
-        {pendingPerms.length > 0 && (
-          // #113: pending permission requests stay pinned above the composer while the log scrolls.
-          <div className={css.permTray} role="region" aria-label={t('permTray', { count: pendingPerms.length })}>
-            {pendingPerms.map(m => <PermTrayItem key={m.id} message={m} author={byId.get(m.author)} t={t} onDecide={decidePermission} />)}
-          </div>
-        )}
+        {/* #113/#125: questions and pending permission requests stay pinned above the composer while the log scrolls. */}
+        <DecideTray
+          questions={questions}
+          permissionCount={pendingPerms.length}
+          permissions={pendingPerms.length > 0 && (
+            <div className={css.permTray} role="region" aria-label={t('permTray', { count: pendingPerms.length })}>
+              {pendingPerms.map(m => <PermTrayItem key={m.id} message={m} author={byId.get(m.author)} t={t} onDecide={decidePermission} />)}
+            </div>
+          )}
+          t={t}
+          onAnswer={answerTask}
+          isImeEnter={isImeEnter}
+        />
         <div className={css.composer} ref={composerRef}>
           {draft === '/' && !capabilitiesDismissed && <CapabilityList key={state.roomId} t={t} onClose={() => { setCapabilitiesDismissed(true) }} />}
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
