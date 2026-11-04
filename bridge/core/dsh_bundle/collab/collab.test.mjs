@@ -1557,7 +1557,7 @@ test('member failure publishes actionable error and clears it on retry', () => {
   const trigger = hub.store.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'hello' }).message;
   const job = hub.store.addJob('ds', 1, trigger.id);
   members.fail(job.id, 'No API key configured');
-  assert.match(hub.memberView().find(m => m.id === 'ds').error, /没有配置.*Key/);
+  assert.match(hub.memberView().find(m => m.id === 'ds').error, /模型密钥/);
   assert.equal(hub.memberView().find(m => m.id === 'ds').online, false);
   const notice = hub.store.page(1, undefined, 1)[0];
   assert.equal(JSON.parse(notice.card).action, 'configure-model');
