@@ -622,3 +622,45 @@ func TestRateLimitRetry_CooldownSaysRateLimited(t *testing.T) {
 		t.Fatalf("a 429 cooldown must say rate limited:\n%s", out)
 	}
 }
+
+// The error texts below are copied from the live bridge's logs (main.log 11-03/11-04, run.log to
+// 11-02); the list in capacity_retry.go is built from them.
+func TestTransientErrorFromLiveLogs(t *testing.T) {
+	retry := []string{
+		"exceeded retry limit, last status: 429 Too Many Requests",
+		"Error running remote compact task: exceeded retry limit, last status: 429 Too Many Requests",
+		"stream disconnected before completion: Incomplete response returned, reason: adapter_eof",
+		"Reconnecting... 1/5\nstream disconnected before completion: Upstream stream terminated unexpectedly: SOCKS5 upstream closed before response headers",
+		"stream disconnected before completion: idle timeout waiting for SSE",
+		"unexpected status 502 Bad Gateway: Unknown error, url: http://127.0.0.1:10100/v1/responses",
+		"unexpected status 503 Service Unavailable: 当前模型服务暂不可用，请稍后重试 (request id: x)",
+		"unexpected status 403 Forbidden: The model service is temporarily unavailable. Please try again later.",
+		"json-rpc -32603: Internal error: turn failed: 原模型请求失败：上游请求超时；已完成的工具操作可能已生效，请先核对成果。",
+		"json-rpc -32603: Internal error: turn failed: 原模型请求失败：上游连接中断；已完成的工具操作可能已生效，请先核对成果。",
+		"json-rpc -32603: Internal error: turn failed: 原模型请求失败：上游服务异常；已完成的工具操作可能已生效，请先核对成果。",
+		"acp: initialize: json-rpc -32000: acp: read closed: EOF",
+		"529 overloaded_error: Overloaded",
+	}
+	keep := []string{
+		"json-rpc -32603: Internal error: turn failed: 原模型请求失败：上游认证失败；已完成的工具操作可能已生效，请先核对成果。",
+		"unexpected status 403 Forbidden: insufficient balance, url: http://127.0.0.1:10100/v1/responses",
+		"Cursor quota exhausted (100% used); resets in 3h",
+		"RESOURCE_EXHAUSTED (code 429) Individual quota reached. Resets in 83h59m53s",
+		`Provider error 400: {"error":{"message":"model gpt-6.1-sol tiered expr run failed: expr compile error: unknown name cc12h (1:62)"}}`,
+		"401 Unauthorized: invalid api key",
+		"request blocked by content_filter",
+		"antigravity: stream turn failed (ERROR; command_step=9965 exit_code=1 kind=shell-or-unknown nonzero_commands=1)",
+		"codex app-server: turn interrupted",
+		"acp: prompt did not complete successfully",
+	}
+	for _, m := range retry {
+		if !isTransientError(m) {
+			t.Errorf("must retry: %q", m)
+		}
+	}
+	for _, m := range keep {
+		if isTransientError(m) {
+			t.Errorf("must not retry: %q", m)
+		}
+	}
+}
