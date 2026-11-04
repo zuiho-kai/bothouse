@@ -147,3 +147,68 @@ func TestTurnErrorUnchangedWithoutQuieter(t *testing.T) {
 		t.Fatal("platform without a quieter must keep errors")
 	}
 }
+
+// groupBoardPlatform is a Discord board host that keeps bridge notices out of
+// its "group" reply context, so one fixture can assert both the chat silence
+// and the task-board update of the same dropped queue.
+type groupBoardPlatform struct {
+	*boardPlatform
+}
+
+func (p *groupBoardPlatform) QuietSystemNotices(replyCtx any) bool { return replyCtx == "group" }
+
+// When a failed turn drops its queued messages, the group must not receive the
+// backend's error text, but the task board still ends the held row as failed.
+func TestDroppedQueuedMessagesKeptOutOfGroupBoardStillFails(t *testing.T) {
+	h := newChannelBoardHub()
+	p := &groupBoardPlatform{boardPlatform: newBoardPlatform()}
+	e := newBoardEngine(t, h, "maomao", p)
+	e.SetChannelBoard(true)
+	key := "discord:c1"
+	state := &interactiveState{platform: p, replyCtx: "group", turnDesc: "整理看板"}
+	e.interactiveStates[key] = state
+	ref := e.boardBegin(state, key)
+	ref.hold()
+	state.mu.Lock()
+	state.pendingMessages = []queuedMessage{{messageID: "m1", boardDesc: "整理看板", platform: p, replyCtx: "group"}}
+	state.mu.Unlock()
+
+	e.notifyDroppedQueuedMessages(state, errors.New(backendErrorText))
+
+	if sent := strings.Join(p.getSent(), "\n"); strings.Contains(sent, "codearts") {
+		t.Fatalf("group received the dropped queue's backend error text: %q", sent)
+	}
+	waitBoard(t, "the dropped row to end as failed", func() bool {
+		b := p.latest(t)
+		return b != nil && len(b.Running) == 0 && len(b.Queued) == 0 && len(b.Done) == 1 && b.Done[0].Outcome == BoardDoneFailed
+	})
+}
+
+// A private chat still gets the dropped queue's error text for diagnosis.
+func TestDroppedQueuedMessagesKeptInPrivate(t *testing.T) {
+	p := &groupErrorPlatform{stubPlatformEngine{n: "test"}}
+	e := NewEngine("test", &resultAgent{session: &errorScriptSession{events: make(chan Event, 1)}}, []Platform{p}, "", LangChinese)
+	t.Cleanup(func() { _ = e.Stop() })
+
+	state := &interactiveState{pendingMessages: []queuedMessage{{platform: p, replyCtx: "private"}}}
+	e.notifyDroppedQueuedMessages(state, errors.New(backendErrorText))
+
+	waitFor(t, "the dropped queue's error text in the private chat", func() bool {
+		return strings.Contains(strings.Join(p.getSent(), "\n"), "codearts")
+	})
+}
+
+// A platform without a quieter still reports the dropped queue everywhere,
+// so the guard cannot silently disable error reporting elsewhere.
+func TestDroppedQueuedMessagesUnchangedWithoutQuieter(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+
+	state := &interactiveState{pendingMessages: []queuedMessage{{platform: p, replyCtx: "group"}}}
+	e.notifyDroppedQueuedMessages(state, errors.New(backendErrorText))
+
+	waitFor(t, "the dropped queue's error text without a quieter", func() bool {
+		return strings.Contains(strings.Join(p.getSent(), "\n"), "codearts")
+	})
+}

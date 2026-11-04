@@ -8147,7 +8147,10 @@ func (e *Engine) notifyDroppedQueuedMessages(state *interactiveState, reason err
 	for _, q := range remaining {
 		ctx, err := e.turnOutputContext(q.authorization)
 		if err == nil {
-			_ = e.sendWithErrorContext(ctx, q.platform, q.replyCtx, fmt.Sprintf(e.i18n.T(MsgError), reason))
+			text := fmt.Sprintf(e.i18n.T(MsgError), reason)
+			if !e.errorKeptOutOfChat(q.platform, q.replyCtx, text) {
+				_ = e.sendWithErrorContext(ctx, q.platform, q.replyCtx, text)
+			}
 		}
 	}
 }
