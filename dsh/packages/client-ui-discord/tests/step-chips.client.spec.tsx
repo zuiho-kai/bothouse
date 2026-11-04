@@ -78,3 +78,12 @@ it('keeps the plain step lines for older cards without chips', () => {
   expect(screen.queryByRole('group', { name: zh.stepChips })).toBeNull()
   expect(view.container.querySelector('[data-message-id="5"]')?.textContent).toContain('✅ bash · 成功')
 })
+
+it('shows an open step of a finished or cancelled run as having no result, not running', () => {
+  for (const state of ['completed', 'cancelled', 'failed']) {
+    render(<ChannelsPage {...props({ ...base, messages: [run({ state, title: `橘 · ${state}` })] })} />)
+    expect(chip('read', 'stepUnknown').dataset.state).toBe('unknown')
+    expect(within(group()).queryByRole('button', { name: `read · ${zh.stepRunning}` })).toBeNull()
+    cleanup()
+  }
+})

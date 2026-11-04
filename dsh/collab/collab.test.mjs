@@ -618,7 +618,7 @@ test('progress card carries step chips: tool, outcome, call and output per step 
   assert.deepEqual(JSON.parse(c.card).chips, [
     { tool: 'Bash', state: 'ok', input: 'go test ./...', output: 'ok all' },
     { tool: 'Edit', state: 'failed', input: 'a.go', output: 'boom' },
-    { tool: 'Grep', state: 'ok', output: 'x'.repeat(120) },
+    { tool: 'Grep', state: 'ok', output: `${'x'.repeat(119)}…` },
     { tool: 'Read', state: 'running', input: 'b.go' },
   ]);
   const done = progressCard(PROGRESS_PREFIX + JSON.stringify({ state: 'completed', items: [{ kind: 'tool_use', tool: 'Read', text: 'b.go' }, { kind: 'error', text: 'denied' }, { kind: 'tool_use', text: 'q' }] }));
@@ -6002,6 +6002,7 @@ test('cloud-web: a restarted bridge leaves no progress card stuck at 处理中 (
   const closed = hub.store.message(running);
   assert.equal(JSON.parse(closed.card).state, 'cancelled', 'stale running card is closed');
   assert.equal(JSON.parse(closed.card).title, 'CC · 已取消');
+  assert.deepEqual(JSON.parse(closed.card).chips, [{ tool: 'Bash', state: 'unknown', input: 'seq 1 20' }], 'an open step of a cut turn is no longer running');
   assert.match(closed.text, /seq 1 20/, 'the steps stay readable');
   assert.match(closed.text, /已中断/);
   assert.equal(JSON.parse(hub.store.message(done).card).state, 'completed', 'a finished card is not rewritten');

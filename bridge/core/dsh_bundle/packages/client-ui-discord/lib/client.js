@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: f7951fcb1c306f8082b1fcb5c52ff281b61213cf6f68e03147c14229f3b92506
+// dsh-client-source-sha256: d0c676ad1f0f7c7b1d916ccf51dce3331d6ff2b7831f65129db6974d1dca5eea
 // dsh-style-sha256: c14b161b215274ddd2cdf76a49857761feaabce8a34161db762ac2b73c0a39d0
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -17653,8 +17653,12 @@ const LABEL = {
 	running: "stepRunning",
 	unknown: "stepUnknown"
 };
-function StepChips({ chips, t }) {
+function StepChips({ chips: given, runState, t }) {
 	const [open, setOpen] = (0, react.useState)();
+	const chips = runState === "running" ? given : given.map((c) => c.state === "running" ? {
+		...c,
+		state: "unknown"
+	} : c);
 	const shown = open === void 0 ? void 0 : chips[open];
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: ChannelsPage_module_default.stepChips,
@@ -19229,6 +19233,16 @@ function DecideTray({ questions, permissionCount, permissions, t, onAnswer, isIm
 		for (const id of timers.current.values()) clearInterval(id);
 	}, []);
 	const asked = new Map(questions.map((task) => [task.id, task]));
+	const askedKey = questions.map((task) => task.id).join(",");
+	(0, react.useEffect)(() => {
+		setReplies((prev) => {
+			const stale = [...prev.values()].filter((r) => !asked.has(r.task.id) && !inFlight(r));
+			if (stale.length === 0) return prev;
+			const next = new Map(prev);
+			for (const r of stale) next.delete(r.task.id);
+			return next;
+		});
+	}, [askedKey]);
 	const patch = (taskId, change) => {
 		setReplies((prev) => {
 			const known = prev.get(taskId);
@@ -19778,6 +19792,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 							}),
 							cardView === "brief" && chips !== void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(StepChips, {
 								chips,
+								runState: card.state,
 								t
 							}) : !progressFolded && progressLines.length > 1 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 								className: `${ChannelsPage_module_default.text} ${ChannelsPage_module_default.runSteps}`,

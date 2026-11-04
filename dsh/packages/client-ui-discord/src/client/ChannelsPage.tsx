@@ -352,7 +352,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                 </div>
                 {/* #125: the brief view shows step chips when the card carries them; older cards keep the lines. */}
                 {cardView === 'brief' && chips !== undefined
-                  ? <StepChips chips={chips} t={t} />
+                  ? <StepChips chips={chips} runState={card.state} t={t} />
                   : !progressFolded && progressLines.length > 1 && (
                       <div className={`${css.text} ${css.runSteps}`}><MarkdownText text={stepsMarkdown} labels={labels} /></div>
                     )}
