@@ -65,6 +65,39 @@ type Platform struct {
 	quoteCache sync.Map // message ID string -> quoteEntry
 
 	nickname string // login nickname, for "@名字" of a teammate (team mode)
+
+	// connectedAt is when the current WS connection was established (Unix
+	// nano; 0 before the first connect). It bounds catch-up handling below:
+	// a replayed event may only be trusted right after a connect.
+	connectedAt atomic.Int64
+
+	// outageStart is when the current, still-ongoing outage began (Unix nano;
+	// 0 while connected). It is written once per continuous outage: a failed
+	// reconnect round that returns to readLoop must not move the start
+	// forward, or the early part of a long outage falls outside the boundary.
+	// (review found the disconnect instant being overwritten.)
+	outageStart atomic.Int64
+
+	// catchUpFrom is the start of the last completed outage (Unix nano; 0
+	// when no outage has completed yet). Anything older than it had its
+	// chance while the bridge was still connected, so it is stale even when
+	// it is newer than this process. (review: the
+	// entry point bypassed the measured boundary.)
+	catchUpFrom atomic.Int64
+
+	// watermark remembers the newest handled message per chat across restarts.
+	// nil when no data dir is configured, which leaves the guards in-memory.
+	watermark *recvWatermark
+
+	// catchUp remembers message IDs handled as a reconnect replay, so the
+	// same event pushed again after another reconnect is not answered twice.
+	// The ordinary dedup TTL (core dedupTTL, 60s) is far shorter than a
+	// reconnect gap, so it cannot cover this.
+	catchUp catchUpSeen
+
+	// now reads the current time; tests overwrite it to make the catch-up
+	// windows deterministic. nil means time.Now.
+	now func() time.Time
 }
 
 // teamPlatforms: QQ number → *Platform for every QQ bot in this process, so a
@@ -135,7 +168,24 @@ func New(opts map[string]any) (core.Platform, error) {
 	httpURL, _ := opts["http_url"].(string)
 	httpURL = strings.TrimRight(httpURL, "/")
 
+	// 落盘位置沿用同仓库 platform/weixin 的做法：cc_data_dir/<平台>/<项目>/。
+	// 会话键水位之外不引入新的目录约定。
+	//
+	// cc_data_dir 由 cmd/cc-connect 在创建每个平台时无条件注入
+	// （main.go: opts["cc_data_dir"] = cfg.DataDir），且 config 在 data_dir
+	// 为空时会填默认值，所以生产上这里不会是空串 —— 水位确实落盘。opts 里缺
+	// 键只会出现在直接构造 Platform 的测试中，那时退化为内存水位。
+	var watermarkPath string
+	if dataDir, _ := opts["cc_data_dir"].(string); dataDir != "" {
+		project, _ := opts["cc_project"].(string)
+		if project == "" {
+			project = "default"
+		}
+		watermarkPath = filepath.Join(dataDir, "qq", watermarkPathSegment(project), "recv-watermark.json")
+	}
+
 	return &Platform{
+		watermark:             newRecvWatermark(watermarkPath),
 		wsURL:                 wsURL,
 		token:                 token,
 		allowFrom:             allowFrom,
@@ -164,6 +214,7 @@ func (p *Platform) Start(handler core.MessageHandler) error {
 		return fmt.Errorf("qq: ws connect failed (%s): %w", p.wsURL, err)
 	}
 	p.conn = conn
+	p.connectedAt.Store(p.clock().UnixNano())
 
 	slog.Info("qq: connected to OneBot", "url", p.wsURL)
 
@@ -208,6 +259,11 @@ func (p *Platform) readLoop(ctx context.Context) {
 				return
 			}
 			slog.Error("qq: ws read error, reconnecting...", "error", err)
+			// Record when the socket died, but only the first failure of a
+			// continuous outage: after a failed reconnect round readLoop reads
+			// the same dead socket again and would otherwise push the start
+			// forward, hiding the early part of the outage.
+			p.markDisconnected()
 			p.reconnect()
 			continue
 		}
@@ -253,10 +309,130 @@ func (p *Platform) reconnect() {
 		p.mu.Lock()
 		p.conn = conn
 		p.mu.Unlock()
+		p.connectedAt.Store(p.clock().UnixNano())
+		// Real recovery: the outage that just ended becomes the catch-up
+		// boundary for the backlog NapCat buffered meanwhile, and the next
+		// outage will start a fresh one.
+		if start := p.outageStart.Swap(0); start != 0 {
+			p.catchUpFrom.Store(start)
+			// Re-attaching the socket does not recover what NapCat received
+			// while nobody was listening; ask for it explicitly, once per
+			// recovery, in the background so the read loop is not blocked.
+			go p.pullCatchUpHistory()
+		}
 		slog.Info("qq: reconnected")
 		return
 	}
 	slog.Error("qq: failed to reconnect after 30 attempts")
+}
+
+// NapCat pushes events to this WebSocket only while a client is attached, so a
+// message it received while the bridge was away is lost unless NapCat replays
+// it after the reconnect — and a replay carries a time older than this process,
+// which the plain IsOldMessage cut-off throws away. The constants below widen
+// that cut-off just enough to accept a replay, and bound how long one replayed
+// message_id stays deduped.
+const (
+	// reconnect() 的重试契约：30 次，第 i 次前 sleep i*2 秒。
+	qqReconnectAttempts = 30
+	qqReconnectStep     = 2 * time.Second
+
+	// 一次失败的 Dial 最长占用 websocket.DefaultDialer 的握手超时；本包未
+	// 改写它，gorilla/websocket 的默认值是 45 秒。
+	qqDialTimeout = 45 * time.Second
+)
+
+// qqCatchUpWindow is how old a replayed message may be: one full reconnect
+// budget — every backoff sleep (2*(1+…+30) = 930s) plus one Dial timeout per
+// attempt (30 × 45s) = 2280s — because a message received while the bridge was
+// away can only reach us after the last attempt succeeds. 这是上界，典型断线
+// 是秒级；不另取没有契约依据的时限。
+var qqCatchUpWindow = qqReconnectStep*time.Duration(qqReconnectAttempts*(qqReconnectAttempts+1)/2) +
+	time.Duration(qqReconnectAttempts)*qqDialTimeout
+
+// catchUpSeen tracks message IDs handled from a reconnect replay, with a TTL of
+// one full reconnect cycle (qqCatchUpWindow, far longer than core.MessageDedup's
+// 60s): a batch replayed by the next reconnect is not answered twice, while the
+// entry still expires instead of blocking the id forever.
+type catchUpSeen struct {
+	mu   sync.Mutex
+	seen map[string]time.Time
+}
+
+// seenBefore reports whether id was already handled as a replay, recording it
+// on the first call. now comes from the platform clock so the TTL is measured
+// on the same source as the catch-up windows (tests inject it).
+func (c *catchUpSeen) seenBefore(id string, now time.Time) bool {
+	if id == "" {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.seen == nil {
+		c.seen = make(map[string]time.Time)
+	}
+	for k, t := range c.seen {
+		if now.Sub(t) > qqCatchUpWindow {
+			delete(c.seen, k)
+		}
+	}
+	if _, ok := c.seen[id]; ok {
+		return true
+	}
+	c.seen[id] = now
+	return false
+}
+
+// clock is the platform's time source; tests replace it through now.
+func (p *Platform) clock() time.Time {
+	if p.now != nil {
+		return p.now()
+	}
+	return time.Now()
+}
+
+// markDisconnected records the start of an outage, once per continuous one.
+// Called from readLoop for every read error, including the reads that fail on
+// the same dead socket after a reconnect round gave up; only the first call
+// wins, so a long outage keeps the instant it actually began.
+func (p *Platform) markDisconnected() {
+	// Truncated to the second on purpose: OneBot reports a message time as
+	// whole seconds (time.Unix(int64(ts), 0) below), so a nanosecond-precision
+	// boundary would reject a message that merely shares the disconnect's
+	// second — the message looks older than the boundary only because its own
+	// sub-second part was rounded away. Same precision on both sides of the
+	// comparison, and the wider side is the safe one here: admitting a message
+	// from that second cannot resurrect anything older.
+	start := p.clock().Truncate(time.Second).UnixNano()
+	if p.outageStart.Load() == 0 {
+		p.outageStart.CompareAndSwap(0, start)
+	}
+}
+
+// acceptsCatchUp reports whether a message is still worth handling. Two
+// different stale sources, checked in this order:
+//
+//  1. Older than the last completed outage started: it had its chance while
+//     this bridge was still connected, so it is stale however old the process
+//     is. This is the measured boundary, and it applies to every message, not
+//     only to the ones older than the process start.
+//  2. Older than the process start with no outage completed yet: a fresh
+//     process cannot measure a boundary, so fall back to one reconnect budget
+//     (qqCatchUpWindow) and treat it as a documented guess.
+func (p *Platform) acceptsCatchUp(msgTime time.Time) bool {
+	if p.connectedAt.Load() == 0 {
+		return false
+	}
+	if from := p.catchUpFrom.Load(); from != 0 {
+		// A measured boundary decides on its own: adding the process-age
+		// window on top would drop a message buffered early in a long outage,
+		// which is exactly what the boundary is there to admit.
+		return !msgTime.Before(time.Unix(0, from))
+	}
+	if core.IsOldMessage(msgTime) {
+		return p.clock().Sub(msgTime) <= qqCatchUpWindow
+	}
+	return true
 }
 
 func (p *Platform) handleMessage(payload map[string]any) {
@@ -269,14 +445,49 @@ func (p *Platform) handleMessage(payload map[string]any) {
 		return
 	}
 
+	msgIDStr := strconv.FormatInt(messageID, 10)
+
+	// chatKey identifies the conversation the way a person would: one group is
+	// one chat, one private partner is one chat. Deliberately not the session
+	// key, which share_session_in_channel can rename.
+	chatKey := fmt.Sprintf("u:%d", userID)
+	if msgType == "group" {
+		chatKey = fmt.Sprintf("g:%d", groupID)
+	}
+
 	if ts, ok := payload["time"].(float64); ok && ts > 0 {
-		if core.IsOldMessage(time.Unix(int64(ts), 0)) {
-			slog.Debug("qq: ignoring old message after restart", "time", int64(ts))
+		msgTime := time.Unix(int64(ts), 0)
+		// Durable guard first: a message this process never saw but a previous
+		// run already handled is caught here, which no in-memory set can do.
+		if p.watermark != nil && p.watermark.seen(chatKey, msgIDStr, msgTime) {
+			slog.Debug("qq: message already handled before restart",
+				"message_id", messageID, "chat", chatKey)
 			return
+		}
+		// The stale check runs for every message, not only for the ones older
+		// than the process: a backlog received after the process started but
+		// before the disconnect is just as stale, and used to skip this gate
+		// entirely. (review.)
+		if !p.acceptsCatchUp(msgTime) {
+			slog.Debug("qq: ignoring stale message", "time", int64(ts),
+				"old_for_process", core.IsOldMessage(msgTime))
+			return
+		}
+		if core.IsOldMessage(msgTime) {
+			slog.Info("qq: handling message replayed after reconnect",
+				"message_id", messageID, "age_s", int(p.clock().Sub(msgTime).Seconds()))
 		}
 	}
 
-	msgIDStr := strconv.FormatInt(messageID, 10)
+	// Dedupe every message on the reconnect-cycle TTL, not only the ones that
+	// look old. A message handled live comes back as a replay after the next
+	// disconnect; core.MessageDedup expires after 60s, which is shorter than a
+	// reconnect gap, so the replay reached the engine a second time. Review of the
+	// review P1 (运行中重放跨短期去重后仍重复进入).
+	if messageID != 0 && p.catchUp.seenBefore(msgIDStr, p.clock()) {
+		slog.Debug("qq: duplicate message ignored", "message_id", messageID)
+		return
+	}
 	if p.dedup.IsDuplicate(msgIDStr) {
 		slog.Debug("qq: duplicate message ignored", "message_id", messageID)
 		return
@@ -441,6 +652,13 @@ func (p *Platform) handleMessage(payload map[string]any) {
 	}
 
 	slog.Debug("qq: message received", "type", msgType, "user", userID, "text_len", len(content), "mentioned", mentioned)
+	// Record before dispatch, not after: the handler only queues the turn, and
+	// a crash mid-turn must not make the same message look unhandled next time.
+	if p.watermark != nil {
+		if ts, ok := payload["time"].(float64); ok && ts > 0 {
+			p.watermark.observe(chatKey, msgIDStr, time.Unix(int64(ts), 0))
+		}
+	}
 	p.handler(p, msg)
 }
 
