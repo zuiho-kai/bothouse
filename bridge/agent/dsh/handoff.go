@@ -219,7 +219,7 @@ func (p *handoffParser) add(l *logLine) {
 			return
 		}
 		text := blockText(l.Data.Message.Content)
-		if text == "" || text == "NO_REPLY" {
+		if text == "" || core.IsSilentReply(text) {
 			return
 		}
 		e := core.HistoryEntry{Role: "assistant", Content: text, Timestamp: ts}
