@@ -1699,3 +1699,20 @@
 .schemeToggle:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
 .schemeToggle:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color); }
 .schemeToggle + .panelToggleEnd { margin-left: 4px; }
+
+/* #125 本频道进展 card (owner's 11:53 sample v1): sticky at the top of the log, four rows in one line on wide screens. */
+.progressCard { position: sticky; top: 0; z-index: 2; margin: 0 16px 12px; padding: 8px 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-base); box-shadow: 0 6px 18px rgb(0 0 0 / .04), 0 -12px 0 0 var(--dsw-alias-bg-base); font-size: 12px; }
+.progressTitle { font-size: 12px; color: var(--dsw-alias-label-primary); }
+.progressRows { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 14px; margin: 4px 0 0; }
+.progressRow { min-width: 0; }
+.progressRow dt { color: var(--dsw-alias-label-tertiary); font-size: 10px; }
+.progressRow dd { margin: 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--dsw-alias-label-primary); }
+.progressRow[data-empty='true'] dd { color: var(--dsw-alias-label-tertiary); }
+.progressRow[data-row='open'][data-empty='false'] dd, .progressRow[data-row='open'] .progressLink { color: var(--dsw-alias-state-warning-primary, #b7791f); }
+.progressLink { max-width: 100%; overflow: hidden; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
+.progressLink:hover { text-decoration: underline; }
+@media (max-width: 760px) {
+  .progressCard { margin: 0 10px 10px; }
+  .progressRows { grid-template-columns: 52px minmax(0, 1fr); }
+  .progressRow { display: contents; }
+}
