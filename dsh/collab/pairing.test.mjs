@@ -76,6 +76,8 @@ test('HTML rewrite sends absolute /collab/ URLs back through the proxy', () => {
   const mount = '/collab/remote/x';
   assert.equal(rewriteRemoteHTML(`<base href="/collab/panel/"><script>fetch('/collab/api/state');new EventSource(\`/collab/api/events\`)</script>`, mount),
     `<base href="/collab/remote/x/panel/"><script>fetch('/collab/remote/x/api/state');new EventSource(\`/collab/remote/x/api/events\`)</script>`);
+  // page.html, desk and wiki galaxy build URLs as `${ROOT}/collab/...`; ROOT is '' under the proxy.
+  assert.equal(rewriteRemoteHTML('api(`${ROOT}/collab/api/rooms/${id}/messages`)', mount), 'api(`${ROOT}/collab/remote/x/api/rooms/${id}/messages`)');
 });
 
 async function freePort() { const s = createServer(); const p = await listen(s); await new Promise(r => s.close(r)); return p; }

@@ -327,7 +327,8 @@ const PASS_RESPONSE = ['content-type', 'cache-control', 'etag', 'last-modified',
  * channel page, desk, wiki galaxy and panel (<base href="/collab/panel/">) keep working.
  */
 export function rewriteRemoteHTML(html, mount) {
-  return html.replace(/(["'`(=]\s*)\/collab\//g, `$1${mount}/`);
+  // `}` covers template literals such as `${ROOT}/collab/api/...` (page.html, desk, wiki galaxy).
+  return html.replace(/(["'`(=}]\s*)\/collab\//g, `$1${mount}/`);
 }
 
 /**
@@ -338,7 +339,7 @@ export function remoteProxyRoute(req, res, url, { client, request = httpRequest 
   if (url.pathname !== REMOTE_PREFIX && !url.pathname.startsWith(`${REMOTE_PREFIX}/`)) return undefined;
   const m = /^\/collab\/remote\/([0-9a-f-]{36})(\/.*)?$/.exec(url.pathname);
   const link = m === null ? undefined : client.get(m[1]);
-  if (link === undefined) return Promise.resolve(sendJSON(res, 404, { error: '没有这个连接，可能已断开，请重新连接', code: 'missing' }));
+  if (link === undefined) return Promise.resolve(sendError(req, res, 404, { error: '没有这个连接，可能已断开，请重新连接', code: 'missing' }));
   const mount = `${REMOTE_PREFIX}/${link.id}`;
   if (m[2] === undefined) { res.writeHead(308, { location: `${mount}/${url.search}` }); res.end(); return Promise.resolve(); }
   const rest = m[2] === '/' ? '' : m[2];
@@ -350,7 +351,7 @@ export function remoteProxyRoute(req, res, url, { client, request = httpRequest 
       if (status === 401 && upRes.headers['x-collab-pair'] === 'revoked') {
         client.drop(link.id);
         upRes.resume();
-        sendJSON(res, 401, { error: '那台电脑已经把这台移出，或临时连接到时间了，请重新配对', code: 'revoked' });
+        sendError(req, res, 401, { error: '那台电脑已经把这台移出，或临时连接到时间了，请重新配对', code: 'revoked' });
         return resolve();
       }
       const out = {};
@@ -377,7 +378,7 @@ export function remoteProxyRoute(req, res, url, { client, request = httpRequest 
       upRes.on('error', () => { res.destroy(); resolve(); });
     });
     up.on('error', () => {
-      if (!res.headersSent) sendJSON(res, 502, { error: '连不上那台电脑：它可能关机、DSH 没开、Tailscale 断了，或已经把这台踢掉', code: 'unreachable' });
+      if (!res.headersSent) sendError(req, res, 502, { error: '连不上那台电脑：它可能关机、DSH 没开、Tailscale 断了，或已经把这台踢掉', code: 'unreachable' });
       else res.destroy();
       resolve();
     });
@@ -385,6 +386,14 @@ export function remoteProxyRoute(req, res, url, { client, request = httpRequest 
     res.on('close', () => { if (!res.writableEnded) up.destroy(); });
     req.pipe(up);
   });
+}
+
+/** A page navigation gets a readable page; fetch() callers get JSON. */
+function sendError(req, res, status, value) {
+  if (!String(req.headers.accept ?? '').includes('text/html')) return sendJSON(res, status, value);
+  const esc = String(value.error).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+  res.end(`<!doctype html><meta charset="utf-8"><title>连不上</title><style>:root{color-scheme:light dark}body{font:15px/1.6 -apple-system,"PingFang SC",sans-serif;display:grid;place-items:center;min-height:90vh;margin:0;padding:16px}</style><p>${esc}</p>`);
 }
 
 function sendJSON(res, status, value) {
