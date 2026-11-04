@@ -141,27 +141,24 @@ export async function apply(ctx, rawConfig) {
   const lock = InstanceLock.acquire(lockPath);
   if (lock === undefined) throw Error(lockBusyMessage(lockPath));
   // Teardown is registered before anything is opened, so a startup that fails half-way still
-  // stops whatever it started. Each step runs even if an earlier one throws, and the lock is
-  // released last, only after the store and every background writer are closed.
+  // stops whatever it started; the lock is released last, after the store and the background
+  // writers are closed, so no second host gets in while this one can still write.
   const r = {};
   ctx.effect(() => async () => {
-    const step = async (name, fn) => {
-      try { await fn(); } catch (err) { ctx.logger.warn('conest-collab: teardown %s: %s', name, err?.message ?? err); }
-    };
-    await step('team status', () => r.teamStatus?.stop());
-    await step('desk', () => r.desk?.stop());
-    await step('quota', () => r.quota?.close());
-    await step('later', () => r.later?.close());
-    await step('tasks', () => r.tasks?.close());
-    await step('gateway', () => r.gateway?.closeAll());
+    r.teamStatus?.stop();
+    r.desk?.stop();
+    r.quota?.close();
+    r.later?.close();
+    r.tasks?.close();
+    r.gateway?.closeAll();
     clearInterval(r.pairSweep);
     clearInterval(r.aliveSweep);
-    await step('pairing listener', () => r.pairListener?.close());
-    await step('streams', () => { for (const end of r.streams ?? []) end(); });
-    await step('bot socket', () => r.wss?.close());
+    await r.pairListener?.close();
+    for (const end of r.streams ?? []) end();
+    r.wss?.close();
     // Drain DSH jobs first: a job still awaiting its Agent must not touch a closed store.
-    await step('dsh members', () => r.dsh?.close());
-    await step('store', () => r.store?.close());
+    await r.dsh?.close();
+    r.store?.close();
     lock.release();
   }, 'conest-collab: teardown');
 
