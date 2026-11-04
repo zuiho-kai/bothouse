@@ -535,5 +535,10 @@
     "title": "Wiki galaxy",
     "subtitle": "The wiki as a galaxy: one star per page, click a star to read it. Read-only.",
     "open": "Open separately"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "hint": "The address may be mistyped, or the page has moved.",
+    "home": "Back to dashboard"
   }
 }

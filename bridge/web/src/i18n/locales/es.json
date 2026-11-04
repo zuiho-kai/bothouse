@@ -447,5 +447,10 @@
     "title": "Galaxia del wiki",
     "subtitle": "El wiki como galaxia: una estrella por página, pulsa para leer. Solo lectura.",
     "open": "Abrir aparte"
+  },
+  "notFound": {
+    "title": "Página no encontrada",
+    "hint": "Puede que la dirección esté mal escrita o que la página se haya movido.",
+    "home": "Volver al panel"
   }
 }
