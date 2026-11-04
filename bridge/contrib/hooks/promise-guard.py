@@ -176,7 +176,9 @@ def parse_ts(ts):
 
 def ctx_env():
     """(项目, 频道 id)：bothouse 给会话设的 CC_PROJECT、CC_SESSION_KEY（outing-next 也按它们找频道）。"""
-    return os.environ.get("CC_PROJECT", ""), os.environ.get("CC_SESSION_KEY", "").rpartition(":")[2]
+    # DSH 会删名字带 KEY 的环境变量，退回桥另传的 CC_SESSION（同 ws-up、d10）
+    key = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+    return os.environ.get("CC_PROJECT", ""), key.rpartition(":")[2]
 
 
 def tick_hours(project, channel):
