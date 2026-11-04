@@ -38,7 +38,7 @@ func runAgentSID(args []string) {
 		project = os.Getenv("CC_PROJECT")
 	}
 	if sessionKey == "" {
-		sessionKey = os.Getenv("CC_SESSION_KEY")
+		sessionKey = envSessionKey()
 	}
 	dataDir = resolveDataDir(dataDir)
 

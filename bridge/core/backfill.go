@@ -100,6 +100,9 @@ func mergeInjectedReplies(p Platform, replyCtx any, injected []*injectedReply) a
 // markFinalReply marks replyCtx as carrying the turn's final answer (and agent output).
 func markFinalReply(p Platform, replyCtx any, sessions ...*Session) any {
 	replyCtx = markAgentReply(p, replyCtx, sessions...)
+	if sideSession(sessions) {
+		return replyCtx // see markAgentReply
+	}
 	if m, ok := p.(FinalReplyMarker); ok {
 		return m.MarkFinalReply(replyCtx)
 	}
@@ -111,10 +114,20 @@ func markAgentReply(p Platform, replyCtx any, sessions ...*Session) any {
 	if m, ok := p.(SessionAgentReplyMarker); ok && len(sessions) > 0 && sessions[0] != nil {
 		replyCtx = m.MarkSessionAgentReply(replyCtx, sessions[0].AgentReplyRecorder())
 	}
+	if sideSession(sessions) {
+		// A cron/timer side session's posts were never in the channel's main session, so they
+		// must not be marked as the agent's own text: channel backfill skips marked posts, and
+		// the main session never saw the 06:30 review it had posted (2026-11-03, #1002).
+		return replyCtx
+	}
 	if m, ok := p.(AgentReplyMarker); ok {
 		return m.MarkAgentReply(replyCtx)
 	}
 	return replyCtx
+}
+
+func sideSession(sessions []*Session) bool {
+	return len(sessions) > 0 && sessions[0] != nil && sessions[0].Side
 }
 
 // SystemNoticeMarker is implemented by platforms that post cc-connect's own

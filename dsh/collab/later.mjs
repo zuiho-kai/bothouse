@@ -104,6 +104,18 @@ export class Later {
     const curl = `curl -sS -X POST ${quote(url)} -H 'content-type: application/json' -H ${quote(`X-Later-Ticket: ${ticket}`)} -d '{"title":"任务标题","owner":"接活人id（省略=你自己）","reason":"交接说明"}'`;
     return `\n【开工作区】整块活要交出去时，建工作区=这一条，任务和十分钟看门会自动开，不要另调 /tasks（它不认票据）。${local}或等价的接口 POST /collab/api/rooms/${room}/workspaces：\n${curl}\n一步建好工作区、开任务、挂十分钟看门并叫醒接活人；不要再在频道里 @ 同一件活。返回不是 200 就把返回原样告诉用户，不要悄悄自己做。工作区里的接活人是新会话，只看得到交接说明：里面要写清用户原话、参照的现成实现、以哪个分支为底、验收标准。\n`;
   }
+  /**
+   * 一句话拉团队 (user 11-04): how the primary role builds a channel of new roles in one call.
+   * Primary-only like workspaceInstructions (dsh-member.mjs workspaceHint).
+   */
+  teamInstructions(member, room) {
+    const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
+    const ticket = this.ticket(member, room);
+    const json = '{"channel":"小团队","model":"模型id（用户没说就省略=DSH默认模型）","members":[{"name":"写手","persona":"你是写手，负责写和改博客文章。"},{"name":"程序员","persona":"你是程序员，负责写代码和审代码。"}]}';
+    const local = this.origin ? `本机命令（改 JSON 里的内容）：\n${quote(process.execPath)} ${quote(fileURLToPath(import.meta.url))} team ${quote(this.origin)} ${quote(ticket)} ${quote(json)}\n` : '';
+    const url = `${this.origin ?? 'http://<本机 DSH 地址>'}/collab/api/rooms/${room}/team`;
+    return `\n【建团队】用户要你建几个角色、拉个群/频道时，一条就建好：新频道、每个角色（名字、人设、模型），你是新频道的主角色。${local}或 POST ${url}（头 X-Later-Ticket: ${ticket}，JSON 同上）。名字不带空格和 @；人设一两句写清分工；用户说了模型就填 model（如 deepseek-v4.1-flash），没说就省略。返回不是 200 就把返回原样告诉用户。建好后告诉用户频道名、每个角色和模型，问要不要丢个题目试跑。\n`;
+  }
   tick() {
     for (const row of this.db.prepare('SELECT * FROM member_later WHERE announced = 0').all()) {
       this.hub.post(row.room_id, { authorKind: 'system', author: 'system', name: '回查登记',
@@ -133,6 +145,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv[2] === 'w
     headers: { 'content-type': 'application/json', 'x-later-ticket': ticket }, body: JSON.stringify({ title, ...(owner ? { owner } : {}), ...(reason ? { reason } : {}) }) });
   const body = await res.text();
   if (!res.ok) { console.error(`workspace: ${res.status} ${body}`); process.exit(1); }
+  console.log(body);
+} else if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv[2] === 'team') {
+  const [origin, ticket, spec] = process.argv.slice(3);
+  const room = ticketClaims(ticket)?.r;
+  if (!origin || !Number.isSafeInteger(room) || !spec) { console.error('usage: later.mjs team <origin> <ticket> \'{"channel":"…","model":"…","members":[{"name":"…","persona":"…"}]}\''); process.exit(2); }
+  const res = await fetch(new URL(`/collab/api/rooms/${room}/team`, origin), { method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-later-ticket': ticket }, body: spec });
+  const body = await res.text();
+  if (!res.ok) { console.error(`team: ${res.status} ${body}`); process.exit(1); }
   console.log(body);
 } else if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [origin, ticket, delay, title, todo] = process.argv.slice(2);

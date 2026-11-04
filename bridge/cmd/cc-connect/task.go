@@ -150,7 +150,7 @@ func taskCommand(args []string, out io.Writer) error {
 		return writeJSON(out, b)
 	case "assign":
 		if *session == "" {
-			*session = os.Getenv("CC_SESSION_KEY")
+			*session = envSessionKey()
 		}
 		if *run == "" {
 			r, err := currentRun(*dataDir, *project, *session)
