@@ -140,14 +140,35 @@ export async function apply(ctx, rawConfig) {
   const lockPath = join(config.dataDir, LOCK_FILE);
   const lock = InstanceLock.acquire(lockPath);
   if (lock === undefined) throw Error(lockBusyMessage(lockPath));
-  // Until teardown is registered, a failed startup still frees the lock; after that teardown frees
-  // it last, once the store is closed (cordis runs disposers concurrently, not in order).
-  let teardownOwnsLock = false;
-  ctx.effect(() => () => { if (!teardownOwnsLock) lock.release(); }, 'conest-collab: instance lock');
+  // Teardown is registered before anything is opened, so a startup that fails half-way still
+  // stops whatever it started. Each step runs even if an earlier one throws, and the lock is
+  // released last, only after the store and every background writer are closed.
+  const r = {};
+  ctx.effect(() => async () => {
+    const step = async (name, fn) => {
+      try { await fn(); } catch (err) { ctx.logger.warn('conest-collab: teardown %s: %s', name, err?.message ?? err); }
+    };
+    await step('team status', () => r.teamStatus?.stop());
+    await step('desk', () => r.desk?.stop());
+    await step('quota', () => r.quota?.close());
+    await step('later', () => r.later?.close());
+    await step('tasks', () => r.tasks?.close());
+    await step('gateway', () => r.gateway?.closeAll());
+    clearInterval(r.pairSweep);
+    clearInterval(r.aliveSweep);
+    await step('pairing listener', () => r.pairListener?.close());
+    await step('streams', () => { for (const end of r.streams ?? []) end(); });
+    await step('bot socket', () => r.wss?.close());
+    // Drain DSH jobs first: a job still awaiting its Agent must not touch a closed store.
+    await step('dsh members', () => r.dsh?.close());
+    await step('store', () => r.store?.close());
+    lock.release();
+  }, 'conest-collab: teardown');
+
   // #1044: an install from before had the desk, panel and other-computers pages; checked before Store creates the file.
   const collabExisted = existsSync(join(config.dataDir, 'collab.sqlite3'));
   // #445: the instance maxRelay stays the default for channels that never set their own cap.
-  const store = new Store(join(config.dataDir, 'collab.sqlite3'), { maxRelay: config.maxRelay });
+  const store = r.store = new Store(join(config.dataDir, 'collab.sqlite3'), { maxRelay: config.maxRelay });
   for (const room of config.rooms) {
     store.ensureRoom(room.id, store.room(room.id)?.name ?? room.name.trim(), room.workspacePath);
     store.ensureRoomSettings(room.id);
@@ -160,18 +181,18 @@ export async function apply(ctx, rawConfig) {
   hub.teamExit = new TeamExit(hub);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
   const files = new Attachments(join(config.dataDir, 'attachments'));
-  const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger, files });
-  const later = new Later(hub, join(config.dataDir, 'collab.sqlite3'), (id, msg) => dsh.nudge(id, msg) || gateway.nudge(id, msg), { start: false });
+  const gateway = r.gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger, files });
+  const later = r.later = new Later(hub, join(config.dataDir, 'collab.sqlite3'), (id, msg) => dsh.nudge(id, msg) || gateway.nudge(id, msg), { start: false });
   gateway.later = later;
-  const dsh = new DshMembers(hub, { files, later, ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
+  const dsh = r.dsh = new DshMembers(hub, { files, later, ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
   const avatarUploads = new AvatarUploads(join(config.dataDir, 'avatars'));
   const roster = new Roster(hub, dsh, ctx.llm, avatarUploads);
   // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.
   // Started after dsh.recover(): a reminder due during the downtime must not look like a leftover job.
-  const tasks = new Tasks(hub, { start: false });
+  const tasks = r.tasks = new Tasks(hub, { start: false });
   hub.tasks = tasks;
   gateway.tasks = tasks;
-  const quota = new QuotaCooling(hub, tasks, (id, msg) => dsh.nudge(id,msg) || gateway.nudge(id,msg), quotaDirectory(config.leadFile));
+  const quota = r.quota = new QuotaCooling(hub, tasks, (id, msg) => dsh.nudge(id,msg) || gateway.nudge(id,msg), quotaDirectory(config.leadFile));
   hub.quota = quota;
   tasks.onWake((memberId, message) => dsh.nudge(memberId, message) || gateway.nudge(memberId, message));
   // A workspace released after its last task shows up free in the room list. Its sessions are
@@ -196,10 +217,10 @@ export async function apply(ctx, rawConfig) {
   later.start();
   quota.start();
   // #876: only the plugin's own tail touches board-events.jsonl; board.py writes it.
-  const desk = new DeskEvents(hub, { boardDir: config.boardDir, logger: ctx.logger });
+  const desk = r.desk = new DeskEvents(hub, { boardDir: config.boardDir, logger: ctx.logger });
   desk.start();
   // #876 K: read-only busy/idle from the shared team directory; no bridge change.
-  const teamStatus = config.teamStatusDir === undefined ? undefined : new TeamStatus(hub, config.teamStatusDir, { logger: ctx.logger });
+  const teamStatus = r.teamStatus = config.teamStatusDir === undefined ? undefined : new TeamStatus(hub, config.teamStatusDir, { logger: ctx.logger });
   teamStatus?.start();
   if (!config.botToken) ctx.logger.warn(`conest-collab: ${config.botTokenEnv} is unset; cc-connect bots cannot connect`);
 
@@ -211,20 +232,20 @@ export async function apply(ctx, rawConfig) {
   const pairPort = Number(process.env.CONEST_COLLAB_PAIR_PORT) || PAIR_PORT;
   const pairHost = new PairHost({ file: join(config.dataDir, 'pair-devices.json') });
   const pairClient = new PairClient({ file: join(config.dataDir, 'pair-links.json'), port: pairPort });
-  const pairListener = new PairListener({
+  const pairListener = r.pairListener = new PairListener({
     host: pairHost, port: pairPort, logger: ctx.logger,
     address: pairAddr === '' ? () => tailnetAddress() : async () => pairAddr,
     handler: hostHandler({ host: pairHost, name: hostname(), route: (req, res) => browserRoute(req, res), allowLoopback: isLoopback(pairAddr) }),
   });
   if (pairHost.list().length > 0) pairListener.ensure().catch(err => ctx.logger.warn('conest-collab: pairing listener: %s', err.message));
   // 来源：码有效期按分钟计（pairing.mjs CODE_TTL_MS），每分钟收一次没人用的配对监听。
-  const pairSweep = setInterval(() => { pairListener.settle().catch(() => {}); }, 60_000);
+  const pairSweep = r.pairSweep = setInterval(() => { pairListener.settle().catch(() => {}); }, 60_000);
   pairSweep.unref?.();
   // 「直到我断开」: drop links whose DSH window stopped beating (same cadence as the beat).
-  const aliveSweep = setInterval(() => { pairClient.sweep().catch(() => {}); }, ALIVE_EVERY_MS);
+  const aliveSweep = r.aliveSweep = setInterval(() => { pairClient.sweep().catch(() => {}); }, ALIVE_EVERY_MS);
   aliveSweep.unref?.();
-  const wss = new WebSocketServer({ noServer: true, maxPayload: BOT_WS_MAX_PAYLOAD });
-  const streams = new Set();
+  const wss = r.wss = new WebSocketServer({ noServer: true, maxPayload: BOT_WS_MAX_PAYLOAD });
+  const streams = r.streams = new Set();
 
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/collab', handler: (req, res) => browserRoute(req, res) }), 'conest-collab: /collab');
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/api/rooms', handler: (req, res) => historyRoute(req, res) }), 'conest-collab: /api/rooms');
@@ -251,24 +272,6 @@ export async function apply(ctx, rawConfig) {
         err => { ctx.logger.warn('conest-collab: bot port %d not opened: %s', config.botPort, err.message); return undefined; });
     ctx.effect(() => async () => { (await listening)?.close(); }, 'conest-collab: bot port');
   }
-  ctx.effect(() => async () => {
-    teamStatus?.stop();
-    desk.stop();
-    quota.close();
-    later.close();
-    tasks.close();
-    gateway.closeAll();
-    clearInterval(pairSweep);
-    clearInterval(aliveSweep);
-    await pairListener.close();
-    for (const end of streams) end();
-    wss.close();
-    // Drain DSH jobs first: a job still awaiting its Agent must not touch a closed store.
-    await dsh.close();
-    store.close();
-    lock.release();
-  }, 'conest-collab: teardown');
-  teardownOwnsLock = true;
 
   ctx.logger.info('conest-collab: %d room(s), %d DSH member(s), cloud-web %s', config.rooms.length, config.dshMembers.length, config.botToken ? 'on' : 'off');
 
