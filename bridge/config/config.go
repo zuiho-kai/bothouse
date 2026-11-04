@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -867,8 +868,14 @@ func MisplacedAdminFrom(cfg *Config) []string {
 	return out
 }
 
+// misplacedAdminFromWarned: Load runs several times at startup; warn once per place.
+var misplacedAdminFromWarned sync.Map
+
 func warnMisplacedAdminFrom(cfg *Config) {
 	for _, at := range MisplacedAdminFrom(cfg) {
+		if _, dup := misplacedAdminFromWarned.LoadOrStore(at, true); dup {
+			continue
+		}
 		slog.Warn("config: admin_from under [projects.platforms.options] is ignored — move it up to the "+
 			"[[projects]] block (next to name), then restart",
 			"at", at)
