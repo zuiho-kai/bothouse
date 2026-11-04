@@ -1490,7 +1490,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
               enterKeyHint="send"
               value={draft}
               disabled={state.roomId === undefined || sending[state.roomId] === true}
-              placeholder={dmWith !== undefined ? t('placeholderDm', { name: state.members.find(m => m.id === dmWith)?.name ?? room?.name ?? '' }) : t(compactComposer() ? 'placeholderShort' : 'placeholder', { room: room?.name ?? '' })}
+              placeholder={t(compactComposer() ? 'placeholderShort' : 'placeholder', { room: room?.name ?? '' })}
               role="combobox"
               aria-expanded={popupOpen || slashOpen}
               aria-controls={slashOpen ? 'channel-slash-list' : 'channel-mention-list'}
