@@ -273,6 +273,20 @@ level = "info" # debug, info, warn, error
 # max_messages = 20         # Max messages per window; 0 = disabled (default: 20) / 窗口内最大消息数；0 = 禁用（默认 20）
 # window_secs = 60          # Window size in seconds (default: 60) / 窗口时间秒数（默认 60）
 
+# Who verifies a team handback, per review tier (settings page: Review models).
+# Value = a role's project name; each role runs its own model. Empty = automatic pick
+# (any free, non-author, non-cooling role). Unmarked handbacks are simple; a reviewer who is
+# unsure runs `board tier <id> complex` and the complex role verifies it again.
+# 团队交回的验收按档位交给哪个角色（设置页「审核模型」）。填角色的项目名，空 = 自动挑。
+
+# [team_review]
+# simple = "deep"           # cheap model first / 简单档：便宜模型先审
+# complex = "gge"           # after board tier <id> complex / 升档后由它再审
+# simple_model = ""         # optional model ID from the simple role's list; the review runs in a
+#                           # fresh session on it. Empty = the role's own model.
+#                           # 可选：简单档角色模型列表里的一个模型，审核开新会话用它跑；空 = 角色自己的模型
+# complex_model = ""        # same for the complex tier / 复杂档同上
+
 # =============================================================================
 # Outgoing Rate Limit / 出站速率限制
 # Throttle how fast messages are sent TO platforms.

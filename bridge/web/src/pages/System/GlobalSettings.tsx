@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { Save } from 'lucide-react';
 import { Card, Button, LoadingState, PageHeader } from '@/components/ui';
 import { getGlobalSettings, updateGlobalSettings, type GlobalSettings as GS } from '@/api/settings';
+import { listRoles, type RoleInfo } from '@/api/roles';
+import { listModels } from '@/api/providers';
 import { cn } from '@/lib/utils';
 import ThemeSettingCard from '@/components/Theme/ThemeSettingCard';
 import TokenUnitSettingCard from '@/components/Usage/TokenUnitSettingCard';
@@ -89,6 +91,12 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
   const [spInterval, setSpInterval] = useState(1500);
   const [rlMax, setRlMax] = useState(20);
   const [rlWindow, setRlWindow] = useState(60);
+  const [reviewSimple, setReviewSimple] = useState('');
+  const [reviewComplex, setReviewComplex] = useState('');
+  const [reviewSimpleModel, setReviewSimpleModel] = useState('');
+  const [reviewComplexModel, setReviewComplexModel] = useState('');
+  const [roleModels, setRoleModels] = useState<Record<string, string[]>>({});
+  const [roles, setRoles] = useState<RoleInfo[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -106,6 +114,10 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
       setSpInterval(s.stream_preview_interval_ms ?? 1500);
       setRlMax(s.rate_limit_max_messages ?? 20);
       setRlWindow(s.rate_limit_window_secs ?? 60);
+      setReviewSimple(s.review_simple_role ?? '');
+      setReviewComplex(s.review_complex_role ?? '');
+      setReviewSimpleModel(s.review_simple_model ?? '');
+      setReviewComplexModel(s.review_complex_model ?? '');
     } catch {
       // ignore
     } finally {
@@ -114,6 +126,36 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    listRoles().then((r) => setRoles(r.roles ?? [])).catch(() => setRoles([]));
+  }, []);
+
+  // A tier's model comes from its role's own model list (a model ID belongs to that role's agent).
+  useEffect(() => {
+    for (const role of [reviewSimple, reviewComplex]) {
+      if (!role || roleModels[role]) continue;
+      listModels(role)
+        .then((r) => setRoleModels((m) => ({ ...m, [role]: r.models ?? [] })))
+        .catch(() => setRoleModels((m) => ({ ...m, [role]: [] })));
+    }
+  }, [reviewSimple, reviewComplex, roleModels]);
+
+  const modelOptions = (role: string, current: string) => {
+    const opts = [{ value: '', label: t('settings.reviewModelRole', "The role's own model") }];
+    for (const id of roleModels[role] ?? []) opts.push({ value: id, label: id });
+    if (current && !opts.some((o) => o.value === current)) opts.push({ value: current, label: current });
+    return opts;
+  };
+
+  // Each role runs its own model unless a tier model is picked below; the label names both.
+  const reviewOptions = (current: string) => {
+    const opts = [{ value: '', label: t('settings.reviewAuto', 'Automatic (any free non-author role)') }];
+    for (const r of roles) {
+      opts.push({ value: r.name, label: `${r.display_name || r.name}${r.model ? ` · ${r.model}` : ''}` });
+    }
+    if (current && !roles.some((r) => r.name === current)) opts.push({ value: current, label: current });
+    return opts;
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -132,6 +174,10 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
         stream_preview_interval_ms: spInterval,
         rate_limit_max_messages: rlMax,
         rate_limit_window_secs: rlWindow,
+        review_simple_role: reviewSimple,
+        review_complex_role: reviewComplex,
+        review_simple_model: reviewSimple ? reviewSimpleModel : '',
+        review_complex_model: reviewComplex ? reviewComplexModel : '',
       });
       setMsg(t('common.success'));
       setTimeout(() => setMsg(''), 3000);
@@ -248,6 +294,45 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
             min={1}
             hint={t('settings.rlWindowSecsHint', 'Time window in seconds')}
           />
+        </div>
+      </Card>
+
+      {/* Review models (user 2026-11-04「简单的交给便宜模型 这个可以在我们dsh插件设置里设置」) */}
+      <Card>
+        <h3 className="mb-4 text-sm font-semibold text-ink">{t('settings.review', 'Review models')}</h3>
+        <div className="space-y-4 max-w-lg">
+          <Select
+            label={t('settings.reviewSimple', 'Simple reviews')}
+            value={reviewSimple}
+            onChange={(v) => { setReviewSimple(v); setReviewSimpleModel(''); }}
+            options={reviewOptions(reviewSimple)}
+            hint={t('settings.reviewSimpleHint', 'Handbacks not marked complex are verified here first; pick a cheap model')}
+          />
+          {reviewSimple && (
+            <Select
+              label={t('settings.reviewSimpleModel', 'Simple review model')}
+              value={reviewSimpleModel}
+              onChange={setReviewSimpleModel}
+              options={modelOptions(reviewSimple, reviewSimpleModel)}
+              hint={t('settings.reviewModelHint', 'The review runs in a new session on this model')}
+            />
+          )}
+          <Select
+            label={t('settings.reviewComplex', 'Complex reviews')}
+            value={reviewComplex}
+            onChange={(v) => { setReviewComplex(v); setReviewComplexModel(''); }}
+            options={reviewOptions(reviewComplex)}
+            hint={t('settings.reviewComplexHint', 'Used after a reviewer runs board tier <id> complex')}
+          />
+          {reviewComplex && (
+            <Select
+              label={t('settings.reviewComplexModel', 'Complex review model')}
+              value={reviewComplexModel}
+              onChange={setReviewComplexModel}
+              options={modelOptions(reviewComplex, reviewComplexModel)}
+              hint={t('settings.reviewModelHint', 'The review runs in a new session on this model')}
+            />
+          )}
         </div>
       </Card>
 

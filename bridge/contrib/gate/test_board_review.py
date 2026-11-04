@@ -171,5 +171,23 @@ class MergeClosureCLI(unittest.TestCase):
         self.assertTrue(json.loads((tmp/"board-done.jsonl").read_text())["review_accepted_at"])
 
 
+class ReviewTier(unittest.TestCase):
+    """User 2026-11-04「简单的交给便宜模型」: unmarked = simple, a reviewer escalates with board tier."""
+
+    def test_tier_marks_item(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": "false", "CC_PROJECT": "dispatcher"}
+            path = Path(tmp) / "board.jsonl"
+            path.write_text(json.dumps({"id": 7, "what": "verify", "chat": "room:chat"}) + "\n")
+            def cli(*args):
+                return subprocess.run([sys.executable, "-I", str(HERE / "board.py"), *args], env=env, text=True, capture_output=True, timeout=10)
+            self.assertEqual(cli("tier", "7", "complex").returncode, 0)
+            self.assertEqual(json.loads(path.read_text())["review_tier"], "complex")
+            self.assertEqual(cli("tier", "#7", "简单").returncode, 0)
+            self.assertEqual(json.loads(path.read_text())["review_tier"], "simple")
+            self.assertNotEqual(cli("tier", "8", "complex").returncode, 0)  # missing item
+            self.assertNotEqual(cli("tier", "7", "hard").returncode, 0)  # unknown tier: usage
+
+
 if __name__ == "__main__":
     unittest.main()

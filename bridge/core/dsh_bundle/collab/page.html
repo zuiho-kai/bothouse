@@ -243,7 +243,9 @@
   }
   .msg:hover { background: var(--hover-soft); }
   .msg.cont { padding-top: 2px; }
-  .msg.cont .avatar,
+  /* 续行只隐藏头像，不从网格里移除：头像一旦 display:none，正文会顶到第一列，
+     被 40px 的头像列宽挤成一字一行（#112）。 */
+  .msg.cont .avatar { visibility: hidden; }
   .msg.cont .head { display: none; }
   .msg .stamp {
     display: none;
@@ -258,6 +260,27 @@
     font-variant-numeric: tabular-nums;
   }
   .msg.cont:hover .stamp { display: block; }
+  /* 自己的消息：悬停时右上角出现「撤回」，撤回会连同这条消息发起的回答一起停下。 */
+  .msg .ops {
+    position: absolute;
+    top: 2px;
+    right: max(var(--pad-x), env(safe-area-inset-right));
+    display: none;
+    gap: 4px;
+  }
+  .msg:hover .ops, .msg:focus-within .ops { display: flex; }
+  .msg .ops button {
+    font: inherit;
+    font-size: var(--fs-xs);
+    line-height: 1.4;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    padding: 1px 6px;
+    cursor: pointer;
+  }
+  .msg .ops button:hover { color: var(--text-strong); background: var(--hover); }
 
   .avatar {
     width: var(--avatar);
@@ -472,6 +495,110 @@
     .composer { padding-bottom: var(--sp-2); }
     #log { padding-top: var(--sp-2); }
   }
+
+  /* ---- 消息正文 Markdown（#114 渲染）：间距用现有 --sp-*，颜色全用令牌，亮暗两套自动跟随 ---- */
+  .body.md { white-space: normal; }
+  .md > :first-child { margin-top: 0; }
+  .md > :last-child { margin-bottom: 0; }
+  .md-p { margin: 0 0 var(--sp-2); }
+  .md-h { margin: var(--sp-3) 0 var(--sp-1); font-weight: 650; color: var(--text-strong); line-height: 1.35; }
+  .md-h1, .md-h2 { font-size: 1.15em; }
+  .md-h3 { font-size: 1.05em; }
+  .md-list { margin: 0 0 var(--sp-2); padding-left: 1.5em; }
+  .md-list li { margin: 2px 0; }
+  .md-list li::marker { color: var(--faint); }
+  .md-sub { padding-left: 1em; position: relative; }
+  .md-sub::before { content: "◦"; position: absolute; left: 0; color: var(--faint); }
+  .md-quote { margin: 0 0 var(--sp-2); padding: 2px 0 2px var(--sp-3); border-left: 3px solid var(--line); color: var(--muted); }
+  .md-hr { border: 0; border-top: 1px solid var(--line); margin: var(--sp-3) 0; }
+  .md-link { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
+  .md-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+  .md-code {
+    font: .88em/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--surface-2); color: var(--text-strong);
+    padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere;
+  }
+  /* 代码块和表格自带横向滚动：长行只滚自己，不把整页撑出横向滚动条 */
+  .md-pre { margin: 0 0 var(--sp-2); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); overflow: hidden; max-width: 100%; }
+  .md-pre-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); padding: 4px 6px 4px var(--sp-3); border-bottom: 1px solid var(--line); font-size: var(--fs-xs); color: var(--faint); }
+  .md-lang { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: lowercase; }
+  .md-copy { font: inherit; color: var(--muted); background: transparent; border: 0; border-radius: var(--r-sm); padding: 2px 8px; cursor: pointer; transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+  .md-copy:hover { background: var(--hover); color: var(--text-strong); }
+  /* 代码 13px/1.55 沿用 design-spec-channels 正文 14/22 降一档 */
+  .md-pre pre { margin: 0; padding: var(--sp-3); overflow-x: auto; font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text-strong); tab-size: 2; }
+  .md-pre pre:focus-visible, .md-table:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .md-table { margin: 0 0 var(--sp-2); overflow-x: auto; max-width: 100%; border: 1px solid var(--line); border-radius: var(--r-md); }
+  .md-table table { border-collapse: collapse; min-width: 100%; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+  .md-table th, .md-table td { padding: 6px var(--sp-3); text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .md-table th { background: var(--surface); color: var(--text-strong); font-weight: 600; }
+  .md-table tr:last-child td { border-bottom: 0; }
+  .card .md-pre, .card .md-table { background: var(--bg); }
+
+  /* 回复引用：消息头下方一行，点一下跳到原消息 */
+  .reply-quote {
+    display: flex; align-items: baseline; gap: 6px; max-width: min(100%, 640px); /* 640 沿用 design-spec-channels 气泡 max-width */ margin: 2px 0 4px;
+    padding: 2px var(--sp-2); border: 0; border-left: 2px solid var(--line); border-radius: 0 var(--r-sm) var(--r-sm) 0;
+    background: var(--hover-soft); color: var(--muted); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; min-width: 0;
+  }
+  .reply-quote:disabled { cursor: default; font-style: italic; }
+  .reply-quote:not(:disabled):hover { color: var(--text); }
+  .rq-who { font-weight: 600; color: var(--text); flex: none; }
+  .rq-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .msg.flash { animation: msg-flash 1.2s var(--ease); }
+  @keyframes msg-flash { 0%, 30% { background: color-mix(in srgb, var(--accent) 14%, transparent); } 100% { background: transparent; } }
+
+  /* 附件：图片按原比例缩到消息宽度内，文件是一张小卡。
+     图片上限 320×240 沿用频道 React 页 ChannelsPage.module.css .attachmentImage；
+     64px 占位只在加载前撑住一块，加载后取消，避免空白图塌成 0 高再弹开。 */
+  .atts { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-1); }
+  .att-img { display: block; max-width: min(100%, 320px); border-radius: var(--r-md); overflow: hidden; border: 1px solid var(--line); background: var(--surface); line-height: 0; min-height: 64px; min-width: 64px; }
+  .att-img.loaded { min-height: 0; min-width: 0; }
+  .att-img img { display: block; max-width: 100%; max-height: 240px; width: auto; height: auto; object-fit: contain; }
+  .att-img.broken { line-height: 1.4; padding: var(--sp-2) var(--sp-3); color: var(--muted); font-size: var(--fs-sm); }
+  .att-file { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-2); max-width: min(100%, 320px); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--text); text-decoration: none; transition: background var(--dur) var(--ease); }
+  .att-file:hover { background: var(--hover); }
+  .att-ext { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: var(--r-sm); background: var(--accent); color: var(--on-accent); font-size: 10px; font-weight: 700; letter-spacing: .02em; }
+  .att-info { display: grid; min-width: 0; }
+  .att-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-sm); color: var(--text-strong); }
+  .att-size { font-size: var(--fs-xs); color: var(--faint); font-variant-numeric: tabular-nums; }
+
+  /* 系统通知：居中一行灰字，不当成一条对话 */
+  .msg.notice { display: block; padding-top: 2px; padding-bottom: 2px; }
+  .msg.notice:hover { background: transparent; }
+  .notice-line { display: flex; justify-content: center; align-items: baseline; gap: var(--sp-2); color: var(--faint); font-size: var(--fs-xs); text-align: center; }
+  .notice-text { font-style: normal; color: var(--muted); }
+  .notice-text .md-p { margin: 0; }
+
+  /* 思考过程：收成一行灰字，点开才看推理。不占头像列、不改对话节奏。 */
+  .msg.think-row, .msg.tool-row { display: block; }
+  .think { margin: 2px 0 var(--sp-2); }
+  .think-toggle {
+    all: unset; display: inline-flex; align-items: baseline; gap: 6px; cursor: pointer;
+    color: var(--faint); font-size: var(--fs-sm); line-height: 1.5; border-radius: var(--r-sm);
+  }
+  .think-toggle:hover { color: var(--muted); }
+  .think-toggle .chev { font-size: 11px; transition: transform var(--dur) var(--ease); }
+  .think-toggle[aria-expanded="true"] .chev { transform: rotate(90deg); }
+  .think-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 220ms var(--ease); }
+  .think[data-open="true"] .think-body { grid-template-rows: 1fr; }
+  .think-body > div { overflow: hidden; color: var(--muted); font-size: var(--fs-sm); border-left: 2px solid var(--line); padding-left: var(--sp-3); margin: 4px 0 2px; }
+  .think-text .md-p { margin: 0 0 var(--sp-1); }
+
+  /* 工具事件：居中一行灰字，像分隔提示，不当成一条对话，也不打断阅读。 */
+  .msg.tool-row { padding-top: 1px; padding-bottom: 1px; }
+  .tool-line { display: flex; justify-content: center; align-items: baseline; gap: 6px; color: var(--faint); font-size: var(--fs-xs); line-height: 1.6; }
+  .tool-line .tl-dot { flex: none; width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .6; }
+  .tool-line .tl-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+  .tool-line .tl-sum { max-width: min(70%, 520px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tool-line.failed .tl-name, .tool-line.failed .tl-sum { color: var(--danger); }
+  .progress-body .progress-meta { color: var(--muted); font-size: var(--fs-xs); margin-bottom: 2px; }
+  .progress-body .tool-line { justify-content: flex-start; }
+  .progress-body .tool-line .tl-sum { max-width: 100%; }
+  @media (prefers-reduced-motion: reduce) { .think-body { transition: none; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .msg.flash { animation: none; outline: 2px solid var(--accent); outline-offset: -2px; }
+  }
 </style>
 </head>
 <body>
@@ -607,13 +734,270 @@ function renderMembers() {
   $('thinking').textContent = names.length ? `${names.join('、')} 正在处理…` : '';
 }
 
+// ---- 消息正文渲染 ----
+// Markdown 只认常用子集（段落、标题、列表、引用、代码块、表格、分隔线、行内代码/粗斜体/删除线/链接）。
+// 全部用 DOM 节点拼，不走 innerHTML：原文里的 HTML 一律按文字显示，链接只放行 http(s)/mailto。
+const SAFE_HREF = /^(https?:|mailto:)/i;
+const INLINE = /`([^`\n]+)`|\*\*([^*\n]+?)\*\*|(?<!\w)__([^_\n]+?)__(?!\w)|~~([^~\n]+?)~~|(?<![\w*])\*([^*\s][^*\n]*?)\*(?![\w*])|\[([^\]\n]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<>"'（）「」，。；！？]+[^\s<>"'（）「」，。；！？.,;:!?)])/g;
+function mdInline(text, parent) {
+  let last = 0;
+  for (const m of text.matchAll(INLINE)) {
+    if (m.index > last) parent.append(text.slice(last, m.index));
+    if (m[1] != null) parent.append(el('code', 'md-code', m[1]));
+    else if (m[2] != null || m[3] != null) mdInline(m[2] ?? m[3], parent.appendChild(el('strong')));
+    else if (m[4] != null) mdInline(m[4], parent.appendChild(el('del')));
+    else if (m[5] != null) mdInline(m[5], parent.appendChild(el('em')));
+    else {
+      const href = m[7] ?? m[8];
+      if (SAFE_HREF.test(href)) {
+        const a = el('a', 'md-link'); a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer';
+        if (m[6] != null) mdInline(m[6], a); else a.textContent = href;
+        parent.append(a);
+      } else parent.append(m[0]);
+    }
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parent.append(text.slice(last));
+}
+// 段内单个换行照原样换行（聊天里大家按回车分行，和频道 React 页 softBreaksToHard 一致）。
+function mdLines(lines, parent) {
+  lines.forEach((line, i) => { if (i) parent.append(el('br')); mdInline(line, parent); });
+  return parent;
+}
+const FENCE = /^\s*(`{3,}|~{3,})\s*([\w#+.-]*)/;
+const HEADING = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
+const RULE = /^\s{0,3}([-*_])(\s*\1){2,}\s*$/;
+const QUOTE = /^\s{0,3}>\s?(.*)$/;
+const ITEM = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
+const TABLE_SEP = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+const cells = line => line.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, '|'));
+function codeBlock(lang, code) {
+  const box = el('div', 'md-pre');
+  const bar = el('div', 'md-pre-bar');
+  bar.append(el('span', 'md-lang', lang || '代码'));
+  const copy = el('button', 'md-copy', '复制'); copy.type = 'button';
+  copy.onclick = async () => {
+    // 流式更新只换 <code> 里的字（patchBody），复制要取当前内容，不能用建块时的旧字符串。
+    try { await navigator.clipboard.writeText(pre.querySelector('code').textContent); copy.textContent = '已复制'; }
+    catch { copy.textContent = '复制失败'; }
+    setTimeout(() => { copy.textContent = '复制'; }, 1500);
+  };
+  bar.append(copy);
+  const pre = el('pre'); pre.append(el('code', null, code)); pre.tabIndex = 0;
+  box.append(bar, pre);
+  return box;
+}
+function mdBlocks(lines, parent) {
+  let i = 0;
+  const isSpecial = (l, next) => FENCE.test(l) || HEADING.test(l) || RULE.test(l) || QUOTE.test(l) || ITEM.test(l) || (l.includes('|') && next !== undefined && TABLE_SEP.test(next));
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i++; continue; }
+    let m;
+    if ((m = FENCE.exec(line))) {
+      const close = new RegExp('^\\s*' + m[1][0] + '{' + m[1].length + ',}\\s*$');
+      const body = [];
+      for (i++; i < lines.length && !close.test(lines[i]); i++) body.push(lines[i]);
+      i++;
+      parent.append(codeBlock(m[2], body.join('\n')));
+    } else if ((m = HEADING.exec(line))) {
+      mdInline(m[2], parent.appendChild(el('p', 'md-h md-h' + m[1].length))); i++;
+    } else if (RULE.test(line)) {
+      parent.append(el('hr', 'md-hr')); i++;
+    } else if (QUOTE.test(line)) {
+      const body = [];
+      for (; i < lines.length && (m = QUOTE.exec(lines[i])); i++) body.push(m[1]);
+      mdBlocks(body, parent.appendChild(el('blockquote', 'md-quote')));
+    } else if (line.includes('|') && TABLE_SEP.test(lines[i + 1] ?? '')) {
+      const wrap = el('div', 'md-table'); wrap.tabIndex = 0;
+      const table = wrap.appendChild(el('table'));
+      const head = table.appendChild(el('thead')).appendChild(el('tr'));
+      for (const c of cells(line)) mdInline(c, head.appendChild(el('th')));
+      const body = table.appendChild(el('tbody'));
+      for (i += 2; i < lines.length && lines[i].includes('|') && lines[i].trim(); i++) {
+        const tr = body.appendChild(el('tr'));
+        for (const c of cells(lines[i])) mdInline(c, tr.appendChild(el('td')));
+      }
+      parent.append(wrap);
+    } else if ((m = ITEM.exec(line))) {
+      const ordered = /\d/.test(m[2]);
+      const list = el(ordered ? 'ol' : 'ul', 'md-list');
+      if (ordered && parseInt(m[2], 10) !== 1) list.start = parseInt(m[2], 10);
+      const base = m[1].length;
+      let li = null, extra = [];
+      const flush = () => { if (li && extra.length) { li.append(el('br')); mdLines(extra, li); } extra = []; };
+      for (; i < lines.length; i++) {
+        const l = lines[i];
+        const it = ITEM.exec(l);
+        if (it && /\d/.test(it[2]) === ordered && it[1].length <= base + 1) { flush(); li = list.appendChild(el('li')); mdInline(it[3], li); continue; }
+        if (it && it[1].length > base + 1) { flush(); mdInline(it[3], li.appendChild(el('div', 'md-sub'))); continue; }
+        if (l.trim() && /^\s+/.test(l) && !isSpecial(l.trim(), lines[i + 1])) { extra.push(l.trim()); continue; }
+        break;
+      }
+      flush();
+      parent.append(list);
+    } else {
+      const para = [];
+      for (; i < lines.length && lines[i].trim() && !(para.length && isSpecial(lines[i], lines[i + 1])); i++) para.push(lines[i]);
+      parent.append(mdLines(para, el('p', 'md-p')));
+    }
+  }
+  return parent;
+}
+function renderBody(text, cls) {
+  const body = el('div', (cls ? cls + ' ' : '') + 'md');
+  mdBlocks(String(text ?? '').replace(/\r\n?/g, '\n').split('\n'), body);
+  return body;
+}
+
+const IMAGE_MIME = /^image\/(png|jpeg|gif|webp)$/; // 与 attachments.mjs INLINE_IMAGE 同一组可内联图片
+const fmtSize = n => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
+function attachmentList(list) {
+  const box = el('div', 'atts');
+  for (const a of list) {
+    const url = `${ROOT}/collab/api/attachments/${encodeURIComponent(a.id)}`;
+    if (IMAGE_MIME.test(a.mime)) {
+      const link = el('a', 'att-img'); link.href = url; link.target = '_blank'; link.rel = 'noopener'; link.title = a.name;
+      const img = el('img'); img.alt = a.name; img.decoding = 'async'; img.src = url;
+      // 图片晚到会撑高消息流：贴底时跟着回到底部，不让读者看到内容被往下顶。
+      img.addEventListener('load', () => { link.classList.add('loaded'); keepBottom(); }, { once: true });
+      img.addEventListener('error', () => { link.classList.add('broken'); link.replaceChildren(el('span', 'att-broken', '图片加载失败：' + a.name)); }, { once: true });
+      link.append(img);
+      box.append(link);
+    } else {
+      const file = el('a', 'att-file'); file.href = url; file.download = a.name;
+      file.append(el('span', 'att-ext', (a.name.split('.').pop() || '文件').slice(0, 4).toUpperCase()));
+      const info = el('span', 'att-info');
+      info.append(el('span', 'att-name', a.name), el('span', 'att-size', fmtSize(Number(a.size) || 0)));
+      file.append(info);
+      box.append(file);
+    }
+  }
+  return box;
+}
+function replyQuote(q) {
+  const box = el('button', 'reply-quote'); box.type = 'button';
+  if (q.deleted) { box.append(el('span', 'rq-text', '原消息已撤回')); box.disabled = true; return box; }
+  box.append(el('span', 'rq-who', q.name), el('span', 'rq-text', q.text));
+  box.onclick = () => {
+    const target = $('log').querySelector(`.msg[data-id="${q.id}"]`);
+    if (!target) return;
+    target.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
+  };
+  return box;
+}
+// 贴底跟随：滚动时记住读者是否在底部；之后任何内容变高（图片、卡片更新）都只在贴底时跟随。
+const STICK_PX = 40; // 沿用原 upsert 的贴底判定阈值
+let stuck = true;
+function keepBottom() { const log = $('log'); if (stuck) log.scrollTop = log.scrollHeight; }
+$('log').addEventListener('scroll', () => { const log = $('log'); stuck = log.scrollTop + log.clientHeight >= log.scrollHeight - STICK_PX; }, { passive: true });
+// 刚插进去的这一帧，字体与换行还没算成最终高度：贴底时再跟一帧，底部不留缝（流式输出最常见）。
+function followBottom(log, stick) {
+  if (!stick) return;
+  log.scrollTop = log.scrollHeight;
+  requestAnimationFrame(() => { if (stuck) log.scrollTop = log.scrollHeight; });
+}
+if ('ResizeObserver' in window) new ResizeObserver(keepBottom).observe($('log'));
+const messageSig = m => JSON.stringify([m.text, m.card, m.edited_at, m.attachments, m.reply_to]);
+// 外框签名：附件、引用、作者这些决定「整行长相」的东西。只有正文在变时（流式输出）原地换文字，
+// 不重建整行 —— 图片不重载、引用条不闪、代码块的横向滚动位置不丢。
+const frameSig = m => JSON.stringify([m.attachments, m.reply_to, m.author_kind, m.author]);
+
+// 思考块：一行灰字按钮，点开看内容。思考消息和进度卡里的思考行共用。
+function thinkBox(label, content) {
+  const box = el('div', 'think');
+  const btn = el('button', 'think-toggle');
+  btn.type = 'button';
+  btn.setAttribute('aria-expanded', 'false');
+  btn.append(el('span', 'think-label', label), el('span', 'chev', '›'));
+  const body = el('div', 'think-body');
+  const inner = el('div');
+  inner.append(content);
+  body.append(inner);
+  btn.onclick = () => {
+    const open = box.dataset.open === 'true';
+    box.dataset.open = String(!open);
+    btn.setAttribute('aria-expanded', String(!open));
+  };
+  box.append(btn, body);
+  return box;
+}
+function toolLine(name, sum, failed) {
+  const line = el('div', 'tool-line' + (failed ? ' failed' : ''));
+  line.append(el('span', 'tl-dot'), el('span', 'tl-name', name || '工具'));
+  if (sum) line.append(el('span', 'tl-sum', sum));
+  return line;
+}
+// 进度卡正文（cloudweb.mjs progressCardOf 的 text：首行「第 N 步 · 秒」，其后每行
+// 「• 思考/说明」「🔧 工具 — 摘要」「❌ 出错」）。连续的「•」行收成一个思考块，工具行各占一行。
+// 只读现有 text，不改协议；认不出的行照普通正文显示。
+const isProgressMeta = meta => !meta.kind && Number.isInteger(meta.steps) && typeof meta.brief === 'string';
+function progressBody(text, state) {
+  const out = el('div', 'body progress-body');
+  const lines = String(text || '').split('\n');
+  out.append(el('div', 'progress-meta', lines.shift() || ''));
+  let thoughts = [];
+  const flush = () => {
+    if (!thoughts.length) return;
+    out.append(thinkBox(state === 'running' ? '思考中…' : '思考过程', renderBody(thoughts.join('\n\n'), 'think-text')));
+    thoughts = [];
+  };
+  for (const line of lines) {
+    let mm;
+    if ((mm = /^• (.*)$/.exec(line))) { thoughts.push(mm[1]); continue; }
+    flush();
+    if ((mm = /^(🔧|❌) (.*)$/u.exec(line))) {
+      const [name, ...rest] = mm[2].split(' — ');
+      const failed = mm[1] === '❌';
+      out.append(rest.length ? toolLine(name, rest.join(' — '), failed) : toolLine(failed ? '出错' : '工具', name, failed));
+    } else if (line.trim()) out.append(renderBody(line, 'progress-other'));
+  }
+  flush();
+  return out;
+}
+
+// 思考过程：默认一行灰字，点一下展开；运行中显示「思考中…」。
+function thinkingNode(m, meta) {
+  const row = el('div', 'msg think-row');
+  row.dataset.id = m.id;
+  row.dataset.sig = messageSig(m);
+  row.dataset.frame = frameSig(m);
+  const secs = Number(meta.seconds);
+  row.append(thinkBox(meta.state === 'running' ? '思考中…' : (secs > 0 ? `思考了 ${secs} 秒` : '思考过程'), renderBody(meta.detail || m.text || '', 'think-text')));
+  return row;
+}
+// 工具事件：居中一行灰字；失败时整行标红，仍然只有一行。
+function toolNode(m, meta) {
+  const row = el('div', 'msg tool-row');
+  row.dataset.id = m.id;
+  row.dataset.sig = messageSig(m);
+  row.dataset.frame = frameSig(m);
+  row.append(toolLine(meta.title, meta.summary || String(m.text || '').split('\n')[0], meta.state === 'failed'));
+  return row;
+}
+
 function messageNode(m) {
+  let meta = {}; try { meta = JSON.parse(m.card || '{}'); } catch {}
+  // 思考与工具事件不是对话：收成一行，不占头像和昵称。
+  if (meta.kind === 'thinking') return thinkingNode(m, meta);
+  if (meta.kind === 'tool') return toolNode(m, meta);
   const system = m.author_kind === 'system';
   const row = el('div', 'msg' + (system ? ' system' : ''));
   row.dataset.id = m.id;
   row.dataset.author = m.author;
   row.dataset.ts = m.created_at;
   row.dataset.system = system ? '1' : '0';
+  row.dataset.sig = messageSig(m);
+  row.dataset.frame = frameSig(m);
+  // 系统通知（交接、派活记录等）不是对话：收成居中一行灰字，不占头像和昵称。
+  if (system && !m.card) {
+    row.classList.add('notice');
+    const line = el('div', 'notice-line');
+    line.append(renderBody(m.text, 'notice-text'), el('span', 'when', fmtTime(m.created_at)));
+    row.append(line);
+    return row;
+  }
   const member = state.members.find(x => x.id === m.author);
   row.append(avatar(m.author, m.name));
   const col = el('div');
@@ -622,6 +1006,7 @@ function messageNode(m) {
   if (member && kindLabel[member.kind]) who.append(el('span', 'tag', kindLabel[member.kind]));
   head.append(who, el('span', 'when', fmtTime(m.created_at)));
   col.append(head);
+  if (m.reply_to) col.append(replyQuote(m.reply_to));
   if (m.card) {
     let meta = {}; try { meta = JSON.parse(m.card); } catch {}
     const card = el('div', 'card');
@@ -630,7 +1015,7 @@ function messageNode(m) {
     titleRow.append(el('span', 'title', meta.title || ''));
     const label = cardStateLabel[meta.state];
     if (label) titleRow.append(el('span', 'chip', label));
-    card.append(titleRow, el('div', 'body', m.text));
+    card.append(titleRow, isProgressMeta(meta) ? progressBody(m.text, meta.state) : renderBody(m.text, 'body'));
     // Pending permission card: one button per action, posting the decision (same route as a text reply).
     if (meta.kind === 'permission' && meta.state === 'pending' && Array.isArray(meta.actions)) {
       const bar = el('div', 'actions');
@@ -642,8 +1027,24 @@ function messageNode(m) {
       card.append(bar);
     }
     col.append(card);
-  } else col.append(el('div', 'body', m.text));
+  } else if (m.text) col.append(renderBody(m.text, 'body'));
+  if (Array.isArray(m.attachments) && m.attachments.length) col.append(attachmentList(m.attachments));
   row.append(col);
+  // 自己发的普通消息：悬停出现「撤回」。撤回后后端广播 deleted，这一行随之消失；
+  // 这条消息触发的回答也会一起停下（后端 recall 会取消对应 turn）。
+  if (!system && !m.card && m.author === state.me) {
+    const ops = el('div', 'ops');
+    const b = el('button', '', '撤回');
+    b.type = 'button';
+    b.title = '撤回这条消息（正在进行的回答也会停下）';
+    b.onclick = async () => {
+      if (!confirm('撤回这条消息？正在进行的回答也会停下。')) return;
+      try { await api(`${ROOT}/collab/api/messages/${m.id}`, { method: 'DELETE' }); }
+      catch (err) { alert('撤回失败：' + err.message); }
+    };
+    ops.append(b);
+    row.append(ops);
+  }
   return row;
 }
 
@@ -667,18 +1068,71 @@ function regroup() {
   }
 }
 
+// 正文按块对比：同一段文字算同一块，直接留用原来的节点。代码块只比语言和代码本身，
+// 不比「复制」按钮的字，否则点过复制的代码块会被当成新块重建，横向滚动位置跟着丢。
+const isCodeBlock = n => n.classList.contains('md-pre');
+const codeLang = n => n.querySelector('.md-lang')?.textContent || '';
+const blockSig = n => isCodeBlock(n)
+  ? 'pre|' + codeLang(n) + '|' + (n.querySelector('pre code')?.textContent ?? '')
+  : n.outerHTML; // 结构和属性都比：同字不同链接、粗体改普通字都要换块
+
+// 正文原地更新：内容没变的块复用，代码块长高时只换里面的字并保住横向滚动位置，其余块才替换。
+function patchBody(body, fresh) {
+  const oldNodes = [...body.children];
+  const newNodes = [...fresh.children];
+  let i = 0;
+  for (; i < oldNodes.length && i < newNodes.length; i++) {
+    const old = oldNodes[i], next = newNodes[i];
+    if (blockSig(old) === blockSig(next)) continue;
+    if (isCodeBlock(old) && isCodeBlock(next) && codeLang(old) === codeLang(next)) {
+      const pre = old.querySelector('pre');
+      const left = pre.scrollLeft;
+      pre.querySelector('code').textContent = next.querySelector('pre code').textContent;
+      pre.scrollLeft = left;
+      continue;
+    }
+    old.replaceWith(next);
+  }
+  for (; i < newNodes.length; i++) body.append(newNodes[i]);
+  for (; i < oldNodes.length; i++) oldNodes[i].remove();
+}
+
 function upsert(m) {
   if (m.room_id !== state.room) return;
   const log = $('log');
-  const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 40;
+  // 消息一到，空态/加载态就不再成立；否则第一条实时消息会顶着“还没有消息”显示（#112）。
+  log.querySelector('.state')?.remove();
+  const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - STICK_PX;
   const existing = log.querySelector(`[data-id="${m.id}"]`);
-  if (existing) existing.replaceWith(messageNode(m));
+  // 重复推送（重连补拉、同一条事件到两次）内容没变就不重建，避免闪一下、丢掉代码块的横向滚动位置。
+  if (existing && existing.dataset.sig === messageSig(m)) return;
+  // 流式输出：同一条消息只涨正文、外框没变时按块原地更新，不重建整行（图片不重载、代码块不回到最左、不闪、不跳）。
+  if (existing && !m.card && existing.dataset.frame === frameSig(m)) {
+    const body = existing.querySelector(':scope > div > .body');
+    if (body) {
+      patchBody(body, renderBody(m.text, 'body'));
+      existing.dataset.sig = messageSig(m);
+      followBottom(log, stick);
+      return;
+    }
+  }
+  if (existing) {
+    // 进度卡每步整行重建：已展开的思考块保持展开，不因新的一步收回去。
+    const opened = [...existing.querySelectorAll('.think')].map(t => t.dataset.open === 'true');
+    const node = messageNode(m);
+    node.querySelectorAll('.think').forEach((t, i) => {
+      if (!opened[i]) return;
+      t.dataset.open = 'true';
+      t.querySelector('.think-toggle')?.setAttribute('aria-expanded', 'true');
+    });
+    existing.replaceWith(node);
+  }
   else {
     const after = [...log.children].find(n => n.dataset.id != null && Number(n.dataset.id) > m.id);
     log.insertBefore(messageNode(m), after || null);
   }
   regroup();
-  if (stick) log.scrollTop = log.scrollHeight;
+  followBottom(log, stick);
 }
 
 async function api(path, init) {
@@ -716,6 +1170,7 @@ async function openRoom(id) {
     if (!log.querySelector('.msg')) log.append(showState('empty', '还没有消息', ''));
     $('log').setAttribute('aria-busy', 'false');
     $('input').disabled = false;
+    stuck = true;
     $('log').scrollTop = $('log').scrollHeight;
   } catch (err) {
     if (state.room !== id) return;

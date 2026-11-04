@@ -62,11 +62,14 @@ type teamTaskBoardItem struct {
 	// Card: the item's task card link (board.py link), for an item with no workspace task card.
 	Card string `json:"card"`
 
-	ReviewRejected string   `json:"review_rejected"`
-	Dispatcher     string   `json:"dispatcher"`
-	Reviewer       string   `json:"reviewer"`
-	RelayReturns   []string `json:"relay_returns,omitempty"`
-	PRBinding      *struct {
+	ReviewRejected string `json:"review_rejected"`
+	Dispatcher     string `json:"dispatcher"`
+	Reviewer       string `json:"reviewer"`
+	// ReviewTier: "complex" sends the verification to the complex-tier role (board tier); anything
+	// else, including unmarked, is simple (user 2026-11-04, 主角色代答 A+C).
+	ReviewTier   string   `json:"review_tier,omitempty"`
+	RelayReturns []string `json:"relay_returns,omitempty"`
+	PRBinding    *struct {
 		NoDeploy bool   `json:"no_deploy"`
 		Bound    string `json:"bound"`
 	} `json:"pr_binding,omitempty"`

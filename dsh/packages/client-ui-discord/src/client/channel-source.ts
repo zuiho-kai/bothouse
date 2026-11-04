@@ -222,6 +222,8 @@ export interface ChannelTask {
   readonly created_at: number
   readonly updated_at: number
   readonly returned_at: number | null
+  /** Unix seconds the hourly wrap-up parked the task (dsh/collab/tasks.mjs pause); null or absent when live. */
+  readonly paused_at?: number | null
 }
 
 /** One message the human sent that the service has not confirmed yet. */

@@ -73,7 +73,9 @@ describe('channels page', () => {
 
   it('keeps offline channel members in the legacy roster and dims them', () => {
     const html = readFileSync(join(import.meta.dirname, '../../../collab/page.html'), 'utf8')
-    const source = html.slice(html.indexOf('function renderMembers()'), html.indexOf('function messageNode('))
+    // 只取 renderMembers 这一段：page.html 里它后面还有顶层的 $('log') 监听注册，
+    // 一起 eval 会在这里拿到 null 的 #log 而报错。
+    const source = html.slice(html.indexOf('function renderMembers()'), html.indexOf('// ---- 消息正文渲染 ----'))
     const container = document.createElement('div')
     container.innerHTML = '<div id="members"></div><div id="thinking"></div>'
     const el = (tag: string, className = '', text = '') => {
@@ -423,6 +425,23 @@ describe('channels page', () => {
     expect(editMessage).toHaveBeenCalledExactlyOnceWith(9, 'xin')
   })
 
+  it('keeps focus in the new edit box when switching the edit to another own message (PR934 F2)', () => {
+    const mine: ChannelSnapshot = {
+      ...ready,
+      messages: [
+        { id: 9, room_id: 1, author_kind: 'user', author: 'owner', name: '我', text: '一', created_at: 1, card: null, from_turn: null },
+        { id: 10, room_id: 1, author_kind: 'user', author: 'owner', name: '我', text: '二', created_at: 2, card: null, from_turn: null },
+      ],
+    }
+    render(<ChannelsPage {...props(mine)} editMessage={vi.fn(async () => {})} withdrawMessage={vi.fn(async () => {})} />)
+    fireEvent.click(screen.getAllByRole('button', { name: zh.messageEdit })[0]!)
+    expect((screen.getByRole('textbox', { name: zh.messageEdit }) as HTMLTextAreaElement).value).toBe('一')
+    fireEvent.click(screen.getByRole('button', { name: zh.messageEdit }))
+    const box = screen.getByRole('textbox', { name: zh.messageEdit }) as HTMLTextAreaElement
+    expect(box.value).toBe('二')
+    expect(document.activeElement).toBe(box)
+  })
+
   it('does not pick an @ candidate on the IME-confirming Enter (keyCode 229)', () => {
     const send = vi.fn(async () => {})
     render(<ChannelsPage {...props(ready, send)} />)
@@ -725,6 +744,8 @@ describe('channels page', () => {
     const page = view.container.firstElementChild as HTMLElement
     const input = screen.getByRole('combobox') as HTMLTextAreaElement
     fireEvent.change(input, { target: { value: '草稿' } })
+    // 来源：用户白色方案要求活动栏默认收起；先展开，再检查原有独立折叠行为。
+    fireEvent.click(screen.getByRole('button', { name: zh.expandMembers }))
     const baseline = page.className
     fireEvent.click(screen.getByRole('button', { name: zh.collapseRooms }))
     const roomsOnly = page.className
@@ -746,7 +767,7 @@ describe('channels page', () => {
     expect(selectRoom).not.toHaveBeenCalled()
   })
 
-  it('lists workspaces indented under their chat channel with an in-progress count (#139)', () => {
+  it('lists workspaces indented under their chat channel, counting only what runs (#139, #113)', () => {
     const rooms = [
       { id: 1, name: 'general', kind: 'chat' as const, parent_id: null, active: 0 },
       { id: 2, name: 'dev', kind: 'chat' as const, parent_id: null, active: 2 },
@@ -756,7 +777,8 @@ describe('channels page', () => {
     const view = render(<ChannelsPage {...props({ ...ready, rooms })} />)
     const nav = view.container.querySelector('nav') as HTMLElement
     const buttons = [...nav.querySelectorAll('button[aria-current]')].map(b => b.textContent)
-    expect(buttons).toEqual(['#general', '#工作区1进行中 0 件', '#工作区2进行中 3 件', '#dev进行中 2 件'])
+    // #113: an idle workspace no longer repeats 「进行中 0 件」; a count shows only when something runs.
+    expect(buttons).toEqual(['#general', '#工作区1', '#工作区2进行中 3 件', '#dev进行中 2 件'])
     const ws = screen.getByRole('button', { name: /工作区2/ })
     expect(ws.className).toContain('workspace')
     expect(screen.getByRole('button', { name: 'general' }).className).not.toContain('workspace')
@@ -810,7 +832,7 @@ describe('progress card detail/brief view', () => {
   it('starts brief, switches to detail, and remembers the choice per room', () => {
     const state: ChannelSnapshot = { ...ready, messages: [progress(1, 10)] }
     const first = render(<ChannelsPage {...props(state)} />)
-    expect(screen.getByText(/Bash · 进行中/)).toBeTruthy()
+    expect(within(screen.getByRole('log')).getByText(/Bash · 进行中/)).toBeTruthy()
     expect(screen.queryByText(/go test/)).toBeNull()
     expect(screen.getByRole('button', { name: zh.cardViewBrief }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: zh.cardViewDetail }))
@@ -824,7 +846,7 @@ describe('progress card detail/brief view', () => {
     cleanup()
     // ... while another room keeps the default.
     render(<ChannelsPage {...props({ ...ready, roomId: 2, messages: [progress(2, 11)] })} />)
-    expect(screen.getByText(/Bash · 进行中/)).toBeTruthy()
+    expect(within(screen.getByRole('log')).getByText(/Bash · 进行中/)).toBeTruthy()
   })
 
   it('cards without a brief rendering show their text and no switch', () => {

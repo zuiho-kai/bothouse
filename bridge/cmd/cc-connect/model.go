@@ -27,7 +27,7 @@ var errModelAPIUnreachable = errors.New("cannot reach bothouse")
 var localModelStatus func() (core.ModelStatus, bool)
 
 func readLocalModelStatus(project, session, socket string) (core.ModelStatus, bool) {
-	if project == "" || session == "" || project != os.Getenv("CC_PROJECT") || session != os.Getenv("CC_SESSION_KEY") || socket != resolveSocketPath("") || localModelStatus == nil {
+	if project == "" || session == "" || project != os.Getenv("CC_PROJECT") || session != envSessionKey() || socket != resolveSocketPath("") || localModelStatus == nil {
 		return core.ModelStatus{}, false
 	}
 	return localModelStatus()
@@ -41,7 +41,7 @@ func runModel(args []string) {
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("model "+sub, flag.ExitOnError)
 	project := fs.String("project", os.Getenv("CC_PROJECT"), "project (default: $CC_PROJECT)")
-	session := fs.String("session-key", os.Getenv("CC_SESSION_KEY"), "session (default: $CC_SESSION_KEY)")
+	session := fs.String("session-key", envSessionKey(), "session (default: $CC_SESSION_KEY)")
 	dataDir := fs.String("data-dir", "", "data directory (default: $CC_DATA_DIR or ~/.bothouse)")
 	effort := fs.String("effort", "", "reasoning effort to set together with the model")
 	jsonOut := fs.Bool("json", false, "print raw JSON")

@@ -22,6 +22,22 @@ func (e *Engine) noticeKeptOut(p Platform, replyCtx any, notice string) bool {
 	return true
 }
 
+// errorKeptOutOfChat reports whether a turn's error text must stay out of
+// replyCtx's chat, logging it when so.
+//
+// An error message embeds the backend's own wording, which can carry upstream
+// safety-filter text or account identifiers. In a QQ group that reaches people
+// who only triggered a turn, so the chat gets nothing and the operator gets
+// the log line; private chats keep the text for diagnosis.
+func (e *Engine) errorKeptOutOfChat(p Platform, replyCtx any, errText string) bool {
+	q, ok := p.(SystemNoticeQuieter)
+	if !ok || !q.QuietSystemNotices(replyCtx) {
+		return false
+	}
+	slog.Error("turn error kept out of chat", "project", e.name, "platform", p.Name(), "error", errText)
+	return true
+}
+
 // sendSystemNotice posts a bridge notice (marked for SystemNoticeMarker
 // platforms) unless the platform keeps such notices out of that chat.
 func (e *Engine) sendSystemNotice(p Platform, replyCtx any, notice string) {

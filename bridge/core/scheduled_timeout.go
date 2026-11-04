@@ -80,14 +80,17 @@ var scheduledWatchSeq atomic.Uint64
 // as StopScheduledTurn stops a direct run. 11-03 caihongmao: her queued outing turns had no
 // limit at all. Any turn start replaces the token, so a later turn on the session is never
 // stopped by an earlier turn's limit.
-func (e *Engine) armScheduledTurnTimeout(state *interactiveState, iKey, trigger, timerJobID, cronJobID, userID string) {
+// queued: the turn was taken from the queue. A scheduler's registration under iKey belongs to the
+// turn it started, and stays until that call returns — which drains the queue first — so it does
+// not cover a queued turn (11-04 test: a queued timer turn ran 10 minutes past its 1-minute limit).
+func (e *Engine) armScheduledTurnTimeout(state *interactiveState, iKey, trigger, timerJobID, cronJobID, userID string, queued bool) {
 	if state == nil {
 		return
 	}
 	state.mu.Lock()
 	state.scheduledWatch = 0
 	state.mu.Unlock()
-	if !scheduledTurnUser(userID) || userID == "heartbeat" || e.scheduledTurnCovered(iKey) {
+	if !scheduledTurnUser(userID) || userID == "heartbeat" || (!queued && e.scheduledTurnCovered(iKey)) {
 		return
 	}
 	limit := e.scheduledTurnLimit(trigger, timerJobID, cronJobID)

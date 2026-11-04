@@ -26,8 +26,8 @@ func writeReviewBoard(t *testing.T, e *Engine, items ...teamTaskBoardItem) {
 }
 
 func TestTaskReviewPersistenceAndRouting(t *testing.T) {
-	e := NewEngine("worker", &stubAgent{}, nil, "", LangChinese)
-	lead := NewEngine("dispatcher", &stubAgent{}, nil, "", LangChinese)
+	e := NewEngine("worker", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	lead := NewEngine("dispatcher", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 	t.Cleanup(func() { e.cancel(); lead.cancel() })
 	dir := t.TempDir()
 	e.SetTeam(dir, "worker", false)
@@ -133,7 +133,7 @@ func TestRegression797ReleasedWorkspaceIsPaused(t *testing.T) {
 }
 
 func TestTaskReviewRecoversDeliveredReceiptOnly(t *testing.T) {
-	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 	t.Cleanup(e.cancel)
 	e.SetDataDir(t.TempDir())
 	e.SetTeam(t.TempDir(), "lead", true)
@@ -160,7 +160,7 @@ func TestTaskReviewRecoversDeliveredReceiptOnly(t *testing.T) {
 }
 
 func TestTaskReviewRoundupFiltersAcceptedAndCoalescesRestart(t *testing.T) {
-	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 	t.Cleanup(e.cancel)
 	e.SetTeam(t.TempDir(), "lead", true)
 	store, _ := NewTimerStore(t.TempDir())
@@ -217,7 +217,7 @@ func TestTaskReviewRoundupFiltersAcceptedAndCoalescesRestart(t *testing.T) {
 }
 
 func TestTaskReviewUnavailableEscalatesWithoutChangingOwner(t *testing.T) {
-	e := NewEngine("primary", &stubAgent{}, nil, "", LangChinese)
+	e := NewEngine("primary", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 	t.Cleanup(e.cancel)
 	e.SetTeam(t.TempDir(), "primary", true)
 	store, _ := NewTimerStore(t.TempDir())
@@ -237,7 +237,7 @@ func TestTaskReviewUnavailableEscalatesWithoutChangingOwner(t *testing.T) {
 	if e.boardItemByID(46).Reviewer != "missing" {
 		t.Fatal("original owner lost")
 	}
-	recovered := NewEngine("missing", &stubAgent{}, nil, "", LangChinese)
+	recovered := NewEngine("missing", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 	t.Cleanup(recovered.cancel)
 	recovered.SetTeam(e.team.dir, "missing", false)
 	recovered.SetTimerScheduler(ts)
@@ -269,7 +269,7 @@ func TestTaskReviewUsesBundledCommandsWithOldInstallation(t *testing.T) {
 	old := LeadToolFS
 	LeadToolFS = os.DirFS("..")
 	t.Cleanup(func() { LeadToolFS = old })
-	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 	t.Cleanup(e.cancel)
 	e.SetDataDir(t.TempDir())
 	e.SetTeam(t.TempDir(), "lead", true)
@@ -302,7 +302,7 @@ func TestTaskReviewUsesBundledCommandsWithOldInstallation(t *testing.T) {
 }
 
 func TestTaskReviewWriteFailureReleasesWorkspaceAndReceiptRecovers(t *testing.T) {
-	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 	t.Cleanup(e.cancel)
 	e.SetDataDir(t.TempDir())
 	e.SetTeam(t.TempDir(), "lead", true)
@@ -335,7 +335,7 @@ func TestTaskReviewWriteFailureReleasesWorkspaceAndReceiptRecovers(t *testing.T)
 }
 
 func TestTaskReviewThresholdReloadWhileWatching(t *testing.T) {
-	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 	t.Cleanup(e.cancel)
 	done := make(chan struct{})
 	go func() {
@@ -372,7 +372,7 @@ func TestTaskReviewTableUsesDispatcherThreshold(t *testing.T) {
 }
 
 func TestTaskReviewPausedRoundupAndResume(t *testing.T) {
-	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 	t.Cleanup(e.cancel)
 	e.SetTeam(t.TempDir(), "lead", true)
 	store, err := NewTimerStore(t.TempDir())
@@ -404,7 +404,7 @@ func TestTaskReviewPausedRoundupAndResume(t *testing.T) {
 }
 
 func TestTaskReviewNoReviewerUsesLeadAndWatchCycle(t *testing.T) {
-	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 	t.Cleanup(e.cancel)
 	e.SetTeam(t.TempDir(), "lead", true)
 	store, err := NewTimerStore(t.TempDir())
@@ -438,7 +438,7 @@ func TestTaskReviewNoReviewerUsesLeadAndWatchCycle(t *testing.T) {
 }
 
 func TestTaskReviewWatchReconcilesBoundNoDeployPR(t *testing.T) {
-	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 	t.Cleanup(e.cancel)
 	e.SetDataDir(t.TempDir())
 	e.SetTeam(t.TempDir(), "lead", true)
@@ -479,7 +479,7 @@ func TestTaskReviewMergedPRShowsPendingClosure(t *testing.T) {
 func TestTaskReviewRelayTrustedBinding(t *testing.T) {
 	for _, scenario := range []string{"valid", "foreign-chat", "wrong-owner", "old-bound", "old-revision", "wrong-path", "failed", "running", "paused", "cancelled", "reassigned", "no-grant"} {
 		t.Run(scenario, func(t *testing.T) {
-			e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+			e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 			t.Cleanup(e.cancel)
 			e.SetDataDir(t.TempDir())
 			e.SetTeam(t.TempDir(), "lead", false)

@@ -52,7 +52,9 @@ export const NOTICE_PREFIXES = ['📬', '✅', '↪', '⏳', '🔄', '⏹', '⏸
 const FOOTER = /(?:^|\n+)\*[^*\n]*·[^*]*\*\s*$/s;
 const BARE_MENTION = '（只 @ 了你，没写内容：看上面的频道消息判断要你做什么；看不出来就问）';
 export const PROGRESS_PREFIX = '__cc_connect_progress_card_v1__:';
-const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败' };
+// cancelled (#913): a card whose turn was cut without an outcome — a restarted bridge, a
+// cancelled DSH job. page.html styles it like any other card state.
+const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败', cancelled: '已取消' };
 const RESERVED_IDS = new Set(['user', 'system']);
 const MAX_NAME = 64;
 
@@ -96,19 +98,21 @@ export function progressCardOf(p) {
     lines.push(`${it.kind === 'tool_use' ? '🔧' : it.kind === 'error' ? '❌' : '•'} ${tool ? tool + ' — ' : ''}${text.slice(0, 120)}`);
   }
   const agent = String(p.agent ?? 'Agent').trim() || 'Agent';
-  const brief = [lines[0], ...briefSteps(items, state)].join('\n');
-  const card = { text: lines.join('\n'), card: JSON.stringify({ title: `${agent} · ${CARD_STATES[state]}`, state, steps, elapsed_sec: sec, brief }) };
+  const run = toolSteps(items);
+  const brief = [lines[0], ...briefSteps(run, state)].join('\n');
+  const chips = stepChips(run, state);
+  const card = { text: lines.join('\n'), card: JSON.stringify({ title: `${agent} · ${CARD_STATES[state]}`, state, steps, elapsed_sec: sec, brief, chips }) };
   // Bridge task card (cloud-web public_progress.go): its members feed the task board (tasks.mjs fromCard).
   return Array.isArray(p.task_members) ? { ...card, members: p.task_members } : card;
 }
 
 /**
- * The 简略 view of a progress card, one line per tool step: tool name and
- * 成功/失败 (进行中 while the turn runs), no command text or output. Same
- * rules as the Discord card (bridge/platform/discord/progress.go
- * buildDiscordProgressBrief, discordProgressItemFailed).
+ * Tool steps of a turn, in order: each tool_use opens a step, its tool_result (same tool, else
+ * the last open one) closes it as succeeded/failed, an error fails the last open step. Same
+ * pairing as the Discord card (bridge/platform/discord/progress.go buildDiscordProgressBrief,
+ * discordProgressItemFailed). Each step keeps its call and output text for the step chips.
  */
-function briefSteps(items, state) {
+function toolSteps(items) {
   const steps = [];
   const open = tool => {
     for (let i = steps.length - 1; i >= 0; i--) if (steps[i].state === 0 && (tool === '' || steps[i].tool === tool)) return i;
@@ -116,25 +120,49 @@ function briefSteps(items, state) {
   };
   const failed = it => typeof it.success === 'boolean' ? !it.success
     : (Number.isInteger(it.exit_code) && it.exit_code !== 0) || ['failed', 'failure', 'error'].includes(String(it.status ?? '').trim().toLowerCase());
+  // 沿用 progressCardOf 正文每行截断 120 字。
+  const clip = v => {
+    const text = String(v ?? '').replace(/\s+/g, ' ').trim();
+    return text.length > 120 ? `${text.slice(0, 119)}…` : text;
+  };
   for (const it of items) {
     if (it === null || typeof it !== 'object') continue;
     const tool = String(it.tool ?? '').trim();
-    if (it.kind === 'tool_use') steps.push({ tool, state: 0 });
+    if (it.kind === 'tool_use') steps.push({ tool, state: 0, input: clip(it.text), output: '' });
     else if (it.kind === 'tool_result') {
       const st = failed(it) ? 2 : 1;
       const i = open(tool);
-      if (i >= 0) steps[i].state = st; else steps.push({ tool, state: st });
+      if (i >= 0) Object.assign(steps[i], { state: st, output: clip(it.text) });
+      else steps.push({ tool, state: st, input: '', output: clip(it.text) });
     } else if (it.kind === 'error') {
       const i = open('');
-      if (i >= 0) steps[i].state = 2;
+      if (i >= 0) Object.assign(steps[i], { state: 2, output: clip(it.text) });
     }
   }
+  return steps;
+}
+
+/**
+ * The 简略 view of a progress card, one line per tool step: tool name and
+ * 成功/失败 (进行中 while the turn runs), no command text or output.
+ */
+function briefSteps(steps, state) {
   return steps.map(s => {
     const name = (s.tool || '工具').slice(0, 120);
     if (s.state === 1) return `✅ ${name} · 成功`;
     if (s.state === 2) return `❌ ${name} · 失败`;
     return state === 'running' ? `🔧 ${name} · 进行中` : `🔧 ${name}`;
   });
+}
+
+/** Step chips for the DSH page (#125, owner's 11:53 sample): tool, outcome, call and output per step. */
+function stepChips(steps, state) {
+  return steps.map(s => ({
+    tool: (s.tool || '工具').slice(0, 120),
+    state: s.state === 1 ? 'ok' : s.state === 2 ? 'failed' : state === 'running' ? 'running' : 'unknown',
+    ...(s.input ? { input: s.input } : {}),
+    ...(s.output ? { output: s.output } : {}),
+  }));
 }
 
 /** reply_to_* frame fields for a reply (store.quote result); {} for a plain message. */
@@ -245,7 +273,40 @@ export class CloudWebGateway {
     this.hub.dropDrafts('role', id);
     // ...and its pending permission requests are gone with the old process.
     this.approvals.expireWhere(p => p.meta?.gateway === this && p.meta.bot === id);
+    // ...and the progress cards it already posted would stay 「处理中」 forever: the old
+    // process held the only handle, and the turn it resumes posts a second card (#913).
+    this.closeStaleCards(id);
     return bot;
+  }
+
+  /**
+   * #913: close the progress cards a bot left running. A restarted cc-connect keeps no
+   * message ids, so nothing will ever edit those rows again, while its resumed turn posts
+   * a fresh card; the room then shows two 「处理中」 and no way to tell which is alive.
+   * They are closed as 已取消 (page.html already styles that state) and keep their steps,
+   * plus a line saying the turn was cut, so the history stays readable.
+   *
+   * Every card row this member posted is looked at, not the last page of one room: the
+   * room may have carried a hundred messages since (a busy channel, a workshop), and a
+   * running card there must still be closed. Only this member's own rows are touched,
+   * and only rows still `running`: a card the resumed turn reopens by its own handle goes
+   * back to 处理中 on the next frame.
+   */
+  closeStaleCards(memberId) {
+    for (const row of this.hub.store.authorCards('role', memberId)) {
+      let card;
+      try { card = JSON.parse(row.card); } catch { continue; }
+      if (card?.state !== 'running') continue;
+      const note = '⏹ 已中断（桥重启），这一步不会再更新';
+      const brief = typeof card.brief === 'string' && card.brief !== '' ? `${card.brief}\n${note}` : note;
+      // The stored title is already rendered ("CC · 处理中"): swap only its state label,
+      // so the card keeps its agent name.
+      const label = ` · ${CARD_STATES[card.state] ?? ''}`;
+      const agent = typeof card.title === 'string' && card.title.endsWith(label) ? card.title.slice(0, -label.length) : (card.title ?? 'Agent');
+      // A cut turn reports no outcome for its open steps.
+      const chips = Array.isArray(card.chips) ? card.chips.map(c => c?.state === 'running' ? { ...c, state: 'unknown' } : c) : card.chips;
+      this.hub.edit(row.id, 'role', memberId, `${row.text}\n${note}`, JSON.stringify({ ...card, state: 'cancelled', title: `${agent} · ${CARD_STATES.cancelled}`, brief, chips }));
+    }
   }
 
   /** Forward one new channel message to every connected bot except its author. */

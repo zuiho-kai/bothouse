@@ -694,6 +694,7 @@ const (
 	MsgTaskReviewReturned       MsgKey = "task_review_returned"
 	MsgTaskReviewOverdue        MsgKey = "task_review_overdue"
 	MsgTaskReviewPrompt         MsgKey = "task_review_prompt"
+	MsgTaskReviewEscalate       MsgKey = "task_review_escalate"
 	MsgTaskReviewUnavailable    MsgKey = "task_review_unavailable"
 	MsgTaskReviewRoundup        MsgKey = "task_review_roundup"
 	MsgTaskPausedSummary        MsgKey = "task_paused_summary"
@@ -1114,6 +1115,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangJapanese:           "#%d の検収が遅れています",
 		LangSpanish:            "#%d sigue pendiente de verificación",
 	},
+	MsgTaskReviewEscalate: {
+		LangEnglish: "This is the simple review tier. If you are not sure, run board tier %[1]d complex: the complex-tier reviewer verifies it again.",
+		LangChinese: "这是简单档验收。拿不准就跑 board tier %[1]d complex，换复杂档的审核人再审一遍。",
+	},
+
 	MsgTaskReviewPrompt: {
 		LangEnglish:            "%s: %s. Handoff: %s. Verify artifacts first. Accept with board done %[4]d <rework-count>, or record feedback with board reject %[4]d <feedback> and continue through ws-handoff --resume %[4]d <feedback>. Check workspace occupancy; use a free workspace or queue. The dispatcher owns verification, not the user. A returned report is not acceptance.",
 		LangChinese:            "%s：%s。交接：%s。先核对实际产物，再收口（board done %[4]d <返工次数>），或记录问题（board reject %[4]d <问题>）后用 ws-handoff --resume %[4]d <问题> 续办。先核对原工作区占用，占用时排队或选空闲区。不得把待核对交给用户，不得把交回当验收。",

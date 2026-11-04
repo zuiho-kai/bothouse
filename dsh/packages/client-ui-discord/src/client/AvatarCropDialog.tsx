@@ -4,6 +4,7 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { NS } from './locales.ts'
 import { avatarPng, AvatarOutputSizeError, cropRect } from './avatar-upload.ts'
 import css from './ChannelsPage.module.css'
+import { getScheme } from './scheme.ts'
 
 export function AvatarCropDialog({ image, onConfirm, onCancel, t }: {
   image: HTMLImageElement
@@ -41,7 +42,7 @@ export function AvatarCropDialog({ image, onConfirm, onCancel, t }: {
         : t('memberAvatarConvertError'))
     }
   }
-  return createPortal(<div className={css.dialogBackdrop} onMouseDown={event => {
+  return createPortal(<div className={css.dialogBackdrop} data-dc-scheme={getScheme()} onMouseDown={event => {
     event.stopPropagation()
     if (event.target === event.currentTarget) onCancel()
   }}>

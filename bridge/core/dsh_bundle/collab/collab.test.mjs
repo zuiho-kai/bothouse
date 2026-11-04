@@ -607,6 +607,24 @@ test('progress card carries a brief view: tool name and outcome per step', () =>
   assert.match(c.text, /go test/);
 });
 
+test('progress card carries step chips: tool, outcome, call and output per step (#125)', () => {
+  const c = progressCard(PROGRESS_PREFIX + JSON.stringify({ state: 'running', steps: 4, elapsed_sec: 9, agent: 'Codex', items: [
+    { kind: 'thinking', text: 'hmm' },
+    { kind: 'tool_use', tool: 'Bash', text: 'go   test ./...' }, { kind: 'tool_result', tool: 'Bash', text: 'ok\n  all', exit_code: 0 },
+    { kind: 'tool_use', tool: 'Edit', text: 'a.go' }, { kind: 'tool_result', tool: 'Edit', text: 'boom', success: false },
+    { kind: 'tool_result', tool: 'Grep', text: 'x'.repeat(300) },
+    { kind: 'tool_use', tool: 'Read', text: 'b.go' },
+  ] }));
+  assert.deepEqual(JSON.parse(c.card).chips, [
+    { tool: 'Bash', state: 'ok', input: 'go test ./...', output: 'ok all' },
+    { tool: 'Edit', state: 'failed', input: 'a.go', output: 'boom' },
+    { tool: 'Grep', state: 'ok', output: `${'x'.repeat(119)}…` },
+    { tool: 'Read', state: 'running', input: 'b.go' },
+  ]);
+  const done = progressCard(PROGRESS_PREFIX + JSON.stringify({ state: 'completed', items: [{ kind: 'tool_use', tool: 'Read', text: 'b.go' }, { kind: 'error', text: 'denied' }, { kind: 'tool_use', text: 'q' }] }));
+  assert.deepEqual(JSON.parse(done.card).chips, [{ tool: 'Read', state: 'failed', input: 'b.go', output: 'denied' }, { tool: '工具', state: 'unknown', input: 'q' }]);
+});
+
 
 /**
  * Minimal DSH runtime. Agents keep a pending inbox and a Session event log;
@@ -1531,6 +1549,27 @@ test('member failure publishes actionable error and clears it on retry', () => {
   assert.equal(JSON.parse(notice.card).action, 'configure-model');
   hub.setThinking(1, 'ds', true);
   assert.equal(hub.memberView().find(m => m.id === 'ds').error, undefined);
+});
+
+test('an unreachable provider names the setting to check instead of echoing the transport error', () => {
+  assert.match(friendlyFailure('DeepSeek 这一轮没有给出回复（error：Connection error.）'), /连不上模型服务/);
+  assert.match(friendlyFailure('fetch failed'), /连不上模型服务/);
+});
+
+test('a turn interrupted by a restart keeps the member healthy and offers a retry', () => {
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const trigger = hub.store.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'hello' }).message;
+  const job = hub.store.addJob('ds', 1, trigger.id);
+  members.fail(job.id, 'DeepSeek 上次被重启打断，这条没有完成，需要的话请重新 @。', 'interrupted');
+  const notice = hub.store.page(1, undefined, 1)[0];
+  assert.equal(notice.text, 'DeepSeek 上次被重启打断，这条没有完成，需要的话请重新 @。');
+  const card = JSON.parse(notice.card);
+  assert.equal(card.title, '被中断');
+  assert.equal(card.action, 'retry');
+  const view = hub.memberView().find(m => m.id === 'ds');
+  assert.equal(view.error, undefined);
+  assert.equal(view.online, true);
 });
 
 test('member errors explain setup failures and publish error presence', () => {
@@ -5934,4 +5973,70 @@ test('delegating with standalone verdict examples does not prematurely accept th
   await settle();
   assert.equal(tasks.task(original.id).status, 'returned');
   assert.equal(tasks.list(1).find(t => t.owner === 'reviewer').parent_task, original.id);
+});
+
+test('cloud-web: a restarted bridge leaves no progress card stuck at 处理中 (#913)', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const card = (state, text) => PROGRESS_PREFIX + JSON.stringify({
+    agent: 'CC', state, steps: 1, elapsed_sec: 7, items: [{ kind: 'tool_use', tool: 'Bash', text }],
+  });
+
+  const first = connect(gw, 'bot=fish&name=%E6%B5%8B%E8%AF%95%E9%B1%BC&mention_id=9001');
+  // A turn still running when the bridge process dies: its card is a draft nobody will close.
+  first.frame({ type: 'preview_start', ref_id: 'p1', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', content: card('running', 'seq 1 20') });
+  await tick();
+  const running = Number(first.of('preview_ack').at(-1).preview_handle);
+  // A card of an earlier, finished turn: reconnect must leave it alone.
+  first.frame({ type: 'preview_start', ref_id: 'p0', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', content: card('completed', 'seq 1 5') });
+  await tick();
+  const done = Number(first.of('preview_ack').at(-1).preview_handle);
+  assert.equal(JSON.parse(hub.store.message(running).card).state, 'running');
+  assert.equal(JSON.parse(hub.store.message(done).card).state, 'completed');
+  assert.equal(hub.store.message(running).draft, 1);
+
+  // Same bot reconnects — a restarted cc-connect, holding no handle on the old row.
+  const second = connect(gw, 'bot=fish&name=%E6%B5%8B%E8%AF%95%E9%B1%BC&mention_id=9001');
+  await tick();
+
+  const closed = hub.store.message(running);
+  assert.equal(JSON.parse(closed.card).state, 'cancelled', 'stale running card is closed');
+  assert.equal(JSON.parse(closed.card).title, 'CC · 已取消');
+  assert.deepEqual(JSON.parse(closed.card).chips, [{ tool: 'Bash', state: 'unknown', input: 'seq 1 20' }], 'an open step of a cut turn is no longer running');
+  assert.match(closed.text, /seq 1 20/, 'the steps stay readable');
+  assert.match(closed.text, /已中断/);
+  assert.equal(JSON.parse(hub.store.message(done).card).state, 'completed', 'a finished card is not rewritten');
+
+  // The resumed turn's own card is untouched by its registration: it is posted after, and
+  // a card the new process reopens by its own handle goes back to 处理中.
+  second.frame({ type: 'preview_start', ref_id: 'p2', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', content: card('running', 'seq 1 30') });
+  await tick();
+  const fresh = Number(second.of('preview_ack').at(-1).preview_handle);
+  assert.equal(JSON.parse(hub.store.message(fresh).card).state, 'running');
+});
+
+test('cloud-web: a running card is closed even when the room moved far past the first page (#913)', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const card = PROGRESS_PREFIX + JSON.stringify({
+    agent: 'CC', state: 'running', steps: 1, elapsed_sec: 7, items: [{ kind: 'tool_use', tool: 'Bash', text: 'seq 1 20' }],
+  });
+
+  const first = connect(gw, 'bot=fish&name=%E6%B5%8B%E8%AF%95%E9%B1%BC&mention_id=9001');
+  first.frame({ type: 'preview_start', ref_id: 'p1', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', content: card });
+  await tick();
+  const running = Number(first.of('preview_ack').at(-1).preview_handle);
+
+  // A busy channel: the card is now older than any page of history the web UI would load.
+  for (let i = 0; i < 120; i++) hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: `filler ${i}` });
+  assert.equal(hub.store.page(1, undefined, 100).some(r => r.id === running), false, 'the card is outside the first page');
+
+  connect(gw, 'bot=fish&name=%E6%B5%8B%E8%AF%95%E9%B1%BC&mention_id=9001');
+  await tick();
+
+  const closed = hub.store.message(running);
+  assert.equal(JSON.parse(closed.card).state, 'cancelled', 'an old running card is still closed');
+  assert.equal(JSON.parse(closed.card).title, 'CC · 已取消');
+  assert.match(closed.text, /seq 1 20/);
+  assert.match(closed.text, /已中断/);
 });
