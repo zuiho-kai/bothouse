@@ -1699,3 +1699,25 @@
 .schemeToggle:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
 .schemeToggle:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color); }
 .schemeToggle + .panelToggleEnd { margin-left: 4px; }
+
+/* #125 step chips under a run strip (owner's 11:53 sample v1): outcome per tool, click for call/output, failed in red. */
+.stepChips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.stepChip { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; padding: 2px 9px 2px 7px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-secondary); font: inherit; font-size: 11px; cursor: pointer; }
+.stepChip b { overflow: hidden; color: var(--dsw-alias-label-primary); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.stepChip:disabled { cursor: default; }
+.stepChip[aria-expanded='true'] { background: var(--dsw-alias-interactive-bg-hover); }
+.stepChip[data-state='failed'] { border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2)); }
+.stepChip[data-state='failed'] b { color: var(--dsw-alias-state-error-primary); }
+.stepChip[data-state='running'] { border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 55%, var(--dsw-alias-border-l2)); }
+.stepMark { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--dsw-alias-label-tertiary); }
+.stepChip[data-state='ok'] .stepMark { background: #23a55a; }
+.stepChip[data-state='failed'] .stepMark { background: var(--dsw-alias-state-error-primary); }
+.stepChip[data-state='running'] .stepMark { background: var(--dsw-alias-state-business-primary); animation: channels-blink 1s ease-in-out infinite; }
+@keyframes channels-blink { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .stepChip[data-state='running'] .stepMark { animation: none; } }
+.stepOut { flex-basis: 100%; display: grid; gap: 4px; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base)); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.5; }
+.stepOut[data-state='failed'] { border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2)); }
+.stepOut div { display: flex; gap: 8px; min-width: 0; }
+.stepOut span { flex: none; color: var(--dsw-alias-label-tertiary); }
+.stepOut code { min-width: 0; font-family: ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
+.stepOut[data-state='failed'] div:last-child code { color: var(--dsw-alias-state-error-primary); }
