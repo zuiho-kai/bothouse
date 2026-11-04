@@ -27,12 +27,14 @@ type proxyFakeDSH struct {
 	srv     *httptest.Server
 	logins  atomic.Int32
 	session atomic.Value // current valid cookie value
+	launch  atomic.Value // current valid launch token
 	release chan struct{}
 }
 
 func newProxyFakeDSH(t *testing.T) *proxyFakeDSH {
 	f := &proxyFakeDSH{release: make(chan struct{})}
 	f.session.Store("v1")
+	f.launch.Store("launch")
 	up := websocket.Upgrader{}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.Host, "127.0.0.1:") || r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") == "cross-site" {
@@ -40,7 +42,7 @@ func newProxyFakeDSH(t *testing.T) *proxyFakeDSH {
 			return
 		}
 		if r.URL.Path == "/" && r.URL.Query().Has("token") {
-			if r.URL.Query().Get("token") != "launch" {
+			if r.URL.Query().Get("token") != f.launch.Load().(string) {
 				http.Error(w, "bad token", http.StatusUnauthorized)
 				return
 			}

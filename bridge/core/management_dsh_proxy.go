@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
@@ -14,7 +13,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,22 +74,38 @@ func (m *ManagementServer) dshAuthorized(r *http.Request) bool {
 	return m.authenticate(r)
 }
 
-// runningDSHWeb returns the loopback host:port and launch token of the `dsh web` the wizard started,
-// or an error when it is not running.
+// runningDSHWeb returns the loopback host:port and launch token of the `dsh web` that is up, or an
+// error when there is none. The state file is the fast path; it is healed from the host's own log
+// when it names a dead pid, a non-loopback host (an announcement written verbatim turns the 503 into
+// a 502, since the proxy dials the url's host), or a token the proxy was just refused — see
+// dsh_web_selfheal.go.
 func runningDSHWeb() (target, launchToken string, err error) {
-	b, err := os.ReadFile(dshWebStatePath())
-	if err != nil {
+	web, u, ok := readDSHWebState()
+	if !ok {
+		if web.URL != "" {
+			return "", "", fmt.Errorf("dsh-web.json has an unreadable url %q", web.URL)
+		}
+		// No file at all (openDSHWeb removes it before a restart): the host may still be up and have
+		// announced itself in the default log next to it.
+		if t, tok, healed := healDSHWebState(DSHWeb{}); healed {
+			return t, tok, nil
+		}
 		return "", "", errDSHWebNotRunning
 	}
-	var web DSHWeb
-	if json.Unmarshal(b, &web) != nil || web.URL == "" || web.PID <= 0 || !processAlive(web.PID) {
-		return "", "", errDSHWebNotRunning
+	stale := dshWebSuspect.Swap(false) || web.PID <= 0 || !processAlive(web.PID) || !loopbackTarget(u.Host)
+	if !stale {
+		return u.Host, u.Query().Get("token"), nil
 	}
-	u, err := url.Parse(web.URL)
-	if err != nil || u.Host == "" {
-		return "", "", fmt.Errorf("dsh-web.json has an unreadable url %q", web.URL)
+	if t, tok, healed := healDSHWebState(web); healed {
+		return t, tok, nil
 	}
-	return u.Host, u.Query().Get("token"), nil
+	// Nothing could be adopted. A live loopback host the token was only *suspected* on is still
+	// worth dialling — DSH answers, and the proxy shows what it said. A dead pid is not: the file
+	// offers nothing to reach, which is the 503 this page exists for.
+	if web.PID > 0 && processAlive(web.PID) && loopbackTarget(u.Host) {
+		return u.Host, u.Query().Get("token"), nil
+	}
+	return "", "", errDSHWebNotRunning
 }
 
 var errDSHWebNotRunning = errors.New("the channels page (dsh web) is not running")
@@ -305,7 +319,21 @@ type dshProxyTransport struct {
 func (t *dshProxyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	cookie, err := t.p.cookieFor(req, t.target, t.launchToken, "")
 	if err != nil {
-		return nil, err
+		// The recorded token was refused: the host is up but it is not the one the state file
+		// describes. Heal from the log and sign in again, so this request is served instead of 502.
+		healedTarget, healedToken, healed := healAfterRefusedToken()
+		if !healed {
+			return nil, err
+		}
+		if healedTarget != t.target {
+			// The host came back on another port; follow it for this request too.
+			t.target = healedTarget
+			req.URL.Host, req.Host = healedTarget, healedTarget
+		}
+		t.launchToken = healedToken
+		if cookie, err = t.p.cookieFor(req, t.target, t.launchToken, ""); err != nil {
+			return nil, err
+		}
 	}
 	req.Header.Set("Cookie", cookie)
 	res, err := t.p.transport.RoundTrip(req)
@@ -347,6 +375,10 @@ func (p *dshProxy) cookieFor(req *http.Request, target, launchToken, stale strin
 		parts = append(parts, c.Name+"="+c.Value)
 	}
 	if len(parts) == 0 {
+		// The pid can still be alive (pid reuse, a second instance) while the token is the previous
+		// start's: the state file is then stale in the way the pid cannot show, so the next request
+		// heals it from the log.
+		dshWebSuspect.Store(true)
 		return "", fmt.Errorf("dsh web refused the launch token (HTTP %d)", res.StatusCode)
 	}
 	p.target, p.cookie = target, strings.Join(parts, "; ")
