@@ -23,3 +23,23 @@ export function Avatar({ id, name, avatar, avatarVersion, small }: { id: string;
     </span>
   )
 }
+
+/**
+ * Overlapping portraits of the members at work (#113): room rows and the title
+ * bar show who is busy at a glance. Decorative only (no text), so a row's
+ * accessible name and text stay the room's own; the names go in `title`.
+ */
+// 来源：#113 草图 v1，频道行与标题栏最多叠三个头像。
+export function AvatarStack({ members, max = 3, label }: { members: readonly { id: string; name: string; avatar?: string; avatarVersion?: string }[]; max?: number; label?: string }) {
+  if (members.length === 0) return null
+  const shown = members.slice(0, max)
+  return (
+    <span className={css.avatarStack} title={label ?? members.map(m => m.name).join('、')} aria-hidden>
+      {shown.map(m => {
+        const base = avatarSrc(m.avatar)
+        const src = base && m.avatar?.startsWith('upload:') && m.avatarVersion ? `${base}?v=${m.avatarVersion}` : base
+        return <span key={m.id} className={css.stackDot} style={{ background: color(m.id), ...(src === undefined ? {} : { backgroundImage: `url("${src}")` }) }} />
+      })}
+    </span>
+  )
+}

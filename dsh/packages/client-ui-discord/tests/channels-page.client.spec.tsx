@@ -423,6 +423,23 @@ describe('channels page', () => {
     expect(editMessage).toHaveBeenCalledExactlyOnceWith(9, 'xin')
   })
 
+  it('keeps focus in the new edit box when switching the edit to another own message (PR934 F2)', () => {
+    const mine: ChannelSnapshot = {
+      ...ready,
+      messages: [
+        { id: 9, room_id: 1, author_kind: 'user', author: 'owner', name: '我', text: '一', created_at: 1, card: null, from_turn: null },
+        { id: 10, room_id: 1, author_kind: 'user', author: 'owner', name: '我', text: '二', created_at: 2, card: null, from_turn: null },
+      ],
+    }
+    render(<ChannelsPage {...props(mine)} editMessage={vi.fn(async () => {})} withdrawMessage={vi.fn(async () => {})} />)
+    fireEvent.click(screen.getAllByRole('button', { name: zh.messageEdit })[0]!)
+    expect((screen.getByRole('textbox', { name: zh.messageEdit }) as HTMLTextAreaElement).value).toBe('一')
+    fireEvent.click(screen.getByRole('button', { name: zh.messageEdit }))
+    const box = screen.getByRole('textbox', { name: zh.messageEdit }) as HTMLTextAreaElement
+    expect(box.value).toBe('二')
+    expect(document.activeElement).toBe(box)
+  })
+
   it('does not pick an @ candidate on the IME-confirming Enter (keyCode 229)', () => {
     const send = vi.fn(async () => {})
     render(<ChannelsPage {...props(ready, send)} />)
@@ -746,7 +763,7 @@ describe('channels page', () => {
     expect(selectRoom).not.toHaveBeenCalled()
   })
 
-  it('lists workspaces indented under their chat channel with an in-progress count (#139)', () => {
+  it('lists workspaces indented under their chat channel, counting only what runs (#139, #113)', () => {
     const rooms = [
       { id: 1, name: 'general', kind: 'chat' as const, parent_id: null, active: 0 },
       { id: 2, name: 'dev', kind: 'chat' as const, parent_id: null, active: 2 },
@@ -756,7 +773,8 @@ describe('channels page', () => {
     const view = render(<ChannelsPage {...props({ ...ready, rooms })} />)
     const nav = view.container.querySelector('nav') as HTMLElement
     const buttons = [...nav.querySelectorAll('button[aria-current]')].map(b => b.textContent)
-    expect(buttons).toEqual(['#general', '#工作区1进行中 0 件', '#工作区2进行中 3 件', '#dev进行中 2 件'])
+    // #113: an idle workspace no longer repeats 「进行中 0 件」; a count shows only when something runs.
+    expect(buttons).toEqual(['#general', '#工作区1', '#工作区2进行中 3 件', '#dev进行中 2 件'])
     const ws = screen.getByRole('button', { name: /工作区2/ })
     expect(ws.className).toContain('workspace')
     expect(screen.getByRole('button', { name: 'general' }).className).not.toContain('workspace')
