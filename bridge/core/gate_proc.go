@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -470,6 +471,7 @@ func (g *GateSupervisor) startLocked(python string) error {
 		// Both names point at the bridge's data dir so the gate never mixes it with an inherited one
 		// (contrib/gate/datadir.py: lead.json follows BOTHOUSE_DATA_DIR, the rest GATE_SETUP_DIR).
 		"GATE_SETUP_DIR="+g.dataDir,
+		"BOTHOUSE_CTX_CMD="+ctxCmd(), // ctxsvc names this in its catalog: the command that prints a [#编号]'s body
 		"BOTHOUSE_DATA_DIR="+g.dataDir,
 		"GATE_PORT="+gatePort(),
 		"GATE_LOG="+filepath.Join(g.dataDir, "gate.jsonl"),
@@ -584,4 +586,17 @@ func EnsureGateForDSH(dataDir string) {
 	if g := activeGateFor(dataDir); g != nil {
 		g.Want()
 	}
+}
+
+// ctxCmd: the shell command that prints a stored context entry (`bothouse ctx <id>`, core/ctxstore.go), with
+// this binary's path so it works where bothouse is not on PATH.
+func ctxCmd() string {
+	exe, err := os.Executable()
+	if err != nil || exe == "" {
+		return "bothouse ctx"
+	}
+	if strings.ContainsAny(exe, " '\"") {
+		return "'" + strings.ReplaceAll(exe, "'", `'\''`) + "' ctx"
+	}
+	return exe + " ctx"
 }
