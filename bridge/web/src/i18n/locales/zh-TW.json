@@ -375,6 +375,8 @@
     "reviewComplexModel": "複雜檔模型",
     "reviewModelRole": "沿用該角色自己的模型",
     "reviewModelHint": "審核開新會話，用這個模型跑",
+    "reviewModelNoSwitch": "該角色的後端不支援換模型，審核會按它自己的模型跑",
+    "reviewModelNotice": "最近一次審核模型沒生效：#{{board}}（{{tier}}），{{role}} · {{model}}：{{reason}}",
     "log": "記錄",
     "logLevel": "記錄層級",
     "appearance": "外觀",

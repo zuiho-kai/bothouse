@@ -2326,6 +2326,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		}
 		e.noteScheduledTurn(job.ID, iKey)
 		e.setTurnModel(iKey, job.Model)
+		noteTurnModelIgnored(job, agent, e.name)
 		e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, runSessionKey)
 		e.setTurnModel(iKey, "")
 		e.forgetScheduledTurn(job.ID, iKey)

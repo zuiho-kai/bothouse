@@ -3,7 +3,7 @@ import AutostartSettingCard from '@/components/Autostart/AutostartSettingCard';
 import { useTranslation } from 'react-i18next';
 import { Save } from 'lucide-react';
 import { Card, Button, LoadingState, PageHeader } from '@/components/ui';
-import { getGlobalSettings, updateGlobalSettings, type GlobalSettings as GS } from '@/api/settings';
+import { getGlobalSettings, updateGlobalSettings, type GlobalSettings as GS, type ReviewModelNotice } from '@/api/settings';
 import { listRoles, type RoleInfo } from '@/api/roles';
 import { listModels } from '@/api/providers';
 import { cn } from '@/lib/utils';
@@ -96,6 +96,9 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
   const [reviewSimpleModel, setReviewSimpleModel] = useState('');
   const [reviewComplexModel, setReviewComplexModel] = useState('');
   const [roleModels, setRoleModels] = useState<Record<string, string[]>>({});
+  // Roles whose backend cannot switch models: a tier model picked for them would be ignored.
+  const [noSwitch, setNoSwitch] = useState<Record<string, boolean>>({});
+  const [reviewNotice, setReviewNotice] = useState<ReviewModelNotice | null>(null);
   const [roles, setRoles] = useState<RoleInfo[]>([]);
 
   const load = useCallback(async () => {
@@ -118,6 +121,7 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
       setReviewComplex(s.review_complex_role ?? '');
       setReviewSimpleModel(s.review_simple_model ?? '');
       setReviewComplexModel(s.review_complex_model ?? '');
+      setReviewNotice(s.review_model_notice ?? null);
     } catch {
       // ignore
     } finally {
@@ -136,9 +140,16 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
       if (!role || roleModels[role]) continue;
       listModels(role)
         .then((r) => setRoleModels((m) => ({ ...m, [role]: r.models ?? [] })))
-        .catch(() => setRoleModels((m) => ({ ...m, [role]: [] })));
+        .catch(() => {
+          setRoleModels((m) => ({ ...m, [role]: [] }));
+          setNoSwitch((n) => ({ ...n, [role]: true }));
+        });
     }
   }, [reviewSimple, reviewComplex, roleModels]);
+
+  const modelHint = (role: string) => (noSwitch[role]
+    ? t('settings.reviewModelNoSwitch', "This role's backend cannot switch models; reviews run on its own model")
+    : t('settings.reviewModelHint', 'The review runs in a new session on this model'));
 
   const modelOptions = (role: string, current: string) => {
     const opts = [{ value: '', label: t('settings.reviewModelRole', "The role's own model") }];
@@ -314,7 +325,7 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
               value={reviewSimpleModel}
               onChange={setReviewSimpleModel}
               options={modelOptions(reviewSimple, reviewSimpleModel)}
-              hint={t('settings.reviewModelHint', 'The review runs in a new session on this model')}
+              hint={modelHint(reviewSimple)}
             />
           )}
           <Select
@@ -330,8 +341,19 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
               value={reviewComplexModel}
               onChange={setReviewComplexModel}
               options={modelOptions(reviewComplex, reviewComplexModel)}
-              hint={t('settings.reviewModelHint', 'The review runs in a new session on this model')}
+              hint={modelHint(reviewComplex)}
             />
+          )}
+          {reviewNotice && (
+            <p data-testid="review-model-notice" className="text-xs text-amber-600 dark:text-amber-400">
+              {t('settings.reviewModelNotice', 'Latest review whose model did not apply: #{{board}} ({{tier}}), {{role}} · {{model}}: {{reason}}', {
+                board: reviewNotice.board,
+                tier: reviewNotice.tier === 'complex' ? t('settings.reviewComplex', 'Complex reviews') : t('settings.reviewSimple', 'Simple reviews'),
+                role: reviewNotice.role,
+                model: reviewNotice.model,
+                reason: reviewNotice.reason,
+              })}
+            </p>
           )}
         </div>
       </Card>

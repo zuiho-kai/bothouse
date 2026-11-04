@@ -275,7 +275,7 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 		ref := taskReviewRef{Board: it.ID, ReturnedAt: it.ReturnedAt, Stage: stage, Tier: taskReviewTier(it)}
 		prior := reviewer.timerScheduler.store.Get(id)
 		if prior == nil {
-			reviewer.queueTaskReviewIn(id, it.Chat, &ref, now, fresh, taskReviewTierModel(it, reviewer.name))
+			reviewer.queueTaskReviewIn(id, it.Chat, &ref, now, fresh, taskReviewModelFor(it, reviewer))
 		} else if roundup && prior.Fired && prior.ScheduledAt.Before(now.Truncate(teamWorkspaceReconcileEvery)) {
 			key := reviewer.name + "/" + it.Chat
 			g := groups[key]
@@ -449,11 +449,18 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 	if designated != nil {
 		pool = append([]*Engine{designated}, pool...)
 	}
+	if tier == nil && tierRole != "" && rankTaskReviewStandIns(it, pool, chat) {
+		// The tier's role is cooling or wrote the work: the stand-in ranked first (offers the tier
+		// model, or is the cheapest for a simple review) reviews, in a side session when busy or on
+		// the tier model, like the tier role would.
+		x := pool[0]
+		return x, taskReviewModelFor(it, x) != "" || x.quotaBusy(chat) || x.taskReviewQueuedIn(chat)
+	}
 	if tier != nil {
 		// The tier's role reviews even when busy (in a new side session): it is the model chosen
 		// for this kind of review. Only author or cooling sends the review elsewhere. A chosen
 		// tier model always takes a new session: the channel session keeps its own model.
-		if taskReviewTierModel(it, tier.name) == "" && !tier.quotaBusy(chat) && !tier.taskReviewQueuedIn(chat) {
+		if taskReviewTierModelID(it) == "" && !tier.quotaBusy(chat) && !tier.taskReviewQueuedIn(chat) {
 			return tier, false
 		}
 		return tier, true

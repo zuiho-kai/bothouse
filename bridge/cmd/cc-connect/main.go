@@ -442,6 +442,7 @@ func runMain() {
 	go core.EnsureLocalHub(context.Background(), cfg.DataDir)
 
 	usageLedger := core.NewUsageLedger(cfg.DataDir, core.UsagePricesWithDefaults(cfg.UsagePrices))
+	core.SetTeamReviewPrices(core.UsagePricesWithDefaults(cfg.UsagePrices)) // stand-in reviewers ranked by the same rates
 	engines := make([]*core.Engine, 0, len(cfg.Projects))
 	effectiveWorkDirs := make([]string, 0, len(cfg.Projects))
 
@@ -671,7 +672,13 @@ func runMain() {
 		mgmtSrv.SetGetProjectConfig(config.GetProjectConfigDetails)
 		mgmtSrv.SetSaveProviderRefs(config.SaveProviderRefs)
 		mgmtSrv.SetConfigFilePath(configPath)
-		mgmtSrv.SetGetGlobalSettings(config.GetGlobalSettings)
+		mgmtSrv.SetGetGlobalSettings(func() map[string]any {
+			g := config.GetGlobalSettings()
+			if n := core.TeamReviewModelNotice(); n != nil && g != nil {
+				g["review_model_notice"] = n // read-only: a review model that did not take effect
+			}
+			return g
+		})
 		wireAutostart(mgmtSrv)
 		mgmtSrv.SetSaveGlobalSettings(func(updates map[string]any) error {
 			u := config.GlobalSettingsUpdate{}
