@@ -58,6 +58,8 @@ const COLUMNS = [
   ['messages', 'edited_at', 'REAL'], // v11 (#148): when the owner last edited their own message; NULL if never.
   // #1020 (no version bump, so an older build still opens the file): JSON list of the memory entries a reply used ({id, ref, page, title}); NULL when none.
   ['messages', 'memories', 'TEXT'],
+  // #1023 (no version bump): a private chat is a chat room with exactly one agent member; NULL for every other room.
+  ['rooms', 'dm_member', 'TEXT'],
   // #597 G34: when a role last changed the row in place (a streamed draft growing, a progress card
   // edited, the draft committed); NULL if never. The task watch counts it as progress (Tasks.progressed).
   ['messages', 'changed_at', 'REAL'],
@@ -90,8 +92,8 @@ export class Store {
     if (version > SCHEMA_VERSION) throw Error(`collab: store schema ${version} is newer than ${SCHEMA_VERSION}`);
     this.ensureSchema(version);
     this.q = {
-      room: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?'),
-      rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms ORDER BY id'),
+      room: this.db.prepare('SELECT id, name, kind, parent_id, dm_member FROM rooms WHERE id = ?'),
+      rooms: this.db.prepare('SELECT id, name, kind, parent_id, dm_member FROM rooms ORDER BY id'),
       children: this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id"),
       // A new workspace is claimed with no task yet (claim_task 0): its first task is the handoff.
       createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id, claim_task, claim_bridge, claim_at)
@@ -389,6 +391,24 @@ export class Store {
     this.ensureRoomSettings(room.id);
     return room;
   }
+  /**
+   * #1023: the private chat with one agent member — its existing room, or a new chat room whose
+   * only agent is that member (Hub.membersInRoom). Same room every time, so the session carries on.
+   */
+  openDm(memberId, name) {
+    if (typeof memberId !== 'string' || memberId === '') throw new CollabError('invalid', 'member id required');
+    const room = this.transaction(() => {
+      const found = this.db.prepare('SELECT id FROM rooms WHERE dm_member = ? ORDER BY id LIMIT 1').get(memberId);
+      if (found !== undefined) return this.q.room.get(found.id);
+      const created = this.q.createRoom.get(String(name || memberId).replace(/\s+/g, '').slice(0, 32) || memberId);
+      this.db.prepare('UPDATE rooms SET dm_member = ? WHERE id = ?').run(memberId, created.id);
+      return this.q.room.get(created.id);
+    });
+    this.ensureRoomSettings(room.id);
+    return room;
+  }
+  /** #1023: the agent member a private chat room is with; undefined for every other room. */
+  dmMember(roomId) { return this.q.room.get(roomId)?.dm_member ?? undefined; }
   /**
    * Give a chat channel its next workspace: the lowest-numbered free 工作区<k> of the shared
    * pool (released by any chat channel after its last task) if there is one, else a new

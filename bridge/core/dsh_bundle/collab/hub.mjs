@@ -29,6 +29,9 @@ export class Hub {
   memberList() { return [...this.members.values()]; }
 
   membersInRoom(roomId) {
+    // #1023: a private chat has the owner and its one agent, whatever that agent's channel list says.
+    const dm = this.store.dmMember?.(roomId);
+    if (dm !== undefined) return this.memberList().filter(m => m.kind === 'human' || m.id === dm);
     const channel = this.store.settingsRoom(roomId);
     return this.memberList().filter(m => !m.rooms?.length || m.rooms.includes(channel));
   }
@@ -47,6 +50,9 @@ export class Hub {
 
   /** Channel selection, inherited by workspaces; only unset channels use the legacy global choice. */
   primaryIn(roomId) {
+    // #1023: in a private chat the one agent answers every owner message, @ or not.
+    const dm = this.store.dmMember?.(roomId);
+    if (dm !== undefined) return this.routableIn(roomId).find(m => m.id === dm);
     const id = this.store.leadId(roomId);
     const member = id === null ? this.selectedPrimaryMember() : this.members.get(id);
     return member && this.routableIn(roomId).some(m => m.id === member.id) ? member : undefined;

@@ -3750,6 +3750,70 @@
   font-size: 11px;
   font-family: var(--dsw-font-mono, ui-monospace, monospace);
 }
+
+.dshc_delivery {
+  flex-direction: column;
+  gap: 6px;
+  max-width: 720px;
+  margin-top: 8px;
+  display: flex;
+}
+
+.dshc_deliveryFrame {
+  border: 1px solid var(--background-modifier-accent, #7f7f7f4d);
+  background: #fff;
+  border-radius: 6px;
+  height: 360px;
+  display: flex;
+  overflow: hidden;
+}
+
+.dshc_deliveryActions {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  display: flex;
+}
+
+.dshc_deliveryActions a {
+  text-decoration: none;
+}
+
+.dshc_deliveryDone {
+  color: var(--text-muted, #888);
+  font-size: 12px;
+}
+
+.dshc_deliveryFullDialog {
+  box-sizing: border-box;
+  flex-direction: column;
+  gap: 8px;
+  width: 94vw;
+  max-width: none;
+  height: 92dvh;
+  display: flex;
+}
+
+.dshc_deliveryFullFrame {
+  background: #fff;
+  border-radius: 6px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.dshc_dmTitle {
+  color: var(--text-muted, #888);
+  margin: 14px 8px 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dshc_dmAvatar {
+  margin-right: 6px;
+  display: inline-flex;
+}
 [data-dc-scheme="light"] {
   --dsw-static-amber-100: #fef5e7;
   --dsw-static-amber-400: #f7ad31;
