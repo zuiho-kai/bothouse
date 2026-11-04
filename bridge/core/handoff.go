@@ -297,12 +297,32 @@ func (e *Engine) handoffBlock(session *Session, sessionKey string) string {
 		return ""
 	}
 	tasks := e.handoffTaskLines(sessionKey)
+	seal := e.sealOldContext(sessionKey, h)
 	full := formatHandoff(id, reason, h, tasks)
+	if seal.Digest != "" {
+		full = strings.TrimSuffix(full, handoffEnd) + "\n" + sealSections(seal) + handoffEnd
+	}
 	cid := StashCtx(e.dataDir, full)
 	if cid == "" { // no store: the whole handoff as before
 		return full
 	}
-	return formatHandoffIndex(id, reason, h, tasks, cid)
+	return formatHandoffIndex(id, reason, h, tasks, cid, seal)
+}
+
+// sealSections renders the minutes and the rolling memory (session_seal.go); "" when there is neither.
+func sealSections(seal sealResult) string {
+	var b strings.Builder
+	if seal.Digest != "" {
+		src := "程序按操作记录写的规则摘要（便宜模型没写成）"
+		if seal.ByModel {
+			src = fmt.Sprintf("便宜模型按 %d 次调用的一行摘要写的，可能有误", seal.Calls)
+		}
+		b.WriteString("## 上个会话的交接纪要（" + src + "）\n" + seal.Digest + "\n")
+	}
+	if len(seal.Memory) > 0 {
+		b.WriteString("\n## 更早的会话（滚动记忆，新的在上）\n" + strings.Join(seal.Memory, "\n") + "\n")
+	}
+	return b.String()
 }
 
 // Index form of the handoff (user 2026-11-04 「做」: only titles and [#编号], the rest fetched on demand).
@@ -314,10 +334,23 @@ const (
 // formatHandoffIndex is the handoff a fresh context gets: the user's last few messages as short lines, where
 // the old context stopped (its last reply, first line) and the channel's open tasks as 「#编号 标题 · 停点」;
 // everything else (summary, the dialogue, each task's goal) is the full handoff stored as cid.
-func formatHandoffIndex(id, reason string, h *SessionHandoff, tasks, cid string) string {
+//
+// With a seal (session_seal.go) the minutes and the rolling memory follow; the whole block stays within
+// sealBootstrapTokens: head, the user's words and the stop point first, then open tasks, minutes, memory, each
+// cut to what is left (clowder-ai SessionBootstrap.ts: identity > thread memory > digest > task snapshot, but
+// the task list stays whole here: user 11-04 「任务列表常驻」 in the approved plan).
+func formatHandoffIndex(id, reason string, h *SessionHandoff, tasks, cid string, seals ...sealResult) string {
+	var seal sealResult
+	if len(seals) > 0 {
+		seal = seals[0]
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s 已换掉（%s）。下面只列用户原话和停点，可能过时，和频道原文冲突时信原文，要做什么以用户的新消息为准；交接全文（压缩摘要、之后的对话、每件活的总目标）[#%s]，跑 `%s %s` 取；会话记录 %s）",
-		handoffHead, id, reason, cid, ctxCmd(), cid, h.Path)
+	what := "用户原话和停点"
+	if seal.Digest != "" {
+		what = "交接纪要、用户原话和停点"
+	}
+	fmt.Fprintf(&b, "%s %s 已换掉（%s）。下面只列%s，可能过时，和频道原文冲突时信原文，要做什么以用户的新消息为准；交接全文（压缩摘要、之后的对话、每件活的总目标）[#%s]，跑 `%s %s` 取；会话记录 %s）",
+		handoffHead, id, reason, what, cid, ctxCmd(), cid, h.Path)
 	var said []string
 	stop := ""
 	seen := map[string]bool{}
@@ -358,6 +391,19 @@ func formatHandoffIndex(id, reason string, h *SessionHandoff, tasks, cid string)
 				}
 			}
 			b.WriteString(l + "\n")
+		}
+	}
+	if seal.Digest != "" || len(seal.Memory) > 0 {
+		left := sealBootstrapTokens - sealTokens(b.String()+handoffEnd)
+		sealed := seal
+		sealed.Digest = sealCut(seal.Digest, left-40)
+		left -= sealTokens(sealed.Digest) + 40
+		sealed.Memory = strings.Split(sealCut(strings.Join(seal.Memory, "\n"), left-30), "\n")
+		if len(sealed.Memory) == 1 && sealed.Memory[0] == "" {
+			sealed.Memory = nil
+		}
+		if sec := sealSections(sealed); sec != "" {
+			b.WriteString("\n" + sec)
 		}
 	}
 	b.WriteString(handoffEnd)
