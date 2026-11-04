@@ -1081,6 +1081,55 @@ GET /api/v1/status?token=mgmt-secret
 
 ---
 
+### 5.8 生图（可选）
+
+按需开启：`config.toml` 里没有 `[image_gen]`（`enabled = true` 且 `[image_gen.openai] api_key`
+填好）时，这些接口一律回 `not_configured`。不自动生图，也不往任何频道发图：图片写进
+`<data_dir>/images`，拿到路径的人自己决定怎么用。只支持 OpenAI 兼容的 `/images/generations`。
+
+#### GET /api/v1/image-gen
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "ready",
+    "can_draw": true,
+    "provider": "openai",
+    "model": "gpt-image-1",
+    "base_url": "https://api.openai.com/v1",
+    "out_dir": "/home/me/.bothouse/images",
+    "api_key_set": true,
+    "pictures": [
+      { "name": "gen-20261105-052031.png", "file": "/home/me/.bothouse/images/gen-20261105-052031.png",
+        "url": "/api/v1/image-gen/file/gen-20261105-052031.png", "bytes": 1384211, "mime": "image/png",
+        "seconds": 24.3, "model": "gpt-image-1" }
+    ]
+  }
+}
+```
+
+`status` 是 `ready`、`not_configured` 或 `error`（带 `message`）；`api_key_set` 只说明有没有填密钥，
+密钥本身永不返回。
+
+#### POST /api/v1/image-gen
+
+```json
+{ "prompt": "一只戴眼镜的橘猫，像素头像" }
+```
+
+**响应：** 画好的那张图，字段同上。上一张还没画完时 `409`（排队会给主人多买一张），没配置时 `503`，
+服务商拒绝时 `502`（错误信息带状态码和服务商原文）。
+
+#### GET /api/v1/image-gen/file/<name>
+
+图片字节，和 `library/avatar-image` 一样**不要 token**（`<img>` 带不了 `Bearer` 头）。
+只认本服务自己写出的普通文件名，其余 `404`。
+
+---
+
 ## 6. 错误处理约定
 
 ### 6.1 标准错误响应

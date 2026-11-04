@@ -1109,6 +1109,57 @@ Lists connected bridge adapters (external platforms via WebSocket).
 
 ---
 
+### 5.8 Image Generation (optional)
+
+Opt-in: these routes answer `not_configured` unless `config.toml` has an `[image_gen]` section with
+`enabled = true` and a key (`[image_gen.openai] api_key`). Nothing is drawn automatically and nothing
+is sent to a channel: a picture is written to `<data_dir>/images` and the caller decides what to do
+with the path. Only OpenAI-compatible `/images/generations` endpoints are supported.
+
+#### GET /api/v1/image-gen
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "ready",
+    "can_draw": true,
+    "provider": "openai",
+    "model": "gpt-image-1",
+    "base_url": "https://api.openai.com/v1",
+    "out_dir": "/home/me/.bothouse/images",
+    "api_key_set": true,
+    "pictures": [
+      { "name": "gen-20261105-052031.png", "file": "/home/me/.bothouse/images/gen-20261105-052031.png",
+        "url": "/api/v1/image-gen/file/gen-20261105-052031.png", "bytes": 1384211, "mime": "image/png",
+        "seconds": 24.3, "model": "gpt-image-1" }
+    ]
+  }
+}
+```
+
+`status` is `ready`, `not_configured` or `error` (with `message`). `api_key_set` says whether a key
+exists; the key itself is never returned.
+
+#### POST /api/v1/image-gen
+
+```json
+{ "prompt": "an orange cat with glasses, pixel avatar" }
+```
+
+**Response:** the drawn picture, same shape as one `pictures` item above. `409` when a picture is
+still being drawn (each queued request would buy another one), `503` when not configured, `502` when
+the provider refused (the message carries the status code and the provider's own text).
+
+#### GET /api/v1/image-gen/file/<name>
+
+Picture bytes, like `library/avatar-image` **not** behind the token, because an `<img>` tag cannot
+send a `Bearer` header. Only plain file names this server wrote are served; anything else is `404`.
+
+---
+
 ## 6. Error Handling Conventions
 
 ### 6.1 Standard Error Response
@@ -1191,6 +1242,7 @@ If not configured, CORS may be disabled or use a default (e.g. `*` for same-orig
 | Version   | Date       | Changes                    |
 |-----------|------------|----------------------------|
 | 1.1-draft | 2026-03-24 | Enrich session list/detail with `live`, `last_message`, `agent_type`, `user_name`, `chat_name`, `active_keys` fields |
+| 1.2-draft | 2026-11-05 | Add optional image generation routes (`/image-gen`, `/image-gen/file/<name>`) |
 | 1.0-draft | 2026-03-10 | Initial specification      |
 
 ---
