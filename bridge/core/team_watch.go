@@ -20,12 +20,14 @@ package core
 // handoff has one watcher.
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime/pprof"
 	"strconv"
@@ -112,7 +114,7 @@ type handoffWatch struct {
 	// resume stops the stuck turn of workspace key, tells the chat and wakes the workspace to
 	// continue the task (autoResume, set by startHandoffWatch; nil = park at once).
 	resume func(p Platform, key string, h TeamHandoff)
-	// beat: when the main loop last started an iteration (UnixNano; sweepLoop reports a stall).
+	// beat: when the main loop last started an iteration (UnixNano; stallLoop reports a stall).
 	beat atomic.Int64
 }
 
@@ -203,6 +205,7 @@ func (s *APIServer) rewatchIfServing() {
 
 func (w *handoffWatch) run(ctx context.Context) {
 	go w.sweepLoop(ctx)
+	go w.stallLoop(ctx)
 	var recovered, reviewHour time.Time
 	for {
 		w.beat.Store(w.now().UnixNano())
@@ -240,21 +243,12 @@ func (w *handoffWatch) run(ctx context.Context) {
 // shared loop below stopped after 23:35 (its last 10-minute check); the hourly release
 // last ran 22:25 and nothing was freed until the 11-04 10:28 restart freed 11 workspaces
 // at once. A stall in a review, recovery or check step must not keep paused or finished
-// work holding workspaces, so the release no longer waits behind them. It also reports a
-// stalled main loop once per stall with every goroutine's stack, so the next stall names
-// the blocking call instead of leaving only silence in the log.
+// work holding workspaces, so the release no longer waits behind them. This mitigates and
+// collects evidence; the root cause of that stall is not known (the restart lost it).
 func (w *handoffWatch) sweepLoop(ctx context.Context) {
-	var reported int64
 	for {
-		now := w.now()
-		freed := w.reconcileTeamWorkspaces(now)
+		freed := w.reconcileTeamWorkspaces(w.now())
 		slog.Info("team workspace: hourly sweep", "freed", len(freed))
-		if beat := w.beat.Load(); beat != 0 && beat != reported && now.Sub(time.Unix(0, beat)) >= teamWorkspaceReconcileEvery {
-			reported = beat
-			var stacks strings.Builder
-			_ = pprof.Lookup("goroutine").WriteTo(&stacks, 2) // same dump as net/http/pprof goroutine?debug=2
-			slog.Error("team workspace watch: main loop stalled", "since", time.Unix(0, beat).Format(time.RFC3339), "stacks", stacks.String())
-		}
 		t := time.NewTimer(teamWorkspaceReconcileEvery)
 		select {
 		case <-ctx.Done():
@@ -263,6 +257,61 @@ func (w *handoffWatch) sweepLoop(ctx context.Context) {
 		case <-t.C:
 		}
 	}
+}
+
+const (
+	// watchStallCheck: how often the stall detector looks. Source: 沿用十分钟看门
+	// (watchCheckAfterDefault, user 2026-10-23「这10分钟之内搞不完就滚蛋」).
+	watchStallCheck = watchCheckAfterDefault
+	// watchStallAfter: no new main-loop iteration for this long counts as stalled. Source:
+	// 沿用每小时收口 teamWorkspaceReconcileEvery; the loop normally wakes at least every
+	// watchRetryDelay (1 minute), and its slowest step, a lead script, is capped at
+	// leadScriptTimeout (2 minutes), so an hour is far past any normal iteration.
+	watchStallAfter = teamWorkspaceReconcileEvery
+)
+
+// stallLoop checks the main loop's heartbeat on its own short ticker, independent of the
+// sweep (which could block on the same lock as the stalled step).
+func (w *handoffWatch) stallLoop(ctx context.Context) {
+	t := time.NewTicker(watchStallCheck)
+	defer t.Stop()
+	var reported int64
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		reported = w.checkStall(w.now(), reported)
+	}
+}
+
+// checkStall reports a stalled main loop once per stall: every goroutine's stack goes to its
+// own file under <data>/logs (a busy bridge's dump is megabytes), the log gets the path.
+// Returns the heartbeat already reported.
+func (w *handoffWatch) checkStall(now time.Time, reported int64) int64 {
+	beat := w.beat.Load()
+	if beat == 0 || beat == reported || now.Sub(time.Unix(0, beat)) < watchStallAfter {
+		return reported
+	}
+	since := time.Unix(0, beat)
+	path := ""
+	if w.e != nil && w.e.dataDir != "" {
+		dir := filepath.Join(w.e.dataDir, "logs")
+		path = filepath.Join(dir, "watch-stall-"+now.Format("20060102-150405")+".txt")
+		var stacks bytes.Buffer
+		_ = pprof.Lookup("goroutine").WriteTo(&stacks, 2) // same dump as net/http/pprof goroutine?debug=2
+		if err := os.MkdirAll(dir, 0o700); err == nil {
+			err = os.WriteFile(path, stacks.Bytes(), 0o600)
+			if err != nil {
+				path = "write failed: " + err.Error()
+			}
+		} else {
+			path = "mkdir failed: " + err.Error()
+		}
+	}
+	slog.Error("team workspace watch: main loop stalled", "since", since.Format(time.RFC3339), "stacks", path)
+	return beat
 }
 
 // watchDue is one handoff whose check time has come.
