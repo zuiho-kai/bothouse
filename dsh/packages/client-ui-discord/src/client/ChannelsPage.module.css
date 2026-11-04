@@ -1692,3 +1692,10 @@
 .boardDrawerBackdrop > .taskBoardDialog { box-sizing: border-box; width: min(440px, 100%); height: 100dvh; max-height: none; border-radius: 0; animation: boardDrawerIn .2s ease-out; }
 @keyframes boardDrawerIn { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .boardDrawerBackdrop > .taskBoardDialog { animation: none; } }
+
+/* 白色默认（来源：用户 11-03「学一下这种设计？ 白色」、11-04 10:48「白色整体风格…这些你来做」）：标题栏切深色/白色按钮。
+   外观沿用 panelToggle，但不共用那个类——panelToggle 在 ≤900px 隐藏（窄屏用抽屉），主题切换在所有宽度都要在。 */
+.schemeToggle { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 28px; height: 28px; margin-left: 4px; border: 0; border-radius: var(--dsw-radius-sm); color: var(--dsw-alias-label-tertiary); background: transparent; font: inherit; font-size: 16px; line-height: 1; cursor: pointer; }
+.schemeToggle:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+.schemeToggle:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color); }
+.schemeToggle + .panelToggleEnd { margin-left: 4px; }

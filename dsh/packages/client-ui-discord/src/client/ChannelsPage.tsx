@@ -23,6 +23,7 @@ import { Avatar, AvatarStack } from './Avatar.tsx'
 import { PermissionCard, type PermissionCardData } from './PermissionCard.tsx'
 import type { NS } from './locales.ts'
 import css from './ChannelsPage.module.css'
+import { setScheme, useScheme } from './scheme.ts'
 
 /** Injected share: the channel snapshot source and its actions. */
 export interface ChannelsInjected extends ChannelActions {
@@ -449,6 +450,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @returns the three-column channel view.
  */
 export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }: ChannelsPageProps) {
+  const scheme = useScheme()
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
   const [editing, setEditing] = useState<{ id: number; text: string } | undefined>(undefined)
@@ -640,7 +642,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
       : state.phase === 'unauthorized' ? t('unauthorized')
         : state.phase === 'error' ? t('error', { message: state.error ?? '' })
           : t('loading')
-    return <div className={css.page}><div className={css.notice} role="status">{notice}</div></div>
+    return <div className={css.page} data-dc-scheme={scheme}><div className={css.notice} role="status">{notice}</div></div>
   }
 
   const room = state.rooms.find(r => r.id === state.roomId)
@@ -842,7 +844,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   }
 
   return (
-    <div className={[css.page, roomsHidden ? css.roomsHidden : '', membersHidden ? css.membersHidden : ''].filter(Boolean).join(' ')}>
+    <div className={[css.page, roomsHidden ? css.roomsHidden : '', membersHidden ? css.membersHidden : ''].filter(Boolean).join(' ')} data-dc-scheme={scheme}>
       {drawer !== undefined && <button className={css.drawerBackdrop} aria-label={t('closeDrawer')} onClick={() => setDrawer(undefined)} />}
       <nav ref={roomsRef} className={drawer === 'rooms' ? `${css.rooms} ${css.drawerOpen}` : css.rooms} aria-label={t('rooms')} role={drawer === 'rooms' ? 'dialog' : undefined} aria-modal={drawer === 'rooms' ? true : undefined} tabIndex={drawer === 'rooms' ? -1 : undefined}>
         {/* 白色方案：左栏顶部置顶当前主角色（总管）卡，和右上胶囊同一份状态；没有总管时显示兜底文字。 */}
@@ -913,6 +915,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
               <span className={css.headLeadStatus}>{leadStatus}</span>
             </span>
           </div>
+          <button type="button" className={css.schemeToggle} title={t(scheme === 'light' ? 'schemeToDark' : 'schemeToLight')} aria-label={t(scheme === 'light' ? 'schemeToDark' : 'schemeToLight')} aria-pressed={scheme === 'dark'} onClick={() => { setScheme(scheme === 'light' ? 'dark' : 'light') }}>{scheme === 'light' ? '☾' : '☀'}</button>
           <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
           <button ref={membersToggleRef} type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
         </header>

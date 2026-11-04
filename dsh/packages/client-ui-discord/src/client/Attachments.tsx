@@ -7,6 +7,7 @@ import type { NS } from './locales.ts'
 import type { ChannelAttachment, OutgoingAttachment } from './channel-source.ts'
 import { attachmentUrl, readAttachment } from './channel-source.ts'
 import css from './ChannelsPage.module.css'
+import { getScheme } from './scheme.ts'
 
 const isImage = (mime: string): boolean => /^image\/(png|jpeg|gif|webp)$/.test(mime)
 const isAudio = (mime: string): boolean => mime.startsWith('audio/')
@@ -72,7 +73,7 @@ function ImageAttachment({ attachment: a, t }: { readonly attachment: ChannelAtt
       <div className={css.attachmentActions}>{actions}</div>
       {!opened && error}
       {opened && createPortal(
-        <div className={css.dialogBackdrop} onClick={event => { if (event.target === event.currentTarget) setOpened(false) }}>
+        <div className={css.dialogBackdrop} data-dc-scheme={getScheme()} onClick={event => { if (event.target === event.currentTarget) setOpened(false) }}>
           <section ref={dialog} className={`${css.dialog} ${css.imagePreviewDialog}`} role="dialog" aria-modal="true" aria-label={a.name} tabIndex={-1} onKeyDown={event => {
             if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpened(false) }
             if (event.key === 'Tab') {

@@ -9,6 +9,7 @@ import { createPortal, flushSync } from 'react-dom'
 import type { ChannelRoom, ChannelTask, TaskStatus } from './channel-source.ts'
 import { BOARD_TABS, boardGroupOf, boardSections, inTab, cardMembers, sectionTitle, elapsed, formatDuration, STATUS_KEY, type T } from './task-board.ts'
 import css from './ChannelsPage.module.css'
+import { getScheme } from './scheme.ts'
 
 function clock(seconds: number): string {
   return new Date(seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -108,7 +109,7 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }:
         <span className={css.taskBoardSummary}>{all === 0 ? t('taskBoardNoTasks') : t('taskBoardSummary', { decide: String(groupCount('decide')), working: String(groupCount('working')) })}</span>
         <span aria-hidden="true">›</span>
       </button>
-      {opened && createPortal(<div className={`${css.dialogBackdrop} ${css.boardDrawerBackdrop}`} onMouseDown={event => { if (event.target === event.currentTarget) close() }}>
+      {opened && createPortal(<div className={`${css.dialogBackdrop} ${css.boardDrawerBackdrop}`} data-dc-scheme={getScheme()} onMouseDown={event => { if (event.target === event.currentTarget) close() }}>
         <section ref={dialog} className={`${css.dialog} ${css.taskBoardDialog}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={event => {
           if (event.key === 'Escape') { event.stopPropagation(); close() }
           if (event.key === 'Tab') {
