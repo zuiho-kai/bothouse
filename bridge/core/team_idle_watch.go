@@ -365,6 +365,16 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 	teamWorkspaceStore.mu.Unlock()
 	delegated := e.watchDelegatedWork(key)
 	for _, a := range assignments {
+		hid := a.h.Board
+		if hid == 0 {
+			hid = watchTaskNumber(a.h.Title)
+		}
+		if !returned && e.boardReleaseHeld(hid) {
+			// Saved for a central release: an interrupted or failed turn is not a failure, and the
+			// next process wakes it (resumeReleaseHolds); no idle wake in between.
+			e.updateIdle(a, func(h *TeamHandoff) { h.Idle.Ended = time.Now() })
+			continue
+		}
 		giveUp := false
 		h, ok := e.updateIdle(a, func(h *TeamHandoff) {
 			h.Idle.Returned = returned
@@ -426,6 +436,9 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 			for _, it := range placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir)) {
 				if it.ID == id {
 					found = true
+					if it.ReleaseHold != nil {
+						return // saved for a release: the next process resumes it (resumeReleaseHolds)
+					}
 					// Handed to a workspace since: the workspace's watch keeps it, not this chat.
 					closed = watchBoardClosed(it) || it.Paused != "" || it.own != a.key && it.parent == a.key && !it.wsEnded ||
 						watchHandoffLeft(it, a.key)
@@ -463,6 +476,11 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 		e.escalateIdle(a.key, h, MsgWatchIdleEscalate)
 		return
 	}
+	e.sendIdleWake(a, h)
+}
+
+// sendIdleWake asks the owner of a's handoff to carry on, then arms the next idle check.
+func (e *Engine) sendIdleWake(a idleAssignment, h TeamHandoff) {
 	plat, _, _ := strings.Cut(a.key, ":")
 	sender := e.watchSender(h)
 	p := sender.lookupReadyPlatform(plat)
@@ -470,7 +488,7 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 		slog.Warn("idle watch: sender platform unavailable", "workspace", a.key)
 		return
 	}
-	w = newHandoffWatch(sender)
+	w := newHandoffWatch(sender)
 	owner := h.Owner
 	if m, ok := e.lookupReadyPlatform(plat).(SelfMentioner); ok && m.SelfMention() != "" {
 		owner = m.SelfMention()

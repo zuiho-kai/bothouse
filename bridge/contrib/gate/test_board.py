@@ -40,6 +40,33 @@ class Board(unittest.TestCase):
         self.assertEqual(cli("add", "a", "b", "c", "龙娘"), (0, "#3"))  # 结束过的编号不再用
         self.assertIn('"done_at"', (Path(TMP) / "board-done.jsonl").read_text())
 
+    def test_hold_unhold_for_release(self):
+        """为发布暂停（#134 ②）：不给编号只标在工作区、没交回、没暂停的；unhold --at 只撤那一次标记。"""
+        self.assertEqual(cli("add", "在做的", "x", "进行中", "橘"), (0, "#1"))
+        self.assertEqual(cli("add", "聊天里的", "y", "进行中", "橘"), (0, "#2"))
+        rows = board._read()
+        rows[0]["ws"] = "discord:ws1"
+        board._write(rows)
+        code, out = cli("hold", "--why", "集中发布")
+        self.assertEqual((code, out), (0, "为发布暂停：#1"))
+        mark = board._read()[0]["release_hold"]
+        self.assertEqual(mark["why"], "集中发布")
+        self.assertIn("为发布暂停", cli()[1].splitlines()[0])
+        self.assertEqual(cli("hold", "1"), (0, "为发布暂停：没有符合的条目"))  # 已标过
+        self.assertEqual(cli("unhold", "1", "--at", "2000-01-01T00:00:00+00:00"), (0, "去掉为发布暂停：没有符合的条目"))
+        self.assertEqual(cli("unhold", "1", "--at", mark["at"]), (0, "去掉为发布暂停：#1"))
+        self.assertNotIn("release_hold", board._read()[0])
+        self.assertEqual(cli("hold", "2"), (0, "为发布暂停：#2"))  # 点名的照标
+        self.assertEqual(cli("unhold"), (0, "去掉为发布暂停：#2"))
+
+    def test_stale_skips_release_hold(self):
+        self.assertEqual(cli("add", "等发布的", "x", "进行中", "橘"), (0, "#1"))
+        rows = board._read()
+        rows[0].update(ws="discord:ws1", progress_at=1.0, release_hold={"at": "2026-11-04T09:00:00+00:00"})
+        board._write(rows)
+        self.assertEqual(board.pause_stale(now=10 * 3600), [])
+        self.assertFalse(board._read()[0].get("paused"))
+
     def test_update_closing_status_ends_item(self):
         # 用户 2026-10-28「任务榜完成的为什么不下掉」：状态写成收尾词就移出任务板
         cli("add", "交来的活", "a.md", "已交接", "橘")
