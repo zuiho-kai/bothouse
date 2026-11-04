@@ -670,6 +670,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     return () => { document.removeEventListener('mousedown', onPress) }
   }, [avatarMenu])
 
+  // Filter before grouping and reading-position tracking; keep raw history for paging.
+  // Task cards anchored to a progress message must remain reachable.
+  const visibleMessages = useMemo(() => state.messages.filter(m => !trivialProgress(m) || state.tasks?.some(task => task.assign_msg_id === m.id)), [state.messages, state.tasks])
+
   // Rows that arrived live animate in once; the first fill, a room switch and older pages do not.
   const fresh = useMemo(() => trackLive(live.current, state.roomId, state.messages), [state.messages, state.roomId])
 
@@ -693,9 +697,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     const log = logRef.current
     if (log !== null && stickRef.current) { log.scrollTop = log.scrollHeight; return }
     if (roomId === undefined) return
-    const first = state.messages.find(m => m.id > since && fresh.has(m.id) && m.author_kind !== 'user')
+    const first = visibleMessages.find(m => m.id > since && fresh.has(m.id) && m.author_kind !== 'user')
     if (first !== undefined && (unread === undefined || unread.roomId !== roomId || unread.seen)) setUnread({ roomId, fromId: first.id, seen: false })
-  }, [state.messages, state.roomId])
+  }, [state.messages, state.roomId, visibleMessages])
 
   // #113: the permission tray takes room from the log, never covers it; stay at the latest message.
   const pendingKey = state.messages.filter(pendingPermission).map(m => m.id).join(',')
@@ -777,9 +781,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     ...openTaskOwners,
   ])
   const byId = new Map(visibleMembers.map(m => [m.id, m]))
-  // Filter before grouping so a hidden progress row cannot take the reply's avatar.
-  // Task cards anchored to a progress message must remain reachable.
-  const visibleMessages = state.messages.filter(m => !trivialProgress(m) || state.tasks?.some(task => task.assign_msg_id === m.id))
+  // A progress update may hide the original unread row; place the divider at
+  // the next visible unread message without losing the original reading boundary.
+  const firstUnread = unread !== undefined && unread.roomId === state.roomId
+    ? visibleMessages.find(m => m.id >= unread.fromId && m.author_kind !== 'user')?.id : undefined
+  const visibleUnreadCount = unread !== undefined && unread.roomId === state.roomId && !unread.seen
+    ? unreadCount(visibleMessages, unread.fromId) : 0
   const typingNames = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? []).map(id => byId.get(id)?.name ?? id)
   // #113 activity: who is at work in this channel (here or in one of its workspaces) and on what.
   const channelRooms = new Set(state.rooms.filter(r => r.id === channelId || r.parent_id === channelId).map(r => r.id))
@@ -1107,7 +1114,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           {visibleMessages.length === 0
             ? <div className={css.empty}>{t('empty')}</div>
             : visibleMessages.map((m, index) => [
-                unread !== undefined && unread.roomId === state.roomId && unread.fromId === m.id
+                firstUnread === m.id
                   ? <div key={`unread-${m.id}`} className={css.unreadDivider} role="separator">{t('newMessagesDivider')}</div>
                   : null,
                 pendingWithdraw?.id === m.id
@@ -1146,8 +1153,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
         {!atBottom && state.messages.length > 0 && (
           <button type="button" className={css.jumpLatest} onClick={scrollToLatest}>
             <span aria-hidden="true">↓</span> {t('jumpLatest')}
-            {unread !== undefined && unread.roomId === state.roomId && !unread.seen && unreadCount(state.messages, unread.fromId) > 0
-              && <span className={css.jumpCount}>{t('jumpLatestCount', { count: unreadCount(state.messages, unread.fromId) })}</span>}
+            {visibleUnreadCount > 0
+              && <span className={css.jumpCount}>{t('jumpLatestCount', { count: visibleUnreadCount })}</span>}
           </button>
         )}
         </div>
