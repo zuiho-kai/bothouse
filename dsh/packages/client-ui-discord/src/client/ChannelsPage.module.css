@@ -1674,6 +1674,234 @@
   .memberActions { position: static; transform: none; padding-left: 0; background: transparent; }
 }
 
+/* ── #115 motion and reading position ─────────────────────────────────────
+   Durations and curves follow notes design spec §5 (hover 160ms, cards 320ms,
+   new message 180ms, warm highlight 700ms once); only opacity/transform/colour
+   animate, so nothing reflows. Reduced motion jumps straight to the end state. */
+@keyframes channelsEnter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes channelsEnterOwn {
+  from { opacity: 0; transform: translateY(12px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes channelsGlow {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes channelsPop {
+  from { opacity: 0; transform: translateY(4px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes channelsDot {
+  0%, 60%, 100% { opacity: .35; transform: none; }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+
+@keyframes channelsDrain {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+.enter { animation: channelsEnter 180ms cubic-bezier(.2, 0, 0, 1) both; }
+.enterOwn { animation: channelsEnterOwn 220ms cubic-bezier(.22, 1, .36, 1) both; }
+
+/* One soft wash from the left edge as a live row lands; it fades and never loops. */
+.enterGlow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent), transparent 70%);
+  animation: channelsGlow 700ms cubic-bezier(.4, 0, .2, 1) both;
+  animation-delay: inherit;
+}
+
+.message { transition: background-color 160ms cubic-bezier(.2, 0, 0, 1); }
+.room { transition: background-color 160ms cubic-bezier(.2, 0, 0, 1), color 160ms cubic-bezier(.2, 0, 0, 1); }
+.card { transition: border-color 320ms cubic-bezier(.2, 0, 0, 1), background-color 320ms cubic-bezier(.2, 0, 0, 1); }
+
+.sendButton,
+.primaryButton,
+.secondaryButton,
+.mentionButton,
+.cardViewButton {
+  transition: background-color 160ms cubic-bezier(.2, 0, 0, 1), opacity 160ms cubic-bezier(.2, 0, 0, 1), transform 120ms cubic-bezier(.2, 0, 0, 1);
+}
+
+.sendButton:not(:disabled):active,
+.primaryButton:not(:disabled):active,
+.secondaryButton:not(:disabled):active,
+.mentionButton:not(:disabled):active,
+.cardViewButton:active { transform: translateY(1px); }
+
+.mentionPopup {
+  transform-origin: bottom center;
+  animation: channelsPop 160ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.typingDots {
+  display: inline-flex;
+  gap: 3px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.typingDots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: channelsDot 1.2s ease-in-out infinite;
+}
+
+.typingDots i:nth-child(2) { animation-delay: .15s; }
+.typingDots i:nth-child(3) { animation-delay: .3s; }
+
+.logWrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.olderLoading {
+  padding: 8px 16px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.unreadDivider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 16px;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.unreadDivider::before,
+.unreadDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: currentColor;
+  opacity: .35;
+}
+
+.withdrawnRow {
+  padding: 6px 16px;
+  text-align: right;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  font-style: italic;
+  animation: channelsEnter 180ms cubic-bezier(.2, 0, 0, 1) both;
+}
+
+/* Floating pill above the composer while the reader is scrolled up. */
+.jumpLatest {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  box-shadow: var(--dsw-elevation-panel, 0 8px 24px rgb(0 0 0 / 0.16));
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transform: translateX(-50%);
+  animation: channelsPop 220ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.jumpLatest:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.jumpLatest:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color); }
+.jumpCount { color: var(--dsw-alias-state-business-primary); font-weight: 600; }
+
+/* The undo toast keeps channelsPop's translate out of its centring by nesting nothing: it centres with margins. */
+.undoToast {
+  position: absolute;
+  right: 0;
+  bottom: 12px;
+  left: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  margin: 0 auto;
+  padding: 8px 8px 8px 14px;
+  overflow: hidden;
+  border-radius: var(--dsw-radius-md);
+  color: var(--dsw-alias-label-primary-inverted);
+  background: var(--dsw-alias-label-primary);
+  box-shadow: var(--dsw-elevation-panel, 0 8px 24px rgb(0 0 0 / 0.24));
+  font-size: 13px;
+  animation: channelsPop 220ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.undoButton {
+  padding: 2px 10px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  color: inherit;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.undoButton:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color); }
+
+.undoBar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--dsw-alias-state-business-primary);
+  transform-origin: left;
+  animation: channelsDrain linear forwards;
+}
+
+/* Undo toast wins over the pill when both would show. */
+.undoToast ~ .jumpLatest { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .enter,
+  .enterOwn,
+  .enterGlow::before,
+  .mentionPopup,
+  .jumpLatest,
+  .undoToast,
+  .withdrawnRow { animation: none; }
+  .typingDots i { animation: none; opacity: .6; }
+  .undoBar { animation: none; }
+  .message,
+  .room,
+  .card,
+  .sendButton,
+  .primaryButton,
+  .secondaryButton,
+  .mentionButton,
+  .cardViewButton { transition: none; }
+}
+
 /* 白色方案（来源：用户 11-03 23:1x「白色 右上角显示当前的总管bot的头像 以及在干啥」，样张 notes/ui/layout-plan-113/index.html）。
    尺寸沿用上方头像、圆角与标题栏规范。 */
 .leadCard { display: flex; gap: 10px; align-items: center; margin: 8px 8px 4px; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-layer-2); }
