@@ -137,3 +137,18 @@ func TestParseHandoffCountsImageBytes(t *testing.T) {
 		t.Fatalf("after compaction image bytes = %d, want 0", h.ImageBytes)
 	}
 }
+
+func TestParseHandoffSilentPunctuation(t *testing.T) {
+	for _, marker := range []string{"NO_REPLY。", " NO_REPLY！", "　no_reply。　"} {
+		log := strings.ReplaceAll(strings.Join(handoffFixture, "\n"), "NO_REPLY", marker)
+		h, err := parseHandoff(strings.NewReader(log))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range h.Tail {
+			if strings.Contains(strings.ToUpper(entry.Content), "NO_REPLY") {
+				t.Fatalf("silent marker leaked into handoff: %q", entry.Content)
+			}
+		}
+	}
+}
