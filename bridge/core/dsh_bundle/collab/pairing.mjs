@@ -18,12 +18,12 @@ import { dirname } from 'node:path';
 
 // 来源：用户 11-04 16:4x 认可的 C酱 方案，示例码「482 913」为 6 位数字、只能用一次。
 export const CODE_DIGITS = 6;
-// 来源：同一方案「几分钟有效」；具体分钟数已 ws-up 问主角色，答复前沿用建议值 5 分钟。
+// 来源：用户 11-04 16:58 定「数字码 5 分钟有效」。
 export const CODE_TTL_MS = 5 * 60_000;
-// 来源：同一方案「输错几次作废」；具体次数已 ws-up 问主角色，答复前沿用建议值 5 次。
+// 来源：用户 11-04 16:58 定「输错 5 次作废」。
 export const MAX_ATTEMPTS = 5;
-// 来源：同一方案「临时：到时断，下次重输」；时长已 ws-up 问主角色，答复前沿用建议值 8 小时。
-export const TEMP_TTL_MS = 8 * 3600_000;
+// Temporary links: 用户 11-04 16:58 定——默认「直到我断开」（不设时长），或连接时填「自定义时长」，
+// 到时自动断；不设固定上限。
 // 沿用：DSH web 常用端口 3081（docs/INSTANCE_SETUP.md）的下一个；两端同一常量，发现才对得上。
 export const PAIR_PORT = 3082;
 export const MODES = ['temp', 'remember'];
@@ -71,19 +71,30 @@ export function isLoopback(addr) {
 }
 
 /**
+ * A temporary link's length: null = until someone disconnects, else a whole number of
+ * milliseconds chosen when connecting. Remembered links never time out.
+ */
+export function tempDuration(mode, durationMs) {
+  if (mode !== 'temp' || durationMs === undefined || durationMs === null || durationMs === '') return null;
+  const ms = Number(durationMs);
+  if (!Number.isSafeInteger(ms) || ms <= 0) throw new PairError('mode', '自定义时长要填大于 0 的整数分钟或小时');
+  return ms;
+}
+
+/**
  * Host side: the one live number, and the devices it let in.
- * Remembered devices persist (credential hash only); temporary ones live in memory and end at
- * TEMP_TTL_MS, when revoked, or when this DSH restarts.
+ * Remembered devices persist (credential hash only); temporary ones live in memory and end when
+ * either side disconnects, at the custom length chosen when connecting (if any), or when this
+ * DSH restarts.
  */
 export class PairHost {
   /**
-   * @param {{ file: string, now?: () => number, codeTtl?: number, tempTtl?: number }} opts
+   * @param {{ file: string, now?: () => number, codeTtl?: number }} opts
    */
-  constructor({ file, now = Date.now, codeTtl = CODE_TTL_MS, tempTtl = TEMP_TTL_MS }) {
+  constructor({ file, now = Date.now, codeTtl = CODE_TTL_MS }) {
     this.file = file;
     this.now = now;
     this.codeTtl = codeTtl;
-    this.tempTtl = tempTtl;
     this.code = undefined;
     this.devices = new Map();
     const saved = loadJSON(file);
@@ -110,11 +121,12 @@ export class PairHost {
 
   /**
    * Check a typed number and, if right, let the device in.
-   * @param {{ code: string, mode: string, name: string, address?: string }} claim
+   * @param {{ code: string, mode: string, name: string, address?: string, duration_ms?: number|null }} claim
    * @returns {{ token: string, device: object }}
    */
-  claim({ code, mode, name, address }) {
+  claim({ code, mode, name, address, duration_ms }) {
     if (!MODES.includes(mode)) throw new PairError('mode', '连接方式只能是「临时」或「记住这台电脑」');
+    const duration = tempDuration(mode, duration_ms);
     if (this.code === undefined) throw new PairError('no-code', '那台电脑现在没有在等配对，请在那台电脑上点「让别的电脑连我」');
     if (this.code.expires_at <= this.now()) { this.code = undefined; throw new PairError('expired', '这串数字已过期，请在那台电脑上重新生成'); }
     const typed = String(code ?? '').replace(/\D/g, '');
@@ -130,7 +142,7 @@ export class PairHost {
     const device = {
       id: randomUUID(), name: String(name ?? '').trim().slice(0, 80) || '另一台电脑', address: String(address ?? ''),
       mode, token_hash: sha256(token).toString('hex'), created_at: now, last_seen: now,
-      expires_at: mode === 'temp' ? now + this.tempTtl : null,
+      expires_at: duration === null ? null : now + duration,
     };
     this.devices.set(device.id, device);
     if (mode === 'remember') this.save();
@@ -262,11 +274,12 @@ export class PairClient {
   }
 
   /** Send the number once; on success keep the credential. */
-  async connect({ host, port = this.port, code, mode, name }) {
+  async connect({ host, port = this.port, code, mode, name, duration_ms }) {
     if (!MODES.includes(mode)) throw new PairError('mode', '连接方式只能是「临时」或「记住这台电脑」');
+    const duration = tempDuration(mode, duration_ms);
     let r;
     try {
-      r = await this.request({ host, port, path: '/collab/pair/claim', method: 'POST', body: { code: String(code ?? ''), mode, name: this.name } });
+      r = await this.request({ host, port, path: '/collab/pair/claim', method: 'POST', body: { code: String(code ?? ''), mode, name: this.name, duration_ms: duration } });
     } catch {
       throw new PairError('unreachable', '连不上那台电脑：确认它开着 DSH、连着 Tailscale，并且点了「让别的电脑连我」');
     }
@@ -351,7 +364,7 @@ export function remoteProxyRoute(req, res, url, { client, request = httpRequest 
       if (status === 401 && upRes.headers['x-collab-pair'] === 'revoked') {
         client.drop(link.id);
         upRes.resume();
-        sendError(req, res, 401, { error: '那台电脑已经把这台移出，或临时连接到时间了，请重新配对', code: 'revoked' });
+        sendError(req, res, 401, { error: '连接已断开（那台电脑点了断开、把这台移出，或临时连接到时间了），请重新配对', code: 'revoked' });
         return resolve();
       }
       const out = {};
@@ -434,7 +447,7 @@ export function hostHandler({ host, name, route, whois = whoisName, allowLoopbac
       if (url.pathname === '/collab/pair/claim' && req.method === 'POST') {
         const body = await readBody(req);
         const named = isTailnetAddress(peer) ? await whois(String(peer).replace(/^::ffff:/, '')) : undefined;
-        const { token, device } = host.claim({ code: body?.code, mode: body?.mode, name: named || body?.name, address: peer });
+        const { token, device } = host.claim({ code: body?.code, mode: body?.mode, name: named || body?.name, address: peer, duration_ms: body?.duration_ms });
         return sendJSON(res, 200, { token, device, host_name: name });
       }
       const device = host.verify(bearer(req));
@@ -550,7 +563,7 @@ export function pairApiRoute(req, res, url, { host, client, listener, peers = ta
         const body = await readJSON(req);
         const ip = String(body?.host ?? '').trim();
         if (!isTailnetAddress(ip) && !isLoopback(ip)) throw new PairError('mode', '只能连同一个 Tailscale 网络里的电脑');
-        const link = await client.connect({ host: ip, port: Number.isInteger(body?.port) ? body.port : undefined, code: body?.code, mode: body?.mode, name: body?.name });
+        const link = await client.connect({ host: ip, port: Number.isInteger(body?.port) ? body.port : undefined, code: body?.code, mode: body?.mode, name: body?.name, duration_ms: body?.duration_ms });
         return sendJSON(res, 200, { link });
       }
       const link = /^\/collab\/api\/remote\/links\/([0-9a-f-]{36})$/.exec(p);

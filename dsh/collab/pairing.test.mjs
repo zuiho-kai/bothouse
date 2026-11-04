@@ -7,7 +7,7 @@ import { createServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  MAX_ATTEMPTS, PairClient, PairError, PairHost, PairListener, REMOTE_OWNER, hostHandler, isTailnetAddress,
+  CODE_TTL_MS, MAX_ATTEMPTS, tempDuration, PairClient, PairError, PairHost, PairListener, REMOTE_OWNER, hostHandler, isTailnetAddress,
   pairApiRoute, remoteProxyRoute, rewriteRemoteHTML, tailnetPeers,
 } from './pairing.mjs';
 
@@ -46,17 +46,48 @@ test('too many wrong numbers void the number', () => {
   assert.throws(() => host.claim({ code, mode: 'temp' }), e => e.code === 'no-code');
 });
 
+test('codes last 5 minutes and allow 5 tries (user 11-04 16:58)', () => {
+  assert.equal(CODE_TTL_MS, 5 * 60_000);
+  assert.equal(MAX_ATTEMPTS, 5);
+});
+
+test('a temporary link lasts until someone disconnects unless a custom length is chosen', () => {
+  let now = 0;
+  const host = new PairHost({ file: join(dir(), 'd.json'), now: () => now });
+  const until = host.claim({ code: host.newCode().code, mode: 'temp', name: 'U' });
+  assert.equal(until.device.expires_at, null);
+  // 3 days: no fixed upper limit any more.
+  const long = host.claim({ code: host.newCode().code, mode: 'temp', name: 'L', duration_ms: 3 * 24 * 3600_000 });
+  assert.equal(long.device.expires_at, 3 * 24 * 3600_000);
+  const short = host.claim({ code: host.newCode().code, mode: 'temp', name: 'S', duration_ms: 30 * 60_000 });
+  now += 30 * 60_000;
+  assert.equal(host.verify(short.token), undefined);
+  now += 365 * 24 * 3600_000;
+  assert.equal(host.verify(until.token)?.name, 'U', 'untimed link never expires on its own');
+  assert.equal(host.verify(long.token), undefined);
+  assert.equal(host.revoke(until.device.id), true);
+  assert.equal(host.verify(until.token), undefined);
+  // A remembered link ignores any length.
+  assert.equal(host.claim({ code: host.newCode().code, mode: 'remember', name: 'R', duration_ms: 60_000 }).device.expires_at, null);
+  for (const bad of [0, -1, 1.5, 'abc', Number.MAX_VALUE]) {
+    const { code } = host.newCode();
+    assert.throws(() => host.claim({ code, mode: 'temp', duration_ms: bad }), e => e.code === 'mode', String(bad));
+  }
+  assert.equal(tempDuration('temp', '60000'), 60_000);
+  assert.equal(tempDuration('temp', ''), null);
+});
+
 test('temporary devices end on time and are never written; remembered ones persist as a hash', () => {
   let now = 0;
   const file = join(dir(), 'd.json');
   const host = new PairHost({ file, now: () => now });
-  const t = host.claim({ ...{ code: host.newCode().code }, mode: 'temp', name: 'A' });
+  const t = host.claim({ ...{ code: host.newCode().code }, mode: 'temp', name: 'A', duration_ms: 60_000 });
   const r = host.claim({ ...{ code: host.newCode().code }, mode: 'remember', name: 'B' });
   const saved = readFileSync(file, 'utf8');
   assert.ok(!saved.includes(r.token) && !saved.includes(t.token), 'credential not stored in clear');
   assert.ok(!saved.includes('"A"'), 'temporary device not stored');
   assert.equal(statSync(file).mode & 0o777, 0o600);
-  now += host.tempTtl;
+  now += 60_000;
   assert.equal(host.verify(t.token), undefined);
   assert.equal(host.verify(r.token)?.name, 'B');
   const reloaded = new PairHost({ file, now: () => now });
@@ -185,8 +216,16 @@ test('disconnect from the controller drops the device on the host too', async t 
   const client = new PairClient({ file: join(dir(), 'l.json'), port, name: 'c' });
   const link = await client.connect({ host: '127.0.0.1', code: host.newCode().code, mode: 'temp' });
   assert.equal(host.list().length, 1);
+  assert.equal(link.expires_at, null, 'default temporary link: until disconnected');
+  assert.equal(host.list()[0].expires_at, null);
   assert.equal(await client.disconnect(link.id), true);
   assert.equal(host.list().length, 0);
+  // A custom length chosen on the controller reaches the host.
+  const before = Date.now();
+  const timed = await client.connect({ host: '127.0.0.1', code: host.newCode().code, mode: 'temp', duration_ms: 2 * 3600_000 });
+  const exp = host.list()[0].expires_at;
+  assert.ok(exp >= before + 2 * 3600_000 && exp <= Date.now() + 2 * 3600_000);
+  assert.equal(timed.expires_at, exp);
 });
 
 test('the host listener refuses addresses outside the tailnet', async t => {

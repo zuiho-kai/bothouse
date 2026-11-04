@@ -43,6 +43,11 @@
   input.digits { font: 600 22px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 4px; width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); text-align: center; }
   label.mode { display: flex; gap: 8px; align-items: flex-start; padding: 8px; border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; cursor: pointer; }
   label.mode input { margin-top: 3px; }
+  .dur { margin: 6px 0 0 24px; display: grid; gap: 4px; }
+  .dur[hidden] { display: none; }
+  .dur label { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; cursor: pointer; }
+  .dur input[type=number] { width: 80px; font: inherit; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  .dur select { font: inherit; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .empty { color: var(--muted); padding: 6px 0; }
   #viewer { position: fixed; inset: 0; background: var(--bg); display: none; flex-direction: column; }
@@ -79,7 +84,11 @@
       <div class="connect" id="connect" hidden>
         <div class="muted">连到：<b id="selName"></b></div>
         <input class="digits" id="digits" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="输入那台电脑上的数字">
-        <label class="mode"><input type="radio" name="mode" value="temp" checked><span><b>临时</b><br><span class="muted">点「断开」或到时间就断，下次要重新输数字。</span></span></label>
+        <label class="mode"><input type="radio" name="mode" value="temp" checked><span><b>临时</b><br><span class="muted">断开后下次要重新输数字。</span></span></label>
+        <div class="dur" id="dur">
+          <label><input type="radio" name="dur" value="until" checked>直到我断开<span class="muted">（任一台点「断开」，或关掉这个窗口）</span></label>
+          <label><input type="radio" name="dur" value="custom">自定义时长：<input type="number" id="durNum" min="1" step="1" value="1" inputmode="numeric"><select id="durUnit"><option value="60000">分钟</option><option value="3600000" selected>小时</option></select><span class="muted">到时自动断</span></label>
+        </div>
         <label class="mode"><input type="radio" name="mode" value="remember"><span><b>记住这台电脑</b><br><span class="muted">以后打开就能直接连，不用再输。那台电脑随时可以在「已连接的设备」里踢掉。</span></span></label>
         <div class="row" style="margin-top:10px"><button class="primary" id="doConnect">连接</button></div>
       </div>
@@ -105,7 +114,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const MODE = { temp: '临时', remember: '记住' };
-let codeTimer, codePoll, selected, viewing;
+let codeTimer, codePoll, selected, viewing, links = [];
 
 async function api(path, init) {
   const res = await fetch(path, { credentials: 'same-origin', ...init });
@@ -119,7 +128,16 @@ async function api(path, init) {
 }
 const post = (path, body) => api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
 const del = path => api(path, { method: 'DELETE' });
-const clock = ms => new Date(ms).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+function clock(ms) {
+  const d = new Date(ms);
+  const t = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? t : `${d.getMonth() + 1}月${d.getDate()}日 ${t}`;
+}
+// How long a temporary link lasts, as shown in both lists.
+function lasts(x) {
+  if (x.mode !== 'temp') return '记住了';
+  return x.expires_at ? `临时 · ${clock(x.expires_at)} 自动断` : '临时 · 直到断开';
+}
 function ago(ms) {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (s < 60) return '刚刚';
@@ -181,9 +199,8 @@ function renderDevices(devices) {
   ul.replaceChildren();
   if (!devices.length) { ul.append(el('li', { class: 'empty' }, '还没有别的电脑连进来')); return; }
   for (const d of devices) {
-    const when = d.mode === 'temp' && d.expires_at ? `临时 · ${clock(d.expires_at)} 自动断` : '记住了';
     ul.append(el('li', { 'data-id': d.id },
-      el('div', { class: 'grow' }, el('div', { class: 'name' }, d.name), el('div', { class: 'muted' }, `${when} · 最近活动 ${ago(d.last_seen)}`)),
+      el('div', { class: 'grow' }, el('div', { class: 'name' }, d.name), el('div', { class: 'muted' }, `${lasts(d)} · 最近活动 ${ago(d.last_seen)}`)),
       el('button', { class: 'danger', onclick: async () => {
         if (!confirm(`踢掉「${d.name}」？它要重新输数字才能再连。`)) return;
         try { await del(`api/pair/devices/${d.id}`); loadDevices(); } catch (e) { $('hostErr').textContent = e.message; }
@@ -230,15 +247,28 @@ function select(p, li) {
   else $('ctlErr').textContent = '';
 }
 $('refresh').onclick = loadPeers;
+// Only the custom-length box belongs to 临时.
+for (const r of document.querySelectorAll('input[name=mode]')) r.addEventListener('change', () => { $('dur').hidden = document.querySelector('input[name=mode]:checked').value !== 'temp'; });
+$('durNum').addEventListener('focus', () => { document.querySelector('input[name=dur][value=custom]').checked = true; });
+// 「直到我断开」: closing this window ends those links (keepalive lets the request outlive the page).
+addEventListener('pagehide', () => {
+  for (const l of links) if (l.mode === 'temp' && !l.expires_at) fetch(`api/remote/links/${l.id}`, { method: 'DELETE', keepalive: true, credentials: 'same-origin' }).catch(() => {});
+});
 $('digits').addEventListener('keydown', e => { if (e.key === 'Enter') $('doConnect').click(); });
 $('doConnect').onclick = async () => {
   if (!selected) return;
   const code = $('digits').value.replace(/\D/g, '');
   if (!code) { $('ctlErr').textContent = '先输入那台电脑上显示的数字'; return; }
   const mode = document.querySelector('input[name=mode]:checked').value;
+  let duration_ms = null;
+  if (mode === 'temp' && document.querySelector('input[name=dur]:checked').value === 'custom') {
+    const n = Number($('durNum').value);
+    if (!Number.isInteger(n) || n <= 0) { $('ctlErr').textContent = '自定义时长要填大于 0 的整数'; return; }
+    duration_ms = n * Number($('durUnit').value);
+  }
   $('doConnect').disabled = true; $('ctlErr').textContent = '';
   try {
-    const { link } = await post('api/remote/links', { host: selected.ip, code, mode, name: selected.dsh_name || selected.name });
+    const { link } = await post('api/remote/links', { host: selected.ip, code, mode, name: selected.dsh_name || selected.name, duration_ms });
     $('connect').hidden = true; selected = undefined;
     await loadLinks();
     open(link, '');
@@ -247,14 +277,13 @@ $('doConnect').onclick = async () => {
 };
 async function loadLinks() {
   try {
-    const { links } = await api('api/remote/links');
+    ({ links } = await api('api/remote/links'));
     const ul = $('links');
     ul.replaceChildren();
     if (!links.length) { ul.append(el('li', { class: 'empty' }, '还没有连着的电脑')); return; }
     for (const l of links) {
-      const when = l.mode === 'temp' && l.expires_at ? `临时 · ${clock(l.expires_at)} 自动断` : '记住了';
       ul.append(el('li', null,
-        el('div', { class: 'grow' }, el('div', { class: 'name' }, l.name), el('div', { class: 'muted' }, when)),
+        el('div', { class: 'grow' }, el('div', { class: 'name' }, l.name), el('div', { class: 'muted' }, lasts(l))),
         el('button', { class: 'primary', onclick: () => open(l, '') }, '打开'),
         el('button', { onclick: async () => {
           if (!confirm(`断开「${l.name}」？下次要重新输数字。`)) return;
