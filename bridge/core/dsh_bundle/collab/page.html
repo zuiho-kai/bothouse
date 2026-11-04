@@ -243,7 +243,9 @@
   }
   .msg:hover { background: var(--hover-soft); }
   .msg.cont { padding-top: 2px; }
-  .msg.cont .avatar,
+  /* 续行只隐藏头像，不从网格里移除：头像一旦 display:none，正文会顶到第一列，
+     被 40px 的头像列宽挤成一字一行（#112）。 */
+  .msg.cont .avatar { visibility: hidden; }
   .msg.cont .head { display: none; }
   .msg .stamp {
     display: none;
@@ -706,6 +708,8 @@ function regroup() {
 function upsert(m) {
   if (m.room_id !== state.room) return;
   const log = $('log');
+  // 消息一到，空态/加载态就不再成立；否则第一条实时消息会顶着“还没有消息”显示（#112）。
+  log.querySelector('.state')?.remove();
   const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 40;
   const existing = log.querySelector(`[data-id="${m.id}"]`);
   if (existing) existing.replaceWith(messageNode(m));
