@@ -210,16 +210,8 @@ jobs:
       - name: Embedded DSH bundle matches source
         if: ${{ !cancelled() && env.RUN_GO != 'true' }}
         run: go test -tags no_web -count=1 -run '^(TestDSHBundle|TestExtractEmbeddedDSH)' ./core
-      - run: go mod verify
-        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
-      - run: go build -tags no_web ./...
-        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
-      # vet was in bridge-fork; kept now that both share this job
-      - run: go vet -tags no_web ./...
-        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
-      # Windows is a supported platform (install.ps1): the code and its tests must keep compiling there.
-      - run: GOOS=windows GOARCH=amd64 go build -tags no_web ./... && GOOS=windows GOARCH=amd64 go vet -tags no_web ./...
-        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      # go mod verify, go build and go vet (linux and windows) run as the build-* shards of bridge-go, in
+      # parallel with the tests: here they were ~180s in series (run 41867920458).
 
   bridge-go:
     needs: changes
@@ -231,9 +223,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # ./core is about 230s of the ~420s full run (run 40081278209); every other package together is
-        # about 140s. So: core split in two by test name, everything else in a third shard.
-        shard: [core-1, core-2, rest]
+        # ./core is split in two by test name; every other package is split in two by package (run with
+        # -p 1 these took ~280s in one shard, run 41867920458). build-* hold the build and vet checks.
+        shard: [core-1, core-2, rest-1, rest-2, build-linux, build-windows]
     defaults:
       run:
         working-directory: bridge
@@ -250,12 +242,28 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: |
           set -euo pipefail
+          case "$SHARD" in
+            build-linux)
+              go mod verify
+              go build -tags no_web ./...
+              # vet was in bridge-fork; kept now that both share this job
+              go vet -tags no_web ./...
+              exit 0 ;;
+            build-windows)
+              # Windows is a supported platform (install.ps1): the code and its tests must keep compiling there.
+              GOOS=windows GOARCH=amd64 go build -tags no_web ./...
+              GOOS=windows GOARCH=amd64 go vet -tags no_web ./...
+              exit 0 ;;
+          esac
           core=$(go list -tags no_web ./core)
-          if [ "$SHARD" = rest ]; then
-            pkgs=$(go list -tags no_web ./... | grep -vxF "$core")
-            # -p 1 also serialises compiling ~40 test binaries (about half of this shard's ~330s, run
-            # 41860995508). Compile them in parallel first without running anything; the serial run then
-            # only links from the warm build cache. Execution stays -p 1.
+          if [ "${SHARD%-*}" = rest ]; then
+            # Every non-core package goes to exactly one of the two rest shards.
+            n=${SHARD#rest-}
+            pkgs=$(go list -tags no_web ./... | grep -vxF "$core" | awk -v n="$n" 'NR % 2 == n % 2')
+            test -n "$pkgs"
+            # -p 1 also serialises compiling the test binaries (about half of the old single rest shard's
+            # ~330s, run 41860995508). Compile them in parallel first without running anything; the serial
+            # run then only links from the warm build cache. Execution stays -p 1.
             go test -tags no_web -count=1 -c -o /dev/null $pkgs > /dev/null
             go test -tags no_web -p 1 -count=1 $pkgs
             exit 0
@@ -267,7 +275,8 @@ jobs:
           echo "$(echo "$names" | wc -l) tests in this shard"
           go test -tags no_web -p 1 -count=1 -timeout 8m -run "^($(echo "$names" | paste -sd'|' -))\$" ./core
       - name: Voice relay streaming race checks
-        if: matrix.shard == 'core-1'
+        # on build-linux, which finishes well before the test shards; it used to add ~40s to core-1
+        if: matrix.shard == 'build-linux'
         run: go test -race -tags no_web ./core -run 'TestVoiceRelayStream|TestVoiceSentenceSplitter' -count=1
 
   bridge:
