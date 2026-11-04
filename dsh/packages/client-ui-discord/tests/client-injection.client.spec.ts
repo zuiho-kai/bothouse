@@ -33,9 +33,10 @@ it.each([true, false])('injects channel actions and uses the settings shell when
     apply(ctx as unknown as Parameters<typeof apply>[0])
     const channels = createSource.mock.results[0].value as ReturnType<typeof channelSource.createChannelSource>
     expect(injectMain).toBeTypeOf('function')
-    // #105: desk, wiki galaxy and the bothouse panel sit next to channels, each with its own main panel.
-    expect(sidebarIds).toEqual(['channels', 'collab-desk', 'wiki-galaxy', 'bothouse-panel'])
-    expect(mainKeys).toEqual(['channels', 'collab-desk', 'wiki-galaxy', 'bothouse-panel'])
+    // #105: desk, wiki galaxy and the bothouse panel sit next to channels, each with its own main panel;
+    // #131 adds the paired-computers page after them.
+    expect(sidebarIds).toEqual(['channels', 'collab-desk', 'wiki-galaxy', 'bothouse-panel', 'collab-devices'])
+    expect(mainKeys).toEqual(['channels', 'collab-desk', 'wiki-galaxy', 'bothouse-panel', 'collab-devices'])
     const injected = injectMain!({ openSection })
     expect(injected.openModelSettings()).toBe(available)
     if (available) expect(openSection).toHaveBeenCalledWith('models')

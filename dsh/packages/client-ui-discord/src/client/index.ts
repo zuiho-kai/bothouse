@@ -49,6 +49,19 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   const channels = createChannelSource(browserTransport())
   ctx.effect(() => channels.dispose, 'client-ui-discord: channel stream')
+  // #131: while this DSH window is open, keep its 「直到我断开」 remote links (refresh or switching
+  // panels must not drop them; closing the window stops the beat and collab ends them).
+  // 来源：与 dsh/collab/pairing.mjs ALIVE_EVERY_MS 同一节拍。
+  const ALIVE_EVERY_MS = 3000
+  ctx.effect(() => {
+    const beat = () => {
+      globalThis.fetch?.(new URL('collab/api/remote/alive', document.baseURI), { method: 'POST', credentials: 'same-origin' })
+        .catch(() => {})
+    }
+    beat()
+    const timer = setInterval(beat, ALIVE_EVERY_MS)
+    return () => clearInterval(timer)
+  }, 'client-ui-discord: remote link heartbeat')
   const injected = (openModelSettings: () => boolean): ChannelsInjected => ({
     openModelSettings,
     hooks: { channels: channels.source },

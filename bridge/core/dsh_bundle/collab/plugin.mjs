@@ -28,7 +28,7 @@ import { DeskEvents, DESK_NAMES_FILE, deskRoute } from './desk.mjs';
 import { wikiGalaxyRoute } from './wiki-galaxy.mjs';
 import { defaultBridgeConfig, panelRoute } from './panel.mjs';
 import { TeamStatus } from './team-status.mjs';
-import { PairClient, PairHost, PairListener, PAIR_PORT, REMOTE_OWNER, hostHandler, isLoopback, pairApiRoute, remoteProxyRoute, tailnetAddress } from './pairing.mjs';
+import { ALIVE_EVERY_MS, PairClient, PairHost, PairListener, PAIR_PORT, REMOTE_OWNER, hostHandler, isLoopback, pairApiRoute, remoteProxyRoute, tailnetAddress } from './pairing.mjs';
 import { hostname } from 'node:os';
 
 export const name = 'conest-collab';
@@ -200,6 +200,9 @@ export async function apply(ctx, rawConfig) {
   // 来源：码有效期按分钟计（pairing.mjs CODE_TTL_MS），每分钟收一次没人用的配对监听。
   const pairSweep = setInterval(() => { pairListener.settle().catch(() => {}); }, 60_000);
   pairSweep.unref?.();
+  // 「直到我断开」: drop links whose DSH window stopped beating (same cadence as the beat).
+  const aliveSweep = setInterval(() => { pairClient.sweep().catch(() => {}); }, ALIVE_EVERY_MS);
+  aliveSweep.unref?.();
   const wss = new WebSocketServer({ noServer: true, maxPayload: BOT_WS_MAX_PAYLOAD });
   const streams = new Set();
 
@@ -225,6 +228,7 @@ export async function apply(ctx, rawConfig) {
     tasks.close();
     gateway.closeAll();
     clearInterval(pairSweep);
+    clearInterval(aliveSweep);
     await pairListener.close();
     for (const end of streams) end();
     wss.close();

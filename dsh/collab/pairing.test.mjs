@@ -7,7 +7,7 @@ import { createServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  CODE_TTL_MS, MAX_ATTEMPTS, tempDuration, PairClient, PairError, PairHost, PairListener, REMOTE_OWNER, hostHandler, isTailnetAddress,
+  ALIVE_EVERY_MS, CODE_TTL_MS, MAX_ATTEMPTS, UNTIL_GRACE_MS, tempDuration, PairClient, PairError, PairHost, PairListener, REMOTE_OWNER, hostHandler, isTailnetAddress,
   pairApiRoute, remoteProxyRoute, rewriteRemoteHTML, tailnetPeers,
 } from './pairing.mjs';
 
@@ -226,6 +226,46 @@ test('disconnect from the controller drops the device on the host too', async t 
   const exp = host.list()[0].expires_at;
   assert.ok(exp >= before + 2 * 3600_000 && exp <= Date.now() + 2 * 3600_000);
   assert.equal(timed.expires_at, exp);
+});
+
+test('「直到我断开」: a refresh within the heartbeat grace keeps the link; a closed window ends it (user 11-04 17:34)', async t => {
+  assert.ok(UNTIL_GRACE_MS > 2 * ALIVE_EVERY_MS, 'grace outlasts more than one missed beat');
+  const host = new PairHost({ file: join(dir(), 'd.json') });
+  const port = await freePort();
+  const listener = new PairListener({ host, address: async () => '127.0.0.1', port,
+    handler: hostHandler({ host, name: 'h', route: (q, s) => { s.writeHead(200); s.end(); }, allowLoopback: true }) });
+  t.after(() => listener.close());
+  await listener.ensure();
+  let now = Date.now();
+  const client = new PairClient({ file: join(dir(), 'l.json'), port, name: 'c', now: () => now });
+  const until = await client.connect({ host: '127.0.0.1', code: host.newCode().code, mode: 'temp' });
+  const timed = await client.connect({ host: '127.0.0.1', code: host.newCode().code, mode: 'temp', duration_ms: 3600_000 });
+  const kept = await client.connect({ host: '127.0.0.1', code: host.newCode().code, mode: 'remember' });
+  assert.equal(host.list().length, 3);
+  // Refresh: the page is gone for a few seconds, then beats again.
+  now += UNTIL_GRACE_MS - 1;
+  assert.deepEqual(await client.sweep(), []);
+  client.alive();
+  now += UNTIL_GRACE_MS - 1;
+  assert.deepEqual(await client.sweep(), [], 'beat came back: still connected');
+  assert.equal(client.list().length, 3);
+  // Window closed: no beat for the whole grace → only the until-disconnect link ends, on both sides.
+  now += 1;
+  assert.deepEqual(await client.sweep(), [until.id]);
+  assert.deepEqual(client.list().map(l => l.id).sort(), [timed.id, kept.id].sort());
+  assert.equal(host.list().length, 2);
+  assert.ok(!host.list().some(d => d.mode === 'temp' && d.expires_at === null));
+});
+
+test('POST /collab/api/remote/alive keeps until-disconnect links', async () => {
+  let now = 0;
+  const client = new PairClient({ file: join(dir(), 'l.json'), now: () => now });
+  client.links.set('x', { id: 'x', name: 'n', host: '127.0.0.1', port: 1, token: 't', mode: 'temp', created_at: 0, expires_at: null, alive_at: 0 });
+  now = UNTIL_GRACE_MS + 5;
+  const res = { status: 0, writeHead(c) { this.status = c; }, setHeader() {}, end() {} };
+  await pairApiRoute({ method: 'POST', headers: {} }, res, new URL('http://x/collab/api/remote/alive'), { host: new PairHost({ file: join(dir(), 'd.json') }), client, listener: {} });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await client.sweep(), []);
 });
 
 test('the host listener refuses addresses outside the tailnet', async t => {

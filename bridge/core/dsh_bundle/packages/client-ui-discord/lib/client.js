@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 953e367ad8e857ddec028046ef366295c269cd30c97b823542b8bd24fccddf5f
+// dsh-client-source-sha256: cb2812830fa727a184a158219384ea4d98bb7f480c681bfe683cb34ab94d69e2
 // dsh-style-sha256: 9d61b83efd40f34f0016812d99d3231ba9057294ae4990c78d6739eb8921421f
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -22213,6 +22213,18 @@ function apply(ctx) {
 	const t = ctx.locale.bind(NS);
 	const channels = createChannelSource(browserTransport());
 	ctx.effect(() => channels.dispose, "client-ui-discord: channel stream");
+	const ALIVE_EVERY_MS = 3e3;
+	ctx.effect(() => {
+		const beat = () => {
+			globalThis.fetch?.(new URL("collab/api/remote/alive", document.baseURI), {
+				method: "POST",
+				credentials: "same-origin"
+			}).catch(() => {});
+		};
+		beat();
+		const timer = setInterval(beat, ALIVE_EVERY_MS);
+		return () => clearInterval(timer);
+	}, "client-ui-discord: remote link heartbeat");
 	const injected = (openModelSettings) => ({
 		openModelSettings,
 		hooks: { channels: channels.source },

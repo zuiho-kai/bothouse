@@ -27,6 +27,11 @@ export const MAX_ATTEMPTS = 5;
 // 沿用：DSH web 常用端口 3081（docs/INSTANCE_SETUP.md）的下一个；两端同一常量，发现才对得上。
 export const PAIR_PORT = 3082;
 export const MODES = ['temp', 'remember'];
+// 「直到我断开」的临时连接靠指挥端页面心跳保活：刷新页面不断，心跳停了才断。
+// 来源：用户 11-04 17:34「给几秒心跳宽限自动接回，只有关窗/点断开/踢掉才断」；每 3 秒一跳，
+// 连丢三跳多一点（10 秒）算关窗，沿用 bridge/core/team.go:28 teamStaleAfter「三跳没来算掉线」的做法。
+export const ALIVE_EVERY_MS = 3000;
+export const UNTIL_GRACE_MS = 10_000;
 export const REMOTE_PREFIX = '/collab/remote';
 // Marks a request the host listener authenticated with a device credential (plugin.mjs owner()).
 export const REMOTE_OWNER = Symbol('collab.remoteOwner');
@@ -252,7 +257,8 @@ export function requestJSON({ host, port, path, method = 'GET', body, headers = 
  * to, file mode 0600); temporary ones live in memory only.
  */
 export class PairClient {
-  constructor({ file, now = Date.now, port = PAIR_PORT, request = requestJSON, name = hostname() }) {
+  constructor({ file, now = Date.now, port = PAIR_PORT, request = requestJSON, name = hostname(), grace = UNTIL_GRACE_MS }) {
+    this.grace = grace;
     this.file = file;
     this.now = now;
     this.port = port;
@@ -287,7 +293,7 @@ export class PairClient {
       throw new PairError(r.body?.code ?? 'refused', r.body?.error ?? '那台电脑拒绝了配对');
     }
     const link = { id: randomUUID(), name: String(name || r.body.host_name || host), host, port, token: r.body.token,
-      mode, created_at: this.now(), expires_at: r.body.device?.expires_at ?? null };
+      mode, created_at: this.now(), expires_at: r.body.device?.expires_at ?? null, alive_at: this.now() };
     this.links.set(link.id, link);
     if (mode === 'remember') this.save();
     return this.view(link);
@@ -302,6 +308,19 @@ export class PairClient {
   list() {
     for (const id of [...this.links.keys()]) this.get(id);
     return [...this.links.values()].sort((a, b) => b.created_at - a.created_at).map(l => this.view(l));
+  }
+
+  /** A DSH window on this machine is still open: keep its 「直到我断开」 links. */
+  alive() {
+    const now = this.now();
+    for (const l of this.links.values()) l.alive_at = now;
+  }
+
+  /** End 「直到我断开」 links whose window stopped beating (closed, not just refreshed). */
+  async sweep() {
+    const stale = [...this.links.values()].filter(l => l.mode === 'temp' && l.expires_at === null && (l.alive_at ?? l.created_at) + this.grace <= this.now());
+    for (const l of stale) await this.disconnect(l.id);
+    return stale.map(l => l.id);
   }
 
   /** Forget a link here and tell the host to drop its device (best effort). */
@@ -558,6 +577,7 @@ export function pairApiRoute(req, res, url, { host, client, listener, peers = ta
         probed.sort((a, b) => Number(b.waiting) - Number(a.waiting) || Number(b.dsh) - Number(a.dsh) || Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
         return sendJSON(res, 200, { peers: probed });
       }
+      if (p === '/collab/api/remote/alive' && req.method === 'POST') { client.alive(); return sendJSON(res, 200, { ok: true }); }
       if (p === '/collab/api/remote/links' && req.method === 'GET') return sendJSON(res, 200, { links: client.list() });
       if (p === '/collab/api/remote/links' && req.method === 'POST') {
         const body = await readJSON(req);

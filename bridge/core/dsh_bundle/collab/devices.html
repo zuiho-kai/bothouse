@@ -86,7 +86,7 @@
         <input class="digits" id="digits" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="输入那台电脑上的数字">
         <label class="mode"><input type="radio" name="mode" value="temp" checked><span><b>临时</b><br><span class="muted">断开后下次要重新输数字。</span></span></label>
         <div class="dur" id="dur">
-          <label><input type="radio" name="dur" value="until" checked>直到我断开<span class="muted">（任一台点「断开」，或关掉这个窗口）</span></label>
+          <label><input type="radio" name="dur" value="until" checked>直到我断开<span class="muted">（任一台点「断开」，或关掉 DSH 窗口；刷新页面不会断）</span></label>
           <label><input type="radio" name="dur" value="custom">自定义时长：<input type="number" id="durNum" min="1" step="1" value="1" inputmode="numeric"><select id="durUnit"><option value="60000">分钟</option><option value="3600000" selected>小时</option></select><span class="muted">到时自动断</span></label>
         </div>
         <label class="mode"><input type="radio" name="mode" value="remember"><span><b>记住这台电脑</b><br><span class="muted">以后打开就能直接连，不用再输。那台电脑随时可以在「已连接的设备」里踢掉。</span></span></label>
@@ -250,10 +250,13 @@ $('refresh').onclick = loadPeers;
 // Only the custom-length box belongs to 临时.
 for (const r of document.querySelectorAll('input[name=mode]')) r.addEventListener('change', () => { $('dur').hidden = document.querySelector('input[name=mode]:checked').value !== 'temp'; });
 $('durNum').addEventListener('focus', () => { document.querySelector('input[name=dur][value=custom]').checked = true; });
-// 「直到我断开」: closing this window ends those links (keepalive lets the request outlive the page).
-addEventListener('pagehide', () => {
-  for (const l of links) if (l.mode === 'temp' && !l.expires_at) fetch(`api/remote/links/${l.id}`, { method: 'DELETE', keepalive: true, credentials: 'same-origin' }).catch(() => {});
-});
+// 「直到我断开」: this page beats while it is open (the DSH shell beats too, so switching panels
+// keeps the link); a refresh comes back within the grace, closing the window lets it lapse.
+// 来源：与 pairing.mjs ALIVE_EVERY_MS 同一节拍。
+const ALIVE_EVERY_MS = 3000;
+const beat = () => fetch('api/remote/alive', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+beat();
+setInterval(beat, ALIVE_EVERY_MS);
 $('digits').addEventListener('keydown', e => { if (e.key === 'Enter') $('doConnect').click(); });
 $('doConnect').onclick = async () => {
   if (!selected) return;
