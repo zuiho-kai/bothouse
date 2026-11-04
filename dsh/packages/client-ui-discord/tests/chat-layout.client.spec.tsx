@@ -74,16 +74,31 @@ it('pins a pending permission request above the composer and leaves a line in th
   const card = JSON.stringify({ kind: 'permission', title: '权限请求', state: 'pending', actions: [{ decision: 'allow', label: '允许' }, { decision: 'deny', label: '拒绝' }] })
   const view = render(<ChannelsPage {...props({ ...base, messages: [msg(1, { text: '想运行 rm', card })] }, { decidePermission })} />)
   const log = screen.getByRole('log')
-  expect(within(log).queryByRole('button', { name: '允许' })).toBeNull()
+  expect(within(log).queryByRole('button', { name: zh.permAllowOnce })).toBeNull()
   expect(within(log).getByText(zh.permPending)).toBeTruthy()
   const tray = screen.getByRole('region', { name: zh.permTray.replace('{count}', '1') })
   expect(tray.compareDocumentPosition(screen.getByRole('combobox')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  fireEvent.click(within(tray).getByRole('button', { name: '允许' }))
+  fireEvent.click(within(tray).getByRole('button', { name: zh.permAllowOnce }))
   expect(decidePermission).toHaveBeenCalledWith(1, 'allow')
   // Decided: the tray goes away and the log keeps the outcome.
   view.rerender(<ChannelsPage {...props({ ...base, messages: [msg(1, { text: '想运行 rm', card: JSON.stringify({ kind: 'permission', state: 'allowed', actions: [] }) })] }, { decidePermission })} />)
   expect(screen.queryByRole('region', { name: zh.permTray.replace('{count}', '1') })).toBeNull()
   expect(within(screen.getByRole('log')).getByText(zh.permAllowed)).toBeTruthy()
+})
+
+it('labels the session-wide allow by its scope and keeps it quieter than 这次允许 (#1017)', () => {
+  const decidePermission = vi.fn(async () => {})
+  const card = JSON.stringify({ kind: 'permission', state: 'pending', actions: [{ decision: 'allow', label: '允许' }, { decision: 'allow_all', label: '一直允许' }, { decision: 'deny', label: '拒绝' }] })
+  render(<ChannelsPage {...props({ ...base, messages: [msg(1, { text: '想运行 npm ci', card })] }, { decidePermission })} />)
+  const tray = screen.getByRole('region', { name: zh.permTray.replace('{count}', '1') })
+  const buttons = within(tray).getAllByRole('button').filter(b => b.closest(`.${css.permActions}`) !== null)
+  expect(buttons.map(b => b.textContent)).toEqual([zh.permAllowOnce, '拒绝', zh.permAllowSession])
+  expect(buttons[0]!.className).toContain(css.primaryButton)
+  expect(buttons[2]!.className).toContain(css.permSessionButton)
+  expect(buttons[2]!.className).not.toContain(css.primaryButton)
+  expect(within(tray).queryByText('一直允许')).toBeNull()
+  fireEvent.click(buttons[2]!)
+  expect(decidePermission).toHaveBeenCalledWith(1, 'allow_all')
 })
 
 it('lists who is at work in the channel and its workspaces in the activity column and title bar', () => {

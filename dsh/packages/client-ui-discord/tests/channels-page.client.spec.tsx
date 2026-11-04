@@ -164,7 +164,9 @@ describe('channels page', () => {
     expect(screen.queryByRole('region', { name: zh.slashTitle })).toBeNull()
     fireEvent.change(input, { target: { value: '/' } })
     const menu = within(screen.getByRole('region', { name: zh.slashTitle }))
-    expect(menu.getAllByRole('option').map(o => /^\/[a-z]+(?: all)?/.exec(o.textContent ?? '')?.[0])).toEqual(['/stop', '/stop all', '/ps', '/new', '/model', '/reasoning', '/cron', '/status', '/usage', '/compress', '/board', '/help'])
+    expect(menu.getAllByRole('option').map(o => /^\/[a-z]+(?: all)?/.exec(o.textContent ?? '')?.[0])).toEqual(['/stop', '/stop all', '/ps', '/new', '/compress', '/model', '/reasoning', '/status', '/usage', '/cron', '/board', '/help'])
+    // #1017: the bare menu is split into 控制 / 模型 / 查看.
+    for (const title of [zh.slashGroupControl, zh.slashGroupModel, zh.slashGroupView]) expect(menu.getByText(title)).toBeTruthy()
     expect(menu.getByText(zh.slashTitleLead.replace('{name}', '橘'))).toBeTruthy()
     // Filter, then Enter runs the highlighted command.
     fireEvent.change(input, { target: { value: '/mo' } })
@@ -229,21 +231,49 @@ describe('channels page', () => {
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
     expect(send).toHaveBeenCalledExactlyOnceWith('/')
   })
-  it('offers three interrupts while a bot works here', async () => {
+  it('turns the send key into a stop key for the answering bot while the draft is empty (#1017)', async () => {
     const send = vi.fn(async () => {})
-    render(<ChannelsPage {...props(ready, send)} />)
-    const bar = within(screen.getByRole('group', { name: zh.interruptGroup }))
-    await act(async () => { fireEvent.click(bar.getByRole('button', { name: zh.interruptStep })) })
-    expect(send).toHaveBeenLastCalledWith('@橘 /stop')
-    await act(async () => { fireEvent.click(bar.getByRole('button', { name: zh.interruptAll })) })
-    expect(send).toHaveBeenLastCalledWith('/stop all')
-    fireEvent.click(bar.getByRole('button', { name: zh.interruptSteer }))
-    expect((screen.getByRole('combobox') as HTMLTextAreaElement).value).toBe('@橘 /ps ')
-    expect(send).toHaveBeenCalledTimes(2)
+    const view = render(<ChannelsPage {...props(ready, send)} />)
+    // No standing interrupt bar: 停频道全部 and 改方向 live in the / menu.
+    expect(screen.queryByRole('group', { name: '打断' })).toBeNull()
+    const stop = screen.getByRole('button', { name: zh.stopReply.replace('{name}', '橘') })
+    expect(screen.queryByRole('button', { name: zh.sendButton })).toBeNull()
+    await act(async () => { fireEvent.click(stop) })
+    expect(send).toHaveBeenCalledExactlyOnceWith('@橘 /stop')
+    expect(screen.getByRole('status').textContent).toBe(zh.stopPending.replace('{name}', '橘'))
+    // A second click while stopping sends nothing more.
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: zh.stopReply.replace('{name}', '橘') })) })
+    expect(send).toHaveBeenCalledTimes(1)
+    // 已停止 only once the bot no longer answers here.
+    view.rerender(<ChannelsPage {...props({ ...ready, thinking: {} }, send)} />)
+    expect(screen.getByText(zh.stopDone.replace('{name}', '橘'))).toBeTruthy()
+    // Typing gives the send key back.
+    view.rerender(<ChannelsPage {...props(ready, send)} />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '换个方向' } })
+    expect(screen.getByRole('button', { name: zh.sendButton })).toBeTruthy()
   })
-  it('hides the interrupts when no bot is working', () => {
+  it('keeps the plain send key when no bot is answering', () => {
     render(<ChannelsPage {...props({ ...ready, thinking: {} })} />)
-    expect(screen.queryByRole('group', { name: zh.interruptGroup })).toBeNull()
+    expect(screen.queryByRole('button', { name: zh.stopReply.replace('{name}', '橘') })).toBeNull()
+    expect(screen.getByRole('button', { name: zh.sendButton })).toBeTruthy()
+  })
+  it('shows an owner command as one thin line with the bot answer folded in (#1017)', () => {
+    const messages: ChannelSnapshot['messages'] = [
+      { id: 1, room_id: 1, author_kind: 'user', author: 'owner', name: '我', text: '@橘 /model deepseek-v4', created_at: 1, card: null, from_turn: null },
+      { id: 2, room_id: 1, author_kind: 'role', author: 'ju', name: '橘', text: '模型已切到 deepseek-v4\n下一条消息生效', created_at: 2, card: null, from_turn: 0 },
+      { id: 3, room_id: 1, author_kind: 'role', author: 'ju', name: '橘', text: '正文回复', created_at: 3, card: null, from_turn: 1 },
+    ]
+    render(<ChannelsPage {...props({ ...ready, thinking: {}, messages })} />)
+    const line = document.querySelector('[data-message-id="1"]') as HTMLElement
+    expect(line.className).toContain(css.cmdLine)
+    expect(line.textContent).toContain('/model deepseek-v4')
+    expect(line.textContent).toContain(zh.cmdTo.replace('{name}', '橘'))
+    // The answer is folded into the line (first line; click for the rest), not a bubble of its own.
+    expect(document.querySelector('[data-message-id="2"]')).toBeNull()
+    const answer = within(line).getByRole('button', { name: '模型已切到 deepseek-v4' })
+    fireEvent.click(answer)
+    expect(answer.textContent).toContain('下一条消息生效')
+    expect(screen.getByText('正文回复')).toBeTruthy()
   })
   it('puts a message on the task board for the primary role and copies its Markdown', async () => {
     const dispatchTask = vi.fn(async () => {})
@@ -455,7 +485,7 @@ describe('channels page', () => {
 
   it('sends from the send button through the same path as Enter, multi-line drafts included', async () => {
     const send = vi.fn(() => Promise.resolve())
-    render(<ChannelsPage {...props(ready, send)} />)
+    render(<ChannelsPage {...props({ ...ready, thinking: {} }, send)} />)
     const input = screen.getByRole('combobox') as HTMLTextAreaElement
     const button = screen.getByRole('button', { name: '发送' }) as HTMLButtonElement
     expect(input.getAttribute('enterkeyhint')).toBe('send')

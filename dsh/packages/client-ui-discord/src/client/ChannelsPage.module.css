@@ -2071,18 +2071,49 @@
 @media (prefers-reduced-motion: reduce) { .sidePanel { animation: none; } }
 .sidePanel .boardCardGrid { grid-template-columns: minmax(0, 1fr); }
 
-/* #1016 three interrupts beside 「正在输入」. */
-.interrupts { display: inline-flex; gap: 6px; margin-left: auto; }
-.interruptButton {
-  padding: 1px 10px;
-  border: 1px solid var(--dsw-alias-separator, rgba(127, 127, 127, 0.3));
-  border-radius: 999px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  cursor: pointer;
+/* #1017 / menu: a fixed-width popover at the `/`, description right after the command, no motion
+   (it opens many times a day; Vox 11-01: 「命令面板不做动画」). */
+.slashPopup { z-index: 6; right: auto; width: min(360px, calc(100% - 32px)); animation: none; }
+.slashGroup { padding: 6px 8px 2px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+.slashItem { display: flex; gap: 8px; align-items: baseline; padding: 5px 8px; border-radius: var(--dsw-radius-sm); cursor: pointer; }
+.slashActive { background: var(--dsw-alias-interactive-bg-hover); }
+.slashName { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+.slashMeta { min-width: 0; overflow: hidden; color: var(--dsw-alias-label-tertiary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+
+/* #1017 the send button turns into a stop button while the bot answers; an empty draft is the cue. */
+.sendButton.stopButton { background: var(--dsw-alias-label-primary); }
+.stopNote + .sendButton { margin-left: 8px; }
+.sendButton.stopButton[data-phase='stopping'] { opacity: .6; cursor: progress; }
+.stopNote { margin-left: auto; color: var(--dsw-alias-label-tertiary); font-size: 12px; white-space: nowrap; }
+
+/* #1017 an owner's bot command as one thin line: who, what, the bot's answer (click to expand). */
+.cmdLine { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; padding: 1px 16px 1px 72px; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+.cmdLine code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dsw-alias-label-secondary); }
+.cmdResult { min-width: 0; max-width: 60ch; overflow: hidden; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.cmdResult[aria-expanded='true'] { max-width: none; white-space: pre-line; }
+.cmdLine[data-failed='true'] .cmdResult { color: var(--dsw-alias-danger, #d94848); }
+@media (max-width: 720px) { .cmdLine { padding-left: 16px; } }
+
+/* #1017 hover tools are icons; the label shows 80 ms after the pointer settles. */
+.msgTool { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 24px; padding: 0; }
+.msgTool[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%);
 }
-.interruptButton:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
-.interruptButton:first-child { border-color: var(--dsw-alias-danger, #d94848); color: var(--dsw-alias-danger, #d94848); }
-.slashName { min-width: 88px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
-.slashPopup { z-index: 6; }
+.msgTool[data-tip]:hover::after, .msgTool[data-tip]:focus-visible::after { opacity: 1; transition: opacity 0s 80ms; }
+
+/* #1017 「本会话自动允许」 is a quiet text button, not a second primary. */
+.permSessionButton { padding: 4px 6px; border: 0; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.permSessionButton:hover { color: var(--dsw-alias-label-primary); }
+.permSessionButton:disabled { opacity: .5; cursor: default; }

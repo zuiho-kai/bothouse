@@ -296,6 +296,12 @@ export class CloudWebGateway {
     for (const row of this.hub.store.authorCards('role', memberId)) {
       let card;
       try { card = JSON.parse(row.card); } catch { continue; }
+      // A permission card a hub restart left pending: its asker is gone, and next to the
+      // reconnected bot's new prompt it reads as the same request asked twice (#1017).
+      if (card?.kind === 'permission' && card.state === 'pending' && !this.approvals.pending.has(row.id)) {
+        this.approvals.close(row.id, 'expired', row);
+        continue;
+      }
       if (card?.state !== 'running') continue;
       const note = '⏹ 已中断（桥重启），这一步不会再更新';
       const brief = typeof card.brief === 'string' && card.brief !== '' ? `${card.brief}\n${note}` : note;
