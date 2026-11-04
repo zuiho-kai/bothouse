@@ -13,7 +13,7 @@ import type { ChannelActions, ChannelMember, ChannelMessage, ChannelQuote, Chann
 import { MAX_MESSAGE_BODY, messageTooLarge } from './channel-source.ts'
 import { AttachmentList, PendingAttachments, useComposerAttachments } from './Attachments.tsx'
 import { groupRooms } from './channel-source.ts'
-import { boardGroupOf } from './task-board.ts'
+import { boardGroupOf, isLiveTask } from './task-board.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { CapabilityList } from './CapabilityList.tsx'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
@@ -649,7 +649,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   const channelId = room?.parent_id ?? room?.id
   const visibleMembers = state.members.filter(m => !m.rooms?.length || (channelId !== undefined && m.rooms.includes(channelId)))
   const openTaskOwners = new Set(
-    (state.tasks ?? []).filter(t => ['assigned', 'accepted', 'asked', 'rework'].includes(t.status)).map(t => t.owner)
+    (state.tasks ?? []).filter(isLiveTask).map(t => t.owner)
   )
   const busy = new Set([
     ...(state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? []),
@@ -666,7 +666,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   const leadStatus = lead !== undefined
     ? leadDoing(lead, { tasks: state.tasks ?? [], rooms: channelRooms, thinking: state.thinking, messages: state.messages }, t)
     : leadId == null ? t('headLeadUnset') : t('headLeadLoading')
-  const openTasks = (state.tasks ?? []).filter(task => ['assigned', 'accepted', 'asked', 'rework'].includes(task.status))
+  const openTasks = (state.tasks ?? []).filter(isLiveTask)
   const activity = visibleMembers.filter(m => m.kind !== 'human').flatMap((m) => {
     const where = [...channelRooms].find(id => (state.thinking[String(id)] ?? []).includes(m.id))
     const task = openTasks.find(task => task.owner === m.id && channelRooms.has(task.room_id))

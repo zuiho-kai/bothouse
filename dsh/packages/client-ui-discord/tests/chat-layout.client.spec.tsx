@@ -4,7 +4,7 @@
 import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChannelsPage, cardRole, continues, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
-import type { ChannelMessage, ChannelSnapshot } from '../src/client/channel-source.ts'
+import type { ChannelMessage, ChannelSnapshot, ChannelTask } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
 import css from '../src/client/ChannelsPage.module.css'
 
@@ -101,6 +101,21 @@ it('lists who is at work in the channel and its workspaces in the activity colum
   expect(within(pinned).getByText(`${zh.leadPinned} · ${zh.headLeadIdle}`)).toBeTruthy()
   // The workspace row keeps its plain name: the busy avatars are decorative.
   expect(screen.getByRole('button', { name: '工作区1' })).toBeTruthy()
+})
+
+it('leaves a task parked by the hourly wrap-up out of Activity and the busy marks, like the board (paused_at)', () => {
+  const task = (id: number, over: Partial<ChannelTask> = {}): ChannelTask => ({
+    id, room_id: 2, parent_task: null, title: `任务${id}`, owner: 'ds', owner_name: '鲸', created_by: 'ju', created_by_name: '橘',
+    status: 'accepted', next_check_at: null, assign_msg_id: null, result_msg_id: null, created_at: 1, updated_at: 1, paused_at: null, ...over,
+  } as ChannelTask)
+  const view = render(<ChannelsPage {...props({ ...base, tasks: [task(7, { paused_at: 100 })] })} />)
+  expect(screen.queryByRole('region', { name: zh.activityNow })).toBeNull()
+  const row = (name: string) => [...view.container.querySelectorAll(`.${css.memberStatus}`)].find(el => el.closest('li,button,div')?.textContent?.includes(name))
+  expect(row('鲸')?.getAttribute('data-status')).toBe('online')
+  // Resumed (paused_at cleared): it is live work again.
+  view.rerender(<ChannelsPage {...props({ ...base, tasks: [task(7)] })} />)
+  expect(within(screen.getByRole('region', { name: zh.activityNow })).getByText('#7 任务7 · 工作区1')).toBeTruthy()
+  expect(row('鲸')?.getAttribute('data-status')).toBe('busy')
 })
 
 describe('live header integration (#113)', () => {
