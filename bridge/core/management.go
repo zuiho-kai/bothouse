@@ -54,6 +54,7 @@ type ManagementServer struct {
 	timerScheduler     *TimerScheduler
 	heartbeatScheduler *HeartbeatScheduler
 	bridgeServer       *BridgeServer
+	imageGen           *ImageGenerator // opt-in 生图 (#150 item c); nil when [image_gen] is off
 	dshProxyOnce       sync.Once
 	dshProxy           *dshProxy // /dsh/ channels-page proxy (management_dsh_proxy.go)
 
@@ -333,6 +334,9 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 
 	// Avatar / persona library (packs)
 	m.registerLibraryRoutes(mux, prefix)
+
+	// Image generation (生图, opt-in via [image_gen])
+	m.registerImageGenRoutes(mux, prefix)
 
 	// Global Providers
 	mux.HandleFunc(prefix+"/providers", m.wrap(m.handleGlobalProviders))

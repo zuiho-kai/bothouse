@@ -21,6 +21,7 @@ import DeviceList from '@/pages/Devices/DeviceList';
 import AppList from '@/pages/Apps/AppList';
 import BridgeAdapters from '@/pages/Bridge/BridgeAdapters';
 import WikiGalaxyPage from '@/pages/Wiki/WikiGalaxyPage';
+import ImageGenPage from '@/pages/ImageGen/ImageGenPage';
 import NotFound from '@/pages/NotFound';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -71,6 +72,7 @@ export default function App() {
         <Route path="chat/:name" element={<ChatView />} />
         <Route path="cron" element={<CronList />} />
         <Route path="library" element={<LibraryPage />} />
+        <Route path="image-gen" element={<ImageGenPage />} />
         <Route path="system" element={<SystemConfig />} />
         <Route path="*" element={<NotFound />} />
       </Route>
