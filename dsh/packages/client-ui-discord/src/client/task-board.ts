@@ -32,6 +32,11 @@ export function boardGroupOf(task: ChannelTask): BoardGroup {
   return task.paused_at != null ? 'parked' : 'working'
 }
 
+/** Live work on the owner's side, for Activity and the busy marks: open and not parked
+ * (paused_at), the same rule the board uses to move a task out of 在做. */
+const LIVE: readonly TaskStatus[] = ['assigned', 'accepted', 'asked', 'rework']
+export const isLiveTask = (task: ChannelTask): boolean => task.paused_at == null && LIVE.includes(task.status)
+
 /** Single source for tab membership and board ordering; `groups` empty means all tasks.
  * The board opens on the first group that has tasks, 等你定 when all are empty. */
 export const BOARD_TABS: readonly { id: string; label: keyof typeof zh; groups: readonly BoardGroup[]; initial?: boolean }[] = [

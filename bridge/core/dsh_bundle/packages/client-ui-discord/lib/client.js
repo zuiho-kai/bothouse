@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: d2188baf37bc0056caae52e1a088bed34cef8991a96af039879b6e7d570f240a
+// dsh-client-source-sha256: 92ae0b2100b1ff65347907c3e92f437956a51e6ad102f57c59b1e8293a0cf1ec
 // dsh-style-sha256: b05d96f8236b9848ea70b2ee725d39c440bb4ec339effee2b6547d94918c3d1d
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -16994,6 +16994,15 @@ function boardGroupOf(task) {
 	if (task.status === "done") return "done";
 	return task.paused_at != null ? "parked" : "working";
 }
+/** Live work on the owner's side, for Activity and the busy marks: open and not parked
+* (paused_at), the same rule the board uses to move a task out of 在做. */
+const LIVE = [
+	"assigned",
+	"accepted",
+	"asked",
+	"rework"
+];
+const isLiveTask = (task) => task.paused_at == null && LIVE.includes(task.status);
 /** Single source for tab membership and board ordering; `groups` empty means all tasks.
 * The board opens on the first group that has tasks, 等你定 when all are empty. */
 const BOARD_TABS = [
@@ -19666,12 +19675,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 	const room = state.rooms.find((r) => r.id === state.roomId);
 	const channelId = room?.parent_id ?? room?.id;
 	const visibleMembers = state.members.filter((m) => !m.rooms?.length || channelId !== void 0 && m.rooms.includes(channelId));
-	const openTaskOwners = new Set((state.tasks ?? []).filter((t) => [
-		"assigned",
-		"accepted",
-		"asked",
-		"rework"
-	].includes(t.status)).map((t) => t.owner));
+	const openTaskOwners = new Set((state.tasks ?? []).filter(isLiveTask).map((t) => t.owner));
 	const busy = /* @__PURE__ */ new Set([...state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? [], ...openTaskOwners]);
 	const byId = new Map(visibleMembers.map((m) => [m.id, m]));
 	const typingNames = (state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? []).map((id) => byId.get(id)?.name ?? id);
@@ -19684,12 +19688,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		thinking: state.thinking,
 		messages: state.messages
 	}, t) : leadId == null ? t("headLeadUnset") : t("headLeadLoading");
-	const openTasks = (state.tasks ?? []).filter((task) => [
-		"assigned",
-		"accepted",
-		"asked",
-		"rework"
-	].includes(task.status));
+	const openTasks = (state.tasks ?? []).filter(isLiveTask);
 	const activity = visibleMembers.filter((m) => m.kind !== "human").flatMap((m) => {
 		const where = [...channelRooms].find((id) => (state.thinking[String(id)] ?? []).includes(m.id));
 		const task = openTasks.find((task) => task.owner === m.id && channelRooms.has(task.room_id));
