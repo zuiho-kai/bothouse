@@ -91,9 +91,53 @@ it('lists who is at work in the channel and its workspaces in the activity colum
   const now = screen.getByRole('region', { name: zh.activityNow })
   expect(now.querySelector(`.${css.activityName}`)?.textContent).toBe('鲸')
   expect(within(now).getByText(`${zh.activityThinking} · 工作区1`)).toBeTruthy()
-  expect(screen.getByText(zh.headBusy.replace('{names}', '鲸'))).toBeTruthy()
+  // The header identifies the actual primary role; another member's work stays in Activity.
+  const lead = screen.getByRole('group', { name: zh.headLead })
+  expect(lead.querySelector(`.${css.headLeadName}`)?.textContent).toBe('橘')
+  expect(within(lead).getByText(zh.headLeadIdle)).toBeTruthy()
+  // 白色方案：左栏置顶卡与右上胶囊显示同一主角色和状态。
+  const pinned = screen.getByRole('group', { name: zh.leadCard })
+  expect(pinned.querySelector(`.${css.leadCardName}`)?.textContent).toBe('橘')
+  expect(within(pinned).getByText(`${zh.leadPinned} · ${zh.headLeadIdle}`)).toBeTruthy()
   // The workspace row keeps its plain name: the busy avatars are decorative.
   expect(screen.getByRole('button', { name: '工作区1' })).toBeTruthy()
+})
+
+describe('live header integration (#113)', () => {
+  it('shows the channel effective lead and work across its workspaces, not the global role', () => {
+    const view = render(<ChannelsPage {...props({ ...base, rooms: [{ ...base.rooms[0], effective_lead_id: 'ds' }, base.rooms[1]], thinking: { 2: ['ds'] } })} />)
+    const lead = screen.getByRole('group', { name: zh.headLead })
+    expect(lead.querySelector(`.${css.headLeadName}`)?.textContent).toBe('鲸')
+    expect(within(lead).getByText(zh.headLeadWorking)).toBeTruthy()
+    expect(within(lead).queryByText('橘')).toBeNull()
+    view.rerender(<ChannelsPage {...props({ ...base, rooms: [{ ...base.rooms[0], effective_lead_id: 'ds' }, base.rooms[1]], thinking: { 9: ['ds'] } })} />)
+    expect(within(screen.getByRole('group', { name: zh.headLead })).getByText(zh.headLeadIdle)).toBeTruthy()
+  })
+
+  it('does not invent a lead when the room explicitly has none', () => {
+    render(<ChannelsPage {...props({ ...base, rooms: [{ ...base.rooms[0], effective_lead_id: null }] })} />)
+    expect(screen.queryByRole('group', { name: zh.headLead })).toBeNull()
+  })
+
+  it.each([
+    { online: false, error: undefined, status: zh.offline },
+    { online: true, error: 'unavailable', status: zh.memberFailed },
+  ])('keeps a primary role status truthful: $status', ({ online, error, status }) => {
+    render(<ChannelsPage {...props({ ...base, members: [{ ...base.members[0], online, error }] })} />)
+    expect(within(screen.getByRole('group', { name: zh.headLead })).getByText(status)).toBeTruthy()
+  })
+
+  it('keeps the existing collab board available in the header while Activity starts collapsed', () => {
+    const view = render(<ChannelsPage {...props(base)} />)
+    expect(view.container.firstElementChild?.classList.contains(css.membersHidden)).toBe(true)
+    expect(screen.getByRole('button', { name: zh.expandMembers }).getAttribute('aria-expanded')).toBe('false')
+    const board = screen.getByRole('button', { name: zh.taskBoardOpen })
+    expect(view.container.querySelector('header')?.contains(board)).toBe(true)
+    fireEvent.click(board)
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: zh.close }))
+    expect(view.container.firstElementChild?.classList.contains(css.membersHidden)).toBe(true)
+  })
 })
 
 describe('mobile drawer focus lifecycle (#117)', () => {

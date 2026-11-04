@@ -7,6 +7,11 @@ export const NS = 'discord-channels'
 export const zh = {
   headMembers: '{count} 位成员',
   headBusy: '{names} 在忙',
+  headLead: '当前主角色',
+  headLeadIdle: '空闲',
+  headLeadWorking: '响应中',
+  leadPinned: '置顶',
+  leadCard: '置顶的主角色',
   activityPanel: '活动',
   activityNow: '正在进行',
   activityThinking: '思考中',
@@ -228,6 +233,11 @@ export const zh = {
 export const en: Record<keyof typeof zh, string> = {
   headMembers: '{count} members',
   headBusy: '{names} at work',
+  headLead: 'Current primary role',
+  headLeadIdle: 'Idle',
+  headLeadWorking: 'Responding',
+  leadPinned: 'Pinned',
+  leadCard: 'Pinned primary role',
   activityPanel: 'Activity',
   activityNow: 'Now',
   activityThinking: 'Thinking',

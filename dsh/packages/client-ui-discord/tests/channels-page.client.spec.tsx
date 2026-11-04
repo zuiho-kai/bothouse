@@ -742,6 +742,8 @@ describe('channels page', () => {
     const page = view.container.firstElementChild as HTMLElement
     const input = screen.getByRole('combobox') as HTMLTextAreaElement
     fireEvent.change(input, { target: { value: '草稿' } })
+    // 来源：用户白色方案要求活动栏默认收起；先展开，再检查原有独立折叠行为。
+    fireEvent.click(screen.getByRole('button', { name: zh.expandMembers }))
     const baseline = page.className
     fireEvent.click(screen.getByRole('button', { name: zh.collapseRooms }))
     const roomsOnly = page.className

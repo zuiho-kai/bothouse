@@ -1,6 +1,6 @@
 /**
  * Channels main panel: room list, message stream with composer, and member
- * list, in a Discord-style three-column layout. All data arrives through the
+ * activity panel, in a conversation-first layout. All data arrives through the
  * injected `useChannels` hook; posting goes through the injected actions.
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
@@ -510,7 +510,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   }, [drawer])
   // Wide-window side columns hidden by the user (#124); narrow windows use the drawers instead.
   const [roomsHidden, setRoomsHidden] = useState(false)
-  const [membersHidden, setMembersHidden] = useState(false)
+  // 来源：用户 11-03 白色方案，活动栏默认收起，保留现有展开与手机抽屉入口。
+  const [membersHidden, setMembersHidden] = useState(true)
   const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
@@ -628,6 +629,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   const typingNames = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? []).map(id => byId.get(id)?.name ?? id)
   // #113 activity: who is at work in this channel (here or in one of its workspaces) and on what.
   const channelRooms = new Set(state.rooms.filter(r => r.id === channelId || r.parent_id === channelId).map(r => r.id))
+  // Match the settings selector: an explicit room null must not fall back to the global role.
+  const leadId = room?.effective_lead_id === undefined ? state.effectiveLeadId ?? state.leadId : room.effective_lead_id
+  const lead = visibleMembers.find(member => member.id === leadId)
+  // The live working snapshot is scoped to this channel and its workspaces; assigned/paused tasks are not a running signal.
+  const leadWorking = lead !== undefined && [...channelRooms].some(id => (state.thinking[String(id)] ?? []).includes(lead.id))
+  const leadStatus = lead?.error ? t('memberFailed') : lead?.online === false ? t('offline') : leadWorking ? t('headLeadWorking') : t('headLeadIdle')
   const openTasks = (state.tasks ?? []).filter(task => ['assigned', 'accepted', 'asked', 'rework'].includes(task.status))
   const activity = visibleMembers.filter(m => m.kind !== 'human').flatMap((m) => {
     const where = [...channelRooms].find(id => (state.thinking[String(id)] ?? []).includes(m.id))
@@ -809,6 +816,16 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     <div className={[css.page, roomsHidden ? css.roomsHidden : '', membersHidden ? css.membersHidden : ''].filter(Boolean).join(' ')}>
       {drawer !== undefined && <button className={css.drawerBackdrop} aria-label={t('closeDrawer')} onClick={() => setDrawer(undefined)} />}
       <nav ref={roomsRef} className={drawer === 'rooms' ? `${css.rooms} ${css.drawerOpen}` : css.rooms} aria-label={t('rooms')} role={drawer === 'rooms' ? 'dialog' : undefined} aria-modal={drawer === 'rooms' ? true : undefined} tabIndex={drawer === 'rooms' ? -1 : undefined}>
+        {lead !== undefined && (
+          // 白色方案：左栏顶部置顶当前主角色（总管）卡，和右上胶囊同一份状态。
+          <div className={css.leadCard} role="group" aria-label={t('leadCard')} title={`${lead.name} · ${leadStatus}`}>
+            <Avatar id={lead.id} name={lead.name} avatar={lead.avatar} avatarVersion={lead.avatarVersion} />
+            <span className={css.leadCardText}>
+              <span className={css.leadCardName}>{lead.name}</span>
+              <span className={css.leadCardStatus}>{t('leadPinned')} · {leadStatus}</span>
+            </span>
+          </div>
+        )}
         <div className={css.groupHead}>
           <h3 className={css.groupTitle}>{t('rooms')}</h3>
           <button type="button" className={css.iconButton} title={t('newRoom')} aria-label={t('newRoom')} onClick={() => { setNewRoom(''); setRoomError(undefined) }}>+</button>
@@ -861,11 +878,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
             {t('headMembers', { count: visibleMembers.length })}
             {channelActive > 0 && <> · {t('activeTasks', { count: channelActive })}</>}
           </span>
-          {activity.length > 0 && (
-            <span className={css.headActivity} title={activity.map(a => a.member.name).join('、')}>
-              <span className={css.headActivityText}>{t('headBusy', { names: activity.slice(0, 2).map(a => a.member.name).join('、') })}</span>
-              <AvatarStack members={activity.map(a => a.member)} />
-            </span>
+          <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} />
+          {lead !== undefined && (
+            <div className={css.headLead} role="group" aria-label={t('headLead')} title={`${lead.name} · ${leadStatus}`}>
+              <Avatar id={lead.id} name={lead.name} avatar={lead.avatar} avatarVersion={lead.avatarVersion} small />
+              <span className={css.headLeadText}>
+                <span className={css.headLeadName}>{lead.name}</span>
+                <span className={css.headLeadStatus}>{leadStatus}</span>
+              </span>
+            </div>
           )}
           <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
           <button ref={membersToggleRef} type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
@@ -1054,7 +1075,6 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
             ))}
           </section>
         )}
-        <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} />
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
         <hr className={css.memberListDivider} />

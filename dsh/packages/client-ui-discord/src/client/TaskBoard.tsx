@@ -108,7 +108,7 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }:
         <span className={css.taskBoardSummary}>{all === 0 ? t('taskBoardNoTasks') : t('taskBoardSummary', { open: String(openTotal), done: String(all - openTotal) })}</span>
         <span aria-hidden="true">›</span>
       </button>
-      {opened && createPortal(<div className={css.dialogBackdrop} onMouseDown={event => { if (event.target === event.currentTarget) close() }}>
+      {opened && createPortal(<div className={`${css.dialogBackdrop} ${css.boardDrawerBackdrop}`} onMouseDown={event => { if (event.target === event.currentTarget) close() }}>
         <section ref={dialog} className={`${css.dialog} ${css.taskBoardDialog}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={event => {
           if (event.key === 'Escape') { event.stopPropagation(); close() }
           if (event.key === 'Tab') {
