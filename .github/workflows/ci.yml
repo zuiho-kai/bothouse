@@ -155,6 +155,11 @@ jobs:
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_codemap_fill.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      # dsh/scripts: the web host restart writes ~/.bothouse/dsh-web.json back (a stale pid/token
+      # there is what made the panel answer 503); it runs on macOS with ps/lsof, so its own tests
+      # use a fake host and skip on runners without them.
+      - run: python3 -I ../dsh/scripts/test_reload_web.py
+        if: ${{ !cancelled() }}
       - run: python3 -I contrib/wiki/test_rolewiki.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_global_hooks.py
