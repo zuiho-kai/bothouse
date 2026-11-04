@@ -354,6 +354,22 @@ describe('channels page', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
+  it('right-clicks the exact author avatar to mention at the caret, keeping the draft and focus without sending', () => {
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props({ ...ready, members: [...ready.members, { id: 'bai', name: '小白', kind: 'dsh', online: true }], messages: [ready.messages[0]!, { ...ready.messages[0]!, id: 2, author: 'bai', name: '小白' }] }, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '你好 世界', selectionStart: 3, selectionEnd: 3 } })
+    fireEvent.select(input, { target: { selectionStart: 3, selectionEnd: 3 } })
+    fireEvent.click(screen.getByRole('button', { name: '橘 的成员操作' }))
+    expect(screen.getByRole('menu')).toBeTruthy()
+    const target = screen.getByRole('button', { name: '小白 的成员操作' })
+    expect(fireEvent.contextMenu(target)).toBe(false)
+    expect(input.value).toBe('你好 @小白 世界')
+    expect(document.activeElement).toBe(input)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(send).not.toHaveBeenCalled()
+  })
+
   it('keeps system messages and departed authors as plain avatars', () => {
     const messages = [
       { ...ready.messages[0], id: 2, author_kind: 'system' as const },
