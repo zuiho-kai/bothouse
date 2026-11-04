@@ -43,9 +43,7 @@ func (e *Engine) admissionQuotaScope(agent Agent, keys ...string) quotaScope {
 	if !legacy {
 		return scope
 	}
-	e.quotaMu.Lock()
-	verified := e.quotaState.Verified[scope.key()]
-	e.quotaMu.Unlock()
+	verified := e.quotaVerified(scope.key())
 	if verified {
 		return scope
 	}
@@ -85,13 +83,14 @@ func (e *Engine) admissionQuotaScope(agent Agent, keys ...string) quotaScope {
 		}
 	}
 	if measured {
-		e.quotaMu.Lock()
+		key := scope.key()
+		e.quotaVerifiedMu.Lock()
 		if e.quotaState.Verified == nil {
 			e.quotaState.Verified = map[string]bool{}
 		}
-		e.quotaState.Verified[scope.key()] = true
-		e.saveQuotaLocked()
-		e.quotaMu.Unlock()
+		e.quotaState.Verified[key] = true
+		e.quotaVerifiedMu.Unlock()
+		e.updateQuotaState(e.saveQuotaLocked)
 	}
 	return scope
 }
@@ -215,9 +214,7 @@ func (e *Engine) quotaCoolingFor(scope quotaScope) time.Time {
 	quotaDomainsMu.Unlock()
 	// Old role-only records have no trustworthy model/account attribution.
 	// Retain them until expiry; a positive target probe may exempt only its scope.
-	e.quotaMu.Lock()
-	exempt := e.quotaState.Verified[scope.key()]
-	e.quotaMu.Unlock()
+	exempt := e.quotaVerified(scope.key())
 	e.capMu.Lock()
 	if !exempt && e.quotaUntil.After(until) {
 		until = e.quotaUntil
@@ -252,18 +249,59 @@ func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session strin
 	}
 	key := scope.key()
 	quotaDomainsMu.Lock()
-	until = e.extendDomainLocked(scope, until)
+	e.extendDomainLocked(scope, until)
 	quotaDomainsMu.Unlock()
-	e.quotaMu.Lock()
-	defer e.quotaMu.Unlock()
-	e.quotaState.Scope = key
-	e.quotaState.Until = until
-	e.quotaState.ProbeRound = 0
 	if session != "" {
-		e.quotaState.Session = teamChatKey(session)
+		session = teamChatKey(session)
 	}
-	e.saveQuotaLocked()
+	// Admission reads the domain written above. quotaState only drives
+	// quotaTick, so it may be applied after quotaTick releases quotaMu.
+	e.updateQuotaState(func() {
+		// A deferred update can land after a newer one: take the domain's
+		// current deadline, which only an exact recovery clears.
+		quotaDomainsMu.Lock()
+		latest := e.domainUntilLocked(key)
+		quotaDomainsMu.Unlock()
+		if !latest.After(time.Now()) {
+			return
+		}
+		e.quotaState.Scope = key
+		e.quotaState.Until = latest
+		e.quotaState.ProbeRound = 0
+		if session != "" {
+			e.quotaState.Session = session
+		}
+		e.saveQuotaLocked()
+	})
 }
+
+func (e *Engine) quotaVerified(key string) bool {
+	e.quotaVerifiedMu.Lock()
+	defer e.quotaVerifiedMu.Unlock()
+	return e.quotaState.Verified[key]
+}
+
+// updateQuotaState runs fn under quotaMu without waiting for it. The caller may
+// hold a task lock that quotaTick (holding quotaMu) is waiting for; blocking here
+// deadlocked the bridge on 2026-11-04. When quotaMu is busy, fn runs as soon as
+// it is free, in a separate goroutine.
+func (e *Engine) updateQuotaState(fn func()) {
+	if e.quotaMu.TryLock() {
+		defer e.quotaMu.Unlock()
+		fn()
+		return
+	}
+	e.quotaUpdates.Add(1)
+	go func() {
+		defer e.quotaUpdates.Done()
+		e.quotaMu.Lock()
+		defer e.quotaMu.Unlock()
+		fn()
+	}()
+}
+
+// waitQuotaUpdates blocks until every deferred updateQuotaState write is done.
+func (e *Engine) waitQuotaUpdates() { e.quotaUpdates.Wait() }
 
 // The session's effective model includes CLI-pinned and per-channel overrides.
 func (e *Engine) quotaScopeOfSession(agent Agent, session AgentSession) quotaScope {

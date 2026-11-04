@@ -491,11 +491,18 @@ type Engine struct {
 	resetOnIdle        time.Duration
 	// Per-session model overrides (maomao fork, see session_models.go)
 	// Model-at-capacity cooldown (maomao fork, see capacity_retry.go)
-	capMu             sync.Mutex
-	capUntil          time.Time
-	quotaUntil        time.Time            // legacy unscoped cooldown only
-	quotaDomains      map[string]time.Time // guarded by quotaDomainsMu
+	capMu        sync.Mutex
+	capUntil     time.Time
+	quotaUntil   time.Time            // legacy unscoped cooldown only
+	quotaDomains map[string]time.Time // guarded by quotaDomainsMu
+	// quotaMu guards quotaState. Lock order: relayManager.quotaMu → quotaMu →
+	// publicProgress.transitionMu → publicRun.mu. quotaTick holds quotaMu while it
+	// walks task runs, so code that may run under a task lock (admission checks,
+	// PublicProgress.quotaBlocked) must never wait on quotaMu: it reads Verified
+	// through quotaVerifiedMu and writes through updateQuotaState.
 	quotaMu           sync.Mutex
+	quotaVerifiedMu   sync.Mutex     // leaf lock for quotaState.Verified; never held while taking another lock
+	quotaUpdates      sync.WaitGroup // deferred updateQuotaState writes still running
 	quotaState        quotaCoolingState
 	quotaProbeFn      func(ctx context.Context) (usable bool, nextRetry time.Duration, err error)
 	capRound          int
