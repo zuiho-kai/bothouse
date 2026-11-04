@@ -44,3 +44,12 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - feishu: 不支持：飞书任务卡的事件是对卡片消息的话题回复，不填 Task.ThreadID，进度卡也不能在话题里原地编辑；要接得先给飞书任务卡填话题 id 并在真实飞书上验证
 - cloud-web: 不支持：Channels 没有任务子话题（PublishTaskFact 也是空实现），进度只在卡片本身
 - dsh: 不支持：同 cloud-web
+
+## QueueReporter
+
+把会话里排在当前这一轮后面的用户消息报给平台，页面显示「排队 N 条」并可撤回（core/queue_report.go，#1020）。cloud-web 只在 gateway 列出 queue 能力时发 queue 帧。
+
+- cloud-web: 已接
+- dsh: 已接
+- discord: 不支持：Discord 没有给机器人在输入框或消息上挂「排队中」标记的地方，只能另发消息，会刷屏；排队消息照旧可删原消息撤回
+- feishu: 不支持：同 discord，飞书也没有输入状态旁的提示位，只能另发消息
