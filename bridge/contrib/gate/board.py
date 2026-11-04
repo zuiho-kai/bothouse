@@ -481,6 +481,17 @@ def _park_once(cc, sk, chat, bound=None, stop=False):
         return None
 
 
+def _park_done(hit):
+    """收尾（done / 收尾词）时条目还绑着工作区（没交回就直接结束）：当场放回，不等每小时对账（用户 2026-11-04
+    「工作区用完了及时清理」「交回/暂停/验收完当场放回」）。和 pause 一样：不在那个工作区里结束的连同那一轮一起停。"""
+    if not isinstance(hit, dict) or not hit.get("ws"):
+        return
+    here = os.environ.get("CC_SESSION_KEY", "").split(":")[1:2]
+    freed = park_workspace(hit, stop=(here != hit["ws"].split(":")[1:2]))
+    if freed is not None:
+        print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
+
+
 def park_workspace(it, stop=False):
     """暂停即放回（用户同意的「停着的活挪到待办列表」）：条目是 ws-handoff 交活时建、绑了工作区的（it["ws"]），
     <桥> workspace park 放掉它在那里的那一件交接；那里没别的活在做，桥就把工作区放回池子并清掉会话
@@ -916,7 +927,7 @@ def done(nid, rework=None, why=None):
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         event(nid, "done", hit)
     _del_timer(tid)
-    return True
+    return hit  # 移出板的条目（绑着工作区时 main 里 park 掉，_park_done）
 
 
 # 返工汇总。用户同意橘的提议「任务收尾时在任务板上多记一项『返工了几次、为什么』……攒上两周就知道哪条规则真起了作用」（2026-10-23「可以的」）
@@ -1321,8 +1332,10 @@ def main(argv):
                 rebind(nid, back)
             if not before:
                 sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
-            if CLOSED_RE.match(argv[2]) and done(nid):
+            ended = CLOSED_RE.match(argv[2]) and done(nid)
+            if ended:
                 print(f"已结束：状态「{argv[2]}」是收尾词，#{nid} 移出任务板（返工次数记「未填」）")
+                _park_done(ended)
                 return
             print("已更新")
             if before.get("ws") and not any(i["id"] == nid and i.get("ws") == before["ws"] for i in items()):
@@ -1357,9 +1370,11 @@ def main(argv):
             why = argv[3].strip() if len(argv) > 3 else ""
             if rework > 0 and not why:
                 sys.exit(f"返工 {rework} 次要写原因，比如 board done {nid} {rework} \"没先读现有实现\"")
-            if not done(nid, rework, why or None):
+            ended = done(nid, rework, why or None)
+            if not ended:
                 sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
             print("已结束")
+            _park_done(ended)
             hint = open_pr_hint()
             if hint:
                 print(hint)
