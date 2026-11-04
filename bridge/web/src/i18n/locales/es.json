@@ -159,8 +159,14 @@
     "title": "Puente",
     "platform": "Plataforma",
     "capabilities": "Capacidades",
-    "connectedAt": "Conectada el",
-    "noAdapters": "No hay adaptadores de puente"
+    "connectedAt": "Conectado a las",
+    "connectedPlatforms": "Plataformas conectadas",
+    "noPlatforms": "Sin plataformas conectadas",
+    "noPlatformsHint": "Ningún rol está en una plataforma todavía. Añade una desde la página de Proyectos.",
+    "externalAdapters": "Adaptadores externos",
+    "bridgeDisabled": "El servicio de puente está apagado",
+    "bridgeDisabledHint": "Estas plataformas las conectan los propios roles; los clientes externos (como la bandeja del escritorio) necesitan además el servicio de puente activado en la configuración.",
+    "noAdapters": "Sin adaptadores externos"
   },
   "system": {
     "title": "Sistema",
@@ -447,5 +453,10 @@
     "title": "Galaxia del wiki",
     "subtitle": "El wiki como galaxia: una estrella por página, pulsa para leer. Solo lectura.",
     "open": "Abrir aparte"
+  },
+  "notFound": {
+    "title": "Página no encontrada",
+    "hint": "Puede que la dirección esté mal escrita o que la página se haya movido.",
+    "home": "Volver al panel"
   }
 }

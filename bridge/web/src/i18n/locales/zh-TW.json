@@ -163,7 +163,13 @@
     "platform": "平台",
     "capabilities": "能力",
     "connectedAt": "連線時間",
-    "noAdapters": "尚無橋接介接器"
+    "connectedPlatforms": "已連線平台",
+    "noPlatforms": "暫無已連線平台",
+    "noPlatformsHint": "還沒有角色連上任何平台。到「專案」頁給角色接一個平台。",
+    "externalAdapters": "外接適配器",
+    "bridgeDisabled": "橋接服務未啟用",
+    "bridgeDisabledHint": "這些平台由角色直接連線；外接客戶端（如桌面托盤）接入還需要在設定裡打開橋接服務。",
+    "noAdapters": "暫無外接適配器"
   },
   "system": {
     "title": "系統",
@@ -462,5 +468,10 @@
     "title": "Wiki 星河",
     "subtitle": "把 wiki 畫成星系：每頁一顆星，點星看內容。唯讀，不改檔案。",
     "open": "單獨開啟"
+  },
+  "notFound": {
+    "title": "頁面不存在",
+    "hint": "位址可能拼錯了，或這個頁面已經移走。",
+    "home": "回首頁"
   }
 }
