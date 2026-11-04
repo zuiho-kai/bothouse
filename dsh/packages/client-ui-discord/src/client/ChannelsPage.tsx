@@ -16,7 +16,7 @@ import { groupRooms } from './channel-source.ts'
 import { boardGroupOf, isLiveTask } from './task-board.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { ProgressCard, channelProgress } from './ProgressCard.tsx'
-import { StepChips, chipsOf } from './StepChips.tsx'
+import { StepChips, chipsOf, compactBrief } from './StepChips.tsx'
 import { CapabilityList } from './CapabilityList.tsx'
 import { SlashMenu } from './SlashMenu.tsx'
 import { addressCommand, answerFailed, commandAnswers, commandLine, matchCommands, slashQuery, type SlashCommand } from './slash-commands.ts'
@@ -226,7 +226,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   const card = parseCard(message)
   const role = cardRole(card)
   // Parse once per text change: MessageRow re-renders on every composer keystroke.
-  const shown = typeof card?.brief === 'string' && cardView === 'brief' ? card.brief : message.text
+  const shown = typeof card?.brief === 'string' && cardView === 'brief' ? (role === 'progress' ? compactBrief(card.brief) : card.brief) : message.text
   const markdown = useMemo(() => softBreaksToHard(shown), [shown])
   const steps = role === 'progress' ? shown.slice(shown.indexOf('\n') + 1) : ''
   const stepsMarkdown = useMemo(() => (steps === '' ? '' : softBreaksToHard(steps)), [steps])
