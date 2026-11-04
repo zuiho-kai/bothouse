@@ -420,6 +420,23 @@ level = "info" # debug, info, warn, error
 # port = 9820                           # HTTP listen port (default: 9820) / 监听端口
 # token = "your-mgmt-secret"            # Auth token (required) / 认证密钥（必填）
 # cors_origins = ["http://localhost:3000"]  # Allowed CORS origins / 允许的 CORS 来源
+# Note: the panel's 插件 page installs and switches plugins only when this token is set;
+# without one the page is read-only, because an unauthenticated port cannot tell the owner
+# from anyone else on the machine. / 没设 token 时「插件」页只能看，不能装、不能开关。
+
+# =============================================================================
+# Plugins (The panel's 插件 page / 面板的插件页)
+# =============================================================================
+# The page runs `dsh plugin --profile <profile> add <spec>`, which makes this machine load
+# code someone else wrote. The default accepts only an npm registry package name with an
+# optional version or tag; the page names the registry, the publisher, the DSH requirement
+# and what the plugin may do before anything runs.
+# 这页会执行 `dsh plugin add`，等于让这台电脑加载别人写的代码。默认只收 npm registry 上的
+# 包名（可带版本或标签）；装之前页面会先说明来源、发布者、DSH 兼容版本和装上后能做什么。
+#
+# [plugins]
+# allow_non_registry = false            # default false: only npm registry packages / 默认只收 registry 包
+# registry = "https://registry.npmjs.org/"  # default npm's own registry / 默认 npm 官方源
 
 # =============================================================================
 # Hooks (Event Triggers / 事件钩子)

@@ -90,6 +90,9 @@ type ManagementServer struct {
 	// 接入应用 (#150): config.toml module states, wired by cmd/cc-connect
 	// (management_modules.go). nil = no config read, every row shows not_configured.
 	platformModules func() map[string]PlatformModule
+	// 插件 (#150 第 b 项): what config.toml allows for installs, wired by cmd/cc-connect
+	// (plugin_spec.go). nil = registry-only, npm's own registry.
+	pluginInstallPolicy func() PluginInstallPolicy
 }
 
 // NewManagementServer creates a new management API server.
@@ -301,6 +304,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	// 插件 (#150 第 b 项): the DSH profile's own bundles — list, add, switch on/off
 	mux.HandleFunc(prefix+"/plugins", m.wrap(m.handlePlugins))
 	mux.HandleFunc(prefix+"/plugins/install", m.wrap(m.handlePluginsInstall))
+	mux.HandleFunc(prefix+"/plugins/inspect", m.wrap(m.handlePluginsInspect))
 	mux.HandleFunc(prefix+"/plugins/switch", m.wrap(m.handlePluginsSwitch))
 
 	// Cron (global)

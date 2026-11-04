@@ -2,7 +2,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Package, RotateCw } from 'lucide-react';
 import { Badge, Button, EmptyState, Input, LoadingState, PageHeader } from '@/components/ui';
-import { installPlugin, listPlugins, switchPlugin, type DSHPlugin, type DSHPluginsState } from '@/api/plugins';
+import {
+  inspectPlugin,
+  installPlugin,
+  listPlugins,
+  switchPlugin,
+  type DSHPlugin,
+  type DSHPluginsState,
+  type PluginInspection,
+} from '@/api/plugins';
 import { failureText, pluginTexts, rowErrorText } from './texts';
 
 /**
@@ -21,6 +29,13 @@ export default function PluginList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [spec, setSpec] = useState('');
+  // inspection is the confirm step: nothing runs until the person has seen where the package
+  // comes from, whether it fits this DSH, and what it may do.
+  const [inspection, setInspection] = useState<PluginInspection | null>(null);
+  const [inspecting, setInspecting] = useState(false);
+  // A non-registry source needs a second, explicit acknowledgement: the switch alone is a config
+  // fact, this is the person saying they know what that address is.
+  const [ackNonRegistry, setAckNonRegistry] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [lines, setLines] = useState<string[]>([]);
   // installError keeps the classifier kind so the readable text can be in the reader's language.
@@ -47,8 +62,28 @@ export default function PluginList() {
     return () => window.removeEventListener('cc:refresh', handler);
   }, [fetchData]);
 
-  const install = async () => {
+  const check = async () => {
     const want = spec.trim();
+    if (!want) {
+      setInstallError({ detail: T.specEmpty });
+      return;
+    }
+    setInspecting(true);
+    setInstallError(null);
+    setNotice('');
+    try {
+      setAckNonRegistry(false);
+      setInspection(await inspectPlugin(want));
+    } catch (e: any) {
+      setInspection(null);
+      setInstallError({ detail: e?.message || '' });
+    } finally {
+      setInspecting(false);
+    }
+  };
+
+  const install = async () => {
+    const want = (inspection?.spec || spec).trim();
     if (!want) {
       setInstallError({ detail: T.specEmpty });
       return;
@@ -63,6 +98,7 @@ export default function PluginList() {
       });
       setState(next);
       setSpec('');
+      setInspection(null);
       const added = next.plugins.find((p) => p.name === want || pxName(p.name) === pxName(want));
       setNotice(added && !added.layer ? T.installedNoLayer : T.installed);
     } catch (e: any) {
@@ -123,8 +159,15 @@ export default function PluginList() {
         </p>
       )}
 
-      {/* Install: one package spec, streamed output. Only shown when dsh is actually there. */}
-      {state?.can_install && (
+      {state && !state.writes_allowed && (
+        <p className="rounded-card bg-surface-sunken p-4 text-sm text-ink-soft ring-1 ring-hairline" data-testid="plugins-read-only">
+          {T.writesOff}
+        </p>
+      )}
+
+      {/* Install: one package spec, then a confirm step that names the source, the fit and the
+          permission — and only then the streamed run. Only shown when dsh is there and allowed. */}
+      {state?.can_install && state?.writes_allowed && (
         <section className="rounded-card bg-surface p-5 ring-1 ring-hairline" data-testid="plugins-install">
           <h2 className="font-medium text-ink">{T.installTitle}</h2>
           <p className="mt-1 text-xs text-ink-mute">{T.installHint}</p>
@@ -132,18 +175,99 @@ export default function PluginList() {
             <div className="min-w-[16rem] flex-1">
               <Input
                 value={spec}
-                onChange={(e) => setSpec(e.target.value)}
+                onChange={(e) => { setSpec(e.target.value); setInspection(null); setAckNonRegistry(false); }}
                 placeholder={T.installPlaceholder}
                 aria-label={T.installTitle}
                 data-testid="plugins-install-spec"
-                disabled={installing}
-                onKeyDown={(e) => { if (e.key === 'Enter') install(); }}
+                disabled={installing || inspecting}
+                onKeyDown={(e) => { if (e.key === 'Enter') check(); }}
               />
             </div>
-            <Button onClick={install} disabled={installing} loading={installing} data-testid="plugins-install-go">
-              {installing ? T.installing : T.install}
+            <Button
+              variant="secondary"
+              onClick={check}
+              disabled={installing || inspecting}
+              loading={inspecting}
+              data-testid="plugins-inspect-go"
+            >
+              {inspecting ? T.inspecting : T.inspect}
             </Button>
+            {/* No second button until the confirm step has run: "install" with nothing known about
+                the package is exactly the one-click the review asked to remove. */}
+            {inspection && (
+              <Button
+                onClick={install}
+                disabled={
+                  installing ||
+                  inspecting ||
+                  !inspection.allowed ||
+                  (inspection.kind !== 'registry' && !ackNonRegistry)
+                }
+                loading={installing}
+                data-testid="plugins-install-go"
+              >
+                {installing ? T.installing : T.confirmInstall}
+              </Button>
+            )}
           </div>
+
+          {inspection && (
+            <div className="mt-3 rounded-control bg-surface-sunken p-4 text-sm text-ink-soft" data-testid="plugins-inspect">
+              <p className="text-xs text-ink-mute">{T.confirmHint}</p>
+              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                <dt className="text-ink-mute">{T.sourceLabel}</dt>
+                <dd className="break-all">
+                  {/* A registry spec's source is the registry itself; anything else came from the
+                      address the person typed, so show that verbatim. */}
+                  <code>{inspection.kind === 'registry' ? inspection.registry : inspection.spec}</code>
+                </dd>
+                {inspection.version && (<><dt className="text-ink-mute">{T.versionLabel}</dt><dd>{inspection.version}</dd></>)}
+                {inspection.publisher && (<><dt className="text-ink-mute">{T.publisherLabel}</dt><dd>{inspection.publisher}</dd></>)}
+                {inspection.requires && (
+                  <>
+                    <dt className="text-ink-mute">{T.compatLabel}</dt>
+                    <dd data-testid="plugins-inspect-compat" data-compatible={inspection.compatible === undefined ? 'unknown' : inspection.compatible ? '1' : '0'}>
+                      <code>{inspection.requires}</code>
+                      {' — '}
+                      {inspection.compatible === undefined
+                        ? T.compatUnchecked
+                        : inspection.compatible ? T.compatOk : <span className="text-ink">{T.compatNo}</span>}
+                    </dd>
+                  </>
+                )}
+                <dt className="text-ink-mute">{T.permissionsLabel}</dt>
+                <dd data-testid="plugins-inspect-required">
+                  {inspection.required}
+                  <span className="mt-1 block text-ink-mute">{inspection.bundle ? T.bundleYes : T.bundleNo}</span>
+                </dd>
+              </dl>
+              {inspection.kind !== 'registry' && (
+                <label className="mt-2 flex items-start gap-2 text-xs text-ink" data-testid="plugins-inspect-nonregistry">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={ackNonRegistry}
+                    onChange={(e) => setAckNonRegistry(e.target.checked)}
+                    disabled={installing}
+                    data-testid="plugins-inspect-nonregistry-ack"
+                  />
+                  <span>
+                    {T.nonRegistryWarn}
+                    <span className="mt-0.5 block font-medium text-ink">{T.nonRegistryAck}</span>
+                  </span>
+                </label>
+              )}
+              {inspection.error && (
+                <p className="mt-2 text-xs text-ink-mute" data-testid="plugins-inspect-miss">
+                  {T.registryMiss}
+                  <span className="mt-0.5 block break-words">{inspection.error}</span>
+                </p>
+              )}
+              {!inspection.allowed && inspection.reason && (
+                <p className="mt-2 text-xs text-ink" data-testid="plugins-inspect-refused">{inspection.reason}</p>
+              )}
+            </div>
+          )}
           {installing && lines.length > 0 && (
             <pre className="mt-3 max-h-40 overflow-auto rounded-control bg-surface-sunken p-3 text-[11px] leading-relaxed text-ink-mute">
               {lines.join('\n')}

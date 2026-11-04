@@ -117,6 +117,7 @@ type Config struct {
 	Webhook         WebhookConfig    `toml:"webhook"`
 	Bridge          BridgeConfig     `toml:"bridge"`
 	Management      ManagementConfig `toml:"management"`
+	Plugins         PluginsConfig    `toml:"plugins"`
 	Gate            GateConfig       `toml:"gate"`
 	Hooks           []HookConfig     `toml:"hooks"`
 	IdleTimeoutMins *int             `toml:"idle_timeout_mins,omitempty"`  // max minutes between consecutive agent events; 0 = no timeout; default 120
@@ -190,6 +191,17 @@ type ManagementConfig struct {
 	Host        string   `toml:"host,omitempty"`         // listen address; "" = all interfaces (upstream default), "127.0.0.1" = this machine only
 	Token       string   `toml:"token,omitempty"`        // shared secret for authentication; required
 	CORSOrigins []string `toml:"cors_origins,omitempty"` // allowed CORS origins; empty = no CORS
+}
+
+// PluginsConfig controls what the panel's 插件 page may install (#150 第 b 项).
+//
+// The panel can run `dsh plugin add`, which makes this machine load code someone else wrote. By
+// default only an npm registry package name is accepted: the bytes are the ones the registry
+// published. A git repository, a tarball over HTTP or a local path is a different risk, so it needs
+// this switch and a second confirmation in the page.
+type PluginsConfig struct {
+	AllowNonRegistry *bool  `toml:"allow_non_registry"` // default false: registry package names only
+	Registry         string `toml:"registry,omitempty"` // default https://registry.npmjs.org/
 }
 
 // GateConfig: the local gate bothouse runs (core/gate_proc.go).

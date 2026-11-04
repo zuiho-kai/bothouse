@@ -71,6 +71,14 @@ type DSHPluginsState struct {
 	// CanInstall is false when dsh is not on PATH: the page says so instead of offering a button
 	// that cannot work.
 	CanInstall bool `json:"can_install"`
+	// WritesAllowed is false when the management API has no token: an unauthenticated server
+	// cannot tell an owner from anyone else on the machine, so it lists but does not install or
+	// switch. The page explains instead of offering a button that will be refused.
+	WritesAllowed bool `json:"writes_allowed"`
+	// AllowNonRegistry mirrors config.toml [plugins] allow_non_registry; Registry is the registry
+	// the page shows as the source.
+	AllowNonRegistry bool   `json:"allow_non_registry"`
+	Registry         string `json:"registry"`
 }
 
 type pluginManifest struct {
@@ -164,7 +172,8 @@ func bundleRows(packageDir string, patch dshBundlePatch, disabled map[string]boo
 // listDSHPlugins reads the profile and describes every dependency it names.
 func listDSHPlugins() DSHPluginsState {
 	dir := dshProfileDir()
-	state := DSHPluginsState{Profile: DSHProfile, ProfileDir: dir}
+	// A profile with no dependencies is an empty list, not null: the page counts it.
+	state := DSHPluginsState{Profile: DSHProfile, ProfileDir: dir, Plugins: []DSHPlugin{}}
 	_, err := LookDSH()
 	state.CanInstall = err == nil
 
@@ -232,13 +241,30 @@ func (m *ManagementServer) handlePlugins(w http.ResponseWriter, r *http.Request)
 		mgmtError(w, http.StatusMethodNotAllowed, "GET only")
 		return
 	}
-	mgmtJSON(w, http.StatusOK, listDSHPlugins())
+	mgmtJSON(w, http.StatusOK, m.pluginState())
 }
 
-// pluginSpecOK accepts what pnpm accepts as a package spec: a name, an optional version/tag, or a
-// path/tarball. Leading '-' is refused so a "spec" can never become a flag of `dsh plugin`.
-// 来源：pnpm add 的参数就是包名[ @ 版本或标签]，DSH 的安装框同样只收一个包规格。
-var pluginSpecOK = regexp.MustCompile(`^[A-Za-z0-9@][A-Za-z0-9@._/~^:+-]*$`)
+// pluginState is the list plus what this server allows: every response that carries a state uses
+// it, so the page keeps knowing whether it may write after an install finishes.
+func (m *ManagementServer) pluginState() DSHPluginsState {
+	state := listDSHPlugins()
+	policy := m.pluginPolicy()
+	state.WritesAllowed = m.token != ""
+	state.AllowNonRegistry = policy.AllowNonRegistry
+	state.Registry = policy.registryURL()
+	return state
+}
+
+// requirePluginWrites refuses an install or a switch when the API has no token. The precedent is
+// management_authorization.go: an unauthenticated management server cannot attest an owner, and
+// these routes make this machine load code.
+func (m *ManagementServer) requirePluginWrites(w http.ResponseWriter) bool {
+	if m.token == "" {
+		mgmtError(w, http.StatusForbidden, "管理 API 没设 token：这台机器上谁都能开这个端口。装插件、开关插件都要先设 management token。")
+		return false
+	}
+	return true
+}
 
 // handlePluginsInstall runs `dsh plugin --profile web add <spec>` and streams its output: the run
 // takes minutes on a cold npm cache, so the page reads progress instead of waiting on one response.
@@ -247,15 +273,22 @@ func (m *ManagementServer) handlePluginsInstall(w http.ResponseWriter, r *http.R
 		mgmtError(w, http.StatusMethodNotAllowed, "POST required")
 		return
 	}
+	if !m.requirePluginWrites(w) {
+		return
+	}
 	var req struct {
 		Spec string `json:"spec"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	spec := strings.TrimSpace(req.Spec)
-	if !pluginSpecOK.MatchString(spec) {
-		mgmtError(w, http.StatusBadRequest, "包名只能包含字母、数字和 @ . _ / ~ ^ : + -，例如 @scope/pkg 或 pkg@1.2.3")
+	parsed, err := parsePluginSpec(req.Spec)
+	if err != nil {
+		mgmtError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if parsed.Kind != pluginKindRegistry && !m.pluginPolicy().AllowNonRegistry {
+		mgmtError(w, http.StatusForbidden, "这个来源不是 npm registry："+nonRegistryHint)
 		return
 	}
 	dshBin, err := LookDSH()
@@ -278,7 +311,7 @@ func (m *ManagementServer) handlePluginsInstall(w http.ResponseWriter, r *http.R
 
 	ctx, cancel := context.WithTimeout(r.Context(), pluginInstallTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, dshBin, "plugin", "--profile", DSHProfile, "add", spec)
+	cmd := exec.CommandContext(ctx, dshBin, "plugin", "--profile", DSHProfile, "add", parsed.Raw)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		send(map[string]any{"error": err.Error(), "kind": "unknown"})
@@ -305,7 +338,7 @@ func (m *ManagementServer) handlePluginsInstall(w http.ResponseWriter, r *http.R
 	}
 	waitErr := cmd.Wait()
 	if waitErr == nil {
-		send(map[string]any{"done": true, "state": listDSHPlugins()})
+		send(map[string]any{"done": true, "state": m.pluginState()})
 		return
 	}
 	kind := classifyPluginFailure(tail.String(), errors.Is(ctx.Err(), context.DeadlineExceeded))
@@ -325,6 +358,13 @@ func classifyPluginFailure(log string, timedOut bool) string {
 		return "timeout"
 	}
 	for _, rule := range []struct{ kind, pattern string }{
+		// DSH exits 127 when pnpm is not on PATH and says so in one line.
+		// 来源：dsh lib/plugin-BiveYA7h.js:94 "pnpm was not found; install pnpm …".
+		{"pnpm-missing", `pnpm was not found|pnpm: command not found|command not found: pnpm`},
+		// DSH refuses a bundle whose declared requirements this runtime does not satisfy, and says so
+		// in one line before it writes anything.
+		// 来源：dsh-app-boot evaluatePluginCompatibility 的 "is incompatible with dsh <version>: requirements …".
+		{"incompatible", `is incompatible with dsh|Exact-version exemption|allow-version`},
 		{"build-blocked", `ERR_PNPM_IGNORED_BUILDS|Ignored build scripts`},
 		{"not-found", `ERR_PNPM_FETCH_404|\bE404\b|404 Not Found|Not Found - GET`},
 		{"no-matching-version", `ERR_PNPM_NO_MATCHING_VERSION|\bETARGET\b|No matching version`},
@@ -359,6 +399,9 @@ func (m *ManagementServer) handlePluginsSwitch(w http.ResponseWriter, r *http.Re
 		mgmtError(w, http.StatusMethodNotAllowed, "POST required")
 		return
 	}
+	if !m.requirePluginWrites(w) {
+		return
+	}
 	var req struct {
 		Name    string `json:"name"`
 		Enabled bool   `json:"enabled"`
@@ -367,7 +410,7 @@ func (m *ManagementServer) handlePluginsSwitch(w http.ResponseWriter, r *http.Re
 		return
 	}
 	dir := dshProfileDir()
-	manifest, raw, err := readPluginManifest(dir)
+	manifest, _, err := readPluginManifest(dir)
 	if err != nil {
 		mgmtError(w, http.StatusConflict, err.Error())
 		return
@@ -396,25 +439,35 @@ func (m *ManagementServer) handlePluginsSwitch(w http.ResponseWriter, r *http.Re
 		changed = true
 	}
 	if changed {
-		doc, err := editProfileBundles(raw, bundles)
-		if err != nil {
-			mgmtError(w, http.StatusConflict, err.Error())
-			return
-		}
-		// 来源：沿用配置变更的时间戳备份（setDSHModuleDisabled 与 config 写入同一惯例）。
-		backup := filepath.Join(dir, "package.json.bak-"+time.Now().Format("20060102-150405.000000000"))
-		if err := AtomicWriteFile(backup, raw, 0o600); err != nil {
-			mgmtError(w, http.StatusInternalServerError, "备份 package.json 失败: "+err.Error())
-			return
-		}
-		if err := AtomicWriteFile(filepath.Join(dir, "package.json"), doc, 0o600); err != nil {
-			mgmtError(w, http.StatusInternalServerError, "写入 package.json 失败: "+err.Error())
+		// Re-read and rewrite under DSH's own profile write lock, so a switch cannot interleave
+		// with `dsh plugin add` (or DSH's Plugins page) editing the same file.
+		writeErr := withPluginProfileLock(filepath.Join(dir, "package.json"), func() error {
+			_, current, err := readPluginManifest(dir)
+			if err != nil {
+				return err
+			}
+			doc, err := editProfileBundles(current, bundles)
+			if err != nil {
+				return err
+			}
+			// 来源：沿用配置变更的时间戳备份（setDSHModuleDisabled 与 config 写入同一惯例）。
+			backup := filepath.Join(dir, "package.json.bak-"+time.Now().Format("20060102-150405.000000000"))
+			if err := AtomicWriteFile(backup, current, 0o600); err != nil {
+				return fmt.Errorf("备份 package.json 失败: %w", err)
+			}
+			if err := AtomicWriteFile(filepath.Join(dir, "package.json"), doc, 0o600); err != nil {
+				return fmt.Errorf("写入 package.json 失败: %w", err)
+			}
+			return nil
+		})
+		if writeErr != nil {
+			mgmtError(w, http.StatusConflict, writeErr.Error())
 			return
 		}
 	}
 	mgmtJSON(w, http.StatusOK, map[string]any{
 		"changed": changed,
-		"state":   listDSHPlugins(),
+		"state":   m.pluginState(),
 		// DSH reads the bundle list at start; a running DSH keeps the old composition until restart.
 		"restart_required": changed,
 	})
@@ -512,4 +565,41 @@ func walkJSONPath(dec *json.Decoder, path []string) (int, int, error) {
 		return end - len(value), end, nil
 	}
 	return 0, 0, fmt.Errorf("package.json has no %s key", strings.Join(path, "."))
+}
+
+// ── install policy + inspect ──────────────────────────────────
+
+// nonRegistryHint is the one sentence both the refusal and the page use, so the person learns the
+// switch's name once.
+const nonRegistryHint = "只有 npm registry 上的包默认能装。要装 git 仓库、tarball 或本地路径，先在 config.toml 里加 [plugins] allow_non_registry = true，装的时候这里会再问你一次。"
+
+// SetPluginInstallPolicy wires the install switch to config.toml (cmd/cc-connect).
+func (m *ManagementServer) SetPluginInstallPolicy(fn func() PluginInstallPolicy) {
+	m.pluginInstallPolicy = fn
+}
+
+// pluginPolicy is the effective policy; a server built without one allows the registry only.
+func (m *ManagementServer) pluginPolicy() PluginInstallPolicy {
+	if m.pluginInstallPolicy == nil {
+		return PluginInstallPolicy{}
+	}
+	return m.pluginInstallPolicy()
+}
+
+// handlePluginsInspect describes what a spec would install, before anything runs.
+//
+// This exists because the old page went straight from "type a spec" to "load this code": an npm
+// name is one thing, a git URL another, and neither told the person who published it or what it may
+// do. Nothing here installs; the run is still the separate POST.
+func (m *ManagementServer) handlePluginsInspect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		mgmtError(w, http.StatusMethodNotAllowed, "GET only")
+		return
+	}
+	parsed, err := parsePluginSpec(r.URL.Query().Get("spec"))
+	if err != nil {
+		mgmtError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	mgmtJSON(w, http.StatusOK, inspectPluginSpec(r.Context(), parsed, m.pluginPolicy(), dshRuntimeVersion(r.Context())))
 }

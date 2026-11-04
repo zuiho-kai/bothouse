@@ -14,6 +14,26 @@ export interface PluginTexts {
   installHint: string
   installPlaceholder: string
   install: string
+  /** first step: describe the spec (source, version, permissions) before anything runs */
+  inspect: string
+  inspecting: string
+  confirmInstall: string
+  confirmHint: string
+  sourceLabel: string
+  versionLabel: string
+  publisherLabel: string
+  compatLabel: string
+  compatOk: string
+  compatNo: string
+  compatUnchecked: string
+  permissionsLabel: string
+  bundleYes: string
+  bundleNo: string
+  registryMiss: string
+  /** a non-registry source needs this tick before the install button unlocks */
+  nonRegistryWarn: string
+  nonRegistryAck: string
+  writesOff: string
   installing: string
   installed: string
   installedNoLayer: string
@@ -41,6 +61,7 @@ export interface PluginTexts {
   failurePermission: string
   failureDisk: string
   failureBuild: string
+  failureIncompatible: string
   failureIntegrity: string
   failureTimeout: string
   failureUnknown: string
@@ -60,6 +81,24 @@ const zh: PluginTexts = {
   installHint: '填 npm 包名或「包名@版本」，装完要重启一次 DSH 才会加载。',
   installPlaceholder: '@scope/plugin 或 plugin@1.2.3',
   install: '安装',
+  inspect: '检查来源',
+  inspecting: '正在查…',
+  confirmInstall: '确认安装',
+  confirmHint: '装之前先看清这三样：包从哪来、跟这份 DSH 合不合、装上后能做什么。',
+  sourceLabel: '来源',
+  versionLabel: '版本',
+  publisherLabel: '发布者',
+  compatLabel: 'DSH 兼容',
+  compatOk: '符合这份 DSH',
+  compatNo: '不符合这份 DSH，装上去也不会被加载',
+  compatUnchecked: '这里没核对（版本范围写法这里不解析），装的时候 DSH 会核',
+  permissionsLabel: '装上后能做',
+  bundleYes: '声明了 dsh.bundle，DSH 会把它当插件层加载',
+  bundleNo: '没声明 dsh.bundle：装得上，但 DSH 不会当插件加载',
+  registryMiss: 'registry 这次没读成功。仍然可以装，装不上的原因是 pnpm 的原话。',
+  nonRegistryWarn: '这不是 npm registry 的包：内容不是 registry 发布的那一份，来源和内容都没法在这里核对。只在你确知这个地址是什么的时候继续。',
+  nonRegistryAck: '我知道这个地址是什么，继续。',
+  writesOff: '管理 API 没设 token，这页只能看：装插件和开关插件都要先设 management token。',
   installing: '正在安装…',
   installed: '装好了，重启 DSH 后生效。',
   installedNoLayer: '装上了，但这个包没有声明 dsh.bundle，DSH 不会把它当插件加载。',
@@ -87,6 +126,7 @@ const zh: PluginTexts = {
   failurePermission: '没有写权限（profile 目录或 npm 缓存）。检查目录权限后再试。',
   failureDisk: '磁盘满了，清出空间再试。',
   failureBuild: '依赖里的构建脚本被 pnpm 拦下了。在 DSH 插件页里允许构建后再装。',
+  failureIncompatible: '这个插件声明的要求跟这份 DSH 对不上，DSH 拒绝安装（怕崩或者坏数据）。装它要求的 DSH 版本，或者换一个兼容的插件版本。',
   failureIntegrity: '下到的包校验不对（可能是代理或镜像改过内容），换网络再试。',
   failureTimeout: '安装超时了。网络慢时先在终端跑一次 dsh plugin add，再来这里看状态。',
   failureUnknown: '装失败了，下面是 pnpm 的原始输出。',
@@ -106,6 +146,24 @@ const en: PluginTexts = {
   installHint: 'A package name or name@version. DSH loads it after one restart.',
   installPlaceholder: '@scope/plugin or plugin@1.2.3',
   install: 'Install',
+  inspect: 'Check source',
+  inspecting: 'Checking…',
+  confirmInstall: 'Install it',
+  confirmHint: 'Before it runs, see three things: where the package comes from, whether it fits this DSH, and what it may do once loaded.',
+  sourceLabel: 'Source',
+  versionLabel: 'Version',
+  publisherLabel: 'Publisher',
+  compatLabel: 'DSH compatibility',
+  compatOk: 'fits this DSH',
+  compatNo: "does not fit this DSH; it would not be loaded",
+  compatUnchecked: 'not checked here (this range form is left to DSH), DSH checks it at install',
+  permissionsLabel: 'What it may do',
+  bundleYes: 'declares dsh.bundle, so DSH loads it as a plugin layer',
+  bundleNo: 'no dsh.bundle: it installs, but DSH never loads it as a plugin',
+  registryMiss: 'The registry read failed this time. The install can still be tried; pnpm will say why if it fails.',
+  nonRegistryWarn: 'This is not an npm registry package: the bytes are not the ones the registry published, so neither the source nor the contents can be checked here. Continue only if you know what that address is.',
+  nonRegistryAck: 'I know what that address is; continue.',
+  writesOff: 'The management API has no token, so this page is read-only: installing and switching need one.',
   installing: 'Installing…',
   installed: 'Installed. Restart DSH to load it.',
   installedNoLayer: 'Installed, but the package declares no dsh.bundle, so DSH will not load it as a plugin.',
@@ -133,6 +191,7 @@ const en: PluginTexts = {
   failurePermission: 'No write permission (profile directory or npm cache). Check the permissions and retry.',
   failureDisk: 'The disk is full. Free some space and retry.',
   failureBuild: 'pnpm blocked a dependency’s build script. Allow builds in DSH’s Plugins page, then retry.',
+  failureIncompatible: 'This plugin declares requirements this DSH does not satisfy, so DSH refused to install it (crash or data-loss risk). Install the DSH version it asks for, or a compatible plugin version.',
   failureIntegrity: 'The downloaded package failed its integrity check (a proxy or mirror altered it). Retry on another network.',
   failureTimeout: 'The install timed out. On a slow network, run dsh plugin add in a terminal once, then come back for the state.',
   failureUnknown: 'The install failed; pnpm’s own output is below.',
@@ -152,6 +211,24 @@ const ja: PluginTexts = {
   installHint: 'npm のパッケージ名か「名前@バージョン」。DSH を一度再起動すると読み込まれます。',
   installPlaceholder: '@scope/plugin または plugin@1.2.3',
   install: 'インストール',
+  inspect: '入手元を確認',
+  inspecting: '確認中…',
+  confirmInstall: 'インストールする',
+  confirmHint: '実行前に三つを確認してください：どこから来るか、この DSH に合うか、入れた後に何ができるか。',
+  sourceLabel: '入手元',
+  versionLabel: 'バージョン',
+  publisherLabel: '公開したアカウント',
+  compatLabel: 'DSH 互換性',
+  compatOk: 'この DSH に適合',
+  compatNo: 'この DSH に適合しません。入れても読み込まれません',
+  compatUnchecked: 'ここでは照合していません（この範囲表記は DSH がインストール時に確認します）',
+  permissionsLabel: '入れた後にできること',
+  bundleYes: 'dsh.bundle を宣言しているので、DSH はプラグイン層として読み込みます',
+  bundleNo: 'dsh.bundle がないため、入っても DSH はプラグインとして読み込みません',
+  registryMiss: '今回は registry を読めませんでした。インストールは試せます。失敗したら pnpm の出力が理由です。',
+  nonRegistryWarn: 'これは npm registry のパッケージではありません。registry が公開した内容と同一か確認できないため、入手元も中身もここでは照合できません。そのアドレスが何か分かっている場合だけ続けてください。',
+  nonRegistryAck: 'このアドレスが何か分かっています。続行します。',
+  writesOff: '管理 API に token がないため、このページは閲覧のみです。インストールと切り替えには token が必要です。',
   installing: 'インストール中…',
   installed: '入りました。DSH を再起動すると有効になります。',
   installedNoLayer: '入りましたが dsh.bundle を宣言していないため、DSH はプラグインとして読み込みません。',
@@ -179,6 +256,7 @@ const ja: PluginTexts = {
   failurePermission: '書き込み権限がありません（profile ディレクトリか npm キャッシュ）。権限を確認してください。',
   failureDisk: 'ディスクがいっぱいです。空けてから再試行してください。',
   failureBuild: '依存のビルドスクリプトが pnpm に止められました。DSH のプラグイン画面で許可してから再試行してください。',
+  failureIncompatible: 'このプラグインの要求はこの DSH を満たさないため、DSH がインストールを拒否しました（クラッシュやデータ破損の恐れ）。指定された DSH 版か、互換のあるプラグイン版を入れてください。',
   failureIntegrity: 'ダウンロードしたパッケージの検証が合いません（プロキシやミラーが内容を変えた可能性）。別の回線で再試行してください。',
   failureTimeout: 'インストールがタイムアウトしました。遅い回線では端末で一度 dsh plugin add を実行し、ここで状態を確認してください。',
   failureUnknown: 'インストールに失敗しました。下は pnpm の生の出力です。',
@@ -198,6 +276,7 @@ export function failureText(T: PluginTexts, kind?: string): string {
     case 'permission': return T.failurePermission;
     case 'disk-full': return T.failureDisk;
     case 'build-blocked': return T.failureBuild;
+    case 'incompatible': return T.failureIncompatible;
     case 'integrity': return T.failureIntegrity;
     case 'timeout': return T.failureTimeout;
     default: return T.failureUnknown;
