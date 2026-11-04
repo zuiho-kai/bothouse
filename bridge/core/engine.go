@@ -515,7 +515,7 @@ type Engine struct {
 	capPending        []func()        // messages to re-deliver when the cooldown ends, in order
 	capArmed          bool            // a flush timer is pending
 	capNotified       map[string]bool // channels already told about this cooldown round
-	capRateLimited    bool            // #134: this cooldown round came from 429s, not "at capacity"
+	capWhy            string          // #134: why this cooldown round started, for its notice ("" = at capacity)
 	sessionModelsMu   sync.RWMutex
 	sessionModels     map[string]string
 	turnModels        map[string]string // interactive key → model one scheduled side turn starts on
@@ -7968,7 +7968,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// A tool may already have changed external state, even when its
 			// progress is hidden. Only capacity failures before tools can replay
 			// the user prompt, including queued turns and cooldown redelivery.
-			retryCapacity := input == nil && toolCount == 0 && event.Error != nil && (isModelCapacityError(event.Error.Error()) || isRateLimitError(event.Error.Error()))
+			retryCapacity := input == nil && toolCount == 0 && event.Error != nil && (isModelCapacityError(event.Error.Error()) || isTransientError(event.Error.Error()))
 			state.mu.Lock()
 			state.turnErrored = true // a turn that ends in error never means "the model is back"
 			state.mu.Unlock()

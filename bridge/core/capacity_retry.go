@@ -65,6 +65,36 @@ func isRateLimitError(msg string) bool {
 	return rateLimitRE.MatchString(msg)
 }
 
+// ---- #134: other temporary failures (user 2026-11-04 17:2x「不只429 还有一些重试能解决的」) ----
+//
+// The same wait-then-retry covers every failure a later identical request can get past. The list
+// comes from what the live bridge logged (main.log 11-03 19:23 – 11-04 17:45 and run.log to 11-02,
+// msg="agent error" / codex "transient error"), not from guesses:
+//   - stream cut off: "stream disconnected before completion" (adapter_eof, SOCKS5 upstream closed,
+//     idle timeout waiting for SSE), connection EOF / reset;
+//   - relay overloaded: "unexpected status 502 Bad Gateway", "503 Service Unavailable"
+//     (当前模型服务暂不可用，请稍后重试), "temporarily unavailable", plus 504/529/overloaded;
+//   - DSH upstream: 「上游请求超时」「上游连接中断」「上游服务异常」, and request / first-token timeouts.
+//
+// Never retried, whatever else the text says (a retry gets the same answer): auth (401, 403,
+// 上游认证失败), spent balance or quota, a 400 bad request (e.g. the relay's own pricing-expression
+// error seen 11-04), and content-safety blocks.
+var transientErrorRE = regexp.MustCompile(`(?i)stream disconnected|stream (?:closed|ended|terminated|interrupted)|\bEOF\b|connection (?:reset|refused|closed)|broken pipe|socks5 (?:upstream|socket)|idle timeout|\btime(?:d)? ?out\b|timeout|\b50[234]\b|\b529\b|bad gateway|service unavailable|gateway timeout|temporarily unavailable|overloaded|稍后重试|上游请求超时|上游连接中断|上游服务异常|首字超时|请求超时`)
+
+var permanentErrorRE = regexp.MustCompile(`(?i)\b40[0-3]\b|unauthori[sz]ed|forbidden|invalid api key|authentication|认证失败|鉴权|insufficient balance|余额不足|quota|resource_exhausted|content[ _-]?(?:filter|policy)|safety|内容安全|违规`)
+
+// isTransientError: a failure that resending the same turn may get past (429s included). A
+// "temporarily unavailable" sent with a 403 (seen 11-04 from the relay) still counts as temporary.
+func isTransientError(msg string) bool {
+	if isRateLimitError(msg) {
+		return true
+	}
+	if permanentErrorRE.MatchString(msg) && !strings.Contains(strings.ToLower(msg), "temporarily unavailable") {
+		return false
+	}
+	return transientErrorRE.MatchString(msg)
+}
+
 var retryAfterRE = regexp.MustCompile(`(?i)(?:retry[- _]after|try again in)[":=\s]*([0-9]+(?:\.[0-9]+)?)\s*(ms|s|sec|secs|seconds?|m|min|minutes?)?`)
 
 // rateLimitRetryAfter: the wait the error text asks for (Retry-After), if any.
@@ -176,7 +206,7 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 	}
 	lastErr := ""
 	for attempt := 1; ; attempt++ {
-		if attempt > 1 && isRateLimitError(lastErr) {
+		if attempt > 1 && isTransientError(lastErr) {
 			wait := rateLimitDelay(lastErr, attempt)
 			slog.Warn("rate limited, waiting before retry", "session_key", key, "attempt", attempt, "wait", wait)
 			if !e.sleepCtx(wait) {
@@ -236,7 +266,13 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		return
 	}
 	d := e.capacityStartCooldown()
-	rateLimited := isRateLimitError(lastErr)
+	why := "模型满载（at capacity）"
+	switch {
+	case isRateLimitError(lastErr):
+		why = "中转限流（429）"
+	case isTransientError(lastErr):
+		why = "上游临时故障（断流、超时或过载）"
+	}
 	if ra, ok := rateLimitRetryAfter(lastErr); ok && ra > d {
 		d = ra
 		e.capMu.Lock()
@@ -244,9 +280,9 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		e.capMu.Unlock()
 	}
 	e.capMu.Lock()
-	e.capRateLimited = rateLimited
+	e.capWhy = why
 	e.capMu.Unlock()
-	slog.Warn("model at capacity after retries, cooling down", "session_key", key, "cooldown", d, "rate_limited", rateLimited)
+	slog.Warn("model at capacity after retries, cooling down", "session_key", key, "cooldown", d, "why", why)
 	giveUp(d)
 }
 
@@ -276,9 +312,9 @@ func (e *Engine) deferForCapacity(p Platform, msg Message, agent Agent, sessions
 		channel = msg.SessionKey
 	}
 	e.capMu.Lock()
-	why := "模型满载（at capacity）"
-	if e.capRateLimited {
-		why = "中转限流（429）"
+	why := e.capWhy
+	if why == "" {
+		why = "模型满载（at capacity）"
 	}
 	already := e.capNotified[channel]
 	if !already {
