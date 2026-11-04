@@ -408,6 +408,24 @@ test('a host that cannot be asked keeps its link (off is not kicked)', async t =
   assert.equal(JSON.parse(readFileSync(file, 'utf8')).links.some(l => l.id === link.id), true);
 });
 
+test('refreshes that overlap share one round of questions', async t => {
+  // devices.html asks on open, after connecting and after disconnecting; one round is enough, and a
+  // machine that is off must not be waited on twice for the same page action.
+  const file = join(dir(), 'l.json');
+  let asked = 0;
+  const client = new PairClient({ file, now: () => 0, request: async ({ path }) => {
+    if (path === '/collab/pair/claim') return { status: 200, body: { token: 't', host_name: 'mini' } };
+    asked += 1;
+    await new Promise(r => setTimeout(r, 30));
+    return { status: 200, body: { ok: true } };
+  } });
+  await client.connect({ host: '127.0.0.1', code: '123456', mode: 'remember', name: 'mini' });
+  const [a, b] = await Promise.all([client.refresh(), client.refresh()]);
+  assert.deepEqual(a, []);
+  assert.deepEqual(b, []);
+  assert.equal(asked, 1, 'the two calls shared one whoami');
+});
+
 test('pair/whoami answers the device itself and refuses a revoked credential', async t => {
   const host = new PairHost({ file: join(dir(), 'd.json') });
   const port = await freePort();
