@@ -7,7 +7,7 @@ import { createServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  ALIVE_EVERY_MS, CODE_TTL_MS, MAX_ATTEMPTS, UNTIL_GRACE_MS, tempDuration, PairClient, PairError, PairHost, PairListener, REMOTE_OWNER, hostHandler, isTailnetAddress,
+  ALIVE_EVERY_MS, CODE_TTL_MS, KICK_GRACE_MS, MAX_ATTEMPTS, UNTIL_GRACE_MS, tempDuration, PairClient, PairError, PairHost, PairListener, REMOTE_OWNER, hostHandler, isTailnetAddress,
   pairApiRoute, remoteProxyRoute, rewriteRemoteHTML, tailnetPeers,
 } from './pairing.mjs';
 
@@ -199,9 +199,28 @@ test('two instances: number → link → proxied pages and API → kick', async 
   assert.equal(gone.status, 401);
   assert.match(gone.json.error, /重新配对/);
   assert.deepEqual((await get(ctlPort, '/collab/api/remote/links')).json.links, []);
-  // Sweep once nothing is left to serve: the port closes on its own.
+  // The sweep right after the kick must not close the port: a late look at the list still needs
+  // the whoami answer, or the link comes back as a 502 that never clears.
   await listener.settle();
-  assert.equal(listener.server, undefined);
+  assert.notEqual(listener.server, undefined, 'a fresh kick keeps the listener for its grace');
+  assert.deepEqual((await get(ctlPort, '/collab/api/remote/links')).json.links, []);
+});
+
+test('the listener closes once the kick is old enough to be indistinguishable from off', async t => {
+  let now = 1_000;
+  const host = new PairHost({ file: join(dir(), 'd.json'), now: () => now });
+  const port = await freePort();
+  const listener = new PairListener({ host, address: async () => '127.0.0.1', port,
+    handler: hostHandler({ host, name: 'h', route: (q, s) => { s.writeHead(200); s.end(); }, allowLoopback: true }) });
+  t.after(() => listener.close());
+  const { device } = host.claim({ code: host.newCode().code, mode: 'remember', name: 'old' });
+  await listener.ensure();
+  host.revoke(device.id);
+  await listener.settle();
+  assert.notEqual(listener.server, undefined, 'still inside the grace');
+  now += KICK_GRACE_MS;
+  await listener.settle();
+  assert.equal(listener.server, undefined, 'grace over: nothing left to serve');
 });
 
 test('disconnect from the controller drops the device on the host too', async t => {
@@ -365,6 +384,21 @@ test('a kicked device leaves 「我连着的电脑」 without that link being op
   await listener.close();
   assert.deepEqual((await get(ctlPort, '/collab/api/remote/links')).json.links.map(l => l.name), ['kept']);
   assert.equal(kept.id, listed[0].id);
+});
+
+test('opening a link to a host that is off says so instead of hanging', async t => {
+  // The one case a controller cannot tell apart from a kick: no answer at all. The page must say the
+  // machine is unreachable (502) rather than spin or pretend the page loaded.
+  const file = join(dir(), 'l.json');
+  const client = new PairClient({ file, request: async () => ({ status: 200, body: { token: 't', host_name: 'own' } }) });
+  const link = await client.connect({ host: '127.0.0.1', code: '123456', mode: 'remember', name: 'off' });
+  const ctl = createServer((req, res) => remoteProxyRoute(req, res, new URL(req.url, 'http://x'), { client }) ?? (res.writeHead(404), res.end()));
+  const ctlPort = await listen(ctl);
+  t.after(() => ctl.close());
+  const gone = await get(ctlPort, `/collab/remote/${link.id}/api/state`);
+  assert.equal(gone.status, 502);
+  assert.match(gone.json.error, /连不上/);
+  assert.equal(client.list().length, 1, 'unreachable is not the same as revoked');
 });
 
 test('the last device kicked on the host clears 「我连着的电脑」 at once', async t => {
