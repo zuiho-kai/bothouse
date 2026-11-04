@@ -155,6 +155,14 @@ export function pendingPermission(message: ChannelMessage): boolean {
   return card?.kind === 'permission' && card.state === 'pending'
 }
 
+/** 用户 2026-11-04：完成的零/一步进度不占聊天行；失败步骤仍须可见。 */
+function trivialProgress(message: ChannelMessage): boolean {
+  const card = parseCard(message)
+  return cardRole(card) === 'progress' && card?.state === 'completed'
+    && typeof card.steps === 'number' && Number.isInteger(card.steps) && card.steps >= 0 && card.steps <= 1
+    && !chipsOf(card)?.some(chip => chip.state === 'failed')
+}
+
 // 来源：沿用 #98 规范「连续消息合在一起显示」；5 分钟窗口沿用 Slack/Discord 连续消息合并的惯例。
 const GROUP_WINDOW_SEC = 300
 
@@ -768,6 +776,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     ...openTaskOwners,
   ])
   const byId = new Map(visibleMembers.map(m => [m.id, m]))
+  // Filter before grouping so a hidden progress row cannot take the reply's avatar.
+  // Task cards anchored to a progress message must remain reachable.
+  const visibleMessages = state.messages.filter(m => !trivialProgress(m) || state.tasks?.some(task => task.assign_msg_id === m.id))
   const typingNames = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? []).map(id => byId.get(id)?.name ?? id)
   // #113 activity: who is at work in this channel (here or in one of its workspaces) and on what.
   const channelRooms = new Set(state.rooms.filter(r => r.id === channelId || r.parent_id === channelId).map(r => r.id))
@@ -1092,9 +1103,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
             </div>
           )}
           {loadingOlder && <div className={css.olderLoading} role="status">{t('loadingOlder')}</div>}
-          {state.messages.length === 0
+          {visibleMessages.length === 0
             ? <div className={css.empty}>{t('empty')}</div>
-            : state.messages.map((m, index) => [
+            : visibleMessages.map((m, index) => [
                 unread !== undefined && unread.roomId === state.roomId && unread.fromId === m.id
                   ? <div key={`unread-${m.id}`} className={css.unreadDivider} role="separator">{t('newMessagesDivider')}</div>
                   : null,
@@ -1104,7 +1115,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
                   key={m.id}
                   enter={fresh.get(m.id)}
                   message={m}
-                  grouped={continues(state.messages[index - 1], m)}
+                  grouped={continues(visibleMessages[index - 1], m)}
                   member={byId.get(m.author)}
                   t={t}
                   onConfigure={() => { if (!openModelSettings()) setModelsOpen(true) }}
