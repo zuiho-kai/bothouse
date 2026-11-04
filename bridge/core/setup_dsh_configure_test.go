@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/tests/testutil"
 )
 
 func TestConfigureDSHWritesKeyPatchAndMembers(t *testing.T) {
@@ -112,3 +114,118 @@ func TestSetDSHPatchConfigImageDimension(t *testing.T) {
 }
 
 func dshBoolPtr(v bool) *bool { return &v }
+
+func TestConfigureDSHReusesSelectedNativeGateway(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	t.Setenv("DSH_HOME", filepath.Join(home, ".dsh"))
+	t.Setenv("CONEST_COLLAB_DATA", filepath.Join(home, "collab"))
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	patch := filepath.Join(dshHome(), "profiles", DSHProfile, "cordis.patch.yml")
+	if err := os.MkdirAll(filepath.Dir(patch), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	original := "- id: llm-pi-ai\n  config:\n    providers:\n      fixture-deepseek:\n        apiKeyEnv: FIXTURE_DSH_NATIVE_KEY\n- id: agent-default-model\n  config:\n    provider: fixture-deepseek\n    model: fixture-model\n"
+	if err := os.WriteFile(patch, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cred := filepath.Join(dshHome(), ".credentials.yaml")
+	credentials := "version: 1\nrefs:\n  FIXTURE_DSH_NATIVE_KEY: fixture-key\n"
+	if err := os.WriteFile(cred, []byte(credentials), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ConfigureDSH(DSHConfigureRequest{Members: []DSHMember{{Name: "DSH"}}})
+	if err != nil {
+		t.Fatalf("existing native model must not require a second official key: %v", err)
+	}
+	if res.KeySaved || res.Members != 1 {
+		t.Fatalf("configure: %+v", res)
+	}
+	got, err := os.ReadFile(cred)
+	if err != nil || string(got) != credentials {
+		t.Fatalf("existing credentials changed: %v", err)
+	}
+	selection := dshPatchEntryConfig(patch, "agent-default-model")
+	if selection == nil || mapGet(selection, "provider").Value != "fixture-deepseek" || mapGet(selection, "model").Value != "fixture-model" {
+		t.Fatal("existing model selection changed")
+	}
+	if !dshNativeModelConfigured("") {
+		t.Fatal("existing native provider credential reference changed")
+	}
+}
+
+func TestConfigureDSHReusesHomeDotenvKey(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	t.Setenv("DSH_HOME", filepath.Join(home, ".dsh"))
+	t.Setenv("CONEST_COLLAB_DATA", filepath.Join(home, "collab"))
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	if err := os.MkdirAll(dshHome(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dotenv := filepath.Join(dshHome(), ".env")
+	original := []byte("DEEPSEEK_API_KEY=sk-dotenv-fixture\n")
+	if err := os.WriteFile(dotenv, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !dshHasDeepSeekKey() {
+		t.Fatal("status must recognize the key DSH loads from its home .env")
+	}
+	res, err := ConfigureDSH(DSHConfigureRequest{Members: []DSHMember{{Name: "DSH"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.KeySaved || res.Members != 1 {
+		t.Fatalf("unexpected configure result: %+v", res)
+	}
+	if _, err := os.Stat(filepath.Join(dshHome(), ".credentials.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("must not copy the dotenv key to the credential store: %v", err)
+	}
+	got, err := os.ReadFile(dotenv)
+	if err != nil || string(got) != string(original) {
+		t.Fatalf("dotenv changed: %v", err)
+	}
+}
+
+func TestDSHHasDeepSeekKeySources(t *testing.T) {
+	for _, tc := range []struct {
+		name, env, credential, dotenv string
+		want                          bool
+	}{
+		{name: "missing"},
+		{name: "exported", env: "fixture-key", want: true},
+		{name: "stored", credential: "version: 1\nrefs:\n  DEEPSEEK_API_KEY: fixture-key\n", want: true},
+		{name: "home dotenv", dotenv: "export DEEPSEEK_API_KEY=\"fixture-key\"\n", want: true},
+		{name: "empty dotenv", dotenv: "DEEPSEEK_API_KEY=''\n"},
+		{name: "commented empty dotenv", dotenv: "DEEPSEEK_API_KEY= # put your key here\n"},
+		{name: "quoted empty dotenv with comment", dotenv: "DEEPSEEK_API_KEY=\"\" # put your key here\n"},
+		{name: "last dotenv definition empty", dotenv: "DEEPSEEK_API_KEY=fixture-key\nDEEPSEEK_API_KEY=\n"},
+		{name: "backtick empty dotenv", dotenv: "DEEPSEEK_API_KEY=`` # empty\n"},
+		{name: "quoted hash dotenv", dotenv: "DEEPSEEK_API_KEY=\"fixture#key\" # comment\n", want: true},
+		{name: "literal dollar dotenv", dotenv: "DEEPSEEK_API_KEY=\"$FIXTURE_KEY\"\n", want: true},
+		{name: "quoted space dotenv", dotenv: "DEEPSEEK_API_KEY=\" \"\n", want: true},
+		{name: "export tab dotenv", dotenv: "export\tDEEPSEEK_API_KEY=fixture-key\r\n", want: true},
+		{name: "multiline value hides assignment", dotenv: "OTHER=\"before\nDEEPSEEK_API_KEY=fixture-key\nafter\"\n"},
+		{name: "unrelated dotenv", dotenv: "OPENAI_API_KEY=fixture-key\n"},
+		{name: "account is not an API key", credential: "version: 1\nrecords:\n  deepseek-account/test: {}\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("DSH_HOME", home)
+			t.Setenv("DEEPSEEK_API_KEY", tc.env)
+			if tc.credential != "" {
+				if err := os.WriteFile(filepath.Join(home, ".credentials.yaml"), []byte(tc.credential), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.dotenv != "" {
+				if err := os.WriteFile(filepath.Join(home, ".env"), []byte(tc.dotenv), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := dshHasDeepSeekKey(); got != tc.want {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

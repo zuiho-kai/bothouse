@@ -100,8 +100,8 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 		if m.CLI != "" && !dshCLIs[m.CLI] {
 			return res, fmt.Errorf("unsupported cli %q", m.CLI)
 		}
-		if m.CLI == "" && strings.TrimSpace(req.DeepSeekAPIKey) == "" && !dshHasDeepSeekKey() {
-			return res, fmt.Errorf("角色「%s」没选本机 CLI，也没有 DeepSeek API Key：选一个 CLI，或填 Key", m.Name)
+		if m.CLI == "" && !dshNativeModelConfigured(req.DeepSeekAPIKey) {
+			return res, fmt.Errorf("角色「%s」当前 DSH 原生模型没有对应凭据：请在 DSH 模型设置中配置；使用官方 DeepSeek 默认模型时也可在这里填 API Key", m.Name)
 		}
 		req.Members[i] = m
 	}
@@ -143,9 +143,9 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 	return res, nil
 }
 
-// dshHasDeepSeekKey: a DeepSeek key is already stored or exported (dsh-credentials-local precedence).
+// dshHasDeepSeekKey checks presence only; DSH resolves credential precedence at runtime.
 func dshHasDeepSeekKey() bool {
-	if os.Getenv("DEEPSEEK_API_KEY") != "" {
+	if os.Getenv("DEEPSEEK_API_KEY") != "" || dshDotenvHas(dshHome(), "DEEPSEEK_API_KEY") {
 		return true
 	}
 	b, err := os.ReadFile(filepath.Join(dshHome(), ".credentials.yaml"))
