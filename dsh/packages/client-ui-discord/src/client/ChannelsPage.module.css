@@ -1672,6 +1672,7 @@
   .systemLine { padding: 8px 12px; }
   .systemText { max-width: 90%; }
   .memberActions { position: static; transform: none; padding-left: 0; background: transparent; }
+}
 
 /* ── #115 motion and reading position ─────────────────────────────────────
    Durations and curves follow notes design spec §5 (hover 160ms, cards 320ms,

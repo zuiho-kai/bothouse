@@ -469,6 +469,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
   const [editing, setEditing] = useState<{ id: number; text: string } | undefined>(undefined)
   const [ownNotice, setOwnNotice] = useState<string | undefined>(undefined)
+  // An edit started with ↑ in the composer returns there when it ends; one started from a
+  // message's edit button returns to that button (PR934 F2, MessageRow).
+  const editFromComposer = useRef(false)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [errors, setErrors] = useState<Record<number, string | undefined>>({})
   const [sending, setSending] = useState<Record<number, boolean>>({})
@@ -605,6 +608,11 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     document.addEventListener('mousedown', onPress)
     return () => { document.removeEventListener('mousedown', onPress) }
   }, [draft, capabilitiesDismissed])
+
+  const backToComposer = (): void => {
+    if (editFromComposer.current) pendingCaret.current = caret
+    editFromComposer.current = false
+  }
 
   useEffect(() => {
     const input = inputRef.current
@@ -812,13 +820,13 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     return {
       editing: editing?.id === m.id ? editing.text : undefined,
       editingOther: editing !== undefined && editing.id !== m.id,
-      onStartEdit: () => { setOwnNotice(undefined); setEditing({ id: m.id, text: m.text }) },
+      onStartEdit: () => { setOwnNotice(undefined); editFromComposer.current = false; setEditing({ id: m.id, text: m.text }) },
       onEditChange: (text) => { setEditing({ id: m.id, text }) },
-      onEditCancel: () => { setEditing(undefined); pendingCaret.current = caret },
+      onEditCancel: () => { setEditing(undefined); backToComposer() },
       onEditSave: () => {
         if (editing?.id !== m.id || !editing.text.trim()) return
         if (editing.text === m.text) { setEditing(undefined); return }
-        editMessage(m.id, editing.text).then(() => { setEditing(undefined); pendingCaret.current = caret }, (error: unknown) => {
+        editMessage(m.id, editing.text).then(() => { setEditing(undefined); backToComposer() }, (error: unknown) => {
           setOwnNotice(error instanceof Error ? error.message : String(error))
         })
       },
@@ -952,6 +960,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
       if (last !== undefined) {
         event.preventDefault()
         setOwnNotice(undefined)
+        editFromComposer.current = true
         setEditing({ id: last.id, text: last.text })
         requestAnimationFrame(() => { logRef.current?.querySelector(`[data-message-id="${last.id}"]`)?.scrollIntoView?.({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' }) })
         return
