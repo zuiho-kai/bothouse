@@ -14,7 +14,8 @@
     "bridge": "桥接",
     "skills": "技能",
     "system": "系统",
-    "usage": "用量"
+    "usage": "用量",
+    "wikiGalaxy": "Wiki 星河"
   },
   "dashboard": {
     "title": "概览",
@@ -529,5 +530,10 @@
     "unavailableWhy": "该 agent 的协议目前不提供每轮用量（如 ACP），不做估算。",
     "empty": "暂无记录",
     "note": "从启用记账开始累计，不回填历史。用量暂不可得 {{unknown}} 次（其协议目前不提供每轮用量，如 ACP；不做估算，也不代表零消耗）；缺少单价或用量 {{unpriced}} 次。图表只含已上报的 token。金额仅为已定价部分的估算，* 表示尚有未计价回复。"
+  },
+  "wikiGalaxy": {
+    "title": "Wiki 星河",
+    "subtitle": "把 wiki 画成星系：每页一颗星，点星看内容。只读，不改文件。",
+    "open": "单独打开"
   }
 }

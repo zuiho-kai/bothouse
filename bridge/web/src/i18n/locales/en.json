@@ -14,7 +14,8 @@
     "bridge": "Bridge",
     "skills": "Skills",
     "system": "System",
-    "usage": "Usage"
+    "usage": "Usage",
+    "wikiGalaxy": "Wiki galaxy"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -529,5 +530,10 @@
     "unavailableWhy": "The agent protocol does not report per-turn token usage yet (e.g. ACP); not estimated.",
     "empty": "No records",
     "note": "Recorded since tracking was enabled; no historical backfill. Usage unavailable: {{unknown}} replies (their agent protocol does not report per-turn usage yet, e.g. ACP; not estimated, and not zero consumption); missing price or usage: {{unpriced}} replies. Charts show reported tokens only. Costs estimate only priced replies; * indicates incomplete pricing."
+  },
+  "wikiGalaxy": {
+    "title": "Wiki galaxy",
+    "subtitle": "The wiki as a galaxy: one star per page, click a star to read it. Read-only.",
+    "open": "Open separately"
   }
 }

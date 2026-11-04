@@ -61,6 +61,7 @@ export const zh = {
   footnotes: '脚注',
   panel: '频道',
   panelDesk: '团队工作台',
+  // #145: only the legacy `#wiki-galaxy` deep link uses this now; the sidebar has no galaxy entry.
   panelGalaxy: 'Wiki 星河',
   panelBothouse: 'bothouse',
   panelDevices: '其他电脑',
