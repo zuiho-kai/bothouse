@@ -17,6 +17,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -805,6 +806,7 @@ func (p *Platform) Reply(ctx context.Context, replyCtx any, content string) erro
 
 // Send sends a message to the conversation identified by replyCtx.
 func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error {
+	content = normalizeReplyText(content)
 	// Optionally send blank-line separated paragraphs as individual messages.
 	if parts := splitBubbles(content); p.splitReplyBubbles && len(parts) > 1 {
 		for _, part := range parts {
@@ -827,7 +829,8 @@ func splitBubbles(content string) []string {
 	}
 	var out []string
 	for _, seg := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n\n") {
-		if seg = strings.TrimSpace(seg); seg != "" {
+		seg = normalizeReplyText(strings.Trim(seg, "\r\n"))
+		if strings.TrimSpace(seg) != "" {
 			out = append(out, seg)
 		}
 	}
@@ -835,6 +838,18 @@ func splitBubbles(content string) []string {
 		return []string{content}
 	}
 	return out
+}
+
+// normalizeReplyText removes prose padding emitted by the model, while keeping
+// Markdown code indentation and all whitespace inside the body.
+func normalizeReplyText(content string) string {
+	trimmed := strings.TrimLeftFunc(content, unicode.IsSpace)
+	prefix := content[:len(content)-len(trimmed)]
+	// Source: CommonMark indented code blocks use four spaces or a tab.
+	if strings.Contains(prefix, "    ") || strings.Contains(prefix, "\t") {
+		return content
+	}
+	return trimmed
 }
 
 func (p *Platform) sendOne(ctx context.Context, replyCtx any, content string) error {
@@ -876,6 +891,7 @@ func (p *Platform) sendOne(ctx context.Context, replyCtx any, content string) er
 // people get a notification instead of a literal "@name".
 // Implements core.AtMentionSender.
 func (p *Platform) ReplyWithAt(ctx context.Context, replyCtx any, content string, atUsers []string, atAll bool) error {
+	content = normalizeReplyText(content)
 	rctx, ok := replyCtx.(*replyContext)
 	if !ok {
 		return fmt.Errorf("qq: ReplyWithAt: invalid reply context type %T", replyCtx)
@@ -894,7 +910,11 @@ func (p *Platform) ReplyWithAt(ctx context.Context, replyCtx any, content string
 	}
 	// OneBot joins segments verbatim, so the separating space has to be part of
 	// the text segment or the mention would run into the message.
-	segments = append(segments, map[string]any{"type": "text", "data": map[string]any{"text": " " + content}})
+	text := content
+	if len(segments) > 0 && text != "" {
+		text = " " + text
+	}
+	segments = append(segments, map[string]any{"type": "text", "data": map[string]any{"text": text}})
 
 	params := map[string]any{"message": segments}
 	action := "send_private_msg"
