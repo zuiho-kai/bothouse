@@ -13,7 +13,8 @@
     "bridge": "Мост",
     "skills": "Навыки",
     "system": "Система",
-    "wikiGalaxy": "Галактика wiki"
+    "wikiGalaxy": "Галактика wiki",
+    "plugins": "Плагины"
   },
   "dashboard": {
     "title": "Панель",

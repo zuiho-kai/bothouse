@@ -21,6 +21,7 @@ import DeviceList from '@/pages/Devices/DeviceList';
 import AppList from '@/pages/Apps/AppList';
 import BridgeAdapters from '@/pages/Bridge/BridgeAdapters';
 import WikiGalaxyPage from '@/pages/Wiki/WikiGalaxyPage';
+import PluginList from '@/pages/Plugins/PluginList';
 import NotFound from '@/pages/NotFound';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -60,6 +61,7 @@ export default function App() {
         <Route path="devices" element={<DeviceList />} />
         <Route path="wiki-galaxy" element={<WikiGalaxyPage />} />
         <Route path="apps" element={<AppList />} />
+        <Route path="plugins" element={<PluginList />} />
         <Route path="projects" element={<ProjectList />} />
         <Route path="projects/:name" element={<ProjectDetail />} />
         <Route path="sessions" element={<SessionList />} />

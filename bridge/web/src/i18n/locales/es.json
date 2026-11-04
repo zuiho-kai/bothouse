@@ -13,7 +13,8 @@
     "bridge": "Puente",
     "skills": "Habilidades",
     "system": "Sistema",
-    "wikiGalaxy": "Galaxia del wiki"
+    "wikiGalaxy": "Galaxia del wiki",
+    "plugins": "Plugins"
   },
   "dashboard": {
     "title": "Panel",
