@@ -624,6 +624,20 @@ func runMain() {
 			mgmtSrv.SetBridgeServer(bridgeSrv)
 		}
 		mgmtSrv.SetSetupFeishuSave(saveFeishuSetup)
+		// 接入应用 (#150): read config.toml per request so a `module add|disable` run outside
+		// the service shows up without a restart; a read error keeps the last good rows.
+		mgmtSrv.SetPlatformModules(func() map[string]core.PlatformModule {
+			fresh, err := config.LoadForSetup(configPath)
+			if err != nil {
+				slog.Warn("modules: reload config", "error", err)
+				return nil
+			}
+			rows := map[string]core.PlatformModule{}
+			for name, st := range config.ModuleStates(fresh) {
+				rows[name] = core.PlatformModule{Enabled: st.Enabled, Disabled: st.Disabled}
+			}
+			return rows
+		})
 		mgmtSrv.SetWizard(configWizardStore{}, cfg.DataDir)
 		mgmtSrv.SetWikiSubScript(subWikiScript(cfg))
 		mgmtSrv.SetSetupWeixinSave(func(req core.WeixinSetupSaveRequest) error {

@@ -18,6 +18,7 @@ import SkillList from '@/pages/Skills/SkillList';
 import SetupWizard from '@/pages/Setup/SetupWizard';
 import RoleList from '@/pages/Roles/RoleList';
 import DeviceList from '@/pages/Devices/DeviceList';
+import AppList from '@/pages/Apps/AppList';
 import BridgeAdapters from '@/pages/Bridge/BridgeAdapters';
 import WikiGalaxyPage from '@/pages/Wiki/WikiGalaxyPage';
 import NotFound from '@/pages/NotFound';
@@ -58,6 +59,7 @@ export default function App() {
         <Route path="roles" element={<RoleList />} />
         <Route path="devices" element={<DeviceList />} />
         <Route path="wiki-galaxy" element={<WikiGalaxyPage />} />
+        <Route path="apps" element={<AppList />} />
         <Route path="projects" element={<ProjectList />} />
         <Route path="projects/:name" element={<ProjectDetail />} />
         <Route path="sessions" element={<SessionList />} />

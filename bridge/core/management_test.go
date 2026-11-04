@@ -59,6 +59,7 @@ func testManagementServer(t *testing.T, token string) (*ManagementServer, *httpt
 	mux.HandleFunc(prefix+"/config", mgmt.wrap(mgmt.handleConfig))
 	mux.HandleFunc(prefix+"/settings", mgmt.wrap(mgmt.handleGlobalSettings))
 	mux.HandleFunc(prefix+"/agents", mgmt.wrap(mgmt.handleAgents))
+	mux.HandleFunc(prefix+"/modules", mgmt.wrap(mgmt.handleModules))
 	mux.HandleFunc(prefix+"/projects", mgmt.wrap(mgmt.handleProjects))
 	mux.HandleFunc(prefix+"/projects/", mgmt.wrap(mgmt.handleProjectRoutes))
 	mux.HandleFunc(prefix+"/cron", mgmt.wrap(mgmt.handleCron))

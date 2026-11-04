@@ -86,6 +86,10 @@ type ManagementServer struct {
 	// setup wizard (setup_wizard.go)
 	wizardStore   WizardStore
 	wizardDataDir string
+
+	// 接入应用 (#150): config.toml module states, wired by cmd/cc-connect
+	// (management_modules.go). nil = no config read, every row shows not_configured.
+	platformModules func() map[string]PlatformModule
 }
 
 // NewManagementServer creates a new management API server.
@@ -286,6 +290,9 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 
 	// Agents & Platforms (registry)
 	mux.HandleFunc(prefix+"/agents", m.wrap(m.handleAgents))
+
+	// 接入应用 (#150): which chat apps are wired, and where each one is added
+	mux.HandleFunc(prefix+"/modules", m.wrap(m.handleModules))
 
 	// Projects
 	mux.HandleFunc(prefix+"/projects", m.wrap(m.handleProjects))
