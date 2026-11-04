@@ -22,9 +22,9 @@ export const CODE_DIGITS = 6;
 export const CODE_TTL_MS = 5 * 60_000;
 // 来源：用户 11-04 16:58 定「输错 5 次作废」。
 export const MAX_ATTEMPTS = 5;
-// 踢掉一台电脑后，宿主还留这么久让指挥端能问一句「我还在吗」：沿用上面用户定的 5 分钟码有效期，
-// 不新造时长。过了这段，空转的监听照旧收掉；更晚才打开列表的连接与「那台电脑关机」已无从区分。
-export const KICK_GRACE_MS = CODE_TTL_MS;
+// 踢掉一台电脑后，宿主还留这么久让指挥端能问一句「我还在吗」：沿用上面用户定的 5 分钟码有效期
+// （PairHost.kickGrace 用当次的 codeTtl，不另造数字）。过了这段，空转的监听照旧收掉；更晚才打开
+// 列表的连接与「那台电脑关机」已无从区分。
 // Temporary links: 用户 11-04 16:58 定——默认「直到我断开」（不设时长），或连接时填「自定义时长」，
 // 到时自动断；不设固定上限。
 // 沿用：DSH web 常用端口 3081（docs/INSTANCE_SETUP.md）的下一个；两端同一常量，发现才对得上。
@@ -209,7 +209,8 @@ export class PairHost {
   active() { return this.codeLive() || this.list().length > 0; }
 
   /** Just kicked something: stay up a little so this machine can answer "was I kicked?". */
-  kickGrace() { return this.lastRevokeAt !== undefined && this.now() - this.lastRevokeAt < KICK_GRACE_MS; }
+  // Same clock and length the number itself uses (a constructor may override codeTtl in tests).
+  kickGrace() { return this.lastRevokeAt !== undefined && this.now() - this.lastRevokeAt < this.codeTtl; }
 
   view(d) { return { id: d.id, name: d.name, address: d.address, mode: d.mode, created_at: d.created_at, last_seen: d.last_seen, expires_at: d.expires_at }; }
 

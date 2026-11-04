@@ -7,7 +7,7 @@ import { createServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  ALIVE_EVERY_MS, CODE_TTL_MS, KICK_GRACE_MS, MAX_ATTEMPTS, UNTIL_GRACE_MS, tempDuration, PairClient, PairError, PairHost, PairListener, REMOTE_OWNER, hostHandler, isTailnetAddress,
+  ALIVE_EVERY_MS, CODE_TTL_MS, MAX_ATTEMPTS, UNTIL_GRACE_MS, tempDuration, PairClient, PairError, PairHost, PairListener, REMOTE_OWNER, hostHandler, isTailnetAddress,
   pairApiRoute, remoteProxyRoute, rewriteRemoteHTML, tailnetPeers,
 } from './pairing.mjs';
 
@@ -218,7 +218,7 @@ test('the listener closes once the kick is old enough to be indistinguishable fr
   host.revoke(device.id);
   await listener.settle();
   assert.notEqual(listener.server, undefined, 'still inside the grace');
-  now += KICK_GRACE_MS;
+  now += host.codeTtl;
   await listener.settle();
   assert.equal(listener.server, undefined, 'grace over: nothing left to serve');
 });
@@ -390,7 +390,7 @@ test('opening a link to a host that is off says so instead of hanging', async t 
   // The one case a controller cannot tell apart from a kick: no answer at all. The page must say the
   // machine is unreachable (502) rather than spin or pretend the page loaded.
   const file = join(dir(), 'l.json');
-  const client = new PairClient({ file, request: async () => ({ status: 200, body: { token: 't', host_name: 'own' } }) });
+  const client = new PairClient({ file, port: await freePort(), request: async () => ({ status: 200, body: { token: 't', host_name: 'own' } }) });
   const link = await client.connect({ host: '127.0.0.1', code: '123456', mode: 'remember', name: 'off' });
   const ctl = createServer((req, res) => remoteProxyRoute(req, res, new URL(req.url, 'http://x'), { client }) ?? (res.writeHead(404), res.end()));
   const ctlPort = await listen(ctl);
