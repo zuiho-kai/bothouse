@@ -257,9 +257,16 @@ jobs:
           esac
           core=$(go list -tags no_web ./core)
           if [ "${SHARD%-*}" = rest ]; then
-            # Every non-core package goes to exactly one of the two rest shards.
-            n=${SHARD#rest-}
-            pkgs=$(go list -tags no_web ./... | grep -vxF "$core" | awk -v n="$n" 'NR % 2 == n % 2')
+            # Every non-core package goes to exactly one of the two rest shards: agent/ and cmd/ (cmd/cc-connect
+            # ~46s, agent/antigravity ~26s) to rest-1, the rest (platform/feishu ~29s, ...) to rest-2.
+            # Alternating by line put all three slow packages in one shard (run 41869251235).
+            mod=$(go list -m)
+            all=$(go list -tags no_web ./... | grep -vxF "$core")
+            if [ "$SHARD" = rest-1 ]; then
+              pkgs=$(echo "$all" | grep -E "^$mod/(agent|cmd)/" || true)
+            else
+              pkgs=$(echo "$all" | grep -vE "^$mod/(agent|cmd)/" || true)
+            fi
             test -n "$pkgs"
             # -p 1 also serialises compiling the test binaries (about half of the old single rest shard's
             # ~330s, run 41860995508). Compile them in parallel first without running anything; the serial
