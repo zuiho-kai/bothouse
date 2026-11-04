@@ -275,7 +275,7 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 		ref := taskReviewRef{Board: it.ID, ReturnedAt: it.ReturnedAt, Stage: stage, Tier: taskReviewTier(it)}
 		prior := reviewer.timerScheduler.store.Get(id)
 		if prior == nil {
-			reviewer.queueTaskReviewIn(id, it.Chat, &ref, now, fresh)
+			reviewer.queueTaskReviewIn(id, it.Chat, &ref, now, fresh, taskReviewTierModel(it, reviewer.name))
 		} else if roundup && prior.Fired && prior.ScheduledAt.Before(now.Truncate(teamWorkspaceReconcileEvery)) {
 			key := reviewer.name + "/" + it.Chat
 			g := groups[key]
@@ -301,6 +301,29 @@ var teamReviewTiers atomic.Pointer[[2]string]
 // "" leaves that tier to the usual pick.
 func SetTeamReviewTiers(simple, complex string) {
 	teamReviewTiers.Store(&[2]string{strings.TrimSpace(simple), strings.TrimSpace(complex)})
+}
+
+// teamReviewModels: the model each tier's role reviews on, from [team_review] simple_model /
+// complex_model ("" = the role's own model).
+var teamReviewModels atomic.Pointer[[2]string]
+
+// SetTeamReviewModels sets the model ID the simple and complex tier roles review on (user
+// 2026-11-04 13:20「DSH 设置简单/复杂档可直接选模型」); "" keeps the role's own model.
+func SetTeamReviewModels(simple, complex string) {
+	teamReviewModels.Store(&[2]string{strings.TrimSpace(simple), strings.TrimSpace(complex)})
+}
+
+// taskReviewTierModel: the model reviewer runs it on; only the tier's own role, since a model ID
+// belongs to that role's agent.
+func taskReviewTierModel(it teamTaskBoardItem, reviewer string) string {
+	m := teamReviewModels.Load()
+	if m == nil || reviewer == "" || reviewer != taskReviewTierRole(it) {
+		return ""
+	}
+	if taskReviewComplex(it) {
+		return m[1]
+	}
+	return m[0]
 }
 
 func taskReviewComplex(it teamTaskBoardItem) bool {
@@ -428,8 +451,9 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 	}
 	if tier != nil {
 		// The tier's role reviews even when busy (in a new side session): it is the model chosen
-		// for this kind of review. Only author or cooling sends the review elsewhere.
-		if !tier.quotaBusy(chat) && !tier.taskReviewQueuedIn(chat) {
+		// for this kind of review. Only author or cooling sends the review elsewhere. A chosen
+		// tier model always takes a new session: the channel session keeps its own model.
+		if taskReviewTierModel(it, tier.name) == "" && !tier.quotaBusy(chat) && !tier.taskReviewQueuedIn(chat) {
 			return tier, false
 		}
 		return tier, true
@@ -473,18 +497,20 @@ func (e *Engine) taskReviewSessionAtRun(job *TimerJob) *TimerJob {
 }
 
 func (e *Engine) queueTaskReview(id, chat string, ref *taskReviewRef, now time.Time) {
-	e.queueTaskReviewIn(id, chat, ref, now, false)
+	e.queueTaskReviewIn(id, chat, ref, now, false, "")
 }
 
 // queueTaskReviewIn: fresh runs the verification in a new side session of the role, so a busy
-// role reviews without waiting for, or disturbing, the conversation it is working in.
-func (e *Engine) queueTaskReviewIn(id, chat string, ref *taskReviewRef, now time.Time, fresh bool) {
+// role reviews without waiting for, or disturbing, the conversation it is working in. model
+// (the tier's chosen model) runs that side session on it; it implies fresh.
+func (e *Engine) queueTaskReviewIn(id, chat string, ref *taskReviewRef, now time.Time, fresh bool, model string) {
 	silent := true
 	job := &TimerJob{ID: id, Project: e.name, SessionKey: teamChatKey(chat), ScheduledAt: now,
 		Silent: &silent, WaitUserQuiet: true, ReplyBoard: ref.Board, CreatedAt: now, TaskReview: ref}
-	if fresh {
+	if fresh || model != "" {
 		job.SessionMode = "new_per_run"
 	}
+	job.Model = model
 	prepared, err := e.prepareTaskReview(job, now)
 	if err != nil {
 		slog.Warn("task review: prepare reminder", "error", err)

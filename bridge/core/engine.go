@@ -504,6 +504,7 @@ type Engine struct {
 	capNotified       map[string]bool // channels already told about this cooldown round
 	sessionModelsMu   sync.RWMutex
 	sessionModels     map[string]string
+	turnModels        map[string]string // interactive key → model one scheduled side turn starts on
 	sessionSelections map[string]sessionModelSelection
 	// Per-session base-instruction files (maomao fork, see session_models.go)
 	sessionInstructions map[string]sessionInstructions
@@ -2324,7 +2325,9 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 			iKey = workspaceDir + ":" + iKey
 		}
 		e.noteScheduledTurn(job.ID, iKey)
+		e.setTurnModel(iKey, job.Model)
 		e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, runSessionKey)
+		e.setTurnModel(iKey, "")
 		e.forgetScheduledTurn(job.ID, iKey)
 		e.cleanupInteractiveState(iKey)
 		return nil
@@ -5150,6 +5153,9 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		ccKey = ccSessionKey
 	}
 	settings := e.sessionSettingsFor(ccKey)
+	if m := e.turnModelFor(sessionKey); m != "" {
+		settings.Model = m // a review side turn on its tier model (TimerJob.Model)
+	}
 	e.interactiveMu.Lock()
 	defer e.interactiveMu.Unlock()
 	var input *inputTurn
@@ -5226,6 +5232,11 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		inj.SetSessionEnv(append(e.roleSessionEnv(ccKey), "CC_AGENT="+agent.Name()))
 	}
 	e.applySessionModel(agent, ccKey)
+	if m := e.turnModelFor(sessionKey); m != "" {
+		if inj, ok := agent.(SessionModelInjector); ok {
+			inj.SetSessionModel(m)
+		}
+	}
 	e.applySessionInstructions(agent, ccKey)
 
 	// Inject platform-specific formatting instructions into the agent's system prompt.
