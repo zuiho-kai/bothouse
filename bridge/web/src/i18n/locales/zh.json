@@ -3,6 +3,7 @@
     "addPlatform": "添加平台",
     "addRole": "添加角色/模型",
     "library": "角色库",
+    "imageGen": "生图",
     "dashboard": "概览",
     "roles": "角色",
     "devices": "设备",
@@ -16,7 +17,6 @@
     "skills": "技能",
     "system": "系统",
     "usage": "用量",
-    "imageGen": "生图",
     "wikiGalaxy": "Wiki 星河"
   },
   "dashboard": {

@@ -21,8 +21,8 @@ import DeviceList from '@/pages/Devices/DeviceList';
 import AppList from '@/pages/Apps/AppList';
 import BridgeAdapters from '@/pages/Bridge/BridgeAdapters';
 import WikiGalaxyPage from '@/pages/Wiki/WikiGalaxyPage';
-import ImageGenPage from '@/pages/ImageGen/ImageGenPage';
 import NotFound from '@/pages/NotFound';
+import ImageGenPage from '@/pages/ImageGen/ImageGenPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);

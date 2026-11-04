@@ -3,6 +3,7 @@
     "addPlatform": "Añadir plataforma",
     "addRole": "Añadir rol / modelo",
     "library": "Biblioteca",
+    "imageGen": "Imágenes",
     "dashboard": "Panel",
     "apps": "Apps",
     "projects": "Proyectos",
@@ -13,7 +14,6 @@
     "bridge": "Puente",
     "skills": "Habilidades",
     "system": "Sistema",
-    "imageGen": "Imágenes",
     "wikiGalaxy": "Galaxia del wiki"
   },
   "dashboard": {

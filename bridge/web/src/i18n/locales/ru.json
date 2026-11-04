@@ -3,6 +3,7 @@
     "addPlatform": "Добавить платформу",
     "addRole": "Добавить роль / модель",
     "library": "Библиотека",
+    "imageGen": "Генерация",
     "dashboard": "Панель",
     "apps": "Приложения",
     "projects": "Проекты",
@@ -13,7 +14,6 @@
     "bridge": "Мост",
     "skills": "Навыки",
     "system": "Система",
-    "imageGen": "Генерация",
     "wikiGalaxy": "Галактика wiki"
   },
   "dashboard": {
