@@ -32,6 +32,8 @@ ALLOW = re.compile(r"按实测|(?<![没无未不])(?<!没有)实测|等你|等�
 # 讲过去的事、规则阈值、节奏：不是在报预计
 PAST = re.compile(r"花了|用了|耗时|实际|跑了|做了|等了|空转了|已经|之前|前的|以前|上次|当时|刚才|超时|上限|阈值|"
                   r"花在|发了|挂了|已挂|近\s*\d|最近|过去|拦|每\s*\S{0,4}(?:分钟|小时)|以上的|以下的|超过|不到|took|spent|elapsed|ago|every", re.I)
+# 固定作息（每晚十点、每天早上）是在讲别人/插件的日程，不是这次报的工期（11-05 转述对方插件「每晚十点把明天排好」被拦）
+RECUR = re.compile(r"每(?:天|日|晚|夜|早|周|星期|月|小时|个?工作日)|every (?:day|night|morning|week)|daily|nightly", re.I)
 DAY = re.compile(r"明天|明早|明晚|明日|后天|下周|tomorrow|next week", re.I)
 NUM = r"\d+(?:\.\d+)?|[零一二两三四五六七八九十]{1,3}"
 CN = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
@@ -121,7 +123,7 @@ def hits(text, now=None, limit=None, work_only=False):
     out = []
     for s in SPLIT.split(QUOTED.sub("", text or "")):
         s = s.strip()
-        if not s or ALLOW.search(s) or PAST.search(s) or (work_only and not WORK.search(s)):
+        if not s or ALLOW.search(s) or PAST.search(s) or RECUR.search(s) or (work_only and not WORK.search(s)):
             continue
         if DAY.search(s):
             out.append(("跨天的时间", s))
