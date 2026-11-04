@@ -68,7 +68,7 @@ func sessionNewRequest(args []string, getenv func(string) string) ([]byte, strin
 	if !*afterTurn {
 		return nil, "", fmt.Errorf("--after-turn is required (resets the caller's session after this turn's reply)")
 	}
-	project, key := strings.TrimSpace(getenv("CC_PROJECT")), strings.TrimSpace(getenv("CC_SESSION_KEY"))
+	project, key := strings.TrimSpace(getenv("CC_PROJECT")), sessionKeyFrom(getenv)
 	if project == "" || key == "" {
 		return nil, "", fmt.Errorf("CC_PROJECT and CC_SESSION_KEY must be set: run this from inside a bothouse agent turn")
 	}
