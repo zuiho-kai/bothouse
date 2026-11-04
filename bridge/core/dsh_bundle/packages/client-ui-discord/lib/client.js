@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: a7409ca60f3ca46be3ec2aaae046e6ef8f756c26f1e5bddd4fe4208626b67bc7
+// dsh-client-source-sha256: 4d69794edbbed3074afaedefae1175f1695fb26d6d815ae344631d80387c59f9
 // dsh-style-sha256: 2e640033692a63b951ba23a41d830ebca956e67e0c0a9a38ba6618e25b4b480c
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -22608,6 +22608,10 @@ function GalaxyIcon({ size }) {
 function PanelIcon({ size }) {
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconGaugeOutlineRegular, { size });
 }
+/** Other computers (#131): pair with another DSH by a one-time number. */
+function DevicesIcon({ size }) {
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconLinkOutlineRegular, { size });
+}
 // src/client/locales.ts
 /** Channel panel dictionaries. */
 /** Locale namespace owned by the channel panel. */
@@ -22672,6 +22676,7 @@ const zh = {
 	panelDesk: "团队工作台",
 	panelGalaxy: "Wiki 星河",
 	panelBothouse: "bothouse",
+	panelDevices: "其他电脑",
 	channelSettings: "频道设置",
 	settingsBasic: "基本",
 	settingsDispatch: "派活",
@@ -23043,6 +23048,7 @@ const en = {
 	panelDesk: "Team desk",
 	panelGalaxy: "Wiki galaxy",
 	panelBothouse: "bothouse",
+	panelDevices: "Other computers",
 	channelSettings: "Channel settings",
 	settingsBasic: "Basic",
 	settingsDispatch: "Dispatch",
@@ -23269,6 +23275,7 @@ const PANEL_ID = "channels";
 const DESK_ID = "collab-desk";
 const GALAXY_ID = "wiki-galaxy";
 const BOTHOUSE_ID = "bothouse-panel";
+const DEVICES_ID = "collab-devices";
 /** Required browser services. */
 const inject = [
 	"slots",
@@ -23287,6 +23294,18 @@ function apply(ctx) {
 	const t = ctx.locale.bind(NS);
 	const channels = createChannelSource(browserTransport());
 	ctx.effect(() => channels.dispose, "client-ui-discord: channel stream");
+	const ALIVE_EVERY_MS = 3e3;
+	ctx.effect(() => {
+		const beat = () => {
+			globalThis.fetch?.(new URL("collab/api/remote/alive", document.baseURI), {
+				method: "POST",
+				credentials: "same-origin"
+			}).catch(() => {});
+		};
+		beat();
+		const timer = setInterval(beat, ALIVE_EVERY_MS);
+		return () => clearInterval(timer);
+	}, "client-ui-discord: remote link heartbeat");
 	const injected = (openModelSettings) => ({
 		openModelSettings,
 		hooks: { channels: channels.source },
@@ -23376,6 +23395,13 @@ function apply(ctx) {
 			label: "panelBothouse",
 			icon: PanelIcon,
 			order: 8
+		},
+		{
+			id: DEVICES_ID,
+			path: "collab/devices",
+			label: "panelDevices",
+			icon: DevicesIcon,
+			order: 9
 		}
 	];
 	for (const page of embeds) {

@@ -15,7 +15,7 @@ import { browserTransport, createChannelSource } from './channel-source.ts'
 import { ChannelsIcon } from './ChannelsIcon.tsx'
 import { ChannelsPage, type ChannelsInjected } from './ChannelsPage.tsx'
 import { EmbedPage } from './EmbedPage.tsx'
-import { DeskIcon, GalaxyIcon, PanelIcon } from './PanelIcons.tsx'
+import { DeskIcon, DevicesIcon, GalaxyIcon, PanelIcon } from './PanelIcons.tsx'
 import { en, NS, zh, type ChannelsKey } from './locales.ts'
 
 export type { ChannelsInjected, ChannelsPageProps } from './ChannelsPage.tsx'
@@ -35,6 +35,7 @@ const PANEL_ID = 'channels' as MainPanelId
 const DESK_ID = 'collab-desk' as MainPanelId
 const GALAXY_ID = 'wiki-galaxy' as MainPanelId
 const BOTHOUSE_ID = 'bothouse-panel' as MainPanelId
+const DEVICES_ID = 'collab-devices' as MainPanelId
 
 /** Required browser services. */
 export const inject = ['slots', 'locale', 'layout']
@@ -48,6 +49,19 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   const channels = createChannelSource(browserTransport())
   ctx.effect(() => channels.dispose, 'client-ui-discord: channel stream')
+  // #131: while this DSH window is open, keep its 「直到我断开」 remote links (refresh or switching
+  // panels must not drop them; closing the window stops the beat and collab ends them).
+  // 来源：与 dsh/collab/pairing.mjs ALIVE_EVERY_MS 同一节拍。
+  const ALIVE_EVERY_MS = 3000
+  ctx.effect(() => {
+    const beat = () => {
+      globalThis.fetch?.(new URL('collab/api/remote/alive', document.baseURI), { method: 'POST', credentials: 'same-origin' })
+        .catch(() => {})
+    }
+    beat()
+    const timer = setInterval(beat, ALIVE_EVERY_MS)
+    return () => clearInterval(timer)
+  }, 'client-ui-discord: remote link heartbeat')
   const injected = (openModelSettings: () => boolean): ChannelsInjected => ({
     openModelSettings,
     hooks: { channels: channels.source },
@@ -116,6 +130,8 @@ export function apply(ctx: ClientContext): void {
     { id: DESK_ID, path: 'collab/desk', label: 'panelDesk', icon: DeskIcon, order: 6 },
     { id: GALAXY_ID, path: 'collab/wiki-galaxy', label: 'panelGalaxy', icon: GalaxyIcon, order: 7 },
     { id: BOTHOUSE_ID, path: 'collab/panel/', label: 'panelBothouse', icon: PanelIcon, order: 8 },
+    // #131: pair with another DSH by a one-time number and drive its channels, desk and panel.
+    { id: DEVICES_ID, path: 'collab/devices', label: 'panelDevices', icon: DevicesIcon, order: 9 },
   ] as const
   for (const page of embeds) {
     ctx.slots.inject('main', () => ctx.slots.register({
