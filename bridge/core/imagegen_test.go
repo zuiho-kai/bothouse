@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -204,30 +205,377 @@ func TestImageGen_RejectsNonPictureBody(t *testing.T) {
 	}
 }
 
+func writePicture(t *testing.T, path string) {
+	t.Helper()
+	b, err := base64.StdEncoding.DecodeString(testPNGB64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // List must show only pictures, newest first, and Open must refuse names that try to
 // walk out of out_dir — the public bytes route depends on that.
+//
+// Each case below is a way the pre-rework Open let something through; they are together
+// because they share one fixture, and each fails on the old guard alone:
+//   - "notes.png" holding text: the old code believed the extension and served the bytes
+//     as image/png (this test asserted that wrong answer before, which is why it could not
+//     catch the symlink case).
+//   - "link.png" -> outside secret: os.ReadFile follows it, so the secret came out.
 func TestImageGen_ListAndOpenStayInsideOutDir(t *testing.T) {
 	out := t.TempDir()
 	g := NewImageGenerator(ImageGenConfig{Enabled: true, APIKey: "k", OutDir: out})
-	for _, name := range []string{"gen-a.png", "gen-b.png", "notes.txt"} {
-		if err := os.WriteFile(filepath.Join(out, name), []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	writePicture(t, filepath.Join(out, "gen-a.png"))
+	writePicture(t, filepath.Join(out, "gen-b.png"))
+	if err := os.WriteFile(filepath.Join(out, "notes.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
 	}
+	// A .png name whose bytes are not a picture.
+	if err := os.WriteFile(filepath.Join(out, "notes.png"), []byte("just text"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A symlink inside out_dir pointing at a file outside it.
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(outside, []byte("TOP-SECRET-OUTSIDE"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(out, "link.png")); err != nil {
+		t.Skipf("this filesystem does not support symlinks: %v", err)
+	}
+	// A symlink to a *real picture* held outside out_dir. The content sniff would accept it,
+	// so only the link/realpath guard can refuse this one — otherwise the route serves a
+	// picture that lives anywhere on this machine.
+	outsidePic := filepath.Join(outsideDir, "outside.png")
+	writePicture(t, outsidePic)
+	if err := os.Symlink(outsidePic, filepath.Join(out, "picture-link.png")); err != nil {
+		t.Skipf("this filesystem does not support symlinks: %v", err)
+	}
+
 	got := g.List(10)
 	if len(got) != 2 {
-		t.Fatalf("expected 2 pictures, got %d: %v", len(got), got)
+		t.Fatalf("expected the 2 real pictures, got %d: %v", len(got), got)
 	}
 	if !strings.HasPrefix(got[0].URL, "/api/v1/image-gen/file/") {
 		t.Fatalf("unexpected url %q", got[0].URL)
 	}
-	for _, bad := range []string{"../config.toml", "sub/gen-a.png", "", "notes.txt"} {
+	for _, bad := range []string{"../config.toml", "sub/gen-a.png", "", "notes.txt", "notes.png", "link.png", "picture-link.png", "gen-a.png/../gen-b.png"} {
 		if _, _, err := g.Open(bad); err == nil {
 			t.Fatalf("Open(%q) should have failed", bad)
 		}
 	}
-	if _, mime, err := g.Open("gen-a.png"); err != nil || mime != "text/plain; charset=utf-8" {
+	if b, mime, err := g.Open("gen-a.png"); err != nil || mime != "image/png" || len(b) == 0 {
 		t.Fatalf("Open(gen-a.png) = %q, %v", mime, err)
+	}
+}
+
+// An answer over the cap must say so; it used to be truncated into "unexpected end of JSON
+// input", which points at the wrong thing entirely.
+func TestImageGen_OversizedAnswerSaysSo(t *testing.T) {
+	big := strings.Repeat("x", int(imageGenMaxBytes)+8)
+	srv, _ := stubImageAPI(t, func(w http.ResponseWriter, r *http.Request) bool {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"b64_json":"` + big + `"}]}`))
+		return true
+	})
+	g := testImageGenerator(t, srv.URL)
+	_, err := g.Generate(context.Background(), "太大的图")
+	if err == nil || !strings.Contains(err.Error(), "MiB") {
+		t.Fatalf("oversized answer: err=%v, want it to name the size limit", err)
+	}
+}
+
+// out_dir outside data_dir must be refused at construction: the bytes route is unauthenticated,
+// so a wide out_dir turns it into "read any picture on this machine by name".
+func TestImageGen_RefusesOutDirOutsideDataDir(t *testing.T) {
+	dataDir := t.TempDir()
+	outside := t.TempDir()
+	g := NewImageGenerator(ImageGenConfig{Enabled: true, APIKey: "k", OutDir: outside, DataDir: dataDir})
+	if err := g.OutDirError(); err == nil {
+		t.Fatalf("out_dir %s outside data_dir %s was accepted", outside, dataDir)
+	}
+	if _, err := g.Generate(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "data_dir") {
+		t.Fatalf("Generate should refuse a wide out_dir, got %v", err)
+	}
+	if _, _, err := g.Open("anything.png"); err == nil {
+		t.Fatalf("Open should refuse while out_dir is refused")
+	}
+	// List must not enumerate a directory this generator was told not to use.
+	writePicture(t, filepath.Join(filepath.Dir(g.OutDir()), "foreign.png"))
+	if got := g.List(10); len(got) != 0 {
+		t.Fatalf("List listed %d pictures from a refused out_dir: %v", len(got), got)
+	}
+
+	// The default sits under data_dir and is accepted.
+	ok := NewImageGenerator(ImageGenConfig{Enabled: true, APIKey: "k", DataDir: dataDir})
+	if err := ok.OutDirError(); err != nil {
+		t.Fatalf("default out_dir under data_dir refused: %v", err)
+	}
+	if want := filepath.Join(dataDir, "images"); ok.OutDir() != want {
+		t.Fatalf("default out_dir = %q, want %q", ok.OutDir(), want)
+	}
+	// A subdirectory of data_dir is fine too.
+	sub := NewImageGenerator(ImageGenConfig{Enabled: true, APIKey: "k", OutDir: filepath.Join(dataDir, "drawings"), DataDir: dataDir})
+	if err := sub.OutDirError(); err != nil {
+		t.Fatalf("subdirectory of data_dir refused: %v", err)
+	}
+	// A sibling that merely shares the prefix ("/x/data2" vs "/x/data") must not pass.
+	sibling := NewImageGenerator(ImageGenConfig{Enabled: true, APIKey: "k", OutDir: dataDir + "2", DataDir: dataDir})
+	if err := sibling.OutDirError(); err == nil {
+		t.Fatalf("a sibling directory sharing the prefix was accepted")
+	}
+}
+
+// A symlinked out_dir itself must be judged by where it really points.
+func TestImageGen_OutDirSymlinkIsResolved(t *testing.T) {
+	dataDir := t.TempDir()
+	outside := t.TempDir()
+	link := filepath.Join(dataDir, "images")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("this filesystem does not support symlinks: %v", err)
+	}
+	g := NewImageGenerator(ImageGenConfig{Enabled: true, APIKey: "k", OutDir: link, DataDir: dataDir})
+	if err := g.OutDirError(); err == nil {
+		t.Fatalf("an out_dir symlinked out of data_dir was accepted")
+	}
+}
+
+// Two pictures finished in the same second used to get the same name and the second quietly
+// overwrote the first; the name now carries a random suffix and never reuses a taken name.
+func TestImageGen_NamesDoNotCollide(t *testing.T) {
+	srv, _ := stubImageAPI(t, nil)
+	g := testImageGenerator(t, srv.URL)
+	seen := map[string]bool{}
+	for i := 0; i < 5; i++ {
+		res, err := g.Generate(context.Background(), "同一秒里连着画")
+		if err != nil {
+			t.Fatalf("generate %d: %v", i, err)
+		}
+		if seen[res.Name] {
+			t.Fatalf("name %q was reused", res.Name)
+		}
+		seen[res.Name] = true
+	}
+	entries, err := os.ReadDir(g.OutDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 5 {
+		t.Fatalf("expected 5 files on disk, got %d", len(entries))
+	}
+}
+
+// The public bytes route is the one that needs proving at the HTTP layer, with the same
+// fixtures the unit test uses: a link out, a text file named .png, and a name that walks.
+func TestMgmt_ImageGenFileRouteRefusesEscapes(t *testing.T) {
+	out := t.TempDir()
+	writePicture(t, filepath.Join(out, "gen-ok.png"))
+	if err := os.WriteFile(filepath.Join(out, "notes.png"), []byte("just text"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("TOP-SECRET-OUTSIDE-1032"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linked := true
+	if err := os.Symlink(outside, filepath.Join(out, "link.png")); err != nil {
+		linked = false
+	}
+	// Same trick at the HTTP layer: a link to a real picture outside out_dir.
+	outsidePic := filepath.Join(filepath.Dir(outside), "outside.png")
+	writePicture(t, outsidePic)
+	if err := os.Symlink(outsidePic, filepath.Join(out, "picture-link.png")); err != nil {
+		linked = false
+	}
+	g := NewImageGenerator(ImageGenConfig{Enabled: true, APIKey: "k", OutDir: out})
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	mgmt.SetImageGenerator(g)
+
+	cases := map[string]int{
+		"gen-ok.png":             http.StatusOK,
+		"notes.png":              http.StatusNotFound,
+		"..%2fconfig.toml":       http.StatusNotFound,
+		"sub%2fgen-ok.png":       http.StatusNotFound,
+		"missing.png":            http.StatusNotFound,
+		"gen-ok.png%00.txt":      http.StatusNotFound,
+		"..%2f..%2fetc%2fpasswd": http.StatusNotFound,
+	}
+	if linked {
+		cases["link.png"] = http.StatusNotFound
+		cases["picture-link.png"] = http.StatusNotFound
+	}
+	for name, want := range cases {
+		resp, err := http.Get(ts.URL + "/api/v1/image-gen/file/" + name)
+		if err != nil {
+			t.Fatalf("GET %s: %v", name, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Fatalf("GET %s = %d, want %d (body %q)", name, resp.StatusCode, want, string(body))
+		}
+		if want == http.StatusOK {
+			if ct := resp.Header.Get("Content-Type"); ct != "image/png" {
+				t.Fatalf("GET %s Content-Type = %q, want image/png", name, ct)
+			}
+			continue
+		}
+		if strings.Contains(string(body), "TOP-SECRET") {
+			t.Fatalf("GET %s leaked the outside file", name)
+		}
+	}
+}
+
+// postWithStatus posts and keeps the HTTP status: the page branches on 400/409/502/503, and
+// asserting only the envelope let a flipped code pass (review 1032, 06:33).
+func postWithStatus(t *testing.T, url, token string, body any) (mgmtResponse, int) {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(body); err != nil {
+		t.Fatalf("encode body: %v", err)
+	}
+	req, _ := http.NewRequest("POST", url, &buf)
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	var r mgmtResponse
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		t.Fatalf("decode POST response: %v", err)
+	}
+	return r, resp.StatusCode
+}
+
+// The status codes the page branches on: 503 when off, 400 for an empty prompt, 409 while
+// another picture is still drawing, 502 when the provider fails. Each was unasserted before,
+// so flipping one kept the suite green (review 1032, 06:33).
+func TestMgmt_ImageGenStatusCodes(t *testing.T) {
+	// 503: no generator wired.
+	_, bare, _ := testManagementServer(t, "tok")
+	off, code := postWithStatus(t, bare.URL+"/api/v1/image-gen", "tok", map[string]string{"prompt": "x"})
+	if off.OK || code != http.StatusServiceUnavailable || !strings.Contains(off.Error, "not configured") {
+		t.Fatalf("no generator: ok=%v code=%d error=%q, want 503 not configured", off.OK, code, off.Error)
+	}
+
+	// 400: an empty prompt is the caller's mistake, not the provider's.
+	srv, calls := stubImageAPI(t, nil)
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	mgmt.SetImageGenerator(testImageGenerator(t, srv.URL))
+	empty, code := postWithStatus(t, ts.URL+"/api/v1/image-gen", "tok", map[string]string{"prompt": "   "})
+	if empty.OK || code != http.StatusBadRequest || !strings.Contains(empty.Error, "prompt") {
+		t.Fatalf("empty prompt: ok=%v code=%d error=%q, want 400 naming the prompt", empty.OK, code, empty.Error)
+	}
+	if got := atomic.LoadInt32(calls); got != 0 {
+		t.Fatalf("an empty prompt reached the provider %d times; it costs money", got)
+	}
+
+	// 409: one picture at a time. Hold the first inside the provider, then ask again.
+	release := make(chan struct{})
+	slow, slowCalls := stubImageAPI(t, func(w http.ResponseWriter, r *http.Request) bool {
+		<-release
+		return false
+	})
+	slowMgmt, slowTS, _ := testManagementServer(t, "tok")
+	slowMgmt.SetImageGenerator(testImageGenerator(t, slow.URL))
+	type answer struct {
+		res  mgmtResponse
+		code int
+	}
+	firstDone := make(chan answer, 1)
+	go func() {
+		res, code := postWithStatus(t, slowTS.URL+"/api/v1/image-gen", "tok", map[string]string{"prompt": "第一张"})
+		firstDone <- answer{res, code}
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for atomic.LoadInt32(slowCalls) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if atomic.LoadInt32(slowCalls) == 0 {
+		t.Fatal("the first draw never reached the provider")
+	}
+	busy, code := postWithStatus(t, slowTS.URL+"/api/v1/image-gen", "tok", map[string]string{"prompt": "第二张"})
+	close(release)
+	if first := <-firstDone; !first.res.OK || first.code != http.StatusOK {
+		t.Fatalf("first draw failed: %s (code %d)", first.res.Error, first.code)
+	}
+	if busy.OK || code != http.StatusConflict || !strings.Contains(busy.Error, "still being generated") {
+		t.Fatalf("second draw: ok=%v code=%d error=%q, want 409 busy", busy.OK, code, busy.Error)
+	}
+
+	// 502: the provider answered with an error; the reason must survive to the page.
+	bad, _ := stubImageAPI(t, func(w http.ResponseWriter, r *http.Request) bool {
+		http.Error(w, `{"error":{"message":"quota exceeded"}}`, http.StatusTooManyRequests)
+		return true
+	})
+	badMgmt, badTS, _ := testManagementServer(t, "tok")
+	badMgmt.SetImageGenerator(testImageGenerator(t, bad.URL))
+	failed, code := postWithStatus(t, badTS.URL+"/api/v1/image-gen", "tok", map[string]string{"prompt": "x"})
+	if failed.OK || code != http.StatusBadGateway || !strings.Contains(failed.Error, "429") || !strings.Contains(failed.Error, "quota exceeded") {
+		t.Fatalf("provider failure: ok=%v code=%d error=%q, want 502 carrying 429 and the reason", failed.OK, code, failed.Error)
+	}
+}
+
+// No token means anyone on the network can draw with the owner's key: spending must be
+// refused while reading the status stays available.
+func TestMgmt_ImageGenSpendNeedsAToken(t *testing.T) {
+	srv, calls := stubImageAPI(t, nil)
+	// testManagementServer with an empty token: authenticate() lets every request through.
+	mgmt, ts, _ := testManagementServer(t, "")
+	mgmt.SetImageGenerator(testImageGenerator(t, srv.URL))
+
+	noToken, code := postWithStatus(t, ts.URL+"/api/v1/image-gen", "", map[string]string{"prompt": "unauth spend test"})
+	if noToken.OK || code != http.StatusForbidden || !strings.Contains(noToken.Error, "token") {
+		t.Fatalf("untokened draw: ok=%v code=%d error=%q, want 403 naming the token", noToken.OK, code, noToken.Error)
+	}
+	if got := atomic.LoadInt32(calls); got != 0 {
+		t.Fatalf("an untokened request reached the provider %d times; it spends the owner's money", got)
+	}
+	// Reading the status is not spending, so it stays open.
+	if r := mgmtGet(t, ts.URL+"/api/v1/image-gen", ""); !r.OK {
+		t.Fatalf("status without a token should still answer, got %q", r.Error)
+	}
+}
+
+// A refused out_dir must be visible in the status call, not discovered at draw time.
+func TestMgmt_ImageGenReportsRefusedOutDir(t *testing.T) {
+	dataDir := t.TempDir()
+	outside := t.TempDir()
+	g := NewImageGenerator(ImageGenConfig{Enabled: true, APIKey: "k", OutDir: outside, DataDir: dataDir})
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	mgmt.SetImageGenerator(g)
+
+	r := mgmtGet(t, ts.URL+"/api/v1/image-gen", "tok")
+	var st struct {
+		Status  string `json:"status"`
+		CanDraw bool   `json:"can_draw"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(r.Data, &st); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if st.Status != "error" || st.CanDraw || !strings.Contains(st.Message, "data_dir") {
+		t.Fatalf("status = %+v, want error naming data_dir", st)
+	}
+	var withPics struct {
+		Pictures []ImageGenResult `json:"pictures"`
+	}
+	if err := json.Unmarshal(r.Data, &withPics); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if len(withPics.Pictures) != 0 {
+		t.Fatalf("a refused out_dir still listed %d pictures", len(withPics.Pictures))
+	}
+	post, code := postWithStatus(t, ts.URL+"/api/v1/image-gen", "tok", map[string]string{"prompt": "x"})
+	if post.OK || code != http.StatusServiceUnavailable || !strings.Contains(post.Error, "data_dir") {
+		t.Fatalf("draw with a refused out_dir: ok=%v code=%d error=%q, want 503 naming data_dir", post.OK, code, post.Error)
 	}
 }
 
@@ -272,10 +620,10 @@ func TestMgmt_ImageGenDrawsAndServesPicture(t *testing.T) {
 
 	st := mgmtGet(t, ts.URL+"/api/v1/image-gen", "tok")
 	var stBody struct {
-		Status    string          `json:"status"`
-		CanDraw   bool            `json:"can_draw"`
-		APIKeySet bool            `json:"api_key_set"`
-		Model     string          `json:"model"`
+		Status    string           `json:"status"`
+		CanDraw   bool             `json:"can_draw"`
+		APIKeySet bool             `json:"api_key_set"`
+		Model     string           `json:"model"`
 		Pictures  []ImageGenResult `json:"pictures"`
 	}
 	if err := json.Unmarshal(st.Data, &stBody); err != nil {

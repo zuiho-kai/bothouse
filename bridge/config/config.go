@@ -470,7 +470,7 @@ type ImageGenConfig struct {
 	OpenAI   struct {
 		APIKey  string `toml:"api_key"`
 		BaseURL string `toml:"base_url"`
-		Model   string `toml:"model"` // default gpt-image-1
+		Model   string `toml:"model"`             // default gpt-image-1
 		Size    string `toml:"size,omitempty"`    // e.g. "1024x1024"; empty = provider default
 		Quality string `toml:"quality,omitempty"` // e.g. "low"; empty = provider default
 	} `toml:"openai"`

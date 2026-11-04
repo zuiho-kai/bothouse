@@ -578,7 +578,7 @@ level = "info" # debug, info, warn, error
 # [image_gen]
 # enabled  = false           # 默认关闭 / off unless you turn it on
 # provider = "openai"        # 目前只支持 "openai"
-# out_dir  = ""              # 留空 = <data_dir>/images
+# out_dir  = ""              # 留空 = <data_dir>/images；只能指在 data_dir 里面（取图接口不带 token）
 #
 # [image_gen.openai]
 # api_key  = "sk-xxx"

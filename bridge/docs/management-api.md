@@ -1294,6 +1294,8 @@ send a `Bearer` header. Only plain file names this server wrote are served; anyt
 a name with a separator or `..`, a symlink (even to a file inside `out_dir`), a file whose real path
 falls outside the resolved `out_dir`, and a file whose bytes are not `image/*` when sniffed.
 
+---
+
 ## 6. Error Handling Conventions
 
 ### 6.1 Standard Error Response

@@ -81,10 +81,15 @@ export default function ImageGenPage() {
 
       {state && state.status !== 'ready' && (
         <Card>
+          {/* Two different problems, two different fixes: an absent section versus a setting
+              that cannot be honoured (e.g. out_dir outside data_dir). Saying "not configured"
+              for the second sent the owner looking for a section that was already there. */}
           <h2 className="text-sm font-semibold text-ink" data-testid="image-gen-unconfigured">
-            {T.notConfigured}
+            {state.status === 'error' ? T.misconfigured : T.notConfigured}
           </h2>
-          <p className="mt-1 text-sm text-ink-soft">{T.notConfiguredHint}</p>
+          <p className="mt-1 text-sm text-ink-soft">
+            {state.status === 'error' ? T.misconfiguredHint : T.notConfiguredHint}
+          </p>
           {state.message && <p className="mt-2 font-mono text-xs text-ink-mute">{state.message}</p>}
           <p className="mt-3 text-[13px] text-ink-mute">{T.providersHint}</p>
           <p className="mt-1 text-[13px] text-ink-mute">{T.restartNote}</p>

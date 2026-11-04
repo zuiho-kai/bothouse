@@ -2373,14 +2373,14 @@ func buildHeartbeatConfig(hc config.HeartbeatConfig) core.HeartbeatConfig {
 // unless the section is enabled: the panel then says "not configured" instead of offering a
 // button that would spend the owner's money. Picture files live under <data_dir>/images so they
 // sit next to sessions and the avatar library, and survive a rebuild.
+//
+// data_dir is handed over as the root out_dir must stay under: the route that serves a picture
+// has no token, so the directory it can reach is what keeps it from serving any picture on this
+// machine (review 1032, 06:33).
 func buildImageGenerator(cfg *config.Config) *core.ImageGenerator {
 	ic := cfg.ImageGen
 	if !ic.Enabled {
 		return nil
-	}
-	outDir := strings.TrimSpace(ic.OutDir)
-	if outDir == "" {
-		outDir = filepath.Join(cfg.DataDir, "images")
 	}
 	return core.NewImageGenerator(core.ImageGenConfig{
 		Enabled:  true,
@@ -2390,7 +2390,8 @@ func buildImageGenerator(cfg *config.Config) *core.ImageGenerator {
 		Model:    ic.OpenAI.Model,
 		Size:     ic.OpenAI.Size,
 		Quality:  ic.OpenAI.Quality,
-		OutDir:   outDir,
+		OutDir:   ic.OutDir,
+		DataDir:  cfg.DataDir,
 	})
 }
 
