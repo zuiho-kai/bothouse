@@ -138,6 +138,8 @@ function clockOf(seconds: number): string {
 /** #148: inline editor state for one of your own messages. */
 interface OwnActions {
   editing: string | undefined
+  /** Another own message is being edited; that row's textarea owns focus. */
+  editingOther: boolean
   onStartEdit: () => void
   onEditChange: (text: string) => void
   onEditSave: () => void
@@ -180,9 +182,10 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   const isEditing = own?.editing !== undefined
   useEffect(() => {
     // The edit button is recreated after save/cancel; the old DOM node is detached.
-    if (wasEditing.current && !isEditing) editButtonRef.current?.focus()
+    // Switching the edit to another row must not pull focus back here (PR934 F2).
+    if (wasEditing.current && !isEditing && own?.editingOther !== true) editButtonRef.current?.focus()
     wasEditing.current = isEditing
-  }, [isEditing])
+  }, [isEditing, own?.editingOther])
 
   const retryButtons = (role === 'failure' || card?.state === 'failed') && card !== undefined && (
     <div className={css.cardButtons}>
@@ -680,6 +683,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     if (m.author_kind !== 'user' || m.card !== null) return undefined
     return {
       editing: editing?.id === m.id ? editing.text : undefined,
+      editingOther: editing !== undefined && editing.id !== m.id,
       onStartEdit: () => { setOwnNotice(undefined); setEditing({ id: m.id, text: m.text }) },
       onEditChange: (text) => { setEditing({ id: m.id, text }) },
       onEditCancel: () => { setEditing(undefined) },

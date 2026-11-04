@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 929594beb513fe47688d47c3cd57239a1ff1f0c4ab35047596162f07917b2aa5
+// dsh-client-source-sha256: 87dc57420361b397b10dc280e4a687b5a32d15dc8f7fac1f1e53de52f3b78c8c
 // dsh-style-sha256: 64684194a1ee88bde411133c950868761c94b59fbf4c7305dcf3484af45a16c5
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -18918,9 +18918,9 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 	const wasEditing = (0, react.useRef)(false);
 	const isEditing = own?.editing !== void 0;
 	(0, react.useEffect)(() => {
-		if (wasEditing.current && !isEditing) editButtonRef.current?.focus();
+		if (wasEditing.current && !isEditing && own?.editingOther !== true) editButtonRef.current?.focus();
 		wasEditing.current = isEditing;
-	}, [isEditing]);
+	}, [isEditing, own?.editingOther]);
 	const retryButtons = (role === "failure" || card?.state === "failed") && card !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: ChannelsPage_module_default.cardButtons,
 		children: [card.state !== "retried" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
@@ -19657,6 +19657,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		if (m.author_kind !== "user" || m.card !== null) return void 0;
 		return {
 			editing: editing?.id === m.id ? editing.text : void 0,
+			editingOther: editing !== void 0 && editing.id !== m.id,
 			onStartEdit: () => {
 				setOwnNotice(void 0);
 				setEditing({

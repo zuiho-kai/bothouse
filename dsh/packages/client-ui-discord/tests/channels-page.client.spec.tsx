@@ -423,6 +423,23 @@ describe('channels page', () => {
     expect(editMessage).toHaveBeenCalledExactlyOnceWith(9, 'xin')
   })
 
+  it('keeps focus in the new edit box when switching the edit to another own message (PR934 F2)', () => {
+    const mine: ChannelSnapshot = {
+      ...ready,
+      messages: [
+        { id: 9, room_id: 1, author_kind: 'user', author: 'owner', name: '我', text: '一', created_at: 1, card: null, from_turn: null },
+        { id: 10, room_id: 1, author_kind: 'user', author: 'owner', name: '我', text: '二', created_at: 2, card: null, from_turn: null },
+      ],
+    }
+    render(<ChannelsPage {...props(mine)} editMessage={vi.fn(async () => {})} withdrawMessage={vi.fn(async () => {})} />)
+    fireEvent.click(screen.getAllByRole('button', { name: zh.messageEdit })[0]!)
+    expect((screen.getByRole('textbox', { name: zh.messageEdit }) as HTMLTextAreaElement).value).toBe('一')
+    fireEvent.click(screen.getByRole('button', { name: zh.messageEdit }))
+    const box = screen.getByRole('textbox', { name: zh.messageEdit }) as HTMLTextAreaElement
+    expect(box.value).toBe('二')
+    expect(document.activeElement).toBe(box)
+  })
+
   it('does not pick an @ candidate on the IME-confirming Enter (keyCode 229)', () => {
     const send = vi.fn(async () => {})
     render(<ChannelsPage {...props(ready, send)} />)
