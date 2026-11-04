@@ -1764,3 +1764,20 @@
   .decideTray { margin: 0 8px 8px; }
   .askForm { flex-basis: 100%; }
 }
+
+/* #125 task board beside the chat (owner's 11:53 sample v1: 右侧详情并排面板, its 1100px breakpoint).
+   The dock takes a grid column only while the board is in it; at ≤1100px the board stays a drawer. */
+.sideDock { display: none; }
+@media (min-width: 1101px) {
+  .page.panelOpen { grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%) 240px; }
+  .page.panelOpen.roomsHidden { grid-template-columns: minmax(0, 1fr) min(420px, 36%) 240px; }
+  .page.panelOpen.membersHidden { grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%); }
+  .page.panelOpen.roomsHidden.membersHidden { grid-template-columns: minmax(0, 1fr) min(420px, 36%); }
+  .page.panelOpen > .sideDock { display: flex; min-width: 0; min-height: 0; border-left: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base); }
+}
+.sidePanel { position: relative; box-sizing: border-box; width: 100%; height: 100%; max-height: none; margin: 0; border: 0; border-radius: 0; box-shadow: none; animation: boardDrawerIn .2s ease-out; }
+.sidePanel:focus { outline: none; }
+.sidePanelClose { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); font-size: 18px; line-height: 1; cursor: pointer; }
+.sidePanelClose:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+@media (prefers-reduced-motion: reduce) { .sidePanel { animation: none; } }
+.sidePanel .boardCardGrid { grid-template-columns: minmax(0, 1fr); }

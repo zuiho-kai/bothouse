@@ -552,6 +552,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   const [roomsHidden, setRoomsHidden] = useState(false)
   // 来源：用户 11-03 白色方案，活动栏默认收起，保留现有展开与手机抽屉入口。
   const [membersHidden, setMembersHidden] = useState(true)
+  const [boardDock, setBoardDock] = useState<HTMLDivElement | null>(null)
+  const [boardDocked, setBoardDocked] = useState(false)
   const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
@@ -855,7 +857,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   }
 
   return (
-    <div className={[css.page, roomsHidden ? css.roomsHidden : '', membersHidden ? css.membersHidden : ''].filter(Boolean).join(' ')} data-dc-scheme={scheme}>
+    <div className={[css.page, roomsHidden ? css.roomsHidden : '', membersHidden ? css.membersHidden : '', boardDocked ? css.panelOpen : ''].filter(Boolean).join(' ')} data-dc-scheme={scheme}>
       {drawer !== undefined && <button className={css.drawerBackdrop} aria-label={t('closeDrawer')} onClick={() => setDrawer(undefined)} />}
       <nav ref={roomsRef} className={drawer === 'rooms' ? `${css.rooms} ${css.drawerOpen}` : css.rooms} aria-label={t('rooms')} role={drawer === 'rooms' ? 'dialog' : undefined} aria-modal={drawer === 'rooms' ? true : undefined} tabIndex={drawer === 'rooms' ? -1 : undefined}>
         {/* 白色方案：左栏顶部置顶当前主角色（总管）卡，和右上胶囊同一份状态；没有总管时显示兜底文字。 */}
@@ -918,7 +920,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
             {t('headMembers', { count: visibleMembers.length })}
             {channelActive > 0 && <> · {t('activeTasks', { count: channelActive })}</>}
           </span>
-          <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} />
+          <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} dock={boardDock} onDocked={setBoardDocked} />
           <div className={css.headLead} role="group" aria-label={t('headLead')} title={lead === undefined ? leadStatus : `${lead.name} · ${leadStatus}`}>
             {lead !== undefined && <Avatar id={lead.id} name={lead.name} avatar={lead.avatar} avatarVersion={lead.avatarVersion} small />}
             <span className={css.headLeadText}>
@@ -1102,6 +1104,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           </div>
         </div>
       </section>
+      {/* #125: the task board's column beside the chat on wide screens (TaskBoard renders into it). */}
+      <div ref={setBoardDock} className={css.sideDock} />
       <aside ref={membersRef} className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members} role={drawer === 'members' ? 'dialog' : undefined} aria-modal={drawer === 'members' ? true : undefined} aria-label={t('activityPanel')} tabIndex={drawer === 'members' ? -1 : undefined}>
         <div className={css.membersHead}><span className={css.membersHeadTitle}>{t('activityPanel')}</span></div>
         <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { settingsReturnRef.current = drawer === 'members' ? membersToggleRef.current : settingsButtonRef.current; setDrawer(undefined); setSettingsOpen(true) }}>
