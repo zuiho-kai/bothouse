@@ -331,3 +331,59 @@ test('kicking a device ends the event stream it already holds; other devices kee
   assert.equal(again.status, 401);
   assert.equal(again.headers['x-collab-pair'], 'revoked');
 });
+
+test('a kicked device leaves 「我连着的电脑」 without that link being opened first', async t => {
+  // Host side, listening on loopback: one live number, two devices paired.
+  const host = new PairHost({ file: join(dir(), 'd.json') });
+  const port = await freePort();
+  const listener = new PairListener({ host, address: async () => '127.0.0.1', port,
+    handler: hostHandler({ host, name: 'mac-mini', route: (q, s) => { s.writeHead(200); s.end(); }, allowLoopback: true, whois: async () => undefined }) });
+  t.after(() => listener.close());
+  const client = new PairClient({ file: join(dir(), 'l.json'), port, name: 'macbook' });
+  const ctl = createServer((req, res) => {
+    const url = new URL(req.url, 'http://x');
+    return pairApiRoute(req, res, url, { host: new PairHost({ file: join(dir(), 'h2.json') }), client,
+      listener: { ensure: async () => '', settle: async () => {}, bound: null }, peers: async () => [] })
+      ?? (res.writeHead(404), res.end());
+  });
+  const ctlPort = await listen(ctl);
+  t.after(() => ctl.close());
+
+  await listener.ensure();
+  const kicked = await client.connect({ host: '127.0.0.1', code: host.newCode().code, mode: 'remember', name: 'old' });
+  const oldId = host.list()[0].id;
+  const kept = await client.connect({ host: '127.0.0.1', code: host.newCode().code, mode: 'remember', name: 'kept' });
+  assert.deepEqual((await get(ctlPort, '/collab/api/remote/links')).json.links.map(l => l.name).sort(), ['kept', 'old']);
+
+  // Kicked on the host while the listener keeps running for the other device: no page of the
+  // kicked one is opened from now on.
+  assert.equal(host.revoke(oldId), true); // what 「踢掉」 on the host does
+  const listed = (await get(ctlPort, '/collab/api/remote/links')).json.links;
+  assert.deepEqual(listed.map(l => l.name), ['kept'], 'kicked machine is gone from the list');
+  assert.ok(listed.every(l => l.id !== kicked.id));
+  assert.equal(JSON.parse(readFileSync(client.file, 'utf8')).links.some(l => l.id === kicked.id), false, 'and not written back');
+
+  // A host that is simply off is not a kick: its link stays.
+  await listener.close();
+  assert.deepEqual((await get(ctlPort, '/collab/api/remote/links')).json.links.map(l => l.name), ['kept']);
+  assert.equal(kept.id, listed[0].id);
+});
+
+test('pair/whoami answers the device itself and refuses a revoked credential', async t => {
+  const host = new PairHost({ file: join(dir(), 'd.json') });
+  const port = await freePort();
+  const listener = new PairListener({ host, address: async () => '127.0.0.1', port,
+    handler: hostHandler({ host, name: 'mac-mini', route: (q, s) => { s.writeHead(200); s.end(); }, allowLoopback: true, whois: async () => undefined }) });
+  t.after(() => listener.close());
+  await listener.ensure();
+  const { token, device } = host.claim({ code: host.newCode().code, mode: 'remember', name: 'macbook' });
+  const ok = await get(port, '/collab/pair/whoami', { headers: { authorization: `Bearer ${token}` } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.device.id, device.id);
+  assert.equal(ok.json.host_name, 'mac-mini');
+  host.revoke(device.id);
+  const gone = await get(port, '/collab/pair/whoami', { headers: { authorization: `Bearer ${token}` } });
+  assert.equal(gone.status, 401);
+  assert.equal(gone.json.code, 'revoked');
+  assert.equal(gone.headers['x-collab-pair'], 'revoked');
+});

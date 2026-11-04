@@ -342,6 +342,21 @@ export class PairClient {
     return stale.map(l => l.id);
   }
 
+  /**
+   * Ask each host whether this machine is still paired, and forget the ones it revoked, so the
+   * 「我连着的电脑」 list clears after a kick even if that link is never opened again. A host that
+   * cannot be reached is kept: it may only be off, which is not the same as being kicked.
+   */
+  async refresh() {
+    const dropped = [];
+    await Promise.all([...this.links.values()].map(async l => {
+      const r = await this.request({ host: l.host, port: l.port, path: '/collab/pair/whoami', headers: { authorization: `Bearer ${l.token}` }, timeout: 1500 })
+        .catch(() => undefined);
+      if (r?.status === 401 && r.body?.code === 'revoked') { this.drop(l.id); dropped.push(l.id); }
+    }));
+    return dropped;
+  }
+
   /** Forget a link here and tell the host to drop its device (best effort). */
   async disconnect(id) {
     const l = this.links.get(id);
@@ -489,6 +504,15 @@ export function hostHandler({ host, name, route, whois = whoisName, allowLoopbac
         return sendJSON(res, 200, { token, device, host_name: name });
       }
       const device = host.verify(bearer(req));
+      if (url.pathname === '/collab/pair/whoami' && req.method === 'GET') {
+        // Answers with the device's own view, so a controller whose link was kicked can tell
+        // "revoked" from "that machine is off". Same 401 shape as every other refused request.
+        if (device === undefined) {
+          res.writeHead(401, { 'content-type': 'application/json; charset=utf-8', 'x-collab-pair': 'revoked' });
+          return res.end(JSON.stringify({ error: 'device not paired', code: 'revoked' }));
+        }
+        return sendJSON(res, 200, { ok: true, device: host.view(device), host_name: name });
+      }
       if (url.pathname === '/collab/pair/forget' && req.method === 'POST') {
         if (device !== undefined) host.revoke(device.id);
         return sendJSON(res, 200, { ok: true });
@@ -598,7 +622,12 @@ export function pairApiRoute(req, res, url, { host, client, listener, peers = ta
         return sendJSON(res, 200, { peers: probed });
       }
       if (p === '/collab/api/remote/alive' && req.method === 'POST') { client.alive(); return sendJSON(res, 200, { ok: true }); }
-      if (p === '/collab/api/remote/links' && req.method === 'GET') return sendJSON(res, 200, { links: client.list() });
+      if (p === '/collab/api/remote/links' && req.method === 'GET') {
+        // Reading the list is the moment a kicked machine must disappear from it, before the
+        // person opens that link (remoteProxyRoute drops it then, too).
+        await client.refresh();
+        return sendJSON(res, 200, { links: client.list() });
+      }
       if (p === '/collab/api/remote/links' && req.method === 'POST') {
         const body = await readJSON(req);
         const ip = String(body?.host ?? '').trim();
