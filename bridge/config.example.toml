@@ -1830,6 +1830,14 @@ app_secret = "your-feishu-app-secret"
 #                                   # 未设置、空字符串或 * 保持原行为；不会授予 admin_from 权限。
 # share_session_in_channel = false  # If true, all users in a group share one agent session / 群聊共享会话
 #                                   # Team mode (several roles in one group) needs true / 团队模式（同群多角色）需要 true
+# split_bubbles = false             # Optional: one message per blank-line paragraph / 可选：按空行拆成多条
+# allow_qzone = false               # Opt in to reading/posting/deleting this account's own QQ空间说说
+#                                   # (NapCat's qzone extension: get_qzone_msg_list / send_qzone_msg /
+#                                   # delete_qzone_msg). Off by default: a 说说 is visible to other people.
+#                                   # 允许查/发/删这个号自己的说说（NapCat 空间扩展）。默认关闭：说说别人看得见。
+# allow_avatar = false              # Opt in to changing this account's own avatar (NapCat set_qq_avatar).
+#                                   # Off by default: an avatar is visible everywhere at once.
+#                                   # 允许换这个号自己的头像（NapCat set_qq_avatar）。默认关闭：头像处处可见。
 
 # QQ Bot (Official / 官方 QQ 机器人) (uncomment to enable / 取消注释以启用)
 # Uses the official QQ Bot Platform API — no third-party adapter needed.

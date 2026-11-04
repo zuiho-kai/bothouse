@@ -784,6 +784,8 @@ func (m *ManagementServer) handleProjectRoutes(w http.ResponseWriter, r *http.Re
 		m.handleProjectModel(w, r, engine)
 	case "heartbeat":
 		m.handleProjectHeartbeat(w, r, projName, rest)
+	case "social":
+		m.handleProjectSocial(w, r, engine, rest)
 	case "authorization":
 		m.handleProjectAuthorization(w, r, engine, rest)
 	case "users":

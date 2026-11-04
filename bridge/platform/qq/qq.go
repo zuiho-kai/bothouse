@@ -43,8 +43,12 @@ type Platform struct {
 	groupHistory     sync.Map // groupID -> *groupLog: recent lines, so a turn sees what the group was saying
 	// saveImagesDir: when set (option save_images_dir), every received image is also
 	// written there and the path is added to this turn only.
-	saveImagesDir         string
-	splitReplyBubbles     bool
+	saveImagesDir     string
+	splitReplyBubbles bool
+	// allowQzone / allowAvatar gate the write-to-my-own-account extensions
+	// (说说、头像, social.go). Both default off: they act as the account owner.
+	allowQzone            bool
+	allowAvatar           bool
 	commandAllowFrom      string // optional separate sender list for slash-prefixed input
 	shareSessionInChannel bool
 	project               string // this bot's project name (opts["cc_project"]), named in outbound receipts
@@ -164,6 +168,8 @@ func New(opts map[string]any) (core.Platform, error) {
 	project, _ := opts["cc_project"].(string)
 	saveImagesDir, _ := opts["save_images_dir"].(string)
 	splitReplyBubbles, _ := opts["split_bubbles"].(bool)
+	allowQzone, _ := opts["allow_qzone"].(bool)
+	allowAvatar, _ := opts["allow_avatar"].(bool)
 
 	core.CheckAllowFrom("qq", allowFrom)
 
@@ -195,6 +201,8 @@ func New(opts map[string]any) (core.Platform, error) {
 		commandAllowFrom:      commandAllowFrom,
 		saveImagesDir:         saveImagesDir,
 		splitReplyBubbles:     splitReplyBubbles,
+		allowQzone:            allowQzone,
+		allowAvatar:           allowAvatar,
 		shareSessionInChannel: shareSessionInChannel,
 		project:               project,
 		httpURL:               httpURL,

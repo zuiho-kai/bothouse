@@ -65,7 +65,8 @@
       "providers": "Providers",
       "heartbeat": "Heartbeat",
       "settings": "Settings",
-      "persona": "Persona"
+      "persona": "Persona",
+      "social": "Moments"
     }
   },
   "sessions": {

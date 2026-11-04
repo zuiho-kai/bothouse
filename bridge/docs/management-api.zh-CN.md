@@ -1081,6 +1081,123 @@ GET /api/v1/status?token=mgmt-secret
 
 ---
 
+### 5.8 说说与头像（可选）
+
+这两个接口以机器人自己的 QQ 号身份对外生效：说说别人看得见，头像处处看得见。所以
+**默认关闭**，必须在项目的 qq 平台选项里显式打开：
+
+```toml
+[projects.platforms.options]
+allow_qzone = true    # 查/发/删这个号自己的说说
+allow_avatar = true   # 换这个号自己的头像
+```
+
+能力判断按接口而不是平台名：项目里的平台没实现这个能力时返回 `not_supported`，不靠平台名猜。
+这里没有任何定时动作——定时发是定时任务那一节的事，两个决定分开。
+
+#### GET /api/v1/projects/{name}/social
+
+读出能力开关和这个号最近的说说（新的在前）。
+
+**查询参数：** `limit` — 读几条（默认 20，最多 50）。
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "ready",
+    "platform": "qq",
+    "capabilities": {
+      "list_moments": true,
+      "post_moment": true,
+      "remove_moment": true,
+      "set_avatar": true,
+      "disabled_reason": ""
+    },
+    "moments": [
+      {
+        "id": "d43708d9240ae56ae9670e00",
+        "text": "今天画了张图",
+        "time": "2026-11-05T06:21:06+08:00",
+        "images": [],
+        "private": false
+      }
+    ]
+  }
+}
+```
+
+`status` 取值：
+
+| status | 含义 |
+|--------|------|
+| `ready` | 已打开，`moments` 是列表 |
+| `off` | 能力在，但配置没打开；`message` 指明是哪个配置项 |
+| `error` | 读列表失败；`message` 说明原因，写操作仍按 `capabilities` 走 |
+| `not_supported` | 这个项目的平台根本做不了 |
+
+`moments` 永远是数组（`[]` 而不是 `null`），面板可以直接读 `.length`。
+
+---
+
+#### POST /api/v1/projects/{name}/social/moment
+
+发一条说说（目前只发文字；带图走 QQ 客户端自己的路径）。
+
+**请求体：**
+
+```json
+{ "text": "今天画了张图" }
+```
+
+**响应：**
+
+```json
+{ "ok": true, "data": { "moment": { "id": "stub01", "text": "今天画了张图", "time": "2026-11-05T06:21:06+08:00", "images": [], "private": false } } }
+```
+
+错误：`400` 文字为空、`403` 没打开（消息里点名 `allow_qzone`）、`501` 平台做不了、
+`502` 上游拒绝（消息里带上游 action，扩展不存在时提示升级 NapCat）。
+
+---
+
+#### POST /api/v1/projects/{name}/social/moment/delete
+
+删掉自己的一条说说。已经不在的也算删掉。
+
+**请求体：**
+
+```json
+{ "id": "stub01" }
+```
+
+**响应：**
+
+```json
+{ "ok": true, "data": { "result": "deleted" } }
+```
+
+---
+
+#### POST /api/v1/projects/{name}/social/avatar
+
+换这个号的头像。
+
+**请求：** `multipart/form-data`，字段名 `file`。接受嗅探为 `image/*` 的文件，最大 2 MiB。
+
+**响应：**
+
+```json
+{ "ok": true, "data": { "result": "changed", "mime": "image/png", "bytes": 94 } }
+```
+
+错误：`400` 不是图片或文件为空、`403` 没打开（消息里点名 `allow_avatar`）、`413` 超过 2 MiB、
+`501` 平台不能换头像。
+
+---
+
 ## 6. 错误处理约定
 
 ### 6.1 标准错误响应
@@ -1163,6 +1280,7 @@ cors_origins = ["http://localhost:3000", "https://dashboard.example.com"]
 | 版本       | 日期       | 变更                    |
 |------------|------------|-------------------------|
 | 1.0-draft  | 2026-03-10 | 初始规范                |
+| 1.1-draft  | 2026-11-05 | 新增可选的 QQ 说说 / 头像接口（`/projects/{name}/social…`），`allow_qzone` / `allow_avatar` 未打开时不生效 |
 
 ---
 
