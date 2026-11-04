@@ -832,7 +832,7 @@ describe('progress card detail/brief view', () => {
   it('starts brief, switches to detail, and remembers the choice per room', () => {
     const state: ChannelSnapshot = { ...ready, messages: [progress(1, 10)] }
     const first = render(<ChannelsPage {...props(state)} />)
-    expect(screen.getByText(/Bash · 进行中/)).toBeTruthy()
+    expect(within(screen.getByRole('log')).getByText(/Bash · 进行中/)).toBeTruthy()
     expect(screen.queryByText(/go test/)).toBeNull()
     expect(screen.getByRole('button', { name: zh.cardViewBrief }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: zh.cardViewDetail }))
@@ -846,7 +846,7 @@ describe('progress card detail/brief view', () => {
     cleanup()
     // ... while another room keeps the default.
     render(<ChannelsPage {...props({ ...ready, roomId: 2, messages: [progress(2, 11)] })} />)
-    expect(screen.getByText(/Bash · 进行中/)).toBeTruthy()
+    expect(within(screen.getByRole('log')).getByText(/Bash · 进行中/)).toBeTruthy()
   })
 
   it('cards without a brief rendering show their text and no switch', () => {
