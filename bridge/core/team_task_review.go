@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -289,12 +290,42 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 	}
 }
 
+// teamReviewTiers: the role preferred for each review tier, from [team_review] (bridge-wide,
+// updated live from the settings page).
+var teamReviewTiers atomic.Pointer[[2]string]
+
+// SetTeamReviewTiers sets the role (project name) that verifies simple and complex handbacks;
+// "" leaves that tier to the usual pick.
+func SetTeamReviewTiers(simple, complex string) {
+	teamReviewTiers.Store(&[2]string{strings.TrimSpace(simple), strings.TrimSpace(complex)})
+}
+
+func taskReviewComplex(it teamTaskBoardItem) bool {
+	return strings.EqualFold(strings.TrimSpace(it.ReviewTier), "complex") || strings.TrimSpace(it.ReviewTier) == "复杂"
+}
+
+// taskReviewTierRole: the configured role for the item's tier ("" = none).
+func taskReviewTierRole(it teamTaskBoardItem) string {
+	t := teamReviewTiers.Load()
+	if t == nil {
+		return ""
+	}
+	if taskReviewComplex(it) {
+		return t[1]
+	}
+	return t[0]
+}
+
 // taskReviewStages: every stage a handback's verification job can have, for finding the job
 // already queued for it (taskReviewJobID).
 var taskReviewStages = []string{"returned", "overdue", "unavailable"}
 
 func taskReviewJobID(dir string, it teamTaskBoardItem, reviewer, stage string) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s/%d/%s/%s/%s", dir, it.ID, it.ReturnedAt.Format(time.RFC3339Nano), reviewer, stage)))
+	key := fmt.Sprintf("%s/%d/%s/%s/%s", dir, it.ID, it.ReturnedAt.Format(time.RFC3339Nano), reviewer, stage)
+	if taskReviewComplex(it) {
+		key += "/complex" // an escalated handback is a new verification, not the simple one again
+	}
+	sum := sha256.Sum256([]byte(key))
 	return fmt.Sprintf("review-%x", sum)
 }
 
@@ -353,8 +384,9 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 			return x, prior.UsesNewSessionPerRun()
 		}
 	}
-	var designated *Engine
+	var tier, designated *Engine
 	var pool []*Engine
+	tierRole := taskReviewTierRole(it)
 	for _, x := range w.engines() {
 		if x.timerScheduler == nil || skip[x.name] || taskReviewAuthor(it, x) || x.reviewCooling(chat) {
 			continue
@@ -362,11 +394,14 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 		if p, _, _ := x.timerTargetPlatform(chat); p == nil {
 			continue // cannot reply on the handback's platform: its timer would fail (platform not found)
 		}
-		if x.name == it.Reviewer {
+		switch x.name {
+		case tierRole:
+			tier = x
+		case it.Reviewer:
 			designated = x
-			continue
+		default:
+			pool = append(pool, x)
 		}
-		pool = append(pool, x)
 	}
 	sort.SliceStable(pool, func(i, j int) bool {
 		if load[pool[i].name] != load[pool[j].name] {
@@ -379,6 +414,14 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 	})
 	if designated != nil {
 		pool = append([]*Engine{designated}, pool...)
+	}
+	if tier != nil {
+		// The tier's role reviews even when busy (in a new side session): it is the model chosen
+		// for this kind of review. Only author or cooling sends the review elsewhere.
+		if !tier.quotaBusy(chat) && !tier.taskReviewQueuedIn(chat) {
+			return tier, false
+		}
+		return tier, true
 	}
 	for _, x := range pool {
 		if !x.quotaBusy(chat) && !x.taskReviewQueuedIn(chat) {
@@ -500,6 +543,9 @@ func (e *Engine) prepareTaskReview(job *TimerJob, now time.Time) (*TimerJob, err
 		}
 		title = t
 		prompts = append(prompts, e.i18n.Tf(MsgTaskReviewPrompt, t, it.What, it.Where, it.ID))
+		if !taskReviewComplex(*it) {
+			prompts = append(prompts, e.i18n.Tf(MsgTaskReviewEscalate, it.ID))
+		}
 	}
 	if len(prompts) == 0 {
 		return nil, nil

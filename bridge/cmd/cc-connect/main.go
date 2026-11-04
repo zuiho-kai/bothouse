@@ -717,7 +717,24 @@ func runMain() {
 				iv := int(v)
 				u.RateLimitWindow = &iv
 			}
-			return config.SaveGlobalSettings(u)
+			if v, ok := updates["review_simple_role"].(string); ok {
+				u.ReviewSimpleRole = &v
+			}
+			if v, ok := updates["review_complex_role"].(string); ok {
+				u.ReviewComplexRole = &v
+			}
+			if err := config.SaveGlobalSettings(u); err != nil {
+				return err
+			}
+			if u.ReviewSimpleRole != nil || u.ReviewComplexRole != nil {
+				// Applies at the next review scan; no restart.
+				if g := config.GetGlobalSettings(); g != nil {
+					simple, _ := g["review_simple_role"].(string)
+					complex, _ := g["review_complex_role"].(string)
+					core.SetTeamReviewTiers(simple, complex)
+				}
+			}
+			return nil
 		})
 		mgmtSrv.SetListGlobalProviders(func() ([]core.GlobalProviderInfo, error) {
 			providers, err := config.ListGlobalProviders()
@@ -1261,6 +1278,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	if cfg.Queue.MaxDepth != nil && *cfg.Queue.MaxDepth > 0 {
 		engine.SetMaxQueuedMessages(*cfg.Queue.MaxDepth)
 	}
+	core.SetTeamReviewTiers(cfg.TeamReview.Simple, cfg.TeamReview.Complex) // bridge-wide; each load re-applies
 
 	// Wire auto-compress settings
 	if proj.AutoCompress.Enabled != nil && *proj.AutoCompress.Enabled {
