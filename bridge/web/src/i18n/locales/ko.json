@@ -11,7 +11,8 @@
     "cron": "예약 작업",
     "bridge": "브리지",
     "skills": "스킬",
-    "system": "시스템"
+    "system": "시스템",
+    "wikiGalaxy": "Wiki 갤럭시"
   },
   "dashboard": {
     "title": "대시보드",
@@ -441,5 +442,10 @@
     "system": "시스템",
     "yellow": "밝은 옐로화이트",
     "toggle": "테마 전환"
+  },
+  "wikiGalaxy": {
+    "title": "Wiki 갤럭시",
+    "subtitle": "wiki를 은하로 표시: 페이지마다 별 하나, 별을 눌러 내용 확인. 읽기 전용.",
+    "open": "따로 열기"
   }
 }

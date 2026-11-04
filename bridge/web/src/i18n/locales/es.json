@@ -11,7 +11,8 @@
     "cron": "Tareas programadas",
     "bridge": "Puente",
     "skills": "Habilidades",
-    "system": "Sistema"
+    "system": "Sistema",
+    "wikiGalaxy": "Galaxia del wiki"
   },
   "dashboard": {
     "title": "Panel",
@@ -441,5 +442,10 @@
     "system": "Sistema",
     "yellow": "Amarillo y blanco",
     "toggle": "Cambiar tema"
+  },
+  "wikiGalaxy": {
+    "title": "Galaxia del wiki",
+    "subtitle": "El wiki como galaxia: una estrella por página, pulsa para leer. Solo lectura.",
+    "open": "Abrir aparte"
   }
 }

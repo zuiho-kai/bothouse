@@ -13,7 +13,8 @@
     "cron": "排程工作",
     "bridge": "橋接",
     "skills": "技能",
-    "system": "系統"
+    "system": "系統",
+    "wikiGalaxy": "Wiki 星河"
   },
   "dashboard": {
     "title": "總覽",
@@ -456,5 +457,10 @@
     "system": "跟隨系統",
     "yellow": "黃白明亮",
     "toggle": "切換主題"
+  },
+  "wikiGalaxy": {
+    "title": "Wiki 星河",
+    "subtitle": "把 wiki 畫成星系：每頁一顆星，點星看內容。唯讀，不改檔案。",
+    "open": "單獨開啟"
   }
 }

@@ -19,6 +19,7 @@ import SetupWizard from '@/pages/Setup/SetupWizard';
 import RoleList from '@/pages/Roles/RoleList';
 import DeviceList from '@/pages/Devices/DeviceList';
 import BridgeAdapters from '@/pages/Bridge/BridgeAdapters';
+import WikiGalaxyPage from '@/pages/Wiki/WikiGalaxyPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="setup" element={<SetupRoute />} />
         <Route path="roles" element={<RoleList />} />
         <Route path="devices" element={<DeviceList />} />
+        <Route path="wiki-galaxy" element={<WikiGalaxyPage />} />
         <Route path="projects" element={<ProjectList />} />
         <Route path="projects/:name" element={<ProjectDetail />} />
         <Route path="sessions" element={<SessionList />} />

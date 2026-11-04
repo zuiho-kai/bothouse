@@ -15,7 +15,7 @@ import { browserTransport, createChannelSource } from './channel-source.ts'
 import { ChannelsIcon } from './ChannelsIcon.tsx'
 import { ChannelsPage, type ChannelsInjected } from './ChannelsPage.tsx'
 import { EmbedPage } from './EmbedPage.tsx'
-import { DeskIcon, DevicesIcon, GalaxyIcon, PanelIcon } from './PanelIcons.tsx'
+import { DeskIcon, DevicesIcon, PanelIcon } from './PanelIcons.tsx'
 import { en, NS, zh, type ChannelsKey } from './locales.ts'
 
 export type { ChannelsInjected, ChannelsPageProps } from './ChannelsPage.tsx'
@@ -33,6 +33,8 @@ type SettingsStore = StoreHandle<object, { openSection(draft: object, id: string
 
 const PANEL_ID = 'channels' as MainPanelId
 const DESK_ID = 'collab-desk' as MainPanelId
+// Legacy panel id: links that still say `#wiki-galaxy` keep opening the galaxy, now as the
+// bothouse panel's own sub-page (#145).
 const GALAXY_ID = 'wiki-galaxy' as MainPanelId
 const BOTHOUSE_ID = 'bothouse-panel' as MainPanelId
 const DEVICES_ID = 'collab-devices' as MainPanelId
@@ -116,6 +118,8 @@ export function apply(ctx: ClientContext): void {
     const unsubscribe = ctx.slots.subscribe('sidebar.settings', bindPanel)
     // Deep link: the setup wizard opens `…#channels` (bridge core/setup_dsh_configure.go dshChannelsHash).
     // ctx.layout is the ui-layout service (`provide('layout')`), so it must be in `inject`.
+    // #145: `#wiki-galaxy` is handled after the panel registrations at the end of apply(), because
+    // selecting a panel whose main entry is not registered yet fails activation.
     if (location.hash === `#${PANEL_ID}`) ctx.layout.selectPanel(PANEL_ID)
     return () => { unsubscribe(); disposePanel?.() }
   })
@@ -129,13 +133,20 @@ export function apply(ctx: ClientContext): void {
 
   // #105: the collab pages and the management panel (forwarded by collab, which keeps the
   // panel token server-side) as main panels; order keeps them right under Channels.
+  // #145: the wiki galaxy is a page inside the bothouse panel now, not a sidebar entry of its
+  // own; the collab host still serves /collab/wiki-galaxy, so old links keep working.
   const embeds = [
     { id: DESK_ID, path: 'collab/desk', label: 'panelDesk', icon: DeskIcon, order: 6 },
-    { id: GALAXY_ID, path: 'collab/wiki-galaxy', label: 'panelGalaxy', icon: GalaxyIcon, order: 7 },
-    { id: BOTHOUSE_ID, path: 'collab/panel/', label: 'panelBothouse', icon: PanelIcon, order: 8 },
+    { id: BOTHOUSE_ID, path: 'collab/panel/', label: 'panelBothouse', icon: PanelIcon, order: 7 },
     // #131: pair with another DSH by a one-time number and drive its channels, desk and panel.
     { id: DEVICES_ID, path: 'collab/devices', label: 'panelDevices', icon: DevicesIcon, order: 9 },
   ] as const
+  // #145 compatibility: a window or bookmark that still names the old `#wiki-galaxy` panel keeps
+  // opening the galaxy — as the bothouse panel's galaxy sub-page, with no sidebar entry of its own.
+  ctx.slots.inject('main', () => ctx.slots.register({
+    name: 'main', key: GALAXY_ID, locale: NS,
+    inject: () => ({ path: 'collab/panel/wiki-galaxy', title: t('panelGalaxy') }),
+  }, EmbedPage))
   for (const page of embeds) {
     ctx.slots.inject('main', () => ctx.slots.register({
       name: 'main', key: page.id, locale: NS,
@@ -145,4 +156,7 @@ export function apply(ctx: ClientContext): void {
       name: 'sidebar.panellist', id: page.id, order: page.order, locale: NS, label: () => t(page.label),
     }, page.icon))
   }
+  // #145: a bookmark or window still saying `#wiki-galaxy` opens the galaxy sub-page. Runs after the
+  // registrations above; selecting a panel first leaves the shell with no seat to activate.
+  if (location.hash === `#${GALAXY_ID}`) ctx.layout.selectPanel(GALAXY_ID)
 }

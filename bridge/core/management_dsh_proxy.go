@@ -208,8 +208,9 @@ func (m *ManagementServer) handleDSHProxy(w http.ResponseWriter, r *http.Request
 	rp.ServeHTTP(w, r)
 }
 
-// dshRewriteHTML moves DSH's root-absolute app shell under /dsh/: the `<base href="/">` that its
-// relative assets resolve against, the `/plugins/` bundle URLs in attributes and the boot JSON, and,
+// dshRewriteHTML moves DSH's root-absolute app shell, and the bothouse panel's own mount base, under
+// /dsh/: the `<base href>` that their relative assets resolve against, the `/plugins/` bundle URLs in
+// attributes and the boot JSON, and,
 // since its client code also calls fixed root routes (`/api`, `/api/remote.mux`, `/plugins/events`,
 // `/open-in-app/...`), a shim ahead of every script that prefixes same-origin root paths given to
 // fetch, XMLHttpRequest, EventSource and WebSocket. Pages without that base tag pass through; the
@@ -228,7 +229,7 @@ func dshRewriteHTML(res *http.Response) error {
 	if s := string(b); manifest {
 		// The web app manifest's id/start_url/scope/icons are root paths too.
 		b = []byte(strings.ReplaceAll(s, `": "/`, `": "`+dshProxyPrefix+`/`))
-	} else if strings.Contains(s, dshShellBase) {
+	} else if strings.Contains(s, dshShellBase) || strings.Contains(s, dshPanelMountBase) {
 		b = []byte(dshHTMLReplacer.Replace(s))
 	}
 	res.Body = io.NopCloser(bytes.NewReader(b))
@@ -238,6 +239,14 @@ func dshRewriteHTML(res *http.Response) error {
 }
 
 const dshShellBase = `<base href="/">`
+
+// The bothouse panel (dsh/collab/panel.mjs rewritePanelHTML) points its own base at its mount path,
+// as `<base href="/collab/panel/" />`. When the panel is reached through this proxy the document
+// lives under /dsh/, so that base has to carry the prefix too — otherwise its relative assets and
+// /api/v1 calls land on the bare path and the management server answers them with the SPA's
+// index.html (a blank panel). Only the quoted path is matched, so however the tag is closed
+// (`/>` or `>`) the prefix lands in the same place.
+const dshPanelMountBase = `<base href="/collab/panel/"`
 
 // dshShimRoutes matches the root routes DSH's client code calls on its own server (source: its
 // shell bundles as served by dsh web on 11-03 — "/api/<method>", "/api/remote.mux", "/plugins/events",
@@ -256,6 +265,7 @@ const dshPathShim = `<script>(()=>{const P=` + "`" + dshProxyPrefix + "`" + `,L=
 
 var dshHTMLReplacer = strings.NewReplacer(
 	dshShellBase, `<base href="`+dshProxyPrefix+`/">`+dshPathShim,
+	dshPanelMountBase, `<base href="`+dshProxyPrefix+`/collab/panel/"`,
 	`"/plugins/`, `"`+dshProxyPrefix+`/plugins/`,
 	// Manifest fetches omit cookies unless asked, and /dsh/ needs the panel cookie.
 	`<link rel="manifest" `, `<link rel="manifest" crossorigin="use-credentials" `,
