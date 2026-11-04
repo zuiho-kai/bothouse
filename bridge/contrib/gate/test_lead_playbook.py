@@ -1,4 +1,5 @@
 """当主注入含主角色工作手册、当次不含：python3 -I contrib/gate/test_lead_playbook.py（不加载模型）"""
+import re
 import json, os, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
@@ -142,7 +143,8 @@ class DeptManager(unittest.TestCase):
         hit = self.got("", "discord:9:u1")
         self.assertEqual(len(hit), 1)
         self.assertIn("#7", hit[0]["path"])
-        self.assertIn("总部", hit[0]["desc"])
+        cid = re.search(r"\[#([0-9a-f]{8})\]$", hit[0]["desc"]).group(1)  # 只推目录行，正文按编号存进正文库
+        self.assertIn("总部", (ctxsvc.store_dir() / f"{cid}.md").read_text(encoding="utf-8"))
         self.assertEqual(self.got("", "discord:1"), [])  # 聊天频道
         self.assertEqual(self.got("", "discord:5"), [])  # 暂停的活
         for k in lead.KEYS[1:]:

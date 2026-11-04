@@ -146,7 +146,7 @@ def match_wiki(text, k=TOP_PAGES, root=None):
                 continue
             pages[rel] = {"head": idx.desc.get(rel, "")[:DESC_CHARS], "sep": " | ", "rows": []}
         fold = FORUM.label(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root)) if FORUM else ""
-        pages[rel]["rows"].append(_row(rel, line, f"{ln}: {fold}{_title(line)}{exp_tag(rel, line)}"))  # 只给标题+编号，细节自己按行号读；角色 wiki 的条也能投（编号只看这行内容）
+        pages[rel]["rows"].append(_row(rel, line, f"{ln}: {fold}{_title(line)}{exp_tag(rel, line)}", root=root, ln=ln))  # 只给标题+编号，细节自己按行号读；角色 wiki 的条也能投（编号只看这行内容）
     return [_render(dict(it, path=_shown(rel, root))) for rel, it in pages.items()]
 
 
@@ -299,7 +299,7 @@ def decision_items(text, key=""):
         if size > DEC_BLOCK or sum(map(len, by.values())) >= DEC_ROWS:  # hits 按相关度排，超了就丢后面的
             break
         by.setdefault(rel, []).append(row)
-        rows.setdefault(rel, []).append(_row(rel, line, row, rel))
+        rows.setdefault(rel, []).append(_row(rel, line, row, rel, ln=ln))
     body = "\n".join(f"{rel}\n" + "\n".join(v) for rel, v in by.items())
     if _dec_used.get(key, 0) + len(body) > DEC_KEY_CHARS:
         return []
@@ -435,9 +435,9 @@ def with_lessons(pages, text):
         path, row = _shown(rel), f"{n}: {_title(ln)}{exp_tag(rel, ln)}"
         page = next((p for p in pages if p["path"] == path), None)
         if page is None:
-            pages.append(_render({"path": path, "head": "教训表（经验）", "sep": " | ", "rows": [_row(rel, ln, row)]}))
+            pages.append(_render({"path": path, "head": "教训表（经验）", "sep": " | ", "rows": [_row(rel, ln, row, ln=n)]}))
         elif f"| {n}: " not in page["desc"]:
-            page["rows"].append(_row(rel, ln, row))
+            page["rows"].append(_row(rel, ln, row, ln=n))
             _render(page)
     return pages
 
@@ -516,9 +516,27 @@ def exp_id(rel, line):
     return f"{rel}#{hashlib.sha1(line.strip().encode()).hexdigest()[:10]}"
 
 
-def _row(rel, line, text, group=""):
-    """推送的一条：id 就是行尾 [#编号]（同 exp_tag），group 是定案块里它上面那行页路径。"""
-    return {"id": "#" + exp_id(rel, line).rpartition("#")[2], "text": text, "group": group}
+def _row(rel, line, text, group="", root=None, ln=0):
+    """推送的一条：id 就是行尾 [#编号]（同 exp_tag），group 是定案块里它上面那行页路径。
+    给了行号就把这条的原文（这行加它下面缩进的续行）按编号存进正文库，`bothouse ctx <编号>` 取得到。"""
+    h = exp_id(rel, line).rpartition("#")[2]
+    if ln:
+        stash(h, lambda: _entry_body(rel, line, root, ln))
+    return {"id": "#" + h, "text": text, "group": group}
+
+
+def _entry_body(rel, line, root, ln):
+    """wiki 一条的正文：出处「页:行号」、这行、它下面缩进的续行（踩坑记录等），到下一条为止。"""
+    out = [f"{_shown(rel, root)}:{ln}", line.rstrip()]
+    try:
+        rest = ((root or WIKI) / rel).read_text(encoding="utf-8", errors="ignore").split("\n")[int(ln):]
+    except (OSError, ValueError, TypeError):
+        rest = []
+    for x in rest:
+        if not x.startswith((" ", "\t")) or sum(map(len, out)) > ENTRY_CHARS:
+            break
+        out.append(x.rstrip())
+    return "\n".join(out)
 
 
 def _render(it):
@@ -551,21 +569,130 @@ def _rows_of(w):
     return dict(w, head="", sep="\n", rows=[{"id": "txt:" + h, "text": w.get("desc", ""), "group": ""}])
 
 
+# ---- 目录 + 按需取正文（用户 11-04「做」：所有塞进去的材料只给「标题加一句话加编号」，正文 AI 要用时按编号取；
+# 内容变了只补变的那几行，不整块重推。通用：不按任务、按角色裁，所有块走同一条路）----
+# 整块正文的条（身份、手册、常驻做法、画像、任务板、投票提示……，没有 rows 的）一律折成一行目录：标题 — 一句话 [#编号]，
+# 正文按编号存进 <数据目录>/ctx/<编号>.md，`bothouse ctx <编号>` 取（桥的旧会话交接也存这里，core/ctxstore.go）。
+# wiki 命中行本来就是「一句话 + [#编号]」，照旧；原文同样存进正文库（_row）。
+CTX_CMD = os.environ.get("BOTHOUSE_CTX_CMD") or "bothouse ctx"  # 取正文的命令；桥拉起 gate 时传它自己的可执行文件
+INLINE_CHARS = 200  # 正文不超过这么多字就原样给（折成目录也省不了几个字）
+BRIEF_CHARS = 120  # 一句话的上限
+ENTRY_CHARS = 2000  # wiki 一条连续行存进正文库的上限
+DIFF_SHARE = 0.5  # 变了的行超过这个比例就当整块重写：只给新目录行，不逐行补
+STORE_KEEP_DAYS = 14  # 正文库里多久没再写的文件清掉
+HOWTO = {"path": "【取正文】", "desc": f"下面的材料只给标题和 [#编号]；要正文跑 `{CTX_CMD} <编号>`（一次可写多个），用到再取"}
+
+
+def store_dir():
+    """正文库目录：<数据目录>/ctx（同 core/ctxstore.go ctxStoreDir）；datadir 没装（终端 hook 只装了 ctxsvc）就 None。"""
+    try:
+        import datadir
+    except ImportError:
+        return None
+    return Path(datadir.guard(datadir.data_dir())) / "ctx"
+
+
+_pruned = [0.0]
+
+
+def stash(cid, body):
+    """编号 cid 的正文写进正文库（body 可以是函数，库里已有就不调）。写坏了不挡推送。"""
+    d = store_dir()
+    if d is None:
+        return
+    f = d / f"{cid}.md"
+    try:
+        if f.exists():
+            os.utime(f)
+            return
+        d.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(body() if callable(body) else body, encoding="utf-8")
+        os.replace(tmp, f)
+        if time.time() - _pruned[0] > 3600:
+            _pruned[0] = time.time()
+            old = time.time() - STORE_KEEP_DAYS * 86400
+            for x in d.glob("*.md"):
+                if x.stat().st_mtime < old:
+                    x.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _doc_name(path):
+    """块的稳定名字：path 去掉末尾的内容指纹（「【任务板 4bb6e8】」→「【任务板】」），内容变了还认得是同一块。"""
+    return re.sub(r"\s+[0-9a-f]{6}】$", "】", path)
+
+
+def brief(desc):
+    """一块正文的一句话：有两个以上小标题（## / ###）就列小标题，否则取第一行正文；超长截断（全文按编号取）。"""
+    rows = [x.strip() for x in desc.split("\n") if x.strip()]
+    heads = [re.sub(r"^#+\s*", "", x) for x in rows if re.match(r"^#{2,3}\s", x)]
+    s = "；".join(heads) if len(heads) >= 2 else next((x for x in rows if not x.startswith("#")), "")
+    s = s if len(s) <= BRIEF_CHARS else s[:BRIEF_CHARS] + "…"
+    return f"{s}（全文 {len(rows)} 行）"
+
+
+def _line_id(x):
+    return "L" + hashlib.sha1(x.strip().encode()).hexdigest()[:12]
+
+
+def as_doc(w):
+    """整块正文的条 → 目录条（带 doc/name/cid，only_new 用来逐行比对）；有 rows 的、短的原样返回。"""
+    desc = w.get("desc", "")
+    if "rows" in w or len(desc) <= INLINE_CHARS:
+        return w
+    cid = hashlib.sha1((w.get("path", "") + "\0" + desc).encode()).hexdigest()[:8]
+    stash(cid, lambda: f"{w.get('path', '')}\n{desc}\n")
+    return {"path": w.get("path", ""), "desc": f"{brief(desc)} [#{cid}]", "doc": desc,
+            "name": _doc_name(w.get("path", "")), "cid": cid}
+
+
+def _doc_diff(w, before):
+    """块 w 比上次推的（before = 行编号列表）变了哪些行 → 一条「有变动」，只列新增/改了的行和删了的行；变太多给目录行。"""
+    rows = [x for x in w["doc"].split("\n") if x.strip()]
+    old = set(before)
+    add = [x for x in rows if _line_id(x) not in old]
+    now = {_line_id(x) for x in rows}
+    gone = len(old - now)
+    if not add and not gone:
+        return None
+    if len(add) + gone > DIFF_SHARE * max(len(rows), 1):
+        return {"path": w["path"], "desc": "整块改过，" + w["desc"]}
+    head = f"只列改了的 {len(add)} 行" + (f"、删了 {gone} 行" if gone else "") + f"，全文 [#{w['cid']}]"
+    return {"path": w["name"][:-1] + " 有变动】", "desc": "\n".join([head] + add)}
+
+
 def only_new(out, req):
+    items = [as_doc(w) for w in out.get("wiki", [])]
+    if any("cid" in w for w in items):  # 有折成目录的块才说怎么取（wiki 命中行带页路径和行号，照旧能按行号读）
+        items.insert(0, HOWTO)
     epoch = str(req.get("epoch") or "")
     if not epoch:
-        return out
+        return dict(out, wiki=[_plain(w) for w in items])
     k = (req.get("key") or "", req.get("bot") or "", epoch)
-    items = []
+    keep = []
     with _pushed_lock:
         seen = _pushed.get(k)
         if seen is None:
-            seen = _pushed[k] = {}  # 条目编号 → 上次推的轮次；"#" 记本会话轮次
+            seen = _pushed[k] = {}  # 条目编号 → 上次推的轮次；"#" 记本会话轮次；"doc:<名>" → 上次推的那块的行编号
             while len(_pushed) > PUSHED_KEEP:
                 _pushed.popitem(last=False)
         _pushed.move_to_end(k)
         n = seen["#"] = seen.get("#", 0) + 1
-        for w in out.get("wiki", []):
+        for w in items:
+            if "doc" in w:
+                dk, ck = "doc:" + w["name"], "cat:" + w["name"]
+                lines = [_line_id(x) for x in w["doc"].split("\n") if x.strip()]
+                before = seen.get(dk)
+                seen[dk] = lines
+                if before is None or n - seen.get(ck, n) >= PUSH_GAP:
+                    seen[ck] = n
+                    keep.append(_plain(w))
+                elif (d := _doc_diff(w, before)) is not None:
+                    seen[ck] = n
+                    keep.append(d)
+                continue
             w = _rows_of(w)
             rows = []
             for r in w["rows"]:
@@ -574,8 +701,15 @@ def only_new(out, req):
                     seen[r["id"]] = n
                     rows.append(r)
             if rows:
-                items.append(_render(dict(w, rows=rows)) if rows != w["rows"] else w)
-    return dict(out, wiki=items)
+                keep.append(_render(dict(w, rows=rows)) if rows != w["rows"] else w)
+    if [w.get("path") for w in keep] == [HOWTO["path"]]:  # 只剩怎么取：这轮没有要推的
+        keep = []
+    return dict(out, wiki=keep)
+
+
+def _plain(w):
+    """目录条推出去只留 path/desc（doc 正文不出 gate）。"""
+    return {"path": w["path"], "desc": w["desc"]} if "doc" in w else w
 
 
 def only_new_file(items, key, epoch, state_dir):
@@ -619,7 +753,8 @@ EXP_TAG = re.compile(r" \[#([0-9a-f]{10})\]")
 # 照抄 ACE Generator（arXiv 2510.04618 附录提示词）：「Pay attention to common mistakes listed in the playbook and avoid
 # them」，回答时报出「bullet_ids … relevant, helpful」。五家 CLI 都有 shell，所以报编号用命令，不改各家回复格式。
 VOTE_ITEM = {"path": "【记忆投票（每轮必做）】", "desc": (
-    "推给你的记忆只给标题和行尾 [#编号]，要看原文按页路径和行号读。编号所有角色、所有频道共用一份分数。开工前照这些条做，特别是写着踩过的坑，避开它。"
+    f"回复前给真正用到的 [#编号] 条投票：做对了 `python3 {_shown(MEMVOTE, Path('/'))} +编号`，错了或过时 `-编号`。\n"
+    "推给你的记忆只给标题和行尾 [#编号]，正文用取正文的命令取，或按页路径和行号读。编号所有角色、所有频道共用一份分数。开工前照这些条做，特别是写着踩过的坑，避开它。"
     "投票是这一轮任务的一部分：回复发出前，先用 shell 给你真正用到的条投票，再回复——"
     f"照它做对了 `python3 {_shown(MEMVOTE, Path('/'))} +编号`；内容错了或过时、照它做会错 `… -编号`；"
     "投错了改投反向即可，撤回用 `… x编号`；没用到的不投。一次可写多个编号，每人每条只算一票")}
