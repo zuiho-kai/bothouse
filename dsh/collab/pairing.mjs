@@ -102,6 +102,9 @@ export class PairHost {
     this.codeTtl = codeTtl;
     this.code = undefined;
     this.devices = new Map();
+    // Responses still open per device (event streams, proxied requests): cut when it is dropped,
+    // so kicking a device ends what it already holds, not only its next request.
+    this.open = new Map();
     const saved = loadJSON(file);
     for (const d of Array.isArray(saved?.devices) ? saved.devices : []) {
       if (typeof d?.id === 'string' && typeof d.token_hash === 'string') this.devices.set(d.id, { ...d, mode: 'remember', expires_at: null });
@@ -160,7 +163,7 @@ export class PairHost {
     const hash = sha256(token);
     for (const d of this.devices.values()) {
       if (!sameHash(Buffer.from(d.token_hash, 'hex'), hash)) continue;
-      if (d.expires_at !== null && d.expires_at <= this.now()) { this.devices.delete(d.id); return undefined; }
+      if (d.expires_at !== null && d.expires_at <= this.now()) { this.drop(d.id); return undefined; }
       d.last_seen = this.now();
       return d;
     }
@@ -169,16 +172,32 @@ export class PairHost {
 
   list() {
     const now = this.now();
-    for (const d of [...this.devices.values()]) if (d.expires_at !== null && d.expires_at <= now) this.devices.delete(d.id);
+    for (const d of [...this.devices.values()]) if (d.expires_at !== null && d.expires_at <= now) this.drop(d.id);
     return [...this.devices.values()].sort((a, b) => b.created_at - a.created_at).map(d => this.view(d));
   }
 
   revoke(id) {
     const d = this.devices.get(id);
     if (d === undefined) return false;
-    this.devices.delete(id);
+    this.drop(id);
     if (d.mode === 'remember') this.save();
     return true;
+  }
+
+  /** Remember a response a device has open, until it closes. */
+  hold(id, res) {
+    let set = this.open.get(id);
+    if (set === undefined) this.open.set(id, set = new Set());
+    set.add(res);
+    res.on('close', () => { set.delete(res); if (set.size === 0 && this.open.get(id) === set) this.open.delete(id); });
+  }
+
+  /** Forget a device and end every response it still has open. */
+  drop(id) {
+    this.devices.delete(id);
+    const set = this.open.get(id);
+    this.open.delete(id);
+    for (const res of set ?? []) res.destroy();
   }
 
   /** Whether the tailnet listener has anything to serve. */
@@ -484,6 +503,7 @@ export function hostHandler({ host, name, route, whois = whoisName, allowLoopbac
       }
       if (url.pathname !== '/collab' && !url.pathname.startsWith('/collab/')) return sendJSON(res, 404, { error: 'not found' });
       req[REMOTE_OWNER] = true;
+      host.hold(device.id, res);
       return await route(req, res);
     } catch (err) {
       if (err instanceof PairError) return sendJSON(res, PAIR_STATUS[err.code] ?? 400, { error: err.message, code: err.code });

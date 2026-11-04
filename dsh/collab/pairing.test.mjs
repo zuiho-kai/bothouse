@@ -275,3 +275,59 @@ test('the host listener refuses addresses outside the tailnet', async t => {
   t.after(() => server.close());
   assert.equal((await get(port, '/collab/pair/hello')).status, 403);
 });
+
+test('kicking a device ends the event stream it already holds; other devices keep theirs (review 6628171209)', async t => {
+  const host = new PairHost({ file: join(dir(), 'd.json') });
+  // Like plugin.mjs events(): an open text/event-stream that pushes until the response closes.
+  const pushers = new Set();
+  const route = (req, res) => {
+    if (req.url !== '/collab/api/events') { res.writeHead(404); return res.end(); }
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.write(': connected\n\n');
+    const push = data => res.write(`data: ${data}\n\n`);
+    pushers.add(push);
+    res.on('close', () => pushers.delete(push));
+  };
+  const listener = new PairListener({ host, address: async () => '127.0.0.1', port: await freePort(),
+    handler: hostHandler({ host, name: 'mac-mini', route, allowLoopback: true, whois: async () => undefined }) });
+  t.after(() => listener.close());
+  const pair = name => host.claim({ code: host.newCode().code, mode: 'remember', name });
+  const a = pair('A');
+  const b = pair('B');
+  await listener.ensure();
+
+  const open = token => new Promise((resolve, reject) => {
+    const req = request({ host: '127.0.0.1', port: listener.port, path: '/collab/api/events', headers: { authorization: `Bearer ${token}` } }, res => {
+      const s = { status: res.statusCode, text: '', closed: false };
+      res.on('data', c => { s.text += c; });
+      res.on('close', () => { s.closed = true; });
+      res.on('error', () => { s.closed = true; });
+      resolve(s);
+    });
+    req.on('error', reject);
+    req.end();
+  });
+  const until = async (cond, ms = 2000) => { const end = Date.now() + ms; while (!cond() && Date.now() < end) await new Promise(r => setTimeout(r, 10)); };
+
+  const sa = await open(a.token);
+  const sb = await open(b.token);
+  assert.equal(sa.status, 200);
+  assert.equal(sb.status, 200);
+  await until(() => pushers.size === 2);
+  for (const p of pushers) p('before');
+  await until(() => sa.text.includes('before') && sb.text.includes('before'));
+  assert.ok(sa.text.includes('data: before'));
+
+  assert.equal(host.revoke(a.device.id), true);
+  await until(() => sa.closed);
+  assert.equal(sa.closed, true, 'kicked device stream must close at once');
+  for (const p of pushers) p('after');
+  await until(() => sb.text.includes('after'));
+  assert.ok(!sa.text.includes('after'), 'kicked device must not get later events');
+  assert.ok(sb.text.includes('data: after'), 'the other device keeps its stream');
+  assert.equal(sb.closed, false);
+  // And its next request is refused.
+  const again = await get(listener.port, '/collab/api/events', { headers: { authorization: `Bearer ${a.token}` } });
+  assert.equal(again.status, 401);
+  assert.equal(again.headers['x-collab-pair'], 'revoked');
+});
