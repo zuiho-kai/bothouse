@@ -19,6 +19,7 @@ import {
   Laptop,
   Smartphone,
   Network,
+  Boxes,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -33,6 +34,8 @@ const navItems = [
   { key: 'usage', path: '/usage', icon: Activity },
   { key: 'roles', path: '/roles', icon: Users },
   { key: 'devices', path: '/devices', icon: Laptop },
+  // 插件 (#150 第b项): the DSH profile's own plugins — install, switch on/off
+  { key: 'plugins', path: '/plugins', icon: Boxes },
   // #145：Wiki 星河从 DSH 一级入口收进 bothouse，作为这里的子页面
   { key: 'wikiGalaxy', path: '/wiki-galaxy', icon: Sparkles },
   // 接入应用 (#150): which outside apps (QQ / Discord / 飞书) are wired, one row each

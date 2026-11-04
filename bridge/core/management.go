@@ -299,6 +299,11 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/projects", m.wrap(m.handleProjects))
 	mux.HandleFunc(prefix+"/projects/", m.wrap(m.handleProjectRoutes))
 
+	// 插件 (#150 第 b 项): the DSH profile's own bundles — list, add, switch on/off
+	mux.HandleFunc(prefix+"/plugins", m.wrap(m.handlePlugins))
+	mux.HandleFunc(prefix+"/plugins/install", m.wrap(m.handlePluginsInstall))
+	mux.HandleFunc(prefix+"/plugins/switch", m.wrap(m.handlePluginsSwitch))
+
 	// Cron (global)
 	mux.HandleFunc(prefix+"/cron", m.wrap(m.handleCron))
 	mux.HandleFunc(prefix+"/cron/", m.wrap(m.handleCronByID))
