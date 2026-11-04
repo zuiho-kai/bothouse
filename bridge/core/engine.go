@@ -6512,6 +6512,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			session.ResetTurnCtx()
 		}
 
+		// A boundary ends the current segment even when quiet mode joins the
+		// surrounding prose. Remove its control marker before the next text.
+		if (event.Type == EventToolUse || event.Type == EventThinking || event.Type == EventPermissionRequest) && len(textParts) > segmentStart {
+			segment := strings.Join(textParts[segmentStart:], "")
+			if clean := stripSilentReply(segment); clean != segment {
+				textParts = append(textParts[:segmentStart], clean)
+			}
+		}
+
 		switch event.Type {
 		case EventSpeechText:
 			// Never present these again in platform text/history: the ordinary
@@ -6574,7 +6583,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						sp.freeze()
 						sp.detachPreview()
 					} else {
-						segment := strings.Join(textParts[segmentStart:], "")
+						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
 							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
 								sendWorkspace(p, replyCtx, chunk)
@@ -6599,7 +6608,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				previewActive := sp.canPreview()
 				if len(textParts) > segmentStart {
 					if !previewActive {
-						segment := strings.Join(textParts[segmentStart:], "")
+						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
 							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
 								sendWorkspace(p, replyCtx, chunk)
@@ -6673,7 +6682,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						sp.freeze()
 						sp.detachPreview()
 					} else {
-						segment := strings.Join(textParts[segmentStart:], "")
+						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
 							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
 								sendWorkspace(p, replyCtx, chunk)
@@ -6731,7 +6740,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				previewActive := sp.canPreview()
 				if len(textParts) > segmentStart {
 					if !previewActive {
-						segment := strings.Join(textParts[segmentStart:], "")
+						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
 							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
 								sendWorkspace(p, replyCtx, chunk)
@@ -7021,7 +7030,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			previewActive := sp.canPreview()
 			if len(textParts) > segmentStart {
 				if !previewActive {
-					segment := strings.Join(textParts[segmentStart:], "")
+					segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 					if segment != "" {
 						for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
 							sendWorkspace(p, replyCtx, chunk)
@@ -19540,29 +19549,45 @@ func stripAgentFooterLines(text string) string {
 // silentReplyRe matches a bare NO_REPLY marker (case-insensitive, optional surrounding whitespace).
 // When the agent emits exactly this as its full response, the platform send is suppressed
 // so the agent stays silent in group chats where a reply would be noise.
-var silentReplyRe = regexp.MustCompile(`(?i)^\s*NO_REPLY\s*$`)
+var silentReplyRe = regexp.MustCompile(`(?i)^NO_REPLY[.!?,;:。！？…，；：、]*$`)
 
 // silentReplyTrailingRe matches a trailing NO_REPLY marker preceded by whitespace or
 // markdown emphasis (`*`). Lets agents that narrate their reasoning before the marker
 // still suppress the marker from the delivered text (mirroring OpenClaw's stripSilentToken).
 // With tool progress hidden, text segments around tool calls are joined with no separator,
 // so the marker can sit right after CJK text or punctuation; group 1 preserves that character.
-var silentReplyTrailingRe = regexp.MustCompile(`(?i)(?:^|\s+|\*+|([^\x00-\x7F]|[.!?,;:)\]]))NO_REPLY\s*$`)
+var silentReplyTrailingRe = regexp.MustCompile(`(?i)(?:^|[\s\p{Z}]+|\*+|([^\x00-\x7F]|[.!?,;:)\]]))NO_REPLY[.!?,;:。！？…，；：、\s\p{Z}]*$`)
 
 // isSilentReply reports whether text is exactly a NO_REPLY marker.
 func isSilentReply(text string) bool {
-	return silentReplyRe.MatchString(text)
+	return IsSilentReply(text)
+}
+
+// IsSilentReply reports whether text is a NO_REPLY marker, ignoring surrounding
+// Unicode whitespace and sentence-ending punctuation. Agent handoffs share this check.
+func IsSilentReply(text string) bool {
+	return silentReplyRe.MatchString(strings.TrimSpace(text))
 }
 
 // stripTrailingSilent removes a trailing NO_REPLY marker and returns the stripped text
 // along with whether a strip occurred. Caller must first check isSilentReply for the
 // bare-marker case; this helper assumes mixed content.
 func stripTrailingSilent(text string) (string, bool) {
-	stripped := silentReplyTrailingRe.ReplaceAllString(text, "${1}")
-	if stripped == text {
+	trimmed := strings.TrimRightFunc(text, unicode.IsSpace)
+	stripped := silentReplyTrailingRe.ReplaceAllString(trimmed, "${1}")
+	if stripped == trimmed {
 		return text, false
 	}
-	return strings.TrimRight(stripped, " \t\r\n"), true
+	return strings.TrimRightFunc(stripped, unicode.IsSpace), true
+}
+
+// stripSilentReply applies the same marker rules at text segment boundaries.
+func stripSilentReply(text string) string {
+	if IsSilentReply(text) {
+		return ""
+	}
+	stripped, _ := stripTrailingSilent(text)
+	return stripped
 }
 
 // couldBeSilentPrefix reports whether the trimmed text is still a case-insensitive
@@ -19573,7 +19598,7 @@ func couldBeSilentPrefix(text string) bool {
 	if t == "" {
 		return true
 	}
-	return strings.HasPrefix("NO_REPLY", strings.ToUpper(t))
+	return strings.HasPrefix("NO_REPLY", strings.ToUpper(t)) || IsSilentReply(t)
 }
 
 func isEllipsisOnly(text string) bool {

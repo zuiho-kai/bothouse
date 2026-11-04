@@ -141,7 +141,7 @@ func (p *handoffParser) add(l *handoffLine) {
 			h.ContextTokens = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
 		}
 		text := handoffText(l.Message.Content)
-		if text == "" || text == "NO_REPLY" {
+		if text == "" || core.IsSilentReply(text) {
 			return
 		}
 		// Text before a tool call is progress chatter; the turn's last text
