@@ -79,6 +79,41 @@ it('keeps the plain step lines for older cards without chips', () => {
   expect(view.container.querySelector('[data-message-id="5"]')?.textContent).toContain('✅ bash · 成功')
 })
 
+it('counts consecutive bash calls, preserves tool order and exposes every call including failures', () => {
+  const calls = [
+    { tool: 'bash', state: 'ok', input: 'first', output: 'done' },
+    { tool: 'Bash', state: 'failed', input: 'second', output: 'denied' },
+    { tool: 'read', state: 'ok', input: 'a.go' },
+    { tool: 'bash', state: 'running', input: 'third' },
+    { tool: 'bash', state: 'ok', input: 'fourth', output: 'ok' },
+  ]
+  const text = ['第 5 步 · 9秒', ...calls.map(call => `🔧 ${call.tool} — ${call.input}`)].join('\n')
+  const view = render(<ChannelsPage {...props({ ...base, messages: [{ ...run({ steps: 5, chips: calls }), text }] })} />)
+  const buttons = within(group()).getAllByRole('button')
+  expect(buttons.map(button => button.textContent)).toEqual(['bash ×2', 'read', 'bash ×2'])
+  expect(buttons.map(button => button.dataset.state)).toEqual(['failed', 'ok', 'running'])
+  fireEvent.click(buttons[0]!)
+  const out = screen.getByRole('region', { name: tr('stepOutput', { tool: 'bash' }) })
+  for (const text of ['first', 'done', 'second', 'denied']) expect(out.textContent).toContain(text)
+  expect(out.querySelector('[data-state="failed"]')?.textContent).toContain('second')
+  fireEvent.click(screen.getByRole('button', { name: zh.cardViewDetail }))
+  expect(screen.queryByRole('group', { name: zh.stepChips })).toBeNull()
+  for (const call of calls) expect(view.container.querySelector('[data-message-id="5"]')?.textContent).toContain(call.input)
+})
+
+it('folds consecutive bash lines in old brief cards while keeping detail intact', () => {
+  const brief = '第 5 步 · 9秒\n✅ bash · 成功\n❌ Bash · 失败\n✅ read · 成功\n🔧 bash · 进行中\n✅ bash · 成功'
+  const text = '第 5 步 · 9秒\n🔧 bash — first\n🔧 Bash — second\n🔧 read — file\n🔧 bash — third\n🔧 bash — fourth'
+  const view = render(<ChannelsPage {...props({ ...base, messages: [{ ...run({ steps: 5, chips: undefined, brief }), text }] })} />)
+  const row = view.container.querySelector('[data-message-id="5"]')!
+  expect(row.textContent).toContain('❌ bash ×2 · 失败')
+  expect(row.textContent).toContain('✅ read · 成功')
+  expect(row.textContent).toContain('🔧 bash ×2 · 进行中')
+  fireEvent.click(screen.getByRole('button', { name: zh.cardViewDetail }))
+  for (const call of ['first', 'second', 'file', 'third', 'fourth']) expect(row.textContent).toContain(call)
+  expect(row.textContent).not.toContain('×2')
+})
+
 it('shows an open step of a finished or cancelled run as having no result, not running', () => {
   for (const state of ['completed', 'cancelled', 'failed']) {
     render(<ChannelsPage {...props({ ...base, messages: [run({ state, title: `橘 · ${state}` })] })} />)
