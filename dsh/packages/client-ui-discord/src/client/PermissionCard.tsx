@@ -46,20 +46,24 @@ export function PermissionCard({ messageId, card, t, onDecide }: {
       .catch((e: unknown) => { setError(e instanceof Error ? e.message : String(e)) })
       .finally(() => { setBusy(false) })
   }
+  // #1017: 这次允许 first and solid; 拒绝 secondary; 本会话自动允许 last as a quiet text button —
+  // it only covers this bot's current session (bridge core/engine.go allow_all), so it says so.
+  const order = { allow: 0, deny: 1, allow_all: 2 } as const
+  const actions = [...card.actions].sort((a, b) => order[a.decision] - order[b.decision])
   return (
     <div className={css.permActions}>
-      {card.actions.map(a => (
+      {actions.map(a => (
         <button
           key={a.decision}
           type="button"
-          className={a.decision === 'deny' ? css.secondaryButton : css.primaryButton}
+          className={a.decision === 'allow' ? css.primaryButton : a.decision === 'deny' ? css.secondaryButton : css.permSessionButton}
+          title={a.decision === 'allow_all' ? t('permAllowAllScope') : undefined}
           disabled={busy}
           onClick={() => { decide(a.decision) }}
         >
-          {a.label}
+          {a.decision === 'allow' ? t('permAllowOnce') : a.decision === 'allow_all' ? t('permAllowSession') : a.label}
         </button>
       ))}
-      {card.actions.some(a => a.decision === 'allow_all') && <div className={css.permScope}>{t('permAllowAllScope')}</div>}
       {error !== undefined && <div className={css.sendError} role="alert">{error}</div>}
     </div>
   )

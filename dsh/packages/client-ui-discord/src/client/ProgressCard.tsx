@@ -6,7 +6,8 @@
  * - 做完: tasks accepted (done).
  * - 在做: live work on the owner's side (board group 在做: assigned/accepted/rework, not parked).
  * - 下一步: the next move the board can name — a hand-back waiting to be accepted (returned),
- *   else a parked task to resume. Nothing of either says 「没有」.
+ *   else a parked task to resume.
+ * A row with nothing in it is not shown (#1017).
  * - 没定: a question or a 退/升 stance waiting on the lead/user (asked, declined, escalated).
  */
 import type { ChannelTask } from './channel-source.ts'
@@ -52,12 +53,14 @@ export function ProgressCard({ lines, t, onOpen }: {
   t: T
   onOpen: (roomId: number, messageId: number) => void
 }) {
-  if (lines.length === 0) return null
+  const shown = lines.filter(line => line.task !== undefined)
+  if (shown.length === 0) return null
   return (
     <section className={css.progressCard} role="region" aria-label={t('progressTitle')}>
       <strong className={css.progressTitle}>{t('progressTitle')}</strong>
       <dl className={css.progressRows}>
-        {lines.map((line) => {
+        {/* #1017: an empty row takes no room. */}
+        {shown.map((line) => {
           const text = lineText(line, t)
           const target = line.task?.assign_msg_id
           return (

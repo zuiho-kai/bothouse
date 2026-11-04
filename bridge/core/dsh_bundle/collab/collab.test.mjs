@@ -1557,7 +1557,7 @@ test('member failure publishes actionable error and clears it on retry', () => {
   const trigger = hub.store.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'hello' }).message;
   const job = hub.store.addJob('ds', 1, trigger.id);
   members.fail(job.id, 'No API key configured');
-  assert.match(hub.memberView().find(m => m.id === 'ds').error, /没有配置.*Key/);
+  assert.match(hub.memberView().find(m => m.id === 'ds').error, /模型密钥/);
   assert.equal(hub.memberView().find(m => m.id === 'ds').online, false);
   const notice = hub.store.page(1, undefined, 1)[0];
   assert.equal(JSON.parse(notice.card).action, 'configure-model');
@@ -1587,7 +1587,7 @@ test('a turn interrupted by a restart keeps the member healthy and offers a retr
 });
 
 test('member errors explain setup failures and publish error presence', () => {
-  assert.match(friendlyFailure('no API key configured'), /API Key/);
+  assert.match(friendlyFailure('no API key configured'), /模型密钥/);
   assert.match(friendlyFailure('model not found'), /模型暂时不可用/);
   assert.match(friendlyFailure('CLI login required'), /登录/);
   assert.match(friendlyFailure('process exited 1'), /CLI/);
@@ -6027,6 +6027,29 @@ test('cloud-web: a restarted bridge leaves no progress card stuck at 处理中 (
   await tick();
   const fresh = Number(second.of('preview_ack').at(-1).preview_handle);
   assert.equal(JSON.parse(hub.store.message(fresh).card).state, 'running');
+});
+
+test('cloud-web: a permission card a hub restart left pending expires when its bot reconnects (#1017)', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const prompt = { type: 'buttons', reply_ctx: 'room-1', session_key: 'cloud_web:room-1', content: '要运行 npm ci',
+    buttons: [[{ Text: '允许', Data: 'perm:allow' }, { Text: '拒绝', Data: 'perm:deny' }]] };
+  const first = connect(gw, 'bot=fish&name=%E6%B5%8B%E8%AF%95%E9%B1%BC&mention_id=9001');
+  first.frame(prompt);
+  await tick();
+  const orphan = cardsIn(hub, 1)[0].id;
+  // The hub restarted: the card row is still pending, the in-memory request is gone.
+  hub.approvals.pending.clear();
+
+  const second = connect(gw, 'bot=fish&name=%E6%B5%8B%E8%AF%95%E9%B1%BC&mention_id=9001');
+  await tick();
+  assert.equal(JSON.parse(hub.store.message(orphan).card).state, 'expired', 'the orphan no longer waits for a click');
+
+  // The reconnected bot asks again: one pending card, not the same request shown twice.
+  second.frame(prompt);
+  await tick();
+  const pending = cardsIn(hub, 1).filter(m => JSON.parse(m.card).state === 'pending');
+  assert.equal(pending.length, 1);
 });
 
 test('cloud-web: a running card is closed even when the room moved far past the first page (#913)', async () => {

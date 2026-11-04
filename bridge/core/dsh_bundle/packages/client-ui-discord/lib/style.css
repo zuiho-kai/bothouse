@@ -3512,40 +3512,163 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
-.dshc_interrupts {
-  gap: 6px;
-  margin-left: auto;
-  display: inline-flex;
+.dshc_slashPopup {
+  z-index: 6;
+  width: min(360px, 100% - 32px);
+  animation: none;
+  right: auto;
 }
 
-.dshc_interruptButton {
-  border: 1px solid var(--dsw-alias-separator, #7f7f7f4d);
-  color: var(--dsw-alias-label-secondary);
+.dshc_slashGroup {
+  color: var(--dsw-alias-label-tertiary);
+  padding: 6px 8px 2px;
+  font-size: 11px;
+}
+
+.dshc_slashItem {
+  border-radius: var(--dsw-radius-sm);
   cursor: pointer;
-  background: none;
-  border-radius: 999px;
-  padding: 1px 10px;
-  font-size: 12px;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  display: flex;
 }
 
-.dshc_interruptButton:hover {
+.dshc_slashActive {
   background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
-}
-
-.dshc_interruptButton:first-child {
-  border-color: var(--dsw-alias-danger, #d94848);
-  color: var(--dsw-alias-danger, #d94848);
 }
 
 .dshc_slashName {
-  min-width: 88px;
+  flex: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-weight: 600;
 }
 
-.dshc_slashPopup {
-  z-index: 6;
+.dshc_slashMeta {
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.dshc_sendButton.dshc_stopButton {
+  background: var(--dsw-alias-label-primary);
+}
+
+.dshc_stopNote + .dshc_sendButton {
+  margin-left: 8px;
+}
+
+.dshc_sendButton.dshc_stopButton[data-phase="stopping"] {
+  opacity: .6;
+  cursor: progress;
+}
+
+.dshc_stopNote {
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.dshc_cmdLine {
+  color: var(--dsw-alias-label-tertiary);
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 1px 16px 1px 72px;
+  font-size: 12px;
+  display: flex;
+}
+
+.dshc_cmdLine code {
+  color: var(--dsw-alias-label-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.dshc_cmdResult {
+  min-width: 0;
+  max-width: 60ch;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.dshc_cmdResult[aria-expanded="true"] {
+  white-space: pre-line;
+  max-width: none;
+}
+
+.dshc_cmdLine[data-failed="true"] .dshc_cmdResult {
+  color: var(--dsw-alias-danger, #d94848);
+}
+
+@media (width <= 720px) {
+  .dshc_cmdLine {
+    padding-left: 16px;
+  }
+}
+
+.dshc_msgTool {
+  justify-content: center;
+  align-items: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  position: relative;
+}
+
+.dshc_msgTool[data-tip]:after {
+  content: attr(data-tip);
+  z-index: 3;
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.dshc_msgTool[data-tip]:hover:after, .dshc_msgTool[data-tip]:focus-visible:after {
+  opacity: 1;
+  transition: opacity 0s 80ms;
+}
+
+.dshc_permSessionButton {
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 4px 6px;
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+.dshc_permSessionButton:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.dshc_permSessionButton:disabled {
+  opacity: .5;
+  cursor: default;
 }
 [data-dc-scheme="light"] {
   --dsw-static-amber-100: #fef5e7;

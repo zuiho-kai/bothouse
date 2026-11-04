@@ -19,7 +19,7 @@ import { ProgressCard, channelProgress } from './ProgressCard.tsx'
 import { StepChips, chipsOf } from './StepChips.tsx'
 import { CapabilityList } from './CapabilityList.tsx'
 import { SlashMenu } from './SlashMenu.tsx'
-import { addressCommand, matchCommands, slashQuery, type SlashCommand } from './slash-commands.ts'
+import { addressCommand, answerFailed, commandAnswers, commandLine, matchCommands, slashQuery, type SlashCommand } from './slash-commands.ts'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
 import { ChannelSettingsDialog } from './ChannelSettingsDialog.tsx'
@@ -436,9 +436,16 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
         // #1016: hover toolbar — copy the Markdown, reply with a quote, put the message on the task board.
         <span className={css.msgTools} data-message-tools>
           {toolNote !== undefined && <span className={css.msgToolNote} role="status">{toolNote.text}</span>}
-          {message.text !== '' && <button type="button" className={css.msgTool} title={t('toolCopy')} aria-label={t('toolCopy')} onClick={copy}>{t('toolCopy')}</button>}
-          <button type="button" className={`${css.msgTool} ${css.replyButton}`} title={t('reply')} aria-label={t('reply')} onClick={() => { onReply(message) }}>↩ {t('reply')}</button>
-          {onTask !== undefined && message.text.trim() !== '' && <button type="button" className={css.msgTool} title={t('toolTaskHint')} aria-label={t('toolTask')} disabled={toolNote?.tool === 'task' && toolNote.text === t('toolTasking')} onClick={toTask}>{t('toolTask')}</button>}
+          {/* #1017: icons with a label 80 ms after hover (data-tip); aria-label keeps the name for readers. */}
+          {message.text !== '' && <button type="button" className={css.msgTool} data-tip={t('toolCopy')} aria-label={t('toolCopy')} onClick={copy}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h8" /></svg>
+          </button>}
+          <button type="button" className={`${css.msgTool} ${css.replyButton}`} data-tip={t('reply')} aria-label={t('reply')} onClick={() => { onReply(message) }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 6 6v5" /></svg>
+          </button>
+          {onTask !== undefined && message.text.trim() !== '' && <button type="button" className={css.msgTool} data-tip={t('toolTaskHint')} aria-label={t('toolTask')} disabled={toolNote?.tool === 'task' && toolNote.text === t('toolTasking')} onClick={toTask}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="m8.5 12 2.5 2.5 4.5-5" /></svg>
+          </button>}
         </span>
       )}
     </div>
@@ -458,6 +465,35 @@ function PermTrayItem({ message, author, t, onDecide }: { message: ChannelMessag
         <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>
       </div>
       <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />
+    </div>
+  )
+}
+
+/**
+ * #1017: an owner's bot command (`@橘 /model x`, `/stop all`) as one thin line — who it went to,
+ * the command, and the bot's answer folded in (first line; click for all of it).
+ */
+function CommandRow({ message, target, command, answer, t }: {
+  message: ChannelMessage
+  target: string | undefined
+  command: string
+  answer: ChannelMessage | undefined
+  t: T
+}) {
+  const [open, setOpen] = useState(false)
+  const failed = answer !== undefined && answerFailed(answer.text)
+  const first = answer?.text.split('\n').map(x => x.trim()).find(Boolean) ?? ''
+  const more = answer !== undefined && answer.text.trim() !== first
+  return (
+    <div className={css.cmdLine} data-message-id={message.id} data-failed={failed} title={new Date(message.created_at * 1000).toLocaleString()}>
+      <span>{target === undefined ? t('cmdToAll') : t('cmdTo', { name: target })}</span>
+      <code>{command}</code>
+      <span aria-hidden="true">·</span>
+      {answer === undefined
+        ? <span>{t('cmdSent')}</span>
+        : more
+          ? <button type="button" className={css.cmdResult} aria-expanded={open} onClick={() => { setOpen(!open) }}>{open ? answer.text : first}</button>
+          : <span className={css.cmdResult}>{first}</span>}
     </div>
   )
 }
@@ -646,7 +682,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   // #1016: the capability help moved behind /help; the / menu runs commands.
   const [helpOpen, setHelpOpen] = useState(false)
   const [slashHighlight, setSlashHighlight] = useState(0)
-  useEffect(() => { setCapabilitiesDismissed(false); setHelpOpen(false) }, [state.roomId])
+  // #1017 the stop key's feedback: 正在停止 until the bot stops answering, then 已停止.
+  const [stopping, setStopping] = useState<{ botId: string; name: string; phase: 'stopping' | 'stopped' } | undefined>(undefined)
+  useEffect(() => { setCapabilitiesDismissed(false); setHelpOpen(false); setStopping(undefined) }, [state.roomId])
   const composerRef = useRef<HTMLDivElement>(null)
   // `@` start of the popup currently shown, read by the outside-click listener.
   const openMentionAt = useRef<number | undefined>(undefined)
@@ -801,6 +839,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     if (roomId !== state.roomId) void selectRoom(roomId)
   }
 
+  // #1017 stop key: 正在停止 turns into 已停止 once the bot no longer answers in this room.
+  const stillAnswering = stopping !== undefined && state.roomId !== undefined && (state.thinking[String(state.roomId)] ?? []).includes(stopping.botId)
+  useEffect(() => {
+    if (stopping === undefined) return
+    if (stopping.phase === 'stopping' && !stillAnswering) { setStopping({ ...stopping, phase: 'stopped' }); return }
+    // 已停止 shows for a moment; a stop the bot never confirms gives the key back after 30 s.
+    const timer = setTimeout(() => { setStopping(undefined) }, stopping.phase === 'stopped' ? 2000 : 30_000)
+    return () => { clearTimeout(timer) }
+  }, [stopping, stillAnswering])
   if (state.phase !== 'ready') {
     const notice = state.phase === 'unavailable' ? t('unavailable')
       : state.phase === 'unauthorized' ? t('unauthorized')
@@ -857,9 +904,16 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   const slashCommands = slash === undefined || capabilitiesDismissed || popupOpen ? [] : matchCommands(slash, key => t(key))
   const slashOpen = slashCommands.length > 0
   const slashSelected = Math.min(slashHighlight, Math.max(slashCommands.length - 1, 0))
-  // #1016 interrupt bar: bothouse bots working in this room take /stop and /ps.
+  // #1017: bothouse bots answering in this room; the send key stops one of them (the primary
+  // role first) while the draft is empty. 停频道全部 and 改方向 live in the / menu only.
   const workingBots = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? [])
     .map(id => byId.get(id)).filter((m): m is ChannelMember => m !== undefined && m.kind === 'bot')
+  const stopTarget = workingBots.find(m => m.id === commandTarget?.id) ?? workingBots[0]
+  const roomFiles = state.roomId === undefined ? [] : pendingFiles[state.roomId] ?? []
+  const stopMode = (stopTarget !== undefined || stopping?.phase === 'stopping') && draft.trim() === '' && roomFiles.length === 0
+  // #1017: owner command lines and the bridge's answers to them, shown as one thin line.
+  const answers = commandAnswers(state.messages, id => byId.get(id)?.name)
+  const answerIds = new Set([...answers.values()].map(m => m.id))
 
   const setDraft = (text: string, nextCaret: number): void => {
     const roomId = state.roomId
@@ -974,16 +1028,18 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     })
   }
 
-  /** Send one command line now, keeping the draft unless it was the command itself. */
-  const sendCommand = (text: string, clearDraft: boolean): void => {
+  /** Send one command line now, keeping the draft unless it was the command itself; resolves to whether it went out. */
+  const sendCommand = (text: string, clearDraft: boolean): Promise<boolean> => {
     const roomId = state.roomId
-    if (roomId === undefined) return
+    if (roomId === undefined) return Promise.resolve(false)
     setErrors(previous => ({ ...previous, [roomId]: undefined }))
     stickRef.current = true
-    send(text).then(() => {
+    return send(text).then(() => {
       if (clearDraft) setDrafts(previous => ({ ...previous, [roomId]: '' }))
+      return true
     }, (error: unknown) => {
       setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message: error instanceof Error ? error.message : String(error) }) }))
+      return false
     })
   }
 
@@ -1008,15 +1064,13 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     sendCommand(line, true)
   }
 
-  // #1016 three interrupts while bots are working here.
-  const stopStep = (): void => { for (const m of workingBots) sendCommand(`@${m.name} /stop`, false) }
-  const stopAll = (): void => { sendCommand('/stop all', false) }
-  const steer = (): void => {
-    const m = workingBots.find(x => x.id === commandTarget?.id) ?? workingBots[0]
-    if (m === undefined) return
-    const line = `@${m.name} /ps `
-    setCapabilitiesDismissed(true)
-    setDraft(line + draft.replace(/^@\S+ \/ps /, ''), line.length)
+  // #1017 the stop key: /stop to one bot — this reply of it, the session stays. 正在停止 until the
+  // bot is no longer answering here, then 已停止 for a moment.
+  const stopReply = (): void => {
+    if (stopTarget === undefined || stopping?.phase === 'stopping') return
+    const target = stopTarget
+    setStopping({ botId: target.id, name: target.name, phase: 'stopping' })
+    void sendCommand(`@${target.name} /stop`, false).then((sent) => { if (!sent) setStopping(undefined) })
   }
 
   const toTask = dispatchTask === undefined || state.roomId === undefined || leadId == null ? undefined : async (message: ChannelMessage): Promise<void> => {
@@ -1225,11 +1279,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
                   : null,
                 pendingWithdraw?.id === m.id
                   ? <div key={m.id} className={css.withdrawnRow} data-message-id={m.id}>{t('withdrawPending')}</div>
+                  : answerIds.has(m.id) ? null
+                  : m.author_kind === 'user' && m.card === null && commandLine(m.text) !== undefined
+                  ? <CommandRow key={m.id} message={m} target={commandLine(m.text)?.target} command={commandLine(m.text)?.command ?? ''} answer={answers.get(m.id)} t={t} />
                   : <MessageRow
                   key={m.id}
                   enter={fresh.get(m.id)}
                   message={m}
-                  grouped={continues(visibleMessages[index - 1], m)}
+                  // #1017: a command line or its folded answer above is no bubble to group under.
+                  grouped={continues(visibleMessages[index - 1], m) && !answerIds.has(visibleMessages[index - 1]?.id ?? -1) && !(visibleMessages[index - 1]?.author_kind === 'user' && commandLine(visibleMessages[index - 1]?.text ?? '') !== undefined)}
                   member={byId.get(m.author)}
                   t={t}
                   onConfigure={() => { if (!openModelSettings()) setModelsOpen(true) }}
@@ -1267,14 +1325,6 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
         </div>
         <div className={css.working} aria-live="polite">
           {typingNames.length > 0 && <><span className={css.typingDots} aria-hidden="true"><i /><i /><i /></span>{t('workingList', { names: typingNames.join('、') })}</>}
-          {/* #1016: stop this step (/stop to who is working), stop everything here (/stop all), or steer the running turn (/ps). */}
-          {workingBots.length > 0 && (
-            <span className={css.interrupts} role="group" aria-label={t('interruptGroup')}>
-              <button type="button" className={css.interruptButton} title={t('interruptStepHint')} onClick={stopStep}>{t('interruptStep')}</button>
-              <button type="button" className={css.interruptButton} title={t('interruptAllHint')} onClick={stopAll}>{t('interruptAll')}</button>
-              <button type="button" className={css.interruptButton} title={t('interruptSteerHint')} onClick={steer}>{t('interruptSteer')}</button>
-            </span>
-          )}
         </div>
         {/* #113/#125: questions and pending permission requests stay pinned above the composer while the log scrolls. */}
         <DecideTray
@@ -1291,7 +1341,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
         />
         <div className={css.composer} ref={composerRef}>
           {helpOpen && <CapabilityList key={state.roomId} t={t} onClose={() => { setHelpOpen(false) }} />}
-          {slashOpen && <SlashMenu commands={slashCommands} selected={slashSelected} target={commandTarget?.name} t={t} onPick={runSlash} onHover={setSlashHighlight} />}
+          {slashOpen && <SlashMenu commands={slashCommands} selected={slashSelected} target={commandTarget?.name} grouped={slash === ''} t={t} onPick={runSlash} onHover={setSlashHighlight} />}
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
           {ownNotice !== undefined && <div className={css.sendError} role="status">{ownNotice}</div>}
           {popupOpen && (
@@ -1390,18 +1440,35 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
               </button>
               {/* Touch keyboards may not send Enter (or insert a newline instead), so the composer always
                   has a send button, as the desktop chat does; it runs the same submit as Enter. */}
-              <button
-                type="button"
-                className={css.sendButton}
-                title={t('sendButton')}
-                aria-label={t('sendButton')}
-                disabled={state.roomId === undefined || sending[state.roomId] === true || (draft.trim() === '' && (pendingFiles[state.roomId] ?? []).length === 0)}
-                // Keep focus (and the soft keyboard) in the textarea when tapped.
-                onMouseDown={(event) => { event.preventDefault() }}
-                onClick={submit}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg>
-              </button>
+              {stopping !== undefined && <span className={css.stopNote} role="status">{t(stopping.phase === 'stopping' ? 'stopPending' : 'stopDone', { name: stopping.name })}</span>}
+              {stopMode ? (
+                // #1017: while a bot answers and the draft is empty, the send key stops that bot's reply.
+                <button
+                  type="button"
+                  className={`${css.sendButton} ${css.stopButton}`}
+                  title={t('stopReply', { name: (stopTarget ?? stopping)?.name ?? '' })}
+                  aria-label={t('stopReply', { name: (stopTarget ?? stopping)?.name ?? '' })}
+                  data-phase={stopping?.phase}
+                  aria-disabled={stopping?.phase === 'stopping'}
+                  onMouseDown={(event) => { event.preventDefault() }}
+                  onClick={stopReply}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2.5" fill="currentColor" /></svg>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={css.sendButton}
+                  title={t('sendButton')}
+                  aria-label={t('sendButton')}
+                  disabled={state.roomId === undefined || sending[state.roomId] === true || (draft.trim() === '' && (pendingFiles[state.roomId] ?? []).length === 0)}
+                  // Keep focus (and the soft keyboard) in the textarea when tapped.
+                  onMouseDown={(event) => { event.preventDefault() }}
+                  onClick={submit}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg>
+                </button>
+              )}
             </div>
           </div>
         </div>
