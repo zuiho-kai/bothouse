@@ -190,20 +190,37 @@ test('two instances: number → link → proxied pages and API → kick', async 
   // No credential, no access.
   assert.equal((await get(listener.port, '/collab/api/state')).status, 401);
 
-  // Kick on the host: the controller learns it on its next request and forgets the link.
+  // Kick on the host: the listener stays up for one question so the controller can tell a kick
+  // from a host that is merely off (an idle listener is closed by the 60 s sweep, not here).
   const devId = (await get(hostApiPort, '/collab/api/pair/devices')).json.devices[0].id;
   assert.equal((await get(hostApiPort, `/collab/api/pair/devices/${devId}`, { method: 'DELETE' })).status, 200);
-  // Nothing left to serve: the listener closed, so the controller just cannot reach it.
-  assert.equal(listener.server, undefined);
+  assert.notEqual(listener.server, undefined, 'still serving the whoami that says "revoked"');
   const gone = await get(ctlPort, `/collab/remote/${link.id}/api/state`);
-  assert.equal(gone.status, 502);
-  assert.match(gone.json.error, /踢掉/);
-  // Once the host listens again (another number), the kicked credential is refused and forgotten.
-  await get(hostApiPort, '/collab/api/pair/code', { method: 'POST' });
-  const after = await get(ctlPort, `/collab/remote/${link.id}/api/state`);
-  assert.equal(after.status, 401);
-  assert.match(after.json.error, /重新配对/);
+  assert.equal(gone.status, 401);
+  assert.match(gone.json.error, /重新配对/);
   assert.deepEqual((await get(ctlPort, '/collab/api/remote/links')).json.links, []);
+  // The sweep right after the kick must not close the port: a late look at the list still needs
+  // the whoami answer, or the link comes back as a 502 that never clears.
+  await listener.settle();
+  assert.notEqual(listener.server, undefined, 'a fresh kick keeps the listener for its grace');
+  assert.deepEqual((await get(ctlPort, '/collab/api/remote/links')).json.links, []);
+});
+
+test('the listener closes once the kick is old enough to be indistinguishable from off', async t => {
+  let now = 1_000;
+  const host = new PairHost({ file: join(dir(), 'd.json'), now: () => now });
+  const port = await freePort();
+  const listener = new PairListener({ host, address: async () => '127.0.0.1', port,
+    handler: hostHandler({ host, name: 'h', route: (q, s) => { s.writeHead(200); s.end(); }, allowLoopback: true }) });
+  t.after(() => listener.close());
+  const { device } = host.claim({ code: host.newCode().code, mode: 'remember', name: 'old' });
+  await listener.ensure();
+  host.revoke(device.id);
+  await listener.settle();
+  assert.notEqual(listener.server, undefined, 'still inside the grace');
+  now += host.codeTtl;
+  await listener.settle();
+  assert.equal(listener.server, undefined, 'grace over: nothing left to serve');
 });
 
 test('disconnect from the controller drops the device on the host too', async t => {
@@ -330,4 +347,134 @@ test('kicking a device ends the event stream it already holds; other devices kee
   const again = await get(listener.port, '/collab/api/events', { headers: { authorization: `Bearer ${a.token}` } });
   assert.equal(again.status, 401);
   assert.equal(again.headers['x-collab-pair'], 'revoked');
+});
+
+test('a kicked device leaves 「我连着的电脑」 without that link being opened first', async t => {
+  // Host side, listening on loopback: one live number, two devices paired.
+  const host = new PairHost({ file: join(dir(), 'd.json') });
+  const port = await freePort();
+  const listener = new PairListener({ host, address: async () => '127.0.0.1', port,
+    handler: hostHandler({ host, name: 'mac-mini', route: (q, s) => { s.writeHead(200); s.end(); }, allowLoopback: true, whois: async () => undefined }) });
+  t.after(() => listener.close());
+  const client = new PairClient({ file: join(dir(), 'l.json'), port, name: 'macbook' });
+  const ctl = createServer((req, res) => {
+    const url = new URL(req.url, 'http://x');
+    return pairApiRoute(req, res, url, { host: new PairHost({ file: join(dir(), 'h2.json') }), client,
+      listener: { ensure: async () => '', settle: async () => {}, bound: null }, peers: async () => [] })
+      ?? (res.writeHead(404), res.end());
+  });
+  const ctlPort = await listen(ctl);
+  t.after(() => ctl.close());
+
+  await listener.ensure();
+  const kicked = await client.connect({ host: '127.0.0.1', code: host.newCode().code, mode: 'remember', name: 'old' });
+  const oldId = host.list()[0].id;
+  const kept = await client.connect({ host: '127.0.0.1', code: host.newCode().code, mode: 'remember', name: 'kept' });
+  assert.deepEqual((await get(ctlPort, '/collab/api/remote/links')).json.links.map(l => l.name).sort(), ['kept', 'old']);
+
+  // Kicked on the host while the listener keeps running for the other device: no page of the
+  // kicked one is opened from now on.
+  assert.equal(host.revoke(oldId), true); // what 「踢掉」 on the host does
+  const listed = (await get(ctlPort, '/collab/api/remote/links')).json.links;
+  assert.deepEqual(listed.map(l => l.name), ['kept'], 'kicked machine is gone from the list');
+  assert.ok(listed.every(l => l.id !== kicked.id));
+  assert.equal(JSON.parse(readFileSync(client.file, 'utf8')).links.some(l => l.id === kicked.id), false, 'and not written back');
+
+  // A host that is simply off is not a kick: its link stays.
+  await listener.close();
+  assert.deepEqual((await get(ctlPort, '/collab/api/remote/links')).json.links.map(l => l.name), ['kept']);
+  assert.equal(kept.id, listed[0].id);
+});
+
+test('opening a link to a host that is off says so instead of hanging', async t => {
+  // The one case a controller cannot tell apart from a kick: no answer at all. The page must say the
+  // machine is unreachable (502) rather than spin or pretend the page loaded.
+  const file = join(dir(), 'l.json');
+  const client = new PairClient({ file, port: await freePort(), request: async () => ({ status: 200, body: { token: 't', host_name: 'own' } }) });
+  const link = await client.connect({ host: '127.0.0.1', code: '123456', mode: 'remember', name: 'off' });
+  const ctl = createServer((req, res) => remoteProxyRoute(req, res, new URL(req.url, 'http://x'), { client }) ?? (res.writeHead(404), res.end()));
+  const ctlPort = await listen(ctl);
+  t.after(() => ctl.close());
+  const gone = await get(ctlPort, `/collab/remote/${link.id}/api/state`);
+  assert.equal(gone.status, 502);
+  assert.match(gone.json.error, /连不上/);
+  assert.equal(client.list().length, 1, 'unreachable is not the same as revoked');
+});
+
+test('the last device kicked on the host clears 「我连着的电脑」 at once', async t => {
+  // The common case: one machine has ever paired. Kicking it must not close the listener before the
+  // controller can ask, or the kick reads as "host is off" and the link stays forever.
+  const host = new PairHost({ file: join(dir(), 'd.json') });
+  const port = await freePort();
+  const listener = new PairListener({ host, address: async () => '127.0.0.1', port,
+    handler: hostHandler({ host, name: 'mac-mini', route: (q, s) => { s.writeHead(200); s.end(); }, allowLoopback: true, whois: async () => undefined }) });
+  t.after(() => listener.close());
+  const client = new PairClient({ file: join(dir(), 'l.json'), port, name: 'macbook' });
+  const ctl = createServer((req, res) => {
+    const url = new URL(req.url, 'http://x');
+    return pairApiRoute(req, res, url, { host, client, listener, peers: async () => [] })
+      ?? (res.writeHead(404), res.end());
+  });
+  const ctlPort = await listen(ctl);
+  t.after(() => ctl.close());
+
+  await listener.ensure();
+  const link = await client.connect({ host: '127.0.0.1', code: host.newCode().code, mode: 'remember', name: 'old' });
+  assert.deepEqual((await get(ctlPort, '/collab/api/remote/links')).json.links.map(l => l.name), ['old']);
+
+  // 「踢掉」 through the real owner route, which must not stop serving before the controller asks.
+  const dev = host.list()[0].id;
+  assert.equal((await get(ctlPort, `/collab/api/pair/devices/${dev}`, { method: 'DELETE' })).status, 200);
+  assert.deepEqual((await get(ctlPort, '/collab/api/remote/links')).json.links, [], 'kicked machine is gone from the list');
+  assert.equal(JSON.parse(readFileSync(client.file, 'utf8')).links.some(l => l.id === link.id), false, 'and not written back');
+});
+
+test('a host that cannot be asked keeps its link (off is not kicked)', async t => {
+  const file = join(dir(), 'l.json');
+  let claim = 0;
+  const client = new PairClient({ file, now: () => 0, request: async ({ path }) => {
+    if (path === '/collab/pair/claim') { claim += 1; return { status: 200, body: { token: `t${claim}`, host_name: 'mini' } }; }
+    throw new Error('timeout'); // the host is off or its port is closed
+  } });
+  const link = await client.connect({ host: '127.0.0.1', code: '123456', mode: 'remember', name: 'off' });
+  assert.deepEqual(await client.refresh(), []);
+  assert.deepEqual(client.list().map(l => l.name), ['off'], 'an unreachable host is not treated as a kick');
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).links.some(l => l.id === link.id), true);
+});
+
+test('refreshes that overlap share one round of questions', async t => {
+  // devices.html asks on open, after connecting and after disconnecting; one round is enough, and a
+  // machine that is off must not be waited on twice for the same page action.
+  const file = join(dir(), 'l.json');
+  let asked = 0;
+  const client = new PairClient({ file, now: () => 0, request: async ({ path }) => {
+    if (path === '/collab/pair/claim') return { status: 200, body: { token: 't', host_name: 'mini' } };
+    asked += 1;
+    await new Promise(r => setTimeout(r, 30));
+    return { status: 200, body: { ok: true } };
+  } });
+  await client.connect({ host: '127.0.0.1', code: '123456', mode: 'remember', name: 'mini' });
+  const [a, b] = await Promise.all([client.refresh(), client.refresh()]);
+  assert.deepEqual(a, []);
+  assert.deepEqual(b, []);
+  assert.equal(asked, 1, 'the two calls shared one whoami');
+});
+
+test('pair/whoami answers the device itself and refuses a revoked credential', async t => {
+  const host = new PairHost({ file: join(dir(), 'd.json') });
+  const port = await freePort();
+  const listener = new PairListener({ host, address: async () => '127.0.0.1', port,
+    handler: hostHandler({ host, name: 'mac-mini', route: (q, s) => { s.writeHead(200); s.end(); }, allowLoopback: true, whois: async () => undefined }) });
+  t.after(() => listener.close());
+  await listener.ensure();
+  const { token, device } = host.claim({ code: host.newCode().code, mode: 'remember', name: 'macbook' });
+  const ok = await get(port, '/collab/pair/whoami', { headers: { authorization: `Bearer ${token}` } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.device.id, device.id);
+  assert.equal(ok.json.host_name, 'mac-mini');
+  host.revoke(device.id);
+  const gone = await get(port, '/collab/pair/whoami', { headers: { authorization: `Bearer ${token}` } });
+  assert.equal(gone.status, 401);
+  assert.equal(gone.json.code, 'revoked');
+  assert.equal(gone.headers['x-collab-pair'], 'revoked');
 });

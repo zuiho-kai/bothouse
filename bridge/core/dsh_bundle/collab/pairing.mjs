@@ -22,6 +22,9 @@ export const CODE_DIGITS = 6;
 export const CODE_TTL_MS = 5 * 60_000;
 // 来源：用户 11-04 16:58 定「输错 5 次作废」。
 export const MAX_ATTEMPTS = 5;
+// 踢掉一台电脑后，宿主还留这么久让指挥端能问一句「我还在吗」：沿用上面用户定的 5 分钟码有效期
+// （PairHost.kickGrace 用当次的 codeTtl，不另造数字）。过了这段，空转的监听照旧收掉；更晚才打开
+// 列表的连接与「那台电脑关机」已无从区分。
 // Temporary links: 用户 11-04 16:58 定——默认「直到我断开」（不设时长），或连接时填「自定义时长」，
 // 到时自动断；不设固定上限。
 // 沿用：DSH web 常用端口 3081（docs/INSTANCE_SETUP.md）的下一个；两端同一常量，发现才对得上。
@@ -101,6 +104,7 @@ export class PairHost {
     this.now = now;
     this.codeTtl = codeTtl;
     this.code = undefined;
+    this.lastRevokeAt = undefined;
     this.devices = new Map();
     // Responses still open per device (event streams, proxied requests): cut when it is dropped,
     // so kicking a device ends what it already holds, not only its next request.
@@ -179,6 +183,7 @@ export class PairHost {
   revoke(id) {
     const d = this.devices.get(id);
     if (d === undefined) return false;
+    this.lastRevokeAt = this.now();
     this.drop(id);
     if (d.mode === 'remember') this.save();
     return true;
@@ -202,6 +207,10 @@ export class PairHost {
 
   /** Whether the tailnet listener has anything to serve. */
   active() { return this.codeLive() || this.list().length > 0; }
+
+  /** Just kicked something: stay up a little so this machine can answer "was I kicked?". */
+  // Same clock and length the number itself uses (a constructor may override codeTtl in tests).
+  kickGrace() { return this.lastRevokeAt !== undefined && this.now() - this.lastRevokeAt < this.codeTtl; }
 
   view(d) { return { id: d.id, name: d.name, address: d.address, mode: d.mode, created_at: d.created_at, last_seen: d.last_seen, expires_at: d.expires_at }; }
 
@@ -284,6 +293,7 @@ export class PairClient {
     this.request = request;
     this.name = name;
     this.links = new Map();
+    this.refreshing = undefined;
     const saved = loadJSON(file);
     for (const l of Array.isArray(saved?.links) ? saved.links : []) {
       if (typeof l?.id === 'string' && typeof l.token === 'string' && typeof l.host === 'string') this.links.set(l.id, { ...l, mode: 'remember', expires_at: null });
@@ -340,6 +350,32 @@ export class PairClient {
     const stale = [...this.links.values()].filter(l => l.mode === 'temp' && l.expires_at === null && (l.alive_at ?? l.created_at) + this.grace <= this.now());
     for (const l of stale) await this.disconnect(l.id);
     return stale.map(l => l.id);
+  }
+
+  /**
+   * Ask each host whether this machine is still paired, and forget the ones it revoked, so the
+   * 「我连着的电脑」 list clears after a kick even if that link is never opened again. A host that
+   * cannot be reached is kept: it may only be off, which is not the same as being kicked.
+   */
+  async refresh() {
+    // One round for every caller, so the open/connect/disconnect refreshes of devices.html share it
+    // instead of each paying the slowest host's timeout. No time-based cache: a kick must show at
+    // once, not after a grace period.
+    if (this.refreshing !== undefined) return this.refreshing;
+    this.refreshing = (async () => {
+      const dropped = [];
+      try {
+        await Promise.all([...this.links.values()].map(async l => {
+          const r = await this.request({ host: l.host, port: l.port, path: '/collab/pair/whoami', headers: { authorization: `Bearer ${l.token}` }, timeout: 1500 })
+            .catch(() => undefined);
+          if (r?.status === 401 && r.body?.code === 'revoked') { this.drop(l.id); dropped.push(l.id); }
+        })).catch(() => {}); // best effort: a broken host must not turn the list into an error
+      } finally {
+        this.refreshing = undefined;
+      }
+      return dropped;
+    })();
+    return this.refreshing;
   }
 
   /** Forget a link here and tell the host to drop its device (best effort). */
@@ -489,6 +525,15 @@ export function hostHandler({ host, name, route, whois = whoisName, allowLoopbac
         return sendJSON(res, 200, { token, device, host_name: name });
       }
       const device = host.verify(bearer(req));
+      if (url.pathname === '/collab/pair/whoami' && req.method === 'GET') {
+        // Answers with the device's own view, so a controller whose link was kicked can tell
+        // "revoked" from "that machine is off". Same 401 shape as every other refused request.
+        if (device === undefined) {
+          res.writeHead(401, { 'content-type': 'application/json; charset=utf-8', 'x-collab-pair': 'revoked' });
+          return res.end(JSON.stringify({ error: 'device not paired', code: 'revoked' }));
+        }
+        return sendJSON(res, 200, { ok: true, device: host.view(device), host_name: name });
+      }
       if (url.pathname === '/collab/pair/forget' && req.method === 'POST') {
         if (device !== undefined) host.revoke(device.id);
         return sendJSON(res, 200, { ok: true });
@@ -545,7 +590,7 @@ export class PairListener {
 
   /** Stop when nothing is left to serve. */
   async settle() {
-    if (this.server === undefined || this.host.active()) return;
+    if (this.server === undefined || this.host.active() || this.host.kickGrace?.() === true) return;
     await this.close();
     this.logger?.info?.('conest-collab: pairing listener stopped');
   }
@@ -584,8 +629,11 @@ export function pairApiRoute(req, res, url, { host, client, listener, peers = ta
       if (p === '/collab/api/pair/devices' && req.method === 'GET') return sendJSON(res, 200, { devices: host.list() });
       const dev = /^\/collab\/api\/pair\/devices\/([0-9a-f-]{36})$/.exec(p);
       if (dev !== null && req.method === 'DELETE') {
+        // No settle() here: the other machine finds out it was kicked by asking /collab/pair/whoami,
+        // and closing the port in the same breath would make that look like "host is off" — the link
+        // would then stay in 「我连着的电脑」 and only fail with 502 when opened. The 60 s sweep in
+        // plugin.mjs closes an idle listener instead, which leaves room for that one question.
         const ok = host.revoke(dev[1]);
-        await listener.settle();
         return sendJSON(res, ok ? 200 : 404, ok ? { ok: true } : { error: '没有这台设备', code: 'missing' });
       }
       if (p === '/collab/api/remote/peers' && req.method === 'GET') {
@@ -598,7 +646,12 @@ export function pairApiRoute(req, res, url, { host, client, listener, peers = ta
         return sendJSON(res, 200, { peers: probed });
       }
       if (p === '/collab/api/remote/alive' && req.method === 'POST') { client.alive(); return sendJSON(res, 200, { ok: true }); }
-      if (p === '/collab/api/remote/links' && req.method === 'GET') return sendJSON(res, 200, { links: client.list() });
+      if (p === '/collab/api/remote/links' && req.method === 'GET') {
+        // Reading the list is the moment a kicked machine must disappear from it, before the
+        // person opens that link (remoteProxyRoute drops it then, too).
+        await client.refresh();
+        return sendJSON(res, 200, { links: client.list() });
+      }
       if (p === '/collab/api/remote/links' && req.method === 'POST') {
         const body = await readJSON(req);
         const ip = String(body?.host ?? '').trim();
