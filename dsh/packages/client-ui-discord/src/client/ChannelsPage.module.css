@@ -1542,6 +1542,15 @@
 .headActivity { display: inline-flex; flex: none; gap: 6px; align-items: center; margin-left: auto; color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 500; }
 .headActivity .stackDot { width: 22px; height: 22px; border-color: var(--dsw-alias-bg-base); }
 .headActivity + .panelToggleEnd { margin-left: 4px; }
+/* 来源：用户白色方案的右上总管胶囊与顶部任务板入口；尺寸沿用头像、任务板与标题栏规范。 */
+.chatHead > .roomName { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.chatHead > .taskBoardTrigger { width: auto; margin: 0 0 0 auto; }
+.chatHead .taskBoardSummary { display: none; }
+.headLead { display: inline-flex; flex: 0 1 auto; min-width: 0; gap: 6px; align-items: center; padding: 4px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; background: var(--dsw-alias-bg-layer-2); font-size: 12px; }
+.headLeadText { display: flex; flex-direction: column; min-width: 0; }
+.headLeadName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.headLeadStatus { color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 400; white-space: nowrap; }
+.headLead + .panelToggleEnd { margin-left: 0; }
 .membersHead { display: flex; align-items: center; height: 52px; padding: 0 4px; }
 .membersHeadTitle { color: var(--dsw-alias-label-tertiary); font-size: 11px; font-weight: 650; letter-spacing: .08em; }
 
@@ -1665,7 +1674,28 @@
   .memberActions { position: static; transform: none; padding-left: 0; background: transparent; }
 }
 
-/* 白色默认（来源：用户 11-03「学一下这种设计？ 白色」、11-04 10:48「白色整体风格…这些你来做」）：标题栏切深色/白色按钮，样式沿用 panelToggle。 */
-.schemeToggle { margin-left: auto; }
-.headActivity + .schemeToggle { margin-left: 4px; }
+/* 白色方案（来源：用户 11-03 23:1x「白色 右上角显示当前的总管bot的头像 以及在干啥」，样张 notes/ui/layout-plan-113/index.html）。
+   尺寸沿用上方头像、圆角与标题栏规范。 */
+.leadCard { display: flex; gap: 10px; align-items: center; margin: 8px 8px 4px; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-layer-2); }
+.leadCardText { display: flex; flex-direction: column; min-width: 0; }
+.leadCardName { overflow: hidden; color: var(--dsw-alias-label-primary); font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.leadCardStatus { overflow: hidden; color: var(--dsw-alias-label-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+/* 气泡：对方浅灰圆角，自己深色靠右；卡片、执行条、权限行不套气泡。 */
+.message:not(.own) > .messageBody > .text { width: fit-content; max-width: min(640px, 100%); padding: 8px 14px; border-radius: 6px 16px 16px 16px; background: var(--dsw-alias-bg-layer-2); }
+.message.grouped:not(.own) > .messageBody > .text { border-radius: 6px 16px 16px 6px; }
+.own > .messageBody > .text { color: var(--dsw-alias-bg-base); background: var(--dsw-alias-label-primary); box-shadow: none; }
+.own > .messageBody > .text * { color: inherit; }
+.own > .messageBody > .text a { color: inherit; text-decoration: underline; }
+.own > .messageBody > .text code { color: inherit; background: color-mix(in srgb, var(--dsw-alias-bg-base) 18%, transparent); }
+/* 白色方案：任务板从右侧抽屉滑出（样张 layout-plan-113 的置顶任务板），聊天留在左边可见；宽 440 量自样张 desktop-board.png（1440 宽视口里抽屉占 1000–1440）。 */
+.boardDrawerBackdrop { place-items: stretch end; padding: 0; background: rgb(0 0 0 / 0.25); }
+.boardDrawerBackdrop > .taskBoardDialog { box-sizing: border-box; width: min(440px, 100%); height: 100dvh; max-height: none; border-radius: 0; animation: boardDrawerIn .2s ease-out; }
+@keyframes boardDrawerIn { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .boardDrawerBackdrop > .taskBoardDialog { animation: none; } }
+
+/* 白色默认（来源：用户 11-03「学一下这种设计？ 白色」、11-04 10:48「白色整体风格…这些你来做」）：标题栏切深色/白色按钮。
+   外观沿用 panelToggle，但不共用那个类——panelToggle 在 ≤900px 隐藏（窄屏用抽屉），主题切换在所有宽度都要在。 */
+.schemeToggle { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 28px; height: 28px; margin-left: 4px; border: 0; border-radius: var(--dsw-radius-sm); color: var(--dsw-alias-label-tertiary); background: transparent; font: inherit; font-size: 16px; line-height: 1; cursor: pointer; }
+.schemeToggle:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+.schemeToggle:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color); }
 .schemeToggle + .panelToggleEnd { margin-left: 4px; }

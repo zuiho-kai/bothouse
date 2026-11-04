@@ -1,6 +1,6 @@
 /**
  * Channels main panel: room list, message stream with composer, and member
- * list, in a Discord-style three-column layout. All data arrives through the
+ * activity panel, in a conversation-first layout. All data arrives through the
  * injected `useChannels` hook; posting goes through the injected actions.
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
@@ -13,6 +13,7 @@ import type { ChannelActions, ChannelMember, ChannelMessage, ChannelQuote, Chann
 import { MAX_MESSAGE_BODY, messageTooLarge } from './channel-source.ts'
 import { AttachmentList, PendingAttachments, useComposerAttachments } from './Attachments.tsx'
 import { groupRooms } from './channel-source.ts'
+import { boardGroupOf } from './task-board.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { CapabilityList } from './CapabilityList.tsx'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
@@ -95,6 +96,33 @@ export function parseCard(message: ChannelMessage): CardMeta | undefined {
   if (message.card === null) return undefined
   try { return JSON.parse(message.card) as CardMeta } catch (error) { void error /* unreadable card metadata: render the text alone */ }
   return undefined
+}
+
+/**
+ * What the lead is doing, from real data only (11-04 review of the white scheme: the capsule
+ * must say 「在干啥」— the current task's short name or the live progress-card brief; when
+ * the lead is busy but reported nothing, say so instead of inventing text).
+ * Order: failure/offline, then the lead's live task in this channel or its workspaces,
+ * then the last line of its running progress card here, then busy-without-task, then idle.
+ */
+export function leadDoing(lead: ChannelMember, { tasks, rooms, thinking, messages }: {
+  tasks: readonly ChannelTask[]; rooms: ReadonlySet<number>; thinking: Readonly<Record<string, readonly string[]>>; messages: readonly ChannelMessage[]
+}, t: (key: 'memberFailed' | 'offline' | 'headLeadIdle' | 'headLeadBusyUnreported') => string): string {
+  if (lead.error) return t('memberFailed')
+  if (lead.online === false) return t('offline')
+  const task = tasks.filter(x => x.owner === lead.id && rooms.has(x.room_id) && boardGroupOf(x) === 'working').sort((a, b) => b.updated_at - a.updated_at)[0]
+  if (task !== undefined) return `#${task.id} ${task.title}`
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m.author !== lead.id) continue
+    const card = parseCard(m)
+    if (cardRole(card) !== 'progress' || card?.state !== 'running') continue
+    const line = (card.brief ?? '').split('\n').map(x => x.trim()).filter(Boolean).at(-1)
+    if (line) return line
+    break
+  }
+  if ([...rooms].some(id => (thinking[String(id)] ?? []).includes(lead.id))) return t('headLeadBusyUnreported')
+  return t('headLeadIdle')
 }
 
 /**
@@ -512,7 +540,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   }, [drawer])
   // Wide-window side columns hidden by the user (#124); narrow windows use the drawers instead.
   const [roomsHidden, setRoomsHidden] = useState(false)
-  const [membersHidden, setMembersHidden] = useState(false)
+  // 来源：用户 11-03 白色方案，活动栏默认收起，保留现有展开与手机抽屉入口。
+  const [membersHidden, setMembersHidden] = useState(true)
   const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
@@ -630,6 +659,13 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   const typingNames = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? []).map(id => byId.get(id)?.name ?? id)
   // #113 activity: who is at work in this channel (here or in one of its workspaces) and on what.
   const channelRooms = new Set(state.rooms.filter(r => r.id === channelId || r.parent_id === channelId).map(r => r.id))
+  // Match the settings selector: an explicit room null must not fall back to the global role.
+  const leadId = room?.effective_lead_id === undefined ? state.effectiveLeadId ?? state.leadId : room.effective_lead_id
+  const lead = visibleMembers.find(member => member.id === leadId)
+  // No lead yet: say whether none is set or the member list has not arrived, never a made-up status.
+  const leadStatus = lead !== undefined
+    ? leadDoing(lead, { tasks: state.tasks ?? [], rooms: channelRooms, thinking: state.thinking, messages: state.messages }, t)
+    : leadId == null ? t('headLeadUnset') : t('headLeadLoading')
   const openTasks = (state.tasks ?? []).filter(task => ['assigned', 'accepted', 'asked', 'rework'].includes(task.status))
   const activity = visibleMembers.filter(m => m.kind !== 'human').flatMap((m) => {
     const where = [...channelRooms].find(id => (state.thinking[String(id)] ?? []).includes(m.id))
@@ -811,6 +847,14 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     <div className={[css.page, roomsHidden ? css.roomsHidden : '', membersHidden ? css.membersHidden : ''].filter(Boolean).join(' ')} data-dc-scheme={scheme}>
       {drawer !== undefined && <button className={css.drawerBackdrop} aria-label={t('closeDrawer')} onClick={() => setDrawer(undefined)} />}
       <nav ref={roomsRef} className={drawer === 'rooms' ? `${css.rooms} ${css.drawerOpen}` : css.rooms} aria-label={t('rooms')} role={drawer === 'rooms' ? 'dialog' : undefined} aria-modal={drawer === 'rooms' ? true : undefined} tabIndex={drawer === 'rooms' ? -1 : undefined}>
+        {/* 白色方案：左栏顶部置顶当前主角色（总管）卡，和右上胶囊同一份状态；没有总管时显示兜底文字。 */}
+        <div className={css.leadCard} role="group" aria-label={t('leadCard')} title={lead === undefined ? leadStatus : `${lead.name} · ${leadStatus}`}>
+          {lead !== undefined && <Avatar id={lead.id} name={lead.name} avatar={lead.avatar} avatarVersion={lead.avatarVersion} />}
+          <span className={css.leadCardText}>
+            <span className={css.leadCardName}>{lead?.name ?? t('headLead')}</span>
+            <span className={css.leadCardStatus}>{t('leadPinned')} · {leadStatus}</span>
+          </span>
+        </div>
         <div className={css.groupHead}>
           <h3 className={css.groupTitle}>{t('rooms')}</h3>
           <button type="button" className={css.iconButton} title={t('newRoom')} aria-label={t('newRoom')} onClick={() => { setNewRoom(''); setRoomError(undefined) }}>+</button>
@@ -863,13 +907,15 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
             {t('headMembers', { count: visibleMembers.length })}
             {channelActive > 0 && <> · {t('activeTasks', { count: channelActive })}</>}
           </span>
-          {activity.length > 0 && (
-            <span className={css.headActivity} title={activity.map(a => a.member.name).join('、')}>
-              <span className={css.headActivityText}>{t('headBusy', { names: activity.slice(0, 2).map(a => a.member.name).join('、') })}</span>
-              <AvatarStack members={activity.map(a => a.member)} />
+          <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} />
+          <div className={css.headLead} role="group" aria-label={t('headLead')} title={lead === undefined ? leadStatus : `${lead.name} · ${leadStatus}`}>
+            {lead !== undefined && <Avatar id={lead.id} name={lead.name} avatar={lead.avatar} avatarVersion={lead.avatarVersion} small />}
+            <span className={css.headLeadText}>
+              <span className={css.headLeadName}>{lead?.name ?? t('headLead')}</span>
+              <span className={css.headLeadStatus}>{leadStatus}</span>
             </span>
-          )}
-          <button type="button" className={`${css.panelToggle} ${css.schemeToggle}`} title={t(scheme === 'light' ? 'schemeToDark' : 'schemeToLight')} aria-label={t(scheme === 'light' ? 'schemeToDark' : 'schemeToLight')} aria-pressed={scheme === 'dark'} onClick={() => { setScheme(scheme === 'light' ? 'dark' : 'light') }}>{scheme === 'light' ? '☾' : '☀'}</button>
+          </div>
+          <button type="button" className={css.schemeToggle} title={t(scheme === 'light' ? 'schemeToDark' : 'schemeToLight')} aria-label={t(scheme === 'light' ? 'schemeToDark' : 'schemeToLight')} aria-pressed={scheme === 'dark'} onClick={() => { setScheme(scheme === 'light' ? 'dark' : 'light') }}>{scheme === 'light' ? '☾' : '☀'}</button>
           <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
           <button ref={membersToggleRef} type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
         </header>
@@ -1057,7 +1103,6 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
             ))}
           </section>
         )}
-        <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} />
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
         <hr className={css.memberListDivider} />

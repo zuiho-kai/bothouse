@@ -8,6 +8,7 @@ import { TaskBoard } from '../src/client/TaskBoard.tsx'
 import type { ChannelSnapshot, ChannelTask } from '../src/client/channel-source.ts'
 import type { T } from '../src/client/task-board.ts'
 import { zh } from '../src/client/locales.ts'
+import css from '../src/client/ChannelsPage.module.css'
 import { SCHEME_KEY, resetSchemeCache, setScheme } from '../src/client/scheme.ts'
 
 const state: ChannelSnapshot = {
@@ -59,4 +60,13 @@ it('carries the plugin scheme onto the task board dialog it portals into the bod
   const backdrop = screen.getByRole('dialog').closest('[data-dc-scheme]')
   expect(backdrop?.getAttribute('data-dc-scheme')).toBe('dark')
   expect(backdrop?.parentElement).toBe(document.body)
+})
+
+it('keeps the theme switch out of the panel-toggle class that narrow windows hide', () => {
+  // ChannelsPage.module.css hides .panelToggle at max-width 900px (drawers take over there);
+  // the theme switch must stay on phones, so it has its own class only.
+  render(<ChannelsPage {...props} />)
+  const button = screen.getByRole('button', { name: zh.schemeToDark })
+  expect(button.classList.contains(css.schemeToggle)).toBe(true)
+  expect(button.classList.contains(css.panelToggle)).toBe(false)
 })
