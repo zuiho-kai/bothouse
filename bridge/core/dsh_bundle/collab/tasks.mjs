@@ -72,7 +72,7 @@ const ASKS_USER = /要你做的\s*[:：]\s*(.*)/;
 const NOTHING = /^(没有|无)\s*[。.]?\s*$/;
 const GREEN = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);
 
-/** gh's view of one PR: { merged, green } (no checks counts as green); rejects when gh is missing or fails. */
+/** gh's view of one PR: { merged, green } (no checks is not green, same as board.py #1003); rejects when gh is missing or fails. */
 export function ghPrStatus(url) {
   return new Promise((resolve, reject) => {
     execFile('gh', ['pr', 'view', url, '--json', 'state,statusCheckRollup'], { timeout: 30_000 }, (error, stdout) => {
@@ -80,7 +80,7 @@ export function ghPrStatus(url) {
       try {
         const pr = JSON.parse(stdout);
         const checks = Array.isArray(pr.statusCheckRollup) ? pr.statusCheckRollup : [];
-        const green = checks.every(c => GREEN.has(String(c.conclusion ?? c.state ?? '').toUpperCase()));
+        const green = checks.length > 0 && checks.every(c => GREEN.has(String(c.conclusion ?? c.state ?? '').toUpperCase()));
         resolve({ merged: pr.state === 'MERGED', green });
       } catch (e) { reject(e); }
     });
