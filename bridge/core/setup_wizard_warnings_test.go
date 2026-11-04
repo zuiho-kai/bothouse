@@ -305,3 +305,38 @@ func TestApplyWizardRecommendsJevForTeam(t *testing.T) {
 		t.Fatalf("team with jev: %v", warningCodes(res))
 	}
 }
+
+// The owners found with the token also become admin_from, so `send --dm` has someone to write
+// to. A typed allow_from is not taken as admin_from, and an existing admin_from is kept.
+func TestApplyWizardAdminFromDefaultsToOwner(t *testing.T) {
+	noHardware(t)
+	t1, t2 := fakeToken("111"), fakeToken("222")
+	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "teamapp"})
+	store := newMemStore()
+	env := WizardEnv{Store: store, DataDir: t.TempDir(), CLIs: testCLIs}
+	if res := ApplyWizard(context.Background(), env, discordReq("900", WizardRole{Token: t1}, WizardRole{Token: t2})); !res.OK {
+		t.Fatalf("ok=%v %v", res.OK, warningCodes(res))
+	}
+	for _, p := range []string{"juzi", "teamapp"} {
+		if got := store.projects[p].AdminFrom; got != "777,888" {
+			t.Errorf("%s admin_from = %q, want owners", p, got)
+		}
+	}
+
+	// rerun after the user changed admin_from: kept
+	store.projects["juzi"].AdminFrom = "999"
+	store.beforeApply = nil
+	ApplyWizard(context.Background(), env, discordReq("900", WizardRole{ReuseProject: "juzi"}))
+	if got := store.projects["juzi"].AdminFrom; got != "999" {
+		t.Errorf("existing admin_from overwritten: %q", got)
+	}
+
+	given := "1,2"
+	req := discordReq("900", WizardRole{Token: t1})
+	req.AllowFrom = &given
+	store2 := newMemStore()
+	ApplyWizard(context.Background(), WizardEnv{Store: store2, DataDir: t.TempDir(), CLIs: testCLIs}, req)
+	if got := store2.projects["juzi"].AdminFrom; got != "" {
+		t.Errorf("typed allow_from must not become admin_from, got %q", got)
+	}
+}

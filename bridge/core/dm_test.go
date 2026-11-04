@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -138,5 +139,21 @@ func TestGateChecksNonOwnerDirectMessage(t *testing.T) {
 			t.Errorf("admin_from=%q: a non-owner DM must not be marked addressed", adminFrom)
 		}
 		srv.Close()
+	}
+}
+
+// The error says where admin_from goes and how to get the ID, so it can be fixed from the
+// message alone.
+func TestOpenDMSessionErrorSaysHowToFix(t *testing.T) {
+	p := &stubDMPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}
+	e := NewEngine("p", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	_, err := e.OpenDMSession()
+	if err == nil {
+		t.Fatal("no owner: want an error")
+	}
+	for _, want := range []string{"[[projects]]", "/whoami", "platforms.options"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q lacks %q", err, want)
+		}
 	}
 }

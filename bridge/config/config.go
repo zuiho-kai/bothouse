@@ -848,7 +848,31 @@ func Load(path string) (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
+	warnMisplacedAdminFrom(cfg)
 	return cfg, nil
+}
+
+// MisplacedAdminFrom lists, as "project/platform", every admin_from written under a
+// platform's options. Only the [[projects]]-level admin_from is read, so one written
+// there is ignored and the owner silently gets no DM (send --dm) and no admin commands.
+func MisplacedAdminFrom(cfg *Config) []string {
+	var out []string
+	for _, p := range cfg.Projects {
+		for _, pl := range p.Platforms {
+			if _, ok := pl.Options["admin_from"]; ok {
+				out = append(out, p.Name+"/"+pl.Type)
+			}
+		}
+	}
+	return out
+}
+
+func warnMisplacedAdminFrom(cfg *Config) {
+	for _, at := range MisplacedAdminFrom(cfg) {
+		slog.Warn("config: admin_from under [projects.platforms.options] is ignored — move it up to the "+
+			"[[projects]] block (next to name), then restart",
+			"at", at)
+	}
 }
 
 var envPlaceholderPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)

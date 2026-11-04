@@ -366,3 +366,45 @@ type = "discord"
 		t.Fatalf("projects = %+v", cfg.Projects)
 	}
 }
+
+// admin_from goes to the [[projects]] level (the only place it is read), only when empty.
+func TestWizardWritesProjectAdminFromOnce(t *testing.T) {
+	dir := t.TempDir()
+	old := ConfigPath
+	ConfigPath = filepath.Join(dir, "config.toml")
+	defer func() { ConfigPath = old }()
+	if err := os.WriteFile(ConfigPath, []byte("[log]\nlevel = \"info\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertWizardProject(WizardProjectOptions{Name: "whale", AgentType: "codex", PlatformType: "discord",
+		Options: map[string]any{"token": "T"}, AdminFrom: "777"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertWizardProject(WizardProjectOptions{Name: "whale", PlatformType: "discord", AdminFrom: "888"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadPermissive(ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := cfg.Projects[0]
+	if p.AdminFrom != "777" {
+		t.Fatalf("admin_from = %q, want the first value kept", p.AdminFrom)
+	}
+	if _, misplaced := p.Platforms[0].Options["admin_from"]; misplaced {
+		t.Fatal("admin_from written under platform options")
+	}
+	if snap, _ := WizardSnapshot(); len(snap) != 1 || snap[0].AdminFrom != "777" {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+}
+
+func TestMisplacedAdminFrom(t *testing.T) {
+	cfg := &Config{Projects: []ProjectConfig{
+		{Name: "a", AdminFrom: "1", Platforms: []PlatformConfig{{Type: "discord", Options: map[string]any{"token": "x"}}}},
+		{Name: "b", Platforms: []PlatformConfig{{Type: "discord", Options: map[string]any{"admin_from": "2"}}}},
+	}}
+	if got := MisplacedAdminFrom(cfg); len(got) != 1 || got[0] != "b/discord" {
+		t.Fatalf("got %v, want [b/discord]", got)
+	}
+}
