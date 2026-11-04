@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 4d69794edbbed3074afaedefae1175f1695fb26d6d815ae344631d80387c59f9
+// dsh-client-source-sha256: 6786aea76a194f0b5191a831883913bb212c3b29bd41e79ab21dca3a2275cbb5
 // dsh-style-sha256: 2e640033692a63b951ba23a41d830ebca956e67e0c0a9a38ba6618e25b4b480c
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -103,6 +103,19 @@ const INITIAL = {
 	hasMoreOlder: false,
 	outbox: []
 };
+/** Position of message `id` in rows ascending by id, or -1. */
+function indexOfId(rows, id) {
+	let lo = 0;
+	let hi = rows.length - 1;
+	while (lo <= hi) {
+		const mid = lo + hi >> 1;
+		const at = rows[mid].id;
+		if (at === id) return mid;
+		if (at < id) lo = mid + 1;
+		else hi = mid - 1;
+	}
+	return -1;
+}
 /** Reconnect backoff: 1, 2, 4, 8… seconds, never beyond this cap. */
 const MAX_BACKOFF_MS = 3e4;
 /** Messages requested per page, both for the first read and for `loadOlder`. */
@@ -193,6 +206,8 @@ function createChannelSource(transport) {
 	* e.g. A → B → back to A, where the room check alone passes again.
 	*/
 	let historyEpoch = 0;
+	/** #1030: live rows newer than a trimmed window's last one, kept until `loadNewer` catches up. */
+	const ahead = /* @__PURE__ */ new Map();
 	const set = (next) => {
 		snapshot = {
 			...snapshot,
@@ -232,8 +247,30 @@ function createChannelSource(transport) {
 		switch (event.type) {
 			case "message": {
 				if (event.message.room_id !== current.roomId) return current;
-				const rows = new Map(current.messages.map((m) => [m.id, m]));
-				rows.set(event.message.id, event.message);
+				const list = current.messages;
+				const id = event.message.id;
+				const first = list[0];
+				const last = list.at(-1);
+				if (current.hasMoreNewer === true && last !== void 0 && id > last.id) {
+					ahead.set(id, event.message);
+					return current;
+				}
+				if (current.hasMoreOlder && first !== void 0 && id < first.id) return current;
+				if (last === void 0 || id > last.id) return {
+					...current,
+					messages: [...list, event.message]
+				};
+				const at = indexOfId(list, id);
+				if (at >= 0) {
+					const messages = list.slice();
+					messages[at] = event.message;
+					return {
+						...current,
+						messages
+					};
+				}
+				const rows = new Map(list.map((m) => [m.id, m]));
+				rows.set(id, event.message);
 				return {
 					...current,
 					messages: [...rows.values()].sort((a, b) => a.id - b.id)
@@ -351,10 +388,13 @@ function createChannelSource(transport) {
 			const roomId = state.rooms.some((r) => r.id === previous.roomId) ? previous.roomId : state.rooms.some((r) => r.id === remembered) ? remembered : state.rooms[0]?.id;
 			const rows = [];
 			let hasMoreOlder = false;
+			let hasMoreNewer = false;
+			ahead.clear();
 			if (roomId !== void 0) {
 				if (resume && roomId === previous.roomId && previous.messages.length > 0) {
 					const merged = new Map(previous.messages.map((m) => [m.id, m]));
 					const oldest = previous.messages[0].id;
+					const newest = previous.hasMoreNewer === true ? previous.messages.at(-1).id : void 0;
 					const present = /* @__PURE__ */ new Set();
 					let cursor = oldest - 1;
 					while (current()) {
@@ -367,12 +407,14 @@ function createChannelSource(transport) {
 						if (messages.length < CATCH_UP_LIMIT) break;
 						const next = messages.at(-1)?.id;
 						if (next === void 0 || next <= cursor) throw new Error("Channel history cursor did not advance");
+						if (newest !== void 0 && next >= newest) break;
 						cursor = next;
 					}
-					for (const id of [...merged.keys()]) if (id >= oldest && !present.has(id)) merged.delete(id);
+					for (const id of [...merged.keys()]) if (id >= oldest && !present.has(id) || newest !== void 0 && id > newest) merged.delete(id);
 					historyEpoch += 1;
 					rows.push(...[...merged.values()].sort((a, b) => a.id - b.id));
 					hasMoreOlder = previous.hasMoreOlder;
+					hasMoreNewer = newest !== void 0;
 				} else {
 					let after;
 					while (current()) {
@@ -403,6 +445,7 @@ function createChannelSource(transport) {
 				queued: state.queued ?? {},
 				messages: rows,
 				hasMoreOlder,
+				hasMoreNewer,
 				leadId: state.lead_id ?? null,
 				effectiveLeadId: state.effective_lead_id ?? state.lead_id ?? null,
 				tasks: keepBoard ? previous.tasks : [],
@@ -421,16 +464,19 @@ function createChannelSource(transport) {
 	};
 	const selectRoom = async (roomId) => {
 		historyEpoch += 1;
+		ahead.clear();
 		rememberRoom(roomId);
 		if (roomId !== snapshot.roomId) earlyTasks.clear();
 		const shown = outbox.filter((entry) => entry.roomId === roomId);
 		set(roomId === snapshot.roomId ? {
 			roomId,
 			messages: [],
+			hasMoreNewer: false,
 			outbox: shown
 		} : {
 			roomId,
 			messages: [],
+			hasMoreNewer: false,
 			outbox: shown,
 			tasks: [],
 			taskChat: void 0
@@ -748,14 +794,90 @@ function createChannelSource(transport) {
 					if (epoch !== historyEpoch || pageTicket.get(roomId) !== ticket) return 0;
 					const merged = new Map(snapshot.messages.map((m) => [m.id, m]));
 					for (const row of messages) merged.set(row.id, row);
+					const rows = [...merged.values()].sort((a, b) => a.id - b.id);
+					const trimmed = rows.length > 300;
+					if (trimmed) ahead.clear();
 					set({
-						messages: [...merged.values()].sort((a, b) => a.id - b.id),
-						hasMoreOlder: messages.length >= PAGE_SIZE
+						messages: trimmed ? rows.slice(0, 300) : rows,
+						hasMoreOlder: messages.length >= PAGE_SIZE,
+						...trimmed ? { hasMoreNewer: true } : {}
 					});
 					return messages.length;
 				} finally {
 					if (paging.get(roomId)?.ticket === ticket) paging.delete(roomId);
 				}
+			},
+			async loadNewer() {
+				const roomId = snapshot.roomId;
+				const owner = lifetime;
+				const newest = snapshot.messages.at(-1)?.id;
+				if (roomId === void 0 || owner === void 0) throw new Error("No channel is open");
+				const held = paging.get(roomId);
+				if (held !== void 0 && held.epoch === historyEpoch) return 0;
+				if (newest === void 0 || snapshot.hasMoreNewer !== true) return 0;
+				held?.controller.abort();
+				const ticket = ++nextPageTicket;
+				const epoch = historyEpoch;
+				const controller = new AbortController();
+				paging.set(roomId, {
+					ticket,
+					epoch,
+					controller
+				});
+				pageTicket.set(roomId, ticket);
+				try {
+					let messages;
+					try {
+						({messages} = await request(`collab/api/rooms/${roomId}/messages?after=${newest}&limit=${PAGE_SIZE}`, { signal: controller.signal }));
+					} catch (error) {
+						if (controller.signal.aborted) return 0;
+						throw error;
+					}
+					if (controller.signal.aborted) return 0;
+					if (lifetime !== owner || snapshot.roomId !== roomId) return 0;
+					if (epoch !== historyEpoch || pageTicket.get(roomId) !== ticket) return 0;
+					const merged = new Map(snapshot.messages.map((m) => [m.id, m]));
+					for (const row of messages) merged.set(row.id, row);
+					const caughtUp = messages.length < PAGE_SIZE;
+					if (caughtUp) for (const row of ahead.values()) merged.set(row.id, row);
+					if (caughtUp) ahead.clear();
+					const rows = [...merged.values()].sort((a, b) => a.id - b.id);
+					const trimmed = rows.length > 300;
+					set({
+						messages: trimmed ? rows.slice(-300) : rows,
+						hasMoreNewer: !caughtUp,
+						...trimmed ? { hasMoreOlder: true } : {}
+					});
+					return messages.length;
+				} finally {
+					if (paging.get(roomId)?.ticket === ticket) paging.delete(roomId);
+				}
+			},
+			keepLatest() {
+				if (snapshot.hasMoreNewer === true || snapshot.messages.length <= 300) return;
+				historyEpoch += 1;
+				set({
+					messages: snapshot.messages.slice(-300),
+					hasMoreOlder: true
+				});
+			},
+			async showLatest() {
+				const roomId = snapshot.roomId;
+				const owner = lifetime;
+				if (roomId === void 0 || owner === void 0 || snapshot.hasMoreNewer !== true) return;
+				historyEpoch += 1;
+				const epoch = historyEpoch;
+				const { messages } = await request(`collab/api/rooms/${roomId}/messages?limit=${PAGE_SIZE}`);
+				if (lifetime !== owner || snapshot.roomId !== roomId || epoch !== historyEpoch) return;
+				const merged = new Map(messages.map((m) => [m.id, m]));
+				const last = messages.at(-1)?.id ?? Number.NEGATIVE_INFINITY;
+				for (const row of ahead.values()) if (row.id > last) merged.set(row.id, row);
+				ahead.clear();
+				set({
+					messages: [...merged.values()].sort((a, b) => a.id - b.id),
+					hasMoreOlder: messages.length >= PAGE_SIZE,
+					hasMoreNewer: false
+				});
 			},
 			async retryMessage(messageId) {
 				await request(`collab/api/messages/${messageId}/retry`, { method: "POST" });
@@ -21018,7 +21140,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, openModelSettings, answerTask, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }) {
 	const scheme = useScheme();
 	const state = useChannels((snapshot) => snapshot);
 	const [editing, setEditing] = (0, react.useState)(void 0);
@@ -21061,6 +21183,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 	const [unread, setUnread] = (0, react.useState)(void 0);
 	const [loadingOlder, setLoadingOlder] = (0, react.useState)(false);
 	const olderAnchor = (0, react.useRef)(void 0);
+	const rowAnchor = (0, react.useRef)(void 0);
 	const live = (0, react.useRef)(createLiveTracker());
 	const [pendingWithdraw, setPendingWithdraw] = (0, react.useState)(void 0);
 	const withdrawTimer = (0, react.useRef)(void 0);
@@ -21213,11 +21336,24 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 	const fresh = (0, react.useMemo)(() => trackLive(live.current, state.roomId, state.messages), [state.messages, state.roomId]);
 	(0, react.useLayoutEffect)(() => {
 		const log = logRef.current;
+		if (log === null) return;
+		const row = rowAnchor.current;
+		const el = row === void 0 ? null : log.querySelector(`[data-message-id="${row.id}"]`);
+		if (row !== void 0 && el !== null) {
+			rowAnchor.current = void 0;
+			olderAnchor.current = void 0;
+			log.scrollTop += el.getBoundingClientRect().top - log.getBoundingClientRect().top - row.offset;
+			return;
+		}
 		const anchor = olderAnchor.current;
-		if (log === null || anchor === void 0) return;
+		if (anchor === void 0) return;
 		olderAnchor.current = void 0;
+		rowAnchor.current = void 0;
 		log.scrollTop = log.scrollHeight - anchor.height + anchor.top;
 	}, [state.messages]);
+	(0, react.useEffect)(() => {
+		if (stickRef.current && state.hasMoreNewer !== true && state.messages.length > 300) keepLatest?.();
+	}, [state.messages, state.hasMoreNewer]);
 	const handled = (0, react.useRef)({
 		roomId: void 0,
 		id: Number.NEGATIVE_INFINITY
@@ -21273,11 +21409,45 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 		if (log === null) return;
 		stickRef.current = true;
 		setAtBottom(true);
+		if (state.hasMoreNewer === true) {
+			showLatest?.();
+			return;
+		}
 		if (typeof log.scrollTo === "function") log.scrollTo({
 			top: log.scrollHeight,
 			behavior: prefersReducedMotion() ? "auto" : "smooth"
 		});
 		else log.scrollTop = log.scrollHeight;
+	};
+	/** #1030: the first row at least partly in view and how far its top sits from the log's top. */
+	const firstRowInView = (log) => {
+		const top = log.getBoundingClientRect().top;
+		for (const el of log.querySelectorAll("[data-message-id]")) {
+			const box = el.getBoundingClientRect();
+			if (box.bottom > top) return {
+				id: el.getAttribute("data-message-id") ?? "",
+				offset: box.top - top
+			};
+		}
+	};
+	/** #1030: the reader reached the bottom of a window that dropped its newest rows. */
+	const pageForward = () => {
+		const log = logRef.current;
+		if (log === null || loadNewer === void 0 || loadingOlder || state.hasMoreNewer !== true) return;
+		rowAnchor.current = firstRowInView(log);
+		setLoadingOlder(true);
+		loadNewer().then((added) => {
+			if (added === 0) rowAnchor.current = void 0;
+		}, (error) => {
+			rowAnchor.current = void 0;
+			const roomId = state.roomId;
+			if (roomId !== void 0) setErrors((previous) => ({
+				...previous,
+				[roomId]: error instanceof Error ? error.message : String(error)
+			}));
+		}).finally(() => {
+			setLoadingOlder(false);
+		});
 	};
 	const pageBack = () => {
 		const log = logRef.current;
@@ -21286,6 +21456,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 			height: log.scrollHeight,
 			top: log.scrollTop
 		};
+		if (state.messages.length + 100 > 300) rowAnchor.current = firstRowInView(log);
 		setLoadingOlder(true);
 		loadOlder().then((added) => {
 			if (added === 0) olderAnchor.current = void 0;
@@ -21563,6 +21734,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 			[roomId]: void 0
 		}));
 		stickRef.current = true;
+		if (state.hasMoreNewer === true) showLatest?.();
 		return send(text).then(() => {
 			if (clearDraft) setDrafts((previous) => ({
 				...previous,
@@ -21656,6 +21828,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 			[roomId]: void 0
 		}));
 		stickRef.current = true;
+		if (state.hasMoreNewer === true) showLatest?.();
 		setUnread(void 0);
 		const replyTo = replies[roomId]?.id;
 		(files.length > 0 ? send(text, replyTo, files) : replyTo === void 0 ? send(text) : send(text, replyTo)).then(() => {
@@ -22043,7 +22216,9 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 								"aria-live": "polite",
 								onScroll: (event) => {
 									const el = event.currentTarget;
-									const bottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
+									const edge = el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
+									if (edge && state.hasMoreNewer === true) pageForward();
+									const bottom = edge && state.hasMoreNewer !== true;
 									stickRef.current = bottom;
 									if (bottom !== atBottom) setAtBottom(bottom);
 									if (bottom && unread !== void 0 && !unread.seen) setUnread({
@@ -22142,7 +22317,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 									})
 								]
 							}),
-							!atBottom && state.messages.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+							(!atBottom || state.hasMoreNewer === true) && state.messages.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 								type: "button",
 								className: ChannelsPage_module_default.jumpLatest,
 								onClick: scrollToLatest,
@@ -23317,6 +23492,9 @@ function apply(ctx) {
 		retrySend: channels.actions.retrySend,
 		dismissSend: channels.actions.dismissSend,
 		loadOlder: channels.actions.loadOlder,
+		loadNewer: channels.actions.loadNewer,
+		keepLatest: channels.actions.keepLatest,
+		showLatest: channels.actions.showLatest,
 		createRoom: channels.actions.createRoom,
 		renameRoom: channels.actions.renameRoom,
 		listModels: channels.actions.listModels,

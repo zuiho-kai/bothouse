@@ -10,7 +10,7 @@ import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepse
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ChannelActions, ChannelMember, ChannelMemory, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, OutgoingAttachment } from './channel-source.ts'
-import { MAX_MESSAGE_BODY, messageTooLarge } from './channel-source.ts'
+import { MAX_MESSAGE_BODY, MAX_ROWS, messageTooLarge } from './channel-source.ts'
 import { AttachmentList, PendingAttachments, useComposerAttachments } from './Attachments.tsx'
 import { dmRooms, groupRooms } from './channel-source.ts'
 import { DeliveryPreview, deliverableOf, deliveredTasks } from './DeliveryPreview.tsx'
@@ -594,7 +594,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, openModelSettings, answerTask, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }: ChannelsPageProps) {
   const scheme = useScheme()
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
@@ -635,6 +635,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   const [unread, setUnread] = useState<{ roomId: number; fromId: number; seen: boolean } | undefined>(undefined)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const olderAnchor = useRef<{ height: number; top: number } | undefined>(undefined)
+  // #1030: a page that also drops rows at the far end keeps the row in view where it was.
+  const rowAnchor = useRef<{ id: string; offset: number } | undefined>(undefined)
   const live = useRef(createLiveTracker())
   // #115 withdraw with undo: the row hidden for a few seconds before the request goes out.
   const [pendingWithdraw, setPendingWithdraw] = useState<{ id: number; commit: () => void } | undefined>(undefined)
@@ -801,11 +803,27 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   // An older page keeps the row the reader was looking at in place (#115).
   useLayoutEffect(() => {
     const log = logRef.current
+    if (log === null) return
+    const row = rowAnchor.current
+    const el = row === undefined ? null : log.querySelector(`[data-message-id="${row.id}"]`)
+    if (row !== undefined && el !== null) {
+      // #1030: rows went at both ends; measure the row itself instead of the log height.
+      rowAnchor.current = undefined
+      olderAnchor.current = undefined
+      log.scrollTop += el.getBoundingClientRect().top - log.getBoundingClientRect().top - row.offset
+      return
+    }
     const anchor = olderAnchor.current
-    if (log === null || anchor === undefined) return
+    if (anchor === undefined) return
     olderAnchor.current = undefined
+    rowAnchor.current = undefined
     log.scrollTop = log.scrollHeight - anchor.height + anchor.top
   }, [state.messages])
+
+  // #1030: back at the newest message, the page sheds rows beyond the window size.
+  useEffect(() => {
+    if (stickRef.current && state.hasMoreNewer !== true && state.messages.length > MAX_ROWS) keepLatest?.()
+  }, [state.messages, state.hasMoreNewer])
 
   // Follow new messages only while the reader is already at the bottom; otherwise
   // mark where the unread rows start so the divider and the pill can show them.
@@ -843,14 +861,41 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     if (log === null) return
     stickRef.current = true
     setAtBottom(true)
+    // #1030: the newest rows are not on the page; fetch them, then the stick effect lands at the bottom.
+    if (state.hasMoreNewer === true) { void showLatest?.(); return }
     if (typeof log.scrollTo === 'function') log.scrollTo({ top: log.scrollHeight, behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
     else log.scrollTop = log.scrollHeight
+  }
+
+  /** #1030: the first row at least partly in view and how far its top sits from the log's top. */
+  const firstRowInView = (log: HTMLDivElement): { id: string; offset: number } | undefined => {
+    const top = log.getBoundingClientRect().top
+    for (const el of log.querySelectorAll('[data-message-id]')) {
+      const box = el.getBoundingClientRect()
+      if (box.bottom > top) return { id: el.getAttribute('data-message-id') ?? '', offset: box.top - top }
+    }
+    return undefined
+  }
+
+  /** #1030: the reader reached the bottom of a window that dropped its newest rows. */
+  const pageForward = (): void => {
+    const log = logRef.current
+    if (log === null || loadNewer === undefined || loadingOlder || state.hasMoreNewer !== true) return
+    rowAnchor.current = firstRowInView(log)
+    setLoadingOlder(true)
+    loadNewer().then((added) => { if (added === 0) rowAnchor.current = undefined }, (error: unknown) => {
+      rowAnchor.current = undefined
+      const roomId = state.roomId
+      if (roomId !== undefined) setErrors(previous => ({ ...previous, [roomId]: error instanceof Error ? error.message : String(error) }))
+    }).finally(() => { setLoadingOlder(false) })
   }
 
   const pageBack = (): void => {
     const log = logRef.current
     if (log === null || loadingOlder || state.hasMoreOlder !== true || state.messages.length === 0) return
     olderAnchor.current = { height: log.scrollHeight, top: log.scrollTop }
+    // #1030: a full window also drops its newest rows, so the height alone no longer places the reader.
+    if (state.messages.length + 100 > MAX_ROWS) rowAnchor.current = firstRowInView(log)
     setLoadingOlder(true)
     loadOlder().then((added) => { if (added === 0) olderAnchor.current = undefined }, (error: unknown) => {
       olderAnchor.current = undefined
@@ -1099,6 +1144,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     if (roomId === undefined) return Promise.resolve(false)
     setErrors(previous => ({ ...previous, [roomId]: undefined }))
     stickRef.current = true
+    if (state.hasMoreNewer === true) void showLatest?.()
     return send(text).then(() => {
       if (clearDraft) setDrafts(previous => ({ ...previous, [roomId]: '' }))
       return true
@@ -1158,6 +1204,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     setSending(previous => ({ ...previous, [roomId]: true }))
     setErrors(previous => ({ ...previous, [roomId]: undefined }))
     stickRef.current = true
+    if (state.hasMoreNewer === true) void showLatest?.()
     setUnread(undefined)
     const replyTo = replies[roomId]?.id
     ;(files.length > 0 ? send(text, replyTo, files) : replyTo === undefined ? send(text) : send(text, replyTo)).then(() => {
@@ -1336,7 +1383,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
           aria-live="polite"
           onScroll={(event) => {
             const el = event.currentTarget
-            const bottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 40
+            const edge = el.scrollTop + el.clientHeight >= el.scrollHeight - 40
+            // #1030: the bottom of a window that dropped its newest rows is not the newest message.
+            if (edge && state.hasMoreNewer === true) pageForward()
+            const bottom = edge && state.hasMoreNewer !== true
             stickRef.current = bottom
             if (bottom !== atBottom) setAtBottom(bottom)
             if (bottom && unread !== undefined && !unread.seen) setUnread({ ...unread, seen: true })
@@ -1400,7 +1450,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
             <span className={css.undoBar} style={{ animationDuration: `${WITHDRAW_UNDO_MS}ms` }} aria-hidden="true" />
           </div>
         )}
-        {!atBottom && state.messages.length > 0 && (
+        {(!atBottom || state.hasMoreNewer === true) && state.messages.length > 0 && (
           <button type="button" className={css.jumpLatest} onClick={scrollToLatest}>
             <span aria-hidden="true">↓</span> {t('jumpLatest')}
             {visibleUnreadCount > 0
