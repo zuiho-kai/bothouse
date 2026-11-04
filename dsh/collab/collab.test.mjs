@@ -607,6 +607,24 @@ test('progress card carries a brief view: tool name and outcome per step', () =>
   assert.match(c.text, /go test/);
 });
 
+test('progress card carries step chips: tool, outcome, call and output per step (#125)', () => {
+  const c = progressCard(PROGRESS_PREFIX + JSON.stringify({ state: 'running', steps: 4, elapsed_sec: 9, agent: 'Codex', items: [
+    { kind: 'thinking', text: 'hmm' },
+    { kind: 'tool_use', tool: 'Bash', text: 'go   test ./...' }, { kind: 'tool_result', tool: 'Bash', text: 'ok\n  all', exit_code: 0 },
+    { kind: 'tool_use', tool: 'Edit', text: 'a.go' }, { kind: 'tool_result', tool: 'Edit', text: 'boom', success: false },
+    { kind: 'tool_result', tool: 'Grep', text: 'x'.repeat(300) },
+    { kind: 'tool_use', tool: 'Read', text: 'b.go' },
+  ] }));
+  assert.deepEqual(JSON.parse(c.card).chips, [
+    { tool: 'Bash', state: 'ok', input: 'go test ./...', output: 'ok all' },
+    { tool: 'Edit', state: 'failed', input: 'a.go', output: 'boom' },
+    { tool: 'Grep', state: 'ok', output: 'x'.repeat(120) },
+    { tool: 'Read', state: 'running', input: 'b.go' },
+  ]);
+  const done = progressCard(PROGRESS_PREFIX + JSON.stringify({ state: 'completed', items: [{ kind: 'tool_use', tool: 'Read', text: 'b.go' }, { kind: 'error', text: 'denied' }, { kind: 'tool_use', text: 'q' }] }));
+  assert.deepEqual(JSON.parse(done.card).chips, [{ tool: 'Read', state: 'failed', input: 'b.go', output: 'denied' }, { tool: '工具', state: 'unknown', input: 'q' }]);
+});
+
 
 /**
  * Minimal DSH runtime. Agents keep a pending inbox and a Session event log;

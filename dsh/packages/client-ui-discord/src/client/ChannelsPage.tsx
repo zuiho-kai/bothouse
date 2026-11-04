@@ -15,6 +15,7 @@ import { AttachmentList, PendingAttachments, useComposerAttachments } from './At
 import { groupRooms } from './channel-source.ts'
 import { boardGroupOf, isLiveTask } from './task-board.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
+import { StepChips, chipsOf } from './StepChips.tsx'
 import { CapabilityList } from './CapabilityList.tsx'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { MemberDialog } from './MemberDialog.tsx'
@@ -94,7 +95,7 @@ function saveCardView(roomId: number, view: CardView): void {
 }
 
 /** Card metadata stored in `ChannelMessage.card` (progress, permission, task, failure, …). */
-interface CardMeta { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string; steps?: number }
+interface CardMeta { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string; steps?: number; chips?: unknown }
 
 export function parseCard(message: ChannelMessage): CardMeta | undefined {
   if (message.card === null) return undefined
@@ -269,6 +270,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 
   // A finished run in the brief view folds to its summary line; running or detailed shows the steps.
   const progressFolded = role === 'progress' && cardView === 'brief' && card?.state === 'completed'
+  const chips = role === 'progress' ? chipsOf(card) : undefined
   return (
     <div className={classes} data-message-id={message.id}>
       {grouped
@@ -346,9 +348,12 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                     </div>
                   )}
                 </div>
-                {!progressFolded && progressLines.length > 1 && (
-                  <div className={`${css.text} ${css.runSteps}`}><MarkdownText text={stepsMarkdown} labels={labels} /></div>
-                )}
+                {/* #125: the brief view shows step chips when the card carries them; older cards keep the lines. */}
+                {cardView === 'brief' && chips !== undefined
+                  ? <StepChips chips={chips} t={t} />
+                  : !progressFolded && progressLines.length > 1 && (
+                      <div className={`${css.text} ${css.runSteps}`}><MarkdownText text={stepsMarkdown} labels={labels} /></div>
+                    )}
                 {retryButtons}
               </div>
             )
