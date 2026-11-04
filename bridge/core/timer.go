@@ -42,8 +42,11 @@ type TimerJob struct {
 	// until the user has stopped talking in the session (holdForUser).
 	WaitUserQuiet bool `json:"wait_user_quiet,omitempty"`
 	// ReportID ties a workspace-handback wake to its pending-record entry (team_report_delivery.go).
-	ReportID    string    `json:"report_id,omitempty"`
-	SessionMode string    `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run
+	ReportID    string `json:"report_id,omitempty"`
+	SessionMode string `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run
+	// Model: the agent model a new_per_run turn starts on instead of the session's ("" = as
+	// usual). Set for a task review on a tier model ([team_review] simple_model/complex_model).
+	Model       string    `json:"model,omitempty"`
 	Mode        string    `json:"mode,omitempty"`         // permission mode override; "" = use project default
 	TimeoutMins *int      `json:"timeout_mins,omitempty"` // nil = default 30m; 0 = no limit; >0 = minutes
 	CreatedAt   time.Time `json:"created_at"`

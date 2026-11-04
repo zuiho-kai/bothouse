@@ -175,6 +175,38 @@ class Increments(unittest.TestCase):
         finally:
             os.environ["CC_BIN"] = "false"
 
+    def test_done_parks_bound_item(self):
+        """用户 2026-11-04「交回/暂停/验收完当场放回」：没交回就直接 done（或收尾词）的条目还绑着工作区，
+        当场 park 放回，不等每小时对账；已交回（解绑）或没绑工作区的不动桥。"""
+        log = Path(TMP) / "parkdone.log"
+        log.write_text("")
+        fake = Path(TMP) / "fakeparkdone"
+        fake.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\necho '{{\"freed\":true}}'\n")
+        fake.chmod(0o755)
+        os.environ["CC_BIN"] = str(fake)
+        board.set_prune_conf(on=False)
+        try:
+            board.add("交来的活", "a.md", "已交接", "工作区1主角色", ws="discord:201", chat="discord:100")
+            board.add("另一件", "b.md", "已交接", "工作区2主角色", ws="discord:202", chat="discord:100")
+            board.add("顺手的事", "-", "s", "主角色")
+            bound = board.items()[0]["bound"]
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                board.main(["done", "1", "0"])
+            self.assertIn("工作区已放回池子", out.getvalue())
+            self.assertEqual(log.read_text().split(), ["workspace", "park", "--session-key", "discord:201",
+                                                       "--chat", "discord:100", "--before", bound, "--stop", "--json"])
+            log.write_text("")
+            with contextlib.redirect_stdout(io.StringIO()):
+                board.main(["update", "2", "已完成"])  # 收尾词也算结束
+            self.assertIn("--session-key discord:202", log.read_text())
+            log.write_text("")
+            with contextlib.redirect_stdout(io.StringIO()):
+                board.main(["done", "3", "0"])
+            self.assertEqual(log.read_text(), "")  # 没绑工作区：不问桥
+        finally:
+            os.environ["CC_BIN"] = "false"
+
     def test_park_names_chat_and_task(self):
         """审查 pr261-code.md 第 1 条：pause / 把「谁」改走时 park 带上交活的聊天频道和绑定时刻，桥只放这一件；
         工作区已归别的聊天频道（假桥按 --chat 判）时桥拒绝，什么都不放。没记聊天频道的绑定条目不动桥。"""

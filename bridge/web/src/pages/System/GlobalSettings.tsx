@@ -5,6 +5,7 @@ import { Save } from 'lucide-react';
 import { Card, Button, LoadingState, PageHeader } from '@/components/ui';
 import { getGlobalSettings, updateGlobalSettings, type GlobalSettings as GS } from '@/api/settings';
 import { listRoles, type RoleInfo } from '@/api/roles';
+import { listModels } from '@/api/providers';
 import { cn } from '@/lib/utils';
 import ThemeSettingCard from '@/components/Theme/ThemeSettingCard';
 import TokenUnitSettingCard from '@/components/Usage/TokenUnitSettingCard';
@@ -92,6 +93,9 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
   const [rlWindow, setRlWindow] = useState(60);
   const [reviewSimple, setReviewSimple] = useState('');
   const [reviewComplex, setReviewComplex] = useState('');
+  const [reviewSimpleModel, setReviewSimpleModel] = useState('');
+  const [reviewComplexModel, setReviewComplexModel] = useState('');
+  const [roleModels, setRoleModels] = useState<Record<string, string[]>>({});
   const [roles, setRoles] = useState<RoleInfo[]>([]);
 
   const load = useCallback(async () => {
@@ -112,6 +116,8 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
       setRlWindow(s.rate_limit_window_secs ?? 60);
       setReviewSimple(s.review_simple_role ?? '');
       setReviewComplex(s.review_complex_role ?? '');
+      setReviewSimpleModel(s.review_simple_model ?? '');
+      setReviewComplexModel(s.review_complex_model ?? '');
     } catch {
       // ignore
     } finally {
@@ -124,7 +130,24 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
     listRoles().then((r) => setRoles(r.roles ?? [])).catch(() => setRoles([]));
   }, []);
 
-  // Each role runs its own model, so picking the role picks the model; the label names both.
+  // A tier's model comes from its role's own model list (a model ID belongs to that role's agent).
+  useEffect(() => {
+    for (const role of [reviewSimple, reviewComplex]) {
+      if (!role || roleModels[role]) continue;
+      listModels(role)
+        .then((r) => setRoleModels((m) => ({ ...m, [role]: r.models ?? [] })))
+        .catch(() => setRoleModels((m) => ({ ...m, [role]: [] })));
+    }
+  }, [reviewSimple, reviewComplex, roleModels]);
+
+  const modelOptions = (role: string, current: string) => {
+    const opts = [{ value: '', label: t('settings.reviewModelRole', "The role's own model") }];
+    for (const id of roleModels[role] ?? []) opts.push({ value: id, label: id });
+    if (current && !opts.some((o) => o.value === current)) opts.push({ value: current, label: current });
+    return opts;
+  };
+
+  // Each role runs its own model unless a tier model is picked below; the label names both.
   const reviewOptions = (current: string) => {
     const opts = [{ value: '', label: t('settings.reviewAuto', 'Automatic (any free non-author role)') }];
     for (const r of roles) {
@@ -153,6 +176,8 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
         rate_limit_window_secs: rlWindow,
         review_simple_role: reviewSimple,
         review_complex_role: reviewComplex,
+        review_simple_model: reviewSimple ? reviewSimpleModel : '',
+        review_complex_model: reviewComplex ? reviewComplexModel : '',
       });
       setMsg(t('common.success'));
       setTimeout(() => setMsg(''), 3000);
@@ -279,17 +304,35 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
           <Select
             label={t('settings.reviewSimple', 'Simple reviews')}
             value={reviewSimple}
-            onChange={setReviewSimple}
+            onChange={(v) => { setReviewSimple(v); setReviewSimpleModel(''); }}
             options={reviewOptions(reviewSimple)}
             hint={t('settings.reviewSimpleHint', 'Handbacks not marked complex are verified here first; pick a cheap model')}
           />
+          {reviewSimple && (
+            <Select
+              label={t('settings.reviewSimpleModel', 'Simple review model')}
+              value={reviewSimpleModel}
+              onChange={setReviewSimpleModel}
+              options={modelOptions(reviewSimple, reviewSimpleModel)}
+              hint={t('settings.reviewModelHint', 'The review runs in a new session on this model')}
+            />
+          )}
           <Select
             label={t('settings.reviewComplex', 'Complex reviews')}
             value={reviewComplex}
-            onChange={setReviewComplex}
+            onChange={(v) => { setReviewComplex(v); setReviewComplexModel(''); }}
             options={reviewOptions(reviewComplex)}
             hint={t('settings.reviewComplexHint', 'Used after a reviewer runs board tier <id> complex')}
           />
+          {reviewComplex && (
+            <Select
+              label={t('settings.reviewComplexModel', 'Complex review model')}
+              value={reviewComplexModel}
+              onChange={setReviewComplexModel}
+              options={modelOptions(reviewComplex, reviewComplexModel)}
+              hint={t('settings.reviewModelHint', 'The review runs in a new session on this model')}
+            />
+          )}
         </div>
       </Card>
 
