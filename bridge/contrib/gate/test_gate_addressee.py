@@ -57,6 +57,37 @@ def load_gate(config_toml=None, team=None):
 gate = load_gate()
 
 
+class BusyGreetingReplay(unittest.TestCase):
+    def setUp(self):
+        self.saved_sub_task = gate.sub_task
+        self.saved_current_task = dict(gate.current_task)
+        self.inputs = []
+
+        def score(text):
+            self.inputs.append(text)
+            # 来源：2026-11-04 普通问候误判的 gate 记录，按 A/B/C/D 原样回放。
+            return types.SimpleNamespace(choice=3, probs=[0.248, 0.171, 0.117, 0.464])
+
+        gate.sub_task = types.SimpleNamespace(score=score)
+
+    def tearDown(self):
+        gate.sub_task = self.saved_sub_task
+        gate.current_task.clear()
+        gate.current_task.update(self.saved_current_task)
+
+    def test_greeting_replay_keeps_running_task(self):
+        for bot in ("", "longniang"):
+            for no_insert in (False, True):
+                with self.subTest(bot=bot, no_insert=no_insert):
+                    gate.current_task[bot, CHAT] = "核对原任务，用户之前说过暂停"
+                    req = {"content": "你好", "busy": True, "mentioned": True,
+                           "session_key": CHAT, "no_insert": no_insert}
+                    action, why, _ = gate.route(req, bot)
+                    self.assertEqual(action, "reply", why)
+                    self.assertEqual(gate.current_task[bot, CHAT], "核对原任务，用户之前说过暂停")
+                    self.assertIn("群里刚发：「你好」", self.inputs[-1])
+
+
 class DSHMembersNotRouted(unittest.TestCase):
     """安装向导登记的 DSH 成员（kind=dsh）不是 Discord 队友：不进 SUBS/NAMES/队友表，lead.py 仍认得她们。"""
 
