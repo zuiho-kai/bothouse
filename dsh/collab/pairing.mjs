@@ -284,6 +284,7 @@ export class PairClient {
     this.request = request;
     this.name = name;
     this.links = new Map();
+    this.refreshing = undefined;
     const saved = loadJSON(file);
     for (const l of Array.isArray(saved?.links) ? saved.links : []) {
       if (typeof l?.id === 'string' && typeof l.token === 'string' && typeof l.host === 'string') this.links.set(l.id, { ...l, mode: 'remember', expires_at: null });
@@ -348,13 +349,24 @@ export class PairClient {
    * cannot be reached is kept: it may only be off, which is not the same as being kicked.
    */
   async refresh() {
-    const dropped = [];
-    await Promise.all([...this.links.values()].map(async l => {
-      const r = await this.request({ host: l.host, port: l.port, path: '/collab/pair/whoami', headers: { authorization: `Bearer ${l.token}` }, timeout: 1500 })
-        .catch(() => undefined);
-      if (r?.status === 401 && r.body?.code === 'revoked') { this.drop(l.id); dropped.push(l.id); }
-    }));
-    return dropped;
+    // One round for every caller, so the open/connect/disconnect refreshes of devices.html share it
+    // instead of each paying the slowest host's timeout. No time-based cache: a kick must show at
+    // once, not after a grace period.
+    if (this.refreshing !== undefined) return this.refreshing;
+    this.refreshing = (async () => {
+      const dropped = [];
+      try {
+        await Promise.all([...this.links.values()].map(async l => {
+          const r = await this.request({ host: l.host, port: l.port, path: '/collab/pair/whoami', headers: { authorization: `Bearer ${l.token}` }, timeout: 1500 })
+            .catch(() => undefined);
+          if (r?.status === 401 && r.body?.code === 'revoked') { this.drop(l.id); dropped.push(l.id); }
+        }));
+      } finally {
+        this.refreshing = undefined;
+      }
+      return dropped;
+    })();
+    return this.refreshing;
   }
 
   /** Forget a link here and tell the host to drop its device (best effort). */
@@ -608,8 +620,11 @@ export function pairApiRoute(req, res, url, { host, client, listener, peers = ta
       if (p === '/collab/api/pair/devices' && req.method === 'GET') return sendJSON(res, 200, { devices: host.list() });
       const dev = /^\/collab\/api\/pair\/devices\/([0-9a-f-]{36})$/.exec(p);
       if (dev !== null && req.method === 'DELETE') {
+        // No settle() here: the other machine finds out it was kicked by asking /collab/pair/whoami,
+        // and closing the port in the same breath would make that look like "host is off" — the link
+        // would then stay in 「我连着的电脑」 and only fail with 502 when opened. The 60 s sweep in
+        // plugin.mjs closes an idle listener instead, which leaves room for that one question.
         const ok = host.revoke(dev[1]);
-        await listener.settle();
         return sendJSON(res, ok ? 200 : 404, ok ? { ok: true } : { error: '没有这台设备', code: 'missing' });
       }
       if (p === '/collab/api/remote/peers' && req.method === 'GET') {
