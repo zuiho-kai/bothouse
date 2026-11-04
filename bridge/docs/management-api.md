@@ -1116,6 +1116,15 @@ Opt-in: these routes answer `not_configured` unless `config.toml` has an `[image
 is sent to a channel: a picture is written to `<data_dir>/images` and the caller decides what to do
 with the path. Only OpenAI-compatible `/images/generations` endpoints are supported.
 
+`out_dir` must stay inside `data_dir` (default `<data_dir>/images`); a wider directory is refused with
+`status: "error"` and nothing is drawn. The bytes route below has no token, so the directory it can
+reach is the boundary that keeps it from serving other pictures on this machine. Picture names are
+`gen-<YYYYMMDD-HHMMSS>-<8 hex>.png` — the random suffix exists so two pictures finished in the same
+second cannot overwrite each other.
+
+`POST` additionally requires the management `token` to be set (else `403`): reads are cheap, a draw
+spends the owner's money, and an empty token means the port is open to the whole network.
+
 #### GET /api/v1/image-gen
 
 **Response:**
@@ -1132,8 +1141,8 @@ with the path. Only OpenAI-compatible `/images/generations` endpoints are suppor
     "out_dir": "/home/me/.bothouse/images",
     "api_key_set": true,
     "pictures": [
-      { "name": "gen-20261105-052031.png", "file": "/home/me/.bothouse/images/gen-20261105-052031.png",
-        "url": "/api/v1/image-gen/file/gen-20261105-052031.png", "bytes": 1384211, "mime": "image/png",
+      { "name": "gen-20261105-052031-3f9a1c02.png", "file": "/home/me/.bothouse/images/gen-20261105-052031-3f9a1c02.png",
+        "url": "/api/v1/image-gen/file/gen-20261105-052031-3f9a1c02.png", "bytes": 1384211, "mime": "image/png",
         "seconds": 24.3, "model": "gpt-image-1" }
     ]
   }
@@ -1149,14 +1158,19 @@ exists; the key itself is never returned.
 { "prompt": "an orange cat with glasses, pixel avatar" }
 ```
 
-**Response:** the drawn picture, same shape as one `pictures` item above. `409` when a picture is
-still being drawn (each queued request would buy another one), `503` when not configured, `502` when
-the provider refused (the message carries the status code and the provider's own text).
+**Response:** the drawn picture, same shape as one `pictures` item above. `400` when `prompt` is empty
+or blank (nothing is sent to the provider), `403` when the management API has no `token` (a draw spends
+money, so it needs authentication even though reads do not), `409` when a picture is still being drawn
+(each queued request would buy another one), `503` when not configured or when `out_dir` is outside
+`data_dir`, `502` when the provider refused (the message carries the status code and the provider's own
+text).
 
 #### GET /api/v1/image-gen/file/<name>
 
 Picture bytes, like `library/avatar-image` **not** behind the token, because an `<img>` tag cannot
-send a `Bearer` header. Only plain file names this server wrote are served; anything else is `404`.
+send a `Bearer` header. Only plain file names this server wrote are served; anything else is `404` —
+a name with a separator or `..`, a symlink (even to a file inside `out_dir`), a file whose real path
+falls outside the resolved `out_dir`, and a file whose bytes are not `image/*` when sniffed.
 
 ---
 

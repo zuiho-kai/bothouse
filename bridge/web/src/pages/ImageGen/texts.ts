@@ -5,6 +5,8 @@ export interface ImageGenTexts {
   subtitle: string
   notConfigured: string
   notConfiguredHint: string
+  misconfigured: string
+  misconfiguredHint: string
   providersHint: string
   restartNote: string
   promptLabel: string
@@ -31,6 +33,8 @@ const zh: ImageGenTexts = {
   subtitle: '让配置好的生图服务画一张图，写入本机文件。不会自动发到任何频道。',
   notConfigured: '生图还没配置',
   notConfiguredHint: '在 config.toml 里加上 [image_gen]，填好 API 密钥后重启 bothouse，这个页面就能用了。',
+  misconfigured: '生图配置有问题，画不了',
+  misconfiguredHint: '配置里有一项没法照做（下面那行是原因）。改好 config.toml 后重启 bothouse。',
   providersHint: '只支持 OpenAI 兼容的 /images/generations 接口，一次画一张。',
   restartNote: '改完配置要重启 bothouse 才生效（管理面板「系统 → 重启」）。',
   promptLabel: '提示词',
@@ -57,6 +61,8 @@ const en: ImageGenTexts = {
   subtitle: 'Have the configured image service draw one picture into a local file. Nothing is sent anywhere.',
   notConfigured: 'Image generation is not configured',
   notConfiguredHint: 'Add [image_gen] to config.toml with an API key, restart bothouse, and this page works.',
+  misconfigured: 'Image generation is misconfigured',
+  misconfiguredHint: 'A setting in config.toml cannot be honoured (the reason is the line below). Fix it and restart bothouse.',
   providersHint: 'Only OpenAI-compatible /images/generations endpoints are supported; one picture at a time.',
   restartNote: 'Config changes need a restart of bothouse (System → Restart in this panel).',
   promptLabel: 'Prompt',
@@ -83,6 +89,8 @@ const ja: ImageGenTexts = {
   subtitle: '設定した画像サービスで 1 枚描き、ローカルファイルに保存します。どこにも自動送信しません。',
   notConfigured: '画像生成が未設定です',
   notConfiguredHint: 'config.toml に [image_gen] と API キーを書いて bothouse を再起動すると、このページが使えます。',
+  misconfigured: '画像生成の設定に問題があり、描けません',
+  misconfiguredHint: 'config.toml の設定をそのまま使えません（理由は下の行）。直して bothouse を再起動してください。',
   providersHint: 'OpenAI 互換の /images/generations のみ対応。一度に 1 枚です。',
   restartNote: '設定の変更は bothouse の再起動が必要です（「システム → 再起動」）。',
   promptLabel: 'プロンプト',
