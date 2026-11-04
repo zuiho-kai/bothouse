@@ -1022,6 +1022,12 @@ func (p *Platform) Reply(ctx context.Context, replyCtx any, content string) erro
 	return p.Send(ctx, replyCtx, content)
 }
 
+// SuppressRepeatedReplyText prevents repeated model narration from becoming
+// separate QQ bubbles before and after a tool call in the same turn.
+func (*Platform) SuppressRepeatedReplyText() bool { return true }
+
+var _ core.RepeatedReplySuppressor = (*Platform)(nil)
+
 // Send sends a message to the conversation identified by replyCtx.
 func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error {
 	content = normalizeReplyText(content)
