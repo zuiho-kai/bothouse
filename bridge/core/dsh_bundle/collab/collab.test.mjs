@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
-import { Store } from './store.mjs';
+import { Store, publicMessage } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX, roomKey } from './cloudweb.mjs';
@@ -490,6 +490,20 @@ test('mentions: own mention removed, others rewritten, fences ignored, bare name
   for (const [text, want] of cases) {
     assert.equal(nameCalled(text, 'Claude橘', team), want, JSON.stringify(text));
   }
+});
+
+test('cloud-web: a mentioned slash command goes to the bot bare, without the later instructions (#1016)', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  gw.later = { instructions: () => '\n【一次性回查】ticket\n' };
+  const ju = connect(gw, 'bot=ju&name=橘');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 /model deepseek-v4' });
+  await tick();
+  assert.equal(ju.of('message').at(-1).content, '/model deepseek-v4');
+  assert.equal(ju.of('message').at(-1).mentioned, true);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 看看日志' });
+  await tick();
+  assert.equal(ju.of('message').at(-1).content, '看看日志\n【一次性回查】ticket\n');
 });
 
 test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replaces', async () => {
@@ -1543,7 +1557,7 @@ test('member failure publishes actionable error and clears it on retry', () => {
   const trigger = hub.store.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'hello' }).message;
   const job = hub.store.addJob('ds', 1, trigger.id);
   members.fail(job.id, 'No API key configured');
-  assert.match(hub.memberView().find(m => m.id === 'ds').error, /没有配置.*Key/);
+  assert.match(hub.memberView().find(m => m.id === 'ds').error, /模型密钥/);
   assert.equal(hub.memberView().find(m => m.id === 'ds').online, false);
   const notice = hub.store.page(1, undefined, 1)[0];
   assert.equal(JSON.parse(notice.card).action, 'configure-model');
@@ -1573,7 +1587,7 @@ test('a turn interrupted by a restart keeps the member healthy and offers a retr
 });
 
 test('member errors explain setup failures and publish error presence', () => {
-  assert.match(friendlyFailure('no API key configured'), /API Key/);
+  assert.match(friendlyFailure('no API key configured'), /模型密钥/);
   assert.match(friendlyFailure('model not found'), /模型暂时不可用/);
   assert.match(friendlyFailure('CLI login required'), /登录/);
   assert.match(friendlyFailure('process exited 1'), /CLI/);
@@ -2165,8 +2179,8 @@ test('reply: the quote is stored and served; a deleted original degrades without
   const { message: orig } = hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '一'.repeat(50) });
   const { message: reply } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '收到', replyTo: orig.id });
   assert.equal(reply.reply_to, orig.id);
-  const { publicMessage } = await import('./store.mjs');
-  const pub = publicMessage(reply, hub.store);
+  const { publicMessage: pm } = await import('./store.mjs');
+  const pub = pm(reply, hub.store);
   assert.deepEqual(pub.reply_to, { id: orig.id, author_kind: 'role', author: 'ju', name: '橘', text: '一'.repeat(40) + '…' });
   assert.deepEqual(events.at(-1).message.reply_to, pub.reply_to, 'the live event carries the quote');
   assert.equal(publicMessage(orig, hub.store).reply_to, undefined, 'a plain message has no quote');
@@ -3374,7 +3388,7 @@ test('#144 attachments: stored on the message, shown publicly, forwarded to bots
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { Attachments } = await import('./attachments.mjs');
-  const { publicMessage } = await import('./store.mjs');
+  const { publicMessage: pm } = await import('./store.mjs');
   const files = new Attachments(join(mkdtempSync(join(tmpdir(), 'collab-att-')), 'attachments'));
   const hub = makeHub();
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet, files });
@@ -3429,7 +3443,7 @@ test('bot image/file/audio frames become channel attachments; media capabilities
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { Attachments } = await import('./attachments.mjs');
-  const { publicMessage } = await import('./store.mjs');
+  const { publicMessage: pm } = await import('./store.mjs');
   const { MEDIA_CAPABILITIES, audioMime } = await import('./cloudweb.mjs');
   const files = new Attachments(join(mkdtempSync(join(tmpdir(), 'collab-media-')), 'attachments'));
   const hub = makeHub();
@@ -3467,7 +3481,7 @@ test('bot websocket cap fits a default 50 MiB cc-connect attachment; a 7 MiB fil
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { Attachments } = await import('./attachments.mjs');
-  const { publicMessage } = await import('./store.mjs');
+  const { publicMessage: pm } = await import('./store.mjs');
   const { BOT_WS_MAX_PAYLOAD } = await import('./plugin.mjs');
   const frameFor = (n) => JSON.stringify({ type: 'file', session_key: 'cloud_web:room-1', reply_ctx: 'room-1',
     data: Buffer.alloc(n).toString('base64'), mime_type: 'application/octet-stream', file_name: 'big.bin' });
@@ -6015,6 +6029,29 @@ test('cloud-web: a restarted bridge leaves no progress card stuck at 处理中 (
   assert.equal(JSON.parse(hub.store.message(fresh).card).state, 'running');
 });
 
+test('cloud-web: a permission card a hub restart left pending expires when its bot reconnects (#1017)', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const prompt = { type: 'buttons', reply_ctx: 'room-1', session_key: 'cloud_web:room-1', content: '要运行 npm ci',
+    buttons: [[{ Text: '允许', Data: 'perm:allow' }, { Text: '拒绝', Data: 'perm:deny' }]] };
+  const first = connect(gw, 'bot=fish&name=%E6%B5%8B%E8%AF%95%E9%B1%BC&mention_id=9001');
+  first.frame(prompt);
+  await tick();
+  const orphan = cardsIn(hub, 1)[0].id;
+  // The hub restarted: the card row is still pending, the in-memory request is gone.
+  hub.approvals.pending.clear();
+
+  const second = connect(gw, 'bot=fish&name=%E6%B5%8B%E8%AF%95%E9%B1%BC&mention_id=9001');
+  await tick();
+  assert.equal(JSON.parse(hub.store.message(orphan).card).state, 'expired', 'the orphan no longer waits for a click');
+
+  // The reconnected bot asks again: one pending card, not the same request shown twice.
+  second.frame(prompt);
+  await tick();
+  const pending = cardsIn(hub, 1).filter(m => JSON.parse(m.card).state === 'pending');
+  assert.equal(pending.length, 1);
+});
+
 test('cloud-web: a running card is closed even when the room moved far past the first page (#913)', async () => {
   const hub = makeHub();
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
@@ -6039,4 +6076,80 @@ test('cloud-web: a running card is closed even when the room moved far past the 
   assert.equal(JSON.parse(closed.card).title, 'CC · 已取消');
   assert.match(closed.text, /seq 1 20/);
   assert.match(closed.text, /已中断/);
+});
+
+test('#1020 queue: a bridge bot reports the messages waiting behind its turn; going offline clears them', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const events = [];
+  hub.subscribe(e => { if (e.type === 'queue') events.push(e); });
+  const ju = connect(gw, 'bot=ju&name=橘&token=t');
+  assert.ok(ju.of('register_ack')[0].capabilities.includes('queue'));
+  const a = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 一' }).message;
+  const b = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 二' }).message;
+  ju.frame({ type: 'queue', session_key: 'cloud-web:room-1:owner', reply_ctx: 'room-1', msg_ids: [`hub-${a.id}`, `hub-${b.id}`] });
+  assert.deepEqual(hub.queueView(1), { ju: [a.id, b.id] });
+  ju.frame({ type: 'queue', session_key: 'cloud-web:room-1:owner', reply_ctx: 'room-1', msg_ids: [`hub-${a.id}`, `hub-${b.id}`] });
+  assert.equal(events.length, 1, 'an unchanged queue is not re-sent');
+  ju.frame({ type: 'queue', reply_ctx: 'room-1', msg_ids: [] });
+  assert.deepEqual(hub.queueView(1), {});
+  ju.frame({ type: 'queue', reply_ctx: 'room-1', msg_ids: [`hub-${b.id}`] });
+  ju.close(1000);
+  assert.deepEqual(hub.queueView(1), {}, 'an offline bot has no queue');
+});
+
+test('#1020 queue: a DSH member lists its pending jobs after the one it is running', () => {
+  const hub = makeHub();
+  const set = [];
+  hub.setQueue = (room, id, ids) => set.push([room, id, ids]);
+  const dsh = Object.create(DshMembers.prototype);
+  dsh.hub = hub; dsh.store = hub.store;
+  const m = text => hub.store.append(1, { authorKind: 'user', author: 'owner', name: '我', text }).message;
+  const [x, y, z] = [m('一'), m('二'), m('三')];
+  for (const t of [x, y, z]) hub.store.addJob('ds', 1, t.id);
+  dsh.syncQueue('ds', 1);
+  assert.deepEqual(set.at(-1), [1, 'ds', [y.id, z.id]]);
+  hub.store.finishJob(hub.store.jobByTrigger('ds', y.id).id, 'interrupted');
+  dsh.syncQueue('ds', 1);
+  assert.deepEqual(set.at(-1), [1, 'ds', [z.id]]);
+});
+
+test('#1020 memory sources: a reply carries the entries its author cited in that room since its last reply', async () => {
+  const { mkdtempSync, writeFileSync, appendFileSync, mkdirSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { createHash } = await import('node:crypto');
+  const { MemorySources, keyRoom } = await import('./memory-sources.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'memsrc-'));
+  const wiki = join(dir, 'wiki');
+  mkdirSync(join(wiki, 'bots'), { recursive: true });
+  const line = '- 2026-11-01 派活前先看队友状态，忙就换人。';
+  writeFileSync(join(wiki, 'bots/team.md'), `# 团队\n${line}\n`);
+  const h = createHash('sha1').update(line.trim()).digest('hex').slice(0, 10);
+  const votes = join(dir, 'votes.jsonl');
+  writeFileSync(votes, JSON.stringify({ voter: 'p', id: `bots/team.md#${h}`, vote: 1, by: 'self', key: 'cloud-web:room-1:owner' }) + '\n');
+  assert.equal(keyRoom('cloud-web:room-12:owner'), 12);
+  assert.equal(keyRoom('dsh:ds:3'), 3);
+
+  const hub = makeHub();
+  hub.memorySources = new MemorySources({ file: votes, wiki, home: dir });
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘&token=t');
+  const cite = (o) => appendFileSync(votes, JSON.stringify({ t: '', voter: 'p', vote: 1, by: 'self', agent: 'claudecode', ...o }) + '\n');
+  cite({ id: `bots/team.md#${h}`, key: 'cloud-web:room-1:owner' });
+  cite({ id: `bots/team.md#${h}`, key: 'cloud-web:room-1:owner' }); // cited twice: listed once
+  cite({ id: 'bots/gone.md#0123456789', key: 'cloud-web:room-1:owner' });
+  cite({ id: 'bots/other.md#aaaaaaaaaa', key: 'cloud-web:room-1:owner', vote: -1 }); // "entry is wrong" is no source
+  cite({ id: 'bots/other.md#bbbbbbbbbb', key: 'cloud-web:room-2:owner' }); // another room
+  cite({ id: 'bots/other.md#cccccccccc', key: 'cloud-web:room-1:owner', voter: 'q' }); // another bot
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', content: '✅ 模型已切到 x' }); // a command answer takes none
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', agent: true, content: '照做了' });
+  const rows = hub.store.page(1, undefined, 10).map(r => publicMessage(r, hub.store));
+  assert.equal(rows.at(-2).memories, undefined);
+  assert.deepEqual(rows.at(-1).memories, [
+    { id: `bots/team.md#${h}`, ref: h, page: 'bots/team.md', title: '2026-11-01 派活前先看队友状态，忙就换人。' },
+    { id: 'bots/gone.md#0123456789', ref: '0123456789', page: 'bots/gone.md', title: '' },
+  ], 'the line written before the hub started is not counted; a moved page keeps its path');
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', agent: true, content: '再一条' });
+  assert.equal(publicMessage(hub.store.page(1, undefined, 10).at(-1), hub.store).memories, undefined, 'each citation goes to one reply');
 });

@@ -106,7 +106,9 @@ func (e *Engine) saveQuotaLocked() {
 	e.capMu.Lock()
 	e.quotaState.LegacyUntil = e.quotaUntil
 	e.capMu.Unlock()
+	e.quotaVerifiedMu.Lock()
 	b, err := json.Marshal(e.quotaState)
+	e.quotaVerifiedMu.Unlock()
 	if err == nil {
 		err = os.MkdirAll(filepath.Dir(e.quotaPath()), 0700)
 	}
@@ -217,7 +219,9 @@ func (e *Engine) loadQuotaCooling() {
 		b, err := os.ReadFile(e.quotaPath())
 		if err == nil {
 			e.quotaMu.Lock()
+			e.quotaVerifiedMu.Lock()
 			err = json.Unmarshal(b, &e.quotaState)
+			e.quotaVerifiedMu.Unlock()
 			if err == nil {
 				e.capMu.Lock()
 				e.quotaUntil = e.quotaState.LegacyUntil

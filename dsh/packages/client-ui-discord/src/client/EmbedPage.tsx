@@ -25,7 +25,24 @@ export function EmbedPage({ path, title }: EmbedPageProps) {
   const src = new URL(path, document.baseURI).toString()
   return (
     <div className={styles.embed}>
-      <iframe className={styles.frame} src={src} title={title} />
+      <EmbedFrame src={src} title={title} />
     </div>
   )
+}
+
+/**
+ * The frame both the panel and the delivery card (#1023) use. `sandboxed` is for pages the
+ * owner did not write (a bot's delivery): scripts run, but a page from this origin gets an
+ * opaque origin so it cannot act with the owner's sign-in.
+ */
+export function EmbedFrame({ src, title, sandboxed = false, sameOrigin = false }: {
+  readonly src: string
+  readonly title: string
+  readonly sandboxed?: boolean
+  readonly sameOrigin?: boolean
+}) {
+  const sandbox = !sandboxed ? undefined
+    : sameOrigin ? 'allow-scripts allow-forms allow-popups allow-modals'
+      : 'allow-scripts allow-forms allow-popups allow-modals allow-same-origin'
+  return <iframe className={styles.frame} src={src} title={title} sandbox={sandbox} loading="lazy" referrerPolicy="no-referrer" />
 }

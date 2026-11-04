@@ -53,6 +53,7 @@ func scopedQuotaFixture(t *testing.T) (*Engine, *quotaDomainTestAgent) {
 	e := NewEngine("scope", a, nil, "", LangEnglish)
 	e.dataDir = t.TempDir()
 	t.Cleanup(e.cancel)
+	t.Cleanup(e.waitQuotaUpdates) // runs before TempDir removal
 	return e, a
 }
 

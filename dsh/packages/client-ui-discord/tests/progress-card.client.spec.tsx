@@ -48,13 +48,13 @@ it('shows nothing for a channel without tasks', () => {
   expect(screen.queryByRole('region', { name: zh.progressTitle })).toBeNull()
 })
 
-it('renders the four rows at the top of the log with real task text and 没有 for empty rows', () => {
+it('renders the rows that have a task at the top of the log and hides the empty ones (#1017)', () => {
   render(<ChannelsPage {...props({ ...base, tasks: [task(2), task(3), task(8, { status: 'returned' })] })} />)
   expect(card().closest('[role="log"]')).toBeTruthy()
-  expect(row('progressDone').textContent).toBe(zh.progressDone + zh.progressNone)
+  expect(card().querySelector('[data-row="done"]')).toBeNull()
   expect(row('progressDoing').textContent).toContain(tr('progressTask', { id: 3, title: '任务3', name: '橘' }) + tr('progressMore', { count: 1 }))
   expect(row('progressNext').textContent).toContain(tr('progressNextReview', { id: 8, title: '任务8', name: '橘' }))
-  expect(row('progressOpen').textContent).toBe(zh.progressOpen + zh.progressNone)
+  expect(card().querySelector('[data-row="open"]')).toBeNull()
 })
 
 it('jumps to the task dispatch message when a row is clicked', () => {

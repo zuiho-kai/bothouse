@@ -26,6 +26,16 @@ export interface ChannelMessage {
   readonly attachments?: readonly ChannelAttachment[]
   /** Unix seconds of the author's last edit (#148); absent if never edited. */
   readonly edited_at?: number
+  /** #1020: memory entries this reply used (cited by its author); absent when none. */
+  readonly memories?: readonly ChannelMemory[]
+}
+
+/** #1020: one memory entry a reply used: `ref` is the 编号 in the push, `title` its wiki line ('' if the page moved). */
+export interface ChannelMemory {
+  readonly id: string
+  readonly ref: string
+  readonly page: string
+  readonly title: string
 }
 
 /** One stored attachment; its bytes are at `attachmentUrl(id)`. */
@@ -165,6 +175,8 @@ export interface ChannelRoom {
   readonly parent_id?: number | null
   /** Tasks in progress in this room. */
   readonly active?: number
+  /** #1023: set on a private chat — the one agent member it is with. */
+  readonly dm_member?: string | null
 }
 
 /** One row of the channel list: a chat channel at depth 0, its workspaces at depth 1. */
@@ -173,11 +185,16 @@ export interface RoomRow {
   readonly depth: 0 | 1
 }
 
+/** #1023: the private chats, one per agent member, in id order. */
+export const dmRooms = (rooms: readonly ChannelRoom[]): ChannelRoom[] => rooms.filter(r => r.dm_member != null)
+
 /**
  * Order rooms as chat channel, then its workspaces, in id order. A workspace whose
  * chat channel is missing is shown at the top level so it stays reachable.
  */
-export function groupRooms(rooms: readonly ChannelRoom[]): RoomRow[] {
+export function groupRooms(allRooms: readonly ChannelRoom[]): RoomRow[] {
+  // #1023: private chats have their own 私聊 group (dmRooms), not a row among the channels.
+  const rooms = allRooms.filter(r => r.dm_member == null)
   const chats = new Set(rooms.filter(r => r.kind !== 'workspace').map(r => r.id))
   const under = new Map<number, ChannelRoom[]>()
   for (const r of rooms) {
@@ -251,6 +268,8 @@ export interface ChannelSnapshot {
   readonly members: readonly ChannelMember[]
   /** Room id → ids of members currently working there. */
   readonly thinking: Readonly<Record<string, readonly string[]>>
+  /** #1020: room id → member id → ids of the owner's messages waiting behind that member's running turn. */
+  readonly queued?: Readonly<Record<string, Readonly<Record<string, readonly number[]>>>>
   /** Selected room's messages, ascending by id. */
   readonly messages: readonly ChannelMessage[]
   /** The selected primary role for the collab service, or null when no role is connected. */
@@ -270,6 +289,8 @@ export interface ChannelSnapshot {
 /** Actions the panel can take; each returns once the service answered. */
 export interface ChannelActions {
   reviewTask(id: number, verdict: 'done' | 'rework', note?: string): Promise<void>
+  /** #1016 转任务: put a message on the task board for `owner` (POST collab/api/rooms/{id}/tasks). */
+  dispatchTask?(roomId: number, task: { readonly title: string; readonly owner: string; readonly messageId: number }): Promise<void>
   /** Show another room and load its recent messages. */
   selectRoom(roomId: number): Promise<void>
   /** Post one human message into the selected room, optionally replying to `replyTo`; rejects with the service's reason. */
@@ -280,6 +301,8 @@ export interface ChannelActions {
   dismissSend(clientKey: string): void
   /** Create a room and switch to it. */
   createRoom(name: string): Promise<void>
+  /** #1023: open the private chat with one agent member (created on first use) and switch to it. */
+  openDm?(memberId: string): Promise<void>
   /** Rename a chat channel while preserving its identity and history. */
   renameRoom(roomId: number, name: string): Promise<void>
   /** Provider routes and their models for the member picker. */
@@ -337,6 +360,7 @@ type ServiceEvent =
   | { readonly type: 'deleted'; readonly id: number; readonly room_id: number }
   | { readonly type: 'members'; readonly members: readonly ChannelMember[] }
   | { readonly type: 'thinking'; readonly room_id: number; readonly members: readonly string[] }
+  | { readonly type: 'queue'; readonly room_id: number; readonly queued: Readonly<Record<string, readonly number[]>> }
   | { readonly type: 'rooms'; readonly rooms: readonly ChannelRoom[] }
   | { readonly type: 'room-settings'; readonly room_id: number; readonly lead_id: string | null; readonly effective_lead_id: string | null; readonly workspace_path: string; readonly max_relay?: number }
   | { readonly type: 'task'; readonly task: ChannelTask; readonly chat_id: number }
@@ -495,6 +519,7 @@ export function createChannelSource(transport: ChannelTransport): {
           : current
       case 'members': return { ...current, members: event.members }
       case 'thinking': return { ...current, thinking: { ...current.thinking, [String(event.room_id)]: event.members } }
+      case 'queue': return { ...current, queued: { ...current.queued, [String(event.room_id)]: event.queued } }
       case 'rooms': return { ...current, rooms: event.rooms.map(r => ({ ...current.rooms.find(old => old.id === r.id), ...r })) }
       case 'room-settings': return { ...current, rooms: current.rooms.map(r => r.id === event.room_id || r.parent_id === event.room_id ? { ...r, lead_id: event.lead_id, effective_lead_id: event.effective_lead_id, workspace_path: event.workspace_path, max_relay: event.max_relay ?? r.max_relay } : r) }
       case 'lead': return { ...current, leadId: event.lead_id, effectiveLeadId: event.effective_lead_id ?? event.lead_id }
@@ -554,7 +579,7 @@ export function createChannelSource(transport: ChannelTransport): {
     const previous = snapshot
     const current = (): boolean => lifetime === owner && pending === read && !read.controller.signal.aborted
     try {
-      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; lead_id?: string | null; effective_lead_id?: string | null }>(
+      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; queued?: Record<string, Record<string, number[]>>; lead_id?: string | null; effective_lead_id?: string | null }>(
         'collab/api/state', { signal: read.controller.signal },
       )
       if (!current()) return
@@ -628,7 +653,7 @@ export function createChannelSource(transport: ChannelTransport): {
       if (!keepBoard) earlyTasks.clear()
       let next: ChannelSnapshot = {
         phase: 'ready', error: undefined, rooms: state.rooms, roomId,
-        members: state.members, thinking: state.thinking, messages: rows, hasMoreOlder,
+        members: state.members, thinking: state.thinking, queued: state.queued ?? {}, messages: rows, hasMoreOlder,
         leadId: state.lead_id ?? null, effectiveLeadId: state.effective_lead_id ?? state.lead_id ?? null,
         tasks: keepBoard ? previous.tasks : [], taskChat: keepBoard ? previous.taskChat : undefined,
         outbox: outbox.filter(entry => entry.roomId === roomId),
@@ -798,6 +823,12 @@ export function createChannelSource(transport: ChannelTransport): {
       const { task } = await request<{ task: ChannelTask }>(`collab/api/tasks/${id}/review`, json('POST', { verdict, note }))
       set({ tasks: (snapshot.tasks ?? []).map(row => row.id === task.id ? task : row) })
     },
+    async dispatchTask(roomId, { title, owner, messageId }) {
+      // ref 无（新建）: a message turned into a task points at no existing code (dsh/collab/handoff-rules.mjs checkDispatch);
+      // force: a busy owner still gets it on the board, as a later item.
+      const { task } = await request<{ task: ChannelTask }>(`collab/api/rooms/${roomId}/tasks`, json('POST', { title, owner, ref: '无（新建）', message_id: messageId, force: true }))
+      set({ tasks: [...(snapshot.tasks ?? []).filter(row => row.id !== task.id), task] })
+    },
     selectRoom,
     async send(text, replyTo, attachments) {
       const roomId = snapshot.roomId
@@ -821,6 +852,11 @@ export function createChannelSource(transport: ChannelTransport): {
       const { room, workspace } = await request<{ room: ChannelRoom; workspace?: ChannelRoom }>('collab/api/rooms', json('POST', { name }))
       const added = [room, workspace].filter((r): r is ChannelRoom => r !== undefined && !snapshot.rooms.some(s => s.id === r.id))
       if (added.length > 0) set({ rooms: [...snapshot.rooms, ...added] })
+      await selectRoom(room.id)
+    },
+    async openDm(memberId) {
+      const { room } = await request<{ room: ChannelRoom }>('collab/api/dms', json('POST', { member: memberId }))
+      if (!snapshot.rooms.some(r => r.id === room.id)) set({ rooms: [...snapshot.rooms, room] })
       await selectRoom(room.id)
     },
     async renameRoom(roomId, name) {

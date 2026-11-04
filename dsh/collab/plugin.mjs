@@ -17,6 +17,7 @@ import { DshMembers } from './dsh-member.mjs';
 import { Roster, rowToMember } from './roster.mjs';
 import { Tasks, WORKING } from './tasks.mjs';
 import { createCliMember } from './cli-member.mjs';
+import { MemorySources } from './memory-sources.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
 import { AvatarUploads } from './avatar-uploads.mjs';
 import { handler as clisHandler } from './clis.mjs';
@@ -136,6 +137,7 @@ export async function apply(ctx, rawConfig) {
   store.migrateMemberRooms();
   const leadState = new LeadState(config.leadFile, ctx.logger);
   const hub = new Hub(store, ctx.logger, leadState, config.fallbackLead);
+  hub.memorySources = new MemorySources({ logger: ctx.logger }); // #1020 回复的记忆来源
   hub.workspacePath = config.workspacePath;
   hub.teamExit = new TeamExit(hub);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
@@ -291,7 +293,8 @@ export async function apply(ctx, rawConfig) {
         effective_lead_id: hub.primaryMember()?.id ?? null,
         rooms: store.roomsView().map(r => ({ ...r, lead_id: store.leadId(r.id), effective_lead_id: hub.primaryIn(r.id)?.id ?? null,
           workspace_path: store.workspacePath(r.id, config.workspacePath) })), members: hub.memberView(),
-        thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])) });
+        thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])),
+        queued: Object.fromEntries([...hub.queued.keys()].map(r => [r, hub.queueView(r)])) });
     }
     if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
     if (path === '/collab/api/lead' && req.method === 'GET') {
@@ -440,6 +443,17 @@ export async function apply(ctx, rawConfig) {
         const name = String(body?.name ?? '').trim().replace(/^#/, '');
         if (!name || name.length > 32 || /\s/.test(name)) throw new CollabError('invalid', 'room name must be 1-32 characters without spaces');
         const room = store.createRoom(name);
+        hub.emit({ type: 'rooms', rooms: store.roomsView() });
+        return { room };
+      });
+    }
+    // #1023: open (or reopen) the private chat with one agent member.
+    if (path === '/collab/api/dms' && req.method === 'POST') {
+      return withBody(req, res, (body) => {
+        const id = String(body?.member ?? '');
+        const member = hub.members.get(id);
+        if (member === undefined || member.kind === 'human') throw new CollabError('invalid', 'member must be an agent in this channel list');
+        const room = store.openDm(id, member.name);
         hub.emit({ type: 'rooms', rooms: store.roomsView() });
         return { room };
       });
@@ -773,9 +787,14 @@ export function parseRange(header, size) {
 
 /** Serves a stored attachment; honours single byte ranges so iOS Safari can play audio. */
 export function sendAttachment(req, res, row, bytes) {
-  const headers = { 'content-type': row.mime, 'accept-ranges': 'bytes',
-    'content-disposition': `${INLINE_IMAGE.test(row.mime) ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(row.name)}`,
-    'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=86400' };
+  // #1023: a delivered web page (`?view=page`) opens inline for the delivery card's frame. The CSP
+  // sandbox gives it an opaque origin even when opened in its own tab, so its scripts never act
+  // with the owner's sign-in on this origin.
+  const page = /[?&]view=page(?:&|$)/.test(req.url ?? '') && (/^text\/html\b/i.test(row.mime) || /\.html?$/i.test(row.name));
+  const headers = { 'content-type': page ? 'text/html; charset=utf-8' : row.mime, 'accept-ranges': 'bytes',
+    'content-disposition': `${page || INLINE_IMAGE.test(row.mime) ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(row.name)}`,
+    'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=86400',
+    ...(page ? { 'content-security-policy': 'sandbox allow-scripts allow-forms allow-popups allow-modals' } : {}) };
   const range = parseRange(req.headers?.range, bytes.length);
   if (range === null) {
     res.writeHead(416, { ...headers, 'content-range': `bytes */${bytes.length}`, 'content-length': 0 });

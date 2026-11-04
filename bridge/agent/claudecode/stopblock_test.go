@@ -10,6 +10,8 @@ func TestMergeStopBlockedReply(t *testing.T) {
 		{long, long + "\n补一句。", long + "\n补一句。"},
 		{long, "", long},
 		{"短", "重写后的更长的完整回复", "重写后的更长的完整回复"},
+		// 11-05: the hook asked for a rewrite and it came out a little shorter.
+		{"十一点我叫你去睡，现在都一点四十了，你还在。你不在的时候，我会去翻日记。", "十一点我叫你去睡，现在一点四十了，你还在。刚才我翻了日记。", "十一点我叫你去睡，现在一点四十了，你还在。刚才我翻了日记。"},
 	}
 	for _, c := range cases {
 		if got := mergeStopBlockedReply(c.pre, c.res); got != c.want {

@@ -16,7 +16,7 @@ export const WS_PATH = '/cloud-web/ws';
 // a `buttons` frame (bridge platform/cloud-web SendWithButtons) instead of plain
 // text (#120); cards are not declared, so cc-connect degrades them to text
 // (bridge docs/cloud-web.md "Handshake").
-export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place', 'buttons', 'tasks', 'dispatch_mode'];
+export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place', 'buttons', 'tasks', 'dispatch_mode', 'queue'];
 // Permission decisions the Channel page and text replies may send. Values are the
 // button data cc-connect's sendPermissionPrompt uses (bridge core/engine.go).
 /**
@@ -59,6 +59,12 @@ const RESERVED_IDS = new Set(['user', 'system']);
 const MAX_NAME = 64;
 
 export function roomKey(roomId) { return `room-${roomId}`; }
+
+/**
+ * #1023: chat_type for a frame from this room — "direct" for a private chat (the bridge's
+ * documented DM value, bridge/platform/cloud-web/cloudweb.go Direct), else "group".
+ */
+export function chatType(store, roomId) { return store?.dmMember?.(roomId) !== undefined ? 'direct' : 'group'; }
 
 /** Room id from a frame's reply_ctx or session_key ("<platform>:room-<id>"), or undefined. */
 export function roomOf(frame, store) {
@@ -259,7 +265,8 @@ export class CloudWebGateway {
     // avatar=<built-in slug> or an http(s) image URL (cc-connect's own library); anything else falls back to the initial badge.
     let avatar = '';
     try { avatar = checkAvatar(url.searchParams.get('avatar'), { allowUrl: true }); } catch { avatar = ''; }
-    const member = { id, name, rooms, kind: 'bot', mentionId: /^\d+$/.test(mentionId) ? mentionId : '', online: true, ...(avatar ? { avatar } : {}) };
+    // voter: the bridge project, as which its agent cites memories (memvote.py CC_PROJECT; memory-sources.mjs).
+    const member = { id, name, rooms, kind: 'bot', mentionId: /^\d+$/.test(mentionId) ? mentionId : '', online: true, ...(avatar ? { avatar } : {}), voter: project || id };
     const bot = { ws, member };
     const old = this.bots.get(id);
     this.bots.set(id, bot);
@@ -296,6 +303,12 @@ export class CloudWebGateway {
     for (const row of this.hub.store.authorCards('role', memberId)) {
       let card;
       try { card = JSON.parse(row.card); } catch { continue; }
+      // A permission card a hub restart left pending: its asker is gone, and next to the
+      // reconnected bot's new prompt it reads as the same request asked twice (#1017).
+      if (card?.kind === 'permission' && card.state === 'pending' && !this.approvals.pending.has(row.id)) {
+        this.approvals.close(row.id, 'expired', row);
+        continue;
+      }
       if (card?.state !== 'running') continue;
       const note = '⏹ 已中断（桥重启），这一步不会再更新';
       const brief = typeof card.brief === 'string' && card.brief !== '' ? `${card.brief}\n${note}` : note;
@@ -341,14 +354,18 @@ export class CloudWebGateway {
       // A reply addressed to other bots is not this bot's to take (reply_routing.go accept=false).
       if (only !== null && !only.has(member.id)) continue;
       let content = forMember(text, member, members);
-      const hit = target === member.id || only !== null || mentioned.has(member.id) || nameCalled(text, member.name);
+      // #1023: an owner message in a private chat is addressed to its one agent.
+      const hit = target === member.id || only !== null || mentioned.has(member.id) || nameCalled(text, member.name)
+        || (!fromAgent && this.hub.store.dmMember?.(msg.room_id) === member.id);
       if (fromAgent && !content) continue;
       if (fromAgent) content = `【${msg.name}】${quote}${content}`;
       else if (hit && !content) content = quote + BARE_MENTION;
       else content = quote + content;
       const frame = {
-        type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
-        user_id: msg.author, user_name: msg.name, content: content + (hit ? (this.later?.instructions(member.id, msg.room_id) ?? '') : ''), reply_ctx: roomKey(msg.room_id),
+        type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: chatType(this.hub.store, msg.room_id),
+        // A bridge command (`@橘 /model x`) goes through bare: the bridge reads everything after the
+        // command word as its arguments (core/engine.go handleCommand), so no later instructions.
+        user_id: msg.author, user_name: msg.name, content: content + (hit && !isCommand(content) ? (this.later?.instructions(member.id, msg.room_id) ?? '') : ''), reply_ctx: roomKey(msg.room_id),
         mentioned: hit, from_bot: fromAgent, ...attached, ...replyTo,
       };
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
@@ -368,7 +385,7 @@ export class CloudWebGateway {
     const members = this.hub.routableIn(msg.room_id);
     const room = this.hub.store.room(msg.room_id);
     const frame = {
-      type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
+      type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: chatType(this.hub.store, msg.room_id),
       user_id: msg.author, user_name: msg.name, content: forMember(msg.text, bot.member, members) || msg.text,
       reply_ctx: roomKey(msg.room_id), mentioned: true, from_bot: false,
     };
@@ -547,6 +564,14 @@ export class CloudWebGateway {
         this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text: '', attachments });
         return;
       }
+      case 'queue': {
+        // #1020: the owner's messages ("hub-<id>") waiting behind this bot's running turn here (bridge core/queue_report.go).
+        const room = roomOf(d, this.hub.store);
+        if (room === undefined || !Array.isArray(d.msg_ids)) return;
+        const ids = d.msg_ids.map(x => /^hub-(\d+)$/.exec(String(x))?.[1]).filter(Boolean).map(Number);
+        this.hub.setQueue(room, member.id, ids);
+        return;
+      }
       case 'typing_start':
       case 'typing_stop': {
         const room = roomOf(d, this.hub.store);
@@ -638,6 +663,9 @@ function newerSeq(row, seq) {
 function send(ws, frame) {
   try { ws.send(JSON.stringify(frame)); } catch { /* socket already closing; its close handler cleans up */ }
 }
+
+/** A bridge slash command as forwarded (`/stop`, `/model x`); quoted replies keep their prefix and are not. */
+export function isCommand(content) { return /^\/[a-z]/i.test(content); }
 
 function clean(s) { return String(s ?? '').replace(/[\x00-\x1f\x7f]/g, '').trim(); }
 

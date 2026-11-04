@@ -251,6 +251,7 @@ func (sp *streamPreview) cancelTimerLocked() {
 
 // flushLocked sends the current preview text to the platform. Must hold sp.mu.
 func (sp *streamPreview) flushLocked(text string) {
+	text = stripSilentReply(text)
 	if sp.transform != nil {
 		text = sp.transform(text)
 	}
@@ -319,7 +320,7 @@ func (sp *streamPreview) freeze() {
 		if replier, ok := sp.platform.(PreviewReplier); ok {
 			// The segment becomes a permanent reply: full text, never the
 			// max_chars cut, so an <@teammate> hand-off before a tool call survives.
-			text := sp.fullText
+			text := stripSilentReply(sp.fullText)
 			if sp.transform != nil {
 				text = sp.transform(text)
 			}
@@ -330,7 +331,7 @@ func (sp *streamPreview) freeze() {
 				}
 			}
 		} else if updater, ok := sp.platform.(MessageUpdater); ok {
-			text := sp.fullText
+			text := stripSilentReply(sp.fullText)
 			maxChars := sp.cfg.MaxChars
 			if maxChars > 0 && len([]rune(text)) > maxChars {
 				text = string([]rune(text)[:maxChars]) + "…"

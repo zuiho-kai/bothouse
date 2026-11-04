@@ -48,6 +48,12 @@ DUR = re.compile(
 CUE = re.compile(r"大约|大概|约|预计|估计|左右|以内|之内|还要|还得|还需|需要|再过|等|挂|后|跑完|做完|搞定|"
                  r"渲染|编译|完成|回来|才能|能好|about|around|roughly|~|\bin\b|takes?|need|wait|until|ETA", re.I)
 
+# 回复里的时间只在讲干活时才算预计（11-05 谈心「知道你明天还会回来」被当成跨天工期拦下）；
+# 命令参数（check_command）本来就是在报活，不要这条
+WORK = re.compile(r"做|修|改|交|发|上线|跑|弄|完成|搞定|结果|汇报|报告|提交|合进|合并|部署|装|测|处理|动手|开工|收口|"
+                  r"预计|估计|还要|还得|还需|工作区|小样|排期|安排|写完|出图|出片|版本|PR|代码|任务|进度|给你|回你|能好|编译|渲染|上传|下单|查|看|验|"
+                  r"fix|ship|deploy|finish|merge|report|build|test|review|done|left|remaining|ETA", re.I)
+
 REASON = ("你报了「{what}」（「{s}」），长于 {lim} 分钟却没写依据。实际几分钟就完的活报半小时、一小时会空转。"
           "按同类活的实测重定：同句写「按实测：N 块 × M 分钟 ÷ P 并行 ≈ X 分钟」；"
           "真在等外部，同句写明等什么（等你确认/等 CI/等下载…）。拿不准就先跑一块量出来再报。")
@@ -108,14 +114,14 @@ def _fmt(mins):
     return f"{mins / 60:g} 小时" if mins >= 60 else f"{mins:g} 分钟"
 
 
-def hits(text, now=None, limit=None):
-    """[(说法, 句子)]：每个没依据、超过阈值的预计。"""
+def hits(text, now=None, limit=None, work_only=False):
+    """[(说法, 句子)]：每个没依据、超过阈值的预计。work_only：只算讲干活的句子（回复正文用）。"""
     now = now or datetime.now()
     limit = LIMIT_MIN if limit is None else limit
     out = []
     for s in SPLIT.split(QUOTED.sub("", text or "")):
         s = s.strip()
-        if not s or ALLOW.search(s) or PAST.search(s):
+        if not s or ALLOW.search(s) or PAST.search(s) or (work_only and not WORK.search(s)):
             continue
         if DAY.search(s):
             out.append(("跨天的时间", s))
@@ -137,10 +143,10 @@ def hits(text, now=None, limit=None):
     return out
 
 
-def check(text, now=None, limit=None):
-    """返回拦截理由或 None。"""
+def check(text, now=None, limit=None, work_only=True):
+    """返回拦截理由或 None。默认只算讲干活的句子（Stop 查回复正文）；命令参数传 work_only=False。"""
     limit = LIMIT_MIN if limit is None else limit
-    h = hits(text, now, limit)
+    h = hits(text, now, limit, work_only)
     return REASON.format(what=h[0][0], s=h[0][1][:60], lim=limit) if h else None
 
 
@@ -272,7 +278,7 @@ def check_command(seg, now=None, limit=None):
             return REASON.format(what=f"{_fmt(mins)} 后的定时", s=seg.strip()[:80], lim=limit)
     if head == "ws-handoff" and args:
         text += "\n" + handoff_text(args[0])
-    return check(text, now, limit)
+    return check(text, now, limit, work_only=False)
 
 
 if __name__ == "__main__":

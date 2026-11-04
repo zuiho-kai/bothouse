@@ -166,7 +166,7 @@ func (s *memStore) snapshotLocked() WizardSnapshot {
 	for _, n := range s.order {
 		p := s.projects[n]
 		ep := WizardExistingProject{Name: n, AgentType: p.AgentType, WorkDir: p.WorkDir, AgentCmd: p.AgentCmd, DisplayName: p.DisplayName,
-			Platforms: map[string]map[string]any{p.PlatformType: p.Options}}
+			AdminFrom: p.AdminFrom, Platforms: map[string]map[string]any{p.PlatformType: p.Options}}
 		if p.GateURL != nil {
 			ep.GateURL = *p.GateURL
 		}
@@ -212,6 +212,9 @@ func (s *memStore) ApplyProjects(plan func(WizardSnapshot) ([]WizardProjectWrite
 		}
 		if w.DisplayName != "" {
 			p.DisplayName = w.DisplayName
+		}
+		if w.AdminFrom != "" {
+			p.AdminFrom = w.AdminFrom
 		}
 		if w.AgentCmd != "" {
 			p.AgentCmd = w.AgentCmd

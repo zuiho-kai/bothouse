@@ -1,11 +1,11 @@
-// dsh-client-source-sha256: cb2812830fa727a184a158219384ea4d98bb7f480c681bfe683cb34ab94d69e2
-// dsh-style-sha256: 9d61b83efd40f34f0016812d99d3231ba9057294ae4990c78d6739eb8921421f
+// dsh-client-source-sha256: 4d69794edbbed3074afaedefae1175f1695fb26d6d815ae344631d80387c59f9
+// dsh-style-sha256: 2e640033692a63b951ba23a41d830ebca956e67e0c0a9a38ba6618e25b4b480c
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".dshc_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.dshc_rooms, .dshc_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 0 8px 16px;\n  overflow-y: auto;\n}\n\n.dshc_membersHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  flex: none;\n  height: 44px;\n  margin: 0 0 8px;\n}\n\n.dshc_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.dshc_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.dshc_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.dshc_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.dshc_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.dshc_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.dshc_system .dshc_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.dshc_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.dshc_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.dshc_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.dshc_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.dshc_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.dshc_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.dshc_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.dshc_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_messageBody {\n  min-width: 0;\n}\n\n.dshc_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_author {\n  font-weight: 600;\n}\n\n.dshc_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.dshc_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.dshc_message:hover .dshc_ownActions, .dshc_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_ownActions {\n    opacity: 1;\n  }\n}\n\n.dshc_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.dshc_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.dshc_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_editBar .dshc_time {\n  margin-right: auto;\n}\n\n.dshc_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.dshc_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.dshc_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.dshc_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.dshc_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.dshc_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.dshc_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_quoteDeleted {\n  font-style: italic;\n}\n\n.dshc_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.dshc_message:hover .dshc_replyButton, .dshc_message:focus-within .dshc_replyButton, .dshc_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_replyButton {\n    opacity: 1;\n  }\n}\n\n.dshc_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.dshc_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.dshc_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.dshc_composerBox {\n  border: 1px solid var(--dsw-alias-border-l1);\n  border-radius: var(--dsw-radius-xl);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  box-shadow: var(--dsw-shadow-lv1-blur);\n  flex-direction: column;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_composerBox:focus-within {\n  border-color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_composerToolbar {\n  flex: none;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 10px 10px;\n  display: flex;\n}\n\n.dshc_composerBox > .dshc_replyBar, .dshc_composerBox > .dshc_attachments {\n  margin: 10px 14px 0;\n}\n\n.dshc_mentionButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  font-size: 18px;\n  display: inline-flex;\n}\n\n.dshc_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_sendButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: auto;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.dshc_sendButton:focus-visible, .dshc_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.dshc_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_mentionName {\n  font-weight: 600;\n}\n\n.dshc_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.dshc_input {\n  box-sizing: border-box;\n  width: 100%;\n  min-height: 52px;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  background: none;\n  border: 0;\n  border-radius: 0;\n  flex: 1;\n  min-width: 0;\n  padding: 14px 16px 8px;\n  line-height: 1.5;\n}\n\n.dshc_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .dshc_composer {\n    padding: 0 8px 8px;\n  }\n\n  .dshc_composerToolbar {\n    padding: 4px 8px 8px;\n  }\n\n  .dshc_input {\n    padding: 12px 14px 8px;\n  }\n}\n\n.dshc_input:focus-visible {\n  outline: none;\n}\n\n.dshc_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_offline {\n  opacity: .5;\n}\n\n.dshc_memberAvatar {\n  position: relative;\n}\n\n.dshc_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_offline .dshc_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_rooms, .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.dshc_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.dshc_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_roomInput, .dshc_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.dshc_roomInput {\n  margin: 2px 0 6px;\n}\n\n.dshc_roomInput:focus-visible, .dshc_fieldInput:focus-visible, .dshc_iconButton:focus-visible, .dshc_linkButton:focus-visible, .dshc_addMemberButton:focus-visible, .dshc_primaryButton:focus-visible, .dshc_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_addMemberButton {\n  box-sizing: border-box;\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.dshc_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_settingsDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: 100%;\n  margin: 8px 0 4px;\n}\n\n.dshc_memberListDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: calc(100% - 16px);\n  margin: 12px 8px 2px;\n}\n\n.dshc_settingsButton {\n  text-align: left;\n  border-style: solid;\n  border-color: #0000;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_settingsButton svg {\n  flex: none;\n}\n\n.dshc_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.dshc_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_memberRow .dshc_member:hover {\n  background: none;\n}\n\n.dshc_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_memberRow:hover .dshc_memberActions, .dshc_memberRow:focus-within .dshc_memberActions {\n  opacity: 1;\n}\n\n.dshc_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.dshc_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.dshc_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.dshc_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog {\n  box-sizing: border-box;\n  height: min(70vh, 100dvh - 32px);\n  max-height: calc(100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_settingsBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  padding: 2px;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog > :not(.dshc_settingsBody) {\n  flex-shrink: 0;\n}\n\n.dshc_settingsFields {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_settingsFeedback {\n  overflow-wrap: anywhere;\n  max-height: 20%;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog .dshc_dialogActions {\n  justify-content: space-between;\n}\n\n@media (width <= 599px) {\n  .dshc_settingsDialog {\n    height: calc(100dvh - 32px);\n    padding: 16px;\n  }\n}\n\n.dshc_avatarCropStage {\n  background: #000000a6;\n  padding: 20px;\n}\n\n.dshc_avatarCropFrame {\n  aspect-ratio: 1;\n  touch-action: none;\n  cursor: grab;\n  outline: 2px solid #fff;\n  width: min(256px, 100%);\n  margin: auto;\n  position: relative;\n  overflow: hidden;\n}\n\n.dshc_avatarCropFrame:active {\n  cursor: grabbing;\n}\n\n.dshc_avatarCropFrame img {\n  pointer-events: none;\n  user-select: none;\n  max-width: none;\n  position: absolute;\n}\n\n.dshc_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.dshc_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_field textarea {\n  resize: vertical;\n}\n\n.dshc_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn .dshc_choice {\n  grid-template-columns: max-content minmax(0, 1fr);\n  align-items: start;\n  display: grid;\n}\n\n.dshc_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.dshc_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_primaryButton, .dshc_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.dshc_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.dshc_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.dshc_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.dshc_memberFailed .dshc_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.dshc_memberFailed .dshc_presence {\n  background: #ed4245;\n}\n\n.dshc_mobileButton, .dshc_drawerBackdrop {\n  display: none;\n}\n\n.dshc_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_panelToggleEnd {\n  margin-left: auto;\n}\n\n.dshc_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.dshc_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.dshc_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_roomsHidden > .dshc_rooms, .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .dshc_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .dshc_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .dshc_panelToggle {\n    display: none;\n  }\n\n  .dshc_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .dshc_rooms.dshc_drawerOpen, .dshc_members.dshc_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .dshc_rooms.dshc_drawerOpen {\n    left: 0;\n  }\n\n  .dshc_members.dshc_drawerOpen {\n    right: 0;\n  }\n\n  .dshc_memberActions {\n    opacity: 1;\n  }\n\n  .dshc_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.dshc_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.dshc_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.dshc_taskBoardTrigger {\n  box-sizing: border-box;\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  height: 34px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: center;\n  gap: 8px;\n  margin: 4px 0;\n  padding: 7px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskBoardTrigger:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskBoardTrigger:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_taskBoardSummary {\n  color: var(--dsw-alias-label-secondary);\n  text-align: right;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: 1;\n  overflow: hidden;\n}\n\n.dshc_taskBoardDialog {\n  width: min(920px, 100%);\n  height: min(70vh, 100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_taskBoardBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_taskBoardDialog > :not(.dshc_taskBoardBody) {\n  flex-shrink: 0;\n}\n\n.dshc_boardTabs {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  gap: 4px;\n  padding-bottom: 8px;\n  display: flex;\n  overflow-x: auto;\n}\n\n.dshc_boardTabs button {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  padding: 7px 10px;\n  font-size: 13px;\n}\n\n.dshc_boardTabs button:hover, .dshc_boardTabs button[aria-selected=\"true\"] {\n  color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_boardTabs button:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_boardTabCount {\n  font-variant-numeric: tabular-nums;\n  margin-left: 4px;\n}\n\n.dshc_boardCardGrid {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 12px;\n  margin: 6px 0 16px;\n  padding: 2px;\n  list-style: none;\n  display: grid;\n}\n\n.dshc_boardTaskCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  border-radius: 12px;\n  flex-direction: column;\n  gap: 10px;\n  min-width: 0;\n  padding: 14px;\n  transition: transform .14s, box-shadow .14s;\n  display: flex;\n}\n\n.dshc_boardTaskCard[data-working=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n}\n\n.dshc_boardTaskCard[data-status=\"done\"] {\n  filter: saturate(.25);\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_boardTaskCard:hover {\n  transform: translateY(-2px);\n  box-shadow: 0 4px 12px #00000014;\n}\n\n.dshc_boardTaskHeader {\n  align-items: flex-start;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_boardTaskTitle {\n  overflow-wrap: anywhere;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  flex: 1;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.5;\n  display: -webkit-box;\n  overflow: hidden;\n}\n\n.dshc_boardTaskHeader .dshc_taskStatus {\n  border-radius: 999px;\n  padding: 3px 7px;\n  font-size: 11px;\n}\n\n.dshc_boardTaskCard .dshc_taskLinks {\n  justify-content: flex-end;\n  margin-top: auto;\n}\n\n.dshc_boardTabEmpty {\n  min-height: 240px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  justify-content: center;\n  align-items: center;\n  padding: 40px 16px;\n  display: flex;\n}\n\n@media (width <= 640px) {\n  .dshc_boardCardGrid {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardTaskCard {\n    transition: none;\n  }\n\n  .dshc_boardTaskCard:hover {\n    transform: none;\n  }\n}\n\n.dshc_taskBoardScope {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n}\n\n.dshc_taskSection + .dshc_taskSection {\n  margin-top: 8px;\n}\n\n.dshc_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_taskOwnerGroup + .dshc_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.dshc_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.dshc_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.dshc_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskDone summary {\n  cursor: pointer;\n}\n\n.dshc_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.dshc_taskStatus[data-status=\"asked\"], .dshc_taskStatus[data-status=\"escalated\"], .dshc_taskStatus[data-status=\"declined\"], .dshc_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.dshc_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.dshc_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_taskMemberName {\n  font-weight: 600;\n}\n\n.dshc_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.dshc_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.dshc_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.dshc_imageAttachment {\n  align-content: start;\n  max-width: 100%;\n  display: grid;\n}\n\n.dshc_imagePreviewTrigger {\n  cursor: zoom-in;\n  background: none;\n  border: 0;\n  border-radius: 4px;\n  grid-area: 1 / 1;\n  padding: 0;\n}\n\n.dshc_imagePreviewTrigger:focus-visible {\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n  outline-offset: 2px;\n}\n\n.dshc_imagePreviewDialog {\n  box-sizing: border-box;\n  width: fit-content;\n  max-width: 90vw;\n  max-height: 90dvh;\n  overflow: auto;\n}\n\n.dshc_imagePreviewHeader {\n  flex-shrink: 0;\n  justify-content: space-between;\n  align-items: center;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_imagePreviewHeader span {\n  overflow-wrap: anywhere;\n  min-width: 0;\n}\n\n.dshc_imagePreviewHeader button {\n  flex-shrink: 0;\n}\n\n.dshc_imagePreviewImage {\n  object-fit: contain;\n  align-self: center;\n  max-width: 100%;\n  min-height: 0;\n  max-height: 65dvh;\n  display: block;\n}\n\n.dshc_imagePreviewActions {\n  flex-wrap: wrap;\n  flex-shrink: 0;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_imagePreviewActions a {\n  text-decoration: none;\n}\n\n.dshc_imagePreviewActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_attachmentActions {\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  opacity: 0;\n  pointer-events: none;\n  flex-wrap: wrap;\n  grid-area: 1 / 1;\n  place-self: start end;\n  gap: 4px;\n  margin: 4px;\n  padding: 4px;\n  display: flex;\n}\n\n.dshc_attachmentActions a {\n  text-decoration: none;\n}\n\n.dshc_attachmentActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_imageAttachment:hover .dshc_attachmentActions, .dshc_imageAttachment:focus-within .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"error\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copying\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copied\"] .dshc_attachmentActions {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n@media (hover: none), (pointer: coarse), (width <= 768px) {\n  .dshc_attachmentActions {\n    opacity: 1;\n    pointer-events: auto;\n  }\n}\n\n.dshc_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.dshc_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.dshc_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.dshc_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.dshc_attachmentAudio audio {\n  width: 100%;\n}\n\n.dshc_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.dshc_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.dshc_chatHead button, .dshc_chatHead input, .dshc_chatHead select, .dshc_chatHead a, .dshc_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.dshc_text pre, .dshc_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n\n@media (width >= 901px) {\n  .dshc_page {\n    grid-template-columns: 232px minmax(0, 1fr) 272px;\n  }\n\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 272px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 232px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n.dshc_rooms {\n  padding-top: 4px;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-md);\n  min-height: 34px;\n  padding: 6px 10px;\n  transition: background-color .15s, color .15s;\n}\n\n.dshc_workspace {\n  min-height: 30px;\n  padding-left: 28px;\n  font-size: 13px;\n  position: relative;\n}\n\n.dshc_workspace:before {\n  content: \"\";\n  border-left: 1px solid var(--dsw-alias-border-l2);\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  border-bottom-left-radius: 4px;\n  width: 7px;\n  position: absolute;\n  top: 0;\n  bottom: 50%;\n  left: 15px;\n}\n\n.dshc_workspace .dshc_hash {\n  display: none;\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);\n  box-shadow: inset 2px 0 0 var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_activeCount {\n  font-variant-numeric: tabular-nums;\n  border-radius: 999px;\n  margin-left: 0;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 18px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-state-business-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);\n}\n\n.dshc_roomLabel {\n  flex: auto;\n  min-width: 0;\n}\n\n.dshc_avatarStack {\n  flex: none;\n  align-items: center;\n  padding-left: 4px;\n  display: inline-flex;\n}\n\n.dshc_stackDot {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  background-position: center;\n  background-size: cover;\n  border-radius: 50%;\n  width: 18px;\n  height: 18px;\n  margin-left: -6px;\n}\n\n.dshc_room .dshc_stackDot {\n  width: 16px;\n  height: 16px;\n}\n\n.dshc_roomActive .dshc_stackDot {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, var(--dsw-alias-bg-layer-2));\n}\n\n.dshc_chatHead {\n  gap: 8px;\n  height: 52px;\n}\n\n.dshc_roomName {\n  letter-spacing: -.01em;\n  white-space: nowrap;\n  font-size: 15px;\n}\n\n.dshc_headMeta {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  font-weight: 400;\n  overflow: hidden;\n}\n\n.dshc_headActivity {\n  color: var(--dsw-alias-label-secondary);\n  flex: none;\n  align-items: center;\n  gap: 6px;\n  margin-left: auto;\n  font-size: 12px;\n  font-weight: 500;\n  display: inline-flex;\n}\n\n.dshc_headActivity .dshc_stackDot {\n  border-color: var(--dsw-alias-bg-base);\n  width: 22px;\n  height: 22px;\n}\n\n.dshc_headActivity + .dshc_panelToggleEnd {\n  margin-left: 4px;\n}\n\n.dshc_chatHead > .dshc_roomName {\n  text-overflow: ellipsis;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_chatHead > .dshc_taskBoardTrigger {\n  width: auto;\n  margin: 0 0 0 auto;\n}\n\n.dshc_chatHead .dshc_taskBoardSummary {\n  display: none;\n}\n\n.dshc_headLead {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 999px;\n  flex: 0 auto;\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_headLeadText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_headLeadName {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_headLeadStatus {\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  font-size: 11px;\n  font-weight: 400;\n}\n\n.dshc_headLead + .dshc_panelToggleEnd {\n  margin-left: 0;\n}\n\n.dshc_membersHead {\n  align-items: center;\n  height: 52px;\n  padding: 0 4px;\n  display: flex;\n}\n\n.dshc_membersHeadTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .08em;\n  font-size: 11px;\n  font-weight: 650;\n}\n\n.dshc_log {\n  padding: 12px 0 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 8px 20px 2px;\n  transition: background-color .15s;\n}\n\n.dshc_message.dshc_grouped {\n  padding-top: 1px;\n}\n\n.dshc_message:hover {\n  background: color-mix(in srgb, var(--dsw-alias-interactive-bg-hover) 70%, transparent);\n}\n\n.dshc_messageHead {\n  gap: 8px;\n  margin-bottom: 2px;\n}\n\n.dshc_messageHeadGrouped {\n  margin-bottom: 0;\n}\n\n.dshc_messageHeadGrouped:not(:has(*)) {\n  display: none;\n}\n\n.dshc_author {\n  font-size: 13px;\n}\n\n.dshc_time, .dshc_edited {\n  font-variant-numeric: tabular-nums;\n  font-size: 11px;\n}\n\n.dshc_gutterTime {\n  color: var(--dsw-alias-label-tertiary);\n  font-variant-numeric: tabular-nums;\n  text-align: right;\n  opacity: 0;\n  align-self: start;\n  padding-top: 3px;\n  font-size: 10px;\n  transition: opacity .15s;\n}\n\n.dshc_message:hover .dshc_gutterTime {\n  opacity: 1;\n}\n\n.dshc_text {\n  line-height: 1.6;\n}\n\n.dshc_own {\n  grid-template-columns: minmax(0, 1fr) 36px;\n}\n\n.dshc_own > :first-child {\n  grid-area: 1 / 2;\n}\n\n.dshc_own > .dshc_messageBody {\n  flex-direction: column;\n  grid-area: 1 / 1;\n  align-items: flex-end;\n  display: flex;\n}\n\n.dshc_own .dshc_messageHead {\n  flex-direction: row-reverse;\n}\n\n.dshc_own .dshc_ownActions {\n  margin-left: 0;\n  margin-right: auto;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text {\n  max-width: min(560px, 100%);\n  color: var(--dsw-alias-label-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 16%, var(--dsw-alias-bg-layer-2));\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 28%, transparent);\n  border-radius: 16px 6px 16px 16px;\n  padding: 8px 14px;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_quote {\n  align-self: flex-end;\n}\n\n.dshc_own .dshc_replyButton {\n  left: 16px;\n  right: auto;\n}\n\n.dshc_own.dshc_grouped > .dshc_messageBody > .dshc_text {\n  border-radius: 16px 6px 6px 16px;\n}\n\n.dshc_systemRecord {\n  flex-direction: column;\n  align-items: center;\n  padding-bottom: 4px;\n  display: flex;\n}\n\n.dshc_systemRecord > .dshc_systemLine {\n  align-self: stretch;\n}\n\n.dshc_taskRecord {\n  box-sizing: border-box;\n  width: min(480px, 100% - 40px);\n  margin-top: 0;\n}\n\n.dshc_systemLine {\n  color: var(--dsw-alias-label-tertiary);\n  align-items: center;\n  gap: 12px;\n  padding: 10px 32px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_systemLine:before, .dshc_systemLine:after {\n  content: \"\";\n  background: var(--dsw-alias-border-l2);\n  flex: 24px;\n  min-width: 24px;\n  height: 1px;\n}\n\n.dshc_systemText {\n  text-align: center;\n  max-width: min(640px, 80%);\n}\n\n.dshc_systemText p {\n  margin: 0;\n}\n\n.dshc_errorBar {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent);\n  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 9%, transparent);\n  border-radius: 12px;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px 10px;\n  margin: 6px 20px 6px 68px;\n  padding: 8px 12px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_errorBar .dshc_cardButtons {\n  margin: 0 0 0 auto;\n}\n\n.dshc_errorBar .dshc_secondaryButton {\n  padding: 3px 10px;\n  font-size: 12px;\n}\n\n.dshc_errorBar[data-state=\"retried\"] {\n  opacity: .65;\n}\n\n.dshc_errorIcon {\n  color: #fff;\n  background: var(--dsw-alias-state-error-primary);\n  border-radius: 50%;\n  flex: none;\n  place-items: center;\n  width: 18px;\n  height: 18px;\n  font-size: 12px;\n  font-weight: 700;\n  display: grid;\n}\n\n.dshc_errorText {\n  min-width: 0;\n  color: var(--dsw-alias-label-primary);\n  flex: 200px;\n}\n\n.dshc_errorText p {\n  margin: 0;\n}\n\n.dshc_runStrip {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  border-radius: 12px;\n  flex-direction: column;\n  max-width: 100%;\n  margin-top: 4px;\n  padding: 5px 10px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_runStrip[data-state=\"running\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_runStrip[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_runHead {\n  min-width: 0;\n  color: var(--dsw-alias-label-secondary);\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_runTitle {\n  color: var(--dsw-alias-label-primary);\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_runSummary {\n  font-variant-numeric: tabular-nums;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_runHead .dshc_cardViews {\n  margin-left: 8px;\n}\n\n.dshc_runHead .dshc_cardViewButton {\n  color: var(--dsw-alias-label-tertiary);\n  border-radius: 999px;\n  font-size: 11px;\n}\n\n.dshc_runHead .dshc_cardViewButton[aria-pressed=\"true\"] {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_runIcon {\n  border-radius: 50%;\n  flex: none;\n  width: 12px;\n  height: 12px;\n  position: relative;\n}\n\n.dshc_runStrip[data-state=\"running\"] .dshc_runIcon {\n  border: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 25%, transparent);\n  border-top-color: var(--dsw-alias-state-business-primary);\n  animation: .8s linear infinite dshc_channels-spin;\n}\n\n.dshc_runStrip[data-state=\"completed\"] .dshc_runIcon {\n  background: #23a55a;\n}\n\n.dshc_runStrip[data-state=\"completed\"] .dshc_runIcon:after {\n  content: \"\";\n  border: 1.5px solid #fff;\n  border-width: 0 1.5px 1.5px 0;\n  width: 3px;\n  height: 6px;\n  position: absolute;\n  top: 2px;\n  left: 4px;\n  transform: rotate(45deg);\n}\n\n.dshc_runStrip[data-state=\"failed\"] .dshc_runIcon {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_runSteps {\n  color: var(--dsw-alias-label-secondary);\n  margin-top: 4px;\n  font-size: 12px;\n  line-height: 1.55;\n}\n\n.dshc_runSteps p {\n  margin: 0;\n}\n\n.dshc_runStrip .dshc_cardButtons {\n  margin-top: 6px;\n}\n\n@keyframes dshc_channels-spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_runStrip[data-state=\"running\"] .dshc_runIcon {\n    animation-duration: 2.4s;\n  }\n}\n\n.dshc_card {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-left-width: 1px;\n  border-radius: 14px;\n  margin-top: 6px;\n  padding: 10px 12px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 40%, var(--dsw-alias-border-l2));\n}\n\n.dshc_taskAnchor {\n  max-width: 560px;\n  box-shadow: inset 3px 0 0 var(--channels-accent-warm, #d08a2e);\n}\n\n.dshc_permInline {\n  color: var(--dsw-alias-label-secondary);\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 4px 8px;\n  display: flex;\n}\n\n.dshc_permInline .dshc_text {\n  flex: 0 auto;\n  min-width: 0;\n}\n\n.dshc_permInline .dshc_text p {\n  margin: 0;\n}\n\n.dshc_permLock {\n  color: var(--dsw-alias-state-warning-primary, #e9a23b);\n  flex: none;\n  font-size: 9px;\n}\n\n.dshc_permWaiting {\n  color: var(--dsw-alias-state-warning-primary, #e9a23b);\n  flex: none;\n  font-size: 11px;\n  font-weight: 600;\n}\n\n.dshc_permTray {\n  flex-direction: column;\n  gap: 6px;\n  max-height: 40%;\n  margin: 0 16px 8px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_permTrayItem {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2));\n  border-radius: 14px;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px 12px;\n  padding: 10px 12px;\n  display: flex;\n  box-shadow: 0 6px 20px -12px #00000059;\n}\n\n.dshc_permTrayText {\n  flex: 240px;\n  min-width: 0;\n  font-size: 13px;\n}\n\n.dshc_permTrayText .dshc_text p {\n  margin: 0;\n}\n\n.dshc_permTrayWho {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_permTrayItem .dshc_permActions {\n  flex-wrap: nowrap;\n  margin: 0;\n}\n\n.dshc_permTrayItem .dshc_permScope {\n  display: none;\n}\n\n.dshc_members {\n  flex-direction: column;\n  padding: 0 10px 16px;\n}\n\n@media (width >= 901px) {\n  .dshc_members {\n    display: flex;\n  }\n\n  .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_members.dshc_drawerOpen {\n  display: flex;\n}\n\n.dshc_activityNow {\n  flex-direction: column;\n  gap: 2px;\n  margin-bottom: 6px;\n  display: flex;\n}\n\n.dshc_activityItem {\n  border: 1px solid var(--dsw-alias-border-l2);\n  width: 100%;\n  color: inherit;\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  border-radius: 12px;\n  align-items: center;\n  gap: 10px;\n  padding: 8px 10px;\n  display: flex;\n}\n\n.dshc_activityItem + .dshc_activityItem {\n  margin-top: 4px;\n}\n\n.dshc_activityItem:hover {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 40%, var(--dsw-alias-border-l2));\n}\n\n.dshc_activityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_activityText {\n  flex-direction: column;\n  flex: 1;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_activityName {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_activityWhat {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_activityPulse {\n  background: var(--dsw-alias-state-business-primary);\n  border-radius: 50%;\n  flex: none;\n  width: 8px;\n  height: 8px;\n  animation: 1.6s ease-in-out infinite dshc_channels-pulse;\n}\n\n@keyframes dshc_channels-pulse {\n  50% {\n    box-shadow: 0 0 0 3px #23a55a40;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_activityPulse {\n    animation: none;\n  }\n}\n\n.dshc_member {\n  padding: 6px 8px;\n}\n\n.dshc_memberText {\n  flex: 1;\n}\n\n.dshc_memberStatus {\n  flex: none;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_memberStatus[data-status=\"busy\"] {\n  color: var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_memberStatus[data-status=\"error\"] {\n  color: var(--dsw-alias-state-error-primary);\n  font-weight: 600;\n}\n\n.dshc_memberActions {\n  background: var(--dsw-alias-bg-layer-2);\n  padding-left: 8px;\n  position: absolute;\n  top: 50%;\n  right: 8px;\n  transform: translateY(-50%);\n}\n\n.dshc_addMemberButton {\n  border-radius: 10px;\n}\n\n@media (width <= 900px) {\n  .dshc_headMeta, .dshc_headActivityText {\n    display: none;\n  }\n\n  .dshc_chatHead {\n    padding: 0 8px;\n  }\n\n  .dshc_mobileButton {\n    white-space: nowrap;\n  }\n\n  .dshc_headActivity ~ .dshc_mobileButton:last-child {\n    margin-left: 4px;\n  }\n\n  .dshc_message {\n    padding-left: 12px;\n    padding-right: 12px;\n  }\n\n  .dshc_errorBar {\n    margin-left: 12px;\n    margin-right: 12px;\n  }\n\n  .dshc_permTray {\n    margin: 0 8px 8px;\n  }\n\n  .dshc_permTrayItem .dshc_permActions {\n    flex-wrap: wrap;\n  }\n\n  .dshc_systemLine {\n    padding: 8px 12px;\n  }\n\n  .dshc_systemText {\n    max-width: 90%;\n  }\n\n  .dshc_memberActions {\n    background: none;\n    padding-left: 0;\n    position: static;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsEnter {\n  from {\n    opacity: 0;\n    transform: translateY(6px);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsEnterOwn {\n  from {\n    opacity: 0;\n    transform: translateY(12px) scale(.985);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsGlow {\n  from {\n    opacity: 1;\n  }\n\n  to {\n    opacity: 0;\n  }\n}\n\n@keyframes dshc_channelsPop {\n  from {\n    opacity: 0;\n    transform: translateY(4px) scale(.98);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsDot {\n  0%, 60%, 100% {\n    opacity: .35;\n    transform: none;\n  }\n\n  30% {\n    opacity: 1;\n    transform: translateY(-2px);\n  }\n}\n\n@keyframes dshc_channelsDrain {\n  from {\n    transform: scaleX(1);\n  }\n\n  to {\n    transform: scaleX(0);\n  }\n}\n\n.dshc_enter {\n  animation: .18s cubic-bezier(.2, 0, 0, 1) both dshc_channelsEnter;\n}\n\n.dshc_enterOwn {\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsEnterOwn;\n}\n\n.dshc_enterGlow:before {\n  content: \"\";\n  pointer-events: none;\n  background: linear-gradient(90deg, color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent), transparent 70%);\n  animation: .7s cubic-bezier(.4, 0, .2, 1) both dshc_channelsGlow;\n  animation-delay: inherit;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_message {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_room {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), color .16s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_card {\n  transition: border-color .32s cubic-bezier(.2, 0, 0, 1), background-color .32s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_cardViewButton {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), opacity .16s cubic-bezier(.2, 0, 0, 1), transform .12s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_sendButton:not(:disabled):active, .dshc_primaryButton:not(:disabled):active, .dshc_secondaryButton:not(:disabled):active, .dshc_mentionButton:not(:disabled):active, .dshc_cardViewButton:active {\n  transform: translateY(1px);\n}\n\n.dshc_mentionPopup {\n  transform-origin: bottom;\n  animation: .16s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n}\n\n.dshc_typingDots {\n  vertical-align: middle;\n  gap: 3px;\n  margin-right: 6px;\n  display: inline-flex;\n}\n\n.dshc_typingDots i {\n  background: currentColor;\n  border-radius: 50%;\n  width: 4px;\n  height: 4px;\n  animation: 1.2s ease-in-out infinite dshc_channelsDot;\n}\n\n.dshc_typingDots i:nth-child(2) {\n  animation-delay: .15s;\n}\n\n.dshc_typingDots i:nth-child(3) {\n  animation-delay: .3s;\n}\n\n.dshc_logWrap {\n  flex-direction: column;\n  flex: 1;\n  min-height: 0;\n  display: flex;\n  position: relative;\n}\n\n.dshc_olderLoading {\n  color: var(--dsw-alias-label-tertiary);\n  text-align: center;\n  padding: 8px 16px;\n  font-size: 12px;\n}\n\n.dshc_unreadDivider {\n  color: var(--dsw-alias-state-error-primary);\n  align-items: center;\n  gap: 8px;\n  margin: 8px 16px;\n  font-size: 12px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_unreadDivider:before, .dshc_unreadDivider:after {\n  content: \"\";\n  opacity: .35;\n  background: currentColor;\n  flex: 1;\n  height: 1px;\n}\n\n.dshc_withdrawnRow {\n  text-align: right;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 16px;\n  font-size: 13px;\n  font-style: italic;\n  animation: .18s cubic-bezier(.2, 0, 0, 1) both dshc_channelsEnter;\n}\n\n.dshc_jumpLatest {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #00000029);\n  font: inherit;\n  cursor: pointer;\n  border-radius: 999px;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 14px;\n  font-size: 12px;\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n  display: inline-flex;\n  position: absolute;\n  bottom: 12px;\n  left: 50%;\n  transform: translateX(-50%);\n}\n\n.dshc_jumpLatest:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_jumpLatest:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_jumpCount {\n  color: var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_undoToast {\n  z-index: 4;\n  border-radius: var(--dsw-radius-md);\n  width: max-content;\n  max-width: calc(100% - 32px);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  align-items: center;\n  gap: 12px;\n  margin: 0 auto;\n  padding: 8px 8px 8px 14px;\n  font-size: 13px;\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n  display: flex;\n  position: absolute;\n  bottom: 12px;\n  left: 0;\n  right: 0;\n  overflow: hidden;\n}\n\n.dshc_undoButton {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  background: color-mix(in srgb, currentColor 16%, transparent);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  padding: 2px 10px;\n  font-weight: 600;\n}\n\n.dshc_undoButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_undoBar {\n  background: var(--dsw-alias-state-business-primary);\n  transform-origin: 0;\n  height: 2px;\n  animation: linear forwards dshc_channelsDrain;\n  position: absolute;\n  bottom: 0;\n  left: 0;\n  right: 0;\n}\n\n.dshc_undoToast ~ .dshc_jumpLatest {\n  display: none;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_enter, .dshc_enterOwn, .dshc_enterGlow:before, .dshc_mentionPopup, .dshc_jumpLatest, .dshc_undoToast, .dshc_withdrawnRow {\n    animation: none;\n  }\n\n  .dshc_typingDots i {\n    opacity: .6;\n    animation: none;\n  }\n\n  .dshc_undoBar {\n    animation: none;\n  }\n\n  .dshc_message, .dshc_room, .dshc_card, .dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_cardViewButton {\n    transition: none;\n  }\n}\n\n.dshc_leadCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 14px;\n  align-items: center;\n  gap: 10px;\n  margin: 8px 8px 4px;\n  padding: 10px 12px;\n  display: flex;\n}\n\n.dshc_leadCardText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_leadCardName {\n  color: var(--dsw-alias-label-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 14px;\n  font-weight: 650;\n  overflow: hidden;\n}\n\n.dshc_leadCardStatus {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_message:not(.dshc_own) > .dshc_messageBody > .dshc_text {\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 6px 16px 16px;\n  width: fit-content;\n  max-width: min(640px, 100%);\n  padding: 8px 14px;\n}\n\n.dshc_message.dshc_grouped:not(.dshc_own) > .dshc_messageBody > .dshc_text {\n  border-radius: 6px 16px 16px 6px;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text {\n  color: var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-primary);\n  box-shadow: none;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text * {\n  color: inherit;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text a {\n  color: inherit;\n  text-decoration: underline;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text code {\n  color: inherit;\n  background: color-mix(in srgb, var(--dsw-alias-bg-base) 18%, transparent);\n}\n\n.dshc_boardDrawerBackdrop {\n  background: #00000040;\n  place-items: stretch end;\n  padding: 0;\n}\n\n.dshc_boardDrawerBackdrop > .dshc_taskBoardDialog {\n  box-sizing: border-box;\n  border-radius: 0;\n  width: min(440px, 100%);\n  height: 100dvh;\n  max-height: none;\n  animation: .2s ease-out dshc_boardDrawerIn;\n}\n\n@keyframes dshc_boardDrawerIn {\n  from {\n    opacity: 0;\n    transform: translateX(24px);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardDrawerBackdrop > .dshc_taskBoardDialog {\n    animation: none;\n  }\n}\n\n.dshc_schemeToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: 4px;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_schemeToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_schemeToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_schemeToggle + .dshc_panelToggleEnd {\n  margin-left: 4px;\n}\n\n.dshc_progressCard {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: 0 6px 18px #0000000a, 0 -12px 0 0 var(--dsw-alias-bg-base);\n  border-radius: 14px;\n  margin: 0 16px 12px;\n  padding: 8px 14px;\n  font-size: 12px;\n  position: sticky;\n  top: 0;\n}\n\n.dshc_progressTitle {\n  color: var(--dsw-alias-label-primary);\n  font-size: 12px;\n}\n\n.dshc_progressRows {\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 0 14px;\n  margin: 4px 0 0;\n  display: grid;\n}\n\n.dshc_progressRow {\n  min-width: 0;\n}\n\n.dshc_progressRow dt {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 10px;\n}\n\n.dshc_progressRow dd {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  min-width: 0;\n  color: var(--dsw-alias-label-primary);\n  margin: 0;\n  overflow: hidden;\n}\n\n.dshc_progressRow[data-empty=\"true\"] dd {\n  color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_progressRow[data-row=\"open\"][data-empty=\"false\"] dd, .dshc_progressRow[data-row=\"open\"] .dshc_progressLink {\n  color: var(--dsw-alias-state-warning-primary, #b7791f);\n}\n\n.dshc_progressLink {\n  max-width: 100%;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 0;\n  overflow: hidden;\n}\n\n.dshc_progressLink:hover {\n  text-decoration: underline;\n}\n\n@media (width <= 760px) {\n  .dshc_progressCard {\n    margin: 0 10px 10px;\n  }\n\n  .dshc_progressRows {\n    grid-template-columns: 52px minmax(0, 1fr);\n  }\n\n  .dshc_progressRow {\n    display: contents;\n  }\n}\n\n.dshc_stepChips {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_stepChip {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  max-width: 220px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  border-radius: 999px;\n  align-items: center;\n  gap: 5px;\n  padding: 2px 9px 2px 7px;\n  font-size: 11px;\n  display: inline-flex;\n}\n\n.dshc_stepChip b {\n  color: var(--dsw-alias-label-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-weight: 600;\n  overflow: hidden;\n}\n\n.dshc_stepChip:disabled {\n  cursor: default;\n}\n\n.dshc_stepChip[aria-expanded=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_stepChip[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepChip[data-state=\"failed\"] b {\n  color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_stepChip[data-state=\"running\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 55%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepMark {\n  background: var(--dsw-alias-label-tertiary);\n  border-radius: 50%;\n  flex: none;\n  width: 7px;\n  height: 7px;\n}\n\n.dshc_stepChip[data-state=\"ok\"] .dshc_stepMark {\n  background: #23a55a;\n}\n\n.dshc_stepChip[data-state=\"failed\"] .dshc_stepMark {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_stepChip[data-state=\"running\"] .dshc_stepMark {\n  background: var(--dsw-alias-state-business-primary);\n  animation: 1s ease-in-out infinite dshc_channels-blink;\n}\n\n@keyframes dshc_channels-blink {\n  50% {\n    opacity: .3;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_stepChip[data-state=\"running\"] .dshc_stepMark {\n    animation: none;\n  }\n}\n\n.dshc_stepOut {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base));\n  color: var(--dsw-alias-label-secondary);\n  border-radius: 8px;\n  flex-basis: 100%;\n  gap: 4px;\n  padding: 8px 10px;\n  font-size: 11px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_stepOut[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepOut div {\n  gap: 8px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_stepOut span {\n  color: var(--dsw-alias-label-tertiary);\n  flex: none;\n}\n\n.dshc_stepOut code {\n  overflow-wrap: anywhere;\n  min-width: 0;\n  font-family: ui-monospace, Menlo, monospace;\n}\n\n.dshc_stepOut[data-state=\"failed\"] div:last-child code {\n  color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_decideTray {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2));\n  border-radius: 14px;\n  flex-direction: column;\n  max-height: 45%;\n  margin: 0 16px 8px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_decideTrayHead {\n  width: 100%;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: baseline;\n  gap: 8px;\n  padding: 7px 12px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_decideTrayHead strong {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 70%, var(--dsw-alias-label-primary));\n}\n\n.dshc_decideTrayHead small {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_decideTrayHead:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_decideTrayToggle {\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  margin-left: auto;\n}\n\n.dshc_decideTray .dshc_permTray {\n  max-height: none;\n  margin: 0;\n  padding: 0 8px 8px;\n}\n\n.dshc_askList {\n  flex-direction: column;\n  display: flex;\n}\n\n.dshc_askItem {\n  border-top: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 30%, transparent);\n  background: var(--dsw-alias-bg-layer-2);\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 6px 10px;\n  padding: 8px 12px;\n  display: flex;\n}\n\n.dshc_askKind {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 75%, var(--dsw-alias-label-primary));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 15%, transparent);\n  border-radius: 5px;\n  flex: none;\n  padding: 0 6px;\n  font-size: 11px;\n}\n\n.dshc_askText {\n  flex-direction: column;\n  flex: 200px;\n  min-width: 0;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_askQuestion {\n  overflow-wrap: anywhere;\n}\n\n.dshc_askFrom {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_askForm {\n  flex: 0 260px;\n  align-items: center;\n  gap: 6px;\n  min-width: 160px;\n  display: flex;\n}\n\n.dshc_askInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  min-width: 0;\n  color: inherit;\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  border-radius: 8px;\n  flex: 1;\n  padding: 4px 8px;\n  font-size: 12px;\n}\n\n.dshc_askInput:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_askSend {\n  width: 26px;\n  height: 26px;\n  color: var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-primary);\n  cursor: pointer;\n  border: 0;\n  border-radius: 50%;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_askSend:disabled {\n  opacity: .3;\n  cursor: default;\n}\n\n.dshc_askSend:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: 2px;\n}\n\n.dshc_askDone {\n  color: var(--dsw-alias-label-secondary);\n  align-items: center;\n  gap: 8px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_askNotice {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 75%, var(--dsw-alias-label-primary));\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_decideTray {\n    margin: 0 8px 8px;\n  }\n\n  .dshc_askForm {\n    flex-basis: 100%;\n  }\n}\n\n.dshc_headTeam {\n  flex: none;\n  align-items: center;\n  margin-left: auto;\n  display: inline-flex;\n}\n\n.dshc_mate, .dshc_mateMore {\n  border: 2px solid var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-bg-base);\n  cursor: pointer;\n  border-radius: 50%;\n  justify-content: center;\n  align-items: center;\n  margin-left: -6px;\n  padding: 0;\n  display: inline-flex;\n  position: relative;\n}\n\n.dshc_mate:first-child {\n  margin-left: 0;\n}\n\n.dshc_mate .dshc_avatar {\n  margin: 0;\n}\n\n.dshc_mateMore {\n  background: var(--dsw-alias-interactive-bg-hover);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-secondary);\n  font-size: 11px;\n  font-weight: 600;\n}\n\n.dshc_mateDot {\n  box-sizing: border-box;\n  border: 2px solid var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-tertiary);\n  border-radius: 50%;\n  width: 9px;\n  height: 9px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_mate[data-state=\"busy\"] .dshc_mateDot {\n  background: #23a55a;\n  animation: 1.6s ease-in-out infinite dshc_channels-pulse;\n}\n\n.dshc_mate[data-state=\"idle\"] .dshc_mateDot {\n  background: var(--dsw-alias-bg-base);\n  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-label-tertiary);\n}\n\n.dshc_mate[data-state=\"error\"] .dshc_mateDot {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_mate[data-state=\"offline\"] {\n  opacity: .55;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_mate[data-state=\"busy\"] .dshc_mateDot {\n    animation: none;\n  }\n}\n\n@media (width <= 760px) {\n  .dshc_headTeam {\n    display: none;\n  }\n}\n\n.dshc_chatHead > .dshc_headTeam + .dshc_taskBoardTrigger {\n  margin-left: 12px;\n}\n\n.dshc_sideDock {\n  display: none;\n}\n\n@media (width >= 1101px) {\n  .dshc_page.dshc_panelOpen {\n    grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%) 240px;\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) min(420px, 36%) 240px;\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%);\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr) min(420px, 36%);\n  }\n\n  .dshc_page.dshc_panelOpen > .dshc_sideDock {\n    border-left: 1px solid var(--dsw-alias-border-l2);\n    background: var(--dsw-alias-bg-base);\n    min-width: 0;\n    min-height: 0;\n    display: flex;\n  }\n}\n\n.dshc_sidePanel {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  max-height: none;\n  box-shadow: none;\n  border: 0;\n  border-radius: 0;\n  margin: 0;\n  animation: .2s ease-out dshc_boardDrawerIn;\n  position: relative;\n}\n\n.dshc_sidePanel:focus {\n  outline: none;\n}\n\n.dshc_sidePanelClose {\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-secondary);\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 6px;\n  font-size: 18px;\n  line-height: 1;\n  position: absolute;\n  top: 10px;\n  right: 10px;\n}\n\n.dshc_sidePanelClose:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_sidePanel {\n    animation: none;\n  }\n}\n\n.dshc_sidePanel .dshc_boardCardGrid {\n  grid-template-columns: minmax(0, 1fr);\n}\n[data-dc-scheme=\"light\"] {\n  --dsw-static-amber-100: #fef5e7;\n  --dsw-static-amber-400: #f7ad31;\n  --dsw-static-amber-500: #f59e0b;\n  --dsw-static-amber-600: #dd8629;\n  --dsw-static-amber-900: #27241f;\n  --dsw-static-blue-100: #dbeafe;\n  --dsw-static-blue-300: #93c5fd;\n  --dsw-static-blue-400: #60a5fa;\n  --dsw-static-blue-450: #4d93f8;\n  --dsw-static-blue-500: #3b82f6;\n  --dsw-static-blue-50: #eff6ff;\n  --dsw-static-blue-50p: #eaf3ff;\n  --dsw-static-blue-600: #2563eb;\n  --dsw-static-blue-75: #e5f0ff;\n  --dsw-static-blue-800: #1e40af;\n  --dsw-static-blue-900: #0e3074;\n  --dsw-static-blue-950: #172554;\n  --dsw-static-deepseek-100: #e4edfd;\n  --dsw-static-deepseek-200: #d3e2ff;\n  --dsw-static-deepseek-300: #b7c8fe;\n  --dsw-static-deepseek-400: #7aaaff;\n  --dsw-static-deepseek-450: #5686fe;\n  --dsw-static-deepseek-500: #4176e6;\n  --dsw-static-deepseek-50: #edf3fe;\n  --dsw-static-deepseek-600: #4868b2;\n  --dsw-static-deepseek-700-delete: #2f4c8f;\n  --dsw-static-deepseek-800: #34415b;\n  --dsw-static-deepseek-900: #283142;\n  --dsw-static-green-100: #e6faed;\n  --dsw-static-green-400: #4ed17e;\n  --dsw-static-green-500: #22c55e;\n  --dsw-static-green-500-a08: #22c55e14;\n  --dsw-static-green-500-a12: #22c55e1f;\n  --dsw-static-green-900: #233c2c;\n  --dsw-static-neutral-00: #fff;\n  --dsw-static-neutral-1000: #000;\n  --dsw-static-neutral-100: #f5f5f5;\n  --dsw-static-neutral-150: #ededed;\n  --dsw-static-neutral-200: #e5e5e5;\n  --dsw-static-neutral-250: #dcdcdc;\n  --dsw-static-neutral-300: #d4d4d4;\n  --dsw-static-neutral-400: #a2a4a6;\n  --dsw-static-neutral-500: #7f8287;\n  --dsw-static-neutral-50: #fafafa;\n  --dsw-static-neutral-550: #65676b;\n  --dsw-static-neutral-600: #545557;\n  --dsw-static-neutral-700: #3c3c3d;\n  --dsw-static-neutral-800: #292929;\n  --dsw-static-neutral-850: #212123;\n  --dsw-static-neutral-900: #0f0f0f;\n  --dsw-static-neutral-bluish-00: #fff;\n  --dsw-static-neutral-bluish-1000: #0f1115;\n  --dsw-static-neutral-bluish-100: #ebeef2;\n  --dsw-static-neutral-bluish-150: #e9ecf2;\n  --dsw-static-neutral-bluish-200: #e1e5ee;\n  --dsw-static-neutral-bluish-300: #cfd3d6;\n  --dsw-static-neutral-bluish-400: #adb2b8;\n  --dsw-static-neutral-bluish-500: #979da6;\n  --dsw-static-neutral-bluish-50: #f9fafb;\n  --dsw-static-neutral-bluish-600: #81858c;\n  --dsw-static-neutral-bluish-60: #f5f6f7;\n  --dsw-static-neutral-bluish-700: #61666b;\n  --dsw-static-neutral-bluish-750: #43454a;\n  --dsw-static-neutral-bluish-75: #f1f3f5;\n  --dsw-static-neutral-bluish-800: #353638;\n  --dsw-static-neutral-bluish-850: #2c2c2e;\n  --dsw-static-neutral-bluish-875: #232324;\n  --dsw-static-neutral-bluish-900: #1b1b1c;\n  --dsw-static-neutral-bluish-950: #151517;\n  --dsw-static-red-100: #fee2e2;\n  --dsw-static-red-400: #f25a5a;\n  --dsw-static-red-400-a12: #f25a5a1f;\n  --dsw-static-red-500: #ef4444;\n  --dsw-static-red-50: #fef2f2;\n  --dsw-static-red-600: #ec1313;\n  --dsw-static-red-600-a08: #ec131314;\n  --dsw-static-red-900: #570c0c;\n}\n\n[data-dc-scheme=\"dark\"] {\n  --dsw-static-amber-100: #fef5e7;\n  --dsw-static-amber-400: #f7ad31;\n  --dsw-static-amber-500: #f59e0b;\n  --dsw-static-amber-600: #dd8629;\n  --dsw-static-amber-900: #27241f;\n  --dsw-static-blue-100: #dbeafe;\n  --dsw-static-blue-300: #93c5fd;\n  --dsw-static-blue-400: #60a5fa;\n  --dsw-static-blue-450: #4d93f8;\n  --dsw-static-blue-500: #3b82f6;\n  --dsw-static-blue-50: #eff6ff;\n  --dsw-static-blue-50p: #eaf3ff;\n  --dsw-static-blue-600: #2563eb;\n  --dsw-static-blue-75: #e5f0ff;\n  --dsw-static-blue-800: #1e40af;\n  --dsw-static-blue-900: #0e3074;\n  --dsw-static-blue-950: #172554;\n  --dsw-static-deepseek-100: #e4edfd;\n  --dsw-static-deepseek-200: #d3e2ff;\n  --dsw-static-deepseek-300: #b7c8fe;\n  --dsw-static-deepseek-400: #7aaaff;\n  --dsw-static-deepseek-450: #5686fe;\n  --dsw-static-deepseek-500: #4176e6;\n  --dsw-static-deepseek-50: #edf3fe;\n  --dsw-static-deepseek-600: #4868b2;\n  --dsw-static-deepseek-700-delete: #2f4c8f;\n  --dsw-static-deepseek-800: #34415b;\n  --dsw-static-deepseek-900: #283142;\n  --dsw-static-green-100: #e6faed;\n  --dsw-static-green-400: #4ed17e;\n  --dsw-static-green-500: #22c55e;\n  --dsw-static-green-500-a08: #22c55e14;\n  --dsw-static-green-500-a12: #22c55e1f;\n  --dsw-static-green-900: #233c2c;\n  --dsw-static-neutral-00: #fff;\n  --dsw-static-neutral-1000: #000;\n  --dsw-static-neutral-100: #f5f5f5;\n  --dsw-static-neutral-150: #ededed;\n  --dsw-static-neutral-200: #e5e5e5;\n  --dsw-static-neutral-250: #dcdcdc;\n  --dsw-static-neutral-300: #d4d4d4;\n  --dsw-static-neutral-400: #a2a4a6;\n  --dsw-static-neutral-500: #7f8287;\n  --dsw-static-neutral-50: #fafafa;\n  --dsw-static-neutral-550: #65676b;\n  --dsw-static-neutral-600: #545557;\n  --dsw-static-neutral-700: #3c3c3d;\n  --dsw-static-neutral-800: #292929;\n  --dsw-static-neutral-850: #212123;\n  --dsw-static-neutral-900: #0f0f0f;\n  --dsw-static-neutral-bluish-00: #fff;\n  --dsw-static-neutral-bluish-1000: #0f1115;\n  --dsw-static-neutral-bluish-100: #ebeef2;\n  --dsw-static-neutral-bluish-150: #e9ecf2;\n  --dsw-static-neutral-bluish-200: #e1e5ee;\n  --dsw-static-neutral-bluish-300: #cfd3d6;\n  --dsw-static-neutral-bluish-400: #adb2b8;\n  --dsw-static-neutral-bluish-500: #979da6;\n  --dsw-static-neutral-bluish-50: #f9fafb;\n  --dsw-static-neutral-bluish-600: #81858c;\n  --dsw-static-neutral-bluish-60: #f9fafb;\n  --dsw-static-neutral-bluish-700: #61666b;\n  --dsw-static-neutral-bluish-750: #43454a;\n  --dsw-static-neutral-bluish-75: #f1f3f5;\n  --dsw-static-neutral-bluish-800: #353638;\n  --dsw-static-neutral-bluish-850: #2c2c2e;\n  --dsw-static-neutral-bluish-875: #232324;\n  --dsw-static-neutral-bluish-900: #1b1b1c;\n  --dsw-static-neutral-bluish-950: #151517;\n  --dsw-static-red-100: #fee2e2;\n  --dsw-static-red-400: #f25a5a;\n  --dsw-static-red-400-a12: #f25a5a1f;\n  --dsw-static-red-500: #ef4444;\n  --dsw-static-red-50: #fef2f2;\n  --dsw-static-red-600: #ec1313;\n  --dsw-static-red-600-a08: #ec131314;\n  --dsw-static-red-900: #570c0c;\n}\n\n[data-dc-scheme=\"light\"] {\n  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);\n  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-mask-1: #0000003d;\n  --dsw-alias-bg-mask-2: #0000001f;\n  --dsw-alias-bg-mask-3: #0000007a;\n  --dsw-alias-bg-mask-photo: #000000e0;\n  --dsw-alias-bg-mask-drop: #ffffffb3;\n  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-bg-multi-select: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-150);\n  --dsw-alias-bg-skeleton: #0000000a;\n  --dsw-alias-border-inverted2: #0000;\n  --dsw-alias-border-inverted: #0000;\n  --dsw-alias-border-l1: #0000000a;\n  --dsw-alias-border-l2-darkmode-thin: #0000001a;\n  --dsw-alias-border-l2: #0000001a;\n  --dsw-alias-border-l3: #0000001f;\n  --dsw-alias-border-l4: #00000029;\n  --dsw-alias-brand-primary-invert: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-brand-primary-new-colorprimary-new-color: #4176e6;\n  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-button-contrast-fill: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-button-ghost-active-border: var(--dsw-static-neutral-bluish-500);\n  --dsw-alias-button-ghost-active-fill: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-ghost-active-hover: var(--dsw-static-neutral-bluish-150);\n  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-500);\n  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-400);\n  --dsw-alias-button-primary-dimmed: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-primary-fill: var(--dsw-alias-brand-primary);\n  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-tool-bar-fill-invisible: #1f1f1f5c;\n  --dsw-alias-button-tool-bar-fill: #54555780;\n  --dsw-alias-button-tool-bar-hover: #54555799;\n  --dsw-alias-interactive-bg-active: #2631481a;\n  --dsw-alias-interactive-bg-hover-accent: #26314824;\n  --dsw-alias-interactive-bg-hover-danger: #ec13130d;\n  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-interactive-bg-hover: #2631480f;\n  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-500) 70%, var(--dsw-static-blue-950));\n  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-deepseek-500) 30%, var(--dsw-static-blue-950));\n  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-200);\n  --dsw-alias-label-primary-bluish: var(--dsw-static-blue-900);\n  --dsw-alias-label-primary-dimmed: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-1000) 30%, transparent);\n  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-menu-icon: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-link: var(--dsw-static-deepseek-500);\n  --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-50);\n  --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-200);\n  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-200);\n  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-300);\n  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-300);\n  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);\n  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-100);\n  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a08);\n  --dsw-alias-code-diff-deleted: var(--dsw-static-red-600-a08);\n  --dsw-alias-file-diff-added-bg: #e6f4e7;\n  --dsw-alias-file-diff-added-gutter: #edf7ed;\n  --dsw-alias-file-diff-added-marker: #01a241;\n  --dsw-alias-file-diff-deleted-bg: #fce6e2;\n  --dsw-alias-file-diff-deleted-gutter: #fdece9;\n  --dsw-alias-file-diff-deleted-marker: #ba2723;\n  --dsw-alias-state-error-primary: var(--dsw-static-red-600);\n  --dsw-alias-state-error-secondary: var(--dsw-static-red-400);\n  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-300);\n  --dsw-alias-state-success-primary: var(--dsw-static-green-500);\n  --dsw-alias-state-success-secondary: var(--dsw-static-green-400);\n  --dsw-alias-state-success-tertiary: var(--dsw-static-green-100);\n  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);\n  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);\n  --dsw-alias-state-warn-secondary: var(--dsw-static-amber-400);\n  --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-100);\n  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);\n  --dsw-alias-turn-trigger-bg: var(--dsw-alias-markdown-code-block);\n  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-hover);\n  --dsw-specific-bubble-highlight: var(--dsw-static-deepseek-200);\n  --dsw-specific-bubble: var(--dsw-static-deepseek-50);\n  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-00);\n  --dsw-specific-login-input: var(--dsw-static-neutral-bluish-50);\n  --dsw-menu-surface-fill: #f8f9fa94;\n  --dsw-alias-menu-group-header-fill: #f8f9faf0;\n  --dsw-specific-menu: var(--dsw-menu-surface-fill);\n  --dsw-specific-selector: var(--dsw-static-neutral-bluish-60);\n  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-50);\n  --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-deepseek-100);\n  --dsw-specific-sidebar-nav-item-active: var(--dsw-static-neutral-bluish-100);\n  --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-75);\n  --dsw-specific-tip: var(--dsw-static-neutral-bluish-60);\n}\n\n[data-dc-scheme=\"dark\"] {\n  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);\n  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-300);\n  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-875);\n  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-bg-mask-1: #00000080;\n  --dsw-alias-bg-mask-2: #0003;\n  --dsw-alias-bg-mask-3: #0000007a;\n  --dsw-alias-bg-mask-photo: #000000e0;\n  --dsw-alias-bg-mask-drop: #272730b3;\n  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-bg-multi-select: var(--dsw-static-neutral-850);\n  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-bg-skeleton: #ffffff14;\n  --dsw-alias-border-inverted2: #ffffff14;\n  --dsw-alias-border-inverted: #ffffff0f;\n  --dsw-alias-border-l1: #ffffff0f;\n  --dsw-alias-border-l2-darkmode-thin: #ffffff0f;\n  --dsw-alias-border-l2: #ffffff1f;\n  --dsw-alias-border-l3: #ffffff29;\n  --dsw-alias-border-l4: #fff3;\n  --dsw-alias-brand-primary-invert: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-brand-primary-new-colorprimary-new-color: var(--dsw-static-deepseek-450);\n  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-button-contrast-fill: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-button-ghost-active-border: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-button-ghost-active-fill: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-ghost-active-hover: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-400);\n  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-500);\n  --dsw-alias-button-primary-dimmed: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-primary-fill: var(--dsw-alias-brand-primary);\n  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-tool-bar-fill-invisible: #1f1f1f5c;\n  --dsw-alias-button-tool-bar-fill: #54555780;\n  --dsw-alias-button-tool-bar-hover: #54555799;\n  --dsw-alias-interactive-bg-active: #ffffff24;\n  --dsw-alias-interactive-bg-hover-accent: #ffffff3d;\n  --dsw-alias-interactive-bg-hover-danger: #f25a5a26;\n  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-interactive-bg-hover: #ffffff14;\n  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-450) 55%, var(--dsw-static-neutral-bluish-400));\n  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-blue-300) 65%, var(--dsw-static-deepseek-400));\n  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-label-primary-bluish: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-label-primary-dimmed: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-300);\n  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-00) 45%, transparent);\n  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-menu-icon: var(--dsw-alias-label-primary-dimmed);\n  --dsw-alias-link: var(--dsw-static-deepseek-400);\n  --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-900);\n  --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-900);\n  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-800);\n  --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-700);\n  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-600);\n  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-600);\n  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-550);\n  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-400);\n  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-800);\n  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a12);\n  --dsw-alias-code-diff-deleted: var(--dsw-static-red-400-a12);\n  --dsw-alias-file-diff-added-bg: #1f3124;\n  --dsw-alias-file-diff-added-gutter: #132016;\n  --dsw-alias-file-diff-added-marker: #41c977;\n  --dsw-alias-file-diff-deleted-bg: #3c1f1b;\n  --dsw-alias-file-diff-deleted-gutter: #28130e;\n  --dsw-alias-file-diff-deleted-marker: #fa423e;\n  --dsw-alias-state-error-primary: var(--dsw-static-red-400);\n  --dsw-alias-state-error-secondary: var(--dsw-static-red-400);\n  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-600);\n  --dsw-alias-state-success-primary: var(--dsw-static-green-500);\n  --dsw-alias-state-success-secondary: var(--dsw-static-green-400);\n  --dsw-alias-state-success-tertiary: var(--dsw-static-green-900);\n  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);\n  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);\n  --dsw-alias-state-warn-secondary: var(--dsw-static-amber-400);\n  --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-900);\n  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-turn-trigger-bg: var(--dsw-alias-interactive-bg-hover);\n  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-active);\n  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);\n  --dsw-specific-bubble-highlight: var(--dsw-static-neutral-bluish-750);\n  --dsw-specific-bubble: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-login-input: var(--dsw-static-neutral-bluish-900);\n  --dsw-menu-surface-fill: #43454a73;\n  --dsw-alias-menu-group-header-fill: #303136f0;\n  --dsw-specific-menu: var(--dsw-menu-surface-fill);\n  --dsw-specific-selector: var(--dsw-static-neutral-bluish-800);\n  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-900);\n  --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-neutral-bluish-800);\n  --dsw-specific-sidebar-nav-item-active: var(--dsw-static-neutral-bluish-750);\n  --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-tip: var(--dsw-static-neutral-bluish-800);\n}\n\nhtml[data-platform=\"darwin\"] [data-dc-scheme=\"light\"] {\n  --dsw-specific-menu: #f8f9faf0;\n}\n\nhtml[data-platform=\"darwin\"] [data-dc-scheme=\"dark\"] {\n  --dsw-specific-menu: #303136f0;\n}\n\n[data-dc-scheme=\"light\"] {\n  color-scheme: light;\n}\n\n[data-dc-scheme=\"dark\"] {\n  color-scheme: dark;\n}\n.dshc_embed {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  background: var(--dsw-alias-bg-base);\n  display: flex;\n}\n\n.dshc_frame {\n  background: var(--dsw-alias-bg-base);\n  border: 0;\n  flex: 1;\n  width: 100%;\n  height: 100%;\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".dshc_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.dshc_rooms, .dshc_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 0 8px 16px;\n  overflow-y: auto;\n}\n\n.dshc_membersHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  flex: none;\n  height: 44px;\n  margin: 0 0 8px;\n}\n\n.dshc_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.dshc_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.dshc_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.dshc_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.dshc_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.dshc_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.dshc_system .dshc_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.dshc_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.dshc_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.dshc_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.dshc_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.dshc_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.dshc_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.dshc_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.dshc_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_messageBody {\n  min-width: 0;\n}\n\n.dshc_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_author {\n  font-weight: 600;\n}\n\n.dshc_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.dshc_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.dshc_message:hover .dshc_ownActions, .dshc_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_ownActions {\n    opacity: 1;\n  }\n}\n\n.dshc_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.dshc_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.dshc_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_editBar .dshc_time {\n  margin-right: auto;\n}\n\n.dshc_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.dshc_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.dshc_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.dshc_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.dshc_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.dshc_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.dshc_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_quoteDeleted {\n  font-style: italic;\n}\n\n.dshc_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_replyButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n}\n\n.dshc_msgTools {\n  z-index: 1;\n  border: 1px solid var(--dsw-alias-separator, #7f7f7f40);\n  border-radius: var(--dsw-radius-sm, 6px);\n  background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-primary, #fff));\n  opacity: 0;\n  pointer-events: none;\n  align-items: center;\n  gap: 2px;\n  padding: 2px;\n  display: inline-flex;\n  position: absolute;\n  top: 2px;\n  right: 16px;\n  box-shadow: 0 2px 6px #00000014;\n}\n\n.dshc_msgTool {\n  border-radius: var(--dsw-radius-sm, 6px);\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 8px;\n  font-size: 12px;\n}\n\n.dshc_msgTool:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_msgTool:disabled {\n  cursor: default;\n  opacity: .6;\n}\n\n.dshc_msgToolNote {\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_message:hover .dshc_msgTools, .dshc_message:focus-within .dshc_msgTools, .dshc_msgTools:has(.dshc_msgToolNote) {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n@media (hover: none) {\n  .dshc_msgTools {\n    box-shadow: none;\n    opacity: 1;\n    pointer-events: auto;\n    background: none;\n    border: 0;\n    margin-top: 2px;\n    position: static;\n  }\n}\n\n.dshc_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.dshc_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  align-items: center;\n  gap: 6px;\n  padding: 0 16px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.dshc_composerBox {\n  border: 1px solid var(--dsw-alias-border-l1);\n  border-radius: var(--dsw-radius-xl);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  box-shadow: var(--dsw-shadow-lv1-blur);\n  flex-direction: column;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_composerBox:focus-within {\n  border-color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_composerToolbar {\n  flex: none;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 10px 10px;\n  display: flex;\n}\n\n.dshc_composerBox > .dshc_replyBar, .dshc_composerBox > .dshc_attachments {\n  margin: 10px 14px 0;\n}\n\n.dshc_mentionButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  font-size: 18px;\n  display: inline-flex;\n}\n\n.dshc_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_sendButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: auto;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.dshc_sendButton:focus-visible, .dshc_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.dshc_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_mentionName {\n  font-weight: 600;\n}\n\n.dshc_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.dshc_input {\n  box-sizing: border-box;\n  width: 100%;\n  min-height: 52px;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  background: none;\n  border: 0;\n  border-radius: 0;\n  flex: 1;\n  min-width: 0;\n  padding: 14px 16px 8px;\n  line-height: 1.5;\n}\n\n.dshc_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .dshc_composer {\n    padding: 0 8px 8px;\n  }\n\n  .dshc_composerToolbar {\n    padding: 4px 8px 8px;\n  }\n\n  .dshc_input {\n    padding: 12px 14px 8px;\n  }\n}\n\n.dshc_input:focus-visible {\n  outline: none;\n}\n\n.dshc_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_offline {\n  opacity: .5;\n}\n\n.dshc_memberAvatar {\n  position: relative;\n}\n\n.dshc_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_offline .dshc_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_rooms, .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.dshc_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.dshc_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_roomInput, .dshc_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.dshc_roomInput {\n  margin: 2px 0 6px;\n}\n\n.dshc_roomInput:focus-visible, .dshc_fieldInput:focus-visible, .dshc_iconButton:focus-visible, .dshc_linkButton:focus-visible, .dshc_addMemberButton:focus-visible, .dshc_primaryButton:focus-visible, .dshc_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_addMemberButton {\n  box-sizing: border-box;\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.dshc_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_settingsDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: 100%;\n  margin: 8px 0 4px;\n}\n\n.dshc_memberListDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: calc(100% - 16px);\n  margin: 12px 8px 2px;\n}\n\n.dshc_settingsButton {\n  text-align: left;\n  border-style: solid;\n  border-color: #0000;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_settingsButton svg {\n  flex: none;\n}\n\n.dshc_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.dshc_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_memberRow .dshc_member:hover {\n  background: none;\n}\n\n.dshc_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_memberRow:hover .dshc_memberActions, .dshc_memberRow:focus-within .dshc_memberActions {\n  opacity: 1;\n}\n\n.dshc_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.dshc_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.dshc_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.dshc_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog {\n  box-sizing: border-box;\n  height: min(70vh, 100dvh - 32px);\n  max-height: calc(100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_settingsBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  padding: 2px;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog > :not(.dshc_settingsBody) {\n  flex-shrink: 0;\n}\n\n.dshc_settingsFields {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_settingsFeedback {\n  overflow-wrap: anywhere;\n  max-height: 20%;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog .dshc_dialogActions {\n  justify-content: space-between;\n}\n\n@media (width <= 599px) {\n  .dshc_settingsDialog {\n    height: calc(100dvh - 32px);\n    padding: 16px;\n  }\n}\n\n.dshc_avatarCropStage {\n  background: #000000a6;\n  padding: 20px;\n}\n\n.dshc_avatarCropFrame {\n  aspect-ratio: 1;\n  touch-action: none;\n  cursor: grab;\n  outline: 2px solid #fff;\n  width: min(256px, 100%);\n  margin: auto;\n  position: relative;\n  overflow: hidden;\n}\n\n.dshc_avatarCropFrame:active {\n  cursor: grabbing;\n}\n\n.dshc_avatarCropFrame img {\n  pointer-events: none;\n  user-select: none;\n  max-width: none;\n  position: absolute;\n}\n\n.dshc_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.dshc_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_field textarea {\n  resize: vertical;\n}\n\n.dshc_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn .dshc_choice {\n  grid-template-columns: max-content minmax(0, 1fr);\n  align-items: start;\n  display: grid;\n}\n\n.dshc_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.dshc_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_primaryButton, .dshc_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.dshc_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.dshc_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.dshc_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.dshc_memberFailed .dshc_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.dshc_memberFailed .dshc_presence {\n  background: #ed4245;\n}\n\n.dshc_mobileButton, .dshc_drawerBackdrop {\n  display: none;\n}\n\n.dshc_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_panelToggleEnd {\n  margin-left: auto;\n}\n\n.dshc_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.dshc_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.dshc_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_roomsHidden > .dshc_rooms, .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .dshc_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .dshc_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .dshc_panelToggle {\n    display: none;\n  }\n\n  .dshc_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .dshc_rooms.dshc_drawerOpen, .dshc_members.dshc_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .dshc_rooms.dshc_drawerOpen {\n    left: 0;\n  }\n\n  .dshc_members.dshc_drawerOpen {\n    right: 0;\n  }\n\n  .dshc_memberActions {\n    opacity: 1;\n  }\n\n  .dshc_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.dshc_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.dshc_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.dshc_taskBoardTrigger {\n  box-sizing: border-box;\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  height: 34px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: center;\n  gap: 8px;\n  margin: 4px 0;\n  padding: 7px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskBoardTrigger:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskBoardTrigger:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_taskBoardSummary {\n  color: var(--dsw-alias-label-secondary);\n  text-align: right;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: 1;\n  overflow: hidden;\n}\n\n.dshc_taskBoardDialog {\n  width: min(920px, 100%);\n  height: min(70vh, 100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_taskBoardBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_taskBoardDialog > :not(.dshc_taskBoardBody) {\n  flex-shrink: 0;\n}\n\n.dshc_boardTabs {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  gap: 4px;\n  padding-bottom: 8px;\n  display: flex;\n  overflow-x: auto;\n}\n\n.dshc_boardTabs button {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  padding: 7px 10px;\n  font-size: 13px;\n}\n\n.dshc_boardTabs button:hover, .dshc_boardTabs button[aria-selected=\"true\"] {\n  color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_boardTabs button:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_boardTabCount {\n  font-variant-numeric: tabular-nums;\n  margin-left: 4px;\n}\n\n.dshc_boardCardGrid {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 12px;\n  margin: 6px 0 16px;\n  padding: 2px;\n  list-style: none;\n  display: grid;\n}\n\n.dshc_boardTaskCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  border-radius: 12px;\n  flex-direction: column;\n  gap: 10px;\n  min-width: 0;\n  padding: 14px;\n  transition: transform .14s, box-shadow .14s;\n  display: flex;\n}\n\n.dshc_boardTaskCard[data-working=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n}\n\n.dshc_boardTaskCard[data-status=\"done\"] {\n  filter: saturate(.25);\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_boardTaskCard:hover {\n  transform: translateY(-2px);\n  box-shadow: 0 4px 12px #00000014;\n}\n\n.dshc_boardTaskHeader {\n  align-items: flex-start;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_boardTaskTitle {\n  overflow-wrap: anywhere;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  flex: 1;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.5;\n  display: -webkit-box;\n  overflow: hidden;\n}\n\n.dshc_boardTaskHeader .dshc_taskStatus {\n  border-radius: 999px;\n  padding: 3px 7px;\n  font-size: 11px;\n}\n\n.dshc_boardTaskCard .dshc_taskLinks {\n  justify-content: flex-end;\n  margin-top: auto;\n}\n\n.dshc_boardTabEmpty {\n  min-height: 240px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  justify-content: center;\n  align-items: center;\n  padding: 40px 16px;\n  display: flex;\n}\n\n@media (width <= 640px) {\n  .dshc_boardCardGrid {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardTaskCard {\n    transition: none;\n  }\n\n  .dshc_boardTaskCard:hover {\n    transform: none;\n  }\n}\n\n.dshc_taskBoardScope {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n}\n\n.dshc_taskSection + .dshc_taskSection {\n  margin-top: 8px;\n}\n\n.dshc_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_taskOwnerGroup + .dshc_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.dshc_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.dshc_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.dshc_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskDone summary {\n  cursor: pointer;\n}\n\n.dshc_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.dshc_taskStatus[data-status=\"asked\"], .dshc_taskStatus[data-status=\"escalated\"], .dshc_taskStatus[data-status=\"declined\"], .dshc_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.dshc_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.dshc_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_taskMemberName {\n  font-weight: 600;\n}\n\n.dshc_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.dshc_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.dshc_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.dshc_imageAttachment {\n  align-content: start;\n  max-width: 100%;\n  display: grid;\n}\n\n.dshc_imagePreviewTrigger {\n  cursor: zoom-in;\n  background: none;\n  border: 0;\n  border-radius: 4px;\n  grid-area: 1 / 1;\n  padding: 0;\n}\n\n.dshc_imagePreviewTrigger:focus-visible {\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n  outline-offset: 2px;\n}\n\n.dshc_imagePreviewDialog {\n  box-sizing: border-box;\n  width: fit-content;\n  max-width: 90vw;\n  max-height: 90dvh;\n  overflow: auto;\n}\n\n.dshc_imagePreviewHeader {\n  flex-shrink: 0;\n  justify-content: space-between;\n  align-items: center;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_imagePreviewHeader span {\n  overflow-wrap: anywhere;\n  min-width: 0;\n}\n\n.dshc_imagePreviewHeader button {\n  flex-shrink: 0;\n}\n\n.dshc_imagePreviewImage {\n  object-fit: contain;\n  align-self: center;\n  max-width: 100%;\n  min-height: 0;\n  max-height: 65dvh;\n  display: block;\n}\n\n.dshc_imagePreviewActions {\n  flex-wrap: wrap;\n  flex-shrink: 0;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_imagePreviewActions a {\n  text-decoration: none;\n}\n\n.dshc_imagePreviewActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_attachmentActions {\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  opacity: 0;\n  pointer-events: none;\n  flex-wrap: wrap;\n  grid-area: 1 / 1;\n  place-self: start end;\n  gap: 4px;\n  margin: 4px;\n  padding: 4px;\n  display: flex;\n}\n\n.dshc_attachmentActions a {\n  text-decoration: none;\n}\n\n.dshc_attachmentActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_imageAttachment:hover .dshc_attachmentActions, .dshc_imageAttachment:focus-within .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"error\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copying\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copied\"] .dshc_attachmentActions {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n@media (hover: none), (pointer: coarse), (width <= 768px) {\n  .dshc_attachmentActions {\n    opacity: 1;\n    pointer-events: auto;\n  }\n}\n\n.dshc_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.dshc_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.dshc_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.dshc_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.dshc_attachmentAudio audio {\n  width: 100%;\n}\n\n.dshc_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.dshc_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.dshc_chatHead button, .dshc_chatHead input, .dshc_chatHead select, .dshc_chatHead a, .dshc_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.dshc_text pre, .dshc_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n\n@media (width >= 901px) {\n  .dshc_page {\n    grid-template-columns: 232px minmax(0, 1fr) 272px;\n  }\n\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 272px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 232px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n.dshc_rooms {\n  padding-top: 4px;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-md);\n  min-height: 34px;\n  padding: 6px 10px;\n  transition: background-color .15s, color .15s;\n}\n\n.dshc_workspace {\n  min-height: 30px;\n  padding-left: 28px;\n  font-size: 13px;\n  position: relative;\n}\n\n.dshc_workspace:before {\n  content: \"\";\n  border-left: 1px solid var(--dsw-alias-border-l2);\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  border-bottom-left-radius: 4px;\n  width: 7px;\n  position: absolute;\n  top: 0;\n  bottom: 50%;\n  left: 15px;\n}\n\n.dshc_workspace .dshc_hash {\n  display: none;\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);\n  box-shadow: inset 2px 0 0 var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_activeCount {\n  font-variant-numeric: tabular-nums;\n  border-radius: 999px;\n  margin-left: 0;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 18px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-state-business-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);\n}\n\n.dshc_roomLabel {\n  flex: auto;\n  min-width: 0;\n}\n\n.dshc_avatarStack {\n  flex: none;\n  align-items: center;\n  padding-left: 4px;\n  display: inline-flex;\n}\n\n.dshc_stackDot {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  background-position: center;\n  background-size: cover;\n  border-radius: 50%;\n  width: 18px;\n  height: 18px;\n  margin-left: -6px;\n}\n\n.dshc_room .dshc_stackDot {\n  width: 16px;\n  height: 16px;\n}\n\n.dshc_roomActive .dshc_stackDot {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, var(--dsw-alias-bg-layer-2));\n}\n\n.dshc_chatHead {\n  gap: 8px;\n  height: 52px;\n}\n\n.dshc_roomName {\n  letter-spacing: -.01em;\n  white-space: nowrap;\n  font-size: 15px;\n}\n\n.dshc_headMeta {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  font-weight: 400;\n  overflow: hidden;\n}\n\n.dshc_headActivity {\n  color: var(--dsw-alias-label-secondary);\n  flex: none;\n  align-items: center;\n  gap: 6px;\n  margin-left: auto;\n  font-size: 12px;\n  font-weight: 500;\n  display: inline-flex;\n}\n\n.dshc_headActivity .dshc_stackDot {\n  border-color: var(--dsw-alias-bg-base);\n  width: 22px;\n  height: 22px;\n}\n\n.dshc_headActivity + .dshc_panelToggleEnd {\n  margin-left: 4px;\n}\n\n.dshc_chatHead > .dshc_roomName {\n  text-overflow: ellipsis;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_chatHead > .dshc_taskBoardTrigger {\n  width: auto;\n  margin: 0 0 0 auto;\n}\n\n.dshc_chatHead .dshc_taskBoardSummary {\n  display: none;\n}\n\n.dshc_headLead {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 999px;\n  flex: 0 auto;\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_headLeadText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_headLeadName {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_headLeadStatus {\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  font-size: 11px;\n  font-weight: 400;\n}\n\n.dshc_headLead + .dshc_panelToggleEnd {\n  margin-left: 0;\n}\n\n.dshc_membersHead {\n  align-items: center;\n  height: 52px;\n  padding: 0 4px;\n  display: flex;\n}\n\n.dshc_membersHeadTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .08em;\n  font-size: 11px;\n  font-weight: 650;\n}\n\n.dshc_log {\n  padding: 12px 0 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 8px 20px 2px;\n  transition: background-color .15s;\n}\n\n.dshc_message.dshc_grouped {\n  padding-top: 1px;\n}\n\n.dshc_message:hover {\n  background: color-mix(in srgb, var(--dsw-alias-interactive-bg-hover) 70%, transparent);\n}\n\n.dshc_messageHead {\n  gap: 8px;\n  margin-bottom: 2px;\n}\n\n.dshc_messageHeadGrouped {\n  margin-bottom: 0;\n}\n\n.dshc_messageHeadGrouped:not(:has(*)) {\n  display: none;\n}\n\n.dshc_author {\n  font-size: 13px;\n}\n\n.dshc_time, .dshc_edited {\n  font-variant-numeric: tabular-nums;\n  font-size: 11px;\n}\n\n.dshc_gutterTime {\n  color: var(--dsw-alias-label-tertiary);\n  font-variant-numeric: tabular-nums;\n  text-align: right;\n  opacity: 0;\n  align-self: start;\n  padding-top: 3px;\n  font-size: 10px;\n  transition: opacity .15s;\n}\n\n.dshc_message:hover .dshc_gutterTime {\n  opacity: 1;\n}\n\n.dshc_text {\n  line-height: 1.6;\n}\n\n.dshc_own {\n  grid-template-columns: minmax(0, 1fr) 36px;\n}\n\n.dshc_own > :first-child {\n  grid-area: 1 / 2;\n}\n\n.dshc_own > .dshc_messageBody {\n  flex-direction: column;\n  grid-area: 1 / 1;\n  align-items: flex-end;\n  display: flex;\n}\n\n.dshc_own .dshc_messageHead {\n  flex-direction: row-reverse;\n}\n\n.dshc_own .dshc_ownActions {\n  margin-left: 0;\n  margin-right: auto;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text {\n  max-width: min(560px, 100%);\n  color: var(--dsw-alias-label-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 16%, var(--dsw-alias-bg-layer-2));\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 28%, transparent);\n  border-radius: 16px 6px 16px 16px;\n  padding: 8px 14px;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_quote {\n  align-self: flex-end;\n}\n\n.dshc_own .dshc_msgTools {\n  left: 16px;\n  right: auto;\n}\n\n.dshc_own.dshc_grouped > .dshc_messageBody > .dshc_text {\n  border-radius: 16px 6px 6px 16px;\n}\n\n.dshc_systemRecord {\n  flex-direction: column;\n  align-items: center;\n  padding-bottom: 4px;\n  display: flex;\n}\n\n.dshc_systemRecord > .dshc_systemLine {\n  align-self: stretch;\n}\n\n.dshc_taskRecord {\n  box-sizing: border-box;\n  width: min(480px, 100% - 40px);\n  margin-top: 0;\n}\n\n.dshc_systemLine {\n  color: var(--dsw-alias-label-tertiary);\n  align-items: center;\n  gap: 12px;\n  padding: 10px 32px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_systemLine:before, .dshc_systemLine:after {\n  content: \"\";\n  background: var(--dsw-alias-border-l2);\n  flex: 24px;\n  min-width: 24px;\n  height: 1px;\n}\n\n.dshc_systemText {\n  text-align: center;\n  max-width: min(640px, 80%);\n}\n\n.dshc_systemText p {\n  margin: 0;\n}\n\n.dshc_errorBar {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent);\n  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 9%, transparent);\n  border-radius: 12px;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px 10px;\n  margin: 6px 20px 6px 68px;\n  padding: 8px 12px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_errorBar .dshc_cardButtons {\n  margin: 0 0 0 auto;\n}\n\n.dshc_errorBar .dshc_secondaryButton {\n  padding: 3px 10px;\n  font-size: 12px;\n}\n\n.dshc_errorBar[data-state=\"retried\"] {\n  opacity: .65;\n}\n\n.dshc_errorIcon {\n  color: #fff;\n  background: var(--dsw-alias-state-error-primary);\n  border-radius: 50%;\n  flex: none;\n  place-items: center;\n  width: 18px;\n  height: 18px;\n  font-size: 12px;\n  font-weight: 700;\n  display: grid;\n}\n\n.dshc_errorText {\n  min-width: 0;\n  color: var(--dsw-alias-label-primary);\n  flex: 200px;\n}\n\n.dshc_errorText p {\n  margin: 0;\n}\n\n.dshc_runStrip {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  border-radius: 12px;\n  flex-direction: column;\n  max-width: 100%;\n  margin-top: 4px;\n  padding: 5px 10px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_runStrip[data-state=\"running\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_runStrip[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_runHead {\n  min-width: 0;\n  color: var(--dsw-alias-label-secondary);\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_runTitle {\n  color: var(--dsw-alias-label-primary);\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_runSummary {\n  font-variant-numeric: tabular-nums;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_runHead .dshc_cardViews {\n  margin-left: 8px;\n}\n\n.dshc_runHead .dshc_cardViewButton {\n  color: var(--dsw-alias-label-tertiary);\n  border-radius: 999px;\n  font-size: 11px;\n}\n\n.dshc_runHead .dshc_cardViewButton[aria-pressed=\"true\"] {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_runIcon {\n  border-radius: 50%;\n  flex: none;\n  width: 12px;\n  height: 12px;\n  position: relative;\n}\n\n.dshc_runStrip[data-state=\"running\"] .dshc_runIcon {\n  border: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 25%, transparent);\n  border-top-color: var(--dsw-alias-state-business-primary);\n  animation: .8s linear infinite dshc_channels-spin;\n}\n\n.dshc_runStrip[data-state=\"completed\"] .dshc_runIcon {\n  background: #23a55a;\n}\n\n.dshc_runStrip[data-state=\"completed\"] .dshc_runIcon:after {\n  content: \"\";\n  border: 1.5px solid #fff;\n  border-width: 0 1.5px 1.5px 0;\n  width: 3px;\n  height: 6px;\n  position: absolute;\n  top: 2px;\n  left: 4px;\n  transform: rotate(45deg);\n}\n\n.dshc_runStrip[data-state=\"failed\"] .dshc_runIcon {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_runSteps {\n  color: var(--dsw-alias-label-secondary);\n  margin-top: 4px;\n  font-size: 12px;\n  line-height: 1.55;\n}\n\n.dshc_runSteps p {\n  margin: 0;\n}\n\n.dshc_runStrip .dshc_cardButtons {\n  margin-top: 6px;\n}\n\n@keyframes dshc_channels-spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_runStrip[data-state=\"running\"] .dshc_runIcon {\n    animation-duration: 2.4s;\n  }\n}\n\n.dshc_card {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-left-width: 1px;\n  border-radius: 14px;\n  margin-top: 6px;\n  padding: 10px 12px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 40%, var(--dsw-alias-border-l2));\n}\n\n.dshc_taskAnchor {\n  max-width: 560px;\n  box-shadow: inset 3px 0 0 var(--channels-accent-warm, #d08a2e);\n}\n\n.dshc_permInline {\n  color: var(--dsw-alias-label-secondary);\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 4px 8px;\n  display: flex;\n}\n\n.dshc_permInline .dshc_text {\n  flex: 0 auto;\n  min-width: 0;\n}\n\n.dshc_permInline .dshc_text p {\n  margin: 0;\n}\n\n.dshc_permLock {\n  color: var(--dsw-alias-state-warning-primary, #e9a23b);\n  flex: none;\n  font-size: 9px;\n}\n\n.dshc_permWaiting {\n  color: var(--dsw-alias-state-warning-primary, #e9a23b);\n  flex: none;\n  font-size: 11px;\n  font-weight: 600;\n}\n\n.dshc_permTray {\n  flex-direction: column;\n  gap: 6px;\n  max-height: 40%;\n  margin: 0 16px 8px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_permTrayItem {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2));\n  border-radius: 14px;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px 12px;\n  padding: 10px 12px;\n  display: flex;\n  box-shadow: 0 6px 20px -12px #00000059;\n}\n\n.dshc_permTrayText {\n  flex: 240px;\n  min-width: 0;\n  font-size: 13px;\n}\n\n.dshc_permTrayText .dshc_text p {\n  margin: 0;\n}\n\n.dshc_permTrayWho {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_permTrayItem .dshc_permActions {\n  flex-wrap: nowrap;\n  margin: 0;\n}\n\n.dshc_permTrayItem .dshc_permScope {\n  display: none;\n}\n\n.dshc_members {\n  flex-direction: column;\n  padding: 0 10px 16px;\n}\n\n@media (width >= 901px) {\n  .dshc_members {\n    display: flex;\n  }\n\n  .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_members.dshc_drawerOpen {\n  display: flex;\n}\n\n.dshc_activityNow {\n  flex-direction: column;\n  gap: 2px;\n  margin-bottom: 6px;\n  display: flex;\n}\n\n.dshc_activityItem {\n  border: 1px solid var(--dsw-alias-border-l2);\n  width: 100%;\n  color: inherit;\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  border-radius: 12px;\n  align-items: center;\n  gap: 10px;\n  padding: 8px 10px;\n  display: flex;\n}\n\n.dshc_activityItem + .dshc_activityItem {\n  margin-top: 4px;\n}\n\n.dshc_activityItem:hover {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 40%, var(--dsw-alias-border-l2));\n}\n\n.dshc_activityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_activityText {\n  flex-direction: column;\n  flex: 1;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_activityName {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_activityWhat {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_activityPulse {\n  background: var(--dsw-alias-state-business-primary);\n  border-radius: 50%;\n  flex: none;\n  width: 8px;\n  height: 8px;\n  animation: 1.6s ease-in-out infinite dshc_channels-pulse;\n}\n\n@keyframes dshc_channels-pulse {\n  50% {\n    box-shadow: 0 0 0 3px #23a55a40;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_activityPulse {\n    animation: none;\n  }\n}\n\n.dshc_member {\n  padding: 6px 8px;\n}\n\n.dshc_memberText {\n  flex: 1;\n}\n\n.dshc_memberStatus {\n  flex: none;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_memberStatus[data-status=\"busy\"] {\n  color: var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_memberStatus[data-status=\"error\"] {\n  color: var(--dsw-alias-state-error-primary);\n  font-weight: 600;\n}\n\n.dshc_memberActions {\n  background: var(--dsw-alias-bg-layer-2);\n  padding-left: 8px;\n  position: absolute;\n  top: 50%;\n  right: 8px;\n  transform: translateY(-50%);\n}\n\n.dshc_addMemberButton {\n  border-radius: 10px;\n}\n\n@media (width <= 900px) {\n  .dshc_headMeta, .dshc_headActivityText {\n    display: none;\n  }\n\n  .dshc_chatHead {\n    padding: 0 8px;\n  }\n\n  .dshc_mobileButton {\n    white-space: nowrap;\n  }\n\n  .dshc_headActivity ~ .dshc_mobileButton:last-child {\n    margin-left: 4px;\n  }\n\n  .dshc_message {\n    padding-left: 12px;\n    padding-right: 12px;\n  }\n\n  .dshc_errorBar {\n    margin-left: 12px;\n    margin-right: 12px;\n  }\n\n  .dshc_permTray {\n    margin: 0 8px 8px;\n  }\n\n  .dshc_permTrayItem .dshc_permActions {\n    flex-wrap: wrap;\n  }\n\n  .dshc_systemLine {\n    padding: 8px 12px;\n  }\n\n  .dshc_systemText {\n    max-width: 90%;\n  }\n\n  .dshc_memberActions {\n    background: none;\n    padding-left: 0;\n    position: static;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsEnter {\n  from {\n    opacity: 0;\n    transform: translateY(6px);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsEnterOwn {\n  from {\n    opacity: 0;\n    transform: translateY(12px) scale(.985);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsGlow {\n  from {\n    opacity: 1;\n  }\n\n  to {\n    opacity: 0;\n  }\n}\n\n@keyframes dshc_channelsPop {\n  from {\n    opacity: 0;\n    transform: translateY(4px) scale(.98);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsDot {\n  0%, 60%, 100% {\n    opacity: .35;\n    transform: none;\n  }\n\n  30% {\n    opacity: 1;\n    transform: translateY(-2px);\n  }\n}\n\n@keyframes dshc_channelsDrain {\n  from {\n    transform: scaleX(1);\n  }\n\n  to {\n    transform: scaleX(0);\n  }\n}\n\n.dshc_enter {\n  animation: .18s cubic-bezier(.2, 0, 0, 1) both dshc_channelsEnter;\n}\n\n.dshc_enterOwn {\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsEnterOwn;\n}\n\n.dshc_enterGlow:before {\n  content: \"\";\n  pointer-events: none;\n  background: linear-gradient(90deg, color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent), transparent 70%);\n  animation: .7s cubic-bezier(.4, 0, .2, 1) both dshc_channelsGlow;\n  animation-delay: inherit;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_message {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_room {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), color .16s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_card {\n  transition: border-color .32s cubic-bezier(.2, 0, 0, 1), background-color .32s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_cardViewButton {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), opacity .16s cubic-bezier(.2, 0, 0, 1), transform .12s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_sendButton:not(:disabled):active, .dshc_primaryButton:not(:disabled):active, .dshc_secondaryButton:not(:disabled):active, .dshc_mentionButton:not(:disabled):active, .dshc_cardViewButton:active {\n  transform: translateY(1px);\n}\n\n.dshc_mentionPopup {\n  transform-origin: bottom;\n  animation: .16s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n}\n\n.dshc_typingDots {\n  vertical-align: middle;\n  gap: 3px;\n  margin-right: 6px;\n  display: inline-flex;\n}\n\n.dshc_typingDots i {\n  background: currentColor;\n  border-radius: 50%;\n  width: 4px;\n  height: 4px;\n  animation: 1.2s ease-in-out infinite dshc_channelsDot;\n}\n\n.dshc_typingDots i:nth-child(2) {\n  animation-delay: .15s;\n}\n\n.dshc_typingDots i:nth-child(3) {\n  animation-delay: .3s;\n}\n\n.dshc_logWrap {\n  flex-direction: column;\n  flex: 1;\n  min-height: 0;\n  display: flex;\n  position: relative;\n}\n\n.dshc_olderLoading {\n  color: var(--dsw-alias-label-tertiary);\n  text-align: center;\n  padding: 8px 16px;\n  font-size: 12px;\n}\n\n.dshc_unreadDivider {\n  color: var(--dsw-alias-state-error-primary);\n  align-items: center;\n  gap: 8px;\n  margin: 8px 16px;\n  font-size: 12px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_unreadDivider:before, .dshc_unreadDivider:after {\n  content: \"\";\n  opacity: .35;\n  background: currentColor;\n  flex: 1;\n  height: 1px;\n}\n\n.dshc_withdrawnRow {\n  text-align: right;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 16px;\n  font-size: 13px;\n  font-style: italic;\n  animation: .18s cubic-bezier(.2, 0, 0, 1) both dshc_channelsEnter;\n}\n\n.dshc_jumpLatest {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #00000029);\n  font: inherit;\n  cursor: pointer;\n  border-radius: 999px;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 14px;\n  font-size: 12px;\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n  display: inline-flex;\n  position: absolute;\n  bottom: 12px;\n  left: 50%;\n  transform: translateX(-50%);\n}\n\n.dshc_jumpLatest:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_jumpLatest:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_jumpCount {\n  color: var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_undoToast {\n  z-index: 4;\n  border-radius: var(--dsw-radius-md);\n  width: max-content;\n  max-width: calc(100% - 32px);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  align-items: center;\n  gap: 12px;\n  margin: 0 auto;\n  padding: 8px 8px 8px 14px;\n  font-size: 13px;\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n  display: flex;\n  position: absolute;\n  bottom: 12px;\n  left: 0;\n  right: 0;\n  overflow: hidden;\n}\n\n.dshc_undoButton {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  background: color-mix(in srgb, currentColor 16%, transparent);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  padding: 2px 10px;\n  font-weight: 600;\n}\n\n.dshc_undoButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_undoBar {\n  background: var(--dsw-alias-state-business-primary);\n  transform-origin: 0;\n  height: 2px;\n  animation: linear forwards dshc_channelsDrain;\n  position: absolute;\n  bottom: 0;\n  left: 0;\n  right: 0;\n}\n\n.dshc_undoToast ~ .dshc_jumpLatest {\n  display: none;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_enter, .dshc_enterOwn, .dshc_enterGlow:before, .dshc_mentionPopup, .dshc_jumpLatest, .dshc_undoToast, .dshc_withdrawnRow {\n    animation: none;\n  }\n\n  .dshc_typingDots i {\n    opacity: .6;\n    animation: none;\n  }\n\n  .dshc_undoBar {\n    animation: none;\n  }\n\n  .dshc_message, .dshc_room, .dshc_card, .dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_cardViewButton {\n    transition: none;\n  }\n}\n\n.dshc_leadCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 14px;\n  align-items: center;\n  gap: 10px;\n  margin: 8px 8px 4px;\n  padding: 10px 12px;\n  display: flex;\n}\n\n.dshc_leadCardText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_leadCardName {\n  color: var(--dsw-alias-label-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 14px;\n  font-weight: 650;\n  overflow: hidden;\n}\n\n.dshc_leadCardStatus {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_message:not(.dshc_own) > .dshc_messageBody > .dshc_text {\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 6px 16px 16px;\n  width: fit-content;\n  max-width: min(640px, 100%);\n  padding: 8px 14px;\n}\n\n.dshc_message.dshc_grouped:not(.dshc_own) > .dshc_messageBody > .dshc_text {\n  border-radius: 6px 16px 16px 6px;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text {\n  color: var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-primary);\n  box-shadow: none;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text * {\n  color: inherit;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text a {\n  color: inherit;\n  text-decoration: underline;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text code {\n  color: inherit;\n  background: color-mix(in srgb, var(--dsw-alias-bg-base) 18%, transparent);\n}\n\n.dshc_boardDrawerBackdrop {\n  background: #00000040;\n  place-items: stretch end;\n  padding: 0;\n}\n\n.dshc_boardDrawerBackdrop > .dshc_taskBoardDialog {\n  box-sizing: border-box;\n  border-radius: 0;\n  width: min(440px, 100%);\n  height: 100dvh;\n  max-height: none;\n  animation: .2s ease-out dshc_boardDrawerIn;\n}\n\n@keyframes dshc_boardDrawerIn {\n  from {\n    opacity: 0;\n    transform: translateX(24px);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardDrawerBackdrop > .dshc_taskBoardDialog {\n    animation: none;\n  }\n}\n\n.dshc_schemeToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: 4px;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_schemeToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_schemeToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_schemeToggle + .dshc_panelToggleEnd {\n  margin-left: 4px;\n}\n\n.dshc_progressCard {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: 0 6px 18px #0000000a, 0 -12px 0 0 var(--dsw-alias-bg-base);\n  border-radius: 14px;\n  margin: 0 16px 12px;\n  padding: 8px 14px;\n  font-size: 12px;\n  position: sticky;\n  top: 0;\n}\n\n.dshc_progressTitle {\n  color: var(--dsw-alias-label-primary);\n  font-size: 12px;\n}\n\n.dshc_progressRows {\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 0 14px;\n  margin: 4px 0 0;\n  display: grid;\n}\n\n.dshc_progressRow {\n  min-width: 0;\n}\n\n.dshc_progressRow dt {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 10px;\n}\n\n.dshc_progressRow dd {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  min-width: 0;\n  color: var(--dsw-alias-label-primary);\n  margin: 0;\n  overflow: hidden;\n}\n\n.dshc_progressRow[data-empty=\"true\"] dd {\n  color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_progressRow[data-row=\"open\"][data-empty=\"false\"] dd, .dshc_progressRow[data-row=\"open\"] .dshc_progressLink {\n  color: var(--dsw-alias-state-warning-primary, #b7791f);\n}\n\n.dshc_progressLink {\n  max-width: 100%;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 0;\n  overflow: hidden;\n}\n\n.dshc_progressLink:hover {\n  text-decoration: underline;\n}\n\n@media (width <= 760px) {\n  .dshc_progressCard {\n    margin: 0 10px 10px;\n  }\n\n  .dshc_progressRows {\n    grid-template-columns: 52px minmax(0, 1fr);\n  }\n\n  .dshc_progressRow {\n    display: contents;\n  }\n}\n\n.dshc_stepChips {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_stepChip {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  max-width: 220px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  border-radius: 999px;\n  align-items: center;\n  gap: 5px;\n  padding: 2px 9px 2px 7px;\n  font-size: 11px;\n  display: inline-flex;\n}\n\n.dshc_stepChip b {\n  color: var(--dsw-alias-label-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-weight: 600;\n  overflow: hidden;\n}\n\n.dshc_stepChip:disabled {\n  cursor: default;\n}\n\n.dshc_stepChip[aria-expanded=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_stepChip[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepChip[data-state=\"failed\"] b {\n  color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_stepChip[data-state=\"running\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 55%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepMark {\n  background: var(--dsw-alias-label-tertiary);\n  border-radius: 50%;\n  flex: none;\n  width: 7px;\n  height: 7px;\n}\n\n.dshc_stepChip[data-state=\"ok\"] .dshc_stepMark {\n  background: #23a55a;\n}\n\n.dshc_stepChip[data-state=\"failed\"] .dshc_stepMark {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_stepChip[data-state=\"running\"] .dshc_stepMark {\n  background: var(--dsw-alias-state-business-primary);\n  animation: 1s ease-in-out infinite dshc_channels-blink;\n}\n\n@keyframes dshc_channels-blink {\n  50% {\n    opacity: .3;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_stepChip[data-state=\"running\"] .dshc_stepMark {\n    animation: none;\n  }\n}\n\n.dshc_stepOut {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base));\n  color: var(--dsw-alias-label-secondary);\n  border-radius: 8px;\n  flex-basis: 100%;\n  gap: 4px;\n  padding: 8px 10px;\n  font-size: 11px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_stepOut[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepOut div {\n  gap: 8px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_stepOut span {\n  color: var(--dsw-alias-label-tertiary);\n  flex: none;\n}\n\n.dshc_stepOut code {\n  overflow-wrap: anywhere;\n  min-width: 0;\n  font-family: ui-monospace, Menlo, monospace;\n}\n\n.dshc_stepOut[data-state=\"failed\"] > div[data-state=\"failed\"] > div:last-child > code {\n  color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_decideTray {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2));\n  border-radius: 14px;\n  flex-direction: column;\n  max-height: 45%;\n  margin: 0 16px 8px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_decideTrayHead {\n  width: 100%;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: baseline;\n  gap: 8px;\n  padding: 7px 12px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_decideTrayHead strong {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 70%, var(--dsw-alias-label-primary));\n}\n\n.dshc_decideTrayHead small {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_decideTrayHead:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_decideTrayToggle {\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  margin-left: auto;\n}\n\n.dshc_decideTray .dshc_permTray {\n  max-height: none;\n  margin: 0;\n  padding: 0 8px 8px;\n}\n\n.dshc_askList {\n  flex-direction: column;\n  display: flex;\n}\n\n.dshc_askItem {\n  border-top: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 30%, transparent);\n  background: var(--dsw-alias-bg-layer-2);\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 6px 10px;\n  padding: 8px 12px;\n  display: flex;\n}\n\n.dshc_askKind {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 75%, var(--dsw-alias-label-primary));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 15%, transparent);\n  border-radius: 5px;\n  flex: none;\n  padding: 0 6px;\n  font-size: 11px;\n}\n\n.dshc_askText {\n  flex-direction: column;\n  flex: 200px;\n  min-width: 0;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_askQuestion {\n  overflow-wrap: anywhere;\n}\n\n.dshc_askFrom {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_askForm {\n  flex: 0 260px;\n  align-items: center;\n  gap: 6px;\n  min-width: 160px;\n  display: flex;\n}\n\n.dshc_askInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  min-width: 0;\n  color: inherit;\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  border-radius: 8px;\n  flex: 1;\n  padding: 4px 8px;\n  font-size: 12px;\n}\n\n.dshc_askInput:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_askSend {\n  width: 26px;\n  height: 26px;\n  color: var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-primary);\n  cursor: pointer;\n  border: 0;\n  border-radius: 50%;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_askSend:disabled {\n  opacity: .3;\n  cursor: default;\n}\n\n.dshc_askSend:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: 2px;\n}\n\n.dshc_askDone {\n  color: var(--dsw-alias-label-secondary);\n  align-items: center;\n  gap: 8px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_askNotice {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 75%, var(--dsw-alias-label-primary));\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_decideTray {\n    margin: 0 8px 8px;\n  }\n\n  .dshc_askForm {\n    flex-basis: 100%;\n  }\n}\n\n.dshc_headTeam {\n  flex: none;\n  align-items: center;\n  margin-left: auto;\n  display: inline-flex;\n}\n\n.dshc_mate, .dshc_mateMore {\n  border: 2px solid var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-bg-base);\n  cursor: pointer;\n  border-radius: 50%;\n  justify-content: center;\n  align-items: center;\n  margin-left: -6px;\n  padding: 0;\n  display: inline-flex;\n  position: relative;\n}\n\n.dshc_mate:first-child {\n  margin-left: 0;\n}\n\n.dshc_mate .dshc_avatar {\n  margin: 0;\n}\n\n.dshc_mateMore {\n  background: var(--dsw-alias-interactive-bg-hover);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-secondary);\n  font-size: 11px;\n  font-weight: 600;\n}\n\n.dshc_mateDot {\n  box-sizing: border-box;\n  border: 2px solid var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-tertiary);\n  border-radius: 50%;\n  width: 9px;\n  height: 9px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_mate[data-state=\"busy\"] .dshc_mateDot {\n  background: #23a55a;\n  animation: 1.6s ease-in-out infinite dshc_channels-pulse;\n}\n\n.dshc_mate[data-state=\"idle\"] .dshc_mateDot {\n  background: var(--dsw-alias-bg-base);\n  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-label-tertiary);\n}\n\n.dshc_mate[data-state=\"error\"] .dshc_mateDot {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_mate[data-state=\"offline\"] {\n  opacity: .55;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_mate[data-state=\"busy\"] .dshc_mateDot {\n    animation: none;\n  }\n}\n\n@media (width <= 760px) {\n  .dshc_headTeam {\n    display: none;\n  }\n}\n\n.dshc_chatHead > .dshc_headTeam + .dshc_taskBoardTrigger {\n  margin-left: 12px;\n}\n\n.dshc_sideDock {\n  display: none;\n}\n\n@media (width >= 1101px) {\n  .dshc_page.dshc_panelOpen {\n    grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%) 240px;\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) min(420px, 36%) 240px;\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%);\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr) min(420px, 36%);\n  }\n\n  .dshc_page.dshc_panelOpen > .dshc_sideDock {\n    border-left: 1px solid var(--dsw-alias-border-l2);\n    background: var(--dsw-alias-bg-base);\n    min-width: 0;\n    min-height: 0;\n    display: flex;\n  }\n}\n\n.dshc_sidePanel {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  max-height: none;\n  box-shadow: none;\n  border: 0;\n  border-radius: 0;\n  margin: 0;\n  animation: .2s ease-out dshc_boardDrawerIn;\n  position: relative;\n}\n\n.dshc_sidePanel:focus {\n  outline: none;\n}\n\n.dshc_sidePanelClose {\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-secondary);\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 6px;\n  font-size: 18px;\n  line-height: 1;\n  position: absolute;\n  top: 10px;\n  right: 10px;\n}\n\n.dshc_sidePanelClose:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_sidePanel {\n    animation: none;\n  }\n}\n\n.dshc_sidePanel .dshc_boardCardGrid {\n  grid-template-columns: minmax(0, 1fr);\n}\n\n.dshc_slashPopup {\n  z-index: 6;\n  width: min(360px, 100% - 32px);\n  animation: none;\n  right: auto;\n}\n\n.dshc_slashGroup {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_slashItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: baseline;\n  gap: 8px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_slashActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_slashName {\n  flex: none;\n  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n  font-weight: 600;\n}\n\n.dshc_slashMeta {\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_sendButton.dshc_stopButton {\n  background: var(--dsw-alias-label-primary);\n}\n\n.dshc_stopNote + .dshc_sendButton {\n  margin-left: 8px;\n}\n\n.dshc_sendButton.dshc_stopButton[data-phase=\"stopping\"] {\n  opacity: .6;\n  cursor: progress;\n}\n\n.dshc_stopNote {\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_cmdLine {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 6px;\n  padding: 1px 16px 1px 72px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_cmdLine code {\n  color: var(--dsw-alias-label-secondary);\n  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n}\n\n.dshc_cmdResult {\n  min-width: 0;\n  max-width: 60ch;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 0;\n  overflow: hidden;\n}\n\n.dshc_cmdResult[aria-expanded=\"true\"] {\n  white-space: pre-line;\n  max-width: none;\n}\n\n.dshc_cmdLine[data-failed=\"true\"] .dshc_cmdResult {\n  color: var(--dsw-alias-danger, #d94848);\n}\n\n@media (width <= 720px) {\n  .dshc_cmdLine {\n    padding-left: 16px;\n  }\n}\n\n.dshc_msgTool {\n  justify-content: center;\n  align-items: center;\n  width: 26px;\n  height: 24px;\n  padding: 0;\n  display: inline-flex;\n  position: relative;\n}\n\n.dshc_msgTool[data-tip]:after {\n  content: attr(data-tip);\n  z-index: 3;\n  background: var(--dsw-alias-label-primary);\n  color: var(--dsw-alias-label-primary-inverted);\n  white-space: nowrap;\n  opacity: 0;\n  pointer-events: none;\n  border-radius: 4px;\n  padding: 2px 6px;\n  font-size: 11px;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 50%;\n  transform: translateX(-50%);\n}\n\n.dshc_msgTool[data-tip]:hover:after, .dshc_msgTool[data-tip]:focus-visible:after {\n  opacity: 1;\n  transition: opacity 0s 80ms;\n}\n\n.dshc_permSessionButton {\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-underline-offset: 2px;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 4px 6px;\n  font-size: 12px;\n  text-decoration: underline;\n}\n\n.dshc_permSessionButton:hover {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_permSessionButton:disabled {\n  opacity: .5;\n  cursor: default;\n}\n\n.dshc_queuedButton {\n  border: 1px solid var(--dsw-alias-border-default, #0000001f);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border-radius: 9px;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 16px;\n}\n\n.dshc_queuedButton:hover {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_queuedTag {\n  color: #a76a06;\n  background: #eaa02824;\n  border-radius: 4px;\n  padding: 0 5px;\n  font-size: 11px;\n  line-height: 16px;\n}\n\n[data-queued] .dshc_ownActions {\n  opacity: 1;\n}\n\n.dshc_memory {\n  margin-top: 4px;\n}\n\n.dshc_memoryBadge {\n  background: var(--dsw-alias-fill-secondary, #0000000d);\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  border-radius: 9px;\n  align-items: center;\n  gap: 4px;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 18px;\n  display: inline-flex;\n}\n\n.dshc_memoryBadge:hover, .dshc_memoryBadge[aria-expanded=\"true\"] {\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_memoryList {\n  border-left: 2px solid var(--dsw-alias-border-default, #0000001f);\n  flex-direction: column;\n  gap: 4px;\n  max-width: 560px;\n  margin: 4px 0 0;\n  padding: 6px 10px;\n  font-size: 12px;\n  list-style: none;\n  display: flex;\n}\n\n.dshc_memoryItem {\n  flex-direction: column;\n  display: flex;\n}\n\n.dshc_memoryTitle {\n  color: var(--dsw-alias-label-secondary);\n  line-height: 1.5;\n}\n\n.dshc_memoryPage {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 11px;\n  font-family: var(--dsw-font-mono, ui-monospace, monospace);\n}\n\n.dshc_delivery {\n  flex-direction: column;\n  gap: 6px;\n  max-width: 720px;\n  margin-top: 8px;\n  display: flex;\n}\n\n.dshc_deliveryFrame {\n  border: 1px solid var(--background-modifier-accent, #7f7f7f4d);\n  background: #fff;\n  border-radius: 6px;\n  height: 360px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_deliveryActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_deliveryActions a {\n  text-decoration: none;\n}\n\n.dshc_deliveryDone {\n  color: var(--text-muted, #888);\n  font-size: 12px;\n}\n\n.dshc_deliveryFullDialog {\n  box-sizing: border-box;\n  flex-direction: column;\n  gap: 8px;\n  width: 94vw;\n  max-width: none;\n  height: 92dvh;\n  display: flex;\n}\n\n.dshc_deliveryFullFrame {\n  background: #fff;\n  border-radius: 6px;\n  flex: 1;\n  min-height: 0;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_dmTitle {\n  color: var(--text-muted, #888);\n  margin: 14px 8px 4px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_dmAvatar {\n  margin-right: 6px;\n  display: inline-flex;\n}\n[data-dc-scheme=\"light\"] {\n  --dsw-static-amber-100: #fef5e7;\n  --dsw-static-amber-400: #f7ad31;\n  --dsw-static-amber-500: #f59e0b;\n  --dsw-static-amber-600: #dd8629;\n  --dsw-static-amber-900: #27241f;\n  --dsw-static-blue-100: #dbeafe;\n  --dsw-static-blue-300: #93c5fd;\n  --dsw-static-blue-400: #60a5fa;\n  --dsw-static-blue-450: #4d93f8;\n  --dsw-static-blue-500: #3b82f6;\n  --dsw-static-blue-50: #eff6ff;\n  --dsw-static-blue-50p: #eaf3ff;\n  --dsw-static-blue-600: #2563eb;\n  --dsw-static-blue-75: #e5f0ff;\n  --dsw-static-blue-800: #1e40af;\n  --dsw-static-blue-900: #0e3074;\n  --dsw-static-blue-950: #172554;\n  --dsw-static-deepseek-100: #e4edfd;\n  --dsw-static-deepseek-200: #d3e2ff;\n  --dsw-static-deepseek-300: #b7c8fe;\n  --dsw-static-deepseek-400: #7aaaff;\n  --dsw-static-deepseek-450: #5686fe;\n  --dsw-static-deepseek-500: #4176e6;\n  --dsw-static-deepseek-50: #edf3fe;\n  --dsw-static-deepseek-600: #4868b2;\n  --dsw-static-deepseek-700-delete: #2f4c8f;\n  --dsw-static-deepseek-800: #34415b;\n  --dsw-static-deepseek-900: #283142;\n  --dsw-static-green-100: #e6faed;\n  --dsw-static-green-400: #4ed17e;\n  --dsw-static-green-500: #22c55e;\n  --dsw-static-green-500-a08: #22c55e14;\n  --dsw-static-green-500-a12: #22c55e1f;\n  --dsw-static-green-900: #233c2c;\n  --dsw-static-neutral-00: #fff;\n  --dsw-static-neutral-1000: #000;\n  --dsw-static-neutral-100: #f5f5f5;\n  --dsw-static-neutral-150: #ededed;\n  --dsw-static-neutral-200: #e5e5e5;\n  --dsw-static-neutral-250: #dcdcdc;\n  --dsw-static-neutral-300: #d4d4d4;\n  --dsw-static-neutral-400: #a2a4a6;\n  --dsw-static-neutral-500: #7f8287;\n  --dsw-static-neutral-50: #fafafa;\n  --dsw-static-neutral-550: #65676b;\n  --dsw-static-neutral-600: #545557;\n  --dsw-static-neutral-700: #3c3c3d;\n  --dsw-static-neutral-800: #292929;\n  --dsw-static-neutral-850: #212123;\n  --dsw-static-neutral-900: #0f0f0f;\n  --dsw-static-neutral-bluish-00: #fff;\n  --dsw-static-neutral-bluish-1000: #0f1115;\n  --dsw-static-neutral-bluish-100: #ebeef2;\n  --dsw-static-neutral-bluish-150: #e9ecf2;\n  --dsw-static-neutral-bluish-200: #e1e5ee;\n  --dsw-static-neutral-bluish-300: #cfd3d6;\n  --dsw-static-neutral-bluish-400: #adb2b8;\n  --dsw-static-neutral-bluish-500: #979da6;\n  --dsw-static-neutral-bluish-50: #f9fafb;\n  --dsw-static-neutral-bluish-600: #81858c;\n  --dsw-static-neutral-bluish-60: #f5f6f7;\n  --dsw-static-neutral-bluish-700: #61666b;\n  --dsw-static-neutral-bluish-750: #43454a;\n  --dsw-static-neutral-bluish-75: #f1f3f5;\n  --dsw-static-neutral-bluish-800: #353638;\n  --dsw-static-neutral-bluish-850: #2c2c2e;\n  --dsw-static-neutral-bluish-875: #232324;\n  --dsw-static-neutral-bluish-900: #1b1b1c;\n  --dsw-static-neutral-bluish-950: #151517;\n  --dsw-static-red-100: #fee2e2;\n  --dsw-static-red-400: #f25a5a;\n  --dsw-static-red-400-a12: #f25a5a1f;\n  --dsw-static-red-500: #ef4444;\n  --dsw-static-red-50: #fef2f2;\n  --dsw-static-red-600: #ec1313;\n  --dsw-static-red-600-a08: #ec131314;\n  --dsw-static-red-900: #570c0c;\n}\n\n[data-dc-scheme=\"dark\"] {\n  --dsw-static-amber-100: #fef5e7;\n  --dsw-static-amber-400: #f7ad31;\n  --dsw-static-amber-500: #f59e0b;\n  --dsw-static-amber-600: #dd8629;\n  --dsw-static-amber-900: #27241f;\n  --dsw-static-blue-100: #dbeafe;\n  --dsw-static-blue-300: #93c5fd;\n  --dsw-static-blue-400: #60a5fa;\n  --dsw-static-blue-450: #4d93f8;\n  --dsw-static-blue-500: #3b82f6;\n  --dsw-static-blue-50: #eff6ff;\n  --dsw-static-blue-50p: #eaf3ff;\n  --dsw-static-blue-600: #2563eb;\n  --dsw-static-blue-75: #e5f0ff;\n  --dsw-static-blue-800: #1e40af;\n  --dsw-static-blue-900: #0e3074;\n  --dsw-static-blue-950: #172554;\n  --dsw-static-deepseek-100: #e4edfd;\n  --dsw-static-deepseek-200: #d3e2ff;\n  --dsw-static-deepseek-300: #b7c8fe;\n  --dsw-static-deepseek-400: #7aaaff;\n  --dsw-static-deepseek-450: #5686fe;\n  --dsw-static-deepseek-500: #4176e6;\n  --dsw-static-deepseek-50: #edf3fe;\n  --dsw-static-deepseek-600: #4868b2;\n  --dsw-static-deepseek-700-delete: #2f4c8f;\n  --dsw-static-deepseek-800: #34415b;\n  --dsw-static-deepseek-900: #283142;\n  --dsw-static-green-100: #e6faed;\n  --dsw-static-green-400: #4ed17e;\n  --dsw-static-green-500: #22c55e;\n  --dsw-static-green-500-a08: #22c55e14;\n  --dsw-static-green-500-a12: #22c55e1f;\n  --dsw-static-green-900: #233c2c;\n  --dsw-static-neutral-00: #fff;\n  --dsw-static-neutral-1000: #000;\n  --dsw-static-neutral-100: #f5f5f5;\n  --dsw-static-neutral-150: #ededed;\n  --dsw-static-neutral-200: #e5e5e5;\n  --dsw-static-neutral-250: #dcdcdc;\n  --dsw-static-neutral-300: #d4d4d4;\n  --dsw-static-neutral-400: #a2a4a6;\n  --dsw-static-neutral-500: #7f8287;\n  --dsw-static-neutral-50: #fafafa;\n  --dsw-static-neutral-550: #65676b;\n  --dsw-static-neutral-600: #545557;\n  --dsw-static-neutral-700: #3c3c3d;\n  --dsw-static-neutral-800: #292929;\n  --dsw-static-neutral-850: #212123;\n  --dsw-static-neutral-900: #0f0f0f;\n  --dsw-static-neutral-bluish-00: #fff;\n  --dsw-static-neutral-bluish-1000: #0f1115;\n  --dsw-static-neutral-bluish-100: #ebeef2;\n  --dsw-static-neutral-bluish-150: #e9ecf2;\n  --dsw-static-neutral-bluish-200: #e1e5ee;\n  --dsw-static-neutral-bluish-300: #cfd3d6;\n  --dsw-static-neutral-bluish-400: #adb2b8;\n  --dsw-static-neutral-bluish-500: #979da6;\n  --dsw-static-neutral-bluish-50: #f9fafb;\n  --dsw-static-neutral-bluish-600: #81858c;\n  --dsw-static-neutral-bluish-60: #f9fafb;\n  --dsw-static-neutral-bluish-700: #61666b;\n  --dsw-static-neutral-bluish-750: #43454a;\n  --dsw-static-neutral-bluish-75: #f1f3f5;\n  --dsw-static-neutral-bluish-800: #353638;\n  --dsw-static-neutral-bluish-850: #2c2c2e;\n  --dsw-static-neutral-bluish-875: #232324;\n  --dsw-static-neutral-bluish-900: #1b1b1c;\n  --dsw-static-neutral-bluish-950: #151517;\n  --dsw-static-red-100: #fee2e2;\n  --dsw-static-red-400: #f25a5a;\n  --dsw-static-red-400-a12: #f25a5a1f;\n  --dsw-static-red-500: #ef4444;\n  --dsw-static-red-50: #fef2f2;\n  --dsw-static-red-600: #ec1313;\n  --dsw-static-red-600-a08: #ec131314;\n  --dsw-static-red-900: #570c0c;\n}\n\n[data-dc-scheme=\"light\"] {\n  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);\n  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-mask-1: #0000003d;\n  --dsw-alias-bg-mask-2: #0000001f;\n  --dsw-alias-bg-mask-3: #0000007a;\n  --dsw-alias-bg-mask-photo: #000000e0;\n  --dsw-alias-bg-mask-drop: #ffffffb3;\n  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-bg-multi-select: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-150);\n  --dsw-alias-bg-skeleton: #0000000a;\n  --dsw-alias-border-inverted2: #0000;\n  --dsw-alias-border-inverted: #0000;\n  --dsw-alias-border-l1: #0000000a;\n  --dsw-alias-border-l2-darkmode-thin: #0000001a;\n  --dsw-alias-border-l2: #0000001a;\n  --dsw-alias-border-l3: #0000001f;\n  --dsw-alias-border-l4: #00000029;\n  --dsw-alias-brand-primary-invert: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-brand-primary-new-colorprimary-new-color: #4176e6;\n  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-button-contrast-fill: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-button-ghost-active-border: var(--dsw-static-neutral-bluish-500);\n  --dsw-alias-button-ghost-active-fill: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-ghost-active-hover: var(--dsw-static-neutral-bluish-150);\n  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-500);\n  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-400);\n  --dsw-alias-button-primary-dimmed: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-primary-fill: var(--dsw-alias-brand-primary);\n  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-tool-bar-fill-invisible: #1f1f1f5c;\n  --dsw-alias-button-tool-bar-fill: #54555780;\n  --dsw-alias-button-tool-bar-hover: #54555799;\n  --dsw-alias-interactive-bg-active: #2631481a;\n  --dsw-alias-interactive-bg-hover-accent: #26314824;\n  --dsw-alias-interactive-bg-hover-danger: #ec13130d;\n  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-interactive-bg-hover: #2631480f;\n  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-500) 70%, var(--dsw-static-blue-950));\n  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-deepseek-500) 30%, var(--dsw-static-blue-950));\n  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-200);\n  --dsw-alias-label-primary-bluish: var(--dsw-static-blue-900);\n  --dsw-alias-label-primary-dimmed: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-1000) 30%, transparent);\n  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-menu-icon: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-link: var(--dsw-static-deepseek-500);\n  --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-50);\n  --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-200);\n  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-200);\n  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-300);\n  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-300);\n  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);\n  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-100);\n  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a08);\n  --dsw-alias-code-diff-deleted: var(--dsw-static-red-600-a08);\n  --dsw-alias-file-diff-added-bg: #e6f4e7;\n  --dsw-alias-file-diff-added-gutter: #edf7ed;\n  --dsw-alias-file-diff-added-marker: #01a241;\n  --dsw-alias-file-diff-deleted-bg: #fce6e2;\n  --dsw-alias-file-diff-deleted-gutter: #fdece9;\n  --dsw-alias-file-diff-deleted-marker: #ba2723;\n  --dsw-alias-state-error-primary: var(--dsw-static-red-600);\n  --dsw-alias-state-error-secondary: var(--dsw-static-red-400);\n  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-300);\n  --dsw-alias-state-success-primary: var(--dsw-static-green-500);\n  --dsw-alias-state-success-secondary: var(--dsw-static-green-400);\n  --dsw-alias-state-success-tertiary: var(--dsw-static-green-100);\n  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);\n  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);\n  --dsw-alias-state-warn-secondary: var(--dsw-static-amber-400);\n  --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-100);\n  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);\n  --dsw-alias-turn-trigger-bg: var(--dsw-alias-markdown-code-block);\n  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-hover);\n  --dsw-specific-bubble-highlight: var(--dsw-static-deepseek-200);\n  --dsw-specific-bubble: var(--dsw-static-deepseek-50);\n  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-00);\n  --dsw-specific-login-input: var(--dsw-static-neutral-bluish-50);\n  --dsw-menu-surface-fill: #f8f9fa94;\n  --dsw-alias-menu-group-header-fill: #f8f9faf0;\n  --dsw-specific-menu: var(--dsw-menu-surface-fill);\n  --dsw-specific-selector: var(--dsw-static-neutral-bluish-60);\n  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-50);\n  --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-deepseek-100);\n  --dsw-specific-sidebar-nav-item-active: var(--dsw-static-neutral-bluish-100);\n  --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-75);\n  --dsw-specific-tip: var(--dsw-static-neutral-bluish-60);\n}\n\n[data-dc-scheme=\"dark\"] {\n  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);\n  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-300);\n  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-875);\n  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-bg-mask-1: #00000080;\n  --dsw-alias-bg-mask-2: #0003;\n  --dsw-alias-bg-mask-3: #0000007a;\n  --dsw-alias-bg-mask-photo: #000000e0;\n  --dsw-alias-bg-mask-drop: #272730b3;\n  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-bg-multi-select: var(--dsw-static-neutral-850);\n  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-bg-skeleton: #ffffff14;\n  --dsw-alias-border-inverted2: #ffffff14;\n  --dsw-alias-border-inverted: #ffffff0f;\n  --dsw-alias-border-l1: #ffffff0f;\n  --dsw-alias-border-l2-darkmode-thin: #ffffff0f;\n  --dsw-alias-border-l2: #ffffff1f;\n  --dsw-alias-border-l3: #ffffff29;\n  --dsw-alias-border-l4: #fff3;\n  --dsw-alias-brand-primary-invert: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-brand-primary-new-colorprimary-new-color: var(--dsw-static-deepseek-450);\n  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-button-contrast-fill: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-button-ghost-active-border: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-button-ghost-active-fill: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-ghost-active-hover: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-400);\n  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-500);\n  --dsw-alias-button-primary-dimmed: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-primary-fill: var(--dsw-alias-brand-primary);\n  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-tool-bar-fill-invisible: #1f1f1f5c;\n  --dsw-alias-button-tool-bar-fill: #54555780;\n  --dsw-alias-button-tool-bar-hover: #54555799;\n  --dsw-alias-interactive-bg-active: #ffffff24;\n  --dsw-alias-interactive-bg-hover-accent: #ffffff3d;\n  --dsw-alias-interactive-bg-hover-danger: #f25a5a26;\n  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-interactive-bg-hover: #ffffff14;\n  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-450) 55%, var(--dsw-static-neutral-bluish-400));\n  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-blue-300) 65%, var(--dsw-static-deepseek-400));\n  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-label-primary-bluish: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-label-primary-dimmed: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-300);\n  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-00) 45%, transparent);\n  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-menu-icon: var(--dsw-alias-label-primary-dimmed);\n  --dsw-alias-link: var(--dsw-static-deepseek-400);\n  --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-900);\n  --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-900);\n  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-800);\n  --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-700);\n  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-600);\n  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-600);\n  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-550);\n  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-400);\n  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-800);\n  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a12);\n  --dsw-alias-code-diff-deleted: var(--dsw-static-red-400-a12);\n  --dsw-alias-file-diff-added-bg: #1f3124;\n  --dsw-alias-file-diff-added-gutter: #132016;\n  --dsw-alias-file-diff-added-marker: #41c977;\n  --dsw-alias-file-diff-deleted-bg: #3c1f1b;\n  --dsw-alias-file-diff-deleted-gutter: #28130e;\n  --dsw-alias-file-diff-deleted-marker: #fa423e;\n  --dsw-alias-state-error-primary: var(--dsw-static-red-400);\n  --dsw-alias-state-error-secondary: var(--dsw-static-red-400);\n  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-600);\n  --dsw-alias-state-success-primary: var(--dsw-static-green-500);\n  --dsw-alias-state-success-secondary: var(--dsw-static-green-400);\n  --dsw-alias-state-success-tertiary: var(--dsw-static-green-900);\n  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);\n  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);\n  --dsw-alias-state-warn-secondary: var(--dsw-static-amber-400);\n  --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-900);\n  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-turn-trigger-bg: var(--dsw-alias-interactive-bg-hover);\n  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-active);\n  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);\n  --dsw-specific-bubble-highlight: var(--dsw-static-neutral-bluish-750);\n  --dsw-specific-bubble: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-login-input: var(--dsw-static-neutral-bluish-900);\n  --dsw-menu-surface-fill: #43454a73;\n  --dsw-alias-menu-group-header-fill: #303136f0;\n  --dsw-specific-menu: var(--dsw-menu-surface-fill);\n  --dsw-specific-selector: var(--dsw-static-neutral-bluish-800);\n  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-900);\n  --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-neutral-bluish-800);\n  --dsw-specific-sidebar-nav-item-active: var(--dsw-static-neutral-bluish-750);\n  --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-tip: var(--dsw-static-neutral-bluish-800);\n}\n\nhtml[data-platform=\"darwin\"] [data-dc-scheme=\"light\"] {\n  --dsw-specific-menu: #f8f9faf0;\n}\n\nhtml[data-platform=\"darwin\"] [data-dc-scheme=\"dark\"] {\n  --dsw-specific-menu: #303136f0;\n}\n\n[data-dc-scheme=\"light\"] {\n  color-scheme: light;\n}\n\n[data-dc-scheme=\"dark\"] {\n  color-scheme: dark;\n}\n.dshc_embed {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  background: var(--dsw-alias-bg-base);\n  display: flex;\n}\n\n.dshc_frame {\n  background: var(--dsw-alias-bg-base);\n  border: 0;\n  flex: 1;\n  width: 100%;\n  height: 100%;\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 // \0rolldown/runtime.js
 var __defProp = Object.defineProperty;
@@ -62,11 +62,14 @@ const readAttachment = async (file) => {
 		data: btoa(binary)
 	};
 };
+/** #1023: the private chats, one per agent member, in id order. */
+const dmRooms = (rooms) => rooms.filter((r) => r.dm_member != null);
 /**
 * Order rooms as chat channel, then its workspaces, in id order. A workspace whose
 * chat channel is missing is shown at the top level so it stays reachable.
 */
-function groupRooms(rooms) {
+function groupRooms(allRooms) {
+	const rooms = allRooms.filter((r) => r.dm_member == null);
 	const chats = new Set(rooms.filter((r) => r.kind !== "workspace").map((r) => r.id));
 	const under = /* @__PURE__ */ new Map();
 	for (const r of rooms) if (r.kind === "workspace" && r.parent_id != null && chats.has(r.parent_id)) under.set(r.parent_id, [...under.get(r.parent_id) ?? [], r]);
@@ -257,6 +260,13 @@ function createChannelSource(transport) {
 					[String(event.room_id)]: event.members
 				}
 			};
+			case "queue": return {
+				...current,
+				queued: {
+					...current.queued,
+					[String(event.room_id)]: event.queued
+				}
+			};
 			case "rooms": return {
 				...current,
 				rooms: event.rooms.map((r) => ({
@@ -390,6 +400,7 @@ function createChannelSource(transport) {
 				roomId,
 				members: state.members,
 				thinking: state.thinking,
+				queued: state.queued ?? {},
 				messages: rows,
 				hasMoreOlder,
 				leadId: state.lead_id ?? null,
@@ -583,6 +594,16 @@ function createChannelSource(transport) {
 				}));
 				set({ tasks: (snapshot.tasks ?? []).map((row) => row.id === task.id ? task : row) });
 			},
+			async dispatchTask(roomId, { title, owner, messageId }) {
+				const { task } = await request(`collab/api/rooms/${roomId}/tasks`, json("POST", {
+					title,
+					owner,
+					ref: "无（新建）",
+					message_id: messageId,
+					force: true
+				}));
+				set({ tasks: [...(snapshot.tasks ?? []).filter((row) => row.id !== task.id), task] });
+			},
 			selectRoom,
 			async send(text, replyTo, attachments) {
 				const roomId = snapshot.roomId;
@@ -603,6 +624,11 @@ function createChannelSource(transport) {
 				const { room, workspace } = await request("collab/api/rooms", json("POST", { name }));
 				const added = [room, workspace].filter((r) => r !== void 0 && !snapshot.rooms.some((s) => s.id === r.id));
 				if (added.length > 0) set({ rooms: [...snapshot.rooms, ...added] });
+				await selectRoom(room.id);
+			},
+			async openDm(memberId) {
+				const { room } = await request("collab/api/dms", json("POST", { member: memberId }));
+				if (!snapshot.rooms.some((r) => r.id === room.id)) set({ rooms: [...snapshot.rooms, room] });
 				await selectRoom(room.id);
 			},
 			async renameRoom(roomId, name) {
@@ -16513,16 +16539,26 @@ var ChannelsPage_module_default = {
 	"choice": "dshc_choice",
 	"choiceColumn": "dshc_choiceColumn",
 	"choiceRow": "dshc_choiceRow",
+	"cmdLine": "dshc_cmdLine",
+	"cmdResult": "dshc_cmdResult",
 	"composer": "dshc_composer",
 	"composerBox": "dshc_composerBox",
 	"composerToolbar": "dshc_composerToolbar",
 	"decideTray": "dshc_decideTray",
 	"decideTrayHead": "dshc_decideTrayHead",
 	"decideTrayToggle": "dshc_decideTrayToggle",
+	"delivery": "dshc_delivery",
+	"deliveryActions": "dshc_deliveryActions",
+	"deliveryDone": "dshc_deliveryDone",
+	"deliveryFrame": "dshc_deliveryFrame",
+	"deliveryFullDialog": "dshc_deliveryFullDialog",
+	"deliveryFullFrame": "dshc_deliveryFullFrame",
 	"dialog": "dshc_dialog",
 	"dialogActions": "dshc_dialogActions",
 	"dialogBackdrop": "dshc_dialogBackdrop",
 	"dialogTitle": "dshc_dialogTitle",
+	"dmAvatar": "dshc_dmAvatar",
+	"dmTitle": "dshc_dmTitle",
 	"drawerBackdrop": "dshc_drawerBackdrop",
 	"drawerOpen": "dshc_drawerOpen",
 	"editBar": "dshc_editBar",
@@ -16587,6 +16623,12 @@ var ChannelsPage_module_default = {
 	"membersHidden": "dshc_membersHidden",
 	"memberStatus": "dshc_memberStatus",
 	"memberText": "dshc_memberText",
+	"memory": "dshc_memory",
+	"memoryBadge": "dshc_memoryBadge",
+	"memoryItem": "dshc_memoryItem",
+	"memoryList": "dshc_memoryList",
+	"memoryPage": "dshc_memoryPage",
+	"memoryTitle": "dshc_memoryTitle",
 	"mentionActive": "dshc_mentionActive",
 	"mentionButton": "dshc_mentionButton",
 	"mentionHint": "dshc_mentionHint",
@@ -16600,6 +16642,9 @@ var ChannelsPage_module_default = {
 	"messageHead": "dshc_messageHead",
 	"messageHeadGrouped": "dshc_messageHeadGrouped",
 	"mobileButton": "dshc_mobileButton",
+	"msgTool": "dshc_msgTool",
+	"msgToolNote": "dshc_msgToolNote",
+	"msgTools": "dshc_msgTools",
 	"notice": "dshc_notice",
 	"offline": "dshc_offline",
 	"olderLoading": "dshc_olderLoading",
@@ -16613,6 +16658,7 @@ var ChannelsPage_module_default = {
 	"permInline": "dshc_permInline",
 	"permLock": "dshc_permLock",
 	"permScope": "dshc_permScope",
+	"permSessionButton": "dshc_permSessionButton",
 	"permStatus": "dshc_permStatus",
 	"permTray": "dshc_permTray",
 	"permTrayItem": "dshc_permTrayItem",
@@ -16626,6 +16672,8 @@ var ChannelsPage_module_default = {
 	"progressRow": "dshc_progressRow",
 	"progressRows": "dshc_progressRows",
 	"progressTitle": "dshc_progressTitle",
+	"queuedButton": "dshc_queuedButton",
+	"queuedTag": "dshc_queuedTag",
 	"quote": "dshc_quote",
 	"quoteAuthor": "dshc_quoteAuthor",
 	"quoteDeleted": "dshc_quoteDeleted",
@@ -16659,11 +16707,19 @@ var ChannelsPage_module_default = {
 	"sideDock": "dshc_sideDock",
 	"sidePanel": "dshc_sidePanel",
 	"sidePanelClose": "dshc_sidePanelClose",
+	"slashActive": "dshc_slashActive",
+	"slashGroup": "dshc_slashGroup",
+	"slashItem": "dshc_slashItem",
+	"slashMeta": "dshc_slashMeta",
+	"slashName": "dshc_slashName",
+	"slashPopup": "dshc_slashPopup",
 	"stackDot": "dshc_stackDot",
 	"stepChip": "dshc_stepChip",
 	"stepChips": "dshc_stepChips",
 	"stepMark": "dshc_stepMark",
 	"stepOut": "dshc_stepOut",
+	"stopButton": "dshc_stopButton",
+	"stopNote": "dshc_stopNote",
 	"system": "dshc_system",
 	"systemLine": "dshc_systemLine",
 	"systemRecord": "dshc_systemRecord",
@@ -17020,6 +17076,197 @@ function PendingAttachments({ files, onRemove, removeLabel }) {
 				})
 			]
 		}, `${i}-${f.name}`))
+	});
+}
+// src/client/PanelPages.module.css
+var PanelPages_module_default = {
+	"embed": "dshc_embed",
+	"frame": "dshc_frame"
+};
+// src/client/EmbedPage.tsx
+/**
+* Fill the main area with the collab page.
+* @param props - injected page path and title.
+* @returns the framed page.
+*/
+function EmbedPage({ path, title }) {
+	const src = new URL(path, document.baseURI).toString();
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+		className: PanelPages_module_default.embed,
+		children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(EmbedFrame, {
+			src,
+			title
+		})
+	});
+}
+/**
+* The frame both the panel and the delivery card (#1023) use. `sandboxed` is for pages the
+* owner did not write (a bot's delivery): scripts run, but a page from this origin gets an
+* opaque origin so it cannot act with the owner's sign-in.
+*/
+function EmbedFrame({ src, title, sandboxed = false, sameOrigin = false }) {
+	const sandbox = !sandboxed ? void 0 : sameOrigin ? "allow-scripts allow-forms allow-popups allow-modals" : "allow-scripts allow-forms allow-popups allow-modals allow-same-origin";
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("iframe", {
+		className: PanelPages_module_default.frame,
+		src,
+		title,
+		sandbox,
+		loading: "lazy",
+		referrerPolicy: "no-referrer"
+	});
+}
+// src/client/DeliveryPreview.tsx
+/**
+* #1023 交付卡放能点的网页: when a hand-back (a task's result message) delivers a web page —
+* an uploaded .html file or an http(s) link — the card shows the page itself in a sandboxed
+* frame, with 全屏, 继续改 and 收下 beside it, so the owner does not download and reopen it.
+* Any other delivery keeps the plain card.
+*/
+/** True for an uploaded web page (by type or by name). */
+const isHtmlAttachment = (a) => /^text\/html\b/i.test(a.mime) || /\.html?$/i.test(a.name);
+/** First http(s) URL in a message, markdown link or bare; undefined when there is none. */
+function firstWebLink(text) {
+	return /https?:\/\/[^\s<>()\]"'`]+/i.exec(text)?.[0].replace(/[.,;:!?。，；：！？]+$/, "");
+}
+/** The web page this message delivers: an .html upload first, else the first link. */
+function deliverableOf(message) {
+	const page = message.attachments?.find(isHtmlAttachment);
+	if (page !== void 0) return {
+		src: `${attachmentUrl(page.id)}?view=page`,
+		title: page.name,
+		sameOrigin: true
+	};
+	const link = firstWebLink(message.text);
+	if (link === void 0) return void 0;
+	let sameOrigin = false;
+	try {
+		sameOrigin = new URL(link, document.baseURI).origin === window.location.origin;
+	} catch {
+		return;
+	}
+	return {
+		src: link,
+		title: link,
+		sameOrigin
+	};
+}
+/** Tasks this message was handed back for (TaskBoard result_msg_id). */
+const deliveredTasks = (message, tasks) => tasks.filter((task) => task.result_msg_id === message.id);
+function DeliveryPreview({ page, task, t, onReview, onRevise }) {
+	const [full, setFull] = (0, react.useState)(false);
+	const [state, setState] = (0, react.useState)("idle");
+	const closeRef = (0, react.useRef)(null);
+	(0, react.useEffect)(() => {
+		if (full) closeRef.current?.focus();
+	}, [full]);
+	const waiting = task !== void 0 && task.status === "returned" && onReview !== void 0;
+	const accept = () => {
+		if (task === void 0 || onReview === void 0 || state === "saving") return;
+		setState("saving");
+		onReview(task.id, "done").then(() => {
+			setState("idle");
+		}, () => {
+			setState("error");
+		});
+	};
+	const actions = (inDialog) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: ChannelsPage_module_default.deliveryActions,
+		children: [
+			!inDialog && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.secondaryButton,
+				onClick: () => {
+					setFull(true);
+				},
+				children: t("deliveryFull")
+			}),
+			waiting && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.secondaryButton,
+				onClick: () => {
+					setFull(false);
+					onRevise();
+				},
+				children: t("deliveryRevise")
+			}),
+			waiting && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.primaryButton,
+				disabled: state === "saving",
+				onClick: accept,
+				children: t("deliveryAccept")
+			}),
+			task?.status === "done" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: ChannelsPage_module_default.deliveryDone,
+				children: t("deliveryAccepted")
+			}),
+			state === "error" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: ChannelsPage_module_default.sendError,
+				role: "alert",
+				children: t("deliveryAcceptFailed")
+			})
+		]
+	});
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: ChannelsPage_module_default.delivery,
+		"data-delivery-preview": true,
+		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ChannelsPage_module_default.deliveryFrame,
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(EmbedFrame, {
+					src: page.src,
+					title: page.title,
+					sandboxed: true,
+					sameOrigin: page.sameOrigin
+				})
+			}),
+			actions(false),
+			full && (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ChannelsPage_module_default.dialogBackdrop,
+				"data-dc-scheme": getScheme(),
+				onClick: (event) => {
+					if (event.target === event.currentTarget) setFull(false);
+				},
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+					className: `${ChannelsPage_module_default.dialog} ${ChannelsPage_module_default.deliveryFullDialog}`,
+					role: "dialog",
+					"aria-modal": "true",
+					"aria-label": page.title,
+					onKeyDown: (event) => {
+						if (event.key === "Escape") {
+							event.preventDefault();
+							event.stopPropagation();
+							setFull(false);
+						}
+					},
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: ChannelsPage_module_default.imagePreviewHeader,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: page.title }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								ref: closeRef,
+								type: "button",
+								className: ChannelsPage_module_default.secondaryButton,
+								"aria-label": t("close"),
+								onClick: () => {
+									setFull(false);
+								},
+								children: "×"
+							})]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: ChannelsPage_module_default.deliveryFullFrame,
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(EmbedFrame, {
+								src: page.src,
+								title: page.title,
+								sandboxed: true,
+								sameOrigin: page.sameOrigin
+							})
+						}),
+						actions(true)
+					]
+				})
+			}), document.body)
+		]
 	});
 }
 // src/client/task-board.ts
@@ -17782,7 +18029,8 @@ function lineText(line, t) {
 	return line.count > 1 ? `${base}${t("progressMore", { count: String(line.count - 1) })}` : base;
 }
 function ProgressCard({ lines, t, onOpen }) {
-	if (lines.length === 0) return null;
+	const shown = lines.filter((line) => line.task !== void 0);
+	if (shown.length === 0) return null;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 		className: ChannelsPage_module_default.progressCard,
 		role: "region",
@@ -17792,7 +18040,7 @@ function ProgressCard({ lines, t, onOpen }) {
 			children: t("progressTitle")
 		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dl", {
 			className: ChannelsPage_module_default.progressRows,
-			children: lines.map((line) => {
+			children: shown.map((line) => {
 				const text = lineText(line, t);
 				const target = line.task?.assign_msg_id;
 				return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
@@ -17840,20 +18088,65 @@ const LABEL = {
 	running: "stepRunning",
 	unknown: "stepUnknown"
 };
+/** 用户 2026-11-04：brief 连续 bash 显示真实次数；失败和在途状态不能被成功覆盖。 */
+function groupBash(chips) {
+	const groups = [];
+	for (const chip of chips) {
+		const previous = groups.at(-1);
+		if (chip.tool.toLowerCase() === "bash" && previous?.tool.toLowerCase() === "bash") {
+			previous.steps.push(chip);
+			const states = [previous.state, chip.state];
+			previous.state = states.includes("failed") ? "failed" : states.includes("running") ? "running" : states.includes("unknown") ? "unknown" : "ok";
+		} else groups.push({
+			tool: chip.tool,
+			state: chip.state,
+			steps: [chip]
+		});
+	}
+	return groups;
+}
+/** Older cards have only brief text; recognize the producer's tool lines, leave other prose intact. */
+function compactBrief(brief) {
+	return groupBash(brief.split("\n").map((line) => {
+		const match = /^(✅|❌|🔧) (bash)(?: · (成功|失败|进行中))?$/i.exec(line);
+		const state = match?.[1] === "❌" ? "failed" : match?.[1] === "✅" ? "ok" : match?.[3] === "进行中" ? "running" : "unknown";
+		return {
+			tool: match?.[2] ?? "",
+			state,
+			output: line
+		};
+	})).map((group) => {
+		if (group.steps.length === 1) return group.steps[0].output;
+		const status = {
+			failed: "❌",
+			ok: "✅",
+			running: "🔧",
+			unknown: "🔧"
+		}[group.state];
+		const suffix = {
+			failed: " · 失败",
+			ok: " · 成功",
+			running: " · 进行中",
+			unknown: ""
+		}[group.state];
+		return `${status} ${group.tool} ×${group.steps.length}${suffix}`;
+	}).join("\n");
+}
 function StepChips({ chips: given, runState, t }) {
 	const [open, setOpen] = (0, react.useState)();
-	const chips = runState === "running" ? given : given.map((c) => c.state === "running" ? {
+	const groups = groupBash(runState === "running" ? given : given.map((c) => c.state === "running" ? {
 		...c,
 		state: "unknown"
-	} : c);
-	const shown = open === void 0 ? void 0 : chips[open];
+	} : c));
+	const shown = open === void 0 ? void 0 : groups[open];
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: ChannelsPage_module_default.stepChips,
 		role: "group",
 		"aria-label": t("stepChips"),
-		children: [chips.map((chip, i) => {
-			const detail = chip.input !== void 0 || chip.output !== void 0;
-			const label = `${chip.tool} · ${t(LABEL[chip.state])}`;
+		children: [groups.map((chip, i) => {
+			const detail = chip.steps.some((step) => step.input !== void 0 || step.output !== void 0);
+			const name = `${chip.tool}${chip.steps.length > 1 ? ` ×${chip.steps.length}` : ""}`;
+			const label = `${name} · ${t(LABEL[chip.state])}`;
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 				type: "button",
 				className: ChannelsPage_module_default.stepChip,
@@ -17868,14 +18161,25 @@ function StepChips({ chips: given, runState, t }) {
 				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: ChannelsPage_module_default.stepMark,
 					"aria-hidden": true
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("b", { children: chip.tool })]
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("b", { children: name })]
 			}, i);
-		}), shown !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		}), shown !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 			className: ChannelsPage_module_default.stepOut,
 			"data-state": shown.state,
 			role: "region",
 			"aria-label": t("stepOutput", { tool: shown.tool }),
-			children: [shown.input !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("stepInput") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: shown.input })] }), shown.output !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("stepResult") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: shown.output })] })]
+			children: shown.steps.map((step, i) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				"data-state": step.state,
+				children: [
+					shown.steps.length > 1 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("b", { children: [
+						step.tool,
+						" · ",
+						t(LABEL[step.state])
+					] }),
+					step.input !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("stepInput") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: step.input })] }),
+					step.output !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("stepResult") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: step.output })] })
+				]
+			}, i))
 		})]
 	});
 }
@@ -17929,6 +18233,234 @@ function CapabilityList({ t, onClose }) {
 			})
 		]
 	});
+}
+// src/client/SlashMenu.tsx
+const GROUP_TITLE = {
+	control: "slashGroupControl",
+	model: "slashGroupModel",
+	view: "slashGroupView"
+};
+function SlashMenu({ commands, selected, target, grouped, t, onPick, onHover }) {
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: `${ChannelsPage_module_default.mentionPopup} ${ChannelsPage_module_default.slashPopup}`,
+		role: "region",
+		"aria-label": t("slashTitle"),
+		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ChannelsPage_module_default.mentionTitle,
+				children: target === void 0 ? t("slashTitleNoLead") : t("slashTitleLead", { name: target })
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				role: "listbox",
+				id: "channel-slash-list",
+				"aria-label": t("slashTitle"),
+				children: commands.map((c, index) => [grouped && c.group !== commands[index - 1]?.group ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: ChannelsPage_module_default.slashGroup,
+					role: "presentation",
+					children: t(GROUP_TITLE[c.group])
+				}, `group-${c.group}`) : null, /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					id: `channel-slash-${index}`,
+					role: "option",
+					"aria-selected": index === selected,
+					className: index === selected ? `${ChannelsPage_module_default.slashItem} ${ChannelsPage_module_default.slashActive}` : ChannelsPage_module_default.slashItem,
+					onMouseDown: (event) => {
+						event.preventDefault();
+					},
+					onMouseEnter: () => {
+						onHover(index);
+					},
+					onClick: () => {
+						onPick(c);
+					},
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+						className: ChannelsPage_module_default.slashName,
+						children: ["/", c.name]
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ChannelsPage_module_default.slashMeta,
+						children: t(c.hint)
+					})]
+				}, c.name)])
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ChannelsPage_module_default.mentionHint,
+				children: t("slashHint")
+			})
+		]
+	});
+}
+// src/client/slash-commands.ts
+const SLASH_COMMANDS = [
+	{
+		name: "stop",
+		group: "control",
+		hint: "slashStop",
+		run: {
+			kind: "send",
+			text: "/stop"
+		}
+	},
+	{
+		name: "stop all",
+		group: "control",
+		hint: "slashStopAll",
+		run: {
+			kind: "send",
+			text: "/stop all",
+			broadcast: true
+		}
+	},
+	{
+		name: "ps",
+		group: "control",
+		hint: "slashPs",
+		run: {
+			kind: "fill",
+			text: "/ps "
+		}
+	},
+	{
+		name: "new",
+		group: "control",
+		hint: "slashNew",
+		run: {
+			kind: "send",
+			text: "/new"
+		}
+	},
+	{
+		name: "compress",
+		group: "control",
+		hint: "slashCompress",
+		run: {
+			kind: "send",
+			text: "/compress"
+		}
+	},
+	{
+		name: "model",
+		group: "model",
+		hint: "slashModel",
+		run: {
+			kind: "send",
+			text: "/model"
+		}
+	},
+	{
+		name: "reasoning",
+		group: "model",
+		hint: "slashReasoning",
+		run: {
+			kind: "send",
+			text: "/reasoning"
+		}
+	},
+	{
+		name: "status",
+		group: "view",
+		hint: "slashStatus",
+		run: {
+			kind: "send",
+			text: "/status"
+		}
+	},
+	{
+		name: "usage",
+		group: "view",
+		hint: "slashUsage",
+		run: {
+			kind: "send",
+			text: "/usage"
+		}
+	},
+	{
+		name: "cron",
+		group: "view",
+		hint: "slashCron",
+		run: {
+			kind: "send",
+			text: "/cron"
+		}
+	},
+	{
+		name: "board",
+		group: "view",
+		hint: "slashBoard",
+		run: {
+			kind: "panel",
+			panel: "board"
+		}
+	},
+	{
+		name: "help",
+		group: "view",
+		hint: "slashHelp",
+		run: {
+			kind: "panel",
+			panel: "help"
+		}
+	}
+];
+/** The text after a leading `/` while the draft is still a bare command word; undefined otherwise. */
+function slashQuery(draft) {
+	const m = /^\/([^\s/]*(?: all)?)$/.exec(draft);
+	return m === null ? void 0 : m[1];
+}
+/** Commands whose name starts with (then contains) the query, case-insensitive. */
+function matchCommands(query, hint = () => "") {
+	const q = query.toLowerCase();
+	if (q === "") return SLASH_COMMANDS;
+	const starts = SLASH_COMMANDS.filter((c) => c.name.startsWith(q));
+	const rest = SLASH_COMMANDS.filter((c) => !c.name.startsWith(q) && (c.name.includes(q) || hint(c.hint).includes(query)));
+	return [...starts, ...rest];
+}
+/**
+* A typed command (`/model gpt-5`) is addressed to the primary role, like a click on the
+* menu; a draft that already names someone, `/stop all`, or a non-command is left alone.
+*/
+function addressCommand(text, leadName) {
+	if (leadName === void 0 || !/^\/[a-z]/i.test(text) || /^\/stop\s+all\s*$/i.test(text)) return text;
+	return `@${leadName} ${text}`;
+}
+/**
+* A bot command line the owner sent (`@橘 /model x`, or a bare `/stop all`), shown as a thin
+* line instead of a chat bubble (#1017); undefined for any other text.
+*/
+function commandLine(text) {
+	const t = text.trim();
+	if (/^\/stop\s+all$/i.test(t)) return { command: "/stop all" };
+	const m = /^@(\S+)\s+(\/[a-z][\s\S]*)$/i.exec(t);
+	if (m === null || m[2].includes("\n")) return void 0;
+	return {
+		target: m[1],
+		command: m[2].trim()
+	};
+}
+/**
+* The bridge's own answer to each owner command line (#1017): the target bot's next message
+* that is not agent output (`from_turn === 0`: a command reply, bridge/platform/cloud-web
+* `agent` flag), before the owner speaks again. `/ps` is left out — what follows it is the
+* running turn itself, not an answer to the command.
+* @returns command message id → its answer.
+*/
+function commandAnswers(messages, nameOf) {
+	const out = /* @__PURE__ */ new Map();
+	messages.forEach((m, index) => {
+		if (m.author_kind !== "user" || m.card !== null) return;
+		const line = commandLine(m.text);
+		if (line?.target === void 0 || /^\/ps\b/i.test(line.command)) return;
+		for (const next of messages.slice(index + 1)) {
+			if (next.author_kind === "user") return;
+			if (next.author_kind === "role" && next.card === null && next.from_turn === 0 && nameOf(next.author) === line.target) {
+				out.set(m.id, next);
+				return;
+			}
+		}
+	});
+	return out;
+}
+/** A command answer that reports a failure (the bridge prefixes those with ❌ / ⚠️). */
+function answerFailed(text) {
+	return /^\s*(❌|⚠️|error\b)|失败|未知命令|unknown command/i.test(text);
 }
 // src/client/mention-complete.ts
 /** Characters that may sit right before an `@` that starts a mention. */
@@ -19277,28 +19809,28 @@ function PermissionCard({ messageId, card, t, onDecide }) {
 			setBusy(false);
 		});
 	};
+	const order = {
+		allow: 0,
+		deny: 1,
+		allow_all: 2
+	};
+	const actions = [...card.actions].sort((a, b) => order[a.decision] - order[b.decision]);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: ChannelsPage_module_default.permActions,
-		children: [
-			card.actions.map((a) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-				type: "button",
-				className: a.decision === "deny" ? ChannelsPage_module_default.secondaryButton : ChannelsPage_module_default.primaryButton,
-				disabled: busy,
-				onClick: () => {
-					decide(a.decision);
-				},
-				children: a.label
-			}, a.decision)),
-			card.actions.some((a) => a.decision === "allow_all") && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-				className: ChannelsPage_module_default.permScope,
-				children: t("permAllowAllScope")
-			}),
-			error !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-				className: ChannelsPage_module_default.sendError,
-				role: "alert",
-				children: error
-			})
-		]
+		children: [actions.map((a) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+			type: "button",
+			className: a.decision === "allow" ? ChannelsPage_module_default.primaryButton : a.decision === "deny" ? ChannelsPage_module_default.secondaryButton : ChannelsPage_module_default.permSessionButton,
+			title: a.decision === "allow_all" ? t("permAllowAllScope") : void 0,
+			disabled: busy,
+			onClick: () => {
+				decide(a.decision);
+			},
+			children: a.decision === "allow" ? t("permAllowOnce") : a.decision === "allow_all" ? t("permAllowSession") : a.label
+		}, a.decision)), error !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+			className: ChannelsPage_module_default.sendError,
+			role: "alert",
+			children: error
+		})]
 	});
 }
 /** Questions waiting on the lead/user in these rooms, oldest first so the longest wait is on top. */
@@ -19533,7 +20065,7 @@ function DecideTray({ questions, permissionCount, permissions, t, onAnswer, isIm
 	});
 	for (const reply of replies.values()) if (!asked.has(reply.task.id) && inFlight(reply)) rows.push(reply);
 	if (rows.length === 0 && permissionCount === 0) return null;
-	const head = [rows.length > 0 ? t("trayAsks", { count: String(rows.length) }) : "", permissionCount > 0 ? t("trayPerms", { count: String(permissionCount) }) : ""].filter(Boolean).join(" · ");
+	const head = t("trayAsks", { count: String(rows.length + permissionCount) });
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 		className: ChannelsPage_module_default.decideTray,
 		role: "region",
@@ -19546,14 +20078,10 @@ function DecideTray({ questions, permissionCount, permissions, t, onAnswer, isIm
 			onClick: () => {
 				setOpen(!open);
 			},
-			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: head }),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("small", { children: t("trayPinned") }),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: ChannelsPage_module_default.decideTrayToggle,
-					children: t(open ? "trayCollapse" : "trayExpand")
-				})
-			]
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: head }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: ChannelsPage_module_default.decideTrayToggle,
+				children: t(open ? "trayCollapse" : "trayExpand")
+			})]
 		}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 			hidden: !open,
 			children: [rows.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
@@ -19729,6 +20257,11 @@ function pendingPermission(message) {
 	const card = parseCard(message);
 	return card?.kind === "permission" && card.state === "pending";
 }
+/** 用户 2026-11-04：完成的零/一步进度不占聊天行；失败步骤仍须可见。 */
+function trivialProgress(message) {
+	const card = parseCard(message);
+	return cardRole(card) === "progress" && card?.state === "completed" && typeof card.steps === "number" && Number.isInteger(card.steps) && card.steps >= 0 && card.steps <= 1 && !chipsOf(card)?.some((chip) => chip.state === "failed") && !(card.brief ?? message.text).split("\n").some((line) => line.startsWith("❌ "));
+}
 const GROUP_WINDOW_SEC = 300;
 /** Same author, close in time, plain or progress: the row drops its avatar and name. */
 function continues(previous, message) {
@@ -19745,7 +20278,47 @@ function clockOf(seconds) {
 		minute: "2-digit"
 	});
 }
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter }) {
+/** #1020: the memory entries a reply used — a small badge that opens to their titles. */
+function MemoryBadge({ items, t }) {
+	const [open, setOpen] = (0, react.useState)(false);
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: ChannelsPage_module_default.memory,
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+			type: "button",
+			className: ChannelsPage_module_default.memoryBadge,
+			"aria-expanded": open,
+			onClick: () => {
+				setOpen(!open);
+			},
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					"aria-hidden": "true",
+					children: "◇"
+				}),
+				" ",
+				t("memoryBadge", { count: items.length })
+			]
+		}), open && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+			className: ChannelsPage_module_default.memoryList,
+			"aria-label": t("memoryList"),
+			children: items.map((item) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
+				className: ChannelsPage_module_default.memoryItem,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: ChannelsPage_module_default.memoryTitle,
+					children: item.title || t("memoryMoved")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+					className: ChannelsPage_module_default.memoryPage,
+					children: [
+						item.page,
+						" #",
+						item.ref
+					]
+				})]
+			}, item.id))
+		})]
+	});
+}
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor }) {
 	const labels = (0, react.useMemo)(() => ({
 		code: {
 			copyLabel: t("copyCode"),
@@ -19755,12 +20328,52 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 	}), [t]);
 	const card = parseCard(message);
 	const role = cardRole(card);
-	const shown = typeof card?.brief === "string" && cardView === "brief" ? card.brief : message.text;
+	const shown = typeof card?.brief === "string" && cardView === "brief" ? role === "progress" ? compactBrief(card.brief) : card.brief : message.text;
 	const markdown = (0, react.useMemo)(() => softBreaksToHard(shown), [shown]);
 	const steps = role === "progress" ? shown.slice(shown.indexOf("\n") + 1) : "";
 	const stepsMarkdown = (0, react.useMemo)(() => steps === "" ? "" : softBreaksToHard(steps), [steps]);
 	const fullTime = (/* @__PURE__ */ new Date(message.created_at * 1e3)).toLocaleString();
 	const editButtonRef = (0, react.useRef)(null);
+	const [toolNote, setToolNote] = (0, react.useState)(void 0);
+	const noteTimer = (0, react.useRef)(void 0);
+	(0, react.useEffect)(() => () => {
+		clearTimeout(noteTimer.current);
+	}, []);
+	const note = (tool, text) => {
+		clearTimeout(noteTimer.current);
+		setToolNote({
+			tool,
+			text
+		});
+		noteTimer.current = setTimeout(() => {
+			setToolNote(void 0);
+		}, 2e3);
+	};
+	const copy = () => {
+		const done = () => {
+			note("copy", t("toolCopied"));
+		};
+		const clip = globalThis.navigator?.clipboard;
+		if (clip === void 0) {
+			note("copy", t("toolCopyFailed"));
+			return;
+		}
+		clip.writeText(message.text).then(done, () => {
+			note("copy", t("toolCopyFailed"));
+		});
+	};
+	const toTask = () => {
+		if (onTask === void 0 || toolNote?.tool === "task") return;
+		setToolNote({
+			tool: "task",
+			text: t("toolTasking")
+		});
+		onTask(message).then(() => {
+			note("task", t("toolTasked"));
+		}, (error) => {
+			note("task", t("toolTaskFailed", { message: error instanceof Error ? error.message : String(error) }));
+		});
+	};
 	const wasEditing = (0, react.useRef)(false);
 	const isEditing = own?.editing !== void 0;
 	(0, react.useEffect)(() => {
@@ -19850,11 +20463,18 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 	const anchoredIds = new Set(anchored.map((task) => task.id));
 	const taskCards = anchored.filter((task) => task.parent_task === null || !anchoredIds.has(task.parent_task));
 	const progressLines = role === "progress" ? shown.split("\n") : [];
+	const deliveredFor = deliveredTasks(message, tasks);
+	const deliveredPage = deliveredFor.length > 0 ? deliverableOf(message) : void 0;
+	const delivered = deliveredPage === void 0 ? void 0 : {
+		page: deliveredPage,
+		task: deliveredFor.find((task) => task.status === "returned") ?? deliveredFor[0]
+	};
 	const progressFolded = role === "progress" && cardView === "brief" && card?.state === "completed";
 	const chips = role === "progress" ? chipsOf(card) : void 0;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: classes,
 		"data-message-id": message.id,
+		"data-queued": queuedFor !== void 0 || void 0,
 		style: enterStyle,
 		children: [
 			grouped ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("time", {
@@ -19880,6 +20500,10 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 					"aria-haspopup": "menu",
 					"aria-expanded": menuOpen,
 					onClick: onAvatar,
+					onContextMenu: (event) => {
+						event.preventDefault();
+						onMention(member);
+					},
 					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
 						id: member.id,
 						name: message.name,
@@ -19890,18 +20514,31 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 					className: ChannelsPage_module_default.avatarMenu,
 					role: "menu",
 					"aria-label": t("memberMenu", { name: member.name }),
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-						className: ChannelsPage_module_default.avatarMenuTitle,
-						children: member.name
-					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-						type: "button",
-						role: "menuitem",
-						className: ChannelsPage_module_default.avatarMenuItem,
-						onClick: () => {
-							onMention(member);
-						},
-						children: t("avatarMention")
-					})]
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: ChannelsPage_module_default.avatarMenuTitle,
+							children: member.name
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							role: "menuitem",
+							className: ChannelsPage_module_default.avatarMenuItem,
+							onClick: () => {
+								onMention(member);
+							},
+							children: t("avatarMention")
+						}),
+						onDm !== void 0 && member.kind !== "human" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							role: "menuitem",
+							className: ChannelsPage_module_default.avatarMenuItem,
+							onClick: () => {
+								onCloseMenu();
+								onDm(member);
+							},
+							children: t("dmOpen")
+						})
+					]
 				})]
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
@@ -19934,6 +20571,11 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 								className: ChannelsPage_module_default.edited,
 								title: (/* @__PURE__ */ new Date(message.edited_at * 1e3)).toLocaleString(),
 								children: t("messageEdited")
+							}),
+							queuedFor !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ChannelsPage_module_default.queuedTag,
+								title: t("queuedFor", { names: queuedFor.join("、") }),
+								children: t("queuedTag")
 							}),
 							own !== void 0 && own.editing === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 								className: ChannelsPage_module_default.ownActions,
@@ -19993,16 +20635,28 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 								})
 							]
 						})]
-					}) : card === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [message.text !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-						className: ChannelsPage_module_default.text,
-						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
-							text: markdown,
-							labels
+					}) : card === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+						message.text !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: ChannelsPage_module_default.text,
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+								text: markdown,
+								labels
+							})
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(AttachmentList, {
+							attachments: message.attachments,
+							t
+						}),
+						delivered !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(DeliveryPreview, {
+							page: delivered.page,
+							task: delivered.task,
+							t,
+							onReview,
+							onRevise: () => {
+								onReply(message);
+							}
 						})
-					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(AttachmentList, {
-						attachments: message.attachments,
-						t
-					})] }) : role === "progress" ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					] }) : role === "progress" ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: ChannelsPage_module_default.runStrip,
 						"data-state": card.state ?? "running",
 						children: [
@@ -20112,18 +20766,95 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 							tasks,
 							t
 						})
-					}, task.id))
+					}, task.id)),
+					message.memories !== void 0 && message.memories.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MemoryBadge, {
+						items: message.memories,
+						t
+					})
 				]
 			}),
-			message.author_kind !== "system" && card === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-				type: "button",
-				className: ChannelsPage_module_default.replyButton,
-				title: t("reply"),
-				"aria-label": t("reply"),
-				onClick: () => {
-					onReply(message);
-				},
-				children: "↩"
+			message.author_kind !== "system" && card === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+				className: ChannelsPage_module_default.msgTools,
+				"data-message-tools": true,
+				children: [
+					toolNote !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ChannelsPage_module_default.msgToolNote,
+						role: "status",
+						children: toolNote.text
+					}),
+					message.text !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ChannelsPage_module_default.msgTool,
+						"data-tip": t("toolCopy"),
+						"aria-label": t("toolCopy"),
+						onClick: copy,
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+							width: "15",
+							height: "15",
+							viewBox: "0 0 24 24",
+							fill: "none",
+							stroke: "currentColor",
+							strokeWidth: "2",
+							strokeLinecap: "round",
+							strokeLinejoin: "round",
+							"aria-hidden": "true",
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
+								x: "9",
+								y: "9",
+								width: "11",
+								height: "11",
+								rx: "2"
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M5 15V6a2 2 0 0 1 2-2h8" })]
+						})
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: `${ChannelsPage_module_default.msgTool} ${ChannelsPage_module_default.replyButton}`,
+						"data-tip": t("reply"),
+						"aria-label": t("reply"),
+						onClick: () => {
+							onReply(message);
+						},
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+							width: "15",
+							height: "15",
+							viewBox: "0 0 24 24",
+							fill: "none",
+							stroke: "currentColor",
+							strokeWidth: "2",
+							strokeLinecap: "round",
+							strokeLinejoin: "round",
+							"aria-hidden": "true",
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M9 14 4 9l5-5" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M4 9h10a6 6 0 0 1 6 6v5" })]
+						})
+					}),
+					onTask !== void 0 && message.text.trim() !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ChannelsPage_module_default.msgTool,
+						"data-tip": t("toolTaskHint"),
+						"aria-label": t("toolTask"),
+						disabled: toolNote?.tool === "task" && toolNote.text === t("toolTasking"),
+						onClick: toTask,
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+							width: "15",
+							height: "15",
+							viewBox: "0 0 24 24",
+							fill: "none",
+							stroke: "currentColor",
+							strokeWidth: "2",
+							strokeLinecap: "round",
+							strokeLinejoin: "round",
+							"aria-hidden": "true",
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
+								x: "4",
+								y: "4",
+								width: "16",
+								height: "16",
+								rx: "2"
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "m8.5 12 2.5 2.5 4.5-5" })]
+						})
+					})
+				]
 			})
 		]
 	});
@@ -20172,7 +20903,43 @@ function PermTrayItem({ message, author, t, onDecide }) {
 		]
 	});
 }
-function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
+/**
+* #1017: an owner's bot command (`@橘 /model x`, `/stop all`) as one thin line — who it went to,
+* the command, and the bot's answer folded in (first line; click for all of it).
+*/
+function CommandRow({ message, target, command, answer, t }) {
+	const [open, setOpen] = (0, react.useState)(false);
+	const failed = answer !== void 0 && answerFailed(answer.text);
+	const first = answer?.text.split("\n").map((x) => x.trim()).find(Boolean) ?? "";
+	const more = answer !== void 0 && answer.text.trim() !== first;
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: ChannelsPage_module_default.cmdLine,
+		"data-message-id": message.id,
+		"data-failed": failed,
+		title: (/* @__PURE__ */ new Date(message.created_at * 1e3)).toLocaleString(),
+		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: target === void 0 ? t("cmdToAll") : t("cmdTo", { name: target }) }),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: command }),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				"aria-hidden": "true",
+				children: "·"
+			}),
+			answer === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("cmdSent") }) : more ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.cmdResult,
+				"aria-expanded": open,
+				onClick: () => {
+					setOpen(!open);
+				},
+				children: open ? answer.text : first
+			}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: ChannelsPage_module_default.cmdResult,
+				children: first
+			})
+		]
+	});
+}
+function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }) {
 	if (members.length === 0) return null;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
 		className: ChannelsPage_module_default.groupTitle,
@@ -20218,9 +20985,17 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 					children: m.error ? t("memberFailed") : busy.has(m.id) ? t("working") : m.online ? t("online") : t("offline")
 				})
 			]
-		}), m.kind === "dsh" && (m.editable === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+		}), (m.kind === "dsh" || onDm !== void 0 && m.kind !== "human") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 			className: ChannelsPage_module_default.memberActions,
-			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+			title: m.kind === "dsh" && m.editable !== true ? t("configMember") : void 0,
+			children: [onDm !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.linkButton,
+				onClick: () => {
+					onDm(m);
+				},
+				children: t("dmOpen")
+			}), m.kind === "dsh" && (m.editable === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 				type: "button",
 				className: ChannelsPage_module_default.linkButton,
 				onClick: () => {
@@ -20234,12 +21009,8 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 					onRemove(m);
 				},
 				children: t("removeMember")
-			})]
-		}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-			className: ChannelsPage_module_default.memberActions,
-			title: t("configMember"),
-			children: "⚙"
-		}))]
+			})] }) : "⚙")]
+		})]
 	}, m.id))] });
 }
 /**
@@ -20247,7 +21018,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, openModelSettings, answerTask, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, openModelSettings, answerTask, t }) {
 	const scheme = useScheme();
 	const state = useChannels((snapshot) => snapshot);
 	const [editing, setEditing] = (0, react.useState)(void 0);
@@ -20372,8 +21143,13 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		setSettingsOpen(false);
 	}, [state.roomId]);
 	const [capabilitiesDismissed, setCapabilitiesDismissed] = (0, react.useState)(false);
+	const [helpOpen, setHelpOpen] = (0, react.useState)(false);
+	const [slashHighlight, setSlashHighlight] = (0, react.useState)(0);
+	const [stopping, setStopping] = (0, react.useState)(void 0);
 	(0, react.useEffect)(() => {
 		setCapabilitiesDismissed(false);
+		setHelpOpen(false);
+		setStopping(void 0);
 	}, [state.roomId]);
 	const composerRef = (0, react.useRef)(null);
 	const openMentionAt = (0, react.useRef)(void 0);
@@ -20382,7 +21158,8 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 			const at = openMentionAt.current;
 			if (composerRef.current?.contains(event.target) === true) return;
 			if (at !== void 0) setDismissedAt(at);
-			if (draft === "/" && !capabilitiesDismissed) setCapabilitiesDismissed(true);
+			if (slashQuery(draft) !== void 0 && !capabilitiesDismissed) setCapabilitiesDismissed(true);
+			setHelpOpen(false);
 		};
 		document.addEventListener("mousedown", onPress);
 		return () => {
@@ -20432,6 +21209,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 			document.removeEventListener("mousedown", onPress);
 		};
 	}, [avatarMenu]);
+	const visibleMessages = (0, react.useMemo)(() => state.messages.filter((m) => !trivialProgress(m) || state.tasks?.some((task) => task.assign_msg_id === m.id)), [state.messages, state.tasks]);
 	const fresh = (0, react.useMemo)(() => trackLive(live.current, state.roomId, state.messages), [state.messages, state.roomId]);
 	(0, react.useLayoutEffect)(() => {
 		const log = logRef.current;
@@ -20458,13 +21236,17 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 			return;
 		}
 		if (roomId === void 0) return;
-		const first = state.messages.find((m) => m.id > since && fresh.has(m.id) && m.author_kind !== "user");
+		const first = visibleMessages.find((m) => m.id > since && fresh.has(m.id) && m.author_kind !== "user");
 		if (first !== void 0 && (unread === void 0 || unread.roomId !== roomId || unread.seen)) setUnread({
 			roomId,
 			fromId: first.id,
 			seen: false
 		});
-	}, [state.messages, state.roomId]);
+	}, [
+		state.messages,
+		state.roomId,
+		visibleMessages
+	]);
 	const pendingKey = state.messages.filter(pendingPermission).map((m) => m.id).join(",");
 	(0, react.useEffect)(() => {
 		const log = logRef.current;
@@ -20545,6 +21327,23 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		});
 		if (roomId !== state.roomId) selectRoom(roomId);
 	};
+	const stillAnswering = stopping !== void 0 && state.roomId !== void 0 && (state.thinking[String(state.roomId)] ?? []).includes(stopping.botId);
+	(0, react.useEffect)(() => {
+		if (stopping === void 0) return;
+		if (stopping.phase === "stopping" && !stillAnswering) {
+			setStopping({
+				...stopping,
+				phase: "stopped"
+			});
+			return;
+		}
+		const timer = setTimeout(() => {
+			setStopping(void 0);
+		}, stopping.phase === "stopped" ? 2e3 : 3e4);
+		return () => {
+			clearTimeout(timer);
+		};
+	}, [stopping, stillAnswering]);
 	if (state.phase !== "ready") {
 		const notice = state.phase === "unavailable" ? t("unavailable") : state.phase === "unauthorized" ? t("unauthorized") : state.phase === "error" ? t("error", { message: state.error ?? "" }) : t("loading");
 		return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
@@ -20559,11 +21358,23 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 	}
 	const room = state.rooms.find((r) => r.id === state.roomId);
 	const channelId = room?.parent_id ?? room?.id;
-	const visibleMembers = state.members.filter((m) => !m.rooms?.length || channelId !== void 0 && m.rooms.includes(channelId));
+	const dmWith = room?.dm_member ?? void 0;
+	const visibleMembers = dmWith !== void 0 ? state.members.filter((m) => m.kind === "human" || m.id === dmWith) : state.members.filter((m) => !m.rooms?.length || channelId !== void 0 && m.rooms.includes(channelId));
 	const openTaskOwners = new Set((state.tasks ?? []).filter(isLiveTask).map((t) => t.owner));
 	const busy = /* @__PURE__ */ new Set([...state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? [], ...openTaskOwners]);
 	const byId = new Map(visibleMembers.map((m) => [m.id, m]));
+	const firstUnread = unread !== void 0 && unread.roomId === state.roomId ? visibleMessages.find((m) => m.id >= unread.fromId && m.author_kind !== "user")?.id : void 0;
+	const visibleUnreadCount = unread !== void 0 && unread.roomId === state.roomId && !unread.seen ? unreadCount(visibleMessages, unread.fromId) : 0;
 	const typingNames = (state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? []).map((id) => byId.get(id)?.name ?? id);
+	const queuedFor = /* @__PURE__ */ new Map();
+	for (const [memberId, ids] of Object.entries(state.roomId === void 0 ? {} : state.queued?.[String(state.roomId)] ?? {})) for (const id of ids) queuedFor.set(id, [...queuedFor.get(id) ?? [], byId.get(memberId)?.name ?? memberId]);
+	const jumpToQueued = () => {
+		const first = Math.min(...queuedFor.keys());
+		document.querySelector(`[data-message-id="${first}"]`)?.scrollIntoView({
+			block: "center",
+			behavior: "smooth"
+		});
+	};
 	const channelRooms = new Set(state.rooms.filter((r) => r.id === channelId || r.parent_id === channelId).map((r) => r.id));
 	const leadId = room?.effective_lead_id === void 0 ? state.effectiveLeadId ?? state.leadId : room.effective_lead_id;
 	const lead = visibleMembers.find((member) => member.id === leadId);
@@ -20593,6 +21404,17 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 	const popupOpen = mention !== void 0 && candidates.length > 0;
 	openMentionAt.current = popupOpen ? mention.start : void 0;
 	const selected = Math.min(highlight, Math.max(candidates.length - 1, 0));
+	const commandTarget = lead?.kind === "bot" ? lead : void 0;
+	const slash = slashQuery(draft);
+	const slashCommands = slash === void 0 || capabilitiesDismissed || popupOpen ? [] : matchCommands(slash, (key) => t(key));
+	const slashOpen = slashCommands.length > 0;
+	const slashSelected = Math.min(slashHighlight, Math.max(slashCommands.length - 1, 0));
+	const workingBots = (state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? []).map((id) => byId.get(id)).filter((m) => m !== void 0 && m.kind === "bot");
+	const stopTarget = workingBots.find((m) => m.id === commandTarget?.id) ?? workingBots[0];
+	const roomFiles = state.roomId === void 0 ? [] : pendingFiles[state.roomId] ?? [];
+	const stopMode = (stopTarget !== void 0 || stopping?.phase === "stopping") && draft.trim() === "" && roomFiles.length === 0;
+	const answers = commandAnswers(state.messages, (id) => byId.get(id)?.name);
+	const answerIds = new Set([...answers.values()].map((m) => m.id));
 	const setDraft = (text, nextCaret) => {
 		const roomId = state.roomId;
 		if (roomId === void 0) return;
@@ -20613,6 +21435,13 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		setDrawer(void 0);
 		const next = insertMention(draft, caret, member);
 		setDraft(next.text, next.caret);
+	};
+	const startDm = openDm === void 0 ? void 0 : (member) => {
+		setDrawer(void 0);
+		stickRef.current = true;
+		openDm(member.id).catch((error) => {
+			setRoomError(t("dmOpenFailed", { message: error instanceof Error ? error.message : String(error) }));
+		});
 	};
 	const mentionFromAvatar = (member) => {
 		setAvatarMenu(void 0);
@@ -20725,9 +21554,89 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 			setRetryingId(void 0);
 		});
 	};
+	/** Send one command line now, keeping the draft unless it was the command itself; resolves to whether it went out. */
+	const sendCommand = (text, clearDraft) => {
+		const roomId = state.roomId;
+		if (roomId === void 0) return Promise.resolve(false);
+		setErrors((previous) => ({
+			...previous,
+			[roomId]: void 0
+		}));
+		stickRef.current = true;
+		return send(text).then(() => {
+			if (clearDraft) setDrafts((previous) => ({
+				...previous,
+				[roomId]: ""
+			}));
+			return true;
+		}, (error) => {
+			setErrors((previous) => ({
+				...previous,
+				[roomId]: t("sendFailed", { message: error instanceof Error ? error.message : String(error) })
+			}));
+			return false;
+		});
+	};
+	const noTarget = () => {
+		const roomId = state.roomId;
+		if (roomId !== void 0) setErrors((previous) => ({
+			...previous,
+			[roomId]: t("slashNoLead")
+		}));
+	};
+	const runSlash = (command) => {
+		const run = command.run;
+		setSlashHighlight(0);
+		if (run.kind === "panel") {
+			setDraft("", 0);
+			if (run.panel === "help") {
+				setCapabilitiesDismissed(false);
+				setHelpOpen(true);
+				return;
+			}
+			chatRef.current?.querySelector(`button[aria-label="${t("taskBoardOpen")}"]`)?.click();
+			return;
+		}
+		if (run.kind === "send" && run.broadcast === true) {
+			sendCommand(run.text, true);
+			return;
+		}
+		if (commandTarget === void 0) {
+			noTarget();
+			return;
+		}
+		const line = `@${commandTarget.name} ${run.text}`;
+		if (run.kind === "fill") {
+			setCapabilitiesDismissed(true);
+			setDraft(line, line.length);
+			return;
+		}
+		sendCommand(line, true);
+	};
+	const stopReply = () => {
+		if (stopTarget === void 0 || stopping?.phase === "stopping") return;
+		const target = stopTarget;
+		setStopping({
+			botId: target.id,
+			name: target.name,
+			phase: "stopping"
+		});
+		sendCommand(`@${target.name} /stop`, false).then((sent) => {
+			if (!sent) setStopping(void 0);
+		});
+	};
+	const toTask = dispatchTask === void 0 || state.roomId === void 0 || leadId == null ? void 0 : async (message) => {
+		const line = message.text.split("\n").map((x) => x.trim()).find(Boolean) ?? "";
+		const title = line.length > 40 ? `${line.slice(0, 40)}…` : line;
+		await dispatchTask(message.room_id, {
+			title,
+			owner: leadId,
+			messageId: message.id
+		});
+	};
 	const submit = () => {
 		const roomId = state.roomId;
-		const text = draft.trim();
+		const text = addressCommand(draft.trim(), commandTarget?.name);
 		const files = roomId === void 0 ? [] : pendingFiles[roomId] ?? [];
 		if (!text && files.length === 0 || roomId === void 0 || pendingRooms.current.has(roomId)) return;
 		if (files.length > 0 && messageTooLarge(text, files)) {
@@ -20792,14 +21701,21 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		}));
 	};
 	const onKeyDown = (event) => {
-		if (draft === "/" && !capabilitiesDismissed && !isImeEnter(event)) {
+		if (slashOpen && !isImeEnter(event)) {
+			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+				event.preventDefault();
+				const step = event.key === "ArrowDown" ? 1 : -1;
+				setSlashHighlight((slashSelected + step + slashCommands.length) % slashCommands.length);
+				return;
+			}
+			if (event.key === "Enter" || event.key === "Tab") {
+				event.preventDefault();
+				runSlash(slashCommands[slashSelected]);
+				return;
+			}
 			if (event.key === "Escape") {
 				event.preventDefault();
 				setCapabilitiesDismissed(true);
-				return;
-			}
-			if (event.key === "Enter") {
-				event.preventDefault();
 				return;
 			}
 		}
@@ -20972,6 +21888,37 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 								})
 							]
 						}, r.id);
+					}),
+					dmRooms(state.rooms).length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
+						className: ChannelsPage_module_default.dmTitle,
+						children: t("dmGroup")
+					}),
+					dmRooms(state.rooms).map((r) => {
+						const peer = state.members.find((m) => m.id === r.dm_member);
+						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+							type: "button",
+							className: [ChannelsPage_module_default.room, r.id === state.roomId ? ChannelsPage_module_default.roomActive : ""].filter(Boolean).join(" "),
+							"aria-current": r.id === state.roomId,
+							"data-dm-room": r.dm_member,
+							onClick: () => {
+								stickRef.current = true;
+								setDrawer(void 0);
+								selectRoom(r.id);
+							},
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ChannelsPage_module_default.dmAvatar,
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+									id: r.dm_member ?? "",
+									name: peer?.name ?? r.name,
+									avatar: peer?.avatar,
+									avatarVersion: peer?.avatarVersion,
+									small: true
+								})
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ChannelsPage_module_default.roomLabel,
+								children: peer?.name ?? r.name
+							})]
+						}, r.id);
 					})
 				]
 			}),
@@ -21005,11 +21952,11 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: ChannelsPage_module_default.hash,
 								"aria-hidden": true,
-								children: "#"
+								children: dmWith !== void 0 ? "@" : "#"
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: ChannelsPage_module_default.roomName,
-								children: room?.name
+								children: dmWith !== void 0 ? state.members.find((m) => m.id === dmWith)?.name ?? room?.name : room?.name
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 								className: ChannelsPage_module_default.headMeta,
@@ -21127,10 +22074,10 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 										role: "status",
 										children: t("loadingOlder")
 									}),
-									state.messages.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									visibleMessages.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 										className: ChannelsPage_module_default.empty,
 										children: t("empty")
-									}) : state.messages.map((m, index) => [unread !== void 0 && unread.roomId === state.roomId && unread.fromId === m.id ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									}) : visibleMessages.map((m, index) => [firstUnread === m.id ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 										className: ChannelsPage_module_default.unreadDivider,
 										role: "separator",
 										children: t("newMessagesDivider")
@@ -21138,10 +22085,16 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 										className: ChannelsPage_module_default.withdrawnRow,
 										"data-message-id": m.id,
 										children: t("withdrawPending")
+									}, m.id) : answerIds.has(m.id) ? null : m.author_kind === "user" && m.card === null && commandLine(m.text) !== void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(CommandRow, {
+										message: m,
+										target: commandLine(m.text)?.target,
+										command: commandLine(m.text)?.command ?? "",
+										answer: answers.get(m.id),
+										t
 									}, m.id) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MessageRow, {
 										enter: fresh.get(m.id),
 										message: m,
-										grouped: continues(state.messages[index - 1], m),
+										grouped: continues(visibleMessages[index - 1], m) && !answerIds.has(visibleMessages[index - 1]?.id ?? -1) && !(visibleMessages[index - 1]?.author_kind === "user" && commandLine(visibleMessages[index - 1]?.text ?? "") !== void 0),
 										member: byId.get(m.author),
 										t,
 										onConfigure: () => {
@@ -21157,13 +22110,17 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 											setAvatarMenu(void 0);
 										},
 										onMention: mentionFromAvatar,
+										onDm: startDm,
+										onReview: reviewTask,
 										onDecide: decidePermission,
 										onRetry: handleRetry,
 										retrying: retryingId === m.id,
 										tasks: state.tasks ?? [],
 										focused: focusedId === m.id,
 										onReply: startReply,
-										own: ownActions(m)
+										onTask: toTask,
+										own: ownActions(m),
+										queuedFor: queuedFor.get(m.id)
 									}, m.id)])
 								]
 							}),
@@ -21196,18 +22153,18 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 									}),
 									" ",
 									t("jumpLatest"),
-									unread !== void 0 && unread.roomId === state.roomId && !unread.seen && unreadCount(state.messages, unread.fromId) > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									visibleUnreadCount > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 										className: ChannelsPage_module_default.jumpCount,
-										children: t("jumpLatestCount", { count: unreadCount(state.messages, unread.fromId) })
+										children: t("jumpLatestCount", { count: visibleUnreadCount })
 									})
 								]
 							})
 						]
 					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: ChannelsPage_module_default.working,
 						"aria-live": "polite",
-						children: typingNames.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+						children: [typingNames.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 							className: ChannelsPage_module_default.typingDots,
 							"aria-hidden": "true",
 							children: [
@@ -21215,7 +22172,13 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("i", {}),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("i", {})
 							]
-						}), t("workingList", { names: typingNames.join("、") })] })
+						}), t("workingList", { names: typingNames.join("、") })] }), queuedFor.size > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: ChannelsPage_module_default.queuedButton,
+							title: t("queuedJump"),
+							onClick: jumpToQueued,
+							children: t("queuedCount", { count: queuedFor.size })
+						})]
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(DecideTray, {
 						questions,
@@ -21239,12 +22202,21 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 						className: ChannelsPage_module_default.composer,
 						ref: composerRef,
 						children: [
-							draft === "/" && !capabilitiesDismissed && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(CapabilityList, {
+							helpOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(CapabilityList, {
 								t,
 								onClose: () => {
-									setCapabilitiesDismissed(true);
+									setHelpOpen(false);
 								}
 							}, state.roomId),
+							slashOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(SlashMenu, {
+								commands: slashCommands,
+								selected: slashSelected,
+								target: commandTarget?.name,
+								grouped: slash === "",
+								t,
+								onPick: runSlash,
+								onHover: setSlashHighlight
+							}),
 							sendError !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 								className: ChannelsPage_module_default.sendError,
 								role: "alert",
@@ -21351,10 +22323,10 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 										disabled: state.roomId === void 0 || sending[state.roomId] === true,
 										placeholder: t(compactComposer() ? "placeholderShort" : "placeholder", { room: room?.name ?? "" }),
 										role: "combobox",
-										"aria-expanded": popupOpen,
-										"aria-controls": "channel-mention-list",
+										"aria-expanded": popupOpen || slashOpen,
+										"aria-controls": slashOpen ? "channel-slash-list" : "channel-mention-list",
 										"aria-autocomplete": "list",
-										"aria-activedescendant": popupOpen ? `channel-mention-${candidates[selected].id}` : void 0,
+										"aria-activedescendant": popupOpen ? `channel-mention-${candidates[selected].id}` : slashOpen ? `channel-slash-${slashSelected}` : void 0,
 										onChange: (event) => {
 											const roomId = state.roomId;
 											const value = event.target.value;
@@ -21363,8 +22335,10 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 												[roomId]: value
 											}));
 											setCapabilitiesDismissed(false);
+											setHelpOpen(false);
 											setCaret(event.target.selectionStart);
 											setHighlight(0);
+											setSlashHighlight(0);
 										},
 										onSelect: (event) => {
 											setCaret(event.currentTarget.selectionStart);
@@ -21387,7 +22361,37 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 												onClick: openPicker,
 												children: "@"
 											}),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											stopping !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+												className: ChannelsPage_module_default.stopNote,
+												role: "status",
+												children: t(stopping.phase === "stopping" ? "stopPending" : "stopDone", { name: stopping.name })
+											}),
+											stopMode ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+												type: "button",
+												className: `${ChannelsPage_module_default.sendButton} ${ChannelsPage_module_default.stopButton}`,
+												title: t("stopReply", { name: (stopTarget ?? stopping)?.name ?? "" }),
+												"aria-label": t("stopReply", { name: (stopTarget ?? stopping)?.name ?? "" }),
+												"data-phase": stopping?.phase,
+												"aria-disabled": stopping?.phase === "stopping",
+												onMouseDown: (event) => {
+													event.preventDefault();
+												},
+												onClick: stopReply,
+												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+													width: "14",
+													height: "14",
+													viewBox: "0 0 24 24",
+													"aria-hidden": "true",
+													children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
+														x: "5",
+														y: "5",
+														width: "14",
+														height: "14",
+														rx: "2.5",
+														fill: "currentColor"
+													})
+												})
+											}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 												type: "button",
 												className: ChannelsPage_module_default.sendButton,
 												title: t("sendButton"),
@@ -21523,6 +22527,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 						onPick: pickFromList,
 						onEdit: setDialog,
 						onRemove: confirmRemove,
+						onDm: dmWith === void 0 ? startDm : void 0,
 						t
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(MemberGroup, {
@@ -21589,28 +22594,6 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		]
 	});
 }
-// src/client/PanelPages.module.css
-var PanelPages_module_default = {
-	"embed": "dshc_embed",
-	"frame": "dshc_frame"
-};
-// src/client/EmbedPage.tsx
-/**
-* Fill the main area with the collab page.
-* @param props - injected page path and title.
-* @returns the framed page.
-*/
-function EmbedPage({ path, title }) {
-	const src = new URL(path, document.baseURI).toString();
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-		className: PanelPages_module_default.embed,
-		children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("iframe", {
-			className: PanelPages_module_default.frame,
-			src,
-			title
-		})
-	});
-}
 // src/client/PanelIcons.tsx
 /** Decorative occupants for the desk, wiki galaxy and bothouse panel sidebar entries (#105). */
 /** Team desk glyph; the sidebar owns the label. */
@@ -21647,7 +22630,7 @@ const zh = {
 	mateTask: "#{id} {title}",
 	mateReplying: "在回复",
 	headLeadIdle: "空闲",
-	headLeadBusyUnreported: "在忙（未报任务）",
+	headLeadBusyUnreported: "在忙",
 	headLeadUnset: "未设总管",
 	progressTitle: "本频道进展",
 	progressDone: "做完",
@@ -21660,9 +22643,7 @@ const zh = {
 	progressNextResume: "接着做 #{id} {title}（{name}，已暂停）",
 	progressMore: "，另 {count} 件",
 	decideTray: "等你定和权限请求",
-	trayAsks: "等你定 {count}",
-	trayPerms: "权限 {count}",
-	trayPinned: "钉在这里，聊天滚动也不会丢",
+	trayAsks: "等你点头 · {count} 件",
 	trayCollapse: "收起",
 	trayExpand: "展开",
 	askKind: "等你定",
@@ -21680,7 +22661,7 @@ const zh = {
 	activityPanel: "活动",
 	activityNow: "正在进行",
 	activityThinking: "思考中",
-	permPending: "待你确认 · 在输入框上方",
+	permPending: "等你点头",
 	permTray: "待你确认的权限请求（{count}）",
 	permAsks: "{name} 请求权限",
 	copyCode: "复制代码",
@@ -21714,6 +22695,42 @@ const zh = {
 	channelName: "频道名称",
 	channelNameHint: "1–32 个字符，不能含空白。",
 	workspaceNameFixed: "工作区名称由系统分配，不能修改。",
+	slashTitle: "命令",
+	slashTitleLead: "发给 {name} 的命令",
+	slashTitleNoLead: "命令 · 没有能接命令的主角色",
+	slashHint: "↑↓ 选择 · 回车执行 · Esc 关闭",
+	slashNoLead: "主角色不是 bothouse 机器人，没人接这条命令；先在频道设置里选主角色，或直接 @ 机器人再打命令。",
+	slashStop: "停下这一轮，下条接着说",
+	slashStopAll: "频道里所有机器人都停下",
+	slashPs: "给正在跑的这轮补一句",
+	slashNew: "开新会话",
+	slashModel: "查看或切换模型",
+	slashReasoning: "调思考深度",
+	slashCron: "看定时任务",
+	slashStatus: "看当前状态",
+	slashUsage: "看用量",
+	slashCompress: "压缩上下文",
+	slashBoard: "打开任务板",
+	slashHelp: "频道能做什么",
+	slashGroupControl: "控制",
+	slashGroupModel: "模型",
+	slashGroupView: "查看",
+	stopReply: "停止 {name} 这次回复",
+	stopPending: "正在停止 {name}…",
+	stopDone: "{name} 已停止",
+	cmdTo: "发给 {name}",
+	cmdToAll: "发给全部机器人",
+	cmdSent: "已发出",
+	permAllowOnce: "这次允许",
+	permAllowSession: "本会话自动允许",
+	toolCopy: "复制",
+	toolCopied: "已复制",
+	toolCopyFailed: "复制失败",
+	toolTask: "转任务",
+	toolTaskHint: "放上任务板，交给主角色",
+	toolTasking: "转任务中…",
+	toolTasked: "已放上任务板",
+	toolTaskFailed: "转任务失败：{message}",
 	capabilities: "能力清单",
 	capabilityTaskBoard: "任务板",
 	capabilityAttachments: "图片和文件",
@@ -21728,7 +22745,7 @@ const zh = {
 	capabilityReminderHelp: "通过任务分发派出的任务，到点会自动催办一次；负责人交回结果或说明卡在哪里。",
 	capabilityWorkspaceHelp: "在聊天频道把任务交给角色，需要时由角色创建工作区。工作区的问题和阶段结果会送回聊天频道。",
 	capabilityLeadHelp: "在成员栏的「主角色」里选择角色。切换后，没有点名的消息由新的主角色接收。",
-	capabilityDmHelp: "在支持私信的平台打开与角色的私聊。角色也可向配置中的用户发送私信；DSH 频道页目前没有私信入口。",
+	capabilityDmHelp: "在左栏「私聊」或机器人头像菜单点「发私信」，和这个角色一对一说话，不打扰大群。角色也可向配置中的用户发送私信。",
 	taskTabLabel: "按任务状态筛选",
 	taskTabAll: "全部",
 	taskTabDecide: "等你定",
@@ -21774,16 +22791,16 @@ const zh = {
 	durSeconds: "{n} 秒",
 	durMinutes: "{n} 分钟",
 	durHours: "{h} 小时 {m} 分",
-	configureModel: "去配置模型",
+	configureModel: "去填密钥",
 	configureModelHint: "模型在「设置 → 模型」里配置：点侧栏底部的设置入口，桌面版也可按 ⌘,（Windows/Linux 为 Ctrl+,）。",
 	retry: "重试",
 	retrying: "重试中…",
 	permAllowed: "已允许",
 	permDenied: "已拒绝",
-	permAllowedAll: "已允许（本会话后续请求自动允许）",
-	permExpired: "已过期：这个请求已被新请求取代或 bot 已重启，不再生效",
+	permAllowedAll: "已允许（本会话之后自动允许）",
+	permExpired: "这条确认失效了：被新请求顶掉，或机器人重启过",
 	permByText: "（文字回复）",
-	permAllowAllScope: "「允许所有」只对这个 bot 当前会话生效：之后它的工具权限请求自动允许（向你提问的除外），bot 重启或开新会话后恢复逐条询问。",
+	permAllowAllScope: "只对这个机器人当前会话有效：之后它要的工具权限自动允许（向你提问的除外），机器人重启或开新会话后恢复逐条问。",
 	memberFailed: "出错",
 	showRooms: "打开频道列表",
 	showMembers: "打开活动栏",
@@ -21800,16 +22817,31 @@ const zh = {
 	humans: "真人 — {count}",
 	online: "在线",
 	close: "关闭",
+	dmGroup: "私聊",
+	dmOpen: "发私信",
+	dmOpenFailed: "打不开私聊：{message}",
+	deliveryFull: "全屏",
+	deliveryRevise: "继续改",
+	deliveryAccept: "收下",
+	deliveryAccepted: "已收下",
+	deliveryAcceptFailed: "没收下，再点一次",
 	offline: "离线",
 	working: "忙",
 	workingList: "{names} 正在输入…",
+	queuedCount: "排队 {count} 条",
+	queuedJump: "看排队的消息",
+	queuedTag: "排队中",
+	queuedFor: "等 {names} 忙完再处理，撤回就不发了",
+	memoryBadge: "记忆 {count}",
+	memoryList: "这条回复用到的记忆",
+	memoryMoved: "（这一行已改动或移走）",
 	kindDsh: "DSH",
 	kindBot: "Agent",
 	kindClaude: "Claude Code",
 	kindCodex: "Codex",
 	kindGemini: "Gemini",
 	placeholderShort: "发消息到 #{room}",
-	placeholder: "发消息到 #{room}，@成员 让它干活（Enter 发送，Shift+Enter 换行）",
+	placeholder: "发消息到 #{room}，@成员 派活（回车发送，Shift+回车换行）",
 	loading: "正在连接频道服务…",
 	unavailable: "频道服务未启用：在 collab.yml 中配置服务后，用 --patch collab.yml 启动 DSH。",
 	unauthorized: "还没有登录 DSH，请刷新页面。",
@@ -21925,7 +22957,7 @@ const en = {
 	mateTask: "#{id} {title}",
 	mateReplying: "replying",
 	headLeadIdle: "Idle",
-	headLeadBusyUnreported: "Busy (no task reported)",
+	headLeadBusyUnreported: "Busy",
 	headLeadUnset: "No lead set",
 	progressTitle: "Channel progress",
 	progressDone: "Done",
@@ -21938,9 +22970,7 @@ const en = {
 	progressNextResume: "Resume #{id} {title} ({name}, paused)",
 	progressMore: ", {count} more",
 	decideTray: "Waiting on you and permission requests",
-	trayAsks: "Waiting on you {count}",
-	trayPerms: "Permissions {count}",
-	trayPinned: "Pinned here while the chat scrolls",
+	trayAsks: "Waiting on you · {count}",
 	trayCollapse: "Collapse",
 	trayExpand: "Expand",
 	askKind: "Question",
@@ -21958,7 +22988,7 @@ const en = {
 	activityPanel: "Activity",
 	activityNow: "Now",
 	activityThinking: "Thinking",
-	permPending: "Awaiting you · above the composer",
+	permPending: "Waiting on you",
 	permTray: "Permission requests awaiting you ({count})",
 	permAsks: "{name} asks for permission",
 	dispatchMode: "Dispatch mode",
@@ -22037,6 +23067,42 @@ const en = {
 	channelName: "Channel name",
 	channelNameHint: "1–32 characters, without whitespace.",
 	workspaceNameFixed: "Workspace names are assigned by the system and cannot be changed.",
+	slashTitle: "Commands",
+	slashTitleLead: "Commands to {name}",
+	slashTitleNoLead: "Commands · no primary role takes commands",
+	slashHint: "↑↓ select · Enter run · Esc close",
+	slashNoLead: "The primary role is not a bothouse bot, so no one takes this command. Pick a primary role in channel settings, or @ a bot before the command.",
+	slashStop: "Stop the primary role's current turn (the session stays)",
+	slashStopAll: "Stop every bot in this channel",
+	slashPs: "Steer: add to the turn that is running",
+	slashNew: "Start a new session",
+	slashModel: "List or switch models",
+	slashReasoning: "Show or set reasoning effort",
+	slashCron: "Scheduled tasks",
+	slashStatus: "Status",
+	slashUsage: "Usage",
+	slashCompress: "Compress the context",
+	slashBoard: "Open the task board",
+	slashHelp: "What this channel can do",
+	slashGroupControl: "Control",
+	slashGroupModel: "Model",
+	slashGroupView: "View",
+	stopReply: "Stop {name}'s reply",
+	stopPending: "Stopping {name}…",
+	stopDone: "{name} stopped",
+	cmdTo: "to {name}",
+	cmdToAll: "to every bot",
+	cmdSent: "sent",
+	permAllowOnce: "Allow once",
+	permAllowSession: "Auto-allow this session",
+	toolCopy: "Copy",
+	toolCopied: "Copied",
+	toolCopyFailed: "Copy failed",
+	toolTask: "To task",
+	toolTaskHint: "Put this message on the task board for the primary role",
+	toolTasking: "Adding…",
+	toolTasked: "On the task board",
+	toolTaskFailed: "Could not add the task: {message}",
 	capabilities: "Capabilities",
 	capabilityTaskBoard: "Task board",
 	capabilityAttachments: "Images and files",
@@ -22051,15 +23117,15 @@ const en = {
 	capabilityReminderHelp: "Dispatched tasks receive one reminder when due. The owner returns a result or explains the blocker.",
 	capabilityWorkspaceHelp: "Assign work to a role in the chat channel. Roles create workspaces when needed; questions and progress return to the chat channel.",
 	capabilityLeadHelp: "Choose a role under Primary role in the members panel. Messages without an explicit addressee then go to the new primary role.",
-	capabilityDmHelp: "Open a private conversation with a role on a supported platform. Roles can also message the configured owner. The DSH Channels page currently has no private-chat entry.",
-	configureModel: "Configure model",
+	capabilityDmHelp: "Use 私聊 in the left column or 发私信 in a bot's avatar menu to talk with that role one to one, away from the channel. Roles can also message the configured owner.",
+	configureModel: "Add a model key",
 	configureModelHint: "Models are configured in Settings → Models: use the settings entry at the bottom of the sidebar, or press ⌘, in the desktop app (Ctrl+, on Windows/Linux).",
 	retry: "Retry",
 	retrying: "Retrying…",
 	permAllowed: "Allowed",
 	permDenied: "Denied",
 	permAllowedAll: "Allowed (later requests in this session are auto-approved)",
-	permExpired: "Expired: replaced by a newer request or the bot restarted",
+	permExpired: "This request no longer applies: a newer one replaced it, or the bot restarted",
 	permByText: "(text reply)",
 	permAllowAllScope: "\"Allow all\" applies only to this bot's current session: its later tool permission requests are auto-approved (questions to you excepted) until the bot restarts or starts a new session.",
 	memberFailed: "Error",
@@ -22078,9 +23144,24 @@ const en = {
 	humans: "People — {count}",
 	online: "Online",
 	close: "Close",
+	dmGroup: "Direct messages",
+	dmOpen: "Message privately",
+	dmOpenFailed: "Could not open the private chat: {message}",
+	deliveryFull: "Full screen",
+	deliveryRevise: "Keep editing",
+	deliveryAccept: "Accept",
+	deliveryAccepted: "Accepted",
+	deliveryAcceptFailed: "Not accepted, try again",
 	offline: "Offline",
 	working: "Busy",
 	workingList: "{names} typing…",
+	queuedCount: "{count} queued",
+	queuedJump: "Show queued messages",
+	queuedTag: "Queued",
+	queuedFor: "Waits until {names} is free; withdraw it to drop it",
+	memoryBadge: "Memory {count}",
+	memoryList: "Memory this reply used",
+	memoryMoved: "(this line changed or moved)",
 	kindDsh: "DSH",
 	kindBot: "Agent",
 	kindClaude: "Claude Code",
@@ -22231,6 +23312,8 @@ function apply(ctx) {
 		selectRoom: channels.actions.selectRoom,
 		send: channels.actions.send,
 		reviewTask: channels.actions.reviewTask,
+		dispatchTask: channels.actions.dispatchTask,
+		openDm: channels.actions.openDm,
 		retrySend: channels.actions.retrySend,
 		dismissSend: channels.actions.dismissSend,
 		loadOlder: channels.actions.loadOlder,

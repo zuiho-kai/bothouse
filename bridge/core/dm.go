@@ -45,7 +45,10 @@ func (e *Engine) isDMOwner(userID string) bool {
 func (e *Engine) OpenDMSession() (string, error) {
 	user := e.dmUser()
 	if user == "" {
-		return "", fmt.Errorf("--dm: admin_from has no user ID to message")
+		return "", fmt.Errorf("--dm: admin_from has no user ID to message. Fix: in config.toml put " +
+			"admin_from = \"<your user ID>\" in this project's [[projects]] block (next to name; " +
+			"under [projects.platforms.options] it is ignored), get the ID by sending /whoami to the bot, " +
+			"then restart bothouse")
 	}
 	for _, p := range e.platforms {
 		if o, ok := p.(DirectMessageOpener); ok {

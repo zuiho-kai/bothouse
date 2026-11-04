@@ -491,11 +491,18 @@ type Engine struct {
 	resetOnIdle        time.Duration
 	// Per-session model overrides (maomao fork, see session_models.go)
 	// Model-at-capacity cooldown (maomao fork, see capacity_retry.go)
-	capMu             sync.Mutex
-	capUntil          time.Time
-	quotaUntil        time.Time            // legacy unscoped cooldown only
-	quotaDomains      map[string]time.Time // guarded by quotaDomainsMu
+	capMu        sync.Mutex
+	capUntil     time.Time
+	quotaUntil   time.Time            // legacy unscoped cooldown only
+	quotaDomains map[string]time.Time // guarded by quotaDomainsMu
+	// quotaMu guards quotaState. Lock order: relayManager.quotaMu → quotaMu →
+	// publicProgress.transitionMu → publicRun.mu. quotaTick holds quotaMu while it
+	// walks task runs, so code that may run under a task lock (admission checks,
+	// PublicProgress.quotaBlocked) must never wait on quotaMu: it reads Verified
+	// through quotaVerifiedMu and writes through updateQuotaState.
 	quotaMu           sync.Mutex
+	quotaVerifiedMu   sync.Mutex     // leaf lock for quotaState.Verified; never held while taking another lock
+	quotaUpdates      sync.WaitGroup // deferred updateQuotaState writes still running
 	quotaState        quotaCoolingState
 	quotaProbeFn      func(ctx context.Context) (usable bool, nextRetry time.Duration, err error)
 	capRound          int
@@ -1492,7 +1499,8 @@ func (e *Engine) SetAdminFrom(adminFrom string) {
 	e.userRolesMu.Unlock()
 	if af == "" && !shellDisabled {
 		slog.Warn("admin_from is not set — privileged commands (/shell, /show, /dir, /restart, /upgrade) are blocked. "+
-			"Set admin_from in config to enable them, or use disabled_commands to hide them.",
+			"Set admin_from (your user ID, see /whoami) at the [[projects]] level of config.toml — not under "+
+			"[projects.platforms.options] — to enable them, or use disabled_commands to hide them.",
 			"project", e.name)
 	}
 }
@@ -2966,6 +2974,7 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 
 func (e *Engine) Start() error {
 	e.restoreProactiveAdmissions()
+	go e.queueReportLoop() // #1020 queue_report.go
 	e.resolveRoleProductPython()
 	var startErrs []error
 	readyCount := 0
@@ -6087,7 +6096,12 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					if reset, ok := QuotaExhaustedReset(event); ok {
 						userMsg = e.quotaExhaustedMessage(reset, agentSession, nil)
 					}
-					send(p, replyCtx, userMsg)
+					// The message embeds the backend's own error text. In a group
+					// that text must not reach the chat (upstream safety-filter
+					// output, account ids); private chats keep it for diagnosis.
+					if !e.errorKeptOutOfChat(p, replyCtx, userMsg) {
+						send(p, replyCtx, userMsg)
+					}
 				}
 				state.mu.Lock()
 				state.eventsNeedResync = true
@@ -6247,6 +6261,30 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			input.finish(inputTurnResult{err: fmt.Errorf("reply delivery: %w", err)})
 		}
 		return err
+	}
+
+	var sentReplySegments []string // successful narration deliveries in this turn only
+	sendReplySegment := func(p Platform, replyCtx any, segment string) {
+		if capability, ok := p.(RepeatedReplySuppressor); !ok || !capability.SuppressRepeatedReplyText() {
+			for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
+				sendWorkspace(p, replyCtx, chunk)
+			}
+			return
+		}
+		segment = unsentReplyText(p, segment, sentReplySegments)
+		if strings.TrimSpace(segment) == "" {
+			return
+		}
+		chunks := SplitMessageCodeFenceAware(segment, maxPlatformMessageLen)
+		for i, chunk := range chunks {
+			if err := sendWorkspaceWithError(p, replyCtx, chunk); err != nil {
+				// Record chunks already on the platform so a later repeat of
+				// them is still suppressed; the failed tail stays retryable.
+				sentReplySegments = append(sentReplySegments, chunks[:i]...)
+				return
+			}
+		}
+		sentReplySegments = append(sentReplySegments, segment)
 	}
 
 	// Streaming card: aggregate entire turn into a single updatable card.
@@ -6506,6 +6544,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			session.ResetTurnCtx()
 		}
 
+		// A boundary ends the current segment even when quiet mode joins the
+		// surrounding prose. Remove its control marker before the next text.
+		if (event.Type == EventToolUse || event.Type == EventThinking || event.Type == EventPermissionRequest) && len(textParts) > segmentStart {
+			segment := strings.Join(textParts[segmentStart:], "")
+			if clean := stripSilentReply(segment); clean != segment {
+				textParts = append(textParts[:segmentStart], clean)
+			}
+		}
+
 		switch event.Type {
 		case EventSpeechText:
 			// Never present these again in platform text/history: the ordinary
@@ -6568,11 +6615,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						sp.freeze()
 						sp.detachPreview()
 					} else {
-						segment := strings.Join(textParts[segmentStart:], "")
+						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
-							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
-								sendWorkspace(p, replyCtx, chunk)
-							}
+							sendReplySegment(p, replyCtx, segment)
 						}
 					}
 					segmentStart = len(textParts)
@@ -6593,11 +6638,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				previewActive := sp.canPreview()
 				if len(textParts) > segmentStart {
 					if !previewActive {
-						segment := strings.Join(textParts[segmentStart:], "")
+						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
-							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
-								sendWorkspace(p, replyCtx, chunk)
-							}
+							sendReplySegment(p, replyCtx, segment)
 						}
 					}
 					segmentStart = len(textParts)
@@ -6667,11 +6710,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						sp.freeze()
 						sp.detachPreview()
 					} else {
-						segment := strings.Join(textParts[segmentStart:], "")
+						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
-							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
-								sendWorkspace(p, replyCtx, chunk)
-							}
+							sendReplySegment(p, replyCtx, segment)
 						}
 					}
 					segmentStart = len(textParts)
@@ -6725,11 +6766,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				previewActive := sp.canPreview()
 				if len(textParts) > segmentStart {
 					if !previewActive {
-						segment := strings.Join(textParts[segmentStart:], "")
+						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
-							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
-								sendWorkspace(p, replyCtx, chunk)
-							}
+							sendReplySegment(p, replyCtx, segment)
 						}
 					}
 					segmentStart = len(textParts)
@@ -7015,11 +7054,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			previewActive := sp.canPreview()
 			if len(textParts) > segmentStart {
 				if !previewActive {
-					segment := strings.Join(textParts[segmentStart:], "")
+					segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 					if segment != "" {
-						for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
-							sendWorkspace(p, replyCtx, chunk)
-						}
+						sendReplySegment(p, replyCtx, segment)
 					}
 				}
 				segmentStart = len(textParts)
@@ -7478,6 +7515,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// side-channel messages and segmentStart stays 0, so keep normal finalize flow.
 				if segmentStart < len(textParts) {
 					unsent := strings.Join(textParts[segmentStart:], "")
+					unsent = unsentReplyText(p, unsent, sentReplySegments)
 					// The text before the tool call already went out, so the whole-reply
 					// NO_REPLY check above does not cover this remainder after a tool call.
 					if isSilentReply(unsent) {
@@ -7750,6 +7788,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// Reset per-turn state for the next turn
 				msgID = queued.messageID
 				textParts = nil
+				sentReplySegments = nil
 				segmentStart = 0
 				toolCount = 0
 				watchTurnFinished = false
@@ -7988,9 +8027,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							statusFooter = e.buildReplyFooter(replyAgent, agentSession, workspaceDir, "")
 						}
 					}
-					sendChunksWithStatusFooter(outputCtx, p, replyCtx, userMsg, statusFooter, func(p Platform, replyCtx any, content string) error {
-						return e.sendWithErrorContext(outputCtx, p, replyCtx, content)
-					})
+					// Same rule as the unsolicited-error path above: the group
+					// must not receive the backend's raw error text.
+					if !e.errorKeptOutOfChat(p, replyCtx, userMsg) {
+						sendChunksWithStatusFooter(outputCtx, p, replyCtx, userMsg, statusFooter, func(p Platform, replyCtx any, content string) error {
+							return e.sendWithErrorContext(outputCtx, p, replyCtx, content)
+						})
+					}
 				}
 			}
 			// Only drop queued messages if the agent session is dead.
@@ -8055,6 +8098,7 @@ channelClosed:
 			sp.discard()
 			if segmentStart < len(textParts) {
 				unsent := strings.Join(textParts[segmentStart:], "")
+				unsent = unsentReplyText(p, unsent, sentReplySegments)
 				if unsent != "" {
 					for _, chunk := range SplitMessageCodeFenceAware(unsent, maxPlatformMessageLen) {
 						if err := sendWorkspaceWithError(p, replyCtx, chunk); err != nil {
@@ -8157,7 +8201,10 @@ func (e *Engine) notifyDroppedQueuedMessages(state *interactiveState, reason err
 	for _, q := range remaining {
 		ctx, err := e.turnOutputContext(q.authorization)
 		if err == nil {
-			_ = e.sendWithErrorContext(ctx, q.platform, q.replyCtx, fmt.Sprintf(e.i18n.T(MsgError), reason))
+			text := fmt.Sprintf(e.i18n.T(MsgError), reason)
+			if !e.errorKeptOutOfChat(q.platform, q.replyCtx, text) {
+				_ = e.sendWithErrorContext(ctx, q.platform, q.replyCtx, text)
+			}
 		}
 	}
 }
@@ -19527,29 +19574,45 @@ func stripAgentFooterLines(text string) string {
 // silentReplyRe matches a bare NO_REPLY marker (case-insensitive, optional surrounding whitespace).
 // When the agent emits exactly this as its full response, the platform send is suppressed
 // so the agent stays silent in group chats where a reply would be noise.
-var silentReplyRe = regexp.MustCompile(`(?i)^\s*NO_REPLY\s*$`)
+var silentReplyRe = regexp.MustCompile(`(?i)^NO_REPLY[.!?,;:。！？…，；：、]*$`)
 
 // silentReplyTrailingRe matches a trailing NO_REPLY marker preceded by whitespace or
 // markdown emphasis (`*`). Lets agents that narrate their reasoning before the marker
 // still suppress the marker from the delivered text (mirroring OpenClaw's stripSilentToken).
 // With tool progress hidden, text segments around tool calls are joined with no separator,
 // so the marker can sit right after CJK text or punctuation; group 1 preserves that character.
-var silentReplyTrailingRe = regexp.MustCompile(`(?i)(?:^|\s+|\*+|([^\x00-\x7F]|[.!?,;:)\]]))NO_REPLY\s*$`)
+var silentReplyTrailingRe = regexp.MustCompile(`(?i)(?:^|[\s\p{Z}]+|\*+|([^\x00-\x7F]|[.!?,;:)\]]))NO_REPLY[.!?,;:。！？…，；：、\s\p{Z}]*$`)
 
 // isSilentReply reports whether text is exactly a NO_REPLY marker.
 func isSilentReply(text string) bool {
-	return silentReplyRe.MatchString(text)
+	return IsSilentReply(text)
+}
+
+// IsSilentReply reports whether text is a NO_REPLY marker, ignoring surrounding
+// Unicode whitespace and sentence-ending punctuation. Agent handoffs share this check.
+func IsSilentReply(text string) bool {
+	return silentReplyRe.MatchString(strings.TrimSpace(text))
 }
 
 // stripTrailingSilent removes a trailing NO_REPLY marker and returns the stripped text
 // along with whether a strip occurred. Caller must first check isSilentReply for the
 // bare-marker case; this helper assumes mixed content.
 func stripTrailingSilent(text string) (string, bool) {
-	stripped := silentReplyTrailingRe.ReplaceAllString(text, "${1}")
-	if stripped == text {
+	trimmed := strings.TrimRightFunc(text, unicode.IsSpace)
+	stripped := silentReplyTrailingRe.ReplaceAllString(trimmed, "${1}")
+	if stripped == trimmed {
 		return text, false
 	}
-	return strings.TrimRight(stripped, " \t\r\n"), true
+	return strings.TrimRightFunc(stripped, unicode.IsSpace), true
+}
+
+// stripSilentReply applies the same marker rules at text segment boundaries.
+func stripSilentReply(text string) string {
+	if IsSilentReply(text) {
+		return ""
+	}
+	stripped, _ := stripTrailingSilent(text)
+	return stripped
 }
 
 // couldBeSilentPrefix reports whether the trimmed text is still a case-insensitive
@@ -19560,7 +19623,7 @@ func couldBeSilentPrefix(text string) bool {
 	if t == "" {
 		return true
 	}
-	return strings.HasPrefix("NO_REPLY", strings.ToUpper(t))
+	return strings.HasPrefix("NO_REPLY", strings.ToUpper(t)) || IsSilentReply(t)
 }
 
 func isEllipsisOnly(text string) bool {

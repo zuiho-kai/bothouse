@@ -138,7 +138,7 @@ func (p *handoffParser) add(l *rolloutLine) {
 			return // progress chatter before a tool call
 		}
 		text := outputText(&pl)
-		if text == "" || text == "NO_REPLY" {
+		if text == "" || core.IsSilentReply(text) {
 			return
 		}
 		e := core.HistoryEntry{Role: "assistant", Content: text, Timestamp: l.Timestamp}

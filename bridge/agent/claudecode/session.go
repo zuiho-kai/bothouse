@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -979,9 +980,10 @@ func (cs *claudeSession) noteStopBlocked() {
 }
 
 // takeStopBlockedReply returns the final reply for a turn and clears the
-// per-turn state. If a Stop hook blocked a longer reply and the model then
-// wrote only a short addendum, the blocked reply goes in front so the channel
-// does not get the addendum alone.
+// per-turn state. If a Stop hook blocked a reply and the model then wrote
+// only a short addendum, the blocked reply goes in front so the channel does
+// not get the addendum alone. A rewrite (the hook asks for the whole reply
+// again) replaces the blocked reply: the user gets one version, not both.
 func (cs *claudeSession) takeStopBlockedReply(result string) string {
 	cs.replyMu.Lock()
 	pre := cs.preStopText
@@ -993,7 +995,10 @@ func (cs *claudeSession) takeStopBlockedReply(result string) string {
 func mergeStopBlockedReply(pre, result string) string {
 	pre = strings.TrimSpace(pre)
 	res := strings.TrimSpace(result)
-	if pre == "" || strings.Contains(res, pre) || len(res) >= len(pre) {
+	// A result at least half as long as the blocked reply is a rewrite, not an
+	// addendum (11-05: a heart-to-heart rewritten a bit shorter reached the
+	// user twice, blocked draft first).
+	if pre == "" || strings.Contains(res, pre) || 2*utf8.RuneCountInString(res) >= utf8.RuneCountInString(pre) {
 		return result
 	}
 	if res == "" {
