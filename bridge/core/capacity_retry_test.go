@@ -45,6 +45,10 @@ func (s *capacityScriptSession) Send(prompt string, _ string, _ []ImageAttachmen
 			s.events <- Event{Type: EventError, Error: errors.New("Selected model is at capacity. Please try a different model.")}
 		} else if next == "503" {
 			s.events <- Event{Type: EventError, Error: errors.New("503 Service Unavailable")}
+		} else if next == "rl" {
+			s.events <- Event{Type: EventError, Error: errors.New("exceeded retry limit, last status: 429 Too Many Requests")}
+		} else if next == "rlra" {
+			s.events <- Event{Type: EventError, Error: errors.New("429 Too Many Requests; Retry-After: 0.2s")}
 		} else if next == "quota" {
 			s.events <- Event{Type: EventError, Error: errors.New("RESOURCE_EXHAUSTED (code 429) Individual quota reached. Resets in 83h59m53s")}
 		} else {
@@ -546,5 +550,75 @@ func TestCapacityProbe_ScheduledSendersDoNotProbe(t *testing.T) {
 				t.Fatalf("a %q turn reached the model (%d sends) during a cooldown", user, n)
 			}
 		})
+	}
+}
+
+func TestRateLimitErrorAndRetryAfter(t *testing.T) {
+	for msg, want := range map[string]bool{
+		"exceeded retry limit, last status: 429 Too Many Requests": true,
+		"Rate limit reached for requests":                          true,
+		"RESOURCE_EXHAUSTED (code 429) Individual quota reached":   false, // quota cooling, not a 429 retry
+		"Selected model is at capacity.":                           false,
+		"read 4290 bytes":                                          false,
+	} {
+		if got := isRateLimitError(msg); got != want {
+			t.Errorf("isRateLimitError(%q) = %v, want %v", msg, got, want)
+		}
+	}
+	for msg, want := range map[string]time.Duration{
+		"429; Retry-After: 7":            7 * time.Second,
+		"retry after 1.5s":               1500 * time.Millisecond,
+		"Please try again in 2 minutes.": 2 * time.Minute,
+		"retry_after=250ms":              250 * time.Millisecond,
+	} {
+		if got, ok := rateLimitRetryAfter(msg); !ok || got != want {
+			t.Errorf("rateLimitRetryAfter(%q) = %v %v, want %v", msg, got, ok, want)
+		}
+	}
+	if _, ok := rateLimitRetryAfter("429 Too Many Requests"); ok {
+		t.Error("no Retry-After must not invent one")
+	}
+	for range 200 {
+		if d := rateLimitDelay("429", 3); d < 0 || d > 2*rateLimitBackoffBase {
+			t.Fatalf("attempt 3 backoff %v outside [0, 2·base]", d)
+		}
+		if d := rateLimitDelay("429; retry after 7s", 2); d < 7*time.Second || d > 7*time.Second+rateLimitBackoffBase {
+			t.Fatalf("Retry-After delay %v outside [7s, 7s+base]", d)
+		}
+	}
+}
+
+func TestRateLimitRetry_WaitsRetryAfterThenSucceeds(t *testing.T) {
+	old := rateLimitBackoffBase
+	rateLimitBackoffBase = time.Millisecond
+	t.Cleanup(func() { rateLimitBackoffBase = old })
+	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"rlra", "rl", "third"}}
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangEnglish)
+	start := time.Now()
+	e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u", UserName: "u", Content: "hello", ReplyCtx: "ctx"})
+	waitFor(t, "third attempt reply", func() bool { return strings.Contains(joined(p), "reply:third") })
+	if n := sess.sends(); n != 3 {
+		t.Fatalf("sends = %d, want 3", n)
+	}
+	if el := time.Since(start); el < 200*time.Millisecond {
+		t.Fatalf("re-sent after %v; must wait the 0.2s Retry-After first", el)
+	}
+	if out := joined(p); strings.Contains(out, "429") || strings.Contains(out, "冷却") {
+		t.Fatalf("429s leaked to the user or cooled down needlessly:\n%s", out)
+	}
+}
+
+func TestRateLimitRetry_CooldownSaysRateLimited(t *testing.T) {
+	oldBase, oldCool := rateLimitBackoffBase, capacityCooldownBase
+	rateLimitBackoffBase, capacityCooldownBase = time.Millisecond, time.Hour
+	t.Cleanup(func() { rateLimitBackoffBase, capacityCooldownBase = oldBase, oldCool })
+	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"rl", "rl", "rl"}}
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangEnglish)
+	e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u", UserName: "u", Content: "hello", ReplyCtx: "ctx"})
+	waitFor(t, "cooldown notice", func() bool { return strings.Contains(joined(p), "冷却") })
+	if out := joined(p); !strings.Contains(out, "中转限流（429）") || strings.Contains(out, "模型满载") {
+		t.Fatalf("a 429 cooldown must say rate limited:\n%s", out)
 	}
 }

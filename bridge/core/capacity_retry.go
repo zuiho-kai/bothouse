@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"math/rand/v2"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -42,6 +44,61 @@ func quotaCoolingDuration(msg string) (time.Duration, bool) {
 // try a different model." turn failure.
 func isModelCapacityError(msg string) bool {
 	return strings.Contains(msg, "at capacity")
+}
+
+// ---- #134: rate limits (HTTP 429) ----
+//
+// 用户 2026-11-04 17:07「可以」：中转 429 按 Retry-After 退避加抖动. A turn that fails with a 429
+// before any tool ran goes through the same retry/cooldown as "at capacity", but each re-send waits
+// first: the relay's Retry-After when the error carries one, else an exponential backoff with full
+// jitter, so the roles behind one relay do not all retry at the same instant.
+
+var rateLimitRE = regexp.MustCompile(`(?i)\b429\b|too many requests|rate[ _-]?limit`)
+
+// isRateLimitError matches a provider/relay rate-limit failure, e.g. Codex's
+// "exceeded retry limit, last status: 429 Too Many Requests".
+func isRateLimitError(msg string) bool {
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "quota") || strings.Contains(lower, "resource_exhausted") {
+		return false // a spent quota (also sent as 429) cools down until its reset, see quota_cooling.go
+	}
+	return rateLimitRE.MatchString(msg)
+}
+
+var retryAfterRE = regexp.MustCompile(`(?i)(?:retry[- _]after|try again in)[":=\s]*([0-9]+(?:\.[0-9]+)?)\s*(ms|s|sec|secs|seconds?|m|min|minutes?)?`)
+
+// rateLimitRetryAfter: the wait the error text asks for (Retry-After), if any.
+func rateLimitRetryAfter(msg string) (time.Duration, bool) {
+	m := retryAfterRE.FindStringSubmatch(msg)
+	if m == nil {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(m[1], 64)
+	if err != nil || v <= 0 {
+		return 0, false
+	}
+	unit := time.Second
+	switch u := strings.ToLower(m[2]); {
+	case u == "ms":
+		unit = time.Millisecond
+	case strings.HasPrefix(u, "m"):
+		unit = time.Minute
+	}
+	return time.Duration(v * float64(unit)), true
+}
+
+// rateLimitBackoffBase: the first backoff step without a Retry-After. Source: 沿用 watchTurnEndDelay
+// (15s, the pause the team watch already leaves between a failed turn and the next one).
+var rateLimitBackoffBase = watchTurnEndDelay
+
+// rateLimitDelay: how long to wait before re-send number attempt (2, 3, …) after a 429: the
+// Retry-After plus up to one backoff step of jitter, else full jitter over base·2^(attempt-2).
+func rateLimitDelay(msg string, attempt int) time.Duration {
+	if ra, ok := rateLimitRetryAfter(msg); ok {
+		return ra + time.Duration(rand.Int64N(int64(rateLimitBackoffBase)+1))
+	}
+	ceiling := rateLimitBackoffBase << max(0, attempt-2)
+	return time.Duration(rand.Int64N(int64(ceiling) + 1))
 }
 
 // capacityWait returns how long the current cooldown still runs (0 = none).
@@ -117,7 +174,15 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 	if probe {
 		attempts = 1 // one question, not the usual three-in-a-row
 	}
+	lastErr := ""
 	for attempt := 1; ; attempt++ {
+		if attempt > 1 && isRateLimitError(lastErr) {
+			wait := rateLimitDelay(lastErr, attempt)
+			slog.Warn("rate limited, waiting before retry", "session_key", key, "attempt", attempt, "wait", wait)
+			if !e.sleepCtx(wait) {
+				return
+			}
+		}
 		state.mu.Lock()
 		as := state.agentSession
 		state.capacityFailed = false
@@ -141,6 +206,7 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		state.mu.Lock()
 		failed := state.capacityFailed
 		state.capacityFailed = false
+		lastErr, state.capacityErr = state.capacityErr, ""
 		errored := state.turnErrored
 		state.turnErrored = false
 		alive := state.agentSession != nil && state.agentSession.Alive()
@@ -157,6 +223,9 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		if attempt >= attempts || !alive {
 			break
 		}
+		if ra, ok := rateLimitRetryAfter(lastErr); ok && ra >= capacityCooldownBase {
+			break // the relay wants longer than a cooldown: cool down instead of holding the turn
+		}
 		slog.Warn("model at capacity, retrying turn", "session_key", key, "attempt", attempt+1)
 	}
 	if probe {
@@ -167,7 +236,17 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		return
 	}
 	d := e.capacityStartCooldown()
-	slog.Warn("model at capacity after retries, cooling down", "session_key", key, "cooldown", d)
+	rateLimited := isRateLimitError(lastErr)
+	if ra, ok := rateLimitRetryAfter(lastErr); ok && ra > d {
+		d = ra
+		e.capMu.Lock()
+		e.capUntil = time.Now().Add(d)
+		e.capMu.Unlock()
+	}
+	e.capMu.Lock()
+	e.capRateLimited = rateLimited
+	e.capMu.Unlock()
+	slog.Warn("model at capacity after retries, cooling down", "session_key", key, "cooldown", d, "rate_limited", rateLimited)
 	giveUp(d)
 }
 
@@ -197,6 +276,10 @@ func (e *Engine) deferForCapacity(p Platform, msg Message, agent Agent, sessions
 		channel = msg.SessionKey
 	}
 	e.capMu.Lock()
+	why := "模型满载（at capacity）"
+	if e.capRateLimited {
+		why = "中转限流（429）"
+	}
 	already := e.capNotified[channel]
 	if !already {
 		if e.capNotified == nil {
@@ -209,7 +292,9 @@ func (e *Engine) deferForCapacity(p Platform, msg Message, agent Agent, sessions
 		if cooling {
 			e.sendSystemNotice(p, msg.ReplyCtx, fmt.Sprintf("⏳ 模型满载冷却中，这条 %d 分钟后再处理。", mins))
 		} else {
-			e.sendSystemNotice(p, msg.ReplyCtx, fmt.Sprintf("⏳ 模型满载（at capacity），连试 %d 次都失败，冷却 %d 分钟后自动重试这条。", capacityAttempts, mins))
+			// Why it cooled (满载 or 中转限流) and, for a retryable upstream error, what it was
+			// (#983 ①); sendSystemNotice keeps QQ groups free of bridge notices.
+			e.sendSystemNotice(p, msg.ReplyCtx, fmt.Sprintf("⏳ %s，连试 %d 次都失败，冷却 %d 分钟后自动重试这条。", why, capacityAttempts, mins))
 		}
 	}
 	msg.UserMessageTimeMs = 0 // a re-delivery is never "stale"
