@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 6786aea76a194f0b5191a831883913bb212c3b29bd41e79ab21dca3a2275cbb5
+// dsh-client-source-sha256: 37510a6924cb2550fbacdf308aa02dbc141678ba485b71c38d5e116196e1c5a9
 // dsh-style-sha256: 2e640033692a63b951ba23a41d830ebca956e67e0c0a9a38ba6618e25b4b480c
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -22770,14 +22770,10 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 	});
 }
 // src/client/PanelIcons.tsx
-/** Decorative occupants for the desk, wiki galaxy and bothouse panel sidebar entries (#105). */
+/** Decorative occupants for the desk, bothouse panel and other-computers sidebar entries (#105). */
 /** Team desk glyph; the sidebar owns the label. */
 function DeskIcon({ size }) {
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChecklistOutlineRegular, { size });
-}
-/** Wiki galaxy glyph. */
-function GalaxyIcon({ size }) {
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSparkleRegular, { size });
 }
 /** bothouse management panel glyph. */
 function PanelIcon({ size }) {
@@ -23540,6 +23536,7 @@ function apply(ctx) {
 		bindPanel();
 		const unsubscribe = ctx.slots.subscribe("sidebar.settings", bindPanel);
 		if (location.hash === `#${PANEL_ID}`) ctx.layout.selectPanel(PANEL_ID);
+		if (location.hash === `#${GALAXY_ID}`) ctx.layout.selectPanel(GALAXY_ID);
 		return () => {
 			unsubscribe();
 			disposePanel?.();
@@ -23561,18 +23558,11 @@ function apply(ctx) {
 			order: 6
 		},
 		{
-			id: GALAXY_ID,
-			path: "collab/wiki-galaxy",
-			label: "panelGalaxy",
-			icon: GalaxyIcon,
-			order: 7
-		},
-		{
 			id: BOTHOUSE_ID,
 			path: "collab/panel/",
 			label: "panelBothouse",
 			icon: PanelIcon,
-			order: 8
+			order: 7
 		},
 		{
 			id: DEVICES_ID,
@@ -23582,6 +23572,15 @@ function apply(ctx) {
 			order: 9
 		}
 	];
+	ctx.slots.inject("main", () => ctx.slots.register({
+		name: "main",
+		key: GALAXY_ID,
+		locale: NS,
+		inject: () => ({
+			path: "collab/panel/wiki-galaxy",
+			title: t("panelGalaxy")
+		})
+	}, EmbedPage));
 	for (const page of embeds) {
 		ctx.slots.inject("main", () => ctx.slots.register({
 			name: "main",
