@@ -378,6 +378,7 @@ type Engine struct {
 	turnJournalOnce sync.Once
 	// #624 K4: resume interrupted turns once, after the first platform is ready.
 	turnResumeOnce  sync.Once
+	releaseHoldOnce sync.Once
 	turnResumeHooks turnResumeHooks
 	relaySessions   relaySessionSet
 
@@ -3142,6 +3143,7 @@ func (e *Engine) onPlatformReady(p Platform) {
 	// #624 K4: scan the turn journal once; each entry waits for its own platform.
 	// Tracked as message work so Stop waits for it (it opens the journal under dataDir).
 	e.turnResumeOnce.Do(func() { e.startMessageWorker(e.ResumeInterruptedTurns) })
+	e.releaseHoldOnce.Do(func() { e.startMessageWorker(e.resumeReleaseHolds) })
 }
 
 func (e *Engine) markPlatformReady(p Platform) bool {
