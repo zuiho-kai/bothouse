@@ -17,6 +17,7 @@ import { DshMembers } from './dsh-member.mjs';
 import { Roster, rowToMember } from './roster.mjs';
 import { Tasks, WORKING } from './tasks.mjs';
 import { createCliMember } from './cli-member.mjs';
+import { MemorySources } from './memory-sources.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
 import { AvatarUploads } from './avatar-uploads.mjs';
 import { handler as clisHandler } from './clis.mjs';
@@ -132,6 +133,7 @@ export async function apply(ctx, rawConfig) {
   store.migrateMemberRooms();
   const leadState = new LeadState(config.leadFile, ctx.logger);
   const hub = new Hub(store, ctx.logger, leadState, config.fallbackLead);
+  hub.memorySources = new MemorySources({ logger: ctx.logger }); // #1020 回复的记忆来源
   hub.workspacePath = config.workspacePath;
   hub.teamExit = new TeamExit(hub);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
@@ -256,7 +258,8 @@ export async function apply(ctx, rawConfig) {
         effective_lead_id: hub.primaryMember()?.id ?? null,
         rooms: store.roomsView().map(r => ({ ...r, lead_id: store.leadId(r.id), effective_lead_id: hub.primaryIn(r.id)?.id ?? null,
           workspace_path: store.workspacePath(r.id, config.workspacePath) })), members: hub.memberView(),
-        thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])) });
+        thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])),
+        queued: Object.fromEntries([...hub.queued.keys()].map(r => [r, hub.queueView(r)])) });
     }
     if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
     if (path === '/collab/api/lead' && req.method === 'GET') {

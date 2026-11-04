@@ -2967,6 +2967,7 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 
 func (e *Engine) Start() error {
 	e.restoreProactiveAdmissions()
+	go e.queueReportLoop() // #1020 queue_report.go
 	e.resolveRoleProductPython()
 	var startErrs []error
 	readyCount := 0

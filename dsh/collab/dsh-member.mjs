@@ -460,7 +460,7 @@ export class DshMembers {
     const running = [];
     for (const job of this.store.openJobs()) {
       if (job.trigger_id !== triggerId) continue;
-      if (job.state === 'pending') { this.store.finishJob(job.id, 'interrupted'); continue; }
+      if (job.state === 'pending') { this.store.finishJob(job.id, 'interrupted'); this.syncQueue(job.member_id, job.room_id); continue; }
       const w = this.watching.get(job.session_id);
       const agent = job.input_id ? this.rt.ctx.agents.get(job.session_id) : undefined;
       if (w?.jobId !== job.id || agent === undefined) { running.push(job.member_id); continue; }
@@ -583,12 +583,27 @@ export class DshMembers {
   /** Serialize work per (member, room): runs, recoveries, and Session resumes never overlap. */
   enqueue(job, task) {
     const key = `${job.member_id}\u0000${job.room_id}`;
-    const tail = (this.queues.get(key) ?? Promise.resolve()).then(() => (this.closed ? undefined : task())).catch((error) => {
+    const sync = () => this.syncQueue(job.member_id, job.room_id);
+    const tail = (this.queues.get(key) ?? Promise.resolve()).then(() => { sync(); return this.closed ? undefined : task(); }).catch((error) => {
       this.rt.logger.warn('collab: DSH job %d failed: %s', job.id, error?.stack ?? error);
       if (!this.closed) this.fail(job.id, error?.code === 'COLLAB_CLI_START' ? error : `出错了：${error?.message ?? error}`);
-    });
+    }).finally(sync);
     this.queues.set(key, tail);
+    sync();
     return tail;
+  }
+
+  /**
+   * #1020: tell the hub which of the owner's messages wait for this member here — its open
+   * jobs after the first (the one running or about to), still pending. Withdrawing one is the
+   * existing recall (#148 a queued job is closed).
+   */
+  syncQueue(memberId, roomId) {
+    if (typeof this.hub.setQueue !== 'function') return;
+    const open = this.store.openJobs().filter(j => j.member_id === memberId && j.room_id === roomId);
+    const ids = open.slice(1).filter(j => j.state === 'pending').map(j => j.trigger_id)
+      .filter(id => this.store.message(id)?.author_kind === 'user');
+    this.hub.setQueue(roomId, memberId, ids);
   }
 
   async run(jobId) {
@@ -655,7 +670,9 @@ export class DshMembers {
     let entry = this.cliAgents.get(cliKey);
     if (entry === undefined) {
       // Persona goes through promptText every turn, so an edit applies without restarting the CLI.
-      entry = { memberId: member.id, cli: member.cli, agent: this.rt.createCliMember({ cli: member.cli, cwd, persona: '' }) };
+      entry = { memberId: member.id, cli: member.cli, agent: this.rt.createCliMember({ cli: member.cli, cwd, persona: '',
+        // #1020: memvote.py records citations under these (memory-sources.mjs), named as the gate key (gate-context.mjs).
+        env: { CC_PROJECT: `dsh:${member.id}`, CC_SESSION_KEY: `dsh:${member.id}:${room.id}` } }) };
       this.cliAgents.set(cliKey, entry);
     }
     this.hub.setError(member.id, undefined);

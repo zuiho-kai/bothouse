@@ -1124,4 +1124,32 @@ describe('multi-line messages and the narrow composer', () => {
     expect(input).toContain('min-width: 0')
     expect(cssText()).toMatch(/@media \(max-width: 600px\) \{\n {2}\.composer \{ padding: 0 8px 8px; \}/)
   })
+  it('#1020 shows 排队 N 条 in the typing line and tags each waiting message, keeping its 撤回 in reach', () => {
+    const own = (id: number, text: string) => ({ id, room_id: 1, author_kind: 'user' as const, author: 'owner', name: '我', text, created_at: id, card: null, from_turn: null })
+    const state: ChannelSnapshot = { ...ready, messages: [...ready.messages, own(2, '一'), own(3, '二'), own(4, '三')], queued: { 1: { ju: [3, 4] } } }
+    const view = render(<ChannelsPage {...props(state)} />)
+    expect(screen.getByRole('button', { name: '排队 2 条' })).toBeTruthy()
+    const waiting = [...view.container.querySelectorAll('[data-queued]')].map(row => row.getAttribute('data-message-id'))
+    expect(waiting).toEqual(['3', '4'])
+    const tag = within(view.container.querySelector('[data-message-id="3"]') as HTMLElement).getByText(zh.queuedTag)
+    expect(tag.getAttribute('title')).toBe('等 橘 忙完再处理，撤回就不发了')
+    expect(within(view.container.querySelector('[data-message-id="3"]') as HTMLElement).getByRole('button', { name: zh.messageWithdraw })).toBeTruthy()
+    expect(view.container.querySelector('[data-message-id="2"][data-queued]')).toBeNull()
+    view.rerender(<ChannelsPage {...props({ ...state, queued: { 1: {} } })} />)
+    expect(screen.queryByRole('button', { name: /排队/ })).toBeNull()
+  })
+
+  it('#1020 a reply with memory sources shows a badge that opens to their titles', () => {
+    const reply = { id: 5, room_id: 1, author_kind: 'role' as const, author: 'ju', name: '橘', text: '照做了', created_at: 5, card: null, from_turn: 1,
+      memories: [{ id: 'bots/team.md#0123456789', ref: '0123456789', page: 'bots/team.md', title: '派活前先看队友状态' }, { id: 'x.md#aaaaaaaaaa', ref: 'aaaaaaaaaa', page: 'x.md', title: '' }] }
+    render(<ChannelsPage {...props({ ...ready, messages: [reply] })} />)
+    const badge = screen.getByRole('button', { name: /记忆 2/ })
+    expect(badge.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('派活前先看队友状态')).toBeNull()
+    fireEvent.click(badge)
+    const list = screen.getByRole('list', { name: zh.memoryList })
+    expect(within(list).getByText('派活前先看队友状态')).toBeTruthy()
+    expect(within(list).getByText('bots/team.md #0123456789')).toBeTruthy()
+    expect(within(list).getByText(zh.memoryMoved)).toBeTruthy()
+  })
 })
