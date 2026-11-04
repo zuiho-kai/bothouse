@@ -7,7 +7,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import type { ChannelRoom, ChannelTask, TaskStatus } from './channel-source.ts'
-import { BOARD_TABS, boardSections, cardMembers, sectionTitle, elapsed, formatDuration, STATUS_KEY, type T } from './task-board.ts'
+import { BOARD_TABS, boardGroupOf, boardSections, inTab, cardMembers, sectionTitle, elapsed, formatDuration, STATUS_KEY, type T } from './task-board.ts'
 import css from './ChannelsPage.module.css'
 
 function clock(seconds: number): string {
@@ -57,11 +57,11 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }:
     flushSync(close)
     onOpen(targetRoomId, messageId)
   }
-  const openTotal = sections.reduce((n, s) => n + s.open, 0)
   const all = sections.reduce((n, s) => n + s.open + s.done, 0)
   const scopedTasks = sections.flatMap(section => section.owners.flatMap(group => [...group.open, ...group.done]))
+  const groupCount = (group: string) => scopedTasks.filter(task => boardGroupOf(task) === group).length
   const activeTab = BOARD_TABS.find(tab => tab.id === selectedTab)!
-  const matches = (task: ChannelTask) => activeTab.statuses.length === 0 || activeTab.statuses.includes(task.status)
+  const matches = (task: ChannelTask) => inTab(activeTab, task)
   const visibleCount = scopedTasks.filter(matches).length
   const review = async (id: number, verdict: 'done' | 'rework') => {
     setSaving(true)
@@ -77,7 +77,7 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }:
     }
   }
   const row = (task: ChannelTask) => (
-    <li key={task.id} className={css.boardTaskCard} data-task-id={task.id} data-status={task.status} data-working={BOARD_TABS.find(tab => tab.initial)!.statuses.includes(task.status)}>
+    <li key={task.id} className={css.boardTaskCard} data-task-id={task.id} data-status={task.status} data-working={boardGroupOf(task) === 'working'} data-group={boardGroupOf(task)}>
       <div className={css.boardTaskHeader}>
         <span className={css.boardTaskTitle}>#{task.id} {task.title}</span>
         <Status status={task.status} t={t} />
@@ -103,12 +103,12 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }:
   )
   return (
     <>
-      <button type="button" className={css.taskBoardTrigger} aria-label={t('taskBoardOpen')} aria-haspopup="dialog" aria-expanded={opened} onClick={() => { setSelectedTab(BOARD_TABS.find(tab => tab.initial)!.id); setOpened(true) }}>
+      <button type="button" className={css.taskBoardTrigger} aria-label={t('taskBoardOpen')} aria-haspopup="dialog" aria-expanded={opened} onClick={() => { setSelectedTab((BOARD_TABS.find(tab => tab.groups.length > 0 && scopedTasks.some(task => inTab(tab, task))) ?? BOARD_TABS.find(tab => tab.initial)!).id); setOpened(true) }}>
         <span>{t('taskBoard')}</span>
-        <span className={css.taskBoardSummary}>{all === 0 ? t('taskBoardNoTasks') : t('taskBoardSummary', { open: String(openTotal), done: String(all - openTotal) })}</span>
+        <span className={css.taskBoardSummary}>{all === 0 ? t('taskBoardNoTasks') : t('taskBoardSummary', { decide: String(groupCount('decide')), working: String(groupCount('working')) })}</span>
         <span aria-hidden="true">›</span>
       </button>
-      {opened && createPortal(<div className={css.dialogBackdrop} onMouseDown={event => { if (event.target === event.currentTarget) close() }}>
+      {opened && createPortal(<div className={`${css.dialogBackdrop} ${css.boardDrawerBackdrop}`} onMouseDown={event => { if (event.target === event.currentTarget) close() }}>
         <section ref={dialog} className={`${css.dialog} ${css.taskBoardDialog}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={event => {
           if (event.key === 'Escape') { event.stopPropagation(); close() }
           if (event.key === 'Tab') {
@@ -135,7 +135,7 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }:
                 setSelectedTab(BOARD_TABS[next].id)
                 document.getElementById(`${tabId}-${BOARD_TABS[next].id}`)?.focus()
               }}>
-                {t(tab.label)} <span className={css.boardTabCount}>{scopedTasks.filter(task => tab.statuses.length === 0 || tab.statuses.includes(task.status)).length}</span>
+                {t(tab.label)} <span className={css.boardTabCount}>{scopedTasks.filter(task => inTab(tab, task)).length}</span>
               </button>
             ))}
           </div>

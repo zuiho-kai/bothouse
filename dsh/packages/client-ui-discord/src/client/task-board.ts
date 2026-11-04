@@ -14,18 +14,40 @@ export const STATUS_KEY = {
   escalated: 'taskEscalated', returned: 'taskReturned', done: 'taskDone', rework: 'taskRework',
 } as const satisfies Record<TaskStatus, string>
 
-/** Single source for tab membership and board ordering; an empty list means all statuses. */
-export const BOARD_TABS: readonly { id: string; label: keyof typeof zh; statuses: readonly TaskStatus[]; initial?: boolean }[] = [
-  { id: 'all', label: 'taskTabAll', statuses: [] },
-  { id: 'working', label: 'taskTabWorking', statuses: ['assigned', 'accepted', 'asked', 'rework'], initial: true },
-  { id: 'review', label: 'taskTabReview', statuses: ['returned', 'declined', 'escalated'] },
-  { id: 'done', label: 'taskTabDone', statuses: ['done'] },
+/**
+ * Board groups, in the order the owner asked for (11-04 review of the white scheme:
+ * 「等你定（asked/退回待你定）→在做→暂停/待发布」, finished tasks are not a main group).
+ * - decide: the task waits on the lead/user — a question (asked), a hand-back to accept
+ *   (returned), or a 退/升 stance (declined, escalated).
+ * - working: the owner's turn and live (assigned, accepted, rework, not parked).
+ * - parked: the owner's turn but parked by the hourly wrap-up (paused_at set). The task
+ *   API carries no "awaiting release" state, so only paused tasks land here.
+ * - done: accepted; listed only under 「全部」.
+ */
+export type BoardGroup = 'decide' | 'working' | 'parked' | 'done'
+const DECIDE: readonly TaskStatus[] = ['asked', 'returned', 'declined', 'escalated']
+export function boardGroupOf(task: ChannelTask): BoardGroup {
+  if (DECIDE.includes(task.status)) return 'decide'
+  if (task.status === 'done') return 'done'
+  return task.paused_at != null ? 'parked' : 'working'
+}
+
+/** Single source for tab membership and board ordering; `groups` empty means all tasks.
+ * The board opens on the first group that has tasks, 等你定 when all are empty. */
+export const BOARD_TABS: readonly { id: string; label: keyof typeof zh; groups: readonly BoardGroup[]; initial?: boolean }[] = [
+  { id: 'decide', label: 'taskTabDecide', groups: ['decide'], initial: true },
+  { id: 'working', label: 'taskTabWorking', groups: ['working'] },
+  { id: 'parked', label: 'taskTabParked', groups: ['parked'] },
+  { id: 'all', label: 'taskTabAll', groups: [] },
 ]
-const groupOf = (status: TaskStatus): number => BOARD_TABS.findIndex(g => g.statuses.includes(status))
+const ORDER: readonly BoardGroup[] = ['decide', 'working', 'parked', 'done']
+const groupOf = (task: ChannelTask): number => ORDER.indexOf(boardGroupOf(task))
+/** Whether a task shows under a tab. */
+export const inTab = (tab: (typeof BOARD_TABS)[number], task: ChannelTask): boolean => tab.groups.length === 0 || tab.groups.includes(boardGroupOf(task))
 
 /** Board rows, grouped as above and newest first inside a group. */
 export function boardOrder(tasks: readonly ChannelTask[]): ChannelTask[] {
-  return [...tasks].sort((a, b) => groupOf(a.status) - groupOf(b.status) || b.id - a.id)
+  return [...tasks].sort((a, b) => groupOf(a) - groupOf(b) || b.id - a.id)
 }
 
 /** Seconds a task has taken: until hand-back, until it closed, or until now. */
