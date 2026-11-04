@@ -404,7 +404,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 			// (10-30: 「暂停」 answered third, 2 min later, after a "queued" notice).
 			msg.abortFront = true
 		} else if busy {
-			if e.stopInteractiveSessionForAbort(interactiveKey, p, msg.ReplyCtx) {
+			if e.stopInteractiveSessionForAbort(interactiveKey) {
 				e.reply(p, msg.ReplyCtx, "⏹ 已打断当前这一轮")
 				// Let the cancelled turn release the session (same wait as a recalled message),
 				// so this message starts the new turn instead of queueing behind the old one.
@@ -509,7 +509,7 @@ func (e *Engine) abortForQueuedFront(p Platform, msg *Message, interactiveKey st
 	if started {
 		return
 	}
-	if e.stopInteractiveSessionForAbort(interactiveKey, p, msg.ReplyCtx) {
+	if e.stopInteractiveSessionForAbort(interactiveKey) {
 		e.reply(p, msg.ReplyCtx, "⏹ 已打断当前这一轮")
 	}
 }

@@ -128,12 +128,14 @@ func runGateAbortClose(t *testing.T, kind string) {
 		release := make(chan struct{})
 		var once sync.Once
 		releaseClose = func() { once.Do(func() { close(release) }) }
-		defer releaseClose()
 		a.closeStarted, a.closeWait, a.restarted = make(chan struct{}, 1), release, make(chan struct{}, 1)
 	}
 	p := &leadPlatform{}
 	e := NewEngine("test", a, []Platform{p}, t.TempDir()+"/sessions.json", LangEnglish)
 	defer e.Stop()
+	if releaseClose != nil {
+		defer releaseClose() // release the backend barrier before engine shutdown on failure
+	}
 	e.SetGate(srv.URL+"/decide", 1000, "reply")
 	const key = "test:close-abort"
 	send := func(id, text string) {
@@ -167,6 +169,17 @@ func runGateAbortClose(t *testing.T, kind string) {
 		case <-time.After(5 * time.Second):
 			t.Fatal("old process close never began")
 		}
+		send("4", "message during close")
+		waitFor(t, "new message queued during close", func() bool {
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			for _, m := range p.sent {
+				if m.ctx.id == "4" && strings.Contains(m.content, "📬") {
+					return true
+				}
+			}
+			return false
+		})
 		select {
 		case <-a.restarted:
 			releaseClose()
@@ -196,11 +209,17 @@ func runGateAbortClose(t *testing.T, kind string) {
 			answers++
 		}
 	}
-	if notices != 1 || answers != 1 {
-		t.Fatalf("want one original queue notice and one batched answer; sent=%+v", sent)
+	wantNotices, wantAnswers := 1, 2
+	wantPrompts := []string{"original task", "queued supplement", "change direction"}
+	if kind == "slow-close" {
+		wantNotices = 2 // same-sender pending messages are batched into the second answer
+		wantPrompts = append(wantPrompts, "message during close")
+	}
+	if notices != wantNotices || answers != wantAnswers {
+		t.Fatalf("want %d queue notices and %d answers; sent=%+v", wantNotices, wantAnswers, sent)
 	}
 	prompts := a.prompts()
-	for _, text := range []string{"original task", "queued supplement", "change direction"} {
+	for _, text := range wantPrompts {
 		count := 0
 		for _, prompt := range prompts {
 			count += strings.Count(prompt, text)
