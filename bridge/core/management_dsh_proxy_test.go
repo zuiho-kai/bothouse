@@ -490,6 +490,62 @@ func TestDSHProxyRewritesAppShellUnderPrefix(t *testing.T) {
 	}
 }
 
+// TestDSHProxyRewritesPanelMountBase keeps the bothouse panel reachable through /dsh/: the collab
+// host points the panel's base at its own mount (/collab/panel/), and leaving that untouched makes
+// the panel load its assets and /api/v1 from the bare path, where the management SPA answers with
+// index.html instead of JavaScript.
+func TestDSHProxyRewritesPanelMountBase(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skipf("node not available: %v", err)
+	}
+	// The fixture is panel.mjs's own rewritePanelHTML output, not a tag written by hand here.
+	out, err := exec.Command("node", "--input-type=module", "-e", `import { pathToFileURL } from 'node:url';`+
+		`const m = await import(pathToFileURL(process.argv[1]).href);`+
+		`process.stdout.write(m.rewritePanelHTML('<html><head><base href="/" /><script type="module" src="./assets/index.js"></script></head><body><div id="root"></div></body></html>'))`,
+		filepath.Join("..", "..", "dsh", "collab", "panel.mjs")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("panel.mjs: %v\n%s", err, out)
+	}
+	panel := string(out)
+	if !strings.Contains(panel, `<base href="/collab/panel/" />`) {
+		t.Fatalf("panel.mjs fixture shape changed: %s", panel)
+	}
+	res := &http.Response{Header: http.Header{"Content-Type": {"text/html"}}, Body: io.NopCloser(strings.NewReader(panel))}
+	if err := dshRewriteHTML(res); err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<base href="/dsh/collab/panel/" />`,
+		`<meta name="bothouse-auth" content="proxy" />`,
+		`src="./assets/index.js"`,
+	} {
+		if !strings.Contains(string(got), want) {
+			t.Fatalf("panel page lacks %s:\n%s", want, got)
+		}
+	}
+	if strings.Contains(string(got), `<base href="/collab/panel/"`) {
+		t.Fatalf("panel base kept its unprefixed mount:\n%s", got)
+	}
+	// DSH's own root shell and the collab pages without a base stay as they were.
+	for _, tc := range []struct{ name, body, want string }{
+		{"dsh root shell", `<html><head><base href="/"></head></html>`, `<base href="/dsh/"><script>`},
+		{"collab page without base", `<html><head><script>fetch('/collab/api/state')</script></head></html>`, `fetch('/collab/api/state')`},
+	} {
+		res := &http.Response{Header: http.Header{"Content-Type": {"text/html"}}, Body: io.NopCloser(strings.NewReader(tc.body))}
+		if err := dshRewriteHTML(res); err != nil {
+			t.Fatal(err)
+		}
+		got, _ := io.ReadAll(res.Body)
+		if !strings.Contains(string(got), tc.want) || strings.Contains(string(got), "/dsh/collab/panel/") {
+			t.Fatalf("%s: %s", tc.name, got)
+		}
+	}
+}
+
 // TestDSHPathShimRewritesOnlyDSHRoutes runs the injected shim in node and checks every request
 // entry point: DSH routes get /dsh, while the panel API, already-prefixed paths, other origins and
 // other schemes stay as given.

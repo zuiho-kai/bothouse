@@ -118,10 +118,9 @@ export function apply(ctx: ClientContext): void {
     const unsubscribe = ctx.slots.subscribe('sidebar.settings', bindPanel)
     // Deep link: the setup wizard opens `…#channels` (bridge core/setup_dsh_configure.go dshChannelsHash).
     // ctx.layout is the ui-layout service (`provide('layout')`), so it must be in `inject`.
+    // #145: `#wiki-galaxy` is handled after the panel registrations at the end of apply(), because
+    // selecting a panel whose main entry is not registered yet fails activation.
     if (location.hash === `#${PANEL_ID}`) ctx.layout.selectPanel(PANEL_ID)
-    // #145: a bookmark or window still saying `#wiki-galaxy` opens the galaxy sub-page, which now
-    // lives in the bothouse panel; the panel itself has no sidebar entry any more.
-    if (location.hash === `#${GALAXY_ID}`) ctx.layout.selectPanel(GALAXY_ID)
     return () => { unsubscribe(); disposePanel?.() }
   })
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
@@ -157,4 +156,7 @@ export function apply(ctx: ClientContext): void {
       name: 'sidebar.panellist', id: page.id, order: page.order, locale: NS, label: () => t(page.label),
     }, page.icon))
   }
+  // #145: a bookmark or window still saying `#wiki-galaxy` opens the galaxy sub-page. Runs after the
+  // registrations above; selecting a panel first leaves the shell with no seat to activate.
+  if (location.hash === `#${GALAXY_ID}`) ctx.layout.selectPanel(GALAXY_ID)
 }

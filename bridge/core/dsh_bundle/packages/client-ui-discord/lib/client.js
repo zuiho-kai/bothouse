@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 37510a6924cb2550fbacdf308aa02dbc141678ba485b71c38d5e116196e1c5a9
+// dsh-client-source-sha256: fda86d51bd8ad99d01bdd557f964e570d4be623eb9963b51795975b2a4dd7dae
 // dsh-style-sha256: 2e640033692a63b951ba23a41d830ebca956e67e0c0a9a38ba6618e25b4b480c
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -23536,7 +23536,6 @@ function apply(ctx) {
 		bindPanel();
 		const unsubscribe = ctx.slots.subscribe("sidebar.settings", bindPanel);
 		if (location.hash === `#${PANEL_ID}`) ctx.layout.selectPanel(PANEL_ID);
-		if (location.hash === `#${GALAXY_ID}`) ctx.layout.selectPanel(GALAXY_ID);
 		return () => {
 			unsubscribe();
 			disposePanel?.();
@@ -23599,6 +23598,7 @@ function apply(ctx) {
 			label: () => t(page.label)
 		}, page.icon));
 	}
+	if (location.hash === `#${GALAXY_ID}`) ctx.layout.selectPanel(GALAXY_ID);
 }
 exports.apply = apply;
 exports.inject = inject;
