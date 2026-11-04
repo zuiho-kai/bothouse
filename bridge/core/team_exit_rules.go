@@ -304,14 +304,29 @@ func artReportProblems(notes, body string, exists func(string) bool) []string {
 // Each item's key is its text up to the first punctuation, at most key_runes runes; it and the
 // body are compared without whitespace, case-folded. notes "" or no 改 items: nothing to check.
 func scopeReportProblems(notes, body string) []string {
-	if notes == "" {
-		return nil
-	}
 	norm := func(s string) string {
 		return strings.ToLower(strings.Join(strings.Fields(s), ""))
 	}
 	have := norm(body)
 	var missing []string
+	for _, it := range scopeChangeItems(notes) {
+		if k := norm(it.Key); k != "" && !strings.Contains(have, k) {
+			missing = append(missing, it.Key)
+		}
+	}
+	if missing == nil {
+		return nil
+	}
+	return []string{strings.ReplaceAll(exitRules.Scope.Missing, "{items}", strings.Join(missing, exitRules.Scope.Sep))}
+}
+
+// scopeItem is one 「改」 item of a handoff's 「## 范围」: Text as written after 「改：」, Key what a
+// report must mention (Text up to the first punctuation, at most key_runes runes).
+type scopeItem struct{ Text, Key string }
+
+// scopeChangeItems lists the 「改」 items of the handoff's 「## 范围」 (notes "": none).
+func scopeChangeItems(notes string) []scopeItem {
+	var items []scopeItem
 	in := false
 	for _, ln := range strings.Split(strings.ReplaceAll(notes, "\r\n", "\n"), "\n") {
 		if strings.HasPrefix(strings.TrimSpace(ln), "#") {
@@ -330,14 +345,9 @@ func scopeReportProblems(notes, body string) []string {
 		if r := []rune(key); exitRules.Scope.KeyRunes > 0 && len(r) > exitRules.Scope.KeyRunes {
 			key = string(r[:exitRules.Scope.KeyRunes])
 		}
-		if k := norm(key); k != "" && !strings.Contains(have, k) {
-			missing = append(missing, key)
-		}
+		items = append(items, scopeItem{Text: strings.TrimSpace(m[2]), Key: key})
 	}
-	if missing == nil {
-		return nil
-	}
-	return []string{strings.ReplaceAll(exitRules.Scope.Missing, "{items}", strings.Join(missing, exitRules.Scope.Sep))}
+	return items
 }
 
 // genericReportProblems: a [report] whose 「我加的：」 line says a product capability was made for

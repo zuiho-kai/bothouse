@@ -43,6 +43,10 @@ func runReport(args []string) {
 			fmt.Fprintf(os.Stderr, "report: %v\n", err)
 			os.Exit(1)
 		}
+	case "check":
+		os.Exit(reportCheckCommand(args[1:], os.Stdin, os.Stdout, os.Stderr))
+	case "skeleton":
+		os.Exit(reportSkeletonCommand(args[1:], os.Stdout, os.Stderr))
 	default:
 		fmt.Fprintf(os.Stderr, "report: unknown subcommand %q\n\n", args[0])
 		printReportUsage(os.Stderr)
@@ -256,6 +260,8 @@ func printReportUsage(w io.Writer) {
 
 Subcommands:
   file-frequency     Files read most often (also: reads)
+  check              Check a workspace [report]/[ask] draft before sending it (same rules as the bridge)
+  skeleton           Print the [report] to fill in for a board item, one line per scope item
 
 Run 'bothouse report file-frequency -h' for flags.
 The command is read-only: it never changes memory or STANDING.md.`)
@@ -290,4 +296,77 @@ Flags:
   --json-out PATH      also write the JSON report to PATH
   --wiki PATH          wiki directory holding STANDING.md (default: $GATE_WIKI or ~/wiki; off disables)
 `, core.DefaultReadFrequencySmallChars, core.DefaultReadFrequencyLargeBytes, core.DefaultReadFrequencyMinReads, core.DefaultReadFrequencyTop)
+}
+
+// reportCheckCommand: `bothouse report check --notes <交接文件> [<草稿文件>|-]`. Exit 0 when the
+// bridge would forward the draft, 1 with the reasons when it would send it back, 2 on bad usage.
+func reportCheckCommand(args []string, stdin io.Reader, out, errOut io.Writer) int {
+	fs := flag.NewFlagSet("report check", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	notesPath := fs.String("notes", "", "handoff file of the task (its 「## 范围」 改 items must be in the draft)")
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), "usage: bothouse report check --notes <交接文件> [<草稿文件>|-]\n  交回前核对 [report]/[ask] 草稿，规则和桥转发时一样；不给文件就从标准输入读草稿")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	notes, err := readReportNotes(*notesPath)
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return 2
+	}
+	var draft []byte
+	if p := fs.Arg(0); p != "" && p != "-" {
+		draft, err = os.ReadFile(p)
+	} else {
+		draft, err = io.ReadAll(stdin)
+	}
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return 2
+	}
+	problems := core.ReportPreflight(string(draft), notes)
+	if len(problems) == 0 {
+		fmt.Fprintln(out, "OK：桥会转发这条")
+		return 0
+	}
+	fmt.Fprintln(out, "不通过，桥会退回：")
+	for _, p := range problems {
+		fmt.Fprintln(out, "- "+p)
+	}
+	return 1
+}
+
+// reportSkeletonCommand: `bothouse report skeleton --id <编号> --notes <交接文件>`.
+func reportSkeletonCommand(args []string, out, errOut io.Writer) int {
+	fs := flag.NewFlagSet("report skeleton", flag.ContinueOnError)
+	fs.SetOutput(errOut)
+	id := fs.Int("id", 0, "board item id")
+	notesPath := fs.String("notes", "", "handoff file of the task")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *id <= 0 {
+		fmt.Fprintln(errOut, "usage: bothouse report skeleton --id <编号> --notes <交接文件>")
+		return 2
+	}
+	notes, err := readReportNotes(*notesPath)
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return 2
+	}
+	fmt.Fprint(out, core.ReportSkeleton(*id, notes))
+	return 0
+}
+
+func readReportNotes(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read --notes: %w", err)
+	}
+	return string(b), nil
 }
