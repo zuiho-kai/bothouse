@@ -99,6 +99,18 @@ export function DecideTray({ questions, permissionCount, permissions, t, onAnswe
   useEffect(() => () => { for (const id of timers.current.values()) clearInterval(id) }, [])
 
   const asked = new Map(questions.map(task => [task.id, task]))
+  // Drop the state of replies whose task left `asked` once nothing is left to undo or show (a
+  // draft or a delivered reply); a task asked again starts from an empty box.
+  const askedKey = questions.map(task => task.id).join(',')
+  useEffect(() => {
+    setReplies(prev => {
+      const stale = [...prev.values()].filter(r => !asked.has(r.task.id) && !inFlight(r))
+      if (stale.length === 0) return prev
+      const next = new Map(prev)
+      for (const r of stale) next.delete(r.task.id)
+      return next
+    })
+  }, [askedKey])
   const patch = (taskId: number, change: (reply: Reply) => Reply | undefined): void => {
     setReplies(prev => {
       const known = prev.get(taskId)

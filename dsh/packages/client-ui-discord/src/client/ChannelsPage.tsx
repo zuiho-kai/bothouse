@@ -22,6 +22,7 @@ import { activeMention, applyMention, insertMention, rankMembers } from './menti
 import { MemberDialog } from './MemberDialog.tsx'
 import { ChannelSettingsDialog } from './ChannelSettingsDialog.tsx'
 import { Avatar, AvatarStack } from './Avatar.tsx'
+import { HeadTeam, headTeam } from './HeadTeam.tsx'
 import { PermissionCard, type PermissionCardData } from './PermissionCard.tsx'
 import { DecideTray, openQuestions } from './DecideTray.tsx'
 import type { NS } from './locales.ts'
@@ -361,7 +362,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                 </div>
                 {/* #125: the brief view shows step chips when the card carries them; older cards keep the lines. */}
                 {cardView === 'brief' && chips !== undefined
-                  ? <StepChips chips={chips} t={t} />
+                  ? <StepChips chips={chips} runState={card.state} t={t} />
                   : !progressFolded && progressLines.length > 1 && (
                       <div className={`${css.text} ${css.runSteps}`} data-card-text><MarkdownText text={stepsMarkdown} labels={labels} /></div>
                     )}
@@ -582,6 +583,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   const [roomsHidden, setRoomsHidden] = useState(false)
   // 来源：用户 11-03 白色方案，活动栏默认收起，保留现有展开与手机抽屉入口。
   const [membersHidden, setMembersHidden] = useState(true)
+  const [boardDock, setBoardDock] = useState<HTMLDivElement | null>(null)
+  const [boardDocked, setBoardDocked] = useState(false)
   const [newRoom, setNewRoom] = useState<string | undefined>(undefined)
   const [roomError, setRoomError] = useState<string | undefined>(undefined)
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
@@ -734,6 +737,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     setFocusedId(jump.messageId)
     setJump(undefined)
   }, [jump, state.messages, state.roomId])
+  // #125: the title-bar teammates open the activity column (a drawer on narrow screens).
+  const openActivity = (): void => {
+    const narrow = typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 900px)').matches // 沿用 ChannelsPage.module.css 抽屉断点
+    if (narrow) setDrawer('members')
+    else setMembersHidden(false)
+  }
   const openMessage = (roomId: number, messageId: number): void => {
     setDrawer(undefined)
     setJump({ roomId, messageId })
@@ -981,7 +990,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
   }
 
   return (
-    <div className={[css.page, roomsHidden ? css.roomsHidden : '', membersHidden ? css.membersHidden : ''].filter(Boolean).join(' ')} data-dc-scheme={scheme}>
+    <div className={[css.page, roomsHidden ? css.roomsHidden : '', membersHidden ? css.membersHidden : '', boardDocked ? css.panelOpen : ''].filter(Boolean).join(' ')} data-dc-scheme={scheme}>
       {drawer !== undefined && <button className={css.drawerBackdrop} aria-label={t('closeDrawer')} onClick={() => setDrawer(undefined)} />}
       <nav ref={roomsRef} className={drawer === 'rooms' ? `${css.rooms} ${css.drawerOpen}` : css.rooms} aria-label={t('rooms')} role={drawer === 'rooms' ? 'dialog' : undefined} aria-modal={drawer === 'rooms' ? true : undefined} tabIndex={drawer === 'rooms' ? -1 : undefined}>
         {/* 白色方案：左栏顶部置顶当前主角色（总管）卡，和右上胶囊同一份状态；没有总管时显示兜底文字。 */}
@@ -1044,7 +1053,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
             {t('headMembers', { count: visibleMembers.length })}
             {channelActive > 0 && <> · {t('activeTasks', { count: channelActive })}</>}
           </span>
-          <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} />
+          <HeadTeam mates={headTeam(visibleMembers, leadId, state.tasks ?? [], state.thinking, channelRooms)} t={t} onOpen={openActivity} />
+          <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} dock={boardDock} onDocked={setBoardDocked} />
           <div className={css.headLead} role="group" aria-label={t('headLead')} title={lead === undefined ? leadStatus : `${lead.name} · ${leadStatus}`}>
             {lead !== undefined && <Avatar id={lead.id} name={lead.name} avatar={lead.avatar} avatarVersion={lead.avatarVersion} small />}
             <span className={css.headLeadText}>
@@ -1257,6 +1267,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
           </div>
         </div>
       </section>
+      {/* #125: the task board's column beside the chat on wide screens (TaskBoard renders into it). */}
+      <div ref={setBoardDock} className={css.sideDock} />
       <aside ref={membersRef} className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members} role={drawer === 'members' ? 'dialog' : undefined} aria-modal={drawer === 'members' ? true : undefined} aria-label={t('activityPanel')} tabIndex={drawer === 'members' ? -1 : undefined}>
         <div className={css.membersHead}><span className={css.membersHeadTitle}>{t('activityPanel')}</span></div>
         <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { settingsReturnRef.current = drawer === 'members' ? membersToggleRef.current : settingsButtonRef.current; setDrawer(undefined); setSettingsOpen(true) }}>

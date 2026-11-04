@@ -170,3 +170,12 @@ it('puts the text back with the error when the reply fails', async () => {
   expect(within(tray()).getByRole('alert').textContent).toBe('HTTP 409')
   expect((within(tray()).getByRole('textbox', { name: tr('askReplyTo', { id: 7 }) }) as HTMLInputElement).value).toBe('抽屉')
 })
+
+it('forgets a draft once its task leaves asked, so a question asked again starts empty', () => {
+  const view = render(<ChannelsPage {...props({ ...base, tasks: [task(7)] })} />)
+  fireEvent.change(within(tray()).getByRole('textbox', { name: tr('askReplyTo', { id: 7 }) }), { target: { value: '旧草稿' } })
+  view.rerender(<ChannelsPage {...props({ ...base, tasks: [task(7, { status: 'accepted' })] })} />)
+  expect(screen.queryByRole('region', { name: zh.decideTray })).toBeNull()
+  view.rerender(<ChannelsPage {...props({ ...base, tasks: [task(7, { updated_at: 20 })] })} />)
+  expect((within(tray()).getByRole('textbox', { name: tr('askReplyTo', { id: 7 }) }) as HTMLInputElement).value).toBe('')
+})
