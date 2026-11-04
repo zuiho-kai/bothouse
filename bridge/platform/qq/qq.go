@@ -965,6 +965,14 @@ func (p *Platform) logOutbound(action string, rctx *replyContext, content string
 // SendImage sends an image to the conversation.
 // Implements core.ImageSender.
 func (p *Platform) SendImage(ctx context.Context, replyCtx any, img core.ImageAttachment) error {
+	// 空图片数据仍然是一个语法合法的请求：下面的段会变成后面什么都没接的
+	// "base64://"，上游照常接受并回报成功，QQ 客户端渲染出一个既无文字也无
+	// 图片的气泡。这里在构造段之前丢弃它，而不是把它发出去。
+	if len(img.Data) == 0 {
+		slog.Warn("qq: skip empty image data", "mime", img.MimeType)
+		return nil
+	}
+
 	rctx, ok := replyCtx.(*replyContext)
 	if !ok {
 		return fmt.Errorf("qq: SendImage: invalid reply context type %T", replyCtx)
