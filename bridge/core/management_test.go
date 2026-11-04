@@ -272,6 +272,42 @@ func TestMgmt_StatusIncludesBridgeToken(t *testing.T) {
 	}
 }
 
+func TestMgmt_StatusExcludesBridgePseudoPlatform(t *testing.T) {
+	mgmt, ts, e := testManagementServer(t, "tok")
+	bs := NewBridgeServer(9810, "bridge-secret", "/bridge/ws", nil)
+	mgmt.SetBridgeServer(bs)
+	e.platforms = append(e.platforms, bs.NewPlatform("test-project"), &stubPlatform{n: "feishu"})
+	bs.mu.Lock()
+	bs.adapters["feishu"] = &bridgeAdapter{platform: "feishu", capabilities: map[string]bool{"text": true}}
+	bs.mu.Unlock()
+
+	r := mgmtGet(t, ts.URL+"/api/v1/status", "tok")
+	if !r.OK {
+		t.Fatalf("status failed: %s", r.Error)
+	}
+
+	var data struct {
+		ConnectedPlatforms []string `json:"connected_platforms"`
+		BridgeAdapters     []struct {
+			Platform string `json:"platform"`
+		} `json:"bridge_adapters"`
+	}
+	if err := json.Unmarshal(r.Data, &data); err != nil {
+		t.Fatalf("unmarshal status data: %v", err)
+	}
+	for _, p := range data.ConnectedPlatforms {
+		if p == "bridge" {
+			t.Fatalf("bridge transport must not appear as a connected platform, got %v", data.ConnectedPlatforms)
+		}
+	}
+	if len(data.ConnectedPlatforms) != 1 || data.ConnectedPlatforms[0] != "feishu" {
+		t.Fatalf("expected only feishu as connected platform, got %v", data.ConnectedPlatforms)
+	}
+	if len(data.BridgeAdapters) != 1 || data.BridgeAdapters[0].Platform != "feishu" {
+		t.Fatalf("expected bridge_adapters to still list feishu, got %+v", data.BridgeAdapters)
+	}
+}
+
 func TestMgmt_Projects(t *testing.T) {
 	_, ts, _ := testManagementServer(t, "tok")
 
