@@ -20,6 +20,7 @@ import { activeMention, applyMention, insertMention, rankMembers } from './menti
 import { MemberDialog } from './MemberDialog.tsx'
 import { ChannelSettingsDialog } from './ChannelSettingsDialog.tsx'
 import { Avatar, AvatarStack } from './Avatar.tsx'
+import { HeadTeam, headTeam } from './HeadTeam.tsx'
 import { PermissionCard, type PermissionCardData } from './PermissionCard.tsx'
 import { DecideTray, openQuestions } from './DecideTray.tsx'
 import type { NS } from './locales.ts'
@@ -635,6 +636,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
     setFocusedId(jump.messageId)
     setJump(undefined)
   }, [jump, state.messages, state.roomId])
+  // #125: the title-bar teammates open the activity column (a drawer on narrow screens).
+  const openActivity = (): void => {
+    const narrow = typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 900px)').matches // 沿用 ChannelsPage.module.css 抽屉断点
+    if (narrow) setDrawer('members')
+    else setMembersHidden(false)
+  }
   const openMessage = (roomId: number, messageId: number): void => {
     setDrawer(undefined)
     setJump({ roomId, messageId })
@@ -912,6 +919,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, create
             {t('headMembers', { count: visibleMembers.length })}
             {channelActive > 0 && <> · {t('activeTasks', { count: channelActive })}</>}
           </span>
+          <HeadTeam mates={headTeam(visibleMembers, leadId, state.tasks ?? [], state.thinking, channelRooms)} t={t} onOpen={openActivity} />
           <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} />
           <div className={css.headLead} role="group" aria-label={t('headLead')} title={lead === undefined ? leadStatus : `${lead.name} · ${leadStatus}`}>
             {lead !== undefined && <Avatar id={lead.id} name={lead.name} avatar={lead.avatar} avatarVersion={lead.avatarVersion} small />}
