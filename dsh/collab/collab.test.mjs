@@ -6153,3 +6153,47 @@ test('#1020 memory sources: a reply carries the entries its author cited in that
   ju.frame({ type: 'reply', reply_ctx: 'room-1', agent: true, content: '再一条' });
   assert.equal(publicMessage(hub.store.page(1, undefined, 10).at(-1), hub.store).memories, undefined, 'each citation goes to one reply');
 });
+
+test('#149 memory sources: without BOTHOUSE_DATA_DIR the path still finds the gate\'s votes.jsonl', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, appendFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { createHash } = await import('node:crypto');
+  const { MemorySources, defaultVotesFile } = await import('./memory-sources.mjs');
+  const home = mkdtempSync(join(tmpdir(), 'memsrc-env-'));
+  const data = join(home, 'data');
+  mkdirSync(join(data, 'gate'), { recursive: true });
+  const votes = join(data, 'gate', 'votes.jsonl');
+  writeFileSync(votes, '');
+
+  // The environment reload-dsh.py hands a `dsh web`: CC_DATA_DIR only (no BOTHOUSE_DATA_DIR, no MEMVOTE_DIR).
+  const env = { HOME: home, CC_DATA_DIR: data };
+  assert.equal(defaultVotesFile(env, home), votes, 'CC_DATA_DIR names the data dir the running gate writes to');
+  assert.equal(defaultVotesFile({ ...env, GATE_SETUP_DIR: join(home, 'setup') }, home), join(home, 'setup', 'gate', 'votes.jsonl'), 'as datadir.py: GATE_SETUP_DIR before CC_DATA_DIR');
+  assert.equal(defaultVotesFile({ ...env, BOTHOUSE_DATA_DIR: join(home, 'bh') }, home), join(home, 'bh', 'gate', 'votes.jsonl'), 'BOTHOUSE_DATA_DIR still wins');
+  assert.equal(defaultVotesFile({ ...env, MEMVOTE_DIR: join(home, 'mv') }, home), join(home, 'mv', 'votes.jsonl'), "memvote's own override wins");
+  assert.equal(defaultVotesFile({ HOME: home }, home), join(home, '.bothouse', 'gate', 'votes.jsonl'), 'nothing set: the default data dir');
+  assert.equal(defaultVotesFile({ HOME: home, CC_DATA_DIR: '~/d' }, home), join(home, 'd', 'gate', 'votes.jsonl'), '~ as the gate expands it');
+
+  // The badge itself: a cite written where the gate writes it reaches the reply of a member with no data dir in env.
+  const wiki = join(home, 'wiki');
+  mkdirSync(join(wiki, 'bots'), { recursive: true });
+  const line = '- 2026-11-05 找不到票文件时先看 CC_DATA_DIR。';
+  writeFileSync(join(wiki, 'bots', 'team.md'), `# 团队\n${line}\n`);
+  const h = createHash('sha1').update(line.trim()).digest('hex').slice(0, 10);
+  const logs = [];
+  const log = [];
+  const sources = new MemorySources({ file: defaultVotesFile(env, home), wiki, home, logger: { info: (...a) => logs.push(a), warn: (...a) => logs.push(a) } });
+  assert.equal(logs.length, 1, 'it says which file the badge reads, in one line');
+  assert.match(logs[0].join(' '), /reading .*data\/gate\/votes\.jsonl/);
+  appendFileSync(votes, JSON.stringify({ voter: 'p', id: `bots/team.md#${h}`, vote: 1, by: 'self', key: 'dsh:ds:3' }) + '\n');
+  assert.deepEqual(sources.take('p', 3).map(s => [s.page, s.title]), [['bots/team.md', '2026-11-05 找不到票文件时先看 CC_DATA_DIR。']]);
+
+  // A data dir whose gate has written nothing yet: the path is still followed, and the log says so once.
+  const elsewhere = join(home, 'nowhere');
+  const empty = new MemorySources({ file: defaultVotesFile({ HOME: elsewhere }, elsewhere), wiki, home, logger: { info: (...a) => log.push(a), warn: (...a) => log.push(a) } });
+  assert.equal(empty.file, join(elsewhere, '.bothouse', 'gate', 'votes.jsonl'));
+  assert.equal(log.length, 1);
+  assert.match(log[0].join(' '), /does not exist yet/, 'a missing file is one line, not silence');
+  assert.deepEqual(empty.take('p', 3), []);
+});

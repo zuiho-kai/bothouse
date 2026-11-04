@@ -5,10 +5,14 @@
 // and hands each new reply of a member the entries it cited in that room since its previous reply.
 // Nothing is guessed: no citation, no badge (a member that never runs memvote gets none).
 //
-// Where the file is: MEMVOTE_DIR (memvote.py's own override), else <BOTHOUSE_DATA_DIR>/gate, where
-// bothouse installs the gate (bridge/core/gate_proc.go). Page paths are relative to GATE_WIKI (~/wiki)
-// or start with ~/ for a role wiki (memvote.full_id).
-import { closeSync, openSync, readSync, readFileSync, statSync } from 'node:fs';
+// Where the file is: MEMVOTE_DIR (memvote.py's own override), else <gate data dir>/gate, where bothouse
+// installs the gate (bridge/core/gate_proc.go). The data dir is found the way the gate itself finds it
+// (bridge/contrib/gate/datadir.py data_dir, Go brand.go dataDir): BOTHOUSE_DATA_DIR, GATE_SETUP_DIR,
+// CC_DATA_DIR, else ~/.bothouse (~/.cc-connect only while that legacy layout is the one that exists).
+// It must not depend on BOTHOUSE_DATA_DIR alone: a `dsh web` started by a script that reuses an old
+// environment has only CC_DATA_DIR, and the badge used to vanish there silently.
+// Page paths are relative to GATE_WIKI (~/wiki) or start with ~/ for a role wiki (memvote.full_id).
+import { closeSync, existsSync, openSync, readSync, readFileSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -16,9 +20,41 @@ import { join } from 'node:path';
 const MAX_ITEMS = 12; // a badge lists at most this many entries
 const TITLE_CHARS = 120;
 
-export function defaultVotesFile(env = process.env) {
-  const dir = String(env.MEMVOTE_DIR ?? '').trim() || (String(env.BOTHOUSE_DATA_DIR ?? '').trim() ? join(String(env.BOTHOUSE_DATA_DIR).trim(), 'gate') : '');
-  return dir ? join(dir, 'votes.jsonl') : '';
+/** `~/x` in a config value, as expanduser does for the gate (datadir.guard). */
+const expand = (value, home) => String(value ?? '').trim().replace(/^~(?=\/|$)/, home);
+
+/**
+ * The bothouse data dirs this machine may have, in the order the gate itself picks one
+ * (bridge/contrib/gate/datadir.py data_dir; Go brand.go dataDir for the last one).
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} home
+ * @returns {string[]}
+ */
+export function dataDirCandidates(env = process.env, home = homedir()) {
+  const dirs = [];
+  for (const key of ['BOTHOUSE_DATA_DIR', 'GATE_SETUP_DIR', 'CC_DATA_DIR']) {
+    const dir = expand(env[key], home);
+    if (dir !== '') dirs.push(dir);
+  }
+  // ~/.cc-connect is the legacy layout, used only while ~/.bothouse does not exist and it does.
+  const preferred = join(home, '.bothouse');
+  const legacy = join(home, '.cc-connect');
+  dirs.push(!existsSync(preferred) && existsSync(legacy) ? legacy : preferred);
+  return dirs;
+}
+
+/**
+ * memvote.py's votes.jsonl: MEMVOTE_DIR when set (memvote's own override names the one file it writes),
+ * else <the gate's data dir>/gate. Same precedence as the gate reading its own directory, so a `dsh web`
+ * that inherited only CC_DATA_DIR reads the file the running gate actually appends to.
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} home
+ * @returns {string}
+ */
+export function defaultVotesFile(env = process.env, home = homedir()) {
+  const dir = expand(env.MEMVOTE_DIR, home);
+  if (dir !== '') return join(dir, 'votes.jsonl');
+  return join(dataDirCandidates(env, home)[0], 'gate', 'votes.jsonl');
 }
 
 /** Room id a cite's session key names: bridge cloud-web "…room-<id>…", or the DSH gate key "dsh:<member>:<room>". */
@@ -35,6 +71,10 @@ export class MemorySources {
     this.wiki = String(wiki).replace(/^~(?=\/|$)/, home);
     this.home = home;
     this.logger = logger;
+    // Say which file the badge reads, so a silent one is explained in the log instead of vanishing.
+    if (!this.file) this.logger?.warn?.('collab: memory sources: no votes.jsonl path (set BOTHOUSE_DATA_DIR, GATE_SETUP_DIR or CC_DATA_DIR, or MEMVOTE_DIR); replies carry no memory sources');
+    else if (existsSync(this.file)) this.logger?.info?.('collab: memory sources: reading %s', this.file);
+    else this.logger?.warn?.('collab: memory sources: %s does not exist yet (wrong data dir, or the gate has not recorded a cite); replies carry no memory sources until it appears', this.file);
     // Only citations made after this process started belong to its replies.
     this.offset = this.size();
     this.rest = '';
