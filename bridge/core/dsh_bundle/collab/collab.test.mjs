@@ -15,6 +15,11 @@ import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
 import { tasksRoute, ownMessageRoute, renameRoomRoute, roomSettingsRoute } from './plugin.mjs';
 import { TeamExit } from './team-exit.mjs';
 
+// #149: without GATE_PORT the gate context reads the install's config.toml. A test that is not about
+// that must not reach the live gate because the shell running it has BOTHOUSE_DATA_DIR/CC_DATA_DIR set
+// (a bridge-started shell does). The #149 test below points this at its own temp config.
+process.env.BOTHOUSE_CONFIG = `${(process.env.TMPDIR ?? '/tmp').replace(/\/+$/, '')}/collab-no-bridge-config.toml`;
+
 const quiet = { warn() {}, info() {} };
 const tick = () => new Promise(r => setImmediate(r));
 
@@ -6152,6 +6157,56 @@ test('#1020 memory sources: a reply carries the entries its author cited in that
   ], 'the line written before the hub started is not counted; a moved page keeps its path');
   ju.frame({ type: 'reply', reply_ctx: 'room-1', agent: true, content: '再一条' });
   assert.equal(publicMessage(hub.store.page(1, undefined, 10).at(-1), hub.store).memories, undefined, 'each citation goes to one reply');
+});
+
+test('#149 gate context: without GATE_PORT the port comes from the bridge config.toml', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { GateContext, resolveGatePort, gatePortSetting, bridgeConfigFile, DEFAULT_GATE_PORT } = await import('./gate-context.mjs');
+  const data = mkdtempSync(join(tmpdir(), 'gateport-'));
+  const config = join(data, 'config.toml');
+  assert.equal(gatePortSetting('[gate]\nport = 9931 # 本机\n'), 9931);
+  assert.equal(gatePortSetting('[management]\nport = 51442\n'), 0, "another table's port is not the gate's");
+  assert.equal(bridgeConfigFile({ CC_DATA_DIR: data }, '/h'), config, 'the same file the bridge reads under its data dir');
+
+  const gate = await fakeGate(() => ({ wiki: [BOARD] }));
+  // The run's config names the gate's port; the environment has none (reload-dsh.py's reused env).
+  writeFileSync(config, `[management]\nport = 51442\n\n[gate]\nport = ${gate.port}\n`);
+  const saved = { GATE_PORT: process.env.GATE_PORT, BOTHOUSE_DATA_DIR: process.env.BOTHOUSE_DATA_DIR, GATE_SETUP_DIR: process.env.GATE_SETUP_DIR, CC_DATA_DIR: process.env.CC_DATA_DIR, BOTHOUSE_CONFIG: process.env.BOTHOUSE_CONFIG };
+  delete process.env.GATE_PORT; delete process.env.BOTHOUSE_DATA_DIR; delete process.env.GATE_SETUP_DIR; delete process.env.BOTHOUSE_CONFIG;
+  process.env.CC_DATA_DIR = data;
+  try {
+    const logs = [];
+    const logger = { info: (...a) => logs.push(a), warn: (...a) => logs.push(a), debug() {} };
+    const ctx = new GateContext({ logger });
+    assert.equal(ctx.port, String(gate.port), 'no GATE_PORT: config.toml [gate] port is used');
+    const turn = await ctx.turn({ member: 'ds', room: 1, session: 's', text: '@DeepSeek 任务板' });
+    assert.match(turn.block, /【任务板 abc123】 — 谁手上有哪件事、做在哪/, 'the pages arrive without GATE_PORT set');
+    assert.equal(gate.calls[0].body.key, 'dsh:ds:1');
+    assert.equal(logs.length, 1, 'one line at startup saying which port, and from where');
+    assert.ok(logs[0].includes(String(gate.port)), 'the line names the port used');
+    assert.match(logs[0].join(' '), /\[gate\] port/);
+    assert.deepEqual(resolveGatePort({ ...process.env, GATE_PORT: '1234' }), { port: '1234', why: 'GATE_PORT' }, 'GATE_PORT still wins when set');
+
+    // No [gate] table: gate.py's own default, and the log says it is the default.
+    writeFileSync(config, '[management]\nport = 51442\n');
+    assert.deepEqual(resolveGatePort(process.env), { port: '9930', why: `${config} 没有 [gate] port，用默认端口` });
+    assert.equal(DEFAULT_GATE_PORT, 9930, 'gate.py PORT');
+
+    // No config file either: no port, no context, and the log says why instead of going quiet.
+    const other = mkdtempSync(join(tmpdir(), 'gateport-none-'));
+    process.env.CC_DATA_DIR = other;
+    const none = [];
+    const blank = new GateContext({ logger: { info: (...a) => none.push(a), warn: (...a) => none.push(a), debug() {} } });
+    assert.equal(blank.port, '');
+    assert.equal(none.length, 1);
+    assert.match(none[0].join(' '), /没有 gate 端口/);
+    assert.equal((await blank.turn({ member: 'ds', room: 1, session: 's', text: 'x' })).block, '');
+  } finally {
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    await gate.close();
+  }
 });
 
 test('#149 memory sources: without BOTHOUSE_DATA_DIR the path still finds the gate\'s votes.jsonl', async () => {
