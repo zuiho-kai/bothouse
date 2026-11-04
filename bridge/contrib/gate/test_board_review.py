@@ -112,6 +112,52 @@ class MergeClosure(unittest.TestCase):
                     board.reconcile_merged_prs()
                     self.assertNotIn("returned_at",board.items()[0])
 
+class AwaitDeploy(unittest.TestCase):
+    """#134 ③：要部署的 PR 合并后进「等发布」，部署含它之后转「待上线验收」。"""
+    def test_merged_deploy_binding_waits_for_release_then_review(self):
+        import board
+        from unittest.mock import patch
+        from subprocess import CompletedProcess
+        tmp=Path(tempfile.mkdtemp())
+        merged=CompletedProcess([],0,json.dumps({"state":"MERGED","mergedAt":"2026-11-04T09:00:00Z","mergeCommit":{"oid":"abc1234def"}}),'')
+        with patch.object(board,"DIR",tmp),patch.dict(os.environ,{"CC_PROJECT":"lead"}):
+            board._write([{"id":80,"chat":"room:main","dispatcher":"lead","bound":"g1","returned_at":"2026-11-04T08:00:00+00:00","reviewer":"fish"}])
+            board.bind_pr(80,"https://github.com/example/project/pull/990",False)
+            with patch.object(board.subprocess,"run",return_value=merged):
+                board.reconcile_merged_prs()
+            it=board.items()[0]
+            self.assertEqual(it["await_deploy"]["commit"],"abc1234def")
+            self.assertTrue(it["status"].startswith("等发布"))
+            self.assertNotIn("returned_at",it)  # 合并前已审过；等发布不是待验收
+            with patch.object(board,"_deploy_contains",return_value=False):
+                self.assertEqual(board.mark_deployed("0123456"),[])
+            with patch.object(board,"_deploy_contains",return_value=None):
+                self.assertEqual(board.mark_deployed("0123456"),[])  # gh 查不到：先不动
+            self.assertIn("await_deploy",board.items()[0])
+            with patch.object(board,"_deploy_contains",return_value=True) as q:
+                self.assertEqual(board.mark_deployed("fedcba9876"),[80])
+                q.assert_called_once_with("example/project","abc1234def","fedcba9876")
+            it=board.items()[0]
+            self.assertNotIn("await_deploy",it)
+            self.assertEqual(it["deployed"]["commit"],"fedcba9876")
+            self.assertTrue(it["returned_at"])
+            self.assertEqual(it["reviewer"],"lead")
+            self.assertTrue(it["status"].startswith("待上线验收"))
+            with patch.object(board,"_deploy_contains",return_value=True):
+                self.assertEqual(board.mark_deployed("fedcba9876"),[])  # 只转一次
+
+    def test_deploy_contains_reads_compare_status(self):
+        import board
+        from unittest.mock import patch
+        from subprocess import CompletedProcess
+        for status,want in [("ahead",True),("identical",True),("behind",False),("diverged",False)]:
+            with patch.object(board.subprocess,"run",return_value=CompletedProcess([],0,status+"\n",'')) as run:
+                self.assertEqual(board._deploy_contains("o/r","aaa1111","bbb2222"),want)
+                self.assertIn("repos/o/r/compare/aaa1111...bbb2222",run.call_args[0][0])
+        with patch.object(board.subprocess,"run",return_value=CompletedProcess([],1,"","boom")):
+            self.assertIsNone(board._deploy_contains("o/r","a","b"))
+
+
 class RelayGeneration(unittest.TestCase):
     def test_rejection_records_new_pause_identity_and_owner(self):
         import board

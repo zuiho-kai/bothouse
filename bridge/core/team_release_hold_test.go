@@ -105,3 +105,55 @@ func TestReleaseHoldResumesAfterRestart(t *testing.T) {
 		t.Fatalf("resumed handoff starts afresh: %+v", got.Idle)
 	}
 }
+
+func TestAwaitDeployShowsUnderReleaseThenOnlineReview(t *testing.T) {
+	now := time.Date(2026, 11, 4, 18, 0, 0, 0, time.Local)
+	base := teamTaskBoardItem{ID: 12, What: "置顶板精简", Short: "置顶板精简", WS: "discord:ws2", Chat: "discord:main",
+		Bound: now.Add(-5 * time.Hour).Format(time.RFC3339), At: "11-04 13:00"}
+	merged := base
+	merged.Status = "等发布：PR 已合并，等集中发布上线"
+	merged.AwaitDeploy = map[string]string{"commit": "abc1234"}
+	hand := base
+	hand.ID, hand.Short, hand.Status = 13, "打招呼误中断", "随集中发布上线，上线后肥鱼验"
+	items := placeTeamTaskBoard(testTaskBoardPlacer(), []teamTaskBoardItem{merged, hand})
+	for _, it := range items {
+		if st, _ := teamTaskBoardStateOf(it, now); st != teamTaskRelease {
+			t.Fatalf("#%d %q: state %v, want 等发布", it.ID, it.Status, st)
+		}
+	}
+	table := renderTeamTaskTable(items, nil, "discord:main", now)
+	if strings.Contains(table, "卡住") || strings.Contains(table, "没人验收") || !strings.Contains(table, "等发布 2") || !strings.Contains(table, "已合并，等上线") {
+		t.Fatalf("merged work waiting on the release must be 等发布, not 卡住:\n%s", table)
+	}
+	deployed := base
+	deployed.Status = "待上线验收：已随 fedcba98 部署"
+	deployed.Deployed = map[string]string{"commit": "fedcba98"}
+	deployed.ReturnedAt = now.Add(-time.Minute)
+	deployed.Reviewer = "肥鱼"
+	items = placeTeamTaskBoard(testTaskBoardPlacer(), []teamTaskBoardItem{deployed})
+	if st, note := teamTaskBoardStateOf(items[0], now); st != teamTaskReview || !strings.HasPrefix(note, "待上线验收") {
+		t.Fatalf("deployed item: %v %q, want 待验收/待上线验收", st, note)
+	}
+}
+
+func TestMarkDeployedRunsOnlyForLeadWithWaitingItems(t *testing.T) {
+	e, _, _, _ := watchFixture(t, "", "#7 x")
+	oldRun, oldCommit := markDeployedRun, CurrentCommit
+	t.Cleanup(func() { markDeployedRun, CurrentCommit = oldRun, oldCommit })
+	var ran []string
+	markDeployedRun = func(_ *Engine, commit string) ([]byte, error) { ran = append(ran, commit); return nil, nil }
+	CurrentCommit = "fedcba98"
+	writeReleaseBoard(t, e, map[string]any{"id": 7, "what": "x", "status": "进行中"})
+	e.markDeployed()
+	if len(ran) != 0 {
+		t.Fatalf("nothing waits on a release: no board call, got %q", ran)
+	}
+	writeReleaseBoard(t, e, map[string]any{"id": 7, "what": "x", "status": "等发布", "await_deploy": map[string]any{"commit": "abc1234"}})
+	CurrentCommit = "none" // dev build
+	e.markDeployed()
+	CurrentCommit = "fedcba98"
+	e.markDeployed()
+	if len(ran) != 1 || ran[0] != "fedcba98" {
+		t.Fatalf("one board deployed with the running build's commit, got %q", ran)
+	}
+}

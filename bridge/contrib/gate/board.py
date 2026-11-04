@@ -32,7 +32,9 @@
   board pr <编号> <GitHub PR URL> no-deploy|deploy  # 派活人绑定本代次 PR 和交接部署范围
   board tier <编号> simple|complex         # 验收档位：不标=简单档（设置里选的便宜模型先审）；审的人拿不准标 complex，
                                          #   桥换复杂档的审核人再审一遍（用户 2026-11-04「简单的交给便宜模型」）
-  board merged                          # 核对绑定 PR；已合并且不部署仅转待收口，不代替验收
+  board merged                          # 核对绑定 PR：已合并且不部署转待收口（不代替验收）；要部署的转「等发布」（不算卡住）
+  board deployed <提交> [编号...]         # 桥以 <提交> 版本起来后（桥自己会跑）：等发布的条目已含在这次部署里的转「待上线验收」，
+                                         #   桥自动派非作者去做上线验收；查不到（gh 失败）的先不动，下次再核
   board link <编号> <卡片链接>             # 给这件事挂一张公开任务卡（Discord 消息链接），board 列表那行末尾出「卡 链接」
   board refresh                          # 把一小时没进展的工作区条目转暂停（停滞检查定时调用），再自动收起没用的暂停条目
   board prune [--dry-run]                # 只做自动收起（--dry-run 只列不动）；收起的条目 board resume <编号> 能找回
@@ -752,7 +754,7 @@ def reconcile_merged_prs():
     """Query outside the board lock, then compare the binding/generation before recording."""
     for item in _read():
         binding = item.get("pr_binding") or {}
-        if not binding.get("no_deploy") or item.get("paused") or item.get("pr_merge") or binding.get("bound") != item.get("bound", ""):
+        if not binding or item.get("paused") or item.get("pr_merge") or binding.get("bound") != item.get("bound", ""):
             continue
         try:
             result = subprocess.run(["gh", "pr", "view", str(binding["number"]), "--repo", binding["repo"],
@@ -772,11 +774,64 @@ def reconcile_merged_prs():
             if hit is None or hit.get("pr_binding") != binding or hit.get("bound", "") != binding["bound"] or hit.get("pr_merge") or hit.get("paused"):
                 continue
             hit["pr_merge"] = {"url": binding["url"], "merged_at": pr["mergedAt"], "commit": (pr.get("mergeCommit") or {}).get("oid", "")}
-            hit.setdefault("returned_at", _bound_now())
-            hit["reviewer"] = hit.get("dispatcher", "")
-            hit["status"] = "待收口：PR 已合并（不部署），等待验收"
+            if binding.get("no_deploy"):
+                hit.setdefault("returned_at", _bound_now())
+                hit["reviewer"] = hit.get("dispatcher", "")
+                hit["status"] = "待收口：PR 已合并（不部署），等待验收"
+            else:
+                # 要部署的：合并前已审过（审过才合），现在等集中发布，不是卡住也不是待验收（#134 ③）。
+                # 部署后 board deployed 转「待上线验收」，桥再自动派非作者去验。
+                for key in ("returned_at", "reviewer", "review_rejected"):
+                    hit.pop(key, None)
+                hit["await_deploy"] = dict(hit["pr_merge"])
+                hit["status"] = "等发布：PR 已合并，等集中发布上线"
             hit["at"] = _now()
             _write(cur)
+
+
+def _deploy_contains(repo, merge, deployed):
+    """部署的提交是否已含合并提交：GitHub compare base...head，head 领先或相同即含。None = 查不到。"""
+    try:
+        result = subprocess.run(["gh", "api", f"repos/{repo}/compare/{merge}...{deployed}", "--jq", ".status"],
+                                capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() in ("ahead", "identical")
+
+
+def mark_deployed(commit, nids=None):
+    """部署成功（桥以 commit 版本起来）后：等发布的条目若已含在 commit 里，转「待上线验收」并记交回时刻，
+    桥的验收调度据此自动挑非作者去做上线验收（用户 2026-11-04「可以」：部署成功自动转待上线验收并派肥鱼验）。
+    gh 查询在锁外做，写回前再核一遍条目没变。返回转了的编号。"""
+    moved = []
+    for item in _read():
+        wait = item.get("await_deploy") or {}
+        binding = item.get("pr_binding") or {}
+        if not wait or (nids and item["id"] not in nids) or not wait.get("commit") or not binding.get("repo"):
+            continue
+        has = _deploy_contains(binding["repo"], wait["commit"], commit)
+        if has is None:
+            print(f"board: #{item['id']} 查不到 {commit[:8]} 是否含合并提交，先不动", file=sys.stderr)
+            continue
+        if not has:
+            continue
+        with _locked():
+            cur = _read()
+            hit = next((i for i in cur if i["id"] == item["id"]), None)
+            if hit is None or hit.get("await_deploy") != wait:
+                continue
+            hit.pop("await_deploy")
+            hit["deployed"] = {"commit": commit, "at": _bound_now()}
+            hit["returned_at"] = _bound_now()
+            hit["reviewer"] = hit.get("dispatcher", "")
+            hit["status"] = f"待上线验收：已随 {commit[:8]} 部署"
+            hit["at"] = _now()
+            _write(cur)
+            event(hit["id"], "returned", hit)
+        moved.append(item["id"])
+    return moved
 
 
 REVIEW_TIERS = {"simple": "simple", "简单": "simple", "complex": "complex", "复杂": "complex"}
@@ -1392,6 +1447,9 @@ def main(argv):
             print("已绑定 PR 与部署范围；合并不代表验收")
         elif cmd == "merged" and len(argv) == 1:
             reconcile_merged_prs()
+        elif cmd == "deployed" and len(argv) >= 2 and re.fullmatch(r"[0-9a-f]{7,40}", argv[1]):
+            got = mark_deployed(argv[1], [int(x.lstrip("#")) for x in argv[2:]])
+            print("转待上线验收：" + ("、".join(f"#{n}" for n in got) if got else "没有已含在这次部署里的等发布条目"))
         elif cmd == "tier" and len(argv) == 3 and argv[2] in REVIEW_TIERS:
             if not set_tier(int(argv[1].lstrip("#")), argv[2]):
                 sys.exit("条目不存在，未改档位")
