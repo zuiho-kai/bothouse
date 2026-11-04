@@ -155,12 +155,19 @@ func bundleRows(packageDir string, patch dshBundlePatch, disabled map[string]boo
 				if id == nil || name == nil {
 					continue
 				}
-				row := DSHPluginRow{ID: id.Value, Name: name.Value, Disabled: disabled[id.Value]}
+				row := DSHPluginRow{ID: id.Value, Name: name.Value}
 				if flag := mapGet(item, "disabled"); flag != nil && flag.Tag == "!!bool" {
 					var off bool
 					if flag.Decode(&off) == nil {
 						row.Disabled = off
 					}
+				}
+				// A later id-targeted patch overrides a field an insert declared, so the patch
+				// layer is applied last and wins.
+				// 来源：dsh-app-boot applyEntryPatches (lib/index.js:72-105)：insert 先 push，
+				// 后续 patch 对同一 id 执行 target[key]=value。
+				if off, ok := disabled[id.Value]; ok {
+					row.Disabled = off
 				}
 				rows = append(rows, row)
 			}
