@@ -299,6 +299,13 @@ def restart(port, old_pid, state_path, log_path, node, dsh, dry_run=False,
     env = process_env(old_pid)
     if 'PATH' not in env:
         raise SystemExit('reload-web: cannot read the environment of pid %d' % old_pid)
+    # A plain host is restarted in the directory it ran in: `dsh` stores its state and the collab
+    # plugin resolves rooms/skills relative to it. Read the kernel cwd now, while the old process
+    # still exists (lsof finds nothing once it is gone); the exported PWD can be stale after a cd.
+    # launchd hosts get the plist's WorkingDirectory from launchd itself.
+    cwd = None if supervised else process_cwd(old_pid)
+    if not supervised and cwd is None:
+        raise SystemExit('reload-web: cannot read the working directory of pid %d' % old_pid)
     if dry_run:
         kind = 'launchd job %s' % label if supervised else 'pid %d' % old_pid
         print('reload-web: would restart %s on port %d and write %s' % (kind, port, state_path))
@@ -314,15 +321,10 @@ def restart(port, old_pid, state_path, log_path, node, dsh, dry_run=False,
     if supervised:
         new_pid = kickstart(supervised, launchctl)
         process = None
-        cwd = supervised.get('cwd') or process_cwd(old_pid) or os.path.expanduser('~')
     else:
         os.kill(old_pid, signal.SIGTERM)
         if not wait_gone(old_pid):
             raise SystemExit('reload-web: pid %d did not stop' % old_pid)
-        # The plist's WorkingDirectory, else the kernel cwd, else home: `dsh` stores its state and the
-        # collab plugin resolves rooms/skills relative to this directory, so it must not change. The
-        # old process's exported working directory is not used: it can be stale after a cd.
-        cwd = process_cwd(old_pid) or os.path.expanduser('~')
         # long-running-ok: detached host, same argv/environment/port as the one just stopped.
         # EOF-BOUNDARY: the announcement of this start lands in the same log, after the offset above.
         with open(log_path, 'a') as host_log:
