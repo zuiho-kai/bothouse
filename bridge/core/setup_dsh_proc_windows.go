@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+
+	"golang.org/x/sys/windows"
 )
 
 // detach starts `dsh web` in its own process group without a console so it outlives the wizard.
@@ -14,11 +16,18 @@ func detach(cmd *exec.Cmd) {
 }
 
 func processAlive(pid int) bool {
-	p, err := os.FindProcess(pid)
+	if pid <= 0 {
+		return false
+	}
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
 	if err != nil {
 		return false
 	}
-	return p.Signal(syscall.Signal(0)) == nil
+	defer windows.CloseHandle(handle)
+	// A live process is nonsignaled. Polling also handles a process that exited
+	// with code 259 (STILL_ACTIVE), without confusing its exit code with liveness.
+	status, err := windows.WaitForSingleObject(handle, 0)
+	return err == nil && status == uint32(windows.WAIT_TIMEOUT)
 }
 
 func stopProcess(pid int) {

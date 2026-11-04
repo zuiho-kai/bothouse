@@ -38,10 +38,10 @@ test('renames classify both the old and new path', () => {
   assert.equal(result.docs_only, false);
 });
 test('workflow uses one classifier and fails open when changes fails', () => {
-  const workflow = fs.readFileSync('.github/workflows/ci.yml', 'utf8');
+  const workflow = fs.readFileSync('.github/workflows/ci.yml', 'utf8').replace(/\r\n/g, '\n');
   assert.match(workflow, /require\([^)]*classify\.cjs/);
   assert.doesNotMatch(workflow, /const classify = \(/);
-  for (const job of ['companion', 'bridge', 'companion-fork', 'bridge-fork']) {
+  for (const job of ['companion', 'bridge', 'companion-fork', 'bridge-fork', 'windows-compat']) {
     const start = workflow.indexOf(`\n  ${job}:\n`);
     const next = workflow.slice(start + 4).search(/\n  \S/);
     const end = next === -1 ? -1 : start + 4 + next;

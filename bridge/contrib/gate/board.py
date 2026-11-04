@@ -55,13 +55,14 @@
   --idle <小时> 写它；所有角色的命令和桥跑的定时都只读它。文件没有 = 开、24 小时；文件坏了 = 不收并警告一行。
   返工汇总和团队板「今天做完」都不算自动收起的记录。
 """
-import fcntl, json, os, re, shlex, shutil, subprocess, sys, time
+import json, os, re, shlex, shutil, subprocess, sys, time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # ../lead/board 从别处跑时也找得到同目录的 datadir.py
 import datadir  # noqa: E402
+from filelock import exclusive  # noqa: E402
 
 SETUP = datadir.setup_dir()
 
@@ -90,8 +91,7 @@ def _path(name):
 @contextmanager
 def _locked():
     DIR.mkdir(parents=True, exist_ok=True)
-    with open(_path("board.lock"), "w") as lk:
-        fcntl.flock(lk, fcntl.LOCK_EX)
+    with exclusive(_path("board.lock")):
         yield
 
 

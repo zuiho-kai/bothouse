@@ -88,7 +88,7 @@ const TEXT = {
   },
 };
 
-export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () => void }) {
+export default function DSHSetup({ lang, onBack, addMode = false }: { lang: string; onBack: () => void; addMode?: boolean }) {
   const l = lang.toLowerCase();
   const t = l.startsWith('zh') ? TEXT.zh : l.startsWith('ja') ? TEXT.ja : TEXT.en;
   const { lib, error: libError, reload: reloadLib } = useLibrary(lang);
@@ -110,7 +110,11 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
     setBusy(true); setError('');
     try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
-  const detect = () => run(async () => { const s = await getDSHStatus(lang); setStatus(s); setStep(s.found ? 1 : 0); });
+  const detect = () => run(async () => {
+    const s = await getDSHStatus(lang);
+    setStatus(s);
+    setStep(!s.found ? 0 : s.plugin_installed && s.configured && !addMode ? 3 : 1);
+  });
   // eslint-disable-next-line react-hooks/exhaustive-deps -- detect once on mount
   useEffect(() => { void detect(); }, []);
   useEffect(() => { getCLIs().then((r) => setClis(r.clis)).catch(() => setClis([])); }, []);
@@ -134,6 +138,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
   };
   // Enter the roles step with one role: named after its CLI, no persona.
   const goRoles = () => { setRoles((rs) => (rs.length ? rs : [newRole([])])); setStep(2); };
+  const afterInstall = (s: DSHStatus) => { if (s.configured && !addMode) setStep(3); else goRoles(); };
   const patch = (key: number, p: Partial<Role>) => setRoles((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r)));
   // Renaming a role also renames the "你是谁" reference in a picked persona, matching the
   // wizard and the DSH member dialog; manual persona prose keeps common words intact.
@@ -164,7 +169,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
         if (ev.step) setInstallStep(ev.step);
         if (ev.line) setLog((xs) => [...xs, ev.line!]);
       });
-      setStatus(s); setInstallDone(true); goRoles();
+      setStatus(s); setInstallDone(true); afterInstall(s);
     } catch (e) {
       const extra = (e as { log?: string }).log;
       if (extra) setLog((xs) => [...xs, extra]);
@@ -234,7 +239,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
         <div className="flex gap-2">
           <Button onClick={install} disabled={busy || !!status?.dependency_error} variant={status?.plugin_installed ? 'secondary' : undefined} data-testid="dsh-install-plugin">
             {status?.plugin_installed ? t.reinstall : t.install}</Button>
-          {status?.plugin_installed && <Button onClick={goRoles} disabled={busy} data-testid="dsh-skip-install">{t.next}</Button>}
+          {status?.plugin_installed && <Button onClick={() => afterInstall(status)} disabled={busy} data-testid="dsh-skip-install">{t.next}</Button>}
         </div>
       </>}
 
@@ -303,8 +308,9 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
       {step === 3 && <>
         <div><h3 className="font-semibold">{t.openTitle}</h3><p className="text-sm text-gray-500">{t.openNote}</p></div>
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => setStep(2)} disabled={busy}>{t.prev}</Button>
+          {roles.length > 0 && <Button variant="secondary" onClick={() => setStep(2)} disabled={busy}>{t.prev}</Button>}
           <Button onClick={open} disabled={busy} data-testid="dsh-open">{busy ? t.opening : t.open}</Button>
+          {roles.length === 0 && <Button variant="secondary" onClick={goRoles} disabled={busy} data-testid="dsh-add-roles">{t.addRole}</Button>}
         </div>
         {openURL && <p className="text-sm">{t.openAgain} <a className="text-accent underline break-all" href={openURL} target="_blank" rel="noreferrer" data-testid="dsh-open-link">{openURL}</a></p>}
       </>}

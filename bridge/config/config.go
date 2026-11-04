@@ -827,6 +827,17 @@ func load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// LoadManagement reads management settings without requiring runnable bridge
+// projects. DSH-only installations and the setup wizard may have no projects.
+// Parsing and environment expansion still use the normal configuration loader.
+func LoadManagement(path string) (ManagementConfig, error) {
+	cfg, err := load(path)
+	if err != nil {
+		return ManagementConfig{}, err
+	}
+	return cfg.Management, nil
+}
+
 // LoadPermissive loads the config file and performs all validation except the
 // "at least one platform per project" check. Use this for commands (like
 // `cc-connect web`) that should work even before platforms are configured.

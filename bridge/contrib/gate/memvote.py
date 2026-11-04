@@ -18,8 +18,9 @@
 这条到底有没有用，由同目录 score_night.py 看被引用那轮用户下一句是不是纠正，记 by="outcome"（outcome()）。
 record()（SO 一人一票、改投撤回）留给旧数据和测试用，命令行不再走它。
 """
-import fcntl, hashlib, json, os, re, sys, time
+import hashlib, json, os, re, sys, time
 from pathlib import Path
+from filelock import exclusive
 
 EXP = Path(os.environ.get("MEMVOTE_DIR") or Path(__file__).resolve().parent)  # 隔离测试时指到副本目录
 SCORES = EXP / "scores.json"
@@ -87,8 +88,7 @@ def record(voter, items, by="self", key="", agent=""):
     """items = [(编号「页#指纹」, 1|-1|0)]，按 SO 规则落票：返回 [(编号, 旧票, 新票, 分数)]；旧票等于新票的不记。"""
     out, recs = [], []
     now = time.strftime("%Y-%m-%d %H:%M:%S")
-    with open(LOCK, "w") as lk:
-        fcntl.flock(lk, fcntl.LOCK_EX)
+    with exclusive(LOCK):
         scores = json.loads(SCORES.read_text()) if SCORES.exists() else {}
         cur = {}
         for r in _recs(VOTES):
@@ -111,8 +111,7 @@ def record(voter, items, by="self", key="", agent=""):
 
 
 def _append(recs):
-    with open(LOCK, "w") as lk:
-        fcntl.flock(lk, fcntl.LOCK_EX)
+    with exclusive(LOCK):
         with open(VOTES, "a", encoding="utf-8") as fh:
             fh.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in recs)
     return recs

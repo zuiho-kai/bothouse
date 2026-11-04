@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -193,7 +194,13 @@ const collabDepsStamp = ".bothouse-deps"
 func embeddedCollabDeps(sub fs.FS) []byte {
 	pkg, _ := fs.ReadFile(sub, "collab/package.json")
 	lock, _ := fs.ReadFile(sub, "collab/pnpm-lock.yaml")
-	return append(append([]byte{}, pkg...), lock...)
+	deps := append(append([]byte{}, pkg...), lock...)
+	if runtime.GOOS == "windows" {
+		// The install layout is part of the stamp: replace earlier isolated
+		// installs whose absolute junction targets broke after the staging rename.
+		deps = append(deps, []byte("\nnode-linker=hoisted\n")...)
+	}
+	return deps
 }
 
 // collabDepsChanged: deps were installed (node_modules exists) and the embedded package.json /
@@ -224,7 +231,13 @@ var installCollabDeps = func(dir string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), dshDepsInstallTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, pnpm, "install", "--frozen-lockfile", "--config.minimum-release-age=0")
+	args := []string{"install", "--frozen-lockfile", "--config.minimum-release-age=0"}
+	if runtime.GOOS == "windows" {
+		// pnpm's isolated Windows layout uses absolute junctions into this
+		// staging directory. Hoisted packages remain usable after it is renamed.
+		args = append(args, "--node-linker=hoisted")
+	}
+	cmd := exec.CommandContext(ctx, pnpm, args...)
 	cmd.Dir = dir
 	ownProcessGroup(cmd) // on timeout kill pnpm and everything it started, not just pnpm
 	out, err := cmd.CombinedOutput()

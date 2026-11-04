@@ -2419,10 +2419,15 @@ func (m *ManagementServer) handleSetupState(w http.ResponseWriter, r *http.Reque
 	m.mu.RLock()
 	out["has_projects"] = len(m.engines) > 0
 	m.mu.RUnlock()
+	configured := map[string]bool{}
+	if DSHRouteConfigured() {
+		configured["dsh"] = true
+	}
+	out["configured_platforms"] = configured
 	if m.wizardStore != nil {
 		if snap, err := m.wizardStore.Snapshot(); err == nil {
 			names, shown := []string{}, []string{}
-			configured := map[string]bool{} // platform types in config.toml: the "add platform" page marks them
+			// Bridge platforms and DSH-native roles both count as configured.
 			for _, p := range snap.Projects {
 				for t := range p.Platforms {
 					if t == "lark" {

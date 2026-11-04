@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DSHSetup from './DSHSetup';
 
 const configure = vi.fn(async (_body: unknown) => ({ key_saved: false, members_file: '/tmp/members.json', members: 1 }));
+const fixture = vi.hoisted(() => ({ configured: false }));
 vi.mock('@/components/library', () => ({
   useLibrary: () => ({ lib: { personas: [], avatars: [], packs: [] }, error: '', reload: vi.fn() }),
   PersonaLibrary: ({ onPick }: { onPick: (p: unknown) => void }) => (
@@ -12,7 +13,7 @@ vi.mock('@/components/library', () => ({
 }));
 vi.mock('@/api/wizard', async (original) => ({
   ...await original<object>(),
-  getDSHStatus: async () => ({ found: true, plugin_installed: true, version: 'fixture', has_deepseek_key: true }),
+  getDSHStatus: async () => ({ found: true, plugin_installed: true, configured: fixture.configured, version: 'fixture', has_deepseek_key: true }),
   getCLIs: async () => ({ clis: [
     { agent_type: 'codex', label: 'Codex', supported: true, login: 'logged_in', path: '/fixture/codex' },
     { agent_type: 'claudecode', label: 'Claude Code', supported: true, login: 'logged_in', path: '/fixture/claude' },
@@ -22,14 +23,14 @@ vi.mock('@/api/wizard', async (original) => ({
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: ReturnType<typeof createRoot> | undefined;
 let container: HTMLDivElement;
-beforeEach(() => { configure.mockClear(); });
+beforeEach(() => { configure.mockClear(); fixture.configured = false; });
 afterEach(() => { act(() => root?.unmount()); container?.remove(); });
 
-const render = async () => {
+const render = async (addMode = false) => {
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
-  await act(async () => root!.render(<DSHSetup lang="zh" onBack={() => {}} />));
+  await act(async () => root!.render(<DSHSetup lang="zh" addMode={addMode} onBack={() => {}} />));
 };
 const click = async (selector: string) => {
   const el = container.querySelector<HTMLElement>(selector);
@@ -56,6 +57,36 @@ const openDetails = async () => {
 };
 
 describe('DSH setup roles', () => {
+  it('keeps explicit add-role mode available on an existing installation', async () => {
+    fixture.configured = true;
+    await render(true);
+    await click('[data-testid="dsh-skip-install"]');
+    expect(container.querySelector('[data-testid="dsh-role-0"]')).not.toBeNull();
+    expect(configure).not.toHaveBeenCalled();
+    await click('[data-testid="dsh-save-roles"]');
+    expect(configure).toHaveBeenCalledTimes(1);
+  });
+
+  it('only enters role creation from the resume screen after an explicit add click', async () => {
+    fixture.configured = true;
+    await render();
+    await click('[data-testid="dsh-add-roles"]');
+    expect(container.querySelector('[data-testid="dsh-role-0"]')).not.toBeNull();
+    expect(configure).not.toHaveBeenCalled();
+  });
+
+  it('resumes an existing installation without creating roles, including after remount', async () => {
+    fixture.configured = true;
+    await render();
+    expect(container.querySelector('[data-testid="dsh-open"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="dsh-role-0"]')).toBeNull();
+    await act(async () => root!.unmount());
+    root = createRoot(container);
+    await act(async () => root!.render(<DSHSetup lang="zh" onBack={() => {}} />));
+    expect(container.querySelector('[data-testid="dsh-open"]')).not.toBeNull();
+    expect(configure).not.toHaveBeenCalled();
+  });
+
   it('starts with the CLI name and no persona, and follows a backend switch until the name is edited', async () => {
     await render();
     await click('[data-testid="dsh-skip-install"]');

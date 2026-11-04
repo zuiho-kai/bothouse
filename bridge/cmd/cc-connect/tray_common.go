@@ -38,21 +38,21 @@ func onTrayReady() {
 	trayOpen = systray.AddMenuItem("打开管理面板", "在浏览器中打开本机管理面板")
 	trayAdd = systray.AddMenuItem("添加角色/模型", "打开添加角色向导")
 	trayQuit = systray.AddMenuItem("退出 bothouse", "停止桥和托盘")
-	cfg, err := config.LoadPermissive(trayConfigPath(os.Args[1:]))
+	mgmt, err := config.LoadManagement(trayConfigPath(os.Args[1:]))
 	if err != nil {
 		trayStatus.SetTitle("运行状态：配置读取失败")
 		return
 	}
-	port := cfg.Management.Port
+	port := mgmt.Port
 	if port <= 0 {
 		port = 9820
 	}
-	host := cfg.Management.Host
+	host := mgmt.Host
 	if host == "" || host == "0.0.0.0" {
 		host = "127.0.0.1"
 	}
-	client := trayClient{base: fmt.Sprintf("http://%s:%d", host, port), token: cfg.Management.Token}
-	if cfg.Management.Enabled != nil && *cfg.Management.Enabled {
+	client := trayClient{base: fmt.Sprintf("http://%s:%d", host, port), token: mgmt.Token}
+	if mgmt.Enabled != nil && *mgmt.Enabled {
 		go refreshTray(client)
 	} else {
 		trayStatus.SetTitle("运行状态：管理面板未启用")

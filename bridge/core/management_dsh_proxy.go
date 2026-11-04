@@ -111,8 +111,21 @@ func dshProxyPage(w http.ResponseWriter, status int, msg string) {
 func dshSameOrigin(r *http.Request) bool {
 	if o := r.Header.Get("Origin"); o != "" {
 		u, err := url.Parse(o)
-		if err != nil || !strings.EqualFold(u.Host, r.Host) {
+		if err != nil {
 			return false
+		}
+		if !strings.EqualFold(u.Host, r.Host) {
+			// Some Chromium request-header modifiers drop the Origin port on HTTP
+			// requests. Accept only that exact mismatch when Fetch Metadata and the
+			// full Referer independently identify this origin. Cross-port pages have
+			// same-site metadata, not same-origin; WebSocket Origin stays strict.
+			ref, refErr := url.Parse(r.Header.Get("Referer"))
+			if refErr != nil || r.Header.Get("Sec-Fetch-Site") != "same-origin" ||
+				r.Header.Get("Upgrade") != "" || u.Port() != "" || u.User != nil ||
+				!strings.EqualFold(ref.Host, r.Host) || u.Scheme != ref.Scheme ||
+				!strings.EqualFold(u.Hostname(), ref.Hostname()) {
+				return false
+			}
 		}
 	}
 	switch r.Header.Get("Sec-Fetch-Site") {
@@ -208,7 +221,7 @@ func (m *ManagementServer) handleDSHProxy(w http.ResponseWriter, r *http.Request
 	rp.ServeHTTP(w, r)
 }
 
-// dshRewriteHTML moves DSH's root-absolute app shell under /dsh/: the `<base href="/">` that its
+// dshRewriteHTML moves DSH's app shell under /dsh/: the root or relative base that its
 // relative assets resolve against, the `/plugins/` bundle URLs in attributes and the boot JSON, and,
 // since its client code also calls fixed root routes (`/api`, `/api/remote.mux`, `/plugins/events`,
 // `/open-in-app/...`), a shim ahead of every script that prefixes same-origin root paths given to
@@ -228,7 +241,7 @@ func dshRewriteHTML(res *http.Response) error {
 	if s := string(b); manifest {
 		// The web app manifest's id/start_url/scope/icons are root paths too.
 		b = []byte(strings.ReplaceAll(s, `": "/`, `": "`+dshProxyPrefix+`/`))
-	} else if strings.Contains(s, dshShellBase) {
+	} else if strings.Contains(s, dshShellBase) || strings.Contains(s, dshShellRelativeBase) {
 		b = []byte(dshHTMLReplacer.Replace(s))
 	}
 	res.Body = io.NopCloser(bytes.NewReader(b))
@@ -238,6 +251,7 @@ func dshRewriteHTML(res *http.Response) error {
 }
 
 const dshShellBase = `<base href="/">`
+const dshShellRelativeBase = `<base href="./">`
 
 // dshShimRoutes matches the root routes DSH's client code calls on its own server (source: its
 // shell bundles as served by dsh web on 11-03 — "/api/<method>", "/api/remote.mux", "/plugins/events",
@@ -256,6 +270,7 @@ const dshPathShim = `<script>(()=>{const P=` + "`" + dshProxyPrefix + "`" + `,L=
 
 var dshHTMLReplacer = strings.NewReplacer(
 	dshShellBase, `<base href="`+dshProxyPrefix+`/">`+dshPathShim,
+	dshShellRelativeBase, `<base href="`+dshProxyPrefix+`/">`+dshPathShim,
 	`"/plugins/`, `"`+dshProxyPrefix+`/plugins/`,
 	// Manifest fetches omit cookies unless asked, and /dsh/ needs the panel cookie.
 	`<link rel="manifest" `, `<link rel="manifest" crossorigin="use-credentials" `,

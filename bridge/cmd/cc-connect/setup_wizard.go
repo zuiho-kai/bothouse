@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -173,6 +174,10 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	srv := core.NewManagementServer(port, token, cfg.Management.CORSOrigins)
 	srv.SetHost(host)
 	srv.SetConfigFilePath(configPath)
+	// DSH-only installs stay in setup mode; their tray and usage page still query this API.
+	usageLedger := core.NewUsageLedger(cfg.DataDir, core.UsagePricesWithDefaults(cfg.UsagePrices))
+	srv.SetUsageLedger(usageLedger)
+	srv.SetUsageImporter(core.NewUsageImporter(cfg.DataDir, usageLedger, usageLogSources(cfg.Projects)...))
 	srv.SetSetupFeishuSave(saveFeishuSetup)
 	srv.SetWizard(configWizardStore{}, cfg.DataDir)
 	wireAutostart(srv)
@@ -183,11 +188,19 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	// The sign-in link carries the token: it goes into a file only you can read and into the
 	// browser; the terminal only shows it when no browser could be opened.
 	linkFile := setupLinkFile(configPath)
-	link := fmt.Sprintf("http://localhost:%d/login?token=%s&next=/setup", port, token)
+	dshConfigured := core.DSHRouteConfigured()
+	link := setupEntryLink(port, token, dshConfigured)
 	if err := os.WriteFile(linkFile, []byte(link+"\n"), 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "cannot write %s: %v\n", linkFile, err)
 	}
-	announceSetupWizard(link, linkFile, port, os.Getenv("CC_LOG_FILE") == "" && !overSSH())
+	if dshConfigured {
+		if os.Getenv("CC_LOG_FILE") == "" && !overSSH() {
+			_ = openBrowserFn(link)
+		}
+		fmt.Printf("DSH is already configured. Open DSH using the saved roles (sign-in link is private):\n\n  %s\n\nThe link is also in %s\n", link, linkFile)
+	} else {
+		announceSetupWizard(link, linkFile, port, os.Getenv("CC_LOG_FILE") == "" && !overSSH())
+	}
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
@@ -221,6 +234,14 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 
 func setupLinkFile(configPath string) string {
 	return filepath.Join(filepath.Dir(configPath), "setup-link.txt")
+}
+
+func setupEntryLink(port int, token string, dshConfigured bool) string {
+	next := "/setup"
+	if dshConfigured {
+		next = "/setup?platform=dsh"
+	}
+	return fmt.Sprintf("http://localhost:%d/login?token=%s&next=%s", port, url.QueryEscape(token), url.QueryEscape(next))
 }
 
 // openBrowserFn is swapped in tests.

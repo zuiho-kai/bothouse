@@ -7,7 +7,6 @@
   bothouse 拉起 gate 时两个都设成同一个数据目录（core/gate_proc.go）。
 """
 import os
-import pwd
 import sys
 import tempfile
 from pathlib import Path
@@ -19,8 +18,25 @@ def _in_test():
     """测试进程：设了 BOTHOUSE_TEST、载了 unittest/pytest，或 HOME 在临时目录（iso-check 的做法）。"""
     if os.environ.get("BOTHOUSE_TEST") or "unittest" in sys.modules or "pytest" in sys.modules:
         return True
-    home = str(Path(os.environ.get("HOME") or "/").resolve())
-    return any(home == t or home.startswith(t + "/") for t in _TEMP)
+    home = Path.home().resolve()
+    return any(home == Path(t) or Path(t) in home.parents for t in _TEMP)
+
+
+def _account_home():
+    """Account home independent of a test's HOME/USERPROFILE overrides."""
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+        get_folder = ctypes.WinDLL("shell32").SHGetFolderPathW
+        get_folder.argtypes = (wintypes.HWND, ctypes.c_int, wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR)
+        get_folder.restype = ctypes.c_long
+        path = ctypes.create_unicode_buffer(260)
+        result = get_folder(None, 0x0028, None, 0, path)  # CSIDL_PROFILE, SHGFP_TYPE_CURRENT
+        if result != 0:
+            raise OSError(f"SHGetFolderPathW(CSIDL_PROFILE) failed: {result:#x}")
+        return Path(path.value)
+    import pwd
+    return Path(pwd.getpwuid(os.getuid()).pw_dir)
 
 
 def guard(path):
@@ -29,7 +45,7 @@ def guard(path):
     if path is None or str(path) == "" or not _in_test():
         return path
     try:
-        real = Path(pwd.getpwuid(os.getuid()).pw_dir)
+        real = _account_home()
     except KeyError:
         return path
     p = Path(path).expanduser().resolve()

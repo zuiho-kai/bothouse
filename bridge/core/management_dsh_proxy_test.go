@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chenhg5/cc-connect/tests/testutil"
 	"github.com/gorilla/websocket"
 )
 
@@ -115,7 +117,7 @@ func newProxyFakeDSH(t *testing.T) *proxyFakeDSH {
 // setupDSHProxy points dsh-web.json (under a temp HOME) at fake and returns the panel server.
 func setupDSHProxyTest(t *testing.T, fake *proxyFakeDSH, token string) *httptest.Server {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testutil.SetHome(t, home)
 	if fake != nil {
 		writeProxyDSHWeb(t, fake.srv.URL+"/?token=launch#channels")
 	}
@@ -351,6 +353,44 @@ func TestDSHProxyWebSocket(t *testing.T) {
 	}
 }
 
+func TestDSHProxyTrimmedOriginRequiresSameOriginMetadata(t *testing.T) {
+	panel := setupDSHProxyTest(t, newProxyFakeDSH(t), "secret")
+	c := dshSignIn(t, panel, "secret")
+	u, _ := url.Parse(panel.URL)
+	trimmed := u.Scheme + "://" + u.Hostname()
+	for _, tc := range []struct {
+		name, origin, site, referer, upgrade string
+		want                                 int
+	}{
+		{"rewritten HTTP origin", trimmed, "same-origin", panel.URL + "/dsh/", "", 200},
+		{"missing metadata", trimmed, "", panel.URL + "/dsh/", "", 403},
+		{"missing referer", trimmed, "same-origin", "", "", 403},
+		{"same site other port", trimmed, "same-site", panel.URL + "/dsh/", "", 403},
+		{"cross site", trimmed, "cross-site", panel.URL + "/dsh/", "", 403},
+		{"other origin port", trimmed + ":1", "same-origin", panel.URL + "/dsh/", "", 403},
+		{"other referer port", trimmed, "same-origin", trimmed + ":1/dsh/", "", 403},
+		{"other hostname", "http://localhost", "same-origin", panel.URL + "/dsh/", "", 403},
+		{"other scheme", "https://" + u.Hostname(), "same-origin", panel.URL + "/dsh/", "", 403},
+		{"websocket stays strict", trimmed, "same-origin", panel.URL + "/dsh/", "websocket", 403},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, _ := http.NewRequest(http.MethodGet, panel.URL+"/dsh/", nil)
+			req.Header.Set("Origin", tc.origin)
+			req.Header.Set("Sec-Fetch-Site", tc.site)
+			req.Header.Set("Referer", tc.referer)
+			req.Header.Set("Upgrade", tc.upgrade)
+			res, err := c.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res.Body.Close()
+			if res.StatusCode != tc.want {
+				t.Fatalf("HTTP %d, want %d", res.StatusCode, tc.want)
+			}
+		})
+	}
+}
+
 func TestDSHProxyRejectsCrossOrigin(t *testing.T) {
 	fake := newProxyFakeDSH(t)
 	panel := setupDSHProxyTest(t, fake, "secret")
@@ -447,6 +487,25 @@ func TestDSHProxyOpenWhenPanelHasNoToken(t *testing.T) {
 	res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d, want 200 (panel without token is open, same as /api/)", res.StatusCode)
+	}
+}
+
+func TestDSHProxyRewritesRelativeBaseShell(t *testing.T) {
+	// DSH 0.2.1-rc.5 serves a relative base but still calls root-absolute API routes.
+	body := `<html><head><base href="./"><script src="./assets/index.js"></script></head></html>`
+	res := &http.Response{Header: http.Header{"Content-Type": {"text/html"}}, Body: io.NopCloser(strings.NewReader(body))}
+	if err := dshRewriteHTML(res); err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), `<base href="/dsh/">`+dshPathShim) {
+		t.Fatal("relative-base DSH shell lacks the API path shim")
+	}
+	if !strings.Contains(string(got), `src="./assets/index.js"`) {
+		t.Fatal("relative asset path was damaged")
 	}
 }
 

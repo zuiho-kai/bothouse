@@ -163,6 +163,7 @@ The OneBot guide also covers optional paragraph splitting, original-image storag
 <details>
 <summary><b>Everyday actions in DSH Channels</b></summary>
 
+- **Restarting:** an installation with saved DSH roles resumes at **Open DSH**. Restarting does not require creating another role; use **Add role/model** only when you want an additional role.
 - **Avatars:** add or edit a member and open **Optional → Avatar → Upload image** to pick a local PNG (up to 256KB). The browser automatically resizes it to 256×256 and keeps it in the local data directory; click **Restore default** to remove the uploaded avatar.
 - **Task board:** the member sidebar shows task counts; **Task board** opens a dialog grouped by channel, workspace and owner. Completed tasks start collapsed, and Dispatch / Delivery links jump to the original messages.
 - **Channel settings:** pick a primary role per channel and save an existing absolute **Working directory**; choose whether to recreate that channel's DSH sessions now (clearing context) or leave that for the next time sessions are created. Workspaces inherit their parent channel's settings.

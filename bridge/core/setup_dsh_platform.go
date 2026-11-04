@@ -34,6 +34,7 @@ type DSHStatus struct {
 	Found           bool   `json:"found"`             // dsh is on PATH
 	Version         string `json:"version,omitempty"` // `dsh --version`
 	PluginInstalled bool   `json:"plugin_installed"`  // the profile lists client-ui-discord
+	Configured      bool   `json:"configured"`        // wizard roles already saved or imported
 	Profile         string `json:"profile"`
 	OpenCommand     string `json:"open_command"` // run this to open the DSH web page
 	InstallScript   string `json:"install_script,omitempty"`
@@ -208,7 +209,7 @@ func bashScriptArg(goos, script string) string {
 func GetDSHStatus(ctx context.Context, langs ...string) DSHStatus {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	st := DSHStatus{Profile: DSHProfile, OpenCommand: dshOpenCommand(), InstallScript: FindDSHInstallScript()}
+	st := DSHStatus{Profile: DSHProfile, OpenCommand: dshOpenCommand(), InstallScript: FindDSHInstallScript(), Configured: DSHRouteConfigured()}
 	st.NodeVersion, st.DependencyError = dshNodeStatus(ctx, langs...)
 	_, pnpmErr := exec.LookPath("pnpm")
 	st.PNPMFound = pnpmErr == nil
