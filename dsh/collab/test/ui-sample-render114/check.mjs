@@ -12,9 +12,10 @@
 //     node check.mjs /tmp/before-index.html      # 应当红
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { progressCardOf } from '../../cloudweb.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const CDP = 'http://127.0.0.1:9466'; // 来源：本路专用 Chrome 调试端口，沿用 #114 截图环境
+const CDP = process.env.CDP || 'http://127.0.0.1:9466'; // 来源：本路专用 Chrome 调试端口，沿用 #114 截图环境；CDP=… 可换
 const FILE = resolve(process.argv[2] || join(HERE, 'index.html'));
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -126,6 +127,46 @@ out.checks.history = await ev(`(() => {
   return { scrollBefore: at, scrollAfter: log.scrollTop, moved: Math.abs(log.scrollTop - at) > 1 };
 })()`);
 
+// 6 同字不同结构：链接换地址、粗体改普通字，块要换掉，不能留旧节点（父审 d27c79c0 缺口 1）。
+out.checks.structure = await ev(`(() => {
+  const id = 9000118;
+  const m = { id, room_id: state.room, author_kind: 'role', author: 'm-gg', name: 'G哥', text: '看 [文档](https://example.com/old) 和 **重点**', created_at: Math.floor(Date.now() / 1000), attachments: [] };
+  upsert(m);
+  m.text = '看 [文档](https://example.com/new) 和 重点'; m.edited_at = Date.now();
+  upsert(m);
+  const row = log.querySelector('[data-id="' + id + '"]');
+  return { href: row.querySelector('.body a')?.getAttribute('href'), strong: row.querySelectorAll('.body strong').length };
+})()`);
+
+// 7 增长后的代码块复制：要复制当前内容（父审缺口 2）。file:// 读不了剪贴板，拦 writeText 记下写入内容。
+out.checks.copyGrowth = await ev(`(async () => {
+  let wrote = null;
+  const orig = navigator.clipboard && navigator.clipboard.writeText;
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async t => { wrote = t; } } });
+  log.querySelector('[data-id="9000115"] .md-copy').click();
+  await new Promise(r => setTimeout(r, 50));
+  return { hasExtra: (wrote || '').includes('const extra = 1;'), chars: (wrote || '').length };
+})()`);
+
+// 8 真实 progressCardOf 产物（没有 kind）要进思考/工具样式（父审缺口 3）。
+const real = progressCardOf({ agent: 'G哥', state: 'running', steps: 3, elapsed_sec: 75, items: [
+  { kind: 'thinking', text: '先看一下现有的渲染入口' },
+  { kind: 'thinking', text: '再决定怎么改' },
+  { kind: 'tool_use', tool: 'Read', text: 'dsh/collab/page.html' },
+  { kind: 'error', tool: 'Bash', text: 'exit 1' },
+] });
+out.checks.progressReal = await ev(`(() => {
+  const id = 9000119;
+  upsert({ id, room_id: state.room, author_kind: 'role', author: 'm-gg', name: 'G哥', created_at: Math.floor(Date.now() / 1000), attachments: [], text: ${JSON.stringify(real.text)}, card: ${JSON.stringify(real.card)} });
+  const row = log.querySelector('[data-id="' + id + '"]');
+  row.querySelector('.think-toggle')?.click();
+  const m = { id, room_id: state.room, author_kind: 'role', author: 'm-gg', name: 'G哥', created_at: Math.floor(Date.now() / 1000), attachments: [], text: ${JSON.stringify(real.text + '\n🔧 Edit — page.html')}, card: ${JSON.stringify(real.card)} };
+  upsert(m);
+  const row2 = log.querySelector('[data-id="' + id + '"]');
+  return { think: row2.querySelectorAll('.think').length, tools: row2.querySelectorAll('.tool-line').length, failed: row2.querySelectorAll('.tool-line.failed').length,
+    stillOpen: row2.querySelector('.think')?.dataset.open === 'true', thinkText: row2.querySelector('.think-text')?.textContent || '' };
+})()`);
+
 // 单文件自洽：整个会话里除了这个文件和 blob:/data:，不该再往外要任何东西。
 out.requests = [...new Set(requests)].map(u => ({ url: u.slice(0, 90), scheme: u.split(':')[0] }));
 out.remoteRequests = out.requests.filter(r => !['file', 'blob', 'data', 'about'].includes(r.scheme));
@@ -144,6 +185,12 @@ const want = {
   '附件：图片本地加载': c.attachment.srcScheme === 'blob' && /^\d+x\d+$/.test(c.attachment.natural),
   '历史阅读：新消息不拽视野': c.history.moved === false,
   '单文件：没有外部请求': out.remoteRequests.length === 0,
+  '结构变化：链接换成新地址': c.structure.href === 'https://example.com/new',
+  '结构变化：粗体改普通字': c.structure.strong === 0,
+  '增长的代码块：复制的是当前内容': c.copyGrowth.hasExtra === true,
+  '真实进度卡：思考收成一块': c.progressReal.think === 1 && c.progressReal.thinkText.includes('再决定怎么改'),
+  '真实进度卡：工具一行一个、出错标红': c.progressReal.tools === 3 && c.progressReal.failed === 1,
+  '真实进度卡：新一步后展开状态保留': c.progressReal.stillOpen === true,
 };
 out.pass = Object.entries(want).map(([k, ok]) => ({ check: k, ok }));
 out.ok = out.pass.every(p => p.ok) && errors.length === 0;

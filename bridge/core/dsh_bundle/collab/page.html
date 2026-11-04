@@ -568,6 +568,9 @@
   .tool-line .tl-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
   .tool-line .tl-sum { max-width: min(70%, 520px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tool-line.failed .tl-name, .tool-line.failed .tl-sum { color: var(--danger); }
+  .progress-body .progress-meta { color: var(--muted); font-size: var(--fs-xs); margin-bottom: 2px; }
+  .progress-body .tool-line { justify-content: flex-start; }
+  .progress-body .tool-line .tl-sum { max-width: 100%; }
   @media (prefers-reduced-motion: reduce) { .think-body { transition: none; } }
 
   @media (prefers-reduced-motion: reduce) {
@@ -751,7 +754,8 @@ function codeBlock(lang, code) {
   bar.append(el('span', 'md-lang', lang || '代码'));
   const copy = el('button', 'md-copy', '复制'); copy.type = 'button';
   copy.onclick = async () => {
-    try { await navigator.clipboard.writeText(code); copy.textContent = '已复制'; }
+    // 流式更新只换 <code> 里的字（patchBody），复制要取当前内容，不能用建块时的旧字符串。
+    try { await navigator.clipboard.writeText(pre.querySelector('code').textContent); copy.textContent = '已复制'; }
     catch { copy.textContent = '复制失败'; }
     setTimeout(() => { copy.textContent = '复制'; }, 1500);
   };
@@ -877,22 +881,16 @@ const messageSig = m => JSON.stringify([m.text, m.card, m.edited_at, m.attachmen
 // 不重建整行 —— 图片不重载、引用条不闪、代码块的横向滚动位置不丢。
 const frameSig = m => JSON.stringify([m.attachments, m.reply_to, m.author_kind, m.author]);
 
-// 思考过程：默认一行灰字，点一下展开；运行中显示「思考中…」。
-function thinkingNode(m, meta) {
-  const row = el('div', 'msg think-row');
-  row.dataset.id = m.id;
-  row.dataset.sig = messageSig(m);
-  row.dataset.frame = frameSig(m);
+// 思考块：一行灰字按钮，点开看内容。思考消息和进度卡里的思考行共用。
+function thinkBox(label, content) {
   const box = el('div', 'think');
   const btn = el('button', 'think-toggle');
   btn.type = 'button';
   btn.setAttribute('aria-expanded', 'false');
-  const secs = Number(meta.seconds);
-  btn.append(el('span', 'think-label', meta.state === 'running' ? '思考中…' : (secs > 0 ? `思考了 ${secs} 秒` : '思考过程')));
-  btn.append(el('span', 'chev', '›'));
+  btn.append(el('span', 'think-label', label), el('span', 'chev', '›'));
   const body = el('div', 'think-body');
   const inner = el('div');
-  inner.append(renderBody(meta.detail || m.text || '', 'think-text'));
+  inner.append(content);
   body.append(inner);
   btn.onclick = () => {
     const open = box.dataset.open === 'true';
@@ -900,21 +898,59 @@ function thinkingNode(m, meta) {
     btn.setAttribute('aria-expanded', String(!open));
   };
   box.append(btn, body);
-  row.append(box);
-  return row;
+  return box;
+}
+function toolLine(name, sum, failed) {
+  const line = el('div', 'tool-line' + (failed ? ' failed' : ''));
+  line.append(el('span', 'tl-dot'), el('span', 'tl-name', name || '工具'));
+  if (sum) line.append(el('span', 'tl-sum', sum));
+  return line;
+}
+// 进度卡正文（cloudweb.mjs progressCardOf 的 text：首行「第 N 步 · 秒」，其后每行
+// 「• 思考/说明」「🔧 工具 — 摘要」「❌ 出错」）。连续的「•」行收成一个思考块，工具行各占一行。
+// 只读现有 text，不改协议；认不出的行照普通正文显示。
+const isProgressMeta = meta => !meta.kind && Number.isInteger(meta.steps) && typeof meta.brief === 'string';
+function progressBody(text, state) {
+  const out = el('div', 'body progress-body');
+  const lines = String(text || '').split('\n');
+  out.append(el('div', 'progress-meta', lines.shift() || ''));
+  let thoughts = [];
+  const flush = () => {
+    if (!thoughts.length) return;
+    out.append(thinkBox(state === 'running' ? '思考中…' : '思考过程', renderBody(thoughts.join('\n\n'), 'think-text')));
+    thoughts = [];
+  };
+  for (const line of lines) {
+    let mm;
+    if ((mm = /^• (.*)$/.exec(line))) { thoughts.push(mm[1]); continue; }
+    flush();
+    if ((mm = /^(🔧|❌) (.*)$/u.exec(line))) {
+      const [name, ...rest] = mm[2].split(' — ');
+      const failed = mm[1] === '❌';
+      out.append(rest.length ? toolLine(name, rest.join(' — '), failed) : toolLine(failed ? '出错' : '工具', name, failed));
+    } else if (line.trim()) out.append(renderBody(line, 'progress-other'));
+  }
+  flush();
+  return out;
 }
 
+// 思考过程：默认一行灰字，点一下展开；运行中显示「思考中…」。
+function thinkingNode(m, meta) {
+  const row = el('div', 'msg think-row');
+  row.dataset.id = m.id;
+  row.dataset.sig = messageSig(m);
+  row.dataset.frame = frameSig(m);
+  const secs = Number(meta.seconds);
+  row.append(thinkBox(meta.state === 'running' ? '思考中…' : (secs > 0 ? `思考了 ${secs} 秒` : '思考过程'), renderBody(meta.detail || m.text || '', 'think-text')));
+  return row;
+}
 // 工具事件：居中一行灰字；失败时整行标红，仍然只有一行。
 function toolNode(m, meta) {
   const row = el('div', 'msg tool-row');
   row.dataset.id = m.id;
   row.dataset.sig = messageSig(m);
   row.dataset.frame = frameSig(m);
-  const line = el('div', 'tool-line' + (meta.state === 'failed' ? ' failed' : ''));
-  line.append(el('span', 'tl-dot'), el('span', 'tl-name', meta.title || '工具'));
-  const sum = meta.summary || String(m.text || '').split('\n')[0];
-  if (sum) line.append(el('span', 'tl-sum', sum));
-  row.append(line);
+  row.append(toolLine(meta.title, meta.summary || String(m.text || '').split('\n')[0], meta.state === 'failed'));
   return row;
 }
 
@@ -956,7 +992,7 @@ function messageNode(m) {
     titleRow.append(el('span', 'title', meta.title || ''));
     const label = cardStateLabel[meta.state];
     if (label) titleRow.append(el('span', 'chip', label));
-    card.append(titleRow, renderBody(m.text, 'body'));
+    card.append(titleRow, isProgressMeta(meta) ? progressBody(m.text, meta.state) : renderBody(m.text, 'body'));
     // Pending permission card: one button per action, posting the decision (same route as a text reply).
     if (meta.kind === 'permission' && meta.state === 'pending' && Array.isArray(meta.actions)) {
       const bar = el('div', 'actions');
@@ -1000,7 +1036,8 @@ const isCodeBlock = n => n.classList.contains('md-pre');
 const codeLang = n => n.querySelector('.md-lang')?.textContent || '';
 const blockSig = n => isCodeBlock(n)
   ? 'pre|' + codeLang(n) + '|' + (n.querySelector('pre code')?.textContent ?? '')
-  : n.tagName + '|' + n.textContent;
+  : n.outerHTML; // 结构和属性都比：同字不同链接、粗体改普通字都要换块
+
 // 正文原地更新：内容没变的块复用，代码块长高时只换里面的字并保住横向滚动位置，其余块才替换。
 function patchBody(body, fresh) {
   const oldNodes = [...body.children];
@@ -1039,7 +1076,17 @@ function upsert(m) {
       return;
     }
   }
-  if (existing) existing.replaceWith(messageNode(m));
+  if (existing) {
+    // 进度卡每步整行重建：已展开的思考块保持展开，不因新的一步收回去。
+    const opened = [...existing.querySelectorAll('.think')].map(t => t.dataset.open === 'true');
+    const node = messageNode(m);
+    node.querySelectorAll('.think').forEach((t, i) => {
+      if (!opened[i]) return;
+      t.dataset.open = 'true';
+      t.querySelector('.think-toggle')?.setAttribute('aria-expanded', 'true');
+    });
+    existing.replaceWith(node);
+  }
   else {
     const after = [...log.children].find(n => n.dataset.id != null && Number(n.dataset.id) > m.id);
     log.insertBefore(messageNode(m), after || null);
