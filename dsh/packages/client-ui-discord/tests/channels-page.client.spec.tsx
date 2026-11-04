@@ -73,7 +73,9 @@ describe('channels page', () => {
 
   it('keeps offline channel members in the legacy roster and dims them', () => {
     const html = readFileSync(join(import.meta.dirname, '../../../collab/page.html'), 'utf8')
-    const source = html.slice(html.indexOf('function renderMembers()'), html.indexOf('function messageNode('))
+    // 只取 renderMembers 这一段：page.html 里它后面还有顶层的 $('log') 监听注册，
+    // 一起 eval 会在这里拿到 null 的 #log 而报错。
+    const source = html.slice(html.indexOf('function renderMembers()'), html.indexOf('// ---- 消息正文渲染 ----'))
     const container = document.createElement('div')
     container.innerHTML = '<div id="members"></div><div id="thinking"></div>'
     const el = (tag: string, className = '', text = '') => {
