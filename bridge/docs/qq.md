@@ -52,11 +52,11 @@ English: the optional QQ gate supports self-hosted or remote APIs without logpro
 bothouse send --project YOUR_PROJECT --session 'qq:g:GROUP_ID' --image /path/to/generated.png
 ~~~
 
-该命令发送已有文件，不负责生图。只有发送回执成功才可记为已发送；响应丢失时先核对实际消息，不要自动重复发送。生成过程与发送过程应分别记录，API 密钥、生成素材和输出文件放在仓库之外。
+该命令发送已有文件，不负责生图。若要让 bothouse 自己画，可选用 `[image_gen]`（OpenAI 兼容 `/images/generations`，默认关闭）：面板「生图」页或 `POST /api/v1/image-gen` 把图写成本地文件，仍然按上面这行发送，不会自动发到群里。只有发送回执成功才可记为已发送；响应丢失时先核对实际消息，不要自动重复发送。生成过程与发送过程应分别记录，API 密钥、生成素材和输出文件放在仓库之外。
 
 恢复时先区分 QQ 登录状态、OneBot 连接、桥进程、模型会话四层。保留正在使用的配置、二进制版本与运行数据备份；恢复相同配置和数据目录后再核对连接日志及会话。桥已有轮次 journal 与恢复机制，本变更不引入另一套重启脚本或调度器。不能只凭模型会话是否存在判断 QQ 离线期间是否收到消息；应分别查 OneBot 接收记录与桥接处理记录。更换版本必须由用户授权，回退使用已备份的版本与配置，不清空运行数据。
 
-English: image generation stays with a user-selected service; send its output with the existing --image CLI. Recovery should distinguish QQ login, OneBot transport, the bridge process and the model session. Keep versioned backups and inspect receipts before retrying external sends; this change adds no production restart mechanism.
+English: image generation stays with a user-selected service (optionally bothouse's own opt-in [image_gen] client, off by default); send its output with the existing --image CLI. Recovery should distinguish QQ login, OneBot transport, the bridge process and the model session. Keep versioned backups and inspect receipts before retrying external sends; this change adds no production restart mechanism.
 
 bothouse 通过 [OneBot v11](https://github.com/botuniverse/onebot-11) 协议连接 QQ，需要搭配一个 OneBot 实现（如 NapCat）使用。
 
