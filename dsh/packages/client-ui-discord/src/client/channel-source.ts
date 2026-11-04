@@ -175,6 +175,8 @@ export interface ChannelRoom {
   readonly parent_id?: number | null
   /** Tasks in progress in this room. */
   readonly active?: number
+  /** #1023: set on a private chat — the one agent member it is with. */
+  readonly dm_member?: string | null
 }
 
 /** One row of the channel list: a chat channel at depth 0, its workspaces at depth 1. */
@@ -183,11 +185,16 @@ export interface RoomRow {
   readonly depth: 0 | 1
 }
 
+/** #1023: the private chats, one per agent member, in id order. */
+export const dmRooms = (rooms: readonly ChannelRoom[]): ChannelRoom[] => rooms.filter(r => r.dm_member != null)
+
 /**
  * Order rooms as chat channel, then its workspaces, in id order. A workspace whose
  * chat channel is missing is shown at the top level so it stays reachable.
  */
-export function groupRooms(rooms: readonly ChannelRoom[]): RoomRow[] {
+export function groupRooms(allRooms: readonly ChannelRoom[]): RoomRow[] {
+  // #1023: private chats have their own 私聊 group (dmRooms), not a row among the channels.
+  const rooms = allRooms.filter(r => r.dm_member == null)
   const chats = new Set(rooms.filter(r => r.kind !== 'workspace').map(r => r.id))
   const under = new Map<number, ChannelRoom[]>()
   for (const r of rooms) {
@@ -294,6 +301,8 @@ export interface ChannelActions {
   dismissSend(clientKey: string): void
   /** Create a room and switch to it. */
   createRoom(name: string): Promise<void>
+  /** #1023: open the private chat with one agent member (created on first use) and switch to it. */
+  openDm?(memberId: string): Promise<void>
   /** Rename a chat channel while preserving its identity and history. */
   renameRoom(roomId: number, name: string): Promise<void>
   /** Provider routes and their models for the member picker. */
@@ -843,6 +852,11 @@ export function createChannelSource(transport: ChannelTransport): {
       const { room, workspace } = await request<{ room: ChannelRoom; workspace?: ChannelRoom }>('collab/api/rooms', json('POST', { name }))
       const added = [room, workspace].filter((r): r is ChannelRoom => r !== undefined && !snapshot.rooms.some(s => s.id === r.id))
       if (added.length > 0) set({ rooms: [...snapshot.rooms, ...added] })
+      await selectRoom(room.id)
+    },
+    async openDm(memberId) {
+      const { room } = await request<{ room: ChannelRoom }>('collab/api/dms', json('POST', { member: memberId }))
+      if (!snapshot.rooms.some(r => r.id === room.id)) set({ rooms: [...snapshot.rooms, room] })
       await selectRoom(room.id)
     },
     async renameRoom(roomId, name) {

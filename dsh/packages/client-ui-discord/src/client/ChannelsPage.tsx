@@ -12,7 +12,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ChannelActions, ChannelMember, ChannelMemory, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, OutgoingAttachment } from './channel-source.ts'
 import { MAX_MESSAGE_BODY, messageTooLarge } from './channel-source.ts'
 import { AttachmentList, PendingAttachments, useComposerAttachments } from './Attachments.tsx'
-import { groupRooms } from './channel-source.ts'
+import { dmRooms, groupRooms } from './channel-source.ts'
+import { DeliveryPreview, deliverableOf, deliveredTasks } from './DeliveryPreview.tsx'
 import { boardGroupOf, isLiveTask } from './task-board.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { ProgressCard, channelProgress } from './ProgressCard.tsx'
@@ -45,6 +46,7 @@ export type ChannelsPageProps = PropsRuntime<'main'> & InjectFace<ChannelsInject
   readonly answerTask?: (taskId: number, text: string) => Promise<void>
   /** #1016 转任务 on a message; absent hides the button. */
   readonly dispatchTask?: ChannelActions['dispatchTask']
+  readonly openDm?: ChannelActions['openDm']
 }
 
 type T = TranslateNS<typeof NS>
@@ -220,7 +222,7 @@ interface OwnActions {
 }
 
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor }: {
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor }: {
   message: ChannelMessage
   grouped: boolean
   /** Stagger slot when this row arrived live (#115); undefined for history. */
@@ -237,6 +239,10 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   onAvatar: () => void
   onCloseMenu: () => void
   onMention: (member: ChannelMember) => void
+  /** #1023 发私信 in the avatar menu; undefined hides it. */
+  onDm: ((member: ChannelMember) => void) | undefined
+  /** #1023 收下 on a delivered web page. */
+  onReview?: (id: number, verdict: 'done' | 'rework', note?: string) => Promise<void>
   onDecide: ChannelActions['decidePermission']
   onReply: (message: ChannelMessage) => void
   /** #1016 转任务; undefined hides the button (no primary role or no endpoint). */
@@ -340,6 +346,11 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   const anchoredIds = new Set(anchored.map(task => task.id))
   const taskCards = anchored.filter(task => task.parent_task === null || !anchoredIds.has(task.parent_task))
   const progressLines = role === 'progress' ? shown.split('\n') : []
+  // #1023: a hand-back that delivers a web page shows the page itself.
+  const deliveredFor = deliveredTasks(message, tasks)
+  const deliveredPage = deliveredFor.length > 0 ? deliverableOf(message) : undefined
+  const delivered = deliveredPage === undefined ? undefined
+    : { page: deliveredPage, task: deliveredFor.find(task => task.status === 'returned') ?? deliveredFor[0] }
 
   // A finished run in the brief view folds to its summary line; running or detailed shows the steps.
   const progressFolded = role === 'progress' && cardView === 'brief' && card?.state === 'completed'
@@ -362,6 +373,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                 <div className={css.avatarMenu} role="menu" aria-label={t('memberMenu', { name: member.name })}>
                   <div className={css.avatarMenuTitle}>{member.name}</div>
                   <button type="button" role="menuitem" className={css.avatarMenuItem} onClick={() => { onMention(member) }}>{t('avatarMention')}</button>
+                  {onDm !== undefined && member.kind !== 'human' && <button type="button" role="menuitem" className={css.avatarMenuItem} onClick={() => { onCloseMenu(); onDm(member) }}>{t('dmOpen')}</button>}
                 </div>
               )}
             </span>
@@ -403,7 +415,8 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
               </div>
             )
           : card === undefined
-          ? <>{message.text !== '' && <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>}<AttachmentList attachments={message.attachments} t={t} /></>
+          ? <>{message.text !== '' && <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>}<AttachmentList attachments={message.attachments} t={t} />
+              {delivered !== undefined && <DeliveryPreview page={delivered.page} task={delivered.task} t={t} onReview={onReview} onRevise={() => { onReply(message) }} />}</>
           : role === 'progress'
           ? (
               // #113: the run is a slim strip under the reply — spinner, step and time — that folds
@@ -524,8 +537,10 @@ function CommandRow({ message, target, command, answer, t }: {
   )
 }
 
-function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
+function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }: {
   title: string
+  /** #1023 发私信 beside each agent; undefined hides it. */
+  onDm?: (member: ChannelMember) => void
   members: readonly ChannelMember[]
   busy: ReadonlySet<string>
   onPick: (member: ChannelMember) => void
@@ -557,14 +572,17 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
             </span>
             <span className={css.memberStatus} data-status={m.error ? 'error' : busy.has(m.id) ? 'busy' : m.online ? 'online' : 'offline'}>{m.error ? t('memberFailed') : busy.has(m.id) ? t('working') : m.online ? t('online') : t('offline')}</span>
           </button>
-          {m.kind === 'dsh' && (m.editable === true
-            ? (
-                <span className={css.memberActions}>
-                  <button type="button" className={css.linkButton} onClick={() => { onEdit(m) }}>{t('editMember')}</button>
-                  <button type="button" className={css.linkButton} onClick={() => { onRemove(m) }}>{t('removeMember')}</button>
-                </span>
-              )
-            : <span className={css.memberActions} title={t('configMember')}>⚙</span>)}
+          {(m.kind === 'dsh' || (onDm !== undefined && m.kind !== 'human')) && (
+            <span className={css.memberActions} title={m.kind === 'dsh' && m.editable !== true ? t('configMember') : undefined}>
+              {onDm !== undefined && <button type="button" className={css.linkButton} onClick={() => { onDm(m) }}>{t('dmOpen')}</button>}
+              {m.kind === 'dsh' && (m.editable === true
+                ? <>
+                    <button type="button" className={css.linkButton} onClick={() => { onEdit(m) }}>{t('editMember')}</button>
+                    <button type="button" className={css.linkButton} onClick={() => { onRemove(m) }}>{t('removeMember')}</button>
+                  </>
+                : '⚙')}
+            </span>
+          )}
         </div>
       ))}
     </>
@@ -576,7 +594,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }: {
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, openModelSettings, answerTask, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, openModelSettings, answerTask, t }: ChannelsPageProps) {
   const scheme = useScheme()
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
@@ -884,7 +902,11 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
 
   const room = state.rooms.find(r => r.id === state.roomId)
   const channelId = room?.parent_id ?? room?.id
-  const visibleMembers = state.members.filter(m => !m.rooms?.length || (channelId !== undefined && m.rooms.includes(channelId)))
+  // #1023: a private chat shows the owner and its one agent.
+  const dmWith = room?.dm_member ?? undefined
+  const visibleMembers = dmWith !== undefined
+    ? state.members.filter(m => m.kind === 'human' || m.id === dmWith)
+    : state.members.filter(m => !m.rooms?.length || (channelId !== undefined && m.rooms.includes(channelId)))
   const openTaskOwners = new Set(
     (state.tasks ?? []).filter(isLiveTask).map(t => t.owner)
   )
@@ -972,6 +994,14 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   }
 
   // Avatar menu "@": the same caret insertion as the member list, keeping the draft.
+  // #1023: open (or reopen) the private chat with one agent and switch to it.
+  const startDm = openDm === undefined ? undefined : (member: ChannelMember): void => {
+    setDrawer(undefined)
+    stickRef.current = true
+    openDm(member.id).catch((error: unknown) => {
+      setRoomError(t('dmOpenFailed', { message: error instanceof Error ? error.message : String(error) }))
+    })
+  }
   const mentionFromAvatar = (member: ChannelMember): void => {
     setAvatarMenu(undefined)
     pickFromList(member)
@@ -1257,12 +1287,29 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
             </button>
           )
         })}
+        {dmRooms(state.rooms).length > 0 && <h3 className={css.dmTitle}>{t('dmGroup')}</h3>}
+        {dmRooms(state.rooms).map(r => {
+          const peer = state.members.find(m => m.id === r.dm_member)
+          return (
+            <button
+              key={r.id}
+              type="button"
+              className={[css.room, r.id === state.roomId ? css.roomActive : ''].filter(Boolean).join(' ')}
+              aria-current={r.id === state.roomId}
+              data-dm-room={r.dm_member}
+              onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
+            >
+              <span className={css.dmAvatar}><Avatar id={r.dm_member ?? ''} name={peer?.name ?? r.name} avatar={peer?.avatar} avatarVersion={peer?.avatarVersion} small /></span>
+              <span className={css.roomLabel}>{peer?.name ?? r.name}</span>
+            </button>
+          )
+        })}
       </nav>
       <section ref={chatRef} className={css.chat}>
         <header className={css.chatHead}>
           <button ref={roomsToggleRef} type="button" className={css.mobileButton} aria-label={t('showRooms')} aria-expanded={drawer === 'rooms'} onClick={() => setDrawer(drawer === 'rooms' ? undefined : 'rooms')}>☰</button>
           <button type="button" className={css.panelToggle} title={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-label={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-expanded={!roomsHidden} onClick={() => { setRoomsHidden(!roomsHidden) }}>{roomsHidden ? '»' : '«'}</button>
-          <span className={css.hash} aria-hidden>#</span><span className={css.roomName}>{room?.name}</span>
+          <span className={css.hash} aria-hidden>{dmWith !== undefined ? '@' : '#'}</span><span className={css.roomName}>{dmWith !== undefined ? (state.members.find(m => m.id === dmWith)?.name ?? room?.name) : room?.name}</span>
           <span className={css.headMeta}>
             {t('headMembers', { count: visibleMembers.length })}
             {channelActive > 0 && <> · {t('activeTasks', { count: channelActive })}</>}
@@ -1332,6 +1379,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
                   onAvatar={() => { setAvatarMenu(avatarMenu === m.id ? undefined : m.id) }}
                   onCloseMenu={() => { setAvatarMenu(undefined) }}
                   onMention={mentionFromAvatar}
+                  onDm={startDm}
+                  onReview={reviewTask}
                   onDecide={decidePermission}
                   onRetry={handleRetry}
                   retrying={retryingId === m.id}
@@ -1441,7 +1490,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
               enterKeyHint="send"
               value={draft}
               disabled={state.roomId === undefined || sending[state.roomId] === true}
-              placeholder={t(compactComposer() ? 'placeholderShort' : 'placeholder', { room: room?.name ?? '' })}
+              placeholder={dmWith !== undefined ? t('placeholderDm', { name: state.members.find(m => m.id === dmWith)?.name ?? room?.name ?? '' }) : t(compactComposer() ? 'placeholderShort' : 'placeholder', { room: room?.name ?? '' })}
               role="combobox"
               aria-expanded={popupOpen || slashOpen}
               aria-controls={slashOpen ? 'channel-slash-list' : 'channel-mention-list'}
@@ -1536,7 +1585,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
         <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
         <hr className={css.memberListDivider} />
-        <MemberGroup title={t('agents', { count: String(visibleMembers.filter(m => m.kind !== 'human').length) })} members={visibleMembers.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
+        <MemberGroup title={t('agents', { count: String(visibleMembers.filter(m => m.kind !== 'human').length) })} members={visibleMembers.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} onDm={dmWith === undefined ? startDm : undefined} t={t} />
         <MemberGroup title={t('humans', { count: String(visibleMembers.filter(m => m.kind === 'human').length) })} members={visibleMembers.filter(m => m.kind === 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} t={t} />
       </aside>
       {settingsOpen && room !== undefined && <ChannelSettingsDialog

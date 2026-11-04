@@ -60,6 +60,12 @@ const MAX_NAME = 64;
 
 export function roomKey(roomId) { return `room-${roomId}`; }
 
+/**
+ * #1023: chat_type for a frame from this room — "direct" for a private chat (the bridge's
+ * documented DM value, bridge/platform/cloud-web/cloudweb.go Direct), else "group".
+ */
+export function chatType(store, roomId) { return store?.dmMember?.(roomId) !== undefined ? 'direct' : 'group'; }
+
 /** Room id from a frame's reply_ctx or session_key ("<platform>:room-<id>"), or undefined. */
 export function roomOf(frame, store) {
   const sk = frame.session_key;
@@ -348,13 +354,15 @@ export class CloudWebGateway {
       // A reply addressed to other bots is not this bot's to take (reply_routing.go accept=false).
       if (only !== null && !only.has(member.id)) continue;
       let content = forMember(text, member, members);
-      const hit = target === member.id || only !== null || mentioned.has(member.id) || nameCalled(text, member.name);
+      // #1023: an owner message in a private chat is addressed to its one agent.
+      const hit = target === member.id || only !== null || mentioned.has(member.id) || nameCalled(text, member.name)
+        || (!fromAgent && this.hub.store.dmMember?.(msg.room_id) === member.id);
       if (fromAgent && !content) continue;
       if (fromAgent) content = `【${msg.name}】${quote}${content}`;
       else if (hit && !content) content = quote + BARE_MENTION;
       else content = quote + content;
       const frame = {
-        type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
+        type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: chatType(this.hub.store, msg.room_id),
         // A bridge command (`@橘 /model x`) goes through bare: the bridge reads everything after the
         // command word as its arguments (core/engine.go handleCommand), so no later instructions.
         user_id: msg.author, user_name: msg.name, content: content + (hit && !isCommand(content) ? (this.later?.instructions(member.id, msg.room_id) ?? '') : ''), reply_ctx: roomKey(msg.room_id),
@@ -377,7 +385,7 @@ export class CloudWebGateway {
     const members = this.hub.routableIn(msg.room_id);
     const room = this.hub.store.room(msg.room_id);
     const frame = {
-      type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
+      type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: chatType(this.hub.store, msg.room_id),
       user_id: msg.author, user_name: msg.name, content: forMember(msg.text, bot.member, members) || msg.text,
       reply_ctx: roomKey(msg.room_id), mentioned: true, from_bot: false,
     };
