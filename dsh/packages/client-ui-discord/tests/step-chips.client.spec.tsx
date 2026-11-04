@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, expect, it, vi } from 'vitest'
 import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
 import { chipsOf } from '../src/client/StepChips.tsx'
+import { readFileSync } from 'node:fs'
+import css from '../src/client/ChannelsPage.module.css'
 import type { ChannelMessage, ChannelSnapshot } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
 
@@ -77,6 +79,63 @@ it('keeps the plain step lines for older cards without chips', () => {
   const view = render(<ChannelsPage {...props({ ...base, messages: [run({ chips: undefined })] })} />)
   expect(screen.queryByRole('group', { name: zh.stepChips })).toBeNull()
   expect(view.container.querySelector('[data-message-id="5"]')?.textContent).toContain('✅ bash · 成功')
+})
+
+it('counts consecutive bash calls, preserves tool order and exposes every call including failures', () => {
+  const calls = [
+    { tool: 'bash', state: 'ok', input: 'first', output: 'done' },
+    { tool: 'Bash', state: 'failed', input: 'second', output: 'denied' },
+    { tool: 'read', state: 'ok', input: 'a.go' },
+    { tool: 'bash', state: 'running', input: 'third' },
+    { tool: 'bash', state: 'ok', input: 'fourth', output: 'ok' },
+  ]
+  const text = ['第 5 步 · 9秒', ...calls.map(call => `🔧 ${call.tool} — ${call.input}`)].join('\n')
+  const view = render(<ChannelsPage {...props({ ...base, messages: [{ ...run({ steps: 5, chips: calls }), text }] })} />)
+  const buttons = within(group()).getAllByRole('button')
+  expect(buttons.map(button => button.textContent)).toEqual(['bash ×2', 'read', 'bash ×2'])
+  expect(buttons.map(button => button.dataset.state)).toEqual(['failed', 'ok', 'running'])
+  fireEvent.click(buttons[0]!)
+  const out = screen.getByRole('region', { name: tr('stepOutput', { tool: 'bash' }) })
+  for (const text of ['first', 'done', 'second', 'denied']) expect(out.textContent).toContain(text)
+  expect(out.querySelector('[data-state="failed"]')?.textContent).toContain('second')
+  fireEvent.click(screen.getByRole('button', { name: zh.cardViewDetail }))
+  expect(screen.queryByRole('group', { name: zh.stepChips })).toBeNull()
+  for (const call of calls) expect(view.container.querySelector('[data-message-id="5"]')?.textContent).toContain(call.input)
+})
+
+it('folds consecutive bash lines in old brief cards while keeping detail intact', () => {
+  const brief = '第 5 步 · 9秒\n✅ bash · 成功\n❌ Bash · 失败\n✅ read · 成功\n🔧 bash · 进行中\n✅ bash · 成功'
+  const text = '第 5 步 · 9秒\n🔧 bash — first\n🔧 Bash — second\n🔧 read — file\n🔧 bash — third\n🔧 bash — fourth'
+  const view = render(<ChannelsPage {...props({ ...base, messages: [{ ...run({ steps: 5, chips: undefined, brief }), text }] })} />)
+  const row = view.container.querySelector('[data-message-id="5"]')!
+  expect(row.textContent).toContain('❌ bash ×2 · 失败')
+  expect(row.textContent).toContain('✅ read · 成功')
+  expect(row.textContent).toContain('🔧 bash ×2 · 进行中')
+  fireEvent.click(screen.getByRole('button', { name: zh.cardViewDetail }))
+  for (const call of ['first', 'second', 'file', 'third', 'fourth']) expect(row.textContent).toContain(call)
+  expect(row.textContent).not.toContain('×2')
+})
+
+it('applies error color only to failed step output inside a mixed bash group', () => {
+  const calls = [
+    { tool: 'bash', state: 'ok', input: 'good-in', output: 'good-out' },
+    { tool: 'bash', state: 'failed', input: 'bad-in', output: 'bad-out' },
+    { tool: 'bash', state: 'running', input: 'pending-in' },
+  ]
+  render(<ChannelsPage {...props({ ...base, messages: [run({ chips: calls })] })} />)
+  fireEvent.click(within(group()).getByRole('button'))
+  // jsdom does not compute CSS variable colors; match the source error-color
+  // selectors against the rendered DOM. Browser verification also checks computed colors.
+  const styles = readFileSync('dsh/packages/client-ui-discord/src/client/ChannelsPage.module.css', 'utf8')
+  const selectors = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, , declarations]) => /(?:^|;)\s*color:\s*var\(--dsw-alias-state-error-primary\)/.test(declarations!))
+    .map(([, selector]) => selector!.trim().replaceAll('.stepOut', `.${css.stepOut}`))
+  expect(selectors.length).toBeGreaterThan(0)
+  const out = screen.getByRole('region', { name: tr('stepOutput', { tool: 'bash' }) })
+  const marked = [...out.querySelectorAll('code')]
+    .filter(code => selectors.some(selector => code.matches(selector)))
+    .map(code => code.textContent)
+  expect(marked).toEqual(['bad-out'])
 })
 
 it('shows an open step of a finished or cancelled run as having no result, not running', () => {

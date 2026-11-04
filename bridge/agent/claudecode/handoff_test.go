@@ -1,6 +1,7 @@
 package claudecode
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -64,5 +65,24 @@ func TestParseHandoffCompactionWithoutReply(t *testing.T) {
 	h, _ := parseHandoff(strings.NewReader(strings.Join(lines, "\n")))
 	if h.ContextTokens != 3600 {
 		t.Fatalf("context after compaction = %d", h.ContextTokens)
+	}
+}
+
+func TestParseHandoffSilentPunctuation(t *testing.T) {
+	for _, marker := range []string{"NO_REPLY。", " NO_REPLY！", "　no_reply。　"} {
+		line, err := json.Marshal(map[string]any{
+			"type": "assistant", "uuid": "a1", "timestamp": "2026-11-04T10:24:01Z",
+			"message": map[string]any{"content": []map[string]string{{"type": "text", "text": marker}}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		h, err := parseHandoff(strings.NewReader(string(line)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(h.Tail) != 0 {
+			t.Fatalf("silent marker leaked into handoff: %+v", h.Tail)
+		}
 	}
 }
