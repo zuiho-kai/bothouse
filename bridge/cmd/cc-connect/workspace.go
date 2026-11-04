@@ -23,7 +23,7 @@ func runWorkspace(args []string) {
 	}
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("workspace "+sub, flag.ExitOnError)
-	session := fs.String("session-key", os.Getenv("CC_SESSION_KEY"), "chat or workspace channel (default: $CC_SESSION_KEY)")
+	session := fs.String("session-key", envSessionKey(), "chat or workspace channel (default: $CC_SESSION_KEY)")
 	dataDir := fs.String("data-dir", "", "data directory (default: $CC_DATA_DIR or ~/.bothouse)")
 	jsonOut := fs.Bool("json", false, "print raw JSON")
 	chat := fs.String("chat", "", "park: the chat channel that handed the task off; refused unless it owns the workspace")

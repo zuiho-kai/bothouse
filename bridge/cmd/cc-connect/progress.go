@@ -41,7 +41,7 @@ func parseProgressArgs(args []string) (core.PublicProgressRequest, string, error
 		f.PrintDefaults()
 	}
 	f.StringVar(&req.Project, "project", os.Getenv("CC_PROJECT"), "project")
-	f.StringVar(&req.SessionKey, "session", os.Getenv("CC_SESSION_KEY"), "session")
+	f.StringVar(&req.SessionKey, "session", envSessionKey(), "session")
 	f.StringVar(&req.Run, "run", "", "current turn token; omitted = fetched from the bridge for this session's turn")
 	f.StringVar(&req.TaskID, "task", "", "delegation card id; each card has its own sequence")
 	f.Int64Var(&req.Seq, "seq", 0, "sequence, beginning at 1")

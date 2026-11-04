@@ -104,7 +104,7 @@ func relaySendCommand(args []string, out io.Writer) error {
 		from = os.Getenv("CC_PROJECT")
 	}
 	if sessionKey == "" {
-		sessionKey = os.Getenv("CC_SESSION_KEY")
+		sessionKey = envSessionKey()
 	}
 	if message == "" && len(positional) > 0 {
 		if to == "" && len(positional) >= 2 {
