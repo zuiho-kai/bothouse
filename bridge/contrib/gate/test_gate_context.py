@@ -88,7 +88,8 @@ class T(unittest.TestCase):
         g = load_gate()
         sub = next(iter(g.SUBS))
         pick = {}
-        g.sub_task = types.SimpleNamespace(score=lambda text, **k: types.SimpleNamespace(choice=pick["c"], probs=[0] * 4))
+        g.sub_task = types.SimpleNamespace(score=lambda text, **k: types.SimpleNamespace(
+            choice=pick["c"], probs=[int(i == pick["c"]) for i in range(4)]))
         def d(c, no_insert, choice, content=None):
             pick["c"] = choice
             req = {"content": content or f"[replying to {g.SUBS[sub]}: 好]\n{c}", "mentioned": False, "busy": True,
@@ -111,7 +112,7 @@ class T(unittest.TestCase):
         seen = []
         def score(text, **k):
             seen.append(text)
-            return types.SimpleNamespace(choice=pick, probs=[0] * 4)
+            return types.SimpleNamespace(choice=pick, probs=[int(i == pick) for i in range(4)])
         g.sub_task = types.SimpleNamespace(score=score)
         name = g.SUBS[sub]
         pick = 1
