@@ -493,7 +493,9 @@ func (e *Engine) taskReviewQueuedIn(chat string) bool {
 
 // taskReviewSessionAtRun: the channel session got busy after the review was queued, so the
 // review runs in a side session instead of queueing behind that work (user 2026-11-04
-// 「新对话来审核」). The hourly roundup keeps the channel session.
+// 「新对话来审核」). The hourly roundup keeps the channel session, and so runs on that session's
+// model, not a tier model: keeping a conversation and switching its model exclude each other, so
+// the roundup's empty model is by design and not an ignored tier model (no notice; #980 review).
 func (e *Engine) taskReviewSessionAtRun(job *TimerJob) *TimerJob {
 	if job.TaskReview == nil || job.TaskReview.Stage == "roundup" || job.UsesNewSessionPerRun() || !e.quotaBusy(job.SessionKey) {
 		return job

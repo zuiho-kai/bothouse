@@ -148,9 +148,9 @@ func TestTurnModelIgnoredAtRun(t *testing.T) {
 	teamReviewModelNotice.Store(nil)
 	t.Cleanup(func() { teamReviewModelNotice.Store(nil) })
 	job := &TimerJob{ID: "review-y", Model: "cheap-model", TaskReview: &taskReviewRef{Board: 7, Tier: "complex"}}
-	noteTurnModelIgnored(job, &modelListAgent{}, "gge")
+	noteTurnModelIgnored(job, &modelListAgent{models: []string{"cheap-model"}}, "gge")
 	if TeamReviewModelNotice() != nil {
-		t.Fatal("a model-switching agent was flagged")
+		t.Fatal("an agent offering the model was flagged")
 	}
 	noteTurnModelIgnored(job, &stubAgent{}, "gge")
 	if n := TeamReviewModelNotice(); n == nil || n.Board != 7 || n.Tier != "complex" || n.Model != "cheap-model" {

@@ -43,9 +43,16 @@ func taskReviewModelFor(it teamTaskBoardItem, x *Engine) string {
 		}
 		return m
 	}
-	if ok, _ := x.reviewModelSupport(m); ok {
+	ok, why := x.reviewModelSupport(m)
+	if ok {
 		return m
 	}
+	// The tier's model is dropped for this reviewer (a stand-in, or no tier role set at all):
+	// say so, whichever tier (#980 review: the complex fallback dropped it silently).
+	if why == "" {
+		why = "这个模型不在该角色后端的模型列表里"
+	}
+	noteReviewModelIgnored(it, x.name, m, "代审角色没有所选模型，按它自己的模型审："+why)
 	return ""
 }
 
@@ -165,17 +172,25 @@ func (e *Engine) reviewModelSupportNow(model string) (bool, string) {
 	if !ok {
 		return false, "这个角色的后端不支持换模型，会按它自己的模型跑"
 	}
-	if strings.EqualFold(ms.GetModel(), model) {
+	if agentOffersModel(ms, model) {
 		return true, ""
+	}
+	return false, "这个模型不在该角色后端的模型列表里，后端可能忽略它"
+}
+
+// agentOffersModel: ms runs on model now or lists it (name or alias).
+func agentOffersModel(ms ModelSwitcher, model string) bool {
+	if strings.EqualFold(ms.GetModel(), model) {
+		return true
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), reviewModelListTimeout)
 	defer cancel()
 	for _, o := range ms.AvailableModels(ctx) {
 		if strings.EqualFold(o.Name, model) || (o.Alias != "" && strings.EqualFold(o.Alias, model)) {
-			return true, ""
+			return true
 		}
 	}
-	return false, "这个模型不在该角色后端的模型列表里，后端可能忽略它"
+	return false
 }
 
 // ReviewModelNotice is the latest case of a review model that would not take effect, for the
@@ -205,14 +220,21 @@ func noteReviewModelIgnored(it teamTaskBoardItem, role, model, why string) {
 	teamReviewModelNotice.Store(&ReviewModelNotice{At: time.Now(), Board: it.ID, Tier: tier, Role: role, Model: model, Reason: why})
 }
 
-// noteTurnModelIgnored: a side turn asked for a model its agent cannot switch to (checked again
-// at run time; the role may have changed backend since the review was queued).
+// noteTurnModelIgnored: a side turn asked for a model the agent it actually runs on cannot start
+// (checked again at run time against that agent's own model list, not the queue-time cache: the
+// role may have changed backend since the review was queued, and an ACP backend that cannot
+// select the model only logs it and carries on, agent/acp/models.go applyModel).
 func noteTurnModelIgnored(job *TimerJob, agent Agent, role string) {
 	if job.Model == "" {
 		return
 	}
-	if _, ok := agent.(ModelSwitcher); ok {
-		return
+	ms, ok := agent.(ModelSwitcher)
+	why := fmt.Sprintf("%s 的后端不支持换模型，这一轮按它自己的模型跑", agent.Name())
+	if ok {
+		if agentOffersModel(ms, job.Model) {
+			return
+		}
+		why = fmt.Sprintf("%s 的后端模型列表里没有 %s，后端可能忽略它、按自己的模型跑", agent.Name(), job.Model)
 	}
 	board := 0
 	if job.TaskReview != nil {
@@ -222,7 +244,6 @@ func noteTurnModelIgnored(job *TimerJob, agent Agent, role string) {
 	if job.TaskReview != nil && job.TaskReview.Tier == "complex" {
 		tier = "complex"
 	}
-	why := fmt.Sprintf("%s 的后端不支持换模型，这一轮按它自己的模型跑", agent.Name())
 	slog.Warn("timer: side turn model ignored by agent", "job", job.ID, "role", role, "model", job.Model, "agent", agent.Name())
 	teamReviewModelNotice.Store(&ReviewModelNotice{At: time.Now(), Board: board, Tier: tier, Role: role, Model: job.Model, Reason: why})
 }
