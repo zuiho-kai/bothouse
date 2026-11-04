@@ -15,7 +15,7 @@ import { browserTransport, createChannelSource } from './channel-source.ts'
 import { ChannelsIcon } from './ChannelsIcon.tsx'
 import { ChannelsPage, type ChannelsInjected } from './ChannelsPage.tsx'
 import { EmbedPage } from './EmbedPage.tsx'
-import { DeskIcon, GalaxyIcon, PanelIcon } from './PanelIcons.tsx'
+import { DeskIcon, DevicesIcon, GalaxyIcon, PanelIcon } from './PanelIcons.tsx'
 import { en, NS, zh, type ChannelsKey } from './locales.ts'
 
 export type { ChannelsInjected, ChannelsPageProps } from './ChannelsPage.tsx'
@@ -35,6 +35,7 @@ const PANEL_ID = 'channels' as MainPanelId
 const DESK_ID = 'collab-desk' as MainPanelId
 const GALAXY_ID = 'wiki-galaxy' as MainPanelId
 const BOTHOUSE_ID = 'bothouse-panel' as MainPanelId
+const DEVICES_ID = 'collab-devices' as MainPanelId
 
 /** Required browser services. */
 export const inject = ['slots', 'locale', 'layout']
@@ -114,6 +115,8 @@ export function apply(ctx: ClientContext): void {
     { id: DESK_ID, path: 'collab/desk', label: 'panelDesk', icon: DeskIcon, order: 6 },
     { id: GALAXY_ID, path: 'collab/wiki-galaxy', label: 'panelGalaxy', icon: GalaxyIcon, order: 7 },
     { id: BOTHOUSE_ID, path: 'collab/panel/', label: 'panelBothouse', icon: PanelIcon, order: 8 },
+    // #131: pair with another DSH by a one-time number and drive its channels, desk and panel.
+    { id: DEVICES_ID, path: 'collab/devices', label: 'panelDevices', icon: DevicesIcon, order: 9 },
   ] as const
   for (const page of embeds) {
     ctx.slots.inject('main', () => ctx.slots.register({

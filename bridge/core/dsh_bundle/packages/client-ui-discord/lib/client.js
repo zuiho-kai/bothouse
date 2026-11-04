@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 49b0bcd21f13559b94ec9853a2e9cf44285fcdfd8b39b9671909e7afbb18a4eb
+// dsh-client-source-sha256: 953e367ad8e857ddec028046ef366295c269cd30c97b823542b8bd24fccddf5f
 // dsh-style-sha256: 9d61b83efd40f34f0016812d99d3231ba9057294ae4990c78d6739eb8921421f
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -21625,6 +21625,10 @@ function GalaxyIcon({ size }) {
 function PanelIcon({ size }) {
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconGaugeOutlineRegular, { size });
 }
+/** Other computers (#131): pair with another DSH by a one-time number. */
+function DevicesIcon({ size }) {
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconLinkOutlineRegular, { size });
+}
 // src/client/locales.ts
 /** Channel panel dictionaries. */
 /** Locale namespace owned by the channel panel. */
@@ -21691,6 +21695,7 @@ const zh = {
 	panelDesk: "团队工作台",
 	panelGalaxy: "Wiki 星河",
 	panelBothouse: "bothouse",
+	panelDevices: "其他电脑",
 	channelSettings: "频道设置",
 	settingsBasic: "基本",
 	settingsDispatch: "派活",
@@ -22013,6 +22018,7 @@ const en = {
 	panelDesk: "Team desk",
 	panelGalaxy: "Wiki galaxy",
 	panelBothouse: "bothouse",
+	panelDevices: "Other computers",
 	channelSettings: "Channel settings",
 	settingsBasic: "Basic",
 	settingsDispatch: "Dispatch",
@@ -22188,6 +22194,7 @@ const PANEL_ID = "channels";
 const DESK_ID = "collab-desk";
 const GALAXY_ID = "wiki-galaxy";
 const BOTHOUSE_ID = "bothouse-panel";
+const DEVICES_ID = "collab-devices";
 /** Required browser services. */
 const inject = [
 	"slots",
@@ -22293,6 +22300,13 @@ function apply(ctx) {
 			label: "panelBothouse",
 			icon: PanelIcon,
 			order: 8
+		},
+		{
+			id: DEVICES_ID,
+			path: "collab/devices",
+			label: "panelDevices",
+			icon: DevicesIcon,
+			order: 9
 		}
 	];
 	for (const page of embeds) {

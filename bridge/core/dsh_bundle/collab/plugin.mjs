@@ -28,6 +28,8 @@ import { DeskEvents, DESK_NAMES_FILE, deskRoute } from './desk.mjs';
 import { wikiGalaxyRoute } from './wiki-galaxy.mjs';
 import { defaultBridgeConfig, panelRoute } from './panel.mjs';
 import { TeamStatus } from './team-status.mjs';
+import { PairClient, PairHost, PairListener, PAIR_PORT, REMOTE_OWNER, hostHandler, isLoopback, pairApiRoute, remoteProxyRoute, tailnetAddress } from './pairing.mjs';
+import { hostname } from 'node:os';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -36,6 +38,8 @@ export const inject = [
 ];
 
 const PAGE = readFileSync(new URL('./page.html', import.meta.url), 'utf8');
+// #131: 「其他电脑」page — pair this DSH with another one by a one-time number.
+const DEVICES_PAGE = readFileSync(new URL('./devices.html', import.meta.url), 'utf8');
 const MAX_BODY = 256 * 1024;
 // #144: a message POST may carry base64 attachments. Same cap as the bot WebSocket
 // maxPayload below (8 MiB), so a message that is accepted here still fits in the frame
@@ -179,7 +183,23 @@ export async function apply(ctx, rawConfig) {
   teamStatus?.start();
   if (!config.botToken) ctx.logger.warn(`conest-collab: ${config.botTokenEnv} is unset; cc-connect bots cannot connect`);
 
-  const owner = req => ctx.connection.requestRejection(req) === undefined;
+  // #131: a request the tailnet pairing listener authenticated with a device credential acts as
+  // the owner; everything else still needs this DSH's own sign-in.
+  const owner = req => req[REMOTE_OWNER] === true || ctx.connection.requestRejection(req) === undefined;
+  // Test-only overrides (same-machine two-instance check): address and port of the pairing listener.
+  const pairAddr = String(process.env.CONEST_COLLAB_PAIR_ADDR ?? '').trim();
+  const pairPort = Number(process.env.CONEST_COLLAB_PAIR_PORT) || PAIR_PORT;
+  const pairHost = new PairHost({ file: join(config.dataDir, 'pair-devices.json') });
+  const pairClient = new PairClient({ file: join(config.dataDir, 'pair-links.json'), port: pairPort });
+  const pairListener = new PairListener({
+    host: pairHost, port: pairPort, logger: ctx.logger,
+    address: pairAddr === '' ? () => tailnetAddress() : async () => pairAddr,
+    handler: hostHandler({ host: pairHost, name: hostname(), route: (req, res) => browserRoute(req, res), allowLoopback: isLoopback(pairAddr) }),
+  });
+  if (pairHost.list().length > 0) pairListener.ensure().catch(err => ctx.logger.warn('conest-collab: pairing listener: %s', err.message));
+  // 来源：码有效期按分钟计（pairing.mjs CODE_TTL_MS），每分钟收一次没人用的配对监听。
+  const pairSweep = setInterval(() => { pairListener.settle().catch(() => {}); }, 60_000);
+  pairSweep.unref?.();
   const wss = new WebSocketServer({ noServer: true, maxPayload: BOT_WS_MAX_PAYLOAD });
   const streams = new Set();
 
@@ -204,6 +224,8 @@ export async function apply(ctx, rawConfig) {
     later.close();
     tasks.close();
     gateway.closeAll();
+    clearInterval(pairSweep);
+    await pairListener.close();
     for (const end of streams) end();
     wss.close();
     // Drain DSH jobs first: a job still awaiting its Agent must not touch a closed store.
@@ -229,7 +251,8 @@ export async function apply(ctx, rawConfig) {
   async function browserRoute(req, res) {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
     const path = url.pathname.replace(/\/+$/, '');
-    later.origin ??= localOrigin(req);
+    // A paired device reaches us on the tailnet listener; ticket URLs stay on this machine's own origin.
+    if (!req[REMOTE_OWNER]) later.origin ??= localOrigin(req);
     const scheduled = laterRoute(req, res, url, { hub, gateway, owner, later });
     if (scheduled !== undefined) return scheduled;
     const routed = tasksRoute(req, res, url, { tasks, gateway, owner });
@@ -249,6 +272,14 @@ export async function apply(ctx, rawConfig) {
     if (galaxyHandled !== undefined) return galaxyHandled;
     const panelHandled = panelRoute(req, res, url, { bridgeConfig: config.bridgeConfig });
     if (panelHandled !== undefined) return panelHandled;
+    // #131: pairing (this machine lets others in) and remote links (this machine drives others).
+    if (!req[REMOTE_OWNER]) {
+      if (path === '/collab/devices' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', DEVICES_PAGE);
+      const paired = pairApiRoute(req, res, url, { host: pairHost, client: pairClient, listener: pairListener });
+      if (paired !== undefined) return paired;
+      const remote = remoteProxyRoute(req, res, url, { client: pairClient });
+      if (remote !== undefined) return remote;
+    }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/personas' && req.method === 'GET') return json(res, 200, personaLibrary(url.searchParams.get('lang') ?? 'zh'));
     if (path === '/collab/api/state' && req.method === 'GET') {
