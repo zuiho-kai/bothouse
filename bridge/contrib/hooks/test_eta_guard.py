@@ -104,7 +104,11 @@ class AllCLIs(unittest.TestCase):
                 self.assertIn(out.get("decision"), ("block", "deny"), out)
 
     def test_recurring_schedule_not_eta(self):
-        import eta_guard as e
+        import importlib.util, os
+        spec = importlib.util.spec_from_file_location(
+            "eta_guard", os.path.join(os.path.dirname(os.path.abspath(__file__)), "eta_guard.py"))
+        e = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(e)
         self.assertIsNone(e.check("一个叫每日日程，每晚十点把她明天的安排排好：几点去哪、穿什么。"))
         self.assertIsNotNone(e.check("工作区明天交结果给你。"))
 
