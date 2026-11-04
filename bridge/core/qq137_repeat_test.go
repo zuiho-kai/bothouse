@@ -11,12 +11,18 @@ import (
 type qq137RepeatPlatform struct {
 	stubPlatformEngine
 	failFirst bool
+	failAt    int // 1-based send number that fails; 0 = never
+	sends     int
 }
 
 func (*qq137RepeatPlatform) SuppressRepeatedReplyText() bool { return true }
 func (p *qq137RepeatPlatform) Send(ctx context.Context, r any, s string) error {
 	if strings.TrimSpace(s) == "" {
 		return nil
+	}
+	p.sends++
+	if p.failAt != 0 && p.sends == p.failAt {
+		return errors.New("fixture send failed")
 	}
 	if p.failFirst {
 		p.failFirst = false
@@ -88,5 +94,22 @@ func TestQQ137RepeatDoesNotHideNextTurnOrFailedSend(t *testing.T) {
 	qq137RunRepeatedTurn(t, failed, "same", "same", false)
 	if got := strings.Count(strings.Join(failed.getSent(), "\n"), "same"); got != 1 {
 		t.Fatalf("failed send swallowed retry: %q", failed.getSent())
+	}
+}
+
+func TestQQ137PartialChunkFailureStillSuppressesDeliveredChunk(t *testing.T) {
+	// Two lines that together exceed maxPlatformMessageLen, so the narration
+	// splits into two chunks; the second chunk's first delivery fails.
+	lineA := strings.Repeat("甲", maxPlatformMessageLen-100)
+	lineB := strings.Repeat("乙", 200)
+	body := lineA + "\n" + lineB
+	p := &qq137RepeatPlatform{failAt: 2}
+	qq137RunRepeatedTurn(t, p, body, body, false)
+	got := strings.Join(p.getSent(), "\n")
+	if n := strings.Count(got, lineA); n != 1 {
+		t.Fatalf("delivered chunk resent %d times", n)
+	}
+	if n := strings.Count(got, lineB); n != 1 {
+		t.Fatalf("failed chunk not retried exactly once: %d", n)
 	}
 }

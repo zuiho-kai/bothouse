@@ -6267,8 +6267,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		if strings.TrimSpace(segment) == "" {
 			return
 		}
-		for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
+		chunks := SplitMessageCodeFenceAware(segment, maxPlatformMessageLen)
+		for i, chunk := range chunks {
 			if err := sendWorkspaceWithError(p, replyCtx, chunk); err != nil {
+				// Record chunks already on the platform so a later repeat of
+				// them is still suppressed; the failed tail stays retryable.
+				sentReplySegments = append(sentReplySegments, chunks[:i]...)
 				return
 			}
 		}
