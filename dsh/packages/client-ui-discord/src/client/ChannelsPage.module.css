@@ -430,10 +430,6 @@
 }
 
 .replyButton {
-  position: absolute;
-  top: 4px;
-  right: 16px;
-  opacity: 0;
   padding: 0 6px;
   border: 0;
   border-radius: var(--dsw-radius-xs);
@@ -442,16 +438,62 @@
   cursor: pointer;
 }
 
-.message:hover .replyButton,
-.message:focus-within .replyButton,
-.replyButton:focus-visible {
-  opacity: 1;
+/* #1016 hover toolbar on a message: copy, reply, to task. */
+.msgTools {
+  position: absolute;
+  top: 2px;
+  right: 16px;
+  z-index: 1;
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--dsw-alias-separator, rgba(127, 127, 127, 0.25));
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-primary, #fff));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  pointer-events: none;
 }
 
-/* Touch screens have no hover: keep the reply entry visible. */
+.msgTool {
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.msgTool:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.msgTool:disabled { cursor: default; opacity: 0.6; }
+
+.msgToolNote {
+  padding: 0 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.message:hover .msgTools,
+.message:focus-within .msgTools,
+.msgTools:has(.msgToolNote) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Touch screens have no hover: keep the tools visible, inline under the text. */
 @media (hover: none) {
-  .replyButton {
+  .msgTools {
+    position: static;
+    margin-top: 2px;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
     opacity: 1;
+    pointer-events: auto;
   }
 }
 
@@ -484,6 +526,9 @@
 }
 
 .working {
+  display: flex;
+  gap: 6px;
+  align-items: center;
   min-height: 20px;
   padding: 0 16px;
   color: var(--dsw-alias-label-tertiary);
@@ -1576,7 +1621,7 @@
 .own .ownActions { margin-left: 0; margin-right: auto; }
 .own > .messageBody > .text { max-width: min(560px, 100%); padding: 8px 14px; border-radius: 16px 6px 16px 16px; color: var(--dsw-alias-label-primary); background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 16%, var(--dsw-alias-bg-layer-2)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 28%, transparent); }
 .own > .messageBody > .quote { align-self: flex-end; }
-.own .replyButton { right: auto; left: 16px; }
+.own .msgTools { right: auto; left: 16px; }
 .own.grouped > .messageBody > .text { border-radius: 16px 6px 6px 16px; }
 
 /* System notice: a centered divider, not a member speaking; a task record keeps its card under it. */
@@ -2025,3 +2070,19 @@
 .sidePanelClose:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 @media (prefers-reduced-motion: reduce) { .sidePanel { animation: none; } }
 .sidePanel .boardCardGrid { grid-template-columns: minmax(0, 1fr); }
+
+/* #1016 three interrupts beside 「正在输入」. */
+.interrupts { display: inline-flex; gap: 6px; margin-left: auto; }
+.interruptButton {
+  padding: 1px 10px;
+  border: 1px solid var(--dsw-alias-separator, rgba(127, 127, 127, 0.3));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.interruptButton:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.interruptButton:first-child { border-color: var(--dsw-alias-danger, #d94848); color: var(--dsw-alias-danger, #d94848); }
+.slashName { min-width: 88px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+.slashPopup { z-index: 6; }

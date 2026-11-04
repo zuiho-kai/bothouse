@@ -348,7 +348,9 @@ export class CloudWebGateway {
       else content = quote + content;
       const frame = {
         type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
-        user_id: msg.author, user_name: msg.name, content: content + (hit ? (this.later?.instructions(member.id, msg.room_id) ?? '') : ''), reply_ctx: roomKey(msg.room_id),
+        // A bridge command (`@橘 /model x`) goes through bare: the bridge reads everything after the
+        // command word as its arguments (core/engine.go handleCommand), so no later instructions.
+        user_id: msg.author, user_name: msg.name, content: content + (hit && !isCommand(content) ? (this.later?.instructions(member.id, msg.room_id) ?? '') : ''), reply_ctx: roomKey(msg.room_id),
         mentioned: hit, from_bot: fromAgent, ...attached, ...replyTo,
       };
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
@@ -638,6 +640,9 @@ function newerSeq(row, seq) {
 function send(ws, frame) {
   try { ws.send(JSON.stringify(frame)); } catch { /* socket already closing; its close handler cleans up */ }
 }
+
+/** A bridge slash command as forwarded (`/stop`, `/model x`); quoted replies keep their prefix and are not. */
+export function isCommand(content) { return /^\/[a-z]/i.test(content); }
 
 function clean(s) { return String(s ?? '').replace(/[\x00-\x1f\x7f]/g, '').trim(); }
 
