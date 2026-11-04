@@ -3176,7 +3176,7 @@
   font-family: ui-monospace, Menlo, monospace;
 }
 
-.dshc_stepOut[data-state="failed"] div:last-child code {
+.dshc_stepOut[data-state="failed"] > div[data-state="failed"] > div:last-child > code {
   color: var(--dsw-alias-state-error-primary);
 }
 

@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, expect, it, vi } from 'vitest'
 import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
 import { chipsOf } from '../src/client/StepChips.tsx'
+import { readFileSync } from 'node:fs'
+import css from '../src/client/ChannelsPage.module.css'
 import type { ChannelMessage, ChannelSnapshot } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
 
@@ -112,6 +114,28 @@ it('folds consecutive bash lines in old brief cards while keeping detail intact'
   fireEvent.click(screen.getByRole('button', { name: zh.cardViewDetail }))
   for (const call of ['first', 'second', 'file', 'third', 'fourth']) expect(row.textContent).toContain(call)
   expect(row.textContent).not.toContain('×2')
+})
+
+it('applies error color only to failed step output inside a mixed bash group', () => {
+  const calls = [
+    { tool: 'bash', state: 'ok', input: 'good-in', output: 'good-out' },
+    { tool: 'bash', state: 'failed', input: 'bad-in', output: 'bad-out' },
+    { tool: 'bash', state: 'running', input: 'pending-in' },
+  ]
+  render(<ChannelsPage {...props({ ...base, messages: [run({ chips: calls })] })} />)
+  fireEvent.click(within(group()).getByRole('button'))
+  // jsdom does not compute CSS variable colors; match the source error-color
+  // selectors against the rendered DOM. Browser verification also checks computed colors.
+  const styles = readFileSync('dsh/packages/client-ui-discord/src/client/ChannelsPage.module.css', 'utf8')
+  const selectors = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, , declarations]) => /(?:^|;)\s*color:\s*var\(--dsw-alias-state-error-primary\)/.test(declarations!))
+    .map(([, selector]) => selector!.trim().replaceAll('.stepOut', `.${css.stepOut}`))
+  expect(selectors.length).toBeGreaterThan(0)
+  const out = screen.getByRole('region', { name: tr('stepOutput', { tool: 'bash' }) })
+  const marked = [...out.querySelectorAll('code')]
+    .filter(code => selectors.some(selector => code.matches(selector)))
+    .map(code => code.textContent)
+  expect(marked).toEqual(['bad-out'])
 })
 
 it('shows an open step of a finished or cancelled run as having no result, not running', () => {
