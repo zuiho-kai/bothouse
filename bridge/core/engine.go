@@ -3993,7 +3993,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 
 	// Allow queueing when agentSession is nil (session is starting up,
 	// issue #565). Only reject if the session was established and died.
-	if state.agentSession != nil && !state.agentSession.Alive() {
+	if state.agentSession != nil && !state.agentSession.Alive() && !msg.abortFront {
 		return queueUnavailable
 	}
 
@@ -8153,6 +8153,20 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 	for {
 		e.stopUnsolicitedReader(state)
 		state.mu.Lock()
+		if state.stopped && state.resetHandoff {
+			// A gate abort had to close the process. This worker still owns the
+			// conversation lock: move unsent messages to the replacement state
+			// and hand that lock to its drain, without replaying the cancelled task.
+			held := state.pendingMessages
+			state.pendingMessages = nil
+			agent, workspaceDir := state.agent, state.workspaceDir
+			state.mu.Unlock()
+			if len(held) > 0 {
+				e.handOffQueuedAfterReset(sessions, held[0].msgSessionKey, sessionKey, held, agent, workspaceDir)
+			}
+			e.drainOrphanedQueue(session, sessions, sessionKey, agent, workspaceDir)
+			return true
+		}
 		droppedStale := 0
 		var staleDescs []string // maomao fork: channel task board
 		e.refreshQueuedTaskReviewsLocked(state)
@@ -12375,11 +12389,19 @@ func (e *Engine) stopInteractiveSession(sessionKey string, quietPlatform Platfor
 	return e.stopInteractiveSessionWithOptions(sessionKey, true)
 }
 
+func (e *Engine) stopInteractiveSessionForAbort(sessionKey string, p Platform, replyCtx any) bool {
+	return e.stopInteractiveSessionWithQueue(sessionKey, true, true)
+}
+
 func (e *Engine) stopInteractiveSessionSilently(sessionKey string) bool {
 	return e.stopInteractiveSessionWithOptions(sessionKey, false)
 }
 
 func (e *Engine) stopInteractiveSessionWithOptions(sessionKey string, notifyQueued bool) bool {
+	return e.stopInteractiveSessionWithQueue(sessionKey, notifyQueued, false)
+}
+
+func (e *Engine) stopInteractiveSessionWithQueue(sessionKey string, notifyQueued, keepQueued bool) bool {
 	e.interactiveMu.Lock()
 	if op := e.nativeCompactions[sessionKey]; op != nil {
 		op.cancel()
@@ -12453,6 +12475,11 @@ func (e *Engine) stopInteractiveSessionWithOptions(sessionKey string, notifyQueu
 	}
 
 normalCleanup:
+	if keepQueued {
+		state.mu.Lock()
+		state.resetHandoff = true
+		state.mu.Unlock()
+	}
 	state.markStopped()
 	delete(e.interactiveStates, sessionKey)
 	e.interactiveMu.Unlock()

@@ -399,12 +399,12 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		// maomao fork: "stop / pause / do X instead" while busy must not wait for the turn to end.
 		if busy && e.turnCancelKeepsQueue(interactiveKey) && e.turnIdleFor(interactiveKey) < deadTurnAfter {
 			// Queued first, then cancelled (handleMessage → abortForQueuedFront): the cancelled turn's
-			// drain answers this message next. Cancelling first and waiting for the lock lost it to
+			// drain answers this message next, restarting the process if required. Cancelling first and waiting for the lock lost it to
 			// that drain, which ran a cron turn and an earlier message queued behind the turn first
 			// (10-30: 「暂停」 answered third, 2 min later, after a "queued" notice).
 			msg.abortFront = true
 		} else if busy {
-			if e.stopInteractiveSession(interactiveKey, p, msg.ReplyCtx) {
+			if e.stopInteractiveSessionForAbort(interactiveKey, p, msg.ReplyCtx) {
 				e.reply(p, msg.ReplyCtx, "⏹ 已打断当前这一轮")
 				// Let the cancelled turn release the session (same wait as a recalled message),
 				// so this message starts the new turn instead of queueing behind the old one.
@@ -476,8 +476,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 }
 
 // turnCancelKeepsQueue reports whether stopping interactiveKey's running turn keeps its queue
-// (a turn cancelled in place, or a native /compact): only then can an abort queue first.
-// A session that is closed instead drops its queue (stopInteractiveSessionWithOptions).
+// (a turn cancelled in place, a close-and-resume, or a native /compact).
 func (e *Engine) turnCancelKeepsQueue(interactiveKey string) bool {
 	e.interactiveMu.Lock()
 	state := e.interactiveStates[interactiveKey]
@@ -490,7 +489,7 @@ func (e *Engine) turnCancelKeepsQueue(interactiveKey string) bool {
 		return false
 	}
 	state.mu.Lock()
-	_, ok := state.agentSession.(AgentSessionCanceller)
+	ok := state.agentSession != nil
 	state.mu.Unlock()
 	return ok
 }
@@ -510,7 +509,7 @@ func (e *Engine) abortForQueuedFront(p Platform, msg *Message, interactiveKey st
 	if started {
 		return
 	}
-	if e.stopInteractiveSession(interactiveKey, p, msg.ReplyCtx) {
+	if e.stopInteractiveSessionForAbort(interactiveKey, p, msg.ReplyCtx) {
 		e.reply(p, msg.ReplyCtx, "⏹ 已打断当前这一轮")
 	}
 }
