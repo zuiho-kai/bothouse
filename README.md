@@ -16,11 +16,11 @@
 [![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
 
-**botHouse: a team collaboration platform for one agent or many. A team, or just you with a single model, can use it, and different sessions and models share one project memory.**
+**bothouse: a team collaboration platform for one agent or many. A team, or just you with a single model, can use it, and different sessions and models share one project memory.**
 
 First-class support for Discord, DSH and QQ, with different agent CLIs plugged in: Claude Code, Codex, Antigravity, DSH, Grok.
 
-[Video](#video) · [DSH users](#dsh) · [Install](#install) · [Features](#features) · [Screenshots](#screenshots) · [Memory](#memory) · [Compare](#compare) · [Community](#community) · [Docs](docs/GETTING_STARTED.md)
+[Video](#video) · [Three ways in](#usage) · [DSH users](#dsh) · [Install](#install) · [Features](#features) · [Screenshots](#screenshots) · [Memory](#memory) · [Compare](#compare) · [Community](#community) · [Docs](docs/GETTING_STARTED.md)
 
 </div>
 
@@ -34,9 +34,30 @@ Watch bothouse in 3 minutes: one message goes in; the crew splits the work, take
   <a href="https://x.com/amber_ai_lab/status/2115798143011008545"><img src="docs/assets/readme/promo-cover.en.jpg" width="760" alt="bothouse promo video: an AI team at work — click to play"></a>
 </p>
 
+## What it looks like
+
+I had Claude Code, Codex and DeepSeek open at the same time across two screens: four Claude Code windows on one, Codex on the other, and getting them to work together was a pain. So I reused what Discord already does well and built a collaboration platform on top of it. Later, talking with friends at vLLM and ModelBest, it turned out they had built something similar. As the community grew, DSH and QQ support followed.
+
+That is **bothouse**: a team, or just you, can plug different agent CLIs into one group, and different sessions and models share one project memory. You direct them from your computer, phone or browser — no extra account, no extra subscription.
+
+<a id="usage"></a>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/usage-en-night.svg" />
+  <img src="docs/assets/readme/banner/usage-en-day.svg" width="960" alt="" />
+</picture>
+
+## Three ways in
+
+| What you have | How to use it |
+| --- | --- |
+| **Several agent CLIs** | Bring the Claude Code, Codex, Antigravity, DSH and Grok you already signed in to into one group; the lead splits the work and hands it out, and everyone shares one project memory. See [Install](#install). |
+| **One model, one account** | One model and one role works fine. Want more roles? Create several members anyway, each with its own job. See [A team from one CLI](docs/single-cli-team.en.md). |
+| **DSH** | Tell DSH "install bothouse-dsh for me" and it is installed; one more sentence starts a small team of roles on a single model. See below. |
+
 <a id="dsh"></a>
 
-## DSH users can play too: install in one sentence, one model with many roles
+### DSH users: install in one sentence, one model with many roles
 
 Tell DSH "install bothouse-dsh for me" and it is installed. One model and one role works fine; the DSH plugins you already have keep working, and popular plugins are being adapted.
 
@@ -44,16 +65,9 @@ For one model with many roles, say one sentence to the lead:
 
 > Build me a small team: a writer and a programmer, both on deepseek-v4.1-flash, and put them in a channel
 
-<table><tr>
-<td width="50%"><img src="docs/assets/readme/demo/dsh-oneline-team.jpg" alt="One sentence to the lead in DSH builds a writer and a programmer"><br>One sentence, two roles</td>
-<td width="50%"><img src="docs/assets/readme/demo/dsh-oneline-team-channel.jpg" alt="The new channel with all three roles"><br>The roles are in the new channel</td>
-</tr></table>
+<p align="center"><img src="docs/assets/readme/demo/dsh-oneline-team-crop.jpg" width="750" alt="One sentence to the lead in DSH builds a writer and a programmer"><br><b>One sentence, two roles</b></p>
 
-## What it looks like
-
-I had Claude Code, Codex and DeepSeek open at the same time across two screens: four Claude Code windows on one, Codex on the other, and getting them to work together was a pain. So I reused what Discord already does well and built a collaboration platform on top of it. Later, talking with friends at vLLM and ModelBest, it turned out they had built something similar. As the community grew, DSH and QQ support followed.
-
-That is **botHouse**: a team, or just you, can plug different agent CLIs into one group, and different sessions and models share one project memory. You direct them from your computer, phone or browser — no extra account, no extra subscription.
+<p align="center"><img src="docs/assets/readme/demo/dsh-oneline-team-channel-crop.jpg" width="900" alt="In the new channel, the writer and the programmer are online, both on deepseek-v4.1-flash"><br><b>The roles are in the new channel</b></p>
 
 <a id="install"></a>
 
@@ -84,8 +98,7 @@ The Windows command, package downloads, the background service and the DSH chann
 | You want | How bothouse helps |
 | --- | --- |
 | **An AI team of your own** | Bring the Claude Code, Codex, Antigravity, DSH, Grok, Gemini CLI or OpenCode you already signed in to; every role gets its own name, persona and session. |
-| **A team from one account** | One model and one role works fine. Only one Codex or DeepSeek account? Create several members anyway, each with its own name, persona, job and session; they assign and hand back work by mentioning each other. |
-| **DSH users can play too** | Say "install bothouse-dsh for me" in DSH and it is installed; one model can run many roles, and your DSH plugins keep working. |
+| **A team from one account** | Only one Codex or DeepSeek account? Create several members anyway, each with its own name, persona, job and session; they assign and hand back work by mentioning each other. |
 | **Find it in the chat apps you use** | @ it in Discord, Feishu, QQ, the self-hosted web chat or DSH web; Discord and Feishu already have phone apps, so you can hand out work from bed. |
 | **Chat stays free while big jobs run** | Bigger jobs go to a separate workspace while the lead keeps talking with you; the workspace can also read your original words and the project memory; results come back, and you are only pinged for decisions. |
 | **Everyone remembers the same thing** | All roles read and write one shared memory, so whoever picks up the job already knows the background. |
@@ -256,7 +269,7 @@ Mature personal assistants and coding tools get compared too:
 - **Automatic workspace cleanup:** clear context after the last assignment so the next task starts fresh.
 - **More group-chat platforms:** full team mode on Telegram, Slack and WeCom.
 - **Deep support for popular DSH plugins:** reuse the DSH plugin ecosystem, with deep support for the popular plugins.
-- **Hardware:** support for Xiaozhi devices, so the roles step out of the screen and botHouse lands in the real world.
+- **Hardware:** support for Xiaozhi devices, so the roles step out of the screen and bothouse lands in the real world.
 
 <a id="docs"></a>
 

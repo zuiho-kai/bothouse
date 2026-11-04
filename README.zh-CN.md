@@ -16,11 +16,11 @@
 [![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
 
-**botHouse：一个单 / 多 agent 的团队协作平台。团队成员，或者自己单人、单模型都能用，不同会话和模型共享同一份项目记忆。**
+**bothouse：一个单 / 多 agent 的团队协作平台。团队成员，或者自己单人、单模型都能用，不同会话和模型共享同一份项目记忆。**
 
 主力支持 Discord、DSH、QQ 接入，可以接入不同的 agent CLI：Claude Code、Codex、反重力、DSH、Grok。
 
-[宣传片](#video) · [DSH 用户](#dsh) · [安装](#install) · [能力](#features) · [截图](#screenshots) · [记忆](#memory) · [对比](#compare) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
+[宣传片](#video) · [三种用法](#usage) · [DSH 用户](#dsh) · [安装](#install) · [能力](#features) · [截图](#screenshots) · [记忆](#memory) · [对比](#compare) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
 
 </div>
 
@@ -34,9 +34,30 @@
   <a href="https://www.bilibili.com/video/BV15msZ6XEYq"><img src="docs/assets/readme/promo-cover.zh.jpg" width="760" alt="bothouse 宣传片：AI 角色组队干活，点击在 B 站播放"></a>
 </p>
 
+## 用起来是什么样
+
+我手上同时开着 cc、codex、ds，两个屏幕：一个屏幕开 4 个 cc 窗口，另一个开 codex，几个之间协作有点牢。所以就复用 Discord 的能力搞了个协作平台。后来跟 vLLM 和面壁的同学聊了聊，他们也是类似的做法。再后来随着社区发展，又加上了 DSH、QQ 等支持。
+
+这就是 **bothouse**：团队成员或者你自己一个人，都能把不同的 agent CLI 接进同一个群，不同会话、不同模型共享同一份项目记忆。你在电脑、手机和浏览器上都能指挥，不用另开账号，不用另买订阅。
+
+<a id="usage"></a>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/usage-zh-night.svg" />
+  <img src="docs/assets/readme/banner/usage-zh-day.svg" width="960" alt="" />
+</picture>
+
+## 三种用法
+
+| 你手上有 | 怎么用 |
+| --- | --- |
+| **几种 agent CLI** | 把已经登录好的 Claude Code、Codex、反重力、DSH、Grok 拉进一个群，主角色拆活、派出去，大家共用一份项目记忆。见[安装](#install)。 |
+| **一个模型、一个账号** | 单模型单角色也能玩。想要多角色，照样建几个成员，各管一摊。见[一个 CLI 组团队](docs/single-cli-team.md)。 |
+| **DSH** | 在 DSH 里说一句「帮我装 bothouse-dsh」就能装上，再说一句就拉起单模型多角色的小团队。见下面。 |
+
 <a id="dsh"></a>
 
-## DSH 用户也能玩：一句话装上，单模型拉多角色
+### DSH 用户：一句话装上，单模型拉多角色
 
 在 DSH 里说一句「帮我装 bothouse-dsh」就能装上。单模型单角色也能玩，DSH 已有的插件照常用，热门插件也在做适配。
 
@@ -44,16 +65,9 @@
 
 > 帮我搭一个小团队：写手、程序员，模型都用 deepseek-v4.1-flash，拉个频道
 
-<table><tr>
-<td width="50%"><img src="docs/assets/readme/demo/dsh-oneline-team.jpg" alt="DSH 里对主角色说一句，建好写手和程序员"><br>说一句，建好两个角色</td>
-<td width="50%"><img src="docs/assets/readme/demo/dsh-oneline-team-channel.jpg" alt="新频道里三个角色都在"><br>新频道里角色已就位</td>
-</tr></table>
+<p align="center"><img src="docs/assets/readme/demo/dsh-oneline-team-crop.jpg" width="750" alt="DSH 里对主角色说一句，建好写手和程序员"><br><b>说一句，建好两个角色</b></p>
 
-## 用起来是什么样
-
-我手上同时开着 cc、codex、ds，两个屏幕：一个屏幕开 4 个 cc 窗口，另一个开 codex，几个之间协作有点牢。所以就复用 Discord 的能力搞了个协作平台。后来跟 vLLM 和面壁的同学聊了聊，他们也是类似的做法。再后来随着社区发展，又加上了 DSH、QQ 等支持。
-
-这就是 **botHouse**：团队成员或者你自己一个人，都能把不同的 agent CLI 接进同一个群，不同会话、不同模型共享同一份项目记忆。你在电脑、手机和浏览器上都能指挥，不用另开账号，不用另买订阅。
+<p align="center"><img src="docs/assets/readme/demo/dsh-oneline-team-channel-crop.jpg" width="900" alt="新频道小团队里，写手和程序员都在线，模型都是 deepseek-v4.1-flash"><br><b>新频道里角色已就位</b></p>
 
 <a id="install"></a>
 
@@ -84,8 +98,7 @@ Windows 命令、安装包下载、常驻后台和 DSH 频道见[上手指南](d
 | 你想要 | bothouse 怎么帮你 |
 | --- | --- |
 | **一支自己的 AI 小团队** | 把已经登录好的 Claude Code、Codex、反重力、DSH、Grok、Gemini CLI、OpenCode 拉进群，每个角色有自己的名字、人设和会话。 |
-| **一个账号也能组队** | 单模型单角色也能玩。只有一个 Codex 或一个 DeepSeek 账号？照样建几个成员，分工各管一摊，在群里 @ 来 @ 去地派活。 |
-| **DSH 用户也能玩** | 在 DSH 里说一句「帮我装 bothouse-dsh」就能装上，单模型也能拉多角色；DSH 已有的插件照常用。 |
+| **一个账号也能组队** | 只有一个 Codex 或一个 DeepSeek 账号？照样建几个成员，分工各管一摊，在群里 @ 来 @ 去地派活。 |
 | **在常用的聊天软件里找它** | 在 Discord、飞书、QQ、自建网页或 DSH web 里 @ 它；Discord 和飞书本来就有手机版，躺床上也能派活。 |
 | **聊天不卡，大活另开** | 大一点的活交给单独的工作区去做，主角色继续陪你聊；工作区也能查看你的原话和项目记忆，做完交回，需要你拍板时才叫你。 |
 | **大家记得同一件事** | 所有角色读写同一份记忆，换一个角色接手，不用你再讲一遍背景。 |
@@ -256,7 +269,7 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 - **工作区自动清理**：最后一件活交完就清上下文。
 - **更多群聊平台**：完整团队模式扩到 Telegram、Slack 和企业微信。
 - **DSH 热门插件深度适配**：复用 DSH 插件生态，热门插件我们也会做深度适配。
-- **硬件适配**：适配小智硬件，让她们从屏幕里走出来，让 botHouse 落到现实里。
+- **硬件适配**：适配小智硬件，让她们从屏幕里走出来，让 bothouse 落到现实里。
 
 <a id="docs"></a>
 
