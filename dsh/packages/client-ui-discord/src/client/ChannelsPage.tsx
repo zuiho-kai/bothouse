@@ -572,19 +572,17 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
             </span>
             <span className={css.memberStatus} data-status={m.error ? 'error' : busy.has(m.id) ? 'busy' : m.online ? 'online' : 'offline'}>{m.error ? t('memberFailed') : busy.has(m.id) ? t('working') : m.online ? t('online') : t('offline')}</span>
           </button>
-          {onDm !== undefined && m.kind !== 'human' && (
-            <span className={css.memberActions}>
-              <button type="button" className={css.linkButton} onClick={() => { onDm(m) }}>{t('dmOpen')}</button>
+          {(m.kind === 'dsh' || (onDm !== undefined && m.kind !== 'human')) && (
+            <span className={css.memberActions} title={m.kind === 'dsh' && m.editable !== true ? t('configMember') : undefined}>
+              {onDm !== undefined && <button type="button" className={css.linkButton} onClick={() => { onDm(m) }}>{t('dmOpen')}</button>}
+              {m.kind === 'dsh' && (m.editable === true
+                ? <>
+                    <button type="button" className={css.linkButton} onClick={() => { onEdit(m) }}>{t('editMember')}</button>
+                    <button type="button" className={css.linkButton} onClick={() => { onRemove(m) }}>{t('removeMember')}</button>
+                  </>
+                : '⚙')}
             </span>
           )}
-          {m.kind === 'dsh' && (m.editable === true
-            ? (
-                <span className={css.memberActions}>
-                  <button type="button" className={css.linkButton} onClick={() => { onEdit(m) }}>{t('editMember')}</button>
-                  <button type="button" className={css.linkButton} onClick={() => { onRemove(m) }}>{t('removeMember')}</button>
-                </span>
-              )
-            : <span className={css.memberActions} title={t('configMember')}>⚙</span>)}
         </div>
       ))}
     </>
@@ -1492,7 +1490,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
               enterKeyHint="send"
               value={draft}
               disabled={state.roomId === undefined || sending[state.roomId] === true}
-              placeholder={t(compactComposer() ? 'placeholderShort' : 'placeholder', { room: room?.name ?? '' })}
+              placeholder={dmWith !== undefined ? t('placeholderDm', { name: state.members.find(m => m.id === dmWith)?.name ?? room?.name ?? '' }) : t(compactComposer() ? 'placeholderShort' : 'placeholder', { room: room?.name ?? '' })}
               role="combobox"
               aria-expanded={popupOpen || slashOpen}
               aria-controls={slashOpen ? 'channel-slash-list' : 'channel-mention-list'}

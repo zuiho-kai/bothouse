@@ -64,9 +64,9 @@ export function DeliveryPreview({ page, task, t, onReview, onRevise }: {
     setState('saving')
     onReview(task.id, 'done').then(() => { setState('idle') }, () => { setState('error') })
   }
-  const actions = (
+  const actions = (inDialog: boolean) => (
     <div className={css.deliveryActions}>
-      <button type="button" className={css.secondaryButton} onClick={() => { setFull(true) }}>{t('deliveryFull')}</button>
+      {!inDialog && <button type="button" className={css.secondaryButton} onClick={() => { setFull(true) }}>{t('deliveryFull')}</button>}
       <a className={css.secondaryButton} href={page.src} target="_blank" rel="noreferrer">{t('deliveryOpen')}</a>
       {waiting && <button type="button" className={css.secondaryButton} onClick={() => { setFull(false); onRevise() }}>{t('deliveryRevise')}</button>}
       {waiting && <button type="button" className={css.primaryButton} disabled={state === 'saving'} onClick={accept}>{t('deliveryAccept')}</button>}
@@ -79,7 +79,7 @@ export function DeliveryPreview({ page, task, t, onReview, onRevise }: {
       <div className={css.deliveryFrame}>
         <EmbedFrame src={page.src} title={page.title} sandboxed sameOrigin={page.sameOrigin} />
       </div>
-      {actions}
+      {actions(false)}
       {full && createPortal(
         <div className={css.dialogBackdrop} data-dc-scheme={getScheme()} onClick={event => { if (event.target === event.currentTarget) setFull(false) }}>
           <section className={`${css.dialog} ${css.deliveryFullDialog}`} role="dialog" aria-modal="true" aria-label={page.title}
@@ -91,7 +91,7 @@ export function DeliveryPreview({ page, task, t, onReview, onRevise }: {
             <div className={css.deliveryFullFrame}>
               <EmbedFrame src={page.src} title={page.title} sandboxed sameOrigin={page.sameOrigin} />
             </div>
-            {actions}
+            {actions(true)}
           </section>
         </div>, document.body,
       )}

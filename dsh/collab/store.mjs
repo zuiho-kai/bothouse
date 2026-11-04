@@ -92,8 +92,9 @@ export class Store {
     if (version > SCHEMA_VERSION) throw Error(`collab: store schema ${version} is newer than ${SCHEMA_VERSION}`);
     this.ensureSchema(version);
     this.q = {
-      room: this.db.prepare('SELECT id, name, kind, parent_id, dm_member FROM rooms WHERE id = ?'),
-      rooms: this.db.prepare('SELECT id, name, kind, parent_id, dm_member FROM rooms ORDER BY id'),
+      room: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?'),
+      rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms ORDER BY id'),
+      dms: this.db.prepare('SELECT id, dm_member FROM rooms WHERE dm_member IS NOT NULL'),
       children: this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id"),
       // A new workspace is claimed with no task yet (claim_task 0): its first task is the handoff.
       createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id, claim_task, claim_bridge, claim_at)
@@ -399,16 +400,16 @@ export class Store {
     if (typeof memberId !== 'string' || memberId === '') throw new CollabError('invalid', 'member id required');
     const room = this.transaction(() => {
       const found = this.db.prepare('SELECT id FROM rooms WHERE dm_member = ? ORDER BY id LIMIT 1').get(memberId);
-      if (found !== undefined) return this.q.room.get(found.id);
+      if (found !== undefined) return { ...this.q.room.get(found.id), dm_member: memberId };
       const created = this.q.createRoom.get(String(name || memberId).replace(/\s+/g, '').slice(0, 32) || memberId);
       this.db.prepare('UPDATE rooms SET dm_member = ? WHERE id = ?').run(memberId, created.id);
-      return this.q.room.get(created.id);
+      return { ...created, dm_member: memberId };
     });
     this.ensureRoomSettings(room.id);
     return room;
   }
   /** #1023: the agent member a private chat room is with; undefined for every other room. */
-  dmMember(roomId) { return this.q.room.get(roomId)?.dm_member ?? undefined; }
+  dmMember(roomId) { return this.db.prepare('SELECT dm_member FROM rooms WHERE id = ?').get(roomId)?.dm_member ?? undefined; }
   /**
    * Give a chat channel its next workspace: the lowest-numbered free 工作区<k> of the shared
    * pool (released by any chat channel after its last task) if there is one, else a new
@@ -650,7 +651,11 @@ export class Store {
     return saved || this.q.workspacePath.get(roomId)?.path || fallback;
   }
   room(id) { return this.q.room.get(id); }
-  rooms() { return this.q.rooms.all(); }
+  rooms() {
+    // #1023: only a private chat carries dm_member, so every other room keeps its old shape.
+    const dms = new Map(this.q.dms.all().map(r => [r.id, r.dm_member]));
+    return this.q.rooms.all().map(r => (dms.has(r.id) ? { ...r, dm_member: dms.get(r.id) } : r));
+  }
   /** Return stale, empty claims to the pool without taking bridge or paused work. */
   releaseIdleWorkspaces() {
     const idle = this.db.prepare(`SELECT id FROM rooms WHERE kind = 'workspace' AND free = 0

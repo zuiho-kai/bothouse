@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 81e9669c1892773a6e453c4617fe4f99b3f1877c9c1c88202f60fc5eb44a55ba
+// dsh-client-source-sha256: 80286a6aabb36eacf1c73a39ed967a56f5e7f4ab989d3bc290c6d72cf5c5af2b
 // dsh-style-sha256: 2e640033692a63b951ba23a41d830ebca956e67e0c0a9a38ba6618e25b4b480c
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -17169,10 +17169,10 @@ function DeliveryPreview({ page, task, t, onReview, onRevise }) {
 			setState("error");
 		});
 	};
-	const actions = /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+	const actions = (inDialog) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: ChannelsPage_module_default.deliveryActions,
 		children: [
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+			!inDialog && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 				type: "button",
 				className: ChannelsPage_module_default.secondaryButton,
 				onClick: () => {
@@ -17227,7 +17227,7 @@ function DeliveryPreview({ page, task, t, onReview, onRevise }) {
 					sameOrigin: page.sameOrigin
 				})
 			}),
-			actions,
+			actions(false),
 			full && (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 				className: ChannelsPage_module_default.dialogBackdrop,
 				"data-dc-scheme": getScheme(),
@@ -17269,7 +17269,7 @@ function DeliveryPreview({ page, task, t, onReview, onRevise }) {
 								sameOrigin: page.sameOrigin
 							})
 						}),
-						actions
+						actions(true)
 					]
 				})
 			}), document.body)
@@ -20953,81 +20953,71 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
 		children: title
 	}), members.map((m) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: `${ChannelsPage_module_default.memberRow} ${m.error ? ChannelsPage_module_default.memberFailed : m.online ? "" : ChannelsPage_module_default.offline}`,
-		children: [
-			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-				type: "button",
-				className: ChannelsPage_module_default.member,
-				title: t("mentionPick", { name: m.name }),
-				onClick: () => {
-					onPick(m);
-				},
-				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-						className: ChannelsPage_module_default.memberAvatar,
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
-							id: m.id,
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+			type: "button",
+			className: ChannelsPage_module_default.member,
+			title: t("mentionPick", { name: m.name }),
+			onClick: () => {
+				onPick(m);
+			},
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+					className: ChannelsPage_module_default.memberAvatar,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+						id: m.id,
+						name: m.name,
+						avatar: m.avatar,
+						avatarVersion: m.avatarVersion,
+						small: true
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: m.error ? `${ChannelsPage_module_default.presence} ${ChannelsPage_module_default.errorPresence}` : ChannelsPage_module_default.presence })]
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+					className: ChannelsPage_module_default.memberText,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+						className: ChannelsPage_module_default.memberName,
+						children: [m.name, /* @__PURE__ */ (0, react_jsx_runtime.jsx)(KindTag, {
 							name: m.name,
-							avatar: m.avatar,
-							avatarVersion: m.avatarVersion,
-							small: true
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: m.error ? `${ChannelsPage_module_default.presence} ${ChannelsPage_module_default.errorPresence}` : ChannelsPage_module_default.presence })]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-						className: ChannelsPage_module_default.memberText,
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-							className: ChannelsPage_module_default.memberName,
-							children: [m.name, /* @__PURE__ */ (0, react_jsx_runtime.jsx)(KindTag, {
-								name: m.name,
-								kind: m.kind,
-								cli: m.cli,
-								t
-							})]
-						}), m.kind === "dsh" && m.cli === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: ChannelsPage_module_default.memberModel,
-							children: m.model ? `${m.model.provider}/${m.model.model}` : t("defaultModel")
+							kind: m.kind,
+							cli: m.cli,
+							t
 						})]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: ChannelsPage_module_default.memberStatus,
-						"data-status": m.error ? "error" : busy.has(m.id) ? "busy" : m.online ? "online" : "offline",
-						children: m.error ? t("memberFailed") : busy.has(m.id) ? t("working") : m.online ? t("online") : t("offline")
-					})
-				]
-			}),
-			onDm !== void 0 && m.kind !== "human" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-				className: ChannelsPage_module_default.memberActions,
-				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-					type: "button",
-					className: ChannelsPage_module_default.linkButton,
-					onClick: () => {
-						onDm(m);
-					},
-					children: t("dmOpen")
+					}), m.kind === "dsh" && m.cli === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ChannelsPage_module_default.memberModel,
+						children: m.model ? `${m.model.provider}/${m.model.model}` : t("defaultModel")
+					})]
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: ChannelsPage_module_default.memberStatus,
+					"data-status": m.error ? "error" : busy.has(m.id) ? "busy" : m.online ? "online" : "offline",
+					children: m.error ? t("memberFailed") : busy.has(m.id) ? t("working") : m.online ? t("online") : t("offline")
 				})
-			}),
-			m.kind === "dsh" && (m.editable === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-				className: ChannelsPage_module_default.memberActions,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-					type: "button",
-					className: ChannelsPage_module_default.linkButton,
-					onClick: () => {
-						onEdit(m);
-					},
-					children: t("editMember")
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-					type: "button",
-					className: ChannelsPage_module_default.linkButton,
-					onClick: () => {
-						onRemove(m);
-					},
-					children: t("removeMember")
-				})]
-			}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-				className: ChannelsPage_module_default.memberActions,
-				title: t("configMember"),
-				children: "⚙"
-			}))
-		]
+			]
+		}), (m.kind === "dsh" || onDm !== void 0 && m.kind !== "human") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+			className: ChannelsPage_module_default.memberActions,
+			title: m.kind === "dsh" && m.editable !== true ? t("configMember") : void 0,
+			children: [onDm !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.linkButton,
+				onClick: () => {
+					onDm(m);
+				},
+				children: t("dmOpen")
+			}), m.kind === "dsh" && (m.editable === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.linkButton,
+				onClick: () => {
+					onEdit(m);
+				},
+				children: t("editMember")
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.linkButton,
+				onClick: () => {
+					onRemove(m);
+				},
+				children: t("removeMember")
+			})] }) : "⚙")]
+		})]
 	}, m.id))] });
 }
 /**
@@ -22338,7 +22328,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 										enterKeyHint: "send",
 										value: draft,
 										disabled: state.roomId === void 0 || sending[state.roomId] === true,
-										placeholder: t(compactComposer() ? "placeholderShort" : "placeholder", { room: room?.name ?? "" }),
+										placeholder: dmWith !== void 0 ? t("placeholderDm", { name: state.members.find((m) => m.id === dmWith)?.name ?? room?.name ?? "" }) : t(compactComposer() ? "placeholderShort" : "placeholder", { room: room?.name ?? "" }),
 										role: "combobox",
 										"aria-expanded": popupOpen || slashOpen,
 										"aria-controls": slashOpen ? "channel-slash-list" : "channel-mention-list",
@@ -22855,6 +22845,7 @@ const zh = {
 	kindGemini: "Gemini",
 	placeholderShort: "发消息到 #{room}",
 	placeholder: "发消息到 #{room}，@成员 派活（回车发送，Shift+回车换行）",
+	placeholderDm: "私信给 {name}（回车发送，Shift+回车换行）",
 	loading: "正在连接频道服务…",
 	unavailable: "频道服务未启用：在 collab.yml 中配置服务后，用 --patch collab.yml 启动 DSH。",
 	unauthorized: "还没有登录 DSH，请刷新页面。",
@@ -23182,6 +23173,7 @@ const en = {
 	kindGemini: "Gemini",
 	placeholderShort: "Message #{room}",
 	placeholder: "Message #{room}; @ a member to put it to work (Enter sends, Shift+Enter for a new line)",
+	placeholderDm: "Message {name} privately (Enter to send, Shift+Enter for a new line)",
 	loading: "Connecting to the channel service…",
 	unavailable: "The channel service is off: configure it in collab.yml, then start DSH with --patch collab.yml.",
 	unauthorized: "Not signed in to DSH; reload the page.",
