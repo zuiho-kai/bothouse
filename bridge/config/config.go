@@ -4152,15 +4152,23 @@ func GetGlobalSettings() map[string]any {
 	result["queue_max_depth"] = queueMax
 	result["review_simple_role"] = cfg.TeamReview.Simple
 	result["review_complex_role"] = cfg.TeamReview.Complex
+	result["review_simple_model"] = cfg.TeamReview.SimpleModel
+	result["review_complex_model"] = cfg.TeamReview.ComplexModel
 	return result
 }
 
 // TeamReviewConfig: the role (project name; each role runs its own model) that verifies a
 // handback of each tier. Empty = no preference, the usual pick (core/team_task_review.go).
 // An unmarked handback is simple; a reviewer escalates with board tier <id> complex.
+//
+// SimpleModel/ComplexModel: a model ID from that tier's role's model list; the review then runs
+// in a fresh session of the role on that model instead of the role's own (user 2026-11-04 13:20
+// 「DSH 设置简单/复杂档可直接选模型」). Empty = the role's own model; ignored without a role.
 type TeamReviewConfig struct {
-	Simple  string `toml:"simple,omitempty"`
-	Complex string `toml:"complex,omitempty"`
+	Simple       string `toml:"simple,omitempty"`
+	Complex      string `toml:"complex,omitempty"`
+	SimpleModel  string `toml:"simple_model,omitempty"`
+	ComplexModel string `toml:"complex_model,omitempty"`
 }
 
 // GlobalSettingsUpdate holds fields to update in global config.
@@ -4180,6 +4188,8 @@ type GlobalSettingsUpdate struct {
 	QueueMaxDepth      *int    `json:"queue_max_depth"`
 	ReviewSimpleRole   *string `json:"review_simple_role"`
 	ReviewComplexRole  *string `json:"review_complex_role"`
+	ReviewSimpleModel  *string `json:"review_simple_model"`
+	ReviewComplexModel *string `json:"review_complex_model"`
 }
 
 // SaveGlobalSettings persists global settings to config.toml.
@@ -4241,6 +4251,12 @@ func SaveGlobalSettings(u GlobalSettingsUpdate) error {
 	}
 	if u.ReviewComplexRole != nil {
 		cfg.TeamReview.Complex = strings.TrimSpace(*u.ReviewComplexRole)
+	}
+	if u.ReviewSimpleModel != nil {
+		cfg.TeamReview.SimpleModel = strings.TrimSpace(*u.ReviewSimpleModel)
+	}
+	if u.ReviewComplexModel != nil {
+		cfg.TeamReview.ComplexModel = strings.TrimSpace(*u.ReviewComplexModel)
 	}
 	return saveConfig(cfg)
 }

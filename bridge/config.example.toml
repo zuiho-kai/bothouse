@@ -282,6 +282,10 @@ level = "info" # debug, info, warn, error
 # [team_review]
 # simple = "deep"           # cheap model first / 简单档：便宜模型先审
 # complex = "gge"           # after board tier <id> complex / 升档后由它再审
+# simple_model = ""         # optional model ID from the simple role's list; the review runs in a
+#                           # fresh session on it. Empty = the role's own model.
+#                           # 可选：简单档角色模型列表里的一个模型，审核开新会话用它跑；空 = 角色自己的模型
+# complex_model = ""        # same for the complex tier / 复杂档同上
 
 # =============================================================================
 # Outgoing Rate Limit / 出站速率限制
