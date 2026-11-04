@@ -188,6 +188,33 @@ func TestDSHWebSelfHealAfterRefusedLaunchToken(t *testing.T) {
 	}
 }
 
+// The state file was removed (openDSHWeb does that before a restart) while the host is up and its
+// default log next to the file has the announcement.
+func TestDSHWebSelfHealWithoutStateFile(t *testing.T) {
+	fake := newProxyFakeDSH(t)
+	panel := setupDSHProxyTest(t, nil, "secret")
+	resetDSHWebHeal(t)
+	dir := filepath.Dir(dshWebStatePath())
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "dsh-web.log")
+	if err := os.WriteFile(logPath, []byte("dsh web: "+fake.srv.URL+"/?token=launch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if s := getState(t, dshSignIn(t, panel, "secret"), panel.URL); s != http.StatusOK {
+		t.Fatalf("after self-heal: %d, want 200", s)
+	}
+	var got DSHWeb
+	if err := json.Unmarshal(readStateRaw(t), &got); err != nil {
+		t.Fatal(err)
+	}
+	wantPort := strings.TrimPrefix(fake.srv.URL, "http://127.0.0.1:")
+	if !strings.HasPrefix(got.URL, "http://127.0.0.1:"+wantPort+"/") || !strings.HasSuffix(got.URL, dshChannelsHash) {
+		t.Fatalf("state url = %q", got.URL)
+	}
+}
+
 // No announcement (a log that only has model listings): the 503 stays and the file is untouched.
 func TestDSHWebSelfHealWithoutAnnouncementKeeps503(t *testing.T) {
 	panel := setupDSHProxyTest(t, nil, "secret")

@@ -85,6 +85,11 @@ func runningDSHWeb() (target, launchToken string, err error) {
 		if web.URL != "" {
 			return "", "", fmt.Errorf("dsh-web.json has an unreadable url %q", web.URL)
 		}
+		// No file at all (openDSHWeb removes it before a restart): the host may still be up and have
+		// announced itself in the default log next to it.
+		if t, tok, healed := healDSHWebState(DSHWeb{}); healed {
+			return t, tok, nil
+		}
 		return "", "", errDSHWebNotRunning
 	}
 	stale := dshWebSuspect.Swap(false) || web.PID <= 0 || !processAlive(web.PID) || !loopbackTarget(u.Host)

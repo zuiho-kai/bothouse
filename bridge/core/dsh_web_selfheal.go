@@ -235,11 +235,17 @@ func healDSHWebState(web DSHWeb) (target, launchToken string, ok bool) {
 	tried := len(candidates)
 	if port == "" && au.Port() == "" {
 		// No port anywhere: the host may have been restarted on another one. It costs an lsof, so
-		// this runs only after the recorded ports have been refused.
+		// this runs only after the recorded ports have been refused — and the whole scan gets one
+		// probe timeout, so a local listener that accepts and never answers cannot hold the request
+		// for longer than a single probe would (来源：实测单次探活 0.5–3ms，见 dshWebProbeTimeout).
+		deadline := time.Now().Add(dshWebProbeTimeout)
 		for _, p := range dshWebListeners() {
 			addCandidate(p)
 			if probeDSHWebToken(p, token) {
 				port = p
+				break
+			}
+			if time.Now().After(deadline) {
 				break
 			}
 		}
@@ -254,8 +260,12 @@ func healDSHWebState(web DSHWeb) (target, launchToken string, ok bool) {
 		PID: pidListeningOnPort(port),
 		Log: logPath,
 	}
-	if now, err := os.ReadFile(dshWebStatePath()); err != nil || string(now) != string(orig) {
-		return fail("the state file changed while the announcement was being checked")
+	if now, err := os.ReadFile(dshWebStatePath()); string(now) != string(orig) {
+		// It did not exist and still does not: nothing wrote it in the meantime, so adopt. Otherwise
+		// the panel (or whoever else) wrote it while the announcement was being checked — theirs wins.
+		if len(orig) != 0 || err == nil {
+			return fail("the state file changed while the announcement was being checked")
+		}
 	}
 	// 来源：沿用仓库里配置变更的时间戳备份（setup_dsh_module.go:298），旧文件不丢。
 	_ = AtomicWriteFile(dshWebStatePath()+".bak-"+time.Now().Format("20060102-150405.000000000"), orig, 0o600)
