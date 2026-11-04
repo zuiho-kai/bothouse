@@ -181,4 +181,18 @@ func TestTaskReviewTierRoles(t *testing.T) {
 	if len(complexJobs) != 1 || complexJobs[0].Project != "gge" {
 		t.Fatalf("escalated handback: %+v; want one new review by gge", complexJobs)
 	}
+	// The simple review already ran: the complex re-review still runs.
+	if p, err := gge.prepareTaskReview(complexJobs[0], now); err != nil || p == nil {
+		t.Fatalf("complex review after a finished simple one: %v, %v", p, err)
+	}
+	// An hourly roundup still carrying the simple-tier ref drops it; the complex ref stays.
+	simpleRef := *jobs[0].TaskReview
+	roundup := &TimerJob{ID: "u", Project: "deep", SessionKey: "room:chat", TaskReview: &taskReviewRef{Stage: "roundup", Hour: now, Items: []taskReviewRef{simpleRef}}}
+	if p, err := deep.prepareTaskReview(roundup, now); err != nil || p != nil {
+		t.Fatalf("roundup kept the superseded simple review: %+v, %v", p, err)
+	}
+	roundup.TaskReview.Items = []taskReviewRef{*complexJobs[0].TaskReview}
+	if p, err := deep.prepareTaskReview(roundup, now); err != nil || p == nil {
+		t.Fatalf("roundup dropped the complex review: %v", err)
+	}
 }

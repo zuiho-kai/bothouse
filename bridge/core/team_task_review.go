@@ -137,6 +137,9 @@ type taskReviewRef struct {
 	Stage      string          `json:"stage,omitempty"`
 	Items      []taskReviewRef `json:"items,omitempty"`
 	Hour       time.Time       `json:"hour,omitempty"`
+	// Tier the verification was queued for ("complex" or "" = simple). After board tier
+	// escalates, a queued simple review no longer applies (taskReviewPending).
+	Tier string `json:"tier,omitempty"`
 }
 
 func (e *Engine) taskReviewPending(ref *taskReviewRef) bool {
@@ -147,7 +150,7 @@ func (e *Engine) taskReviewPending(ref *taskReviewRef) bool {
 		if it.ID == ref.Board && ref.Paused != "" {
 			return it.Paused != "" && taskPauseKey(it) == ref.Paused
 		}
-		if it.ID == ref.Board && it.Paused == "" && it.ReviewRejected == "" && it.ReturnedAt.Equal(ref.ReturnedAt) {
+		if it.ID == ref.Board && it.Paused == "" && it.ReviewRejected == "" && it.ReturnedAt.Equal(ref.ReturnedAt) && taskReviewTier(it) == ref.Tier {
 			return true
 		}
 	}
@@ -269,7 +272,7 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 			stage = "unavailable"
 		}
 		id := taskReviewJobID(e.team.dir, it, reviewer.name, stage)
-		ref := taskReviewRef{Board: it.ID, ReturnedAt: it.ReturnedAt, Stage: stage}
+		ref := taskReviewRef{Board: it.ID, ReturnedAt: it.ReturnedAt, Stage: stage, Tier: taskReviewTier(it)}
 		prior := reviewer.timerScheduler.store.Get(id)
 		if prior == nil {
 			reviewer.queueTaskReviewIn(id, it.Chat, &ref, now, fresh)
@@ -302,6 +305,14 @@ func SetTeamReviewTiers(simple, complex string) {
 
 func taskReviewComplex(it teamTaskBoardItem) bool {
 	return strings.EqualFold(strings.TrimSpace(it.ReviewTier), "complex") || strings.TrimSpace(it.ReviewTier) == "复杂"
+}
+
+// taskReviewTier: "complex" for an escalated handback, "" for the default simple tier.
+func taskReviewTier(it teamTaskBoardItem) string {
+	if taskReviewComplex(it) {
+		return "complex"
+	}
+	return ""
 }
 
 // taskReviewTierRole: the configured role for the item's tier ("" = none).
@@ -440,6 +451,9 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 func (e *Engine) taskReviewQueuedIn(chat string) bool {
 	for _, j := range e.timerScheduler.store.List() {
 		if j.Project == e.name && j.TaskReview != nil && !j.Fired && !j.UsesNewSessionPerRun() && teamChatKey(j.SessionKey) == chat {
+			if j.TaskReview.Stage != "roundup" && !e.taskReviewPending(j.TaskReview) {
+				continue // superseded (escalated, accepted, rejected): it will not run a turn
+			}
 			return true
 		}
 	}
