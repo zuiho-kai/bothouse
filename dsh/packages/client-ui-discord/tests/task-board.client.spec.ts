@@ -15,10 +15,10 @@ function task(id: number, status: TaskStatus, extra: Partial<ChannelTask> = {}):
 }
 
 describe('task board', () => {
-  it('puts the owner-turn statuses first, then waiting for the lead, newest first, and done apart', () => {
-    const tasks = [task(1, 'done'), task(2, 'returned'), task(3, 'assigned'), task(4, 'rework'), task(5, 'declined'), task(6, 'asked'), task(7, 'accepted'), task(8, 'escalated')]
+  it('puts what waits on you first, then work in progress, then parked, newest first, and done apart', () => {
+    const tasks = [task(1, 'done'), task(2, 'returned'), task(3, 'assigned'), task(4, 'rework'), task(5, 'declined'), task(6, 'asked'), task(7, 'accepted'), task(8, 'escalated'), task(9, 'accepted', { paused_at: 5 })]
     const { open, done } = boardGroups(tasks)
-    expect(open.map(x => x.id)).toEqual([7, 6, 4, 3, 8, 5, 2])
+    expect(open.map(x => x.id)).toEqual([8, 6, 5, 2, 7, 4, 3, 9])
     expect(done.map(x => x.id)).toEqual([1])
     expect(boardGroups([])).toEqual({ open: [], done: [] })
   })

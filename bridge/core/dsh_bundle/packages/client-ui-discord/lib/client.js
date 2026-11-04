@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 973e704c3c43241ca5428c90a8bc421b41ec568cc5566c56152bd6296af4b02e
+// dsh-client-source-sha256: 9fd10747d67f9579e836cb3bf8ed7655cc3836aff2ab6330b2b3488c41bc49ba
 // dsh-style-sha256: f03b29c4f8797ebcf3d8dddd8022fe06e0b7afe47171feb5736e964cc7d4cf5e
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -16948,43 +16948,54 @@ const STATUS_KEY = {
 	done: "taskDone",
 	rework: "taskRework"
 };
-/** Single source for tab membership and board ordering; an empty list means all statuses. */
+const DECIDE = [
+	"asked",
+	"returned",
+	"declined",
+	"escalated"
+];
+function boardGroupOf(task) {
+	if (DECIDE.includes(task.status)) return "decide";
+	if (task.status === "done") return "done";
+	return task.paused_at != null ? "parked" : "working";
+}
+/** Single source for tab membership and board ordering; `groups` empty means all tasks.
+* The board opens on the first group that has tasks, 等你定 when all are empty. */
 const BOARD_TABS = [
 	{
-		id: "all",
-		label: "taskTabAll",
-		statuses: []
+		id: "decide",
+		label: "taskTabDecide",
+		groups: ["decide"],
+		initial: true
 	},
 	{
 		id: "working",
 		label: "taskTabWorking",
-		statuses: [
-			"assigned",
-			"accepted",
-			"asked",
-			"rework"
-		],
-		initial: true
+		groups: ["working"]
 	},
 	{
-		id: "review",
-		label: "taskTabReview",
-		statuses: [
-			"returned",
-			"declined",
-			"escalated"
-		]
+		id: "parked",
+		label: "taskTabParked",
+		groups: ["parked"]
 	},
 	{
-		id: "done",
-		label: "taskTabDone",
-		statuses: ["done"]
+		id: "all",
+		label: "taskTabAll",
+		groups: []
 	}
 ];
-const groupOf = (status) => BOARD_TABS.findIndex((g) => g.statuses.includes(status));
+const ORDER = [
+	"decide",
+	"working",
+	"parked",
+	"done"
+];
+const groupOf = (task) => ORDER.indexOf(boardGroupOf(task));
+/** Whether a task shows under a tab. */
+const inTab = (tab, task) => tab.groups.length === 0 || tab.groups.includes(boardGroupOf(task));
 /** Board rows, grouped as above and newest first inside a group. */
 function boardOrder(tasks) {
-	return [...tasks].sort((a, b) => groupOf(a.status) - groupOf(b.status) || b.id - a.id);
+	return [...tasks].sort((a, b) => groupOf(a) - groupOf(b) || b.id - a.id);
 }
 /** Seconds a task has taken: until hand-back, until it closed, or until now. */
 function elapsed(task, now) {
@@ -17132,11 +17143,11 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }) {
 		(0, react_dom.flushSync)(close);
 		onOpen(targetRoomId, messageId);
 	};
-	const openTotal = sections.reduce((n, s) => n + s.open, 0);
 	const all = sections.reduce((n, s) => n + s.open + s.done, 0);
 	const scopedTasks = sections.flatMap((section) => section.owners.flatMap((group) => [...group.open, ...group.done]));
+	const groupCount = (group) => scopedTasks.filter((task) => boardGroupOf(task) === group).length;
 	const activeTab = BOARD_TABS.find((tab) => tab.id === selectedTab);
-	const matches = (task) => activeTab.statuses.length === 0 || activeTab.statuses.includes(task.status);
+	const matches = (task) => inTab(activeTab, task);
 	const visibleCount = scopedTasks.filter(matches).length;
 	const review = async (id, verdict) => {
 		setSaving(true);
@@ -17155,7 +17166,8 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }) {
 		className: ChannelsPage_module_default.boardTaskCard,
 		"data-task-id": task.id,
 		"data-status": task.status,
-		"data-working": BOARD_TABS.find((tab) => tab.initial).statuses.includes(task.status),
+		"data-working": boardGroupOf(task) === "working",
+		"data-group": boardGroupOf(task),
 		children: [
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: ChannelsPage_module_default.boardTaskHeader,
@@ -17250,7 +17262,7 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }) {
 		"aria-haspopup": "dialog",
 		"aria-expanded": opened,
 		onClick: () => {
-			setSelectedTab(BOARD_TABS.find((tab) => tab.initial).id);
+			setSelectedTab((BOARD_TABS.find((tab) => tab.groups.length > 0 && scopedTasks.some((task) => inTab(tab, task))) ?? BOARD_TABS.find((tab) => tab.initial)).id);
 			setOpened(true);
 		},
 		children: [
@@ -17258,8 +17270,8 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }) {
 			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 				className: ChannelsPage_module_default.taskBoardSummary,
 				children: all === 0 ? t("taskBoardNoTasks") : t("taskBoardSummary", {
-					open: String(openTotal),
-					done: String(all - openTotal)
+					decide: String(groupCount("decide")),
+					working: String(groupCount("working"))
 				})
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
@@ -17349,7 +17361,7 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }) {
 							" ",
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: ChannelsPage_module_default.boardTabCount,
-								children: scopedTasks.filter((task) => tab.statuses.length === 0 || tab.statuses.includes(task.status)).length
+								children: scopedTasks.filter((task) => inTab(tab, task)).length
 							})
 						]
 					}, tab.id))
@@ -18880,6 +18892,30 @@ function parseCard(message) {
 		return JSON.parse(message.card);
 	} catch (error) {}
 }
+/**
+* What the lead is doing, from real data only (11-04 review of the white scheme: the capsule
+* must say 「在干啥」— the current task's short name or the live progress-card brief; when
+* the lead is busy but reported nothing, say so instead of inventing text).
+* Order: failure/offline, then the lead's live task in this channel or its workspaces,
+* then the last line of its running progress card here, then busy-without-task, then idle.
+*/
+function leadDoing(lead, { tasks, rooms, thinking, messages }, t) {
+	if (lead.error) return t("memberFailed");
+	if (lead.online === false) return t("offline");
+	const task = tasks.filter((x) => x.owner === lead.id && rooms.has(x.room_id) && boardGroupOf(x) === "working").sort((a, b) => b.updated_at - a.updated_at)[0];
+	if (task !== void 0) return `#${task.id} ${task.title}`;
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i];
+		if (m.author !== lead.id) continue;
+		const card = parseCard(m);
+		if (cardRole(card) !== "progress" || card?.state !== "running") continue;
+		const line = (card.brief ?? "").split("\n").map((x) => x.trim()).filter(Boolean).at(-1);
+		if (line) return line;
+		break;
+	}
+	if ([...rooms].some((id) => (thinking[String(id)] ?? []).includes(lead.id))) return t("headLeadBusyUnreported");
+	return t("headLeadIdle");
+}
 function cardRole(card) {
 	if (card === void 0) return "none";
 	if (card.kind === "permission") return "permission";
@@ -19603,8 +19639,12 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 	const channelRooms = new Set(state.rooms.filter((r) => r.id === channelId || r.parent_id === channelId).map((r) => r.id));
 	const leadId = room?.effective_lead_id === void 0 ? state.effectiveLeadId ?? state.leadId : room.effective_lead_id;
 	const lead = visibleMembers.find((member) => member.id === leadId);
-	const leadWorking = lead !== void 0 && [...channelRooms].some((id) => (state.thinking[String(id)] ?? []).includes(lead.id));
-	const leadStatus = lead?.error ? t("memberFailed") : lead?.online === false ? t("offline") : leadWorking ? t("headLeadWorking") : t("headLeadIdle");
+	const leadStatus = lead !== void 0 ? leadDoing(lead, {
+		tasks: state.tasks ?? [],
+		rooms: channelRooms,
+		thinking: state.thinking,
+		messages: state.messages
+	}, t) : leadId == null ? t("headLeadUnset") : t("headLeadLoading");
 	const openTasks = (state.tasks ?? []).filter((task) => [
 		"assigned",
 		"accepted",
@@ -19858,12 +19898,12 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 				"aria-modal": drawer === "rooms" ? true : void 0,
 				tabIndex: drawer === "rooms" ? -1 : void 0,
 				children: [
-					lead !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: ChannelsPage_module_default.leadCard,
 						role: "group",
 						"aria-label": t("leadCard"),
-						title: `${lead.name} · ${leadStatus}`,
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+						title: lead === void 0 ? leadStatus : `${lead.name} · ${leadStatus}`,
+						children: [lead !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
 							id: lead.id,
 							name: lead.name,
 							avatar: lead.avatar,
@@ -19872,7 +19912,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 							className: ChannelsPage_module_default.leadCardText,
 							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: ChannelsPage_module_default.leadCardName,
-								children: lead.name
+								children: lead?.name ?? t("headLead")
 							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 								className: ChannelsPage_module_default.leadCardStatus,
 								children: [
@@ -20015,12 +20055,12 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 								onOpen: openMessage,
 								onReview: reviewTask
 							}),
-							lead !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 								className: ChannelsPage_module_default.headLead,
 								role: "group",
 								"aria-label": t("headLead"),
-								title: `${lead.name} · ${leadStatus}`,
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+								title: lead === void 0 ? leadStatus : `${lead.name} · ${leadStatus}`,
+								children: [lead !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
 									id: lead.id,
 									name: lead.name,
 									avatar: lead.avatar,
@@ -20030,7 +20070,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 									className: ChannelsPage_module_default.headLeadText,
 									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 										className: ChannelsPage_module_default.headLeadName,
-										children: lead.name
+										children: lead?.name ?? t("headLead")
 									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 										className: ChannelsPage_module_default.headLeadStatus,
 										children: leadStatus
@@ -20520,7 +20560,9 @@ const zh = {
 	headBusy: "{names} 在忙",
 	headLead: "当前主角色",
 	headLeadIdle: "空闲",
-	headLeadWorking: "响应中",
+	headLeadBusyUnreported: "在忙（未报任务）",
+	headLeadUnset: "未设总管",
+	headLeadLoading: "读取中",
 	leadPinned: "置顶",
 	leadCard: "置顶的主角色",
 	activityPanel: "活动",
@@ -20576,12 +20618,12 @@ const zh = {
 	capabilityDmHelp: "在支持私信的平台打开与角色的私聊。角色也可向配置中的用户发送私信；DSH 频道页目前没有私信入口。",
 	taskTabLabel: "按任务状态筛选",
 	taskTabAll: "全部",
-	taskTabWorking: "进行中",
-	taskTabReview: "待验收",
-	taskTabDone: "已完成",
+	taskTabDecide: "等你定",
+	taskTabWorking: "在做",
+	taskTabParked: "暂停/待发布",
 	taskTabEmpty: "「{tab}」下没有任务",
 	taskBoard: "任务板",
-	taskBoardSummary: "进行中 {open} · 已完成 {done}",
+	taskBoardSummary: "等你定 {decide} · 在做 {working}",
 	taskBoardOpen: "打开任务板",
 	taskBoardNoTasks: "暂无任务",
 	taskBoardEmptyInModal: "还没有派出的任务",
@@ -20744,7 +20786,9 @@ const en = {
 	headBusy: "{names} at work",
 	headLead: "Current primary role",
 	headLeadIdle: "Idle",
-	headLeadWorking: "Responding",
+	headLeadBusyUnreported: "Busy (no task reported)",
+	headLeadUnset: "No lead set",
+	headLeadLoading: "Loading",
 	leadPinned: "Pinned",
 	leadCard: "Pinned primary role",
 	activityPanel: "Activity",
@@ -20767,12 +20811,12 @@ const en = {
 	footnotes: "Footnotes",
 	taskTabLabel: "Filter tasks by status",
 	taskTabAll: "All",
+	taskTabDecide: "Needs you",
 	taskTabWorking: "In progress",
-	taskTabReview: "Awaiting review",
-	taskTabDone: "Done",
+	taskTabParked: "Paused / to release",
 	taskTabEmpty: "No tasks in {tab}",
 	taskBoard: "Task board",
-	taskBoardSummary: "In progress {open} · Done {done}",
+	taskBoardSummary: "Needs you {decide} · In progress {working}",
 	taskBoardOpen: "Open task board",
 	taskBoardNoTasks: "No tasks",
 	taskBoardEmptyInModal: "No tasks dispatched yet",

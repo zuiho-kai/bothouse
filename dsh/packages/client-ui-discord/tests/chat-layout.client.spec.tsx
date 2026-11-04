@@ -108,15 +108,37 @@ describe('live header integration (#113)', () => {
     const view = render(<ChannelsPage {...props({ ...base, rooms: [{ ...base.rooms[0], effective_lead_id: 'ds' }, base.rooms[1]], thinking: { 2: ['ds'] } })} />)
     const lead = screen.getByRole('group', { name: zh.headLead })
     expect(lead.querySelector(`.${css.headLeadName}`)?.textContent).toBe('鲸')
-    expect(within(lead).getByText(zh.headLeadWorking)).toBeTruthy()
+    expect(within(lead).getByText(zh.headLeadBusyUnreported)).toBeTruthy()
     expect(within(lead).queryByText('橘')).toBeNull()
     view.rerender(<ChannelsPage {...props({ ...base, rooms: [{ ...base.rooms[0], effective_lead_id: 'ds' }, base.rooms[1]], thinking: { 9: ['ds'] } })} />)
     expect(within(screen.getByRole('group', { name: zh.headLead })).getByText(zh.headLeadIdle)).toBeTruthy()
   })
 
-  it('does not invent a lead when the room explicitly has none', () => {
+  it('does not invent a lead when the room explicitly has none: says no lead is set', () => {
     render(<ChannelsPage {...props({ ...base, rooms: [{ ...base.rooms[0], effective_lead_id: null }] })} />)
-    expect(screen.queryByRole('group', { name: zh.headLead })).toBeNull()
+    const head = screen.getByRole('group', { name: zh.headLead })
+    expect(within(head).getByText(zh.headLeadUnset)).toBeTruthy()
+    expect(within(head).queryByText('橘')).toBeNull()
+    expect(within(screen.getByRole('group', { name: zh.leadCard })).getByText(`${zh.leadPinned} · ${zh.headLeadUnset}`)).toBeTruthy()
+  })
+
+  it('says the lead is still loading when it is not among the members yet', () => {
+    render(<ChannelsPage {...props({ ...base, leadId: 'ghost', effectiveLeadId: 'ghost' })} />)
+    expect(within(screen.getByRole('group', { name: zh.headLead })).getByText(zh.headLeadLoading)).toBeTruthy()
+    expect(within(screen.getByRole('group', { name: zh.leadCard })).getByText(`${zh.leadPinned} · ${zh.headLeadLoading}`)).toBeTruthy()
+  })
+
+  it('names the task the lead is on, from the board, in the capsule and the pinned card', () => {
+    const task = (id: number, over: Record<string, unknown>) => ({ id, room_id: 2, parent_task: null, title: `任务${id}`, owner: 'ju', owner_name: '橘', created_by: 'me', created_by_name: '我', status: 'accepted', next_check_at: null, assign_msg_id: null, result_msg_id: null, note: null, created_at: 1, updated_at: id, returned_at: null, ...over })
+    render(<ChannelsPage {...props({ ...base, thinking: { 2: ['ju'] }, tasks: [task(1, {}), task(2, { status: 'returned' }), task(3, { paused_at: 5 }), task(4, { room_id: 99 })] } as ChannelSnapshot)} />)
+    expect(within(screen.getByRole('group', { name: zh.headLead })).getByText('#1 任务1')).toBeTruthy()
+    expect(within(screen.getByRole('group', { name: zh.leadCard })).getByText(`${zh.leadPinned} · #1 任务1`)).toBeTruthy()
+  })
+
+  it('falls back to the running progress card brief when the lead has no task', () => {
+    const card = JSON.stringify({ title: '橘 · 处理中', state: 'running', steps: 3, brief: '第 3 步 · 12秒\n⏳ bash · 进行中\n' })
+    render(<ChannelsPage {...props({ ...base, thinking: { 1: ['ju'] }, messages: [msg(1, { card })] })} />)
+    expect(within(screen.getByRole('group', { name: zh.headLead })).getByText('⏳ bash · 进行中')).toBeTruthy()
   })
 
   it.each([
