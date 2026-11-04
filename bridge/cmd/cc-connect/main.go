@@ -654,6 +654,15 @@ func runMain() {
 			}
 			return rows
 		})
+		// 插件 (#150 第 b 项): what config.toml allows for installs. Read from the startup config
+		// rather than per request: an install is a deliberate, infrequent act, and the switch is
+		// the kind of thing a person changes and then restarts for.
+		mgmtSrv.SetPluginInstallPolicy(func() core.PluginInstallPolicy {
+			return core.PluginInstallPolicy{
+				AllowNonRegistry: cfg.Plugins.AllowNonRegistry != nil && *cfg.Plugins.AllowNonRegistry,
+				Registry:         cfg.Plugins.Registry,
+			}
+		})
 		mgmtSrv.SetWizard(configWizardStore{}, cfg.DataDir)
 		mgmtSrv.SetWikiSubScript(subWikiScript(cfg))
 		mgmtSrv.SetSetupWeixinSave(func(req core.WeixinSetupSaveRequest) error {

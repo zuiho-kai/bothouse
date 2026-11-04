@@ -29,7 +29,39 @@ export interface DSHPluginsState {
   profile_dir: string;
   plugins: DSHPlugin[];
   can_install: boolean;
+  /** false when the management API has no token: the page lists but cannot install or switch */
+  writes_allowed: boolean;
+  /** config.toml [plugins] allow_non_registry: git/tarball/path sources need this and a second confirm */
+  allow_non_registry: boolean;
+  /** the registry the panel will name as the source */
+  registry: string;
 }
+
+/** What POST /plugins/inspect says the person is about to install (core/plugin_spec.go). */
+export interface PluginInspection {
+  spec: string;
+  name: string;
+  kind: 'registry' | 'git' | 'tarball' | 'path' | 'unknown';
+  version?: string;
+  registry?: string;
+  publisher?: string;
+  description?: string;
+  /** declares dsh.bundle: DSH will load it as a profile layer */
+  bundle: boolean;
+  runtime?: string;
+  /** the declared DSH requirement, e.g. "engines.dsh ^0.2.0" */
+  requires?: string;
+  /** false when the requirement does not fit this DSH; absent when the range was not evaluated here */
+  compatible?: boolean;
+  /** what the plugin may do once loaded */
+  required: string;
+  allowed: boolean;
+  reason?: string;
+  error?: string;
+}
+
+export const inspectPlugin = (spec: string) =>
+  api.get<PluginInspection>('/plugins/inspect', { spec });
 
 export const listPlugins = () => api.get<DSHPluginsState>('/plugins');
 
