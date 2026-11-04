@@ -293,7 +293,8 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
             // Avatar opens this author's member menu; `data-avatar-menu` marks the
             // area an outside press must not land in to keep the menu open.
             <span className={css.avatarAnchor} data-avatar-menu onKeyDown={(event) => { if (event.key === 'Escape') onCloseMenu() }}>
-              <button type="button" className={css.avatarButton} aria-label={t('memberMenu', { name: member.name })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={onAvatar}>
+              <button type="button" className={css.avatarButton} aria-label={t('memberMenu', { name: member.name })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={onAvatar}
+                onContextMenu={(event) => { event.preventDefault(); onMention(member) }}>
                 <Avatar id={member.id} name={message.name} avatar={member.avatar} avatarVersion={member.avatarVersion} />
               </button>
               {menuOpen && (
