@@ -13,12 +13,12 @@ import {
   Plug,
   Puzzle,
   Library,
+  Image as ImageIcon,
   UserPlus,
   Users,
   Laptop,
   Smartphone,
   Network,
-  Image as ImageIcon,
   Sparkles,
   X,
 } from 'lucide-react';

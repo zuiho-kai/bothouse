@@ -3,6 +3,7 @@
     "addPlatform": "Add platform",
     "addRole": "Add role / model",
     "library": "Library",
+    "imageGen": "Images",
     "dashboard": "Dashboard",
     "roles": "Roles",
     "devices": "Devices",
@@ -16,7 +17,6 @@
     "skills": "Skills",
     "system": "System",
     "usage": "Usage",
-    "imageGen": "Images",
     "wikiGalaxy": "Wiki galaxy"
   },
   "dashboard": {
