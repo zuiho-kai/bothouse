@@ -143,7 +143,10 @@ def main(args):
         m = ARG.match(a.strip())
         (want.append((SIGN[m.group(1)], m.group(2))) if m else bad.append(a))
     if bad or not want:
-        print(f"用法：memvote.py +编号（赞） -编号（踩） x编号（撤回）…；编号是推送行尾 [#…] 里那串；看不懂的：{' '.join(bad) or '无'}")
+        ctx = [a for a in bad if re.fullmatch(r"[+=x-]?#?[0-9a-f]{8}", a.strip())]
+        if ctx:  # 11-05 实测：角色拿卡片/页面的 8 位取正文编号来投，两次都只看到「用法」
+            print(f"{' '.join(ctx)} 是取正文用的 8 位编号（bothouse ctx），不是记忆条，不用投；能投的是定案、经验条行尾的 10 位编号")
+        print(f"用法：memvote.py +编号（赞） -编号（踩） x编号（撤回）…；编号是定案、经验条行尾 [#…] 里那串 10 位；看不懂的：{' '.join(bad) or '无'}")
         return 2
     sc = json.loads(SCORES.read_text()) if SCORES.exists() else {}
     items, miss = [], []
