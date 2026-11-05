@@ -456,8 +456,8 @@ type Engine struct {
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	pendingResetMu               sync.Mutex
-	callerMu                     sync.Mutex            // guards callerTurns (caller_identity.go)
-	callerTurns                  map[string]callerTurn // session → sender of the turn running now
+	callerMu                     sync.Mutex                      // guards callerTurns (caller_identity.go)
+	callerTurns                  map[string]callerTurn           // session → sender of the turn running now
 	workspaceReports             map[string]*workspaceReportTurn // guarded by pendingResetMu
 	pendingReset                 map[string]bool                 // session new --after-turn (session_reset.go)
 	resetTurns                   map[string]int                  // running turns per reset key (CC_SESSION_KEY), guarded by pendingResetMu
@@ -7346,6 +7346,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					}
 				}
 			}
+			if isSilent {
+				// The card was finalized "completed" above, which promises a reply in the next message.
+				cp.Finalize(ProgressCardStateSilent)
+			}
 
 			// A quota notice is not the workspace's answer: it must not go back as a [report].
 			if _, exhausted := QuotaExhaustedReset(event); !isSilent && !exhausted {
@@ -7375,9 +7379,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			var statusFooter string
 			var legacyStatusFooter string
 			if !isSilent {
-				footerContext := replyFooterContextText(replyFooterSessionContextUsage(agentSession), e.i18n)
+				footerUsage := replyFooterSessionContextUsage(agentSession)
+				footerContext := replyFooterContextText(footerUsage, e.i18n)
 				if e.showContextIndicator {
-					if sdkPlausible {
+					// The result event's input_tokens sums every API call of the turn; with no prompt
+					// cache reported (gpt-6.1-sol via openai_chat, agentm 2026-11-05) a 50k context
+					// read ten times shows "~100%". Prefer the last call's prompt size the session saw.
+					if text := sessionContextIndicatorText(footerUsage); text != "" {
+						footerContext = text
+					} else if sdkPlausible {
 						if text := contextIndicatorText(event.InputTokens); text != "" {
 							footerContext = text
 						}
@@ -19631,6 +19641,19 @@ func contextIndicatorText(inputTokens int) string {
 		return ""
 	}
 	pct := inputTokens * 100 / modelContextWindow
+	if pct > 100 {
+		pct = 100
+	}
+	return fmt.Sprintf("[ctx: ~%d%%]", pct)
+}
+
+// sessionContextIndicatorText renders "[ctx: ~N%]" from the session's last API call (prompt
+// size over the window the CLI reports); "" when the session has no such usage.
+func sessionContextIndicatorText(usage *ContextUsage) string {
+	if usage == nil || usage.UsedTokens <= 0 || usage.ContextWindow <= 0 {
+		return ""
+	}
+	pct := usage.UsedTokens * 100 / usage.ContextWindow
 	if pct > 100 {
 		pct = 100
 	}
