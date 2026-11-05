@@ -1403,7 +1403,18 @@ test('roster: config seeds are read-only, UI members are created, edited and rem
   const renamed = await roster.update('coder', { name: '码农', model: { provider: 'relay', model: 'm1' }, persona: '' });
   assert.equal(renamed.name, '码农');
   assert.equal(hub.members.get('coder').name, '码农');
+  // #176: a removed member must not stay the channel's primary role — the settings dialog can
+  // neither show nor clear a dead id, and repointing to it is refused.
+  hub.store.ensureRoom(7, 'lead-room');
+  hub.store.setLead(7, 'coder');
+  assert.equal((hub.primaryIn(7) ?? {}).id, 'coder');
+  const roomEvents = [];
+  const emit = hub.emit.bind(hub);
+  hub.emit = event => { roomEvents.push(event); return emit(event); };
   roster.remove('coder');
+  assert.equal(hub.store.leadId(7), null);
+  assert.equal(hub.primaryIn(7), undefined);
+  assert.equal(roomEvents.filter(e => e.type === 'room-settings' && e.room_id === 7).length, 1);
   assert.equal(members.config.has('coder'), false);
   assert.equal(hub.members.has('coder'), false);
   assert.equal(hub.store.members().some(m => m.id === 'coder'), false);
