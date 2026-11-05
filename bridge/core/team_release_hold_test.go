@@ -300,6 +300,9 @@ func TestAwaitReleaseStatusKinds(t *testing.T) {
 		{"等 发 布", teamTaskRelease, ""},
 		{"等发布会结束再改文案", teamTaskStuck, ""},
 		{"等发布后回滚预案", teamTaskStuck, ""},
+		// A completed item whose note mentions the coming release is done, not waiting.
+		{"已完成，等发布", teamTaskHidden, ""},
+		{"完成后等发布", teamTaskHidden, ""},
 	} {
 		it := base
 		it.Status = c.status

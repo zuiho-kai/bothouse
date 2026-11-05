@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))  # python3 -I drops the script dir (like test_board.py / test_board_prune.py)
 
 
 class HandbackReview(unittest.TestCase):
