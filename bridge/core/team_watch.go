@@ -185,8 +185,10 @@ func (s *APIServer) startHandoffWatch() {
 	ctx, stop := context.WithCancel(e.ctx)
 	done := make(chan struct{})
 	r.e, r.stop, r.done = e, stop, done
+	activeHandoffWatch.Store(w)
 	go func() {
 		defer close(done)
+		defer activeHandoffWatch.CompareAndSwap(w, nil)
 		w.run(ctx)
 	}()
 	slog.Info("team workspace watch started", "project", e.name, "check_after", watchCheckAfter())
@@ -206,6 +208,7 @@ func (s *APIServer) rewatchIfServing() {
 func (w *handoffWatch) run(ctx context.Context) {
 	go w.sweepLoop(ctx)
 	go w.stallLoop(ctx)
+	go w.autostartLoop(ctx)
 	var recovered, reviewHour time.Time
 	for {
 		w.beat.Store(w.now().UnixNano())

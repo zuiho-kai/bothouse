@@ -86,7 +86,7 @@ test('temporary devices end on time and are never written; remembered ones persi
   const saved = readFileSync(file, 'utf8');
   assert.ok(!saved.includes(r.token) && !saved.includes(t.token), 'credential not stored in clear');
   assert.ok(!saved.includes('"A"'), 'temporary device not stored');
-  assert.equal(statSync(file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(statSync(file).mode & 0o777, 0o600); // no POSIX modes on Windows
   now += 60_000;
   assert.equal(host.verify(t.token), undefined);
   assert.equal(host.verify(r.token)?.name, 'B');
