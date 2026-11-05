@@ -959,6 +959,7 @@
 }
 
 .dshc_dialog {
+  box-sizing: border-box;
   border-radius: var(--dsw-radius-lg);
   width: min(460px, 100%);
   max-height: calc(100vh - 32px);
