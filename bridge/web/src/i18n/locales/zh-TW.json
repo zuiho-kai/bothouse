@@ -64,7 +64,8 @@
       "providers": "供應商",
       "heartbeat": "心跳",
       "settings": "設定",
-      "persona": "人設"
+      "persona": "人設",
+      "social": "說說"
     }
   },
   "sessions": {
