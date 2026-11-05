@@ -69,6 +69,8 @@ func testManagementServer(t *testing.T, token string) (*ManagementServer, *httpt
 	mux.HandleFunc(prefix+"/skills", mgmt.wrap(mgmt.handleSkills))
 	mux.HandleFunc(prefix+"/skills/presets", mgmt.wrap(mgmt.handleSkillPresets))
 	mux.HandleFunc(prefix+"/bridge/adapters", mgmt.wrap(mgmt.handleBridgeAdapters))
+	mux.HandleFunc(prefix+"/image-gen", mgmt.wrap(mgmt.handleImageGen))
+	mux.HandleFunc(prefix+"/image-gen/file/", mgmt.handleImageGenFile)
 
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)

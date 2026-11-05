@@ -565,6 +565,31 @@ level = "info" # debug, info, warn, error
 # model    = "mimo-v2.5-tts" # "mimo-v2.5-tts" | "mimo-v2.5-tts-voicedesign" | "mimo-v2.5-tts-voiceclone"
 
 # =============================================================================
+# Image Generation / 生图（可选，默认关闭）
+# =============================================================================
+# Opt-in only: a picture costs money, so nothing runs unless enabled = true and
+# api_key is set. When on, the panel gets a 生图 page and the management API gets
+# /api/v1/image-gen.生成结果只写成本地文件并返回路径，不会自动发到任何频道；
+# 要发出去请用 `bothouse send --image <path>`，由你决定发给谁。
+#
+# 只支持 OpenAI 兼容的 /images/generations 接口（b64_json 或 url 都认）。
+# 一次只画一张；上一张没画完时再请求会直接被拒绝，不会悄悄多买一张。
+
+# [image_gen]
+# enabled  = false           # 默认关闭 / off unless you turn it on
+# provider = "openai"        # 目前只支持 "openai"
+# out_dir  = ""              # 留空 = <data_dir>/images；只能指在 data_dir 里面（取图接口不带 token）
+#
+# [image_gen.openai]
+# api_key  = "sk-xxx"
+# base_url = ""              # 留空 = https://api.openai.com/v1；自建/中转填到这里
+# model    = "gpt-image-1"
+# size     = "1024x1024"     # 可选；留空用服务商默认
+# quality  = "low"           # 可选；留空用服务商默认
+#
+# 运行时命令：面板「生图」页输入提示词生成；管理 API POST /api/v1/image-gen。
+
+# =============================================================================
 # Daemon Mode / 守护进程模式
 # =============================================================================
 # Run bothouse as a background service (systemd user / launchd LaunchAgent).

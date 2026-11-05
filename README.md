@@ -76,6 +76,7 @@ The Windows command, package downloads, the background service and the DSH chann
 | **A nightly review** | At night it checks what was written down during the day, fixes and dedupes it, and turns your repeated corrections into draft rules that apply only after you approve. |
 | **Long jobs stay on track** | Every handoff carries your original words; a second AI with a clean context checks the result; “fixed” needs evidence. |
 | **Manage it from your phone** | A built-in web dashboard shows who is busy and how much quota is used, lets you edit personas, open a project and add a note to work that is already running. |
+| **Draw a picture when you ask for one** | Optional and off by default: point `[image_gen]` at an OpenAI-compatible image service and the dashboard's 生图 page draws one picture into a local file. It never posts it for you — `bothouse send --image` is a separate, deliberate step. |
 
 <a id="team"></a>
 

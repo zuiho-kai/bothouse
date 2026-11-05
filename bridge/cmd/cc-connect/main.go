@@ -633,6 +633,9 @@ func runMain() {
 			mgmtSrv.SetTimerScheduler(timerSched)
 		}
 		mgmtSrv.SetHeartbeatScheduler(heartbeatSched)
+		if imgGen := buildImageGenerator(cfg); imgGen != nil {
+			mgmtSrv.SetImageGenerator(imgGen)
+		}
 		if bridgeSrv != nil {
 			mgmtSrv.SetBridgeServer(bridgeSrv)
 		}
@@ -2364,6 +2367,32 @@ func buildHeartbeatConfig(hc config.HeartbeatConfig) core.HeartbeatConfig {
 		cfg.TimeoutMins = *hc.TimeoutMins
 	}
 	return cfg
+}
+
+// buildImageGenerator turns [image_gen] into the opt-in generator (#150 item c). It returns nil
+// unless the section is enabled: the panel then says "not configured" instead of offering a
+// button that would spend the owner's money. Picture files live under <data_dir>/images so they
+// sit next to sessions and the avatar library, and survive a rebuild.
+//
+// data_dir is handed over as the root out_dir must stay under: the route that serves a picture
+// has no token, so the directory it can reach is what keeps it from serving any picture on this
+// machine (review 1032, 06:33).
+func buildImageGenerator(cfg *config.Config) *core.ImageGenerator {
+	ic := cfg.ImageGen
+	if !ic.Enabled {
+		return nil
+	}
+	return core.NewImageGenerator(core.ImageGenConfig{
+		Enabled:  true,
+		Provider: ic.Provider,
+		APIKey:   ic.OpenAI.APIKey,
+		BaseURL:  ic.OpenAI.BaseURL,
+		Model:    ic.OpenAI.Model,
+		Size:     ic.OpenAI.Size,
+		Quality:  ic.OpenAI.Quality,
+		OutDir:   ic.OutDir,
+		DataDir:  cfg.DataDir,
+	})
 }
 
 func derefInt(v *int) int {

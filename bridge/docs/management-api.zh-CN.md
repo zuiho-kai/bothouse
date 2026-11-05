@@ -1198,6 +1198,65 @@ allow_avatar = true   # 换这个号自己的头像
 
 ---
 
+### 5.9 生图（可选）
+
+按需开启：`config.toml` 里没有 `[image_gen]`（`enabled = true` 且 `[image_gen.openai] api_key`
+填好）时，这些接口一律回 `not_configured`。不自动生图，也不往任何频道发图：图片写进
+`<data_dir>/images`，拿到路径的人自己决定怎么用。只支持 OpenAI 兼容的 `/images/generations`。
+
+`out_dir` 必须落在 `data_dir` 下（默认就是 `<data_dir>/images`），指到外面会被拒绝：状态回
+`error`，一张也不画。下面的取图接口不带 token，它能碰到的目录就是安全边界。图片文件名是
+`gen-<YYYYMMDD-HHMMSS>-<8 位十六进制>.png`，随机后缀是为了让同一秒画完的两张不会互相覆盖。
+
+`POST` 还要求管理 API 设了 `token`（没设回 `403`）：读不要紧，画图花的是主人的钱，token 空着
+等于这个端口对整个网段敞开。
+
+#### GET /api/v1/image-gen
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "ready",
+    "can_draw": true,
+    "provider": "openai",
+    "model": "gpt-image-1",
+    "base_url": "https://api.openai.com/v1",
+    "out_dir": "/home/me/.bothouse/images",
+    "api_key_set": true,
+    "pictures": [
+      { "name": "gen-20261105-052031-3f9a1c02.png", "file": "/home/me/.bothouse/images/gen-20261105-052031-3f9a1c02.png",
+        "url": "/api/v1/image-gen/file/gen-20261105-052031-3f9a1c02.png", "bytes": 1384211, "mime": "image/png",
+        "seconds": 24.3, "model": "gpt-image-1" }
+    ]
+  }
+}
+```
+
+`status` 是 `ready`、`not_configured` 或 `error`（带 `message`）；`api_key_set` 只说明有没有填密钥，
+密钥本身永不返回。
+
+#### POST /api/v1/image-gen
+
+```json
+{ "prompt": "一只戴眼镜的橘猫，像素头像" }
+```
+
+**响应：** 画好的那张图，字段同上。`prompt` 为空或全空白时 `400`（一个字节也不会发去服务商），
+管理 API 没设 `token` 时 `403`（画图要花钱，读可以免，花钱必须验身份），上一张还没画完时 `409`
+（排队会给主人多买一张），没配置或 `out_dir` 不在 `data_dir` 下时 `503`，服务商拒绝时 `502`
+（错误信息带状态码和服务商原文）。
+
+#### GET /api/v1/image-gen/file/<name>
+
+图片字节，和 `library/avatar-image` 一样**不要 token**（`<img>` 带不了 `Bearer` 头）。
+只认本服务自己写出的普通文件名，其余 `404`：名字里带分隔符或 `..`、符号链接（哪怕指向
+`out_dir` 里的文件）、真实路径跑出 `out_dir` 的文件、嗅探出来不是 `image/*` 的文件，一律不认。
+
+---
+
 ## 6. 错误处理约定
 
 ### 6.1 标准错误响应
@@ -1281,6 +1340,7 @@ cors_origins = ["http://localhost:3000", "https://dashboard.example.com"]
 |------------|------------|-------------------------|
 | 1.0-draft  | 2026-03-10 | 初始规范                |
 | 1.1-draft  | 2026-11-05 | 新增可选的 QQ 说说 / 头像接口（`/projects/{name}/social…`），`allow_qzone` / `allow_avatar` 未打开时不生效 |
+| 1.2-draft  | 2026-11-05 | 新增可选的生图接口（`/image-gen`、`/image-gen/file/<name>`） |
 
 ---
 
