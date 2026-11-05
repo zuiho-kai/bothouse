@@ -584,14 +584,18 @@ type Engine struct {
 	// or removed); while false a claim records no check time and the list shows no watch_due.
 	handoffWatchOn atomic.Bool
 
-	platformLifecycleMu sync.Mutex
-	platformReady       map[Platform]bool
-	platformConnectErr  map[Platform]error // last connect error an async platform reported (WaitPlatformsReady)
-	stopping            bool
-	messageWorkers      sync.WaitGroup // admission is serialized with Stop by platformLifecycleMu
-	replyFooterMu       sync.Mutex
-	replyFooterUsage    map[replyFooterUsageKey]*replyFooterUsageEntry
-	replyFooterInflight map[any]bool // agent identity -> probe running
+	platformLifecycleMu   sync.Mutex
+	platformReady         map[Platform]bool
+	platformConnectErr    map[Platform]error // last connect error an async platform reported (WaitPlatformsReady)
+	stopping              bool
+	messageWorkers        sync.WaitGroup // admission is serialized with Stop by platformLifecycleMu
+	originatorTurns       sync.Map       // session key -> current human-originated platform metadata
+	originatorSignerOnce  sync.Once
+	originatorSignerValue *OriginatorSigner
+	originatorSignerErr   error
+	replyFooterMu         sync.Mutex
+	replyFooterUsage      map[replyFooterUsageKey]*replyFooterUsageEntry
+	replyFooterInflight   map[any]bool // agent identity -> probe running
 
 	// pendingRestartNotify is queued at startup if a /restart was consumed
 	// from the run/restart_notify file. It is dispatched on the first
@@ -676,6 +680,11 @@ type queuedMessage struct {
 	boardDesc string
 	// older context-only messages folded into this one (queue_batch.go trimQueuedOverflowLocked)
 	contextBefore []queuedMessage
+	// batched: this queued message is the result of folding several queued
+	// instructions into one turn (mergeQueued / mergeQueuedChat). Such a turn has
+	// no single human originator, so it claims no originator grant. A structured
+	// field, so the decision does not depend on the merged prompt's wording.
+	batched bool
 }
 
 // interactiveState tracks a running interactive agent session and its permission state.
@@ -4760,6 +4769,17 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	turnStart := time.Now()
 	origMsg := *msg // maomao fork: re-delivered as-is after a capacity cooldown
 
+	// The grant is keyed by the message's own session key: that is what the role
+	// process sees in CC_SESSION_KEY and what a signing request names. The
+	// interactive key is not usable here — in workspace mode it carries a
+	// "<workspace>:" prefix the request cannot know (2026-11-05 review, item 1).
+	if grant, ok := originatorGrantFor(msg.FromBot, msg.Platform, msg.UserID, msg.MessageID, turnTriggerOf(msg)); ok {
+		e.originatorTurns.Store(msg.SessionKey, grant)
+	} else {
+		e.originatorTurns.Delete(msg.SessionKey)
+	}
+	defer e.originatorTurns.Delete(msg.SessionKey)
+
 	e.i18n.DetectAndSet(msg.Content)
 	if !msg.freshRetried { // maomao fork: a prompt-too-long re-run is already in the history
 		session.AddHistory("user", msg.Content)
@@ -7754,7 +7774,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// maomao fork: during a capacity cooldown leave the queue to the drain loop, which defers it.
 			if len(state.pendingMessages) > 0 && e.capacityWait() == 0 {
 				queued := takeQueuedBatchLocked(state) // a burst from one sender runs as one turn
-				raw := queued                          // maomao fork: raw copy (content not yet expanded), put back if this turn hits capacity
+				// A queued turn replaces the previous grant atomically. Scheduled
+				// and batched turns have no single human originator. Same key as the
+				// direct turn above: the queued message's own session key.
+				queuedKey := queued.msgSessionKey
+				e.originatorTurns.Delete(queuedKey)
+				if grant, ok := originatorGrantForQueued(queued); ok {
+					e.originatorTurns.Store(queuedKey, grant)
+				}
+				raw := queued // maomao fork: raw copy (content not yet expanded), put back if this turn hits capacity
 				chainedQueued = &raw
 				remainingQueue := len(state.pendingMessages)
 				state.authorization = queued.authorization
@@ -8433,6 +8461,14 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		state.currentJobID = queued.timerJobID
 		state.mu.Unlock()
 		e.armScheduledTurnTimeout(state, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.userID, true)
+		// This turn replaces the previous grant atomically, exactly like the
+		// chained queued turn in processInteractiveEvents: a scheduled or merged
+		// batch turn claims none, a single human message claims its own.
+		queuedKey := queued.msgSessionKey
+		e.originatorTurns.Delete(queuedKey)
+		if grant, ok := originatorGrantForQueued(queued); ok {
+			e.originatorTurns.Store(queuedKey, grant)
+		}
 		var attemptPrompt string
 		e.runTurnWithCapacityRetry(state, session, sessions, sessionKey, queued.messageID, time.Now(), stopTyping, queued.replyCtx, nil,
 			func() { // per attempt, like the direct turn: a capacity retry needs a live run
@@ -8458,6 +8494,9 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 			func(wait time.Duration) {
 				e.deferForCapacity(queued.platform, queuedToMessage(rawQueued), state.agent, sessions, sessionKey, state.workspaceDir, wait, false)
 			})
+		// The queued turn's grant ends with it, like a direct turn's (the direct
+		// path defers the same delete around processInteractiveEvents).
+		e.originatorTurns.Delete(queued.msgSessionKey)
 		if journalOwned {
 			e.journalTurnEnd(journalID)
 		}

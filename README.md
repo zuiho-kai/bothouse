@@ -135,6 +135,8 @@ Proactive follow-up has explicit `off`, `observe`, and `auto` policies. Observat
 
 Task-bound result text can use the send command with task, revision and delivery ID to persist before sending. Each fragment has its own receipt; ambiguous sends remain visible as unknown instead of being blindly retried. See [task text delivery](docs/TASK_TEXT_DELIVERY.md) for usage and platform boundaries.
 
+External execution adapters can obtain a signed ticket identifying the authenticated platform originator of the active agent turn; model text and self-reported `--user` are not identity evidence. A reference GPU admission gate, verification contract and required OS isolation boundary are documented in [Signed originator identity](docs/signed-originator.md).
+
 You say one thing from your phone, computer or browser → the **lead** in the chat channel (the AI you talk to by default) takes it → big work goes to a **workspace**: @coder and @writer in Workspace 1, @researcher in Workspace 2 → they hand it back.
 
 Chat keeps going the whole time; members take the work on and hand it back, and only decisions that need you come back to chat.

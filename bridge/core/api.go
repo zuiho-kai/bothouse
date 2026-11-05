@@ -127,6 +127,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/channel/history", s.handleChannelHistory) // local scripts read a channel without a platform token (api_history.go)
 	s.mux.HandleFunc("/input", s.handleInput)
 	s.mux.HandleFunc("/input/", s.handleInputLookup)
+	s.mux.HandleFunc("/originator/sign", s.handleOriginatorSign)
 	s.mux.HandleFunc("/model/info", s.handleModelInfo) // maomao fork: agents switch their own model
 	s.mux.HandleFunc("/model/set", s.handleModelSet)
 	s.mux.HandleFunc("/session/new", s.handleSessionNew)              // `cc-connect session new --after-turn` (session_reset.go)

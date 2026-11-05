@@ -178,6 +178,7 @@ func mergeQueuedChat(parts []queuedMessage) queuedMessage {
 		b.WriteString("\n")
 	}
 	out.content = strings.TrimRight(b.String(), "\n")
+	out.batched = true // several instructions in one turn: no single originator (engine.go originatorGrantForQueued)
 	for _, p := range parts {
 		out.mentioned = out.mentioned || p.mentioned
 	}
@@ -312,5 +313,6 @@ func mergeQueued(parts []queuedMessage) queuedMessage {
 		b.WriteString("\n")
 	}
 	out.content = strings.TrimRight(b.String(), "\n")
+	out.batched = true // several instructions in one turn: no single originator (engine.go originatorGrantForQueued)
 	return out
 }
