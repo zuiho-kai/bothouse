@@ -258,12 +258,14 @@ func TestGateWikiEnv(t *testing.T) {
 	t.Setenv("WIKI_DIR", mw)
 	t.Setenv("GATE_WIKI", "") // restored after the test
 	os.Unsetenv("GATE_WIKI")
+	t.Setenv("GATE_PROFILE", "")
+	os.Unsetenv("GATE_PROFILE")
 	got := strings.Join(gateWikiEnv(data, ""), " ")
-	if want := "GATE_WIKI=" + mw + " GATE_WIKI_BOTS=" + filepath.Join(data, "wiki", "bots.json"); got != want {
+	if want := "GATE_WIKI=" + mw + " GATE_PROFILE=" + gateProfilePage + " GATE_WIKI_BOTS=" + filepath.Join(data, "wiki", "bots.json"); got != want {
 		t.Fatalf("env = %q, want %q", got, want)
 	}
 	got = strings.Join(gateWikiEnv(data, own), " ")
-	if want := "GATE_WIKI=" + mw + " GATE_WIKI_BOTS=" + filepath.Join(own, "bots.json"); got != want {
+	if want := "GATE_WIKI=" + mw + " GATE_PROFILE=" + gateProfilePage + " GATE_WIKI_BOTS=" + filepath.Join(own, "bots.json"); got != want {
 		t.Fatalf("own sub-wiki dir: env = %q, want %q", got, want)
 	}
 	t.Setenv("GATE_WIKI", "off")

@@ -617,3 +617,31 @@ func TestRetireBoardPyCards(t *testing.T) {
 		t.Fatal("no file should be done")
 	}
 }
+
+// A lead that looked like a former lead at start (stale lead.json trusted before the relay
+// manager was set) keeps its boards once it is the lead again: no delete + repost of every
+// channel's pinned table on restart (user, 2026-11-05).
+func TestRetireTeamBoardsKeepsBoardsWhenStillLead(t *testing.T) {
+	orig := teamBoardRetireEvery
+	teamBoardRetireEvery = 10 * time.Millisecond
+	defer func() { teamBoardRetireEvery = orig }()
+	p := &stubBoardRemover{stubBoardPlatform: stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}}
+	e := NewEngine("maomao", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	defer e.cancel()
+	dir := t.TempDir()
+	e.team = &teamState{dir: dir, inject: true, boardEnabled: true}
+	state := filepath.Join(dir, "maomao"+teamBoardFileExt)
+	if err := os.WriteFile(state, []byte(`{"discord:111":{"session_key":"discord:111","message_id":"m1"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.retireTeamBoards()
+	p.mu.Lock()
+	removed := len(p.removed)
+	p.mu.Unlock()
+	if removed != 0 {
+		t.Fatalf("lead removed its boards: %d", removed)
+	}
+	if raw, err := os.ReadFile(state); err != nil || !strings.Contains(string(raw), "m1") {
+		t.Fatalf("state = %s, %v; want the board kept for in-place edits", raw, err)
+	}
+}

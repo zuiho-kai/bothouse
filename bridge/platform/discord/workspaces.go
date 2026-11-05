@@ -129,7 +129,26 @@ func createTeamWorkspaceChannel(api workspaceAPI, besideChannelID, name string, 
 		Name: name, Type: discordgo.ChannelTypeGuildText, ParentID: ch.ParentID,
 	}, options...)
 	if err != nil {
-		return core.TeamChannel{}, err
+		return core.TeamChannel{}, workspacePermissionHint(err)
 	}
 	return core.TeamChannel{ID: c.ID, Name: c.Name, ParentID: c.ParentID}, nil
+}
+
+// workspacePermissionHint: Discord refuses to create the workspace channel (403 / 50013 Missing Permissions, 50001
+// Missing Access): say which permission the bot lacks and where to grant it, not only Discord's code.
+func workspacePermissionHint(err error) error {
+	var re *discordgo.RESTError
+	if !errors.As(err, &re) {
+		return err
+	}
+	code := 0
+	if re.Message != nil {
+		code = re.Message.Code
+	}
+	if code == discordgo.ErrCodeMissingPermissions || code == discordgo.ErrCodeMissingAccess ||
+		(re.Response != nil && re.Response.StatusCode == http.StatusForbidden) {
+		return fmt.Errorf("机器人缺「管理频道」（Manage Channels）权限，建不了工作区频道：在 Discord 服务器设置 → 角色里给这个 bot 的角色勾上「管理频道」，"+
+			"或在聊天频道所在的分类里单独授予它（bot needs the Manage Channels permission to create workspace channels): %w", err)
+	}
+	return err
 }

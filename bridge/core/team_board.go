@@ -152,6 +152,22 @@ func (e *Engine) retireTeamBoards() {
 			return
 		case <-tick.C:
 		}
+		// At start SetTeamBoard can run before the relay manager is set, so a stale lead.json
+		// naming a role that no longer exists is trusted and the real lead looks like a former
+		// one. Re-check before deleting: if this project is the lead (board on) after all, keep
+		// the boards and edit them in place instead of deleting and reposting every channel's
+		// pinned table (user, 2026-11-05: 「频道已经没有东西更新了，突然间来一个任务表更新」).
+		if e.isTeamLead() {
+			t := e.team
+			t.mu.Lock()
+			on := t.boardEnabled
+			t.mu.Unlock()
+			if on {
+				slog.Info("team board: still the lead, old boards kept", "project", e.name)
+				e.SetTeamBoard(true)
+				return
+			}
+		}
 		raw, err := os.ReadFile(statePath)
 		if err != nil {
 			return
