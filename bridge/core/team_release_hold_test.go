@@ -195,3 +195,29 @@ func TestReleaseHoldResumesAfterRestart(t *testing.T) {
 		t.Fatalf("resumed handoff starts afresh: %+v", got.Idle)
 	}
 }
+
+// #984 review N1: a held handoff must not be nudged, resumed or parked by the ten-minute watch;
+// the mark is what holds it on the board, not the workspace.
+func TestReleaseHoldWatchDoesNotNudgeOrPark(t *testing.T) {
+	e, p, w, h := watchFixture(t, "", "集中发布：切版本")
+	var resumed []string
+	w.resume = func(_ Platform, key string, _ TeamHandoff) { resumed = append(resumed, key) }
+	writeReleaseBoard(t, e, map[string]any{"id": 7, "what": "集中发布", "status": "进行中", "who": "工作区1橘",
+		"ws": "discord:ws1", "chat": "discord:chatA",
+		"release_hold": map[string]any{"at": time.Now().UTC().Format(time.RFC3339Nano)}})
+	if next := w.tick(h.Due); next.IsZero() || len(p.sentTo("discord:ws1")) != 0 || len(resumed) != 0 {
+		t.Fatalf("held item: next=%v nudge=%d resumed=%v", next, len(p.sentTo("discord:ws1")), resumed)
+	}
+	if got := handoffsOf(e, "discord:ws1")[0]; !got.Parked.IsZero() || got.Nudged {
+		t.Fatalf("held item must not be nudged or parked: %+v", got)
+	}
+	if _, ok := e.WorkspaceParent("discord:ws1"); !ok {
+		t.Fatal("held item must keep its workspace")
+	}
+	// Control: the same handoff without the mark is nudged and parked, so the skip comes from the
+	// hold and not from a check that never fires.
+	writeReleaseBoard(t, e)
+	if got := handoffsOf(e, "discord:ws1")[0]; w.tick(got.Due).IsZero() || !handoffsOf(e, "discord:ws1")[0].Nudged {
+		t.Fatalf("control: unheld handoff must be nudged: %+v", handoffsOf(e, "discord:ws1")[0])
+	}
+}
