@@ -21,6 +21,8 @@
    一串只读查询里第 4 个「一步只跑一条只读查询」的步拦（合并过的步放行），本轮重复的只读命令拦；
    前台联网长命令（git clone/fetch/pull、npm/pip/brew install）拦，改后台。子 agent 会话和外出轮豁免。
 10. 不拦只改：Claude Code 子 agent（非 long-task）前台 Bash 的 timeout 超过 290 秒时压到 290 秒，跑不完自动转后台。
+12. 不拦只改：单条 `git push` 后面接一句失败提示：被拒（403、Permission denied）就改用 pr-push（推 fork 开 PR），
+    不反复重试、不等人加权限。出处：11-06 隔壁鲸鱼娘 git push 一直 403，代码只留在本机分支。`# push-ok` 不加。
 11. 报预计时间、挂定时（ws-*、later、board、bothouse progress/send/relay/timer/task）长于 15 分钟没写实测依据或外部等待 → 拦（eta_guard.py）。"""
 import ast, json, os, re, shlex, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -182,6 +184,29 @@ def sub_cap(inp, d):
     except (TypeError, ValueError):
         return None
     return dict(inp, timeout=SUB_CAP_MS)
+
+
+PUSH_HINT = ("[bash-guard] git push 失败。上面若是 403、Permission denied、denied to <账号>：这个账号对上游没写权限，"
+             "改用 pr-push（同一仓库目录里跑，自动推到自己的 fork 并开 PR），不要反复重试或等人加权限。")
+
+
+def push_hint(cmd):
+    """规则 12：一条单独的 git push（不是复合命令、不是 pr-push）→ 失败时多打一句提示的新命令；否则 None。"""
+    segs = segments(cmd)
+    if len(segs) != 1 or "# push-ok" in cmd or "\n" in cmd.strip():
+        return None
+    t = toks(segs[0])
+    i = 0
+    while i < len(t) and re.match(r"^\w+=", t[i]):  # 前缀环境变量
+        i += 1
+    if t[i:i + 1] != ["git"]:
+        return None
+    rest = t[i + 1:]
+    while rest and rest[0] in ("-C", "-c") and len(rest) > 1:  # git -C <dir> / -c k=v
+        rest = rest[2:]
+    if rest[:1] != ["push"]:
+        return None
+    return f"{cmd.rstrip()} || {{ rc=$?; echo {shlex.quote(PUSH_HINT)} >&2; exit $rc; }}"
 
 
 def sleep_secs(arg):
@@ -636,11 +661,15 @@ def main():
             f"\n被拦的片段：{seg.strip()[:200]}"
         )
         deny(reason)
+    pushed = push_hint(cmd)  # 规则 12：只在命令后接失败提示
+    if pushed:
+        inp = dict(inp, command=pushed)
     capped = sub_cap(inp, d)
-    if capped:  # 规则 10：只改 timeout，命令照常执行（别的规则已在上面查过）
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
-                                                 "updatedInput": capped, "additionalContext": SUB_CAP_MSG}},
-                         ensure_ascii=False))
+    if capped or pushed:  # 规则 10：只改 timeout，命令照常执行（别的规则已在上面查过）
+        out = {"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": capped or inp}
+        if capped:
+            out["additionalContext"] = SUB_CAP_MSG
+        print(json.dumps({"hookSpecificOutput": out}, ensure_ascii=False))
         sys.exit(0)
     if wiki_cat_pages(cmd, d.get("cwd")) >= WIKI_CAT_MIN:
         hint("这条命令整页 cat 了多页 wiki（照常执行，只是提醒）。下次先 `grep -rn <关键词> <wiki 目录>`（装了 llm-wiki 就用它的 "
