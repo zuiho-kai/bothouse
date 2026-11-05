@@ -1884,7 +1884,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 					desc = truncateStr(job.Prompt, 40)
 				}
 			}
-			e.send(targetPlatform, markSystemNotice(targetPlatform, replyCtx), fmt.Sprintf("⏰ %s", desc)) // maomao fork: a notice, not the result
+			e.sendSystemNotice(targetPlatform, replyCtx, fmt.Sprintf("⏰ %s", desc)) // maomao fork: a notice, not the result
 		}
 	}
 
@@ -2220,7 +2220,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 					desc = truncateStr(job.Prompt, 40)
 				}
 			}
-			e.send(targetPlatform, markSystemNotice(targetPlatform, replyCtx), fmt.Sprintf("⏰ %s", desc)) // maomao fork: a notice, not the result
+			e.sendSystemNotice(targetPlatform, replyCtx, fmt.Sprintf("⏰ %s", desc)) // maomao fork: a notice, not the result
 		}
 	}
 

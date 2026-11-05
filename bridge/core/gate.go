@@ -405,7 +405,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 			msg.abortFront = true
 		} else if busy {
 			if e.stopInteractiveSessionForAbort(interactiveKey) {
-				e.reply(p, msg.ReplyCtx, "⏹ 已打断当前这一轮")
+				e.replyNotice(p, msg.ReplyCtx, "⏹ 已打断当前这一轮")
 				// Let the cancelled turn release the session (same wait as a recalled message),
 				// so this message starts the new turn instead of queueing behind the old one.
 				if e.waitForSessionLock(session, recalledStopLockWait) {
@@ -455,7 +455,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		g.dropBuffered(interactiveKey, len(buffered))
 		g.mu.Unlock()
 		e.noteInjectedMessage(interactiveKey, msg.MessageID)
-		e.reply(p, msg.ReplyCtx, "↪ 已插入")
+		e.replyNotice(p, msg.ReplyCtx, "↪ 已插入")
 		return true
 	}
 
@@ -510,7 +510,7 @@ func (e *Engine) abortForQueuedFront(p Platform, msg *Message, interactiveKey st
 		return
 	}
 	if e.stopInteractiveSessionForAbort(interactiveKey) {
-		e.reply(p, msg.ReplyCtx, "⏹ 已打断当前这一轮")
+		e.replyNotice(p, msg.ReplyCtx, "⏹ 已打断当前这一轮")
 	}
 }
 
