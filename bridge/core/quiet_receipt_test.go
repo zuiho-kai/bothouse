@@ -8,9 +8,20 @@ import (
 	"testing"
 )
 
-// QQ groups must not see the bridge's own receipts and job start notices (user 2026-11-05:
-// groups got "↪ 已插入" and "⏰ newsdigest:<hash>" from a scheduled digest). Private chats and
-// platforms without a quieter keep them; the injected message and the real result still go out.
+// QQ must not see the bridge's own receipts and job start notices (user 2026-11-05:
+// groups got "↪ 已插入" and "⏰ newsdigest:<hash>" from a scheduled digest, then her private
+// chat got "↪ 已插入" too). The insert acknowledgement is silent in both QQ chats; the ⏰ job
+// start notice stays group-only; platforms without a quieter keep everything. The injected
+// message and the real result still go out.
+
+// privateReceiptPlatform is QQ as it now classifies receipts: quiet chats are groups, and the
+// insert acknowledgement is silent everywhere.
+type privateReceiptPlatform struct {
+	stubPlatformEngine
+}
+
+func (p *privateReceiptPlatform) QuietSystemNotices(replyCtx any) bool { return replyCtx == "group" }
+func (p *privateReceiptPlatform) QuietInsertReceipt(replyCtx any) bool { return true }
 
 // quietCronPlatform answers proactive sends for both a QQ group and a private chat key.
 type quietCronPlatform struct {
@@ -64,8 +75,8 @@ func TestLocalGateInsertReceiptKeptOutOfQuietGroup(t *testing.T) {
 	}
 }
 
-func TestLocalGateInsertReceiptKeptInPrivateChat(t *testing.T) {
-	p := &quietGroupPlatform{stubPlatformEngine{n: "qq"}}
+func TestLocalGateInsertReceiptKeptOutOfPrivateChat(t *testing.T) {
+	p := &privateReceiptPlatform{stubPlatformEngine{n: "qq"}}
 	e, running, s := gateEngine(t, p, LangChinese)
 	msg := &Message{SessionKey: "qq:g:1", MessageID: "1", UserID: "u1", UserName: "u", Content: "补充一句", ReplyCtx: "private", Direct: true, Mentioned: true}
 	if !e.applyGate(p, msg, s, "k") {
@@ -74,8 +85,8 @@ func TestLocalGateInsertReceiptKeptInPrivateChat(t *testing.T) {
 	if got := injectedText(t, running); !strings.Contains(got, "补充一句") {
 		t.Fatalf("mid-turn input = %q, want the message", got)
 	}
-	if sent := p.getSent(); len(sent) != 1 || sent[0] != e.i18n.T(MsgLocalGateInserted) {
-		t.Fatalf("private chat should keep the insert receipt, got %q", sent)
+	if sent := p.getSent(); len(sent) != 0 {
+		t.Fatalf("private chat got the insert receipt: %q", sent)
 	}
 }
 
