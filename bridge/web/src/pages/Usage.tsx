@@ -121,6 +121,11 @@ export default function Usage() {
   // 后端日历的今天：取不带起止参数的查询返回的 to；拿到前先用浏览器日期占位。
   const [serverToday, setServerToday] = useState(dayKey(new Date()));
   const [selectedPreset, setSelectedPreset] = useState<DatePreset | null>('pastYear');
+  // 用户自己改过起止（或从热力图挑过某天）之后，后端日历的今天再变也不动他的输入：
+  // 2026-11-06 验收实测，先手动填 11-02..11-06、服务器日随后回来是 11-03 时，起止被悄悄
+  // 改写成 11-02..11-03，用户填的范围被吞掉。
+  const [datesTouched, setDatesTouched] = useState(false);
+  const [dayPicked, setDayPicked] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -138,13 +143,12 @@ export default function Usage() {
     setError('');
   };
 
-  const activePreset = selectedPreset;
-
   const handleSelectPreset = (preset: DatePreset) => {
     const range = getPresetRange(preset, serverToday);
     setStartDate(range.from);
     setEndDate(range.to);
     setSelectedPreset(preset);
+    setDatesTouched(false); // 点了预设＝愿意跟着后端日历走，跨日重算重新生效
     setError('');
   };
 
@@ -154,10 +158,12 @@ export default function Usage() {
     setStartDate(start);
     setEndDate(end);
     setSelectedPreset(matchPreset(start, end, serverToday));
+    setDatesTouched(true);
   };
 
   // 后端日历的今天变了（首次拿到或跨日）时，按所选预设重新推算起止，保持「今日/本周…」语义。
   useEffect(() => {
+    if (datesTouched) return;
     if (!selectedPreset || selectedPreset === 'pastYear') return;
     const range = getPresetRange(selectedPreset, serverToday);
     setStartDate(range.from);
@@ -165,6 +171,12 @@ export default function Usage() {
     // 只在 serverToday 变化时重算；selectedPreset 变化由点击处理函数自己设好起止。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverToday]);
+
+  // 小时图与热力图选中环也跟后端日历走（原先一直用浏览器日，跨零点会比「今日卡」差一天）。
+  useEffect(() => {
+    if (dayPicked) return;
+    setSelectedDay(serverToday);
+  }, [serverToday, dayPicked]);
 
   useEffect(() => {
     let active = true;
@@ -367,7 +379,7 @@ export default function Usage() {
             data-testid="usage-date-presets"
           >
             {(['today', 'thisWeek', 'thisMonth', 'last7Days', 'pastYear'] as const).map(p => {
-              const isActive = activePreset === p;
+              const isActive = selectedPreset === p;
               const labelMap: Record<DatePreset, string> = {
                 today: t('usage.presetToday', '今日'),
                 thisWeek: t('usage.presetThisWeek', '本周'),
@@ -564,7 +576,7 @@ export default function Usage() {
                   key={key}
                   aria-label={`${key}: ${tokenDisplay}, ${r?.unknown_usage_responses || 0} ${t('usage.unknown')}`}
                   title={`${key} · ${tokenDisplay} (${number(total)} tokens) · ${r?.replies || 0} ${t('usage.replies')} · ${r?.unknown_usage_responses || 0} ${t('usage.unknown')}`}
-                  onClick={() => setSelectedDay(key)}
+                  onClick={() => { setDayPicked(true); setSelectedDay(key); }}
                   style={{ gridRow: i === 0 ? d.getDay() + 1 : undefined }}
                   className={`w-[14px] h-[14px] rounded-[3px] ${colors[level]} ${selectedDay === key ? 'ring-2 ring-accent ring-offset-1 dark:ring-offset-canvas' : ''} ${r?.unknown_usage_responses ? 'border border-amber-500/70' : ''}`}
                 />
@@ -595,7 +607,7 @@ export default function Usage() {
               aria-label={t('usage.day')}
               type="date"
               value={selectedDay}
-              onChange={e => { if (e.target.value) setSelectedDay(e.target.value); }}
+              onChange={e => { if (e.target.value) { setDayPicked(true); setSelectedDay(e.target.value); } }}
               className="bg-transparent rounded border border-hairline px-2 py-1"
             />
           </div>

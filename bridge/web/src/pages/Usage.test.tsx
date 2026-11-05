@@ -329,6 +329,54 @@ describe('Usage page - token unit switching and custom date range', () => {
     }
   });
 
+  // 2026-11-06 独立验收探针：挂载时手动填 11-02..11-04（浏览器日历 11-04 那天正好是「本周」），
+  // 服务器日随后回来是 11-03，本周重算成 11-02..11-03，用户填到 11-04 的范围被吞掉。
+  it('keeps a hand-typed range when the server day arrives afterwards', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 4, 0, 30));
+    let release: () => void = () => {};
+    const gate = new Promise<void>(r => { release = r; });
+    vi.mocked(getUsage).mockImplementation(async (group, filter) => {
+      if (group === 'roles' && !filter) { await gate; return { ...mockRoles, to: '2026-11-03' }; }
+      return group === 'daily' ? mockDaily : group === 'hourly' ? mockHourly : group === 'models' ? mockModels : mockRoles;
+    });
+    try {
+      const container = await renderUsage();
+      const [startInput, endInput] = dateInputElements(container);
+      await act(async () => {
+        setInputValue(startInput, '2026-11-02');
+        setInputValue(endInput, '2026-11-04');
+      });
+      expect(dateInputs(container)).toEqual(['2026-11-02', '2026-11-04']);
+      await act(async () => { release(); await new Promise(r => setTimeout(r, 0)); });
+      await act(async () => { await new Promise(r => setTimeout(r, 0)); });
+      expect(dateInputs(container)).toEqual(['2026-11-02', '2026-11-04']);
+      // 点了预设就重新跟着后端日历走：这条保住「预设到达后重算」不被上面的保护顺手废掉。
+      await act(async () => { presetButton(container, 'today').click(); });
+      expect(dateInputs(container)).toEqual(['2026-11-03', '2026-11-03']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // 小时图与热力图选中环原先一直用浏览器日，跨零点时会跟「今日卡」差一天。
+  it('the selected day for hourly usage follows the server calendar', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 4, 0, 30));
+    useServerToday('2026-11-03');
+    try {
+      const container = await renderUsage();
+      const dayInput = container.querySelector<HTMLInputElement>('[aria-label="usage.day"]')!;
+      expect(dayInput.value).toBe('2026-11-03');
+      expect(getUsage).toHaveBeenCalledWith('hourly', expect.objectContaining({ from: '2026-11-03', to: '2026-11-03' }));
+      // 挑过某天之后，后端日历再回来也不该把选中环挪走。
+      await act(async () => { setInputValue(dayInput, '2026-10-20'); });
+      expect(dayInput.value).toBe('2026-10-20');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('computes preset ranges from the server day', () => {
     expect(getPresetRange('today', '2026-11-03')).toEqual({ from: '2026-11-03', to: '2026-11-03' });
     expect(getPresetRange('thisWeek', '2026-11-04')).toEqual({ from: '2026-11-02', to: '2026-11-04' });
