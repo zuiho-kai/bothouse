@@ -634,21 +634,23 @@ Things that happen on a server (someone joins, reacts, creates a channel, enters
 
 ### Events
 
-| Event | When | Discord | Feishu |
-|---|---|---|---|
-| `member.joined` | someone joins the server / group | needs SERVER MEMBERS INTENT | subscribe "user added to chat" in the console |
-| `member.left` | someone leaves or is removed | same | subscribe "user removed from chat" |
-| `reaction.added` | an emoji reaction is added | yes | yes |
-| `reaction.removed` | a reaction is removed | yes | yes |
-| `channel.created` | a channel is created | yes | n/a |
-| `channel.deleted` | a channel is deleted | yes | subscribe "chat disbanded" |
-| `thread.created` | a thread is opened | yes | n/a |
-| `voice.joined` | someone enters a voice channel | yes | n/a |
-| `voice.left` | someone leaves voice | yes | n/a |
-| `voice.moved` | someone switches voice channels | yes | n/a |
-| `pins.updated` | a message is pinned or unpinned (Discord does not say which) | yes | n/a |
+| Event | When | Discord | Feishu | QQ (OneBot) |
+|---|---|---|---|---|
+| `member.joined` | someone joins the server / group | needs SERVER MEMBERS INTENT | subscribe "user added to chat" in the console | yes (group_increase) |
+| `member.left` | someone leaves or is removed | same | subscribe "user removed from chat" | yes (group_decrease) |
+| `reaction.added` | an emoji reaction is added | yes | yes | NapCat (group_msg_emoji_like) |
+| `reaction.removed` | a reaction is removed | yes | yes | n/a |
+| `channel.created` | a channel is created | yes | n/a | n/a |
+| `channel.deleted` | a channel is deleted | yes | subscribe "chat disbanded" | n/a |
+| `thread.created` | a thread is opened | yes | n/a | n/a |
+| `voice.joined` | someone enters a voice channel | yes | n/a | n/a |
+| `voice.left` | someone leaves voice | yes | n/a | n/a |
+| `voice.moved` | someone switches voice channels | yes | n/a | n/a |
+| `pins.updated` | a message is pinned or unpinned (Discord does not say which) | yes | n/a | n/a |
 
 Feishu has no servers: a group chat is the channel (`channel_id` is the chat id). Feishu reaction events carry only the message id, not the chat, so a `channels` filter never matches them. Feishu member and disband events arrive only after you subscribe to them under Events & Callbacks in the Feishu console.
+
+QQ also treats a group as the channel (`channel_id` is the group number) and gives ids only, no names.
 
 The bot's own actions publish nothing; with Discord `allow_guilds`, servers outside the list publish nothing.
 

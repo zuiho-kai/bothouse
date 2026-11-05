@@ -549,21 +549,23 @@ router_api_key = "your-secret-key"
 
 ### 事件表
 
-| 事件名 | 什么时候 | Discord | 飞书 |
-|---|---|---|---|
-| `member.joined` | 有人进服务器 / 群 | 需开 SERVER MEMBERS INTENT | 需在开放平台订阅「用户进群」 |
-| `member.left` | 有人退出或被移出 | 同上 | 需订阅「用户出群」 |
-| `reaction.added` | 有人给消息加表情 | 已接 | 已接 |
-| `reaction.removed` | 有人取消表情 | 已接 | 已接 |
-| `channel.created` | 新建频道 | 已接 | 无对应 |
-| `channel.deleted` | 删除频道 | 已接 | 需订阅「群解散」 |
-| `thread.created` | 新开子区（thread） | 已接 | 无对应 |
-| `voice.joined` | 有人进语音频道 | 已接 | 无对应 |
-| `voice.left` | 有人离开语音 | 已接 | 无对应 |
-| `voice.moved` | 在语音频道之间换 | 已接 | 无对应 |
-| `pins.updated` | 频道置顶或取消置顶（Discord 不区分） | 已接 | 无对应 |
+| 事件名 | 什么时候 | Discord | 飞书 | QQ（OneBot） |
+|---|---|---|---|---|
+| `member.joined` | 有人进服务器 / 群 | 需开 SERVER MEMBERS INTENT | 需在开放平台订阅「用户进群」 | 已接（群成员增加） |
+| `member.left` | 有人退出或被移出 | 同上 | 需订阅「用户出群」 | 已接（群成员减少） |
+| `reaction.added` | 有人给消息加表情 | 已接 | 已接 | NapCat 已接（群消息表情） |
+| `reaction.removed` | 有人取消表情 | 已接 | 已接 | 无对应 |
+| `channel.created` | 新建频道 | 已接 | 无对应 | 无对应 |
+| `channel.deleted` | 删除频道 | 已接 | 需订阅「群解散」 | 无对应 |
+| `thread.created` | 新开子区（thread） | 已接 | 无对应 | 无对应 |
+| `voice.joined` | 有人进语音频道 | 已接 | 无对应 | 无对应 |
+| `voice.left` | 有人离开语音 | 已接 | 无对应 | 无对应 |
+| `voice.moved` | 在语音频道之间换 | 已接 | 无对应 | 无对应 |
+| `pins.updated` | 频道置顶或取消置顶（Discord 不区分） | 已接 | 无对应 | 无对应 |
 
 飞书没有「服务器」，群就是频道（`channel_id` 是群 id）；飞书的表情事件不带群 id，只有消息 id，所以 `channels` 过滤对它不生效。飞书的进出群、群解散要先在开放平台「事件与回调」里订阅对应事件才会收到。
+
+QQ 同样以群为频道（`channel_id` 是群号），只给 id，不带群名和昵称。
 
 机器人自己的动作不发事件；Discord 配了 `allow_guilds` 时，名单外的服务器也不发。
 
