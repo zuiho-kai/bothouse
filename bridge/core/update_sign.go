@@ -57,8 +57,10 @@ var releaseRequirement = func(id, hash string) string {
 // verifyReleaseSignature asks codesign whether exe is validly signed with identifier id by the
 // certificate whose leaf SHA-1 is hash. It verifies the signature rather than reading the
 // designated requirement text, which the signer writes and can forge. --ignore-resources skips
-// only the resource seal, so the binary inside the (unsealed) .app passes while a forged
-// requirement or a modified byte is still refused. Any failure (no hash, codesign missing) counts as no.
+// only the resource seal: this asks whether the program may be updated at all, and an update
+// replaces the whole bundle (seal included, see ReplaceAppBundle), so a broken resource seal here
+// must not block it; a forged requirement or a modified byte is still refused. Any failure
+// (no hash, codesign missing) counts as no.
 func verifyReleaseSignature(exe, id, hash string) error {
 	if hash == "" {
 		return errors.New("release certificate hash not set")

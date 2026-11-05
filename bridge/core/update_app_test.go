@@ -171,6 +171,55 @@ func TestUpdateApp_ReplacesBundleKeepingSealVersionAndUpdatability(t *testing.T)
 	}
 }
 
+// The install path must exchange in one rename. With the two-rename fallback the installed path is
+// gone for a while (measured: ~19% of concurrent stats see it missing) and a crash between the two
+// leaves no app at all, so a silent fallback must fail here: counting the exchange makes
+// 「replace swapDirsFn with errNoAtomicSwap」red (#1126 review).
+func TestUpdateApp_InstallExchangesInOneRename(t *testing.T) {
+	needCodesign(t)
+	dir := t.TempDir()
+	installed, exe := bundleFixture(t, dir, "Bothouse.app", "0.1.50", nil)
+	staged, _ := bundleFixture(t, filepath.Join(dir, "release"), "Bothouse.app", "0.1.51", nil)
+	useInstalledProgram(t, exe)
+	oldSwap := swapDirsFn
+	t.Cleanup(func() { swapDirsFn = oldSwap })
+	swaps := 0
+	swapDirsFn = func(a, b string) error { swaps++; return oldSwap(a, b) }
+
+	missing := make(chan struct{}, 1)
+	stop := make(chan struct{})
+	watched := make(chan struct{})
+	go func() {
+		defer close(watched)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if _, err := os.Stat(installed); err != nil {
+				missing <- struct{}{}
+				return
+			}
+		}
+	}()
+	_, err := installUnitFrom(staged, installed)
+	close(stop)
+	<-watched
+	if err != nil {
+		t.Fatalf("installUnitFrom: %v", err)
+	}
+	if swaps != 1 {
+		t.Fatalf("the install exchanged the paths %d times, want one rename (a fallback to two renames leaves a gap)", swaps)
+	}
+	if len(missing) != 0 {
+		t.Fatal("the installed path disappeared during the update")
+	}
+	if got := plistVersion(t, installed); got != "0.1.51" {
+		t.Fatalf("installed version %s", got)
+	}
+}
+
 // The old behaviour, kept as the reference: replacing only the program breaks both the seal and
 // the next update. This is what the bundle swap exists to prevent.
 func TestUpdateRefusal_BinaryOnlySwapBreaksTheSeal(t *testing.T) {

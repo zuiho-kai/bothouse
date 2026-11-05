@@ -427,7 +427,10 @@ func ReplaceAppBundle(staged string) error {
 		_ = os.RemoveAll(newApp)
 		return fmt.Errorf("stage new app: %w", err)
 	}
-	// Verify the copy that is about to be installed, not only the download.
+	// Verify the copy that is about to be installed, not only the download: CopyAppTree could have
+	// copied short or truncated a resource on a full disk, and that copy is what the swap installs.
+	// The check before the copy is not redundant — it refuses a bad download before anything is
+	// written beside the running app.
 	if err := verifyAppBundleFn(newApp); err != nil {
 		_ = os.RemoveAll(newApp)
 		return fmt.Errorf("install new app: %w", err)
