@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -47,8 +48,14 @@ func (w *handoffWatch) markBoardProgress(key string, h TeamHandoff, since, now t
 	if id == 0 {
 		return // no board item for this workspace: nothing to write back
 	}
-	step := boardProgressStep(w.workspaceLastStep(key, since))
-	wrote, err := writeBoardProgress(dir, id, step, now)
+	// lastStep stays empty when this renewal window had no tool call at all (the turn journal
+	// drops the entry when the turn ends, team_journal.go), and an empty step must not replace a
+	// precise one with 「已开工」: markStartedHandoffs keeps the same guard (team_board_autostart.go
+	// :79). Such a round still raises progress_at — the workspace did speak — it just leaves the
+	// status alone (复核 2026-11-06 必修①).
+	lastStep := w.workspaceLastStep(key, since)
+	step := boardProgressStep(lastStep)
+	wrote, err := writeBoardProgress(dir, id, step, lastStep != "", key, now)
 	if err != nil {
 		slog.Warn("team watch: cannot write the board item's progress", "board", id, "workspace", key, "error", err)
 		return
@@ -58,19 +65,34 @@ func (w *handoffWatch) markBoardProgress(key string, h TeamHandoff, since, now t
 	}
 }
 
-// boardProgressStep: the step text for a board row — its first line, whitespace collapsed, cut to
-// boardProgressStepRunes; boardNoStep when that workspace has not run a tool yet.
+// boardProgressStep: the step text for a board row — its first line, whitespace collapsed, ANSI
+// escapes and control characters dropped, full-width ｜ swapped for ASCII so board.py fmt keeps its
+// five columns, cut to boardProgressStepRunes; boardNoStep when that workspace has not run a tool
+// yet. Source: 复核 2026-11-06 建议③ 实测 `\x1b[31m`、`\x07`、`｜` 会原样进表格。
 func boardProgressStep(step string) string {
 	step = strings.TrimSpace(step)
 	if i := strings.IndexByte(step, '\n'); i >= 0 {
 		step = step[:i]
 	}
+	step = ansiEscape.ReplaceAllString(step, "")
 	step = strings.Join(strings.Fields(step), " ")
+	step = strings.Map(func(r rune) rune {
+		if r == '｜' {
+			return '|' // 全角竖线是 board.py fmt 的列分隔符
+		}
+		if r < 0x20 || r == 0x7f || r >= 0x80 && r <= 0x9f {
+			return -1
+		}
+		return r
+	}, step)
 	if step == "" {
 		return boardNoStep
 	}
 	return truncateRunes(step, boardProgressStepRunes)
 }
+
+// ansiEscape: CSI sequences and the two-byte escapes tools emit in coloured output.
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b[@-_]`)
 
 // progressStepField: the row field that records which step this watch last put in status. It is
 // how the next renewal tells 「在做：<看门写的这一步>」 (refresh it) from 「在做：<工作区自己写的>」
@@ -79,12 +101,15 @@ const progressStepField = "progress_step"
 
 // writeBoardProgress: set progress_at on board item id and refresh status to 「在做：<step>」 when
 // that status is one this watch owns (已交接, 在做：已开工, or the step it wrote last time). A
-// status the workspace wrote itself is kept. wrote false: the row is gone or no longer live work
-// (paused, moved off the workspace, closed) — nothing changed and nothing to log.
+// status the workspace wrote itself is kept, and so is a precise step when this round saw no tool
+// call (hasStep false). wrote false: the row is gone or no longer live work (paused, moved off the
+// workspace, closed) — nothing changed and nothing to log.
 //
 // The file is rewritten the way board.py _write does it (whole file, tmp + os.replace) while
-// holding the same lock board.py takes; rows this write does not touch keep their exact bytes.
-func writeBoardProgress(dir string, id int, step string, now time.Time) (bool, error) {
+// holding the same lock board.py takes; rows other than the one this write touches keep their
+// exact bytes (the touched row is re-encoded, so its key order and escaping can shift once — 复核
+// 2026-11-06 建议⑥).
+func writeBoardProgress(dir string, id int, step string, hasStep bool, key string, now time.Time) (bool, error) {
 	path := filepath.Join(dir, teamTaskBoardFile)
 	if _, err := os.Stat(path); err != nil {
 		return false, err
@@ -117,7 +142,17 @@ func writeBoardProgress(dir string, id int, step string, now time.Time) (bool, e
 		_ = json.Unmarshal(row["ws"], &ws)
 		_ = json.Unmarshal(row["paused"], &paused)
 		_ = json.Unmarshal(row[progressStepField], &ownStep)
-		if ws == "" || paused != "" || watchBoardClosed(teamTaskBoardItem{Status: status}) {
+		self := strings.TrimSpace(status)
+		// ours: this row's status is one this watch wrote (「在做：<step we put there>」). Its text
+		// is a tool command, and tool commands read like outcomes — `board update 5 已完成`,
+		// `git commit -m "…#208 已验收"`. Closing on a substring of our own step froze the row for
+		// good (复核 2026-11-06 必修②: 6 轮续期全写得进 0 次，一小时后板上又变回「1 小时无进展」).
+		ours := ownStep != "" && self == "在做："+ownStep
+		// h.Board (recorded at handoff) skips handoffBoardID's workspace match, so re-check the
+		// row itself: a handoff that names the wrong item must not overwrite another workspace's
+		// row (复核 2026-11-06 建议②，实测 writeBoardProgress(dir, 3, …) 会改到绑在 ws2 的 #3).
+		if ws == "" || teamChatKey(ws) != key || paused != "" ||
+			(!ours && watchBoardClosed(teamTaskBoardItem{Status: status})) {
 			return false, nil // not live workspace work any more (paused, moved off, closed)
 		}
 		stamp := float64(now.UnixNano()) / 1e9
@@ -127,8 +162,9 @@ func writeBoardProgress(dir string, id int, step string, now time.Time) (bool, e
 			row["progress_at"] = rawJSON(stamp)
 			changed = true
 		}
-		self := strings.TrimSpace(status)
-		if self == boardHandedOff || self == boardStartedNoStep || ownStep != "" && self == "在做："+ownStep {
+		// A round with no tool call only proves the workspace spoke, so it raises progress_at and
+		// leaves the step alone instead of degrading it to 「已开工」 (必修①).
+		if hasStep && (self == boardHandedOff || self == boardStartedNoStep || ours) {
 			row["status"] = rawJSON("在做：" + step)
 			if step != ownStep {
 				row[progressStepField] = rawJSON(step)
