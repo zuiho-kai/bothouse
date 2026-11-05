@@ -384,6 +384,16 @@ export class Store {
       this.q.ensureRoom.run(id, name, saved || workspacePath || null);
     });
   }
+  /**
+   * A chat channel name must be new: the sidebar shows names only (no ids), and 工作区<n> is how a
+   * workspace is addressed, so a duplicate or a workspace-shaped name is refused with 'conflict'.
+   */
+  checkRoomName(name, selfId) {
+    if (new RegExp(`^${WORKSPACE_PREFIX}\\d+$`).test(name)) throw new CollabError('conflict', `channel name ${name} is reserved for workspaces`);
+    // A private chat is named after its member and listed with its avatar, so it does not clash.
+    const clash = this.rooms().find(r => r.id !== selfId && r.kind === 'chat' && r.dm_member == null && r.name.toLowerCase() === name.toLowerCase());
+    if (clash !== undefined) throw new CollabError('conflict', `channel name ${name} is already in use`);
+  }
   /** Rename the channel without changing any room, message or session identity. */
   renameRoom(id, name) {
     if (typeof name !== 'string' || !name || name.length > 32 || /\s/.test(name)) {
@@ -392,11 +402,15 @@ export class Store {
     const room = this.room(id);
     if (room === undefined) throw new CollabError('room-missing', `room ${id} does not exist`);
     if (room.kind === 'workspace') throw new CollabError('invalid', 'workspace names cannot be changed');
+    this.checkRoomName(name, id);
     return this.db.prepare('UPDATE rooms SET name = ? WHERE id = ? RETURNING id, name, kind, parent_id').get(name, id);
   }
   /** Create a chat channel; its first workspace is made on the first createWorkspace() call. */
   createRoom(name) {
-    const room = this.transaction(() => this.q.createRoom.get(name));
+    const room = this.transaction(() => {
+      this.checkRoomName(name);
+      return this.q.createRoom.get(name);
+    });
     this.ensureRoomSettings(room.id);
     return room;
   }
