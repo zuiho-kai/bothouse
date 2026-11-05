@@ -144,6 +144,7 @@ func dshModuleProfile() (DSHModuleState, []dshModulePlugin, *yaml.Node, error) {
 		return state, nil, nil, err
 	}
 	var layers []*yaml.Node
+	missingModuleBundle := false
 	installAnchor := dshInstallAnchor()
 	for _, bundle := range manifest.DSH.Profile.Bundles {
 		packageDir := resolveDSHBundle(bundle, installAnchor, dir)
@@ -159,9 +160,9 @@ func dshModuleProfile() (DSHModuleState, []dshModulePlugin, *yaml.Node, error) {
 				continue
 			}
 			if dshPluginName(bundle) {
-				// A profile/HOME insertion cannot make a missing bundle installed. Return an
-				// empty state without an error so module add can repair the installation.
-				return state, nil, nil, nil
+				// Keep validating other layers before offering to repair this missing bundle.
+				missingModuleBundle = true
+				continue
 			}
 		}
 		if err != nil {
@@ -246,6 +247,11 @@ func dshModuleProfile() (DSHModuleState, []dshModulePlugin, *yaml.Node, error) {
 				}
 			}
 		}
+	}
+	if missingModuleBundle {
+		// Residual insertions cannot prove installation. With all layers validated,
+		// return an empty state without an error so module add can repair it.
+		return state, nil, doc, nil
 	}
 	state.Installed = len(plugins) > 0
 	state.Disabled = state.Installed

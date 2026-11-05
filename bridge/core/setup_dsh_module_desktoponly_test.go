@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -119,5 +121,49 @@ func TestDSHModuleMissingNonHostBundleStillErrors(t *testing.T) {
 	}
 	if st, err := GetDSHModuleState(); err == nil || st.Installed {
 		t.Fatalf("missing custom bundle: %+v %v", st, err)
+	}
+}
+
+// A missing module must not suppress errors in any other bundle or user layer.
+func TestDSHModuleMissingBundlePreservesOtherErrors(t *testing.T) {
+	for _, source := range []string{"bundle", "profile", "HOME"} {
+		for _, missingFirst := range []bool{true, false} {
+			t.Run(source+"/missingFirst="+fmt.Sprint(missingFirst), func(t *testing.T) {
+				home := t.TempDir()
+				t.Setenv("DSH_HOME", home)
+				dir := filepath.Join(home, "profiles", DSHProfile)
+				bundles := []string{"conest-collab", "custom-policy"}
+				if !missingFirst {
+					bundles[0], bundles[1] = bundles[1], bundles[0]
+				}
+				writeDSHBundleFixture(t, dir, "custom-policy")
+				manifest, err := json.Marshal(map[string]any{"dsh": map[string]any{"profile": map[string]any{"bundles": bundles}}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "package.json"), manifest, 0600); err != nil {
+					t.Fatal(err)
+				}
+				var path, invalid string
+				switch source {
+				case "bundle":
+					path, invalid = filepath.Join(dir, "node_modules", "custom-policy", "package.json"), "{"
+				case "profile":
+					path, invalid = filepath.Join(dir, "cordis.patch.yml"), "["
+				case "HOME":
+					path, invalid = filepath.Join(home, "cordis.patch.yml"), "["
+				}
+				if err := os.WriteFile(path, []byte(invalid), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if st, err := GetDSHModuleState(); err == nil || st.Installed {
+					t.Fatalf("missing bundle suppressed %s error: %+v %v", source, st, err)
+				}
+				got := ApplyDSHModule(context.Background(), false, true, "en")
+				if got.OK || got.Error == "" || got.Saved {
+					t.Fatalf("invalid configuration accepted by dry-run: %+v", got)
+				}
+			})
+		}
 	}
 }
