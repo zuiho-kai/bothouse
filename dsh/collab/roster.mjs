@@ -111,8 +111,12 @@ export class Roster {
   /** A UI member an earlier wizard run made for the default-named role `name` (see importWizard), or undefined. */
   reusableWizardMember(name, cli, claimed) {
     const stem = name.toLowerCase();
-    const fits = this.store.members().filter(r => r.source === 'ui' && !claimed.has(r.id) && r.name_customized != null && !Boolean(r.name_customized)
-      && (r.cli ?? '') === (cli ?? '') && (r.name.toLowerCase() === stem || r.name.toLowerCase().replace(/-\d+$/, '') === stem));
+    // The exact name is the same role whatever its flag says: members seeded on the plugin's first start
+    // (seedDefaults) and those made before name_customized was stored carry none, and skipping them
+    // made every re-run add 鲸鱼娘-2 / DSH-2. A suffixed name (Codex-2) is reused only when it is marked automatic.
+    const fits = this.store.members().filter(r => r.source === 'ui' && !claimed.has(r.id) && (r.cli ?? '') === (cli ?? '')
+      && (r.name.toLowerCase() === stem
+        || (r.name_customized != null && !Boolean(r.name_customized) && r.name.toLowerCase().replace(/-\d+$/, '') === stem)));
     const pick = fits.find(r => r.name.toLowerCase() === stem) ?? fits[0];
     return pick === undefined ? undefined : rowToMember(pick);
   }
