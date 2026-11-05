@@ -908,6 +908,10 @@ func HookRules(lang string, enabled []string, python, hooksDir, workDir string) 
 			parts = append(parts, s)
 		}
 	}
+	// the working rules the checks above enforce, from the maintainers' own persona and global rules (user 2026-11-06
+	// 「把我们现在已经有的基础能力给他做到产品里面去，否则新用户养起来太傻逼了」); follows the block, so `setup hooks on`
+	// brings it to an existing role and switching every hook off removes it
+	parts = append(parts, read("_workstyle"))
 	reviews := os.Getenv("HOOK_REVIEWS_DIR")
 	if reviews == "" {
 		reviews = "~/.claude/reviews"

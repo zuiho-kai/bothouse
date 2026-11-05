@@ -92,3 +92,8 @@ To get a specific teammate to answer, @ her or start a line with her name follow
 
 Always-on rules (the team-mode rules, the rule section in a persona) have a total cap: before adding a rule, remove or merge one; a byte-size test in `core` guards the cap on the team-mode rules.
 When the same kind of mistake happens a second time, turn it into a check (a script, hook or test) instead of adding more text; `contrib/hooks/lessons.py` reads the "N 次" (N times) count of each entry in the wiki lessons table (`rule-candidates-recurrence*.md`) and reminds the agent on the first turn and when the user corrects it — an entry that reaches 2 should become a check.
+
+## 13. Before editing a document, find the earlier version
+
+When asked to revise a document (promo copy, CV, write-up, proposal), first search the memory wiki for that topic's earlier tasks and decisions (`python3 <wiki>/bin/search.py <topic>`); the first line of the answer says which version you built on and what changed. If nothing turns up, say no earlier version was found and write it fresh.
+(2026-11-04, the user: "Don't you have any memory?")
