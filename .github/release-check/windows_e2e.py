@@ -268,12 +268,25 @@ def install(p):
     ok(f"wizard installed the DSH plugin ({len(events)} progress lines)")
 
 
+def open_dsh(p, label):
+    """POST /setup/dsh/open the way the wizard does (DSHSetup.tsx open): ask again every second while it
+    answers starting:true (since v0.1.51 it does not wait for a cold dsh web)."""
+    end = time.time() + T_OPEN
+    web = p.api("POST", "/setup/dsh/open", {}, timeout=T_OPEN)
+    while web.get("starting"):
+        if time.time() > end:
+            fail(f"{label}: dsh web still starting after {T_OPEN}s: {web.get('log_tail', '')[:300]}")
+        time.sleep(1)  # the wizard's own interval (DSHSetup.tsx)
+        web = p.api("POST", "/setup/dsh/open", {}, timeout=T_OPEN)
+    p.dsh_log = web.get("log") or p.dsh_log
+    return web
+
+
 def configure_and_open(p, label):
     res = p.api("POST", "/setup/dsh/configure", {"deepseek_api_key": "sk-ci-stub-not-a-key", "members": ROLES})
     if res.get("members") != len(ROLES):
         fail(f"{label}: configure saved {res}")
-    web = p.api("POST", "/setup/dsh/open", {}, timeout=T_OPEN)
-    p.dsh_log = web.get("log") or p.dsh_log
+    web = open_dsh(p, label)
     ok(f"{label}: wizard configured {len(ROLES)} roles and opened dsh web (pid {web.get('pid')})")
     p.login_dsh(label)
 
@@ -411,8 +424,7 @@ if args.upgrade:
 after = "after-upgrade" if args.upgrade else "after-restart"
 bh, p = start(2)
 try:
-    web = p.api("POST", "/setup/dsh/open", {}, timeout=T_OPEN)
-    p.dsh_log = web.get("log") or ""
+    web = open_dsh(p, after)
     ok(f"{after}: dsh web (pid {web.get('pid')})")
     p.login_dsh(after)
     names2, s = roster(p, after)
