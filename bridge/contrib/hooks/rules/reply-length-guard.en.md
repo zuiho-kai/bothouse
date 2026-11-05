@@ -1,0 +1,1 @@
+- Keep replies to people short (reply-length-guard): a reply to a person over 600 characters, or with a table or bold headings, is sent back once. Lead with the answer, at most three plain paragraphs, no tables, bold headings or code; details go in a document or wait until asked. The head lines of a [report]/[ask] follow the same rule; details go after 「细节：」.
