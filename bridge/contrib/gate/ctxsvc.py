@@ -166,7 +166,7 @@ def context(req):
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
     key = req.get("key") or ""
     dec = decision_items(text, key)
-    out = {"wiki": [x for x in (who, pb, dm) if x] + standing_items(roots) + board_items(key)
+    out = {"wiki": [x for x in (who, pb, dm) if x] + memory_caps(roots, own) + standing_items(roots) + board_items(key)
            + with_lessons(match_wiki(tq), tq) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
     if MEMVOTE.exists() and any(EXP_TAG.search(w.get("desc", "")) for w in out["wiki"]):
         out["wiki"].append(VOTE_ITEM)  # 固定 path：每个会话只推一次（gate.go turnContext 按 path 去重）
@@ -176,6 +176,46 @@ def context(req):
     except Exception:
         pass
     return out
+
+
+# ---- 记忆能力说明（这套系统开着哪些记忆功能）----
+# 角色被问「llm wiki / 记忆论坛开了吗」时要答对、能现场演示（用户 11-05「记忆论坛口径要对齐，别人问别说没有」）。
+# 按这台机器实际开着的功能现生成，不写进人设：升级后 gate 脚本随桥更新，老用户不用重跑向导也带上。
+# path 带内容指纹：功能没变一个会话只推一次。
+FORUM_NIGHT = os.environ.get("GATE_FORUM_NIGHT", "").strip() == "1"  # 桥看到「记忆论坛夜间结算」定时才设（core/gate_proc.go）
+
+
+def _search_cmd(root):
+    """同 core/rolewiki.go leadWikiSection：共用版 search.py（SHARED_TOOL）默认查 ~/wiki，要带 --root。"""
+    cmd = f"python3 -X utf8 -I {_shown('bin/search.py', root)} "
+    if "\nSHARED_TOOL = 1" in _read(root / "bin" / "search.py"):
+        cmd += f"--root {_shown('.', root).removesuffix('/.')} "
+    return cmd + "<关键词>"
+
+
+def memory_caps(roots, own):
+    rows = []
+    for root in roots:
+        if not (root / "bin" / "search.py").exists():
+            continue
+        what = "你自己的记忆 wiki" if own and _same(root, own) else "主 wiki（团队共用）"
+        rows.append(f"- {what}（llm wiki）：{_shown('.', root).removesuffix('/.')}。会话和日记定时整理进去，夜里做一次反思；"
+                    f"查：`{_search_cmd(root)}`")
+    if not rows:
+        return []
+    rows.append("- 每轮记忆推送：桥每轮按话题从 wiki 推相关页、定案和经验，只给标题和行尾 [#编号]，正文按页路径和行号读")
+    if MEMVOTE.exists():
+        night = "；每天 05:30 夜间结算：看引用那轮用户下一句是不是纠正，记成败" if FORUM_NIGHT else ""
+        rows.append(f"- 记忆论坛：推送的条带编号，用到哪条就 `python3 {_shown(MEMVOTE, Path('/'))} +编号` 记引用{night}；"
+                    "按 Reddit best 排序，低分条折叠沉底、不删" + ("" if FORUM else "（排序模块没装，这项未生效）"))
+    prof = roots[0] / PROFILE if PROFILE else None
+    if prof and prof.exists():
+        rows.append(f"- 用户画像（懂你）：{_shown(PROFILE, roots[0])}，每个会话推一次")
+    body = "\n".join(rows)
+    tag = hashlib.sha1(body.encode()).hexdigest()[:6]
+    return [{"path": f"【记忆能力 {tag}】", "desc": (
+        "这套系统开着下面这些记忆功能。有人问 llm wiki、记忆论坛、长期记忆开没开，按这里答「开了，测试中」，"
+        "说清是什么，需要时现场跑查询命令给他看；不说没有。没列出的才是没开。\n" + body)}]
 
 
 # ---- 已定的方向和做法（llm-wiki 页的「关键事实」「决策与踩坑」两段）----

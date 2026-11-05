@@ -251,10 +251,38 @@ func gateWikiEnv(dataDir, roleWikiDir string) []string {
 			env = append(env, "GATE_WIKI="+mw)
 		}
 	}
+	if _, set := os.LookupEnv("GATE_PROFILE"); !set {
+		env = append(env, "GATE_PROFILE="+gateProfilePage)
+	}
+	if forumCronOn(dataDir) {
+		env = append(env, "GATE_FORUM_NIGHT=1")
+	}
 	if roleWikiDir == "" {
 		roleWikiDir = RoleWikiDir(dataDir)
 	}
 	return append(env, "GATE_WIKI_BOTS="+filepath.Join(roleWikiDir, "bots.json"))
+}
+
+// gateProfilePage: the user-profile page (「懂你」) relative to the main wiki, the path the author's wiki ingest writes;
+// ctxsvc.py pushes its 「## 现状」 once a session when the page is there, nothing when it is not.
+const gateProfilePage = "tooling/workflow/workflow/preferences/user-profile.md"
+
+// forumCronOn: the nightly memory-forum settlement job (AddForumCronJob) is in the cron store and enabled; the gate
+// then tells the roles the forum settles every night (ctxsvc.py memory_caps).
+func forumCronOn(dataDir string) bool {
+	if dataDir == "" {
+		return false
+	}
+	st, err := NewCronStore(dataDir)
+	if err != nil {
+		return false
+	}
+	for _, j := range st.List() {
+		if j.Description == forumCronDesc && j.Enabled {
+			return true
+		}
+	}
+	return false
 }
 
 // SetActiveGateSupervisor registers the running service's supervisor, so a wizard run in this

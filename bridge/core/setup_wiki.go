@@ -236,6 +236,9 @@ func (c schedulerCron) SetExec(id, exec string) error {
 // CronOfScheduler: WizardCron on a running scheduler (jobs start without a restart).
 func CronOfScheduler(cs *CronScheduler) WizardCron { return schedulerCron{cs} }
 
+// CronOfStore: a WizardCron straight on the store (before the scheduler starts, which then loads its jobs).
+func CronOfStore(s *CronStore) WizardCron { return storeCron{s} }
+
 type storeCron struct{ s *CronStore }
 
 func (c storeCron) List() ([]*CronJob, error) { return c.s.List(), nil }
@@ -497,4 +500,62 @@ func AddForumCronJob(c WizardCron, project, sessionKey, gateDir, wikiDir string)
 	j := &CronJob{ID: GenerateCronID(), Project: project, SessionKey: sessionKey, CronExpr: "30 5 * * *",
 		Exec: cmd, Description: forumCronDesc, Enabled: true, Mute: true, TimeoutMins: &noLimit, CreatedAt: time.Now()}
 	return true, c.Add(j)
+}
+
+// wikiCronEnsuredFile marks a data dir whose wizard install has had its wiki and forum cron jobs checked once on
+// start (EnsureWizardWikiCron). Once only: a job the user deleted on purpose afterwards stays deleted.
+const wikiCronEnsuredFile = ".wiki-cron-ensured-v1"
+
+// EnsureWizardWikiCron adds, once per data dir, the wiki cron jobs and the nightly forum settlement a wizard install
+// should have but lacks: installs from before the wizard added them without a default channel (agentm, 2026-11-04)
+// or before the forum job existed get them on the first start of the new build, with no wizard rerun. Same rules as
+// applyWizardWiki: only for a wizard install (conest-setup.json names the lead), the main wiki's part only when the
+// wizard made it, else the role wikis' sub-wiki.py alone. Returns what it added.
+func EnsureWizardWikiCron(dataDir string, c WizardCron, sub string) ([]string, error) {
+	if dataDir == "" || c == nil {
+		return nil, nil
+	}
+	mark := filepath.Join(dataDir, wikiCronEnsuredFile)
+	if _, err := os.Stat(mark); err == nil {
+		return nil, nil
+	}
+	st := LoadSetupState(dataDir)
+	project, session := st.FallbackRole, ""
+	switch st.Platform {
+	case "cloud_web":
+		project, session = st.CloudWebFallback, cloudWebWikiSession
+	case "qq":
+		session = cloudWebWikiSession
+	default:
+		session = wizardSessionKey(st.Platform, st.ChannelID, st.FeishuChatID)
+		if session == "" && st.Platform != "" {
+			session = noChannelWikiSession(st.Platform)
+		}
+	}
+	if project == "" || session == "" {
+		return nil, nil // not a wizard install: its cron jobs are the user's own
+	}
+	mainDir := ""
+	if dir, ok := FindWiki(); ok {
+		if _, made := mainWikiLead(dir); made {
+			mainDir = dir
+		}
+	}
+	if mainDir == "" && sub == "" {
+		return nil, nil
+	}
+	added, _, err := AddWikiCronJobs(c, project, session, mainDir, sub)
+	if err != nil {
+		return added, err
+	}
+	if mainDir != "" {
+		ok, ferr := AddForumCronJob(c, project, session, filepath.Join(dataDir, "gate"), mainDir)
+		if ferr != nil {
+			return added, ferr
+		}
+		if ok {
+			added = append(added, forumCronDesc)
+		}
+	}
+	return added, os.WriteFile(mark, []byte(time.Now().Format(time.RFC3339)+"\n"), 0o644)
 }

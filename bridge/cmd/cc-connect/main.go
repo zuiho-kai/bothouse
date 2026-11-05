@@ -534,6 +534,14 @@ func runMain() {
 		os.Exit(1)
 	}
 
+	if cronStore != nil {
+		// an install from before the wizard added the wiki / forum jobs without a default channel gets them now, once
+		if added, err := core.EnsureWizardWikiCron(cfg.DataDir, core.CronOfStore(cronStore), subWikiScript(cfg)); err != nil {
+			slog.Warn("wiki cron: upgrade check failed", "error", err)
+		} else if len(added) > 0 {
+			slog.Info("wiki cron: added on upgrade", "jobs", added)
+		}
+	}
 	if cronSched != nil {
 		if err := cronSched.Start(); err != nil {
 			slog.Error("cron scheduler start failed", "error", err)
