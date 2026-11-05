@@ -278,6 +278,9 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 		if unavailable && it.Reviewer != "" {
 			stage = "unavailable"
 		}
+		if taskReviewRefusedBy(e.team.dir, it, reviewer.name) {
+			stage, fresh = taskReviewCleanStage, true // the lead's clean retry after its own refusal
+		}
 		id := taskReviewJobID(e.team.dir, it, reviewer.name, stage)
 		ref := taskReviewRef{Board: it.ID, ReturnedAt: it.ReturnedAt, Stage: stage, Tier: taskReviewTier(it)}
 		prior := reviewer.timerScheduler.store.Get(id)
@@ -359,7 +362,7 @@ func taskReviewTierRole(it teamTaskBoardItem) string {
 
 // taskReviewStages: every stage a handback's verification job can have, for finding the job
 // already queued for it (taskReviewJobID).
-var taskReviewStages = []string{"returned", "overdue", "unavailable"}
+var taskReviewStages = []string{"returned", "overdue", "unavailable", taskReviewCleanStage}
 
 func taskReviewJobID(dir string, it teamTaskBoardItem, reviewer, stage string) string {
 	key := fmt.Sprintf("%s/%d/%s/%s/%s", dir, it.ID, it.ReturnedAt.Format(time.RFC3339Nano), reviewer, stage)
@@ -490,10 +493,19 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 	// handback hanging (#1109 goal「主角色自验或另一个队友」; user 11-06「他自己也可以验收」).
 	if refused := readReviewRefused(dir)[reviewRefusedKey(it)]; len(refused) > 0 {
 		for _, x := range w.engines() {
-			if x.isTeamLead() && x.timerScheduler != nil && !taskReviewRefusedBy(dir, it, x.name) && !x.reviewCooling(chat) {
+			if !x.isTeamLead() || x.timerScheduler == nil || x.reviewCooling(chat) {
+				continue
+			}
+			if !taskReviewRefusedBy(dir, it, x.name) {
 				return x, x.quotaBusy(chat) || x.taskReviewQueuedIn(chat)
 			}
+			// The lead's own session refused too: one more try in a fresh side session through a
+			// clean-context sub-agent (#1119), never left hanging in 待验收 until a person wakes.
+			if !taskReviewRefusedBy(dir, it, x.name+taskReviewCleanMark) {
+				return x, true
+			}
 		}
+		slog.Warn("task review: every role refused this handback, clean retry included", "board", it.ID)
 	}
 	return nil, false
 }
@@ -612,6 +624,11 @@ func (e *Engine) prepareTaskReview(job *TimerJob, now time.Time) (*TimerJob, err
 		}
 		title = t
 		prompts = append(prompts, e.i18n.Tf(MsgTaskReviewPrompt, t, it.What, it.Where, it.ID))
+		// A stand-in after a refusal, or the author verifying because nobody else could: check through
+		// a clean-context sub-agent, not this session's own memory of the work (#1119).
+		if r.Stage == taskReviewCleanStage || taskReviewAuthor(*it, e) || (e.team != nil && len(readReviewRefused(e.team.dir)[reviewRefusedKey(*it)]) > 0) {
+			prompts = append(prompts, e.i18n.Tf(MsgTaskReviewCleanAgent, it.ID))
+		}
 		if !taskReviewComplex(*it) {
 			prompts = append(prompts, e.i18n.Tf(MsgTaskReviewEscalate, it.ID))
 		}
