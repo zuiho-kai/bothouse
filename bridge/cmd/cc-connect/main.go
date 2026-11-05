@@ -298,6 +298,13 @@ func runMain() {
 		fmt.Fprintf(os.Stderr, "bothouse: 测试环境拒跑：%s\n", why)
 		os.Exit(3)
 	}
+	// Before the subcommands: `module add dsh` / `setup dsh --install` refresh ~/.bothouse/dsh to
+	// this version before running its install.sh (#161 ③), so they need the version too.
+	core.VersionInfo = fmt.Sprintf("bothouse %s\ncommit: %s\nbuilt: %s", version, commit, buildTime)
+	core.CurrentVersion = version
+	core.CurrentCommit = commit
+	core.CurrentBuildTime = buildTime
+
 	if runTopLevelCommand(rootOpts.args) {
 		return
 	}
@@ -326,10 +333,6 @@ func runMain() {
 		slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	}
 
-	core.VersionInfo = fmt.Sprintf("bothouse %s\ncommit: %s\nbuilt: %s", version, commit, buildTime)
-	core.CurrentVersion = version
-	core.CurrentCommit = commit
-	core.CurrentBuildTime = buildTime
 
 	configPath := resolveConfigPath(rootOpts.configPath)
 

@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -237,6 +238,7 @@ func InstallDSHPlugin(ctx context.Context, lang string, onLine func(string)) (DS
 		return GetDSHStatus(ctx, lang), errors.New(issue)
 	}
 	script := FindDSHInstallScript()
+	refreshHomeDSHBeforeInstall(script, onLine)
 	if script == "" || !fileExists(script) {
 		if p, err := ExtractEmbeddedDSH(""); err == nil && fileExists(p) {
 			script = p
@@ -403,3 +405,35 @@ func dshNodeStatus(ctx context.Context, langs ...string) (string, string) {
 	}
 	return version, ""
 }
+
+// refreshHomeDSHBeforeInstall brings ~/.bothouse/dsh up to this program version before its
+// install.sh runs (#161 ③). Without it, `module add dsh` right after an upgrade ran the old
+// version's install.sh: only a server start refreshed that copy. Only when the script picked is
+// that copy (a repo checkout or BOTHOUSE_DSH_DIR is used as-is). A failed refresh keeps the old
+// copy and the install goes on with it, as before.
+func refreshHomeDSHBeforeInstall(script string, onLine func(string)) {
+	if script == "" || CurrentVersion == "" {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(home, ".bothouse", "dsh")
+	if filepath.Clean(script) != filepath.Join(dir, "install.sh") {
+		return
+	}
+	refreshed, err := refreshEmbeddedDSH(dir, CurrentVersion)
+	switch {
+	case err != nil:
+		slog.Warn("dsh: refresh before install failed, using the installed copy", "dir", dir, "error", err)
+		if onLine != nil {
+			onLine("warning: could not update " + dir + " to " + CurrentVersion + ": " + err.Error())
+		}
+	case refreshed:
+		slog.Info("dsh: plugin code refreshed before install", "dir", dir, "version", CurrentVersion)
+	}
+}
+
+// refreshEmbeddedDSH is RefreshEmbeddedDSH; swappable in tests.
+var refreshEmbeddedDSH = RefreshEmbeddedDSH
