@@ -9,7 +9,11 @@ const root = mkdtempSync(join(tmpdir(), 'bothouse-member-http-'));
 process.env.HOME = root; process.env.USERPROFILE = root; process.env.BOTHOUSE_DATA_DIR = root;
 process.env.CONEST_COLLAB_BOT_TOKEN = ''; process.env.CONEST_COLLAB_BOT_PORT = '';
 for (const k of ['BOARD_DIR','CONEST_TEAM_STATUS_DIR','CONEST_WIKI_DIR']) delete process.env[k];
-if (!process.env.DSH_REQUIRE_BASE) throw Error('Set DSH_REQUIRE_BASE to the local DSH lib/bin.js');
+if (!process.env.DSH_REQUIRE_BASE) {
+ // Needs a local DSH install; CI's plain `node --test` run has none, so skip instead of failing.
+ if (process.argv.includes('--serve')) throw Error('Set DSH_REQUIRE_BASE to the local DSH lib/bin.js');
+ console.log('SKIP member-http: set DSH_REQUIRE_BASE to the local DSH lib/bin.js'); process.exit(0);
+}
 const dataDir=join(root,'data'), workspacePath=join(root,'workspace');
 mkdirSync(dataDir); mkdirSync(workspacePath);
 const host=await startHost({dataDir,workspacePath,leadFile:join(root,'lead.json'),dshMembers:[{id:'configured',name:'Configured'}]});
