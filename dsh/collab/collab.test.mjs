@@ -1429,6 +1429,26 @@ test('roster: config seeds are read-only, UI members are created, edited and rem
   assert.match(routes[1].error, /no key/);
 });
 
+test('#1150: a private chat cannot be listed as a member\'s channel', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  roster.load([]);
+  hub.store.addMember({ id: 'peer', name: 'Peer' });
+  const dm = hub.store.openDm('peer', 'Peer');
+  const channel = hub.store.createRoom('dev');
+  // A private chat holds exactly its one member (hub.membersInRoom): storing the id would save a
+  // membership the room never honours — the member shows nowhere and cannot be dispatched to.
+  await assert.rejects(roster.create({ name: 'Ghost', rooms: [dm.id], model: { provider: 'relay', model: 'm1' } }), /existing chat channel ids/);
+  assert.equal(hub.store.members().some(m => m.name === 'Ghost'), false, 'nothing is stored for a refused create');
+  // The channel list still takes ordinary channels, and an edit keeps the stored membership.
+  const dev = await roster.create({ name: 'Dev', rooms: [channel.id], model: { provider: 'relay', model: 'm1' } });
+  assert.deepEqual(dev.rooms, [channel.id]);
+  await assert.rejects(roster.update(dev.id, { rooms: [dm.id], model: { provider: 'relay', model: 'm1' } }), /existing chat channel ids/);
+  assert.deepEqual(roster.store.member(dev.id).rooms, JSON.stringify([channel.id]));
+});
+
 function makeHubFrom(store) {
   const hub = new Hub(store, quiet);
   hub.setMember({ id: 'owner', name: '我', kind: 'human', online: true });
