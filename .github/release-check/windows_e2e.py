@@ -365,8 +365,10 @@ def mention(p, s, label):
             text = m.get("text") or ""
             if REPLY in text:
                 return m
-            if m.get("author") == fish["id"] and re.search(r"reading '|TypeError|Error:", text):
-                fail(f"{label}: {fish['name']} answered with an error: {text[:300]}")
+            failed = m.get("author") == fish["id"] or m.get("author_kind") == "system"
+            if failed and re.search(r"reading '|TypeError|Error:|出错了", text):
+                diagnose(p, room, fish, after)
+                fail(f"{label}: @{fish['name']} got an error instead of an answer: {text[:300]}")
         return None
     m = wait(f"{label}: @{fish['name']} answers", answered, T_REPLY, 2, on_fail=lambda: diagnose(p, room, fish, after))
     ok(f"{label}: @{fish['name']} answered in #{room.get('name')}: {m.get('text', '')[:60]!r}")
