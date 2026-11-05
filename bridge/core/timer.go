@@ -598,6 +598,15 @@ func FormatTimerRemaining(scheduledAt time.Time) string {
 	if d <= 0 {
 		return "overdue"
 	}
+	return formatRemaining(d)
+}
+
+// formatRemaining renders a positive duration as "30s" / "5m" / "2h" / "1h30m",
+// rounding up to the next second or minute so a countdown never shows a lower
+// number than what is actually left.
+// 只有这一份计时规则：timer 倒计时与额度冷却提示都走它，避免两处写法漂移
+// （审稿 2026-11-06 提的重复问题）。
+func formatRemaining(d time.Duration) string {
 	if d < time.Minute {
 		secs := int(d.Seconds() + 0.5) // round up for countdown display
 		if secs >= 60 {

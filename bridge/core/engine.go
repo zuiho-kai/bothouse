@@ -4906,8 +4906,17 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	capWait := e.capacityWait(state.quotaScope)
 	probeCapacity := capWait > 0 && msg.inputTurn == nil && !msg.FromBot &&
 		!scheduledTurnUser(msg.UserID) && msg.UserID != "handoff" && !isScheduledSideKey(interactiveKey)
-	if until := e.quotaCoolingFor(state.quotaScope); !until.IsZero() {
-		e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgQuotaCooling, until.Format(time.RFC3339)))
+	// One clock read for both the decision and the text: two reads let a deadline that
+	// is microseconds away at the check pass before the format, printing 「大约还要 0s」
+	// (复核 2026-11-06 观察①).
+	now := quotaCoolingNow()
+	if until := e.quotaCoolingForAt(state.quotaScope, now); !until.IsZero() {
+		// 用户 2026-11-04 报「没有正确显示什么时候恢复」：不再直接打印 RFC3339，
+		// 换成本地时间带偏移量，再按当前时刻算一次大约还要等多久（quota_cooling_display.go）。
+		// quotaCoolingForAt 只在截止值还在 now 之后时才返回非零值，
+		// 所以这里不需要「未知/已过期」的分支。
+		when, wait := quotaCoolingWhen(until), quotaCoolingWait(until, now)
+		e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgQuotaCooling, when, wait))
 	} else if capWait > 0 && msg.inputTurn == nil && !probeCapacity {
 		e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, capWait, true)
 	} else {
@@ -18312,7 +18321,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 		return "", err
 	}
 	if until := e.quotaCoolingFor(e.admissionQuotaScope(agent, relaySessionKey, ccSessionKey, sourceSessionKey)); !until.IsZero() {
-		return "", fmt.Errorf("engine %q quota cooling until %s", e.name, until.Format(time.RFC3339))
+		return "", fmt.Errorf("engine %q quota cooling until %s", e.name, quotaCoolingWhen(until))
 	}
 	if e.IsPaused() {
 		return "", fmt.Errorf("engine %q is paused", e.name)
@@ -18366,7 +18375,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	turnScope := e.quotaScopeOfSession(agent, agentSession)
 	if until := e.quotaCoolingFor(turnScope); !until.IsZero() {
 		agentSession.Close()
-		return "", fmt.Errorf("engine %q quota cooling until %s", e.name, until.Format(time.RFC3339))
+		return "", fmt.Errorf("engine %q quota cooling until %s", e.name, quotaCoolingWhen(until))
 	}
 	e.trackRelaySession(agentSession) // #624 K4: Stop closes relay sessions too
 	if startedFresh {
