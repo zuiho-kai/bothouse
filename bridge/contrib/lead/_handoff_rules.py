@@ -1,18 +1,52 @@
 # 交接校验：按 handoff-rules.json（同目录，唯一一份规则）查交接正文。ws-handoff 用它；DSH collab 用同一份规则的
 # Node 实现（dsh/collab/handoff-rules.mjs），两边由 test_handoff_rules.py 用同一组 fixture 比对。
 # 这里不写任何小节名、正则或报错文案，全在规则文件里；规则文件读不到就报错，不放行。
-import json, re
+import json, os, re
 from pathlib import Path
 
 RULES = Path(__file__).resolve().parent / "handoff-rules.json"
 
 
-def load(path=RULES):
+STRICT = RULES.with_name("handoff-rules.strict.json")
+# 本机叠加：<数据目录>/collaboration/handoff-rules.local.json（不进发布包）。{"profile": "strict"} 叠加严格档；
+# "checks" 按 id 覆盖或追加；"flags" 给 ws-handoff 的额外关卡（require_short、cli_gate）。
+LOCAL = Path(os.environ.get("HANDOFF_RULES_LOCAL") or RULES.parent.parent / "handoff-rules.local.json")
+
+
+def _read(path):
     try:
         with open(path, encoding="utf-8") as fh:
             return json.load(fh)
     except (OSError, ValueError) as e:
         raise RuntimeError(f"交接规则文件读不到：{path}（{e}）") from e
+
+
+def _overlay(rules, extra):
+    ids = [c["id"] for c in rules["checks"]]
+    for c in extra.get("checks", []):
+        if c["id"] in ids:
+            rules["checks"][ids.index(c["id"])] = c
+        else:
+            rules["checks"].append(c)
+            ids.append(c["id"])
+    return rules
+
+
+def load(path=RULES, local=None):
+    """产品默认规则；path 是默认那份时再叠本机 local（没有就只用默认）。显式给 path（测试）不叠。"""
+    rules = _read(path)
+    rules.setdefault("flags", {})
+    if Path(path) != RULES and local is None:
+        return rules
+    lp = Path(local) if local else LOCAL
+    if not lp.is_file():
+        return rules
+    loc = _read(lp)
+    if loc.get("profile") == "strict":
+        _overlay(rules, _read(STRICT))
+    _overlay(rules, loc)
+    rules["flags"].update(loc.get("flags", {}))
+    return rules
 
 
 def _head(line):
@@ -123,3 +157,10 @@ def check(text, rules=None):
         if err:
             return err
     return None
+
+
+def check_all(text, rules=None):
+    """所有不合格项（每项一段报错文字），合格返回空列表。ws-handoff 一次列全，免得改一处被拒一次。"""
+    rules = rules or load()
+    lines, lead = text.splitlines(), rules["lead"]
+    return [e for c in rules["checks"] for e in [_check(c, lines, lead)] if e]
