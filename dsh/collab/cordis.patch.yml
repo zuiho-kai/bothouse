@@ -1,12 +1,13 @@
 # Bundle patch applied when this package is listed in a profile's dsh.profile.bundles.
 # Paths default to $CONEST_COLLAB_DATA / $CONEST_COLLAB_WORKSPACE, else ~/.conest-collab and the cwd.
+# ~ is os.homedir(), not $HOME: Windows has no HOME, and 'undefined/.conest-collab' stops the plugin loading.
 - insert:
     - id: conest-collab
       name: conest-collab
       config:
-        dataDir: !!js process.env.CONEST_COLLAB_DATA || (process.env.HOME + '/.conest-collab')
+        dataDir: !!js process.env.CONEST_COLLAB_DATA || process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.conest-collab')
         workspacePath: !!js process.env.CONEST_COLLAB_WORKSPACE || process.cwd()
-        leadFile: !!js process.env.CONEST_LEAD_FILE || ((process.env.BOTHOUSE_DATA_DIR || (process.env.HOME + '/.bothouse')) + '/lead.json')
+        leadFile: !!js process.env.CONEST_LEAD_FILE || ((process.env.BOTHOUSE_DATA_DIR || process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.bothouse')) + '/lead.json')
         fallbackLead: !!js process.env.CONEST_FALLBACK_LEAD || ''
 - insert:
     - id: conest-channels-ui
