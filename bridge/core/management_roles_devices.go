@@ -25,6 +25,8 @@ type RoleInfo struct {
 	Paused        bool             `json:"paused"`
 	Platforms     []PlatformStatus `json:"platforms"`
 	SessionsCount int              `json:"sessions_count"`
+	// Source is "dsh" for a member DSH runs itself (read-only on the page); empty for bridge roles.
+	Source string `json:"source,omitempty"`
 }
 
 // ── Roles API ──────────────────────────────────────────────────
@@ -35,6 +37,14 @@ func (m *ManagementServer) handleRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	roles := m.bridgeRoles()
+	// DSH members are fetched outside m.mu: it is an HTTP call to the running `dsh web`.
+	roles = append(roles, m.dshRoles(r.Context())...)
+	mgmtJSON(w, http.StatusOK, map[string]any{"roles": roles})
+}
+
+// bridgeRoles lists the panel's engines (bridge roles).
+func (m *ManagementServer) bridgeRoles() []RoleInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -143,8 +153,7 @@ func (m *ManagementServer) handleRoles(w http.ResponseWriter, r *http.Request) {
 			SessionsCount: len(e.sessions.AllSessions()),
 		})
 	}
-
-	mgmtJSON(w, http.StatusOK, map[string]any{"roles": roles})
+	return roles
 }
 
 func (m *ManagementServer) handleRoleRoutes(w http.ResponseWriter, r *http.Request) {

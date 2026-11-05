@@ -17,6 +17,8 @@ export interface RoleInfo {
   paused: boolean;
   platforms: PlatformStatus[];
   sessions_count: number;
+  /** "dsh" = a member DSH runs itself (no pause/restart in DSH); absent = bridge role */
+  source?: string;
 }
 
 export async function listRoles(): Promise<{ roles: RoleInfo[] }> {
