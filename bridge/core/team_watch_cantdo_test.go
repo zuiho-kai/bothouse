@@ -1,6 +1,9 @@
 package core
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -58,5 +61,18 @@ func TestWatchBoardWaiting(t *testing.T) {
 		if watchIsCantDo(s) != want {
 			t.Errorf("watchIsCantDo(%q) != %v", s, want)
 		}
+	}
+}
+
+func writeReleaseBoard(t *testing.T, e *Engine, items ...map[string]any) {
+	t.Helper()
+	var b strings.Builder
+	for _, it := range items {
+		line, _ := json.Marshal(it)
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+	if err := os.WriteFile(filepath.Join(e.team.dir, teamTaskBoardFile), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
