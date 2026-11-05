@@ -146,6 +146,70 @@ class AwaitDeploy(unittest.TestCase):
             with patch.object(board,"_deploy_contains",return_value=True):
                 self.assertEqual(board.mark_deployed("fedcba9876"),[])  # 只转一次
 
+    def test_new_generation_drops_the_old_deploy_state(self):
+        """换代次（rebind/bind_pr）和退回、恢复都不再等上一代次的部署（#985 复审 2.1/2.2）。"""
+        import board
+        from unittest.mock import patch
+        tmp=Path(tempfile.mkdtemp())
+        with patch.object(board,"DIR",tmp),patch.dict(os.environ,{"CC_PROJECT":"lead"}):
+            board._write([{"id":80,"chat":"room:main","dispatcher":"lead","bound":"g1","ws":"room:ws1",
+                           "await_deploy":{"commit":"aaa1111","url":"u","merged_at":"m"},
+                           "pr_binding":{"url":"u","repo":"example/project","number":990,"no_deploy":False,"bound":"g1"}}])
+            board.rebind(80,"room:ws2")
+            it=board.items()[0]
+            self.assertNotIn("await_deploy",it)
+            self.assertEqual(it["bound"] and it["ws"], "room:ws2")
+            # 退回：重做后的构建不是原来已验收的那次部署
+            it.update({"returned_at":"2026-11-04T08:00:00+00:00","deployed":{"commit":"fed","at":"t"}})
+            board._write([it])
+            board.reject(80,"缺入口验证")
+            self.assertNotIn("deployed",board.items()[0])
+            self.assertNotIn("await_deploy",board.items()[0])
+            # 恢复：接着做，不是那次已验的部署
+            it=board.items()[0] | {"await_deploy":{"commit":"bbb2222"}}
+            board._write([it])
+            board.resume(80)
+            self.assertNotIn("await_deploy",board.items()[0])
+
+    def test_bind_pr_to_another_pr_clears_deploy_state(self):
+        import board
+        from unittest.mock import patch
+        tmp=Path(tempfile.mkdtemp())
+        with patch.object(board,"DIR",tmp),patch.dict(os.environ,{"CC_PROJECT":"lead"}):
+            board._write([{"id":80,"chat":"room:main","dispatcher":"lead","bound":"g1",
+                           "await_deploy":{"commit":"aaa1111"}}])
+            board.bind_pr(80,"https://github.com/example/project/pull/990",False)
+            self.assertNotIn("await_deploy",board.items()[0])  # 第一次绑定就是新代次
+            it=board.items()[0] | {"await_deploy":{"commit":"aaa1111"}}
+            board._write([it])
+            board.bind_pr(80,"https://github.com/example/project/pull/990",False)
+            self.assertIn("await_deploy",board.items()[0])  # 同一个 PR 再写一次：代次没换，留着
+            board.bind_pr(80,"https://github.com/example/project/pull/991",False)
+            self.assertNotIn("await_deploy",board.items()[0])
+
+    def test_mark_deployed_skips_paused_and_says_why(self):
+        """暂停中的不静默写；关联不上的要说出来（#985 复审 2.3/2.4）。"""
+        import board
+        from unittest.mock import patch
+        import io, contextlib
+        tmp=Path(tempfile.mkdtemp())
+        with patch.object(board,"DIR",tmp),patch.dict(os.environ,{"CC_PROJECT":"lead"}):
+            board._write([
+                {"id":80,"chat":"room:main","dispatcher":"lead","bound":"g1","paused":"11-04 18:00",
+                 "pause_why":"验收退回：x","await_deploy":{"commit":"abc1234def"},
+                 "pr_binding":{"url":"u","repo":"example/project","number":990,"no_deploy":False,"bound":"g1"}},
+                {"id":81,"chat":"room:main","dispatcher":"lead","bound":"g1","await_deploy":{"commit":""}},
+            ])
+            err=io.StringIO()
+            with patch.object(board,"_deploy_contains",return_value=True), contextlib.redirect_stderr(err):
+                self.assertEqual(board.mark_deployed("fedcba98"),[])
+            self.assertIn("80",err.getvalue())
+            self.assertIn("暂停",err.getvalue())
+            self.assertIn("81",err.getvalue())
+            for it in board.items():
+                self.assertIn("await_deploy",it)
+                self.assertNotIn("deployed",it)
+
     def test_deploy_contains_reads_compare_status(self):
         import board
         from unittest.mock import patch

@@ -809,7 +809,11 @@ def bind_pr(nid, url, no_deploy):
         binding = {"url": url, "repo": match[1], "number": int(match[2]),
                    "no_deploy": no_deploy, "bound": hit.get("bound", "")}
         if hit.get("pr_binding") != binding:
+            # A different PR is a different generation: the old merge/deploy state is not this one's
+            # (#985 review 2.1: rebinding used to keep the old await_deploy and compare the wrong commit).
             hit.pop("pr_merge", None)
+            hit.pop("await_deploy", None)
+            hit.pop("deployed", None)
         hit["pr_binding"] = binding
         _write(cur)
 
@@ -895,7 +899,17 @@ def mark_deployed(commit, nids=None):
     for item in _read():
         wait = item.get("await_deploy") or {}
         binding = item.get("pr_binding") or {}
-        if not wait or (nids and item["id"] not in nids) or not wait.get("commit") or not binding.get("repo"):
+        if nids and item["id"] not in nids:
+            continue
+        if not wait:
+            continue
+        # Say why an item that IS waiting cannot be moved, instead of hanging silently (#985 review 2.4).
+        if item.get("paused"):
+            print(f"board: #{item['id']} 正在暂停（{item.get('pause_why') or '无原因'}），先不转待上线验收", file=sys.stderr)
+            continue
+        if not wait.get("commit") or not binding.get("repo"):
+            print(f"board: #{item['id']} 等发布记的是 {wait.get('commit') or '(空提交)'}、仓库 {binding.get('repo') or '(没绑 PR)'}，"
+                  f"没法核对是否已上线，先不动；重新 board pr 绑定后可再跑 board deployed", file=sys.stderr)
             continue
         has = _deploy_contains(binding["repo"], wait["commit"], commit)
         if has is None:
@@ -906,7 +920,9 @@ def mark_deployed(commit, nids=None):
         with _locked():
             cur = _read()
             hit = next((i for i in cur if i["id"] == item["id"]), None)
-            if hit is None or hit.get("await_deploy") != wait:
+            # Re-read under the lock: the generation and the PAUSE must be the ones queried
+            # (#985 review 2.3: an item paused meanwhile must not be written silently).
+            if hit is None or hit.get("await_deploy") != wait or hit.get("pr_binding") != binding or hit.get("paused"):
                 continue
             hit.pop("await_deploy")
             hit["deployed"] = {"commit": commit, "at": _bound_now()}
@@ -996,6 +1012,10 @@ def reject(nid, reason):
             return False
         hit.pop("returned_at", None)
         hit.pop("reviewer", None)
+        # Rework is not the build already deployed for review (#985 review 2.2): the next handback
+        # binds its own PR and deployment again.
+        hit.pop("await_deploy", None)
+        hit.pop("deployed", None)
         hit["paused"] = hit["at"] = _now()
         hit["paused_at"] = _bound_now()
         hit["paused_by"] = os.environ.get("CC_PROJECT", "")
@@ -1018,6 +1038,9 @@ def rebind(nid, ws):
             hit.pop("reviewer", None)
             hit.pop("review_rejected", None)
             hit.pop("pr_merge", None)  # Previous generation's merge is not this handback.
+            # A new generation is not waiting on the old merge's deployment (#985 review 2.1).
+            hit.pop("await_deploy", None)
+            hit.pop("deployed", None)
             hit["bound"] = _bound_now()  # reoccupy 刚 claim 了一件新交接
             hit.pop("ws_was", None)
             if ws.startswith("discord:"):
@@ -1083,6 +1106,9 @@ def resume(nid):
             return None if hit is None else False
         hit.pop("paused", None)
         hit.pop("pause_why", None)
+        # Resuming continues work, not the deployment that was already verified (#985 review 2.2).
+        hit.pop("await_deploy", None)
+        hit.pop("deployed", None)
         hit["at"] = _now()
         _write(cur)
     return True

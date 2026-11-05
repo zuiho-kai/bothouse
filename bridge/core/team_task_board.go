@@ -129,9 +129,40 @@ func readTeamTaskBoard(dir string) []teamTaskBoardItem {
 // rule); change both together.
 var teamTaskBoardWaitUser = regexp.MustCompile(`等待?用户`)
 
-// teamTaskBoardAwaitRelease: a status that says the item waits on the central release
-// (board.py merged writes 「等发布：…」; leads have written 「随集中发布上线…」 by hand).
-var teamTaskBoardAwaitRelease = regexp.MustCompile(`^\s*(?:等发布|随集中发布)`)
+// teamTaskBoardAwaitRelease: the status says the item itself waits on the central release, and
+// the note to show after 等发布 ("" = nothing to add). board.py merged writes 「等发布：…」 and
+// records AwaitDeploy; this is the fallback for the hand-written ones leads keep writing
+// (「随 #133 集中发布上线」「待下次集中发布」). The waiting word must lead, and 发布 must not be
+// 发布会 (a meeting) or be followed by 后 (a note about what to do after the release). 「随 …
+// 集中发布 …」 counts anywhere in the sentence, and only the clause that says it is shown
+// (#985 review 2: the prefix-only rule missed these, and matched 「等发布会结束」).
+func teamTaskBoardAwaitRelease(status string) (string, bool) {
+	s := strings.TrimSpace(strings.ReplaceAll(status, "\u3000", " "))
+	for _, text := range []string{s, strings.ReplaceAll(s, " ", "")} {
+		m := teamTaskBoardReleaseLead.FindStringSubmatch(text)
+		if m == nil {
+			continue
+		}
+		rest := strings.TrimLeft(text[len(m[0]):], "：:，,、 ")
+		if strings.HasPrefix(rest, "会") || strings.HasPrefix(rest, "后") {
+			return "", false
+		}
+		return rest, true // rest "" = the status only says it waits: nothing to add
+	}
+	for _, clause := range strings.FieldsFunc(s, func(r rune) bool { return r == '，' || r == ',' || r == '；' || r == ';' || r == '。' }) {
+		if !teamTaskBoardReleaseAny.MatchString(clause) || strings.Contains(clause, "发布会") {
+			continue
+		}
+		return strings.TrimSpace(teamTaskBoardReleaseLeadPrefix.ReplaceAllString(clause, "")), true
+	}
+	return "", false
+}
+
+var (
+	teamTaskBoardReleaseLead       = regexp.MustCompile(`^(?:等待?|待)(?:\s*(?:下次|这次|本次|下个|下轮))?\s*(?:集中|批量|统一)?\s*(?:发布|部署)`)
+	teamTaskBoardReleaseLeadPrefix = regexp.MustCompile(`^(?:等待?|待)\s*(?:下次|这次|本次|下个|下轮)?\s*`)
+	teamTaskBoardReleaseAny        = regexp.MustCompile(`(?:集中|批量|统一)(?:发布|部署)`)
+)
 
 // teamTaskBoardWaitHours: whole hours a paused item has waited on the user, 0 below one hour or
 // when it does not wait on the user. Paused is "MM-DD HH:MM" local without a year: this year,
@@ -636,6 +667,7 @@ func teamTaskBoardReason(texts ...string) string {
 
 // teamTaskBoardStateOf: the item's state and the text after it (reason or age).
 func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardState, string) {
+	releaseNote, awaitRelease := teamTaskBoardAwaitRelease(it.Status)
 	switch {
 	case it.AwaitDeploy != nil && it.Paused == "":
 		return teamTaskRelease, "已合并，等上线"
@@ -648,9 +680,12 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 		return teamTaskPaused, ""
 	case it.ReleaseHold != nil:
 		return teamTaskRelease, "为发布暂停"
-	case teamTaskBoardAwaitRelease.MatchString(it.Status):
-		// Hand-written 「等发布…」 status (before board pr bound the PR): waits on the release, not 卡住.
-		return teamTaskRelease, teamTaskBoardReason(strings.TrimPrefix(strings.TrimSpace(it.Status), "等发布"))
+	case awaitRelease:
+		// Hand-written 「等发布…」/「随集中发布上线…」 status: waits on the release, not 卡住.
+		if note := teamTaskBoardReason(releaseNote); note != "" {
+			return teamTaskRelease, note
+		}
+		return teamTaskRelease, ""
 	case strings.HasPrefix(strings.TrimSpace(it.Status), "完成"):
 		return teamTaskHidden, ""
 	case teamOtherQuiet.MatchString(it.Status):
@@ -959,9 +994,12 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		span := teamTaskTableSpan(teamTaskTableSince(it, now), now)
 		switch {
 		case state == teamTaskRelease:
-			parts := []string{short, stateNote}
+			parts := []string{short}
 			if where != "" {
-				parts = []string{where, short, stateNote}
+				parts = []string{where, short}
+			}
+			if stateNote != "" {
+				parts = append(parts, stateNote) // no dangling 「· 」 when there is nothing to say
 			}
 			release = append(release, "  📦 "+strings.Join(parts, " · "))
 		case state == teamTaskPaused:
