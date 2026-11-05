@@ -752,13 +752,21 @@ WS_NAME_RE = re.compile(r"^(工作区\d+)")  # 「谁」= 工作区名 + 主角�
 
 
 def _ws_id_by_name(cc, chat, name):
-    """chat 所在分类的共享池里叫 name 的工作区 → <平台>:<id>；问不到返回 None。"""
+    """chat 所在分类的共享池里叫 name 的工作区 → <平台>:<id>；查询失败抛错，不能当成改派依据。"""
     try:
         p = subprocess.run([cc, "workspace", "list", "--session-key", chat, "--json"],
                            capture_output=True, text=True, timeout=WS_TIMEOUT)
-        pool = json.loads(p.stdout).get("pool") or [] if p.returncode == 0 else []
-    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
-        return None
+    except (OSError, subprocess.SubprocessError) as e:
+        raise ValueError(f"查询工作区列表失败（{e}）") from e
+    if p.returncode != 0:
+        err = (p.stderr.strip() or p.stdout.strip())[:200]
+        raise ValueError(f"查询工作区列表失败（{err}）")
+    try:
+        pool = json.loads(p.stdout)["pool"]
+        if not isinstance(pool, list):
+            raise ValueError("pool 不是列表")
+    except (ValueError, KeyError, TypeError) as e:
+        raise ValueError("查询工作区列表失败：桥返回的数据无效") from e
     plat = chat.split(":", 1)[0]
     return next((f"{plat}:{w['id']}" for w in pool if isinstance(w, dict) and w.get("name") == name and w.get("id")), None)
 
@@ -1410,7 +1418,12 @@ def main(argv):
             back = None  # 「谁」改回某个工作区（不是它眼下绑的那个）：先向桥收回，归别人就拒绝
             same = False  # 新「谁」点名的就是眼下绑的工作区：不收回、不解绑（#1111）
             if cur and m and not cur.get("paused") and argv[4] != cur.get("who") and cur.get("chat") and _cc_bin():
-                back = _ws_id_by_name(_cc_bin(), cur["chat"], m.group(1))
+                try:
+                    back = _ws_id_by_name(_cc_bin(), cur["chat"], m.group(1))
+                except ValueError as e:
+                    sys.exit(f"#{nid} {e}，板子和工作区绑定未改")
+                if not back:
+                    sys.exit(f"#{nid} 查询未找到{m.group(1)}，板子和工作区绑定未改")
                 if back and back == cur.get("ws"):
                     back, same = None, True
                 why = reoccupy(cur, back) if back else None
