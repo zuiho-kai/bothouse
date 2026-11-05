@@ -305,6 +305,8 @@ export interface ChannelActions {
   createRoom(name: string): Promise<void>
   /** #1023: open the private chat with one agent member (created on first use) and switch to it. */
   openDm?(memberId: string): Promise<void>
+  /** #155: close one private chat: it leaves the list (history kept); openDm brings it back. */
+  closeDm?(roomId: number): Promise<void>
   /** Rename a chat channel while preserving its identity and history. */
   renameRoom(roomId: number, name: string): Promise<void>
   /** Provider routes and their models for the member picker. */
@@ -912,6 +914,14 @@ export function createChannelSource(transport: ChannelTransport): {
       const { room } = await request<{ room: ChannelRoom }>('collab/api/dms', json('POST', { member: memberId }))
       if (!snapshot.rooms.some(r => r.id === room.id)) set({ rooms: [...snapshot.rooms, room] })
       await selectRoom(room.id)
+    },
+    async closeDm(roomId) {
+      await request(`collab/api/dms/${roomId}`, { method: 'DELETE' })
+      const rooms = snapshot.rooms.filter(r => r.id !== roomId)
+      set({ rooms })
+      // Closing the chat on screen moves to the first chat channel instead of an empty pane.
+      const next = rooms.find(r => r.kind !== 'workspace' && r.dm_member == null)
+      if (snapshot.roomId === roomId && next !== undefined) await selectRoom(next.id)
     },
     async renameRoom(roomId, name) {
       const { room } = await request<{ room: ChannelRoom }>(`collab/api/rooms/${roomId}`, json('PATCH', { name }))

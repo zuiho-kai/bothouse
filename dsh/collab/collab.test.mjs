@@ -6339,3 +6339,29 @@ test('roster: a default-named member from before name_customized was stored is r
   }
   assert.deepEqual(hub.store.members().map(r => r.name), ['DSH']);
 });
+
+test('#155: a closed private chat leaves the room list, keeps its history, and openDm brings it back', () => {
+  const store = new Store(':memory:');
+  store.addMember({ id: 'm-a', name: 'A' });
+  const dm = store.openDm('m-a', 'A');
+  store.append(dm.id, { authorKind: 'user', author: 'owner', name: 'Owner', text: 'hi' });
+  assert.ok(store.roomsView().some(r => r.id === dm.id));
+  store.closeDm(dm.id);
+  assert.equal(store.roomsView().some(r => r.id === dm.id), false);
+  assert.throws(() => store.closeDm(store.createRoom('general').id), /not a private chat/);
+  const again = store.openDm('m-a', 'A');
+  assert.equal(again.id, dm.id);
+  assert.ok(store.roomsView().some(r => r.id === dm.id));
+  assert.equal(store.page(dm.id).length, 1);
+});
+
+test('#155: a removed member\'s private chat is left out; a member without a stored row keeps its chat', () => {
+  const store = new Store(':memory:');
+  store.addMember({ id: 'm-gone', name: 'Gone' });
+  const gone = store.openDm('m-gone', 'Gone');
+  const bridge = store.openDm('cjiang', 'C酱'); // bridge roles join over cloud_web and have no members row
+  store.removeMember('m-gone');
+  const ids = store.roomsView().map(r => r.id);
+  assert.equal(ids.includes(gone.id), false);
+  assert.ok(ids.includes(bridge.id));
+});

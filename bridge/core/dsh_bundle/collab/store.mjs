@@ -60,6 +60,9 @@ const COLUMNS = [
   ['messages', 'memories', 'TEXT'],
   // #1023 (no version bump): a private chat is a chat room with exactly one agent member; NULL for every other room.
   ['rooms', 'dm_member', 'TEXT'],
+  // #155 (no version bump): 1 = the owner closed this private chat; it stays out of the room list
+  // (history kept) until openDm() brings it back.
+  ['rooms', 'dm_hidden', 'INTEGER NOT NULL DEFAULT 0'],
   // #597 G34: when a role last changed the row in place (a streamed draft growing, a progress card
   // edited, the draft committed); NULL if never. The task watch counts it as progress (Tasks.progressed).
   ['messages', 'changed_at', 'REAL'],
@@ -95,6 +98,11 @@ export class Store {
       room: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?'),
       rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms ORDER BY id'),
       dms: this.db.prepare('SELECT id, dm_member FROM rooms WHERE dm_member IS NOT NULL'),
+      // #155: private chats the room list leaves out — closed by the owner, or with a member
+      // since removed (a removed member keeps its row). Members that never had a row (bridge
+      // roles joining over cloud_web) are not matched, so a reconnect does not hide their chat.
+      hiddenDms: this.db.prepare(`SELECT r.id FROM rooms r LEFT JOIN members m ON m.id = r.dm_member
+        WHERE r.dm_member IS NOT NULL AND (r.dm_hidden = 1 OR m.removed = 1)`),
       children: this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id"),
       // A new workspace is claimed with no task yet (claim_task 0): its first task is the handoff.
       createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id, claim_task, claim_bridge, claim_at)
@@ -400,13 +408,21 @@ export class Store {
     if (typeof memberId !== 'string' || memberId === '') throw new CollabError('invalid', 'member id required');
     const room = this.transaction(() => {
       const found = this.db.prepare('SELECT id FROM rooms WHERE dm_member = ? ORDER BY id LIMIT 1').get(memberId);
-      if (found !== undefined) return { ...this.q.room.get(found.id), dm_member: memberId };
+      if (found !== undefined) {
+        this.db.prepare('UPDATE rooms SET dm_hidden = 0 WHERE id = ?').run(found.id); // #155: reopening shows a closed chat again.
+        return { ...this.q.room.get(found.id), dm_member: memberId };
+      }
       const created = this.q.createRoom.get(String(name || memberId).replace(/\s+/g, '').slice(0, 32) || memberId);
       this.db.prepare('UPDATE rooms SET dm_member = ? WHERE id = ?').run(memberId, created.id);
       return { ...created, dm_member: memberId };
     });
     this.ensureRoomSettings(room.id);
     return room;
+  }
+  /** #155: close a private chat: it leaves the room list, its messages stay, openDm() restores it. */
+  closeDm(roomId) {
+    if (this.dmMember(roomId) === undefined) throw new CollabError('invalid', `room ${roomId} is not a private chat`);
+    this.db.prepare('UPDATE rooms SET dm_hidden = 1 WHERE id = ?').run(roomId);
   }
   /** #1023: the agent member a private chat room is with; undefined for every other room. */
   dmMember(roomId) { return this.db.prepare('SELECT dm_member FROM rooms WHERE id = ?').get(roomId)?.dm_member ?? undefined; }
@@ -672,7 +688,9 @@ export class Store {
     this.releaseIdleWorkspaces();
     const counts = new Map(this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
       WHERE status IN ('assigned', 'accepted', 'asked', 'rework') GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
-    return this.rooms().map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id), ...this.relaySetting(r.id) }));
+    const hidden = new Set(this.q.hiddenDms.all().map(r => r.id));
+    return this.rooms().filter(r => !hidden.has(r.id))
+      .map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id), ...this.relaySetting(r.id) }));
   }
 
   /**
