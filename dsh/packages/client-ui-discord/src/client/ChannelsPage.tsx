@@ -47,6 +47,7 @@ export type ChannelsPageProps = PropsRuntime<'main'> & InjectFace<ChannelsInject
   /** #1016 转任务 on a message; absent hides the button. */
   readonly dispatchTask?: ChannelActions['dispatchTask']
   readonly openDm?: ChannelActions['openDm']
+  readonly closeDm?: ChannelActions['closeDm']
 }
 
 type T = TranslateNS<typeof NS>
@@ -594,7 +595,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, closeDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }: ChannelsPageProps) {
   const scheme = useScheme()
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
@@ -1056,6 +1057,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
       setRoomError(t('dmOpenFailed', { message: error instanceof Error ? error.message : String(error) }))
     })
   }
+  // #155: close a private chat from the 私聊 list; its history stays and 发私信 reopens it.
+  const endDm = closeDm === undefined ? undefined : (roomId: number): void => {
+    closeDm(roomId).catch((error: unknown) => {
+      setRoomError(t('dmCloseFailed', { message: error instanceof Error ? error.message : String(error) }))
+    })
+  }
   const mentionFromAvatar = (member: ChannelMember): void => {
     setAvatarMenu(undefined)
     pickFromList(member)
@@ -1346,18 +1353,23 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
         {dmRooms(state.rooms).length > 0 && <h3 className={css.dmTitle}>{t('dmGroup')}</h3>}
         {dmRooms(state.rooms).map(r => {
           const peer = state.members.find(m => m.id === r.dm_member)
+          const label = peer?.name ?? r.name
           return (
-            <button
-              key={r.id}
-              type="button"
-              className={[css.room, r.id === state.roomId ? css.roomActive : ''].filter(Boolean).join(' ')}
-              aria-current={r.id === state.roomId}
-              data-dm-room={r.dm_member}
-              onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
-            >
-              <span className={css.dmAvatar}><Avatar id={r.dm_member ?? ''} name={peer?.name ?? r.name} avatar={peer?.avatar} avatarVersion={peer?.avatarVersion} small /></span>
-              <span className={css.roomLabel}>{peer?.name ?? r.name}</span>
-            </button>
+            <div key={r.id} className={css.dmRow}>
+              <button
+                type="button"
+                className={[css.room, r.id === state.roomId ? css.roomActive : ''].filter(Boolean).join(' ')}
+                aria-current={r.id === state.roomId}
+                data-dm-room={r.dm_member}
+                onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
+              >
+                <span className={css.dmAvatar}><Avatar id={r.dm_member ?? ''} name={label} avatar={peer?.avatar} avatarVersion={peer?.avatarVersion} small /></span>
+                <span className={css.roomLabel}>{label}</span>
+              </button>
+              {endDm !== undefined && (
+                <button type="button" className={css.dmClose} data-dm-close={r.id} title={t('dmClose')} aria-label={t('dmCloseNamed', { name: label })} onClick={() => { endDm(r.id) }}>×</button>
+              )}
+            </div>
           )
         })}
       </nav>
