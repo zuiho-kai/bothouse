@@ -336,7 +336,22 @@ def set_next(nid, nxt=None, restore=None):
     return prev, hit.get("what", "")
 
 
-def update(nid, status, where=None, who=None, nxt=None):
+def _moves_ws(old_who, new_who):
+    """新「谁」是不是让条目离开眼下的工作区：改派到另一个「工作区N…」（N 和原来的不同），或改成「待接手」（没人做、
+    排队用的那个词，原来就靠它放回工作区）才算。只改负责人写法（「肥鱼 <频道>」、同一工作区换主角色名）不算，
+    条目继续绑着原工作区——否则主桥每小时收口（core reconcileTeamWorkspaces）把正在跑的工作区当成空的收回、
+    杀会话（Issue #1111，用户 2026-11-05 选①「改负责人时不再拆绑定」）。"""
+    if (new_who or "").strip() == "待接手":
+        return True
+    new = WS_NAME_RE.match(new_who or "")
+    if not new:
+        return False
+    old = WS_NAME_RE.match(old_who or "")
+    return not (old and old.group(1) == new.group(1))
+
+
+def update(nid, status, where=None, who=None, nxt=None, same_ws=False):
+    """same_ws：调用方已查明新「谁」指的就是条目眼下绑的工作区（main 里按桥的池子对过 id），不解绑。"""
     with _locked():
         cur = _read()
         hit = next((i for i in cur if i["id"] == nid), None)
@@ -345,8 +360,8 @@ def update(nid, status, where=None, who=None, nxt=None):
         before = dict(hit)
         hit["status"], hit["at"] = status, _now()
         tid = None
-        if who and hit.get("ws") and who != before.get("who"):
-            hit["ws_was"] = hit.pop("ws")  # 「谁」改走：这件不再算在那个工作区（main 里 park 掉它的交接）
+        if who and hit.get("ws") and not same_ws and _moves_ws(before.get("who"), who):
+            hit["ws_was"] = hit.pop("ws")  # 改派到另一个工作区：这件不再算在原工作区（main 里 park 掉它的交接）
             _back_to_chat(hit)
             tid = hit.pop("guard", None)  # 改派：撤兜底，交给新工作区时 ws-handoff 再挂
         if where:
@@ -1393,12 +1408,15 @@ def main(argv):
             cur = next((i for i in items() if i["id"] == nid), None)
             m = WS_NAME_RE.match(argv[4]) if len(argv) > 4 and argv[4] else None
             back = None  # 「谁」改回某个工作区（不是它眼下绑的那个）：先向桥收回，归别人就拒绝
+            same = False  # 新「谁」点名的就是眼下绑的工作区：不收回、不解绑（#1111）
             if cur and m and not cur.get("paused") and argv[4] != cur.get("who") and cur.get("chat") and _cc_bin():
                 back = _ws_id_by_name(_cc_bin(), cur["chat"], m.group(1))
+                if back and back == cur.get("ws"):
+                    back, same = None, True
                 why = reoccupy(cur, back) if back else None
                 if why:
                     _refuse(nid, why)
-            before = update(nid, argv[2], *argv[3:5], nxt=nxt)
+            before = update(nid, argv[2], *argv[3:5], nxt=nxt, same_ws=same)
             if before and back:
                 rebind(nid, back)
             if not before:
