@@ -66,7 +66,7 @@ class WorkspaceLookup(unittest.TestCase):
         calls = self.log.read_text()
         self.assertNotIn("claim", calls)
         self.assertNotIn("park", calls)
-        self.assertNotIn("cron", calls)
+        self.assertNotIn("timer", calls)
 
     def test_timeout_and_oserror_preserve_binding(self):
         with patch.dict(os.environ, self.env):
