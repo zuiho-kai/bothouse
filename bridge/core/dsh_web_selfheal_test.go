@@ -399,6 +399,37 @@ func TestDSHWebSelfHealPidZeroHealsOnce(t *testing.T) {
 	}
 }
 
+// review-146 03:35: the test above is masked twice — it finishes inside dshWebHealCooldown, and on
+// unix processAlive(0) is true, so dropping the `web.PID > 0` guard in runningDSHWeb changes nothing.
+// Mirrors a Windows host instead: "pid <= 0 is dead", and each round lets the cooldown expire, which
+// is the only way the extra heals (and backups) the guard prevents become visible.
+func TestDSHWebSelfHealPidZeroStaysHealedAfterCooldown(t *testing.T) {
+	fake := newProxyFakeDSH(t)
+	panel := setupDSHProxyTest(t, nil, "secret")
+	resetDSHWebHeal(t)
+	t.Setenv("PATH", t.TempDir()) // no lsof: the healed pid is 0
+	alive := dshWebAliveFn
+	dshWebAliveFn = func(pid int) bool { return pid > 0 && alive(pid) } // Windows: pid 0 is dead
+	t.Cleanup(func() { dshWebAliveFn = alive })
+	fake.launch.Store("rotated")
+	port := strings.TrimPrefix(fake.srv.URL, "http://127.0.0.1:")
+	staleState(t, "http://127.0.0.1:"+port+"/?token=launch#channels", 0,
+		"dsh web: "+fake.srv.URL+"/?token=rotated",
+	)
+	c := dshSignIn(t, panel, "secret")
+	for i := 0; i < 10; i++ {
+		if s := getState(t, c, panel.URL); s != http.StatusOK {
+			t.Fatalf("request %d: %d, want 200", i, s)
+		}
+		dshWebHealMu.Lock()
+		dshWebHealLast.at = time.Now().Add(-2 * dshWebHealCooldown)
+		dshWebHealMu.Unlock()
+	}
+	if n := len(backups(t)); n != 1 {
+		t.Fatalf("backups = %d after 10 requests, each past the cooldown, want 1 (healed once)", n)
+	}
+}
+
 // review-1030 #2: a page load is many concurrent requests on the same stale file; one heal, one write.
 func TestDSHWebSelfHealConcurrentRequestsWriteOnce(t *testing.T) {
 	fake := newProxyFakeDSH(t)

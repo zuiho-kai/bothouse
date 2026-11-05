@@ -57,6 +57,11 @@ var (
 	// in the file can still be alive (pid reuse, a second instance), so a live pid alone cannot
 	// decide that the state is good.
 	dshWebSuspect atomic.Bool
+	// dshWebAliveFn is processAlive, swappable by tests: on unix processAlive(0) is true (signal 0
+	// goes to the process group) while Windows says false, so only a test that says "pid <= 0 is
+	// dead" sees what a Windows host sees. 来源：验收 2026-11-06 03:2x 的注入实验 —— 不改这一处，
+	// 删掉 web.PID > 0 守卫在 mac/linux 上没有任何用例会失败。
+	dshWebAliveFn = processAlive
 )
 
 // loopbackTarget reports whether host:port points at this machine, which is the only thing the
