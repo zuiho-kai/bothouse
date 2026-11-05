@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -46,8 +47,10 @@ func TestReleaseHoldShowsUnderReleaseNotStuck(t *testing.T) {
 	}
 }
 
+// The claim writes the task sentence as the title (ws-handoff claim --title task[:60]), so the
+// real handoff carries no #N: the item is the one bound to its workspace (#984 review 1).
 func TestReleaseHoldFailedTurnsDoNotEscalate(t *testing.T) {
-	e, p, _, h := watchFixture(t, "", "#7 集中发布")
+	e, p, _, h := watchFixture(t, "", "集中发布：切版本")
 	held := map[string]any{"id": 7, "what": "集中发布", "status": "进行中", "who": "工作区1橘", "ws": "discord:ws1", "chat": "discord:chatA",
 		"release_hold": map[string]any{"at": time.Now().UTC().Format(time.RFC3339Nano)}}
 	writeReleaseBoard(t, e, held)
@@ -71,6 +74,78 @@ func TestReleaseHoldFailedTurnsDoNotEscalate(t *testing.T) {
 	}
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Idle.Fails != watchFailLimit || !got.Idle.Reported {
 		t.Fatalf("control: unheld failures must count and report: %+v (handoff %v)", got.Idle, h.At)
+	}
+}
+
+// An issue or PR number inside the title is not the board item the handoff works on: 「发布 #984
+// 收尾」 must not swallow item 984's failures in another workspace (#984 review 1, false match).
+func TestReleaseHoldTitleNumberSkipsOtherWorkspaceItem(t *testing.T) {
+	e, p, _, h := watchFixture(t, "", "发布 #984 收尾")
+	if h.Board != 0 {
+		t.Fatalf("a title number must not become the handoff's board: %d", h.Board)
+	}
+	writeReleaseBoard(t, e, map[string]any{"id": 984, "what": "别的活", "status": "进行中", "ws": "discord:ws9", "chat": "discord:chatB",
+		"release_hold": map[string]any{"at": time.Now().UTC().Format(time.RFC3339Nano)}})
+	for range watchFailLimit {
+		e.watchTurnEnded(p, "discord:ws1", "", false, true, false, time.Time{})
+	}
+	if got := handoffsOf(e, "discord:ws1")[0]; got.Idle.Fails != watchFailLimit || !got.Idle.Reported {
+		t.Fatalf("another workspace's held item must not swallow these failures: %+v", got.Idle)
+	}
+}
+
+// handoffBoardID: the item bound to the workspace, a title number only when it names that item.
+func TestHandoffBoardID(t *testing.T) {
+	items := []teamTaskBoardItem{
+		{ID: 7, What: "集中发布", WS: "discord:ws1", Chat: "discord:chatA"},
+		{ID: 984, What: "开着的 PR 收尾", WS: "discord:ws9", Chat: "discord:chatB"},
+	}
+	for _, c := range []struct {
+		name string
+		key  string
+		h    TeamHandoff
+		want int
+	}{
+		{"bound item, title without a number", "discord:ws1", TeamHandoff{Title: "集中发布：切版本"}, 7},
+		{"recorded board wins", "discord:ws1", TeamHandoff{Title: "发布 #984 收尾", Board: 7}, 7},
+		{"issue number in the title is not the item", "discord:ws1", TeamHandoff{Title: "发布 #984 收尾"}, 7},
+		{"nothing bound here", "discord:ws2", TeamHandoff{Title: "集中发布"}, 0},
+	} {
+		if got := handoffBoardID(c.key, c.h, items); got != c.want {
+			t.Errorf("%s: handoffBoardID = %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+// No open handoff yet (another engine has not loaded it, or the workspace was parked): the mark
+// is kept for one more pass and reported, never cleared on the first miss (#984 review 2).
+func TestReleaseHoldKeepsMarkOnePassThenClears(t *testing.T) {
+	e, p, _, _ := watchFixture(t, "", "别的活")
+	oldDelay, oldEvery, oldUnhold := releaseHoldResumeDelay, releaseHoldRetryEvery, releaseHoldUnhold
+	t.Cleanup(func() {
+		releaseHoldResumeDelay, releaseHoldRetryEvery, releaseHoldUnhold = oldDelay, oldEvery, oldUnhold
+	})
+	releaseHoldResumeDelay, releaseHoldRetryEvery = 0, 0
+	releaseHoldMisses = map[string]int{}
+	var cleared []string
+	releaseHoldUnhold = func(_ *Engine, _ string, id int, at string) error {
+		cleared = append(cleared, strconv.Itoa(id)+"@"+at)
+		return nil
+	}
+	before := StartTime.Add(-time.Minute).UTC().Format(time.RFC3339Nano)
+	writeReleaseBoard(t, e, map[string]any{"id": 42, "what": "没交接的活", "status": "进行中", "ws": "discord:ws7", "chat": "discord:chatA",
+		"release_hold": map[string]any{"at": before}})
+	if n := e.resumeReleaseHoldsPass(); n != 1 || len(cleared) != 0 {
+		t.Fatalf("first pass keeps the mark and asks for a retry: left=%d cleared=%v", n, cleared)
+	}
+	if sent := p.sentTo("discord:chatA"); len(sent) != 1 || !strings.Contains(sent[0], "42") {
+		t.Fatalf("one notice about the item nobody resumes, got %q", sent)
+	}
+	if n := e.resumeReleaseHoldsPass(); n != 0 || len(cleared) != 1 || cleared[0] != "42@"+before {
+		t.Fatalf("second pass clears the mark with its own time: left=%d cleared=%v", n, cleared)
+	}
+	if sent := p.sentTo("discord:chatA"); len(sent) != 1 {
+		t.Fatalf("the notice is not repeated every pass: %q", sent)
 	}
 }
 
