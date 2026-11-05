@@ -26,6 +26,9 @@ const (
 	// boardHandedOff: the status ws-handoff writes when it hands a task to a workspace
 	// (contrib/lead/ws-handoff board.update / board.add "已交接").
 	boardHandedOff = "已交接"
+	// boardStartedNoStep: what the watch writes for a started turn with no tool step yet.
+	boardStartedNoStep = "在做：" + boardNoStep
+	boardNoStep        = "已开工"
 )
 
 // activeHandoffWatch: the watch the API server runs (all role engines); nil before it starts.
@@ -59,7 +62,10 @@ func (w *handoffWatch) markStartedHandoffs(now time.Time, tried map[int]time.Tim
 		return
 	}
 	for _, it := range readTeamTaskBoard(dir) {
-		if it.WS == "" || it.Paused != "" || strings.TrimSpace(it.Status) != boardHandedOff {
+		status := strings.TrimSpace(it.Status)
+		// 「在做：已开工」 is what this wrote when the turn had started but had no tool step yet; it
+		// is filled in once with the first step (at most two writes per handoff).
+		if it.WS == "" || it.Paused != "" || (status != boardHandedOff && status != boardStartedNoStep) {
 			continue
 		}
 		if at, ok := tried[it.ID]; ok && now.Sub(at) < boardAutostartRetry {
@@ -69,8 +75,12 @@ func (w *handoffWatch) markStartedHandoffs(now time.Time, tried map[int]time.Tim
 		if !ok || !w.workspaceEventActive(it.WS, since) {
 			continue
 		}
+		step := w.workspaceLastStep(it.WS, since)
+		if status == boardStartedNoStep && step == "" {
+			continue
+		}
 		tried[it.ID] = now
-		status := "在做：" + boardAutostartStep(w.workspaceLastStep(it.WS, since))
+		status = "在做：" + boardAutostartStep(step)
 		if out, err := e.runLeadScript(it.Chat, "board", "update", strconv.Itoa(it.ID), status); err != nil {
 			slog.Warn("team watch: board autostart update failed", "board", it.ID, "workspace", it.WS, "error", err, "output", strings.TrimSpace(string(out)))
 			continue
@@ -149,7 +159,7 @@ func (w *handoffWatch) workspaceLastEvent(key string) time.Time {
 func boardAutostartStep(step string) string {
 	step = strings.Join(strings.Fields(step), " ")
 	if step == "" {
-		return "已开工"
+		return boardNoStep
 	}
 	return truncateRunes(step, boardAutostartStepRunes)
 }

@@ -91,6 +91,11 @@ func TestBoardAutostart_NoStepAndKeepsOwnStatus(t *testing.T) {
 	if got := boardStatus(t, dir, 7); got != "在做：已开工" {
 		t.Fatalf("status = %q", got)
 	}
+	autostartEvent(t, e, "discord:ws1:u1", "Edit core/x.go")
+	w.markStartedHandoffs(time.Now(), map[int]time.Time{})
+	if got := boardStatus(t, dir, 7); got != "在做：Edit core/x.go" {
+		t.Fatalf("first step not filled in: %q", got)
+	}
 	if out, err := e.runLeadScript("discord:main", "board", "update", "7", "在做：自己写的进度"); err != nil {
 		t.Fatalf("board update: %v %s", err, out)
 	}
