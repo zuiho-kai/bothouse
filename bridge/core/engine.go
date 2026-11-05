@@ -6031,7 +6031,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					e.forwardWorkspaceExitContext(ctx, p, sessionKey, fullResponse) // #139 C: workspace [ask]/[report] -> chat channel
 				}
 
-				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false, false, time.Time{})
+				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false, false, false, time.Time{})
 
 				// Safety note: concurrent writes to session.History by the
 				// unsolicited reader and a foreground turn cannot overlap.
@@ -6247,8 +6247,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		if !watchTurnFinished && !state.isStopped() && e.ctx.Err() == nil {
 			state.mu.Lock()
 			p := state.platform
+			scheduled := state.turnScheduled
 			state.mu.Unlock()
-			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, turnFailed, e.watchCardResult(state), turnStart)
+			// A scheduled turn's error is not the watched board item's failure (watchTurnEnded).
+			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, turnFailed, scheduled, e.watchCardResult(state), turnStart)
 		}
 	}()
 	waitStart := time.Now()
@@ -7728,7 +7730,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				e.settleReportWake(jobID, text, nil)
 			}
 			if !state.isStopped() {
-				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, false, e.watchCardResult(state), turnStart)
+				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, false, false, e.watchCardResult(state), turnStart)
 			}
 			e.finishPublicProgress(state, progressOutcome)
 

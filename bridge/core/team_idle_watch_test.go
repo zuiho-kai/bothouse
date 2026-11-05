@@ -28,7 +28,7 @@ func TestWatchChatAcceptAnsweredInTurnIsNotWatched(t *testing.T) {
 		"<@1>【接】马上做",
 	} {
 		e, _ := acceptFixture(t)
-		e.watchTurnEnded(e.platforms[0], "discord:chatA", reply, false, false, false, time.Time{})
+		e.watchTurnEnded(e.platforms[0], "discord:chatA", reply, false, false, false, false, time.Time{})
 		if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 0 {
 			t.Fatalf("%q: a tool-less chat answer must not be watched, got %+v", reply, got)
 		}
@@ -38,7 +38,7 @@ func TestWatchChatAcceptAnsweredInTurnIsNotWatched(t *testing.T) {
 // Work started in the turn (a tool ran) is still watched, titled from the first line.
 func TestWatchChatAcceptWithWorkIsWatched(t *testing.T) {
 	e, _ := acceptFixture(t)
-	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】修登录页样式\n先看了 css，接下来改按钮", true, false, false, time.Time{})
+	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】修登录页样式\n先看了 css，接下来改按钮", true, false, false, false, time.Time{})
 	got := scriptWatchesOf(e, "discord:chatA")
 	if len(got) != 1 || got[0].Title != "修登录页样式" {
 		t.Fatalf("accepted work with tool use must be watched by its title, got %+v", got)
@@ -50,7 +50,7 @@ func TestWatchChatAcceptWithWorkIsWatched(t *testing.T) {
 func TestWatchAcceptBlankTitleWithWorkUsesFallbackTitle(t *testing.T) {
 	for _, reply := range []string{"【接】\n一个最基础的登录页…", "【接】 -\n答案", "【接】"} {
 		e, _ := acceptFixture(t)
-		e.watchTurnEnded(e.platforms[0], "discord:chatA", reply, true, false, false, time.Time{})
+		e.watchTurnEnded(e.platforms[0], "discord:chatA", reply, true, false, false, false, time.Time{})
 		got := scriptWatchesOf(e, "discord:chatA")
 		if want := e.i18n.T(MsgWatchUntitledAccept); len(got) != 1 || got[0].Title != want {
 			t.Fatalf("%q: a bare 【接】 with tool use must be watched as %q, got %+v", reply, want, got)
@@ -70,7 +70,7 @@ func TestWatchWorkspaceAcceptWithoutToolsIsWatched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.watchTurnEnded(e.platforms[0], "discord:ws1", "【接】改登录页\n先读交接", false, false, false, time.Time{})
+	e.watchTurnEnded(e.platforms[0], "discord:ws1", "【接】改登录页\n先读交接", false, false, false, false, time.Time{})
 	if got := scriptWatchesOf(e, "discord:ws1"); len(got) != 1 || got[0].Title != "改登录页" || got[0].Chat != "discord:chat1" {
 		t.Fatalf("a tool-less 【接】 in a workspace must be watched for its chat channel, got %+v", got)
 	}
@@ -81,7 +81,7 @@ func TestWatchWorkspaceAcceptWithoutToolsIsWatched(t *testing.T) {
 func TestWatchChatAcceptBoardActiveWithoutNumberIsWatched(t *testing.T) {
 	e, _ := acceptFixture(t)
 	writeReleaseBoard(t, e, map[string]any{"id": 9, "what": "接上游的接口", "status": "进行中", "who": "橘", "ws": "discord:chatA"})
-	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】\n这就开始", false, false, false, time.Time{})
+	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】\n这就开始", false, false, false, false, time.Time{})
 	if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 1 || got[0].Board != 9 || got[0].Title != "#9 接上游的接口" {
 		t.Fatalf("an active board item must be watched under its board title, got %+v", got)
 	}
@@ -91,7 +91,7 @@ func TestWatchChatAcceptBoardActiveWithoutNumberIsWatched(t *testing.T) {
 func TestWatchChatAcceptNamingBoardItemIsWatched(t *testing.T) {
 	e, _ := acceptFixture(t)
 	writeReleaseBoard(t, e, map[string]any{"id": 9, "what": "接上游的接口", "status": "进行中", "who": "橘", "ws": "discord:chatA"})
-	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】#9 这就开始", false, false, false, time.Time{})
+	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】#9 这就开始", false, false, false, false, time.Time{})
 	if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 1 || got[0].Board != 9 {
 		t.Fatalf("an accepted board item must be watched, got %+v", got)
 	}
