@@ -6,6 +6,9 @@ import { cn } from '@/lib/utils';
 import { useEntrance } from '@/lib/useEntrance';
 import { listProjects, shownName, type ProjectSummary } from '@/api/projects';
 import { deleteSession, listSessions, type Session } from '@/api/sessions';
+import { getDSHSummary, type DSHChannel } from '@/api/dsh';
+import { dshChannelsUrl } from '@/lib/collabPages';
+import api from '@/api/client';
 import { SessionCard, SessionRow, sessionKey } from './SessionCard';
 import { SessionDrawer } from './SessionDrawer';
 import { SessionFiltersBar } from './SessionFilters';
@@ -44,6 +47,9 @@ export default function SessionList() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [note, setNote] = useState('');
+  // DSH's own channels: listed under the bridge sessions, opened on DSH's channels page.
+  const [dshChannels, setDshChannels] = useState<DSHChannel[]>([]);
+  const [dshMemberCount, setDshMemberCount] = useState(0);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -61,6 +67,9 @@ export default function SessionList() {
         })
       );
       setData(results);
+      const d = await getDSHSummary().catch(() => null);
+      setDshChannels(d && d.running ? d.channels : []);
+      setDshMemberCount(d && d.running ? d.members.length : 0);
     } finally {
       setLoading(false);
     }
@@ -148,7 +157,7 @@ export default function SessionList() {
           <h1 className="text-xl font-semibold tracking-tight text-ink">{t('sessions.title')}</h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-mute">
             <span className="tabular-nums">
-              {totals.sessions} {t('sessions.title')}
+              {totals.sessions + dshChannels.length} {t('sessions.title')}
             </span>
             {totals.live > 0 && (
               <span className="inline-flex items-center gap-1.5 tabular-nums text-emerald-600 dark:text-emerald-400">
@@ -159,7 +168,7 @@ export default function SessionList() {
               </span>
             )}
             <span className="tabular-nums">
-              {totals.projects} {t('projects.title')}
+              {totals.projects + dshMemberCount} {t('projects.title')}
             </span>
           </p>
         </div>
@@ -221,6 +230,7 @@ export default function SessionList() {
 
       {shown.length === 0 ? (
         all.length === 0 ? (
+          dshChannels.length > 0 ? null :
           <EmptyState
             message={t('sessions.noSessions')}
             icon={MessagesSquare}
@@ -259,6 +269,31 @@ export default function SessionList() {
             />
           ))}
         </div>
+      )}
+
+      {dshChannels.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold text-ink">DSH 频道</h3>
+          <div className="flex flex-col gap-1.5">
+            {dshChannels.map((ch) => (
+              <a
+                key={ch.id}
+                href={dshChannelsUrl(undefined, api.getToken())}
+                className="flex min-w-0 items-center gap-3 rounded-control bg-surface px-3 py-2 ring-1 ring-hairline hover:ring-hairline-strong"
+              >
+                <span className="shrink-0 text-[13px] font-medium text-ink">#{ch.name}</span>
+                <span className="min-w-0 flex-1 truncate text-xs text-ink-mute">
+                  {ch.last_message ? `${ch.last_message.name}：${ch.last_message.content}` : '还没有消息'}
+                </span>
+                {ch.updated_at && (
+                  <span className="shrink-0 text-xs text-ink-mute tabular-nums">
+                    {new Date(ch.updated_at).toLocaleString()}
+                  </span>
+                )}
+              </a>
+            ))}
+          </div>
+        </section>
       )}
 
       <SessionDrawer

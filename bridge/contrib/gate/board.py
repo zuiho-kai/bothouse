@@ -26,6 +26,8 @@
                                          #   （恢复后重新 ws-handoff，先复用空着的工作区，不保证回原号）
   board resume <编号>                     # 恢复：回到「在做」
   board pr <编号> <GitHub PR URL> no-deploy|deploy  # 派活人绑定本代次 PR 和交接部署范围
+  board tier <编号> simple|complex         # 验收档位：不标=简单档（设置里选的便宜模型先审）；审的人拿不准标 complex，
+                                         #   桥换复杂档的审核人再审一遍（用户 2026-11-04「简单的交给便宜模型」）
   board merged                          # 核对绑定 PR；已合并且不部署仅转待收口，不代替验收
   board link <编号> <卡片链接>             # 给这件事挂一张公开任务卡（Discord 消息链接），board 列表那行末尾出「卡 链接」
   board refresh                          # 把一小时没进展的工作区条目转暂停（停滞检查定时调用），再自动收起没用的暂停条目
@@ -53,13 +55,14 @@
   --idle <小时> 写它；所有角色的命令和桥跑的定时都只读它。文件没有 = 开、24 小时；文件坏了 = 不收并警告一行。
   返工汇总和团队板「今天做完」都不算自动收起的记录。
 """
-import fcntl, json, os, re, shlex, shutil, subprocess, sys, time
+import json, os, re, shlex, shutil, subprocess, sys, time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # ../lead/board 从别处跑时也找得到同目录的 datadir.py
 import datadir  # noqa: E402
+import filelock  # noqa: E402  跨进程锁：Mac/Linux 用 fcntl.flock，Windows 用 msvcrt.locking
 
 SETUP = datadir.setup_dir()
 
@@ -89,7 +92,7 @@ def _path(name):
 def _locked():
     DIR.mkdir(parents=True, exist_ok=True)
     with open(_path("board.lock"), "w") as lk:
-        fcntl.flock(lk, fcntl.LOCK_EX)
+        filelock.lock(lk)
         yield
 
 
@@ -479,6 +482,17 @@ def _park_once(cc, sk, chat, bound=None, stop=False):
         return None
 
 
+def _park_done(hit):
+    """收尾（done / 收尾词）时条目还绑着工作区（没交回就直接结束）：当场放回，不等每小时对账（用户 2026-11-04
+    「工作区用完了及时清理」「交回/暂停/验收完当场放回」）。和 pause 一样：不在那个工作区里结束的连同那一轮一起停。"""
+    if not isinstance(hit, dict) or not hit.get("ws"):
+        return
+    here = os.environ.get("CC_SESSION_KEY", "").split(":")[1:2]
+    freed = park_workspace(hit, stop=(here != hit["ws"].split(":")[1:2]))
+    if freed is not None:
+        print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
+
+
 def park_workspace(it, stop=False):
     """暂停即放回（用户同意的「停着的活挪到待办列表」）：条目是 ws-handoff 交活时建、绑了工作区的（it["ws"]），
     <桥> workspace park 放掉它在那里的那一件交接；那里没别的活在做，桥就把工作区放回池子并清掉会话
@@ -738,7 +752,7 @@ def reconcile_merged_prs():
             continue
         try:
             result = subprocess.run(["gh", "pr", "view", str(binding["number"]), "--repo", binding["repo"],
-                                     "--json", "state,mergedAt,mergeCommit"], capture_output=True, text=True, timeout=30)
+                                     "--json", "state,mergedAt,mergeCommit,statusCheckRollup"], capture_output=True, text=True, timeout=30)
             if result.returncode != 0:
                 print(f"board: #{item['id']} PR 查询失败，保留原状态", file=sys.stderr)
                 continue
@@ -759,6 +773,43 @@ def reconcile_merged_prs():
             hit["status"] = "待收口：PR 已合并（不部署），等待验收"
             hit["at"] = _now()
             _write(cur)
+            simple = REVIEW_TIERS.get(hit.get("review_tier") or "simple") != "complex"
+        # 小活合并且检查都过就自动收口，大活（board tier complex）仍等人看
+        # （用户 2026-11-04 23:2x「小活交回时，只要检查都过了就自动收口，大活才需要人看」）。
+        if simple and checks_green(pr.get("statusCheckRollup")):
+            ended = done(item["id"], 0)
+            if ended:
+                _park_done(ended)
+                print(f"board: #{item['id']} PR 已合并、检查全过，小活自动收口")
+
+
+CHECK_OK = {"SUCCESS", "SKIPPED", "NEUTRAL"}
+
+
+def checks_green(rollup):
+    """GitHub statusCheckRollup 全部成功/跳过才算过；没有检查记录不算过（不能凭空收口）。"""
+    if not rollup:
+        return False
+    for c in rollup:
+        state = (c.get("conclusion") or c.get("state") or "").upper()
+        if state not in CHECK_OK:
+            return False
+    return True
+
+
+REVIEW_TIERS = {"simple": "simple", "简单": "simple", "complex": "complex", "复杂": "complex"}
+
+
+def set_tier(nid, tier):
+    """验收档位记在条目 review_tier 上，桥的复盘扫描（core/team_task_review.go）按它选审核人。"""
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None:
+            return False
+        hit["review_tier"] = REVIEW_TIERS[tier]
+        _write(cur)
+    return True
 
 
 def returned(nid, reviewer, at=None, bound=None, receipt=None):
@@ -899,7 +950,7 @@ def done(nid, rework=None, why=None):
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         event(nid, "done", hit)
     _del_timer(tid)
-    return True
+    return hit  # 移出板的条目（绑着工作区时 main 里 park 掉，_park_done）
 
 
 # 返工汇总。用户同意橘的提议「任务收尾时在任务板上多记一项『返工了几次、为什么』……攒上两周就知道哪条规则真起了作用」（2026-10-23「可以的」）
@@ -1304,8 +1355,10 @@ def main(argv):
                 rebind(nid, back)
             if not before:
                 sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
-            if CLOSED_RE.match(argv[2]) and done(nid):
+            ended = CLOSED_RE.match(argv[2]) and done(nid)
+            if ended:
                 print(f"已结束：状态「{argv[2]}」是收尾词，#{nid} 移出任务板（返工次数记「未填」）")
+                _park_done(ended)
                 return
             print("已更新")
             if before.get("ws") and not any(i["id"] == nid and i.get("ws") == before["ws"] for i in items()):
@@ -1317,6 +1370,10 @@ def main(argv):
             print("已绑定 PR 与部署范围；合并不代表验收")
         elif cmd == "merged" and len(argv) == 1:
             reconcile_merged_prs()
+        elif cmd == "tier" and len(argv) == 3 and argv[2] in REVIEW_TIERS:
+            if not set_tier(int(argv[1].lstrip("#")), argv[2]):
+                sys.exit("条目不存在，未改档位")
+            print("已改验收档位：" + REVIEW_TIERS[argv[2]])
         elif cmd == "returned" and len(argv) in (3, 4, 6):
             if not returned(int(argv[1].lstrip("#")), *argv[2:]):
                 sys.exit("条目不存在，未登记交回")
@@ -1336,9 +1393,11 @@ def main(argv):
             why = argv[3].strip() if len(argv) > 3 else ""
             if rework > 0 and not why:
                 sys.exit(f"返工 {rework} 次要写原因，比如 board done {nid} {rework} \"没先读现有实现\"")
-            if not done(nid, rework, why or None):
+            ended = done(nid, rework, why or None)
+            if not ended:
                 sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
             print("已结束")
+            _park_done(ended)
             hint = open_pr_hint()
             if hint:
                 print(hint)

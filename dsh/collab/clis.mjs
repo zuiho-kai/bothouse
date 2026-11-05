@@ -3,11 +3,18 @@
 import { execFile } from 'node:child_process';
 import { CLIS } from './roster.mjs';
 
-/** Default lookup: `which <name>` → absolute path, or undefined when absent. */
-export function which(name) {
+/**
+ * Default lookup: `which <name>` → absolute path, or undefined when absent. Windows has no `which`:
+ * `where.exe` lists every match (CRLF), including npm's extensionless sh shim next to the .cmd, so the
+ * first one Windows can start (PATHEXT) is taken.
+ */
+export function which(name, platform = process.platform) {
+  const win = platform === 'win32';
   return new Promise((resolve) => {
-    execFile('which', [name], (error, stdout) => {
-      const path = String(stdout ?? '').trim().split('\n')[0];
+    execFile(win ? 'where.exe' : 'which', [name], (error, stdout) => {
+      const lines = String(stdout ?? '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const exts = String(process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').toLowerCase().split(';').filter(Boolean);
+      const path = win ? (lines.find(l => exts.some(e => l.toLowerCase().endsWith(e))) ?? lines[0]) : lines[0];
       resolve(error || !path ? undefined : path);
     });
   });

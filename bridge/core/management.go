@@ -86,6 +86,10 @@ type ManagementServer struct {
 	// setup wizard (setup_wizard.go)
 	wizardStore   WizardStore
 	wizardDataDir string
+
+	// 接入应用 (#150): config.toml module states, wired by cmd/cc-connect
+	// (management_modules.go). nil = no config read, every row shows not_configured.
+	platformModules func() map[string]PlatformModule
 }
 
 // NewManagementServer creates a new management API server.
@@ -287,6 +291,9 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	// Agents & Platforms (registry)
 	mux.HandleFunc(prefix+"/agents", m.wrap(m.handleAgents))
 
+	// 接入应用 (#150): which chat apps are wired, and where each one is added
+	mux.HandleFunc(prefix+"/modules", m.wrap(m.handleModules))
+
 	// Projects
 	mux.HandleFunc(prefix+"/projects", m.wrap(m.handleProjects))
 	mux.HandleFunc(prefix+"/projects/", m.wrap(m.handleProjectRoutes))
@@ -338,6 +345,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	// Roles
 	mux.HandleFunc(prefix+"/roles", m.wrap(m.handleRoles))
 	mux.HandleFunc(prefix+"/roles/", m.wrap(m.handleRoleRoutes))
+	mux.HandleFunc(prefix+"/dsh/summary", m.wrap(m.handleDSHSummary))
 
 	// Devices (adapters from bridge server)
 	mux.HandleFunc(prefix+"/devices", m.wrap(m.handleDevices))
@@ -518,7 +526,7 @@ func (m *ManagementServer) handleStatus(w http.ResponseWriter, r *http.Request) 
 		platforms = append(platforms, p)
 	}
 
-	var adapters []map[string]any
+	adapters := []map[string]any{}
 	if m.bridgeServer != nil {
 		adapters = m.listBridgeAdapters()
 	}
@@ -1835,6 +1843,11 @@ func (m *ManagementServer) handleBridgeAdapters(w http.ResponseWriter, r *http.R
 		return
 	}
 	adapters := m.listBridgeAdapters()
+	if adapters == nil {
+		// Same shape as /devices: an empty list, not JSON null, so a client never has to special-case
+		// "bridge server not running" from "no adapters registered".
+		adapters = []map[string]any{}
+	}
 	mgmtJSON(w, http.StatusOK, map[string]any{"adapters": adapters})
 }
 

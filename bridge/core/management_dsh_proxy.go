@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
@@ -14,7 +13,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,22 +74,38 @@ func (m *ManagementServer) dshAuthorized(r *http.Request) bool {
 	return m.authenticate(r)
 }
 
-// runningDSHWeb returns the loopback host:port and launch token of the `dsh web` the wizard started,
-// or an error when it is not running.
+// runningDSHWeb returns the loopback host:port and launch token of the `dsh web` that is up, or an
+// error when there is none. The state file is the fast path; it is healed from the host's own log
+// when it names a dead pid, a non-loopback host (an announcement written verbatim turns the 503 into
+// a 502, since the proxy dials the url's host), or a token the proxy was just refused — see
+// dsh_web_selfheal.go.
 func runningDSHWeb() (target, launchToken string, err error) {
-	b, err := os.ReadFile(dshWebStatePath())
-	if err != nil {
+	web, u, ok := readDSHWebState()
+	if !ok {
+		if web.URL != "" {
+			return "", "", fmt.Errorf("dsh-web.json has an unreadable url %q", web.URL)
+		}
+		// No file at all (openDSHWeb removes it before a restart): the host may still be up and have
+		// announced itself in the default log next to it.
+		if t, tok, healed := healDSHWebState(DSHWeb{}); healed {
+			return t, tok, nil
+		}
 		return "", "", errDSHWebNotRunning
 	}
-	var web DSHWeb
-	if json.Unmarshal(b, &web) != nil || web.URL == "" || web.PID <= 0 || !processAlive(web.PID) {
-		return "", "", errDSHWebNotRunning
+	stale := dshWebSuspect.Swap(false) || web.PID <= 0 || !processAlive(web.PID) || !loopbackTarget(u.Host)
+	if !stale {
+		return u.Host, u.Query().Get("token"), nil
 	}
-	u, err := url.Parse(web.URL)
-	if err != nil || u.Host == "" {
-		return "", "", fmt.Errorf("dsh-web.json has an unreadable url %q", web.URL)
+	if t, tok, healed := healDSHWebState(web); healed {
+		return t, tok, nil
 	}
-	return u.Host, u.Query().Get("token"), nil
+	// Nothing could be adopted. A live loopback host the token was only *suspected* on is still
+	// worth dialling — DSH answers, and the proxy shows what it said. A dead pid is not: the file
+	// offers nothing to reach, which is the 503 this page exists for.
+	if web.PID > 0 && processAlive(web.PID) && loopbackTarget(u.Host) {
+		return u.Host, u.Query().Get("token"), nil
+	}
+	return "", "", errDSHWebNotRunning
 }
 
 var errDSHWebNotRunning = errors.New("the channels page (dsh web) is not running")
@@ -111,7 +125,7 @@ func dshProxyPage(w http.ResponseWriter, status int, msg string) {
 func dshSameOrigin(r *http.Request) bool {
 	if o := r.Header.Get("Origin"); o != "" {
 		u, err := url.Parse(o)
-		if err != nil || !strings.EqualFold(u.Host, r.Host) {
+		if err != nil || (!strings.EqualFold(u.Host, r.Host) && !dshOriginPortDropped(r, u)) {
 			return false
 		}
 	}
@@ -121,6 +135,24 @@ func dshSameOrigin(r *http.Request) bool {
 	}
 	navigate := r.Header.Get("Sec-Fetch-Mode") == "navigate" && r.Header.Get("Upgrade") == ""
 	return navigate && (r.Method == http.MethodGet || r.Method == http.MethodHead)
+}
+
+// dshOriginPortDropped covers one exact mismatch seen on an external Windows machine (PR #1011): the
+// browser sent `Origin: http://127.0.0.1` without the panel's port on plain HTTP requests, so every
+// /dsh/api call was refused and the page stayed blank. The port-less Origin is accepted only when the
+// browser's own Fetch Metadata says same-origin (a page on another port gets same-site, and pages
+// cannot set Sec-Fetch-*) and the full Referer names exactly this scheme, host and port. WebSocket
+// upgrades, an Origin with any port or credentials, and a missing or foreign Referer stay refused.
+func dshOriginPortDropped(r *http.Request, o *url.URL) bool {
+	if r.Header.Get("Sec-Fetch-Site") != "same-origin" || r.Header.Get("Upgrade") != "" ||
+		o.Port() != "" || o.User != nil {
+		return false
+	}
+	ref, err := url.Parse(r.Header.Get("Referer"))
+	if err != nil || ref.Host == "" || !strings.EqualFold(ref.Host, r.Host) {
+		return false
+	}
+	return strings.EqualFold(o.Scheme, ref.Scheme) && strings.EqualFold(o.Hostname(), ref.Hostname())
 }
 
 func (m *ManagementServer) handleDSHProxy(w http.ResponseWriter, r *http.Request) {
@@ -208,8 +240,9 @@ func (m *ManagementServer) handleDSHProxy(w http.ResponseWriter, r *http.Request
 	rp.ServeHTTP(w, r)
 }
 
-// dshRewriteHTML moves DSH's root-absolute app shell under /dsh/: the `<base href="/">` that its
-// relative assets resolve against, the `/plugins/` bundle URLs in attributes and the boot JSON, and,
+// dshRewriteHTML moves DSH's root-absolute app shell, and the bothouse panel's own mount base, under
+// /dsh/: the `<base href>` that their relative assets resolve against, the `/plugins/` bundle URLs in
+// attributes and the boot JSON, and,
 // since its client code also calls fixed root routes (`/api`, `/api/remote.mux`, `/plugins/events`,
 // `/open-in-app/...`), a shim ahead of every script that prefixes same-origin root paths given to
 // fetch, XMLHttpRequest, EventSource and WebSocket. Pages without that base tag pass through; the
@@ -228,7 +261,7 @@ func dshRewriteHTML(res *http.Response) error {
 	if s := string(b); manifest {
 		// The web app manifest's id/start_url/scope/icons are root paths too.
 		b = []byte(strings.ReplaceAll(s, `": "/`, `": "`+dshProxyPrefix+`/`))
-	} else if strings.Contains(s, dshShellBase) {
+	} else if strings.Contains(s, dshShellBase) || strings.Contains(s, dshPanelMountBase) {
 		b = []byte(dshHTMLReplacer.Replace(s))
 	}
 	res.Body = io.NopCloser(bytes.NewReader(b))
@@ -238,6 +271,14 @@ func dshRewriteHTML(res *http.Response) error {
 }
 
 const dshShellBase = `<base href="/">`
+
+// The bothouse panel (dsh/collab/panel.mjs rewritePanelHTML) points its own base at its mount path,
+// as `<base href="/collab/panel/" />`. When the panel is reached through this proxy the document
+// lives under /dsh/, so that base has to carry the prefix too — otherwise its relative assets and
+// /api/v1 calls land on the bare path and the management server answers them with the SPA's
+// index.html (a blank panel). Only the quoted path is matched, so however the tag is closed
+// (`/>` or `>`) the prefix lands in the same place.
+const dshPanelMountBase = `<base href="/collab/panel/"`
 
 // dshShimRoutes matches the root routes DSH's client code calls on its own server (source: its
 // shell bundles as served by dsh web on 11-03 — "/api/<method>", "/api/remote.mux", "/plugins/events",
@@ -256,6 +297,7 @@ const dshPathShim = `<script>(()=>{const P=` + "`" + dshProxyPrefix + "`" + `,L=
 
 var dshHTMLReplacer = strings.NewReplacer(
 	dshShellBase, `<base href="`+dshProxyPrefix+`/">`+dshPathShim,
+	dshPanelMountBase, `<base href="`+dshProxyPrefix+`/collab/panel/"`,
 	`"/plugins/`, `"`+dshProxyPrefix+`/plugins/`,
 	// Manifest fetches omit cookies unless asked, and /dsh/ needs the panel cookie.
 	`<link rel="manifest" `, `<link rel="manifest" crossorigin="use-credentials" `,
@@ -295,7 +337,21 @@ type dshProxyTransport struct {
 func (t *dshProxyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	cookie, err := t.p.cookieFor(req, t.target, t.launchToken, "")
 	if err != nil {
-		return nil, err
+		// The recorded token was refused: the host is up but it is not the one the state file
+		// describes. Heal from the log and sign in again, so this request is served instead of 502.
+		healedTarget, healedToken, healed := healAfterRefusedToken()
+		if !healed {
+			return nil, err
+		}
+		if healedTarget != t.target {
+			// The host came back on another port; follow it for this request too.
+			t.target = healedTarget
+			req.URL.Host, req.Host = healedTarget, healedTarget
+		}
+		t.launchToken = healedToken
+		if cookie, err = t.p.cookieFor(req, t.target, t.launchToken, ""); err != nil {
+			return nil, err
+		}
 	}
 	req.Header.Set("Cookie", cookie)
 	res, err := t.p.transport.RoundTrip(req)
@@ -337,6 +393,10 @@ func (p *dshProxy) cookieFor(req *http.Request, target, launchToken, stale strin
 		parts = append(parts, c.Name+"="+c.Value)
 	}
 	if len(parts) == 0 {
+		// The pid can still be alive (pid reuse, a second instance) while the token is the previous
+		// start's: the state file is then stale in the way the pid cannot show, so the next request
+		// heals it from the log.
+		dshWebSuspect.Store(true)
 		return "", fmt.Errorf("dsh web refused the launch token (HTTP %d)", res.StatusCode)
 	}
 	p.target, p.cookie = target, strings.Join(parts, "; ")

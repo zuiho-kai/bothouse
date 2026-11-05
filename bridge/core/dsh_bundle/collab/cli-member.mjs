@@ -104,6 +104,9 @@ export class CliMember {
       cwd: this.cwd,
       stdio: ['pipe', 'pipe', 'inherit'],
       env: { ...cleanEnv(), ...this.extraEnv },
+      // Windows: `gemini` / `npx` are npm .cmd shims, which only start through a shell (spawn without
+      // one gives ENOENT, and EINVAL for a .cmd path). Args here are fixed names and flags, no spaces.
+      shell: process.platform === 'win32' && cmd !== process.execPath,
     })
     this.proc = proc
     const client = this._client()

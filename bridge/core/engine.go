@@ -491,11 +491,18 @@ type Engine struct {
 	resetOnIdle        time.Duration
 	// Per-session model overrides (maomao fork, see session_models.go)
 	// Model-at-capacity cooldown (maomao fork, see capacity_retry.go)
-	capMu             sync.Mutex
-	capUntil          time.Time
-	quotaUntil        time.Time            // legacy unscoped cooldown only
-	quotaDomains      map[string]time.Time // guarded by quotaDomainsMu
+	capMu        sync.Mutex
+	capUntil     time.Time
+	quotaUntil   time.Time            // legacy unscoped cooldown only
+	quotaDomains map[string]time.Time // guarded by quotaDomainsMu
+	// quotaMu guards quotaState. Lock order: relayManager.quotaMu → quotaMu →
+	// publicProgress.transitionMu → publicRun.mu. quotaTick holds quotaMu while it
+	// walks task runs, so code that may run under a task lock (admission checks,
+	// PublicProgress.quotaBlocked) must never wait on quotaMu: it reads Verified
+	// through quotaVerifiedMu and writes through updateQuotaState.
 	quotaMu           sync.Mutex
+	quotaVerifiedMu   sync.Mutex     // leaf lock for quotaState.Verified; never held while taking another lock
+	quotaUpdates      sync.WaitGroup // deferred updateQuotaState writes still running
 	quotaState        quotaCoolingState
 	quotaProbeFn      func(ctx context.Context) (usable bool, nextRetry time.Duration, err error)
 	capRound          int
@@ -504,6 +511,7 @@ type Engine struct {
 	capNotified       map[string]bool // channels already told about this cooldown round
 	sessionModelsMu   sync.RWMutex
 	sessionModels     map[string]string
+	turnModels        map[string]string // interactive key → model one scheduled side turn starts on
 	sessionSelections map[string]sessionModelSelection
 	// Per-session base-instruction files (maomao fork, see session_models.go)
 	sessionInstructions map[string]sessionInstructions
@@ -678,7 +686,8 @@ type interactiveState struct {
 	resumeFailedQueued       *queuedMessage
 	publicProgressRun        string
 	externalTaskInput        *externalInputDelivery
-	resetHandoff             bool // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
+	resetHandoff             bool            // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
+	abortCloseDone           <-chan struct{} // gate abort: actual Close completion before resuming the same session; guarded by mu
 	agentSession             AgentSession
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
 	turnMode                 string         // maomao fork: mode applied by the running turn's override (setTurnMode); "" when none; guarded by mu
@@ -1490,7 +1499,8 @@ func (e *Engine) SetAdminFrom(adminFrom string) {
 	e.userRolesMu.Unlock()
 	if af == "" && !shellDisabled {
 		slog.Warn("admin_from is not set — privileged commands (/shell, /show, /dir, /restart, /upgrade) are blocked. "+
-			"Set admin_from in config to enable them, or use disabled_commands to hide them.",
+			"Set admin_from (your user ID, see /whoami) at the [[projects]] level of config.toml — not under "+
+			"[projects.platforms.options] — to enable them, or use disabled_commands to hide them.",
 			"project", e.name)
 	}
 }
@@ -2090,6 +2100,29 @@ func (e *Engine) WaitPlatformsReady(timeout time.Duration) error {
 // timer job gives an async platform (timerPlatformReadyTimeout).
 func PlatformReadyTimeout() time.Duration { return timerPlatformReadyTimeout }
 
+// timerTargetPlatform resolves the platform a timer job's session key runs on, as
+// ExecuteTimerJob does: nil when this engine has no such platform. The returned
+// session key drops a multi-workspace prefix.
+func (e *Engine) timerTargetPlatform(sessionKey string) (Platform, string, string) {
+	platformName := ""
+	if idx := strings.Index(sessionKey, ":"); idx > 0 {
+		platformName = sessionKey[:idx]
+	}
+	for _, p := range e.platforms {
+		if p.Name() == platformName {
+			return p, platformName, sessionKey
+		}
+	}
+	// Multi-workspace fallback: strip workspace prefix from session key.
+	for _, p := range e.platforms {
+		needle := ":" + p.Name() + ":"
+		if idx := strings.Index(sessionKey, needle); idx >= 0 {
+			return p, p.Name(), sessionKey[idx+1:]
+		}
+	}
+	return nil, platformName, sessionKey
+}
+
 func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	if job.TaskReview != nil {
 		prepared, err := e.prepareTaskReview(job, time.Now())
@@ -2099,7 +2132,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		if prepared == nil {
 			return nil
 		}
-		job = prepared
+		job = e.taskReviewSessionAtRun(prepared)
 	}
 	if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
 		slog.Info("quota cooldown: timer skipped", "project", e.name, "job", job.ID, "cooling_until", until)
@@ -2123,31 +2156,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		Extra:      map[string]any{"job_id": job.ID, "job_description": job.Description},
 	})
 
-	sessionKey := job.SessionKey
-	platformName := ""
-	if idx := strings.Index(sessionKey, ":"); idx > 0 {
-		platformName = sessionKey[:idx]
-	}
-
-	var targetPlatform Platform
-	for _, p := range e.platforms {
-		if p.Name() == platformName {
-			targetPlatform = p
-			break
-		}
-	}
-	// Multi-workspace fallback: strip workspace prefix from session key.
-	if targetPlatform == nil {
-		for _, p := range e.platforms {
-			needle := ":" + p.Name() + ":"
-			if idx := strings.Index(sessionKey, needle); idx >= 0 {
-				targetPlatform = p
-				platformName = p.Name()
-				sessionKey = sessionKey[idx+1:]
-				break
-			}
-		}
-	}
+	targetPlatform, platformName, sessionKey := e.timerTargetPlatform(job.SessionKey)
 	if targetPlatform == nil {
 		return fmt.Errorf("platform %q not found for session %q", platformName, sessionKey)
 	}
@@ -2324,7 +2333,9 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 			iKey = workspaceDir + ":" + iKey
 		}
 		e.noteScheduledTurn(job.ID, iKey)
+		e.setTurnModel(iKey, job.Model)
 		e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, runSessionKey)
+		e.setTurnModel(iKey, "")
 		e.forgetScheduledTurn(job.ID, iKey)
 		e.cleanupInteractiveState(iKey)
 		return nil
@@ -2963,6 +2974,7 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 
 func (e *Engine) Start() error {
 	e.restoreProactiveAdmissions()
+	go e.queueReportLoop() // #1020 queue_report.go
 	e.resolveRoleProductPython()
 	var startErrs []error
 	readyCount := 0
@@ -3993,7 +4005,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 
 	// Allow queueing when agentSession is nil (session is starting up,
 	// issue #565). Only reject if the session was established and died.
-	if state.agentSession != nil && !state.agentSession.Alive() {
+	if state.agentSession != nil && !state.agentSession.Alive() && !msg.abortFront {
 		return queueUnavailable
 	}
 
@@ -5150,6 +5162,9 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		ccKey = ccSessionKey
 	}
 	settings := e.sessionSettingsFor(ccKey)
+	if m := e.turnModelFor(sessionKey); m != "" {
+		settings.Model = m // a review side turn on its tier model (TimerJob.Model)
+	}
 	e.interactiveMu.Lock()
 	defer e.interactiveMu.Unlock()
 	var input *inputTurn
@@ -5226,6 +5241,11 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		inj.SetSessionEnv(append(e.roleSessionEnv(ccKey), "CC_AGENT="+agent.Name()))
 	}
 	e.applySessionModel(agent, ccKey)
+	if m := e.turnModelFor(sessionKey); m != "" {
+		if inj, ok := agent.(SessionModelInjector); ok {
+			inj.SetSessionModel(m)
+		}
+	}
 	e.applySessionInstructions(agent, ccKey)
 
 	// Inject platform-specific formatting instructions into the agent's system prompt.
@@ -5653,15 +5673,17 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 	e.interactiveMu.Unlock()
 }
 
-func (e *Engine) closeAgentSessionAsync(sessionKey string, agentSession AgentSession) {
-	if agentSession == nil {
-		return
-	}
-	go e.closeAgentSessionWithTimeout(sessionKey, agentSession)
+func (e *Engine) closeAgentSessionWithTimeout(sessionKey string, agentSession AgentSession) {
+	e.closeAgentSessionAndSignal(sessionKey, agentSession, nil)
 }
 
-func (e *Engine) closeAgentSessionWithTimeout(sessionKey string, agentSession AgentSession) {
+// closed is owned by this call and signals actual Close completion, even when
+// the cleanup budget expires first. A replacement must not resume earlier.
+func (e *Engine) closeAgentSessionAndSignal(sessionKey string, agentSession AgentSession, closed chan struct{}) {
 	if agentSession == nil {
+		if closed != nil {
+			close(closed)
+		}
 		return
 	}
 
@@ -5681,7 +5703,10 @@ func (e *Engine) closeAgentSessionWithTimeout(sessionKey string, agentSession Ag
 	defer e.hooks.Emit(HookEvent{Event: HookEventAgentClosed, SessionKey: sessionKey,
 		Extra: map[string]any{"agent_session_id": agentID}})
 
-	done := make(chan struct{})
+	done := closed
+	if done == nil {
+		done = make(chan struct{})
+	}
 	go func() {
 		agentSession.Close()
 		close(done)
@@ -6071,7 +6096,12 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					if reset, ok := QuotaExhaustedReset(event); ok {
 						userMsg = e.quotaExhaustedMessage(reset, agentSession, nil)
 					}
-					send(p, replyCtx, userMsg)
+					// The message embeds the backend's own error text. In a group
+					// that text must not reach the chat (upstream safety-filter
+					// output, account ids); private chats keep it for diagnosis.
+					if !e.errorKeptOutOfChat(p, replyCtx, userMsg) {
+						send(p, replyCtx, userMsg)
+					}
 				}
 				state.mu.Lock()
 				state.eventsNeedResync = true
@@ -6171,6 +6201,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	var segmentStart int // index into textParts: text before this has been sent/displayed
 	silentHold := false  // true while accumulated segment text could still resolve to a bare NO_REPLY marker
 	toolCount := 0
+	var toolStartAt time.Time // last tool call's start, for the tool_done stream event (session_seal.go)
 	watchTurnFinished := false
 	turnFailed := false // an EventError ended this turn: it counts toward the idle watch's failure limit
 	defer func() {
@@ -6230,6 +6261,30 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			input.finish(inputTurnResult{err: fmt.Errorf("reply delivery: %w", err)})
 		}
 		return err
+	}
+
+	var sentReplySegments []string // successful narration deliveries in this turn only
+	sendReplySegment := func(p Platform, replyCtx any, segment string) {
+		if capability, ok := p.(RepeatedReplySuppressor); !ok || !capability.SuppressRepeatedReplyText() {
+			for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
+				sendWorkspace(p, replyCtx, chunk)
+			}
+			return
+		}
+		segment = unsentReplyText(p, segment, sentReplySegments)
+		if strings.TrimSpace(segment) == "" {
+			return
+		}
+		chunks := SplitMessageCodeFenceAware(segment, maxPlatformMessageLen)
+		for i, chunk := range chunks {
+			if err := sendWorkspaceWithError(p, replyCtx, chunk); err != nil {
+				// Record chunks already on the platform so a later repeat of
+				// them is still suppressed; the failed tail stays retryable.
+				sentReplySegments = append(sentReplySegments, chunks[:i]...)
+				return
+			}
+		}
+		sentReplySegments = append(sentReplySegments, segment)
 	}
 
 	// Streaming card: aggregate entire turn into a single updatable card.
@@ -6489,6 +6544,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			session.ResetTurnCtx()
 		}
 
+		// A boundary ends the current segment even when quiet mode joins the
+		// surrounding prose. Remove its control marker before the next text.
+		if (event.Type == EventToolUse || event.Type == EventThinking || event.Type == EventPermissionRequest) && len(textParts) > segmentStart {
+			segment := strings.Join(textParts[segmentStart:], "")
+			if clean := stripSilentReply(segment); clean != segment {
+				textParts = append(textParts[:segmentStart], clean)
+			}
+		}
+
 		switch event.Type {
 		case EventSpeechText:
 			// Never present these again in platform text/history: the ordinary
@@ -6551,11 +6615,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						sp.freeze()
 						sp.detachPreview()
 					} else {
-						segment := strings.Join(textParts[segmentStart:], "")
+						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
-							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
-								sendWorkspace(p, replyCtx, chunk)
-							}
+							sendReplySegment(p, replyCtx, segment)
 						}
 					}
 					segmentStart = len(textParts)
@@ -6576,11 +6638,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				previewActive := sp.canPreview()
 				if len(textParts) > segmentStart {
 					if !previewActive {
-						segment := strings.Join(textParts[segmentStart:], "")
+						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
-							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
-								sendWorkspace(p, replyCtx, chunk)
-							}
+							sendReplySegment(p, replyCtx, segment)
 						}
 					}
 					segmentStart = len(textParts)
@@ -6599,6 +6659,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventToolUse:
 			toolCount++
+			toolStartAt = time.Now()
 			e.teamNoteWork(sessionKey)
 			state.mu.Lock()
 			state.resumeArmed = false // #618 K4 S1: the resumed session works
@@ -6649,11 +6710,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						sp.freeze()
 						sp.detachPreview()
 					} else {
-						segment := strings.Join(textParts[segmentStart:], "")
+						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
-							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
-								sendWorkspace(p, replyCtx, chunk)
-							}
+							sendReplySegment(p, replyCtx, segment)
 						}
 					}
 					segmentStart = len(textParts)
@@ -6707,11 +6766,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				previewActive := sp.canPreview()
 				if len(textParts) > segmentStart {
 					if !previewActive {
-						segment := strings.Join(textParts[segmentStart:], "")
+						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 						if segment != "" {
-							for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
-								sendWorkspace(p, replyCtx, chunk)
-							}
+							sendReplySegment(p, replyCtx, segment)
 						}
 					}
 					segmentStart = len(textParts)
@@ -6751,6 +6808,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 
 		case EventToolResult:
+			e.emitToolDone(sessionKey, event, toolStartAt)
 			// maomao fork: images piled up inside this turn; interrupt it the way an
 			// idle timeout does (close the agent session) and leave a fresh session
 			// with a handoff for the next message. The turn is not re-run.
@@ -6996,11 +7054,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			previewActive := sp.canPreview()
 			if len(textParts) > segmentStart {
 				if !previewActive {
-					segment := strings.Join(textParts[segmentStart:], "")
+					segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 					if segment != "" {
-						for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
-							sendWorkspace(p, replyCtx, chunk)
-						}
+						sendReplySegment(p, replyCtx, segment)
 					}
 				}
 				segmentStart = len(textParts)
@@ -7459,6 +7515,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// side-channel messages and segmentStart stays 0, so keep normal finalize flow.
 				if segmentStart < len(textParts) {
 					unsent := strings.Join(textParts[segmentStart:], "")
+					unsent = unsentReplyText(p, unsent, sentReplySegments)
 					// The text before the tool call already went out, so the whole-reply
 					// NO_REPLY check above does not cover this remainder after a tool call.
 					if isSilentReply(unsent) {
@@ -7731,6 +7788,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// Reset per-turn state for the next turn
 				msgID = queued.messageID
 				textParts = nil
+				sentReplySegments = nil
 				segmentStart = 0
 				toolCount = 0
 				watchTurnFinished = false
@@ -7969,9 +8027,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							statusFooter = e.buildReplyFooter(replyAgent, agentSession, workspaceDir, "")
 						}
 					}
-					sendChunksWithStatusFooter(outputCtx, p, replyCtx, userMsg, statusFooter, func(p Platform, replyCtx any, content string) error {
-						return e.sendWithErrorContext(outputCtx, p, replyCtx, content)
-					})
+					// Same rule as the unsolicited-error path above: the group
+					// must not receive the backend's raw error text.
+					if !e.errorKeptOutOfChat(p, replyCtx, userMsg) {
+						sendChunksWithStatusFooter(outputCtx, p, replyCtx, userMsg, statusFooter, func(p Platform, replyCtx any, content string) error {
+							return e.sendWithErrorContext(outputCtx, p, replyCtx, content)
+						})
+					}
 				}
 			}
 			// Only drop queued messages if the agent session is dead.
@@ -8036,6 +8098,7 @@ channelClosed:
 			sp.discard()
 			if segmentStart < len(textParts) {
 				unsent := strings.Join(textParts[segmentStart:], "")
+				unsent = unsentReplyText(p, unsent, sentReplySegments)
 				if unsent != "" {
 					for _, chunk := range SplitMessageCodeFenceAware(unsent, maxPlatformMessageLen) {
 						if err := sendWorkspaceWithError(p, replyCtx, chunk); err != nil {
@@ -8138,7 +8201,10 @@ func (e *Engine) notifyDroppedQueuedMessages(state *interactiveState, reason err
 	for _, q := range remaining {
 		ctx, err := e.turnOutputContext(q.authorization)
 		if err == nil {
-			_ = e.sendWithErrorContext(ctx, q.platform, q.replyCtx, fmt.Sprintf(e.i18n.T(MsgError), reason))
+			text := fmt.Sprintf(e.i18n.T(MsgError), reason)
+			if !e.errorKeptOutOfChat(q.platform, q.replyCtx, text) {
+				_ = e.sendWithErrorContext(ctx, q.platform, q.replyCtx, text)
+			}
 		}
 	}
 }
@@ -8153,6 +8219,31 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 	for {
 		e.stopUnsolicitedReader(state)
 		state.mu.Lock()
+		if state.stopped && state.resetHandoff {
+			// A gate abort had to close the process. This worker still owns the
+			// conversation lock: move unsent messages to the replacement state
+			// and hand that lock to its drain, without replaying the cancelled task.
+			closed := state.abortCloseDone
+			state.mu.Unlock()
+			if closed != nil {
+				select {
+				case <-closed:
+				case <-e.ctx.Done():
+					session.Unlock()
+					return true
+				}
+			}
+			state.mu.Lock()
+			held := state.pendingMessages
+			state.pendingMessages = nil
+			agent, workspaceDir := state.agent, state.workspaceDir
+			state.mu.Unlock()
+			if len(held) > 0 {
+				e.handOffQueuedAfterReset(sessions, held[0].msgSessionKey, sessionKey, held, agent, workspaceDir)
+			}
+			e.drainOrphanedQueue(session, sessions, sessionKey, agent, workspaceDir)
+			return true
+		}
 		droppedStale := 0
 		var staleDescs []string // maomao fork: channel task board
 		e.refreshQueuedTaskReviewsLocked(state)
@@ -12375,11 +12466,19 @@ func (e *Engine) stopInteractiveSession(sessionKey string, quietPlatform Platfor
 	return e.stopInteractiveSessionWithOptions(sessionKey, true)
 }
 
+func (e *Engine) stopInteractiveSessionForAbort(sessionKey string) bool {
+	return e.stopInteractiveSessionWithQueue(sessionKey, true, true)
+}
+
 func (e *Engine) stopInteractiveSessionSilently(sessionKey string) bool {
 	return e.stopInteractiveSessionWithOptions(sessionKey, false)
 }
 
 func (e *Engine) stopInteractiveSessionWithOptions(sessionKey string, notifyQueued bool) bool {
+	return e.stopInteractiveSessionWithQueue(sessionKey, notifyQueued, false)
+}
+
+func (e *Engine) stopInteractiveSessionWithQueue(sessionKey string, notifyQueued, keepQueued bool) bool {
 	e.interactiveMu.Lock()
 	if op := e.nativeCompactions[sessionKey]; op != nil {
 		op.cancel()
@@ -12453,6 +12552,14 @@ func (e *Engine) stopInteractiveSessionWithOptions(sessionKey string, notifyQueu
 	}
 
 normalCleanup:
+	var closed chan struct{}
+	if keepQueued {
+		closed = make(chan struct{})
+		state.mu.Lock()
+		state.resetHandoff = true
+		state.abortCloseDone = closed
+		state.mu.Unlock()
+	}
 	state.markStopped()
 	delete(e.interactiveStates, sessionKey)
 	e.interactiveMu.Unlock()
@@ -12467,7 +12574,7 @@ normalCleanup:
 		state.pendingMessages = nil
 		state.mu.Unlock()
 	}
-	e.closeAgentSessionAsync(sessionKey, agentSession)
+	go e.closeAgentSessionAndSignal(sessionKey, agentSession, closed)
 
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventSessionEnded,
@@ -13313,6 +13420,8 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 			return err
 		}
 	}
+	// a workspace's images go back to the chat channel with its [report]/[ask] (team_exit_images.go)
+	e.noteWorkspaceImages(sessionKey, images)
 	for _, file := range files {
 		if err := e.waitOutgoing(p); err != nil {
 			return err
@@ -13407,6 +13516,7 @@ func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []Ima
 			return err
 		}
 	}
+	e.noteWorkspaceImages(target.sessionKey, images)
 	for _, file := range files {
 		if err := e.waitOutgoing(target.platform); err != nil {
 			return err
@@ -19464,29 +19574,45 @@ func stripAgentFooterLines(text string) string {
 // silentReplyRe matches a bare NO_REPLY marker (case-insensitive, optional surrounding whitespace).
 // When the agent emits exactly this as its full response, the platform send is suppressed
 // so the agent stays silent in group chats where a reply would be noise.
-var silentReplyRe = regexp.MustCompile(`(?i)^\s*NO_REPLY\s*$`)
+var silentReplyRe = regexp.MustCompile(`(?i)^NO_REPLY[.!?,;:。！？…，；：、]*$`)
 
 // silentReplyTrailingRe matches a trailing NO_REPLY marker preceded by whitespace or
 // markdown emphasis (`*`). Lets agents that narrate their reasoning before the marker
 // still suppress the marker from the delivered text (mirroring OpenClaw's stripSilentToken).
 // With tool progress hidden, text segments around tool calls are joined with no separator,
 // so the marker can sit right after CJK text or punctuation; group 1 preserves that character.
-var silentReplyTrailingRe = regexp.MustCompile(`(?i)(?:^|\s+|\*+|([^\x00-\x7F]|[.!?,;:)\]]))NO_REPLY\s*$`)
+var silentReplyTrailingRe = regexp.MustCompile(`(?i)(?:^|[\s\p{Z}]+|\*+|([^\x00-\x7F]|[.!?,;:)\]]))NO_REPLY[.!?,;:。！？…，；：、\s\p{Z}]*$`)
 
 // isSilentReply reports whether text is exactly a NO_REPLY marker.
 func isSilentReply(text string) bool {
-	return silentReplyRe.MatchString(text)
+	return IsSilentReply(text)
+}
+
+// IsSilentReply reports whether text is a NO_REPLY marker, ignoring surrounding
+// Unicode whitespace and sentence-ending punctuation. Agent handoffs share this check.
+func IsSilentReply(text string) bool {
+	return silentReplyRe.MatchString(strings.TrimSpace(text))
 }
 
 // stripTrailingSilent removes a trailing NO_REPLY marker and returns the stripped text
 // along with whether a strip occurred. Caller must first check isSilentReply for the
 // bare-marker case; this helper assumes mixed content.
 func stripTrailingSilent(text string) (string, bool) {
-	stripped := silentReplyTrailingRe.ReplaceAllString(text, "${1}")
-	if stripped == text {
+	trimmed := strings.TrimRightFunc(text, unicode.IsSpace)
+	stripped := silentReplyTrailingRe.ReplaceAllString(trimmed, "${1}")
+	if stripped == trimmed {
 		return text, false
 	}
-	return strings.TrimRight(stripped, " \t\r\n"), true
+	return strings.TrimRightFunc(stripped, unicode.IsSpace), true
+}
+
+// stripSilentReply applies the same marker rules at text segment boundaries.
+func stripSilentReply(text string) string {
+	if IsSilentReply(text) {
+		return ""
+	}
+	stripped, _ := stripTrailingSilent(text)
+	return stripped
 }
 
 // couldBeSilentPrefix reports whether the trimmed text is still a case-insensitive
@@ -19497,7 +19623,7 @@ func couldBeSilentPrefix(text string) bool {
 	if t == "" {
 		return true
 	}
-	return strings.HasPrefix("NO_REPLY", strings.ToUpper(t))
+	return strings.HasPrefix("NO_REPLY", strings.ToUpper(t)) || IsSilentReply(t)
 }
 
 func isEllipsisOnly(text string) bool {

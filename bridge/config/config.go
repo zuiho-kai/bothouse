@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -111,13 +112,15 @@ type Config struct {
 	Relay              RelayConfig             `toml:"relay"`               // bot-to-bot relay behavior
 	Cron               CronConfig              `toml:"cron"`
 	Queue              QueueConfig             `toml:"queue"`
-	Webhook            WebhookConfig           `toml:"webhook"`
-	Bridge             BridgeConfig            `toml:"bridge"`
-	Management         ManagementConfig        `toml:"management"`
-	Gate               GateConfig              `toml:"gate"`
-	Hooks              []HookConfig            `toml:"hooks"`
-	IdleTimeoutMins    *int                    `toml:"idle_timeout_mins,omitempty"`  // max minutes between consecutive agent events; 0 = no timeout; default 120
-	MaxTurnTimeMins    *int                    `toml:"max_turn_time_mins,omitempty"` // absolute wall-clock cap per turn in minutes; 0 = disabled (default)
+	// TeamReview: who verifies handbacks per tier (user 2026-11-04「简单的交给便宜模型 这个可以在我们dsh插件设置里设置」).
+	TeamReview      TeamReviewConfig `toml:"team_review"`
+	Webhook         WebhookConfig    `toml:"webhook"`
+	Bridge          BridgeConfig     `toml:"bridge"`
+	Management      ManagementConfig `toml:"management"`
+	Gate            GateConfig       `toml:"gate"`
+	Hooks           []HookConfig     `toml:"hooks"`
+	IdleTimeoutMins *int             `toml:"idle_timeout_mins,omitempty"`  // max minutes between consecutive agent events; 0 = no timeout; default 120
+	MaxTurnTimeMins *int             `toml:"max_turn_time_mins,omitempty"` // absolute wall-clock cap per turn in minutes; 0 = disabled (default)
 	// WorkspaceIdleTimeoutMins controls the workspace idle reaper timeout
 	// (multi-workspace mode) for every engine in the process. 0 disables
 	// reaping. Default: 15 minutes. Defined as a top-level (process-global)
@@ -846,7 +849,37 @@ func Load(path string) (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
+	warnMisplacedAdminFrom(cfg)
 	return cfg, nil
+}
+
+// MisplacedAdminFrom lists, as "project/platform", every admin_from written under a
+// platform's options. Only the [[projects]]-level admin_from is read, so one written
+// there is ignored and the owner silently gets no DM (send --dm) and no admin commands.
+func MisplacedAdminFrom(cfg *Config) []string {
+	var out []string
+	for _, p := range cfg.Projects {
+		for _, pl := range p.Platforms {
+			if _, ok := pl.Options["admin_from"]; ok {
+				out = append(out, p.Name+"/"+pl.Type)
+			}
+		}
+	}
+	return out
+}
+
+// misplacedAdminFromWarned: Load runs several times at startup; warn once per place.
+var misplacedAdminFromWarned sync.Map
+
+func warnMisplacedAdminFrom(cfg *Config) {
+	for _, at := range MisplacedAdminFrom(cfg) {
+		if _, dup := misplacedAdminFromWarned.LoadOrStore(at, true); dup {
+			continue
+		}
+		slog.Warn("config: admin_from under [projects.platforms.options] is ignored — move it up to the "+
+			"[[projects]] block (next to name), then restart",
+			"at", at)
+	}
 }
 
 var envPlaceholderPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
@@ -4148,7 +4181,25 @@ func GetGlobalSettings() map[string]any {
 		queueMax = *cfg.Queue.MaxDepth
 	}
 	result["queue_max_depth"] = queueMax
+	result["review_simple_role"] = cfg.TeamReview.Simple
+	result["review_complex_role"] = cfg.TeamReview.Complex
+	result["review_simple_model"] = cfg.TeamReview.SimpleModel
+	result["review_complex_model"] = cfg.TeamReview.ComplexModel
 	return result
+}
+
+// TeamReviewConfig: the role (project name; each role runs its own model) that verifies a
+// handback of each tier. Empty = no preference, the usual pick (core/team_task_review.go).
+// An unmarked handback is simple; a reviewer escalates with board tier <id> complex.
+//
+// SimpleModel/ComplexModel: a model ID from that tier's role's model list; the review then runs
+// in a fresh session of the role on that model instead of the role's own (user 2026-11-04 13:20
+// 「DSH 设置简单/复杂档可直接选模型」). Empty = the role's own model; ignored without a role.
+type TeamReviewConfig struct {
+	Simple       string `toml:"simple,omitempty"`
+	Complex      string `toml:"complex,omitempty"`
+	SimpleModel  string `toml:"simple_model,omitempty"`
+	ComplexModel string `toml:"complex_model,omitempty"`
 }
 
 // GlobalSettingsUpdate holds fields to update in global config.
@@ -4166,6 +4217,10 @@ type GlobalSettingsUpdate struct {
 	RateLimitMax       *int    `json:"rate_limit_max_messages"`
 	RateLimitWindow    *int    `json:"rate_limit_window_secs"`
 	QueueMaxDepth      *int    `json:"queue_max_depth"`
+	ReviewSimpleRole   *string `json:"review_simple_role"`
+	ReviewComplexRole  *string `json:"review_complex_role"`
+	ReviewSimpleModel  *string `json:"review_simple_model"`
+	ReviewComplexModel *string `json:"review_complex_model"`
 }
 
 // SaveGlobalSettings persists global settings to config.toml.
@@ -4221,6 +4276,18 @@ func SaveGlobalSettings(u GlobalSettingsUpdate) error {
 	}
 	if u.QueueMaxDepth != nil {
 		cfg.Queue.MaxDepth = u.QueueMaxDepth
+	}
+	if u.ReviewSimpleRole != nil {
+		cfg.TeamReview.Simple = strings.TrimSpace(*u.ReviewSimpleRole)
+	}
+	if u.ReviewComplexRole != nil {
+		cfg.TeamReview.Complex = strings.TrimSpace(*u.ReviewComplexRole)
+	}
+	if u.ReviewSimpleModel != nil {
+		cfg.TeamReview.SimpleModel = strings.TrimSpace(*u.ReviewSimpleModel)
+	}
+	if u.ReviewComplexModel != nil {
+		cfg.TeamReview.ComplexModel = strings.TrimSpace(*u.ReviewComplexModel)
 	}
 	return saveConfig(cfg)
 }

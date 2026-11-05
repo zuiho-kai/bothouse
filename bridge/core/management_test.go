@@ -59,6 +59,7 @@ func testManagementServer(t *testing.T, token string) (*ManagementServer, *httpt
 	mux.HandleFunc(prefix+"/config", mgmt.wrap(mgmt.handleConfig))
 	mux.HandleFunc(prefix+"/settings", mgmt.wrap(mgmt.handleGlobalSettings))
 	mux.HandleFunc(prefix+"/agents", mgmt.wrap(mgmt.handleAgents))
+	mux.HandleFunc(prefix+"/modules", mgmt.wrap(mgmt.handleModules))
 	mux.HandleFunc(prefix+"/projects", mgmt.wrap(mgmt.handleProjects))
 	mux.HandleFunc(prefix+"/projects/", mgmt.wrap(mgmt.handleProjectRoutes))
 	mux.HandleFunc(prefix+"/cron", mgmt.wrap(mgmt.handleCron))
@@ -477,6 +478,38 @@ func TestMgmt_BridgeAdapters(t *testing.T) {
 	r := mgmtGet(t, ts.URL+"/api/v1/bridge/adapters", "tok")
 	if !r.OK {
 		t.Fatalf("bridge adapters failed: %s", r.Error)
+	}
+	// The panel renders adapters.length; JSON null is what made /bridge say "0 platforms" even
+	// though /status listed two connected platforms. An empty list says "none", not "unknown".
+	var data struct {
+		Adapters []map[string]any `json:"adapters"`
+	}
+	if err := json.Unmarshal(r.Data, &data); err != nil {
+		t.Fatalf("unmarshal adapters: %v", err)
+	}
+	if data.Adapters == nil {
+		t.Fatalf("expected an empty adapters list, got %s", r.Data)
+	}
+	if len(data.Adapters) != 0 {
+		t.Fatalf("expected no adapters without a bridge server, got %d", len(data.Adapters))
+	}
+}
+
+func TestMgmt_StatusBridgeAdaptersIsListWithoutBridgeServer(t *testing.T) {
+	_, ts, _ := testManagementServer(t, "tok")
+
+	r := mgmtGet(t, ts.URL+"/api/v1/status", "tok")
+	if !r.OK {
+		t.Fatalf("status failed: %s", r.Error)
+	}
+	var data struct {
+		BridgeAdapters []map[string]any `json:"bridge_adapters"`
+	}
+	if err := json.Unmarshal(r.Data, &data); err != nil {
+		t.Fatalf("unmarshal status: %v", err)
+	}
+	if data.BridgeAdapters == nil {
+		t.Fatalf("expected an empty bridge_adapters list, got %s", r.Data)
 	}
 }
 

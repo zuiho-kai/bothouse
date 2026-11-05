@@ -171,5 +171,62 @@ class MergeClosureCLI(unittest.TestCase):
         self.assertTrue(json.loads((tmp/"board-done.jsonl").read_text())["review_accepted_at"])
 
 
+class ReviewTier(unittest.TestCase):
+    """User 2026-11-04「简单的交给便宜模型」: unmarked = simple, a reviewer escalates with board tier."""
+
+    def test_tier_marks_item(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": "false", "CC_PROJECT": "dispatcher"}
+            path = Path(tmp) / "board.jsonl"
+            path.write_text(json.dumps({"id": 7, "what": "verify", "chat": "room:chat"}) + "\n")
+            def cli(*args):
+                return subprocess.run([sys.executable, "-I", str(HERE / "board.py"), *args], env=env, text=True, capture_output=True, timeout=10)
+            self.assertEqual(cli("tier", "7", "complex").returncode, 0)
+            self.assertEqual(json.loads(path.read_text())["review_tier"], "complex")
+            self.assertEqual(cli("tier", "#7", "简单").returncode, 0)
+            self.assertEqual(json.loads(path.read_text())["review_tier"], "simple")
+            self.assertNotEqual(cli("tier", "8", "complex").returncode, 0)  # missing item
+            self.assertNotEqual(cli("tier", "7", "hard").returncode, 0)  # unknown tier: usage
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class AutoCloseSimple(unittest.TestCase):
+    """用户 2026-11-04 23:2x「小活交回时，只要检查都过了就自动收口，大活才需要人看」。"""
+    def _run(self, tier, rollup):
+        import board
+        from unittest.mock import patch
+        from subprocess import CompletedProcess
+        tmp = Path(tempfile.mkdtemp())
+        pr = {"state": "MERGED", "mergedAt": "2026-11-04T15:00:00Z", "mergeCommit": {"oid": "abc"}, "statusCheckRollup": rollup}
+        with patch.object(board, "DIR", tmp), patch.dict(os.environ, {"CC_PROJECT": "lead"}), \
+                patch.object(board.subprocess, "run", return_value=CompletedProcess([], 0, json.dumps(pr), '')), \
+                patch.object(board, "_park_done", lambda hit: None):
+            it = {"id": 90, "what": "t", "chat": "room:main", "dispatcher": "lead", "bound": "g1"}
+            if tier:
+                it["review_tier"] = tier
+            board._write([it])
+            board.bind_pr(90, "https://github.com/example/project/pull/900", True)
+            board.reconcile_merged_prs()
+            done = (tmp / "board-done.jsonl")
+            return board.items(), (done.read_text() if done.exists() else "")
+
+    def test_simple_green_closes(self):
+        items, done = self._run(None, [{"conclusion": "SUCCESS"}, {"conclusion": "SKIPPED"}])
+        self.assertEqual(items, [])
+        self.assertEqual(json.loads(done)["rework"], 0)
+
+    def test_simple_red_or_pending_or_empty_waits(self):
+        for rollup in ([{"conclusion": "FAILURE"}], [{"state": "PENDING"}], [], None):
+            with self.subTest(rollup=rollup):
+                items, done = self._run(None, rollup)
+                self.assertEqual(len(items), 1)
+                self.assertIn("待收口", items[0]["status"])
+                self.assertEqual(done, "")
+
+    def test_complex_green_waits_for_human(self):
+        items, done = self._run("complex", [{"conclusion": "SUCCESS"}])
+        self.assertEqual(len(items), 1)
+        self.assertEqual(done, "")

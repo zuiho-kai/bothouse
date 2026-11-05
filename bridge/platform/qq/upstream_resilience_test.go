@@ -102,6 +102,47 @@ func TestBlankGuardPreservesMediaAndMentions(t *testing.T) {
 	}
 }
 
+// 空图片数据同样是合法请求：上游接受这个段并回报成功，QQ 侧画出一个既无文字
+// 也无图片的气泡。这样的段一个都不该到 OneBot。
+func TestSendImageSkipsEmptyData(t *testing.T) {
+	cases := map[string]core.ImageAttachment{
+		"无类型无数据": {},
+		"只有类型":   {MimeType: "image/png"},
+		"空切片":    {MimeType: "image/png", Data: []byte{}},
+	}
+	for name, img := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newFakeOneBot(t)
+			p, _ := startTestPlatform(t, f)
+			rctx := &replyContext{messageType: "group", groupID: 42}
+			if err := p.SendImage(context.Background(), rctx, img); err != nil {
+				t.Fatalf("SendImage(empty data) = %v, want skipped", err)
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if got := len(f.sent["send_group_msg"]); got != 0 {
+				t.Fatalf("empty image segment sent to OneBot: %d calls", got)
+			}
+		})
+	}
+}
+
+// 防护不能连真图片一起吞掉。
+func TestSendImageStillSendsRealData(t *testing.T) {
+	f := newFakeOneBot(t)
+	p, _ := startTestPlatform(t, f)
+	rctx := &replyContext{messageType: "group", groupID: 42}
+	img := core.ImageAttachment{MimeType: "image/png", Data: []byte("synthetic-image")}
+	if err := p.SendImage(context.Background(), rctx, img); err != nil {
+		t.Fatalf("SendImage: %v", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if got := len(f.sent["send_group_msg"]); got != 1 {
+		t.Fatalf("image sends = %d, want 1", got)
+	}
+}
+
 func TestCanceledMediaDoesNotSend(t *testing.T) {
 	f := newFakeOneBot(t)
 	p, _ := startTestPlatform(t, f)

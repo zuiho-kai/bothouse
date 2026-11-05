@@ -222,6 +222,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"cron":         runCron,
 	"model":        runModel,
 	"workspace":    runWorkspace,
+	"ctx":          runCtx,
 	"voice-desk":   runVoiceDesk,
 	"timer":        runTimer,
 	"at":           runTimer,
@@ -623,6 +624,20 @@ func runMain() {
 			mgmtSrv.SetBridgeServer(bridgeSrv)
 		}
 		mgmtSrv.SetSetupFeishuSave(saveFeishuSetup)
+		// 接入应用 (#150): read config.toml per request so a `module add|disable` run outside
+		// the service shows up without a restart; a read error keeps the last good rows.
+		mgmtSrv.SetPlatformModules(func() map[string]core.PlatformModule {
+			fresh, err := config.LoadForSetup(configPath)
+			if err != nil {
+				slog.Warn("modules: reload config", "error", err)
+				return nil
+			}
+			rows := map[string]core.PlatformModule{}
+			for name, st := range config.ModuleStates(fresh) {
+				rows[name] = core.PlatformModule{Enabled: st.Enabled, Disabled: st.Disabled}
+			}
+			return rows
+		})
 		mgmtSrv.SetWizard(configWizardStore{}, cfg.DataDir)
 		mgmtSrv.SetWikiSubScript(subWikiScript(cfg))
 		mgmtSrv.SetSetupWeixinSave(func(req core.WeixinSetupSaveRequest) error {
@@ -716,7 +731,33 @@ func runMain() {
 				iv := int(v)
 				u.RateLimitWindow = &iv
 			}
-			return config.SaveGlobalSettings(u)
+			if v, ok := updates["review_simple_role"].(string); ok {
+				u.ReviewSimpleRole = &v
+			}
+			if v, ok := updates["review_complex_role"].(string); ok {
+				u.ReviewComplexRole = &v
+			}
+			if v, ok := updates["review_simple_model"].(string); ok {
+				u.ReviewSimpleModel = &v
+			}
+			if v, ok := updates["review_complex_model"].(string); ok {
+				u.ReviewComplexModel = &v
+			}
+			if err := config.SaveGlobalSettings(u); err != nil {
+				return err
+			}
+			if u.ReviewSimpleRole != nil || u.ReviewComplexRole != nil || u.ReviewSimpleModel != nil || u.ReviewComplexModel != nil {
+				// Applies at the next review scan; no restart.
+				if g := config.GetGlobalSettings(); g != nil {
+					simple, _ := g["review_simple_role"].(string)
+					complex, _ := g["review_complex_role"].(string)
+					core.SetTeamReviewTiers(simple, complex)
+					simpleModel, _ := g["review_simple_model"].(string)
+					complexModel, _ := g["review_complex_model"].(string)
+					core.SetTeamReviewModels(simpleModel, complexModel)
+				}
+			}
+			return nil
 		})
 		mgmtSrv.SetListGlobalProviders(func() ([]core.GlobalProviderInfo, error) {
 			providers, err := config.ListGlobalProviders()
@@ -1260,6 +1301,8 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	if cfg.Queue.MaxDepth != nil && *cfg.Queue.MaxDepth > 0 {
 		engine.SetMaxQueuedMessages(*cfg.Queue.MaxDepth)
 	}
+	core.SetTeamReviewTiers(cfg.TeamReview.Simple, cfg.TeamReview.Complex) // bridge-wide; each load re-applies
+	core.SetTeamReviewModels(cfg.TeamReview.SimpleModel, cfg.TeamReview.ComplexModel)
 
 	// Wire auto-compress settings
 	if proj.AutoCompress.Enabled != nil && *proj.AutoCompress.Enabled {

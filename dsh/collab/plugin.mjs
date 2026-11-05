@@ -4,12 +4,13 @@ import { personaLibrary } from './personas.mjs';
 //   - insert:
 //       - id: conest-collab
 //         name: /abs/path/dsh/collab/plugin.mjs
-//         config: { dataDir, workspacePath, leadFile?, fallbackLead?, botTokenEnv?, ownerName?, rooms?, dshMembers?, maxRelay?, boardDir?, teamStatusDir?, wikiDir?, bridgeConfig? }
+//         config: { dataDir, workspacePath, leadFile?, fallbackLead?, botTokenEnv?, botPort?, ownerName?, rooms?, dshMembers?, maxRelay?, boardDir?, teamStatusDir?, wikiDir?, bridgeConfig? }
 import { createRequire } from 'node:module';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, CollabError, publicMessage } from './store.mjs';
+import { startBotPort } from './bot-port.mjs';
 import { Hub } from './hub.mjs';
 import { TeamExit } from './team-exit.mjs';
 import { CloudWebGateway, WS_PATH } from './cloudweb.mjs';
@@ -17,6 +18,7 @@ import { DshMembers } from './dsh-member.mjs';
 import { Roster, rowToMember } from './roster.mjs';
 import { Tasks, WORKING } from './tasks.mjs';
 import { createCliMember } from './cli-member.mjs';
+import { MemorySources } from './memory-sources.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
 import { AvatarUploads } from './avatar-uploads.mjs';
 import { handler as clisHandler } from './clis.mjs';
@@ -28,6 +30,8 @@ import { DeskEvents, DESK_NAMES_FILE, deskRoute } from './desk.mjs';
 import { wikiGalaxyRoute } from './wiki-galaxy.mjs';
 import { defaultBridgeConfig, panelRoute } from './panel.mjs';
 import { TeamStatus } from './team-status.mjs';
+import { ALIVE_EVERY_MS, PairClient, PairHost, PairListener, PAIR_PORT, REMOTE_OWNER, hostHandler, isLoopback, pairApiRoute, remoteProxyRoute, tailnetAddress } from './pairing.mjs';
+import { homedir, hostname } from 'node:os';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -36,6 +40,8 @@ export const inject = [
 ];
 
 const PAGE = readFileSync(new URL('./page.html', import.meta.url), 'utf8');
+// #131: 「其他电脑」page — pair this DSH with another one by a one-time number.
+const DEVICES_PAGE = readFileSync(new URL('./devices.html', import.meta.url), 'utf8');
 const MAX_BODY = 256 * 1024;
 // #144: a message POST may carry base64 attachments. Same cap as the bot WebSocket
 // maxPayload below (8 MiB), so a message that is accepted here still fits in the frame
@@ -79,7 +85,11 @@ export function resolveConfig(config, env = process.env) {
   if (!Number.isSafeInteger(maxRelay) || maxRelay < 0) throw Error('conest-collab: maxRelay must be a non-negative integer');
   const botTokenEnv = c.botTokenEnv ?? 'CONEST_COLLAB_BOT_TOKEN';
   const botToken = env[botTokenEnv] ?? '';
-  const leadFile = c.leadFile ?? join(env.BOTHOUSE_DATA_DIR ?? join(env.HOME ?? '.', '.bothouse'), 'lead.json');
+  // #142 桌面版宿主端口每次随机：给一个固定端口另开 bot 接入（bot-port.mjs）。配置或 CONEST_COLLAB_BOT_PORT，都没给就不开。
+  const botPortRaw = c.botPort ?? (String(env.CONEST_COLLAB_BOT_PORT ?? '').trim() || undefined);
+  const botPort = botPortRaw === undefined ? undefined : Number(botPortRaw);
+  if (botPort !== undefined && !(Number.isSafeInteger(botPort) && botPort > 0 && botPort < 65536)) throw Error('conest-collab: botPort must be a TCP port number');
+  const leadFile = c.leadFile ?? join(env.BOTHOUSE_DATA_DIR ?? join(env.HOME || homedir(), '.bothouse'), 'lead.json');
   if (!isAbsolute(leadFile)) throw Error('conest-collab: leadFile must be an absolute path');
   const fallbackLead = String(c.fallbackLead ?? env.CONEST_FALLBACK_LEAD ?? '').trim();
   // #876: board events sit next to board.jsonl; BOARD_DIR is the same switch gate/board.py reads,
@@ -97,7 +107,7 @@ export function resolveConfig(config, env = process.env) {
   // #105 侧栏「bothouse」：读这份主桥配置的 [management] 段，在服务端转发管理面板（令牌不进浏览器）。
   const bridgeConfig = String(c.bridgeConfig ?? '').trim() || defaultBridgeConfig(env);
   if (!isAbsolute(bridgeConfig)) throw Error('conest-collab: bridgeConfig must be an absolute path');
-  return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, boardDir, teamStatusDir, wikiDir, bridgeConfig, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, ownerName: c.ownerName ?? '我' };
+  return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, boardDir, teamStatusDir, wikiDir, bridgeConfig, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, botPort, ownerName: c.ownerName ?? '我' };
 }
 
 /** Resolve a package from the running DSH installation, never a second copy. */
@@ -132,6 +142,7 @@ export async function apply(ctx, rawConfig) {
   store.migrateMemberRooms();
   const leadState = new LeadState(config.leadFile, ctx.logger);
   const hub = new Hub(store, ctx.logger, leadState, config.fallbackLead);
+  hub.memorySources = new MemorySources({ logger: ctx.logger }); // #1020 回复的记忆来源
   hub.workspacePath = config.workspacePath;
   hub.teamExit = new TeamExit(hub);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
@@ -179,24 +190,47 @@ export async function apply(ctx, rawConfig) {
   teamStatus?.start();
   if (!config.botToken) ctx.logger.warn(`conest-collab: ${config.botTokenEnv} is unset; cc-connect bots cannot connect`);
 
-  const owner = req => ctx.connection.requestRejection(req) === undefined;
+  // #131: a request the tailnet pairing listener authenticated with a device credential acts as
+  // the owner; everything else still needs this DSH's own sign-in.
+  const owner = req => req[REMOTE_OWNER] === true || ctx.connection.requestRejection(req) === undefined;
+  // Test-only overrides (same-machine two-instance check): address and port of the pairing listener.
+  const pairAddr = String(process.env.CONEST_COLLAB_PAIR_ADDR ?? '').trim();
+  const pairPort = Number(process.env.CONEST_COLLAB_PAIR_PORT) || PAIR_PORT;
+  const pairHost = new PairHost({ file: join(config.dataDir, 'pair-devices.json') });
+  const pairClient = new PairClient({ file: join(config.dataDir, 'pair-links.json'), port: pairPort });
+  const pairListener = new PairListener({
+    host: pairHost, port: pairPort, logger: ctx.logger,
+    address: pairAddr === '' ? () => tailnetAddress() : async () => pairAddr,
+    handler: hostHandler({ host: pairHost, name: hostname(), route: (req, res) => browserRoute(req, res), allowLoopback: isLoopback(pairAddr) }),
+  });
+  if (pairHost.list().length > 0) pairListener.ensure().catch(err => ctx.logger.warn('conest-collab: pairing listener: %s', err.message));
+  // 来源：码有效期按分钟计（pairing.mjs CODE_TTL_MS），每分钟收一次没人用的配对监听。
+  const pairSweep = setInterval(() => { pairListener.settle().catch(() => {}); }, 60_000);
+  pairSweep.unref?.();
+  // 「直到我断开」: drop links whose DSH window stopped beating (same cadence as the beat).
+  const aliveSweep = setInterval(() => { pairClient.sweep().catch(() => {}); }, ALIVE_EVERY_MS);
+  aliveSweep.unref?.();
   const wss = new WebSocketServer({ noServer: true, maxPayload: BOT_WS_MAX_PAYLOAD });
   const streams = new Set();
 
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/collab', handler: (req, res) => browserRoute(req, res) }), 'conest-collab: /collab');
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/api/rooms', handler: (req, res) => historyRoute(req, res) }), 'conest-collab: /api/rooms');
-  ctx.effect(() => ctx.webServer.registerUpgrade({
-    path: WS_PATH,
-    handler: (req, socket, head) => {
-      const url = new URL(req.url ?? '/', 'http://collab.invalid');
-      later.origin ??= localOrigin(req);
-      if (!gateway.authorized(req, url)) {
-        socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
-        return;
-      }
-      wss.handleUpgrade(req, socket, head, ws => gateway.accept(ws, url));
-    },
-  }), 'conest-collab: cloud-web upgrade');
+  const botUpgrade = (req, socket, head) => {
+    const url = new URL(req.url ?? '/', 'http://collab.invalid');
+    later.origin ??= localOrigin(req);
+    if (!gateway.authorized(req, url)) {
+      socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, ws => gateway.accept(ws, url));
+  };
+  ctx.effect(() => ctx.webServer.registerUpgrade({ path: WS_PATH, handler: botUpgrade }), 'conest-collab: cloud-web upgrade');
+  if (config.botPort !== undefined && config.botToken) {
+    const listening = startBotPort({ port: config.botPort, path: WS_PATH, upgrade: botUpgrade, history: (req, res) => historyRoute(req, res), logger: ctx.logger })
+      .then(l => { ctx.logger.info('conest-collab: bot port 127.0.0.1:%d', l.port); return l; },
+        err => { ctx.logger.warn('conest-collab: bot port %d not opened: %s', config.botPort, err.message); return undefined; });
+    ctx.effect(() => async () => { (await listening)?.close(); }, 'conest-collab: bot port');
+  }
   ctx.effect(() => async () => {
     teamStatus?.stop();
     desk.stop();
@@ -204,6 +238,9 @@ export async function apply(ctx, rawConfig) {
     later.close();
     tasks.close();
     gateway.closeAll();
+    clearInterval(pairSweep);
+    clearInterval(aliveSweep);
+    await pairListener.close();
     for (const end of streams) end();
     wss.close();
     // Drain DSH jobs first: a job still awaiting its Agent must not touch a closed store.
@@ -229,7 +266,8 @@ export async function apply(ctx, rawConfig) {
   async function browserRoute(req, res) {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
     const path = url.pathname.replace(/\/+$/, '');
-    later.origin ??= localOrigin(req);
+    // A paired device reaches us on the tailnet listener; ticket URLs stay on this machine's own origin.
+    if (!req[REMOTE_OWNER]) later.origin ??= localOrigin(req);
     const scheduled = laterRoute(req, res, url, { hub, gateway, owner, later });
     if (scheduled !== undefined) return scheduled;
     const routed = tasksRoute(req, res, url, { tasks, gateway, owner });
@@ -249,6 +287,14 @@ export async function apply(ctx, rawConfig) {
     if (galaxyHandled !== undefined) return galaxyHandled;
     const panelHandled = panelRoute(req, res, url, { bridgeConfig: config.bridgeConfig });
     if (panelHandled !== undefined) return panelHandled;
+    // #131: pairing (this machine lets others in) and remote links (this machine drives others).
+    if (!req[REMOTE_OWNER]) {
+      if (path === '/collab/devices' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', DEVICES_PAGE);
+      const paired = pairApiRoute(req, res, url, { host: pairHost, client: pairClient, listener: pairListener });
+      if (paired !== undefined) return paired;
+      const remote = remoteProxyRoute(req, res, url, { client: pairClient });
+      if (remote !== undefined) return remote;
+    }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/collab/api/personas' && req.method === 'GET') return json(res, 200, personaLibrary(url.searchParams.get('lang') ?? 'zh'));
     if (path === '/collab/api/state' && req.method === 'GET') {
@@ -256,7 +302,8 @@ export async function apply(ctx, rawConfig) {
         effective_lead_id: hub.primaryMember()?.id ?? null,
         rooms: store.roomsView().map(r => ({ ...r, lead_id: store.leadId(r.id), effective_lead_id: hub.primaryIn(r.id)?.id ?? null,
           workspace_path: store.workspacePath(r.id, config.workspacePath) })), members: hub.memberView(),
-        thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])) });
+        thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])),
+        queued: Object.fromEntries([...hub.queued.keys()].map(r => [r, hub.queueView(r)])) });
     }
     if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
     if (path === '/collab/api/lead' && req.method === 'GET') {
@@ -405,6 +452,17 @@ export async function apply(ctx, rawConfig) {
         const name = String(body?.name ?? '').trim().replace(/^#/, '');
         if (!name || name.length > 32 || /\s/.test(name)) throw new CollabError('invalid', 'room name must be 1-32 characters without spaces');
         const room = store.createRoom(name);
+        hub.emit({ type: 'rooms', rooms: store.roomsView() });
+        return { room };
+      });
+    }
+    // #1023: open (or reopen) the private chat with one agent member.
+    if (path === '/collab/api/dms' && req.method === 'POST') {
+      return withBody(req, res, (body) => {
+        const id = String(body?.member ?? '');
+        const member = hub.members.get(id);
+        if (member === undefined || member.kind === 'human') throw new CollabError('invalid', 'member must be an agent in this channel list');
+        const room = store.openDm(id, member.name);
         hub.emit({ type: 'rooms', rooms: store.roomsView() });
         return { room };
       });
@@ -738,9 +796,14 @@ export function parseRange(header, size) {
 
 /** Serves a stored attachment; honours single byte ranges so iOS Safari can play audio. */
 export function sendAttachment(req, res, row, bytes) {
-  const headers = { 'content-type': row.mime, 'accept-ranges': 'bytes',
-    'content-disposition': `${INLINE_IMAGE.test(row.mime) ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(row.name)}`,
-    'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=86400' };
+  // #1023: a delivered web page (`?view=page`) opens inline for the delivery card's frame. The CSP
+  // sandbox gives it an opaque origin even when opened in its own tab, so its scripts never act
+  // with the owner's sign-in on this origin.
+  const page = /[?&]view=page(?:&|$)/.test(req.url ?? '') && (/^text\/html\b/i.test(row.mime) || /\.html?$/i.test(row.name));
+  const headers = { 'content-type': page ? 'text/html; charset=utf-8' : row.mime, 'accept-ranges': 'bytes',
+    'content-disposition': `${page || INLINE_IMAGE.test(row.mime) ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(row.name)}`,
+    'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=86400',
+    ...(page ? { 'content-security-policy': 'sandbox allow-scripts allow-forms allow-popups allow-modals' } : {}) };
   const range = parseRange(req.headers?.range, bytes.length);
   if (range === null) {
     res.writeHead(416, { ...headers, 'content-range': `bytes */${bytes.length}`, 'content-length': 0 });

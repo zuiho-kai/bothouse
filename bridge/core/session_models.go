@@ -47,6 +47,28 @@ func (e *Engine) applySessionModel(agent Agent, sessionKey string) {
 	}
 }
 
+// setTurnModel makes the side turn under interactive key iKey start on model ("" clears it).
+// Only scheduled side sessions use it (a task review on a tier model, TimerJob.Model): the key
+// is unique to that run, so the channel session's model is untouched.
+func (e *Engine) setTurnModel(iKey, model string) {
+	e.sessionModelsMu.Lock()
+	defer e.sessionModelsMu.Unlock()
+	if model == "" {
+		delete(e.turnModels, iKey)
+		return
+	}
+	if e.turnModels == nil {
+		e.turnModels = map[string]string{}
+	}
+	e.turnModels[iKey] = model
+}
+
+func (e *Engine) turnModelFor(iKey string) string {
+	e.sessionModelsMu.RLock()
+	defer e.sessionModelsMu.RUnlock()
+	return e.turnModels[iKey]
+}
+
 // ---- maomao fork: per-session base instructions ----
 //
 // [projects.session_instructions] maps a session key to a file that replaces

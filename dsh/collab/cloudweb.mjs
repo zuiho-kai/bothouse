@@ -16,7 +16,7 @@ export const WS_PATH = '/cloud-web/ws';
 // a `buttons` frame (bridge platform/cloud-web SendWithButtons) instead of plain
 // text (#120); cards are not declared, so cc-connect degrades them to text
 // (bridge docs/cloud-web.md "Handshake").
-export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place', 'buttons', 'tasks', 'dispatch_mode'];
+export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place', 'buttons', 'tasks', 'dispatch_mode', 'queue'];
 // Permission decisions the Channel page and text replies may send. Values are the
 // button data cc-connect's sendPermissionPrompt uses (bridge core/engine.go).
 /**
@@ -60,6 +60,12 @@ const MAX_NAME = 64;
 
 export function roomKey(roomId) { return `room-${roomId}`; }
 
+/**
+ * #1023: chat_type for a frame from this room — "direct" for a private chat (the bridge's
+ * documented DM value, bridge/platform/cloud-web/cloudweb.go Direct), else "group".
+ */
+export function chatType(store, roomId) { return store?.dmMember?.(roomId) !== undefined ? 'direct' : 'group'; }
+
 /** Room id from a frame's reply_ctx or session_key ("<platform>:room-<id>"), or undefined. */
 export function roomOf(frame, store) {
   const sk = frame.session_key;
@@ -98,19 +104,21 @@ export function progressCardOf(p) {
     lines.push(`${it.kind === 'tool_use' ? '🔧' : it.kind === 'error' ? '❌' : '•'} ${tool ? tool + ' — ' : ''}${text.slice(0, 120)}`);
   }
   const agent = String(p.agent ?? 'Agent').trim() || 'Agent';
-  const brief = [lines[0], ...briefSteps(items, state)].join('\n');
-  const card = { text: lines.join('\n'), card: JSON.stringify({ title: `${agent} · ${CARD_STATES[state]}`, state, steps, elapsed_sec: sec, brief }) };
+  const run = toolSteps(items);
+  const brief = [lines[0], ...briefSteps(run, state)].join('\n');
+  const chips = stepChips(run, state);
+  const card = { text: lines.join('\n'), card: JSON.stringify({ title: `${agent} · ${CARD_STATES[state]}`, state, steps, elapsed_sec: sec, brief, chips }) };
   // Bridge task card (cloud-web public_progress.go): its members feed the task board (tasks.mjs fromCard).
   return Array.isArray(p.task_members) ? { ...card, members: p.task_members } : card;
 }
 
 /**
- * The 简略 view of a progress card, one line per tool step: tool name and
- * 成功/失败 (进行中 while the turn runs), no command text or output. Same
- * rules as the Discord card (bridge/platform/discord/progress.go
- * buildDiscordProgressBrief, discordProgressItemFailed).
+ * Tool steps of a turn, in order: each tool_use opens a step, its tool_result (same tool, else
+ * the last open one) closes it as succeeded/failed, an error fails the last open step. Same
+ * pairing as the Discord card (bridge/platform/discord/progress.go buildDiscordProgressBrief,
+ * discordProgressItemFailed). Each step keeps its call and output text for the step chips.
  */
-function briefSteps(items, state) {
+function toolSteps(items) {
   const steps = [];
   const open = tool => {
     for (let i = steps.length - 1; i >= 0; i--) if (steps[i].state === 0 && (tool === '' || steps[i].tool === tool)) return i;
@@ -118,25 +126,49 @@ function briefSteps(items, state) {
   };
   const failed = it => typeof it.success === 'boolean' ? !it.success
     : (Number.isInteger(it.exit_code) && it.exit_code !== 0) || ['failed', 'failure', 'error'].includes(String(it.status ?? '').trim().toLowerCase());
+  // 沿用 progressCardOf 正文每行截断 120 字。
+  const clip = v => {
+    const text = String(v ?? '').replace(/\s+/g, ' ').trim();
+    return text.length > 120 ? `${text.slice(0, 119)}…` : text;
+  };
   for (const it of items) {
     if (it === null || typeof it !== 'object') continue;
     const tool = String(it.tool ?? '').trim();
-    if (it.kind === 'tool_use') steps.push({ tool, state: 0 });
+    if (it.kind === 'tool_use') steps.push({ tool, state: 0, input: clip(it.text), output: '' });
     else if (it.kind === 'tool_result') {
       const st = failed(it) ? 2 : 1;
       const i = open(tool);
-      if (i >= 0) steps[i].state = st; else steps.push({ tool, state: st });
+      if (i >= 0) Object.assign(steps[i], { state: st, output: clip(it.text) });
+      else steps.push({ tool, state: st, input: '', output: clip(it.text) });
     } else if (it.kind === 'error') {
       const i = open('');
-      if (i >= 0) steps[i].state = 2;
+      if (i >= 0) Object.assign(steps[i], { state: 2, output: clip(it.text) });
     }
   }
+  return steps;
+}
+
+/**
+ * The 简略 view of a progress card, one line per tool step: tool name and
+ * 成功/失败 (进行中 while the turn runs), no command text or output.
+ */
+function briefSteps(steps, state) {
   return steps.map(s => {
     const name = (s.tool || '工具').slice(0, 120);
     if (s.state === 1) return `✅ ${name} · 成功`;
     if (s.state === 2) return `❌ ${name} · 失败`;
     return state === 'running' ? `🔧 ${name} · 进行中` : `🔧 ${name}`;
   });
+}
+
+/** Step chips for the DSH page (#125, owner's 11:53 sample): tool, outcome, call and output per step. */
+function stepChips(steps, state) {
+  return steps.map(s => ({
+    tool: (s.tool || '工具').slice(0, 120),
+    state: s.state === 1 ? 'ok' : s.state === 2 ? 'failed' : state === 'running' ? 'running' : 'unknown',
+    ...(s.input ? { input: s.input } : {}),
+    ...(s.output ? { output: s.output } : {}),
+  }));
 }
 
 /** reply_to_* frame fields for a reply (store.quote result); {} for a plain message. */
@@ -233,7 +265,8 @@ export class CloudWebGateway {
     // avatar=<built-in slug> or an http(s) image URL (cc-connect's own library); anything else falls back to the initial badge.
     let avatar = '';
     try { avatar = checkAvatar(url.searchParams.get('avatar'), { allowUrl: true }); } catch { avatar = ''; }
-    const member = { id, name, rooms, kind: 'bot', mentionId: /^\d+$/.test(mentionId) ? mentionId : '', online: true, ...(avatar ? { avatar } : {}) };
+    // voter: the bridge project, as which its agent cites memories (memvote.py CC_PROJECT; memory-sources.mjs).
+    const member = { id, name, rooms, kind: 'bot', mentionId: /^\d+$/.test(mentionId) ? mentionId : '', online: true, ...(avatar ? { avatar } : {}), voter: project || id };
     const bot = { ws, member };
     const old = this.bots.get(id);
     this.bots.set(id, bot);
@@ -270,6 +303,12 @@ export class CloudWebGateway {
     for (const row of this.hub.store.authorCards('role', memberId)) {
       let card;
       try { card = JSON.parse(row.card); } catch { continue; }
+      // A permission card a hub restart left pending: its asker is gone, and next to the
+      // reconnected bot's new prompt it reads as the same request asked twice (#1017).
+      if (card?.kind === 'permission' && card.state === 'pending' && !this.approvals.pending.has(row.id)) {
+        this.approvals.close(row.id, 'expired', row);
+        continue;
+      }
       if (card?.state !== 'running') continue;
       const note = '⏹ 已中断（桥重启），这一步不会再更新';
       const brief = typeof card.brief === 'string' && card.brief !== '' ? `${card.brief}\n${note}` : note;
@@ -277,7 +316,9 @@ export class CloudWebGateway {
       // so the card keeps its agent name.
       const label = ` · ${CARD_STATES[card.state] ?? ''}`;
       const agent = typeof card.title === 'string' && card.title.endsWith(label) ? card.title.slice(0, -label.length) : (card.title ?? 'Agent');
-      this.hub.edit(row.id, 'role', memberId, `${row.text}\n${note}`, JSON.stringify({ ...card, state: 'cancelled', title: `${agent} · ${CARD_STATES.cancelled}`, brief }));
+      // A cut turn reports no outcome for its open steps.
+      const chips = Array.isArray(card.chips) ? card.chips.map(c => c?.state === 'running' ? { ...c, state: 'unknown' } : c) : card.chips;
+      this.hub.edit(row.id, 'role', memberId, `${row.text}\n${note}`, JSON.stringify({ ...card, state: 'cancelled', title: `${agent} · ${CARD_STATES.cancelled}`, brief, chips }));
     }
   }
 
@@ -313,14 +354,18 @@ export class CloudWebGateway {
       // A reply addressed to other bots is not this bot's to take (reply_routing.go accept=false).
       if (only !== null && !only.has(member.id)) continue;
       let content = forMember(text, member, members);
-      const hit = target === member.id || only !== null || mentioned.has(member.id) || nameCalled(text, member.name);
+      // #1023: an owner message in a private chat is addressed to its one agent.
+      const hit = target === member.id || only !== null || mentioned.has(member.id) || nameCalled(text, member.name)
+        || (!fromAgent && this.hub.store.dmMember?.(msg.room_id) === member.id);
       if (fromAgent && !content) continue;
       if (fromAgent) content = `【${msg.name}】${quote}${content}`;
       else if (hit && !content) content = quote + BARE_MENTION;
       else content = quote + content;
       const frame = {
-        type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
-        user_id: msg.author, user_name: msg.name, content: content + (hit ? (this.later?.instructions(member.id, msg.room_id) ?? '') : ''), reply_ctx: roomKey(msg.room_id),
+        type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: chatType(this.hub.store, msg.room_id),
+        // A bridge command (`@橘 /model x`) goes through bare: the bridge reads everything after the
+        // command word as its arguments (core/engine.go handleCommand), so no later instructions.
+        user_id: msg.author, user_name: msg.name, content: content + (hit && !isCommand(content) ? (this.later?.instructions(member.id, msg.room_id) ?? '') : ''), reply_ctx: roomKey(msg.room_id),
         mentioned: hit, from_bot: fromAgent, ...attached, ...replyTo,
       };
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
@@ -340,7 +385,7 @@ export class CloudWebGateway {
     const members = this.hub.routableIn(msg.room_id);
     const room = this.hub.store.room(msg.room_id);
     const frame = {
-      type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: 'group',
+      type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: chatType(this.hub.store, msg.room_id),
       user_id: msg.author, user_name: msg.name, content: forMember(msg.text, bot.member, members) || msg.text,
       reply_ctx: roomKey(msg.room_id), mentioned: true, from_bot: false,
     };
@@ -519,6 +564,14 @@ export class CloudWebGateway {
         this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text: '', attachments });
         return;
       }
+      case 'queue': {
+        // #1020: the owner's messages ("hub-<id>") waiting behind this bot's running turn here (bridge core/queue_report.go).
+        const room = roomOf(d, this.hub.store);
+        if (room === undefined || !Array.isArray(d.msg_ids)) return;
+        const ids = d.msg_ids.map(x => /^hub-(\d+)$/.exec(String(x))?.[1]).filter(Boolean).map(Number);
+        this.hub.setQueue(room, member.id, ids);
+        return;
+      }
       case 'typing_start':
       case 'typing_stop': {
         const room = roomOf(d, this.hub.store);
@@ -610,6 +663,9 @@ function newerSeq(row, seq) {
 function send(ws, frame) {
   try { ws.send(JSON.stringify(frame)); } catch { /* socket already closing; its close handler cleans up */ }
 }
+
+/** A bridge slash command as forwarded (`/stop`, `/model x`); quoted replies keep their prefix and are not. */
+export function isCommand(content) { return /^\/[a-z]/i.test(content); }
 
 function clean(s) { return String(s ?? '').replace(/[\x00-\x1f\x7f]/g, '').trim(); }
 

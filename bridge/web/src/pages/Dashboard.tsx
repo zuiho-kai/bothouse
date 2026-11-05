@@ -8,6 +8,9 @@ import { StatCard, Badge, EmptyState, PageHeader, LoadingState, Bars, Ring } fro
 import { getStatus, type SystemStatus } from '@/api/status';
 import { listProjects, shownName, shownNames, type ProjectSummary } from '@/api/projects';
 import { listSessions, type Session } from '@/api/sessions';
+import { getDSHSummary, type DSHSummary } from '@/api/dsh';
+import { dshChannelsUrl } from '@/lib/collabPages';
+import api from '@/api/client';
 import { formatUptime, formatTime } from '@/lib/utils';
 
 const MAX_ITEMS = 4;
@@ -19,13 +22,16 @@ export default function Dashboard() {
   const [recentSessions, setRecentSessions] = useState<(Session & { project: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // DSH's own members and channels (only DSH, no bridge project: the counts would read 0 otherwise)
+  const [dsh, setDsh] = useState<DSHSummary | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      const [s, p] = await Promise.all([getStatus(), listProjects()]);
+      const [s, p, d] = await Promise.all([getStatus(), listProjects(), getDSHSummary().catch(() => null)]);
       setStatus(s);
+      setDsh(d && d.running ? d : null);
       const projs = p.projects || [];
       setProjects(projs);
 
@@ -57,12 +63,25 @@ export default function Dashboard() {
   }, [fetchData]);
 
   // 两处派生数据都直接来自 status/projects，不引入新的请求，也不推测缺失值。
-  const platformCount = status?.connected_platforms?.length ?? 0;
+  const dshOn = !!dsh && ((dsh.members?.length ?? 0) > 0 || (dsh.channels?.length ?? 0) > 0);
+  // DSH counts as one platform when it is running with members or channels.
+  const platformNames = [...(status?.connected_platforms ?? []), ...(dshOn ? ['dsh'] : [])];
+  const platformCount = platformNames.length;
   const projectRows = projects.map((p) => ({
     label: shownName(p),
     value: p.sessions_count ?? 0,
     display: String(p.sessions_count ?? 0),
   }));
+  const dshMembers = dsh?.members ?? [];
+  const dshChannels = dsh?.channels ?? [];
+  const dshUrl = dshChannelsUrl(undefined, api.getToken());
+  // Recent sessions: bridge sessions and DSH channels together, newest first.
+  const recentItems = [
+    ...recentSessions.map((sess) => ({ kind: 'bridge' as const, at: sess.updated_at, sess })),
+    ...dshChannels.filter((c) => c.updated_at).map((ch) => ({ kind: 'dsh' as const, at: ch.updated_at, ch })),
+  ]
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+    .slice(0, MAX_ITEMS);
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -88,7 +107,7 @@ export default function Dashboard() {
             <StatCard label={t('dashboard.version')} value={status?.version || '-'} accent />
             <StatCard label={t('dashboard.uptime')} value={status ? formatUptime(status.uptime_seconds) : '-'} />
             <StatCard label={t('dashboard.platforms')} value={platformCount} />
-            <StatCard label={t('dashboard.projects')} value={status?.projects_count ?? 0} />
+            <StatCard label={t('dashboard.projects')} value={(status?.projects_count ?? 0) + dshMembers.length} />
           </div>
 
           {/* Monitoring strip: one share ring + one ranking bar, both fed by real counts. */}
@@ -105,7 +124,7 @@ export default function Dashboard() {
                 />
                 <div className="text-xs text-ink-mute">
                   {platformCount > 0
-                    ? status?.connected_platforms?.join(' · ')
+                    ? platformNames.join(' · ')
                     : t('dashboard.noData')}
                 </div>
               </div>
@@ -116,10 +135,16 @@ export default function Dashboard() {
                 {t('dashboard.projects')}
               </p>
               <div className="mt-3">
-                {projectRows.length === 0 ? (
+                {projectRows.length === 0 && dshMembers.length === 0 ? (
                   <p className="py-6 text-center text-xs text-ink-mute">{t('dashboard.noData')}</p>
                 ) : (
-                  <Bars data={projectRows.slice(0, MAX_ITEMS)} labelWidth={88} />
+                  <Bars
+                    data={[
+                      ...projectRows,
+                      ...dshMembers.map((m) => ({ label: m.display_name || m.name, value: 0, display: 'DSH' })),
+                    ].slice(0, MAX_ITEMS)}
+                    labelWidth={88}
+                  />
                 )}
               </div>
             </div>
@@ -136,7 +161,7 @@ export default function Dashboard() {
                 {t('common.viewAll')} <ChevronRight size={12} />
               </Link>
             </div>
-            {projects.length === 0 ? (
+            {projects.length === 0 && dshMembers.length === 0 ? (
               <div className="rounded-card bg-surface p-8 ring-1 ring-hairline">
                 <EmptyState message={t('projects.noProjects')} icon={Layers} />
               </div>
@@ -168,6 +193,27 @@ export default function Dashboard() {
                     <p className="text-xs text-ink-mute">{p.sessions_count} sessions</p>
                   </Link>
                 ))}
+                {dshMembers.slice(0, Math.max(0, MAX_ITEMS - projects.length)).map((m) => (
+                  <a
+                    key={m.name}
+                    href={dshUrl}
+                    className="block min-w-0 overflow-hidden rounded-card bg-surface p-4 ring-1 ring-hairline transition-[box-shadow,background-color] duration-state ease-ui-standard hover:ring-hairline-strong"
+                  >
+                    <div className="mb-3 flex items-center gap-2.5">
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-control bg-surface-sunken text-ink-mute ring-1 ring-hairline">
+                        <Server size={14} strokeWidth={1.6} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-ink">{m.display_name || m.name}</p>
+                        <p className="truncate font-mono text-xs text-ink-mute">{m.agent_type}</p>
+                      </div>
+                    </div>
+                    <div className="mb-2 flex flex-wrap gap-1">
+                      <Badge>dsh</Badge>
+                    </div>
+                    <p className="text-xs text-ink-mute">{m.online ? (m.busy ? m.current_task : '在线') : '不在线'}</p>
+                  </a>
+                ))}
               </div>
             )}
           </section>
@@ -183,13 +229,34 @@ export default function Dashboard() {
                 {t('common.viewAll')} <ChevronRight size={12} />
               </Link>
             </div>
-            {recentSessions.length === 0 ? (
+            {recentItems.length === 0 ? (
               <div className="rounded-card bg-surface p-8 ring-1 ring-hairline">
                 <EmptyState message={t('sessions.noSessions')} icon={MessageSquare} />
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
-                {recentSessions.map((sess) => (
+                {recentItems.map((item) => item.kind === 'dsh' ? (
+                  <a
+                    key={`dsh-${item.ch.id}`}
+                    href={dshUrl}
+                    className="block min-w-0 overflow-hidden rounded-card bg-surface p-4 ring-1 ring-hairline transition-[box-shadow,background-color] duration-state ease-ui-standard hover:ring-hairline-strong"
+                  >
+                    <div className="mb-3 flex items-center gap-2.5">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-hairline-strong" aria-hidden />
+                      <p className="truncate text-sm font-medium text-ink">#{item.ch.name}</p>
+                    </div>
+                    <Badge className="mb-2">DSH</Badge>
+                    {item.ch.last_message && (
+                      <p className="mb-2 truncate text-xs text-ink-mute">
+                        {item.ch.last_message.name}：{item.ch.last_message.content.slice(0, 60)}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-1 text-xs text-ink-mute">
+                      <Clock size={10} />
+                      {formatTime(item.ch.updated_at)}
+                    </div>
+                  </a>
+                ) : ((sess) => (
                   <Link
                     key={`${sess.project}-${sess.id}`}
                     to={`/chat/${sess.project}`}
@@ -215,7 +282,7 @@ export default function Dashboard() {
                       {formatTime(sess.updated_at)}
                     </div>
                   </Link>
-                ))}
+                ))(item.sess))}
               </div>
             )}
           </section>

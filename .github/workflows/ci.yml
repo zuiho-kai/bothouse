@@ -117,8 +117,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      # Go is set up for dsh-only PRs too: the embedded client bundle check below is a Go test.
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        if: env.RUN_GO == 'true'
         with:
           go-version-file: bridge/go.mod
           cache-dependency-path: bridge/go.sum
@@ -179,6 +179,8 @@ jobs:
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_datadir.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/gate/test_windows_compat.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I -m unittest discover -s contrib/qq-gate -p 'test_*.py' -v
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_board.py
@@ -204,16 +206,14 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: .
         run: '"$CONEST_VITEST" run --config dsh/vitest.config.mjs'
-      - run: go mod verify
-        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
-      - run: go build -tags no_web ./...
-        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
-      # vet was in bridge-fork; kept now that both share this job
-      - run: go vet -tags no_web ./...
-        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
-      # Windows is a supported platform (install.ps1): the code and its tests must keep compiling there.
-      - run: GOOS=windows GOARCH=amd64 go build -tags no_web ./... && GOOS=windows GOARCH=amd64 go vet -tags no_web ./...
-        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      # A PR that edits dsh/packages/client-ui-discord without rebuilding the embedded bundle skipped bridge-go
+      # (go=false) and only failed on develop (runs 41836087833, 41838005851, 41846409429). Run the bundle
+      # checks here whenever bridge-go is skipped; when it runs, its core shards already cover them.
+      - name: Embedded DSH bundle matches source
+        if: ${{ !cancelled() && env.RUN_GO != 'true' }}
+        run: go test -tags no_web -count=1 -run '^(TestDSHBundle|TestExtractEmbeddedDSH)' ./core
+      # go mod verify, go build and go vet (linux and windows) run as the build-* shards of bridge-go, in
+      # parallel with the tests: here they were ~180s in series (run 41867920458).
 
   bridge-go:
     needs: changes
@@ -225,9 +225,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # ./core is about 230s of the ~420s full run (run 40081278209); every other package together is
-        # about 140s. So: core split in two by test name, everything else in a third shard.
-        shard: [core-1, core-2, rest]
+        # ./core is split in two by test name; every other package is split in two by package (run with
+        # -p 1 these took ~280s in one shard, run 41867920458). build-* hold the build and vet checks.
+        shard: [core-1, core-2, rest-1, rest-2, build-linux, build-windows]
     defaults:
       run:
         working-directory: bridge
@@ -244,9 +244,37 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: |
           set -euo pipefail
+          case "$SHARD" in
+            build-linux)
+              go mod verify
+              go build -tags no_web ./...
+              # vet was in bridge-fork; kept now that both share this job
+              go vet -tags no_web ./...
+              exit 0 ;;
+            build-windows)
+              # Windows is a supported platform (install.ps1): the code and its tests must keep compiling there.
+              GOOS=windows GOARCH=amd64 go build -tags no_web ./...
+              GOOS=windows GOARCH=amd64 go vet -tags no_web ./...
+              exit 0 ;;
+          esac
           core=$(go list -tags no_web ./core)
-          if [ "$SHARD" = rest ]; then
-            go test -tags no_web -p 1 -count=1 $(go list -tags no_web ./... | grep -vxF "$core")
+          if [ "${SHARD%-*}" = rest ]; then
+            # Every non-core package goes to exactly one of the two rest shards: agent/ and cmd/ (cmd/cc-connect
+            # ~46s, agent/antigravity ~26s) to rest-1, the rest (platform/feishu ~29s, ...) to rest-2.
+            # Alternating by line put all three slow packages in one shard (run 41869251235).
+            mod=$(go list -m)
+            all=$(go list -tags no_web ./... | grep -vxF "$core")
+            if [ "$SHARD" = rest-1 ]; then
+              pkgs=$(echo "$all" | grep -E "^$mod/(agent|cmd)/" || true)
+            else
+              pkgs=$(echo "$all" | grep -vE "^$mod/(agent|cmd)/" || true)
+            fi
+            test -n "$pkgs"
+            # -p 1 also serialises compiling the test binaries (about half of the old single rest shard's
+            # ~330s, run 41860995508). Compile them in parallel first without running anything; the serial
+            # run then only links from the warm build cache. Execution stays -p 1.
+            go test -tags no_web -count=1 -c -o /dev/null $pkgs > /dev/null
+            go test -tags no_web -p 1 -count=1 $pkgs
             exit 0
           fi
           # Every top-level Test/Fuzz/Example in ./core goes to exactly one of the two core shards.
@@ -256,11 +284,44 @@ jobs:
           echo "$(echo "$names" | wc -l) tests in this shard"
           go test -tags no_web -p 1 -count=1 -timeout 8m -run "^($(echo "$names" | paste -sd'|' -))\$" ./core
       - name: Voice relay streaming race checks
-        if: matrix.shard == 'core-1'
+        # on build-linux, which finishes well before the test shards; it used to add ~40s to core-1
+        if: matrix.shard == 'build-linux'
         run: go test -race -tags no_web ./core -run 'TestVoiceRelayStream|TestVoiceSentenceSplitter' -count=1
 
+  bridge-windows:
+    # Windows is a supported platform (install.ps1) but bridge-go only cross-compiles for it; these run the
+    # Windows-only tests and the gate's Windows checks on a real Windows runner (PR #1011 gap ③): process
+    # liveness, DSH web listeners, lead shims (cmd / PowerShell / Git Bash, UTF-8 mode), the update marker,
+    # the DSH proxy, and the gate's msvcrt file lock and concurrent board writes.
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true') }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: bridge
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: bridge/go.mod
+          cache-dependency-path: bridge/go.sum
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Windows Go tests
+        run: go test -tags no_web -count=1 -timeout 10m -run '^(TestProcessAliveWindows|TestDSHWebListenersWindows|TestWindowsLeadArgvRunsScripts|TestLeadShimsRunByName|TestStartOldThenExit|TestPythonChildUsesUTF8|TestDSHProxy.*)$' ./core ./cmd/cc-connect
+      - name: gate Windows compat
+        if: ${{ !cancelled() }}
+        run: python -I contrib/gate/test_windows_compat.py
+
   bridge:
-    needs: [changes, bridge-checks, bridge-go]
+    needs: [changes, bridge-checks, bridge-go, bridge-windows]
     if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -269,9 +330,10 @@ jobs:
       - env:
           CHECKS: ${{ needs.bridge-checks.result }}
           GO: ${{ needs.bridge-go.result }}
+          WIN: ${{ needs.bridge-windows.result }}
         run: |
-          echo "bridge-checks=$CHECKS bridge-go=$GO"
-          [ "$CHECKS" = success ] && { [ "$GO" = success ] || [ "$GO" = skipped ]; }
+          echo "bridge-checks=$CHECKS bridge-go=$GO bridge-windows=$WIN"
+          [ "$CHECKS" = success ] && { [ "$GO" = success ] || [ "$GO" = skipped ]; } && { [ "$WIN" = success ] || [ "$WIN" = skipped ]; }
 
   # Fork PRs get the same companion steps under their own required check name.
   companion-fork:

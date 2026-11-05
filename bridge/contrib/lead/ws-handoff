@@ -389,6 +389,32 @@ KICKOFF = ("工作区开工：这件活你自己做，不用读派活手册、�
            "浏览器活记下标签页 id。")
 
 
+SKELETON = "交回骨架"
+
+
+def append_skeleton(path, nid):
+    """给交接追加「交回骨架」节：桥 `report skeleton` 按任务板编号和「## 范围」的改项出的 [report] 填空稿
+    （反思 11-04 改法 a：[report] 被退回涉及 6 个会话，缺首行 [report] 或漏交接范围项）。已有就不再加；
+    桥太旧没有这个子命令或出任何错只返回 False，不拦交活。"""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+        if f"## {SKELETON}" in text:
+            return False
+        r = subprocess.run([cc_bin(), "report", "skeleton", "--id", str(nid), "--notes", path],
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 0 or not r.stdout.startswith("[report]"):
+            return False
+        lines = [f"## {SKELETON}",
+                 f"（交活时程序附：交回时照抄填空，每个「（待填」都换成实话；发前跑 {cc_bin()} report check --notes {path} <草稿文件>，"
+                 "不通过不发。这一节不算范围。）",
+                 "```", r.stdout.rstrip("\n"), "```"]
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(("" if text.endswith("\n") else "\n") + "\n" + "\n".join(lines) + "\n")
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=None):
     """叫醒工作区会话。--handoff：这一轮是交过来的活，不是例行定时，桥照常自动开公开任务卡
     （core/public_progress_auto.go timerTurnUser）。不带 --inject-if-busy：工作区正有别的活在跑时这一轮排在后面，
@@ -410,6 +436,8 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
               f"等的时候先做不受影响的部分；不在工作区里问用户。会缩小或改变用户原话范围的决定也先 --ask，纯技术细节自己定。"
               f"只做交接里写成「改」的部分；用户原话里没有的设定、开关、参数不加，要加先 --ask。"
               f"做完交回：这一轮最后一条回复的第一行写 [report] #{nid} 背景：……，再起一行写做了什么，再一行写「要你做的：……」（只写要用户拍板或只有用户本人能做的事；你自己能验的先验完，不让用户替你核对，没有写「要你做的：没有」），再一行写「我加的：……」（用户原话里没有、你自己加的设定，没有写「我加的：无」）（这四段系统原样贴到聊天频道），之后的行是细节，贴在那条消息下的子话题（中途发的话不转）；"
+              f"交回前照交接里「{SKELETON}」节填空（没有就跑 {cc_bin()} report skeleton --id {nid} --notes {path}），"
+              f"把草稿写进文件跑 {cc_bin()} report check --notes {path} <草稿文件>，不通过改到通过再发；"
               f"交回后桥自动把这件标完成、清空会话、放回工作区")
     key = ws if ":" in ws else f"discord:{ws}"
     return [cc_bin(), "timer", "add", "-s", key, "--delay", "1m", "--timeout-mins", "0",
@@ -447,10 +475,10 @@ def record_last(path: str, ws: str, task: str, chat: str, nid=None):
 @contextlib.contextmanager
 def _queue():
     """排队表（加锁读改写）：yield 列表，退出时写回。"""
-    import fcntl
+    import filelock  # ../gate/filelock.py（上面已把 gate 目录放进 sys.path）
     QUEUE.parent.mkdir(parents=True, exist_ok=True)
     with open(str(QUEUE) + ".lock", "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        filelock.lock(lock)
         try:
             q = json.loads(QUEUE.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -487,6 +515,7 @@ def start(path, task, chat, nid, project, answer=None):
     ws, name, parent = picked
     board.update(nid, "已交接", who=f"{name}{_lead_name(project)}")
     board.rebind(nid, ws)
+    append_skeleton(path, nid)
     r = subprocess.run(timer_cmd(ws, path, task, nid, answer), capture_output=True, text=True)
     if r.returncode != 0:
         board._park_once(cc_bin(), ws, parent)
@@ -618,6 +647,7 @@ def main(argv):
     key = ws if ":" in ws else f"discord:{ws}"
     lead_name = _team.name_of(os.environ["CC_PROJECT"]) if os.environ.get("CC_PROJECT") else "主角色"
     nid = board.add(task, path, "已交接", f"{name}{lead_name}", ws=key, chat=chat, short_name=short_name)
+    append_skeleton(path, nid)
     r = subprocess.run(timer_cmd(ws, path, task, nid), capture_output=True, text=True)
     if r.returncode != 0:
         # 叫醒失败：撤掉刚上的板和刚 claim 的那一件交接（只放这一件，同 board pause 的 park），不留给看门判无进展

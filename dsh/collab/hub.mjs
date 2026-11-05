@@ -17,6 +17,8 @@ export class Hub {
     this.members = new Map();
     /** roomId -> Set<memberId> currently working */
     this.thinking = new Map();
+    /** #1020: room id -> member id -> ids of the owner's messages waiting behind that member's running turn. */
+    this.queued = new Map();
     /** id -> optional busy fields published by the team-status reader (#876). */
     this.presence = new Map();
     this.listeners = [];
@@ -27,6 +29,9 @@ export class Hub {
   memberList() { return [...this.members.values()]; }
 
   membersInRoom(roomId) {
+    // #1023: a private chat has the owner and its one agent, whatever that agent's channel list says.
+    const dm = this.store.dmMember?.(roomId);
+    if (dm !== undefined) return this.memberList().filter(m => m.kind === 'human' || m.id === dm);
     const channel = this.store.settingsRoom(roomId);
     return this.memberList().filter(m => !m.rooms?.length || m.rooms.includes(channel));
   }
@@ -45,6 +50,9 @@ export class Hub {
 
   /** Channel selection, inherited by workspaces; only unset channels use the legacy global choice. */
   primaryIn(roomId) {
+    // #1023: in a private chat the one agent answers every owner message, @ or not.
+    const dm = this.store.dmMember?.(roomId);
+    if (dm !== undefined) return this.routableIn(roomId).find(m => m.id === dm);
     const id = this.store.leadId(roomId);
     const member = id === null ? this.selectedPrimaryMember() : this.members.get(id);
     return member && this.routableIn(roomId).some(m => m.id === member.id) ? member : undefined;
@@ -66,6 +74,7 @@ export class Hub {
     if (!this.members.delete(id)) return;
     this.presence.delete(id);
     for (const room of this.thinking.keys()) this.setThinking(room, id, false);
+    for (const room of [...this.queued.keys()]) this.setQueue(room, id, []);
     this.emit({ type: 'members', members: this.memberView() });
   }
 
@@ -76,6 +85,7 @@ export class Hub {
     if (!online) {
       this.presence.delete(id);
       for (const room of this.thinking.keys()) this.setThinking(room, id, false);
+      for (const room of [...this.queued.keys()]) this.setQueue(room, id, []);
     }
     this.emit({ type: 'members', members: this.memberView() });
   }
@@ -112,6 +122,21 @@ export class Hub {
     if (on) set.add(id); else set.delete(id);
     this.thinking.set(roomId, set);
     this.emit({ type: 'thinking', room_id: roomId, members: [...set] });
+  }
+
+  /** #1020: replace the queue a member has in a room (ids in queue order; [] clears it). */
+  setQueue(roomId, id, ids) {
+    const room = this.queued.get(roomId) ?? new Map();
+    const before = room.get(id) ?? [];
+    if (before.length === ids.length && before.every((x, i) => x === ids[i])) return;
+    if (ids.length) room.set(id, [...ids]); else room.delete(id);
+    if (room.size) this.queued.set(roomId, room); else this.queued.delete(roomId);
+    this.emit({ type: 'queue', room_id: roomId, queued: this.queueView(roomId) });
+  }
+
+  /** #1020: { member id: [message ids] } waiting in a room. */
+  queueView(roomId) {
+    return Object.fromEntries([...(this.queued.get(roomId) ?? new Map())]);
   }
 
   memberView() {
@@ -161,6 +186,7 @@ export class Hub {
       return r;
     });
     if (!result.created) return result;
+    result.message = this.withMemories(result.message);
     for (const next of after) {
       Promise.resolve().then(next).catch((error) => {
         this.logger.warn('collab: post-commit step failed: %s', error?.stack ?? error);
@@ -195,7 +221,7 @@ export class Hub {
       return c;
     });
     if (r === undefined) return undefined;
-    const row = r.message;
+    const row = r.first ? this.withMemories(r.message) : r.message;
     this.emit({ type: 'message', message: publicMessage(row, this.store) });
     if (!r.first) return row;
     for (const next of after) {
@@ -209,6 +235,21 @@ export class Hub {
       });
     }
     return row;
+  }
+
+  /**
+   * #1020: attach to a member's reply the memory entries it cited here since its last reply
+   * (memory-sources.mjs). Command answers (from_turn 0), cards and drafts take none.
+   */
+  withMemories(row) {
+    if (!this.memorySources || row?.author_kind !== 'role' || row.card != null || row.draft || row.from_turn === 0) return row;
+    const voter = this.members.get(row.author)?.voter ?? `dsh:${row.author}`;
+    let items;
+    try { items = this.memorySources.take(voter, row.room_id); } catch (error) {
+      this.logger.warn('collab: memory sources failed: %s', error?.message ?? error);
+      return row;
+    }
+    return items.length ? (this.store.setMemories(row.id, items) ?? row) : row;
   }
 
   /** Edit/delete a row the same author wrote, and tell browsers. */

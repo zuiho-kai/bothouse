@@ -16,7 +16,7 @@
 
 Wiki 星河（`/collab/wiki-galaxy`）把一本 markdown wiki 画成可旋转的星系：每页一颗星，`[[链接]]` 和相对 `.md` 链接是星之间的连线，顶层目录是不同颜色的星团，点星看标题、描述和前几行。wiki 目录用 `wikiDir`（或 `CONEST_WIKI_DIR`）指定，不设时是 `~/wiki`。插件只读这个目录，不跟符号链接，不写任何文件；页面自带全部代码，离线可用。团队工作台右上角有入口。
 
-DSH 左边栏在「频道」下面还有「团队工作台」「Wiki 星河」「bothouse」三个入口，桌面版没有地址栏也能打开。前两个在主区域里直接显示上面两页；「bothouse」在主区域里显示整个 bothouse 管理面板（概览、角色、用量等页都在里面），经 `/collab/panel/*`（只给主人）在服务端转发到主桥管理接口：插件每次请求时读 `bridgeConfig` 指的主桥配置文件里 `[management]` 段的地址和令牌，自己给请求签名，令牌不到浏览器；面板首页的 `<base href>` 改成 `/collab/panel/`，并加一个标记让面板不再要求登录。`bridgeConfig` 不设时依次用 `BOTHOUSE_CONFIG`、`$BOTHOUSE_DATA_DIR/config.toml`、`~/.bothouse/config.toml`；管理接口关着或连不上时框里显示原因。面板页面要用支持子路径的版本（`bridge/web` 里资源和接口都按 `<base href>` 走），旧版主桥带的面板挂在这里会打不开资源。
+DSH 左边栏在「频道」下面还有「团队工作台」「bothouse」两个入口，桌面版没有地址栏也能打开。前者在主区域里直接显示团队工作台；「bothouse」在主区域里显示整个 bothouse 管理面板（概览、角色、用量等页都在里面；Wiki 星河也收在这块面板里，作为它自己的「Wiki 星河」子页，不再单独占左边栏一项），经 `/collab/panel/*`（只给主人）在服务端转发到主桥管理接口：插件每次请求时读 `bridgeConfig` 指的主桥配置文件里 `[management]` 段的地址和令牌，自己给请求签名，令牌不到浏览器；面板首页的 `<base href>` 改成 `/collab/panel/`，并加一个标记让面板不再要求登录。`bridgeConfig` 不设时依次用 `BOTHOUSE_CONFIG`、`$BOTHOUSE_DATA_DIR/config.toml`、`~/.bothouse/config.toml`；管理接口关着或连不上时框里显示原因。面板页面要用支持子路径的版本（`bridge/web` 里资源和接口都按 `<base href>` 走），旧版主桥带的面板挂在这里会打不开资源。
 
 ## 只用一个模型或一种 CLI 组队
 
@@ -104,6 +104,7 @@ node --import tsx/esm apps/cli/src/bin.ts --profile web --patch /absolute/path/t
 
 ## 在网页里管理频道和成员（单人多 bot）
 
+- **标题栏与活动**：右上角显示当前频道实际生效的主角色头像与状态；响应状态来自当前频道及其工作区的实时 working 事件，其他频道的工作不会计入。活动栏默认收起，点标题栏「展开活动栏」（手机为「活动」）打开。顶部「任务板」打开原有协作任务板，继续使用既有任务数据与审核接口。此入口不是原生置顶板的完整快照，也不推断等待用户数量。
 - **新建频道**：频道列表标题旁的 `+`。
 - **频道设定**：右侧成员栏「派活方式」下的「频道设置」打开面板，设置派活方式、谁当家（主角色）及频道名称；侧栏快捷入口共用原有数据，主角色候选按当前频道筛选。主角色按频道保存，未设置时回退到现有全局选择。
 - **频道改名**：登录的 owner 调用 `PATCH /collab/api/rooms/{id}`，body `{ "name": "新名称" }`。名称为 1–32 字符且不能含空白，工作区名称不能改。改名保留 room id、消息及绑定，已有 DSH 会话标题同步为 `#新名称 · 成员名`，所属工作区的会话同样使用父频道名。数据库中的频道名在重启时保留；配置中的 rooms 名称仅初始化缺失频道。
@@ -139,6 +140,8 @@ group_reply_all = false       # 见下方「只在被 @ 时回答」
 
 - 没有 gate：`group_reply_all = false`。只处理 @ 它的消息；代价是看不到频道里其他人的发言（离线补历史也只在 gate 路径上运行）。
 - 有 gate（线上 maomao 的做法）：`group_reply_all = true`，加 `gate_url` 与 `gate_fallback = "context"`。没 @ 的消息只听不答，被 @ 时带上频道上下文，掉线期间的消息经本插件的历史接口补回。
+
+**桌面版（端口每次随机）**：DSH 桌面版启动 Web 宿主时端口固定传 0，主桥配不了固定地址。给桌面 profile 的 conest-collab 配 `botPort: <端口>`（或环境变量 `CONEST_COLLAB_BOT_PORT`），插件另开 `127.0.0.1:<端口>`，只接 `/cloud-web/ws` 握手和 `/api/rooms/…` 补历史，口令同上；主桥再给每个项目加一段 cloud_web 指向这个端口。不配不开。
 
 同一个 bot id 再次连接会顶掉旧连接。成员 id 不能与 DSH 成员或 `owner`/`user`/`system` 重名。
 

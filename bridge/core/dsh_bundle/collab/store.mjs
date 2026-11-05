@@ -56,6 +56,10 @@ const COLUMNS = [
   ['rooms', 'claim_seq', 'INTEGER NOT NULL DEFAULT 0'],
   ['rooms', 'workspace_path', 'TEXT'], // Optional chat directory; workspace rooms inherit their current parent.
   ['messages', 'edited_at', 'REAL'], // v11 (#148): when the owner last edited their own message; NULL if never.
+  // #1020 (no version bump, so an older build still opens the file): JSON list of the memory entries a reply used ({id, ref, page, title}); NULL when none.
+  ['messages', 'memories', 'TEXT'],
+  // #1023 (no version bump): a private chat is a chat room with exactly one agent member; NULL for every other room.
+  ['rooms', 'dm_member', 'TEXT'],
   // #597 G34: when a role last changed the row in place (a streamed draft growing, a progress card
   // edited, the draft committed); NULL if never. The task watch counts it as progress (Tasks.progressed).
   ['messages', 'changed_at', 'REAL'],
@@ -90,6 +94,7 @@ export class Store {
     this.q = {
       room: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?'),
       rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms ORDER BY id'),
+      dms: this.db.prepare('SELECT id, dm_member FROM rooms WHERE dm_member IS NOT NULL'),
       children: this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id"),
       // A new workspace is claimed with no task yet (claim_task 0): its first task is the handoff.
       createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id, claim_task, claim_bridge, claim_at)
@@ -104,6 +109,7 @@ export class Store {
       byId: this.db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0'),
       edit: this.db.prepare('UPDATE messages SET text = ?, card = ?, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
       commit: this.db.prepare('UPDATE messages SET text = ?, from_turn = ?, attachments = ?, draft = 0, changed_at = ? WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 AND card IS NULL AND draft = 1 RETURNING *'),
+      setMemories: this.db.prepare('UPDATE messages SET memories = ? WHERE id = ? RETURNING *'),
       editUser: this.db.prepare(`UPDATE messages SET text = ?, edited_at = ? WHERE id = ? AND author_kind = 'user' AND author = ?
         AND deleted = 0 AND draft = 0 AND card IS NULL RETURNING *`),
       del: this.db.prepare('UPDATE messages SET deleted = 1 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
@@ -387,6 +393,24 @@ export class Store {
     return room;
   }
   /**
+   * #1023: the private chat with one agent member — its existing room, or a new chat room whose
+   * only agent is that member (Hub.membersInRoom). Same room every time, so the session carries on.
+   */
+  openDm(memberId, name) {
+    if (typeof memberId !== 'string' || memberId === '') throw new CollabError('invalid', 'member id required');
+    const room = this.transaction(() => {
+      const found = this.db.prepare('SELECT id FROM rooms WHERE dm_member = ? ORDER BY id LIMIT 1').get(memberId);
+      if (found !== undefined) return { ...this.q.room.get(found.id), dm_member: memberId };
+      const created = this.q.createRoom.get(String(name || memberId).replace(/\s+/g, '').slice(0, 32) || memberId);
+      this.db.prepare('UPDATE rooms SET dm_member = ? WHERE id = ?').run(memberId, created.id);
+      return { ...created, dm_member: memberId };
+    });
+    this.ensureRoomSettings(room.id);
+    return room;
+  }
+  /** #1023: the agent member a private chat room is with; undefined for every other room. */
+  dmMember(roomId) { return this.db.prepare('SELECT dm_member FROM rooms WHERE id = ?').get(roomId)?.dm_member ?? undefined; }
+  /**
    * Give a chat channel its next workspace: the lowest-numbered free 工作区<k> of the shared
    * pool (released by any chat channel after its last task) if there is one, else a new
    * 工作区<n+1>, n being the highest existing 工作区<k> of any chat channel (one shared pool,
@@ -627,7 +651,11 @@ export class Store {
     return saved || this.q.workspacePath.get(roomId)?.path || fallback;
   }
   room(id) { return this.q.room.get(id); }
-  rooms() { return this.q.rooms.all(); }
+  rooms() {
+    // #1023: only a private chat carries dm_member, so every other room keeps its old shape.
+    const dms = new Map(this.q.dms.all().map(r => [r.id, r.dm_member]));
+    return this.q.rooms.all().map(r => (dms.has(r.id) ? { ...r, dm_member: dms.get(r.id) } : r));
+  }
   /** Return stale, empty claims to the pool without taking bridge or paused work. */
   releaseIdleWorkspaces() {
     const idle = this.db.prepare(`SELECT id FROM rooms WHERE kind = 'workspace' AND free = 0
@@ -675,6 +703,9 @@ export class Store {
   }
 
   message(id) { return this.q.byId.get(id); }
+
+  /** #1020: record the memory entries a reply used; returns the updated row. */
+  setMemories(id, items) { return this.q.setMemories.get(items?.length ? JSON.stringify(items) : null, id); }
 
   /**
    * What a reply quotes: undefined for a plain message; `{ id, deleted: true }`
@@ -802,7 +833,15 @@ export function publicMessage(row, store) {
   if (quote !== undefined) out.reply_to = quote;
   const attachments = messageAttachments(row);
   if (attachments.length) out.attachments = attachments;
+  const memories = messageMemories(row);
+  if (memories.length) out.memories = memories;
   return out;
+}
+
+/** #1020: the memory entries a reply used ([] when none or unreadable). */
+export function messageMemories(row) {
+  if (!row?.memories) return [];
+  try { const list = JSON.parse(row.memories); return Array.isArray(list) ? list : []; } catch { return []; }
 }
 
 /** #144: the uploaded files a message carries ([] when none or unreadable). */

@@ -9,9 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core"
 )
 
 // ccPermissionHookEntry represents one PermissionRequest hook entry from
@@ -253,6 +256,15 @@ func runHookCommand(
 	defer cancel()
 
 	cmd := exec.CommandContext(timeoutCtx, "sh", "-c", command)
+	if runtime.GOOS == "windows" {
+		// Claude Code runs its hooks through Git Bash on Windows, where `sh` is rarely on PATH; use the
+		// same bash, and cmd.exe only when there is none.
+		if bash, err := core.LookBash(); err == nil {
+			cmd = exec.CommandContext(timeoutCtx, bash, "-c", command)
+		} else {
+			cmd = exec.CommandContext(timeoutCtx, "cmd.exe", "/d", "/s", "/c", command)
+		}
+	}
 	cmd.Stdin = bytes.NewReader(stdinJSON)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

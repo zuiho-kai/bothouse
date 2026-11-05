@@ -1,11 +1,11 @@
-// dsh-client-source-sha256: 4cdb6b6bd9c4f3a8ef008fced3e4c011501f74d835505b158ecc38bde39ca3a8
-// dsh-style-sha256: f5d384a5b03e6c383f622d9f8cb3563fb1695e55146740801d238d6606619709
+// dsh-client-source-sha256: fda86d51bd8ad99d01bdd557f964e570d4be623eb9963b51795975b2a4dd7dae
+// dsh-style-sha256: 2e640033692a63b951ba23a41d830ebca956e67e0c0a9a38ba6618e25b4b480c
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".dshc_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.dshc_rooms, .dshc_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 0 8px 16px;\n  overflow-y: auto;\n}\n\n.dshc_membersHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  flex: none;\n  height: 44px;\n  margin: 0 0 8px;\n}\n\n.dshc_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.dshc_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.dshc_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.dshc_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.dshc_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.dshc_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.dshc_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_system .dshc_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.dshc_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.dshc_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.dshc_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.dshc_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.dshc_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.dshc_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.dshc_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.dshc_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_messageBody {\n  min-width: 0;\n}\n\n.dshc_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_author {\n  font-weight: 600;\n}\n\n.dshc_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.dshc_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.dshc_message:hover .dshc_ownActions, .dshc_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_ownActions {\n    opacity: 1;\n  }\n}\n\n.dshc_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.dshc_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.dshc_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_editBar .dshc_time {\n  margin-right: auto;\n}\n\n.dshc_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.dshc_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.dshc_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.dshc_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.dshc_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.dshc_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.dshc_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_quoteDeleted {\n  font-style: italic;\n}\n\n.dshc_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.dshc_message:hover .dshc_replyButton, .dshc_message:focus-within .dshc_replyButton, .dshc_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_replyButton {\n    opacity: 1;\n  }\n}\n\n.dshc_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.dshc_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.dshc_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.dshc_composerBox {\n  border: 1px solid var(--dsw-alias-border-l1);\n  border-radius: var(--dsw-radius-xl);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  box-shadow: var(--dsw-shadow-lv1-blur);\n  flex-direction: column;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_composerBox:focus-within {\n  border-color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_composerToolbar {\n  flex: none;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 10px 10px;\n  display: flex;\n}\n\n.dshc_composerBox > .dshc_replyBar, .dshc_composerBox > .dshc_attachments {\n  margin: 10px 14px 0;\n}\n\n.dshc_mentionButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  font-size: 18px;\n  display: inline-flex;\n}\n\n.dshc_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_sendButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: auto;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.dshc_sendButton:focus-visible, .dshc_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.dshc_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_mentionName {\n  font-weight: 600;\n}\n\n.dshc_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.dshc_input {\n  box-sizing: border-box;\n  width: 100%;\n  min-height: 52px;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  background: none;\n  border: 0;\n  border-radius: 0;\n  flex: 1;\n  min-width: 0;\n  padding: 14px 16px 8px;\n  line-height: 1.5;\n}\n\n.dshc_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .dshc_composer {\n    padding: 0 8px 8px;\n  }\n\n  .dshc_composerToolbar {\n    padding: 4px 8px 8px;\n  }\n\n  .dshc_input {\n    padding: 12px 14px 8px;\n  }\n}\n\n.dshc_input:focus-visible {\n  outline: none;\n}\n\n.dshc_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_offline {\n  opacity: .5;\n}\n\n.dshc_memberAvatar {\n  position: relative;\n}\n\n.dshc_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_offline .dshc_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_rooms, .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.dshc_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.dshc_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_roomInput, .dshc_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.dshc_roomInput {\n  margin: 2px 0 6px;\n}\n\n.dshc_roomInput:focus-visible, .dshc_fieldInput:focus-visible, .dshc_iconButton:focus-visible, .dshc_linkButton:focus-visible, .dshc_addMemberButton:focus-visible, .dshc_primaryButton:focus-visible, .dshc_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_addMemberButton {\n  box-sizing: border-box;\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.dshc_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_settingsDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: 100%;\n  margin: 8px 0 4px;\n}\n\n.dshc_memberListDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: calc(100% - 16px);\n  margin: 12px 8px 2px;\n}\n\n.dshc_settingsButton {\n  text-align: left;\n  border-style: solid;\n  border-color: #0000;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_settingsButton svg {\n  flex: none;\n}\n\n.dshc_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.dshc_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_memberRow .dshc_member:hover {\n  background: none;\n}\n\n.dshc_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_memberRow:hover .dshc_memberActions, .dshc_memberRow:focus-within .dshc_memberActions {\n  opacity: 1;\n}\n\n.dshc_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.dshc_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.dshc_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.dshc_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog {\n  box-sizing: border-box;\n  height: min(70vh, 100dvh - 32px);\n  max-height: calc(100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_settingsBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  padding: 2px;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog > :not(.dshc_settingsBody) {\n  flex-shrink: 0;\n}\n\n.dshc_settingsFields {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_settingsFeedback {\n  overflow-wrap: anywhere;\n  max-height: 20%;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog .dshc_dialogActions {\n  justify-content: space-between;\n}\n\n@media (width <= 599px) {\n  .dshc_settingsDialog {\n    height: calc(100dvh - 32px);\n    padding: 16px;\n  }\n}\n\n.dshc_avatarCropStage {\n  background: #000000a6;\n  padding: 20px;\n}\n\n.dshc_avatarCropFrame {\n  aspect-ratio: 1;\n  touch-action: none;\n  cursor: grab;\n  outline: 2px solid #fff;\n  width: min(256px, 100%);\n  margin: auto;\n  position: relative;\n  overflow: hidden;\n}\n\n.dshc_avatarCropFrame:active {\n  cursor: grabbing;\n}\n\n.dshc_avatarCropFrame img {\n  pointer-events: none;\n  user-select: none;\n  max-width: none;\n  position: absolute;\n}\n\n.dshc_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.dshc_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_field textarea {\n  resize: vertical;\n}\n\n.dshc_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn .dshc_choice {\n  grid-template-columns: max-content minmax(0, 1fr);\n  align-items: start;\n  display: grid;\n}\n\n.dshc_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.dshc_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_primaryButton, .dshc_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.dshc_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.dshc_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.dshc_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.dshc_memberFailed .dshc_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.dshc_memberFailed .dshc_presence {\n  background: #ed4245;\n}\n\n.dshc_mobileButton, .dshc_drawerBackdrop {\n  display: none;\n}\n\n.dshc_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_panelToggleEnd {\n  margin-left: auto;\n}\n\n.dshc_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.dshc_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.dshc_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_roomsHidden > .dshc_rooms, .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .dshc_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .dshc_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .dshc_panelToggle {\n    display: none;\n  }\n\n  .dshc_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .dshc_rooms.dshc_drawerOpen, .dshc_members.dshc_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .dshc_rooms.dshc_drawerOpen {\n    left: 0;\n  }\n\n  .dshc_members.dshc_drawerOpen {\n    right: 0;\n  }\n\n  .dshc_memberActions {\n    opacity: 1;\n  }\n\n  .dshc_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.dshc_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.dshc_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.dshc_taskBoardTrigger {\n  box-sizing: border-box;\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  height: 34px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: center;\n  gap: 8px;\n  margin: 4px 0;\n  padding: 7px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskBoardTrigger:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskBoardTrigger:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_taskBoardSummary {\n  color: var(--dsw-alias-label-secondary);\n  text-align: right;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: 1;\n  overflow: hidden;\n}\n\n.dshc_taskBoardDialog {\n  width: min(920px, 100%);\n  height: min(70vh, 100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_taskBoardBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_taskBoardDialog > :not(.dshc_taskBoardBody) {\n  flex-shrink: 0;\n}\n\n.dshc_boardTabs {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  gap: 4px;\n  padding-bottom: 8px;\n  display: flex;\n  overflow-x: auto;\n}\n\n.dshc_boardTabs button {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  padding: 7px 10px;\n  font-size: 13px;\n}\n\n.dshc_boardTabs button:hover, .dshc_boardTabs button[aria-selected=\"true\"] {\n  color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_boardTabs button:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_boardTabCount {\n  font-variant-numeric: tabular-nums;\n  margin-left: 4px;\n}\n\n.dshc_boardCardGrid {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 12px;\n  margin: 6px 0 16px;\n  padding: 2px;\n  list-style: none;\n  display: grid;\n}\n\n.dshc_boardTaskCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  border-radius: 12px;\n  flex-direction: column;\n  gap: 10px;\n  min-width: 0;\n  padding: 14px;\n  transition: transform .14s, box-shadow .14s;\n  display: flex;\n}\n\n.dshc_boardTaskCard[data-working=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n}\n\n.dshc_boardTaskCard[data-status=\"done\"] {\n  filter: saturate(.25);\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_boardTaskCard:hover {\n  transform: translateY(-2px);\n  box-shadow: 0 4px 12px #00000014;\n}\n\n.dshc_boardTaskHeader {\n  align-items: flex-start;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_boardTaskTitle {\n  overflow-wrap: anywhere;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  flex: 1;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.5;\n  display: -webkit-box;\n  overflow: hidden;\n}\n\n.dshc_boardTaskHeader .dshc_taskStatus {\n  border-radius: 999px;\n  padding: 3px 7px;\n  font-size: 11px;\n}\n\n.dshc_boardTaskCard .dshc_taskLinks {\n  justify-content: flex-end;\n  margin-top: auto;\n}\n\n.dshc_boardTabEmpty {\n  min-height: 240px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  justify-content: center;\n  align-items: center;\n  padding: 40px 16px;\n  display: flex;\n}\n\n@media (width <= 640px) {\n  .dshc_boardCardGrid {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardTaskCard {\n    transition: none;\n  }\n\n  .dshc_boardTaskCard:hover {\n    transform: none;\n  }\n}\n\n.dshc_taskBoardScope {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n}\n\n.dshc_taskSection + .dshc_taskSection {\n  margin-top: 8px;\n}\n\n.dshc_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_taskOwnerGroup + .dshc_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.dshc_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.dshc_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.dshc_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskDone summary {\n  cursor: pointer;\n}\n\n.dshc_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.dshc_taskStatus[data-status=\"asked\"], .dshc_taskStatus[data-status=\"escalated\"], .dshc_taskStatus[data-status=\"declined\"], .dshc_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.dshc_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.dshc_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_taskMemberName {\n  font-weight: 600;\n}\n\n.dshc_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.dshc_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.dshc_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.dshc_imageAttachment {\n  align-content: start;\n  max-width: 100%;\n  display: grid;\n}\n\n.dshc_imagePreviewTrigger {\n  cursor: zoom-in;\n  background: none;\n  border: 0;\n  border-radius: 4px;\n  grid-area: 1 / 1;\n  padding: 0;\n}\n\n.dshc_imagePreviewTrigger:focus-visible {\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n  outline-offset: 2px;\n}\n\n.dshc_imagePreviewDialog {\n  box-sizing: border-box;\n  width: fit-content;\n  max-width: 90vw;\n  max-height: 90dvh;\n  overflow: auto;\n}\n\n.dshc_imagePreviewHeader {\n  flex-shrink: 0;\n  justify-content: space-between;\n  align-items: center;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_imagePreviewHeader span {\n  overflow-wrap: anywhere;\n  min-width: 0;\n}\n\n.dshc_imagePreviewHeader button {\n  flex-shrink: 0;\n}\n\n.dshc_imagePreviewImage {\n  object-fit: contain;\n  align-self: center;\n  max-width: 100%;\n  min-height: 0;\n  max-height: 65dvh;\n  display: block;\n}\n\n.dshc_imagePreviewActions {\n  flex-wrap: wrap;\n  flex-shrink: 0;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_imagePreviewActions a {\n  text-decoration: none;\n}\n\n.dshc_imagePreviewActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_attachmentActions {\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  opacity: 0;\n  pointer-events: none;\n  flex-wrap: wrap;\n  grid-area: 1 / 1;\n  place-self: start end;\n  gap: 4px;\n  margin: 4px;\n  padding: 4px;\n  display: flex;\n}\n\n.dshc_attachmentActions a {\n  text-decoration: none;\n}\n\n.dshc_attachmentActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_imageAttachment:hover .dshc_attachmentActions, .dshc_imageAttachment:focus-within .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"error\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copying\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copied\"] .dshc_attachmentActions {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n@media (hover: none), (pointer: coarse), (width <= 768px) {\n  .dshc_attachmentActions {\n    opacity: 1;\n    pointer-events: auto;\n  }\n}\n\n.dshc_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.dshc_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.dshc_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.dshc_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.dshc_attachmentAudio audio {\n  width: 100%;\n}\n\n.dshc_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.dshc_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.dshc_chatHead button, .dshc_chatHead input, .dshc_chatHead select, .dshc_chatHead a, .dshc_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.dshc_text pre, .dshc_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n.dshc_embed {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  background: var(--dsw-alias-bg-base);\n  display: flex;\n}\n\n.dshc_frame {\n  background: var(--dsw-alias-bg-base);\n  border: 0;\n  flex: 1;\n  width: 100%;\n  height: 100%;\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".dshc_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.dshc_rooms, .dshc_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 0 8px 16px;\n  overflow-y: auto;\n}\n\n.dshc_membersHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  flex: none;\n  height: 44px;\n  margin: 0 0 8px;\n}\n\n.dshc_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.dshc_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.dshc_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.dshc_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.dshc_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.dshc_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.dshc_system .dshc_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.dshc_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.dshc_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.dshc_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.dshc_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.dshc_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.dshc_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.dshc_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.dshc_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_messageBody {\n  min-width: 0;\n}\n\n.dshc_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_author {\n  font-weight: 600;\n}\n\n.dshc_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.dshc_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.dshc_message:hover .dshc_ownActions, .dshc_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_ownActions {\n    opacity: 1;\n  }\n}\n\n.dshc_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.dshc_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.dshc_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_editBar .dshc_time {\n  margin-right: auto;\n}\n\n.dshc_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.dshc_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.dshc_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.dshc_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.dshc_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.dshc_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.dshc_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_quoteDeleted {\n  font-style: italic;\n}\n\n.dshc_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_replyButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n}\n\n.dshc_msgTools {\n  z-index: 1;\n  border: 1px solid var(--dsw-alias-separator, #7f7f7f40);\n  border-radius: var(--dsw-radius-sm, 6px);\n  background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-primary, #fff));\n  opacity: 0;\n  pointer-events: none;\n  align-items: center;\n  gap: 2px;\n  padding: 2px;\n  display: inline-flex;\n  position: absolute;\n  top: 2px;\n  right: 16px;\n  box-shadow: 0 2px 6px #00000014;\n}\n\n.dshc_msgTool {\n  border-radius: var(--dsw-radius-sm, 6px);\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 8px;\n  font-size: 12px;\n}\n\n.dshc_msgTool:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_msgTool:disabled {\n  cursor: default;\n  opacity: .6;\n}\n\n.dshc_msgToolNote {\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_message:hover .dshc_msgTools, .dshc_message:focus-within .dshc_msgTools, .dshc_msgTools:has(.dshc_msgToolNote) {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n@media (hover: none) {\n  .dshc_msgTools {\n    box-shadow: none;\n    opacity: 1;\n    pointer-events: auto;\n    background: none;\n    border: 0;\n    margin-top: 2px;\n    position: static;\n  }\n}\n\n.dshc_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.dshc_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  align-items: center;\n  gap: 6px;\n  padding: 0 16px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.dshc_composerBox {\n  border: 1px solid var(--dsw-alias-border-l1);\n  border-radius: var(--dsw-radius-xl);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  box-shadow: var(--dsw-shadow-lv1-blur);\n  flex-direction: column;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_composerBox:focus-within {\n  border-color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_composerToolbar {\n  flex: none;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 10px 10px;\n  display: flex;\n}\n\n.dshc_composerBox > .dshc_replyBar, .dshc_composerBox > .dshc_attachments {\n  margin: 10px 14px 0;\n}\n\n.dshc_mentionButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  font-size: 18px;\n  display: inline-flex;\n}\n\n.dshc_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_sendButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: auto;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.dshc_sendButton:focus-visible, .dshc_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.dshc_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_mentionName {\n  font-weight: 600;\n}\n\n.dshc_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.dshc_input {\n  box-sizing: border-box;\n  width: 100%;\n  min-height: 52px;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  background: none;\n  border: 0;\n  border-radius: 0;\n  flex: 1;\n  min-width: 0;\n  padding: 14px 16px 8px;\n  line-height: 1.5;\n}\n\n.dshc_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .dshc_composer {\n    padding: 0 8px 8px;\n  }\n\n  .dshc_composerToolbar {\n    padding: 4px 8px 8px;\n  }\n\n  .dshc_input {\n    padding: 12px 14px 8px;\n  }\n}\n\n.dshc_input:focus-visible {\n  outline: none;\n}\n\n.dshc_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_offline {\n  opacity: .5;\n}\n\n.dshc_memberAvatar {\n  position: relative;\n}\n\n.dshc_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_offline .dshc_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_rooms, .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.dshc_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.dshc_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_roomInput, .dshc_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.dshc_roomInput {\n  margin: 2px 0 6px;\n}\n\n.dshc_roomInput:focus-visible, .dshc_fieldInput:focus-visible, .dshc_iconButton:focus-visible, .dshc_linkButton:focus-visible, .dshc_addMemberButton:focus-visible, .dshc_primaryButton:focus-visible, .dshc_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_addMemberButton {\n  box-sizing: border-box;\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.dshc_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_settingsDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: 100%;\n  margin: 8px 0 4px;\n}\n\n.dshc_memberListDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: calc(100% - 16px);\n  margin: 12px 8px 2px;\n}\n\n.dshc_settingsButton {\n  text-align: left;\n  border-style: solid;\n  border-color: #0000;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_settingsButton svg {\n  flex: none;\n}\n\n.dshc_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.dshc_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_memberRow .dshc_member:hover {\n  background: none;\n}\n\n.dshc_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_memberRow:hover .dshc_memberActions, .dshc_memberRow:focus-within .dshc_memberActions {\n  opacity: 1;\n}\n\n.dshc_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.dshc_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.dshc_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.dshc_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog {\n  box-sizing: border-box;\n  height: min(70vh, 100dvh - 32px);\n  max-height: calc(100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_settingsBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  padding: 2px;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog > :not(.dshc_settingsBody) {\n  flex-shrink: 0;\n}\n\n.dshc_settingsFields {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_settingsFeedback {\n  overflow-wrap: anywhere;\n  max-height: 20%;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog .dshc_dialogActions {\n  justify-content: space-between;\n}\n\n@media (width <= 599px) {\n  .dshc_settingsDialog {\n    height: calc(100dvh - 32px);\n    padding: 16px;\n  }\n}\n\n.dshc_avatarCropStage {\n  background: #000000a6;\n  padding: 20px;\n}\n\n.dshc_avatarCropFrame {\n  aspect-ratio: 1;\n  touch-action: none;\n  cursor: grab;\n  outline: 2px solid #fff;\n  width: min(256px, 100%);\n  margin: auto;\n  position: relative;\n  overflow: hidden;\n}\n\n.dshc_avatarCropFrame:active {\n  cursor: grabbing;\n}\n\n.dshc_avatarCropFrame img {\n  pointer-events: none;\n  user-select: none;\n  max-width: none;\n  position: absolute;\n}\n\n.dshc_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.dshc_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_field textarea {\n  resize: vertical;\n}\n\n.dshc_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn .dshc_choice {\n  grid-template-columns: max-content minmax(0, 1fr);\n  align-items: start;\n  display: grid;\n}\n\n.dshc_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.dshc_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_primaryButton, .dshc_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.dshc_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.dshc_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.dshc_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.dshc_memberFailed .dshc_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.dshc_memberFailed .dshc_presence {\n  background: #ed4245;\n}\n\n.dshc_mobileButton, .dshc_drawerBackdrop {\n  display: none;\n}\n\n.dshc_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_panelToggleEnd {\n  margin-left: auto;\n}\n\n.dshc_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.dshc_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.dshc_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_roomsHidden > .dshc_rooms, .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .dshc_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .dshc_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .dshc_panelToggle {\n    display: none;\n  }\n\n  .dshc_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .dshc_rooms.dshc_drawerOpen, .dshc_members.dshc_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .dshc_rooms.dshc_drawerOpen {\n    left: 0;\n  }\n\n  .dshc_members.dshc_drawerOpen {\n    right: 0;\n  }\n\n  .dshc_memberActions {\n    opacity: 1;\n  }\n\n  .dshc_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.dshc_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.dshc_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.dshc_taskBoardTrigger {\n  box-sizing: border-box;\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  height: 34px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: center;\n  gap: 8px;\n  margin: 4px 0;\n  padding: 7px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskBoardTrigger:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskBoardTrigger:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_taskBoardSummary {\n  color: var(--dsw-alias-label-secondary);\n  text-align: right;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: 1;\n  overflow: hidden;\n}\n\n.dshc_taskBoardDialog {\n  width: min(920px, 100%);\n  height: min(70vh, 100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_taskBoardBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_taskBoardDialog > :not(.dshc_taskBoardBody) {\n  flex-shrink: 0;\n}\n\n.dshc_boardTabs {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  gap: 4px;\n  padding-bottom: 8px;\n  display: flex;\n  overflow-x: auto;\n}\n\n.dshc_boardTabs button {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  padding: 7px 10px;\n  font-size: 13px;\n}\n\n.dshc_boardTabs button:hover, .dshc_boardTabs button[aria-selected=\"true\"] {\n  color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_boardTabs button:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_boardTabCount {\n  font-variant-numeric: tabular-nums;\n  margin-left: 4px;\n}\n\n.dshc_boardCardGrid {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 12px;\n  margin: 6px 0 16px;\n  padding: 2px;\n  list-style: none;\n  display: grid;\n}\n\n.dshc_boardTaskCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  border-radius: 12px;\n  flex-direction: column;\n  gap: 10px;\n  min-width: 0;\n  padding: 14px;\n  transition: transform .14s, box-shadow .14s;\n  display: flex;\n}\n\n.dshc_boardTaskCard[data-working=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n}\n\n.dshc_boardTaskCard[data-status=\"done\"] {\n  filter: saturate(.25);\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_boardTaskCard:hover {\n  transform: translateY(-2px);\n  box-shadow: 0 4px 12px #00000014;\n}\n\n.dshc_boardTaskHeader {\n  align-items: flex-start;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_boardTaskTitle {\n  overflow-wrap: anywhere;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  flex: 1;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.5;\n  display: -webkit-box;\n  overflow: hidden;\n}\n\n.dshc_boardTaskHeader .dshc_taskStatus {\n  border-radius: 999px;\n  padding: 3px 7px;\n  font-size: 11px;\n}\n\n.dshc_boardTaskCard .dshc_taskLinks {\n  justify-content: flex-end;\n  margin-top: auto;\n}\n\n.dshc_boardTabEmpty {\n  min-height: 240px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  justify-content: center;\n  align-items: center;\n  padding: 40px 16px;\n  display: flex;\n}\n\n@media (width <= 640px) {\n  .dshc_boardCardGrid {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardTaskCard {\n    transition: none;\n  }\n\n  .dshc_boardTaskCard:hover {\n    transform: none;\n  }\n}\n\n.dshc_taskBoardScope {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n}\n\n.dshc_taskSection + .dshc_taskSection {\n  margin-top: 8px;\n}\n\n.dshc_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_taskOwnerGroup + .dshc_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.dshc_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.dshc_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.dshc_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskDone summary {\n  cursor: pointer;\n}\n\n.dshc_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.dshc_taskStatus[data-status=\"asked\"], .dshc_taskStatus[data-status=\"escalated\"], .dshc_taskStatus[data-status=\"declined\"], .dshc_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.dshc_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.dshc_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_taskMemberName {\n  font-weight: 600;\n}\n\n.dshc_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.dshc_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.dshc_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.dshc_imageAttachment {\n  align-content: start;\n  max-width: 100%;\n  display: grid;\n}\n\n.dshc_imagePreviewTrigger {\n  cursor: zoom-in;\n  background: none;\n  border: 0;\n  border-radius: 4px;\n  grid-area: 1 / 1;\n  padding: 0;\n}\n\n.dshc_imagePreviewTrigger:focus-visible {\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n  outline-offset: 2px;\n}\n\n.dshc_imagePreviewDialog {\n  box-sizing: border-box;\n  width: fit-content;\n  max-width: 90vw;\n  max-height: 90dvh;\n  overflow: auto;\n}\n\n.dshc_imagePreviewHeader {\n  flex-shrink: 0;\n  justify-content: space-between;\n  align-items: center;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_imagePreviewHeader span {\n  overflow-wrap: anywhere;\n  min-width: 0;\n}\n\n.dshc_imagePreviewHeader button {\n  flex-shrink: 0;\n}\n\n.dshc_imagePreviewImage {\n  object-fit: contain;\n  align-self: center;\n  max-width: 100%;\n  min-height: 0;\n  max-height: 65dvh;\n  display: block;\n}\n\n.dshc_imagePreviewActions {\n  flex-wrap: wrap;\n  flex-shrink: 0;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_imagePreviewActions a {\n  text-decoration: none;\n}\n\n.dshc_imagePreviewActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_attachmentActions {\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  opacity: 0;\n  pointer-events: none;\n  flex-wrap: wrap;\n  grid-area: 1 / 1;\n  place-self: start end;\n  gap: 4px;\n  margin: 4px;\n  padding: 4px;\n  display: flex;\n}\n\n.dshc_attachmentActions a {\n  text-decoration: none;\n}\n\n.dshc_attachmentActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_imageAttachment:hover .dshc_attachmentActions, .dshc_imageAttachment:focus-within .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"error\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copying\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copied\"] .dshc_attachmentActions {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n@media (hover: none), (pointer: coarse), (width <= 768px) {\n  .dshc_attachmentActions {\n    opacity: 1;\n    pointer-events: auto;\n  }\n}\n\n.dshc_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.dshc_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.dshc_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.dshc_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.dshc_attachmentAudio audio {\n  width: 100%;\n}\n\n.dshc_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.dshc_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.dshc_chatHead button, .dshc_chatHead input, .dshc_chatHead select, .dshc_chatHead a, .dshc_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.dshc_text pre, .dshc_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n\n@media (width >= 901px) {\n  .dshc_page {\n    grid-template-columns: 232px minmax(0, 1fr) 272px;\n  }\n\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 272px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 232px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n.dshc_rooms {\n  padding-top: 4px;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-md);\n  min-height: 34px;\n  padding: 6px 10px;\n  transition: background-color .15s, color .15s;\n}\n\n.dshc_workspace {\n  min-height: 30px;\n  padding-left: 28px;\n  font-size: 13px;\n  position: relative;\n}\n\n.dshc_workspace:before {\n  content: \"\";\n  border-left: 1px solid var(--dsw-alias-border-l2);\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  border-bottom-left-radius: 4px;\n  width: 7px;\n  position: absolute;\n  top: 0;\n  bottom: 50%;\n  left: 15px;\n}\n\n.dshc_workspace .dshc_hash {\n  display: none;\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);\n  box-shadow: inset 2px 0 0 var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_activeCount {\n  font-variant-numeric: tabular-nums;\n  border-radius: 999px;\n  margin-left: 0;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 18px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-state-business-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);\n}\n\n.dshc_roomLabel {\n  flex: auto;\n  min-width: 0;\n}\n\n.dshc_avatarStack {\n  flex: none;\n  align-items: center;\n  padding-left: 4px;\n  display: inline-flex;\n}\n\n.dshc_stackDot {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  background-position: center;\n  background-size: cover;\n  border-radius: 50%;\n  width: 18px;\n  height: 18px;\n  margin-left: -6px;\n}\n\n.dshc_room .dshc_stackDot {\n  width: 16px;\n  height: 16px;\n}\n\n.dshc_roomActive .dshc_stackDot {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, var(--dsw-alias-bg-layer-2));\n}\n\n.dshc_chatHead {\n  gap: 8px;\n  height: 52px;\n}\n\n.dshc_roomName {\n  letter-spacing: -.01em;\n  white-space: nowrap;\n  font-size: 15px;\n}\n\n.dshc_headMeta {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  font-weight: 400;\n  overflow: hidden;\n}\n\n.dshc_headActivity {\n  color: var(--dsw-alias-label-secondary);\n  flex: none;\n  align-items: center;\n  gap: 6px;\n  margin-left: auto;\n  font-size: 12px;\n  font-weight: 500;\n  display: inline-flex;\n}\n\n.dshc_headActivity .dshc_stackDot {\n  border-color: var(--dsw-alias-bg-base);\n  width: 22px;\n  height: 22px;\n}\n\n.dshc_headActivity + .dshc_panelToggleEnd {\n  margin-left: 4px;\n}\n\n.dshc_chatHead > .dshc_roomName {\n  text-overflow: ellipsis;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_chatHead > .dshc_taskBoardTrigger {\n  width: auto;\n  margin: 0 0 0 auto;\n}\n\n.dshc_chatHead .dshc_taskBoardSummary {\n  display: none;\n}\n\n.dshc_headLead {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 999px;\n  flex: 0 auto;\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_headLeadText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_headLeadName {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_headLeadStatus {\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  font-size: 11px;\n  font-weight: 400;\n}\n\n.dshc_headLead + .dshc_panelToggleEnd {\n  margin-left: 0;\n}\n\n.dshc_membersHead {\n  align-items: center;\n  height: 52px;\n  padding: 0 4px;\n  display: flex;\n}\n\n.dshc_membersHeadTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .08em;\n  font-size: 11px;\n  font-weight: 650;\n}\n\n.dshc_log {\n  padding: 12px 0 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 8px 20px 2px;\n  transition: background-color .15s;\n}\n\n.dshc_message.dshc_grouped {\n  padding-top: 1px;\n}\n\n.dshc_message:hover {\n  background: color-mix(in srgb, var(--dsw-alias-interactive-bg-hover) 70%, transparent);\n}\n\n.dshc_messageHead {\n  gap: 8px;\n  margin-bottom: 2px;\n}\n\n.dshc_messageHeadGrouped {\n  margin-bottom: 0;\n}\n\n.dshc_messageHeadGrouped:not(:has(*)) {\n  display: none;\n}\n\n.dshc_author {\n  font-size: 13px;\n}\n\n.dshc_time, .dshc_edited {\n  font-variant-numeric: tabular-nums;\n  font-size: 11px;\n}\n\n.dshc_gutterTime {\n  color: var(--dsw-alias-label-tertiary);\n  font-variant-numeric: tabular-nums;\n  text-align: right;\n  opacity: 0;\n  align-self: start;\n  padding-top: 3px;\n  font-size: 10px;\n  transition: opacity .15s;\n}\n\n.dshc_message:hover .dshc_gutterTime {\n  opacity: 1;\n}\n\n.dshc_text {\n  line-height: 1.6;\n}\n\n.dshc_own {\n  grid-template-columns: minmax(0, 1fr) 36px;\n}\n\n.dshc_own > :first-child {\n  grid-area: 1 / 2;\n}\n\n.dshc_own > .dshc_messageBody {\n  flex-direction: column;\n  grid-area: 1 / 1;\n  align-items: flex-end;\n  display: flex;\n}\n\n.dshc_own .dshc_messageHead {\n  flex-direction: row-reverse;\n}\n\n.dshc_own .dshc_ownActions {\n  margin-left: 0;\n  margin-right: auto;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text {\n  max-width: min(560px, 100%);\n  color: var(--dsw-alias-label-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 16%, var(--dsw-alias-bg-layer-2));\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 28%, transparent);\n  border-radius: 16px 6px 16px 16px;\n  padding: 8px 14px;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_quote {\n  align-self: flex-end;\n}\n\n.dshc_own .dshc_msgTools {\n  left: 16px;\n  right: auto;\n}\n\n.dshc_own.dshc_grouped > .dshc_messageBody > .dshc_text {\n  border-radius: 16px 6px 6px 16px;\n}\n\n.dshc_systemRecord {\n  flex-direction: column;\n  align-items: center;\n  padding-bottom: 4px;\n  display: flex;\n}\n\n.dshc_systemRecord > .dshc_systemLine {\n  align-self: stretch;\n}\n\n.dshc_taskRecord {\n  box-sizing: border-box;\n  width: min(480px, 100% - 40px);\n  margin-top: 0;\n}\n\n.dshc_systemLine {\n  color: var(--dsw-alias-label-tertiary);\n  align-items: center;\n  gap: 12px;\n  padding: 10px 32px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_systemLine:before, .dshc_systemLine:after {\n  content: \"\";\n  background: var(--dsw-alias-border-l2);\n  flex: 24px;\n  min-width: 24px;\n  height: 1px;\n}\n\n.dshc_systemText {\n  text-align: center;\n  max-width: min(640px, 80%);\n}\n\n.dshc_systemText p {\n  margin: 0;\n}\n\n.dshc_errorBar {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent);\n  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 9%, transparent);\n  border-radius: 12px;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px 10px;\n  margin: 6px 20px 6px 68px;\n  padding: 8px 12px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_errorBar .dshc_cardButtons {\n  margin: 0 0 0 auto;\n}\n\n.dshc_errorBar .dshc_secondaryButton {\n  padding: 3px 10px;\n  font-size: 12px;\n}\n\n.dshc_errorBar[data-state=\"retried\"] {\n  opacity: .65;\n}\n\n.dshc_errorIcon {\n  color: #fff;\n  background: var(--dsw-alias-state-error-primary);\n  border-radius: 50%;\n  flex: none;\n  place-items: center;\n  width: 18px;\n  height: 18px;\n  font-size: 12px;\n  font-weight: 700;\n  display: grid;\n}\n\n.dshc_errorText {\n  min-width: 0;\n  color: var(--dsw-alias-label-primary);\n  flex: 200px;\n}\n\n.dshc_errorText p {\n  margin: 0;\n}\n\n.dshc_runStrip {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  border-radius: 12px;\n  flex-direction: column;\n  max-width: 100%;\n  margin-top: 4px;\n  padding: 5px 10px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_runStrip[data-state=\"running\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_runStrip[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_runHead {\n  min-width: 0;\n  color: var(--dsw-alias-label-secondary);\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_runTitle {\n  color: var(--dsw-alias-label-primary);\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_runSummary {\n  font-variant-numeric: tabular-nums;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_runHead .dshc_cardViews {\n  margin-left: 8px;\n}\n\n.dshc_runHead .dshc_cardViewButton {\n  color: var(--dsw-alias-label-tertiary);\n  border-radius: 999px;\n  font-size: 11px;\n}\n\n.dshc_runHead .dshc_cardViewButton[aria-pressed=\"true\"] {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_runIcon {\n  border-radius: 50%;\n  flex: none;\n  width: 12px;\n  height: 12px;\n  position: relative;\n}\n\n.dshc_runStrip[data-state=\"running\"] .dshc_runIcon {\n  border: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 25%, transparent);\n  border-top-color: var(--dsw-alias-state-business-primary);\n  animation: .8s linear infinite dshc_channels-spin;\n}\n\n.dshc_runStrip[data-state=\"completed\"] .dshc_runIcon {\n  background: #23a55a;\n}\n\n.dshc_runStrip[data-state=\"completed\"] .dshc_runIcon:after {\n  content: \"\";\n  border: 1.5px solid #fff;\n  border-width: 0 1.5px 1.5px 0;\n  width: 3px;\n  height: 6px;\n  position: absolute;\n  top: 2px;\n  left: 4px;\n  transform: rotate(45deg);\n}\n\n.dshc_runStrip[data-state=\"failed\"] .dshc_runIcon {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_runSteps {\n  color: var(--dsw-alias-label-secondary);\n  margin-top: 4px;\n  font-size: 12px;\n  line-height: 1.55;\n}\n\n.dshc_runSteps p {\n  margin: 0;\n}\n\n.dshc_runStrip .dshc_cardButtons {\n  margin-top: 6px;\n}\n\n@keyframes dshc_channels-spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_runStrip[data-state=\"running\"] .dshc_runIcon {\n    animation-duration: 2.4s;\n  }\n}\n\n.dshc_card {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-left-width: 1px;\n  border-radius: 14px;\n  margin-top: 6px;\n  padding: 10px 12px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 40%, var(--dsw-alias-border-l2));\n}\n\n.dshc_taskAnchor {\n  max-width: 560px;\n  box-shadow: inset 3px 0 0 var(--channels-accent-warm, #d08a2e);\n}\n\n.dshc_permInline {\n  color: var(--dsw-alias-label-secondary);\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 4px 8px;\n  display: flex;\n}\n\n.dshc_permInline .dshc_text {\n  flex: 0 auto;\n  min-width: 0;\n}\n\n.dshc_permInline .dshc_text p {\n  margin: 0;\n}\n\n.dshc_permLock {\n  color: var(--dsw-alias-state-warning-primary, #e9a23b);\n  flex: none;\n  font-size: 9px;\n}\n\n.dshc_permWaiting {\n  color: var(--dsw-alias-state-warning-primary, #e9a23b);\n  flex: none;\n  font-size: 11px;\n  font-weight: 600;\n}\n\n.dshc_permTray {\n  flex-direction: column;\n  gap: 6px;\n  max-height: 40%;\n  margin: 0 16px 8px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_permTrayItem {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2));\n  border-radius: 14px;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px 12px;\n  padding: 10px 12px;\n  display: flex;\n  box-shadow: 0 6px 20px -12px #00000059;\n}\n\n.dshc_permTrayText {\n  flex: 240px;\n  min-width: 0;\n  font-size: 13px;\n}\n\n.dshc_permTrayText .dshc_text p {\n  margin: 0;\n}\n\n.dshc_permTrayWho {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_permTrayItem .dshc_permActions {\n  flex-wrap: nowrap;\n  margin: 0;\n}\n\n.dshc_permTrayItem .dshc_permScope {\n  display: none;\n}\n\n.dshc_members {\n  flex-direction: column;\n  padding: 0 10px 16px;\n}\n\n@media (width >= 901px) {\n  .dshc_members {\n    display: flex;\n  }\n\n  .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_members.dshc_drawerOpen {\n  display: flex;\n}\n\n.dshc_activityNow {\n  flex-direction: column;\n  gap: 2px;\n  margin-bottom: 6px;\n  display: flex;\n}\n\n.dshc_activityItem {\n  border: 1px solid var(--dsw-alias-border-l2);\n  width: 100%;\n  color: inherit;\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  border-radius: 12px;\n  align-items: center;\n  gap: 10px;\n  padding: 8px 10px;\n  display: flex;\n}\n\n.dshc_activityItem + .dshc_activityItem {\n  margin-top: 4px;\n}\n\n.dshc_activityItem:hover {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 40%, var(--dsw-alias-border-l2));\n}\n\n.dshc_activityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_activityText {\n  flex-direction: column;\n  flex: 1;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_activityName {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_activityWhat {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_activityPulse {\n  background: var(--dsw-alias-state-business-primary);\n  border-radius: 50%;\n  flex: none;\n  width: 8px;\n  height: 8px;\n  animation: 1.6s ease-in-out infinite dshc_channels-pulse;\n}\n\n@keyframes dshc_channels-pulse {\n  50% {\n    box-shadow: 0 0 0 3px #23a55a40;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_activityPulse {\n    animation: none;\n  }\n}\n\n.dshc_member {\n  padding: 6px 8px;\n}\n\n.dshc_memberText {\n  flex: 1;\n}\n\n.dshc_memberStatus {\n  flex: none;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_memberStatus[data-status=\"busy\"] {\n  color: var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_memberStatus[data-status=\"error\"] {\n  color: var(--dsw-alias-state-error-primary);\n  font-weight: 600;\n}\n\n.dshc_memberActions {\n  background: var(--dsw-alias-bg-layer-2);\n  padding-left: 8px;\n  position: absolute;\n  top: 50%;\n  right: 8px;\n  transform: translateY(-50%);\n}\n\n.dshc_addMemberButton {\n  border-radius: 10px;\n}\n\n@media (width <= 900px) {\n  .dshc_headMeta, .dshc_headActivityText {\n    display: none;\n  }\n\n  .dshc_chatHead {\n    padding: 0 8px;\n  }\n\n  .dshc_mobileButton {\n    white-space: nowrap;\n  }\n\n  .dshc_headActivity ~ .dshc_mobileButton:last-child {\n    margin-left: 4px;\n  }\n\n  .dshc_message {\n    padding-left: 12px;\n    padding-right: 12px;\n  }\n\n  .dshc_errorBar {\n    margin-left: 12px;\n    margin-right: 12px;\n  }\n\n  .dshc_permTray {\n    margin: 0 8px 8px;\n  }\n\n  .dshc_permTrayItem .dshc_permActions {\n    flex-wrap: wrap;\n  }\n\n  .dshc_systemLine {\n    padding: 8px 12px;\n  }\n\n  .dshc_systemText {\n    max-width: 90%;\n  }\n\n  .dshc_memberActions {\n    background: none;\n    padding-left: 0;\n    position: static;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsEnter {\n  from {\n    opacity: 0;\n    transform: translateY(6px);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsEnterOwn {\n  from {\n    opacity: 0;\n    transform: translateY(12px) scale(.985);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsGlow {\n  from {\n    opacity: 1;\n  }\n\n  to {\n    opacity: 0;\n  }\n}\n\n@keyframes dshc_channelsPop {\n  from {\n    opacity: 0;\n    transform: translateY(4px) scale(.98);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsDot {\n  0%, 60%, 100% {\n    opacity: .35;\n    transform: none;\n  }\n\n  30% {\n    opacity: 1;\n    transform: translateY(-2px);\n  }\n}\n\n@keyframes dshc_channelsDrain {\n  from {\n    transform: scaleX(1);\n  }\n\n  to {\n    transform: scaleX(0);\n  }\n}\n\n.dshc_enter {\n  animation: .18s cubic-bezier(.2, 0, 0, 1) both dshc_channelsEnter;\n}\n\n.dshc_enterOwn {\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsEnterOwn;\n}\n\n.dshc_enterGlow:before {\n  content: \"\";\n  pointer-events: none;\n  background: linear-gradient(90deg, color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent), transparent 70%);\n  animation: .7s cubic-bezier(.4, 0, .2, 1) both dshc_channelsGlow;\n  animation-delay: inherit;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_message {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_room {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), color .16s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_card {\n  transition: border-color .32s cubic-bezier(.2, 0, 0, 1), background-color .32s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_cardViewButton {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), opacity .16s cubic-bezier(.2, 0, 0, 1), transform .12s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_sendButton:not(:disabled):active, .dshc_primaryButton:not(:disabled):active, .dshc_secondaryButton:not(:disabled):active, .dshc_mentionButton:not(:disabled):active, .dshc_cardViewButton:active {\n  transform: translateY(1px);\n}\n\n.dshc_mentionPopup {\n  transform-origin: bottom;\n  animation: .16s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n}\n\n.dshc_typingDots {\n  vertical-align: middle;\n  gap: 3px;\n  margin-right: 6px;\n  display: inline-flex;\n}\n\n.dshc_typingDots i {\n  background: currentColor;\n  border-radius: 50%;\n  width: 4px;\n  height: 4px;\n  animation: 1.2s ease-in-out infinite dshc_channelsDot;\n}\n\n.dshc_typingDots i:nth-child(2) {\n  animation-delay: .15s;\n}\n\n.dshc_typingDots i:nth-child(3) {\n  animation-delay: .3s;\n}\n\n.dshc_logWrap {\n  flex-direction: column;\n  flex: 1;\n  min-height: 0;\n  display: flex;\n  position: relative;\n}\n\n.dshc_olderLoading {\n  color: var(--dsw-alias-label-tertiary);\n  text-align: center;\n  padding: 8px 16px;\n  font-size: 12px;\n}\n\n.dshc_unreadDivider {\n  color: var(--dsw-alias-state-error-primary);\n  align-items: center;\n  gap: 8px;\n  margin: 8px 16px;\n  font-size: 12px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_unreadDivider:before, .dshc_unreadDivider:after {\n  content: \"\";\n  opacity: .35;\n  background: currentColor;\n  flex: 1;\n  height: 1px;\n}\n\n.dshc_withdrawnRow {\n  text-align: right;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 16px;\n  font-size: 13px;\n  font-style: italic;\n  animation: .18s cubic-bezier(.2, 0, 0, 1) both dshc_channelsEnter;\n}\n\n.dshc_jumpLatest {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #00000029);\n  font: inherit;\n  cursor: pointer;\n  border-radius: 999px;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 14px;\n  font-size: 12px;\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n  display: inline-flex;\n  position: absolute;\n  bottom: 12px;\n  left: 50%;\n  transform: translateX(-50%);\n}\n\n.dshc_jumpLatest:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_jumpLatest:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_jumpCount {\n  color: var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_undoToast {\n  z-index: 4;\n  border-radius: var(--dsw-radius-md);\n  width: max-content;\n  max-width: calc(100% - 32px);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  align-items: center;\n  gap: 12px;\n  margin: 0 auto;\n  padding: 8px 8px 8px 14px;\n  font-size: 13px;\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n  display: flex;\n  position: absolute;\n  bottom: 12px;\n  left: 0;\n  right: 0;\n  overflow: hidden;\n}\n\n.dshc_undoButton {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  background: color-mix(in srgb, currentColor 16%, transparent);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  padding: 2px 10px;\n  font-weight: 600;\n}\n\n.dshc_undoButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_undoBar {\n  background: var(--dsw-alias-state-business-primary);\n  transform-origin: 0;\n  height: 2px;\n  animation: linear forwards dshc_channelsDrain;\n  position: absolute;\n  bottom: 0;\n  left: 0;\n  right: 0;\n}\n\n.dshc_undoToast ~ .dshc_jumpLatest {\n  display: none;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_enter, .dshc_enterOwn, .dshc_enterGlow:before, .dshc_mentionPopup, .dshc_jumpLatest, .dshc_undoToast, .dshc_withdrawnRow {\n    animation: none;\n  }\n\n  .dshc_typingDots i {\n    opacity: .6;\n    animation: none;\n  }\n\n  .dshc_undoBar {\n    animation: none;\n  }\n\n  .dshc_message, .dshc_room, .dshc_card, .dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_cardViewButton {\n    transition: none;\n  }\n}\n\n.dshc_leadCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 14px;\n  align-items: center;\n  gap: 10px;\n  margin: 8px 8px 4px;\n  padding: 10px 12px;\n  display: flex;\n}\n\n.dshc_leadCardText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_leadCardName {\n  color: var(--dsw-alias-label-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 14px;\n  font-weight: 650;\n  overflow: hidden;\n}\n\n.dshc_leadCardStatus {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_message:not(.dshc_own) > .dshc_messageBody > .dshc_text {\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 6px 16px 16px;\n  width: fit-content;\n  max-width: min(640px, 100%);\n  padding: 8px 14px;\n}\n\n.dshc_message.dshc_grouped:not(.dshc_own) > .dshc_messageBody > .dshc_text {\n  border-radius: 6px 16px 16px 6px;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text {\n  color: var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-primary);\n  box-shadow: none;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text * {\n  color: inherit;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text a {\n  color: inherit;\n  text-decoration: underline;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text code {\n  color: inherit;\n  background: color-mix(in srgb, var(--dsw-alias-bg-base) 18%, transparent);\n}\n\n.dshc_boardDrawerBackdrop {\n  background: #00000040;\n  place-items: stretch end;\n  padding: 0;\n}\n\n.dshc_boardDrawerBackdrop > .dshc_taskBoardDialog {\n  box-sizing: border-box;\n  border-radius: 0;\n  width: min(440px, 100%);\n  height: 100dvh;\n  max-height: none;\n  animation: .2s ease-out dshc_boardDrawerIn;\n}\n\n@keyframes dshc_boardDrawerIn {\n  from {\n    opacity: 0;\n    transform: translateX(24px);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardDrawerBackdrop > .dshc_taskBoardDialog {\n    animation: none;\n  }\n}\n\n.dshc_schemeToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: 4px;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_schemeToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_schemeToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_schemeToggle + .dshc_panelToggleEnd {\n  margin-left: 4px;\n}\n\n.dshc_progressCard {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: 0 6px 18px #0000000a, 0 -12px 0 0 var(--dsw-alias-bg-base);\n  border-radius: 14px;\n  margin: 0 16px 12px;\n  padding: 8px 14px;\n  font-size: 12px;\n  position: sticky;\n  top: 0;\n}\n\n.dshc_progressTitle {\n  color: var(--dsw-alias-label-primary);\n  font-size: 12px;\n}\n\n.dshc_progressRows {\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 0 14px;\n  margin: 4px 0 0;\n  display: grid;\n}\n\n.dshc_progressRow {\n  min-width: 0;\n}\n\n.dshc_progressRow dt {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 10px;\n}\n\n.dshc_progressRow dd {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  min-width: 0;\n  color: var(--dsw-alias-label-primary);\n  margin: 0;\n  overflow: hidden;\n}\n\n.dshc_progressRow[data-empty=\"true\"] dd {\n  color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_progressRow[data-row=\"open\"][data-empty=\"false\"] dd, .dshc_progressRow[data-row=\"open\"] .dshc_progressLink {\n  color: var(--dsw-alias-state-warning-primary, #b7791f);\n}\n\n.dshc_progressLink {\n  max-width: 100%;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 0;\n  overflow: hidden;\n}\n\n.dshc_progressLink:hover {\n  text-decoration: underline;\n}\n\n@media (width <= 760px) {\n  .dshc_progressCard {\n    margin: 0 10px 10px;\n  }\n\n  .dshc_progressRows {\n    grid-template-columns: 52px minmax(0, 1fr);\n  }\n\n  .dshc_progressRow {\n    display: contents;\n  }\n}\n\n.dshc_stepChips {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_stepChip {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  max-width: 220px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  border-radius: 999px;\n  align-items: center;\n  gap: 5px;\n  padding: 2px 9px 2px 7px;\n  font-size: 11px;\n  display: inline-flex;\n}\n\n.dshc_stepChip b {\n  color: var(--dsw-alias-label-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-weight: 600;\n  overflow: hidden;\n}\n\n.dshc_stepChip:disabled {\n  cursor: default;\n}\n\n.dshc_stepChip[aria-expanded=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_stepChip[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepChip[data-state=\"failed\"] b {\n  color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_stepChip[data-state=\"running\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 55%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepMark {\n  background: var(--dsw-alias-label-tertiary);\n  border-radius: 50%;\n  flex: none;\n  width: 7px;\n  height: 7px;\n}\n\n.dshc_stepChip[data-state=\"ok\"] .dshc_stepMark {\n  background: #23a55a;\n}\n\n.dshc_stepChip[data-state=\"failed\"] .dshc_stepMark {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_stepChip[data-state=\"running\"] .dshc_stepMark {\n  background: var(--dsw-alias-state-business-primary);\n  animation: 1s ease-in-out infinite dshc_channels-blink;\n}\n\n@keyframes dshc_channels-blink {\n  50% {\n    opacity: .3;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_stepChip[data-state=\"running\"] .dshc_stepMark {\n    animation: none;\n  }\n}\n\n.dshc_stepOut {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base));\n  color: var(--dsw-alias-label-secondary);\n  border-radius: 8px;\n  flex-basis: 100%;\n  gap: 4px;\n  padding: 8px 10px;\n  font-size: 11px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_stepOut[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepOut div {\n  gap: 8px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_stepOut span {\n  color: var(--dsw-alias-label-tertiary);\n  flex: none;\n}\n\n.dshc_stepOut code {\n  overflow-wrap: anywhere;\n  min-width: 0;\n  font-family: ui-monospace, Menlo, monospace;\n}\n\n.dshc_stepOut[data-state=\"failed\"] > div[data-state=\"failed\"] > div:last-child > code {\n  color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_decideTray {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2));\n  border-radius: 14px;\n  flex-direction: column;\n  max-height: 45%;\n  margin: 0 16px 8px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_decideTrayHead {\n  width: 100%;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: baseline;\n  gap: 8px;\n  padding: 7px 12px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_decideTrayHead strong {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 70%, var(--dsw-alias-label-primary));\n}\n\n.dshc_decideTrayHead small {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_decideTrayHead:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_decideTrayToggle {\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  margin-left: auto;\n}\n\n.dshc_decideTray .dshc_permTray {\n  max-height: none;\n  margin: 0;\n  padding: 0 8px 8px;\n}\n\n.dshc_askList {\n  flex-direction: column;\n  display: flex;\n}\n\n.dshc_askItem {\n  border-top: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 30%, transparent);\n  background: var(--dsw-alias-bg-layer-2);\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 6px 10px;\n  padding: 8px 12px;\n  display: flex;\n}\n\n.dshc_askKind {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 75%, var(--dsw-alias-label-primary));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 15%, transparent);\n  border-radius: 5px;\n  flex: none;\n  padding: 0 6px;\n  font-size: 11px;\n}\n\n.dshc_askText {\n  flex-direction: column;\n  flex: 200px;\n  min-width: 0;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_askQuestion {\n  overflow-wrap: anywhere;\n}\n\n.dshc_askFrom {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_askForm {\n  flex: 0 260px;\n  align-items: center;\n  gap: 6px;\n  min-width: 160px;\n  display: flex;\n}\n\n.dshc_askInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  min-width: 0;\n  color: inherit;\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  border-radius: 8px;\n  flex: 1;\n  padding: 4px 8px;\n  font-size: 12px;\n}\n\n.dshc_askInput:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_askSend {\n  width: 26px;\n  height: 26px;\n  color: var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-primary);\n  cursor: pointer;\n  border: 0;\n  border-radius: 50%;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_askSend:disabled {\n  opacity: .3;\n  cursor: default;\n}\n\n.dshc_askSend:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: 2px;\n}\n\n.dshc_askDone {\n  color: var(--dsw-alias-label-secondary);\n  align-items: center;\n  gap: 8px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_askNotice {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 75%, var(--dsw-alias-label-primary));\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_decideTray {\n    margin: 0 8px 8px;\n  }\n\n  .dshc_askForm {\n    flex-basis: 100%;\n  }\n}\n\n.dshc_headTeam {\n  flex: none;\n  align-items: center;\n  margin-left: auto;\n  display: inline-flex;\n}\n\n.dshc_mate, .dshc_mateMore {\n  border: 2px solid var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-bg-base);\n  cursor: pointer;\n  border-radius: 50%;\n  justify-content: center;\n  align-items: center;\n  margin-left: -6px;\n  padding: 0;\n  display: inline-flex;\n  position: relative;\n}\n\n.dshc_mate:first-child {\n  margin-left: 0;\n}\n\n.dshc_mate .dshc_avatar {\n  margin: 0;\n}\n\n.dshc_mateMore {\n  background: var(--dsw-alias-interactive-bg-hover);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-secondary);\n  font-size: 11px;\n  font-weight: 600;\n}\n\n.dshc_mateDot {\n  box-sizing: border-box;\n  border: 2px solid var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-tertiary);\n  border-radius: 50%;\n  width: 9px;\n  height: 9px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_mate[data-state=\"busy\"] .dshc_mateDot {\n  background: #23a55a;\n  animation: 1.6s ease-in-out infinite dshc_channels-pulse;\n}\n\n.dshc_mate[data-state=\"idle\"] .dshc_mateDot {\n  background: var(--dsw-alias-bg-base);\n  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-label-tertiary);\n}\n\n.dshc_mate[data-state=\"error\"] .dshc_mateDot {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_mate[data-state=\"offline\"] {\n  opacity: .55;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_mate[data-state=\"busy\"] .dshc_mateDot {\n    animation: none;\n  }\n}\n\n@media (width <= 760px) {\n  .dshc_headTeam {\n    display: none;\n  }\n}\n\n.dshc_chatHead > .dshc_headTeam + .dshc_taskBoardTrigger {\n  margin-left: 12px;\n}\n\n.dshc_sideDock {\n  display: none;\n}\n\n@media (width >= 1101px) {\n  .dshc_page.dshc_panelOpen {\n    grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%) 240px;\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) min(420px, 36%) 240px;\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%);\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr) min(420px, 36%);\n  }\n\n  .dshc_page.dshc_panelOpen > .dshc_sideDock {\n    border-left: 1px solid var(--dsw-alias-border-l2);\n    background: var(--dsw-alias-bg-base);\n    min-width: 0;\n    min-height: 0;\n    display: flex;\n  }\n}\n\n.dshc_sidePanel {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  max-height: none;\n  box-shadow: none;\n  border: 0;\n  border-radius: 0;\n  margin: 0;\n  animation: .2s ease-out dshc_boardDrawerIn;\n  position: relative;\n}\n\n.dshc_sidePanel:focus {\n  outline: none;\n}\n\n.dshc_sidePanelClose {\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-secondary);\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 6px;\n  font-size: 18px;\n  line-height: 1;\n  position: absolute;\n  top: 10px;\n  right: 10px;\n}\n\n.dshc_sidePanelClose:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_sidePanel {\n    animation: none;\n  }\n}\n\n.dshc_sidePanel .dshc_boardCardGrid {\n  grid-template-columns: minmax(0, 1fr);\n}\n\n.dshc_slashPopup {\n  z-index: 6;\n  width: min(360px, 100% - 32px);\n  animation: none;\n  right: auto;\n}\n\n.dshc_slashGroup {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_slashItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: baseline;\n  gap: 8px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_slashActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_slashName {\n  flex: none;\n  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n  font-weight: 600;\n}\n\n.dshc_slashMeta {\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_sendButton.dshc_stopButton {\n  background: var(--dsw-alias-label-primary);\n}\n\n.dshc_stopNote + .dshc_sendButton {\n  margin-left: 8px;\n}\n\n.dshc_sendButton.dshc_stopButton[data-phase=\"stopping\"] {\n  opacity: .6;\n  cursor: progress;\n}\n\n.dshc_stopNote {\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_cmdLine {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 6px;\n  padding: 1px 16px 1px 72px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_cmdLine code {\n  color: var(--dsw-alias-label-secondary);\n  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n}\n\n.dshc_cmdResult {\n  min-width: 0;\n  max-width: 60ch;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 0;\n  overflow: hidden;\n}\n\n.dshc_cmdResult[aria-expanded=\"true\"] {\n  white-space: pre-line;\n  max-width: none;\n}\n\n.dshc_cmdLine[data-failed=\"true\"] .dshc_cmdResult {\n  color: var(--dsw-alias-danger, #d94848);\n}\n\n@media (width <= 720px) {\n  .dshc_cmdLine {\n    padding-left: 16px;\n  }\n}\n\n.dshc_msgTool {\n  justify-content: center;\n  align-items: center;\n  width: 26px;\n  height: 24px;\n  padding: 0;\n  display: inline-flex;\n  position: relative;\n}\n\n.dshc_msgTool[data-tip]:after {\n  content: attr(data-tip);\n  z-index: 3;\n  background: var(--dsw-alias-label-primary);\n  color: var(--dsw-alias-label-primary-inverted);\n  white-space: nowrap;\n  opacity: 0;\n  pointer-events: none;\n  border-radius: 4px;\n  padding: 2px 6px;\n  font-size: 11px;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 50%;\n  transform: translateX(-50%);\n}\n\n.dshc_msgTool[data-tip]:hover:after, .dshc_msgTool[data-tip]:focus-visible:after {\n  opacity: 1;\n  transition: opacity 0s 80ms;\n}\n\n.dshc_permSessionButton {\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-underline-offset: 2px;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 4px 6px;\n  font-size: 12px;\n  text-decoration: underline;\n}\n\n.dshc_permSessionButton:hover {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_permSessionButton:disabled {\n  opacity: .5;\n  cursor: default;\n}\n\n.dshc_queuedButton {\n  border: 1px solid var(--dsw-alias-border-default, #0000001f);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border-radius: 9px;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 16px;\n}\n\n.dshc_queuedButton:hover {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_queuedTag {\n  color: #a76a06;\n  background: #eaa02824;\n  border-radius: 4px;\n  padding: 0 5px;\n  font-size: 11px;\n  line-height: 16px;\n}\n\n[data-queued] .dshc_ownActions {\n  opacity: 1;\n}\n\n.dshc_memory {\n  margin-top: 4px;\n}\n\n.dshc_memoryBadge {\n  background: var(--dsw-alias-fill-secondary, #0000000d);\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  border-radius: 9px;\n  align-items: center;\n  gap: 4px;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 18px;\n  display: inline-flex;\n}\n\n.dshc_memoryBadge:hover, .dshc_memoryBadge[aria-expanded=\"true\"] {\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_memoryList {\n  border-left: 2px solid var(--dsw-alias-border-default, #0000001f);\n  flex-direction: column;\n  gap: 4px;\n  max-width: 560px;\n  margin: 4px 0 0;\n  padding: 6px 10px;\n  font-size: 12px;\n  list-style: none;\n  display: flex;\n}\n\n.dshc_memoryItem {\n  flex-direction: column;\n  display: flex;\n}\n\n.dshc_memoryTitle {\n  color: var(--dsw-alias-label-secondary);\n  line-height: 1.5;\n}\n\n.dshc_memoryPage {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 11px;\n  font-family: var(--dsw-font-mono, ui-monospace, monospace);\n}\n\n.dshc_delivery {\n  flex-direction: column;\n  gap: 6px;\n  max-width: 720px;\n  margin-top: 8px;\n  display: flex;\n}\n\n.dshc_deliveryFrame {\n  border: 1px solid var(--background-modifier-accent, #7f7f7f4d);\n  background: #fff;\n  border-radius: 6px;\n  height: 360px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_deliveryActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_deliveryActions a {\n  text-decoration: none;\n}\n\n.dshc_deliveryDone {\n  color: var(--text-muted, #888);\n  font-size: 12px;\n}\n\n.dshc_deliveryFullDialog {\n  box-sizing: border-box;\n  flex-direction: column;\n  gap: 8px;\n  width: 94vw;\n  max-width: none;\n  height: 92dvh;\n  display: flex;\n}\n\n.dshc_deliveryFullFrame {\n  background: #fff;\n  border-radius: 6px;\n  flex: 1;\n  min-height: 0;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_dmTitle {\n  color: var(--text-muted, #888);\n  margin: 14px 8px 4px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_dmAvatar {\n  margin-right: 6px;\n  display: inline-flex;\n}\n[data-dc-scheme=\"light\"] {\n  --dsw-static-amber-100: #fef5e7;\n  --dsw-static-amber-400: #f7ad31;\n  --dsw-static-amber-500: #f59e0b;\n  --dsw-static-amber-600: #dd8629;\n  --dsw-static-amber-900: #27241f;\n  --dsw-static-blue-100: #dbeafe;\n  --dsw-static-blue-300: #93c5fd;\n  --dsw-static-blue-400: #60a5fa;\n  --dsw-static-blue-450: #4d93f8;\n  --dsw-static-blue-500: #3b82f6;\n  --dsw-static-blue-50: #eff6ff;\n  --dsw-static-blue-50p: #eaf3ff;\n  --dsw-static-blue-600: #2563eb;\n  --dsw-static-blue-75: #e5f0ff;\n  --dsw-static-blue-800: #1e40af;\n  --dsw-static-blue-900: #0e3074;\n  --dsw-static-blue-950: #172554;\n  --dsw-static-deepseek-100: #e4edfd;\n  --dsw-static-deepseek-200: #d3e2ff;\n  --dsw-static-deepseek-300: #b7c8fe;\n  --dsw-static-deepseek-400: #7aaaff;\n  --dsw-static-deepseek-450: #5686fe;\n  --dsw-static-deepseek-500: #4176e6;\n  --dsw-static-deepseek-50: #edf3fe;\n  --dsw-static-deepseek-600: #4868b2;\n  --dsw-static-deepseek-700-delete: #2f4c8f;\n  --dsw-static-deepseek-800: #34415b;\n  --dsw-static-deepseek-900: #283142;\n  --dsw-static-green-100: #e6faed;\n  --dsw-static-green-400: #4ed17e;\n  --dsw-static-green-500: #22c55e;\n  --dsw-static-green-500-a08: #22c55e14;\n  --dsw-static-green-500-a12: #22c55e1f;\n  --dsw-static-green-900: #233c2c;\n  --dsw-static-neutral-00: #fff;\n  --dsw-static-neutral-1000: #000;\n  --dsw-static-neutral-100: #f5f5f5;\n  --dsw-static-neutral-150: #ededed;\n  --dsw-static-neutral-200: #e5e5e5;\n  --dsw-static-neutral-250: #dcdcdc;\n  --dsw-static-neutral-300: #d4d4d4;\n  --dsw-static-neutral-400: #a2a4a6;\n  --dsw-static-neutral-500: #7f8287;\n  --dsw-static-neutral-50: #fafafa;\n  --dsw-static-neutral-550: #65676b;\n  --dsw-static-neutral-600: #545557;\n  --dsw-static-neutral-700: #3c3c3d;\n  --dsw-static-neutral-800: #292929;\n  --dsw-static-neutral-850: #212123;\n  --dsw-static-neutral-900: #0f0f0f;\n  --dsw-static-neutral-bluish-00: #fff;\n  --dsw-static-neutral-bluish-1000: #0f1115;\n  --dsw-static-neutral-bluish-100: #ebeef2;\n  --dsw-static-neutral-bluish-150: #e9ecf2;\n  --dsw-static-neutral-bluish-200: #e1e5ee;\n  --dsw-static-neutral-bluish-300: #cfd3d6;\n  --dsw-static-neutral-bluish-400: #adb2b8;\n  --dsw-static-neutral-bluish-500: #979da6;\n  --dsw-static-neutral-bluish-50: #f9fafb;\n  --dsw-static-neutral-bluish-600: #81858c;\n  --dsw-static-neutral-bluish-60: #f5f6f7;\n  --dsw-static-neutral-bluish-700: #61666b;\n  --dsw-static-neutral-bluish-750: #43454a;\n  --dsw-static-neutral-bluish-75: #f1f3f5;\n  --dsw-static-neutral-bluish-800: #353638;\n  --dsw-static-neutral-bluish-850: #2c2c2e;\n  --dsw-static-neutral-bluish-875: #232324;\n  --dsw-static-neutral-bluish-900: #1b1b1c;\n  --dsw-static-neutral-bluish-950: #151517;\n  --dsw-static-red-100: #fee2e2;\n  --dsw-static-red-400: #f25a5a;\n  --dsw-static-red-400-a12: #f25a5a1f;\n  --dsw-static-red-500: #ef4444;\n  --dsw-static-red-50: #fef2f2;\n  --dsw-static-red-600: #ec1313;\n  --dsw-static-red-600-a08: #ec131314;\n  --dsw-static-red-900: #570c0c;\n}\n\n[data-dc-scheme=\"dark\"] {\n  --dsw-static-amber-100: #fef5e7;\n  --dsw-static-amber-400: #f7ad31;\n  --dsw-static-amber-500: #f59e0b;\n  --dsw-static-amber-600: #dd8629;\n  --dsw-static-amber-900: #27241f;\n  --dsw-static-blue-100: #dbeafe;\n  --dsw-static-blue-300: #93c5fd;\n  --dsw-static-blue-400: #60a5fa;\n  --dsw-static-blue-450: #4d93f8;\n  --dsw-static-blue-500: #3b82f6;\n  --dsw-static-blue-50: #eff6ff;\n  --dsw-static-blue-50p: #eaf3ff;\n  --dsw-static-blue-600: #2563eb;\n  --dsw-static-blue-75: #e5f0ff;\n  --dsw-static-blue-800: #1e40af;\n  --dsw-static-blue-900: #0e3074;\n  --dsw-static-blue-950: #172554;\n  --dsw-static-deepseek-100: #e4edfd;\n  --dsw-static-deepseek-200: #d3e2ff;\n  --dsw-static-deepseek-300: #b7c8fe;\n  --dsw-static-deepseek-400: #7aaaff;\n  --dsw-static-deepseek-450: #5686fe;\n  --dsw-static-deepseek-500: #4176e6;\n  --dsw-static-deepseek-50: #edf3fe;\n  --dsw-static-deepseek-600: #4868b2;\n  --dsw-static-deepseek-700-delete: #2f4c8f;\n  --dsw-static-deepseek-800: #34415b;\n  --dsw-static-deepseek-900: #283142;\n  --dsw-static-green-100: #e6faed;\n  --dsw-static-green-400: #4ed17e;\n  --dsw-static-green-500: #22c55e;\n  --dsw-static-green-500-a08: #22c55e14;\n  --dsw-static-green-500-a12: #22c55e1f;\n  --dsw-static-green-900: #233c2c;\n  --dsw-static-neutral-00: #fff;\n  --dsw-static-neutral-1000: #000;\n  --dsw-static-neutral-100: #f5f5f5;\n  --dsw-static-neutral-150: #ededed;\n  --dsw-static-neutral-200: #e5e5e5;\n  --dsw-static-neutral-250: #dcdcdc;\n  --dsw-static-neutral-300: #d4d4d4;\n  --dsw-static-neutral-400: #a2a4a6;\n  --dsw-static-neutral-500: #7f8287;\n  --dsw-static-neutral-50: #fafafa;\n  --dsw-static-neutral-550: #65676b;\n  --dsw-static-neutral-600: #545557;\n  --dsw-static-neutral-700: #3c3c3d;\n  --dsw-static-neutral-800: #292929;\n  --dsw-static-neutral-850: #212123;\n  --dsw-static-neutral-900: #0f0f0f;\n  --dsw-static-neutral-bluish-00: #fff;\n  --dsw-static-neutral-bluish-1000: #0f1115;\n  --dsw-static-neutral-bluish-100: #ebeef2;\n  --dsw-static-neutral-bluish-150: #e9ecf2;\n  --dsw-static-neutral-bluish-200: #e1e5ee;\n  --dsw-static-neutral-bluish-300: #cfd3d6;\n  --dsw-static-neutral-bluish-400: #adb2b8;\n  --dsw-static-neutral-bluish-500: #979da6;\n  --dsw-static-neutral-bluish-50: #f9fafb;\n  --dsw-static-neutral-bluish-600: #81858c;\n  --dsw-static-neutral-bluish-60: #f9fafb;\n  --dsw-static-neutral-bluish-700: #61666b;\n  --dsw-static-neutral-bluish-750: #43454a;\n  --dsw-static-neutral-bluish-75: #f1f3f5;\n  --dsw-static-neutral-bluish-800: #353638;\n  --dsw-static-neutral-bluish-850: #2c2c2e;\n  --dsw-static-neutral-bluish-875: #232324;\n  --dsw-static-neutral-bluish-900: #1b1b1c;\n  --dsw-static-neutral-bluish-950: #151517;\n  --dsw-static-red-100: #fee2e2;\n  --dsw-static-red-400: #f25a5a;\n  --dsw-static-red-400-a12: #f25a5a1f;\n  --dsw-static-red-500: #ef4444;\n  --dsw-static-red-50: #fef2f2;\n  --dsw-static-red-600: #ec1313;\n  --dsw-static-red-600-a08: #ec131314;\n  --dsw-static-red-900: #570c0c;\n}\n\n[data-dc-scheme=\"light\"] {\n  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);\n  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-mask-1: #0000003d;\n  --dsw-alias-bg-mask-2: #0000001f;\n  --dsw-alias-bg-mask-3: #0000007a;\n  --dsw-alias-bg-mask-photo: #000000e0;\n  --dsw-alias-bg-mask-drop: #ffffffb3;\n  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-bg-multi-select: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-150);\n  --dsw-alias-bg-skeleton: #0000000a;\n  --dsw-alias-border-inverted2: #0000;\n  --dsw-alias-border-inverted: #0000;\n  --dsw-alias-border-l1: #0000000a;\n  --dsw-alias-border-l2-darkmode-thin: #0000001a;\n  --dsw-alias-border-l2: #0000001a;\n  --dsw-alias-border-l3: #0000001f;\n  --dsw-alias-border-l4: #00000029;\n  --dsw-alias-brand-primary-invert: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-brand-primary-new-colorprimary-new-color: #4176e6;\n  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-button-contrast-fill: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-button-ghost-active-border: var(--dsw-static-neutral-bluish-500);\n  --dsw-alias-button-ghost-active-fill: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-ghost-active-hover: var(--dsw-static-neutral-bluish-150);\n  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-500);\n  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-400);\n  --dsw-alias-button-primary-dimmed: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-primary-fill: var(--dsw-alias-brand-primary);\n  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-tool-bar-fill-invisible: #1f1f1f5c;\n  --dsw-alias-button-tool-bar-fill: #54555780;\n  --dsw-alias-button-tool-bar-hover: #54555799;\n  --dsw-alias-interactive-bg-active: #2631481a;\n  --dsw-alias-interactive-bg-hover-accent: #26314824;\n  --dsw-alias-interactive-bg-hover-danger: #ec13130d;\n  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-interactive-bg-hover: #2631480f;\n  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-500) 70%, var(--dsw-static-blue-950));\n  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-deepseek-500) 30%, var(--dsw-static-blue-950));\n  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-200);\n  --dsw-alias-label-primary-bluish: var(--dsw-static-blue-900);\n  --dsw-alias-label-primary-dimmed: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-1000) 30%, transparent);\n  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-menu-icon: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-link: var(--dsw-static-deepseek-500);\n  --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-50);\n  --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-200);\n  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-200);\n  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-300);\n  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-300);\n  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);\n  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-100);\n  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a08);\n  --dsw-alias-code-diff-deleted: var(--dsw-static-red-600-a08);\n  --dsw-alias-file-diff-added-bg: #e6f4e7;\n  --dsw-alias-file-diff-added-gutter: #edf7ed;\n  --dsw-alias-file-diff-added-marker: #01a241;\n  --dsw-alias-file-diff-deleted-bg: #fce6e2;\n  --dsw-alias-file-diff-deleted-gutter: #fdece9;\n  --dsw-alias-file-diff-deleted-marker: #ba2723;\n  --dsw-alias-state-error-primary: var(--dsw-static-red-600);\n  --dsw-alias-state-error-secondary: var(--dsw-static-red-400);\n  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-300);\n  --dsw-alias-state-success-primary: var(--dsw-static-green-500);\n  --dsw-alias-state-success-secondary: var(--dsw-static-green-400);\n  --dsw-alias-state-success-tertiary: var(--dsw-static-green-100);\n  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);\n  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);\n  --dsw-alias-state-warn-secondary: var(--dsw-static-amber-400);\n  --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-100);\n  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);\n  --dsw-alias-turn-trigger-bg: var(--dsw-alias-markdown-code-block);\n  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-hover);\n  --dsw-specific-bubble-highlight: var(--dsw-static-deepseek-200);\n  --dsw-specific-bubble: var(--dsw-static-deepseek-50);\n  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-00);\n  --dsw-specific-login-input: var(--dsw-static-neutral-bluish-50);\n  --dsw-menu-surface-fill: #f8f9fa94;\n  --dsw-alias-menu-group-header-fill: #f8f9faf0;\n  --dsw-specific-menu: var(--dsw-menu-surface-fill);\n  --dsw-specific-selector: var(--dsw-static-neutral-bluish-60);\n  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-50);\n  --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-deepseek-100);\n  --dsw-specific-sidebar-nav-item-active: var(--dsw-static-neutral-bluish-100);\n  --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-75);\n  --dsw-specific-tip: var(--dsw-static-neutral-bluish-60);\n}\n\n[data-dc-scheme=\"dark\"] {\n  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);\n  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-300);\n  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-875);\n  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-bg-mask-1: #00000080;\n  --dsw-alias-bg-mask-2: #0003;\n  --dsw-alias-bg-mask-3: #0000007a;\n  --dsw-alias-bg-mask-photo: #000000e0;\n  --dsw-alias-bg-mask-drop: #272730b3;\n  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-bg-multi-select: var(--dsw-static-neutral-850);\n  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-bg-skeleton: #ffffff14;\n  --dsw-alias-border-inverted2: #ffffff14;\n  --dsw-alias-border-inverted: #ffffff0f;\n  --dsw-alias-border-l1: #ffffff0f;\n  --dsw-alias-border-l2-darkmode-thin: #ffffff0f;\n  --dsw-alias-border-l2: #ffffff1f;\n  --dsw-alias-border-l3: #ffffff29;\n  --dsw-alias-border-l4: #fff3;\n  --dsw-alias-brand-primary-invert: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-brand-primary-new-colorprimary-new-color: var(--dsw-static-deepseek-450);\n  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-button-contrast-fill: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-button-ghost-active-border: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-button-ghost-active-fill: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-ghost-active-hover: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-400);\n  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-500);\n  --dsw-alias-button-primary-dimmed: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-primary-fill: var(--dsw-alias-brand-primary);\n  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-tool-bar-fill-invisible: #1f1f1f5c;\n  --dsw-alias-button-tool-bar-fill: #54555780;\n  --dsw-alias-button-tool-bar-hover: #54555799;\n  --dsw-alias-interactive-bg-active: #ffffff24;\n  --dsw-alias-interactive-bg-hover-accent: #ffffff3d;\n  --dsw-alias-interactive-bg-hover-danger: #f25a5a26;\n  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-interactive-bg-hover: #ffffff14;\n  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-450) 55%, var(--dsw-static-neutral-bluish-400));\n  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-blue-300) 65%, var(--dsw-static-deepseek-400));\n  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-label-primary-bluish: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-label-primary-dimmed: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-300);\n  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-00) 45%, transparent);\n  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-menu-icon: var(--dsw-alias-label-primary-dimmed);\n  --dsw-alias-link: var(--dsw-static-deepseek-400);\n  --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-900);\n  --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-900);\n  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-800);\n  --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-700);\n  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-600);\n  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-600);\n  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-550);\n  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-400);\n  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-800);\n  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a12);\n  --dsw-alias-code-diff-deleted: var(--dsw-static-red-400-a12);\n  --dsw-alias-file-diff-added-bg: #1f3124;\n  --dsw-alias-file-diff-added-gutter: #132016;\n  --dsw-alias-file-diff-added-marker: #41c977;\n  --dsw-alias-file-diff-deleted-bg: #3c1f1b;\n  --dsw-alias-file-diff-deleted-gutter: #28130e;\n  --dsw-alias-file-diff-deleted-marker: #fa423e;\n  --dsw-alias-state-error-primary: var(--dsw-static-red-400);\n  --dsw-alias-state-error-secondary: var(--dsw-static-red-400);\n  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-600);\n  --dsw-alias-state-success-primary: var(--dsw-static-green-500);\n  --dsw-alias-state-success-secondary: var(--dsw-static-green-400);\n  --dsw-alias-state-success-tertiary: var(--dsw-static-green-900);\n  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);\n  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);\n  --dsw-alias-state-warn-secondary: var(--dsw-static-amber-400);\n  --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-900);\n  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-turn-trigger-bg: var(--dsw-alias-interactive-bg-hover);\n  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-active);\n  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);\n  --dsw-specific-bubble-highlight: var(--dsw-static-neutral-bluish-750);\n  --dsw-specific-bubble: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-login-input: var(--dsw-static-neutral-bluish-900);\n  --dsw-menu-surface-fill: #43454a73;\n  --dsw-alias-menu-group-header-fill: #303136f0;\n  --dsw-specific-menu: var(--dsw-menu-surface-fill);\n  --dsw-specific-selector: var(--dsw-static-neutral-bluish-800);\n  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-900);\n  --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-neutral-bluish-800);\n  --dsw-specific-sidebar-nav-item-active: var(--dsw-static-neutral-bluish-750);\n  --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-tip: var(--dsw-static-neutral-bluish-800);\n}\n\nhtml[data-platform=\"darwin\"] [data-dc-scheme=\"light\"] {\n  --dsw-specific-menu: #f8f9faf0;\n}\n\nhtml[data-platform=\"darwin\"] [data-dc-scheme=\"dark\"] {\n  --dsw-specific-menu: #303136f0;\n}\n\n[data-dc-scheme=\"light\"] {\n  color-scheme: light;\n}\n\n[data-dc-scheme=\"dark\"] {\n  color-scheme: dark;\n}\n.dshc_embed {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  background: var(--dsw-alias-bg-base);\n  display: flex;\n}\n\n.dshc_frame {\n  background: var(--dsw-alias-bg-base);\n  border: 0;\n  flex: 1;\n  width: 100%;\n  height: 100%;\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 // \0rolldown/runtime.js
 var __defProp = Object.defineProperty;
@@ -62,11 +62,14 @@ const readAttachment = async (file) => {
 		data: btoa(binary)
 	};
 };
+/** #1023: the private chats, one per agent member, in id order. */
+const dmRooms = (rooms) => rooms.filter((r) => r.dm_member != null);
 /**
 * Order rooms as chat channel, then its workspaces, in id order. A workspace whose
 * chat channel is missing is shown at the top level so it stays reachable.
 */
-function groupRooms(rooms) {
+function groupRooms(allRooms) {
+	const rooms = allRooms.filter((r) => r.dm_member == null);
 	const chats = new Set(rooms.filter((r) => r.kind !== "workspace").map((r) => r.id));
 	const under = /* @__PURE__ */ new Map();
 	for (const r of rooms) if (r.kind === "workspace" && r.parent_id != null && chats.has(r.parent_id)) under.set(r.parent_id, [...under.get(r.parent_id) ?? [], r]);
@@ -100,6 +103,19 @@ const INITIAL = {
 	hasMoreOlder: false,
 	outbox: []
 };
+/** Position of message `id` in rows ascending by id, or -1. */
+function indexOfId(rows, id) {
+	let lo = 0;
+	let hi = rows.length - 1;
+	while (lo <= hi) {
+		const mid = lo + hi >> 1;
+		const at = rows[mid].id;
+		if (at === id) return mid;
+		if (at < id) lo = mid + 1;
+		else hi = mid - 1;
+	}
+	return -1;
+}
 /** Reconnect backoff: 1, 2, 4, 8… seconds, never beyond this cap. */
 const MAX_BACKOFF_MS = 3e4;
 /** Messages requested per page, both for the first read and for `loadOlder`. */
@@ -190,6 +206,8 @@ function createChannelSource(transport) {
 	* e.g. A → B → back to A, where the room check alone passes again.
 	*/
 	let historyEpoch = 0;
+	/** #1030: live rows newer than a trimmed window's last one, kept until `loadNewer` catches up. */
+	const ahead = /* @__PURE__ */ new Map();
 	const set = (next) => {
 		snapshot = {
 			...snapshot,
@@ -229,8 +247,30 @@ function createChannelSource(transport) {
 		switch (event.type) {
 			case "message": {
 				if (event.message.room_id !== current.roomId) return current;
-				const rows = new Map(current.messages.map((m) => [m.id, m]));
-				rows.set(event.message.id, event.message);
+				const list = current.messages;
+				const id = event.message.id;
+				const first = list[0];
+				const last = list.at(-1);
+				if (current.hasMoreNewer === true && last !== void 0 && id > last.id) {
+					ahead.set(id, event.message);
+					return current;
+				}
+				if (current.hasMoreOlder && first !== void 0 && id < first.id) return current;
+				if (last === void 0 || id > last.id) return {
+					...current,
+					messages: [...list, event.message]
+				};
+				const at = indexOfId(list, id);
+				if (at >= 0) {
+					const messages = list.slice();
+					messages[at] = event.message;
+					return {
+						...current,
+						messages
+					};
+				}
+				const rows = new Map(list.map((m) => [m.id, m]));
+				rows.set(id, event.message);
 				return {
 					...current,
 					messages: [...rows.values()].sort((a, b) => a.id - b.id)
@@ -255,6 +295,13 @@ function createChannelSource(transport) {
 				thinking: {
 					...current.thinking,
 					[String(event.room_id)]: event.members
+				}
+			};
+			case "queue": return {
+				...current,
+				queued: {
+					...current.queued,
+					[String(event.room_id)]: event.queued
 				}
 			};
 			case "rooms": return {
@@ -341,10 +388,13 @@ function createChannelSource(transport) {
 			const roomId = state.rooms.some((r) => r.id === previous.roomId) ? previous.roomId : state.rooms.some((r) => r.id === remembered) ? remembered : state.rooms[0]?.id;
 			const rows = [];
 			let hasMoreOlder = false;
+			let hasMoreNewer = false;
+			ahead.clear();
 			if (roomId !== void 0) {
 				if (resume && roomId === previous.roomId && previous.messages.length > 0) {
 					const merged = new Map(previous.messages.map((m) => [m.id, m]));
 					const oldest = previous.messages[0].id;
+					const newest = previous.hasMoreNewer === true ? previous.messages.at(-1).id : void 0;
 					const present = /* @__PURE__ */ new Set();
 					let cursor = oldest - 1;
 					while (current()) {
@@ -357,12 +407,14 @@ function createChannelSource(transport) {
 						if (messages.length < CATCH_UP_LIMIT) break;
 						const next = messages.at(-1)?.id;
 						if (next === void 0 || next <= cursor) throw new Error("Channel history cursor did not advance");
+						if (newest !== void 0 && next >= newest) break;
 						cursor = next;
 					}
-					for (const id of [...merged.keys()]) if (id >= oldest && !present.has(id)) merged.delete(id);
+					for (const id of [...merged.keys()]) if (id >= oldest && !present.has(id) || newest !== void 0 && id > newest) merged.delete(id);
 					historyEpoch += 1;
 					rows.push(...[...merged.values()].sort((a, b) => a.id - b.id));
 					hasMoreOlder = previous.hasMoreOlder;
+					hasMoreNewer = newest !== void 0;
 				} else {
 					let after;
 					while (current()) {
@@ -390,8 +442,10 @@ function createChannelSource(transport) {
 				roomId,
 				members: state.members,
 				thinking: state.thinking,
+				queued: state.queued ?? {},
 				messages: rows,
 				hasMoreOlder,
+				hasMoreNewer,
 				leadId: state.lead_id ?? null,
 				effectiveLeadId: state.effective_lead_id ?? state.lead_id ?? null,
 				tasks: keepBoard ? previous.tasks : [],
@@ -410,16 +464,19 @@ function createChannelSource(transport) {
 	};
 	const selectRoom = async (roomId) => {
 		historyEpoch += 1;
+		ahead.clear();
 		rememberRoom(roomId);
 		if (roomId !== snapshot.roomId) earlyTasks.clear();
 		const shown = outbox.filter((entry) => entry.roomId === roomId);
 		set(roomId === snapshot.roomId ? {
 			roomId,
 			messages: [],
+			hasMoreNewer: false,
 			outbox: shown
 		} : {
 			roomId,
 			messages: [],
+			hasMoreNewer: false,
 			outbox: shown,
 			tasks: [],
 			taskChat: void 0
@@ -583,6 +640,16 @@ function createChannelSource(transport) {
 				}));
 				set({ tasks: (snapshot.tasks ?? []).map((row) => row.id === task.id ? task : row) });
 			},
+			async dispatchTask(roomId, { title, owner, messageId }) {
+				const { task } = await request(`collab/api/rooms/${roomId}/tasks`, json("POST", {
+					title,
+					owner,
+					ref: "无（新建）",
+					message_id: messageId,
+					force: true
+				}));
+				set({ tasks: [...(snapshot.tasks ?? []).filter((row) => row.id !== task.id), task] });
+			},
 			selectRoom,
 			async send(text, replyTo, attachments) {
 				const roomId = snapshot.roomId;
@@ -603,6 +670,11 @@ function createChannelSource(transport) {
 				const { room, workspace } = await request("collab/api/rooms", json("POST", { name }));
 				const added = [room, workspace].filter((r) => r !== void 0 && !snapshot.rooms.some((s) => s.id === r.id));
 				if (added.length > 0) set({ rooms: [...snapshot.rooms, ...added] });
+				await selectRoom(room.id);
+			},
+			async openDm(memberId) {
+				const { room } = await request("collab/api/dms", json("POST", { member: memberId }));
+				if (!snapshot.rooms.some((r) => r.id === room.id)) set({ rooms: [...snapshot.rooms, room] });
 				await selectRoom(room.id);
 			},
 			async renameRoom(roomId, name) {
@@ -722,14 +794,90 @@ function createChannelSource(transport) {
 					if (epoch !== historyEpoch || pageTicket.get(roomId) !== ticket) return 0;
 					const merged = new Map(snapshot.messages.map((m) => [m.id, m]));
 					for (const row of messages) merged.set(row.id, row);
+					const rows = [...merged.values()].sort((a, b) => a.id - b.id);
+					const trimmed = rows.length > 300;
+					if (trimmed) ahead.clear();
 					set({
-						messages: [...merged.values()].sort((a, b) => a.id - b.id),
-						hasMoreOlder: messages.length >= PAGE_SIZE
+						messages: trimmed ? rows.slice(0, 300) : rows,
+						hasMoreOlder: messages.length >= PAGE_SIZE,
+						...trimmed ? { hasMoreNewer: true } : {}
 					});
 					return messages.length;
 				} finally {
 					if (paging.get(roomId)?.ticket === ticket) paging.delete(roomId);
 				}
+			},
+			async loadNewer() {
+				const roomId = snapshot.roomId;
+				const owner = lifetime;
+				const newest = snapshot.messages.at(-1)?.id;
+				if (roomId === void 0 || owner === void 0) throw new Error("No channel is open");
+				const held = paging.get(roomId);
+				if (held !== void 0 && held.epoch === historyEpoch) return 0;
+				if (newest === void 0 || snapshot.hasMoreNewer !== true) return 0;
+				held?.controller.abort();
+				const ticket = ++nextPageTicket;
+				const epoch = historyEpoch;
+				const controller = new AbortController();
+				paging.set(roomId, {
+					ticket,
+					epoch,
+					controller
+				});
+				pageTicket.set(roomId, ticket);
+				try {
+					let messages;
+					try {
+						({messages} = await request(`collab/api/rooms/${roomId}/messages?after=${newest}&limit=${PAGE_SIZE}`, { signal: controller.signal }));
+					} catch (error) {
+						if (controller.signal.aborted) return 0;
+						throw error;
+					}
+					if (controller.signal.aborted) return 0;
+					if (lifetime !== owner || snapshot.roomId !== roomId) return 0;
+					if (epoch !== historyEpoch || pageTicket.get(roomId) !== ticket) return 0;
+					const merged = new Map(snapshot.messages.map((m) => [m.id, m]));
+					for (const row of messages) merged.set(row.id, row);
+					const caughtUp = messages.length < PAGE_SIZE;
+					if (caughtUp) for (const row of ahead.values()) merged.set(row.id, row);
+					if (caughtUp) ahead.clear();
+					const rows = [...merged.values()].sort((a, b) => a.id - b.id);
+					const trimmed = rows.length > 300;
+					set({
+						messages: trimmed ? rows.slice(-300) : rows,
+						hasMoreNewer: !caughtUp,
+						...trimmed ? { hasMoreOlder: true } : {}
+					});
+					return messages.length;
+				} finally {
+					if (paging.get(roomId)?.ticket === ticket) paging.delete(roomId);
+				}
+			},
+			keepLatest() {
+				if (snapshot.hasMoreNewer === true || snapshot.messages.length <= 300) return;
+				historyEpoch += 1;
+				set({
+					messages: snapshot.messages.slice(-300),
+					hasMoreOlder: true
+				});
+			},
+			async showLatest() {
+				const roomId = snapshot.roomId;
+				const owner = lifetime;
+				if (roomId === void 0 || owner === void 0 || snapshot.hasMoreNewer !== true) return;
+				historyEpoch += 1;
+				const epoch = historyEpoch;
+				const { messages } = await request(`collab/api/rooms/${roomId}/messages?limit=${PAGE_SIZE}`);
+				if (lifetime !== owner || snapshot.roomId !== roomId || epoch !== historyEpoch) return;
+				const merged = new Map(messages.map((m) => [m.id, m]));
+				const last = messages.at(-1)?.id ?? Number.NEGATIVE_INFINITY;
+				for (const row of ahead.values()) if (row.id > last) merged.set(row.id, row);
+				ahead.clear();
+				set({
+					messages: [...merged.values()].sort((a, b) => a.id - b.id),
+					hasMoreOlder: messages.length >= PAGE_SIZE,
+					hasMoreNewer: false
+				});
 			},
 			async retryMessage(messageId) {
 				await request(`collab/api/messages/${messageId}/retry`, { method: "POST" });
@@ -16442,7 +16590,24 @@ function softBreaksToHard(text) {
 var ChannelsPage_module_default = {
 	"activeBusy": "dshc_activeBusy",
 	"activeCount": "dshc_activeCount",
+	"activityItem": "dshc_activityItem",
+	"activityName": "dshc_activityName",
+	"activityNow": "dshc_activityNow",
+	"activityPulse": "dshc_activityPulse",
+	"activityText": "dshc_activityText",
+	"activityWhat": "dshc_activityWhat",
 	"addMemberButton": "dshc_addMemberButton",
+	"askDone": "dshc_askDone",
+	"askForm": "dshc_askForm",
+	"askFrom": "dshc_askFrom",
+	"askInput": "dshc_askInput",
+	"askItem": "dshc_askItem",
+	"askKind": "dshc_askKind",
+	"askList": "dshc_askList",
+	"askNotice": "dshc_askNotice",
+	"askQuestion": "dshc_askQuestion",
+	"askSend": "dshc_askSend",
+	"askText": "dshc_askText",
 	"attachmentActions": "dshc_attachmentActions",
 	"attachmentAudio": "dshc_attachmentAudio",
 	"attachmentFile": "dshc_attachmentFile",
@@ -16463,7 +16628,10 @@ var ChannelsPage_module_default = {
 	"avatarOption": "dshc_avatarOption",
 	"avatarPicker": "dshc_avatarPicker",
 	"avatarSmall": "dshc_avatarSmall",
+	"avatarStack": "dshc_avatarStack",
 	"boardCardGrid": "dshc_boardCardGrid",
+	"boardDrawerBackdrop": "dshc_boardDrawerBackdrop",
+	"boardDrawerIn": "dshc_boardDrawerIn",
 	"boardTabCount": "dshc_boardTabCount",
 	"boardTabEmpty": "dshc_boardTabEmpty",
 	"boardTabs": "dshc_boardTabs",
@@ -16479,18 +16647,40 @@ var ChannelsPage_module_default = {
 	"cardTitle": "dshc_cardTitle",
 	"cardViewButton": "dshc_cardViewButton",
 	"cardViews": "dshc_cardViews",
+	"channels-blink": "dshc_channels-blink",
+	"channels-pulse": "dshc_channels-pulse",
+	"channels-spin": "dshc_channels-spin",
+	"channelsDot": "dshc_channelsDot",
+	"channelsDrain": "dshc_channelsDrain",
+	"channelsEnter": "dshc_channelsEnter",
+	"channelsEnterOwn": "dshc_channelsEnterOwn",
+	"channelsGlow": "dshc_channelsGlow",
+	"channelsPop": "dshc_channelsPop",
 	"chat": "dshc_chat",
 	"chatHead": "dshc_chatHead",
 	"choice": "dshc_choice",
 	"choiceColumn": "dshc_choiceColumn",
 	"choiceRow": "dshc_choiceRow",
+	"cmdLine": "dshc_cmdLine",
+	"cmdResult": "dshc_cmdResult",
 	"composer": "dshc_composer",
 	"composerBox": "dshc_composerBox",
 	"composerToolbar": "dshc_composerToolbar",
+	"decideTray": "dshc_decideTray",
+	"decideTrayHead": "dshc_decideTrayHead",
+	"decideTrayToggle": "dshc_decideTrayToggle",
+	"delivery": "dshc_delivery",
+	"deliveryActions": "dshc_deliveryActions",
+	"deliveryDone": "dshc_deliveryDone",
+	"deliveryFrame": "dshc_deliveryFrame",
+	"deliveryFullDialog": "dshc_deliveryFullDialog",
+	"deliveryFullFrame": "dshc_deliveryFullFrame",
 	"dialog": "dshc_dialog",
 	"dialogActions": "dshc_dialogActions",
 	"dialogBackdrop": "dshc_dialogBackdrop",
 	"dialogTitle": "dshc_dialogTitle",
+	"dmAvatar": "dshc_dmAvatar",
+	"dmTitle": "dshc_dmTitle",
 	"drawerBackdrop": "dshc_drawerBackdrop",
 	"drawerOpen": "dshc_drawerOpen",
 	"editBar": "dshc_editBar",
@@ -16498,13 +16688,29 @@ var ChannelsPage_module_default = {
 	"edited": "dshc_edited",
 	"editInput": "dshc_editInput",
 	"empty": "dshc_empty",
+	"enter": "dshc_enter",
+	"enterGlow": "dshc_enterGlow",
+	"enterOwn": "dshc_enterOwn",
+	"errorBar": "dshc_errorBar",
+	"errorIcon": "dshc_errorIcon",
+	"errorText": "dshc_errorText",
 	"field": "dshc_field",
 	"fieldInput": "dshc_fieldInput",
 	"focused": "dshc_focused",
+	"grouped": "dshc_grouped",
 	"groupHead": "dshc_groupHead",
 	"groupTitle": "dshc_groupTitle",
 	"guide": "dshc_guide",
+	"gutterTime": "dshc_gutterTime",
 	"hash": "dshc_hash",
+	"headActivity": "dshc_headActivity",
+	"headActivityText": "dshc_headActivityText",
+	"headLead": "dshc_headLead",
+	"headLeadName": "dshc_headLeadName",
+	"headLeadStatus": "dshc_headLeadStatus",
+	"headLeadText": "dshc_headLeadText",
+	"headMeta": "dshc_headMeta",
+	"headTeam": "dshc_headTeam",
 	"iconButton": "dshc_iconButton",
 	"imageAttachment": "dshc_imageAttachment",
 	"imagePreviewActions": "dshc_imagePreviewActions",
@@ -16513,8 +16719,18 @@ var ChannelsPage_module_default = {
 	"imagePreviewImage": "dshc_imagePreviewImage",
 	"imagePreviewTrigger": "dshc_imagePreviewTrigger",
 	"input": "dshc_input",
+	"jumpCount": "dshc_jumpCount",
+	"jumpLatest": "dshc_jumpLatest",
+	"leadCard": "dshc_leadCard",
+	"leadCardName": "dshc_leadCardName",
+	"leadCardStatus": "dshc_leadCardStatus",
+	"leadCardText": "dshc_leadCardText",
 	"linkButton": "dshc_linkButton",
 	"log": "dshc_log",
+	"logWrap": "dshc_logWrap",
+	"mate": "dshc_mate",
+	"mateDot": "dshc_mateDot",
+	"mateMore": "dshc_mateMore",
 	"member": "dshc_member",
 	"memberActions": "dshc_memberActions",
 	"memberAvatar": "dshc_memberAvatar",
@@ -16525,9 +16741,16 @@ var ChannelsPage_module_default = {
 	"memberRow": "dshc_memberRow",
 	"members": "dshc_members",
 	"membersHead": "dshc_membersHead",
+	"membersHeadTitle": "dshc_membersHeadTitle",
 	"membersHidden": "dshc_membersHidden",
 	"memberStatus": "dshc_memberStatus",
 	"memberText": "dshc_memberText",
+	"memory": "dshc_memory",
+	"memoryBadge": "dshc_memoryBadge",
+	"memoryItem": "dshc_memoryItem",
+	"memoryList": "dshc_memoryList",
+	"memoryPage": "dshc_memoryPage",
+	"memoryTitle": "dshc_memoryTitle",
 	"mentionActive": "dshc_mentionActive",
 	"mentionButton": "dshc_mentionButton",
 	"mentionHint": "dshc_mentionHint",
@@ -16539,18 +16762,40 @@ var ChannelsPage_module_default = {
 	"message": "dshc_message",
 	"messageBody": "dshc_messageBody",
 	"messageHead": "dshc_messageHead",
+	"messageHeadGrouped": "dshc_messageHeadGrouped",
 	"mobileButton": "dshc_mobileButton",
+	"msgTool": "dshc_msgTool",
+	"msgToolNote": "dshc_msgToolNote",
+	"msgTools": "dshc_msgTools",
 	"notice": "dshc_notice",
 	"offline": "dshc_offline",
+	"olderLoading": "dshc_olderLoading",
+	"own": "dshc_own",
 	"ownActions": "dshc_ownActions",
 	"page": "dshc_page",
+	"panelOpen": "dshc_panelOpen",
 	"panelToggle": "dshc_panelToggle",
 	"panelToggleEnd": "dshc_panelToggleEnd",
 	"permActions": "dshc_permActions",
+	"permInline": "dshc_permInline",
+	"permLock": "dshc_permLock",
 	"permScope": "dshc_permScope",
+	"permSessionButton": "dshc_permSessionButton",
 	"permStatus": "dshc_permStatus",
+	"permTray": "dshc_permTray",
+	"permTrayItem": "dshc_permTrayItem",
+	"permTrayText": "dshc_permTrayText",
+	"permTrayWho": "dshc_permTrayWho",
+	"permWaiting": "dshc_permWaiting",
 	"presence": "dshc_presence",
 	"primaryButton": "dshc_primaryButton",
+	"progressCard": "dshc_progressCard",
+	"progressLink": "dshc_progressLink",
+	"progressRow": "dshc_progressRow",
+	"progressRows": "dshc_progressRows",
+	"progressTitle": "dshc_progressTitle",
+	"queuedButton": "dshc_queuedButton",
+	"queuedTag": "dshc_queuedTag",
 	"quote": "dshc_quote",
 	"quoteAuthor": "dshc_quoteAuthor",
 	"quoteDeleted": "dshc_quoteDeleted",
@@ -16562,8 +16807,16 @@ var ChannelsPage_module_default = {
 	"roomActive": "dshc_roomActive",
 	"roomInput": "dshc_roomInput",
 	"roomLabel": "dshc_roomLabel",
+	"roomName": "dshc_roomName",
 	"rooms": "dshc_rooms",
 	"roomsHidden": "dshc_roomsHidden",
+	"runHead": "dshc_runHead",
+	"runIcon": "dshc_runIcon",
+	"runSteps": "dshc_runSteps",
+	"runStrip": "dshc_runStrip",
+	"runSummary": "dshc_runSummary",
+	"runTitle": "dshc_runTitle",
+	"schemeToggle": "dshc_schemeToggle",
 	"secondaryButton": "dshc_secondaryButton",
 	"sendButton": "dshc_sendButton",
 	"sendError": "dshc_sendError",
@@ -16573,8 +16826,28 @@ var ChannelsPage_module_default = {
 	"settingsDivider": "dshc_settingsDivider",
 	"settingsFeedback": "dshc_settingsFeedback",
 	"settingsFields": "dshc_settingsFields",
+	"sideDock": "dshc_sideDock",
+	"sidePanel": "dshc_sidePanel",
+	"sidePanelClose": "dshc_sidePanelClose",
+	"slashActive": "dshc_slashActive",
+	"slashGroup": "dshc_slashGroup",
+	"slashItem": "dshc_slashItem",
+	"slashMeta": "dshc_slashMeta",
+	"slashName": "dshc_slashName",
+	"slashPopup": "dshc_slashPopup",
+	"stackDot": "dshc_stackDot",
+	"stepChip": "dshc_stepChip",
+	"stepChips": "dshc_stepChips",
+	"stepMark": "dshc_stepMark",
+	"stepOut": "dshc_stepOut",
+	"stopButton": "dshc_stopButton",
+	"stopNote": "dshc_stopNote",
 	"system": "dshc_system",
+	"systemLine": "dshc_systemLine",
+	"systemRecord": "dshc_systemRecord",
+	"systemText": "dshc_systemText",
 	"tag": "dshc_tag",
+	"taskAnchor": "dshc_taskAnchor",
 	"taskBoardBody": "dshc_taskBoardBody",
 	"taskBoardDialog": "dshc_taskBoardDialog",
 	"taskBoardScope": "dshc_taskBoardScope",
@@ -16592,6 +16865,7 @@ var ChannelsPage_module_default = {
 	"taskMeta": "dshc_taskMeta",
 	"taskOwnerGroup": "dshc_taskOwnerGroup",
 	"taskOwnerName": "dshc_taskOwnerName",
+	"taskRecord": "dshc_taskRecord",
 	"taskRow": "dshc_taskRow",
 	"taskSection": "dshc_taskSection",
 	"taskSectionTitle": "dshc_taskSectionTitle",
@@ -16600,9 +16874,48 @@ var ChannelsPage_module_default = {
 	"taskTitle": "dshc_taskTitle",
 	"text": "dshc_text",
 	"time": "dshc_time",
+	"typingDots": "dshc_typingDots",
+	"undoBar": "dshc_undoBar",
+	"undoButton": "dshc_undoButton",
+	"undoToast": "dshc_undoToast",
+	"unreadDivider": "dshc_unreadDivider",
+	"withdrawnRow": "dshc_withdrawnRow",
 	"working": "dshc_working",
 	"workspace": "dshc_workspace"
 };
+// src/client/scheme.ts
+const SCHEME_KEY = "dsh-channels-scheme";
+const DEFAULT_SCHEME = "light";
+const listeners = /* @__PURE__ */ new Set();
+let current;
+function readStored() {
+	try {
+		const raw = globalThis.localStorage?.getItem(SCHEME_KEY);
+		return raw === "dark" || raw === "light" ? raw : DEFAULT_SCHEME;
+	} catch (error) {
+		return DEFAULT_SCHEME;
+	}
+}
+function getScheme() {
+	return current ??= readStored();
+}
+function setScheme(next) {
+	current = next;
+	try {
+		globalThis.localStorage?.setItem(SCHEME_KEY, next);
+	} catch (error) {}
+	for (const fn of listeners) fn();
+}
+function subscribe(fn) {
+	listeners.add(fn);
+	return () => {
+		listeners.delete(fn);
+	};
+}
+/** Current plugin scheme; put it on every plugin root as data-dc-scheme (page and body portals). */
+function useScheme() {
+	return (0, react.useSyncExternalStore)(subscribe, getScheme, getScheme);
+}
 // src/client/Attachments.tsx
 const isImage = (mime) => /^image\/(png|jpeg|gif|webp)$/.test(mime);
 const isAudio = (mime) => mime.startsWith("audio/");
@@ -16699,6 +17012,7 @@ function ImageAttachment({ attachment: a, t }) {
 			!opened && error,
 			opened && (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 				className: ChannelsPage_module_default.dialogBackdrop,
+				"data-dc-scheme": getScheme(),
 				onClick: (event) => {
 					if (event.target === event.currentTarget) setOpened(false);
 				},
@@ -16886,6 +17200,197 @@ function PendingAttachments({ files, onRemove, removeLabel }) {
 		}, `${i}-${f.name}`))
 	});
 }
+// src/client/PanelPages.module.css
+var PanelPages_module_default = {
+	"embed": "dshc_embed",
+	"frame": "dshc_frame"
+};
+// src/client/EmbedPage.tsx
+/**
+* Fill the main area with the collab page.
+* @param props - injected page path and title.
+* @returns the framed page.
+*/
+function EmbedPage({ path, title }) {
+	const src = new URL(path, document.baseURI).toString();
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+		className: PanelPages_module_default.embed,
+		children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(EmbedFrame, {
+			src,
+			title
+		})
+	});
+}
+/**
+* The frame both the panel and the delivery card (#1023) use. `sandboxed` is for pages the
+* owner did not write (a bot's delivery): scripts run, but a page from this origin gets an
+* opaque origin so it cannot act with the owner's sign-in.
+*/
+function EmbedFrame({ src, title, sandboxed = false, sameOrigin = false }) {
+	const sandbox = !sandboxed ? void 0 : sameOrigin ? "allow-scripts allow-forms allow-popups allow-modals" : "allow-scripts allow-forms allow-popups allow-modals allow-same-origin";
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("iframe", {
+		className: PanelPages_module_default.frame,
+		src,
+		title,
+		sandbox,
+		loading: "lazy",
+		referrerPolicy: "no-referrer"
+	});
+}
+// src/client/DeliveryPreview.tsx
+/**
+* #1023 交付卡放能点的网页: when a hand-back (a task's result message) delivers a web page —
+* an uploaded .html file or an http(s) link — the card shows the page itself in a sandboxed
+* frame, with 全屏, 继续改 and 收下 beside it, so the owner does not download and reopen it.
+* Any other delivery keeps the plain card.
+*/
+/** True for an uploaded web page (by type or by name). */
+const isHtmlAttachment = (a) => /^text\/html\b/i.test(a.mime) || /\.html?$/i.test(a.name);
+/** First http(s) URL in a message, markdown link or bare; undefined when there is none. */
+function firstWebLink(text) {
+	return /https?:\/\/[^\s<>()\]"'`]+/i.exec(text)?.[0].replace(/[.,;:!?。，；：！？]+$/, "");
+}
+/** The web page this message delivers: an .html upload first, else the first link. */
+function deliverableOf(message) {
+	const page = message.attachments?.find(isHtmlAttachment);
+	if (page !== void 0) return {
+		src: `${attachmentUrl(page.id)}?view=page`,
+		title: page.name,
+		sameOrigin: true
+	};
+	const link = firstWebLink(message.text);
+	if (link === void 0) return void 0;
+	let sameOrigin = false;
+	try {
+		sameOrigin = new URL(link, document.baseURI).origin === window.location.origin;
+	} catch {
+		return;
+	}
+	return {
+		src: link,
+		title: link,
+		sameOrigin
+	};
+}
+/** Tasks this message was handed back for (TaskBoard result_msg_id). */
+const deliveredTasks = (message, tasks) => tasks.filter((task) => task.result_msg_id === message.id);
+function DeliveryPreview({ page, task, t, onReview, onRevise }) {
+	const [full, setFull] = (0, react.useState)(false);
+	const [state, setState] = (0, react.useState)("idle");
+	const closeRef = (0, react.useRef)(null);
+	(0, react.useEffect)(() => {
+		if (full) closeRef.current?.focus();
+	}, [full]);
+	const waiting = task !== void 0 && task.status === "returned" && onReview !== void 0;
+	const accept = () => {
+		if (task === void 0 || onReview === void 0 || state === "saving") return;
+		setState("saving");
+		onReview(task.id, "done").then(() => {
+			setState("idle");
+		}, () => {
+			setState("error");
+		});
+	};
+	const actions = (inDialog) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: ChannelsPage_module_default.deliveryActions,
+		children: [
+			!inDialog && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.secondaryButton,
+				onClick: () => {
+					setFull(true);
+				},
+				children: t("deliveryFull")
+			}),
+			waiting && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.secondaryButton,
+				onClick: () => {
+					setFull(false);
+					onRevise();
+				},
+				children: t("deliveryRevise")
+			}),
+			waiting && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.primaryButton,
+				disabled: state === "saving",
+				onClick: accept,
+				children: t("deliveryAccept")
+			}),
+			task?.status === "done" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: ChannelsPage_module_default.deliveryDone,
+				children: t("deliveryAccepted")
+			}),
+			state === "error" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: ChannelsPage_module_default.sendError,
+				role: "alert",
+				children: t("deliveryAcceptFailed")
+			})
+		]
+	});
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: ChannelsPage_module_default.delivery,
+		"data-delivery-preview": true,
+		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ChannelsPage_module_default.deliveryFrame,
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(EmbedFrame, {
+					src: page.src,
+					title: page.title,
+					sandboxed: true,
+					sameOrigin: page.sameOrigin
+				})
+			}),
+			actions(false),
+			full && (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ChannelsPage_module_default.dialogBackdrop,
+				"data-dc-scheme": getScheme(),
+				onClick: (event) => {
+					if (event.target === event.currentTarget) setFull(false);
+				},
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+					className: `${ChannelsPage_module_default.dialog} ${ChannelsPage_module_default.deliveryFullDialog}`,
+					role: "dialog",
+					"aria-modal": "true",
+					"aria-label": page.title,
+					onKeyDown: (event) => {
+						if (event.key === "Escape") {
+							event.preventDefault();
+							event.stopPropagation();
+							setFull(false);
+						}
+					},
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: ChannelsPage_module_default.imagePreviewHeader,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: page.title }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								ref: closeRef,
+								type: "button",
+								className: ChannelsPage_module_default.secondaryButton,
+								"aria-label": t("close"),
+								onClick: () => {
+									setFull(false);
+								},
+								children: "×"
+							})]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: ChannelsPage_module_default.deliveryFullFrame,
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(EmbedFrame, {
+								src: page.src,
+								title: page.title,
+								sandboxed: true,
+								sameOrigin: page.sameOrigin
+							})
+						}),
+						actions(true)
+					]
+				})
+			}), document.body)
+		]
+	});
+}
 // src/client/task-board.ts
 /** Locale key of each status label (dsh/collab/tasks.mjs STATUS). */
 const STATUS_KEY = {
@@ -16898,43 +17403,63 @@ const STATUS_KEY = {
 	done: "taskDone",
 	rework: "taskRework"
 };
-/** Single source for tab membership and board ordering; an empty list means all statuses. */
+const DECIDE = [
+	"asked",
+	"returned",
+	"declined",
+	"escalated"
+];
+function boardGroupOf(task) {
+	if (DECIDE.includes(task.status)) return "decide";
+	if (task.status === "done") return "done";
+	return task.paused_at != null ? "parked" : "working";
+}
+/** Live work on the owner's side, for Activity and the busy marks: open and not parked
+* (paused_at), the same rule the board uses to move a task out of 在做. */
+const LIVE = [
+	"assigned",
+	"accepted",
+	"asked",
+	"rework"
+];
+const isLiveTask = (task) => task.paused_at == null && LIVE.includes(task.status);
+/** Single source for tab membership and board ordering; `groups` empty means all tasks.
+* The board opens on the first group that has tasks, 等你定 when all are empty. */
 const BOARD_TABS = [
 	{
-		id: "all",
-		label: "taskTabAll",
-		statuses: []
+		id: "decide",
+		label: "taskTabDecide",
+		groups: ["decide"],
+		initial: true
 	},
 	{
 		id: "working",
 		label: "taskTabWorking",
-		statuses: [
-			"assigned",
-			"accepted",
-			"asked",
-			"rework"
-		],
-		initial: true
+		groups: ["working"]
 	},
 	{
-		id: "review",
-		label: "taskTabReview",
-		statuses: [
-			"returned",
-			"declined",
-			"escalated"
-		]
+		id: "parked",
+		label: "taskTabParked",
+		groups: ["parked"]
 	},
 	{
-		id: "done",
-		label: "taskTabDone",
-		statuses: ["done"]
+		id: "all",
+		label: "taskTabAll",
+		groups: []
 	}
 ];
-const groupOf = (status) => BOARD_TABS.findIndex((g) => g.statuses.includes(status));
+const ORDER = [
+	"decide",
+	"working",
+	"parked",
+	"done"
+];
+const groupOf = (task) => ORDER.indexOf(boardGroupOf(task));
+/** Whether a task shows under a tab. */
+const inTab = (tab, task) => tab.groups.length === 0 || tab.groups.includes(boardGroupOf(task));
 /** Board rows, grouped as above and newest first inside a group. */
 function boardOrder(tasks) {
-	return [...tasks].sort((a, b) => groupOf(a.status) - groupOf(b.status) || b.id - a.id);
+	return [...tasks].sort((a, b) => groupOf(a) - groupOf(b) || b.id - a.id);
 }
 /** Seconds a task has taken: until hand-back, until it closed, or until now. */
 function elapsed(task, now) {
@@ -17049,8 +17574,32 @@ function Status({ status, t }) {
 * Right-column board for the selected chat channel.
 * @param onOpen - jump to a message in a room (dispatch or delivery).
 */
-function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }) {
+/** Wide enough for the board to sit beside the chat (#125, owner's 11:53 sample: 右侧详情并排面板,
+* the sample's own breakpoint); narrower screens keep the overlay drawer. */
+const SIDE_QUERY = "(min-width: 1101px)";
+function useSideBySide() {
+	const query = typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia(SIDE_QUERY) : void 0;
+	const [wide, setWide] = (0, react.useState)(query?.matches ?? false);
+	(0, react.useEffect)(() => {
+		if (query === void 0) return;
+		const update = () => {
+			setWide(query.matches);
+		};
+		update();
+		query.addEventListener?.("change", update);
+		return () => {
+			query.removeEventListener?.("change", update);
+		};
+	}, [query?.media]);
+	return wide;
+}
+function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview, dock, onDocked }) {
 	const [opened, setOpened] = (0, react.useState)(false);
+	const wide = useSideBySide();
+	const docked = opened && wide && dock != null;
+	(0, react.useEffect)(() => {
+		onDocked?.(docked);
+	}, [docked]);
 	const [selectedTab, setSelectedTab] = (0, react.useState)(BOARD_TABS.find((tab) => tab.initial).id);
 	const [reviewing, setReviewing] = (0, react.useState)();
 	const [reason, setReason] = (0, react.useState)("");
@@ -17067,8 +17616,10 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }) {
 	const close = () => {
 		setOpened(false);
 	};
+	const dockedRef = (0, react.useRef)(docked);
+	dockedRef.current = docked;
 	(0, react.useEffect)(() => {
-		setOpened(false);
+		if (!dockedRef.current) setOpened(false);
 	}, [roomId]);
 	(0, react.useEffect)(() => {
 		if (!opened) return;
@@ -17079,14 +17630,14 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }) {
 		};
 	}, [opened]);
 	const jump = (targetRoomId, messageId) => {
-		(0, react_dom.flushSync)(close);
+		if (!docked) (0, react_dom.flushSync)(close);
 		onOpen(targetRoomId, messageId);
 	};
-	const openTotal = sections.reduce((n, s) => n + s.open, 0);
 	const all = sections.reduce((n, s) => n + s.open + s.done, 0);
 	const scopedTasks = sections.flatMap((section) => section.owners.flatMap((group) => [...group.open, ...group.done]));
+	const groupCount = (group) => scopedTasks.filter((task) => boardGroupOf(task) === group).length;
 	const activeTab = BOARD_TABS.find((tab) => tab.id === selectedTab);
-	const matches = (task) => activeTab.statuses.length === 0 || activeTab.statuses.includes(task.status);
+	const matches = (task) => inTab(activeTab, task);
 	const visibleCount = scopedTasks.filter(matches).length;
 	const review = async (id, verdict) => {
 		setSaving(true);
@@ -17105,7 +17656,8 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }) {
 		className: ChannelsPage_module_default.boardTaskCard,
 		"data-task-id": task.id,
 		"data-status": task.status,
-		"data-working": BOARD_TABS.find((tab) => tab.initial).statuses.includes(task.status),
+		"data-working": boardGroupOf(task) === "working",
+		"data-group": boardGroupOf(task),
 		children: [
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: ChannelsPage_module_default.boardTaskHeader,
@@ -17193,58 +17745,46 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }) {
 			})
 		]
 	}, task.id);
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-		type: "button",
-		className: ChannelsPage_module_default.taskBoardTrigger,
-		"aria-label": t("taskBoardOpen"),
-		"aria-haspopup": "dialog",
-		"aria-expanded": opened,
-		onClick: () => {
-			setSelectedTab(BOARD_TABS.find((tab) => tab.initial).id);
-			setOpened(true);
-		},
-		children: [
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("taskBoard") }),
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-				className: ChannelsPage_module_default.taskBoardSummary,
-				children: all === 0 ? t("taskBoardNoTasks") : t("taskBoardSummary", {
-					open: String(openTotal),
-					done: String(all - openTotal)
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+		/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+			type: "button",
+			className: ChannelsPage_module_default.taskBoardTrigger,
+			"aria-label": t("taskBoardOpen"),
+			"aria-haspopup": wide && dock != null ? void 0 : "dialog",
+			"aria-expanded": opened,
+			onClick: () => {
+				if (docked) {
+					close();
+					return;
+				}
+				setSelectedTab((BOARD_TABS.find((tab) => tab.groups.length > 0 && scopedTasks.some((task) => inTab(tab, task))) ?? BOARD_TABS.find((tab) => tab.initial)).id);
+				setOpened(true);
+			},
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("taskBoard") }),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: ChannelsPage_module_default.taskBoardSummary,
+					children: all === 0 ? t("taskBoardNoTasks") : t("taskBoardSummary", {
+						decide: String(groupCount("decide")),
+						working: String(groupCount("working"))
+					})
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					"aria-hidden": "true",
+					children: "›"
 				})
-			}),
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-				"aria-hidden": "true",
-				children: "›"
-			})
-		]
-	}), opened && (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-		className: ChannelsPage_module_default.dialogBackdrop,
-		onMouseDown: (event) => {
-			if (event.target === event.currentTarget) close();
-		},
-		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+			]
+		}),
+		docked && (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 			ref: dialog,
-			className: `${ChannelsPage_module_default.dialog} ${ChannelsPage_module_default.taskBoardDialog}`,
-			role: "dialog",
-			"aria-modal": "true",
+			className: `${ChannelsPage_module_default.dialog} ${ChannelsPage_module_default.taskBoardDialog} ${ChannelsPage_module_default.sidePanel}`,
+			role: "region",
 			"aria-labelledby": titleId,
 			tabIndex: -1,
 			onKeyDown: (event) => {
 				if (event.key === "Escape") {
 					event.stopPropagation();
 					close();
-				}
-				if (event.key === "Tab") {
-					const focusable = Array.from(event.currentTarget.querySelectorAll("button:not(:disabled):not([tabindex=\"-1\"]), input:not(:disabled), [role=\"tabpanel\"]"));
-					const first = focusable[0];
-					const last = focusable[focusable.length - 1];
-					if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) {
-						event.preventDefault();
-						last?.focus();
-					} else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) {
-						event.preventDefault();
-						first?.focus();
-					}
 				}
 			},
 			children: [
@@ -17256,6 +17796,14 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }) {
 						" · ",
 						roomName
 					]
+				}),
+				docked && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: ChannelsPage_module_default.sidePanelClose,
+					"aria-label": t("taskBoardClose"),
+					title: t("taskBoardClose"),
+					onClick: close,
+					children: "×"
 				}),
 				error !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 					role: "alert",
@@ -17299,7 +17847,7 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }) {
 							" ",
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: ChannelsPage_module_default.boardTabCount,
-								children: scopedTasks.filter((task) => tab.statuses.length === 0 || tab.statuses.includes(task.status)).length
+								children: scopedTasks.filter((task) => inTab(tab, task)).length
 							})
 						]
 					}, tab.id))
@@ -17339,7 +17887,7 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }) {
 						}, section.roomId);
 					})]
 				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				!docked && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 					className: ChannelsPage_module_default.dialogActions,
 					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 						type: "button",
@@ -17349,8 +17897,151 @@ function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview }) {
 					})
 				})
 			]
-		})
-	}), document.body)] });
+		}), dock),
+		opened && !docked && (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+			className: `${ChannelsPage_module_default.dialogBackdrop} ${ChannelsPage_module_default.boardDrawerBackdrop}`,
+			"data-dc-scheme": getScheme(),
+			onMouseDown: (event) => {
+				if (event.target === event.currentTarget) close();
+			},
+			children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+				ref: dialog,
+				className: `${ChannelsPage_module_default.dialog} ${ChannelsPage_module_default.taskBoardDialog}`,
+				role: "dialog",
+				"aria-modal": "true",
+				"aria-labelledby": titleId,
+				tabIndex: -1,
+				onKeyDown: (event) => {
+					if (event.key === "Escape") {
+						event.stopPropagation();
+						close();
+					}
+					if (event.key === "Tab") {
+						const focusable = Array.from(event.currentTarget.querySelectorAll("button:not(:disabled):not([tabindex=\"-1\"]), input:not(:disabled), [role=\"tabpanel\"]"));
+						const first = focusable[0];
+						const last = focusable[focusable.length - 1];
+						if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) {
+							event.preventDefault();
+							last?.focus();
+						} else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) {
+							event.preventDefault();
+							first?.focus();
+						}
+					}
+				},
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("h2", {
+						id: titleId,
+						className: ChannelsPage_module_default.dialogTitle,
+						children: [
+							t("taskBoard"),
+							" · ",
+							roomName
+						]
+					}),
+					docked && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ChannelsPage_module_default.sidePanelClose,
+						"aria-label": t("taskBoardClose"),
+						title: t("taskBoardClose"),
+						onClick: close,
+						children: "×"
+					}),
+					error !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						role: "alert",
+						children: error
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: ChannelsPage_module_default.taskBoardScope,
+						children: t("taskBoardScope", {
+							room: rooms.find((room) => room.id === chatId)?.name ?? roomName,
+							channel: String(channelTotal),
+							workspaces: String(workspaceTotal)
+						})
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: ChannelsPage_module_default.boardTabs,
+						role: "tablist",
+						"aria-label": t("taskTabLabel"),
+						children: BOARD_TABS.map((tab, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+							id: `${tabId}-${tab.id}`,
+							type: "button",
+							role: "tab",
+							"aria-selected": selectedTab === tab.id,
+							"aria-controls": `${tabId}-panel`,
+							tabIndex: selectedTab === tab.id ? 0 : -1,
+							onClick: () => {
+								setSelectedTab(tab.id);
+							},
+							onKeyDown: (event) => {
+								let next = index;
+								if (event.key === "ArrowRight") next = (index + 1) % BOARD_TABS.length;
+								else if (event.key === "ArrowLeft") next = (index + BOARD_TABS.length - 1) % BOARD_TABS.length;
+								else if (event.key === "Home") next = 0;
+								else if (event.key === "End") next = BOARD_TABS.length - 1;
+								else return;
+								event.preventDefault();
+								setSelectedTab(BOARD_TABS[next].id);
+								document.getElementById(`${tabId}-${BOARD_TABS[next].id}`)?.focus();
+							},
+							children: [
+								t(tab.label),
+								" ",
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: ChannelsPage_module_default.boardTabCount,
+									children: scopedTasks.filter((task) => inTab(tab, task)).length
+								})
+							]
+						}, tab.id))
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						id: `${tabId}-panel`,
+						className: ChannelsPage_module_default.taskBoardBody,
+						role: "tabpanel",
+						"aria-labelledby": `${tabId}-${selectedTab}`,
+						tabIndex: 0,
+						children: [visibleCount === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: ChannelsPage_module_default.boardTabEmpty,
+							children: all === 0 ? t("taskBoardEmptyInModal") : t("taskTabEmpty", { tab: t(activeTab.label) })
+						}), sections.map((section) => {
+							const owners = section.owners.map((group) => ({
+								...group,
+								visible: [...group.open, ...group.done].filter(matches)
+							})).filter((group) => group.visible.length > 0);
+							if (owners.length === 0) return null;
+							return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: ChannelsPage_module_default.taskSection,
+								"data-room-id": section.roomId,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
+									className: ChannelsPage_module_default.taskSectionTitle,
+									children: sectionTitle(section, t)
+								}), owners.map((group) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									className: ChannelsPage_module_default.taskOwnerGroup,
+									"data-owner": group.owner,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: ChannelsPage_module_default.taskOwnerName,
+										children: t("taskBoardOwner", { name: group.ownerName })
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+										className: ChannelsPage_module_default.boardCardGrid,
+										children: group.visible.map(row)
+									})]
+								}, group.owner))]
+							}, section.roomId);
+						})]
+					}),
+					!docked && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: ChannelsPage_module_default.dialogActions,
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: ChannelsPage_module_default.secondaryButton,
+							onClick: close,
+							children: t("close")
+						})
+					})
+				]
+			})
+		}), document.body)
+	] });
 }
 /**
 * Card for a task record in the message stream: the task and one row per
@@ -17405,6 +18096,215 @@ function TaskCard({ taskId, tasks, t }) {
 		})]
 	});
 }
+// src/client/ProgressCard.tsx
+const newest = (tasks) => tasks.reduce((best, task) => best === void 0 || task.updated_at > best.updated_at ? task : best, void 0);
+/** The four rows for the tasks of these rooms; empty when the channel has no task at all. */
+function channelProgress(tasks, rooms) {
+	const mine = tasks.filter((task) => rooms.has(task.room_id));
+	if (mine.length === 0) return [];
+	const done = mine.filter((task) => task.status === "done");
+	const doing = mine.filter((task) => boardGroupOf(task) === "working");
+	const returned = mine.filter((task) => task.status === "returned");
+	const next = returned.length > 0 ? returned : mine.filter((task) => boardGroupOf(task) === "parked");
+	const open = mine.filter((task) => task.status === "asked" || task.status === "declined" || task.status === "escalated");
+	return [
+		{
+			row: "done",
+			task: newest(done),
+			count: done.length
+		},
+		{
+			row: "doing",
+			task: newest(doing),
+			count: doing.length
+		},
+		{
+			row: "next",
+			task: newest(next),
+			count: next.length
+		},
+		{
+			row: "open",
+			task: newest(open),
+			count: open.length
+		}
+	];
+}
+const LABEL$1 = {
+	done: "progressDone",
+	doing: "progressDoing",
+	next: "progressNext",
+	open: "progressOpen"
+};
+function lineText(line, t) {
+	const task = line.task;
+	if (task === void 0) return t("progressNone");
+	const base = line.row === "next" ? t(task.status === "returned" ? "progressNextReview" : "progressNextResume", {
+		id: String(task.id),
+		title: task.title,
+		name: task.owner_name
+	}) : t("progressTask", {
+		id: String(task.id),
+		title: task.title,
+		name: task.owner_name
+	});
+	return line.count > 1 ? `${base}${t("progressMore", { count: String(line.count - 1) })}` : base;
+}
+function ProgressCard({ lines, t, onOpen }) {
+	const shown = lines.filter((line) => line.task !== void 0);
+	if (shown.length === 0) return null;
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+		className: ChannelsPage_module_default.progressCard,
+		role: "region",
+		"aria-label": t("progressTitle"),
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", {
+			className: ChannelsPage_module_default.progressTitle,
+			children: t("progressTitle")
+		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dl", {
+			className: ChannelsPage_module_default.progressRows,
+			children: shown.map((line) => {
+				const text = lineText(line, t);
+				const target = line.task?.assign_msg_id;
+				return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: ChannelsPage_module_default.progressRow,
+					"data-row": line.row,
+					"data-empty": line.task === void 0,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t(LABEL$1[line.row]) }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
+						title: text,
+						children: line.task !== void 0 && target != null ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: ChannelsPage_module_default.progressLink,
+							onClick: () => {
+								onOpen(line.task.room_id, target);
+							},
+							children: text
+						}) : text
+					})]
+				}, line.row);
+			})
+		})]
+	});
+}
+// src/client/StepChips.tsx
+/**
+* Step chips under a run strip (#125, the owner's 11:53 sample v1): one chip per tool step with
+* its outcome; a click shows that step's call and output, a failed step is marked red. Data comes
+* from the progress card's `chips` (dsh/collab/cloudweb.mjs stepChips); older cards without it
+* keep the plain step lines.
+*/
+const STATES = /* @__PURE__ */ new Set([
+	"ok",
+	"failed",
+	"running",
+	"unknown"
+]);
+/** The chips of a parsed card, or undefined when the card carries none (older cards). */
+function chipsOf(card) {
+	if (!Array.isArray(card?.chips) || card.chips.length === 0) return void 0;
+	const chips = card.chips.filter((c) => c !== null && typeof c === "object" && typeof c.tool === "string" && STATES.has(c.state));
+	return chips.length > 0 ? chips : void 0;
+}
+const LABEL = {
+	ok: "stepOk",
+	failed: "stepFailed",
+	running: "stepRunning",
+	unknown: "stepUnknown"
+};
+/** 用户 2026-11-04：brief 连续 bash 显示真实次数；失败和在途状态不能被成功覆盖。 */
+function groupBash(chips) {
+	const groups = [];
+	for (const chip of chips) {
+		const previous = groups.at(-1);
+		if (chip.tool.toLowerCase() === "bash" && previous?.tool.toLowerCase() === "bash") {
+			previous.steps.push(chip);
+			const states = [previous.state, chip.state];
+			previous.state = states.includes("failed") ? "failed" : states.includes("running") ? "running" : states.includes("unknown") ? "unknown" : "ok";
+		} else groups.push({
+			tool: chip.tool,
+			state: chip.state,
+			steps: [chip]
+		});
+	}
+	return groups;
+}
+/** Older cards have only brief text; recognize the producer's tool lines, leave other prose intact. */
+function compactBrief(brief) {
+	return groupBash(brief.split("\n").map((line) => {
+		const match = /^(✅|❌|🔧) (bash)(?: · (成功|失败|进行中))?$/i.exec(line);
+		const state = match?.[1] === "❌" ? "failed" : match?.[1] === "✅" ? "ok" : match?.[3] === "进行中" ? "running" : "unknown";
+		return {
+			tool: match?.[2] ?? "",
+			state,
+			output: line
+		};
+	})).map((group) => {
+		if (group.steps.length === 1) return group.steps[0].output;
+		const status = {
+			failed: "❌",
+			ok: "✅",
+			running: "🔧",
+			unknown: "🔧"
+		}[group.state];
+		const suffix = {
+			failed: " · 失败",
+			ok: " · 成功",
+			running: " · 进行中",
+			unknown: ""
+		}[group.state];
+		return `${status} ${group.tool} ×${group.steps.length}${suffix}`;
+	}).join("\n");
+}
+function StepChips({ chips: given, runState, t }) {
+	const [open, setOpen] = (0, react.useState)();
+	const groups = groupBash(runState === "running" ? given : given.map((c) => c.state === "running" ? {
+		...c,
+		state: "unknown"
+	} : c));
+	const shown = open === void 0 ? void 0 : groups[open];
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: ChannelsPage_module_default.stepChips,
+		role: "group",
+		"aria-label": t("stepChips"),
+		children: [groups.map((chip, i) => {
+			const detail = chip.steps.some((step) => step.input !== void 0 || step.output !== void 0);
+			const name = `${chip.tool}${chip.steps.length > 1 ? ` ×${chip.steps.length}` : ""}`;
+			const label = `${name} · ${t(LABEL[chip.state])}`;
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.stepChip,
+				"data-state": chip.state,
+				"aria-expanded": detail ? open === i : void 0,
+				disabled: !detail,
+				title: label,
+				"aria-label": label,
+				onClick: () => {
+					setOpen(open === i ? void 0 : i);
+				},
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: ChannelsPage_module_default.stepMark,
+					"aria-hidden": true
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("b", { children: name })]
+			}, i);
+		}), shown !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+			className: ChannelsPage_module_default.stepOut,
+			"data-state": shown.state,
+			role: "region",
+			"aria-label": t("stepOutput", { tool: shown.tool }),
+			children: shown.steps.map((step, i) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				"data-state": step.state,
+				children: [
+					shown.steps.length > 1 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("b", { children: [
+						step.tool,
+						" · ",
+						t(LABEL[step.state])
+					] }),
+					step.input !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("stepInput") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: step.input })] }),
+					step.output !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("stepResult") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: step.output })] })
+				]
+			}, i))
+		})]
+	});
+}
 // src/client/CapabilityList.tsx
 /** On-demand help for existing capabilities; selecting help never executes an action. */
 const CAPABILITIES = [
@@ -17455,6 +18355,234 @@ function CapabilityList({ t, onClose }) {
 			})
 		]
 	});
+}
+// src/client/SlashMenu.tsx
+const GROUP_TITLE = {
+	control: "slashGroupControl",
+	model: "slashGroupModel",
+	view: "slashGroupView"
+};
+function SlashMenu({ commands, selected, target, grouped, t, onPick, onHover }) {
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: `${ChannelsPage_module_default.mentionPopup} ${ChannelsPage_module_default.slashPopup}`,
+		role: "region",
+		"aria-label": t("slashTitle"),
+		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ChannelsPage_module_default.mentionTitle,
+				children: target === void 0 ? t("slashTitleNoLead") : t("slashTitleLead", { name: target })
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				role: "listbox",
+				id: "channel-slash-list",
+				"aria-label": t("slashTitle"),
+				children: commands.map((c, index) => [grouped && c.group !== commands[index - 1]?.group ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: ChannelsPage_module_default.slashGroup,
+					role: "presentation",
+					children: t(GROUP_TITLE[c.group])
+				}, `group-${c.group}`) : null, /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					id: `channel-slash-${index}`,
+					role: "option",
+					"aria-selected": index === selected,
+					className: index === selected ? `${ChannelsPage_module_default.slashItem} ${ChannelsPage_module_default.slashActive}` : ChannelsPage_module_default.slashItem,
+					onMouseDown: (event) => {
+						event.preventDefault();
+					},
+					onMouseEnter: () => {
+						onHover(index);
+					},
+					onClick: () => {
+						onPick(c);
+					},
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+						className: ChannelsPage_module_default.slashName,
+						children: ["/", c.name]
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ChannelsPage_module_default.slashMeta,
+						children: t(c.hint)
+					})]
+				}, c.name)])
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ChannelsPage_module_default.mentionHint,
+				children: t("slashHint")
+			})
+		]
+	});
+}
+// src/client/slash-commands.ts
+const SLASH_COMMANDS = [
+	{
+		name: "stop",
+		group: "control",
+		hint: "slashStop",
+		run: {
+			kind: "send",
+			text: "/stop"
+		}
+	},
+	{
+		name: "stop all",
+		group: "control",
+		hint: "slashStopAll",
+		run: {
+			kind: "send",
+			text: "/stop all",
+			broadcast: true
+		}
+	},
+	{
+		name: "ps",
+		group: "control",
+		hint: "slashPs",
+		run: {
+			kind: "fill",
+			text: "/ps "
+		}
+	},
+	{
+		name: "new",
+		group: "control",
+		hint: "slashNew",
+		run: {
+			kind: "send",
+			text: "/new"
+		}
+	},
+	{
+		name: "compress",
+		group: "control",
+		hint: "slashCompress",
+		run: {
+			kind: "send",
+			text: "/compress"
+		}
+	},
+	{
+		name: "model",
+		group: "model",
+		hint: "slashModel",
+		run: {
+			kind: "send",
+			text: "/model"
+		}
+	},
+	{
+		name: "reasoning",
+		group: "model",
+		hint: "slashReasoning",
+		run: {
+			kind: "send",
+			text: "/reasoning"
+		}
+	},
+	{
+		name: "status",
+		group: "view",
+		hint: "slashStatus",
+		run: {
+			kind: "send",
+			text: "/status"
+		}
+	},
+	{
+		name: "usage",
+		group: "view",
+		hint: "slashUsage",
+		run: {
+			kind: "send",
+			text: "/usage"
+		}
+	},
+	{
+		name: "cron",
+		group: "view",
+		hint: "slashCron",
+		run: {
+			kind: "send",
+			text: "/cron"
+		}
+	},
+	{
+		name: "board",
+		group: "view",
+		hint: "slashBoard",
+		run: {
+			kind: "panel",
+			panel: "board"
+		}
+	},
+	{
+		name: "help",
+		group: "view",
+		hint: "slashHelp",
+		run: {
+			kind: "panel",
+			panel: "help"
+		}
+	}
+];
+/** The text after a leading `/` while the draft is still a bare command word; undefined otherwise. */
+function slashQuery(draft) {
+	const m = /^\/([^\s/]*(?: all)?)$/.exec(draft);
+	return m === null ? void 0 : m[1];
+}
+/** Commands whose name starts with (then contains) the query, case-insensitive. */
+function matchCommands(query, hint = () => "") {
+	const q = query.toLowerCase();
+	if (q === "") return SLASH_COMMANDS;
+	const starts = SLASH_COMMANDS.filter((c) => c.name.startsWith(q));
+	const rest = SLASH_COMMANDS.filter((c) => !c.name.startsWith(q) && (c.name.includes(q) || hint(c.hint).includes(query)));
+	return [...starts, ...rest];
+}
+/**
+* A typed command (`/model gpt-5`) is addressed to the primary role, like a click on the
+* menu; a draft that already names someone, `/stop all`, or a non-command is left alone.
+*/
+function addressCommand(text, leadName) {
+	if (leadName === void 0 || !/^\/[a-z]/i.test(text) || /^\/stop\s+all\s*$/i.test(text)) return text;
+	return `@${leadName} ${text}`;
+}
+/**
+* A bot command line the owner sent (`@橘 /model x`, or a bare `/stop all`), shown as a thin
+* line instead of a chat bubble (#1017); undefined for any other text.
+*/
+function commandLine(text) {
+	const t = text.trim();
+	if (/^\/stop\s+all$/i.test(t)) return { command: "/stop all" };
+	const m = /^@(\S+)\s+(\/[a-z][\s\S]*)$/i.exec(t);
+	if (m === null || m[2].includes("\n")) return void 0;
+	return {
+		target: m[1],
+		command: m[2].trim()
+	};
+}
+/**
+* The bridge's own answer to each owner command line (#1017): the target bot's next message
+* that is not agent output (`from_turn === 0`: a command reply, bridge/platform/cloud-web
+* `agent` flag), before the owner speaks again. `/ps` is left out — what follows it is the
+* running turn itself, not an answer to the command.
+* @returns command message id → its answer.
+*/
+function commandAnswers(messages, nameOf) {
+	const out = /* @__PURE__ */ new Map();
+	messages.forEach((m, index) => {
+		if (m.author_kind !== "user" || m.card !== null) return;
+		const line = commandLine(m.text);
+		if (line?.target === void 0 || /^\/ps\b/i.test(line.command)) return;
+		for (const next of messages.slice(index + 1)) {
+			if (next.author_kind === "user") return;
+			if (next.author_kind === "role" && next.card === null && next.from_turn === 0 && nameOf(next.author) === line.target) {
+				out.set(m.id, next);
+				return;
+			}
+		}
+	});
+	return out;
+}
+/** A command answer that reports a failure (the bridge prefixes those with ❌ / ⚠️). */
+function answerFailed(text) {
+	return /^\s*(❌|⚠️|error\b)|失败|未知命令|unknown command/i.test(text);
 }
 // src/client/mention-complete.ts
 /** Characters that may sit right before an `@` that starts a mention. */
@@ -17592,6 +18720,31 @@ function Avatar({ id, name, avatar, avatarVersion, small }) {
 		})]
 	});
 }
+/**
+* Overlapping portraits of the members at work (#113): room rows and the title
+* bar show who is busy at a glance. Decorative only (no text), so a row's
+* accessible name and text stay the room's own; the names go in `title`.
+*/
+function AvatarStack({ members, max = 3, label }) {
+	if (members.length === 0) return null;
+	const shown = members.slice(0, max);
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+		className: ChannelsPage_module_default.avatarStack,
+		title: label ?? members.map((m) => m.name).join("、"),
+		"aria-hidden": true,
+		children: shown.map((m) => {
+			const base = avatarSrc(m.avatar);
+			const src = base && m.avatar?.startsWith("upload:") && m.avatarVersion ? `${base}?v=${m.avatarVersion}` : base;
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: ChannelsPage_module_default.stackDot,
+				style: {
+					background: color(m.id),
+					...src === void 0 ? {} : { backgroundImage: `url("${src}")` }
+				}
+			}, m.id);
+		})
+	});
+}
 // src/client/persona.ts
 /**
 * Rewrite only the identity references in a persona text. Replacing every
@@ -17710,6 +18863,7 @@ function AvatarCropDialog({ image, onConfirm, onCancel, t }) {
 	};
 	return (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 		className: ChannelsPage_module_default.dialogBackdrop,
+		"data-dc-scheme": getScheme(),
 		onMouseDown: (event) => {
 			event.stopPropagation();
 			if (event.target === event.currentTarget) onCancel();
@@ -18679,6 +19833,73 @@ function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDi
 		})
 	});
 }
+function headTeam(members, leadId, tasks, thinking, rooms) {
+	return members.filter((m) => m.kind !== "human" && m.id !== leadId).map((member) => {
+		const replying = [...rooms].some((id) => (thinking[String(id)] ?? []).includes(member.id));
+		const task = tasks.filter((t) => t.owner === member.id && rooms.has(t.room_id) && isLiveTask(t)).sort((a, b) => b.updated_at - a.updated_at)[0];
+		return {
+			member,
+			state: member.error ? "error" : !member.online ? "offline" : replying || task !== void 0 ? "busy" : "idle",
+			task,
+			replying
+		};
+	});
+}
+const STATE_KEY = {
+	busy: "mateBusy",
+	idle: "mateIdle",
+	error: "mateError",
+	offline: "mateOffline"
+};
+function mateLabel(mate, t) {
+	const doing = mate.task !== void 0 ? t("mateTask", {
+		id: String(mate.task.id),
+		title: mate.task.title
+	}) : mate.replying ? t("mateReplying") : "";
+	return [
+		mate.member.name,
+		t(STATE_KEY[mate.state]),
+		doing
+	].filter(Boolean).join(" · ");
+}
+function HeadTeam({ mates, t, onOpen }) {
+	if (mates.length === 0) return null;
+	const shown = mates.slice(0, 4);
+	const rest = mates.length - shown.length;
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: ChannelsPage_module_default.headTeam,
+		role: "group",
+		"aria-label": t("headTeam"),
+		children: [shown.map((mate) => {
+			const label = mateLabel(mate, t);
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.mate,
+				"data-state": mate.state,
+				title: label,
+				"aria-label": label,
+				onClick: onOpen,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+					id: mate.member.id,
+					name: mate.member.name,
+					avatar: mate.member.avatar,
+					avatarVersion: mate.member.avatarVersion,
+					small: true
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: ChannelsPage_module_default.mateDot,
+					"aria-hidden": true
+				})]
+			}, mate.member.id);
+		}), rest > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+			type: "button",
+			className: ChannelsPage_module_default.mateMore,
+			title: mates.slice(4).map((m) => mateLabel(m, t)).join("\n"),
+			"aria-label": t("headTeamMore", { count: String(rest) }),
+			onClick: onOpen,
+			children: ["+", rest]
+		})]
+	});
+}
 // src/client/PermissionCard.tsx
 /**
 * Buttons for a cloud-web bot's permission prompt (#120). The card JSON is
@@ -18710,21 +19931,119 @@ function PermissionCard({ messageId, card, t, onDecide }) {
 			setBusy(false);
 		});
 	};
+	const order = {
+		allow: 0,
+		deny: 1,
+		allow_all: 2
+	};
+	const actions = [...card.actions].sort((a, b) => order[a.decision] - order[b.decision]);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: ChannelsPage_module_default.permActions,
+		children: [actions.map((a) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+			type: "button",
+			className: a.decision === "allow" ? ChannelsPage_module_default.primaryButton : a.decision === "deny" ? ChannelsPage_module_default.secondaryButton : ChannelsPage_module_default.permSessionButton,
+			title: a.decision === "allow_all" ? t("permAllowAllScope") : void 0,
+			disabled: busy,
+			onClick: () => {
+				decide(a.decision);
+			},
+			children: a.decision === "allow" ? t("permAllowOnce") : a.decision === "allow_all" ? t("permAllowSession") : a.label
+		}, a.decision)), error !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+			className: ChannelsPage_module_default.sendError,
+			role: "alert",
+			children: error
+		})]
+	});
+}
+/** Questions waiting on the lead/user in these rooms, oldest first so the longest wait is on top. */
+function openQuestions(tasks, rooms) {
+	return tasks.filter((task) => task.status === "asked" && task.paused_at == null && rooms.has(task.room_id)).sort((a, b) => a.updated_at - b.updated_at);
+}
+function AskItem({ reply, t, onDraft, onSend, onUndo, isImeEnter }) {
+	const { task, draft, phase, error } = reply;
+	let tail;
+	if (phase.kind === "pending") tail = /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+		className: ChannelsPage_module_default.askDone,
+		role: "status",
+		children: [t("askReplied", { text: phase.text }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+			type: "button",
+			className: ChannelsPage_module_default.linkButton,
+			onClick: onUndo,
+			children: t("askUndo", { n: String(phase.left) })
+		})]
+	});
+	else if (phase.kind === "sent") tail = /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+		className: ChannelsPage_module_default.askDone,
+		role: "status",
+		children: t("askReplied", { text: phase.text })
+	});
+	else tail = /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("form", {
+		className: ChannelsPage_module_default.askForm,
+		onSubmit: (event) => {
+			event.preventDefault();
+			onSend();
+		},
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+			className: ChannelsPage_module_default.askInput,
+			value: draft,
+			placeholder: t("askPlaceholder"),
+			"aria-label": t("askReplyTo", { id: String(task.id) }),
+			onChange: (event) => {
+				onDraft(event.target.value);
+			},
+			onKeyDown: (event) => {
+				if (event.key === "Enter" && !event.shiftKey && !isImeEnter(event)) {
+					event.preventDefault();
+					onSend();
+				}
+			}
+		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+			type: "submit",
+			className: ChannelsPage_module_default.askSend,
+			title: t("askSend"),
+			"aria-label": t("askSend"),
+			disabled: draft.trim() === "",
+			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+				width: "14",
+				height: "14",
+				viewBox: "0 0 24 24",
+				fill: "none",
+				stroke: "currentColor",
+				strokeWidth: "2.4",
+				strokeLinecap: "round",
+				strokeLinejoin: "round",
+				"aria-hidden": "true",
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M12 19V5m-6 6 6-6 6 6" })
+			})
+		})]
+	});
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: ChannelsPage_module_default.askItem,
+		"data-task-id": task.id,
 		children: [
-			card.actions.map((a) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-				type: "button",
-				className: a.decision === "deny" ? ChannelsPage_module_default.secondaryButton : ChannelsPage_module_default.primaryButton,
-				disabled: busy,
-				onClick: () => {
-					decide(a.decision);
-				},
-				children: a.label
-			}, a.decision)),
-			card.actions.some((a) => a.decision === "allow_all") && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-				className: ChannelsPage_module_default.permScope,
-				children: t("permAllowAllScope")
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: ChannelsPage_module_default.askKind,
+				children: t("askKind")
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: ChannelsPage_module_default.askText,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: ChannelsPage_module_default.askQuestion,
+					children: task.note?.trim() || t("askNoNote")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("small", {
+					className: ChannelsPage_module_default.askFrom,
+					children: t("askFrom", {
+						name: task.owner_name,
+						id: String(task.id),
+						title: task.title
+					})
+				})]
+			}),
+			tail,
+			phase.kind === "unavailable" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ChannelsPage_module_default.askNotice,
+				role: "status",
+				children: t("askApiPending")
 			}),
 			error !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 				className: ChannelsPage_module_default.sendError,
@@ -18734,10 +20053,228 @@ function PermissionCard({ messageId, card, t, onDecide }) {
 		]
 	});
 }
+/** A reply keeps its row while it counts down or after it failed, even once the task left `asked`,
+* so the user can still undo it or see the error. Drafts and delivered replies of tasks no longer
+* asked are not shown. */
+function inFlight(reply) {
+	return reply.phase.kind === "pending" || reply.error !== void 0;
+}
+/**
+* The folding tray. `permissions` is the existing permission list (rendered by the page), so
+* its buttons and server-driven states stay exactly as before; the tray only adds the header
+* and the questions. Renders nothing when neither waits.
+*/
+function DecideTray({ questions, permissionCount, permissions, t, onAnswer, isImeEnter }) {
+	const [open, setOpen] = (0, react.useState)(true);
+	const [replies, setReplies] = (0, react.useState)(/* @__PURE__ */ new Map());
+	const timers = (0, react.useRef)(/* @__PURE__ */ new Map());
+	const answerRef = (0, react.useRef)(onAnswer);
+	answerRef.current = onAnswer;
+	(0, react.useEffect)(() => () => {
+		for (const id of timers.current.values()) clearInterval(id);
+	}, []);
+	const asked = new Map(questions.map((task) => [task.id, task]));
+	const askedKey = questions.map((task) => task.id).join(",");
+	(0, react.useEffect)(() => {
+		setReplies((prev) => {
+			const stale = [...prev.values()].filter((r) => !asked.has(r.task.id) && !inFlight(r));
+			if (stale.length === 0) return prev;
+			const next = new Map(prev);
+			for (const r of stale) next.delete(r.task.id);
+			return next;
+		});
+	}, [askedKey]);
+	const patch = (taskId, change) => {
+		setReplies((prev) => {
+			const known = prev.get(taskId);
+			const task = asked.get(taskId) ?? known?.task;
+			if (task === void 0) return prev;
+			const next = new Map(prev);
+			const changed = change(known ?? {
+				draft: "",
+				phase: { kind: "draft" },
+				task
+			});
+			if (changed === void 0) next.delete(taskId);
+			else next.set(taskId, changed);
+			return next;
+		});
+	};
+	const stop = (taskId) => {
+		clearInterval(timers.current.get(taskId));
+		timers.current.delete(taskId);
+	};
+	const deliver = (taskId, text) => {
+		stop(taskId);
+		patch(taskId, (r) => ({
+			...r,
+			phase: {
+				kind: "sent",
+				text
+			}
+		}));
+		answerRef.current?.(taskId, text).catch((e) => {
+			patch(taskId, (r) => ({
+				...r,
+				phase: { kind: "draft" },
+				draft: text,
+				error: e instanceof Error ? e.message : String(e)
+			}));
+		});
+	};
+	const send = (taskId) => {
+		const reply = replies.get(taskId);
+		const text = (reply?.draft ?? "").trim();
+		if (text === "" || reply?.phase.kind === "pending") return;
+		if (onAnswer === void 0) {
+			patch(taskId, (r) => ({
+				...r,
+				error: void 0,
+				phase: { kind: "unavailable" }
+			}));
+			return;
+		}
+		patch(taskId, (r) => ({
+			...r,
+			draft: "",
+			error: void 0,
+			phase: {
+				kind: "pending",
+				text,
+				left: 5
+			}
+		}));
+		let left = 5;
+		stop(taskId);
+		timers.current.set(taskId, setInterval(() => {
+			left -= 1;
+			if (left <= 0) deliver(taskId, text);
+			else patch(taskId, (r) => ({
+				...r,
+				phase: {
+					kind: "pending",
+					text,
+					left
+				}
+			}));
+		}, 1e3));
+	};
+	const undo = (taskId) => {
+		stop(taskId);
+		patch(taskId, (r) => r.phase.kind === "pending" ? {
+			...r,
+			draft: r.phase.text,
+			phase: { kind: "draft" }
+		} : r);
+	};
+	const draftOf = (taskId, text) => {
+		patch(taskId, (r) => ({
+			...r,
+			draft: text,
+			phase: r.phase.kind === "unavailable" ? { kind: "draft" } : r.phase
+		}));
+	};
+	const rows = questions.map((task) => {
+		const known = replies.get(task.id);
+		return known === void 0 ? {
+			draft: "",
+			phase: { kind: "draft" },
+			task
+		} : {
+			...known,
+			task
+		};
+	});
+	for (const reply of replies.values()) if (!asked.has(reply.task.id) && inFlight(reply)) rows.push(reply);
+	if (rows.length === 0 && permissionCount === 0) return null;
+	const head = t("trayAsks", { count: String(rows.length + permissionCount) });
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+		className: ChannelsPage_module_default.decideTray,
+		role: "region",
+		"aria-label": t("decideTray"),
+		"data-open": open,
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+			type: "button",
+			className: ChannelsPage_module_default.decideTrayHead,
+			"aria-expanded": open,
+			onClick: () => {
+				setOpen(!open);
+			},
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: head }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: ChannelsPage_module_default.decideTrayToggle,
+				children: t(open ? "trayCollapse" : "trayExpand")
+			})]
+		}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+			hidden: !open,
+			children: [rows.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ChannelsPage_module_default.askList,
+				children: rows.map((reply) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(AskItem, {
+					reply,
+					t,
+					onDraft: (text) => {
+						draftOf(reply.task.id, text);
+					},
+					onSend: () => {
+						send(reply.task.id);
+					},
+					onUndo: () => {
+						undo(reply.task.id);
+					},
+					isImeEnter
+				}, reply.task.id))
+			}), permissions]
+		})]
+	});
+}
+/** How long a withdrawal can still be undone, ms. 来源：用户 11-03 23:1x 同意「撤回不弹确认、底部 5 秒撤销条」 */
+const WITHDRAW_UNDO_MS = 5e3;
+function createLiveTracker() {
+	return {
+		roomId: void 0,
+		maxId: Number.NEGATIVE_INFINITY,
+		fresh: /* @__PURE__ */ new Map()
+	};
+}
+/**
+* Record which rows of `messages` arrived live. The first fill of a room, a
+* room switch and older pages (ids below the known maximum) never animate.
+*/
+function trackLive(tracker, roomId, messages) {
+	const last = messages.length === 0 ? Number.NEGATIVE_INFINITY : messages[messages.length - 1].id;
+	if (tracker.roomId !== roomId || tracker.maxId === Number.NEGATIVE_INFINITY) {
+		tracker.roomId = roomId;
+		tracker.maxId = last;
+		tracker.fresh = /* @__PURE__ */ new Map();
+		return tracker.fresh;
+	}
+	let slot = 0;
+	for (const m of messages) {
+		if (m.id <= tracker.maxId || tracker.fresh.has(m.id)) continue;
+		tracker.fresh.set(m.id, Math.min(slot, 5));
+		slot++;
+	}
+	if (last > tracker.maxId) tracker.maxId = last;
+	return tracker.fresh;
+}
+/** Rows from `fromId` on that someone else wrote: what the "back to latest" pill counts. */
+function unreadCount(messages, fromId) {
+	return messages.filter((m) => m.id >= fromId && m.author_kind !== "user").length;
+}
+/** The last message you wrote that can still be edited (no card, not being withdrawn). */
+function lastOwnEditable(messages, skipId) {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i];
+		if (m.author_kind === "user" && m.card === null && m.id !== skipId) return m;
+	}
+}
+/** Whether the reader asked the system to reduce motion. */
+function prefersReducedMotion() {
+	return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 // src/client/ChannelsPage.tsx
 /**
 * Channels main panel: room list, message stream with composer, and member
-* list, in a Discord-style three-column layout. All data arrives through the
+* activity panel, in a conversation-first layout. All data arrives through the
 * injected `useChannels` hook; posting goes through the injected actions.
 */
 const CLI_TAG = {
@@ -18799,7 +20336,111 @@ function saveCardView(roomId, view) {
 		globalThis.localStorage?.setItem(CARD_VIEW_KEY + roomId, view);
 	} catch (error) {}
 }
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDecide, onReply, onRetry, retrying, tasks, focused, cardView, onCardView, own }) {
+function parseCard(message) {
+	if (message.card === null) return void 0;
+	try {
+		return JSON.parse(message.card);
+	} catch (error) {}
+}
+/**
+* What the lead is doing, from real data only (11-04 review of the white scheme: the capsule
+* must say 「在干啥」— the current task's short name or the live progress-card brief; when
+* the lead is busy but reported nothing, say so instead of inventing text).
+* Order: failure/offline, then the lead's live task in this channel or its workspaces,
+* then the last line of its running progress card here, then busy-without-task, then idle.
+*/
+function leadDoing(lead, { tasks, rooms, thinking, messages }, t) {
+	if (lead.error) return t("memberFailed");
+	if (lead.online === false) return t("offline");
+	const task = tasks.filter((x) => x.owner === lead.id && rooms.has(x.room_id) && boardGroupOf(x) === "working").sort((a, b) => b.updated_at - a.updated_at)[0];
+	if (task !== void 0) return `#${task.id} ${task.title}`;
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i];
+		if (m.author !== lead.id) continue;
+		const card = parseCard(m);
+		if (cardRole(card) !== "progress" || card?.state !== "running") continue;
+		const line = (card.brief ?? "").split("\n").map((x) => x.trim()).filter(Boolean).at(-1);
+		if (line) return line;
+		break;
+	}
+	if ([...rooms].some((id) => (thinking[String(id)] ?? []).includes(lead.id))) return t("headLeadBusyUnreported");
+	return t("headLeadIdle");
+}
+function cardRole(card) {
+	if (card === void 0) return "none";
+	if (card.kind === "permission") return "permission";
+	if (card.kind === "task") return "task";
+	if (card.kind === void 0 && card.action === void 0 && (typeof card.steps === "number" || typeof card.brief === "string" || card.state === "running" || card.state === "completed")) return "progress";
+	if (card.action === "configure-model" || card.state === "failed" || card.state === "retried") return "failure";
+	return "other";
+}
+/** A pending permission request: its buttons live in the tray above the composer. */
+function pendingPermission(message) {
+	const card = parseCard(message);
+	return card?.kind === "permission" && card.state === "pending";
+}
+/** 用户 2026-11-04：完成的零/一步进度不占聊天行；失败步骤仍须可见。 */
+function trivialProgress(message) {
+	const card = parseCard(message);
+	return cardRole(card) === "progress" && card?.state === "completed" && typeof card.steps === "number" && Number.isInteger(card.steps) && card.steps >= 0 && card.steps <= 1 && !chipsOf(card)?.some((chip) => chip.state === "failed") && !(card.brief ?? message.text).split("\n").some((line) => line.startsWith("❌ "));
+}
+const GROUP_WINDOW_SEC = 300;
+/** Same author, close in time, plain or progress: the row drops its avatar and name. */
+function continues(previous, message) {
+	if (previous === void 0 || previous.author_kind === "system" || message.author_kind === "system") return false;
+	if (previous.author !== message.author || previous.author_kind !== message.author_kind) return false;
+	if (message.reply_to !== void 0 || message.created_at - previous.created_at > GROUP_WINDOW_SEC) return false;
+	const role = cardRole(parseCard(message));
+	const before = cardRole(parseCard(previous));
+	return (role === "none" || role === "progress") && (before === "none" || before === "progress");
+}
+function clockOf(seconds) {
+	return (/* @__PURE__ */ new Date(seconds * 1e3)).toLocaleTimeString([], {
+		hour: "2-digit",
+		minute: "2-digit"
+	});
+}
+/** #1020: the memory entries a reply used — a small badge that opens to their titles. */
+function MemoryBadge({ items, t }) {
+	const [open, setOpen] = (0, react.useState)(false);
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: ChannelsPage_module_default.memory,
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+			type: "button",
+			className: ChannelsPage_module_default.memoryBadge,
+			"aria-expanded": open,
+			onClick: () => {
+				setOpen(!open);
+			},
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					"aria-hidden": "true",
+					children: "◇"
+				}),
+				" ",
+				t("memoryBadge", { count: items.length })
+			]
+		}), open && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+			className: ChannelsPage_module_default.memoryList,
+			"aria-label": t("memoryList"),
+			children: items.map((item) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
+				className: ChannelsPage_module_default.memoryItem,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: ChannelsPage_module_default.memoryTitle,
+					children: item.title || t("memoryMoved")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+					className: ChannelsPage_module_default.memoryPage,
+					children: [
+						item.page,
+						" #",
+						item.ref
+					]
+				})]
+			}, item.id))
+		})]
+	});
+}
+function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor }) {
 	const labels = (0, react.useMemo)(() => ({
 		code: {
 			copyLabel: t("copyCode"),
@@ -18807,25 +20448,163 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 		},
 		footnotes: t("footnotes")
 	}), [t]);
-	let card;
-	if (message.card !== null) try {
-		card = JSON.parse(message.card);
-	} catch (error) {}
-	const shown = typeof card?.brief === "string" && cardView === "brief" ? card.brief : message.text;
+	const card = parseCard(message);
+	const role = cardRole(card);
+	const shown = typeof card?.brief === "string" && cardView === "brief" ? role === "progress" ? compactBrief(card.brief) : card.brief : message.text;
 	const markdown = (0, react.useMemo)(() => softBreaksToHard(shown), [shown]);
+	const steps = role === "progress" ? shown.slice(shown.indexOf("\n") + 1) : "";
+	const stepsMarkdown = (0, react.useMemo)(() => steps === "" ? "" : softBreaksToHard(steps), [steps]);
+	const fullTime = (/* @__PURE__ */ new Date(message.created_at * 1e3)).toLocaleString();
+	const editButtonRef = (0, react.useRef)(null);
+	const [toolNote, setToolNote] = (0, react.useState)(void 0);
+	const noteTimer = (0, react.useRef)(void 0);
+	(0, react.useEffect)(() => () => {
+		clearTimeout(noteTimer.current);
+	}, []);
+	const note = (tool, text) => {
+		clearTimeout(noteTimer.current);
+		setToolNote({
+			tool,
+			text
+		});
+		noteTimer.current = setTimeout(() => {
+			setToolNote(void 0);
+		}, 2e3);
+	};
+	const copy = () => {
+		const done = () => {
+			note("copy", t("toolCopied"));
+		};
+		const clip = globalThis.navigator?.clipboard;
+		if (clip === void 0) {
+			note("copy", t("toolCopyFailed"));
+			return;
+		}
+		clip.writeText(message.text).then(done, () => {
+			note("copy", t("toolCopyFailed"));
+		});
+	};
+	const toTask = () => {
+		if (onTask === void 0 || toolNote?.tool === "task") return;
+		setToolNote({
+			tool: "task",
+			text: t("toolTasking")
+		});
+		onTask(message).then(() => {
+			note("task", t("toolTasked"));
+		}, (error) => {
+			note("task", t("toolTaskFailed", { message: error instanceof Error ? error.message : String(error) }));
+		});
+	};
+	const wasEditing = (0, react.useRef)(false);
+	const isEditing = own?.editing !== void 0;
+	(0, react.useEffect)(() => {
+		if (wasEditing.current && !isEditing && own?.editingOther !== true) editButtonRef.current?.focus();
+		wasEditing.current = isEditing;
+	}, [isEditing, own?.editingOther]);
+	const retryButtons = (role === "failure" || card?.state === "failed") && card !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: ChannelsPage_module_default.cardButtons,
+		children: [card.state !== "retried" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+			type: "button",
+			className: ChannelsPage_module_default.secondaryButton,
+			disabled: retrying,
+			onClick: () => onRetry(message.id),
+			children: retrying ? t("retrying") : t("retry")
+		}), card.action === "configure-model" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+			type: "button",
+			className: ChannelsPage_module_default.secondaryButton,
+			onClick: onConfigure,
+			children: t("configureModel")
+		})]
+	});
+	const enterClass = enter === void 0 ? "" : message.author_kind === "user" ? ChannelsPage_module_default.enterOwn : ChannelsPage_module_default.enter;
+	const enterStyle = enter ? { animationDelay: `${enter * 18}ms` } : void 0;
+	if (message.author_kind === "system" && (role === "none" || role === "task")) return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: [
+			ChannelsPage_module_default.systemRecord,
+			enterClass,
+			focused ? ChannelsPage_module_default.focused : ""
+		].filter(Boolean).join(" "),
+		style: enterStyle,
+		"data-message-id": message.id,
+		role: "note",
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+			className: ChannelsPage_module_default.systemLine,
+			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: ChannelsPage_module_default.systemText,
+				title: fullTime,
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+					text: markdown,
+					labels
+				})
+			})
+		}), card?.kind === "task" && typeof card.task_id === "number" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+			className: `${ChannelsPage_module_default.card} ${ChannelsPage_module_default.taskRecord}`,
+			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TaskCard, {
+				taskId: card.task_id,
+				tasks,
+				t
+			})
+		})]
+	});
+	if (message.author_kind === "system" && role === "failure") return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: [
+			ChannelsPage_module_default.errorBar,
+			enterClass,
+			focused ? ChannelsPage_module_default.focused : ""
+		].filter(Boolean).join(" "),
+		style: enterStyle,
+		"data-message-id": message.id,
+		"data-state": card?.state,
+		role: "alert",
+		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: ChannelsPage_module_default.errorIcon,
+				"aria-hidden": true,
+				children: "!"
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ChannelsPage_module_default.errorText,
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+					text: markdown,
+					labels
+				})
+			}),
+			retryButtons
+		]
+	});
 	const classes = [
 		ChannelsPage_module_default.message,
-		message.author_kind === "system" ? ChannelsPage_module_default.system : "",
-		focused ? ChannelsPage_module_default.focused : ""
+		grouped ? ChannelsPage_module_default.grouped : "",
+		message.author_kind === "user" ? ChannelsPage_module_default.own : "",
+		focused ? ChannelsPage_module_default.focused : "",
+		enterClass,
+		enter !== void 0 && message.author_kind !== "user" ? ChannelsPage_module_default.enterGlow : ""
 	].filter(Boolean).join(" ");
 	const anchored = card?.kind === "task" ? [] : tasks.filter((task) => task.assign_msg_id === message.id);
 	const anchoredIds = new Set(anchored.map((task) => task.id));
 	const taskCards = anchored.filter((task) => task.parent_task === null || !anchoredIds.has(task.parent_task));
+	const progressLines = role === "progress" ? shown.split("\n") : [];
+	const deliveredFor = deliveredTasks(message, tasks);
+	const deliveredPage = deliveredFor.length > 0 ? deliverableOf(message) : void 0;
+	const delivered = deliveredPage === void 0 ? void 0 : {
+		page: deliveredPage,
+		task: deliveredFor.find((task) => task.status === "returned") ?? deliveredFor[0]
+	};
+	const progressFolded = role === "progress" && cardView === "brief" && card?.state === "completed";
+	const chips = role === "progress" ? chipsOf(card) : void 0;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: classes,
 		"data-message-id": message.id,
+		"data-queued": queuedFor !== void 0 || void 0,
+		style: enterStyle,
 		children: [
-			member === void 0 || message.author_kind === "system" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+			grouped ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("time", {
+				className: ChannelsPage_module_default.gutterTime,
+				title: fullTime,
+				dateTime: (/* @__PURE__ */ new Date(message.created_at * 1e3)).toISOString(),
+				children: clockOf(message.created_at)
+			}) : member === void 0 || message.author_kind === "system" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
 				id: message.author,
 				name: message.name,
 				avatar: member?.avatar,
@@ -18843,6 +20622,10 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 					"aria-haspopup": "menu",
 					"aria-expanded": menuOpen,
 					onClick: onAvatar,
+					onContextMenu: (event) => {
+						event.preventDefault();
+						onMention(member);
+					},
 					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
 						id: member.id,
 						name: message.name,
@@ -18853,18 +20636,31 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 					className: ChannelsPage_module_default.avatarMenu,
 					role: "menu",
 					"aria-label": t("memberMenu", { name: member.name }),
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-						className: ChannelsPage_module_default.avatarMenuTitle,
-						children: member.name
-					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-						type: "button",
-						role: "menuitem",
-						className: ChannelsPage_module_default.avatarMenuItem,
-						onClick: () => {
-							onMention(member);
-						},
-						children: t("avatarMention")
-					})]
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: ChannelsPage_module_default.avatarMenuTitle,
+							children: member.name
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							role: "menuitem",
+							className: ChannelsPage_module_default.avatarMenuItem,
+							onClick: () => {
+								onMention(member);
+							},
+							children: t("avatarMention")
+						}),
+						onDm !== void 0 && member.kind !== "human" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							role: "menuitem",
+							className: ChannelsPage_module_default.avatarMenuItem,
+							onClick: () => {
+								onCloseMenu();
+								onDm(member);
+							},
+							children: t("dmOpen")
+						})
+					]
 				})]
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
@@ -18875,30 +20671,38 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 						t
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-						className: ChannelsPage_module_default.messageHead,
+						className: grouped ? `${ChannelsPage_module_default.messageHead} ${ChannelsPage_module_default.messageHeadGrouped}` : ChannelsPage_module_default.messageHead,
 						children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							!grouped && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: ChannelsPage_module_default.author,
 								children: message.name
 							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(KindTag, {
+							!grouped && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(KindTag, {
 								name: message.name,
 								kind: member?.kind,
 								cli: member?.cli,
 								t
 							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("time", {
+							!grouped && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("time", {
 								className: ChannelsPage_module_default.time,
-								children: (/* @__PURE__ */ new Date(message.created_at * 1e3)).toLocaleString()
+								title: fullTime,
+								dateTime: (/* @__PURE__ */ new Date(message.created_at * 1e3)).toISOString(),
+								children: clockOf(message.created_at)
 							}),
 							message.edited_at !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: ChannelsPage_module_default.edited,
 								title: (/* @__PURE__ */ new Date(message.edited_at * 1e3)).toLocaleString(),
 								children: t("messageEdited")
 							}),
+							queuedFor !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ChannelsPage_module_default.queuedTag,
+								title: t("queuedFor", { names: queuedFor.join("、") }),
+								children: t("queuedTag")
+							}),
 							own !== void 0 && own.editing === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 								className: ChannelsPage_module_default.ownActions,
 								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									ref: editButtonRef,
 									type: "button",
 									className: ChannelsPage_module_default.linkButton,
 									onClick: own.onStartEdit,
@@ -18953,38 +20757,83 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 								})
 							]
 						})]
-					}) : card === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [message.text !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-						className: ChannelsPage_module_default.text,
-						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
-							text: markdown,
-							labels
+					}) : card === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+						message.text !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: ChannelsPage_module_default.text,
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+								text: markdown,
+								labels
+							})
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(AttachmentList, {
+							attachments: message.attachments,
+							t
+						}),
+						delivered !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(DeliveryPreview, {
+							page: delivered.page,
+							task: delivered.task,
+							t,
+							onReview,
+							onRevise: () => {
+								onReply(message);
+							}
 						})
-					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(AttachmentList, {
-						attachments: message.attachments,
-						t
-					})] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-						className: ChannelsPage_module_default.card,
-						"data-state": card.state,
+					] }) : role === "progress" ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: ChannelsPage_module_default.runStrip,
+						"data-state": card.state ?? "running",
 						children: [
 							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-								className: ChannelsPage_module_default.cardHead,
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-									className: ChannelsPage_module_default.cardTitle,
-									children: card.title
-								}), typeof card.brief === "string" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-									className: ChannelsPage_module_default.cardViews,
-									role: "group",
-									"aria-label": t("cardView"),
-									children: ["detail", "brief"].map((view) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-										type: "button",
-										className: ChannelsPage_module_default.cardViewButton,
-										"aria-pressed": cardView === view,
-										onClick: () => {
-											onCardView(view);
-										},
-										children: t(view === "detail" ? "cardViewDetail" : "cardViewBrief")
-									}, view))
-								})]
+								className: ChannelsPage_module_default.runHead,
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ChannelsPage_module_default.runIcon,
+										"aria-hidden": true
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ChannelsPage_module_default.runTitle,
+										children: card.title
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ChannelsPage_module_default.runSummary,
+										children: progressLines[0]
+									}),
+									typeof card.brief === "string" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: ChannelsPage_module_default.cardViews,
+										role: "group",
+										"aria-label": t("cardView"),
+										children: ["detail", "brief"].map((view) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: ChannelsPage_module_default.cardViewButton,
+											"aria-pressed": cardView === view,
+											onClick: () => {
+												onCardView(view);
+											},
+											children: t(view === "detail" ? "cardViewDetail" : "cardViewBrief")
+										}, view))
+									})
+								]
+							}),
+							cardView === "brief" && chips !== void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(StepChips, {
+								chips,
+								runState: card.state,
+								t
+							}) : !progressFolded && progressLines.length > 1 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: `${ChannelsPage_module_default.text} ${ChannelsPage_module_default.runSteps}`,
+								"data-card-text": true,
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+									text: stepsMarkdown,
+									labels
+								})
+							}),
+							retryButtons
+						]
+					}) : role === "permission" && card.state === "pending" ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: ChannelsPage_module_default.permInline,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ChannelsPage_module_default.permLock,
+								"aria-hidden": true,
+								children: "●"
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 								className: ChannelsPage_module_default.text,
@@ -18993,21 +20842,31 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 									labels
 								})
 							}),
-							(card.state === "failed" || card.action === "configure-model") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-								className: ChannelsPage_module_default.cardButtons,
-								children: [card.state !== "retried" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									type: "button",
-									className: ChannelsPage_module_default.secondaryButton,
-									disabled: retrying,
-									onClick: () => onRetry(message.id),
-									children: retrying ? t("retrying") : t("retry")
-								}), card.action === "configure-model" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									type: "button",
-									className: ChannelsPage_module_default.secondaryButton,
-									onClick: onConfigure,
-									children: t("configureModel")
-								})]
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ChannelsPage_module_default.permWaiting,
+								children: t("permPending")
+							})
+						]
+					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: ChannelsPage_module_default.card,
+						"data-state": card.state,
+						"data-role": role,
+						children: [
+							card.title !== void 0 && card.kind !== "permission" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: ChannelsPage_module_default.cardHead,
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: ChannelsPage_module_default.cardTitle,
+									children: card.title
+								})
 							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: ChannelsPage_module_default.text,
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+									text: markdown,
+									labels
+								})
+							}),
+							retryButtons,
 							card.kind === "permission" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PermissionCard, {
 								messageId: message.id,
 								card,
@@ -19022,30 +20881,187 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 						]
 					}),
 					taskCards.map((task) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-						className: ChannelsPage_module_default.card,
+						className: `${ChannelsPage_module_default.card} ${ChannelsPage_module_default.taskAnchor}`,
 						"data-anchored-task": task.id,
 						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TaskCard, {
 							taskId: task.id,
 							tasks,
 							t
 						})
-					}, task.id))
+					}, task.id)),
+					message.memories !== void 0 && message.memories.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MemoryBadge, {
+						items: message.memories,
+						t
+					})
 				]
 			}),
-			message.author_kind !== "system" && card === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-				type: "button",
-				className: ChannelsPage_module_default.replyButton,
-				title: t("reply"),
-				"aria-label": t("reply"),
-				onClick: () => {
-					onReply(message);
-				},
-				children: "↩"
+			message.author_kind !== "system" && card === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+				className: ChannelsPage_module_default.msgTools,
+				"data-message-tools": true,
+				children: [
+					toolNote !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ChannelsPage_module_default.msgToolNote,
+						role: "status",
+						children: toolNote.text
+					}),
+					message.text !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ChannelsPage_module_default.msgTool,
+						"data-tip": t("toolCopy"),
+						"aria-label": t("toolCopy"),
+						onClick: copy,
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+							width: "15",
+							height: "15",
+							viewBox: "0 0 24 24",
+							fill: "none",
+							stroke: "currentColor",
+							strokeWidth: "2",
+							strokeLinecap: "round",
+							strokeLinejoin: "round",
+							"aria-hidden": "true",
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
+								x: "9",
+								y: "9",
+								width: "11",
+								height: "11",
+								rx: "2"
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M5 15V6a2 2 0 0 1 2-2h8" })]
+						})
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: `${ChannelsPage_module_default.msgTool} ${ChannelsPage_module_default.replyButton}`,
+						"data-tip": t("reply"),
+						"aria-label": t("reply"),
+						onClick: () => {
+							onReply(message);
+						},
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+							width: "15",
+							height: "15",
+							viewBox: "0 0 24 24",
+							fill: "none",
+							stroke: "currentColor",
+							strokeWidth: "2",
+							strokeLinecap: "round",
+							strokeLinejoin: "round",
+							"aria-hidden": "true",
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M9 14 4 9l5-5" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M4 9h10a6 6 0 0 1 6 6v5" })]
+						})
+					}),
+					onTask !== void 0 && message.text.trim() !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ChannelsPage_module_default.msgTool,
+						"data-tip": t("toolTaskHint"),
+						"aria-label": t("toolTask"),
+						disabled: toolNote?.tool === "task" && toolNote.text === t("toolTasking"),
+						onClick: toTask,
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+							width: "15",
+							height: "15",
+							viewBox: "0 0 24 24",
+							fill: "none",
+							stroke: "currentColor",
+							strokeWidth: "2",
+							strokeLinecap: "round",
+							strokeLinejoin: "round",
+							"aria-hidden": "true",
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
+								x: "4",
+								y: "4",
+								width: "16",
+								height: "16",
+								rx: "2"
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "m8.5 12 2.5 2.5 4.5-5" })]
+						})
+					})
+				]
 			})
 		]
 	});
 }
-function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
+/** One pending permission request in the tray above the composer (#113). */
+function PermTrayItem({ message, author, t, onDecide }) {
+	const labels = (0, react.useMemo)(() => ({
+		code: {
+			copyLabel: t("copyCode"),
+			copiedLabel: t("copiedCode")
+		},
+		footnotes: t("footnotes")
+	}), [t]);
+	const markdown = (0, react.useMemo)(() => softBreaksToHard(message.text), [message.text]);
+	const card = (0, react.useMemo)(() => parseCard(message), [message]);
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: ChannelsPage_module_default.permTrayItem,
+		"data-message-id": message.id,
+		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+				id: message.author,
+				name: message.name,
+				avatar: author?.avatar,
+				avatarVersion: author?.avatarVersion,
+				small: true
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: ChannelsPage_module_default.permTrayText,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: ChannelsPage_module_default.permTrayWho,
+					children: t("permAsks", { name: message.name })
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: ChannelsPage_module_default.text,
+					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+						text: markdown,
+						labels
+					})
+				})]
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)(PermissionCard, {
+				messageId: message.id,
+				card,
+				t,
+				onDecide
+			})
+		]
+	});
+}
+/**
+* #1017: an owner's bot command (`@橘 /model x`, `/stop all`) as one thin line — who it went to,
+* the command, and the bot's answer folded in (first line; click for all of it).
+*/
+function CommandRow({ message, target, command, answer, t }) {
+	const [open, setOpen] = (0, react.useState)(false);
+	const failed = answer !== void 0 && answerFailed(answer.text);
+	const first = answer?.text.split("\n").map((x) => x.trim()).find(Boolean) ?? "";
+	const more = answer !== void 0 && answer.text.trim() !== first;
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: ChannelsPage_module_default.cmdLine,
+		"data-message-id": message.id,
+		"data-failed": failed,
+		title: (/* @__PURE__ */ new Date(message.created_at * 1e3)).toLocaleString(),
+		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: target === void 0 ? t("cmdToAll") : t("cmdTo", { name: target }) }),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: command }),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				"aria-hidden": "true",
+				children: "·"
+			}),
+			answer === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("cmdSent") }) : more ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.cmdResult,
+				"aria-expanded": open,
+				onClick: () => {
+					setOpen(!open);
+				},
+				children: open ? answer.text : first
+			}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: ChannelsPage_module_default.cmdResult,
+				children: first
+			})
+		]
+	});
+}
+function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }) {
 	if (members.length === 0) return null;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
 		className: ChannelsPage_module_default.groupTitle,
@@ -19059,19 +21075,20 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 			onClick: () => {
 				onPick(m);
 			},
-			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-				className: ChannelsPage_module_default.memberAvatar,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
-					id: m.id,
-					name: m.name,
-					avatar: m.avatar,
-					avatarVersion: m.avatarVersion,
-					small: true
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: m.error ? `${ChannelsPage_module_default.presence} ${ChannelsPage_module_default.errorPresence}` : ChannelsPage_module_default.presence })]
-			}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-				className: ChannelsPage_module_default.memberText,
-				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+					className: ChannelsPage_module_default.memberAvatar,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+						id: m.id,
+						name: m.name,
+						avatar: m.avatar,
+						avatarVersion: m.avatarVersion,
+						small: true
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: m.error ? `${ChannelsPage_module_default.presence} ${ChannelsPage_module_default.errorPresence}` : ChannelsPage_module_default.presence })]
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+					className: ChannelsPage_module_default.memberText,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 						className: ChannelsPage_module_default.memberName,
 						children: [m.name, /* @__PURE__ */ (0, react_jsx_runtime.jsx)(KindTag, {
 							name: m.name,
@@ -19079,20 +21096,28 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 							cli: m.cli,
 							t
 						})]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: ChannelsPage_module_default.memberStatus,
-						children: m.error ? t("memberFailed") : busy.has(m.id) ? t("working") : m.online ? t("online") : t("offline")
-					}),
-					m.kind === "dsh" && m.cli === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					}), m.kind === "dsh" && m.cli === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: ChannelsPage_module_default.memberModel,
 						children: m.model ? `${m.model.provider}/${m.model.model}` : t("defaultModel")
-					})
-				]
-			})]
-		}), m.kind === "dsh" && (m.editable === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+					})]
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: ChannelsPage_module_default.memberStatus,
+					"data-status": m.error ? "error" : busy.has(m.id) ? "busy" : m.online ? "online" : "offline",
+					children: m.error ? t("memberFailed") : busy.has(m.id) ? t("working") : m.online ? t("online") : t("offline")
+				})
+			]
+		}), (m.kind === "dsh" || onDm !== void 0 && m.kind !== "human") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 			className: ChannelsPage_module_default.memberActions,
-			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+			title: m.kind === "dsh" && m.editable !== true ? t("configMember") : void 0,
+			children: [onDm !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: ChannelsPage_module_default.linkButton,
+				onClick: () => {
+					onDm(m);
+				},
+				children: t("dmOpen")
+			}), m.kind === "dsh" && (m.editable === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 				type: "button",
 				className: ChannelsPage_module_default.linkButton,
 				onClick: () => {
@@ -19106,12 +21131,8 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 					onRemove(m);
 				},
 				children: t("removeMember")
-			})]
-		}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-			className: ChannelsPage_module_default.memberActions,
-			title: t("configMember"),
-			children: "⚙"
-		}))]
+			})] }) : "⚙")]
+		})]
 	}, m.id))] });
 }
 /**
@@ -19119,10 +21140,12 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, openModelSettings, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }) {
+	const scheme = useScheme();
 	const state = useChannels((snapshot) => snapshot);
 	const [editing, setEditing] = (0, react.useState)(void 0);
 	const [ownNotice, setOwnNotice] = (0, react.useState)(void 0);
+	const editFromComposer = (0, react.useRef)(false);
 	const [drafts, setDrafts] = (0, react.useState)({});
 	const [errors, setErrors] = (0, react.useState)({});
 	const [sending, setSending] = (0, react.useState)({});
@@ -19156,6 +21179,20 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 	const replying = state.roomId === void 0 ? void 0 : replies[state.roomId];
 	const logRef = (0, react.useRef)(null);
 	const stickRef = (0, react.useRef)(true);
+	const [atBottom, setAtBottom] = (0, react.useState)(true);
+	const [unread, setUnread] = (0, react.useState)(void 0);
+	const [loadingOlder, setLoadingOlder] = (0, react.useState)(false);
+	const olderAnchor = (0, react.useRef)(void 0);
+	const rowAnchor = (0, react.useRef)(void 0);
+	const live = (0, react.useRef)(createLiveTracker());
+	const [pendingWithdraw, setPendingWithdraw] = (0, react.useState)(void 0);
+	const withdrawTimer = (0, react.useRef)(void 0);
+	const pendingWithdrawRef = (0, react.useRef)(pendingWithdraw);
+	pendingWithdrawRef.current = pendingWithdraw;
+	(0, react.useEffect)(() => () => {
+		clearTimeout(withdrawTimer.current);
+		pendingWithdrawRef.current?.commit();
+	}, []);
 	const inputRef = (0, react.useRef)(null);
 	const [caret, setCaret] = (0, react.useState)(0);
 	const [dismissedAt, setDismissedAt] = (0, react.useState)(void 0);
@@ -19164,17 +21201,63 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 	const [dialog, setDialog] = (0, react.useState)(void 0);
 	const [modelsOpen, setModelsOpen] = (0, react.useState)(false);
 	const [drawer, setDrawer] = (0, react.useState)(void 0);
+	const roomsRef = (0, react.useRef)(null);
+	const membersRef = (0, react.useRef)(null);
+	const chatRef = (0, react.useRef)(null);
+	const roomsToggleRef = (0, react.useRef)(null);
+	const membersToggleRef = (0, react.useRef)(null);
+	(0, react.useEffect)(() => {
+		if (drawer === void 0) return;
+		const surface = drawer === "rooms" ? roomsRef.current : membersRef.current;
+		const opener = drawer === "rooms" ? roomsToggleRef.current : membersToggleRef.current;
+		if (surface === null) return;
+		const background = [chatRef.current, drawer === "rooms" ? membersRef.current : roomsRef.current].filter((node) => node !== null);
+		const previousInert = background.map((node) => node.inert);
+		background.forEach((node) => {
+			node.inert = true;
+		});
+		const controls = () => Array.from(surface.querySelectorAll("button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex=\"-1\"])")).filter((node) => node.tabIndex >= 0 && node.getClientRects().length > 0);
+		(controls()[0] ?? surface).focus();
+		const onKey = (event) => {
+			const nested = event.target.closest("[role=\"dialog\"][aria-modal=\"true\"]");
+			if (nested !== null && nested !== surface) return;
+			if (event.key === "Escape") {
+				event.preventDefault();
+				event.stopPropagation();
+				setDrawer(void 0);
+			} else if (event.key === "Tab") {
+				const items = controls();
+				const first = items[0];
+				const last = items[items.length - 1];
+				if (!items.includes(document.activeElement) || (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+					event.preventDefault();
+					(event.shiftKey ? last ?? surface : first ?? surface).focus();
+				}
+			}
+		};
+		document.addEventListener("keydown", onKey);
+		return () => {
+			document.removeEventListener("keydown", onKey);
+			background.forEach((node, index) => {
+				node.inert = previousInert[index];
+			});
+			opener?.focus();
+		};
+	}, [drawer]);
 	const [roomsHidden, setRoomsHidden] = (0, react.useState)(false);
-	const [membersHidden, setMembersHidden] = (0, react.useState)(false);
+	const [membersHidden, setMembersHidden] = (0, react.useState)(true);
+	const [boardDock, setBoardDock] = (0, react.useState)(null);
+	const [boardDocked, setBoardDocked] = (0, react.useState)(false);
 	const [newRoom, setNewRoom] = (0, react.useState)(void 0);
 	const [roomError, setRoomError] = (0, react.useState)(void 0);
 	const [memberError, setMemberError] = (0, react.useState)(void 0);
 	const [retryingId, setRetryingId] = (0, react.useState)(void 0);
 	const [settingsOpen, setSettingsOpen] = (0, react.useState)(false);
 	const settingsButtonRef = (0, react.useRef)(null);
+	const settingsReturnRef = (0, react.useRef)(null);
 	(0, react.useEffect)(() => {
 		if (!settingsOpen) return;
-		const opener = settingsButtonRef.current;
+		const opener = settingsReturnRef.current;
 		return () => {
 			opener?.focus();
 		};
@@ -19183,8 +21266,13 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		setSettingsOpen(false);
 	}, [state.roomId]);
 	const [capabilitiesDismissed, setCapabilitiesDismissed] = (0, react.useState)(false);
+	const [helpOpen, setHelpOpen] = (0, react.useState)(false);
+	const [slashHighlight, setSlashHighlight] = (0, react.useState)(0);
+	const [stopping, setStopping] = (0, react.useState)(void 0);
 	(0, react.useEffect)(() => {
 		setCapabilitiesDismissed(false);
+		setHelpOpen(false);
+		setStopping(void 0);
 	}, [state.roomId]);
 	const composerRef = (0, react.useRef)(null);
 	const openMentionAt = (0, react.useRef)(void 0);
@@ -19193,13 +21281,18 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 			const at = openMentionAt.current;
 			if (composerRef.current?.contains(event.target) === true) return;
 			if (at !== void 0) setDismissedAt(at);
-			if (draft === "/" && !capabilitiesDismissed) setCapabilitiesDismissed(true);
+			if (slashQuery(draft) !== void 0 && !capabilitiesDismissed) setCapabilitiesDismissed(true);
+			setHelpOpen(false);
 		};
 		document.addEventListener("mousedown", onPress);
 		return () => {
 			document.removeEventListener("mousedown", onPress);
 		};
 	}, [draft, capabilitiesDismissed]);
+	const backToComposer = () => {
+		if (editFromComposer.current) pendingCaret.current = caret;
+		editFromComposer.current = false;
+	};
 	(0, react.useEffect)(() => {
 		const input = inputRef.current;
 		const next = pendingCaret.current;
@@ -19219,6 +21312,15 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 			...views,
 			[roomId]: view
 		}));
+		if (prefersReducedMotion()) return;
+		requestAnimationFrame(() => {
+			logRef.current?.querySelectorAll("[data-card-text]").forEach((el) => {
+				el.animate?.([{ opacity: .25 }, { opacity: 1 }], {
+					duration: 180,
+					easing: "cubic-bezier(.2,0,0,1)"
+				});
+			});
+		});
 	};
 	(0, react.useEffect)(() => {
 		if (avatarMenu === void 0) return;
@@ -19230,10 +21332,145 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 			document.removeEventListener("mousedown", onPress);
 		};
 	}, [avatarMenu]);
+	const visibleMessages = (0, react.useMemo)(() => state.messages.filter((m) => !trivialProgress(m) || state.tasks?.some((task) => task.assign_msg_id === m.id)), [state.messages, state.tasks]);
+	const fresh = (0, react.useMemo)(() => trackLive(live.current, state.roomId, state.messages), [state.messages, state.roomId]);
+	(0, react.useLayoutEffect)(() => {
+		const log = logRef.current;
+		if (log === null) return;
+		const row = rowAnchor.current;
+		const el = row === void 0 ? null : log.querySelector(`[data-message-id="${row.id}"]`);
+		if (row !== void 0 && el !== null) {
+			rowAnchor.current = void 0;
+			olderAnchor.current = void 0;
+			log.scrollTop += el.getBoundingClientRect().top - log.getBoundingClientRect().top - row.offset;
+			return;
+		}
+		const anchor = olderAnchor.current;
+		if (anchor === void 0) return;
+		olderAnchor.current = void 0;
+		rowAnchor.current = void 0;
+		log.scrollTop = log.scrollHeight - anchor.height + anchor.top;
+	}, [state.messages]);
+	(0, react.useEffect)(() => {
+		if (stickRef.current && state.hasMoreNewer !== true && state.messages.length > 300) keepLatest?.();
+	}, [state.messages, state.hasMoreNewer]);
+	const handled = (0, react.useRef)({
+		roomId: void 0,
+		id: Number.NEGATIVE_INFINITY
+	});
+	(0, react.useEffect)(() => {
+		const roomId = state.roomId;
+		const lastId = state.messages.length === 0 ? Number.NEGATIVE_INFINITY : state.messages[state.messages.length - 1].id;
+		const since = handled.current.roomId === roomId ? handled.current.id : lastId;
+		handled.current = {
+			roomId,
+			id: Math.max(since, lastId)
+		};
+		const log = logRef.current;
+		if (log !== null && stickRef.current) {
+			log.scrollTop = log.scrollHeight;
+			return;
+		}
+		if (roomId === void 0) return;
+		const first = visibleMessages.find((m) => m.id > since && fresh.has(m.id) && m.author_kind !== "user");
+		if (first !== void 0 && (unread === void 0 || unread.roomId !== roomId || unread.seen)) setUnread({
+			roomId,
+			fromId: first.id,
+			seen: false
+		});
+	}, [
+		state.messages,
+		state.roomId,
+		visibleMessages
+	]);
+	const pendingKey = state.messages.filter(pendingPermission).map((m) => m.id).join(",");
 	(0, react.useEffect)(() => {
 		const log = logRef.current;
 		if (log !== null && stickRef.current) log.scrollTop = log.scrollHeight;
-	}, [state.messages, state.roomId]);
+	}, [pendingKey]);
+	(0, react.useEffect)(() => {
+		setUnread(void 0);
+		setAtBottom(true);
+		const log = logRef.current;
+		if (log === null || prefersReducedMotion()) return;
+		log.animate?.([{
+			opacity: 0,
+			transform: "translateX(6px)"
+		}, {
+			opacity: 1,
+			transform: "none"
+		}], {
+			duration: 200,
+			easing: "cubic-bezier(.2,0,0,1)"
+		});
+	}, [state.roomId]);
+	const scrollToLatest = () => {
+		const log = logRef.current;
+		if (log === null) return;
+		stickRef.current = true;
+		setAtBottom(true);
+		if (state.hasMoreNewer === true) {
+			showLatest?.();
+			return;
+		}
+		if (typeof log.scrollTo === "function") log.scrollTo({
+			top: log.scrollHeight,
+			behavior: prefersReducedMotion() ? "auto" : "smooth"
+		});
+		else log.scrollTop = log.scrollHeight;
+	};
+	/** #1030: the first row at least partly in view and how far its top sits from the log's top. */
+	const firstRowInView = (log) => {
+		const top = log.getBoundingClientRect().top;
+		for (const el of log.querySelectorAll("[data-message-id]")) {
+			const box = el.getBoundingClientRect();
+			if (box.bottom > top) return {
+				id: el.getAttribute("data-message-id") ?? "",
+				offset: box.top - top
+			};
+		}
+	};
+	/** #1030: the reader reached the bottom of a window that dropped its newest rows. */
+	const pageForward = () => {
+		const log = logRef.current;
+		if (log === null || loadNewer === void 0 || loadingOlder || state.hasMoreNewer !== true) return;
+		rowAnchor.current = firstRowInView(log);
+		setLoadingOlder(true);
+		loadNewer().then((added) => {
+			if (added === 0) rowAnchor.current = void 0;
+		}, (error) => {
+			rowAnchor.current = void 0;
+			const roomId = state.roomId;
+			if (roomId !== void 0) setErrors((previous) => ({
+				...previous,
+				[roomId]: error instanceof Error ? error.message : String(error)
+			}));
+		}).finally(() => {
+			setLoadingOlder(false);
+		});
+	};
+	const pageBack = () => {
+		const log = logRef.current;
+		if (log === null || loadingOlder || state.hasMoreOlder !== true || state.messages.length === 0) return;
+		olderAnchor.current = {
+			height: log.scrollHeight,
+			top: log.scrollTop
+		};
+		if (state.messages.length + 100 > 300) rowAnchor.current = firstRowInView(log);
+		setLoadingOlder(true);
+		loadOlder().then((added) => {
+			if (added === 0) olderAnchor.current = void 0;
+		}, (error) => {
+			olderAnchor.current = void 0;
+			const roomId = state.roomId;
+			if (roomId !== void 0) setErrors((previous) => ({
+				...previous,
+				[roomId]: error instanceof Error ? error.message : String(error)
+			}));
+		}).finally(() => {
+			setLoadingOlder(false);
+		});
+	};
 	const [jump, setJump] = (0, react.useState)(void 0);
 	const [focusedId, setFocusedId] = (0, react.useState)(void 0);
 	(0, react.useEffect)(() => {
@@ -19249,6 +21486,10 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		state.messages,
 		state.roomId
 	]);
+	const openActivity = () => {
+		if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 900px)").matches) setDrawer("members");
+		else setMembersHidden(false);
+	};
 	const openMessage = (roomId, messageId) => {
 		setDrawer(void 0);
 		setJump({
@@ -19257,10 +21498,28 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		});
 		if (roomId !== state.roomId) selectRoom(roomId);
 	};
+	const stillAnswering = stopping !== void 0 && state.roomId !== void 0 && (state.thinking[String(state.roomId)] ?? []).includes(stopping.botId);
+	(0, react.useEffect)(() => {
+		if (stopping === void 0) return;
+		if (stopping.phase === "stopping" && !stillAnswering) {
+			setStopping({
+				...stopping,
+				phase: "stopped"
+			});
+			return;
+		}
+		const timer = setTimeout(() => {
+			setStopping(void 0);
+		}, stopping.phase === "stopped" ? 2e3 : 3e4);
+		return () => {
+			clearTimeout(timer);
+		};
+	}, [stopping, stillAnswering]);
 	if (state.phase !== "ready") {
 		const notice = state.phase === "unavailable" ? t("unavailable") : state.phase === "unauthorized" ? t("unauthorized") : state.phase === "error" ? t("error", { message: state.error ?? "" }) : t("loading");
 		return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 			className: ChannelsPage_module_default.page,
+			"data-dc-scheme": scheme,
 			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 				className: ChannelsPage_module_default.notice,
 				role: "status",
@@ -19270,21 +21529,63 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 	}
 	const room = state.rooms.find((r) => r.id === state.roomId);
 	const channelId = room?.parent_id ?? room?.id;
-	const visibleMembers = state.members.filter((m) => !m.rooms?.length || channelId !== void 0 && m.rooms.includes(channelId));
-	const openTaskOwners = new Set((state.tasks ?? []).filter((t) => [
-		"assigned",
-		"accepted",
-		"asked",
-		"rework"
-	].includes(t.status)).map((t) => t.owner));
+	const dmWith = room?.dm_member ?? void 0;
+	const visibleMembers = dmWith !== void 0 ? state.members.filter((m) => m.kind === "human" || m.id === dmWith) : state.members.filter((m) => !m.rooms?.length || channelId !== void 0 && m.rooms.includes(channelId));
+	const openTaskOwners = new Set((state.tasks ?? []).filter(isLiveTask).map((t) => t.owner));
 	const busy = /* @__PURE__ */ new Set([...state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? [], ...openTaskOwners]);
 	const byId = new Map(visibleMembers.map((m) => [m.id, m]));
+	const firstUnread = unread !== void 0 && unread.roomId === state.roomId ? visibleMessages.find((m) => m.id >= unread.fromId && m.author_kind !== "user")?.id : void 0;
+	const visibleUnreadCount = unread !== void 0 && unread.roomId === state.roomId && !unread.seen ? unreadCount(visibleMessages, unread.fromId) : 0;
 	const typingNames = (state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? []).map((id) => byId.get(id)?.name ?? id);
+	const queuedFor = /* @__PURE__ */ new Map();
+	for (const [memberId, ids] of Object.entries(state.roomId === void 0 ? {} : state.queued?.[String(state.roomId)] ?? {})) for (const id of ids) queuedFor.set(id, [...queuedFor.get(id) ?? [], byId.get(memberId)?.name ?? memberId]);
+	const jumpToQueued = () => {
+		const first = Math.min(...queuedFor.keys());
+		document.querySelector(`[data-message-id="${first}"]`)?.scrollIntoView({
+			block: "center",
+			behavior: "smooth"
+		});
+	};
+	const channelRooms = new Set(state.rooms.filter((r) => r.id === channelId || r.parent_id === channelId).map((r) => r.id));
+	const leadId = room?.effective_lead_id === void 0 ? state.effectiveLeadId ?? state.leadId : room.effective_lead_id;
+	const lead = visibleMembers.find((member) => member.id === leadId);
+	const leadStatus = lead !== void 0 ? leadDoing(lead, {
+		tasks: state.tasks ?? [],
+		rooms: channelRooms,
+		thinking: state.thinking,
+		messages: state.messages
+	}, t) : leadId == null ? t("headLeadUnset") : t("headLeadLoading");
+	const openTasks = (state.tasks ?? []).filter(isLiveTask);
+	const activity = visibleMembers.filter((m) => m.kind !== "human").flatMap((m) => {
+		const where = [...channelRooms].find((id) => (state.thinking[String(id)] ?? []).includes(m.id));
+		const task = openTasks.find((task) => task.owner === m.id && channelRooms.has(task.room_id));
+		if (where === void 0 && task === void 0) return [];
+		return [{
+			member: m,
+			room: state.rooms.find((r) => r.id === (where ?? task?.room_id)),
+			task,
+			thinking: where !== void 0
+		}];
+	});
+	const pendingPerms = state.messages.filter(pendingPermission);
+	const questions = openQuestions(state.tasks ?? [], channelRooms);
+	const channelActive = room === void 0 ? 0 : state.rooms.filter((r) => channelRooms.has(r.id)).reduce((n, r) => n + (r.active ?? 0), 0);
 	const mention = activeMention(draft, caret);
 	const candidates = mention === void 0 || mention.start === dismissedAt ? [] : rankMembers(visibleMembers, mention.query);
 	const popupOpen = mention !== void 0 && candidates.length > 0;
 	openMentionAt.current = popupOpen ? mention.start : void 0;
 	const selected = Math.min(highlight, Math.max(candidates.length - 1, 0));
+	const commandTarget = lead?.kind === "bot" ? lead : void 0;
+	const slash = slashQuery(draft);
+	const slashCommands = slash === void 0 || capabilitiesDismissed || popupOpen ? [] : matchCommands(slash, (key) => t(key));
+	const slashOpen = slashCommands.length > 0;
+	const slashSelected = Math.min(slashHighlight, Math.max(slashCommands.length - 1, 0));
+	const workingBots = (state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? []).map((id) => byId.get(id)).filter((m) => m !== void 0 && m.kind === "bot");
+	const stopTarget = workingBots.find((m) => m.id === commandTarget?.id) ?? workingBots[0];
+	const roomFiles = state.roomId === void 0 ? [] : pendingFiles[state.roomId] ?? [];
+	const stopMode = (stopTarget !== void 0 || stopping?.phase === "stopping") && draft.trim() === "" && roomFiles.length === 0;
+	const answers = commandAnswers(state.messages, (id) => byId.get(id)?.name);
+	const answerIds = new Set([...answers.values()].map((m) => m.id));
 	const setDraft = (text, nextCaret) => {
 		const roomId = state.roomId;
 		if (roomId === void 0) return;
@@ -19305,6 +21606,13 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		setDrawer(void 0);
 		const next = insertMention(draft, caret, member);
 		setDraft(next.text, next.caret);
+	};
+	const startDm = openDm === void 0 ? void 0 : (member) => {
+		setDrawer(void 0);
+		stickRef.current = true;
+		openDm(member.id).catch((error) => {
+			setRoomError(t("dmOpenFailed", { message: error instanceof Error ? error.message : String(error) }));
+		});
 	};
 	const mentionFromAvatar = (member) => {
 		setAvatarMenu(void 0);
@@ -19327,8 +21635,10 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		if (m.author_kind !== "user" || m.card !== null) return void 0;
 		return {
 			editing: editing?.id === m.id ? editing.text : void 0,
+			editingOther: editing !== void 0 && editing.id !== m.id,
 			onStartEdit: () => {
 				setOwnNotice(void 0);
+				editFromComposer.current = false;
 				setEditing({
 					id: m.id,
 					text: m.text
@@ -19342,6 +21652,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 			},
 			onEditCancel: () => {
 				setEditing(void 0);
+				backToComposer();
 			},
 			onEditSave: () => {
 				if (editing?.id !== m.id || !editing.text.trim()) return;
@@ -19351,21 +21662,42 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 				}
 				editMessage(m.id, editing.text).then(() => {
 					setEditing(void 0);
+					backToComposer();
 				}, (error) => {
 					setOwnNotice(error instanceof Error ? error.message : String(error));
 				});
 			},
 			onWithdraw: () => {
-				if (!window.confirm(t("withdrawConfirm"))) return;
 				setOwnNotice(void 0);
-				withdrawMessage(m.id).then(({ stopped, stillRunning }) => {
-					const notes = [...stopped.length > 0 ? [t("withdrawStopped", { names: stopped.join("、") })] : [], ...stillRunning.length > 0 ? [t("withdrawRunning", { names: stillRunning.join("、") })] : []];
-					if (notes.length > 0) setOwnNotice(notes.join("；"));
-				}, (error) => {
-					setOwnNotice(error instanceof Error ? error.message : String(error));
+				clearTimeout(withdrawTimer.current);
+				pendingWithdrawRef.current?.commit();
+				let done = false;
+				const commit = () => {
+					if (done) return;
+					done = true;
+					clearTimeout(withdrawTimer.current);
+					setPendingWithdraw((current) => current?.id === m.id ? void 0 : current);
+					sendWithdraw(m.id);
+				};
+				setPendingWithdraw({
+					id: m.id,
+					commit
 				});
+				withdrawTimer.current = setTimeout(commit, WITHDRAW_UNDO_MS);
 			}
 		};
+	};
+	const undoWithdraw = () => {
+		clearTimeout(withdrawTimer.current);
+		setPendingWithdraw(void 0);
+	};
+	const sendWithdraw = (id) => {
+		withdrawMessage(id).then(({ stopped, stillRunning }) => {
+			const notes = [...stopped.length > 0 ? [t("withdrawStopped", { names: stopped.join("、") })] : [], ...stillRunning.length > 0 ? [t("withdrawRunning", { names: stillRunning.join("、") })] : []];
+			if (notes.length > 0) setOwnNotice(notes.join("；"));
+		}, (error) => {
+			setOwnNotice(error instanceof Error ? error.message : String(error));
+		});
 	};
 	const confirmRemove = (member) => {
 		if (!window.confirm(t("removeConfirm", { name: member.name }))) return;
@@ -19393,9 +21725,90 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 			setRetryingId(void 0);
 		});
 	};
+	/** Send one command line now, keeping the draft unless it was the command itself; resolves to whether it went out. */
+	const sendCommand = (text, clearDraft) => {
+		const roomId = state.roomId;
+		if (roomId === void 0) return Promise.resolve(false);
+		setErrors((previous) => ({
+			...previous,
+			[roomId]: void 0
+		}));
+		stickRef.current = true;
+		if (state.hasMoreNewer === true) showLatest?.();
+		return send(text).then(() => {
+			if (clearDraft) setDrafts((previous) => ({
+				...previous,
+				[roomId]: ""
+			}));
+			return true;
+		}, (error) => {
+			setErrors((previous) => ({
+				...previous,
+				[roomId]: t("sendFailed", { message: error instanceof Error ? error.message : String(error) })
+			}));
+			return false;
+		});
+	};
+	const noTarget = () => {
+		const roomId = state.roomId;
+		if (roomId !== void 0) setErrors((previous) => ({
+			...previous,
+			[roomId]: t("slashNoLead")
+		}));
+	};
+	const runSlash = (command) => {
+		const run = command.run;
+		setSlashHighlight(0);
+		if (run.kind === "panel") {
+			setDraft("", 0);
+			if (run.panel === "help") {
+				setCapabilitiesDismissed(false);
+				setHelpOpen(true);
+				return;
+			}
+			chatRef.current?.querySelector(`button[aria-label="${t("taskBoardOpen")}"]`)?.click();
+			return;
+		}
+		if (run.kind === "send" && run.broadcast === true) {
+			sendCommand(run.text, true);
+			return;
+		}
+		if (commandTarget === void 0) {
+			noTarget();
+			return;
+		}
+		const line = `@${commandTarget.name} ${run.text}`;
+		if (run.kind === "fill") {
+			setCapabilitiesDismissed(true);
+			setDraft(line, line.length);
+			return;
+		}
+		sendCommand(line, true);
+	};
+	const stopReply = () => {
+		if (stopTarget === void 0 || stopping?.phase === "stopping") return;
+		const target = stopTarget;
+		setStopping({
+			botId: target.id,
+			name: target.name,
+			phase: "stopping"
+		});
+		sendCommand(`@${target.name} /stop`, false).then((sent) => {
+			if (!sent) setStopping(void 0);
+		});
+	};
+	const toTask = dispatchTask === void 0 || state.roomId === void 0 || leadId == null ? void 0 : async (message) => {
+		const line = message.text.split("\n").map((x) => x.trim()).find(Boolean) ?? "";
+		const title = line.length > 40 ? `${line.slice(0, 40)}…` : line;
+		await dispatchTask(message.room_id, {
+			title,
+			owner: leadId,
+			messageId: message.id
+		});
+	};
 	const submit = () => {
 		const roomId = state.roomId;
-		const text = draft.trim();
+		const text = addressCommand(draft.trim(), commandTarget?.name);
 		const files = roomId === void 0 ? [] : pendingFiles[roomId] ?? [];
 		if (!text && files.length === 0 || roomId === void 0 || pendingRooms.current.has(roomId)) return;
 		if (files.length > 0 && messageTooLarge(text, files)) {
@@ -19415,6 +21828,8 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 			[roomId]: void 0
 		}));
 		stickRef.current = true;
+		if (state.hasMoreNewer === true) showLatest?.();
+		setUnread(void 0);
 		const replyTo = replies[roomId]?.id;
 		(files.length > 0 ? send(text, replyTo, files) : replyTo === void 0 ? send(text) : send(text, replyTo)).then(() => {
 			setDrafts((previous) => ({
@@ -19459,14 +21874,21 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		}));
 	};
 	const onKeyDown = (event) => {
-		if (draft === "/" && !capabilitiesDismissed && !isImeEnter(event)) {
+		if (slashOpen && !isImeEnter(event)) {
+			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+				event.preventDefault();
+				const step = event.key === "ArrowDown" ? 1 : -1;
+				setSlashHighlight((slashSelected + step + slashCommands.length) % slashCommands.length);
+				return;
+			}
+			if (event.key === "Enter" || event.key === "Tab") {
+				event.preventDefault();
+				runSlash(slashCommands[slashSelected]);
+				return;
+			}
 			if (event.key === "Escape") {
 				event.preventDefault();
 				setCapabilitiesDismissed(true);
-				return;
-			}
-			if (event.key === "Enter") {
-				event.preventDefault();
 				return;
 			}
 		}
@@ -19488,6 +21910,25 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 				return;
 			}
 		}
+		if (event.key === "ArrowUp" && draft === "" && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && !isImeEnter(event)) {
+			const last = lastOwnEditable(state.messages, pendingWithdraw?.id);
+			if (last !== void 0) {
+				event.preventDefault();
+				setOwnNotice(void 0);
+				editFromComposer.current = true;
+				setEditing({
+					id: last.id,
+					text: last.text
+				});
+				requestAnimationFrame(() => {
+					logRef.current?.querySelector(`[data-message-id="${last.id}"]`)?.scrollIntoView?.({
+						block: "nearest",
+						behavior: prefersReducedMotion() ? "auto" : "smooth"
+					});
+				});
+				return;
+			}
+		}
 		if (event.key === "Enter" && !event.shiftKey && !isImeEnter(event)) {
 			event.preventDefault();
 			submit();
@@ -19497,11 +21938,10 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		className: [
 			ChannelsPage_module_default.page,
 			roomsHidden ? ChannelsPage_module_default.roomsHidden : "",
-			membersHidden ? ChannelsPage_module_default.membersHidden : ""
+			membersHidden ? ChannelsPage_module_default.membersHidden : "",
+			boardDocked ? ChannelsPage_module_default.panelOpen : ""
 		].filter(Boolean).join(" "),
-		onKeyDown: (event) => {
-			if (event.key === "Escape") setDrawer(void 0);
-		},
+		"data-dc-scheme": scheme,
 		children: [
 			drawer !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 				className: ChannelsPage_module_default.drawerBackdrop,
@@ -19509,9 +21949,38 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 				onClick: () => setDrawer(void 0)
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("nav", {
+				ref: roomsRef,
 				className: drawer === "rooms" ? `${ChannelsPage_module_default.rooms} ${ChannelsPage_module_default.drawerOpen}` : ChannelsPage_module_default.rooms,
 				"aria-label": t("rooms"),
+				role: drawer === "rooms" ? "dialog" : void 0,
+				"aria-modal": drawer === "rooms" ? true : void 0,
+				tabIndex: drawer === "rooms" ? -1 : void 0,
 				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: ChannelsPage_module_default.leadCard,
+						role: "group",
+						"aria-label": t("leadCard"),
+						title: lead === void 0 ? leadStatus : `${lead.name} · ${leadStatus}`,
+						children: [lead !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+							id: lead.id,
+							name: lead.name,
+							avatar: lead.avatar,
+							avatarVersion: lead.avatarVersion
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+							className: ChannelsPage_module_default.leadCardText,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ChannelsPage_module_default.leadCardName,
+								children: lead?.name ?? t("headLead")
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+								className: ChannelsPage_module_default.leadCardStatus,
+								children: [
+									t("leadPinned"),
+									" · ",
+									leadStatus
+								]
+							})]
+						})]
+					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: ChannelsPage_module_default.groupHead,
 						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
@@ -19560,7 +22029,8 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 					}),
 					groupRooms(state.rooms).map(({ room: r, depth }) => {
 						const active = r.active ?? 0;
-						const showActive = depth === 1 || r.kind === "workspace" || active > 0;
+						const showActive = active > 0;
+						const workers = (state.thinking[String(r.id)] ?? []).map((id) => state.members.find((m) => m.id === id)).filter((m) => m !== void 0);
 						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 							type: "button",
 							className: [
@@ -19584,22 +22054,56 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 									className: ChannelsPage_module_default.roomLabel,
 									children: r.name
 								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)(AvatarStack, { members: workers }),
 								showActive && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: active > 0 ? `${ChannelsPage_module_default.activeCount} ${ChannelsPage_module_default.activeBusy}` : ChannelsPage_module_default.activeCount,
 									children: t("activeTasks", { count: active })
 								})
 							]
 						}, r.id);
+					}),
+					dmRooms(state.rooms).length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
+						className: ChannelsPage_module_default.dmTitle,
+						children: t("dmGroup")
+					}),
+					dmRooms(state.rooms).map((r) => {
+						const peer = state.members.find((m) => m.id === r.dm_member);
+						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+							type: "button",
+							className: [ChannelsPage_module_default.room, r.id === state.roomId ? ChannelsPage_module_default.roomActive : ""].filter(Boolean).join(" "),
+							"aria-current": r.id === state.roomId,
+							"data-dm-room": r.dm_member,
+							onClick: () => {
+								stickRef.current = true;
+								setDrawer(void 0);
+								selectRoom(r.id);
+							},
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ChannelsPage_module_default.dmAvatar,
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+									id: r.dm_member ?? "",
+									name: peer?.name ?? r.name,
+									avatar: peer?.avatar,
+									avatarVersion: peer?.avatarVersion,
+									small: true
+								})
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ChannelsPage_module_default.roomLabel,
+								children: peer?.name ?? r.name
+							})]
+						}, r.id);
 					})
 				]
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+				ref: chatRef,
 				className: ChannelsPage_module_default.chat,
 				children: [
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("header", {
 						className: ChannelsPage_module_default.chatHead,
 						children: [
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								ref: roomsToggleRef,
 								type: "button",
 								className: ChannelsPage_module_default.mobileButton,
 								"aria-label": t("showRooms"),
@@ -19621,11 +22125,64 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: ChannelsPage_module_default.hash,
 								"aria-hidden": true,
-								children: "#"
+								children: dmWith !== void 0 ? "@" : "#"
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: ChannelsPage_module_default.roomName,
-								children: room?.name
+								children: dmWith !== void 0 ? state.members.find((m) => m.id === dmWith)?.name ?? room?.name : room?.name
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+								className: ChannelsPage_module_default.headMeta,
+								children: [t("headMembers", { count: visibleMembers.length }), channelActive > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [" · ", t("activeTasks", { count: channelActive })] })]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(HeadTeam, {
+								mates: headTeam(visibleMembers, leadId, state.tasks ?? [], state.thinking, channelRooms),
+								t,
+								onOpen: openActivity
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(TaskBoard, {
+								tasks: state.tasks ?? [],
+								rooms: state.rooms,
+								chatId: state.taskChat,
+								roomId: state.roomId,
+								t,
+								onOpen: openMessage,
+								onReview: reviewTask,
+								dock: boardDock,
+								onDocked: setBoardDocked
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: ChannelsPage_module_default.headLead,
+								role: "group",
+								"aria-label": t("headLead"),
+								title: lead === void 0 ? leadStatus : `${lead.name} · ${leadStatus}`,
+								children: [lead !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+									id: lead.id,
+									name: lead.name,
+									avatar: lead.avatar,
+									avatarVersion: lead.avatarVersion,
+									small: true
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+									className: ChannelsPage_module_default.headLeadText,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ChannelsPage_module_default.headLeadName,
+										children: lead?.name ?? t("headLead")
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ChannelsPage_module_default.headLeadStatus,
+										children: leadStatus
+									})]
+								})]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: ChannelsPage_module_default.schemeToggle,
+								title: t(scheme === "light" ? "schemeToDark" : "schemeToLight"),
+								"aria-label": t(scheme === "light" ? "schemeToDark" : "schemeToLight"),
+								"aria-pressed": scheme === "dark",
+								onClick: () => {
+									setScheme(scheme === "light" ? "dark" : "light");
+								},
+								children: scheme === "light" ? "☾" : "☀"
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
@@ -19639,6 +22196,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 								children: membersHidden ? "«" : "»"
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								ref: membersToggleRef,
 								type: "button",
 								className: ChannelsPage_module_default.mobileButton,
 								"aria-label": t("showMembers"),
@@ -19649,68 +22207,191 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 						]
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-						ref: logRef,
-						className: ChannelsPage_module_default.log,
-						role: "log",
-						"aria-live": "polite",
-						onScroll: (event) => {
-							const el = event.currentTarget;
-							stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
-						},
-						children: [!visibleMembers.some((m) => m.kind !== "human") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-							className: ChannelsPage_module_default.guide,
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", { children: t("guideNoMembers") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-								type: "button",
-								className: ChannelsPage_module_default.primaryButton,
-								onClick: () => {
-									setDialog(null);
+						className: ChannelsPage_module_default.logWrap,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								ref: logRef,
+								className: ChannelsPage_module_default.log,
+								role: "log",
+								"aria-live": "polite",
+								onScroll: (event) => {
+									const el = event.currentTarget;
+									const edge = el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
+									if (edge && state.hasMoreNewer === true) pageForward();
+									const bottom = edge && state.hasMoreNewer !== true;
+									stickRef.current = bottom;
+									if (bottom !== atBottom) setAtBottom(bottom);
+									if (bottom && unread !== void 0 && !unread.seen) setUnread({
+										...unread,
+										seen: true
+									});
+									if (el.scrollTop <= 40) pageBack();
 								},
-								children: t("addMember")
-							})]
-						}), state.messages.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-							className: ChannelsPage_module_default.empty,
-							children: t("empty")
-						}) : state.messages.map((m) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MessageRow, {
-							message: m,
-							member: byId.get(m.author),
-							t,
-							onConfigure: () => {
-								if (!openModelSettings()) setModelsOpen(true);
-							},
-							menuOpen: avatarMenu === m.id,
-							cardView,
-							onCardView: chooseCardView,
-							onAvatar: () => {
-								setAvatarMenu(avatarMenu === m.id ? void 0 : m.id);
-							},
-							onCloseMenu: () => {
-								setAvatarMenu(void 0);
-							},
-							onMention: mentionFromAvatar,
-							onDecide: decidePermission,
-							onRetry: handleRetry,
-							retrying: retryingId === m.id,
-							tasks: state.tasks ?? [],
-							focused: focusedId === m.id,
-							onReply: startReply,
-							own: ownActions(m)
-						}, m.id))]
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ProgressCard, {
+										lines: channelProgress(state.tasks ?? [], channelRooms),
+										t,
+										onOpen: openMessage
+									}),
+									!visibleMembers.some((m) => m.kind !== "human") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+										className: ChannelsPage_module_default.guide,
+										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", { children: t("guideNoMembers") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: ChannelsPage_module_default.primaryButton,
+											onClick: () => {
+												setDialog(null);
+											},
+											children: t("addMember")
+										})]
+									}),
+									loadingOlder && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: ChannelsPage_module_default.olderLoading,
+										role: "status",
+										children: t("loadingOlder")
+									}),
+									visibleMessages.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: ChannelsPage_module_default.empty,
+										children: t("empty")
+									}) : visibleMessages.map((m, index) => [firstUnread === m.id ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: ChannelsPage_module_default.unreadDivider,
+										role: "separator",
+										children: t("newMessagesDivider")
+									}, `unread-${m.id}`) : null, pendingWithdraw?.id === m.id ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: ChannelsPage_module_default.withdrawnRow,
+										"data-message-id": m.id,
+										children: t("withdrawPending")
+									}, m.id) : answerIds.has(m.id) ? null : m.author_kind === "user" && m.card === null && commandLine(m.text) !== void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(CommandRow, {
+										message: m,
+										target: commandLine(m.text)?.target,
+										command: commandLine(m.text)?.command ?? "",
+										answer: answers.get(m.id),
+										t
+									}, m.id) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MessageRow, {
+										enter: fresh.get(m.id),
+										message: m,
+										grouped: continues(visibleMessages[index - 1], m) && !answerIds.has(visibleMessages[index - 1]?.id ?? -1) && !(visibleMessages[index - 1]?.author_kind === "user" && commandLine(visibleMessages[index - 1]?.text ?? "") !== void 0),
+										member: byId.get(m.author),
+										t,
+										onConfigure: () => {
+											if (!openModelSettings()) setModelsOpen(true);
+										},
+										menuOpen: avatarMenu === m.id,
+										cardView,
+										onCardView: chooseCardView,
+										onAvatar: () => {
+											setAvatarMenu(avatarMenu === m.id ? void 0 : m.id);
+										},
+										onCloseMenu: () => {
+											setAvatarMenu(void 0);
+										},
+										onMention: mentionFromAvatar,
+										onDm: startDm,
+										onReview: reviewTask,
+										onDecide: decidePermission,
+										onRetry: handleRetry,
+										retrying: retryingId === m.id,
+										tasks: state.tasks ?? [],
+										focused: focusedId === m.id,
+										onReply: startReply,
+										onTask: toTask,
+										own: ownActions(m),
+										queuedFor: queuedFor.get(m.id)
+									}, m.id)])
+								]
+							}),
+							pendingWithdraw !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: ChannelsPage_module_default.undoToast,
+								role: "status",
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("withdrawToast") }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: ChannelsPage_module_default.undoButton,
+										onClick: undoWithdraw,
+										children: t("withdrawUndo")
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ChannelsPage_module_default.undoBar,
+										style: { animationDuration: `5000ms` },
+										"aria-hidden": "true"
+									})
+								]
+							}),
+							(!atBottom || state.hasMoreNewer === true) && state.messages.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+								type: "button",
+								className: ChannelsPage_module_default.jumpLatest,
+								onClick: scrollToLatest,
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										"aria-hidden": "true",
+										children: "↓"
+									}),
+									" ",
+									t("jumpLatest"),
+									visibleUnreadCount > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ChannelsPage_module_default.jumpCount,
+										children: t("jumpLatestCount", { count: visibleUnreadCount })
+									})
+								]
+							})
+						]
 					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: ChannelsPage_module_default.working,
 						"aria-live": "polite",
-						children: typingNames.length > 0 ? t("workingList", { names: typingNames.join("、") }) : ""
+						children: [typingNames.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+							className: ChannelsPage_module_default.typingDots,
+							"aria-hidden": "true",
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("i", {}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("i", {}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("i", {})
+							]
+						}), t("workingList", { names: typingNames.join("、") })] }), queuedFor.size > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: ChannelsPage_module_default.queuedButton,
+							title: t("queuedJump"),
+							onClick: jumpToQueued,
+							children: t("queuedCount", { count: queuedFor.size })
+						})]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(DecideTray, {
+						questions,
+						permissionCount: pendingPerms.length,
+						permissions: pendingPerms.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: ChannelsPage_module_default.permTray,
+							role: "region",
+							"aria-label": t("permTray", { count: pendingPerms.length }),
+							children: pendingPerms.map((m) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PermTrayItem, {
+								message: m,
+								author: byId.get(m.author),
+								t,
+								onDecide: decidePermission
+							}, m.id))
+						}),
+						t,
+						onAnswer: answerTask,
+						isImeEnter
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: ChannelsPage_module_default.composer,
 						ref: composerRef,
 						children: [
-							draft === "/" && !capabilitiesDismissed && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(CapabilityList, {
+							helpOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(CapabilityList, {
 								t,
 								onClose: () => {
-									setCapabilitiesDismissed(true);
+									setHelpOpen(false);
 								}
 							}, state.roomId),
+							slashOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(SlashMenu, {
+								commands: slashCommands,
+								selected: slashSelected,
+								target: commandTarget?.name,
+								grouped: slash === "",
+								t,
+								onPick: runSlash,
+								onHover: setSlashHighlight
+							}),
 							sendError !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 								className: ChannelsPage_module_default.sendError,
 								role: "alert",
@@ -19817,10 +22498,10 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 										disabled: state.roomId === void 0 || sending[state.roomId] === true,
 										placeholder: t(compactComposer() ? "placeholderShort" : "placeholder", { room: room?.name ?? "" }),
 										role: "combobox",
-										"aria-expanded": popupOpen,
-										"aria-controls": "channel-mention-list",
+										"aria-expanded": popupOpen || slashOpen,
+										"aria-controls": slashOpen ? "channel-slash-list" : "channel-mention-list",
 										"aria-autocomplete": "list",
-										"aria-activedescendant": popupOpen ? `channel-mention-${candidates[selected].id}` : void 0,
+										"aria-activedescendant": popupOpen ? `channel-mention-${candidates[selected].id}` : slashOpen ? `channel-slash-${slashSelected}` : void 0,
 										onChange: (event) => {
 											const roomId = state.roomId;
 											const value = event.target.value;
@@ -19829,8 +22510,10 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 												[roomId]: value
 											}));
 											setCapabilitiesDismissed(false);
+											setHelpOpen(false);
 											setCaret(event.target.selectionStart);
 											setHighlight(0);
+											setSlashHighlight(0);
 										},
 										onSelect: (event) => {
 											setCaret(event.currentTarget.selectionStart);
@@ -19853,7 +22536,37 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 												onClick: openPicker,
 												children: "@"
 											}),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											stopping !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+												className: ChannelsPage_module_default.stopNote,
+												role: "status",
+												children: t(stopping.phase === "stopping" ? "stopPending" : "stopDone", { name: stopping.name })
+											}),
+											stopMode ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+												type: "button",
+												className: `${ChannelsPage_module_default.sendButton} ${ChannelsPage_module_default.stopButton}`,
+												title: t("stopReply", { name: (stopTarget ?? stopping)?.name ?? "" }),
+												"aria-label": t("stopReply", { name: (stopTarget ?? stopping)?.name ?? "" }),
+												"data-phase": stopping?.phase,
+												"aria-disabled": stopping?.phase === "stopping",
+												onMouseDown: (event) => {
+													event.preventDefault();
+												},
+												onClick: stopReply,
+												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+													width: "14",
+													height: "14",
+													viewBox: "0 0 24 24",
+													"aria-hidden": "true",
+													children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
+														x: "5",
+														y: "5",
+														width: "14",
+														height: "14",
+														rx: "2.5",
+														fill: "currentColor"
+													})
+												})
+											}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 												type: "button",
 												className: ChannelsPage_module_default.sendButton,
 												title: t("sendButton"),
@@ -19884,12 +22597,24 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 					})
 				]
 			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				ref: setBoardDock,
+				className: ChannelsPage_module_default.sideDock
+			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("aside", {
+				ref: membersRef,
 				className: drawer === "members" ? `${ChannelsPage_module_default.members} ${ChannelsPage_module_default.drawerOpen}` : ChannelsPage_module_default.members,
+				role: drawer === "members" ? "dialog" : void 0,
+				"aria-modal": drawer === "members" ? true : void 0,
+				"aria-label": t("activityPanel"),
+				tabIndex: drawer === "members" ? -1 : void 0,
 				children: [
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: ChannelsPage_module_default.membersHead,
-						"aria-hidden": "true"
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: ChannelsPage_module_default.membersHeadTitle,
+							children: t("activityPanel")
+						})
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 						ref: settingsButtonRef,
@@ -19897,6 +22622,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 						className: `${ChannelsPage_module_default.addMemberButton} ${ChannelsPage_module_default.settingsButton}`,
 						disabled: room === void 0,
 						onClick: () => {
+							settingsReturnRef.current = drawer === "members" ? membersToggleRef.current : settingsButtonRef.current;
 							setDrawer(void 0);
 							setSettingsOpen(true);
 						},
@@ -19917,14 +22643,42 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 							})]
 						}), t("channelSettings")]
 					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(TaskBoard, {
-						tasks: state.tasks ?? [],
-						rooms: state.rooms,
-						chatId: state.taskChat,
-						roomId: state.roomId,
-						t,
-						onOpen: openMessage,
-						onReview: reviewTask
+					activity.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+						className: ChannelsPage_module_default.activityNow,
+						"aria-label": t("activityNow"),
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
+							className: ChannelsPage_module_default.groupTitle,
+							children: t("activityNow")
+						}), activity.map((a) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+							type: "button",
+							className: ChannelsPage_module_default.activityItem,
+							onClick: () => {
+								pickFromList(a.member);
+							},
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+									id: a.member.id,
+									name: a.member.name,
+									avatar: a.member.avatar,
+									avatarVersion: a.member.avatarVersion,
+									small: true
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+									className: ChannelsPage_module_default.activityText,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ChannelsPage_module_default.activityName,
+										children: a.member.name
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+										className: ChannelsPage_module_default.activityWhat,
+										children: [a.task !== void 0 ? `#${a.task.id} ${a.task.title}` : t("activityThinking"), a.room !== void 0 && a.room.id !== state.roomId ? ` · ${a.room.name}` : ""]
+									})]
+								}),
+								a.thinking && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: ChannelsPage_module_default.activityPulse,
+									"aria-hidden": true
+								})
+							]
+						}, a.member.id))]
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 						type: "button",
@@ -19948,6 +22702,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 						onPick: pickFromList,
 						onEdit: setDialog,
 						onRemove: confirmRemove,
+						onDm: dmWith === void 0 ? startDm : void 0,
 						t
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(MemberGroup, {
@@ -20014,41 +22769,19 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, createRoom, r
 		]
 	});
 }
-// src/client/PanelPages.module.css
-var PanelPages_module_default = {
-	"embed": "dshc_embed",
-	"frame": "dshc_frame"
-};
-// src/client/EmbedPage.tsx
-/**
-* Fill the main area with the collab page.
-* @param props - injected page path and title.
-* @returns the framed page.
-*/
-function EmbedPage({ path, title }) {
-	const src = new URL(path, document.baseURI).toString();
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-		className: PanelPages_module_default.embed,
-		children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("iframe", {
-			className: PanelPages_module_default.frame,
-			src,
-			title
-		})
-	});
-}
 // src/client/PanelIcons.tsx
-/** Decorative occupants for the desk, wiki galaxy and bothouse panel sidebar entries (#105). */
+/** Decorative occupants for the desk, bothouse panel and other-computers sidebar entries (#105). */
 /** Team desk glyph; the sidebar owns the label. */
 function DeskIcon({ size }) {
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChecklistOutlineRegular, { size });
 }
-/** Wiki galaxy glyph. */
-function GalaxyIcon({ size }) {
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSparkleRegular, { size });
-}
 /** bothouse management panel glyph. */
 function PanelIcon({ size }) {
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconGaugeOutlineRegular, { size });
+}
+/** Other computers (#131): pair with another DSH by a one-time number. */
+function DevicesIcon({ size }) {
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconLinkOutlineRegular, { size });
 }
 // src/client/locales.ts
 /** Channel panel dictionaries. */
@@ -20056,6 +22789,52 @@ function PanelIcon({ size }) {
 const NS = "discord-channels";
 /** Simplified Chinese dictionary and key source. */
 const zh = {
+	headMembers: "{count} 位成员",
+	headBusy: "{names} 在忙",
+	headLead: "当前主角色",
+	headTeam: "队友忙闲",
+	headTeamMore: "另 {count} 位队友",
+	mateBusy: "忙",
+	mateIdle: "闲",
+	mateError: "出错",
+	mateOffline: "离线",
+	mateTask: "#{id} {title}",
+	mateReplying: "在回复",
+	headLeadIdle: "空闲",
+	headLeadBusyUnreported: "在忙",
+	headLeadUnset: "未设总管",
+	progressTitle: "本频道进展",
+	progressDone: "做完",
+	progressDoing: "在做",
+	progressNext: "下一步",
+	progressOpen: "没定",
+	progressNone: "没有",
+	progressTask: "#{id} {title} · {name}",
+	progressNextReview: "验收 #{id} {title}（{name} 已交回）",
+	progressNextResume: "接着做 #{id} {title}（{name}，已暂停）",
+	progressMore: "，另 {count} 件",
+	decideTray: "等你定和权限请求",
+	trayAsks: "等你点头 · {count} 件",
+	trayCollapse: "收起",
+	trayExpand: "展开",
+	askKind: "等你定",
+	askNoNote: "（没写问题内容，点开任务板看派活消息）",
+	askFrom: "{name} 问 · #{id} {title}",
+	askPlaceholder: "直接回复…",
+	askReplyTo: "回复 #{id}",
+	askSend: "发送回复",
+	askReplied: "已回复：{text}",
+	askUndo: "撤回（{n} 秒）",
+	askApiPending: "接口修复中：这里的回复还送不到，先在聊天里 @ 对方回复",
+	headLeadLoading: "读取中",
+	leadPinned: "置顶",
+	leadCard: "置顶的主角色",
+	activityPanel: "活动",
+	activityNow: "正在进行",
+	activityThinking: "思考中",
+	permPending: "等你点头",
+	permTray: "待你确认的权限请求（{count}）",
+	permAsks: "{name} 请求权限",
 	copyCode: "复制代码",
 	copiedCode: "已复制",
 	attachmentDownload: "下载",
@@ -20068,6 +22847,7 @@ const zh = {
 	panelDesk: "团队工作台",
 	panelGalaxy: "Wiki 星河",
 	panelBothouse: "bothouse",
+	panelDevices: "其他电脑",
 	channelSettings: "频道设置",
 	settingsBasic: "基本",
 	settingsDispatch: "派活",
@@ -20086,6 +22866,42 @@ const zh = {
 	channelName: "频道名称",
 	channelNameHint: "1–32 个字符，不能含空白。",
 	workspaceNameFixed: "工作区名称由系统分配，不能修改。",
+	slashTitle: "命令",
+	slashTitleLead: "发给 {name} 的命令",
+	slashTitleNoLead: "命令 · 没有能接命令的主角色",
+	slashHint: "↑↓ 选择 · 回车执行 · Esc 关闭",
+	slashNoLead: "主角色不是 bothouse 机器人，没人接这条命令；先在频道设置里选主角色，或直接 @ 机器人再打命令。",
+	slashStop: "停下这一轮，下条接着说",
+	slashStopAll: "频道里所有机器人都停下",
+	slashPs: "给正在跑的这轮补一句",
+	slashNew: "开新会话",
+	slashModel: "查看或切换模型",
+	slashReasoning: "调思考深度",
+	slashCron: "看定时任务",
+	slashStatus: "看当前状态",
+	slashUsage: "看用量",
+	slashCompress: "压缩上下文",
+	slashBoard: "打开任务板",
+	slashHelp: "频道能做什么",
+	slashGroupControl: "控制",
+	slashGroupModel: "模型",
+	slashGroupView: "查看",
+	stopReply: "停止 {name} 这次回复",
+	stopPending: "正在停止 {name}…",
+	stopDone: "{name} 已停止",
+	cmdTo: "发给 {name}",
+	cmdToAll: "发给全部机器人",
+	cmdSent: "已发出",
+	permAllowOnce: "这次允许",
+	permAllowSession: "本会话自动允许",
+	toolCopy: "复制",
+	toolCopied: "已复制",
+	toolCopyFailed: "复制失败",
+	toolTask: "转任务",
+	toolTaskHint: "放上任务板，交给主角色",
+	toolTasking: "转任务中…",
+	toolTasked: "已放上任务板",
+	toolTaskFailed: "转任务失败：{message}",
 	capabilities: "能力清单",
 	capabilityTaskBoard: "任务板",
 	capabilityAttachments: "图片和文件",
@@ -20100,16 +22916,17 @@ const zh = {
 	capabilityReminderHelp: "通过任务分发派出的任务，到点会自动催办一次；负责人交回结果或说明卡在哪里。",
 	capabilityWorkspaceHelp: "在聊天频道把任务交给角色，需要时由角色创建工作区。工作区的问题和阶段结果会送回聊天频道。",
 	capabilityLeadHelp: "在成员栏的「主角色」里选择角色。切换后，没有点名的消息由新的主角色接收。",
-	capabilityDmHelp: "在支持私信的平台打开与角色的私聊。角色也可向配置中的用户发送私信；DSH 频道页目前没有私信入口。",
+	capabilityDmHelp: "在左栏「私聊」或机器人头像菜单点「发私信」，和这个角色一对一说话，不打扰大群。角色也可向配置中的用户发送私信。",
 	taskTabLabel: "按任务状态筛选",
 	taskTabAll: "全部",
-	taskTabWorking: "进行中",
-	taskTabReview: "待验收",
-	taskTabDone: "已完成",
+	taskTabDecide: "等你定",
+	taskTabWorking: "在做",
+	taskTabParked: "暂停/待发布",
 	taskTabEmpty: "「{tab}」下没有任务",
 	taskBoard: "任务板",
-	taskBoardSummary: "进行中 {open} · 已完成 {done}",
+	taskBoardSummary: "等你定 {decide} · 在做 {working}",
 	taskBoardOpen: "打开任务板",
+	taskBoardClose: "关闭任务板",
 	taskBoardNoTasks: "暂无任务",
 	taskBoardEmptyInModal: "还没有派出的任务",
 	taskBoardScope: "{room} {channel} · 工作区合计 {workspaces}",
@@ -20145,40 +22962,57 @@ const zh = {
 	durSeconds: "{n} 秒",
 	durMinutes: "{n} 分钟",
 	durHours: "{h} 小时 {m} 分",
-	configureModel: "去配置模型",
+	configureModel: "去填密钥",
 	configureModelHint: "模型在「设置 → 模型」里配置：点侧栏底部的设置入口，桌面版也可按 ⌘,（Windows/Linux 为 Ctrl+,）。",
 	retry: "重试",
 	retrying: "重试中…",
 	permAllowed: "已允许",
 	permDenied: "已拒绝",
-	permAllowedAll: "已允许（本会话后续请求自动允许）",
-	permExpired: "已过期：这个请求已被新请求取代或 bot 已重启，不再生效",
+	permAllowedAll: "已允许（本会话之后自动允许）",
+	permExpired: "这条确认失效了：被新请求顶掉，或机器人重启过",
 	permByText: "（文字回复）",
-	permAllowAllScope: "「允许所有」只对这个 bot 当前会话生效：之后它的工具权限请求自动允许（向你提问的除外），bot 重启或开新会话后恢复逐条询问。",
+	permAllowAllScope: "只对这个机器人当前会话有效：之后它要的工具权限自动允许（向你提问的除外），机器人重启或开新会话后恢复逐条问。",
 	memberFailed: "出错",
 	showRooms: "打开频道列表",
-	showMembers: "打开成员列表",
+	showMembers: "打开活动栏",
+	schemeToDark: "切换到深色",
+	schemeToLight: "切换到白色",
 	closeDrawer: "关闭列表",
-	membersButton: "成员",
+	membersButton: "活动",
 	collapseRooms: "收起频道列表",
 	expandRooms: "展开频道列表",
-	collapseMembers: "收起成员列表",
-	expandMembers: "展开成员列表",
+	collapseMembers: "收起活动栏",
+	expandMembers: "展开活动栏",
 	rooms: "文字频道",
 	agents: "Agent — {count}",
 	humans: "真人 — {count}",
 	online: "在线",
 	close: "关闭",
+	dmGroup: "私聊",
+	dmOpen: "发私信",
+	dmOpenFailed: "打不开私聊：{message}",
+	deliveryFull: "全屏",
+	deliveryRevise: "继续改",
+	deliveryAccept: "收下",
+	deliveryAccepted: "已收下",
+	deliveryAcceptFailed: "没收下，再点一次",
 	offline: "离线",
 	working: "忙",
 	workingList: "{names} 正在输入…",
+	queuedCount: "排队 {count} 条",
+	queuedJump: "看排队的消息",
+	queuedTag: "排队中",
+	queuedFor: "等 {names} 忙完再处理，撤回就不发了",
+	memoryBadge: "记忆 {count}",
+	memoryList: "这条回复用到的记忆",
+	memoryMoved: "（这一行已改动或移走）",
 	kindDsh: "DSH",
 	kindBot: "Agent",
 	kindClaude: "Claude Code",
 	kindCodex: "Codex",
 	kindGemini: "Gemini",
 	placeholderShort: "发消息到 #{room}",
-	placeholder: "发消息到 #{room}，@成员 让它干活（Enter 发送，Shift+Enter 换行）",
+	placeholder: "发消息到 #{room}，@成员 派活（回车发送，Shift+回车换行）",
 	loading: "正在连接频道服务…",
 	unavailable: "频道服务未启用：在 collab.yml 中配置服务后，用 --patch collab.yml 启动 DSH。",
 	unauthorized: "还没有登录 DSH，请刷新页面。",
@@ -20211,6 +23045,13 @@ const zh = {
 	messageCancel: "取消",
 	messageEditHint: "Enter 保存，Esc 取消；已经读过的成员不会重新回复",
 	withdrawConfirm: "撤回这条消息？成员对它的处理也会停下。",
+	withdrawToast: "已撤回一条消息",
+	withdrawUndo: "撤销",
+	withdrawPending: "你撤回了一条消息",
+	jumpLatest: "回到最新",
+	jumpLatestCount: "{count} 条新消息",
+	newMessagesDivider: "以下为新消息",
+	loadingOlder: "正在加载更早的消息…",
 	withdrawStopped: "已撤回，并停下了 {names} 对它的处理",
 	withdrawRunning: "已撤回；{names} 已经在处理这条，没能停下",
 	memberDialogAdd: "添加 DSH 成员",
@@ -20261,12 +23102,66 @@ const zh = {
 	cardView: "卡片视图",
 	cardViewDetail: "细节",
 	cardViewBrief: "简略",
+	stepChips: "步骤",
+	stepOk: "成功",
+	stepFailed: "失败",
+	stepRunning: "进行中",
+	stepUnknown: "未报结果",
+	stepOutput: "{tool} 的输入和输出",
+	stepInput: "调用",
+	stepResult: "输出",
 	replyingTo: "回复 {name}",
 	replyDeleted: "原消息已删除",
 	cancelReply: "取消回复"
 };
 /** English dictionary. */
 const en = {
+	headMembers: "{count} members",
+	headBusy: "{names} at work",
+	headLead: "Current primary role",
+	headTeam: "Teammates busy or idle",
+	headTeamMore: "{count} more teammates",
+	mateBusy: "busy",
+	mateIdle: "idle",
+	mateError: "error",
+	mateOffline: "offline",
+	mateTask: "#{id} {title}",
+	mateReplying: "replying",
+	headLeadIdle: "Idle",
+	headLeadBusyUnreported: "Busy",
+	headLeadUnset: "No lead set",
+	progressTitle: "Channel progress",
+	progressDone: "Done",
+	progressDoing: "Doing",
+	progressNext: "Next",
+	progressOpen: "Open",
+	progressNone: "None",
+	progressTask: "#{id} {title} · {name}",
+	progressNextReview: "Review #{id} {title} (handed back by {name})",
+	progressNextResume: "Resume #{id} {title} ({name}, paused)",
+	progressMore: ", {count} more",
+	decideTray: "Waiting on you and permission requests",
+	trayAsks: "Waiting on you · {count}",
+	trayCollapse: "Collapse",
+	trayExpand: "Expand",
+	askKind: "Question",
+	askNoNote: "(No question text; open the task board for the dispatch message)",
+	askFrom: "{name} asks · #{id} {title}",
+	askPlaceholder: "Reply directly…",
+	askReplyTo: "Reply to #{id}",
+	askSend: "Send reply",
+	askReplied: "Replied: {text}",
+	askUndo: "Undo ({n}s)",
+	askApiPending: "Reply endpoint is being fixed: replies here cannot be delivered yet; @ them in the chat instead",
+	headLeadLoading: "Loading",
+	leadPinned: "Pinned",
+	leadCard: "Pinned primary role",
+	activityPanel: "Activity",
+	activityNow: "Now",
+	activityThinking: "Thinking",
+	permPending: "Waiting on you",
+	permTray: "Permission requests awaiting you ({count})",
+	permAsks: "{name} asks for permission",
 	dispatchMode: "Dispatch mode",
 	dispatchSolo: "Single model, multiple processes — separate tasks on one model",
 	dispatchTeam: "Full team — delegate to team members",
@@ -20281,13 +23176,14 @@ const en = {
 	footnotes: "Footnotes",
 	taskTabLabel: "Filter tasks by status",
 	taskTabAll: "All",
+	taskTabDecide: "Needs you",
 	taskTabWorking: "In progress",
-	taskTabReview: "Awaiting review",
-	taskTabDone: "Done",
+	taskTabParked: "Paused / to release",
 	taskTabEmpty: "No tasks in {tab}",
 	taskBoard: "Task board",
-	taskBoardSummary: "In progress {open} · Done {done}",
+	taskBoardSummary: "Needs you {decide} · In progress {working}",
 	taskBoardOpen: "Open task board",
+	taskBoardClose: "Close task board",
 	taskBoardNoTasks: "No tasks",
 	taskBoardEmptyInModal: "No tasks dispatched yet",
 	taskBoardScope: "{room} {channel} · Workspaces total {workspaces}",
@@ -20323,6 +23219,7 @@ const en = {
 	panelDesk: "Team desk",
 	panelGalaxy: "Wiki galaxy",
 	panelBothouse: "bothouse",
+	panelDevices: "Other computers",
 	channelSettings: "Channel settings",
 	settingsBasic: "Basic",
 	settingsDispatch: "Dispatch",
@@ -20341,6 +23238,42 @@ const en = {
 	channelName: "Channel name",
 	channelNameHint: "1–32 characters, without whitespace.",
 	workspaceNameFixed: "Workspace names are assigned by the system and cannot be changed.",
+	slashTitle: "Commands",
+	slashTitleLead: "Commands to {name}",
+	slashTitleNoLead: "Commands · no primary role takes commands",
+	slashHint: "↑↓ select · Enter run · Esc close",
+	slashNoLead: "The primary role is not a bothouse bot, so no one takes this command. Pick a primary role in channel settings, or @ a bot before the command.",
+	slashStop: "Stop the primary role's current turn (the session stays)",
+	slashStopAll: "Stop every bot in this channel",
+	slashPs: "Steer: add to the turn that is running",
+	slashNew: "Start a new session",
+	slashModel: "List or switch models",
+	slashReasoning: "Show or set reasoning effort",
+	slashCron: "Scheduled tasks",
+	slashStatus: "Status",
+	slashUsage: "Usage",
+	slashCompress: "Compress the context",
+	slashBoard: "Open the task board",
+	slashHelp: "What this channel can do",
+	slashGroupControl: "Control",
+	slashGroupModel: "Model",
+	slashGroupView: "View",
+	stopReply: "Stop {name}'s reply",
+	stopPending: "Stopping {name}…",
+	stopDone: "{name} stopped",
+	cmdTo: "to {name}",
+	cmdToAll: "to every bot",
+	cmdSent: "sent",
+	permAllowOnce: "Allow once",
+	permAllowSession: "Auto-allow this session",
+	toolCopy: "Copy",
+	toolCopied: "Copied",
+	toolCopyFailed: "Copy failed",
+	toolTask: "To task",
+	toolTaskHint: "Put this message on the task board for the primary role",
+	toolTasking: "Adding…",
+	toolTasked: "On the task board",
+	toolTaskFailed: "Could not add the task: {message}",
 	capabilities: "Capabilities",
 	capabilityTaskBoard: "Task board",
 	capabilityAttachments: "Images and files",
@@ -20355,34 +23288,51 @@ const en = {
 	capabilityReminderHelp: "Dispatched tasks receive one reminder when due. The owner returns a result or explains the blocker.",
 	capabilityWorkspaceHelp: "Assign work to a role in the chat channel. Roles create workspaces when needed; questions and progress return to the chat channel.",
 	capabilityLeadHelp: "Choose a role under Primary role in the members panel. Messages without an explicit addressee then go to the new primary role.",
-	capabilityDmHelp: "Open a private conversation with a role on a supported platform. Roles can also message the configured owner. The DSH Channels page currently has no private-chat entry.",
-	configureModel: "Configure model",
+	capabilityDmHelp: "Use 私聊 in the left column or 发私信 in a bot's avatar menu to talk with that role one to one, away from the channel. Roles can also message the configured owner.",
+	configureModel: "Add a model key",
 	configureModelHint: "Models are configured in Settings → Models: use the settings entry at the bottom of the sidebar, or press ⌘, in the desktop app (Ctrl+, on Windows/Linux).",
 	retry: "Retry",
 	retrying: "Retrying…",
 	permAllowed: "Allowed",
 	permDenied: "Denied",
 	permAllowedAll: "Allowed (later requests in this session are auto-approved)",
-	permExpired: "Expired: replaced by a newer request or the bot restarted",
+	permExpired: "This request no longer applies: a newer one replaced it, or the bot restarted",
 	permByText: "(text reply)",
 	permAllowAllScope: "\"Allow all\" applies only to this bot's current session: its later tool permission requests are auto-approved (questions to you excepted) until the bot restarts or starts a new session.",
 	memberFailed: "Error",
 	showRooms: "Open channels",
-	showMembers: "Open members",
+	showMembers: "Open activity",
+	schemeToDark: "Switch to dark",
+	schemeToLight: "Switch to light",
 	closeDrawer: "Close list",
-	membersButton: "Members",
+	membersButton: "Activity",
 	collapseRooms: "Collapse channels",
 	expandRooms: "Expand channels",
-	collapseMembers: "Collapse members",
-	expandMembers: "Expand members",
+	collapseMembers: "Collapse activity",
+	expandMembers: "Expand activity",
 	rooms: "Text channels",
 	agents: "Agents — {count}",
 	humans: "People — {count}",
 	online: "Online",
 	close: "Close",
+	dmGroup: "Direct messages",
+	dmOpen: "Message privately",
+	dmOpenFailed: "Could not open the private chat: {message}",
+	deliveryFull: "Full screen",
+	deliveryRevise: "Keep editing",
+	deliveryAccept: "Accept",
+	deliveryAccepted: "Accepted",
+	deliveryAcceptFailed: "Not accepted, try again",
 	offline: "Offline",
 	working: "Busy",
 	workingList: "{names} typing…",
+	queuedCount: "{count} queued",
+	queuedJump: "Show queued messages",
+	queuedTag: "Queued",
+	queuedFor: "Waits until {names} is free; withdraw it to drop it",
+	memoryBadge: "Memory {count}",
+	memoryList: "Memory this reply used",
+	memoryMoved: "(this line changed or moved)",
 	kindDsh: "DSH",
 	kindBot: "Agent",
 	kindClaude: "Claude Code",
@@ -20422,6 +23372,13 @@ const en = {
 	messageCancel: "Cancel",
 	messageEditHint: "Enter to save, Esc to cancel; members that already read it will not reply again",
 	withdrawConfirm: "Withdraw this message? Members working on it will stop.",
+	withdrawToast: "Message withdrawn",
+	withdrawUndo: "Undo",
+	withdrawPending: "You withdrew a message",
+	jumpLatest: "Jump to latest",
+	jumpLatestCount: "{count} new",
+	newMessagesDivider: "New messages",
+	loadingOlder: "Loading earlier messages…",
 	withdrawStopped: "Withdrawn, and stopped {names} working on it",
 	withdrawRunning: "Withdrawn; {names} had already started on it and could not be stopped",
 	memberDialogAdd: "Add a DSH member",
@@ -20472,6 +23429,14 @@ const en = {
 	cardView: "Card view",
 	cardViewDetail: "Detail",
 	cardViewBrief: "Brief",
+	stepChips: "Steps",
+	stepOk: "succeeded",
+	stepFailed: "failed",
+	stepRunning: "running",
+	stepUnknown: "no result",
+	stepOutput: "{tool} call and output",
+	stepInput: "Call",
+	stepResult: "Output",
 	replyingTo: "Replying to {name}",
 	replyDeleted: "Original message was deleted",
 	cancelReply: "Cancel reply"
@@ -20481,6 +23446,7 @@ const PANEL_ID = "channels";
 const DESK_ID = "collab-desk";
 const GALAXY_ID = "wiki-galaxy";
 const BOTHOUSE_ID = "bothouse-panel";
+const DEVICES_ID = "collab-devices";
 /** Required browser services. */
 const inject = [
 	"slots",
@@ -20499,15 +23465,32 @@ function apply(ctx) {
 	const t = ctx.locale.bind(NS);
 	const channels = createChannelSource(browserTransport());
 	ctx.effect(() => channels.dispose, "client-ui-discord: channel stream");
+	const ALIVE_EVERY_MS = 3e3;
+	ctx.effect(() => {
+		const beat = () => {
+			globalThis.fetch?.(new URL("collab/api/remote/alive", document.baseURI), {
+				method: "POST",
+				credentials: "same-origin"
+			}).catch(() => {});
+		};
+		beat();
+		const timer = setInterval(beat, ALIVE_EVERY_MS);
+		return () => clearInterval(timer);
+	}, "client-ui-discord: remote link heartbeat");
 	const injected = (openModelSettings) => ({
 		openModelSettings,
 		hooks: { channels: channels.source },
 		selectRoom: channels.actions.selectRoom,
 		send: channels.actions.send,
 		reviewTask: channels.actions.reviewTask,
+		dispatchTask: channels.actions.dispatchTask,
+		openDm: channels.actions.openDm,
 		retrySend: channels.actions.retrySend,
 		dismissSend: channels.actions.dismissSend,
 		loadOlder: channels.actions.loadOlder,
+		loadNewer: channels.actions.loadNewer,
+		keepLatest: channels.actions.keepLatest,
+		showLatest: channels.actions.showLatest,
 		createRoom: channels.actions.createRoom,
 		renameRoom: channels.actions.renameRoom,
 		listModels: channels.actions.listModels,
@@ -20574,20 +23557,29 @@ function apply(ctx) {
 			order: 6
 		},
 		{
-			id: GALAXY_ID,
-			path: "collab/wiki-galaxy",
-			label: "panelGalaxy",
-			icon: GalaxyIcon,
-			order: 7
-		},
-		{
 			id: BOTHOUSE_ID,
 			path: "collab/panel/",
 			label: "panelBothouse",
 			icon: PanelIcon,
-			order: 8
+			order: 7
+		},
+		{
+			id: DEVICES_ID,
+			path: "collab/devices",
+			label: "panelDevices",
+			icon: DevicesIcon,
+			order: 9
 		}
 	];
+	ctx.slots.inject("main", () => ctx.slots.register({
+		name: "main",
+		key: GALAXY_ID,
+		locale: NS,
+		inject: () => ({
+			path: "collab/panel/wiki-galaxy",
+			title: t("panelGalaxy")
+		})
+	}, EmbedPage));
 	for (const page of embeds) {
 		ctx.slots.inject("main", () => ctx.slots.register({
 			name: "main",
@@ -20606,6 +23598,7 @@ function apply(ctx) {
 			label: () => t(page.label)
 		}, page.icon));
 	}
+	if (location.hash === `#${GALAXY_ID}`) ctx.layout.selectPanel(GALAXY_ID);
 }
 exports.apply = apply;
 exports.inject = inject;

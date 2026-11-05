@@ -152,6 +152,11 @@ class ClaudeBrain:
 
 
 def _killpg(proc: subprocess.Popen) -> None:
+    if os.name == "nt":
+        # Windows 没有进程组 killpg：taskkill /T 结束整棵进程树。
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        return
     try:
         os.killpg(proc.pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):

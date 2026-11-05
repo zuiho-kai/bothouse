@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -135,6 +137,9 @@ type taskReviewRef struct {
 	Stage      string          `json:"stage,omitempty"`
 	Items      []taskReviewRef `json:"items,omitempty"`
 	Hour       time.Time       `json:"hour,omitempty"`
+	// Tier the verification was queued for ("complex" or "" = simple). After board tier
+	// escalates, a queued simple review no longer applies (taskReviewPending).
+	Tier string `json:"tier,omitempty"`
 }
 
 func (e *Engine) taskReviewPending(ref *taskReviewRef) bool {
@@ -145,7 +150,7 @@ func (e *Engine) taskReviewPending(ref *taskReviewRef) bool {
 		if it.ID == ref.Board && ref.Paused != "" {
 			return it.Paused != "" && taskPauseKey(it) == ref.Paused
 		}
-		if it.ID == ref.Board && it.Paused == "" && it.ReviewRejected == "" && it.ReturnedAt.Equal(ref.ReturnedAt) {
+		if it.ID == ref.Board && it.Paused == "" && it.ReviewRejected == "" && it.ReturnedAt.Equal(ref.ReturnedAt) && taskReviewTier(it) == ref.Tier {
 			return true
 		}
 	}
@@ -179,6 +184,7 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 		refs     []taskReviewRef
 	}
 	groups := map[string]*group{}
+	load := map[string]int{} // reviews handed to each role in this scan: spread a batch of handbacks
 	for _, it := range readTeamTaskBoard(e.team.dir) {
 		if it.Paused != "" {
 			if it.Chat == "" {
@@ -245,25 +251,18 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 			}
 			continue
 		}
-		var reviewer *Engine
+		unavailable := true
 		for _, x := range w.engines() {
 			if x.name == it.Reviewer && x.timerScheduler != nil {
-				reviewer = x
+				unavailable = false
 				break
 			}
 		}
-		unavailable := reviewer == nil
-		if unavailable {
-			for _, x := range w.engines() {
-				if x.isTeamLead() && x.timerScheduler != nil {
-					reviewer = x
-					break
-				}
-			}
-		}
+		reviewer, fresh := w.pickTaskReviewer(it, load, now)
 		if reviewer == nil {
 			continue
-		} // board keeps its owner; next scan retries when the role returns.
+		} // board keeps its owner; next scan retries when a role is free of cooldown.
+		load[reviewer.name]++
 		it.reviewAfter = reviewer.taskReviewAfter()
 		stage := "returned"
 		if taskReviewOverdue(it, now) {
@@ -272,12 +271,11 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 		if unavailable && it.Reviewer != "" {
 			stage = "unavailable"
 		}
-		sum := sha256.Sum256([]byte(fmt.Sprintf("%s/%d/%s/%s/%s", e.team.dir, it.ID, it.ReturnedAt.Format(time.RFC3339Nano), reviewer.name, stage)))
-		id := fmt.Sprintf("review-%x", sum)
-		ref := taskReviewRef{Board: it.ID, ReturnedAt: it.ReturnedAt, Stage: stage}
+		id := taskReviewJobID(e.team.dir, it, reviewer.name, stage)
+		ref := taskReviewRef{Board: it.ID, ReturnedAt: it.ReturnedAt, Stage: stage, Tier: taskReviewTier(it)}
 		prior := reviewer.timerScheduler.store.Get(id)
 		if prior == nil {
-			reviewer.queueTaskReview(id, it.Chat, &ref, now)
+			reviewer.queueTaskReviewIn(id, it.Chat, &ref, now, fresh, taskReviewTierModel(it, reviewer.name))
 		} else if roundup && prior.Fired && prior.ScheduledAt.Before(now.Truncate(teamWorkspaceReconcileEvery)) {
 			key := reviewer.name + "/" + it.Chat
 			g := groups[key]
@@ -295,10 +293,233 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 	}
 }
 
+// teamReviewTiers: the role preferred for each review tier, from [team_review] (bridge-wide,
+// updated live from the settings page).
+var teamReviewTiers atomic.Pointer[[2]string]
+
+// SetTeamReviewTiers sets the role (project name) that verifies simple and complex handbacks;
+// "" leaves that tier to the usual pick.
+func SetTeamReviewTiers(simple, complex string) {
+	teamReviewTiers.Store(&[2]string{strings.TrimSpace(simple), strings.TrimSpace(complex)})
+}
+
+// teamReviewModels: the model each tier's role reviews on, from [team_review] simple_model /
+// complex_model ("" = the role's own model).
+var teamReviewModels atomic.Pointer[[2]string]
+
+// SetTeamReviewModels sets the model ID the simple and complex tier roles review on (user
+// 2026-11-04 13:20「DSH 设置简单/复杂档可直接选模型」); "" keeps the role's own model.
+func SetTeamReviewModels(simple, complex string) {
+	teamReviewModels.Store(&[2]string{strings.TrimSpace(simple), strings.TrimSpace(complex)})
+}
+
+// taskReviewTierModel: the model reviewer runs it on; only the tier's own role, since a model ID
+// belongs to that role's agent.
+func taskReviewTierModel(it teamTaskBoardItem, reviewer string) string {
+	m := teamReviewModels.Load()
+	if m == nil || reviewer == "" || reviewer != taskReviewTierRole(it) {
+		return ""
+	}
+	if taskReviewComplex(it) {
+		return m[1]
+	}
+	return m[0]
+}
+
+func taskReviewComplex(it teamTaskBoardItem) bool {
+	return strings.EqualFold(strings.TrimSpace(it.ReviewTier), "complex") || strings.TrimSpace(it.ReviewTier) == "复杂"
+}
+
+// taskReviewTier: "complex" for an escalated handback, "" for the default simple tier.
+func taskReviewTier(it teamTaskBoardItem) string {
+	if taskReviewComplex(it) {
+		return "complex"
+	}
+	return ""
+}
+
+// taskReviewTierRole: the configured role for the item's tier ("" = none).
+func taskReviewTierRole(it teamTaskBoardItem) string {
+	t := teamReviewTiers.Load()
+	if t == nil {
+		return ""
+	}
+	if taskReviewComplex(it) {
+		return t[1]
+	}
+	return t[0]
+}
+
+// taskReviewStages: every stage a handback's verification job can have, for finding the job
+// already queued for it (taskReviewJobID).
+var taskReviewStages = []string{"returned", "overdue", "unavailable"}
+
+func taskReviewJobID(dir string, it teamTaskBoardItem, reviewer, stage string) string {
+	key := fmt.Sprintf("%s/%d/%s/%s/%s", dir, it.ID, it.ReturnedAt.Format(time.RFC3339Nano), reviewer, stage)
+	if taskReviewComplex(it) {
+		key += "/complex" // an escalated handback is a new verification, not the simple one again
+	}
+	sum := sha256.Sum256([]byte(key))
+	return fmt.Sprintf("review-%x", sum)
+}
+
+// taskReviewAuthor: role x is named in the item's owner text (「工作区1C酱」, 「肥鱼（作者…）」),
+// so it wrote or drove the work and must not verify it (user 2026-11-04「作者不审自己」).
+// A coordinator named there is excluded too: wrongly skipping a role only narrows the pool.
+func taskReviewAuthor(it teamTaskBoardItem, x *Engine) bool {
+	if it.Who == "" {
+		return false
+	}
+	return strings.Contains(it.Who, x.name) || strings.Contains(it.Who, x.DisplayName())
+}
+
+func (e *Engine) reviewCooling(chat string) bool {
+	return e.capacityWait(e.admissionQuotaScope(e.agent, chat)) > 0
+}
+
+// pickTaskReviewer chooses who verifies handback it (user 2026-11-04 10:4x: the lead alone cannot
+// keep up; hand reviews out, even to a busy role in a new conversation; no fixed cap):
+//   - a job already queued for this handback keeps its role, unless that role is cooling and the
+//     job has not run: then it is withdrawn and the handback goes to someone else (#112 waited on
+//     a role cooling for 624h);
+//   - never the author; never a cooling role;
+//   - the designated reviewer first, then the role with the fewest reviews handed out this scan;
+//     an idle role reviews in its channel session, and when every candidate is busy the first
+//     one reviews in a fresh side session (new_per_run) next to its running work.
+//
+// No candidate (all authors or cooling): nil, the next scan tries again.
+func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]int, now time.Time) (*Engine, bool) {
+	chat := teamChatKey(it.Chat)
+	dir := w.e.team.dir
+	skip := map[string]bool{}
+	back := false // the designated reviewer is present again: an "unavailable" stand-in does not stick
+	for _, x := range w.engines() {
+		back = back || (it.Reviewer != "" && x.name == it.Reviewer && x.timerScheduler != nil)
+	}
+	for _, x := range w.engines() {
+		if x.timerScheduler == nil {
+			continue
+		}
+		for _, stage := range taskReviewStages {
+			if back && stage == "unavailable" {
+				continue
+			}
+			id := taskReviewJobID(dir, it, x.name, stage)
+			prior := x.timerScheduler.store.Get(id)
+			if prior == nil {
+				continue
+			}
+			if !prior.Fired && x.reviewCooling(chat) {
+				x.timerScheduler.RemoveJob(id)
+				skip[x.name] = true
+				slog.Info("task review: reviewer cooling, handing the review to another role", "board", it.ID, "from", x.name)
+				continue
+			}
+			// The queued review has waited behind the role's own work for a full watch window:
+			// hand it to an idle teammate (user 2026-11-04 23:2x「派活的角色忙超过 10 分钟，就转给空着的队友去验收」;
+			// window 来源：沿用 watchCheckAfter，团队看门的 10 分钟).
+			if !prior.Fired && !prior.UsesNewSessionPerRun() && x.quotaBusy(chat) && !now.Before(prior.ScheduledAt.Add(watchCheckAfter())) {
+				x.timerScheduler.RemoveJob(id)
+				skip[x.name] = true
+				slog.Info("task review: reviewer busy past the watch window, handing the review to an idle role", "board", it.ID, "from", x.name)
+				continue
+			}
+			return x, prior.UsesNewSessionPerRun()
+		}
+	}
+	var tier, designated *Engine
+	var pool []*Engine
+	tierRole := taskReviewTierRole(it)
+	for _, x := range w.engines() {
+		if x.timerScheduler == nil || skip[x.name] || taskReviewAuthor(it, x) || x.reviewCooling(chat) {
+			continue
+		}
+		if p, _, _ := x.timerTargetPlatform(chat); p == nil {
+			continue // cannot reply on the handback's platform: its timer would fail (platform not found)
+		}
+		switch x.name {
+		case tierRole:
+			tier = x
+		case it.Reviewer:
+			designated = x
+		default:
+			pool = append(pool, x)
+		}
+	}
+	sort.SliceStable(pool, func(i, j int) bool {
+		if load[pool[i].name] != load[pool[j].name] {
+			return load[pool[i].name] < load[pool[j].name]
+		}
+		if pool[i].isTeamLead() != pool[j].isTeamLead() {
+			return pool[i].isTeamLead()
+		}
+		return pool[i].name < pool[j].name
+	})
+	if designated != nil {
+		pool = append([]*Engine{designated}, pool...)
+	}
+	if tier != nil {
+		// The tier's role reviews even when busy (in a new side session): it is the model chosen
+		// for this kind of review. Only author or cooling sends the review elsewhere. A chosen
+		// tier model always takes a new session: the channel session keeps its own model.
+		if taskReviewTierModel(it, tier.name) == "" && !tier.quotaBusy(chat) && !tier.taskReviewQueuedIn(chat) {
+			return tier, false
+		}
+		return tier, true
+	}
+	for _, x := range pool {
+		if !x.quotaBusy(chat) && !x.taskReviewQueuedIn(chat) {
+			return x, false
+		}
+	}
+	if len(pool) > 0 {
+		return pool[0], true
+	}
+	return nil, false
+}
+
+// taskReviewQueuedIn: a review job of e for chat is waiting to run in the channel session, so
+// that session is already taken; another review in this batch goes to a free role or a side
+// session instead of queueing behind it.
+func (e *Engine) taskReviewQueuedIn(chat string) bool {
+	for _, j := range e.timerScheduler.store.List() {
+		if j.Project == e.name && j.TaskReview != nil && !j.Fired && !j.UsesNewSessionPerRun() && teamChatKey(j.SessionKey) == chat {
+			if j.TaskReview.Stage != "roundup" && !e.taskReviewPending(j.TaskReview) {
+				continue // superseded (escalated, accepted, rejected): it will not run a turn
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// taskReviewSessionAtRun: the channel session got busy after the review was queued, so the
+// review runs in a side session instead of queueing behind that work (user 2026-11-04
+// 「新对话来审核」). The hourly roundup keeps the channel session.
+func (e *Engine) taskReviewSessionAtRun(job *TimerJob) *TimerJob {
+	if job.TaskReview == nil || job.TaskReview.Stage == "roundup" || job.UsesNewSessionPerRun() || !e.quotaBusy(job.SessionKey) {
+		return job
+	}
+	j := *job
+	j.SessionMode = "new_per_run"
+	return &j
+}
+
 func (e *Engine) queueTaskReview(id, chat string, ref *taskReviewRef, now time.Time) {
+	e.queueTaskReviewIn(id, chat, ref, now, false, "")
+}
+
+// queueTaskReviewIn: fresh runs the verification in a new side session of the role, so a busy
+// role reviews without waiting for, or disturbing, the conversation it is working in. model
+// (the tier's chosen model) runs that side session on it; it implies fresh.
+func (e *Engine) queueTaskReviewIn(id, chat string, ref *taskReviewRef, now time.Time, fresh bool, model string) {
 	silent := true
 	job := &TimerJob{ID: id, Project: e.name, SessionKey: teamChatKey(chat), ScheduledAt: now,
 		Silent: &silent, WaitUserQuiet: true, ReplyBoard: ref.Board, CreatedAt: now, TaskReview: ref}
+	if fresh || model != "" {
+		job.SessionMode = "new_per_run"
+	}
+	job.Model = model
 	prepared, err := e.prepareTaskReview(job, now)
 	if err != nil {
 		slog.Warn("task review: prepare reminder", "error", err)
@@ -371,6 +592,9 @@ func (e *Engine) prepareTaskReview(job *TimerJob, now time.Time) (*TimerJob, err
 		}
 		title = t
 		prompts = append(prompts, e.i18n.Tf(MsgTaskReviewPrompt, t, it.What, it.Where, it.ID))
+		if !taskReviewComplex(*it) {
+			prompts = append(prompts, e.i18n.Tf(MsgTaskReviewEscalate, it.ID))
+		}
 	}
 	if len(prompts) == 0 {
 		return nil, nil

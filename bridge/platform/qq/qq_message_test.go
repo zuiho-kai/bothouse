@@ -86,6 +86,11 @@ func (f *fakeOneBot) serve(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// fakeRetcodeKey 让 handler 表达非 0 retcode：handler 只能返回 data，而真实的
+// NapCat 在锚点不存在时答 retcode 1200（不是空页），补收用例要能钉住这一点。
+// 返回的 data 里带这个键时由 respond 剥掉并改用它的值。
+const fakeRetcodeKey = "__fake_retcode"
+
 func (f *fakeOneBot) respond(req map[string]any, action string) {
 	if gate := f.gateFor(action); gate != nil {
 		<-gate
@@ -96,18 +101,29 @@ func (f *fakeOneBot) respond(req map[string]any, action string) {
 
 	data := map[string]any{}
 	retcode := 0
+	status := "ok"
 	if h != nil {
 		params, _ := req["params"].(map[string]any)
 		if d := h(params); d != nil {
+			if code, ok := d[fakeRetcodeKey].(int); ok {
+				retcode = code
+				if code != 0 {
+					status = "failed"
+				}
+			}
+			delete(d, fakeRetcodeKey)
 			data = d
 		}
 	}
 	// A handler returns {"retcode": n} to make the action fail like NapCat does.
 	if rc, ok := data["retcode"].(int); ok {
 		retcode, data = rc, map[string]any{}
+		if rc != 0 {
+			status = "failed"
+		}
 	}
 	f.write(map[string]any{
-		"status":  "ok",
+		"status":  status,
 		"retcode": retcode,
 		"echo":    req["echo"],
 		"data":    data,

@@ -42,6 +42,9 @@ const (
 	// create the next one). Only on when the gateway lists it: not in allCapabilities, so an
 	// older gateway that sends no capability list never gets these frames.
 	capTeamWorkspace = "team_workspace"
+	// #1020: the gateway shows the user messages queued behind a running turn (queue frame).
+	// Not in allCapabilities either: only a gateway that lists it gets queue frames.
+	capQueue = "queue"
 )
 
 var allCapabilities = []string{

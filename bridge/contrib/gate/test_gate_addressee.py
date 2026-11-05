@@ -57,6 +57,66 @@ def load_gate(config_toml=None, team=None):
 gate = load_gate()
 
 
+class BusyGreetingReplay(unittest.TestCase):
+    def setUp(self):
+        self.saved_sub_task = gate.sub_task
+        self.saved_current_task = dict(gate.current_task)
+        self.inputs = []
+
+        def score(text):
+            self.inputs.append(text)
+            # 来源：2026-11-04 普通问候误判的 gate 记录，按 A/B/C/D 原样回放。
+            return types.SimpleNamespace(choice=3, probs=[0.248, 0.171, 0.117, 0.464])
+
+        gate.sub_task = types.SimpleNamespace(score=score)
+
+    def tearDown(self):
+        gate.sub_task = self.saved_sub_task
+        gate.current_task.clear()
+        gate.current_task.update(self.saved_current_task)
+
+    def test_greeting_replay_keeps_running_task(self):
+        for bot in ("", "longniang"):
+            for no_insert in (False, True):
+                with self.subTest(bot=bot, no_insert=no_insert):
+                    gate.current_task[bot, CHAT] = "核对原任务，用户之前说过暂停"
+                    req = {"content": "你好", "busy": True, "mentioned": True,
+                           "session_key": CHAT, "no_insert": no_insert}
+                    action, why, _ = gate.route(req, bot)
+                    self.assertEqual(action, "reply", why)
+                    self.assertEqual(gate.current_task[bot, CHAT], "核对原任务，用户之前说过暂停")
+                    self.assertIn("群里刚发：「你好」", self.inputs[-1])
+
+    def test_uncertain_stop_is_not_a_greeting_special_case(self):
+        for text in ("早上好", "hello", "继续核对", "这是补充资料", "[replying to 龙娘: 停]\n接着做"):
+            req = {"content": text, "busy": True, "mentioned": True, "session_key": CHAT}
+            self.assertEqual(gate.route(req, "longniang")[0], "reply")
+
+    def test_explicit_stops_ignore_uncertain_model(self):
+        for text in ("停", "暂停！", "STOP", "先别做这个，改做日志检查"):
+            req = {"content": text, "busy": True, "mentioned": True, "session_key": CHAT}
+            self.assertEqual(gate.route(req, "longniang")[0], "abort")
+        self.assertEqual(self.inputs, [])
+
+    def test_semantic_stop_and_progress_keep_existing_behavior(self):
+        cases = [(3, [0.016, 0.011, 0.009, 0.964], False, "abort"),
+                 (2, [0.1, 0.1, 0.7, 0.1], False, "reply"),
+                 (2, [0.1, 0.1, 0.7, 0.1], True, "abort"),
+                 (1, [0.1, 0.7, 0.1, 0.1], True, "reply"),
+                 (3, [0.2, 0.2, 0.1, 0.5], True, "reply")]
+        for choice, probs, no_insert, expected in cases:
+            with self.subTest(choice=choice, probs=probs, no_insert=no_insert):
+                gate.sub_task = types.SimpleNamespace(score=lambda text: types.SimpleNamespace(choice=choice, probs=probs))
+                req = {"busy": True, "session_key": CHAT, "no_insert": no_insert}
+                self.assertEqual(gate.busy_action(req, "longniang", "请处理这条消息", True)[0], expected)
+
+    def test_unaddressed_uncertain_stop_is_context(self):
+        req = {"busy": True, "session_key": CHAT, "no_insert": True}
+        gate.current_task["longniang", CHAT] = "保留原任务"
+        self.assertEqual(gate.busy_action(req, "longniang", "其他话题", False)[0], "context")
+        self.assertEqual(gate.current_task["longniang", CHAT], "保留原任务")
+
+
 class DSHMembersNotRouted(unittest.TestCase):
     """安装向导登记的 DSH 成员（kind=dsh）不是 Discord 队友：不进 SUBS/NAMES/队友表，lead.py 仍认得她们。"""
 

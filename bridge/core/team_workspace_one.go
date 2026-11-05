@@ -1,11 +1,14 @@
 package core
 
 import (
+	"bufio"
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -47,6 +50,14 @@ func (e *Engine) runLeadScript(chat, name string, args ...string) ([]byte, error
 	var cmdArgs []string
 	if _, err := os.Stat(bin); err == nil {
 		cmdArgs = append([]string{bin}, args...)
+		if runtime.GOOS == "windows" {
+			// Windows cannot start an extensionless script: name the interpreter its shebang names.
+			argv, werr := windowsLeadArgv(bin, e.leadPython())
+			if werr != nil {
+				return nil, werr
+			}
+			cmdArgs = append(argv, args...)
+		}
 	} else if name == "board" {
 		gateBoard := filepath.Join(e.dataDir, "gate", "board.py")
 		if _, gerr := os.Stat(gateBoard); gerr != nil && GateScriptFS != nil {
@@ -63,7 +74,7 @@ func (e *Engine) runLeadScript(chat, name string, args ...string) ([]byte, error
 			} else if cand := filepath.Join(AgentToolsDir(e.dataDir), "bin", "python3"); fileExists(cand) {
 				py = cand
 			}
-			cmdArgs = append([]string{py, "-I", gateBoard}, args...)
+			cmdArgs = append([]string{py, "-X", "utf8", "-I", gateBoard}, args...)
 		} else {
 			return nil, err
 		}
@@ -79,6 +90,47 @@ func (e *Engine) runLeadScript(chat, name string, args ...string) ([]byte, error
 	}
 	cmd.Dir = e.dataDir
 	return cmd.CombinedOutput()
+}
+
+// leadPython is the interpreter the lead scripts run with on Windows: the product Python (its own
+// directory is productPyBin there, holding python.exe), else the one FindPython picks (never the
+// Microsoft Store stub, which is what `python3` on a stock Windows PATH is).
+func (e *Engine) leadPython() string {
+	if v, ok := e.productPyBin.Load().(string); ok && v != "" {
+		for _, n := range []string{"python.exe", "python3.exe"} {
+			if cand := filepath.Join(v, n); fileExists(cand) {
+				return cand
+			}
+		}
+	}
+	if p, err := FindPython(); err == nil {
+		return p
+	}
+	return "python"
+}
+
+// windowsLeadArgv turns a lead script into a command Windows can start. The python scripts
+// (#!/usr/bin/env [-S] python3 [-I]) run as `py [-I] script`; board (a /bin/sh wrapper) runs
+// gate/board.py the way the wrapper does. Other shell scripts need a POSIX shell and are refused.
+func windowsLeadArgv(bin, py string) ([]string, error) {
+	f, err := os.Open(bin)
+	if err != nil {
+		return nil, err
+	}
+	first, _ := bufio.NewReader(f).ReadString('\n')
+	f.Close()
+	first = strings.TrimSpace(first)
+	if strings.HasPrefix(first, "#!") && strings.Contains(first, "python") {
+		if strings.Contains(first, " -I") {
+			return []string{py, "-X", "utf8", "-I", bin}, nil
+		}
+		return []string{py, "-X", "utf8", bin}, nil
+	}
+	if filepath.Base(bin) == "board" {
+		// The ../gate runLeadScript also passes as GATE_DIR.
+		return []string{py, "-X", "utf8", "-I", filepath.Join(filepath.Dir(bin), "..", "gate", "board.py")}, nil
+	}
+	return nil, fmt.Errorf("lead script %s needs a POSIX shell (%s), which Windows does not have", filepath.Base(bin), first)
 }
 
 // endWorkspaceTask runs after a workspace's [report]/[ask] headline for board item hid was

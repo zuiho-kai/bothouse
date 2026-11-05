@@ -6,6 +6,7 @@
     "dashboard": "Dashboard",
     "roles": "Roles",
     "devices": "Devices",
+    "apps": "Apps",
     "projects": "Projects",
     "providers": "Providers",
     "sessions": "Sessions",
@@ -14,7 +15,8 @@
     "bridge": "Bridge",
     "skills": "Skills",
     "system": "System",
-    "usage": "Usage"
+    "usage": "Usage",
+    "wikiGalaxy": "Wiki galaxy"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -163,7 +165,13 @@
     "platform": "Platform",
     "capabilities": "Capabilities",
     "connectedAt": "Connected at",
-    "noAdapters": "No bridge adapters"
+    "connectedPlatforms": "Connected platforms",
+    "noPlatforms": "No connected platforms",
+    "noPlatformsHint": "No role is on a platform yet. Add one from the Projects page.",
+    "externalAdapters": "External adapters",
+    "bridgeDisabled": "Bridge service is off",
+    "bridgeDisabledHint": "These platforms are connected by the roles themselves; external clients (such as the desktop tray) also need the bridge service enabled in the config.",
+    "noAdapters": "No external adapters"
   },
   "system": {
     "title": "System",
@@ -366,6 +374,16 @@
     "rlMaxMessagesHint": "Max messages per window; 0 = disabled",
     "rlWindowSecs": "Window (sec)",
     "rlWindowSecsHint": "Time window in seconds",
+    "review": "Review models",
+    "reviewAuto": "Automatic (any free non-author role)",
+    "reviewSimple": "Simple reviews",
+    "reviewSimpleHint": "Handbacks not marked complex are verified here first; pick a cheap model",
+    "reviewComplex": "Complex reviews",
+    "reviewComplexHint": "Used after a reviewer runs board tier <id> complex",
+    "reviewSimpleModel": "Simple review model",
+    "reviewComplexModel": "Complex review model",
+    "reviewModelRole": "The role's own model",
+    "reviewModelHint": "The review runs in a new session on this model",
     "log": "Log",
     "logLevel": "Log level",
     "appearance": "Appearance",
@@ -519,5 +537,15 @@
     "unavailableWhy": "The agent protocol does not report per-turn token usage yet (e.g. ACP); not estimated.",
     "empty": "No records",
     "note": "Recorded since tracking was enabled; no historical backfill. Usage unavailable: {{unknown}} replies (their agent protocol does not report per-turn usage yet, e.g. ACP; not estimated, and not zero consumption); missing price or usage: {{unpriced}} replies. Charts show reported tokens only. Costs estimate only priced replies; * indicates incomplete pricing."
+  },
+  "wikiGalaxy": {
+    "title": "Wiki galaxy",
+    "subtitle": "The wiki as a galaxy: one star per page, click a star to read it. Read-only.",
+    "open": "Open separately"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "hint": "The address may be mistyped, or the page has moved.",
+    "home": "Back to dashboard"
   }
 }

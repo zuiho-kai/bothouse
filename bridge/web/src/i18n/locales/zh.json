@@ -6,6 +6,7 @@
     "dashboard": "概览",
     "roles": "角色",
     "devices": "设备",
+    "apps": "接入应用",
     "projects": "项目",
     "providers": "服务商",
     "sessions": "会话",
@@ -14,7 +15,8 @@
     "bridge": "桥接",
     "skills": "技能",
     "system": "系统",
-    "usage": "用量"
+    "usage": "用量",
+    "wikiGalaxy": "Wiki 星河"
   },
   "dashboard": {
     "title": "概览",
@@ -163,7 +165,13 @@
     "platform": "平台",
     "capabilities": "能力",
     "connectedAt": "连接时间",
-    "noAdapters": "暂无桥接适配器"
+    "connectedPlatforms": "已连接平台",
+    "noPlatforms": "暂无已连接平台",
+    "noPlatformsHint": "还没有角色连上任何平台。到「项目」页给角色接一个平台。",
+    "externalAdapters": "外接适配器",
+    "bridgeDisabled": "桥接服务未启用",
+    "bridgeDisabledHint": "这些平台由角色直接连接；外接客户端（如桌面托盘）接入还需要在配置里打开桥接服务。",
+    "noAdapters": "暂无外接适配器"
   },
   "system": {
     "title": "系统",
@@ -366,6 +374,16 @@
     "rlMaxMessagesHint": "每个窗口内的最大消息数；0 = 不限制",
     "rlWindowSecs": "窗口时间（秒）",
     "rlWindowSecsHint": "时间窗口的秒数",
+    "review": "审核模型",
+    "reviewAuto": "自动（任一空闲的非作者角色）",
+    "reviewSimple": "简单档",
+    "reviewSimpleHint": "没标复杂的交回先由它验收；选个便宜的模型",
+    "reviewComplex": "复杂档",
+    "reviewComplexHint": "审的人跑 board tier <编号> complex 升档后由它再审",
+    "reviewSimpleModel": "简单档模型",
+    "reviewComplexModel": "复杂档模型",
+    "reviewModelRole": "沿用该角色自己的模型",
+    "reviewModelHint": "审核开新会话，用这个模型跑",
     "log": "日志",
     "logLevel": "日志级别",
     "appearance": "外观",
@@ -519,5 +537,15 @@
     "unavailableWhy": "该 agent 的协议目前不提供每轮用量（如 ACP），不做估算。",
     "empty": "暂无记录",
     "note": "从启用记账开始累计，不回填历史。用量暂不可得 {{unknown}} 次（其协议目前不提供每轮用量，如 ACP；不做估算，也不代表零消耗）；缺少单价或用量 {{unpriced}} 次。图表只含已上报的 token。金额仅为已定价部分的估算，* 表示尚有未计价回复。"
+  },
+  "wikiGalaxy": {
+    "title": "Wiki 星河",
+    "subtitle": "把 wiki 画成星系：每页一颗星，点星看内容。只读，不改文件。",
+    "open": "单独打开"
+  },
+  "notFound": {
+    "title": "页面不存在",
+    "hint": "地址可能拼错了，或者这个页面已经挪走。",
+    "home": "回首页"
   }
 }

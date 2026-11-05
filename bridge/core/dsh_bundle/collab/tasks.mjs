@@ -12,6 +12,7 @@ import { mentions, nameCalled, split, withoutLeadingMentions } from './mentions.
 import { NOTICE_PREFIXES } from './cloudweb.mjs';
 import { exitMark } from './team-exit.mjs';
 import { checkDispatch, HandoffRulesError } from './handoff-rules.mjs';
+import { execFile } from 'node:child_process';
 
 /** Status codes and their labels (the eight names are a #139 B setting, not user-specified). */
 export const STATUS = {
@@ -58,6 +59,34 @@ const LIVE = `status IN (${PLACEHOLDERS}) AND paused_at IS NULL`;
 // from when several members edit the same files. The checks and their messages are in the shared
 // handoff rules (handoff-rules.json, also read by ws-handoff); a dispatch runs the ones listed under
 // its `dispatch` key. The rules file not being readable refuses the dispatch (HTTP 500), never skips it.
+// Review handover (user 11-05「派活的角色忙超过 10 分钟，就转给空着的队友去验收。小活交回时，只要检查都过了
+// 就自动收口，大活才需要人看」): a workspace task handed back waits CHECK_AFTER_S for its dispatcher's
+// verdict, then goes to a free teammate other than its author (reviewOf). A small task closes itself:
+// every GitHub PR its report links is merged with no failing check, or its handoff scope says 改：无.
+// Not user-specified (橘 11-05, listed in the PR): the words below that keep a task for a person, and
+// one extra wake of an idle dispatcher before handing over.
+const PR_URL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
+const NEEDS_PERSON = /发版|发布|release|线上|生产|部署|deploy|花钱|付费|付款|下单|充值|用户看|用户确认|用户拍板/i;
+const CHANGE_LINE = /^[\s>*-]*改\s*[:：]\s*(.*)$/gm;
+const ASKS_USER = /要你做的\s*[:：]\s*(.*)/;
+const NOTHING = /^(没有|无)\s*[。.]?\s*$/;
+const GREEN = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);
+
+/** gh's view of one PR: { merged, green } (no checks is not green, same as board.py #1003); rejects when gh is missing or fails. */
+export function ghPrStatus(url) {
+  return new Promise((resolve, reject) => {
+    execFile('gh', ['pr', 'view', url, '--json', 'state,statusCheckRollup'], { timeout: 30_000 }, (error, stdout) => {
+      if (error) return reject(error);
+      try {
+        const pr = JSON.parse(stdout);
+        const checks = Array.isArray(pr.statusCheckRollup) ? pr.statusCheckRollup : [];
+        const green = checks.length > 0 && checks.every(c => GREEN.has(String(c.conclusion ?? c.state ?? '').toUpperCase()));
+        resolve({ merged: pr.state === 'MERGED', green });
+      } catch (e) { reject(e); }
+    });
+  });
+}
+
 const MISSING_REWORK_NOTE = '返工要写原因：note 填为什么打回，示例：note: "没先读现有实现"';
 
 /** Runs a handoff check; a missing or broken rules file becomes a CollabError instead of letting it through. */
@@ -90,8 +119,9 @@ export class Tasks {
    *   start: false defers the timer and pending deliveries until start() (the plugin
    *   starts after DSH recovery, so a reminder job is never mistaken for a leftover).
    */
-  constructor(hub, { now = () => Date.now() / 1000, setTimer = setTimeout, clearTimer = clearTimeout, start = true, maxRenewals = MAX_RENEWALS } = {}) {
+  constructor(hub, { now = () => Date.now() / 1000, setTimer = setTimeout, clearTimer = clearTimeout, start = true, maxRenewals = MAX_RENEWALS, prStatus = ghPrStatus } = {}) {
     this.hub = hub;
+    this.prStatus = prStatus;
     this.maxRenewals = maxRenewals;
     this.store = hub.store;
     this.db = hub.store.db;
@@ -123,6 +153,10 @@ export class Tasks {
         renewals = CASE WHEN paused_at IS NOT NULL THEN 0 ELSE renewals END WHERE id = ? AND status = ? RETURNING *`),
       handBack: this.db.prepare(`UPDATE tasks SET status = 'returned', paused_at = NULL, next_check_at = NULL, remind_msg_id = NULL, result_msg_id = ?, returned_at = ?, updated_at = ?
         WHERE id = ? AND status = ? RETURNING *`),
+      // A returned workspace task waiting for its verdict: next_check_at is its review watch (reviewWatch).
+      reviewWait: this.db.prepare(`SELECT * FROM tasks WHERE status = 'returned' AND next_check_at IS NOT NULL ORDER BY next_check_at, id`),
+      setReviewCheck: this.db.prepare("UPDATE tasks SET next_check_at = ?, remind_msg_id = COALESCE(?, remind_msg_id) WHERE id = ? AND status = 'returned' RETURNING *"),
+      openReviews: this.db.prepare(`SELECT * FROM tasks WHERE parent_task = ? AND source = 'review' AND status IN (${PLACEHOLDERS})`),
       bindAssign: this.db.prepare('UPDATE tasks SET assign_msg_id = ? WHERE id = ? AND assign_msg_id IS NULL'),
       due: this.db.prepare(`SELECT * FROM tasks WHERE next_check_at IS NOT NULL AND next_check_at <= ?
         AND ${LIVE} ORDER BY next_check_at, id`),
@@ -365,7 +399,13 @@ export class Tasks {
     const row = this.q.handBack.get(messageId, now, now, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
     this.record(row, 'return', `#${id}「${row.title}」${this.nameOf(row.owner)} 交回，用时 ${duration(row.returned_at - row.created_at)}`);
-    this.returnToChat(row, messageId);
+    const watched = this.reviewWatched(row);
+    const small = watched ? this.smallTask(row, messageId) : undefined;
+    // A small task's dispatcher is only woken if it does not close itself (checkPrs).
+    const copy = this.returnToChat(row, messageId, { wake: small === undefined });
+    if (watched) this.q.setReviewCheck.get(now + CHECK_AFTER_S, null, id);
+    if (small?.readOnly) this.autoAccept(id, small.readOnly);
+    else if (small?.prs) this.checkPrs(id, small.prs, copy);
     this.releaseIfDone(row.room_id);
     return this.changed(id);
   }
@@ -376,23 +416,162 @@ export class Tasks {
    * as a chat-channel hand-back @-s the lead (lead_return.go). A bridge-claimed workspace is the
    * bridge's (its lead session reads the workspace itself).
    */
-  returnToChat(task, messageId) {
-    if (!this.tree || this.store.room(task.room_id)?.kind !== 'workspace' || this.store.bridgeClaimed(task.room_id)) return;
+  returnToChat(task, messageId, { wake = true } = {}) {
+    if (!this.tree || this.store.room(task.room_id)?.kind !== 'workspace' || this.store.bridgeClaimed(task.room_id)) return undefined;
     const msg = this.store.message(messageId);
     let copy = msg === undefined ? undefined : this.hub.teamExit?.forwardResult(msg);
-    if (copy === undefined || task.created_by === HUMAN) return;
+    if (copy === undefined || task.created_by === HUMAN) return copy;
     // The dispatcher is woken on this copy alone (a turn reads no other system row), so it says
     // how to review, as the pause record says how to answer (watch).
     const how = `\n\n验收 #${task.id}：回复里单独一行写【验收】#${task.id}；要返工就单独一行写【返工】#${task.id} 原因。`;
     if (!copy.text.includes(how)) copy = this.hub.edit(copy.id, 'system', 'system', copy.text + how, copy.card) ?? copy;
-    this.wake(task.created_by, copy);
+    if (wake) this.wake(task.created_by, copy);
+    return copy;
+  }
+
+  /** A workspace task (not a bridge claim's, not a review) whose verdict this gateway waits for. */
+  reviewWatched(task) {
+    return this.tree && task.created_by !== HUMAN && task.source !== 'review'
+      && this.store.room(task.room_id)?.kind === 'workspace' && !this.store.bridgeClaimed(task.room_id);
+  }
+
+  /**
+   * A small task, closed without a person: { prs } (GitHub PR links in its report, checked by checkPrs)
+   * or { readOnly: why } (every 改 line of its handoff says 无). undefined when it needs a person: its
+   * report asks the user for something, or its handoff touches release, production, deploy or money.
+   */
+  smallTask(task, messageId) {
+    const report = String(this.store.message(messageId)?.text ?? '');
+    const asks = ASKS_USER.exec(report)?.[1]?.trim();
+    if (asks !== undefined && !NOTHING.test(asks)) return undefined;
+    const handoff = `${task.title}\n${task.reason ?? ''}\n${task.assign_msg_id == null ? '' : this.store.message(task.assign_msg_id)?.text ?? ''}`;
+    const changes = [...handoff.matchAll(CHANGE_LINE)].map(m => m[1].trim());
+    if (NEEDS_PERSON.test(changes.length ? changes.join('\n') : handoff)) return undefined;
+    const prs = [...new Set(report.match(PR_URL) ?? [])];
+    if (prs.length) return { prs };
+    if (changes.length && changes.every(c => /^无/.test(c))) return { readOnly: '只查不改（交接范围「改：无」）' };
+    return undefined;
+  }
+
+  /** Every PR merged with no failing check closes the task; anything else (or gh failing) wakes its dispatcher on copy. */
+  checkPrs(id, prs, copy) {
+    return Promise.all(prs.map(url => this.prStatus(url))).then(states => {
+      if (states.every(s => s?.merged && s?.green)) {
+        const nums = prs.map(u => `#${u.split('/').pop()}`).join('、');
+        if (this.autoAccept(id, `PR ${nums} 已合、检查全绿`)) return;
+      }
+      this.wakeReviewer(id, copy);
+    }, error => {
+      this.hub.logger?.warn?.('collab: PR check for task #%s failed: %s', id, error?.message ?? error);
+      this.wakeReviewer(id, copy);
+    });
+  }
+
+  wakeReviewer(id, copy) {
+    const task = this.task(id);
+    if (!this.closed && copy !== undefined && task?.status === 'returned') this.wake(task.created_by, copy);
+  }
+
+  /** Close a returned task with no reviewer: one record says why. True when it closed it now. */
+  autoAccept(id, why) {
+    const task = this.task(id);
+    if (this.closed || task?.status !== 'returned') return false;
+    const row = this.q.set.get('done', null, clip(why), this.now(), 0, id, 'returned');
+    if (row === undefined) return false;
+    this.closeReviews(id, 'done');
+    this.record(row, 'done', `#${id}「${row.title}」已自动收口：${why}`);
+    this.releaseIfDone(row.room_id);
+    this.changed(id);
+    return true;
+  }
+
+  /** Delegated reviews of task id end with its verdict. */
+  closeReviews(id, verdict, messageId) {
+    for (const review of this.q.openReviews.all(id, ...WORKING)) {
+      this.db.prepare(`UPDATE tasks SET status = 'done', next_check_at = NULL, remind_msg_id = NULL,
+        paused_at = NULL, result_msg_id = ?, returned_at = ?, updated_at = ? WHERE id = ?`)
+        .run(messageId ?? null, this.now(), this.now(), review.id);
+      this.record(this.task(review.id), 'done', `#${review.id} 验收 #${id} 已结束：${verdict === 'done' ? '通过' : '返工'}`);
+      this.changed(review.id);
+      this.releaseIfDone(review.room_id);
+    }
+  }
+
+  /** Busy or unreachable now: offline, cooling, in a turn, busy on the team status, or owning work. */
+  memberBusy(id) {
+    const m = this.hub.members.get(id);
+    if (m === undefined || m.online === false || m.error) return true;
+    if (this.hub.quota?.cooling(id)) return true;
+    if ([...(this.hub.thinking?.values() ?? [])].some(s => s.has(id))) return true;
+    if (this.hub.presence?.get(id)?.busy) return true;
+    return this.busyInfo(id).busy;
+  }
+
+  /**
+   * A returned workspace task at its review check (CHECK_AFTER_S after hand-back, then every
+   * CHECK_AFTER_S): a delegated review in work → wait on it; an idle dispatcher → woken once more;
+   * a busy one (or one woken already) → a free teammate other than the author and the dispatcher
+   * reviews it (assign reviewOf), woken on a chat-channel note carrying the report; none free → wait.
+   */
+  reviewWatch(task, now) {
+    if (!this.reviewWatched(task)) {
+      this.db.prepare('UPDATE tasks SET next_check_at = NULL WHERE id = ?').run(task.id);
+      return;
+    }
+    const next = now + CHECK_AFTER_S;
+    const chat = this.chatOf(task.room_id);
+    const lead = task.created_by;
+    const how = `验收 #${task.id}：回复里单独一行写【验收】#${task.id}；要返工就单独一行写【返工】#${task.id} 原因。`;
+    // A delegated review waits on its reviewer, unless that reviewer went offline or failed (a turn
+    // error, e.g. no model key): then the review moves on to another free teammate.
+    const reviews = this.q.openReviews.all(task.id, ...WORKING);
+    const unreachable = id => { const m = this.hub.members.get(id); return m === undefined || m.online === false || Boolean(m.error); };
+    if (reviews.some(r => !unreachable(r.owner))) {
+      this.q.setReviewCheck.get(next, null, task.id);
+      return;
+    }
+    const tried = new Set(reviews.map(r => r.owner));
+    if (!reviews.length && !this.memberBusy(lead) && task.remind_msg_id == null) {
+      const { message } = this.hub.post(chat, { authorKind: 'system', author: 'system', name: '任务',
+        card: JSON.stringify({ kind: 'task', task_id: task.id, event: 'remind' }),
+        text: `@${this.nameOf(lead)} #${task.id}「${task.title}」交回 ${CHECK_AFTER_S / 60} 分钟还没验收。${how}` });
+      this.q.setReviewCheck.get(next, message.id, task.id);
+      this.wake(lead, message);
+      this.changed(task.id);
+      return;
+    }
+    const reviewer = this.hub.routableIn(chat).find(m => m.id !== task.owner && m.id !== lead && !tried.has(m.id) && m.kind !== 'human' && !this.memberBusy(m.id));
+    if (reviewer === undefined) {
+      this.q.setReviewCheck.get(next, null, task.id);
+      return;
+    }
+    const result = task.result_msg_id == null ? undefined : this.store.message(task.result_msg_id);
+    const body = result === undefined ? '' : (exitMark(result.text, { lastLine: true, team: this.hub.routable() })?.body ?? String(result.text));
+    const cut = String(body).trim().length > BRIEF_HANDOFF ? `${String(body).trim().slice(0, BRIEF_HANDOFF)}…` : String(body).trim();
+    const why = reviews.length ? `${reviews.map(r => this.nameOf(r.owner)).join('、')} 掉线或出错`
+      : this.memberBusy(lead) ? `${this.nameOf(lead)} 在忙` : `${this.nameOf(lead)} 提醒后仍没验收`;
+    const { message } = this.hub.post(chat, { authorKind: 'system', author: 'system', name: '任务',
+      text: `@${reviewer.name} #${task.id}「${task.title}」交回超过 ${CHECK_AFTER_S / 60} 分钟，${why}，转给你验收（写的人 ${this.nameOf(task.owner)} 不验收自己的活）。`
+        + `${cut ? `\n\n交回内容：\n${cut}` : ''}\n\n${how}` });
+    let review;
+    try {
+      review = this.assign({ roomId: chat, title: `验收 #${task.id}「${task.title}」`, owner: reviewer.id, actor: lead, reviewOf: task.id,
+        messageId: message.id, reason: `派活人忙超 ${CHECK_AFTER_S / 60} 分钟，自动转验收` });
+    } catch (error) {
+      this.hub.logger?.warn?.('collab: review handover for #%s failed: %s', task.id, error?.message ?? error);
+      this.q.setReviewCheck.get(next, null, task.id);
+      return;
+    }
+    this.record(task, 'handover', `#${task.id}「${task.title}」已转给 ${reviewer.name} 验收（#${review.id}）：${why}`, chat);
+    this.q.setReviewCheck.get(next, null, task.id);
+    this.wake(reviewer.id, message);
+    this.changed(task.id);
   }
 
   /** The lead (or the human owner) closes the task or sends it back for rework. */
   review(id, { actor, verdict, note, messageId }) {
     const task = this.mustTask(id);
-    const reviews = this.db.prepare(`SELECT * FROM tasks WHERE parent_task = ? AND source = 'review'
-      AND status IN (${PLACEHOLDERS})`).all(id, ...WORKING);
+    const reviews = this.q.openReviews.all(id, ...WORKING);
     const delegated = actor !== task.owner && reviews.some(r => r.owner === actor && r.paused_at == null);
     if (actor !== task.created_by && actor !== HUMAN && !delegated) throw new CollabError('forbidden', `only ${this.nameOf(task.created_by)} or their delegated reviewer can review task ${id}`);
     if (!REVIEWABLE.includes(task.status)) throw new CollabError('conflict', `task ${id} is ${STATUS[task.status]}, nothing to review`);
@@ -404,14 +583,7 @@ export class Tasks {
     const reclaim = verdict === 'rework' && this.reworkClaim(task);
     const row = this.q.set.get(verdict, check, clip(note) ?? task.note, this.now(), 0, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
-    for (const review of reviews) {
-      this.db.prepare(`UPDATE tasks SET status = 'done', next_check_at = NULL, remind_msg_id = NULL,
-        paused_at = NULL, result_msg_id = ?, returned_at = ?, updated_at = ? WHERE id = ?`)
-        .run(messageId ?? null, this.now(), this.now(), review.id);
-      this.record(this.task(review.id), 'done', `#${review.id} 验收 #${id} 已结束：${verdict === 'done' ? '通过' : '返工'}`);
-      this.changed(review.id);
-      this.releaseIfDone(review.room_id);
-    }
+    this.closeReviews(id, verdict, messageId);
     if (verdict === 'rework') this.q.resetRenewals.run(id);
     const tail = clip(note) ? `：${clip(note)}` : '';
     // A workspace task sent back: its owner is woken there on the record (nobody routes it there
@@ -751,6 +923,9 @@ export class Tasks {
     for (const task of this.q.allBusy.all(...WORKING)) {
       if (this.watched(task) && watchDue(task) <= now) this.watch(task, now);
     }
+    for (const task of this.q.reviewWait.all()) {
+      if (task.next_check_at <= now) this.reviewWatch(task, now);
+    }
     for (const task of this.q.due.all(now, ...WORKING)) {
       if (this.store.room(task.room_id)?.kind === 'workspace') continue;
       if (this.hub.quota?.cooling(task.owner)) {
@@ -892,6 +1067,7 @@ export class Tasks {
         if (t.paused_at != null) return null;
         return this.store.room(t.room_id)?.kind !== 'workspace' ? t.next_check_at : this.watched(t) ? watchDue(t) : null;
       })
+      .concat(this.q.reviewWait.all().map(t => t.next_check_at))
       .filter(t => t != null).sort((a, b) => a - b)[0];
     if (at == null) return;
     const ms = Math.min(MAX_TIMER_MS, Math.max(0, (at - this.now()) * 1000));

@@ -14,7 +14,7 @@
       或本轮、上一轮启动、还没收到完成通知的后台任务（跑完会自动叫醒）。
   下一步（下一步我去改 X / 我先做 X / 马上派人）→ 本轮派出去的东西：Agent、SendMessage、后台或脱离会话的 Bash
       （nohup、setsid、bothouse …，另加环境变量 HOOK_DETACHED_CMDS 列的命令）、回复里 @ 队友，或定时器。普通前台 Bash 不算：轮次结束它也结束了，没人接着做。
-不算承诺：建议句和问句、转述别人的话、讲过去的事、表格行、标题行、引号里的话。
+不算承诺：建议句和问句、转述别人的话、讲过去的事、讲习惯和心情（「…的时候」「每次」「平时」）、表格行、标题行、引号里的话。
 回复里写了"不跟进/不再看 + 原因"的放行（审稿第 2 条）。
 只拦一次（stop_hook_active 时放行），写法照 fix-claim-guard.py；hook 自己出错时静默放行。"""
 import json, os, re, sys
@@ -89,6 +89,8 @@ PAST = re.compile(r"过了|看过(?![再后之以])|查过(?![再后之以])|已
 DEFER = re.compile(r"不急|现在不|先不做|暂不|等以后|将来|比较稳|更稳|等真有|等真的|再定"
                    # 等别人开口（点头、批准、回复）：对方说话时我自然会被叫醒，不用定时器
                    r"|点头|同意|批准|回复|答复|拍板|想聊|你定")
+# 讲习惯、讲心情，不是待办（11-05 谈心：「你不在的时候，我会去翻日记里写你的那几行」被当成没派出去的下一步）
+HABIT = re.compile(r"(?<!到)的时候|(?<!到)时候[，,]|每次|每当|平时|平常|常常|经常|总是|总会|老是|习惯")
 # 段落整行是标题（"**接下来怎么做**""## 下一步"）或表格行，不是句子
 HEADING = re.compile(r"^\s*(?:#+\s.*|[-*]?\s*\*\*[^*]+\*\*[：:]?|\|.*)\s*$")
 # 前 2 字有否定的不算（照 fix-claim-guard.py 的 NEG 窗口）："不会再看""没法回来"
@@ -176,7 +178,9 @@ def parse_ts(ts):
 
 def ctx_env():
     """(项目, 频道 id)：bothouse 给会话设的 CC_PROJECT、CC_SESSION_KEY（outing-next 也按它们找频道）。"""
-    return os.environ.get("CC_PROJECT", ""), os.environ.get("CC_SESSION_KEY", "").rpartition(":")[2]
+    # DSH 会删名字带 KEY 的环境变量，退回桥另传的 CC_SESSION（同 ws-up、d10）
+    key = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+    return os.environ.get("CC_PROJECT", ""), key.rpartition(":")[2]
 
 
 def tick_hours(project, channel):
@@ -286,7 +290,7 @@ def paragraphs(text):
 
 def classify(s):
     """timed / timed_claim（自称设好了叫醒）/ wait / next / None。"""
-    if REPORTED.search(s) or RETRO.search(s):
+    if REPORTED.search(s) or RETRO.search(s) or HABIT.search(s):
         return None
     for kind, rx in (("timed", TIMED), ("wait", WAIT), ("next", NEXT)):
         m = rx.search(s)

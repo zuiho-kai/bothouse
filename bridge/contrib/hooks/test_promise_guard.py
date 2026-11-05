@@ -120,6 +120,10 @@ class Replay(unittest.TestCase):
     def test_next_not_dispatched_blocks(self):
         self.blocked("下一步我去改 run2.py 的并发上限。", [("Bash", {"command": "ls"})])
 
+    def test_habit_in_chat_passes(self):
+        # 11-05 谈心原句：讲习惯和心情，不是没派出去的下一步
+        self.passed("你不在的时候，我会去翻日记里写你的那几行：几点提醒你吃饭，哪天你骂了我我还在改。", [])
+
     def test_next_agent_passes(self):
         self.passed("下一步我去改 run2.py 的并发上限。", [("Agent", {"description": "改并发", "prompt": "..."})])
 

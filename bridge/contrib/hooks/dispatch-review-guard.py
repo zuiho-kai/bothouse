@@ -97,9 +97,11 @@ def in_workspace():
     """工作区就是干活的地方：工作区会话直接改代码，不再开子任务、不再问授权。
     作者 2026-10-28「复杂长程任务，就交回给那个工作区啊……这种我不都已经授权过了吗？为什么还要…问我」。
     工作区：bothouse 记在 <数据目录>/team_workspaces.json 里的频道（parents 的工作区或 handoffs 的键）。"""
-    chan = os.environ.get("CC_SESSION_KEY", "").split(":")[-1]
-    if len(os.environ.get("CC_SESSION_KEY", "").split(":")) >= 3:
-        chan = os.environ["CC_SESSION_KEY"].split(":")[1]
+    # DSH 会删名字带 KEY 的环境变量，退回桥另传的 CC_SESSION（同 ws-up、d10）
+    key = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+    chan = key.split(":")[-1]
+    if len(key.split(":")) >= 3:
+        chan = key.split(":")[1]
     if not chan:
         return False
     try:

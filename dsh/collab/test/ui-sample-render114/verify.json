@@ -1,0 +1,89 @@
+{
+  "seedMessages": 4,
+  "noHorizontalOverflow": true,
+  "title": "DSH 频道 · 消息渲染样张（#114 渲染路）",
+  "long": {
+    "paras": 26,
+    "atBottom": true
+  },
+  "code": {
+    "blocks": 2,
+    "lang": "js",
+    "innerScroll": true,
+    "scrollW": 2408,
+    "clientW": 720
+  },
+  "copy": {
+    "label": "已复制",
+    "clipChars": 453,
+    "clipHead": "const rows = await api(`"
+  },
+  "table": {
+    "cols": 4,
+    "rows": 4,
+    "innerScroll": false,
+    "pageOverflow": false
+  },
+  "image": {
+    "natural": "2088x1294",
+    "file": "验收报告.pdf",
+    "atBottom": true
+  },
+  "quote": {
+    "exists": true,
+    "who": "C酱"
+  },
+  "stream": {
+    "chars": 103,
+    "gap": 0
+  },
+  "thinkCollapsed": {
+    "label": "思考了 12 秒›",
+    "open": false,
+    "bodyH": 0
+  },
+  "thinkExpanded": {
+    "open": true,
+    "bodyH": 61,
+    "chars": 101
+  },
+  "tool": {
+    "rows": 3,
+    "centered": true,
+    "fontSize": "12px",
+    "color": "rgb(101, 106, 115)"
+  },
+  "stick": {
+    "dockShown": true,
+    "dockText": "↓ 回到最新 · 12 条新消息",
+    "gap": 5619
+  },
+  "stickAfterJump": {
+    "dockShown": false,
+    "gap": 0
+  },
+  "mobile": {
+    "vw": 390,
+    "pageOverflow": false,
+    "appW": 350
+  },
+  "tableMobile": {
+    "innerScroll": true,
+    "scrollW": 350,
+    "clientW": 262,
+    "pageOverflow": false
+  },
+  "recording": {
+    "frames": 65,
+    "seconds": 6.3,
+    "mp4": "shots/flow.mp4"
+  },
+  "shots": {
+    "desktopLight": "desktop-light.png",
+    "desktopDark": "desktop-dark.png",
+    "dock": "desktop-light-dock.png",
+    "mobileLight": "mobile-light.png",
+    "mobileDark": "mobile-dark.png"
+  },
+  "errors": []
+}

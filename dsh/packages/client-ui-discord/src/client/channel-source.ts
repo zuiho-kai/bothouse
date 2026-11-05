@@ -26,6 +26,16 @@ export interface ChannelMessage {
   readonly attachments?: readonly ChannelAttachment[]
   /** Unix seconds of the author's last edit (#148); absent if never edited. */
   readonly edited_at?: number
+  /** #1020: memory entries this reply used (cited by its author); absent when none. */
+  readonly memories?: readonly ChannelMemory[]
+}
+
+/** #1020: one memory entry a reply used: `ref` is the 编号 in the push, `title` its wiki line ('' if the page moved). */
+export interface ChannelMemory {
+  readonly id: string
+  readonly ref: string
+  readonly page: string
+  readonly title: string
 }
 
 /** One stored attachment; its bytes are at `attachmentUrl(id)`. */
@@ -165,6 +175,8 @@ export interface ChannelRoom {
   readonly parent_id?: number | null
   /** Tasks in progress in this room. */
   readonly active?: number
+  /** #1023: set on a private chat — the one agent member it is with. */
+  readonly dm_member?: string | null
 }
 
 /** One row of the channel list: a chat channel at depth 0, its workspaces at depth 1. */
@@ -173,11 +185,16 @@ export interface RoomRow {
   readonly depth: 0 | 1
 }
 
+/** #1023: the private chats, one per agent member, in id order. */
+export const dmRooms = (rooms: readonly ChannelRoom[]): ChannelRoom[] => rooms.filter(r => r.dm_member != null)
+
 /**
  * Order rooms as chat channel, then its workspaces, in id order. A workspace whose
  * chat channel is missing is shown at the top level so it stays reachable.
  */
-export function groupRooms(rooms: readonly ChannelRoom[]): RoomRow[] {
+export function groupRooms(allRooms: readonly ChannelRoom[]): RoomRow[] {
+  // #1023: private chats have their own 私聊 group (dmRooms), not a row among the channels.
+  const rooms = allRooms.filter(r => r.dm_member == null)
   const chats = new Set(rooms.filter(r => r.kind !== 'workspace').map(r => r.id))
   const under = new Map<number, ChannelRoom[]>()
   for (const r of rooms) {
@@ -222,6 +239,8 @@ export interface ChannelTask {
   readonly created_at: number
   readonly updated_at: number
   readonly returned_at: number | null
+  /** Unix seconds the hourly wrap-up parked the task (dsh/collab/tasks.mjs pause); null or absent when live. */
+  readonly paused_at?: number | null
 }
 
 /** One message the human sent that the service has not confirmed yet. */
@@ -249,6 +268,8 @@ export interface ChannelSnapshot {
   readonly members: readonly ChannelMember[]
   /** Room id → ids of members currently working there. */
   readonly thinking: Readonly<Record<string, readonly string[]>>
+  /** #1020: room id → member id → ids of the owner's messages waiting behind that member's running turn. */
+  readonly queued?: Readonly<Record<string, Readonly<Record<string, readonly number[]>>>>
   /** Selected room's messages, ascending by id. */
   readonly messages: readonly ChannelMessage[]
   /** The selected primary role for the collab service, or null when no role is connected. */
@@ -261,6 +282,8 @@ export interface ChannelSnapshot {
   readonly taskChat?: number
   /** True while `loadOlder` can still page further back in the selected room. */
   readonly hasMoreOlder: boolean
+  /** #1030: true when newer rows than the last one held were dropped from the window; `loadNewer` pages them back in. */
+  readonly hasMoreNewer?: boolean
   /** The selected room's messages shown before the service confirmed them, newest last. */
   readonly outbox: readonly OutboxMessage[]
 }
@@ -268,6 +291,8 @@ export interface ChannelSnapshot {
 /** Actions the panel can take; each returns once the service answered. */
 export interface ChannelActions {
   reviewTask(id: number, verdict: 'done' | 'rework', note?: string): Promise<void>
+  /** #1016 转任务: put a message on the task board for `owner` (POST collab/api/rooms/{id}/tasks). */
+  dispatchTask?(roomId: number, task: { readonly title: string; readonly owner: string; readonly messageId: number }): Promise<void>
   /** Show another room and load its recent messages. */
   selectRoom(roomId: number): Promise<void>
   /** Post one human message into the selected room, optionally replying to `replyTo`; rejects with the service's reason. */
@@ -278,6 +303,8 @@ export interface ChannelActions {
   dismissSend(clientKey: string): void
   /** Create a room and switch to it. */
   createRoom(name: string): Promise<void>
+  /** #1023: open the private chat with one agent member (created on first use) and switch to it. */
+  openDm?(memberId: string): Promise<void>
   /** Rename a chat channel while preserving its identity and history. */
   renameRoom(roomId: number, name: string): Promise<void>
   /** Provider routes and their models for the member picker. */
@@ -302,6 +329,12 @@ export interface ChannelActions {
   decidePermission(messageId: number, decision: PermissionDecision): Promise<void>
   /** Page further back in the selected room; resolves with how many rows arrived. */
   loadOlder(): Promise<number>
+  /** #1030: page forward after a window that dropped its newest rows; resolves with how many rows arrived. */
+  loadNewer?(): Promise<number>
+  /** #1030: back at the newest message, drop the oldest rows beyond the window size. */
+  keepLatest?(): void
+  /** #1030: replace a window that dropped its newest rows with the newest page. */
+  showLatest?(): Promise<void>
   /** Retry a failed message or system error card (#146). */
   retryMessage(messageId: number): Promise<void>
   /** Change the text of a message you wrote (#148); members that already read it are not asked again. */
@@ -335,6 +368,7 @@ type ServiceEvent =
   | { readonly type: 'deleted'; readonly id: number; readonly room_id: number }
   | { readonly type: 'members'; readonly members: readonly ChannelMember[] }
   | { readonly type: 'thinking'; readonly room_id: number; readonly members: readonly string[] }
+  | { readonly type: 'queue'; readonly room_id: number; readonly queued: Readonly<Record<string, readonly number[]>> }
   | { readonly type: 'rooms'; readonly rooms: readonly ChannelRoom[] }
   | { readonly type: 'room-settings'; readonly room_id: number; readonly lead_id: string | null; readonly effective_lead_id: string | null; readonly workspace_path: string; readonly max_relay?: number }
   | { readonly type: 'task'; readonly task: ChannelTask; readonly chat_id: number }
@@ -345,11 +379,33 @@ const INITIAL: ChannelSnapshot = {
   hasMoreOlder: false, outbox: [],
 }
 
+/** Position of message `id` in rows ascending by id, or -1. */
+function indexOfId(rows: readonly ChannelMessage[], id: number): number {
+  let lo = 0
+  let hi = rows.length - 1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    const at = (rows[mid] as ChannelMessage).id
+    if (at === id) return mid
+    if (at < id) lo = mid + 1
+    else hi = mid - 1
+  }
+  return -1
+}
+
 /** Reconnect backoff: 1, 2, 4, 8… seconds, never beyond this cap. */
 const MAX_BACKOFF_MS = 30_000
 
 /** Messages requested per page, both for the first read and for `loadOlder`. */
 const PAGE_SIZE = 100
+
+/**
+ * #1030: rows the page holds at most. Paging back past it drops the newest rows
+ * (`loadNewer` brings them back), and back at the newest message the oldest go
+ * (`loadOlder` brings them back), so a channel with thousands of messages costs
+ * the same to render, scroll and stream into as one with a few hundred.
+ */
+export const MAX_ROWS = 300
 
 /** Browser storage key holding the channel the owner had open before a reload. */
 const ROOM_KEY = 'dsh-collab.room'
@@ -442,6 +498,8 @@ export function createChannelSource(transport: ChannelTransport): {
    * e.g. A → B → back to A, where the room check alone passes again.
    */
   let historyEpoch = 0
+  /** #1030: live rows newer than a trimmed window's last one, kept until `loadNewer` catches up. */
+  const ahead = new Map<number, ChannelMessage>()
 
   const set = (next: Partial<ChannelSnapshot>): void => {
     snapshot = { ...snapshot, ...next }
@@ -478,8 +536,23 @@ export function createChannelSource(transport: ChannelTransport): {
     switch (event.type) {
       case 'message': {
         if (event.message.room_id !== current.roomId) return current
-        const rows = new Map(current.messages.map(m => [m.id, m]))
-        rows.set(event.message.id, event.message)
+        const list = current.messages
+        const id = event.message.id
+        const first = list[0]
+        const last = list.at(-1)
+        // #1030: past either edge of a trimmed window a row comes back with its page, not on its own.
+        if (current.hasMoreNewer === true && last !== undefined && id > last.id) { ahead.set(id, event.message); return current }
+        if (current.hasMoreOlder && first !== undefined && id < first.id) return current
+        // A streamed reply edits its row many times a second: replace in place or append, no full re-sort.
+        if (last === undefined || id > last.id) return { ...current, messages: [...list, event.message] }
+        const at = indexOfId(list, id)
+        if (at >= 0) {
+          const messages = list.slice()
+          messages[at] = event.message
+          return { ...current, messages }
+        }
+        const rows = new Map(list.map(m => [m.id, m]))
+        rows.set(id, event.message)
         return { ...current, messages: [...rows.values()].sort((a, b) => a.id - b.id) }
       }
       case 'deleted':
@@ -493,6 +566,7 @@ export function createChannelSource(transport: ChannelTransport): {
           : current
       case 'members': return { ...current, members: event.members }
       case 'thinking': return { ...current, thinking: { ...current.thinking, [String(event.room_id)]: event.members } }
+      case 'queue': return { ...current, queued: { ...current.queued, [String(event.room_id)]: event.queued } }
       case 'rooms': return { ...current, rooms: event.rooms.map(r => ({ ...current.rooms.find(old => old.id === r.id), ...r })) }
       case 'room-settings': return { ...current, rooms: current.rooms.map(r => r.id === event.room_id || r.parent_id === event.room_id ? { ...r, lead_id: event.lead_id, effective_lead_id: event.effective_lead_id, workspace_path: event.workspace_path, max_relay: event.max_relay ?? r.max_relay } : r) }
       case 'lead': return { ...current, leadId: event.lead_id, effectiveLeadId: event.effective_lead_id ?? event.lead_id }
@@ -552,7 +626,7 @@ export function createChannelSource(transport: ChannelTransport): {
     const previous = snapshot
     const current = (): boolean => lifetime === owner && pending === read && !read.controller.signal.aborted
     try {
-      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; lead_id?: string | null; effective_lead_id?: string | null }>(
+      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; queued?: Record<string, Record<string, number[]>>; lead_id?: string | null; effective_lead_id?: string | null }>(
         'collab/api/state', { signal: read.controller.signal },
       )
       if (!current()) return
@@ -564,6 +638,8 @@ export function createChannelSource(transport: ChannelTransport): {
         : state.rooms[0]?.id
       const rows: ChannelMessage[] = []
       let hasMoreOlder = false
+      let hasMoreNewer = false
+      ahead.clear()
       if (roomId !== undefined) {
         if (resume && roomId === previous.roomId && previous.messages.length > 0) {
           // Design §4.3: a reconnect reconciles the WHOLE cached window, not just
@@ -574,6 +650,8 @@ export function createChannelSource(transport: ChannelTransport): {
           // content, an id it no longer returns was deleted and is dropped.
           const merged = new Map<number, ChannelMessage>(previous.messages.map(m => [m.id, m]))
           const oldest = previous.messages[0]!.id
+          // #1030: a window that dropped its newest rows is re-read only up to its last row.
+          const newest = previous.hasMoreNewer === true ? previous.messages.at(-1)!.id : undefined
           const present = new Set<number>()
           let cursor = oldest - 1
           while (current()) {
@@ -591,16 +669,18 @@ export function createChannelSource(transport: ChannelTransport): {
             if (messages.length < CATCH_UP_LIMIT) break
             const next = messages.at(-1)?.id
             if (next === undefined || next <= cursor) throw new Error('Channel history cursor did not advance')
+            if (newest !== undefined && next >= newest) break
             cursor = next
           }
           for (const id of [...merged.keys()]) {
-            if (id >= oldest && !present.has(id)) merged.delete(id)
+            if ((id >= oldest && !present.has(id)) || (newest !== undefined && id > newest)) merged.delete(id)
           }
           // The window was rebuilt from the service: pages started before this
           // point describe the old contents.
           historyEpoch += 1
           rows.push(...[...merged.values()].sort((a, b) => a.id - b.id))
           hasMoreOlder = previous.hasMoreOlder
+          hasMoreNewer = newest !== undefined
         } else {
           // First read or a room switch: newest page, then page forward.
           let after: number | undefined
@@ -626,7 +706,7 @@ export function createChannelSource(transport: ChannelTransport): {
       if (!keepBoard) earlyTasks.clear()
       let next: ChannelSnapshot = {
         phase: 'ready', error: undefined, rooms: state.rooms, roomId,
-        members: state.members, thinking: state.thinking, messages: rows, hasMoreOlder,
+        members: state.members, thinking: state.thinking, queued: state.queued ?? {}, messages: rows, hasMoreOlder, hasMoreNewer,
         leadId: state.lead_id ?? null, effectiveLeadId: state.effective_lead_id ?? state.lead_id ?? null,
         tasks: keepBoard ? previous.tasks : [], taskChat: keepBoard ? previous.taskChat : undefined,
         outbox: outbox.filter(entry => entry.roomId === roomId),
@@ -645,12 +725,13 @@ export function createChannelSource(transport: ChannelTransport): {
   const selectRoom = async (roomId: number): Promise<void> => {
     // Any page still in flight for the previous window is stale from here on.
     historyEpoch += 1
+    ahead.clear()
     // #112: a reload reopens this channel instead of the service's first one.
     rememberRoom(roomId)
     // The old board is not this room's: task events wait in earlyTasks until loadBoard.
     if (roomId !== snapshot.roomId) earlyTasks.clear()
     const shown = outbox.filter(entry => entry.roomId === roomId)
-    set(roomId === snapshot.roomId ? { roomId, messages: [], outbox: shown } : { roomId, messages: [], outbox: shown, tasks: [], taskChat: undefined })
+    set(roomId === snapshot.roomId ? { roomId, messages: [], hasMoreNewer: false, outbox: shown } : { roomId, messages: [], hasMoreNewer: false, outbox: shown, tasks: [], taskChat: undefined })
     await refresh(false)
   }
 
@@ -796,6 +877,12 @@ export function createChannelSource(transport: ChannelTransport): {
       const { task } = await request<{ task: ChannelTask }>(`collab/api/tasks/${id}/review`, json('POST', { verdict, note }))
       set({ tasks: (snapshot.tasks ?? []).map(row => row.id === task.id ? task : row) })
     },
+    async dispatchTask(roomId, { title, owner, messageId }) {
+      // ref 无（新建）: a message turned into a task points at no existing code (dsh/collab/handoff-rules.mjs checkDispatch);
+      // force: a busy owner still gets it on the board, as a later item.
+      const { task } = await request<{ task: ChannelTask }>(`collab/api/rooms/${roomId}/tasks`, json('POST', { title, owner, ref: '无（新建）', message_id: messageId, force: true }))
+      set({ tasks: [...(snapshot.tasks ?? []).filter(row => row.id !== task.id), task] })
+    },
     selectRoom,
     async send(text, replyTo, attachments) {
       const roomId = snapshot.roomId
@@ -819,6 +906,11 @@ export function createChannelSource(transport: ChannelTransport): {
       const { room, workspace } = await request<{ room: ChannelRoom; workspace?: ChannelRoom }>('collab/api/rooms', json('POST', { name }))
       const added = [room, workspace].filter((r): r is ChannelRoom => r !== undefined && !snapshot.rooms.some(s => s.id === r.id))
       if (added.length > 0) set({ rooms: [...snapshot.rooms, ...added] })
+      await selectRoom(room.id)
+    },
+    async openDm(memberId) {
+      const { room } = await request<{ room: ChannelRoom }>('collab/api/dms', json('POST', { member: memberId }))
+      if (!snapshot.rooms.some(r => r.id === room.id)) set({ rooms: [...snapshot.rooms, room] })
       await selectRoom(room.id)
     },
     async renameRoom(roomId, name) {
@@ -925,15 +1017,86 @@ export function createChannelSource(transport: ChannelTransport): {
         // Older rows and rows already on screen are one ordered set keyed by id.
         const merged = new Map<number, ChannelMessage>(snapshot.messages.map(m => [m.id, m]))
         for (const row of messages) merged.set(row.id, row)
+        const rows = [...merged.values()].sort((a, b) => a.id - b.id)
+        // #1030: past the window size the newest rows go; loadNewer brings them back.
+        const trimmed = rows.length > MAX_ROWS
+        if (trimmed) ahead.clear()
         set({
-          messages: [...merged.values()].sort((a, b) => a.id - b.id),
+          messages: trimmed ? rows.slice(0, MAX_ROWS) : rows,
           hasMoreOlder: messages.length >= PAGE_SIZE,
+          ...(trimmed ? { hasMoreNewer: true } : {}),
         })
         return messages.length
       } finally {
         // Only the request that owns the latch may release it.
         if (paging.get(roomId)?.ticket === ticket) paging.delete(roomId)
       }
+    },
+    async loadNewer() {
+      const roomId = snapshot.roomId
+      const owner = lifetime
+      const newest = snapshot.messages.at(-1)?.id
+      if (roomId === undefined || owner === undefined) throw new Error('No channel is open')
+      const held = paging.get(roomId)
+      if (held !== undefined && held.epoch === historyEpoch) return 0
+      if (newest === undefined || snapshot.hasMoreNewer !== true) return 0
+      held?.controller.abort()
+      const ticket = ++nextPageTicket
+      const epoch = historyEpoch
+      const controller = new AbortController()
+      paging.set(roomId, { ticket, epoch, controller })
+      pageTicket.set(roomId, ticket)
+      try {
+        let messages: ChannelMessage[]
+        try {
+          ({ messages } = await request<{ messages: ChannelMessage[] }>(
+            `collab/api/rooms/${roomId}/messages?after=${newest}&limit=${PAGE_SIZE}`,
+            { signal: controller.signal },
+          ))
+        } catch (error) {
+          if (controller.signal.aborted) return 0
+          throw error
+        }
+        if (controller.signal.aborted) return 0
+        if (lifetime !== owner || snapshot.roomId !== roomId) return 0
+        if (epoch !== historyEpoch || pageTicket.get(roomId) !== ticket) return 0
+        const merged = new Map<number, ChannelMessage>(snapshot.messages.map(m => [m.id, m]))
+        for (const row of messages) merged.set(row.id, row)
+        const caughtUp = messages.length < PAGE_SIZE
+        // Live rows that arrived while the window was behind join once it reaches the end.
+        if (caughtUp) for (const row of ahead.values()) merged.set(row.id, row)
+        if (caughtUp) ahead.clear()
+        const rows = [...merged.values()].sort((a, b) => a.id - b.id)
+        const trimmed = rows.length > MAX_ROWS
+        set({
+          messages: trimmed ? rows.slice(-MAX_ROWS) : rows,
+          hasMoreNewer: !caughtUp,
+          ...(trimmed ? { hasMoreOlder: true } : {}),
+        })
+        return messages.length
+      } finally {
+        if (paging.get(roomId)?.ticket === ticket) paging.delete(roomId)
+      }
+    },
+    keepLatest() {
+      if (snapshot.hasMoreNewer === true || snapshot.messages.length <= MAX_ROWS) return
+      // The oldest rows change: a page asked for before this describes the old window.
+      historyEpoch += 1
+      set({ messages: snapshot.messages.slice(-MAX_ROWS), hasMoreOlder: true })
+    },
+    async showLatest() {
+      const roomId = snapshot.roomId
+      const owner = lifetime
+      if (roomId === undefined || owner === undefined || snapshot.hasMoreNewer !== true) return
+      historyEpoch += 1
+      const epoch = historyEpoch
+      const { messages } = await request<{ messages: ChannelMessage[] }>(`collab/api/rooms/${roomId}/messages?limit=${PAGE_SIZE}`)
+      if (lifetime !== owner || snapshot.roomId !== roomId || epoch !== historyEpoch) return
+      const merged = new Map<number, ChannelMessage>(messages.map(m => [m.id, m]))
+      const last = messages.at(-1)?.id ?? Number.NEGATIVE_INFINITY
+      for (const row of ahead.values()) if (row.id > last) merged.set(row.id, row)
+      ahead.clear()
+      set({ messages: [...merged.values()].sort((a, b) => a.id - b.id), hasMoreOlder: messages.length >= PAGE_SIZE, hasMoreNewer: false })
     },
     async retryMessage(messageId) {
       await request<{ ok: boolean }>(`collab/api/messages/${messageId}/retry`, { method: 'POST' })

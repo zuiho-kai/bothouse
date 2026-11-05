@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
-import { Store } from './store.mjs';
+import { Store, publicMessage } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX, roomKey } from './cloudweb.mjs';
@@ -14,6 +14,11 @@ import { promptText, teamModeRules, TurnProgress, workspaceHint } from './dsh-me
 import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
 import { tasksRoute, ownMessageRoute, renameRoomRoute, roomSettingsRoute } from './plugin.mjs';
 import { TeamExit } from './team-exit.mjs';
+
+// #149: without GATE_PORT the gate context reads the install's config.toml. A test that is not about
+// that must not reach the live gate because the shell running it has BOTHOUSE_DATA_DIR/CC_DATA_DIR set
+// (a bridge-started shell does). The #149 test below points this at its own temp config.
+process.env.BOTHOUSE_CONFIG = `${(process.env.TMPDIR ?? '/tmp').replace(/\/+$/, '')}/collab-no-bridge-config.toml`;
 
 const quiet = { warn() {}, info() {} };
 const tick = () => new Promise(r => setImmediate(r));
@@ -492,6 +497,20 @@ test('mentions: own mention removed, others rewritten, fences ignored, bare name
   }
 });
 
+test('cloud-web: a mentioned slash command goes to the bot bare, without the later instructions (#1016)', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  gw.later = { instructions: () => '\n【一次性回查】ticket\n' };
+  const ju = connect(gw, 'bot=ju&name=橘');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 /model deepseek-v4' });
+  await tick();
+  assert.equal(ju.of('message').at(-1).content, '/model deepseek-v4');
+  assert.equal(ju.of('message').at(-1).mentioned, true);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 看看日志' });
+  await tick();
+  assert.equal(ju.of('message').at(-1).content, '看看日志\n【一次性回查】ticket\n');
+});
+
 test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replaces', async () => {
   const hub = makeHub();
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
@@ -605,6 +624,24 @@ test('progress card carries a brief view: tool name and outcome per step', () =>
   ] }));
   assert.equal(JSON.parse(c.card).brief, '第 3 步 · 9秒\n✅ Bash · 成功\n❌ Edit · 失败\n🔧 Read · 进行中');
   assert.match(c.text, /go test/);
+});
+
+test('progress card carries step chips: tool, outcome, call and output per step (#125)', () => {
+  const c = progressCard(PROGRESS_PREFIX + JSON.stringify({ state: 'running', steps: 4, elapsed_sec: 9, agent: 'Codex', items: [
+    { kind: 'thinking', text: 'hmm' },
+    { kind: 'tool_use', tool: 'Bash', text: 'go   test ./...' }, { kind: 'tool_result', tool: 'Bash', text: 'ok\n  all', exit_code: 0 },
+    { kind: 'tool_use', tool: 'Edit', text: 'a.go' }, { kind: 'tool_result', tool: 'Edit', text: 'boom', success: false },
+    { kind: 'tool_result', tool: 'Grep', text: 'x'.repeat(300) },
+    { kind: 'tool_use', tool: 'Read', text: 'b.go' },
+  ] }));
+  assert.deepEqual(JSON.parse(c.card).chips, [
+    { tool: 'Bash', state: 'ok', input: 'go test ./...', output: 'ok all' },
+    { tool: 'Edit', state: 'failed', input: 'a.go', output: 'boom' },
+    { tool: 'Grep', state: 'ok', output: `${'x'.repeat(119)}…` },
+    { tool: 'Read', state: 'running', input: 'b.go' },
+  ]);
+  const done = progressCard(PROGRESS_PREFIX + JSON.stringify({ state: 'completed', items: [{ kind: 'tool_use', tool: 'Read', text: 'b.go' }, { kind: 'error', text: 'denied' }, { kind: 'tool_use', text: 'q' }] }));
+  assert.deepEqual(JSON.parse(done.card).chips, [{ tool: 'Read', state: 'failed', input: 'b.go', output: 'denied' }, { tool: '工具', state: 'unknown', input: 'q' }]);
 });
 
 
@@ -1499,23 +1536,52 @@ test('roster: wizard roles are imported once, existing names skipped', async () 
   assert.deepEqual(await roster.importWizard(file), []);
 });
 
-test('roster: a default-named wizard role continues the suffix instead of being skipped', async () => {
-  const { mkdtempSync, writeFileSync } = await import('node:fs');
+test('roster: re-running the wizard reuses the default-named role\'s member instead of adding Codex-2', async () => {
+  const { mkdtempSync, writeFileSync, readFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { tmpdir } = await import('node:os');
   const dir = mkdtempSync(join(tmpdir(), 'collab-wiz-'));
   const hub = makeHub();
   const members = fakeDsh().attach(hub, []);
   const roster = new Roster(hub, members, fakeLlm());
-  await roster.create({ cli: 'codex', nameCustomized: false });
   await roster.create({ name: '小码', cli: 'codex', nameCustomized: true });
   const file = join(dir, 'wizard-members.json');
-  writeFileSync(file, JSON.stringify({ members: [
+  const run = () => writeFileSync(file, JSON.stringify({ members: [
     { name: 'Codex', cli: 'codex', name_customized: false },
     { name: '小码', cli: 'codex', name_customized: true },
   ] }));
+  run();
+  assert.deepEqual(await roster.importWizard(file), ['Codex']);
+  run();
+  assert.deepEqual(await roster.importWizard(file), []);
+  run();
+  assert.deepEqual(await roster.importWizard(file), []);
+  assert.deepEqual(hub.memberList().filter(m => m.id !== 'owner').map(m => m.name).sort(), ['Codex', '小码']);
+  // two default Codex roles in one run still get two members
+  writeFileSync(file, JSON.stringify({ members: [{ name: 'Codex', cli: 'codex', name_customized: false }, { name: 'Codex-2', cli: 'codex', name_customized: false }] }));
   assert.deepEqual(await roster.importWizard(file), ['Codex-2']);
-  assert.equal(hub.memberList().filter(m => m.name === 'Codex-2').length, 1);
+});
+
+test('roster: an install that already has Codex-2/Codex-3 stops growing; after cleanup the kept member gets its real name', async () => {
+  const { mkdtempSync, writeFileSync, readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'collab-wiz-'));
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  for (let i = 0; i < 3; i++) await roster.create({ name: 'Codex', cli: 'codex', nameCustomized: false });
+  assert.deepEqual(hub.memberList().filter(m => m.id !== 'owner').map(m => m.id), ['codex', 'codex-2', 'codex-3']);
+  const file = join(dir, 'wizard-members.json');
+  writeFileSync(file, JSON.stringify({ members: [{ name: 'Codex', cli: 'codex', name_customized: false }] }));
+  assert.deepEqual(await roster.importWizard(file), []);
+  assert.equal(hub.memberList().filter(m => m.id !== 'owner').length, 3);
+  // the owner removes the copies, keeps codex-2, runs the wizard again
+  roster.remove('codex'); roster.remove('codex-3');
+  writeFileSync(file, JSON.stringify({ members: [{ name: 'Codex', cli: 'codex', name_customized: false }] }));
+  assert.deepEqual(await roster.importWizard(file), []);
+  const done = JSON.parse(readFileSync(join(dir, 'wizard-members.imported.json'), 'utf8')).members;
+  assert.deepEqual(done.map(m => [m.name, m.id]), [['Codex-2', 'codex-2']]);
 });
 
 
@@ -1525,7 +1591,7 @@ test('member failure publishes actionable error and clears it on retry', () => {
   const trigger = hub.store.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'hello' }).message;
   const job = hub.store.addJob('ds', 1, trigger.id);
   members.fail(job.id, 'No API key configured');
-  assert.match(hub.memberView().find(m => m.id === 'ds').error, /没有配置.*Key/);
+  assert.match(hub.memberView().find(m => m.id === 'ds').error, /模型密钥/);
   assert.equal(hub.memberView().find(m => m.id === 'ds').online, false);
   const notice = hub.store.page(1, undefined, 1)[0];
   assert.equal(JSON.parse(notice.card).action, 'configure-model');
@@ -1555,7 +1621,7 @@ test('a turn interrupted by a restart keeps the member healthy and offers a retr
 });
 
 test('member errors explain setup failures and publish error presence', () => {
-  assert.match(friendlyFailure('no API key configured'), /API Key/);
+  assert.match(friendlyFailure('no API key configured'), /模型密钥/);
   assert.match(friendlyFailure('model not found'), /模型暂时不可用/);
   assert.match(friendlyFailure('CLI login required'), /登录/);
   assert.match(friendlyFailure('process exited 1'), /CLI/);
@@ -2147,8 +2213,8 @@ test('reply: the quote is stored and served; a deleted original degrades without
   const { message: orig } = hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '一'.repeat(50) });
   const { message: reply } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '收到', replyTo: orig.id });
   assert.equal(reply.reply_to, orig.id);
-  const { publicMessage } = await import('./store.mjs');
-  const pub = publicMessage(reply, hub.store);
+  const { publicMessage: pm } = await import('./store.mjs');
+  const pub = pm(reply, hub.store);
   assert.deepEqual(pub.reply_to, { id: orig.id, author_kind: 'role', author: 'ju', name: '橘', text: '一'.repeat(40) + '…' });
   assert.deepEqual(events.at(-1).message.reply_to, pub.reply_to, 'the live event carries the quote');
   assert.equal(publicMessage(orig, hub.store).reply_to, undefined, 'a plain message has no quote');
@@ -3356,7 +3422,7 @@ test('#144 attachments: stored on the message, shown publicly, forwarded to bots
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { Attachments } = await import('./attachments.mjs');
-  const { publicMessage } = await import('./store.mjs');
+  const { publicMessage: pm } = await import('./store.mjs');
   const files = new Attachments(join(mkdtempSync(join(tmpdir(), 'collab-att-')), 'attachments'));
   const hub = makeHub();
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet, files });
@@ -3411,7 +3477,7 @@ test('bot image/file/audio frames become channel attachments; media capabilities
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { Attachments } = await import('./attachments.mjs');
-  const { publicMessage } = await import('./store.mjs');
+  const { publicMessage: pm } = await import('./store.mjs');
   const { MEDIA_CAPABILITIES, audioMime } = await import('./cloudweb.mjs');
   const files = new Attachments(join(mkdtempSync(join(tmpdir(), 'collab-media-')), 'attachments'));
   const hub = makeHub();
@@ -3449,7 +3515,7 @@ test('bot websocket cap fits a default 50 MiB cc-connect attachment; a 7 MiB fil
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { Attachments } = await import('./attachments.mjs');
-  const { publicMessage } = await import('./store.mjs');
+  const { publicMessage: pm } = await import('./store.mjs');
   const { BOT_WS_MAX_PAYLOAD } = await import('./plugin.mjs');
   const frameFor = (n) => JSON.stringify({ type: 'file', session_key: 'cloud_web:room-1', reply_ctx: 'room-1',
     data: Buffer.alloc(n).toString('base64'), mime_type: 'application/octet-stream', file_name: 'big.bin' });
@@ -5984,6 +6050,7 @@ test('cloud-web: a restarted bridge leaves no progress card stuck at 处理中 (
   const closed = hub.store.message(running);
   assert.equal(JSON.parse(closed.card).state, 'cancelled', 'stale running card is closed');
   assert.equal(JSON.parse(closed.card).title, 'CC · 已取消');
+  assert.deepEqual(JSON.parse(closed.card).chips, [{ tool: 'Bash', state: 'unknown', input: 'seq 1 20' }], 'an open step of a cut turn is no longer running');
   assert.match(closed.text, /seq 1 20/, 'the steps stay readable');
   assert.match(closed.text, /已中断/);
   assert.equal(JSON.parse(hub.store.message(done).card).state, 'completed', 'a finished card is not rewritten');
@@ -5994,6 +6061,29 @@ test('cloud-web: a restarted bridge leaves no progress card stuck at 处理中 (
   await tick();
   const fresh = Number(second.of('preview_ack').at(-1).preview_handle);
   assert.equal(JSON.parse(hub.store.message(fresh).card).state, 'running');
+});
+
+test('cloud-web: a permission card a hub restart left pending expires when its bot reconnects (#1017)', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const prompt = { type: 'buttons', reply_ctx: 'room-1', session_key: 'cloud_web:room-1', content: '要运行 npm ci',
+    buttons: [[{ Text: '允许', Data: 'perm:allow' }, { Text: '拒绝', Data: 'perm:deny' }]] };
+  const first = connect(gw, 'bot=fish&name=%E6%B5%8B%E8%AF%95%E9%B1%BC&mention_id=9001');
+  first.frame(prompt);
+  await tick();
+  const orphan = cardsIn(hub, 1)[0].id;
+  // The hub restarted: the card row is still pending, the in-memory request is gone.
+  hub.approvals.pending.clear();
+
+  const second = connect(gw, 'bot=fish&name=%E6%B5%8B%E8%AF%95%E9%B1%BC&mention_id=9001');
+  await tick();
+  assert.equal(JSON.parse(hub.store.message(orphan).card).state, 'expired', 'the orphan no longer waits for a click');
+
+  // The reconnected bot asks again: one pending card, not the same request shown twice.
+  second.frame(prompt);
+  await tick();
+  const pending = cardsIn(hub, 1).filter(m => JSON.parse(m.card).state === 'pending');
+  assert.equal(pending.length, 1);
 });
 
 test('cloud-web: a running card is closed even when the room moved far past the first page (#913)', async () => {
@@ -6020,4 +6110,208 @@ test('cloud-web: a running card is closed even when the room moved far past the 
   assert.equal(JSON.parse(closed.card).title, 'CC · 已取消');
   assert.match(closed.text, /seq 1 20/);
   assert.match(closed.text, /已中断/);
+});
+
+test('#1020 queue: a bridge bot reports the messages waiting behind its turn; going offline clears them', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const events = [];
+  hub.subscribe(e => { if (e.type === 'queue') events.push(e); });
+  const ju = connect(gw, 'bot=ju&name=橘&token=t');
+  assert.ok(ju.of('register_ack')[0].capabilities.includes('queue'));
+  const a = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 一' }).message;
+  const b = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 二' }).message;
+  ju.frame({ type: 'queue', session_key: 'cloud-web:room-1:owner', reply_ctx: 'room-1', msg_ids: [`hub-${a.id}`, `hub-${b.id}`] });
+  assert.deepEqual(hub.queueView(1), { ju: [a.id, b.id] });
+  ju.frame({ type: 'queue', session_key: 'cloud-web:room-1:owner', reply_ctx: 'room-1', msg_ids: [`hub-${a.id}`, `hub-${b.id}`] });
+  assert.equal(events.length, 1, 'an unchanged queue is not re-sent');
+  ju.frame({ type: 'queue', reply_ctx: 'room-1', msg_ids: [] });
+  assert.deepEqual(hub.queueView(1), {});
+  ju.frame({ type: 'queue', reply_ctx: 'room-1', msg_ids: [`hub-${b.id}`] });
+  ju.close(1000);
+  assert.deepEqual(hub.queueView(1), {}, 'an offline bot has no queue');
+});
+
+test('#1020 queue: a DSH member lists its pending jobs after the one it is running', () => {
+  const hub = makeHub();
+  const set = [];
+  hub.setQueue = (room, id, ids) => set.push([room, id, ids]);
+  const dsh = Object.create(DshMembers.prototype);
+  dsh.hub = hub; dsh.store = hub.store;
+  const m = text => hub.store.append(1, { authorKind: 'user', author: 'owner', name: '我', text }).message;
+  const [x, y, z] = [m('一'), m('二'), m('三')];
+  for (const t of [x, y, z]) hub.store.addJob('ds', 1, t.id);
+  dsh.syncQueue('ds', 1);
+  assert.deepEqual(set.at(-1), [1, 'ds', [y.id, z.id]]);
+  hub.store.finishJob(hub.store.jobByTrigger('ds', y.id).id, 'interrupted');
+  dsh.syncQueue('ds', 1);
+  assert.deepEqual(set.at(-1), [1, 'ds', [z.id]]);
+});
+
+test('#1020 memory sources: a reply carries the entries its author cited in that room since its last reply', async () => {
+  const { mkdtempSync, writeFileSync, appendFileSync, mkdirSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { createHash } = await import('node:crypto');
+  const { MemorySources, keyRoom } = await import('./memory-sources.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'memsrc-'));
+  const wiki = join(dir, 'wiki');
+  mkdirSync(join(wiki, 'bots'), { recursive: true });
+  const line = '- 2026-11-01 派活前先看队友状态，忙就换人。';
+  writeFileSync(join(wiki, 'bots/team.md'), `# 团队\n${line}\n`);
+  const h = createHash('sha1').update(line.trim()).digest('hex').slice(0, 10);
+  const votes = join(dir, 'votes.jsonl');
+  writeFileSync(votes, JSON.stringify({ voter: 'p', id: `bots/team.md#${h}`, vote: 1, by: 'self', key: 'cloud-web:room-1:owner' }) + '\n');
+  assert.equal(keyRoom('cloud-web:room-12:owner'), 12);
+  assert.equal(keyRoom('dsh:ds:3'), 3);
+
+  const hub = makeHub();
+  hub.memorySources = new MemorySources({ file: votes, wiki, home: dir });
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘&token=t');
+  const cite = (o) => appendFileSync(votes, JSON.stringify({ t: '', voter: 'p', vote: 1, by: 'self', agent: 'claudecode', ...o }) + '\n');
+  cite({ id: `bots/team.md#${h}`, key: 'cloud-web:room-1:owner' });
+  cite({ id: `bots/team.md#${h}`, key: 'cloud-web:room-1:owner' }); // cited twice: listed once
+  cite({ id: 'bots/gone.md#0123456789', key: 'cloud-web:room-1:owner' });
+  cite({ id: 'bots/other.md#aaaaaaaaaa', key: 'cloud-web:room-1:owner', vote: -1 }); // "entry is wrong" is no source
+  cite({ id: 'bots/other.md#bbbbbbbbbb', key: 'cloud-web:room-2:owner' }); // another room
+  cite({ id: 'bots/other.md#cccccccccc', key: 'cloud-web:room-1:owner', voter: 'q' }); // another bot
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', content: '✅ 模型已切到 x' }); // a command answer takes none
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', agent: true, content: '照做了' });
+  const rows = hub.store.page(1, undefined, 10).map(r => publicMessage(r, hub.store));
+  assert.equal(rows.at(-2).memories, undefined);
+  assert.deepEqual(rows.at(-1).memories, [
+    { id: `bots/team.md#${h}`, ref: h, page: 'bots/team.md', title: '2026-11-01 派活前先看队友状态，忙就换人。' },
+    { id: 'bots/gone.md#0123456789', ref: '0123456789', page: 'bots/gone.md', title: '' },
+  ], 'the line written before the hub started is not counted; a moved page keeps its path');
+  ju.frame({ type: 'reply', reply_ctx: 'room-1', agent: true, content: '再一条' });
+  assert.equal(publicMessage(hub.store.page(1, undefined, 10).at(-1), hub.store).memories, undefined, 'each citation goes to one reply');
+});
+
+test('#149 gate context: without GATE_PORT the port comes from the bridge config.toml', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { GateContext, resolveGatePort, gatePortSetting, bridgeConfigFile, DEFAULT_GATE_PORT } = await import('./gate-context.mjs');
+  const data = mkdtempSync(join(tmpdir(), 'gateport-'));
+  const config = join(data, 'config.toml');
+  assert.equal(gatePortSetting('[gate]\nport = 9931 # 本机\n'), 9931);
+  assert.equal(gatePortSetting('[management]\nport = 51442\n'), 0, "another table's port is not the gate's");
+  assert.equal(bridgeConfigFile({ CC_DATA_DIR: data }, '/h'), config, 'the same file the bridge reads under its data dir');
+
+  const gate = await fakeGate(() => ({ wiki: [BOARD] }));
+  // The run's config names the gate's port; the environment has none (reload-dsh.py's reused env).
+  writeFileSync(config, `[management]\nport = 51442\n\n[gate]\nport = ${gate.port}\n`);
+  const saved = { GATE_PORT: process.env.GATE_PORT, BOTHOUSE_DATA_DIR: process.env.BOTHOUSE_DATA_DIR, GATE_SETUP_DIR: process.env.GATE_SETUP_DIR, CC_DATA_DIR: process.env.CC_DATA_DIR, BOTHOUSE_CONFIG: process.env.BOTHOUSE_CONFIG };
+  delete process.env.GATE_PORT; delete process.env.BOTHOUSE_DATA_DIR; delete process.env.GATE_SETUP_DIR; delete process.env.BOTHOUSE_CONFIG;
+  process.env.CC_DATA_DIR = data;
+  try {
+    const logs = [];
+    const logger = { info: (...a) => logs.push(a), warn: (...a) => logs.push(a), debug() {} };
+    const ctx = new GateContext({ logger });
+    assert.equal(ctx.port, String(gate.port), 'no GATE_PORT: config.toml [gate] port is used');
+    const turn = await ctx.turn({ member: 'ds', room: 1, session: 's', text: '@DeepSeek 任务板' });
+    assert.match(turn.block, /【任务板 abc123】 — 谁手上有哪件事、做在哪/, 'the pages arrive without GATE_PORT set');
+    assert.equal(gate.calls[0].body.key, 'dsh:ds:1');
+    assert.equal(logs.length, 1, 'one line at startup saying which port, and from where');
+    assert.ok(logs[0].includes(String(gate.port)), 'the line names the port used');
+    assert.match(logs[0].join(' '), /\[gate\] port/);
+    assert.deepEqual(resolveGatePort({ ...process.env, GATE_PORT: '1234' }), { port: '1234', why: 'GATE_PORT' }, 'GATE_PORT still wins when set');
+
+    // No [gate] table: gate.py's own default, and the log says it is the default.
+    writeFileSync(config, '[management]\nport = 51442\n');
+    assert.deepEqual(resolveGatePort(process.env), { port: '9930', why: `${config} 没有 [gate] port，用默认端口` });
+    assert.equal(DEFAULT_GATE_PORT, 9930, 'gate.py PORT');
+
+    // No config file either: no port, no context, and the log says why instead of going quiet.
+    const other = mkdtempSync(join(tmpdir(), 'gateport-none-'));
+    process.env.CC_DATA_DIR = other;
+    const none = [];
+    const blank = new GateContext({ logger: { info: (...a) => none.push(a), warn: (...a) => none.push(a), debug() {} } });
+    assert.equal(blank.port, '');
+    assert.equal(none.length, 1);
+    assert.match(none[0].join(' '), /没有 gate 端口/);
+    assert.equal((await blank.turn({ member: 'ds', room: 1, session: 's', text: 'x' })).block, '');
+  } finally {
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    await gate.close();
+  }
+});
+
+test('#149 memory sources: without BOTHOUSE_DATA_DIR the path still finds the gate\'s votes.jsonl', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, appendFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { createHash } = await import('node:crypto');
+  const { MemorySources, defaultVotesFile } = await import('./memory-sources.mjs');
+  const home = mkdtempSync(join(tmpdir(), 'memsrc-env-'));
+  const data = join(home, 'data');
+  mkdirSync(join(data, 'gate'), { recursive: true });
+  const votes = join(data, 'gate', 'votes.jsonl');
+  writeFileSync(votes, '');
+
+  // The environment reload-dsh.py hands a `dsh web`: CC_DATA_DIR only (no BOTHOUSE_DATA_DIR, no MEMVOTE_DIR).
+  const env = { HOME: home, CC_DATA_DIR: data };
+  assert.equal(defaultVotesFile(env, home), votes, 'CC_DATA_DIR names the data dir the running gate writes to');
+  assert.equal(defaultVotesFile({ ...env, GATE_SETUP_DIR: join(home, 'setup') }, home), join(home, 'setup', 'gate', 'votes.jsonl'), 'as datadir.py: GATE_SETUP_DIR before CC_DATA_DIR');
+  assert.equal(defaultVotesFile({ ...env, BOTHOUSE_DATA_DIR: join(home, 'bh') }, home), join(home, 'bh', 'gate', 'votes.jsonl'), 'BOTHOUSE_DATA_DIR still wins');
+  assert.equal(defaultVotesFile({ ...env, MEMVOTE_DIR: join(home, 'mv') }, home), join(home, 'mv', 'votes.jsonl'), "memvote's own override wins");
+  assert.equal(defaultVotesFile({ HOME: home }, home), join(home, '.bothouse', 'gate', 'votes.jsonl'), 'nothing set: the default data dir');
+  assert.equal(defaultVotesFile({ HOME: home, CC_DATA_DIR: '~/d' }, home), join(home, 'd', 'gate', 'votes.jsonl'), '~ as the gate expands it');
+
+  // The badge itself: a cite written where the gate writes it reaches the reply of a member with no data dir in env.
+  const wiki = join(home, 'wiki');
+  mkdirSync(join(wiki, 'bots'), { recursive: true });
+  const line = '- 2026-11-05 找不到票文件时先看 CC_DATA_DIR。';
+  writeFileSync(join(wiki, 'bots', 'team.md'), `# 团队\n${line}\n`);
+  const h = createHash('sha1').update(line.trim()).digest('hex').slice(0, 10);
+  const logs = [];
+  const log = [];
+  const sources = new MemorySources({ file: defaultVotesFile(env, home), wiki, home, logger: { info: (...a) => logs.push(a), warn: (...a) => logs.push(a) } });
+  assert.equal(logs.length, 1, 'it says which file the badge reads, in one line');
+  assert.match(logs[0].join(' '), /reading .*data\/gate\/votes\.jsonl/);
+  appendFileSync(votes, JSON.stringify({ voter: 'p', id: `bots/team.md#${h}`, vote: 1, by: 'self', key: 'dsh:ds:3' }) + '\n');
+  assert.deepEqual(sources.take('p', 3).map(s => [s.page, s.title]), [['bots/team.md', '2026-11-05 找不到票文件时先看 CC_DATA_DIR。']]);
+
+  // A data dir whose gate has written nothing yet: the path is still followed, and the log says so once.
+  const elsewhere = join(home, 'nowhere');
+  const empty = new MemorySources({ file: defaultVotesFile({ HOME: elsewhere }, elsewhere), wiki, home, logger: { info: (...a) => log.push(a), warn: (...a) => log.push(a) } });
+  assert.equal(empty.file, join(elsewhere, '.bothouse', 'gate', 'votes.jsonl'));
+  assert.equal(log.length, 1);
+  assert.match(log[0].join(' '), /does not exist yet/, 'a missing file is one line, not silence');
+  assert.deepEqual(empty.take('p', 3), []);
+});
+
+test('roster: a re-run wizard reuses the preset role the plugin seeded on its first start (no 鲸鱼娘-2)', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'collab-wiz-'));
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  assert.deepEqual(await roster.seedDefaults(join(dir, 'default-members.json'), 'zh'), ['鲸鱼娘']);
+  const file = join(dir, 'wizard-members.json');
+  for (let i = 0; i < 3; i++) {
+    writeFileSync(file, JSON.stringify({ members: [{ name: '鲸鱼娘', name_customized: false }] }));
+    assert.deepEqual(await roster.importWizard(file), [], `wizard run ${i + 1}`);
+  }
+  assert.deepEqual(hub.store.members().map(r => r.name), ['鲸鱼娘']);
+});
+
+test('roster: a default-named member from before name_customized was stored is reused, not doubled', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'collab-wiz-'));
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  await roster.create({ name: 'DSH' }); // an older wizard import: no name_customized stored
+  const file = join(dir, 'wizard-members.json');
+  for (let i = 0; i < 3; i++) {
+    writeFileSync(file, JSON.stringify({ members: [{ name: 'DSH', name_customized: false }] }));
+    assert.deepEqual(await roster.importWizard(file), [], `wizard run ${i + 1}`);
+  }
+  assert.deepEqual(hub.store.members().map(r => r.name), ['DSH']);
 });

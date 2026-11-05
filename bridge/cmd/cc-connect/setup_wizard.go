@@ -57,7 +57,7 @@ func toCoreSnapshot(ps []config.WizardProjectSnapshot) core.WizardSnapshot {
 	for _, p := range ps {
 		out.Projects = append(out.Projects, core.WizardExistingProject{Name: p.Name, AgentType: p.AgentType, WorkDir: p.WorkDir,
 			AgentCmd: p.AgentCmd, Platforms: p.Platforms, GateURL: p.GateURL, GateFallback: p.GateFallback,
-			DisplayName: p.TeamName})
+			DisplayName: p.TeamName, AdminFrom: p.AdminFrom})
 	}
 	return out
 }
@@ -96,7 +96,7 @@ func (configWizardStore) ApplyProjects(plan func(core.WizardSnapshot) ([]core.Wi
 			o := config.WizardProjectOptions{Name: w.Name, AgentType: w.AgentType, WorkDir: w.WorkDir, AgentCmd: w.AgentCmd,
 				AgentArgs: w.AgentArgs, AgentEnv: w.AgentEnv, AgentOptions: w.AgentOptions,
 				PlatformType: w.PlatformType, Options: w.Options, GateURL: w.GateURL, GateFallback: w.GateFallback,
-				OwnerOpenID: w.FeishuOwnerOpenID, DisplayName: w.DisplayName, NameCustomized: w.NameCustomized}
+				OwnerOpenID: w.FeishuOwnerOpenID, DisplayName: w.DisplayName, NameCustomized: w.NameCustomized, AdminFrom: w.AdminFrom}
 			if w.Provider != nil {
 				p := config.ProviderConfig{Name: w.Provider.Name, APIKey: w.Provider.APIKey, BaseURL: w.Provider.BaseURL,
 					Model: w.Provider.Model, Thinking: w.Provider.Thinking, APIFormat: w.Provider.APIFormat}
@@ -173,6 +173,11 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	srv := core.NewManagementServer(port, token, cfg.Management.CORSOrigins)
 	srv.SetHost(host)
 	srv.SetConfigFilePath(configPath)
+	// A DSH-only install stays in setup mode; the tray's 今日用量 and the usage page still query
+	// /api/v1/usage here, which answered 503 without a ledger (PR #1011).
+	usageLedger := core.NewUsageLedger(cfg.DataDir, core.UsagePricesWithDefaults(cfg.UsagePrices))
+	srv.SetUsageLedger(usageLedger)
+	srv.SetUsageImporter(core.NewUsageImporter(cfg.DataDir, usageLedger, usageLogSources(cfg.Projects)...))
 	srv.SetSetupFeishuSave(saveFeishuSetup)
 	srv.SetWizard(configWizardStore{}, cfg.DataDir)
 	wireAutostart(srv)

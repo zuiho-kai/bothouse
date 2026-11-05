@@ -962,8 +962,20 @@ def merge_newer(label, files, accept, once):
 # Taken whole as USER, dream (2026-10-16) counted the user's reply to 彩虹猫, 鲸鱼娘's complaint and a handoff copy
 # as the user correcting Claude. speakers() splits a record into (label, text) by who said it.
 TEAMMATES = tuple(n for b, names in BOTS.items() if b != ASSISTANT for n in names)  # 橘: 龙娘、鲸鱼娘、彩虹猫
-USER_NAMES = tuple(CFG["user_names"])  # the user's Discord name in channel lines
+# the user's Discord names in channel lines. A placeholder like 「<用户名>」 (setup_wiki.py before 2026-11-05) is no name.
+USER_NAMES = tuple(n for n in CFG["user_names"] if n and not (n.startswith("<") and n.endswith(">")))
 ASSISTANT_NAMES = BOTS[ASSISTANT]  # replying to these is talking to the assistant (橘: Claude橘, 橘)
+
+
+def is_user(name):
+    """A speaker is the user: any human, i.e. a name that is neither the assistant nor a teammate bot, so a new person
+    in the channel counts with no config change (user 2026-11-05 「这个也要加上允许多用户」); user_names only adds
+    names on top (agentm 2026-11-05: a placeholder there left every user line OTHER)."""
+    if name in USER_NAMES:
+        return True
+    return not (name == ASSISTANT or name in ASSISTANT_NAMES or name in TEAMMATES or name in BOTS)
+
+
 CHANNEL = "补漏 "  # label prefix for lines of the bridge's 「频道里你上次看到之后的消息」 block (context, not new facts)
 
 
@@ -1006,7 +1018,7 @@ def speakers(text, bridge=True):
                 name = m.group(1).strip()
                 # CHANNEL: a copy of channel messages, often already in another session and without the reply
                 # they answered (7ee898a2 read 「没问题，同时增加sop」 here as a verdict on the wiki; it approved a fix)
-                cur = [CHANNEL + ("USER" if name in USER_NAMES else "CLAUDE" if name in ASSISTANT_NAMES else
+                cur = [CHANNEL + ("CLAUDE" if name in ASSISTANT_NAMES else "USER" if is_user(name) else
                        "TEAM " + name if name in TEAMMATES else "OTHER " + name), m.group(3)]
                 out.append(cur)
             elif cur:
@@ -1055,7 +1067,7 @@ def said_by(speaker, text):
     """(label, text) pieces of a message a bridge recorded by itself, with the platform's name for who said it
     (sessionlog via=bridge): the user's go through speakers() ([replying to …], 【name】 forwards); a teammate's and
     the assistant's own are labelled by name."""
-    if speaker in USER_NAMES:
+    if speaker not in ASSISTANT_NAMES and speaker != ASSISTANT and is_user(speaker):
         return speakers(text, True)
     if speaker in ASSISTANT_NAMES or speaker == ASSISTANT:
         return [("CLAUDE", text.strip())]

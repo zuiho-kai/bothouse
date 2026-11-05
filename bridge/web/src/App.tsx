@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '@/store/auth';
 import Layout from '@/components/Layout/Layout';
 import Login from '@/pages/Login';
@@ -18,11 +18,17 @@ import SkillList from '@/pages/Skills/SkillList';
 import SetupWizard from '@/pages/Setup/SetupWizard';
 import RoleList from '@/pages/Roles/RoleList';
 import DeviceList from '@/pages/Devices/DeviceList';
+import AppList from '@/pages/Apps/AppList';
 import BridgeAdapters from '@/pages/Bridge/BridgeAdapters';
+import WikiGalaxyPage from '@/pages/Wiki/WikiGalaxyPage';
+import NotFound from '@/pages/NotFound';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  const location = useLocation();
+  // Carry the query along: the bridge prints links like /?token=…&next=… and the old redirect
+  // dropped everything after the path, so the token never reached the login form.
+  if (!isAuthenticated) return <Navigate to={{ pathname: '/login', search: location.search }} replace />;
   return <>{children}</>;
 }
 
@@ -52,6 +58,8 @@ export default function App() {
         <Route path="setup" element={<SetupRoute />} />
         <Route path="roles" element={<RoleList />} />
         <Route path="devices" element={<DeviceList />} />
+        <Route path="wiki-galaxy" element={<WikiGalaxyPage />} />
+        <Route path="apps" element={<AppList />} />
         <Route path="projects" element={<ProjectList />} />
         <Route path="projects/:name" element={<ProjectDetail />} />
         <Route path="sessions" element={<SessionList />} />
@@ -64,6 +72,7 @@ export default function App() {
         <Route path="cron" element={<CronList />} />
         <Route path="library" element={<LibraryPage />} />
         <Route path="system" element={<SystemConfig />} />
+        <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
   );

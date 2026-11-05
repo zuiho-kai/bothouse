@@ -6,6 +6,7 @@
     "dashboard": "總覽",
     "roles": "角色",
     "devices": "設備",
+    "apps": "接入應用",
     "projects": "專案",
     "providers": "服務商",
     "sessions": "工作階段",
@@ -13,7 +14,8 @@
     "cron": "排程工作",
     "bridge": "橋接",
     "skills": "技能",
-    "system": "系統"
+    "system": "系統",
+    "wikiGalaxy": "Wiki 星河"
   },
   "dashboard": {
     "title": "總覽",
@@ -162,7 +164,13 @@
     "platform": "平台",
     "capabilities": "能力",
     "connectedAt": "連線時間",
-    "noAdapters": "尚無橋接介接器"
+    "connectedPlatforms": "已連線平台",
+    "noPlatforms": "暫無已連線平台",
+    "noPlatformsHint": "還沒有角色連上任何平台。到「專案」頁給角色接一個平台。",
+    "externalAdapters": "外接適配器",
+    "bridgeDisabled": "橋接服務未啟用",
+    "bridgeDisabledHint": "這些平台由角色直接連線；外接客戶端（如桌面托盤）接入還需要在設定裡打開橋接服務。",
+    "noAdapters": "暫無外接適配器"
   },
   "system": {
     "title": "系統",
@@ -365,6 +373,16 @@
     "rlMaxMessagesHint": "每個視窗內的最大訊息數；0 = 不限制",
     "rlWindowSecs": "視窗時間（秒）",
     "rlWindowSecsHint": "時間視窗的秒數",
+    "review": "審核模型",
+    "reviewAuto": "自動（任一空閒的非作者角色）",
+    "reviewSimple": "簡單檔",
+    "reviewSimpleHint": "沒標複雜的交回先由它驗收；選個便宜的模型",
+    "reviewComplex": "複雜檔",
+    "reviewComplexHint": "審的人跑 board tier <編號> complex 升檔後由它再審",
+    "reviewSimpleModel": "簡單檔模型",
+    "reviewComplexModel": "複雜檔模型",
+    "reviewModelRole": "沿用該角色自己的模型",
+    "reviewModelHint": "審核開新會話，用這個模型跑",
     "log": "記錄",
     "logLevel": "記錄層級",
     "appearance": "外觀",
@@ -446,5 +464,15 @@
     "system": "跟隨系統",
     "yellow": "黃白明亮",
     "toggle": "切換主題"
+  },
+  "wikiGalaxy": {
+    "title": "Wiki 星河",
+    "subtitle": "把 wiki 畫成星系：每頁一顆星，點星看內容。唯讀，不改檔案。",
+    "open": "單獨開啟"
+  },
+  "notFound": {
+    "title": "頁面不存在",
+    "hint": "位址可能拼錯了，或這個頁面已經移走。",
+    "home": "回首頁"
   }
 }

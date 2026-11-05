@@ -27,12 +27,14 @@ type proxyFakeDSH struct {
 	srv     *httptest.Server
 	logins  atomic.Int32
 	session atomic.Value // current valid cookie value
+	launch  atomic.Value // current valid launch token
 	release chan struct{}
 }
 
 func newProxyFakeDSH(t *testing.T) *proxyFakeDSH {
 	f := &proxyFakeDSH{release: make(chan struct{})}
 	f.session.Store("v1")
+	f.launch.Store("launch")
 	up := websocket.Upgrader{}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.Host, "127.0.0.1:") || r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") == "cross-site" {
@@ -40,7 +42,7 @@ func newProxyFakeDSH(t *testing.T) *proxyFakeDSH {
 			return
 		}
 		if r.URL.Path == "/" && r.URL.Query().Has("token") {
-			if r.URL.Query().Get("token") != "launch" {
+			if r.URL.Query().Get("token") != f.launch.Load().(string) {
 				http.Error(w, "bad token", http.StatusUnauthorized)
 				return
 			}
@@ -116,6 +118,7 @@ func newProxyFakeDSH(t *testing.T) *proxyFakeDSH {
 func setupDSHProxyTest(t *testing.T, fake *proxyFakeDSH, token string) *httptest.Server {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows: else dsh-web.json leaks between tests
 	if fake != nil {
 		writeProxyDSHWeb(t, fake.srv.URL+"/?token=launch#channels")
 	}
@@ -490,6 +493,62 @@ func TestDSHProxyRewritesAppShellUnderPrefix(t *testing.T) {
 	}
 }
 
+// TestDSHProxyRewritesPanelMountBase keeps the bothouse panel reachable through /dsh/: the collab
+// host points the panel's base at its own mount (/collab/panel/), and leaving that untouched makes
+// the panel load its assets and /api/v1 from the bare path, where the management SPA answers with
+// index.html instead of JavaScript.
+func TestDSHProxyRewritesPanelMountBase(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skipf("node not available: %v", err)
+	}
+	// The fixture is panel.mjs's own rewritePanelHTML output, not a tag written by hand here.
+	out, err := exec.Command("node", "--input-type=module", "-e", `import { pathToFileURL } from 'node:url';`+
+		`const m = await import(pathToFileURL(process.argv[1]).href);`+
+		`process.stdout.write(m.rewritePanelHTML('<html><head><base href="/" /><script type="module" src="./assets/index.js"></script></head><body><div id="root"></div></body></html>'))`,
+		filepath.Join("..", "..", "dsh", "collab", "panel.mjs")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("panel.mjs: %v\n%s", err, out)
+	}
+	panel := string(out)
+	if !strings.Contains(panel, `<base href="/collab/panel/" />`) {
+		t.Fatalf("panel.mjs fixture shape changed: %s", panel)
+	}
+	res := &http.Response{Header: http.Header{"Content-Type": {"text/html"}}, Body: io.NopCloser(strings.NewReader(panel))}
+	if err := dshRewriteHTML(res); err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<base href="/dsh/collab/panel/" />`,
+		`<meta name="bothouse-auth" content="proxy" />`,
+		`src="./assets/index.js"`,
+	} {
+		if !strings.Contains(string(got), want) {
+			t.Fatalf("panel page lacks %s:\n%s", want, got)
+		}
+	}
+	if strings.Contains(string(got), `<base href="/collab/panel/"`) {
+		t.Fatalf("panel base kept its unprefixed mount:\n%s", got)
+	}
+	// DSH's own root shell and the collab pages without a base stay as they were.
+	for _, tc := range []struct{ name, body, want string }{
+		{"dsh root shell", `<html><head><base href="/"></head></html>`, `<base href="/dsh/"><script>`},
+		{"collab page without base", `<html><head><script>fetch('/collab/api/state')</script></head></html>`, `fetch('/collab/api/state')`},
+	} {
+		res := &http.Response{Header: http.Header{"Content-Type": {"text/html"}}, Body: io.NopCloser(strings.NewReader(tc.body))}
+		if err := dshRewriteHTML(res); err != nil {
+			t.Fatal(err)
+		}
+		got, _ := io.ReadAll(res.Body)
+		if !strings.Contains(string(got), tc.want) || strings.Contains(string(got), "/dsh/collab/panel/") {
+			t.Fatalf("%s: %s", tc.name, got)
+		}
+	}
+}
+
 // TestDSHPathShimRewritesOnlyDSHRoutes runs the injected shim in node and checks every request
 // entry point: DSH routes get /dsh, while the panel API, already-prefixed paths, other origins and
 // other schemes stay as given.
@@ -551,6 +610,48 @@ console.log(JSON.stringify(out))`
 	for _, c := range cases {
 		if g := got[c.entry+" "+c.in]; g != c.want {
 			t.Errorf("%s(%q) = %q, want %q", c.entry, c.in, g, c.want)
+		}
+	}
+}
+
+// PR #1011: a Windows machine sent `Origin: http://127.0.0.1` (port dropped) on same-origin HTTP
+// requests. Accepted only with Sec-Fetch-Site same-origin and a Referer naming this exact origin.
+func TestDSHProxyOriginPortDropped(t *testing.T) {
+	fake := newProxyFakeDSH(t)
+	panel := setupDSHProxyTest(t, fake, "secret")
+	c := dshSignIn(t, panel, "secret")
+	post := func(h map[string]string) int {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, panel.URL+"/dsh/collab/api/rooms/general/messages", strings.NewReader("hi"))
+		for k, v := range h {
+			req.Header.Set(k, v)
+		}
+		res, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	host := strings.TrimPrefix(panel.URL, "http://")
+	bare := "http://" + strings.Split(host, ":")[0]
+	ok := map[string]string{"Origin": bare, "Sec-Fetch-Site": "same-origin", "Referer": panel.URL + "/dsh/"}
+	if s := post(ok); s != http.StatusOK {
+		t.Fatalf("port-less Origin with same-origin metadata and matching Referer: %d, want 200", s)
+	}
+	refuse := map[string]map[string]string{
+		"no fetch metadata":   {"Origin": bare, "Referer": panel.URL + "/dsh/"},
+		"same-site":           {"Origin": bare, "Sec-Fetch-Site": "same-site", "Referer": panel.URL + "/dsh/"},
+		"no referer":          {"Origin": bare, "Sec-Fetch-Site": "same-origin"},
+		"referer other port":  {"Origin": bare, "Sec-Fetch-Site": "same-origin", "Referer": bare + ":1/"},
+		"origin other port":   {"Origin": bare + ":1", "Sec-Fetch-Site": "same-origin", "Referer": panel.URL + "/dsh/"},
+		"origin other scheme": {"Origin": "https://" + strings.Split(host, ":")[0], "Sec-Fetch-Site": "same-origin", "Referer": panel.URL + "/dsh/"},
+		"websocket upgrade":   {"Origin": bare, "Sec-Fetch-Site": "same-origin", "Referer": panel.URL + "/dsh/", "Upgrade": "websocket"},
+		"origin other host":   {"Origin": "http://evil.example", "Sec-Fetch-Site": "same-origin", "Referer": panel.URL + "/dsh/"},
+	}
+	for name, h := range refuse {
+		if s := post(h); s != http.StatusForbidden {
+			t.Errorf("%s: %d, want 403", name, s)
 		}
 	}
 }

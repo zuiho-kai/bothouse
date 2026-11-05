@@ -137,11 +137,16 @@ fi
 
 echo "== step: plugin"
 echo "== install into profile $PROFILE"
+# Git Bash on Windows: pwd gives /c/Users/...; pnpm (a Windows program) reads that as a missing
+# directory, links nothing, and dsh then cannot resolve the bundles. Hand it C:/Users/... instead.
+LINK_HERE="$HERE"
+if pwd -W >/dev/null 2>&1; then LINK_HERE="$(cd "$HERE" && pwd -W)"; fi
+LINK_UI="$LINK_HERE/packages/client-ui-discord"
 if [ -n "$WEB_APP" ]; then
-  dsh plugin --profile "$PROFILE" add "link:$WEB_APP" "link:$HERE/collab" "link:$UI"
+  dsh plugin --profile "$PROFILE" add "link:$WEB_APP" "link:$LINK_HERE/collab" "link:$LINK_UI"
 else
   echo "== dsh-web-app not found in local dsh path, linking collab and ui plugins"
-  dsh plugin --profile "$PROFILE" add "link:$HERE/collab" "link:$UI"
+  dsh plugin --profile "$PROFILE" add "link:$LINK_HERE/collab" "link:$LINK_UI"
 fi
 if [ -n "$LANG_PREF" ] && command -v node >/dev/null; then
   # DSH keeps the UI language as config of the `locale` entry (dsh-client-locale, field

@@ -28,7 +28,7 @@ NAMES = {k: v.get("name") or k for k, v in _bots.items()}
 PERSONA = {k: v.get("persona") or str(Path(v["workdir"]) / "AGENTS.md") for k, v in _bots.items()}
 SRC = os.environ.get("LLM_WIKI_SRC") or str(H / "llm-wiki")
 LEAD = os.environ.get("WIKI_LEAD", "主角色")
-USER = os.environ.get("WIKI_USER", "<用户名>")
+USER = os.environ.get("WIKI_USER", "")  # "": not known; ingest.py then takes any human who is no teammate as the user
 TRANSCRIPTS = os.environ.get("WIKI_TRANSCRIPTS") or str(HERE / "transcripts")
 MAIN_MARK = ".bothouse-main"  # in a main wiki this program made: the lead project whose wiki it is ("" = nobody's)
 ROLE_MARK = ".bothouse-role"  # in a role wiki this program made (made() may remove it when half-made)
@@ -49,7 +49,7 @@ INTRO = """# Wiki schema
 
 - CLAUDE 行 = {name}自己说的话、做的事（工具调用行是她跑的命令）。本 wiki 用第二人称「你」指{name}。
 - USER 行 = 频道送进来的消息，不全是用户本人：
-  - {team_prefixes}开头的是队友；`{user}:` 或没有前缀的才是用户本人。
+  - {team_prefixes}开头的是队友；{user_line}
   - 「【外出·接着】」「定时触发」「⏰」之类是系统定时消息，不是谁说的话。
   - 「（日记条目：…）」是标记：紧跟着的 CLAUDE 行是{name}自己写的日记。
 - 写「用户说/用户定/用户否决」前，先确认那句确实是用户本人说的；队友说的写「{lead}说」等。
@@ -118,7 +118,7 @@ def main_wiki(w, lead, project=""):
         team = json.loads(os.environ.get("WIKI_TEAM") or "[]") or []
         persona = os.environ.get("WIKI_LEAD_PERSONA", "")
         cfg = {"transcripts": f"{TRANSCRIPTS}/{project}", "assistant": lead,
-               "bots": {n: [n] for n in dict.fromkeys([lead, *NAMES.values(), *team])}, "user_names": [USER],
+               "bots": {n: [n] for n in dict.fromkeys([lead, *NAMES.values(), *team])}, "user_names": [USER] if USER else [],
                "rule_files": [persona] if persona else []}
     else:
         (w / ".no-sessions").mkdir(exist_ok=True)
@@ -154,7 +154,8 @@ def main(bot):
                         "回答「上次和用户玩了什么」：MEMORY.md → `experiences/README.md` → 对应主题页。")
     prefixes = "".join(f"「【{n}】」" for n in [LEAD, *NAMES.values()])
     (w / "CLAUDE.md").write_text(INTRO.format(name=name, bot=bot, transcripts=TRANSCRIPTS, team_prefixes=prefixes,
-                                              user=USER, lead=LEAD) + body)
+                                              user_line=(f"`{USER}:` 或没有前缀的才是用户本人。" if USER else
+                                                         "其他名字开头（群里可能有几位真人）或没有前缀的是用户本人。"), lead=LEAD) + body)
     # bin/ingest.py and bin/lint.py forward to the shared tool (../bin, or $WIKI_BIN), same as the author's sub wikis
     for f in ("ingest.py", "lint.py", "search.py"):
         shutil.copy(HERE / "llmwiki" / "teammate" / f, w / "bin" / f)
@@ -176,7 +177,7 @@ def main(bot):
     (w / "log.md").write_text("# Log\n\n只追加的历史。条目格式：`## [YYYY-MM-DD] ingest | <sid8> <会话标题>`（见 CLAUDE.md）。\n")
     cfg = {
         "transcripts": f"{TRANSCRIPTS}/{bot}",
-        "assistant": name, "bots": {n: [n] for n in [LEAD, *NAMES.values()]}, "user_names": [USER],
+        "assistant": name, "bots": {n: [n] for n in [LEAD, *NAMES.values()]}, "user_names": [USER] if USER else [],
         # every pass on codex (ChatGPT subscription), none on Claude: user 「额度花太快」; models and efforts as
         # ~/wiki's private pipeline (~/wiki/bin/ingest.py:55-77: night/review/dream/split codex:high, lint codex:max,
         # chain gpt-6-luna → gpt-6.1-sol → gpt-6-astra)

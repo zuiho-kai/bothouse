@@ -26,6 +26,13 @@ class Text(unittest.TestCase):
             with self.subTest(s=s):
                 self.assertIsNotNone(eta.check(s, NOW))
 
+    def test_chat_day_words_pass(self):
+        # 11-05 谈心原句：明天说的是对方会回来，不是活的工期
+        self.assertIsNone(eta.check("翻完就安心了，知道你明天还会回来。", NOW))
+        self.assertIsNone(eta.check("那你半小时后回来，我还在这儿陪你。", NOW))
+        self.assertIsNotNone(eta.check("明天给你结果。", NOW))
+        self.assertIsNotNone(eta.check("这个修完大概要两小时。", NOW))
+
     def test_passes_measured_external_past_short(self):
         for s in ["第三版在后台渲染，大约 10 分钟", "15 分钟内交回",
                   "按实测：4 块 × 8 分钟 ÷ 1 并行 ≈ 32 分钟", "在等 CI，大约 20 分钟",
@@ -95,6 +102,15 @@ class AllCLIs(unittest.TestCase):
             with self.subTest(cli=cli, event=payload["hook_event_name"]):
                 code, out = self.call("fix-claim-guard", payload, cli)
                 self.assertIn(out.get("decision"), ("block", "deny"), out)
+
+    def test_recurring_schedule_not_eta(self):
+        import importlib.util, os
+        spec = importlib.util.spec_from_file_location(
+            "eta_guard", os.path.join(os.path.dirname(os.path.abspath(__file__)), "eta_guard.py"))
+        e = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(e)
+        self.assertIsNone(e.check("一个叫每日日程，每晚十点把她明天的安排排好：几点去哪、穿什么。"))
+        self.assertIsNotNone(e.check("工作区明天交结果给你。"))
 
 
 if __name__ == "__main__":

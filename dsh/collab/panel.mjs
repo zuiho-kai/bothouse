@@ -89,7 +89,16 @@ function sendNotice(res, status, reason) {
  * @returns {string}
  */
 export function rewritePanelHTML(html, prefix = PANEL_PREFIX) {
-  const head = `<base href="${prefix}/" />\n    <meta name="bothouse-auth" content="proxy" />`;
+  // The page may itself sit under another proxy's prefix: the bridge management server mounts
+  // the whole DSH site at /dsh/ (core/management_dsh_proxy.go) and strips it before DSH sees the
+  // request, so this route cannot know it. A fixed <base href="/collab/panel/"> then sends the
+  // panel's scripts to the management server's own /collab/panel/..., which answers with its
+  // index.html, and the frame stays blank. The inline script moves <base> to wherever the page
+  // was actually loaded from, before any asset URL is resolved (it runs ahead of the panel's
+  // module scripts, and basePath.ts reads document.baseURI only when they run).
+  const mount = JSON.stringify(`${prefix}/`).replace(/</g, '\\u003c');
+  const fix = `<script>(()=>{const m=${mount},p=location.pathname,i=p.indexOf(m);if(i>0)document.querySelector("base").setAttribute("href",p.slice(0,i)+m)})()</script>`;
+  const head = `<base href="${prefix}/" />${fix}\n    <meta name="bothouse-auth" content="proxy" />`;
   if (/<base\s[^>]*>/i.test(html)) return html.replace(/<base\s[^>]*>/i, head);
   return html.replace(/<head(\s[^>]*)?>/i, m => `${m}\n    ${head}`);
 }
