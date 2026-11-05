@@ -58,6 +58,9 @@ var agentHooks = []agentHook{
 	// Only PreToolUse, every tool: once a subagent's context is past the line its tool calls are denied with the
 	// handoff instructions as the reason. No agent_id in the payload (main session, CLIs without subagents) = pass.
 	{"subagent-ctx-hook", "PreToolUse", "", 5},
+	// Only in a team workspace: once one turn has run hooks/ws-cap.json's max_steps or max_minutes, every tool
+	// call except the wrap-up ones (write the handoff, push the branch, ws-up, report) is denied (#1112).
+	{"ws-cap-guard", "PreToolUse", "", 10},
 	// When a subagent is dispatched, prepend the code maps
 	// (<data_dir>/codemaps/*.md, picked by their keywords: line) the task matches; when it finishes, append the
 	// "## 地图要补的条目（<map>）" entries of its report to that map.
@@ -550,12 +553,12 @@ func (o AgentHookOptions) dshPatch() string {
 
 // codexHooks are the hooks run.py --codex can adapt; codexMatchers their Codex matcher. Codex's shell tool is
 // Bash and its file edits are apply_patch (PreToolUse fires for both, tool_name stays apply_patch).
-var codexHooks = []string{"bash-guard", "ask-only-guard", "dispatch-review-guard", "fix-claim-guard", "promise-guard", "reply-length-guard", "codemap-inject", "codemap-fill"}
+var codexHooks = []string{"bash-guard", "ask-only-guard", "dispatch-review-guard", "fix-claim-guard", "promise-guard", "reply-length-guard", "ws-cap-guard", "codemap-inject", "codemap-fill"}
 var codexMatchers = map[string]string{"bash-guard": "Bash", "ask-only-guard": "Bash|apply_patch", "dispatch-review-guard": "Agent|apply_patch", "codemap-inject": "Agent"}
 
 // grokHooks are the hooks run.py --grok adapts. Grok (run by bothouse over ACP) reads the role's
 // .claude/settings.json hooks and matches the Claude Code names in a matcher against its own tools.
-var grokHooks = []string{"bash-guard", "ask-only-guard", "dispatch-review-guard", "fix-claim-guard", "promise-guard", "reply-length-guard", "codemap-inject", "codemap-fill"}
+var grokHooks = []string{"bash-guard", "ask-only-guard", "dispatch-review-guard", "fix-claim-guard", "promise-guard", "reply-length-guard", "ws-cap-guard", "codemap-inject", "codemap-fill"}
 
 func (o AgentHookOptions) names() ([]string, error) {
 	if len(o.Only) == 0 {
@@ -1268,6 +1271,7 @@ var agyMatchers = map[string]string{
 	"fix-claim-guard":    "",
 	"promise-guard":      "",
 	"reply-length-guard": "",
+	"ws-cap-guard":       "run_command",
 }
 
 // AgyHookFile is the role's Antigravity workspace hook file.
@@ -1350,7 +1354,7 @@ func agyNames(o AgentHookOptions, names []string) ([]string, error) {
 		if _, ok := agyMatchers[n]; ok {
 			out = append(out, n)
 		} else if len(o.Only) > 0 {
-			return nil, fmt.Errorf("hook %q does not run under antigravity (antigravity hooks: bash-guard, ask-only-guard, fix-claim-guard, promise-guard, reply-length-guard)", n)
+			return nil, fmt.Errorf("hook %q does not run under antigravity (antigravity hooks: bash-guard, ask-only-guard, fix-claim-guard, promise-guard, reply-length-guard, ws-cap-guard)", n)
 		}
 	}
 	return out, nil
