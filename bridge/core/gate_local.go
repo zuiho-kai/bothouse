@@ -137,6 +137,6 @@ func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, inte
 		return false
 	}
 	e.teamNoteTurn(msg, session)
-	e.replyNotice(p, msg.ReplyCtx, e.i18n.T(MsgLocalGateInserted))
+	e.insertNotice(p, msg.ReplyCtx, e.i18n.T(MsgLocalGateInserted))
 	return true
 }

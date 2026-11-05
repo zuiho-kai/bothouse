@@ -1898,6 +1898,15 @@ func (p *Platform) QuietSystemNotices(replyCtx any) bool {
 	return ok && rc != nil && rc.messageType == "group"
 }
 
+// QuietInsertReceipt drops the mid-turn insert acknowledgement (↪ 已插入) in private
+// chats as well as groups: the line is the bridge talking about itself, the inserted
+// text still reaches the running turn and that turn still answers (user 2026-11-05
+// saw it in her own private chat right after the group-only fix shipped).
+func (p *Platform) QuietInsertReceipt(replyCtx any) bool {
+	rc, ok := replyCtx.(*replyContext)
+	return ok && rc != nil
+}
+
 var _ core.GroupQueueBatcher = (*Platform)(nil)
 
 // BatchGroupQueue folds a busy QQ group's queued messages into one turn and lets a full queue
