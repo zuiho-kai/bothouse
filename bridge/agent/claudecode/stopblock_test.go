@@ -25,10 +25,10 @@ func TestStopBlockedReplyFlow(t *testing.T) {
 	cs.noteReplyText("前面写的一大段完整回复，包含所有细节和结论。")
 	cs.noteStopBlocked()
 	cs.noteReplyText("补一句。")
-	if got := cs.takeStopBlockedReply("补一句。"); got != "前面写的一大段完整回复，包含所有细节和结论。\n\n补一句。" {
-		t.Fatalf("got %q", got)
+	if got, blocked := cs.takeStopBlockedReply("补一句。"); got != "前面写的一大段完整回复，包含所有细节和结论。\n\n补一句。" || !blocked {
+		t.Fatalf("got %q blocked=%v", got, blocked)
 	}
-	if got := cs.takeStopBlockedReply("下一轮"); got != "下一轮" {
-		t.Fatalf("state leaked: %q", got)
+	if got, blocked := cs.takeStopBlockedReply("下一轮"); got != "下一轮" || blocked {
+		t.Fatalf("state leaked: %q blocked=%v", got, blocked)
 	}
 }

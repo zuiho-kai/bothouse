@@ -984,12 +984,13 @@ func (cs *claudeSession) noteStopBlocked() {
 // only a short addendum, the blocked reply goes in front so the channel does
 // not get the addendum alone. A rewrite (the hook asks for the whole reply
 // again) replaces the blocked reply: the user gets one version, not both.
-func (cs *claudeSession) takeStopBlockedReply(result string) string {
+// blocked reports whether a Stop hook blocked the turn.
+func (cs *claudeSession) takeStopBlockedReply(result string) (reply string, blocked bool) {
 	cs.replyMu.Lock()
 	pre := cs.preStopText
 	cs.preStopText, cs.lastText = "", ""
 	cs.replyMu.Unlock()
-	return mergeStopBlockedReply(pre, result)
+	return mergeStopBlockedReply(pre, result), strings.TrimSpace(pre) != ""
 }
 
 func mergeStopBlockedReply(pre, result string) string {
@@ -1087,8 +1088,9 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 	if result, ok := raw["result"].(string); ok {
 		content = result
 	}
+	stopBlocked := false
 	if !isCompactionResult(raw) {
-		content = cs.takeStopBlockedReply(content)
+		content, stopBlocked = cs.takeStopBlockedReply(content)
 	}
 	if sid, ok := raw["session_id"].(string); ok && sid != "" {
 		cs.sessionID.Store(sid)
@@ -1166,6 +1168,12 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 				meta = map[string]any{}
 			}
 			meta[core.MetaResultIsError] = true // #618 K4 S1
+		}
+		if stopBlocked {
+			if meta == nil {
+				meta = map[string]any{}
+			}
+			meta[core.MetaStopBlockedReply] = true // #1051
 		}
 	}
 	evt := core.Event{

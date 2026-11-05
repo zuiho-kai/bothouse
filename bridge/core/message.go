@@ -529,6 +529,13 @@ const MetaResultIsError = "result_is_error"
 // agent compacted its context (maomao fork).
 const MetaContextCompacted = "context_compacted"
 
+// MetaStopBlockedReply marks a turn-ending EventResult (Metadata key, bool)
+// whose Content is the reply the adapter rebuilt after a Stop hook blocked the
+// turn (maomao fork, #1051). The engine sends Content as is instead of joining
+// every text event of the turn, which would send the blocked draft and its
+// rewrite both.
+const MetaStopBlockedReply = "stop_blocked_reply"
+
 // MetaQuotaExhausted marks a turn-ending Event (EventResult or EventError) whose
 // turn ended because the agent's account/model quota is used up (maomao fork).
 // The value is the reset time as the CLI printed it (string, may be empty).
