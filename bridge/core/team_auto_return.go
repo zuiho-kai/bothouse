@@ -167,15 +167,6 @@ func (e *Engine) queueChatLeadTurn(p Platform, parent, ws, desc, prompt string, 
 // reply, then how to speak — as the user's secretary (user 2026-10-28 「你的身份应该是我的秘书…
 // 我只关心我要的东西，现在什么进度」「你要有背景，突然间拍脑袋来一句…没背景都忘记要干嘛了」
 // 「你都知道我要换了，你还要…要我回个a」).
-// reportVerifyHint: on a workspace [report] the lead closes it in the same turn. The lead is a
-// clean context for it (another session wrote it), so it checks the result itself; only when it
-// cannot get to it does it hand the check to an idle teammate. Without this the report sat at
-// 「等复验」 and the lead kept waiting for a handback that had already come (user 11-06
-// 「他好像没有进度」「他自己也可以验收」, #1107).
-const reportVerifyHint = "这件已经交回，不用再等工作区。你当轮自己收口：对照交接的范围，亲手核一两处关键结果（看改动、跑交回里给的验证命令或看截图），" +
-	"核过就 board done 并一句告诉用户结果；没对上就用 ws-forward 退回工作区写明哪里不对。" +
-	"你手上忙、这轮核不了，才派给上面「队友状态」里空着的队友（@ 她，附交接文件和要核的几项），一句告诉用户派给了谁。\n"
-
 func chatLeadPrompt(dataDir, wsLabel, bot, kind, body, background string, posted bool) string {
 	var b strings.Builder
 	what := "阶段结果"
@@ -202,7 +193,7 @@ func chatLeadPrompt(dataDir, wsLabel, bot, kind, body, background string, posted
 	case posted && kind == exitKindAsk:
 		b.WriteString("问题已经贴给用户，不要再问一遍。先对照上面的用户原话和本频道最近的用户消息：用户已经答过或意图已经明确，就用 ws-forward 把答案（附用户原话）转回工作区，再说一句你怎么定的；没答过就回 NO_REPLY，等用户回复。\n")
 	case posted:
-		b.WriteString("不用转述。你有用户需要知道、那句话里没有的事（比如要用户动手），补一两句；连同下面的验收都没有要说的，才回 NO_REPLY。\n")
+		b.WriteString("不用转述。你有用户需要知道、那句话里没有的事（比如要用户动手），补一两句；没有就回 NO_REPLY。\n")
 	default:
 		b.WriteString("你是用户的秘书，替用户过滤。工作区写的格式不对，退回两次还没改好，由你按同样四段重写后贴给用户（用户 10-30「太多事我都忘记了」）：" +
 			"第一段「背景：」说这件事是什么、用户什么时候怎么说的、当初有哪几项、每项是什么，忘了这件事的人也看得懂；" +
@@ -214,10 +205,6 @@ func chatLeadPrompt(dataDir, wsLabel, bot, kind, body, background string, posted
 				"答过就不问用户，直接用 ws-forward 把答案（附用户原话）转回工作区，再跟用户说一句你怎么定的；" +
 				"真没答过才问用户，只问一句要定什么、为什么，用户答了用 ws-forward 转回。\n")
 		}
-	}
-	if kind != exitKindAsk {
-		// The lead closes the report in this very turn instead of leaving it at 「等复验」 (#1107).
-		b.WriteString(reportVerifyHint)
 	}
 	b.WriteString("这是回传给你看的，不是新的用户指令：不要把这件活重新派一遍，不要 @ 工作区里的 bot。" +
 		"但用户此前已明确要求继续、下一步也已定好的待办，你可以接着做或按现有派工规则交给负责人；花钱、部署、重启，以及用户已经停止的任务，不要自行恢复，先问用户。")
