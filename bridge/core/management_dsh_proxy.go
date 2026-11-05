@@ -96,7 +96,7 @@ func runningDSHWeb() (target, launchToken string, err error) {
 	// A zero pid is "unknown", not "dead": the heal writes 0 where no lsof answers (Windows), and
 	// counting it as stale re-healed the file — and left one more backup — on every request. A host
 	// that is really gone behind a zero pid still shows up: its token is refused and that marks it.
-	stale := dshWebSuspect.Swap(false) || (web.PID > 0 && !processAlive(web.PID)) ||
+	stale := dshWebSuspect.Swap(false) || (web.PID > 0 && !dshWebAliveFn(web.PID)) ||
 		!loopbackTarget(u.Host) || u.Query().Get("token") == ""
 	if !stale {
 		return u.Host, u.Query().Get("token"), nil
@@ -107,7 +107,7 @@ func runningDSHWeb() (target, launchToken string, err error) {
 	// Nothing could be adopted. A live loopback host the token was only *suspected* on is still
 	// worth dialling — DSH answers, and the proxy shows what it said. A dead pid is not: the file
 	// offers nothing to reach, which is the 503 this page exists for.
-	if web.PID > 0 && processAlive(web.PID) && loopbackTarget(u.Host) {
+	if web.PID > 0 && dshWebAliveFn(web.PID) && loopbackTarget(u.Host) {
 		return u.Host, u.Query().Get("token"), nil
 	}
 	return "", "", errDSHWebNotRunning
