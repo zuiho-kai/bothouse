@@ -332,6 +332,8 @@ func discordProgressStateMeta(state core.ProgressCardState, lang string, agent s
 		return fmt.Sprintf("%s · %s", agent, discordProgressCompletedText(lang)), 0x57F287, discordProgressCompletedFooter(lang)
 	case core.ProgressCardStateFailed:
 		return fmt.Sprintf("%s · %s", agent, discordProgressFailedText(lang)), 0xED4245, discordProgressFailedFooter(lang)
+	case core.ProgressCardStateSilent:
+		return fmt.Sprintf("%s · %s", agent, discordProgressCompletedText(lang)), 0x57F287, discordProgressSilentFooter(lang)
 	default:
 		return fmt.Sprintf("%s · %s", agent, discordProgressRunningText(lang)), 0x5865F2, ""
 	}
@@ -402,6 +404,21 @@ func discordProgressCompletedFooter(lang string) string {
 		return "Esta tarjeta de progreso ya no se actualiza. La respuesta completa está en el siguiente mensaje."
 	default:
 		return "This progress card is no longer updating. Full response is in the next message."
+	}
+}
+
+func discordProgressSilentFooter(lang string) string {
+	switch normalizeDiscordProgressLang(lang) {
+	case "zh":
+		return "本轮不需要回复，没有下一条消息。"
+	case "zh-tw":
+		return "本輪不需要回覆，沒有下一條訊息。"
+	case "ja":
+		return "このターンは返信不要のため、次のメッセージはありません。"
+	case "es":
+		return "Este turno no necesitaba respuesta; no hay siguiente mensaje."
+	default:
+		return "No reply was needed this turn; there is no next message."
 	}
 }
 

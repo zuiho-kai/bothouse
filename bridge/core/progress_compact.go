@@ -33,6 +33,9 @@ const (
 	ProgressCardStateRunning   ProgressCardState = "running"
 	ProgressCardStateCompleted ProgressCardState = "completed"
 	ProgressCardStateFailed    ProgressCardState = "failed"
+	// ProgressCardStateSilent: the turn ended without a reply (NO_REPLY), so the card must not
+	// promise one in the next message (agentm jingyu 2026-11-05: timer turn, "完整答复见下一条消息", none came).
+	ProgressCardStateSilent ProgressCardState = "silent"
 )
 
 type ProgressCardEntryKind string
