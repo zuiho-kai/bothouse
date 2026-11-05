@@ -248,7 +248,10 @@ export class Roster {
       throw new CollabError('invalid', `name must be 1-${MAX_NAME} characters without spaces (except Claude Code), @ or <>`);
     }
     const rooms = input?.rooms ?? [];
-    if (!Array.isArray(rooms) || rooms.some(id => !Number.isSafeInteger(id) || this.store.room(id)?.kind !== 'chat')) {
+    // A private chat holds exactly its one member (hub.membersInRoom), so listing it here would
+    // store a membership the room never honours: the extra member shows nowhere, cannot be
+    // dispatched to, and the add-member dialog is the only thing that creates it.
+    if (!Array.isArray(rooms) || rooms.some(id => !Number.isSafeInteger(id) || this.store.room(id)?.kind !== 'chat' || this.store.dmMember(id) !== undefined)) {
       throw new CollabError('invalid', 'rooms must contain existing chat channel ids');
     }
     const clash = this.hub.memberList().find(m => m.id !== selfId && (!rooms.length || !m.rooms?.length || rooms.some(id => m.rooms.includes(id))) && (m.name.toLowerCase() === name.toLowerCase() || m.id.toLowerCase() === name.toLowerCase()));
