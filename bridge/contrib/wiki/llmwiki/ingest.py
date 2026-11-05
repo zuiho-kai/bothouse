@@ -968,12 +968,14 @@ ASSISTANT_NAMES = BOTS[ASSISTANT]  # replying to these is talking to the assista
 
 
 def is_user(name):
-    """A speaker is the user: one of user_names; with none set (a wizard install does not know the user's Discord
-    name), any human, i.e. a name that is neither the assistant nor a teammate bot (agentm 2026-11-05: the user's
-    lines were all OTHER, so nothing the user said or decided reached the wiki)."""
-    if USER_NAMES:
-        return name in USER_NAMES
+    """A speaker is the user: any human, i.e. a name that is neither the assistant nor a teammate bot, so a new person
+    in the channel counts with no config change (user 2026-11-05 「这个也要加上允许多用户」); user_names only adds
+    names on top (agentm 2026-11-05: a placeholder there left every user line OTHER)."""
+    if name in USER_NAMES:
+        return True
     return not (name == ASSISTANT or name in ASSISTANT_NAMES or name in TEAMMATES or name in BOTS)
+
+
 CHANNEL = "补漏 "  # label prefix for lines of the bridge's 「频道里你上次看到之后的消息」 block (context, not new facts)
 
 
