@@ -5,6 +5,7 @@ package core
 import (
 	"os"
 	"os/exec"
+	"strconv"
 	"syscall"
 )
 
@@ -35,7 +36,16 @@ func processAlive(pid int) bool {
 	return code == stillActive
 }
 
+// stopProcess ends `dsh web` with its whole tree. dsh on Windows is an npm .cmd shim, so pid is cmd.exe and the
+// real dsh web is its node.exe child: killing only the shim left that node running, still holding every member's
+// session lock, and the next dsh web answered "already owned by an active write handle" (windows-e2e, 2026-11-05).
+// Same taskkill as agent/codex/proc_windows.go forceKillCmd.
 func stopProcess(pid int) {
+	kill := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid))
+	kill.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000} // CREATE_NO_WINDOW (Win32 docs)
+	if kill.Run() == nil {
+		return
+	}
 	if p, err := os.FindProcess(pid); err == nil {
 		_ = p.Kill()
 	}
