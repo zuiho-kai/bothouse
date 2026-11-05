@@ -399,6 +399,9 @@ func ReplaceAppBundle(staged string) error {
 	}
 	app, bundled := appBundleOf(exe)
 	if !bundled {
+		// install.sh installs one program, not a bundle: there is no seal to keep, so the
+		// program from inside the release bundle replaces the file (replaceBinary resolves the
+		// running program itself, which for this layout is that file).
 		b, err := os.ReadFile(filepath.Join(staged, "Contents", "MacOS", "bothouse"))
 		if err != nil {
 			return fmt.Errorf("read release binary: %w", err)

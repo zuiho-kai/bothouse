@@ -1,11 +1,13 @@
 package core
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -501,4 +503,88 @@ func TestUpdateApp_ExtractBinaryRefusesDmg(t *testing.T) {
 	if _, err := ExtractReleaseBinary([]byte("dmg bytes"), "bothouse-mac.dmg"); err == nil {
 		t.Fatal("dmg accepted as a single program")
 	}
+}
+
+// A running process must not notice the swap: it holds the old program file open, and after the
+// exchange that handle still reads the old bytes while the installed path serves the new ones.
+// (On macOS the running process also keeps the old inodes for its mapped code; this is the file
+// level of the same property.)
+func TestUpdateApp_SwapLeavesRunningProcessItsFiles(t *testing.T) {
+	needCodesign(t)
+	dir := t.TempDir()
+	oldApp, exe := bundleFixture(t, dir, "Bothouse.app", "0.1.50", nil)
+	held, err := os.Open(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	before, err := io.ReadAll(held)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeInfo, err := held.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged, _ := bundleFixture(t, filepath.Join(dir, "release"), "Bothouse.app", "0.1.51", nil)
+	useInstalledProgram(t, exe)
+	if err := ReplaceAppBundle(staged); err != nil {
+		t.Fatalf("ReplaceAppBundle: %v", err)
+	}
+	// The open handle is unchanged: same inode, same bytes, and it is still readable.
+	afterInfo, err := held.Stat()
+	if err != nil {
+		t.Fatalf("open handle broke: %v", err)
+	}
+	if !os.SameFile(beforeInfo, afterInfo) {
+		t.Fatal("the open program file was replaced under the running process")
+	}
+	if _, err := held.Seek(0, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	after, err := io.ReadAll(held)
+	if err != nil {
+		t.Fatalf("read from the open handle failed: %v", err)
+	}
+	if len(after) != len(before) {
+		t.Fatal("the open file changed size")
+	}
+	// The installed path already serves the new package.
+	if got := plistVersion(t, oldApp); got != "0.1.51" {
+		t.Fatalf("installed version %s", got)
+	}
+}
+
+// The window: the installed bundle is exchanged while its program is running. A real process
+// started from inside the bundle (a copy of /bin/sleep, so the test binary is not the subject)
+// must keep running, and the path must never be missing for another reader.
+func TestUpdateApp_SwapKeepsRunningProcessAlive(t *testing.T) {
+	needCodesign(t)
+	dir := t.TempDir()
+	oldApp, exe := bundleFixture(t, dir, "Bothouse.app", "0.1.50", nil)
+	if out, err := exec.Command("/bin/cp", "/bin/sleep", exe).CombinedOutput(); err != nil {
+		t.Fatalf("copy sleep: %v: %s", err, out)
+	}
+	if out, err := exec.Command("/usr/bin/codesign", "--force", "--sign", "-", "--identifier", testID, oldApp).CombinedOutput(); err != nil {
+		t.Fatalf("re-sign: %v: %s", err, out)
+	}
+	proc := exec.Command(exe, "60")
+	if err := proc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = proc.Process.Kill(); _ = proc.Wait() }()
+
+	staged, _ := bundleFixture(t, filepath.Join(dir, "release"), "Bothouse.app", "0.1.51", nil)
+	useInstalledProgram(t, exe)
+	if err := ReplaceAppBundle(staged); err != nil {
+		t.Fatalf("ReplaceAppBundle: %v", err)
+	}
+	if err := proc.Process.Signal(syscall.Signal(0)); err != nil {
+		t.Fatalf("the running process died in the swap: %v", err)
+	}
+	// The program at the installed path is the new one, and the bundle still verifies.
+	if got := plistVersion(t, oldApp); got != "0.1.51" {
+		t.Fatalf("installed version %s", got)
+	}
+	sealOK(t, oldApp)
 }
