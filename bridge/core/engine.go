@@ -18962,11 +18962,20 @@ func (e *Engine) buildSenderPrompt(content, userID, userName, platform, sessionK
 	if chatID == "" {
 		chatID = extractChannelID(sessionKey)
 	}
+	// The owner (admin_from, from the wizard's bot-owner lookup) is marked so the agent knows
+	// who its owner is without searching its notes; "*" names no one in particular.
+	owner := ""
+	e.userRolesMu.RLock()
+	af := e.adminFrom
+	e.userRolesMu.RUnlock()
+	if af != "*" && e.isAdmin(userID) {
+		owner = " sender_is_owner=true"
+	}
 	if userName != "" {
 		safeName := strings.NewReplacer(`"`, `'`, "\n", " ", "\r", "").Replace(userName)
-		return fmt.Sprintf("[bothouse sender_id=%s sender_name=\"%s\" platform=%s chat_id=%s]\n%s", userID, safeName, platform, chatID, content)
+		return fmt.Sprintf("[bothouse sender_id=%s sender_name=\"%s\"%s platform=%s chat_id=%s]\n%s", userID, safeName, owner, platform, chatID, content)
 	}
-	return fmt.Sprintf("[bothouse sender_id=%s platform=%s chat_id=%s]\n%s", userID, platform, chatID, content)
+	return fmt.Sprintf("[bothouse sender_id=%s%s platform=%s chat_id=%s]\n%s", userID, owner, platform, chatID, content)
 }
 
 func extractChannelID(sessionKey string) string {
