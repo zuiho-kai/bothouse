@@ -42,7 +42,7 @@ func (m *ManagementServer) handleRoles(w http.ResponseWriter, r *http.Request) {
 
 	roles := m.bridgeRoles()
 	// DSH members are fetched outside m.mu: it is an HTTP call to the running `dsh web`.
-	roles = append(roles, m.dshRoles(r.Context())...)
+	roles = append(roles, m.dshRoles(r.Context(), roles)...)
 	mgmtJSON(w, http.StatusOK, map[string]any{"roles": roles})
 }
 

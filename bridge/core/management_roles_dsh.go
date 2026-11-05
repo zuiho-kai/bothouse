@@ -44,9 +44,10 @@ type dshState struct {
 	Thinking map[string][]string `json:"thinking"`
 }
 
-// dshRoles lists DSH's own members as roles; nil when DSH is not running or does not answer
-// (the page then shows the bridge roles alone, as before).
-func (m *ManagementServer) dshRoles(ctx context.Context) []RoleInfo {
+// dshRoles lists DSH's members as roles, minus those already among local (the bridge roles on
+// this panel); nil when DSH is not running or does not answer (the page then shows the bridge
+// roles alone, as before).
+func (m *ManagementServer) dshRoles(ctx context.Context, local []RoleInfo) []RoleInfo {
 	ctx, cancel := context.WithTimeout(ctx, dshRolesTimeout)
 	defer cancel()
 	c, ok := m.dshClient()
@@ -57,7 +58,7 @@ func (m *ManagementServer) dshRoles(ctx context.Context) []RoleInfo {
 	if c.get(ctx, "/collab/api/state", &st) != nil {
 		return nil
 	}
-	return dshStateRoles(&st)
+	return dshStateRoles(&st, local)
 }
 
 // dshAPI calls the running `dsh web` signed in as its owner (the /dsh/ proxy's cookie).
@@ -91,9 +92,20 @@ func (c dshAPI) get(ctx context.Context, path string, out any) error {
 	return json.NewDecoder(io.LimitReader(res.Body, 4<<20)).Decode(out)
 }
 
-// dshStateRoles turns DSH's members into roles. Only kind "dsh" (members DSH runs itself): "bot"
-// members are bridge roles already listed from the engines, and "human" is the owner.
-func dshStateRoles(st *dshState) []RoleInfo {
+// dshStateRoles turns DSH's members into roles: kind "dsh" (members DSH runs itself) and kind
+// "bot" (bridge roles registered over cloud_web, #159), except a bot that is one of local, the
+// bridge roles this panel already lists from its engines; "human" is the owner. A bot registers
+// as its project (or ?bot=) with its team name, so it matches a local role by project name or by
+// display name.
+func dshStateRoles(st *dshState, local []RoleInfo) []RoleInfo {
+	localKeys := map[string]bool{}
+	for _, r := range local {
+		for _, k := range []string{r.Name, r.DisplayName} {
+			if k = strings.ToLower(strings.TrimSpace(k)); k != "" {
+				localKeys[k] = true
+			}
+		}
+	}
 	roomName := map[string]string{}
 	for _, r := range st.Rooms {
 		roomName[r.ID.String()] = r.Name
@@ -108,7 +120,16 @@ func dshStateRoles(st *dshState) []RoleInfo {
 	}
 	roles := []RoleInfo{}
 	for _, mb := range st.Members {
-		if mb.Kind != "dsh" || mb.ID == "" {
+		if mb.ID == "" {
+			continue
+		}
+		switch mb.Kind {
+		case "dsh":
+		case "bot":
+			if localKeys[strings.ToLower(mb.ID)] || localKeys[strings.ToLower(strings.TrimSpace(mb.Name))] {
+				continue
+			}
+		default:
 			continue
 		}
 		agentType := "dsh"
@@ -118,6 +139,8 @@ func dshStateRoles(st *dshState) []RoleInfo {
 		model := "DSH 默认"
 		if mb.Model != nil && *mb.Model != "" {
 			model = *mb.Model
+		} else if mb.Kind == "bot" {
+			model = "" // a bridge role's model lives in its own bridge; DSH does not report it
 		}
 		task := "空闲"
 		busy := false
@@ -211,7 +234,7 @@ func (m *ManagementServer) dshSummary(ctx context.Context) DSHSummary {
 		return out
 	}
 	out.Running = true
-	out.Members = dshStateRoles(&st)
+	out.Members = dshStateRoles(&st, m.bridgeRoles())
 	rooms := st.Rooms
 	if len(rooms) > dshSummaryChannels {
 		rooms = rooms[:dshSummaryChannels]
