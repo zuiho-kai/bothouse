@@ -113,8 +113,52 @@ func isRetryOnceError(msg string) bool {
 
 var retryAfterRE = regexp.MustCompile(`(?i)(?:retry[- _]after|try again in)[":=\s]*([0-9]+(?:\.[0-9]+)?)\s*(ms|s|sec|secs|seconds?|m|min|minutes?)?`)
 
-// rateLimitRetryAfter: the wait the error text asks for (Retry-After), if any.
+// retryAfterDateRE: the HTTP-date form RFC 7231 allows for Retry-After ("Retry-After: Wed, 21 Oct
+// 2015 07:28:00 GMT"). Relays and gateways send both forms, so the numeric-only rule missed those
+// (#986 review: Retry-After 的秒数与 HTTP-date 两种格式).
+var retryAfterDateRE = regexp.MustCompile(`(?i)retry[- _]after[":=\s]*((?:mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+[0-9]{1,2}\s+[a-z]{3}[a-z]*\s+[0-9]{2,4}\s+[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\s*(?:gmt|utc|[+-][0-9]{4})?)`)
+
+// retryAfterHTTPDateRE: the same date without the header name, kept for a bare "… GMT" in a relay's
+// own wording; only used when the header form above did not match.
+var retryAfterHTTPDateRE = regexp.MustCompile(`(?i)\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+[0-9]{1,2}\s+[a-z]{3}[a-z]*\s+[0-9]{4}\s+[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\s*(?:gmt|utc)`)
+
+var retryAfterDateLayouts = []string{
+	time.RFC1123,  // "Mon, 02 Jan 2006 15:04:05 GMT"
+	time.RFC1123Z, // with a numeric zone
+	time.RFC850,   // "Monday, 02-Jan-06 15:04:05 GMT"
+	time.ANSIC,    // "Mon Jan _2 15:04:05 2006"
+	"Mon, 2 Jan 2006 15:04:05 GMT",
+	"Mon, 2 Jan 2006 15:04 MST",
+	"Mon, 2 Jan 2006 15:04:05 MST",
+}
+
+// parseRetryAfterDate reads an HTTP-date into a wait from now; false when unreadable or in the past.
+func parseRetryAfterDate(text string) (time.Duration, bool) {
+	text = strings.TrimSpace(text)
+	text = strings.TrimSuffix(strings.TrimSuffix(text, ")"), ",")
+	for _, layout := range retryAfterDateLayouts {
+		if t, err := time.Parse(layout, text); err == nil {
+			if d := time.Until(t); d > 0 {
+				return d, true
+			}
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+// rateLimitRetryAfter: the wait the error text asks for (Retry-After), if any. Both the delta-seconds
+// and the HTTP-date form are understood (RFC 7231 §7.1.3).
 func rateLimitRetryAfter(msg string) (time.Duration, bool) {
+	if m := retryAfterDateRE.FindStringSubmatch(msg); m != nil {
+		if d, ok := parseRetryAfterDate(m[1]); ok {
+			return d, true
+		}
+	} else if m := retryAfterHTTPDateRE.FindStringSubmatch(msg); m != nil {
+		if d, ok := parseRetryAfterDate(m[0]); ok {
+			return d, true
+		}
+	}
 	m := retryAfterRE.FindStringSubmatch(msg)
 	if m == nil {
 		return 0, false
@@ -137,14 +181,27 @@ func rateLimitRetryAfter(msg string) (time.Duration, bool) {
 // (15s, the pause the team watch already leaves between a failed turn and the next one).
 var rateLimitBackoffBase = watchTurnEndDelay
 
+// rateLimitBackoffMax: the longest wait this turn holds itself for. Above it the turn gives up and
+// the normal cooldown (which re-delivers the message) takes over, so a relay asking for an hour does
+// not keep a turn sleeping in memory. Source: 沿用 capacityCooldownBase (10 分钟，用户 2026-10-16
+// 「冷却10分钟」) — a wait longer than the cooldown is not worth holding the turn for.
+var rateLimitBackoffMax = capacityCooldownBase
+
 // rateLimitDelay: how long to wait before re-send number attempt (2, 3, …) after a 429: the
-// Retry-After plus up to one backoff step of jitter, else full jitter over base·2^(attempt-2).
+// Retry-After plus up to one backoff step of jitter, else full jitter over base·2^(attempt-2),
+// never above rateLimitBackoffMax.
 func rateLimitDelay(msg string, attempt int) time.Duration {
+	var d time.Duration
 	if ra, ok := rateLimitRetryAfter(msg); ok {
-		return ra + time.Duration(rand.Int64N(int64(rateLimitBackoffBase)+1))
+		d = ra + time.Duration(rand.Int64N(int64(rateLimitBackoffBase)+1))
+	} else {
+		ceiling := rateLimitBackoffBase << max(0, attempt-2)
+		d = time.Duration(rand.Int64N(int64(ceiling) + 1))
 	}
-	ceiling := rateLimitBackoffBase << max(0, attempt-2)
-	return time.Duration(rand.Int64N(int64(ceiling) + 1))
+	if d > rateLimitBackoffMax {
+		return rateLimitBackoffMax
+	}
+	return d
 }
 
 // capacityWait returns how long the current cooldown still runs (0 = none).

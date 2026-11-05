@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -586,6 +587,50 @@ func TestRateLimitErrorAndRetryAfter(t *testing.T) {
 		}
 		if d := rateLimitDelay("429; retry after 7s", 2); d < 7*time.Second || d > 7*time.Second+rateLimitBackoffBase {
 			t.Fatalf("Retry-After delay %v outside [7s, 7s+base]", d)
+		}
+	}
+}
+
+// Retry-After comes in two forms (RFC 7231 §7.1.3): delta-seconds and an HTTP-date. A relay that
+// sends the date form must not be retried immediately (#986 review).
+func TestRateLimitRetryAfterHTTPDate(t *testing.T) {
+	at := time.Now().Add(45 * time.Second).UTC().Truncate(time.Second)
+	for _, msg := range []string{
+		"429 Too Many Requests; Retry-After: " + at.Format(http.TimeFormat),
+		"retry-after=" + at.Format(http.TimeFormat),
+		"Retry-After: " + at.Format(time.RFC1123),
+	} {
+		got, ok := rateLimitRetryAfter(msg)
+		if !ok || got < 40*time.Second || got > 50*time.Second {
+			t.Errorf("%q → %v %v, want ~45s", msg, got, ok)
+		}
+	}
+	// A date already gone, an unreadable date: no wait invented from it.
+	past := time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat)
+	if _, ok := rateLimitRetryAfter("Retry-After: " + past); ok {
+		t.Error("a past HTTP-date is not a wait")
+	}
+	if _, ok := rateLimitRetryAfter("Retry-After: Mon, 99 Foo 2026"); ok {
+		t.Error("an unreadable date is not a wait")
+	}
+	// The numeric form still works and is not shadowed by the date rules.
+	if got, ok := rateLimitRetryAfter("Retry-After: 12"); !ok || got != 12*time.Second {
+		t.Errorf("numeric Retry-After = %v %v, want 12s", got, ok)
+	}
+}
+
+// A relay asking to wait longer than a cooldown: the turn does not sleep that long, the normal
+// cooldown re-delivers later (#986 review: 退避上限).
+func TestRateLimitDelayIsCapped(t *testing.T) {
+	oldBase, oldMax := rateLimitBackoffBase, rateLimitBackoffMax
+	rateLimitBackoffBase, rateLimitBackoffMax = time.Second, 30*time.Second
+	t.Cleanup(func() { rateLimitBackoffBase, rateLimitBackoffMax = oldBase, oldMax })
+	for range 100 {
+		if d := rateLimitDelay("429; Retry-After: 3600", 2); d != rateLimitBackoffMax {
+			t.Fatalf("an hour of Retry-After must be capped at %v, got %v", rateLimitBackoffMax, d)
+		}
+		if d := rateLimitDelay("429", 20); d > rateLimitBackoffMax {
+			t.Fatalf("a deep backoff %v must not exceed %v", d, rateLimitBackoffMax)
 		}
 	}
 }

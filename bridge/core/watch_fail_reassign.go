@@ -48,9 +48,15 @@ func (e *Engine) reassignFailedWork(a idleAssignment, h TeamHandoff) bool {
 
 // failedWork: the quota-takeover record of a's work (its board item, else its handoff).
 func (e *Engine) failedWork(a idleAssignment, h TeamHandoff) (quotaWork, bool) {
-	board := h.Board
+	// Same id rules as the release hold (#984): the board item bound to this workspace, and only a
+	// title that starts with #N. watchTaskNumber alone also matches an issue/PR number inside the
+	// sentence (「发布 #984 收尾」), which would move the wrong item.
+	var board int
+	if e.team != nil {
+		board = handoffBoardID(a.key, h, readTeamTaskBoard(e.team.dir))
+	}
 	if board == 0 {
-		board = watchTaskNumber(h.Title)
+		board = handoffTitleNumber(h.Title)
 	}
 	for _, w := range e.quotaWorkItems() {
 		if w.Task != "" {
