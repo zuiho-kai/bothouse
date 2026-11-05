@@ -264,8 +264,9 @@ jobs:
           $want = ((Get-Content dist/SHA256SUMS | Where-Object { $_ -match " $([regex]::Escape($asset))$" }) -split ' ')[0]
           $got = (Get-FileHash -Algorithm SHA256 "dist/$asset").Hash.ToLower()
           if ($want -ne $got) { throw "checksum mismatch: $want vs $got" }
-          ./dist/bothouse-windows.exe --version
-          if ($LASTEXITCODE -ne 0) { throw "--version exit $LASTEXITCODE" }
+          # -H=windowsgui binary: PowerShell leaves $LASTEXITCODE unset, so check output instead.
+          $ver = ./dist/bothouse-windows.exe --version | Out-String
+          if ($ver -notmatch 'bothouse v') { throw "--version output: $ver" }
           $help = ./dist/bothouse-windows.exe setup --help | Out-String
           if ($help -notmatch 'setup apply') { throw "setup --help has no 'setup apply'" }
 
