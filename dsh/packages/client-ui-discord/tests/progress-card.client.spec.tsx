@@ -1,13 +1,17 @@
 // @vitest-environment jsdom
 // #125: the 本频道进展 card at the top of the log — 做完/在做/下一步/没定 from this channel's tasks only.
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
 import { channelProgress } from '../src/client/ProgressCard.tsx'
 import type { ChannelSnapshot, ChannelTask } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
 
-afterEach(cleanup)
+// Some Node/jsdom pairs expose no usable localStorage; a Map-backed stand-in (as in scheme.client.spec.tsx).
+const store = new Map<string, string>()
+const memoryStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => { store.set(k, String(v)) }, removeItem: (k: string) => { store.delete(k) }, clear: () => { store.clear() } }
+beforeEach(() => { vi.stubGlobal('localStorage', memoryStorage); store.clear() })
+afterEach(() => { cleanup(); store.clear(); vi.unstubAllGlobals() })
 
 const tr = (key: keyof typeof zh, values?: Record<string, unknown>): string => Object.entries(values ?? {})
   .reduce((text, [name, value]) => text.replaceAll('{' + name + '}', String(value)), String(zh[key]))
@@ -62,4 +66,21 @@ it('jumps to the task dispatch message when a row is clicked', () => {
   render(<ChannelsPage {...props({ ...base, tasks: [task(6, { status: 'asked' })] }, { selectRoom })} />)
   fireEvent.click(within(row('progressOpen')).getByRole('button'))
   expect(selectRoom).toHaveBeenCalledWith(2)
+})
+
+it('folds to its title line and stays folded for this channel after a reload (#156)', () => {
+  const state = { ...base, tasks: [task(2), task(8, { status: 'returned' })] }
+  render(<ChannelsPage {...props(state)} />)
+  fireEvent.click(within(card()).getByRole('button', { name: zh.progressCollapse }))
+  expect(card().querySelector('dl')).toBeNull()
+  expect(within(card()).getByRole('button', { name: zh.progressExpand }).getAttribute('aria-expanded')).toBe('false')
+  cleanup()
+  render(<ChannelsPage {...props(state)} />)
+  expect(card().querySelector('dl')).toBeNull()
+  cleanup()
+  render(<ChannelsPage {...props({ ...state, roomId: 9, tasks: [task(7, { room_id: 9 })] })} />)
+  expect(card().querySelector('dl')).toBeTruthy()
+  fireEvent.click(within(card()).getByRole('button', { name: zh.progressCollapse }))
+  fireEvent.click(within(card()).getByRole('button', { name: zh.progressExpand }))
+  expect(card().querySelector('dl')).toBeTruthy()
 })

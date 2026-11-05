@@ -1395,7 +1395,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
           }}
         >
           {/* #125: 本频道进展 stays at the top of the log while it scrolls. */}
-          <ProgressCard lines={channelProgress(state.tasks ?? [], channelRooms)} t={t} onOpen={openMessage} />
+          <ProgressCard key={channelId} channelId={channelId} lines={channelProgress(state.tasks ?? [], channelRooms)} t={t} onOpen={openMessage} />
           {!visibleMembers.some(m => m.kind !== 'human') && (
             <div className={css.guide}>
               <div>{t('guideNoMembers')}</div>

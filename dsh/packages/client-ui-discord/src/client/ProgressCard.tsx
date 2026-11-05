@@ -9,7 +9,10 @@
  *   else a parked task to resume.
  * A row with nothing in it is not shown (#1017).
  * - 没定: a question or a 退/升 stance waiting on the lead/user (asked, declined, escalated).
+ * #156 (owner 11-05 09:3x「要能收起啊」): a 收起/展开 button folds the card to its title line;
+ * the choice is remembered per chat channel in this browser, so a reload keeps it folded.
  */
+import { useState } from 'react'
 import type { ChannelTask } from './channel-source.ts'
 import { boardGroupOf, type T } from './task-board.ts'
 import css from './ChannelsPage.module.css'
@@ -48,17 +51,42 @@ function lineText(line: ProgressLine, t: T): string {
   return line.count > 1 ? `${base}${t('progressMore', { count: String(line.count - 1) })}` : base
 }
 
-export function ProgressCard({ lines, t, onOpen }: {
+const COLLAPSED_KEY = 'dsh-channels-progress-collapsed:'
+
+export function loadProgressCollapsed(channelId: number | undefined): boolean {
+  if (channelId === undefined) return false
+  try { return globalThis.localStorage?.getItem(COLLAPSED_KEY + channelId) === '1' } catch (error) { void error /* storage unavailable: start open */ }
+  return false
+}
+
+function saveProgressCollapsed(channelId: number | undefined, collapsed: boolean): void {
+  if (channelId === undefined) return
+  try {
+    if (collapsed) globalThis.localStorage?.setItem(COLLAPSED_KEY + channelId, '1')
+    else globalThis.localStorage?.removeItem(COLLAPSED_KEY + channelId)
+  } catch (error) { void error /* storage unavailable: keep the choice in memory */ }
+}
+
+/** Mount with `key={channelId}` so switching channels reads that channel's remembered choice. */
+export function ProgressCard({ lines, t, onOpen, channelId }: {
   lines: readonly ProgressLine[]
   t: T
   onOpen: (roomId: number, messageId: number) => void
+  channelId: number | undefined
 }) {
+  const [collapsed, setCollapsed] = useState(() => loadProgressCollapsed(channelId))
   const shown = lines.filter(line => line.task !== undefined)
   if (shown.length === 0) return null
+  const toggle = () => { setCollapsed(!collapsed); saveProgressCollapsed(channelId, !collapsed) }
   return (
-    <section className={css.progressCard} role="region" aria-label={t('progressTitle')}>
-      <strong className={css.progressTitle}>{t('progressTitle')}</strong>
-      <dl className={css.progressRows}>
+    <section className={css.progressCard} role="region" aria-label={t('progressTitle')} data-collapsed={collapsed}>
+      <div className={css.progressHead}>
+        <strong className={css.progressTitle}>{t('progressTitle')}</strong>
+        <button type="button" className={css.progressToggle} aria-expanded={!collapsed} onClick={toggle}>
+          {t(collapsed ? 'progressExpand' : 'progressCollapse')}
+        </button>
+      </div>
+      {!collapsed && <dl className={css.progressRows}>
         {/* #1017: an empty row takes no room. */}
         {shown.map((line) => {
           const text = lineText(line, t)
@@ -74,7 +102,7 @@ export function ProgressCard({ lines, t, onOpen }: {
             </div>
           )
         })}
-      </dl>
+      </dl>}
     </section>
   )
 }

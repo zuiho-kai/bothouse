@@ -2994,6 +2994,38 @@
   font-size: 12px;
 }
 
+.dshc_progressHead {
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  display: flex;
+}
+
+.dshc_progressToggle {
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  flex: none;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.dshc_progressToggle:hover {
+  background: var(--dsw-alias-bg-l2, #0000000d);
+  color: var(--dsw-alias-label-primary);
+}
+
+.dshc_progressCard[data-collapsed="true"] {
+  border-radius: 999px;
+  width: fit-content;
+  margin-left: auto;
+  padding: 2px 6px 2px 12px;
+}
+
 .dshc_progressRows {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0 14px;
