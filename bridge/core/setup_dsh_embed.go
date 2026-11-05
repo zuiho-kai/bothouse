@@ -180,6 +180,7 @@ func RefreshEmbeddedDSH(targetDir, version string) (bool, error) {
 			return false, err
 		}
 	}
+	migrateCollabPatchHome(filepath.Join(targetDir, "collab", "cordis.patch.yml"))
 	_ = os.Chmod(filepath.Join(targetDir, "install.sh"), 0755)
 	if err := os.WriteFile(stamp, []byte(version), 0644); err != nil {
 		return true, err
@@ -474,4 +475,30 @@ func pathWithin(p, dir string) (string, bool) {
 		return p[len(dir)+1:], true
 	}
 	return "", false
+}
+
+// collabPatchHomeFixes rewrite the $HOME-based paths that cordis.patch.yml shipped with up to
+// v0.1.48: Windows has no HOME, so 'undefined/.conest-collab' kept the collab plugin from loading
+// whenever dsh was started outside bothouse (which passes HOME itself, see openDSHWeb). The file is
+// kept across upgrades (keepIfExists), so only these exact old expressions are replaced; any other
+// edit the user made stays as it is.
+var collabPatchHomeFixes = []struct{ old, new string }{
+	{"(process.env.HOME + '/.conest-collab')", "process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.conest-collab')"},
+	{"(process.env.HOME + '/.bothouse')", "process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.bothouse')"},
+}
+
+func migrateCollabPatchHome(path string) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	s := string(b)
+	for _, f := range collabPatchHomeFixes {
+		s = strings.ReplaceAll(s, f.old, f.new)
+	}
+	if s != string(b) {
+		if err := os.WriteFile(path, []byte(s), 0o644); err != nil {
+			slog.Warn("dsh refresh: could not update cordis.patch.yml", "path", path, "err", err)
+		}
+	}
 }

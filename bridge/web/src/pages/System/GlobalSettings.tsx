@@ -150,10 +150,11 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
   // Each role runs its own model unless a tier model is picked below; the label names both.
   const reviewOptions = (current: string) => {
     const opts = [{ value: '', label: t('settings.reviewAuto', 'Automatic (any free non-author role)') }];
-    for (const r of roles) {
+    // DSH members (source "dsh") are not bridge roles: the reviewer is picked among bridge roles only.
+    for (const r of roles.filter((x) => x.source !== 'dsh')) {
       opts.push({ value: r.name, label: `${r.display_name || r.name}${r.model ? ` · ${r.model}` : ''}` });
     }
-    if (current && !roles.some((r) => r.name === current)) opts.push({ value: current, label: current });
+    if (current && !roles.some((r) => r.name === current && r.source !== 'dsh')) opts.push({ value: current, label: current });
     return opts;
   };
 
