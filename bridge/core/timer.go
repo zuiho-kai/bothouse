@@ -41,6 +41,8 @@ type TimerJob struct {
 	// WaitUserQuiet: a wake that is not the user (workspace handback, dispatch receipt) waits
 	// until the user has stopped talking in the session (holdForUser).
 	WaitUserQuiet bool `json:"wait_user_quiet,omitempty"`
+	// HeldSince: when holdForUser first held this job; past leadWakeHoldCap it runs anyway.
+	HeldSince time.Time `json:"held_since,omitempty"`
 	// ReportID ties a workspace-handback wake to its pending-record entry (team_report_delivery.go).
 	ReportID    string `json:"report_id,omitempty"`
 	SessionMode string `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run

@@ -7,6 +7,8 @@ const setupUsage = `Usage:
   bothouse setup apply --json <file|-> [--config path] [--dry-run]
                          Configure bots in one go (same as the web setup wizard). JSON in, JSON out.
                          Run "bothouse setup apply -h" for every JSON field.
+  bothouse setup jev --json <file|->   only the gate model: {"base_url","api_key","model"} or {"remove":true};
+                         tested first, saved only if the gate can use it; takes effect at the next restart
   bothouse setup dsh [install] [--lang zh|en]
                          Detect DSH or install the plugins into its web profile; returns the launch command.
   bothouse setup clis       Local CLIs (claude, codex, gemini, …): path, version, logged in or not
@@ -87,7 +89,7 @@ Request JSON (only the fields marked REQUIRED must be given; everything else has
                      now: saved with the blocking warning cloud_web_unreachable.
   wiki               optional {"daily", "night", "split"}: models of the memory wiki (~/wiki or $WIKI_DIR with
                      bin/ingest.py). daily = every 30 minutes, new sessions into the wiki; night = nightly review,
-                     reflection and the weekly lint; split = splitting pages/domains that are full. Values: haiku |
+                     reflection, the weekly lint and the nightly memory-forum settlement; split = splitting pages/domains that are full. Values: haiku |
                      sonnet | opus | codex:high | agy. Omitted = keep (ingest.py's defaults: haiku, codex:high,
                      codex:high); written to the wiki's config.json. With a wiki, the three scheduled runs (every
                      30 min; 03:00 Mon-Sat; 03:00 Sun) are also added as muted cron jobs (step "wiki cron"), once.

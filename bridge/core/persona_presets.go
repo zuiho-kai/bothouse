@@ -329,6 +329,9 @@ func PersonaReplyLanguage(persona string) (code, line string) {
 	}
 	rest := strings.TrimLeft(persona[i+len(replyLanguageMarker):], "\r\n")
 	line, _, _ = strings.Cut(rest, "\n")
+	// a block marker written right after the line without a newline (older hook installs did: 「…回答。<!-- conest:hooks -->」)
+	// is not part of it; otherwise the language goes unrecognised and the next hook block comes out in English
+	line, _, _ = strings.Cut(line, "<!--")
 	line = strings.TrimSpace(line)
 	for _, c := range []string{"zh", "zh-TW", "en", "ja", "ko", "es", "fr", "de", "pt", "ru"} {
 		if line == replyLanguageLine(c) {

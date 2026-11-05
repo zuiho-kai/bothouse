@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -77,6 +78,21 @@ func InstallLeadTools(dataDir, workDir, agentType string, force bool) (result ma
 	return map[string]string{"tools_dir": bin, "persona_file": persona, "readme": filepath.Join(bin, "README.md")}, skipped, nil
 }
 
+// refreshInstalledLeadTool upgrades one installed (PATH) collaboration tool when the user never edited it:
+// its content still equals the previous binary's copy kept in collaboration/runtime (prev). Edited copies
+// stay as they are, same promise as InstallLeadTools. Without this an upgrade never reached the tools on
+// the roles' PATH: #1109 (ws-handoff lists every missing item at once) shipped but roles kept the old
+// one-error-at-a-time copy (#1104).
+func refreshInstalledLeadTool(installed string, prev, next []byte, mode fs.FileMode) {
+	cur, err := os.ReadFile(installed)
+	if err != nil || !bytes.Equal(cur, prev) {
+		return
+	}
+	if err := AtomicWriteFile(installed, next, mode); err != nil {
+		slog.Warn("lead tools: refresh installed copy failed", "path", installed, "error", err)
+	}
+}
+
 // Internal lifecycle commands must match the running binary, including upgrades with locally
 // customized collaboration tools. Keep a separate managed copy; never overwrite those tools.
 var leadRuntimeMu sync.Mutex
@@ -98,7 +114,8 @@ func (e *Engine) leadRuntimeDir() (string, error) {
 		if err != nil {
 			return err
 		}
-		if old, err := os.ReadFile(dst); err == nil && bytes.Equal(old, b) {
+		old, oldErr := os.ReadFile(dst)
+		if oldErr == nil && bytes.Equal(old, b) {
 			return nil
 		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
@@ -107,6 +124,9 @@ func (e *Engine) leadRuntimeDir() (string, error) {
 		mode := fs.FileMode(0644)
 		if strings.HasPrefix(rel, "lead/") && !strings.Contains(filepath.Base(rel), ".") {
 			mode = 0755
+		}
+		if oldErr == nil {
+			refreshInstalledLeadTool(filepath.Join(e.dataDir, "collaboration", filepath.FromSlash(rel)), old, b, mode)
 		}
 		return AtomicWriteFile(dst, b, mode)
 	})

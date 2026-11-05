@@ -2989,6 +2989,11 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 func (e *Engine) Start() error {
 	e.restoreProactiveAdmissions()
 	go e.queueReportLoop() // #1020 queue_report.go
+	// sync collaboration/runtime now so an upgrade also refreshes unedited PATH tools (#1104).
+	// Synchronous: a few small files; a goroutine kept writing into dataDir after Stop (tests' TempDir cleanup failed).
+	if _, err := e.leadRuntimeDir(); err != nil {
+		slog.Warn("lead tools: runtime sync failed", "project", e.name, "error", err)
+	}
 	e.resolveRoleProductPython()
 	var startErrs []error
 	readyCount := 0
@@ -7355,6 +7360,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if isSilent {
 				// The card was finalized "completed" above, which promises a reply in the next message.
 				cp.Finalize(ProgressCardStateSilent)
+			}
+			// #1109: a model refusal posts one line, and a refused verification goes to another role.
+			if !isSilent {
+				state.mu.Lock()
+				jobID := state.currentJobID
+				state.mu.Unlock()
+				if line := e.refusalReply(jobID, baseResponse); line != "" {
+					baseResponse, cleanResponse = line, line
+				}
 			}
 
 			// A quota notice is not the workspace's answer: it must not go back as a [report].

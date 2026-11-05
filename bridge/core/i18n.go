@@ -695,10 +695,14 @@ const (
 	MsgReleaseHoldUnresumed     MsgKey = "release_hold_unresumed"
 	MsgWatchFailReassigned      MsgKey = "watch_fail_reassigned"
 	MsgWatchFailPrompt          MsgKey = "watch_fail_prompt"
+	MsgWatchCantDoReassigned    MsgKey = "watch_cantdo_reassigned"
+	MsgWatchCantDoPrompt        MsgKey = "watch_cantdo_prompt"
 	MsgTaskReviewReturned       MsgKey = "task_review_returned"
 	MsgTaskReviewOverdue        MsgKey = "task_review_overdue"
 	MsgTaskReviewPrompt         MsgKey = "task_review_prompt"
 	MsgTaskReviewEscalate       MsgKey = "task_review_escalate"
+	MsgModelRefusedHanded       MsgKey = "model_refused_handed"
+	MsgModelRefusedLead         MsgKey = "model_refused_lead"
 	MsgTaskReviewUnavailable    MsgKey = "task_review_unavailable"
 	MsgTaskReviewRoundup        MsgKey = "task_review_roundup"
 	MsgTaskPausedSummary        MsgKey = "task_paused_summary"
@@ -1119,14 +1123,22 @@ var messages = map[MsgKey]map[Language]string{
 		LangJapanese:           "#%d の検収が遅れています",
 		LangSpanish:            "#%d sigue pendiente de verificación",
 	},
+	MsgModelRefusedHanded: {
+		LangEnglish: "My model refused this one, so I can't do it; handed it to %s.",
+		LangChinese: "这件我这边的模型拒答了，做不了，已转给%s。",
+	},
+	MsgModelRefusedLead: {
+		LangEnglish: "My model refused this one, so I can't do it; the lead, please hand it to someone else.",
+		LangChinese: "这件我这边的模型拒答了，做不了，请主角色转给别人。",
+	},
 	MsgTaskReviewEscalate: {
 		LangEnglish: "This is the simple review tier. If you are not sure, run board tier %[1]d complex: the complex-tier reviewer verifies it again.",
 		LangChinese: "这是简单档验收。拿不准就跑 board tier %[1]d complex，换复杂档的审核人再审一遍。",
 	},
 
 	MsgTaskReviewPrompt: {
-		LangEnglish:            "%s: %s. Handoff: %s. Verify artifacts first. Accept with board done %[4]d <rework-count>, or record feedback with board reject %[4]d <feedback> and continue through ws-handoff --resume %[4]d <feedback>. Check workspace occupancy; use a free workspace or queue. The dispatcher owns verification, not the user. A returned report is not acceptance.",
-		LangChinese:            "%s：%s。交接：%s。先核对实际产物，再收口（board done %[4]d <返工次数>），或记录问题（board reject %[4]d <问题>）后用 ws-handoff --resume %[4]d <问题> 续办。先核对原工作区占用，占用时排队或选空闲区。不得把待核对交给用户，不得把交回当验收。",
+		LangEnglish:            "%s: %s. Handoff: %s. This is a check of our own product fix: confirm the fixed behavior matches what the handoff expects. Verify artifacts first. Accept with board done %[4]d <rework-count>, or record feedback with board reject %[4]d <feedback> and continue through ws-handoff --resume %[4]d <feedback>. Check workspace occupancy; use a free workspace or queue. The dispatcher owns verification, not the user. A returned report is not acceptance.",
+		LangChinese:            "%s：%s。交接：%s。这是自家产品的修复核对：看修复后的行为是否符合交接里的预期。先核对实际产物，再收口（board done %[4]d <返工次数>），或记录问题（board reject %[4]d <问题>）后用 ws-handoff --resume %[4]d <问题> 续办。先核对原工作区占用，占用时排队或选空闲区。不得把待核对交给用户，不得把交回当验收。",
 		LangTraditionalChinese: "%s：%s。交接：%s。先核對產物，再用 board done %[4]d <返工次數> 收口，或 board reject %[4]d <問題> 記錄問題並 ws-handoff --resume %[4]d <問題> 續辦。先核對工作區占用，忙碌時排隊或選空閒區。驗收歸派活人，不交給使用者；交回不等於驗收。",
 		LangJapanese:           "%s：%s。引継ぎ：%s。成果物を検証し、board done %[4]d <修正回数> で承認するか、board reject %[4]d <問題> に記録し ws-handoff --resume %[4]d <問題> で再開してください。空き作業区がなければ待機してください。依頼担当が検収してください。返却は承認ではありません。",
 		LangSpanish:            "%s: %s. Traspaso: %s. Verifica los artefactos y acepta con board done %[4]d <revisiones>, o registra problemas con board reject %[4]d <problemas> y continúa con ws-handoff --resume %[4]d <problemas>. Comprueba la ocupación; usa un espacio libre o la cola. La verificación corresponde al coordinador, no al usuario. Entrega no significa aceptación.",
@@ -1166,6 +1178,20 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "%s 連續兩次報錯（多半是中轉限流），現在由你接手：%s。先讀下面紀錄及原交接文件，從停點接著做，保留用戶原話和底分支，交回原頻道。\n交接依據：\n%s",
 		LangJapanese:           "%s が2回連続でエラーになりました（中継のレート制限の可能性）。今からあなたが担当します：%s。下の記録と元の引継ぎファイルを読み、停止点から続け、元の依頼とブランチを保ち、元のチャンネルに報告してください。\n根拠：\n%s",
 		LangSpanish:            "%s falló dos veces seguidas (probablemente límites del relay). Ahora te encargas de: %s. Lee el registro y los archivos de traspaso, continúa desde el punto guardado, conserva la petición y la rama originales e informa en el canal original.\nBase:\n%s",
+	},
+	MsgWatchCantDoReassigned: {
+		LangEnglish:            "Watch: %s said twice it cannot do %s; handed it to %s, who carries on.",
+		LangChinese:            "看门：%s「%s」连续两次说做不了，已自动换给 %s 接着做。",
+		LangTraditionalChinese: "看門：%s「%s」連續兩次說做不了，已自動換給 %s 接著做。",
+		LangJapanese:           "見守り：%s が %s を2回続けてできないと答えたため、%s に自動で引き継ぎました。",
+		LangSpanish:            "Aviso: %s dijo dos veces que no puede hacer %s; se pasó a %s, que continúa.",
+	},
+	MsgWatchCantDoPrompt: {
+		LangEnglish:            "%s said twice it cannot do this work (or its model refused). You now own: %s. Read the record below and the original handoff file, continue from where it stopped, keep the original request and branch, and report to the original channel.\nBasis:\n%s",
+		LangChinese:            "%s 连续两次说做不了（或模型拒答），现在由你接手：%s。先读下面记录及原交接文件，从停点接着做，保留用户原话和底分支，交回原频道。\n交接依据：\n%s",
+		LangTraditionalChinese: "%s 連續兩次說做不了（或模型拒答），現在由你接手：%s。先讀下面紀錄及原交接文件，從停點接著做，保留用戶原話和底分支，交回原頻道。\n交接依據：\n%s",
+		LangJapanese:           "%s がこの作業を2回続けてできないと答えました（またはモデルが拒否）。今からあなたが担当します：%s。下の記録と元の引継ぎファイルを読み、停止点から続け、元の依頼とブランチを保ち、元のチャンネルに報告してください。\n根拠：\n%s",
+		LangSpanish:            "%s dijo dos veces que no puede hacer este trabajo (o su modelo se negó). Ahora te encargas de: %s. Lee el registro y el archivo de traspaso, continúa desde donde se detuvo, conserva la petición y la rama originales e informa en el canal original.\nBase:\n%s",
 	},
 	MsgPublicEnded: {
 		LangEnglish:            "Turn ended; see the final reply. Acceptance is not confirmed.",

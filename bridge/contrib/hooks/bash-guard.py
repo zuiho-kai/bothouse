@@ -14,13 +14,12 @@
    不要占着前台；超过 5 分钟缓存全部重写）。run_in_background=true 的不拦，单个 sleep <60 秒不拦。
    perl/python 里的 while … sleep 循环同样拦。
    DSH：载荷带 dsh_busy（本会话还有子 agent/后台任务在跑）时 job_output wait=true 也拦；DSH 的前台 sleep 一律拦。
-9. 仅 DSH，聊天频道主会话（不在工作区、不是子 agent、不是外出或定时轮）：真人派来的这一轮已执行 CHAT_STEPS_MAX 步工具，
-   还没跑过 ws-handoff / ws-up / bothouse send|progress|task，再来只读查询就拦：先在群里回一句，大活写交接交工作区或 @ 队友。
-   出处：用户 2026-11-05 看隔壁 DSH 主角色接三项需求后闷头翻 9 分钟不回话（「他妈现在搞7分钟」「出现什么问题你就去修它…变成我们的产品能力」）。
 8. 仅 DSH 提速（本轮的工具调用来自 dsh-cc-compat.py 加的 dsh_turn）：同一轮第二次轮询同一对象拦；
    一串只读查询里第 4 个「一步只跑一条只读查询」的步拦（合并过的步放行），本轮重复的只读命令拦；
    前台联网长命令（git clone/fetch/pull、npm/pip/brew install）拦，改后台。子 agent 会话和外出轮豁免。
 10. 不拦只改：Claude Code 子 agent（非 long-task）前台 Bash 的 timeout 超过 290 秒时压到 290 秒，跑不完自动转后台。
+12. 不拦只改：单条 `git push` 后面接一句失败提示：被拒（403、Permission denied）就改用 pr-push（推 fork 开 PR），
+    不反复重试、不等人加权限。出处：11-06 隔壁鲸鱼娘 git push 一直 403，代码只留在本机分支。`# push-ok` 不加。
 11. 报预计时间、挂定时（ws-*、later、board、bothouse progress/send/relay/timer/task）长于 15 分钟没写实测依据或外部等待 → 拦（eta_guard.py）。"""
 import ast, json, os, re, shlex, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -184,6 +183,29 @@ def sub_cap(inp, d):
     return dict(inp, timeout=SUB_CAP_MS)
 
 
+PUSH_HINT = ("[bash-guard] git push 失败。上面若是 403、Permission denied、denied to <账号>：这个账号对上游没写权限，"
+             "改用 pr-push（同一仓库目录里跑，自动推到自己的 fork 并开 PR），不要反复重试或等人加权限。")
+
+
+def push_hint(cmd):
+    """规则 12：一条单独的 git push（不是复合命令、不是 pr-push）→ 失败时多打一句提示的新命令；否则 None。"""
+    segs = segments(cmd)
+    if len(segs) != 1 or "# push-ok" in cmd or "\n" in cmd.strip():
+        return None
+    t = toks(segs[0])
+    i = 0
+    while i < len(t) and re.match(r"^\w+=", t[i]):  # 前缀环境变量
+        i += 1
+    if t[i:i + 1] != ["git"]:
+        return None
+    rest = t[i + 1:]
+    while rest and rest[0] in ("-C", "-c") and len(rest) > 1:  # git -C <dir> / -c k=v
+        rest = rest[2:]
+    if rest[:1] != ["push"]:
+        return None
+    return f"{cmd.rstrip()} || {{ rc=$?; echo {shlex.quote(PUSH_HINT)} >&2; exit $rc; }}"
+
+
 def sleep_secs(arg):
     m = re.fullmatch(r"(\d+(?:\.\d+)?)([smhd]?)", arg)
     return float(m.group(1)) * {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}[m.group(2)] if m else 0
@@ -262,13 +284,29 @@ RO_PROGS = {
 # 不算一段查询的（分段用的 echo ===、cd 之类）
 NEUTRAL_PROGS = {"cd", "echo", "printf", "true", "false", ":", "export", "unset", "set", "pwd", "date",
                  "done", "fi", "esac", "}", "{"}
-CHAT_STEPS_MAX = 8  # 隔壁实录：串行双查询每步约 12 秒，8 步约 1.5–2 分钟；规矩「预计超过 10 分钟交工作区」
-# 跑过这些就算已回话或已交出：交工作区、工作区推进度、发群消息/进度卡、派任务
-CHAT_HANDED = re.compile(r"(?:^|[\s/;&|(])(?:ws-handoff|ws-up|ws-forward)\b|\bbothouse\s+(?:send|progress|task)\b")
-CHAT_MSG = ("这是聊天频道，真人派来的这一轮你已经跑了 {n} 步工具，群里还没听到一句话。按团队规矩："
-            "预计超过 10 分钟或要改代码、跑命令的活，现在就写交接（用户原话、总目标、范围）跑 `ws-handoff <交接文件> \"<任务>\"` 交工作区，"
-            "或 @ 合适的队友派出去，然后结束本轮、在群里一句话说清派给了谁；小活就别再查了，直接回答。"
-            "（规则 9；用户 2026-11-05「他妈现在搞7分钟」）")
+# 原规则 9（聊天频道满 8 步拦截）已回退（用户 11-06：门槛不能拍脑袋，以后按数据重定）；下面的「算不算已交出」判定留着备用。
+# 跑过这些就算已回话或已交出：交工作区、工作区推进度、发群消息/进度卡、派任务。只认真的调用（命令本身是它们，
+# 不带 --help）；读它们的源码（sed/grep ws-handoff）、看用法不算。隔壁 11-05 实录：跑过一次 ws-handoff --help 后
+# 规则 9 一直当她已交出，她接着读了 30 分钟 ws-handoff 源码没被拦（#1104）。
+HAND_PROGS = {"ws-handoff", "ws-up", "ws-forward"}
+HAND_SUBS = {"send", "progress", "task"}  # bothouse / cc-connect 的子命令
+
+
+def chat_handed(cmd):
+    for seg in segments(cmd):
+        t = toks(seg)
+        while t and (re.match(r"^\w+=", t[0]) or t[0] in PREFIX):
+            t = t[1:]
+        if not t:
+            continue
+        prog, args = t[0].rsplit("/", 1)[-1], t[1:]
+        if any(a in ("--help", "-h", "--template") for a in args):
+            continue
+        if prog in HAND_PROGS or (prog in ("bothouse", "cc-connect") and args[:1] and args[0] in HAND_SUBS):
+            return True
+    return False
+
+
 RO_TOOLS = {"read", "grep", "glob"}  # DSH 自己的只读工具：一步只调它一个也算单步查询
 LOOP_PROGS = {"for", "while", "until", "select", "case"}
 PREFIX = {"env", "time", "command", "nice", "exec", "sudo", "do", "then", "else", "elif", "if", "!"}
@@ -486,33 +524,6 @@ def check_network(cmd):
                 deny(NET_MSG + f"\n被拦的片段：{' '.join(t)[:200]}")
 
 
-def _in_workspace():
-    """同 dispatch-review-guard.in_workspace（工作区频道记在 team_workspaces.json）。"""
-    import importlib.util
-    try:
-        spec = importlib.util.spec_from_file_location(
-            "drg", os.path.join(os.path.dirname(os.path.abspath(__file__)), "dispatch-review-guard.py"))
-        m = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(m)
-        return m.in_workspace()
-    except Exception:
-        return True  # 判断不了就当工作区，不拦
-
-
-def check_chat_turn(cmd, turn, done):
-    """规则 9：聊天频道里真人派的这一轮，执行满 CHAT_STEPS_MAX 步还没交出、没回话，只读查询拦下。"""
-    if turn.get("auto"):
-        return
-    steps = [s for s in turn.get("steps") or [] if any(not c.get("denied") for c in s)]
-    if len(steps) < CHAT_STEPS_MAX:
-        return
-    if any(c.get("name") == "bash" and CHAT_HANDED.search(c.get("command") or "") for c in done):
-        return
-    if _in_workspace():
-        return
-    deny(CHAT_MSG.format(n=len(steps)) + f"\n被拦的命令：{cmd.strip()[:200]}")
-
-
 def check_speed(cmd, turn, cid):
     """规则 8a 的 gh run 轮询、8b 的串行只读和重复命令。"""
     prior, cur = split_turn(turn, cid)
@@ -531,7 +542,6 @@ def check_speed(cmd, turn, cid):
     q = ro_queries(cmd)
     if q is None:
         return
-    check_chat_turn(cmd, turn, done)
     for c in reversed(done):  # 重复：上次跑同一条只读命令之后，没跑过非只读的调用
         if c.get("name") in RO_TOOLS:
             continue
@@ -615,11 +625,15 @@ def main():
             f"\n被拦的片段：{seg.strip()[:200]}"
         )
         deny(reason)
+    pushed = push_hint(cmd)  # 规则 12：只在命令后接失败提示
+    if pushed:
+        inp = dict(inp, command=pushed)
     capped = sub_cap(inp, d)
-    if capped:  # 规则 10：只改 timeout，命令照常执行（别的规则已在上面查过）
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
-                                                 "updatedInput": capped, "additionalContext": SUB_CAP_MSG}},
-                         ensure_ascii=False))
+    if capped or pushed:  # 规则 10：只改 timeout，命令照常执行（别的规则已在上面查过）
+        out = {"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": capped or inp}
+        if capped:
+            out["additionalContext"] = SUB_CAP_MSG
+        print(json.dumps({"hookSpecificOutput": out}, ensure_ascii=False))
         sys.exit(0)
     if wiki_cat_pages(cmd, d.get("cwd")) >= WIKI_CAT_MIN:
         hint("这条命令整页 cat 了多页 wiki（照常执行，只是提醒）。下次先 `grep -rn <关键词> <wiki 目录>`（装了 llm-wiki 就用它的 "

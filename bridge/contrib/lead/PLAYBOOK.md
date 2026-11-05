@@ -54,6 +54,8 @@ Work that cannot finish in 10 minutes must be cut (user, 2026-10-23: "if it can'
 - For background work, run `t10 <pid>` right after starting it: at 10 minutes it stops the process and its children.
 - For work assigned to a teammate in the channel, run `d10 <teammate name or ID> "<label>"` in the same turn: if she has not handed back by then, the primary role sends "pause"; if she has, nothing is sent; if she has not but committed or posted in the last 10 minutes, it waits another 10 minutes, at most twice.
 - Do not claim a watchdog is set unless you set it.
+- A workspace reporting "【到上限】" (a turn hit the step or time cap and ws-cap-guard made it hand back its progress): if it made progress (finished something, pushed a commit), `ws-forward --notes <handoff> "continue: <where the next turn starts>"` for another turn; if it reports the same blocker as last time with no progress, cut it as this section says: `board pause <id>`, or hand it to someone else or with a different approach, and tell the user in one line.
+- Timer-triggered review/acceptance turns too: heavy work (reading code, running tests) is not done in the chat channel; write a handoff and `ws-handoff` it to a workspace. The timer only starts the job; the lead only reads the result (in the workspace the cap applies and hands back as above).
 
 ## 7. Always isolate tests
 
@@ -92,3 +94,8 @@ To get a specific teammate to answer, @ her or start a line with her name follow
 
 Always-on rules (the team-mode rules, the rule section in a persona) have a total cap: before adding a rule, remove or merge one; a byte-size test in `core` guards the cap on the team-mode rules.
 When the same kind of mistake happens a second time, turn it into a check (a script, hook or test) instead of adding more text; `contrib/hooks/lessons.py` reads the "N 次" (N times) count of each entry in the wiki lessons table (`rule-candidates-recurrence*.md`) and reminds the agent on the first turn and when the user corrects it — an entry that reaches 2 should become a check.
+
+## 13. Before editing a document, find the earlier version
+
+When asked to revise a document (promo copy, CV, write-up, proposal), first search the memory wiki for that topic's earlier tasks and decisions (`python3 <wiki>/bin/search.py <topic>`); the first line of the answer says which version you built on and what changed. If nothing turns up, say no earlier version was found and write it fresh.
+(2026-11-04, the user: "Don't you have any memory?")

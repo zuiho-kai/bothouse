@@ -7,14 +7,14 @@
             成功/失败记成 by=outcome 的赞/踩（memvote.outcome），交给现有 Wilson 排序和 reddit 折叠阈值（同目录 forum_scores.py）。
   过时   = 用户纠正的那一轮，用户那句纠正和那轮推过的条目走写入时冲突检测（主 wiki 的 bin/invalidate.py，照 Graphiti），
             被推翻的旧行原样挪进同页「## 历史」并提交 wiki。主 wiki 没有 bin/invalidate.py（不是这套 llmwiki）就跳过这步。
-模型只判「next 是不是纠正」（只看 q、next 两句，CORRECT_PROMPT + --output-schema），不评判条目。
+模型只判「next 是不是纠正」（只看 q、next 两句，CORRECT_PROMPT，回 JSON；模型是用户给 wiki 配的每晚模型），不评判条目。
 每一轮 = 用户那句话（所有角色、所有频道和工作区）+ 同频道用户下一句。还没有下一句的轮留到下次跑。
 当晚统计追加 nightly.jsonl；每轮的判断追加 tags.jsonl（离线回放用）。
 
   score_night.py [--dry]      处理上次跑过之后的记录；--dry 只打印不写
   score_night.py --replay F   从头判全部历史，写到 F，不动票和进度
 """
-import hashlib, json, os, re, subprocess, sys, tempfile, time
+import hashlib, json, os, re, subprocess, sys, time
 from pathlib import Path
 
 EXP = Path(__file__).resolve().parent  # bothouse 装的 gate 目录（<数据目录>/gate，ctxsvc 把推送记录写在这）
@@ -26,14 +26,15 @@ NIGHT = DATA / "nightly.jsonl"
 TAGS = DATA / "tags.jsonl"
 WIKI = Path(os.environ.get("GATE_WIKI") or "~/wiki").expanduser()  # 同 memvote.py；隔离测试指到 wiki 副本
 MAX_CHARS = 240_000  # 沿用 wiki 的 bin/ingest.py MAX_CHARS：每次 model 调用的输入上限
-MODEL = os.environ.get("WIKI_CODEX_MODEL", "gpt-6-luna")  # 同 wiki 的 bin/ingest.py MODELS["codex"]
 
 
 WS_START = "你是工作区频道里的主角色"  # ws-handoff 叫醒工作区的开头（同 ctxsvc._NOT_USER）
 sys.path.insert(0, str(EXP))
 import memvote  # 引用（by=self）和成功/失败（by=outcome）都记在 votes.jsonl
-if (WIKI / "bin" / "invalidate.py").is_file():
+os.environ["WIKI_DIR"] = str(WIKI)  # 模型用这个 wiki 配的每晚模型（bin/ingest.py answer 读它的 config.json）
+if (WIKI / "bin").is_dir():
     sys.path.insert(0, str(WIKI / "bin"))
+if (WIKI / "bin" / "invalidate.py").is_file():
     import invalidate  # 写入时冲突检测（照 Graphiti），被推翻的旧行挪进同页「## 历史」
 else:
     invalidate = None
@@ -157,19 +158,19 @@ CALLS = [0]  # 本次跑调了几次模型（打印用）
 
 
 def judge(batch, prompt, fmt, schema):
-    """一批交 codex；--output-schema 固定输出格式（codex exec --help：Path to a JSON Schema file describing the
-    model's final response shape）。返回 turns 列表。"""
+    """一批交用户给这个 wiki 配的每晚模型（config.json night_engine，向导的「每晚」一项；bin/ingest.py answer），
+    不在这里挑 CLI（用户 2026-11-06「用户指定什么模型…dsh、luna、haiku都可以」）。要它只回符合 schema 的 JSON。
+    返回 turns 列表。"""
     text = prompt + "\n\n".join(fmt(i, t) for i, t in enumerate(batch))
     CALLS[0] += 1
-    with tempfile.NamedTemporaryFile("w", suffix=".json") as sf, tempfile.NamedTemporaryFile("r", suffix=".txt") as out:
-        json.dump(schema, sf)
-        sf.flush()
-        r = subprocess.run(["codex", "exec", "-m", MODEL, "-c", "notify=[]", "--skip-git-repo-check",
-                            "-s", "read-only", "--output-schema", sf.name, "-o", out.name, "-"],
-                           input=text, capture_output=True, text=True)
-        if r.returncode != 0:
-            raise RuntimeError(f"codex 失败：rc={r.returncode} {r.stderr[-400:]}")
-        return json.loads(Path(out.name).read_text(encoding="utf-8"))["turns"]
+    if not (WIKI / "bin" / "ingest.py").is_file():
+        raise RuntimeError(f"{WIKI} 没有 bin/ingest.py：结算用它读用户配的每晚模型，先用向导建好记忆 wiki")
+    import ingest
+    res = ingest.answer(text + "\n\n只输出一个 JSON 对象，符合下面的 JSON Schema，不要别的字，不要改任何文件：\n"
+                        + json.dumps(schema, ensure_ascii=False), label="score_night")
+    if "{" not in res:
+        raise RuntimeError(f"{ingest.NIGHT_ENGINE} 没回 JSON：{res[-400:]}")
+    return json.loads(res[res.index("{"):res.rindex("}") + 1])["turns"]
 
 
 def cites():

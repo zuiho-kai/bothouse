@@ -15,6 +15,9 @@ import (
 // runs. 橘定 (handoff direction 「若干分钟无新消息」); a var so tests can shorten it.
 var leadWakeQuiet = 5 * time.Minute
 
+// leadWakeHoldCap: the longest a wake is held for the user (one watch cycle); a var for tests.
+var leadWakeHoldCap = watchCheckAfterDefault
+
 // userConversingWait is how much longer a wake for sessionKey has to wait: leadWakeQuiet while a
 // turn runs there, else what is left of leadWakeQuiet since the user's last message (0: go).
 func (e *Engine) userConversingWait(sessionKey string) time.Duration {
@@ -72,7 +75,19 @@ func (ts *TimerScheduler) holdForUser(engine *Engine, job *TimerJob) bool {
 	if wait <= 0 {
 		return false
 	}
-	ts.store.Reschedule(job.ID, time.Now().Add(wait))
+	// Held at most one watch cycle: a long chat with the lead must not hold a review or a
+	// handback until its run times out (agentm 11-05 17:1xZ: review-515c… held 30 min, then
+	// timed out). Past the cap it runs as usual.
+	now := time.Now()
+	if !job.HeldSince.IsZero() && now.Sub(job.HeldSince) >= leadWakeHoldCap {
+		slog.Info("timer: wake held for a full watch cycle; running now", "id", job.ID, "session", job.SessionKey, "held", now.Sub(job.HeldSince))
+		return false
+	}
+	if job.HeldSince.IsZero() {
+		ts.store.MarkHeld(job.ID, now)
+		job.HeldSince = now
+	}
+	ts.store.Reschedule(job.ID, now.Add(wait))
 	slog.Info("timer: user is talking with the lead; wake held", "id", job.ID, "session", job.SessionKey, "wait", wait)
 	ts.scheduleAt(job, wait)
 	return true
@@ -87,6 +102,21 @@ func (s *TimerStore) Reschedule(id string, at time.Time) {
 			j.ScheduledAt = at
 			if err := s.save(); err != nil {
 				slog.Warn("timer: save after reschedule", "error", err)
+			}
+			return
+		}
+	}
+}
+
+// MarkHeld records when a pending job was first held for the user and saves it.
+func (s *TimerStore) MarkHeld(id string, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, j := range s.jobs {
+		if j.ID == id {
+			j.HeldSince = at
+			if err := s.save(); err != nil {
+				slog.Warn("timer: save after hold", "error", err)
 			}
 			return
 		}

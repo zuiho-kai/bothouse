@@ -64,7 +64,7 @@ class T(unittest.TestCase):
             asked.append(prompt)
             return json.dumps({"results": [{"g": 0, "n": 0, "contradicted_facts": [0]}]})
 
-        with patch.object(score_night, "judge", self.judge), patch.object(score_night.invalidate, "codex_ask", ask), \
+        with patch.object(score_night, "judge", self.judge), patch.object(score_night.invalidate, "night_ask", ask), \
                 patch.object(forum_scores, "path", lambda: self.exp / "scores.json"):
             score_night.main()
             votes = [json.loads(x) for x in (self.exp / "votes.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -85,7 +85,7 @@ class T(unittest.TestCase):
 
     def test_dry_writes_nothing(self):
         with patch.object(score_night, "judge", self.judge), \
-                patch.object(score_night.invalidate, "codex_ask", lambda p: '{"results": []}'):
+                patch.object(score_night.invalidate, "night_ask", lambda p: '{"results": []}'):
             score_night.main(dry=True)
         votes = (self.exp / "votes.jsonl").read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(votes), 1)
