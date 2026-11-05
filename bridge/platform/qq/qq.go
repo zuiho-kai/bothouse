@@ -43,8 +43,12 @@ type Platform struct {
 	groupHistory     sync.Map // groupID -> *groupLog: recent lines, so a turn sees what the group was saying
 	// saveImagesDir: when set (option save_images_dir), every received image is also
 	// written there and the path is added to this turn only.
-	saveImagesDir         string
-	splitReplyBubbles     bool
+	saveImagesDir     string
+	splitReplyBubbles bool
+	// allowQzone / allowAvatar gate the write-to-my-own-account extensions
+	// (说说、头像, social.go). Both default off: they act as the account owner.
+	allowQzone            bool
+	allowAvatar           bool
 	commandAllowFrom      string // optional separate sender list for slash-prefixed input
 	shareSessionInChannel bool
 	project               string // this bot's project name (opts["cc_project"]), named in outbound receipts
@@ -164,6 +168,8 @@ func New(opts map[string]any) (core.Platform, error) {
 	project, _ := opts["cc_project"].(string)
 	saveImagesDir, _ := opts["save_images_dir"].(string)
 	splitReplyBubbles, _ := opts["split_bubbles"].(bool)
+	allowQzone, _ := opts["allow_qzone"].(bool)
+	allowAvatar, _ := opts["allow_avatar"].(bool)
 
 	core.CheckAllowFrom("qq", allowFrom)
 
@@ -195,6 +201,8 @@ func New(opts map[string]any) (core.Platform, error) {
 		commandAllowFrom:      commandAllowFrom,
 		saveImagesDir:         saveImagesDir,
 		splitReplyBubbles:     splitReplyBubbles,
+		allowQzone:            allowQzone,
+		allowAvatar:           allowAvatar,
 		shareSessionInChannel: shareSessionInChannel,
 		project:               project,
 		httpURL:               httpURL,
@@ -754,14 +762,14 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 				}
 			}
 
-			// Step 2: Get fresh direct link via NapCat API (CDN URLs expire / have download limits)
+			// Step 2: Get fresh direct link via NapCat API (HTTP when http_url is set, else the WS connection) (CDN URLs expire / have download limits)
 			// NapCat docs: params are STRINGS — group (not group_id), file_id
-			if !downloaded && p.httpURL != "" && fileID != "" {
+			if !downloaded && fileID != "" {
 				var freshURL string
 				if msgType == "group" && groupID != 0 {
 					groupStr := strconv.FormatInt(groupID, 10)
 					slog.Info("qq: [step2] trying get_group_file_url", "file_id", fileID, "group", groupStr)
-					result, err := p.callHTTPAPI("get_group_file_url", map[string]any{
+					result, err := p.callFileAPI("get_group_file_url", map[string]any{
 						"file_id": fileID,
 						"group":   groupStr,
 					})
@@ -773,7 +781,7 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 					}
 				} else {
 					slog.Info("qq: [step2] trying get_private_file_url", "file_id", fileID)
-					result, err := p.callHTTPAPI("get_private_file_url", map[string]any{
+					result, err := p.callFileAPI("get_private_file_url", map[string]any{
 						"file_id": fileID,
 					})
 					if err == nil {
@@ -799,9 +807,9 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 			}
 
 			// Step 3: Last resort — get_file (downloads to NapCat local or returns base64)
-			if !downloaded && p.httpURL != "" && fileID != "" {
+			if !downloaded && fileID != "" {
 				slog.Info("qq: [step3] trying get_file", "file_id", fileID)
-				result, err := p.callHTTPAPI("get_file", map[string]any{"file_id": fileID})
+				result, err := p.callFileAPI("get_file", map[string]any{"file_id": fileID})
 				if err == nil {
 					if fileURL, ok := result["url"].(string); ok && fileURL != "" {
 						fileData, mime, err := downloadLargeFile(fileURL)
@@ -1511,6 +1519,17 @@ func (p *Platform) callAPIContext(ctx context.Context, action string, params map
 	}
 }
 
+// callFileAPI fetches file metadata through the HTTP API when http_url is
+// configured and over the event WebSocket otherwise; deployments that only
+// set ws_url could never download a file segment before (they skipped steps
+// 2 and 3). Safe from parseMessage: handleMessage runs off the read loop.
+func (p *Platform) callFileAPI(action string, params map[string]any) (map[string]any, error) {
+	if p.httpURL != "" {
+		return p.callHTTPAPI(action, params)
+	}
+	return p.callAPI(action, params)
+}
+
 // callHTTPAPI calls a OneBot v11 HTTP endpoint (e.g. /upload_group_file).
 // Used for file operations — avoids WebSocket message size limits and
 // file-path issues across Windows/WSL/Docker boundaries.
@@ -1888,6 +1907,15 @@ var _ core.FileSender = (*Platform)(nil)
 func (p *Platform) QuietSystemNotices(replyCtx any) bool {
 	rc, ok := replyCtx.(*replyContext)
 	return ok && rc != nil && rc.messageType == "group"
+}
+
+// QuietInsertReceipt drops the mid-turn insert acknowledgement (↪ 已插入) in private
+// chats as well as groups: the line is the bridge talking about itself, the inserted
+// text still reaches the running turn and that turn still answers (user 2026-11-05
+// saw it in her own private chat right after the group-only fix shipped).
+func (p *Platform) QuietInsertReceipt(replyCtx any) bool {
+	rc, ok := replyCtx.(*replyContext)
+	return ok && rc != nil
 }
 
 var _ core.GroupQueueBatcher = (*Platform)(nil)

@@ -1045,3 +1045,17 @@ func TestCronScheduler_StopAbandonsBlockedManualRun(t *testing.T) {
 	}
 	scheduler.Stop() // idempotent
 }
+
+// A muted cron turn (the hourly "想想要不要私聊" job on the DM session) leaves *mutePlatform as
+// the session's platform; a later `bothouse send --dm` to that session must still be delivered.
+func TestSendToSession_AfterMutedCronTurnStillDelivers(t *testing.T) {
+	inner := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &stubAgent{}, []Platform{inner}, "", LangEnglish)
+	e.interactiveStates["test:dm:owner"] = &interactiveState{platform: &mutePlatform{inner}, replyCtx: "rc"}
+	if err := e.SendToSessionWithOptions("test:dm:owner", "private hello", nil, nil, SendOptions{}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if got := inner.getSent(); len(got) != 1 || got[0] != "private hello" {
+		t.Fatalf("explicit send after a muted cron turn was dropped: %v", got)
+	}
+}

@@ -92,10 +92,24 @@ test('channel rename API: emits fresh rooms and returns HTTP 400 for invalid nam
   assert.equal((await call(1, 'new')).status, 200);
   assert.equal(events.at(-1).rooms.find(r => r.id === 1).name, 'new');
   assert.deepEqual(refreshed, [1]);
-  for (const name of ['', 'x'.repeat(33), 'two words', 'name\n']) assert.equal((await call(1, name)).status, 400);
+  for (const name of ['', '   ', 'x'.repeat(33), 'two words']) assert.equal((await call(1, name)).status, 400);
+  // #176: rename normalizes like create does (trim, drop one leading '#').
+  assert.equal((await call(1, '  new  ')).status, 200);
+  assert.equal(hub.store.room(1).name, 'new');
+  // #176: renaming onto another channel's name, or onto 工作区<n>, is a conflict, not a silent duplicate.
+  hub.store.ensureRoom(2, 'other');
+  assert.equal((await call(1, 'other')).status, 409);
+  assert.equal((await call(1, '工作区9')).status, 409);
+  // #176: create strips a leading '#' (the list shows names with one), so rename must too —
+  // otherwise '#new' was a second "new" on the same list.
+  assert.equal((await call(1, '#other')).status, 409);
+  assert.equal((await call(1, '#工作区9')).status, 409);
+  assert.equal((await call(1, '#fresh')).status, 200);
+  assert.equal(hub.store.room(1).name, 'fresh');
   assert.equal((await call(ws.id, 'new')).status, 400);
   assert.equal((await call(999, 'new')).status, 404);
-  assert.deepEqual(refreshed, [1]);
+  // Only the successful renames above ('new', 'fresh', 'new' again) reach the tab-title refresh.
+  assert.deepEqual(refreshed, [1, 1, 1]);
   hub.store.close();
 });
 
@@ -144,6 +158,25 @@ test('channel rename: the persisted name survives reopening the database', async
   assert.equal(reopened.room(1).name, '新频道');
   assert.equal(reopened.workspacePath(1, '/fallback'), '/changed');
   reopened.close();
+});
+
+test('#176: channel names are unique and a workspace-shaped name is refused', () => {
+  const s = new Store(':memory:');
+  s.ensureRoom(1, 'general');
+  const dev = s.createRoom('dev');
+  // Two #general in the sidebar are indistinguishable: a second channel takes no existing name.
+  assert.throws(() => s.createRoom('general'), e => e.code === 'conflict' && /already in use/.test(e.message));
+  assert.throws(() => s.createRoom('General'), e => e.code === 'conflict');
+  assert.throws(() => s.renameRoom(dev.id, 'general'), e => e.code === 'conflict');
+  // 工作区<n> is how a workspace is addressed; a chat channel must not shadow it.
+  assert.throws(() => s.createRoom('工作区9'), e => e.code === 'conflict' && /reserved/.test(e.message));
+  assert.throws(() => s.renameRoom(dev.id, '工作区9'), e => e.code === 'conflict');
+  // Renaming a channel onto its own name stays fine, and a private chat does not hold its name.
+  assert.equal(s.renameRoom(dev.id, 'dev').name, 'dev');
+  s.addMember({ id: 'm-a', name: 'probe', rooms: [1] });
+  s.openDm('m-a', 'probe');
+  assert.equal(s.createRoom('probe').name, 'probe');
+  s.close();
 });
 
 test('channel rename: refreshes loaded and persisted sessions, workspaces and future sessions', async () => {
@@ -1370,7 +1403,18 @@ test('roster: config seeds are read-only, UI members are created, edited and rem
   const renamed = await roster.update('coder', { name: '码农', model: { provider: 'relay', model: 'm1' }, persona: '' });
   assert.equal(renamed.name, '码农');
   assert.equal(hub.members.get('coder').name, '码农');
+  // #176: a removed member must not stay the channel's primary role — the settings dialog can
+  // neither show nor clear a dead id, and repointing to it is refused.
+  hub.store.ensureRoom(7, 'lead-room');
+  hub.store.setLead(7, 'coder');
+  assert.equal((hub.primaryIn(7) ?? {}).id, 'coder');
+  const roomEvents = [];
+  const emit = hub.emit.bind(hub);
+  hub.emit = event => { roomEvents.push(event); return emit(event); };
   roster.remove('coder');
+  assert.equal(hub.store.leadId(7), null);
+  assert.equal(hub.primaryIn(7), undefined);
+  assert.equal(roomEvents.filter(e => e.type === 'room-settings' && e.room_id === 7).length, 1);
   assert.equal(members.config.has('coder'), false);
   assert.equal(hub.members.has('coder'), false);
   assert.equal(hub.store.members().some(m => m.id === 'coder'), false);
@@ -5811,6 +5855,26 @@ test('channel directories: CLI processes use separate directories and all close 
   await members.close(); hub.store.close();
 });
 
+test('CLI session key: one member in two rooms votes and recalls in the room it is speaking in (#1020)', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'other');
+  const members = cliMembers(hub, async () => 'done');
+  const envs = [];
+  members.rt.createCliMember = ({ cwd, env }) => {
+    envs.push({ cwd, ...env });
+    return { ask: async () => 'done', close() {} };
+  };
+  // Same member, same directory, two rooms: the env is fixed at spawn, so the key must follow the room.
+  for (const id of [1, 2, 1]) {
+    hub.post(id, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@CC work' });
+    await settle();
+  }
+  assert.deepEqual(envs.map(e => e.CC_SESSION_KEY), ['dsh:cc:1', 'dsh:cc:2'], 'each room names itself in CC_SESSION_KEY, and a room reuses its agent');
+  assert.deepEqual(envs.map(e => e.CC_PROJECT), ['dsh:cc', 'dsh:cc'], 'CC_PROJECT stays the member, as memvote.py records the voter');
+  assert.deepEqual(envs.map(e => e.cwd), ['/w', '/w']);
+  await members.close(); hub.store.close();
+});
+
 test('channel directories: configuration rejects relative paths and accepts empty overrides', () => {
   const base = { dataDir: '/d', workspacePath: '/w' };
   for (const workspacePath of [null, '', '/channel']) {
@@ -6318,4 +6382,52 @@ test('roster: a default-named member from before name_customized was stored is r
     assert.deepEqual(await roster.importWizard(file), [], `wizard run ${i + 1}`);
   }
   assert.deepEqual(hub.store.members().map(r => r.name), ['DSH']);
+});
+
+test('#155: a closed private chat leaves the room list, keeps its history, and openDm brings it back', () => {
+  const store = new Store(':memory:');
+  store.addMember({ id: 'm-a', name: 'A' });
+  const dm = store.openDm('m-a', 'A');
+  store.append(dm.id, { authorKind: 'user', author: 'owner', name: 'Owner', text: 'hi' });
+  assert.ok(store.roomsView().some(r => r.id === dm.id));
+  store.closeDm(dm.id);
+  assert.equal(store.roomsView().some(r => r.id === dm.id), false);
+  assert.throws(() => store.closeDm(store.createRoom('general').id), /not a private chat/);
+  const again = store.openDm('m-a', 'A');
+  assert.equal(again.id, dm.id);
+  assert.ok(store.roomsView().some(r => r.id === dm.id));
+  assert.equal(store.page(dm.id).length, 1);
+});
+
+test('#155: a removed member\'s private chat is left out; a member without a stored row keeps its chat', () => {
+  const store = new Store(':memory:');
+  store.addMember({ id: 'm-gone', name: 'Gone' });
+  const gone = store.openDm('m-gone', 'Gone');
+  const bridge = store.openDm('cjiang', 'C酱'); // bridge roles join over cloud_web and have no members row
+  store.removeMember('m-gone');
+  const ids = store.roomsView().map(r => r.id);
+  assert.equal(ids.includes(gone.id), false);
+  assert.ok(ids.includes(bridge.id));
+});
+
+test('CLI configured member: collab dispatch applies fake ACP options before prompt', async () => {
+  const { CliMember } = await import('./cli-member.mjs');
+  const hub = makeHub(); const calls = [];
+  const options = (value) => [{ id:'model', type:'select', currentValue:value, options:[{value:'base',name:'Base'},{value:'chosen',name:'Chosen'}] }];
+  const agent = new CliMember({ cli:'codex', cwd:'/w' });
+  agent._start = async () => {
+    agent.ready=Promise.resolve({}); agent.exited=new Promise(()=>{}); agent.canLoad=true;
+    agent.conn={
+      newSession:async()=>({sessionId:'fake-acp',configOptions:options('base')}),
+      setSessionConfigOption:async({value})=>{calls.push('set:'+value);return {configOptions:options(value)};},
+      prompt:async({sessionId})=>{calls.push('prompt');agent.buffers.set(sessionId,'ok');return {};},
+    }; return agent.ready;
+  };
+  agent._defaultOptions = async () => options('base');
+  const members=cliMembers(hub,(...args)=>agent.ask(...args));
+  members.putMember({id:'cc',name:'CC',cli:'codex',cliConfig:{model:'chosen'},cliConfigManaged:true});
+  hub.post(1,{authorKind:'user',author:'owner',name:'我',text:'@CC test'}); await settle();
+  assert.deepEqual(calls,['set:chosen','prompt']);
+  assert.equal(hub.store.binding('cc',1).session_id,'fake-acp');
+  await members.close();hub.store.close();
 });

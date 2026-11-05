@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -31,7 +32,41 @@ func toolFS(t *testing.T) fstest.MapFS {
 func withToolFS(t *testing.T) {
 	old := AgentToolFS
 	AgentToolFS = toolFS(t)
-	t.Cleanup(func() { AgentToolFS = old })
+	oldFetch := fetchUV // no uv download from tests (agentToolUV falls back to it when uv is not on PATH)
+	fetchUV = func(string) ([]byte, error) { return nil, os.ErrNotExist }
+	t.Cleanup(func() { AgentToolFS, fetchUV = old, oldFetch })
+}
+
+// No uv on PATH but bothouse has its own (a container without sudo): the persona names that uv, and it is
+// linked into <data_dir>/tools/bin, which is on every role's PATH, so plain `uv` works too.
+func TestAgentToolsUseOwnUV(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no link on Windows")
+	}
+	withToolFS(t)
+	t.Setenv("PATH", t.TempDir())
+	data, wd := t.TempDir(), t.TempDir()
+	own := filepath.Join(data, "tools", "uv", "uv")
+	if err := os.MkdirAll(filepath.Dir(own), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(own, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res, err := EnableAgentTools(AgentToolOptions{DataDir: data, WorkDir: wd, AgentType: "claudecode", Lang: "en", Only: []string{"peek"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.UV != own || len(res.Warnings) != 0 {
+		t.Fatalf("uv %q warnings %v, want %q", res.UV, res.Warnings, own)
+	}
+	b, _ := os.ReadFile(res.PersonaFile)
+	if !strings.Contains(string(b), "`"+own+" run -q --script") {
+		t.Fatalf("persona does not name the own uv:\n%s", b)
+	}
+	if cur, err := os.Readlink(filepath.Join(data, "tools", "bin", "uv")); err != nil || cur != own {
+		t.Fatalf("tools/bin/uv -> %q %v, want %q", cur, err, own)
+	}
 }
 
 func TestAgentToolsOnOff(t *testing.T) {

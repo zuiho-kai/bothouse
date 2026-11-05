@@ -87,7 +87,7 @@ export async function startHost(options) {
 
   const previousArgv1 = process.argv[1];
   process.argv[1] = resolveDshRequireBase();
-  const plugin = await import(pathToFileURL(new URL('../plugin.mjs', import.meta.url).pathname).href);
+  const plugin = await import(new URL('../plugin.mjs', import.meta.url).href);
 
   const config = {
     dataDir: options.dataDir,
@@ -130,7 +130,7 @@ export async function startHost(options) {
     async close() {
       await new Promise(resolve => server.close(resolve));
       for (const dispose of disposers.reverse()) {
-        try { dispose(); } catch { /* 关闭时忽略 */ }
+        try { await dispose(); } catch { /* 关闭时忽略 */ }
       }
     },
   };

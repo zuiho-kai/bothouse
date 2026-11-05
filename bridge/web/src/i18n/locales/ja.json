@@ -3,6 +3,7 @@
     "addPlatform": "プラットフォーム追加",
     "addRole": "ロール/モデルを追加",
     "library": "ライブラリ",
+    "imageGen": "画像生成",
     "dashboard": "ダッシュボード",
     "apps": "接続アプリ",
     "projects": "プロジェクト",
@@ -13,7 +14,8 @@
     "bridge": "ブリッジ",
     "skills": "スキル",
     "system": "システム",
-    "wikiGalaxy": "Wiki ギャラクシー"
+    "wikiGalaxy": "Wiki ギャラクシー",
+    "plugins": "プラグイン"
   },
   "dashboard": {
     "title": "ダッシュボード",
@@ -61,7 +63,8 @@
       "overview": "概要",
       "providers": "プロバイダー",
       "heartbeat": "ハートビート",
-      "settings": "設定"
+      "settings": "設定",
+      "social": "投稿"
     }
   },
   "sessions": {
@@ -135,7 +138,12 @@
     "selectProject": "プロジェクトを選択",
     "descPlaceholder": "ジョブの説明",
     "promptPlaceholder": "エージェントに送信するプロンプト...",
-    "selectSessionKey": "セッションを選択（空=デフォルト）",
+    "selectSessionKey": "セッションから選ぶか、qq:10001 のように入力",
+    "sessionKeyHint": "必須：実行時にこのセッションへ送ります。",
+    "sessionKeyRequired": "セッションキーを入力してください（投稿先のチャットが必要です）。",
+    "scheduleRequired": "先に実行時間を選んでください。",
+    "projectRequired": "先にプロジェクトを選んでください。",
+    "taskRequired": "プロンプトかコマンドのどちらかを入力してください。",
     "taskType": "タスク種別",
     "mode": "権限モード",
     "modeDefault": "プロジェクトのデフォルトを使用"
@@ -481,5 +489,60 @@
     "title": "ページが見つかりません",
     "hint": "アドレスが間違っているか、ページが移動した可能性があります。",
     "home": "ダッシュボードへ"
+  },
+  "dsh": {
+    "readError": "DSH の読み込みに失敗",
+    "stopped": "DSH は停止中",
+    "running": "DSH は稼働中",
+    "members": "DSH メンバー",
+    "messagesError": "メッセージの読み込みに失敗",
+    "noMessages": "メッセージはまだありません",
+    "recentConversations": "最近のセッションとチャンネル",
+    "unknownModel": "不明",
+    "connected": "DSH 接続済み",
+    "installed": "DSH インストール済み",
+    "manageChannels": "DSH のチャンネルとメンバーを管理",
+    "noBridgeProjects": "ブリッジプロジェクトはありません",
+    "addBridgeProjectHint": "右上のボタンからブリッジプロジェクトを追加できます。"
+  },
+  "dshManage": {
+    "add": "DSH メンバーを追加",
+    "edit": "メンバーを編集",
+    "delete": "メンバーを削除",
+    "name": "名前",
+    "type": "メンバーの種類",
+    "persona": "ペルソナ",
+    "nativeHint": "DSH ネイティブメンバーは DSH のモデル経路を使用します。",
+    "provider": "DSH プロバイダー",
+    "model": "モデル",
+    "defaultRoute": "DSH の既定経路を使用",
+    "chooseModel": "モデルを選択",
+    "noRoutes": "利用可能な DSH モデル経路がありません。",
+    "codexHint": "設定はメンバーごとに保存され、次のターンの前に適用されます。認証にはローカル CLI を使用します。",
+    "probing": "Codex の機能を確認中…",
+    "unsupported": "この Codex アダプターは設定可能な項目を公開していません。",
+    "inherit": "CLI の既定値を使用",
+    "effort": "推論の強度",
+    "cliHint": "このメンバーはローカル CLI の設定と認証を使用します。",
+    "source": "提供元",
+    "apply_pending": "保存済み、次のターンを待機中",
+    "apply_applied": "確認済みセッションに適用済み",
+    "apply_failed": "適用できませんでした",
+    "apply_not_configured": "設定なし",
+    "readOnly": "読み取り専用：roster 外で管理",
+    "unavailable": "メンバー管理を利用できません",
+    "rosterError": "メンバー管理を読み込めませんでした",
+    "otherMembers": "その他の DSH メンバー",
+    "deleteConfirm": "{{name}} を削除しますか？",
+    "saved": "メンバーを保存しました。設定は次のターンの前に適用されます。",
+    "providerScope": "このプロバイダーは参照しているブリッジプロジェクトに適用されます。",
+    "dshProviderScope": "DSH ネイティブメンバーは独自のモデル経路を使用します。",
+    "openDsh": "DSH を開く",
+    "settingsModels": "DSH の「設定 → モデル」を開いてください。",
+    "cliScope": "CLI メンバーはローカル CLI の認証と設定を使用します。ここで変更されません。",
+    "bridgeProjects": "ブリッジプロジェクト",
+    "projectScope": "ブリッジプロジェクトはエージェントとワークスペースをプラットフォームに接続します。DSH メンバーは別に管理します。",
+    "savedConfigNextTurn": "保存済み設定 · 次のターンの前に適用",
+    "savedRoute": "保存済み DSH 経路"
   }
 }

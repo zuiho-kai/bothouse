@@ -124,6 +124,7 @@ func TestOpenDSHWebRestartsForWaitingRoles(t *testing.T) {
 	collab := filepath.Join(home, "collab")
 	t.Setenv("CONEST_COLLAB_DATA", collab)
 	t.Setenv("PATH", t.TempDir()) // no dsh: the new start fails after the old one is stopped
+	noAppDSH(t)
 	_ = os.MkdirAll(collab, 0o700)
 	_ = os.WriteFile(dshMembersFile(), []byte(`{"members":[{"name":"橘"}]}`), 0o600)
 	cmd := exec.Command("/bin/sleep", "60")

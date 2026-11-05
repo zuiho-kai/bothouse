@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   RotateCw,
@@ -9,11 +9,17 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
-import { Button, EmptyState } from '@/components/ui';
+import { Button, EmptyState, Modal } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { listRoles, restartRole, setRolePaused, type RoleInfo } from '@/api/roles';
+import { DSHNotice } from '@/components/DSHNotice';
 import { roleLabel } from '@/lib/roleIdentity';
+import { dshMemberId, dshOnlyRows } from '@/lib/dshMerge';
 import { shownName } from '@/api/projects';
+import { deleteDSHMember, listDSHMembers, type DSHManagedMember } from '@/api/dsh';
+import { errorMessage } from '@/components/DSHNotice';
+import { usePageRefresh } from '@/lib/usePageRefresh';
+import { DSHMemberEditor } from './DSHMemberEditor';
 
 /** 角色四态：在忙 / 空闲 / 不在线 / 已暂停。
  *  房规（taste-skill app-screens §9.2）：一屏只留一个强调色家族，颜色给数据不给 chrome；
@@ -58,28 +64,67 @@ const SKELETON_SEATS = 6;
 
 export default function RoleList() {
   const { t } = useTranslation();
+  const [dsh, setDsh] = useState<{ status: 'running' | 'stopped' | 'error'; error?: string }>();
   const [roles, setRoles] = useState<RoleInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
+  const [members, setMembers] = useState<DSHManagedMember[]>([]);
+  const [memberError, setMemberError] = useState('');
+  const [editor, setEditor] = useState<DSHManagedMember | 'new' | null>(null);
+  const [deleteMember, setDeleteMember] = useState<DSHManagedMember | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const requestId = useRef(0);
+  const loaded = useRef(false);
 
   const fetchRoles = useCallback(async () => {
+    const request = ++requestId.current;
     try {
-      setLoading(true);
+      if (!loaded.current) setLoading(true);
       setError('');
-      const res = await listRoles();
-      setRoles(res.roles || []);
+      const [res, roster] = await Promise.all([listRoles(), listDSHMembers().then(value => ({ value })).catch(error => ({ error }))]);
+      if (request !== requestId.current) return;
+      if ('error' in roster) { setMembers([]); setMemberError(errorMessage(roster.error)); }
+      else { setMembers(roster.value.members); setMemberError(''); }
+      const all = res.roles || [];
+      // Keep bridge controls when DSH reports the same registered bot.
+      setRoles(dshOnlyRows(all, all.filter((r) => r.source !== 'dsh').map((r) => r.name)));
+      setDsh(res.dsh);
     } catch (e: any) {
-      setError(e.message || 'Failed to load roles');
+      if (request === requestId.current) setError(e.message || 'Failed to load roles');
     } finally {
-      setLoading(false);
+      if (request === requestId.current) { loaded.current = true; setLoading(false); }
     }
   }, []);
 
-  useEffect(() => {
-    fetchRoles();
-  }, [fetchRoles]);
+  usePageRefresh(fetchRoles);
+  useEffect(() => () => { requestId.current++; }, []);
+  const changed = () => { setEditor(null); setDeleteMember(null); window.dispatchEvent(new CustomEvent('cc:refresh')); };
+  const removeMember = async () => {
+    if (!deleteMember) return;
+    setDeleting(true); setError('');
+    try { await deleteDSHMember(deleteMember.id); changed(); }
+    catch (e) { setError(errorMessage(e)); }
+    finally { setDeleting(false); }
+  };
+  const memberActions = (member?: DSHManagedMember) => member ? <div className="mt-4 space-y-2 border-t border-hairline pt-3">
+    <p className="text-xs text-ink-mute">{t('dshManage.source')}: {member.source} · {t(`dshManage.apply_${member.apply.status}`)}{member.apply.error ? `: ${member.apply.error}` : ''}</p>
+    {member.source === 'ui' && (member.can_edit || member.can_delete) && member.cli === 'codex' && (member.cliConfig?.model || member.cliConfig?.reasoningEffort) && <div className="space-y-1 text-xs text-ink-soft">
+      <p className="text-ink-mute">{t('dshManage.savedConfigNextTurn')}</p>
+      {member.cliConfig.model && <p className="break-all">{t('dshManage.model')}: {member.cliConfig.model}</p>}
+      {member.cliConfig.reasoningEffort && <p className="break-all">{t('dshManage.effort')}: {member.cliConfig.reasoningEffort}</p>}
+    </div>}
+    {member.source === 'ui' && (member.can_edit || member.can_delete) && !member.cli && member.model && <div className="space-y-1 text-xs text-ink-soft">
+      <p className="text-ink-mute">{t('dshManage.savedRoute')}</p>
+      <p className="break-all">{t('dshManage.provider')}: {member.model.provider}</p>
+      <p className="break-all">{t('dshManage.model')}: {member.model.model}</p>
+    </div>}
+    {member.source === 'ui' && (member.can_edit || member.can_delete) ? <div className="flex flex-wrap gap-2">
+      {member.can_edit && <Button variant="secondary" size="sm" onClick={() => setEditor(member)}>{t('dshManage.edit')}</Button>}
+      {member.can_delete && <Button variant="secondary" size="sm" onClick={() => setDeleteMember(member)}>{t('dshManage.delete')}</Button>}
+    </div> : <p className="text-xs text-ink-mute">{t('dshManage.readOnly')}</p>}
+  </div> : <p className="mt-4 border-t border-hairline pt-3 text-xs text-ink-mute">{t('dshManage.unavailable')}</p>;
 
   const handleRestart = async (name: string) => {
     try {
@@ -122,6 +167,7 @@ export default function RoleList() {
     { busy: 0, idle: 0, offline: 0, paused: 0 }
   );
 
+  const extraMembers = members.filter(m => !roles.some(r => r.source === 'dsh' ? dshMemberId(r.name) === m.id : r.name === m.id));
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -137,7 +183,7 @@ export default function RoleList() {
             </p>
           )}
         </div>
-        <Button
+        <div className="flex flex-wrap gap-2"><Button size="sm" onClick={() => setEditor('new')}>{t('dshManage.add')}</Button><Button
           variant="secondary"
           size="sm"
           onClick={fetchRoles}
@@ -146,9 +192,11 @@ export default function RoleList() {
         >
           <RotateCw size={14} className={cn(loading && 'animate-spin motion-reduce:animate-none')} />
           {t('common.refresh', '刷新')}
-        </Button>
+        </Button></div>
       </header>
 
+      <DSHNotice status={dsh?.status} error={dsh?.error} />
+      {memberError && <p role="alert" className="text-sm text-red-600">{t('dshManage.rosterError')}: {memberError}</p>}
       {msg && (
         <div className="flex items-center gap-2 rounded-control border border-hairline bg-surface-sunken px-3 py-2 text-sm text-ink">
           <CheckCircle2 size={15} className="shrink-0 text-accent" />
@@ -232,7 +280,7 @@ export default function RoleList() {
                   <div className="flex items-baseline justify-between gap-3 py-2">
                     <dt className="shrink-0 text-xs text-ink-mute">当前模型</dt>
                     <dd className="min-w-0 truncate text-right font-mono text-xs text-ink-soft">
-                      {role.model || '—'}
+                      {role.model || t('dsh.unknownModel', '未知')}
                     </dd>
                   </div>
                   <div className="flex items-start justify-between gap-3 py-2">
@@ -259,9 +307,7 @@ export default function RoleList() {
                 ))}
 
                 {role.source === 'dsh' ? (
-                  <p className="mt-4 border-t border-hairline pt-3 text-xs text-ink-mute">
-                    DSH 成员，在频道页里管理
-                  </p>
+                  memberActions(members.find(m => m.id === dshMemberId(role.name)))
                 ) : (
                 <div className="mt-4 flex items-center gap-2 border-t border-hairline pt-3">
                   <Button
@@ -291,6 +337,16 @@ export default function RoleList() {
           })}
         </div>
       )}
+      {extraMembers.length > 0 && <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-ink">{t('dshManage.otherMembers')}</h2>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">{extraMembers.map(m => <article key={m.id} className="rounded-card border border-hairline bg-surface p-5"><p className="font-semibold">{m.name}</p>{memberActions(m)}</article>)}</div>
+      </section>}
+      {editor && <DSHMemberEditor member={editor === 'new' ? null : editor} onClose={() => setEditor(null)} onSaved={changed} />}
+      <Modal open={!!deleteMember} onClose={() => setDeleteMember(null)} title={t('dshManage.delete')}>
+        <p className="text-sm text-ink-soft">{t('dshManage.deleteConfirm', { name: deleteMember?.name })}</p>
+        {error && <p role="alert" className="mt-2 text-sm text-red-600">{error}</p>}
+        <div className="mt-4 flex justify-end gap-2"><Button variant="secondary" onClick={() => setDeleteMember(null)}>{t('common.cancel')}</Button><Button disabled={deleting} onClick={removeMember}>{t('dshManage.delete')}</Button></div>
+      </Modal>
     </div>
   );
 }

@@ -164,8 +164,9 @@ jobs:
           if [ "$RUNNER_OS" = macOS ]; then
             lipo -create build/bothouse-darwin-arm64/bothouse build/bothouse-darwin-amd64/bothouse \
               -output build/bothouse-universal
-            # Sign the single binary (not the .app): the in-app update swaps only this file, so its
-            # signature must stand on its own. Nothing may modify the file after this.
+            # Sign the single binary before it is staged: the in-app update swaps only this file and
+            # the guard verifies this signature on the running binary (bridge/core/update_sign.go).
+            # package-dmg.sh then seals the .app, which re-signs this file with an Info.plist binding.
             signdir="$HOME/.config/bothouse-signing"
             keychain="$signdir/bothouse-signing.keychain-db"
             # password from stdin, never in argv; the keychain's key partition list already allows codesign
@@ -199,12 +200,14 @@ jobs:
           lipo "$mount/Bothouse.app/Contents/MacOS/bothouse" -verify_arch arm64
           lipo "$mount/Bothouse.app/Contents/MacOS/bothouse" -verify_arch x86_64
           "$mount/Bothouse.app/Contents/MacOS/bothouse" --version
-          # the same check the in-app guard runs (core/update_sign.go): the copied-out single file must carry a full,
-          # valid release signature; inside the unsealed .app only the resource seal is skipped
+          # The .app is now the sealed artifact: package-dmg.sh signs the bundle, which binds
+          # Contents/MacOS/bothouse to Contents/Info.plist, so a copy of that file outside the app
+          # no longer verifies on its own (measured: "invalid Info.plist (plist or signature have
+          # been modified)"). Check what ships instead: the bundle must pass strict verification,
+          # and the binary in its place must still satisfy the requirement the in-app guard runs
+          # (core/update_sign.go).
           req="identifier \"$SIGN_ID\" and certificate leaf = H\"$SIGN_HASH\""
-          single=$(mktemp -d)/bothouse
-          cp "$mount/Bothouse.app/Contents/MacOS/bothouse" "$single"
-          codesign --verify "-R=$req" "$single"
+          codesign --verify --strict "$mount/Bothouse.app"
           codesign --verify --ignore-resources "-R=$req" "$mount/Bothouse.app/Contents/MacOS/bothouse"
           hdiutil detach "$mount"
       - name: zstd for the cache archive (macOS)

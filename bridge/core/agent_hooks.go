@@ -1123,10 +1123,11 @@ func writeDSHHookSettings(workDir, dshHome, python, hooksDir string) error {
 
 const dshBridgeRel = "dsh-hooks-claude-code/lib/index.js"
 
-// FindDSHHookBridge finds the bridge's entry file next to the dsh on PATH (npm puts @deepseek-ai/dsh and its
-// dependencies side by side, or under dsh's own node_modules).
+// FindDSHHookBridge finds the bridge's entry file next to the dsh LookDSH resolves (npm puts
+// @deepseek-ai/dsh and its dependencies side by side, or under dsh's own node_modules). A
+// desktop-only install has no dsh on PATH, so the app's own CLI is used too (#192).
 func FindDSHHookBridge() (string, error) {
-	bin, err := exec.LookPath("dsh")
+	bin, err := LookDSH()
 	if err != nil {
 		return "", errors.New("dsh not found on PATH: install DSH, or give the bridge file with --dsh-bridge")
 	}

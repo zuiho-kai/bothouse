@@ -77,3 +77,27 @@ func TestChannelHistory_BadRequests(t *testing.T) {
 		t.Fatalf("POST status = %d", rec.Code)
 	}
 }
+
+func TestChannelHistory_HidesOtherRolesPrivateChats(t *testing.T) {
+	p := &historyPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}
+	whale := NewEngine("jingyu", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	whale.platformReady = map[Platform]bool{p: true}
+	dragon := NewEngine("longniang", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	whale.sessions.UpdateUserMeta("discord:dm1:u", "boss", "dm1")
+	whale.sessions.MarkDirect("discord:dm1:u")
+	whale.sessions.UpdateUserMeta("discord:pub:u", "boss", "后宅")
+	whale.sessions.UpdateUserMeta("discord:anon:u", "boss", "")
+	api := &APIServer{engines: map[string]*Engine{"jingyu": whale, "longniang": dragon}}
+	for url, want := range map[string]int{
+		"/channel/history?project=jingyu&caller=longniang&session_key=discord:dm1:u":  http.StatusForbidden,
+		"/channel/history?project=jingyu&caller=longniang&session_key=discord:anon:u": http.StatusForbidden,
+		"/channel/history?project=jingyu&caller=nobody&session_key=discord:dm1:u":     http.StatusForbidden,
+		"/channel/history?project=jingyu&caller=longniang&session_key=discord:pub:u":  http.StatusOK,
+		"/channel/history?project=jingyu&caller=jingyu&session_key=discord:dm1:u":     http.StatusOK,
+		"/channel/history?project=jingyu&session_key=discord:dm1:u":                   http.StatusOK,
+	} {
+		if rec := getHistory(api, url); rec.Code != want {
+			t.Errorf("%s: status = %d, want %d (%s)", url, rec.Code, want, rec.Body.String())
+		}
+	}
+}

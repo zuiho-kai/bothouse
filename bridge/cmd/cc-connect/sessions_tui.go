@@ -317,6 +317,7 @@ func runSessionsTUI(dataDir string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+	records = visibleSessions(dataDir, records)
 	if len(records) == 0 {
 		fmt.Println("No sessions found.")
 		return

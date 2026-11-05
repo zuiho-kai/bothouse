@@ -879,7 +879,7 @@ Lists all cron jobs, optionally filtered by project.
 
 #### POST /api/v1/cron
 
-Adds a cron job. Either `prompt` or `exec` must be provided, not both.
+Adds a cron job. Either `prompt` or `exec` must be provided, not both. `session_key` is required for both kinds: the run posts its start notice and result to that chat, so a job without one is rejected with `400 session_key is required` (it used to be persisted and then fail at fire-time).
 
 **Request body (prompt job):**
 
@@ -911,7 +911,7 @@ Adds a cron job. Either `prompt` or `exec` must be provided, not both.
 | Field        | Type    | Required | Description                                    |
 |--------------|---------|----------|------------------------------------------------|
 | `project`    | string  | no*      | Project name (*required if multiple projects) |
-| `session_key`| string  | yes      | Target session for prompt jobs                 |
+| `session_key`| string  | yes      | Chat the job reports to when it fires (`platform:chatId[:userId]`, e.g. `qq:10001`); required for exec jobs too |
 | `cron_expr`  | string  | yes      | Cron expression (5 or 6 fields)                |
 | `prompt`     | string  | no*      | Prompt to send (*required if no `exec`)        |
 | `exec`       | string  | no*      | Shell command (*required if no `prompt`)       |
@@ -1109,6 +1109,313 @@ Lists connected bridge adapters (external platforms via WebSocket).
 
 ---
 
+### 5.8 Social (QQ 说说 / avatar, optional)
+
+These routes act as the bot's own QQ account: a 说说 is visible to other people and an
+avatar is visible everywhere. Both are **off by default** and stay unavailable until the
+project's `qq` platform options turn them on:
+
+```toml
+[projects.platforms.options]
+allow_qzone = true    # list / post / delete this account's own 说说
+allow_avatar = true   # change this account's own avatar
+```
+
+They are capability-based, not platform-name-based: a project whose platform does not
+implement the capability answers `not_supported` instead of guessing by platform name.
+Nothing here runs on a schedule — posting on a timer is the cron section's job and stays a
+separate decision.
+
+#### GET /api/v1/projects/{name}/social
+
+Reads the capability flags and the account's own recent posts (newest first).
+
+**Query:** `limit` — how many posts to read (default 20, max 50).
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "ready",
+    "platform": "qq",
+    "capabilities": {
+      "list_moments": true,
+      "post_moment": true,
+      "remove_moment": true,
+      "set_avatar": true,
+      "disabled_reason": ""
+    },
+    "moments": [
+      {
+        "id": "d43708d9240ae56ae9670e00",
+        "text": "今天画了张图",
+        "time": "2026-11-05T06:21:06+08:00",
+        "images": [],
+        "private": false
+      }
+    ]
+  }
+}
+```
+
+`status` is one of:
+
+| status | meaning |
+|--------|---------|
+| `ready` | the actions are on; `moments` holds the list |
+| `off` | the capability exists but config has not turned it on; `message` names the config key |
+| `error` | reading the list failed; `message` says why, the write actions still follow `capabilities` |
+| `not_supported` | this project's platform cannot do it at all |
+
+`moments` is always an array (`[]`, never `null`), so a panel can read `.length` directly.
+
+---
+
+#### POST /api/v1/projects/{name}/social/moment
+
+Publishes one 说说 (text only for now; pictures go through the QQ client's own picture path).
+
+**Request body:**
+
+```json
+{ "text": "今天画了张图" }
+```
+
+**Response:**
+
+```json
+{ "ok": true, "data": { "moment": { "id": "stub01", "text": "今天画了张图", "time": "2026-11-05T06:21:06+08:00", "images": [], "private": false } } }
+```
+
+Errors: `400` empty text, `403` the action is off (message names `allow_qzone`), `501` the
+platform cannot post, `502` the OneBot implementation rejected it (the message names the
+upstream action and says to upgrade NapCat when the extension is missing).
+
+---
+
+#### POST /api/v1/projects/{name}/social/moment/delete
+
+Deletes one of the account's own posts. A post that is already gone counts as deleted.
+
+**Request body:**
+
+```json
+{ "id": "stub01" }
+```
+
+**Response:**
+
+```json
+{ "ok": true, "data": { "result": "deleted" } }
+```
+
+---
+
+#### POST /api/v1/projects/{name}/social/avatar
+
+Replaces the account's avatar.
+
+**Request:** `multipart/form-data` with a `file` field. Accepted: any file whose sniffed
+type is `image/*`, up to 2 MiB.
+
+**Response:**
+
+```json
+{ "ok": true, "data": { "result": "changed", "mime": "image/png", "bytes": 94 } }
+```
+
+Errors: `400` not an image or empty, `403` the action is off (message names `allow_avatar`),
+`413` over 2 MiB, `501` the platform cannot change its avatar.
+
+---
+
+### 5.9 Image Generation (optional)
+
+Opt-in: these routes answer `not_configured` unless `config.toml` has an `[image_gen]` section with
+`enabled = true` and a key (`[image_gen.openai] api_key`). Nothing is drawn automatically and nothing
+is sent to a channel: a picture is written to `<data_dir>/images` and the caller decides what to do
+with the path. Only OpenAI-compatible `/images/generations` endpoints are supported.
+
+`out_dir` must stay inside `data_dir` (default `<data_dir>/images`); a wider directory is refused with
+`status: "error"` and nothing is drawn. The bytes route below has no token, so the directory it can
+reach is the boundary that keeps it from serving other pictures on this machine. Picture names are
+`gen-<YYYYMMDD-HHMMSS>-<8 hex>.png` — the random suffix exists so two pictures finished in the same
+second cannot overwrite each other.
+
+`POST` additionally requires the management `token` to be set (else `403`): reads are cheap, a draw
+spends the owner's money, and an empty token means the port is open to the whole network.
+
+#### GET /api/v1/image-gen
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "ready",
+    "can_draw": true,
+    "provider": "openai",
+    "model": "gpt-image-1",
+    "base_url": "https://api.openai.com/v1",
+    "out_dir": "/home/me/.bothouse/images",
+    "api_key_set": true,
+    "pictures": [
+      { "name": "gen-20261105-052031-3f9a1c02.png", "file": "/home/me/.bothouse/images/gen-20261105-052031-3f9a1c02.png",
+        "url": "/api/v1/image-gen/file/gen-20261105-052031-3f9a1c02.png", "bytes": 1384211, "mime": "image/png",
+        "seconds": 24.3, "model": "gpt-image-1" }
+    ]
+  }
+}
+```
+
+`status` is `ready`, `not_configured` or `error` (with `message`). `api_key_set` says whether a key
+exists; the key itself is never returned.
+
+#### POST /api/v1/image-gen
+
+```json
+{ "prompt": "an orange cat with glasses, pixel avatar" }
+```
+
+**Response:** the drawn picture, same shape as one `pictures` item above. `400` when `prompt` is empty
+or blank (nothing is sent to the provider), `403` when the management API has no `token` (a draw spends
+money, so it needs authentication even though reads do not), `409` when a picture is still being drawn
+(each queued request would buy another one), `503` when not configured or when `out_dir` is outside
+`data_dir`, `502` when the provider refused (the message carries the status code and the provider's own
+text).
+
+#### GET /api/v1/image-gen/file/<name>
+
+Picture bytes, like `library/avatar-image` **not** behind the token, because an `<img>` tag cannot
+send a `Bearer` header. Only plain file names this server wrote are served; anything else is `404` —
+a name with a separator or `..`, a symlink (even to a file inside `out_dir`), a file whose real path
+falls outside the resolved `out_dir`, and a file whose bytes are not `image/*` when sniffed.
+
+---
+
+### 5.10 Plugins (DSH profile)
+
+The DSH profile's own plugin list, and the two writes a person actually needs: install a package
+(`dsh plugin --profile <profile> add`, the same command a user would type) and switch a bundle on or
+off. The page is a window on the profile files (`package.json` dependencies +
+`dsh.profile.bundles`), not a second registry: DSH's own Plugins page reads and writes exactly the
+same files, so the two agree.
+
+Both writes require a management token. With none configured the routes answer `403`, because an
+unauthenticated management port cannot tell the owner from anyone else on the machine.
+
+#### GET /api/v1/plugins
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "profile": "web",
+    "profile_dir": "/Users/me/.dsh/profiles/web",
+    "can_install": true,
+    "writes_allowed": true,
+    "allow_non_registry": false,
+    "registry": "https://registry.npmjs.org/",
+    "plugins": [
+      {
+        "name": "@deepseek-ai/dsh-base",
+        "version": "0.2.1-rc.5",
+        "description": "DSH base surface",
+        "layer": true,
+        "enabled": true,
+        "shipped": true,
+        "rows": [{"id": "web", "name": "@deepseek-ai/dsh-web", "disabled": false}]
+      }
+    ]
+  }
+}
+```
+
+`shipped` marks a bundle that resolves from the DSH installation rather than this profile; those are
+the panel's own surface, so the response lists them but the page offers no switch. A dependency that
+does not declare `dsh.bundle` has `layer: false`: it is installed, but DSH never loads it as a plugin.
+
+#### GET /api/v1/plugins/inspect?spec=<package spec>
+
+Describes a spec **before** anything is installed. Nothing is written and no process runs.
+
+```json
+{
+  "ok": true,
+  "data": {
+    "spec": "demo-bundle@next",
+    "name": "demo-bundle",
+    "kind": "registry",
+    "version": "0.4.2",
+    "registry": "https://registry.npmjs.org/",
+    "publisher": "publisher-x",
+    "description": "Demo bundle",
+    "bundle": true,
+    "runtime": "0.2.1-rc.5",
+    "requires": "engines.dsh ^0.2.0",
+    "compatible": true,
+    "required": "插件和面板、agent 在同一个进程里跑，没有单独的沙箱：…",
+    "allowed": true
+  }
+}
+```
+
+- `kind` is one of `registry`, `git`, `tarball`, `path`. Only `registry` is accepted unless
+  `[plugins] allow_non_registry = true`; the other kinds then report `allowed: false` with a
+  `reason`, and `POST /plugins/install` refuses them with `403`.
+- `compatible` is present only when the declared `engines.dsh` (or `@deepseek-ai/dsh`
+  peer) range is one this build evaluates. Absent means "left to DSH at install", which is honest:
+  a wrong pre-flight answer is worse than none.
+- `required` is what the plugin may do once loaded. DSH plugins run in the same process as the panel
+  and the agent, in-process, with no per-plugin sandbox.
+- `error` reports a registry read that failed. The install can still be attempted; the run's own
+  output is the authority.
+
+#### POST /api/v1/plugins/install
+
+```json
+{"spec": "demo-bundle@1.2.3"}
+```
+
+Only an npm registry package name is accepted by default: lowercase, optional `@scope/`, optional
+`@version` or tag, at most 214 characters, and never a leading `-`. A `git:`/`github:` shorthand, a
+git URL, an `http(s)://…tgz`, or a `file:`/`link:`/absolute path is a different risk (the bytes are
+not the ones the registry published) and needs both the config switch and a second confirmation in
+the page.
+
+The response is an NDJSON stream, because the run takes minutes on a cold npm cache:
+
+```
+{"line": "Progress: resolved 1, reused 0, downloaded 0, added 0"}
+{"done": true, "state": { …the same shape as GET /plugins …}}
+```
+
+On failure the last line carries `error` (pnpm's own line) and `kind`, which the page turns into its
+own language: `pnpm-missing`, `build-blocked`, `not-found`, `no-matching-version`, `disk-full`,
+`permission`, `integrity`, `network`, `timeout`, `unknown`.
+
+#### POST /api/v1/plugins/switch
+
+```json
+{"name": "some-bundle", "enabled": false}
+```
+
+Rewrites only the `dsh.profile.bundles` array of the profile's `package.json`, byte-for-byte
+elsewhere, under the same `package.json.lock` that DSH and `dsh plugin` take; a timestamped backup is
+written first. Nothing is uninstalled, so switching back on restores the old state. `changed: false`
+when the profile already had that state.
+
+`@deepseek-ai/dsh-base` is refused: it is the panel itself, and switching it off removes the UI.
+A DSH restart is needed for either write to take effect; the response reports
+`restart_required: true`.
+
+---
+
 ## 6. Error Handling Conventions
 
 ### 6.1 Standard Error Response
@@ -1191,6 +1498,9 @@ If not configured, CORS may be disabled or use a default (e.g. `*` for same-orig
 | Version   | Date       | Changes                    |
 |-----------|------------|----------------------------|
 | 1.1-draft | 2026-03-24 | Enrich session list/detail with `live`, `last_message`, `agent_type`, `user_name`, `chat_name`, `active_keys` fields |
+| 1.2-draft | 2026-11-05 | Add optional QQ 说说 / avatar routes (`/projects/{name}/social…`), off unless `allow_qzone` / `allow_avatar` |
+| 1.2-draft | 2026-11-05 | Add optional image generation routes (`/image-gen`, `/image-gen/file/<name>`) |
+| 1.2-draft | 2026-11-05 | Add the DSH plugin page routes (`/plugins…`), writes need the management token |
 | 1.0-draft | 2026-03-10 | Initial specification      |
 
 ---

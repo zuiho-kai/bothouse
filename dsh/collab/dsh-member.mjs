@@ -385,7 +385,7 @@ export class DshMembers {
     this.openTurns = new Map();
     /** Agents whose request hook was installed after they were loaded by someone else. */
     this.hooked = new WeakSet();
-    /** memberId -> { cli, agent } live local CLI agents (members with a `cli` field). */
+    /** JSON([memberId, cwd, roomId]) -> { memberId, cli, agent } live local CLI agents (members with a `cli` field). */
     this.cliAgents = new Map();
     /** #557: permission cards of channel-started turns, shared with cloud-web bots. */
     this.approvals = ChannelApprovals.of(hub);
@@ -669,7 +669,10 @@ export class DshMembers {
     if (!this.store.markSent(job.id, sessionId, 0, undefined)) return;
     const cwd = this.store.bindingWorkspacePath(member.id, room.id, this.store.workspacePath(room.id, this.rt.workspacePath));
     this.store.setBindingWorkspacePath(member.id, room.id, cwd);
-    const cliKey = JSON.stringify([member.id, cwd]);
+    // The room is part of the key: a CLI process gets its env once, at spawn (cli-member.mjs _start), and
+    // CC_SESSION_KEY names the room memvote.py records a citation under (memory-sources.mjs keyRoom). Keyed
+    // by (member, cwd) alone, the turn in room 2 kept the process of room 1 and voted/recalled room 1.
+    const cliKey = JSON.stringify([member.id, cwd, room.id]);
     let entry = this.cliAgents.get(cliKey);
     if (entry === undefined) {
       // Persona goes through promptText every turn, so an edit applies without restarting the CLI.
@@ -737,8 +740,9 @@ export class DshMembers {
     };
     let done = false;
     try {
-      this.store.advanceCursor(member.id, job.room_id, job.trigger_id);
       const onSession = ({ sessionId: acpId, lost }) => {
+        this.store.advanceCursor(member.id, job.room_id, job.trigger_id);
+        wiki.commit();
         if (this.store.binding(member.id, room.id)?.session_id !== acpId) this.store.rebind(member.id, room.id, acpId);
         if (lost) {
           // the CLI's new session has none of what this conversation was given: the next turn gives it again
@@ -751,8 +755,7 @@ export class DshMembers {
         }
       };
       const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id);
-      wiki.commit();
-      const text = (await entry.agent.ask(prompt, String(room.id), onText, onTool, { resumeId, onSession, onPermission, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
+      const text = (await entry.agent.ask(prompt, String(room.id), onText, onTool, { resumeId, onSession, onPermission, cliConfig: member.cliConfig, cliConfigManaged: member.cliConfigManaged, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
       if (this.closed) return;
       this.hub.quota?.observe(member.id, room.id, { error: text });
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }

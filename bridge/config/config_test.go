@@ -3542,3 +3542,61 @@ func TestSaveAgentReasoningEffort(t *testing.T) {
 		t.Fatalf("agent.options.mode = %q, want default", got)
 	}
 }
+
+// [image_gen] must not change how existing configs load: no section means off, and an
+// existing config keeps loading exactly as before (this is the backward-compat check for
+// #150 item c).
+func TestImageGenConfig_AbsentMeansOff(t *testing.T) {
+	path := writeConfigFixture(t, baseConfigTOML)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.ImageGen.Enabled || cfg.ImageGen.OpenAI.APIKey != "" {
+		t.Fatalf("config without [image_gen] must stay off, got %+v", cfg.ImageGen)
+	}
+}
+
+func TestImageGenConfig_ReadsSectionAndExpandsOutDir(t *testing.T) {
+	path := writeConfigFixture(t, `
+data_dir = "/tmp/ig-data"
+[image_gen]
+enabled = true
+provider = "openai"
+out_dir = "~/pictures/gen"
+[image_gen.openai]
+api_key = "sk-test"
+base_url = "https://relay.example/v1"
+model = "gpt-image-1"
+size = "1024x1024"
+quality = "low"
+
+[[projects]]
+name = "alpha"
+[projects.agent]
+type = "codex"
+[projects.agent.options]
+work_dir = "/tmp/alpha"
+[[projects.platforms]]
+type = "telegram"
+[projects.platforms.options]
+bot_token = "token_xxx"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	ig := cfg.ImageGen
+	if !ig.Enabled || ig.Provider != "openai" || ig.OpenAI.APIKey != "sk-test" ||
+		ig.OpenAI.BaseURL != "https://relay.example/v1" || ig.OpenAI.Model != "gpt-image-1" ||
+		ig.OpenAI.Size != "1024x1024" || ig.OpenAI.Quality != "low" {
+		t.Fatalf("unexpected [image_gen]: %+v", ig)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home dir")
+	}
+	if ig.OutDir != filepath.Join(home, "pictures/gen") {
+		t.Fatalf("out_dir not expanded: %q", ig.OutDir)
+	}
+}

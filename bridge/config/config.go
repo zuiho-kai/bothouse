@@ -104,6 +104,7 @@ type Config struct {
 	Language           string                  `toml:"language"` // "en" or "zh", default is "en"
 	Speech             SpeechConfig            `toml:"speech"`
 	TTS                TTSConfig               `toml:"tts"`
+	ImageGen           ImageGenConfig          `toml:"image_gen"`
 	Display            DisplayConfig           `toml:"display"`
 	StreamPreview      StreamPreviewConfig     `toml:"stream_preview"`      // real-time streaming preview
 	InstantReply       InstantReplyConfig      `toml:"instant_reply"`       // immediate confirmation reply
@@ -117,6 +118,7 @@ type Config struct {
 	Webhook         WebhookConfig    `toml:"webhook"`
 	Bridge          BridgeConfig     `toml:"bridge"`
 	Management      ManagementConfig `toml:"management"`
+	Plugins         PluginsConfig    `toml:"plugins"`
 	Gate            GateConfig       `toml:"gate"`
 	Hooks           []HookConfig     `toml:"hooks"`
 	IdleTimeoutMins *int             `toml:"idle_timeout_mins,omitempty"`  // max minutes between consecutive agent events; 0 = no timeout; default 120
@@ -190,6 +192,17 @@ type ManagementConfig struct {
 	Host        string   `toml:"host,omitempty"`         // listen address; "" = all interfaces (upstream default), "127.0.0.1" = this machine only
 	Token       string   `toml:"token,omitempty"`        // shared secret for authentication; required
 	CORSOrigins []string `toml:"cors_origins,omitempty"` // allowed CORS origins; empty = no CORS
+}
+
+// PluginsConfig controls what the panel's 插件 page may install (#150 第 b 项).
+//
+// The panel can run `dsh plugin add`, which makes this machine load code someone else wrote. By
+// default only an npm registry package name is accepted: the bytes are the ones the registry
+// published. A git repository, a tarball over HTTP or a local path is a different risk, so it needs
+// this switch and a second confirmation in the page.
+type PluginsConfig struct {
+	AllowNonRegistry *bool  `toml:"allow_non_registry"` // default false: registry package names only
+	Registry         string `toml:"registry,omitempty"` // default https://registry.npmjs.org/
 }
 
 // GateConfig: the local gate bothouse runs (core/gate_proc.go).
@@ -458,6 +471,23 @@ func expandUserPath(path string) string {
 	return path
 }
 
+// ImageGenConfig configures opt-in image generation (生图) for #150 item c.
+// Off by default: a picture costs the owner money, so nothing runs until
+// enabled = true and an api_key is set. Mirrors the [tts] shape: one section,
+// one provider, its credentials nested underneath.
+type ImageGenConfig struct {
+	Enabled  bool   `toml:"enabled"`  // default false
+	Provider string `toml:"provider"` // "openai" (default) — OpenAI-compatible /images/generations
+	OutDir   string `toml:"out_dir,omitempty"`
+	OpenAI   struct {
+		APIKey  string `toml:"api_key"`
+		BaseURL string `toml:"base_url"`
+		Model   string `toml:"model"`             // default gpt-image-1
+		Size    string `toml:"size,omitempty"`    // e.g. "1024x1024"; empty = provider default
+		Quality string `toml:"quality,omitempty"` // e.g. "low"; empty = provider default
+	} `toml:"openai"`
+}
+
 // HeartbeatConfig controls periodic heartbeat for a project.
 type HeartbeatConfig struct {
 	Enabled      *bool  `toml:"enabled"`                  // default false
@@ -586,6 +616,13 @@ type ProjectConfig struct {
 	ChatEffort          string `toml:"chat_effort,omitempty"`
 	TaskEffort          string `toml:"task_effort,omitempty"`
 	ModelTierStickyMins int    `toml:"model_tier_sticky_mins,omitempty"`
+	// FallbackModels (#134): models this bot switches between when a turn keeps failing with a
+	// temporary error (429, at capacity, 5xx, cut-off stream …) capacityAttempts times in a row.
+	// The next entry after the current model is tried (the list wraps, so two entries back each
+	// other up); the conversation is kept and the channel is told. Empty (default) = never switch.
+	// Source: 用户 2026-11-04 17:07「可以」（同角色连续429自动切备用中转/模型）; only ids the agent
+	// already lists are used, no new credentials.
+	FallbackModels []string `toml:"fallback_models,omitempty"`
 	// TeamStatusDir (maomao fork): write this project's busy/idle sessions to <dir>/<project>.json
 	// so teammates can see them. Empty disables the status board.
 	TeamStatusDir string `toml:"team_status_dir,omitempty"`
@@ -716,6 +753,34 @@ func (p ProjectConfig) TeamBoardEnabled() bool {
 	return p.TeamBoard == nil || *p.TeamBoard
 }
 
+// InjectSenderEnabled: an explicit inject_sender wins; unset means on for a multi-person
+// channel (a platform with allow_from = "*" or share_session_in_channel = true), so the
+// agent always knows who said the newest line. One-person setups stay off.
+func (p ProjectConfig) InjectSenderEnabled() bool {
+	if p.InjectSender != nil {
+		return *p.InjectSender
+	}
+	for _, pl := range p.Platforms {
+		if pl.Disabled {
+			continue
+		}
+		if s, ok := pl.Options["allow_from"].(string); ok && strings.TrimSpace(s) == "*" {
+			return true
+		}
+		switch v := pl.Options["share_session_in_channel"].(type) {
+		case bool:
+			if v {
+				return true
+			}
+		case string:
+			if strings.EqualFold(strings.TrimSpace(v), "true") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (p ProjectConfig) TeamWorkspacesEnabled() bool {
 	return p.TeamWorkspaces == nil || *p.TeamWorkspaces
 }
@@ -824,6 +889,7 @@ func load(path string) (*Config, error) {
 		cfg.AttachmentSend = "on"
 	}
 	cfg.ResolveProviderRefs()
+	cfg.ImageGen.OutDir = expandUserPath(cfg.ImageGen.OutDir)
 	return cfg, nil
 }
 

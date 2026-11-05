@@ -1539,7 +1539,9 @@ func TestProcessInteractiveEvents_ReplyFooterPrefersSessionRuntimeState(t *testi
 	if len(sent) != 1 {
 		t.Fatalf("sent = %#v, want one final reply", sent)
 	}
-	want := "answer\n\n*gpt-5.4 · xhigh · 31% left · quota: 100% left · " + compactReplyFooterPath(sessionWorkDir) + "*"
+	// #1147: with the context indicator on, ctx% comes from the session's last call
+	// (181424 / 258400 ≈ 70%), not the turn's summed input tokens.
+	want := "answer\n\n*[ctx: ~70%] · gpt-5.4 · xhigh · quota: 100% left · " + compactReplyFooterPath(sessionWorkDir) + "*"
 	if sent[0] != want {
 		t.Fatalf("final reply = %q, want %q", sent[0], want)
 	}

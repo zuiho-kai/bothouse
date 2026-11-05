@@ -26,7 +26,9 @@ type updateMarker struct {
 // 说明第一次没走到自检成功（标记没被删）就退出或被杀了，再给新版机会只会重复同样的失败。
 const updateMarkerRollbackStarts = 2
 
-func updateMarkerPath(exe string) string { return exe + ".update-pending" }
+// updateMarkerPath: beside the program, or beside the bundle when the program is inside one
+// (markerPathFor) — a file under Contents/ would break the seal the update exists to keep.
+func updateMarkerPath(exe string) string { return markerPathFor(exe) }
 
 func updateMarkerExists(exe string) bool {
 	_, err := os.Stat(updateMarkerPath(exe))

@@ -121,7 +121,8 @@ def channel_history(session_key, proj="", limit=50, timeout=10):
     """session_key 所在频道最近 limit 条（旧→新），经桥 GET /channel/history，不碰平台 token。
     每条 {"id","author_id","author_name","is_bot","is_self","content","time"}。
     平台不支持读历史（桥回 501）返回 None；桥不在、未连上、读失败抛 OSError。"""
-    q = urllib.parse.urlencode({k: v for k, v in (("session_key", session_key), ("project", proj), ("limit", str(limit))) if v})
+    caller = os.environ.get("CC_PROJECT", "").strip()  # 桥按调用角色挡别家私聊（#1069）
+    q = urllib.parse.urlencode({k: v for k, v in (("session_key", session_key), ("project", proj), ("caller", caller), ("limit", str(limit))) if v})
     c = _UnixHTTP(api_socket(), timeout)
     try:
         c.request("GET", "/channel/history?" + q)

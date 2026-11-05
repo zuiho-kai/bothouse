@@ -86,14 +86,47 @@ func (e *Engine) SetGateLocal(on bool) {
 	}
 }
 
+// applyLocalStop cancels the running turn when msg is a person's bare stop word ("暂停", stop …)
+// addressed to this bot. It returns true when the message has been fully handled. It runs with no
+// gate configured (applyLocalGate) and when a configured gate could not judge (applyGate).
+func (e *Engine) applyLocalStop(p Platform, msg *Message, session *Session, interactiveKey string) bool {
+	if !e.gateLocal || msg.FromBot || !(msg.Mentioned || msg.Direct) || !session.Busy() || !isLocalStopWord(userTextOf(msg)) {
+		return false
+	}
+	stopped := e.stopInteractiveSession(interactiveKey, p, msg.ReplyCtx)
+	if !stopped {
+		// Same fallback as /stop (cmdStop): the state may be stored under a workspace-prefixed key.
+		if found := e.findInteractiveKeyForSession(msg.SessionKey); found != "" && found != interactiveKey {
+			stopped = e.stopInteractiveSession(found, p, msg.ReplyCtx)
+		}
+	}
+	if !stopped {
+		// Nothing to cancel: answer like /stop does and drop the stop word, so it never becomes
+		// the next turn's prompt.
+		slog.Info("gate(local): stop word but no running turn to cancel", "session", msg.SessionKey)
+		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgNoExecution))
+		return true
+	}
+	slog.Info("gate(local): stop word cancelled the running turn", "session", msg.SessionKey)
+	e.replyNotice(p, msg.ReplyCtx, e.i18n.T(MsgLocalGateStopped))
+	// Let the cancelled turn release the session, as the gate's abort does.
+	if e.waitForSessionLock(session, recalledStopLockWait) {
+		session.UnlockWithoutUpdate()
+	}
+	return true
+}
+
 // applyLocalGate applies the built-in busy rules to msg. It returns true when the message has been
 // fully handled (turn cancelled, or injected into the running turn).
 func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, interactiveKey string) bool {
 	if !e.gateLocal || msg.FromBot || !(msg.Mentioned || msg.Direct) || !session.Busy() {
 		return false
 	}
-	stopOnly := isLocalStopWord(userTextOf(msg))
-	if !stopOnly && isLocalRedirect(userTextOf(msg)) && e.turnCancelKeepsQueue(interactiveKey) && e.turnIdleFor(interactiveKey) < deadTurnAfter {
+	if e.applyLocalStop(p, msg, session, interactiveKey) {
+		return true
+	}
+	stopOnly := false
+	if isLocalRedirect(userTextOf(msg)) && e.turnCancelKeepsQueue(interactiveKey) && e.turnIdleFor(interactiveKey) < deadTurnAfter {
 		// The replacement task is queued first, then the turn is cancelled (handleMessage →
 		// abortForQueuedFront), so it is answered before what queued behind the old turn — as the
 		// gate's abort does (gate.go).
@@ -119,7 +152,7 @@ func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, inte
 			return true
 		}
 		slog.Info("gate(local): stop word cancelled the running turn", "session", msg.SessionKey)
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgLocalGateStopped))
+		e.replyNotice(p, msg.ReplyCtx, e.i18n.T(MsgLocalGateStopped))
 		// Let the cancelled turn release the session, as the gate's abort does.
 		if e.waitForSessionLock(session, recalledStopLockWait) {
 			session.UnlockWithoutUpdate()
@@ -133,10 +166,10 @@ func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, inte
 	if strings.TrimSpace(content) == "" {
 		content = "（补充附件，和刚才的消息是一起发的）"
 	}
-	if !e.injectIntoRunningTurn(interactiveKey, content, msg.ReplyCtx, msg.Images, msg.Files) {
+	if !e.injectIntoRunningTurn(interactiveKey, e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey), msg.ReplyCtx, msg.Images, msg.Files) {
 		return false
 	}
 	e.teamNoteTurn(msg, session)
-	e.reply(p, msg.ReplyCtx, e.i18n.T(MsgLocalGateInserted))
+	e.insertNotice(p, msg.ReplyCtx, e.i18n.T(MsgLocalGateInserted))
 	return true
 }

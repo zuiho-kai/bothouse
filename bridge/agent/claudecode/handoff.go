@@ -53,7 +53,9 @@ type handoffLine struct {
 	IsMeta           bool      `json:"isMeta"`
 	IsCompactSummary bool      `json:"isCompactSummary"`
 	CompactMetadata  *struct {
-		PostTokens        int `json:"postTokens"`
+		Trigger           string `json:"trigger"`
+		PreTokens         int    `json:"preTokens"`
+		PostTokens        int    `json:"postTokens"`
 		PreservedMessages struct {
 			UUIDs []string `json:"uuids"`
 		} `json:"preservedMessages"`
@@ -114,6 +116,9 @@ func (p *handoffParser) add(l *handoffLine) {
 				keep[id] = true
 			}
 			h.ContextTokens = m.PostTokens
+			if m.Trigger == "auto" && m.PreTokens > 0 {
+				h.AutoCompactTokens = m.PreTokens
+			}
 		}
 		var tail []core.HistoryEntry
 		var uuids []string

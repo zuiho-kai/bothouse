@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"math/rand/v2"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -44,6 +46,164 @@ func isModelCapacityError(msg string) bool {
 	return strings.Contains(msg, "at capacity")
 }
 
+// ---- #134: rate limits (HTTP 429) ----
+//
+// 用户 2026-11-04 17:07「可以」：中转 429 按 Retry-After 退避加抖动. A turn that fails with a 429
+// before any tool ran goes through the same retry/cooldown as "at capacity", but each re-send waits
+// first: the relay's Retry-After when the error carries one, else an exponential backoff with full
+// jitter, so the roles behind one relay do not all retry at the same instant.
+
+var rateLimitRE = regexp.MustCompile(`(?i)\b429\b|too many requests|rate[ _-]?limit`)
+
+// isRateLimitError matches a provider/relay rate-limit failure, e.g. Codex's
+// "exceeded retry limit, last status: 429 Too Many Requests".
+func isRateLimitError(msg string) bool {
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "quota") || strings.Contains(lower, "resource_exhausted") {
+		return false // a spent quota (also sent as 429) cools down until its reset, see quota_cooling.go
+	}
+	return rateLimitRE.MatchString(msg)
+}
+
+// ---- #134: other temporary failures (user 2026-11-04 17:2x「不只429 还有一些重试能解决的」) ----
+//
+// The same wait-then-retry covers every failure a later identical request can get past. The list
+// comes from what the live bridge logged (main.log 11-03 19:23 – 11-04 17:45 and run.log to 11-02,
+// msg="agent error" / codex "transient error"), not from guesses:
+//   - stream cut off: "stream disconnected before completion" (adapter_eof, SOCKS5 upstream closed,
+//     idle timeout waiting for SSE), connection EOF / reset;
+//   - relay overloaded: "unexpected status 502 Bad Gateway", "503 Service Unavailable"
+//     (当前模型服务暂不可用，请稍后重试), "temporarily unavailable", plus 504/529/overloaded;
+//   - DSH upstream: 「上游请求超时」「上游连接中断」「上游服务异常」, and request / first-token timeouts.
+//
+// Never retried, whatever else the text says (a retry gets the same answer): auth (401, 403,
+// 上游认证失败), spent balance or quota, a 400 bad request (e.g. the relay's own pricing-expression
+// error seen 11-04), and content-safety blocks.
+var transientErrorRE = regexp.MustCompile(`(?i)stream disconnected|stream (?:closed|ended|terminated|interrupted)|\bEOF\b|connection (?:reset|refused|closed)|broken pipe|socks5 (?:upstream|socket)|idle timeout|\btime(?:d)? ?out\b|timeout|\b50[234]\b|\b529\b|bad gateway|service unavailable|gateway timeout|temporarily unavailable|overloaded|稍后重试|上游请求超时|上游连接中断|上游服务异常|首字超时|请求超时`)
+
+var permanentErrorRE = regexp.MustCompile(`(?i)\b40[0-3]\b|unauthori[sz]ed|forbidden|invalid api key|authentication|认证失败|鉴权|insufficient balance|余额不足|quota|resource_exhausted|content[ _-]?(?:filter|policy)|safety|内容安全|违规`)
+
+// isTransientError: a failure that resending the same turn may get past (429s included). A
+// "temporarily unavailable" sent with a 403 (seen 11-04 from the relay) still counts as temporary.
+func isTransientError(msg string) bool {
+	if isRateLimitError(msg) {
+		return true
+	}
+	if permanentErrorRE.MatchString(msg) && !strings.Contains(strings.ToLower(msg), "temporarily unavailable") {
+		return false
+	}
+	return transientErrorRE.MatchString(msg)
+}
+
+// ---- #134: errors of unclear cause get exactly one re-send (主区定案 2026-11-04 17:5x) ----
+//
+// Seen in the live logs without a clear temporary/permanent cause: ACP's "prompt did not complete
+// successfully", DSH's 「上游模型请求失败」 and 「公开答复生成失败」. One re-send after a backoff
+// step; a second failure takes the normal error path (and counts for the team watch). Not retried
+// at all (same 定案): antigravity "stream turn failed" (the CLI exited non-zero) and codex "turn
+// interrupted" (mostly a person stopping the turn) — neither matches any list here.
+var retryOnceErrorRE = regexp.MustCompile(`(?i)prompt did not complete successfully|上游模型请求失败|公开答复生成失败`)
+
+func isRetryOnceError(msg string) bool {
+	if isTransientError(msg) || permanentErrorRE.MatchString(msg) {
+		return false
+	}
+	return retryOnceErrorRE.MatchString(msg)
+}
+
+var retryAfterRE = regexp.MustCompile(`(?i)(?:retry[- _]after|try again in)[":=\s]*([0-9]+(?:\.[0-9]+)?)\s*(ms|s|sec|secs|seconds?|m|min|minutes?)?`)
+
+// retryAfterDateRE: the HTTP-date form RFC 7231 allows for Retry-After ("Retry-After: Wed, 21 Oct
+// 2015 07:28:00 GMT"). Relays and gateways send both forms, so the numeric-only rule missed those
+// (#986 review: Retry-After 的秒数与 HTTP-date 两种格式).
+var retryAfterDateRE = regexp.MustCompile(`(?i)retry[- _]after[":=\s]*((?:mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+[0-9]{1,2}\s+[a-z]{3}[a-z]*\s+[0-9]{2,4}\s+[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\s*(?:gmt|utc|[+-][0-9]{4})?)`)
+
+// retryAfterHTTPDateRE: the same date without the header name, kept for a bare "… GMT" in a relay's
+// own wording; only used when the header form above did not match.
+var retryAfterHTTPDateRE = regexp.MustCompile(`(?i)\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+[0-9]{1,2}\s+[a-z]{3}[a-z]*\s+[0-9]{4}\s+[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\s*(?:gmt|utc)`)
+
+var retryAfterDateLayouts = []string{
+	time.RFC1123,  // "Mon, 02 Jan 2006 15:04:05 GMT"
+	time.RFC1123Z, // with a numeric zone
+	time.RFC850,   // "Monday, 02-Jan-06 15:04:05 GMT"
+	time.ANSIC,    // "Mon Jan _2 15:04:05 2006"
+	"Mon, 2 Jan 2006 15:04:05 GMT",
+	"Mon, 2 Jan 2006 15:04 MST",
+	"Mon, 2 Jan 2006 15:04:05 MST",
+}
+
+// parseRetryAfterDate reads an HTTP-date into a wait from now; false when unreadable or in the past.
+func parseRetryAfterDate(text string) (time.Duration, bool) {
+	text = strings.TrimSpace(text)
+	text = strings.TrimSuffix(strings.TrimSuffix(text, ")"), ",")
+	for _, layout := range retryAfterDateLayouts {
+		if t, err := time.Parse(layout, text); err == nil {
+			if d := time.Until(t); d > 0 {
+				return d, true
+			}
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+// rateLimitRetryAfter: the wait the error text asks for (Retry-After), if any. Both the delta-seconds
+// and the HTTP-date form are understood (RFC 7231 §7.1.3).
+func rateLimitRetryAfter(msg string) (time.Duration, bool) {
+	if m := retryAfterDateRE.FindStringSubmatch(msg); m != nil {
+		if d, ok := parseRetryAfterDate(m[1]); ok {
+			return d, true
+		}
+	} else if m := retryAfterHTTPDateRE.FindStringSubmatch(msg); m != nil {
+		if d, ok := parseRetryAfterDate(m[0]); ok {
+			return d, true
+		}
+	}
+	m := retryAfterRE.FindStringSubmatch(msg)
+	if m == nil {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(m[1], 64)
+	if err != nil || v <= 0 {
+		return 0, false
+	}
+	unit := time.Second
+	switch u := strings.ToLower(m[2]); {
+	case u == "ms":
+		unit = time.Millisecond
+	case strings.HasPrefix(u, "m"):
+		unit = time.Minute
+	}
+	return time.Duration(v * float64(unit)), true
+}
+
+// rateLimitBackoffBase: the first backoff step without a Retry-After. Source: 沿用 watchTurnEndDelay
+// (15s, the pause the team watch already leaves between a failed turn and the next one).
+var rateLimitBackoffBase = watchTurnEndDelay
+
+// rateLimitBackoffMax: the longest wait this turn holds itself for. Above it the turn gives up and
+// the normal cooldown (which re-delivers the message) takes over, so a relay asking for an hour does
+// not keep a turn sleeping in memory. Source: 沿用 capacityCooldownBase (10 分钟，用户 2026-10-16
+// 「冷却10分钟」) — a wait longer than the cooldown is not worth holding the turn for.
+var rateLimitBackoffMax = capacityCooldownBase
+
+// rateLimitDelay: how long to wait before re-send number attempt (2, 3, …) after a 429: the
+// Retry-After plus up to one backoff step of jitter, else full jitter over base·2^(attempt-2),
+// never above rateLimitBackoffMax.
+func rateLimitDelay(msg string, attempt int) time.Duration {
+	var d time.Duration
+	if ra, ok := rateLimitRetryAfter(msg); ok {
+		d = ra + time.Duration(rand.Int64N(int64(rateLimitBackoffBase)+1))
+	} else {
+		ceiling := rateLimitBackoffBase << max(0, attempt-2)
+		d = time.Duration(rand.Int64N(int64(ceiling) + 1))
+	}
+	if d > rateLimitBackoffMax {
+		return rateLimitBackoffMax
+	}
+	return d
+}
+
 // capacityWait returns how long the current cooldown still runs (0 = none).
 func (e *Engine) capacityWait(scopes ...quotaScope) time.Duration {
 	if len(scopes) == 0 {
@@ -69,6 +229,7 @@ func (e *Engine) capacityStartCooldown() time.Duration {
 	e.capRound++
 	e.capUntil = time.Now().Add(d)
 	e.capNotified = nil // a new cooldown round gets one notice per channel again
+	e.capSwitchedTo = ""
 	return d
 }
 
@@ -77,6 +238,8 @@ func (e *Engine) capacityReset() {
 	e.capMu.Lock()
 	e.capRound = 0
 	e.capNotified = nil
+	e.capFallbackUsed = false // a turn got through: the next failure streak may switch again
+	e.capSwitchedTo = ""
 	e.capMu.Unlock()
 }
 
@@ -117,11 +280,22 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 	if probe {
 		attempts = 1 // one question, not the usual three-in-a-row
 	}
+	lastErr := ""
 	for attempt := 1; ; attempt++ {
+		// #134: an "at capacity" re-send waits too (主区 17:54: 立即重发改成等待退避), as do the
+		// retry-once errors.
+		if attempt > 1 && (isTransientError(lastErr) || isModelCapacityError(lastErr) || isRetryOnceError(lastErr)) {
+			wait := rateLimitDelay(lastErr, attempt)
+			slog.Warn("rate limited, waiting before retry", "session_key", key, "attempt", attempt, "wait", wait)
+			if !e.sleepCtx(wait) {
+				return
+			}
+		}
 		state.mu.Lock()
 		as := state.agentSession
 		state.capacityFailed = false
 		state.turnErrored = false
+		state.capacityAttempt = attempt
 		state.mu.Unlock()
 		if attempt > 1 && as != nil {
 			drainEvents(as.Events())
@@ -141,6 +315,7 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		state.mu.Lock()
 		failed := state.capacityFailed
 		state.capacityFailed = false
+		lastErr, state.capacityErr = state.capacityErr, ""
 		errored := state.turnErrored
 		state.turnErrored = false
 		alive := state.agentSession != nil && state.agentSession.Alive()
@@ -157,6 +332,9 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		if attempt >= attempts || !alive {
 			break
 		}
+		if ra, ok := rateLimitRetryAfter(lastErr); ok && ra >= capacityCooldownBase {
+			break // the relay wants longer than a cooldown: cool down instead of holding the turn
+		}
 		slog.Warn("model at capacity, retrying turn", "session_key", key, "attempt", attempt+1)
 	}
 	if probe {
@@ -166,8 +344,32 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		giveUp(e.capacityWait())
 		return
 	}
+	why := "模型满载（at capacity）"
+	switch {
+	case isRateLimitError(lastErr):
+		why = "中转限流（429）"
+	case isTransientError(lastErr):
+		why = "上游临时故障（断流、超时或过载）"
+	}
+	if to := e.switchToFallbackModel(key); to != "" {
+		// #134: re-send on the fallback model after one backoff step, no bot-wide cooldown.
+		e.capMu.Lock()
+		e.capWhy = why
+		e.capMu.Unlock()
+		giveUp(rateLimitBackoffBase)
+		return
+	}
 	d := e.capacityStartCooldown()
-	slog.Warn("model at capacity after retries, cooling down", "session_key", key, "cooldown", d)
+	if ra, ok := rateLimitRetryAfter(lastErr); ok && ra > d {
+		d = ra
+		e.capMu.Lock()
+		e.capUntil = time.Now().Add(d)
+		e.capMu.Unlock()
+	}
+	e.capMu.Lock()
+	e.capWhy = why
+	e.capMu.Unlock()
+	slog.Warn("model at capacity after retries, cooling down", "session_key", key, "cooldown", d, "why", why)
 	giveUp(d)
 }
 
@@ -185,7 +387,7 @@ func isScheduledSideKey(key string) bool {
 func (e *Engine) deferForCapacity(p Platform, msg Message, agent Agent, sessions *SessionManager, interactiveKey, workspaceDir string, wait time.Duration, cooling bool) {
 	mins := int((wait + time.Minute - 1) / time.Minute)
 	if isScheduledSideKey(interactiveKey) {
-		e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("⏳ 模型满载（at capacity），这次定时任务跳过；冷却还剩 %d 分钟。", mins))
+		e.sendSystemNotice(p, msg.ReplyCtx, fmt.Sprintf("⏳ 模型满载（at capacity），这次定时任务跳过；冷却还剩 %d 分钟。", mins))
 		e.boardEndHeld(interactiveKey, BoardDoneFailed) // maomao fork: not re-sent
 		return
 	}
@@ -197,6 +399,11 @@ func (e *Engine) deferForCapacity(p Platform, msg Message, agent Agent, sessions
 		channel = msg.SessionKey
 	}
 	e.capMu.Lock()
+	why := e.capWhy
+	if why == "" {
+		why = "模型满载（at capacity）"
+	}
+	switchedTo := e.capSwitchedTo
 	already := e.capNotified[channel]
 	if !already {
 		if e.capNotified == nil {
@@ -206,16 +413,28 @@ func (e *Engine) deferForCapacity(p Platform, msg Message, agent Agent, sessions
 	}
 	e.capMu.Unlock()
 	if !already {
-		if cooling {
-			e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("⏳ 模型满载冷却中，这条 %d 分钟后再处理。", mins))
-		} else {
-			e.send(p, markSystemNotice(p, msg.ReplyCtx), fmt.Sprintf("⏳ 模型满载（at capacity），连试 %d 次都失败，冷却 %d 分钟后自动重试这条。", capacityAttempts, mins))
+		switch {
+		case switchedTo != "" && !cooling:
+			// Switched to a configured backup model: say which, and that the conversation is kept.
+			e.sendSystemNotice(p, msg.ReplyCtx, fmt.Sprintf("🔁 %s，连试 %d 次都失败，已切到备用模型 %s（对话保留），稍后用它重试这条。", why, capacityAttempts, switchedTo))
+		case cooling:
+			e.sendSystemNotice(p, msg.ReplyCtx, fmt.Sprintf("⏳ 模型满载冷却中，这条 %d 分钟后再处理。", mins))
+		default:
+			// Why it cooled (满载 / 中转限流 / 上游临时故障) (#983 ①); sendSystemNotice keeps QQ
+			// groups free of bridge notices.
+			e.sendSystemNotice(p, msg.ReplyCtx, fmt.Sprintf("⏳ %s，连试 %d 次都失败，冷却 %d 分钟后自动重试这条。", why, capacityAttempts, mins))
 		}
 	}
 	msg.UserMessageTimeMs = 0 // a re-delivery is never "stale"
 	redeliver := func() { e.redeliverMessage(p, &msg, agent, sessions, interactiveKey, workspaceDir) }
 	e.capMu.Lock()
-	e.capPending = append(e.capPending, redeliver)
+	e.capPending = append(e.capPending, capPendingEntry{
+		redeliver: redeliver,
+		// The watch of this workspace when the message was held: after repeated errors the work
+		// may be handed to a teammate while the message waits, and a re-delivery would then run
+		// the same work twice (#986 review 6.1).
+		handoff: e.capHandoffAt(interactiveKey),
+	})
 	arm := !e.capArmed
 	e.capArmed = true
 	e.capMu.Unlock()
@@ -236,9 +455,64 @@ func (e *Engine) flushCapacityPending() {
 	if e.ctx.Err() != nil {
 		return
 	}
-	for _, redeliver := range pending {
-		redeliver()
+	for _, p := range pending {
+		if !e.stillOwnsHandoff(p.handoff) {
+			continue
+		}
+		p.redeliver()
 	}
+}
+
+// capPendingEntry is one message held through a cooldown: how to re-deliver it and the watch it
+// belonged to when it was held.
+type capPendingEntry struct {
+	redeliver func()
+	handoff   capHandoffRef
+}
+
+// capHandoffRef names the open handoff of a workspace at one moment (its key and start time).
+type capHandoffRef struct {
+	key string
+	at  time.Time
+}
+
+// capHandoffAt: the open handoff of workspace key now, if this engine owns it.
+func (e *Engine) capHandoffAt(key string) capHandoffRef {
+	if e.dataDir == "" {
+		return capHandoffRef{}
+	}
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	for _, rows := range []map[string][]TeamHandoff{st.Handoffs, st.ScriptWatches} {
+		for _, h := range rows[key] {
+			if teamHandoffOpen(h) {
+				return capHandoffRef{key: key, at: h.At}
+			}
+		}
+	}
+	return capHandoffRef{}
+}
+
+// stillOwnsHandoff: false when the work of a held message has been handed to another role since
+// (the repeated-error reassign, the quota takeover) — re-delivering it would run the same work in
+// two places at once (#986 review 6.1). A message held without a watch (a plain chat turn) and a
+// watch that is simply gone are both re-delivered as before.
+func (e *Engine) stillOwnsHandoff(ref capHandoffRef) bool {
+	if ref.key == "" {
+		return true
+	}
+	teamWorkspaceStore.mu.Lock()
+	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	teamWorkspaceStore.mu.Unlock()
+	for _, rows := range []map[string][]TeamHandoff{st.Handoffs, st.ScriptWatches} {
+		for _, h := range rows[ref.key] {
+			if h.At.Equal(ref.at) && teamHandoffOpen(h) {
+				return h.Owner == "" || h.Owner == e.name || h.Owner == e.DisplayName()
+			}
+		}
+	}
+	return true
 }
 
 // capacityCoolingUntil is the end of the running cooldown (zero = none), for

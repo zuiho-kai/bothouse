@@ -21,8 +21,10 @@
 | DSH，已配置可用的 DeepSeek | DSH 网页「频道」→「添加成员」→「DSH 模型」 | 三个不同成员名，选择同一个模型；无需 Discord 机器人 |
 | DSH，想让多个 Codex / Claude Code / Gemini 成员协作 | 同一入口，类型选「本机 CLI」 | 在运行 DSH 的机器上安装并配置好所选 CLI；可重复选择同一种 |
 | Discord | bothouse 安装向导，为每个机器人选择 CLI | 每个角色一个不同的 Discord 机器人 token；CLI 可以相同 |
-| 自建平台（cloud_web） | bothouse 安装向导 → 自建平台 | 每个角色一个不同名字；无需 Discord token，CLI 可以相同 |
 | 飞书 | bothouse 安装向导 → 飞书 | 当前向导支持单角色，不作为这份多成员教程的入口 |
+<!-- 自建平台入口停用（用户 11-05 定不再维护），原行：
+| 自建平台（cloud_web） | bothouse 安装向导 → 自建平台 | 每个角色一个不同名字；无需 Discord token，CLI 可以相同 |
+-->
 
 首次安装 DSH 插件见 [上手指南的 DSH 入口](platforms/dsh.md)。Discord / 自建平台见[接入指南](connect-discord-feishu.md)。DSH 模型成员直接使用 DSH 配置的模型；“DeepSeek”在这里指模型，不是要求安装一个名为 DeepSeek 的 CLI。
 

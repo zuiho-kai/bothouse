@@ -851,7 +851,7 @@ GET /api/v1/status?token=mgmt-secret
 
 #### POST /api/v1/cron
 
-添加定时任务。必须提供 `prompt` 或 `exec` 之一，不可同时提供。
+添加定时任务。必须提供 `prompt` 或 `exec` 之一，不可同时提供。`session_key` 两类任务都必填：任务到点后要把开始提醒和结果发到那个会话，没填会被直接拒成 `400 session_key is required`（以前是先存下、到点才失败）。
 
 **请求体（prompt 任务）：**
 
@@ -883,7 +883,7 @@ GET /api/v1/status?token=mgmt-secret
 | 字段          | 类型    | 必填 | 说明                                        |
 |---------------|---------|------|---------------------------------------------|
 | `project`     | string  | 否*  | 项目名称（*多项目时为必填）                 |
-| `session_key` | string  | 是   | prompt 任务的目标会话                       |
+| `session_key` | string  | 是   | 任务到点后回报的会话（`平台:聊天[:用户]`，如 `qq:10001`）；exec 任务也必填 |
 | `cron_expr`   | string  | 是   | Cron 表达式（5 或 6 个字段）                |
 | `prompt`      | string  | 否*  | 要发送的 prompt（*未提供 `exec` 时为必填）  |
 | `exec`        | string  | 否*  | Shell 命令（*未提供 `prompt` 时为必填）     |
@@ -1081,6 +1081,278 @@ GET /api/v1/status?token=mgmt-secret
 
 ---
 
+### 5.8 说说与头像（可选）
+
+这两个接口以机器人自己的 QQ 号身份对外生效：说说别人看得见，头像处处看得见。所以
+**默认关闭**，必须在项目的 qq 平台选项里显式打开：
+
+```toml
+[projects.platforms.options]
+allow_qzone = true    # 查/发/删这个号自己的说说
+allow_avatar = true   # 换这个号自己的头像
+```
+
+能力判断按接口而不是平台名：项目里的平台没实现这个能力时返回 `not_supported`，不靠平台名猜。
+这里没有任何定时动作——定时发是定时任务那一节的事，两个决定分开。
+
+#### GET /api/v1/projects/{name}/social
+
+读出能力开关和这个号最近的说说（新的在前）。
+
+**查询参数：** `limit` — 读几条（默认 20，最多 50）。
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "ready",
+    "platform": "qq",
+    "capabilities": {
+      "list_moments": true,
+      "post_moment": true,
+      "remove_moment": true,
+      "set_avatar": true,
+      "disabled_reason": ""
+    },
+    "moments": [
+      {
+        "id": "d43708d9240ae56ae9670e00",
+        "text": "今天画了张图",
+        "time": "2026-11-05T06:21:06+08:00",
+        "images": [],
+        "private": false
+      }
+    ]
+  }
+}
+```
+
+`status` 取值：
+
+| status | 含义 |
+|--------|------|
+| `ready` | 已打开，`moments` 是列表 |
+| `off` | 能力在，但配置没打开；`message` 指明是哪个配置项 |
+| `error` | 读列表失败；`message` 说明原因，写操作仍按 `capabilities` 走 |
+| `not_supported` | 这个项目的平台根本做不了 |
+
+`moments` 永远是数组（`[]` 而不是 `null`），面板可以直接读 `.length`。
+
+---
+
+#### POST /api/v1/projects/{name}/social/moment
+
+发一条说说（目前只发文字；带图走 QQ 客户端自己的路径）。
+
+**请求体：**
+
+```json
+{ "text": "今天画了张图" }
+```
+
+**响应：**
+
+```json
+{ "ok": true, "data": { "moment": { "id": "stub01", "text": "今天画了张图", "time": "2026-11-05T06:21:06+08:00", "images": [], "private": false } } }
+```
+
+错误：`400` 文字为空、`403` 没打开（消息里点名 `allow_qzone`）、`501` 平台做不了、
+`502` 上游拒绝（消息里带上游 action，扩展不存在时提示升级 NapCat）。
+
+---
+
+#### POST /api/v1/projects/{name}/social/moment/delete
+
+删掉自己的一条说说。已经不在的也算删掉。
+
+**请求体：**
+
+```json
+{ "id": "stub01" }
+```
+
+**响应：**
+
+```json
+{ "ok": true, "data": { "result": "deleted" } }
+```
+
+---
+
+#### POST /api/v1/projects/{name}/social/avatar
+
+换这个号的头像。
+
+**请求：** `multipart/form-data`，字段名 `file`。接受嗅探为 `image/*` 的文件，最大 2 MiB。
+
+**响应：**
+
+```json
+{ "ok": true, "data": { "result": "changed", "mime": "image/png", "bytes": 94 } }
+```
+
+错误：`400` 不是图片或文件为空、`403` 没打开（消息里点名 `allow_avatar`）、`413` 超过 2 MiB、
+`501` 平台不能换头像。
+
+---
+
+### 5.9 生图（可选）
+
+按需开启：`config.toml` 里没有 `[image_gen]`（`enabled = true` 且 `[image_gen.openai] api_key`
+填好）时，这些接口一律回 `not_configured`。不自动生图，也不往任何频道发图：图片写进
+`<data_dir>/images`，拿到路径的人自己决定怎么用。只支持 OpenAI 兼容的 `/images/generations`。
+
+`out_dir` 必须落在 `data_dir` 下（默认就是 `<data_dir>/images`），指到外面会被拒绝：状态回
+`error`，一张也不画。下面的取图接口不带 token，它能碰到的目录就是安全边界。图片文件名是
+`gen-<YYYYMMDD-HHMMSS>-<8 位十六进制>.png`，随机后缀是为了让同一秒画完的两张不会互相覆盖。
+
+`POST` 还要求管理 API 设了 `token`（没设回 `403`）：读不要紧，画图花的是主人的钱，token 空着
+等于这个端口对整个网段敞开。
+
+#### GET /api/v1/image-gen
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "ready",
+    "can_draw": true,
+    "provider": "openai",
+    "model": "gpt-image-1",
+    "base_url": "https://api.openai.com/v1",
+    "out_dir": "/home/me/.bothouse/images",
+    "api_key_set": true,
+    "pictures": [
+      { "name": "gen-20261105-052031-3f9a1c02.png", "file": "/home/me/.bothouse/images/gen-20261105-052031-3f9a1c02.png",
+        "url": "/api/v1/image-gen/file/gen-20261105-052031-3f9a1c02.png", "bytes": 1384211, "mime": "image/png",
+        "seconds": 24.3, "model": "gpt-image-1" }
+    ]
+  }
+}
+```
+
+`status` 是 `ready`、`not_configured` 或 `error`（带 `message`）；`api_key_set` 只说明有没有填密钥，
+密钥本身永不返回。
+
+#### POST /api/v1/image-gen
+
+```json
+{ "prompt": "一只戴眼镜的橘猫，像素头像" }
+```
+
+**响应：** 画好的那张图，字段同上。`prompt` 为空或全空白时 `400`（一个字节也不会发去服务商），
+管理 API 没设 `token` 时 `403`（画图要花钱，读可以免，花钱必须验身份），上一张还没画完时 `409`
+（排队会给主人多买一张），没配置或 `out_dir` 不在 `data_dir` 下时 `503`，服务商拒绝时 `502`
+（错误信息带状态码和服务商原文）。
+
+#### GET /api/v1/image-gen/file/<name>
+
+图片字节，和 `library/avatar-image` 一样**不要 token**（`<img>` 带不了 `Bearer` 头）。
+只认本服务自己写出的普通文件名，其余 `404`：名字里带分隔符或 `..`、符号链接（哪怕指向
+`out_dir` 里的文件）、真实路径跑出 `out_dir` 的文件、嗅探出来不是 `image/*` 的文件，一律不认。
+
+---
+
+### 5.10 Plugins（DSH profile）
+
+列出 DSH 那份 profile 里已有的插件，并提供两个真正要用的写操作：装一个包（`dsh plugin --profile <profile> add`，跟用户自己在终端敲的是同一条命令）、开关一个 bundle。这页是 profile 文件的窗口（`package.json` 的依赖 + `dsh.profile.bundles`），不是第二份注册表：DSH 自己的插件页读写的就是同一批文件，两边一致。
+
+两个写操作都要求管理 API 设了 token。没设时路由直接回 `403`：没认证的管理端口分不清谁是这台机器的主人。
+
+#### GET /api/v1/plugins
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "profile": "web",
+    "profile_dir": "/Users/me/.dsh/profiles/web",
+    "can_install": true,
+    "writes_allowed": true,
+    "allow_non_registry": false,
+    "registry": "https://registry.npmjs.org/",
+    "plugins": [
+      {
+        "name": "@deepseek-ai/dsh-base",
+        "version": "0.2.1-rc.5",
+        "description": "DSH base surface",
+        "layer": true,
+        "enabled": true,
+        "shipped": true,
+        "rows": [{"id": "web", "name": "@deepseek-ai/dsh-web", "disabled": false}]
+      }
+    ]
+  }
+}
+```
+
+`shipped` 表示这个 bundle 来自 DSH 安装本身而不是这份 profile：它们是面板自己的层，照样列出来，但页面不给开关。没有声明 `dsh.bundle` 的依赖 `layer: false`：装上了，但 DSH 不会把它当插件加载。
+
+#### GET /api/v1/plugins/inspect?spec=<包规格>
+
+装之前先说明要装的是什么。不写任何文件，也不跑任何进程。
+
+```json
+{
+  "ok": true,
+  "data": {
+    "spec": "demo-bundle@next",
+    "name": "demo-bundle",
+    "kind": "registry",
+    "version": "0.4.2",
+    "registry": "https://registry.npmjs.org/",
+    "publisher": "publisher-x",
+    "description": "Demo bundle",
+    "bundle": true,
+    "runtime": "0.2.1-rc.5",
+    "requires": "engines.dsh ^0.2.0",
+    "compatible": true,
+    "required": "插件和面板、agent 在同一个进程里跑，没有单独的沙箱：…",
+    "allowed": true
+  }
+}
+```
+
+- `kind` 是 `registry` / `git` / `tarball` / `path` 之一。只有 `registry` 默认能装；其余来源要 `[plugins] allow_non_registry = true`，否则 `allowed: false` 并给出 `reason`，`POST /plugins/install` 也会回 `403`。
+- `compatible` 只在声明的 `engines.dsh`（或 `@deepseek-ai/dsh` peer）范围是本实现认识的写法时出现。没有这个字段表示「交给 DSH 在装的时候核」——装前瞎猜一个答案是更糟的。
+- `required` 是装上后能做什么。DSH 插件和面板、agent 在同一个进程里跑，没有按插件划分的沙箱。
+- `error` 表示这次读 registry 失败。仍然可以尝试安装，最终以这次运行自己的输出为准。
+
+#### POST /api/v1/plugins/install
+
+```json
+{"spec": "demo-bundle@1.2.3"}
+```
+
+默认只收 npm registry 的包名：小写、可带 `@scope/`、可带 `@版本` 或标签、最多 214 字符、不能以 `-` 开头。`git:`/`github:` 简写、git URL、`http(s)://…tgz`、`file:`/`link:`/绝对路径是另一种风险（内容不是 registry 发布的那一份），要同时打开配置开关并在页面上再确认一次。
+
+响应是 NDJSON 流（冷缓存时安装要几分钟）：
+
+```
+{"line": "Progress: resolved 1, reused 0, downloaded 0, added 0"}
+{"done": true, "state": { …同 GET /plugins… }}
+```
+
+失败时最后一行带 `error`（pnpm 原话）和 `kind`，页面翻成中文：`pnpm-missing`、`build-blocked`、`not-found`、`no-matching-version`、`disk-full`、`permission`、`integrity`、`network`、`timeout`、`unknown`。
+
+#### POST /api/v1/plugins/switch
+
+```json
+{"name": "some-bundle", "enabled": false}
+```
+
+只改 profile `package.json` 里 `dsh.profile.bundles` 这一段，其余字节原样保留；用的是 DSH 和 `dsh plugin` 同一个 `package.json.lock`，改之前先写一份带时间戳的备份。不卸载任何东西，所以再开回来就恢复原状。profile 本来就是那个状态时 `changed: false`。
+
+`@deepseek-ai/dsh-base` 会被拒：它是面板本体，关掉就没有界面了。两个写操作都要重启 DSH 才生效，响应里 `restart_required: true`。
+
+---
+
 ## 6. 错误处理约定
 
 ### 6.1 标准错误响应
@@ -1163,6 +1435,9 @@ cors_origins = ["http://localhost:3000", "https://dashboard.example.com"]
 | 版本       | 日期       | 变更                    |
 |------------|------------|-------------------------|
 | 1.0-draft  | 2026-03-10 | 初始规范                |
+| 1.1-draft  | 2026-11-05 | 新增可选的 QQ 说说 / 头像接口（`/projects/{name}/social…`），`allow_qzone` / `allow_avatar` 未打开时不生效 |
+| 1.2-draft  | 2026-11-05 | 新增可选的生图接口（`/image-gen`、`/image-gen/file/<name>`） |
+| 1.2-draft  | 2026-11-05 | 新增插件管理页接口（`/plugins…`），写操作需要管理 token |
 
 ---
 

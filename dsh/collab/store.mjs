@@ -24,6 +24,8 @@ const SCHEMA_VERSION = 11;
 /** Columns added after v1, as [table, column, definition]; ensureSchema() adds any missing one. */
 const COLUMNS = [
   ['members', 'name_customized', 'INTEGER'],
+  ['members', 'cli_config', 'TEXT'],
+  ['members', 'cli_config_managed', 'INTEGER NOT NULL DEFAULT 0'],
   ['bindings', 'workspace_path', 'TEXT'], // Keep a CLI conversation in its original directory until /new. // NULL keeps existing names unchanged; only new UI members opt in.
 
   ['jobs', 'input_id', 'TEXT'], // v2: jobs remember the id of the input they admitted, to bind its consuming turn.
@@ -60,6 +62,9 @@ const COLUMNS = [
   ['messages', 'memories', 'TEXT'],
   // #1023 (no version bump): a private chat is a chat room with exactly one agent member; NULL for every other room.
   ['rooms', 'dm_member', 'TEXT'],
+  // #155 (no version bump): 1 = the owner closed this private chat; it stays out of the room list
+  // (history kept) until openDm() brings it back.
+  ['rooms', 'dm_hidden', 'INTEGER NOT NULL DEFAULT 0'],
   // #597 G34: when a role last changed the row in place (a streamed draft growing, a progress card
   // edited, the draft committed); NULL if never. The task watch counts it as progress (Tasks.progressed).
   ['messages', 'changed_at', 'REAL'],
@@ -95,6 +100,11 @@ export class Store {
       room: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?'),
       rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms ORDER BY id'),
       dms: this.db.prepare('SELECT id, dm_member FROM rooms WHERE dm_member IS NOT NULL'),
+      // #155: private chats the room list leaves out — closed by the owner, or with a member
+      // since removed (a removed member keeps its row). Members that never had a row (bridge
+      // roles joining over cloud_web) are not matched, so a reconnect does not hide their chat.
+      hiddenDms: this.db.prepare(`SELECT r.id FROM rooms r LEFT JOIN members m ON m.id = r.dm_member
+        WHERE r.dm_member IS NOT NULL AND (r.dm_hidden = 1 OR m.removed = 1)`),
       children: this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id"),
       // A new workspace is claimed with no task yet (claim_task 0): its first task is the handoff.
       createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id, claim_task, claim_bridge, claim_at)
@@ -147,9 +157,9 @@ export class Store {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'config', ?, 0)
         ON CONFLICT(id) DO UPDATE SET name = excluded.name, provider = excluded.provider, model = excluded.model,
           cli = excluded.cli, persona = excluded.persona, avatar = excluded.avatar, permission_preset = excluded.permission_preset, rooms = excluded.rooms, source = 'config', removed = 0`),
-      addMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, permission_preset, name_customized, rooms, source, created_at, removed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ui', ?, 0) RETURNING *`),
-      updateMember: this.db.prepare(`UPDATE members SET name = ?, provider = ?, model = ?, cli = ?, persona = ?, avatar = ?, permission_preset = ?, name_customized = ?, rooms = ?
+      addMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, permission_preset, name_customized, rooms, cli_config, cli_config_managed, source, created_at, removed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ui', ?, 0) RETURNING *`),
+      updateMember: this.db.prepare(`UPDATE members SET name = ?, provider = ?, model = ?, cli = ?, persona = ?, avatar = ?, permission_preset = ?, name_customized = ?, rooms = ?, cli_config = ?, cli_config_managed = ?
         WHERE id = ? AND source = 'ui' AND removed = 0 RETURNING *`),
       removeMember: this.db.prepare("UPDATE members SET removed = 1 WHERE id = ? AND source = 'ui' AND removed = 0 RETURNING *"),
     };
@@ -376,6 +386,16 @@ export class Store {
       this.q.ensureRoom.run(id, name, saved || workspacePath || null);
     });
   }
+  /**
+   * A chat channel name must be new: the sidebar shows names only (no ids), and 工作区<n> is how a
+   * workspace is addressed, so a duplicate or a workspace-shaped name is refused with 'conflict'.
+   */
+  checkRoomName(name, selfId) {
+    if (new RegExp(`^${WORKSPACE_PREFIX}\\d+$`).test(name)) throw new CollabError('conflict', `channel name ${name} is reserved for workspaces`);
+    // A private chat is named after its member and listed with its avatar, so it does not clash.
+    const clash = this.rooms().find(r => r.id !== selfId && r.kind === 'chat' && r.dm_member == null && r.name.toLowerCase() === name.toLowerCase());
+    if (clash !== undefined) throw new CollabError('conflict', `channel name ${name} is already in use`);
+  }
   /** Rename the channel without changing any room, message or session identity. */
   renameRoom(id, name) {
     if (typeof name !== 'string' || !name || name.length > 32 || /\s/.test(name)) {
@@ -384,11 +404,15 @@ export class Store {
     const room = this.room(id);
     if (room === undefined) throw new CollabError('room-missing', `room ${id} does not exist`);
     if (room.kind === 'workspace') throw new CollabError('invalid', 'workspace names cannot be changed');
+    this.checkRoomName(name, id);
     return this.db.prepare('UPDATE rooms SET name = ? WHERE id = ? RETURNING id, name, kind, parent_id').get(name, id);
   }
   /** Create a chat channel; its first workspace is made on the first createWorkspace() call. */
   createRoom(name) {
-    const room = this.transaction(() => this.q.createRoom.get(name));
+    const room = this.transaction(() => {
+      this.checkRoomName(name);
+      return this.q.createRoom.get(name);
+    });
     this.ensureRoomSettings(room.id);
     return room;
   }
@@ -400,13 +424,21 @@ export class Store {
     if (typeof memberId !== 'string' || memberId === '') throw new CollabError('invalid', 'member id required');
     const room = this.transaction(() => {
       const found = this.db.prepare('SELECT id FROM rooms WHERE dm_member = ? ORDER BY id LIMIT 1').get(memberId);
-      if (found !== undefined) return { ...this.q.room.get(found.id), dm_member: memberId };
+      if (found !== undefined) {
+        this.db.prepare('UPDATE rooms SET dm_hidden = 0 WHERE id = ?').run(found.id); // #155: reopening shows a closed chat again.
+        return { ...this.q.room.get(found.id), dm_member: memberId };
+      }
       const created = this.q.createRoom.get(String(name || memberId).replace(/\s+/g, '').slice(0, 32) || memberId);
       this.db.prepare('UPDATE rooms SET dm_member = ? WHERE id = ?').run(memberId, created.id);
       return { ...created, dm_member: memberId };
     });
     this.ensureRoomSettings(room.id);
     return room;
+  }
+  /** #155: close a private chat: it leaves the room list, its messages stay, openDm() restores it. */
+  closeDm(roomId) {
+    if (this.dmMember(roomId) === undefined) throw new CollabError('invalid', `room ${roomId} is not a private chat`);
+    this.db.prepare('UPDATE rooms SET dm_hidden = 1 WHERE id = ?').run(roomId);
   }
   /** #1023: the agent member a private chat room is with; undefined for every other room. */
   dmMember(roomId) { return this.db.prepare('SELECT dm_member FROM rooms WHERE id = ?').get(roomId)?.dm_member ?? undefined; }
@@ -616,11 +648,11 @@ export class Store {
     this.q.seedMember.run(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, JSON.stringify(m.rooms ?? []), now);
   }
   addMember(m, now = Date.now() / 1000) {
-    return this.q.addMember.get(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, m.nameCustomized == null ? null : Number(m.nameCustomized), JSON.stringify(m.rooms ?? []), now);
+    return this.q.addMember.get(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, m.nameCustomized == null ? null : Number(m.nameCustomized), JSON.stringify(m.rooms ?? []), m.cliConfig ? JSON.stringify(m.cliConfig) : null, Number(Boolean(m.cliConfigManaged)), now);
   }
   /** Edit a UI-created member; config members and removed ones are refused (undefined). */
   updateMember(id, m) {
-    return this.q.updateMember.get(m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, m.nameCustomized == null ? null : Number(m.nameCustomized), JSON.stringify(m.rooms ?? []), id);
+    return this.q.updateMember.get(m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, m.nameCustomized == null ? null : Number(m.nameCustomized), JSON.stringify(m.rooms ?? []), m.cliConfig ? JSON.stringify(m.cliConfig) : null, Number(Boolean(m.cliConfigManaged)), id);
   }
   removeMember(id) { return this.q.removeMember.get(id); }
   leadId(roomId) {
@@ -630,6 +662,14 @@ export class Store {
     roomId = this.settingsRoom(roomId);
     this.ensureRoomSettings(roomId);
     this.db.prepare('UPDATE room_settings SET lead_id = ? WHERE room_id = ?').run(id, roomId);
+  }
+  /**
+   * #176: forget a member as a channel's chosen primary. A removed member keeps its row (old
+   * messages stay attributable) but can never be picked again — hub.primaryIn() stops matching it,
+   * so a leftover id is a choice the UI can neither show nor clear.
+   */
+  clearLeadOf(id) {
+    return this.db.prepare('UPDATE room_settings SET lead_id = NULL WHERE lead_id = ? RETURNING room_id').all(id).map(row => row.room_id);
   }
   bindingWorkspacePath(memberId, roomId, fallback) {
     return this.db.prepare('SELECT workspace_path FROM bindings WHERE member_id = ? AND room_id = ?').get(memberId, roomId)?.workspace_path || fallback;
@@ -672,7 +712,9 @@ export class Store {
     this.releaseIdleWorkspaces();
     const counts = new Map(this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
       WHERE status IN ('assigned', 'accepted', 'asked', 'rework') GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
-    return this.rooms().map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id), ...this.relaySetting(r.id) }));
+    const hidden = new Set(this.q.hiddenDms.all().map(r => r.id));
+    return this.rooms().filter(r => !hidden.has(r.id))
+      .map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id), ...this.relaySetting(r.id) }));
   }
 
   /**

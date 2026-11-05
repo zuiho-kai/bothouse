@@ -89,6 +89,10 @@ func (s *APIServer) handleChannelHistory(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "session_key has no channel", http.StatusBadRequest)
 		return
 	}
+	if !s.historyAllowed(strings.TrimSpace(q.Get("caller")), e, plat+":"+channel) {
+		http.Error(w, "private chat of another role", http.StatusForbidden)
+		return
+	}
 	p := e.lookupReadyPlatform(plat)
 	if p == nil {
 		http.Error(w, "platform "+plat+" not connected", http.StatusServiceUnavailable)
@@ -113,4 +117,37 @@ func (s *APIServer) handleChannelHistory(w http.ResponseWriter, r *http.Request)
 		})
 	}
 	apiJSON(w, http.StatusOK, out)
+}
+
+// historyAllowed: private chats stay with their own role (#1068, #1069). caller is the role
+// asking (scripts pass CC_PROJECT); without it the reading project is the caller. The
+// primary role sees everything; a role reading through its own bot only reaches chats that
+// bot is in. Reading through another role's bot is limited to channels that some role has
+// recorded a real name for and nobody saw a direct message in; unknown counts as private.
+func (s *APIServer) historyAllowed(caller string, e *Engine, chat string) bool {
+	if caller == "" || caller == e.name {
+		return true
+	}
+	s.mu.RLock()
+	viewer := s.engines[caller]
+	engines := make([]*Engine, 0, len(s.engines))
+	for _, x := range s.engines {
+		engines = append(engines, x)
+	}
+	s.mu.RUnlock()
+	if viewer != nil && viewer.isTeamLead() {
+		return true
+	}
+	named := false
+	for _, x := range engines {
+		if x.sessions == nil {
+			continue
+		}
+		n, d := x.sessions.ChatPublic(chat)
+		if d {
+			return false
+		}
+		named = named || n
+	}
+	return named
 }

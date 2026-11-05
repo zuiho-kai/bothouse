@@ -3,6 +3,7 @@
     "addPlatform": "플랫폼 추가",
     "addRole": "역할/모델 추가",
     "library": "라이브러리",
+    "imageGen": "이미지 생성",
     "dashboard": "대시보드",
     "apps": "앱 연결",
     "projects": "프로젝트",
@@ -13,7 +14,8 @@
     "bridge": "브리지",
     "skills": "스킬",
     "system": "시스템",
-    "wikiGalaxy": "Wiki 갤럭시"
+    "wikiGalaxy": "Wiki 갤럭시",
+    "plugins": "플러그인"
   },
   "dashboard": {
     "title": "대시보드",
@@ -61,7 +63,8 @@
       "overview": "개요",
       "providers": "제공업체",
       "heartbeat": "하트비트",
-      "settings": "설정"
+      "settings": "설정",
+      "social": "게시물"
     }
   },
   "sessions": {
@@ -135,7 +138,12 @@
     "selectProject": "프로젝트 선택",
     "descPlaceholder": "작업 설명",
     "promptPlaceholder": "에이전트에게 보낼 프롬프트...",
-    "selectSessionKey": "세션 선택 (기본값은 비워두기)",
+    "selectSessionKey": "세션에서 고르거나 qq:10001 처럼 입력",
+    "sessionKeyHint": "필수: 실행 시 이 세션으로 보냅니다.",
+    "sessionKeyRequired": "세션 키를 먼저 입력하세요. 게시할 채팅이 필요합니다.",
+    "scheduleRequired": "먼저 실행 시간을 고르세요.",
+    "projectRequired": "먼저 프로젝트를 고르세요.",
+    "taskRequired": "프롬프트나 명령 중 하나를 입력하세요.",
     "taskType": "작업 유형",
     "mode": "권한 모드",
     "modeDefault": "프로젝트 기본값 사용"
@@ -459,5 +467,60 @@
     "title": "페이지를 찾을 수 없습니다",
     "hint": "주소가 잘못되었거나 페이지가 이동되었을 수 있습니다.",
     "home": "대시보드로"
+  },
+  "dsh": {
+    "readError": "DSH 읽기 실패",
+    "stopped": "DSH 중지됨",
+    "running": "DSH 실행 중",
+    "members": "DSH 구성원",
+    "messagesError": "메시지 읽기 실패",
+    "noMessages": "메시지가 없습니다",
+    "recentConversations": "최근 세션 및 채널",
+    "unknownModel": "알 수 없음",
+    "connected": "DSH 연결됨",
+    "installed": "DSH 설치됨",
+    "manageChannels": "DSH 채널 및 구성원 관리",
+    "noBridgeProjects": "브리지 프로젝트가 없습니다",
+    "addBridgeProjectHint": "위 버튼으로 브리지 프로젝트를 추가할 수 있습니다."
+  },
+  "dshManage": {
+    "add": "DSH 멤버 추가",
+    "edit": "멤버 편집",
+    "delete": "멤버 삭제",
+    "name": "이름",
+    "type": "멤버 유형",
+    "persona": "페르소나",
+    "nativeHint": "DSH 기본 멤버는 DSH 모델 경로를 사용합니다.",
+    "provider": "DSH 제공업체",
+    "model": "모델",
+    "defaultRoute": "DSH 기본 경로 사용",
+    "chooseModel": "모델 선택",
+    "noRoutes": "사용 가능한 DSH 모델 경로가 없습니다.",
+    "codexHint": "설정은 멤버별로 저장되며 다음 턴 전에 적용됩니다. 인증은 로컬 CLI를 사용합니다.",
+    "probing": "Codex 기능 확인 중…",
+    "unsupported": "이 Codex 어댑터는 설정 가능한 옵션을 제공하지 않습니다.",
+    "inherit": "CLI 기본값 사용",
+    "effort": "추론 강도",
+    "cliHint": "이 멤버는 로컬 CLI 설정과 인증을 사용합니다.",
+    "source": "출처",
+    "apply_pending": "저장됨, 다음 턴 대기 중",
+    "apply_applied": "확인된 세션에 적용됨",
+    "apply_failed": "적용 실패",
+    "apply_not_configured": "설정 없음",
+    "readOnly": "읽기 전용: roster 외부에서 관리",
+    "unavailable": "멤버 관리를 사용할 수 없습니다",
+    "rosterError": "멤버 관리를 불러올 수 없습니다",
+    "otherMembers": "기타 DSH 멤버",
+    "deleteConfirm": "{{name}}을(를) 삭제할까요?",
+    "saved": "멤버가 저장되었습니다. 설정은 다음 턴 전에 적용됩니다.",
+    "providerScope": "이 제공업체는 참조하는 브리지 프로젝트에 적용됩니다.",
+    "dshProviderScope": "DSH 기본 멤버는 자체 모델 경로를 사용합니다.",
+    "openDsh": "DSH 열기",
+    "settingsModels": "DSH에서 설정 → 모델을 여세요.",
+    "cliScope": "CLI 멤버는 로컬 CLI 인증과 설정을 사용하며 여기서 변경되지 않습니다.",
+    "bridgeProjects": "브리지 프로젝트",
+    "projectScope": "브리지 프로젝트는 에이전트와 작업공간을 플랫폼에 연결합니다. DSH 멤버는 별도로 관리합니다.",
+    "savedConfigNextTurn": "저장된 설정 · 다음 턴 전에 적용",
+    "savedRoute": "저장된 DSH 경로"
   }
 }

@@ -23,8 +23,8 @@ export interface RoleInfo {
   source?: string;
 }
 
-export async function listRoles(): Promise<{ roles: RoleInfo[] }> {
-  return api.get<{ roles: RoleInfo[] }>('/roles');
+export async function listRoles(): Promise<{ roles: RoleInfo[]; dsh?: { status: 'running' | 'stopped' | 'error'; error?: string } }> {
+  return api.get('/roles');
 }
 
 export async function restartRole(name: string): Promise<{ role: string; status: string; message: string }> {

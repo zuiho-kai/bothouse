@@ -18,6 +18,7 @@ import {
 import { nextRoleName, roleLabel, personaWithName } from '@/lib/roleIdentity';
 import { wizardGate } from './wizardGate';
 import DSHSetup from './DSHSetup';
+import DSHAdd from './DSHAdd';
 import { PersonaLibrary, useLibrary } from '@/components/library';
 import type { LibraryPersona } from '@/api/library';
 import { fmt, isZhLang, keptLangLabel, langLabel, libraryTexts, replyLangOptions, stepLabel, wizardTexts } from './texts';
@@ -488,7 +489,7 @@ export default function SetupWizard() {
     c.login === 'logged_in' ? <Badge variant="success">{T.loggedIn}</Badge>
       : c.login === 'not_logged_in' ? <Badge variant="warning">{T.notLoggedIn}</Badge> : <Badge>{T.unknownLogin}</Badge>;
 
-  if (picked === 'dsh' && step > 0) return <DSHSetup lang={lang} onBack={() => setStep(0)} />;
+  if (picked === 'dsh' && step > 0) return addMode ? <DSHAdd lang={lang} onBack={() => setStep(0)} /> : <DSHSetup lang={lang} onBack={() => setStep(0)} />;
 
   return (
     <div className="setup-wizard animate-fade-in space-y-6 w-full max-w-4xl mx-auto" data-testid="setup-wizard">
@@ -547,11 +548,11 @@ export default function SetupWizard() {
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{T.platformQ}</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {([['qq', 'QQ', T.qqDesc, MessageCircle], ['discord', 'Discord', T.discordDesc, MessageSquare], ['feishu', zh ? '飞书 / Lark' : 'Feishu / Lark', T.feishuDesc, Smartphone],
-                ['dsh', 'DSH', T.dshDesc, Puzzle], ['cloud_web', T.cloudWebLabel, T.cloudWebDesc, Globe]] as const).map(([k, label, desc, Icon]) => (
+                ['dsh', 'DSH', T.dshDesc, Puzzle] /* 自建平台入口停用（用户 11-05 定不再维护）：, ['cloud_web', T.cloudWebLabel, T.cloudWebDesc, Globe] */] as const).map(([k, label, desc, Icon]) => (
                 <button key={k} aria-pressed={picked === k} data-testid={`platform-${k}`} onClick={() => {
                   setPlatform(k);
                   if (k === 'feishu' || k === 'qq') setRoles((rs) => rs.slice(0, 1));
-                  if (k === 'cloud_web' || k === 'dsh') setRoles((rs) => rs.map((r, i) => (i === 0 && !r.name && !r.reuse_project ? { ...r, name: T.cwDefaultName } : r)));
+                  if ((k as string) === 'cloud_web' || k === 'dsh') setRoles((rs) => rs.map((r, i) => (i === 0 && !r.name && !r.reuse_project ? { ...r, name: T.cwDefaultName } : r)));
                 }}
                   className={`setup-platform text-left p-4 rounded-xl border transition-all ${picked === k ? 'border-accent bg-accent/5' : 'border-gray-200 dark:border-gray-700 hover:border-accent/50'}`}>
                   <div className="flex items-center gap-2 font-medium text-gray-900 dark:text-white"><Icon size={16} />{label}{picked === k && <Check size={14} className="text-accent" />}

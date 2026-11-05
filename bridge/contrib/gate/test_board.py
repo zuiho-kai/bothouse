@@ -40,6 +40,33 @@ class Board(unittest.TestCase):
         self.assertEqual(cli("add", "a", "b", "c", "龙娘"), (0, "#3"))  # 结束过的编号不再用
         self.assertIn('"done_at"', (Path(TMP) / "board-done.jsonl").read_text())
 
+    def test_hold_unhold_for_release(self):
+        """为发布暂停（#134 ②）：不给编号只标在工作区、没交回、没暂停的；unhold --at 只撤那一次标记。"""
+        self.assertEqual(cli("add", "在做的", "x", "进行中", "橘"), (0, "#1"))
+        self.assertEqual(cli("add", "聊天里的", "y", "进行中", "橘"), (0, "#2"))
+        rows = board._read()
+        rows[0]["ws"] = "discord:ws1"
+        board._write(rows)
+        code, out = cli("hold", "--why", "集中发布")
+        self.assertEqual((code, out), (0, "为发布暂停：#1"))
+        mark = board._read()[0]["release_hold"]
+        self.assertEqual(mark["why"], "集中发布")
+        self.assertIn("为发布暂停", cli()[1].splitlines()[0])
+        self.assertEqual(cli("hold", "1"), (0, "为发布暂停：没有符合的条目"))  # 已标过
+        self.assertEqual(cli("unhold", "1", "--at", "2000-01-01T00:00:00+00:00"), (0, "去掉为发布暂停：没有符合的条目"))
+        self.assertEqual(cli("unhold", "1", "--at", mark["at"]), (0, "去掉为发布暂停：#1"))
+        self.assertNotIn("release_hold", board._read()[0])
+        self.assertEqual(cli("hold", "2"), (0, "为发布暂停：#2"))  # 点名的照标
+        self.assertEqual(cli("unhold"), (0, "去掉为发布暂停：#2"))
+
+    def test_stale_skips_release_hold(self):
+        self.assertEqual(cli("add", "等发布的", "x", "进行中", "橘"), (0, "#1"))
+        rows = board._read()
+        rows[0].update(ws="discord:ws1", progress_at=1.0, release_hold={"at": "2026-11-04T09:00:00+00:00"})
+        board._write(rows)
+        self.assertEqual(board.pause_stale(now=10 * 3600), [])
+        self.assertFalse(board._read()[0].get("paused"))
+
     def test_update_closing_status_ends_item(self):
         # 用户 2026-10-28「任务榜完成的为什么不下掉」：状态写成收尾词就移出任务板
         cli("add", "交来的活", "a.md", "已交接", "橘")
@@ -126,6 +153,75 @@ class Board(unittest.TestCase):
     def test_not_a_team_status_file(self):  # cc-connect 把 team/*.json 当队友状态读，任务板不能叫 .json
         board.add("x", "y", "z", "橘")
         self.assertEqual(list(Path(TMP).glob("*.json")), [])
+
+
+class AppendForward(unittest.TestCase):
+    """「## 转交结果」节：插在节内最后一条后面，节不存在就新建；写失败时原文件不动。
+
+    用户 2026-10-28「为什么又重新跑了一次，什么问题修一下」——转交结果落进后面的「## 检查点」，
+    工作区读到的还是旧的「接着做」；返工要求再加一条：半途失败不能把交接文件写坏。
+    """
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+
+    def write(self, text):
+        p = self.dir / "handoff.prompt"
+        p.write_text(text, encoding="utf-8")
+        return p
+
+    def read(self, p):
+        return p.read_text(encoding="utf-8")
+
+    def test_inserts_inside_forward_section(self):
+        p = self.write("# 交接\n\n## 交给工作区\n做 A。\n\n## 转交结果\n- 早期一条\n\n## 检查点\n- 别动这里\n")
+        board.append_forward(str(p), "11:20 新结果")
+        self.assertEqual(
+            self.read(p),
+            "# 交接\n\n## 交给工作区\n做 A。\n\n## 转交结果\n- 早期一条\n- 11:20 新结果\n\n## 检查点\n- 别动这里\n",
+        )
+
+    def test_creates_section_when_missing(self):
+        p = self.write("# 交接\n\n## 交给工作区\n做 A。\n")
+        board.append_forward(str(p), "11:20 第一条")
+        self.assertEqual(self.read(p), "# 交接\n\n## 交给工作区\n做 A。\n\n## 转交结果\n- 11:20 第一条\n")
+
+    def test_section_at_eof_without_trailing_newline(self):
+        p = self.write("# 交接\n\n## 转交结果\n- 早期一条")
+        board.append_forward(str(p), "11:20 新结果")
+        self.assertEqual(self.read(p), "# 交接\n\n## 转交结果\n- 早期一条\n- 11:20 新结果\n")
+
+    def test_empty_file(self):
+        p = self.write("")
+        board.append_forward(str(p), "11:20 第一条")
+        self.assertEqual(self.read(p), "## 转交结果\n- 11:20 第一条\n")
+
+    def test_keeps_file_mode(self):
+        p = self.write("# 交接\n")
+        os.chmod(p, 0o640)
+        board.append_forward(str(p), "11:20 新结果")
+        self.assertEqual(os.stat(p).st_mode & 0o777, 0o640)
+
+    def test_failure_leaves_file_byte_identical(self):
+        # 半截代理对：utf-8 编不出来，旧实现已经 open(path,"w") 截断了文件。
+        before = "# 交接\n\n## 交给工作区\n做 A。\n\n## 检查点\n- 后面这些不能丢\n"
+        p = self.write(before)
+        original = p.read_bytes()
+        with self.assertRaises(ValueError):
+            board.append_forward(str(p), "11:2\ud800 坏摘要")
+        self.assertEqual(p.read_bytes(), original)
+
+    def test_failure_writes_no_temp_file(self):
+        p = self.write("# 交接\n")
+        with self.assertRaises(ValueError):
+            board.append_forward(str(p), "\udfff")
+        self.assertEqual([f.name for f in self.dir.iterdir()], ["handoff.prompt"])
+
+    def test_long_multiline_summary_stays_one_entry(self):
+        p = self.write("# 交接\n\n## 转交结果\n- 旧\n\n## 检查点\n- 保留\n")
+        board.append_forward(str(p), "11:20 第一行\n第二行\n第三行")
+        got = self.read(p)
+        self.assertIn("- 11:20 第一行\n第二行\n第三行\n\n## 检查点", got)
 
 
 class Increments(unittest.TestCase):
@@ -231,7 +327,7 @@ esac
             board.add("没记聊天频道", "c.md", "已交接", "工作区1主角色", ws="discord:201")
             bound = board.items()[0].get("bound")
             board.main(["pause", "1"])
-            board.main(["update", "2", "s", "", "龙娘"])
+            board.main(["update", "2", "s", "", "待接手"])  # 待接手：离开工作区（#1111 后只改负责人不再解绑）
             board.main(["pause", "3"])
             calls = log.read_text()
             self.assertNotIn("STOLE", calls)
@@ -254,7 +350,7 @@ case "$2" in park) echo '{"freed":true}' ;; claim) echo ok ;; esac
             board.add("另一块", "b.md", "已交接", "工作区1主角色", ws="discord:201", chat="discord:100")
             self.assertEqual(board.items()[0]["ch"], "201")
             board.main(["pause", "1"])
-            board.main(["update", "2", "s", "", "龙娘"])
+            board.main(["update", "2", "s", "", "待接手"])  # 待接手：离开工作区（#1111 后只改负责人不再解绑）
             self.assertEqual([i["ch"] for i in board.items()], ["100", "100"])
             # 聊天频道 100 的卡（名下已没有工作区 201）列着它；后来领走 201 的频道（只认 201）的卡上没有
             self.assertEqual({i.get("chat") for i in board.items()}, {"discord:100"})  # 原生团队板按 chat 列在交活的聊天频道
@@ -303,8 +399,12 @@ esac
             board.main(["pause", "1"])
             self.assertIn("workspace park --session-key discord:201", log.read_text())
             board.main(["resume", "1"])
-            # 「谁」改走再改回工作区2：先认领工作区2，归别人就拒绝、「谁」不变
+            # 只改负责人（不点名别的工作区）：还绑着工作区1，不问桥（#1111）
+            log.write_text("")
             board.main(["update", "1", "s", "", "龙娘"])
+            self.assertEqual(board.items()[0]["ws"], "discord:201")
+            self.assertNotIn("park", log.read_text())
+            # 改派到工作区2：先认领工作区2，归别人就拒绝、「谁」不变
             owned.write_text("")
             with self.assertRaises(SystemExit):
                 board.main(["update", "1", "s", "", "工作区2主角色"])
@@ -322,6 +422,47 @@ esac
         finally:
             os.environ["CC_BIN"] = "false"
             owned.unlink(missing_ok=True)
+
+    def test_who_change_keeps_ws(self):
+        """Issue #1111（用户 2026-11-05 选①）：改负责人不拆工作区绑定，主桥每小时收口（core reconcileTeamWorkspaces
+        只认 ws 指向工作区、没暂停没结束的条目）不再把在跑的工作区当成空的收回。只有改派到另一个工作区或待接手才解绑。"""
+        log = Path(TMP) / "keep.log"
+        log.write_text("")
+        fake = Path(TMP) / "fakekeep"
+        fake.write_text(f"""#!/bin/sh
+echo "$@" >> {log}
+case "$2" in
+  park) echo '{{"freed":true}}' ;;
+  list) echo '{{"parent":"discord:100","pool":[{{"id":"201","name":"工作区1"}},{{"id":"202","name":"工作区2"}}]}}' ;;
+  claim) echo ok ;;
+esac
+""")
+        fake.chmod(0o755)
+        os.environ["CC_BIN"] = str(fake)
+
+        def live_ws():  # 和 core reconcileTeamWorkspaces 同一判据：ws 非空、没暂停、没结束
+            return {i["ws"] for i in board.items() if i.get("ws") and not i.get("paused") and not i.get("done_at")}
+        try:
+            board.add("修 QQ 重复回复", "notes/a.md", "已交接", "工作区1肥鱼", ws="discord:201", chat="discord:100")
+            with contextlib.redirect_stdout(io.StringIO()):
+                # 15:0x 的写法：「谁」从「工作区N肥鱼」改成「肥鱼 <频道id>」
+                board.main(["update", "1", "在修", "", "肥鱼 1560000000000000201"])
+                self.assertEqual(live_ws(), {"discord:201"})
+                self.assertNotIn("ws_was", board.items()[0])
+                # 同一工作区换个写法（名字指回眼下这个工作区）：不收回、不解绑、不问 claim/park
+                board.main(["update", "1", "在修", "", "工作区1肥鱼"])
+                self.assertEqual(live_ws(), {"discord:201"})
+                self.assertNotIn("claim", log.read_text())
+                self.assertNotIn("park", log.read_text())
+                # 明确改派到工作区2：解绑工作区1、绑工作区2
+                board.main(["update", "1", "改派", "", "工作区2肥鱼"])
+                self.assertEqual(live_ws(), {"discord:202"})
+                self.assertIn("workspace park --session-key discord:201", log.read_text())
+                # 待接手：离开工作区
+                board.main(["update", "1", "等人接", "", "待接手"])
+                self.assertEqual(live_ws(), set())
+        finally:
+            os.environ["CC_BIN"] = "false"
 
     def test_link(self):
         cli("add", "x", "-", "s", "橘")
