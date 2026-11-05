@@ -128,6 +128,75 @@ class Board(unittest.TestCase):
         self.assertEqual(list(Path(TMP).glob("*.json")), [])
 
 
+class AppendForward(unittest.TestCase):
+    """「## 转交结果」节：插在节内最后一条后面，节不存在就新建；写失败时原文件不动。
+
+    用户 2026-10-28「为什么又重新跑了一次，什么问题修一下」——转交结果落进后面的「## 检查点」，
+    工作区读到的还是旧的「接着做」；返工要求再加一条：半途失败不能把交接文件写坏。
+    """
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+
+    def write(self, text):
+        p = self.dir / "handoff.prompt"
+        p.write_text(text, encoding="utf-8")
+        return p
+
+    def read(self, p):
+        return p.read_text(encoding="utf-8")
+
+    def test_inserts_inside_forward_section(self):
+        p = self.write("# 交接\n\n## 交给工作区\n做 A。\n\n## 转交结果\n- 早期一条\n\n## 检查点\n- 别动这里\n")
+        board.append_forward(str(p), "11:20 新结果")
+        self.assertEqual(
+            self.read(p),
+            "# 交接\n\n## 交给工作区\n做 A。\n\n## 转交结果\n- 早期一条\n- 11:20 新结果\n\n## 检查点\n- 别动这里\n",
+        )
+
+    def test_creates_section_when_missing(self):
+        p = self.write("# 交接\n\n## 交给工作区\n做 A。\n")
+        board.append_forward(str(p), "11:20 第一条")
+        self.assertEqual(self.read(p), "# 交接\n\n## 交给工作区\n做 A。\n\n## 转交结果\n- 11:20 第一条\n")
+
+    def test_section_at_eof_without_trailing_newline(self):
+        p = self.write("# 交接\n\n## 转交结果\n- 早期一条")
+        board.append_forward(str(p), "11:20 新结果")
+        self.assertEqual(self.read(p), "# 交接\n\n## 转交结果\n- 早期一条\n- 11:20 新结果\n")
+
+    def test_empty_file(self):
+        p = self.write("")
+        board.append_forward(str(p), "11:20 第一条")
+        self.assertEqual(self.read(p), "## 转交结果\n- 11:20 第一条\n")
+
+    def test_keeps_file_mode(self):
+        p = self.write("# 交接\n")
+        os.chmod(p, 0o640)
+        board.append_forward(str(p), "11:20 新结果")
+        self.assertEqual(os.stat(p).st_mode & 0o777, 0o640)
+
+    def test_failure_leaves_file_byte_identical(self):
+        # 半截代理对：utf-8 编不出来，旧实现已经 open(path,"w") 截断了文件。
+        before = "# 交接\n\n## 交给工作区\n做 A。\n\n## 检查点\n- 后面这些不能丢\n"
+        p = self.write(before)
+        original = p.read_bytes()
+        with self.assertRaises(ValueError):
+            board.append_forward(str(p), "11:2\ud800 坏摘要")
+        self.assertEqual(p.read_bytes(), original)
+
+    def test_failure_writes_no_temp_file(self):
+        p = self.write("# 交接\n")
+        with self.assertRaises(ValueError):
+            board.append_forward(str(p), "\udfff")
+        self.assertEqual([f.name for f in self.dir.iterdir()], ["handoff.prompt"])
+
+    def test_long_multiline_summary_stays_one_entry(self):
+        p = self.write("# 交接\n\n## 转交结果\n- 旧\n\n## 检查点\n- 保留\n")
+        board.append_forward(str(p), "11:20 第一行\n第二行\n第三行")
+        got = self.read(p)
+        self.assertIn("- 11:20 第一行\n第二行\n第三行\n\n## 检查点", got)
+
+
 class Increments(unittest.TestCase):
     """暂停/恢复、挂卡、返工汇总、开着的 PR 提示。"""
     def setUp(self):
