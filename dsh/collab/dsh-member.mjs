@@ -19,7 +19,7 @@ import { MemoryIndex } from './memory-index.mjs';
 // "## <mode>" section per dispatch mode; a member sees only its room's section.
 // A Windows checkout (git core.autocrlf) turns the file to CRLF: "## solo\r\n" then misses the
 // `${mode}\n` match below and every member turn failed with "reading 'slice'". Read it as LF.
-const TEAM_MODE_FILE = readFileSync(new URL('./team-mode-rules.md', import.meta.url), 'utf8'); // DELIBERATE REGRESSION (PR #1061): CRLF fix removed
+const TEAM_MODE_FILE = readFileSync(new URL('./team-mode-rules.md', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
 export function teamModeRules(mode = DEFAULT_DISPATCH_MODE) {
   const [common, ...parts] = TEAM_MODE_FILE.split(/^## /m);
   const section = parts.find(p => p.startsWith(`${mode}\n`)) ?? parts.find(p => p.startsWith(`${DEFAULT_DISPATCH_MODE}\n`));
