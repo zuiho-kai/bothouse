@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CronList from './CronList';
 import type { CronJob } from '@/api/cron';
 
-const state: { jobs: CronJob[]; created: any[] } = { jobs: [], created: [] };
+const state: { jobs: CronJob[]; created: any[]; updated: any[]; updateError?: string } = { jobs: [], created: [], updated: [] };
 
 const dict: Record<string, string> = {
   'cron.add': '添加任务',
@@ -14,6 +14,10 @@ const dict: Record<string, string> = {
   'cron.sessionKeyRequired': '先填会话键：任务需要知道发到哪个会话。',
   'cron.scheduleRequired': '先选执行时间。',
   'cron.taskRequired': '请填提示词或命令其中一项。',
+  'cron.editJob': '编辑任务',
+  'common.save': '保存',
+  'cron.prompt': '提示词',
+  'cron.exec': '命令',
 };
 
 vi.mock('react-i18next', () => ({
@@ -32,7 +36,11 @@ vi.mock('@/api/cron', async () => {
       state.created.push(body);
       return { ...body, id: 'new1' };
     },
-    updateCronJob: vi.fn(),
+    updateCronJob: async (id: string, patch: any) => {
+      state.updated.push({ id, patch });
+      if (state.updateError) throw new Error(state.updateError);
+      return { id, ...patch };
+    },
     deleteCronJob: vi.fn(),
     triggerCronJob: vi.fn(),
   };
@@ -63,6 +71,8 @@ let container: HTMLDivElement;
 beforeEach(() => {
   state.jobs = [];
   state.created = [];
+  state.updated = [];
+  state.updateError = undefined;
   localStorage.clear();
 });
 afterEach(() => {
@@ -94,6 +104,14 @@ const type = async (el: HTMLInputElement | HTMLTextAreaElement, value: string) =
 };
 
 const labelOf = (el: Element) => el.closest('div')?.querySelector('label')?.textContent ?? '';
+
+/** A job row opens its edit modal on click (the whole card is the button). */
+const openFirstJobCard = () => {
+  const card = [...document.querySelectorAll('div')].find(el =>
+    el.className.includes('cursor-pointer') && el.textContent?.includes('每日早安')) as HTMLElement | undefined;
+  if (!card) throw new Error('job card not found');
+  card.click();
+};
 
 /** Open the add-task modal, pick the only project and the daily-6:00 preset. */
 const openForm = async () => {
@@ -152,5 +170,43 @@ describe('CronList — session key is a field, not a picker of existing chats', 
     await render();
     expect(document.body.textContent).toContain('每日早安');
     expect(document.body.textContent).toContain('每天 6:00');
+  });
+});
+
+describe('CronList — editing keeps the same rules as creating', () => {
+  const job = (over: Partial<CronJob> = {}): CronJob => ({
+    id: 'j1', project: 'deep', session_key: 'qq:10001', cron_expr: '0 6 * * *',
+    prompt: '早安', exec: '', work_dir: '', description: '每日早安', enabled: true,
+    silent: false, mute: false, session_mode: '', mode: '', timeout_mins: null,
+    created_at: '2026-11-05T00:00:00Z', last_run: '', last_error: '',
+    ...over,
+  } as CronJob);
+
+  it('trims a pasted key when editing an existing job', async () => {
+    state.jobs = [job()];
+    await render();
+    await act(async () => { openFirstJobCard(); });
+    const sessionInput = document.querySelector('input[list="cron-session-keys"]') as HTMLInputElement;
+    expect(sessionInput.value).toBe('qq:10001');
+    // 粘贴时前后带空格：写进库里的必须是 trim 过的键，否则调度器会去找名叫 " qq" 的平台。
+    await type(sessionInput, '  qq:20002  ');
+    await act(async () => { submit('保存').click(); });
+    await act(async () => {});
+    expect(state.updated).toHaveLength(1);
+    expect(state.updated[0].patch.session_key).toBe('qq:20002');
+  });
+
+  it('shows a server error inside the modal instead of closing it', async () => {
+    state.jobs = [job()];
+    state.updateError = 'session_key is required';
+    await render();
+    await act(async () => { openFirstJobCard(); });
+    await type(document.querySelector('input[list="cron-session-keys"]') as HTMLInputElement, 'qq:30003');
+    await act(async () => { submit('保存').click(); });
+    await act(async () => {});
+    const alert = document.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain('session_key is required');
+    // 弹窗还在，输入也还在：不把人填的东西弄丢。
+    expect(document.querySelector('input[list="cron-session-keys"]')).toBeTruthy();
   });
 });
