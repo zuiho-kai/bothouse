@@ -24,7 +24,7 @@ Other machines mirror their transcripts to the Mac after each run (MIRROR_TO); t
 The teammates' wikis (contrib/wiki/setup_wiki.py) run this same file with WIKI_DIR=<their wiki>: their config.json sets
 whose sessions, rules and channel it is (DEFAULTS are 橘's); their bin/ingest.py and bin/lint.py only exec this one.
 """
-import argparse, calendar, hashlib, json, os, posixpath, re, sqlite3, subprocess, sys, tempfile, time, traceback
+import argparse, calendar, hashlib, json, os, posixpath, re, shutil, sqlite3, subprocess, sys, tempfile, time, traceback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script dir; lint.py lives next to us
@@ -1402,6 +1402,34 @@ def gave_up(out):
 def runner(name):
     """The single-call function for a non-codex engine name."""
     return {"gemini": gemini, "agy": agy, "dsh": dsh}.get(name) or (lambda *a, **k: claude(*a, **k, model=None if name == "claude" else name))
+
+
+def answer(prompt, engine=None, label="answer"):
+    """One question, one text answer, for the scripts that only ask (gate/score_night.py, invalidate.py run on its
+    own): the engine the user picked for the night (config.json night_engine, the wizard's 「每晚」 model), never a
+    CLI picked here (user 2026-11-06 「用户指定什么模型…dsh、luna、haiku都可以」). It runs in an empty temp dir, so an
+    engine with file tools edits nothing in the wiki. Raises with what to fix when the engine is missing or fails."""
+    global WIKI
+    engine = engine or NIGHT_ENGINE
+    name, _, effort = engine.partition(":")
+    cli = {"codex": "codex", "agy": "agy", "gemini": "gemini", "dsh": CFG["dsh_cmd"][0]}.get(name, "claude")
+    if not shutil.which(cli):
+        raise RuntimeError(f"每晚模型配的是 {engine}，这台机器没有 {cli}：在向导的记忆整理「每晚」一项改成本机装了的模型"
+                           f"（写在 {REPO / 'config.json'} 的 night_engine）")
+    saved = WIKI
+    with tempfile.TemporaryDirectory(prefix="wiki-answer-") as d:
+        WIKI = Path(d)
+        try:
+            if name == "codex":
+                ok, out, _, _ = codex(prompt, label=label, effort=effort or None, model=CODEX_CHAIN[0])
+            else:
+                ok, out, _ = runner(name)(prompt, label=label)
+        finally:
+            WIKI = saved
+    log(f"{label} answer by {engine}: ok={ok} {len(out or '')} chars")
+    if not ok:
+        raise RuntimeError(f"{engine} 失败：{(out or '')[-400:]}")
+    return out
 
 
 def model_pass(label, instruction, stdin="", context=None, engine=None, sids=(), max_delete=None, kind="ingest", check=None,
