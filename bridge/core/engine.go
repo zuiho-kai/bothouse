@@ -8081,6 +8081,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// maomao fork: the user (/stop) or the gate (abort) cancelled this turn and was
 					// already told so; the agent's resulting error is expected — log only.
 					slog.Info("agent error after turn cancel suppressed", "session", sessionKey, "error", errMsg)
+					// The idle watch follows the same rule: someone ended this turn on purpose, so
+					// its error is not the watched board item's failure. 2026-11-06 06:05:49 board
+					// #170 counted a gate abort ("要她停") as its third failure and was stopped.
+					// A turn nobody interrupted never takes this branch and still counts.
+					turnFailed = false
 				} else if e.isStoppingForJournal() {
 					// #618 K4 M2: the bridge is stopping and ended this turn; it is kept in
 					// the journal and resumed after the restart, so it is no failure.
