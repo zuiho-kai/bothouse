@@ -1737,7 +1737,9 @@ test('CLI missing executable: existing directory keeps installation and login ad
   }, [{ id: 'cc', name: 'CC', cli: 'gemini' }]);
   try {
     hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@CC inspect directory' });
-    for (let i = 0; i < 100 && !hub.members.get('cc').error; i++) await tick();
+    // the advice waits for the CLI process to end (cli-member.mjs _start); on Windows the shell takes real time.
+    // deadline 沿用已有配置: cli-member.test.mjs uses a 5000 ms test timeout for a CLI start
+    for (const until = Date.now() + 5000; !hub.members.get('cc').error && Date.now() < until;) await new Promise(r => setTimeout(r, 10)); // 沿用已有配置，见上一行
     const error = hub.members.get('cc').error ?? '';
     assert.match(error, /请检查安装和登录状态/);
     assert.ok(hub.store.page(1, undefined, 20).some(m =>
