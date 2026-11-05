@@ -8,9 +8,12 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -20,6 +23,7 @@ func resetDSHWebHeal(t *testing.T) {
 	t.Helper()
 	dshWebHealMu.Lock()
 	dshWebHealFailedAt = time.Time{}
+	dshWebHealLast.at, dshWebHealLast.state = time.Time{}, nil
 	dshWebHealMu.Unlock()
 	dshWebSuspect.Store(false)
 	t.Cleanup(func() {
@@ -242,7 +246,7 @@ func TestDSHWebSelfHealRefusesAnInvalidToken(t *testing.T) {
 	panel := setupDSHProxyTest(t, nil, "secret")
 	resetDSHWebHeal(t)
 	port := strings.TrimPrefix(fake.srv.URL, "http://127.0.0.1:")
-	staleState(t, "http://127.0.0.1:"+port+"/?token=launch#channels", 0,
+	staleState(t, "http://127.0.0.1:"+port+"/?token=launch#channels", deadPID(t),
 		"dsh web: "+fake.srv.URL+"/?token=not-this-host",
 	)
 	before := readStateRaw(t)
@@ -261,7 +265,7 @@ func TestDSHWebSelfHealCachesFailures(t *testing.T) {
 	panel := setupDSHProxyTest(t, nil, "secret")
 	resetDSHWebHeal(t)
 	port := strings.TrimPrefix(fake.srv.URL, "http://127.0.0.1:")
-	logPath := staleState(t, "http://127.0.0.1:"+port+"/?token=launch#channels", 0,
+	logPath := staleState(t, "http://127.0.0.1:"+port+"/?token=launch#channels", deadPID(t),
 		"[llm-deepseek-account] model listing loaded 2 model(s)",
 	)
 	c := dshSignIn(t, panel, "secret")
@@ -333,5 +337,164 @@ func TestLoopbackTarget(t *testing.T) {
 		if got := loopbackTarget(host); got != want {
 			t.Fatalf("loopbackTarget(%q) = %v, want %v", host, got, want)
 		}
+	}
+}
+
+// deadPID is the pid of a process that has already exited (the test binary run with no tests).
+func deadPID(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	return cmd.Process.Pid
+}
+
+// review-1030 #4: a live pid with a non-loopback url (an announcement written verbatim) is stale on
+// its own — runningDSHWeb has to hand the proxy loopback, not the tailnet name it cannot dial.
+func TestDSHWebSelfHealNonLoopbackURLWithLivePid(t *testing.T) {
+	fake := newProxyFakeDSH(t)
+	setupDSHProxyTest(t, nil, "secret")
+	resetDSHWebHeal(t)
+	port := strings.TrimPrefix(fake.srv.URL, "http://127.0.0.1:")
+	staleState(t, "http://mac-mini.example.ts.net:"+port+"/?token=launch#channels", os.Getpid(),
+		"dsh web: https://mac-mini.example.ts.net/?token=launch",
+	)
+	target, token, err := runningDSHWeb()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != "127.0.0.1:"+port || token != "launch" {
+		t.Fatalf("runningDSHWeb = %q, %q; want loopback 127.0.0.1:%s", target, token, port)
+	}
+	var got DSHWeb
+	if err := json.Unmarshal(readStateRaw(t), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got.URL, "http://127.0.0.1:"+port+"/") {
+		t.Fatalf("state url = %q, want loopback", got.URL)
+	}
+}
+
+// review-1030 #1: where no lsof answers (Windows) the heal writes pid 0; that state must not count as
+// stale again, or every request re-heals and leaves another backup.
+func TestDSHWebSelfHealPidZeroHealsOnce(t *testing.T) {
+	fake := newProxyFakeDSH(t)
+	panel := setupDSHProxyTest(t, nil, "secret")
+	resetDSHWebHeal(t)
+	t.Setenv("PATH", t.TempDir()) // no lsof: the healed pid is 0
+	fake.launch.Store("rotated")
+	port := strings.TrimPrefix(fake.srv.URL, "http://127.0.0.1:")
+	staleState(t, "http://127.0.0.1:"+port+"/?token=launch#channels", 0,
+		"dsh web: "+fake.srv.URL+"/?token=rotated",
+	)
+	c := dshSignIn(t, panel, "secret")
+	for i := 0; i < 10; i++ {
+		if s := getState(t, c, panel.URL); s != http.StatusOK {
+			t.Fatalf("request %d: %d, want 200", i, s)
+		}
+	}
+	if n := len(backups(t)); n != 1 {
+		t.Fatalf("backups = %d after 10 requests, want 1 (healed once)", n)
+	}
+}
+
+// review-1030 #2: a page load is many concurrent requests on the same stale file; one heal, one write.
+func TestDSHWebSelfHealConcurrentRequestsWriteOnce(t *testing.T) {
+	fake := newProxyFakeDSH(t)
+	panel := setupDSHProxyTest(t, nil, "secret")
+	resetDSHWebHeal(t)
+	fake.launch.Store("rotated")
+	port := strings.TrimPrefix(fake.srv.URL, "http://127.0.0.1:")
+	staleState(t, "http://127.0.0.1:"+port+"/?token=launch#channels", deadPID(t),
+		"dsh web: "+fake.srv.URL+"/?token=rotated",
+	)
+	c := dshSignIn(t, panel, "secret")
+	// 来源：review-1030-dsh-selfheal.md 第 2 条实测用 12 个并发请求。
+	const n = 12
+	var wg sync.WaitGroup
+	codes := make([]int, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			res, err := c.Get(panel.URL + "/dsh/collab/api/state")
+			if err != nil {
+				return
+			}
+			_, _ = io.Copy(io.Discard, res.Body)
+			res.Body.Close()
+			codes[i] = res.StatusCode
+		}(i)
+	}
+	wg.Wait()
+	for i, code := range codes {
+		if code != http.StatusOK {
+			t.Fatalf("request %d: %d, want 200", i, code)
+		}
+	}
+	if b := len(backups(t)); b != 1 {
+		t.Fatalf("backups = %d after %d concurrent requests, want 1", b, n)
+	}
+}
+
+// review-1030 #3: a local service that 303s any token (a login redirect) is not a dsh host; adopting
+// it wrote the file over and turned the 503 into a 502.
+func TestDSHWebSelfHealRefusesABareRedirect(t *testing.T) {
+	impostor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+	}))
+	t.Cleanup(impostor.Close)
+	panel := setupDSHProxyTest(t, nil, "secret")
+	resetDSHWebHeal(t)
+	staleState(t, "http://127.0.0.1:1/?token=gone#channels", deadPID(t),
+		"dsh web: "+impostor.URL+"/?token=some-old-token",
+	)
+	before := readStateRaw(t)
+	if s := getState(t, dshSignIn(t, panel, "secret"), panel.URL); s != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", s)
+	}
+	if after := readStateRaw(t); string(after) != string(before) {
+		t.Fatalf("state file was rewritten for a bare 303: %s", after)
+	}
+	if len(backups(t)) != 0 {
+		t.Fatalf("backups = %v, want none", backups(t))
+	}
+}
+
+// A zero pid no longer marks the file stale, so a host that is gone behind one is found by the
+// refused dial: still the 503 "not running" page, never a 502, and the file is left alone.
+func TestDSHWebSelfHealPidZeroHostGoneIs503(t *testing.T) {
+	panel := setupDSHProxyTest(t, nil, "secret")
+	resetDSHWebHeal(t)
+	staleState(t, "http://127.0.0.1:1/?token=gone#channels", 0,
+		"[llm-deepseek-account] model listing loaded 2 model(s)",
+	)
+	before := readStateRaw(t)
+	if s := getState(t, dshSignIn(t, panel, "secret"), panel.URL); s != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", s)
+	}
+	if after := readStateRaw(t); string(after) != string(before) {
+		t.Fatalf("state file changed: %s", after)
+	}
+}
+
+// No state file at all: the heal must not leave an empty backup behind.
+func TestDSHWebSelfHealNoEmptyBackup(t *testing.T) {
+	fake := newProxyFakeDSH(t)
+	setupDSHProxyTest(t, nil, "secret")
+	resetDSHWebHeal(t)
+	dir := filepath.Dir(dshWebStatePath())
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "dsh-web.log"), []byte("dsh web: "+fake.srv.URL+"/?token=launch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := runningDSHWeb(); err != nil {
+		t.Fatal(err)
+	}
+	if len(backups(t)) != 0 {
+		t.Fatalf("backups = %v, want none (there was no file to keep)", backups(t))
 	}
 }
