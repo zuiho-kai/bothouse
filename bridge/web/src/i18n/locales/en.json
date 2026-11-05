@@ -3,10 +3,12 @@
     "addPlatform": "Add platform",
     "addRole": "Add role / model",
     "library": "Library",
+    "imageGen": "Images",
     "dashboard": "Dashboard",
     "roles": "Roles",
     "devices": "Devices",
     "apps": "Apps",
+    "plugins": "Plugins",
     "projects": "Projects",
     "providers": "Providers",
     "sessions": "Sessions",
@@ -65,7 +67,8 @@
       "providers": "Providers",
       "heartbeat": "Heartbeat",
       "settings": "Settings",
-      "persona": "Persona"
+      "persona": "Persona",
+      "social": "Moments"
     }
   },
   "sessions": {
@@ -141,7 +144,12 @@
     "selectProject": "Select project",
     "descPlaceholder": "Job description",
     "promptPlaceholder": "Prompt to send to agent...",
-    "selectSessionKey": "Select session (empty for default)",
+    "selectSessionKey": "Pick a session or type one, e.g. qq:10001",
+    "sessionKeyHint": "Required: the chat the job posts to when it fires.",
+    "sessionKeyRequired": "Add a session key first — the job needs a chat to post to.",
+    "scheduleRequired": "Pick a schedule first.",
+    "projectRequired": "Pick a project first.",
+    "taskRequired": "Add a prompt or a command.",
     "taskType": "Task type",
     "mode": "Permission mode",
     "modeDefault": "Use project default"

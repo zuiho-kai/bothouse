@@ -630,6 +630,9 @@ func runMain() {
 			mgmtSrv.SetTimerScheduler(timerSched)
 		}
 		mgmtSrv.SetHeartbeatScheduler(heartbeatSched)
+		if imgGen := buildImageGenerator(cfg); imgGen != nil {
+			mgmtSrv.SetImageGenerator(imgGen)
+		}
 		if bridgeSrv != nil {
 			mgmtSrv.SetBridgeServer(bridgeSrv)
 		}
@@ -647,6 +650,15 @@ func runMain() {
 				rows[name] = core.PlatformModule{Enabled: st.Enabled, Disabled: st.Disabled}
 			}
 			return rows
+		})
+		// 插件 (#150 第 b 项): what config.toml allows for installs. Read from the startup config
+		// rather than per request: an install is a deliberate, infrequent act, and the switch is
+		// the kind of thing a person changes and then restarts for.
+		mgmtSrv.SetPluginInstallPolicy(func() core.PluginInstallPolicy {
+			return core.PluginInstallPolicy{
+				AllowNonRegistry: cfg.Plugins.AllowNonRegistry != nil && *cfg.Plugins.AllowNonRegistry,
+				Registry:         cfg.Plugins.Registry,
+			}
 		})
 		mgmtSrv.SetWizard(configWizardStore{}, cfg.DataDir)
 		mgmtSrv.SetWikiSubScript(subWikiScript(cfg))
@@ -2363,6 +2375,32 @@ func buildHeartbeatConfig(hc config.HeartbeatConfig) core.HeartbeatConfig {
 		cfg.TimeoutMins = *hc.TimeoutMins
 	}
 	return cfg
+}
+
+// buildImageGenerator turns [image_gen] into the opt-in generator (#150 item c). It returns nil
+// unless the section is enabled: the panel then says "not configured" instead of offering a
+// button that would spend the owner's money. Picture files live under <data_dir>/images so they
+// sit next to sessions and the avatar library, and survive a rebuild.
+//
+// data_dir is handed over as the root out_dir must stay under: the route that serves a picture
+// has no token, so the directory it can reach is what keeps it from serving any picture on this
+// machine (review 1032, 06:33).
+func buildImageGenerator(cfg *config.Config) *core.ImageGenerator {
+	ic := cfg.ImageGen
+	if !ic.Enabled {
+		return nil
+	}
+	return core.NewImageGenerator(core.ImageGenConfig{
+		Enabled:  true,
+		Provider: ic.Provider,
+		APIKey:   ic.OpenAI.APIKey,
+		BaseURL:  ic.OpenAI.BaseURL,
+		Model:    ic.OpenAI.Model,
+		Size:     ic.OpenAI.Size,
+		Quality:  ic.OpenAI.Quality,
+		OutDir:   ic.OutDir,
+		DataDir:  cfg.DataDir,
+	})
 }
 
 func derefInt(v *int) int {

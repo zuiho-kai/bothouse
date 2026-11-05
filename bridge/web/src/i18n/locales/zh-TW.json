@@ -3,10 +3,12 @@
     "addPlatform": "新增平台",
     "addRole": "新增角色/模型",
     "library": "角色庫",
+    "imageGen": "生圖",
     "dashboard": "總覽",
     "roles": "角色",
     "devices": "設備",
     "apps": "接入應用",
+    "plugins": "外掛",
     "projects": "專案",
     "providers": "服務商",
     "sessions": "工作階段",
@@ -64,7 +66,8 @@
       "providers": "供應商",
       "heartbeat": "心跳",
       "settings": "設定",
-      "persona": "人設"
+      "persona": "人設",
+      "social": "說說"
     }
   },
   "sessions": {
@@ -138,7 +141,12 @@
     "selectProject": "選擇專案",
     "descPlaceholder": "工作說明",
     "promptPlaceholder": "傳送給 Agent 的提示詞...",
-    "selectSessionKey": "選擇工作階段（留空使用預設）",
+    "selectSessionKey": "從工作階段頁選擇，或手填如 qq:10001",
+    "sessionKeyHint": "必填：任務到點發到這個工作階段。",
+    "sessionKeyRequired": "先填工作階段金鑰，任務要知道發到哪個工作階段。",
+    "scheduleRequired": "先選執行時間。",
+    "projectRequired": "先選專案。",
+    "taskRequired": "請填提示詞或指令其中一項。",
     "taskType": "任務類型",
     "mode": "權限模式",
     "modeDefault": "跟隨項目預設"

@@ -420,6 +420,23 @@ level = "info" # debug, info, warn, error
 # port = 9820                           # HTTP listen port (default: 9820) / 监听端口
 # token = "your-mgmt-secret"            # Auth token (required) / 认证密钥（必填）
 # cors_origins = ["http://localhost:3000"]  # Allowed CORS origins / 允许的 CORS 来源
+# Note: the panel's 插件 page installs and switches plugins only when this token is set;
+# without one the page is read-only, because an unauthenticated port cannot tell the owner
+# from anyone else on the machine. / 没设 token 时「插件」页只能看，不能装、不能开关。
+
+# =============================================================================
+# Plugins (The panel's 插件 page / 面板的插件页)
+# =============================================================================
+# The page runs `dsh plugin --profile <profile> add <spec>`, which makes this machine load
+# code someone else wrote. The default accepts only an npm registry package name with an
+# optional version or tag; the page names the registry, the publisher, the DSH requirement
+# and what the plugin may do before anything runs.
+# 这页会执行 `dsh plugin add`，等于让这台电脑加载别人写的代码。默认只收 npm registry 上的
+# 包名（可带版本或标签）；装之前页面会先说明来源、发布者、DSH 兼容版本和装上后能做什么。
+#
+# [plugins]
+# allow_non_registry = false            # default false: only npm registry packages / 默认只收 registry 包
+# registry = "https://registry.npmjs.org/"  # default npm's own registry / 默认 npm 官方源
 
 # =============================================================================
 # Hooks (Event Triggers / 事件钩子)
@@ -563,6 +580,31 @@ level = "info" # debug, info, warn, error
 # base_url = ""              # optional: default "https://api.xiaomimimo.com/v1" / 留空使用默认地址
 #                            # Token Plan 国内地址：https://token-plan-cn.xiaomimimo.com/v1
 # model    = "mimo-v2.5-tts" # "mimo-v2.5-tts" | "mimo-v2.5-tts-voicedesign" | "mimo-v2.5-tts-voiceclone"
+
+# =============================================================================
+# Image Generation / 生图（可选，默认关闭）
+# =============================================================================
+# Opt-in only: a picture costs money, so nothing runs unless enabled = true and
+# api_key is set. When on, the panel gets a 生图 page and the management API gets
+# /api/v1/image-gen.生成结果只写成本地文件并返回路径，不会自动发到任何频道；
+# 要发出去请用 `bothouse send --image <path>`，由你决定发给谁。
+#
+# 只支持 OpenAI 兼容的 /images/generations 接口（b64_json 或 url 都认）。
+# 一次只画一张；上一张没画完时再请求会直接被拒绝，不会悄悄多买一张。
+
+# [image_gen]
+# enabled  = false           # 默认关闭 / off unless you turn it on
+# provider = "openai"        # 目前只支持 "openai"
+# out_dir  = ""              # 留空 = <data_dir>/images；只能指在 data_dir 里面（取图接口不带 token）
+#
+# [image_gen.openai]
+# api_key  = "sk-xxx"
+# base_url = ""              # 留空 = https://api.openai.com/v1；自建/中转填到这里
+# model    = "gpt-image-1"
+# size     = "1024x1024"     # 可选；留空用服务商默认
+# quality  = "low"           # 可选；留空用服务商默认
+#
+# 运行时命令：面板「生图」页输入提示词生成；管理 API POST /api/v1/image-gen。
 
 # =============================================================================
 # Daemon Mode / 守护进程模式
@@ -1830,6 +1872,14 @@ app_secret = "your-feishu-app-secret"
 #                                   # 未设置、空字符串或 * 保持原行为；不会授予 admin_from 权限。
 # share_session_in_channel = false  # If true, all users in a group share one agent session / 群聊共享会话
 #                                   # Team mode (several roles in one group) needs true / 团队模式（同群多角色）需要 true
+# split_bubbles = false             # Optional: one message per blank-line paragraph / 可选：按空行拆成多条
+# allow_qzone = false               # Opt in to reading/posting/deleting this account's own QQ空间说说
+#                                   # (NapCat's qzone extension: get_qzone_msg_list / send_qzone_msg /
+#                                   # delete_qzone_msg). Off by default: a 说说 is visible to other people.
+#                                   # 允许查/发/删这个号自己的说说（NapCat 空间扩展）。默认关闭：说说别人看得见。
+# allow_avatar = false              # Opt in to changing this account's own avatar (NapCat set_qq_avatar).
+#                                   # Off by default: an avatar is visible everywhere at once.
+#                                   # 允许换这个号自己的头像（NapCat set_qq_avatar）。默认关闭：头像处处可见。
 
 # QQ Bot (Official / 官方 QQ 机器人) (uncomment to enable / 取消注释以启用)
 # Uses the official QQ Bot Platform API — no third-party adapter needed.

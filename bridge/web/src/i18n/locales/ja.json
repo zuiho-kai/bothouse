@@ -3,6 +3,7 @@
     "addPlatform": "プラットフォーム追加",
     "addRole": "ロール/モデルを追加",
     "library": "ライブラリ",
+    "imageGen": "画像生成",
     "dashboard": "ダッシュボード",
     "apps": "接続アプリ",
     "projects": "プロジェクト",
@@ -13,7 +14,8 @@
     "bridge": "ブリッジ",
     "skills": "スキル",
     "system": "システム",
-    "wikiGalaxy": "Wiki ギャラクシー"
+    "wikiGalaxy": "Wiki ギャラクシー",
+    "plugins": "プラグイン"
   },
   "dashboard": {
     "title": "ダッシュボード",
@@ -61,7 +63,8 @@
       "overview": "概要",
       "providers": "プロバイダー",
       "heartbeat": "ハートビート",
-      "settings": "設定"
+      "settings": "設定",
+      "social": "投稿"
     }
   },
   "sessions": {
@@ -135,7 +138,12 @@
     "selectProject": "プロジェクトを選択",
     "descPlaceholder": "ジョブの説明",
     "promptPlaceholder": "エージェントに送信するプロンプト...",
-    "selectSessionKey": "セッションを選択（空=デフォルト）",
+    "selectSessionKey": "セッションから選ぶか、qq:10001 のように入力",
+    "sessionKeyHint": "必須：実行時にこのセッションへ送ります。",
+    "sessionKeyRequired": "セッションキーを入力してください（投稿先のチャットが必要です）。",
+    "scheduleRequired": "先に実行時間を選んでください。",
+    "projectRequired": "先にプロジェクトを選んでください。",
+    "taskRequired": "プロンプトかコマンドのどちらかを入力してください。",
     "taskType": "タスク種別",
     "mode": "権限モード",
     "modeDefault": "プロジェクトのデフォルトを使用"

@@ -3,6 +3,7 @@
     "addPlatform": "Añadir plataforma",
     "addRole": "Añadir rol / modelo",
     "library": "Biblioteca",
+    "imageGen": "Imágenes",
     "dashboard": "Panel",
     "apps": "Apps",
     "projects": "Proyectos",
@@ -13,7 +14,8 @@
     "bridge": "Puente",
     "skills": "Habilidades",
     "system": "Sistema",
-    "wikiGalaxy": "Galaxia del wiki"
+    "wikiGalaxy": "Galaxia del wiki",
+    "plugins": "Plugins"
   },
   "dashboard": {
     "title": "Panel",
@@ -61,7 +63,8 @@
       "overview": "Resumen",
       "providers": "Proveedores",
       "heartbeat": "Latido",
-      "settings": "Ajustes"
+      "settings": "Ajustes",
+      "social": "Publicaciones"
     }
   },
   "sessions": {
@@ -135,7 +138,12 @@
     "selectProject": "Seleccionar proyecto",
     "descPlaceholder": "Descripción de la tarea",
     "promptPlaceholder": "Indicación para enviar al agente...",
-    "selectSessionKey": "Seleccionar sesión (vacío = predeterminada)",
+    "selectSessionKey": "Elige una sesión o escribe p. ej. qq:10001",
+    "sessionKeyHint": "Obligatorio: el chat al que se envía al ejecutarse.",
+    "sessionKeyRequired": "Primero pon una clave de sesión: el trabajo necesita un chat.",
+    "scheduleRequired": "Primero elige un horario.",
+    "projectRequired": "Primero elige un proyecto.",
+    "taskRequired": "Escribe un prompt o un comando.",
     "taskType": "Tipo de tarea",
     "mode": "Modo de permisos",
     "modeDefault": "Usar predeterminado del proyecto"

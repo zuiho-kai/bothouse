@@ -3,6 +3,7 @@
     "addPlatform": "플랫폼 추가",
     "addRole": "역할/모델 추가",
     "library": "라이브러리",
+    "imageGen": "이미지 생성",
     "dashboard": "대시보드",
     "apps": "앱 연결",
     "projects": "프로젝트",
@@ -13,7 +14,8 @@
     "bridge": "브리지",
     "skills": "스킬",
     "system": "시스템",
-    "wikiGalaxy": "Wiki 갤럭시"
+    "wikiGalaxy": "Wiki 갤럭시",
+    "plugins": "플러그인"
   },
   "dashboard": {
     "title": "대시보드",
@@ -61,7 +63,8 @@
       "overview": "개요",
       "providers": "제공업체",
       "heartbeat": "하트비트",
-      "settings": "설정"
+      "settings": "설정",
+      "social": "게시물"
     }
   },
   "sessions": {
@@ -135,7 +138,12 @@
     "selectProject": "프로젝트 선택",
     "descPlaceholder": "작업 설명",
     "promptPlaceholder": "에이전트에게 보낼 프롬프트...",
-    "selectSessionKey": "세션 선택 (기본값은 비워두기)",
+    "selectSessionKey": "세션에서 고르거나 qq:10001 처럼 입력",
+    "sessionKeyHint": "필수: 실행 시 이 세션으로 보냅니다.",
+    "sessionKeyRequired": "세션 키를 먼저 입력하세요. 게시할 채팅이 필요합니다.",
+    "scheduleRequired": "먼저 실행 시간을 고르세요.",
+    "projectRequired": "먼저 프로젝트를 고르세요.",
+    "taskRequired": "프롬프트나 명령 중 하나를 입력하세요.",
     "taskType": "작업 유형",
     "mode": "권한 모드",
     "modeDefault": "프로젝트 기본값 사용"
