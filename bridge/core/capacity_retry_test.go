@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,6 +46,12 @@ func (s *capacityScriptSession) Send(prompt string, _ string, _ []ImageAttachmen
 			s.events <- Event{Type: EventError, Error: errors.New("Selected model is at capacity. Please try a different model.")}
 		} else if next == "503" {
 			s.events <- Event{Type: EventError, Error: errors.New("503 Service Unavailable")}
+		} else if next == "rl" {
+			s.events <- Event{Type: EventError, Error: errors.New("exceeded retry limit, last status: 429 Too Many Requests")}
+		} else if next == "rlra" {
+			s.events <- Event{Type: EventError, Error: errors.New("429 Too Many Requests; Retry-After: 0.2s")}
+		} else if next == "once" {
+			s.events <- Event{Type: EventError, Error: errors.New("json-rpc -32603: Internal error: turn failed: 公开答复生成失败；工具操作可能已完成，请核对成果后再要求补充结论。")}
 		} else if next == "quota" {
 			s.events <- Event{Type: EventError, Error: errors.New("RESOURCE_EXHAUSTED (code 429) Individual quota reached. Resets in 83h59m53s")}
 		} else {
@@ -363,8 +370,8 @@ func TestCapacityRecover_FlushesHeldMessagesAndResetsRound(t *testing.T) {
 	}
 	var flushed []string
 	e.capMu.Lock()
-	e.capPending = append(e.capPending, func() { flushed = append(flushed, "first") })
-	e.capPending = append(e.capPending, func() { flushed = append(flushed, "second") })
+	e.capPending = append(e.capPending, capPendingEntry{redeliver: func() { flushed = append(flushed, "first") }})
+	e.capPending = append(e.capPending, capPendingEntry{redeliver: func() { flushed = append(flushed, "second") }})
 	e.capArmed = true
 	e.capMu.Unlock()
 
@@ -546,5 +553,161 @@ func TestCapacityProbe_ScheduledSendersDoNotProbe(t *testing.T) {
 				t.Fatalf("a %q turn reached the model (%d sends) during a cooldown", user, n)
 			}
 		})
+	}
+}
+
+func TestRateLimitErrorAndRetryAfter(t *testing.T) {
+	for msg, want := range map[string]bool{
+		"exceeded retry limit, last status: 429 Too Many Requests": true,
+		"Rate limit reached for requests":                          true,
+		"RESOURCE_EXHAUSTED (code 429) Individual quota reached":   false, // quota cooling, not a 429 retry
+		"Selected model is at capacity.":                           false,
+		"read 4290 bytes":                                          false,
+	} {
+		if got := isRateLimitError(msg); got != want {
+			t.Errorf("isRateLimitError(%q) = %v, want %v", msg, got, want)
+		}
+	}
+	for msg, want := range map[string]time.Duration{
+		"429; Retry-After: 7":            7 * time.Second,
+		"retry after 1.5s":               1500 * time.Millisecond,
+		"Please try again in 2 minutes.": 2 * time.Minute,
+		"retry_after=250ms":              250 * time.Millisecond,
+	} {
+		if got, ok := rateLimitRetryAfter(msg); !ok || got != want {
+			t.Errorf("rateLimitRetryAfter(%q) = %v %v, want %v", msg, got, ok, want)
+		}
+	}
+	if _, ok := rateLimitRetryAfter("429 Too Many Requests"); ok {
+		t.Error("no Retry-After must not invent one")
+	}
+	for range 200 {
+		if d := rateLimitDelay("429", 3); d < 0 || d > 2*rateLimitBackoffBase {
+			t.Fatalf("attempt 3 backoff %v outside [0, 2·base]", d)
+		}
+		if d := rateLimitDelay("429; retry after 7s", 2); d < 7*time.Second || d > 7*time.Second+rateLimitBackoffBase {
+			t.Fatalf("Retry-After delay %v outside [7s, 7s+base]", d)
+		}
+	}
+}
+
+// Retry-After comes in two forms (RFC 7231 §7.1.3): delta-seconds and an HTTP-date. A relay that
+// sends the date form must not be retried immediately (#986 review).
+func TestRateLimitRetryAfterHTTPDate(t *testing.T) {
+	at := time.Now().Add(45 * time.Second).UTC().Truncate(time.Second)
+	for _, msg := range []string{
+		"429 Too Many Requests; Retry-After: " + at.Format(http.TimeFormat),
+		"retry-after=" + at.Format(http.TimeFormat),
+		"Retry-After: " + at.Format(time.RFC1123),
+	} {
+		got, ok := rateLimitRetryAfter(msg)
+		if !ok || got < 40*time.Second || got > 50*time.Second {
+			t.Errorf("%q → %v %v, want ~45s", msg, got, ok)
+		}
+	}
+	// A date already gone, an unreadable date: no wait invented from it.
+	past := time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat)
+	if _, ok := rateLimitRetryAfter("Retry-After: " + past); ok {
+		t.Error("a past HTTP-date is not a wait")
+	}
+	if _, ok := rateLimitRetryAfter("Retry-After: Mon, 99 Foo 2026"); ok {
+		t.Error("an unreadable date is not a wait")
+	}
+	// The numeric form still works and is not shadowed by the date rules.
+	if got, ok := rateLimitRetryAfter("Retry-After: 12"); !ok || got != 12*time.Second {
+		t.Errorf("numeric Retry-After = %v %v, want 12s", got, ok)
+	}
+}
+
+// A relay asking to wait longer than a cooldown: the turn does not sleep that long, the normal
+// cooldown re-delivers later (#986 review: 退避上限).
+func TestRateLimitDelayIsCapped(t *testing.T) {
+	oldBase, oldMax := rateLimitBackoffBase, rateLimitBackoffMax
+	rateLimitBackoffBase, rateLimitBackoffMax = time.Second, 30*time.Second
+	t.Cleanup(func() { rateLimitBackoffBase, rateLimitBackoffMax = oldBase, oldMax })
+	for range 100 {
+		if d := rateLimitDelay("429; Retry-After: 3600", 2); d != rateLimitBackoffMax {
+			t.Fatalf("an hour of Retry-After must be capped at %v, got %v", rateLimitBackoffMax, d)
+		}
+		if d := rateLimitDelay("429", 20); d > rateLimitBackoffMax {
+			t.Fatalf("a deep backoff %v must not exceed %v", d, rateLimitBackoffMax)
+		}
+	}
+}
+
+func TestRateLimitRetry_WaitsRetryAfterThenSucceeds(t *testing.T) {
+	old := rateLimitBackoffBase
+	rateLimitBackoffBase = time.Millisecond
+	t.Cleanup(func() { rateLimitBackoffBase = old })
+	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"rlra", "rl", "third"}}
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangEnglish)
+	start := time.Now()
+	e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u", UserName: "u", Content: "hello", ReplyCtx: "ctx"})
+	waitFor(t, "third attempt reply", func() bool { return strings.Contains(joined(p), "reply:third") })
+	if n := sess.sends(); n != 3 {
+		t.Fatalf("sends = %d, want 3", n)
+	}
+	if el := time.Since(start); el < 200*time.Millisecond {
+		t.Fatalf("re-sent after %v; must wait the 0.2s Retry-After first", el)
+	}
+	if out := joined(p); strings.Contains(out, "429") || strings.Contains(out, "冷却") {
+		t.Fatalf("429s leaked to the user or cooled down needlessly:\n%s", out)
+	}
+}
+
+func TestRateLimitRetry_CooldownSaysRateLimited(t *testing.T) {
+	oldBase, oldCool := rateLimitBackoffBase, capacityCooldownBase
+	rateLimitBackoffBase, capacityCooldownBase = time.Millisecond, time.Hour
+	t.Cleanup(func() { rateLimitBackoffBase, capacityCooldownBase = oldBase, oldCool })
+	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"rl", "rl", "rl"}}
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangEnglish)
+	e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u", UserName: "u", Content: "hello", ReplyCtx: "ctx"})
+	waitFor(t, "cooldown notice", func() bool { return strings.Contains(joined(p), "冷却") })
+	if out := joined(p); !strings.Contains(out, "中转限流（429）") || strings.Contains(out, "模型满载") {
+		t.Fatalf("a 429 cooldown must say rate limited:\n%s", out)
+	}
+}
+
+// The error texts below are copied from the live bridge's logs (main.log 11-03/11-04, run.log to
+// 11-02); the list in capacity_retry.go is built from them.
+func TestTransientErrorFromLiveLogs(t *testing.T) {
+	retry := []string{
+		"exceeded retry limit, last status: 429 Too Many Requests",
+		"Error running remote compact task: exceeded retry limit, last status: 429 Too Many Requests",
+		"stream disconnected before completion: Incomplete response returned, reason: adapter_eof",
+		"Reconnecting... 1/5\nstream disconnected before completion: Upstream stream terminated unexpectedly: SOCKS5 upstream closed before response headers",
+		"stream disconnected before completion: idle timeout waiting for SSE",
+		"unexpected status 502 Bad Gateway: Unknown error, url: http://127.0.0.1:10100/v1/responses",
+		"unexpected status 503 Service Unavailable: 当前模型服务暂不可用，请稍后重试 (request id: x)",
+		"unexpected status 403 Forbidden: The model service is temporarily unavailable. Please try again later.",
+		"json-rpc -32603: Internal error: turn failed: 原模型请求失败：上游请求超时；已完成的工具操作可能已生效，请先核对成果。",
+		"json-rpc -32603: Internal error: turn failed: 原模型请求失败：上游连接中断；已完成的工具操作可能已生效，请先核对成果。",
+		"json-rpc -32603: Internal error: turn failed: 原模型请求失败：上游服务异常；已完成的工具操作可能已生效，请先核对成果。",
+		"acp: initialize: json-rpc -32000: acp: read closed: EOF",
+		"529 overloaded_error: Overloaded",
+	}
+	keep := []string{
+		"json-rpc -32603: Internal error: turn failed: 原模型请求失败：上游认证失败；已完成的工具操作可能已生效，请先核对成果。",
+		"unexpected status 403 Forbidden: insufficient balance, url: http://127.0.0.1:10100/v1/responses",
+		"Cursor quota exhausted (100% used); resets in 3h",
+		"RESOURCE_EXHAUSTED (code 429) Individual quota reached. Resets in 83h59m53s",
+		`Provider error 400: {"error":{"message":"model gpt-6.1-sol tiered expr run failed: expr compile error: unknown name cc12h (1:62)"}}`,
+		"401 Unauthorized: invalid api key",
+		"request blocked by content_filter",
+		"antigravity: stream turn failed (ERROR; command_step=9965 exit_code=1 kind=shell-or-unknown nonzero_commands=1)",
+		"codex app-server: turn interrupted",
+		"acp: prompt did not complete successfully",
+	}
+	for _, m := range retry {
+		if !isTransientError(m) {
+			t.Errorf("must retry: %q", m)
+		}
+	}
+	for _, m := range keep {
+		if isTransientError(m) {
+			t.Errorf("must not retry: %q", m)
+		}
 	}
 }

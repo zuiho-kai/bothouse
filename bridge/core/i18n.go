@@ -693,6 +693,8 @@ const (
 	MsgWatchFailEscalate        MsgKey = "watch_fail_escalate"
 	MsgWatchCantDoEscalate      MsgKey = "watch_cantdo_escalate"
 	MsgReleaseHoldUnresumed     MsgKey = "release_hold_unresumed"
+	MsgWatchFailReassigned      MsgKey = "watch_fail_reassigned"
+	MsgWatchFailPrompt          MsgKey = "watch_fail_prompt"
 	MsgTaskReviewReturned       MsgKey = "task_review_returned"
 	MsgTaskReviewOverdue        MsgKey = "task_review_overdue"
 	MsgTaskReviewPrompt         MsgKey = "task_review_prompt"
@@ -1150,6 +1152,20 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "發布暫停：#%d %s 標了為發布暫停，但已經沒有開著的交接可以續；標記先留著，下次檢查仍沒有交接再撤，還要做請重新交活。",
 		LangJapanese:           "リリース保留：#%d %s は保留されていますが、再開できる引継ぎがありません。印はいったん残し、次の確認でも引継ぎがなければ解除します。続ける場合は再度引き渡してください。",
 		LangSpanish:            "Retención de despliegue: #%d %s se guardó para el despliegue pero no queda ningún traspaso abierto; la marca se mantiene por ahora y se quitará en la próxima comprobación si sigue faltando. Vuelve a asignarla si aún hace falta.",
+	},
+	MsgWatchFailReassigned: {
+		LangEnglish:            "Watch: %s failed %s twice in a row with errors; handed it to %s, who continues from the saved stop point.",
+		LangChinese:            "看门：%s「%s」连续两次报错，已自动改派给 %s，从停点接着做。",
+		LangTraditionalChinese: "看門：%s「%s」連續兩次報錯，已自動改派給 %s，從停點接著做。",
+		LangJapanese:           "見守り：%s の %s が2回連続でエラーになったため、%s に自動で引き継ぎ、停止点から続けます。",
+		LangSpanish:            "Aviso: %s falló dos veces seguidas en %s; se reasignó a %s, que continúa desde el punto guardado.",
+	},
+	MsgWatchFailPrompt: {
+		LangEnglish:            "%s failed twice in a row with errors (likely relay rate limits). You now own: %s. Read the record below and the original handoff files, continue from the saved stop point, keep the original request and branch, and report to the original channel.\nBasis:\n%s",
+		LangChinese:            "%s 连续两次报错（多半是中转限流），现在由你接手：%s。先读下面记录及原交接文件，从停点接着做，保留用户原话和底分支，交回原频道。\n交接依据：\n%s",
+		LangTraditionalChinese: "%s 連續兩次報錯（多半是中轉限流），現在由你接手：%s。先讀下面紀錄及原交接文件，從停點接著做，保留用戶原話和底分支，交回原頻道。\n交接依據：\n%s",
+		LangJapanese:           "%s が2回連続でエラーになりました（中継のレート制限の可能性）。今からあなたが担当します：%s。下の記録と元の引継ぎファイルを読み、停止点から続け、元の依頼とブランチを保ち、元のチャンネルに報告してください。\n根拠：\n%s",
+		LangSpanish:            "%s falló dos veces seguidas (probablemente límites del relay). Ahora te encargas de: %s. Lee el registro y los archivos de traspaso, continúa desde el punto guardado, conserva la petición y la rama originales e informa en el canal original.\nBase:\n%s",
 	},
 	MsgPublicEnded: {
 		LangEnglish:            "Turn ended; see the final reply. Acceptance is not confirmed.",

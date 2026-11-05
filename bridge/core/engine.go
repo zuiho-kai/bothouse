@@ -456,8 +456,8 @@ type Engine struct {
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	pendingResetMu               sync.Mutex
-	callerMu                     sync.Mutex            // guards callerTurns (caller_identity.go)
-	callerTurns                  map[string]callerTurn // session → sender of the turn running now
+	callerMu                     sync.Mutex                      // guards callerTurns (caller_identity.go)
+	callerTurns                  map[string]callerTurn           // session → sender of the turn running now
 	workspaceReports             map[string]*workspaceReportTurn // guarded by pendingResetMu
 	pendingReset                 map[string]bool                 // session new --after-turn (session_reset.go)
 	resetTurns                   map[string]int                  // running turns per reset key (CC_SESSION_KEY), guarded by pendingResetMu
@@ -512,9 +512,13 @@ type Engine struct {
 	quotaState        quotaCoolingState
 	quotaProbeFn      func(ctx context.Context) (usable bool, nextRetry time.Duration, err error)
 	capRound          int
-	capPending        []func()        // messages to re-deliver when the cooldown ends, in order
-	capArmed          bool            // a flush timer is pending
-	capNotified       map[string]bool // channels already told about this cooldown round
+	capPending        []capPendingEntry // messages to re-deliver when the cooldown ends, in order
+	capArmed          bool              // a flush timer is pending
+	capNotified       map[string]bool   // channels already told about this cooldown round
+	capWhy            string            // #134: why this cooldown round started, for its notice ("" = at capacity)
+	capSwitchedTo     string            // #134: fallback model the failing turn switched to, for its notice
+	capFallbackUsed   bool              // #134: this failure streak already switched once (no ping-pong)
+	fallbackModels    []string          // #134: fallback_models from config (model_fallback.go)
 	sessionModelsMu   sync.RWMutex
 	sessionModels     map[string]string
 	turnModels        map[string]string // interactive key → model one scheduled side turn starts on
@@ -698,6 +702,8 @@ type interactiveState struct {
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
 	turnMode                 string         // maomao fork: mode applied by the running turn's override (setTurnMode); "" when none; guarded by mu
 	capacityFailed           bool           // maomao fork: last turn failed with "model at capacity"
+	capacityErr              string         // #134: that failure's error text (429 waits use its Retry-After)
+	capacityAttempt          int            // #134: which send of runTurnWithCapacityRetry is running (1 = first)
 	turnErrored              bool           // maomao fork: last turn ended with an error event (not a success)
 	promptTooLong            string         // maomao fork: last turn's "prompt is too long" error (takePromptTooLong)
 	promptTooLongQueued      *queuedMessage // maomao fork: the chained queued message that turn was, if any
@@ -7966,7 +7972,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// A tool may already have changed external state, even when its
 			// progress is hidden. Only capacity failures before tools can replay
 			// the user prompt, including queued turns and cooldown redelivery.
-			retryCapacity := input == nil && toolCount == 0 && event.Error != nil && isModelCapacityError(event.Error.Error())
+			retryCapacity := input == nil && toolCount == 0 && event.Error != nil && (isModelCapacityError(event.Error.Error()) || isTransientError(event.Error.Error()))
+			if !retryCapacity && input == nil && toolCount == 0 && event.Error != nil && isRetryOnceError(event.Error.Error()) {
+				state.mu.Lock()
+				retryCapacity = state.capacityAttempt <= 1 // #134: these get one re-send; a second failure is a normal one
+				state.mu.Unlock()
+			}
 			state.mu.Lock()
 			state.turnErrored = true // a turn that ends in error never means "the model is back"
 			state.mu.Unlock()
@@ -8046,6 +8057,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						state.pendingMessages = append([]queuedMessage{*chainedQueued}, state.pendingMessages...)
 					} else {
 						state.capacityFailed = true
+						state.capacityErr = errMsg
 						keepLeadHandoffForRetry = true
 					}
 					state.mu.Unlock()
