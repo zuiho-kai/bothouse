@@ -264,11 +264,30 @@ jobs:
           $want = ((Get-Content dist/SHA256SUMS | Where-Object { $_ -match " $([regex]::Escape($asset))$" }) -split ' ')[0]
           $got = (Get-FileHash -Algorithm SHA256 "dist/$asset").Hash.ToLower()
           if ($want -ne $got) { throw "checksum mismatch: $want vs $got" }
-          # -H=windowsgui binary: PowerShell leaves $LASTEXITCODE unset, so check output instead.
-          $ver = ./dist/bothouse-windows.exe --version | Out-String
-          if ($ver -notmatch 'bothouse v') { throw "--version output: $ver" }
-          $help = ./dist/bothouse-windows.exe setup --help | Out-String
-          if ($help -notmatch 'setup apply') { throw "setup --help has no 'setup apply'" }
+          # dist/bothouse-windows.exe is built with -H=windowsgui (Build binaries), so PowerShell does not wait
+          # for it: "./dist/bothouse-windows.exe --version" returns at once, the version is printed later and
+          # $LASTEXITCODE stays empty (not 0) -- that failed v0.1.52 (run 41971391599). Start-Process -Wait
+          # -PassThru returns the process object after it exits, so .ExitCode is the program's own exit code;
+          # a GUI binary's stdout/stderr do not reach this console, hence the two redirect files.
+          $exe = (Resolve-Path "dist/$asset").Path
+          $out = Join-Path $env:RUNNER_TEMP "smoke-windows.out"
+          $err = Join-Path $env:RUNNER_TEMP "smoke-windows.err"
+
+          $p = Start-Process -FilePath $exe -ArgumentList '--version' -Wait -PassThru `
+            -RedirectStandardOutput $out -RedirectStandardError $err
+          $ver = Get-Content -LiteralPath $out -Raw
+          $verr = Get-Content -LiteralPath $err -Raw
+          Write-Host $ver
+          if ($verr) { Write-Host "stderr: $verr" }
+          if ($p.ExitCode -ne 0) { throw "--version exit $($p.ExitCode): $verr" }
+          if (-not $ver -or $ver -notmatch 'bothouse v') { throw "--version printed no version: $ver" }
+
+          $p = Start-Process -FilePath $exe -ArgumentList 'setup','--help' -Wait -PassThru `
+            -RedirectStandardOutput $out -RedirectStandardError $err
+          $help = Get-Content -LiteralPath $out -Raw
+          $herr = Get-Content -LiteralPath $err -Raw
+          if ($p.ExitCode -ne 0) { throw "setup --help exit $($p.ExitCode): $herr" }
+          if (-not $help -or $help -notmatch 'setup apply') { throw "setup --help has no 'setup apply'" }
 
   publish:
     needs: [build, smoke-windows]
