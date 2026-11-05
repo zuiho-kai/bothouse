@@ -79,6 +79,37 @@ class Release(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('reload-dsh.py web', result.stderr)
 
+    def test_release_layout_finds_the_script_under_source(self):
+        # A wired release has the entry at its root and the script under source/dsh/scripts/; looking
+        # only next to the entry would make a correctly wired release report "built without PR #1020".
+        nested = os.path.join(self.dir, 'source', 'dsh', 'scripts')
+        os.makedirs(nested)
+        moved = os.path.join(nested, 'reload-web.py')
+        with open(moved, 'w') as stream:
+            stream.write(STUB.replace('#!/usr/bin/env -S python3 -I\n', ''))
+        os.chmod(moved, 0o755)
+        self.assertFalse(os.path.exists(self.web))  # nothing next to the entry
+        result = subprocess.run([sys.executable, '-I', self.script, 'web', '--port', '49177'],
+                                capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), '["--port", "49177"]')
+
+    def test_snapshot_is_an_accepted_no_op(self):
+        # The release checklists on this machine read `snapshot -> web -> desktop`; the step must not
+        # fail just because reload-web.py now records the old host itself.
+        result = self.run_script(['snapshot'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('snapshot is not needed', result.stdout)
+
+    def test_entry_runs_directly(self):
+        # apply-wiring installs it 0755 in the release root, so the shebang has to be right: without
+        # one, bash parses the docstring and runs the backticks in it.
+        self.install_stub()
+        result = subprocess.run([self.script, 'web', '--port', '49177'], capture_output=True,
+                                text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('command not found', result.stderr)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

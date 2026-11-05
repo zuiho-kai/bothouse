@@ -65,17 +65,25 @@ pid，任一不符就失败退出、不写。写出的 url 一律归一成 `http
 
 ~~~sh
 python3 -I dsh/scripts/reload-dsh.py web       # 参数原样转给 reload-web.py，如 --port 49176 / --dry-run
-python3 -I dsh/scripts/reload-dsh.py desktop   # 退出并重开桌面版，打印 new_pid
+python3 -I dsh/scripts/reload-dsh.py desktop   # 退出并重开桌面版，把 old/new pid 记进 dsh-desktop-reload.json
+python3 -I dsh/scripts/reload-dsh.py snapshot  # 保留的旧步骤，现在什么都不做
 ~~~
 
-`web` 只做转交：用当前解释器跑同目录的 `reload-web.py`，参数一个不改，退出码原样返回，所以
-`reload-web.py` 的三重交叉校验与原子回写就是发布时的行为。同一份源码里的两个文件必须一起进发布目录；
-只带入口、不带 `reload-web.py` 的发布包会直接失败并提示「built without PR #1020」，不会出现「重启成功
-但状态文件没写、面板 503」那种半成功。`snapshot`/`web`/`desktop` 里，旧发布目录各自的 `reload-dsh.py`
-还有 `snapshot` 步骤（记录旧宿主环境），它依赖各发布目录的历史脚本，不进仓库。
+`web` 只做转交：用当前解释器跑 `reload-web.py`，参数一个不改，退出码原样返回，所以
+`reload-web.py` 的三重交叉校验与原子回写就是发布时的行为。查找顺序是入口同目录 → `source/dsh/scripts/`
+→ `dsh/scripts/`：在源码树里两个文件同目录，在发布目录里入口在根、脚本在 `source/dsh/scripts/`，两种布局都能用。
+同一份源码里的两个文件要一起进发布目录；只带入口、不带 `reload-web.py` 的发布包会直接失败并提示
+「built without PR #1020」，不会出现「重启成功但状态文件没写、面板 503」那种半成功。
+
+`snapshot` 现在什么都不做：旧入口用它记下旧宿主的 argv/环境/cwd 再自己重拉，现在这件事由
+`reload-web.py` 在停机前自己读；本机的发布清单仍写成 `snapshot → web → desktop`，所以保留成空步骤，
+不会让清单第一步就失败。`desktop` 仍写 `dsh-desktop-reload.json`，各发布清单读的就是它。
+
+接线之后 `web` 的非零退出码只会出现在 `cutover.log` 里：`run-cutover.py` 记录退出码后继续往下走，
+不会因此中断或回滚。要让发布因为状态文件没写而失败，得另外改那个脚本，不在本仓库。
 
 测试：`python3 -I dsh/scripts/test_reload_web.py`（宿主重启与回写的全部路径）、
-`python3 -I dsh/scripts/test_reload_dsh.py`（入口只转交、缺脚本要失败、失败要冒泡）。
+`python3 -I dsh/scripts/test_reload_dsh.py`（入口只转交、缺脚本要失败、失败要冒泡、两种布局都能找到脚本）。
 
 ## 目标
 
