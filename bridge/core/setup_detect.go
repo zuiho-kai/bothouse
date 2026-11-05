@@ -289,6 +289,13 @@ func DetectLocalCLIs(ctx context.Context) []LocalCLI {
 					break
 				}
 			}
+			if path == "" && s.agentType == "dsh" {
+				// a Mac that only installed the desktop app has no dsh on PATH; use the one
+				// inside the app bundle, the same lookup the DSH module and hooks use (#192)
+				if p, err := LookDSH(); err == nil {
+					bin, path, inPath = "dsh", p, false
+				}
+			}
 			if path == "" && s.label == "WorkBuddy" && runtime.GOOS == "darwin" && fileExists("/Applications/WorkBuddy.app") {
 				bin, path, inPath = "WorkBuddy.app", "/Applications/WorkBuddy.app", true
 			}

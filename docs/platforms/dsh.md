@@ -31,6 +31,7 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 - `bothouse module list` 显示 DSH 未配置、已启用或已停用。
 - `bothouse module disable dsh` 停用，`bothouse module add dsh` 恢复启用；结果为 JSON。
 - 插件位于 DSH 的 `web` profile；机器上装过 DeepSeek Harness 桌面版时，安装器也装进桌面版的 `desktop` profile（桌面版只允许它自带的 CLI 改这个 profile，安装器会自动找 `/Applications/DeepSeek Harness.app/...`、`~/Applications/...` 或 `%LOCALAPPDATA%\Programs\DeepSeek Harness\...`，别的位置用 `DSH_DESKTOP_BIN` 指过去）。桌面版装完要重启才加载插件。
+- 只装了 DeepSeek Harness 桌面版、`PATH` 里没有 `dsh` 的 Mac 不用另装命令行：检测、`module add dsh`、`setup hooks --cli dsh` 和面板里给出的打开命令都用桌面版 app 包内自带的那份 CLI（`/Applications/DeepSeek Harness.app/...` 或 `~/Applications/...`，别的位置用 `DSH_DESKTOP_BIN` 指过去）。机器上另有 `dsh` 命令时仍然优先用它。
 - 停用使用 DSH 原生的 `disabled` 标记，保留依赖、角色和历史。改动后重启该 DSH profile 生效，命令不会替你重启服务。`bothouse module disable dsh` 只改 `web` profile；桌面版窗口里的频道在桌面版的 Plugins 页开关。
 - 改动前备份原 `cordis.patch.yml` 为旁边的 `.bak-时间戳` 文件；需要回退时恢复备份。其他自定义配置保留；已有动态 `disabled: !!js ...` 表达式时拒绝覆盖，提示在 DSH 中处理。
 
