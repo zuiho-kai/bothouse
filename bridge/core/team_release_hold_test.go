@@ -119,6 +119,18 @@ func TestHandoffBoardID(t *testing.T) {
 
 // No open handoff yet (another engine has not loaded it, or the workspace was parked): the mark
 // is kept for one more pass and reported, never cleared on the first miss (#984 review 2).
+// claimers returns the phrase in msg that claims the release mark was already cleared, if any:
+// resumeReleaseHoldsPass keeps the mark on the first pass and clears it on the second, so the
+// first notice must not say it is gone.
+func claimers(msg string) string {
+	for _, p := range []string{"已撤掉", "標記已撤掉", "the mark is cleared", "印を解除しました", "se quitó la marca"} {
+		if strings.Contains(msg, p) {
+			return p
+		}
+	}
+	return ""
+}
+
 func TestReleaseHoldKeepsMarkOnePassThenClears(t *testing.T) {
 	e, p, _, _ := watchFixture(t, "", "别的活")
 	oldDelay, oldEvery, oldUnhold := releaseHoldResumeDelay, releaseHoldRetryEvery, releaseHoldUnhold
@@ -140,6 +152,9 @@ func TestReleaseHoldKeepsMarkOnePassThenClears(t *testing.T) {
 	}
 	if sent := p.sentTo("discord:chatA"); len(sent) != 1 || !strings.Contains(sent[0], "42") {
 		t.Fatalf("one notice about the item nobody resumes, got %q", sent)
+	} else if said := claimers(sent[0]); said != "" {
+		// The mark is only cleared on the second pass, so the first notice must not claim it was.
+		t.Fatalf("first notice says %q, but the mark is kept for one more pass: %q", said, sent[0])
 	}
 	if n := e.resumeReleaseHoldsPass(); n != 0 || len(cleared) != 1 || cleared[0] != "42@"+before {
 		t.Fatalf("second pass clears the mark with its own time: left=%d cleared=%v", n, cleared)

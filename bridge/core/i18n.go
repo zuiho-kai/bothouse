@@ -1137,11 +1137,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "Aviso: %s falló dos veces seguidas en %s; se detuvo la reanudación automática. El rol principal debe reasignar o hacerse cargo.",
 	},
 	MsgReleaseHoldUnresumed: {
-		LangEnglish:            "Release hold: #%d %s was saved for the release but no open handoff is left for it; the mark is cleared. Start it again if it still needs doing.",
-		LangChinese:            "发布暂停：#%d %s 标了为发布暂停，但已经没有开着的交接可以续；标记已撤掉，还要做请重新交活。",
-		LangTraditionalChinese: "發布暫停：#%d %s 標了為發布暫停，但已經沒有開著的交接可以續；標記已撤掉，還要做請重新交活。",
-		LangJapanese:           "リリース保留：#%d %s は保留されていますが、再開できる引継ぎがありません。印を解除しました。続ける場合は再度引き渡してください。",
-		LangSpanish:            "Retención de despliegue: #%d %s se guardó para el despliegue pero no queda ningún traspaso abierto; se quitó la marca. Vuelve a asignarla si aún hace falta.",
+		LangEnglish:            "Release hold: #%d %s was saved for the release but no open handoff is left for it; the mark stays for now and is cleared on the next check if it is still missing. Start it again if it still needs doing.",
+		LangChinese:            "发布暂停：#%d %s 标了为发布暂停，但已经没有开着的交接可以续；标记先留着，下次检查仍没有交接再撤，还要做请重新交活。",
+		LangTraditionalChinese: "發布暫停：#%d %s 標了為發布暫停，但已經沒有開著的交接可以續；標記先留著，下次檢查仍沒有交接再撤，還要做請重新交活。",
+		LangJapanese:           "リリース保留：#%d %s は保留されていますが、再開できる引継ぎがありません。印はいったん残し、次の確認でも引継ぎがなければ解除します。続ける場合は再度引き渡してください。",
+		LangSpanish:            "Retención de despliegue: #%d %s se guardó para el despliegue pero no queda ningún traspaso abierto; la marca se mantiene por ahora y se quitará en la próxima comprobación si sigue faltando. Vuelve a asignarla si aún hace falta.",
 	},
 	MsgPublicEnded: {
 		LangEnglish:            "Turn ended; see the final reply. Acceptance is not confirmed.",
