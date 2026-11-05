@@ -13582,7 +13582,7 @@ func (e *Engine) resolveSendTarget(sessionKey string, attachments bool) (sendTar
 			state.mu.Unlock()
 			return sendTarget{}, fmt.Errorf("local input output is restricted to its response endpoint")
 		}
-		p = state.platform
+		p = unmutedPlatform(state.platform)
 		replyCtx = state.replyCtx
 		state.mu.Unlock()
 	}
@@ -13872,7 +13872,7 @@ func (e *Engine) resolveOutboundSessionTarget(sessionKey string, hasAttachments 
 			state.mu.Unlock()
 			return nil, nil, nil, fmt.Errorf("local input output is restricted to its response endpoint")
 		}
-		p = state.platform
+		p = unmutedPlatform(state.platform)
 		replyCtx = state.replyCtx
 		state.mu.Unlock()
 	}
