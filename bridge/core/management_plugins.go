@@ -398,6 +398,15 @@ func pluginFailureDetail(log string) string {
 	return tailLines(log, 1)
 }
 
+// pluginSwitchError carries the HTTP status a locked switch check should answer with, so a
+// "not installed" inside the lock keeps its 404 instead of becoming a generic 409.
+type pluginSwitchError struct {
+	status int
+	msg    string
+}
+
+func (e *pluginSwitchError) Error() string { return e.msg }
+
 // pluginSwitch changes the profile's selected bundles. This is exactly DSH's setBundleEnabled: the
 // same list in the same file, so DSH's own Plugins page shows the switch too. Nothing is uninstalled
 // and no data is touched, so switching back on restores the old state.
@@ -417,60 +426,62 @@ func (m *ManagementServer) handlePluginsSwitch(w http.ResponseWriter, r *http.Re
 		return
 	}
 	dir := dshProfileDir()
-	manifest, _, err := readPluginManifest(dir)
-	if err != nil {
-		mgmtError(w, http.StatusConflict, err.Error())
-		return
-	}
-	// The base layer comes from the DSH installation, not this profile's dependencies, so the
-	// name is checked first: refusing it as "not installed" would be a wrong reason.
-	if req.Name == "@deepseek-ai/dsh-base" {
-		mgmtError(w, http.StatusConflict, "dsh-base 是 DSH 的面板本体，停掉就没有界面可用了")
-		return
-	}
-	if _, ok := manifest.Dependencies[req.Name]; !ok {
-		mgmtError(w, http.StatusNotFound, "这个插件不在这份 profile 的依赖里；先装它")
-		return
-	}
-	bundles := make([]string, 0, len(manifest.DSH.Profile.Bundles)+1)
+	// The whole read-modify-write runs under DSH's profile lock. Reading outside and only writing
+	// inside would let a concurrent `dsh plugin add` (or DSH's own Plugins page) add a bundle after
+	// our snapshot was taken; we would then write the old list back and silently drop its change
+	// while still answering changed=true. Recomputing from the locked read keeps whichever write
+	// finished first and makes the second one build on it.
 	changed := false
-	for _, name := range manifest.DSH.Profile.Bundles {
-		if name == req.Name && !req.Enabled {
-			changed = true
-			continue
+	writeErr := withPluginProfileLock(filepath.Join(dir, "package.json"), func() error {
+		manifest, current, err := readPluginManifest(dir)
+		if err != nil {
+			return &pluginSwitchError{status: http.StatusConflict, msg: err.Error()}
 		}
-		bundles = append(bundles, name)
-	}
-	if req.Enabled && !slices.Contains(manifest.DSH.Profile.Bundles, req.Name) {
-		bundles = append(bundles, req.Name)
-		changed = true
-	}
-	if changed {
-		// Re-read and rewrite under DSH's own profile write lock, so a switch cannot interleave
-		// with `dsh plugin add` (or DSH's Plugins page) editing the same file.
-		writeErr := withPluginProfileLock(filepath.Join(dir, "package.json"), func() error {
-			_, current, err := readPluginManifest(dir)
-			if err != nil {
-				return err
+		// The base layer comes from the DSH installation, not this profile's dependencies, so the
+		// name is checked first: refusing it as "not installed" would be a wrong reason.
+		if req.Name == "@deepseek-ai/dsh-base" {
+			return &pluginSwitchError{status: http.StatusConflict, msg: "dsh-base 是 DSH 的面板本体，停掉就没有界面可用了"}
+		}
+		if _, ok := manifest.Dependencies[req.Name]; !ok {
+			return &pluginSwitchError{status: http.StatusNotFound, msg: "这个插件不在这份 profile 的依赖里；先装它"}
+		}
+		bundles := make([]string, 0, len(manifest.DSH.Profile.Bundles)+1)
+		for _, name := range manifest.DSH.Profile.Bundles {
+			if name == req.Name && !req.Enabled {
+				changed = true
+				continue
 			}
-			doc, err := editProfileBundles(current, bundles)
-			if err != nil {
-				return err
-			}
-			// 来源：沿用配置变更的时间戳备份（setDSHModuleDisabled 与 config 写入同一惯例）。
-			backup := filepath.Join(dir, "package.json.bak-"+time.Now().Format("20060102-150405.000000000"))
-			if err := AtomicWriteFile(backup, current, 0o600); err != nil {
-				return fmt.Errorf("备份 package.json 失败: %w", err)
-			}
-			if err := AtomicWriteFile(filepath.Join(dir, "package.json"), doc, 0o600); err != nil {
-				return fmt.Errorf("写入 package.json 失败: %w", err)
-			}
+			bundles = append(bundles, name)
+		}
+		if req.Enabled && !slices.Contains(manifest.DSH.Profile.Bundles, req.Name) {
+			bundles = append(bundles, req.Name)
+			changed = true
+		}
+		if !changed {
 			return nil
-		})
-		if writeErr != nil {
-			mgmtError(w, http.StatusConflict, writeErr.Error())
+		}
+		doc, err := editProfileBundles(current, bundles)
+		if err != nil {
+			return err
+		}
+		// 来源：沿用配置变更的时间戳备份（setDSHModuleDisabled 与 config 写入同一惯例）。
+		backup := filepath.Join(dir, "package.json.bak-"+time.Now().Format("20060102-150405.000000000"))
+		if err := AtomicWriteFile(backup, current, 0o600); err != nil {
+			return fmt.Errorf("备份 package.json 失败: %w", err)
+		}
+		if err := AtomicWriteFile(filepath.Join(dir, "package.json"), doc, 0o600); err != nil {
+			return fmt.Errorf("写入 package.json 失败: %w", err)
+		}
+		return nil
+	})
+	if writeErr != nil {
+		var se *pluginSwitchError
+		if errors.As(writeErr, &se) {
+			mgmtError(w, se.status, se.msg)
 			return
 		}
+		mgmtError(w, http.StatusConflict, writeErr.Error())
+		return
 	}
 	mgmtJSON(w, http.StatusOK, map[string]any{
 		"changed": changed,
