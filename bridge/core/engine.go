@@ -715,6 +715,7 @@ type interactiveState struct {
 	approveAll               bool            // when true, auto-approve all permission requests for this session
 	fromVoice                bool            // true if current turn originated from voice transcription
 	sideText                 string
+	turnSentTexts            []string   // texts this turn already pushed through a script/side send; guarded by mu
 	localInputOnly           *inputTurn // block API/CLI side sends during a local voice turn
 	deleteMode               *deleteModeState
 	modelSwitch              *modelSwitchState
@@ -4920,6 +4921,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		state.currentMessageID = msg.MessageID
 		state.fromVoice = msg.FromVoice
 		state.sideText = ""
+		state.turnSentTexts = nil
 		state.turnDesc = boardDescOf(msg) // maomao fork: channel task board
 		state.turnScheduled = scheduledTurnUser(msg.UserID)
 		state.currentJobID = msg.timerJobID
@@ -6282,6 +6284,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			return
 		}
 		segment = unsentReplyText(p, segment, sentReplySegments)
+		// A narration segment that is only a receipt note to the agent itself
+		// is not chat content either; drop it at the same boundary.
+		if isMetaOnlyReply(segment) {
+			return
+		}
 		if strings.TrimSpace(segment) == "" {
 			return
 		}
@@ -7305,7 +7312,24 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			session.AddHistory("assistant", baseResponse)
 			sessions.Save()
 
+			// A receipt note the agent writes to itself ("（已存好，标签「奶龙」）")
+			// is not chat content. Drop a trailing one when nothing but a silent
+			// marker would be left, so "NO_REPLY\n\n（已存好…）" still resolves
+			// to a silent turn. The note only goes when the rest is silent: a
+			// note-shaped aside after real text stays, because it may be the
+			// message itself.
+			if trimmed, ok := stripTrailingMetaNotes(baseResponse); ok && suppressesRepeatedReply(p) && (trimmed == "" || IsSilentReply(trimmed)) {
+				baseResponse = trimmed
+				cleanResponse = trimmed
+			}
+
 			isSilent := isSilentReply(baseResponse)
+			// A reply that is nothing but a receipt note the agent wrote to
+			// itself ("(Already replied above with text + sticker.)") is not
+			// chat content; treat it as a silent turn instead of posting it.
+			if !isSilent && suppressesRepeatedReply(p) && isMetaOnlyReply(baseResponse) {
+				isSilent = true
+			}
 			if !isSilent {
 				if stripped, ok := stripTrailingSilent(baseResponse); ok {
 					if strings.TrimSpace(stripped) == "" {
@@ -7403,9 +7427,20 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			state.mu.Lock()
 			suppressDuplicate := normalizedBaseResponse != "" && normalizedBaseResponse == state.sideText
 			state.sideText = ""
+			// Scripts (stickers.py -> bin/qq-bridge send) post through the API
+			// path, which only remembers the last text in sideText. The final
+			// reply must be checked against every text this turn already sent.
+			turnSentTexts := append([]string(nil), state.turnSentTexts...)
+			state.turnSentTexts = nil
 			state.mu.Unlock()
 
 			replyStart := time.Now()
+
+			// Everything this turn already put in the channel: narration flushed
+			// between tool calls plus the texts scripts posted directly
+			// (stickers.py -> bin/qq-bridge send). The final reply is compared
+			// against the union so a script-sent line is never repeated.
+			sentThisTurn := append(append([]string(nil), sentReplySegments...), turnSentTexts...)
 
 			// --- StreamingCard path ---
 			if streamCard != nil && !streamCard.Failed() {
@@ -7529,7 +7564,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// side-channel messages and segmentStart stays 0, so keep normal finalize flow.
 				if segmentStart < len(textParts) {
 					unsent := strings.Join(textParts[segmentStart:], "")
-					unsent = unsentReplyText(p, unsent, sentReplySegments)
+					unsent = unsentFinalReplyText(p, unsent, sentThisTurn)
 					// The text before the tool call already went out, so the whole-reply
 					// NO_REPLY check above does not cover this remainder after a tool call.
 					if isSilentReply(unsent) {
@@ -7559,9 +7594,23 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			} else if sp.finish(fullResponse, statusFooter) {
 				slog.Debug("EventResult: finalized via stream preview", "response_len", len(fullResponse), "footer_len", len(statusFooter))
 			} else {
-				slog.Debug("EventResult: sending via p.Send (preview inactive or failed)", "response_len", len(fullResponse), "footer_len", len(statusFooter))
-				if !sendChunksWithStatusFooter(outputCtx, p, markFinalReply(p, replyCtx, session), fullResponse, statusFooter, sendWorkspaceWithError) {
-					return
+				// Nothing previewed this text, so the plain send is the only
+				// delivery: drop a line a script already posted this turn and a
+				// bracketed receipt note addressed to the agent itself.
+				deliver := unsentFinalReplyText(p, fullResponse, sentThisTurn)
+				if deliver == "" {
+					slog.Debug("EventResult: suppressed repeated/meta final reply", "response_len", len(fullResponse))
+					sp.discard()
+					if statusFooter != "" {
+						if !sendChunksWithStatusFooter(outputCtx, p, markFinalReply(p, replyCtx, session), "", statusFooter, sendWorkspaceWithError) {
+							return
+						}
+					}
+				} else {
+					slog.Debug("EventResult: sending via p.Send (preview inactive or failed)", "response_len", len(deliver), "footer_len", len(statusFooter))
+					if !sendChunksWithStatusFooter(outputCtx, p, markFinalReply(p, replyCtx, session), deliver, statusFooter, sendWorkspaceWithError) {
+						return
+					}
 				}
 			}
 
@@ -7804,6 +7853,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				msgID = queued.messageID
 				textParts = nil
 				sentReplySegments = nil
+				state.mu.Lock()
+				state.turnSentTexts = nil
+				state.sideText = ""
+				state.mu.Unlock()
 				segmentStart = 0
 				toolCount = 0
 				watchTurnFinished = false
@@ -8085,6 +8138,12 @@ channelClosed:
 		// the partial assistant response if the process exits next.
 		sessions.Save()
 
+		state.mu.Lock()
+		closedTurnSent := append(append([]string(nil), sentReplySegments...), state.turnSentTexts...)
+		state.turnSentTexts = nil
+		state.sideText = ""
+		state.mu.Unlock()
+
 		// Respect NO_REPLY even on abnormal exit so silent turns stay silent.
 		if isSilentReply(fullResponse) {
 			sp.discard()
@@ -8097,6 +8156,13 @@ channelClosed:
 				return
 			}
 			fullResponse = stripped
+		}
+		// Same send-time guard as the normal path: a receipt note addressed to
+		// the agent itself is not channel content.
+		if suppressesRepeatedReply(p) && isMetaOnlyReply(fullResponse) {
+			sp.discard()
+			slog.Info("meta-only reply suppressed (channel closed)", "session", session.ID)
+			return
 		}
 
 		if input == nil {
@@ -8113,7 +8179,7 @@ channelClosed:
 			sp.discard()
 			if segmentStart < len(textParts) {
 				unsent := strings.Join(textParts[segmentStart:], "")
-				unsent = unsentReplyText(p, unsent, sentReplySegments)
+				unsent = unsentFinalReplyText(p, unsent, closedTurnSent)
 				if unsent != "" {
 					for _, chunk := range SplitMessageCodeFenceAware(unsent, maxPlatformMessageLen) {
 						if err := sendWorkspaceWithError(p, replyCtx, chunk); err != nil {
@@ -8125,7 +8191,12 @@ channelClosed:
 		} else if sp.finish(fullResponse, "") {
 			slog.Debug("stream preview: finalized in-place (process exited)")
 		} else {
-			for _, chunk := range SplitMessageCodeFenceAware(fullResponse, maxPlatformMessageLen) {
+			deliver := unsentFinalReplyText(p, fullResponse, closedTurnSent)
+			if deliver == "" {
+				slog.Debug("repeated/meta final reply suppressed (channel closed)")
+				return
+			}
+			for _, chunk := range SplitMessageCodeFenceAware(deliver, maxPlatformMessageLen) {
 				if err := sendWorkspaceWithError(p, replyCtx, chunk); err != nil {
 					return
 				}
@@ -13423,6 +13494,7 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 		if state != nil {
 			state.mu.Lock()
 			state.sideText = strings.TrimSpace(message)
+			state.turnSentTexts = append(state.turnSentTexts, message)
 			state.mu.Unlock()
 		}
 		// a workspace's own posts (ws-up stage results) also go into its task thread
@@ -13521,6 +13593,7 @@ func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []Ima
 		if target.state != nil {
 			target.state.mu.Lock()
 			target.state.sideText = strings.TrimSpace(message)
+			target.state.turnSentTexts = append(target.state.turnSentTexts, message)
 			target.state.mu.Unlock()
 		}
 	}

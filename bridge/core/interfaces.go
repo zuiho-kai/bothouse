@@ -16,8 +16,10 @@ type Platform interface {
 }
 
 // RepeatedReplySuppressor opts a platform into suppressing narration that the
-// model repeats across tool boundaries within one turn. Other platforms retain
-// their existing presentation behavior.
+// model repeats across tool boundaries within one turn, and into dropping a
+// final reply that only repeats what a script already posted this turn or that
+// is a bracketed receipt note written to the agent itself. Other platforms
+// retain their existing presentation behavior.
 type RepeatedReplySuppressor interface {
 	SuppressRepeatedReplyText() bool
 }
