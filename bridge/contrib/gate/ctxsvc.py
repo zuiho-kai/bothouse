@@ -389,8 +389,10 @@ def standing_items(roots):
             out.append({"path": f"【常驻做法坏了 {tag}】",
                         "desc": f"{shown} {bad}。先当场修好它（{STANDING_HOW.format(path=shown)}），再做这轮的事"})
             continue
-        if body:
-            out.append({"path": f"【常驻做法 {tag}】", "desc": STANDING_HOW.format(path=shown) + "\n" + body})
+        # 只有标题、还没条目（新 wiki 从模板带的起步页）也推做法说明，角色从第一天就知道往哪记
+        rows = [x for x in body.split("\n") if x.strip() and not x.startswith("#")]
+        out.append({"path": f"【常驻做法 {tag}】",
+                    "desc": STANDING_HOW.format(path=shown) + ("\n" + body if rows else "\n（还没有条目）")})
     # 用户画像：GATE_PROFILE 指的页（相对主 wiki 或绝对路径）的「## 现状」一节，同常驻做法按内容指纹每个会话推一次；没配不推
     m = re.search(r"^## 现状\n(.*?)(?=^## |\Z)", _read(roots[0] / PROFILE) if roots and PROFILE else "", re.S | re.M)
     if m and m.group(1).strip():
