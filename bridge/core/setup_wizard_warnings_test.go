@@ -307,7 +307,8 @@ func TestApplyWizardRecommendsJevForTeam(t *testing.T) {
 }
 
 // The owners found with the token also become admin_from, so `send --dm` has someone to write
-// to. A typed allow_from is not taken as admin_from, and an existing admin_from is kept.
+// to. A typed allow_from is not taken as admin_from (the looked-up owner is), and an existing
+// admin_from is kept.
 func TestApplyWizardAdminFromDefaultsToOwner(t *testing.T) {
 	noHardware(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
@@ -336,7 +337,8 @@ func TestApplyWizardAdminFromDefaultsToOwner(t *testing.T) {
 	req.AllowFrom = &given
 	store2 := newMemStore()
 	ApplyWizard(context.Background(), WizardEnv{Store: store2, DataDir: t.TempDir(), CLIs: testCLIs}, req)
-	if got := store2.projects["juzi"].AdminFrom; got != "" {
-		t.Errorf("typed allow_from must not become admin_from, got %q", got)
+	// #1149: a typed allow_from still does not become admin_from, but the looked-up owner does.
+	if got := store2.projects["juzi"].AdminFrom; got != "777" {
+		t.Errorf("typed allow_from: admin_from = %q, want the looked-up owner 777 (not the typed list)", got)
 	}
 }
