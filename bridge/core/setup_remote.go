@@ -60,6 +60,7 @@ type DiscordBotInfo struct {
 	ApplicationID  string         `json:"application_id"`
 	MessageContent bool           `json:"message_content_intent"` // Message Content Intent enabled
 	IntentKnown    bool           `json:"intent_known"`           // the application lookup worked, so MessageContent is a real answer
+	ServerMembers  bool           `json:"server_members_intent"`  // Server Members Intent enabled: new members wake the lead (#1058)
 	OwnerID        string         `json:"owner_id,omitempty"`     // Discord user who owns the bot's application (team owner for team apps)
 	Guilds         []DiscordGuild `json:"guilds"`
 	InviteURL      string         `json:"invite_url"`
@@ -221,6 +222,8 @@ func CheckDiscordBot(ctx context.Context, token string) (*DiscordBotInfo, error)
 		}
 		// Discord application flags GATEWAY_MESSAGE_CONTENT (1<<18) / _LIMITED (1<<19).
 		info.MessageContent = app.Flags&(1<<18|1<<19) != 0
+		// Discord application flags GATEWAY_GUILD_MEMBERS (1<<14) / _LIMITED (1<<15).
+		info.ServerMembers = app.Flags&(1<<14|1<<15) != 0
 		info.IntentKnown = true
 		// Team-owned applications report the team as a pseudo-user in "owner"; the person is team.owner_user_id.
 		switch {

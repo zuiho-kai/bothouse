@@ -3,6 +3,8 @@ import api from './client';
 export interface PlatformStatus {
   name: string;
   ready: boolean;
+  /** something the user must fix on this platform (e.g. Discord Server Members Intent off) */
+  notice?: string;
 }
 
 export interface RoleInfo {

@@ -45,6 +45,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 - `saved: true, ok: false, needs_user_action: true`：配置已写，但 `warnings` 里 `blocking: true` 的事要用户先做，否则机器人不会回话：
   `message_content_intent_off` / `message_content_intent_unknown`（打开 `url`，在开发者后台 Bot 页打开或确认 Message Content Intent）、`bot_not_in_guild`（打开邀请链接 `url`，把机器人拉进服务器）、
   `allow_from_unknown`（没查到所有者，机器人先谁都不听：问用户要他的 Discord 用户 ID，请求里加 `allow_from` 再跑）。做完不用重跑（allow_from 除外），重启即可。
+- `server_members_intent_off`（不阻塞）：机器人没开 Server Members Intent，新人进群不会叫醒主角色接待。打开 `url`，在开发者后台 Bot 页 Privileged Gateway Intents 里打开 SERVER MEMBERS INTENT 并保存，重启即可。不开也能正常聊天；开了以后新人一进群，主角色会在服务器的系统频道欢迎 ta（事件也记进 events.jsonl）。
 - `next_steps`：怎么启动或重启。AI 用 `bothouse daemon install` 在后台启动，不要在自己的 shell 里前台跑 `bothouse`（它不退出，会占住终端）。
 - 上线的标志：日志里有 `discord: connected`；在频道里 @ 机器人说一句，它回话。
 
