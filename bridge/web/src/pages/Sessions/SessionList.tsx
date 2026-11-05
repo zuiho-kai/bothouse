@@ -8,6 +8,7 @@ import { listProjects, shownName, type ProjectSummary } from '@/api/projects';
 import { deleteSession, listSessions, type Session } from '@/api/sessions';
 import { getDSHSummary, type DSHChannel } from '@/api/dsh';
 import { dshChannelsUrl } from '@/lib/collabPages';
+import { dshOnlyRows } from '@/lib/dshMerge';
 import api from '@/api/client';
 import { SessionCard, SessionRow, sessionKey } from './SessionCard';
 import { SessionDrawer } from './SessionDrawer';
@@ -69,7 +70,12 @@ export default function SessionList() {
       setData(results);
       const d = await getDSHSummary().catch(() => null);
       setDshChannels(d && d.running ? d.channels : []);
-      setDshMemberCount(d && d.running ? d.members.length : 0);
+      // DSH's bot members are often the same agents as the bridge projects above; count only the rest.
+      setDshMemberCount(
+        d && d.running
+          ? dshOnlyRows(d.members, (projs || []).map((p) => p.name)).length
+          : 0,
+      );
     } finally {
       setLoading(false);
     }

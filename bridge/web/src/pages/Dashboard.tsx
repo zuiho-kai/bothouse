@@ -10,6 +10,7 @@ import { listProjects, shownName, shownNames, type ProjectSummary } from '@/api/
 import { listSessions, type Session } from '@/api/sessions';
 import { getDSHSummary, type DSHSummary } from '@/api/dsh';
 import { dshChannelsUrl } from '@/lib/collabPages';
+import { dshOnlyRows } from '@/lib/dshMerge';
 import api from '@/api/client';
 import { formatUptime, formatTime } from '@/lib/utils';
 
@@ -72,7 +73,9 @@ export default function Dashboard() {
     value: p.sessions_count ?? 0,
     display: String(p.sessions_count ?? 0),
   }));
-  const dshMembers = dsh?.members ?? [];
+  // DSH lists the bots that registered into it as members; on a machine where those bots are the
+  // bridge's own projects the same agents arrive twice, so only the leftovers are counted/listed.
+  const dshMembers = dshOnlyRows(dsh?.members ?? [], projects.map((p) => p.name));
   const dshChannels = dsh?.channels ?? [];
   const dshUrl = dshChannelsUrl(undefined, api.getToken());
   // Recent sessions: bridge sessions and DSH channels together, newest first.
