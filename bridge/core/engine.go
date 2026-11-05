@@ -2136,6 +2136,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		}
 		job = e.taskReviewSessionAtRun(prepared)
 	}
+	job = e.withGuardLiveStatus(job, time.Now()) // #1067: backstop prompt carries team watch's live state
 	if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
 		slog.Info("quota cooldown: timer skipped", "project", e.name, "job", job.ID, "cooling_until", until)
 		return nil
