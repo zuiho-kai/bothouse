@@ -14,6 +14,9 @@
    不要占着前台；超过 5 分钟缓存全部重写）。run_in_background=true 的不拦，单个 sleep <60 秒不拦。
    perl/python 里的 while … sleep 循环同样拦。
    DSH：载荷带 dsh_busy（本会话还有子 agent/后台任务在跑）时 job_output wait=true 也拦；DSH 的前台 sleep 一律拦。
+9. 仅 DSH，聊天频道主会话（不在工作区、不是子 agent、不是外出或定时轮）：真人派来的这一轮已执行 CHAT_STEPS_MAX 步工具，
+   还没跑过 ws-handoff / ws-up / bothouse send|progress|task，再来只读查询就拦：先在群里回一句，大活写交接交工作区或 @ 队友。
+   出处：用户 2026-11-05 看隔壁 DSH 主角色接三项需求后闷头翻 9 分钟不回话（「他妈现在搞7分钟」「出现什么问题你就去修它…变成我们的产品能力」）。
 8. 仅 DSH 提速（本轮的工具调用来自 dsh-cc-compat.py 加的 dsh_turn）：同一轮第二次轮询同一对象拦；
    一串只读查询里第 4 个「一步只跑一条只读查询」的步拦（合并过的步放行），本轮重复的只读命令拦；
    前台联网长命令（git clone/fetch/pull、npm/pip/brew install）拦，改后台。子 agent 会话和外出轮豁免。
@@ -259,6 +262,13 @@ RO_PROGS = {
 # 不算一段查询的（分段用的 echo ===、cd 之类）
 NEUTRAL_PROGS = {"cd", "echo", "printf", "true", "false", ":", "export", "unset", "set", "pwd", "date",
                  "done", "fi", "esac", "}", "{"}
+CHAT_STEPS_MAX = 8  # 隔壁实录：串行双查询每步约 12 秒，8 步约 1.5–2 分钟；规矩「预计超过 10 分钟交工作区」
+# 跑过这些就算已回话或已交出：交工作区、工作区推进度、发群消息/进度卡、派任务
+CHAT_HANDED = re.compile(r"(?:^|[\s/;&|(])(?:ws-handoff|ws-up|ws-forward)\b|\bbothouse\s+(?:send|progress|task)\b")
+CHAT_MSG = ("这是聊天频道，真人派来的这一轮你已经跑了 {n} 步工具，群里还没听到一句话。按团队规矩："
+            "预计超过 10 分钟或要改代码、跑命令的活，现在就写交接（用户原话、总目标、范围）跑 `ws-handoff <交接文件> \"<任务>\"` 交工作区，"
+            "或 @ 合适的队友派出去，然后结束本轮、在群里一句话说清派给了谁；小活就别再查了，直接回答。"
+            "（规则 9；用户 2026-11-05「他妈现在搞7分钟」）")
 RO_TOOLS = {"read", "grep", "glob"}  # DSH 自己的只读工具：一步只调它一个也算单步查询
 LOOP_PROGS = {"for", "while", "until", "select", "case"}
 PREFIX = {"env", "time", "command", "nice", "exec", "sudo", "do", "then", "else", "elif", "if", "!"}
@@ -476,6 +486,33 @@ def check_network(cmd):
                 deny(NET_MSG + f"\n被拦的片段：{' '.join(t)[:200]}")
 
 
+def _in_workspace():
+    """同 dispatch-review-guard.in_workspace（工作区频道记在 team_workspaces.json）。"""
+    import importlib.util
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "drg", os.path.join(os.path.dirname(os.path.abspath(__file__)), "dispatch-review-guard.py"))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m.in_workspace()
+    except Exception:
+        return True  # 判断不了就当工作区，不拦
+
+
+def check_chat_turn(cmd, turn, done):
+    """规则 9：聊天频道里真人派的这一轮，执行满 CHAT_STEPS_MAX 步还没交出、没回话，只读查询拦下。"""
+    if turn.get("auto"):
+        return
+    steps = [s for s in turn.get("steps") or [] if any(not c.get("denied") for c in s)]
+    if len(steps) < CHAT_STEPS_MAX:
+        return
+    if any(c.get("name") == "bash" and CHAT_HANDED.search(c.get("command") or "") for c in done):
+        return
+    if _in_workspace():
+        return
+    deny(CHAT_MSG.format(n=len(steps)) + f"\n被拦的命令：{cmd.strip()[:200]}")
+
+
 def check_speed(cmd, turn, cid):
     """规则 8a 的 gh run 轮询、8b 的串行只读和重复命令。"""
     prior, cur = split_turn(turn, cid)
@@ -494,6 +531,7 @@ def check_speed(cmd, turn, cid):
     q = ro_queries(cmd)
     if q is None:
         return
+    check_chat_turn(cmd, turn, done)
     for c in reversed(done):  # 重复：上次跑同一条只读命令之后，没跑过非只读的调用
         if c.get("name") in RO_TOOLS:
             continue
