@@ -543,7 +543,7 @@ func TestAgentHooksAntigravity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"bash-guard", "ask-only-guard", "fix-claim-guard", "promise-guard", "reply-length-guard"}
+	want := []string{"bash-guard", "ask-only-guard", "fix-claim-guard", "promise-guard", "reply-length-guard", "ws-cap-guard"} // ws-cap-guard: #1171
 	if !slices.Equal(res.Enabled, want) || res.SettingsFile != AgyHookFile(wd) {
 		t.Fatalf("res = %+v", res)
 	}
@@ -557,7 +557,7 @@ func TestAgentHooksAntigravity(t *testing.T) {
 	}
 	pre := m["bothouse"]["PreToolUse"]
 	// bash-guard on shell commands; ask-only-guard (#678) also covers the edit tools.
-	if len(pre) != 2 || pre[0]["matcher"] != "run_command" || !strings.Contains(pre[1]["matcher"].(string), "write_to_file") {
+	if len(pre) != 3 || pre[0]["matcher"] != "run_command" /* +ws-cap-guard #1171 */ || !strings.Contains(pre[1]["matcher"].(string), "write_to_file") {
 		t.Fatalf("PreToolUse = %v", pre)
 	}
 	h := pre[0]["hooks"].([]any)[0].(map[string]any)

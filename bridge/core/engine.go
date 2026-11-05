@@ -2989,12 +2989,11 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 func (e *Engine) Start() error {
 	e.restoreProactiveAdmissions()
 	go e.queueReportLoop() // #1020 queue_report.go
-	// sync collaboration/runtime now so an upgrade also refreshes unedited PATH tools (#1104)
-	go func() {
-		if _, err := e.leadRuntimeDir(); err != nil {
-			slog.Warn("lead tools: runtime sync failed", "project", e.name, "error", err)
-		}
-	}()
+	// sync collaboration/runtime now so an upgrade also refreshes unedited PATH tools (#1104).
+	// Synchronous: a few small files; a goroutine kept writing into dataDir after Stop (tests' TempDir cleanup failed).
+	if _, err := e.leadRuntimeDir(); err != nil {
+		slog.Warn("lead tools: runtime sync failed", "project", e.name, "error", err)
+	}
 	e.resolveRoleProductPython()
 	var startErrs []error
 	readyCount := 0
