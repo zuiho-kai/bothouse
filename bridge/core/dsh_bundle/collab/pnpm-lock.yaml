@@ -14,6 +14,15 @@ importers:
       '@zed-industries/claude-code-acp':
         specifier: ^0.16.2
         version: 0.16.2(zod@4.6.7)
+      bothouse-dsh-desk:
+        specifier: link:../packages/bothouse-dsh-desk
+        version: link:../packages/bothouse-dsh-desk
+      bothouse-dsh-devices:
+        specifier: link:../packages/bothouse-dsh-devices
+        version: link:../packages/bothouse-dsh-devices
+      bothouse-dsh-panel:
+        specifier: link:../packages/bothouse-dsh-panel
+        version: link:../packages/bothouse-dsh-panel
       ws:
         specifier: 8.22.1
         version: 8.22.1

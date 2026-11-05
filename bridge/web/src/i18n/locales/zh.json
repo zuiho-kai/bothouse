@@ -91,7 +91,9 @@
     "bridgeConnected": "已连接",
     "bridgeConnecting": "连接中...",
     "bridgeDisconnected": "未连接",
-    "bridgeNotAvailable": "Bridge 未启用。请在 config.toml 中启用 [bridge] 以支持网页聊天。"
+    "bridgeNotAvailable": "Bridge 未启用。请在 config.toml 中启用 [bridge] 以支持网页聊天。",
+    "countAll": "共 {{n}} 条",
+    "countShown": "{{shown}} / {{total}} 条"
   },
   "providers": {
     "title": "模型提供方",

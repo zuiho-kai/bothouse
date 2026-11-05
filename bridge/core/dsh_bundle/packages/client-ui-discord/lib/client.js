@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: fda86d51bd8ad99d01bdd557f964e570d4be623eb9963b51795975b2a4dd7dae
+// dsh-client-source-sha256: f61c8a87e4f8362b3769245f1d89cfb7a5302a392263d6d47ae2ac3e7b2b8fe7
 // dsh-style-sha256: 2e640033692a63b951ba23a41d830ebca956e67e0c0a9a38ba6618e25b4b480c
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -17207,21 +17207,6 @@ var PanelPages_module_default = {
 };
 // src/client/EmbedPage.tsx
 /**
-* Fill the main area with the collab page.
-* @param props - injected page path and title.
-* @returns the framed page.
-*/
-function EmbedPage({ path, title }) {
-	const src = new URL(path, document.baseURI).toString();
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-		className: PanelPages_module_default.embed,
-		children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(EmbedFrame, {
-			src,
-			title
-		})
-	});
-}
-/**
 * The frame both the panel and the delivery card (#1023) use. `sandboxed` is for pages the
 * owner did not write (a bot's delivery): scripts run, but a page from this origin gets an
 * opaque origin so it cannot act with the owner's sign-in.
@@ -22769,20 +22754,6 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 		]
 	});
 }
-// src/client/PanelIcons.tsx
-/** Decorative occupants for the desk, bothouse panel and other-computers sidebar entries (#105). */
-/** Team desk glyph; the sidebar owns the label. */
-function DeskIcon({ size }) {
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChecklistOutlineRegular, { size });
-}
-/** bothouse management panel glyph. */
-function PanelIcon({ size }) {
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconGaugeOutlineRegular, { size });
-}
-/** Other computers (#131): pair with another DSH by a one-time number. */
-function DevicesIcon({ size }) {
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconLinkOutlineRegular, { size });
-}
 // src/client/locales.ts
 /** Channel panel dictionaries. */
 /** Locale namespace owned by the channel panel. */
@@ -23443,10 +23414,6 @@ const en = {
 };
 // src/client/index.ts
 const PANEL_ID = "channels";
-const DESK_ID = "collab-desk";
-const GALAXY_ID = "wiki-galaxy";
-const BOTHOUSE_ID = "bothouse-panel";
-const DEVICES_ID = "collab-devices";
 /** Required browser services. */
 const inject = [
 	"slots",
@@ -23465,18 +23432,6 @@ function apply(ctx) {
 	const t = ctx.locale.bind(NS);
 	const channels = createChannelSource(browserTransport());
 	ctx.effect(() => channels.dispose, "client-ui-discord: channel stream");
-	const ALIVE_EVERY_MS = 3e3;
-	ctx.effect(() => {
-		const beat = () => {
-			globalThis.fetch?.(new URL("collab/api/remote/alive", document.baseURI), {
-				method: "POST",
-				credentials: "same-origin"
-			}).catch(() => {});
-		};
-		beat();
-		const timer = setInterval(beat, ALIVE_EVERY_MS);
-		return () => clearInterval(timer);
-	}, "client-ui-discord: remote link heartbeat");
 	const injected = (openModelSettings) => ({
 		openModelSettings,
 		hooks: { channels: channels.source },
@@ -23548,57 +23503,6 @@ function apply(ctx) {
 		locale: NS,
 		label: () => t("panel")
 	}, ChannelsIcon));
-	const embeds = [
-		{
-			id: DESK_ID,
-			path: "collab/desk",
-			label: "panelDesk",
-			icon: DeskIcon,
-			order: 6
-		},
-		{
-			id: BOTHOUSE_ID,
-			path: "collab/panel/",
-			label: "panelBothouse",
-			icon: PanelIcon,
-			order: 7
-		},
-		{
-			id: DEVICES_ID,
-			path: "collab/devices",
-			label: "panelDevices",
-			icon: DevicesIcon,
-			order: 9
-		}
-	];
-	ctx.slots.inject("main", () => ctx.slots.register({
-		name: "main",
-		key: GALAXY_ID,
-		locale: NS,
-		inject: () => ({
-			path: "collab/panel/wiki-galaxy",
-			title: t("panelGalaxy")
-		})
-	}, EmbedPage));
-	for (const page of embeds) {
-		ctx.slots.inject("main", () => ctx.slots.register({
-			name: "main",
-			key: page.id,
-			locale: NS,
-			inject: () => ({
-				path: page.path,
-				title: t(page.label)
-			})
-		}, EmbedPage));
-		ctx.slots.inject("sidebar.panellist", () => ctx.slots.register({
-			name: "sidebar.panellist",
-			id: page.id,
-			order: page.order,
-			locale: NS,
-			label: () => t(page.label)
-		}, page.icon));
-	}
-	if (location.hash === `#${GALAXY_ID}`) ctx.layout.selectPanel(GALAXY_ID);
 }
 exports.apply = apply;
 exports.inject = inject;

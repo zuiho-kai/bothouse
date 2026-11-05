@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -136,6 +137,16 @@ func RefreshEmbeddedDSH(targetDir, version string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	// #1044: which pages the old channels UI showed, read before the refresh replaces it.
+	pagesBefore, prePages := oldPagesShown(targetDir)
+	// #1044: the new page packages first: collab links them (link:../packages/…), so the staged
+	// dependency install below needs them in place. Only these: they are new files nothing old
+	// uses, so a failed install still leaves the old plugin exactly as it was.
+	for _, name := range pagePackages {
+		if err := writeEmbeddedTree(sub, targetDir, "packages/"+name); err != nil {
+			return false, fmt.Errorf("refresh dsh page packages: %w", err)
+		}
+	}
 	// Dependencies changed (collab package.json / pnpm-lock.yaml): install them now in a staged
 	// copy and swap it in, so a failed install leaves the old plugin and its node_modules as they
 	// were. On failure nothing else is refreshed and .version stays old (retried next start).
@@ -180,12 +191,96 @@ func RefreshEmbeddedDSH(targetDir, version string) (bool, error) {
 			return false, err
 		}
 	}
+	// After the new plugin code is in place, so the old plugin never sees the new rows.
+	if prePages {
+		if err := upgradeCollabPatch(sub, targetDir, pagesBefore); err != nil {
+			return false, err
+		}
+	}
 	migrateCollabPatchHome(filepath.Join(targetDir, "collab", "cordis.patch.yml"))
 	_ = os.Chmod(filepath.Join(targetDir, "install.sh"), 0755)
 	if err := os.WriteFile(stamp, []byte(version), 0644); err != nil {
 		return true, err
 	}
 	return true, nil
+}
+
+// pagePackages are the page packages collab links (dsh/packages/bothouse-embeds).
+var pagePackages = []string{"bothouse-dsh-desk", "bothouse-dsh-panel", "bothouse-dsh-devices"}
+
+// pagesRowMarker is in every collab bundle patch since the desk, panel and other-computers pages
+// became rows of their own (#1044); a patch without it is from before.
+const pagesRowMarker = "id: bothouse-desk"
+
+// oldPagesShown reports whether the installed collab patch is from before #1044 and, if so, which
+// page rows its channels UI put in the sidebar (all came with that one package then).
+func oldPagesShown(targetDir string) (rows []string, pre bool) {
+	patch, err := os.ReadFile(filepath.Join(targetDir, "collab", "cordis.patch.yml"))
+	if err != nil || bytes.Contains(patch, []byte(pagesRowMarker)) {
+		return nil, false
+	}
+	client, _ := os.ReadFile(filepath.Join(targetDir, "packages", "client-ui-discord", "lib", "client.js"))
+	rows = []string{}
+	for _, p := range []struct{ panel, row string }{
+		{"collab-desk", "bothouse-desk"}, {"bothouse-panel", "bothouse-panel"}, {"collab-devices", "bothouse-devices"},
+	} {
+		if bytes.Contains(client, []byte(`"`+p.panel+`"`)) {
+			rows = append(rows, p.row)
+		}
+	}
+	return rows, true
+}
+
+// pagesBeforeFile is read once by the collab plugin (dsh/collab/pages-migrate.mjs).
+const pagesBeforeFile = "pages-before-1044.json"
+
+// upgradeCollabPatch replaces a collab/cordis.patch.yml from before #1044 (which keepIfExists would
+// otherwise keep for good) with the embedded one, keeping the old file beside it, and notes for the
+// collab plugin which pages the old UI showed: it switches exactly those on, once, so the sidebar
+// stays as it was.
+func upgradeCollabPatch(sub fs.FS, targetDir string, pagesBefore []string) error {
+	path := filepath.Join(targetDir, "collab", "cordis.patch.yml")
+	old, err := os.ReadFile(path)
+	if err != nil {
+		return nil // not there: the refresh writes the embedded one
+	}
+	data, err := fs.ReadFile(sub, "collab/cordis.patch.yml")
+	if err != nil {
+		return err
+	}
+	note, _ := json.Marshal(map[string][]string{"rows": pagesBefore})
+	if err := os.MkdirAll(collabDataDir(), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(collabDataDir(), pagesBeforeFile), note, 0o644); err != nil {
+		return fmt.Errorf("note the pages the old version showed: %w", err)
+	}
+	if err := os.WriteFile(path+".bak-pre1044", old, 0o644); err != nil {
+		return fmt.Errorf("keep old collab patch: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("upgrade collab patch: %w", err)
+	}
+	slog.Info("dsh refresh: collab patch now lists each page as its own row", "path", path, "pages_before", pagesBefore)
+	return nil
+}
+
+// writeEmbeddedTree writes one top-level directory of the embedded bundle into targetDir.
+func writeEmbeddedTree(sub fs.FS, targetDir, dir string) error {
+	return fs.WalkDir(sub, dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		dest := filepath.Join(targetDir, path)
+		if d.IsDir() {
+			return os.MkdirAll(dest, 0o755)
+		}
+		data, err := fs.ReadFile(sub, path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dest, data, 0o644)
+	})
 }
 
 // collabDepsStamp is written by install.sh (and by the staged refresh): a copy of

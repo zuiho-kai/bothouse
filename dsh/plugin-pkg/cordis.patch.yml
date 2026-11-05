@@ -1,8 +1,21 @@
-# Applied by `dsh plugin add bothouse-dsh`: one plugin row; the channels UI is this package's ./client export.
+# Applied by `dsh plugin add bothouse-dsh`. One row runs the collab host; each page is its own
+# row with its own browser half (bundled packages), so the Plugins page switches each one (#1044).
+# Channels is on by default; team desk, bothouse panel and other computers start off.
 # Paths default to $CONEST_COLLAB_DATA / $CONEST_COLLAB_WORKSPACE, else ~/.conest-collab and the cwd.
 - insert:
     - id: bothouse-dsh
       name: bothouse-dsh
       config:
-        dataDir: !!js process.env.CONEST_COLLAB_DATA || (process.env.HOME + '/.conest-collab')
+        dataDir: !!js process.env.CONEST_COLLAB_DATA || process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.conest-collab')
         workspacePath: !!js process.env.CONEST_COLLAB_WORKSPACE || process.cwd()
+    - id: bothouse-channels
+      name: bothouse-dsh-channels
+    - id: bothouse-desk
+      name: bothouse-dsh-desk
+      disabled: true
+    - id: bothouse-panel
+      name: bothouse-dsh-panel
+      disabled: true
+    - id: bothouse-devices
+      name: bothouse-dsh-devices
+      disabled: true
