@@ -482,6 +482,15 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 	if len(pool) > 0 {
 		return pool[0], true
 	}
+	// Everyone else refused or wrote it: the lead verifies, even its own work, rather than leave the
+	// handback hanging (#1109 goal「主角色自验或另一个队友」; user 11-06「他自己也可以验收」).
+	if refused := readReviewRefused(dir)[reviewRefusedKey(it)]; len(refused) > 0 {
+		for _, x := range w.engines() {
+			if x.isTeamLead() && x.timerScheduler != nil && !taskReviewRefusedBy(dir, it, x.name) && !x.reviewCooling(chat) {
+				return x, x.quotaBusy(chat) || x.taskReviewQueuedIn(chat)
+			}
+		}
+	}
 	return nil, false
 }
 
