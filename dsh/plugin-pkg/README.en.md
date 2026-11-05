@@ -6,15 +6,17 @@ BotHouse channels inside DeepSeek Harness (DSH): a Discord-style channels page w
 
 ## Install (pick one)
 
-1. **Easiest**: tell DSH "install the plugin bothouse-dsh".
-2. **From the UI**: DSH sidebar "Plugins" → "Add plugin", enter `bothouse-dsh`.
+1. **Easiest**: tell DSH "install the plugin bothouse-dsh, pinned to the newest version on npm".
+2. **From the UI**: DSH sidebar "Plugins" → "Add plugin", enter `bothouse-dsh@<newest version on npm>`.
 3. **From a terminal**:
 
 ~~~sh
-dsh plugin --profile web add bothouse-dsh
+dsh plugin --profile web add "bothouse-dsh@$(npm view bothouse-dsh version)"
 ~~~
 
 Restart DSH once and click "Channels" in the sidebar. #general already has Whale Girl, running on the model you configured in DSH; nothing else to fill in. @ her to get a reply; tell her "hand this to a workspace: …" and she opens a workspace, does the work and reports back. For more characters or models, use "Add member".
+
+Pin the version: DSH installs plugins with pnpm, which holds back fresh releases, so plain `bothouse-dsh` or `bothouse-dsh@latest` gets a release from days ago; with an exact version pnpm lets it through.
 
 If the terminal install says `pnpm was not found`, run `npm i -g pnpm` first.
 

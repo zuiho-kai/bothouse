@@ -6,15 +6,17 @@
 
 ## 安装（三选一）
 
-1. **最省事**：在 DSH 里对它说「帮我装插件 bothouse-dsh」。
-2. **点界面**：DSH 侧栏「插件」→「添加插件」，填 `bothouse-dsh`。
+1. **最省事**：在 DSH 里对它说「帮我装插件 bothouse-dsh，按 npm 上的最新版本号装」。
+2. **点界面**：DSH 侧栏「插件」→「添加插件」，填 `bothouse-dsh@<npm 上的最新版本号>`。
 3. **命令行**：
 
 ~~~sh
-dsh plugin --profile web add bothouse-dsh
+dsh plugin --profile web add "bothouse-dsh@$(npm view bothouse-dsh version)"
 ~~~
 
 装完重启一次 DSH，点左侧「频道」。#general 里已经有鲸鱼娘，用的是你在 DSH 里配好的那个模型，不用再填任何东西。@鲸鱼娘 就回话；对她说「交给工作区做：……」，她会开工作区干完再交回。想要多角色、多模型，再点「添加成员」。
+
+要带版本号：DSH 用 pnpm 装插件，pnpm 会暂缓刚发布的版本，只写 `bothouse-dsh` 或 `bothouse-dsh@latest` 会装到几天前的旧版；写明版本号时 pnpm 自动放行，装到最新。
 
 命令行装时提示 `pnpm was not found`：先 `npm i -g pnpm` 再装。
 
