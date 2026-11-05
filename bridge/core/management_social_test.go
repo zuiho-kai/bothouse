@@ -325,3 +325,114 @@ func TestMgmt_SocialReadErrorDoesNotBlockThePage(t *testing.T) {
 		t.Fatalf("读失败不该把发说说也关掉：%+v", body.Data.Capabilities)
 	}
 }
+
+// socialPostAvatar 发一次真 multipart 换头像请求，返回状态码。
+func socialPostAvatar(t *testing.T, url string) (int, mgmtResponse) {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, _ := mw.CreateFormFile("file", "avatar.png")
+	_, _ = fw.Write(socialPNG())
+	_ = mw.Close()
+	req, _ := http.NewRequest("POST", url, &buf)
+	req.Header.Set("Authorization", "Bearer tok")
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	var r mgmtResponse
+	_ = json.NewDecoder(resp.Body).Decode(&r)
+	return resp.StatusCode, r
+}
+
+// TestMgmt_SocialWritesRequireToken：管理 API 没设 token 时，三条写路由都要 403，
+// 一条都不能落到平台上；读路由照开。空 token 时 authenticate() 放行一切，而
+// management 默认监听所有网卡，这里是拦住"谁都能用机器人真号发说说/换头像"的那道闸。
+func TestMgmt_SocialWritesRequireToken(t *testing.T) {
+	plat := &fakeSocialPlatform{}
+	_, ts, e := testManagementServer(t, "")
+	e.AddPlatform(plat)
+
+	// 读路由不能被这道闸关掉：没 token 时列表照常可读。
+	if code := socialGet(t, ts.URL+"/api/v1/projects/test-project/social", nil); code != 200 {
+		t.Fatalf("没 token 时读列表该照常 200，实际 %d", code)
+	}
+
+	code, resp := socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment", map[string]string{"text": "hi"})
+	if code != http.StatusForbidden {
+		t.Fatalf("没 token 时发说说该 403，实际 %d", code)
+	}
+	if resp.OK || !strings.Contains(resp.Error, "token") {
+		t.Fatalf("403 要说清没设 token：%+v", resp)
+	}
+	if len(plat.posted) != 0 {
+		t.Fatalf("没 token 时不该发到平台：%v", plat.posted)
+	}
+
+	code, resp = socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/delete", map[string]string{"id": "tid-1"})
+	if code != http.StatusForbidden {
+		t.Fatalf("没 token 时删说说该 403，实际 %d", code)
+	}
+	if resp.OK || !strings.Contains(resp.Error, "token") {
+		t.Fatalf("403 要说清没设 token：%+v", resp)
+	}
+	if len(plat.deleted) != 0 {
+		t.Fatalf("没 token 时不该删到平台：%v", plat.deleted)
+	}
+
+	code, resp = socialPostAvatar(t, ts.URL+"/api/v1/projects/test-project/social/avatar")
+	if code != http.StatusForbidden {
+		t.Fatalf("没 token 时换头像该 403，实际 %d", code)
+	}
+	if resp.OK || !strings.Contains(resp.Error, "token") {
+		t.Fatalf("403 要说清没设 token：%+v", resp)
+	}
+	if plat.avatarIn != nil {
+		t.Fatalf("没 token 时不该换到平台：%d 字节", len(plat.avatarIn))
+	}
+}
+
+// TestMgmt_SocialWritesPassWithToken：配了 token 且带对 token 时，三条写路由照常通过。
+func TestMgmt_SocialWritesPassWithToken(t *testing.T) {
+	plat := &fakeSocialPlatform{}
+	ts, tok := engineWithSocial(t, plat)
+	if tok == "" {
+		t.Fatal("测试用 token 不该为空")
+	}
+
+	if code, resp := socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment", map[string]string{"text": "今天画了张图"}); code != 200 || !resp.OK {
+		t.Fatalf("带 token 发说说该 200，实际 %d %s", code, resp.Error)
+	}
+	if code, resp := socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/delete", map[string]string{"id": "tid-1"}); code != 200 || !resp.OK {
+		t.Fatalf("带 token 删说说该 200，实际 %d %s", code, resp.Error)
+	}
+	if code, resp := socialPostAvatar(t, ts.URL+"/api/v1/projects/test-project/social/avatar"); code != 200 || !resp.OK {
+		t.Fatalf("带 token 换头像该 200，实际 %d %s", code, resp.Error)
+	}
+	if len(plat.posted) != 1 || len(plat.deleted) != 1 || plat.avatarIn == nil {
+		t.Fatalf("三次写都要落到平台：posted=%v deleted=%v avatar=%d", plat.posted, plat.deleted, len(plat.avatarIn))
+	}
+}
+
+// TestMgmt_SocialWritesRejectWrongToken：有 token 时带错 token 仍是 401，闸不会放宽鉴权。
+func TestMgmt_SocialWritesRejectWrongToken(t *testing.T) {
+	plat := &fakeSocialPlatform{}
+	ts, _ := engineWithSocial(t, plat)
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/v1/projects/test-project/social/moment", strings.NewReader(`{"text":"hi"}`))
+	req.Header.Set("Authorization", "Bearer wrong")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST moment: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("带错 token 该 401，实际 %d", resp.StatusCode)
+	}
+	if len(plat.posted) != 0 {
+		t.Fatalf("带错 token 不该发到平台：%v", plat.posted)
+	}
+}

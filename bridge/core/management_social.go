@@ -31,6 +31,19 @@ const socialMaxAvatar = 2 << 20
 // socialBodySlack 是 multipart 里表单字段与边界占的余量。
 const socialBodySlack = 64 << 10
 
+// requireSocialWrites 拒绝在管理 API 没设 token 时发说说、删说说、换头像。空 token 时
+// authenticate() 放行一切，而 management 默认 host 为空即监听所有网卡，所以"没 token"
+// 等于"这个网段里谁都能用机器人真号发公开内容和改头像"（复审 1033）。
+// 写法沿用 #1032 management_imagegen.go 的 requireImageGenSpend 与 #1027
+// management_plugins.go 的 requirePluginWrites：读路由照开，对外发声的写路由才拦。
+func (m *ManagementServer) requireSocialWrites(w http.ResponseWriter) bool {
+	if m.token == "" {
+		mgmtError(w, http.StatusForbidden, "管理 API 没设 token：这台机器上谁都能开这个端口，发说说、删说说、换头像会以机器人真号对外发声，先设 management token 再操作。")
+		return false
+	}
+	return true
+}
+
 // socialPlatform returns the project's platform that can talk to a timeline,
 // and what it currently allows. nil means "this project has no such platform".
 func socialPlatform(engine *Engine) (Platform, SocialCapabilities) {
@@ -144,6 +157,9 @@ func atoiPositive(s string) (int, error) {
 }
 
 func (m *ManagementServer) socialPostMoment(w http.ResponseWriter, r *http.Request, engine *Engine) {
+	if !m.requireSocialWrites(w) {
+		return
+	}
 	var body struct {
 		Text string `json:"text"`
 	}
@@ -174,6 +190,9 @@ func (m *ManagementServer) socialPostMoment(w http.ResponseWriter, r *http.Reque
 }
 
 func (m *ManagementServer) socialDeleteMoment(w http.ResponseWriter, r *http.Request, engine *Engine) {
+	if !m.requireSocialWrites(w) {
+		return
+	}
 	var body struct {
 		ID string `json:"id"`
 	}
@@ -205,6 +224,9 @@ func (m *ManagementServer) socialDeleteMoment(w http.ResponseWriter, r *http.Req
 func (m *ManagementServer) socialSetAvatar(w http.ResponseWriter, r *http.Request, engine *Engine) {
 	if r.Method != http.MethodPost {
 		mgmtError(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	if !m.requireSocialWrites(w) {
 		return
 	}
 	plat, caps := socialPlatform(engine)
