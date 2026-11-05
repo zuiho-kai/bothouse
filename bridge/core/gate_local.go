@@ -119,7 +119,7 @@ func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, inte
 			return true
 		}
 		slog.Info("gate(local): stop word cancelled the running turn", "session", msg.SessionKey)
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgLocalGateStopped))
+		e.replyNotice(p, msg.ReplyCtx, e.i18n.T(MsgLocalGateStopped))
 		// Let the cancelled turn release the session, as the gate's abort does.
 		if e.waitForSessionLock(session, recalledStopLockWait) {
 			session.UnlockWithoutUpdate()
@@ -137,6 +137,6 @@ func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, inte
 		return false
 	}
 	e.teamNoteTurn(msg, session)
-	e.reply(p, msg.ReplyCtx, e.i18n.T(MsgLocalGateInserted))
+	e.replyNotice(p, msg.ReplyCtx, e.i18n.T(MsgLocalGateInserted))
 	return true
 }

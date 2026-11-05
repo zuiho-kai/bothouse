@@ -45,3 +45,13 @@ func (e *Engine) sendSystemNotice(p Platform, replyCtx any, notice string) {
 		e.send(p, markSystemNotice(p, replyCtx), notice)
 	}
 }
+
+// replyNotice posts a bridge receipt that the user's own message triggered (currently
+// the insert acknowledgement) unless the platform keeps bridge notices out of that
+// chat. Unlike sendSystemNotice it keeps Reply's reply-to semantics where a platform
+// has them; only the chat that asked for quiet loses the line.
+func (e *Engine) replyNotice(p Platform, replyCtx any, notice string) {
+	if !e.noticeKeptOut(p, replyCtx, notice) {
+		e.reply(p, replyCtx, notice)
+	}
+}
