@@ -13,6 +13,7 @@ bothouse 完整功能使用指南。
 - [飞书配置 CLI](#飞书配置-cli)
 - [微信个人号配置 CLI](#微信个人号配置-cli)
 - [Claude Code Router 集成](#claude-code-router-集成)
+- [新成员进群事件（Discord）](#新成员进群事件discord)
 - [Claude Code PermissionRequest Hooks](#claude-code-permissionrequest-hooks)
 - [语音消息（语音转文字）](#语音消息语音转文字)
 - [语音回复（文字转语音）](#语音回复文字转语音)
@@ -541,6 +542,26 @@ router_api_key = "your-secret-key"
 ```
 
 ---
+
+## 新成员进群事件（Discord）
+
+有人进、退 Discord 服务器时，桥只发一个事件，不叫醒任何角色、不发任何话；要欢迎、登记还是别的，由你订阅后自己决定。
+
+前提：Discord 开发者后台 → 你的应用 → Bot → Privileged Gateway Intents，打开 **SERVER MEMBERS INTENT** 并保存，再重启 bothouse。没开时桥照常连上，只是收不到这个事件，主角色会在频道里提醒一次，面板角色页和向导也会显示。
+
+事件有两处可以拿到：
+
+- `<data_dir>/events.jsonl`：一行 `"type":"member"`，`data` 里有 `action`（joined / left）、`user_id`、`user`、`display_name`、`guild`、`guild_id`、`bot`、`channel_id`，`time` 是事件时间。
+- `[[hooks]]`：事件名 `member.joined`（进群）和 `member.left`（退群），用法和 `agent.closed` 一样。
+
+```toml
+[[hooks]]
+event = "member.joined"
+type = "command"
+command = "python3 ~/scripts/on_join.py"   # 自己的脚本：欢迎、登记、叫醒角色都由它决定
+```
+
+`type = "command"` 的钩子从环境变量拿到：`CC_HOOK_EVENT`、`CC_HOOK_TIMESTAMP`（时间）、`CC_HOOK_PLATFORM`、`CC_HOOK_USER_ID`、`CC_HOOK_USER_NAME`（显示名，带账号名）、`CC_HOOK_DISPLAY_NAME`、`CC_HOOK_GUILD`（服务器名）、`CC_HOOK_GUILD_ID`、`CC_HOOK_CHANNEL_ID`（服务器的系统频道，有才给）、`CC_HOOK_SESSION_KEY`、`CC_HOOK_USER_IS_BOT=1`（进来的是机器人时）。`type = "http"` 的钩子收到同样内容的 JSON（服务器等字段在 `extra` 里）。想让角色接待，在脚本里用 `bothouse timer add --delay 1m --prompt "…"` 或 `bothouse send` 自己发。
 
 ## Claude Code PermissionRequest Hooks
 

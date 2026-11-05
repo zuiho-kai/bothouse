@@ -270,6 +270,16 @@ func eventToEnv(e HookEvent) []string {
 	if id, ok := e.Extra["agent_session_id"].(string); ok && id != "" {
 		env = append(env, "CC_HOOK_AGENT_SESSION_ID="+id)
 	}
+	if e.Event == HookEventMemberJoined || e.Event == HookEventMemberLeft { // #1060: server, display name
+		for k, name := range map[string]string{"guild_id": "CC_HOOK_GUILD_ID", "guild": "CC_HOOK_GUILD", "display_name": "CC_HOOK_DISPLAY_NAME", "channel_id": "CC_HOOK_CHANNEL_ID"} {
+			if v, ok := e.Extra[k].(string); ok && v != "" {
+				env = append(env, name+"="+v)
+			}
+		}
+		if b, ok := e.Extra["bot"].(bool); ok && b {
+			env = append(env, "CC_HOOK_USER_IS_BOT=1")
+		}
+	}
 	if a, ok := e.Extra["agent"].(string); ok && a != "" { // maomao fork: which runtime (agentHookExtra)
 		env = append(env, "CC_HOOK_AGENT="+a)
 	}

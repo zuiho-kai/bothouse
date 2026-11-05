@@ -92,10 +92,10 @@ func warnMembersIntentOff(lang, bot, appID string) WizardWarning {
 		w.Message = "ボット「" + bot + "」の Server Members Intent がオフです。新しいメンバーがサーバーに入っても通知されず、すぐに迎えられません（普段の会話には影響しません）。"
 		w.Fix = "リンク（Developer Portal → Bot）を開き、Privileged Gateway Intents の SERVER MEMBERS INTENT をオンにして保存し、bothouse を再起動してください。"
 	} else if isZH(lang) {
-		w.Message = "机器人「" + bot + "」没开 Server Members Intent：新人进群时收不到通知，没法第一时间接待（平时聊天不受影响）。"
+		w.Message = "机器人「" + bot + "」没开 Server Members Intent：有人进群、退群时收不到，进群事件不会触发（平时聊天不受影响）。"
 		w.Fix = "打开链接（Discord 开发者后台 → Bot），在 Privileged Gateway Intents 里打开 SERVER MEMBERS INTENT 并保存，然后重启 bothouse。"
 	} else {
-		w.Message = "Bot \"" + bot + "\" has Server Members Intent off: it is not told when someone joins the server, so nobody greets them right away (normal chat still works)."
+		w.Message = "Bot \"" + bot + "\" has Server Members Intent off: it is not told when someone joins or leaves the server, so the member.joined / member.left events never fire (normal chat still works)."
 		w.Fix = "Open the link (Developer Portal → Bot), turn on SERVER MEMBERS INTENT under Privileged Gateway Intents, save, then restart bothouse."
 	}
 	return w

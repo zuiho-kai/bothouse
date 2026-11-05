@@ -1,21 +1,20 @@
 package core
 
 import (
-	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 )
 
-// Server member events (#1058, user 11-05 「你先把他那边偷偷处理好一下，然后把他欠缺能力我们补齐，
-// 然后更新到版本里面」「他们如果没开的话，你就提醒他们去开这个权限」).
+// Server member events (#1058/#1060, user 11-05 「这个只是单纯的一个事件驱动功能，别人愿意搞什么欢迎
+// 别人愿意搞什么……我们只是提供一个接口和一个平台」「他们如果没开的话，你就提醒他们去开这个权限」).
 //
 // A platform that sees people join or leave a server (Discord GUILD_MEMBER_ADD/REMOVE, which
 // needs the privileged Server Members Intent) reports it through MemberEventHandler. The
-// engine writes it to events.jsonl and, on a join, when it is the team lead (or a bot without
-// a team), queues one turn in the server's welcome channel. Nobody joining costs nothing: no poller,
-// no model call. A bot without the intent connects as before and the lead tells the user, on
-// each start, where to turn it on.
+// engine only publishes it: one line in events.jsonl and the [[hooks]] events member.joined /
+// member.left (user id, name, server, time). It wakes no role and sends nothing; what to do
+// with a newcomer is up to whoever subscribes. A bot without the intent connects as before and
+// the lead tells the user, on each start, where to turn it on.
 
 // StreamEventMember: one member joined or left a server (events.jsonl).
 const StreamEventMember = "member"
@@ -29,8 +28,7 @@ type MemberEvent struct {
 	UserName    string // account name
 	DisplayName string // server nickname / global name, when set
 	Bot         bool
-	// ChannelID / SessionKey: where the lead greets (the server's system channel); empty when
-	// the server has none, then the event is only recorded.
+	// ChannelID / SessionKey: the server's system channel, when it has one (passed to hooks as is).
 	ChannelID  string
 	SessionKey string
 }
@@ -55,53 +53,38 @@ type PlatformNoticer interface {
 	PlatformNotice() string
 }
 
-// memberWakeTarget: this engine handles member events itself (team lead, or no team at all).
-func (e *Engine) memberWakeTarget() bool {
+// memberNoticeTarget: this engine tells the user about a missing intent (team lead, or no team).
+func (e *Engine) memberNoticeTarget() bool {
 	return e.team == nil || e.isTeamLead()
 }
+
+// Hook event names for member joins/leaves.
+const (
+	HookEventMemberJoined HookEventType = "member.joined"
+	HookEventMemberLeft   HookEventType = "member.left"
+)
 
 func (e *Engine) OnMemberEvent(p Platform, ev MemberEvent) {
 	if e == nil || p == nil || ev.UserID == "" {
 		return
 	}
-	verb := "joined"
+	verb, hookEv := "joined", HookEventMemberJoined
 	if ev.Left {
-		verb = "left"
+		verb, hookEv = "left", HookEventMemberLeft
 	}
+	now := time.Now()
 	who := memberLabel(ev)
-	e.emitStreamEvent(StreamEventMember, ev.SessionKey, who+" "+verb+" "+ev.GuildName, map[string]any{
+	data := map[string]any{
 		"platform": p.Name(), "action": verb, "guild_id": ev.GuildID, "guild": ev.GuildName,
 		"user_id": ev.UserID, "user": ev.UserName, "display_name": ev.DisplayName, "bot": ev.Bot,
 		"channel_id": ev.ChannelID,
+	}
+	e.emitStreamEvent(StreamEventMember, ev.SessionKey, who+" "+verb+" "+ev.GuildName, data)
+	e.hooks.Emit(HookEvent{
+		Event: hookEv, Timestamp: now, SessionKey: ev.SessionKey, Platform: p.Name(),
+		UserID: ev.UserID, UserName: who, Extra: data,
 	})
-	if ev.Left || !e.memberWakeTarget() {
-		return // leaving is only recorded; joining wakes the lead
-	}
-	if ev.SessionKey == "" {
-		slog.Info("member event: server has no system channel; recorded only", "project", e.name, "guild", ev.GuildID, "action", verb)
-		return
-	}
-	if e.timerScheduler == nil {
-		slog.Warn("member event: no timer scheduler; lead not woken", "project", e.name)
-		return
-	}
-	silent := true
-	job := &TimerJob{
-		ID:            GenerateTimerID(),
-		Project:       e.name,
-		SessionKey:    ev.SessionKey,
-		ScheduledAt:   time.Now(),
-		Prompt:        memberEventPrompt(p.Name(), ev),
-		Description:   "新成员 " + who,
-		Silent:        &silent,
-		WaitUserQuiet: true,
-		CreatedAt:     time.Now(),
-	}
-	if err := e.timerScheduler.AddJob(job); err != nil {
-		slog.Error("member event: queue lead turn failed", "project", e.name, "error", err)
-		return
-	}
-	slog.Info("member event: lead woken", "project", e.name, "guild", ev.GuildID, "user", ev.UserID, "action", verb)
+	slog.Info("member event", "project", e.name, "guild", ev.GuildID, "user", ev.UserID, "action", verb)
 }
 
 func memberLabel(ev MemberEvent) string {
@@ -115,12 +98,6 @@ func memberLabel(ev MemberEvent) string {
 	return name
 }
 
-func memberEventPrompt(platform string, ev MemberEvent) string {
-	return fmt.Sprintf("[成员事件] 新成员 %s 刚加入服务器「%s」（%s 用户 id %s，可用 <@%s> 叫到 ta）。这不是用户发来的消息。"+
-		"你是主角色，在本频道欢迎 ta，按团队的新人接入做法带 ta 上手（没有现成做法就简单介绍这里能做什么、怎么叫你）。",
-		memberLabel(ev), ev.GuildName, platform, ev.UserID, ev.UserID)
-}
-
 // ── member intent off: tell the user once ──────────────────────────
 
 func (e *Engine) OnMemberIntent(p Platform, on bool, n MemberIntentNotice) {
@@ -130,9 +107,9 @@ func (e *Engine) OnMemberIntent(p Platform, on bool, n MemberIntentNotice) {
 	if on {
 		return
 	}
-	slog.Warn("discord: Server Members Intent is off; new members will not wake the lead",
+	slog.Warn("discord: Server Members Intent is off; member.joined / member.left will not fire",
 		"project", e.name, "bot", n.BotName, "fix", "Developer Portal → Bot → Privileged Gateway Intents → SERVER MEMBERS INTENT", "url", n.FixURL)
-	if !e.memberWakeTarget() || e.timerScheduler == nil {
+	if !e.memberNoticeTarget() || e.timerScheduler == nil {
 		return
 	}
 	chat := ""
@@ -154,8 +131,8 @@ func (e *Engine) OnMemberIntent(p Platform, on bool, n MemberIntentNotice) {
 		Project:     e.name,
 		SessionKey:  chat,
 		ScheduledAt: time.Now(),
-		Prompt: "[系统提醒] 你的 Discord 机器人「" + n.BotName + "」没开 SERVER MEMBERS INTENT，新人进群时你收不到通知，没法第一时间接待。这不是用户发来的消息。" +
-			"在本频道用一两句话告诉用户：打开 " + n.FixURL + "（Discord 开发者后台 → Bot），在 Privileged Gateway Intents 里打开 SERVER MEMBERS INTENT 并保存，然后重启 bothouse；不开也不影响平时聊天。",
+		Prompt: "[系统提醒] 你的 Discord 机器人「" + n.BotName + "」没开 SERVER MEMBERS INTENT，有人进群、退群时桥收不到，member.joined / member.left 事件不会触发。这不是用户发来的消息。" +
+			"在本频道用一两句话告诉用户：打开 " + n.FixURL + "（Discord 开发者后台 → Bot），在 Privileged Gateway Intents 里打开 SERVER MEMBERS INTENT 并保存，然后重启 bothouse；不开也不影响平时聊天，只是没有进群事件。",
 		Description:   "提醒打开成员权限",
 		Silent:        &silent,
 		WaitUserQuiet: true,
