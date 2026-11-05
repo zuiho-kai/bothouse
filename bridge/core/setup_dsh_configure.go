@@ -356,6 +356,17 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 		}
 		cmd.Env = append(os.Environ(), env...)
 	}
+	// Windows has no HOME, and the collab plugin's cordis.patch.yml up to v0.1.48 builds its data dir
+	// from it ('undefined/.conest-collab': the plugin does not load, "频道未启用"). Upgrades keep that
+	// file (keepIfExists), so hand dsh a HOME instead of relying on the new template alone.
+	if os.Getenv("HOME") == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			if cmd.Env == nil {
+				cmd.Env = os.Environ()
+			}
+			cmd.Env = append(cmd.Env, "HOME="+home)
+		}
+	}
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.Stdin = nil
 	if home, err := os.UserHomeDir(); err == nil {

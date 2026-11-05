@@ -31,7 +31,7 @@ import { wikiGalaxyRoute } from './wiki-galaxy.mjs';
 import { defaultBridgeConfig, panelRoute } from './panel.mjs';
 import { TeamStatus } from './team-status.mjs';
 import { ALIVE_EVERY_MS, PairClient, PairHost, PairListener, PAIR_PORT, REMOTE_OWNER, hostHandler, isLoopback, pairApiRoute, remoteProxyRoute, tailnetAddress } from './pairing.mjs';
-import { hostname } from 'node:os';
+import { homedir, hostname } from 'node:os';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -89,7 +89,7 @@ export function resolveConfig(config, env = process.env) {
   const botPortRaw = c.botPort ?? (String(env.CONEST_COLLAB_BOT_PORT ?? '').trim() || undefined);
   const botPort = botPortRaw === undefined ? undefined : Number(botPortRaw);
   if (botPort !== undefined && !(Number.isSafeInteger(botPort) && botPort > 0 && botPort < 65536)) throw Error('conest-collab: botPort must be a TCP port number');
-  const leadFile = c.leadFile ?? join(env.BOTHOUSE_DATA_DIR ?? join(env.HOME ?? '.', '.bothouse'), 'lead.json');
+  const leadFile = c.leadFile ?? join(env.BOTHOUSE_DATA_DIR ?? join(env.HOME || homedir(), '.bothouse'), 'lead.json');
   if (!isAbsolute(leadFile)) throw Error('conest-collab: leadFile must be an absolute path');
   const fallbackLead = String(c.fallbackLead ?? env.CONEST_FALLBACK_LEAD ?? '').trim();
   // #876: board events sit next to board.jsonl; BOARD_DIR is the same switch gate/board.py reads,
