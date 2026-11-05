@@ -1,13 +1,9 @@
 package core
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -16,10 +12,10 @@ import (
 //
 // A platform that sees people join or leave a server (Discord GUILD_MEMBER_ADD/REMOVE, which
 // needs the privileged Server Members Intent) reports it through MemberEventHandler. The
-// engine writes it to events.jsonl and, when it is the team lead (or a bot without a team),
-// queues one turn in the server's welcome channel. Nobody joining costs nothing: no poller,
-// no model call. A bot without the intent connects as before and the lead tells the user once
-// where to turn it on.
+// engine writes it to events.jsonl and, on a join, when it is the team lead (or a bot without
+// a team), queues one turn in the server's welcome channel. Nobody joining costs nothing: no poller,
+// no model call. A bot without the intent connects as before and the lead tells the user, on
+// each start, where to turn it on.
 
 // StreamEventMember: one member joined or left a server (events.jsonl).
 const StreamEventMember = "member"
@@ -78,8 +74,8 @@ func (e *Engine) OnMemberEvent(p Platform, ev MemberEvent) {
 		"user_id": ev.UserID, "user": ev.UserName, "display_name": ev.DisplayName, "bot": ev.Bot,
 		"channel_id": ev.ChannelID,
 	})
-	if ev.Bot || !e.memberWakeTarget() {
-		return
+	if ev.Left || !e.memberWakeTarget() {
+		return // leaving is only recorded; joining wakes the lead
 	}
 	if ev.SessionKey == "" {
 		slog.Info("member event: server has no system channel; recorded only", "project", e.name, "guild", ev.GuildID, "action", verb)
@@ -101,9 +97,6 @@ func (e *Engine) OnMemberEvent(p Platform, ev MemberEvent) {
 		WaitUserQuiet: true,
 		CreatedAt:     time.Now(),
 	}
-	if ev.Left {
-		job.Description = "成员离开 " + who
-	}
 	if err := e.timerScheduler.AddJob(job); err != nil {
 		slog.Error("member event: queue lead turn failed", "project", e.name, "error", err)
 		return
@@ -123,60 +116,18 @@ func memberLabel(ev MemberEvent) string {
 }
 
 func memberEventPrompt(platform string, ev MemberEvent) string {
-	who := memberLabel(ev)
-	if ev.Left {
-		return fmt.Sprintf("[成员事件] %s 离开了服务器「%s」（%s 用户 id %s）。这不是用户发来的消息。"+
-			"要是你为这个人做过接入（建过文件夹、开过频道、挂过定时），按需要收尾；不需要做什么就只回 NO_REPLY。",
-			who, ev.GuildName, platform, ev.UserID)
-	}
 	return fmt.Sprintf("[成员事件] 新成员 %s 刚加入服务器「%s」（%s 用户 id %s，可用 <@%s> 叫到 ta）。这不是用户发来的消息。"+
 		"你是主角色，在本频道欢迎 ta，按团队的新人接入做法带 ta 上手（没有现成做法就简单介绍这里能做什么、怎么叫你）。",
-		who, ev.GuildName, platform, ev.UserID, ev.UserID)
+		memberLabel(ev), ev.GuildName, platform, ev.UserID, ev.UserID)
 }
 
 // ── member intent off: tell the user once ──────────────────────────
-
-var memberIntentMu sync.Mutex
-
-func memberIntentNoticePath(dataDir string) string {
-	return filepath.Join(dataDir, "member-intent-notice.json")
-}
-
-// memberIntentMark records (told) or forgets (!told) that bot was told about the missing intent;
-// it returns whether the mark changed (told: first time).
-func memberIntentMark(dataDir, botID string, told bool) bool {
-	if dataDir == "" || botID == "" {
-		return false
-	}
-	memberIntentMu.Lock()
-	defer memberIntentMu.Unlock()
-	path := memberIntentNoticePath(dataDir)
-	marks := map[string]time.Time{}
-	if b, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(b, &marks)
-	}
-	_, had := marks[botID]
-	if had == told {
-		return false
-	}
-	if told {
-		marks[botID] = time.Now()
-	} else {
-		delete(marks, botID)
-	}
-	b, _ := json.MarshalIndent(marks, "", "  ")
-	if err := os.WriteFile(path, b, 0o644); err != nil {
-		slog.Warn("member intent: save notice mark failed", "error", err)
-	}
-	return true
-}
 
 func (e *Engine) OnMemberIntent(p Platform, on bool, n MemberIntentNotice) {
 	if e == nil || p == nil {
 		return
 	}
 	if on {
-		memberIntentMark(e.dataDir, n.BotID, false) // turned on: tell again if it is ever turned off
 		return
 	}
 	slog.Warn("discord: Server Members Intent is off; new members will not wake the lead",
@@ -195,10 +146,7 @@ func (e *Engine) OnMemberIntent(p Platform, on bool, n MemberIntentNotice) {
 		}
 	}
 	if chat == "" {
-		return // no channel yet; the log line and the panel carry it, the mark is not set
-	}
-	if !memberIntentMark(e.dataDir, n.BotID, true) {
-		return // already told
+		return // no channel yet; the log line and the panel carry it
 	}
 	silent := true
 	job := &TimerJob{
@@ -207,7 +155,7 @@ func (e *Engine) OnMemberIntent(p Platform, on bool, n MemberIntentNotice) {
 		SessionKey:  chat,
 		ScheduledAt: time.Now(),
 		Prompt: "[系统提醒] 你的 Discord 机器人「" + n.BotName + "」没开 SERVER MEMBERS INTENT，新人进群时你收不到通知，没法第一时间接待。这不是用户发来的消息。" +
-			"在本频道用一两句话告诉用户：打开 " + n.FixURL + "（Discord 开发者后台 → Bot），在 Privileged Gateway Intents 里打开 SERVER MEMBERS INTENT 并保存，然后重启 bothouse；不开也不影响平时聊天。只说这一次。",
+			"在本频道用一两句话告诉用户：打开 " + n.FixURL + "（Discord 开发者后台 → Bot），在 Privileged Gateway Intents 里打开 SERVER MEMBERS INTENT 并保存，然后重启 bothouse；不开也不影响平时聊天。",
 		Description:   "提醒打开成员权限",
 		Silent:        &silent,
 		WaitUserQuiet: true,
@@ -215,6 +163,5 @@ func (e *Engine) OnMemberIntent(p Platform, on bool, n MemberIntentNotice) {
 	}
 	if err := e.timerScheduler.AddJob(job); err != nil {
 		slog.Error("member intent: queue notice failed", "project", e.name, "error", err)
-		memberIntentMark(e.dataDir, n.BotID, false)
 	}
 }
