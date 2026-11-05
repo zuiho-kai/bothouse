@@ -417,7 +417,11 @@ if args.upgrade:
     print("upgrade:", args.upgrade, flush=True)
     cmd = (["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", args.upgrade] if os.name == "nt"
            else ["sh", "-c", args.upgrade])
-    if subprocess.call(cmd) != 0:
+    # Windows PowerShell 5 started from pwsh 7 inherits pwsh's PSModulePath and then cannot load
+    # its own Microsoft.PowerShell.Utility (Get-FileHash missing). A user runs install.ps1 from a
+    # clean shell, so drop it here to match.
+    env = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
+    if subprocess.call(cmd, env=env) != 0:
         fail("upgrade command failed")
     ok("upgrade command finished")
 
