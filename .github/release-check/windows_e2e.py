@@ -42,7 +42,7 @@ ROLES = [  # what the wizard sends for its two default rows (bridge/web/src/page
 ]
 LINK_RE = re.compile(r"(http://localhost:(\d+)/login\?token=([0-9a-zA-Z]+)[^\s]*)")
 # Timeouts (s). 沿用已有配置 windows_firstrun.py 60 s link; 实测 sanxin-hk 11-05 plugin install ~5 min, import ~1 min; x2 for hosted runner:
-T_LINK, T_HTTP, T_INSTALL, T_OPEN, T_IMPORT, T_REPLY = 90, 60, 900, 180, 240, 180  # 沿用已有配置/实测，见上一行
+T_LINK, T_HTTP, T_INSTALL, T_OPEN, T_IMPORT, T_REPLY = 90, 60, 900, 300, 240, 180  # 沿用已有配置/实测，见上一行；T_OPEN 实测 sanxin-hk 冷启动 2 分 31 秒（4312375e）
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--exe", required=True)
