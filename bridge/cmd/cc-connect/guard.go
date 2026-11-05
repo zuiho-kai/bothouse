@@ -36,7 +36,6 @@ Options:
 Policy (TOML), see docs/caller-identity.md:
   trusted_keys = ["/etc/bothouse/bridge.pub"]   # bridge public keys (bothouse identity pubkey)
   audit_log    = "/var/log/bothouse-guard.jsonl"
-  allow_kinds  = ["human"]                        # default; bot/scheduled/local are refused
 
   [roles.member]
   actions     = ["gpu-run"]                       # "*" = every action
@@ -68,7 +67,6 @@ const (
 type guardPolicy struct {
 	TrustedKeys []string               `toml:"trusted_keys"`
 	AuditLog    string                 `toml:"audit_log"`
-	AllowKinds  []string               `toml:"allow_kinds"`
 	Roles       map[string]guardRole   `toml:"roles"`
 	Users       []guardUser            `toml:"users"`
 	Actions     map[string]guardAction `toml:"actions"`
@@ -212,9 +210,6 @@ func loadGuardPolicy(path string) (*guardPolicy, error) {
 	if p.AuditLog == "" {
 		return nil, fmt.Errorf("policy %s: audit_log is required", path)
 	}
-	if len(p.AllowKinds) == 0 {
-		p.AllowKinds = []string{core.CallerHuman}
-	}
 	return &p, nil
 }
 
@@ -235,8 +230,8 @@ func (p *guardPolicy) decide(token, action string, now time.Time) guardDecision 
 		return d
 	}
 	d.Claims = c
-	if !containsStr(p.AllowKinds, c.Kind) {
-		d.Reason = fmt.Sprintf("caller kind %q not allowed (turn not started by a person)", c.Kind)
+	if c.Kind != core.CallerHuman { // only a real person's message counts (#1062 goal: which real person started the turn)
+		d.Reason = fmt.Sprintf("caller kind %q refused: the turn was not started by a person", c.Kind)
 		return d
 	}
 	var u *guardUser

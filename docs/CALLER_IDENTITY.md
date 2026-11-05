@@ -67,7 +67,7 @@ bothouse guard [--policy FILE] [--token T] [--check] [--ssh] <动作> [参数...
 - 凭证来源依次是 `--token`、`$BOTHOUSE_CALLER_TOKEN`、本机桥（按 `CC_PROJECT`/`CC_SESSION_KEY` 现取）。
 - `--check` 只判断、打印结论，不执行。
 - `--ssh` 给 `authorized_keys` 的强制命令用：从 `$SSH_ORIGINAL_COMMAND` 读 `<凭证> <动作> [参数...]`。
-- 凭证缺失、签名不对、过期、`kind` 不在允许列表、账号不在对照表、角色没有这个动作，一律拒绝，退出码 1。
+- 凭证缺失、签名不对、过期、`kind` 不是 `human`（这一轮不是真人发起的）、账号不在对照表、角色没有这个动作，一律拒绝，退出码 1。
 - 每次判断写一行审计（允许和拒绝都写），执行完再写一行（退出码、耗时）。审计文件写不进去就拒绝执行。
 - 执行身份：关口以 root 运行时直接切到 `run_as`；否则 `run_as` 与当前用户相同就直接跑，不同就用 `sudo -n -u <run_as>`。`as_user = false` 时不切用户，`run_as` 只作为命令里的占位符（适合 `ssh {run_as}@host`）。
 - 调用方参数原样追加在固定命令后面，不经过 shell。
@@ -77,7 +77,6 @@ bothouse guard [--policy FILE] [--token T] [--check] [--ssh] <动作> [参数...
 ```toml
 trusted_keys = ["/etc/bothouse/bridge.pub"]   # 可列多个桥的公钥
 audit_log    = "/var/log/bothouse-guard.jsonl"
-allow_kinds  = ["human"]                        # 默认只认真人
 
 [roles.admin]
 actions = ["*"]
@@ -139,4 +138,4 @@ command="/usr/local/bin/bothouse guard --policy /etc/bothouse/guard.toml --ssh",
 
 - 凭证证明的是「这一轮由谁触发」，不证明这句话是他本人想让做的具体操作：同一轮里模型仍可能误解。危险动作请在对照表里只给需要的人。
 - 有效期内重放：同一轮里取到的凭证 5 分钟内都能用。需要更严时，后端可以记下用过的 `nonce` 拒绝重复。
-- webhook 消息在平台上没有真人账号，`kind` 是 `bot`，默认被拒。
+- 关口只认 `kind = human`。webhook、队友 bot、定时任务发起的轮次一律被拒。
