@@ -12,6 +12,7 @@
 | `packages/` | 自有 DSH 包，同步时放到 DSH 的 `packages/experimental/` 下 |
 | `patches/` | 对上游文件的最小改动（目前只登记 TypeScript 工程引用） |
 | `scripts/sync.sh` | 检出固定提交、放入自有包、打补丁 |
+| `scripts/reload-web.py` | 重启 `dsh web` 并把新 pid/token 写回 `~/.bothouse/dsh-web.json`（见下节） |
 | `collab/` | 阶段 1 频道服务插件，直接按绝对路径加载，不参与同步 |
 
 首次准备使用一个尚不存在的新目录：
@@ -33,6 +34,29 @@ corepack pnpm run build:artifacts
 原 `scripts/sync.sh` 会强制重置并清理目标目录，本轮未使用；不要用它更新已有工作目录。修改保存在 CoNest 的 `dsh/` 下，再逐文件复制到独立 DSH checkout 验证。升级上游时更新 `upstream.pin.json` 并核对 `patches/`。
 
 **当前状态（2026-10-21）**：频道服务、DSH 原生成员和 cloud_web 网关已实现，真实 cc-connect + Claude Code 已在隔离环境回复。原生 `client-ui-discord` 已提供侧栏「频道」、频道切换、消息流、成员/工作状态、中英文本和主题适配；用户已确认页面正常。本轮补齐断线恢复、快速切换与发送草稿回归。真实 DeepSeek 回复尚待验证，阶段 2 的创建频道、@ 菜单等仍未完成，未部署。安装、验证和边界见 [collab/README.md](collab/README.md)。
+
+### 重启 `dsh web` 并把地址写回状态文件
+
+面板（bothouse 9820）判断频道页是否在运行、拿什么 token 登录，只读 `~/.bothouse/dsh-web.json`
+（`bridge/core/setup_dsh_configure.go` 的 `dshWebStatePath`，`management_dsh_proxy.go` 的
+`runningDSHWeb`）。此前只有面板自己的「打开 DSH」写这个文件，任何别的重启都会留下死 pid 和旧
+token，面板随后一律 503。凡是要重启宿主，都改用这个脚本，不要 `kill` 完再自己起：
+
+~~~sh
+python3 -I dsh/scripts/reload-web.py                 # 端口 49176、状态/日志用默认路径
+python3 -I dsh/scripts/reload-web.py --dry-run       # 只报会重启谁、会写哪个文件
+~~~
+
+它做三件事：宿主由 launchd（`local.bothouse.dsh-web`，`KeepAlive`）监督时走
+`launchctl kickstart -k`，否则自己 SIGTERM 后按原 argv/环境/cwd 重拉；只接受本次启动之后
+（按日志字节偏移）打印的 `dsh web: <url>` 公告，并从公告取 token；写文件前要求
+`GET http://127.0.0.1:<port>/?token=…` 返回 303、监听端口等于公告端口、监听 pid 等于本次启动的
+pid，任一不符就失败退出、不写。写出的 url 一律归一成 `http://127.0.0.1:<port>/?token=…#channels`：
+宿主若带 `--public-url`，公告里是 tailnet 域名，而面板代理用 url 的 host 当上游目标，原样写
+回会把 503 换成 502。
+
+旧状态文件在替换前备份为 `dsh-web.json.bak-<时间戳>`；新文件用临时文件 + 原子 rename 落盘，权限
+0600，日志同样 0600 创建（里面有 token）。自动部署脚本调用它即可，不需要再自己解析日志、拼 url。
 
 ## 目标
 
