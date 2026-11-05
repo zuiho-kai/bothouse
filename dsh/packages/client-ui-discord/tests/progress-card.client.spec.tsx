@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 // #125: the 本频道进展 card at the top of the log — 做完/在做/下一步/没定 from this channel's tasks only.
+// #156: the card folds to one strip and stays folded after a reload (the owner's 10:0x「要能收起啊」).
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
@@ -7,7 +8,27 @@ import { channelProgress } from '../src/client/ProgressCard.tsx'
 import type { ChannelSnapshot, ChannelTask } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
 
-afterEach(cleanup)
+afterEach(() => { cleanup() })
+
+// jsdom in this checkout has no localStorage (same pre-existing gap that reddens the other specs'
+// afterEach); the fold is still worth testing, so give it a real in-memory store for the case.
+function withStorage<T>(run: () => T): T {
+  const saved = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  const map = new Map<string, string>()
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (k: string) => map.get(k) ?? null,
+    setItem: (k: string, v: string) => { map.set(k, v) },
+    removeItem: (k: string) => { map.delete(k) },
+    clear: () => { map.clear() },
+  } })
+  try {
+    return run()
+  } finally {
+    map.clear()
+    if (saved) Object.defineProperty(globalThis, 'localStorage', saved)
+    else Reflect.deleteProperty(globalThis, 'localStorage')
+  }
+}
 
 const tr = (key: keyof typeof zh, values?: Record<string, unknown>): string => Object.entries(values ?? {})
   .reduce((text, [name, value]) => text.replaceAll('{' + name + '}', String(value)), String(zh[key]))
@@ -62,4 +83,37 @@ it('jumps to the task dispatch message when a row is clicked', () => {
   render(<ChannelsPage {...props({ ...base, tasks: [task(6, { status: 'asked' })] }, { selectRoom })} />)
   fireEvent.click(within(row('progressOpen')).getByRole('button'))
   expect(selectRoom).toHaveBeenCalledWith(2)
+})
+
+it('folds to one strip and keeps the counts, then expands again (#156)', () => {
+  const view = render(<ChannelsPage {...props({ ...base, tasks: [task(2), task(3), task(8, { status: 'returned' })] })} />)
+  expect(card().getAttribute('data-folded')).toBe('false')
+  fireEvent.click(within(card()).getByRole('button', { name: zh.progressFold }))
+  expect(card().getAttribute('data-folded')).toBe('true')
+  expect(card().querySelector('dl')).toBeNull()
+  expect(card().textContent).toContain(`${zh.progressDoing} 2`)
+  expect(card().textContent).toContain(`${zh.progressNext} 1`)
+  expect(card().textContent).not.toContain('任务3')
+  fireEvent.click(within(card()).getByRole('button', { name: zh.progressExpand }))
+  expect(card().getAttribute('data-folded')).toBe('false')
+  expect(view.container.querySelector('[data-row="doing"]')).toBeTruthy()
+})
+
+it('remembers the folded state per room across a reload (#156)', () => withStorage(() => {
+  const first = render(<ChannelsPage {...props({ ...base, tasks: [task(2)] })} />)
+  fireEvent.click(within(card()).getByRole('button', { name: zh.progressFold }))
+  first.unmount()
+  // A reload is a fresh mount reading the stored choice, not the component keeping it in memory.
+  expect(globalThis.localStorage!.getItem('dsh-channels-progress-folded:1')).toBe('1')
+  render(<ChannelsPage {...props({ ...base, tasks: [task(2)] })} />)
+  expect(card().getAttribute('data-folded')).toBe('true')
+  // Another channel starts open: the fold is per room, not global.
+  cleanup()
+  render(<ChannelsPage {...props({ ...base, roomId: 9, rooms: [{ id: 9, name: 'other', kind: 'chat' }], tasks: [task(7, { room_id: 9 })] })} />)
+  expect(card().getAttribute('data-folded')).toBe('false')
+}))
+
+it('does not render the fold button when the channel has no task (#156)', () => {
+  render(<ChannelsPage {...props({ ...base, tasks: [] })} />)
+  expect(screen.queryByRole('region', { name: zh.progressTitle })).toBeNull()
 })
