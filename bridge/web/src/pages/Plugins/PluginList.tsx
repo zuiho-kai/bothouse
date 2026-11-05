@@ -324,7 +324,11 @@ export default function PluginList() {
                     variant="secondary"
                     size="sm"
                     onClick={() => toggle(p)}
-                    disabled={busy === p.name}
+                    // One write at a time: an install rewrites the same package.json, and two
+                    // switches at once would each answer "changed" for a list only one of them
+                    // lands. The backend now recomputes under the lock, this only stops the
+                    // confusing double-click.
+                    disabled={installing || busy !== ''}
                     loading={busy === p.name}
                     data-testid={`plugin-${p.name}-toggle`}
                   >

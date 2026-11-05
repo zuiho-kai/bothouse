@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // writePluginsProfile builds a profile with one DSH bundle (two rows, one disabled by the profile
@@ -271,5 +273,75 @@ func TestPluginFailureDetailPrefersPnpmCode(t *testing.T) {
 	log := "Progress: resolved 1\nError: ERR_PNPM_FETCH_404\n  × 404 Not Found\n"
 	if got := pluginFailureDetail(log); got != "ERR_PNPM_FETCH_404" {
 		t.Fatalf("detail = %q, want the pnpm code", got)
+	}
+}
+
+// TestPluginsSwitchComputesInsideTheLock pins the fix for a lost update (#1027 rework): the switch
+// used to read package.json before taking the profile lock and write that stale list back, so any
+// writer that had finished in between (dsh plugin add, DSH's own Plugins page) was silently undone
+// while the API still answered changed=true.
+//
+// The test holds the lock itself, sends a switch (it blocks), simulates the other writer adding a
+// bundle, then releases. The switch must build on that new list and keep the added bundle.
+func TestPluginsSwitchComputesInsideTheLock(t *testing.T) {
+	_, dir := writePluginsProfile(t)
+	manifestPath := filepath.Join(dir, "package.json")
+	_, ts, _ := testManagementServer(t, "tok")
+
+	done := make(chan error, 1)
+	release := make(chan struct{})
+	started := make(chan struct{})
+	go func() {
+		done <- withPluginProfileLock(manifestPath, func() error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+	<-started
+
+	switched := make(chan mgmtResponse, 1)
+	go func() {
+		switched <- mgmtPost(t, ts.URL+"/api/v1/plugins/switch", "tok", map[string]any{"name": "demo-bundle", "enabled": false})
+	}()
+	// Let the request reach the lock and wait there before the other writer's change lands.
+	time.Sleep(200 * time.Millisecond)
+	// The other writer finished first: it added a dependency and selected its bundle.
+	raw, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	withAdded := strings.Replace(string(raw), `"dependencies": {`, `"dependencies": {
+    "other-bundle": "link:./other-bundle",`, 1)
+	withAdded = strings.Replace(withAdded, `"bundles": ["@deepseek-ai/dsh-web-app", "demo-bundle"]`,
+		`"bundles": ["@deepseek-ai/dsh-web-app", "demo-bundle", "other-bundle"]`, 1)
+	if withAdded == string(raw) {
+		t.Fatalf("test setup did not change the manifest: %s", raw)
+	}
+	if err := os.WriteFile(manifestPath, []byte(withAdded), 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("holder: %v", err)
+	}
+	r := <-switched
+	if !r.OK {
+		t.Fatalf("switch failed: %s", r.Error)
+	}
+
+	after, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read manifest after switch: %v", err)
+	}
+	var m pluginManifest
+	if err := json.Unmarshal(after, &m); err != nil {
+		t.Fatalf("manifest is not valid JSON: %v", err)
+	}
+	if !slices.Contains(m.DSH.Profile.Bundles, "other-bundle") {
+		t.Fatalf("the switch dropped the bundle another writer had just selected: %s", after)
+	}
+	if slices.Contains(m.DSH.Profile.Bundles, "demo-bundle") {
+		t.Fatalf("the switch did not turn demo-bundle off: %s", after)
 	}
 }
