@@ -93,6 +93,10 @@ test('channel rename API: emits fresh rooms and returns HTTP 400 for invalid nam
   assert.equal(events.at(-1).rooms.find(r => r.id === 1).name, 'new');
   assert.deepEqual(refreshed, [1]);
   for (const name of ['', 'x'.repeat(33), 'two words', 'name\n']) assert.equal((await call(1, name)).status, 400);
+  // #176: renaming onto another channel's name, or onto 工作区<n>, is a conflict, not a silent duplicate.
+  hub.store.ensureRoom(2, 'other');
+  assert.equal((await call(1, 'other')).status, 409);
+  assert.equal((await call(1, '工作区9')).status, 409);
   assert.equal((await call(ws.id, 'new')).status, 400);
   assert.equal((await call(999, 'new')).status, 404);
   assert.deepEqual(refreshed, [1]);
@@ -144,6 +148,25 @@ test('channel rename: the persisted name survives reopening the database', async
   assert.equal(reopened.room(1).name, '新频道');
   assert.equal(reopened.workspacePath(1, '/fallback'), '/changed');
   reopened.close();
+});
+
+test('#176: channel names are unique and a workspace-shaped name is refused', () => {
+  const s = new Store(':memory:');
+  s.ensureRoom(1, 'general');
+  const dev = s.createRoom('dev');
+  // Two #general in the sidebar are indistinguishable: a second channel takes no existing name.
+  assert.throws(() => s.createRoom('general'), e => e.code === 'conflict' && /already in use/.test(e.message));
+  assert.throws(() => s.createRoom('General'), e => e.code === 'conflict');
+  assert.throws(() => s.renameRoom(dev.id, 'general'), e => e.code === 'conflict');
+  // 工作区<n> is how a workspace is addressed; a chat channel must not shadow it.
+  assert.throws(() => s.createRoom('工作区9'), e => e.code === 'conflict' && /reserved/.test(e.message));
+  assert.throws(() => s.renameRoom(dev.id, '工作区9'), e => e.code === 'conflict');
+  // Renaming a channel onto its own name stays fine, and a private chat does not hold its name.
+  assert.equal(s.renameRoom(dev.id, 'dev').name, 'dev');
+  s.addMember({ id: 'm-a', name: 'probe', rooms: [1] });
+  s.openDm('m-a', 'probe');
+  assert.equal(s.createRoom('probe').name, 'probe');
+  s.close();
 });
 
 test('channel rename: refreshes loaded and persisted sessions, workspaces and future sessions', async () => {
