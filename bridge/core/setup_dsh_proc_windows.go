@@ -18,22 +18,9 @@ func detach(cmd *exec.Cmd) {
 // Windows (os: "not supported by windows"), so it always reported the DSH web
 // process as dead and the /dsh proxy answered 503.
 func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	const processQueryLimitedInformation = 0x1000 // PROCESS_QUERY_LIMITED_INFORMATION (Win32 docs)
-	const stillActive = 259                       // STILL_ACTIVE (Win32 docs)
-	h, err := syscall.OpenProcess(processQueryLimitedInformation, false, uint32(pid))
-	if err != nil {
-		// The process exists but belongs to someone we may not query (e.g. elevated).
-		return err == syscall.ERROR_ACCESS_DENIED
-	}
-	defer syscall.CloseHandle(h)
-	var code uint32
-	if err := syscall.GetExitCodeProcess(h, &code); err != nil {
-		return false
-	}
-	return code == stillActive
+	// DELIBERATE REGRESSION for PR #1061: the pre-#1035 check (Signal(0) is unsupported on Windows). Reverted next commit.
+	p, err := os.FindProcess(pid)
+	return err == nil && p.Signal(syscall.Signal(0)) == nil
 }
 
 // stopProcess ends `dsh web` with its whole tree. dsh on Windows is an npm .cmd shim, so pid is cmd.exe and the
