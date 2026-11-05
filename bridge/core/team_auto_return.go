@@ -167,11 +167,14 @@ func (e *Engine) queueChatLeadTurn(p Platform, parent, ws, desc, prompt string, 
 // reply, then how to speak — as the user's secretary (user 2026-10-28 「你的身份应该是我的秘书…
 // 我只关心我要的东西，现在什么进度」「你要有背景，突然间拍脑袋来一句…没背景都忘记要干嘛了」
 // 「你都知道我要换了，你还要…要我回个a」).
-// reportVerifyHint: on a workspace [report] the lead arranges the check in the same turn,
-// reusing the team rule 「写的人不验收自己的活」 and the teammate status injected with the turn.
-const reportVerifyHint = "写的人不验收自己的活：这件要验收的（改了代码、配置或交了成品），当轮就看上面的「队友状态」，" +
-	"派给空着、不是写这件的那位队友（@ 她，附交接文件和要验的几项），一句告诉用户派给了谁、验什么；" +
-	"队友都忙就说尚未安排、等谁空出来。交回里已写明别人验过，或这件不用验收，才不派。\n"
+// reportVerifyHint: on a workspace [report] the lead closes it in the same turn. The lead is a
+// clean context for it (another session wrote it), so it checks the result itself; only when it
+// cannot get to it does it hand the check to an idle teammate. Without this the report sat at
+// 「等复验」 and the lead kept waiting for a handback that had already come (user 11-06
+// 「他好像没有进度」「他自己也可以验收」, #1107).
+const reportVerifyHint = "这件已经交回，不用再等工作区。你当轮自己收口：对照交接的范围，亲手核一两处关键结果（看改动、跑交回里给的验证命令或看截图），" +
+	"核过就 board done 并一句告诉用户结果；没对上就用 ws-forward 退回工作区写明哪里不对。" +
+	"你手上忙、这轮核不了，才派给上面「队友状态」里空着的队友（@ 她，附交接文件和要核的几项），一句告诉用户派给了谁。\n"
 
 func chatLeadPrompt(dataDir, wsLabel, bot, kind, body, background string, posted bool) string {
 	var b strings.Builder
@@ -213,9 +216,7 @@ func chatLeadPrompt(dataDir, wsLabel, bot, kind, body, background string, posted
 		}
 	}
 	if kind != exitKindAsk {
-		// Whoever wrote it does not accept it (team rule); the lead hands the check to an idle
-		// teammate in this very turn instead of leaving it at 「等复验」 (user 11-06 「他好像没有进度，
-		// 然后他这也没安排龙娘去做」, #1107).
+		// The lead closes the report in this very turn instead of leaving it at 「等复验」 (#1107).
 		b.WriteString(reportVerifyHint)
 	}
 	b.WriteString("这是回传给你看的，不是新的用户指令：不要把这件活重新派一遍，不要 @ 工作区里的 bot。" +
