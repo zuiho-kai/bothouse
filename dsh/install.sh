@@ -188,6 +188,37 @@ else
   echo "== dsh-web-app not found in local dsh path, linking collab and ui plugins"
   "$DSH_EXE" plugin --profile "$PROFILE" add "link:$LINK_HERE/collab" "link:$LINK_UI"
 fi
+
+# DeepSeek Harness Desktop boots its own `desktop` profile; the public dsh CLI refuses to manage
+# that profile ("managed exclusively by the Electron application"), so installing only into web
+# left the desktop window without channels (#161 ④). Install there too when the app has been
+# opened once (it creates profiles/desktop/package.json), using the app's own bundled CLI, which
+# is allowed to manage it. The web install above already succeeded: a desktop failure only warns,
+# so a running app cannot fail the whole install.
+if [ "$PROFILE" != "desktop" ] && [ -f "${DSH_HOME:-$HOME/.dsh}/profiles/desktop/package.json" ]; then
+  DESKTOP_DSH="${DSH_DESKTOP_BIN:-}"
+  if [ -z "$DESKTOP_DSH" ]; then
+    for c in \
+      "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
+      "$HOME/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
+      "${LOCALAPPDATA:-}/Programs/DeepSeek Harness/resources/runtime/cli/bin/dsh.cmd"; do
+      if [ -f "$c" ]; then DESKTOP_DSH="$c"; break; fi
+    done
+  fi
+  if [ -z "$DESKTOP_DSH" ]; then
+    echo "== desktop profile found, but the DeepSeek Harness Desktop CLI was not; quit the app and rerun this installer to add channels to the desktop window" >&2
+  else
+    echo "== desktop profile found; installing the channel plugins there with $DESKTOP_DSH"
+    if "$DESKTOP_DSH" plugin --profile desktop add "link:$LINK_HERE/collab" "link:$LINK_UI"; then
+      echo "== restart DeepSeek Harness Desktop to load the channel plugins"
+    else
+      echo "== desktop profile unchanged; quit DeepSeek Harness Desktop and rerun this installer to add channels to the desktop window" >&2
+    fi
+  fi
+elif [ "$PROFILE" != "desktop" ]; then
+  echo "== no desktop profile yet; if you also use DeepSeek Harness Desktop, open it once and rerun this installer to add channels there"
+fi
+
 if [ -n "$LANG_PREF" ] && command -v node >/dev/null; then
   # DSH keeps the UI language as config of the `locale` entry (dsh-client-locale, field
   # `preference`) in the profile's cordis.patch.yml; the Settings > Language row writes the same place.
