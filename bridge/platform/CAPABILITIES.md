@@ -62,3 +62,12 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - feishu: 不支持：飞书没有成员进群事件这条线，暂无要提醒的平台权限；成员事件按交接「飞书暂不做」
 - cloud-web: 不支持：本机网页频道没有平台侧权限开关，没有要提醒的事
 - dsh: 不支持：同 cloud-web
+
+## MemberEventHandler
+
+有人进、退服务器时，平台交给 core 发事件：写 events.jsonl（type member），并触发 [[hooks]] 的 member.joined / member.left（core/member_events.go，#1060）。桥不叫醒角色、不发话。订阅写法见 docs/usage.zh-CN.md「新成员进群事件」。
+
+- discord: 已接（需 SERVER MEMBERS INTENT；没开时退回不订阅成员事件，照常连上）
+- feishu: 不支持：交接定「飞书暂不做」
+- cloud-web: 不支持：本机网页频道没有服务器成员这层
+- dsh: 不支持：同 cloud-web

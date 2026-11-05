@@ -12,6 +12,7 @@ Complete guide to using bothouse features.
 - [Feishu Setup CLI](#feishu-setup-cli)
 - [Weixin (personal) Setup CLI](#weixin-personal-setup-cli)
 - [Claude Code Router Integration](#claude-code-router-integration)
+- [New member events (Discord)](#new-member-events-discord)
 - [Claude Code PermissionRequest Hooks](#claude-code-permissionrequest-hooks)
 - [Voice Messages (STT)](#voice-messages-speech-to-text)
 - [Voice Reply (TTS)](#voice-reply-text-to-speech)
@@ -626,6 +627,26 @@ router_api_key = "your-secret-key"  # optional
 ```
 
 ---
+
+## New member events (Discord)
+
+When someone joins or leaves a Discord server, the bridge only publishes an event. It wakes no role and sends nothing; welcoming, logging or anything else is up to whoever subscribes.
+
+Requirement: Discord Developer Portal → your application → Bot → Privileged Gateway Intents, turn on **SERVER MEMBERS INTENT**, save, then restart bothouse. Without it the bridge still connects but gets no member events; the lead says so once in its channel, and the panel's roles page and the setup wizard show it too.
+
+Two places carry the event:
+
+- `<data_dir>/events.jsonl`: a line with `"type":"member"`; `data` has `action` (joined / left), `user_id`, `user`, `display_name`, `guild`, `guild_id`, `bot`, `channel_id`; `time` is when it happened.
+- `[[hooks]]`: event names `member.joined` and `member.left`, used like `agent.closed`.
+
+```toml
+[[hooks]]
+event = "member.joined"
+type = "command"
+command = "python3 ~/scripts/on_join.py"   # your script decides: greet, log, wake a role
+```
+
+A `type = "command"` hook gets env vars `CC_HOOK_EVENT`, `CC_HOOK_TIMESTAMP`, `CC_HOOK_PLATFORM`, `CC_HOOK_USER_ID`, `CC_HOOK_USER_NAME` (display name with account name), `CC_HOOK_DISPLAY_NAME`, `CC_HOOK_GUILD` (server name), `CC_HOOK_GUILD_ID`, `CC_HOOK_CHANNEL_ID` (the server's system channel, when set), `CC_HOOK_SESSION_KEY`, and `CC_HOOK_USER_IS_BOT=1` for bots. A `type = "http"` hook gets the same as JSON (server fields under `extra`). To have a role greet, call `bothouse timer add --delay 1m --prompt "…"` or `bothouse send` from the script.
 
 ## Claude Code PermissionRequest Hooks
 
