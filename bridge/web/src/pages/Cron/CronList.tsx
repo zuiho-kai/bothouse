@@ -274,7 +274,10 @@ export default function CronList() {
         if (activePrompt !== editJob.prompt) updates.prompt = activePrompt;
         if (activeExec !== editJob.exec) updates.exec = activeExec;
         if (form.project !== editJob.project) updates.project = form.project;
-        if (form.session_key !== editJob.session_key) updates.session_key = form.session_key;
+        // Trim like the create path: a pasted key with surrounding spaces saves fine but the
+        // scheduler then looks up a platform named " qq" and the job only fails at run time.
+        const sessionKey = form.session_key.trim();
+        if (sessionKey !== editJob.session_key) updates.session_key = sessionKey;
         if (form.silent !== !!editJob.silent) updates.silent = form.silent;
         if (form.enabled !== editJob.enabled) updates.enabled = form.enabled;
         if ((form.mode || '') !== (editJob.mode || '')) updates.mode = form.mode;
