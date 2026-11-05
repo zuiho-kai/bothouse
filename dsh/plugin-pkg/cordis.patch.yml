@@ -6,7 +6,7 @@
     - id: bothouse-dsh
       name: bothouse-dsh
       config:
-        dataDir: !!js process.env.CONEST_COLLAB_DATA || (process.env.HOME + '/.conest-collab')
+        dataDir: !!js process.env.CONEST_COLLAB_DATA || process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.conest-collab')
         workspacePath: !!js process.env.CONEST_COLLAB_WORKSPACE || process.cwd()
     - id: bothouse-channels
       name: bothouse-dsh-channels
