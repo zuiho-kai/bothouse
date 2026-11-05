@@ -373,9 +373,13 @@ type JevTestResult struct {
 	LatencyMs int64    `json:"latency_ms"`
 	Slow      bool     `json:"slow,omitempty"` // answered with probabilities, but slower than the gate waits
 	// what worked, so the gate asks the same way (saved in jev.json)
-	TopLogprobs int    `json:"top_logprobs,omitempty"`
-	NoThinking  bool   `json:"no_thinking"`
-	Error       string `json:"error,omitempty"`
+	TopLogprobs int  `json:"top_logprobs,omitempty"`
+	NoThinking  bool `json:"no_thinking"`
+	ThinkingOff bool `json:"thinking_off,omitempty"`
+	// TextOnly: no probabilities came back, but the answer itself was one option letter in time:
+	// an ordinary chat model (user 11-06「随便找一个普通模型当阀门」); the gate reads the letter.
+	TextOnly bool   `json:"text_only,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 // jevMaxLatency — 来源：contrib/gate/scorer_remote.py TIMEOUT_S = 2.5（gate 每次打分最多等这么久，过了就当出错）。
@@ -395,12 +399,12 @@ const jevTestPrompt = "判断群里这条消息 AI 该怎么处理，只答一�
 // same condition under which scorer_remote.py gets a score instead of an error.
 // 来源：方案第 4 步「填完自动测一次（只要一个字的请求）」，所以 max_tokens = 1。
 func TestJevEndpoint(ctx context.Context, baseURL, apiKey, model string) JevTestResult {
-	p := jevParams{Top: jevTopLogprobs, NoThinking: true}
+	p := jevParams{Top: jevTopLogprobs, NoThinking: true, ThinkingOff: true}
 	var res JevTestResult
 	// Up to two adjustments, each only on the server's own 400: fewer top_logprobs when it states
 	// its limit (mlx_lm.server: "top_logprobs must be at most 11"), and no chat_template_kwargs
 	// when it rejects that field.
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < 4; attempt++ {
 		res = testJevOnce(ctx, baseURL, apiKey, model, p)
 		next, retry := p.adjustFor(res.Error)
 		if !retry {
@@ -413,7 +417,7 @@ func TestJevEndpoint(ctx context.Context, baseURL, apiKey, model string) JevTest
 		// (gate.py __main__), so judge the second, warm call.
 		res = testJevOnce(ctx, baseURL, apiKey, model, p)
 	}
-	res.TopLogprobs, res.NoThinking = p.Top, p.NoThinking
+	res.TopLogprobs, res.NoThinking, res.ThinkingOff = p.Top, p.NoThinking, p.ThinkingOff
 	return res
 }
 
@@ -424,9 +428,14 @@ func TestJevEndpoint(ctx context.Context, baseURL, apiKey, model string) JevTest
 // assistant prefill ("<think></think>") and "/no_think" because, measured 2026-10-20 on
 // mlx_lm.server + Qwen3-0.6B-4bit, only chat_template_kwargs gave "A"/"B"/"C" as top tokens
 // (prefill and /no_think still started with "<think>"); vLLM and SGLang document the same field.
+//
+// ThinkingOff sends "thinking": {"type": "disabled"} (DeepSeek-style reasoning models): measured
+// 2026-11-06 on deepseek-v4.1-flash via magpie, without it the model thinks ~150 tokens first
+// (2.3s); with it the one token "A" came back in 1.6s. Servers that reject it get it dropped.
 type jevParams struct {
-	Top        int
-	NoThinking bool
+	Top         int
+	NoThinking  bool
+	ThinkingOff bool
 }
 
 var topLimitRe = regexp.MustCompile(`top_logprobs[^0-9]*(?:at most|<=|maximum(?: of)?|max(?:imum)?)\s*(\d+)`)
@@ -447,6 +456,10 @@ func (p jevParams) adjustFor(err string) (jevParams, bool) {
 		p.NoThinking = false
 		return p, true
 	}
+	if p.ThinkingOff && strings.Contains(low, "thinking") {
+		p.ThinkingOff = false
+		return p, true
+	}
 	return p, false
 }
 
@@ -461,6 +474,9 @@ func (p jevParams) body(model string) map[string]any {
 	}
 	if p.NoThinking {
 		b["chat_template_kwargs"] = map[string]any{"enable_thinking": false}
+	}
+	if p.ThinkingOff {
+		b["thinking"] = map[string]any{"type": "disabled"}
 	}
 	return b
 }
@@ -498,6 +514,9 @@ func testJevOnce(ctx context.Context, baseURL, apiKey, model string, p jevParams
 	res.Reachable = true
 	var out struct {
 		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
 			Logprobs *struct {
 				Content []struct {
 					TopLogprobs []struct {
@@ -507,7 +526,20 @@ func testJevOnce(ctx context.Context, baseURL, apiKey, model string, p jevParams
 			} `json:"logprobs"`
 		} `json:"choices"`
 	}
-	if json.Unmarshal(b, &out) != nil || len(out.Choices) == 0 || out.Choices[0].Logprobs == nil || len(out.Choices[0].Logprobs.Content) == 0 {
+	if json.Unmarshal(b, &out) != nil || len(out.Choices) == 0 {
+		return res
+	}
+	if out.Choices[0].Logprobs == nil || len(out.Choices[0].Logprobs.Content) == 0 {
+		// No probabilities: still usable when the answer is just one option letter (scorer_remote.py text_only).
+		ans := strings.TrimSpace(out.Choices[0].Message.Content)
+		for _, o := range jevTestOptions {
+			if ans == o {
+				res.Options, res.Logprobs, res.TextOnly = []string{o}, true, true
+			}
+		}
+		if res.Logprobs && time.Duration(res.LatencyMs)*time.Millisecond > jevMaxLatency {
+			res.Logprobs, res.Slow = false, true
+		}
 		return res
 	}
 	seen := map[string]bool{}
