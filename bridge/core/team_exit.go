@@ -164,7 +164,7 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 	reply = stripFillerLines(reply)
 	kind, body, ok := parseExitKind(reply)
 	auto := false
-	if !ok && p != nil && strings.TrimSpace(reply) != "" && e.workspaceHandoffIsMine(p, sessionKey) && !e.workspaceStillWorking(sessionKey) {
+	if !ok && p != nil && strings.TrimSpace(reply) != "" && e.workspaceHasOpenHandoff(sessionKey) && !e.workspaceStillWorking(sessionKey) {
 		// A workspace turn that ends without a marker while a handoff is open is still the
 		// answer to that handoff: it goes back as a [report] (user 2026-10-28 「工作区队列做完了
 		// 为什么没返回」).

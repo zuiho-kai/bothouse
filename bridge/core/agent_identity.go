@@ -33,24 +33,7 @@ func (e *Engine) withChannelAgentInstructions(prompt, userID string, fromBot boo
 	if e.skipTeamModeRules.Load() {
 		rules = ""
 	}
-	prompt = e.withHumanChatMark(prompt, userID, fromBot, sessionKey)
 	return e.withAgentIdentity(prefixRules(rules, e.withPermissionDelegateAuthority(e.withSubagentPolicy(prompt, userID, fromBot))))
-}
-
-// humanChatMark tells reply-length-guard that a scheduled or bot-triggered turn still posts in a
-// chat channel people read, so the reply length check applies (#1109: a timer verification turn
-// posted a 2000-character refusal in the user's chat). Keep the text in sync with the hook.
-const humanChatMark = "[Bridge: this reply is posted in a chat channel people read]"
-
-func (e *Engine) withHumanChatMark(prompt, userID string, fromBot bool, sessionKey string) string {
-	switch userID {
-	case "cron", "timer", "heartbeat", "handoff":
-		fromBot = true
-	}
-	if e.team == nil || !fromBot || sessionKey == "" || e.isTeamWorkspaceChat(sessionKey) {
-		return prompt
-	}
-	return humanChatMark + "\n" + prompt
 }
 
 // withSupplementInstructions is withChannelAgentInstructions without the team-mode rules, for

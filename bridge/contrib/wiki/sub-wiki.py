@@ -78,16 +78,7 @@ def hook_env():
     if "HOME" in e:
         env.setdefault("HOME", e["HOME"])
     env.update({k: e[k] for k in PASS if e.get(k)})
-    env.update(model_auth(e))
     return env
-
-
-# 整理引擎的登录：Mac 上 claude 从钥匙串读，容器和只配 API key 的新装只有这些环境变量（去掉就报 Not logged in）
-AUTH_PREFIX = ("ANTHROPIC_", "CLAUDE_CODE_", "OPENAI_", "CODEX_", "GEMINI_", "GOOGLE_API_KEY", "DEEPSEEK_")
-
-
-def model_auth(e):
-    return {k: v for k, v in e.items() if v and k.startswith(AUTH_PREFIX)}
 
 
 def detach(argv, env):

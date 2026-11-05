@@ -2989,11 +2989,6 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 func (e *Engine) Start() error {
 	e.restoreProactiveAdmissions()
 	go e.queueReportLoop() // #1020 queue_report.go
-	// sync collaboration/runtime now so an upgrade also refreshes unedited PATH tools (#1104).
-	// Synchronous: a few small files; a goroutine kept writing into dataDir after Stop (tests' TempDir cleanup failed).
-	if _, err := e.leadRuntimeDir(); err != nil {
-		slog.Warn("lead tools: runtime sync failed", "project", e.name, "error", err)
-	}
 	e.resolveRoleProductPython()
 	var startErrs []error
 	readyCount := 0
@@ -7361,15 +7356,6 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// The card was finalized "completed" above, which promises a reply in the next message.
 				cp.Finalize(ProgressCardStateSilent)
 			}
-			// #1109: a model refusal posts one line, and a refused verification goes to another role.
-			if !isSilent {
-				state.mu.Lock()
-				jobID := state.currentJobID
-				state.mu.Unlock()
-				if line := e.refusalReply(jobID, baseResponse); line != "" {
-					baseResponse, cleanResponse = line, line
-				}
-			}
 
 			// A quota notice is not the workspace's answer: it must not go back as a [report].
 			if _, exhausted := QuotaExhaustedReset(event); !isSilent && !exhausted {
@@ -9112,14 +9098,6 @@ func (e *Engine) cmdNew(p Platform, msg *Message, args []string) {
 		name = strings.Join(args, " ")
 	}
 	e.startFreshSession(sessions, interactiveKey, msg.SessionKey, name, "用户发了 /new")
-	// #1120: a person's /new also ends this chat's scheduled side turns (a review running in a
-	// #timer: session), and counts as them talking here, so a reminder held for the user
-	// (WaitUserQuiet) does not run right after the reset.
-	e.stopTimerTurnsIn(msg.Platform, msg.SessionKey)
-	if !msg.FromBot {
-		sessions.GetOrCreateActive(msg.SessionKey).TouchUserActivity()
-		sessions.Save()
-	}
 	if name != "" {
 		e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgNewSessionCreatedName), name))
 	} else {
