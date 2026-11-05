@@ -117,6 +117,7 @@ func TestDSHModuleFreshReadOnlyAndInstall(t *testing.T) {
 	bin := t.TempDir()
 	oldPath := os.Getenv("PATH")
 	t.Setenv("PATH", bin)
+	noAppDSH(t)
 	if st, err := GetDSHModuleState(); err != nil || st.Installed {
 		t.Fatalf("fresh status: %+v %v", st, err)
 	}
