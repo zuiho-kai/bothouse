@@ -157,7 +157,7 @@ def turn_calls(lines):
             start = i
             break
     keys = ('"turn/start"', '"user/message"', '"assistant/message"', '"tool/call"', '"hook/result"')
-    steps, ids, last, user, turn = [], {}, None, None, None
+    steps, ids, last, user, turn, started = [], {}, None, None, None, None
     for line in lines[start:]:
         if not any(k in line[:40] for k in keys):
             continue
@@ -168,6 +168,7 @@ def turn_calls(lines):
         t, d = ev.get("type"), ev.get("data") or {}
         if t == "turn/start":
             turn = d.get("turn")
+            started = ev.get("time")  # 毫秒；ws-cap-guard 算本轮时长用
         elif t == "user/message" and user is None:
             user = " ".join(x.get("text", "") for x in d.get("content") or [] if isinstance(x, dict))
         elif t == "assistant/message":
@@ -183,7 +184,8 @@ def turn_calls(lines):
             last = d.get("callId")
         elif t == "hook/result" and d.get("point") == "PreToolUse" and d.get("decision") == "deny" and last in ids:
             ids[last]["denied"] = True
-    return {"turn": turn, "outing": is_outing(user or ""), "auto": is_auto(user or ""), "steps": steps}
+    return {"turn": turn, "outing": is_outing(user or ""), "auto": is_auto(user or ""), "steps": steps,
+            "started": started}
 
 
 def has_call(info, cid):
@@ -213,12 +215,13 @@ def wants_busy(name, inp):
     return name == "job_output" and inp.get("wait") is True
 
 
-def add_fields(payload, name, sub, read):
+def add_fields(payload, name, sub, read, want_turn=False):
     """PreToolUse/PostToolUse 补字段 dsh_turn / dsh_busy / context_tokens（见文件说明第 3 条）。
     name 是 DSH 的原工具名（小写），read() 返回会话记录的行；run.py 的 DSH 路径也调这里。"""
     event = payload.get("hook_event_name")
     need_busy = event == "PreToolUse" and wants_busy(name, payload.get("tool_input"))
-    need_turn = event == "PreToolUse" and name in ("bash", "job_output")
+    # want_turn：ws-cap-guard 管所有工具，每个调用都要本轮计数（工作区一轮上限，#1112）
+    need_turn = event == "PreToolUse" and (want_turn or name in ("bash", "job_output"))
     need_ctx = event == "PostToolUse" and sub
     if need_busy or need_turn or need_ctx:
         try:  # 读不到/解不开：不加字段，原 hook 按没有这些信息处理（不做本轮计数）
@@ -287,7 +290,8 @@ def main():
     if sub and "agent_id" not in payload:
         payload["agent_id"] = sid
     if path:
-        add_fields(payload, name, sub, lambda: export_mod().dsh_lines(path, timeout=3))
+        add_fields(payload, name, sub, lambda: export_mod().dsh_lines(path, timeout=3),
+                   want_turn=os.path.basename(target) == "ws-cap-guard.py")
 
     tmp = None
     turn = None

@@ -54,6 +54,7 @@ Work that cannot finish in 10 minutes must be cut (user, 2026-10-23: "if it can'
 - For background work, run `t10 <pid>` right after starting it: at 10 minutes it stops the process and its children.
 - For work assigned to a teammate in the channel, run `d10 <teammate name or ID> "<label>"` in the same turn: if she has not handed back by then, the primary role sends "pause"; if she has, nothing is sent; if she has not but committed or posted in the last 10 minutes, it waits another 10 minutes, at most twice.
 - Do not claim a watchdog is set unless you set it.
+- A workspace reporting "【到上限】" (a turn hit the step or time cap and ws-cap-guard made it hand back its progress): if it made progress (finished something, pushed a commit), `ws-forward --notes <handoff> "continue: <where the next turn starts>"` for another turn; if it reports the same blocker as last time with no progress, cut it as this section says: `board pause <id>`, or hand it to someone else or with a different approach, and tell the user in one line.
 
 ## 7. Always isolate tests
 

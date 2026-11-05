@@ -823,7 +823,7 @@ def main():
             spec.loader.exec_module(compat)
             # same gate and retry as the standalone adapter: the log is read only for bash / job_output
             # (dsh_turn) and dsh_busy only for a sleep / wait=true; unreadable log = no fields, hook still runs
-            compat.add_fields(payload, tool, sub, lambda: read_lines(path))
+            compat.add_fields(payload, tool, sub, lambda: read_lines(path), want_turn=name == "ws-cap-guard")
 
     if name in PROMPT_HOOKS and payload.get("hook_event_name") == "PreToolUse" and not payload.get("user_prompt"):
         if path:  # DSH: the bridge's transcript_path is empty; the words are in the session log
@@ -1066,7 +1066,8 @@ def run_agy(target, raw, event):
     tmp, step, sid = None, None, payload["session_id"]
     if event == "PreToolUse" and os.path.basename(target)[:-3] in PROMPT_HOOKS:
         payload["user_prompt"] = transcript_user_words(payload["transcript_path"])
-    if event == "Stop":
+    # ws-cap-guard counts this turn's steps from the transcript too (#1112), so it gets the converted one
+    if event == "Stop" or (event == "PreToolUse" and os.path.basename(target) == "ws-cap-guard.py"):
         lines = []
         try:
             with open(payload["transcript_path"], encoding="utf-8") as f:
@@ -1079,6 +1080,7 @@ def run_agy(target, raw, event):
             for r in entries:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         payload["transcript_path"] = tmp
+    if event == "Stop":
         try:
             with open(AGY_STATE) as f:
                 st = json.load(f)
