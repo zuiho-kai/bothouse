@@ -716,6 +716,34 @@ func (p ProjectConfig) TeamBoardEnabled() bool {
 	return p.TeamBoard == nil || *p.TeamBoard
 }
 
+// InjectSenderEnabled: an explicit inject_sender wins; unset means on for a multi-person
+// channel (a platform with allow_from = "*" or share_session_in_channel = true), so the
+// agent always knows who said the newest line. One-person setups stay off.
+func (p ProjectConfig) InjectSenderEnabled() bool {
+	if p.InjectSender != nil {
+		return *p.InjectSender
+	}
+	for _, pl := range p.Platforms {
+		if pl.Disabled {
+			continue
+		}
+		if s, ok := pl.Options["allow_from"].(string); ok && strings.TrimSpace(s) == "*" {
+			return true
+		}
+		switch v := pl.Options["share_session_in_channel"].(type) {
+		case bool:
+			if v {
+				return true
+			}
+		case string:
+			if strings.EqualFold(strings.TrimSpace(v), "true") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (p ProjectConfig) TeamWorkspacesEnabled() bool {
 	return p.TeamWorkspaces == nil || *p.TeamWorkspaces
 }

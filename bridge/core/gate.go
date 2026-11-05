@@ -450,7 +450,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	if strings.TrimSpace(inject) == "" {
 		inject = "（补充附件，和刚才的消息是一起发的）"
 	}
-	if busy && g.canInject() && !msg.abortFront && e.injectIntoRunningTurn(interactiveKey, inject, msg.ReplyCtx, msg.Images, msg.Files) {
+	if busy && g.canInject() && !msg.abortFront && e.injectIntoRunningTurn(interactiveKey, e.buildSenderPrompt(inject, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey), msg.ReplyCtx, msg.Images, msg.Files) {
 		g.mu.Lock()
 		g.dropBuffered(interactiveKey, len(buffered))
 		g.mu.Unlock()
