@@ -1605,7 +1605,9 @@ def main(argv):
                 if os.path.isfile(hit.get("where") or ""):  # ws-handoff 建的条目：停手话写进交接，工作区读得到
                     append_forward(hit["where"], f"{_now()} 挪进待办（#{nid}）{'：' + hit['backlog_why'] if hit.get('backlog_why') else ''}。"
                                                  "停手，不要再起后台命令，正在跑的停掉；上面更早的「接着做」作废，等主频道恢复再做。")
-                freed = park_workspace(hit)
+                # 同 pause：在别处下的命令连那一轮一起停；在那个工作区里自己下的不打断（会把正在跑的这一轮掐掉）
+                here = os.environ.get("CC_SESSION_KEY", "").split(":")[1:2]
+                freed = park_workspace(hit, stop=(here != (hit.get("ws") or "").split(":")[1:2]))
                 if freed is not None:
                     print(f"#{nid} 工作区已放回池子，会话已清" if freed else f"#{nid} 工作区里还有别的活，先不放回")
             if missing:
@@ -1648,7 +1650,7 @@ def main(argv):
                 print(f"#{nid} 已从自动收起里找回")
             cur = next((i for i in items() if i["id"] == nid), None)
             in_queue = queued(nid)
-            back = cur.get("ws_was") if not in_queue and cur and cur.get("paused") and WS_NAME_RE.match(cur.get("who") or "") else None
+            back = cur.get("ws_was") if not in_queue and cur and (cur.get("paused") or cur.get("backlog")) and WS_NAME_RE.match(cur.get("who") or "") else None
             why = reoccupy(cur, back) if back else None
             if why:
                 _refuse(nid, why)
