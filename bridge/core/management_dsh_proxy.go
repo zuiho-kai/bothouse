@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -92,7 +93,11 @@ func runningDSHWeb() (target, launchToken string, err error) {
 		}
 		return "", "", errDSHWebNotRunning
 	}
-	stale := dshWebSuspect.Swap(false) || web.PID <= 0 || !processAlive(web.PID) || !loopbackTarget(u.Host)
+	// A zero pid is "unknown", not "dead": the heal writes 0 where no lsof answers (Windows), and
+	// counting it as stale re-healed the file — and left one more backup — on every request. A host
+	// that is really gone behind a zero pid still shows up: its token is refused and that marks it.
+	stale := dshWebSuspect.Swap(false) || (web.PID > 0 && !processAlive(web.PID)) ||
+		!loopbackTarget(u.Host) || u.Query().Get("token") == ""
 	if !stale {
 		return u.Host, u.Query().Get("token"), nil
 	}
@@ -109,6 +114,8 @@ func runningDSHWeb() (target, launchToken string, err error) {
 }
 
 var errDSHWebNotRunning = errors.New("the channels page (dsh web) is not running")
+
+const dshWebNotRunningMsg = "频道页（DSH）没有在运行：请在电脑上的 bothouse 面板里点「打开 DSH」启动后再试。 / The channels page (DSH) is not running: start it from the bothouse panel (Open DSH) and retry."
 
 func dshProxyPage(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -198,7 +205,7 @@ func (m *ManagementServer) handleDSHProxy(w http.ResponseWriter, r *http.Request
 	}
 	target, launchToken, err := runningDSHWeb()
 	if err != nil {
-		msg := "频道页（DSH）没有在运行：请在电脑上的 bothouse 面板里点「打开 DSH」启动后再试。 / The channels page (DSH) is not running: start it from the bothouse panel (Open DSH) and retry."
+		msg := dshWebNotRunningMsg
 		if !errors.Is(err, errDSHWebNotRunning) {
 			msg = err.Error()
 		}
@@ -234,6 +241,10 @@ func (m *ManagementServer) handleDSHProxy(w http.ResponseWriter, r *http.Request
 			return dshRewriteHTML(res)
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if errors.Is(err, errDSHWebNotRunning) {
+				dshProxyPage(w, http.StatusServiceUnavailable, dshWebNotRunningMsg)
+				return
+			}
 			dshProxyPage(w, http.StatusBadGateway, fmt.Sprintf("连不上频道页（DSH，%s）/ cannot reach the channels page: %v", target, err))
 		},
 	}
@@ -341,6 +352,12 @@ func (t *dshProxyTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		// describes. Heal from the log and sign in again, so this request is served instead of 502.
 		healedTarget, healedToken, healed := healAfterRefusedToken()
 		if !healed {
+			var op *net.OpError
+			if errors.As(err, &op) && op.Op == "dial" {
+				// Nothing listens where the file points and the log names no live host either. With a
+				// zero (unknown) pid this is how a stopped host shows: the same 503 a dead pid gives.
+				return nil, fmt.Errorf("%w: %v", errDSHWebNotRunning, err)
+			}
 			return nil, err
 		}
 		if healedTarget != t.target {
