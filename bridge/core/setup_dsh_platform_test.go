@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -63,6 +65,15 @@ echo "installed $3"
 	}
 }
 
+// noAppDSH makes "no dsh on PATH" mean no dsh at all: a developer machine may have the
+// DeepSeek Harness app installed, whose bundled CLI LookDSH now also finds (#192).
+func noAppDSH(t *testing.T) {
+	t.Helper()
+	restore := dshInstallCandidates
+	dshInstallCandidates = func() []string { return nil }
+	t.Cleanup(func() { dshInstallCandidates = restore })
+}
+
 func TestLookDSHAndBash(t *testing.T) {
 	// 1. With dsh on PATH
 	d := t.TempDir()
@@ -76,8 +87,9 @@ func TestLookDSHAndBash(t *testing.T) {
 		t.Fatalf("expected dsh found, got %s, err: %v", got, err)
 	}
 
-	// 2. Without dsh on PATH
+	// 2. Without dsh on PATH and no install directory holding one
 	t.Setenv("PATH", t.TempDir())
+	noAppDSH(t)
 	if _, err := LookDSH(); err == nil {
 		t.Fatal("expected LookDSH to fail when dsh is not on PATH")
 	}
@@ -86,6 +98,144 @@ func TestLookDSHAndBash(t *testing.T) {
 	t.Setenv("PATH", os.Getenv("PATH"))
 	if _, err := LookBash(); err != nil {
 		t.Logf("LookBash: %v", err)
+	}
+}
+
+// #192: a Mac with only the DeepSeek Harness app has no dsh on PATH; the app ships one at
+// Contents/Resources/runtime/cli/bin/dsh and the bridge must use it.
+func TestLookDSHMacDesktopOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("macOS app layout")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("DSH_DESKTOP_BIN", "")
+	apps := filepath.Join(home, "Applications")
+	cli := dshDesktopCLI(apps)
+	if err := os.MkdirAll(filepath.Dir(cli), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cli, []byte("#!/bin/sh\necho 0.2.1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir()) // nothing named dsh on PATH
+	restore := dshInstallCandidates
+	dshInstallCandidates = func() []string {
+		return dshInstallCandidatesFor("darwin", os.Getenv, []string{apps})
+	}
+	defer func() { dshInstallCandidates = restore }()
+
+	got, err := LookDSH()
+	if err != nil || got != cli {
+		t.Fatalf("LookDSH = %q, %v; want the app's dsh %q", got, err, cli)
+	}
+	// the status the panel shows: found, with that version, and an open command that runs
+	st := GetDSHStatus(context.Background())
+	if !st.Found || st.Version != "0.2.1" {
+		t.Fatalf("status = %+v", st)
+	}
+	if !strings.Contains(st.OpenCommand, cli) {
+		t.Fatalf("open command %q must name the app's dsh %q, not a bare dsh that is not on PATH", st.OpenCommand, cli)
+	}
+	// PATH still wins when the user also installed a CLI
+	bin := t.TempDir()
+	onPath := filepath.Join(bin, "dsh")
+	if err := os.WriteFile(onPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	if got, err := LookDSH(); err != nil || got != onPath {
+		t.Fatalf("LookDSH with dsh on PATH = %q, %v; want %q", got, err, onPath)
+	}
+	// $DSH_DESKTOP_BIN points at another install first
+	other := filepath.Join(home, "elsewhere", "dsh")
+	if err := os.MkdirAll(filepath.Dir(other), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DSH_DESKTOP_BIN", other)
+	t.Setenv("PATH", t.TempDir())
+	if got, err := LookDSH(); err != nil || got != other {
+		t.Fatalf("LookDSH with $DSH_DESKTOP_BIN = %q, %v; want %q", got, err, other)
+	}
+}
+
+// #192: the wizard's CLI list is what puts DSH in front of the user on a desk with only the app.
+func TestDetectLocalCLIsFindsMacDesktopDSH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("macOS app layout")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("DSH_DESKTOP_BIN", "")
+	apps := filepath.Join(home, "Applications")
+	cli := dshDesktopCLI(apps)
+	if err := os.MkdirAll(filepath.Dir(cli), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// the app's launcher runs the bundled node; the version probe only needs to answer
+	if err := os.WriteFile(cli, []byte("#!/bin/sh\necho 0.2.1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	restoreCandidates, restoreLook := dshInstallCandidates, lookPath
+	dshInstallCandidates = func() []string {
+		return dshInstallCandidatesFor("darwin", os.Getenv, []string{apps})
+	}
+	lookPath = func(bin string) (string, bool, error) { return "", false, exec.ErrNotFound }
+	defer func() { dshInstallCandidates, lookPath = restoreCandidates, restoreLook }()
+
+	var dsh LocalCLI
+	found := false
+	for _, c := range DetectLocalCLIs(context.Background()) {
+		if c.AgentType == "dsh" {
+			dsh, found = c, true
+		}
+	}
+	if !found || dsh.Path != cli || dsh.InPath || dsh.Version != "0.2.1" {
+		t.Fatalf("detected DSH = %+v, %v; want the app's CLI %q", dsh, found, cli)
+	}
+}
+
+// The hook bridge is searched next to the dsh LookDSH resolves, so a desktop-only Mac finds the
+// app's own copy instead of stopping at "dsh not found on PATH" (#192).
+func TestFindDSHHookBridgeMacDesktopOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("macOS app layout")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("DSH_DESKTOP_BIN", "")
+	cli := dshDesktopCLI(filepath.Join(home, "Applications"))
+	if err := os.MkdirAll(filepath.Dir(cli), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cli, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bridge := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(cli))), "node_modules", "@deepseek-ai", filepath.FromSlash(dshBridgeRel))
+	if err := os.MkdirAll(filepath.Dir(bridge), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bridge, []byte("export {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	restore := dshInstallCandidates
+	dshInstallCandidates = func() []string {
+		return dshInstallCandidatesFor("darwin", os.Getenv, []string{filepath.Join(home, "Applications")})
+	}
+	defer func() { dshInstallCandidates = restore }()
+
+	want := bridge
+	if real, err := filepath.EvalSymlinks(bridge); err == nil {
+		want = real
+	}
+	got, err := FindDSHHookBridge()
+	if err != nil || got != want {
+		t.Fatalf("FindDSHHookBridge = %q, %v; want %q", got, err, want)
 	}
 }
 

@@ -592,7 +592,9 @@ export function renameRoomRoute(req, res, path, { store, hub, dsh }) {
   const roomId = Number(match[1]);
   if (store.room(roomId) === undefined) return json(res, 404, { error: 'room not found' });
   return withBody(req, res, async body => {
-    const room = store.renameRoom(roomId, body?.name);
+    // #176: create strips a leading '#' (the channel list shows names with one), so rename must too,
+    // or '#general' gets past checkRoomName as a second "general".
+    const room = store.renameRoom(roomId, typeof body?.name === 'string' ? body.name.trim().replace(/^#/, '') : body?.name);
     hub.emit({ type: 'rooms', rooms: store.roomsView() });
     await dsh.refreshRoomTitles(roomId);
     return { room };

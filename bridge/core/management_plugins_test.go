@@ -214,6 +214,7 @@ func TestPluginsSwitchRefusesUnknownAndHostBundle(t *testing.T) {
 func TestPluginsInstallRejectsFlagsAndMissingDSH(t *testing.T) {
 	writePluginsProfile(t)
 	t.Setenv("PATH", t.TempDir()) // no dsh, no pnpm
+	noAppDSH(t)
 	_, ts, _ := testManagementServer(t, "tok")
 	// A spec that starts with '-' would otherwise reach `dsh plugin add` as a flag.
 	req, _ := http.NewRequest("POST", ts.URL+"/api/v1/plugins/install", strings.NewReader(`{"spec":"--global"}`))
@@ -242,6 +243,7 @@ func TestPluginsInstallRejectsFlagsAndMissingDSH(t *testing.T) {
 func TestPluginsInstallWithoutDSHSaysSo(t *testing.T) {
 	writePluginsProfile(t)
 	t.Setenv("PATH", t.TempDir())
+	noAppDSH(t)
 	_, ts, _ := testManagementServer(t, "tok")
 	r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{"spec": "demo-bundle"})
 	if r.OK || !strings.Contains(r.Error, "npm i -g @deepseek-ai/dsh") {

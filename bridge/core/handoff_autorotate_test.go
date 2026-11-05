@@ -125,3 +125,28 @@ func TestHandoffBlockListsChannelTasks(t *testing.T) {
 		t.Fatalf("task list must sit inside the handoff:\n%s", b)
 	}
 }
+
+// Claude Code compacts a 200k-window session in place at ~167k, so the 300k limit is capped below
+// that: 70% of the window the CLI reported, else 85% of where it last compacted on its own; a 1M
+// window keeps the configured limit.
+func TestFreshOnContextSizeCappedByWindow(t *testing.T) {
+	a := &handoffStubAgent{handoffs: map[string]*SessionHandoff{
+		"w200":  {Path: "/x/a.jsonl", ContextTokens: 145000},
+		"w1m":   {Path: "/x/b.jsonl", ContextTokens: 290000},
+		"auto":  {Path: "/x/c.jsonl", ContextTokens: 150000, AutoCompactTokens: 167500},
+		"plain": {Path: "/x/d.jsonl", ContextTokens: 150000},
+	}}
+	e := NewEngine("test", a, []Platform{&stubPlatformEngine{n: "discord"}}, "", LangEnglish)
+	defer e.Stop()
+	e.SetColdCacheFresh(true, time.Hour, 80000, 300000)
+	e.ctxWindows.Store("w200", 200000)
+	e.ctxWindows.Store("w1m", 1000000)
+
+	for id, want := range map[string]bool{"w200": true, "w1m": false, "auto": true, "plain": false} {
+		s := &Session{AgentSessionID: id}
+		n := e.freshOnContextSize(a, s, "discord:chat1")
+		if got := n != ""; got != want {
+			t.Errorf("%s: fresh = %v (notice %q), want %v", id, got, n, want)
+		}
+	}
+}

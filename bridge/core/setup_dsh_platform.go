@@ -88,35 +88,81 @@ func FindDSHInstallScript() string {
 	return ""
 }
 
+// dshOpenCommand is the line the panel tells the user to run. It names `dsh` when that is on
+// PATH; on a desktop-only Mac it names the app's own CLI, which is the only dsh on the machine
+// (#192) — the bare name would print "command not found".
 func dshOpenCommand() string {
-	cmd := "dsh " + DSHProfile
+	bin := "dsh"
+	if _, err := exec.LookPath("dsh"); err != nil {
+		if p, err := LookDSH(); err == nil {
+			bin = strconv.Quote(p)
+		}
+	}
+	cmd := bin + " " + DSHProfile
 	if h := os.Getenv("DSH_HOME"); h != "" {
 		cmd = "DSH_HOME=" + strconv.Quote(h) + " " + cmd
 	}
 	return cmd
 }
 
-// LookDSH returns the executable path for dsh: on PATH or in standard Windows install directories.
+// LookDSH returns the executable path for dsh: on PATH, else in the install directories the
+// DeepSeek Harness installers use (a desktop-only install has no dsh on PATH).
 func LookDSH() (string, error) {
 	if p, err := exec.LookPath("dsh"); err == nil {
 		return p, nil
 	}
-	if runtime.GOOS == "windows" {
-		candidates := []string{
-			filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "DeepSeek Harness", "resources", "runtime", "cli", "bin", "dsh.cmd"),
-			filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "DeepSeek Harness", "bin", "dsh.cmd"),
-			filepath.Join(os.Getenv("LOCALAPPDATA"), "DeepSeek Harness", "bin", "dsh.cmd"),
-			filepath.Join(os.Getenv("ProgramFiles"), "DeepSeek Harness", "bin", "dsh.cmd"),
-			filepath.Join(os.Getenv("ProgramFiles(x86)"), "DeepSeek Harness", "bin", "dsh.cmd"),
-			filepath.Join(os.Getenv("APPDATA"), "npm", "dsh.cmd"),
-		}
-		for _, c := range candidates {
-			if c != "" && fileExists(c) {
-				return c, nil
-			}
+	for _, c := range dshInstallCandidates() {
+		if c != "" && fileExists(c) {
+			return c, nil
 		}
 	}
 	return "", errDSHMissing
+}
+
+// dshInstallCandidates lists the dsh commands of the standard DeepSeek Harness installs, in
+// lookup order. Replaceable in tests.
+var dshInstallCandidates = func() []string {
+	return dshInstallCandidatesFor(runtime.GOOS, os.Getenv, dshAppDirs())
+}
+
+// dshAppDirs are the folders the macOS app may be installed in, in lookup order.
+func dshAppDirs() []string {
+	dirs := []string{"/Applications"}
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, "Applications"))
+	}
+	return dirs
+}
+
+func dshInstallCandidatesFor(goos string, getenv func(string) string, appDirs []string) []string {
+	var candidates []string
+	if goos == "windows" {
+		candidates = append(candidates,
+			filepath.Join(getenv("LOCALAPPDATA"), "Programs", "DeepSeek Harness", "resources", "runtime", "cli", "bin", "dsh.cmd"),
+			filepath.Join(getenv("LOCALAPPDATA"), "Programs", "DeepSeek Harness", "bin", "dsh.cmd"),
+			filepath.Join(getenv("LOCALAPPDATA"), "DeepSeek Harness", "bin", "dsh.cmd"),
+			filepath.Join(getenv("ProgramFiles"), "DeepSeek Harness", "bin", "dsh.cmd"),
+			filepath.Join(getenv("ProgramFiles(x86)"), "DeepSeek Harness", "bin", "dsh.cmd"),
+			filepath.Join(getenv("APPDATA"), "npm", "dsh.cmd"),
+		)
+	}
+	if goos == "darwin" {
+		// #192: the macOS app carries its own CLI at runtime/cli/bin/dsh, so a machine that only
+		// installed the desktop app has no `dsh` on PATH. $DSH_DESKTOP_BIN is the same override
+		// dsh/install.sh uses to point at that CLI.
+		if p := getenv("DSH_DESKTOP_BIN"); p != "" {
+			candidates = append(candidates, p)
+		}
+		for _, r := range appDirs {
+			candidates = append(candidates, dshDesktopCLI(r))
+		}
+	}
+	return candidates
+}
+
+// dshDesktopCLI is the dsh the DeepSeek Harness macOS app shipped in appsDir has inside its bundle.
+func dshDesktopCLI(appsDir string) string {
+	return filepath.Join(appsDir, "DeepSeek Harness.app", "Contents", "Resources", "runtime", "cli", "bin", "dsh")
 }
 
 // LookBash returns the bash that runs install.sh. On Windows it must be Git for Windows (MSYS)

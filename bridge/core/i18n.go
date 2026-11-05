@@ -691,6 +691,8 @@ const (
 	MsgWatchParkedNotice        MsgKey = "watch_parked_notice"
 	MsgWatchIdleEscalate        MsgKey = "watch_idle_escalate"
 	MsgWatchFailEscalate        MsgKey = "watch_fail_escalate"
+	MsgWatchCantDoEscalate      MsgKey = "watch_cantdo_escalate"
+	MsgReleaseHoldUnresumed     MsgKey = "release_hold_unresumed"
 	MsgTaskReviewReturned       MsgKey = "task_review_returned"
 	MsgTaskReviewOverdue        MsgKey = "task_review_overdue"
 	MsgTaskReviewPrompt         MsgKey = "task_review_prompt"
@@ -1128,12 +1130,26 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "%s: %s. Traspaso: %s. Verifica los artefactos y acepta con board done %[4]d <revisiones>, o registra problemas con board reject %[4]d <problemas> y continúa con ws-handoff --resume %[4]d <problemas>. Comprueba la ocupación; usa un espacio libre o la cola. La verificación corresponde al coordinador, no al usuario. Entrega no significa aceptación.",
 	},
 
+	MsgWatchCantDoEscalate: {
+		LangEnglish:            "%sWatch: %s said twice in a row it cannot do %s; the task is paused and no longer resumed automatically. Please decide how to go on.",
+		LangChinese:            "%s看门：%s「%s」连续两次回复做不了，已自动暂停，不再催。请你定怎么继续。",
+		LangTraditionalChinese: "%s看門：%s「%s」連續兩次回覆做不了，已自動暫停，不再催。請你決定怎麼繼續。",
+		LangJapanese:           "%s見守り：%s が %s を2回続けてできないと答えたため、一時停止し自動再開を止めました。進め方を決めてください。",
+		LangSpanish:            "%sAviso: %s dijo dos veces seguidas que no puede hacer %s; la tarea queda en pausa sin reanudación automática. Decide cómo seguir.",
+	},
 	MsgWatchFailEscalate: {
 		LangEnglish:            "Watch: %s failed %s twice in a row with errors; automatic resume stopped. Primary role, reassign or take over.",
 		LangChinese:            "看门：%s「%s」连续两次报错，已停止自动接着做，请主角色换人或接手。",
 		LangTraditionalChinese: "看門：%s「%s」連續兩次報錯，已停止自動接著做，請主角色換人或接手。",
 		LangJapanese:           "見守り：%s の %s が2回連続でエラーになったため、自動再開を止めました。主担当は担当替えか引き継ぎをしてください。",
 		LangSpanish:            "Aviso: %s falló dos veces seguidas en %s; se detuvo la reanudación automática. El rol principal debe reasignar o hacerse cargo.",
+	},
+	MsgReleaseHoldUnresumed: {
+		LangEnglish:            "Release hold: #%d %s was saved for the release but no open handoff is left for it; the mark stays for now and is cleared on the next check if it is still missing. Start it again if it still needs doing.",
+		LangChinese:            "发布暂停：#%d %s 标了为发布暂停，但已经没有开着的交接可以续；标记先留着，下次检查仍没有交接再撤，还要做请重新交活。",
+		LangTraditionalChinese: "發布暫停：#%d %s 標了為發布暫停，但已經沒有開著的交接可以續；標記先留著，下次檢查仍沒有交接再撤，還要做請重新交活。",
+		LangJapanese:           "リリース保留：#%d %s は保留されていますが、再開できる引継ぎがありません。印はいったん残し、次の確認でも引継ぎがなければ解除します。続ける場合は再度引き渡してください。",
+		LangSpanish:            "Retención de despliegue: #%d %s se guardó para el despliegue pero no queda ningún traspaso abierto; la marca se mantiene por ahora y se quitará en la próxima comprobación si sigue faltando. Vuelve a asignarla si aún hace falta.",
 	},
 	MsgPublicEnded: {
 		LangEnglish:            "Turn ended; see the final reply. Acceptance is not confirmed.",

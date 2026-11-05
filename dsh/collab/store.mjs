@@ -663,6 +663,14 @@ export class Store {
     this.ensureRoomSettings(roomId);
     this.db.prepare('UPDATE room_settings SET lead_id = ? WHERE room_id = ?').run(id, roomId);
   }
+  /**
+   * #176: forget a member as a channel's chosen primary. A removed member keeps its row (old
+   * messages stay attributable) but can never be picked again — hub.primaryIn() stops matching it,
+   * so a leftover id is a choice the UI can neither show nor clear.
+   */
+  clearLeadOf(id) {
+    return this.db.prepare('UPDATE room_settings SET lead_id = NULL WHERE lead_id = ? RETURNING room_id').all(id).map(row => row.room_id);
+  }
   bindingWorkspacePath(memberId, roomId, fallback) {
     return this.db.prepare('SELECT workspace_path FROM bindings WHERE member_id = ? AND room_id = ?').get(memberId, roomId)?.workspace_path || fallback;
   }

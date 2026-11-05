@@ -75,6 +75,7 @@ func TestPluginsInstallAllowsNonRegistryWhenSwitchedOn(t *testing.T) {
 	mgmt, ts, _ := testManagementServer(t, "tok")
 	mgmt.SetPluginInstallPolicy(func() PluginInstallPolicy { return PluginInstallPolicy{AllowNonRegistry: true} })
 	t.Setenv("PATH", t.TempDir()) // no dsh: the spec passes parsing and stops at the real check
+	noAppDSH(t)
 	r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{"spec": "git+https://host/x"})
 	if r.OK || !strings.Contains(r.Error, "npm i -g @deepseek-ai/dsh") {
 		t.Fatalf("ok=%v error=%q, want it to get past the source check", r.OK, r.Error)

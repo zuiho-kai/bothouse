@@ -390,6 +390,21 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 	if target != nil && !target.quotaCoolingFor(target.admissionQuotaScope(target.agent, key)).IsZero() {
 		return now.Add(watchRetryDelay) // quota takeover changes the owner; never nudge the cooling role
 	}
+	// A held item is waiting for the release, not failing: never nudge, resume or park it while
+	// the mark stands (#984 review N1: the watchdog ignored the hold, so a held turn with no
+	// terminal event was still parked, against README「不 park、会话和工作区留着」).
+	if w.e.boardReleaseHeld(key, h) {
+		due := now.Add(watchRetryDelay)
+		ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) { x.Due = due })
+		if !ok && err == nil {
+			return time.Time{}
+		}
+		if err == nil {
+			slog.Info("team watch: held for a release, not judging progress", "workspace", key, "chat", h.Chat)
+			return due
+		}
+		slog.Warn("team watch: save release hold skip failed", "workspace", key, "error", err)
+	}
 	busy := w.workspaceBusy(key)
 	if target != nil {
 		busy = target.watchBusy(key)

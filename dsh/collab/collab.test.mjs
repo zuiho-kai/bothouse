@@ -92,14 +92,24 @@ test('channel rename API: emits fresh rooms and returns HTTP 400 for invalid nam
   assert.equal((await call(1, 'new')).status, 200);
   assert.equal(events.at(-1).rooms.find(r => r.id === 1).name, 'new');
   assert.deepEqual(refreshed, [1]);
-  for (const name of ['', 'x'.repeat(33), 'two words', 'name\n']) assert.equal((await call(1, name)).status, 400);
+  for (const name of ['', '   ', 'x'.repeat(33), 'two words']) assert.equal((await call(1, name)).status, 400);
+  // #176: rename normalizes like create does (trim, drop one leading '#').
+  assert.equal((await call(1, '  new  ')).status, 200);
+  assert.equal(hub.store.room(1).name, 'new');
   // #176: renaming onto another channel's name, or onto 工作区<n>, is a conflict, not a silent duplicate.
   hub.store.ensureRoom(2, 'other');
   assert.equal((await call(1, 'other')).status, 409);
   assert.equal((await call(1, '工作区9')).status, 409);
+  // #176: create strips a leading '#' (the list shows names with one), so rename must too —
+  // otherwise '#new' was a second "new" on the same list.
+  assert.equal((await call(1, '#other')).status, 409);
+  assert.equal((await call(1, '#工作区9')).status, 409);
+  assert.equal((await call(1, '#fresh')).status, 200);
+  assert.equal(hub.store.room(1).name, 'fresh');
   assert.equal((await call(ws.id, 'new')).status, 400);
   assert.equal((await call(999, 'new')).status, 404);
-  assert.deepEqual(refreshed, [1]);
+  // Only the successful renames above ('new', 'fresh', 'new' again) reach the tab-title refresh.
+  assert.deepEqual(refreshed, [1, 1, 1]);
   hub.store.close();
 });
 
@@ -1393,7 +1403,18 @@ test('roster: config seeds are read-only, UI members are created, edited and rem
   const renamed = await roster.update('coder', { name: '码农', model: { provider: 'relay', model: 'm1' }, persona: '' });
   assert.equal(renamed.name, '码农');
   assert.equal(hub.members.get('coder').name, '码农');
+  // #176: a removed member must not stay the channel's primary role — the settings dialog can
+  // neither show nor clear a dead id, and repointing to it is refused.
+  hub.store.ensureRoom(7, 'lead-room');
+  hub.store.setLead(7, 'coder');
+  assert.equal((hub.primaryIn(7) ?? {}).id, 'coder');
+  const roomEvents = [];
+  const emit = hub.emit.bind(hub);
+  hub.emit = event => { roomEvents.push(event); return emit(event); };
   roster.remove('coder');
+  assert.equal(hub.store.leadId(7), null);
+  assert.equal(hub.primaryIn(7), undefined);
+  assert.equal(roomEvents.filter(e => e.type === 'room-settings' && e.room_id === 7).length, 1);
   assert.equal(members.config.has('coder'), false);
   assert.equal(hub.members.has('coder'), false);
   assert.equal(hub.store.members().some(m => m.id === 'coder'), false);

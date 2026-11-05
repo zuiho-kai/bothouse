@@ -25,6 +25,10 @@
                                          #   条目在工作区里时同时 <桥> workspace park：那里没别的活就放回池子、清会话
                                          #   （恢复后重新 ws-handoff，先复用空着的工作区，不保证回原号）
   board resume <编号>                     # 恢复：回到「在做」
+  board hold [编号...] [--why 原因]        # 为集中发布暂停：标「为发布暂停」，不放回工作区、不清会话；不给编号 = 板上所有
+                                         #   在工作区里、没交回、没暂停的条目。看门不把这期间的报错算失败；桥重启（发布切换）
+                                         #   后自动去掉标记、叫原工作区从停点续（core/team_release_hold.go）
+  board unhold [编号...]                  # 发布没切（取消/改期）时手动去掉「为发布暂停」；不给编号 = 全部
   board pr <编号> <GitHub PR URL> no-deploy|deploy  # 派活人绑定本代次 PR 和交接部署范围
   board tier <编号> simple|complex         # 验收档位：不标=简单档（设置里选的便宜模型先审）；审的人拿不准标 complex，
                                          #   桥换复杂档的审核人再审一遍（用户 2026-11-04「简单的交给便宜模型」）
@@ -124,7 +128,8 @@ def fmt(i):
     nxt = f"｜下次看 {i['next']}" if i.get("next") else ""
     pz = f"｜暂停（{i['paused']}{'：' + i['pause_why'] if i.get('pause_why') else ''}）" if i.get("paused") else ""
     card = f"｜卡 {i['card']}" if i.get("card") else ""
-    return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{nxt}{pz}{card}"
+    hd = "｜为发布暂停" if i.get("release_hold") else ""
+    return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{nxt}{pz}{hd}{card}"
 
 
 def lines():
@@ -629,8 +634,8 @@ def pause_stale(now=None):
     now = time.time() if now is None else now
     changed = []
     for it in _read():
-        if it.get("paused") or not it.get("ws") or it.get("next_ts", 0) > now:
-            continue
+        if it.get("paused") or it.get("release_hold") or not it.get("ws") or it.get("next_ts", 0) > now:
+            continue  # 为发布暂停的条目在等发布切换，不是停滞
         stamp = it.get("progress_at")
         if stamp is None:
             continue
@@ -752,13 +757,21 @@ WS_NAME_RE = re.compile(r"^(工作区\d+)")  # 「谁」= 工作区名 + 主角�
 
 
 def _ws_id_by_name(cc, chat, name):
-    """chat 所在分类的共享池里叫 name 的工作区 → <平台>:<id>；问不到返回 None。"""
+    """chat 所在分类的共享池里叫 name 的工作区 → <平台>:<id>；查询失败抛错，不能当成改派依据。"""
     try:
         p = subprocess.run([cc, "workspace", "list", "--session-key", chat, "--json"],
                            capture_output=True, text=True, timeout=WS_TIMEOUT)
-        pool = json.loads(p.stdout).get("pool") or [] if p.returncode == 0 else []
-    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
-        return None
+    except (OSError, subprocess.SubprocessError) as e:
+        raise ValueError(f"查询工作区列表失败（{e}）") from e
+    if p.returncode != 0:
+        err = (p.stderr.strip() or p.stdout.strip())[:200]
+        raise ValueError(f"查询工作区列表失败（{err}）")
+    try:
+        pool = json.loads(p.stdout)["pool"]
+        if not isinstance(pool, list):
+            raise ValueError("pool 不是列表")
+    except (ValueError, KeyError, TypeError) as e:
+        raise ValueError("查询工作区列表失败：桥返回的数据无效") from e
     plat = chat.split(":", 1)[0]
     return next((f"{plat}:{w['id']}" for w in pool if isinstance(w, dict) and w.get("name") == name and w.get("id")), None)
 
@@ -972,6 +985,46 @@ def queued(nid):
     except FileNotFoundError:
         return False
     return any(isinstance(entry, dict) and entry.get("nid") == nid for entry in entries)
+
+
+def hold(nids, why=None):
+    """为集中发布暂停（用户 2026-11-04「可以」：发布前主动保存停点的活标「为发布暂停」，发布切完自动续，不计失败）。
+    只打标记，不 park：会话和工作区留着，桥重启后原地续。返回标上的编号。"""
+    with _locked():
+        cur = _read()
+        picked = []
+        for i in cur:
+            if nids and i["id"] not in nids:
+                continue
+            if not nids and (not i.get("ws") or i.get("returned_at")):
+                continue
+            if i.get("paused") or i.get("release_hold"):
+                continue
+            mark = {"at": _bound_now(), "by": os.environ.get("CC_PROJECT", "")}
+            if why:
+                mark["why"] = why
+            i["release_hold"] = mark
+            picked.append(i["id"])
+        if picked:
+            _write(cur)
+    return picked
+
+
+def unhold(nids, at=None):
+    """去掉「为发布暂停」。at：只去掉这一次打的标记（桥重启后续办时带上，免得撤掉重启后新打的）。返回去掉的编号。"""
+    with _locked():
+        cur = _read()
+        cleared = []
+        for i in cur:
+            mark = i.get("release_hold")
+            if not mark or (nids and i["id"] not in nids) or (at is not None and mark.get("at") != at):
+                continue
+            i.pop("release_hold")
+            i["at"] = _now()
+            cleared.append(i["id"])
+        if cleared:
+            _write(cur)
+    return cleared
 
 
 def resume(nid):
@@ -1410,7 +1463,12 @@ def main(argv):
             back = None  # 「谁」改回某个工作区（不是它眼下绑的那个）：先向桥收回，归别人就拒绝
             same = False  # 新「谁」点名的就是眼下绑的工作区：不收回、不解绑（#1111）
             if cur and m and not cur.get("paused") and argv[4] != cur.get("who") and cur.get("chat") and _cc_bin():
-                back = _ws_id_by_name(_cc_bin(), cur["chat"], m.group(1))
+                try:
+                    back = _ws_id_by_name(_cc_bin(), cur["chat"], m.group(1))
+                except ValueError as e:
+                    sys.exit(f"#{nid} {e}，板子和工作区绑定未改")
+                if not back:
+                    sys.exit(f"#{nid} 查询未找到{m.group(1)}，板子和工作区绑定未改")
                 if back and back == cur.get("ws"):
                     back, same = None, True
                 why = reoccupy(cur, back) if back else None
@@ -1548,6 +1606,18 @@ def main(argv):
                 print(f"{'会收' if dry else '已收起'} #{i['id']} {i.get('what', '')}（{w}）")
             if not out:
                 print("没有要收起的暂停条目" if prune_on() else "自动收起已关（board prune --on 打开）")
+        elif cmd in ("hold", "unhold"):
+            rest, opt = argv[1:], None
+            flag = "--why" if cmd == "hold" else "--at"  # --at：桥续办时只撤它看到的那次标记
+            if flag in rest:
+                k = rest.index(flag)
+                if k + 1 >= len(rest):
+                    sys.exit("用法：board hold [编号...] [--why 原因] ｜ board unhold [编号...] [--at 标记时刻]")
+                opt, rest = rest[k + 1], rest[:k] + rest[k + 2:]
+            nids = [int(x.lstrip("#")) for x in rest]
+            got = hold(nids, opt) if cmd == "hold" else unhold(nids, opt)
+            word = "为发布暂停" if cmd == "hold" else "去掉为发布暂停"
+            print(f"{word}：" + ("、".join(f"#{n}" for n in got) if got else "没有符合的条目"))
         elif cmd == "rework" and len(argv) <= 2:
             print(rework_report(int(argv[1]) if len(argv) > 1 else REWORK_DAYS))
         else:
