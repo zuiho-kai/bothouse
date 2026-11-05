@@ -41,7 +41,13 @@ func onTrayReady() {
 	path := trayConfigPath(os.Args[1:])
 	client, on, err := trayManagement(path)
 	if err != nil {
+		// Keep "退出 bothouse" working even when the config cannot be read (PR #1011: the
+		// menu loop below never started, so quitting did nothing).
 		trayStatus.SetTitle("运行状态：配置读取失败")
+		go func() {
+			<-trayQuit.ClickedCh
+			requestDesktopShutdown()
+		}()
 		return
 	}
 	if on {

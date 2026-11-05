@@ -125,7 +125,7 @@ func dshProxyPage(w http.ResponseWriter, status int, msg string) {
 func dshSameOrigin(r *http.Request) bool {
 	if o := r.Header.Get("Origin"); o != "" {
 		u, err := url.Parse(o)
-		if err != nil || !strings.EqualFold(u.Host, r.Host) {
+		if err != nil || (!strings.EqualFold(u.Host, r.Host) && !dshOriginPortDropped(r, u)) {
 			return false
 		}
 	}
@@ -135,6 +135,24 @@ func dshSameOrigin(r *http.Request) bool {
 	}
 	navigate := r.Header.Get("Sec-Fetch-Mode") == "navigate" && r.Header.Get("Upgrade") == ""
 	return navigate && (r.Method == http.MethodGet || r.Method == http.MethodHead)
+}
+
+// dshOriginPortDropped covers one exact mismatch seen on an external Windows machine (PR #1011): the
+// browser sent `Origin: http://127.0.0.1` without the panel's port on plain HTTP requests, so every
+// /dsh/api call was refused and the page stayed blank. The port-less Origin is accepted only when the
+// browser's own Fetch Metadata says same-origin (a page on another port gets same-site, and pages
+// cannot set Sec-Fetch-*) and the full Referer names exactly this scheme, host and port. WebSocket
+// upgrades, an Origin with any port or credentials, and a missing or foreign Referer stay refused.
+func dshOriginPortDropped(r *http.Request, o *url.URL) bool {
+	if r.Header.Get("Sec-Fetch-Site") != "same-origin" || r.Header.Get("Upgrade") != "" ||
+		o.Port() != "" || o.User != nil {
+		return false
+	}
+	ref, err := url.Parse(r.Header.Get("Referer"))
+	if err != nil || ref.Host == "" || !strings.EqualFold(ref.Host, r.Host) {
+		return false
+	}
+	return strings.EqualFold(o.Scheme, ref.Scheme) && strings.EqualFold(o.Hostname(), ref.Hostname())
 }
 
 func (m *ManagementServer) handleDSHProxy(w http.ResponseWriter, r *http.Request) {

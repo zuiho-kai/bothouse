@@ -41,16 +41,18 @@ func leadShim(bin, py, bash string) []byte {
 	b.WriteString("@echo off\r\n")
 	switch {
 	case strings.Contains(first, "python"):
-		flag := ""
+		// -I drops PYTHONUTF8 from the environment (pyutf8_windows.go), so UTF-8 mode is passed as
+		// -X utf8: on a Chinese Windows the board's jsonl was otherwise written in cp936 (sanxin-hk).
+		flag := "-X utf8 "
 		if strings.Contains(first, " -I") {
-			flag = "-I "
+			flag = "-X utf8 -I "
 		}
 		b.WriteString(`"` + py + `" ` + flag + `"%~dp0` + name + `" %*` + "\r\n")
 	case name == "board":
 		// Same as the sh wrapper: GATE_DIR, else ../gate.
 		b.WriteString("if defined GATE_DIR goto gatedir\r\n")
-		b.WriteString(`"` + py + `" -I "%~dp0..\gate\board.py" %*` + "\r\nexit /b %errorlevel%\r\n:gatedir\r\n")
-		b.WriteString(`"` + py + `" -I "%GATE_DIR%\board.py" %*` + "\r\n")
+		b.WriteString(`"` + py + `" -X utf8 -I "%~dp0..\gate\board.py" %*` + "\r\nexit /b %errorlevel%\r\n:gatedir\r\n")
+		b.WriteString(`"` + py + `" -X utf8 -I "%GATE_DIR%\board.py" %*` + "\r\n")
 	case strings.Contains(first, "zsh"):
 		b.WriteString("echo " + name + ": needs zsh (macOS only) 1>&2\r\nexit /b 1\r\n")
 	case bash == "":
@@ -60,7 +62,7 @@ func leadShim(bin, py, bash string) []byte {
 		pyFwd := strings.ReplaceAll(py, `\`, "/")
 		b.WriteString(`set "BH_SCRIPT=%~dp0` + name + `"` + "\r\n")
 		b.WriteString(`set "BH_SCRIPT=%BH_SCRIPT:\=/%"` + "\r\n")
-		b.WriteString(`"` + bash + `" -c "python3() { '` + pyFwd + `' \"$@\"; }; export -f python3; . \"$0\"" "%BH_SCRIPT%" %*` + "\r\n")
+		b.WriteString(`"` + bash + `" -c "python3() { '` + pyFwd + `' -X utf8 \"$@\"; }; export -f python3; . \"$0\"" "%BH_SCRIPT%" %*` + "\r\n")
 	}
 	return []byte(b.String())
 }
@@ -75,7 +77,7 @@ func writeLeadShims(leadDir string) {
 	bash, _ := LookBash()
 	// Git Bash (the shell Claude Code uses on Windows) finds the extensionless script itself, not the
 	// .cmd; its `python3` would be the Store stub. This file sits before WindowsApps on the role's PATH.
-	py3 := []byte("#!/bin/sh\nexec '" + strings.ReplaceAll(py, `\`, "/") + "' \"$@\"\n")
+	py3 := []byte("#!/bin/sh\nexec '" + strings.ReplaceAll(py, `\`, "/") + "' -X utf8 \"$@\"\n")
 	if old, err := os.ReadFile(filepath.Join(leadDir, "python3")); err != nil || string(old) != string(py3) {
 		_ = AtomicWriteFile(filepath.Join(leadDir, "python3"), py3, 0o755)
 	}

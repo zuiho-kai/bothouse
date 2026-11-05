@@ -22,7 +22,7 @@ func TestLeadShimsRunByName(t *testing.T) {
 	w := func(p, s string) { _ = os.WriteFile(p, []byte(s), 0o755) }
 	w(filepath.Join(lead, "ws-up"), "#!/usr/bin/env -S python3 -I\nimport sys\nprint('ws-up', sys.flags.isolated, *sys.argv[1:])\n")
 	w(filepath.Join(lead, "board"), "#!/bin/sh\nd=$(cd \"$(dirname \"$0\")\" && pwd)\nexec python3 -I \"${GATE_DIR:-$d/../gate}/board.py\" \"$@\"\n")
-	w(filepath.Join(gate, "board.py"), "import sys\nprint('board', *sys.argv[1:])\n")
+	w(filepath.Join(gate, "board.py"), "import sys\nprint('board', sys.flags.utf8_mode, *sys.argv[1:])\n")
 	w(filepath.Join(lead, "later"), "#!/bin/sh\nset -eu\nhere=$(cd \"$(dirname \"$0\")\" && pwd)\nm=$(python3 -c 'import sys;print(int(sys.argv[1])*2)' \"$1\")\necho \"later $m $2 $(basename \"$here\")\"\n")
 	w(filepath.Join(lead, "iso-check"), "#!/bin/zsh\necho hi\n")
 	writeLeadShims(lead)
@@ -40,7 +40,7 @@ func TestLeadShimsRunByName(t *testing.T) {
 	}
 	if bash, _ := LookBash(); bash != "" {
 		// Git Bash finds the extensionless scripts; python3 must be the shim, not the Store stub.
-		for cmdline, want := range map[string]string{"ws-up a b": "ws-up 1 a b", "later 21 x": "later 42 x lead", "board list": "board list"} {
+		for cmdline, want := range map[string]string{"ws-up a b": "ws-up 1 a b", "later 21 x": "later 42 x lead", "board list": "board 1 list"} {
 			c := exec.Command(bash, "-c", "unset GATE_DIR; "+cmdline)
 			c.Env = append(os.Environ(), "PATH="+lead+";"+os.Getenv("PATH"))
 			out, _ := c.CombinedOutput()
@@ -53,7 +53,8 @@ func TestLeadShimsRunByName(t *testing.T) {
 		if got := run(sh, "ws-up", "a", "b"); got != "ws-up 1 a b" {
 			t.Errorf("%s ws-up: %q", sh, got)
 		}
-		if got := run(sh, "board", "list"); got != "board list" {
+		// UTF-8 mode survives -I (PYTHONUTF8 does not): the board's jsonl is UTF-8 on a Chinese Windows.
+		if got := run(sh, "board", "list"); got != "board 1 list" {
 			t.Errorf("%s board: %q", sh, got)
 		}
 		if bash, _ := LookBash(); bash != "" {

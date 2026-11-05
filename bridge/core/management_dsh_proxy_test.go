@@ -612,3 +612,45 @@ console.log(JSON.stringify(out))`
 		}
 	}
 }
+
+// PR #1011: a Windows machine sent `Origin: http://127.0.0.1` (port dropped) on same-origin HTTP
+// requests. Accepted only with Sec-Fetch-Site same-origin and a Referer naming this exact origin.
+func TestDSHProxyOriginPortDropped(t *testing.T) {
+	fake := newProxyFakeDSH(t)
+	panel := setupDSHProxyTest(t, fake, "secret")
+	c := dshSignIn(t, panel, "secret")
+	post := func(h map[string]string) int {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, panel.URL+"/dsh/collab/api/rooms/general/messages", strings.NewReader("hi"))
+		for k, v := range h {
+			req.Header.Set(k, v)
+		}
+		res, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	host := strings.TrimPrefix(panel.URL, "http://")
+	bare := "http://" + strings.Split(host, ":")[0]
+	ok := map[string]string{"Origin": bare, "Sec-Fetch-Site": "same-origin", "Referer": panel.URL + "/dsh/"}
+	if s := post(ok); s != http.StatusOK {
+		t.Fatalf("port-less Origin with same-origin metadata and matching Referer: %d, want 200", s)
+	}
+	refuse := map[string]map[string]string{
+		"no fetch metadata":   {"Origin": bare, "Referer": panel.URL + "/dsh/"},
+		"same-site":           {"Origin": bare, "Sec-Fetch-Site": "same-site", "Referer": panel.URL + "/dsh/"},
+		"no referer":          {"Origin": bare, "Sec-Fetch-Site": "same-origin"},
+		"referer other port":  {"Origin": bare, "Sec-Fetch-Site": "same-origin", "Referer": bare + ":1/"},
+		"origin other port":   {"Origin": bare + ":1", "Sec-Fetch-Site": "same-origin", "Referer": panel.URL + "/dsh/"},
+		"origin other scheme": {"Origin": "https://" + strings.Split(host, ":")[0], "Sec-Fetch-Site": "same-origin", "Referer": panel.URL + "/dsh/"},
+		"websocket upgrade":   {"Origin": bare, "Sec-Fetch-Site": "same-origin", "Referer": panel.URL + "/dsh/", "Upgrade": "websocket"},
+		"origin other host":   {"Origin": "http://evil.example", "Sec-Fetch-Site": "same-origin", "Referer": panel.URL + "/dsh/"},
+	}
+	for name, h := range refuse {
+		if s := post(h); s != http.StatusForbidden {
+			t.Errorf("%s: %d, want 403", name, s)
+		}
+	}
+}
