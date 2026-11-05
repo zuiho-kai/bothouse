@@ -3,17 +3,18 @@
 ws-up 上报、board、bothouse report/send/progress/session），其余一律拦下，提示写进度和卡点、交回，不再查新证据。
 
 出处：用户 2026-11-05「出现什么问题你就去修它…变成我们的产品能力」、11-06「这怎么那么痛苦啊？那别同类怎么搞的？」。
-隔壁 #11 现状盘点一轮 42 分钟、221 次工具（容器 events.jsonl，11-05 15:47Z）。同类 OpenManus / DSH SuperAgent
+隔壁 #11 现状盘点一轮 42 分钟、221 次工具（容器 events.jsonl，11-05 15:47Z）。
+门槛不拍脑袋：按会话记录统计的本机工作区轮 p95 定（见 MAX_STEPS 注释）。同类 OpenManus / DSH SuperAgent
 都设硬步数上限、超限熔断。
 
-计数：复用 #1102 规则 9 的同一套轮计数——
+计数：复用 #1102 的同一套轮计数（规则 9 本身已在 #1172 撤掉，计数字段留着）——
 - DSH：run.py / dsh-cc-compat.py 加的 dsh_turn（turn_calls：一步 = 一条 assistant/message，started = turn/start 的时间）；
 - 其他 CLI（Claude Code、Codex 经 codex-compat、Grok）：transcript_path（Claude Code 格式），从最后一条真人/桥消息算起，
   一步 = 一条 assistant 消息（同 message.id 的并行调用算一步）。
 读不到记录 = 放行（同 bash-guard：会话推出来的规则一律 fail open）。
 
 只管工作区（同 dispatch-review-guard.in_workspace：team_workspaces.json 里的频道）；子 agent（agent_id）不管，
-它们另有上下文和时长上限。定时/交接轮不豁免：工作区的活本来就是交接轮带进来的。
+它们另有上下文和时长上限。定时/交接/验收轮一律不豁免（用户 11-06 定）：工作区的活本来就是这些轮带进来的；验收重活也该在工作区跑。
 
 上限：hooks 目录下 ws-cap.json（和本脚本同目录，可不建），字段 max_steps、max_minutes，默认见 MAX_STEPS、MAX_MINUTES；
 任一项写 0 = 不限这一项。
@@ -23,9 +24,10 @@ from datetime import datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONF = os.path.join(HERE, "ws-cap.json")
-# 时长来源：PLAYBOOK 第 6 节「10 分钟砍活」，系统每 10 分钟看一次工作区进展，取两个看门窗口；
-# 步数来源：bash-guard CHAT_STEPS_MAX 注释的隔壁实测每步约 12 秒，换算同样时长；隔壁坏例 42 分钟、221 次工具会在一半处拦下。
-MAX_STEPS, MAX_MINUTES = 100, 20  # 来源见上两行（2 × 10 分钟看门；20 分钟 ÷ 实测 12 秒/步）
+# 门槛按统计定（用户 11-06 02:0x「按统计定门槛 81 步/20 分钟并合入」）：本机橘工作区轮 10-30 至 11-06 共 84 轮，
+# 步数 p50/p90/p95 = 13/70/81，时长 p95 = 19.8 分钟；取 p95，先到先拦。对照隔壁工作区轮 n=24 的 p95 是 214 步、69 分钟。
+# 一步 = 模型发出一次工具调用（同 message.id 的并行调用算一步）。统计脚本与逐轮明细在 #1112 / PR #1171 说明里。
+MAX_STEPS, MAX_MINUTES = 81, 20
 
 # 到上限后还放行的命令：收尾用的。程序名 → 允许的子命令（None = 都放行）
 FINISH_PROGS = {"ws-up": None, "board": None, "echo": None, "printf": None, "date": None, "cd": None, "pwd": None,
