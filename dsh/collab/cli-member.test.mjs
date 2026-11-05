@@ -7,7 +7,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-test('spawn failure retries after the missing directory is created', { timeout: 5000 }, async t => {
+// the fake CLI is a #! script, which Windows cannot run by name
+test('spawn failure retries after the missing directory is created', { timeout: 5000, skip: process.platform === 'win32' }, async t => {
   const dir = mkdtempSync(join(tmpdir(), 'cli-retry-'));
   const cwd = join(dir, 'workspace');
   writeFileSync(join(dir, 'gemini'), `#!${process.execPath}

@@ -394,9 +394,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-e2e-${{ matrix.leg }}
-          path: |
-            ${{ runner.temp }}/e2e
-            ~/.dsh/profiles/web/*.log
+          path: ${{ runner.temp }}/e2e
           if-no-files-found: ignore
 
   # dsh/collab's node tests on Windows (bridge-checks runs them on Linux only), same autocrlf checkout.

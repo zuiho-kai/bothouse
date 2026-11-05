@@ -178,6 +178,7 @@ class Panel:
     def __init__(self, port, token):
         self.base = f"http://localhost:{port}"
         self.token = token
+        self.dsh_log = ""
         self.op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 
     def req(self, method, path, body=None, auth=True, timeout=T_HTTP, raw=False):
@@ -213,7 +214,23 @@ class Panel:
             fail(f"{label}: GET /dsh/?token= -> HTTP {code}")
 
 
-def wait(what, fn, timeout, every=1.0):
+def diagnose(p, room, member, after):
+    """What a failed @ left behind: the member's state, the channel after the prompt, the dsh web log."""
+    s = state(p) or {}
+    print("member:", json.dumps(next((m for m in s.get("members", []) if m.get("id") == member["id"]), {}), ensure_ascii=False)[:800])
+    c, page = p.collab("GET", f"/collab/api/rooms/{room['id']}/messages?after={after - 1}")
+    for m in (page.get("messages", []) if isinstance(page, dict) else []):
+        print("  msg", m.get("author_kind"), m.get("name"), repr((m.get("text") or "")[:300]))
+    print("stub model calls:", stub_calls[-10:])
+    if p.dsh_log and os.path.exists(p.dsh_log):
+        with open(p.dsh_log, encoding="utf-8", errors="replace") as f:
+            tail = f.readlines()[-60:]
+        print("dsh web log tail:", p.dsh_log)
+        for line in tail:
+            print("  |", line.rstrip())
+
+
+def wait(what, fn, timeout, every=1.0, on_fail=None):
     end = time.time() + timeout
     last = None
     while time.time() < end:
@@ -225,6 +242,8 @@ def wait(what, fn, timeout, every=1.0):
         except (urllib.error.URLError, OSError, ValueError) as e:
             last = e
         time.sleep(every)
+    if on_fail:
+        on_fail()
     fail(f"{what}: not within {timeout}s (last: {str(last)[:300]})")
 
 
@@ -254,6 +273,7 @@ def configure_and_open(p, label):
     if res.get("members") != len(ROLES):
         fail(f"{label}: configure saved {res}")
     web = p.api("POST", "/setup/dsh/open", {}, timeout=T_OPEN)
+    p.dsh_log = web.get("log") or p.dsh_log
     ok(f"{label}: wizard configured {len(ROLES)} roles and opened dsh web (pid {web.get('pid')})")
     p.login_dsh(label)
 
@@ -348,7 +368,7 @@ def mention(p, s, label):
             if m.get("author") == fish["id"] and re.search(r"reading '|TypeError|Error:", text):
                 fail(f"{label}: {fish['name']} answered with an error: {text[:300]}")
         return None
-    m = wait(f"{label}: @{fish['name']} answers", answered, T_REPLY, 2)
+    m = wait(f"{label}: @{fish['name']} answers", answered, T_REPLY, 2, on_fail=lambda: diagnose(p, room, fish, after))
     ok(f"{label}: @{fish['name']} answered in #{room.get('name')}: {m.get('text', '')[:60]!r}")
 
 
@@ -389,7 +409,9 @@ if args.upgrade:
 after = "after-upgrade" if args.upgrade else "after-restart"
 bh, p = start(2)
 try:
-    p.api("POST", "/setup/dsh/open", {}, timeout=T_OPEN)
+    web = p.api("POST", "/setup/dsh/open", {}, timeout=T_OPEN)
+    p.dsh_log = web.get("log") or ""
+    ok(f"{after}: dsh web (pid {web.get('pid')})")
     p.login_dsh(after)
     names2, s = roster(p, after)
     if names2 != names1:
@@ -402,5 +424,8 @@ try:
         mention(p, s, after)
 finally:
     bh.stop()
+    if p.dsh_log and os.path.exists(p.dsh_log):
+        import shutil
+        shutil.copy(p.dsh_log, os.path.join(args.out, "dsh-web.log"))
     print("stub model calls:", len(stub_calls), sorted({path for _, path in stub_calls}), flush=True)
 print("ALL PASS", flush=True)

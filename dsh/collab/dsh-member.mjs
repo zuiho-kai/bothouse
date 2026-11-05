@@ -69,7 +69,8 @@ const MAX_LOCAL_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_LOCAL_IMAGES = 10;
 const IMAGE_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
 // Markdown targets may contain spaces; bare paths end at whitespace or punctuation.
-const LOCAL_IMAGE = /!\[([^\]\n]*)\]\((\/[^)\n]+?\.(?:png|jpe?g|gif|webp))\)|(?<![\w/])\/[^\s<>"'`()[\]{}，。；,;]+?\.(?:png|jpe?g|gif|webp)(?![\w/])/gi;
+// An absolute path starts with / or, on Windows, a drive (C:\ or C:/): members there write C:\Users\…\shot.png.
+const LOCAL_IMAGE = /!\[([^\]\n]*)\]\(((?:\/|[A-Za-z]:[\\/])[^)\n]+?\.(?:png|jpe?g|gif|webp))\)|(?<![\w/\\:])(?:\/|[A-Za-z]:[\\/])[^\s<>"'`()[\]{}，。；,;]+?\.(?:png|jpe?g|gif|webp)(?![\w/\\])/gi;
 
 /** Only files physically inside this room's working directory may leave the machine. */
 export function localImageReply(text, workspacePath, files, logger) {

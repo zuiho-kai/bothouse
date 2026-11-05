@@ -40,8 +40,10 @@ test('avatar upload: owner stores PNG locally, emits members, replaces, survives
   assert.equal(result.result.member.avatar, 'upload:coder.png');
   const path = join(f.dir, 'avatars', 'coder.png');
   assert.deepEqual(readFileSync(path), png);
-  assert.equal(statSync(path).mode & 0o777, 0o600);
-  assert.equal(statSync(join(f.dir, 'avatars')).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') { // Windows has no POSIX mode bits: stat reports 0o666
+    assert.equal(statSync(path).mode & 0o777, 0o600);
+    assert.equal(statSync(join(f.dir, 'avatars')).mode & 0o777, 0o700);
+  }
   assert.equal(events.at(-1).type, 'members');
   const version = events.at(-1).members[0].avatarVersion;
   await f.call('POST', avatarImage('whale').toString('base64'));

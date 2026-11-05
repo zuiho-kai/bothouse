@@ -1284,7 +1284,7 @@ test('config: absolute paths, unique member ids, token from env only', () => {
   assert.throws(() => resolveConfig({ dataDir: '/d', workspacePath: '/w', dshMembers: [{ id: 'owner', name: 'x' }] }), /unique/);
   const c = resolveConfig({ dataDir: '/d', workspacePath: '/w', dshMembers: [{ id: 'ds', name: 'DeepSeek' }] }, { CONEST_COLLAB_BOT_TOKEN: 'tok', HOME: '/home' });
   assert.equal(c.botToken, 'tok');
-  assert.equal(c.leadFile, '/home/.bothouse/lead.json');
+  assert.equal(c.leadFile, join('/home', '.bothouse', 'lead.json'));
   assert.deepEqual(c.rooms, [{ id: 1, name: 'general' }]);
 });
 
@@ -4561,7 +4561,7 @@ test('block B: local later command registers through the ticketed HTTP route, no
   const woke = [];
   let now = Date.now();
   const later = new Later(hub, path, (id, m) => { woke.push([id, m]); return true; }, { now: () => now, start: false });
-  assert.equal(statSync(join(dir, 'later.key')).mode & 0o777, 0o600, 'key file is private');
+  if (process.platform !== 'win32') assert.equal(statSync(join(dir, 'later.key')).mode & 0o777, 0o600, 'key file is private'); // no POSIX modes on Windows
   const server = createServer((req, res) => laterRoute(req, res, new URL(req.url, 'http://x'), { hub, later, owner: () => false, gateway: { authorized: () => false } }) ?? (res.headersSent || (res.writeHead(404), res.end('{}'))));
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   try {
@@ -4645,7 +4645,7 @@ test('later: empty or short key file is regenerated to 32 bytes; old tickets sto
     const second = new Later(hub, path, () => false, { start: false });
     assert.equal(second.key.length, 32, `regenerated from ${JSON.stringify(bad)}`);
     assert.equal(Buffer.from(readKeyFile(keyFile, 'utf8').trim(), 'hex').length, 32);
-    assert.equal(statSync(keyFile).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(statSync(keyFile).mode & 0o777, 0o600); // no POSIX modes on Windows
     assert.equal(second.verify(oldTicket), undefined, 'old ticket no longer verifies');
     const forged = `${oldTicket.split('.')[0]}.${createHmacForTest(Buffer.alloc(0), oldTicket.split('.')[0])}`;
     assert.equal(second.verify(forged), undefined, 'empty-key forgery rejected');
@@ -4947,7 +4947,9 @@ test('CLI member: its own MEMORY.md on the first turn only; no wiki, no block', 
   writeFileSync(join(data, 'roles', 'm-ab12cd', 'wiki', 'MEMORY.md'), '- [a](a/README.md) — 甲\n');
   const idx = new MemoryIndex({ dataDir: data, home: data });
   const one = idx.turn({ member: 'm-ab12cd', room: 1 });
-  assert.equal(one.block, '（你的记忆 wiki 目录页 ~/roles/m-ab12cd/wiki/MEMORY.md，新会话系统自动附上，不用回应）\n- [a](a/README.md) — 甲');
+  // Windows shows the full path (memory-index.mjs abbreviates only a '/'-separated home)
+  const shown = process.platform === 'win32' ? join(data, 'roles', 'm-ab12cd', 'wiki', 'MEMORY.md') : '~/roles/m-ab12cd/wiki/MEMORY.md';
+  assert.equal(one.block, `（你的记忆 wiki 目录页 ${shown}，新会话系统自动附上，不用回应）\n- [a](a/README.md) — 甲`);
   assert.notEqual(idx.turn({ member: 'm-ab12cd', room: 1 }).block, '', 'not given until the prompt went out');
   one.commit();
   assert.equal(idx.turn({ member: 'm-ab12cd', room: 1 }).block, '');
@@ -6269,7 +6271,7 @@ test('#149 memory sources: without BOTHOUSE_DATA_DIR the path still finds the ga
   const log = [];
   const sources = new MemorySources({ file: defaultVotesFile(env, home), wiki, home, logger: { info: (...a) => logs.push(a), warn: (...a) => logs.push(a) } });
   assert.equal(logs.length, 1, 'it says which file the badge reads, in one line');
-  assert.match(logs[0].join(' '), /reading .*data\/gate\/votes\.jsonl/);
+  assert.match(logs[0].join(' '), /reading .*data[\\/]gate[\\/]votes\.jsonl/);
   appendFileSync(votes, JSON.stringify({ voter: 'p', id: `bots/team.md#${h}`, vote: 1, by: 'self', key: 'dsh:ds:3' }) + '\n');
   assert.deepEqual(sources.take('p', 3).map(s => [s.page, s.title]), [['bots/team.md', '2026-11-05 找不到票文件时先看 CC_DATA_DIR。']]);
 
