@@ -21,6 +21,10 @@ def load_gate(team=None, wiki=None, model="fake"):
     sys.modules["scorer"] = fake
     os.environ["GATE_SETUP_DIR"] = tempfile.mkdtemp()  # 不读本机 ~/.cc-connect 里向导写的文件
     os.environ["BOARD_DIR"] = tempfile.mkdtemp()  # 不读本机的任务板（设了 BOARD_DIR 时它不跟 GATE_SETUP_DIR 走）
+    lead_file = Path(tempfile.mkdtemp()) / "lead.json"
+    os.environ["GATE_LEAD_FILE"] = str(lead_file)
+    if "lead" in sys.modules:
+        sys.modules["lead"].LEAD_FILE = lead_file
     os.environ.pop("GATE_JEV", None)
     os.environ["MEMVOTE_DIR"] = tempfile.mkdtemp()  # 推送记录写临时目录，不写进仓库
     if model:
@@ -147,6 +151,12 @@ class T(unittest.TestCase):
                                                  {"Content-Type": "application/json"})
                     r = urllib.request.urlopen(req, timeout=5)
                     self.assertEqual((r.status, json.loads(r.read())["action"]), (200, want), (no_jev, body))
+            # 单角色（not SUBS）下用户说「你现在是主角色」同样走 lead 规则切换并回复
+            req = urllib.request.Request(f"http://127.0.0.1:{srv.server_port}/decide",
+                                         json.dumps({"content": "你现在是主角色", "mentioned": False, "busy": False}).encode(),
+                                         {"Content-Type": "application/json"})
+            r = urllib.request.urlopen(req, timeout=5)
+            self.assertEqual((r.status, json.loads(r.read())["action"]), (200, "reply"))
         finally:
             srv.shutdown()
             srv.server_close()
@@ -179,6 +189,15 @@ class T(unittest.TestCase):
             self.assertEqual((code, ld["ok"]), (200, True))
             code, _ = post("/decide", {"content": "你好", "mentioned": False, "busy": False})
             self.assertEqual(code, 503)
+            # 但用户一句话切换主角色走规则解析，不走 503，在无 jev 时直接切换成功
+            code, res = post("/decide?bot=coder", {"content": "换码农当主角色", "mentioned": False, "busy": False})
+            self.assertEqual((code, res.get("action")), (200, "reply"))
+            self.assertEqual(g.lead.current(), "coder")
+            code, res = post("/decide", {"content": "换码农当主角色", "mentioned": False, "busy": False})
+            self.assertEqual((code, res.get("action")), (200, "context"))
+            code, res = post("/decide", {"content": "换回协调员", "mentioned": False, "busy": False})
+            self.assertEqual((code, res.get("action")), (200, "reply"))
+            self.assertEqual(g.lead.current(), "")
         finally:
             srv.shutdown()
             srv.server_close()

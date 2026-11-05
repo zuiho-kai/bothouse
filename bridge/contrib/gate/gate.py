@@ -867,15 +867,23 @@ class H(BaseHTTPRequestHandler):
             return
         if url.path != "/decide" or (bot and bot not in SUBS):
             self.send_error(404); return
+        req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        to, own = split_reply((req.get("content") or "").strip())
+        target = lead.parse(req, own, bot, to)
+        if target is not None:
+            lead.set_lead(target)
+            action = "reply" if bot == target else "context"
+            reason = f"rule: 用户把主角色切到{lead.NAME[target]}" + ("" if bot == target else "，不是我")
+            p = _key_part(req)
+            if action == "reply" and not p["from_bot"] and (user_addressed(p, bot) or ": 判给我；" in reason):
+                _talk[_chat(req.get("session_key"))] = (bot, time.time())
+            return self._json({"action": action, "reason": reason})
         if not SUBS:  # 单角色（向导写的 gate-team.json 没有 subs）：没有队友可让，不打分；忙时叫停/改做照 core/gate_local.go applyLocalGate
-            req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-            own = split_reply((req.get("content") or "").strip())[1]
             if req.get("busy") and req.get("mentioned") and not req.get("from_bot") and (STOP_WORDS.fullmatch(own) or REDIRECT.match(own)):
                 return self._json({"action": "abort", "reason": "no teammate; rule: 停止词/改做"})
             return self._json({"action": "reply", "reason": "no teammate: reply"})
         if SCORER_KIND == "none":  # 没 jev：不判谁回，cc-connect 按 gate_fallback 兜底（core/gate.go fallbackFor）
             return self._json({"error": "no jev: /decide is off, use gate_fallback"}, 503)
-        req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
         t = time.time()
         try:
             action, reason, sc = route(req, bot)
