@@ -87,7 +87,7 @@ Request JSON (only the fields marked REQUIRED must be given; everything else has
                      now: saved with the blocking warning cloud_web_unreachable.
   wiki               optional {"daily", "night", "split"}: models of the memory wiki (~/wiki or $WIKI_DIR with
                      bin/ingest.py). daily = every 30 minutes, new sessions into the wiki; night = nightly review,
-                     reflection and the weekly lint; split = splitting pages/domains that are full. Values: haiku |
+                     reflection, the weekly lint and the nightly memory-forum settlement; split = splitting pages/domains that are full. Values: haiku |
                      sonnet | opus | codex:high | agy. Omitted = keep (ingest.py's defaults: haiku, codex:high,
                      codex:high); written to the wiki's config.json. With a wiki, the three scheduled runs (every
                      30 min; 03:00 Mon-Sat; 03:00 Sun) are also added as muted cron jobs (step "wiki cron"), once.
