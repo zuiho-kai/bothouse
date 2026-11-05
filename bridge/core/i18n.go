@@ -695,6 +695,8 @@ const (
 	MsgReleaseHoldUnresumed     MsgKey = "release_hold_unresumed"
 	MsgWatchFailReassigned      MsgKey = "watch_fail_reassigned"
 	MsgWatchFailPrompt          MsgKey = "watch_fail_prompt"
+	MsgWatchCantDoReassigned    MsgKey = "watch_cantdo_reassigned"
+	MsgWatchCantDoPrompt        MsgKey = "watch_cantdo_prompt"
 	MsgTaskReviewReturned       MsgKey = "task_review_returned"
 	MsgTaskReviewOverdue        MsgKey = "task_review_overdue"
 	MsgTaskReviewPrompt         MsgKey = "task_review_prompt"
@@ -1176,6 +1178,20 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "%s 連續兩次報錯（多半是中轉限流），現在由你接手：%s。先讀下面紀錄及原交接文件，從停點接著做，保留用戶原話和底分支，交回原頻道。\n交接依據：\n%s",
 		LangJapanese:           "%s が2回連続でエラーになりました（中継のレート制限の可能性）。今からあなたが担当します：%s。下の記録と元の引継ぎファイルを読み、停止点から続け、元の依頼とブランチを保ち、元のチャンネルに報告してください。\n根拠：\n%s",
 		LangSpanish:            "%s falló dos veces seguidas (probablemente límites del relay). Ahora te encargas de: %s. Lee el registro y los archivos de traspaso, continúa desde el punto guardado, conserva la petición y la rama originales e informa en el canal original.\nBase:\n%s",
+	},
+	MsgWatchCantDoReassigned: {
+		LangEnglish:            "Watch: %s said twice it cannot do %s; handed it to %s, who carries on.",
+		LangChinese:            "看门：%s「%s」连续两次说做不了，已自动换给 %s 接着做。",
+		LangTraditionalChinese: "看門：%s「%s」連續兩次說做不了，已自動換給 %s 接著做。",
+		LangJapanese:           "見守り：%s が %s を2回続けてできないと答えたため、%s に自動で引き継ぎました。",
+		LangSpanish:            "Aviso: %s dijo dos veces que no puede hacer %s; se pasó a %s, que continúa.",
+	},
+	MsgWatchCantDoPrompt: {
+		LangEnglish:            "%s said twice it cannot do this work (or its model refused). You now own: %s. Read the record below and the original handoff file, continue from where it stopped, keep the original request and branch, and report to the original channel.\nBasis:\n%s",
+		LangChinese:            "%s 连续两次说做不了（或模型拒答），现在由你接手：%s。先读下面记录及原交接文件，从停点接着做，保留用户原话和底分支，交回原频道。\n交接依据：\n%s",
+		LangTraditionalChinese: "%s 連續兩次說做不了（或模型拒答），現在由你接手：%s。先讀下面紀錄及原交接文件，從停點接著做，保留用戶原話和底分支，交回原頻道。\n交接依據：\n%s",
+		LangJapanese:           "%s がこの作業を2回続けてできないと答えました（またはモデルが拒否）。今からあなたが担当します：%s。下の記録と元の引継ぎファイルを読み、停止点から続け、元の依頼とブランチを保ち、元のチャンネルに報告してください。\n根拠：\n%s",
+		LangSpanish:            "%s dijo dos veces que no puede hacer este trabajo (o su modelo se negó). Ahora te encargas de: %s. Lee el registro y el archivo de traspaso, continúa desde donde se detuvo, conserva la petición y la rama originales e informa en el canal original.\nBase:\n%s",
 	},
 	MsgPublicEnded: {
 		LangEnglish:            "Turn ended; see the final reply. Acceptance is not confirmed.",

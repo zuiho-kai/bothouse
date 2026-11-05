@@ -71,8 +71,12 @@ func taskReviewRefusedBy(dir string, it teamTaskBoardItem, project string) bool 
 }
 
 func recordReviewRefused(dir string, it teamTaskBoardItem, project string) {
+	appendRefused(dir, reviewRefusedKey(it), project)
+}
+
+// appendRefused adds project under key k of the refusal record (review turns and work turns).
+func appendRefused(dir, k, project string) {
 	m := readReviewRefused(dir)
-	k := reviewRefusedKey(it)
 	for _, p := range m[k] {
 		if p == project {
 			return
