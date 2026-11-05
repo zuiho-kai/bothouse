@@ -248,13 +248,37 @@ func ensureUV(dataDir string) (string, error) {
 	uvMu.Lock()
 	defer uvMu.Unlock()
 	own := ownUV(dataDir)
-	if _, err := os.Stat(own); err == nil {
-		return own, nil
+	if _, err := os.Stat(own); err != nil {
+		if err := downloadUV(own); err != nil {
+			return "", fmt.Errorf("no uv on PATH; downloading uv %s failed: %w", uvVersion, err)
+		}
 	}
-	if err := downloadUV(own); err != nil {
-		return "", fmt.Errorf("no uv on PATH; downloading uv %s failed: %w", uvVersion, err)
-	}
+	linkOwnUV(dataDir, own)
 	return own, nil
+}
+
+// linkOwnUV puts `uv` next to the product python3 in <dataDir>/tools/bin, which is on every role's PATH
+// (roleSessionEnv): the agent tools and personas run plain `uv`, and a machine without uv on PATH (a container
+// without sudo, a fresh Mac) otherwise has it only inside the data dir. Best effort; Windows has no link.
+func linkOwnUV(dataDir, own string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
+	dir := filepath.Join(AgentToolsDir(dataDir), "bin")
+	link := filepath.Join(dir, "uv")
+	if cur, err := os.Readlink(link); err == nil && cur == own {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	tmp := fmt.Sprintf("%s.tmp.%d.%08x", link, os.Getpid(), rand.Uint32())
+	if err := os.Symlink(own, tmp); err != nil {
+		return
+	}
+	if err := os.Rename(tmp, link); err != nil {
+		_ = os.Remove(tmp)
+	}
 }
 
 // uvBaseEnv: only-managed: uv never runs the interpreters on PATH (so never the macOS stub, which opens the
