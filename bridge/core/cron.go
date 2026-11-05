@@ -795,6 +795,16 @@ type mutePlatform struct {
 func (m *mutePlatform) Reply(_ context.Context, _ any, _ string) error { return nil }
 func (m *mutePlatform) Send(_ context.Context, _ any, _ string) error  { return nil }
 
+// unmutedPlatform strips the mute wrapper. A muted cron turn leaves *mutePlatform as the
+// session's platform; an explicit `bothouse send` (e.g. --dm from the "整点想想要不要私聊"
+// job) must still reach the chat, otherwise it is dropped while the CLI reports success.
+func unmutedPlatform(p Platform) Platform {
+	if m, ok := p.(*mutePlatform); ok && m.Platform != nil {
+		return m.Platform
+	}
+	return p
+}
+
 func GenerateCronID() string {
 	b := make([]byte, 4)
 	if _, err := rand.Read(b); err != nil {
