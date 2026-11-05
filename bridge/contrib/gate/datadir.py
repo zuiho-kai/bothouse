@@ -7,7 +7,10 @@
   bothouse 拉起 gate 时两个都设成同一个数据目录（core/gate_proc.go）。
 """
 import os
-import pwd
+try:
+    import pwd  # Windows 没有 pwd 模块
+except ImportError:
+    pwd = None
 import sys
 import tempfile
 from pathlib import Path
@@ -29,7 +32,8 @@ def guard(path):
     if path is None or str(path) == "" or not _in_test():
         return path
     try:
-        real = Path(pwd.getpwuid(os.getuid()).pw_dir)
+        # 真实主目录（不看被测试改掉的 HOME）：Unix 查账户库；Windows 的 USERPROFILE 是账户目录，Path.home() 也先看它
+        real = Path(pwd.getpwuid(os.getuid()).pw_dir) if pwd else Path(os.environ.get("USERPROFILE") or Path.home())
     except KeyError:
         return path
     p = Path(path).expanduser().resolve()

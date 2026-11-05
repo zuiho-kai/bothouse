@@ -475,10 +475,10 @@ def record_last(path: str, ws: str, task: str, chat: str, nid=None):
 @contextlib.contextmanager
 def _queue():
     """排队表（加锁读改写）：yield 列表，退出时写回。"""
-    import fcntl
+    import filelock  # ../gate/filelock.py（上面已把 gate 目录放进 sys.path）
     QUEUE.parent.mkdir(parents=True, exist_ok=True)
     with open(str(QUEUE) + ".lock", "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        filelock.lock(lock)
         try:
             q = json.loads(QUEUE.read_text(encoding="utf-8"))
         except (OSError, ValueError):

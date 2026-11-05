@@ -158,7 +158,7 @@ class DeptManager(unittest.TestCase):
 
 HERE = Path(__file__).resolve().parent
 # 装包后的布局：gate 脚本在 <数据目录>/gate（embed_gate.go），lead 工具在 <数据目录>/collaboration/lead（lead_tools.go）
-GATE_FILES = ("ctxsvc.py", "wiki_search.py", "lead.py", "board.py", "datadir.py", "team.example.json")
+GATE_FILES = ("ctxsvc.py", "wiki_search.py", "lead.py", "board.py", "datadir.py", "filelock.py", "team.example.json")
 PROBE = ("import sys; sys.path.insert(0, '.'); import json, ctxsvc, lead; print(json.dumps({'pb': str(lead.PLAYBOOK), 'hit': any(%r in (x.get('desc') or '') "
          "for x in ctxsvc.context({'bot': '', 'text': '在吗'})['wiki'])}))" % MARK)
 
