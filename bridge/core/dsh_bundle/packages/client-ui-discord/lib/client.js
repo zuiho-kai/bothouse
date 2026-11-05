@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 45c603487b4cd284c2608a2803d50d20bb29d053291c05b512d4ff56464c484e
+// dsh-client-source-sha256: 3dc47fbe0151589d94486597cb3369e8cecd6efd40033c8a9425d7e235c270b1
 // dsh-style-sha256: 9d75964f7231ba60e917f20dccdae4bd87b91f25cd8dc6887c93e537430fbd3e
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -23507,7 +23507,7 @@ const en = {
 	taskReviewReason: "Reason for rework (required)",
 	taskReviewSubmit: "Submit rework",
 	lead: "Primary role",
-	leadNone: "No role is available",
+	leadNone: "Not selected (use the default)",
 	durSeconds: "{n}s",
 	durMinutes: "{n} min",
 	durHours: "{h} h {m} min",
