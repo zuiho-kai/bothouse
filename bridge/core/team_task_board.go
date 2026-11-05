@@ -73,8 +73,11 @@ type teamTaskBoardItem struct {
 		NoDeploy bool   `json:"no_deploy"`
 		Bound    string `json:"bound"`
 	} `json:"pr_binding,omitempty"`
-	PRMerge      map[string]string `json:"pr_merge,omitempty"`
-	ReturnedAt   time.Time         `json:"returned_at,omitzero"`
+	PRMerge map[string]string `json:"pr_merge,omitempty"`
+	// ReleaseHold: board hold — saved its stop point for a central release; the watch neither
+	// counts its errors nor wakes it, and the next bridge process resumes it (team_release_hold.go).
+	ReleaseHold  *teamReleaseHold `json:"release_hold,omitempty"`
+	ReturnedAt   time.Time        `json:"returned_at,omitzero"`
 	reviewAfter  time.Duration
 	reviewerName string
 	// Resolved by placeTeamTaskBoard, not stored.
@@ -517,7 +520,8 @@ const (
 	teamTaskWaiting                           // waits on the user (看片/拍板/答复)
 	teamTaskPaused                            // paused for another reason: counted only
 	teamTaskReview
-	teamTaskHidden // finished, or its workspace has ended the handoff
+	teamTaskRelease // waits on a central release: held for it (board hold) — not 卡住
+	teamTaskHidden  // finished, or its workspace has ended the handoff
 )
 
 const (
@@ -632,6 +636,8 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 			return teamTaskWaiting, teamTaskBoardReason(it.PauseWhy, it.Status)
 		}
 		return teamTaskPaused, ""
+	case it.ReleaseHold != nil:
+		return teamTaskRelease, "为发布暂停"
 	case strings.HasPrefix(strings.TrimSpace(it.Status), "完成"):
 		return teamTaskHidden, ""
 	case teamOtherQuiet.MatchString(it.Status):
@@ -695,10 +701,10 @@ func teamTaskBoardDisplayItems(items []teamTaskBoardItem, chat string, now time.
 }
 
 // teamTaskBoardMarks: the row mark of each listed state.
-var teamTaskBoardMarks = map[teamTaskBoardState]string{teamTaskStuck: "⚠", teamTaskRunning: "▶", teamTaskWaiting: "⏸", teamTaskReview: "🟡", teamTaskPaused: "⏸"}
+var teamTaskBoardMarks = map[teamTaskBoardState]string{teamTaskStuck: "⚠", teamTaskRunning: "▶", teamTaskWaiting: "⏸", teamTaskReview: "🟡", teamTaskPaused: "⏸", teamTaskRelease: "📦"}
 
 // teamTaskBoardNames: the state's word on the board.
-var teamTaskBoardNames = map[teamTaskBoardState]string{teamTaskStuck: "卡住", teamTaskRunning: "在做", teamTaskWaiting: "等你", teamTaskReview: "待验收", teamTaskPaused: "暂停"}
+var teamTaskBoardNames = map[teamTaskBoardState]string{teamTaskStuck: "卡住", teamTaskRunning: "在做", teamTaskWaiting: "等你", teamTaskReview: "待验收", teamTaskPaused: "暂停", teamTaskRelease: "等发布"}
 
 // renderTeamTaskBoard renders a chat channel's task-board section, or "" when it has nothing
 // there. It answers 「整体怎样、哪些等我」 — 卡住 and 等你 one item per line with their reason,
@@ -734,7 +740,7 @@ func renderTeamTaskBoard(items []teamTaskBoardItem, chat string, now time.Time) 
 		return "" // only paused items here: no board (same as before, paused items alone never kept one)
 	}
 	lines := []string{"**任务板**"}
-	for _, state := range []teamTaskBoardState{teamTaskStuck, teamTaskReview, teamTaskRunning, teamTaskWaiting, teamTaskPaused} {
+	for _, state := range []teamTaskBoardState{teamTaskStuck, teamTaskReview, teamTaskRelease, teamTaskRunning, teamTaskWaiting, teamTaskPaused} {
 		r := rows[state]
 		if len(r) == 0 {
 			continue
@@ -904,7 +910,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		last, bound             time.Time
 		stuck                   bool
 	}
-	var waiting, idle []string
+	var waiting, idle, release []string
 	var wsRows []wsRow
 	var running []runRow
 	liveBound := map[string]time.Time{}
@@ -918,7 +924,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		if idlePool == nil && it.idleByChat != nil {
 			idlePool = it.idleByChat[chat]
 		}
-		state, _ := teamTaskBoardStateOf(it, now)
+		state, stateNote := teamTaskBoardStateOf(it, now)
 		if state == teamTaskHidden {
 			continue
 		}
@@ -928,7 +934,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		if card != nil && card.UpdatedAt.After(last) {
 			last = card.UpdatedAt
 		}
-		if state == teamTaskPaused && !it.wsEnded && it.ReviewRejected == "" || (state != teamTaskWaiting && state != teamTaskReview && it.ReviewRejected == "" && !it.wsEnded && !last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
+		if state == teamTaskPaused && !it.wsEnded && it.ReviewRejected == "" || (state != teamTaskWaiting && state != teamTaskReview && state != teamTaskRelease && it.ReviewRejected == "" && !it.wsEnded && !last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
 			shelved++
 			continue
 		}
@@ -939,6 +945,12 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		short := teamTaskBoardShort(it)
 		span := teamTaskTableSpan(teamTaskTableSince(it, now), now)
 		switch {
+		case state == teamTaskRelease:
+			parts := []string{short, stateNote}
+			if where != "" {
+				parts = []string{where, short, stateNote}
+			}
+			release = append(release, "  📦 "+strings.Join(parts, " · "))
 		case state == teamTaskPaused:
 			note := "暂停"
 			if it.ReviewRejected != "" {
@@ -1058,6 +1070,10 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 			lines = append(lines, r.line)
 		}
 	}
+	if len(release) > 0 {
+		lines = append(lines, fmt.Sprintf("**等发布 %d**", len(release)))
+		lines = append(lines, release...)
+	}
 	if len(idle) > 0 {
 		lines = append(lines, fmt.Sprintf("**待安排 %d**", len(idle)))
 		lines = append(lines, idle...)
@@ -1116,7 +1132,7 @@ func renderWorkspaceTaskBoardFit(items []teamTaskBoardItem, chat string, now tim
 		return "" // only paused items here: no board (same as before, paused items alone never kept one)
 	}
 	lines := []string{"**这里在做**"}
-	for _, st := range []teamTaskBoardState{teamTaskStuck, teamTaskReview, teamTaskRunning, teamTaskWaiting, teamTaskPaused} {
+	for _, st := range []teamTaskBoardState{teamTaskStuck, teamTaskReview, teamTaskRelease, teamTaskRunning, teamTaskWaiting, teamTaskPaused} {
 		lines = append(lines, rows[st]...)
 	}
 	if paused > 0 {

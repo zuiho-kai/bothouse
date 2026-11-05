@@ -365,6 +365,21 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 	teamWorkspaceStore.mu.Unlock()
 	delegated := e.watchDelegatedWork(key)
 	for _, a := range assignments {
+		if !returned && e.boardReleaseHeld(a.key, a.h) {
+			// Saved for a central release: an interrupted or failed turn is not a failure, and the
+			// next process wakes it (resumeReleaseHolds). The count starts afresh, so a release
+			// called off (board unhold) does not escalate on its first error; the recheck keeps
+			// the watch armed for that case (#984 review).
+			h, ok := e.updateIdle(a, func(h *TeamHandoff) {
+				h.Idle.Fails, h.Idle.Wakes, h.Idle.Reported = 0, 0, false
+				h.Idle.Ended = time.Now()
+			})
+			if ok {
+				a.h = h
+				e.armReleaseHoldRecheck(a)
+			}
+			continue
+		}
 		giveUp := false
 		h, ok := e.updateIdle(a, func(h *TeamHandoff) {
 			h.Idle.Returned = returned
@@ -412,20 +427,34 @@ func (e *Engine) armIdleWake(a idleAssignment) {
 	time.AfterFunc(watchTurnEndDelay, func() { e.fireIdleWake(a) })
 }
 
+// armReleaseHoldRecheck: while held for a release the watch looks again every ten-minute check
+// (沿用 watchCheckAfter); once the hold is gone (board unhold) fireIdleWake carries on as usual.
+func (e *Engine) armReleaseHoldRecheck(a idleAssignment) {
+	time.AfterFunc(watchCheckAfter(), func() { e.fireIdleWake(a) })
+}
+
 func (e *Engine) fireIdleWake(a idleAssignment) {
 	if e.ctx.Err() != nil || !e.quotaCoolingFor(e.admissionQuotaScope(e.agent, a.key)).IsZero() || e.watchBusy(a.key) || e.watchDelegatedWork(a.key) {
 		return
 	}
 	if e.team != nil {
-		id := a.h.Board
-		if id == 0 {
-			id = watchTaskNumber(a.h.Title) // watches recorded before board IDs existed
-		}
-		if id != 0 {
+		items := placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir))
+		if id := handoffBoardID(a.key, a.h, items); id != 0 {
 			found, closed := false, false
-			for _, it := range placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir)) {
+			for _, it := range items {
 				if it.ID == id {
 					found = true
+					if activeReleaseHold(it) {
+						// Saved for a release: the next process resumes it (resumeReleaseHolds).
+						// Look again later, starting afresh, in case the release is called off.
+						if h, ok := e.updateIdle(a, func(h *TeamHandoff) {
+							h.Idle.Fails, h.Idle.Wakes, h.Idle.Reported = 0, 0, false
+						}); ok {
+							a.h = h
+							e.armReleaseHoldRecheck(a)
+						}
+						return
+					}
 					// Handed to a workspace since: the workspace's watch keeps it, not this chat.
 					closed = watchBoardClosed(it) || it.Paused != "" || it.own != a.key && it.parent == a.key && !it.wsEnded ||
 						watchHandoffLeft(it, a.key)
@@ -463,14 +492,19 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 		e.escalateIdle(a.key, h, MsgWatchIdleEscalate)
 		return
 	}
+	e.sendIdleWake(a, h)
+}
+
+// sendIdleWake asks the owner of a's handoff to carry on, then arms the next idle check.
+func (e *Engine) sendIdleWake(a idleAssignment, h TeamHandoff) bool {
 	plat, _, _ := strings.Cut(a.key, ":")
 	sender := e.watchSender(h)
 	p := sender.lookupReadyPlatform(plat)
 	if p == nil {
 		slog.Warn("idle watch: sender platform unavailable", "workspace", a.key)
-		return
+		return false
 	}
-	w = newHandoffWatch(sender)
+	w := newHandoffWatch(sender)
 	owner := h.Owner
 	if m, ok := e.lookupReadyPlatform(plat).(SelfMentioner); ok && m.SelfMention() != "" {
 		owner = m.SelfMention()
@@ -488,6 +522,7 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 	}
 	a.h = h
 	e.armIdleWake(a) // two wake attempts, then one escalation; not a polling loop
+	return true
 }
 
 func (e *Engine) watchSender(h TeamHandoff) *Engine {
