@@ -161,8 +161,10 @@ def main(argv):
     chat, path = pick_chat(last, bare(key), notes)
     # 用户叫停的活（board pause，不是 --ask 自己挂起的等答复）不再往聊天频道报（用户 2026-10-28「我都说不做了，你还问我」）
     ids = set(handoffs(last)[path].get("board") or [])
-    stopped = [i for i in board.items() if i["id"] in ids and i.get("paused") and i.get("pause_why") != board.ASK_WHY]
+    stopped = [i for i in board.items() if i["id"] in ids and (i.get("backlog") or i.get("paused") and i.get("pause_why") != board.ASK_WHY)]
     if stopped:
+        if stopped[0].get("backlog"):  # 待办：小事排在 bug 后面，不必报回聊天频道
+            sys.exit(f"ws-up: #{stopped[0]['id']} 已挪进待办，不上报；停手，等聊天频道重新交活（board backlog 看）")
         sys.exit(f"ws-up: #{stopped[0]['id']} 已被暂停（用户叫停），不上报；停手，等聊天频道重新交活")
     rec = handoffs(last)[path]
     if board.is_test(rec.get("task") or ""):

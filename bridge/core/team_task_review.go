@@ -74,7 +74,7 @@ func (e *Engine) applyRelayBoardReturn(task *Task, request string, receipt taskR
 	}
 	for _, it := range readTeamTaskBoard(e.team.dir) {
 		if it.ID != board || it.Bound != bound || it.Chat == "" || teamChatKey(it.Chat) != teamChatKey(chat) ||
-			it.Paused != "" || (it.Dispatcher != e.name && !e.isTeamLead()) {
+			it.Paused != "" || it.Backlog != "" || (it.Dispatcher != e.name && !e.isTeamLead()) {
 			continue
 		}
 		matched := false
@@ -170,7 +170,7 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 	// Source: #72 checks merged, explicitly no-deploy work on the existing hourly roundup.
 	if roundup && e.isTeamLead() {
 		for _, it := range readTeamTaskBoard(e.team.dir) {
-			if it.PRBinding != nil && it.PRBinding.NoDeploy && it.PRBinding.Bound == it.Bound && it.PRMerge == nil && it.Paused == "" {
+			if it.PRBinding != nil && it.PRBinding.NoDeploy && it.PRBinding.Bound == it.Bound && it.PRMerge == nil && it.Paused == "" && it.Backlog == "" {
 				if out, err := e.runLeadScript(it.Chat, "board", "merged"); err != nil {
 					slog.Warn("task review: merged PR reconciliation failed", "error", err, "output", string(out))
 				}
@@ -234,7 +234,7 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 		}
 		if it.ReturnedAt.IsZero() || it.Chat == "" {
 			// Only a delivered-report receipt proves a legacy handback. Release alone does not.
-			if it.Chat != "" && it.ReviewRejected == "" && it.Paused == "" {
+			if it.Chat != "" && it.ReviewRejected == "" && it.Paused == "" && it.Backlog == "" {
 				e.teamExit.mu.Lock()
 				at := e.readExitReported()[strconv.Itoa(it.ID)]
 				e.teamExit.mu.Unlock()

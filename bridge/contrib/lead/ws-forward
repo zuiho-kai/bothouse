@@ -27,6 +27,9 @@ def wake_prompt(path: str, summary: str, interrupt: bool = False):
     text = summary if len(summary) <= PROMPT_MAX else summary[:PROMPT_MAX] + f"…（全文见 {path}「转交结果」节最新一条）"
     hit = board.paused_item(path)
     if hit:
+        if hit.get("backlog"):  # 待办：小事排在 bug 后面，等主频道恢复再做
+            return (f"主频道转来一条话，这件活已挪进待办（#{hit['id']}）：停手，不要再起后台命令，正在跑的停掉，"
+                    f"别按交接里更早的话接着做。原文：{text}")
         return (f"主频道转来一条话，这件活已暂停（#{hit['id']}）：停手，不要再起后台命令，正在跑的停掉，"
                 f"别按交接里更早的话接着做。原文：{text}")
     if interrupt:
@@ -88,7 +91,7 @@ def main(argv):
         sys.exit(f"ws-forward: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
     # 转了新话，工作区要接着做：这件活的兜底定时器从现在重新算（board.arm_guard；暂停的活不挂）
     for it in board.items():
-        if it.get("where") == last["file"] and it.get("ws") and not it.get("paused"):
+        if it.get("where") == last["file"] and it.get("ws") and not it.get("paused") and not it.get("backlog"):
             board.arm_guard(it["id"])
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
 

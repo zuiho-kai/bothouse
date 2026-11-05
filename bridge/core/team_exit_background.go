@@ -69,8 +69,8 @@ func lastBoundItem(items []teamTaskBoardItem, key string) *teamTaskBoardItem {
 		if w == "" {
 			w = it.WSWas
 		}
-		if w == "" || teamChatKey(w) != key {
-			continue
+		if w == "" || it.Backlog != "" || teamChatKey(w) != key {
+			continue // 待办：already out of work there; a later [report] is not this item's
 		}
 		if last == nil || it.Bound >= last.Bound {
 			last = it
