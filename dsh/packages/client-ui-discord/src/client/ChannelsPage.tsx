@@ -16,7 +16,7 @@ import { dmRooms, groupRooms } from './channel-source.ts'
 import { DeliveryPreview, deliverableOf, deliveredTasks } from './DeliveryPreview.tsx'
 import { boardGroupOf, isLiveTask } from './task-board.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
-import { ProgressCard, channelProgress } from './ProgressCard.tsx'
+import { ProgressCard, channelProgress, loadProgressFolded, saveProgressFolded } from './ProgressCard.tsx'
 import { StepChips, chipsOf, compactBrief } from './StepChips.tsx'
 import { CapabilityList } from './CapabilityList.tsx'
 import { SlashMenu } from './SlashMenu.tsx'
@@ -767,7 +767,16 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   // Message whose avatar menu is open (#123); keyed by message so only one row shows it.
   const [avatarMenu, setAvatarMenu] = useState<number | undefined>(undefined)
   const [cardViews, setCardViews] = useState<Record<number, CardView>>({})
+  // #156: the 本频道进展 card folds away and stays folded across reloads, per room.
+  const [progressFolded, setProgressFolded] = useState<Record<number, boolean>>({})
   const cardView = state.roomId === undefined ? CARD_VIEW_DEFAULT : cardViews[state.roomId] ?? loadCardView(state.roomId)
+  const folded = state.roomId !== undefined && (progressFolded[state.roomId] ?? loadProgressFolded(state.roomId))
+  const toggleProgress = (): void => {
+    if (state.roomId === undefined) return
+    const roomId = state.roomId
+    saveProgressFolded(roomId, !folded)
+    setProgressFolded(folds => ({ ...folds, [roomId]: !folded }))
+  }
   const chooseCardView = (view: CardView): void => {
     if (state.roomId === undefined) return
     const roomId = state.roomId
@@ -1395,7 +1404,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
           }}
         >
           {/* #125: 本频道进展 stays at the top of the log while it scrolls. */}
-          <ProgressCard lines={channelProgress(state.tasks ?? [], channelRooms)} t={t} onOpen={openMessage} />
+          <ProgressCard lines={channelProgress(state.tasks ?? [], channelRooms)} t={t} onOpen={openMessage} folded={folded} onToggle={toggleProgress} />
           {!visibleMembers.some(m => m.kind !== 'human') && (
             <div className={css.guide}>
               <div>{t('guideNoMembers')}</div>
