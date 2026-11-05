@@ -6,6 +6,7 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -59,6 +60,33 @@ func (c trayClient) usageLabel(today string) string {
 	}
 	return trayUsageLabel(usage.Items)
 }
+
+// trayRole is one row of /api/v1/roles as the tray reads it.
+type trayRole struct {
+	Name   string `json:"name"`
+	Online bool   `json:"online"`
+	// Source is "dsh" for a member DSH runs itself (management_roles_dsh.go); empty for bridge roles.
+	Source string `json:"source"`
+}
+
+// trayRolesTitle is the tray's 「角色：」 line: bridge roles only. DSH members (source "dsh") are left
+// out so their five names cannot push the real roles past the 55-rune limit — the same rule as the
+// panel's GlobalSettings.tsx:153 (`roles.filter((x) => x.source !== 'dsh')`).
+func trayRolesTitle(roles []trayRole) string {
+	labels := make([]string, 0, len(roles))
+	for _, r := range roles {
+		if r.Source == "dsh" {
+			continue
+		}
+		state := "离线"
+		if r.Online {
+			state = "在线"
+		}
+		labels = append(labels, r.Name+" "+state)
+	}
+	return compact("角色："+strings.Join(labels, "、"), 55)
+}
+
 func trayUsageLabel(items []core.UsageAggregate) string {
 	var tokens int64
 	var unknown, unpriced int64
