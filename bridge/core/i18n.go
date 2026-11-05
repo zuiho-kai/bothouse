@@ -812,11 +812,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "%s espera su cuota. Asumes: %s. Lee el traspaso original y el registro guardado. Conserva la petición y la rama, y entrega en el canal original.\nBase:\n%s",
 	},
 	MsgQuotaCooling: {
-		LangEnglish:            "This role is cooling down until %s.",
-		LangChinese:            "本角色额度冷却至 %s。",
-		LangTraditionalChinese: "本角色額度冷卻至 %s。",
-		LangJapanese:           "この担当は %s まで利用枠待機中です。",
-		LangSpanish:            "Este rol espera su cuota hasta %s.",
+		LangEnglish:            "This role is cooling down until %s, about %s from now.",
+		LangChinese:            "本角色额度冷却至 %s，大约还要 %s。",
+		LangTraditionalChinese: "本角色額度冷卻至 %s，大約還要 %s。",
+		LangJapanese:           "この担当は %s まで利用枠待機中です（残り約 %s）。",
+		LangSpanish:            "Este rol espera su cuota hasta %s, faltan unos %s.",
 	},
 	MsgTaskReporterMuted: {
 		LangEnglish: "%s cannot post in this thread; that update was not delivered", LangChinese: "%s 无法在线程发言，这条进展没有发出", LangTraditionalChinese: "%s 無法在討論串發言，這條進展沒有發出", LangJapanese: "%s はこのスレッドに投稿できません。この更新は届いていません", LangSpanish: "%s no puede publicar en este hilo; esa actualización no se entregó",

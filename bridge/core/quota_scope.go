@@ -200,7 +200,18 @@ func (e *Engine) saveDomainLocked(key string, until time.Time) {
 	}
 }
 
+// quotaCoolingFor answers "is this scope cooling down right now", reading the clock
+// itself. A caller that also prints how long is left must use quotaCoolingForAt with
+// one instant: checking a few microseconds early and formatting a few microseconds
+// late turned a deadline that had just passed into 「大约还要 0s」
+// (复核 2026-11-06 观察①：20 万次里 7 次).
 func (e *Engine) quotaCoolingFor(scope quotaScope) time.Time {
+	return e.quotaCoolingForAt(scope, time.Now())
+}
+
+// quotaCoolingForAt is quotaCoolingFor with the clock supplied by the caller, so the
+// "is it still cooling" decision and the text derived from it come from one instant.
+func (e *Engine) quotaCoolingForAt(scope quotaScope, now time.Time) time.Time {
 	quotaDomainsMu.Lock()
 	until := e.domainUntilLocked(scope.key())
 	if scope.Account == "unknown" {
@@ -220,7 +231,7 @@ func (e *Engine) quotaCoolingFor(scope quotaScope) time.Time {
 		until = e.quotaUntil
 	}
 	e.capMu.Unlock()
-	if until.After(time.Now()) {
+	if until.After(now) {
 		return until
 	}
 	return time.Time{}
