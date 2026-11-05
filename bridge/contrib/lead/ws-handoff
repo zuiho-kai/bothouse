@@ -358,7 +358,18 @@ def _ts(v):
         return 0.0
 
 
-def pick_worker(notes: str):
+def _refused(nid):
+    """对任务板 #nid 的活说过做不了或模型拒答的成员（桥记在 team-review-refused.json 的 work/<nid>）。"""
+    if not nid:
+        return set()
+    try:
+        d = json.loads((Path(board.DIR) / "team-review-refused.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    return set(d.get(f"work/{nid}") or []) if isinstance(d, dict) else set()
+
+
+def pick_worker(notes: str, nid=None):
     """代码活挑一个空着的队友跑工作区，返回（项目名，名字）；不是代码活、没有空着的队友返回 None（主角色自己跑，同改前）。
     空着 = 状态文件两分钟内更新过、没有在忙的会话、模型不在冷却，任务板上也没有她在做的工作区活。"""
     if not is_code_work(notes):
@@ -366,13 +377,14 @@ def pick_worker(notes: str):
     me = os.environ.get("CC_PROJECT", "")
     now = time.time()
     working = " ".join(str(i.get("who") or "") for i in board.items() if not i.get("paused"))
+    refused = _refused(nid)
     for f in sorted(Path(board.DIR).glob("*.json")):
         try:
             d = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         proj, name = str(d.get("project") or ""), str(d.get("name") or "")
-        if not isinstance(d, dict) or not proj or proj == me or now - _ts(d.get("updated")) > _STATUS_FRESH:
+        if not isinstance(d, dict) or not proj or proj == me or proj in refused or now - _ts(d.get("updated")) > _STATUS_FRESH:
             continue
         if any(_ts(d.get(k)) > now for k in ("cooling_until", "capacity_until")):
             continue
@@ -625,7 +637,7 @@ def start(path, task, chat, nid, project, answer=None):
     """挑空工作区、绑任务板 #nid、叫醒；没空的返回 False（调用方排队）。"""
     previous = next((i for i in board.items() if i["id"] == nid), {})
     try:
-        worker = pick_worker(Path(path).read_text(encoding="utf-8"))
+        worker = pick_worker(Path(path).read_text(encoding="utf-8"), nid)
     except OSError:
         worker = None
     picked = pick_pool(chat, task, previous.get("ws_was", "") if previous.get("review_rejected") else "",
