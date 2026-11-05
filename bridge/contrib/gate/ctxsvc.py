@@ -793,7 +793,7 @@ EXP_TAG = re.compile(r" \[#([0-9a-f]{10})\]")
 # 照抄 ACE Generator（arXiv 2510.04618 附录提示词）：「Pay attention to common mistakes listed in the playbook and avoid
 # them」，回答时报出「bullet_ids … relevant, helpful」。五家 CLI 都有 shell，所以报编号用命令，不改各家回复格式。
 VOTE_ITEM = {"path": "【记忆投票（每轮必做）】", "desc": (
-    f"回复前给真正用到的定案、经验条投票（行尾 10 位 [#编号]；页面和卡片行尾的 8 位编号是取正文用的，不投）：做对了 `python3 {_shown(MEMVOTE, Path('/'))} +编号`，错了或过时 `-编号`。\n"
+    f"回复前给真正用到的定案、经验条投票：做对了 `python3 {_shown(MEMVOTE, Path('/'))} +编号`，错了或过时 `-编号`（只投行尾 10 位 [#编号]；页面和卡片行尾的 8 位编号是取正文用的，不投）。\n"
     "推给你的记忆只给标题和行尾 [#编号]，正文用取正文的命令取，或按页路径和行号读。编号所有角色、所有频道共用一份分数。开工前照这些条做，特别是写着踩过的坑，避开它。"
     "投票是这一轮任务的一部分：回复发出前，先用 shell 给你真正用到的条投票，再回复——"
     f"照它做对了 `python3 {_shown(MEMVOTE, Path('/'))} +编号`；内容错了或过时、照它做会错 `… -编号`；"
