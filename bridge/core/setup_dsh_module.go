@@ -51,7 +51,11 @@ func (p *dshBundlePatch) UnmarshalJSON(data []byte) error {
 }
 
 func dshPluginName(name string) bool {
-	return name == "conest-collab" || name == "bothouse-dsh" || name == "@deepseek-ai/dsh-experimental-client-ui-discord"
+	// The host row and the channels page of either install. The desk, panel and other-computers rows
+	// (#1044) are not listed: they start off and the person switches them on the DSH Plugins page,
+	// so enabling the DSH platform here never turns them on.
+	return name == "conest-collab" || name == "bothouse-dsh" || name == "@deepseek-ai/dsh-experimental-client-ui-discord" ||
+		name == "bothouse-dsh-channels"
 }
 
 // Match DSH app-boot resolveBundleDir: installation first, then profile,

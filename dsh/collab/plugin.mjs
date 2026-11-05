@@ -6,7 +6,7 @@ import { personaLibrary } from './personas.mjs';
 //         name: /abs/path/dsh/collab/plugin.mjs
 //         config: { dataDir, workspacePath, leadFile?, fallbackLead?, botTokenEnv?, botPort?, ownerName?, rooms?, dshMembers?, maxRelay?, boardDir?, teamStatusDir?, wikiDir?, bridgeConfig? }
 import { createRequire } from 'node:module';
-import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, CollabError, publicMessage } from './store.mjs';
@@ -32,6 +32,7 @@ import { defaultBridgeConfig, panelRoute } from './panel.mjs';
 import { TeamStatus } from './team-status.mjs';
 import { ALIVE_EVERY_MS, PairClient, PairHost, PairListener, PAIR_PORT, REMOTE_OWNER, hostHandler, isLoopback, pairApiRoute, remoteProxyRoute, tailnetAddress } from './pairing.mjs';
 import { homedir, hostname } from 'node:os';
+import { migratePageRows } from './pages-migrate.mjs';
 
 export const name = 'conest-collab';
 export const inject = [
@@ -133,6 +134,8 @@ export async function apply(ctx, rawConfig) {
   const { WebSocketServer } = createRequire(import.meta.url)('ws');
   if (typeof createUserMessage !== 'function' || typeof WebSocketServer !== 'function') throw Error('conest-collab: unsupported DSH runtime');
 
+  // #1044: an install from before had the desk, panel and other-computers pages; checked before Store creates the file.
+  const collabExisted = existsSync(join(config.dataDir, 'collab.sqlite3'));
   // #445: the instance maxRelay stays the default for channels that never set their own cap.
   const store = new Store(join(config.dataDir, 'collab.sqlite3'), { maxRelay: config.maxRelay });
   for (const room of config.rooms) {
@@ -215,6 +218,13 @@ export async function apply(ctx, rawConfig) {
 
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/collab', handler: (req, res) => browserRoute(req, res) }), 'conest-collab: /collab');
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/api/rooms', handler: (req, res) => historyRoute(req, res) }), 'conest-collab: /api/rooms');
+  // #1044: keep the pages an existing install had (once). Deferred: the plugin manager reloads rows,
+  // which must not run inside this plugin's own activation.
+  const pagesTimer = setTimeout(() => {
+    migratePageRows(ctx.get('pluginManager'), { markerFile: join(config.dataDir, 'pages-migrated-1044'), existed: collabExisted, logger: ctx.logger })
+      .catch(err => ctx.logger.warn('conest-collab: keep pages: %s', err.message));
+  }, 3000);
+  ctx.effect(() => () => clearTimeout(pagesTimer), 'conest-collab: keep pages');
   const botUpgrade = (req, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
     later.origin ??= localOrigin(req);
