@@ -1,0 +1,164 @@
+package core
+
+import (
+	"encoding/json"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+// #208: the watch renews a workspace every ten minutes when it sees progress, but the board row
+// kept the time of the last hand edit (or of the last ws-up report), so a workspace that worked
+// for hours showed 「上次进展 3 小时前」 on the table and then 卡住 (1h) / 搁置 (24h) on live work.
+// Every renewal now writes the row's 最后活动时间 (progress_at, the field board.py progress and
+// _touch_progress already maintain) and the latest tool step of that workspace.
+//
+// Source: 交接 notes/board-auto-progress-20261105.handoff.md :10「看门每 10 分钟查到工作区有动静时，
+// 把「最后活动时间 + 最近一步」写回对应任务板条目」.
+
+const (
+	// boardProgressStepRunes: how much of the latest step goes on the board row. Source: 交接
+	// board-auto-progress-20261105 :10「最近一条工具调用首行截 40 字」.
+	boardProgressStepRunes = 40
+	// boardProgressLockWait: how long one board write waits for board.py's lock before giving up
+	// this check (the next one is ten minutes away). Source: 实测一次 board update 亚秒返回，
+	// 2 秒还拿不到锁就是别的进程卡在写板上，不值得拖住看门这一轮。
+	boardProgressLockWait = 2 * time.Second
+	// boardProgressLockPoll: retry interval while waiting for that lock. Source: 沿用
+	// contrib/gate/filelock.py 的 0.2 秒重试间隔。
+	boardProgressLockPoll = 200 * time.Millisecond
+)
+
+// markBoardProgress writes 「最后活动 + 最近一步」 back to the board item of this workspace
+// handoff. Non-fatal by design: a board that cannot be written must not turn a renewal into a
+// park or a failed check, so every failure is one log line and the caller keeps its due time.
+func (w *handoffWatch) markBoardProgress(key string, h TeamHandoff, since, now time.Time) {
+	e := w.e
+	if e == nil {
+		return
+	}
+	dir := e.teamStatusDir()
+	if dir == "" {
+		return
+	}
+	id := handoffBoardID(key, h, readTeamTaskBoard(dir))
+	if id == 0 {
+		return // no board item for this workspace: nothing to write back
+	}
+	step := boardProgressStep(w.workspaceLastStep(key, since))
+	wrote, err := writeBoardProgress(dir, id, step, now)
+	if err != nil {
+		slog.Warn("team watch: cannot write the board item's progress", "board", id, "workspace", key, "error", err)
+		return
+	}
+	if wrote {
+		slog.Info("team watch: board item progress written", "board", id, "workspace", key, "step", step)
+	}
+}
+
+// boardProgressStep: the step text for a board row — its first line, whitespace collapsed, cut to
+// boardProgressStepRunes; boardNoStep when that workspace has not run a tool yet.
+func boardProgressStep(step string) string {
+	step = strings.TrimSpace(step)
+	if i := strings.IndexByte(step, '\n'); i >= 0 {
+		step = step[:i]
+	}
+	step = strings.Join(strings.Fields(step), " ")
+	if step == "" {
+		return boardNoStep
+	}
+	return truncateRunes(step, boardProgressStepRunes)
+}
+
+// progressStepField: the row field that records which step this watch last put in status. It is
+// how the next renewal tells 「在做：<看门写的这一步>」 (refresh it) from 「在做：<工作区自己写的>」
+// (leave it alone — it says more than a tool name). board.py keeps fields it does not know.
+const progressStepField = "progress_step"
+
+// writeBoardProgress: set progress_at on board item id and refresh status to 「在做：<step>」 when
+// that status is one this watch owns (已交接, 在做：已开工, or the step it wrote last time). A
+// status the workspace wrote itself is kept. wrote false: the row is gone or no longer live work
+// (paused, moved off the workspace, closed) — nothing changed and nothing to log.
+//
+// The file is rewritten the way board.py _write does it (whole file, tmp + os.replace) while
+// holding the same lock board.py takes; rows this write does not touch keep their exact bytes.
+func writeBoardProgress(dir string, id int, step string, now time.Time) (bool, error) {
+	path := filepath.Join(dir, teamTaskBoardFile)
+	if _, err := os.Stat(path); err != nil {
+		return false, err
+	}
+	unlock, err := lockBoardFile(filepath.Join(dir, "board.lock"))
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	lines := strings.Split(string(data), "\n")
+	changed := false
+	for i, ln := range lines {
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		var row map[string]json.RawMessage
+		if json.Unmarshal([]byte(ln), &row) != nil {
+			continue
+		}
+		var got int
+		if json.Unmarshal(row["id"], &got) != nil || got != id {
+			continue
+		}
+		var status, ws, paused, ownStep string
+		_ = json.Unmarshal(row["status"], &status)
+		_ = json.Unmarshal(row["ws"], &ws)
+		_ = json.Unmarshal(row["paused"], &paused)
+		_ = json.Unmarshal(row[progressStepField], &ownStep)
+		if ws == "" || paused != "" || watchBoardClosed(teamTaskBoardItem{Status: status}) {
+			return false, nil // not live workspace work any more (paused, moved off, closed)
+		}
+		stamp := float64(now.UnixNano()) / 1e9
+		var prevStamp float64
+		_ = json.Unmarshal(row["progress_at"], &prevStamp)
+		if stamp > prevStamp { // only raise, same rule as board.py _touch_progress
+			row["progress_at"] = rawJSON(stamp)
+			changed = true
+		}
+		self := strings.TrimSpace(status)
+		if self == boardHandedOff || self == boardStartedNoStep || ownStep != "" && self == "在做："+ownStep {
+			row["status"] = rawJSON("在做：" + step)
+			if step != ownStep {
+				row[progressStepField] = rawJSON(step)
+			}
+			changed = true
+		}
+		out, err := json.Marshal(row)
+		if err != nil {
+			return false, err
+		}
+		lines[i] = string(out)
+	}
+	if !changed {
+		return false, nil
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		return false, err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// rawJSON: v as it must appear inside a board row (a marshal error leaves the field unset).
+func rawJSON(v any) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	return b
+}

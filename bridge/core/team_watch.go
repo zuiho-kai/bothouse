@@ -468,6 +468,10 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 			}
 			if err == nil {
 				slog.Info("team watch: progress, renewed", "workspace", key, "chat", h.Chat, "renew", h.Renewed+1, "max", watchMaxRenew, "busy", progressed == watchProgressBusy)
+				// #208: the renewal is the only moment the bridge knows the workspace is alive;
+				// record it on the board row too (#208 交接 :10), or the table keeps counting from
+				// the hand edit and calls live work stuck.
+				w.markBoardProgress(key, h, since, now)
 				return due
 			}
 			slog.Warn("team watch: save renewal failed; parking instead", "workspace", key, "error", err)
