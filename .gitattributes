@@ -1,5 +1,1 @@
 integrations/dsh-acp-stream/source.patch -whitespace
-# DSH collab plugin and its embedded copy are parsed line by line (team-mode-rules.md "## <mode>"
-# sections); keep them LF on Windows checkouts so a source build embeds the same bytes as the release.
-dsh/collab/** text=auto eol=lf
-bridge/core/dsh_bundle/** text=auto eol=lf
