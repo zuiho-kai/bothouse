@@ -57,7 +57,8 @@ func TestWatchProgressWritesBoardRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("board list: %v %s", err, out)
 	}
-	t.Logf("board list:\n%s", out) // 交接 :69 ③ 贴原始输出
+	t.Logf("board row on disk:\n%s", readBoardLine(t, boardDir, 7)) // 交接 :69 ③ 贴原始输出
+	t.Logf("board list:\n%s", out)
 	if !strings.Contains(string(out), "在做：Bash # 跑看门测试") {
 		t.Fatalf("board list does not show the step:\n%s", out)
 	}
@@ -166,5 +167,55 @@ func TestBoardProgressRowIsNoLongerStuck(t *testing.T) {
 	items = readTeamTaskBoard(dir)
 	if state, note := teamTaskBoardStateOf(items[0], now); state != teamTaskRunning || note != "刚刚" {
 		t.Fatalf("after: state %v %q, want running 刚刚", state, note)
+	}
+}
+
+// The bridge write and a board command run at the same time: both take the same
+// board.lock, so neither loses the other's rows and the file always parses.
+func TestBoardProgressInterleavesWithBoardPy(t *testing.T) {
+	e := NewEngine("lead", &stubAgent{}, nil, "", LangChinese)
+	dataDir := t.TempDir()
+	gateSrc, err := filepath.Abs(filepath.Join("..", "contrib", "gate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(gateSrc, filepath.Join(dataDir, "gate")); err != nil {
+		t.Fatal(err)
+	}
+	e.SetDataDir(dataDir)
+	e.productPyBin.Store(t.TempDir())
+	dir := t.TempDir()
+	e.SetTeam(dir, "橘", true)
+	t.Cleanup(func() { e.cancel(); _ = e.Stop() })
+	rows := `{"id":1,"what":"看门写回","status":"已交接","who":"工作区1橘","ws":"discord:ws1","chat":"discord:main"}` + "\n" +
+		`{"id":2,"what":"别人的活","status":"在做：工作区2 在写","who":"工作区2橘","ws":"discord:ws2","chat":"discord:main"}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(rows), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 15; i++ {
+			if _, err := e.runLeadScript("discord:main", "board", "update", "2", "在做：工作区2 第 "+string(rune('a'+i))+" 步"); err != nil {
+				t.Errorf("board update: %v", err)
+				return
+			}
+		}
+	}()
+	for i := 0; i < 15; i++ {
+		if _, err := writeBoardProgress(dir, 1, "Bash go test ./core", time.Now()); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+	}
+	<-done
+	items := readTeamTaskBoard(dir)
+	if len(items) != 2 {
+		t.Fatalf("rows lost: %d (%+v)", len(items), items)
+	}
+	if got := boardItemOf(t, dir, 1); got.Status != "在做：Bash go test ./core" || got.ProgressAt == 0 {
+		t.Fatalf("own row: %+v", got)
+	}
+	if got := boardItemOf(t, dir, 2); !strings.HasPrefix(got.Status, "在做：工作区2 第 ") {
+		t.Fatalf("bridged row lost its update: %q", got.Status)
 	}
 }
