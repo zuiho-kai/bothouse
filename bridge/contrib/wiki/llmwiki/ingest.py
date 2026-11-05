@@ -1306,7 +1306,8 @@ def claude(instruction, stdin="", label="?", context=None, model=None):
             f.write(CONTEXT.format(text=context))
             f.flush()
             cmd += ["--append-system-prompt-file", f.name]
-        r = engine_run(cmd, input=stdin, cwd=WIKI, capture_output=True, text=True, timeout=1200,
+        # 3600 同 codex/dsh：便宜模型经中转一批 20 多万字要 20 分钟以上，1200 时超时回滚、下一轮批更大，永远过不去
+        r = engine_run(cmd, input=stdin, cwd=WIKI, capture_output=True, text=True, timeout=3600,
                            env={**os.environ, "WIKI_INGEST": "1"})
     try:
         res = json.loads(r.stdout)
@@ -2796,7 +2797,10 @@ def main():
         if sid and not os.environ.get("WIKI_INGEST"):
             # USER is required: claude reads its OAuth login from the keychain by user name ("Not logged in" without it)
             env = {"PATH": f"{Path.home()}/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(Path.home()),
-                   **{k: os.environ[k] for k in ("USER", "LOGNAME", "TMPDIR", "LANG", "WIKI_DIR") if k in os.environ}}
+                   **{k: os.environ[k] for k in ("USER", "LOGNAME", "TMPDIR", "LANG", "WIKI_DIR") if k in os.environ},
+                   # 只配 API key 的机器（容器、新装）登录全在环境变量里，同 sub-wiki.py model_auth
+                   **{k: v for k, v in os.environ.items() if v and k.startswith(
+                       ("ANTHROPIC_", "CLAUDE_CODE_", "OPENAI_", "CODEX_", "GEMINI_", "GOOGLE_API_KEY", "DEEPSEEK_"))}}
             subprocess.Popen([sys.executable, "-X", "utf8", "-I", __file__, "--session", sid], env=env, start_new_session=True,
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=open(LOG, "a"))
         return
