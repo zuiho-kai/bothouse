@@ -880,7 +880,8 @@ describe('channels page', () => {
     const nav = view.container.querySelector('nav') as HTMLElement
     const buttons = [...nav.querySelectorAll('button[aria-current]')].map(b => b.textContent)
     // #113: an idle workspace no longer repeats 「进行中 0 件」; a count shows only when something runs.
-    expect(buttons).toEqual(['#general', '#工作区1', '#工作区2进行中 3 件', '#dev进行中 2 件'])
+    // 体检 #7: who is at work shows in words on the row (橘 answers in general here).
+    expect(buttons).toEqual(['#general橘 在干活', '#工作区1', '#工作区2进行中 3 件', '#dev进行中 2 件'])
     const ws = screen.getByRole('button', { name: /工作区2/ })
     expect(ws.className).toContain('workspace')
     expect(screen.getByRole('button', { name: 'general' }).className).not.toContain('workspace')

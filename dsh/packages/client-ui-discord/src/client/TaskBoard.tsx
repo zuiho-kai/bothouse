@@ -250,7 +250,8 @@ export function TaskCard({ taskId, tasks, t }: { taskId: number; tasks: readonly
           <li key={m.id} className={css.taskMember}>
             <span className={css.taskMemberName}>{m.owner_name}</span>
             {m.id !== task.id && <span className={css.taskSub}>{m.title}</span>}
-            <Status status={m.status} t={t} />
+            {/* 体检 #8: the task's own status is on the title line; its row only repeats a sub-task's. */}
+            {m.id !== task.id && <Status status={m.status} t={t} />}
             <span className={css.taskMeta}>{formatDuration(elapsed(m, now), t)}</span>
           </li>
         ))}

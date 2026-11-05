@@ -106,11 +106,8 @@ it('lists who is at work in the channel and its workspaces in the activity colum
   const now = screen.getByRole('region', { name: zh.activityNow })
   expect(now.querySelector(`.${css.activityName}`)?.textContent).toBe('鲸')
   expect(within(now).getByText(`${zh.activityThinking} · 工作区1`)).toBeTruthy()
-  // The header identifies the actual primary role; another member's work stays in Activity.
-  const lead = screen.getByRole('group', { name: zh.headLead })
-  expect(lead.querySelector(`.${css.headLeadName}`)?.textContent).toBe('橘')
-  expect(within(lead).getByText(zh.headLeadIdle)).toBeTruthy()
-  // 白色方案：左栏置顶卡与右上胶囊显示同一主角色和状态。
+  // 体检 #6: the primary role shows once, on the card atop the channel list; no header capsule.
+  expect(screen.queryByRole('group', { name: zh.headLead })).toBeNull()
   const pinned = screen.getByRole('group', { name: zh.leadCard })
   expect(pinned.querySelector(`.${css.leadCardName}`)?.textContent).toBe('橘')
   expect(within(pinned).getByText(`${zh.leadPinned} · ${zh.headLeadIdle}`)).toBeTruthy()
@@ -136,39 +133,36 @@ it('leaves a task parked by the hourly wrap-up out of Activity and the busy mark
 describe('live header integration (#113)', () => {
   it('shows the channel effective lead and work across its workspaces, not the global role', () => {
     const view = render(<ChannelsPage {...props({ ...base, rooms: [{ ...base.rooms[0], effective_lead_id: 'ds' }, base.rooms[1]], thinking: { 2: ['ds'] } })} />)
-    const lead = screen.getByRole('group', { name: zh.headLead })
-    expect(lead.querySelector(`.${css.headLeadName}`)?.textContent).toBe('鲸')
-    expect(within(lead).getByText(zh.headLeadBusyUnreported)).toBeTruthy()
+    const lead = screen.getByRole('group', { name: zh.leadCard })
+    expect(lead.querySelector(`.${css.leadCardName}`)?.textContent).toBe('鲸')
+    expect(within(lead).getByText(`${zh.leadPinned} · ${zh.headLeadBusyUnreported}`)).toBeTruthy()
     expect(within(lead).queryByText('橘')).toBeNull()
     view.rerender(<ChannelsPage {...props({ ...base, rooms: [{ ...base.rooms[0], effective_lead_id: 'ds' }, base.rooms[1]], thinking: { 9: ['ds'] } })} />)
-    expect(within(screen.getByRole('group', { name: zh.headLead })).getByText(zh.headLeadIdle)).toBeTruthy()
+    expect(within(screen.getByRole('group', { name: zh.leadCard })).getByText(`${zh.leadPinned} · ${zh.headLeadIdle}`)).toBeTruthy()
   })
 
   it('does not invent a lead when the room explicitly has none: says no lead is set', () => {
     render(<ChannelsPage {...props({ ...base, rooms: [{ ...base.rooms[0], effective_lead_id: null }] })} />)
-    const head = screen.getByRole('group', { name: zh.headLead })
-    expect(within(head).getByText(zh.headLeadUnset)).toBeTruthy()
+    const head = screen.getByRole('group', { name: zh.leadCard })
     expect(within(head).queryByText('橘')).toBeNull()
     expect(within(screen.getByRole('group', { name: zh.leadCard })).getByText(`${zh.leadPinned} · ${zh.headLeadUnset}`)).toBeTruthy()
   })
 
   it('says the lead is still loading when it is not among the members yet', () => {
     render(<ChannelsPage {...props({ ...base, leadId: 'ghost', effectiveLeadId: 'ghost' })} />)
-    expect(within(screen.getByRole('group', { name: zh.headLead })).getByText(zh.headLeadLoading)).toBeTruthy()
     expect(within(screen.getByRole('group', { name: zh.leadCard })).getByText(`${zh.leadPinned} · ${zh.headLeadLoading}`)).toBeTruthy()
   })
 
   it('names the task the lead is on, from the board, in the capsule and the pinned card', () => {
     const task = (id: number, over: Record<string, unknown>) => ({ id, room_id: 2, parent_task: null, title: `任务${id}`, owner: 'ju', owner_name: '橘', created_by: 'me', created_by_name: '我', status: 'accepted', next_check_at: null, assign_msg_id: null, result_msg_id: null, note: null, created_at: 1, updated_at: id, returned_at: null, ...over })
     render(<ChannelsPage {...props({ ...base, thinking: { 2: ['ju'] }, tasks: [task(1, {}), task(2, { status: 'returned' }), task(3, { paused_at: 5 }), task(4, { room_id: 99 })] } as ChannelSnapshot)} />)
-    expect(within(screen.getByRole('group', { name: zh.headLead })).getByText('#1 任务1')).toBeTruthy()
-    expect(within(screen.getByRole('group', { name: zh.leadCard })).getByText(`${zh.leadPinned} · #1 任务1`)).toBeTruthy()
+    expect(within(screen.getByRole('group', { name: zh.leadCard })).getByText(`${zh.leadPinned} · ${'#1 任务1'}`)).toBeTruthy()
   })
 
   it('falls back to the running progress card brief when the lead has no task', () => {
     const card = JSON.stringify({ title: '橘 · 处理中', state: 'running', steps: 3, brief: '第 3 步 · 12秒\n⏳ bash · 进行中\n' })
     render(<ChannelsPage {...props({ ...base, thinking: { 1: ['ju'] }, messages: [msg(1, { card })] })} />)
-    expect(within(screen.getByRole('group', { name: zh.headLead })).getByText('⏳ bash · 进行中')).toBeTruthy()
+    expect(within(screen.getByRole('group', { name: zh.leadCard })).getByText(`${zh.leadPinned} · ${'⏳ bash · 进行中'}`)).toBeTruthy()
   })
 
   it.each([
@@ -176,7 +170,7 @@ describe('live header integration (#113)', () => {
     { online: true, error: 'unavailable', status: zh.memberFailed },
   ])('keeps a primary role status truthful: $status', ({ online, error, status }) => {
     render(<ChannelsPage {...props({ ...base, members: [{ ...base.members[0], online, error }] })} />)
-    expect(within(screen.getByRole('group', { name: zh.headLead })).getByText(status)).toBeTruthy()
+    expect(within(screen.getByRole('group', { name: zh.leadCard })).getByText(`${zh.leadPinned} · ${status}`)).toBeTruthy()
   })
 
   it('keeps the existing collab board available in the header while Activity starts collapsed', () => {

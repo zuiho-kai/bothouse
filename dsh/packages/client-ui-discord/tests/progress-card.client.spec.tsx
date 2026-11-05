@@ -69,9 +69,10 @@ it('shows nothing for a channel without tasks', () => {
   expect(screen.queryByRole('region', { name: zh.progressTitle })).toBeNull()
 })
 
-it('renders the rows that have a task at the top of the log and hides the empty ones (#1017)', () => {
+it('renders the rows that have a task above the log and hides the empty ones (#1017, 体检 #3)', () => {
   render(<ChannelsPage {...props({ ...base, tasks: [task(2), task(3), task(8, { status: 'returned' })] })} />)
-  expect(card().closest('[role="log"]')).toBeTruthy()
+  // 体检 #3: its own row under the title bar, outside the log, so it never covers a message.
+  expect(card().closest('[role="log"]')).toBeNull()
   expect(card().querySelector('[data-row="done"]')).toBeNull()
   expect(row('progressDoing').textContent).toContain(tr('progressTask', { id: 3, title: '任务3', name: '橘' }) + tr('progressMore', { count: 1 }))
   expect(row('progressNext').textContent).toContain(tr('progressNextReview', { id: 8, title: '任务8', name: '橘' }))
