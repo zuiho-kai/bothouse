@@ -221,7 +221,15 @@ func (s *APIServer) handleTeamWorkspaceClaim(w http.ResponseWriter, r *http.Requ
 			}
 		}
 	}
-	if err := e.ClaimTeamWorkspaceFor(req.SessionKey, req.WorkspaceID, req.Name, req.Owner, req.Title); err != nil {
+	var creator *jobCreator
+	if project, session, known := originatorCallerFn(r); known {
+		if teamChatKey(session) != teamChatKey(req.SessionKey) {
+			http.Error(w, "workspace claim must belong to the caller's channel", http.StatusForbidden)
+			return
+		}
+		creator = s.engineJobCreator(project, session)
+	}
+	if err := e.claimTeamWorkspaceForCreator(req.SessionKey, req.WorkspaceID, req.Name, req.Owner, req.Title, creator); err != nil {
 		code := http.StatusBadRequest
 		if errors.Is(err, ErrTeamWorkspaceOwned) {
 			code = http.StatusConflict

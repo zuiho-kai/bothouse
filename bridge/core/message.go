@@ -464,6 +464,10 @@ type Message struct {
 	cronJobID        string // the cron job a cron turn runs (its time limit when it starts queued)
 	resumeNoProgress int
 	resumeFallback   string
+	// scheduledCreator is who a scheduled turn runs for (the job's recorded
+	// creator), carried across the queue like the trigger itself. It is never
+	// taken from a platform payload, so a message cannot name its own owner.
+	scheduledCreator *jobCreator
 }
 
 // EventType distinguishes different kinds of agent output.

@@ -99,6 +99,7 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 		Platform: p.Name(), Chat: parent, Workspace: ws, Bot: bot,
 		Kind: kind, Body: body, Headline: headline, Board: board,
 		Session: wsSession, Posted: posted, CreatedAt: time.Now(),
+		CreatedBy: e.workspaceJobCreator(wsSession, board),
 	}
 	if posted {
 		ok, err := e.rememberReportErr(rec)
@@ -151,8 +152,10 @@ func (e *Engine) queueChatLeadTurn(p Platform, parent, ws, desc, prompt string, 
 		WaitUserQuiet: true,
 		ReplyBoard:    board,
 		CreatedAt:     time.Now(),
+		CreatedBy:     e.workspaceJobCreator(p.Name()+":"+ws, board),
 	}
 	if rec != nil {
+		job.CreatedBy = rec.CreatedBy
 		rec.JobID = job.ID
 		return lead.queueReportWake(job, rec, lead.timerScheduler.AddJob)
 	}

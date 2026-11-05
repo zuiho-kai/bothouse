@@ -335,6 +335,7 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 		Platform: p.Name(), Chat: parent, Workspace: ws, Bot: bot,
 		Kind: kind, Body: body, Headline: hline, Board: hid,
 		Session: sessionKey, CreatedAt: time.Now(),
+		CreatedBy: e.workspaceJobCreator(sessionKey, hid),
 	}
 	if execution, bound := ctx.Value(proactiveExecutionKey{}).(proactiveExecution); bound {
 		rec.Authorization = &AuthorizationTurn{

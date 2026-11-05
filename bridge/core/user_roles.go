@@ -26,10 +26,10 @@ type RoleInput struct {
 // UserRoleManager resolves user IDs to roles and manages per-role rate limiters.
 type UserRoleManager struct {
 	mu          sync.RWMutex
-	roles       []roleEntry              // ordered list for iteration
-	defaultRole string                   // fallback role name
-	roleMap     map[string]*UserRole     // role name → resolved policy
-	limiters    map[string]*RateLimiter  // role name → shared per-role rate limiter
+	roles       []roleEntry             // ordered list for iteration
+	defaultRole string                  // fallback role name
+	roleMap     map[string]*UserRole    // role name → resolved policy
+	limiters    map[string]*RateLimiter // role name → shared per-role rate limiter
 }
 
 type roleEntry struct {
@@ -129,6 +129,18 @@ func (m *UserRoleManager) ResolveRole(userID string) *UserRole {
 	}
 
 	return nil
+}
+
+// RoleByName returns the role definition with this exact name, or nil when the
+// table has no such role. It reads a role as CONFIGURED (a permission set), not
+// as resolved for a person; nil-receiver safe.
+func (m *UserRoleManager) RoleByName(name string) *UserRole {
+	if m == nil || name == "" {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.roleMap[name]
 }
 
 // AllowRate checks the per-user rate limit based on the user's role.

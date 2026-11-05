@@ -66,6 +66,51 @@ prompt's wording. A turn's grant is keyed by the message's own session key (the
 one in `CC_SESSION_KEY`), which is also the key the signing endpoint looks up, so
 the two cannot disagree in workspace mode.
 
+## Whose turn am I running in (scheduled and other non-human turns)
+
+A ticket is only for a turn a person typed into. A cron job, a one-shot timer, a
+heartbeat and a workspace wake-up have no human message behind them, so signing
+one would be a lie — they still get no ticket. They used to have no identity at
+all, which meant nothing downstream could tell whose work they were doing.
+
+`bothouse originator context` (`POST /originator/context`) answers that instead,
+read-only:
+
+```json
+{"source":"scheduled","principal":{"platform":"discord","user_id":"u1"},
+ "role":"member","project":"role","session":"discord:c1"}
+```
+
+- `source` is `turn` (the person whose message owns this turn), `scheduled` (the
+  creator recorded on the job) or `none`.
+- `role` is resolved against the **live** role table every time, never frozen at
+  job creation. A creator demoted after creating a job answers with the role they
+  have now; one removed from the table answers with `revoked: true` and a
+  `reason`, so the job cannot keep acting on rights that were taken away.
+- The creator is recorded when the job is created, from the creating turn's
+  grant — never from the request body. A job created outside the bridge's
+  process tree (an operator's own `cron add` run, a model's shell) records no
+  creator and stays identity-less rather than borrowing the channel's last
+  speaker. `created_by` is read-only: an edit cannot hand the job to someone
+  else.
+- That covers both ways a person creates a job: the CLI (`bothouse cron add` /
+  `bothouse timer add`, checked against the caller's ancestry) and the chat
+  commands (`/cron add`, `/cron addexec`, `/timer add`, `/timer addexec`, taken
+  from the message that typed them — a slash command runs before the turn's
+  grant is stored, so the chat path reads the message itself, not the session's
+  recorded person). A job created by a scheduled turn belongs to that turn's
+  creator, so a chain of jobs keeps its identity; a creator who has since been
+  revoked hands nothing on.
+- A heartbeat is defined in the config file rather than created by a turn, so it
+  records no creator unless the deployment states one.
+
+The caller check is identical to signing's: the peer pid's ancestry must reach a
+direct child of the bridge carrying `CC_AGENT` and `CC_SESSION_KEY`, and the
+session answered is that process's own. A body may name a project to
+disambiguate; it cannot name a session or a person. Unrecognised callers get
+`403`. A process the model starts itself is not in the bridge's tree, so it gets
+nothing. The response holds no key, signature or credential.
+
 Example (choose an expiry appropriate for the operation):
 
 ```sh

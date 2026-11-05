@@ -590,6 +590,7 @@ type Engine struct {
 	stopping              bool
 	messageWorkers        sync.WaitGroup // admission is serialized with Stop by platformLifecycleMu
 	originatorTurns       sync.Map       // session key -> current human-originated platform metadata
+	originatorScheduled   sync.Map       // session key -> jobCreator of the scheduled turn running now
 	originatorSignerOnce  sync.Once
 	originatorSignerValue *OriginatorSigner
 	originatorSignerErr   error
@@ -644,11 +645,14 @@ type queuedMessage struct {
 	authorization *AuthorizationTurn
 	turnTrigger   string // #618 K1: Message.turnTrigger, kept across the queue
 	// #618 K4: Message.resumedFrom/timerJobID/resumeNoProgress/resumeFallback, kept across the queue.
-	resumedFrom       string
-	timerJobID        string
-	cronJobID         string
-	resumeNoProgress  int
-	resumeFallback    string
+	resumedFrom      string
+	timerJobID       string
+	cronJobID        string
+	resumeNoProgress int
+	resumeFallback   string
+	// scheduledCreator is who this scheduled turn runs for (cron/timer job's
+	// recorded creator), kept across the queue.
+	scheduledCreator  *jobCreator
 	messageID         string
 	platform          Platform
 	replyCtx          any
@@ -1777,6 +1781,9 @@ func (e *Engine) ActiveSessionKeys() []string {
 // It finds the platform that owns the session key, reconstructs a reply context,
 // and processes the message as if the user sent it.
 func (e *Engine) ExecuteCronJob(job *CronJob) error {
+	if err := e.checkScheduledCreator(job.SessionKey, job.CreatedBy); err != nil {
+		return err
+	}
 	if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
 		slog.Info("quota cooldown: cron skipped", "project", e.name, "job", job.ID, "cooling_until", until)
 		return nil
@@ -1940,6 +1947,12 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		TurnCtxQuery: content,
 		boardLabel:   "⏰ " + boardJobDesc(job.Description, job.Prompt, job.Exec), // maomao fork: channel task board
 	}
+	// The turn runs for the person who created the job, if the bridge recorded
+	// one. It still claims no platform originator (a job is not a message), but
+	// it is no longer a blank: /originator/context answers with the creator and
+	// the creator's role as it stands NOW. The record rides on the message, so
+	// it survives queuing behind a busy session.
+	msg.scheduledCreator = job.CreatedBy
 
 	// Resolve workspace-specific agent and sessions for multi-workspace mode.
 	// Priority: job.WorkDir (explicit) > workspace binding > global agent fallback.
@@ -2140,6 +2153,9 @@ func (e *Engine) timerTargetPlatform(sessionKey string) (Platform, string, strin
 }
 
 func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
+	if err := e.checkScheduledCreator(job.SessionKey, job.CreatedBy); err != nil {
+		return err
+	}
 	if job.TaskReview != nil {
 		prepared, err := e.prepareTaskReview(job, time.Now())
 		if err != nil {
@@ -2281,6 +2297,9 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	if job.Handoff {
 		msg.TurnCtx, msg.TurnCtxQuery = true, content
 	}
+	// Same as the cron path: the turn runs for the person who created the job
+	// (when the bridge recorded one), so a timer is not an identity blank.
+	msg.scheduledCreator = job.CreatedBy
 	// #624 K4: a resume delivered through a timer job is the interrupted turn
 	// carried on, not a scheduled run.
 	if r := job.resume; r != nil {
@@ -2912,6 +2931,10 @@ func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sy
 // ExecuteHeartbeat runs a heartbeat check by injecting a synthetic message
 // into the main session, similar to cron but designed for periodic awareness.
 func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error {
+	creator := e.heartbeatCreator()
+	if err := e.checkScheduledCreator(sessionKey, creator); err != nil {
+		return err
+	}
 	runID := heartbeatRunID(sessionKey) // before the workspace prefix is stripped below
 	if e.IsPaused() {
 		return fmt.Errorf("engine %q is paused", e.name)
@@ -2967,6 +2990,10 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 		UserName:   "heartbeat",
 		Content:    prompt,
 		ReplyCtx:   replyCtx,
+		// A heartbeat runs for the person the deployment states it runs for;
+		// with none stated it stays identity-less, the same rule as a job with
+		// no recorded creator.
+		scheduledCreator: creator,
 	}
 
 	session := e.sessions.GetOrCreateActive(sessionKey)
@@ -2987,6 +3014,15 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 	e.processInteractiveMessage(targetPlatform, msg, session)
 	e.forgetScheduledTurn(runID, msg.SessionKey)
 	return nil
+}
+
+// heartbeatCreator returns the creator this engine's configured heartbeat runs
+// for, or nil when the deployment states none.
+func (e *Engine) heartbeatCreator() *jobCreator {
+	if e.heartbeatScheduler == nil {
+		return nil
+	}
+	return e.heartbeatScheduler.Creator(e.name)
 }
 
 func (e *Engine) Start() error {
@@ -3775,15 +3811,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		shellCmd := strings.TrimSpace(content[1:])
 		if shellCmd != "" {
 			// Check disabled / admin just like handleCommand does for "shell"
-			e.userRolesMu.RLock()
-			disabledCmds := e.disabledCmds
-			urm := e.userRoles
-			e.userRolesMu.RUnlock()
-			if urm != nil {
-				if role := urm.ResolveRole(msg.UserID); role != nil {
-					disabledCmds = role.DisabledCmds
-				}
-			}
+			disabledCmds := e.effectiveDisabledCommands(msg)
 			if disabledCmds["shell"] {
 				e.replyToAuthorizedMessage(p, msg, fmt.Sprintf(e.i18n.T(MsgCommandDisabled), "!"))
 				return
@@ -4077,6 +4105,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		cronJobID:           msg.cronJobID,
 		resumeNoProgress:    msg.resumeNoProgress,
 		resumeFallback:      msg.resumeFallback,
+		scheduledCreator:    msg.scheduledCreator,
 		scheduledBackfilled: msg.scheduledBackfilled,
 		msgPlatform:         msg.Platform,
 		msgSessionKey:       msg.SessionKey,
@@ -4695,6 +4724,13 @@ func (e *Engine) processInteractiveMessage(p Platform, msg *Message, session *Se
 // and workspaceDir so that multi-workspace mode can route to per-workspace agents.
 // ccSessionKey, when non-empty, is used for CC_SESSION_KEY in the agent env; otherwise interactiveKey is used.
 func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session *Session, agent Agent, sessions *SessionManager, interactiveKey string, workspaceDir string, ccSessionKey string) {
+	if scheduledTurnUser(msg.UserID) || msg.scheduledCreator != nil {
+		if err := e.checkScheduledCreator(msg.SessionKey, msg.scheduledCreator); err != nil {
+			session.Unlock()
+			slog.Warn("scheduled turn denied before start", "error", err)
+			return
+		}
+	}
 	if err := e.checkTurnAuthorization(msg.authorization, "task.resume"); err != nil {
 		e.failAuthorizedTurn(msg.authorization)
 		session.Unlock()
@@ -4779,6 +4815,12 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		e.originatorTurns.Delete(msg.SessionKey)
 	}
 	defer e.originatorTurns.Delete(msg.SessionKey)
+	// The same turn also records who a scheduled run is working FOR, when it is
+	// one (cron/timer/heartbeat: the job's recorded creator). A human turn
+	// leaves it empty. Both records are cleared with the turn, so a completed
+	// turn never answers for the next one.
+	e.setScheduledCreator(msg.SessionKey, msg.scheduledCreator)
+	defer e.clearScheduledCreator(msg.SessionKey)
 
 	e.i18n.DetectAndSet(msg.Content)
 	if !msg.freshRetried { // maomao fork: a prompt-too-long re-run is already in the history
@@ -4971,6 +5013,11 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 				if as == nil {
 					session.SettleHandoff(false)
 					return fmt.Errorf("agent session became nil")
+				}
+				if scheduledTurnUser(msg.UserID) || msg.scheduledCreator != nil {
+					if err := e.checkScheduledCreator(msg.SessionKey, msg.scheduledCreator); err != nil {
+						return err
+					}
 				}
 				if err := e.recordTurnAgent(msg.authorization, agent); err != nil {
 					return err
@@ -7759,6 +7806,18 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			droppedStale := 0
 			var staleDescs []string // maomao fork: channel task board
 			e.refreshQueuedTaskReviewsLocked(state)
+			for len(state.pendingMessages) > 0 {
+				q := state.pendingMessages[0]
+				if !scheduledTurnUser(q.userID) && q.scheduledCreator == nil {
+					break
+				}
+				if err := e.checkScheduledCreator(q.msgSessionKey, q.scheduledCreator); err != nil {
+					slog.Warn("queued scheduled turn denied before start", "error", err)
+					state.pendingMessages = state.pendingMessages[1:]
+					continue
+				}
+				break
+			}
 			for len(state.pendingMessages) > 0 && e.isQueuedUserMessageStaleForDrainLocked(state, state.pendingMessages[0].userMessageTimeMs) {
 				staleDescs = append(staleDescs, state.pendingMessages[0].boardDesc)
 				state.pendingMessages = state.pendingMessages[1:]
@@ -7782,6 +7841,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				if grant, ok := originatorGrantForQueued(queued); ok {
 					e.originatorTurns.Store(queuedKey, grant)
 				}
+				// Same pairing as the direct path: a scheduled queued turn
+				// records the creator it runs for, a human one records none.
+				e.setScheduledCreator(queuedKey, queued.scheduledCreator)
+				defer e.clearScheduledCreator(queuedKey)
 				raw := queued // maomao fork: raw copy (content not yet expanded), put back if this turn hits capacity
 				chainedQueued = &raw
 				remainingQueue := len(state.pendingMessages)
@@ -7871,7 +7934,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						nextSend <- fmt.Errorf("agent session became nil")
 						return
 					}
-					err := e.recordTurnAgent(queued.authorization, replyAgent)
+					var err error
+					if scheduledTurnUser(queued.userID) || queued.scheduledCreator != nil {
+						err = e.checkScheduledCreator(queued.msgSessionKey, queued.scheduledCreator)
+					}
+					if err == nil {
+						err = e.recordTurnAgent(queued.authorization, replyAgent)
+					}
 					if err == nil {
 						err = as.Send(queuedPrompt, queued.messageID, queued.images, queued.files)
 					}
@@ -8368,6 +8437,18 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		droppedStale := 0
 		var staleDescs []string // maomao fork: channel task board
 		e.refreshQueuedTaskReviewsLocked(state)
+		for len(state.pendingMessages) > 0 {
+			q := state.pendingMessages[0]
+			if !scheduledTurnUser(q.userID) && q.scheduledCreator == nil {
+				break
+			}
+			if err := e.checkScheduledCreator(q.msgSessionKey, q.scheduledCreator); err != nil {
+				slog.Warn("queued scheduled turn denied before start", "error", err)
+				state.pendingMessages = state.pendingMessages[1:]
+				continue
+			}
+			break
+		}
 		for len(state.pendingMessages) > 0 && e.isQueuedUserMessageStaleForDrainLocked(state, state.pendingMessages[0].userMessageTimeMs) {
 			staleDescs = append(staleDescs, state.pendingMessages[0].boardDesc)
 			state.pendingMessages = state.pendingMessages[1:]
@@ -8469,6 +8550,9 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		if grant, ok := originatorGrantForQueued(queued); ok {
 			e.originatorTurns.Store(queuedKey, grant)
 		}
+		// Same pairing as the direct path: a scheduled queued turn records the
+		// creator it runs for, a human one records none.
+		e.setScheduledCreator(queuedKey, queued.scheduledCreator)
 		var attemptPrompt string
 		e.runTurnWithCapacityRetry(state, session, sessions, sessionKey, queued.messageID, time.Now(), stopTyping, queued.replyCtx, nil,
 			func() { // per attempt, like the direct turn: a capacity retry needs a live run
@@ -8483,7 +8567,13 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 					session.SettleHandoff(false)
 					return fmt.Errorf("agent session became nil")
 				}
-				err := e.recordTurnAgent(queued.authorization, queuedAgent)
+				var err error
+				if scheduledTurnUser(queued.userID) || queued.scheduledCreator != nil {
+					err = e.checkScheduledCreator(queued.msgSessionKey, queued.scheduledCreator)
+				}
+				if err == nil {
+					err = e.recordTurnAgent(queued.authorization, queuedAgent)
+				}
 				if err == nil {
 					err = as.Send(attemptPrompt, queued.messageID, queued.images, queued.files)
 				}
@@ -8497,6 +8587,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		// The queued turn's grant ends with it, like a direct turn's (the direct
 		// path defers the same delete around processInteractiveEvents).
 		e.originatorTurns.Delete(queued.msgSessionKey)
+		e.clearScheduledCreator(queued.msgSessionKey)
 		if journalOwned {
 			e.journalTurnEnd(journalID)
 		}
@@ -8690,14 +8781,18 @@ func splitCommandArgs(s string) []string {
 	return tokens
 }
 
-func (e *Engine) handleCommand(p Platform, msg *Message, raw string) bool {
-	parts := splitCommandArgs(raw)
-	cmd := strings.ToLower(strings.TrimPrefix(parts[0], "/"))
-	args := parts[1:]
-
-	cmdID := matchPrefix(cmd, builtinCommands)
-
-	// Resolve effective disabled commands: role-based if available, else project-level
+// effectiveDisabledCommands resolves the commands a message's sender may not use:
+// role-based when a role table is configured, else project-level.
+//
+// For a scheduled turn (cron/timer/heartbeat, or a job chained from one) the
+// answer is narrowed again to the permission ceiling the job was created with:
+// the intersection of the creation-time role's restrictions and the creator's
+// live ones. That is what makes a promotion unable to widen an existing job and
+// a demotion unable to keep its old rights.
+func (e *Engine) effectiveDisabledCommands(msg *Message) map[string]bool {
+	if msg == nil {
+		return nil
+	}
 	e.userRolesMu.RLock()
 	disabledCmds := e.disabledCmds
 	urm := e.userRoles
@@ -8707,6 +8802,33 @@ func (e *Engine) handleCommand(p Platform, msg *Message, raw string) bool {
 			disabledCmds = role.DisabledCmds
 		}
 	}
+	if msg.scheduledCreator == nil {
+		return disabledCmds
+	}
+	ctx := e.userContextForScheduled(e.name, msg.SessionKey, msg.scheduledCreator)
+	if !ctx.HasIdentity() || ctx.Revoked || len(ctx.DisabledCommands) == 0 {
+		return disabledCmds
+	}
+	merged := make(map[string]bool, len(disabledCmds)+len(ctx.DisabledCommands))
+	for cmd, off := range disabledCmds {
+		if off {
+			merged[cmd] = true
+		}
+	}
+	for _, cmd := range ctx.DisabledCommands {
+		merged[cmd] = true
+	}
+	return merged
+}
+
+func (e *Engine) handleCommand(p Platform, msg *Message, raw string) bool {
+	parts := splitCommandArgs(raw)
+	cmd := strings.ToLower(strings.TrimPrefix(parts[0], "/"))
+	args := parts[1:]
+
+	cmdID := matchPrefix(cmd, builtinCommands)
+
+	disabledCmds := e.effectiveDisabledCommands(msg)
 
 	if cmdID != "" && disabledCmds[cmdID] {
 		slog.Info("audit: command_blocked",
@@ -16460,6 +16582,10 @@ func (e *Engine) cmdCronAdd(p Platform, msg *Message, args []string) {
 		Prompt:     prompt,
 		Enabled:    true,
 		CreatedAt:  time.Now(),
+		// Typed by a person in the chat: the same record /cron/add writes from
+		// the socket caller's grant. A bot or scheduled turn has no grant, so
+		// the job stays identity-less.
+		CreatedBy: e.jobCreatorForMessage(msg),
 	}
 
 	if err := e.cronScheduler.AddJob(job); err != nil {
@@ -16493,6 +16619,8 @@ func (e *Engine) cmdCronAddExec(p Platform, msg *Message, args []string) {
 		Exec:       shellCmd,
 		Enabled:    true,
 		CreatedAt:  time.Now(),
+		// The admin who typed it owns it, same as /cron add.
+		CreatedBy: e.jobCreatorForMessage(msg),
 	}
 
 	if err := e.cronScheduler.AddJob(job); err != nil {
@@ -16724,6 +16852,8 @@ func (e *Engine) cmdTimerAdd(p Platform, msg *Message, args []string) {
 		ScheduledAt: fireAt,
 		Prompt:      prompt,
 		CreatedAt:   time.Now(),
+		// Same rule as /timer/add: the person whose turn typed this owns it.
+		CreatedBy: e.jobCreatorForMessage(msg),
 	}
 
 	if err := e.timerScheduler.AddJob(job); err != nil {
@@ -16762,6 +16892,8 @@ func (e *Engine) cmdTimerAddExec(p Platform, msg *Message, args []string) {
 		ScheduledAt: fireAt,
 		Exec:        shellCmd,
 		CreatedAt:   time.Now(),
+		// The admin who typed it owns it, same as /timer add.
+		CreatedBy: e.jobCreatorForMessage(msg),
 	}
 
 	if err := e.timerScheduler.AddJob(job); err != nil {

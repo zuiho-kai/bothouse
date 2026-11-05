@@ -2359,6 +2359,7 @@ func buildHeartbeatConfig(hc config.HeartbeatConfig) core.HeartbeatConfig {
 		Silent:       true,
 		TimeoutMins:  30,
 		SessionKey:   hc.SessionKey,
+		Creator:      hc.Creator,
 		Prompt:       hc.Prompt,
 	}
 	if hc.Enabled != nil {

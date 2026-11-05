@@ -20,6 +20,12 @@ type HeartbeatConfig struct {
 	Prompt       string // explicit prompt; empty = read HEARTBEAT.md
 	Silent       bool   // suppress "💓" notification
 	TimeoutMins  int
+	// Creator is who this heartbeat runs for, recorded when the deployment
+	// configures it. Unlike a cron job or a timer there is no creating turn to
+	// take it from — a heartbeat is defined in the config file, by whoever
+	// operates the machine — so it is stated there or the beats stay
+	// identity-less. Nil = not stated.
+	Creator *jobCreator
 }
 
 // HeartbeatStatus is returned by the /heartbeat command.
@@ -80,6 +86,19 @@ func NewHeartbeatScheduler(dataDir string) *HeartbeatScheduler {
 		hs.stateFile = filepath.Join(dataDir, "heartbeat_state.json")
 	}
 	return hs
+}
+
+// Creator returns who this project's heartbeat runs for, as the deployment
+// stated it at registration; nil when it stated no one.
+func (hs *HeartbeatScheduler) Creator(project string) *jobCreator {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	entry, ok := hs.entries[project]
+	if !ok || entry.config.Creator == nil {
+		return nil
+	}
+	creator := *entry.config.Creator
+	return &creator
 }
 
 // Register adds a heartbeat entry for a project. Call before Start().

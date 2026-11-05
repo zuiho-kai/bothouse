@@ -37,6 +37,7 @@ const (
 
 // pendingReport owns an undelivered handback or an accepted ask's pending lead wake.
 type pendingReport struct {
+	CreatedBy *jobCreator `json:"created_by,omitempty"`
 	// A posted ask still owes a lead wake. Keep its stable timer ID and prompt
 	// on the source engine until the timer store durably accepts it.
 	Wake *TimerJob `json:"wake,omitempty"`
@@ -253,6 +254,7 @@ func (e *Engine) rememberPostedAskWake(rec *pendingReport) {
 		ScheduledAt: time.Now(), CreatedAt: time.Now(), Silent: &silent,
 		Prompt:      askRef.ReplaceAllString(prompt, "ask-…"),
 		Description: "工作区回传 " + rec.Workspace, WaitUserQuiet: true, ReplyBoard: rec.Board,
+		CreatedBy: rec.CreatedBy,
 	}
 	e.teamExit.mu.Lock()
 	defer e.teamExit.mu.Unlock()

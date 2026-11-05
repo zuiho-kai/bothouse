@@ -515,7 +515,8 @@ func (e *Engine) queueTaskReview(id, chat string, ref *taskReviewRef, now time.T
 func (e *Engine) queueTaskReviewIn(id, chat string, ref *taskReviewRef, now time.Time, fresh bool, model string) {
 	silent := true
 	job := &TimerJob{ID: id, Project: e.name, SessionKey: teamChatKey(chat), ScheduledAt: now,
-		Silent: &silent, WaitUserQuiet: true, ReplyBoard: ref.Board, CreatedAt: now, TaskReview: ref}
+		Silent: &silent, WaitUserQuiet: true, ReplyBoard: ref.Board, CreatedAt: now, TaskReview: ref,
+		CreatedBy: e.workspaceJobCreator(chat, ref.Board)}
 	if fresh || model != "" {
 		job.SessionMode = "new_per_run"
 	}

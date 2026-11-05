@@ -37,8 +37,13 @@ type CronJob struct {
 	Mode        string    `json:"mode,omitempty"`         // permission mode override for this job; "" = use project default
 	TimeoutMins *int      `json:"timeout_mins,omitempty"` // nil = default 30m wait; 0 = no limit; >0 = minutes
 	CreatedAt   time.Time `json:"created_at"`
-	LastRun     time.Time `json:"last_run,omitempty"`
-	LastError   string    `json:"last_error,omitempty"`
+	// CreatedBy is the person whose turn created this job, recorded then and
+	// never taken from the request body (see jobCreator). Nil for a job created
+	// outside the bridge's process tree (an operator's CLI run); such a job
+	// runs with no identity rather than borrowing the channel's last speaker.
+	CreatedBy *jobCreator `json:"created_by,omitempty"`
+	LastRun   time.Time   `json:"last_run,omitempty"`
+	LastError string      `json:"last_error,omitempty"`
 }
 
 // IsShellJob returns true if the job runs a shell command directly.
@@ -283,7 +288,10 @@ func (s *CronStore) Get(id string) *CronJob {
 // Update modifies a specific field of a cron job. Returns false if job not found.
 // readOnlyFields contains fields that cannot be modified: id, created_at.
 func (s *CronStore) Update(id string, field string, value any) bool {
-	readOnlyFields := map[string]bool{"id": true, "created_at": true, "last_run": true, "last_error": true}
+	// created_by is the record of who made the job: it is written once, by the
+	// bridge, from the creating turn's grant. An edit must not be able to hand
+	// the job to someone else.
+	readOnlyFields := map[string]bool{"id": true, "created_at": true, "created_by": true, "last_run": true, "last_error": true}
 	if readOnlyFields[field] {
 		return false
 	}

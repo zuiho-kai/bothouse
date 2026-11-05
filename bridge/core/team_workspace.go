@@ -326,8 +326,9 @@ func teamWorkspaceMigrateDirtyChats(st *teamWorkspaceState) bool {
 
 // TeamHandoff is one task handed from a chat channel to a pool workspace.
 type TeamHandoff struct {
-	Chat string    `json:"chat"` // "<platform>:<chat channel id>"
-	At   time.Time `json:"at,omitzero"`
+	CreatedBy *jobCreator `json:"created_by,omitempty"`
+	Chat      string      `json:"chat"` // "<platform>:<chat channel id>"
+	At        time.Time   `json:"at,omitzero"`
 	// Closed: when the task ended (the workspace session was reset after working on it).
 	Closed time.Time `json:"closed,omitzero"`
 	// Parked: when the task was paused (ParkTeamWorkspace: stopped at a clean point, waiting
@@ -1161,6 +1162,10 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 // started on e, every claim is watched: its handoff gets a check time watchCheckAfter() from now
 // (team_watch.go); before that no check time is recorded.
 func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title string) error {
+	return e.claimTeamWorkspaceForCreator(channel, wsID, name, taskOwner, title, nil)
+}
+
+func (e *Engine) claimTeamWorkspaceForCreator(channel, wsID, name, taskOwner, title string, creator *jobCreator) error {
 	if e == nil || e.dataDir == "" || channel == "" || wsID == "" {
 		return errors.New("team workspace claim: chat channel and workspace id are required")
 	}
@@ -1306,7 +1311,7 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 	}
 	wk := plat + ":" + wsID
 	now := time.Now()
-	h := TeamHandoff{Chat: chat, At: now, Sender: e.name, Owner: taskOwner, Title: title, Name: w.Name}
+	h := TeamHandoff{Chat: chat, At: now, Sender: e.name, Owner: taskOwner, Title: title, Name: w.Name, CreatedBy: creator}
 	if e.handoffWatchOn.Load() {
 		h.Due = now.Add(watchCheckAfter())
 	}

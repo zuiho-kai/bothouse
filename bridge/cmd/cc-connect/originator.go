@@ -11,6 +11,7 @@ import (
 
 func printOriginatorUsage() {
 	fmt.Println("Usage: bothouse originator sign --action <operation> --expires-at <RFC3339>")
+	fmt.Println("       bothouse originator context")
 }
 
 func runOriginator(args []string) {
@@ -18,12 +19,63 @@ func runOriginator(args []string) {
 		printOriginatorUsage()
 		return
 	}
-	if args[0] != "sign" {
+	switch args[0] {
+	case "sign":
+		runOriginatorSign(args[1:])
+	case "context":
+		runOriginatorContext(args[1:])
+	default:
 		fmt.Fprintln(os.Stderr, "Usage: bothouse originator sign --action <operation> --expires-at <RFC3339>")
+		fmt.Fprintln(os.Stderr, "       bothouse originator context")
 		os.Exit(1)
 	}
+}
+
+// runOriginatorContext prints whose turn this process is running in, as the
+// bridge recorded it. It exists for the turns that cannot be signed — a cron
+// job, a timer, a heartbeat, a workspace wake-up — which used to have no way to
+// ask at all. The answer carries no secret: it names the platform person and
+// their CURRENT role, and the caller's own project and session.
+func runOriginatorContext(args []string) {
+	for _, a := range args {
+		if isHelpArg(a) {
+			printOriginatorUsage()
+			return
+		}
+		fmt.Fprintf(os.Stderr, "Unknown option: %s\n", a)
+		os.Exit(1)
+	}
+	resp, err := apiPost(resolveSocketPath(""), "/originator/context", []byte("{}"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		reason, readErr := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		detail := strings.TrimSpace(string(reason))
+		if readErr != nil || detail == "" {
+			detail = http.StatusText(resp.StatusCode)
+		}
+		fmt.Fprintf(os.Stderr, "Error: user context was refused: %s\n", detail)
+		os.Exit(1)
+	}
+	var ctx any
+	if err := json.NewDecoder(resp.Body).Decode(&ctx); err != nil {
+		fmt.Fprintln(os.Stderr, "Error: decode user context:", err)
+		os.Exit(1)
+	}
+	out, err := json.Marshal(ctx)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: encode user context:", err)
+		os.Exit(1)
+	}
+	fmt.Println(string(out))
+}
+
+func runOriginatorSign(args []string) {
 	var action, expiresAt string
-	for i := 1; i < len(args); i++ {
+	for i := 0; i < len(args); i++ {
 		if isHelpArg(args[i]) {
 			printOriginatorUsage()
 			return

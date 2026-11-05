@@ -50,9 +50,13 @@ type TimerJob struct {
 	Mode        string    `json:"mode,omitempty"`         // permission mode override; "" = use project default
 	TimeoutMins *int      `json:"timeout_mins,omitempty"` // nil = default 30m; 0 = no limit; >0 = minutes
 	CreatedAt   time.Time `json:"created_at"`
-	Fired       bool      `json:"fired"`
-	FiredAt     time.Time `json:"fired_at,omitempty"`
-	LastError   string    `json:"last_error,omitempty"`
+	// CreatedBy is the person whose turn created this job, recorded then and
+	// never taken from the request body (see jobCreator). Nil for a job created
+	// outside the bridge's process tree; such a job runs with no identity.
+	CreatedBy *jobCreator `json:"created_by,omitempty"`
+	Fired     bool        `json:"fired"`
+	FiredAt   time.Time   `json:"fired_at,omitempty"`
+	LastError string      `json:"last_error,omitempty"`
 
 	// ReplyBoard: the task-board item a lead's turn on a workspace handback reports on; the
 	// turn's posts are recorded under it (reply_task.go).

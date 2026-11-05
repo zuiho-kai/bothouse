@@ -319,6 +319,7 @@ func queuedToMessage(q queuedMessage) Message {
 		resumeNoProgress:    q.resumeNoProgress,
 		resumeFallback:      q.resumeFallback,
 		scheduledBackfilled: q.scheduledBackfilled,
+		scheduledCreator:    q.scheduledCreator,
 		boardLabel:          q.boardDesc, // maomao fork: keeps the board text through a re-delivery
 	}
 }

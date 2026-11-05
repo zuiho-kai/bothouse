@@ -128,7 +128,8 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/input", s.handleInput)
 	s.mux.HandleFunc("/input/", s.handleInputLookup)
 	s.mux.HandleFunc("/originator/sign", s.handleOriginatorSign)
-	s.mux.HandleFunc("/model/info", s.handleModelInfo) // maomao fork: agents switch their own model
+	s.mux.HandleFunc("/originator/context", s.handleOriginatorContext) // read-only identity query
+	s.mux.HandleFunc("/model/info", s.handleModelInfo)                 // maomao fork: agents switch their own model
 	s.mux.HandleFunc("/model/set", s.handleModelSet)
 	s.mux.HandleFunc("/session/new", s.handleSessionNew)              // `cc-connect session new --after-turn` (session_reset.go)
 	s.mux.HandleFunc("/team/workspace/new", s.handleTeamWorkspaceNew) // team mode D (team_workspace_api.go)
@@ -502,6 +503,17 @@ func (s *APIServer) handleCronAdd(w http.ResponseWriter, r *http.Request) {
 		TimeoutMins: req.TimeoutMins,
 	}
 	job.CreatedAt = time.Now()
+	// Who is creating this job, if the bridge can tell. The creator is taken
+	// from the calling turn's grant over the socket peer check, never from the
+	// request body: a job created by a process outside the bridge's tree (an
+	// operator's own shell) records nothing and runs identity-less.
+	if callerProject, callerSession, known := originatorCallerFn(r); known {
+		if callerProject != "" && callerProject != project {
+			http.Error(w, "cron jobs may only target the caller's own project", http.StatusForbidden)
+			return
+		}
+		job.CreatedBy = s.engineJobCreator(project, callerSession)
+	}
 
 	if err := CheckAntiSpinCron(job); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -775,6 +787,15 @@ func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
 		ReplyBoard:   req.ReplyBoard,
 		CreatedAt:    time.Now(),
 	}
+	// Same rule as /cron/add: the creator comes from the calling turn's grant
+	// over the socket peer check, never from the body.
+	if callerProject, callerSession, known := originatorCallerFn(r); known {
+		if callerProject != "" && callerProject != project {
+			http.Error(w, "timers may only target the caller's own project", http.StatusForbidden)
+			return
+		}
+		job.CreatedBy = s.engineJobCreator(project, callerSession)
+	}
 
 	// Anti-spin only for jobs created through the API (CLI/model); internal wake-ups
 	// (relay drain, watch, auto-return) add timers directly and must not be blocked.
@@ -1019,6 +1040,17 @@ func (s *APIServer) engineFor(project string) (*Engine, error) {
 		}
 	}
 	return nil, fmt.Errorf("project is required (multiple projects configured)")
+}
+
+// engineJobCreator asks the engine behind project who owns the turn that is
+// creating a job right now. A missing engine or an unrecorded turn answers nil,
+// which callers store as "no creator" rather than inventing one.
+func (s *APIServer) engineJobCreator(project, session string) *jobCreator {
+	e, err := s.engineFor(project)
+	if err != nil || e == nil {
+		return nil
+	}
+	return e.jobCreatorForTurn(project, session)
 }
 
 func (s *APIServer) handleModelInfo(w http.ResponseWriter, r *http.Request) {
