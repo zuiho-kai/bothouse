@@ -70,7 +70,7 @@ test('route: 页面与接口；别的路径不处理', () => {
 
 test('config: wikiDir 默认 ~/wiki，可用配置或 CONEST_WIKI_DIR 改，必须是绝对路径', () => {
   const base = { dataDir: '/tmp/d', workspacePath: '/tmp/w' };
-  assert.equal(resolveConfig(base, { HOME: '/home/u' }).wikiDir, '/home/u/wiki');
+  assert.equal(resolveConfig(base, { HOME: '/home/u' }).wikiDir, join('/home/u', 'wiki'));
   assert.equal(resolveConfig(base, { HOME: '/home/u', CONEST_WIKI_DIR: '/srv/wiki' }).wikiDir, '/srv/wiki');
   assert.equal(resolveConfig({ ...base, wikiDir: '/a/b' }, { HOME: '/home/u', CONEST_WIKI_DIR: '/srv/wiki' }).wikiDir, '/a/b');
   assert.throws(() => resolveConfig({ ...base, wikiDir: 'rel' }, { HOME: '/home/u' }), /wikiDir must be an absolute path/);

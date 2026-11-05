@@ -133,8 +133,16 @@ export class CliMember {
     })
     exited.catch(() => {})
     this.exited = exited
+    // Windows starts the CLI through a shell, which runs even when the CLI or the folder is missing: the ACP
+    // stream then closes before the process reports exit/error, and the member showed "ACP connection closed"
+    // instead of the install advice (or COLLAB_CLI_START). On a failed handshake, report how the process ended.
+    const init = this.conn.initialize({ protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} })
+      .catch(error => {
+        if (proc.exitCode === null && proc.signalCode === null && proc.pid !== undefined) proc.kill()
+        return exited.then(() => { throw error })
+      })
     this.ready = Promise.race([
-      this.conn.initialize({ protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} }),
+      init,
       exited,
     ]).then((init) => { this.canLoad = init?.agentCapabilities?.loadSession === true; return init })
     return this.ready

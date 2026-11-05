@@ -52,8 +52,8 @@ test('reads only the [management] table, with quoted values and comments', () =>
 
 test('default bridge config follows BOTHOUSE_CONFIG, then the data dir', () => {
   assert.equal(defaultBridgeConfig({ BOTHOUSE_CONFIG: '/a/b.toml', HOME: '/h' }), '/a/b.toml');
-  assert.equal(defaultBridgeConfig({ BOTHOUSE_DATA_DIR: '/d', HOME: '/h' }), '/d/config.toml');
-  assert.equal(defaultBridgeConfig({ HOME: '/h' }), '/h/.bothouse/config.toml');
+  assert.equal(defaultBridgeConfig({ BOTHOUSE_DATA_DIR: '/d', HOME: '/h' }), join('/d', 'config.toml'));
+  assert.equal(defaultBridgeConfig({ HOME: '/h' }), join('/h', '.bothouse', 'config.toml'));
   assert.equal(resolveConfig({ dataDir: '/x', workspacePath: '/w', bridgeConfig: '/c/config.toml' }, { HOME: '/h' }).bridgeConfig, '/c/config.toml');
   assert.throws(() => resolveConfig({ dataDir: '/x', workspacePath: '/w', bridgeConfig: 'rel.toml' }, { HOME: '/h' }), /absolute/);
 });
