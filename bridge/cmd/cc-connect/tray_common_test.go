@@ -108,6 +108,51 @@ func TestTrayClientRejectsInvalidManagementEnvelope(t *testing.T) {
 	}
 }
 
+func TestTrayRolesTitleSkipsDSHMembers(t *testing.T) {
+	// The panel's GlobalSettings.tsx:153 filters `source !== 'dsh'`; the tray 「角色：」 line follows it.
+	// Five DSH rows on top of the five bridge roles pushed the title to 112 runes (#1095 regression):
+	// 「角色：cjiang 在线、gge 在线、cursor 在线、gjiang 在线、deep 在线、dsh:cj…」
+	bridge := []trayRole{
+		{Name: "cjiang", Online: true},
+		{Name: "gge", Online: true},
+		{Name: "cursor", Online: true},
+		{Name: "gjiang", Online: true},
+		{Name: "deep", Online: true},
+	}
+	dsh := []trayRole{
+		{Name: "dsh:cjiang", Online: true, Source: "dsh"},
+		{Name: "dsh:gge", Online: true, Source: "dsh"},
+		{Name: "dsh:cursor", Online: false, Source: "dsh"},
+		{Name: "dsh:gjiang", Online: true, Source: "dsh"},
+		{Name: "dsh:deep", Online: true, Source: "dsh"},
+	}
+	mixed := append(append([]trayRole{}, bridge...), dsh...)
+	want := "角色：cjiang 在线、gge 在线、cursor 在线、gjiang 在线、deep 在线"
+	for _, tc := range []struct {
+		name  string
+		roles []trayRole
+		want  string
+	}{
+		{"bridge only", bridge, want},
+		{"dsh rows after bridge", mixed, want},
+		{"dsh rows only", dsh, "角色："},
+		{"no roles", nil, "角色："},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := trayRolesTitle(tc.roles)
+			if got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+			if n := len([]rune(got)); n > 55 {
+				t.Fatalf("%d runes, want <= 55: %q", n, got)
+			}
+			if strings.Contains(got, "dsh:") {
+				t.Fatalf("DSH member leaked into the tray title: %q", got)
+			}
+		})
+	}
+}
+
 func TestTrayMissingFieldsDoNotDisplayZero(t *testing.T) {
 	for _, tc := range []struct{ body, status, usage string }{
 		{`{}`, "运行状态：读取失败", "今日用量：读取失败"},
