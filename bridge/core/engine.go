@@ -7220,7 +7220,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// When tool progress is hidden, segmentStart stays 0 and textParts
 			// contains ALL text across tool boundaries. Prefer the full accumulated
 			// text over event.Content which only contains the last assistant segment.
-			if len(textParts) > 0 && segmentStart == 0 && !e.display.ToolMessages {
+			// A Stop hook blocked the turn: the adapter already chose between the
+			// blocked draft and the rewrite, and textParts holds both (#1051).
+			if stopBlocked, _ := event.Metadata[MetaStopBlockedReply].(bool); stopBlocked && strings.TrimSpace(fullResponse) != "" {
+				// keep event.Content
+			} else if len(textParts) > 0 && segmentStart == 0 && !e.display.ToolMessages {
 				fullResponse = strings.Join(textParts, "")
 			} else if fullResponse == "" && len(textParts) > 0 {
 				fullResponse = strings.Join(textParts, "")
