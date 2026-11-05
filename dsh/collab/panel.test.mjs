@@ -68,6 +68,26 @@ test('rewrites <base href> to the mount path and marks the page proxy-signed', (
   assert.match(rewritePanelHTML('<html><head><title>x</title></head></html>'), /<head>\n {4}<base href="\/collab\/panel\/" \/>/);
 });
 
+test('moves <base> under an outer proxy prefix such as the panel\'s /dsh/ mount', () => {
+  // Windows report 11-05: opened through the management server's /dsh/ proxy, the frame is at
+  // /dsh/collab/panel/, but a fixed <base href="/collab/panel/"> sent ./assets/*.js to the
+  // management server's own /collab/panel/..., which answers with HTML: blank page.
+  const out = rewritePanelHTML('<head><base href="/" /><script type="module" src="./assets/i.js"></script></head>');
+  const inline = /<script>(.*?)<\/script>/.exec(out)[1];
+  const run = pathname => {
+    let href = /<base href="([^"]+)"/.exec(out)[1];
+    const base = { setAttribute: (k, v) => { assert.equal(k, 'href'); href = v; } };
+    new Function('location', 'document', inline)({ pathname }, { querySelector: () => base });
+    return new URL('./assets/i.js', new URL(href, `http://panel.local${pathname}`)).pathname;
+  };
+  assert.equal(run('/dsh/collab/panel/'), '/dsh/collab/panel/assets/i.js');
+  assert.equal(run('/dsh/collab/panel/roles'), '/dsh/collab/panel/assets/i.js');
+  assert.equal(run('/collab/panel/'), '/collab/panel/assets/i.js');
+  assert.equal(run('/collab/panel/roles/x'), '/collab/panel/assets/i.js');
+  // The fix runs before the panel's own scripts resolve their URLs.
+  assert.ok(out.indexOf('<script>') < out.indexOf('./assets/i.js'));
+});
+
 test('signs API calls server-side, drops client credentials, and returns the upstream body', async () => {
   const calls = [];
   const fetchImpl = async (u, init) => {
