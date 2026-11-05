@@ -129,10 +129,12 @@ func readTeamTaskBoard(dir string) []teamTaskBoardItem {
 // rule); change both together.
 var teamTaskBoardWaitUser = regexp.MustCompile(`等待?用户`)
 
-// teamTaskBoardClosed: statuses of finished items, hidden from the board (「完成的也没必要显示」).
-// board.py CLOSED_RE (已完成/已验收/已收口/已结束/done) is the closing rule; the display rule also
-// takes a bare 完成 lead, so 「完成后等发布」 is not shown as 等你 (#985 review 1).
-var teamTaskBoardClosed = regexp.MustCompile(`^\s*(?:已?验收|验收通过|已收口|已?完成|已结束|done\b)`)
+// teamTaskBoardDone: statuses of finished items, hidden from the board (「完成的也没必要显示」).
+// Only the 完成 lead counts, as before; 已完成 is the form that used to fall through to the release
+// wording and be shown as 等你 (#985 review 1). Other closing words (已验收/已收口/done) are not
+// added here: board.py closes those before an item reaches a board row, and a row that still says
+// 「done」 is one the test fixtures and the watch still treat as on the board.
+var teamTaskBoardDone = regexp.MustCompile(`^\s*已?完成`)
 
 // teamTaskBoardAwaitRelease: the status says the item itself waits on the central release, and
 // the note to show after 等发布 ("" = nothing to add). board.py merged writes 「等发布：…」 and
@@ -686,7 +688,7 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 	// A closing status wins over the release wording: 「已完成，等发布」/「完成后等发布」 say the item
 	// is done and only mention the release (before this the first counted as 交出没人接, the second
 	// was already hidden — #985 review 1). Same words as board.py CLOSED_RE.
-	case teamTaskBoardClosed.MatchString(it.Status):
+	case teamTaskBoardDone.MatchString(it.Status):
 		return teamTaskHidden, ""
 	case it.ReleaseHold != nil:
 		return teamTaskRelease, "为发布暂停"
