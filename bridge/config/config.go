@@ -104,6 +104,7 @@ type Config struct {
 	Language           string                  `toml:"language"` // "en" or "zh", default is "en"
 	Speech             SpeechConfig            `toml:"speech"`
 	TTS                TTSConfig               `toml:"tts"`
+	ImageGen           ImageGenConfig          `toml:"image_gen"`
 	Display            DisplayConfig           `toml:"display"`
 	StreamPreview      StreamPreviewConfig     `toml:"stream_preview"`      // real-time streaming preview
 	InstantReply       InstantReplyConfig      `toml:"instant_reply"`       // immediate confirmation reply
@@ -456,6 +457,23 @@ func expandUserPath(path string) string {
 		}
 	}
 	return path
+}
+
+// ImageGenConfig configures opt-in image generation (生图) for #150 item c.
+// Off by default: a picture costs the owner money, so nothing runs until
+// enabled = true and an api_key is set. Mirrors the [tts] shape: one section,
+// one provider, its credentials nested underneath.
+type ImageGenConfig struct {
+	Enabled  bool   `toml:"enabled"`  // default false
+	Provider string `toml:"provider"` // "openai" (default) — OpenAI-compatible /images/generations
+	OutDir   string `toml:"out_dir,omitempty"`
+	OpenAI   struct {
+		APIKey  string `toml:"api_key"`
+		BaseURL string `toml:"base_url"`
+		Model   string `toml:"model"`             // default gpt-image-1
+		Size    string `toml:"size,omitempty"`    // e.g. "1024x1024"; empty = provider default
+		Quality string `toml:"quality,omitempty"` // e.g. "low"; empty = provider default
+	} `toml:"openai"`
 }
 
 // HeartbeatConfig controls periodic heartbeat for a project.
@@ -824,6 +842,7 @@ func load(path string) (*Config, error) {
 		cfg.AttachmentSend = "on"
 	}
 	cfg.ResolveProviderRefs()
+	cfg.ImageGen.OutDir = expandUserPath(cfg.ImageGen.OutDir)
 	return cfg, nil
 }
 

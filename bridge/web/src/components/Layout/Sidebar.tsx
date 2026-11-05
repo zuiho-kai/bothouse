@@ -13,6 +13,7 @@ import {
   Plug,
   Puzzle,
   Library,
+  Image as ImageIcon,
   UserPlus,
   Users,
   Laptop,
@@ -44,6 +45,8 @@ const navItems = [
   { key: 'chat', path: '/chat', icon: MessageSquare },
   { key: 'cron', path: '/cron', icon: Clock },
   { key: 'library', path: '/library', icon: Library },
+  // 生图 (#150 第c项): opt-in [image_gen], writes a local file and never posts it
+  { key: 'imageGen', path: '/image-gen', icon: ImageIcon },
   { key: 'system', path: '/system', icon: Settings },
 ];
 
