@@ -1900,6 +1900,10 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			}
 			pw.Options["app_id"], pw.Options["app_secret"] = f.AppID, f.AppSecret
 			pw.FeishuOwnerOpenID = f.OwnerOpenID
+			// the scanning owner is the project's owner too (same rule as Discord's bot owners)
+			if ex, _ := s.project(r.project); f.OwnerOpenID != "" && strings.TrimSpace(ex.AdminFrom) == "" {
+				pw.AdminFrom = f.OwnerOpenID
+			}
 		}
 		pl.writes = append(pl.writes, pw)
 	}
