@@ -145,6 +145,9 @@ type gateResponse struct {
 	// Tier (maomao fork) tags the message "chat" or "task" so idle turns can pick a model;
 	// empty = no suggestion.
 	Tier string `json:"tier,omitempty"`
+	// Fallback marks an answer the bridge made up because the gate could not judge (error,
+	// timeout, no model): the built-in stop words still apply then (applyLocalStop).
+	Fallback bool `json:"-"`
 }
 
 // SetGate enables the gate; an empty url disables it. fallback is the action used when the gate
@@ -231,26 +234,26 @@ func (g *gateState) decide(ctx context.Context, req gateRequest) gateResponse {
 	defer cancel()
 	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, g.liveURL(), bytes.NewReader(body))
 	if err != nil {
-		return gateResponse{Action: g.fallbackFor(req), Reason: "gate request: " + err.Error()}
+		return gateResponse{Action: g.fallbackFor(req), Reason: "gate request: " + err.Error(), Fallback: true}
 	}
 	hreq.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(hreq)
 	if err != nil {
-		return gateResponse{Action: g.fallbackFor(req), Reason: "gate unreachable: " + err.Error()}
+		return gateResponse{Action: g.fallbackFor(req), Reason: "gate unreachable: " + err.Error(), Fallback: true}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusServiceUnavailable {
-		return gateResponse{Action: g.noModelFallback(req), Reason: "gate has no model: 503"}
+		return gateResponse{Action: g.noModelFallback(req), Reason: "gate has no model: 503", Fallback: true}
 	}
 	var out gateResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || resp.StatusCode != http.StatusOK {
-		return gateResponse{Action: g.fallbackFor(req), Reason: fmt.Sprintf("gate bad response: %d %v", resp.StatusCode, err)}
+		return gateResponse{Action: g.fallbackFor(req), Reason: fmt.Sprintf("gate bad response: %d %v", resp.StatusCode, err), Fallback: true}
 	}
 	switch out.Action {
 	case "reply", "insert", "silent", "context", "abort":
 		return out
 	}
-	return gateResponse{Action: g.fallbackFor(req), Reason: "gate unknown action " + out.Action}
+	return gateResponse{Action: g.fallbackFor(req), Reason: "gate unknown action " + out.Action, Fallback: true}
 }
 
 // applyGate runs the gate for msg. It returns true when the message has been fully handled
@@ -374,6 +377,14 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	})
 	slog.Info("gate decision", "session", msg.SessionKey, "action", dec.Action, "busy", busy,
 		"mentioned", msg.Mentioned, "buffered", len(buffered), "tier", dec.Tier, "reason", dec.Reason)
+	if dec.Fallback && e.applyLocalStop(p, msg, session, interactiveKey) {
+		// The gate could not judge (down, or no model): a person's "暂停" to this bot still stops
+		// it, the same as with no gate configured, instead of being inserted as a plain remark.
+		g.mu.Lock()
+		g.dropBuffered(interactiveKey, len(buffered))
+		g.mu.Unlock()
+		return true
+	}
 
 	if ownerDM && (dec.Action == "silent" || dec.Action == "context") {
 		// The owner's private chat is always addressed to this bot (see above): never drop it.

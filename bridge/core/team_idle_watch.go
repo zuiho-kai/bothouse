@@ -25,8 +25,24 @@ type watchIdleState struct {
 	Returned bool      `json:"returned,omitempty"`
 	Ended    time.Time `json:"ended,omitzero"`
 	Wakes    int       `json:"wakes,omitempty"`
-	Fails    int       `json:"fails,omitempty"` // consecutive turns that ended in an agent error
+	Fails    int       `json:"fails,omitempty"`   // consecutive turns that ended in an agent error
+	CantDo   int       `json:"cant_do,omitempty"` // consecutive turns that answered "can't do it"
 	Reported bool      `json:"reported,omitempty"`
+}
+
+// watchCantDoRe: a turn that only says it cannot go on (blocked upstream, no access …). Two in a
+// row stop the watch: resuming it again only produces the same refusal (11-05 agentm: woken every
+// ten minutes, each time a long "做不了", and the tool calls of that reply counted as progress).
+var watchCantDoRe = regexp.MustCompile(`(?i)做不了|做不到|干不了|办不到|没法做|没办法做|无法(?:完成|继续|推进|处理|执行)|卡在上游|\bcan(?:no|')t (?:do|proceed|continue|complete)\b|\bunable to (?:do|proceed|continue|complete)\b`)
+
+func watchIsCantDo(text string) bool {
+	return watchCantDoRe.MatchString(text)
+}
+
+// watchBoardWaiting: a board status that says the item waits on someone else (等上游, 等待…, 等用户):
+// the watch does not tell its owner to carry on.
+func watchBoardWaiting(status string) bool {
+	return strings.HasPrefix(strings.TrimSpace(status), "等")
 }
 
 type idleAssignment struct {
@@ -282,7 +298,7 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 				it.Paused != "" && !(accepted && teamTaskBoardWaitUser.MatchString(it.PauseWhy)) {
 				continue
 			}
-			if !accepted && (strings.HasPrefix(it.Status, "等用户") || strings.HasPrefix(it.Status, "等待用户")) {
+			if !accepted && watchBoardWaiting(it.Status) {
 				continue
 			}
 			who := whoInWorkspace(*it)
@@ -365,10 +381,20 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 	teamWorkspaceStore.mu.Unlock()
 	delegated := e.watchDelegatedWork(key)
 	for _, a := range assignments {
-		giveUp := false
+		giveUp, cantDo := false, false
 		h, ok := e.updateIdle(a, func(h *TeamHandoff) {
 			h.Idle.Returned = returned
 			h.Idle.Ended = time.Now()
+			if !returned && !asking && !failed && watchIsCantDo(text) {
+				h.Idle.CantDo++
+				if h.Idle.CantDo >= 2 && !h.Idle.Reported {
+					h.Idle.Reported = true
+					cantDo = true
+					return
+				}
+			} else if !failed {
+				h.Idle.CantDo = 0
+			}
 			if failed {
 				// Tools run before an error are not progress: keep the wake count.
 				h.Idle.Fails++
@@ -386,6 +412,10 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 		})
 		if ok && giveUp {
 			e.escalateIdle(a.key, h, MsgWatchFailEscalate)
+			continue
+		}
+		if ok && cantDo {
+			e.pauseCantDo(a.key, h, boardID)
 			continue
 		}
 		if ok && !returned && !delegated && !h.Idle.Reported {
@@ -426,6 +456,9 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 			for _, it := range placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir)) {
 				if it.ID == id {
 					found = true
+					if watchBoardWaiting(it.Status) {
+						return // waits on someone else: no "carry on"; its next turn re-arms the watch
+					}
 					// Handed to a workspace since: the workspace's watch keeps it, not this chat.
 					closed = watchBoardClosed(it) || it.Paused != "" || it.own != a.key && it.parent == a.key && !it.wsEnded ||
 						watchHandoffLeft(it, a.key)
@@ -523,6 +556,46 @@ func (e *Engine) escalateIdle(key string, h TeamHandoff, msg MsgKey) {
 		slog.Warn("idle watch: escalation failed", "error", err)
 	}
 	sender.wakeWatchRole(h.Chat, text, h.Title)
+}
+
+// pauseCantDo pauses the board item of an assignment that answered "can't do" twice in a row and
+// tells a person once (the first admin_from id is mentioned). No role is woken: a wake would only
+// start one more turn of the same refusal.
+func (e *Engine) pauseCantDo(key string, h TeamHandoff, boardID int) {
+	if h.Board != 0 {
+		boardID = h.Board
+	}
+	if boardID != 0 {
+		if out, err := e.runLeadScript(h.Chat, "board", "pause", strconv.Itoa(boardID), "连续两次回复做不了，看门自动暂停"); err != nil {
+			slog.Warn("idle watch: cant-do pause failed", "board", boardID, "error", err, "output", strings.TrimSpace(string(out)))
+		}
+	}
+	plat, _, _ := strings.Cut(key, ":")
+	sender := e.watchSender(h)
+	p := sender.lookupReadyPlatform(plat)
+	if p == nil {
+		slog.Warn("idle watch: sender platform unavailable", "workspace", key)
+		return
+	}
+	human := ""
+	e.userRolesMu.RLock()
+	af := e.adminFrom
+	e.userRolesMu.RUnlock()
+	for _, id := range strings.Split(af, ",") {
+		if id = strings.TrimSpace(id); id != "" && id != "*" {
+			human = watchMention(plat, id) + " "
+			break
+		}
+	}
+	who := h.Owner
+	if t := e.watchTarget(key, h.Owner); t != nil {
+		who = t.DisplayName() // naming, not mentioning: a mention would start one more turn
+	}
+	text := sender.i18n.Tf(MsgWatchCantDoEscalate, human, who, h.Title)
+	if err := newHandoffWatch(sender).send(p, h.Chat, text); err != nil {
+		slog.Warn("idle watch: cant-do notice failed", "error", err)
+	}
+	slog.Info("idle watch: paused after two cant-do replies", "workspace", key, "board", boardID, "owner", h.Owner)
 }
 
 func (e *Engine) wakeWatchRole(key, text, title string) {
