@@ -9112,6 +9112,14 @@ func (e *Engine) cmdNew(p Platform, msg *Message, args []string) {
 		name = strings.Join(args, " ")
 	}
 	e.startFreshSession(sessions, interactiveKey, msg.SessionKey, name, "用户发了 /new")
+	// #1120: a person's /new also ends this chat's scheduled side turns (a review running in a
+	// #timer: session), and counts as them talking here, so a reminder held for the user
+	// (WaitUserQuiet) does not run right after the reset.
+	e.stopTimerTurnsIn(msg.Platform, msg.SessionKey)
+	if !msg.FromBot {
+		sessions.GetOrCreateActive(msg.SessionKey).TouchUserActivity()
+		sessions.Save()
+	}
 	if name != "" {
 		e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgNewSessionCreatedName), name))
 	} else {
