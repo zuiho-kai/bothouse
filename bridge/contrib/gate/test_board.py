@@ -275,6 +275,33 @@ class Increments(unittest.TestCase):
         self.assertEqual(cli("backlog")[1], "（没有待办）")
         self.assertNotEqual(cli("backlog", "9")[0], 0)  # 没有这条
 
+    def test_backlog_parks_workspace_and_resume_takes_it_back(self):
+        """待办同样把工作区放回池子；board resume 像暂停一样先向桥收回再绑回（不然两个聊天频道抢一个工作区）。"""
+        log = Path(TMP) / "park2.log"
+        log.write_text("")
+        fake = Path(TMP) / "fakepark3"
+        fake.write_text(f"""#!/bin/sh
+echo "$@" >> {log}
+case "$2" in park) echo '{{"freed":true}}' ;; claim) echo ok ;; esac
+""")
+        fake.chmod(0o755)
+        os.environ["CC_BIN"] = str(fake)
+        try:
+            board.add("交来的活", "a.md", "已交接", "工作区1主角色", ws="discord:201", chat="discord:100:u1")
+            bound = board.items()[0].get("bound")
+            board.main(["backlog", "1"])
+            self.assertEqual(log.read_text().strip(),
+                             f"workspace park --session-key discord:201 --chat discord:100 --before {bound} --stop --json")
+            row = board.items()[0]
+            self.assertNotIn("ws", row)
+            self.assertEqual(row["ws_was"], "discord:201")  # 恢复时向桥收回它
+            with contextlib.redirect_stdout(io.StringIO()):
+                board.main(["resume", "1"])
+            self.assertEqual([c.split()[1] for c in log.read_text().splitlines()], ["park", "claim"])
+            self.assertEqual(board.items()[0]["ws"], "discord:201")
+        finally:
+            os.environ["CC_BIN"] = "false"
+
     def test_backlog_takes_over_pause_and_update_takes_it_back(self):
         """从暂停挪进待办要算待办不算暂停；改了状态（有人接手）就撤掉待办标记，回主板。"""
         cli("add", "QQ插话点表情", "-", "待修", "待接手")
