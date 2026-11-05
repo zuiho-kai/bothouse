@@ -57,15 +57,24 @@ func (e *Engine) reassignCantDo(a idleAssignment, h TeamHandoff) bool {
 	recordCantDo(dir, work.Board, e.name)
 	reserved := cantDoRefusers(dir, work.Board)
 	target := e.quotaCandidate(work.Session, work.Title+" "+work.Basis, reserved)
+	lead := false
 	if target == nil {
-		slog.Warn("watch reassign: cant-do, no other member free", "from", e.name, "work", work.ID)
-		return false
+		// Nobody free: the lead takes it even while busy, through a clean-context sub-agent, rather
+		// than pausing it until a person wakes up (#1119, agentm 11-05 18:53Z「no other member free → paused」).
+		if target = e.cantDoLead(work.Session, reserved); target == nil {
+			slog.Warn("watch reassign: cant-do, no other member and no lead to fall back on", "from", e.name, "work", work.ID)
+			return false
+		}
+		lead = true
 	}
 	if err := e.applyQuotaWork(work, target, time.Now()); err != nil {
 		slog.Warn("watch reassign: cant-do owner transfer failed", "work", work.ID, "to", target.name, "error", err)
 		return false
 	}
 	prompt := target.i18n.Tf(MsgWatchCantDoPrompt, e.DisplayName(), work.Title, work.Basis)
+	if lead {
+		prompt += "\n\n" + target.i18n.T(MsgWatchCantDoLead)
+	}
 	if err := e.queueQuotaWake(target, "cantdo:"+work.ID, work.Session, prompt, work.Title); err != nil {
 		slog.Warn("watch reassign: cant-do wake failed", "work", work.ID, "to", target.name, "error", err)
 	}
@@ -79,4 +88,20 @@ func (e *Engine) reassignCantDo(a idleAssignment, h TeamHandoff) bool {
 	}
 	slog.Info("watch reassign: cant-do work handed over", "from", e.name, "to", target.name, "work", work.ID)
 	return true
+}
+
+// cantDoLead: the team lead as the last stand-in for refused work — another engine bound to the
+// chat, not paused or quota-cooling and not among the refusers; being busy does not rule it out.
+func (e *Engine) cantDoLead(session string, reserved map[string]bool) *Engine {
+	plat, _, _ := strings.Cut(session, ":")
+	for _, peer := range e.watchEngines() {
+		if peer == e || reserved[peer.name] || !peer.isTeamLead() || peer.IsPaused() || peer.ctx.Err() != nil ||
+			!peer.quotaCoolingFor(peer.admissionQuotaScope(peer.agent, session)).IsZero() {
+			continue
+		}
+		if peer.lookupReadyPlatform(plat) != nil {
+			return peer
+		}
+	}
+	return nil
 }

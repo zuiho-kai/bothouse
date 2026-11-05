@@ -703,6 +703,9 @@ const (
 	MsgTaskReviewEscalate       MsgKey = "task_review_escalate"
 	MsgModelRefusedHanded       MsgKey = "model_refused_handed"
 	MsgModelRefusedLead         MsgKey = "model_refused_lead"
+	MsgModelRefusedClean        MsgKey = "model_refused_clean"
+	MsgTaskReviewCleanAgent     MsgKey = "task_review_clean_agent"
+	MsgWatchCantDoLead          MsgKey = "watch_cantdo_lead"
 	MsgTaskReviewUnavailable    MsgKey = "task_review_unavailable"
 	MsgTaskReviewRoundup        MsgKey = "task_review_roundup"
 	MsgTaskPausedSummary        MsgKey = "task_paused_summary"
@@ -1126,6 +1129,18 @@ var messages = map[MsgKey]map[Language]string{
 	MsgModelRefusedHanded: {
 		LangEnglish: "My model refused this one, so I can't do it; handed it to %s.",
 		LangChinese: "这件我这边的模型拒答了，做不了，已转给%s。",
+	},
+	MsgModelRefusedClean: {
+		LangEnglish: "My model refused this one here; I'm verifying it again in a fresh session through a clean-context sub-agent.",
+		LangChinese: "这件我这边的模型拒答了；改由我开新会话、用干净上下文的子 agent 重新验收。",
+	},
+	MsgTaskReviewCleanAgent: {
+		LangEnglish: "The usual reviewer refused or wrote #%[1]d, so you stand in: verify it through a sub-agent with a clean context (give it the handoff file and the delivered artifacts, not this conversation), then close or reject it from its findings. Do not leave it waiting for a person.",
+		LangChinese: "#%[1]d 原本的验收人拒答了，或者它就是你写的，所以由你兜底：开一个干净上下文的子 agent 去验（只给它交接文件和交付物，不给本会话的上下文），按它的结论收口或退回，不要留给真人。",
+	},
+	MsgWatchCantDoLead: {
+		LangEnglish: "No other member is free, so it comes to you as lead. If you are busy with other work, hand it to a sub-agent with a clean context instead of waiting.",
+		LangChinese: "没有别的空闲成员，所以交给你这个主角色。手上有别的活就开一个干净上下文的子 agent 去做，不要等。",
 	},
 	MsgModelRefusedLead: {
 		LangEnglish: "My model refused this one, so I can't do it; the lead, please hand it to someone else.",
