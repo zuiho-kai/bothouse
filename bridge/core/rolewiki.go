@@ -98,8 +98,14 @@ func RefreshRoleWikiPrograms(dataDir string) error {
 	if RoleWikiFS == nil || dataDir == "" || !fileExists(filepath.Join(RoleWikiDir(dataDir), "sub-wiki.py")) {
 		return nil
 	}
-	_, err := InstallRoleWikiPrograms(dataDir)
-	return err
+	if _, err := InstallRoleWikiPrograms(dataDir); err != nil {
+		return err
+	}
+	// the wizard-made main wiki holds full copies in its bin/ (setup_wiki.py --main); a user's own wiki has no mark
+	if w, ok := FindWiki(); ok && fileExists(filepath.Join(w, mainWikiMark)) {
+		return refreshWikiPrograms(dataDir, w)
+	}
+	return nil
 }
 
 // roleWikiEngines: the wiki passes run on the role's own CLI (a machine with only that CLI still runs its wiki), or
