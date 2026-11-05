@@ -320,7 +320,11 @@ func newPlatform(name, domain string, opts map[string]any) (core.Platform, error
 	if v, ok := opts["require_mention"].(bool); ok && !v {
 		groupReplyAll = true
 	}
-	respondToAtEveryoneAndHere, _ := opts["respond_to_at_everyone_and_here"].(bool)
+	// @everyone/@here (飞书 @所有人) counts as calling every bot unless explicitly turned off.
+	respondToAtEveryoneAndHere := true
+	if v, ok := opts["respond_to_at_everyone_and_here"].(bool); ok {
+		respondToAtEveryoneAndHere = v
+	}
 	shareSessionInChannel, _ := opts["share_session_in_channel"].(bool)
 	threadIsolation, _ := opts["thread_isolation"].(bool)
 	resolveMentionsOpt, _ := opts["resolve_mentions"].(bool)
