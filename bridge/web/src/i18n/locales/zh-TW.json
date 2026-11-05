@@ -139,7 +139,12 @@
     "selectProject": "選擇專案",
     "descPlaceholder": "工作說明",
     "promptPlaceholder": "傳送給 Agent 的提示詞...",
-    "selectSessionKey": "選擇工作階段（留空使用預設）",
+    "selectSessionKey": "從工作階段頁選擇，或手填如 qq:10001",
+    "sessionKeyHint": "必填：任務到點發到這個工作階段。",
+    "sessionKeyRequired": "先填工作階段金鑰，任務要知道發到哪個工作階段。",
+    "scheduleRequired": "先選執行時間。",
+    "projectRequired": "先選專案。",
+    "taskRequired": "請填提示詞或指令其中一項。",
     "taskType": "任務類型",
     "mode": "權限模式",
     "modeDefault": "跟隨項目預設"

@@ -851,7 +851,7 @@ GET /api/v1/status?token=mgmt-secret
 
 #### POST /api/v1/cron
 
-添加定时任务。必须提供 `prompt` 或 `exec` 之一，不可同时提供。
+添加定时任务。必须提供 `prompt` 或 `exec` 之一，不可同时提供。`session_key` 两类任务都必填：任务到点后要把开始提醒和结果发到那个会话，没填会被直接拒成 `400 session_key is required`（以前是先存下、到点才失败）。
 
 **请求体（prompt 任务）：**
 
@@ -883,7 +883,7 @@ GET /api/v1/status?token=mgmt-secret
 | 字段          | 类型    | 必填 | 说明                                        |
 |---------------|---------|------|---------------------------------------------|
 | `project`     | string  | 否*  | 项目名称（*多项目时为必填）                 |
-| `session_key` | string  | 是   | prompt 任务的目标会话                       |
+| `session_key` | string  | 是   | 任务到点后回报的会话（`平台:聊天[:用户]`，如 `qq:10001`）；exec 任务也必填 |
 | `cron_expr`   | string  | 是   | Cron 表达式（5 或 6 个字段）                |
 | `prompt`      | string  | 否*  | 要发送的 prompt（*未提供 `exec` 时为必填）  |
 | `exec`        | string  | 否*  | Shell 命令（*未提供 `prompt` 时为必填）     |
