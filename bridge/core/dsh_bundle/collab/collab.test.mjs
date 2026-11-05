@@ -1536,23 +1536,48 @@ test('roster: wizard roles are imported once, existing names skipped', async () 
   assert.deepEqual(await roster.importWizard(file), []);
 });
 
-test('roster: a default-named wizard role continues the suffix instead of being skipped', async () => {
-  const { mkdtempSync, writeFileSync } = await import('node:fs');
+test('roster: re-running the wizard reuses the default-named role\'s member instead of adding Codex-2', async () => {
+  const { mkdtempSync, writeFileSync, readFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { tmpdir } = await import('node:os');
   const dir = mkdtempSync(join(tmpdir(), 'collab-wiz-'));
   const hub = makeHub();
   const members = fakeDsh().attach(hub, []);
   const roster = new Roster(hub, members, fakeLlm());
-  await roster.create({ cli: 'codex', nameCustomized: false });
   await roster.create({ name: '小码', cli: 'codex', nameCustomized: true });
   const file = join(dir, 'wizard-members.json');
-  writeFileSync(file, JSON.stringify({ members: [
+  const run = () => writeFileSync(file, JSON.stringify({ members: [
     { name: 'Codex', cli: 'codex', name_customized: false },
     { name: '小码', cli: 'codex', name_customized: true },
   ] }));
+  run();
+  assert.deepEqual(await roster.importWizard(file), ['Codex']);
+  run();
+  assert.deepEqual(await roster.importWizard(file), []);
+  run();
+  assert.deepEqual(await roster.importWizard(file), []);
+  assert.deepEqual(hub.memberList().filter(m => m.id !== 'owner').map(m => m.name).sort(), ['Codex', '小码']);
+  // two default Codex roles in one run still get two members
+  writeFileSync(file, JSON.stringify({ members: [{ name: 'Codex', cli: 'codex', name_customized: false }, { name: 'Codex-2', cli: 'codex', name_customized: false }] }));
   assert.deepEqual(await roster.importWizard(file), ['Codex-2']);
-  assert.equal(hub.memberList().filter(m => m.name === 'Codex-2').length, 1);
+});
+
+test('roster: an install that already has Codex-2/Codex-3 reuses the primary role and records its real name', async () => {
+  const { mkdtempSync, writeFileSync, readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'collab-wiz-'));
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  for (let i = 0; i < 3; i++) await roster.create({ name: 'Codex', cli: 'codex', nameCustomized: false });
+  assert.deepEqual(hub.memberList().filter(m => m.id !== 'owner').map(m => m.id), ['codex', 'codex-2', 'codex-3']);
+  const file = join(dir, 'wizard-members.json');
+  writeFileSync(file, JSON.stringify({ members: [{ name: 'Codex', cli: 'codex', name_customized: false }] }));
+  assert.deepEqual(await roster.importWizard(file, undefined, 'codex-2'), []);
+  assert.equal(hub.memberList().filter(m => m.id !== 'owner').length, 3);
+  const done = JSON.parse(readFileSync(join(dir, 'wizard-members.imported.json'), 'utf8')).members;
+  assert.deepEqual(done.map(m => [m.name, m.id]), [['Codex-2', 'codex-2']]);
 });
 
 

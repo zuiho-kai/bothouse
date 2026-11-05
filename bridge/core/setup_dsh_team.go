@@ -79,17 +79,33 @@ func addDSHMembersToGateTeam(dataDir string, members []DSHImportedMember) (chang
 	if subs == nil {
 		subs = map[string]any{}
 	}
-	// ids of the DSH entries already in the file (a Discord bot's id is another name space)
-	if l, ok := gt["lead"].(map[string]any); ok && isDSHEntry(l) {
-		if id, _ := l["id"].(string); id != "" {
-			known[id] = true
+	// The member's real name (importWizard writes it, e.g. Codex-2 for a role asked as Codex).
+	names := map[string]string{}
+	for _, m := range members {
+		if m.ID != "" && m.Name != "" {
+			names[m.ID] = m.Name
 		}
+	}
+	// ids of the DSH entries already in the file (a Discord bot's id is another name space); an entry whose
+	// name is not its member's real name is corrected (an older import wrote the role's name: lead codex-2
+	// named "Codex", 11-05 Windows report).
+	fix := func(e map[string]any) {
+		id, _ := e["id"].(string)
+		if id == "" {
+			return
+		}
+		known[id] = true
+		if n := names[id]; n != "" && e["name"] != n {
+			e["name"] = n
+			changed = true
+		}
+	}
+	if l, ok := gt["lead"].(map[string]any); ok && isDSHEntry(l) {
+		fix(l)
 	}
 	for _, v := range subs {
 		if s, ok := v.(map[string]any); ok && isDSHEntry(s) {
-			if id, _ := s["id"].(string); id != "" {
-				known[id] = true
-			}
+			fix(s)
 		}
 	}
 	for _, m := range members {
@@ -120,6 +136,9 @@ func registerDSHMembersInGateTeam(dataDir string, members []DSHImportedMember) e
 	}
 	if _, err := selectDSHLeadIfUnset(dataDir); err != nil {
 		slog.Warn("dsh lead not selected", "error", err)
+	}
+	if err := fixDSHLeadName(dataDir, members); err != nil {
+		slog.Warn("dsh lead name not corrected", "error", err)
 	}
 	if !changed {
 		return nil
@@ -186,4 +205,50 @@ func selectDSHLeadIfUnset(dataDir string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// fixDSHLeadName corrects the "name" in <data_dir>/lead.json when the selected lead is an imported DSH member
+// whose real name differs (an older import wrote the wizard role's name). Only the name changes: the selection,
+// its time and the "auto" flag stay, so the gate sees no switch.
+func fixDSHLeadName(dataDir string, members []DSHImportedMember) error {
+	if dataDir == "" {
+		return nil
+	}
+	path := filepath.Join(dataDir, "lead.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var sel map[string]any
+	if json.Unmarshal(b, &sel) != nil {
+		return nil
+	}
+	id, _ := sel["lead"].(string)
+	for _, m := range members {
+		if m.ID == "" || m.ID != id || m.Name == "" || sel["name"] == m.Name {
+			continue
+		}
+		sel["name"] = m.Name
+		line, err := json.Marshal(sel)
+		if err != nil {
+			return err
+		}
+		tmp, err := os.CreateTemp(dataDir, ".lead.json.tmp-*")
+		if err != nil {
+			return err
+		}
+		defer os.Remove(tmp.Name())
+		if _, err := tmp.Write(append(line, '\n')); err != nil {
+			tmp.Close()
+			return err
+		}
+		if err := tmp.Close(); err != nil {
+			return err
+		}
+		if err := os.Chmod(tmp.Name(), 0o600); err != nil {
+			return err
+		}
+		return os.Rename(tmp.Name(), path)
+	}
+	return nil
 }
