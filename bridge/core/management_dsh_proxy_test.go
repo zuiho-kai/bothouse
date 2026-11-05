@@ -118,6 +118,7 @@ func newProxyFakeDSH(t *testing.T) *proxyFakeDSH {
 func setupDSHProxyTest(t *testing.T, fake *proxyFakeDSH, token string) *httptest.Server {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows: else dsh-web.json leaks between tests
 	if fake != nil {
 		writeProxyDSHWeb(t, fake.srv.URL+"/?token=launch#channels")
 	}
