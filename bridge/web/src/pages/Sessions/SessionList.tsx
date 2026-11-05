@@ -49,6 +49,7 @@ export default function SessionList() {
   const [note, setNote] = useState('');
   // DSH's own channels: listed under the bridge sessions, opened on DSH's channels page.
   const [dshChannels, setDshChannels] = useState<DSHChannel[]>([]);
+  const [dshMemberCount, setDshMemberCount] = useState(0);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -68,6 +69,7 @@ export default function SessionList() {
       setData(results);
       const d = await getDSHSummary().catch(() => null);
       setDshChannels(d && d.running ? d.channels : []);
+      setDshMemberCount(d && d.running ? d.members.length : 0);
     } finally {
       setLoading(false);
     }
@@ -155,7 +157,7 @@ export default function SessionList() {
           <h1 className="text-xl font-semibold tracking-tight text-ink">{t('sessions.title')}</h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-mute">
             <span className="tabular-nums">
-              {totals.sessions} {t('sessions.title')}
+              {totals.sessions + dshChannels.length} {t('sessions.title')}
             </span>
             {totals.live > 0 && (
               <span className="inline-flex items-center gap-1.5 tabular-nums text-emerald-600 dark:text-emerald-400">
@@ -166,7 +168,7 @@ export default function SessionList() {
               </span>
             )}
             <span className="tabular-nums">
-              {totals.projects} {t('projects.title')}
+              {totals.projects + dshMemberCount} {t('projects.title')}
             </span>
           </p>
         </div>

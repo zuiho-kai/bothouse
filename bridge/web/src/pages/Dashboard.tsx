@@ -63,7 +63,10 @@ export default function Dashboard() {
   }, [fetchData]);
 
   // 两处派生数据都直接来自 status/projects，不引入新的请求，也不推测缺失值。
-  const platformCount = status?.connected_platforms?.length ?? 0;
+  const dshOn = !!dsh && ((dsh.members?.length ?? 0) > 0 || (dsh.channels?.length ?? 0) > 0);
+  // DSH counts as one platform when it is running with members or channels.
+  const platformNames = [...(status?.connected_platforms ?? []), ...(dshOn ? ['dsh'] : [])];
+  const platformCount = platformNames.length;
   const projectRows = projects.map((p) => ({
     label: shownName(p),
     value: p.sessions_count ?? 0,
@@ -121,7 +124,7 @@ export default function Dashboard() {
                 />
                 <div className="text-xs text-ink-mute">
                   {platformCount > 0
-                    ? status?.connected_platforms?.join(' · ')
+                    ? platformNames.join(' · ')
                     : t('dashboard.noData')}
                 </div>
               </div>
