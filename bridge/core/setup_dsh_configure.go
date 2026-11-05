@@ -135,6 +135,7 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 	}
 	res.Members = len(req.Members)
 	// A dsh web we started earlier read the old patch and members at boot; the next open restarts it.
+	stopDSHWebLaunch()
 	if b, err := os.ReadFile(dshWebStatePath()); err == nil {
 		var prev DSHWeb
 		if json.Unmarshal(b, &prev) == nil && prev.PID > 0 && processAlive(prev.PID) {
@@ -287,15 +288,133 @@ type DSHWeb struct {
 	URL string `json:"url"` // channels page, token included
 	PID int    `json:"pid"`
 	Log string `json:"log"`
+	// Starting: dsh web is up but has not printed its address yet. There is no deadline: a Windows
+	// first start took 2 min 31 s (sanxin-hk, v0.1.50, 2026-11-05), so the wizard keeps asking while
+	// the process lives and shows how long it has waited and the last log line. Only an exit fails it.
+	Starting   bool   `json:"starting,omitempty"`
+	ElapsedSec int    `json:"elapsed_sec,omitempty"`
+	LogTail    string `json:"log_tail,omitempty"`
 }
 
 // dshChannelsHash opens the channels panel on load (dsh/packages/client-ui-discord deep link).
 const dshChannelsHash = "#channels"
 
-// dshWebStartTimeout: how long to wait for `dsh web` to print its address. 来源：Windows 正式包
-// v0.1.50 新装首启实测 2 分 31 秒才打印地址（sanxin-hk，2026-11-05，10:57:15 → 10:59:46），原来的
-// 60 秒让「打开 DSH」先报失败；macOS 上几秒。取 5 分钟，给冷启动留一倍余量。
-const dshWebStartTimeout = 5 * time.Minute
+// dshWebOpenWait: how long one open call waits for the address before it answers "still starting"
+// (a macOS start prints it within this, so one call is enough there).
+var dshWebOpenWait = 3 * time.Second
+
+// dshWebLaunch is a `dsh web` we started that has not printed its address yet. It is kept in
+// memory and in dsh-web.starting.json, so a second click, a second tab or a restarted bothouse
+// claims it instead of starting another one.
+type dshWebLaunch struct {
+	PID     int       `json:"pid"`
+	Log     string    `json:"log"`
+	Started time.Time `json:"started"`
+	exited  chan struct{}
+}
+
+var dshWebStarting *dshWebLaunch
+
+func dshWebStartingPath() string {
+	return filepath.Join(filepath.Dir(dshWebStatePath()), "dsh-web.starting.json")
+}
+
+// currentDSHWebLaunch returns the launch still in progress, from memory or from the file a
+// previous bothouse left; nil when there is none or its process is gone. Caller holds dshWebMu.
+func currentDSHWebLaunch() *dshWebLaunch {
+	if dshWebStarting != nil {
+		return dshWebStarting
+	}
+	b, err := os.ReadFile(dshWebStartingPath())
+	if err != nil {
+		return nil
+	}
+	var l dshWebLaunch
+	if json.Unmarshal(b, &l) != nil || l.PID <= 0 || !processAlive(l.PID) {
+		_ = os.Remove(dshWebStartingPath())
+		return nil
+	}
+	dshWebStarting = &l
+	return dshWebStarting
+}
+
+func (l *dshWebLaunch) gone() bool {
+	if l.exited != nil {
+		select {
+		case <-l.exited:
+			return true
+		default:
+			return false
+		}
+	}
+	return !processAlive(l.PID)
+}
+
+func dshWebLaunchInProgress() bool {
+	dshWebMu.Lock()
+	defer dshWebMu.Unlock()
+	return currentDSHWebLaunch() != nil
+}
+
+func clearDSHWebLaunch() {
+	dshWebStarting = nil
+	_ = os.Remove(dshWebStartingPath())
+}
+
+// stopDSHWebLaunch ends a launch in progress (its boot read the old patch and roles).
+func stopDSHWebLaunch() {
+	dshWebMu.Lock()
+	defer dshWebMu.Unlock()
+	if l := currentDSHWebLaunch(); l != nil {
+		stopProcess(l.PID)
+		clearDSHWebLaunch()
+	}
+}
+
+// waitDSHWebLaunch waits up to dshWebOpenWait for the address. It returns the ready web, or a
+// Starting answer while the process lives, or an error once it has exited without an address.
+func waitDSHWebLaunch(ctx context.Context, l *dshWebLaunch) (DSHWeb, error) {
+	deadline := time.Now().Add(dshWebOpenWait)
+	for {
+		if u := scanDSHWebURL(l.Log); u != "" {
+			web := DSHWeb{URL: u + dshChannelsHash, PID: l.PID, Log: l.Log}
+			b, _ := json.Marshal(web)
+			_ = os.WriteFile(dshWebStatePath(), b, 0o600)
+			clearDSHWebLaunch()
+			slog.Info("dsh web: ready", "pid", l.PID, "took", time.Since(l.Started).Round(time.Second))
+			return web, nil
+		}
+		if l.gone() {
+			clearDSHWebLaunch()
+			return DSHWeb{}, fmt.Errorf("dsh web exited before printing its address:\n%s", tailFile(l.Log, 2000))
+		}
+		if !time.Now().Before(deadline) {
+			return DSHWeb{PID: l.PID, Log: l.Log, Starting: true,
+				ElapsedSec: int(time.Since(l.Started).Seconds()), LogTail: lastLogLine(l.Log)}, nil
+		}
+		select {
+		case <-ctx.Done():
+			return DSHWeb{}, ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
+
+// lastLogLine: the last non-empty line of the log (stack frames skipped), cut to 200 bytes.
+func lastLogLine(path string) string {
+	lines := strings.Split(strings.ReplaceAll(tailFile(path, 4000), "\r\n", "\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		s := strings.TrimSpace(lines[i])
+		if s == "" || strings.HasPrefix(s, "at ") {
+			continue
+		}
+		if len(s) > 200 {
+			s = s[:200]
+		}
+		return strings.ToValidUTF8(s, "")
+	}
+	return ""
+}
 
 // dshWikiImportWait: how long after the open step the member wikis wait for the plugin to import the roles.
 const dshWikiImportWait = 2 * time.Minute
@@ -311,7 +430,8 @@ func dshWebStatePath() string {
 }
 
 // OpenDSHWeb returns the running `dsh web` we started earlier, or starts a new one detached from
-// this process (it keeps running after the wizard exits) on a free port and waits for its link.
+// this process (it keeps running after the wizard exits) on a free port. It answers Starting
+// (call again) while that one has not printed its link yet; a launch in progress is claimed.
 func OpenDSHWeb(ctx context.Context) (DSHWeb, error) {
 	return openDSHWeb(ctx, "")
 }
@@ -319,6 +439,9 @@ func OpenDSHWeb(ctx context.Context) (DSHWeb, error) {
 func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	dshWebMu.Lock()
 	defer dshWebMu.Unlock()
+	if l := currentDSHWebLaunch(); l != nil {
+		return waitDSHWebLaunch(ctx, l)
+	}
 	statePath := dshWebStatePath()
 	var prev DSHWeb
 	if b, err := os.ReadFile(statePath); err == nil && json.Unmarshal(b, &prev) == nil && prev.PID > 0 && processAlive(prev.PID) && prev.URL != "" {
@@ -384,31 +507,14 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	if err := cmd.Start(); err != nil {
 		return DSHWeb{}, err
 	}
-	pid := cmd.Process.Pid
-	exited := make(chan struct{})
-	go func() { _ = cmd.Wait(); close(exited) }()
-	deadline := time.NewTimer(dshWebStartTimeout)
-	defer deadline.Stop()
-	// Re-read the log until the address line shows up (interaction delay, no data behind it).
-	tick := time.NewTicker(200 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		if u := scanDSHWebURL(logPath); u != "" {
-			web := DSHWeb{URL: u + dshChannelsHash, PID: pid, Log: logPath}
-			b, _ := json.Marshal(web)
-			_ = os.WriteFile(statePath, b, 0o600)
-			return web, nil
-		}
-		select {
-		case <-ctx.Done():
-			return DSHWeb{}, ctx.Err()
-		case <-exited:
-			return DSHWeb{}, fmt.Errorf("dsh web exited before printing its address:\n%s", tailFile(logPath, 2000))
-		case <-deadline.C:
-			return DSHWeb{}, fmt.Errorf("dsh web did not print its address in %s:\n%s", dshWebStartTimeout, tailFile(logPath, 2000))
-		case <-tick.C:
-		}
+	l := &dshWebLaunch{PID: cmd.Process.Pid, Log: logPath, Started: time.Now(), exited: make(chan struct{})}
+	go func() { _ = cmd.Wait(); close(l.exited) }()
+	dshWebStarting = l
+	if b, err := json.Marshal(l); err == nil {
+		_ = os.WriteFile(dshWebStartingPath(), b, 0o600)
 	}
+	slog.Info("dsh web: starting", "pid", l.PID)
+	return waitDSHWebLaunch(ctx, l)
 }
 
 // dshWebStopWait: how long a running `dsh web` gets to exit before the wizard gives up on restarting it.
@@ -486,10 +592,12 @@ func (m *ManagementServer) handleSetupDSHOpen(w http.ResponseWriter, r *http.Req
 		mgmtError(w, http.StatusMethodNotAllowed, "POST required")
 		return
 	}
-	// before `dsh web` starts: it is given the gate port (GATE_PORT)
-	if err := pickGatePortForDSH(m.wizardDataDir, m.wizardStore); err != nil {
-		mgmtError(w, http.StatusInternalServerError, "gate port: "+err.Error())
-		return
+	// before `dsh web` starts: it is given the gate port (GATE_PORT). A launch in progress already has it.
+	if !dshWebLaunchInProgress() {
+		if err := pickGatePortForDSH(m.wizardDataDir, m.wizardStore); err != nil {
+			mgmtError(w, http.StatusInternalServerError, "gate port: "+err.Error())
+			return
+		}
 	}
 	// The gate does not need `dsh web` to be up: start it first, so a slow or failed start (a cold
 	// Windows start took 2.5 min, 2026-11-05) does not leave the members without their gate until
@@ -501,7 +609,9 @@ func (m *ManagementServer) handleSetupDSHOpen(w http.ResponseWriter, r *http.Req
 		return
 	}
 	// the member ids exist once the plugin in `dsh web` has imported the roles: the wikis are named after them
-	go makeDSHMemberWikisOnImport(m.wizardDataDir, dshWikiImportWait)
+	if !web.Starting {
+		go makeDSHMemberWikisOnImport(m.wizardDataDir, dshWikiImportWait)
+	}
 	mgmtJSON(w, http.StatusOK, web)
 }
 
