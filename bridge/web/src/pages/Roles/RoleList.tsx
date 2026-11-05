@@ -13,6 +13,7 @@ import { Button, EmptyState } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { listRoles, restartRole, setRolePaused, type RoleInfo } from '@/api/roles';
 import { roleLabel } from '@/lib/roleIdentity';
+import { dshOnlyRows } from '@/lib/dshMerge';
 import { shownName } from '@/api/projects';
 
 /** 角色四态：在忙 / 空闲 / 不在线 / 已暂停。
@@ -69,7 +70,11 @@ export default function RoleList() {
       setLoading(true);
       setError('');
       const res = await listRoles();
-      setRoles(res.roles || []);
+      const all = res.roles || [];
+      // DSH lists the bots that registered into it, and on most installs those bots are the bridge's
+      // own projects: the same agent would arrive twice (a bridge card with pause/restart + a
+      // read-only DSH card). Keep the bridge card — it is the one with sessions, model and controls.
+      setRoles(dshOnlyRows(all, all.filter((r) => r.source !== 'dsh').map((r) => r.name)));
     } catch (e: any) {
       setError(e.message || 'Failed to load roles');
     } finally {

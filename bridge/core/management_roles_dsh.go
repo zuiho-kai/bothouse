@@ -91,8 +91,12 @@ func (c dshAPI) get(ctx context.Context, path string, out any) error {
 	return json.NewDecoder(io.LimitReader(res.Body, 4<<20)).Decode(out)
 }
 
-// dshStateRoles turns DSH's members into roles. Only kind "dsh" (members DSH runs itself): "bot"
-// members are bridge roles already listed from the engines, and "human" is the owner.
+// dshStateRoles turns DSH's members into roles: every member that is an agent, i.e. kind "dsh"
+// (members DSH runs itself) or "bot" (roles that registered into DSH, e.g. this machine's bots).
+// The criterion is the hub's own routable() (dsh/collab/hub.mjs): kind != "human"; "human" is the
+// owner, who is not routed. A "bot" member may also be an engine here — the same person seen from
+// the bridge side and from DSH's side — so callers that count DSH members add to bridge counts
+// should dedupe by id.
 func dshStateRoles(st *dshState) []RoleInfo {
 	roomName := map[string]string{}
 	for _, r := range st.Rooms {
@@ -108,16 +112,19 @@ func dshStateRoles(st *dshState) []RoleInfo {
 	}
 	roles := []RoleInfo{}
 	for _, mb := range st.Members {
-		if mb.Kind != "dsh" || mb.ID == "" {
+		if mb.ID == "" || mb.Kind == "human" {
 			continue
 		}
-		agentType := "dsh"
-		if mb.CLI != "" {
+		agentType := "dsh" // the row is DSH's view of the agent, so the page labels it ·DSH
+		if mb.Kind == "dsh" && mb.CLI != "" {
 			agentType = mb.CLI
 		}
-		model := "DSH 默认"
+		model := ""
 		if mb.Model != nil && *mb.Model != "" {
 			model = *mb.Model
+		} else if mb.Kind == "dsh" {
+			// only kind "dsh" reports a model; a "bot" member's model is the bridge's to say
+			model = "DSH 默认"
 		}
 		task := "空闲"
 		busy := false
