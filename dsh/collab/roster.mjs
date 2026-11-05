@@ -64,8 +64,13 @@ export class Roster {
    * as UI members, once: names already in the channel are skipped, then the file becomes *.imported.json with
    * each role's member id (the new one, or the one already holding the name), so bothouse names the role's wiki
    * after the id the member really has (bridge core/setup_dsh_wiki.go). Returns the names added.
+   * A default-named role (name_customized false) reuses a DSH member a former run made for it — same CLI,
+   * still automatic, named the role's name or name-N — so re-running the wizard does not add Codex-2, Codex-3…
+   * (11-05 Windows report); the selected primary role (leadId) is preferred, then the plain name. Each member
+   * serves one role per run, so two default Codex roles still get two members. The imported entry carries the
+   * member's real name, which the bridge writes into gate-team.json and lead.json.
    */
-  async importWizard(path, logger) {
+  async importWizard(path, logger, leadId) {
     if (!existsSync(path)) return [];
     let members = [];
     try {
@@ -76,19 +81,22 @@ export class Roster {
     }
     const added = [];
     const imported = [];
+    const claimed = new Set();
     for (const m of Array.isArray(members) ? members : []) {
       const name = String(m?.name ?? '').trim();
-      const same = this.hub.memberList().find(x => x.name.toLowerCase() === name.toLowerCase());
-      // A default-named role may become Codex-2 when Codex is already there; custom and legacy
-      // names stay idempotent (a re-import must not duplicate them).
-      if (same !== undefined && m?.name_customized !== false) {
-        imported.push({ ...m, id: same.id });
+      // Custom and legacy names stay idempotent by name (a re-import must not duplicate them).
+      const same = m?.name_customized === false ? this.reusableWizardMember(name, m?.cli, claimed, leadId)
+        : this.hub.memberList().find(x => x.name.toLowerCase() === name.toLowerCase());
+      if (same !== undefined) {
+        claimed.add(same.id);
+        imported.push({ ...m, name: same.name, id: same.id });
         continue;
       }
       try {
         const avatar = m?.avatar && ['orange', 'whale', 'dragon', 'rainbow', 'lanxi'].includes(m.avatar) ? m.avatar : undefined;
         const member = await this.create({ name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(m?.name_customized === undefined ? {} : { nameCustomized: Boolean(m.name_customized) }), ...(avatar ? { avatar } : {}) });
-        imported.push({ ...m, id: member.id });
+        claimed.add(member.id);
+        imported.push({ ...m, name: member.name, id: member.id });
         added.push(member.name);
       } catch (error) {
         imported.push(m);
@@ -98,6 +106,15 @@ export class Roster {
     writeFileSync(path.replace(/\.json$/, '') + '.imported.json', JSON.stringify({ members: imported }, null, 2), { mode: 0o600 });
     unlinkSync(path);
     return added;
+  }
+
+  /** A UI member an earlier wizard run made for the default-named role `name` (see importWizard), or undefined. */
+  reusableWizardMember(name, cli, claimed, leadId) {
+    const stem = name.toLowerCase();
+    const fits = this.store.members().filter(r => r.source === 'ui' && !claimed.has(r.id) && r.name_customized != null && !Boolean(r.name_customized)
+      && (r.cli ?? '') === (cli ?? '') && (r.name.toLowerCase() === stem || r.name.toLowerCase().replace(/-\d+$/, '') === stem));
+    const pick = fits.find(r => r.id === leadId) ?? fits.find(r => r.name.toLowerCase() === stem) ?? fits[0];
+    return pick === undefined ? undefined : rowToMember(pick);
   }
 
   /**

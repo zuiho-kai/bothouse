@@ -190,3 +190,40 @@ func TestDSHImportLeavesBridgeLeadUnselected(t *testing.T) {
 		t.Fatalf("lead.json written for a bridge lead: %v", err)
 	}
 }
+
+// 11-05 Windows report: an older import wrote the role's name "Codex" for member codex-2 (the lead); the next
+// import carries the real name and both gate-team.json and lead.json follow it, the selection kept.
+func TestDSHTeamNamesFollowRealMemberName(t *testing.T) {
+	dir := t.TempDir()
+	gt := `{"lead":{"name":"Codex","aliases":["codex-2"],"id":"codex-2","kind":"dsh"},"subs":{"dsh-codex":{"name":"Codex","id":"codex","kind":"dsh"}}}`
+	if err := os.WriteFile(filepath.Join(dir, gateTeamFile), []byte(gt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lead := `{"lead":"codex-2","name":"Codex","at":"2026-11-04T19:31:02Z","auto":true}`
+	if err := os.WriteFile(filepath.Join(dir, "lead.json"), []byte(lead), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	members := []DSHImportedMember{{DSHMember: DSHMember{Name: "Codex-2", CLI: "codex"}, ID: "codex-2"}}
+	if err := registerDSHMembersInGateTeam(dir, members); err != nil {
+		t.Fatal(err)
+	}
+	var team struct {
+		Lead map[string]any            `json:"lead"`
+		Subs map[string]map[string]any `json:"subs"`
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, gateTeamFile))
+	if err := json.Unmarshal(b, &team); err != nil {
+		t.Fatal(err)
+	}
+	if team.Lead["name"] != "Codex-2" || team.Subs["dsh-codex"]["name"] != "Codex" {
+		t.Fatalf("gate-team names: lead %v, codex %v", team.Lead["name"], team.Subs["dsh-codex"]["name"])
+	}
+	var sel map[string]any
+	b, _ = os.ReadFile(filepath.Join(dir, "lead.json"))
+	if err := json.Unmarshal(b, &sel); err != nil {
+		t.Fatal(err)
+	}
+	if sel["lead"] != "codex-2" || sel["name"] != "Codex-2" || sel["auto"] != true || sel["at"] != "2026-11-04T19:31:02Z" {
+		t.Fatalf("lead.json: %v", sel)
+	}
+}
