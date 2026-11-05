@@ -72,6 +72,7 @@ export function apply(ctx: ClientContext): void {
     reviewTask: channels.actions.reviewTask,
     dispatchTask: channels.actions.dispatchTask,
     openDm: channels.actions.openDm,
+    closeDm: channels.actions.closeDm,
     retrySend: channels.actions.retrySend,
     dismissSend: channels.actions.dismissSend,
     loadOlder: channels.actions.loadOlder,

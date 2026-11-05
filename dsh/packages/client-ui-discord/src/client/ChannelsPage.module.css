@@ -2188,3 +2188,10 @@
 /* #1023 私聊: the private chats under the channel list. */
 .dmTitle { margin: 14px 8px 4px; font-size: 12px; font-weight: 600; color: var(--text-muted, #888); }
 .dmAvatar { display: inline-flex; margin-right: 6px; }
+/* #155: each private chat row carries a close button, shown on hover/focus (always on touch). */
+.dmRow { position: relative; display: flex; align-items: center; }
+.dmRow .room { padding-right: 26px; }
+.dmClose { position: absolute; right: 4px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--dsw-radius-sm, 4px); color: var(--dsw-alias-label-tertiary, #888); background: transparent; font: inherit; font-size: 15px; line-height: 20px; cursor: pointer; opacity: 0; }
+.dmRow:hover .dmClose, .dmClose:focus-visible { opacity: 1; }
+.dmClose:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+@media (hover: none) { .dmClose { opacity: 1; } }

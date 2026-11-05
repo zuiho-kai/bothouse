@@ -467,6 +467,15 @@ export async function apply(ctx, rawConfig) {
         return { room };
       });
     }
+    // #155: close a private chat (hidden from the list, history kept; opening it again restores it).
+    const dmm = /^\/collab\/api\/dms\/(\d+)$/.exec(path);
+    if (dmm !== null && req.method === 'DELETE') {
+      return withBody(req, res, () => {
+        store.closeDm(Number(dmm[1]));
+        hub.emit({ type: 'rooms', rooms: store.roomsView() });
+        return { ok: true };
+      }, false);
+    }
     if (path === '/collab/api/members' && req.method === 'POST') {
       return withBody(req, res, async body => ({ member: await roster.create(body) }));
     }
@@ -477,7 +486,11 @@ export async function apply(ctx, rawConfig) {
       return withBody(req, res, async body => ({ member: await roster.update(decodeURIComponent(mm[1]), body) }));
     }
     if (mm !== null && req.method === 'DELETE') {
-      return withBody(req, res, () => { roster.remove(decodeURIComponent(mm[1])); return { ok: true }; }, false);
+      return withBody(req, res, () => {
+        roster.remove(decodeURIComponent(mm[1]));
+        hub.emit({ type: 'rooms', rooms: store.roomsView() }); // #155: its private chat leaves the list too.
+        return { ok: true };
+      }, false);
     }
     return json(res, 404, { error: 'not found' });
   }
