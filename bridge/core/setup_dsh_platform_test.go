@@ -121,7 +121,7 @@ func TestLookDSHMacDesktopOnly(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // nothing named dsh on PATH
 	restore := dshInstallCandidates
 	dshInstallCandidates = func() []string {
-		return dshInstallCandidatesFor(runtime.GOOS, os.Getenv, []string{apps})
+		return dshInstallCandidatesFor("darwin", os.Getenv, []string{apps})
 	}
 	defer func() { dshInstallCandidates = restore }()
 
@@ -182,7 +182,7 @@ func TestDetectLocalCLIsFindsMacDesktopDSH(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	restoreCandidates, restoreLook := dshInstallCandidates, lookPath
 	dshInstallCandidates = func() []string {
-		return dshInstallCandidatesFor(runtime.GOOS, os.Getenv, []string{apps})
+		return dshInstallCandidatesFor("darwin", os.Getenv, []string{apps})
 	}
 	lookPath = func(bin string) (string, bool, error) { return "", false, exec.ErrNotFound }
 	defer func() { dshInstallCandidates, lookPath = restoreCandidates, restoreLook }()
@@ -225,7 +225,7 @@ func TestFindDSHHookBridgeMacDesktopOnly(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	restore := dshInstallCandidates
 	dshInstallCandidates = func() []string {
-		return dshInstallCandidatesFor(runtime.GOOS, os.Getenv, []string{filepath.Join(home, "Applications")})
+		return dshInstallCandidatesFor("darwin", os.Getenv, []string{filepath.Join(home, "Applications")})
 	}
 	defer func() { dshInstallCandidates = restore }()
 
