@@ -524,7 +524,8 @@
     "presetThisWeek": "本周",
     "presetThisMonth": "本月",
     "presetLast7Days": "近7天",
-    "presetAll": "全部",
-    "tokenBreakdown": "消耗结构"
+    "tokenBreakdown": "消耗结构",
+    "presetPastYear": "近一年",
+    "presetPastYearHint": "默认范围：今天往前一年（后端单次最多查一年）"
   }
 }

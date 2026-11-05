@@ -441,5 +441,15 @@
     "system": "시스템",
     "yellow": "밝은 옐로화이트",
     "toggle": "테마 전환"
+  },
+  "usage": {
+    "quickFilters": "빠른 필터",
+    "presetToday": "오늘",
+    "presetThisWeek": "이번 주",
+    "presetThisMonth": "이번 달",
+    "presetLast7Days": "최근 7일",
+    "presetPastYear": "최근 1년",
+    "presetPastYearHint": "기본 범위: 오늘까지 1년 (한 번에 최대 1년 조회)",
+    "tokenBreakdown": "구성"
   }
 }

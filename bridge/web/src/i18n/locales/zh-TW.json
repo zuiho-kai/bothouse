@@ -446,5 +446,15 @@
     "system": "跟隨系統",
     "yellow": "黃白明亮",
     "toggle": "切換主題"
+  },
+  "usage": {
+    "quickFilters": "快捷篩選",
+    "presetToday": "今日",
+    "presetThisWeek": "本週",
+    "presetThisMonth": "本月",
+    "presetLast7Days": "近7天",
+    "presetPastYear": "近一年",
+    "presetPastYearHint": "預設範圍：今天往前一年（後端單次最多查一年）",
+    "tokenBreakdown": "消耗結構"
   }
 }

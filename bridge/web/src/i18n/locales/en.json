@@ -521,10 +521,11 @@
     "note": "Recorded since tracking was enabled; no historical backfill. Usage unavailable: {{unknown}} replies (their agent protocol does not report per-turn usage yet, e.g. ACP; not estimated, and not zero consumption); missing price or usage: {{unpriced}} replies. Charts show reported tokens only. Costs estimate only priced replies; * indicates incomplete pricing.",
     "quickFilters": "Quick filters",
     "presetToday": "Today",
-    "presetThisWeek": "This Week",
-    "presetThisMonth": "This Month",
-    "presetLast7Days": "Last 7 Days",
-    "presetAll": "All",
-    "tokenBreakdown": "Breakdown"
+    "presetThisWeek": "This week",
+    "presetThisMonth": "This month",
+    "presetLast7Days": "Last 7 days",
+    "tokenBreakdown": "Breakdown",
+    "presetPastYear": "Past year",
+    "presetPastYearHint": "Default range: the year up to today (a query covers at most one year)"
   }
 }

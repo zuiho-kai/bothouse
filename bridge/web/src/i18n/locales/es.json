@@ -441,5 +441,15 @@
     "system": "Sistema",
     "yellow": "Amarillo y blanco",
     "toggle": "Cambiar tema"
+  },
+  "usage": {
+    "quickFilters": "Filtros rápidos",
+    "presetToday": "Hoy",
+    "presetThisWeek": "Esta semana",
+    "presetThisMonth": "Este mes",
+    "presetLast7Days": "Últimos 7 días",
+    "presetPastYear": "Último año",
+    "presetPastYearHint": "Rango predeterminado: el año hasta hoy (cada consulta abarca como máximo un año)",
+    "tokenBreakdown": "Desglose"
   }
 }

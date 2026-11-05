@@ -16,41 +16,40 @@ const panel = 'rounded-card bg-surface p-5 ring-1 ring-hairline';
 // 热力五档：0/1/2/3/4 全部走同一个 accent 的透明度梯度，亮暗两套色自动跟随令牌。
 const colors = ['bg-surface-sunken', 'bg-accent/15', 'bg-accent/35', 'bg-accent/60', 'bg-accent/90'];
 
-export type DatePreset = 'today' | 'thisWeek' | 'thisMonth' | 'last7Days' | 'all';
+export type DatePreset = 'today' | 'thisWeek' | 'thisMonth' | 'last7Days' | 'pastYear';
 
-export function getPresetRange(preset: DatePreset, now = new Date()): { from: string; to: string } {
-  const todayStr = dayKey(now);
-  if (preset === 'today') {
-    return { from: todayStr, to: todayStr };
-  }
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// 日期串按 UTC 做纯日历运算，避免浏览器时区参与；输入输出都是 YYYY-MM-DD。
+const shiftDay = (day: string, delta: number) => {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+};
+
+// serverToday 是后端日历（/api/v1/usage 按服务器 time.Local 解释日期）的今天；
+// 预设都从它推算，而不是浏览器日历，二者跨日时不会差一天。
+export function getPresetRange(preset: DatePreset, serverToday: string): { from: string; to: string } {
+  if (preset === 'today') return { from: serverToday, to: serverToday };
   if (preset === 'thisWeek') {
     // 来源: 沿用标准 ISO-8601 周初(周一)至今天作为「本周」
-    const day = now.getDay();
-    const diffToMonday = day === 0 ? -6 : 1 - day;
-    const monday = new Date(now);
-    monday.setDate(now.getDate() + diffToMonday);
-    return { from: dayKey(monday), to: todayStr };
+    const weekday = new Date(`${serverToday}T00:00:00Z`).getUTCDay();
+    return { from: shiftDay(serverToday, weekday === 0 ? -6 : 1 - weekday), to: serverToday };
   }
-  if (preset === 'thisMonth') {
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-    return { from: dayKey(firstDay), to: todayStr };
-  }
-  if (preset === 'last7Days') {
-    const start = new Date(now);
-    start.setDate(now.getDate() - 6);
-    return { from: dayKey(start), to: todayStr };
-  }
+  if (preset === 'thisMonth') return { from: `${serverToday.slice(0, 8)}01`, to: serverToday };
+  if (preset === 'last7Days') return { from: shiftDay(serverToday, -6), to: serverToday };
+  // 近一年：不传起止，由后端返回默认范围（今天往前一年），见 management_usage.go。
   return { from: '', to: '' };
 }
 
-export function getActivePreset(start: string, end: string, now = new Date()): DatePreset | null {
-  if (!start && !end) return 'all';
-  const presets: DatePreset[] = ['today', 'thisWeek', 'thisMonth', 'last7Days'];
-  for (const p of presets) {
-    const range = getPresetRange(p, now);
-    if (range.from === start && range.to === end) {
-      return p;
-    }
+// 手动改日期时用来同步高亮：都为空即「近一年」；否则按 今日→本周→本月→近7天 的固定顺序
+// 取第一个范围完全相同的预设。点击预设时不走这里，直接保留所点的那一个。
+export function matchPreset(start: string, end: string, serverToday: string): DatePreset | null {
+  if (!start && !end) return 'pastYear';
+  const order: DatePreset[] = ['today', 'thisWeek', 'thisMonth', 'last7Days'];
+  for (const p of order) {
+    const range = getPresetRange(p, serverToday);
+    if (range.from === start && range.to === end) return p;
   }
   return null;
 }
@@ -119,6 +118,9 @@ export default function Usage() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedDay, setSelectedDay] = useState(dayKey(new Date()));
+  // 后端日历的今天：取不带起止参数的查询返回的 to；拿到前先用浏览器日期占位。
+  const [serverToday, setServerToday] = useState(dayKey(new Date()));
+  const [selectedPreset, setSelectedPreset] = useState<DatePreset | null>('pastYear');
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -132,21 +134,37 @@ export default function Usage() {
   const handleResetDates = () => {
     setStartDate('');
     setEndDate('');
+    setSelectedPreset('pastYear');
     setError('');
   };
 
-  const activePreset = getActivePreset(startDate, endDate);
+  const activePreset = selectedPreset;
 
   const handleSelectPreset = (preset: DatePreset) => {
-    if (preset === 'all') {
-      handleResetDates();
-      return;
-    }
-    const range = getPresetRange(preset);
+    const range = getPresetRange(preset, serverToday);
     setStartDate(range.from);
     setEndDate(range.to);
+    setSelectedPreset(preset);
     setError('');
   };
+
+  const handleDateInput = (which: 'start' | 'end', value: string) => {
+    const start = which === 'start' ? value : startDate;
+    const end = which === 'end' ? value : endDate;
+    setStartDate(start);
+    setEndDate(end);
+    setSelectedPreset(matchPreset(start, end, serverToday));
+  };
+
+  // 后端日历的今天变了（首次拿到或跨日）时，按所选预设重新推算起止，保持「今日/本周…」语义。
+  useEffect(() => {
+    if (!selectedPreset || selectedPreset === 'pastYear') return;
+    const range = getPresetRange(selectedPreset, serverToday);
+    setStartDate(range.from);
+    setEndDate(range.to);
+    // 只在 serverToday 变化时重算；selectedPreset 变化由点击处理函数自己设好起止。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverToday]);
 
   useEffect(() => {
     let active = true;
@@ -176,7 +194,7 @@ export default function Usage() {
       getUsage('daily', queryFilter),
       getUsage('roles'),
       getUsage('models'),
-      getUsage('roles', { from: dayKey(new Date()), to: dayKey(new Date()), ...baseFilter }),
+      getUsage('roles', { from: serverToday, to: serverToday, ...baseFilter }),
       getUsage('roles', queryFilter),
       getUsage('models', queryFilter),
     ])
@@ -184,6 +202,7 @@ export default function Usage() {
         if (active) {
           setDaily(d);
           setRoles(r.items || []);
+          if (DAY_RE.test(r.to || '')) setServerToday(r.to);
           setModels(m.items || []);
           setTodayRoles(today.items || []);
           setRoleRows(filteredRoles.items || []);
@@ -199,7 +218,7 @@ export default function Usage() {
       });
 
     return () => { active = false; };
-  }, [role, model, startDate, endDate, revision]);
+  }, [role, model, startDate, endDate, serverToday, revision]);
 
   useEffect(() => {
     let active = true;
@@ -211,7 +230,7 @@ export default function Usage() {
   }, [selectedDay, role, model, revision]);
 
   const rows = daily?.items || [];
-  const today = rows.find(r => r.date === dayKey(new Date()));
+  const today = rows.find(r => r.date === serverToday);
   const maxDay = Math.max(1, ...rows.map(r => r.total_tokens));
   const byDay = new Map(rows.map(r => [r.date, r]));
   const days: Date[] = [];
@@ -347,14 +366,14 @@ export default function Usage() {
             className="flex rounded-lg border border-hairline bg-surface p-0.5 text-xs shadow-sm"
             data-testid="usage-date-presets"
           >
-            {(['today', 'thisWeek', 'thisMonth', 'last7Days', 'all'] as const).map(p => {
+            {(['today', 'thisWeek', 'thisMonth', 'last7Days', 'pastYear'] as const).map(p => {
               const isActive = activePreset === p;
               const labelMap: Record<DatePreset, string> = {
                 today: t('usage.presetToday', '今日'),
                 thisWeek: t('usage.presetThisWeek', '本周'),
                 thisMonth: t('usage.presetThisMonth', '本月'),
                 last7Days: t('usage.presetLast7Days', '近7天'),
-                all: t('usage.presetAll', '全部'),
+                pastYear: t('usage.presetPastYear', '近一年'),
               };
               return (
                 <button
@@ -368,7 +387,8 @@ export default function Usage() {
                       ? 'bg-accent text-white shadow-sm'
                       : 'text-ink-soft hover:text-ink'
                   )}
-                  title={labelMap[p]}
+                  aria-pressed={isActive}
+                  title={p === 'pastYear' ? t('usage.presetPastYearHint', '默认范围：今天往前一年（后端单次最多查一年）') : labelMap[p]}
                 >
                   {labelMap[p]}
                 </button>
@@ -411,7 +431,7 @@ export default function Usage() {
               aria-label={t('usage.startDate')}
               type="date"
               value={startDate}
-              onChange={e => setStartDate(e.target.value)}
+              onChange={e => handleDateInput('start', e.target.value)}
               className="bg-transparent text-ink text-xs focus:outline-none"
               data-testid="usage-start-date"
             />
@@ -420,7 +440,7 @@ export default function Usage() {
               aria-label={t('usage.endDate')}
               type="date"
               value={endDate}
-              onChange={e => setEndDate(e.target.value)}
+              onChange={e => handleDateInput('end', e.target.value)}
               className="bg-transparent text-ink text-xs focus:outline-none"
               data-testid="usage-end-date"
             />

@@ -463,5 +463,15 @@
       "restart": "新しいバージョンはダウンロードしましたが、更新後の確認を開始できなかったため、今のバージョンに戻し再起動していません。ダウンロードページから手動で入れてください。",
       "other": "更新を完了できませんでした。今のバージョンはそのままで使えます。ダウンロードページから手動で入れてください。"
     }
+  },
+  "usage": {
+    "quickFilters": "クイックフィルター",
+    "presetToday": "今日",
+    "presetThisWeek": "今週",
+    "presetThisMonth": "今月",
+    "presetLast7Days": "過去7日間",
+    "presetPastYear": "過去1年",
+    "presetPastYearHint": "既定の範囲：今日までの1年間（1回の照会は最大1年）",
+    "tokenBreakdown": "内訳"
   }
 }

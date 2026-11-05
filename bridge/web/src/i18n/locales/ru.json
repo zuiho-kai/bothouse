@@ -422,5 +422,15 @@
     "system": "Системная",
     "yellow": "Жёлто-белая",
     "toggle": "Сменить тему"
+  },
+  "usage": {
+    "quickFilters": "Быстрые фильтры",
+    "presetToday": "Сегодня",
+    "presetThisWeek": "Эта неделя",
+    "presetThisMonth": "Этот месяц",
+    "presetLast7Days": "Последние 7 дней",
+    "presetPastYear": "Последний год",
+    "presetPastYearHint": "Диапазон по умолчанию: год до сегодняшнего дня (запрос охватывает не более года)",
+    "tokenBreakdown": "Структура"
   }
 }
