@@ -821,9 +821,9 @@ func withQueryParam(raw, key, value string) string {
 func stepTeamLineWritten(lang, name, path string) string {
 	name = oneLine(name)
 	return tr3(lang,
-		"「"+name+"」的人设里更新了自建平台的队伍那一行（"+path+"，<!-- conest:team --> 下面那行）。没勾「改人设」也会更新这一行，人设其余内容不动。",
-		"「"+name+"」のペルソナで自前プラットフォームのチームの行を更新しました（"+path+"、<!-- conest:team --> の次の行）。「ペルソナを編集」にチェックしていなくてもこの行だけは更新し、ほかの内容は変えません。",
-		"Updated the self-hosted platform team line in \""+name+"\"'s persona ("+path+", the line under <!-- conest:team -->). This one line is kept up to date even without \"edit persona\"; the rest of the persona is unchanged.")
+		"「"+name+"」的人设里更新了队伍那一行（"+path+"，<!-- conest:team --> 下面那行）。没勾「改人设」也会更新这一行，人设其余内容不动。",
+		"「"+name+"」のペルソナでチームの行を更新しました（"+path+"、<!-- conest:team --> の次の行）。「ペルソナを編集」にチェックしていなくてもこの行だけは更新し、ほかの内容は変えません。",
+		"Updated the team line in \""+name+"\"'s persona ("+path+", the line under <!-- conest:team -->). This one line is kept up to date even without \"edit persona\"; the rest of the persona is unchanged.")
 }
 
 func stepTeamLineSkipped(lang, name, path string) string {
