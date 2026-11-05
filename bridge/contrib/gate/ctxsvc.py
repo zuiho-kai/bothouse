@@ -206,7 +206,7 @@ def memory_caps(roots, own):
     rows.append("- 每轮记忆推送：桥每轮按话题从 wiki 推相关页、定案和经验，只给标题和行尾 [#编号]，正文按页路径和行号读")
     if MEMVOTE.exists():
         night = "；每天 05:30 夜间结算：看引用那轮用户下一句是不是纠正，记成败" if FORUM_NIGHT else ""
-        rows.append(f"- 记忆论坛：推送的条带编号，用到哪条就 `python3 {_shown(MEMVOTE, Path('/'))} +编号` 记引用{night}；"
+        rows.append(f"- 记忆论坛：推送的定案、经验条行尾带 10 位编号，用到哪条就 `python3 {_shown(MEMVOTE, Path('/'))} +编号` 记引用（页面和卡片的 8 位编号是取正文用的，不投）{night}；"
                     "按 Reddit best 排序，低分条折叠沉底、不删" + ("" if FORUM else "（排序模块没装，这项未生效）"))
     prof = roots[0] / PROFILE if PROFILE else None
     if prof and prof.exists():
