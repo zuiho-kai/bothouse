@@ -187,3 +187,18 @@ func TestQQ181NextTurnNotSuppressed(t *testing.T) {
 		t.Fatalf("repeat leaked across turns: %q", p.getSent())
 	}
 }
+
+// The receipt-note guard is QQ-only too: other platforms still post a
+// bracketed note exactly as before, on both the normal and channel-closed path.
+func TestQQ181MetaNoteNotFilteredOnOtherPlatforms(t *testing.T) {
+	const key = "test:qq181-meta-other"
+	const note = "(Already replied above with text + sticker.)"
+	for _, closeOnly := range []bool{false, true} {
+		p := &stubPlatformEngine{n: "telegram"}
+		e, state := qq181NewFixture(t, p, key)
+		qq181Turn(t, e, p, key, state, []string{note}, closeOnly)
+		if !strings.Contains(strings.Join(p.getSent(), "\n"), "Already replied") {
+			t.Fatalf("closeOnly=%v: non-QQ platform dropped the note: %q", closeOnly, p.getSent())
+		}
+	}
+}

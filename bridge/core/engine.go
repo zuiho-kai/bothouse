@@ -7318,7 +7318,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// to a silent turn. The note only goes when the rest is silent: a
 			// note-shaped aside after real text stays, because it may be the
 			// message itself.
-			if trimmed, ok := stripTrailingMetaNotes(baseResponse); ok && (trimmed == "" || IsSilentReply(trimmed)) {
+			if trimmed, ok := stripTrailingMetaNotes(baseResponse); ok && suppressesRepeatedReply(p) && (trimmed == "" || IsSilentReply(trimmed)) {
 				baseResponse = trimmed
 				cleanResponse = trimmed
 			}
@@ -7327,7 +7327,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// A reply that is nothing but a receipt note the agent wrote to
 			// itself ("(Already replied above with text + sticker.)") is not
 			// chat content; treat it as a silent turn instead of posting it.
-			if !isSilent && isMetaOnlyReply(baseResponse) {
+			if !isSilent && suppressesRepeatedReply(p) && isMetaOnlyReply(baseResponse) {
 				isSilent = true
 			}
 			if !isSilent {
@@ -8159,7 +8159,7 @@ channelClosed:
 		}
 		// Same send-time guard as the normal path: a receipt note addressed to
 		// the agent itself is not channel content.
-		if isMetaOnlyReply(fullResponse) {
+		if suppressesRepeatedReply(p) && isMetaOnlyReply(fullResponse) {
 			sp.discard()
 			slog.Info("meta-only reply suppressed (channel closed)", "session", session.ID)
 			return
