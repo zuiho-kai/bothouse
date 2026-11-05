@@ -218,6 +218,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"send":         runSend,
 	"progress":     runProgress,
 	"identity":     runIdentity,
+	"guard":        runGuard,
 	"task":         runTask,
 	"handoff":      runHandoff,
 	"cron":         runCron,
@@ -1843,6 +1844,9 @@ Commands:
   identity           Signed caller identity of the current turn
     token / show     Fetch this turn's signed token (who started the turn)
     pubkey           Print the bridge public key for guard hosts
+
+  guard              Reference permission gate: verify caller token, check
+                     policy, run the action as the mapped user, audit
 
   cron               Manage scheduled tasks
     add              Create a scheduled task (-c <expr> --prompt <text>)
