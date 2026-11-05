@@ -217,6 +217,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"provider":     runProviderCommand,
 	"send":         runSend,
 	"progress":     runProgress,
+	"identity":     runIdentity,
 	"task":         runTask,
 	"handoff":      runHandoff,
 	"cron":         runCron,
@@ -1838,6 +1839,10 @@ Commands:
 
   send               Send a message to an active session via internal API
                      (-m <text> | --stdin, -p <project>, -s <session>)
+
+  identity           Signed caller identity of the current turn
+    token / show     Fetch this turn's signed token (who started the turn)
+    pubkey           Print the bridge public key for guard hosts
 
   cron               Manage scheduled tasks
     add              Create a scheduled task (-c <expr> --prompt <text>)
