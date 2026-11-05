@@ -7,10 +7,10 @@
  * - 在做: live work on the owner's side (board group 在做: assigned/accepted/rework, not parked).
  * - 下一步: the next move the board can name — a hand-back waiting to be accepted (returned),
  *   else a parked task to resume.
+ * - 没定: a question or a 退/升 stance waiting on the lead/user (asked, declined, escalated).
  * A row with nothing in it is not shown (#1017).
  * #156 (the owner's 10:0x「Channel progress 要能收起啊」): the card folds to one strip and the
  * choice is remembered per room, so a reload does not push it back open over the log.
- * - 没定: a question or a 退/升 stance waiting on the lead/user (asked, declined, escalated).
  */
 import type { ChannelTask } from './channel-source.ts'
 import { boardGroupOf, type T } from './task-board.ts'
@@ -78,7 +78,11 @@ export function ProgressCard({ lines, t, onOpen, folded, onToggle }: {
       <div className={css.progressHead}>
         <strong className={css.progressTitle}>{t('progressTitle')}</strong>
         {folded && <span className={css.progressSummary} title={summary}>{summary}</span>}
-        <button type="button" className={css.progressToggle} title={label} aria-label={label} aria-expanded={!folded} onClick={onToggle}>{folded ? '▾' : '▴'}</button>
+        <button type="button" className={css.progressToggle} title={label} aria-label={label} aria-expanded={!folded} onClick={onToggle}>
+          {/* #156 rework: a word plus a chevron, so the button reads as one at a glance. */}
+          <span>{t(folded ? 'progressExpandShort' : 'progressFoldShort')}</span>
+          <span aria-hidden="true" className={css.progressChevron}>{folded ? '▾' : '▴'}</span>
+        </button>
       </div>
       {!folded && (
         <dl className={css.progressRows}>
