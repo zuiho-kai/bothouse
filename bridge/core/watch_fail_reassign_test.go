@@ -82,3 +82,67 @@ func TestWatchFailReassignsToFreeTeammate(t *testing.T) {
 	default:
 	}
 }
+
+// #986 review 6.1: a message held through a cooldown must not be re-delivered after the repeated
+// errors handed its work to a teammate, or both roles run the same work.
+func TestCapacityRedeliveryDroppedAfterReassign(t *testing.T) {
+	dir := t.TempDir()
+	e := NewEngine("orange", &resultAgent{}, nil, "", LangChinese)
+	e.dataDir = dir
+	t.Cleanup(func() { _ = e.Stop() })
+	now := time.Now()
+	ws := "discord:ws"
+	teamWorkspaceStore.mu.Lock()
+	st := loadTeamWorkspacesLocked(teamWorkspacePath(dir))
+	st.Handoffs = map[string][]TeamHandoff{ws: {{Chat: "discord:chat", At: now, Due: now.Add(time.Hour), Owner: "orange"}}}
+	err := saveTeamWorkspacesLocked(teamWorkspacePath(dir), st)
+	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ran := 0
+	e.capMu.Lock()
+	e.capPending = append(e.capPending, capPendingEntry{
+		redeliver: func() { ran++ },
+		handoff:   e.capHandoffAt(ws),
+	})
+	e.capMu.Unlock()
+	if e.capHandoffAt(ws).key != ws {
+		t.Fatalf("the held message must remember its handoff: %+v", e.capHandoffAt(ws))
+	}
+
+	// The work is handed over while the message waits.
+	teamWorkspaceStore.mu.Lock()
+	st = loadTeamWorkspacesLocked(teamWorkspacePath(dir))
+	st.Handoffs[ws][0].Owner = "longniang"
+	err = saveTeamWorkspacesLocked(teamWorkspacePath(dir), st)
+	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.flushCapacityPending()
+	if ran != 0 {
+		t.Fatalf("re-delivered a message whose work moved to another role (%d times)", ran)
+	}
+
+	// Control: while the handoff is still this engine's the message is re-delivered as before.
+	teamWorkspaceStore.mu.Lock()
+	st = loadTeamWorkspacesLocked(teamWorkspacePath(dir))
+	st.Handoffs[ws][0].Owner = "orange"
+	err = saveTeamWorkspacesLocked(teamWorkspacePath(dir), st)
+	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.capMu.Lock()
+	e.capPending = append(e.capPending, capPendingEntry{
+		redeliver: func() { ran++ },
+		handoff:   e.capHandoffAt(ws),
+	})
+	e.capMu.Unlock()
+	e.flushCapacityPending()
+	if ran != 1 {
+		t.Fatalf("control: a message of this engine's own handoff must be re-delivered, ran=%d", ran)
+	}
+}

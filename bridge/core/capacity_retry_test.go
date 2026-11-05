@@ -370,8 +370,8 @@ func TestCapacityRecover_FlushesHeldMessagesAndResetsRound(t *testing.T) {
 	}
 	var flushed []string
 	e.capMu.Lock()
-	e.capPending = append(e.capPending, func() { flushed = append(flushed, "first") })
-	e.capPending = append(e.capPending, func() { flushed = append(flushed, "second") })
+	e.capPending = append(e.capPending, capPendingEntry{redeliver: func() { flushed = append(flushed, "first") }})
+	e.capPending = append(e.capPending, capPendingEntry{redeliver: func() { flushed = append(flushed, "second") }})
 	e.capArmed = true
 	e.capMu.Unlock()
 

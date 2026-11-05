@@ -428,7 +428,13 @@ func (e *Engine) deferForCapacity(p Platform, msg Message, agent Agent, sessions
 	msg.UserMessageTimeMs = 0 // a re-delivery is never "stale"
 	redeliver := func() { e.redeliverMessage(p, &msg, agent, sessions, interactiveKey, workspaceDir) }
 	e.capMu.Lock()
-	e.capPending = append(e.capPending, redeliver)
+	e.capPending = append(e.capPending, capPendingEntry{
+		redeliver: redeliver,
+		// The watch of this workspace when the message was held: after repeated errors the work
+		// may be handed to a teammate while the message waits, and a re-delivery would then run
+		// the same work twice (#986 review 6.1).
+		handoff: e.capHandoffAt(interactiveKey),
+	})
 	arm := !e.capArmed
 	e.capArmed = true
 	e.capMu.Unlock()
@@ -449,9 +455,64 @@ func (e *Engine) flushCapacityPending() {
 	if e.ctx.Err() != nil {
 		return
 	}
-	for _, redeliver := range pending {
-		redeliver()
+	for _, p := range pending {
+		if !e.stillOwnsHandoff(p.handoff) {
+			continue
+		}
+		p.redeliver()
 	}
+}
+
+// capPendingEntry is one message held through a cooldown: how to re-deliver it and the watch it
+// belonged to when it was held.
+type capPendingEntry struct {
+	redeliver func()
+	handoff   capHandoffRef
+}
+
+// capHandoffRef names the open handoff of a workspace at one moment (its key and start time).
+type capHandoffRef struct {
+	key string
+	at  time.Time
+}
+
+// capHandoffAt: the open handoff of workspace key now, if this engine owns it.
+func (e *Engine) capHandoffAt(key string) capHandoffRef {
+	if e.dataDir == "" {
+		return capHandoffRef{}
+	}
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	for _, rows := range []map[string][]TeamHandoff{st.Handoffs, st.ScriptWatches} {
+		for _, h := range rows[key] {
+			if teamHandoffOpen(h) {
+				return capHandoffRef{key: key, at: h.At}
+			}
+		}
+	}
+	return capHandoffRef{}
+}
+
+// stillOwnsHandoff: false when the work of a held message has been handed to another role since
+// (the repeated-error reassign, the quota takeover) — re-delivering it would run the same work in
+// two places at once (#986 review 6.1). A message held without a watch (a plain chat turn) and a
+// watch that is simply gone are both re-delivered as before.
+func (e *Engine) stillOwnsHandoff(ref capHandoffRef) bool {
+	if ref.key == "" {
+		return true
+	}
+	teamWorkspaceStore.mu.Lock()
+	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	teamWorkspaceStore.mu.Unlock()
+	for _, rows := range []map[string][]TeamHandoff{st.Handoffs, st.ScriptWatches} {
+		for _, h := range rows[ref.key] {
+			if h.At.Equal(ref.at) && teamHandoffOpen(h) {
+				return h.Owner == "" || h.Owner == e.name || h.Owner == e.DisplayName()
+			}
+		}
+	}
+	return true
 }
 
 // capacityCoolingUntil is the end of the running cooldown (zero = none), for
