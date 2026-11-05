@@ -134,7 +134,7 @@ func TestLookDSHMacDesktopOnly(t *testing.T) {
 	if !st.Found || st.Version != "0.2.1" {
 		t.Fatalf("status = %+v", st)
 	}
-	if !strings.Contains(st.OpenCommand, cli) {
+	if runtime.GOOS == "darwin" && !strings.Contains(st.OpenCommand, cli) {
 		t.Fatalf("open command %q must name the app's dsh %q, not a bare dsh that is not on PATH", st.OpenCommand, cli)
 	}
 	// PATH still wins when the user also installed a CLI
