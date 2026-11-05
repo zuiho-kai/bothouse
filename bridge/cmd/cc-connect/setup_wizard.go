@@ -173,6 +173,11 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	srv := core.NewManagementServer(port, token, cfg.Management.CORSOrigins)
 	srv.SetHost(host)
 	srv.SetConfigFilePath(configPath)
+	// A DSH-only install stays in setup mode; the tray's 今日用量 and the usage page still query
+	// /api/v1/usage here, which answered 503 without a ledger (PR #1011).
+	usageLedger := core.NewUsageLedger(cfg.DataDir, core.UsagePricesWithDefaults(cfg.UsagePrices))
+	srv.SetUsageLedger(usageLedger)
+	srv.SetUsageImporter(core.NewUsageImporter(cfg.DataDir, usageLedger, usageLogSources(cfg.Projects)...))
 	srv.SetSetupFeishuSave(saveFeishuSetup)
 	srv.SetWizard(configWizardStore{}, cfg.DataDir)
 	wireAutostart(srv)
