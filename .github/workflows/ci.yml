@@ -188,7 +188,9 @@ jobs:
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I -m unittest discover -s contrib/qq-gate -p 'test_*.py' -v
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
-      - run: python3 -I contrib/gate/test_board.py
+      - run: |
+          python3 -I contrib/gate/test_board.py
+          python3 -I contrib/gate/test_board_workspace_lookup.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_board_prune.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
