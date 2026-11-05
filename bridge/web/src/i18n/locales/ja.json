@@ -137,7 +137,12 @@
     "selectProject": "プロジェクトを選択",
     "descPlaceholder": "ジョブの説明",
     "promptPlaceholder": "エージェントに送信するプロンプト...",
-    "selectSessionKey": "セッションを選択（空=デフォルト）",
+    "selectSessionKey": "セッションから選ぶか、qq:10001 のように入力",
+    "sessionKeyHint": "必須：実行時にこのセッションへ送ります。",
+    "sessionKeyRequired": "セッションキーを入力してください（投稿先のチャットが必要です）。",
+    "scheduleRequired": "先に実行時間を選んでください。",
+    "projectRequired": "先にプロジェクトを選んでください。",
+    "taskRequired": "プロンプトかコマンドのどちらかを入力してください。",
     "taskType": "タスク種別",
     "mode": "権限モード",
     "modeDefault": "プロジェクトのデフォルトを使用"

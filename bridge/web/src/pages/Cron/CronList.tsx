@@ -185,6 +185,7 @@ export default function CronList() {
   const [saving, setSaving] = useState(false);
   const [triggeringId, setTriggeringId] = useState<string | null>(null);
   const [sessionKeys, setSessionKeys] = useState<string[]>([]);
+  const [formError, setFormError] = useState('');
 
   const isEdit = !!editJob;
 
@@ -228,11 +229,13 @@ export default function CronList() {
   const openAdd = () => {
     setEditJob(null);
     setForm({ ...emptyForm });
+    setFormError('');
     setShowForm(true);
   };
 
   const openEdit = (job: CronJob) => {
     setEditJob(job);
+    setFormError('');
     setForm({
       project: job.project,
       session_key: job.session_key,
@@ -249,9 +252,20 @@ export default function CronList() {
   };
 
   const handleSave = async () => {
-    setSaving(true);
     const activePrompt = form._type === 'prompt' ? form.prompt : '';
     const activeExec   = form._type === 'exec'   ? form.exec   : '';
+    // Check the two things the server rejects before calling it: an empty session_key is a 400
+    // (core/cron.go validateCronJob) and an empty task is a 400 too. Showing it inside the modal
+    // keeps the filled-in form instead of losing it behind a browser alert.
+    const localError =
+      !form.project ? t('cron.projectRequired')
+      : !form.session_key.trim() ? t('cron.sessionKeyRequired')
+      : !form.cron_expr.trim() ? t('cron.scheduleRequired')
+      : !activePrompt.trim() && !activeExec.trim() ? t('cron.taskRequired')
+      : '';
+    if (localError) { setFormError(localError); return; }
+    setFormError('');
+    setSaving(true);
     try {
       if (isEdit && editJob) {
         const updates: Record<string, any> = {};
@@ -268,7 +282,7 @@ export default function CronList() {
           await updateCronJob(editJob.id, updates);
         }
       } else {
-        const body: any = { ...form, prompt: activePrompt, exec: activeExec };
+        const body: any = { ...form, session_key: form.session_key.trim(), prompt: activePrompt, exec: activeExec };
         delete body._type;
         if (!body.prompt) delete body.prompt;
         if (!body.exec) delete body.exec;
@@ -277,7 +291,7 @@ export default function CronList() {
       setShowForm(false);
       fetchData();
     } catch (e: any) {
-      alert(e.message);
+      setFormError(e.message);
     } finally {
       setSaving(false);
     }
@@ -514,13 +528,25 @@ export default function CronList() {
             />
           )}
 
-          <Select
-            label={t('cron.sessionKey')}
-            value={form.session_key}
-            onChange={v => setForm({ ...form, session_key: v })}
-            options={sessionKeys.map(k => ({ value: k, label: k }))}
-            placeholder={t('cron.selectSessionKey')}
-          />
+          {/* Session key: a real text field, not a picker. The picker only ever offered keys of
+              existing sessions, so a brand-new chat could not be scheduled, and its "empty for
+              default" placeholder promised something the server rejects (session_key is required,
+              core/cron.go validateCronJob). The datalist still offers known keys as suggestions. */}
+          <div className="space-y-1.5">
+            <Input
+              label={t('cron.sessionKey')}
+              value={form.session_key}
+              onChange={e => setForm({ ...form, session_key: e.target.value })}
+              placeholder={t('cron.selectSessionKey')}
+              list="cron-session-keys"
+              autoComplete="off"
+              className="font-mono"
+            />
+            <datalist id="cron-session-keys">
+              {sessionKeys.map(k => <option key={k} value={k} />)}
+            </datalist>
+            <p className="text-xs text-ink-mute">{t('cron.sessionKeyHint')}</p>
+          </div>
 
           <Select
             label={t('cron.mode')}
@@ -534,6 +560,12 @@ export default function CronList() {
             <Toggle checked={form.enabled} onChange={v => setForm({ ...form, enabled: v })} label={t('cron.enabled')} />
             <Toggle checked={form.silent} onChange={v => setForm({ ...form, silent: v })} label={t('cron.silent')} />
           </div>
+
+          {formError && (
+            <p role="alert" className="rounded-control bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
+              {formError}
+            </p>
+          )}
 
           <div className="flex justify-end gap-2 border-t border-hairline pt-3">
             <Button variant="secondary" onClick={() => setShowForm(false)}>{t('common.cancel')}</Button>
