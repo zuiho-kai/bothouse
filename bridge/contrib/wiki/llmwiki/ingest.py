@@ -83,6 +83,10 @@ DEFAULTS = {
     # variables the run gets (that overlay's key; "" = none); dsh_home = the role's DSH_HOME (bots.json "dsh_home",
     # written by rolewiki.go; "" = leave DSH_HOME as inherited)
     "dsh_cmd": ["dsh"], "dsh_patch": "", "dsh_env_file": "", "dsh_home": "",
+    # most transcript text one model call gets (ingest, review, dream). Basis (agentm, deepseek-v4.1-flash via the
+    # claude engine, 2026-11-05): 58k chars took 11 min, 168k 18 min, 157k/237k ran past 20 min and were rolled back.
+    # 60k keeps a cheap model near 10 min a batch. More waits for the next batch/run; it never joins a failed one.
+    "batch_chars": 60_000,
 }
 
 
@@ -148,7 +152,7 @@ QUEUE = WIKI / ".ingest.queue"  # sessions closed while a run held the lock; tha
 USAGE = WIKI / ".ingest-usage.tsv"  # per model pass: token breakdown (subscription quota, not money)
 USAGE_COLS = ["time", "label", "model", "turns", "input", "cache_read", "cache_write", "output", "thinking", "est_usd"]
 IDLE_MIN = 30
-MAX_CHARS = 240_000  # per claude -p call; whole sessions are batched up to this, only oversized ones are split
+MAX_CHARS = int(CFG["batch_chars"])  # per model call; whole sessions are batched up to this, longer ones are cut (capped)
 MAX_FAILS = 6  # real failures (quota rejections don't count); runs are hourly, so ~6 h of failing
 # Engine per pass: claude | agy (Antigravity CLI, Google login) | gemini (dead relay, kept) | codex (ChatGPT subscription).
 # Engines: haiku | sonnet | opus | claude (= WIKI_CLAUDE_MODEL) | codex (luna, ChatGPT subscription) | agy | gemini |
@@ -1116,6 +1120,20 @@ def extract(path, offset, stop=None):
     return {"text": text, "end": end, "prompts": prompts, "cwd": cwd, "title": title}
 
 
+def capped(path, offset, stop=None):
+    """extract() of at most MAX_CHARS of text: a longer span is cut at a line and only that part is offered, its
+    "end" the cut, so the rest waits for the next batch or run. A failed batch then comes back the same size, not
+    bigger (user 2026-11-05: a 23万-char batch timed out, was rolled back and the next one grew)."""
+    it = extract(path, offset, stop)
+    while len(it["text"]) > MAX_CHARS:
+        cut = offset + int((it["end"] - offset) * MAX_CHARS / len(it["text"]) * 0.9)
+        part = extract(path, offset, cut) if cut > offset else None
+        if not part or part["end"] <= offset:  # one line longer than the cap: batches_of() splits its text
+            break
+        it = part
+    return it
+
+
 def record_usage(label, res):
     """Append one TSV row per model used; return a one-line summary for the log."""
     new = not USAGE.exists()
@@ -1655,7 +1673,7 @@ def run(a, engines=None):
     for p in ready(db, None if closed else a.session, closed):
         row = db.execute("select offset from ingested where id=?", (p.stem,)).fetchone()
         start = row[0] if row and row[0] <= p.stat().st_size else 0
-        it = extract(p, start)
+        it = capped(p, start)
         it.update(id=p.stem, path=p, date=time.strftime("%Y-%m-%d", time.localtime(p.stat().st_mtime)))
         if it["prompts"] == 0:  # nothing the user said: just mark it read
             db.execute("insert or replace into ingested values (?,?,?)", (it["id"], it["end"], time.time()))
@@ -2290,7 +2308,7 @@ def review(db, deadline):
         start, p = done.get(sid, 0), paths.get(sid)
         if p is None or end <= start:
             continue
-        it = extract(p, start, end)
+        it = capped(p, start, end)
         it.update(id=sid, date=time.strftime("%Y-%m-%d", time.localtime(p.stat().st_mtime)))
         if it["prompts"] == 0:
             db.execute("insert or replace into reviewed values (?,?,?)", (sid, it["end"], time.time()))

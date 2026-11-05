@@ -16,6 +16,7 @@ package core
 //     to: bots.json points her at it. A main wiki the user had is searched and indexed, never written to.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -65,6 +66,9 @@ func InstallRoleWikiPrograms(dataDir string) (string, error) {
 			return err
 		}
 		n++
+		if old, err := os.ReadFile(dst); err == nil && bytes.Equal(old, b) {
+			return nil // unchanged: a startup refresh rewrites only what this build changed
+		}
 		return AtomicWriteFile(dst, b, 0o755)
 	}
 	err := fs.WalkDir(RoleWikiFS, "contrib/wiki", func(p string, d fs.DirEntry, err error) error {
@@ -85,6 +89,23 @@ func InstallRoleWikiPrograms(dataDir string) (string, error) {
 		err = errors.New("no wiki programs are built into this binary")
 	}
 	return dir, err
+}
+
+// RefreshRoleWikiPrograms runs at startup: a RoleWikiDir the wizard installed is brought up to this build. Before,
+// only a wizard rerun replaced it, so a fixed ingest.py / sub-wiki.py never reached an upgraded install (#1110: the
+// batch cap and #1162's login fix sat in develop while agentm ran the old copies). Not installed: nothing to do.
+func RefreshRoleWikiPrograms(dataDir string) error {
+	if RoleWikiFS == nil || dataDir == "" || !fileExists(filepath.Join(RoleWikiDir(dataDir), "sub-wiki.py")) {
+		return nil
+	}
+	if _, err := InstallRoleWikiPrograms(dataDir); err != nil {
+		return err
+	}
+	// the wizard-made main wiki holds full copies in its bin/ (setup_wiki.py --main); a user's own wiki has no mark
+	if w, ok := FindWiki(); ok && fileExists(filepath.Join(w, mainWikiMark)) {
+		return refreshWikiPrograms(dataDir, w)
+	}
+	return nil
 }
 
 // roleWikiEngines: the wiki passes run on the role's own CLI (a machine with only that CLI still runs its wiki), or
