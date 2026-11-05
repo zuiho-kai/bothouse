@@ -6388,3 +6388,25 @@ test('#155: a removed member\'s private chat is left out; a member without a sto
   assert.equal(ids.includes(gone.id), false);
   assert.ok(ids.includes(bridge.id));
 });
+
+test('CLI configured member: collab dispatch applies fake ACP options before prompt', async () => {
+  const { CliMember } = await import('./cli-member.mjs');
+  const hub = makeHub(); const calls = [];
+  const options = (value) => [{ id:'model', type:'select', currentValue:value, options:[{value:'base',name:'Base'},{value:'chosen',name:'Chosen'}] }];
+  const agent = new CliMember({ cli:'codex', cwd:'/w' });
+  agent._start = async () => {
+    agent.ready=Promise.resolve({}); agent.exited=new Promise(()=>{}); agent.canLoad=true;
+    agent.conn={
+      newSession:async()=>({sessionId:'fake-acp',configOptions:options('base')}),
+      setSessionConfigOption:async({value})=>{calls.push('set:'+value);return {configOptions:options(value)};},
+      prompt:async({sessionId})=>{calls.push('prompt');agent.buffers.set(sessionId,'ok');return {};},
+    }; return agent.ready;
+  };
+  agent._defaultOptions = async () => options('base');
+  const members=cliMembers(hub,(...args)=>agent.ask(...args));
+  members.putMember({id:'cc',name:'CC',cli:'codex',cliConfig:{model:'chosen'},cliConfigManaged:true});
+  hub.post(1,{authorKind:'user',author:'owner',name:'我',text:'@CC test'}); await settle();
+  assert.deepEqual(calls,['set:chosen','prompt']);
+  assert.equal(hub.store.binding('cc',1).session_id,'fake-acp');
+  await members.close();hub.store.close();
+});

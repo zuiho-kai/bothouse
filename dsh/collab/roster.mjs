@@ -25,6 +25,8 @@ export function rowToMember(row) {
     ...(row.name_customized == null ? {} : { nameCustomized: Boolean(row.name_customized) }),
     ...(row.provider && row.model ? { model: { provider: row.provider, model: row.model } } : {}),
     ...(row.cli ? { cli: row.cli } : {}),
+    ...(row.cli_config ? { cliConfig: JSON.parse(row.cli_config) } : {}),
+    ...(row.cli_config_managed ? { cliConfigManaged: true } : {}),
     ...(row.cli && row.permission_preset ? { permissionPreset: row.permission_preset } : {}),
     persona: row.persona ?? '',
     ...(row.avatar ? { avatar: row.avatar } : {}),
@@ -179,6 +181,10 @@ export class Roster {
     if (existing === undefined || existing.removed) throw new CollabError('member-missing', `member ${id} does not exist`);
     if (existing.source !== 'ui') throw new CollabError('read-only', `member ${id} comes from the config file and cannot be edited here`);
     const m = await this.validate({ ...input, rooms: input?.rooms === undefined ? JSON.parse(existing.rooms ?? '[]') : input.rooms }, id);
+    if (input?.cliConfig === undefined && existing.cli === m.cli) {
+      m.cliConfig = existing.cli_config ? JSON.parse(existing.cli_config) : undefined;
+      m.cliConfigManaged = Boolean(existing.cli_config_managed);
+    }
     if (input?.nameCustomized === undefined && existing.name_customized != null) m.nameCustomized = Boolean(existing.name_customized);
     // An edit that leaves out the approval tier keeps the stored one instead of falling back to the default.
     if (m.cli !== undefined && input?.permissionPreset === undefined && existing.cli && existing.permission_preset) {
@@ -251,8 +257,20 @@ export class Roster {
       // Tool approval tier: one of DSH's permission presets; absent = DSH's default (cli-member.mjs).
       const preset = input.permissionPreset == null || input.permissionPreset === '' ? undefined : String(input.permissionPreset);
       if (preset !== undefined && !PERMISSION_PRESETS.includes(preset)) throw new CollabError('invalid', `permissionPreset must be one of ${PERMISSION_PRESETS.join(', ')}`);
-      return { name, persona, avatar, nameCustomized, rooms, cli, ...(preset === undefined ? {} : { permissionPreset: preset }) };
+      let cliConfig;
+      if (input.cliConfig != null) {
+        if (cli !== 'codex' || typeof input.cliConfig !== 'object' || Array.isArray(input.cliConfig)) throw new CollabError('invalid', 'cliConfig requires a Codex member');
+        cliConfig = {};
+        for (const [key, value] of Object.entries(input.cliConfig)) {
+          if (!['model', 'reasoningEffort'].includes(key) || (value !== null && (typeof value !== 'string' || !value.trim()))) throw new CollabError('invalid', 'invalid cliConfig');
+          if (value !== null) cliConfig[key] = value;
+        }
+        if (!Object.keys(cliConfig).length) cliConfig = undefined;
+      }
+      if (input.model != null) throw new CollabError('invalid', 'CLI members cannot use a DSH model route');
+      return { name, persona, avatar, nameCustomized, rooms, cli, cliConfig, cliConfigManaged: input.cliConfig !== undefined, ...(preset === undefined ? {} : { permissionPreset: preset }) };
     }
+    if (input?.cliConfig != null) throw new CollabError('invalid', 'cliConfig requires a Codex member');
     let model;
     if (input?.model != null) {
       const provider = String(input.model.provider ?? '');

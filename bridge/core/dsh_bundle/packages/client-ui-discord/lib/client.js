@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 45c603487b4cd284c2608a2803d50d20bb29d053291c05b512d4ff56464c484e
+// dsh-client-source-sha256: aa311352c5daaf7bf0d759aeb9cd8359a3d8ee7561930a716394509233ba1b9c
 // dsh-style-sha256: 9d75964f7231ba60e917f20dccdae4bd87b91f25cd8dc6887c93e537430fbd3e
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -17305,7 +17305,7 @@ function EmbedFrame({ src, title, sandboxed = false, sameOrigin = false }) {
 		title,
 		sandbox,
 		loading: "lazy",
-		referrerPolicy: "no-referrer"
+		referrerPolicy: sandboxed ? "no-referrer" : "same-origin"
 	});
 }
 // src/client/DeliveryPreview.tsx

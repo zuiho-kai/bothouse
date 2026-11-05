@@ -285,6 +285,12 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 </picture>
 </a>
 
+## 管理 DSH 角色
+
+在面板「角色管理」中可新增、编辑或删除由 DSH roster 管理的成员；配置文件和外部成员为只读。已安装环境从添加角色进入 DSH 时直接使用日常新增，不需要重新部署。原生成员可选择 DSH 服务商和模型；Codex 成员可选择其实际支持的模型与思考强度，设置在下一轮前应用，页面会显示保存后的应用状态。
+
+面板服务商作用于引用它的桥接项目；DSH 原生路由在 DSH 的「设置 → 模型」管理，CLI 成员沿用本机 CLI 认证。桥接项目数量不等于 DSH 成员数量。详见 [DSH 面板接口](docs/api/dsh-panel.md)。
+
 ## 许可与致谢
 
 - **许可**：[Apache-2.0](LICENSE)，详见 [LICENSING.md](LICENSING.md)。第三方依赖见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。
