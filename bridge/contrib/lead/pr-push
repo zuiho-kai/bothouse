@@ -1,0 +1,84 @@
+#!/usr/bin/env -S python3 -I
+"""推当前分支并开 PR；对上游没写权限就自动走 fork（用户 11-06：「没权限就走 fork 加 PR 的默认路子…不要等用户加协作者」）。
+
+出处：隔壁鲸鱼娘的 gh 账号对 zuiho-kai/bothouse 只有读权限，git push 一直 403，代码只留在本机分支。
+
+用法（在仓库 worktree 里跑）：
+  pr-push [--base develop] [--title '<标题>'] [--body '<正文>'] [--draft] [--remote origin]
+做的事：
+  1. gh api repos/<上游> 看 permissions.push；
+  2. 有写权限：git push -u <remote> <当前分支>；
+  3. 没有：POST repos/<上游>/forks（已有 fork 直接复用），把 fork 加成远端 fork，git push -u fork <分支>；
+  4. gh pr create -R <上游> --head <fork 主人>:<分支>；同分支已有 PR 就只打印它的链接。
+标题、正文不给时取最近一次提交（gh pr create --fill）。
+"""
+import argparse, json, re, subprocess, sys, time
+
+
+def run(*cmd, check=True):
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if check and r.returncode:
+        sys.exit(f"pr-push: {' '.join(cmd[:3])} 失败：{(r.stderr or r.stdout).strip()[-400:]}")
+    return r
+
+
+def slug(url):
+    m = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?/?$", url.strip())
+    if not m:
+        sys.exit(f"pr-push: 远端不是 GitHub 仓库：{url.strip()}")
+    return f"{m.group(1)}/{m.group(2)}"
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--base", default="")
+    ap.add_argument("--title", default="")
+    ap.add_argument("--body", default="")
+    ap.add_argument("--draft", action="store_true")
+    ap.add_argument("--remote", default="origin")
+    a = ap.parse_args()
+
+    branch = run("git", "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    if branch in ("HEAD", "main", "master", "develop"):
+        sys.exit(f"pr-push: 当前在 {branch}，先切到自己的任务分支")
+    upstream = slug(run("git", "remote", "get-url", a.remote).stdout)
+    run("gh", "auth", "setup-git", check=False)  # git 用 gh 的登录，不然 https 推送要用户名密码
+    repo = json.loads(run("gh", "api", f"repos/{upstream}").stdout)
+    owner = upstream.split("/")[0]
+    remote = a.remote
+    if not (repo.get("permissions") or {}).get("push"):
+        me = run("gh", "api", "user", "--jq", ".login").stdout.strip()
+        fork = f"{me}/{upstream.split('/')[1]}"
+        if run("gh", "api", f"repos/{fork}", check=False).returncode:  # 已有 fork 直接用
+            run("gh", "api", "-X", "POST", f"repos/{upstream}/forks", check=False)  # fork 是异步建的，等它出现
+            for _ in range(30):
+                if not run("gh", "api", f"repos/{fork}", check=False).returncode:
+                    break
+                time.sleep(4)
+        if run("gh", "api", f"repos/{fork}", check=False).returncode:
+            sys.exit(f"pr-push: 没有 {upstream} 的写权限，fork 到 {fork} 也没成功")
+        remote, owner = "fork", me
+        url = f"https://github.com/{fork}.git"
+        if run("git", "remote", "get-url", "fork", check=False).returncode:
+            run("git", "remote", "add", "fork", url)
+        else:
+            run("git", "remote", "set-url", "fork", url)
+        print(f"pr-push: 对 {upstream} 没写权限，推到 fork {fork}")
+    run("git", "push", "-u", remote, branch)
+    head = f"{owner}:{branch}"
+    old = run("gh", "pr", "list", "-R", upstream, "--head", branch, "--json", "url,headRepositoryOwner", check=False)
+    for pr in json.loads(old.stdout or "[]"):
+        if (pr.get("headRepositoryOwner") or {}).get("login") == owner:
+            print(pr["url"])
+            return
+    cmd = ["gh", "pr", "create", "-R", upstream, "--head", head]
+    if a.base:
+        cmd += ["--base", a.base]
+    cmd += ["--title", a.title, "--body", a.body] if a.title else ["--fill"]
+    if a.draft:
+        cmd.append("--draft")
+    print(run(*cmd).stdout.strip())
+
+
+if __name__ == "__main__":
+    main()
