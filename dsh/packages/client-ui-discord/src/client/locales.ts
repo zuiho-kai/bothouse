@@ -456,7 +456,9 @@ export const en: Record<keyof typeof zh, string> = {
   taskReviewReason: 'Reason for rework (required)',
   taskReviewSubmit: 'Submit rework',
   lead: 'Primary role',
-  leadNone: 'No role is available',
+  // #176: zh says 未选择（按原配置）—「没有角色可用」是另一回事。这条是 select 的占位项，
+  // 频道里明明有五个人时说 no role is available 会让人以为添加成员失败了。
+  leadNone: 'Not selected (use the default)',
   durSeconds: '{n}s',
   durMinutes: '{n} min',
   durHours: '{h} h {m} min',
