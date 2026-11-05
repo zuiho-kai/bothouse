@@ -76,6 +76,7 @@ func (p *Platform) reportMembersIntent() {
 	}
 	switch p.membersIntent.Load() {
 	case membersOn:
+		slog.Info("discord: member join events on (Server Members Intent)", "bot", p.botName)
 		h.OnMemberIntent(p.selfPlatform(), true, core.MemberIntentNotice{BotID: p.botID, BotName: p.botName})
 	case membersOff:
 		h.OnMemberIntent(p.selfPlatform(), false, core.MemberIntentNotice{BotID: p.botID, BotName: p.botName, FixURL: p.membersIntentFixURL()})
