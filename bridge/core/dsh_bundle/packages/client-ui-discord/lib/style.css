@@ -274,7 +274,12 @@
 
 @media (hover: none) {
   .dshc_ownActions {
+    display: none;
+  }
+
+  .dshc_message[data-tools-open] .dshc_ownActions {
     opacity: 1;
+    display: inline-flex;
   }
 }
 
@@ -476,14 +481,30 @@
 }
 
 @media (hover: none) {
+  .dshc_message {
+    -webkit-touch-callout: none;
+  }
+
   .dshc_msgTools {
-    box-shadow: none;
+    display: none;
+  }
+
+  .dshc_message[data-tools-open] {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+
+  .dshc_message[data-tools-open] .dshc_msgTools {
+    z-index: 3;
     opacity: 1;
     pointer-events: auto;
-    background: none;
-    border: 0;
-    margin-top: 2px;
-    position: static;
+    display: inline-flex;
+    top: -14px;
+    right: 12px;
+  }
+
+  .dshc_message[data-tools-open] .dshc_msgTool {
+    width: 40px;
+    height: 36px;
   }
 }
 
@@ -2977,16 +2998,15 @@
 }
 
 .dshc_progressCard {
-  z-index: 2;
   border: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-base);
   box-shadow: 0 6px 18px #0000000a, 0 -12px 0 0 var(--dsw-alias-bg-base);
   border-radius: 14px;
-  margin: 0 16px 12px;
+  flex: none;
+  margin: 8px 16px 4px;
   padding: 8px 14px;
   font-size: 12px;
-  position: sticky;
-  top: 0;
+  position: relative;
 }
 
 .dshc_progressHead {
@@ -3099,7 +3119,7 @@
 
 @media (width <= 760px) {
   .dshc_progressCard {
-    margin: 0 10px 10px;
+    margin: 6px 10px 2px;
   }
 
   .dshc_progressRows {
@@ -3907,6 +3927,148 @@
   .dshc_dmClose {
     opacity: 1;
   }
+}
+
+.dshc_dmHead {
+  margin-top: 14px;
+}
+
+.dshc_dmPicker {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+  flex-direction: column;
+  margin: 0 4px 4px;
+  padding: 4px;
+  display: flex;
+}
+
+.dshc_dmPickNone {
+  color: var(--dsw-alias-label-tertiary);
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.dshc_dmNewRow {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+}
+
+button.dshc_headMeta {
+  border-radius: var(--dsw-radius-sm);
+  min-width: 0;
+  font: inherit;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  flex: 0 auto;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
+button.dshc_headMeta:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dshc_headSpacer {
+  flex: auto;
+}
+
+.dshc_roomUnread {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 650;
+}
+
+.dshc_unreadBadge {
+  color: #fff;
+  background: var(--dsw-alias-state-danger-primary, #e5484d);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  border-radius: 999px;
+  flex: none;
+  min-width: 18px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.dshc_slashDisabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.dshc_leadCardHint {
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  overflow: hidden;
+}
+
+.dshc_roomWorking {
+  max-width: 96px;
+  color: var(--dsw-alias-state-business-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  display: inline-flex;
+  overflow: hidden;
+}
+
+.dshc_roomWorkingDot {
+  background: currentColor;
+  border-radius: 50%;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  animation: 1.4s ease-in-out infinite dshc_roomWorkingPulse;
+}
+
+@keyframes dshc_roomWorkingPulse {
+  50% {
+    opacity: .35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dshc_roomWorkingDot {
+    animation: none;
+  }
+}
+
+.dshc_drawerTools {
+  display: none;
+}
+
+@media (width <= 600px) {
+  .dshc_drawerTools {
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 8px 8px;
+    display: flex;
+  }
+
+  .dshc_chatHead > .dshc_taskBoardTrigger, .dshc_chatHead > .dshc_schemeToggle, .dshc_chatHead > .dshc_headMeta, .dshc_chatHead > .dshc_headTeam {
+    display: none;
+  }
+
+  .dshc_chatHead > .dshc_roomName {
+    flex: auto;
+  }
+}
+
+.dshc_panelOpen .dshc_chatHead > .dshc_headTeam, .dshc_panelOpen .dshc_chatHead > .dshc_headMeta {
+  display: none;
+}
+
+.dshc_panelOpen .dshc_chatHead > .dshc_roomName {
+  flex: 0 auto;
 }
 [data-dc-scheme="light"] {
   --dsw-static-amber-100: #fef5e7;

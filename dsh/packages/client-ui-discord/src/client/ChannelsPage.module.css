@@ -284,8 +284,10 @@
   opacity: 1;
 }
 
+/* 体检 #9: touch screens show them only after a long press on the row. */
 @media (hover: none) {
-  .ownActions { opacity: 1; }
+  .ownActions { display: none; }
+  .message[data-tools-open] .ownActions { display: inline-flex; opacity: 1; }
 }
 
 .editBox {
@@ -484,17 +486,20 @@
   pointer-events: auto;
 }
 
-/* Touch screens have no hover: keep the tools visible, inline under the text. */
+/* 体检 #9: touch screens have no hover — a long press opens the tools as a small menu on the row. */
 @media (hover: none) {
-  .msgTools {
-    position: static;
-    margin-top: 2px;
-    border: 0;
-    box-shadow: none;
-    background: transparent;
+  .message { -webkit-touch-callout: none; }
+  .msgTools { display: none; }
+  .message[data-tools-open] { background: var(--dsw-alias-interactive-bg-hover); }
+  .message[data-tools-open] .msgTools {
+    display: inline-flex;
+    top: -14px;
+    right: 12px;
+    z-index: 3;
     opacity: 1;
     pointer-events: auto;
   }
+  .message[data-tools-open] .msgTool { width: 40px; height: 36px; }
 }
 
 .replyBar {
@@ -1974,7 +1979,7 @@
 .schemeToggle + .panelToggleEnd { margin-left: 4px; }
 
 /* #125 本频道进展 card (owner's 11:53 sample v1): sticky at the top of the log, four rows in one line on wide screens. */
-.progressCard { position: sticky; top: 0; z-index: 2; margin: 0 16px 12px; padding: 8px 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-base); box-shadow: 0 6px 18px rgb(0 0 0 / .04), 0 -12px 0 0 var(--dsw-alias-bg-base); font-size: 12px; }
+.progressCard { position: relative; flex: none; margin: 8px 16px 4px; padding: 8px 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-base); box-shadow: 0 6px 18px rgb(0 0 0 / .04), 0 -12px 0 0 var(--dsw-alias-bg-base); font-size: 12px; }
 .progressHead { display: flex; align-items: center; gap: 8px; }
 .progressTitle { font-size: 12px; color: var(--dsw-alias-label-primary); }
 /* #156: folded is one strip — the title, the counts and the expand button, nothing taller than before. */
@@ -1993,7 +1998,7 @@
 .progressLink { max-width: 100%; overflow: hidden; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
 .progressLink:hover { text-decoration: underline; }
 @media (max-width: 760px) {
-  .progressCard { margin: 0 10px 10px; }
+  .progressCard { margin: 6px 10px 2px; }
   .progressRows { grid-template-columns: 52px minmax(0, 1fr); }
   .progressRow { display: contents; }
 }
@@ -2203,3 +2208,36 @@
 .dmRow:hover .dmClose, .dmClose:focus-visible { opacity: 1; }
 .dmClose:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
 @media (hover: none) { .dmClose { opacity: 1; } }
+
+/* ───────────── 11-05 体检修复 ───────────── */
+/* #1 私聊 is always in the channel list, with 发私信. */
+.dmHead { margin-top: 14px; }
+.dmPicker { display: flex; flex-direction: column; margin: 0 4px 4px; padding: 4px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-layer-2); }
+.dmPickNone { padding: 6px 8px; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+.dmNewRow { color: var(--dsw-alias-label-tertiary); font-size: 13px; }
+/* #1 the member count opens the member list. */
+button.headMeta { flex: 0 1 auto; min-width: 0; padding: 2px 6px; border: 0; border-radius: var(--dsw-radius-sm); background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
+button.headMeta:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+.headSpacer { flex: 1 1 auto; }
+/* #2 unread rooms: bold name and a count. */
+.roomUnread { color: var(--dsw-alias-label-primary); font-weight: 650; }
+.unreadBadge { flex: none; min-width: 18px; padding: 0 5px; border-radius: 999px; color: #fff; background: var(--dsw-alias-state-danger-primary, #e5484d); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+/* #5 a command no one takes here. */
+.slashDisabled { opacity: .45; cursor: not-allowed; }
+/* #6 what the primary role does, under its status. */
+.leadCardHint { overflow: hidden; color: var(--dsw-alias-label-tertiary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+/* #7 who is at work, in words. */
+.roomWorking { display: inline-flex; flex: none; gap: 4px; align-items: center; max-width: 96px; overflow: hidden; color: var(--dsw-alias-state-business-primary); font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.roomWorkingDot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: roomWorkingPulse 1.4s ease-in-out infinite; }
+@keyframes roomWorkingPulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .roomWorkingDot { animation: none; } }
+/* #10 the board and colour switch inside the activity drawer, phones only. */
+.drawerTools { display: none; }
+@media (max-width: 600px) {
+  .drawerTools { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 8px 8px; }
+  .chatHead > .taskBoardTrigger, .chatHead > .schemeToggle, .chatHead > .headMeta, .chatHead > .headTeam { display: none; }
+  .chatHead > .roomName { flex: 1 1 auto; }
+}
+/* #12 a docked board leaves the title bar its name: the secondary items step aside. */
+.panelOpen .chatHead > .headTeam, .panelOpen .chatHead > .headMeta { display: none; }
+.panelOpen .chatHead > .roomName { flex: 0 1 auto; }
