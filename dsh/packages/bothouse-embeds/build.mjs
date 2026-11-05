@@ -21,9 +21,9 @@ export const PAGES = [
   },
   {
     pkg: 'bothouse-dsh-panel', id: 'bothouse-panel', path: 'collab/panel/', order: 7, icon: 'IconGaugeOutlineRegular',
-    // The Plugins page title says 面板: the bundle itself is called bothouse too.
-    zh: { label: 'bothouse', title: 'bothouse 面板', desc: 'bothouse 管理面板：角色、用量、Wiki 星河。' },
-    en: { label: 'bothouse', title: 'bothouse panel', desc: 'bothouse management panel: roles, usage, wiki galaxy.' },
+    // Same name in the sidebar and on the Plugins page; the plugin itself is called bothouse.
+    zh: { label: 'bothouse 面板', desc: 'bothouse 管理面板：角色、用量、Wiki 星河。' },
+    en: { label: 'bothouse panel', desc: 'bothouse management panel: roles, usage, wiki galaxy.' },
     // #145: the galaxy is a page inside the panel; a bookmark that still says #wiki-galaxy opens it.
     galaxy: { id: 'wiki-galaxy', path: 'collab/panel/wiki-galaxy', zh: 'Wiki 星河', en: 'Wiki galaxy' },
   },

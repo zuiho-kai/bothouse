@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
 const { jsx } = require("react/jsx-runtime");
 const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 const NS = "bothouse-dsh-panel";
-const DICT = {"zh":{"label":"bothouse","galaxy":"Wiki 星河"},"en":{"label":"bothouse","galaxy":"Wiki galaxy"}};
+const DICT = {"zh":{"label":"bothouse 面板","galaxy":"Wiki 星河"},"en":{"label":"bothouse panel","galaxy":"Wiki galaxy"}};
 const BG = "var(--dsw-alias-bg-base)";
 // Same frame as client-ui-discord EmbedPage: same-origin page, relative to document.baseURI so
 // the panel proxy's /dsh/ prefix is kept.
