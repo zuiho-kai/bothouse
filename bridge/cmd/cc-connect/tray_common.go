@@ -38,22 +38,14 @@ func onTrayReady() {
 	trayOpen = systray.AddMenuItem("打开管理面板", "在浏览器中打开本机管理面板")
 	trayAdd = systray.AddMenuItem("添加角色/模型", "打开添加角色向导")
 	trayQuit = systray.AddMenuItem("退出 bothouse", "停止桥和托盘")
-	cfg, err := config.LoadPermissive(trayConfigPath(os.Args[1:]))
+	path := trayConfigPath(os.Args[1:])
+	client, on, err := trayManagement(path)
 	if err != nil {
 		trayStatus.SetTitle("运行状态：配置读取失败")
 		return
 	}
-	port := cfg.Management.Port
-	if port <= 0 {
-		port = 9820
-	}
-	host := cfg.Management.Host
-	if host == "" || host == "0.0.0.0" {
-		host = "127.0.0.1"
-	}
-	client := trayClient{base: fmt.Sprintf("http://%s:%d", host, port), token: cfg.Management.Token}
-	if cfg.Management.Enabled != nil && *cfg.Management.Enabled {
-		go refreshTray(client)
+	if on {
+		go refreshTray(path)
 	} else {
 		trayStatus.SetTitle("运行状态：管理面板未启用")
 		trayRoles.SetTitle("角色：—")
@@ -64,10 +56,13 @@ func onTrayReady() {
 		for {
 			select {
 			case <-trayOpen.ClickedCh:
+				client = trayCurrentClient(path, client)
 				_ = openBrowser(client.loginURL("/"))
 			case <-trayAdd.ClickedCh:
+				client = trayCurrentClient(path, client)
 				_ = openBrowser(client.loginURL("/setup?add=1"))
 			case <-trayUpdate.ClickedCh:
+				client = trayCurrentClient(path, client)
 				req, _ := http.NewRequest(http.MethodPost, client.base+"/api/v1/update/apply", nil)
 				req.Header.Set("Authorization", "Bearer "+client.token)
 				res, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
@@ -97,10 +92,40 @@ func trayConfigPath(args []string) string {
 	return resolveConfigPath("")
 }
 
-func refreshTray(c trayClient) {
+// trayManagement reads only what the tray needs: where the management API listens and its token.
+// It does not require any [[projects]]: a DSH-only install has none, and then main.go serves the
+// setup wizard, whose management API is always on (setup_wizard.go runSetupOnly), so the tray keeps
+// reading it. Re-read on every refresh: the wizard may write a token or move the port after start.
+func trayManagement(path string) (trayClient, bool, error) {
+	cfg, err := config.LoadForSetup(path)
+	if err != nil {
+		return trayClient{}, false, err
+	}
+	port := cfg.Management.Port
+	if port <= 0 {
+		port = 9820
+	}
+	host := cfg.Management.Host
+	if host == "" || host == "0.0.0.0" {
+		host = "127.0.0.1"
+	}
+	on := len(cfg.Projects) == 0 || (cfg.Management.Enabled != nil && *cfg.Management.Enabled)
+	return trayClient{base: fmt.Sprintf("http://%s:%d", host, port), token: cfg.Management.Token}, on, nil
+}
+
+func trayCurrentClient(path string, prev trayClient) trayClient {
+	if c, _, err := trayManagement(path); err == nil {
+		return c
+	}
+	return prev
+}
+
+func refreshTray(path string) {
 	tick := time.NewTicker(45 * time.Second)
 	defer tick.Stop()
+	var c trayClient
 	for {
+		c = trayCurrentClient(path, c)
 		trayStatus.SetTitle(c.statusLabel())
 		var projects struct {
 			Projects []struct {
