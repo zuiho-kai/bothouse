@@ -219,3 +219,64 @@ func TestBoardProgressInterleavesWithBoardPy(t *testing.T) {
 		t.Fatalf("bridged row lost its update: %q", got.Status)
 	}
 }
+
+// 隔离实例（交接 :22 的验法）：真引擎 + 真 APIServer 起看门 + 真 contrib/gate/board.py，
+// 数据目录、任务板、gocache 全在临时目录里，不连任何平台。派一件活、工作区里发一句进度，
+// 看门自己那一轮（BOTHOUSE_WATCH_TEST_SECONDS=1）就该把「最后活动 + 最近一步」写进板子。
+func TestBoardProgressIsolatedInstance(t *testing.T) {
+	setWatchCheckAfter(t, watchCheckAfter()) // restored after the env var changes it
+	t.Setenv("BOTHOUSE_WATCH_TEST_SECONDS", "1")
+	e, _, p := exitFixture(t, nil)
+	hp := &historyTestPlatform{exitTestPlatform: p}
+	e.platforms = []Platform{hp}
+	dataDir := e.dataDir
+	gateSrc, err := filepath.Abs(filepath.Join("..", "contrib", "gate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(gateSrc, filepath.Join(dataDir, "gate")); err != nil {
+		t.Fatal(err)
+	}
+	e.productPyBin.Store(t.TempDir())
+	boardDir := t.TempDir()
+	e.SetTeam(boardDir, "橘", true)
+	if err := os.WriteFile(filepath.Join(boardDir, teamTaskBoardFile), []byte(
+		`{"id":11,"what":"隔离实例里派一件活","short":"隔离实例","status":"已交接","who":"工作区1橘","ws":"discord:ws1","sk":"discord:ws1","chat":"discord:main","at":"11-06 04:00"}`+"\n",
+	), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.markPlatformReady(hp)
+	e.teamWS = newTeamWorkspaces()
+	s := &APIServer{engines: map[string]*Engine{"orange": e}}
+	s.startHandoffWatch()
+	t.Cleanup(func() { s.Stop() })
+	if err := e.ClaimTeamWorkspaceFor("discord:chatA", "ws1", "工作区1", "<@"+k5aOwner+">", "隔离实例"); err != nil {
+		t.Fatal(err)
+	}
+	h := handoffsOf(e, "discord:ws1")[0]
+	hp.post("ws1", k5aOwner, "@橘 接手了，在改看门", h.At.Add(time.Millisecond))
+	// The step the workspace's turn recorded, as engine.go does on EventToolUse.
+	j := e.turnJournalStore()
+	en, err := j.Begin(TurnJournalEntry{InteractiveKey: "discord:ws1:u1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Progress(en.TurnID, "Bash # 跑看门测试\ngo test -tags no_web ./core/ -run Watch", "", true); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if it := boardItemOf(t, boardDir, 11); it.ProgressAt != 0 {
+			t.Logf("看门自己写回的条目：%s", readBoardLine(t, boardDir, 11))
+			if it.Status != "在做：Bash # 跑看门测试" {
+				t.Fatalf("status = %q", it.Status)
+			}
+			if state, note := teamTaskBoardStateOf(it, time.Now()); state != teamTaskRunning {
+				t.Fatalf("table state %v %q", state, note)
+			}
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("看门没有写回条目：%s", readBoardLine(t, boardDir, 11))
+}
