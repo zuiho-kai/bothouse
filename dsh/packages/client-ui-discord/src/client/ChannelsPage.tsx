@@ -10,8 +10,8 @@ import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepse
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ChannelActions, ChannelMember, ChannelMemory, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, OutgoingAttachment } from './channel-source.ts'
-import { MAX_MESSAGE_BODY, MAX_ROWS, messageTooLarge } from './channel-source.ts'
-import { AttachmentList, PendingAttachments, useComposerAttachments } from './Attachments.tsx'
+import { DEFAULT_MAX_UPLOAD_BYTES, MAX_MESSAGE_BODY, MAX_ROWS, UploadTooLarge, formatBytes, messageTooLarge } from './channel-source.ts'
+import { AttachmentList, PendingAttachments, useComposerAttachments, type PendingFile } from './Attachments.tsx'
 import { dmRooms, groupRooms } from './channel-source.ts'
 import { DeliveryPreview, deliverableOf, deliveredTasks } from './DeliveryPreview.tsx'
 import { boardGroupOf, isLiveTask } from './task-board.ts'
@@ -64,6 +64,19 @@ function KindTag({ kind, cli, name, t }: { name?: string; kind: ChannelMember['k
 /** IME candidate confirmation (desktop isComposing, iOS/Android keyCode 229) must not send/select/save. */
 export function isImeEnter(event: { nativeEvent: KeyboardEvent | Event }): boolean {
   return Reflect.get(event.nativeEvent, 'isComposing') === true || Reflect.get(event.nativeEvent, 'keyCode') === 229
+}
+
+/**
+ * #197: an object URL for an image the composer is about to send, so no base64 copy is
+ * held for the thumbnail. A browser or test environment without createObjectURL simply
+ * shows the 📎 instead of a preview.
+ */
+function previewOf(file: File): string | undefined {
+  // 20 MiB keeps the thumbnail's decode cost small; a bigger image shows an icon (this is
+  // only the composer's preview — the file itself may be up to the service's cap).
+  if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type) || file.size > 20 * 1024 * 1024) return undefined
+  if (typeof URL.createObjectURL !== 'function') return undefined
+  try { return URL.createObjectURL(file) } catch { return undefined }
 }
 
 /** Touch or narrow screens get the short composer placeholder (the long one wraps beside the send button). */
@@ -617,7 +630,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, closeDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewTask, dispatchTask, openDm, closeDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }: ChannelsPageProps) {
   const scheme = useScheme()
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
@@ -631,21 +644,65 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   const [sending, setSending] = useState<Record<number, boolean>>({})
   // Per room: the message the next send replies to.
   const [replies, setReplies] = useState<Record<number, ChannelMessage | undefined>>({})
-  // Per room: images/files waiting to go out with the next send (#144).
-  const [pendingFiles, setPendingFiles] = useState<Record<number, readonly OutgoingAttachment[]>>({})
-  const attach = useComposerAttachments((files) => {
+  // #197: files waiting to go out with the next send, each streaming up on its own with a
+  // progress bar; the message names the ids the service returned (no base64 in the JSON).
+  const [pendingFiles, setPendingFiles] = useState<Record<number, readonly PendingFile[]>>({})
+  const pendingRef = useRef(pendingFiles)
+  pendingRef.current = pendingFiles
+  // One promise per file still on its way up, so a send waits for them instead of racing.
+  const uploading = useRef(new Map<string, Promise<void>>())
+  const patchFile = (roomId: number, key: string, change: (file: PendingFile) => PendingFile): void => {
+    setPendingFiles(previous => ({
+      ...previous,
+      [roomId]: (previous[roomId] ?? []).map(file => (file.key === key ? change(file) : file)),
+    }))
+  }
+  const limit = state.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES
+  const attach = useComposerAttachments((picked) => {
     const roomId = state.roomId
     if (roomId === undefined) return
-    const next = [...(pendingFiles[roomId] ?? []), ...files]
-    if (messageTooLarge(drafts[roomId] ?? '', next)) {
-      setErrors(previous => ({ ...previous, [roomId]: t('attachmentsTooLarge', { limit: `${MAX_MESSAGE_BODY / 1024 / 1024} MiB` }) }))
-      return
-    }
-    setPendingFiles(previous => ({ ...previous, [roomId]: next }))
-  }, (message) => {
-    const roomId = state.roomId
-    if (roomId !== undefined) setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message }) }))
+    const added: PendingFile[] = picked.map((file) => {
+      // An image preview comes from the File itself, so no base64 copy is kept for it.
+      const preview = previewOf(file)
+      return {
+        key: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        name: file.name || 'pasted',
+        mime: file.type || 'application/octet-stream',
+        size: file.size,
+        progress: 0,
+        ...(preview === undefined ? {} : { preview }),
+        ...(uploadAttachment === undefined
+          ? { error: t('uploadUnsupported') }
+          : file.size > limit
+            ? { error: t('attachmentTooLarge', { name: file.name || 'pasted', size: formatBytes(file.size), limit: formatBytes(limit) }) }
+            : {}),
+      }
+    })
+    setPendingFiles(previous => ({ ...previous, [roomId]: [...(previous[roomId] ?? []), ...added] }))
+    picked.forEach((file, index) => {
+      const entry = added[index] as PendingFile
+      if (entry.error !== undefined || uploadAttachment === undefined) return
+      const done = uploadAttachment(file, (sent, total) => {
+        patchFile(roomId, entry.key, current => ({ ...current, progress: total === 0 ? 1 : Math.min(1, sent / total) }))
+      }).then((attachment) => {
+        patchFile(roomId, entry.key, current => ({ ...current, progress: 1, attachment }))
+      }).catch((error: unknown) => {
+        patchFile(roomId, entry.key, current => ({
+          ...current,
+          error: error instanceof UploadTooLarge
+            ? t('attachmentTooLarge', { name: error.name, size: formatBytes(error.size), limit: formatBytes(error.limit) })
+            : t('uploadFailed', { name: current.name, message: error instanceof Error ? error.message : String(error) }),
+        }))
+      }).finally(() => { uploading.current.delete(entry.key) })
+      uploading.current.set(entry.key, done)
+    })
   })
+  const removeFile = (roomId: number, key: string): void => {
+    const gone = (pendingRef.current[roomId] ?? []).find(file => file.key === key)
+    if (gone?.preview !== undefined) URL.revokeObjectURL(gone.preview)
+    uploading.current.delete(key)
+    setPendingFiles(previous => ({ ...previous, [roomId]: (previous[roomId] ?? []).filter(file => file.key !== key) }))
+  }
   const pendingRooms = useRef(new Set<number>())
   const draft = state.roomId === undefined ? '' : drafts[state.roomId] ?? ''
   const sendError = state.roomId === undefined ? undefined : errors[state.roomId]
@@ -1275,10 +1332,16 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   const submit = (): void => {
     const roomId = state.roomId
     const text = addressCommand(draft.trim(), commandTarget?.name)
-    const files = roomId === undefined ? [] : pendingFiles[roomId] ?? []
-    if ((!text && files.length === 0) || roomId === undefined || pendingRooms.current.has(roomId)) return
-    if (files.length > 0 && messageTooLarge(text, files)) {
-      setErrors(previous => ({ ...previous, [roomId]: t('attachmentsTooLarge', { limit: `${MAX_MESSAGE_BODY / 1024 / 1024} MiB` }) }))
+    const held = roomId === undefined ? [] : pendingFiles[roomId] ?? []
+    if ((!text && held.length === 0) || roomId === undefined || pendingRooms.current.has(roomId)) return
+    const refused = held.filter(file => file.error !== undefined)
+    if (refused.length > 0) {
+      setErrors(previous => ({ ...previous, [roomId]: refused[0]?.error }))
+      return
+    }
+    // Text alone still has to fit the message POST (MAX_MESSAGE_BODY); attachments do not count any more.
+    if (messageTooLarge(text, [])) {
+      setErrors(previous => ({ ...previous, [roomId]: t('messageTooLarge', { limit: formatBytes(MAX_MESSAGE_BODY) }) }))
       return
     }
     pendingRooms.current.add(roomId)
@@ -1288,16 +1351,37 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     if (state.hasMoreNewer === true) void showLatest?.()
     setUnread(undefined)
     const replyTo = replies[roomId]?.id
-    ;(files.length > 0 ? send(text, replyTo, files) : replyTo === undefined ? send(text) : send(text, replyTo)).then(() => {
-      setDrafts(previous => ({ ...previous, [roomId]: '' }))
-      setPendingFiles(previous => ({ ...previous, [roomId]: [] }))
-      setReplies(previous => ({ ...previous, [roomId]: undefined }))
-    }).catch((error: unknown) => {
-      setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message: error instanceof Error ? error.message : String(error) }) }))
-    }).finally(() => {
+    /** Post the message; a file that failed while it streamed is reported instead of sent. */
+    const go = (): Promise<void> => {
+      const ready = pendingRef.current[roomId] ?? []
+      const broken = ready.find(file => file.error !== undefined)
+      if (broken?.error !== undefined) {
+        setErrors(previous => ({ ...previous, [roomId]: broken.error }))
+        return Promise.resolve()
+      }
+      const files = ready.map(file => file.attachment).filter((a): a is OutgoingAttachment => a !== undefined)
+      return (files.length > 0 ? send(text, replyTo, files) : replyTo === undefined ? send(text) : send(text, replyTo)).then(() => {
+        for (const file of ready) if (file.preview !== undefined) URL.revokeObjectURL(file.preview)
+        setDrafts(previous => ({ ...previous, [roomId]: '' }))
+        setPendingFiles(previous => ({ ...previous, [roomId]: [] }))
+        setReplies(previous => ({ ...previous, [roomId]: undefined }))
+      }).catch((error: unknown) => {
+        setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message: error instanceof Error ? error.message : String(error) }) }))
+      })
+    }
+    const settle = (): void => {
       pendingRooms.current.delete(roomId)
       setSending(previous => ({ ...previous, [roomId]: false }))
-    })
+    }
+    // #197: a big file may still be streaming when Enter is pressed; the message goes out
+    // once every file of this room landed (or one of them failed, which is shown instead).
+    // Nothing in flight (the usual case) sends right away, as it always did.
+    const waits = held.map(file => uploading.current.get(file.key)).filter((job): job is Promise<void> => job !== undefined)
+    if (waits.length === 0) {
+      void go().finally(settle)
+      return
+    }
+    void Promise.all(waits).then(go).finally(settle)
   }
 
   const startReply = (message: ChannelMessage): void => {
@@ -1642,10 +1726,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
               <PendingAttachments
                 files={pendingFiles[state.roomId] ?? []}
                 removeLabel={t('removeAttachment')}
-                onRemove={(index) => {
-                  const roomId = state.roomId as number
-                  setPendingFiles(previous => ({ ...previous, [roomId]: (previous[roomId] ?? []).filter((_, i) => i !== index) }))
-                }}
+                labels={{ uploading: t('attachmentUploading'), queued: t('attachmentQueued') }}
+                onRemove={(key) => removeFile(state.roomId as number, key)}
               />
             )}
             <textarea

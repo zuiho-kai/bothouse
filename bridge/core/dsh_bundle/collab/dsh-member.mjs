@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, isAbsolute, relative, sep } from 'node:path';
 import { exitTarget } from './team-exit.mjs';
-import { DEFAULT_DISPATCH_MODE, MAX_TEXT } from './store.mjs';
+import { DEFAULT_DISPATCH_MODE, MAX_TEXT, messageAttachments } from './store.mjs';
 import { ChannelApprovals, DEFAULT_ACTIONS } from './approvals.mjs';
 import { DEFAULT_PERMISSION_PRESET, presetDecision } from './cli-member.mjs';
 import { GateContext } from './gate-context.mjs';
@@ -61,7 +61,7 @@ export function memberStatus(hub, tasks = hub?.tasks, roomId) {
 import { mentions, nameCalled, split } from './mentions.mjs';
 import { quotePrefix } from './store.mjs';
 import { progressCardOf } from './cloudweb.mjs';
-import { attachmentBlocks, namedAttachmentBlocks, nativeAttachmentBlocks, undeliveredReasonZh } from './attachments.mjs';
+import { attachmentBlocks, namedAttachmentBlocks, nativeAttachmentBlocks, oversizedNote, undeliveredReasonZh } from './attachments.mjs';
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
@@ -633,9 +633,11 @@ export class DshMembers {
     // never advances the cursor, so the same image would block the room.
     const { parts: media, dropped: refused } = await nativeAttachmentBlocks(this.rt.ctx.attachments, namedAttachmentBlocks(this.rt.files, unseen));
     const dropped = refused.map(d => `\n\n[${d.name}: 附件未送达（${undeliveredReasonZh(d)}）]`).join('');
+    // #197: a file over the bot connection cap is not inlined; the member reads it from disk.
+    const oversized = oversizedNote(this.rt.files?.oversized(unseen.flatMap(messageAttachments)));
     const wiki = await this.turnContext(member, room, agent.session.id, unseen);
     if (this.closed) return;
-    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id) }, ...media], source: { kind: 'user' } });
+    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store) + dropped + (oversized ? `\n${oversized}` : '') + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id) }, ...media], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
     if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
     wiki.commit();
@@ -755,7 +757,9 @@ export class DshMembers {
       };
       const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id);
       wiki.commit();
-      const text = (await entry.agent.ask(prompt, String(room.id), onText, onTool, { resumeId, onSession, onPermission, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
+      // #197: a file over the bot connection cap is not inlined; the CLI reads it from disk.
+      const bigNote = oversizedNote(this.rt.files?.oversized(unseen.flatMap(messageAttachments)));
+      const text = (await entry.agent.ask(`${prompt}${bigNote ? `\n${bigNote}` : ''}`, String(room.id), onText, onTool, { resumeId, onSession, onPermission, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
       if (this.closed) return;
       this.hub.quota?.observe(member.id, room.id, { error: text });
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }

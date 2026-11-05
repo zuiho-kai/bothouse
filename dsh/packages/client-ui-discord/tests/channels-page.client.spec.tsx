@@ -975,7 +975,13 @@ describe('progress card detail/brief view', () => {
       { id: '22222222-2222-2222-2222-222222222222', name: 'run.log', mime: 'text/plain', size: 2048 },
     ] }] }
     const send = vi.fn(async () => {})
-    render(<ChannelsPage {...props(withFiles, send)} />)
+    // #197: the image preview comes from an object URL of the picked File, not a base64 copy.
+    vi.stubGlobal('URL', Object.assign(Object.create(URL), {
+      createObjectURL: vi.fn(() => 'blob:paste'), revokeObjectURL: vi.fn(),
+    }))
+    // The file streams up first; the message names what the service stored.
+    const uploadAttachment = vi.fn(async (file: File) => ({ id: '33333333-3333-3333-3333-333333333333', name: file.name, mime: file.type, size: file.size }))
+    render(<ChannelsPage {...props(withFiles, send)} uploadAttachment={uploadAttachment} />)
     expect((screen.getByAltText('shot.png') as HTMLImageElement).getAttribute('src')).toBe('collab/api/attachments/11111111-1111-1111-1111-111111111111')
     expect(screen.getByText(/run\.log/).closest('a')?.getAttribute('download')).toBe('run.log')
 
@@ -983,8 +989,29 @@ describe('progress card detail/brief view', () => {
     const file = new File([new Uint8Array([1, 2, 3])], 'paste.png', { type: 'image/png' })
     await act(async () => { fireEvent.paste(input, { clipboardData: { files: [file], types: ['Files'] } }) })
     await vi.waitFor(() => expect(screen.getByAltText('paste.png')).toBeTruthy())
+    expect(uploadAttachment).toHaveBeenCalledOnce()
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
-    expect(send).toHaveBeenCalledExactlyOnceWith('', undefined, [{ name: 'paste.png', mime: 'image/png', data: 'AQID' }])
+    expect(send).toHaveBeenCalledExactlyOnceWith('', undefined, [{ id: '33333333-3333-3333-3333-333333333333', name: 'paste.png', mime: 'image/png', size: 3 }])
+    vi.unstubAllGlobals()
+  })
+
+  it('#197 refuses a file over the channel limit while picking it, and sends nothing', async () => {
+    const send = vi.fn(async () => {})
+    const uploadAttachment = vi.fn(async (file: File) => ({ id: 'x', name: file.name, mime: file.type, size: file.size }))
+    render(<ChannelsPage {...props({ ...ready, maxUploadBytes: 1024 }, send)} uploadAttachment={uploadAttachment} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    const file = new File([new Uint8Array(4096)], 'movie.mp4', { type: 'video/mp4' })
+    await act(async () => { fireEvent.paste(input, { clipboardData: { files: [file], types: ['Files'] } }) })
+    expect(uploadAttachment).not.toHaveBeenCalled()
+    // The pending chip names the file, its size and why it cannot go, in human units.
+    expect(screen.getAllByText(/movie\.mp4/).length).toBeGreaterThan(0)
+    expect(screen.getByText('4 KB')).toBeTruthy()
+    // The chip itself says which limit it broke, so the reason is visible before Enter.
+    expect(screen.getAllByText(/超过单个文件上限 1 KB/).length).toBe(1)
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    expect(send).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert').textContent).toContain('movie.mp4')
+    expect(screen.getByRole('alert').textContent).toContain('1 KB')
   })
 })
 
