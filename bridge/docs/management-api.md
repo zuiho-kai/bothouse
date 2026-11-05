@@ -1176,6 +1176,130 @@ falls outside the resolved `out_dir`, and a file whose bytes are not `image/*` w
 
 ## 6. Error Handling Conventions
 
+### 5.9 Social (QQ 说说 / avatar, optional)
+
+These routes act as the bot's own QQ account: a 说说 is visible to other people and an
+avatar is visible everywhere. Both are **off by default** and stay unavailable until the
+project's `qq` platform options turn them on:
+
+```toml
+[projects.platforms.options]
+allow_qzone = true    # list / post / delete this account's own 说说
+allow_avatar = true   # change this account's own avatar
+```
+
+They are capability-based, not platform-name-based: a project whose platform does not
+implement the capability answers `not_supported` instead of guessing by platform name.
+Nothing here runs on a schedule — posting on a timer is the cron section's job and stays a
+separate decision.
+
+#### GET /api/v1/projects/{name}/social
+
+Reads the capability flags and the account's own recent posts (newest first).
+
+**Query:** `limit` — how many posts to read (default 20, max 50).
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "ready",
+    "platform": "qq",
+    "capabilities": {
+      "list_moments": true,
+      "post_moment": true,
+      "remove_moment": true,
+      "set_avatar": true,
+      "disabled_reason": ""
+    },
+    "moments": [
+      {
+        "id": "d43708d9240ae56ae9670e00",
+        "text": "今天画了张图",
+        "time": "2026-11-05T06:21:06+08:00",
+        "images": [],
+        "private": false
+      }
+    ]
+  }
+}
+```
+
+`status` is one of:
+
+| status | meaning |
+|--------|---------|
+| `ready` | the actions are on; `moments` holds the list |
+| `off` | the capability exists but config has not turned it on; `message` names the config key |
+| `error` | reading the list failed; `message` says why, the write actions still follow `capabilities` |
+| `not_supported` | this project's platform cannot do it at all |
+
+`moments` is always an array (`[]`, never `null`), so a panel can read `.length` directly.
+
+---
+
+#### POST /api/v1/projects/{name}/social/moment
+
+Publishes one 说说 (text only for now; pictures go through the QQ client's own picture path).
+
+**Request body:**
+
+```json
+{ "text": "今天画了张图" }
+```
+
+**Response:**
+
+```json
+{ "ok": true, "data": { "moment": { "id": "stub01", "text": "今天画了张图", "time": "2026-11-05T06:21:06+08:00", "images": [], "private": false } } }
+```
+
+Errors: `400` empty text, `403` the action is off (message names `allow_qzone`), `501` the
+platform cannot post, `502` the OneBot implementation rejected it (the message names the
+upstream action and says to upgrade NapCat when the extension is missing).
+
+---
+
+#### POST /api/v1/projects/{name}/social/moment/delete
+
+Deletes one of the account's own posts. A post that is already gone counts as deleted.
+
+**Request body:**
+
+```json
+{ "id": "stub01" }
+```
+
+**Response:**
+
+```json
+{ "ok": true, "data": { "result": "deleted" } }
+```
+
+---
+
+#### POST /api/v1/projects/{name}/social/avatar
+
+Replaces the account's avatar.
+
+**Request:** `multipart/form-data` with a `file` field. Accepted: any file whose sniffed
+type is `image/*`, up to 2 MiB.
+
+**Response:**
+
+```json
+{ "ok": true, "data": { "result": "changed", "mime": "image/png", "bytes": 94 } }
+```
+
+Errors: `400` not an image or empty, `403` the action is off (message names `allow_avatar`),
+`413` over 2 MiB, `501` the platform cannot change its avatar.
+
+---
+
+## 6. Error Handling Conventions
+
 ### 6.1 Standard Error Response
 
 All errors use the same envelope:
@@ -1256,7 +1380,7 @@ If not configured, CORS may be disabled or use a default (e.g. `*` for same-orig
 | Version   | Date       | Changes                    |
 |-----------|------------|----------------------------|
 | 1.1-draft | 2026-03-24 | Enrich session list/detail with `live`, `last_message`, `agent_type`, `user_name`, `chat_name`, `active_keys` fields |
-| 1.2-draft | 2026-11-05 | Add optional image generation routes (`/image-gen`, `/image-gen/file/<name>`) |
+| 1.2-draft | 2026-11-05 | Add optional image generation routes (`/image-gen`, `/image-gen/file/<name>`) and QQ 说说 / avatar routes (`/projects/{name}/social…`), each off unless configured |
 | 1.0-draft | 2026-03-10 | Initial specification      |
 
 ---
