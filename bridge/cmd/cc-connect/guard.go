@@ -127,6 +127,10 @@ func guardCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, now 
 		return guardExitUsage, fmt.Errorf("%w\n%s", err, guardUsage)
 	}
 	rest := fs.Args()
+	if !*sshMode && len(rest) == 1 && rest[0] == "help" { // `bothouse guard help`, like every other command
+		fmt.Fprint(stdout, guardUsage)
+		return 0, nil
+	}
 	if *sshMode {
 		f := strings.Fields(os.Getenv("SSH_ORIGINAL_COMMAND"))
 		if len(f) < 2 {

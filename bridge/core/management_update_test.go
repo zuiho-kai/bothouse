@@ -118,7 +118,7 @@ func TestUpgradePathKeepsUserData(t *testing.T) {
 		"library/state.json":           `{"selected":"mine"}`,
 		"dsh/maomao.env":               "DEEPSEEK_API_KEY=FAKE-DSH\n",
 		"dsh/maomao.patch.yml":         "- id: x\n  config: {key: FAKE}\n",
-		"dsh/collab/cordis.patch.yml":  "# user edited\n- id: locale\n  config: {preference: zh, apiKey: FAKE}\n",
+		"dsh/collab/cordis.patch.yml":  "# user edited (after #1044: page rows present, so the refresh keeps it)\n- id: locale\n  config: {preference: zh, apiKey: FAKE}\n- id: bothouse-desk\n  disabled: false\n",
 	}
 	collab := filepath.Join(home, ".conest-collab", "collab.sqlite3")
 	write := func(p, s string) {
