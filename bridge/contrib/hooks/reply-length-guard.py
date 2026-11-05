@@ -4,6 +4,7 @@
 人设里写「短段落、不用表格」管不住便宜模型，所以做成检查。
 
 放行：stop_hook_active（只拦一次）、子 agent（agent_id）、定时任务和别的 bot 触发的轮（桥拼的标记）、读不到回复。
+定时/别的 bot 触发的轮，回复要贴到真人看的聊天频道时（桥拼 HUMAN 标记），照查（#1109：定时验收轮在真人频道发了两千字拒答）。
 [report]/[ask] 开头的回复（工作区交回、提问）按团队规矩另算：只查贴到聊天频道的头几行（「细节」那行之前）。
 
 门槛：hooks 目录下 reply-length-guard.json（和本脚本同目录，可不建），只有一个字段 max_chars，默认见 MAX_CHARS。
@@ -17,6 +18,7 @@ CONF = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reply-length-gu
 AUTO = "This request is automated or from another bot"
 TIMER = "（定时任务，回这条）"
 RELAY = "[工作区回传]"
+HUMAN = "[Bridge: this reply is posted in a chat channel people read]"  # 和桥 core/agent_identity.go humanChatMark 一致
 
 TABLE_SEP = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$", re.M)
 # 一整行开头是加粗的短标签（**结论** / **结论：** / **结论**：…），或 markdown 标题行
@@ -108,7 +110,7 @@ def check(reply, prompt, limit):
             return None
         return ("[report]/[ask] 贴到聊天频道的头几行" + "、".join(bad) +
                 "。头几行改成对真人说的大白话短句，不用表格和加粗标题；细节放到「细节：」之后。")
-    if prompt is not None and (AUTO in prompt or TIMER in prompt or RELAY in prompt):
+    if prompt is not None and HUMAN not in prompt and (AUTO in prompt or TIMER in prompt or RELAY in prompt):
         return None
     bad = problems(reply, limit)
     if not bad:
