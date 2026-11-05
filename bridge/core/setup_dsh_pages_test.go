@@ -14,8 +14,16 @@ import (
 // dependency install that links them.
 func TestRefreshDSH_UpgradesPrePagesPatch(t *testing.T) {
 	dir := installedDSH(t)
+	data := t.TempDir()
+	t.Setenv("CONEST_COLLAB_DATA", data)
 	oldPatch := "- insert:\n    - id: conest-collab\n      name: conest-collab\n- insert:\n    - id: conest-channels-ui\n      name: '@deepseek-ai/dsh-experimental-client-ui-discord'\n"
 	if err := os.WriteFile(filepath.Join(dir, "collab", "cordis.patch.yml"), []byte(oldPatch), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The old channels UI had the desk and the panel, not other computers yet.
+	oldClient := filepath.Join(dir, "packages", "client-ui-discord", "lib", "client.js")
+	_ = os.MkdirAll(filepath.Dir(oldClient), 0o755)
+	if err := os.WriteFile(oldClient, []byte(`const DESK_ID = "collab-desk"; const B = "bothouse-panel";`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	withInstall(t, func(stage string) error {
@@ -39,11 +47,16 @@ func TestRefreshDSH_UpgradesPrePagesPatch(t *testing.T) {
 	if bak, _ := os.ReadFile(filepath.Join(dir, "collab", "cordis.patch.yml.bak-pre1044")); string(bak) != oldPatch {
 		t.Errorf("old patch not kept beside it: %q", bak)
 	}
+	if note, _ := os.ReadFile(filepath.Join(data, pagesBeforeFile)); string(note) != `{"rows":["bothouse-desk","bothouse-panel"]}` {
+		t.Errorf("pages-before note = %q", note)
+	}
 }
 
 // A patch that already has the page rows is the user's (or ours): never replaced.
 func TestRefreshDSH_KeepsCurrentPatch(t *testing.T) {
 	dir := installedDSH(t)
+	data := t.TempDir()
+	t.Setenv("CONEST_COLLAB_DATA", data)
 	mine := "# edited\n- insert:\n    - id: bothouse-desk\n      name: bothouse-dsh-desk\n"
 	if err := os.WriteFile(filepath.Join(dir, "collab", "cordis.patch.yml"), []byte(mine), 0o644); err != nil {
 		t.Fatal(err)
@@ -57,6 +70,9 @@ func TestRefreshDSH_KeepsCurrentPatch(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "collab", "cordis.patch.yml.bak-pre1044")); !os.IsNotExist(err) {
 		t.Error("backup written for a current patch")
+	}
+	if _, err := os.Stat(filepath.Join(data, pagesBeforeFile)); !os.IsNotExist(err) {
+		t.Error("pages-before note written for a current patch")
 	}
 }
 
@@ -105,5 +121,25 @@ func TestDSHBundlePagePackagesMatchSource(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// A failed dependency install leaves the old patch: the old plugin must not see the new rows.
+func TestRefreshDSH_FailedInstallKeepsOldPatch(t *testing.T) {
+	dir := installedDSH(t)
+	t.Setenv("CONEST_COLLAB_DATA", t.TempDir())
+	oldPatch := "- insert:\n    - id: conest-collab\n      name: conest-collab\n"
+	if err := os.WriteFile(filepath.Join(dir, "collab", "cordis.patch.yml"), []byte(oldPatch), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withInstall(t, func(string) error { return os.ErrPermission })
+	if ok, err := RefreshEmbeddedDSH(dir, "v0.1.5"); err == nil || ok {
+		t.Fatalf("refresh = %v %v, want the install error", ok, err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "collab", "cordis.patch.yml")); string(got) != oldPatch {
+		t.Errorf("patch changed after a failed install: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "packages", "client-ui-discord")); !os.IsNotExist(err) {
+		t.Error("channels UI refreshed although the install failed")
 	}
 }

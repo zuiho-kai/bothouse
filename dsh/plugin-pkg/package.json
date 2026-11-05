@@ -18,6 +18,8 @@
     "collab/*.json",
     "collab/team-mode-rules.md",
     "collab/desk/index.html",
+    "collab/devices.html",
+    "collab/wiki-galaxy/index.html",
     "collab/avatars/*.png",
     "locale/*.json",
     "cordis.patch.yml",

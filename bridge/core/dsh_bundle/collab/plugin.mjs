@@ -221,7 +221,7 @@ export async function apply(ctx, rawConfig) {
   // #1044: keep the pages an existing install had (once). Deferred: the plugin manager reloads rows,
   // which must not run inside this plugin's own activation.
   const pagesTimer = setTimeout(() => {
-    migratePageRows(ctx.get('pluginManager'), { markerFile: join(config.dataDir, 'pages-migrated-1044'), existed: collabExisted, logger: ctx.logger })
+    migratePageRows(ctx.get('pluginManager'), { markerFile: join(config.dataDir, 'pages-migrated-1044'), beforeFile: join(config.dataDir, 'pages-before-1044.json'), existed: collabExisted, logger: ctx.logger })
       .catch(err => ctx.logger.warn('conest-collab: keep pages: %s', err.message));
   }, 3000);
   ctx.effect(() => () => clearTimeout(pagesTimer), 'conest-collab: keep pages');

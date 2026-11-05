@@ -14,7 +14,7 @@ BotHouse channels inside DeepSeek Harness (DSH): a Discord-style channels page w
 dsh plugin --profile web add bothouse-dsh
 ~~~
 
-Restart DSH once and click "Channels" in the sidebar. #general already has Whale Girl, running on the model you configured in DSH; nothing else to fill in. @ her to get a reply; tell her "hand this to a workspace: …" and she opens a workspace, does the work and reports back. For more characters or models, use "Add member".
+Restart DSH once and click "Channels" in the sidebar. Team desk, bothouse panel and other computers start off; switch the one you want on under "Plugins → bothouse" and it appears in the sidebar right away. #general already has Whale Girl, running on the model you configured in DSH; nothing else to fill in. @ her to get a reply; tell her "hand this to a workspace: …" and she opens a workspace, does the work and reports back. For more characters or models, use "Add member".
 
 If the terminal install says `pnpm was not found`, run `npm i -g pnpm` first.
 
