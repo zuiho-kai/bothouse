@@ -177,6 +177,7 @@ func wikiSection(lang, wiki, export, bot string) string {
 		"## 记忆 wiki\n"+
 			"你有一本自己的记忆 wiki：`"+wiki+"`。你的会话和日记会自动整理进去，每天夜里还会做一次反思。想查以前的事先在里面找："+
 			"`python3 -X utf8 -I "+wikiQuote(filepath.Join(wiki, "bin", "search.py"))+" <关键词>`。\n"+
+			"要记的事（教训、用户定的事、谁是谁）写进这本 wiki：先读它的 `CLAUDE.md` 看格式，改对应的主题页，同步 `MEMORY.md` 和 `log.md`，用 `git` 提交。不写进 CLI 自带的记忆目录（如 Claude Code 的 `~/.claude/projects/*/memory`），那里队友看不到，这本 wiki 也搜不到。\n"+
 			"用户让你关掉或打开它时，直接运行，不用再问：\n"+
 			"- 关掉记忆 wiki（不再整理，也不反思）：`"+sw+" wiki off`\n"+
 			"- 只关夜间反思：`"+sw+" dream off`\n"+
@@ -184,6 +185,7 @@ func wikiSection(lang, wiki, export, bot string) string {
 		"## 記憶 wiki\n"+
 			"あなたには自分の記憶 wiki があります：`"+wiki+"`。会話と日記は自動で整理され、毎晩ふり返りも行います。昔のことはまずここで探します："+
 			"`python3 -X utf8 -I "+wikiQuote(filepath.Join(wiki, "bin", "search.py"))+" <キーワード>`。\n"+
+			"覚えておくこと（教訓、ユーザーが決めたこと、誰が誰か）はこの wiki に書きます：まず `CLAUDE.md` で書式を見て、該当するトピックのページを直し、`MEMORY.md` と `log.md` も合わせ、`git` でコミットします。CLI 付属のメモリ（Claude Code の `~/.claude/projects/*/memory` など）には書きません。チームから見えず、この wiki の検索にも出ません。\n"+
 			"ユーザーにオフ／オンを頼まれたら、聞き返さずに実行します：\n"+
 			"- 記憶 wiki を止める（整理もふり返りもしない）：`"+sw+" wiki off`\n"+
 			"- 夜のふり返りだけ止める：`"+sw+" dream off`\n"+
@@ -191,6 +193,7 @@ func wikiSection(lang, wiki, export, bot string) string {
 		"## Memory wiki\n"+
 			"You have a memory wiki of your own: `"+wiki+"`. Your sessions and diary are distilled into it, and every night it reflects on the day. Look there first for anything from before: "+
 			"`python3 -X utf8 -I "+wikiQuote(filepath.Join(wiki, "bin", "search.py"))+" <words>`.\n"+
+			"Write what you need to remember (lessons, what your user decided, who is who) into this wiki: read its `CLAUDE.md` for the format first, edit the matching topic page, update `MEMORY.md` and `log.md`, and commit with `git`. Do not write it into the memory your CLI keeps on its own (such as Claude Code's `~/.claude/projects/*/memory`): your team cannot see it there, and this wiki's search does not find it.\n"+
 			"When your user asks you to turn it off or on, just run it, no need to ask back:\n"+
 			"- turn the memory wiki off (no distilling, no reflection): `"+sw+" wiki off`\n"+
 			"- turn only the nightly reflection off: `"+sw+" dream off`\n"+
@@ -219,6 +222,7 @@ func leadWikiSection(lang, wiki, export, bot string, own bool) string {
 		"## 记忆 wiki\n"+
 			"团队共用的主 wiki 就是你的记忆：`"+wiki+"`。你的会话和日记会自动整理进去，每天夜里还会做一次反思。想查以前的事先在里面找："+
 			"`"+search+"<关键词>`。\n"+
+			"要记的事（教训、用户定的事、谁是谁）写进这本 wiki：先读它的 `CLAUDE.md` 看格式，改对应的主题页，同步 `MEMORY.md` 和 `log.md`，用 `git` 提交。不写进 CLI 自带的记忆目录（如 Claude Code 的 `~/.claude/projects/*/memory`），那里队友看不到，这本 wiki 也搜不到。\n"+
 			"用户让你关掉或打开它时，直接运行，不用再问：\n"+
 			"- 关掉记忆 wiki（不再整理，也不反思）：`"+sw+" wiki off`\n"+
 			"- 只关夜间反思：`"+sw+" dream off`\n"+
@@ -226,6 +230,7 @@ func leadWikiSection(lang, wiki, export, bot string, own bool) string {
 		"## 記憶 wiki\n"+
 			"チームのメイン wiki があなたの記憶です：`"+wiki+"`。会話と日記は自動で整理され、毎晩ふり返りも行います。昔のことはまずここで探します："+
 			"`"+search+"<キーワード>`。\n"+
+			"覚えておくこと（教訓、ユーザーが決めたこと、誰が誰か）はこの wiki に書きます：まず `CLAUDE.md` で書式を見て、該当するトピックのページを直し、`MEMORY.md` と `log.md` も合わせ、`git` でコミットします。CLI 付属のメモリ（Claude Code の `~/.claude/projects/*/memory` など）には書きません。チームから見えず、この wiki の検索にも出ません。\n"+
 			"ユーザーにオフ／オンを頼まれたら、聞き返さずに実行します：\n"+
 			"- 記憶 wiki を止める（整理もふり返りもしない）：`"+sw+" wiki off`\n"+
 			"- 夜のふり返りだけ止める：`"+sw+" dream off`\n"+
@@ -233,6 +238,7 @@ func leadWikiSection(lang, wiki, export, bot string, own bool) string {
 		"## Memory wiki\n"+
 			"The team's main wiki is your memory: `"+wiki+"`. Your sessions and diary are distilled into it, and every night it reflects on the day. Look there first for anything from before: "+
 			"`"+search+"<words>`.\n"+
+			"Write what you need to remember (lessons, what your user decided, who is who) into this wiki: read its `CLAUDE.md` for the format first, edit the matching topic page, update `MEMORY.md` and `log.md`, and commit with `git`. Do not write it into the memory your CLI keeps on its own (such as Claude Code's `~/.claude/projects/*/memory`): your team cannot see it there, and this wiki's search does not find it.\n"+
 			"When your user asks you to turn it off or on, just run it, no need to ask back:\n"+
 			"- turn the memory wiki off (no distilling, no reflection): `"+sw+" wiki off`\n"+
 			"- turn only the nightly reflection off: `"+sw+" dream off`\n"+
