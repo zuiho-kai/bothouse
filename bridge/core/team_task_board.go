@@ -76,8 +76,12 @@ type teamTaskBoardItem struct {
 	PRMerge map[string]string `json:"pr_merge,omitempty"`
 	// ReleaseHold: board hold — saved its stop point for a central release; the watch neither
 	// counts its errors nor wakes it, and the next bridge process resumes it (team_release_hold.go).
-	ReleaseHold  *teamReleaseHold `json:"release_hold,omitempty"`
-	ReturnedAt   time.Time        `json:"returned_at,omitzero"`
+	ReleaseHold *teamReleaseHold `json:"release_hold,omitempty"`
+	// AwaitDeploy: merged, waits for the central release (board merged on a deploy binding);
+	// Deployed: board deployed saw it in the running build, now 待上线验收.
+	AwaitDeploy  map[string]string `json:"await_deploy,omitempty"`
+	Deployed     map[string]string `json:"deployed,omitempty"`
+	ReturnedAt   time.Time         `json:"returned_at,omitzero"`
 	reviewAfter  time.Duration
 	reviewerName string
 	// Resolved by placeTeamTaskBoard, not stored.
@@ -124,6 +128,48 @@ func readTeamTaskBoard(dir string) []teamTaskBoardItem {
 // "等待用户答复"). Same pattern as board.py WAIT_USER_RE (those items are kept by auto_prune's idle
 // rule); change both together.
 var teamTaskBoardWaitUser = regexp.MustCompile(`等待?用户`)
+
+// teamTaskBoardDone: statuses of finished items, hidden from the board (「完成的也没必要显示」).
+// Only the 完成 lead counts, as before; 已完成 is the form that used to fall through to the release
+// wording and be shown as 等你 (#985 review 1). Other closing words (已验收/已收口/done) are not
+// added here: board.py closes those before an item reaches a board row, and a row that still says
+// 「done」 is one the test fixtures and the watch still treat as on the board.
+var teamTaskBoardDone = regexp.MustCompile(`^\s*已?完成`)
+
+// teamTaskBoardAwaitRelease: the status says the item itself waits on the central release, and
+// the note to show after 等发布 ("" = nothing to add). board.py merged writes 「等发布：…」 and
+// records AwaitDeploy; this is the fallback for the hand-written ones leads keep writing
+// (「随 #133 集中发布上线」「待下次集中发布」). The waiting word must lead, and 发布 must not be
+// 发布会 (a meeting) or be followed by 后 (a note about what to do after the release). 「随 …
+// 集中发布 …」 counts anywhere in the sentence, and only the clause that says it is shown
+// (#985 review 2: the prefix-only rule missed these, and matched 「等发布会结束」).
+func teamTaskBoardAwaitRelease(status string) (string, bool) {
+	s := strings.TrimSpace(strings.ReplaceAll(status, "\u3000", " "))
+	for _, text := range []string{s, strings.ReplaceAll(s, " ", "")} {
+		m := teamTaskBoardReleaseLead.FindStringSubmatch(text)
+		if m == nil {
+			continue
+		}
+		rest := strings.TrimLeft(text[len(m[0]):], "：:，,、 ")
+		if strings.HasPrefix(rest, "会") || strings.HasPrefix(rest, "后") {
+			return "", false
+		}
+		return rest, true // rest "" = the status only says it waits: nothing to add
+	}
+	for _, clause := range strings.FieldsFunc(s, func(r rune) bool { return r == '，' || r == ',' || r == '；' || r == ';' || r == '。' }) {
+		if !teamTaskBoardReleaseAny.MatchString(clause) || strings.Contains(clause, "发布会") {
+			continue
+		}
+		return strings.TrimSpace(teamTaskBoardReleaseLeadPrefix.ReplaceAllString(clause, "")), true
+	}
+	return "", false
+}
+
+var (
+	teamTaskBoardReleaseLead       = regexp.MustCompile(`^(?:等待?|待)(?:\s*(?:下次|这次|本次|下个|下轮))?\s*(?:集中|批量|统一)?\s*(?:发布|部署)`)
+	teamTaskBoardReleaseLeadPrefix = regexp.MustCompile(`^(?:等待?|待)\s*(?:下次|这次|本次|下个|下轮)?\s*`)
+	teamTaskBoardReleaseAny        = regexp.MustCompile(`(?:集中|批量|统一)(?:发布|部署)`)
+)
 
 // teamTaskBoardWaitHours: whole hours a paused item has waited on the user, 0 below one hour or
 // when it does not wait on the user. Paused is "MM-DD HH:MM" local without a year: this year,
@@ -628,7 +674,10 @@ func teamTaskBoardReason(texts ...string) string {
 
 // teamTaskBoardStateOf: the item's state and the text after it (reason or age).
 func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardState, string) {
+	releaseNote, awaitRelease := teamTaskBoardAwaitRelease(it.Status)
 	switch {
+	case it.AwaitDeploy != nil && it.Paused == "":
+		return teamTaskRelease, "已合并，等上线"
 	case !it.ReturnedAt.IsZero():
 		return teamTaskReview, taskReviewNote(it, now)
 	case it.Paused != "":
@@ -636,10 +685,19 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 			return teamTaskWaiting, teamTaskBoardReason(it.PauseWhy, it.Status)
 		}
 		return teamTaskPaused, ""
+	// A closing status wins over the release wording: 「已完成，等发布」/「完成后等发布」 say the item
+	// is done and only mention the release (before this the first counted as 交出没人接, the second
+	// was already hidden — #985 review 1). Same words as board.py CLOSED_RE.
+	case teamTaskBoardDone.MatchString(it.Status):
+		return teamTaskHidden, ""
 	case it.ReleaseHold != nil:
 		return teamTaskRelease, "为发布暂停"
-	case strings.HasPrefix(strings.TrimSpace(it.Status), "完成"):
-		return teamTaskHidden, ""
+	case awaitRelease:
+		// Hand-written 「等发布…」/「随集中发布上线…」 status: waits on the release, not 卡住.
+		if note := teamTaskBoardReason(releaseNote); note != "" {
+			return teamTaskRelease, note
+		}
+		return teamTaskRelease, ""
 	case teamOtherQuiet.MatchString(it.Status):
 		return teamTaskWaiting, teamTaskBoardReason(it.Status)
 	case it.wsEnded:
@@ -946,9 +1004,12 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		span := teamTaskTableSpan(teamTaskTableSince(it, now), now)
 		switch {
 		case state == teamTaskRelease:
-			parts := []string{short, stateNote}
+			parts := []string{short}
 			if where != "" {
-				parts = []string{where, short, stateNote}
+				parts = []string{where, short}
+			}
+			if stateNote != "" {
+				parts = append(parts, stateNote) // no dangling 「· 」 when there is nothing to say
 			}
 			release = append(release, "  📦 "+strings.Join(parts, " · "))
 		case state == teamTaskPaused:

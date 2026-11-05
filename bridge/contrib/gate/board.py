@@ -32,7 +32,9 @@
   board pr <编号> <GitHub PR URL> no-deploy|deploy  # 派活人绑定本代次 PR 和交接部署范围
   board tier <编号> simple|complex         # 验收档位：不标=简单档（设置里选的便宜模型先审）；审的人拿不准标 complex，
                                          #   桥换复杂档的审核人再审一遍（用户 2026-11-04「简单的交给便宜模型」）
-  board merged                          # 核对绑定 PR；已合并且不部署仅转待收口，不代替验收
+  board merged                          # 核对绑定 PR：已合并且不部署转待收口（不代替验收）；要部署的转「等发布」（不算卡住）
+  board deployed <提交> [编号...]         # 桥以 <提交> 版本起来后（桥自己会跑）：等发布的条目已含在这次部署里的转「待上线验收」，
+                                         #   桥自动派非作者去做上线验收；查不到（gh 失败）的先不动，下次再核
   board link <编号> <卡片链接>             # 给这件事挂一张公开任务卡（Discord 消息链接），board 列表那行末尾出「卡 链接」
   board refresh                          # 把一小时没进展的工作区条目转暂停（停滞检查定时调用），再自动收起没用的暂停条目
   board prune [--dry-run]                # 只做自动收起（--dry-run 只列不动）；收起的条目 board resume <编号> 能找回
@@ -815,7 +817,11 @@ def bind_pr(nid, url, no_deploy):
         binding = {"url": url, "repo": match[1], "number": int(match[2]),
                    "no_deploy": no_deploy, "bound": hit.get("bound", "")}
         if hit.get("pr_binding") != binding:
+            # A different PR is a different generation: the old merge/deploy state is not this one's
+            # (#985 review 2.1: rebinding used to keep the old await_deploy and compare the wrong commit).
             hit.pop("pr_merge", None)
+            hit.pop("await_deploy", None)
+            hit.pop("deployed", None)
         hit["pr_binding"] = binding
         _write(cur)
 
@@ -824,7 +830,7 @@ def reconcile_merged_prs():
     """Query outside the board lock, then compare the binding/generation before recording."""
     for item in _read():
         binding = item.get("pr_binding") or {}
-        if not binding.get("no_deploy") or item.get("paused") or item.get("pr_merge") or binding.get("bound") != item.get("bound", ""):
+        if not binding or item.get("paused") or item.get("pr_merge") or binding.get("bound") != item.get("bound", ""):
             continue
         try:
             result = subprocess.run(["gh", "pr", "view", str(binding["number"]), "--repo", binding["repo"],
@@ -844,15 +850,26 @@ def reconcile_merged_prs():
             if hit is None or hit.get("pr_binding") != binding or hit.get("bound", "") != binding["bound"] or hit.get("pr_merge") or hit.get("paused"):
                 continue
             hit["pr_merge"] = {"url": binding["url"], "merged_at": pr["mergedAt"], "commit": (pr.get("mergeCommit") or {}).get("oid", "")}
-            hit.setdefault("returned_at", _bound_now())
-            hit["reviewer"] = hit.get("dispatcher", "")
-            hit["status"] = "待收口：PR 已合并（不部署），等待验收"
+            if binding.get("no_deploy"):
+                hit.setdefault("returned_at", _bound_now())
+                hit["reviewer"] = hit.get("dispatcher", "")
+                hit["status"] = "待收口：PR 已合并（不部署），等待验收"
+            else:
+                # 要部署的：合并前已审过（审过才合），现在等集中发布，不是卡住也不是待验收（#134 ③）。
+                # 部署后 board deployed 转「待上线验收」，桥再自动派非作者去验。
+                for key in ("returned_at", "reviewer", "review_rejected"):
+                    hit.pop(key, None)
+                hit["await_deploy"] = dict(hit["pr_merge"])
+                hit["status"] = "等发布：PR 已合并，等集中发布上线"
             hit["at"] = _now()
             _write(cur)
             simple = REVIEW_TIERS.get(hit.get("review_tier") or "simple") != "complex"
         # 小活合并且检查都过就自动收口，大活（board tier complex）仍等人看
         # （用户 2026-11-04 23:2x「小活交回时，只要检查都过了就自动收口，大活才需要人看」）。
-        if simple and checks_green(pr.get("statusCheckRollup")):
+        # 只对不部署（no_deploy）的绑定生效：要部署的活合并后还要上线，先等发布、部署后转
+        # 「待上线验收」再走这一遍自动收口，合并就关会把它整个跳过、await_deploy 永远挂着
+        # （用户 2026-11-04 17:07「已合待部署的活单列等发布，部署后转待上线验收并自动派非作者验」）。
+        if binding.get("no_deploy") and simple and checks_green(pr.get("statusCheckRollup")):
             ended = done(item["id"], 0)
             if ended:
                 _park_done(ended)
@@ -871,6 +888,63 @@ def checks_green(rollup):
         if state not in CHECK_OK:
             return False
     return True
+
+
+def _deploy_contains(repo, merge, deployed):
+    """部署的提交是否已含合并提交：GitHub compare base...head，head 领先或相同即含。None = 查不到。"""
+    try:
+        result = subprocess.run(["gh", "api", f"repos/{repo}/compare/{merge}...{deployed}", "--jq", ".status"],
+                                capture_output=True, text=True, timeout=GH_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() in ("ahead", "identical")
+
+
+def mark_deployed(commit, nids=None):
+    """部署成功（桥以 commit 版本起来）后：等发布的条目若已含在 commit 里，转「待上线验收」并记交回时刻，
+    桥的验收调度据此自动挑非作者去做上线验收（用户 2026-11-04「可以」：部署成功自动转待上线验收并派肥鱼验）。
+    gh 查询在锁外做，写回前再核一遍条目没变。返回转了的编号。"""
+    moved = []
+    for item in _read():
+        wait = item.get("await_deploy") or {}
+        binding = item.get("pr_binding") or {}
+        if nids and item["id"] not in nids:
+            continue
+        if not wait:
+            continue
+        # Say why an item that IS waiting cannot be moved, instead of hanging silently (#985 review 2.4).
+        if item.get("paused"):
+            print(f"board: #{item['id']} 正在暂停（{item.get('pause_why') or '无原因'}），先不转待上线验收", file=sys.stderr)
+            continue
+        if not wait.get("commit") or not binding.get("repo"):
+            print(f"board: #{item['id']} 等发布记的是 {wait.get('commit') or '(空提交)'}、仓库 {binding.get('repo') or '(没绑 PR)'}，"
+                  f"没法核对是否已上线，先不动；重新 board pr 绑定后可再跑 board deployed", file=sys.stderr)
+            continue
+        has = _deploy_contains(binding["repo"], wait["commit"], commit)
+        if has is None:
+            print(f"board: #{item['id']} 查不到 {commit[:8]} 是否含合并提交，先不动", file=sys.stderr)
+            continue
+        if not has:
+            continue
+        with _locked():
+            cur = _read()
+            hit = next((i for i in cur if i["id"] == item["id"]), None)
+            # Re-read under the lock: the generation and the PAUSE must be the ones queried
+            # (#985 review 2.3: an item paused meanwhile must not be written silently).
+            if hit is None or hit.get("await_deploy") != wait or hit.get("pr_binding") != binding or hit.get("paused"):
+                continue
+            hit.pop("await_deploy")
+            hit["deployed"] = {"commit": commit, "at": _bound_now()}
+            hit["returned_at"] = _bound_now()
+            hit["reviewer"] = hit.get("dispatcher", "")
+            hit["status"] = f"待上线验收：已随 {commit[:8]} 部署"
+            hit["at"] = _now()
+            _write(cur)
+            event(hit["id"], "returned", hit)
+        moved.append(item["id"])
+    return moved
 
 
 REVIEW_TIERS = {"simple": "simple", "简单": "simple", "complex": "complex", "复杂": "complex"}
@@ -949,6 +1023,10 @@ def reject(nid, reason):
             return False
         hit.pop("returned_at", None)
         hit.pop("reviewer", None)
+        # Rework is not the build already deployed for review (#985 review 2.2): the next handback
+        # binds its own PR and deployment again.
+        hit.pop("await_deploy", None)
+        hit.pop("deployed", None)
         hit["paused"] = hit["at"] = _now()
         hit["paused_at"] = _bound_now()
         hit["paused_by"] = os.environ.get("CC_PROJECT", "")
@@ -971,6 +1049,9 @@ def rebind(nid, ws):
             hit.pop("reviewer", None)
             hit.pop("review_rejected", None)
             hit.pop("pr_merge", None)  # Previous generation's merge is not this handback.
+            # A new generation is not waiting on the old merge's deployment (#985 review 2.1).
+            hit.pop("await_deploy", None)
+            hit.pop("deployed", None)
             hit["bound"] = _bound_now()  # reoccupy 刚 claim 了一件新交接
             hit.pop("ws_was", None)
             if ws.startswith("discord:"):
@@ -1036,6 +1117,9 @@ def resume(nid):
             return None if hit is None else False
         hit.pop("paused", None)
         hit.pop("pause_why", None)
+        # Resuming continues work, not the deployment that was already verified (#985 review 2.2).
+        hit.pop("await_deploy", None)
+        hit.pop("deployed", None)
         hit["at"] = _now()
         _write(cur)
     return True
@@ -1494,6 +1578,9 @@ def main(argv):
             print("已绑定 PR 与部署范围；合并不代表验收")
         elif cmd == "merged" and len(argv) == 1:
             reconcile_merged_prs()
+        elif cmd == "deployed" and len(argv) >= 2 and re.fullmatch(r"[0-9a-f]{7,40}", argv[1]):
+            got = mark_deployed(argv[1], [int(x.lstrip("#")) for x in argv[2:]])
+            print("转待上线验收：" + ("、".join(f"#{n}" for n in got) if got else "没有已含在这次部署里的等发布条目"))
         elif cmd == "tier" and len(argv) == 3 and argv[2] in REVIEW_TIERS:
             if not set_tier(int(argv[1].lstrip("#")), argv[2]):
                 sys.exit("条目不存在，未改档位")
