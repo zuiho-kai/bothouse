@@ -39,7 +39,7 @@ export const REMOTE_PREFIX = '/collab/remote';
 // Marks a request the host listener authenticated with a device credential (plugin.mjs owner()).
 export const REMOTE_OWNER = Symbol('collab.remoteOwner');
 
-const TAILSCALE_BINS = ['tailscale', '/opt/homebrew/bin/tailscale', '/usr/local/bin/tailscale', '/Applications/Tailscale.app/Contents/MacOS/Tailscale'];
+const TAILSCALE_BINS = ['tailscale', '/opt/homebrew/bin/tailscale', '/usr/local/bin/tailscale', '/Applications/Tailscale.app/Contents/MacOS/Tailscale', 'C:\\Program Files\\Tailscale\\tailscale.exe'];
 // 沿用 plugin.mjs MAX_BODY（256 KiB）。
 const MAX_PAIR_BODY = 256 * 1024;
 

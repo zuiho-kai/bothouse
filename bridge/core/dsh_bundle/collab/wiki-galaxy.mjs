@@ -47,7 +47,8 @@ export function scanWiki(root) {
   const bodies = [];
   for (const path of files) {
     let text;
-    try { text = readFileSync(join(root, path), 'utf8'); } catch { continue; }
+    // Pages saved on Windows are CRLF: without this the frontmatter (`---\n`) is never seen.
+    try { text = readFileSync(join(root, path), 'utf8').replace(/\r\n?/g, '\n'); } catch { continue; }
     const { meta, body } = splitFrontmatter(text);
     const heading = /^#\s+(.+)$/m.exec(body)?.[1]?.trim();
     const parts = path.split('/');
