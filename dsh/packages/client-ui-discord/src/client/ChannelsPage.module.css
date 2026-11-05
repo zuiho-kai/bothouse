@@ -1979,8 +1979,9 @@
 .progressTitle { font-size: 12px; color: var(--dsw-alias-label-primary); }
 /* #156: folded is one strip — the title, the counts and the expand button, nothing taller than before. */
 .progressSummary { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--dsw-alias-label-tertiary); }
-.progressToggle { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin-left: auto; padding: 0; border: 0; border-radius: var(--dsw-radius-sm); background: transparent; color: var(--dsw-alias-label-tertiary); font: inherit; font-size: 11px; line-height: 1; cursor: pointer; }
-.progressToggle:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+.progressToggle { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 22px; height: 24px; margin-left: auto; padding: 0 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-sm); background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 12px; font-weight: 500; line-height: 1; cursor: pointer; }
+.progressChevron { font-size: 12px; }
+.progressToggle:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .progressToggle:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color); }
 .progressCard[data-folded='true'] { padding: 6px 12px; }
 .progressRows { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 14px; margin: 4px 0 0; }
