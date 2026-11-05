@@ -488,6 +488,9 @@ type Engine struct {
 	coldFreshIdle      time.Duration
 	coldFreshMinTokens int
 	coldFreshMaxTokens int
+	// ctxWindows: agent session ID -> context window its CLI reported (int), so the
+	// context-size check can stay under the CLI's own compaction point (see handoff.go).
+	ctxWindows sync.Map
 	// Image-bloat fresh start (maomao fork, see handoff.go)
 	imageFreshEnabled  bool
 	imageFreshMaxBytes int
@@ -5216,6 +5219,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			if agentOverride != nil {
 				agent = agentOverride
 			}
+			e.noteContextWindow(currentID, state.agentSession)
 			notice := e.freshOnContextSize(agent, session, contextFreshChat(p, sessionKey))
 			if notice == "" {
 				notice = e.freshOnImageBloat(agent, session)
@@ -7367,6 +7371,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// suppressed — the rich card renders an equivalent statusFooter
 			// through BuildRichCard, so re-appending the legacy footer here
 			// would double-print model/ctx/workdir into the card body.
+			e.noteContextWindow(agentSession.CurrentSessionID(), agentSession)
 			var statusFooter string
 			var legacyStatusFooter string
 			if !isSilent {
