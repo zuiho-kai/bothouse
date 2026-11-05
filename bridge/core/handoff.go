@@ -24,6 +24,9 @@ type SessionHandoff struct {
 	CompactedAt    time.Time      // when that summary was written
 	Tail           []HistoryEntry // user/assistant text after that summary, oldest first
 	ImageBytes     int            // base64 bytes of the images still in the context (re-sent every request)
+	// AutoCompactTokens is the prompt size at which the CLI last compacted this session on its
+	// own (0 when it never did): where its window really ends when the bridge does not know it.
+	AutoCompactTokens int
 }
 
 // SessionHandoffReader is implemented by agents whose transcripts can be read.
@@ -113,7 +116,7 @@ func (e *Engine) freshOnContextSize(agent Agent, session *Session, chat string) 
 		return ""
 	}
 	h, err := r.ReadSessionHandoff(id)
-	if err != nil || h.ContextTokens < e.coldFreshMaxTokens {
+	if err != nil || h.ContextTokens < e.contextFreshLimit(id, h) {
 		return ""
 	}
 	reason := fmt.Sprintf("上下文约 %s token", formatWan(h.ContextTokens))
@@ -121,6 +124,48 @@ func (e *Engine) freshOnContextSize(agent Agent, session *Session, chat string) 
 	session.SetAgentSessionID("", agent.Name())
 	session.SetHandoffFrom(id, reason)
 	return "♻️ " + reason + "：开新会话，带上旧会话的压缩摘要和最近对话"
+}
+
+// ContextWindowReporter is implemented by live agent sessions that know the context window
+// their CLI really uses (claudecode: modelUsage.contextWindow of the last result event).
+// 0 means not reported yet; a guess from the model name does not count.
+type ContextWindowReporter interface {
+	ReportedContextWindow() int
+}
+
+// noteContextWindow remembers the window a live session reported, keyed by its agent session
+// ID, for checks made after that process has exited.
+func (e *Engine) noteContextWindow(id string, live AgentSession) {
+	r, ok := live.(ContextWindowReporter)
+	if id == "" || !ok {
+		return
+	}
+	if w := r.ReportedContextWindow(); w > 0 {
+		e.ctxWindows.Store(id, w)
+	}
+}
+
+// contextFreshLimit is the prompt size at which freshOnContextSize starts a new context:
+// max_context_tokens (default 300000), capped below the point where the CLI compacts the
+// session itself. Claude Code compacts a 200k-window session in place at about 167k (agentm
+// jingyu, 2026-11-05: 4 auto compactions at 167.1k–167.6k) and keeps going in the same
+// session, so a 300k limit is never reached there. Cap: 70% of the window the CLI reported;
+// when it has not reported one, 85% of the prompt size at which the CLI last compacted this
+// session on its own. Large windows (1M) keep the configured limit.
+func (e *Engine) contextFreshLimit(id string, h *SessionHandoff) int {
+	limit := e.coldFreshMaxTokens
+	if v, ok := e.ctxWindows.Load(id); ok {
+		if c := v.(int) * 7 / 10; c < limit {
+			limit = c
+		}
+		return limit
+	}
+	if h != nil && h.AutoCompactTokens > 0 {
+		if c := h.AutoCompactTokens * 85 / 100; c < limit {
+			limit = c
+		}
+	}
+	return limit
 }
 
 // SetImageFresh configures starting a fresh session (with a handoff) once the
