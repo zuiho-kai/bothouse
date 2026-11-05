@@ -18,7 +18,33 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UI="$HERE/packages/client-ui-discord"
 
 echo "== step: download"
-command -v dsh >/dev/null || { echo "dsh not found on PATH; install DeepSeek Harness first" >&2; exit 1; }
+# Resolve dsh the same way the bridge does (bridge/core/setup_dsh_platform.go LookDSH):
+# a desktop-only install ships dsh.cmd, and Git Bash's `command -v dsh` never matches it
+# because MSYS only appends .exe when searching (#161 ①). Falling back in the same order as
+# LookDSH keeps one list of install locations instead of a second copy here.
+DSH_EXE="$(command -v dsh 2>/dev/null || true)"
+if [ -z "$DSH_EXE" ] && command -v dsh.cmd >/dev/null 2>&1; then
+  DSH_EXE="$(command -v dsh.cmd)"
+fi
+if [ -z "$DSH_EXE" ]; then
+  # Same candidate list as LookDSH; [ -f ] accepts the mixed C:\.../dir/file form Git Bash sees.
+  # ProgramFiles(x86) is read through printenv: bash cannot expand a name with parentheses.
+  PF86="$(printenv 'ProgramFiles(x86)' 2>/dev/null || true)"
+  for c in \
+    "${LOCALAPPDATA:-}/Programs/DeepSeek Harness/resources/runtime/cli/bin/dsh.cmd" \
+    "${LOCALAPPDATA:-}/Programs/DeepSeek Harness/bin/dsh.cmd" \
+    "${LOCALAPPDATA:-}/DeepSeek Harness/bin/dsh.cmd" \
+    "${ProgramFiles:-}/DeepSeek Harness/bin/dsh.cmd" \
+    "${PF86}/DeepSeek Harness/bin/dsh.cmd" \
+    "${APPDATA:-}/npm/dsh.cmd"; do
+    if [ -f "$c" ]; then DSH_EXE="$c"; break; fi
+  done
+fi
+if [ -z "$DSH_EXE" ]; then
+  echo "dsh not found on PATH or in the DeepSeek Harness install directories; install DeepSeek Harness first" >&2
+  exit 1
+fi
+echo "== dsh: $DSH_EXE"
 # npm prints its global prefix in Windows form (C:\Users\...\npm) when run under Git Bash. Used
 # as a PATH entry that string splits at the drive-letter colon (C + \Users\...), so pnpm stays
 # "not found" right after npm i -g pnpm and the whole install only works when run a second time
@@ -70,7 +96,7 @@ fi
 
 # dsh-web-app must match the running dsh version. Resolve it from the real dsh package the
 # way Node does: walk the ancestor node_modules, which covers nested and hoisted layouts.
-DSH_BIN="$(command -v dsh || true)"
+DSH_BIN="$DSH_EXE"
 DSH_DIR=""
 WEB_APP=""
 if [ -n "$DSH_BIN" ]; then
@@ -152,10 +178,10 @@ LINK_HERE="$HERE"
 if pwd -W >/dev/null 2>&1; then LINK_HERE="$(cd "$HERE" && pwd -W)"; fi
 LINK_UI="$LINK_HERE/packages/client-ui-discord"
 if [ -n "$WEB_APP" ]; then
-  dsh plugin --profile "$PROFILE" add "link:$WEB_APP" "link:$LINK_HERE/collab" "link:$LINK_UI"
+  "$DSH_EXE" plugin --profile "$PROFILE" add "link:$WEB_APP" "link:$LINK_HERE/collab" "link:$LINK_UI"
 else
   echo "== dsh-web-app not found in local dsh path, linking collab and ui plugins"
-  dsh plugin --profile "$PROFILE" add "link:$LINK_HERE/collab" "link:$LINK_UI"
+  "$DSH_EXE" plugin --profile "$PROFILE" add "link:$LINK_HERE/collab" "link:$LINK_UI"
 fi
 if [ -n "$LANG_PREF" ] && command -v node >/dev/null; then
   # DSH keeps the UI language as config of the `locale` entry (dsh-client-locale, field
