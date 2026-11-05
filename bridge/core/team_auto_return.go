@@ -45,6 +45,25 @@ func (e *Engine) workspaceHasOpenHandoff(sessionKey string) bool {
 	return false
 }
 
+// workspaceHandoffIsMine: an open handoff to the workspace of sessionKey was handed to this bot
+// (watchOwns: its owner, or no owner and this bot leads). A teammate's unmarked one-liner in the
+// same workspace (grok 「到」, 2026-11-03) is not the answer to someone else's handoff.
+func (e *Engine) workspaceHandoffIsMine(p Platform, sessionKey string) bool {
+	if e == nil || e.dataDir == "" || sessionKey == "" || p == nil {
+		return false
+	}
+	key := teamChatKey(sessionKey)
+	teamWorkspaceStore.mu.Lock()
+	hs := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]
+	teamWorkspaceStore.mu.Unlock()
+	for _, h := range hs {
+		if teamHandoffOpen(h) && e.watchOwns(p, h.Owner) {
+			return true
+		}
+	}
+	return false
+}
+
 // workspaceHasOpenHandoffFor: an open handoff to the workspace of sessionKey is for board item
 // board, or records no item.
 func (e *Engine) workspaceHasOpenHandoffFor(sessionKey string, board int) bool {
