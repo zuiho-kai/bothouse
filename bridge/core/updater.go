@@ -151,11 +151,11 @@ func SelfUpdate(tag string, preferGitee bool) error {
 	if err != nil {
 		return err
 	}
-	binary, err := ExtractReleaseBinary(data, filename)
+	payload, err := ExtractReleasePayload(data, filename)
 	if err != nil {
 		return fmt.Errorf("extract binary: %w", err)
 	}
-	return replaceBinary(binary)
+	return InstallReleasePayload(payload)
 }
 
 // ReleaseAssetNames lists the platform download that .github/workflows/release.yml publishes.

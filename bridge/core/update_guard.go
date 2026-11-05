@@ -145,7 +145,9 @@ var startUpdateGuard = func(spec updateGuardSpec) error {
 	if err := writeUpdateMarker(spec, 0); err != nil {
 		return err
 	}
-	cmd := exec.Command(spec.Backup, UpdateGuardArg)
+	// The backup is the old program: a plain file, or the program inside the bundle that was
+	// swapped out. It runs as the guard either way.
+	cmd := exec.Command(execProgramPath(spec.Backup), UpdateGuardArg)
 	cmd.Env = append(os.Environ(), updateGuardEnv+"="+string(b))
 	detachCmd(cmd)
 	if err := cmd.Start(); err != nil {
@@ -158,14 +160,17 @@ var startUpdateGuard = func(spec updateGuardSpec) error {
 // swapBackOld moves the new binary to <exe>.failed-<n> (a running binary can be renamed on unix
 // and Windows) and the backup back to exe, and records the result.
 func swapBackOld(spec updateGuardSpec) (UpdateResult, bool) {
-	failed := strings.Replace(BinaryBackupPath(spec.Exe), ".old-", ".failed-", 1)
-	if err := os.Rename(spec.Exe, failed); err != nil && !os.IsNotExist(err) {
+	// A macOS .app install moves the whole bundle, so the unit is the bundle (installUnit); a
+	// plain program keeps the file behaviour.
+	unit := installUnit(spec.Exe)
+	failed := failedPathFor(unit)
+	if err := os.Rename(unit, failed); err != nil && !os.IsNotExist(err) {
 		r := UpdateResult{Status: "rollback_failed", From: spec.Old, To: spec.Want, Detail: "move new binary aside: " + err.Error()}
 		writeUpdateResult(spec.StateDir, r)
 		return r, false
 	}
-	if err := os.Rename(spec.Backup, spec.Exe); err != nil {
-		_ = os.Rename(failed, spec.Exe)
+	if err := os.Rename(spec.Backup, unit); err != nil {
+		_ = os.Rename(failed, unit)
 		r := UpdateResult{Status: "rollback_failed", From: spec.Old, To: spec.Want, Detail: "restore old binary: " + err.Error()}
 		writeUpdateResult(spec.StateDir, r)
 		return r, false
@@ -405,8 +410,9 @@ func requestRestart(req RestartRequest) {
 	}
 }
 
-// lastBinaryBackup is set by replaceBinary (under updateMu) so the web update knows where the
-// old binary went: on macOS os.Executable() keeps reporting the original path.
+// lastBinaryBackup is set by the install step (under updateMu) so the web update knows where the
+// old version went: on macOS os.Executable() keeps reporting the original path. For a bundle
+// install it is the .app that was swapped out (execProgramPath finds the program inside).
 var lastBinaryBackup string
 
 // updateExePath is the installed binary the update replaced. Swappable in tests (never the test binary).
@@ -415,7 +421,7 @@ var updateExePath = func() string {
 	if r, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = r
 	}
-	return BinaryFromBackupPath(exe)
+	return installedPathOfBackup(exe)
 }
 
 func (m *ManagementServer) guardSpec(want string) updateGuardSpec {

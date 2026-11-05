@@ -267,14 +267,16 @@ func handleSocketUpdate(w http.ResponseWriter, r *http.Request) {
 
 // undoReplace puts the backup back when the self-check could not be started.
 func undoReplace(spec updateGuardSpec) error {
-	failed := spec.Exe + ".failed"
-	if err := os.Rename(spec.Exe, failed); err != nil {
+	// Same unit as the install: the whole bundle for a macOS .app, the program file otherwise.
+	unit := installUnit(spec.Exe)
+	failed := failedPathFor(unit)
+	if err := os.Rename(unit, failed); err != nil {
 		return err
 	}
-	if err := os.Rename(spec.Backup, spec.Exe); err != nil {
-		_ = os.Rename(failed, spec.Exe)
+	if err := os.Rename(spec.Backup, unit); err != nil {
+		_ = os.Rename(failed, unit)
 		return err
 	}
-	_ = os.Remove(failed)
+	_ = os.RemoveAll(failed)
 	return nil
 }
