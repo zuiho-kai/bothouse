@@ -879,7 +879,7 @@ Lists all cron jobs, optionally filtered by project.
 
 #### POST /api/v1/cron
 
-Adds a cron job. Either `prompt` or `exec` must be provided, not both.
+Adds a cron job. Either `prompt` or `exec` must be provided, not both. `session_key` is required for both kinds: the run posts its start notice and result to that chat, so a job without one is rejected with `400 session_key is required` (it used to be persisted and then fail at fire-time).
 
 **Request body (prompt job):**
 
@@ -911,7 +911,7 @@ Adds a cron job. Either `prompt` or `exec` must be provided, not both.
 | Field        | Type    | Required | Description                                    |
 |--------------|---------|----------|------------------------------------------------|
 | `project`    | string  | no*      | Project name (*required if multiple projects) |
-| `session_key`| string  | yes      | Target session for prompt jobs                 |
+| `session_key`| string  | yes      | Chat the job reports to when it fires (`platform:chatId[:userId]`, e.g. `qq:10001`); required for exec jobs too |
 | `cron_expr`  | string  | yes      | Cron expression (5 or 6 fields)                |
 | `prompt`     | string  | no*      | Prompt to send (*required if no `exec`)        |
 | `exec`       | string  | no*      | Shell command (*required if no `prompt`)       |
