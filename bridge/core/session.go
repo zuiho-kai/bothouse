@@ -1136,3 +1136,24 @@ func (sm *SessionManager) UserKeys() []string {
 	}
 	return out
 }
+
+// ChatPublic reports whether chat ("platform:channel") is a public channel by this
+// manager's records: some session in it has a real name (not empty, not the channel id)
+// and none of them is a private chat. Unknown counts as not public (#1069).
+func (sm *SessionManager) ChatPublic(chat string) (named, direct bool) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	_, id, _ := strings.Cut(chat, ":")
+	for key, m := range sm.userMeta {
+		if m == nil || chatOf(key) != chat {
+			continue
+		}
+		if m.Direct {
+			direct = true
+		}
+		if name := strings.TrimSpace(m.ChatName); name != "" && name != id {
+			named = true
+		}
+	}
+	return named, direct
+}
