@@ -347,8 +347,9 @@ func TestJevEndpointLogprobs(t *testing.T) {
 	if r := TestJevEndpoint(context.Background(), ok.URL+"/v1", "k", "m"); !r.Reachable || !r.Logprobs {
 		t.Fatalf("with logprobs: %+v", r)
 	}
+	// #1173: no probabilities but a single option letter is usable (text_only)
 	no := fakeModel(t, false, 0)
-	if r := TestJevEndpoint(context.Background(), no.URL+"/v1/", "k", "m"); !r.Reachable || r.Logprobs {
+	if r := TestJevEndpoint(context.Background(), no.URL+"/v1/", "k", "m"); !r.Reachable || !r.TextOnly {
 		t.Fatalf("without logprobs: %+v", r)
 	}
 	bad := fakeModel(t, false, 401)
@@ -361,7 +362,7 @@ func TestApplyWizardDiscordTeam(t *testing.T) {
 	noHardware(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
-	model := fakeModel(t, false, 0) // no logprobs: test runs, save still happens
+	model := fakeModel(t, false, 401) // unusable jev (#1173: letter-only now passes): test runs, save still happens
 	dir := t.TempDir()
 	store := newMemStore()
 	req := WizardRequest{Platform: "discord", Language: "zh", FallbackRole: "whale",
@@ -421,11 +422,11 @@ func TestApplyWizardDiscordTeam(t *testing.T) {
 	if !strings.Contains(string(b), "Always reply in English.") {
 		t.Errorf("whale persona = %q", b)
 	}
-	// a jev without probabilities is not written; the result says why
+	// an unusable jev is not written; the result says why
 	if _, err := os.Stat(filepath.Join(dir, "jev.json")); !os.IsNotExist(err) {
-		t.Fatalf("jev.json must not be written for a model without logprobs: %v", err)
+		t.Fatalf("jev.json must not be written for an unusable model: %v", err)
 	}
-	if res.JevOK || !strings.Contains(res.JevReason, "不给概率") || res.Jev == nil || res.Jev.Logprobs {
+	if res.JevOK || !strings.Contains(res.JevReason, "Key 不对") || res.Jev == nil {
 		t.Errorf("jev_ok=%v reason=%q test=%+v", res.JevOK, res.JevReason, res.Jev)
 	}
 	if !strings.Contains(res.JevHint, "主角色「Whale」") || strings.Contains(res.JevHint, "读音") {
@@ -727,7 +728,7 @@ func TestSetupHTTPEndpoints(t *testing.T) {
 	if code, out := call("POST", "/setup/apply", map[string]any{"roles": []any{}}); code != 400 || out["ok"] != false {
 		t.Fatalf("apply bad: %d %v", code, out)
 	}
-	bad := fakeModel(t, false, 0)
+	bad := fakeModel(t, false, 401) // #1173: letter-only now passes, so the failing one is a 401
 	good := fakeModel(t, true, 0)
 	data := func(out map[string]any) map[string]any { return out["data"].(map[string]any) }
 	// jev 1: /jev/test only tests, never writes
@@ -887,7 +888,7 @@ func TestApplyWizardJevKeepAndClear(t *testing.T) {
 	noHardware(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
-	good, bad := fakeModel(t, true, 0), fakeModel(t, false, 0)
+	good, bad := fakeModel(t, true, 0), fakeModel(t, false, 401) // #1173: letter-only passes; fail with 401
 	dir := t.TempDir()
 	env := WizardEnv{Store: newMemStore(), DataDir: dir, CLIs: testCLIs}
 	run := func(j *WizardJev) *WizardResult {
