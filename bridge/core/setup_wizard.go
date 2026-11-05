@@ -1301,9 +1301,9 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		}
 	}
 
-	// 自建平台 team: every member's wizard-made persona (one with a conest marker) gets the team line;
+	// 自建平台 / Discord team: every member's wizard-made persona (one with a conest marker) gets the team line;
 	// a hand-written persona without one is left alone (H1)
-	if cloudWeb && len(pl.team) > 1 {
+	if (cloudWeb || req.Platform == "discord") && len(pl.team) > 1 {
 		after, _ := env.Store.Snapshot()
 		for _, t := range pl.team {
 			p, ok := after.project(t.Project)
@@ -1320,7 +1320,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			if c, _ := PersonaReplyLanguage(string(b)); c != "" {
 				lang = c
 			}
-			if err := AtomicWriteFile(path, []byte(WithTeam(string(b), cloudWebTeamLine(lang, pl.team, pl.fallback, t.Project))), 0o644); err != nil {
+			if err := AtomicWriteFile(path, []byte(WithTeam(string(b), wizardTeamLine(lang, req.Platform, pl.team, pl.fallback, t.Project))), 0o644); err != nil {
 				return fail("team", err)
 			}
 			addStep(res, "team", nil, stepTeamLineWritten(req.Language, t.Name, path))
