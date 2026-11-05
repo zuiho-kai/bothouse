@@ -491,12 +491,15 @@ func (m *ManagementServer) handleSetupDSHOpen(w http.ResponseWriter, r *http.Req
 		mgmtError(w, http.StatusInternalServerError, "gate port: "+err.Error())
 		return
 	}
+	// The gate does not need `dsh web` to be up: start it first, so a slow or failed start (a cold
+	// Windows start took 2.5 min, 2026-11-05) does not leave the members without their gate until
+	// bothouse restarts.
+	EnsureGateForDSH(m.wizardDataDir)
 	web, err := openDSHWeb(r.Context(), m.wizardDataDir)
 	if err != nil {
 		mgmtError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	EnsureGateForDSH(m.wizardDataDir)
 	// the member ids exist once the plugin in `dsh web` has imported the roles: the wikis are named after them
 	go makeDSHMemberWikisOnImport(m.wizardDataDir, dshWikiImportWait)
 	mgmtJSON(w, http.StatusOK, web)
