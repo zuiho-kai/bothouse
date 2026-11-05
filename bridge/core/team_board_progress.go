@@ -94,6 +94,26 @@ func boardProgressStep(step string) string {
 // ansiEscape: CSI sequences and the two-byte escapes tools emit in coloured output.
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b[@-_]`)
 
+// boardProgressClosed: whether this row really stopped being live work. watchBoardClosed is a plain
+// substring test (team_idle_watch.go:236) while board.py's CLOSED_RE (contrib/gate/board.py:1130)
+// is anchored at the start of the line, so a workspace's own 「在做：检查已验收的条目」 read as
+// closed and froze the row for good — the very symptom #208 removes (复核 2026-11-06 必修①:
+// wrote=false, progress_at 停在 100, 一小时后表格重回「1 小时前 + 卡住」). A line still marked
+// 在做 is work in progress whatever its text mentions; anything else must *start* with a closing
+// word to count.
+func boardProgressClosed(status string) bool {
+	self := strings.TrimSpace(status)
+	if strings.HasPrefix(self, "在做：") {
+		return false
+	}
+	for _, closing := range []string{"已验收", "验收通过", "已收口", "已完成", "已结束"} {
+		if strings.HasPrefix(self, closing) {
+			return true
+		}
+	}
+	return false
+}
+
 // progressStepField: the row field that records which step this watch last put in status. It is
 // how the next renewal tells 「在做：<看门写的这一步>」 (refresh it) from 「在做：<工作区自己写的>」
 // (leave it alone — it says more than a tool name). board.py keeps fields it does not know.
@@ -151,8 +171,7 @@ func writeBoardProgress(dir string, id int, step string, hasStep bool, key strin
 		// h.Board (recorded at handoff) skips handoffBoardID's workspace match, so re-check the
 		// row itself: a handoff that names the wrong item must not overwrite another workspace's
 		// row (复核 2026-11-06 建议②，实测 writeBoardProgress(dir, 3, …) 会改到绑在 ws2 的 #3).
-		if ws == "" || teamChatKey(ws) != key || paused != "" ||
-			(!ours && watchBoardClosed(teamTaskBoardItem{Status: status})) {
+		if ws == "" || teamChatKey(ws) != key || paused != "" || boardProgressClosed(self) {
 			return false, nil // not live workspace work any more (paused, moved off, closed)
 		}
 		stamp := float64(now.UnixNano()) / 1e9

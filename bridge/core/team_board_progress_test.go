@@ -80,8 +80,9 @@ func TestWatchProgressKeepsOwnStatus(t *testing.T) {
 	if got.Status != "在做：写 208 的看门" {
 		t.Fatalf("own status overwritten: %q", got.Status)
 	}
-	if got.ProgressAt == 0 {
-		t.Fatal("progress_at not written")
+	// 复核 2026-11-06 建议⑤：!= 0 什么都咬不住，写个 0.1 也过；要卡在「就是这一轮的时间」。
+	if got.ProgressAt < float64(h.Due.Add(-2*time.Second).UnixNano())/1e9 {
+		t.Fatalf("progress_at = %v, want it raised to this round (%v)", got.ProgressAt, h.Due)
 	}
 }
 
@@ -384,5 +385,93 @@ func TestBoardProgressStepIsSafeForTheTable(t *testing.T) {
 	}
 	if got := boardProgressStep("   "); got != boardNoStep {
 		t.Fatalf("empty step = %q, want %q", got, boardNoStep)
+	}
+}
+
+// 复核 2026-11-06 必修①（第二审）：工作区自己写的人话里带收口词，不能被当成这一行已关闭。
+// watchBoardClosed 是子串匹配，board.py 的收口判断是行首锚定，两者对「在做：…已验收…」结论相反。
+func TestBoardProgressKeepsRowAliveWhenOwnStatusMentionsClosing(t *testing.T) {
+	for _, status := range []string{"在做：检查已验收的条目", "在做：等验收通过再合", "在做：确认已结束的会话"} {
+		dir := t.TempDir()
+		now := time.Now()
+		row := `{"id":8,"what":"别人的活","status":"` + status + `","who":"工作区1橘",` +
+			`"ws":"discord:ws1","chat":"discord:main","progress_at":100}` + "\n"
+		if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		wrote, err := writeBoardProgress(dir, 8, "Bash go test ./core", true, "discord:ws1", now)
+		if err != nil || !wrote {
+			t.Fatalf("%q: wrote %v, err %v (a status that only mentions a closing word froze the row)", status, wrote, err)
+		}
+		got := boardItemOf(t, dir, 8)
+		if got.ProgressAt <= 100 {
+			t.Fatalf("%q: progress_at = %v, want it raised", status, got.ProgressAt)
+		}
+		if got.Status != status {
+			t.Fatalf("%q: status = %q, want the workspace's own words kept", status, got.Status)
+		}
+	}
+	// 真收口的行仍然跳过。
+	dir := t.TempDir()
+	rows := `{"id":1,"status":"已验收","ws":"discord:ws1"}` + "\n" +
+		`{"id":2,"status":"已完成：收工","ws":"discord:ws1"}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(rows), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int{1, 2} {
+		if wrote, err := writeBoardProgress(dir, id, "Bash x", true, "discord:ws1", time.Now()); err != nil || wrote {
+			t.Fatalf("closed row %d: wrote %v, err %v (want untouched)", id, wrote, err)
+		}
+	}
+}
+
+// 复核 2026-11-06 必修②（第二审）：progress_at 只抬不降，这条规则原来没有任何用例守着。
+func TestBoardProgressNeverLowersTheStamp(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	future := float64(now.Add(time.Hour).UnixNano()) / 1e9
+	row := `{"id":4,"what":"看门写回进度","status":"已交接","who":"工作区1橘","ws":"discord:ws1",` +
+		`"chat":"discord:main","progress_at":` + strconv.FormatFloat(future, 'f', -1, 64) + `}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeBoardProgress(dir, 4, "Bash go test ./core", true, "discord:ws1", now); err != nil {
+		t.Fatal(err)
+	}
+	if got := boardItemOf(t, dir, 4); got.ProgressAt != future {
+		t.Fatalf("progress_at = %v, want the future stamp %v kept", got.ProgressAt, future)
+	}
+}
+
+// 复核 2026-11-06 必修③（第二审）：并发用例删掉锁也全绿，说明它证明的是「没撞上」不是「有锁」。
+// 这条直接让另一个持有者占住 board.lock，看门这一侧必须等满等待时限后报错，而不是直接写进去。
+func TestBoardProgressWaitsForTheLockThenGivesUp(t *testing.T) {
+	dir := t.TempDir()
+	row := `{"id":1,"what":"看门写回进度","status":"已交接","who":"工作区1橘","ws":"discord:ws1","chat":"discord:main"}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := lockBoardFile(filepath.Join(dir, "board.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	start := time.Now()
+	wrote, err := writeBoardProgress(dir, 1, "Bash go test ./core", true, "discord:ws1", time.Now())
+	waited := time.Since(start)
+	if err == nil || wrote {
+		t.Fatalf("wrote %v, err %v (a write must not go through while someone else holds the lock)", wrote, err)
+	}
+	if waited < boardProgressLockWait {
+		t.Fatalf("gave up after %v, want at least %v of waiting", waited, boardProgressLockWait)
+	}
+	if !strings.Contains(err.Error(), "locked by another process") {
+		t.Fatalf("error = %v, want it to say the board is locked", err)
+	}
+	// 锁放开之后同一行还能正常写回。
+	unlock()
+	unlock = func() {}
+	if wrote, err := writeBoardProgress(dir, 1, "Bash go test ./core", true, "discord:ws1", time.Now()); err != nil || !wrote {
+		t.Fatalf("after unlock: wrote %v, err %v", wrote, err)
 	}
 }
