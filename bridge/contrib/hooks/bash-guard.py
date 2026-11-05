@@ -263,10 +263,31 @@ RO_PROGS = {
 NEUTRAL_PROGS = {"cd", "echo", "printf", "true", "false", ":", "export", "unset", "set", "pwd", "date",
                  "done", "fi", "esac", "}", "{"}
 CHAT_STEPS_MAX = 8  # 隔壁实录：串行双查询每步约 12 秒，8 步约 1.5–2 分钟；规矩「预计超过 10 分钟交工作区」
-# 跑过这些就算已回话或已交出：交工作区、工作区推进度、发群消息/进度卡、派任务
-CHAT_HANDED = re.compile(r"(?:^|[\s/;&|(])(?:ws-handoff|ws-up|ws-forward)\b|\bbothouse\s+(?:send|progress|task)\b")
+# 跑过这些就算已回话或已交出：交工作区、工作区推进度、发群消息/进度卡、派任务。只认真的调用（命令本身是它们，
+# 不带 --help）；读它们的源码（sed/grep ws-handoff）、看用法不算。隔壁 11-05 实录：跑过一次 ws-handoff --help 后
+# 规则 9 一直当她已交出，她接着读了 30 分钟 ws-handoff 源码没被拦（#1104）。
+HAND_PROGS = {"ws-handoff", "ws-up", "ws-forward"}
+HAND_SUBS = {"send", "progress", "task"}  # bothouse / cc-connect 的子命令
+
+
+def chat_handed(cmd):
+    for seg in segments(cmd):
+        t = toks(seg)
+        while t and (re.match(r"^\w+=", t[0]) or t[0] in PREFIX):
+            t = t[1:]
+        if not t:
+            continue
+        prog, args = t[0].rsplit("/", 1)[-1], t[1:]
+        if any(a in ("--help", "-h", "--template") for a in args):
+            continue
+        if prog in HAND_PROGS or (prog in ("bothouse", "cc-connect") and args[:1] and args[0] in HAND_SUBS):
+            return True
+    return False
+
+
 CHAT_MSG = ("这是聊天频道，真人派来的这一轮你已经跑了 {n} 步工具，群里还没听到一句话。按团队规矩："
-            "预计超过 10 分钟或要改代码、跑命令的活，现在就写交接（用户原话、总目标、范围）跑 `ws-handoff <交接文件> \"<任务>\"` 交工作区，"
+            "预计超过 10 分钟或要改代码、跑命令的活，现在就跑 `ws-handoff --template` 拿空模板，照填成交接文件，"
+            "跑 `ws-handoff <交接文件> \"<任务>\"` 交工作区（不合格会一次列全缺项；不用去读它的源码），"
             "或 @ 合适的队友派出去，然后结束本轮、在群里一句话说清派给了谁；小活就别再查了，直接回答。"
             "（规则 9；用户 2026-11-05「他妈现在搞7分钟」）")
 RO_TOOLS = {"read", "grep", "glob"}  # DSH 自己的只读工具：一步只调它一个也算单步查询
@@ -506,7 +527,7 @@ def check_chat_turn(cmd, turn, done):
     steps = [s for s in turn.get("steps") or [] if any(not c.get("denied") for c in s)]
     if len(steps) < CHAT_STEPS_MAX:
         return
-    if any(c.get("name") == "bash" and CHAT_HANDED.search(c.get("command") or "") for c in done):
+    if any(c.get("name") == "bash" and chat_handed(c.get("command") or "") for c in done):
         return
     if _in_workspace():
         return
