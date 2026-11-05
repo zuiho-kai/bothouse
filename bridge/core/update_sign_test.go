@@ -94,11 +94,25 @@ func signedCopy(t *testing.T, dir, name string, extra ...string) string {
 	return exe
 }
 
-// minimalApp puts an ad-hoc signed binary into a minimal, unsealed .app like package-dmg.sh does.
+// minimalApp puts a signed binary into a minimal .app laid out like package-dmg.sh's, signed the way
+// that script signs the bundle (ad-hoc here, since tests have no release certificate): the plist
+// comes first, then the bundle is signed, which binds the binary to it. A standalone-signed binary
+// in an .app is not enough: `codesign -v --strict` rejects it with "code has no resources but
+// signature indicates they must be present", which is the v0.1.50 defect this fixture mirrors.
 func minimalApp(t *testing.T) string {
 	t.Helper()
 	app := filepath.Join(t.TempDir(), "Bothouse.app")
-	exe := signedCopy(t, app, "Contents/MacOS/bothouse")
+	exe := filepath.Join(app, "Contents/MacOS/bothouse")
+	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile("/usr/bin/true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exe, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	plist := `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict><key>CFBundleExecutable</key><string>bothouse</string>
@@ -106,6 +120,9 @@ func minimalApp(t *testing.T) string {
 `
 	if err := os.WriteFile(filepath.Join(app, "Contents/Info.plist"), []byte(plist), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	if out, err := exec.Command("/usr/bin/codesign", "--force", "--sign", "-", "--identifier", testID, app).CombinedOutput(); err != nil {
+		t.Fatalf("codesign: %v: %s", err, out)
 	}
 	return exe
 }
