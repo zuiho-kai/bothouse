@@ -407,6 +407,10 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 		if x.timerScheduler == nil {
 			continue
 		}
+		if taskReviewRefusedBy(dir, it, x.name) {
+			skip[x.name] = true // its model refused this handback (#1109): someone else verifies
+			continue
+		}
 		for _, stage := range taskReviewStages {
 			if back && stage == "unavailable" {
 				continue
@@ -438,7 +442,7 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 	var pool []*Engine
 	tierRole := taskReviewTierRole(it)
 	for _, x := range w.engines() {
-		if x.timerScheduler == nil || skip[x.name] || taskReviewAuthor(it, x) || x.reviewCooling(chat) {
+		if x.timerScheduler == nil || skip[x.name] || taskReviewAuthor(it, x) || x.reviewCooling(chat) || taskReviewRefusedBy(dir, it, x.name) {
 			continue
 		}
 		if p, _, _ := x.timerTargetPlatform(chat); p == nil {
