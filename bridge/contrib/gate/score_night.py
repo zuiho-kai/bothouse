@@ -14,7 +14,7 @@
   score_night.py [--dry]      处理上次跑过之后的记录；--dry 只打印不写
   score_night.py --replay F   从头判全部历史，写到 F，不动票和进度
 """
-import hashlib, json, os, re, subprocess, sys, tempfile, time
+import hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
 from pathlib import Path
 
 EXP = Path(__file__).resolve().parent  # bothouse 装的 gate 目录（<数据目录>/gate，ctxsvc 把推送记录写在这）
@@ -164,12 +164,29 @@ def judge(batch, prompt, fmt, schema):
     with tempfile.NamedTemporaryFile("w", suffix=".json") as sf, tempfile.NamedTemporaryFile("r", suffix=".txt") as out:
         json.dump(schema, sf)
         sf.flush()
+        if not shutil.which("codex"):  # 没装 codex 的机器（容器、只用 Claude Code 的新装）改走 claude -p，同 wiki 整理引擎
+            return judge_claude(text, schema)
         r = subprocess.run(["codex", "exec", "-m", MODEL, "-c", "notify=[]", "--skip-git-repo-check",
                             "-s", "read-only", "--output-schema", sf.name, "-o", out.name, "-"],
                            input=text, capture_output=True, text=True)
         if r.returncode != 0:
             raise RuntimeError(f"codex 失败：rc={r.returncode} {r.stderr[-400:]}")
         return json.loads(Path(out.name).read_text(encoding="utf-8"))["turns"]
+
+
+def judge_claude(text, schema):
+    """codex 不在时的同一判断：claude -p 不带工具，要它只回符合 schema 的 JSON；模型同 wiki 的 ingest.py MODELS["claude"]。"""
+    ask = text + "\n\n只输出一个 JSON 对象，符合下面的 JSON Schema，不要别的字：\n" + json.dumps(schema, ensure_ascii=False)
+    r = subprocess.run(["claude", "-p", "--model", os.environ.get("WIKI_CLAUDE_MODEL", "haiku"), "--no-session-persistence",
+                        "--strict-mcp-config", "--tools", "", "--output-format", "json"],
+                       input=ask, capture_output=True, text=True, timeout=1800)
+    try:
+        res = json.loads(r.stdout).get("result", "")
+    except ValueError:
+        res = ""
+    if r.returncode != 0 or "{" not in res:
+        raise RuntimeError(f"claude 失败：rc={r.returncode} {(res or r.stderr)[-400:]}")
+    return json.loads(res[res.index("{"):res.rindex("}") + 1])["turns"]
 
 
 def cites():

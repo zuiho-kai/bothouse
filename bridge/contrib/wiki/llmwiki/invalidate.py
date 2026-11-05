@@ -14,7 +14,7 @@ resolve_edge（github.com/getzep/graphiti 提交 7e0342a4）的 contradiction �
 
   invalidate.py [--root DIR] [--dry]     对 DIR（默认本 wiki）工作区相对 HEAD 的改动跑一遍；--dry 只打印
 """
-import json, os, re, subprocess, sys, tempfile
+import shutil, json, os, re, subprocess, sys, tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -72,6 +72,17 @@ SCHEMA = {"type": "object", "additionalProperties": False, "required": ["results
 
 def codex_ask(prompt):
     """独立调用（score_night、命令行）：codex 只读沙箱 + --output-schema，同 score_night.judge。"""
+    if not shutil.which("codex"):  # 没装 codex（容器、只用 Claude Code 的新装）：claude -p 不带工具，答案由 _json 取
+        r = subprocess.run(["claude", "-p", "--model", os.environ.get("WIKI_CLAUDE_MODEL", "haiku"), "--no-session-persistence",
+                            "--strict-mcp-config", "--tools", "", "--output-format", "json"],
+                           input=prompt, capture_output=True, text=True, timeout=1800)
+        try:
+            res = json.loads(r.stdout).get("result", "")
+        except ValueError:
+            res = ""
+        if r.returncode != 0:
+            raise RuntimeError(f"claude 失败：rc={r.returncode} {(res or r.stderr)[-400:]}")
+        return res
     with tempfile.NamedTemporaryFile("w", suffix=".json") as sf, tempfile.NamedTemporaryFile("r", suffix=".txt") as out:
         json.dump(SCHEMA, sf)
         sf.flush()
