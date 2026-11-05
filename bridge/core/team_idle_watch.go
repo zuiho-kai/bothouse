@@ -297,7 +297,7 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 			if boardID == it.ID && it.own != key && it.parent == key && !it.wsEnded {
 				handedOff = true
 			}
-			if it.own != key || it.wsEnded || watchBoardClosed(*it) ||
+			if it.own != key || it.wsEnded || it.Backlog != "" || watchBoardClosed(*it) ||
 				it.Paused != "" && !(accepted && teamTaskBoardWaitUser.MatchString(it.PauseWhy)) {
 				continue
 			}
@@ -498,7 +498,7 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 						return // waits on someone else: no "carry on"; its next turn re-arms the watch
 					}
 					// Handed to a workspace since: the workspace's watch keeps it, not this chat.
-					closed = watchBoardClosed(it) || it.Paused != "" || it.own != a.key && it.parent == a.key && !it.wsEnded ||
+					closed = watchBoardClosed(it) || it.Paused != "" || it.Backlog != "" || it.own != a.key && it.parent == a.key && !it.wsEnded ||
 						watchHandoffLeft(it, a.key)
 					break
 				}

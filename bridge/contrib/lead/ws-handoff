@@ -158,7 +158,7 @@ def _real(where: str) -> str:
 def live_dup(path: str):
     """同一份交接文件进行中的任务板条目（没有返回 None）。"""
     me = _real(path)
-    return next((i for i in board.items() if not i.get("paused") and i.get("where") and _real(i["where"]) == me), None)
+    return next((i for i in board.items() if not i.get("paused") and not i.get("backlog") and i.get("where") and _real(i["where"]) == me), None)
 
 
 def dup_error(it) -> str:
@@ -226,7 +226,7 @@ def migrate_unbound(chat: str, plat: str, parent: str, pool: list) -> bool:
         done = set()
     if parent in done:
         return False
-    working = [i for i in board.items() if not i.get("paused")]
+    working = [i for i in board.items() if not i.get("paused") and not i.get("backlog")]
     live = {board._ws_key(i) for i in working} | {i.get("ws") for i in working}
     names = {m.group(1) for i in working for m in [board.WS_NAME_RE.match(str(i.get("who") or ""))] if m}
     freed = False
@@ -546,8 +546,8 @@ def drain():
             if it is None:
                 q.pop(index)
                 continue
-            if it.get("paused"):
-                index += 1  # 用户 2026-11-02：暂停保留原队列位置，恢复后继续接。
+            if it.get("paused") or it.get("backlog"):
+                index += 1  # 用户 2026-11-02：暂停保留原队列位置，恢复后继续接；待办同样等到 resume。
                 continue
             if not start(x["path"], x["task"], x["chat"], x["nid"], x.get("project"), x.get("answer")):
                 break
