@@ -385,7 +385,7 @@ export class DshMembers {
     this.openTurns = new Map();
     /** Agents whose request hook was installed after they were loaded by someone else. */
     this.hooked = new WeakSet();
-    /** memberId -> { cli, agent } live local CLI agents (members with a `cli` field). */
+    /** JSON([memberId, cwd, roomId]) -> { memberId, cli, agent } live local CLI agents (members with a `cli` field). */
     this.cliAgents = new Map();
     /** #557: permission cards of channel-started turns, shared with cloud-web bots. */
     this.approvals = ChannelApprovals.of(hub);
@@ -669,7 +669,10 @@ export class DshMembers {
     if (!this.store.markSent(job.id, sessionId, 0, undefined)) return;
     const cwd = this.store.bindingWorkspacePath(member.id, room.id, this.store.workspacePath(room.id, this.rt.workspacePath));
     this.store.setBindingWorkspacePath(member.id, room.id, cwd);
-    const cliKey = JSON.stringify([member.id, cwd]);
+    // The room is part of the key: a CLI process gets its env once, at spawn (cli-member.mjs _start), and
+    // CC_SESSION_KEY names the room memvote.py records a citation under (memory-sources.mjs keyRoom). Keyed
+    // by (member, cwd) alone, the turn in room 2 kept the process of room 1 and voted/recalled room 1.
+    const cliKey = JSON.stringify([member.id, cwd, room.id]);
     let entry = this.cliAgents.get(cliKey);
     if (entry === undefined) {
       // Persona goes through promptText every turn, so an edit applies without restarting the CLI.

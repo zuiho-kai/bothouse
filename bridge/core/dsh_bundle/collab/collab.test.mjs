@@ -5811,6 +5811,26 @@ test('channel directories: CLI processes use separate directories and all close 
   await members.close(); hub.store.close();
 });
 
+test('CLI session key: one member in two rooms votes and recalls in the room it is speaking in (#1020)', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'other');
+  const members = cliMembers(hub, async () => 'done');
+  const envs = [];
+  members.rt.createCliMember = ({ cwd, env }) => {
+    envs.push({ cwd, ...env });
+    return { ask: async () => 'done', close() {} };
+  };
+  // Same member, same directory, two rooms: the env is fixed at spawn, so the key must follow the room.
+  for (const id of [1, 2, 1]) {
+    hub.post(id, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@CC work' });
+    await settle();
+  }
+  assert.deepEqual(envs.map(e => e.CC_SESSION_KEY), ['dsh:cc:1', 'dsh:cc:2'], 'each room names itself in CC_SESSION_KEY, and a room reuses its agent');
+  assert.deepEqual(envs.map(e => e.CC_PROJECT), ['dsh:cc', 'dsh:cc'], 'CC_PROJECT stays the member, as memvote.py records the voter');
+  assert.deepEqual(envs.map(e => e.cwd), ['/w', '/w']);
+  await members.close(); hub.store.close();
+});
+
 test('channel directories: configuration rejects relative paths and accepts empty overrides', () => {
   const base = { dataDir: '/d', workspacePath: '/w' };
   for (const workspacePath of [null, '', '/channel']) {
