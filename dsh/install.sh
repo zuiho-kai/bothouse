@@ -107,7 +107,12 @@ if [ -n "$DSH_BIN" ]; then
 fi
 # On Windows npm writes `dsh` as a plain shim file, not a symlink, so realpath above lands in the
 # npm prefix rather than the package; only then look the package up under the global node_modules.
-if [ -z "$DSH_DIR" ] || [ ! -f "$DSH_DIR/package.json" ]; then
+# Skip that for a .cmd launcher: the desktop app carries its own runtime inside app.asar, so the
+# only dsh package on disk would be a *different* install, and dsh rejects the version skew
+# ("dsh-web-app@x is incompatible with dsh y") instead of installing (#161 ①).
+DESKTOP_LAUNCHER=""
+case "$DSH_EXE" in *.cmd|*.bat) DESKTOP_LAUNCHER=1 ;; esac
+if { [ -z "$DSH_DIR" ] || [ ! -f "$DSH_DIR/package.json" ]; } && [ -z "$DESKTOP_LAUNCHER" ]; then
   if command -v npm >/dev/null; then
     NPM_ROOT="$(npm root -g 2>/dev/null || true)"
     if [ -n "$NPM_ROOT" ] && [ -f "$NPM_ROOT/@deepseek-ai/dsh/package.json" ]; then
