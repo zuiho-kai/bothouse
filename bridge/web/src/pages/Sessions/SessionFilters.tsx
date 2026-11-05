@@ -128,7 +128,10 @@ export function SessionFiltersBar({
 
       <div className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-0.5">
         <span className="shrink-0 text-[13px] tabular-nums text-ink-mute">
-          {shown === total ? total : `${shown} / ${total}`}
+          {/* 数字要带单位：只有一个「0」的时候看不出是什么 */}
+          {shown === total
+            ? t('sessions.countAll', { defaultValue: '共 {{n}} 条', n: total })
+            : t('sessions.countShown', { defaultValue: '{{shown}} / {{total}} 条', shown, total })}
         </span>
         <Chip active={filters.onlyLive} onClick={() => onChange({ ...filters, onlyLive: !filters.onlyLive })}>
           <span
