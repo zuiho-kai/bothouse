@@ -19,18 +19,51 @@ UI="$HERE/packages/client-ui-discord"
 
 echo "== step: download"
 command -v dsh >/dev/null || { echo "dsh not found on PATH; install DeepSeek Harness first" >&2; exit 1; }
+# npm prints its global prefix in Windows form (C:\Users\...\npm) when run under Git Bash. Used
+# as a PATH entry that string splits at the drive-letter colon (C + \Users\...), so pnpm stays
+# "not found" right after npm i -g pnpm and the whole install only works when run a second time
+# (#161). Convert it to the shell form first: cygpath -u when Git Bash provides it, otherwise
+# map C:\x to /c/x.
+shell_path() {
+  local converted
+  case "${1:-}" in
+    [A-Za-z]:[\\/]*)
+      if command -v cygpath >/dev/null 2>&1; then
+        converted="$(cygpath -u "$1" 2>/dev/null || true)"
+        if [ -n "$converted" ]; then
+          printf '%s\n' "$converted"
+          return 0
+        fi
+      fi
+      printf '/%s%s\n' "$(printf '%s' "$1" | cut -c1 | tr '[:upper:]' '[:lower:]')" \
+        "$(printf '%s' "$1" | cut -c3- | tr '\\' '/')"
+      ;;
+    *) printf '%s\n' "${1:-}" ;;
+  esac
+}
+
 if ! command -v pnpm >/dev/null; then
   # npm's global bin may simply be missing from PATH (pnpm already installed there).
   # On Windows, npm prefix -g is where .cmd files live (not in bin/). On Unix, it is in bin/.
   NPM_PREFIX="$(npm prefix -g 2>/dev/null || true)"
+  NPM_DIR=""
   if [ -n "$NPM_PREFIX" ]; then
-    export PATH="$NPM_PREFIX:$NPM_PREFIX/bin:$PATH"
+    NPM_DIR="$(shell_path "$NPM_PREFIX")"
+    if [ -n "$NPM_DIR" ]; then
+      export PATH="$NPM_DIR:$NPM_DIR/bin:$PATH"
+    else
+      echo "== could not convert npm prefix '$NPM_PREFIX' into a shell path; leaving PATH unchanged" >&2
+    fi
   fi
   if ! command -v pnpm >/dev/null; then
     echo "== pnpm not found, installing with npm"
     npm i -g pnpm
-    if [ -n "$NPM_PREFIX" ]; then
-      export PATH="$NPM_PREFIX:$NPM_PREFIX/bin:$PATH"
+    if [ -n "$NPM_DIR" ]; then
+      export PATH="$NPM_DIR:$NPM_DIR/bin:$PATH"
+    fi
+    if ! command -v pnpm >/dev/null; then
+      echo "pnpm is still not on PATH after npm i -g pnpm (npm prefix: ${NPM_PREFIX:-unknown}); install pnpm or add that directory to PATH and rerun" >&2
+      exit 1
     fi
   fi
 fi
